@@ -3,11 +3,12 @@
 #define MOTE_T_bio_beach_H
 #include "mote_tile.h"
 
-static const uint16_t bio_beach_pal[1] = { 0xfe75 };
-static const uint8_t bio_beach_idx[32] = {
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+static const uint16_t bio_beach_pal[3] = { 0xfd00,0xfe75,0xff64 };
+static const uint8_t bio_beach_idx[64] = {
+  17,18,17,17,18,17,16,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,1,17,17,17,17,17,1,17,17,18,
+  17,17,17,17,17,17,17,17,17,32,17,17,17,17,17,17,18,17,17,17,17,1,17,1,17,17,17,17,17,17,17,17,
 };
-static const MoteImage bio_beach_img = { 0, 8, 8, 0xF81F, 0, 1, bio_beach_idx, bio_beach_pal };  /* 4bpp indexed, 1 colours */
+static const MoteImage bio_beach_img = { 0, 8, 16, 0xF81F, 0, 1, bio_beach_idx, bio_beach_pal };  /* 4bpp indexed, 3 colours */
 static const MoteAutotile bio_beach_at = { &bio_beach_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -25,7 +26,7 @@ static const MoteAutotile bio_beach_at = { &bio_beach_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-}, 1, 1, {
+}, 1, 2, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

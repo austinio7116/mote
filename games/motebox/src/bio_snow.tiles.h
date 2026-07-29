@@ -3,11 +3,12 @@
 #define MOTE_T_bio_snow_H
 #include "mote_tile.h"
 
-static const uint16_t bio_snow_pal[1] = { 0xff9d };
-static const uint8_t bio_snow_idx[32] = {
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+static const uint16_t bio_snow_pal[2] = { 0xc618,0xff9d };
+static const uint8_t bio_snow_idx[64] = {
+  17,17,17,16,17,17,17,17,17,16,17,17,16,1,17,17,17,17,16,17,17,17,17,17,17,17,17,17,17,17,17,17,
+  16,17,17,17,17,17,16,17,17,17,17,1,17,17,17,17,16,17,17,17,17,17,17,17,17,17,17,17,16,17,17,16,
 };
-static const MoteImage bio_snow_img = { 0, 8, 8, 0xF81F, 0, 1, bio_snow_idx, bio_snow_pal };  /* 4bpp indexed, 1 colours */
+static const MoteImage bio_snow_img = { 0, 8, 16, 0xF81F, 0, 1, bio_snow_idx, bio_snow_pal };  /* 4bpp indexed, 2 colours */
 static const MoteAutotile bio_snow_at = { &bio_snow_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -25,7 +26,7 @@ static const MoteAutotile bio_snow_at = { &bio_snow_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-}, 1, 1, {
+}, 1, 2, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

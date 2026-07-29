@@ -54,13 +54,21 @@ TS = 8
 # the editor could not, which is half the point of shipping a sidecar at all.
 COLS, ROWS = 16, 3
 
-# How far the higher terrain reaches in, per pixel along an edge. Both ends are 2 so
+# How far the higher terrain reaches in, per pixel along an edge. Both ends are equal so
 # neighbouring tiles always meet; the middle is what varies.
+#
+# THE MINIMUM IS THREE, and that is a constraint, not a taste. The tone a pixel takes is
+# its distance from the LEADING edge of the reach — one pixel in is the palest wash, two
+# is the mid tone, three or more is solid body. A column that only reaches two pixels
+# therefore has no body pixel at all, so the row where the overlay joins the higher
+# terrain's own field came out MID-TONE and the band read as a scrambled wedge instead
+# of as material with a lit edge. Three is the shallowest reach that can carry a
+# three-step ramp.
 PROFILES = (
-    (2, 3, 4, 4, 3, 3, 2, 2),
-    (2, 2, 3, 4, 4, 3, 3, 2),
-    (2, 3, 3, 2, 3, 4, 3, 2),
-    (2, 2, 3, 3, 4, 4, 3, 2),
+    (3, 4, 5, 5, 4, 4, 3, 3),
+    (3, 3, 4, 5, 5, 4, 4, 3),
+    (3, 4, 4, 3, 4, 5, 4, 3),
+    (3, 3, 4, 4, 5, 5, 4, 3),
 )
 
 # (name, cardinal A, cardinal B, diagonal, corner pixel, inward step)
@@ -77,13 +85,20 @@ def _prof(i, flip=False):
     return tuple(reversed(d)) if flip else d
 
 
-def cell(mask, base, edge, profile=0):
+def cell(mask, ramp, profile=0):
     """One overlay cell, for an eight-neighbour mask of where the higher terrain is.
 
-    `base` is the higher terrain's body colour and `edge` its lighter shore tone, which
-    goes on the innermost pixel of the reach — a lit lip along the boundary, so the
-    thing creeping over its neighbour looks like it has a thickness rather than like a
-    stain.
+    `ramp` is the higher terrain's colours from DEEP to SHALLOW — body first, then one
+    or more progressively lighter shore tones. The depth a pixel sits at in the reach
+    picks its tone, so the boundary is a genuine gradient: solid material where it
+    joins its own body, and a pale wash at the leading edge where it is only just
+    creeping over its neighbour.
+
+    This used to be two colours — body, plus one lit pixel — which is what made every
+    boundary in the world a flat band with a highlight rather than a shore with depth.
+    PICO-8's sixteen do contain real three and four step families (navy/blue/white for
+    water, brown/orange/peach/yellow for earth, dkgrey/ltgrey/white for rock), so the
+    depth was there to be spent all along.
     """
     im = Image.new("RGBA", (TS, TS), (0, 0, 0, 0))
     px = im.load()
@@ -117,9 +132,9 @@ def cell(mask, base, edge, profile=0):
             # a convex quarter-arc. Without this the two straight bands merely cross and
             # the OUTSIDE of every bend in the world is a right angle — which is the
             # whole complaint, moved from the base layer to the overlay.
-            for k in range(4):
-                for j in range(4 - k):
-                    claim(cx + ix * k, cy + iy * j, 4 - max(k, j))
+            for k in range(5):
+                for j in range(5 - k):
+                    claim(cx + ix * k, cy + iy * j, 5 - max(k, j))
         elif both:
             # A NOTCH. It is on both sides but does NOT continue round, so the lower
             # terrain has a real little peninsula poking out here and the corner must be
@@ -128,18 +143,20 @@ def cell(mask, base, edge, profile=0):
                 for j in range(2 - k):
                     depth.pop((cx + ix * k, cy + iy * j), None)
 
+    # deepest reach -> body; each step shallower -> the next tone up the ramp
+    top = len(ramp) - 1
     for (x, y), d in depth.items():
-        px[x, y] = (edge if d == 1 else base) + (255,)
+        px[x, y] = ramp[max(0, top - (d - 1))] + (255,)
     return im
 
 
-def build(base, edge, nvar=2):
+def build(ramp, nvar=2):
     """A real 47-cell blob47 overlay set, 16 x 3 per variant block, stacked for nvar —
     Studio's own grid for a blob47 set at 8 px, so the editor and the game agree."""
     sheet = Image.new("RGBA", (COLS * TS, ROWS * TS * nvar), (0, 0, 0, 0))
     for v in range(nvar):
         for c, mask in enumerate(blob47.CANON):
-            sheet.paste(cell(mask, base, edge, profile=v * 2),
+            sheet.paste(cell(mask, ramp, profile=v * 2),
                         ((c % COLS) * TS, (c // COLS) * TS + v * ROWS * TS))
     return sheet
 

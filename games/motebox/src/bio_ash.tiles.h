@@ -3,11 +3,12 @@
 #define MOTE_T_bio_ash_H
 #include "mote_tile.h"
 
-static const uint16_t bio_ash_pal[1] = { 0x5aa9 };
-static const uint8_t bio_ash_idx[32] = {
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+static const uint16_t bio_ash_pal[3] = { 0x194a,0x5aa9,0xc618 };
+static const uint8_t bio_ash_idx[64] = {
+  17,17,17,17,17,33,18,1,17,17,17,17,17,17,17,17,16,17,17,17,16,17,17,17,17,17,17,17,17,18,17,17,
+  16,17,1,17,17,17,17,17,17,17,18,17,17,17,17,17,17,17,17,17,17,17,17,18,17,17,17,16,17,17,17,17,
 };
-static const MoteImage bio_ash_img = { 0, 8, 8, 0xF81F, 0, 1, bio_ash_idx, bio_ash_pal };  /* 4bpp indexed, 1 colours */
+static const MoteImage bio_ash_img = { 0, 8, 16, 0xF81F, 0, 1, bio_ash_idx, bio_ash_pal };  /* 4bpp indexed, 3 colours */
 static const MoteAutotile bio_ash_at = { &bio_ash_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -25,7 +26,7 @@ static const MoteAutotile bio_ash_at = { &bio_ash_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-}, 1, 1, {
+}, 1, 2, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

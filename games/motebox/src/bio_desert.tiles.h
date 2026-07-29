@@ -3,11 +3,12 @@
 #define MOTE_T_bio_desert_H
 #include "mote_tile.h"
 
-static const uint16_t bio_desert_pal[1] = { 0xff64 };
-static const uint8_t bio_desert_idx[32] = {
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+static const uint16_t bio_desert_pal[3] = { 0xfd00,0xfe75,0xff64 };
+static const uint8_t bio_desert_idx[64] = {
+  34,33,33,34,34,34,34,34,34,32,34,34,34,34,34,33,2,34,34,34,34,34,34,34,34,34,32,34,34,34,34,34,
+  34,34,18,34,34,34,34,2,34,34,34,34,34,34,34,34,34,32,34,34,34,32,34,34,34,18,34,34,18,34,34,34,
 };
-static const MoteImage bio_desert_img = { 0, 8, 8, 0xF81F, 0, 1, bio_desert_idx, bio_desert_pal };  /* 4bpp indexed, 1 colours */
+static const MoteImage bio_desert_img = { 0, 8, 16, 0xF81F, 0, 1, bio_desert_idx, bio_desert_pal };  /* 4bpp indexed, 3 colours */
 static const MoteAutotile bio_desert_at = { &bio_desert_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -25,7 +26,7 @@ static const MoteAutotile bio_desert_at = { &bio_desert_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-}, 1, 1, {
+}, 1, 2, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

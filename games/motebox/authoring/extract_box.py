@@ -266,13 +266,16 @@ def build_biomes():
     # out as SLATE (a mauve) zigzagging on cyan — pink triangles on blue, which is what
     # a sea must never look like. A dash course in a second tone of the SAME hue is
     # what reads as water at eight pixels.
-    for name, base, ink, rim, step in (
-            ("bio_ocean", NAVY,  BLUE,   BLUE,   3),   # dark water, paler ripples
-            ("bio_sea",   BLUE,  WHITE,  WHITE,  4),   # bright water, white foam
-            ("bio_lava",  RED,   ORANGE, YELLOW, 3),   # the same course, read as heat
-            ("bio_acid",  GREEN, YELLOW, YELLOW, 3)):
+    # THREE TONES EACH, not two: a body, a ripple and a crest. Two colours make a flat
+    # field with stripes on it; the third makes a surface with troughs.
+    for name, base, ink, ink2, step in (
+            ("bio_ocean", NAVY,   BLUE,   SLATE,  3),   # deep water, paler ripples
+            ("bio_sea",   BLUE,   LTGREY, WHITE,  4),   # bright water, white crests
+            ("bio_lava",  MAROON, RED,    ORANGE, 3),   # the same course, read as heat
+            ("bio_acid",  DKGREEN, GREEN, YELLOW, 3)):
         sheet = terrain.flat(
-            lambda v, _b=base, _i=ink, _s=step: biomes.dashes(_b, _i, 7 + v, step=_s, run=3),
+            lambda v, _b=base, _i=ink, _i2=ink2, _s=step:
+                biomes.dashes(_b, _i, 7 + v, step=_s, run=3, ink2=_i2),
             nvar=2)
         terrain.write(TSETS, name, sheet, 2, vweight=[1, 1], lut=[0] * 256)
         print(f"[flat]    {name:20s} nvar=2")
@@ -282,7 +285,8 @@ def build_biomes():
     #    which is exactly the one-tile river case. With a fixed 2 px rim a river was
     #    entirely rim, and an earlier sand-coloured version rendered every river in the
     #    world as a peach footpath.
-    sheet = terrain.flat(lambda v: biomes.dashes(BLUE, WHITE, 17 + v, step=3, run=4), nvar=2)
+    sheet = terrain.flat(lambda v: biomes.dashes(BLUE, LTGREY, 17 + v, step=3, run=4,
+                                                 ink2=WHITE), nvar=2)
     terrain.write(TSETS, "bio_shallow", sheet, 2, vweight=[1, 1], lut=[0] * 256)
     print(f"[flat]    {'bio_shallow':20s} nvar=2")
 
@@ -383,28 +387,34 @@ def build_ore():
 # the terrain's own flat colour and the shore is a lighter tone for the innermost pixel,
 # so the thing that creeps over its neighbour has a lit lip and looks like it has a
 # thickness rather than like a stain.
+# Every biome's RAMP, deep to shallow: the body it is made of, then the tones its shore
+# fades through as it creeps over its neighbour. PICO-8's sixteen are not a smooth set,
+# but they do contain real families — navy/blue/white for water, brown/orange/peach for
+# earth, dkgrey/ltgrey/white for rock, plum/red/orange for heat — and spending them is
+# the difference between a boundary that is a flat band with a highlight and one that
+# reads as a shore.
 TRANSITIONS = [
-    #  name             prec  body      shore
-    ("bio_ocean",         0,  NAVY,     BLUE),
-    ("bio_sea",           1,  BLUE,     WHITE),
-    ("bio_shallow",       2,  BLUE,     WHITE),
-    ("bio_ice",           3,  WHITE,    BLUE),
-    ("bio_lava",          4,  RED,      YELLOW),
-    ("bio_acid",          4,  GREEN,    YELLOW),
-    ("bio_swamp",         5,  DKGREEN,  DKGREY),
-    ("bio_beach",         6,  PEACH,    YELLOW),
-    ("bio_desert",        7,  YELLOW,   PEACH),
-    ("bio_savanna",       8,  ORANGE,   YELLOW),
-    ("bio_farm",          9,  BROWN,    ORANGE),
-    ("bio_grass",        10,  DKGREEN,  GREEN),
-    ("bio_snow",         11,  WHITE,    LTGREY),
-    ("bio_tundra",       12,  BROWN,    LTGREY),
-    ("bio_ash",          13,  DKGREY,   LTGREY),
-    ("bio_scorched",     14,  MAROON,   RED),
-    ("bio_rubble",       15,  LTGREY,   WHITE),
-    ("bio_hill",         16,  BROWN,    ORANGE),
-    ("bio_mountain",     17,  DKGREY,   LTGREY),
-    ("bio_peak",         18,  LTGREY,   WHITE),
+    #  name             prec  ramp: body -> shore
+    ("bio_ocean",         0,  [NAVY,    BLUE,   LTGREY]),
+    ("bio_sea",           1,  [BLUE,    LTGREY, WHITE]),
+    ("bio_shallow",       2,  [BLUE,    LTGREY, WHITE]),
+    ("bio_ice",           3,  [BLUE,    LTGREY, WHITE]),
+    ("bio_lava",          4,  [MAROON,  RED,    ORANGE, YELLOW]),
+    ("bio_acid",          4,  [DKGREEN, GREEN,  YELLOW]),
+    ("bio_swamp",         5,  [NAVY,    DKGREEN, DKGREY]),
+    ("bio_beach",         6,  [BROWN,   ORANGE, PEACH]),
+    ("bio_desert",        7,  [ORANGE,  YELLOW, PEACH]),
+    ("bio_savanna",       8,  [BROWN,   ORANGE, YELLOW]),
+    ("bio_farm",          9,  [DKGREY,  BROWN,  ORANGE]),
+    ("bio_grass",        10,  [NAVY,    DKGREEN, GREEN]),
+    ("bio_snow",         11,  [LTGREY,  WHITE,  WHITE]),
+    ("bio_tundra",       12,  [DKGREY,  BROWN,  PEACH]),
+    ("bio_ash",          13,  [NAVY,    DKGREY, LTGREY]),
+    ("bio_scorched",     14,  [NAVY,    MAROON, RED]),
+    ("bio_rubble",       15,  [DKGREY,  LTGREY, WHITE]),
+    ("bio_hill",         16,  [DKGREY,  BROWN,  ORANGE]),
+    ("bio_mountain",     17,  [NAVY,    DKGREY, LTGREY]),
+    ("bio_peak",         18,  [DKGREY,  LTGREY, WHITE]),
 ]
 
 
@@ -420,13 +430,13 @@ def build_transitions():
     with the grid.
     """
     import transitions
-    for name, _prec, body, shore in TRANSITIONS:
+    for name, _prec, ramp in TRANSITIONS:
         nm = "tr_" + name[4:]
         # A .tileset SIDECAR, not a bare sheet: these are genuine Blob 47 rule tiles, so
         # they belong in tilesets/ where Studio can open and edit them. `mote bake`
         # emits both the MoteAutotile and the MoteImage from one .tileset, and the draw
         # pass wants the image — so shipping it properly costs the game nothing.
-        transitions.write_tileset(TSETS, nm, transitions.build(body, shore), nvar=2,
+        transitions.write_tileset(TSETS, nm, transitions.build(ramp), nvar=2,
                                   vweight=[1, 1])
         stale = os.path.join(SHEETS, nm + ".png")
         if os.path.isfile(stale):

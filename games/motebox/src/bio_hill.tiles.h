@@ -3,11 +3,12 @@
 #define MOTE_T_bio_hill_H
 #include "mote_tile.h"
 
-static const uint16_t bio_hill_pal[1] = { 0xaa86 };
-static const uint8_t bio_hill_idx[32] = {
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+static const uint16_t bio_hill_pal[3] = { 0x5aa9,0xaa86,0xfd00 };
+static const uint8_t bio_hill_idx[64] = {
+  17,0,17,17,17,17,17,17,17,17,17,17,17,17,17,1,18,17,17,17,17,17,17,17,17,17,18,17,17,17,17,17,
+  17,17,17,33,17,17,17,17,17,17,17,17,1,17,2,17,17,33,17,17,17,17,17,17,17,17,17,1,17,17,17,17,
 };
-static const MoteImage bio_hill_img = { 0, 8, 8, 0xF81F, 0, 1, bio_hill_idx, bio_hill_pal };  /* 4bpp indexed, 1 colours */
+static const MoteImage bio_hill_img = { 0, 8, 16, 0xF81F, 0, 1, bio_hill_idx, bio_hill_pal };  /* 4bpp indexed, 3 colours */
 static const MoteAutotile bio_hill_at = { &bio_hill_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -25,7 +26,7 @@ static const MoteAutotile bio_hill_at = { &bio_hill_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-}, 1, 1, {
+}, 1, 2, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

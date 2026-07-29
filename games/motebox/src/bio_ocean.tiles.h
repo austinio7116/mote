@@ -3,12 +3,12 @@
 #define MOTE_T_bio_ocean_H
 #include "mote_tile.h"
 
-static const uint16_t bio_ocean_pal[2] = { 0x194a,0x2d7f };
+static const uint16_t bio_ocean_pal[3] = { 0x194a,0x2d7f,0x83b3 };
 static const uint8_t bio_ocean_idx[64] = {
-  0,0,0,0,17,16,1,17,0,0,0,0,0,0,0,0,17,17,17,0,0,0,0,0,0,0,0,0,17,0,17,17,
-  0,0,0,0,0,0,0,0,17,16,1,17,0,0,0,0,0,0,0,0,1,17,17,16,0,0,0,0,0,0,0,0,
+  0,0,0,0,17,16,1,17,0,0,0,0,0,0,0,0,34,34,34,0,0,0,0,0,0,0,0,0,17,0,17,17,
+  0,0,0,0,0,0,0,0,17,16,1,17,0,0,0,0,0,0,0,0,2,34,34,32,0,0,0,0,0,0,0,0,
 };
-static const MoteImage bio_ocean_img = { 0, 8, 16, 0xF81F, 0, 1, bio_ocean_idx, bio_ocean_pal };  /* 4bpp indexed, 2 colours */
+static const MoteImage bio_ocean_img = { 0, 8, 16, 0xF81F, 0, 1, bio_ocean_idx, bio_ocean_pal };  /* 4bpp indexed, 3 colours */
 static const MoteAutotile bio_ocean_at = { &bio_ocean_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

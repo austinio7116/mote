@@ -3,12 +3,12 @@
 #define MOTE_T_bio_shallow_H
 #include "mote_tile.h"
 
-static const uint16_t bio_shallow_pal[2] = { 0x2d7f,0xff9d };
+static const uint16_t bio_shallow_pal[3] = { 0x2d7f,0xc618,0xff9d };
 static const uint8_t bio_shallow_idx[64] = {
-  17,17,1,17,0,0,0,0,0,0,0,0,17,17,17,16,0,0,0,0,0,0,0,0,17,16,17,17,0,0,0,0,
-  0,0,0,0,17,17,1,17,0,0,0,0,0,0,0,0,1,17,17,17,0,0,0,0,0,0,0,0,17,1,17,17,
+  17,17,1,17,0,0,0,0,0,0,0,0,34,34,34,32,0,0,0,0,0,0,0,0,17,16,17,17,0,0,0,0,
+  0,0,0,0,17,17,1,17,0,0,0,0,0,0,0,0,2,34,34,34,0,0,0,0,0,0,0,0,17,1,17,17,
 };
-static const MoteImage bio_shallow_img = { 0, 8, 16, 0xF81F, 0, 1, bio_shallow_idx, bio_shallow_pal };  /* 4bpp indexed, 2 colours */
+static const MoteImage bio_shallow_img = { 0, 8, 16, 0xF81F, 0, 1, bio_shallow_idx, bio_shallow_pal };  /* 4bpp indexed, 3 colours */
 static const MoteAutotile bio_shallow_at = { &bio_shallow_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

@@ -77,6 +77,24 @@ def _put(px, x, y, c):
 # litter. Compare wall_brick (staggered courses) and hedge (flat) — those are the two
 # things that work at eight pixels.
 
+def mottle(body, light, dark, seed, n=2):
+    """A flat field with GRAIN: a handful of lighter and darker pixels on a fixed
+    lattice, so a continent has surface without having a pattern.
+
+    The line to walk here was learned the hard way twice. High-contrast scatter reads as
+    litter dropped on a colour; a regular lattice of anything reads as wallpaper once it
+    covers a continent. What works is FEW marks (three of each in sixty-four pixels),
+    placed regularly enough not to look strewn, in tones from the SAME family so the
+    eye reads them as one surface catching light rather than as three colours.
+    """
+    im, px = _new(body)
+    r = _rng(seed)
+    for i in range(n):
+        _put(px, r() % TS, r() % TS, light)
+        _put(px, r() % TS, r() % TS, dark)
+    return im
+
+
 def plain(base):
     """Flat. hedge is flat and it looks better than anything textured here; for a
     biome whose identity is its colour, this is the right answer."""
@@ -84,7 +102,7 @@ def plain(base):
     return im
 
 
-def dashes(base, ink, seed, step=3, run=3, slip=3):
+def dashes(base, ink, seed, step=3, run=3, slip=3, ink2=None):
     """Courses of short horizontal dashes, each row slipped along from the last.
     WATER, DUNES, LAVA — a regular course reads as a surface in motion, and the slip
     stops the columns lining up into a grid."""
@@ -95,10 +113,14 @@ def dashes(base, ink, seed, step=3, run=3, slip=3):
         if (y + off) % step:
             continue
         x0 = (y // step) * slip + (r() % 2)
+        # ALTERNATE COURSES TAKE THE SECOND TONE. A liquid drawn in two colours is a
+        # flat field with stripes on it; a third tone reads as a surface with troughs
+        # and crests, which is what water and lava actually have.
+        c = ink2 if (ink2 and (y // step) % 2) else ink
         for i in range(run):
-            _put(px, x0 + i, y, ink)
+            _put(px, x0 + i, y, c)
         for i in range(run):
-            _put(px, x0 + i + TS // 2 + 1, y, ink)
+            _put(px, x0 + i + TS // 2 + 1, y, c)
     return im
 
 
@@ -279,27 +301,45 @@ def recipes():
         # --- ice and snow ---------------------------------------------------
         ("bio_ice",    WHITE,   [lambda v: plain(WHITE),
                                  lambda v: cracks(WHITE, BLUE, 11 + v)],       [4, 2], None),
-        ("bio_snow",   WHITE,   [lambda v: plain(WHITE)],                      [1], None),
+        ("bio_snow", WHITE, [lambda v: mottle(WHITE, LTGREY, LTGREY, 200 + v),
+                                 lambda v: mottle(WHITE, LTGREY, LTGREY, 205 + v)],
+                                                                       [1, 1], None),
         # TUNDRA IS A COLD BROWN STEPPE, not lavender. It was PICO-8's SLATE, which is
         # a mauve, and on a world where tundra is the biggest biome the map came out
         # PINK — an alien planet rather than a cold one. The palette has no olive or
         # khaki, so the honest choice is brown with a pale rim: frozen ground with
         # frost on its edges. Hill is also brown, but hill rims ORANGE and tundra rims
         # LTGREY, so a warm slope and a cold one still read apart.
-        ("bio_tundra", BROWN,   [lambda v: plain(BROWN)],                      [1], None),
+        ("bio_tundra", BROWN, [lambda v: mottle(BROWN, PEACH, DKGREY, 210 + v),
+                                 lambda v: mottle(BROWN, PEACH, DKGREY, 215 + v)],
+                                                                       [1, 1], None),
         # --- sand -----------------------------------------------------------
-        ("bio_beach",  PEACH,   [lambda v: plain(PEACH)],                      [1], None),
-        ("bio_desert", YELLOW,  [lambda v: plain(YELLOW)],                     [1], None),
+        ("bio_beach", PEACH, [lambda v: mottle(PEACH, YELLOW, ORANGE, 220 + v),
+                                 lambda v: mottle(PEACH, YELLOW, ORANGE, 225 + v)],
+                                                                       [1, 1], None),
+        ("bio_desert", YELLOW, [lambda v: mottle(YELLOW, PEACH, ORANGE, 230 + v),
+                                 lambda v: mottle(YELLOW, PEACH, ORANGE, 235 + v)],
+                                                                       [1, 1], None),
         # --- green: hedge's exact pairing, dark green field with a bright edge
-        ("bio_grass",  DKGREEN, [lambda v: plain(DKGREEN)],                    [1], None),
-        ("bio_savanna", ORANGE, [lambda v: plain(ORANGE)],                     [1], None),
+        ("bio_grass", DKGREEN, [lambda v: mottle(DKGREEN, GREEN, DKGREY, 240 + v),
+                                 lambda v: mottle(DKGREEN, GREEN, DKGREY, 245 + v)],
+                                                                       [1, 1], None),
+        ("bio_savanna", ORANGE, [lambda v: mottle(ORANGE, YELLOW, BROWN, 250 + v),
+                                 lambda v: mottle(ORANGE, YELLOW, BROWN, 255 + v)],
+                                                                       [1, 1], None),
         ("bio_swamp",  DKGREEN, [lambda v: plain(DKGREEN),
                                  lambda v: specks(DKGREEN, DKGREY, 81 + v, step=4)],
                                                                                [3, 2], None),
         # --- rock: flat, and it is the RIM that makes it a cliff -------------
-        ("bio_hill",   BROWN,   [lambda v: plain(BROWN)],                      [1], None),
-        ("bio_mountain", DKGREY,[lambda v: plain(DKGREY)],                     [1], None),
-        ("bio_peak",   LTGREY,  [lambda v: plain(LTGREY)],                     [1], None),
+        ("bio_hill", BROWN, [lambda v: mottle(BROWN, ORANGE, DKGREY, 260 + v),
+                                 lambda v: mottle(BROWN, ORANGE, DKGREY, 265 + v)],
+                                                                       [1, 1], None),
+        ("bio_mountain", DKGREY, [lambda v: mottle(DKGREY, LTGREY, BROWN, 270 + v),
+                                 lambda v: mottle(DKGREY, LTGREY, BROWN, 275 + v)],
+                                                                       [1, 1], None),
+        ("bio_peak", LTGREY, [lambda v: mottle(LTGREY, WHITE, DKGREY, 280 + v),
+                                 lambda v: mottle(LTGREY, WHITE, DKGREY, 285 + v)],
+                                                                       [1, 1], None),
         ("bio_rubble", LTGREY,  [lambda v: plain(LTGREY),
                                  lambda v: pebbles(LTGREY, DKGREY, 121 + v, step=4)],
                                                                                [2, 3], None),
@@ -309,7 +349,9 @@ def recipes():
         # and each isolated tile read as a hard grey square dropped on the grass. With
         # no band of its own, a burn is a soft dark patch and the grass's own lit edge
         # is what bounds it — which is also what a burn actually looks like from above.
-        ("bio_ash",    DKGREY,  [lambda v: plain(DKGREY)],                     [1],    None),
+        ("bio_ash",    DKGREY,  [lambda v: mottle(DKGREY, LTGREY, BROWN, 300 + v),
+                                 lambda v: mottle(DKGREY, LTGREY, BROWN, 305 + v)],
+                                                                               [1, 1], None),
         ("bio_scorched", MAROON,[lambda v: plain(MAROON),
                                  lambda v: cracks(MAROON, RED, 141 + v)],      [3, 2], None),
         # --- worked land: the one biome that SHOULD look man-made ------------
