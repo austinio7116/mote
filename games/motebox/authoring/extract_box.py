@@ -300,6 +300,38 @@ def build_biomes():
         print(f"[flat]    {name:20s} nvar={nvar} weights={weights}")
 
 
+# What each synced set stands ON. roguemote's sets are OVERLAYS — hedge is 15% transparent
+# because it is designed to sit on a dungeon floor, and it insets itself by a pixel on
+# every open side. Motebox draws one terrain per cell with nothing beneath, so those
+# transparent pixels showed the dark clear colour and every patch of forest in the world
+# came out with a BLACK OUTLINE around it. Compositing them onto the ground they would
+# naturally stand on makes them opaque and the outline disappears.
+SYNC_GROUND = {
+    "hedge":        (0, 135, 81),      # forest, standing on grass
+    "floor_jungle": (0, 135, 81),      # meadow
+    "wall_brick":   (95, 87, 79),      # a city wall, standing on trodden ground
+    "wall_marble":  (95, 87, 79),
+    "wall_bone":    (95, 87, 79),
+    "wall_aztec":   (95, 87, 79),
+}
+
+
+def flatten_synced(name):
+    """Composite a synced overlay set onto its ground so it has no transparency left."""
+    ground = SYNC_GROUND.get(name)
+    if not ground:
+        return
+    p = os.path.join(TSETS, name + ".png")
+    if not os.path.isfile(p):
+        return
+    im = Image.open(p).convert("RGBA")
+    if not any(q[3] == 0 for q in im.getdata()):
+        return
+    flat = Image.new("RGBA", im.size, ground + (255,))
+    flat.alpha_composite(im)
+    flat.save(p)
+
+
 def sync_terrain():
     """Copy roguemote's derived blob47 sets in as editable source."""
     missing = []
@@ -309,6 +341,7 @@ def sync_terrain():
             if not os.path.isfile(s):
                 missing.append(s); continue
             shutil.copy2(s, os.path.join(TSETS, name + ext))
+        flatten_synced(name)
         print(f"[sync]    {name:20s} {why}")
     if missing:
         print("  !! missing in roguemote (run its extract.py first):")
