@@ -86,8 +86,10 @@ static const Power P_WRATH[8] = {
 };
 
 static const Power P_LIFE[8] = {
-    { PW_HUMAN,   "HUMANS",   &characters_img, 2, 3, 0, 0,  20 },
-    { PW_ELF,     "ELVES",    &characters_img, 7, 3, 0, 0,  20 },
+    /* The wheel icon is the race's own FIRST CIVILIAN CELL (see MB_CAST in mb_draw.c),
+     * so what you summon looks like what appears. */
+    { PW_HUMAN,   "HUMANS",   &characters_img, 4, 1, 0, 0,  20 },
+    { PW_ELF,     "ELVES",    &characters_img, 8, 1, 0, 0,  20 },
     { PW_DWARF,   "DWARVES",  &characters_img, 5, 3, 0, 0,  20 },
     { PW_ORC,     "ORCS",     &monsters_img,   7, 4, 0, 0,  20 },
     { PW_VILLAGE, "VILLAGE",  &buildings_img,  2, 2, 0, 0,  90 },

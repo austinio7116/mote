@@ -302,6 +302,7 @@ void mb_bands_rebuild(void);           /* biome[] -> layer[], the cumulative ban
 /* mb_flux.c */
 void mb_flux_init(void);
 void mb_flux_reset(void);
+void mb_flux_test_event(const char *name, uint32_t r);   /* MOTEBOX_EVENT= */
 void mb_flux_step(void);
 void mb_flux_add(int x, int y, int kind, int inten);
 void mb_flux_blob(int cx, int cy, int r, int kind, int inten);

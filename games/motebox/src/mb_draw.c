@@ -700,6 +700,95 @@ static const ObjSpr MB_OBJ_SPR[O_N] = {
  * grass. A short array is silent, which is exactly why it needs a check. */
 typedef char mb_objspr_covers_world[(sizeof MB_OBJ_SPR / sizeof MB_OBJ_SPR[0]) >= O_BUILD0 ? 1 : -1];
 
+/* --- THE CAST: who plays each part ---------------------------------------
+ *
+ * One figure per race and five profession cells SHARED by all of them is what this replaces.
+ * Nine cells of ninety were in use, an elf soldier looked human, and a crowd of twenty humans
+ * was twenty identical sprites. Chosen by hand in the casting tool rather than by me guessing
+ * from coordinates, which is the only way this ever went right: two of my own picks — the
+ * "miner" at 10,3 and the "trader" at 12,3 — turned out to be unreadable blobs at 8x8.
+ *
+ * THREE THINGS COME OUT OF IT and none needs a legend:
+ *   a trade is legible from the figure — mail, cowl, helm, hard hat, travelling cloak
+ *   a race stays a race, because each has its own cells for the same trades
+ *   AGE SHOWS. A child is drawn as a child and an idle elder as an elder, so a village reads
+ *   as a village with generations in it rather than as a squad of identical adults.
+ *
+ * Ragged on purpose: elves have no builder or trader cell and fall back to their civilian
+ * pool, which is exactly what the fallback chain is for.
+ */
+enum { CR_CIVILIAN = 0, CR_CHILD, CR_ELDER, CR_FARMER, CR_BUILDER, CR_TRADER,
+       CR_FORESTER, CR_MINER, CR_SOLDIER, CR_PRIEST, CR_LORD, CR_N };
+#define CAST_MAX 3
+#define CH 0            /* the characters section */
+#define MO 1            /* the monsters section  */
+typedef struct { uint8_t sh, cx, cy; } Fig;
+typedef struct { uint8_t n; Fig v[CAST_MAX]; } CastSlot;
+
+#define F0                        { 0, { { 0, 0, 0 } } }
+#define F1(s,x,y)                 { 1, { { s, x, y } } }
+#define F2(s,x,y,t,u,w)           { 2, { { s, x, y }, { t, u, w } } }
+#define F3(s,x,y,t,u,w,a,b,c)     { 3, { { s, x, y }, { t, u, w }, { a, b, c } } }
+
+static const CastSlot MB_CAST[SP_CIV_N][CR_N] = {
+    /* ---- human ---- */
+    { F2(CH,4,1, CH,6,0),      /* civilian */
+      F2(CH,0,3, CH,1,3),      /* child    */
+      F1(CH,3,3),              /* elder    */
+      F1(CH,4,3),              /* farmer   */
+      F1(CH,7,1),              /* builder  */
+      F2(CH,5,1, CH,8,6),      /* trader   */
+      F1(CH,0,1),              /* forester */
+      F1(CH,6,1),              /* miner    */
+      F2(CH,3,1, CH,4,0),      /* soldier  */
+      F1(CH,8,0),              /* priest   */
+      F2(CH,2,1, CH,9,6) },    /* lord     */
+    /* ---- elf ---- */
+    { F1(CH,8,1), F1(CH,14,0), F1(CH,7,0), F1(CH,9,0),
+      F0,                      /* no builder: falls back to the civilian pool */
+      F0,                      /* no trader either */
+      F1(CH,8,1), F1(CH,10,0), F1(CH,5,0), F1(CH,1,1), F1(CH,15,0) },
+    /* ---- dwarf ---- */
+    { F1(CH,5,3), F1(CH,6,3), F1(CH,3,3), F1(CH,4,3), F1(CH,5,3), F1(CH,4,3),
+      F1(CH,7,3), F1(CH,8,3), F1(CH,9,3), F1(CH,7,3), F1(CH,3,5) },
+    /* ---- orc: its own figure on the monsters section, its trades on characters ---- */
+    { F1(MO,7,4), F1(CH,11,3), F1(CH,12,3), F1(CH,2,4), F1(CH,3,4), F1(CH,2,4),
+      F1(CH,2,4), F3(CH,4,4, CH,3,4, CH,0,5), F3(CH,5,4, CH,13,5, CH,5,5),
+      F1(CH,6,4), F1(CH,7,4) },
+};
+/* A short array is silent, and this game has been bitten by exactly that twice. */
+typedef char mb_cast_is_complete[(sizeof MB_CAST / sizeof MB_CAST[0]) == SP_CIV_N ? 1 : -1];
+
+/* PROF_* -> CR_*. Kept as a table rather than a switch so adding a profession is one line
+ * in two places instead of a hunt through the draw pass. */
+static const uint8_t MB_PROF_ROLE[PROF_N] = {
+    CR_CIVILIAN, CR_FARMER, CR_FORESTER, CR_MINER, CR_SOLDIER,
+    CR_PRIEST, CR_TRADER, CR_BUILDER, CR_LORD,
+};
+
+/* The figure for one person: age first, then trade, then the pool, then the species cell.
+ * `seed` is the unit's own — a stable pick, so somebody does not change face as they walk. */
+static void mb_cast_pick(const Unit *u, unsigned seed, int *sheet, int *cx, int *cy)
+{
+    const MbSpecies *S = &MB_SP[u->sp];
+    *sheet = S->sheet; *cx = S->cx; *cy = S->cy;
+    if (u->sp >= SP_CIV_N) return;                  /* beasts and the risen keep their own */
+
+    int span = S->lifespan ? S->lifespan : 20;
+    int prof = u->prof < PROF_N ? u->prof : PROF_NONE;
+    int role = MB_PROF_ROLE[prof];
+    /* A CHILD IS A CHILD whatever trade it was born into; an ELDER shows their age only
+     * once they have no trade left to show, so a working smith stays a smith to the end. */
+    if (u->age * 5 < span)                       role = CR_CHILD;
+    else if (role == CR_CIVILIAN && u->age * 4 > span * 3) role = CR_ELDER;
+
+    const CastSlot *slot = &MB_CAST[u->sp][role];
+    if (!slot->n) slot = &MB_CAST[u->sp][CR_CIVILIAN];
+    if (!slot->n) return;
+    const Fig *f = &slot->v[seed % slot->n];
+    *sheet = f->sh ? 1 : 0; *cx = f->cx; *cy = f->cy;
+}
+
 /* One sprite per visible flux cell. Lava needs none — it IS the biome — so the table
  * covers only the kinds that sit ON the ground rather than replacing it. */
 typedef struct { const MoteImage *img; uint8_t cx, cy, frames; } FluxSpr;
@@ -1028,32 +1117,10 @@ void mb_draw_mortal(int cam_x, int cam_y)
         int px = (u->x >> 4) * TILE, py = (u->y >> 4) * TILE;
         if (px < cam_x - TILE || py < cam_y - TILE ||
             px > cam_x + 128 || py > cam_y + VIEW_H) continue;
-        const MbSpecies *S = &MB_SP[u->sp];
-        const MoteImage *img = (S->sheet == 0) ? &characters_img
-                             : (S->sheet == 1) ? &monsters_img : &animals_img;
-        int cx = S->cx, cy = S->cy;
-
-        /* A TRADE YOU CAN SEE. This is the answer to the status pips: instead of painting
-         * a coloured dot over a villager to say what they are doing, the villager IS what
-         * they do. A knight in mail, a monk's cowl, a miner's helm, a builder's hard hat,
-         * a trader's travelling cloak — all cells of the master's own sheet, chosen by
-         * looking at it rather than by arithmetic (authoring note: /tmp chars-grid).
-         *
-         * Only the trades with a distinct silhouette override the figure, and only for the
-         * sheet-0 races: a farmer or a forester keeps their species' own cell, so a village
-         * still reads as human or elf or dwarf with a visible minority of specialists, and
-         * an orc still looks like an orc. Nine villagers and one priest is a farming
-         * village; five knights and a smith is a garrison, and you know at a glance. */
-        if (S->sheet == 0 && u->sp < SP_CIV_N) {
-            switch (u->prof) {
-            case PROF_SOLDIER:  cx = 1;  cy = 5; break;   /* mailed, red-eyed helm */
-            case PROF_PRIEST:   cx = 8;  cy = 3; break;   /* gold-and-green cowl    */
-            case PROF_MINER:    cx = 10; cy = 3; break;   /* grey helm over brown   */
-            case PROF_BUILDER:  cx = 13; cy = 3; break;   /* yellow hard hat        */
-            case PROF_TRADER:   cx = 12; cy = 3; break;   /* travelling cloak       */
-            default: break;                                /* their own race's cell  */
-            }
-        }
+        int sheet, cx, cy;
+        mb_cast_pick(u, mb__hash2(i, u->given), &sheet, &cx, &cy);
+        const MoteImage *img = (sheet == 0) ? &characters_img
+                             : (sheet == 1) ? &monsters_img : &animals_img;
         MoteSprite spr = { img, (int16_t)(u->x >> 4 << 3), (int16_t)(u->y >> 4 << 3),
                            (uint16_t)(cx * TILE), (uint16_t)(cy * TILE),
                            TILE, TILE, 40, 0 };

@@ -18,6 +18,7 @@
  * and crawls in the other, because a cell it just lit is read again downstream.
  */
 #include "mb.h"
+#include <stdio.h>
 #include <string.h>
 
 static uint8_t *s_next;          /* what this tick writes; swapped in at the end */
@@ -270,6 +271,163 @@ static void agent_step(void);
 static const int8_t DX4[4] = { 1, -1, 0,  0 };
 static const int8_t DY4[4] = { 0,  0, 1, -1 };
 
+/* MOTEBOX_EVENT=<name> fires one world event on demand. Every one of these is rare by
+ * design — a tsunami is one tick in 8192 — so waiting for one to look at it is not a test,
+ * and "does the wave reach the shore" was unanswerable before this existed. */
+void mb_flux_test_event(const char *name, uint32_t r);
+
+/* --- THE TSUNAMI, which has to be a FRONT ------------------------------
+ *
+ * The first version laid a single column of flood cells — seventeen tall, one wide — at one
+ * random x, walked east or west to find deep water, and let the ordinary flood rule spread
+ * it. Three things were wrong with that and all three showed on screen:
+ *
+ *   IT WAS A STRIPE, not a wave. One cell wide is a leak.
+ *   IT NEVER ARRIVED. Walking sideways to deep water usually put it well out to sea, and
+ *     the flood rule only advances into cells at or below its own elevation, one per tick,
+ *     losing a point of intensity each time — so it exhausted itself offshore.
+ *   IT WAS OVER IN A SECOND. Intensity 12 decaying at 1 a tick is ten ticks total.
+ *
+ * A tsunami is a WALL OF WATER TRAVELLING IN A DIRECTION, so it needs to be stepped rather
+ * than diffused. This keeps six bytes of state and advances a front: a wide arc, bowed at
+ * the ends the way a real front refracts as it shoals, ragged along its length so it is not
+ * a ruler, starting offshore so you watch it come in, and dying as it climbs — every column
+ * stops when the ground gets too high for it, which is why a wave runs up a river valley
+ * and stops at the dunes.
+ *
+ * It aims at a COAST NEAR A SETTLEMENT. A tsunami that lands on empty shore is a weather
+ * report; the one that matters is the one you can see a town in front of.
+ */
+static struct {
+    uint8_t on;          /* stepping */
+    uint8_t x, y;        /* where it crosses the shore */
+    int8_t  dx, dy;      /* inland */
+    uint8_t half;        /* half-width of the front, in cells */
+    uint8_t reach;       /* how far inland it climbs before it turns */
+    int8_t  step;        /* current distance from the shore; negative = still at sea */
+} s_wave;
+
+static void wave_begin(uint32_t r)
+{
+    /* the shore nearest a living village, so the wave has something to threaten */
+    int vx = -1, vy = -1, nv = 0;
+    for (int v = 1; v < MAXV; v++) if (mb_v[v].alive) nv++;
+    if (nv) {
+        int want = (int)((r >> 3) % (uint32_t)nv), seen = 0;
+        for (int v = 1; v < MAXV; v++)
+            if (mb_v[v].alive && seen++ == want) { vx = mb_v[v].x; vy = mb_v[v].y; break; }
+    }
+    if (vx < 0) { vx = (int)((r >> 5) % MW); vy = (int)((r >> 13) % MH); }
+
+    int bx = -1, by = -1, bd = 1 << 30;
+    for (int y = 2; y < MH - 2; y++)
+        for (int x = 2; x < MW - 2; x++) {
+            if (!mb_land(mb_w.biome[AT(x, y)])) continue;
+            int sea = 0;
+            for (int k = 0; k < 4; k++)
+                if (mb_water(mb_w.biome[AT(x + DX4[k], y + DY4[k])])) sea++;
+            if (!sea) continue;                       /* not a shoreline cell */
+            /* AND IT MUST FACE OPEN WATER. Any land cell beside any puddle is a
+             * "shoreline", so the first version launched a tsunami out of an inland lake at
+             * the top corner of the map. A wave needs a sea behind it: at least a third of
+             * a five-cell neighbourhood under water. */
+            int wide = 0;
+            for (int oy = -5; oy <= 5; oy++)
+                for (int ox = -5; ox <= 5; ox++) {
+                    int nx = x + ox, ny = y + oy;
+                    if (mb_in(nx, ny) && mb_water(mb_w.biome[AT(nx, ny)])) wide++;
+                }
+            /* Fifty-eight per cent of an eleven-cell neighbourhood, and eight cells clear
+             * of the map edge. At a third the first version still launched out of a coastal
+             * inlet in the top corner, so most of the front was off-map and what arrived was
+             * a sliver. A tsunami needs open water behind it and room to be wide. */
+            if (wide < 70) continue;
+            if (x < 8 || x >= MW - 8 || y < 8 || y >= MH - 8) continue;
+            int d = (x - vx) * (x - vx) + (y - vy) * (y - vy);
+            if (d < bd) { bd = d; bx = x; by = y; }
+        }
+    if (bx < 0) {
+        /* no open coast near that village: take the most exposed shore in the world instead,
+         * so the event still happens rather than silently not happening */
+        int best = 0;
+        for (int y = 8; y < MH - 8; y++)
+            for (int x = 8; x < MW - 8; x++) {
+                if (!mb_land(mb_w.biome[AT(x, y)])) continue;
+                int sea = 0;
+                for (int k = 0; k < 4; k++)
+                    if (mb_water(mb_w.biome[AT(x + DX4[k], y + DY4[k])])) sea++;
+                if (!sea) continue;
+                int wide = 0;
+                for (int oy = -5; oy <= 5; oy++)
+                    for (int ox = -5; ox <= 5; ox++)
+                        if (mb_water(mb_w.biome[AT(x + ox, y + oy)])) wide++;
+                if (wide > best) { best = wide; bx = x; by = y; }
+            }
+        if (bx < 0) return;
+    }
+
+    /* inland is away from the water: sum the offsets of the wet neighbours and flip it */
+    int sx = 0, sy = 0;
+    for (int k = 0; k < 4; k++)
+        if (mb_water(mb_w.biome[AT(bx + DX4[k], by + DY4[k])])) { sx += DX4[k]; sy += DY4[k]; }
+    if (!sx && !sy) return;
+    /* one axis only: a front that advances diagonally would need a diagonal arc too, and
+     * the cardinal case is the one that reads as a wave rolling in */
+    if (sx * sx >= sy * sy) { s_wave.dx = (int8_t)(sx > 0 ? -1 : 1); s_wave.dy = 0; }
+    else                    { s_wave.dx = 0; s_wave.dy = (int8_t)(sy > 0 ? -1 : 1); }
+
+    s_wave.on = 1;
+    s_wave.x = (uint8_t)bx; s_wave.y = (uint8_t)by;
+    s_wave.half  = (uint8_t)(12 + ((r >> 21) & 7));      /* 25 to 39 cells across */
+    s_wave.reach = (uint8_t)(9 + ((r >> 25) & 7));       /* and 9 to 16 cells inland */
+    s_wave.step  = -4;                                  /* four cells out, still at sea */
+    mb_chron_disaster("a tsunami", bx, by);
+#if MOTE_HOST
+    fprintf(stderr, "tsunami: shore %d,%d  inland %d,%d  half %d  reach %d\n",
+            bx, by, s_wave.dx, s_wave.dy, s_wave.half, s_wave.reach);
+#endif
+}
+
+static void wave_step(void)
+{
+    if (!s_wave.on) return;
+    const int px = -s_wave.dy, py = s_wave.dx;           /* along the front */
+    const int half = s_wave.half, st = s_wave.step;
+
+    for (int t = -half; t <= half; t++) {
+        /* THE ARC, AND IT MUST BE GENTLE. A front refracts as it shoals so the ends lag,
+         * which is what makes a bowed line read as water rather than as a wipe — but the
+         * first version used t*t/half, which lags the ENDS BY A FULL HALF-WIDTH. Only the
+         * middle of the wave ever moved, so a thirty-cell front arrived as a ten-cell
+         * blob. Four cells of lag at the tips is plenty to see. */
+        int lag = (t * t * 4) / (half * half);
+        unsigned h = (unsigned)(t * 2654435761u + s_wave.x * 40503u) ;
+        h ^= h >> 13;
+        int jit = (int)(h % 3u) - 1;
+        int d = st - lag + jit;
+        if (d < -6) continue;
+
+        int x = (int)s_wave.x + s_wave.dx * d + px * t;
+        int y = (int)s_wave.y + s_wave.dy * d + py * t;
+        if (!mb_in(x, y)) continue;
+
+        /* A COLUMN DIES WHEN THE GROUND BEATS IT. Height above the shore is what stops a
+         * wave, so it runs up valleys and rivers and stops at the dunes — the shape of the
+         * flood is the shape of the land, for free. */
+        int rise = (int)mb_w.elev[AT(x, y)] - (int)mb_w.elev[AT(s_wave.x, s_wave.y)];
+        if (d > 0 && rise > 3 + (int)s_wave.reach - d) continue;
+
+        int inten = d <= 0 ? 12 : 12 - (d * 8) / (int)s_wave.reach;
+        if (inten < 3) inten = 3;
+        mb_flux_add(x, y, FX_WATER, inten);
+    }
+
+    s_wave.step++;
+    if (s_wave.step > (int)s_wave.reach) { s_wave.on = 0; s_wave.step = 0; }
+}
+
+
+
 void mb_flux_step(void)
 {
     uint8_t *flux = mb_w.flux, *next = s_next;
@@ -278,6 +436,7 @@ void mb_flux_step(void)
 
     wind_step();
     agent_step();          /* walking disasters seed flux before the pass reads it */
+    wave_step();           /* and so does the tsunami's front */
     memset(next, 0, NC);
 
     for (int y = 0; y < MH; y++) {
@@ -662,21 +821,9 @@ void mb_flux_natural(void)
         }
     }
 
-    /* TSUNAMI: rare, and it comes from the sea rather than from nowhere — a wall
-     * of water pushed inland from a random coast, which then recedes through the
-     * flood rule and leaves wet sand and drowned fields behind. */
-    if ((r & 0x1FFFu) == 0) {
-        int cx = (int)((r >> 13) % MW), cy = (int)((r >> 20) % MH);
-        /* walk out to the nearest deep water so it starts offshore */
-        for (int step = 0; step < 40 && mb_in(cx, cy); step++) {
-            if (mb_w.biome[AT(cx, cy)] == B_OCEAN || mb_w.biome[AT(cx, cy)] == B_SEA) break;
-            cx += (cx < MW / 2) ? -1 : 1;
-        }
-        if (mb_in(cx, cy) && mb_water(mb_w.biome[AT(cx, cy)])) {
-            for (int d = -8; d <= 8; d++) mb_flux_add(cx, cy + d, FX_WATER, 12);
-            mb_chron_disaster("a tsunami", cx, cy);
-        }
-    }
+    /* TSUNAMI: START one, if the sea is minded. The wave itself is stepped by
+     * wave_step() below — this only decides that one begins, and where. */
+    if ((r & 0x1FFFu) == 0 && !s_wave.on) wave_begin(r);
 
     /* SINKHOLE: the ground simply goes. Small, permanent, and it takes whatever was
      * standing on it — the cheapest disaster in the game and one of the nastiest,
@@ -712,4 +859,34 @@ void mb_flux_reset(void)
     memset(mb_w.flux, 0, NC);
     for (int i = 0; i < NAGENT; i++) s_ag[i].alive = 0;
     s_wind_phase = 2;
+}
+
+/* --- ON-DEMAND WORLD EVENTS (test hook) ---------------------------------
+ * The bodies live inside mb_flux_step()'s random-event block, which cannot be called for
+ * one event alone; the two that keep their own state (the tsunami) or are one-shot writes
+ * (the sinkhole) are reachable here. Anything added to the disaster block should get an
+ * entry, because an event nobody can trigger is an event nobody has watched. */
+void mb_flux_test_event(const char *name, uint32_t r)
+{
+    if (!name) return;
+    if (!strcmp(name, "tsunami")) { s_wave.on = 0; wave_begin(r); return; }
+    if (!strcmp(name, "sinkhole")) {
+        int cx = (int)(r % MW), cy = (int)((r >> 9) % MH);
+        for (int t = 0; t < 400; t++) {                /* land, and near a village if we can */
+            cx = (int)((r >> (t & 15)) % MW); cy = (int)((r >> ((t + 7) & 15)) % MH);
+            if (mb_in(cx, cy) && mb_land(mb_w.biome[AT(cx, cy)])) break;
+        }
+        int rad = 2;
+        for (int y = cy - rad; y <= cy + rad; y++)
+            for (int x = cx - rad; x <= cx + rad; x++) {
+                if (!mb_in(x, y)) continue;
+                if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > rad * rad) continue;
+                mb_w.biome[AT(x, y)] = B_RUBBLE; mb_w.obj[AT(x, y)] = O_NONE;
+                mb_w.elev[AT(x, y)] = (uint8_t)(mb_w.elev[AT(x, y)] > 30
+                                                ? mb_w.elev[AT(x, y)] - 30 : 0);
+            }
+        mb_unit_area(cx, cy, rad, UAP_KILL, CAUSE_DISASTER);
+        mb_chron_disaster("the ground opens", cx, cy);
+        return;
+    }
 }

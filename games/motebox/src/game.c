@@ -1008,6 +1008,15 @@ static void g_init(void)
             for (int i = 0; i < n; i++) fprintf(stderr, "  %s\n", items[i]);
         }
     }
+    /* MOTEBOX_EVENT=tsunami|sinkhole fires a world event now, so a rare disaster can be
+     * watched instead of waited for. */
+    {
+        const char *ev = getenv("MOTEBOX_EVENT");
+        if (ev && *ev) {
+            mb_flux_test_event(ev, (uint32_t)mb_w.tick * 2654435761u + mb_w.seed);
+            fprintf(stderr, "fired world event '%s'\n", ev);
+        }
+    }
     /* MOTEBOX_MAP=faith|craft|growth picks a God's Eye lens for a headless screenshot,
      * because the only other way in is a menu a script cannot drive. */
     {
