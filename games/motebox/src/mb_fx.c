@@ -375,22 +375,6 @@ static const uint16_t *const FLUX_RAMP[FX_N] = {
 static const float FLUX_RISE[FX_N]  = { 0, 5.5f, 1.4f, 2.2f, 2.6f, 0.35f };
 static const float FLUX_GRAIN[FX_N] = { 0, 2.4f, 3.0f, 2.6f, 2.6f, 3.4f };
 
-static inline float vnoise(float x, float y)
-{
-    int xi = (int)floorf(x), yi = (int)floorf(y);
-    float fx = x - (float)xi, fy = y - (float)yi;
-    fx = fx * fx * (3.0f - 2.0f * fx);          /* smoothstep, so it is not blocky */
-    fy = fy * fy * (3.0f - 2.0f * fy);
-    #define H2(a, b) ({ unsigned h_ = (unsigned)((a) * 374761393 + (b) * 668265263); \
-                        h_ = (h_ ^ (h_ >> 13)) * 1274126177u;                        \
-                        (float)((h_ >> 8) & 0xFFFF) * (1.0f / 65535.0f); })
-    float a = H2(xi, yi),     b = H2(xi + 1, yi);
-    float c = H2(xi, yi + 1), d = H2(xi + 1, yi + 1);
-    #undef H2
-    float t = a + (b - a) * fx, u = c + (d - c) * fx;
-    return t + (u - t) * fy;
-}
-
 static inline int flux_at(int c, int r, uint8_t kind)
 {
     if (c < 0 || r < 0 || c >= MW || r >= MH) return 0;
@@ -398,95 +382,154 @@ static inline int flux_at(int c, int r, uint8_t kind)
     return (mb_fkind(fl) == kind) ? mb_fint(fl) : 0;
 }
 
+/* --- A PER-PIXEL FIRE SIMULATION ------------------------------------------
+ *
+ * The version before this sampled smooth value noise per pixel and scrolled it upward.
+ * It was dense, and it was still wrong, because it was a TEXTURE: every pixel's value
+ * came from a lookup, so nothing in the picture was moving. It read as a field of noise
+ * laid over the ground rather than as something burning.
+ *
+ * Moita's fire is alive because its pixels are ENTITIES — discrete cells in a falling-sand
+ * world with their own heat, rising, flickering and winking out. This is the same idea in
+ * the space this game has: a heat buffer at SCREEN PIXEL resolution, seeded from the flux
+ * cells and then propagated upward every frame.
+ *
+ *     heat(x, y) = average of the three pixels below it, minus a random cooling
+ *
+ * That is the classic convection kernel and it is worth spelling out why it looks alive
+ * where noise does not: each pixel's value depends on what its neighbours were LAST frame,
+ * so heat travels, splits around cold spots and gutters out. Nothing is looked up, so no
+ * two frames are the same and no shape repeats. The random lateral offset is what makes a
+ * flame lean and lick instead of rising as a column.
+ *
+ * One byte per screen pixel — 14 KB — and two passes over the window a frame.
+ */
+static uint8_t s_heat[128 * VIEW_H];
+
+static inline unsigned hrnd(void)
+{
+    s_rng ^= s_rng << 13; s_rng ^= s_rng >> 17; s_rng ^= s_rng << 5;
+    return s_rng;
+}
+
+static void heat_seed(int cam_x, int cam_y, uint8_t kind)
+{
+    /* Seed from the flux field, per pixel, with a randomised amount so the base of a fire
+     * is ragged from the first frame instead of a row of solid bars. */
+    int c0 = cam_x / TILE, r0 = cam_y / TILE;
+    for (int r = r0 - 1; r <= r0 + MVH + 1; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0 - 1; c <= c0 + MVW + 1; c++) {
+            if (c < 0 || c >= MW) continue;
+            int inten = flux_at(c, r, kind);
+            if (!inten) continue;
+            /* Seeded HOT. At 90 + 22*inten a grass fire (intensity about 4) peaked near
+             * 180, and after a frame of cooling nothing ever reached the top of the ramp —
+             * so every fire in the world was orange and none of it was ever yellow. */
+            int base = 160 + inten * 18;
+            if (base > 255) base = 255;
+            for (int y = 0; y < TILE; y++) {
+                int sy = r * TILE + y - cam_y;
+                if (sy < 0 || sy >= VIEW_H) continue;
+                for (int x = 0; x < TILE; x++) {
+                    int sx = c * TILE + x - cam_x;
+                    if (sx < 0 || sx > 127) continue;
+                    /* only some pixels are lit each frame: that flicker at the SOURCE is
+                     * half of what makes the whole plume look unsteady */
+                    if ((hrnd() & 3) == 0) continue;
+                    int v = base - (int)(hrnd() & 63);
+                    if (v < 0) v = 0;
+                    if (v > s_heat[sy * 128 + sx]) s_heat[sy * 128 + sx] = (uint8_t)v;
+                }
+            }
+        }
+    }
+}
+
+static void heat_convect(int cool_lo, int cool_hi)
+{
+    /* Upward, in place: row y takes from row y+1, so a single pass carries heat one pixel
+     * up the screen and the shape evolves from frame to frame rather than being redrawn. */
+    int span = cool_hi - cool_lo + 1;
+    for (int y = 0; y < VIEW_H - 1; y++) {
+        uint8_t *row = &s_heat[y * 128];
+        const uint8_t *below = &s_heat[(y + 1) * 128];
+        for (int x = 0; x < 128; x++) {
+            int l = below[x > 0 ? x - 1 : 0];
+            int m = below[x];
+            int rr = below[x < 127 ? x + 1 : 127];
+            int v = (l + m + m + rr) >> 2;
+            v -= cool_lo + (int)(hrnd() % (unsigned)span);
+            /* lean: borrowing from one side makes the flame lick rather than climb */
+            if ((hrnd() & 7) == 0) v = (v * 3) >> 2;
+            row[x] = (uint8_t)(v > 0 ? (v < 255 ? v : 255) : 0);
+        }
+    }
+    for (int x = 0; x < 128; x++) s_heat[(VIEW_H - 1) * 128 + x] = 0;
+}
+
 void mb_fx_flux_render(uint16_t *fb, int cam_x, int cam_y)
 {
     int c0 = cam_x / TILE, r0 = cam_y / TILE;
-    int minc = MW, maxc = -1, minr = MH, maxr = -1;
     uint8_t kinds = 0;
     for (int r = r0 - 1; r <= r0 + MVH + 1; r++) {
         if (r < 0 || r >= MH) continue;
         for (int c = c0 - 1; c <= c0 + MVW + 1; c++) {
             if (c < 0 || c >= MW) continue;
             uint8_t k = mb_fkind(mb_w.flux[AT(c, r)]);
-            if (!k || k >= FX_N || !FLUX_RAMP[k]) continue;
-            kinds |= (uint8_t)(1u << k);
-            if (c < minc) minc = c;
-            if (c > maxc) maxc = c;
-            if (r < minr) minr = r;
-            if (r > maxr) maxr = r;
+            if (k && k < FX_N && FLUX_RAMP[k]) kinds |= (uint8_t)(1u << k);
         }
     }
-    if (maxc < 0) return;
 
+    /* THE CHAR FIRST, so flame draws over its own wake: ground the front has already
+     * crossed, fuel spent, colour gone. Without it a fire is a bright shape floating over
+     * an untouched meadow with no history behind it. */
     for (uint8_t k = 1; k < FX_N; k++) {
-        if (!(kinds & (1u << k)) || !FLUX_RAMP[k]) continue;
-        const uint16_t *ramp = FLUX_RAMP[k];
-        float scroll = s_time * FLUX_RISE[k];
-        float grain  = FLUX_GRAIN[k];
-
-        int x0 = (minc - 1) * TILE - cam_x, x1 = (maxc + 2) * TILE - cam_x;
-        int y0 = (minr - 1) * TILE - cam_y, y1 = (maxr + 2) * TILE - cam_y;
-        if (x0 < 0) x0 = 0;
-        if (y0 < 0) y0 = 0;
-        if (x1 > 128) x1 = 128;
-        if (y1 > VIEW_H) y1 = VIEW_H;
-
-        for (int sy = y0; sy < y1; sy++) {
-            float wy = (float)(sy + cam_y) / (float)TILE - 0.5f;
-            int rr = (int)floorf(wy);
-            float ty = wy - (float)rr;
-            for (int sx = x0; sx < x1; sx++) {
-                float wx = (float)(sx + cam_x) / (float)TILE - 0.5f;
-                int cc = (int)floorf(wx);
-                float tx = wx - (float)cc;
-                float i00 = (float)flux_at(cc,     rr,     k);
-                float i10 = (float)flux_at(cc + 1, rr,     k);
-                float i01 = (float)flux_at(cc,     rr + 1, k);
-                float i11 = (float)flux_at(cc + 1, rr + 1, k);
-                float top = i00 + (i10 - i00) * tx;
-                float bot = i01 + (i11 - i01) * tx;
-                /* NORMALISED BY WHAT A FIRE ACTUALLY REACHES, not by the field's width.
-                 * fuel_inten packs remaining fuel into four bits, so forest with deadwood
-                 * hits 15 — but plain GRASS only ever reaches about 4. Dividing by 15 meant
-                 * a grass fire peaked at 0.27 of the scale the thresholds were written
-                 * against, so nearly nothing passed the flame test and a burning meadow was
-                 * all char and three sparks. */
-                float inten = (top + (bot - top) * ty) * (1.0f / 7.0f);
-                if (inten > 1.0f) inten = 1.0f;
-                if (inten <= 0.03f) continue;
-
-                /* Sampled COARSER vertically than horizontally, so the noise features are
-                 * taller than they are wide and the flame licks upward. Equal grain in both
-                 * axes gave it a horizontal weave and the hottest cores read as white
-                 * streaks lying across the fire. */
-                float n = vnoise(wx * grain, wy * grain * 0.55f - scroll);
-                /* THE NOISE MODULATES, IT DOES NOT ADD.
-                 *
-                 * It used to be `inten * 1.45 + n * 0.75 - 0.62`, and that addition is what
-                 * made the whole thing a noise map: a spent cell with a lucky noise sample
-                 * flamed just as brightly as the front, so a fire was a uniform flickering
-                 * blob with no structure and no direction.
-                 *
-                 * Multiplying means noise can only shape fuel that is actually there. And
-                 * because this flux model stores intensity as REMAINING FUEL — a cell is
-                 * lit at full and counts down — high intensity IS the leading edge. So the
-                 * bright flame lands on the front by itself, and the burnt-out middle gets
-                 * the char pass below. A fire that starts in the middle and eats outwards,
-                 * with its own wake behind it. */
-                float shape = inten * (0.55f + 0.85f * n);
-                if (shape > 0.42f) {
-                    float heat = (shape - 0.42f) * 1.9f;
-                    if (heat > 1.0f) heat = 1.0f;
-                    fb[sy * 128 + sx] = ramp[(int)(heat * (float)(RAMPN - 1) + 0.5f)];
-                } else if (inten > 0.10f && CHAR_COL[k]) {
-                    /* THE WAKE. Behind the front the fuel is gone but the ground is not the
-                     * ground any more. Without this the interior showed untouched grass and
-                     * the fire read as a ring floating over a meadow. */
-                    float a = 0.35f + 0.5f * (1.0f - inten);
-                    if (a > 0.85f) a = 0.85f;
-                    fb[sy * 128 + sx] = lerp565(fb[sy * 128 + sx], CHAR_COL[k], a);
+        if (!(kinds & (1u << k)) || !CHAR_COL[k]) continue;
+        for (int r = r0 - 1; r <= r0 + MVH + 1; r++) {
+            if (r < 0 || r >= MH) continue;
+            for (int c = c0 - 1; c <= c0 + MVW + 1; c++) {
+                if (c < 0 || c >= MW) continue;
+                if (!flux_at(c, r, k)) continue;
+                for (int y = 0; y < TILE; y++) {
+                    int sy = r * TILE + y - cam_y;
+                    if (sy < 0 || sy >= VIEW_H) continue;
+                    for (int x = 0; x < TILE; x++) {
+                        int sx = c * TILE + x - cam_x;
+                        if (sx < 0 || sx > 127) continue;
+                        unsigned h = (unsigned)((sx * 73856093) ^ (sy * 19349663));
+                        h ^= h >> 13;
+                        float a = 0.45f + 0.35f * (float)(h & 255) / 255.0f;
+                        fb[sy * 128 + sx] = lerp565(fb[sy * 128 + sx], CHAR_COL[k], a);
+                    }
                 }
             }
+        }
+    }
+    if (!kinds) return;
+
+    /* THE FLAME, from the heat simulation. Seeded by every kind on screen, convected once,
+     * then drawn through the dominant kind's ramp. One shared buffer: two disasters
+     * overlapping cannot be told apart pixel by pixel, which is rare, and one buffer is
+     * 14 KB where five would be seventy. */
+    for (uint8_t k = 1; k < FX_N; k++)
+        if (kinds & (1u << k)) heat_seed(cam_x, cam_y, k);
+
+    uint8_t dom = 1;
+    for (uint8_t k = 1; k < FX_N; k++) if (kinds & (1u << k)) { dom = k; break; }
+    static const int COOL_LO[FX_N] = { 0,  6,  4,  9,  7, 12 };
+    static const int COOL_HI[FX_N] = { 0, 22, 12, 26, 20, 30 };
+    heat_convect(COOL_LO[dom], COOL_HI[dom]);
+
+    const uint16_t *ramp = FLUX_RAMP[dom];
+    for (int sy = 0; sy < VIEW_H; sy++) {
+        const uint8_t *row = &s_heat[sy * 128];
+        for (int sx = 0; sx < 128; sx++) {
+            int h = row[sx];
+            if (h < 40) continue;               /* the cold tail is smoke, not flame */
+            int idx = ((h - 40) * (RAMPN - 1)) / 215;
+            if (idx > RAMPN - 1) idx = RAMPN - 1;
+            fb[sy * 128 + sx] = ramp[idx];
         }
     }
 }
