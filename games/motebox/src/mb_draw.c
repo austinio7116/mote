@@ -88,7 +88,7 @@ static const uint16_t MB_COL[B_COUNT] = {
     C_WHITE,   /* ice      */ C_PEACH,  /* beach    */ C_YELLOW, /* desert   */
     C_ORANGE,  /* savanna  */ C_DKGREEN,/* grass    */ C_DKGREEN,/* swamp    */
     C_BROWN,   /* hill     */ C_DKGREY, /* mountain */ C_LTGREY, /* peak     */
-    C_SLATE,   /* tundra   */ C_WHITE,  /* snow     */ C_DKGREY, /* ash      */
+    C_BROWN,   /* tundra   */ C_WHITE,  /* snow     */ C_DKGREY, /* ash      */
     C_MAROON,  /* scorched */ C_RED,    /* lava     */ C_GREEN,  /* acid     */
     C_BROWN,   /* farm     */ C_LTGREY, /* rubble   */ C_DKGREEN,/* meadow   */
     C_DKGREEN, /* forest   */ C_DKGREY, /* road     */

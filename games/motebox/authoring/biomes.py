@@ -272,7 +272,13 @@ def recipes():
         ("bio_ice",    WHITE,   [lambda v: plain(WHITE),
                                  lambda v: cracks(WHITE, BLUE, 11 + v)],       [4, 2], BLUE),
         ("bio_snow",   WHITE,   [lambda v: plain(WHITE)],                      [1],    LTGREY, "SE"),
-        ("bio_tundra", SLATE,   [lambda v: plain(SLATE)],                      [1],    LTGREY, "SE"),
+        # TUNDRA IS A COLD BROWN STEPPE, not lavender. It was PICO-8's SLATE, which is
+        # a mauve, and on a world where tundra is the biggest biome the map came out
+        # PINK — an alien planet rather than a cold one. The palette has no olive or
+        # khaki, so the honest choice is brown with a pale rim: frozen ground with
+        # frost on its edges. Hill is also brown, but hill rims ORANGE and tundra rims
+        # LTGREY, so a warm slope and a cold one still read apart.
+        ("bio_tundra", BROWN,   [lambda v: plain(BROWN)],                      [1],    LTGREY, "SE"),
         # --- sand -----------------------------------------------------------
         ("bio_beach",  PEACH,   [lambda v: plain(PEACH)],                      [1],    YELLOW, "SE"),
         ("bio_desert", YELLOW,  [lambda v: plain(YELLOW)],                     [1],    PEACH, "SE"),

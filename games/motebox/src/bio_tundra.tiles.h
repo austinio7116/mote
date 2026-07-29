@@ -3,7 +3,7 @@
 #define MOTE_T_bio_tundra_H
 #include "mote_tile.h"
 
-static const uint16_t bio_tundra_pal[3] = { 0x83b3,0xc618,0xf81f };
+static const uint16_t bio_tundra_pal[3] = { 0xaa86,0xc618,0xf81f };
 static const uint8_t bio_tundra_idx[1536] = {
   0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,
   0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,

@@ -56,6 +56,9 @@ static int   s_lb_was_wheel;         /* so releasing the wheel is not a speed ta
 static uint32_t s_shake_ph = 1;      /* camera-shake jitter (render only) */
 static float s_denied;               /* 'not enough faith' message timer */
 static float s_nobody;               /* 'the cast reached nobody' message timer */
+static float s_rb_hold;              /* RB held: tap toggles the view, hold seeks */
+static float s_seek_acc;
+static int   s_rb_seeked;            /* so a release after seeking is not a zoom */
 
 /* --- HUD ---------------------------------------------------------------- */
 #define HUD_Y   VIEW_H
@@ -86,6 +89,22 @@ static const char *const O_NAME[O_N] = {
 };
 /* A compile-time tripwire for exactly the mistake above. */
 typedef char mb_onames_complete[(sizeof O_NAME / sizeof O_NAME[0]) == O_N ? 1 : -1];
+
+/* Trait names for the Soul Card, in TR_*_B order. A trait the player cannot read is
+ * a trait that may as well not exist: BLESSED, MARKED and VETERAN are the whole
+ * reward for spending faith on one person. */
+static const char *const TR_NAME[TR_N] = {
+    "tough", "fast", "brave", "coward", "greedy", "loyal", "ambitious", "fertile",
+    "barren", "genius", "stupid", "pious", "vengeful", "regenerating",
+    "BLESSED", "CURSED", "CHOSEN", "MARKED", "plagued", "mad", "contagious",
+    "risen", "immortal", "veteran",
+};
+typedef char mb_trnames_complete[(sizeof TR_NAME / sizeof TR_NAME[0]) == TR_N ? 1 : -1];
+static const char *const JOB_NAME[JOB_N] = {
+    "idle", "wandering", "foraging", "hunting", "fleeing", "courting",
+    "working", "fighting",
+};
+typedef char mb_jobnames_complete[(sizeof JOB_NAME / sizeof JOB_NAME[0]) == JOB_N ? 1 : -1];
 
 
 /* --- HUD text that cannot collide ---------------------------------------
@@ -151,7 +170,143 @@ static void cam_follow(void)
     if (s_cam_y < 0) s_cam_y = 0; if (s_cam_y > maxy) s_cam_y = maxy;
 }
 
+/* --- RB hold: SEEK -------------------------------------------------------
+ * Also promised by DESIGN.md 4 and never built. Pixel-hunting a one-pixel villager
+ * across a 128x112 world with a d-pad is misery, and it is the main reason the game
+ * could feel like nothing was happening: plenty was, somewhere else. Seek walks a
+ * priority list of places the simulation already knows are interesting — a fire, a
+ * summoned monster, a war, then the villages by size — so it doubles as the "show me
+ * a story" button for passive play. */
+static void seek_next(void)
+{
+    static int turn;
+    int bx = -1, by = -1;
+
+    for (int pass = 0; pass < 4 && bx < 0; pass++) {
+        int step = ++turn;
+        switch (pass) {
+        case 0: {                                  /* something burning or flooding */
+            int hits = 0, want;
+            for (int c = 0; c < NC; c++) if (mb_fkind(mb_w.flux[c])) hits++;
+            if (!hits) break;
+            want = step % hits; hits = 0;
+            for (int c = 0; c < NC; c++)
+                if (mb_fkind(mb_w.flux[c]) && hits++ == want) { bx = c % MW; by = c / MW; break; }
+            break;
+        }
+        case 1: {                                  /* a monster walking the world */
+            int n = mb_agent_max(), hits = 0, ax, ay, kind;
+            for (int a = 0; a < n; a++) if (mb_agent_get(a, &ax, &ay, &kind)) hits++;
+            if (!hits) break;
+            int want = step % hits; hits = 0;
+            for (int a = 0; a < n; a++)
+                if (mb_agent_get(a, &ax, &ay, &kind) && hits++ == want) { bx = ax; by = ay; break; }
+            break;
+        }
+        case 2: {                                  /* a village at war */
+            int hits = 0;
+            for (int v = 1; v < MAXV; v++)
+                if (mb_v[v].alive && mb_k[mb_v[v].kingdom].war_with) hits++;
+            if (!hits) break;
+            int want = step % hits; hits = 0;
+            for (int v = 1; v < MAXV; v++)
+                if (mb_v[v].alive && mb_k[mb_v[v].kingdom].war_with && hits++ == want) {
+                    bx = mb_v[v].x; by = mb_v[v].y; break;
+                }
+            break;
+        }
+        default: {                                 /* otherwise, the next village */
+            int hits = 0;
+            for (int v = 1; v < MAXV; v++) if (mb_v[v].alive && mb_v[v].pop) hits++;
+            if (!hits) break;
+            int want = step % hits; hits = 0;
+            for (int v = 1; v < MAXV; v++)
+                if (mb_v[v].alive && mb_v[v].pop && hits++ == want) {
+                    bx = mb_v[v].x; by = mb_v[v].y; break;
+                }
+            break;
+        }
+        }
+    }
+    if (bx >= 0) { s_cx = bx; s_cy = by; if (!s_god) cam_follow(); }
+}
+
 static void god_menu(void);
+
+/* --- B: the Soul Card ---------------------------------------------------
+ * DESIGN.md 4 promised this and it was never built, which left B doing nothing at
+ * all — and it is the control that answers "what am I even looking at". In God's Eye
+ * a person is ONE PIXEL: without an inspect key, a world of names, families, traits,
+ * jobs and grudges is completely invisible, and the game reads as coloured noise.
+ * Everything below is already in the sim; none of it was reachable. */
+static void soul_card(void)
+{
+    static char rows[9][34];
+    const char *items[10];
+    int n = 0;
+
+    int x = s_cx, y = s_cy;
+    if (!mb_in(x, y)) return;
+    int i = AT(x, y);
+
+    int ui = mb_unit_at(x, y);
+    if (ui >= 0 && mb_u[ui].alive) {
+        const Unit *u = &mb_u[ui];
+        const MbSpecies *S = &MB_SP[u->sp];
+        char nm[24] = "";
+        if (u->sp < SP_CIV_N) mb_name_str(nm, sizeof nm, 2, u->family);
+        snprintf(rows[n], sizeof rows[n], "%s%s%s", nm[0] ? nm : "", nm[0] ? " the " : "",
+                 S->name);
+        items[n] = rows[n]; n++;
+        snprintf(rows[n], sizeof rows[n], "age %d/%d  hp %d  %s",
+                 u->age, S->lifespan, u->hp, JOB_NAME[u->job < JOB_N ? u->job : 0]);
+        items[n] = rows[n]; n++;
+        snprintf(rows[n], sizeof rows[n], "mood %d  hunger %d%s",
+                 u->happy, u->hunger, u->sick ? "  ILL" : "");
+        items[n] = rows[n]; n++;
+        if (u->village && u->village < MAXV && mb_v[u->village].alive) {
+            char vn[24]; mb_name_str(vn, sizeof vn, 0, mb_v[u->village].name);
+            snprintf(rows[n], sizeof rows[n], "of %s", vn);
+            items[n] = rows[n]; n++;
+        }
+        /* traits, packed two or three to a line so a long list still fits */
+        int o = 0; rows[n][0] = 0;
+        for (int t = 0; t < TR_N; t++) {
+            if (!(u->traits & TRB(t))) continue;
+            int need = (int)strlen(TR_NAME[t]) + (o ? 1 : 0);
+            if (o + need >= (int)sizeof rows[n] - 1) break;
+            o += snprintf(rows[n] + o, sizeof rows[n] - o, "%s%s", o ? " " : "", TR_NAME[t]);
+        }
+        if (o) { items[n] = rows[n]; n++; }
+    }
+
+    uint8_t b = mb_w.biome[i], ob = mb_w.obj[i];
+    snprintf(rows[n], sizeof rows[n], "%s%s%s", B_NAME[b],
+             ob ? " / " : "", ob ? O_NAME[ob] : "");
+    items[n] = rows[n]; n++;
+
+    int v = mb_w.claim[i];
+    if (v && v < MAXV && mb_v[v].alive) {
+        char vn[24]; mb_name_str(vn, sizeof vn, 0, mb_v[v].name);
+        int k = mb_kingdom_of(v);
+        char kn[24] = "";
+        if (k && mb_k[k].alive) mb_name_str(kn, sizeof kn, 1, mb_k[k].name);
+        snprintf(rows[n], sizeof rows[n], "%s, pop %d", vn, mb_v[v].pop);
+        items[n] = rows[n]; n++;
+        if (kn[0]) {
+            snprintf(rows[n], sizeof rows[n], "%s%s", kn,
+                     (k && mb_k[k].war_with) ? "  AT WAR" : "");
+            items[n] = rows[n]; n++;
+        }
+    }
+    uint8_t fk = mb_fkind(mb_w.flux[i]);
+    if (fk && fk < FX_N) {
+        snprintf(rows[n], sizeof rows[n], "%s (%d)", FX_NAME[fk], mb_fint(mb_w.flux[i]));
+        items[n] = rows[n]; n++;
+    }
+    items[n++] = "BACK";
+    mote->menu("INSPECT", items, n);
+}
 
 static void view_set(int god)
 {
@@ -615,6 +770,8 @@ static void g_update(float dt)
      * A blocking engine menu is the right tool — it is a pause, and the sim
      * genuinely should stop while you read a history. */
     if (mote_just_pressed(in, MOTE_BTN_MENU) && !wheel) god_menu();
+    /* B: inspect whatever the cursor is on. */
+    if (mote_just_pressed(in, MOTE_BTN_B) && !wheel) soul_card();
 
     /* --- A casts. A brush power keeps casting while held, on a fixed cadence so
      * painting terrain feels like a brush rather than a machine gun; everything
@@ -658,7 +815,23 @@ static void g_update(float dt)
     if (!wheel && mote_just_released(in, MOTE_BTN_LB) && !s_lb_was_wheel)
         s_speed = (s_speed + 1) & 3;
     s_lb_was_wheel = wheel;
-    if (!wheel && mote_just_pressed(in, MOTE_BTN_RB)) view_set(!s_god);
+    /* RB: TAP TOGGLES THE VIEW, HOLD SEEKS. One shoulder, two verbs, no chord — the
+     * same tap/hold split LB already uses for speed and the wheel. The threshold has
+     * to be short enough that a zoom still feels instant on release. */
+    if (!wheel) {
+        if (mote_pressed(in, MOTE_BTN_RB)) {
+            s_rb_hold += dt;
+            if (s_rb_hold > 0.30f) {
+                s_seek_acc += dt;
+                if (!s_rb_seeked || s_seek_acc > 0.33f) {   /* ~3 a second while held */
+                    seek_next(); s_seek_acc = 0.0f; s_rb_seeked = 1;
+                }
+            }
+        } else {
+            if (s_rb_hold > 0.0f && !s_rb_seeked) view_set(!s_god);
+            s_rb_hold = 0.0f; s_seek_acc = 0.0f; s_rb_seeked = 0;
+        }
+    }
 
     if (!s_god) {
         cam_follow();
