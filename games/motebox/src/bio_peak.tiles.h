@@ -3,10 +3,10 @@
 #define MOTE_T_bio_peak_H
 #include "mote_tile.h"
 
-static const uint16_t bio_peak_pal[3] = { 0x5aa9,0xc618,0xff9d };
+static const uint16_t bio_peak_pal[3] = { 0x194a,0xc618,0xff9d };
 static const uint8_t bio_peak_idx[64] = {
-  17,17,17,17,17,17,17,17,17,17,17,17,17,33,17,16,17,17,17,17,17,17,17,17,17,17,16,17,17,17,17,18,
-  17,17,17,17,17,17,17,17,17,17,17,17,17,33,17,17,17,1,17,17,17,17,17,17,17,17,17,17,18,17,17,1,
+  34,34,34,34,18,34,34,33,17,34,34,17,17,18,33,17,17,16,1,17,17,0,0,17,16,0,0,1,0,0,0,0,
+  34,34,34,17,18,34,33,17,17,34,17,17,17,17,17,17,17,16,1,17,17,0,0,17,16,0,0,1,17,17,17,17,
 };
 static const MoteImage bio_peak_img = { 0, 8, 16, 0xF81F, 0, 1, bio_peak_idx, bio_peak_pal };  /* 4bpp indexed, 3 colours */
 static const MoteAutotile bio_peak_at = { &bio_peak_img, 8, 8, {

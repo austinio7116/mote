@@ -312,15 +312,33 @@ def wall_seg(banner):
     return im
 
 
-def well(banner):
-    """The founding marker: a village well, which is the first thing anybody digs."""
+def campfire(banner):
+    """The founding marker, and it is a CAMPFIRE — the first thing settlers light.
+
+    This was drawn as a village well: a stone rim with blue water and a windlass frame
+    over it. The object it stands for is O_FIRE_PIT, which the game calls a campfire, so
+    the art and the name disagreed and it read as "a T over a water bowl" — which is
+    exactly what a windlass over a full bucket looks like at eight pixels.
+
+    The master's own (3,9) is labelled campfire at LOW confidence and is a brown mound
+    with orange flecks; it reads as a loaf. Its flame cells are good but have no logs. So
+    this is logs plus a flame: crossed timber with lit ends, a tapering flame above in
+    yellow through red, and two embers. A fire is the one thing whose silhouette has to
+    say "fire" instantly, because it is the marker that says a village starts HERE.
+    """
     im, px = _blank()
-    _rect(px, 1, 9, 6, H - 1, STONE)
-    _rect(px, 1, 9, 6, 9, STONE_LIT)
-    _rect(px, 2, 10, 5, 12, BLUE)                     # water in it
-    _rect(px, 3, 5, 4, 8, BROWN)                      # the frame
-    _rect(px, 1, 4, 6, 4, BROWN)                      # and its roof
-    _rect(px, 2, 3, 5, 3, ORANGE)
+    # the flame, widest at its base and tapering, three tones out from the core
+    _rect(px, 2, 9, 5, 10, RED)
+    _rect(px, 2, 7, 5, 8, ORANGE)
+    _rect(px, 3, 5, 4, 6, YELLOW)
+    px[3, 4] = YELLOW + (255,)
+    px[2, 6] = RED + (255,); px[5, 6] = RED + (255,)   # licks off the sides
+    # crossed logs under it, lit where the fire touches them
+    _rect(px, 0, 11, 7, 12, BROWN)
+    px[0, 11] = PEACH + (255,); px[7, 11] = PEACH + (255,)
+    px[1, 12] = ORANGE + (255,); px[6, 12] = ORANGE + (255,)
+    _rect(px, 0, 13, 7, 13, DKGREY)                    # its shadow on the ground
+    px[1, 10] = ORANGE + (255,); px[6, 10] = ORANGE + (255,)   # embers
     return im
 
 
@@ -339,7 +357,7 @@ def plan(banner):
 # The order here IS the order of O_FIRE_PIT..O_PLAN in mb.h, so the sheet's column
 # index is `obj - O_BUILD0` and the C side needs no lookup table at all.
 BUILDINGS = [
-    ("well",       well),
+    ("campfire",   campfire),
     ("hall",       hall),
     ("great_hall", great_hall),
     ("castle",     castle),

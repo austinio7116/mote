@@ -246,6 +246,18 @@ def write_tileset(name, tiles, weights, edge=1):
     print(f"[biome]   {name:20s} nvar={len(tiles)} weights={vw[:len(tiles)]}")
 
 
+def artist_tile(cx, cy, under=DKGREY):
+    """One 8x8 cell straight from the master, opaque, for a terrain whose art the artist
+    already drew better than any generator will."""
+    im = region(cx, cy, cx, cy).convert("RGBA")
+    # ONTO ROCK, NOT BLACK. The master's palette index 0 is its transparency, so filling
+    # behind it with black puts real black pixels in a terrain tile — which is the exact
+    # bug that made forest look outlined, walked straight back in through a new door.
+    flat = Image.new("RGBA", im.size, under + (255,))
+    flat.alpha_composite(im)
+    return flat.convert("RGBA")
+
+
 def build_biomes():
     """Real blob47 sets, so every biome boundary is DRAWN.
 
@@ -293,6 +305,19 @@ def build_biomes():
     # 3. everything else, from the vocabulary — flat bases, bright rims
     for rec in biomes.recipes():
         name, base, builders, weights, rim = rec[:5]
+        # What to fill the master's transparency with, per artist-sourced biome: its own
+        # body colour, so a hole in his art reads as more of the same rock.
+        ARTIST_UNDER = {"bio_mountain": NAVY, "bio_peak": LTGREY}
+        if base is biomes.ARTIST:
+            # tiles straight from the master, one per variant
+            sheet = Image.new("RGBA", (TS, TS * len(builders)))
+            for v, (cx, cy) in enumerate(builders):
+                sheet.paste(artist_tile(cx, cy, ARTIST_UNDER.get(name, DKGREY)),
+                            (0, v * TS))
+            terrain.write(TSETS, name, sheet, len(builders), vweight=weights,
+                          lut=[0] * 256)
+            print(f"[artist]  {name:20s} nvar={len(builders)} cells={builders}")
+            continue
         sides = rec[5] if len(rec) > 5 else "NSEW"
         nvar = len(builders)
         sheet = terrain.flat(lambda v: builders[v](v), nvar=nvar)
@@ -455,7 +480,7 @@ TRANSITIONS = [
     ("bio_scorched",     14,  [MAROON,  RED,     ORANGE]),
     ("bio_rubble",       15,  [LTGREY,  WHITE,   WHITE]),
     ("bio_hill",         16,  [BROWN,   ORANGE,  YELLOW]),
-    ("bio_mountain",     17,  [DKGREY,  LTGREY,  WHITE]),
+    ("bio_mountain",     17,  [NAVY,    LTGREY,  WHITE]),
     ("bio_peak",         18,  [LTGREY,  WHITE,   WHITE]),
 ]
 
@@ -645,8 +670,8 @@ def main():
     build_roads()
     build_town()
     build_transitions()
-    check_transition_bodies()
     build_biomes()
+    check_transition_bodies()
     sync_terrain()
     build_icon()
     print("\nbiome tilesets written (the B_* enum in src/mb.h must match this order):")

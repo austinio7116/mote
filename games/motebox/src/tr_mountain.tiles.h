@@ -3,7 +3,7 @@
 #define MOTE_T_tr_mountain_H
 #include "mote_tile.h"
 
-static const uint16_t tr_mountain_pal[4] = { 0x5aa9,0xc618,0xf81f,0xff9d };
+static const uint16_t tr_mountain_pal[4] = { 0x194a,0xc618,0xf81f,0xff9d };
 static const uint8_t tr_mountain_idx[3072] = {
   34,34,34,34,0,0,0,0,34,34,35,16,0,0,0,34,0,0,0,0,34,34,34,34,0,0,0,0,34,34,35,16,
   0,0,0,34,0,0,0,0,34,34,35,16,0,0,0,34,0,0,0,0,1,50,34,34,34,0,0,0,1,50,35,16,

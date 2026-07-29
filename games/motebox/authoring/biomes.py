@@ -77,6 +77,9 @@ def _put(px, x, y, c):
 # litter. Compare wall_brick (staggered courses) and hedge (flat) — those are the two
 # things that work at eight pixels.
 
+ARTIST = "artist"    # a recipe whose art is lifted from the master, not generated
+
+
 def mottle(body, light, dark, seed, n=2):
     """A flat field with GRAIN: a handful of lighter and darker pixels on a fixed
     lattice, so a continent has surface without having a pattern.
@@ -334,12 +337,19 @@ def recipes():
         ("bio_hill", BROWN, [lambda v: mottle(BROWN, ORANGE, DKGREY, 260 + v),
                                  lambda v: mottle(BROWN, ORANGE, DKGREY, 265 + v)],
                                                                        [1, 1], None),
-        ("bio_mountain", DKGREY, [lambda v: mottle(DKGREY, LTGREY, BROWN, 270 + v),
-                                 lambda v: mottle(DKGREY, LTGREY, BROWN, 275 + v)],
-                                                                       [1, 1], None),
-        ("bio_peak", LTGREY, [lambda v: mottle(LTGREY, WHITE, DKGREY, 280 + v),
-                                 lambda v: mottle(LTGREY, WHITE, DKGREY, 285 + v)],
-                                                                       [1, 1], None),
+        # MOUNTAIN AND PEAK ARE THE ARTIST'S NOW. The generated pair were `capped` and
+        # `mottle`: white triangles scattered on grey, which read as confetti on a slab
+        # and not as rock. The master already has a proper faceted mountain at
+        # (9..10, 25..27) — light grey planes over a navy core with a snow cap above —
+        # and no generator here was going to beat it. ARTIST marks a recipe whose tiles
+        # come straight from the master by cell, so extract_box knows not to call a
+        # builder for it.
+        # (5,26) was tried and is wrong: a single boulder on a light ground, drawn to be
+        # COMPOSED rather than tiled, so a mountain range came out as grey blocks in a
+        # cream mortar lattice. (9,27) and (10,27) are the faceted slope — navy rock with
+        # light grey planes — which is what tiles into a mountain.
+        ("bio_mountain", ARTIST, [(9, 27), (10, 27)], [1, 1], None),
+        ("bio_peak",     ARTIST, [(9, 25), (10, 25)], [1, 1], None),
         ("bio_rubble", LTGREY,  [lambda v: plain(LTGREY),
                                  lambda v: pebbles(LTGREY, DKGREY, 121 + v, step=4)],
                                                                                [2, 3], None),

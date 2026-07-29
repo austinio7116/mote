@@ -3,12 +3,12 @@
 #define MOTE_T_bio_mountain_H
 #include "mote_tile.h"
 
-static const uint16_t bio_mountain_pal[3] = { 0x5aa9,0xaa86,0xc618 };
+static const uint16_t bio_mountain_pal[2] = { 0x194a,0xc618 };
 static const uint8_t bio_mountain_idx[64] = {
-  0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,1,0,0,0,2,0,
-  0,1,0,0,0,0,0,32,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+  17,17,17,16,17,17,17,0,17,17,16,0,17,17,0,0,17,16,0,0,17,0,0,0,16,0,0,0,0,0,0,0,
+  1,17,17,17,0,17,17,17,0,1,17,17,0,0,17,17,0,0,1,17,0,0,0,17,0,0,0,1,0,0,0,0,
 };
-static const MoteImage bio_mountain_img = { 0, 8, 16, 0xF81F, 0, 1, bio_mountain_idx, bio_mountain_pal };  /* 4bpp indexed, 3 colours */
+static const MoteImage bio_mountain_img = { 0, 8, 16, 0xF81F, 0, 1, bio_mountain_idx, bio_mountain_pal };  /* 4bpp indexed, 2 colours */
 static const MoteAutotile bio_mountain_at = { &bio_mountain_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
