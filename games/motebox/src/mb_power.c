@@ -102,18 +102,18 @@ static const Power P_BLESS[8] = {
     { PW_INSPIRE,   "INSPIRE",   &ui_status_img,  3, 3, 0, 0,  60 },
     { PW_PEACE,     "PEACE",     &ui_status_img,  5, 1, 0, 0, 100 },
     { PW_GOLDVEIN,  "GOLD VEIN", &treasure_ore_img, 1, 0, 2, 0,  45 },
-    { PW_BLESS,     "BLESS",     &ui_status_img, 10, 1, 1, 0,  80 },
+    { PW_BLESS,     "BLESS",     &ui_status_img, 10, 1, 3, 0,  80 },
     { PW_RESURRECT, "RESURRECT", &ui_status_img,  0, 5, 2, 0, 120 },
 };
 static const Power P_CURSE[8] = {
-    { PW_PLAGUE,  "PLAGUE",   &ui_status_img, 10, 5, 1, 0,  70 },
+    { PW_PLAGUE,  "PLAGUE",   &ui_status_img, 10, 5, 3, 0,  70 },
     { PW_MADNESS, "MADNESS",  &ui_status_img,  2, 3, 2, 0,  55 },
-    { PW_CURSE,   "CURSE",    &ui_status_img, 11, 3, 1, 0,  40 },
+    { PW_CURSE,   "CURSE",    &ui_status_img, 11, 3, 3, 0,  40 },
     { PW_WEAKEN,  "WEAKEN",   &ui_status_img,  4, 3, 2, 0,  25 },
     { PW_FAMINE,  "FAMINE",   &ui_status_img,  6, 6, 3, 0,  60 },
     { PW_BARREN,  "BARREN",   &ui_status_img, 15, 3, 3, 0,  45 },
     { PW_GRUDGE,  "GRUDGE",   &ui_status_img,  9, 3, 0, 0,  35 },
-    { PW_MARK,    "MARK",     &ui_status_img, 11, 1, 0, 0,  30 },
+    { PW_MARK,    "MARK",     &ui_status_img, 11, 1, 2, 0,  30 },
 };
 /* The seventeen 2x2 kaiju live on the bosses sheet; eight are summonable. */
 static const Power P_BEASTS[8] = {
@@ -153,6 +153,17 @@ int         mb_wheel_open(void)   { return s_wheel; }
 
 /* One cell. Separate from the flux rules because terraforming is the player's
  * hand acting instantly, not a process the world runs. */
+/* How many people the last cast reached, or -1 when the power does not target
+ * people at all. A blessing that catches nobody looks exactly like a blessing that
+ * is broken — you spend eighty faith on a village square and the world does not
+ * move — so the HUD gets to say "NOBODY THERE" instead of leaving you guessing.
+ *
+ * The unit-targeting radii were also simply too tight: BLESS and CURSE at radius 1
+ * cover five tiles, while a village spreads over seventeen by seventeen, so most
+ * casts on the hall genuinely reached no one. They are radius 3 now. */
+static int s_last_reach = -1;
+int mb_power_last_reach(void) { return s_last_reach; }
+
 static void terra(int x, int y, int id)
 {
     if (!mb_in(x, y)) return;
@@ -366,7 +377,7 @@ static void cast_at(int id, int r, int cx, int cy)
         mb_fx_burst((float)cx, (float)cy, 12, PK_STAR, FXE_ACID, 1.6f, 0.9f);
         break;
     case PW_HEAL:
-        mb_unit_area(cx, cy, r, UAP_HEAL, 0);
+        s_last_reach = mb_unit_area(cx, cy, r, UAP_HEAL, 0);
         mb_fx_burst((float)cx, (float)cy, 10, PK_STAR, FXE_HOLY, 1.5f, 0.8f);
         break;
     case PW_INSPIRE: {
@@ -390,7 +401,7 @@ static void cast_at(int id, int r, int cx, int cy)
                 mb_w.obj[AT(x, y)] = (rr & 1) ? O_GOLD : ((rr & 2) ? O_GEM : O_SILVER);
             }
         break;
-    case PW_BLESS:      mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_BLESSED); break;
+    case PW_BLESS:      s_last_reach = mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_BLESSED); break;
     case PW_RESURRECT:
         /* graves give their dead back, which is the one power that undoes a
          * disaster after the fact */
@@ -405,10 +416,10 @@ static void cast_at(int id, int r, int cx, int cy)
         break;
 
     /* --- CURSE ------------------------------------------------------- */
-    case PW_PLAGUE:   mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_PLAGUE | TR_CONTAGIOUS); break;
-    case PW_MADNESS:  mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_MADNESS); break;
-    case PW_CURSE:    mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_CURSED); break;
-    case PW_WEAKEN:   mb_unit_area(cx, cy, r + 1, UAP_HURT, 40); break;
+    case PW_PLAGUE:   s_last_reach = mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_PLAGUE | TR_CONTAGIOUS); break;
+    case PW_MADNESS:  s_last_reach = mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_MADNESS); break;
+    case PW_CURSE:    s_last_reach = mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_CURSED); break;
+    case PW_WEAKEN:   s_last_reach = mb_unit_area(cx, cy, r + 1, UAP_HURT, 40); break;
     case PW_FAMINE:
         for (int y = cy - r; y <= cy + r; y++)
             for (int x = cx - r; x <= cx + r; x++) {
@@ -417,9 +428,9 @@ static void cast_at(int id, int r, int cx, int cy)
                 uint8_t *o = &mb_w.obj[AT(x, y)];
                 if (*o == O_BUSH || *o == O_FLOWER || *o == O_TUFT) *o = O_NONE;
             }
-        mb_unit_area(cx, cy, r, UAP_STARVE, 90);
+        s_last_reach = mb_unit_area(cx, cy, r, UAP_STARVE, 90);
         break;
-    case PW_BARREN:   mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_BARREN); break;
+    case PW_BARREN:   s_last_reach = mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_BARREN); break;
     case PW_GRUDGE: {
         /* set two kingdoms at each other: the player as agent provocateur */
         int v = mb_w.claim[AT(cx, cy)], k = mb_kingdom_of(v);
@@ -432,7 +443,7 @@ static void cast_at(int id, int r, int cx, int cy)
             }
         break;
     }
-    case PW_MARK:     mb_unit_area(cx, cy, 2, UAP_TRAIT, TR_MARKED); break;
+    case PW_MARK:     s_last_reach = mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_MARKED); break;
 
     /* --- BEASTS: the kaiju ------------------------------------------- */
     case PW_TITAN: case PW_MEDUSA: case PW_REAPER: case PW_PHOENIX:
@@ -455,6 +466,7 @@ static void cast_at(int id, int r, int cx, int cy)
 void mb_power_cast(int cx, int cy)
 {
     const Power *p = cur();
+    s_last_reach = -1;
     /* the blessings and the curses share two sounds; the disasters have their own */
     if (p->id >= PW_RAIN && p->id <= PW_RESURRECT) mb_snd(SND_BLESS);
     else if (p->id >= PW_PLAGUE && p->id <= PW_MARK) mb_snd(SND_CURSE);
@@ -479,6 +491,189 @@ int mb_power_cast_named(const char *name, int cx, int cy)
         }
     return 0;
 }
+
+#if MOTE_HOST
+#include <stdio.h>
+/* Every power, cast in turn, with the world state before and after.
+ *
+ * Forty-eight powers in six tabs is far too many to check by hand, and a power that
+ * silently does nothing looks exactly like one that is working — the wheel still
+ * names it, the faith is still spent. So this walks the whole table, casts each one
+ * on a target that has something for it to act on, ticks the world on so the slow
+ * ones (a spreading fire, a walking titan) have a chance to show, and prints what
+ * measurably changed. A row of zeroes is the bug report.
+ */
+typedef struct {
+    long elev, bio, obj, grave, flux, units, hp, sick, traits, happy;
+    long villages, vfood, vhappy, vhouse, kingdoms, warbits, agents, faith, tech, muster;
+} PwSnap;
+
+static void pw_snap(PwSnap *s)
+{
+    memset(s, 0, sizeof *s);
+    for (int c = 0; c < NC; c++) {
+        s->elev += mb_w.elev[c];
+        s->bio  += mb_w.biome[c] * (c % 7 + 1);      /* order-sensitive: any change shows */
+        if (mb_w.obj[c]) s->obj++;
+        if (mb_w.obj[c] == O_GRAVE) s->grave++;
+        if (mb_fkind(mb_w.flux[c])) s->flux++;
+    }
+    for (int k = 0; k < mb_nu; k++) {
+        if (!mb_u[k].alive) continue;
+        s->units++; s->hp += mb_u[k].hp; s->traits += mb_u[k].traits;
+        s->happy += mb_u[k].happy;
+        if (mb_u[k].sick) s->sick++;
+    }
+    for (int v = 1; v < MAXV; v++) {
+        if (!mb_v[v].alive) continue;
+        s->villages++; s->vfood += mb_v[v].food; s->vhappy += mb_v[v].happy;
+        s->vhouse += mb_v[v].housing; s->muster += mb_v[v].mustering;
+    }
+    for (int k = 1; k < MAXK; k++) {
+        if (!mb_k[k].alive) continue;
+        s->kingdoms++; s->tech += mb_k[k].tech;
+        for (uint32_t w = mb_k[k].war_with; w; w >>= 1) s->warbits += (w & 1);
+    }
+    s->agents = mb_agent_count();
+    s->faith  = mb_faith();
+}
+
+/* Every power, cast in turn, with the world state before and after.
+ *
+ * Forty-eight powers in six tabs is far too many to check by hand, and a power that
+ * silently does nothing looks exactly like one that works — the wheel still names it,
+ * the faith is still spent. So this walks the whole table, casts each on a target that
+ * has something to act on, ticks the world so the slow ones (a spreading fire, a
+ * walking titan) get to show, and prints every field that moved. A row of dashes is
+ * the bug report.
+ *
+ * The FIRST version of this measured only biome, objects, flux, units, hp and sick,
+ * and reported 17 of 48 dead — most of which were the harness failing to look at the
+ * right field (elevation for RAISE, a village ledger for FAMINE, a kingdom's war bits
+ * for GRUDGE) rather than the power failing. A test that cannot see the effect is not
+ * evidence of no effect.
+ */
+void mb_power_test_all(int cx, int cy)
+{
+    /* TWO TARGETS PER POWER, and the report is the better of the two.
+     *
+     * The first run of this cast everything on the village centre and called ten
+     * powers dead. But a village square is paved, built on and treeless — the worst
+     * possible target for FIRE (nothing to burn), ROAD (already a road) and VILLAGE
+     * (one is already here). "Nothing to act on" and "broken" produce identical
+     * output, so each power is tried on the town AND on wild vegetated ground. */
+    fprintf(stderr, "town target %d,%d; each power also gets its own untouched wild tile\n",
+            cx, cy);
+
+    int fails = 0;
+    for (int t = 0; t < NTAB; t++) {
+        fprintf(stderr, "\n== %s ==\n", TABS[t].name);
+        for (int i = 0; i < 8; i++) {
+            const Power *p = &TABS[t].p[i];
+            PwSnap a, b;
+
+            /* A FRESH LIVING VILLAGE PER POWER, as well as a fresh wild tile. The
+             * town target was fixed for the whole run, and the LAND tab turns it into
+             * mountains, water and desert before BLESS ever gets there — so BLESS was
+             * blessing a crater. Anything that acts on PEOPLE needs a town that still
+             * has people in it. */
+            int ncand = 0, cand[MAXV];
+            for (int v = 1; v < MAXV; v++)
+                if (mb_v[v].alive && mb_v[v].pop > 0) cand[ncand++] = v;
+            int tcx = cx, tcy = cy;
+            if (ncand) {
+                int pick = cand[(t * 8 + i) % ncand];
+                tcx = mb_v[pick].x; tcy = mb_v[pick].y;
+            }
+
+            /* A FRESH WILD TILE PER POWER. Sharing one made the report a lie: the
+             * forty-eight casts mutate the same ground, so by the time WRATH ran, the
+             * wild tile had already been terraformed, burned, frozen, acid-bathed and
+             * meteored — and LIGHTNING "did nothing" because FIRE, two rows earlier,
+             * had already burnt everything there was to burn. */
+            int wx = cx, wy = cy;
+            for (int step = 0; step < 6000; step++) {
+                uint32_t rr = mb_rand((uint32_t)(step * 2654435761u
+                                                 + (uint32_t)(t * 8 + i) * 7919u + 0x7357u));
+                int x = (int)(rr % MW), y = (int)((rr >> 11) % MH);
+                if (!mb_in(x, y)) continue;
+                uint8_t bb = mb_w.biome[AT(x, y)];
+                if ((bb == B_FOREST || bb == B_GRASS || bb == B_MEADOW)
+                    && !mb_w.claim[AT(x, y)] && !mb_fkind(mb_w.flux[AT(x, y)])) {
+                    wx = x; wy = y; break;
+                }
+            }
+
+            /* PRECONDITIONS. A power that undoes a state needs that state to exist, or
+             * it correctly does nothing and the test learns nothing. PEACE ends wars,
+             * so give it a war; it sits in BLESS and the power that starts wars sits
+             * two tabs later, which is the only reason it looked broken. */
+            if (p->id == PW_GRUDGE) {
+                /* GRUDGE sets two BORDERING kingdoms at each other, so it needs a pair
+                 * whose territory touches. Without one it correctly does nothing, and
+                 * the test would be reporting the world's shape as a bug. */
+                int k1 = 0, k2 = 0;
+                for (int k = 1; k < MAXK; k++)
+                    if (mb_k[k].alive) { if (!k1) k1 = k; else if (!k2) k2 = k; }
+                if (k1 && k2 && !mb_border_len(k1, k2))
+                    for (int c = 0; c < NC && !mb_border_len(k1, k2); c++)
+                        if (mb_w.claim[c] && mb_kingdom_of(mb_w.claim[c]) == k1) {
+                            int x = c % MW, y = c / MW;
+                            for (int v = 1; v < MAXV; v++)
+                                if (mb_v[v].alive && mb_v[v].kingdom == k2 && mb_in(x + 1, y)) {
+                                    mb_w.claim[AT(x + 1, y)] = (uint8_t)v; break;
+                                }
+                        }
+            }
+            if (p->id == PW_PEACE) {
+                int n = 0;
+                for (int k = 1; k < MAXK && n < 2; k++)
+                    if (mb_k[k].alive) { mb_k[k].war_with |= 0xEu; n++; }
+                for (int v = 1; v < MAXV; v++) if (mb_v[v].alive) mb_v[v].mustering = 3;
+            }
+
+            /* Give the power something to work on, so "nothing happened" means the
+             * power is broken and not that the target was bare ground: wound a few
+             * people (HEAL), sicken none (PLAGUE must do that itself), and make sure
+             * there is a grave in reach (RESURRECT). */
+            for (int k = 0, n = 0; k < mb_nu && n < 6; k++)
+                if (mb_u[k].alive && mb_u[k].hp > 40) { mb_u[k].hp -= 20; n++; }
+            if (mb_in(tcx + 1, tcy) && mb_land(mb_w.biome[AT(tcx + 1, tcy)])
+                && !mb_w.obj[AT(tcx + 1, tcy)])
+                mb_w.obj[AT(tcx + 1, tcy)] = O_GRAVE;
+
+            char out[220]; int o = 0;
+            for (int pass = 0; pass < 2 && !o; pass++) {
+                int tx = pass ? wx : tcx, ty = pass ? wy : tcy;
+                /* Faith is topped up BEFORE the snapshot, so the only faith movement
+                 * the report can show is the cast's own cost — or a power that GRANTS
+                 * faith, which is a real effect worth seeing. */
+                mb_faith_set(4000);
+                pw_snap(&a);
+                cast_at(p->id, p->radius, tx, ty);
+                /* mb_flux_step walks the agents too, so slow disasters get to move */
+                for (int n = 0; n < 24; n++) mb_flux_step();
+                pw_snap(&b);
+                b.faith = a.faith;         /* every cast spends; that is not an effect */
+                #define FLD(name, f) do { long d = b.f - a.f; if (d) \
+                    o += snprintf(out + o, sizeof out - o, " %s%+ld", name, d); } while (0)
+            FLD("elev", elev); FLD("terrain", bio); FLD("obj", obj); FLD("graves", grave);
+            FLD("flux", flux); FLD("units", units); FLD("hp", hp); FLD("sick", sick);
+            FLD("traits", traits); FLD("mood", happy); FLD("villages", villages);
+            FLD("food", vfood); FLD("vmood", vhappy); FLD("beds", vhouse);
+                FLD("kingdoms", kingdoms); FLD("wars", warbits); FLD("monsters", agents);
+                FLD("tech", tech); FLD("mustering", muster); FLD("faith", faith);
+                #undef FLD
+                if (o) o += snprintf(out + o, sizeof out - o, "   [%s]",
+                                     pass ? "wild" : "town");
+            }
+            if (!o) { snprintf(out, sizeof out, "  --- NOTHING CHANGED ---"); fails++; }
+            fprintf(stderr, "  %-11s %4d faith r%d %s\n", p->name, p->cost, p->radius, out);
+        }
+    }
+    fprintf(stderr, "\n%d of %d powers changed nothing measurable\n", fails, NTAB * 8);
+}
+#endif
 
 /* --- input -------------------------------------------------------------- */
 

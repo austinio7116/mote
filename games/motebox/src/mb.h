@@ -284,6 +284,9 @@ static inline uint32_t mb_rand(uint32_t salt);
 /* mb_power.c */
 void        mb_power_cast(int cx, int cy);
 int         mb_power_cast_named(const char *name, int cx, int cy);
+#if MOTE_HOST
+void        mb_power_test_all(int cx, int cy);
+#endif
 int         mb_power_input(const MoteInput *in);
 void        mb_power_draw_wheel(uint16_t *fb, const MoteFont *font);
 const char *mb_power_name(void);
@@ -291,6 +294,7 @@ const char *mb_power_tab(void);
 int         mb_power_cost(void);
 int         mb_power_radius(void);
 int         mb_power_brush(void);
+int         mb_power_last_reach(void);  /* people the last cast reached, -1 = n/a */
 int         mb_wheel_open(void);
 
 /* mb_unit.c */

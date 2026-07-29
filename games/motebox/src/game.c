@@ -55,6 +55,7 @@ static float s_cast_cool;            /* brush cadence */
 static int   s_lb_was_wheel;         /* so releasing the wheel is not a speed tap */
 static uint32_t s_shake_ph = 1;      /* camera-shake jitter (render only) */
 static float s_denied;               /* 'not enough faith' message timer */
+static float s_nobody;               /* 'the cast reached nobody' message timer */
 
 /* --- HUD ---------------------------------------------------------------- */
 #define HUD_Y   VIEW_H
@@ -440,6 +441,8 @@ static void g_init(void)
      * killer" has two completely different causes — granaries full and the feeding
      * broken, or granaries empty and production short — and no amount of staring at
      * the aggregate CSV tells them apart. */
+    /* MOTEBOX_PWTEST=1 casts all forty-eight powers and reports what each did. */
+    if (getenv("MOTEBOX_PWTEST")) mb_power_test_all(s_cx, s_cy);
     if (getenv("MOTEBOX_VSTAT")) {
         for (int i = 0; i < MAXV; i++) {
             if (!mb_v[i].alive) continue;
@@ -560,6 +563,7 @@ static void g_update(float dt)
     mb_draw_prepare();
     mb_audio_step(dt);
     if (s_denied > 0.0f) s_denied -= dt;
+    if (s_nobody > 0.0f) s_nobody -= dt;
 
 #if MOTE_HOST
     /* the scripted cast, once, after the world has settled into a frame */
@@ -624,6 +628,12 @@ static void g_update(float dt)
             if (mb_faith_afford(cost)) {
                 mb_faith_spend(cost);
                 mb_power_cast(s_cx, s_cy);
+                /* A CAST THAT REACHED NOBODY SAYS SO. Spending eighty faith on a
+                 * blessing and watching the world not move is indistinguishable from a
+                 * broken button — and the powers that act on PEOPLE are exactly the
+                 * ones whose target you cannot see, because a villager is one pixel in
+                 * God's Eye. -1 means the power does not target people at all. */
+                if (mb_power_last_reach() == 0) { s_nobody = 0.9f; mb_snd(SND_DENY); }
                 s_cast_cool = 0.10f;
             } else {
                 /* no Faith: say so once rather than silently doing nothing, which
@@ -777,6 +787,8 @@ static void g_overlay(uint16_t *fb)
 
         if (s_denied > 0.0f) {
             hud_text(fb, "NO FAITH", HC_FAITH_X, HUD_Y + 8, HC_FAITH_W, C_WARN, 1);
+        } else if (s_nobody > 0.0f) {
+            hud_text(fb, "NOBODY", HC_FAITH_X, HUD_Y + 8, HC_FAITH_W, C_WARN, 1);
         } else if (mb_mode() == MODE_PANTHEON) {
             snprintf(buf, sizeof buf, "%d", mb_faith());
             hud_text(fb, buf, HC_FAITH_X, HUD_Y + 8, HC_FAITH_W,
