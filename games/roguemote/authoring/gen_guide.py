@@ -263,7 +263,10 @@ def shot(name):
 SHOT_NAMES = ["title", "class", "overworld", "worldmap", "town", "shop", "pack",
               "gear", "character", "dungeon", "levelmap", "spells", "missile",
               "nova", "fireball", "boss", "ring", "shopinside", "innbar",
-              "innrooms", "levelup"]
+              "innrooms", "levelup",
+              # the two floors the gallery leads with, shared so the manual and
+              # the gallery show the same game
+              "deepfloor", "widefloor"]
 shots = {n: shot(n) for n in SHOT_NAMES}
 missing = [n for n, v in shots.items() if not v]
 if missing:
@@ -612,12 +615,20 @@ def sec_mines():
     <thead><tr><th>Depth</th><th>Walls</th><th>What lives there</th></tr></thead>
     <tbody>%s</tbody>
   </table></div>
-  %s
+  <div class="shots3">%s%s%s</div>
 </section>""" % (plate(shots["dungeon"], "Depth five. Lit rooms reveal whole at "
                        "once; corridors reveal as you walk them."),
                  rows,
+                 # The same two floors the gallery leads with, at the point in the
+                 # manual where the wall bands they illustrate are being explained.
+                 plate(shots["widefloor"], "Floor thirty. Bare stone and iron, and "
+                       "enough of it in view to see how a level is chained "
+                       "together.", small=True),
+                 plate(shots["deepfloor"], "Floor thirty-four, in the magenta "
+                       "band: a sealed chamber with the stair out of it and "
+                       "something already inside.", small=True),
                  plate(shots["levelmap"], "The level map shows only what you have "
-                       "seen. Red is the way down, blue the way up."))
+                       "seen. Red is the way down, blue the way up.", small=True))
 
 
 def sec_levers():
