@@ -57,6 +57,20 @@ static uint32_t s_shake_ph = 1;      /* camera-shake jitter (render only) */
 static float s_denied;               /* 'not enough faith' message timer */
 static float s_nobody;               /* 'the cast reached nobody' message timer */
 static float s_rb_hold;              /* RB held: tap toggles the view, hold seeks */
+/* --- FOLLOW HISTORY without stealing the camera --------------------------
+ * The camera used to be TELEPORTED to each new headline the moment it happened,
+ * gated only on whether the power wheel was open. At x3 and x8 a headline lands every
+ * few seconds, so any attempt to look at something was yanked away mid-look and you
+ * arrived somewhere else with no idea where you had been. It is the right behaviour
+ * for a game you leave running and completely wrong for one you are using.
+ *
+ * Two rules fix it. It only acts when your HANDS ARE OFF — a few seconds with no input
+ * at all — so it can never fight you, and any input aborts a move in progress. And it
+ * PANS rather than jumps, so when it does take you somewhere you can see where you
+ * went and roughly how far. */
+static float s_idle;                 /* seconds since the player last touched anything */
+static int   s_pan_x = -1, s_pan_y;  /* where follow is taking us; -1 = nowhere */
+#define FOLLOW_IDLE 3.5f             /* hands off this long before history may lead */
 static float s_seek_acc;
 static int   s_rb_seeked;            /* so a release after seeking is not a zoom */
 
@@ -879,9 +893,37 @@ static void g_update(float dt)
 
     /* FOLLOW HISTORY: the camera jumps to the last headline, which is what makes
      * a paused-thumb session tell you stories instead of needing to be hunted. */
-    if (mb_law(LAW_FOLLOW) && !wheel) {
-        int fx2, fy2;
-        if (mb_chron_focus(&fx2, &fy2)) { s_cx = fx2; s_cy = fy2; }
+    {
+        /* Any input at all counts as "hands on", including a held direction — the point
+         * is not which button, it is that somebody is using the thing. */
+        int active = mote_pressed(in, MOTE_BTN_UP)   || mote_pressed(in, MOTE_BTN_DOWN)
+                  || mote_pressed(in, MOTE_BTN_LEFT) || mote_pressed(in, MOTE_BTN_RIGHT)
+                  || mote_pressed(in, MOTE_BTN_A)    || mote_pressed(in, MOTE_BTN_B)
+                  || mote_pressed(in, MOTE_BTN_LB)   || mote_pressed(in, MOTE_BTN_RB)
+                  || mote_pressed(in, MOTE_BTN_MENU) || wheel;
+        if (active) { s_idle = 0.0f; s_pan_x = -1; }     /* your move wins, always */
+        else        { s_idle += dt; }
+
+        /* Don't even ASK for a focus while the player is busy: leaving it pending means
+         * that when they do put it down, history takes them to the LATEST thing that
+         * happened rather than to whatever fired at the moment they stopped. */
+        if (mb_law(LAW_FOLLOW) && !wheel && s_idle > FOLLOW_IDLE) {
+            int fx2, fy2;
+            if (mb_chron_focus(&fx2, &fy2)) { s_pan_x = fx2; s_pan_y = fy2; }
+        }
+
+        if (s_pan_x >= 0) {
+            int dxp = s_pan_x - s_cx, dyp = s_pan_y - s_cy;
+            int far = (dxp < 0 ? -dxp : dxp) + (dyp < 0 ? -dyp : dyp);
+            int step = 1 + far / 24;                     /* a glide, not a jump */
+            if (step > 3) step = 3;
+            for (int n = 0; n < step; n++) {
+                if (s_cx != s_pan_x) s_cx += (s_pan_x > s_cx) ? 1 : -1;
+                if (s_cy != s_pan_y) s_cy += (s_pan_y > s_cy) ? 1 : -1;
+            }
+            if (s_cx == s_pan_x && s_cy == s_pan_y) s_pan_x = -1;
+            if (!s_god) cam_follow();
+        }
     }
 
     /* --- LB TAP cycles speed (LB HOLD is the wheel, handled above); RB toggles
@@ -959,8 +1001,10 @@ static void g_overlay(uint16_t *fb)
              * time it went unnoticed the whole town went missing. */
             int want, lost;
             mb_draw_sprite_load(&want, &lost);
-            fprintf(stderr, "     sprites wanted %d, dropped %d%s\n", want, lost,
-                    lost ? "   <-- SCENE FULL" : "");
+            fprintf(stderr, "     sprites wanted %d, dropped %d%s"
+                            "   cursor %d,%d idle %.1fs%s\n", want, lost,
+                    lost ? "  <-- SCENE FULL" : "", s_cx, s_cy, (double)s_idle,
+                    s_pan_x >= 0 ? "  PANNING" : "");
             acc = 0;
         }
     }
