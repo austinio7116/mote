@@ -3,10 +3,10 @@
 #define MOTE_T_bio_grass_H
 #include "mote_tile.h"
 
-static const uint16_t bio_grass_pal[3] = { 0x042a,0x0726,0x194a };
+static const uint16_t bio_grass_pal[3] = { 0x042a,0x0726,0x5aa9 };
 static const uint8_t bio_grass_idx[64] = {
-  0,0,2,0,0,0,0,0,1,0,0,0,0,1,0,2,0,0,0,0,32,0,0,0,0,0,0,0,0,0,0,16,
-  16,0,0,0,0,0,0,0,0,0,0,0,0,0,32,0,0,0,0,32,0,1,0,0,0,0,16,0,0,0,32,0,
+  0,0,2,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,32,0,0,0,0,0,0,0,0,0,0,16,
+  16,0,0,0,0,0,0,0,0,0,0,0,0,0,32,0,0,0,0,0,0,0,0,0,0,0,16,0,0,0,32,0,
 };
 static const MoteImage bio_grass_img = { 0, 8, 16, 0xF81F, 0, 1, bio_grass_idx, bio_grass_pal };  /* 4bpp indexed, 3 colours */
 static const MoteAutotile bio_grass_at = { &bio_grass_img, 8, 8, {

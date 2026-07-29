@@ -394,28 +394,62 @@ def build_ore():
 # the difference between a boundary that is a flat band with a highlight and one that
 # reads as a shore.
 TRANSITIONS = [
-    #  name             prec  ramp: body -> shore
-    ("bio_ocean",         0,  [NAVY,    BLUE,   LTGREY]),
-    ("bio_sea",           1,  [BLUE,    LTGREY, WHITE]),
-    ("bio_shallow",       2,  [BLUE,    LTGREY, WHITE]),
-    ("bio_ice",           3,  [BLUE,    LTGREY, WHITE]),
-    ("bio_lava",          4,  [MAROON,  RED,    ORANGE, YELLOW]),
-    ("bio_acid",          4,  [DKGREEN, GREEN,  YELLOW]),
-    ("bio_swamp",         5,  [NAVY,    DKGREEN, DKGREY]),
-    ("bio_beach",         6,  [BROWN,   ORANGE, PEACH]),
-    ("bio_desert",        7,  [ORANGE,  YELLOW, PEACH]),
-    ("bio_savanna",       8,  [BROWN,   ORANGE, YELLOW]),
-    ("bio_farm",          9,  [DKGREY,  BROWN,  ORANGE]),
-    ("bio_grass",        10,  [NAVY,    DKGREEN, GREEN]),
-    ("bio_snow",         11,  [LTGREY,  WHITE,  WHITE]),
-    ("bio_tundra",       12,  [DKGREY,  BROWN,  PEACH]),
-    ("bio_ash",          13,  [NAVY,    DKGREY, LTGREY]),
-    ("bio_scorched",     14,  [NAVY,    MAROON, RED]),
-    ("bio_rubble",       15,  [DKGREY,  LTGREY, WHITE]),
-    ("bio_hill",         16,  [DKGREY,  BROWN,  ORANGE]),
-    ("bio_mountain",     17,  [NAVY,    DKGREY, LTGREY]),
-    ("bio_peak",         18,  [DKGREY,  LTGREY, WHITE]),
+    #  name             prec  ramp: THE BODY IT IS MADE OF, then its shore tones
+    #
+    # ramp[0] MUST BE THE BIOME'S OWN BODY COLOUR — the same colour its flat base tile is
+    # filled with. This got written as a SHADING triple instead, (shadow, body, highlight),
+    # and since the overlay paints ramp[0] where it joins its own field, fourteen of the
+    # twenty terrains bled a colour they are not made of: hill crept over grass in DKGREY,
+    # grass crept over sand in NAVY. Every boundary in the world therefore had a hard seam
+    # a few pixels in, where the bled colour met the real interior — and an isolated grass
+    # cell came out as a dark-bordered green box. check_transition_bodies() below now
+    # asserts this against the generated art, so it cannot come back.
+    ("bio_ocean",         0,  [NAVY,    BLUE,    LTGREY]),
+    ("bio_sea",           1,  [BLUE,    LTGREY,  WHITE]),
+    ("bio_shallow",       2,  [BLUE,    LTGREY,  WHITE]),
+    ("bio_ice",           3,  [WHITE,   LTGREY,  BLUE]),
+    ("bio_lava",          4,  [MAROON,  RED,     YELLOW]),
+    ("bio_acid",          4,  [DKGREEN, GREEN,   YELLOW]),
+    ("bio_swamp",         5,  [DKGREEN, DKGREY,  DKGREY]),
+    ("bio_beach",         6,  [PEACH,   YELLOW,  ORANGE]),
+    ("bio_desert",        7,  [YELLOW,  PEACH,   ORANGE]),
+    ("bio_savanna",       8,  [ORANGE,  YELLOW,  YELLOW]),
+    ("bio_farm",          9,  [BROWN,   ORANGE,  ORANGE]),
+    ("bio_grass",        10,  [DKGREEN, GREEN,   GREEN]),
+    ("bio_snow",         11,  [WHITE,   LTGREY,  LTGREY]),
+    ("bio_tundra",       12,  [BROWN,   PEACH,   PEACH]),
+    ("bio_ash",          13,  [DKGREY,  LTGREY,  WHITE]),
+    ("bio_scorched",     14,  [MAROON,  RED,     ORANGE]),
+    ("bio_rubble",       15,  [LTGREY,  WHITE,   WHITE]),
+    ("bio_hill",         16,  [BROWN,   ORANGE,  YELLOW]),
+    ("bio_mountain",     17,  [DKGREY,  LTGREY,  WHITE]),
+    ("bio_peak",         18,  [LTGREY,  WHITE,   WHITE]),
 ]
+
+
+def check_transition_bodies():
+    """Assert every overlay bleeds the colour its own terrain is actually made of.
+
+    A transition paints ramp[0] where it meets its own field, so if that is not the base
+    tile's fill colour there is a hard seam a few pixels inside every boundary in the
+    world. Fourteen of twenty were wrong at once when the ramps were written by hand as
+    shading triples, and the symptom is easy to misread as a tileset problem rather than
+    a table problem — so it is checked against the generated art instead of by eye.
+    """
+    from collections import Counter
+    bad = []
+    for name, _prec, ramp in TRANSITIONS:
+        p = os.path.join(TSETS, name + ".png")
+        if not os.path.isfile(p):
+            continue
+        im = Image.open(p).convert("RGBA")
+        dom = Counter([q[:3] for q in im.getdata() if q[3]]).most_common(1)[0][0]
+        if tuple(ramp[0]) != dom:
+            bad.append("%s: base is %s but the overlay bleeds %s"
+                       % (name, dom, tuple(ramp[0])))
+    if bad:
+        raise SystemExit("TRANSITION BODY MISMATCH\n  " + "\n  ".join(bad))
+    print("[check]   all %d overlays bleed their own body colour" % len(TRANSITIONS))
 
 
 def build_transitions():
@@ -578,6 +612,7 @@ def main():
     build_roads()
     build_town()
     build_transitions()
+    check_transition_bodies()
     build_biomes()
     sync_terrain()
     build_icon()
