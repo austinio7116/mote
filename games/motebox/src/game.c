@@ -241,7 +241,17 @@ static void god_menu(void)
             mb_unit_reset(); mb_civ_reset(); mb_flux_reset();
             mb_chron_init(); mb_age_init(); mb_faith_init(); mb_fx_init();
             mb_unit_seed_wildlife();
+    /* AND THEN THE PEOPLES. A fresh world used to contain deer, goats and a wolf and
+     * nothing else, because founding a civilisation was a power you had to know about.
+     * Boot into a living history instead. */
+    mb_civ_seed_world(4);
             mb_world_start(&s_cx, &s_cy);
+    /* AND OPEN ON A CIVILISATION. Worldgen picks a pleasant spot, which on a 96x96 map
+     * is usually nobody's spot — so the first thing the player saw was empty coastline
+     * even once the world had peoples in it. Start the cursor on a founding party: the
+     * opening frame should contain the thing the game is about. */
+    for (int i = 1; i < MAXV; i++)
+        if (mb_v[i].alive) { s_cx = mb_v[i].x; s_cy = mb_v[i].y; break; }
             return;
         }
         default: return;
@@ -296,7 +306,29 @@ static void fast_forward(int years)
 
 static void g_init(void)
 {
-    uint32_t seed = 0x1d0f2c31u;
+    /* A WORLD SEED THAT ACTUALLY VARIES.
+     *
+     * This was the constant 0x1d0f2c31 — so every session of the game, on every
+     * device, generated the SAME WORLD. For a god sim whose entire replay value is
+     * "what is this world like", that is close to fatal, and it is invisible to any
+     * test, because every test passes its own MOTEBOX_SEED.
+     *
+     * Two sources, mixed, because neither is trustworthy alone: micros() at init
+     * varies with how long the launcher took to hand over, which on a cold boot into
+     * the same game can be nearly identical; and a COUNTER kept in the save store,
+     * bumped every time a world is made, which cannot repeat even if the clock is
+     * useless. Whichever one is working carries the other. */
+    uint32_t roll = 0;
+    /* `mote`, not g_api: g_api is handed to the other translation units further down
+     * this function, and reaching for it here dereferenced NULL and dumped core. */
+    mote->kv_load("mb_roll", &roll, sizeof roll);
+    roll++;
+    mote->kv_save("mb_roll", &roll, sizeof roll);
+    uint32_t seed = (uint32_t)mote->micros();
+    seed ^= roll * 2654435761u;
+    seed = (seed ^ (seed >> 15)) * 2246822519u;
+    seed ^= seed >> 13;
+    if (!seed) seed = 0x1d0f2c31u;
 #if MOTE_HOST
     const char *e = getenv("MOTEBOX_SEED");
     if (e && *e) seed = (uint32_t)strtoul(e, 0, 0);
@@ -322,6 +354,10 @@ static void g_init(void)
     mb_faith_init();
     mb_save_init();
     mb_unit_seed_wildlife();
+    /* AND THEN THE PEOPLES. A fresh world used to contain deer, goats and a wolf and
+     * nothing else, because founding a civilisation was a power you had to know about.
+     * Boot into a living history instead. */
+    mb_civ_seed_world(4);
     mb_draw_init();
 #if MOTE_HOST
     {   /* MOTEBOX_SEEDV=x,y;x,y drops founding parties before the fast-forward,
@@ -371,6 +407,12 @@ static void g_init(void)
     }
 #endif
     mb_world_start(&s_cx, &s_cy);
+    /* AND OPEN ON A CIVILISATION. Worldgen picks a pleasant spot, which on a 96x96 map
+     * is usually nobody's spot — so the first thing the player saw was empty coastline
+     * even once the world had peoples in it. Start the cursor on a founding party: the
+     * opening frame should contain the thing the game is about. */
+    for (int i = 1; i < MAXV; i++)
+        if (mb_v[i].alive) { s_cx = mb_v[i].x; s_cy = mb_v[i].y; break; }
 #if MOTE_HOST
     /* MOTEBOX_CAM=x,y parks the camera on a tile, or CAM=v parks it on the biggest
      * village. Without this every visual check landed wherever worldgen chose, which
@@ -453,6 +495,13 @@ static void g_init(void)
                 if (mb_in(x, y)) bio[mb_w.biome[AT(x, y)]]++;
         for (int b = 0; b < B_N; b++)
             if (bio[b]) fprintf(stderr, "   bio %-12s %d\n", B_NAME[b], bio[b]);
+        int want, lost;
+        mb_draw_sprite_load(&want, &lost);
+        fprintf(stderr, "   sprites wanted %d, DROPPED %d\n", want, lost);
+        int dead_rich = 0;
+        for (int i = 0; i < MAXV; i++)
+            if (mb_v[i].alive && mb_v[i].pop == 0) dead_rich++;
+        fprintf(stderr, "   villages alive with nobody in them: %d\n", dead_rich);
     }
     if (s_stat) mb_world_stats();
 #endif
@@ -649,6 +698,12 @@ static void g_overlay(uint16_t *fb)
                             "flux=%d agents=%d Y%d\n",
                     s_god ? "GOD " : "LAND", p[0], p[2], p[1], (double)acc / 64.0,
                     mb_flux_count(), mb_agent_count(), year);
+            /* AND THE SPRITE LOAD, because a dropped sprite is silent and the last
+             * time it went unnoticed the whole town went missing. */
+            int want, lost;
+            mb_draw_sprite_load(&want, &lost);
+            fprintf(stderr, "     sprites wanted %d, dropped %d%s\n", want, lost,
+                    lost ? "   <-- SCENE FULL" : "");
             acc = 0;
         }
     }

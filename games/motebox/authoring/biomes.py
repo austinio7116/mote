@@ -290,7 +290,12 @@ def recipes():
                                  lambda v: pebbles(LTGREY, DKGREY, 121 + v, step=4)],
                                                                                [2, 3], WHITE),
         # --- burnt ----------------------------------------------------------
-        ("bio_ash",    DKGREY,  [lambda v: plain(DKGREY)],                     [1],    LTGREY, "SE"),
+        # ASH DOES NOT RIM. It is formless burnt ground, and a light-grey band on dark
+        # grey outlined every scar: a mid-game world had a quarter of one screen in ash
+        # and each isolated tile read as a hard grey square dropped on the grass. With
+        # no band of its own, a burn is a soft dark patch and the grass's own lit edge
+        # is what bounds it — which is also what a burn actually looks like from above.
+        ("bio_ash",    DKGREY,  [lambda v: plain(DKGREY)],                     [1],    None),
         ("bio_scorched", MAROON,[lambda v: plain(MAROON),
                                  lambda v: cracks(MAROON, RED, 141 + v)],      [3, 2], RED),
         # --- worked land: the one biome that SHOULD look man-made ------------

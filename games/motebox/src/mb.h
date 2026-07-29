@@ -327,6 +327,7 @@ void mb_civ_init(void);
 void mb_civ_reset(void);
 void mb_civ_step(void);
 int  mb_civ_drop_village(int sp, int x, int y);
+void mb_civ_seed_world(int n);         /* worlds start with peoples in them */
 void mb_civ_rehome(void);              /* the homeless join a village or found one */
 int  mb_village_found(int sp, int x, int y, int kingdom);
 int  mb_village_need(int v, uint16_t *target);
@@ -422,6 +423,7 @@ void mb_god_band(uint16_t *fb, int y0, int y1);      /* set_background_cb target
 void mb_god_units(uint16_t *fb, int y0, int y1);
 uint16_t mb_kingdom_colour(int k);
 void mb_dim_rect(uint16_t *fb, int x, int y, int w, int h, uint16_t toward, int amt);
+void mb_draw_sprite_load(int *want, int *lost);
 void mb_draw_mortal(int cam_x, int cam_y);           /* scene2d pass */
 uint16_t mb_biome_colour(uint8_t b);
 

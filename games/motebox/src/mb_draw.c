@@ -42,6 +42,7 @@
 #include "nature.h"
 #include "boulders.h"
 #include "treasure_ore.h"
+#include "ore.h"
 #include "ui_status.h"
 #include "tools.h"
 #include "crowns_fx.h"
@@ -349,10 +350,16 @@ static const ObjSpr MB_OBJ_SPR[O_N] = {
     { &nature_img,        5, 4 },       /* rock      "brown rock/boulder"        */
     { &nature_img,        9, 3 },       /* reeds     "reeds" — swamp, not desert */
     { &nature_img,        0, 3 },       /* flower    "pink flower"               */
-    { &treasure_ore_img,  1, 2 },       /* iron                                  */
-    { &treasure_ore_img,  1, 1 },       /* silver                                */
-    { &treasure_ore_img,  1, 0 },       /* gold                                  */
-    { &treasure_ore_img,  7, 0 },       /* gems                                  */
+    /* ORE IS GENERATED (authoring/extract_box.py build_ore), not taken from the
+     * master, because the master has none. These four used to point at treasure_ore
+     * (1,0) (1,1) (1,2) (7,0), which the label set calls "gold small pile (3)",
+     * "silver small pile (3)", "copper small pile (3)" and "silver ingot/bar" — so
+     * the wilderness was littered with LOOSE COINS AND BARS lying in the grass. That
+     * whole rectangle is treasure: a thing you pick up, not a seam you mine. */
+    { &ore_img,           0, 0 },       /* iron   — rust through brown stone     */
+    { &ore_img,           1, 0 },       /* silver — grey stone, a bright glint   */
+    { &ore_img,           2, 0 },       /* gold                                  */
+    { &ore_img,           3, 0 },       /* gems                                  */
     { &boulders_img,      0, 1 },       /* boulder   "grey boulder"              */
     { &boulders_img,      4, 1 },       /* crag      "mountain slope"            */
     { &nature_img,       15, 0 },       /* grave     "tombstone"  (was a GHOST)  */
@@ -388,12 +395,17 @@ enum { BS_BUILD = 0, BS_PROPS, BS_PLAN, BS_NATURE, BS_TOOLS };
 static const BldSpr MB_BLD[O_N - O_BUILD0] = {
     { BS_NATURE,12, 0 },   /* fire pit  "fountain/well" — a village well marks a
                             * founding better than the "hay" this used to be     */
-    { BS_BUILD,  2, 0 },   /* hall 1    — still just a house at tier one          */
-    { BS_BUILD,  0, 0 },   /* hall 2    — a walled block: it grew                 */
-    { BS_BUILD,  0, 0 },   /* hall 3    — the keep                                */
-    { BS_BUILD,  2, 0 },   /* house 1                                             */
-    { BS_BUILD,  2, 0 },   /* house 2                                             */
-    { BS_BUILD,  3, 0 },   /* house 3   — the wide piece: a rich village is denser */
+    /* THE FOUR COLUMNS ARE THE WHOLE VOCABULARY, so spend them: every tier that
+     * shares a cell with another tier is a tier you cannot see. hall2 and hall3 were
+     * both column 0 and house1 and house2 were both column 2, so half the ladder was
+     * invisible — a village that had grown into a castle looked no different from one
+     * that had a great hall, which is most of the reward for playing. */
+    { BS_BUILD,  2, 0 },   /* hall 1    — still just a big house at tier one       */
+    { BS_BUILD,  0, 0 },   /* hall 2    — a walled block: it grew                  */
+    { BS_BUILD,  1, 0 },   /* hall 3    — the block with its GATE open: a keep     */
+    { BS_BUILD,  2, 0 },   /* house 1   — the pitched roof                         */
+    { BS_BUILD,  2, 0 },   /* house 2   — the pitched roof MIRRORED (see below)    */
+    { BS_BUILD,  0, 0 },   /* house 3   — a manor is a walled house                */
     { BS_NATURE, 3, 1 },   /* farm      "hay" — a haystack, not "orange flowers"  */
     { BS_TOOLS,  0, 1 },   /* mine      "iron pickaxe", not a computer terminal   */
     { BS_NATURE, 8, 4 },   /* woodcutter"tree trunk/dead tree" — a cut stump      */
@@ -403,11 +415,29 @@ static const BldSpr MB_BLD[O_N - O_BUILD0] = {
     { BS_PROPS,  7, 1 },   /* dock      "wooden barrel" — goods on a quay; the
                             * master has no boat, and this was "train track corner" */
     { BS_BUILD,  1, 0 },   /* wall      — the open-door front reads as a gate     */
-    { BS_PLAN,   3, 2 },   /* the blueprint ghost: a hollow square                */
+    /* A QUIET MARK. This was blueprint (3,2), "blueprint room (small/single cell)" —
+     * a thick navy square, and with the grass drawing its bright rim around it, a
+     * village's intentions were the loudest thing on the screen. A stub reads as a
+     * surveyor's peg: there if you look for it, invisible if you are not. */
+    { BS_PLAN,   3, 0 },   /* "blueprint wall (stub)"                             */
 };
+
+/* How many sprites the last Mortal View frame asked for, and how many the scene
+ * refused. scene2d_add fails soft at MOTE_SCENE2D_MAX_SPRITES, and "the buildings are
+ * missing" was that failure being silent — so it is now counted, and MOTEBOX_SPRITES=1
+ * says so out loud rather than leaving the next person to census the map. */
+static int s_spr_want, s_spr_lost;
+void mb_draw_sprite_load(int *want, int *lost) { *want = s_spr_want; *lost = s_spr_lost; }
+
+static void add(const MoteSprite *s)
+{
+    s_spr_want++;
+    if (!g_api->scene2d_add(s)) s_spr_lost++;
+}
 
 void mb_draw_mortal(int cam_x, int cam_y)
 {
+    s_spr_want = s_spr_lost = 0;
     g_api->scene2d_begin(cam_x, cam_y);
     g_api->scene2d_set_autotiles(mb_w.biome, MW, MH, MB_TILES, B_COUNT);
 
@@ -444,10 +474,19 @@ void mb_draw_mortal(int cam_x, int cam_y)
                 int k = mb_kingdom_of(mb_w.claim[AT(c, r)]);
                 row = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;
             }
+            /* THE COTTAGE IS THE HOUSE, MIRRORED. The sheet has only two standalone
+             * fronts (the walled block and the pitched roof); its other two columns
+             * are an open door and a WIDE CONTINUATION meant to sit beside column 2.
+             * Assigning that continuation to the cottage — the commonest building in
+             * any village — filled towns with lone continuation pieces, which read as
+             * a row of fences or crates rather than as homes. A horizontal flip costs
+             * no art, is unmistakably a different house, and makes a street look built
+             * rather than stamped. */
+            uint8_t flags = (o == O_HOUSE2) ? MOTE_SPR_HFLIP : 0;
             MoteSprite spr = { img, (int16_t)(c * TILE), (int16_t)(r * TILE),
                                (uint16_t)(B->cx * TILE), (uint16_t)(row * TILE),
-                               TILE, TILE, 30, 0 };
-            g_api->scene2d_add(&spr);
+                               TILE, TILE, 30, flags };
+            add(&spr);
             /* A CAPITAL WEARS ITS CROWN. One 8x8 sprite from the master's five
              * crowns, sat on the hall of a kingdom's seat: it is the only way to
              * tell at a glance which of forty villages is the one that matters. */
@@ -458,7 +497,7 @@ void mb_draw_mortal(int cam_x, int cam_y)
                                       (int16_t)(r * TILE - 5),
                                       (uint16_t)((mb_k[k].colour % 5) * TILE),
                                       (uint16_t)(5 * TILE), TILE, TILE, 34, 0 };
-                    g_api->scene2d_add(&cr);
+                    add(&cr);
                 }
             }
         }
@@ -476,7 +515,7 @@ void mb_draw_mortal(int cam_x, int cam_y)
         MoteSprite spr = { img, (int16_t)(u->x >> 4 << 3), (int16_t)(u->y >> 4 << 3),
                            (uint16_t)(S->cx * TILE), (uint16_t)(S->cy * TILE),
                            TILE, TILE, 40, 0 };
-        g_api->scene2d_add(&spr);
+        add(&spr);
     }
     /* the walking disasters: the master's smoke swirl for a tornado, its cone
      * for a vent, lifted a tile so they stand above the ground they are wrecking */
@@ -486,7 +525,7 @@ void mb_draw_mortal(int cam_x, int cam_y)
         int cx = (kind == AG_TORNADO) ? 3 : 5, cy = (kind == AG_TORNADO) ? 7 : 5;
         MoteSprite spr = { &crowns_fx_img, (int16_t)(ax * TILE), (int16_t)(ay * TILE - TILE),
                            (uint16_t)(cx * TILE), (uint16_t)(cy * TILE), TILE, TILE, 70, 0 };
-        g_api->scene2d_add(&spr);
+        add(&spr);
     }
     /* flux, on top of the ground it is consuming */
     for (int r = r0; r <= r0 + MVH; r++) {
@@ -502,7 +541,7 @@ void mb_draw_mortal(int cam_x, int cam_y)
                 (uint16_t)((f->cx + fr) * TILE), (uint16_t)(f->cy * TILE), TILE, TILE,
                 50, 0
             };
-            g_api->scene2d_add(&spr);
+            add(&spr);
         }
     }
     /* LAST: ground clutter — trees, rocks, tufts, headstones. Whatever the cap
@@ -522,7 +561,7 @@ void mb_draw_mortal(int cam_x, int cam_y)
                  * under anything that walks (units land on layer 20+). */
                 10, 0
             };
-            g_api->scene2d_add(&spr);
+            add(&spr);
         }
     }
 }

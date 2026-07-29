@@ -333,6 +333,50 @@ def build_fx_recolours():
         save_sheet(name, im)
 
 
+def build_ore():
+    """Ore deposits, generated — because the master has none.
+
+    The four deposits used to point at `treasure_ore` cells (1,0) (1,1) (1,2) (7,0),
+    and the label set is unambiguous about what those are: "gold small pile (3)",
+    "silver small pile (3)", "copper small pile (3)", "silver ingot/bar". So the
+    wilderness was strewn with LOOSE COINS AND BARS lying in the grass — which is
+    what "why are there coins in some places on the map?" was looking at. That whole
+    rectangle is treasure: a reward you pick up, not a seam you mine. Searching every
+    label in the master for ore, vein, crystal or outcrop turns up nothing that reads
+    as a deposit in the ground.
+
+    So one is built, from the artist's own "brown rock/boulder" with the metal set
+    INTO it — the same palette-swap trick the FX sheets use, and it keeps his
+    silhouette and shading. A rock with a glint is legible at eight pixels and, more
+    to the point, it is a thing you would send a miner to rather than pocket.
+    """
+    rock = region(*SPRITE_SHEETS["nature"])
+    cell = rock.crop((5 * TS, 4 * TS, 6 * TS, 5 * TS))       # "brown rock/boulder"
+
+    # The rock is a fourteen-pixel blob: DKGREY body, ONE light highlight, a navy
+    # underside. So the glint is two pixels, placed on body pixels chosen by hand —
+    # a first attempt scattered four on a lattice and two landed in the shadow, which
+    # read as a rock with confetti on it rather than a seam of metal.
+    BODY = (95, 87, 79)
+    SPOTS = ((4, 3), (2, 5))
+    ORES = (("iron",   BROWN,  ORANGE),      # rust through brown stone
+            ("silver", BODY,   WHITE),       # plain stone, a bright glint
+            ("gold",   BROWN,  YELLOW),
+            ("gem",    BODY,   BLUE))
+
+    out = Image.new("RGBA", (TS * len(ORES), TS))
+    for i, (_name, body, glint) in enumerate(ORES):
+        im = cell.copy(); px = im.load()
+        for y in range(TS):
+            for x in range(TS):
+                if px[x, y][3] and px[x, y][:3] == BODY:
+                    px[x, y] = body + (255,)
+        for (sx, sy) in SPOTS:
+            px[sx, sy] = glint + (255,)
+        out.paste(im, (i * TS, 0))
+    save_sheet("ore", out)
+
+
 def build_icon():
     """60x60 launcher icon: the world as a disc, with a meteor coming in.
 
@@ -433,6 +477,7 @@ def preview():
 def main():
     build_sprites()
     build_fx_recolours()
+    build_ore()
     build_biomes()
     sync_terrain()
     build_icon()

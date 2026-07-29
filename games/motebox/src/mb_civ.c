@@ -748,15 +748,28 @@ int mb_border_len(int a, int b)
 
 /* A village whose hall is destroyed or whose people are all dead is gone; its
  * claim goes with it, so the political map shrinks back. */
+static void village_death_check(int v);
 static void village_death_check(int v)
 {
     Village *V = &mb_v[v];
     if (V->pop > 0 && mb_is_build(mb_w.obj[AT(V->x, V->y)])) return;
-    /* Forty ticks, not twelve: a founding party that loses its last member for a
-     * few weeks used to take the whole kingdom down with it, and two of every three
-     * kingdoms in a test run died inside the first sixty years that way. */
-    if (V->grace < 40) { V->grace++; return; }
+    /* Twenty-six WEEKS of nobody at all. The old number was forty, but it was forty
+     * VISITS on a one-village-per-tick rotation — thirty-six years — and it was set
+     * that high to stop a founding party that briefly had no living member from taking
+     * its kingdom down. Now that the check runs every tick, half a year of a genuinely
+     * empty village is not a blip: everyone is dead. */
+    if (V->grace < 26) { V->grace++; return; }
+    V->grace = 0;
     mb_chron_fall(v);
+    /* TAKE THE BLUEPRINT WITH IT. A pending plan writes O_PLAN onto the map, and
+     * nothing ever removed it when the village that intended it died — so every
+     * fallen hamlet left a blueprint square standing in the grass for ever. Making
+     * village death work properly made this much more visible: a 250-year town was
+     * ringed with hollow squares that no longer meant anything. */
+    if (V->plan_obj && mb_in(V->plan_x, V->plan_y)
+        && mb_w.obj[AT(V->plan_x, V->plan_y)] == O_PLAN)
+        mb_w.obj[AT(V->plan_x, V->plan_y)] = O_NONE;
+    V->plan_obj = 0;
     for (int i = 0; i < NC; i++) if (mb_w.claim[i] == v) mb_w.claim[i] = 0;
     for (int i = 0; i < mb_nu; i++) if (mb_u[i].alive && mb_u[i].village == v) mb_u[i].village = 0;
     if (mb_k[V->kingdom].capital == v) {
@@ -786,6 +799,15 @@ static void village_death_check(int v)
 void mb_civ_step(void)
 {
     census();
+
+    /* EVERY village is checked for death every tick, even though only one gets the
+     * full lord treatment. It used to ride along with that one-per-tick rotation, so
+     * an empty village waited 47 ticks per grace point and took THIRTY-SIX YEARS to be
+     * dissolved — a 400-year world carried ten ghost hamlets at any moment, holding
+     * names, claims, granaries and slots in MAXV that living villages needed. The
+     * check is a population test and one lookup; it is cheap enough to do properly. */
+    for (int dv = 1; dv < MAXV; dv++)
+        if (mb_v[dv].alive) village_death_check(dv);
 
     /* one village per tick gets the full treatment: its lord decides, its field
      * rebuilds if dirty, its claim creeps, its loyalty moves */
@@ -855,6 +877,51 @@ void mb_civ_step(void)
 
 /* Drop a founding party: a few units and, if the ground allows, a village. This
  * is the power that starts a civilisation. */
+/* THE WORLD STARTS WITH PEOPLES IN IT.
+ *
+ * It did not, and that was the single worst thing about the game: you booted a fresh
+ * world and saw deer, goats and a wolf, because founding a civilisation was a power on
+ * the LIFE tab and nothing said so. "I only ever see animals — I really am not seeing
+ * a game here at all" is exactly right about an empty world. WorldBox can start empty
+ * because it opens on a tutorial and a toolbar the size of the screen; a handheld with
+ * nine buttons has to boot into something already alive, so that the first thing you
+ * do is interfere with a history rather than start one.
+ *
+ * Four peoples, one per race where the land allows, far enough apart to be separate
+ * nations rather than one crowd — so there is politics on the first tick and a war to
+ * come without you lifting a finger.
+ */
+void mb_civ_seed_world(int n)
+{
+    int got = 0;
+    for (int step = 0; step < 6000 && got < n; step++) {
+        uint32_t r = mb_rand((uint32_t)step * 2654435761u + 0xc1u);
+        int x = (int)(r % MW), y = (int)((r >> 11) % MH);
+        if (!mb_in(x, y)) continue;
+        uint8_t b = mb_w.biome[AT(x, y)];
+        /* somewhere a people would actually settle: not a peak, not a swamp, not ash */
+        if (b != B_GRASS && b != B_MEADOW && b != B_SAVANNA && b != B_FOREST
+            && b != B_BEACH && b != B_HILL) continue;
+        int clear = 1;
+        for (int v = 0; v < MAXV && clear; v++)
+            if (mb_v[v].alive) {
+                int dx = mb_v[v].x - x, dy = mb_v[v].y - y;
+                if (dx * dx + dy * dy < 26 * 26) clear = 0;   /* separate nations */
+            }
+        if (!clear) continue;
+        if (mb_civ_drop_village(SP_HUMAN + (got % SP_CIV_N), x, y) > 0) got++;
+    }
+    /* Relax the spacing rather than ship an empty world: a cramped archipelago is
+     * still better with two neighbouring peoples on it than with none. */
+    for (int step = 0; step < 6000 && got < 2; step++) {
+        uint32_t r = mb_rand((uint32_t)step * 40503u + 0x51d2u);
+        int x = (int)(r % MW), y = (int)((r >> 11) % MH);
+        if (!mb_in(x, y) || !mb_land(mb_w.biome[AT(x, y)])) continue;
+        if (mb_civ_drop_village(SP_HUMAN + (got % SP_CIV_N), x, y) > 0) got++;
+    }
+    (void)got;
+}
+
 int mb_civ_drop_village(int sp, int x, int y)
 {
     int v = mb_village_found(sp, x, y, 0);

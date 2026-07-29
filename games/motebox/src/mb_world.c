@@ -329,6 +329,16 @@ void mb_grave_step(void)
     static uint32_t cur;
     for (int n = 0; n < NC / 64; n++) {
         uint32_t i = cur++ % NC;
+        /* An ORPHAN BLUEPRINT — a plan square on ground no living village claims —
+         * goes with them. Belt and braces beside clearing it at the village's death:
+         * a marker that outlives its meaning is worse than no marker, and this sweep
+         * is already walking the map. */
+        if (mb_w.obj[i] == O_PLAN) {
+            uint8_t cl = mb_w.claim[i];
+            if (!cl || cl >= MAXV || !mb_v[cl].alive || mb_v[cl].plan_obj == 0)
+                mb_w.obj[i] = O_NONE;
+            continue;
+        }
         if (mb_w.obj[i] != O_GRAVE) continue;
         if ((mb_rand(i * 2246822519u + 0x51edu) & 255) < 26) mb_w.obj[i] = O_NONE;
     }
@@ -349,7 +359,7 @@ void mb_grow_step(void)
         /* ASH HEALS FASTER THAN IT USED TO. At 30/256 on a sample that revisits a
          * cell every ~300 ticks, a burnt tile lasted about fifty years, so a town
          * two centuries after its last fire was still speckled with grey. */
-        case B_ASH:      if (roll < 90) mb_w.biome[i] = B_GRASS;  continue;
+        case B_ASH:      if (roll < 130) mb_w.biome[i] = B_GRASS; continue;
         case B_RUBBLE:   if (roll < 25) mb_w.biome[i] = B_HILL;   continue;
         case B_LAVA:     continue;                      /* only the CA cools lava */
         default: break;
