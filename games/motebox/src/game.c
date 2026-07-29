@@ -102,7 +102,7 @@ static const char *const TR_NAME[TR_N] = {
 typedef char mb_trnames_complete[(sizeof TR_NAME / sizeof TR_NAME[0]) == TR_N ? 1 : -1];
 static const char *const JOB_NAME[JOB_N] = {
     "idle", "wandering", "foraging", "hunting", "fleeing", "courting",
-    "working", "fighting",
+    "working", "fighting", "FIGHTING THE FIRE",
 };
 typedef char mb_jobnames_complete[(sizeof JOB_NAME / sizeof JOB_NAME[0]) == JOB_N ? 1 : -1];
 
@@ -596,6 +596,77 @@ static void g_init(void)
      * killer" has two completely different causes — granaries full and the feeding
      * broken, or granaries empty and production short — and no amount of staring at
      * the aggregate CSV tells them apart. */
+    /* MOTEBOX_FIRETEST=1 sets fire to the biggest village and reports, tick by tick,
+     * whether the town saves itself: how much is burning, how many buildings are still
+     * standing, how many people are beating at it and how many it has killed. "Fire
+     * should be a contest" is a claim about a CURVE, and only a curve can settle it. */
+    { extern int mb_nodouse; const char *nd = getenv("MOTEBOX_NODOUSE");
+      mb_nodouse = (nd && *nd && *nd != '0'); }
+    if (getenv("MOTEBOX_FIRETEST")) {
+        int best = -1;
+        for (int i = 1; i < MAXV; i++)
+            if (mb_v[i].alive && (best < 0 || mb_v[i].pop > mb_v[best].pop)) best = i;
+        if (best >= 0) {
+            int fx0 = mb_v[best].x, fy0 = mb_v[best].y;
+            int b0 = 0;
+            for (int c = 0; c < NC; c++) if (mb_is_build(mb_w.obj[c])) b0++;
+            int before = 0;
+            for (int c = 0; c < NC; c++) if (mb_fkind(mb_w.flux[c]) == FX_FIRE) before++;
+            int nearv = 0;
+            for (int k = 0; k < mb_nu; k++) {
+                if (!mb_u[k].alive || mb_u[k].sp >= SP_CIV_N) continue;
+                int dx = (mb_u[k].x >> 4) - fx0, dy = (mb_u[k].y >> 4) - fy0;
+                if (dx * dx + dy * dy <= 25) nearv++;
+            }
+            fprintf(stderr, "village at %d,%d pop %d; %d civ units within 5 tiles; "
+                            "%d buildings; %d cells already burning\n",
+                    fx0, fy0, mb_v[best].pop, nearv, b0, before);
+            const char *pw = getenv("MOTEBOX_FIREPOWER");
+            mb_power_cast_named(pw && *pw ? pw : "FIRE", fx0, fy0);
+            int after = 0;
+            for (int c = 0; c < NC; c++) if (mb_fkind(mb_w.flux[c]) == FX_FIRE) after++;
+            fprintf(stderr, "the cast lit %d cells\n", after - before);
+            fprintf(stderr, "tick burning built dousing fleeing pop\n");
+            for (int t = 0; t <= 60; t++) {
+                if (t) { mb_flux_step(); mb_unit_step(); mb_civ_step(); mb_w.tick++; }
+                int burning = 0, built = 0, dousing = 0, fleeing = 0, pop = 0;
+                for (int c = 0; c < NC; c++) {
+                    if (mb_fkind(mb_w.flux[c]) == FX_FIRE) burning++;
+                    if (mb_is_build(mb_w.obj[c])) built++;
+                }
+                for (int k = 0; k < mb_nu; k++) {
+                    if (!mb_u[k].alive || mb_u[k].sp >= SP_CIV_N) continue;
+                    pop++;
+                    if (mb_u[k].job == JOB_DOUSE) dousing++;
+                    if (mb_u[k].job == JOB_FLEE)  fleeing++;
+                }
+                if (t % 5 == 0) {
+                    /* why is nobody dousing? count the preconditions separately */
+                    int near_any = 0, near_claimed = 0, in_fire = 0;
+                    for (int k = 0; k < mb_nu; k++) {
+                        const Unit *uu = &mb_u[k];
+                        if (!uu->alive || uu->sp >= SP_CIV_N || !uu->village) continue;
+                        int ux = uu->x >> 4, uy = uu->y >> 4;
+                        if (mb_fkind(mb_w.flux[AT(ux, uy)]) == FX_FIRE) { in_fire++; continue; }
+                        int seen = 0, claimed = 0;
+                        for (int dy = -3; dy <= 3; dy++)
+                            for (int dx = -3; dx <= 3; dx++) {
+                                int nx = ux + dx, ny = uy + dy;
+                                if (!mb_in(nx, ny)) continue;
+                                int ni = AT(nx, ny);
+                                if (mb_fkind(mb_w.flux[ni]) != FX_FIRE) continue;
+                                seen = 1;
+                                if (mb_w.claim[ni] == uu->village) claimed = 1;
+                            }
+                        near_any += seen; near_claimed += claimed;
+                    }
+                    fprintf(stderr, "%4d %7d %6d %7d %7d %4d   near=%d claimed=%d infire=%d\n",
+                            t, burning, built, dousing, fleeing, pop,
+                            near_any, near_claimed, in_fire);
+                }
+            }
+        }
+    }
     /* MOTEBOX_PWTEST=1 casts all forty-eight powers and reports what each did. */
     if (getenv("MOTEBOX_PWTEST")) mb_power_test_all(s_cx, s_cy);
     if (getenv("MOTEBOX_VSTAT")) {

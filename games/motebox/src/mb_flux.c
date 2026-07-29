@@ -40,13 +40,39 @@ static uint8_t biome_fuel(uint8_t b)
     }
 }
 
+/* WHAT BURNS, and this list is most of the answer to "should fire burn everything
+ * it touches". No: fire that consumes any cell it reaches is not a disaster, it is a
+ * delete tool, and it is boring the second time. Fire is interesting exactly because
+ * it is FUEL-GATED — it races through a forest, crawls across grass and stops dead at
+ * a river, a road, a ploughed field or ground it has already burnt. That is the
+ * mechanic Far Cry 2 built its savanna around and the one Minecraft, RimWorld and
+ * WorldBox all use: per-material flammability plus a burn-out, so every fire has a
+ * moving front and an end.
+ *
+ * BUT BUILDINGS HAD ZERO FUEL, so a village was fireproof. A god could drop fire on a
+ * town of thatched houses and NOTHING HAPPENED — which is how the power audit found
+ * it, casting FIRE on a village square to no effect at all. Now the settlement burns
+ * on a materials gradient, which also gives the best story beat in the system: the
+ * timber town goes up and the stone keep is still standing in the ashes. */
 static uint8_t obj_fuel(uint8_t o)
 {
     switch (o) {
     case O_DEAD:                return 255;   /* deadwood is tinder */
+    case O_WOODCUT:             return 240;   /* a woodyard is a bonfire waiting */
     case O_TREE: case O_TREE2:  return 220;
-    case O_BUSH: case O_REEDS: return 150;
+    case O_FARM:                return 215;   /* a barn full of hay */
+    case O_HOUSE1: case O_HOUSE2: case O_HOUSE3:
+                                return 200;   /* timber and thatch */
+    case O_DOCK:                return 185;   /* a wooden quay */
+    case O_HALL1:               return 170;   /* still a big house at tier one */
+    case O_BUSH: case O_REEDS:  return 150;
+    case O_TOWER:               return 130;   /* its beacon is already lit */
     case O_TUFT: case O_FLOWER: return 110;
+    case O_BARRACKS:            return  85;
+    case O_HALL2:               return  55;   /* walled: it resists */
+    case O_HALL3:               return  18;   /* the keep barely catches */
+    /* stone does not burn: the temple's pillars, the mine head, the wall, and the
+     * fire pit itself, which is the one thing in a village already on fire */
     default:                    return 0;
     }
 }
@@ -152,6 +178,36 @@ void mb_flux_blob(int cx, int cy, int r, int kind, int inten)
         }
 }
 
+/* BEAT OUT A FIRE. Returns how much intensity was actually removed, so the caller
+ * knows whether the effort achieved anything — a villager who swings a wet sack at a
+ * firestorm and makes no impression should not feel like one who saved a house.
+ *
+ * Water beats fire everywhere in this file, but a bucket is not a flood: dousing
+ * subtracts intensity rather than replacing the cell with FX_WATER, so a big fire
+ * takes many hands and many ticks and a small one goes out at once. That difference
+ * is the whole drama of a town fighting for itself. */
+int mb_flux_douse(int x, int y, int power)
+{
+    if (!mb_in(x, y)) return 0;
+    uint8_t *f = &mb_w.flux[AT(x, y)];
+    if (mb_fkind(*f) != FX_FIRE) return 0;
+    int inten = mb_fint(*f);
+    int cut = inten < power ? inten : power;
+    inten -= cut;
+    /* IT GOES OUT, and that is all it does. Leaving FX_WATER behind was tried, on the
+     * reasoning that a bucket chain wets ground ahead of the front — but FX_WATER is
+     * the FLOOD channel: it turns the tile into shallow water and deletes whatever is
+     * standing on it, so a village fighting a fire drowned itself and demolished the
+     * houses it was trying to save. It also chain-snuffed neighbouring cells, which
+     * made four people enough to beat a ten-cell fire in five ticks.
+     *
+     * So a doused cell can be re-lit by its neighbours, and holding a fire means
+     * having enough hands to out-pace the front rather than drawing a line once. The
+     * numbers that make that a real contest are in the douse action, not here. */
+    *f = inten > 0 ? fmake(FX_FIRE, inten) : 0;
+    return cut;
+}
+
 /* Light a disc, each cell from its OWN fuel. Fire is the one flux whose strength
  * is a property of the ground rather than of the cast. */
 void mb_flux_ignite(int cx, int cy, int r)
@@ -208,7 +264,17 @@ void mb_flux_step(void)
                 if (!biome_fuel(b) && !obj_fuel(o)) {
                     inten -= 4;                       /* nothing left: starves */
                 } else {
-                    if (o && obj_fuel(o) && (r & 63) < 26) ob[i0] = O_NONE;
+                    /* A BUILDING TAKES A WHILE TO GO. Everything flammable used to be
+                     * destroyed at a flat 26-in-64 a tick, so the houses under a cast
+                     * were gone within two ticks — before a single villager had even
+                     * noticed, which is why firefighting halved the fire's spread and
+                     * still saved exactly zero buildings. Vegetation keeps the old
+                     * rate; a built thing burns at a fraction of it, so it stands long
+                     * enough for the fight over it to have a result. */
+                    if (o && obj_fuel(o)) {
+                        int chance = mb_is_build(o) ? (obj_fuel(o) >> 5) : 26;
+                        if ((int)(r & 63) < chance) ob[i0] = O_NONE;
+                    }
                     inten -= 1;
                     for (int k = 0; k < 4; k++) {
                         int nx = x + DX4[k], ny = y + DY4[k];

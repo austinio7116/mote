@@ -109,7 +109,7 @@ enum {
 enum { DIET_PLANT = 0, DIET_MEAT };
 enum { DRV_CIV = 0, DRV_BEAST, DRV_FISH };   /* which drive set a species carries */
 enum { JOB_IDLE = 0, JOB_WANDER, JOB_FORAGE, JOB_HUNT, JOB_FLEE, JOB_BREED,
-       JOB_WORK, JOB_FIGHT, JOB_N };
+       JOB_WORK, JOB_FIGHT, JOB_DOUSE, JOB_N };
 enum { NEAR_PREY = 0, NEAR_MATE, NEAR_THREAT, NEAR_ENEMY };
 enum { CAUSE_AGE = 0, CAUSE_WOUNDS, CAUSE_EATEN, CAUSE_SLAIN, CAUSE_DISASTER,
        CAUSE_PLAGUE, CAUSE_STARVED, CAUSE_N };
@@ -254,6 +254,7 @@ void mb_flux_step(void);
 void mb_flux_add(int x, int y, int kind, int inten);
 void mb_flux_blob(int cx, int cy, int r, int kind, int inten);
 void mb_flux_ignite(int cx, int cy, int r);   /* fire, strength from the ground */
+int  mb_flux_douse(int x, int y, int power);   /* beat it out; returns what was cut */
 void mb_flux_wind(int *dx, int *dy);
 int  mb_flux_wind_phase(void);
 int  mb_flux_count(void);

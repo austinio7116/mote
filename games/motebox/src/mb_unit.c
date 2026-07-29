@@ -15,6 +15,9 @@
  * All integer, all from mb_rand(seed, tick, salt): a world replays exactly.
  */
 #include "mb.h"
+#if MOTE_HOST
+int mb_nodouse;
+#endif
 #include <string.h>
 
 /* --- species ------------------------------------------------------------ */
@@ -371,6 +374,61 @@ static void think(int i)
         threat = nearest(i, x, y, NEAR_THREAT);
         if (threat >= 0) danger += 50;
     }
+    /* --- FIGHT THE FIRE, if it is theirs to fight ------------------------
+     *
+     * This is what turns fire from an erase tool into a contest with an outcome you
+     * want to watch. It follows the good implementations rather than the simulationist
+     * ones: RimWorld makes firefighting a work priority that colonists can lose and
+     * die doing; The Sims sends them in and lets the failure be the story; Banished
+     * and Anno make it a question of whether a well is in range. Dwarf Fortress
+     * famously has nobody fight it at all, which is a different and much bleaker game.
+     *
+     * Three rules keep it honest:
+     *   - Only on CLAIMED ground. A wilderness fire burns free, which keeps the
+     *     ecology and the spectacle intact; a fire in the fields is an emergency.
+     *   - Only NEAR ground: a villager runs to a fire beside them, not across a
+     *     continent, so a town saves itself and its neighbours do not commute.
+     *   - It is DANGEROUS. Standing next to a fire hurts, and a big one hurts more
+     *     than one person can fix, so towns do lose. A fight you always win is not a
+     *     fight, and the losses are what make a rescued town mean anything.
+     *
+     * It outranks fleeing, but only just — and only while they are not standing IN
+     * it. Nobody beats out a fire they are inside; that is when you run. */
+    int fire_x = -1, fire_y = -1;
+#if MOTE_HOST
+    /* MOTEBOX_NODOUSE=1 turns firefighting off, so the feature can be measured
+     * against the world where nobody lifts a bucket. A mechanic that does not change
+     * the outcome is decoration, and the only way to know is to run both. */
+    extern int mb_nodouse;
+    if (mb_nodouse) { /* nobody fights it */ } else
+#endif
+    if (sp->drives == DRV_CIV && u->village && fx != FX_FIRE) {
+        int bestd = 99;
+        for (int dy = -5; dy <= 5; dy++)          /* the whole village turns out */
+            for (int dx = -5; dx <= 5; dx++) {
+                int nx = x + dx, ny = y + dy;
+                if (!mb_in(nx, ny)) continue;
+                int ni = AT(nx, ny);
+                if (mb_fkind(mb_w.flux[ni]) != FX_FIRE) continue;
+                if (mb_w.claim[ni] != u->village) continue;
+                int d = dx * dx + dy * dy;
+                if (d < bestd) { bestd = d; fire_x = nx; fire_y = ny; }
+            }
+        if (fire_x >= 0) {
+            /* the brave and the loyal run toward it; a coward still runs away */
+            /* Above work, forage and courtship — a fire in your own village is not
+             * something you finish the harvest first for. Still below standing IN it,
+             * which is handled by excluding those units above. */
+            int zeal = 150;
+            if (u->traits & TR_BRAVE)  zeal += 40;
+            if (u->traits & TR_LOYAL)  zeal += 20;
+            if (u->traits & TR_COWARD) zeal -= 120;
+            if (u->hp < 40)            zeal -= 90;   /* already hurt: save yourself */
+            if (zeal > bestv) { bestv = zeal; best = JOB_DOUSE;
+                               u->target = (uint16_t)AT(fire_x, fire_y); }
+        }
+    }
+
     if (danger > bestv) { bestv = danger; best = JOB_FLEE; }
 
     /* A villager does NOT brawl with a wolf. It was tried: a bear does 35 a bite
@@ -443,10 +501,30 @@ static void think(int i)
         }
     }
 
-    /* --- wander: the floor, so nothing ever stands still doing nothing --- */
+    /* --- wander: the floor, so nothing ever stands still doing nothing ---
+     *
+     * A PERSON WANDERS AROUND THEIR HOME, not around wherever they happen to be.
+     * This was a pure random walk from the unit's own position, and a random walk
+     * DIFFUSES: over a few hundred ticks it spread every village's population evenly
+     * across the map, so a village reporting eighteen people had NOBODY WITHIN FIVE
+     * TILES OF ITS OWN CENTRE. The buildings were in one place and the citizens were
+     * somewhere else entirely.
+     *
+     * That one line explains a whole run of complaints. It is why a town looked
+     * deserted, why the wilderness looked full of people, and why the first version of
+     * firefighting never triggered once — there was nobody near the fire to fight it.
+     * Anchoring the walk to the hall makes a village a PLACE: people mill about it,
+     * leave to forage or work, and come back when they have nothing to do. */
     if (bestv < 14) {
         best = JOB_WANDER;
-        int wx = x + (int)((r >> 3) % 13) - 6, wy = y + (int)((r >> 9) % 13) - 6;
+        int hx = x, hy = y, span = 13;
+        if (sp->drives == DRV_CIV && u->village && u->village < MAXV
+            && mb_v[u->village].alive) {
+            hx = mb_v[u->village].x; hy = mb_v[u->village].y;
+            span = 9;                 /* and they keep tighter to it than a beast does */
+        }
+        int wx = hx + (int)((r >> 3) % span) - span / 2;
+        int wy = hy + (int)((r >> 9) % span) - span / 2;
         if (wx < 0) wx = 0; if (wx >= MW) wx = MW - 1;
         if (wy < 0) wy = 0; if (wy >= MH) wy = MH - 1;
         u->target = (uint16_t)AT(wx, wy);
@@ -558,6 +636,41 @@ static void act(int i)
             }
             u->hunger += 12; u->happy += 10; u->job = JOB_IDLE;
         } else step_toward(u, tx, ty);
+        break;
+    }
+
+    case JOB_DOUSE: {
+        if (u->target == 0xFFFF) { u->job = JOB_IDLE; break; }
+        int tx = (int)(u->target % MW), ty = (int)(u->target / MW);
+        if (mb_fkind(mb_w.flux[AT(tx, ty)]) != FX_FIRE) { u->job = JOB_IDLE; break; }
+        int adx = tx > x ? tx - x : x - tx, ady = ty > y ? ty - y : y - ty;
+        if (adx > 1 || ady > 1) { step_toward(u, tx, ty); break; }
+
+        /* WATER IN REACH DOUBLES IT. A bucket chain needs something to fill from, so
+         * a village beside a river or a lake really does defend itself better than one
+         * on a dry plateau — which makes the WATER power a defensive tool and gives
+         * the player a reason to dig a pond before lighting anything. */
+        int wet = 0;
+        for (int dy = -2; dy <= 2 && !wet; dy++)
+            for (int dx = -2; dx <= 2; dx++) {
+                int nx = x + dx, ny = y + dy;
+                if (mb_in(nx, ny) && mb_water(mb_w.biome[AT(nx, ny)])) { wet = 1; break; }
+            }
+        /* Tuned against the curve, not by feel. At 2-4 a head, a dozen villagers made
+         * no impression on an eleven-cell fire and it grew to 359 cells in sixty ticks;
+         * the contest existed but was never winnable, so firefighting never once saved
+         * anything and may as well not have been there. At these numbers a fire caught
+         * in its first few ticks is CONTAINED, and one that has reached the forest is
+         * not — which is the shape every game that does this well settles on, and it
+         * teaches the right lesson: light the treeline, not the town square. */
+        int power = wet ? 7 : 4;
+        if (u->traits & TR_TOUGH) power += 2;
+        int cut = mb_flux_douse(tx, ty, power);
+
+        /* it costs them: standing beside a fire burns, and losing hurts morale */
+        u->hp    -= (int8_t)(cut ? 2 : 4);
+        u->happy -= (int8_t)(cut ? 1 : 3);
+        if (cut) u->happy += 3;                  /* and winning is worth something */
         break;
     }
 
