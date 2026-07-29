@@ -510,6 +510,36 @@ def check_transition_bodies():
     print("[check]   all %d overlays bleed their own body colour" % len(TRANSITIONS))
 
 
+# THE BAND STACK. Deep ocean is the BACKGROUND and costs no layer; mountain, lava and
+# scorched are sprites. That leaves eight layers for eight bands, which is one more than
+# the eight colour families need — so nothing has to merge lossily at all, and desert and
+# ash keep tones of their own.
+#
+# Order is bottom-up and the map is CUMULATIVE: a cell in band B sets bits 0..B. Layer L
+# therefore covers every cell at band L or above, the engine autotiles it against its own
+# bit, and its fringe reveals the band below — which turns out to be the NEIGHBOUR's own
+# colour, because a neighbour in a lower band is exactly a cell that lacks this bit.
+BAND_LIST = [
+    ("bd_water",   BLUE,    WHITE,   ["sea", "shallow"]),
+    ("bd_frost",   WHITE,   BLUE,    ["ice", "snow"]),
+    ("bd_sand",    PEACH,   WHITE,   ["beach"]),
+    ("bd_desert",  YELLOW,  WHITE,   ["desert"]),
+    ("bd_green",   DKGREEN, GREEN,   ["grass", "swamp", "acid", "meadow", "forest"]),
+    ("bd_savanna", ORANGE,  YELLOW,  ["savanna"]),
+    ("bd_dry",     BROWN,   ORANGE,  ["farm", "hill", "tundra"]),
+    ("bd_rock",    LTGREY,  WHITE,   ["peak", "rubble", "ash", "road", "mountain"]),
+]
+
+
+def build_bands():
+    """Eight autotiled band tilesets — the whole terrain, done by the ruleset system."""
+    import bands, palette
+    for name, body, toward, members in BAND_LIST:
+        sheet = bands.build(palette.ramp(body, toward), nvar=2)
+        bands.write_tileset(TSETS, name, sheet, nvar=2, vweight=[1, 1])
+        print("[band]    %-12s %-8s -> %s" % (name, str(body), ", ".join(members)))
+
+
 def build_transitions():
     """One transparent overlay sheet per biome — see authoring/transitions.py.
 
@@ -699,7 +729,7 @@ def main():
     build_roads()
     build_town()
     build_mountains()
-    build_transitions()
+    build_bands()
     build_biomes()
     check_transition_bodies()
     sync_terrain()

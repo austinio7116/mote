@@ -415,7 +415,8 @@ static void god_menu(void)
      * nothing else, because founding a civilisation was a power you had to know about.
      * Boot into a living history instead. */
     mb_civ_seed_world(4);
-            mb_world_start(&s_cx, &s_cy);
+            mb_bands_rebuild();          /* the first frame needs a band map too */
+    mb_world_start(&s_cx, &s_cy);
     /* AND OPEN ON A CIVILISATION. Worldgen picks a pleasant spot, which on a 96x96 map
      * is usually nobody's spot — so the first thing the player saw was empty coastline
      * even once the world had peoples in it. Start the cursor on a founding party: the
@@ -451,6 +452,7 @@ static void fast_forward(int years)
             mb_civ_step();
             mb_grow_step();
             mb_grave_step();
+            mb_bands_rebuild();
             mb_faith_step();
             mb_age_step();
         }
@@ -791,6 +793,7 @@ static void g_update(float dt)
                 mb_civ_step();
                 mb_grow_step();
                 mb_grave_step();
+                mb_bands_rebuild();
                 mb_faith_step();
                 mb_age_step();
 #if MOTE_HOST

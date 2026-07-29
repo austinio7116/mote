@@ -173,6 +173,7 @@ void mb_world_alloc(void)
     mb_w.flux  = (uint8_t *)g_api->alloc(NC);
     mb_w.claim = (uint8_t *)g_api->alloc(NC);
     mb_w.road  = (uint8_t *)g_api->alloc(NC);
+    mb_w.layer = (uint8_t *)g_api->alloc(NC);
 }
 
 void mb_world_gen(uint32_t seed)
@@ -189,6 +190,7 @@ void mb_world_gen(uint32_t seed)
     memset(mb_w.flux,  0, NC);
     memset(mb_w.claim, 0, NC);
     memset(mb_w.road,  0, NC);
+    memset(mb_w.layer, 0, NC);
     memset(ob,         0, NC);
 
     /* 1. elevation */
@@ -326,6 +328,52 @@ void mb_world_stats(void)
  * ticks instead, so removal scales with how many graves there ARE, and a grave
  * lasts about a decade — long enough that a battlefield is still readable the
  * next time you look, short enough that peace clears it. */
+/* biome[] -> layer[]: the cumulative band map the layered autotiler reads.
+ *
+ * Deep ocean is band -1 and sets NO bits, so it falls through to the background colour
+ * and costs no layer at all. Everything else sets every bit up to its own band, which is
+ * what lets layer L's fringe reveal the band below — and a neighbour in a lower band is
+ * precisely a cell that lacks this bit, so the fringe shows the NEIGHBOUR's colour
+ * without anybody looking a neighbour up.
+ *
+ * Rebuilt once a TICK rather than once a frame: terrain changes when the world changes,
+ * and at 400 fps a per-frame sweep of 14336 cells would be five million writes a second
+ * for nothing. */
+void mb_bands_rebuild(void)
+{
+    /* biome -> band, indexed by B_*. -1 = the background (deep ocean). */
+    static const int8_t BAND[B_N] = {
+        -1,   /* B_NONE   */
+        -1,   /* ocean    — the background */
+         0,   /* sea      */
+         0,   /* shallow  */
+         1,   /* ice      */
+         2,   /* beach    */
+         3,   /* desert   */
+         5,   /* savanna  */
+         4,   /* grass    */
+         4,   /* swamp    */
+         6,   /* hill     */
+         7,   /* mountain — rock underneath its sprite */
+         7,   /* peak     */
+         6,   /* tundra   */
+         1,   /* snow     */
+         7,   /* ash      */
+         6,   /* scorched — dry under its sprite */
+         6,   /* lava     — dry under its sprite */
+         4,   /* acid     */
+         6,   /* farm     */
+         7,   /* rubble   */
+         4,   /* meadow   */
+         4,   /* forest   */
+         7,   /* road     */
+    };
+    for (int i = 0; i < NC; i++) {
+        int b = BAND[mb_w.biome[i]];
+        mb_w.layer[i] = (b < 0) ? 0 : (uint8_t)((1u << (b + 1)) - 1u);
+    }
+}
+
 void mb_grave_step(void)
 {
     static uint32_t cur;

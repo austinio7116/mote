@@ -230,7 +230,11 @@ typedef struct {
      * transparent, so a road could never lie ON the land. One byte per cell (14 KB of
      * a 272 KB arena) buys a network that draws over any terrain and knows its own
      * neighbours, which is what a corner needs. */
-    uint8_t *road;      /* village id + development bits — Phase 4 */
+    uint8_t *road;
+    /* THE BAND MAP: one byte per cell, one bit per autotile layer, built CUMULATIVELY so
+     * a cell in band B sets bits 0..B. This is what makes every terrain boundary in the
+     * world automatic — see authoring/bands.py. Derived from biome[], not authored. */
+    uint8_t *layer;      /* village id + development bits — Phase 4 */
     uint32_t seed;
     int32_t  tick;       /* weeks since year 0 */
     uint8_t  shape;      /* SH_* — archipelago .. pangaea, rolled from the seed */
@@ -251,7 +255,8 @@ const char *mb_world_shape_name(void);
 const char *mb_world_climate_name(void);
 void mb_world_stats(void);            /* MOTEBOX_STAT=1 */
 void mb_grow_step(void);               /* regrowth, so a ruined world can heal */
-void mb_grave_step(void);              /* headstones weather, so peace clears them */
+void mb_grave_step(void);
+void mb_bands_rebuild(void);           /* biome[] -> layer[], the cumulative band map */              /* headstones weather, so peace clears them */
 
 /* mb_flux.c */
 void mb_flux_init(void);

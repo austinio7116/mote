@@ -44,6 +44,14 @@
 #include "treasure_ore.h"
 #include "ore.h"
 #include "road.h"
+#include "bd_water.tiles.h"
+#include "bd_frost.tiles.h"
+#include "bd_sand.tiles.h"
+#include "bd_desert.tiles.h"
+#include "bd_green.tiles.h"
+#include "bd_savanna.tiles.h"
+#include "bd_dry.tiles.h"
+#include "bd_rock.tiles.h"
 #include "blob47_lut.h"
 #include "tr_ocean.tiles.h"
 #include "tr_sea.tiles.h"
@@ -91,6 +99,15 @@ typedef char mb_town_covers_builds[(town_W / TOWN_W) == (O_N - O_BUILD0) ? 1 : -
 
 /* Ruleset per biome id. Index i is biome id i+1 — the engine reads
  * tiles[t-1] for cell value t, so this array's ORDER IS the B_* enum. */
+/* THE BAND STACK, bottom-up. One tileset per autotile layer; the cumulative band map in
+ * mb_w.layer decides which layers cover which cell (see mb_bands_rebuild). This replaces
+ * the per-biome opaque autotile AND the per-cell sprite transition pass: every boundary
+ * in the world is now drawn by the ruleset system, for zero sprites. */
+static const MoteAutotile *const MB_BANDS[8] = {
+    &bd_water_at, &bd_frost_at, &bd_sand_at, &bd_desert_at,
+    &bd_green_at, &bd_savanna_at, &bd_dry_at, &bd_rock_at,
+};
+
 static const MoteAutotile *const MB_TILES[B_COUNT] = {
     &bio_ocean_at, &bio_sea_at, &bio_shallow_at, &bio_ice_at, &bio_beach_at,
     &bio_desert_at, &bio_savanna_at, &bio_grass_at, &bio_swamp_at, &bio_hill_at,
@@ -496,7 +513,12 @@ void mb_draw_mortal(int cam_x, int cam_y)
 {
     s_spr_want = s_spr_lost = 0;
     g_api->scene2d_begin(cam_x, cam_y);
-    g_api->scene2d_set_autotiles(mb_w.biome, MW, MH, MB_TILES, B_COUNT);
+    /* THE WHOLE TERRAIN, from the ruleset system. Deep ocean is the background colour, so
+     * a cell with no bits set simply shows through — which is why the stack needs only
+     * eight layers where there used to be twenty-three opaque tilesets AND a sprite per
+     * boundary cell. */
+    g_api->scene_set_background(MB_COL[B_OCEAN - 1]);
+    g_api->scene2d_set_autotile_layers(mb_w.layer, MW, MH, MB_BANDS, 8);
 
     /* DRAW ORDER IS PRIORITY ORDER, not height order.
      *
@@ -600,57 +622,9 @@ void mb_draw_mortal(int cam_x, int cam_y)
             add(&spr);
         }
     }
-    /* THE TRANSITION PASS — a real blob47 lookup on all EIGHT neighbours.
-     *
-     * For each visible cell: find the highest-precedence terrain among its neighbours;
-     * if it outranks this cell, build the eight-bit mask of where that terrain actually
-     * is and look the cell up through blob47's own table. That is what buys the corners.
-     * A four-neighbour mask — which is what the first version of this used — cannot tell
-     * "it wraps round my corner" from "it stops short and leaves a notch", and fills
-     * both solid, which is the hard right angle the layering exists to remove.
-     *
-     * One sprite per boundary cell, added BEFORE the ground clutter, so when the scene
-     * fills up it is a tuft of grass that gets dropped and never a coastline. */
-    for (int r = r0; r <= r0 + MVH; r++) {
-        if (r < 0 || r >= MH) continue;
-        for (int c = c0; c <= c0 + MVW; c++) {
-            if (c < 0 || c >= MW) continue;
-            uint8_t me = mb_w.biome[AT(c, r)];
-            if (!me || me > B_COUNT) continue;
-
-            /* bit order must match authoring/transitions.py: N NE E SE S SW W NW */
-            static const int8_t DX8[8] = {  0,  1, 1, 1, 0, -1, -1, -1 };
-            static const int8_t DY8[8] = { -1, -1, 0, 1, 1,  1,  0, -1 };
-            uint8_t win = 0; int winprec = MB_PREC[me - 1];
-            for (int k = 0; k < 8; k++) {
-                int nx = c + DX8[k], ny = r + DY8[k];
-                if (!mb_in(nx, ny)) continue;
-                uint8_t nb = mb_w.biome[AT(nx, ny)];
-                if (!nb || nb > B_COUNT || nb == me) continue;
-                int p = MB_PREC[nb - 1];
-                if (p > winprec) { winprec = p; win = nb; }
-            }
-            if (!win || !MB_TRANS[win - 1]) continue;
-
-            int mask = 0;
-            for (int k = 0; k < 8; k++) {
-                int nx = c + DX8[k], ny = r + DY8[k];
-                if (mb_in(nx, ny) && mb_w.biome[AT(nx, ny)] == win) mask |= 1 << k;
-            }
-            int cellno = MB_BLOB47[mask];
-            if (!cellno) continue;          /* cell 0 is "no contact worth drawing" */
-
-            /* two profiles, chosen from the cell's own position, so a long shore
-             * undulates instead of repeating one scallop */
-            int v = ((c * 7 + r * 3) & 1);
-            MoteSprite spr = { MB_TRANS[win - 1], (int16_t)(c * TILE), (int16_t)(r * TILE),
-                               (uint16_t)((cellno % MB_TR_COLS) * TILE),
-                               (uint16_t)((cellno / MB_TR_COLS) * TILE
-                                          + v * MB_TR_ROWS * TILE),
-                               TILE, TILE, 11, 0 };
-            add(&spr);
-        }
-    }
+    /* (The per-cell transition sprites that used to live here are gone: the band stack
+     * draws every boundary automatically, so terrain costs no sprites at all and can
+     * never be starved by a passing deer.) */
 
     /* MOUNTAINS, as COMPOSED SPRITES on a two-cell grid.
      *
