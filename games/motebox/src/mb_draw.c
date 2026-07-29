@@ -122,6 +122,9 @@ static const MoteAutotile *const MB_TILES[B_COUNT] = {
 #define C_NAVY    MOTE_RGB565( 29,  43,  83)
 #define C_MAROON  MOTE_RGB565(126,  37,  83)
 #define C_DKGREEN MOTE_RGB565(  0, 135,  81)
+/* The GRASS BAND is a third of the way to bright green so the artist's dark foliage
+ * reads against it — God's Eye has to use the same tone or zooming recolours the world. */
+#define C_GRASS   MOTE_RGB565(  0, 163,  73)
 #define C_BROWN   MOTE_RGB565(171,  82,  54)
 #define C_DKGREY  MOTE_RGB565( 95,  87,  79)
 #define C_LTGREY  MOTE_RGB565(194, 195, 199)
@@ -160,12 +163,12 @@ typedef char mb_prec_covers[(sizeof MB_PREC / sizeof MB_PREC[0]) == B_COUNT ? 1 
 static const uint16_t MB_COL[B_COUNT] = {
     C_NAVY,    /* ocean    */ C_BLUE,   /* sea      */ C_BLUE,   /* shallow  */
     C_WHITE,   /* ice      */ C_PEACH,  /* beach    */ C_YELLOW, /* desert   */
-    C_ORANGE,  /* savanna  */ C_DKGREEN,/* grass    */ C_DKGREEN,/* swamp    */
+    C_ORANGE,  /* savanna  */ C_GRASS,  /* grass    */ C_GRASS,  /* swamp    */
     C_BROWN,   /* hill     */ C_DKGREY, /* mountain */ C_LTGREY, /* peak     */
     C_BROWN,   /* tundra   */ C_WHITE,  /* snow     */ C_DKGREY, /* ash      */
     C_MAROON,  /* scorched */ C_RED,    /* lava     */ C_GREEN,  /* acid     */
-    C_BROWN,   /* farm     */ C_LTGREY, /* rubble   */ C_DKGREEN,/* meadow   */
-    C_DKGREEN, /* forest   */ C_DKGREY, /* road     */
+    C_BROWN,   /* farm     */ C_LTGREY, /* rubble   */ C_GRASS,  /* meadow   */
+    C_GRASS,   /* forest   */ C_DKGREY, /* road     */
 };
 
 /* Object dots in God's Eye. 0 = draw the biome colour (the object is too small

@@ -43,6 +43,8 @@ for those six bands, and forking its 300-line derivation would let the two
 copies drift. See SYNC_TERRAIN.
 """
 import os, shutil, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from palette import mix          # interpolated tones inside the artist's hue families
 from PIL import Image
 
 HERE   = os.path.dirname(os.path.abspath(__file__))
@@ -524,7 +526,10 @@ BAND_LIST = [
     ("bd_frost",   WHITE,   BLUE,    ["ice", "snow"]),
     ("bd_sand",    PEACH,   WHITE,   ["beach"]),
     ("bd_desert",  YELLOW,  WHITE,   ["desert"]),
-    ("bd_green",   DKGREEN, GREEN,   ["grass", "swamp", "acid", "meadow", "forest"]),
+    # A LIGHTER GRASS. The band body was DKGREEN and so is the artist's tree foliage, so
+    # a wood was invisible against the field it stood in. Grass is a third of the way to
+    # GREEN now, which leaves his trees reading dark against it.
+    ("bd_green",   mix(DKGREEN, GREEN, 0.30), GREEN, ["grass", "swamp", "acid", "meadow", "forest"]),
     ("bd_savanna", ORANGE,  YELLOW,  ["savanna"]),
     ("bd_dry",     BROWN,   ORANGE,  ["farm", "hill", "tundra"]),
     ("bd_rock",    LTGREY,  WHITE,   ["peak", "rubble", "ash", "road", "mountain"]),
@@ -534,8 +539,11 @@ BAND_LIST = [
 def build_bands():
     """Eight autotiled band tilesets — the whole terrain, done by the ruleset system."""
     import bands, palette
-    for name, body, toward, members in BAND_LIST:
-        sheet = bands.build(palette.ramp(body, toward), nvar=2)
+    for i, (name, body, toward, members) in enumerate(BAND_LIST):
+        tones = palette.ramp(body, toward)
+        # GRAIN, not flat. Two variants with different marks, so the same band is not the
+        # same speckle repeated across a continent.
+        sheet = bands.build(tones, interior_fn=bands.grain(tones, 101 + i * 7), nvar=2)
         bands.write_tileset(TSETS, name, sheet, nvar=2, vweight=[1, 1])
         print("[band]    %-12s %-8s -> %s" % (name, str(body), ", ".join(members)))
 

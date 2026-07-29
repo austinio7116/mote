@@ -135,6 +135,28 @@ def cell(mask, tones, interior_fn=None, profile=0):
     return im
 
 
+def grain(tones, seed, n=3):
+    """An interior with GRAIN: a few pixels of the band's own lighter tones on a fixed
+    lattice, so a continent has surface without having a pattern.
+
+    This is what the extended palette bought. The last attempt at grain had to borrow a
+    colour from another family — NAVY on DKGREEN grass — because there was no near
+    neighbour in the sixteen, and a meadow came out speckled with near-black dots. With
+    tones interpolated inside one family the marks are a step and not a drop, so they
+    read as light catching a surface.
+    """
+    def fn(profile):
+        im = Image.new("RGBA", (TS, TS), tones[0] + (255,))
+        px = im.load()
+        h = (seed * 2654435761 + profile * 40503) & 0xFFFFFFFF
+        for i in range(n):
+            h = (h * 1103515245 + 12345) & 0xFFFFFFFF
+            x, y = (h >> 8) % TS, (h >> 16) % TS
+            px[x, y] = tones[1 + (i % (len(tones) - 1))] + (255,)
+        return im
+    return fn
+
+
 def build(tones, interior_fn=None, nvar=2):
     """A 47-cell band set, 16 x 3 per variant block — Studio's grid, so the editor and
     the game agree on where cell 23 is."""
