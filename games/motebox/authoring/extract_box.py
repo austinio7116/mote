@@ -538,6 +538,35 @@ def build_transitions():
           % len(TRANSITIONS))
 
 
+def build_mountains():
+    """The artist's composed mountain block, shipped WHOLE as a sprite sheet.
+
+    His mountain at (9..10, 25..28) is two columns by four rows drawn to fit together: a
+    snow cap, two slope rows that alternate into diamond peaks, and a base with a
+    snowline. It only reads as mountains when those pieces are placed IN PHASE.
+
+    Three attempts handed pairs of his cells to the tileset as `nvar` variants, and the
+    engine picks a variant row with `mote__at_hash(x, y)` — a deliberately random
+    per-cell hash — so a composed picture was shuffled into confetti every time. The
+    engine offers no way to phase a tileset: the hash is the only input, `var_weight`
+    changes frequency not position, and every autotile layer shares tiles[0]'s size so
+    16 px tiles are not available either. Both checked in the source, not assumed.
+
+    A SPRITE HAS NO GRID AT ALL, which is the whole answer, and it was suggested twice
+    before I took it. The draw pass snaps to a two-cell grid and picks his row by where
+    the block sits in the mass, so the phase is chosen deliberately instead of hashed.
+    Transparency is KEPT: a mountain stands on the ground, so the terrain shows past its
+    edges.
+
+    Rows, top to bottom: 0 cap, 1 slope A, 2 slope B, 3 foot.
+    """
+    sheet = Image.new("RGBA", (2 * TS, 4 * TS), (0, 0, 0, 0))
+    for row, cy in enumerate((25, 26, 27, 28)):
+        for col, cx in enumerate((9, 10)):
+            sheet.paste(region(cx, cy, cx, cy), (col * TS, row * TS))
+    save_sheet("mtn", sheet)
+
+
 def build_town():
     """The settlement's own sprites — see authoring/build_sprites.py.
 
@@ -669,6 +698,7 @@ def main():
     build_ore()
     build_roads()
     build_town()
+    build_mountains()
     build_transitions()
     build_biomes()
     check_transition_bodies()

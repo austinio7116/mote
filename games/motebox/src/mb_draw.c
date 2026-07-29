@@ -66,6 +66,7 @@
 #include "tr_farm.tiles.h"
 #include "tr_rubble.tiles.h"
 #include "town.h"
+#include "mtn.h"
 
 /* The town sheet's geometry, in one place: 8 wide, 14 tall, drawn six pixels above
  * its own tile. Must match authoring/build_sprites.py. */
@@ -648,6 +649,52 @@ void mb_draw_mortal(int cam_x, int cam_y)
                                           + v * MB_TR_ROWS * TILE),
                                TILE, TILE, 11, 0 };
             add(&spr);
+        }
+    }
+
+    /* MOUNTAINS, as COMPOSED SPRITES on a two-cell grid.
+     *
+     * The artist's mountain is two columns by four rows drawn to fit together — cap,
+     * two alternating slope rows that make diamond peaks, and a foot with a snowline.
+     * A tileset cannot place it: the engine picks a variant row with a position HASH,
+     * so three attempts at shipping his cells as `nvar` variants shuffled a composed
+     * picture into confetti. A sprite has no grid, so the phase is chosen HERE, on
+     * purpose: snap to even cells, and pick his row from where the block sits in the
+     * mass. Slope A on even block rows and slope B on odd is what makes the diamonds
+     * line up into ridges instead of repeating one triangle.
+     *
+     * One sprite per 2x2 block rather than per cell, so a mountainous screen costs
+     * about a dozen and not fifty. */
+    for (int r = (r0 & ~1); r <= r0 + MVH + 1; r += 2) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = (c0 & ~1); c <= c0 + MVW + 1; c += 2) {
+            if (c < 0 || c >= MW) continue;
+            /* does this block contain any mountain at all? */
+            int hit = 0;
+            for (int j = 0; j < 2 && !hit; j++)
+                for (int i = 0; i < 2; i++) {
+                    int x = c + i, y = r + j;
+                    if (mb_in(x, y) && mb_w.biome[AT(x, y)] == B_MOUNTAIN) { hit = 1; break; }
+                }
+            if (!hit) continue;
+
+            /* where does it sit in the mass? nothing above -> cap, nothing below -> foot */
+            int above = 0, below = 0;
+            for (int i = 0; i < 2; i++) {
+                if (mb_in(c + i, r - 1) && mb_w.biome[AT(c + i, r - 1)] == B_MOUNTAIN) above = 1;
+                if (mb_in(c + i, r + 2) && mb_w.biome[AT(c + i, r + 2)] == B_MOUNTAIN) below = 1;
+            }
+            int row = !above ? 0 : (!below ? 3 : (((r >> 1) & 1) ? 2 : 1));
+
+            MoteSprite spr = { &mtn_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
+                               0, (uint16_t)(row * TILE), 2 * TILE, TILE, 14, 0 };
+            add(&spr);
+            /* the block is two cells tall, so the second row of it takes the next
+             * strip down — slope alternates, cap is followed by slope, foot by foot */
+            int row2 = (row == 0) ? 1 : (row == 3 ? 3 : (row == 1 ? 2 : 1));
+            MoteSprite spr2 = { &mtn_img, (int16_t)(c * TILE), (int16_t)((r + 1) * TILE),
+                                0, (uint16_t)(row2 * TILE), 2 * TILE, TILE, 14, 0 };
+            add(&spr2);
         }
     }
 
