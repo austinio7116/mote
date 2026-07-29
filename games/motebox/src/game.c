@@ -327,7 +327,10 @@ static void view_set(int god)
     s_god = god;
     /* The whole view switch: the world rasteriser IS the background pass, so
      * handing it over (or handing back NULL) is all that changes. */
-    mote->set_background_cb(god ? mb_god_band : 0);
+    /* Both views paint their own background: the map rasteriser in God's Eye, and in
+     * Mortal View a live sea — deep ocean is the scene background rather than a
+     * tileset, so a callback is the only place it can have a surface at all. */
+    mote->set_background_cb(god ? mb_god_band : mb_draw_sea_band);
     if (!god) cam_follow();
 }
 

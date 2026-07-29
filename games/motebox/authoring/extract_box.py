@@ -574,7 +574,8 @@ def build_bands():
         # Rock gets STONE, not grain: see bands.stone(). The grass-style speckle left a
         # mountain interior as flat grey with three dots on it, which is exactly what the
         # screenshots showed for six rounds.
-        interior = (bands.stone(tones, 101 + i * 7) if name == "bd_rock"
+        interior = (bands.stone(tones, 101 + i * 7)   if name == "bd_rock"
+                    else bands.ripples(tones, 101 + i * 7) if name == "bd_water"
                     else bands.grain(tones, 101 + i * 7))
         # FOUR variants, not two. With two, the hash alternates one motif against one
         # other across a whole continent and the eye reads the result as a lattice —

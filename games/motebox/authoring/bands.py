@@ -217,3 +217,23 @@ def stone(tones, seed):
                     px[(x + dx) % TS, (y + dy) % TS] = t + (255,)
         return im
     return fn
+
+def ripples(tones, seed):
+    """An interior for WATER: short horizontal dashes rather than dots.
+
+    Once the deep ocean got a real surface (mb_draw_sea_band), the shallow band beside it
+    was the flattest thing on screen — a bright blue field with three single-pixel specks.
+    A dash reads as a ripple crest because that is the shape a wave front makes seen from
+    above; a dot reads as a speck of dirt.
+    """
+    def fn(profile):
+        im = Image.new("RGBA", (TS, TS), tones[0] + (255,))
+        px = im.load()
+        h = (seed * 1103515245 + profile * 2654435761) & 0xFFFFFFFF
+        for i in range(3):
+            h = (h * 1103515245 + 12345) & 0xFFFFFFFF
+            x, y = (h >> 9) % TS, (h >> 17) % TS
+            for k in range(2 + ((h >> 25) & 1)):
+                px[(x + k) % TS, y] = tones[1 + (i % (len(tones) - 1))] + (255,)
+        return im
+    return fn
