@@ -119,13 +119,16 @@ static const Power P_CURSE[8] = {
 };
 /* The seventeen 2x2 kaiju live on the bosses sheet; eight are summonable. */
 static const Power P_BEASTS[8] = {
-    { PW_TITAN,   "SKULL TITAN", &bosses_img,  7, 1, 0, 0, 500 },
-    { PW_MEDUSA,  "MEDUSA",      &bosses_img,  4, 1, 0, 0, 380 },
-    { PW_REAPER,  "REAPER",      &bosses_img,  2, 3, 0, 0, 460 },
-    { PW_PHOENIX, "PHOENIX",     &bosses_img,  0, 3, 0, 0, 420 },
-    { PW_GOLEM,   "GOLEM",       &bosses_img,  1, 1, 0, 0, 300 },
+    /* Each icon is the TOP-LEFT cell of that kaiju's 2x2 block on the bosses sheet.
+     * They were half-cells of the wrong block before — the "titan" icon was the right
+     * half of the great eye, and the "golem" the right half of the maw. */
+    { PW_TITAN,   "SKULL TITAN", &bosses_img,  4, 3, 0, 0, 500 },
+    { PW_MEDUSA,  "MEDUSA",      &bosses_img,  8, 1, 0, 0, 380 },
+    { PW_REAPER,  "REAPER",      &bosses_img, 10, 1, 0, 0, 460 },
+    { PW_PHOENIX, "PHOENIX",     &bosses_img,  2, 3, 0, 0, 420 },
+    { PW_GOLEM,   "GOLEM",       &bosses_img,  2, 1, 0, 0, 300 },
     { PW_SWARM,   "SWARM",       &animals_img, 0, 4, 2, 0, 200 },
-    { PW_EYE,     "THE EYE",     &bosses_img,  3, 1, 0, 0, 340 },
+    { PW_EYE,     "THE EYE",     &bosses_img,  6, 1, 0, 0, 340 },
     { PW_ANGEL,   "ANGEL",       &bosses_img,  0, 5, 0, 0, 550 },
 };
 
@@ -172,11 +175,37 @@ static void terra(int x, int y, int id)
     int i = AT(x, y);
     uint8_t *b = &mb_w.biome[i], *o = &mb_w.obj[i], *e = &mb_w.elev[i];
     switch (id) {
+    /* RAISE AND LOWER STEP THE LADDER, which is the only way they read.
+     *
+     * They used to move elevation by fourteen and change the biome only above 176 or 200.
+     * Ordinary grass sits around 150, so a cast on it produced no terrain change at all and
+     * the entire feedback was a faint shift in the hillshade — a smudge. Photographed side
+     * by side with WATER and DESERT (both instantly obvious) they were the two powers you
+     * could not tell had fired.
+     *
+     * So each cast moves the ground one rung as well as bumping the elevation: sea, shoal,
+     * beach, grass, hill, mountain, peak. Two casts make a hill out of a meadow and four
+     * make a mountain, which is what a player pushing a brush around expects, and it is the
+     * exact mirror of LOWER and of the acid ladder. */
     case PW_RAISE:
         *e = (uint8_t)(*e > 241 ? 255 : *e + 14);
-        if (mb_water(*b) && *e >= mb_w.sea) { *b = B_BEACH; *o = O_NONE; }
-        else if (*e > 200 && mb_land(*b))    *b = B_MOUNTAIN;
-        else if (*e > 176 && mb_land(*b))    *b = B_HILL;
+        switch (*b) {
+        case B_SEA: case B_OCEAN:      *b = B_SHALLOW; *o = O_NONE; break;
+        case B_SHALLOW: case B_ICE:    *b = B_BEACH;   *o = O_NONE; break;
+        case B_BEACH:                  *b = B_GRASS;   break;
+        case B_GRASS: case B_MEADOW: case B_SAVANNA: case B_DESERT:
+        case B_FOREST: case B_SWAMP: case B_FARM: case B_TUNDRA:
+                                       *b = B_HILL;    break;
+        case B_HILL: case B_RUBBLE: case B_ASH: case B_SCORCHED:
+                                       *b = B_MOUNTAIN; break;
+        case B_MOUNTAIN:               *b = B_PEAK;    break;
+        default: break;                /* a peak is as high as it goes */
+        }
+        if (*b == B_HILL || *b == B_MOUNTAIN || *b == B_PEAK) {
+            /* the elevation has to agree with the biome or the hillshade contradicts it */
+            int floor_e = (*b == B_PEAK) ? 220 : (*b == B_MOUNTAIN) ? 200 : 178;
+            if (*e < floor_e) *e = (uint8_t)floor_e;
+        }
         break;
     case PW_MOUNTAIN:
         *e = (uint8_t)(*e > 215 ? 255 : *e + 40);
@@ -196,7 +225,20 @@ static void terra(int x, int y, int id)
         break;
     case PW_LOWER:
         *e = (uint8_t)(*e < 14 ? 0 : *e - 14);
-        if (*e < mb_w.sea) { *b = (*e < mb_w.sea - 10) ? B_SEA : B_SHALLOW; *o = O_NONE; }
+        switch (*b) {                  /* the mirror of RAISE, rung for rung */
+        case B_PEAK:                   *b = B_MOUNTAIN; break;
+        case B_MOUNTAIN:               *b = B_HILL;     break;
+        case B_HILL: case B_TUNDRA: case B_RUBBLE:
+                                       *b = B_GRASS;    break;
+        case B_GRASS: case B_MEADOW: case B_SAVANNA: case B_DESERT:
+        case B_FOREST: case B_SWAMP: case B_FARM: case B_ASH: case B_SCORCHED:
+                                       *b = B_BEACH;   *o = O_NONE; break;
+        case B_BEACH: case B_SNOW: case B_ICE:
+                                       *b = B_SHALLOW; *o = O_NONE; break;
+        case B_SHALLOW:                *b = B_SEA;     *o = O_NONE; break;
+        default: break;                /* the sea floor is the bottom */
+        }
+        if (!mb_land(*b) && *e >= mb_w.sea) *e = (uint8_t)(mb_w.sea > 8 ? mb_w.sea - 8 : 0);
         break;
     case PW_WATER:
         *e = (uint8_t)(*e < 20 ? 0 : *e - 20);
@@ -244,12 +286,31 @@ static void cast_at(int id, int r, int cx, int cy)
         mb_fx_burst((float)cx, (float)cy, 6, PK_SPARK, FXE_FIRE, 2.5f, 0.5f);
         break;
 
-    case PW_LIGHTNING:
+    /* LIGHTNING HAS TO LEAVE A MARK. One bolt particle three cells up, one impact puff,
+     * and an ignite on a single cell: the particles are gone within a tick and a single
+     * cell in a paved town has nothing to catch, so a strike photographed as absolutely
+     * nothing — the least legible power on the wheel by a wide margin.
+     *
+     * A strike now SCORCHES the cell it hits, which is permanent and unmistakable, throws
+     * the bolt as a column rather than a single spark so the flash reads as a bolt, and
+     * lights a small radius so there is usually a fire to deal with afterwards. */
+    case PW_LIGHTNING: {
         mb_snd(SND_THUNDER);
-        mb_fx_spawn((float)cx, (float)cy - 3.0f, PK_BOLT, FXE_HOLY, 0.0f, 0.30f);
-        mb_fx_impact((float)cx, (float)cy, FXE_FIRE, 0.6f);
+        for (int k = 0; k < 7; k++)      /* the bolt, drawn down the sky */
+            mb_fx_spawn((float)cx, (float)cy - 7.0f + (float)k, PK_BOLT, FXE_HOLY,
+                        0.0f, 0.22f + 0.03f * (float)k);
+        mb_fx_impact((float)cx, (float)cy, FXE_FIRE, 0.9f);
+        if (mb_in(cx, cy) && mb_land(mb_w.biome[AT(cx, cy)])) {
+            mb_w.biome[AT(cx, cy)] = B_SCORCHED;
+            if (!mb_is_build(mb_w.obj[AT(cx, cy)])) mb_w.obj[AT(cx, cy)] = O_NONE;
+        }
+        mb_unit_area(cx, cy, 1, UAP_KILL, CAUSE_DISASTER);
+        /* radius ONE, not two. At two the strike lit twenty-five cells at once and a
+         * twelve-faith cast took the whole neighbourhood — the scorch mark is what makes it
+         * legible, so the fire does not have to be enormous as well. */
         mb_flux_ignite(cx, cy, 1);
         break;
+    }
 
     case PW_METEOR:
         mb_snd(SND_BOOM);
@@ -452,8 +513,27 @@ static void cast_at(int id, int r, int cx, int cy)
 
     /* --- BEASTS: the kaiju ------------------------------------------- */
     case PW_TITAN: case PW_MEDUSA: case PW_REAPER: case PW_PHOENIX:
-    case PW_GOLEM: case PW_EYE:   case PW_ANGEL:
-        mb_agent_spawn(AG_KAIJU0 + (id - PW_TITAN), cx, cy);
+    case PW_GOLEM: case PW_EYE:   case PW_ANGEL: {
+        /* AN EXPLICIT MAP, because arithmetic across two enums is exactly the bug this
+         * file's own header warns about. PW_SWARM sits between GOLEM and EYE and has no
+         * agent of its own, so `AG_KAIJU0 + (id - PW_TITAN)` was off by one from EYE
+         * onward: casting THE EYE summoned an ANGEL, and casting ANGEL — a 550-faith
+         * summon — opened THE MAW, the endgame void that never stops. Four hundred years
+         * of a world could be ended by picking the wrong arm of the wheel. */
+        static const uint8_t KAIJU_OF[] = {
+            [PW_TITAN - PW_TITAN]   = AG_TITAN,
+            [PW_MEDUSA - PW_TITAN]  = AG_MEDUSA,
+            [PW_REAPER - PW_TITAN]  = AG_REAPER,
+            [PW_PHOENIX - PW_TITAN] = AG_PHOENIX,
+            [PW_GOLEM - PW_TITAN]   = AG_GOLEM,
+            [PW_SWARM - PW_TITAN]   = AG_N,        /* not an agent; handled below */
+            [PW_EYE - PW_TITAN]     = AG_EYE,
+            [PW_ANGEL - PW_TITAN]   = AG_ANGEL,
+        };
+        int k = KAIJU_OF[id - PW_TITAN];
+        if (k < AG_N) mb_agent_spawn(k, cx, cy);
+        break;
+    }
         mb_fx_impact((float)cx, (float)cy, FXE_VOID, 1.2f);
         break;
     case PW_SWARM:

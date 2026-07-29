@@ -20,7 +20,8 @@
 #define SAVE_MAGIC   0x4d425831u      /* "MBX1" */
 /* v2: units gained a given name, a spouse, a trade and a haul destination; villages
  * gained a lord name and age, a creed, a specialisation, a tier and a research store. */
-#define SAVE_VERSION 2
+/* v3: villages gained `coast`, the water count a quay is gated on. */
+#define SAVE_VERSION 3
 
 typedef struct {
     uint32_t magic, version;

@@ -238,6 +238,7 @@ typedef struct {
     uint8_t  lord_age;
     uint8_t  creed;         /* CREED_* — what this town believes */
     uint8_t  spec;          /* PROF_* — what the land around it makes it good at */
+    uint8_t  coast;         /* water cells within reach; a quay needs some */
     uint8_t  tier;          /* TIER_*, recomputed each visit; cached so the HUD is cheap */
     uint16_t research;      /* accumulates toward the kingdom's next tech */
     uint16_t traded;        /* lifetime caravans received — a trade hub is a real thing */

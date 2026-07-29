@@ -14,6 +14,7 @@
  * it falls out of the utility score rather than being special-cased.
  */
 #include "mb.h"
+#include <stdio.h>
 #include <string.h>
 
 /* --- data --------------------------------------------------------------- */
@@ -21,6 +22,7 @@
 Village mb_v[MAXV];
 Kingdom mb_k[MAXK];
 
+int mb_seaborne_colonies;        /* counted for the sweep, host only */
 static int s_last_founded;       /* so a settler party can join what it just founded */
 static uint8_t *s_field;         /* MAXV commute fields, 32x32 each */
 #define FIELD_W 32
@@ -375,6 +377,7 @@ void mb_civ_specialise(int v)
      * even after a kingdom learned to sail — identity should come from the LAND, and tech
      * should gate what you may BUILD on it. So a well-watered town is a fishing village
      * from the day it is founded, and the dock arrives when the kingdom works out how. */
+    V->coast = (uint8_t)(water > 255 ? 255 : water);
     int trade = (water >= 12) ? water : 0;
     if (water >= 12 && mb_civ_tech_ok(v, TECH_SEAFARING)) trade += water / 2;
     int best = soil; V->spec = PROF_FARMER;
@@ -653,7 +656,11 @@ static void lord_think(int v)
                                                              want_list[nwant++] = 5;
     /* A PORT, once the kingdom can sail and the town has water to put it on. The dock had
      * an object id, a sprite and a fuel value and was never in the build table at all. */
-    if (V->spec == PROF_TRADER && mb_civ_count(v, O_DOCK) < 2) want_list[nwant++] = 12;
+    /* ANY COASTAL TOWN, not only a trading one. Requiring the TRADER specialisation meant
+     * that across four measured 400-year worlds only ONE ever built a quay — and a quay is
+     * what lets a kingdom settle across water, so seaborne colonisation fired in one world
+     * of four and looked broken. A farming town on a coast still builds a jetty. */
+    if (V->coast >= 8 && mb_civ_count(v, O_DOCK) < 2)          want_list[nwant++] = 12;
     if (V->threat > 40 && mb_civ_count(v, O_BARRACKS) < 1)     want_list[nwant++] = 6;
     if (V->hall == 1)                                         want_list[nwant++] = 9;
     if (V->hall == 2)                                         want_list[nwant++] = 10;
@@ -1257,6 +1264,14 @@ static void maybe_settle(int v)
         int x = V->x + DX[ang] * d, y = V->y + DY[ang] * d;
         if (mb_village_found(V->sp, x, y, V->kingdom)) {
             int nv = mb_village_count_last();
+#if MOTE_HOST
+            if (seaborne) {
+                extern int mb_seaborne_colonies;
+                mb_seaborne_colonies++;
+                fprintf(stderr, "seaborne colony: %s -> %d,%d (%d cells out)\n",
+                        "ship", x, y, d);
+            }
+#endif
             V->food -= 60;
             /* four colonists change allegiance; if they sailed, they arrive */
             int moved = 0;

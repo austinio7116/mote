@@ -94,6 +94,7 @@ typedef char mb_town_covers_builds[(town_W / TOWN_W) == (O_N - O_BUILD0) ? 1 : -
 #include "characters.h"
 #include "animals.h"
 #include "monsters.h"
+#include "bosses.h"   /* the seventeen kaiju, 2x2 each */
 #include "buildings.h"
 #include "props.h"
 #include "blueprint.h"
@@ -1134,14 +1135,43 @@ void mb_draw_mortal(int cam_x, int cam_y)
          * LESS like a place. Life has to come from the simulation having more in it, not
          * from annotating what it already has. */
     }
-    /* the walking disasters: the master's smoke swirl for a tornado, its cone
-     * for a vent, lifted a tile so they stand above the ground they are wrecking */
+    /* THE WALKING DISASTERS, and the kaiju are 2x2.
+     *
+     * Every agent used to be drawn as one 8x8 cell of the master's crowns/FX band: the
+     * smoke swirl for a tornado and the cone for a vent, and THE SAME TWO for all seven
+     * kaiju. So summoning a five-hundred-faith Skull Titan put a little puff of smoke on
+     * the map, and the entire bosses sheet — seventeen creatures the extractor already
+     * bakes — was never drawn once. The sweep caught it: "a titan walks" in the chronicle
+     * with nothing on screen to walk.
+     *
+     * They are sixteen pixels square, on a two-cell grid whose blocks start at EVEN columns
+     * and ODD rows (checked against the sheet, not assumed), so each entry below is a
+     * block's top-left cell. Anchored half a tile left and a whole tile up, which puts a
+     * two-tile creature's feet on the tile it occupies. */
     for (int i = 0, n = mb_agent_max(); i < n; i++) {
         int ax, ay, kind;
         if (!mb_agent_get(i, &ax, &ay, &kind)) continue;
-        int cx = (kind == AG_TORNADO) ? 3 : 5, cy = (kind == AG_TORNADO) ? 7 : 5;
-        MoteSprite spr = { &crowns_fx_img, (int16_t)(ax * TILE), (int16_t)(ay * TILE - TILE),
-                           (uint16_t)(cx * TILE), (uint16_t)(cy * TILE), TILE, TILE, 70, 0 };
+        typedef struct { const MoteImage *img; uint8_t cx, cy, w; } AgSpr;
+        static const AgSpr AG_SPR[AG_N] = {
+            [AG_TORNADO] = { &crowns_fx_img, 3, 7, 1 },   /* the smoke swirl */
+            [AG_VENT]    = { &crowns_fx_img, 5, 5, 1 },   /* the cone        */
+            [AG_TITAN]   = { &bosses_img,    4, 3, 2 },   /* the blue skull  */
+            [AG_MEDUSA]  = { &bosses_img,    8, 1, 2 },   /* green tentacles */
+            [AG_REAPER]  = { &bosses_img,   10, 1, 2 },   /* skeleton, sword */
+            [AG_PHOENIX] = { &bosses_img,    2, 3, 2 },   /* the gold flame  */
+            [AG_GOLEM]   = { &bosses_img,    2, 1, 2 },   /* grey armour     */
+            [AG_EYE]     = { &bosses_img,    6, 1, 2 },   /* the great eye   */
+            [AG_ANGEL]   = { &bosses_img,    0, 5, 2 },   /* winged, gilded  */
+            [AG_MAW]     = { &bosses_img,    0, 1, 2 },   /* the red maw     */
+        };
+        const AgSpr *a = &AG_SPR[kind >= 0 && kind < AG_N ? kind : AG_TORNADO];
+        if (!a->img) continue;
+        int px = ax * TILE, py = ay * TILE;
+        int wpx = a->w * TILE;
+        if (a->w > 1) { px -= TILE / 2; py -= TILE; }
+        MoteSprite spr = { a->img, (int16_t)px, (int16_t)(py - TILE),
+                           (uint16_t)(a->cx * TILE), (uint16_t)(a->cy * TILE),
+                           (uint16_t)wpx, (uint16_t)wpx, 70, 0 };
         add(&spr);
     }
     /* flux, on top of the ground it is consuming */

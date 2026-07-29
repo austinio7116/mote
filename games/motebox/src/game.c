@@ -1008,6 +1008,10 @@ static void g_init(void)
             for (int i = 0; i < n; i++) fprintf(stderr, "  %s\n", items[i]);
         }
     }
+    /* MOTEBOX_SANDBOX=1 makes casting free. The audit of the wheel was silently useless
+     * without it: the kaiju cost 300 to 550 faith and a ninety-year test world has less, so
+     * every beast cast was DENIED and eight powers photographed as "nothing happens". */
+    if (getenv("MOTEBOX_SANDBOX")) mb_mode_set(MODE_SANDBOX);
     /* MOTEBOX_EVENT=tsunami|sinkhole fires a world event now, so a rare disaster can be
      * watched instead of waited for. */
     {
@@ -1062,6 +1066,11 @@ static void g_init(void)
             fprintf(stderr, "\ntowns by creed:");
             for (int i = 0; i < CREED_N; i++) if (creed[i]) fprintf(stderr, " %s=%d", MB_CREED_NAME[i], creed[i]);
             fprintf(stderr, "\ncaravans delivered (lifetime): %d\n", traded);
+            /* SEAFARING, CONFIRMED OR NOT. A feature nobody can see is a feature nobody
+             * can trust: this is the only place that says whether a kingdom which learned to
+             * sail ever actually settled across water. */
+            { extern int mb_seaborne_colonies;
+              fprintf(stderr, "colonies founded by ship: %d\n", mb_seaborne_colonies); }
         }
         {   int prof[PROF_N] = {0}, wed = 0, hauling = 0, named = 0, immune = 0;
             for (int i = 0; i < mb_nu; i++) {
