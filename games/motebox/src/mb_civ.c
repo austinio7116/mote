@@ -256,25 +256,59 @@ static int count_build(int v, uint8_t obj)
 }
 
 /* Somewhere to put a building: claimed, buildable, empty, and not on the hall. */
+/* WHERE THE NEXT BUILDING GOES, and this is why cities used to look like stars.
+ *
+ * The old version walked `rad` outward from the hall and tried the EIGHT COMPASS
+ * DIRECTIONS at each radius, so every building in the world landed on one of eight rays
+ * from its village centre. Add a road from each building straight back to the hall and
+ * you have drawn a star, every time, in every town — which is exactly what a settled
+ * world looked like from God's Eye.
+ *
+ * Real towns are not radial, they are ACCRETIVE: a new building goes up on a street
+ * that already exists, beside buildings that are already there, as close to the middle
+ * as it can get. So every free cell in the claim is scored on those three things and
+ * the best one wins. Frontage counts most — a house wants a road — which means the
+ * town grows along its streets, and streets grow to reach new houses, and the two
+ * together produce a branching fabric that thickens toward the centre. No rays.
+ */
 static int build_site(int v, int *ox, int *oy)
 {
     Village *V = &mb_v[v];
-    for (int rad = 1; rad < 8; rad++) {
-        uint32_t r = mb_rand((uint32_t)(v * 131u + rad));
-        int start = (int)(r & 7);
-        for (int s = 0; s < 8; s++) {
-            static const int8_t DX[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
-            static const int8_t DY[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
-            int k = (start + s) & 7;
-            /* scrub is a fine site (the builders clear it); a building is not */
-            int x = V->x + DX[k] * rad, y = V->y + DY[k] * rad;
+    int best = -1, bx = 0, by = 0;
+    for (int dy = -7; dy <= 7; dy++)
+        for (int dx = -7; dx <= 7; dx++) {
+            int x = V->x + dx, y = V->y + dy;
             if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v) continue;
-            if (!buildable(x, y)) continue;
-            if (mb_is_build(mb_w.obj[AT(x, y)])) continue;
-            *ox = x; *oy = y; return 1;
+            if (!buildable(x, y) || mb_is_build(mb_w.obj[AT(x, y)])) continue;
+
+            int score = 0, road = 0, nbr = 0;
+            for (int k = 0; k < 8; k++) {
+                static const int8_t DX[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
+                static const int8_t DY[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
+                int nx = x + DX[k], ny = y + DY[k];
+                if (!mb_in(nx, ny)) continue;
+                if (mb_w.road[AT(nx, ny)]) road++;
+                if (mb_is_build(mb_w.obj[AT(nx, ny)])) nbr++;
+            }
+            /* FRONTAGE FIRST: a building wants a street, and the street is what makes
+             * the town a fabric instead of a scatter. */
+            score += road ? 40 : 0;
+            score += road * 4;
+            /* then neighbours, but with a ceiling — a town needs yards and lanes, and
+             * without a cap every building piles onto the same block */
+            score += (nbr > 3 ? 3 : nbr) * 12;
+            /* then closeness to the middle, which is what gives a town a centre */
+            int d2 = dx * dx + dy * dy;
+            score += 60 - d2;
+            /* and a little noise, so two towns with the same shape do not grow
+             * identically and no street is perfectly straight for ever */
+            score += (int)(mb_rand((uint32_t)(AT(x, y) * 2654435761u)) & 15);
+
+            if (score > best) { best = score; bx = x; by = y; }
         }
-    }
-    return 0;
+    if (best < 0) return 0;
+    *ox = bx; *oy = by;
+    return 1;
 }
 
 /* THE LORD'S DECISION. One per village per visit, from a needs vector weighted
@@ -351,11 +385,26 @@ static void lord_think(int v)
     if (B->obj != O_HALL2 && B->obj != O_HALL3) mb_w.obj[AT(x, y)] = O_PLAN;
 }
 
-/* Lay an L-shaped road from a new building back to the hall. */
+/* Connect a new building to the STREET NETWORK — the nearest road cell, or the hall
+ * if the village has no roads yet.
+ *
+ * Running every building's road back to the hall is the other half of the star: eight
+ * rays of buildings, each with its own spoke to the middle. Joining the nearest
+ * existing road instead means the second house extends the first house's street, the
+ * fifth branches off it, and the network becomes a tree that grows outward — which is
+ * both what real settlements do and much cheaper in paving. */
 static void road_to_hall(int v, int bx, int by)
 {
     Village *V = &mb_v[v];
     int hx = V->x, hy = V->y;
+    int bestd = (bx - hx) * (bx - hx) + (by - hy) * (by - hy);
+    for (int dy = -9; dy <= 9; dy++)
+        for (int dx = -9; dx <= 9; dx++) {
+            int x = bx + dx, y = by + dy;
+            if (!mb_in(x, y) || !mb_w.road[AT(x, y)]) continue;
+            int d = dx * dx + dy * dy;
+            if (d < bestd) { bestd = d; hx = x; hy = y; }
+        }
     int step = bx < hx ? 1 : -1;
     for (int x = bx; x != hx + step; x += step) {
         if (!mb_in(x, by)) break;

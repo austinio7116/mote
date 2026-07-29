@@ -259,7 +259,15 @@ def capped(base, snow, seed):
 #   - lava is molten, so it keeps `dashes` too
 # Everything else — grass, sand, snow, rock, ash, swamp — is flat, exactly like hedge.
 #
-# THE RIM IS BRIGHTER THAN THE BASE, and from the same family: DKGREEN rimmed GREEN
+# NOTHING RIMS ANY MORE. Every boundary in the world is drawn by the TRANSITION
+# OVERLAY (authoring/transitions.py) in the higher terrain's colours, inside the lower
+# terrain's cell — so the base layer is pure flat colour fields and the visible edge is
+# an organic shape that owes nothing to the tile grid. A rim here would draw a straight
+# bright line along the straight tile edge underneath the overlay, which is precisely
+# the "too many hard straight lines" this replaced.
+#
+# (Kept for the record: the rim was brighter than the base and from the same family —
+# DKGREEN rimmed GREEN
 # (which is literally what hedge does), BROWN rimmed ORANGE, DKGREY rimmed LTGREY. A
 # rim in a contrasting hue is what made the map read as outlined ribbons, and a dark
 # rim — NAVY, BLACK — is what "why does the grey texture have black outlines?" was
@@ -270,31 +278,31 @@ def recipes():
         #  name           base      interiors                                  weights  rim      sides
         # --- ice and snow ---------------------------------------------------
         ("bio_ice",    WHITE,   [lambda v: plain(WHITE),
-                                 lambda v: cracks(WHITE, BLUE, 11 + v)],       [4, 2], BLUE),
-        ("bio_snow",   WHITE,   [lambda v: plain(WHITE)],                      [1],    LTGREY, "SE"),
+                                 lambda v: cracks(WHITE, BLUE, 11 + v)],       [4, 2], None),
+        ("bio_snow",   WHITE,   [lambda v: plain(WHITE)],                      [1], None),
         # TUNDRA IS A COLD BROWN STEPPE, not lavender. It was PICO-8's SLATE, which is
         # a mauve, and on a world where tundra is the biggest biome the map came out
         # PINK — an alien planet rather than a cold one. The palette has no olive or
         # khaki, so the honest choice is brown with a pale rim: frozen ground with
         # frost on its edges. Hill is also brown, but hill rims ORANGE and tundra rims
         # LTGREY, so a warm slope and a cold one still read apart.
-        ("bio_tundra", BROWN,   [lambda v: plain(BROWN)],                      [1],    LTGREY, "SE"),
+        ("bio_tundra", BROWN,   [lambda v: plain(BROWN)],                      [1], None),
         # --- sand -----------------------------------------------------------
-        ("bio_beach",  PEACH,   [lambda v: plain(PEACH)],                      [1],    YELLOW, "SE"),
-        ("bio_desert", YELLOW,  [lambda v: plain(YELLOW)],                     [1],    PEACH, "SE"),
+        ("bio_beach",  PEACH,   [lambda v: plain(PEACH)],                      [1], None),
+        ("bio_desert", YELLOW,  [lambda v: plain(YELLOW)],                     [1], None),
         # --- green: hedge's exact pairing, dark green field with a bright edge
-        ("bio_grass",  DKGREEN, [lambda v: plain(DKGREEN)],                    [1],    GREEN, "SE"),
-        ("bio_savanna", ORANGE, [lambda v: plain(ORANGE)],                     [1],    YELLOW, "SE"),
+        ("bio_grass",  DKGREEN, [lambda v: plain(DKGREEN)],                    [1], None),
+        ("bio_savanna", ORANGE, [lambda v: plain(ORANGE)],                     [1], None),
         ("bio_swamp",  DKGREEN, [lambda v: plain(DKGREEN),
                                  lambda v: specks(DKGREEN, DKGREY, 81 + v, step=4)],
-                                                                               [3, 2], DKGREEN, "SE"),
+                                                                               [3, 2], None),
         # --- rock: flat, and it is the RIM that makes it a cliff -------------
-        ("bio_hill",   BROWN,   [lambda v: plain(BROWN)],                      [1],    ORANGE, "SE"),
-        ("bio_mountain", DKGREY,[lambda v: plain(DKGREY)],                     [1],    LTGREY),
-        ("bio_peak",   LTGREY,  [lambda v: plain(LTGREY)],                     [1],    WHITE),
+        ("bio_hill",   BROWN,   [lambda v: plain(BROWN)],                      [1], None),
+        ("bio_mountain", DKGREY,[lambda v: plain(DKGREY)],                     [1], None),
+        ("bio_peak",   LTGREY,  [lambda v: plain(LTGREY)],                     [1], None),
         ("bio_rubble", LTGREY,  [lambda v: plain(LTGREY),
                                  lambda v: pebbles(LTGREY, DKGREY, 121 + v, step=4)],
-                                                                               [2, 3], WHITE),
+                                                                               [2, 3], None),
         # --- burnt ----------------------------------------------------------
         # ASH DOES NOT RIM. It is formless burnt ground, and a light-grey band on dark
         # grey outlined every scar: a mid-game world had a quarter of one screen in ash
@@ -303,9 +311,9 @@ def recipes():
         # is what bounds it — which is also what a burn actually looks like from above.
         ("bio_ash",    DKGREY,  [lambda v: plain(DKGREY)],                     [1],    None),
         ("bio_scorched", MAROON,[lambda v: plain(MAROON),
-                                 lambda v: cracks(MAROON, RED, 141 + v)],      [3, 2], RED),
+                                 lambda v: cracks(MAROON, RED, 141 + v)],      [3, 2], None),
         # --- worked land: the one biome that SHOULD look man-made ------------
         ("bio_farm",   BROWN,   [lambda v: stripes(BROWN, DKGREY, YELLOW, 151 + v),
                                  lambda v: stripes(BROWN, DKGREY, GREEN, 153 + v)],
-                                                                               [3, 2], ORANGE),
+                                                                               [3, 2], None),
     ]

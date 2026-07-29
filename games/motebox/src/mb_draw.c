@@ -44,6 +44,26 @@
 #include "treasure_ore.h"
 #include "ore.h"
 #include "road.h"
+#include "tr_ocean.h"
+#include "tr_sea.h"
+#include "tr_shallow.h"
+#include "tr_ice.h"
+#include "tr_beach.h"
+#include "tr_desert.h"
+#include "tr_savanna.h"
+#include "tr_grass.h"
+#include "tr_swamp.h"
+#include "tr_hill.h"
+#include "tr_mountain.h"
+#include "tr_peak.h"
+#include "tr_tundra.h"
+#include "tr_snow.h"
+#include "tr_ash.h"
+#include "tr_scorched.h"
+#include "tr_lava.h"
+#include "tr_acid.h"
+#include "tr_farm.h"
+#include "tr_rubble.h"
 #include "town.h"
 
 /* The town sheet's geometry, in one place: 8 wide, 14 tall, drawn six pixels above
@@ -94,6 +114,29 @@ static const MoteAutotile *const MB_TILES[B_COUNT] = {
 #define C_BLUE    MOTE_RGB565( 41, 173, 255)
 #define C_SLATE   MOTE_RGB565(131, 118, 156)
 #define C_PEACH   MOTE_RGB565(255, 204, 170)
+
+/* TERRAIN TRANSITIONS: which sheet each biome bleeds with, and how high it sits.
+ *
+ * A cell may only paint its own eight pixels, so in one opaque layer the colour
+ * boundary is pinned to the tile grid and every coast is a staircase of straight
+ * segments. The base pass paints flat fields; this table drives a SECOND pass that
+ * paints the boundary in the HIGHER terrain's colours inside the LOWER terrain's cell,
+ * so the visible edge is organic and owes nothing to the grid.
+ *
+ * Precedence is a height in a stack — water at the bottom, rock at the top, which is
+ * also the order they lie in reality. Only the higher one bleeds, so a boundary is
+ * drawn exactly once and two neighbours can never both claim the same pixels. */
+static const MoteImage *const MB_TRANS[B_COUNT] = {
+    &tr_ocean_img, &tr_sea_img, &tr_shallow_img, &tr_ice_img, &tr_beach_img, &tr_desert_img, &tr_savanna_img, &tr_grass_img, &tr_swamp_img, &tr_hill_img, &tr_mountain_img, &tr_peak_img, &tr_tundra_img, &tr_snow_img, &tr_ash_img, &tr_scorched_img, &tr_lava_img, &tr_acid_img, &tr_farm_img, &tr_rubble_img,
+    0, 0, 0,   /* meadow, forest and road are synced rulesets: no overlay */
+};
+
+static const uint8_t MB_PREC[B_COUNT] = {
+    0, 1, 2, 3, 6, 7, 8, 10, 5, 16, 17, 18, 12, 11, 13, 14, 4, 4, 9, 15,
+    10, 11, 9,   /* meadow, forest, road */
+};
+typedef char mb_trans_covers[(sizeof MB_TRANS / sizeof MB_TRANS[0]) == B_COUNT ? 1 : -1];
+typedef char mb_prec_covers[(sizeof MB_PREC / sizeof MB_PREC[0]) == B_COUNT ? 1 : -1];
 
 static const uint16_t MB_COL[B_COUNT] = {
     C_NAVY,    /* ocean    */ C_BLUE,   /* sea      */ C_BLUE,   /* shallow  */
@@ -555,6 +598,45 @@ void mb_draw_mortal(int cam_x, int cam_y)
             add(&spr);
         }
     }
+    /* THE TRANSITION PASS. For each visible cell, find the highest-precedence terrain
+     * among its four neighbours; if it outranks this cell, draw that terrain's overlay
+     * with the mask of the sides it is on, so it creeps in over the flat field. One
+     * sprite per boundary cell, and it goes in BEFORE the ground clutter so that when
+     * the scene fills up it is a tuft of grass that gets dropped and never a coastline. */
+    for (int r = r0; r <= r0 + MVH; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0; c <= c0 + MVW; c++) {
+            if (c < 0 || c >= MW) continue;
+            uint8_t me = mb_w.biome[AT(c, r)];
+            if (!me || me > B_COUNT) continue;
+            int myprec = MB_PREC[me - 1];
+            uint8_t win = 0; int winprec = myprec, mask = 0;
+            static const int8_t DX[4] = { 0, 1, 0, -1 };
+            static const int8_t DY[4] = { -1, 0, 1, 0 };
+            for (int k = 0; k < 4; k++) {
+                int nx = c + DX[k], ny = r + DY[k];
+                if (!mb_in(nx, ny)) continue;
+                uint8_t nb = mb_w.biome[AT(nx, ny)];
+                if (!nb || nb > B_COUNT || nb == me) continue;
+                int p = MB_PREC[nb - 1];
+                if (p > winprec) { winprec = p; win = nb; }
+            }
+            if (!win || !MB_TRANS[win - 1]) continue;
+            for (int k = 0; k < 4; k++) {
+                int nx = c + DX[k], ny = r + DY[k];
+                if (mb_in(nx, ny) && mb_w.biome[AT(nx, ny)] == win) mask |= 1 << k;
+            }
+            if (!mask) continue;
+            /* two profiles, picked from the cell's own position, so a long shore
+             * undulates instead of repeating one scallop */
+            int v = ((c * 7 + r * 3) & 1);
+            MoteSprite spr = { MB_TRANS[win - 1], (int16_t)(c * TILE), (int16_t)(r * TILE),
+                               (uint16_t)(mask * TILE), (uint16_t)(v * TILE),
+                               TILE, TILE, 11, 0 };
+            add(&spr);
+        }
+    }
+
     /* ROADS, over the terrain and under everything else. The cell is chosen from the
      * FOUR-NEIGHBOUR MASK, because a road is a graph and not an area: what matters is
      * only which cardinals it continues into. Sixteen cells cover every case exactly —

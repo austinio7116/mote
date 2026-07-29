@@ -99,7 +99,12 @@ typedef struct {
     uint8_t  flags;           /* MOTE_SPR_* */
 } MoteSprite;
 
-#define MOTE_SCENE2D_MAX_SPRITES 128
+/* Raised from 128 for motebox's layered terrain: the transition overlay adds one
+ * sprite per terrain boundary cell, and a coastal view legitimately wants ~150. At 128
+ * it dropped 24 a frame — priority ordering meant it was only ground clutter, but a
+ * scene visibly missing its trees is still the wrong answer to "make the edges look
+ * good". 20 bytes a sprite on device, so this costs 2.5 KB of static RAM. */
+#define MOTE_SCENE2D_MAX_SPRITES 256
 
 /* Frame flow (core0): begin -> set tilemap -> add sprites; then BOTH cores
  * raster their band. */

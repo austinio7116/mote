@@ -274,9 +274,9 @@ def build_biomes():
         sheet = terrain.build(
             base,
             lambda v, _b=base, _i=ink, _s=step: biomes.dashes(_b, _i, 7 + v, step=_s, run=3),
-            rim, nvar=2)
+            None, nvar=2)          # rim=None: the overlay owns every boundary
         terrain.write(TSETS, name, sheet, 2, vweight=[1, 1])
-        print(f"[blob47]  {name:20s} nvar=2  rim={rim}")
+        print(f"[blob47]  {name:20s} nvar=2  flat")
 
     # 2. the shallows: brighter water, denser foam. It keeps a white rim now that the
     #    generator thins the band to one pixel where opposite edges are both open —
@@ -285,7 +285,7 @@ def build_biomes():
     #    world as a peach footpath.
     sheet = terrain.build(BLUE,
                           lambda v: biomes.dashes(BLUE, WHITE, 17 + v, step=3, run=4),
-                          WHITE, nvar=2)
+                          None, nvar=2)
     terrain.write(TSETS, "bio_shallow", sheet, 2, vweight=[1, 1])
     print(f"[blob47]  {'bio_shallow':20s} nvar=2  rim=foam")
 
@@ -375,6 +375,56 @@ def build_ore():
             px[sx, sy] = glint + (255,)
         out.paste(im, (i * TS, 0))
     save_sheet("ore", out)
+
+
+# WHICH TERRAIN BLEEDS OVER WHICH. A height in a stack: only the higher one reaches
+# into the lower one's cell, so a boundary is drawn exactly once and two neighbours can
+# never both claim the same pixels. Water is the bottom of the world and rock the top,
+# which is also the order they lie in reality.
+#
+# The (body, shore) pair per biome is the colour the bleed is painted in: the body is
+# the terrain's own flat colour and the shore is a lighter tone for the innermost pixel,
+# so the thing that creeps over its neighbour has a lit lip and looks like it has a
+# thickness rather than like a stain.
+TRANSITIONS = [
+    #  name             prec  body      shore
+    ("bio_ocean",         0,  NAVY,     BLUE),
+    ("bio_sea",           1,  BLUE,     WHITE),
+    ("bio_shallow",       2,  BLUE,     WHITE),
+    ("bio_ice",           3,  WHITE,    BLUE),
+    ("bio_lava",          4,  RED,      YELLOW),
+    ("bio_acid",          4,  GREEN,    YELLOW),
+    ("bio_swamp",         5,  DKGREEN,  DKGREY),
+    ("bio_beach",         6,  PEACH,    YELLOW),
+    ("bio_desert",        7,  YELLOW,   PEACH),
+    ("bio_savanna",       8,  ORANGE,   YELLOW),
+    ("bio_farm",          9,  BROWN,    ORANGE),
+    ("bio_grass",        10,  DKGREEN,  GREEN),
+    ("bio_snow",         11,  WHITE,    LTGREY),
+    ("bio_tundra",       12,  BROWN,    LTGREY),
+    ("bio_ash",          13,  DKGREY,   LTGREY),
+    ("bio_scorched",     14,  MAROON,   RED),
+    ("bio_rubble",       15,  LTGREY,   WHITE),
+    ("bio_hill",         16,  BROWN,    ORANGE),
+    ("bio_mountain",     17,  DKGREY,   LTGREY),
+    ("bio_peak",         18,  LTGREY,   WHITE),
+]
+
+
+def build_transitions():
+    """One transparent overlay sheet per biome — see authoring/transitions.py.
+
+    This is the answer to the thing no tileset could fix: in a single opaque layer a
+    cell may only paint its own eight by eight pixels, so the colour boundary between
+    two terrains lies exactly on the tile grid and every coastline is a staircase of
+    straight segments meeting at right angles. The base pass now paints flat fields and
+    THIS pass paints the boundary, in the higher terrain's colours, inside the LOWER
+    terrain's cell — so the visible edge is a ragged rounded shape with nothing to do
+    with the grid.
+    """
+    import transitions
+    for name, _prec, body, shore in TRANSITIONS:
+        save_sheet("tr_" + name[4:], transitions.build(body, shore))
 
 
 def build_town():
@@ -508,6 +558,7 @@ def main():
     build_ore()
     build_roads()
     build_town()
+    build_transitions()
     build_biomes()
     sync_terrain()
     build_icon()
