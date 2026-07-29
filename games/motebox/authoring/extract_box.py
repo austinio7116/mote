@@ -536,6 +536,32 @@ BAND_LIST = [
 ]
 
 
+def build_hot():
+    """Lava and scorched ground, as opaque sprites over whatever band they sit on.
+
+    These two are the band that would not fit: eight layers hold eight bands and there is
+    no ninth. They are the right pair to move because they are the RAREST — measured at
+    0.0 to 0.6% of a world across six real ones, about one sprite in a 16x14 view — and
+    because they always carry flux and FX particles anyway, so a sprite among sprites is
+    where they belong.
+
+    Getting this wrong was a real regression for one commit: the band map sent them to
+    "dry" as a base and the sprite pass did not exist yet, so a lava lake rendered as
+    plain brown earth.
+    """
+    import biomes
+    cells = [
+        ("lava",     RED,    [ORANGE, YELLOW]),
+        ("scorched", MAROON, [RED,    DKGREY]),
+    ]
+    sheet = Image.new("RGBA", (len(cells) * TS, 2 * TS))
+    for v in range(2):
+        for i, (_n, body, inks) in enumerate(cells):
+            sheet.paste(biomes.dashes(body, inks[0], 61 + v * 3, step=3, run=3,
+                                     ink2=inks[1]), (i * TS, v * TS))
+    save_sheet("hot", sheet)
+
+
 def build_bands():
     """Eight autotiled band tilesets — the whole terrain, done by the ruleset system."""
     import bands, palette
@@ -598,10 +624,16 @@ def build_mountains():
 
     Rows, top to bottom: 0 cap, 1 slope A, 2 slope B, 3 foot.
     """
-    sheet = Image.new("RGBA", (2 * TS, 4 * TS), (0, 0, 0, 0))
+    sheet = Image.new("RGBA", (2 * TS, 5 * TS), (0, 0, 0, 0))
     for row, cy in enumerate((25, 26, 27, 28)):
         for col, cx in enumerate((9, 10)):
             sheet.paste(region(cx, cy, cx, cy), (col * TS, row * TS))
+    # ROW 4: single-cell rocks for the OUTER edge of a mass. A mountain region is not a
+    # grid of 2x2 blocks — its outline is ragged — so the draw pass fills the core with
+    # composed blocks and the leftover cells with these. His "grey boulder on cliff" pair
+    # is exactly right for a lone crag on the shoulder of a range.
+    for col, cx in enumerate((7, 8)):
+        sheet.paste(region(cx, 26, cx, 26), (col * TS, 4 * TS))
     save_sheet("mtn", sheet)
 
 
@@ -738,6 +770,7 @@ def main():
     build_town()
     build_mountains()
     build_bands()
+    build_hot()
     build_biomes()
     check_transition_bodies()
     sync_terrain()

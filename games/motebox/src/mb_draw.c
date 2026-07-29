@@ -75,6 +75,7 @@
 #include "tr_rubble.tiles.h"
 #include "town.h"
 #include "mtn.h"
+#include "hot.h"
 
 /* The town sheet's geometry, in one place: 8 wide, 14 tall, drawn six pixels above
  * its own tile. Must match authoring/build_sprites.py. */
@@ -625,6 +626,130 @@ void mb_draw_mortal(int cam_x, int cam_y)
             add(&spr);
         }
     }
+    /* LAVA AND SCORCHED, the band that would not fit. Eight layers hold eight bands and
+     * there is no ninth, so the rarest pair moved to sprites — measured at 0.0-0.6% of a
+     * world, about one cell in view. They always carry flux and FX anyway. */
+    for (int r = r0; r <= r0 + MVH; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0; c <= c0 + MVW; c++) {
+            if (c < 0 || c >= MW) continue;
+            uint8_t b = mb_w.biome[AT(c, r)];
+            if (b != B_LAVA && b != B_SCORCHED) continue;
+            int col = (b == B_LAVA) ? 0 : 1;
+            int v = ((c * 7 + r * 3) & 1);
+            MoteSprite spr = { &hot_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
+                               (uint16_t)(col * TILE), (uint16_t)(v * TILE),
+                               TILE, TILE, 13, 0 };
+            add(&spr);
+        }
+    }
+
+    /* (The per-cell transition sprites that used to live here are gone: the band stack
+     * draws every boundary automatically, so terrain costs no sprites at all and can
+     * never be starved by a passing deer.) */
+
+    /* MOUNTAINS: the region is DECOMPOSED, core first, then its ragged edge.
+     *
+     * The artist's mountain is a composed 2x2 unit — cap, two alternating slope rows that
+     * make diamond ridges, a foot with a snowline — and a tileset cannot place it, because
+     * the engine picks a variant row with a position hash and nothing else. A sprite has
+     * no grid, so the phase is chosen here.
+     *
+     * But a mountain region is not a grid of 2x2 blocks: its outline is ragged. The first
+     * version drew a full block wherever ANY cell of an aligned 2x2 was mountain, so every
+     * range grew square shoulders and spilled over its own boundary. Now the core is
+     * covered by composed blocks — only where all four cells really are mountain — and
+     * whatever is left over gets a single-cell crag. Core and edge, not one or the other.
+     *
+     * AND A MASSIF IS MOUNTAIN *AND* PEAK. Raising ground turns the high middle of a range
+     * into B_PEAK and leaves B_MOUNTAIN around it, so testing for MOUNTAIN alone found
+     * almost no full 2x2: the interior rendered as the bare rock band with a scatter of
+     * lone crags in it, which is exactly what "the layout looks crap" was looking at. The
+     * two together are one mountain as far as drawing is concerned. */
+    #define MOUNTAINOUS(x, y) (mb_w.biome[AT(x, y)] == B_MOUNTAIN || \
+                               mb_w.biome[AT(x, y)] == B_PEAK)
+    {
+        /* which cells a composed block has already covered; the window plus a margin */
+        uint8_t done[MVH + 4][MVW + 4];
+        memset(done, 0, sizeof done);
+        #define DONE(cc, rr) done[(rr) - r0 + 1][(cc) - c0 + 1]
+        int in_win = 1;
+
+        /* PASS 1: 2x2 blocks placed GREEDILY wherever a full 2x2 of mountain fits.
+         *
+         * Restricting them to the global even grid was wrong: a range whose left edge
+         * lands on an odd column can never use it, so the interior came out as a stripe
+         * of lone crags beside a stripe of blocks. Scanning every cell and claiming as we
+         * go packs the core densely and leaves only the genuinely ragged rim over. */
+        for (int r = r0 - 1; r <= r0 + MVH + 1; r++) {
+            for (int c = c0 - 1; c <= c0 + MVW + 1; c++) {
+                if (r < 0 || c < 0 || r + 1 >= MH || c + 1 >= MW) continue;
+                if (r < r0 - 1 || c < c0 - 1) continue;
+                int all = 1;
+                for (int j = 0; j < 2 && all; j++)
+                    for (int i = 0; i < 2; i++) {
+                        if (!MOUNTAINOUS(c + i, r + j) ||
+                            DONE(c + i, r + j)) { all = 0; break; }
+                    }
+                if (!all) continue;
+
+                int above = 0, below = 0;
+                for (int i = 0; i < 2; i++) {
+                    if (r > 0      && MOUNTAINOUS(c + i, r - 1)) above = 1;
+                    if (r + 2 < MH && MOUNTAINOUS(c + i, r + 2)) below = 1;
+                }
+                /* cap at the top of the mass, foot at the bottom, and slope A/B alternating
+                 * by block row in between — which is what lines the diamonds into ridges */
+                int row = !above ? 0 : (!below ? 3 : (((r >> 1) & 1) ? 2 : 1));
+                int row2 = (row == 0) ? 1 : (row == 3 ? 3 : (row == 1 ? 2 : 1));
+                MoteSprite a = { &mtn_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
+                                 0, (uint16_t)(row * TILE), 2 * TILE, TILE, 14, 0 };
+                MoteSprite b = { &mtn_img, (int16_t)(c * TILE), (int16_t)((r + 1) * TILE),
+                                 0, (uint16_t)(row2 * TILE), 2 * TILE, TILE, 14, 0 };
+                add(&a); add(&b);
+                for (int j = 0; j < 2; j++)
+                    for (int i = 0; i < 2; i++)
+                        if (c + i >= c0 - 1 && c + i <= c0 + MVW + 2 &&
+                            r + j >= r0 - 1 && r + j <= r0 + MVH + 2) DONE(c + i, r + j) = 1;
+            }
+        }
+
+        /* PASS 2: every mountain cell the core missed gets a lone crag */
+        for (int r = r0; r <= r0 + MVH; r++) {
+            if (r < 0 || r >= MH) continue;
+            for (int c = c0; c <= c0 + MVW; c++) {
+                if (c < 0 || c >= MW) continue;
+                if (!MOUNTAINOUS(c, r) || DONE(c, r)) continue;
+                int v = ((c * 7 + r * 3) & 1);
+                MoteSprite spr = { &mtn_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
+                                   (uint16_t)(v * TILE), (uint16_t)(4 * TILE),
+                                   TILE, TILE, 14, 0 };
+                add(&spr);
+            }
+        }
+        #undef DONE
+        #undef MOUNTAINOUS
+        (void)in_win;
+    }
+
+    /* LAVA AND SCORCHED, the band that would not fit. Eight layers hold eight bands and
+     * there is no ninth, so the rarest pair moved to sprites — measured at 0.0-0.6% of a
+     * world, about one cell in view. They always carry flux and FX anyway. */
+    for (int r = r0; r <= r0 + MVH; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0; c <= c0 + MVW; c++) {
+            if (c < 0 || c >= MW) continue;
+            uint8_t b = mb_w.biome[AT(c, r)];
+            if (b != B_LAVA && b != B_SCORCHED) continue;
+            int col = (b == B_LAVA) ? 0 : 1;
+            int v = ((c * 7 + r * 3) & 1);
+            MoteSprite spr = { &hot_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
+                               (uint16_t)(col * TILE), (uint16_t)(v * TILE),
+                               TILE, TILE, 13, 0 };
+            add(&spr);
+        }
+    }
+
     /* (The per-cell transition sprites that used to live here are gone: the band stack
      * draws every boundary automatically, so terrain costs no sprites at all and can
      * never be starved by a passing deer.) */
