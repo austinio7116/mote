@@ -157,13 +157,13 @@ def grain(tones, seed, n=3):
     return fn
 
 
-def build(tones, interior_fn=None, nvar=2):
+def build(tones, interior_fn=None, nvar=4):
     """A 47-cell band set, 16 x 3 per variant block — Studio's grid, so the editor and
     the game agree on where cell 23 is."""
     sheet = Image.new("RGBA", (COLS * TS, ROWS * TS * nvar), (0, 0, 0, 0))
     for v in range(nvar):
         for c, mask in enumerate(blob47.CANON):
-            sheet.paste(cell(mask, tones, interior_fn, profile=v * 2),
+            sheet.paste(cell(mask, tones, interior_fn, profile=v),
                         ((c % COLS) * TS, (c // COLS) * TS + v * ROWS * TS))
     return sheet
 
@@ -183,3 +183,37 @@ def write_tileset(tsets_dir, name, sheet, nvar=2, vweight=None):
         f.write("lut " + " ".join(str(v) for v in blob47.LUT) + "\n")
         f.write("xform " + " ".join(["0"] * 256) + "\n")
         f.write("vweight " + " ".join(str(v) for v in vw) + "\n")
+
+def stone(tones, seed):
+    """An interior for ROCK, which needs more than grain.
+
+    The rock band was flat LTGREY with three lighter dots, and a screenshot of a mountain
+    interior came out as grey nothing — the hillshade gives it large-scale light but there
+    was no surface for the light to fall on. This lays angular PATCHES, two or three pixels
+    on a side, in the band's own tones: a broken plane, seamless because every patch is
+    wrapped at the tile edge.
+
+    Angular on purpose. The grass grain can be dots because a meadow is soft; stone breaks
+    along planes, and a field of round dots on grey reads as gravel-in-a-driveway rather
+    than as mountain.
+    """
+    def fn(profile):
+        im = Image.new("RGBA", (TS, TS), tones[0] + (255,))
+        px = im.load()
+        h = (seed * 2246822519 + profile * 3266489917) & 0xFFFFFFFF
+        for i in range(6):
+            h = (h * 1103515245 + 12345) & 0xFFFFFFFF
+            x, y = (h >> 9) % TS, (h >> 17) % TS
+            w = 2 + ((h >> 25) & 1)
+            ht = 1 + ((h >> 27) & 1)
+            t = tones[1 + (i % (len(tones) - 1))] if (i & 1) else tones[0]
+            # A crack every third patch. It is a STEP and not a drop: the first version
+            # went 34 units darker and the mountain came out as grey polka dots, because
+            # a high-contrast two-pixel mark on flat ground reads as an object.
+            if i % 3 == 2:
+                t = tuple(max(0, c - 16) for c in tones[0])
+            for dy in range(ht):
+                for dx in range(w):
+                    px[(x + dx) % TS, (y + dy) % TS] = t + (255,)
+        return im
+    return fn

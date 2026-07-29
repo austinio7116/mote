@@ -688,8 +688,10 @@ static void g_init(void)
         const char *bp = getenv("MOTEBOX_DUMPBIOME");
         if (bp && *bp) {
             FILE *f = fopen(bp, "wb");
-            if (f) { fwrite(mb_w.biome, 1, NC, f); fclose(f);
-                     fprintf(stderr, "dumped %d biome cells to %s\n", NC, bp); }
+            /* biome then ELEVATION, because the shaded relief is derived from elev and
+             * "why is that massif flat" is not answerable from the biome alone. */
+            if (f) { fwrite(mb_w.biome, 1, NC, f); fwrite(mb_w.elev, 1, NC, f); fclose(f);
+                     fprintf(stderr, "dumped %d biome + %d elev cells to %s\n", NC, NC, bp); }
         }
     }
     /* MOTEBOX_PWTEST=1 casts all forty-eight powers and reports what each did. */
@@ -1120,7 +1122,14 @@ static void g_overlay(uint16_t *fb)
     }
 
     if (!s_god) {
-        /* the ground first, then what is burning on it, then the crowd */
+        /* THE GROUND, then the relief that shades it, THEN everything standing on it.
+         * The sprites are held back by mb_draw_mortal() precisely so the hillshade cannot
+         * reach them — a lit deer and a snow-capped house are what happens otherwise. */
+#if MOTE_HOST
+        if (!getenv("MOTEBOX_NORELIEF"))
+#endif
+            mb_draw_relief(fb, s_cam_x, s_cam_y);
+        mb_draw_mortal_sprites(fb);
         mb_fx_flux_render(fb, s_cam_x, s_cam_y);
         mb_fx_draw_mortal_px(fb, s_cam_x, s_cam_y);
         mb_draw_pips(fb);

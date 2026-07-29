@@ -253,6 +253,12 @@ void mb_world_gen(uint32_t seed)
             uint8_t b = bio[AT(x, y)];
             uint32_t r = h32((uint32_t)AT(x, y) * 2654435761u + mb_w.seed);
             int roll = (int)(r & 255), pick = (int)((r >> 8) & 255);
+            int steep = 0;
+            if (x > 0 && x < MW - 1 && y > 0 && y < MH - 1) {
+                int dx = (int)elv[AT(x + 1, y)] - (int)elv[AT(x - 1, y)];
+                int dy = (int)elv[AT(x, y + 1)] - (int)elv[AT(x, y - 1)];
+                steep = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+            }
             switch (b) {
             case B_FOREST:  if (roll < 150) ob[AT(x,y)] = pick & 1 ? O_TREE : O_TREE2; break;
             case B_MEADOW:  if (roll <  46) ob[AT(x,y)] = pick & 1 ? O_TREE : O_BUSH;
@@ -264,14 +270,23 @@ void mb_world_gen(uint32_t seed)
             case B_SAVANNA: if (roll <  18) ob[AT(x,y)] = O_TUFT;
                             else if (roll < 26) ob[AT(x,y)] = O_DEAD; break;
             case B_DESERT:  if (roll <  20) ob[AT(x,y)] = O_ROCK; break;
-            case B_HILL:    if (roll <  30) ob[AT(x,y)] = O_ROCK;
-                            else if (roll < 40) ob[AT(x,y)] = O_ORE;
-                            else if (roll < 44) ob[AT(x,y)] = O_SILVER; break;
-            case B_MOUNTAIN:if (roll <  60) ob[AT(x,y)] = O_BOULDER;
-                            else if (roll < 72) ob[AT(x,y)] = O_ORE;
-                            else if (roll < 78) ob[AT(x,y)] = O_GOLD;
-                            else if (roll < 81) ob[AT(x,y)] = O_GEM; break;
-            case B_PEAK:    if (roll <  90) ob[AT(x,y)] = O_PEAKROCK; break;
+            case B_HILL:    if (roll <  14) ob[AT(x,y)] = O_ROCK;
+                            else if (roll < 20) ob[AT(x,y)] = O_ORE;
+                            else if (roll < 22) ob[AT(x,y)] = O_SILVER; break;
+            /* ROCK IS SPARSE NOW, and it is placed by SLOPE.
+             *
+             * Peaks used to scatter a crag on 35% of their cells — 59 of them in one
+             * 16x14 view, measured — and a mountain range read as a field of identical
+             * pale triangles. The landform is drawn by the hillshade in mb_draw_relief();
+             * these are outcrops ON it, so they want to be rare and they want to be
+             * where rock would actually break the surface: the steep ground. `steep` is
+             * the local gradient, and 9 is the top sixth of it across six worlds, so the
+             * outcrops fall along scarps and ridge lines instead of everywhere. */
+            case B_MOUNTAIN:if (roll <  22 && steep >= 7) ob[AT(x,y)] = O_BOULDER;
+                            else if (roll < 30) ob[AT(x,y)] = O_ORE;
+                            else if (roll < 34) ob[AT(x,y)] = O_GOLD;
+                            else if (roll < 36) ob[AT(x,y)] = O_GEM; break;
+            case B_PEAK:    if (roll <  70 && steep >= 9) ob[AT(x,y)] = O_PEAKROCK; break;
             case B_TUNDRA:  if (roll <  14) ob[AT(x,y)] = O_ROCK; break;
             case B_SNOW:    if (roll <  10) ob[AT(x,y)] = O_DEAD; break;
             default: break;

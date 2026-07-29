@@ -119,7 +119,6 @@ SPRITE_SHEETS = {
     "buildings":   (11,  1, 14,  5),   # door / open door / house / house-extend x 5 colours
     "props":       ( 0,  6,  9,  9),   # campfire, torches, fences, bridges, house, igloo, logs
     "nature":      ( 0,  8, 15, 13),   # trees, bushes, rocks, mushrooms, clouds, splats
-    "boulders":    ( 5, 25, 10, 28),   # boulders, snow-capped peaks, rubble
     "terrain_edges": (48, 33, 63, 39), # coast foam, cloud, drift, debris
     "furniture":   ( 0, 53,  5, 55),   # top-down beds/tables/dressers for interiors
     "blueprint":   ( 0, 50, 11, 52),   # floor-plan line art: the lords' build ghosts
@@ -536,6 +535,12 @@ BAND_LIST = [
 ]
 
 
+# Burnt ground. Not from the artist's sixteen — see the note in build_hot().
+CHAR  = ( 44,  34,  36)
+EMBER = (112,  46,  36)
+SOOT  = ( 24,  20,  24)
+
+
 def build_hot():
     """Lava and scorched ground, as opaque sprites over whatever band they sit on.
 
@@ -552,7 +557,11 @@ def build_hot():
     import biomes
     cells = [
         ("lava",     RED,    [ORANGE, YELLOW]),
-        ("scorched", MAROON, [RED,    DKGREY]),
+        # CHARCOAL AND EMBER, not the artist's MAROON with RED through it: that pair drew
+        # burnt ground as bright pink brickwork, so the aftermath of a fire was the
+        # cheeriest thing on the map. These have to match MB_COL[B_SCORCHED] in mb_draw.c
+        # or the two views disagree about what a razed village looks like.
+        ("scorched", CHAR,   [EMBER,  SOOT]),
     ]
     sheet = Image.new("RGBA", (len(cells) * TS, 2 * TS))
     for v in range(2):
@@ -569,8 +578,17 @@ def build_bands():
         tones = palette.ramp(body, toward)
         # GRAIN, not flat. Two variants with different marks, so the same band is not the
         # same speckle repeated across a continent.
-        sheet = bands.build(tones, interior_fn=bands.grain(tones, 101 + i * 7), nvar=2)
-        bands.write_tileset(TSETS, name, sheet, nvar=2, vweight=[1, 1])
+        # Rock gets STONE, not grain: see bands.stone(). The grass-style speckle left a
+        # mountain interior as flat grey with three dots on it, which is exactly what the
+        # screenshots showed for six rounds.
+        interior = (bands.stone(tones, 101 + i * 7) if name == "bd_rock"
+                    else bands.grain(tones, 101 + i * 7))
+        # FOUR variants, not two. With two, the hash alternates one motif against one
+        # other across a whole continent and the eye reads the result as a lattice —
+        # a screenshot of a mountain interior came out as diagonal polka dots. Four
+        # different fringe profiles and four different interiors cost 3 KB a band.
+        sheet = bands.build(tones, interior_fn=interior, nvar=4)
+        bands.write_tileset(TSETS, name, sheet, nvar=4, vweight=[1, 1, 1, 1])
         print("[band]    %-12s %-8s -> %s" % (name, str(body), ", ".join(members)))
 
 
@@ -602,39 +620,12 @@ def build_transitions():
           % len(TRANSITIONS))
 
 
-def build_mountains():
-    """The artist's composed mountain block, shipped WHOLE as a sprite sheet.
-
-    His mountain at (9..10, 25..28) is two columns by four rows drawn to fit together: a
-    snow cap, two slope rows that alternate into diamond peaks, and a base with a
-    snowline. It only reads as mountains when those pieces are placed IN PHASE.
-
-    Three attempts handed pairs of his cells to the tileset as `nvar` variants, and the
-    engine picks a variant row with `mote__at_hash(x, y)` — a deliberately random
-    per-cell hash — so a composed picture was shuffled into confetti every time. The
-    engine offers no way to phase a tileset: the hash is the only input, `var_weight`
-    changes frequency not position, and every autotile layer shares tiles[0]'s size so
-    16 px tiles are not available either. Both checked in the source, not assumed.
-
-    A SPRITE HAS NO GRID AT ALL, which is the whole answer, and it was suggested twice
-    before I took it. The draw pass snaps to a two-cell grid and picks his row by where
-    the block sits in the mass, so the phase is chosen deliberately instead of hashed.
-    Transparency is KEPT: a mountain stands on the ground, so the terrain shows past its
-    edges.
-
-    Rows, top to bottom: 0 cap, 1 slope A, 2 slope B, 3 foot.
-    """
-    sheet = Image.new("RGBA", (2 * TS, 5 * TS), (0, 0, 0, 0))
-    for row, cy in enumerate((25, 26, 27, 28)):
-        for col, cx in enumerate((9, 10)):
-            sheet.paste(region(cx, cy, cx, cy), (col * TS, row * TS))
-    # ROW 4: single-cell rocks for the OUTER edge of a mass. A mountain region is not a
-    # grid of 2x2 blocks — its outline is ragged — so the draw pass fills the core with
-    # composed blocks and the leftover cells with these. His "grey boulder on cliff" pair
-    # is exactly right for a lone crag on the shoulder of a range.
-    for col, cx in enumerate((7, 8)):
-        sheet.paste(region(cx, 26, cx, 26), (col * TS, 4 * TS))
-    save_sheet("mtn", sheet)
+def build_rocks():
+    """Loose stone — see authoring/rocks.py. The master's boulders sheet holds fragments
+    of a composed mountain picture, not objects, so scattering it drew a field of pale
+    right-triangles; these are drawn to be put down anywhere."""
+    import rocks
+    save_sheet("rocks", rocks.build())
 
 
 def build_town():
@@ -767,8 +758,8 @@ def main():
     build_fx_recolours()
     build_ore()
     build_roads()
+    build_rocks()
     build_town()
-    build_mountains()
     build_bands()
     build_hot()
     build_biomes()

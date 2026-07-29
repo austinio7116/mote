@@ -40,7 +40,7 @@
 #include "floor_cobble.tiles.h"      /* B_ROAD   */
 
 #include "nature.h"
-#include "boulders.h"
+#include "rocks.h"
 #include "treasure_ore.h"
 #include "ore.h"
 #include "road.h"
@@ -74,7 +74,6 @@
 #include "tr_farm.tiles.h"
 #include "tr_rubble.tiles.h"
 #include "town.h"
-#include "mtn.h"
 #include "hot.h"
 
 /* The town sheet's geometry, in one place: 8 wide, 14 tall, drawn six pixels above
@@ -137,6 +136,14 @@ static const MoteAutotile *const MB_TILES[B_COUNT] = {
 #define C_BLUE    MOTE_RGB565( 41, 173, 255)
 #define C_SLATE   MOTE_RGB565(131, 118, 156)
 #define C_PEACH   MOTE_RGB565(255, 204, 170)
+/* BURNT GROUND IS CHARCOAL, not MAROON. Scorched earth was the artist's dark red-purple
+ * with red dashes through it, and on screen a burnt village read as a patch of BRIGHT
+ * PINK BRICKWORK — the aftermath of a fire looked cheerful. Sixteen palette entries are
+ * a constraint on one image, not on the world: the screen is RGB565, so soot can just be
+ * soot. Ember is what still glows in it, and it is dull on purpose so the live fire
+ * stays the brightest thing on the map. */
+#define C_CHAR    MOTE_RGB565( 44,  34,  36)
+#define C_EMBER   MOTE_RGB565(112,  46,  36)
 
 /* TERRAIN TRANSITIONS: which sheet each biome bleeds with, and how high it sits.
  *
@@ -167,7 +174,7 @@ static const uint16_t MB_COL[B_COUNT] = {
     C_ORANGE,  /* savanna  */ C_GRASS,  /* grass    */ C_GRASS,  /* swamp    */
     C_BROWN,   /* hill     */ C_DKGREY, /* mountain */ C_LTGREY, /* peak     */
     C_BROWN,   /* tundra   */ C_WHITE,  /* snow     */ C_DKGREY, /* ash      */
-    C_MAROON,  /* scorched */ C_RED,    /* lava     */ C_GREEN,  /* acid     */
+    C_CHAR,    /* scorched */ C_RED,    /* lava     */ C_GREEN,  /* acid     */
     C_BROWN,   /* farm     */ C_LTGREY, /* rubble   */ C_GRASS,  /* meadow   */
     C_GRASS,   /* forest   */ C_DKGREY, /* road     */
 };
@@ -320,6 +327,13 @@ static inline void px_put(uint16_t *fb, int x, int y, uint16_t c)
 #endif
 }
 
+/* SNOWLINE: above this the rock goes white, and because it follows the elevation field
+ * the caps land on the actual summits and follow their shape. This is the one thing the
+ * icons did give for free, and it is cheaper to keep it here than to draw it. */
+#define RL_SNOW 222
+
+static int rl_hard(uint8_t b);          /* see SHADED RELIEF below */
+
 void mb_god_band(uint16_t *fb, int y0, int y1)
 {
     const uint8_t *bio = mb_w.biome, *ob = mb_w.obj;
@@ -376,6 +390,35 @@ void mb_god_band(uint16_t *fb, int y0, int y1)
                 }
             }
 
+            /* SHADED RELIEF, and THIS is the view it belongs in. One pixel a tile puts
+             * the whole world on screen, so a mountain range is visible as a range: the
+             * hillshade draws its ridges, spurs, cols and valleys straight out of the
+             * elevation field, and the snowline lands on the actual summits. Six attempts
+             * at mountain ART all failed because a close-up sees sixteen tiles of a
+             * sixty-tile massif and there is no shape there to draw. Here there is.
+             *
+             * Restricted to rock so the cost is the 19% of cells that are rock (measured)
+             * rather than every pixel — this runs per frame, and the colour table above
+             * exists precisely because per-pixel arithmetic here was too expensive. */
+            if (b >= 1 && !o && rl_hard(b) && x > 0 && x < MW - 1 && y > 0 && y < MH - 1) {
+                const uint8_t *e = mb_w.elev + y * MW + x;
+                int lit = -((int)e[1] - (int)e[-1]) - ((int)e[MW] - (int)e[-MW]);
+                int R = (c >> 11) & 31, G = (c >> 5) & 63, B = c & 31;
+                if (lit > 9)  lit = 9;
+                if (lit < -9) lit = -9;
+                if (lit > 0)      { R += ((31 - R) * lit * 12) >> 7;
+                                    G += ((63 - G) * lit * 12) >> 7;
+                                    B += ((31 - B) * lit * 12) >> 7; }
+                else if (lit < 0) { int k = 128 + lit * 10;
+                                    R = (R * k) >> 7; G = (G * k) >> 7; B = (B * k) >> 7; }
+                int sn = (*e > RL_SNOW) ? (*e - RL_SNOW) * 15 : 0;
+                if (sn > 205) sn = 205;
+                if (sn) { R += ((31 - R) * sn) >> 8;
+                          G += ((63 - G) * sn) >> 8;
+                          B += ((31 - B) * sn) >> 8; }
+                c = (uint16_t)((R << 11) | (G << 5) | B);
+            }
+
             uint8_t fk = mb_fkind(frow[x]);
             if (fk && fk < FX_N)
                 c = ((x + y + (int)mb_w.tick) & 1) ? FLUX_HI[fk] : FLUX_LO[fk];
@@ -425,7 +468,7 @@ static const ObjSpr MB_OBJ_SPR[O_N] = {
     { &nature_img,        8, 4 },       /* dead tree "tree trunk/dead tree"      */
     { &nature_img,        4, 4 },       /* bush      "green bush"                */
     { &nature_img,        2, 4 },       /* tuft      "grass tuft"                */
-    { &nature_img,        5, 4 },       /* rock      "brown rock/boulder"        */
+    { &rocks_img,         0, 0 },       /* rock      — ours; see authoring/rocks.py */
     { &nature_img,        9, 3 },       /* reeds     "reeds" — swamp, not desert */
     { &nature_img,        0, 3 },       /* flower    "pink flower"               */
     /* ORE IS GENERATED (authoring/extract_box.py build_ore), not taken from the
@@ -438,8 +481,14 @@ static const ObjSpr MB_OBJ_SPR[O_N] = {
     { &ore_img,           1, 0 },       /* silver — grey stone, a bright glint   */
     { &ore_img,           2, 0 },       /* gold                                  */
     { &ore_img,           3, 0 },       /* gems                                  */
-    { &boulders_img,      0, 1 },       /* boulder   "grey boulder"              */
-    { &boulders_img,      4, 1 },       /* crag      "mountain slope"            */
+    /* ROCK IS OURS NOW. The master's boulders sheet holds FRAGMENTS OF A COMPOSED
+     * MOUNTAIN, not loose stones: the label set calls (4,1) "mountain slope", and
+     * scattering it over peaks drew 59 identical pale right-triangles in one 16x14 view
+     * — counted with MOTEBOX_CENSUS, and the reason six rounds of mountains looked like
+     * confetti. (0,1), its "grey boulder", is a flat khaki square. Both are cells of a
+     * picture that only works in phase with its neighbours, which an object never is. */
+    { &rocks_img,         1, 0 },       /* boulder   — an outcrop breaking the surface */
+    { &rocks_img,         2, 0 },       /* crag      — a snow-crowned high crag        */
     { &nature_img,       15, 0 },       /* grave     "tombstone"  (was a GHOST)  */
 };
 /* The tripwire O_NAME has. This array was 15 entries long while the enum grew past
@@ -501,17 +550,56 @@ static const BldSpr MB_BLD[O_N - O_BUILD0] = {
 };
 
 /* How many sprites the last Mortal View frame asked for, and how many the scene
- * refused. scene2d_add fails soft at MOTE_SCENE2D_MAX_SPRITES, and "the buildings are
- * missing" was that failure being silent — so it is now counted, and MOTEBOX_SPRITES=1
- * says so out loud rather than leaving the next person to census the map. */
+ * refused. The list fills at MB_MAXSPR and a full list drops silently, and "the buildings
+ * are missing" was exactly that going unnoticed — so it is counted, and MOTEBOX_PERF=1
+ * says SCENE FULL out loud rather than leaving the next person to census the map. A
+ * mature city measured 232 wanted, which is why the cap is not 224. */
 static int s_spr_want, s_spr_lost;
 void mb_draw_sprite_load(int *want, int *lost) { *want = s_spr_want; *lost = s_spr_lost; }
 int  mb_draw_pip_count(void);
 
+/* THE SPRITES ARE HELD BACK, and drawn by us after the shaded relief.
+ *
+ * The relief reads the framebuffer and writes it back, so whatever is already there gets
+ * shaded — and the engine rasters the tilemap and then its sprites in one call, with no
+ * hook in between. Handing the sprites to the scene therefore lit a deer from the
+ * north-west along with the hillside it was standing on, and put a snow cap on a house.
+ *
+ * The alternative was to exclude each sprite's BOX from the relief, and that is worse: a
+ * tree's box is a whole tile, so a shaded slope would get an unshaded square wherever
+ * anything stood on it — the same "a creature makes its tile look different" artefact
+ * this game has already been caught with once.
+ *
+ * So they are collected here and blitted in mb_draw_mortal_sprites(), in layer order,
+ * after the ground is finished. Same immediate-mode blit the engine would have used, same
+ * order, and the relief cannot reach them. It also puts the sprite budget in our hands
+ * rather than the scene's shared cap.
+ */
+#define MB_MAXSPR 320
+static MoteSprite s_defer[MB_MAXSPR];
+static int        s_ndefer;
+static int        s_cam_px, s_cam_py;   /* the camera the deferred positions are against */
+
 static void add(const MoteSprite *s)
 {
     s_spr_want++;
-    if (!g_api->scene2d_add(s)) s_spr_lost++;
+    if (s_ndefer >= MB_MAXSPR) { s_spr_lost++; return; }
+    s_defer[s_ndefer++] = *s;
+}
+
+/* Layer order, lower first — the engine's own rule, so nothing about the draw order
+ * changes by moving the blit over here. */
+void mb_draw_mortal_sprites(uint16_t *fb)
+{
+    int maxl = 0;
+    for (int i = 0; i < s_ndefer; i++) if (s_defer[i].layer > maxl) maxl = s_defer[i].layer;
+    for (int pass = 0; pass <= maxl; pass++)
+        for (int i = 0; i < s_ndefer; i++) {
+            const MoteSprite *p = &s_defer[i];
+            if (p->layer != pass) continue;
+            g_api->blit(fb, p->img, p->x - s_cam_px, p->y - s_cam_py,
+                        p->fx, p->fy, p->fw, p->fh, p->flags, 0, VIEW_H);
+        }
 }
 
 /* --- STATUS PIPS ---------------------------------------------------------
@@ -534,6 +622,150 @@ static void mb_pip_add_at(int sx, int sy, uint16_t col)
 
 int mb_draw_pip_count(void) { return s_npip; }
 
+/* --- SHADED RELIEF: mountains are HIGH GROUND WITH LIGHT ON IT ------------
+ *
+ * Six attempts drew mountains as pictures OF mountains — the artist's composed 2x2 block
+ * placed four different ways, then triangles of my own — and every one was a little icon
+ * stamped on a map. The model was wrong, not the drawing. Seen from directly above, a
+ * mountain has no silhouette to draw: what tells you a range is a range is SHADING.
+ *
+ * So there is no mountain art at all. This shades the ground from the elevation field the
+ * world generator already made, which is a smooth 5-octave fbm — a real landform, better
+ * than anything I would hand-place. A ridge gets a lit western face and a dark eastern
+ * one, a valley reads as a valley, a col reads as a pass, and it works at any size of
+ * massif because it is derived from the shape rather than tiled over it.
+ *
+ * TWO THINGS MAKE OR BREAK IT, both of which the first version got wrong.
+ *
+ * SMOOTHNESS. Elevation is one byte per tile, so shading a pixel from its own tile's
+ * slope paints in 8x8 blocks and the range comes out as a mosaic. The slope is therefore
+ * measured once per tile and then interpolated BILINEARLY between tile centres, so the
+ * light varies continuously across a face. Cost is one gradient per tile — 224 for a
+ * whole screen — and the interpolation is three shifts per pixel.
+ *
+ * GAIN. Peaks live in elev 214..255, a span of forty, and a tile-to-tile step inside a
+ * massif is only a few units. The first version divided by 26 and clamped, so almost
+ * everything fell inside its own dead zone and the mountains stayed flat grey. The gain
+ * is now per-terrain: rock is shaded hard because that IS the mountain, soft ground is
+ * shaded gently so hills and dunes get form without the fields looking crumpled, and
+ * water is left alone because a lake surface is level whatever the bed does.
+ */
+
+/* Shade per tile in 1/64ths, -64..64, for the window plus a one-tile margin on each side
+ * so the interpolation has neighbours at the screen edge. */
+#define RL_W (MVW + 3)
+#define RL_H (MVH + 3)
+static int8_t  s_shade[RL_W * RL_H];
+static uint8_t s_snow [RL_W * RL_H];
+
+
+static int rl_soft(uint8_t b)      /* gently shaded: it has form but it is not rock */
+{
+    return b == B_GRASS || b == B_MEADOW || b == B_FOREST || b == B_SAVANNA ||
+           b == B_DESERT || b == B_BEACH || b == B_SWAMP  || b == B_TUNDRA  ||
+           b == B_SNOW   || b == B_FARM;
+}
+
+static int rl_hard(uint8_t b)      /* rock: shaded hard, because this is the mountain */
+{
+    return b == B_HILL || b == B_MOUNTAIN || b == B_PEAK ||
+           b == B_RUBBLE || b == B_ASH;
+}
+
+void mb_draw_relief(uint16_t *fb, int cam_x, int cam_y)
+{
+    const int c0 = (cam_x >> 3) - 1, r0 = (cam_y >> 3) - 1;
+
+    /* 1. one slope per tile. The baseline is two tiles wide, not one, because a one-tile
+     *    difference on a byte field is mostly quantisation noise. */
+    for (int j = 0; j < RL_H; j++) {
+        int r = r0 + j;
+        for (int i = 0; i < RL_W; i++) {
+            int c = c0 + i;
+            int8_t *out = &s_shade[j * RL_W + i];
+            if (c < 1 || c >= MW - 1 || r < 1 || r >= MH - 1) { *out = 0; continue; }
+            uint8_t b = mb_w.biome[AT(c, r)];
+            /* Gains are MEASURED, not guessed. Over six worlds the p95 of the lit sum
+             * is 9 on rock and 13 on soft ground, so these map that to 55/64 and 26/64:
+             * rock gets a face you can read, fields get form without looking crumpled.
+             * The first version used 26 and 9, which put nearly the whole world inside
+             * the dead zone below — hence six screenshots of flat grey mountains. */
+            int gain = rl_hard(b) ? 96 : (rl_soft(b) ? 32 : 0);
+            if (!gain) { *out = 0; s_snow[j * RL_W + i] = 0; continue; }   /* water, lava */
+            {   /* SNOW, on the same interpolated lattice as the shade. Painting it per
+                 * cell instead made a staircase of rectangles across every summit — the
+                 * one thing this whole approach exists to avoid. */
+                int e = mb_w.elev[AT(c, r)];
+                int k = rl_hard(b) && e > RL_SNOW ? (e - RL_SNOW) * 15 : 0;
+                s_snow[j * RL_W + i] = (uint8_t)(k > 205 ? 205 : k);
+            }
+            int dzdx = (int)mb_w.elev[AT(c + 1, r)] - (int)mb_w.elev[AT(c - 1, r)];
+            int dzdy = (int)mb_w.elev[AT(c, r + 1)] - (int)mb_w.elev[AT(c, r - 1)];
+            int lit = ((-dzdx - dzdy) * gain) >> 4;    /* light from the north-west */
+            if (lit >  64) lit =  64;
+            if (lit < -64) lit = -64;
+            *out = (int8_t)lit;
+        }
+    }
+
+    /* 2. paint, interpolating between tile CENTRES — a tile centre sits at c*8+4, so the
+     *    lattice is offset half a tile from the tile grid and no seam can land on it. */
+    for (int sy = 0; sy < VIEW_H; sy++) {
+        int v = sy + cam_y - 4;
+        int rj = (v >> 3) - r0, fy = v & 7;
+        if (rj < 0 || rj + 1 >= RL_H) continue;
+        for (int sx = 0; sx < 128; sx++) {
+            int u = sx + cam_x - 4;
+            int ci = (u >> 3) - c0, fx = u & 7;
+            if (ci < 0 || ci + 1 >= RL_W) continue;
+
+            const int8_t *q = &s_shade[rj * RL_W + ci];
+            const uint8_t *w = &s_snow[rj * RL_W + ci];
+            int a = q[0], bb = q[1], cc = q[RL_W], dd = q[RL_W + 1];
+            int sa = w[0], sb = w[1], sc = w[RL_W], sd = w[RL_W + 1];
+            if (!(a | bb | cc | dd | sa | sb | sc | sd)) continue;   /* flat bare ground */
+            int top = a * (8 - fx) + bb * fx;
+            int bot = cc * (8 - fx) + dd * fx;
+            int lit = (top * (8 - fy) + bot * fy) >> 6; /* still 1/64ths */
+            int stop = sa * (8 - fx) + sb * fx;
+            int sbot = sc * (8 - fx) + sd * fx;
+            int snow = (stop * (8 - fy) + sbot * fy) >> 6;
+            if (lit > -3 && lit < 3 && snow < 4) continue;
+
+            uint16_t p = fb[sy * MOTE_FB_PW + sx];
+            int R = (p >> 11) & 31, G = (p >> 5) & 63, B = p & 31;
+            if (lit > 0) {                              /* facing the light */
+                R += ((31 - R) * lit) >> 7;
+                G += ((63 - G) * lit) >> 7;
+                B += ((31 - B) * lit) >> 7;
+            } else if (lit < 0) {                       /* in its own shadow */
+                int k = 128 + lit;                      /* lit is negative here */
+                R = (R * k) >> 7; G = (G * k) >> 7; B = (B * k) >> 7;
+            }
+            if (snow > 0) {                             /* the cap, over the lit rock */
+                R += ((31 - R) * snow) >> 8;
+                G += ((63 - G) * snow) >> 8;
+                B += ((31 - B) * snow) >> 8;
+            }
+            fb[sy * MOTE_FB_PW + sx] = (uint16_t)((R << 11) | (G << 5) | B);
+        }
+    }
+
+    /* NO CLIFF LINES. The attempt after this one drew the elevation STEP between
+     * neighbouring cells as a dark lip, on the theory that hard edges are what smooth
+     * shading lacks. They are — but a step between two cells lies on the tile grid, so
+     * every lip was axis-aligned and the mountain came out as a grey wireframe maze. The
+     * close-up's texture belongs in the tileset, where it can wander off the grid:
+     * bands.stone() breaks the rock surface into angular facets, and the outcrops in
+     * authoring/rocks.py stand on the steep ground. Shading here, surface there.
+     *
+     * The RANGE reads as a range in God's Eye, where the whole world is on screen at one
+     * pixel a tile and mb_god_band() shades every rock cell. That is the view a massif
+     * fits in; a sixteen-tile window of a sixty-tile massif has no shape to show, and six
+     * rounds of trying to draw one there is what proved it.
+     */
+}
+
 void mb_draw_pips(uint16_t *fb)
 {
     for (int i = 0; i < s_npip; i++)
@@ -544,7 +776,9 @@ void mb_draw_mortal(int cam_x, int cam_y)
 {
     s_npip = 0;
     s_spr_want = s_spr_lost = 0;
+    s_ndefer = 0;
     g_api->scene2d_begin(cam_x, cam_y);
+    s_cam_px = cam_x; s_cam_py = cam_y;
     /* THE WHOLE TERRAIN, from the ruleset system. Deep ocean is the background colour, so
      * a cell with no bits set simply shows through — which is why the stack needs only
      * eight layers where there used to be twenty-three opaque tilesets AND a sprite per
@@ -554,9 +788,9 @@ void mb_draw_mortal(int cam_x, int cam_y)
 
     /* DRAW ORDER IS PRIORITY ORDER, not height order.
      *
-     * scene2d holds MOTE_SCENE2D_MAX_SPRITES (128) and scene2d_add FAILS SOFT past
-     * that. A 16x14 window is 224 tiles, so a busy screen can always ask for more
-     * than the budget — and with ground clutter going in first, a settled village
+     * The deferred list holds MB_MAXSPR and fills SILENTLY past that. A 16x14 window is
+     * 224 tiles and a mature city measures 232 sprites wanted, so a busy screen can
+     * always ask for more than the budget — and with ground clutter going in first, a settled village
      * spent the entire budget on grass and headstones, and the sprites that got
      * silently dropped were the BUILDINGS AND THE PEOPLE. A village with a castle,
      * a temple, eighteen houses and twenty citizens drew as bare ground: that is
@@ -703,161 +937,6 @@ void mb_draw_mortal(int cam_x, int cam_y)
         }
     }
 
-    /* (The per-cell transition sprites that used to live here are gone: the band stack
-     * draws every boundary automatically, so terrain costs no sprites at all and can
-     * never be starved by a passing deer.) */
-
-    /* MOUNTAINS: the region is DECOMPOSED, core first, then its ragged edge.
-     *
-     * The artist's mountain is a composed 2x2 unit — cap, two alternating slope rows that
-     * make diamond ridges, a foot with a snowline — and a tileset cannot place it, because
-     * the engine picks a variant row with a position hash and nothing else. A sprite has
-     * no grid, so the phase is chosen here.
-     *
-     * But a mountain region is not a grid of 2x2 blocks: its outline is ragged. The first
-     * version drew a full block wherever ANY cell of an aligned 2x2 was mountain, so every
-     * range grew square shoulders and spilled over its own boundary. Now the core is
-     * covered by composed blocks — only where all four cells really are mountain — and
-     * whatever is left over gets a single-cell crag. Core and edge, not one or the other.
-     *
-     * AND A MASSIF IS MOUNTAIN *AND* PEAK. Raising ground turns the high middle of a range
-     * into B_PEAK and leaves B_MOUNTAIN around it, so testing for MOUNTAIN alone found
-     * almost no full 2x2: the interior rendered as the bare rock band with a scatter of
-     * lone crags in it, which is exactly what "the layout looks crap" was looking at. The
-     * two together are one mountain as far as drawing is concerned. */
-    #define MOUNTAINOUS(x, y) (mb_w.biome[AT(x, y)] == B_MOUNTAIN || \
-                               mb_w.biome[AT(x, y)] == B_PEAK)
-    {
-        /* which cells a composed block has already covered; the window plus a margin */
-        uint8_t done[MVH + 4][MVW + 4];
-        memset(done, 0, sizeof done);
-        #define DONE(cc, rr) done[(rr) - r0 + 1][(cc) - c0 + 1]
-        int in_win = 1;
-
-        /* PASS 1: 2x2 blocks placed GREEDILY wherever a full 2x2 of mountain fits.
-         *
-         * Restricting them to the global even grid was wrong: a range whose left edge
-         * lands on an odd column can never use it, so the interior came out as a stripe
-         * of lone crags beside a stripe of blocks. Scanning every cell and claiming as we
-         * go packs the core densely and leaves only the genuinely ragged rim over. */
-        for (int r = r0 - 1; r <= r0 + MVH + 1; r++) {
-            for (int c = c0 - 1; c <= c0 + MVW + 1; c++) {
-                if (r < 0 || c < 0 || r + 1 >= MH || c + 1 >= MW) continue;
-                if (r < r0 - 1 || c < c0 - 1) continue;
-                int all = 1;
-                for (int j = 0; j < 2 && all; j++)
-                    for (int i = 0; i < 2; i++) {
-                        if (!MOUNTAINOUS(c + i, r + j) ||
-                            DONE(c + i, r + j)) { all = 0; break; }
-                    }
-                if (!all) continue;
-
-                int above = 0, below = 0;
-                for (int i = 0; i < 2; i++) {
-                    if (r > 0      && MOUNTAINOUS(c + i, r - 1)) above = 1;
-                    if (r + 2 < MH && MOUNTAINOUS(c + i, r + 2)) below = 1;
-                }
-                /* cap at the top of the mass, foot at the bottom, and slope A/B alternating
-                 * by block row in between — which is what lines the diamonds into ridges */
-                int row = !above ? 0 : (!below ? 3 : (((r >> 1) & 1) ? 2 : 1));
-                int row2 = (row == 0) ? 1 : (row == 3 ? 3 : (row == 1 ? 2 : 1));
-                MoteSprite a = { &mtn_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
-                                 0, (uint16_t)(row * TILE), 2 * TILE, TILE, 14, 0 };
-                MoteSprite b = { &mtn_img, (int16_t)(c * TILE), (int16_t)((r + 1) * TILE),
-                                 0, (uint16_t)(row2 * TILE), 2 * TILE, TILE, 14, 0 };
-                add(&a); add(&b);
-                for (int j = 0; j < 2; j++)
-                    for (int i = 0; i < 2; i++)
-                        if (c + i >= c0 - 1 && c + i <= c0 + MVW + 2 &&
-                            r + j >= r0 - 1 && r + j <= r0 + MVH + 2) DONE(c + i, r + j) = 1;
-            }
-        }
-
-        /* PASS 2: every mountain cell the core missed gets a lone crag */
-        for (int r = r0; r <= r0 + MVH; r++) {
-            if (r < 0 || r >= MH) continue;
-            for (int c = c0; c <= c0 + MVW; c++) {
-                if (c < 0 || c >= MW) continue;
-                if (!MOUNTAINOUS(c, r) || DONE(c, r)) continue;
-                int v = ((c * 7 + r * 3) & 1);
-                MoteSprite spr = { &mtn_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
-                                   (uint16_t)(v * TILE), (uint16_t)(4 * TILE),
-                                   TILE, TILE, 14, 0 };
-                add(&spr);
-            }
-        }
-        #undef DONE
-        #undef MOUNTAINOUS
-        (void)in_win;
-    }
-
-    /* LAVA AND SCORCHED, the band that would not fit. Eight layers hold eight bands and
-     * there is no ninth, so the rarest pair moved to sprites — measured at 0.0-0.6% of a
-     * world, about one cell in view. They always carry flux and FX anyway. */
-    for (int r = r0; r <= r0 + MVH; r++) {
-        if (r < 0 || r >= MH) continue;
-        for (int c = c0; c <= c0 + MVW; c++) {
-            if (c < 0 || c >= MW) continue;
-            uint8_t b = mb_w.biome[AT(c, r)];
-            if (b != B_LAVA && b != B_SCORCHED) continue;
-            int col = (b == B_LAVA) ? 0 : 1;
-            int v = ((c * 7 + r * 3) & 1);
-            MoteSprite spr = { &hot_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
-                               (uint16_t)(col * TILE), (uint16_t)(v * TILE),
-                               TILE, TILE, 13, 0 };
-            add(&spr);
-        }
-    }
-
-    /* (The per-cell transition sprites that used to live here are gone: the band stack
-     * draws every boundary automatically, so terrain costs no sprites at all and can
-     * never be starved by a passing deer.) */
-
-    /* MOUNTAINS, as COMPOSED SPRITES on a two-cell grid.
-     *
-     * The artist's mountain is two columns by four rows drawn to fit together — cap,
-     * two alternating slope rows that make diamond peaks, and a foot with a snowline.
-     * A tileset cannot place it: the engine picks a variant row with a position HASH,
-     * so three attempts at shipping his cells as `nvar` variants shuffled a composed
-     * picture into confetti. A sprite has no grid, so the phase is chosen HERE, on
-     * purpose: snap to even cells, and pick his row from where the block sits in the
-     * mass. Slope A on even block rows and slope B on odd is what makes the diamonds
-     * line up into ridges instead of repeating one triangle.
-     *
-     * One sprite per 2x2 block rather than per cell, so a mountainous screen costs
-     * about a dozen and not fifty. */
-    for (int r = (r0 & ~1); r <= r0 + MVH + 1; r += 2) {
-        if (r < 0 || r >= MH) continue;
-        for (int c = (c0 & ~1); c <= c0 + MVW + 1; c += 2) {
-            if (c < 0 || c >= MW) continue;
-            /* does this block contain any mountain at all? */
-            int hit = 0;
-            for (int j = 0; j < 2 && !hit; j++)
-                for (int i = 0; i < 2; i++) {
-                    int x = c + i, y = r + j;
-                    if (mb_in(x, y) && mb_w.biome[AT(x, y)] == B_MOUNTAIN) { hit = 1; break; }
-                }
-            if (!hit) continue;
-
-            /* where does it sit in the mass? nothing above -> cap, nothing below -> foot */
-            int above = 0, below = 0;
-            for (int i = 0; i < 2; i++) {
-                if (mb_in(c + i, r - 1) && mb_w.biome[AT(c + i, r - 1)] == B_MOUNTAIN) above = 1;
-                if (mb_in(c + i, r + 2) && mb_w.biome[AT(c + i, r + 2)] == B_MOUNTAIN) below = 1;
-            }
-            int row = !above ? 0 : (!below ? 3 : (((r >> 1) & 1) ? 2 : 1));
-
-            MoteSprite spr = { &mtn_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
-                               0, (uint16_t)(row * TILE), 2 * TILE, TILE, 14, 0 };
-            add(&spr);
-            /* the block is two cells tall, so the second row of it takes the next
-             * strip down — slope alternates, cap is followed by slope, foot by foot */
-            int row2 = (row == 0) ? 1 : (row == 3 ? 3 : (row == 1 ? 2 : 1));
-            MoteSprite spr2 = { &mtn_img, (int16_t)(c * TILE), (int16_t)((r + 1) * TILE),
-                                0, (uint16_t)(row2 * TILE), 2 * TILE, TILE, 14, 0 };
-            add(&spr2);
-        }
-    }
 
     /* ROADS, over the terrain and under everything else. The cell is chosen from the
      * FOUR-NEIGHBOUR MASK, because a road is a graph and not an area: what matters is
