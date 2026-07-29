@@ -23,6 +23,7 @@ MOTE_MODULE_HEADER();
 #if MOTE_HOST
 #include <stdlib.h>          /* getenv — the headless test hooks */
 #endif
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -111,7 +112,7 @@ static const char *const TR_NAME[TR_N] = {
     "tough", "fast", "brave", "coward", "greedy", "loyal", "ambitious", "fertile",
     "barren", "genius", "stupid", "pious", "vengeful", "regenerating",
     "BLESSED", "CURSED", "CHOSEN", "MARKED", "plagued", "mad", "contagious",
-    "risen", "immortal", "veteran",
+    "risen", "immortal", "veteran", "immune",
 };
 typedef char mb_trnames_complete[(sizeof TR_NAME / sizeof TR_NAME[0]) == TR_N ? 1 : -1];
 static const char *const JOB_NAME[JOB_N] = {
@@ -247,79 +248,265 @@ static void seek_next(void)
 
 static void god_menu(void);
 
-/* --- B: the Soul Card ---------------------------------------------------
- * DESIGN.md 4 promised this and it was never built, which left B doing nothing at
- * all — and it is the control that answers "what am I even looking at". In God's Eye
- * a person is ONE PIXEL: without an inspect key, a world of names, families, traits,
- * jobs and grudges is completely invisible, and the game reads as coloured noise.
- * Everything below is already in the sim; none of it was reachable. */
-static void soul_card(void)
+/* --- B: THE INSPECT PAGES ----------------------------------------------
+ *
+ * Every loop this game runs is invisible by construction. In God's Eye a person is ONE
+ * PIXEL; in Mortal View they are an 8x8 figure. Nothing on screen can show you that this
+ * one is a miner married to that one, that their town is three points off masonry, that
+ * its lord is 61 and failing, or that the caravan crossing the bridge is twelve loads of
+ * grain going to a village that would otherwise starve. All of it is in the simulation and
+ * none of it is reachable — which is exactly how a world of systems reads as noise.
+ *
+ * So the inspect is THREE PAGES, not one card: the person and the ground under the cursor,
+ * the settlement that claims it, and the kingdom that claims the settlement. Each page
+ * navigates to the others, so you can walk up the chain from a body in a field to the
+ * crown that will avenge it.
+ *
+ * The status pips that used to float over the crowd were an attempt at the same problem
+ * and the wrong shape for it — a legend you have to learn, painted over the world. Detail
+ * belongs somewhere you go looking for it; the world itself should carry only what reads
+ * without explanation (a profession's figure, a banner's colour, a burning roof).
+ */
+#define IR_ROWS 26
+static char s_ir[IR_ROWS][34];
+
+static int ir_add(const char **items, int n, const char *fmt, ...)
 {
-    static char rows[9][34];
-    const char *items[10];
-    int n = 0;
+    if (n >= IR_ROWS) return n;
+    va_list ap; va_start(ap, fmt);
+    vsnprintf(s_ir[n], sizeof s_ir[n], fmt, ap);
+    va_end(ap);
+    items[n] = s_ir[n];
+    return n + 1;
+}
 
-    int x = s_cx, y = s_cy;
-    if (!mb_in(x, y)) return;
-    int i = AT(x, y);
+/* the traits of a unit or a lord, packed onto as few lines as they need */
+static int ir_traits(const char **items, int n, uint32_t traits)
+{
+    int t = 0;
+    while (t < TR_N && n < IR_ROWS) {
+        int o = 0; s_ir[n][0] = 0;
+        for (; t < TR_N; t++) {
+            if (!(traits & TRB(t))) continue;
+            int need = (int)strlen(TR_NAME[t]) + (o ? 1 : 0);
+            if (o && o + need >= (int)sizeof s_ir[n] - 1) break;
+            o += snprintf(s_ir[n] + o, sizeof s_ir[n] - o, "%s%s", o ? " " : "", TR_NAME[t]);
+        }
+        if (!o) break;
+        items[n] = s_ir[n]; n++;
+    }
+    return n;
+}
 
+/* Which village this inspect is about: the one that claims the cell, else the nearest
+ * living one, so putting the cursor in a field still tells you whose field it is. */
+static int ir_village(int x, int y)
+{
+    int v = mb_w.claim[AT(x, y)];
+    if (v && v < MAXV && mb_v[v].alive) return v;
+    int best = 0, bd = 0;
+    for (int i = 1; i < MAXV; i++) {
+        if (!mb_v[i].alive) continue;
+        int dx = mb_v[i].x - x, dy = mb_v[i].y - y, d = dx * dx + dy * dy;
+        if (d > 400) continue;                       /* twenty cells: still "near here" */
+        if (!best || d < bd) { bd = d; best = i; }
+    }
+    return best;
+}
+
+static int page_here(const char **items, int x, int y)
+{
+    int n = 0, i = AT(x, y);
     int ui = mb_unit_at(x, y);
     if (ui >= 0 && mb_u[ui].alive) {
         const Unit *u = &mb_u[ui];
         const MbSpecies *S = &MB_SP[u->sp];
-        char nm[24] = "";
-        if (u->sp < SP_CIV_N) mb_name_str(nm, sizeof nm, 2, u->family);
-        snprintf(rows[n], sizeof rows[n], "%s%s%s", nm[0] ? nm : "", nm[0] ? " the " : "",
-                 S->name);
-        items[n] = rows[n]; n++;
-        snprintf(rows[n], sizeof rows[n], "age %d/%d  hp %d  %s",
-                 u->age, S->lifespan, u->hp, JOB_NAME[u->job < JOB_N ? u->job : 0]);
-        items[n] = rows[n]; n++;
-        snprintf(rows[n], sizeof rows[n], "mood %d  hunger %d%s",
-                 u->happy, u->hunger, u->sick ? "  ILL" : "");
-        items[n] = rows[n]; n++;
+        char gn[24] = "", fn[24] = "";
+        mb_name_str(gn, sizeof gn, 2, u->given);
+        if (u->sp < SP_CIV_N) {
+            mb_name_str(fn, sizeof fn, 2, u->family);
+            n = ir_add(items, n, "%s %s", gn, fn);
+            n = ir_add(items, n, "%s %s", S->name,
+                       u->prof ? MB_PROF_NAME[u->prof < PROF_N ? u->prof : 0] : "of no trade");
+        } else {
+            n = ir_add(items, n, "%s, a %s", gn, S->name);
+        }
+        n = ir_add(items, n, "age %d of %d   hp %d", u->age, S->lifespan, u->hp);
+        n = ir_add(items, n, "doing: %s", JOB_NAME[u->job < JOB_N ? u->job : 0]);
+        n = ir_add(items, n, "mood %d   hunger %d%s", u->happy, u->hunger,
+                   u->sick ? "   ILL" : "");
+        if (u->mate && u->mate - 1 < MAXU && mb_u[u->mate - 1].alive) {
+            char mn[24] = "";
+            mb_name_str(mn, sizeof mn, 2, mb_u[u->mate - 1].given);
+            n = ir_add(items, n, "wed to %s", mn);
+        } else if (u->sp < SP_CIV_N) {
+            n = ir_add(items, n, "unwed");
+        }
+        if (u->carry) {
+            static const char *const CK[5] = { "grain", "timber", "stone", "iron", "gold" };
+            if (u->job == JOB_HAUL && u->dest && u->dest < MAXV) {
+                char dn[24] = "";
+                mb_name_str(dn, sizeof dn, 0, mb_v[u->dest].name);
+                n = ir_add(items, n, "hauling %d %s to %s", u->carry,
+                           CK[u->carry_kind < 5 ? u->carry_kind : 0], dn);
+            } else {
+                n = ir_add(items, n, "carrying %d %s", u->carry,
+                           CK[u->carry_kind < 5 ? u->carry_kind : 0]);
+            }
+        }
+        if (u->kills) n = ir_add(items, n, "%d kills", u->kills);
         if (u->village && u->village < MAXV && mb_v[u->village].alive) {
             char vn[24]; mb_name_str(vn, sizeof vn, 0, mb_v[u->village].name);
-            snprintf(rows[n], sizeof rows[n], "of %s", vn);
-            items[n] = rows[n]; n++;
+            n = ir_add(items, n, "home: %s", vn);
         }
-        /* traits, packed two or three to a line so a long list still fits */
-        int o = 0; rows[n][0] = 0;
-        for (int t = 0; t < TR_N; t++) {
-            if (!(u->traits & TRB(t))) continue;
-            int need = (int)strlen(TR_NAME[t]) + (o ? 1 : 0);
-            if (o + need >= (int)sizeof rows[n] - 1) break;
-            o += snprintf(rows[n] + o, sizeof rows[n] - o, "%s%s", o ? " " : "", TR_NAME[t]);
-        }
-        if (o) { items[n] = rows[n]; n++; }
+        n = ir_traits(items, n, u->traits);
+        n = ir_add(items, n, "-----");
     }
 
     uint8_t b = mb_w.biome[i], ob = mb_w.obj[i];
-    snprintf(rows[n], sizeof rows[n], "%s%s%s", B_NAME[b],
-             ob ? " / " : "", ob ? O_NAME[ob] : "");
-    items[n] = rows[n]; n++;
+    n = ir_add(items, n, "%s%s%s   elev %d", B_NAME[b], ob ? " / " : "",
+               ob ? O_NAME[ob] : "", mb_w.elev[i]);
+    if (mb_w.road[i]) n = ir_add(items, n, "a paved street");
+    uint8_t fk = mb_fkind(mb_w.flux[i]);
+    if (fk && fk < FX_N) n = ir_add(items, n, "%s (%d)", FX_NAME[fk], mb_fint(mb_w.flux[i]));
+    return n;
+}
 
-    int v = mb_w.claim[i];
-    if (v && v < MAXV && mb_v[v].alive) {
-        char vn[24]; mb_name_str(vn, sizeof vn, 0, mb_v[v].name);
-        int k = mb_kingdom_of(v);
-        char kn[24] = "";
-        if (k && mb_k[k].alive) mb_name_str(kn, sizeof kn, 1, mb_k[k].name);
-        snprintf(rows[n], sizeof rows[n], "%s, pop %d", vn, mb_v[v].pop);
-        items[n] = rows[n]; n++;
-        if (kn[0]) {
-            snprintf(rows[n], sizeof rows[n], "%s%s", kn,
-                     (k && mb_k[k].war_with) ? "  AT WAR" : "");
-            items[n] = rows[n]; n++;
+static int page_town(const char **items, int v)
+{
+    int n = 0;
+    if (!v) return ir_add(items, 0, "no settlement near here");
+    Village *V = &mb_v[v];
+    char vn[24]; mb_name_str(vn, sizeof vn, 0, V->name);
+    n = ir_add(items, n, "%s, a %s", vn, MB_TIER_NAME[V->tier < TIER_N ? V->tier : 0]);
+    n = ir_add(items, n, "%s country, creed of %s",
+               MB_PROF_NAME[V->spec < PROF_N ? V->spec : 0],
+               MB_CREED_NAME[V->creed < CREED_N ? V->creed : 0]);
+    n = ir_add(items, n, "pop %d   beds %d   founded y%d",
+               V->pop, V->housing, (int)(V->founded / 52));
+    n = ir_add(items, n, "-- the lord --");
+    {
+        char ln[24] = ""; mb_name_str(ln, sizeof ln, 2, V->lord_name);
+        n = ir_add(items, n, "%s, aged %d", ln, V->lord_age);
+        n = ir_add(items, n, "steward %d  diplomat %d  war %d",
+                   V->lord_stew, V->lord_diplo, V->lord_war);
+        n = ir_traits(items, n, V->lord_traits);
+    }
+    n = ir_add(items, n, "-- the store --");
+    n = ir_add(items, n, "grain %d  timber %d  stone %d", V->food, V->wood, V->stone);
+    n = ir_add(items, n, "iron %d  gold %d  caravans in %d", V->iron, V->gold, V->traded);
+    n = ir_add(items, n, "-- what stands --");
+    n = ir_add(items, n, "houses %d  farms %d  camps %d",
+               mb_civ_count(v, O_HOUSE1) + mb_civ_count(v, O_HOUSE2) + mb_civ_count(v, O_HOUSE3),
+               mb_civ_count(v, O_FARM), mb_civ_count(v, O_WOODCUT));
+    n = ir_add(items, n, "mines %d  temples %d  towers %d",
+               mb_civ_count(v, O_MINE), mb_civ_count(v, O_TEMPLE), mb_civ_count(v, O_TOWER));
+    n = ir_add(items, n, "docks %d  barracks %d  wall %d",
+               mb_civ_count(v, O_DOCK), mb_civ_count(v, O_BARRACKS), mb_civ_count(v, O_WALL));
+    if (V->plan_obj) n = ir_add(items, n, "planning: %s", O_NAME[V->plan_obj]);
+    n = ir_add(items, n, "-- the mood --");
+    n = ir_add(items, n, "happy %d  loyal %d  unrest %d", V->happy, V->loyalty, V->unrest);
+    n = ir_add(items, n, "threat %d  soldiers %d%s", V->threat, V->soldiers,
+               V->mustering ? "  MUSTERING" : "");
+    {
+        int k = V->kingdom, tech = (k && k < MAXK && mb_k[k].alive) ? mb_k[k].tech : 0;
+        if (tech >= TECH_N - 1)
+            n = ir_add(items, n, "there is nothing left to learn");
+        else
+            n = ir_add(items, n, "research %d of %d toward %s", V->research,
+                       120 + tech * 160, MB_TECH_NAME[tech + 1]);
+    }
+    return n;
+}
+
+static int page_kingdom(const char **items, int v)
+{
+    int n = 0;
+    int k = v ? mb_kingdom_of(v) : 0;
+    if (!k || k >= MAXK || !mb_k[k].alive) return ir_add(items, 0, "no crown here");
+    Kingdom *K = &mb_k[k];
+    char kn[24]; mb_name_str(kn, sizeof kn, 1, K->name);
+    n = ir_add(items, n, "%s", kn);
+    n = ir_add(items, n, "creed of %s", MB_CREED_NAME[K->creed < CREED_N ? K->creed : 0]);
+    {
+        int towns = 0, pop = 0, best = 0;
+        for (int i = 1; i < MAXV; i++) {
+            if (!mb_v[i].alive || mb_v[i].kingdom != k) continue;
+            towns++; pop += mb_v[i].pop;
+            if (!best || mb_v[i].pop > mb_v[best].pop) best = i;
+        }
+        n = ir_add(items, n, "%d towns   %d souls", towns, pop);
+        if (best) {
+            char bn[24]; mb_name_str(bn, sizeof bn, 0, mb_v[best].name);
+            n = ir_add(items, n, "seat: %s", bn);
         }
     }
-    uint8_t fk = mb_fkind(mb_w.flux[i]);
-    if (fk && fk < FX_N) {
-        snprintf(rows[n], sizeof rows[n], "%s (%d)", FX_NAME[fk], mb_fint(mb_w.flux[i]));
-        items[n] = rows[n]; n++;
+    n = ir_add(items, n, "-- what it knows --");
+    n = ir_add(items, n, "%d techs, to %s", K->tech,
+               MB_TECH_NAME[K->tech < TECH_N ? K->tech : TECH_N - 1]);
+    {   /* wrapped, because seven tech names do not fit on one 34-column row and a
+         * truncated list ("tools farming masonry weapons wri") is worse than none */
+        int t = 1;
+        while (t <= K->tech && t < TECH_N && n < IR_ROWS - 4) {
+            int o = 0; s_ir[n][0] = 0;
+            for (; t <= K->tech && t < TECH_N; t++) {
+                int need = (int)strlen(MB_TECH_NAME[t]) + (o ? 1 : 0);
+                if (o && o + need >= (int)sizeof s_ir[n] - 1) break;
+                o += snprintf(s_ir[n] + o, sizeof s_ir[n] - o, "%s%s", o ? " " : "",
+                              MB_TECH_NAME[t]);
+            }
+            if (!o) break;
+            items[n] = s_ir[n]; n++;
+        }
     }
-    items[n++] = "BACK";
-    mote->menu("INSPECT", items, n);
+    n = ir_add(items, n, "-- how it stands --");
+    n = ir_add(items, n, "war weariness %d", K->exhaustion);
+    {
+        int wars = 0, allies = 0;
+        for (int i = 1; i < MAXK; i++) {
+            if (K->war_with  & (1u << i)) wars++;
+            if (K->ally_with & (1u << i)) allies++;
+        }
+        n = ir_add(items, n, "%d wars   %d allies", wars, allies);
+        for (int i = 1; i < MAXK && n < IR_ROWS - 4; i++) {
+            if (!(K->war_with & (1u << i)) || !mb_k[i].alive) continue;
+            char en[24]; mb_name_str(en, sizeof en, 1, mb_k[i].name);
+            n = ir_add(items, n, "at war with %s", en);
+        }
+    }
+    return n;
+}
+
+static void soul_card(void)
+{
+    int x = s_cx, y = s_cy;
+    if (!mb_in(x, y)) return;
+    int v = ir_village(x, y);
+    int page = 0;
+
+    for (;;) {
+        const char *items[IR_ROWS + 4];
+        static const char *const TITLE[3] = { "HERE", "THE TOWN", "THE CROWN" };
+        int n = (page == 0) ? page_here(items, x, y)
+              : (page == 1) ? page_town(items, v)
+                            : page_kingdom(items, v);
+        int nav = n;
+        if (page != 0) items[n++] = "< HERE";
+        if (page != 1) items[n++] = "< THE TOWN";
+        if (page != 2) items[n++] = "< THE CROWN";
+        items[n++] = "BACK";
+
+        int sel = mote->menu(TITLE[page], items, n);
+        if (sel < nav) return;                       /* a detail row, or B: done */
+        int pick = sel - nav;
+        int order[3];
+        int m = 0;
+        if (page != 0) order[m++] = 0;
+        if (page != 1) order[m++] = 1;
+        if (page != 2) order[m++] = 2;
+        if (pick >= m) return;                       /* BACK */
+        page = order[pick];
+    }
 }
 
 static void view_set(int god)
@@ -375,6 +562,60 @@ static void chronicle_menu(void)
     mote->menu("CHRONICLE", items, n + 1);
 }
 
+/* --- THE WORLD REPORT ---------------------------------------------------
+ * The inspect pages answer "what is this"; this answers "what is going on". Every
+ * town-development loop rolled up to world scale, so a run has a readable state of play
+ * without walking the cursor over forty settlements: which crown is ahead in learning,
+ * how the faiths are divided, what the economy is made of, how far the biggest places
+ * have got, and how much is moving on the roads.
+ *
+ * This is the same data MOTEBOX_LOOPS prints for the audit — the tooling and the game
+ * read the simulation the same way, which is why the numbers can be trusted. */
+static void world_report(void)
+{
+    const char *items[IR_ROWS + 1];
+    int n = 0;
+    n = ir_add(items, n, "%s   year %d", mb_age_name(), (int)(mb_w.tick / 52));
+
+    /* the crowns, strongest first by what they know */
+    n = ir_add(items, n, "-- the crowns --");
+    for (int pass = TECH_N - 1; pass >= 0 && n < IR_ROWS - 8; pass--)
+        for (int k = 1; k < MAXK && n < IR_ROWS - 8; k++) {
+            if (!mb_k[k].alive || mb_k[k].tech != pass) continue;
+            char kn[24]; mb_name_str(kn, sizeof kn, 1, mb_k[k].name);
+            int towns = 0, pop = 0;
+            for (int v = 1; v < MAXV; v++)
+                if (mb_v[v].alive && mb_v[v].kingdom == k) { towns++; pop += mb_v[v].pop; }
+            n = ir_add(items, n, "%s: %s, %d towns, %d souls", kn,
+                       MB_TECH_NAME[pass < TECH_N ? pass : 0], towns, pop);
+        }
+
+    {   int creed[CREED_N] = {0}, spec[PROF_N] = {0}, tier[TIER_N] = {0}, traded = 0, road = 0;
+        for (int v = 1; v < MAXV; v++) {
+            if (!mb_v[v].alive) continue;
+            creed[mb_v[v].creed < CREED_N ? mb_v[v].creed : 0] += mb_v[v].pop;
+            spec[mb_v[v].spec < PROF_N ? mb_v[v].spec : 0]++;
+            tier[mb_v[v].tier < TIER_N ? mb_v[v].tier : 0]++;
+            traded += mb_v[v].traded;
+        }
+        for (int i = 0; i < mb_nu; i++)
+            if (mb_u[i].alive && mb_u[i].job == JOB_HAUL) road++;
+
+        n = ir_add(items, n, "-- the faiths (souls) --");
+        for (int i = 1; i < CREED_N && n < IR_ROWS - 5; i++)
+            if (creed[i]) n = ir_add(items, n, "%s %d", MB_CREED_NAME[i], creed[i]);
+        n = ir_add(items, n, "-- the trades (towns) --");
+        for (int i = 1; i < PROF_N && n < IR_ROWS - 3; i++)
+            if (spec[i]) n = ir_add(items, n, "%s %d", MB_PROF_NAME[i], spec[i]);
+        n = ir_add(items, n, "-- how far they got --");
+        for (int i = TIER_N - 1; i >= 0 && n < IR_ROWS - 2; i--)
+            if (tier[i]) n = ir_add(items, n, "%s %d", MB_TIER_NAME[i], tier[i]);
+        n = ir_add(items, n, "caravans arrived %d, on the road %d", traded, road);
+    }
+    items[n++] = "BACK";
+    mote->menu("THE WORLD", items, n);
+}
+
 static void god_menu(void)
 {
     for (;;) {
@@ -384,21 +625,30 @@ static void god_menu(void)
         snprintf(st[2], sizeof st[2], "MODE: %s", mb_mode() == MODE_SANDBOX ? "SANDBOX" : "PANTHEON");
         snprintf(st[3], sizeof st[3], "pop %d  villages %d  kingdoms %d",
                  mb_pop_civ(), mb_village_count(), mb_kingdom_count());
+        static char st4[30];
+        snprintf(st4, sizeof st4, "MAP: %s", MB_MAPMODE_NAME[mb_draw_mapmode()]);
         const char *items[] = { st[0], st[1], st[2], st[3],
+                                st4, "THE WORLD REPORT",
                                 "CHRONICLE", "WORLD LAWS", "SAVE WORLD", "LOAD WORLD",
                                 "NEW WORLD", "CLOSE" };
-        int c = mote->menu("MOTEBOX", items, 10);
+        int c = mote->menu("MOTEBOX", items, 12);
         switch (c) {
         case 2: mb_mode_set(mb_mode() == MODE_SANDBOX ? MODE_PANTHEON : MODE_SANDBOX); break;
-        case 4: chronicle_menu(); break;
-        case 5: law_menu(); break;
-        case 6: {
+        /* THE MAP IS A LENS. Cycling it here rather than on a button keeps the world's own
+         * controls for the world, and the four modes are the only place tech, creed and tier
+         * are visible at world scale — see mb_draw_prepare(). */
+        case 4: mb_draw_mapmode_set((mb_draw_mapmode() + 1) % MAPMODE_N);
+                mb_draw_init(); break;
+        case 5: world_report(); break;
+        case 6: chronicle_menu(); break;
+        case 7: law_menu(); break;
+        case 8: {
             int ok = mb_save_write(0, s_cx, s_cy, s_god);
             const char *m[] = { ok ? "saved" : "SAVE FAILED", "BACK" };
             mote->menu("SAVE", m, 2);
             break;
         }
-        case 7: {
+        case 9: {
             int cx = s_cx, cy = s_cy, god = s_god;
             int ok = mb_save_read(0, &cx, &cy, &god);
             if (ok) { s_cx = cx; s_cy = cy; view_set(god); }
@@ -406,7 +656,7 @@ static void god_menu(void)
             mote->menu("LOAD", m, 2);
             break;
         }
-        case 8: {
+        case 10: {
             uint32_t ns = (uint32_t)mote->micros() ^ (mb_w.seed * 2654435761u);
             mb_world_gen(ns);
             /* RESET, not init: the arena is bump-only, so re-initialising would
@@ -741,6 +991,91 @@ static void g_init(void)
                             burning ? rmin : 0, rmax, burning ? rmax - rmin : 0, burnt);
                 if (!burning && t > 2) { fprintf(stderr, "out at tick %d\n", t); break; }
             }
+        }
+    }
+    /* MOTEBOX_INSPECT=1 prints the three inspect pages for the cursor's cell. Driving a
+     * blocking menu from a scripted key stream is unreliable — nine DOWNs with autorepeat
+     * is not a repeatable test — and what needs checking is the CONTENT, not the widget. */
+    if (getenv("MOTEBOX_INSPECT")) {
+        const char *items[IR_ROWS + 4];
+        int v = ir_village(s_cx, s_cy);
+        static const char *const TT[3] = { "HERE", "THE TOWN", "THE CROWN" };
+        for (int page = 0; page < 3; page++) {
+            int n = (page == 0) ? page_here(items, s_cx, s_cy)
+                  : (page == 1) ? page_town(items, v)
+                                : page_kingdom(items, v);
+            fprintf(stderr, "\n=== %s (%d rows) ===\n", TT[page], n);
+            for (int i = 0; i < n; i++) fprintf(stderr, "  %s\n", items[i]);
+        }
+    }
+    /* MOTEBOX_MAP=faith|craft|growth picks a God's Eye lens for a headless screenshot,
+     * because the only other way in is a menu a script cannot drive. */
+    {
+        const char *mm = getenv("MOTEBOX_MAP");
+        if (mm && *mm) {
+            for (int i = 0; i < MAPMODE_N; i++) {
+                char a = (char)(MB_MAPMODE_NAME[i][0] | 32);
+                if ((*mm | 32) == a) { mb_draw_mapmode_set(i); break; }
+            }
+            mb_draw_init();
+        }
+    }
+    /* MOTEBOX_LOOPS=1 reports the town-development systems, because every one of them is
+     * a CURVE and none of them can be checked from a screenshot. "Does tech advance", "do
+     * towns specialise by terrain", "do caravans actually arrive", "does anybody get
+     * married" are four questions a picture cannot answer, and each of them has been
+     * silently broken at least once — Kingdom.tech sat unused for the whole of development
+     * because nothing ever printed it. */
+    if (getenv("MOTEBOX_LOOPS")) {
+        fprintf(stderr, "\n--- the loops, year %d ---\n", (int)(mb_w.tick / 52));
+        for (int k = 1; k < MAXK; k++) {
+            if (!mb_k[k].alive) continue;
+            char kn[24]; mb_name_str(kn, sizeof kn, 1, mb_k[k].name);
+            int towns = 0, pop = 0;
+            for (int v = 1; v < MAXV; v++)
+                if (mb_v[v].alive && mb_v[v].kingdom == k) { towns++; pop += mb_v[v].pop; }
+            fprintf(stderr, "kingdom %-14s tech %d (%s)  creed %s  %d towns  %d souls\n",
+                    kn, mb_k[k].tech, MB_TECH_NAME[mb_k[k].tech < TECH_N ? mb_k[k].tech : 0],
+                    MB_CREED_NAME[mb_k[k].creed < CREED_N ? mb_k[k].creed : 0], towns, pop);
+        }
+        {   int spec[PROF_N] = {0}, tier[TIER_N] = {0}, creed[CREED_N] = {0}, traded = 0;
+            for (int v = 1; v < MAXV; v++) {
+                if (!mb_v[v].alive) continue;
+                spec[mb_v[v].spec < PROF_N ? mb_v[v].spec : 0]++;
+                tier[mb_v[v].tier < TIER_N ? mb_v[v].tier : 0]++;
+                creed[mb_v[v].creed < CREED_N ? mb_v[v].creed : 0]++;
+                traded += mb_v[v].traded;
+            }
+            fprintf(stderr, "towns by trade:");
+            for (int i = 1; i < PROF_N; i++) if (spec[i]) fprintf(stderr, " %s=%d", MB_PROF_NAME[i], spec[i]);
+            fprintf(stderr, "\ntowns by tier: ");
+            for (int i = 0; i < TIER_N; i++) if (tier[i]) fprintf(stderr, " %s=%d", MB_TIER_NAME[i], tier[i]);
+            fprintf(stderr, "\ntowns by creed:");
+            for (int i = 0; i < CREED_N; i++) if (creed[i]) fprintf(stderr, " %s=%d", MB_CREED_NAME[i], creed[i]);
+            fprintf(stderr, "\ncaravans delivered (lifetime): %d\n", traded);
+        }
+        {   int prof[PROF_N] = {0}, wed = 0, hauling = 0, named = 0, immune = 0;
+            for (int i = 0; i < mb_nu; i++) {
+                const Unit *u = &mb_u[i];
+                if (!u->alive || u->sp >= SP_CIV_N) continue;
+                prof[u->prof < PROF_N ? u->prof : 0]++;
+                if (u->mate) wed++;
+                if (u->job == JOB_HAUL) hauling++;
+                if (u->given) named++;
+                if (u->traits & TR_IMMUNE) immune++;
+            }
+            fprintf(stderr, "people by trade: ");
+            for (int i = 0; i < PROF_N; i++) if (prof[i]) fprintf(stderr, " %s=%d", MB_PROF_NAME[i], prof[i]);
+            fprintf(stderr, "\nwed %d   on the road %d   named %d   plague-immune %d\n",
+                    wed, hauling, named, immune);
+        }
+        {   int lo = 255, hi = 0, sum = 0, n = 0;
+            for (int v = 1; v < MAXV; v++) {
+                if (!mb_v[v].alive) continue;
+                int a = mb_v[v].lord_age;
+                if (a < lo) lo = a; if (a > hi) hi = a; sum += a; n++;
+            }
+            if (n) fprintf(stderr, "lords: %d of them, aged %d..%d (mean %d)\n", n, lo, hi, sum / n);
         }
     }
     /* MOTEBOX_DUMPBIOME=<path> writes the raw biome array, so the authoring side can
@@ -1108,7 +1443,7 @@ static void g_overlay(uint16_t *fb)
     /* Units and particles in God's Eye are drawn HERE rather than in the band
      * pass, because both are lists the pass would have to filter per band. One
      * pixel each, after the terrain, so they sit on top of it. */
-    if (s_god) { mb_god_units(fb, 0, VIEW_H); mb_fx_draw_god(fb); }
+    if (s_god) { mb_god_towns(fb, 0, VIEW_H); mb_god_units(fb, 0, VIEW_H); mb_fx_draw_god(fb); }
 
     /* THE WORLD IS FINISHED BEFORE THE UI STARTS. This pass used to run at the very
      * end of the overlay, which was harmless while the engine drew the world's sprites —
@@ -1168,7 +1503,13 @@ static void g_overlay(uint16_t *fb)
         snprintf(buf, sizeof buf, "Y%d", year);
         hud_text(fb, buf, HC_YEAR_X, HUD_Y, HC_YEAR_W, C_HI, -1);
         hud_text(fb, mb_power_name(), HC_POWER_X, HUD_Y, HC_POWER_W, C_HI, -1);
-        hud_text(fb, s_god ? "EYE" : "GND", HC_VIEW_X, HUD_Y, HC_VIEW_W, C_TEXT, 1);
+        /* A RECOLOURED WORLD MUST SAY WHY. In a non-default map mode the view field shows
+         * the LENS instead of EYE/GND: a map washed in creed colours with no label on it
+         * is just a map that looks wrong. */
+        hud_text(fb, (s_god && mb_draw_mapmode() != MAPMODE_POWER)
+                        ? MB_MAPMODE_NAME[mb_draw_mapmode()]
+                        : (s_god ? "EYE" : "GND"),
+                 HC_VIEW_X, HUD_Y, HC_VIEW_W, C_TEXT, 1);
 
         /* row two: what is under the cursor, and what casting costs. A burning cell
          * says so, because that is the more urgent fact about it. */
@@ -1179,10 +1520,14 @@ static void g_overlay(uint16_t *fb)
         if (k && k < FX_N)
             snprintf(buf, sizeof buf, "%s %s", B_NAME[b < B_N ? b : 0], FX_NAME[k]);
         else if (v && mb_v[v].alive) {
-            /* on someone's land, name the place: it is the most interesting fact */
+            /* On someone's land, name the place AND say what it is. "Ravenburn 24" told
+             * you a size; "Ravenburn, TOWN of MINER" tells you what four of the
+             * simulation's loops have made of it, in the same nineteen characters, and it
+             * is on screen the whole time rather than behind a menu. */
             char pl[24];
             mb_name_str(pl, sizeof pl, 0, mb_v[v].name);
-            snprintf(buf, sizeof buf, "%s %d", pl, mb_v[v].pop);
+            snprintf(buf, sizeof buf, "%s %s %d", pl,
+                     MB_TIER_NAME[mb_v[v].tier < TIER_N ? mb_v[v].tier : 0], mb_v[v].pop);
         } else if (o && o < O_N && O_NAME[o][0])
             snprintf(buf, sizeof buf, "%s %s", B_NAME[b < B_N ? b : 0], O_NAME[o]);
         else

@@ -109,7 +109,32 @@ enum {
 enum { DIET_PLANT = 0, DIET_MEAT };
 enum { DRV_CIV = 0, DRV_BEAST, DRV_FISH };   /* which drive set a species carries */
 enum { JOB_IDLE = 0, JOB_WANDER, JOB_FORAGE, JOB_HUNT, JOB_FLEE, JOB_BREED,
-       JOB_WORK, JOB_FIGHT, JOB_DOUSE, JOB_N };
+       JOB_WORK, JOB_FIGHT, JOB_DOUSE, JOB_HAUL, JOB_N };
+
+/* PROFESSIONS. A job is what somebody is doing this minute; a profession is what they
+ * are for. Splitting them is what lets a village have a shape — nine farmers and one
+ * smith is a farming village, and you can read that off the crowd without a legend,
+ * because a profession also chooses which figure is drawn. */
+enum { PROF_NONE = 0, PROF_FARMER, PROF_FORESTER, PROF_MINER, PROF_SOLDIER,
+       PROF_PRIEST, PROF_TRADER, PROF_BUILDER, PROF_LORD, PROF_N };
+extern const char *const MB_PROF_NAME[PROF_N];
+
+/* CREEDS. A village believes something, it spreads to its neighbours along roads and
+ * trade, and a kingdom whose towns share a creed holds together better than one whose
+ * towns do not. BLESS and CURSE convert, which is how a god plays this. */
+enum { CREED_NONE = 0, CREED_SUN, CREED_MOON, CREED_STONE, CREED_TIDE, CREED_N };
+extern const char *const MB_CREED_NAME[CREED_N];
+
+/* SETTLEMENT TIERS, from population and what is standing. A tier is not decoration: it
+ * gates what the lord will attempt and how far the street plan reaches. */
+enum { TIER_CAMP = 0, TIER_HAMLET, TIER_VILLAGE, TIER_TOWN, TIER_CITY, TIER_N };
+extern const char *const MB_TIER_NAME[TIER_N];
+
+/* TECHS, in the order a kingdom gets them. Kingdom.tech is a COUNT of techs known, so
+ * one comparison gates a building and the HUD number means something. */
+enum { TECH_NONE = 0, TECH_TOOLS, TECH_FARMING, TECH_MASONRY, TECH_WEAPONS,
+       TECH_WRITING, TECH_SEAFARING, TECH_ENGINEER, TECH_N };
+extern const char *const MB_TECH_NAME[TECH_N];
 enum { NEAR_PREY = 0, NEAR_MATE, NEAR_THREAT, NEAR_ENEMY };
 enum { CAUSE_AGE = 0, CAUSE_WOUNDS, CAUSE_EATEN, CAUSE_SLAIN, CAUSE_DISASTER,
        CAUSE_PLAGUE, CAUSE_STARVED, CAUSE_N };
@@ -124,7 +149,7 @@ enum {
     TR_RANDOM_N,                                     /* --- above: inheritable */
     TR_BLESSED_B = TR_RANDOM_N, TR_CURSED_B, TR_CHOSEN_B, TR_MARKED_B,
     TR_PLAGUE_B, TR_MADNESS_B, TR_CONTAGIOUS_B, TR_ZOMBIE_B, TR_IMMORTAL_B,
-    TR_VETERAN_B, TR_N
+    TR_VETERAN_B, TR_IMMUNE_B, TR_N
 };
 #define TRB(n) ((uint32_t)1u << (n))
 #define TR_TOUGH     TRB(TR_TOUGH_B)
@@ -151,6 +176,7 @@ enum {
 #define TR_ZOMBIE    TRB(TR_ZOMBIE_B)
 #define TR_IMMORTAL  TRB(TR_IMMORTAL_B)
 #define TR_VETERAN   TRB(TR_VETERAN_B)
+#define TR_IMMUNE    TRB(TR_IMMUNE_B)
 
 typedef struct {
     const char *name;
@@ -171,7 +197,15 @@ typedef struct {
     int8_t   hp, happy;
     uint8_t  age, hunger;
     uint16_t target;        /* cell index, 0xFFFF = none */
-    uint16_t family;
+    /* A PERSON, not a body. `family` alone meant every sibling in a village answered to
+     * the same name and the inspect card could only say "a Thornwood" — so nobody was
+     * anybody, and following one life was impossible. A given name, a trade, and a spouse
+     * are what turn a moving sprite into somebody you can lose. */
+    uint16_t family;        /* the surname, inherited from the parent */
+    uint16_t given;         /* their own name */
+    uint16_t mate;          /* unit index + 1 of their spouse; 0 = unwed */
+    uint8_t  prof;          /* PROF_* — what they do, not what they are doing */
+    uint8_t  dest;          /* a hauler's destination village; 0 = none */
     uint32_t traits;
     uint8_t  kills, carry, carry_kind;
     uint8_t  sick;          /* ticks of plague left to run; 0 = well */
@@ -200,6 +234,13 @@ typedef struct {
     uint8_t  plan_obj, plan_x, plan_y, plan_i;  /* the blueprint ghost */
     int32_t  founded, last_settle;
     uint16_t name;
+    uint16_t lord_name;     /* the lord is a person too, and lords are succeeded */
+    uint8_t  lord_age;
+    uint8_t  creed;         /* CREED_* — what this town believes */
+    uint8_t  spec;          /* PROF_* — what the land around it makes it good at */
+    uint8_t  tier;          /* TIER_*, recomputed each visit; cached so the HUD is cheap */
+    uint16_t research;      /* accumulates toward the kingdom's next tech */
+    uint16_t traded;        /* lifetime caravans received — a trade hub is a real thing */
 } Village;
 
 typedef struct {
@@ -207,7 +248,7 @@ typedef struct {
     uint16_t pop;
     uint32_t war_with;      /* bit per kingdom */
     uint32_t ally_with;
-    uint8_t  exhaustion, tech, pad0, pad1;
+    uint8_t  exhaustion, tech, creed, ntowns;
     uint16_t name;
 } Kingdom;
 
@@ -348,6 +389,12 @@ void mb_civ_step(void);
 int  mb_civ_drop_village(int sp, int x, int y);
 void mb_civ_seed_world(int n);         /* worlds start with peoples in them */
 void mb_civ_rehome(void);              /* the homeless join a village or found one */
+int  mb_civ_count(int v, uint8_t obj);   /* how many of `obj` this village has */
+int  mb_civ_tier(int v);               /* TIER_* from pop and what is standing */
+int  mb_civ_tech_ok(int v, int need);  /* does this village's kingdom know `need`? */
+void mb_civ_specialise(int v);         /* what the surrounding land makes it good at */
+int  mb_civ_prof_pick(int v);          /* the trade a newborn of this village takes up */
+void mb_civ_deliver(int v, int kind, int amount);   /* a caravan arrives */
 int  mb_village_found(int sp, int x, int y, int kingdom);
 int  mb_village_need(int v, uint16_t *target);
 int  mb_village_resource(int v, int kind, int *ox, int *oy);
@@ -437,6 +484,12 @@ void mb_snd_at(int id, int x, int y, int cam_tx, int cam_ty, int radius);
 
 /* mb_draw.c */
 void mb_draw_init(void);
+/* GOD'S EYE MAP MODES — the same political map keyed by a different fact. */
+enum { MAPMODE_POWER = 0, MAPMODE_FAITH, MAPMODE_CRAFT, MAPMODE_GROWTH, MAPMODE_N };
+extern const char *const MB_MAPMODE_NAME[MAPMODE_N];
+void mb_god_towns(uint16_t *fb, int y0, int y1);   /* settlement marks on the world map */
+int  mb_draw_mapmode(void);
+void mb_draw_mapmode_set(int m);
 void mb_draw_prepare(void);   /* rebuilds the tint LUT when an age or kingdom changes */
 void mb_god_band(uint16_t *fb, int y0, int y1);      /* set_background_cb target */
 void mb_god_units(uint16_t *fb, int y0, int y1);

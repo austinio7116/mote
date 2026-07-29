@@ -196,7 +196,12 @@ int mb_village_found(int sp, int cx, int cy, int kingdom)
         V->lord_war   = (uint8_t)((lr >> 16) % 100);
         if (((lr >> 24) & 7) < 2) V->lord_traits |= TR_AMBITIOUS;
         if (((lr >> 27) & 7) < 2) V->lord_traits |= TR_LOYAL;
+        V->lord_name = mb_name_person(lr ^ 0x51ed2701u);
+        V->lord_age  = (uint8_t)(24 + (lr >> 5) % 20u);
     }
+    V->creed = 0;                /* creed_step() will hear a neighbour or invent one */
+    V->spec  = PROF_FARMER;      /* until specialise() has looked at the land */
+    V->tier  = TIER_CAMP;
 
     /* a kingdom of its own unless it is a colony of one that exists */
     if (kingdom > 0 && kingdom < MAXK && mb_k[kingdom].alive) V->kingdom = (uint8_t)kingdom;
@@ -225,28 +230,40 @@ int mb_village_found(int sp, int cx, int cy, int kingdom)
     return v;
 }
 
-/* --- the building ladder ------------------------------------------------
+/* THE STONE DEADLOCK, which MOTEBOX_LOOPS found by printing something nobody had looked
+ * at: every village in a 400-year world still had a TIER-ONE HALL. A mine cost ten stone
+ * and stone comes only from mines, and a woodcutter's camp cost four stone as well — so a
+ * village that started with none could never build the thing that produces it. Everything
+ * above a timber hall was therefore unreachable content: no tier-two hall, so no temple,
+ * no wall, no castle, no city. The pithead and the camp are TIMBER-FRAMED now, which is
+ * what they would be, and the ladder connects to the ground.
+ *
+ * --- the building ladder ------------------------------------------------
  * WorldBox's costs, near enough verbatim, because they are well tuned and they
  * make a stockpile legible: you can look at a village's store and know what it
  * is about to do. */
-typedef struct { uint8_t obj, wood, stone, iron, gold, cap; const char *name; } BuildDef;
+typedef struct { uint8_t obj, wood, stone, iron, gold, cap, tech; const char *name; } BuildDef;
 static const BuildDef BUILD[] = {
-    { O_HOUSE1,   4,  0,  0,  0, 40, "house"    },
-    { O_HOUSE2,   4,  4,  0,  0, 40, "house"    },
-    { O_HOUSE3,  10, 10, 10, 10, 40, "house"    },
-    { O_FARM,     6,  0,  0,  0,  4, "farm"     },
-    { O_WOODCUT,  8,  4,  0,  0,  2, "camp"     },
-    { O_MINE,     5, 10,  0,  0,  1, "mine"     },
-    { O_BARRACKS, 8, 12,  4,  0,  1, "barracks" },
-    { O_TEMPLE,  10, 14,  0,  4,  1, "temple"   },
-    { O_TOWER,    6, 12,  0,  0,  3, "tower"    },
-    { O_HALL2,   10, 10,  0,  0,  1, "hall"     },
-    { O_HALL3,   10, 10, 10,  0,  1, "castle"   },
-    { O_WALL,     2, 10,  0,  0, 60, "wall"     },   /* stone, and a lot of it */
+    /* The last column is the TECH a kingdom must know. This is where research stops being
+     * a number in the HUD and becomes architecture: an ignorant kingdom's towns are timber
+     * and thatch for ever, and you can see at a glance which crown is going somewhere. */
+    { O_HOUSE1,   4,  0,  0,  0, 40, TECH_NONE,   "house"    },
+    { O_HOUSE2,   4,  4,  0,  0, 40, TECH_TOOLS,  "house"    },
+    { O_HOUSE3,  10, 10, 10, 10, 40, TECH_MASONRY,"house"    },
+    { O_FARM,     6,  0,  0,  0,  4, TECH_NONE,   "farm"     },
+    { O_WOODCUT,  8,  0,  0,  0,  2, TECH_TOOLS,  "camp"     },
+    { O_MINE,    12,  0,  0,  0,  1, TECH_TOOLS,  "mine"     },
+    { O_BARRACKS, 8, 12,  4,  0,  1, TECH_WEAPONS,"barracks" },
+    { O_TEMPLE,  10, 14,  0,  4,  1, TECH_WRITING,"temple"   },
+    { O_TOWER,    6, 12,  0,  0,  3, TECH_MASONRY,"tower"    },
+    { O_HALL2,   10, 10,  0,  0,  1, TECH_TOOLS,  "hall"     },
+    { O_HALL3,   10, 10, 10,  0,  1, TECH_MASONRY,"castle"   },
+    { O_WALL,     2, 10,  0,  0, 60, TECH_MASONRY,"wall"     },   /* stone, and a lot of it */
+    { O_DOCK,     8,  4,  0,  0,  2, TECH_SEAFARING, "dock"  },
 };
 #define NBUILD ((int)(sizeof BUILD / sizeof BUILD[0]))
 
-static int count_build(int v, uint8_t obj)
+int mb_civ_count(int v, uint8_t obj)
 {
     Village *V = &mb_v[v];
     int n = 0;
@@ -255,6 +272,165 @@ static int count_build(int v, uint8_t obj)
             if (mb_in(x, y) && mb_w.claim[AT(x, y)] == v && mb_w.obj[AT(x, y)] == obj) n++;
     return n;
 }
+
+/* ======================================================================
+ * THE TOWN-DEVELOPMENT LOOPS
+ *
+ * A god sim with no systems under it is a paint program: you can set a forest alight and
+ * watch it burn, and nothing that happens afterwards is different from what happened
+ * before. What makes a world worth watching is the loops feeding each other — the land
+ * decides what a town is good at, what it is good at decides what it builds, what it
+ * builds decides what its kingdom learns, what the kingdom learns decides what its towns
+ * may attempt, and a surplus in one town becomes a caravan to another.
+ *
+ * Each of the following is small on its own. They are worth having because they COMPOSE.
+ * ====================================================================== */
+
+const char *const MB_PROF_NAME[PROF_N] = {
+    "-", "farmer", "forester", "miner", "soldier", "priest", "trader", "builder", "lord",
+};
+const char *const MB_CREED_NAME[CREED_N] = { "-", "SUN", "MOON", "STONE", "TIDE" };
+const char *const MB_TIER_NAME[TIER_N] = { "camp", "hamlet", "village", "TOWN", "CITY" };
+const char *const MB_TECH_NAME[TECH_N] = {
+    "-", "tools", "farming", "masonry", "weapons", "writing", "seafaring", "engineering",
+};
+
+/* --- TIER: what kind of place this is ---------------------------------
+ * From population and civic fabric together, because either alone lies: forty people in
+ * huts is a big hamlet, and a stone hall with nine residents is a lord's folly. */
+int mb_civ_tier(int v)
+{
+    Village *V = &mb_v[v];
+    if (!V->alive) return TIER_CAMP;
+    int pop = V->pop, hall = V->hall;
+    if (pop >= 34 && hall >= 3) return TIER_CITY;
+    if (pop >= 20 && hall >= 2) return TIER_TOWN;
+    if (pop >= 10)              return TIER_VILLAGE;
+    if (pop >= 4)               return TIER_HAMLET;
+    return TIER_CAMP;
+}
+
+int mb_civ_tech_ok(int v, int need)
+{
+    int k = mb_v[v].kingdom;
+    return (k > 0 && k < MAXK && mb_k[k].alive) ? (mb_k[k].tech >= need) : (need <= TECH_TOOLS);
+}
+
+/* --- RESEARCH: a kingdom learns from its towns ------------------------
+ * Kingdom.tech existed as a field, was incremented by exactly one power, and was read by
+ * nothing. So a kingdom could not develop — every town in the world had the same ceiling
+ * on the first tick as on the five hundredth.
+ *
+ * Now temples, scholars-in-numbers and gold all push a village's research, the kingdom
+ * banks it, and each tech costs more than the last. Which means a rich, populous, pious
+ * kingdom really does out-develop a poor one, and you can see it in their architecture.
+ */
+static void research_step(int v)
+{
+    Village *V = &mb_v[v];
+    int k = V->kingdom;
+    if (k <= 0 || k >= MAXK || !mb_k[k].alive) return;
+    if (mb_k[k].tech >= TECH_N - 1) return;
+
+    int gain = V->pop / 6;                             /* people thinking */
+    gain += mb_civ_count(v, O_TEMPLE) * 3;              /* somewhere to write it down */
+    if (V->gold > 20) gain += 1;                       /* and the means to pay for it */
+    if (V->creed == mb_k[k].creed && V->creed) gain += 1;   /* a kingdom that agrees */
+    if (gain <= 0) return;
+
+    V->research = (uint16_t)(V->research + gain);
+    int cost = 120 + mb_k[k].tech * 160;               /* each one dearer than the last */
+    if (V->research >= cost) {
+        V->research = 0;
+        mb_k[k].tech++;
+        mb_chron_disaster(MB_TECH_NAME[mb_k[k].tech < TECH_N ? mb_k[k].tech : 0], V->x, V->y);
+    }
+}
+
+/* --- SPECIALISATION: the land decides what a town is for --------------
+ * Every village ran the same want list, so every village came out the same shape whether
+ * it sat on an orefield or a floodplain. This counts what is actually within reach and
+ * names the town's trade — and the want list below then leans that way, so a mountain
+ * village really does become a mining town while its neighbour on the grass grows farms.
+ */
+void mb_civ_specialise(int v)
+{
+    Village *V = &mb_v[v];
+    int ore = 0, wood = 0, water = 0, soil = 0;
+    for (int dy = -6; dy <= 6; dy++)
+        for (int dx = -6; dx <= 6; dx++) {
+            int x = V->x + dx, y = V->y + dy;
+            if (!mb_in(x, y)) continue;
+            int i = AT(x, y);
+            uint8_t b = mb_w.biome[i], o = mb_w.obj[i];
+            if (o == O_ORE || o == O_SILVER || o == O_GOLD || o == O_GEM) ore += 2;
+            if (b == B_MOUNTAIN || b == B_HILL || b == B_PEAK) ore++;
+            if (o == O_TREE || o == O_TREE2) wood += 2;
+            if (b == B_FOREST) wood++;
+            if (mb_water(b)) water++;
+            if (b == B_GRASS || b == B_MEADOW || b == B_SAVANNA || b == B_FARM) soil++;
+        }
+    /* A COAST IS A COAST. The first version required TECH_SEAFARING for a town to count
+     * as a trading one, and the result was zero trade towns in a four-hundred-year world
+     * even after a kingdom learned to sail — identity should come from the LAND, and tech
+     * should gate what you may BUILD on it. So a well-watered town is a fishing village
+     * from the day it is founded, and the dock arrives when the kingdom works out how. */
+    int trade = (water >= 12) ? water : 0;
+    if (water >= 12 && mb_civ_tech_ok(v, TECH_SEAFARING)) trade += water / 2;
+    int best = soil; V->spec = PROF_FARMER;
+    if (wood  > best) { best = wood;  V->spec = PROF_FORESTER; }
+    if (ore   > best) { best = ore;   V->spec = PROF_MINER;    }
+    if (trade > best) { best = trade; V->spec = PROF_TRADER;   }
+}
+
+/* --- PROFESSIONS: who a newborn grows up to be ------------------------
+ * Weighted by what the town needs and what it is for, so a mining town raises miners and
+ * a threatened one raises soldiers. The profession picks the figure that gets drawn, so
+ * the make-up of a crowd is legible without a single icon over anybody's head — which is
+ * the lesson from the status pips that came out again. */
+int mb_civ_prof_pick(int v)
+{
+    Village *V = &mb_v[v];
+    uint32_t r = mb_rand((uint32_t)(v * 2654435761u + (uint32_t)mb_w.tick * 7717u));
+    int roll = (int)(r % 100u);
+    if (V->threat > 30 && roll < 25)                 return PROF_SOLDIER;
+    if (mb_civ_count(v, O_TEMPLE) && roll < 32)       return PROF_PRIEST;
+    if (V->tier >= TIER_TOWN && roll < 42)           return PROF_TRADER;
+    if (roll < 52)                                   return PROF_BUILDER;
+    if (roll < 76)                                   return (int)V->spec;   /* the town's trade */
+    if (roll < 88)                                   return PROF_FARMER;
+    return PROF_FORESTER;
+}
+
+/* --- CREED: what a town believes, and how it travels -----------------
+ * A village founded without one takes the creed of whichever neighbour it can hear, and
+ * failing that invents one. It then drifts toward whatever its kingdom's capital holds,
+ * slowly, so a kingdom converges without ever being told to — and a town that disagrees
+ * with its own crown is exactly where a rebellion starts.
+ */
+static void creed_step(int v)
+{
+    Village *V = &mb_v[v];
+    if (!V->creed) {
+        for (int u = 1; u < MAXV; u++) {
+            if (u == v || !mb_v[u].alive || !mb_v[u].creed) continue;
+            int dx = mb_v[u].x - V->x, dy = mb_v[u].y - V->y;
+            if (dx * dx + dy * dy < 900) { V->creed = mb_v[u].creed; return; }
+        }
+        V->creed = (uint8_t)(1 + (mb_rand((uint32_t)(v * 40503u + (uint32_t)V->founded)) % 4u));
+        return;
+    }
+    int k = V->kingdom;
+    if (k <= 0 || k >= MAXK || !mb_k[k].alive) return;
+    if (!mb_k[k].creed) { mb_k[k].creed = V->creed; return; }
+    if (V->creed == mb_k[k].creed) return;
+    /* Conversion is slow and it costs loyalty while it lasts — a town made to worship its
+     * king's god resents it, which is what makes creed a political fact and not a label. */
+    V->loyalty = (int8_t)(V->loyalty > -100 ? V->loyalty - 1 : -100);
+    if ((mb_rand((uint32_t)(v * 131u + (uint32_t)mb_w.tick)) & 255) < 3)
+        V->creed = mb_k[k].creed;
+}
+
 
 /* Somewhere to put a building: claimed, buildable, empty, and not on the hall. */
 /* WHERE THE NEXT BUILDING GOES, and this is why cities used to look like stars.
@@ -272,38 +448,111 @@ static int count_build(int v, uint8_t obj)
  * town grows along its streets, and streets grow to reach new houses, and the two
  * together produce a branching fabric that thickens toward the centre. No rays.
  */
+/* --- THE STREET PLAN ----------------------------------------------------
+ *
+ * A town is not buildings with roads threaded between them; it is STREETS with buildings
+ * along them. Three versions got that the wrong way round and all three looked wrong.
+ *
+ *   v1 ran a spur from each finished building back to the hall, so a village was a blob
+ *      of houses with stubs hanging off it.
+ *   v2 pushed streets outward first, but from a RANDOM existing road cell in a RANDOM
+ *      direction, so the network wandered — a tangle, not a street.
+ *   v3 (this one's predecessor) kept that and added a frontage bonus to the site score.
+ *      It could not work: the bonus was +40 while "closeness to the centre" was worth up
+ *      to +60, so a cell in the middle of a block beat a cell on a street every time and
+ *      the buildings sat in the road network's gaps.
+ *
+ * So the plan is DECLARED, not grown. street_at() is a pure function of the village and a
+ * cell — no state, nothing to keep in sync, and it can be asked about a cell that is not
+ * paved yet, which is what lets buildings know where the street WILL be:
+ *
+ *      - a HIGH STREET through the hall, along one axis
+ *      - LANES off it every third cell, so the strips between them are exactly two deep
+ *        and every buildable cell touches a lane
+ *      - a second high street once the town is big enough to want two blocks
+ *
+ * Buildings then take the one rule that makes the fabric: never on the plan, and never
+ * without a paved neighbour. Frontage stops being a preference and becomes a requirement,
+ * which is the whole difference between a street with houses either side and a car park.
+ *
+ * It stays irregular where it matters. The axis and the lane pattern come from the village
+ * id, so neighbouring towns are not copies; each lane's DEPTH is hashed, so the built-up
+ * edge is ragged rather than a rectangle; and terrain masks the plan wherever it crosses
+ * water, rock or an existing building, so a town on a headland is shaped by the headland.
+ */
+static int street_at(int v, int x, int y)
+{
+    const Village *V = &mb_v[v];
+    int hor    = v & 1;                                 /* which way the high street runs */
+    int along  = hor ? (x - V->x) : (y - V->y);
+    int across = hor ? (y - V->y) : (x - V->x);
+    int a = along  < 0 ? -along  : along;
+    int c = across < 0 ? -across : across;
+
+    int reach = 3 + V->pop / 2;  if (reach > 11) reach = 11;
+    if (a > reach) return 0;
+    if (across == 0) return 1;                           /* the high street */
+
+    /* A SECOND high street, three cells over, once there is a town to put on it. Which
+     * side it goes is the village's own, so a pair of towns do not mirror each other. */
+    if (V->pop >= 20 && across == ((v & 2) ? 3 : -3)) return 1;
+
+    /* The lanes. Depth is per-lane and hashed, so the town's outline is ragged. */
+    if (along % 3) return 0;
+    int deep = 2 + V->pop / 10;  if (deep > 5) deep = 5;
+    int lane = 2 + (int)(mb_rand((uint32_t)(v * 2654435761u + (uint32_t)(along + 64) * 40503u))
+                         % (uint32_t)(deep - 1));
+    return c <= lane;
+}
+
 static int build_site(int v, int *ox, int *oy)
 {
     Village *V = &mb_v[v];
+    /* Is there any street yet? A village on its founding tick has none, and a rule that
+     * needs frontage would deadlock before the first cell was paved. */
+    int any_road = 0;
+    for (int dy = -14; dy <= 14 && !any_road; dy++)
+        for (int dx = -14; dx <= 14; dx++) {
+            int x = V->x + dx, y = V->y + dy;
+            if (mb_in(x, y) && mb_w.road[AT(x, y)] && mb_w.claim[AT(x, y)] == v) {
+                any_road = 1; break;
+            }
+        }
+
     int best = -1, bx = 0, by = 0;
-    for (int dy = -7; dy <= 7; dy++)
-        for (int dx = -7; dx <= 7; dx++) {
+    for (int dy = -14; dy <= 14; dy++)
+        for (int dx = -14; dx <= 14; dx++) {
             int x = V->x + dx, y = V->y + dy;
             if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v) continue;
             if (!buildable(x, y) || mb_is_build(mb_w.obj[AT(x, y)])) continue;
+            if (mb_w.road[AT(x, y)] || street_at(v, x, y)) continue;   /* never in the road */
 
-            int score = 0, road = 0, nbr = 0;
+            /* FRONTAGE IS A REQUIREMENT, NOT A BONUS. This one line is what makes a
+             * street have houses either side of it instead of a road network with
+             * buildings in its holes. */
+            int front = 0;
+            static const int8_t FX[4] = { 1, -1, 0, 0 }, FY[4] = { 0, 0, 1, -1 };
+            for (int k = 0; k < 4; k++) {
+                int nx = x + FX[k], ny = y + FY[k];
+                if (mb_in(nx, ny) && mb_w.road[AT(nx, ny)]) front++;
+            }
+            if (!front && any_road) continue;
+
+            int nbr = 0;
             for (int k = 0; k < 8; k++) {
                 static const int8_t DX[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
                 static const int8_t DY[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
                 int nx = x + DX[k], ny = y + DY[k];
-                if (!mb_in(nx, ny)) continue;
-                if (mb_w.road[AT(nx, ny)]) road++;
-                if (mb_is_build(mb_w.obj[AT(nx, ny)])) nbr++;
+                if (mb_in(nx, ny) && mb_is_build(mb_w.obj[AT(nx, ny)])) nbr++;
             }
-            /* FRONTAGE FIRST: a building wants a street, and the street is what makes
-             * the town a fabric instead of a scatter. */
-            score += road ? 40 : 0;
-            score += road * 4;
-            /* then neighbours, but with a ceiling — a town needs yards and lanes, and
-             * without a cap every building piles onto the same block */
-            score += (nbr > 3 ? 3 : nbr) * 12;
-            /* then closeness to the middle, which is what gives a town a centre */
+            /* A CORNER PLOT IS THE BEST PLOT — two streets, so front counts double.
+             * Then fill in beside what is already standing, so a street builds up along
+             * its length rather than in scattered pairs. Then the centre, which is worth
+             * far less than it used to be: it was outweighing frontage entirely. */
+            int score = front * 24 + (nbr > 4 ? 4 : nbr) * 10;
             int d2 = dx * dx + dy * dy;
-            score += 60 - d2;
-            /* and a little noise, so two towns with the same shape do not grow
-             * identically and no street is perfectly straight for ever */
-            score += (int)(mb_rand((uint32_t)(AT(x, y) * 2654435761u)) & 15);
+            score += (60 - d2) / 4;
+            score += (int)(mb_rand((uint32_t)(AT(x, y) * 2654435761u)) & 7);
 
             if (score > best) { best = score; bx = x; by = y; }
         }
@@ -322,9 +571,28 @@ static int wall_site(int v, int *ox, int *oy);   /* defined below; the lord call
 static void lord_think(int v)
 {
     Village *V = &mb_v[v];
+    /* The derived facts first, because every decision below reads them. Cached on the
+     * village rather than recomputed per query, so the HUD and the inspect card cost
+     * nothing to draw. */
+    V->tier = (uint8_t)mb_civ_tier(v);
+    if ((mb_w.tick & 15) == 0) mb_civ_specialise(v);
+    research_step(v);
+    creed_step(v);
     if (V->plan_obj) return;                 /* already intending something */
 
     int pop = V->pop, housing = V->housing;
+    /* HOW FAR AHEAD A TOWN BUILDS, and this is what lets a city exist at all. A flat
+     * `pop + 8` was tuned when a world had thirty hamlets: with the world limited to one
+     * settlement per sixteen souls, that same slack became the binding constraint on the
+     * whole population — total beds could never exceed villages x (pop + 8), so cutting
+     * the village count cut the world's carrying capacity with it and a 222-soul world
+     * decayed to 54. Measured: population peaked at year 120 and halved by year 200 with
+     * every death down to old age and nothing replacing it.
+     *
+     * A hamlet builds a little ahead; a city builds a lot. Which is both true to life and
+     * the mechanism by which a successful town keeps growing instead of stalling. */
+    int slack = 8 + (int)V->tier * 7;
+
 
     /* THE PRIORITY LIST, in order, as a list rather than an if-chain — because the
      * chain had a fatal shape: whichever want came first was locked in even when
@@ -341,7 +609,7 @@ static void lord_think(int v)
      * wanted. The wall sat last and was therefore never laid once, even after the gate
      * was fixed. So one build in three goes to the wall while it is unfinished: a real
      * town raises houses and curtain wall in the same decades, not one after the other. */
-    int wall_turn = (V->hall >= 2 && count_build(v, O_WALL) < 44 &&
+    int wall_turn = (V->hall >= 2 && mb_civ_count(v, O_WALL) < 44 &&
                      (V->threat > 25 || V->pop >= 14 || V->stone > 40) &&
                      ((mb_w.tick >> 6) % 3) == 0);
     if (wall_turn) want_list[nwant++] = 11;
@@ -351,7 +619,11 @@ static void lord_think(int v)
      * farms is a hamlet's answer; a town of forty needs seven. */
     int farm_cap = 2 + pop / 6;
     if (farm_cap > 10) farm_cap = 10;
-    if (V->food < pop * 3 && count_build(v, O_FARM) < farm_cap) want_list[nwant++] = 3;
+    /* A FARMING TOWN FARMS. Specialisation earns a real bonus, not a flavour text: the
+     * cap moves, so the same want list makes a granary of one village and a pithead of
+     * the next without a second code path. */
+    if (V->spec == PROF_FARMER) farm_cap += 3;
+    if (V->food < pop * 3 && mb_civ_count(v, O_FARM) < farm_cap) want_list[nwant++] = 3;
     /* BEDS FIRST when the village is over capacity. Housing gates breeding, so a
      * village with no spare bed has no children — and with the hall and the temple
      * ahead of houses in the list, every village in a test run spent its whole
@@ -369,16 +641,26 @@ static void lord_think(int v)
      * affordable the lord built another one, for ever. That is most of why a town read as
      * a blob — it was mostly empty housing. A little slack for the next generation, and
      * then stop. */
-    if (pop >= housing && V->food > pop && housing < pop + 8)  want_list[nwant++] = 0;
-    if (V->wood < 20 && count_build(v, O_WOODCUT) < 2)        want_list[nwant++] = 4;
-    if (V->stone < 20 && count_build(v, O_MINE) < 1)          want_list[nwant++] = 5;
-    if (V->threat > 40 && count_build(v, O_BARRACKS) < 1)     want_list[nwant++] = 6;
+    /* A FULL VILLAGE ROOFS ITSELF FIRST — but only a full one. Beds ahead of people go
+     * at the BACK of the list (below), because the lord takes the first affordable want and
+     * stops: with the generous tier slack in front, a growing village chose "another house"
+     * every single visit and never reached its own hall. A village of sixty with a timber
+     * hall in a kingdom that knew engineering is what that looks like. */
+    if (pop >= housing && V->food > pop)                      want_list[nwant++] = 0;
+    if (V->wood < 20 && mb_civ_count(v, O_WOODCUT) < (V->spec == PROF_FORESTER ? 4 : 2))
+                                                             want_list[nwant++] = 4;
+    if (V->stone < 20 && mb_civ_count(v, O_MINE) < (V->spec == PROF_MINER ? 3 : 1))
+                                                             want_list[nwant++] = 5;
+    /* A PORT, once the kingdom can sail and the town has water to put it on. The dock had
+     * an object id, a sprite and a fuel value and was never in the build table at all. */
+    if (V->spec == PROF_TRADER && mb_civ_count(v, O_DOCK) < 2) want_list[nwant++] = 12;
+    if (V->threat > 40 && mb_civ_count(v, O_BARRACKS) < 1)     want_list[nwant++] = 6;
     if (V->hall == 1)                                         want_list[nwant++] = 9;
     if (V->hall == 2)                                         want_list[nwant++] = 10;
-    if (V->hall >= 2 && count_build(v, O_TEMPLE) < 1)         want_list[nwant++] = 7;
-    if (pop + 3 > housing && V->food > pop * 2 && housing < pop + 8)
-                                                             want_list[nwant++] = 0;
-    if (V->threat > 25 && count_build(v, O_TOWER) < 3)        want_list[nwant++] = 8;
+    if (V->hall >= 2 && mb_civ_count(v, O_TEMPLE) < 1)         want_list[nwant++] = 7;
+    /* and the room for the next generation, once the civic ladder has had its turn */
+    if (V->food > pop * 2 && housing < pop + slack)           want_list[nwant++] = 0;
+    if (V->threat > 25 && mb_civ_count(v, O_TOWER) < 3)        want_list[nwant++] = 8;
     /* A WALL, once the hall is stone and somebody is worth keeping out. Late in the list:
      * a town builds beds, bread and a barracks before it builds a curtain. */
     /* A WALL when the town is worth walling: threatened, OR simply established and
@@ -386,14 +668,15 @@ static void lord_think(int v)
      * zero in a peaceful world, so the condition could not fire and a feature that had a
      * sprite, an object id and a build cost had never appeared in a single game. A
      * prosperous town walls itself as a matter of course. */
-    if (V->hall >= 2 && count_build(v, O_WALL) < 44 &&
+    if (V->hall >= 2 && mb_civ_count(v, O_WALL) < 44 &&
         (V->threat > 25 || V->pop >= 14 || V->stone > 40))    want_list[nwant++] = 11;
     if (V->hall == 3 && housing > 0)                          want_list[nwant++] = 1;
 
     int want = -1;
     for (int i = 0; i < nwant; i++) {
         const BuildDef *B = &BUILD[want_list[i]];
-        if (B->cap && count_build(v, B->obj) >= B->cap) continue;
+        if (B->cap && mb_civ_count(v, B->obj) >= B->cap) continue;
+        if (B->tech && !mb_civ_tech_ok(v, B->tech)) continue;   /* not yet known */
         /* Affordable now, or within a stewardship-flavoured stretch: a good steward
          * will start something it is close to paying for, a poor one will not. */
         int slack = V->lord_stew / 12;
@@ -423,32 +706,6 @@ static void lord_think(int v)
  * existing road instead means the second house extends the first house's street, the
  * fifth branches off it, and the network becomes a tree that grows outward — which is
  * both what real settlements do and much cheaper in paving. */
-static void road_to_hall(int v, int bx, int by)
-{
-    Village *V = &mb_v[v];
-    int hx = V->x, hy = V->y;
-    int bestd = (bx - hx) * (bx - hx) + (by - hy) * (by - hy);
-    for (int dy = -9; dy <= 9; dy++)
-        for (int dx = -9; dx <= 9; dx++) {
-            int x = bx + dx, y = by + dy;
-            if (!mb_in(x, y) || !mb_w.road[AT(x, y)]) continue;
-            int d = dx * dx + dy * dy;
-            if (d < bestd) { bestd = d; hx = x; hy = y; }
-        }
-    int step = bx < hx ? 1 : -1;
-    for (int x = bx; x != hx + step; x += step) {
-        if (!mb_in(x, by)) break;
-        int i = AT(x, by);
-        if (mb_land(mb_w.biome[i]) && !mb_is_build(mb_w.obj[i])) mb_w.road[i] = 1;
-    }
-    step = by < hy ? 1 : -1;
-    for (int y = by; y != hy + step; y += step) {
-        if (!mb_in(hx, y)) break;
-        int i = AT(hx, y);
-        if (mb_land(mb_w.biome[i]) && !mb_is_build(mb_w.obj[i])) mb_w.road[i] = 1;
-    }
-}
-
 /* WHERE A WALL SEGMENT GOES: the PERIMETER of the built-up area, not the middle.
  *
  * Walls were in the object enum and had a sprite and were never once built, because they
@@ -501,66 +758,186 @@ static int wall_site(int v, int *ox, int *oy)
     return 0;
 }
 
-/* STREETS, LAID AHEAD OF THE BUILDINGS.
+/* PAVE THE PLAN, nearest the hall first, a few cells a visit.
  *
- * Roads used to appear only as a spur behind each finished building, which is why a town
- * was a blob of houses with stubs hanging off it. A real settlement lays the street FIRST
- * and the houses arrive along it — so this pushes the network outward on its own, and
- * build_site's frontage score then pulls building onto it.
+ * There is no routing and no choice to make: street_at() already says where every street
+ * is, so this only decides how much of it exists yet. Working outward from the hall means
+ * the network is connected at every stage — a half-built plan is a short high street with
+ * two lanes, which is a hamlet, and not a set of disconnected fragments.
  *
- * Two rules give it structure instead of sprawl. A run goes STRAIGHT for a few cells, so
- * the result is streets and not a wandering path. And a cell is refused if either of its
- * perpendicular neighbours already carries road, which keeps parallel streets at least
- * two apart and leaves BLOCKS between them for houses to fill.
+ * Terrain vetoes: water, rock and anything already standing. A plan cell that the land
+ * refuses simply never gets paved, so a town on a headland is shaped by the headland
+ * without a single special case.
  */
 static void village_streets(int v)
 {
     Village *V = &mb_v[v];
-    static const int8_t DX[4] = { 1, -1, 0, 0 };
-    static const int8_t DY[4] = { 0, 0, 1, -1 };
 
-    /* how much street a village of this size warrants — enough to reach its edge and
-     * branch, not enough to pave the whole claim */
-    int want = 6 + V->pop, have = 0;
-    for (int y = V->y - 8; y <= V->y + 8; y++)
-        for (int x = V->x - 8; x <= V->x + 8; x++)
-            if (mb_in(x, y) && mb_w.road[AT(x, y)] && mb_w.claim[AT(x, y)] == v) have++;
-    if (have >= want) return;
-
-    int sx = V->x, sy = V->y;
-    if (have) {
-        /* branch from an existing road cell, preferring one far from the hall so the
-         * network grows outward rather than thickening the middle */
-        int best = -1;
-        for (int t = 0; t < 40; t++) {
-            uint32_t r = mb_rand((uint32_t)(v * 7717u + t * 131u + (uint32_t)mb_w.tick));
-            int x = V->x + (int)(r % 17) - 8, y = V->y + (int)((r >> 8) % 17) - 8;
-            if (!mb_in(x, y) || !mb_w.road[AT(x, y)] || mb_w.claim[AT(x, y)] != v) continue;
-            int d = (x - V->x) * (x - V->x) + (y - V->y) * (y - V->y);
-            if (d > best) { best = d; sx = x; sy = y; }
+    /* STREET IS PAVED ON DEMAND, and this is the rule that was missing. The plan is laid
+     * out for a finished town, but paving it at three cells a visit while buildings wait
+     * on a stockpile meant the road always won the race: the first screenshots of this
+     * layout were a complete empty grid with a dozen houses lost in it — a car park with
+     * a village in the corner.
+     *
+     * So the network may only be as big as there is town to line it: two street cells per
+     * building, plus a few to get started. Blocks therefore FILL before new lanes open,
+     * which is also the order a real settlement does it in. */
+    int built = 0, paved = 0;
+    for (int dy = -14; dy <= 14; dy++)
+        for (int dx = -14; dx <= 14; dx++) {
+            int x = V->x + dx, y = V->y + dy;
+            if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v) continue;
+            if (mb_w.road[AT(x, y)]) paved++;
+            if (mb_is_build(mb_w.obj[AT(x, y)])) built++;
         }
-        if (best < 0) return;
-    }
+    /* One street cell per building. A lane cell of a two-deep block fronts four
+     * plots, so this is still generous — at two per building the grid outran the
+     * town and the first screenshots were an empty car park. */
+    if (paved >= 3 + built) return;
 
-    uint32_t rr = mb_rand((uint32_t)(v * 40503u + (uint32_t)mb_w.tick));
-    int dir = (int)(rr & 3);
-    int len = 3 + (int)((rr >> 4) % 3);
-    int px = -DY[dir], py = DX[dir];              /* perpendicular, for the spacing test */
+    /* nearest unpaved plan cell to the hall, so the network is connected at every stage */
+    int best = -1, bx = 0, by = 0;
+    for (int dy = -14; dy <= 14; dy++)
+        for (int dx = -14; dx <= 14; dx++) {
+            int x = V->x + dx, y = V->y + dy;
+            if (!mb_in(x, y)) continue;
+            int i = AT(x, y);
+            if (mb_w.road[i] || mb_w.claim[i] != v) continue;
+            if (!street_at(v, x, y)) continue;
+            if (!buildable(x, y) || mb_is_build(mb_w.obj[i])) continue;
+            int d = dx * dx + dy * dy;
+            if (best < 0 || d < best) { best = d; bx = x; by = y; }
+        }
+    if (best < 0) return;
+    int i = AT(bx, by);
+    mb_w.road[i] = 1;
+    if (mb_w.obj[i] && !mb_is_build(mb_w.obj[i])) mb_w.obj[i] = O_NONE;      /* clear scrub */
+}
 
-    for (int i = 1; i <= len; i++) {
-        int x = sx + DX[dir] * i, y = sy + DY[dir] * i;
-        if (!mb_in(x, y)) break;
-        int idx = AT(x, y);
-        if (!mb_land(mb_w.biome[idx])) break;      /* a road stops at the water's edge */
-        if (mb_w.claim[idx] != v) break;
-        if (mb_is_build(mb_w.obj[idx])) break;     /* never through a building */
-        /* KEEP THE BLOCKS: refuse to run alongside another street */
-        int lx = x + px, ly = y + py, rx = x - px, ry = y - py;
-        if (i > 1 && ((mb_in(lx, ly) && mb_w.road[AT(lx, ly)]) ||
-                      (mb_in(rx, ry) && mb_w.road[AT(rx, ry)]))) break;
-        mb_w.road[idx] = 1;
-        if (mb_w.obj[idx] && !mb_is_build(mb_w.obj[idx])) mb_w.obj[idx] = O_NONE;
+
+/* --- SUCCESSION: a town's fortunes turn on who is running it -----------
+ * The lord had three stats and a trait roll and then lived for ever, so a village's
+ * character was fixed on its founding tick — a well-stewarded town stayed well stewarded
+ * for five hundred years and a badly led one never got a second chance. That is the
+ * opposite of what makes a history worth reading.
+ *
+ * So lords age and die, and the heir is their own child: stats near the parent's but not
+ * equal, traits mostly inherited. A dynasty therefore has a character that drifts, an
+ * ambitious line stays ambitious, and the death of a good lord is genuinely bad news for
+ * the town — which is a thing you can watch happen in the chronicle.
+ */
+static void succession_step(int v)
+{
+    Village *V = &mb_v[v];
+    if ((mb_w.tick % 52)) return;                      /* once a year: 52 ticks */
+    V->lord_age++;
+    if (V->lord_age < 58) return;
+    if ((mb_rand((uint32_t)(v * 7717u + (uint32_t)mb_w.tick)) & 7) > 2) return;
+
+    uint32_t r = mb_rand((uint32_t)(v * 2654435761u + (uint32_t)mb_w.tick * 131u));
+    /* the heir: near the parent, drifting, with a real chance of being a disappointment */
+    #define HEIR(stat) do {                                                        \
+        int base = (int)V->stat, d = (int)(r % 41u) - 20;                           \
+        r = mb_rand(r);                                                             \
+        base += d; V->stat = (uint8_t)(base < 0 ? 0 : base > 99 ? 99 : base);        \
+    } while (0)
+    HEIR(lord_diplo); HEIR(lord_stew); HEIR(lord_war);
+    #undef HEIR
+    /* traits pass down, and one in four mutates — the same rule bloodlines use */
+    if ((r & 3) == 0) V->lord_traits ^= TR_AMBITIOUS;
+    if (((r >> 2) & 7) == 0) V->lord_traits ^= TR_LOYAL;
+    V->lord_name = mb_name_person(r ^ (uint32_t)mb_w.tick);
+    V->lord_age = (uint8_t)(19 + (r >> 8) % 16u);
+    /* a new lord is untested: the town holds its breath */
+    V->loyalty = (int8_t)(V->loyalty > 20 ? V->loyalty - 15 : V->loyalty);
+    mb_chron_age(MB_TIER_NAME[V->tier]);
+}
+
+/* --- CARAVANS: a surplus in one town is a shortage answered in another -
+ * Roads existed and carried nobody. Nothing ever moved between settlements, so a famine
+ * was always local, a rich town's granary did nothing for its neighbour, and the road
+ * network — the most expensive thing a village builds — had no purpose beyond decoration.
+ *
+ * A town with a real surplus and a neighbour in real need sends one of its own away with
+ * a load. The hauler walks, on foot, visibly, and can be killed on the way; when it
+ * arrives the goods change hands and the receiving town remembers it. Which means:
+ *   - roads earn their existence, and there are figures moving along them
+ *   - famine becomes a regional event with a chance of rescue
+ *   - a raider or a fire on a trade road has consequences two towns away
+ *   - a specialised town can survive on one trade, because the rest arrives
+ */
+static void caravan_step(int v)
+{
+    Village *V = &mb_v[v];
+    if (V->tier < TIER_HAMLET || V->pop < 5) return;
+    /* THINNED AGAINST THE VISIT SCHEDULE, not against absolute time. The first version
+     * required (tick % 24) == 0 as well — but a village is only VISITED once per rotation,
+     * so the two conditions coincided about once every 1128 ticks per village and the whole
+     * system fired ONCE in four hundred years. MOTEBOX_LOOPS caught it; nothing else could
+     * have. Thinning has to be expressed in VISITS, so this is one village in three per
+     * rotation, which makes a caravan an occasional event rather than a heartbeat. */
+    if (((mb_w.tick / 47) + (uint32_t)v) % 3) return;
+
+    /* what we can spare, and how badly */
+    int kind = -1, amount = 0;
+    if (V->food > V->pop * 5 + 20) { kind = CARRY_FOOD;  amount = 12; }
+    else if (V->wood > 60)         { kind = CARRY_WOOD;  amount = 10; }
+    else if (V->stone > 60)        { kind = CARRY_STONE; amount = 10; }
+    else return;
+
+    /* the neediest reachable neighbour of the same kingdom, or an ally */
+    int best = -1, bestneed = 0;
+    for (int u = 1; u < MAXV; u++) {
+        if (u == v || !mb_v[u].alive) continue;
+        int dx = mb_v[u].x - V->x, dy = mb_v[u].y - V->y;
+        int d2 = dx * dx + dy * dy;
+        if (d2 > 1600) continue;                       /* forty cells is a day's walk */
+        int friendly = (mb_v[u].kingdom == V->kingdom) ||
+                       (V->kingdom && (mb_k[V->kingdom].ally_with & (1u << mb_v[u].kingdom)));
+        if (!friendly) continue;
+        int need = 0;
+        if (kind == CARRY_FOOD)       need = mb_v[u].pop * 3 - (int)mb_v[u].food;
+        else if (kind == CARRY_WOOD)  need = 30 - (int)mb_v[u].wood;
+        else                          need = 30 - (int)mb_v[u].stone;
+        if (need > bestneed) { bestneed = need; best = u; }
     }
+    if (best < 0) return;
+
+    /* draft a trader if the town has one, else anybody idle — a trading town moves goods
+     * more readily than a farming one, which is what the profession is FOR */
+    int who = -1;
+    for (int i = 0; i < mb_nu; i++) {
+        Unit *u = &mb_u[i];
+        if (!u->alive || u->sp >= SP_CIV_N || u->village != v) continue;
+        if (u->job == JOB_FLEE || u->job == JOB_FIGHT || u->job == JOB_HAUL) continue;
+        if (u->prof == PROF_TRADER) { who = i; break; }
+        if (who < 0) who = i;
+    }
+    if (who < 0) return;
+
+    Unit *h = &mb_u[who];
+    h->job = JOB_HAUL;
+    h->dest = (uint8_t)best;
+    h->carry = (uint8_t)amount;
+    h->carry_kind = (uint8_t)kind;
+    h->target = (uint16_t)AT(mb_v[best].x, mb_v[best].y);
+    if (kind == CARRY_FOOD)       V->food  = (uint16_t)(V->food  - amount);
+    else if (kind == CARRY_WOOD)  V->wood  = (uint16_t)(V->wood  - amount);
+    else                          V->stone = (uint16_t)(V->stone - amount);
+}
+
+/* Called by the unit brain when a hauler reaches its destination. */
+void mb_civ_deliver(int v, int kind, int amount)
+{
+    if (v <= 0 || v >= MAXV || !mb_v[v].alive) return;
+    Village *V = &mb_v[v];
+    if (kind == CARRY_FOOD)       V->food  = (uint16_t)(V->food  + amount);
+    else if (kind == CARRY_WOOD)  V->wood  = (uint16_t)(V->wood  + amount);
+    else if (kind == CARRY_STONE) V->stone = (uint16_t)(V->stone + amount);
+    else if (kind == CARRY_IRON)  V->iron  = (uint16_t)(V->iron  + amount);
+    else                          V->gold  = (uint16_t)(V->gold  + amount);
+    V->traded++;
+    V->happy = (int8_t)(V->happy < 120 ? V->happy + 2 : V->happy);
 }
 
 /* Pay for the plan if the store allows, and raise the building. */
@@ -573,16 +950,10 @@ static void try_build(int v)
         return;
     V->wood -= B->wood; V->stone -= B->stone; V->iron -= B->iron; V->gold -= B->gold;
     mb_w.obj[AT(V->plan_x, V->plan_y)] = V->plan_obj;
-    /* AND A ROAD TO IT. A village that builds a house and then a road to the house is
-     * the difference between a scatter of huts and a town: the network is what makes
-     * the buildings read as one settlement, and it grows exactly as the settlement
-     * does, so its shape is a record of the order things were built in.
-     *
-     * An L from the new building to the hall, horizontal then vertical — the simplest
-     * path that always connects, and the right-angle junctions are what the sixteen
-     * road cells are for. Water is not paved: a road stops at the bank, which is also
-     * why a river is a firebreak AND a bottleneck for an army. */
-    road_to_hall(v, V->plan_x, V->plan_y);
+    /* NO SPUR ROAD. Every finished building used to run an L back to the hall, which is
+     * where the stubs and the tangle came from. The street plan is connected by
+     * construction and the building had to have frontage to be sited at all, so it is
+     * already on a street: there is nothing left to connect. */
     if (V->plan_obj == O_HALL2) V->hall = 2;
     if (V->plan_obj == O_HALL3) V->hall = 3;
     V->dirty = 1;
@@ -821,31 +1192,82 @@ static void claim_creep(int v)
 static void maybe_settle(int v)
 {
     Village *V = &mb_v[v];
-    if (V->pop < 18 || V->food < 30) return;
+    /* SPLITTING IS THE ENEMY OF A CITY. At a threshold of 18 the world came out as
+     * twenty-nine hamlets sharing 222 people — seven each — so no settlement ever reached
+     * town, let alone city, and the whole building ladder above a stone hall was dead
+     * content. Measured with MOTEBOX_LOOPS: hamlet=22, village=5, TOWN=1, CITY=0.
+     *
+     * A colony now costs a real town: a full quarter of the world's people cannot be
+     * living in hamlets that are each about to found another one. So: it must be at least
+     * a proper village, it must be genuinely CROWDED rather than merely populous, and it
+     * must have the stores to send people away with. */
+    if (V->tier < TIER_VILLAGE) return;
+    if (V->pop < 22) return;
+    if (V->food < 120) return;
     if (mb_village_count() >= MAXV - 1) return;
+    /* AND A WORLD-LEVEL LIMIT, which is the rule that actually works. Per-village tests
+     * cannot stop fragmentation: each village looks reasonable on its own while the world
+     * ends up as twenty-nine hamlets of seven people. So the world may carry one settlement
+     * per sixteen living souls, and no more. Under that, a growing population founds towns
+     * and a static one grows the towns it has.
+     *
+     * (An earlier attempt required `pop < housing` as a crowding test and had it backwards:
+     * housing is deliberately built AHEAD of population, so the condition was almost always
+     * true, settling stopped dead, and the world fell to three villages and 37 people.
+     * Measured, not guessed — MOTEBOX_LOOPS again.) */
+    {
+        int souls = 0;
+        for (int i = 0; i < mb_nu; i++)
+            if (mb_u[i].alive && mb_u[i].sp < SP_CIV_N) souls++;
+        /* ONE SETTLEMENT PER TWENTY-FOUR SOULS. At sixteen the world came out as
+         * thirteen villages of seventeen — every one stuck below the twenty-population
+         * threshold for a town, so TOWN and CITY and everything gated on them never
+         * appeared. Fewer, bigger. */
+        if (mb_village_count() * 24 > souls) return;
+    }
     /* A COOLDOWN, not a lottery. At 1-in-64 per visit and one visit per 47 ticks,
      * the expected wait between settling attempts was three thousand ticks — sixty
      * years — so a thriving village never colonised anything and the world stayed
      * a single village however well it did. */
-    if (mb_w.tick - V->last_settle < 60) return;
+    if (mb_w.tick - V->last_settle < 400) return;   /* eight years between colonies */
     V->last_settle = mb_w.tick;
     uint32_t r = mb_rand((uint32_t)(v * 6151u + 3u + (uint32_t)mb_w.tick));
-    /* look for a site a comfortable distance out: far enough to be its own place,
-     * near enough that the parent's people can walk there */
-    for (int t = 0; t < 12; t++) {
+
+    /* CAN THIS TOWN PUT TO SEA? A kingdom that knows seafaring, and a town with a quay to
+     * sail from, settles ACROSS WATER — which is the one system that changes the shape of a
+     * whole world rather than the shape of a town. Islands were unreachable before: a
+     * continent filled up and stopped, and every archipelago world stayed empty forever
+     * however well its one landmass did.
+     *
+     * Colonists sail rather than walk, so they are put ashore at the new hall instead of
+     * pathing. That is honest — they took ship, and a walking route over open ocean is the
+     * thing that does not exist — and it is visible in the right way: a dock goes up, and
+     * some years later there is a village on the far island flying the same banner. */
+    int seaborne = mb_civ_tech_ok(v, TECH_SEAFARING) && mb_civ_count(v, O_DOCK) > 0;
+
+    /* look for a site a comfortable distance out: far enough to be its own place, near
+     * enough that the parent's people can get there. A seafaring town reaches much
+     * further, because a ship does not care what is in between. */
+    for (int t = 0; t < 16; t++) {
         int ang = (int)((r >> (t + 4)) & 7);
         static const int8_t DX[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
         static const int8_t DY[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
         int d = 10 + (int)((r >> (t + 8)) & 7);
+        if (seaborne && (t & 1)) d += 12 + (int)((r >> t) & 15);
         int x = V->x + DX[ang] * d, y = V->y + DY[ang] * d;
         if (mb_village_found(V->sp, x, y, V->kingdom)) {
-            V->food -= 30;
-            /* three colonists change allegiance and walk */
+            int nv = mb_village_count_last();
+            V->food -= 60;
+            /* four colonists change allegiance; if they sailed, they arrive */
             int moved = 0;
             for (int i = 0; i < mb_nu && moved < 4; i++)
                 if (mb_u[i].alive && mb_u[i].village == v) {
-                    mb_u[i].village = (uint8_t)mb_village_count_last();
+                    mb_u[i].village = (uint8_t)nv;
                     mb_u[i].job = JOB_IDLE; mb_u[i].target = 0xFFFF;
+                    if (seaborne) {
+                        mb_u[i].x = (uint16_t)(mb_v[nv].x * 16 + 8);
+                        mb_u[i].y = (uint16_t)(mb_v[nv].y * 16 + 8);
+                    }
                     moved++;
                 }
             return;
@@ -1033,11 +1455,25 @@ void mb_civ_step(void)
 
     /* one village per tick gets the full treatment: its lord decides, its field
      * rebuilds if dirty, its claim creeps, its loyalty moves */
-    int nv = MAXV - 1;
-    int v = 1 + (int)((uint32_t)mb_w.tick % (uint32_t)nv);
-    if (mb_v[v].alive) {
+    /* VISIT A LIVING VILLAGE. This cycled all 47 slots whether or not anybody was in
+     * them, so the simulation rate for civilisation scaled with how FRAGMENTED the world
+     * happened to be: thirty hamlets got thirty useful ticks in forty-seven and eight
+     * towns got eight. Tightening colonisation therefore slowed every town down by a
+     * factor of four as a side effect — which is exactly the kind of coupling that makes
+     * a balance change produce a mystery. */
+    int alive_n = 0;
+    for (int i = 1; i < MAXV; i++) if (mb_v[i].alive) alive_n++;
+    int v = 0;
+    if (alive_n) {
+        int want = (int)((uint32_t)mb_w.tick % (uint32_t)alive_n), seen = 0;
+        for (int i = 1; i < MAXV; i++)
+            if (mb_v[i].alive && seen++ == want) { v = i; break; }
+    }
+    if (v && mb_v[v].alive) {
         if (mb_v[v].dirty) field_build(v);
         lord_think(v);
+        succession_step(v);
+        caravan_step(v);
         village_streets(v);
         try_build(v);
         claim_creep(v);
@@ -1051,7 +1487,7 @@ void mb_civ_step(void)
          * stone, and it deadlocked: with no food the lord could not afford a farm,
          * and with no farm there was no food. Worked land producing on its own is
          * both how every other sim does it and the only version that cannot lock. */
-        int farms = count_build(v, O_FARM), fields = 0;
+        int farms = mb_civ_count(v, O_FARM), fields = 0;
         for (int y = V->y - 8; y <= V->y + 8; y++)
             for (int x = V->x - 8; x <= V->x + 8; x++)
                 if (mb_in(x, y) && mb_w.claim[AT(x, y)] == v && mb_w.biome[AT(x, y)] == B_FARM)

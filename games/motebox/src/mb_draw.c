@@ -253,32 +253,117 @@ uint16_t mb_biome_colour(uint8_t b) {
  * of RAM and 598 blends per rebuild, against 43,008 per frame. */
 static uint16_t s_lut_in[MAXK + 1][B_COUNT];
 static uint16_t s_lut_edge[MAXK + 1][B_COUNT];
-static int      s_lut_age = -1, s_lut_tint = -1;
+static int      s_lut_age = -1, s_lut_tint = -1, s_lut_mode = -1;
 static uint32_t s_lut_sig;
-/* village id -> kingdom id, so the border test is four array reads instead of four
- * calls into mb_kingdom_of() with its bounds checks. Those four calls per claimed
- * pixel were the whole remaining cost after the colour table went in. */
+/* village id -> LUT ROW, so the border test is four array reads instead of four calls
+ * into mb_kingdom_of() with its bounds checks. Those four calls per claimed pixel were
+ * the whole remaining cost after the colour table went in. */
 static uint8_t  s_kof[MAXV];
+
+/* --- MAP MODES: every loop, on one map ---------------------------------
+ *
+ * A simulation you cannot see is a simulation you have to be told about. Tech, creed and
+ * tier are all facts about a TOWN, which at one pixel per tile is the natural scale for
+ * them — so instead of annotating the world with icons (the mistake the status pips made),
+ * God's Eye recolours: the same political map, keyed by a different fact.
+ *
+ * It costs nothing, because the tint was already a lookup table over (owner, biome). Only
+ * the KEY and the palette change: the row index per village, and the colour per row. Which
+ * is why four map modes came to about thirty lines.
+ *
+ *   POWER   who holds it     — kingdom colours, borders drawn hard
+ *   FAITH   what it believes — one colour per creed, so a schism is a shape on the map
+ *   CRAFT   what it is for   — farm/forest/mine/port, so you can read the economy
+ *   GROWTH  how far it got   — camp to city, so a run's history is one glance
+ */
+static int s_mapmode;
+int  mb_draw_mapmode(void)          { return s_mapmode; }
+void mb_draw_mapmode_set(int m)     { s_mapmode = (m < 0 || m >= MAPMODE_N) ? 0 : m; }
+const char *const MB_MAPMODE_NAME[MAPMODE_N] = { "POWER", "FAITH", "CRAFT", "GROWTH" };
+
+/* The palettes. Creeds get four distinct hues; crafts borrow the colour of the thing they
+ * work (green wood, grey stone, gold grain, blue water); growth runs dark to bright, so a
+ * city is the brightest thing on the map and a camp barely shows. */
+static const uint16_t CREED_COL[CREED_N] = {
+    0, MOTE_RGB565(255, 214,  60), MOTE_RGB565(150, 170, 255),
+       MOTE_RGB565(170, 160, 150), MOTE_RGB565( 60, 210, 200),
+};
+static const uint16_t CRAFT_COL[PROF_N] = {
+    0, MOTE_RGB565(255, 200,  70),   /* farmer   — standing grain */
+       MOTE_RGB565( 40, 190,  90),   /* forester — timber         */
+       MOTE_RGB565(190, 190, 200),   /* miner    — stone          */
+       MOTE_RGB565(255,  90,  90),   /* soldier                   */
+       MOTE_RGB565(230, 180, 255),   /* priest                    */
+       MOTE_RGB565( 70, 180, 255),   /* trader   — the sea        */
+       MOTE_RGB565(255, 150,  60),   /* builder                   */
+       MOTE_RGB565(255, 240, 200),   /* lord                      */
+};
+static const uint16_t GROWTH_COL[TIER_N] = {
+    MOTE_RGB565( 70,  70,  90), MOTE_RGB565(120, 110, 110),
+    MOTE_RGB565(180, 160, 120), MOTE_RGB565(240, 210, 120),
+    MOTE_RGB565(255, 250, 220),
+};
+
+/* The lens colour for one settlement, which the tint table and the town markers both
+ * need — so the two can never disagree about what green means. */
+static uint16_t lens_col(int v)
+{
+    if (v <= 0 || v >= MAXV || !mb_v[v].alive) return 0;
+    switch (s_mapmode) {
+    case MAPMODE_FAITH:  return CREED_COL[mb_v[v].creed < CREED_N ? mb_v[v].creed : 0];
+    case MAPMODE_CRAFT:  return CRAFT_COL[mb_v[v].spec  < PROF_N  ? mb_v[v].spec  : 0];
+    case MAPMODE_GROWTH: return GROWTH_COL[mb_v[v].tier < TIER_N  ? mb_v[v].tier  : 0];
+    default:             return mb_kingdom_colour(mb_v[v].kingdom);
+    }
+}
 
 void mb_draw_prepare(void)
 {
     int amt; uint16_t age_col = mb_age_tint(&amt);
     int tint = mb_law(LAW_TINT);
+    int mode = s_mapmode;
     /* a signature over what the table depends on, so it rebuilds only on a change */
-    uint32_t sig = (uint32_t)mb_age_id() * 131u + (uint32_t)tint * 7u;
+    uint32_t sig = (uint32_t)mb_age_id() * 131u + (uint32_t)tint * 7u + (uint32_t)mode * 977u;
     for (int k = 1; k < MAXK; k++)
         sig = sig * 31u + (uint32_t)(mb_k[k].alive ? (mb_k[k].colour + 1) : 0);
-    for (int v = 0; v < MAXV; v++)
-        s_kof[v] = (uint8_t)((v > 0 && mb_v[v].alive) ? mb_v[v].kingdom : 0);
-    if (sig == s_lut_sig && s_lut_age == mb_age_id() && s_lut_tint == tint) return;
-    s_lut_sig = sig; s_lut_age = mb_age_id(); s_lut_tint = tint;
+
+    /* THE KEY PER VILLAGE, which is the whole of what a map mode is. */
+    for (int v = 0; v < MAXV; v++) {
+        int key = 0;
+        if (v > 0 && mb_v[v].alive) {
+            switch (mode) {
+            case MAPMODE_FAITH:  key = mb_v[v].creed; break;
+            case MAPMODE_CRAFT:  key = mb_v[v].spec;  break;
+            case MAPMODE_GROWTH: key = mb_v[v].tier + 1; break;   /* +1: 0 means unclaimed */
+            default:             key = mb_v[v].kingdom; break;
+            }
+        }
+        if (key > MAXK) key = MAXK;
+        s_kof[v] = (uint8_t)key;
+        sig = sig * 17u + (uint32_t)key;
+    }
+    if (sig == s_lut_sig && s_lut_age == mb_age_id()
+        && s_lut_tint == tint && s_lut_mode == mode) return;
+    s_lut_sig = sig; s_lut_age = mb_age_id(); s_lut_tint = tint; s_lut_mode = mode;
 
     for (int k = 0; k <= MAXK; k++) {
-        uint16_t kc = (k > 0) ? mb_kingdom_colour(k) : 0;
+        uint16_t kc;
+        switch (mode) {
+        case MAPMODE_FAITH:  kc = (k > 0 && k < CREED_N) ? CREED_COL[k] : 0; break;
+        case MAPMODE_CRAFT:  kc = (k > 0 && k < PROF_N)  ? CRAFT_COL[k] : 0; break;
+        case MAPMODE_GROWTH: kc = (k > 0 && k <= TIER_N) ? GROWTH_COL[k - 1] : 0; break;
+        default:             kc = (k > 0) ? mb_kingdom_colour(k) : 0; break;
+        }
+        /* The non-political modes wash HARDER, because they are the point of the view
+         * while they are on: at the political tint's 40/255 a creed was a suggestion. */
+        int wash_in = (mode == MAPMODE_POWER) ? 40 : 120;
         for (int b = 0; b < B_COUNT; b++) {
             uint16_t base = MB_COL[b];
             uint16_t in = base, ed = base;
-            if (tint && kc) { in = blend565(base, kc, 40); ed = blend565(base, kc, 210); }
+            if ((tint || mode != MAPMODE_POWER) && kc) {
+                in = blend565(base, kc, wash_in);
+                ed = blend565(base, kc, 220);
+            }
             if (amt) { in = blend565(in, age_col, amt); ed = blend565(ed, age_col, amt); }
             s_lut_in[k][b] = in;
             s_lut_edge[k][b] = ed;
@@ -408,6 +493,48 @@ void mb_draw_sea_band(uint16_t *fb, int y0, int y1)
                 }
             }
         }
+    }
+}
+
+/* --- TOWN MARKERS: a settlement is a PLACE, not a few white pixels -------
+ *
+ * At one pixel per tile a village is a smudge of white building dots, and the first attempt
+ * at map lenses proved why that is not enough: recolouring the CLAIM changed almost nothing
+ * on screen, because claimed ground is a small fraction of a world and the interior wash is
+ * deliberately light. Four lenses looked like four copies of the same map.
+ *
+ * So every living settlement gets a mark whose SIZE is its tier and whose COLOUR is the
+ * lens. That reads at a glance in every mode — where the towns are, which faith holds them,
+ * what they make, how far they have come — and it fixes the political map too, where a
+ * capital was previously indistinguishable from a hamlet.
+ */
+void mb_god_towns(uint16_t *fb, int y0, int y1)
+{
+    for (int v = 1; v < MAXV; v++) {
+        if (!mb_v[v].alive) continue;
+        uint16_t c = lens_col(v);
+        if (!c) c = C_WHITE;
+        int tier = mb_v[v].tier < TIER_N ? mb_v[v].tier : 0;
+        int r = (tier >= TIER_CITY) ? 2 : (tier >= TIER_TOWN) ? 2 : (tier >= TIER_VILLAGE) ? 1 : 1;
+        int cx = mb_v[v].x, cy = mb_v[v].y;
+        /* a dark surround first, so the mark reads on snow and on desert alike — the same
+         * two-tone trick the cursor needs for the same reason */
+        for (int dy = -r - 1; dy <= r + 1; dy++)
+            for (int dx = -r - 1; dx <= r + 1; dx++) {
+                int x = cx + dx, y = cy + dy;
+                if (x < 0 || x >= MW || y < y0 || y >= y1 || y >= VIEW_H) continue;
+                int inner = (dx >= -r && dx <= r && dy >= -r && dy <= r);
+                if (!inner) px_put(fb, x, y, C_NAVY);
+            }
+        for (int dy = -r; dy <= r; dy++)
+            for (int dx = -r; dx <= r; dx++) {
+                int x = cx + dx, y = cy + dy;
+                if (x < 0 || x >= MW || y < y0 || y >= y1 || y >= VIEW_H) continue;
+                px_put(fb, x, y, c);
+            }
+        /* a CITY carries a bright core, so the great places stand out from the good ones */
+        if (tier >= TIER_CITY && cy >= y0 && cy < y1 && cy < VIEW_H)
+            px_put(fb, cx, cy, C_WHITE);
     }
 }
 
@@ -904,8 +1031,31 @@ void mb_draw_mortal(int cam_x, int cam_y)
         const MbSpecies *S = &MB_SP[u->sp];
         const MoteImage *img = (S->sheet == 0) ? &characters_img
                              : (S->sheet == 1) ? &monsters_img : &animals_img;
+        int cx = S->cx, cy = S->cy;
+
+        /* A TRADE YOU CAN SEE. This is the answer to the status pips: instead of painting
+         * a coloured dot over a villager to say what they are doing, the villager IS what
+         * they do. A knight in mail, a monk's cowl, a miner's helm, a builder's hard hat,
+         * a trader's travelling cloak — all cells of the master's own sheet, chosen by
+         * looking at it rather than by arithmetic (authoring note: /tmp chars-grid).
+         *
+         * Only the trades with a distinct silhouette override the figure, and only for the
+         * sheet-0 races: a farmer or a forester keeps their species' own cell, so a village
+         * still reads as human or elf or dwarf with a visible minority of specialists, and
+         * an orc still looks like an orc. Nine villagers and one priest is a farming
+         * village; five knights and a smith is a garrison, and you know at a glance. */
+        if (S->sheet == 0 && u->sp < SP_CIV_N) {
+            switch (u->prof) {
+            case PROF_SOLDIER:  cx = 1;  cy = 5; break;   /* mailed, red-eyed helm */
+            case PROF_PRIEST:   cx = 8;  cy = 3; break;   /* gold-and-green cowl    */
+            case PROF_MINER:    cx = 10; cy = 3; break;   /* grey helm over brown   */
+            case PROF_BUILDER:  cx = 13; cy = 3; break;   /* yellow hard hat        */
+            case PROF_TRADER:   cx = 12; cy = 3; break;   /* travelling cloak       */
+            default: break;                                /* their own race's cell  */
+            }
+        }
         MoteSprite spr = { img, (int16_t)(u->x >> 4 << 3), (int16_t)(u->y >> 4 << 3),
-                           (uint16_t)(S->cx * TILE), (uint16_t)(S->cy * TILE),
+                           (uint16_t)(cx * TILE), (uint16_t)(cy * TILE),
                            TILE, TILE, 40, 0 };
         add(&spr);
 

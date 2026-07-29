@@ -18,7 +18,9 @@
 #include <string.h>
 
 #define SAVE_MAGIC   0x4d425831u      /* "MBX1" */
-#define SAVE_VERSION 1
+/* v2: units gained a given name, a spouse, a trade and a haul destination; villages
+ * gained a lord name and age, a creed, a specialisation, a tier and a research store. */
+#define SAVE_VERSION 2
 
 typedef struct {
     uint32_t magic, version;

@@ -180,6 +180,9 @@ int mb_unit_spawn(int sp, int x, int y)
     /* One in twelve is born with something: traits are rare enough to be worth
      * noticing on a soul card, common enough that a village of thirty has two. */
     if ((r >> 16 & 15) == 0) u->traits |= (uint32_t)1u << ((r >> 20) % TR_RANDOM_N);
+    /* Everybody has a given name, including the founding generation and the wildlife —
+     * a named wolf costs two bytes and the chronicle can then say which wolf. */
+    u->given = mb_name_person((uint32_t)slot * 40503u + r);
     if (slot >= mb_nu) mb_nu = slot + 1;
     s_pop[sp]++;
     s_births++;
@@ -190,6 +193,16 @@ static void kill(int i, int cause)
 {
     Unit *u = &mb_u[i];
     if (!u->alive) return;
+    /* WIDOWED. Without this a dead spouse stayed married and, worse, the slot could be
+     * reused by an unrelated newborn — so somebody would find themselves wed to a child. */
+    if (u->mate && u->mate - 1 < MAXU) {
+        Unit *m = &mb_u[u->mate - 1];
+        if (m->alive && m->mate == (uint16_t)(i + 1)) { m->mate = 0; m->happy -= 25; }
+        u->mate = 0;
+    }
+    /* a hauler killed on the road loses what it was carrying, and the town waiting for
+     * it simply never receives — which is the point of trade being a person on a road */
+    if (u->job == JOB_HAUL) u->carry = 0;
     int tx = u->x >> 4, ty = u->y >> 4;
     s_pop[u->sp]--; s_deaths++;
     if (u->sp < SP_CIV_N && cause >= 0 && cause < CAUSE_N) s_dcause[cause]++;
@@ -616,6 +629,23 @@ static void act(int i)
         break;
     }
 
+    /* A CARAVAN ON THE ROAD. The whole point of a hauler is that it is a PERSON walking
+     * between two towns with goods on its back: it can be caught by a fire, eaten by a
+     * wolf or cut down in a war, and if it is, the goods are lost and the town that was
+     * waiting for them goes hungry. That is what makes a trade road worth defending. */
+    case JOB_HAUL: {
+        if (u->target == 0xFFFF || !u->dest) { u->job = JOB_IDLE; u->carry = 0; break; }
+        int tx = u->target % MW, ty = u->target / MW;
+        if ((tx - x) * (tx - x) + (ty - y) * (ty - y) <= 2) {
+            mb_civ_deliver(u->dest, u->carry_kind, u->carry);
+            u->carry = 0; u->dest = 0; u->job = JOB_IDLE; u->happy += 6;
+        } else {
+            step_toward(u, tx, ty);
+            u->hunger += 1;                 /* the road is work */
+        }
+        break;
+    }
+
     case JOB_BREED: {
         if (u->target == 0xFFFF) { u->job = JOB_IDLE; break; }
         int tx = u->target % MW, ty = u->target / MW;
@@ -631,7 +661,30 @@ static void act(int i)
                     mb_u[c].traits = u->traits;
                     if ((r >> 6 & 7) == 0)
                         mb_u[c].traits ^= (uint32_t)1u << ((r >> 9) % TR_RANDOM_N);
+                    /* A NAME OF THEIR OWN and a trade to grow into. The surname comes
+                     * from the parent, so a bloodline reads as a bloodline; the given
+                     * name is theirs, so the inspect card can name somebody rather than
+                     * describe a species. The trade comes from what the town needs, which
+                     * is how a mining village ends up looking like one. */
+                    mb_u[c].given = mb_name_person((uint32_t)c * 2654435761u
+                                                   + (uint32_t)mb_w.tick);
+                    mb_u[c].prof  = (uint8_t)(u->village ? mb_civ_prof_pick(u->village)
+                                                        : PROF_NONE);
                     mb_chron_birth(c, i);
+                }
+            }
+            /* MARRIED BY THE FACT OF IT. Whoever they came here to meet is their spouse
+             * from now on — which is what makes a household, lets the inspect card say who
+             * somebody is married to, and gives a death somebody to be widowed by. */
+            if (!u->mate) {
+                for (int j = 0; j < mb_nu; j++) {
+                    if (j == i) continue;
+                    Unit *o = &mb_u[j];
+                    if (!o->alive || o->sp != u->sp || o->mate) continue;
+                    int ox = o->x >> 4, oy = o->y >> 4;
+                    if ((ox - x) * (ox - x) + (oy - y) * (oy - y) > 2) continue;
+                    u->mate = (uint16_t)(j + 1); o->mate = (uint16_t)(i + 1);
+                    break;
                 }
             }
             u->hunger += 12; u->happy += 10; u->job = JOB_IDLE;
@@ -846,7 +899,15 @@ void mb_unit_plague_step(void)
          * an event a village can survive. */
         if (!u->sick) u->sick = (uint8_t)(30 + (mb_rand((uint32_t)i * 17u) & 31));
         if (--u->sick == 0) {
+            /* SURVIVORS ARE IMMUNE, and without that a plague cannot end in a world whose
+             * population sits at its ceiling: recovery alone just returns a fresh host to
+             * the pool, so the audit found 1379 plague deaths still accruing at year 300.
+             * Immunity is personal and lifelong, so an epidemic burns through a generation
+             * and stops — and comes BACK a generation later when enough of the immune have
+             * died of old age and their susceptible grandchildren fill the town. That is an
+             * epidemic with a history, not a tax. */
             u->traits &= ~(TR_PLAGUE | TR_CONTAGIOUS);
+            u->traits |= TR_IMMUNE;
             u->happy += 10;
             continue;
         }
@@ -859,7 +920,7 @@ void mb_unit_plague_step(void)
         int j = nearest(i, x, y, NEAR_MATE);
         if (j < 0) continue;
         int dx = (mb_u[j].x >> 4) - x, dy = (mb_u[j].y >> 4) - y;
-        if (dx * dx + dy * dy <= 4 && !(mb_u[j].traits & TR_PLAGUE)
+        if (dx * dx + dy * dy <= 4 && !(mb_u[j].traits & (TR_PLAGUE | TR_IMMUNE))
             && (mb_rand((uint32_t)i * 331u) & 7) < 3)
             mb_u[j].traits |= TR_PLAGUE | TR_CONTAGIOUS;
     }
