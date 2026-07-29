@@ -242,6 +242,7 @@ static const BuildDef BUILD[] = {
     { O_TOWER,    6, 12,  0,  0,  3, "tower"    },
     { O_HALL2,   10, 10,  0,  0,  1, "hall"     },
     { O_HALL3,   10, 10, 10,  0,  1, "castle"   },
+    { O_WALL,     2, 10,  0,  0, 60, "wall"     },   /* stone, and a lot of it */
 };
 #define NBUILD ((int)(sizeof BUILD / sizeof BUILD[0]))
 
@@ -311,6 +312,8 @@ static int build_site(int v, int *ox, int *oy)
     return 1;
 }
 
+static int wall_site(int v, int *ox, int *oy);   /* defined below; the lord calls it */
+
 /* THE LORD'S DECISION. One per village per visit, from a needs vector weighted
  * by the lord's stewardship. The chosen building appears as a BLUEPRINT GHOST
  * immediately and only becomes real when the stockpile pays for it — so you can
@@ -330,7 +333,18 @@ static void lord_think(int v)
      * every village in the world at six houses and one temple. A lord picks the
      * highest thing it can AFFORD, which is also just what a competent steward does.
      */
-    int want_list[12], nwant = 0;
+    int want_list[14], nwant = 0;
+
+    /* A TOWN WORKS ON ITS WALL ALONGSIDE EVERYTHING ELSE. The lord takes the first
+     * affordable want and stops, so anything at the BACK of the list is only ever built
+     * when nothing ahead of it is wanted — and beds, bread, timber and towers are always
+     * wanted. The wall sat last and was therefore never laid once, even after the gate
+     * was fixed. So one build in three goes to the wall while it is unfinished: a real
+     * town raises houses and curtain wall in the same decades, not one after the other. */
+    int wall_turn = (V->hall >= 2 && count_build(v, O_WALL) < 44 &&
+                     (V->threat > 25 || V->pop >= 14 || V->stone > 40) &&
+                     ((mb_w.tick >> 6) % 3) == 0);
+    if (wall_turn) want_list[nwant++] = 11;
     /* FARMS SCALE WITH MOUTHS. A flat cap of four farms fed about a dozen people, so
      * any village that grew past that starved for ever — and the audit found a world
      * that lost 2251 people to hunger while sitting at the population ceiling. Four
@@ -350,15 +364,30 @@ static void lord_think(int v)
      * turns a runaway ramp into a village that stops growing when it runs short and
      * starts again when the harvest is in — which is why a healthy population
      * oscillates instead of climbing until it collapses. */
-    if (pop >= housing && V->food > pop)                      want_list[nwant++] = 0;
+    /* AND NOT A HUNDRED SPARE BEDS. A village was found with 216 beds for SEVEN people:
+     * houses are the cheapest thing on the ladder, so whenever nothing else was
+     * affordable the lord built another one, for ever. That is most of why a town read as
+     * a blob — it was mostly empty housing. A little slack for the next generation, and
+     * then stop. */
+    if (pop >= housing && V->food > pop && housing < pop + 8)  want_list[nwant++] = 0;
     if (V->wood < 20 && count_build(v, O_WOODCUT) < 2)        want_list[nwant++] = 4;
     if (V->stone < 20 && count_build(v, O_MINE) < 1)          want_list[nwant++] = 5;
     if (V->threat > 40 && count_build(v, O_BARRACKS) < 1)     want_list[nwant++] = 6;
     if (V->hall == 1)                                         want_list[nwant++] = 9;
     if (V->hall == 2)                                         want_list[nwant++] = 10;
     if (V->hall >= 2 && count_build(v, O_TEMPLE) < 1)         want_list[nwant++] = 7;
-    if (pop + 3 > housing && V->food > pop * 2)               want_list[nwant++] = 0;
+    if (pop + 3 > housing && V->food > pop * 2 && housing < pop + 8)
+                                                             want_list[nwant++] = 0;
     if (V->threat > 25 && count_build(v, O_TOWER) < 3)        want_list[nwant++] = 8;
+    /* A WALL, once the hall is stone and somebody is worth keeping out. Late in the list:
+     * a town builds beds, bread and a barracks before it builds a curtain. */
+    /* A WALL when the town is worth walling: threatened, OR simply established and
+     * stocked. Gating it on threat alone meant it was never built once — threat sits at
+     * zero in a peaceful world, so the condition could not fire and a feature that had a
+     * sprite, an object id and a build cost had never appeared in a single game. A
+     * prosperous town walls itself as a matter of course. */
+    if (V->hall >= 2 && count_build(v, O_WALL) < 44 &&
+        (V->threat > 25 || V->pop >= 14 || V->stone > 40))    want_list[nwant++] = 11;
     if (V->hall == 3 && housing > 0)                          want_list[nwant++] = 1;
 
     int want = -1;
@@ -378,6 +407,7 @@ static void lord_think(int v)
     const BuildDef *B = &BUILD[want];
     int x, y;
     if (B->obj == O_HALL2 || B->obj == O_HALL3) { x = V->x; y = V->y; }
+    else if (B->obj == O_WALL) { if (!wall_site(v, &x, &y)) return; }
     else if (!build_site(v, &x, &y)) return;
 
     V->plan_obj = B->obj; V->plan_x = (uint8_t)x; V->plan_y = (uint8_t)y;
@@ -416,6 +446,120 @@ static void road_to_hall(int v, int bx, int by)
         if (!mb_in(hx, y)) break;
         int i = AT(hx, y);
         if (mb_land(mb_w.biome[i]) && !mb_is_build(mb_w.obj[i])) mb_w.road[i] = 1;
+    }
+}
+
+/* WHERE A WALL SEGMENT GOES: the PERIMETER of the built-up area, not the middle.
+ *
+ * Walls were in the object enum and had a sprite and were never once built, because they
+ * were missing from the BUILD table entirely. They also cannot use build_site, which
+ * scores frontage and closeness to the centre — the exact opposite of what a wall wants.
+ *
+ * So: take the bounding box of everything this village has built, step out one cell, and
+ * walk that ring. Skip water, skip anything already standing, and SKIP ROADS — a street
+ * crossing the line is a gate, and a town with no way in reads as a prison rather than a
+ * fortification. Because it goes up one segment at a time through the ordinary plan-and-pay
+ * machinery, you watch the wall close over years.
+ */
+static int wall_site(int v, int *ox, int *oy)
+{
+    Village *V = &mb_v[v];
+    int x0 = V->x, y0 = V->y, x1 = V->x, y1 = V->y;
+    for (int y = V->y - 8; y <= V->y + 8; y++)
+        for (int x = V->x - 8; x <= V->x + 8; x++)
+            if (mb_in(x, y) && mb_w.claim[AT(x, y)] == v && mb_is_build(mb_w.obj[AT(x, y)])) {
+                if (x < x0) x0 = x; if (x > x1) x1 = x;
+                if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+    x0--; y0--; x1++; y1++;                       /* one clear cell outside the buildings */
+
+    int n = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        /* pass 0 counts the candidates, pass 1 picks one — so the wall does not always
+         * start from the same corner and creep round predictably */
+        int want = n ? (int)(mb_rand((uint32_t)(v * 977u + (uint32_t)mb_w.tick)) % (uint32_t)n) : 0;
+        int seen = 0;
+        for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++) {
+                if (y != y0 && y != y1 && x != x0 && x != x1) continue;   /* ring only */
+                if (!mb_in(x, y)) continue;
+                int i = AT(x, y);
+                if (!mb_land(mb_w.biome[i])) continue;
+                /* BUILDINGS and STREETS are respected — a street crossing the line is a
+                 * gate, and a town with no way in reads as a prison. Everything else is
+                 * scrub the masons clear. Refusing any cell with an object at all was why
+                 * the first working version still laid nothing: the ring of a developed
+                 * village is full of trees, rocks and tufts. */
+                if (mb_is_build(mb_w.obj[i])) continue;
+                if (mb_w.road[i]) continue;
+                if (pass == 0) { n++; continue; }
+                if (seen++ != want) continue;
+                *ox = x; *oy = y; return 1;
+            }
+        if (!n) return 0;
+    }
+    return 0;
+}
+
+/* STREETS, LAID AHEAD OF THE BUILDINGS.
+ *
+ * Roads used to appear only as a spur behind each finished building, which is why a town
+ * was a blob of houses with stubs hanging off it. A real settlement lays the street FIRST
+ * and the houses arrive along it — so this pushes the network outward on its own, and
+ * build_site's frontage score then pulls building onto it.
+ *
+ * Two rules give it structure instead of sprawl. A run goes STRAIGHT for a few cells, so
+ * the result is streets and not a wandering path. And a cell is refused if either of its
+ * perpendicular neighbours already carries road, which keeps parallel streets at least
+ * two apart and leaves BLOCKS between them for houses to fill.
+ */
+static void village_streets(int v)
+{
+    Village *V = &mb_v[v];
+    static const int8_t DX[4] = { 1, -1, 0, 0 };
+    static const int8_t DY[4] = { 0, 0, 1, -1 };
+
+    /* how much street a village of this size warrants — enough to reach its edge and
+     * branch, not enough to pave the whole claim */
+    int want = 6 + V->pop, have = 0;
+    for (int y = V->y - 8; y <= V->y + 8; y++)
+        for (int x = V->x - 8; x <= V->x + 8; x++)
+            if (mb_in(x, y) && mb_w.road[AT(x, y)] && mb_w.claim[AT(x, y)] == v) have++;
+    if (have >= want) return;
+
+    int sx = V->x, sy = V->y;
+    if (have) {
+        /* branch from an existing road cell, preferring one far from the hall so the
+         * network grows outward rather than thickening the middle */
+        int best = -1;
+        for (int t = 0; t < 40; t++) {
+            uint32_t r = mb_rand((uint32_t)(v * 7717u + t * 131u + (uint32_t)mb_w.tick));
+            int x = V->x + (int)(r % 17) - 8, y = V->y + (int)((r >> 8) % 17) - 8;
+            if (!mb_in(x, y) || !mb_w.road[AT(x, y)] || mb_w.claim[AT(x, y)] != v) continue;
+            int d = (x - V->x) * (x - V->x) + (y - V->y) * (y - V->y);
+            if (d > best) { best = d; sx = x; sy = y; }
+        }
+        if (best < 0) return;
+    }
+
+    uint32_t rr = mb_rand((uint32_t)(v * 40503u + (uint32_t)mb_w.tick));
+    int dir = (int)(rr & 3);
+    int len = 3 + (int)((rr >> 4) % 3);
+    int px = -DY[dir], py = DX[dir];              /* perpendicular, for the spacing test */
+
+    for (int i = 1; i <= len; i++) {
+        int x = sx + DX[dir] * i, y = sy + DY[dir] * i;
+        if (!mb_in(x, y)) break;
+        int idx = AT(x, y);
+        if (!mb_land(mb_w.biome[idx])) break;      /* a road stops at the water's edge */
+        if (mb_w.claim[idx] != v) break;
+        if (mb_is_build(mb_w.obj[idx])) break;     /* never through a building */
+        /* KEEP THE BLOCKS: refuse to run alongside another street */
+        int lx = x + px, ly = y + py, rx = x - px, ry = y - py;
+        if (i > 1 && ((mb_in(lx, ly) && mb_w.road[AT(lx, ly)]) ||
+                      (mb_in(rx, ry) && mb_w.road[AT(rx, ry)]))) break;
+        mb_w.road[idx] = 1;
+        if (mb_w.obj[idx] && !mb_is_build(mb_w.obj[idx])) mb_w.obj[idx] = O_NONE;
     }
 }
 
@@ -894,6 +1038,7 @@ void mb_civ_step(void)
     if (mb_v[v].alive) {
         if (mb_v[v].dirty) field_build(v);
         lord_think(v);
+        village_streets(v);
         try_build(v);
         claim_creep(v);
         loyalty_step(v);

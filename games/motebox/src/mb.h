@@ -440,6 +440,8 @@ void mb_god_units(uint16_t *fb, int y0, int y1);
 uint16_t mb_kingdom_colour(int k);
 void mb_dim_rect(uint16_t *fb, int x, int y, int w, int h, uint16_t toward, int amt);
 void mb_draw_sprite_load(int *want, int *lost);
+void mb_draw_pips(uint16_t *fb);
+int  mb_draw_pip_count(void);       /* status dots over the crowd, after the world */
 void mb_draw_mortal(int cam_x, int cam_y);           /* scene2d pass */
 uint16_t mb_biome_colour(uint8_t b);
 

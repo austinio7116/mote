@@ -698,15 +698,17 @@ static void g_init(void)
     if (getenv("MOTEBOX_VSTAT")) {
         for (int i = 0; i < MAXV; i++) {
             if (!mb_v[i].alive) continue;
-            int farms = 0, fields = 0;
+            int farms = 0, fields = 0, nwalls = 0;
             for (int y = mb_v[i].y - 8; y <= mb_v[i].y + 8; y++)
                 for (int x = mb_v[i].x - 8; x <= mb_v[i].x + 8; x++)
                     if (mb_in(x, y) && mb_w.claim[AT(x, y)] == i) {
                         if (mb_w.obj[AT(x, y)] == O_FARM) farms++;
                         if (mb_w.biome[AT(x, y)] == B_FARM) fields++;
                     }
-            fprintf(stderr, "v%-3d pop=%-4d house=%-4d food=%-4d farms=%-3d fields=%-3d %s\n",
-                    i, mb_v[i].pop, mb_v[i].housing, mb_v[i].food, farms, fields,
+            fprintf(stderr, "v%-3d pop=%-4d house=%-4d food=%-4d farms=%-3d hall=%d "
+                            "threat=%-3d walls=%-3d %s\n",
+                    i, mb_v[i].pop, mb_v[i].housing, mb_v[i].food, farms,
+                    mb_v[i].hall, mb_v[i].threat, nwalls,
                     B_NAME[mb_w.biome[AT(mb_v[i].x, mb_v[i].y)]]);
         }
     }
@@ -724,6 +726,18 @@ static void g_init(void)
         fprintf(stderr, "civ units: %d in a village, %d HOMELESS\n", housed, homeless);
         for (int s = 0; s < SP_DEER; s++)
             if (bysp[s]) fprintf(stderr, "   %-10s %d\n", MB_SP[s].name, bysp[s]);
+    }
+    if (getenv("MOTEBOX_VSTAT")) {
+        int world_walls = 0, plans = 0, qualify = 0;
+        for (int c = 0; c < NC; c++) if (mb_w.obj[c] == O_WALL) world_walls++;
+        for (int i = 1; i < MAXV; i++) {
+            if (!mb_v[i].alive) continue;
+            if (mb_v[i].plan_obj == O_WALL) plans++;
+            if (mb_v[i].hall >= 2 && (mb_v[i].threat > 25 || mb_v[i].pop >= 14
+                                      || mb_v[i].stone > 40)) qualify++;
+        }
+        fprintf(stderr, "walls in the world: %d   qualifying villages: %d   "
+                        "wall plans pending: %d\n", world_walls, qualify, plans);
     }
     if (getenv("MOTEBOX_CENSUS")) {
         int seen[SP_N] = { 0 }, build[O_N] = { 0 };
@@ -1015,9 +1029,9 @@ static void g_overlay(uint16_t *fb)
             int want, lost;
             mb_draw_sprite_load(&want, &lost);
             fprintf(stderr, "     sprites wanted %d, dropped %d%s"
-                            "   cursor %d,%d idle %.1fs%s\n", want, lost,
+                            "   cursor %d,%d idle %.1fs%s pips %d\n", want, lost,
                     lost ? "  <-- SCENE FULL" : "", s_cx, s_cy, (double)s_idle,
-                    s_pan_x >= 0 ? "  PANNING" : "");
+                    s_pan_x >= 0 ? "  PANNING" : "", mb_draw_pip_count());
             acc = 0;
         }
     }
@@ -1099,6 +1113,8 @@ static void g_overlay(uint16_t *fb)
                      mb_faith_afford(mb_power_cost()) ? C_HI : C_WARN, 1);
         }
     }
+
+    if (!s_god) mb_draw_pips(fb);      /* who is carrying, ill, fighting, fleeing */
 
     mb_power_draw_wheel(fb, &rogue8);
 

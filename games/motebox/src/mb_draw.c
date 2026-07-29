@@ -506,6 +506,7 @@ static const BldSpr MB_BLD[O_N - O_BUILD0] = {
  * says so out loud rather than leaving the next person to census the map. */
 static int s_spr_want, s_spr_lost;
 void mb_draw_sprite_load(int *want, int *lost) { *want = s_spr_want; *lost = s_spr_lost; }
+int  mb_draw_pip_count(void);
 
 static void add(const MoteSprite *s)
 {
@@ -513,8 +514,35 @@ static void add(const MoteSprite *s)
     if (!g_api->scene2d_add(s)) s_spr_lost++;
 }
 
+/* --- STATUS PIPS ---------------------------------------------------------
+ * Two pixels over a villager's head saying what they are doing. Collected while the
+ * scene is built and drawn straight into the frame afterwards, because they are one
+ * colour each and a sprite sheet for sixteen dots would be sillier than a rect.
+ * Screen coordinates are baked in at collection time, so the drawing side needs to know
+ * nothing about the camera. */
+#define MB_MAXPIP 96
+static struct { int16_t x, y; uint16_t col; } s_pip[MB_MAXPIP];
+static int s_npip;
+
+static void mb_pip_add_at(int sx, int sy, uint16_t col)
+{
+    if (s_npip >= MB_MAXPIP) return;
+    if (sx < 0 || sy < 0 || sx > 126 || sy > VIEW_H - 2) return;
+    s_pip[s_npip].x = (int16_t)sx; s_pip[s_npip].y = (int16_t)sy;
+    s_pip[s_npip].col = col; s_npip++;
+}
+
+int mb_draw_pip_count(void) { return s_npip; }
+
+void mb_draw_pips(uint16_t *fb)
+{
+    for (int i = 0; i < s_npip; i++)
+        g_api->draw_rect(fb, s_pip[i].x, s_pip[i].y, 2, 2, s_pip[i].col, 1, 0, VIEW_H);
+}
+
 void mb_draw_mortal(int cam_x, int cam_y)
 {
+    s_npip = 0;
     s_spr_want = s_spr_lost = 0;
     g_api->scene2d_begin(cam_x, cam_y);
     /* THE WHOLE TERRAIN, from the ruleset system. Deep ocean is the background colour, so
@@ -598,6 +626,45 @@ void mb_draw_mortal(int cam_x, int cam_y)
                            (uint16_t)(S->cx * TILE), (uint16_t)(S->cy * TILE),
                            TILE, TILE, 40, 0 };
         add(&spr);
+
+        /* --- WHAT THEY ARE DOING, in one pixel-ish -----------------------------
+         * The simulation already tracks all of this and none of it was drawn, so a
+         * crowd read as identical figures milling about. A carried sack, a fever, a
+         * raised weapon: a village stops being wallpaper the moment you can see which
+         * of them is doing what. Two pixels above the head, which is the only space a
+         * 8x8 sprite leaves free. */
+        int py2 = (int)(u->y >> 4 << 3) - 3;
+        uint16_t pip = 0;
+        /* EVERY ORDINARY JOB COUNTS, not only the emergencies. The first version pipped
+         * illness, fighting, firefighting and flight — and a settled town has none of
+         * those, so a peaceful village showed exactly zero pips and the crowd was still
+         * anonymous. What makes a village feel alive is seeing the ordinary work: this one
+         * is carrying grain, that one is off to the woods, those two are courting. */
+        if (u->sp >= SP_CIV_N)           pip = 0;               /* wildlife stays clean */
+        else if (u->sick)                pip = MOTE_RGB565(126,  37,  83);  /* fever    */
+        else if (u->job == JOB_FIGHT)    pip = MOTE_RGB565(255,   0,  77);  /* fighting */
+        else if (u->job == JOB_DOUSE)    pip = MOTE_RGB565( 41, 173, 255);  /* a bucket */
+        else if (u->job == JOB_FLEE)     pip = MOTE_RGB565(255, 236,  39);  /* alarm    */
+        else if (u->job == JOB_BREED)    pip = MOTE_RGB565(255, 119, 168);  /* courting */
+        else if (u->carry) {
+            /* the goods themselves, coloured by what they are */
+            static const uint16_t CARRY_COL[5] = {
+                MOTE_RGB565(255, 163,   0),   /* food   */
+                MOTE_RGB565(171,  82,  54),   /* wood   */
+                MOTE_RGB565(194, 195, 199),   /* stone  */
+                MOTE_RGB565( 95,  87,  79),   /* iron   */
+                MOTE_RGB565(255, 236,  39),   /* gold   */
+            };
+            pip = CARRY_COL[u->carry_kind < 5 ? u->carry_kind : 0];
+        }
+        else if (u->job == JOB_WORK)     pip = MOTE_RGB565(194, 195, 199);  /* at work  */
+        else if (u->job == JOB_FORAGE)   pip = MOTE_RGB565(  0, 228,  54);  /* gathering */
+        if (pip) {
+            /* drawn straight into the frame in the overlay pass would be simpler, but
+             * these have to sort with the crowd — so a 2x2 from the FX sheet's blank
+             * corner would cost a sheet. A rect is honest and costs nothing. */
+            mb_pip_add_at((int)(u->x >> 4 << 3) + 3 - cam_x, py2 - cam_y, pip);
+        }
     }
     /* the walking disasters: the master's smoke swirl for a tornado, its cone
      * for a vent, lifted a tile so they stand above the ground they are wrecking */
