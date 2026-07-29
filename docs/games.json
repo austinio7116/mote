@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-27T21:49:30+00:00",
+ "generated": "2026-07-29T06:44:24+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -91,10 +91,10 @@
    "id": "roguemote",
    "name": "Roguemote",
    "author": "austinio7116",
-   "version": "0.4.0",
+   "version": "0.4.1",
    "abi": 47,
-   "size": 130500,
-   "sha256": "d8c4fb58a92f9c65c58116888ca90c017da34a58c013ded86bc0df8caa8f6158",
+   "size": 130608,
+   "sha256": "7e15b368085f28f642f5c3be847eba48fddae96ca985af8fff6d61ea5377d660",
    "file": "games/Roguemote.mote",
    "icon": "img/gallery/roguemote-icon.png",
    "thumb": "img/gallery/roguemote-1.png",
@@ -104,14 +104,14 @@
     "img/gallery/roguemote-3.png"
    ],
    "tag": "A Moria descent, in 8-bit",
-   "desc": "A turn-based roguelike with a continent on top: walk an overworld of towns, forests and mountains, then take the stairs into Moria-shaped dungeons that go 35 guarded floors down. Pick one of 12 classes, learn 16 spells, and fight 167 monsters and 17 bosses over 155 kinds of loot — swords and bows and wands, potions you have to identify, levers that open the chest across the room, shops and inns you walk into. Floors persist by seed and remember where you have walked, stairs are checkpoints, and the whole thing saves where you stood. Built from a CC0 tileset in which every one of 1670 tiles was given a job.",
+   "desc": "A turn-based roguelike with a continent on top: walk an overworld of towns, forests and mountains, then take the stairs into Moria-shaped dungeons that go 35 guarded floors down. Pick one of 12 classes, learn 16 spells, and fight 167 monsters and 17 bosses over 155 kinds of loot — swords and bows and wands, potions you have to identify, levers that open the chest across the room, shops and inns you walk into. Floors persist by seed and remember where you have walked, stairs are checkpoints, and the whole thing saves where you stood. Every pixel of it is the Simple Roguelike Tileset by Ink_Slime (CC0), a sheet in which all 1670 tiles were catalogued and given a job.",
    "guide": "roguemote-guide.html",
    "multiplayer": false,
    "android": {
     "arm64-v8a": {
      "file": "games/android/arm64-v8a/libmg_roguemote.so",
-     "size": 208600,
-     "sha256": "8cd4f161e159e2af082829b990f7dc818e5d5b9edd2bf10c4cb4d97767d84e4d"
+     "size": 208648,
+     "sha256": "20ae7b3e9e219727c64a1b7ea97e167654f74338214aaaba747950bb1b1baf33"
     }
    }
   },

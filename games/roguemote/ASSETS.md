@@ -1,7 +1,13 @@
 # Roguemote asset library
 
-Carved from the **Simple Roguelike Tileset** v0.16 by Ink_Slime (DC Slime), **CC0 /
-public domain**. Source is a 512×512 sheet of **8×8** tiles (64×64 grid).
+Carved from the **[Simple Roguelike Tileset](https://ink-slime.itch.io/simple-roguelike-tileset)**
+v0.16 by **Ink_Slime** (DC Slime), **CC0 / public domain**. Source is a 512×512
+sheet of **8×8** tiles (64×64 grid).
+
+Every tile, character, item and effect Roguemote draws is from that sheet —
+nothing is drawn on top of it. CC0 waives the requirement to attribute, so the
+credit is in the game's title screen, its gallery page and its guide because it
+is deserved, not because it is required.
 
 ## Pipeline (editable source → baked header)
 

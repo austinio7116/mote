@@ -337,13 +337,15 @@ EFF_LABEL = {
     "R_SPEED": "+10 speed, permanently", "R_REGEN": "heal three times as fast",
     "NONE": "",
 }
+# Who a cast lands on, which is a different question from what it does to them
+# -- the Does column answers that one, so these must not repeat it.
 SHAPE_NOTE = {
-    "BOLT": "a single target, struck by a travelling head",
+    "BOLT": "one target, struck by a travelling head",
     "BALL": "a blast two tiles across, centred on your target",
     "BEAM": "everything on the line, not just the first thing",
-    "HEAL": "restores your own wounds",
-    "BUFF": "changes you, not them",
-    "DETECT": "reveals every living thing on the floor",
+    "HEAL": "yourself, wherever you are standing",
+    "BUFF": "yourself &mdash; it needs no target at all",
+    "DETECT": "the whole floor at once, through walls",
     "NOVA": "a ring four tiles across, centred on you",
 }
 STAT_NAMES = ["Str", "Int", "Wis", "Dex", "Con", "Cha"]
@@ -730,7 +732,15 @@ def item_title(it):
 
 
 def sec_items():
-    order = ["WEAPON", "ARMOUR", "POTION", "SCROLL", "WAND", "RING", "FOOD", "LIGHT"]
+    # Every kind in g_item_kind[], in the order a player meets them: what you
+    # swing, what you shoot with, what you wear, then the consumables, then the
+    # things that are only worth money. Missing a type here silently drops it
+    # from the guide, which is how launchers, ammunition, devices and treasure
+    # went unlisted for a while even though their labels and notes existed.
+    order = ["WEAPON", "BOW", "AMMO", "ARMOUR", "POTION", "SCROLL", "WAND",
+             "RING", "TOOL", "FOOD", "LIGHT", "VALUABLE"]
+    missing = sorted({it["tv"] for it in items} - set(order))
+    assert not missing, "item types not in the guide: %s" % missing
     out = []
     for tv in order:
         group = [it for it in items if it["tv"] == tv]
@@ -738,12 +748,20 @@ def sec_items():
             continue
         rows = []
         for it in group:
-            if tv == "WEAPON":
+            if tv == "WEAPON" or tv == "AMMO":
                 right = dice(it["dice"])
             elif tv == "ARMOUR":
                 right = "+%d ac" % it["ac"]
             elif tv == "LIGHT":
                 right = "radius %d" % it["ac"]
+            elif tv == "BOW":
+                # for TV_BOW the ac column carries the damage multiplier
+                right = "&#215;%d" % it["ac"]
+            elif tv == "FOOD":
+                # for TV_FOOD the ac column carries nutrition in hundreds
+                right = "%d food" % (it["ac"] * 100)
+            elif tv == "VALUABLE":
+                right = "sell it"
             else:
                 right = esc(EFF_LABEL.get(it["eff"], ""))
             rows.append(
@@ -815,11 +833,31 @@ def sec_items():
                  "".join(out), ego_rows)
 
 
+def spell_does(s):
+    """What a cast actually does, read off rl_cast(): damage rolls 2d<power>,
+    a heal adds power plus half your Wisdom, and the two buffs are fixed.
+
+    Deliberately no element word here. shape_colour() picks the hue purely from
+    the power band, so the only honest thing to say about an element is the band
+    itself -- which the section note spells out."""
+    shape, power = s["shape"], s["power"]
+    if shape == "HEAL":
+        return "restores %d hp, plus half your Wisdom" % power
+    if shape == "DETECT":
+        return "marks every living thing on the floor"
+    if shape == "NOVA" and power == 0:
+        return "lights the 11&#215;11 tiles around you"
+    if shape == "BUFF":
+        return ("+10 speed for 80 turns" if s["lvl"] >= 18
+                else "+10 ac for 100 turns, and 8 hp back now")
+    return "2d%d damage" % power
+
+
 def sec_magic():
     rows = "".join(
         '<tr><td class="nm">%s</td><td class="n">%d</td><td class="n">%d</td>'
-        '<td class="n">%d%%</td><td>%s</td></tr>'
-        % (esc(s["name"]), s["lvl"], s["cost"], s["fail"],
+        '<td class="n">%d%%</td><td class="ef">%s</td><td>%s</td></tr>'
+        % (esc(s["name"]), s["lvl"], s["cost"], s["fail"], spell_does(s),
            SHAPE_NOTE.get(s["shape"], s["shape"].lower()))
         for s in spells)
     strips = [
@@ -841,9 +879,15 @@ def sec_magic():
      may learn and your level decides when; the failure chance falls as you gain
      levels and Intelligence, but never below five percent. <strong>A failed cast
      still costs the mana and the turn.</strong></p>
+  <p class="note">Every attack rolls two dice, so <b>2d20</b> is 2&ndash;40 with
+     21 the average. There is no element field: the colour an effect is drawn in
+     comes from that same damage number, in bands &mdash;
+     under 12 arcane violet, 12 frost cyan, 16 lightning blue, 28 fire orange,
+     40 and over raw magenta. Heals are green, buffs gold, detection lilac.</p>
   %s
   <div class="tablewrap"><table class="items spells">
-    <thead><tr><th>Spell</th><th class="n">Level</th><th class="n">Mana</th><th class="n">Fail</th><th>Shape</th></tr></thead>
+    <colgroup><col class="c-sp"><col><col><col><col class="c-do"><col class="c-sh"></colgroup>
+    <thead><tr><th>Spell</th><th class="n">Level</th><th class="n">Mana</th><th class="n">Fail</th><th>Does</th><th>Shape</th></tr></thead>
     <tbody>%s</tbody>
   </table></div>
   <h3>How an effect is drawn</h3>
@@ -1276,13 +1320,25 @@ th{text-align:left; font:400 .68rem/1 inherit; letter-spacing:.12em;
   font-family:ui-monospace,Menlo,Consolas,monospace}
 td{padding:.42rem .8rem; border-bottom:1px solid var(--rule)}
 tbody tr:last-child td{border-bottom:0}
-th:not(:nth-child(1)):not(:nth-child(2)):not(:nth-child(3)),
+/* Numeric columns shrink to their content and the prose columns keep the slack.
+   This was a positional rule -- every th from the fourth column on -- which
+   squeezed the last column of any table whose 4th+ column was prose: the spell
+   table's Shape and the ego table's What it does both got 1%% and the leftover
+   width went to the name column. Every numeric header carries class="n", so
+   asking for that directly is both narrower and correct. */
+th.n,
 td.n{width:1%%; white-space:nowrap}
 td.n,th.n{text-align:right; font-family:ui-monospace,Menlo,Consolas,monospace;
   font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--mute)}
 td.ic{width:1.5rem; padding-right:0}
 td.nm{white-space:nowrap}
 td.ef{color:var(--mute); font-size:.82rem}
+/* The spell table carries two prose columns, so give the split explicitly
+   rather than leaving six columns to the browser's guess. */
+.spells .c-sp{width:17%%}
+.spells .c-do{width:28%%}
+.spells .c-sh{width:34%%}
+.spells td.nm{white-space:normal}
 td.d{white-space:nowrap; font-family:ui-monospace,Menlo,Consolas,monospace}
 .items tbody tr:hover{background:var(--raised)}
 .itemgroup{margin-bottom:2rem}
@@ -1335,6 +1391,8 @@ td.d{white-space:nowrap; font-family:ui-monospace,Menlo,Consolas,monospace}
 footer{border-top:1px solid var(--rule); padding:2rem 0 3rem; color:var(--mute);
   font-size:.82rem}
 footer p{max-width:var(--measure)}
+footer .credit{border-left:2px solid var(--gold); padding-left:.9rem;
+  color:var(--text)}
 a{color:var(--gold)}
 :focus-visible{outline:2px solid var(--gold); outline-offset:2px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;
@@ -1372,8 +1430,12 @@ a{color:var(--gold)}
     <footer>
       <p>Every sprite on this page is cropped live out of the game's own baked
         sheets, every table is parsed from its source, and the headings are set
-        in the 8&#215;8 CP437 face the game renders with. Art is the CC0 Simple
-        Roguelike Tileset; the engine is Mote.</p>
+        in the 8&#215;8 CP437 face the game renders with. The engine is Mote.</p>
+      <p class="credit">Every tile, character and effect in this game is from the
+        <a href="https://ink-slime.itch.io/simple-roguelike-tileset">Simple
+        Roguelike Tileset</a> by <b>Ink_Slime</b>, released CC0. The whole look
+        of Roguemote is their work &mdash; 1670 8&#215;8 tiles, catalogued and
+        given jobs, with nothing drawn on top.</p>
       <p>Roguemote &#183; by austinio7116 &#183; a Mote game for the Thumby Color
         &#183; <a href="games.html">back to the gallery</a></p>
     </footer>

@@ -12,7 +12,7 @@
 #include "mote_build.h"
 MOTE_GAME_MODULE();
 MOTE_GAME_META("Roguemote", "austinio7116");
-MOTE_GAME_VERSION("0.4.0");
+MOTE_GAME_VERSION("0.4.1");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
@@ -893,14 +893,20 @@ static void draw_title(uint16_t *fb) {
     for (int i = 0; i < 8; i++)
         rl_blit_cell(fb, SH_CHARACTERS, g_class[i].cell, 16 + i * 12, 62);
 
-    rl_text(fb, "A  new game", 34, 84, COL_TEXT);
-    if (s_have_save) rl_text(fb, "B  continue", 34, 95, COL_TEXT);
+    rl_text(fb, "A  new game", 34, 80, COL_TEXT);
+    if (s_have_save) rl_text(fb, "B  continue", 34, 90, COL_TEXT);
 
     int best = rl_score_best();
     if (best > 0) {
-        rl_text(fb, "best", 34, 110, COL_DIM);
-        rl_num(fb, best, 58, 110, COL_GOLD);
+        rl_text(fb, "best", 34, 102, COL_DIM);
+        rl_num(fb, best, 58, 102, COL_GOLD);
     }
+
+    /* Every pixel of art in this game is Ink_Slime's Simple Roguelike Tileset.
+     * CC0 asks for nothing, which is exactly why the credit belongs somewhere a
+     * player sees rather than only in a licence file. */
+    rl_text(fb, "art: Simple Roguelike Tileset", 3, 113, COL_DIM);
+    rl_text(fb, "by Ink_Slime  ink-slime.itch.io", 3, 121, COL_DIM);
 }
 
 static void draw_class(uint16_t *fb) {
