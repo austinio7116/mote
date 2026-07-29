@@ -12,6 +12,10 @@
  * with the height bands laid over it.
  */
 #include "mb.h"
+#if MOTE_HOST
+#include <stdlib.h>
+#include <stdio.h>
+#endif
 #include <string.h>
 #if MOTE_HOST
 #include <stdio.h>
@@ -116,27 +120,303 @@ static int temp_at(int y, int elev) {
 
 /* --- rivers ------------------------------------------------------------- */
 
-/* Walk downhill from a high cell, carving shallow water, until we hit the sea
- * or stop descending. Rivers are what make a continent legible at 1 px/tile:
- * they draw the drainage the elevation already implies. */
-static void carve_river(int x, int y)
+/* --- RIVERS, BY FLOW ACCUMULATION ---------------------------------------
+ *
+ * The old generator walked steepest-descent from fourteen random cells above elevation 180,
+ * painting one cell of shallow water per step. It produced scratches, and every reason is
+ * structural rather than a matter of tuning:
+ *
+ *   ONE CELL WIDE, EVERYWHERE. A stream and the river it feeds looked identical, so nothing
+ *     on the map said which way the water went or how much of it there was.
+ *   NO TRIBUTARIES AND NO CONFLUENCES. Fourteen independent walks that happen to cross just
+ *     overwrite each other, so a continent had fourteen unrelated lines on it instead of a
+ *     drainage network — and a network is the thing that makes a landscape look explained.
+ *   THEY STOPPED IN BASINS. "No lower neighbour" ended the walk, so rivers petered out in
+ *     the middle of the continent, going nowhere.
+ *   THEY DID NOT CUT. The channel was painted over the elevation field without lowering it,
+ *     so with the hillshade in place a river could be seen running along the top of a ridge.
+ *
+ * This is the standard hydrology instead, and it is cheap. Every land cell starts with one
+ * unit of rain; sweeping elevation levels from 255 down, each cell pushes its accumulated
+ * flow into its steepest downhill neighbour. Because a cell is only ever visited after every
+ * cell that could drain into it, one pass is exact — no iteration, no relaxation.
+ *
+ * What falls out for free is everything the old one lacked: tributaries join and their flows
+ * ADD, so width grows downstream; the network is a tree rooted at the sea; a basin becomes a
+ * LAKE rather than a dead end; and rivers sit in valleys because they are derived from the
+ * valleys. Then the channel is cut a few units deep so the relief agrees with the water.
+ *
+ * The 256 sweeps ARE the sort. Bucketing by elevation costs no memory and no index array,
+ * which matters because there is none to spare — the accumulator borrows mb_w.claim, which
+ * is zeroed at the start of generation and owned by nobody until villages exist. It is put
+ * back as it was found.
+ */
+#define RIV_STREAM 20        /* a stream: one cell wide */
+#define RIV_RIVER  70        /* a river: three cells */
+#define RIV_GREAT 170        /* a great river: five, and a delta at the mouth */
+
+static const int8_t RDX[8] = { 1,-1, 0, 0, 1, 1,-1,-1 };
+static const int8_t RDY[8] = { 0, 0, 1,-1, 1,-1, 1,-1 };
+
+static void river_cell(int x, int y, int cut)
 {
-    uint8_t *e = mb_w.elev, *b = mb_w.biome;
-    for (int step = 0; step < 400; step++) {
-        if (!mb_in(x, y)) return;
-        if (mb_water(b[AT(x, y)])) return;                 /* reached water */
-        b[AT(x, y)] = B_SHALLOW;
-        int bx = -1, by = -1, best = e[AT(x, y)];
-        static const int8_t DX[8] = { 1,-1, 0, 0, 1, 1,-1,-1 };
-        static const int8_t DY[8] = { 0, 0, 1,-1, 1,-1, 1,-1 };
-        for (int k = 0; k < 8; k++) {
-            int nx = x + DX[k], ny = y + DY[k];
-            if (!mb_in(nx, ny)) continue;
-            if (e[AT(nx, ny)] < best) { best = e[AT(nx, ny)]; bx = nx; by = ny; }
+    if (!mb_in(x, y)) return;
+    int i = AT(x, y);
+    if (!mb_land(mb_w.biome[i])) return;
+    mb_w.biome[i] = B_SHALLOW;
+    mb_w.obj[i]   = O_NONE;
+    /* CUT THE CHANNEL. Without this the hillshade lights the ground a river runs over as
+     * though it were dry, and the water reads as paint rather than as a valley floor. */
+    if (mb_w.elev[i] > cut) mb_w.elev[i] = (uint8_t)(mb_w.elev[i] - cut);
+}
+
+/* --- PRIORITY FLOOD: the fill, done properly ----------------------------
+ *
+ * Two cheap fills were tried and both are documented failures worth remembering, because
+ * each produced a distinctive and misleading artefact on screen:
+ *
+ *   RAISE TO THE RIM flattens the landscape. A cell raised to its lowest neighbour has no
+ *     strictly-lower neighbour, and the flatness spreads: 8474 of 12,743 traces then had
+ *     nowhere to go at all.
+ *   RAISE TO THE RIM PLUS ONE oscillates. A rises above B, B rises above A, and the stable
+ *     state is a SAWTOOTH. Printing one row of elevations showed it at once — 135 140 143
+ *     146 148 140 149 144 147 139 — and the rivers were faithfully following a checkerboard
+ *     of artificial local lows, hatching every plain with alternate-cell diagonals. Two
+ *     rounds of screenshots could not explain that; twenty numbers did.
+ *
+ * The real algorithm is a priority flood, and it is O(n) here because elevations are BYTES:
+ * a 256-bucket queue is an exact priority queue. Start from the sea, always expand the
+ * lowest frontier cell, and give each cell it discovers max(its own height, the frontier
+ * cell's filled height). Pits vanish, flats come out as genuine plateaus at their true spill
+ * level rather than as sawteeth, and — the part that matters most — THE DISCOVERY ORDER IS A
+ * DRAINAGE ORDER. Recording which neighbour discovered each cell gives a spanning tree
+ * rooted in the ocean, so every cell has one unambiguous downstream neighbour, no cycles are
+ * possible and flats need no special handling at all.
+ *
+ * It needs four byte maps and one 16-bit map of scratch, and it gets them for free: at this
+ * point in generation biome and elevation are the only maps with anything in them. obj, flux,
+ * claim, road and layer are all still zero and are handed back below.
+ */
+#define PF_NONE 255
+
+static void priority_flood(uint8_t *fill, uint8_t *parent, uint8_t *qlo, uint8_t *qhi)
+{
+    const uint8_t *e = mb_w.elev, *b = mb_w.biome;
+    /* 256 singly-linked bucket lists over cell indices; 0xFFFF terminates. */
+    uint16_t head[256];
+    for (int k = 0; k < 256; k++) head[k] = 0xFFFF;
+    #define QPUT(idx, lev) do {                                            \
+        qlo[idx] = (uint8_t)(head[lev] & 0xFF);                            \
+        qhi[idx] = (uint8_t)(head[lev] >> 8);                              \
+        head[lev] = (uint16_t)(idx);                                       \
+    } while (0)
+    #define QNEXT(idx) ((uint16_t)(qlo[idx] | (qhi[idx] << 8)))
+
+    for (int i = 0; i < NC; i++) { parent[i] = PF_NONE; fill[i] = 0; }
+
+    /* every water cell is an outlet, and so is the map edge */
+    for (int y = 0; y < MH; y++)
+        for (int x = 0; x < MW; x++) {
+            int i = AT(x, y);
+            int edge = (x == 0 || y == 0 || x == MW - 1 || y == MH - 1);
+            if (!mb_land(b[i]) || edge) {
+                fill[i] = e[i]; parent[i] = 8;          /* 8 = the sea: a root */
+                QPUT(i, e[i]);
+            }
         }
-        if (bx < 0) return;                                /* a basin: stop */
-        x = bx; y = by;
+
+    for (int lev = 0; lev < 256; lev++) {
+        /* A cell can only ever be pushed into a bucket at or above the level being drained,
+         * so one forward pass over the buckets is a complete Dijkstra. */
+        while (head[lev] != 0xFFFF) {
+            int c = head[lev];
+            head[lev] = QNEXT(c);
+            int cx = c % MW, cy = c / MW;
+            for (int k = 0; k < 8; k++) {
+                int nx = cx + RDX[k], ny = cy + RDY[k];
+                if (!mb_in(nx, ny)) continue;
+                int ni = AT(nx, ny);
+                if (parent[ni] != PF_NONE) continue;    /* already drained */
+                int h = e[ni] > fill[c] ? e[ni] : fill[c];
+                fill[ni] = (uint8_t)h;
+                /* THE OPPOSITE DIRECTION. k points from c to the neighbour, but what the
+                 * neighbour needs to record is the way to ITS outlet, which is back toward
+                 * c. Storing k walked the tree upstream: every trace cycled and 12,499 of
+                 * 12,743 hit the step cap. */
+                static const uint8_t OPP[8] = { 1, 0, 3, 2, 7, 6, 5, 4 };
+                parent[ni] = OPP[k];
+                QPUT(ni, h < lev ? lev : h);            /* never behind the sweep */
+            }
+        }
     }
+    #undef QPUT
+    #undef QNEXT
+}
+
+/* The downstream neighbour of a cell, straight off the spanning tree. */
+static int flow_down(int x, int y, const uint8_t *parent, int *ox, int *oy)
+{
+    int p = parent[AT(x, y)];
+    if (p >= 8) return -1;                              /* a root, or unreachable */
+    int nx = x + RDX[p], ny = y + RDY[p];
+    if (!mb_in(nx, ny)) return -1;
+    *ox = nx; *oy = ny;
+    return AT(nx, ny);
+}
+
+/* THE THRESHOLD IS MEASURED PER WORLD, not fixed. A pangaea has 12,743 land cells and an
+ * archipelago 3,358 — measured — so any absolute flow cut that gives a continent a sensible
+ * river network drowns one world and leaves the other dry. This takes the flow histogram and
+ * returns the value at which the requested fraction of the land is wet, so "rivers are about
+ * one and a half per cent of the land" holds whatever shape the world came out. */
+static int flow_cut(const uint8_t *lo, const uint8_t *hi, int land, int permille)
+{
+    int hist[256];
+    for (int k = 0; k < 256; k++) hist[k] = 0;
+    for (int i = 0; i < NC; i++) {
+        if (!mb_land(mb_w.biome[i])) continue;
+        int f = (hi[i] << 8) | lo[i];
+        int bin = f >> 4;                          /* sixteen units a bin is plenty for a cut */
+        hist[bin > 255 ? 255 : bin]++;
+    }
+    int want = land * permille / 1000, acc = 0;
+    if (want < 1) want = 1;
+    for (int bin = 255; bin >= 1; bin--) {
+        acc += hist[bin];
+        if (acc >= want) return bin << 4;
+    }
+    return 16;
+}
+
+static void rivers_build(void)
+{
+    /* Five byte maps borrowed; every one is zero at this point in generation and every one is
+     * handed back at the end, so the whole drainage network costs no permanent memory. */
+    uint8_t *fill   = mb_w.layer;
+    uint8_t *parent = mb_w.obj;
+    uint8_t *lo     = mb_w.claim;     /* the bucket queue's links, then the flow's low byte */
+    uint8_t *hi     = mb_w.road;      /* ditto, high byte — 255 was not enough: 2.8% of a  */
+    uint8_t *b      = mb_w.biome;     /* pangaea pinned at the cap, so a main stem and a   */
+                                      /* middling tributary were indistinguishable.        */
+    priority_flood(fill, parent, lo, hi);
+
+    for (int i = 0; i < NC; i++) { lo[i] = 0; hi[i] = 0; }
+
+    int land = 0;
+#if MOTE_HOST
+    int reached = 0, stalled = 0, capped = 0;
+#endif
+    for (int y = 0; y < MH; y++)
+        for (int x = 0; x < MW; x++) {
+            if (!mb_land(b[AT(x, y)])) continue;
+            land++;
+            int cx = x, cy = y, step = 0;
+            for (; step < 400; step++) {
+                int i = AT(cx, cy);
+                if (lo[i] == 255) { if (hi[i] < 255) { hi[i]++; lo[i] = 0; } }
+                else lo[i]++;
+                int nx = cx, ny = cy;
+                if (flow_down(cx, cy, parent, &nx, &ny) < 0) break;
+                cx = nx; cy = ny;
+                if (!mb_land(b[AT(cx, cy)])) break;      /* the coast: done */
+            }
+#if MOTE_HOST
+            if (step >= 400) capped++;
+            else if (mb_in(cx, cy) && !mb_land(b[AT(cx, cy)])) reached++;
+            else stalled++;
+#endif
+        }
+#if MOTE_HOST
+    if (getenv("MOTEBOX_STAT"))
+        fprintf(stderr, "rivers: traces %d -> sea %d, stalled %d, capped %d\n",
+                land, reached, stalled, capped);
+#endif
+
+    /* One and a half per cent of the land carries a stream, a third of that is a river and a
+     * fifth of that a great river. The cut is measured per world because a pangaea has 12,743
+     * land cells and an archipelago 3,358 — any fixed flow threshold drowns one and leaves
+     * the other dry. */
+    const int cut_s = flow_cut(lo, hi, land, 15);
+    const int cut_r = flow_cut(lo, hi, land, 5);
+    const int cut_g = flow_cut(lo, hi, land, 1);
+#if MOTE_HOST
+    if (getenv("MOTEBOX_STAT"))
+        fprintf(stderr, "rivers: %d land cells; cuts stream=%d river=%d great=%d\n",
+                land, cut_s, cut_r, cut_g);
+#endif
+
+    for (int y = 0; y < MH; y++)
+        for (int x = 0; x < MW; x++) {
+            int i = AT(x, y);
+            /* The guard is the FLOW, not the biome: testing the biome here reads a map this
+             * loop is writing, so a cell turned to water by a neighbour's widening had its
+             * own channel skipped and every wide river came out dotted. */
+            int f = (hi[i] << 8) | lo[i];
+            if (!f) continue;
+
+            /* A LAKE-BOTTOM RULE WAS TRIED HERE AND DOES NOT APPLY. The idea was that the
+             * remaining braided patches are filled basins, so a cell under its own filled
+             * level should be drawn as lake rather than as rivulets. It never fires: the
+             * priority flood shows that fbm depressions are only one to three units deep, so
+             * `fill > elev + 2` is essentially never true and the water fraction came out
+             * byte-identical. The braiding is genuinely many equal-flow branches on nearly
+             * flat ground, and thinning is as far as that can be taken without a real
+             * flat-routing pass. Left as a known artefact rather than a dead branch. */
+            if (f < cut_s) continue;
+
+            int nx = x, ny = y;
+            int ni = flow_down(x, y, parent, &nx, &ny);
+            int dx = nx - x, dy = ny - y;
+            int px = -dy, py = dx;                       /* across the channel */
+            /* THIN THE FANS, against ALL EIGHT neighbours except the one downstream.
+             *
+             * A large filled plateau drains as a broad diagonal front of near-equal channels,
+             * which at one pixel a tile reads as cross-hatching — and two narrower rules
+             * failed to touch it: comparing both sides for strictly-greater flow changed 750
+             * river cells to 750, and comparing one side with ties losing changed 609 to 609,
+             * because the competing channel is not always the PERPENDICULAR neighbour when
+             * the flow runs diagonally.
+             *
+             * A trunk river has exactly one neighbour carrying more water than it does: the
+             * one it flows into. Every other neighbour is a tributary, and carries less. So
+             * requiring that is the general form of the rule, it needs no assumption about
+             * geometry, and a fan of equals collapses because ties lose. */
+            {
+                int beaten = 0;
+                for (int k = 0; k < 8 && !beaten; k++) {
+                    int ax = x + RDX[k], ay = y + RDY[k];
+                    if (!mb_in(ax, ay)) continue;
+                    int ai = AT(ax, ay);
+                    if (ai == ni) continue;                  /* downstream is allowed to win */
+                    if (((hi[ai] << 8) | lo[ai]) >= f) beaten = 1;
+                }
+                if (beaten) continue;
+            }
+
+            int half = (f >= cut_g) ? 2 : (f >= cut_r) ? 1 : 0;
+            int cut  = (f >= cut_g) ? 8 : (f >= cut_r) ? 6 : 4;
+
+            river_cell(x, y, cut);
+            for (int w = 1; w <= half; w++) {
+                river_cell(x + px * w, y + py * w, cut);
+                river_cell(x - px * w, y - py * w, cut);
+            }
+            /* A LAKE where the tree has no parent to follow: the water pools. */
+            if (ni < 0 && f >= cut_r) {
+                int rad = (f >= cut_g) ? 2 : 1;
+                for (int oy = -rad; oy <= rad; oy++)
+                    for (int ox2 = -rad; ox2 <= rad; ox2++)
+                        if (ox2 * ox2 + oy * oy <= rad * rad) river_cell(x + ox2, y + oy, cut);
+            }
+            /* A DELTA at the mouth: a great river should not meet the sea as a slot. */
+            if (f >= cut_r && ni >= 0 && mb_water(b[ni]))
+                for (int w = half + 1; w <= half + 2; w++) {
+                    river_cell(x + px * w, y + py * w, cut);
+                    river_cell(x - px * w, y - py * w, cut);
+                }
+        }
+
+    for (int i = 0; i < NC; i++) { lo[i] = 0; hi[i] = 0; fill[i] = 0; parent[i] = 0; }
 }
 
 /* The opening cursor cell: the centroid of the biggest landmass, nudged to the
@@ -238,13 +518,8 @@ void mb_world_gen(uint32_t seed)
         }
     }
 
-    /* 3. rivers from the highest cells */
-    mote_rand_seed(mb_w.seed ^ 0x5bf03635u);
-    for (int tries = 0, made = 0; tries < 900 && made < 14; tries++) {
-        int x = (int)(mote_rand() % MW), y = (int)(mote_rand() % MH);
-        if (elv[AT(x, y)] < 180) continue;
-        carve_river(x, y); made++;
-    }
+    /* 3. rivers: the whole drainage network at once, from the elevation field */
+    rivers_build();
 
     /* 4. scatter: vegetation by biome, ore in the rock, so the world has
      * something to gather before anyone is there to gather it. */
