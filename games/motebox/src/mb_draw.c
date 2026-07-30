@@ -1235,7 +1235,15 @@ void mb_draw_mortal(int cam_x, int cam_y)
      * FOUR-NEIGHBOUR MASK, because a road is a graph and not an area: what matters is
      * only which cardinals it continues into. Sixteen cells cover every case exactly —
      * a stone, four dead ends, two straights, four corners, four tees and a crossroads
-     * — where a 47-cell blob set would be answering the wrong question. */
+     * — where a 47-cell blob set would be answering the wrong question.
+     *
+     * AND THE SHEET HAS FIVE ROWS, one per surface: beaten track, cobbles, flagstones,
+     * tarmac, and tarmac with a dashed centre line. The row comes from the tech of the
+     * kingdom that OWNS the cell, read at draw time — so a realm's entire network
+     * modernises the moment its masons or its engineers or its motorists arrive, without a
+     * byte of storage per cell and without anyone having to rebuild anything. A road
+     * running through nobody's land stays a track, which is also correct.
+     */
     for (int r = r0; r <= r0 + MVH; r++) {
         if (r < 0 || r >= MH) continue;
         for (int c = c0; c <= c0 + MVW; c++) {
@@ -1245,8 +1253,25 @@ void mb_draw_mortal(int cam_x, int cam_y)
             if (c < MW - 1 && mb_w.road[AT(c + 1, r)]) m |= 2;
             if (r < MH - 1 && mb_w.road[AT(c, r + 1)]) m |= 4;
             if (c > 0      && mb_w.road[AT(c - 1, r)]) m |= 8;
+
+            /* the grade: the best surface this cell's owner knows how to lay */
+            int grade = 0;
+            {
+                int ov = mb_w.claim[AT(c, r)];
+                int ok = (ov && ov < MAXV && mb_v[ov].alive) ? mb_v[ov].kingdom : 0;
+                /* Each surface needs a WINDOW to be seen in. Gating tarmac on steam and the
+                 * markings on combustion skipped plain tarmac entirely — measured across five
+                 * sample years, grade 3 was never once drawn — because a kingdom with steam
+                 * has combustion within a generation. Spaced out across the tree, every one
+                 * of the five gets its own era. */
+                if (mb_tech_known(ok, TECH_FLIGHT))         grade = 4;   /* lines painted on */
+                else if (mb_tech_known(ok, TECH_COMBUSTION))grade = 3;   /* asphalt          */
+                else if (mb_tech_known(ok, TECH_ENGINEER))  grade = 2;   /* dressed flags    */
+                else if (mb_tech_known(ok, TECH_MASONRY))   grade = 1;   /* set cobbles      */
+            }
             MoteSprite spr = { &road_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
-                               (uint16_t)(m * TILE), 0, TILE, TILE, 12, 0 };
+                               (uint16_t)(m * TILE), (uint16_t)(grade * TILE),
+                               TILE, TILE, 12, 0 };
             add(&spr);
         }
     }

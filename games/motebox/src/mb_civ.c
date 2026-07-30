@@ -333,49 +333,49 @@ const char *const MB_ERA_NAME[ERA_N] = {
 const TechDef MB_TECH[TECH_N] = {
     /* name            era               cost  prerequisites */
     { "-",             ERA_STONE,           0, P0 },
-    { "tools",         ERA_STONE,          90, P0 },
-    { "agriculture",   ERA_STONE,         110, P0 },
-    { "pottery",       ERA_STONE,         120, P0 },
+    { "tools",         ERA_STONE,          270, P0 },
+    { "agriculture",   ERA_STONE,         330, P0 },
+    { "pottery",       ERA_STONE,         360, P0 },
 
-    { "masonry",       ERA_BRONZE,        190, P1(TECH_TOOLS) },
-    { "bronze",        ERA_BRONZE,        200, P1(TECH_TOOLS) },
-    { "the wheel",     ERA_BRONZE,        180, P1(TECH_TOOLS) },
-    { "writing",       ERA_BRONZE,        220, P1(TECH_POTTERY) },
+    { "masonry",       ERA_BRONZE,        570, P1(TECH_TOOLS) },
+    { "bronze",        ERA_BRONZE,        600, P1(TECH_TOOLS) },
+    { "the wheel",     ERA_BRONZE,        540, P1(TECH_TOOLS) },
+    { "writing",       ERA_BRONZE,        660, P1(TECH_POTTERY) },
 
-    { "ironwork",      ERA_IRON,          320, P1(TECH_BRONZE) },
-    { "seafaring",     ERA_IRON,          300, P2(TECH_WHEEL, TECH_POTTERY) },
-    { "architecture",  ERA_IRON,          340, P1(TECH_MASONRY) },
-    { "currency",      ERA_IRON,          310, P1(TECH_WRITING) },
+    { "ironwork",      ERA_IRON,          960, P1(TECH_BRONZE) },
+    { "seafaring",     ERA_IRON,          900, P2(TECH_WHEEL, TECH_POTTERY) },
+    { "architecture",  ERA_IRON,          1020, P1(TECH_MASONRY) },
+    { "currency",      ERA_IRON,          930, P1(TECH_WRITING) },
 
-    { "engineering",   ERA_CLASSICAL,     460, P2(TECH_ARCHITECTURE, TECH_IRON) },
-    { "mathematics",   ERA_CLASSICAL,     440, P2(TECH_WRITING, TECH_CURRENCY) },
-    { "cavalry",       ERA_CLASSICAL,     420, P2(TECH_IRON, TECH_WHEEL) },
-    { "law",           ERA_CLASSICAL,     450, P2(TECH_WRITING, TECH_AGRICULTURE) },
+    { "engineering",   ERA_CLASSICAL,     1380, P2(TECH_ARCHITECTURE, TECH_IRON) },
+    { "mathematics",   ERA_CLASSICAL,     1320, P2(TECH_WRITING, TECH_CURRENCY) },
+    { "cavalry",       ERA_CLASSICAL,     1260, P2(TECH_IRON, TECH_WHEEL) },
+    { "law",           ERA_CLASSICAL,     1350, P2(TECH_WRITING, TECH_AGRICULTURE) },
 
-    { "gunpowder",     ERA_MEDIEVAL,      620, P2(TECH_IRON, TECH_MATHS) },
-    { "navigation",    ERA_MEDIEVAL,      600, P2(TECH_SEAFARING, TECH_MATHS) },
-    { "banking",       ERA_MEDIEVAL,      590, P2(TECH_CURRENCY, TECH_LAW) },
+    { "gunpowder",     ERA_MEDIEVAL,      1860, P2(TECH_IRON, TECH_MATHS) },
+    { "navigation",    ERA_MEDIEVAL,      1800, P2(TECH_SEAFARING, TECH_MATHS) },
+    { "banking",       ERA_MEDIEVAL,      1770, P2(TECH_CURRENCY, TECH_LAW) },
     { "the university",ERA_MEDIEVAL,      640, P2(TECH_MATHS, TECH_LAW) },
 
-    { "printing",      ERA_RENAISSANCE,   800, P2(TECH_UNIVERSITY, TECH_WRITING) },
-    { "metallurgy",    ERA_RENAISSANCE,   860, P2(TECH_GUNPOWDER, TECH_ENGINEER) },
-    { "sanitation",    ERA_RENAISSANCE,   820, P2(TECH_UNIVERSITY, TECH_ENGINEER) },
-    { "economics",     ERA_RENAISSANCE,   780, P2(TECH_BANKING, TECH_UNIVERSITY) },
+    { "printing",      ERA_RENAISSANCE,   2400, P2(TECH_UNIVERSITY, TECH_WRITING) },
+    { "metallurgy",    ERA_RENAISSANCE,   2580, P2(TECH_GUNPOWDER, TECH_ENGINEER) },
+    { "sanitation",    ERA_RENAISSANCE,   2460, P2(TECH_UNIVERSITY, TECH_ENGINEER) },
+    { "economics",     ERA_RENAISSANCE,   2340, P2(TECH_BANKING, TECH_UNIVERSITY) },
 
-    { "steam",         ERA_INDUSTRIAL,   1050, P2(TECH_METALLURGY, TECH_ECONOMICS) },
-    { "the railway",   ERA_INDUSTRIAL,   1100, P2(TECH_STEAM, TECH_ENGINEER) },
-    { "chemistry",     ERA_INDUSTRIAL,   1080, P2(TECH_SANITATION, TECH_METALLURGY) },
-    { "electricity",   ERA_INDUSTRIAL,   1120, P2(TECH_STEAM, TECH_PRINTING) },
+    { "steam",         ERA_INDUSTRIAL,   3150, P2(TECH_METALLURGY, TECH_ECONOMICS) },
+    { "the railway",   ERA_INDUSTRIAL,   3300, P2(TECH_STEAM, TECH_ENGINEER) },
+    { "chemistry",     ERA_INDUSTRIAL,   3240, P2(TECH_SANITATION, TECH_METALLURGY) },
+    { "electricity",   ERA_INDUSTRIAL,   3360, P2(TECH_STEAM, TECH_PRINTING) },
 
-    { "combustion",    ERA_MODERN,       1400, P2(TECH_STEAM, TECH_CHEMISTRY) },
-    { "flight",        ERA_MODERN,       1500, P2(TECH_COMBUSTION, TECH_ELECTRIC) },
-    { "radio",         ERA_MODERN,       1380, P2(TECH_ELECTRIC, TECH_PRINTING) },
-    { "medicine",      ERA_MODERN,       1440, P2(TECH_SANITATION, TECH_CHEMISTRY) },
+    { "combustion",    ERA_MODERN,       4200, P2(TECH_STEAM, TECH_CHEMISTRY) },
+    { "flight",        ERA_MODERN,       4500, P2(TECH_COMBUSTION, TECH_ELECTRIC) },
+    { "radio",         ERA_MODERN,       4140, P2(TECH_ELECTRIC, TECH_PRINTING) },
+    { "medicine",      ERA_MODERN,       4320, P2(TECH_SANITATION, TECH_CHEMISTRY) },
 
-    { "physics",       ERA_ATOMIC,       1900, P2(TECH_ELECTRIC, TECH_MATHS) },
-    { "fission",       ERA_ATOMIC,       2300, P2(TECH_PHYSICS, TECH_CHEMISTRY) },
-    { "rocketry",      ERA_ATOMIC,       2200, P2(TECH_FLIGHT, TECH_PHYSICS) },
-    { "the bomb",      ERA_ATOMIC,       3000, P2(TECH_FISSION, TECH_ROCKETRY) },
+    { "physics",       ERA_ATOMIC,       5700, P2(TECH_ELECTRIC, TECH_MATHS) },
+    { "fission",       ERA_ATOMIC,       6900, P2(TECH_PHYSICS, TECH_CHEMISTRY) },
+    { "rocketry",      ERA_ATOMIC,       6600, P2(TECH_FLIGHT, TECH_PHYSICS) },
+    { "the bomb",      ERA_ATOMIC,       9000, P2(TECH_FISSION, TECH_ROCKETRY) },
 };
 #undef P0
 #undef P1
@@ -498,7 +498,12 @@ static void civic_yield(int v)
 static int research_pick(int k)
 {
     const Kingdom *K = &mb_k[k];
-    int best = TECH_NONE, bestscore = -1;
+    /* bestscore starts at the floor, not at -1. The score below is a BASE MINUS COST, so any
+     * tech dearer than the base scores negative — and with -1 as the initial best, every one
+     * of those was rejected. Trebling the costs to slow the tree therefore made it
+     * UNFINISHABLE: a kingdom reached 29 of 35 and then sat there with no goal from year 150
+     * to year 400, which the loops report showed as "goal -" and nothing moving. */
+    int best = TECH_NONE, bestscore = -(1 << 30);
     int atwar = K->war_with != 0, coastal = 0, rich = 0;
     for (int v = 1; v < MAXV; v++) {
         if (!mb_v[v].alive || mb_v[v].kingdom != k) continue;
@@ -508,7 +513,7 @@ static int research_pick(int k)
     for (int t = TECH_TOOLS; t < TECH_N; t++) {
         if (!mb_tech_avail(k, t)) continue;
         /* cheap is good — a kingdom takes the next rung it can reach */
-        int score = 4000 - (int)MB_TECH[t].cost;
+        int score = 12000 - (int)MB_TECH[t].cost;   /* cheap first, but never negative */
         switch (t) {
         case TECH_BRONZE: case TECH_IRON: case TECH_CAVALRY:
         case TECH_GUNPOWDER: case TECH_METALLURGY: case TECH_COMBUSTION:
@@ -551,9 +556,14 @@ static void research_step(int v)
      * college three of them, a power station four — which is why a kingdom that builds the
      * civic ladder out-researches one that only builds beds by a factor of several, and why
      * the deep eras are reachable at all. */
-    gain += mb_civ_count(v, O_LIBRARY) * 4;
-    gain += mb_civ_count(v, O_COLLEGE) * 9;
-    gain += mb_civ_count(v, O_POWER)   * 14;
+    /* MODEST, and measured. At 4/9/14 these created a runaway: research buys a power
+     * station, the station pays fourteen points per village visit, that buys the next tech
+     * sooner, and a kingdom completed all thirty-five techs BY YEAR 150 — the entire tree
+     * gone before the first war. The road grades made it visible (tarmac and lane markings on
+     * a year-150 town) but the cause was here. */
+    gain += mb_civ_count(v, O_LIBRARY) * 2;
+    gain += mb_civ_count(v, O_COLLEGE) * 4;
+    gain += mb_civ_count(v, O_POWER)   * 6;
     if (V->gold > 20) gain += 1;                    /* and the means to pay for it */
     if (V->creed == K->creed && V->creed) gain += 1;
     /* THE TREE PAYS FOR ITSELF. Without these a thirty-six tech ladder costing twenty
@@ -566,6 +576,19 @@ static void research_step(int v)
     if (mb_tech_known(k, TECH_ELECTRIC))   gain += 6;
     if (mb_tech_known(k, TECH_RADIO))      gain += 6;
     if (gain <= 0) return;
+
+    /* SUB-LINEAR IN EMPIRE SIZE. Every town contributes independently, so a kingdom of eight
+     * towns was researching eight times as fast as one of one — and the dominant kingdom in a
+     * measured world reached the ATOMIC era by YEAR 150 while its neighbours were still on
+     * pottery. A bigger realm is harder to coordinate, not proportionally cleverer: with this,
+     * eight towns are worth about twice one rather than eight times, and the leader arrives at
+     * the end of the tree in the sixth century instead of the second. */
+    {
+        int towns = 0;
+        for (int i = 1; i < MAXV; i++) if (mb_v[i].alive && mb_v[i].kingdom == k) towns++;
+        gain = gain * 3 / (3 + (towns > 1 ? towns : 1));
+        if (gain <= 0) gain = 1;
+    }
 
     K->bank = (uint16_t)(K->bank + gain);
     if (K->bank < MB_TECH[K->goal].cost) return;

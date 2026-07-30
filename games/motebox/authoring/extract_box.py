@@ -641,13 +641,13 @@ def build_roads():
     carriageway inside an eight-pixel tile with a one-pixel kerb, so the ground shows
     along both sides of every road in the world and a corner can round properly.
 
-    PEACH surface, ORANGE kerb, LIGHT GREY stones — chosen by rendering the same
-    network over grass, sand and beach and looking at all six. A grey cobble with a
-    dark grey kerb reads as an outlined ribbon, and a pale road with a pale kerb
-    disappears entirely the moment it crosses a beach.
+    FIVE GRADES now, one row each — beaten track, cobbles, flagstones, tarmac, and tarmac
+    with a dashed centre line. The C side picks the row from the owning kingdom's tech, so a
+    realm's whole network modernises as it develops. See roads.GRADES for the materials and
+    why the surfaces darken as they improve.
     """
     import roads
-    save_sheet("road", roads.build(PEACH, ORANGE, LTGREY))
+    save_sheet("road", roads.build())
 
 
 def build_icon():

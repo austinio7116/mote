@@ -1264,6 +1264,24 @@ static void g_init(void)
         int roads = 0;
         for (int c = 0; c < NC; c++) if (mb_w.road[c]) roads++;
         fprintf(stderr, "   road cells in the world: %d\n", roads);
+    {   /* THE ROAD GRADE, counted. Roads pick their surface from the owning kingdom's tech at
+         * draw time, and "why is a year-150 town paved in tarmac" is not answerable from a
+         * screenshot — the five surfaces differ by a few RGB565 steps once quantised. */
+        int hist[5] = { 0, 0, 0, 0, 0 };
+        for (int i = 0; i < NC; i++) {
+            if (!mb_w.road[i]) continue;
+            int ov = mb_w.claim[i];
+            int ok = (ov && ov < MAXV && mb_v[ov].alive) ? mb_v[ov].kingdom : 0;
+            int g = 0;
+            if (mb_tech_known(ok, TECH_FLIGHT))          g = 4;
+            else if (mb_tech_known(ok, TECH_COMBUSTION)) g = 3;
+            else if (mb_tech_known(ok, TECH_ENGINEER))   g = 2;
+            else if (mb_tech_known(ok, TECH_MASONRY))    g = 1;
+            hist[g]++;
+        }
+        fprintf(stderr, "   road grades: track=%d cobble=%d flag=%d tarmac=%d marked=%d\n",
+                hist[0], hist[1], hist[2], hist[3], hist[4]);
+    }
         int want, lost;
         mb_draw_sprite_load(&want, &lost);
         fprintf(stderr, "   sprites wanted %d, DROPPED %d\n", want, lost);
