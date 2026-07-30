@@ -100,6 +100,7 @@ static const char *const O_NAME[O_N] = {
     "campfire", "hall", "great hall", "castle",
     "house", "cottage", "manor",
     "farm", "mine", "woodcutter", "barracks", "temple", "tower", "dock", "wall",
+    "missile silo",
     "plan",
 };
 /* A compile-time tripwire for exactly the mistake above. */
@@ -409,12 +410,13 @@ static int page_town(const char **items, int v)
     n = ir_add(items, n, "threat %d  soldiers %d%s", V->threat, V->soldiers,
                V->mustering ? "  MUSTERING" : "");
     {
-        int k = V->kingdom, tech = (k && k < MAXK && mb_k[k].alive) ? mb_k[k].tech : 0;
-        if (tech >= TECH_N - 1)
+        int k = V->kingdom;
+        const Kingdom *K = (k > 0 && k < MAXK && mb_k[k].alive) ? &mb_k[k] : 0;
+        if (!K || !K->goal)
             n = ir_add(items, n, "there is nothing left to learn");
         else
-            n = ir_add(items, n, "research %d of %d toward %s", V->research,
-                       120 + tech * 160, MB_TECH_NAME[tech + 1]);
+            n = ir_add(items, n, "research %d of %d: %s", K->bank,
+                       MB_TECH[K->goal].cost, MB_TECH[K->goal].name);
     }
     return n;
 }
@@ -442,21 +444,35 @@ static int page_kingdom(const char **items, int v)
         }
     }
     n = ir_add(items, n, "-- what it knows --");
-    n = ir_add(items, n, "%d techs, to %s", K->tech,
-               MB_TECH_NAME[K->tech < TECH_N ? K->tech : TECH_N - 1]);
-    {   /* wrapped, because seven tech names do not fit on one 34-column row and a
-         * truncated list ("tools farming masonry weapons wri") is worse than none */
-        int t = 1;
-        while (t <= K->tech && t < TECH_N && n < IR_ROWS - 4) {
+    n = ir_add(items, n, "the %s era   %d of %d techs",
+               MB_ERA_NAME[K->era < ERA_N ? K->era : 0], K->tech, TECH_N - 1);
+    if (K->goal)
+        n = ir_add(items, n, "working on %s (%d/%d)", MB_TECH[K->goal].name,
+                   K->bank, MB_TECH[K->goal].cost);
+    else
+        n = ir_add(items, n, "it has learned everything");
+    if (mb_tech_known(k, TECH_NUKE))
+        n = ir_add(items, n, "IT HAS THE BOMB%s", K->nuked ? " AND HAS USED IT" : "");
+    /* Grouped by era, wrapped: thirty-six names do not fit on one row and a truncated list
+     * is worse than none. */
+    for (int era = ERA_STONE; era < ERA_N && n < IR_ROWS - 6; era++) {
+        int any = 0;
+        for (int t = TECH_TOOLS; t < TECH_N; t++)
+            if (MB_TECH[t].era == era && mb_tech_known(k, t)) any = 1;
+        if (!any) continue;
+        int t = TECH_TOOLS, first = 1;
+        while (t < TECH_N && n < IR_ROWS - 6) {
             int o = 0; s_ir[n][0] = 0;
-            for (; t <= K->tech && t < TECH_N; t++) {
-                int need = (int)strlen(MB_TECH_NAME[t]) + (o ? 1 : 0);
-                if (o && o + need >= (int)sizeof s_ir[n] - 1) break;
-                o += snprintf(s_ir[n] + o, sizeof s_ir[n] - o, "%s%s", o ? " " : "",
-                              MB_TECH_NAME[t]);
+            if (first) o = snprintf(s_ir[n], sizeof s_ir[n], "%s:", MB_ERA_NAME[era]);
+            for (; t < TECH_N; t++) {
+                if (MB_TECH[t].era != era || !mb_tech_known(k, t)) continue;
+                int need = (int)strlen(MB_TECH_NAME[t]) + 1;
+                if (o + need >= (int)sizeof s_ir[n] - 1) break;
+                o += snprintf(s_ir[n] + o, sizeof s_ir[n] - o, " %s", MB_TECH_NAME[t]);
             }
             if (!o) break;
-            items[n] = s_ir[n]; n++;
+            items[n] = s_ir[n]; n++; first = 0;
+            if (t >= TECH_N) break;
         }
     }
     n = ir_add(items, n, "-- how it stands --");
@@ -579,15 +595,18 @@ static void world_report(void)
 
     /* the crowns, strongest first by what they know */
     n = ir_add(items, n, "-- the crowns --");
-    for (int pass = TECH_N - 1; pass >= 0 && n < IR_ROWS - 8; pass--)
+    /* Most advanced first, by era then by count, so the state of play is the first thing
+     * on the page rather than something to work out. */
+    for (int era = ERA_N - 1; era >= 0 && n < IR_ROWS - 8; era--)
         for (int k = 1; k < MAXK && n < IR_ROWS - 8; k++) {
-            if (!mb_k[k].alive || mb_k[k].tech != pass) continue;
+            if (!mb_k[k].alive || mb_k[k].era != era) continue;
             char kn[24]; mb_name_str(kn, sizeof kn, 1, mb_k[k].name);
             int towns = 0, pop = 0;
             for (int v = 1; v < MAXV; v++)
                 if (mb_v[v].alive && mb_v[v].kingdom == k) { towns++; pop += mb_v[v].pop; }
-            n = ir_add(items, n, "%s: %s, %d towns, %d souls", kn,
-                       MB_TECH_NAME[pass < TECH_N ? pass : 0], towns, pop);
+            n = ir_add(items, n, "%s: %s%s, %d towns", kn, MB_ERA_NAME[era],
+                       mb_tech_known(k, TECH_NUKE) ? " +BOMB" : "", towns);
+            (void)pop;
         }
 
     {   int creed[CREED_N] = {0}, spec[PROF_N] = {0}, tier[TIER_N] = {0}, traded = 0, road = 0;
@@ -1012,6 +1031,16 @@ static void g_init(void)
      * without it: the kaiju cost 300 to 550 faith and a ninety-year test world has less, so
      * every beast cast was DENIED and eight powers photographed as "nothing happens". */
     if (getenv("MOTEBOX_SANDBOX")) mb_mode_set(MODE_SANDBOX);
+    /* MOTEBOX_NUKE=1 fires a strike at the biggest town. A kingdom has to reach the last
+     * rung of a thirty-six tech tree, build a silo and then be losing a war before this
+     * happens on its own — which is right for the game and useless for looking at it. */
+    if (getenv("MOTEBOX_NUKE")) {
+        int best = 0;
+        for (int v = 1; v < MAXV; v++)
+            if (mb_v[v].alive && (!best || mb_v[v].pop > mb_v[best].pop)) best = v;
+        if (best) { s_cx = mb_v[best].x; s_cy = mb_v[best].y;
+                    mb_nuke_strike(mb_v[best].kingdom, s_cx, s_cy); }
+    }
     /* MOTEBOX_EVENT=tsunami|sinkhole fires a world event now, so a rare disaster can be
      * watched instead of waited for. */
     {
@@ -1047,8 +1076,12 @@ static void g_init(void)
             int towns = 0, pop = 0;
             for (int v = 1; v < MAXV; v++)
                 if (mb_v[v].alive && mb_v[v].kingdom == k) { towns++; pop += mb_v[v].pop; }
-            fprintf(stderr, "kingdom %-14s tech %d (%s)  creed %s  %d towns  %d souls\n",
-                    kn, mb_k[k].tech, MB_TECH_NAME[mb_k[k].tech < TECH_N ? mb_k[k].tech : 0],
+            fprintf(stderr, "kingdom %-14s %-11s %2d/%d techs%s  goal %-13s creed %-5s "
+                            "%d towns %d souls\n",
+                    kn, MB_ERA_NAME[mb_k[k].era < ERA_N ? mb_k[k].era : 0],
+                    mb_k[k].tech, TECH_N - 1,
+                    mb_tech_known(k, TECH_NUKE) ? " BOMB" : "     ",
+                    mb_k[k].goal ? MB_TECH_NAME[mb_k[k].goal] : "-",
                     MB_CREED_NAME[mb_k[k].creed < CREED_N ? mb_k[k].creed : 0], towns, pop);
         }
         {   int spec[PROF_N] = {0}, tier[TIER_N] = {0}, creed[CREED_N] = {0}, traded = 0;
@@ -1071,6 +1104,20 @@ static void g_init(void)
              * sail ever actually settled across water. */
             { extern int mb_seaborne_colonies;
               fprintf(stderr, "colonies founded by ship: %d\n", mb_seaborne_colonies); }
+            {   /* THE END OF THE TREE, counted. "Does anybody ever get the bomb, build a
+                 * silo and use it" is three separate questions and none of them can be
+                 * answered from a screenshot. */
+                int silos = 0, armed = 0, fired = 0;
+                for (int v = 1; v < MAXV; v++)
+                    if (mb_v[v].alive) silos += mb_civ_count(v, O_SILO);
+                for (int k = 1; k < MAXK; k++) {
+                    if (!mb_k[k].alive) continue;
+                    if (mb_tech_known(k, TECH_NUKE)) armed++;
+                    fired += mb_k[k].nuked;
+                }
+                fprintf(stderr, "the bomb: %d kingdoms have it, %d silos standing, "
+                                "%d strikes launched\n", armed, silos, fired);
+            }
         }
         {   int prof[PROF_N] = {0}, wed = 0, hauling = 0, named = 0, immune = 0;
             for (int i = 0; i < mb_nu; i++) {
@@ -1199,8 +1246,13 @@ static void g_init(void)
     view_set(1);
 }
 
+/* The overlay has no dt of its own — the engine hands it only a framebuffer — so the update
+ * leaves the last one here for the effects that animate in world time. */
+static float s_dt;
+
 static void g_update(float dt)
 {
+    s_dt = dt;
     const MoteInput *in = mote->input();
 
     /* --- clock: every tick is one pass of the world's rules --- */
@@ -1479,6 +1531,10 @@ static void g_overlay(uint16_t *fb)
         mb_draw_mortal_sprites(fb);
         mb_fx_flux_render(fb, s_cam_x, s_cam_y);
         mb_fx_draw_mortal_px(fb, s_cam_x, s_cam_y);
+        /* THE CLOUD LAST, over everything. It is the one effect that is meant to dominate
+         * the frame — a strike should be unmistakable from across the map, and a mushroom
+         * behind a row of houses is not. */
+        mb_fx_draw_nuke(fb, s_cam_x, s_cam_y, s_dt);
     }
 
     /* --- cursor ---

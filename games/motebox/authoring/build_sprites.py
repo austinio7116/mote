@@ -802,6 +802,40 @@ def plan(banner):
 
 # The order here IS the order of O_FIRE_PIT..O_PLAN in mb.h, so the sheet's column
 # index is `obj - O_BUILD0` and the C side needs no lookup table at all.
+def silo(banner):
+    """A MISSILE SILO, the end of the tech tree made concrete.
+
+    It has to read as the odd one out in a town of thatch and stone, because that is exactly
+    what it is: the only building here not made of the same materials as the rest. So it is a
+    concrete drum with a steel blast door and a hazard stripe — cold greys against a village
+    of browns — and the banner colour appears only as a small flag, because a silo belongs to
+    a kingdom rather than to a lord.
+    """
+    roof, shade, ridge = banner
+    im, px = _blank()
+    CONC      = (150, 150, 158)
+    CONC_LIT  = (196, 196, 202)
+    CONC_DARK = ( 96,  96, 106)
+    STEEL     = ( 70,  74,  86)
+    HAZARD    = (255, 214,  60)
+
+    _rect(px, 1, 4, 6, H - 1, CONC)                 # the drum
+    _rect(px, 1, 4, 1, H - 1, CONC_LIT)             # lit from the left, as everything is
+    _rect(px, 6, 4, 6, H - 1, CONC_DARK)
+    _rect(px, 0, H - 2, 7, H - 1, CONC_DARK)        # the apron it stands on
+
+    _rect(px, 1, 3, 6, 4, STEEL)                    # the blast door, split down the middle
+    _rect(px, 3, 3, 4, 4, CONC_DARK)
+    _rect(px, 2, 2, 5, 2, STEEL)
+
+    for x in range(1, 7, 2):                        # the one thing that says what is inside
+        _rect(px, x, 8, x, 8, HAZARD)
+
+    _rect(px, 7, 1, 7, 5, STEEL)                    # a mast, and the crown's flag on it
+    _rect(px, 5, 1, 7, 1, roof)
+    return im
+
+
 BUILDINGS = [
     ("campfire",   campfire),
     ("hall",       hall),
@@ -818,6 +852,7 @@ BUILDINGS = [
     ("tower",      tower),
     ("dock",       dock),
     ("wall",       wall_seg),
+    ("silo",       silo),
     ("plan",       plan),
 ]
 

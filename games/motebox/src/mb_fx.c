@@ -203,6 +203,12 @@ void mb_fx_draw_god(uint16_t *fb)
  * rising off a burning ridge cost a hundred stores and read as fire, where a hundred
  * sprites cost a hundred blits and read as wallpaper.
  */
+static inline unsigned px_hash(int x, int y)
+{
+    unsigned h = (unsigned)x * 374761393u ^ (unsigned)y * 668265263u;
+    h ^= h >> 13; return h * 1274126177u;
+}
+
 static inline uint16_t add565(uint16_t d, int r, int g, int b)
 {
     int dr = ((d >> 11) & 31) + r, dg = ((d >> 5) & 63) + g, db = (d & 31) + b;
@@ -561,3 +567,150 @@ void mb_fx_draw_mortal_px(uint16_t *fb, int cam_x, int cam_y)
         }
     }
 }
+
+/* --- THE MUSHROOM CLOUD -------------------------------------------------
+ *
+ * A nuclear strike drawn as fire particles is just a big fire, and the whole point of the
+ * last rung of the tech tree is that you should know at a glance what has happened. The
+ * silhouette is the message, so it is drawn as a SHAPE rather than emitted as particles:
+ * a stem that rises and a cap that boils outward at the top of it.
+ *
+ * Four things it needs to read, all of which come out of one time parameter:
+ *
+ *   IT RISES. The cap climbs from the ground over about a second, so the eye follows it up.
+ *   THE STEM NARROWS THEN WIDENS AT THE FOOT, which is the shape of the updraught feeding it
+ *     — a plain rectangle reads as a chimney.
+ *   THE CAP OVERHANGS. A cap that is merely a circle on a stick reads as a tree; the
+ *     characteristic thing is that it bulges outward BELOW its own top and curls under.
+ *   IT COOLS. White-hot at the moment of the flash, orange while it climbs, and ash grey as
+ *     it spreads — so the same shape tells you how long ago it happened.
+ *
+ * Drawn in world space so it stays over its crater while the camera moves, and clipped to
+ * the view band like everything else in this pass.
+ */
+#define NCLOUD 3
+static struct { float x, y, t; uint8_t on; } s_cloud[NCLOUD];
+
+void mb_fx_nuke(int cx, int cy)
+{
+    int slot = 0;
+    for (int i = 0; i < NCLOUD; i++) {                 /* the oldest is the one to steal */
+        if (!s_cloud[i].on) { slot = i; break; }
+        if (s_cloud[i].t > s_cloud[slot].t) slot = i;
+    }
+    s_cloud[slot].on = 1;
+    s_cloud[slot].x = (float)cx + 0.5f;
+    s_cloud[slot].y = (float)cy + 0.5f;
+    s_cloud[slot].t = 0.0f;
+}
+
+/* One pixel of the cloud, blended by heat. `heat` 0..1 runs ash -> orange -> white. */
+static inline void cloud_px(uint16_t *fb, int px, int py, float heat, float alpha)
+{
+    if (px < 0 || px >= 128 || py < 0 || py >= VIEW_H) return;
+    if (alpha <= 0.02f) return;
+    if (alpha > 1.0f) alpha = 1.0f;
+    uint16_t col;
+    if (heat <= 0.5f) {
+        /* ash grey to ember: the cloud after it has cooled */
+        col = lerp565(MOTE_RGB565(96, 92, 96), RAMP_FIRE[2], heat * 2.0f);
+    } else {
+        col = lerp565(RAMP_FIRE[2], RAMP_FIRE[5], (heat - 0.5f) * 2.0f);
+    }
+    fb[py * 128 + px] = lerp565(fb[py * 128 + px], col, alpha);
+}
+
+void mb_fx_draw_nuke(uint16_t *fb, int cam_x, int cam_y, float dt)
+{
+    for (int i = 0; i < NCLOUD; i++) {
+        if (!s_cloud[i].on) continue;
+        s_cloud[i].t += dt;
+        float t = s_cloud[i].t;
+        const float LIFE = 7.0f;
+        if (t > LIFE) { s_cloud[i].on = 0; continue; }
+
+        /* the ground zero, in screen pixels */
+        int gx = (int)(s_cloud[i].x * 8.0f) - cam_x;
+        int gy = (int)(s_cloud[i].y * 8.0f) - cam_y;
+
+        float rise = t < 1.4f ? (t / 1.4f) : 1.0f;      /* how far up the cap has got */
+        float age  = t / LIFE;                          /* how far through its life    */
+        float heat = 1.0f - age * 1.15f;                 /* white -> orange -> grey     */
+        if (heat < 0.0f) heat = 0.0f;
+        float fade = t > LIFE - 2.0f ? (LIFE - t) * 0.5f : 1.0f;
+
+        /* THE FLASH, first, and brighter than anything else on screen. */
+        if (t < 0.35f) {
+            int fr = (int)(10.0f + 30.0f * (t / 0.35f));
+            float fa = 1.0f - t / 0.35f;
+            for (int dy = -fr; dy <= fr; dy++)
+                for (int dx = -fr; dx <= fr; dx++) {
+                    if (dx * dx + dy * dy > fr * fr) continue;
+                    int px = gx + dx, py = gy + dy;
+                    if (px < 0 || px >= 128 || py < 0 || py >= VIEW_H) continue;
+                    fb[py * 128 + px] = lerp565(fb[py * 128 + px],
+                                                MOTE_RGB565(255, 250, 225), fa * 0.9f);
+                }
+        }
+
+        /* GEOMETRY. Held deliberately large: at eight pixels a tile a cloud that is
+         * physically to scale is a two-pixel thread, and the first attempt was exactly that
+         * — a wisp. This is a SILHOUETTE meant to be read from across the map. */
+        /* TALLER AND NARROWER. At 30 px with a wide flared base the cap sat straight on the
+         * ground and the whole thing read as a VOLCANO PLUME. The mushroom silhouette is a
+         * thin column with a cap several times its width, clearly clear of the ground. */
+        int stem_h = (int)(42.0f * rise);                /* the column's height, px */
+        int cap_y  = gy - stem_h;
+        float spread = 17.0f + 13.0f * (t / LIFE);       /* the cap keeps boiling outward */
+        int cap_w = (int)spread;
+        int cap_h = (int)(spread * 0.45f);
+
+        /* --- the stem: flared at the foot, pinched at the waist ---------------- */
+        for (int py = gy; py > gy - stem_h; py--) {
+            float up = (float)(gy - py) / (float)(stem_h > 1 ? stem_h : 1);
+            /* wide where the fireball sat, pinched, then widening into the cap: the pinch
+             * is the whole reason this reads as a mushroom rather than a chimney */
+            /* base 8, waist 3, and 5 where it feeds the cap: the cap is then five to nine
+             * times the waist, which is the ratio that makes the overhang unmistakable. */
+            float w = 3.0f + 5.0f * (1.0f - up) * (1.0f - up) * (1.0f - up)
+                           + 2.5f * up * up * up;
+            float lean = 3.0f * up * up;                 /* a slow lean, so it is not a ruler */
+            int cxp = gx + (int)lean, iw = (int)w;
+            for (int dx = -iw; dx <= iw; dx++) {
+                /* A PLATEAU, NOT A RAMP. A linear falloff to the edges leaves only a
+                 * two-pixel core visible once heat and fade are applied, which is what made
+                 * the first version a thread. This is opaque through the body and soft only
+                 * in the last pixel or two. */
+                float e = (1.0f - (float)(dx < 0 ? -dx : dx) / (w + 0.5f)) * 2.6f;
+                if (e > 1.0f) e = 1.0f;
+                unsigned h = px_hash(cxp + dx, py) ^ (unsigned)(t * 12.0f);
+                float n = 0.80f + 0.20f * (float)(h & 63) / 63.0f;
+                cloud_px(fb, cxp + dx, py, heat * (0.5f + 0.5f * up), e * n * fade);
+            }
+        }
+
+        /* --- the cap: an overhanging dome, widest below its own crown ----------- */
+        for (int dy = -cap_h; dy <= cap_h; dy++) {
+            /* THE OVERHANG. A circle on a stick reads as a tree; what reads as a detonation
+             * is a cap widest a little BELOW its top that curls under at the rim. */
+            float v = (float)dy / (float)(cap_h > 1 ? cap_h : 1);      /* -1 top, +1 bottom */
+            float prof = 1.0f - v * v * 0.5f;
+            if (v > 0.3f)  prof *= 1.0f - (v - 0.3f) * 1.15f;           /* curl under */
+            if (v < -0.6f) prof *= 1.0f + (v + 0.6f) * 0.9f;            /* round the crown */
+            if (prof < 0.05f) continue;
+            int w = (int)(cap_w * prof);
+            int py = cap_y + dy;
+            for (int dx = -w; dx <= w; dx++) {
+                float e = (1.0f - (float)(dx < 0 ? -dx : dx) / (float)(w + 1)) * 2.4f;
+                if (e > 1.0f) e = 1.0f;
+                unsigned h = px_hash(gx + dx, py) ^ (unsigned)(t * 9.0f);
+                float n = 0.78f + 0.22f * (float)(h & 63) / 63.0f;
+                /* hotter in the core, cooler at the rim, where the grey shows first */
+                float core = 1.0f - (float)(dx < 0 ? -dx : dx) / (float)(cap_w + 1);
+                cloud_px(fb, gx + dx, py, heat * (0.3f + 0.7f * core), e * n * fade);
+            }
+        }
+    }
+}
+
+void mb_fx_nuke_clear(void) { for (int i = 0; i < NCLOUD; i++) s_cloud[i].on = 0; }

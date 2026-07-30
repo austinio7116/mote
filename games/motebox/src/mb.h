@@ -62,6 +62,7 @@ enum {
     O_HALL1, O_HALL2, O_HALL3,
     O_HOUSE1, O_HOUSE2, O_HOUSE3,
     O_FARM, O_MINE, O_WOODCUT, O_BARRACKS, O_TEMPLE, O_TOWER, O_DOCK, O_WALL,
+    O_SILO,                  /* the end of the tech tree, made concrete */
     O_PLAN,                  /* a blueprint ghost: decided, not yet paid for */
     O_N
 };
@@ -130,10 +131,59 @@ extern const char *const MB_CREED_NAME[CREED_N];
 enum { TIER_CAMP = 0, TIER_HAMLET, TIER_VILLAGE, TIER_TOWN, TIER_CITY, TIER_N };
 extern const char *const MB_TIER_NAME[TIER_N];
 
-/* TECHS, in the order a kingdom gets them. Kingdom.tech is a COUNT of techs known, so
- * one comparison gates a building and the HUD number means something. */
-enum { TECH_NONE = 0, TECH_TOOLS, TECH_FARMING, TECH_MASONRY, TECH_WEAPONS,
-       TECH_WRITING, TECH_SEAFARING, TECH_ENGINEER, TECH_N };
+/* --- THE TECH TREE ------------------------------------------------------
+ *
+ * What this replaces was a LINE of seven: tools, farming, masonry, weapons, writing,
+ * seafaring, engineering, held as a COUNT, so "do you know masonry" was `tech >= 3`. It had
+ * two problems and the second is worse than the first. There were no branches, so every
+ * kingdom in every world followed the identical path; and every kingdom REACHED THE END —
+ * measured, all four at tech 7 by year 400 in every seed — after which research did nothing
+ * for the remaining centuries.
+ *
+ * This is a real graph: thirty-six techs over nine eras, each with prerequisites, held as a
+ * BITMASK so a gate is one AND. Kingdoms diverge because they pick what they need — a besieged
+ * one takes gunpowder, a rich coastal one takes navigation and banking — and the tree is deep
+ * enough that reaching the end is an achievement rather than a certainty.
+ *
+ * It ends where it has to end. A kingdom that reaches FISSION and ROCKETRY can build a silo,
+ * and a kingdom with a silo that is losing a war will use it.
+ */
+enum {
+    /* --- stone --- */
+    TECH_NONE = 0, TECH_TOOLS, TECH_AGRICULTURE, TECH_POTTERY,
+    /* --- bronze --- */
+    TECH_MASONRY, TECH_BRONZE, TECH_WHEEL, TECH_WRITING,
+    /* --- iron --- */
+    TECH_IRON, TECH_SEAFARING, TECH_ARCHITECTURE, TECH_CURRENCY,
+    /* --- classical --- */
+    TECH_ENGINEER, TECH_MATHS, TECH_CAVALRY, TECH_LAW,
+    /* --- medieval --- */
+    TECH_GUNPOWDER, TECH_NAVIGATION, TECH_BANKING, TECH_UNIVERSITY,
+    /* --- renaissance --- */
+    TECH_PRINTING, TECH_METALLURGY, TECH_SANITATION, TECH_ECONOMICS,
+    /* --- industrial --- */
+    TECH_STEAM, TECH_RAILWAY, TECH_CHEMISTRY, TECH_ELECTRIC,
+    /* --- modern --- */
+    TECH_COMBUSTION, TECH_FLIGHT, TECH_RADIO, TECH_MEDICINE,
+    /* --- atomic --- */
+    TECH_PHYSICS, TECH_FISSION, TECH_ROCKETRY, TECH_NUKE,
+    TECH_N
+};
+typedef char mb_tech_fits_a_mask[TECH_N <= 64 ? 1 : -1];   /* Kingdom.known is a uint64 */
+#define TECHB(t) ((uint64_t)1u << (t))
+
+enum { ERA_STONE = 0, ERA_BRONZE, ERA_IRON, ERA_CLASSICAL, ERA_MEDIEVAL,
+       ERA_RENAISSANCE, ERA_INDUSTRIAL, ERA_MODERN, ERA_ATOMIC, ERA_N };
+
+typedef struct {
+    const char *name;
+    uint8_t     era;
+    uint16_t    cost;        /* research points */
+    uint8_t     need[2];     /* prerequisites; TECH_NONE = none */
+} TechDef;
+extern const TechDef MB_TECH[TECH_N];
+extern const char *const MB_ERA_NAME[ERA_N];
+/* Kept for the HUD and the old call sites: the NAME of a tech id. */
 extern const char *const MB_TECH_NAME[TECH_N];
 enum { NEAR_PREY = 0, NEAR_MATE, NEAR_THREAT, NEAR_ENEMY };
 enum { CAUSE_AGE = 0, CAUSE_WOUNDS, CAUSE_EATEN, CAUSE_SLAIN, CAUSE_DISASTER,
@@ -249,7 +299,12 @@ typedef struct {
     uint16_t pop;
     uint32_t war_with;      /* bit per kingdom */
     uint32_t ally_with;
-    uint8_t  exhaustion, tech, creed, ntowns;
+    uint8_t  exhaustion, tech, creed, ntowns;   /* `tech` is now a COUNT known */
+    uint64_t known;         /* TECHB() bitmask — the actual gate */
+    uint8_t  era;           /* ERA_*, derived from what it knows */
+    uint8_t  goal;          /* the tech it is working toward */
+    uint8_t  nuked;         /* strikes it has launched, for the chronicle */
+    uint16_t bank;          /* research banked toward `goal` */
     uint16_t name;
 } Kingdom;
 
@@ -394,6 +449,12 @@ void mb_civ_rehome(void);              /* the homeless join a village or found o
 int  mb_civ_count(int v, uint8_t obj);   /* how many of `obj` this village has */
 int  mb_civ_tier(int v);               /* TIER_* from pop and what is standing */
 int  mb_civ_tech_ok(int v, int need);  /* does this village's kingdom know `need`? */
+int  mb_tech_known(int k, int t);      /* by kingdom */
+int  mb_tech_avail(int k, int t);      /* prerequisites met and not yet known */
+void mb_nuke_strike(int from_k, int x, int y);
+void mb_fx_nuke(int cx, int cy);                 /* start a mushroom cloud */
+void mb_fx_draw_nuke(uint16_t *fb, int cam_x, int cam_y, float dt);
+void mb_fx_nuke_clear(void);
 void mb_civ_specialise(int v);         /* what the surrounding land makes it good at */
 int  mb_civ_prof_pick(int v);          /* the trade a newborn of this village takes up */
 void mb_civ_deliver(int v, int kind, int amount);   /* a caravan arrives */

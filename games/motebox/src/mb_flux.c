@@ -890,3 +890,70 @@ void mb_flux_test_event(const char *name, uint32_t r)
         return;
     }
 }
+/* --- THE BOMB ------------------------------------------------------------
+ *
+ * The tech tree has to end somewhere that MATTERS, and the reason to put a nuclear strike
+ * there rather than another building is that it is the one thing a kingdom can do that
+ * permanently changes the world rather than its own corner of it.
+ *
+ * Four things happen, in the order you would see them:
+ *   THE FLASH, as particles, bright and brief.
+ *   THE CRATER, dug rather than painted: elevation gone, everything standing gone, and the
+ *     ground turned to scorched rock and rubble. It is permanent — nothing in the healing
+ *     rules brings scorched rock back to grass — so a world that ends this way carries the
+ *     mark for the rest of its history, which is the point.
+ *   THE FIRESTORM, a ring of fire outside the crater, which then does what fire does.
+ *   THE FALLOUT, as lingering flux that sickens and kills anything that walks through it.
+ *
+ * It is deliberately far bigger than any god power. A meteor is a disaster; this is a
+ * decision somebody made.
+ */
+void mb_nuke_strike(int from_k, int cx, int cy)
+{
+    if (!mb_in(cx, cy)) return;
+    const int rad = 7;                     /* the crater */
+    const int burn = 12;                   /* and the firestorm around it */
+
+    mb_snd(SND_BOOM);
+    mb_fx_impact((float)cx, (float)cy, FXE_FIRE, 3.0f);
+    mb_fx_nuke(cx, cy);                    /* and the shape everyone recognises */
+    for (int i = 0; i < 24; i++) {
+        float a = (float)i * 0.2617f;
+        mb_fx_spawn((float)cx + (float)i * 0.05f, (float)cy - 2.0f - (float)i * 0.15f,
+                    PK_RING, FXE_FIRE, a, 0.9f);
+    }
+
+    for (int y = cy - burn; y <= cy + burn; y++)
+        for (int x = cx - burn; x <= cx + burn; x++) {
+            if (!mb_in(x, y)) continue;
+            int d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+            int i = AT(x, y);
+            if (d2 <= rad * rad) {
+                if (mb_land(mb_w.biome[i])) {
+                    mb_w.biome[i] = (d2 <= (rad / 2) * (rad / 2)) ? B_RUBBLE : B_SCORCHED;
+                    mb_w.obj[i] = O_NONE;
+                    mb_w.road[i] = 0;
+                    mb_w.elev[i] = (uint8_t)(mb_w.elev[i] > 24 ? mb_w.elev[i] - 24 : 0);
+                }
+                /* NO ACID HERE. The first version used FX_ACID as "fallout", and acid
+                 * dissolves terrain one rung at a time all the way down to open sea — so
+                 * within a minute the crater had filled with BRIGHT BLUE WATER and a nuclear
+                 * strike looked like somebody had dug a lake. The scar has to be dry. */
+            } else if (d2 <= burn * burn) {
+                if ((mb_rand((uint32_t)i * 2654435761u) & 3) != 0) mb_flux_ignite(x, y, 0);
+            }
+        }
+    mb_unit_area(cx, cy, rad + 2, UAP_KILL, CAUSE_DISASTER);
+    /* RADIATION SICKNESS, on the survivors just outside the crater. There is no fallout flux
+     * kind and adding one would touch six tables, but the plague machinery already models
+     * exactly this: an illness that kills slowly, spreads to whoever tends the sick, and
+     * leaves the immune behind. So the ring outside the blast is where the world learns what
+     * the bomb really costs, weeks after the flash. */
+    mb_unit_area(cx, cy, burn, UAP_TRAIT, TR_PLAGUE | TR_CONTAGIOUS);
+
+    if (from_k > 0 && from_k < MAXK && mb_k[from_k].alive) mb_k[from_k].nuked++;
+    mb_chron_disaster("the sky burns", cx, cy);
+#if MOTE_HOST
+    fprintf(stderr, "NUCLEAR STRIKE by kingdom %d at %d,%d\n", from_k, cx, cy);
+#endif
+}

@@ -244,24 +244,37 @@ int mb_village_found(int sp, int cx, int cy, int kingdom)
  * WorldBox's costs, near enough verbatim, because they are well tuned and they
  * make a stockpile legible: you can look at a village's store and know what it
  * is about to do. */
-typedef struct { uint8_t obj, wood, stone, iron, gold, cap, tech; const char *name; } BuildDef;
+typedef struct { uint8_t obj, wood, stone, iron, gold, cap, tech, grand; const char *name; } BuildDef;
 static const BuildDef BUILD[] = {
     /* The last column is the TECH a kingdom must know. This is where research stops being
      * a number in the HUD and becomes architecture: an ignorant kingdom's towns are timber
      * and thatch for ever, and you can see at a glance which crown is going somewhere. */
-    { O_HOUSE1,   4,  0,  0,  0, 40, TECH_NONE,   "house"    },
-    { O_HOUSE2,   4,  4,  0,  0, 40, TECH_TOOLS,  "house"    },
-    { O_HOUSE3,  10, 10, 10, 10, 40, TECH_MASONRY,"house"    },
-    { O_FARM,     6,  0,  0,  0,  4, TECH_NONE,   "farm"     },
-    { O_WOODCUT,  8,  0,  0,  0,  2, TECH_TOOLS,  "camp"     },
-    { O_MINE,    12,  0,  0,  0,  1, TECH_TOOLS,  "mine"     },
-    { O_BARRACKS, 8, 12,  4,  0,  1, TECH_WEAPONS,"barracks" },
-    { O_TEMPLE,  10, 14,  0,  4,  1, TECH_WRITING,"temple"   },
-    { O_TOWER,    6, 12,  0,  0,  3, TECH_MASONRY,"tower"    },
-    { O_HALL2,   10, 10,  0,  0,  1, TECH_TOOLS,  "hall"     },
-    { O_HALL3,   10, 10, 10,  0,  1, TECH_MASONRY,"castle"   },
-    { O_WALL,     2, 10,  0,  0, 60, TECH_MASONRY,"wall"     },   /* stone, and a lot of it */
-    { O_DOCK,     8,  4,  0,  0,  2, TECH_SEAFARING, "dock"  },
+    { O_HOUSE1,   4,  0,  0,  0, 40, TECH_NONE,   0, "house"    },
+    { O_HOUSE2,   4,  4,  0,  0, 40, TECH_TOOLS,  0, "house"    },
+    { O_HOUSE3,  10, 10, 10, 10, 40, TECH_MASONRY,0, "house"    },
+    { O_FARM,     6,  0,  0,  0,  4, TECH_NONE,   0, "farm"     },
+    { O_WOODCUT,  8,  0,  0,  0,  2, TECH_TOOLS,  0, "camp"     },
+    { O_MINE,    12,  0,  0,  0,  1, TECH_TOOLS,  0, "mine"     },
+    { O_BARRACKS, 8, 12,  4,  0,  1, TECH_BRONZE, 0, "barracks" },
+    { O_TEMPLE,  10, 14,  0,  4,  1, TECH_WRITING, 0, "temple"  },
+    { O_TOWER,    6, 12,  0,  0,  3, TECH_MASONRY,0, "tower"    },
+    { O_HALL2,   10, 10,  0,  0,  1, TECH_TOOLS,  0, "hall"     },
+    { O_HALL3,   10, 10, 10,  0,  1, TECH_MASONRY,0, "castle"   },
+    { O_WALL,     2, 10,  0,  0, 60, TECH_MASONRY,0, "wall"     },   /* stone, and a lot of it */
+    { O_DOCK,     8,  4,  0,  0,  2, TECH_SEAFARING, 0, "dock"  },
+    /* THE SILO. The tree has to end somewhere you can see, and a kingdom that has spent
+     * three thousand research on the bomb should have something standing to show it. One per
+     * city, stone and iron and a great deal of gold. */
+    /* COSTED IN WHAT ACTUALLY EXISTS. Three attempts at this failed for the same reason and
+     * it took an inspect dump to see it: a 600-year city holds grain 600, timber 2, stone 0,
+     * IRON 0, GOLD 0. There is no iron or gold income in this economy at all — miners gather
+     * but nothing delivers it — so any cost in those currencies can never be paid, and two
+     * kingdoms with the bomb had no silo between them across five worlds. Timber and stone
+     * are the only real currencies, so a silo is priced in those: a huge concrete project,
+     * paid for over a generation by the blueprint machinery below.
+     *
+     * (The missing iron and gold income is a separate defect and is worth its own pass.) */
+    { O_SILO,    20, 40,  0,  0,  1, TECH_NUKE,      1, "silo"  },
 };
 #define NBUILD ((int)(sizeof BUILD / sizeof BUILD[0]))
 
@@ -293,9 +306,100 @@ const char *const MB_PROF_NAME[PROF_N] = {
 };
 const char *const MB_CREED_NAME[CREED_N] = { "-", "SUN", "MOON", "STONE", "TIDE" };
 const char *const MB_TIER_NAME[TIER_N] = { "camp", "hamlet", "village", "TOWN", "CITY" };
-const char *const MB_TECH_NAME[TECH_N] = {
-    "-", "tools", "farming", "masonry", "weapons", "writing", "seafaring", "engineering",
+const char *const MB_ERA_NAME[ERA_N] = {
+    "STONE", "BRONZE", "IRON", "CLASSICAL", "MEDIEVAL",
+    "RENAISSANCE", "INDUSTRIAL", "MODERN", "ATOMIC",
 };
+
+/* THE TREE. Costs rise by era; prerequisites are what make it a graph rather than a queue,
+ * and what makes two kingdoms in the same world develop differently — each takes what it
+ * needs, so a besieged crown ends up with gunpowder and metallurgy while a rich coastal one
+ * has navigation, banking and economics. */
+#define P2(a, b) { a, b }
+#define P1(a)    { a, TECH_NONE }
+#define P0       { TECH_NONE, TECH_NONE }
+const TechDef MB_TECH[TECH_N] = {
+    /* name            era               cost  prerequisites */
+    { "-",             ERA_STONE,           0, P0 },
+    { "tools",         ERA_STONE,          90, P0 },
+    { "agriculture",   ERA_STONE,         110, P0 },
+    { "pottery",       ERA_STONE,         120, P0 },
+
+    { "masonry",       ERA_BRONZE,        190, P1(TECH_TOOLS) },
+    { "bronze",        ERA_BRONZE,        200, P1(TECH_TOOLS) },
+    { "the wheel",     ERA_BRONZE,        180, P1(TECH_TOOLS) },
+    { "writing",       ERA_BRONZE,        220, P1(TECH_POTTERY) },
+
+    { "ironwork",      ERA_IRON,          320, P1(TECH_BRONZE) },
+    { "seafaring",     ERA_IRON,          300, P2(TECH_WHEEL, TECH_POTTERY) },
+    { "architecture",  ERA_IRON,          340, P1(TECH_MASONRY) },
+    { "currency",      ERA_IRON,          310, P1(TECH_WRITING) },
+
+    { "engineering",   ERA_CLASSICAL,     460, P2(TECH_ARCHITECTURE, TECH_IRON) },
+    { "mathematics",   ERA_CLASSICAL,     440, P2(TECH_WRITING, TECH_CURRENCY) },
+    { "cavalry",       ERA_CLASSICAL,     420, P2(TECH_IRON, TECH_WHEEL) },
+    { "law",           ERA_CLASSICAL,     450, P2(TECH_WRITING, TECH_AGRICULTURE) },
+
+    { "gunpowder",     ERA_MEDIEVAL,      620, P2(TECH_IRON, TECH_MATHS) },
+    { "navigation",    ERA_MEDIEVAL,      600, P2(TECH_SEAFARING, TECH_MATHS) },
+    { "banking",       ERA_MEDIEVAL,      590, P2(TECH_CURRENCY, TECH_LAW) },
+    { "the university",ERA_MEDIEVAL,      640, P2(TECH_MATHS, TECH_LAW) },
+
+    { "printing",      ERA_RENAISSANCE,   800, P2(TECH_UNIVERSITY, TECH_WRITING) },
+    { "metallurgy",    ERA_RENAISSANCE,   860, P2(TECH_GUNPOWDER, TECH_ENGINEER) },
+    { "sanitation",    ERA_RENAISSANCE,   820, P2(TECH_UNIVERSITY, TECH_ENGINEER) },
+    { "economics",     ERA_RENAISSANCE,   780, P2(TECH_BANKING, TECH_UNIVERSITY) },
+
+    { "steam",         ERA_INDUSTRIAL,   1050, P2(TECH_METALLURGY, TECH_ECONOMICS) },
+    { "the railway",   ERA_INDUSTRIAL,   1100, P2(TECH_STEAM, TECH_ENGINEER) },
+    { "chemistry",     ERA_INDUSTRIAL,   1080, P2(TECH_SANITATION, TECH_METALLURGY) },
+    { "electricity",   ERA_INDUSTRIAL,   1120, P2(TECH_STEAM, TECH_PRINTING) },
+
+    { "combustion",    ERA_MODERN,       1400, P2(TECH_STEAM, TECH_CHEMISTRY) },
+    { "flight",        ERA_MODERN,       1500, P2(TECH_COMBUSTION, TECH_ELECTRIC) },
+    { "radio",         ERA_MODERN,       1380, P2(TECH_ELECTRIC, TECH_PRINTING) },
+    { "medicine",      ERA_MODERN,       1440, P2(TECH_SANITATION, TECH_CHEMISTRY) },
+
+    { "physics",       ERA_ATOMIC,       1900, P2(TECH_ELECTRIC, TECH_MATHS) },
+    { "fission",       ERA_ATOMIC,       2300, P2(TECH_PHYSICS, TECH_CHEMISTRY) },
+    { "rocketry",      ERA_ATOMIC,       2200, P2(TECH_FLIGHT, TECH_PHYSICS) },
+    { "the bomb",      ERA_ATOMIC,       3000, P2(TECH_FISSION, TECH_ROCKETRY) },
+};
+#undef P0
+#undef P1
+#undef P2
+/* A short table is silent, and this game has been bitten by that twice. */
+typedef char mb_techdef_complete[(sizeof MB_TECH / sizeof MB_TECH[0]) == TECH_N ? 1 : -1];
+
+const char *const MB_TECH_NAME[TECH_N] = {
+    "-", "tools", "agriculture", "pottery",
+    "masonry", "bronze", "wheel", "writing",
+    "ironwork", "seafaring", "architecture", "currency",
+    "engineering", "maths", "cavalry", "law",
+    "gunpowder", "navigation", "banking", "university",
+    "printing", "metallurgy", "sanitation", "economics",
+    "steam", "railway", "chemistry", "electricity",
+    "combustion", "flight", "radio", "medicine",
+    "physics", "fission", "rocketry", "THE BOMB",
+};
+typedef char mb_technames_complete[(sizeof MB_TECH_NAME / sizeof MB_TECH_NAME[0]) == TECH_N ? 1 : -1];
+
+int mb_tech_known(int k, int t)
+{
+    if (k <= 0 || k >= MAXK || !mb_k[k].alive) return t <= TECH_NONE;
+    return (mb_k[k].known & TECHB(t)) != 0;
+}
+
+int mb_tech_avail(int k, int t)
+{
+    if (t <= TECH_NONE || t >= TECH_N) return 0;
+    if (mb_tech_known(k, t)) return 0;
+    for (int i = 0; i < 2; i++) {
+        int need = MB_TECH[t].need[i];
+        if (need != TECH_NONE && !mb_tech_known(k, need)) return 0;
+    }
+    return 1;
+}
 
 /* --- TIER: what kind of place this is ---------------------------------
  * From population and civic fabric together, because either alone lies: forty people in
@@ -314,8 +418,8 @@ int mb_civ_tier(int v)
 
 int mb_civ_tech_ok(int v, int need)
 {
-    int k = mb_v[v].kingdom;
-    return (k > 0 && k < MAXK && mb_k[k].alive) ? (mb_k[k].tech >= need) : (need <= TECH_TOOLS);
+    if (need <= TECH_NONE) return 1;
+    return mb_tech_known(mb_v[v].kingdom, need);
 }
 
 /* --- RESEARCH: a kingdom learns from its towns ------------------------
@@ -327,26 +431,89 @@ int mb_civ_tech_ok(int v, int need)
  * banks it, and each tech costs more than the last. Which means a rich, populous, pious
  * kingdom really does out-develop a poor one, and you can see it in their architecture.
  */
+/* WHICH TECH A KINGDOM CHOOSES is what makes two of them diverge. Cheapest-available would
+ * make every crown follow the same path again, so the pick is weighted by circumstance: a
+ * kingdom at war reaches for weapons, a coastal one for the sea, a rich one for money, and a
+ * plagued one for medicine. The result is that the same world grows a naval power and a
+ * gunpowder power out of the same tree. */
+static int research_pick(int k)
+{
+    const Kingdom *K = &mb_k[k];
+    int best = TECH_NONE, bestscore = -1;
+    int atwar = K->war_with != 0, coastal = 0, rich = 0;
+    for (int v = 1; v < MAXV; v++) {
+        if (!mb_v[v].alive || mb_v[v].kingdom != k) continue;
+        if (mb_v[v].coast >= 8) coastal = 1;
+        if (mb_v[v].gold > 40) rich = 1;
+    }
+    for (int t = TECH_TOOLS; t < TECH_N; t++) {
+        if (!mb_tech_avail(k, t)) continue;
+        /* cheap is good — a kingdom takes the next rung it can reach */
+        int score = 4000 - (int)MB_TECH[t].cost;
+        switch (t) {
+        case TECH_BRONZE: case TECH_IRON: case TECH_CAVALRY:
+        case TECH_GUNPOWDER: case TECH_METALLURGY: case TECH_COMBUSTION:
+            if (atwar) score += 700; break;
+        case TECH_SEAFARING: case TECH_NAVIGATION:
+            if (coastal) score += 600; break;
+        case TECH_CURRENCY: case TECH_BANKING: case TECH_ECONOMICS:
+            if (rich) score += 400; break;
+        case TECH_SANITATION: case TECH_MEDICINE:
+            if (K->exhaustion > 40) score += 500; break;
+        /* AND THE BOMB IS ALWAYS WANTED once it is in reach, which is the whole point of
+         * putting it at the end of the tree rather than behind a die roll. */
+        case TECH_FISSION: case TECH_ROCKETRY: case TECH_NUKE:
+            score += 900; break;
+        default: break;
+        }
+        /* a little per-kingdom bias, so two crowns in identical circumstances still differ */
+        score += (int)(mb_rand((uint32_t)(k * 7717u + (uint32_t)t * 131u)) % 200u);
+        if (score > bestscore) { bestscore = score; best = t; }
+    }
+    return best;
+}
+
 static void research_step(int v)
 {
     Village *V = &mb_v[v];
     int k = V->kingdom;
     if (k <= 0 || k >= MAXK || !mb_k[k].alive) return;
-    if (mb_k[k].tech >= TECH_N - 1) return;
+    Kingdom *K = &mb_k[k];
 
-    int gain = V->pop / 6;                             /* people thinking */
-    gain += mb_civ_count(v, O_TEMPLE) * 3;              /* somewhere to write it down */
-    if (V->gold > 20) gain += 1;                       /* and the means to pay for it */
-    if (V->creed == mb_k[k].creed && V->creed) gain += 1;   /* a kingdom that agrees */
+    if (!K->goal || mb_tech_known(k, K->goal)) {
+        K->goal = (uint8_t)research_pick(k);
+        K->bank = 0;
+        if (!K->goal) return;                       /* the tree is finished */
+    }
+
+    int gain = V->pop / 6;                          /* people thinking */
+    gain += mb_civ_count(v, O_TEMPLE) * 3;          /* somewhere to write it down */
+    if (V->gold > 20) gain += 1;                    /* and the means to pay for it */
+    if (V->creed == K->creed && V->creed) gain += 1;
+    /* THE TREE PAYS FOR ITSELF. Without these a thirty-six tech ladder costing twenty
+     * thousand points is unreachable in four hundred years — the deep eras would be
+     * decoration. Each is a tech whose whole purpose is to make research faster. */
+    if (mb_tech_known(k, TECH_WRITING))    gain += 1;
+    if (mb_tech_known(k, TECH_MATHS))      gain += 2;
+    if (mb_tech_known(k, TECH_UNIVERSITY)) gain += 4;
+    if (mb_tech_known(k, TECH_PRINTING))   gain += 4;
+    if (mb_tech_known(k, TECH_ELECTRIC))   gain += 6;
+    if (mb_tech_known(k, TECH_RADIO))      gain += 6;
     if (gain <= 0) return;
 
-    V->research = (uint16_t)(V->research + gain);
-    int cost = 120 + mb_k[k].tech * 160;               /* each one dearer than the last */
-    if (V->research >= cost) {
-        V->research = 0;
-        mb_k[k].tech++;
-        mb_chron_disaster(MB_TECH_NAME[mb_k[k].tech < TECH_N ? mb_k[k].tech : 0], V->x, V->y);
-    }
+    K->bank = (uint16_t)(K->bank + gain);
+    if (K->bank < MB_TECH[K->goal].cost) return;
+
+    K->known |= TECHB(K->goal);
+    K->tech++;
+    K->bank = 0;
+    /* the era is the highest one it has anything from */
+    int era = ERA_STONE;
+    for (int t = TECH_TOOLS; t < TECH_N; t++)
+        if (mb_tech_known(k, t) && MB_TECH[t].era > era) era = MB_TECH[t].era;
+    K->era = (uint8_t)era;
+    mb_chron_disaster(MB_TECH_NAME[K->goal], V->x, V->y);
+    K->goal = (uint8_t)research_pick(k);
 }
 
 /* --- SPECIALISATION: the land decides what a town is for --------------
@@ -612,6 +779,21 @@ static void lord_think(int v)
      * wanted. The wall sat last and was therefore never laid once, even after the gate
      * was fixed. So one build in three goes to the wall while it is unfinished: a real
      * town raises houses and curtain wall in the same decades, not one after the other. */
+    /* A SILO GETS ITS OWN TURN, for the same reason the wall does. The lord takes the first
+     * affordable want and stops, so anything at the BACK of the list is built only when
+     * nothing ahead of it is wanted — and beds, bread and timber are always wanted. Put at
+     * the end, the silo was never built once: measured across three 600-year worlds, two
+     * kingdoms held the bomb and there were ZERO silos standing. That is the third feature
+     * to die this way after the wall and the dock. */
+    /* NO TURN GATE AND NO TIER GATE. Both were belt-and-braces on top of a mechanism that
+     * already self-limits — a grand project becomes THE plan, and a town with a plan chooses
+     * nothing else until it is paid for — and together they made silos so rare that four
+     * kingdoms with the bomb produced one silo across five 900-year worlds and not a single
+     * strike. If a kingdom has spent three thousand research on the bomb, its towns want the
+     * thing it bought. */
+    if (mb_civ_tech_ok(v, TECH_NUKE) && mb_civ_count(v, O_SILO) < 1)
+        want_list[nwant++] = 13;
+
     int wall_turn = (V->hall >= 2 && mb_civ_count(v, O_WALL) < 44 &&
                      (V->threat > 25 || V->pop >= 14 || V->stone > 40) &&
                      ((mb_w.tick >> 6) % 3) == 0);
@@ -661,6 +843,7 @@ static void lord_think(int v)
      * what lets a kingdom settle across water, so seaborne colonisation fired in one world
      * of four and looked broken. A farming town on a coast still builds a jetty. */
     if (V->coast >= 8 && mb_civ_count(v, O_DOCK) < 2)          want_list[nwant++] = 12;
+
     if (V->threat > 40 && mb_civ_count(v, O_BARRACKS) < 1)     want_list[nwant++] = 6;
     if (V->hall == 1)                                         want_list[nwant++] = 9;
     if (V->hall == 2)                                         want_list[nwant++] = 10;
@@ -684,6 +867,19 @@ static void lord_think(int v)
         const BuildDef *B = &BUILD[want_list[i]];
         if (B->cap && mb_civ_count(v, B->obj) >= B->cap) continue;
         if (B->tech && !mb_civ_tech_ok(v, B->tech)) continue;   /* not yet known */
+        /* A GRAND PROJECT IS COMMITTED TO, NOT AFFORDED.
+         *
+         * The affordability filter below is what kept the silo out of the world entirely: a
+         * late-game town holds grain 600, timber 2, stone 0, iron 0, gold 0 — measured —
+         * because the lord spends everything on the first affordable want every single visit.
+         * So nothing expensive is ever chosen, and therefore never saved for, and three
+         * kingdoms with the bomb had no silo between them.
+         *
+         * The blueprint ghost already solves this and was not being used for it: once a build
+         * is PLANNED, try_build() waits until the stores cover it. So a grand project skips
+         * the filter, becomes the plan, and the town saves — which is also the only way this
+         * game can ever have a build that takes a generation. */
+        if (B->grand) { want = want_list[i]; break; }
         /* Affordable now, or within a stewardship-flavoured stretch: a good steward
          * will start something it is close to paying for, a poor one will not. */
         int slack = V->lord_stew / 12;
@@ -1340,8 +1536,54 @@ static void loyalty_step(int v)
  * Every 32 ticks per kingdom. Scores every neighbour it shares a border with and
  * takes the highest of war / peace / nothing. Grudges are read straight out of
  * the chronicle, which is why kings remember who sacked what. */
+/* WHO FIRES, AND WHEN. A crown does not open with the bomb: it has to be at war, it has to
+ * have a silo standing, and it has to be LOSING — war weariness past a threshold, or fewer
+ * towns than the enemy it is fighting. That makes the strike the last act of a kingdom that
+ * is going under rather than an opening move, which is both the more interesting story and
+ * the reason the tree's last rung is worth reaching.
+ *
+ * It aims at the enemy's largest city, because that is what a desperate crown would do. */
+static void nuke_think(int k)
+{
+    Kingdom *K = &mb_k[k];
+    if (!K->alive || !K->war_with) return;
+    if (!mb_tech_known(k, TECH_NUKE)) return;
+    if ((mb_w.tick % 52)) return;                       /* the decision is taken once a year */
+
+    int silos = 0, mytowns = 0;
+    for (int v = 1; v < MAXV; v++) {
+        if (!mb_v[v].alive || mb_v[v].kingdom != k) continue;
+        mytowns++;
+        silos += mb_civ_count(v, O_SILO);
+    }
+    if (!silos) return;
+
+    /* the enemy it is most losing to */
+    int foe = 0, foetowns = 0;
+    for (int e = 1; e < MAXK; e++) {
+        if (e == k || !(K->war_with & (1u << e)) || !mb_k[e].alive) continue;
+        int t = 0;
+        for (int v = 1; v < MAXV; v++) if (mb_v[v].alive && mb_v[v].kingdom == e) t++;
+        if (t > foetowns) { foetowns = t; foe = e; }
+    }
+    if (!foe) return;
+    int desperate = (K->exhaustion > 35) || (foetowns >= mytowns);
+    if (!desperate) return;
+    if ((mb_rand((uint32_t)(k * 40503u + (uint32_t)mb_w.tick)) & 1)) return;   /* not every year */
+
+    int target = 0;
+    for (int v = 1; v < MAXV; v++)
+        if (mb_v[v].alive && mb_v[v].kingdom == foe &&
+            (!target || mb_v[v].pop > mb_v[target].pop)) target = v;
+    if (!target) return;
+
+    mb_nuke_strike(k, mb_v[target].x, mb_v[target].y);
+    K->exhaustion = (uint8_t)(K->exhaustion > 30 ? K->exhaustion - 30 : 0);
+}
+
 static void king_think(int k)
 {
+    nuke_think(k);
     Kingdom *K = &mb_k[k];
     if (!K->alive) return;
 
