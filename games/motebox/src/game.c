@@ -1150,7 +1150,16 @@ static void g_init(void)
                 /* CLAMPED. Placing them at s_cx +/- an offset with no bound put units off the
                  * map when the chosen town was near an edge, and a unit whose tile index is
                  * out of range segfaults the moment anything reads the terrain under it. */
-                int px = s_cx + side * (3 + (put % 5));
+                /* FOUR TO EIGHT CELLS EACH SIDE, which is a firing line.
+                 *
+                 * At the original three to seven both sides were in melee within a tick, so a
+                 * capture of a "battle" was two crowds touching with nothing in the air. I
+                 * widened it to ten-to-sixteen and it got worse, not better: nearest() searches
+                 * the 3x3 grid of eight-cell buckets around a unit, so at twenty-plus cells
+                 * apart neither side can SEE the other, nobody picks JOB_FIGHT, and forty
+                 * mustered soldiers walk home. Measured "fighting 0" for a hundred and ninety
+                 * frames. This sits inside the search and outside sword reach. */
+                int px = s_cx + side * (4 + (put % 5));
                 int py = s_cy - 4 + (put % 9);
                 if (px < 1) px = 1; if (px > MW - 2) px = MW - 2;
                 if (py < 1) py = 1; if (py > MH - 2) py = MH - 2;
@@ -1200,6 +1209,72 @@ static void g_init(void)
      * married" are four questions a picture cannot answer, and each of them has been
      * silently broken at least once — Kingdom.tech sat unused for the whole of development
      * because nothing ever printed it. */
+    /* MOTEBOX_BEAST=<n> summons kaiju n at the biggest village and reports, tick by tick, what
+     * it actually did to the world and whether the militia brought it down. Seven monsters that
+     * all used to run the same six lines of code is exactly the sort of thing a screenshot
+     * cannot tell you about, and "each one is different now" is not a claim to make from having
+     * typed it. Deltas are measured over the whole map, so nothing hides. */
+    {
+        const char *bs = getenv("MOTEBOX_BEAST");
+        if (bs && *bs) {
+            extern int mb_shots_fired[MB_SHOT_N];
+            int which = atoi(bs);
+            static const char *const NAME[] = { "TITAN", "MEDUSA", "REAPER", "DRAGON",
+                                                "GOLEM", "EYE", "ANGEL" };
+            int v = 0;
+            for (int i = 1; i < MAXV; i++)
+                if (mb_v[i].alive && (!v || mb_v[i].pop > mb_v[v].pop)) v = i;
+            if (!v) { fprintf(stderr, "beast: no village to attack\n"); }
+            else {
+                int b0[8] = {0}, pop0 = mb_pop_civ();
+                #define TALLY(dst) do { \
+                    for (int q = 0; q < 8; q++) dst[q] = 0; \
+                    for (int i2 = 0; i2 < NC; i2++) { \
+                        uint8_t o = mb_w.obj[i2], bm = mb_w.biome[i2]; \
+                        if (mb_is_build(o)) dst[0]++; \
+                        if (o == O_BOULDER) dst[1]++; \
+                        if (o == O_GRAVE)   dst[2]++; \
+                        if (bm == B_RUBBLE) dst[3]++; \
+                        if (mb_fkind(mb_w.flux[i2]) == FX_FIRE) dst[4]++; \
+                    } \
+                    for (int i2 = 0; i2 < mb_nu; i2++) \
+                        if (mb_u[i2].alive && (mb_u[i2].traits & TR_MADNESS)) dst[5]++; \
+                } while (0)
+                TALLY(b0);
+                mb_agent_spawn(AG_KAIJU0 + which, mb_v[v].x - 6, mb_v[v].y);
+                int shots0 = 0;
+                for (int q = 0; q < MB_SHOT_N; q++) shots0 += mb_shots_fired[q];
+                int gone_at = -1, last_hp = 6000, hp0 = 6000;
+                for (int t = 0; t < 900; t++) {
+                    mb_w.tick++;
+                    mb_flux_step(); mb_unit_step(); mb_civ_step(); mb_fx_step(0.125f);
+                    int ax, ay, ak, live = 0;
+                    for (int ai = 0; ai < mb_agent_max(); ai++)
+                        if (mb_agent_get(ai, &ax, &ay, &ak) && ak >= AG_KAIJU0) {
+                            live = 1; last_hp = mb_agent_hp(ai);
+                        }
+                    if (!live) { gone_at = t; break; }
+                }
+                /* KILLED means its hit points ran out, not merely that it is no longer there:
+                 * a kaiju lives 900 ticks and then leaves on its own. */
+                const char *fate = (gone_at >= 0 && gone_at < 880)
+                                 ? "KILLED by the militia"
+                                 : (last_hp < hp0 ? "survived, but wounded"
+                                                  : "survived untouched");
+                int b1[8]; TALLY(b1);
+                int shots1 = 0;
+                for (int q = 0; q < MB_SHOT_N; q++) shots1 += mb_shots_fired[q];
+                fprintf(stderr,
+                    "beast %-7s builds %+d  boulders %+d  graves %+d  rubble %+d  "
+                    "burning %+d  mad %+d  pop %+d  shots %d  %s\n",
+                    NAME[which], b1[0]-b0[0], b1[1]-b0[1], b1[2]-b0[2], b1[3]-b0[3],
+                    b1[4]-b0[4], b1[5]-b0[5], mb_pop_civ()-pop0, shots1-shots0, fate);
+                fprintf(stderr, "             hp %d/6000 after %d ticks\n",
+                        last_hp, gone_at >= 0 ? gone_at : 900);
+                #undef TALLY
+            }
+        }
+    }
     if (getenv("MOTEBOX_LOG")) {
         /* WHAT THE LOG ACTUALLY SHOWS. The engine's menu blocks, so the frame counter never
          * advances inside it and a submenu cannot be screenshotted — and "the event log has
@@ -1269,6 +1344,13 @@ static void g_init(void)
                     if (o == O_ORE) dep_i++;
                     else if (o == O_GOLD || o == O_SILVER || o == O_GEM) dep_g++;
                 }
+                int temples = 0;
+                for (int i = 0; i < NC; i++) if (mb_w.obj[i] == O_TEMPLE) temples++;
+                /* THE FAITH CEILING IS THE REAL COST OF A POWER. The reserve is capped at
+                 * 400 + 120 a temple, and four of the eight beasts cost MORE THAN 400 — so
+                 * with no temple standing they cannot be cast at all, ever, at any income. */
+                fprintf(stderr, "faith: %d held, +%d/yr, cap %d (%d temples)\n",
+                        mb_faith(), mb_faith_income(), 400 + temples * 120, temples);
                 fprintf(stderr, "metal: held %d iron / %d gold; MINED %d iron / %d gold "
                                 "(%d mines, %d stations, %d ore seams, %d gold seams)\n",
                         iron, gold, mb_mined_iron, mb_mined_gold,
@@ -1820,6 +1902,23 @@ static void g_overlay(uint16_t *fb)
         /* THE CLOUD LAST, over everything. It is the one effect that is meant to dominate
          * the frame — a strike should be unmistakable from across the map, and a mushroom
          * behind a row of houses is not. */
+#if MOTE_HOST
+        if (getenv("MOTEBOX_SHOTDBG")) {
+            static int fno;
+            extern int mb_shots_fired[MB_SHOT_N];
+            int tot = 0;
+            for (int q = 0; q < MB_SHOT_N; q++) tot += mb_shots_fired[q];
+            int must = 0, fighting = 0;
+            for (int q = 1; q < MAXV; q++) if (mb_v[q].alive && mb_v[q].mustering) must++;
+            for (int q = 0; q < mb_nu; q++)
+                if (mb_u[q].alive && mb_u[q].job == JOB_FIGHT) fighting++;
+            if (fno < 200 && (fno % 20) == 0)
+                fprintf(stderr, "frame %3d live %d fired %d armies-allowed %d "
+                                "mustering %d fighting %d\n",
+                        fno, mb_fx_shots_live(), tot, mb_age_allows_armies(), must, fighting);
+            fno++;
+        }
+#endif
         mb_fx_draw_shots(fb, s_cam_x, s_cam_y, s_dt);
         mb_fx_draw_nuke(fb, s_cam_x, s_cam_y, s_dt);
     }

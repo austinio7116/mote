@@ -1997,10 +1997,24 @@ static void king_think(int k)
     if (K->war_with) { if (K->exhaustion < 60) K->exhaustion++; }
     else if (K->exhaustion) K->exhaustion--;
 
-    /* muster: every village of a kingdom at war raises what it can */
-    for (int v = 1; v < MAXV; v++)
-        if (mb_v[v].alive && mb_v[v].kingdom == k)
-            mb_v[v].mustering = (uint8_t)(K->war_with && mb_age_allows_armies() ? 1 : 0);
+    /* muster: every village of a kingdom at war raises what it can — AND every village with
+     * a monster walking at it, whoever it belongs to. A kaiju used to be fought only by
+     * whoever happened to be holding a spear already, so a summoned titan walked through a
+     * kingdom at peace completely unopposed. A town watching Death come up the road raises
+     * militia regardless of its foreign policy. */
+    for (int v = 1; v < MAXV; v++) {
+        if (!mb_v[v].alive || mb_v[v].kingdom != k) continue;
+        int beast = 0;
+        for (int ai = 0; ai < mb_agent_max() && !beast; ai++) {
+            int ax, ay, ak;
+            if (!mb_agent_get(ai, &ax, &ay, &ak)) continue;
+            if (ak < AG_KAIJU0 || ak == AG_ANGEL) continue;   /* an angel is not a threat */
+            int dx = ax - mb_v[v].x, dy = ay - mb_v[v].y;
+            if (dx * dx + dy * dy <= 24 * 24) beast = 1;
+        }
+        mb_v[v].mustering = (uint8_t)(((K->war_with || beast) && mb_age_allows_armies())
+                                      ? 1 : 0);
+    }
 }
 
 /* How much border two kingdoms share, as a proxy for friction. Counting claimed

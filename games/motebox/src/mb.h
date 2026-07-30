@@ -96,7 +96,7 @@ static inline int mb_is_build(uint8_t o) { return o >= O_BUILD0 && o < O_N; }
 enum { FX_NONE = 0, FX_FIRE, FX_LAVA, FX_WATER, FX_ACID, FX_FROST, FX_N };
 /* disasters that WALK rather than spread: a place that keeps acting for a while */
 enum { AG_TORNADO = 0, AG_VENT,
-       AG_KAIJU0, AG_TITAN = AG_KAIJU0, AG_MEDUSA, AG_REAPER, AG_PHOENIX,
+       AG_KAIJU0, AG_TITAN = AG_KAIJU0, AG_MEDUSA, AG_REAPER, AG_DRAGON,
        AG_GOLEM, AG_EYE, AG_ANGEL,
        AG_MAW,                       /* the endgame void: it never stops */
        AG_N };
@@ -479,6 +479,7 @@ enum { MB_SHOT_ROCK = 0, MB_SHOT_ARROW, MB_SHOT_BULLET, MB_SHOT_SHELL, MB_SHOT_M
        MB_SHOT_N };
 void mb_fx_shot(float fx, float fy, float tx, float ty, int kind);
 void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt);
+int  mb_fx_shots_live(void);
 void mb_fx_shots_clear(void);
 int  mb_war_shot_kind(int k);        /* what this kingdom's soldiers fire */
 int  mb_war_shot_range(int kind);    /* how far, in tiles */

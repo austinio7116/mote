@@ -38,7 +38,7 @@ enum {
     /* CURSE */
     PW_PLAGUE, PW_MADNESS, PW_CURSE, PW_WEAKEN, PW_FAMINE, PW_BARREN, PW_GRUDGE, PW_MARK,
     /* BEASTS */
-    PW_TITAN, PW_MEDUSA, PW_REAPER, PW_PHOENIX, PW_GOLEM, PW_SWARM, PW_EYE, PW_ANGEL
+    PW_TITAN, PW_MEDUSA, PW_REAPER, PW_DRAGON, PW_GOLEM, PW_SWARM, PW_EYE, PW_ANGEL
 };
 
 typedef struct {
@@ -122,14 +122,18 @@ static const Power P_BEASTS[8] = {
     /* Each icon is the TOP-LEFT cell of that kaiju's 2x2 block on the bosses sheet.
      * They were half-cells of the wrong block before — the "titan" icon was the right
      * half of the great eye, and the "golem" the right half of the maw. */
-    { PW_TITAN,   "SKULL TITAN", &bosses_img,  4, 3, 0, 0, 500 },
-    { PW_MEDUSA,  "MEDUSA",      &bosses_img,  8, 1, 0, 0, 380 },
-    { PW_REAPER,  "REAPER",      &bosses_img, 10, 1, 0, 0, 460 },
-    { PW_PHOENIX, "PHOENIX",     &bosses_img,  2, 3, 0, 0, 420 },
-    { PW_GOLEM,   "GOLEM",       &bosses_img,  2, 1, 0, 0, 300 },
-    { PW_SWARM,   "SWARM",       &animals_img, 0, 4, 2, 0, 200 },
-    { PW_EYE,     "THE EYE",     &bosses_img,  6, 1, 0, 0, 340 },
-    { PW_ANGEL,   "ANGEL",       &bosses_img,  0, 5, 0, 0, 550 },
+    /* PRICED AGAINST THE CEILING, which is the thing that actually decides whether a power
+     * exists. The reserve caps at 700 now (mb_faith.c) and these were 200-550 against a cap
+     * of 400 — half of them unreachable. A beast should be a season's devotion, not a
+     * lifetime's: at a couple of hundred Faith a year the dearest is about two years of it. */
+    { PW_TITAN,   "SKULL TITAN", &bosses_img, 14, 1, 0, 0, 400 },
+    { PW_MEDUSA,  "MEDUSA",      &bosses_img,  8, 1, 0, 0, 300 },
+    { PW_REAPER,  "REAPER",      &bosses_img,  4, 3, 0, 0, 360 },
+    { PW_DRAGON,  "DRAGON",      &bosses_img,  2, 3, 0, 0, 320 },
+    { PW_GOLEM,   "GOLEM",       &bosses_img,  2, 1, 0, 0, 240 },
+    { PW_SWARM,   "SWARM",       &animals_img, 0, 4, 2, 0, 160 },
+    { PW_EYE,     "THE EYE",     &bosses_img,  6, 1, 0, 0, 280 },
+    { PW_ANGEL,   "ANGEL",       &bosses_img,  0, 5, 0, 0, 420 },
 };
 
 typedef struct { const char *name; const Power *p; } Tab;
@@ -512,7 +516,7 @@ static void cast_at(int id, int r, int cx, int cy)
     case PW_MARK:     s_last_reach = mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_MARKED); break;
 
     /* --- BEASTS: the kaiju ------------------------------------------- */
-    case PW_TITAN: case PW_MEDUSA: case PW_REAPER: case PW_PHOENIX:
+    case PW_TITAN: case PW_MEDUSA: case PW_REAPER: case PW_DRAGON:
     case PW_GOLEM: case PW_EYE:   case PW_ANGEL: {
         /* AN EXPLICIT MAP, because arithmetic across two enums is exactly the bug this
          * file's own header warns about. PW_SWARM sits between GOLEM and EYE and has no
@@ -524,7 +528,7 @@ static void cast_at(int id, int r, int cx, int cy)
             [PW_TITAN - PW_TITAN]   = AG_TITAN,
             [PW_MEDUSA - PW_TITAN]  = AG_MEDUSA,
             [PW_REAPER - PW_TITAN]  = AG_REAPER,
-            [PW_PHOENIX - PW_TITAN] = AG_PHOENIX,
+            [PW_DRAGON - PW_TITAN] = AG_DRAGON,
             [PW_GOLEM - PW_TITAN]   = AG_GOLEM,
             [PW_SWARM - PW_TITAN]   = AG_N,        /* not an agent; handled below */
             [PW_EYE - PW_TITAN]     = AG_EYE,

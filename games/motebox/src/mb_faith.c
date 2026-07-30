@@ -58,7 +58,12 @@ void mb_faith_step(void)
         if (!u->alive || u->sp >= SP_CIV_N) continue;
         /* A happy worshipper tithes; a miserable one is a net loss, which is the
          * whole feedback loop in one line. Piety doubles it either way. */
-        int v = u->happy / 24;
+        /* EVERY WORSHIPPER TITHES SOMETHING. This was happy/24 alone, which is zero for a
+         * contented villager and only pays out for the ecstatic — so measured income was
+         * +1 A YEAR at year 100 with two hundred people alive, and the whole Pantheon mode
+         * was a menu of powers nobody could afford. A god's power is what its followers give
+         * it, and a follower gives something. */
+        int v = 1 + u->happy / 24;
         if (u->traits & TR_PIOUS)   v *= 2;
         if (u->traits & TR_BLESSED) v += 2;
         if (u->traits & TR_CURSED)  v -= 2;
@@ -81,7 +86,13 @@ void mb_faith_step(void)
      * forever — the entire trade-off the mode exists for evaporated. A god's power
      * is what its followers give it NOW, not a hoard: the cap rises with the
      * temples you inspired, so a bigger religion really does hold more. */
-    int32_t cap = 400 + temples * 120;
+    /* SEVEN HUNDRED, not four. The ceiling was 400 and the ANGEL costs 550, the SKULL TITAN
+     * 500, the REAPER 460 and the PHOENIX 420 — so four of the eight beasts could not be cast
+     * at any income, ever, and the wheel offered them anyway. Measured: cap 400 with ZERO
+     * temples standing at year 100, 400 and 700 across a world, because a temple needs gold
+     * and gold did not exist until the mines were fixed. The base now clears the dearest
+     * power with room to spare, and temples still mean a bigger religion holds more. */
+    int32_t cap = 700 + temples * 120;
     if (cap > 6000) cap = 6000;
 
     s_income = gain;

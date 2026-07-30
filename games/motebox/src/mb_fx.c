@@ -738,8 +738,21 @@ static struct {
     float x0, y0, x1, y1;      /* tile coordinates, start and end */
     float t;                   /* 0..1 along the flight */
     float speed;               /* 1/seconds */
+    uint32_t born;             /* the tick it was fired: see the expiry note below */
     uint8_t kind, on;
 } s_shot[NSHOT];
+
+/* A SHOT HAS TO DIE ON THE SIMULATION'S CLOCK, not on the renderer's.
+ *
+ * The flight was advanced only inside mb_fx_draw_shots(), which the headless fast-forward
+ * never calls — so every shot fired in four hundred years of simulated history stayed in the
+ * pool at t = 0 for ever. Measured: all twenty-four slots occupied and frozen, and the first
+ * rendered frame of a battle inherited two dozen tracers about to fly between the positions
+ * of soldiers who had been dead for centuries. Nothing new could look wrong, because nothing
+ * new was visible at all.
+ *
+ * Ticks, not seconds, because ticks are what both paths share. */
+#define SHOT_TICKS 6
 
 static const struct { float speed, arc; uint16_t core, trail; } SHOT_DEF[MB_SHOT_N] = {
     /*                 speed  arc     core                        trail                  */
@@ -756,12 +769,17 @@ void mb_fx_shot(float fx, float fy, float tx, float ty, int kind)
 {
     if (kind < 0 || kind >= MB_SHOT_N) return;
     int slot = -1;
+    /* retire anything stale first, so a jammed pool cannot outlive the battle that filled it */
+    for (int i = 0; i < NSHOT; i++)
+        if (s_shot[i].on && (uint32_t)mb_w.tick - s_shot[i].born > SHOT_TICKS)
+            s_shot[i].on = 0;
     for (int i = 0; i < NSHOT; i++) if (!s_shot[i].on) { slot = i; break; }
     if (slot < 0) {                                   /* full: steal the furthest along */
         slot = 0;
         for (int i = 1; i < NSHOT; i++) if (s_shot[i].t > s_shot[slot].t) slot = i;
     }
     s_shot[slot].on = 1; s_shot[slot].t = 0.0f;
+    s_shot[slot].born = (uint32_t)mb_w.tick;
     s_shot[slot].x0 = fx; s_shot[slot].y0 = fy;
     s_shot[slot].x1 = tx; s_shot[slot].y1 = ty;
     s_shot[slot].kind = (uint8_t)kind;
@@ -784,10 +802,21 @@ static inline void shot_px(uint16_t *fb, int px, int py, uint16_t col, float a)
     fb[py * 128 + px] = lerp565(fb[py * 128 + px], col, a);
 }
 
+/* HOW MANY ARE IN THE AIR RIGHT NOW. Three screenshot hunts failed to catch a single tracer
+ * and I kept adjusting the frame number instead of asking whether there was ever anything to
+ * photograph. There is no substitute for counting. */
+int mb_fx_shots_live(void)
+{
+    int n = 0;
+    for (int i = 0; i < NSHOT; i++) if (s_shot[i].on) n++;
+    return n;
+}
+
 void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt)
 {
     for (int i = 0; i < NSHOT; i++) {
         if (!s_shot[i].on) continue;
+        if ((uint32_t)mb_w.tick - s_shot[i].born > SHOT_TICKS) { s_shot[i].on = 0; continue; }
         const int kind = s_shot[i].kind;
         const uint16_t core = SHOT_DEF[kind].core, trail = SHOT_DEF[kind].trail;
         s_shot[i].t += s_shot[i].speed * dt;

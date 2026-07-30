@@ -1238,14 +1238,19 @@ void mb_draw_mortal(int cam_x, int cam_y)
         static const AgSpr AG_SPR[AG_N] = {
             [AG_TORNADO] = { &crowns_fx_img, 3, 7, 1 },   /* the smoke swirl */
             [AG_VENT]    = { &crowns_fx_img, 5, 5, 1 },   /* the cone        */
-            [AG_TITAN]   = { &bosses_img,    4, 3, 2 },   /* the blue skull  */
-            [AG_MEDUSA]  = { &bosses_img,    8, 1, 2 },   /* green tentacles */
-            [AG_REAPER]  = { &bosses_img,   10, 1, 2 },   /* skeleton, sword */
-            [AG_PHOENIX] = { &bosses_img,    2, 3, 2 },   /* the gold flame  */
-            [AG_GOLEM]   = { &bosses_img,    2, 1, 2 },   /* grey armour     */
-            [AG_EYE]     = { &bosses_img,    6, 1, 2 },   /* the great eye   */
-            [AG_ANGEL]   = { &bosses_img,    0, 5, 2 },   /* winged, gilded  */
-            [AG_MAW]     = { &bosses_img,    0, 1, 2 },   /* the red maw     */
+            /* CHECKED AGAINST THE SHEET, cell by cell, because two of these named one
+             * monster and drew another: the "SKULL TITAN" was pointing at (4,3), which is
+             * the HOODED REAPER WITH A SCYTHE, and the "REAPER" at (10,1), which is an
+             * ordinary skeleton with a sword and a shield. So the titan was Death and Death
+             * was a footsoldier. The blocks start on even columns and ODD rows. */
+            [AG_TITAN]   = { &bosses_img,   14, 1, 2 },   /* the giant white skull       */
+            [AG_MEDUSA]  = { &bosses_img,    8, 1, 2 },   /* green snake hair            */
+            [AG_REAPER]  = { &bosses_img,    4, 3, 2 },   /* hooded, scythe: Death itself */
+            [AG_DRAGON]  = { &bosses_img,    2, 3, 2 },   /* gold, winged                */
+            [AG_GOLEM]   = { &bosses_img,    2, 1, 2 },   /* grey armour                 */
+            [AG_EYE]     = { &bosses_img,    6, 1, 2 },   /* the great eye               */
+            [AG_ANGEL]   = { &bosses_img,    0, 5, 2 },   /* haloed, winged              */
+            [AG_MAW]     = { &bosses_img,    4, 1, 2 },   /* dripping jaws, green gullet */
         };
         const AgSpr *a = &AG_SPR[kind >= 0 && kind < AG_N ? kind : AG_TORNADO];
         if (!a->img) continue;

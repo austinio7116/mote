@@ -604,6 +604,17 @@ typedef struct {
 #define NAGENT 6
 static Agent s_ag[NAGENT];
 
+/* A KAIJU IS FOUR CELLS, NOT ONE. The sprite is 2x2 and stands with its feet on the agent's
+ * cell, so its body covers (x..x+1, y-1..y) — and every effect used to radiate from the single
+ * anchor cell, which put a dragon's fire under its left foot and a golem's rubble behind its
+ * heel. Effects walk this footprint, so what the beast does comes out of where the beast IS. */
+static const int8_t BODY_X[4] = { 0, 1, 0, 1 };
+static const int8_t BODY_Y[4] = { -1, -1, 0, 0 };
+
+#define KAIJU_LIFE   900     /* ticks; see mb_agent_spawn */
+#define KAIJU_HP    6000     /* and it takes a siege to bring one down */
+#define KAIJU_SHAKE   28     /* and it only shakes for the first few seconds of them */
+
 void mb_agent_spawn(int kind, int x, int y)
 {
     int slot = -1;
@@ -621,8 +632,20 @@ void mb_agent_spawn(int kind, int x, int y)
     if (!a->dx && !a->dy) a->dx = 1;
     a->life = (kind == AG_TORNADO) ? 90 : (kind == AG_VENT ? 40 :
               (kind == AG_MAW ? 60000 : 900));      /* the Maw never stops */
-    a->hp = (kind >= AG_KAIJU0 && kind < AG_MAW) ? 900 : 0;
-    if (kind >= AG_KAIJU0 && kind < AG_MAW) mb_chron_disaster("a titan walks", x, y);
+    /* SIX THOUSAND, not nine hundred. Once villagers would actually go and fight a monster,
+     * nine hundred turned out to be one second of a mob: a dozen spears reach it at twenty-five
+     * damage a blow, so the titan fell in EIGHT TICKS and the golem in six. A kaiju should
+     * rampage for a while and then be brought down — the story is the siege, not the swat. */
+    a->hp = (kind >= AG_KAIJU0 && kind < AG_MAW) ? 6000 : 0;
+    /* NAME IT. Every one of the seven announced itself as "a titan walks", so the log could
+     * not tell you which of them was loose — and they no longer do remotely the same thing. */
+    if (kind >= AG_KAIJU0 && kind < AG_MAW) {
+        static const char *const WALKS[] = {
+            "a titan walks", "a medusa walks", "Death walks", "a DRAGON wakes",
+            "a golem walks", "the Eye opens", "an angel descends",
+        };
+        mb_chron_disaster(WALKS[kind - AG_KAIJU0], x, y);
+    }
     if (kind == AG_MAW) mb_chron_disaster("the Maw opens", x, y);
 }
 
@@ -708,32 +731,173 @@ static void agent_step(void)
                 int d = dx * dx + dy * dy;
                 if (d < bestd) { bestd = d; tx = mb_v[v].x; ty = mb_v[v].y; }
             }
-            if ((r & 3) != 3) {                      /* three ticks in four it moves */
-                a->x = (int16_t)(a->x + (tx > a->x ? 1 : (tx < a->x ? -1 : 0)));
-                a->y = (int16_t)(a->y + (ty > a->y ? 1 : (ty < a->y ? -1 : 0)));
+            /* THE GOLEM IS SLOW. It is made of rock; a thing made of rock should look like
+             * it weighs something, and a monster you can outrun is a different threat from
+             * one you cannot. */
+            int slow = (a->kind == AG_GOLEM);
+            if ((r & 3) != 3 && !(slow && (r & 4))) {   /* three ticks in four it moves */
+                int sx = (tx > a->x ? 1 : (tx < a->x ? -1 : 0));
+                int sy = (ty > a->y ? 1 : (ty < a->y ? -1 : 0));
+                a->x = (int16_t)(a->x + sx);
+                a->y = (int16_t)(a->y + sy);
+                /* remember the heading: the phoenix breathes along it */
+                if (sx || sy) { a->dx = (int8_t)sx; a->dy = (int8_t)sy; }
             }
-            /* the angel is the one that heals rather than harms: it smites the
-             * marked and the cursed, and blesses everyone else */
-            if (a->kind == AG_ANGEL) {
-                mb_unit_area(a->x, a->y, 3, UAP_HEAL, 0);
-                mb_unit_area(a->x, a->y, 3, UAP_UNTRAIT, TR_CURSED | TR_MADNESS);
-                mb_fx_burst((float)a->x, (float)a->y, 3, PK_STAR, FXE_HOLY, 2.0f, 0.8f);
-            } else {
-                mb_unit_area(a->x, a->y, 2, UAP_HURT, 60);
-                /* buildings in reach come down; a phoenix burns instead */
-                for (int dy = -1; dy <= 1; dy++)
-                    for (int dx = -1; dx <= 1; dx++) {
-                        int bx = a->x + dx, by = a->y + dy;
+
+            /* --- WHAT EACH BEAST ACTUALLY DOES ---------------------------------------
+             *
+             * Six of the seven used to do the SAME thing: hurt everything within two cells
+             * and flatten buildings within one. So a medusa, a reaper, a golem, a great eye
+             * and a skull titan were one monster wearing five sprites, and the only way to
+             * tell which you had summoned was to read the icon you had just clicked. A
+             * bestiary needs verbs, not skins — and each of these is a verb you can see from
+             * God's Eye without being told which beast is loose. */
+            switch (a->kind) {
+
+            case AG_ANGEL:
+                /* the one that mends: it lifts curses and madness and heals the rest */
+                for (int f = 0; f < 4; f++) {
+                    int bx = a->x + BODY_X[f], by = a->y + BODY_Y[f];
+                    mb_unit_area(bx, by, 3, UAP_HEAL, 0);
+                    mb_unit_area(bx, by, 3, UAP_UNTRAIT, TR_CURSED | TR_MADNESS);
+                }
+                mb_fx_burst((float)a->x + 0.5f, (float)a->y - 0.5f, 4,
+                            PK_STAR, FXE_HOLY, 2.0f, 0.8f);
+                break;
+
+            case AG_DRAGON: {
+                /* IT BREATHES, and this is the one people summon a god for.
+                 *
+                 * The breath leaves the MOUTH — the front-top of a 2x2 body, one cell along
+                 * the heading — not the anchor cell under its feet, which is where the old
+                 * ring of ignition came from and read as a bird standing in a campfire.
+                 * Seven cells deep, widening from one to five, hottest at the throat and
+                 * guttering out at the tip, with the flame drawn as three sparking jets along
+                 * its length so the shape reads before the ground catches. Everything in the
+                 * cone burns; buildings are left standing to burn down on their own, which is
+                 * slower and worse than being flattened. */
+                int hx = a->dx ? a->dx : 1, hy = a->dy;
+                int mx = a->x + (hx > 0 ? 1 : 0) + hx, my = a->y - 1 + hy;
+                for (int step = 0; step < 7; step++) {
+                    int spread = step / 2;                     /* 0,0,1,1,2,2,3 -> a cone */
+                    if (spread > 2) spread = 2;
+                    for (int off = -spread; off <= spread; off++) {
+                        int bx = mx + hx * step - hy * off;
+                        int by = my + hy * step + hx * off;
                         if (!mb_in(bx, by)) continue;
-                        if (a->kind == AG_PHOENIX) { add_to(mb_w.flux, bx, by, FX_FIRE, 12); continue; }
-                        if (mb_is_build(mb_w.obj[AT(bx, by)])) {
+                        if (!mb_land(mb_w.biome[AT(bx, by)])) continue;
+                        add_to(mb_w.flux, bx, by, FX_FIRE, (uint8_t)(15 - step));
+                    }
+                    if ((step & 2) == 0)
+                        mb_fx_burst((float)(mx + hx * step), (float)(my + hy * step),
+                                    1 + spread, PK_SPARK, FXE_FIRE, 4.0f - step * 0.4f, 0.7f);
+                    mb_unit_area(mx + hx * step, my + hy * step, spread,
+                                 UAP_HURT, 55 - step * 5);
+                }
+                break;
+            }
+
+            case AG_MEDUSA:
+                /* IT PETRIFIES. Everything that meets its eye becomes stone, so it kills
+                 * without breaking anything and leaves a field of boulders behind it —
+                 * a track you can still read across the map a century later. */
+                for (int f = 0; f < 4; f++) {
+                    int cx0 = a->x + BODY_X[f], cy0 = a->y + BODY_Y[f];
+                    for (int dy = -2; dy <= 2; dy++)
+                        for (int dx = -2; dx <= 2; dx++) {
+                            int bx = cx0 + dx, by = cy0 + dy;
+                            if (!mb_in(bx, by) || !mb_land(mb_w.biome[AT(bx, by)])) continue;
+                            if (mb_w.obj[AT(bx, by)]) continue;
+                            if ((int)((r >> ((dx + dy + f + 5) & 15)) & 15) < 3)
+                                mb_w.obj[AT(bx, by)] = O_BOULDER;   /* the statues it makes */
+                        }
+                    mb_unit_area(cx0, cy0, 2, UAP_KILL, CAUSE_DISASTER);
+                }
+                mb_fx_burst((float)a->x + 0.5f, (float)a->y - 0.5f, 3,
+                            PK_RING, FXE_FROST, 1.2f, 0.8f);
+                break;
+
+            case AG_REAPER:
+                /* IT REAPS, and takes nothing else. No building falls and no ground is
+                 * spoiled — the town is simply emptied, and everyone it takes leaves a GRAVE,
+                 * which is what the undead rising feeds on. Two disasters that chain into each
+                 * other are worth more than two that do not. */
+                for (int f = 0; f < 4; f++) {
+                    int cx0 = a->x + BODY_X[f], cy0 = a->y + BODY_Y[f];
+                    for (int dy = -3; dy <= 3; dy++)
+                        for (int dx = -3; dx <= 3; dx++) {
+                            if (dx * dx + dy * dy > 9) continue;
+                            int bx = cx0 + dx, by = cy0 + dy;
+                            if (!mb_in(bx, by) || !mb_land(mb_w.biome[AT(bx, by)])) continue;
+                            if (mb_w.obj[AT(bx, by)]) continue;
+                            if ((int)((r >> ((dx + dy + f + 6) & 15)) & 31) < 4)
+                                mb_w.obj[AT(bx, by)] = O_GRAVE;
+                        }
+                    mb_unit_area(cx0, cy0, 3, UAP_KILL, CAUSE_DISASTER);
+                }
+                mb_fx_burst((float)a->x + 0.5f, (float)a->y - 0.5f, 4,
+                            PK_SMOKE, FXE_VOID, 1.0f, 1.0f);
+                break;
+
+            case AG_EYE:
+                /* IT LOOKS AT YOU. The great eye kills nobody: it curses and enrages over a
+                 * wide circle and lets the town do the rest, which is the most frightening of
+                 * the seven precisely because nothing visibly attacks. The mad do not pray
+                 * either, so it drains the Faith of whoever called it. */
+                for (int f = 0; f < 4; f++) {
+                    int cx0 = a->x + BODY_X[f], cy0 = a->y + BODY_Y[f];
+                    mb_unit_area(cx0, cy0, 5, UAP_TRAIT, TR_MADNESS | TR_CURSED);
+                    mb_unit_area(cx0, cy0, 5, UAP_RAGE, 0);
+                }
+                mb_fx_burst((float)a->x + 0.5f, (float)a->y - 0.5f, 6,
+                            PK_RING, FXE_VOID, 0.8f, 1.0f);
+                break;
+
+            case AG_GOLEM:
+                /* IT CRUSHES. Slow, and it does not knock a building down so much as bury it:
+                 * everything under its four cells goes to rubble, the ground with it, and the
+                 * rubble stays. A golem leaves a road of ruin exactly its own width. */
+                for (int f = 0; f < 4; f++)
+                    for (int dy = -1; dy <= 1; dy++)
+                        for (int dx = -1; dx <= 1; dx++) {
+                            int bx = a->x + BODY_X[f] + dx, by = a->y + BODY_Y[f] + dy;
+                            if (!mb_in(bx, by) || !mb_land(mb_w.biome[AT(bx, by)])) continue;
                             mb_w.obj[AT(bx, by)] = O_NONE;
                             mb_w.biome[AT(bx, by)] = B_RUBBLE;
                         }
-                    }
-                mb_fx_burst((float)a->x, (float)a->y, 2, PK_SMOKE, FXE_VOID, 1.5f, 0.9f);
+                mb_unit_area(a->x, a->y, 2, UAP_HURT, 70);
+                mb_fx_burst((float)a->x + 0.5f, (float)a->y - 0.5f, 3,
+                            PK_SMOKE, FXE_ASH, 1.4f, 1.0f);
+                break;
+
+            default:
+                /* AG_TITAN and anything new: the wrecker. Its verb is DEMOLITION — it takes
+                 * buildings down over a wider reach than anything else and leaves the people
+                 * to flee, which is why it is the one you summon at a city. */
+                for (int f = 0; f < 4; f++) {
+                    int cx0 = a->x + BODY_X[f], cy0 = a->y + BODY_Y[f];
+                    mb_unit_area(cx0, cy0, 2, UAP_HURT, 60);
+                    for (int dy = -2; dy <= 2; dy++)
+                        for (int dx = -2; dx <= 2; dx++) {
+                            int bx = cx0 + dx, by = cy0 + dy;
+                            if (!mb_in(bx, by)) continue;
+                            if (mb_is_build(mb_w.obj[AT(bx, by)])) {
+                                mb_w.obj[AT(bx, by)] = O_NONE;
+                                mb_w.biome[AT(bx, by)] = B_RUBBLE;
+                            }
+                        }
+                }
+                mb_fx_burst((float)a->x + 0.5f, (float)a->y - 0.5f, 3,
+                            PK_SMOKE, FXE_VOID, 1.5f, 0.9f);
+                break;
             }
-            mb_fx_shake(1.6f);
+            /* THE GROUND ONLY SHAKES WHILE IT ARRIVES. This was an unconditional shake every
+             * tick of a nine-hundred-tick life, so a medusa that nobody killed rattled the
+             * screen for two solid minutes and the shake stopped meaning anything. A few
+             * seconds of it is an entrance; the rest is a headache. */
+            if (a->life > KAIJU_LIFE - KAIJU_SHAKE)
+                mb_fx_shake(a->kind == AG_GOLEM ? 2.4f : 1.6f);
+
         } else if (a->kind == AG_MAW) {
             /* THE MAW: a void that eats the world and never stops. It grows
              * outward one ring at a time, and nothing puts it back. */

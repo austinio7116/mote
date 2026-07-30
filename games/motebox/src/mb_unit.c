@@ -478,6 +478,27 @@ static void think(int i)
             int e = nearest(i, x, y, NEAR_ENEMY);
             int v = 55 + (u->traits & TR_BRAVE ? 20 : 0) - (u->traits & TR_COWARD ? 30 : 0);
             if (e >= 0 && v > bestv) { bestv = v; best = JOB_FIGHT; u->target = (uint16_t)AT(mb_u[e].x >> 4, mb_u[e].y >> 4); }
+            /* AND A MONSTER COUNTS AS SOMEONE TO FIGHT, which it did not. The execution side
+             * of JOB_FIGHT knew how to march on a kaiju and shoot it, but nothing ever CHOSE
+             * the job unless an enemy UNIT was already in sight — so an army mustered against
+             * a titan and then went back to hauling timber past it. Measured: six of the seven
+             * beasts finished a full nine-hundred-tick life at 900/900 hit points, completely
+             * unopposed. A monster in the fields is a better reason to pick up a spear than a
+             * border dispute, so it scores higher. */
+            if (e < 0) {
+                int ax, ay, ak, bestd = 1 << 30;
+                for (int ai = 0; ai < mb_agent_max(); ai++) {
+                    if (!mb_agent_get(ai, &ax, &ay, &ak)) continue;
+                    if (ak < AG_KAIJU0 || ak == AG_ANGEL) continue;
+                    int dx = ax - x, dy = ay - y, d = dx * dx + dy * dy;
+                    if (d < bestd && d <= 30 * 30) { bestd = d; }
+                }
+                int vb = 62 + (u->traits & TR_BRAVE ? 20 : 0)
+                            - (u->traits & TR_COWARD ? 30 : 0);
+                if (bestd < (1 << 30) && vb > bestv) {
+                    bestv = vb; best = JOB_FIGHT; u->target = 0xFFFF;
+                }
+            }
         }
     }
 
@@ -608,11 +629,39 @@ static void act(int i)
 
     case JOB_FIGHT: {
         int e = nearest(i, x, y, NEAR_ENEMY);
-        if (e < 0) e = nearest(i, x, y, NEAR_THREAT);   /* a beast will do */
-        /* and a titan is a target too: this is how a kingdom kills a kaiju */
+        if (e < 0) e = nearest(i, x, y, NEAR_THREAT);   /* a wild beast will do */
+        /* A KAIJU IS A TARGET LIKE ANY OTHER, and it was not one. The only way anybody ever
+         * hit one was to be standing next to it already with no other enemy in sight — nothing
+         * walked toward it and nothing SHOT at it, so a dragon took no arrows and a titan took
+         * no shells however far a kingdom had got up the weapons tree. An army marches on it
+         * and fires the same rock, arrow, ball, shell or missile it would use on a rival, with
+         * the same tracer, and brings it down slowly because it has nine hundred hit points. */
         if (e < 0) {
-            if (mb_agent_hurt(x, y, 20 + (u->traits & TR_TOUGH ? 10 : 0))) u->kills++;
-            u->job = JOB_IDLE; break;
+            int ax, ay, ak, bestd = 1 << 30, bx = -1, by = -1;
+            for (int ai = 0; ai < mb_agent_max(); ai++) {
+                if (!mb_agent_get(ai, &ax, &ay, &ak)) continue;
+                if (ak < AG_KAIJU0 || ak == AG_ANGEL) continue;
+                int dx = ax - x, dy = ay - y, d = dx * dx + dy * dy;
+                if (d < bestd) { bestd = d; bx = ax; by = ay; }
+            }
+            if (bx < 0) { u->job = JOB_IDLE; break; }
+            int kk2 = u->village ? mb_v[u->village].kingdom : 0;
+            int shk2 = mb_war_shot_kind(kk2);
+            int rng2 = mb_war_shot_range(shk2);
+            /* A SPEAR DOES LESS TO A KAIJU THAN TO A MAN, which is the whole point of one.
+             * At full melee damage a dozen militia deleted six thousand hit points in a few
+             * ticks; this makes it a grind, and the weapons tree still matters because the
+             * shot scales with it. */
+            if (bestd <= 6) {                       /* in reach: strike it */
+                if (mb_agent_hurt(x, y, 9 + (u->traits & TR_TOUGH ? 5 : 0))) u->kills++;
+            } else if (bestd <= rng2 * rng2 && (r & 3) == 0) {
+                mb_fx_shot((float)x, (float)y, (float)bx, (float)by, shk2);
+                if (mb_agent_hurt(bx, by, 3 + shk2 * 3)) u->kills++;
+                if (bestd > 16) step_toward(u, bx, by);
+            } else {
+                step_toward(u, bx, by);             /* march on it */
+            }
+            break;
         }
         int ex = mb_u[e].x >> 4, ey = mb_u[e].y >> 4;
         int d2 = (ex - x) * (ex - x) + (ey - y) * (ey - y);
