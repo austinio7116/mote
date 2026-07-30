@@ -1246,7 +1246,10 @@ void mb_draw_mortal(int cam_x, int cam_y)
             [AG_TITAN]   = { &bosses_img,   14, 1, 2 },   /* the giant white skull       */
             [AG_MEDUSA]  = { &bosses_img,    8, 1, 2 },   /* green snake hair            */
             [AG_REAPER]  = { &bosses_img,    4, 3, 2 },   /* hooded, scythe: Death itself */
-            [AG_DRAGON]  = { &bosses_img,    2, 3, 2 },   /* gold, winged                */
+            /* (0,1), NOT (2,3). The gold beast at (2,3) is a flame-bird, which is exactly
+             * why the slot was called PHOENIX in the first place; the DRAGON is the crimson
+             * one with its wings spread. Renaming the power did not make the sprite right. */
+            [AG_DRAGON]  = { &bosses_img,    0, 1, 2 },   /* crimson, wings spread       */
             [AG_GOLEM]   = { &bosses_img,    2, 1, 2 },   /* grey armour                 */
             [AG_EYE]     = { &bosses_img,    6, 1, 2 },   /* the great eye               */
             [AG_ANGEL]   = { &bosses_img,    0, 5, 2 },   /* haloed, winged              */

@@ -129,7 +129,7 @@ static const Power P_BEASTS[8] = {
     { PW_TITAN,   "SKULL TITAN", &bosses_img, 14, 1, 0, 0, 400 },
     { PW_MEDUSA,  "MEDUSA",      &bosses_img,  8, 1, 0, 0, 300 },
     { PW_REAPER,  "REAPER",      &bosses_img,  4, 3, 0, 0, 360 },
-    { PW_DRAGON,  "DRAGON",      &bosses_img,  2, 3, 0, 0, 320 },
+    { PW_DRAGON,  "DRAGON",      &bosses_img,  0, 1, 0, 0, 320 },
     { PW_GOLEM,   "GOLEM",       &bosses_img,  2, 1, 0, 0, 240 },
     { PW_SWARM,   "SWARM",       &animals_img, 0, 4, 2, 0, 160 },
     { PW_EYE,     "THE EYE",     &bosses_img,  6, 1, 0, 0, 280 },
