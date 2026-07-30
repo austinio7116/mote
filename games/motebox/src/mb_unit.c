@@ -628,11 +628,18 @@ static void act(int i)
          * A shot is worth less than a blow, so closing is still the way to finish somebody; and
          * the cadence is thinned, because a soldier firing every tick at ten tiles would empty a
          * battlefield before either side arrived. */
-        int shk = mb_war_shot_kind(u->village ? mb_v[u->village].kingdom : 0);
+        int kk = u->village ? mb_v[u->village].kingdom : 0;
+        int shk = mb_war_shot_kind(kk);
         int rng = mb_war_shot_range(shk);
+        /* CAVALRY, which was a leaf: research_pick STEERS a kingdom at war toward it and
+         * knowing it changed nothing whatever. A horse is reach in the other direction from a
+         * bow — not distance but SPEED — so mounted troops close the ground twice as fast and
+         * hit harder when they arrive. Against a kingdom with the better missile and no
+         * horses, that is a real trade rather than a strictly worse branch. */
+        int horse = mb_tech_known(kk, TECH_CAVALRY);
 
         if (d2 <= 2) {
-            int dmg = 18 + (u->traits & TR_TOUGH ? 8 : 0) + (int)(r & 7);
+            int dmg = 18 + (u->traits & TR_TOUGH ? 8 : 0) + (int)(r & 7) + (horse ? 7 : 0);
             mb_u[e].hp -= (int8_t)dmg;
             mb_u[e].happy -= 8;
             if (mb_u[e].hp <= 0) {
@@ -653,7 +660,10 @@ static void act(int i)
             }
             /* and they still advance while shooting, so a battle closes rather than stalling */
             if (d2 > 6) step_toward(u, ex, ey);
-        } else step_toward(u, ex, ey);
+        } else {
+            step_toward(u, ex, ey);
+            if (horse) step_toward(u, ex, ey);        /* mounted: twice the ground a tick */
+        }
         break;
     }
 
@@ -925,7 +935,17 @@ void mb_unit_plague_step(void)
          * three centuries in, because every newborn was re-infected forever.
          * A run of illness that ends — in death OR in recovery — is what makes it
          * an event a village can survive. */
-        if (!u->sick) u->sick = (uint8_t)(30 + (mb_rand((uint32_t)i * 17u) & 31));
+        /* MEDICINE, the third leaf: research_pick sends a kingdom with high exhaustion after
+         * it and knowing it did nothing at all — sanitation had a hospital to work through,
+         * medicine had no building and no effect, so a modern realm buried its people at the
+         * same rate as a stone-age one. It shortens the illness and it stops the dying, which
+         * are the two things a doctor does. */
+        int med = 0;
+        if (u->village && mb_v[u->village].alive)
+            med = mb_tech_known(mb_v[u->village].kingdom, TECH_MEDICINE);
+
+        if (!u->sick) u->sick = (uint8_t)((med ? 12 : 30)
+                                          + (mb_rand((uint32_t)i * 17u) & (med ? 15 : 31)));
         if (--u->sick == 0) {
             /* SURVIVORS ARE IMMUNE, and without that a plague cannot end in a world whose
              * population sits at its ceiling: recovery alone just returns a fresh host to
@@ -940,7 +960,7 @@ void mb_unit_plague_step(void)
             continue;
         }
         if ((mb_w.tick & 3) == 0) {
-            u->hp -= 6; u->happy -= 4;
+            u->hp -= (int8_t)(med ? 2 : 6); u->happy -= 4;
             if (u->hp <= 0) { kill(i, CAUSE_PLAGUE); continue; }
         }
         if (!(u->traits & TR_CONTAGIOUS)) continue;

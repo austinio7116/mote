@@ -34,8 +34,12 @@ MOTE_MODULE_HEADER();
  * epic runs in about three and a half minutes at x8, which is the pace a
  * handheld session wants. */
 #define TPY 52
-static const uint8_t SPEED_TPS[4] = { 0, 8, 24, 64 };   /* ticks per second */
-static const char *const SPEED_NAME[4] = { "||", "x1", "x3", "x8" };
+/* FIVE SPEEDS, and the top one is a real fast-forward. A god game is watched more than it is
+ * played, and x8 is not fast enough to see a tech tree finish or a war run its course — the
+ * headless audit does four hundred years in nine seconds, so there is no reason the player
+ * cannot skip a century either. LB TAPS THROUGH THEM (LB held is the power wheel). */
+static const uint8_t SPEED_TPS[5] = { 0, 8, 24, 64, 200 };   /* ticks per second */
+static const char *const SPEED_NAME[5] = { "||", "x1", "x3", "x8", "x25" };
 static int s_speed = 1;
 static float s_tick_acc;
 #if MOTE_HOST
@@ -598,26 +602,35 @@ static void chronicle_menu(void)
         int n = mb_chron_count();
         if (n <= 0) {
             const char *none[] = { "nothing has happened yet", "BACK" };
-            mote->menu("CHRONICLE", none, 2);
+            mote->menu("EVENT LOG", none, 2);
             return;
         }
-        if (n > 40) n = 40;
         static char rows[41][34];
+        static int  back_of[41];        /* which ring entry each row is, so BACK still travels */
         const char *items[42];
-        for (int i = 0; i < n; i++) {
+        int rown = 0;
+        for (int i = 0; i < n && rown < 40; i++) {
+            if (!mb_chron_notable(i)) continue;      /* see mb_chron_notable() */
             int year = 0; char line[30];
             mb_chron_line(line, sizeof line, i, &year);
+            back_of[rown] = i;
             /* NO MARKER AND NO COORDINATES. A log is read as history; a grid reference tells
              * you nothing you can act on, and a symbol in front of every other line is just
              * clutter. Selecting a line still travels to it — the navigation is silent. */
-            snprintf(rows[i], sizeof rows[i], "Y%d %s", year, line);
-            items[i] = rows[i];
+            snprintf(rows[rown], sizeof rows[rown], "Y%d %s", year, line);
+            items[rown] = rows[rown];
+            rown++;
         }
-        items[n] = "BACK";
-        int c = mote->menu("CHRONICLE", items, n + 1);
-        if (c < 0 || c >= n) return;
+        if (rown == 0) {
+            const char *none[] = { "nothing of note yet", "BACK" };
+            mote->menu("EVENT LOG", none, 2);
+            return;
+        }
+        items[rown] = "BACK";
+        int c = mote->menu("EVENT LOG", items, rown + 1);
+        if (c < 0 || c >= rown) return;
         int wx, wy;
-        if (mb_chron_where(c, &wx, &wy)) {
+        if (mb_chron_where(back_of[c], &wx, &wy)) {
             s_cx = wx; s_cy = wy;
             s_pan_x = -1;                  /* cancel any auto-pan: this was deliberate */
             s_idle = 0.0f;                 /* and do not immediately pan away again */
@@ -1187,6 +1200,24 @@ static void g_init(void)
      * married" are four questions a picture cannot answer, and each of them has been
      * silently broken at least once — Kingdom.tech sat unused for the whole of development
      * because nothing ever printed it. */
+    if (getenv("MOTEBOX_LOG")) {
+        /* WHAT THE LOG ACTUALLY SHOWS. The engine's menu blocks, so the frame counter never
+         * advances inside it and a submenu cannot be screenshotted — and "the event log has
+         * only births and deaths" is a claim about the LIST, not about the ring. So the list
+         * is printed exactly as chronicle_menu() builds it. */
+        int n = mb_chron_count(), shown = 0;
+        fprintf(stderr, "\n--- the event log, %d in the ring ---\n", n);
+        for (int i = 0; i < n && shown < 20; i++) {
+            if (!mb_chron_notable(i)) continue;
+            int year = 0; char line[30];
+            mb_chron_line(line, sizeof line, i, &year);
+            fprintf(stderr, "  Y%-4d %s\n", year, line);
+            shown++;
+        }
+        int notable = 0;
+        for (int i = 0; i < n; i++) notable += mb_chron_notable(i) ? 1 : 0;
+        fprintf(stderr, "  (%d of %d entries are news)\n", notable, n);
+    }
     if (getenv("MOTEBOX_LOOPS")) {
         fprintf(stderr, "\n--- the loops, year %d ---\n", (int)(mb_w.tick / 52));
         for (int k = 1; k < MAXK; k++) {
@@ -1218,6 +1249,44 @@ static void g_init(void)
             fprintf(stderr, "\ntowns by creed:");
             for (int i = 0; i < CREED_N; i++) if (creed[i]) fprintf(stderr, " %s=%d", MB_CREED_NAME[i], creed[i]);
             fprintf(stderr, "\ncaravans delivered (lifetime): %d\n", traded);
+            /* THE METAL ECONOMY, which had none. Iron and gold were listed as build costs and
+             * produced by nothing that depended on the ground, so the inspect dump read
+             * `iron 0, gold 0` in every world and every expensive project needed exempting
+             * from the affordability test. If these numbers are zero the economy is still
+             * fictional, whatever the buildings look like. */
+            {   int iron = 0, gold = 0, mines = 0, stations = 0, haveiron = 0, havegold = 0;
+                for (int v = 1; v < MAXV; v++) {
+                    if (!mb_v[v].alive) continue;
+                    iron += mb_v[v].iron; gold += mb_v[v].gold;
+                    if (mb_v[v].iron) haveiron++;
+                    if (mb_v[v].gold) havegold++;
+                    mines    += mb_civ_count(v, O_MINE);
+                    stations += mb_civ_count(v, O_STATION);
+                }
+                int dep_i = 0, dep_g = 0;
+                for (int i = 0; i < NC; i++) {
+                    uint8_t o = mb_w.obj[i];
+                    if (o == O_ORE) dep_i++;
+                    else if (o == O_GOLD || o == O_SILVER || o == O_GEM) dep_g++;
+                }
+                fprintf(stderr, "metal: held %d iron / %d gold; MINED %d iron / %d gold "
+                                "(%d mines, %d stations, %d ore seams, %d gold seams)\n",
+                        iron, gold, mb_mined_iron, mb_mined_gold,
+                        mines, stations, dep_i, dep_g);
+                (void)haveiron; (void)havegold;
+            }
+            {   /* and which of the four dead branches are alive now */
+                int cav = 0, nav = 0, rail = 0, med = 0;
+                for (int k = 1; k < MAXK; k++) {
+                    if (!mb_k[k].alive) continue;
+                    cav  += mb_tech_known(k, TECH_CAVALRY)    ? 1 : 0;
+                    nav  += mb_tech_known(k, TECH_NAVIGATION) ? 1 : 0;
+                    rail += mb_tech_known(k, TECH_RAILWAY)    ? 1 : 0;
+                    med  += mb_tech_known(k, TECH_MEDICINE)   ? 1 : 0;
+                }
+                fprintf(stderr, "crowns knowing: %d cavalry %d navigation %d railway "
+                                "%d medicine\n", cav, nav, rail, med);
+            }
             /* THE TOWNSCAPE, COUNTED. "Do the towns look varied" is not a question a
              * screenshot of one settlement answers — a plaza that only ever appears in the
              * capital, or gardens that never plant, look identical to working code from the
@@ -1644,7 +1713,7 @@ static void g_update(float dt)
     /* --- LB TAP cycles speed (LB HOLD is the wheel, handled above); RB toggles
      * the zoom, unless the wheel is up, where RB pages tabs --- */
     if (!wheel && mote_just_released(in, MOTE_BTN_LB) && !s_lb_was_wheel)
-        s_speed = (s_speed + 1) & 3;
+        s_speed = (s_speed + 1) % 5;
     s_lb_was_wheel = wheel;
     /* RB: TAP TOGGLES THE VIEW, HOLD SEEKS. One shoulder, two verbs, no chord — the
      * same tap/hold split LB already uses for speed and the wheel. The threshold has

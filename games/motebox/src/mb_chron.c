@@ -226,6 +226,12 @@ void mb_chron_fall(int v)
 }
 void mb_chron_build(int v, const char *what)
 {
+    /* A HOUSE IS NOT NEWS EITHER. Houses, farms and woodcutters' camps are what a town does
+     * continuously — three of the top four lines in the log were "a house" — so they are the
+     * same weather as a birth. Everything else a lord raises is a decision worth recording:
+     * a hall, a temple, a market, a college, a silo, a monument. */
+    if (what && (!strcmp(what, "house") || !strcmp(what, "camp")
+                 || !strcmp(what, "farm"))) return;
     push(EV_BUILD, v, 0, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y, intern(what));
     mb_snd(SND_BUILD);
 }
@@ -243,19 +249,29 @@ void mb_chron_rebel(int v, int from, int to)
 {
     push(EV_REBEL, from, to, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y, mb_k[to].name);
 }
+/* --- WHAT GETS INTO THE RING -------------------------------------------------
+ *
+ * Restricting births to the civ species and keeping them out of the toast was not enough, and
+ * filtering them out of the LOG VIEW was not either: measured at year 250, ninety-three of the
+ * ninety-six entries were births and deaths, so the three surviving lines of actual news were
+ * all from the same year, and every war, founding, rebellion and strike of two and a half
+ * centuries had already been pushed off the end of the ring.
+ *
+ * A world of two hundred people turns over constantly. An ordinary birth and an ordinary death
+ * are the WEATHER of the simulation, not its history, and both are already legible where they
+ * belong — in the world, and on a soul card. So they never enter the ring at all, and a death
+ * only does when it is a story: killed in battle, taken by plague, eaten, or lost to a
+ * disaster. The ring then holds what a chronicle should hold.
+ */
 void mb_chron_birth(int child, int parent)
 {
-    (void)parent;
-    /* Births are the most common event by far and would flush every headline out
-     * of a 96-entry ring within a year. They are recorded only for the civ
-     * species, and never toast. */
-    if (mb_u[child].sp >= SP_CIV_N) return;
-    push(EV_BIRTH, child, 0, 0, mb_name_person((uint32_t)child * 7919u + mb_w.seed),
-         mb_u[child].x >> 4, mb_u[child].y >> 4, 0);
+    (void)child; (void)parent;
 }
 void mb_chron_death(int u, int cause)
 {
     if (mb_u[u].sp >= SP_CIV_N) return;
+    if (cause != CAUSE_SLAIN && cause != CAUSE_PLAGUE
+        && cause != CAUSE_DISASTER && cause != CAUSE_EATEN) return;
     push(EV_DEATH, u, 0, cause, mb_name_person((uint32_t)u * 7919u + mb_w.seed),
          mb_u[u].x >> 4, mb_u[u].y >> 4, 0);
 }
@@ -290,6 +306,26 @@ int mb_chron_grudge(int a, int b)
 }
 
 int mb_chron_count(void) { return s_n; }
+
+/* IS THIS WORTH A LINE IN THE LOG? A world of two hundred people turns over constantly, so
+ * births and deaths outnumber everything else by an order of magnitude and a 96-entry ring
+ * fills with them inside a year — the log read as a parish register and the founding of a
+ * kingdom, a war, a nuke and a plague were all pushed off the bottom of it.
+ *
+ * They stay in the RING, because the grudge model counts back through it and a death is still
+ * a fact about the world. They are just not NEWS: the log skips an ordinary one and keeps the
+ * deaths that are a story — killed in battle, taken by plague, lost to a disaster — along with
+ * everything that was never routine in the first place. */
+int mb_chron_notable(int back)
+{
+    if (back < 0 || back >= s_n) return 0;
+    const Event *e = &s_ev[(s_head - 1 - back + NEV * 2) % NEV];
+    if (e->type == EV_BIRTH) return 0;
+    if (e->type == EV_DEATH)
+        return e->mag == CAUSE_SLAIN || e->mag == CAUSE_PLAGUE
+            || e->mag == CAUSE_DISASTER || e->mag == CAUSE_EATEN;
+    return 1;
+}
 
 /* WHERE an entry happened, so the log can be navigated instead of merely read. The ring has
  * always stored coordinates — the auto-follow camera uses them — but nothing exposed them, so

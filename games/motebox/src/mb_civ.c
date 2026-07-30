@@ -495,6 +495,11 @@ static int civic_pick(int v)
  * delivered — so no cost in those currencies could ever be paid. The market and the foundry
  * are now the only sources of either, which also means a kingdom that never reaches currency
  * or metallurgy simply has no treasury, and that is a fair consequence. */
+/* Lifetime yield, for the audit. The STANDING balance says nothing: iron is spent the tick
+ * it lands and gold is spent by nothing at all, so the same number means "healthy" for one
+ * and "runaway" for the other. */
+int mb_mined_iron, mb_mined_gold;
+
 static void civic_yield(int v)
 {
     Village *V = &mb_v[v];
@@ -506,6 +511,51 @@ static void civic_yield(int v)
     if (gr) V->food  = (uint16_t)(V->food  + gr * 2);        /* a store keeps what it holds */
     if (fa) { V->wood  = (uint16_t)(V->wood  + fa * 2);
               V->stone = (uint16_t)(V->stone + fa * 2); }
+    /* A MINE THAT MINES. The foundry and the market were the only sources of iron and gold in
+     * the world, both flat and both indifferent to the ground they stood on — so a kingdom
+     * sitting on a mountain of ore was no richer than one on a sandbank, and the ore, silver,
+     * gold and gem objects worldgen scatters were decoration. A mine now yields what is
+     * actually under it, and a metallurgist kingdom gets more out of the same seam.
+     *
+     * It READS the seams rather than consuming them: a mine is a hole that keeps producing,
+     * and an income that deletes its own source is not an income. */
+    /* A MINE THAT MINES. Measured from EACH MINE, not from the village centre: the first
+     * version scanned six cells around the hall, so whether a kingdom had a metal industry
+     * depended on whether worldgen happened to drop a seam near its market square. Lifetime
+     * yield froze at 279 iron and zero gold across seven hundred years — gold seams sit on
+     * mountain cells and a village never builds within six of one.
+     *
+     * So a mine is a hole in the ground where somebody chose to dig, and it yields IRON as a
+     * baseline because that is what a mine is for; a seam of gold, silver or gems in reach of
+     * the shaft adds gold on top. It reads the seams rather than consuming them — an income
+     * that deletes its own source is not an income. */
+    int mi = 0, seam_iron = 0, seam_gold = 0;
+    for (int dy = -12; dy <= 12; dy++)
+        for (int dx = -12; dx <= 12; dx++) {
+            int x = V->x + dx, y = V->y + dy;
+            if (!mb_in(x, y) || mb_w.obj[AT(x, y)] != O_MINE) continue;
+            if (mb_w.claim[AT(x, y)] != v) continue;
+            mi++;
+            /* FIVE, not three. At three, no mine in a seven-hundred-year world ever had a
+             * gold, silver or gem seam in reach — they sit on mountain cells and a mine is
+             * sited for stone near the town. Five reaches the scarp. */
+            for (int sy = -5; sy <= 5; sy++)
+                for (int sx = -5; sx <= 5; sx++) {
+                    int px = x + sx, py = y + sy;
+                    if (!mb_in(px, py)) continue;
+                    uint8_t o = mb_w.obj[AT(px, py)];
+                    if (o == O_ORE) seam_iron++;
+                    else if (o == O_GOLD || o == O_SILVER || o == O_GEM) seam_gold++;
+                }
+        }
+    if (mi) {
+        int rich = mb_tech_known(k, TECH_METALLURGY) ? 2 : 1;
+        int yi = rich * (mi + seam_iron / 4);          /* every mine makes iron */
+        int yg = seam_gold ? rich * (1 + seam_gold / 4) : 0;
+        V->iron = (uint16_t)(V->iron + yi);
+        V->gold = (uint16_t)(V->gold + yg);
+        mb_mined_iron += yi; mb_mined_gold += yg;
+    }
     if (V->gold  > 900) V->gold  = 900;
     if (V->iron  > 900) V->iron  = 900;
 }
@@ -1320,14 +1370,23 @@ static void caravan_step(int v)
      * system fired ONCE in four hundred years. MOTEBOX_LOOPS caught it; nothing else could
      * have. Thinning has to be expressed in VISITS, so this is one village in three per
      * rotation, which makes a caravan an occasional event rather than a heartbeat. */
-    if (((mb_w.tick / 47) + (uint32_t)v) % 3) return;
+    /* A STATION EARNS THE RAILWAY. TECH_RAILWAY gated the station and the station did
+     * nothing at all, so an industrial kingdom's freight moved at the speed of a stone-age
+     * hamlet's. With a station a town despatches every other rotation instead of every third,
+     * carries a bigger load, and will ship METAL as well as food and timber — which is the
+     * only way iron and gold ever reach a town that has none in its own ground. */
+    int rail = mb_civ_count(v, O_STATION) > 0;
+    if (((mb_w.tick / 47) + (uint32_t)v) % (rail ? 2 : 3)) return;
 
     /* what we can spare, and how badly */
     int kind = -1, amount = 0;
     if (V->food > V->pop * 5 + 20) { kind = CARRY_FOOD;  amount = 12; }
     else if (V->wood > 60)         { kind = CARRY_WOOD;  amount = 10; }
     else if (V->stone > 60)        { kind = CARRY_STONE; amount = 10; }
+    else if (rail && V->iron > 40) { kind = CARRY_IRON;  amount = 8; }
+    else if (rail && V->gold > 40) { kind = CARRY_GOLD;  amount = 8; }
     else return;
+    if (rail) amount += 6;
 
     /* the neediest reachable neighbour of the same kingdom, or an ally */
     int best = -1, bestneed = 0;
@@ -1335,13 +1394,15 @@ static void caravan_step(int v)
         if (u == v || !mb_v[u].alive) continue;
         int dx = mb_v[u].x - V->x, dy = mb_v[u].y - V->y;
         int d2 = dx * dx + dy * dy;
-        if (d2 > 1600) continue;                       /* forty cells is a day's walk */
+        if (d2 > (rail ? 4900 : 1600)) continue;       /* forty cells on foot, seventy by rail */
         int friendly = (mb_v[u].kingdom == V->kingdom) ||
                        (V->kingdom && (mb_k[V->kingdom].ally_with & (1u << mb_v[u].kingdom)));
         if (!friendly) continue;
         int need = 0;
         if (kind == CARRY_FOOD)       need = mb_v[u].pop * 3 - (int)mb_v[u].food;
         else if (kind == CARRY_WOOD)  need = 30 - (int)mb_v[u].wood;
+        else if (kind == CARRY_IRON)  need = 30 - (int)mb_v[u].iron;
+        else if (kind == CARRY_GOLD)  need = 30 - (int)mb_v[u].gold;
         else                          need = 30 - (int)mb_v[u].stone;
         if (need > bestneed) { bestneed = need; best = u; }
     }
@@ -1367,6 +1428,8 @@ static void caravan_step(int v)
     h->target = (uint16_t)AT(mb_v[best].x, mb_v[best].y);
     if (kind == CARRY_FOOD)       V->food  = (uint16_t)(V->food  - amount);
     else if (kind == CARRY_WOOD)  V->wood  = (uint16_t)(V->wood  - amount);
+    else if (kind == CARRY_IRON)  V->iron  = (uint16_t)(V->iron  - amount);
+    else if (kind == CARRY_GOLD)  V->gold  = (uint16_t)(V->gold  - amount);
     else                          V->stone = (uint16_t)(V->stone - amount);
 }
 
@@ -1415,11 +1478,22 @@ int mb_village_need(int v, uint16_t *target)
     int need_food = V->food < V->pop * 3 ? 60 - V->food : 0;
     int need_wood = 40 - (V->wood > 40 ? 40 : V->wood);
     int need_stone = 30 - (V->stone > 30 ? 30 : V->stone);
-    /* IRON AND GOLD are wanted only once the hall is ready to grow into them —
-     * they were missing from this list entirely, so nobody ever mined ore and no
-     * hall in any run ever reached tier three. */
-    int need_iron = (V->hall >= 2 && V->iron < 14) ? 34 : 0;
-    int need_gold = (V->hall >= 3 && V->gold < 14) ? 26 : 0;
+    /* IRON AND GOLD, WANTED FOR A REASON. The gates were `hall >= 2` for iron and
+     * `hall >= 3` for gold — and a tier-three hall COSTS gold, so a village could not want
+     * gold until it already had the building that gold pays for. Nothing in any run ever
+     * mined a nugget (the inspect dump read `iron 0, gold 0` at year 600), and every
+     * expensive project had to be exempted from the affordability test to get planned at all.
+     *
+     * The honest gate is the BLUEPRINT. Whatever the town has decided to build, it fetches
+     * what that costs — so a silo makes miners of a whole valley, and a town with nothing
+     * planned does not send people up a mountain for no reason. */
+    int need_iron = 0, need_gold = 0;
+    if (V->plan_obj && V->plan_i < NBUILD) {
+        int short_iron = (int)BUILD[V->plan_i].iron - (int)V->iron;
+        int short_gold = (int)BUILD[V->plan_i].gold - (int)V->gold;
+        if (short_iron > 0) need_iron = 30 + short_iron;
+        if (short_gold > 0) need_gold = 26 + short_gold;
+    }
     int best = need_food, kind = CARRY_FOOD;
     if (need_wood > best)  { best = need_wood;  kind = CARRY_WOOD; }
     if (need_stone > best) { best = need_stone; kind = CARRY_STONE; }
@@ -1497,8 +1571,12 @@ void mb_village_work(int v, int ui)
         uint8_t b = mb_w.biome[AT(tx, ty)];
         if (*o == O_TREE || *o == O_TREE2 || *o == O_DEAD) { *o = O_NONE; u->carry = 8; u->carry_kind = CARRY_WOOD; }
         else if (*o == O_ROCK || *o == O_BOULDER)          { *o = O_NONE; u->carry = 8; u->carry_kind = CARRY_STONE; }
-        else if (*o == O_ORE)                              { *o = O_NONE; u->carry = 6; u->carry_kind = CARRY_IRON; }
-        else if (*o == O_GOLD || *o == O_SILVER || *o == O_GEM) { *o = O_NONE; u->carry = 5; u->carry_kind = CARRY_GOLD; }
+        /* A SEAM IS WORKED, NOT PICKED UP. Trees and loose rock are taken away and the cell
+         * is emptied, which is right; doing the same to an ore body meant a valley was mined
+         * out for ever after a handful of trips, so the one income that depends on terrain
+         * destroyed its own terrain. The deposit stays. */
+        else if (*o == O_ORE)                              { u->carry = 6; u->carry_kind = CARRY_IRON; }
+        else if (*o == O_GOLD || *o == O_SILVER || *o == O_GEM) { u->carry = 5; u->carry_kind = CARRY_GOLD; }
         else if (*o == O_BUSH || *o == O_FLOWER)           { *o = O_NONE; u->carry = 6; u->carry_kind = CARRY_FOOD; }
         else if (b == B_MOUNTAIN || b == B_HILL)           { u->carry = 5; u->carry_kind = CARRY_STONE; }
         else if (b == B_FARM)                              { u->carry = 7; u->carry_kind = CARRY_FOOD; }
@@ -1697,7 +1775,13 @@ static void maybe_settle(int v)
         static const int8_t DX[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
         static const int8_t DY[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
         int d = 10 + (int)((r >> (t + 8)) & 7);
-        if (seaborne && (t & 1)) d += 12 + (int)((r >> t) & 15);
+        /* NAVIGATION was a leaf: a kingdom could research it and nothing whatever changed.
+         * Seafaring gets you off the beach; navigation is knowing where you are once you are
+         * out there, so it reaches further and it tries the sea on EVERY heading rather than
+         * every other one — which in an archipelago world is the difference between filling
+         * the near islands and filling the map. */
+        int nav = mb_civ_tech_ok(v, TECH_NAVIGATION);
+        if (seaborne && ((t & 1) || nav)) d += 12 + (int)((r >> t) & 15) + (nav ? 14 : 0);
         int x = V->x + DX[ang] * d, y = V->y + DY[ang] * d;
         if (mb_village_found(V->sp, x, y, V->kingdom)) {
             int nv = mb_village_count_last();

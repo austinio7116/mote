@@ -468,6 +468,7 @@ int  mb_civ_drop_village(int sp, int x, int y);
 void mb_civ_seed_world(int n);         /* worlds start with peoples in them */
 void mb_civ_rehome(void);              /* the homeless join a village or found one */
 int  mb_civ_count(int v, uint8_t obj);   /* how many of `obj` this village has */
+extern int mb_mined_iron, mb_mined_gold;  /* lifetime mine yield */
 int  mb_civ_tier(int v);               /* TIER_* from pop and what is standing */
 int  mb_civ_tech_ok(int v, int need);  /* does this village's kingdom know `need`? */
 int  mb_tech_known(int k, int t);      /* by kingdom */
@@ -520,6 +521,7 @@ void        mb_chron_age(const char *name);
 const char *mb_chron_word(int id);
 int         mb_chron_grudge(int a, int b);
 int         mb_chron_count(void);
+int         mb_chron_notable(int back);  /* worth a line in the log? */
 void        mb_chron_line(char *out, int n, int back, int *year);
 int         mb_chron_where(int back, int *x, int *y);   /* jump to an entry */
 const char *mb_chron_toast(void);      /* NULL when none is showing */
