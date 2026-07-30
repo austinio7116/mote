@@ -802,6 +802,195 @@ def plan(banner):
 
 # The order here IS the order of O_FIRE_PIT..O_PLAN in mb.h, so the sheet's column
 # index is `obj - O_BUILD0` and the C side needs no lookup table at all.
+
+# ---------------------------------------------------------------- the civic ladder ------
+# One building per era, so a skyline dates itself. The vocabulary is deliberately shared and
+# deliberately drifts: timber and thatch in the early eras, dressed stone and pillars in the
+# middle, then BRICK WITH A CHIMNEY for the industrial rungs and concrete for the modern ones.
+# A player should be able to tell a Renaissance city from an Industrial one at a glance,
+# without knowing what any single building is.
+# Timber, for the granary. The sheet's own palette calls these WALL/WALL_SHADE/TIMBER.
+WOOD, WOOD_LIT, WOOD_DARK = BROWN, PEACH, DKGREY
+
+BRICK      = (150,  66,  52)
+BRICK_LIT  = (186,  92,  70)
+BRICK_DARK = (104,  44,  36)
+GLASS      = (110, 170, 210)
+GLASS_LIT  = (170, 214, 236)
+CONC       = (150, 150, 158)
+CONC_LIT   = (196, 196, 202)
+CONC_DARK  = ( 96,  96, 106)
+STEEL      = ( 70,  74,  86)
+COPPER     = (140, 190, 170)
+EMBER      = (255, 150,  40)
+GOLD       = YELLOW          # the sheet has no separate gold; the artist's yellow is it
+
+
+def _chimney(px, x, top, w=1, cap=None):
+    """A stack. The one silhouette that says industry at eight pixels wide."""
+    _rect(px, x, top, x + w - 1, H - 1, BRICK)
+    _rect(px, x, top, x, H - 1, BRICK_LIT)
+    _rect(px, x, top, x + w - 1, top, cap or BRICK_DARK)
+
+
+def granary(banner):
+    """POTTERY. A round timber drum with a conical thatch cap — the oldest civic building
+    there is, and the only one here still made of the same stuff as the houses."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _pitched(px, 2, roof, shade, ridge, rows=3)          # the conical cap, the banner's colour
+    _rect(px, 1, 5, 6, H - 1, WOOD)
+    _rect(px, 1, 5, 1, H - 1, WOOD_LIT)
+    _rect(px, 6, 5, 6, H - 1, WOOD_DARK)
+    for y in range(6, H - 1, 3):                          # the hoops that hold it together
+        _rect(px, 1, y, 6, y, WOOD_DARK)
+    _door(px, 3, H - 4)
+    return im
+
+
+def market(banner):
+    """CURRENCY. A stall under a striped awning: the awning is the whole silhouette, and the
+    stripes are the one pattern in the town that is not masonry or thatch."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 4, 7, 6, roof)                           # the canopy
+    for x in range(0, 8, 2):
+        _rect(px, x, 4, x, 6, WHITE)                      # its stripes
+    _rect(px, 0, 7, 7, 7, shade)                          # its shadow
+    _rect(px, 1, 8, 1, H - 1, WOOD_DARK)                  # the posts
+    _rect(px, 6, 8, 6, H - 1, WOOD_DARK)
+    _rect(px, 2, 10, 5, H - 2, WOOD)                      # the trestle, and goods on it
+    _rect(px, 2, 10, 5, 10, WOOD_LIT)
+    _rect(px, 3, 9, 3, 9, GOLD)
+    _rect(px, 5, 9, 5, 9, EMBER)
+    return im
+
+
+def library(banner):
+    """WRITING. Dressed stone with a pillared front and one tall window — the first building
+    in the town that is about knowing something rather than storing or defending it."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 5, 7, H - 1, STONE)
+    _rect(px, 0, 5, 7, 5, STONE_LIT)
+    _rect(px, 0, 6, 0, H - 1, STONE_LIT)
+    _rect(px, 7, 6, 7, H - 1, STONE_SHADE)
+    for i in range(3):                                    # the pediment
+        _rect(px, 3 - i, 4 - i, 4 + i, 4 - i, STONE_LIT)
+    for x in (1, 3, 5):                                   # pillars
+        _rect(px, x, 8, x, H - 2, STONE_LIT)
+    _rect(px, 6, 8, 6, 10, GLASS)                         # and the tall window
+    _rect(px, 6, 8, 6, 8, GLASS_LIT)
+    return im
+
+
+def foundry(banner):
+    """METALLURGY. Brick, a stack, and a door with the furnace showing through it. This and
+    the market are the only two buildings that produce anything the treasury can count."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 6, 5, H - 1, BRICK)
+    _rect(px, 0, 6, 5, 6, BRICK_LIT)
+    _rect(px, 5, 7, 5, H - 1, BRICK_DARK)
+    _chimney(px, 6, 1, 2, STEEL)
+    _rect(px, 1, 9, 3, H - 2, EMBER)                      # the furnace mouth
+    _rect(px, 2, 10, 2, H - 3, (255, 220, 120))
+    _rect(px, 6, 0, 7, 0, (120, 120, 130))                # a wisp of smoke
+    return im
+
+
+def college(banner):
+    """THE UNIVERSITY. Stone, pillars and a dome — the tallest thing in the town until the
+    factory arrives, and the reason a kingdom that builds them out-researches one that does
+    not by a factor of several."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 6, 7, H - 1, STONE)
+    _rect(px, 0, 6, 7, 6, STONE_LIT)
+    _rect(px, 7, 7, 7, H - 1, STONE_SHADE)
+    _rect(px, 2, 3, 5, 5, COPPER)                         # the dome
+    _rect(px, 3, 2, 4, 2, COPPER)
+    _rect(px, 2, 3, 3, 3, (180, 230, 210))
+    _rect(px, 3, 1, 4, 1, GOLD)                           # and its finial
+    for x in (1, 3, 5):
+        _rect(px, x, 8, x, H - 2, STONE_LIT)
+    _door(px, 6, 10)
+    return im
+
+
+def hospital(banner):
+    """SANITATION. Whitewashed, with a cross over the door. Plainest building in the town on
+    purpose: it is the only one whose job is that fewer people die."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 5, 7, H - 1, (222, 222, 214))
+    _rect(px, 0, 5, 7, 5, WHITE)
+    _rect(px, 7, 6, 7, H - 1, (176, 176, 170))
+    _rect(px, 3, 2, 4, 6, (200, 40, 50))                  # the cross
+    _rect(px, 2, 3, 5, 4, (200, 40, 50))
+    for y in (8, 11):                                     # windows in rows, like a ward
+        for x in (1, 3, 5):
+            _rect(px, x, y, x, y, GLASS)
+    return im
+
+
+def factory(banner):
+    """STEAM. Two stacks and a saw-tooth roof — the silhouette that says a town has stopped
+    being medieval. It is the widest building on the sheet for the same reason."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 7, 7, H - 1, BRICK)
+    _rect(px, 0, 7, 7, 7, BRICK_LIT)
+    for x in range(0, 8, 2):                              # the saw-tooth roof
+        _rect(px, x, 6, x, 6, BRICK_DARK)
+        _rect(px, x + 1, 6, x + 1, 6, GLASS)
+    _chimney(px, 1, 1, 1, STEEL)
+    _chimney(px, 5, 3, 1, STEEL)
+    _rect(px, 1, 0, 1, 0, (120, 120, 130))
+    for x in (3, 6):                                      # lit windows: it runs at night
+        _rect(px, x, 10, x, 11, GLASS_LIT)
+    return im
+
+
+def station(banner):
+    """THE RAILWAY. A canopy, a platform and a signal. What it does is make caravans quick,
+    and what it looks like is the first building here that is mostly steel."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 5, 7, 6, STEEL)                          # the canopy
+    _rect(px, 0, 5, 7, 5, (110, 116, 130))
+    _rect(px, 0, 7, 0, H - 1, STEEL)                      # its posts
+    _rect(px, 7, 7, 7, H - 1, STEEL)
+    _rect(px, 1, 9, 6, H - 2, BRICK)                      # the booking hall
+    _rect(px, 1, 9, 6, 9, BRICK_LIT)
+    _rect(px, 2, 11, 3, 11, GLASS_LIT)
+    _rect(px, 6, 1, 6, 4, STEEL)                          # the signal post
+    _rect(px, 5, 1, 5, 1, (60, 220, 90))
+    _rect(px, 0, H - 1, 7, H - 1, (90, 86, 80))           # the rails
+    return im
+
+
+def power(banner):
+    """ELECTRICITY. Two cooling towers and a switchyard. The tallest and coldest thing in the
+    town, and the last civic rung before the silo — a city with one of these is a city that is
+    four techs from the bomb."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    for x0 in (0, 4):                                     # the towers, waisted like real ones
+        _rect(px, x0, 3, x0 + 2, 3, CONC_LIT)
+        _rect(px, x0 + 1, 4, x0 + 1, 6, CONC)
+        _rect(px, x0, 4, x0, 6, CONC_LIT)
+        _rect(px, x0 + 2, 4, x0 + 2, 6, CONC_DARK)
+        _rect(px, x0, 7, x0 + 2, H - 2, CONC)
+        _rect(px, x0, 7, x0, H - 2, CONC_LIT)
+        _rect(px, x0 + 2, 7, x0 + 2, H - 2, CONC_DARK)
+        _rect(px, x0, 2, x0 + 2, 2, (190, 190, 196))      # steam off the top
+    _rect(px, 3, 8, 3, H - 2, STEEL)                      # the switchyard between them
+    _rect(px, 0, H - 1, 7, H - 1, CONC_DARK)
+    _rect(px, 3, 5, 3, 5, (255, 236, 120))                # and a light on
+    return im
+
+
 def silo(banner):
     """A MISSILE SILO, the end of the tech tree made concrete.
 
@@ -852,6 +1041,15 @@ BUILDINGS = [
     ("tower",      tower),
     ("dock",       dock),
     ("wall",       wall_seg),
+    ("granary",    granary),
+    ("market",     market),
+    ("library",    library),
+    ("foundry",    foundry),
+    ("college",    college),
+    ("hospital",   hospital),
+    ("factory",    factory),
+    ("station",    station),
+    ("power",      power),
     ("silo",       silo),
     ("plan",       plan),
 ]

@@ -62,7 +62,22 @@ enum {
     O_HALL1, O_HALL2, O_HALL3,
     O_HOUSE1, O_HOUSE2, O_HOUSE3,
     O_FARM, O_MINE, O_WOODCUT, O_BARRACKS, O_TEMPLE, O_TOWER, O_DOCK, O_WALL,
-    O_SILO,                  /* the end of the tech tree, made concrete */
+    /* --- THE CIVIC LADDER, one rung per era, so a skyline dates itself ---
+     * A town used to look the same in the Stone era and the Atomic one: thatch, a hall, a
+     * temple and a wall, whatever its kingdom had spent twenty thousand research on. These
+     * are what the tree BUILDS, and each is gated on the tech it belongs to, so you can read
+     * a kingdom's era off its city without opening a menu. Two of them also fix a real hole:
+     * the market and the foundry are the only sources of gold and iron this economy has. */
+    O_GRANARY,               /* pottery      — a bigger store against famine */
+    O_MARKET,                /* currency     — GOLD income                  */
+    O_LIBRARY,               /* writing      — research                     */
+    O_FOUNDRY,               /* metallurgy   — IRON income                  */
+    O_COLLEGE,               /* university   — research, a lot of it        */
+    O_HOSPITAL,              /* sanitation   — the plague burns out faster  */
+    O_FACTORY,               /* steam        — timber and stone production  */
+    O_STATION,               /* the railway  — caravans go further, oftener */
+    O_POWER,                 /* electricity  — research, and it looks modern */
+    O_SILO,                  /* the bomb: the end of the tree, made concrete */
     O_PLAN,                  /* a blueprint ghost: decided, not yet paid for */
     O_N
 };

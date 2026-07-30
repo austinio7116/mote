@@ -262,6 +262,18 @@ static const BuildDef BUILD[] = {
     { O_HALL3,   10, 10, 10,  0,  1, TECH_MASONRY,0, "castle"   },
     { O_WALL,     2, 10,  0,  0, 60, TECH_MASONRY,0, "wall"     },   /* stone, and a lot of it */
     { O_DOCK,     8,  4,  0,  0,  2, TECH_SEAFARING, 0, "dock"  },
+    /* THE CIVIC LADDER, one rung per era. Priced in timber and stone because those are the
+     * only currencies a town can actually bank (see the note on the silo), and capped low so
+     * a city gets one of each rather than a row of them. */
+    { O_GRANARY,  8,  0,  0,  0,  2, TECH_POTTERY,    0, "granary"  },
+    { O_MARKET,  10,  6,  0,  0,  2, TECH_CURRENCY,   0, "market"   },
+    { O_LIBRARY,  6, 14,  0,  0,  1, TECH_WRITING,    0, "library"  },
+    { O_FOUNDRY, 12, 20,  0,  0,  1, TECH_METALLURGY, 0, "foundry"  },
+    { O_COLLEGE, 14, 26,  0,  0,  1, TECH_UNIVERSITY, 1, "college"  },
+    { O_HOSPITAL,12, 18,  0,  0,  1, TECH_SANITATION, 0, "hospital" },
+    { O_FACTORY, 18, 24,  0,  0,  2, TECH_STEAM,      1, "factory"  },
+    { O_STATION, 14, 18,  0,  0,  1, TECH_RAILWAY,    1, "station"  },
+    { O_POWER,   10, 30,  0,  0,  1, TECH_ELECTRIC,   1, "power"    },
     /* THE SILO. The tree has to end somewhere you can see, and a kingdom that has spent
      * three thousand research on the bomb should have something standing to show it. One per
      * city, stone and iron and a great deal of gold. */
@@ -431,6 +443,53 @@ int mb_civ_tech_ok(int v, int need)
  * banks it, and each tech costs more than the last. Which means a rich, populous, pious
  * kingdom really does out-develop a poor one, and you can see it in their architecture.
  */
+/* --- THE CIVIC LADDER --------------------------------------------------
+ *
+ * A town used to look identical in the Stone era and the Atomic one — thatch, a hall, a
+ * temple, a wall — whatever its kingdom had spent twenty thousand research points on. These
+ * nine buildings are what the tree BUILDS, so a city dates itself: timber granary, stone
+ * library with pillars, brick foundry with a stack, then concrete cooling towers.
+ *
+ * It gets its OWN TURN, and by now that is a familiar shape. The lord takes the first
+ * affordable want and stops, so anything at the back of the list is built only when nothing
+ * ahead of it is wanted — and beds, bread and timber always are. The wall, the dock and the
+ * silo each died that way before being given a turn; there was no reason to expect nine more
+ * to fare better. This one picks the MOST ADVANCED rung the town lacks, so a city climbs the
+ * ladder in era order rather than filling in the cheap end for ever.
+ */
+static const uint8_t CIVIC_WANT[9] = { 13, 14, 15, 16, 17, 18, 19, 20, 21 };
+
+static int civic_pick(int v)
+{
+    for (int i = 8; i >= 0; i--) {                 /* newest first: a city modernises */
+        const BuildDef *B = &BUILD[CIVIC_WANT[i]];
+        if (!mb_civ_tech_ok(v, B->tech)) continue;
+        if (mb_civ_count(v, B->obj) >= B->cap) continue;
+        return CIVIC_WANT[i];
+    }
+    return -1;
+}
+
+/* What the civic buildings PRODUCE. Two of these exist because the economy had a hole in it:
+ * an inspect dump of a 600-year city read iron 0, gold 0 — miners gathered and nothing ever
+ * delivered — so no cost in those currencies could ever be paid. The market and the foundry
+ * are now the only sources of either, which also means a kingdom that never reaches currency
+ * or metallurgy simply has no treasury, and that is a fair consequence. */
+static void civic_yield(int v)
+{
+    Village *V = &mb_v[v];
+    int k = V->kingdom;
+    int mk = mb_civ_count(v, O_MARKET), fo = mb_civ_count(v, O_FOUNDRY);
+    int gr = mb_civ_count(v, O_GRANARY), fa = mb_civ_count(v, O_FACTORY);
+    if (mk) V->gold  = (uint16_t)(V->gold  + mk * (mb_tech_known(k, TECH_BANKING) ? 2 : 1));
+    if (fo) V->iron  = (uint16_t)(V->iron  + fo * (mb_tech_known(k, TECH_STEAM)   ? 2 : 1));
+    if (gr) V->food  = (uint16_t)(V->food  + gr * 2);        /* a store keeps what it holds */
+    if (fa) { V->wood  = (uint16_t)(V->wood  + fa * 2);
+              V->stone = (uint16_t)(V->stone + fa * 2); }
+    if (V->gold  > 900) V->gold  = 900;
+    if (V->iron  > 900) V->iron  = 900;
+}
+
 /* WHICH TECH A KINGDOM CHOOSES is what makes two of them diverge. Cheapest-available would
  * make every crown follow the same path again, so the pick is weighted by circumstance: a
  * kingdom at war reaches for weapons, a coastal one for the sea, a rich one for money, and a
@@ -488,6 +547,13 @@ static void research_step(int v)
 
     int gain = V->pop / 6;                          /* people thinking */
     gain += mb_civ_count(v, O_TEMPLE) * 3;          /* somewhere to write it down */
+    /* AND THE BUILDINGS THAT EXIST TO DO THIS. A library is worth a temple and a half, a
+     * college three of them, a power station four — which is why a kingdom that builds the
+     * civic ladder out-researches one that only builds beds by a factor of several, and why
+     * the deep eras are reachable at all. */
+    gain += mb_civ_count(v, O_LIBRARY) * 4;
+    gain += mb_civ_count(v, O_COLLEGE) * 9;
+    gain += mb_civ_count(v, O_POWER)   * 14;
     if (V->gold > 20) gain += 1;                    /* and the means to pay for it */
     if (V->creed == K->creed && V->creed) gain += 1;
     /* THE TREE PAYS FOR ITSELF. Without these a thirty-six tech ladder costing twenty
@@ -746,6 +812,7 @@ static void lord_think(int v)
      * nothing to draw. */
     V->tier = (uint8_t)mb_civ_tier(v);
     if ((mb_w.tick & 15) == 0) mb_civ_specialise(v);
+    civic_yield(v);
     research_step(v);
     creed_step(v);
     if (V->plan_obj) return;                 /* already intending something */
@@ -779,6 +846,12 @@ static void lord_think(int v)
      * wanted. The wall sat last and was therefore never laid once, even after the gate
      * was fixed. So one build in three goes to the wall while it is unfinished: a real
      * town raises houses and curtain wall in the same decades, not one after the other. */
+    /* ONE VISIT IN THREE GOES TO THE CIVIC LADDER, so a city actually modernises. */
+    if (((mb_w.tick >> 5) % 3) == 0) {
+        int c = civic_pick(v);
+        if (c >= 0) want_list[nwant++] = (uint8_t)c;
+    }
+
     /* A SILO GETS ITS OWN TURN, for the same reason the wall does. The lord takes the first
      * affordable want and stops, so anything at the BACK of the list is built only when
      * nothing ahead of it is wanted — and beds, bread and timber are always wanted. Put at
@@ -792,7 +865,7 @@ static void lord_think(int v)
      * strike. If a kingdom has spent three thousand research on the bomb, its towns want the
      * thing it bought. */
     if (mb_civ_tech_ok(v, TECH_NUKE) && mb_civ_count(v, O_SILO) < 1)
-        want_list[nwant++] = 13;
+        want_list[nwant++] = 22;
 
     int wall_turn = (V->hall >= 2 && mb_civ_count(v, O_WALL) < 44 &&
                      (V->threat > 25 || V->pop >= 14 || V->stone > 40) &&

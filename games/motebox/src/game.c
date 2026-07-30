@@ -100,7 +100,8 @@ static const char *const O_NAME[O_N] = {
     "campfire", "hall", "great hall", "castle",
     "house", "cottage", "manor",
     "farm", "mine", "woodcutter", "barracks", "temple", "tower", "dock", "wall",
-    "missile silo",
+    "granary", "market", "library", "foundry", "college", "hospital",
+    "factory", "station", "power station", "missile silo",
     "plan",
 };
 /* A compile-time tripwire for exactly the mistake above. */
@@ -404,6 +405,25 @@ static int page_town(const char **items, int v)
                mb_civ_count(v, O_MINE), mb_civ_count(v, O_TEMPLE), mb_civ_count(v, O_TOWER));
     n = ir_add(items, n, "docks %d  barracks %d  wall %d",
                mb_civ_count(v, O_DOCK), mb_civ_count(v, O_BARRACKS), mb_civ_count(v, O_WALL));
+    {   /* THE CIVIC LADDER, only the rungs it has. Nine more lines of "0" would bury the
+         * three facts that matter, so this prints what is standing and nothing else. */
+        static const uint8_t CV[9] = { O_GRANARY, O_MARKET, O_LIBRARY, O_FOUNDRY, O_COLLEGE,
+                                       O_HOSPITAL, O_FACTORY, O_STATION, O_POWER };
+        int t = 0;
+        while (t < 9 && n < IR_ROWS - 6) {
+            int o = 0; s_ir[n][0] = 0;
+            for (; t < 9; t++) {
+                int c = mb_civ_count(v, CV[t]);
+                if (!c) continue;
+                int need = (int)strlen(O_NAME[CV[t]]) + 4;
+                if (o && o + need >= (int)sizeof s_ir[n] - 1) break;
+                o += snprintf(s_ir[n] + o, sizeof s_ir[n] - o, "%s%s %d",
+                              o ? "  " : "", O_NAME[CV[t]], c);
+            }
+            if (!o) break;
+            items[n] = s_ir[n]; n++;
+        }
+    }
     if (V->plan_obj) n = ir_add(items, n, "planning: %s", O_NAME[V->plan_obj]);
     n = ir_add(items, n, "-- the mood --");
     n = ir_add(items, n, "happy %d  loyal %d  unrest %d", V->happy, V->loyalty, V->unrest);
@@ -1117,6 +1137,21 @@ static void g_init(void)
                 }
                 fprintf(stderr, "the bomb: %d kingdoms have it, %d silos standing, "
                                 "%d strikes launched\n", armed, silos, fired);
+                {   /* THE CIVIC LADDER, counted. Nine buildings gated on nine techs is nine
+                     * more chances for a feature to exist and never be built — which has
+                     * happened three times in this game already. */
+                    static const uint8_t CV[9] = { O_GRANARY, O_MARKET, O_LIBRARY, O_FOUNDRY,
+                                                   O_COLLEGE, O_HOSPITAL, O_FACTORY,
+                                                   O_STATION, O_POWER };
+                    fprintf(stderr, "civic:");
+                    for (int t = 0; t < 9; t++) {
+                        int c = 0;
+                        for (int v = 1; v < MAXV; v++)
+                            if (mb_v[v].alive) c += mb_civ_count(v, CV[t]);
+                        fprintf(stderr, " %s=%d", O_NAME[CV[t]], c);
+                    }
+                    fprintf(stderr, "\n");
+                }
             }
         }
         {   int prof[PROF_N] = {0}, wed = 0, hauling = 0, named = 0, immune = 0;
