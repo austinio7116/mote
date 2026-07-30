@@ -12,6 +12,7 @@
  * with the height bands laid over it.
  */
 #include "mb.h"
+#include <math.h>
 #if MOTE_HOST
 #include <stdlib.h>
 #include <stdio.h>
@@ -197,6 +198,8 @@ static void river_cell(int x, int y, int cut)
  * point in generation biome and elevation are the only maps with anything in them. obj, flux,
  * claim, road and layer are all still zero and are handed back below.
  */
+uint8_t *mb_river_fill;      /* the filled surface, for flow_down() */
+
 #define PF_NONE 255
 
 static void priority_flood(uint8_t *fill, uint8_t *parent, uint8_t *qlo, uint8_t *qhi)
@@ -253,11 +256,45 @@ static void priority_flood(uint8_t *fill, uint8_t *parent, uint8_t *qlo, uint8_t
     #undef QNEXT
 }
 
-/* The downstream neighbour of a cell, straight off the spanning tree. */
+/* The downstream neighbour: STEEPEST DESCENT ON THE FILLED SURFACE, with the flood's
+ * spanning tree only as the fallback.
+ *
+ * Using the tree alone gave DEAD STRAIGHT rivers running east-west across the whole map. The
+ * tree is valid — every cell has a parent and every path reaches the sea — but its shape comes
+ * from the order the flood discovered cells, and the bucket queue is a stack scanned row-major,
+ * so on any ground that is not steeply sloped the parents all point along a row. Thresholding
+ * by flow hid that, because flow accumulates wherever the terrain does happen to lead; tracing
+ * the tree exposed it immediately.
+ *
+ * So the terrain leads. The filled surface has no pits, so almost everywhere there is a
+ * strictly-lower neighbour and following the steepest one draws the valley. The only cells
+ * without one are on the flats the fill created — the surfaces of filled lakes — and there the
+ * tree takes over, which is both a guarantee of progress and the right answer: a lake's outflow
+ * really does run more or less straight across it.
+ */
 static int flow_down(int x, int y, const uint8_t *parent, int *ox, int *oy)
 {
-    int p = parent[AT(x, y)];
-    if (p >= 8) return -1;                              /* a root, or unreachable */
+    extern uint8_t *mb_river_fill;
+    const uint8_t *fl = mb_river_fill, *e = mb_w.elev;
+    int here = fl[AT(x, y)];
+    int best = -1, bestlev = here, bestraw = 256;
+
+    for (int k = 0; k < 8; k++) {
+        int nx = x + RDX[k], ny = y + RDY[k];
+        if (!mb_in(nx, ny)) continue;
+        int ni = AT(nx, ny);
+        if (fl[ni] > bestlev) continue;
+        /* strictly lower wins; on a tie the lower ORIGINAL ground wins, which is what keeps a
+         * channel in the bottom of its valley instead of wandering across the floor */
+        if (fl[ni] < bestlev || (fl[ni] == bestlev && best >= 0 && e[ni] < bestraw)) {
+            if (fl[ni] == bestlev && best < 0) continue;      /* level with us is not downhill */
+            bestlev = fl[ni]; bestraw = e[ni]; best = ni; *ox = nx; *oy = ny;
+        }
+    }
+    if (best >= 0) return best;
+
+    int p = parent[AT(x, y)];                     /* across a filled lake, take the tree */
+    if (p >= 8) return -1;
     int nx = x + RDX[p], ny = y + RDY[p];
     if (!mb_in(nx, ny)) return -1;
     *ox = nx; *oy = ny;
@@ -293,6 +330,7 @@ static void rivers_build(void)
     /* Five byte maps borrowed; every one is zero at this point in generation and every one is
      * handed back at the end, so the whole drainage network costs no permanent memory. */
     uint8_t *fill   = mb_w.layer;
+    mb_river_fill = fill;
     uint8_t *parent = mb_w.obj;
     uint8_t *lo     = mb_w.claim;     /* the bucket queue's links, then the flow's low byte */
     uint8_t *hi     = mb_w.road;      /* ditto, high byte — 255 was not enough: 2.8% of a  */
@@ -345,75 +383,89 @@ static void rivers_build(void)
                 land, cut_s, cut_r, cut_g);
 #endif
 
+    /* --- CARVE BY TRACING, NOT BY THRESHOLDING --------------------------
+     *
+     * Deciding cell by cell whether the flow clears a threshold is what produced holes. It
+     * should not have: flow only ever increases downstream, so the test is monotone along a
+     * channel. But any attempt to break up the braiding on flat ground has to REMOVE cells,
+     * and removing cells from a line leaves gaps — the thinning rule dropped every cell whose
+     * orthogonal neighbour happened to be the same channel two steps ahead, which on a
+     * staircase diagonal is most of them. Spotty rivers, spotty ground.
+     *
+     * So the channel is DRAWN, the way grandthumbauto's citygen draws its rivers: find the
+     * heads, walk each one down the drainage tree to the sea, and stamp an overlapping DISC at
+     * every step. Overlapping discs cannot leave a hole, whatever the path does, and the
+     * radius gives a river body instead of a one-pixel scratch. Braids simply merge into each
+     * other, which is what braids look like.
+     *
+     * The hydrology is still ours and is better than an edge-to-edge sweep for this game: a
+     * source sits in high ground, the path follows the valleys the priority flood found, and
+     * every river reaches the coast. What is borrowed is only how it is painted — including the
+     * slow sinusoidal swell in width, which is the detail that stops a channel reading as a
+     * pipe of constant bore.
+     */
     for (int y = 0; y < MH; y++)
         for (int x = 0; x < MW; x++) {
             int i = AT(x, y);
-            /* The guard is the FLOW, not the biome: testing the biome here reads a map this
-             * loop is writing, so a cell turned to water by a neighbour's widening had its
-             * own channel skipped and every wide river came out dotted. */
             int f = (hi[i] << 8) | lo[i];
-            if (!f) continue;
+            if (!f || f < cut_s) continue;
 
-            /* A LAKE-BOTTOM RULE WAS TRIED HERE AND DOES NOT APPLY. The idea was that the
-             * remaining braided patches are filled basins, so a cell under its own filled
-             * level should be drawn as lake rather than as rivulets. It never fires: the
-             * priority flood shows that fbm depressions are only one to three units deep, so
-             * `fill > elev + 2` is essentially never true and the water fraction came out
-             * byte-identical. The braiding is genuinely many equal-flow branches on nearly
-             * flat ground, and thinning is as far as that can be taken without a real
-             * flat-routing pass. Left as a known artefact rather than a dead branch. */
-            if (f < cut_s) continue;
-
-            int nx = x, ny = y;
-            int ni = flow_down(x, y, parent, &nx, &ny);
-            int dx = nx - x, dy = ny - y;
-            int px = -dy, py = dx;                       /* across the channel */
-            /* THIN THE FANS, against ALL EIGHT neighbours except the one downstream.
+            /* TRACE FROM EVERY CHANNEL CELL, not just from the heads.
              *
-             * A large filled plateau drains as a broad diagonal front of near-equal channels,
-             * which at one pixel a tile reads as cross-hatching — and two narrower rules
-             * failed to touch it: comparing both sides for strictly-greater flow changed 750
-             * river cells to 750, and comparing one side with ties losing changed 609 to 609,
-             * because the competing channel is not always the PERPENDICULAR neighbour when
-             * the flow runs diagonally.
+             * Detecting heads — a channel cell that nothing upstream feeds — halves the work
+             * and cost most of the network: the head test asked whether a neighbour's
+             * downstream cell was this one, and after routing changed to follow the terrain
+             * rather than the flood's tree the two no longer agreed, so channels whose head
+             * went unrecognised were never drawn at all. Rivers came out as disconnected
+             * fragments near the coast.
              *
-             * A trunk river has exactly one neighbour carrying more water than it does: the
-             * one it flows into. Every other neighbour is a tributary, and carries less. So
-             * requiring that is the general form of the rule, it needs no assumption about
-             * geometry, and a fan of equals collapses because ties lose. */
-            {
-                int beaten = 0;
-                for (int k = 0; k < 8 && !beaten; k++) {
-                    int ax = x + RDX[k], ay = y + RDY[k];
-                    if (!mb_in(ax, ay)) continue;
-                    int ai = AT(ax, ay);
-                    if (ai == ni) continue;                  /* downstream is allowed to win */
-                    if (((hi[ai] << 8) | lo[ai]) >= f) beaten = 1;
-                }
-                if (beaten) continue;
-            }
+             * Stamping is idempotent, so tracing every channel cell simply redraws the lower
+             * reaches many times over and cannot miss anything. About two hundred sources at
+             * a few dozen steps each, once, at world generation.
+             */
+            int cx = x, cy = y;
+            for (int step = 0; step < 400; step++) {
+                int ci = AT(cx, cy);
+                int cf = (hi[ci] << 8) | lo[ci];
 
-            int half = (f >= cut_g) ? 2 : (f >= cut_r) ? 1 : 0;
-            int cut  = (f >= cut_g) ? 8 : (f >= cut_r) ? 6 : 4;
+                /* WIDTH. Half a cell for a stream, one and a half for a river, two and a half
+                 * for a great one, with a slow swell along the length so no reach is uniform. */
+                float base = (cf >= cut_g) ? 2.4f : (cf >= cut_r) ? 1.5f : 0.6f;
+                float swell = 0.74f + 0.42f * fabsf(sinf((float)step * 0.21f
+                                                         + (float)(x * 7 + y * 3) * 0.11f));
+                float w = base * swell;
+                int cut = (cf >= cut_g) ? 8 : (cf >= cut_r) ? 6 : 4;
+                int ir = (int)(w + 0.5f);
+                for (int oy = -ir; oy <= ir; oy++)
+                    for (int ox = -ir; ox <= ir; ox++)
+                        if ((float)(ox * ox + oy * oy) <= w * w + 0.25f)
+                            river_cell(cx + ox, cy + oy, cut);
 
-            river_cell(x, y, cut);
-            for (int w = 1; w <= half; w++) {
-                river_cell(x + px * w, y + py * w, cut);
-                river_cell(x - px * w, y - py * w, cut);
-            }
-            /* A LAKE where the tree has no parent to follow: the water pools. */
-            if (ni < 0 && f >= cut_r) {
-                int rad = (f >= cut_g) ? 2 : 1;
-                for (int oy = -rad; oy <= rad; oy++)
-                    for (int ox2 = -rad; ox2 <= rad; ox2++)
-                        if (ox2 * ox2 + oy * oy <= rad * rad) river_cell(x + ox2, y + oy, cut);
-            }
-            /* A DELTA at the mouth: a great river should not meet the sea as a slot. */
-            if (f >= cut_r && ni >= 0 && mb_water(b[ni]))
-                for (int w = half + 1; w <= half + 2; w++) {
-                    river_cell(x + px * w, y + py * w, cut);
-                    river_cell(x - px * w, y - py * w, cut);
+                int nx = cx, ny = cy;
+                int ni = flow_down(cx, cy, parent, &nx, &ny);
+                if (ni < 0) {
+                    /* A LAKE where the tree has no parent: the water pools rather than
+                     * stopping mid-valley, which reads as a mistake. */
+                    if (cf >= cut_r) {
+                        int lr = (cf >= cut_g) ? 3 : 2;
+                        for (int oy = -lr; oy <= lr; oy++)
+                            for (int ox = -lr; ox <= lr; ox++)
+                                if (ox * ox + oy * oy <= lr * lr) river_cell(cx + ox, cy + oy, cut);
+                    }
+                    break;
                 }
+                if (!mb_land(b[ni])) {
+                    /* A DELTA at the mouth: a great river should not meet the sea as a slot. */
+                    if (cf >= cut_r) {
+                        int dr = (cf >= cut_g) ? 3 : 2;
+                        for (int oy = -dr; oy <= dr; oy++)
+                            for (int ox = -dr; ox <= dr; ox++)
+                                if (ox * ox + oy * oy <= dr * dr) river_cell(cx + ox, cy + oy, cut);
+                    }
+                    break;
+                }
+                cx = nx; cy = ny;
+            }
         }
 
     for (int i = 0; i < NC; i++) { lo[i] = 0; hi[i] = 0; fill[i] = 0; parent[i] = 0; }

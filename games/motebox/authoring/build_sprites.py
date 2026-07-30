@@ -1025,6 +1025,69 @@ def silo(banner):
     return im
 
 
+
+# ---------------------------------------------------------- the modern variants ---------
+# These are not new BUILDINGS: they are later-age forms of ones that already exist, appended
+# after the object columns and selected at draw time from the owning kingdom's tech (see
+# MB_MODERN in mb_draw.c). A house becomes an apartment block, a manor becomes a tower block,
+# a market becomes a commercial block — so a city that lives long enough stops looking like a
+# village that grew and starts looking like a city, without a single new object id.
+#
+# What makes them read as modern at eight by fourteen is REGULARITY: identical windows in
+# rows, a flat roof, no pitch. A pitched roof is the single strongest signal of "old" in this
+# whole sheet, so none of these has one.
+def apartment(banner):
+    """STEAM. A tenement block: four floors of identical windows and a flat roof."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 3, 7, H - 1, BRICK)
+    _rect(px, 0, 3, 7, 3, BRICK_LIT)                  # the parapet catches the light
+    _rect(px, 7, 4, 7, H - 1, BRICK_DARK)
+    _rect(px, 0, 2, 7, 2, BRICK_DARK)                 # a flat roof, and its shadow line
+    for y in (5, 8, 11):                              # floors of identical windows
+        for x in (1, 3, 5):
+            _rect(px, x, y, x, y, GLASS)
+        _rect(px, 5, y, 5, y, GLASS_LIT)              # one lit, so it is inhabited
+    _door(px, 3, H - 3)
+    return im
+
+
+def tower_block(banner):
+    """MASONRY + STEAM at the top of the housing ladder: taller, plainer, more windows.
+    The manor's replacement, and the tallest dwelling in the game."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 1, 1, 6, H - 1, CONC)
+    _rect(px, 1, 1, 1, H - 1, CONC_LIT)
+    _rect(px, 6, 1, 6, H - 1, CONC_DARK)
+    _rect(px, 1, 0, 6, 0, CONC_DARK)                  # flat roof
+    for y in range(2, H - 2, 3):                       # a grid of windows, floor after floor
+        for x in (2, 4):
+            _rect(px, x, y, x, y, GLASS)
+    _rect(px, 4, 5, 4, 5, GLASS_LIT)
+    _rect(px, 2, 11, 2, 11, GLASS_LIT)
+    _rect(px, 0, H - 1, 7, H - 1, CONC_DARK)
+    return im
+
+
+def cityblock(banner):
+    """ELECTRICITY. The market's replacement: a commercial block with a glazed ground floor
+    and the kingdom's colour on the fascia — the only thing here lit from inside at night."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 2, 7, H - 1, CONC)
+    _rect(px, 0, 2, 7, 2, CONC_LIT)
+    _rect(px, 7, 3, 7, H - 1, CONC_DARK)
+    _rect(px, 0, 1, 7, 1, CONC_DARK)
+    _rect(px, 0, 4, 7, 4, roof)                       # the fascia, in the banner's colour
+    for y in (6, 9):                                  # office floors
+        for x in range(1, 7, 2):
+            _rect(px, x, y, x, y, GLASS)
+    _rect(px, 1, H - 3, 6, H - 2, GLASS_LIT)          # and the shopfront, lit
+    _rect(px, 3, H - 3, 4, H - 2, STEEL)              # its doors
+    return im
+
+
 BUILDINGS = [
     ("campfire",   campfire),
     ("hall",       hall),
@@ -1052,6 +1115,10 @@ BUILDINGS = [
     ("power",      power),
     ("silo",       silo),
     ("plan",       plan),
+    # --- later-age FORMS of the above, not objects of their own ---
+    ("apartment",  apartment),
+    ("tower",      tower_block),
+    ("cityblock",  cityblock),
 ]
 
 

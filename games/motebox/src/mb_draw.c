@@ -82,10 +82,12 @@
 #define TOWN_W 8
 #define TOWN_H 14
 #define TOWN_ANCHOR_Y (-6)
-/* The sheet's column IS `obj - O_BUILD0`, which is fast and has no lookup table to
- * drift — but it means adding an O_* without adding a column silently draws the wrong
- * building for every id after it. This catches exactly that, at compile time. */
-typedef char mb_town_covers_builds[(town_W / TOWN_W) == (O_N - O_BUILD0) ? 1 : -1];
+/* The sheet's column IS `obj - O_BUILD0` for the first O_N - O_BUILD0 columns, which is fast
+ * and has no lookup table to drift — but it means adding an O_* without adding a column
+ * silently draws the wrong building for every id after it. This catches exactly that, at
+ * compile time. It is >= rather than == because the sheet also carries the LATER-AGE FORMS
+ * (see MB_MODERN below) in columns past the object range. */
+typedef char mb_town_covers_builds[(town_W / TOWN_W) >= (O_N - O_BUILD0) ? 1 : -1];
 #include "ui_status.h"
 #include "tools.h"
 #include "crowns_fx.h"
@@ -813,6 +815,32 @@ static const FluxSpr FLUX_SPR[FX_N] = {
  * tell the centre of a village from its outskirts at eight pixels. */
 typedef struct { uint8_t sheet, cx, cy; } BldSpr;
 enum { BS_BUILD = 0, BS_PROPS, BS_PLAN, BS_NATURE, BS_TOOLS };
+/* --- LATER-AGE FORMS ----------------------------------------------------
+ *
+ * A house is a house for the whole of history, which is wrong twice: a city that has reached
+ * the industrial era should not be built out of the same thatched cottages it started with,
+ * and the tech tree should show in the streets and not only in a menu.
+ *
+ * These are not new objects. They are extra COLUMNS on the town sheet, chosen at draw time
+ * from the tech of the kingdom that owns the cell — the same trick the road surfaces use, and
+ * for the same reasons: it costs no storage per cell, it needs no want list or build cost, and
+ * it is RETROACTIVE. The moment a realm learns steam, every house it owns is a tenement; if
+ * that realm falls and the ground is taken by a stone-age neighbour, they are cottages again.
+ *
+ * The column indices are past O_N - O_BUILD0, which is why the tripwire above is >= and not ==.
+ */
+#define TOWN_COL_APARTMENT (O_N - O_BUILD0 + 0)
+#define TOWN_COL_TOWER     (O_N - O_BUILD0 + 1)
+#define TOWN_COL_CITYBLOCK (O_N - O_BUILD0 + 2)
+
+typedef struct { uint8_t col, tech; } ModernForm;
+static const ModernForm MB_MODERN[O_N - O_BUILD0] = {
+    [O_HOUSE1 - O_BUILD0] = { TOWN_COL_APARTMENT, TECH_STEAM },
+    [O_HOUSE2 - O_BUILD0] = { TOWN_COL_APARTMENT, TECH_STEAM },
+    [O_HOUSE3 - O_BUILD0] = { TOWN_COL_TOWER,     TECH_STEAM },
+    [O_MARKET - O_BUILD0] = { TOWN_COL_CITYBLOCK, TECH_ELECTRIC },
+};
+
 static const BldSpr MB_BLD[O_N - O_BUILD0] = {
     { BS_NATURE,12, 0 },   /* fire pit  "fountain/well" — a village well marks a
                             * founding better than the "hay" this used to be     */
@@ -1089,6 +1117,11 @@ void mb_draw_mortal(int cam_x, int cam_y)
             if (!mb_is_build(o)) continue;
             int col = o - O_BUILD0;
             int k = mb_kingdom_of(mb_w.claim[AT(c, r)]);
+            /* the later-age form, if its owner has got that far */
+            {
+                const ModernForm *mf = &MB_MODERN[col];
+                if (mf->tech && mb_tech_known(k, mf->tech)) col = mf->col;
+            }
             int row = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;   /* 4 = unclaimed grey */
             MoteSprite spr = { &town_img, (int16_t)(c * TILE),
                                (int16_t)(r * TILE + TOWN_ANCHOR_Y),
