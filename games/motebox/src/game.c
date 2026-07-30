@@ -575,27 +575,56 @@ static void law_menu(void)
     }
 }
 
+/* --- THE CHRONICLE, as a log you can navigate ---------------------------
+ *
+ * The world pans itself to each new headline after a few seconds of no input, which is right
+ * for a game you leave running and disorienting for one you are watching: you arrive
+ * somewhere with no idea what happened or where you were. The chronicle was the answer and
+ * was not usable as one — twenty-four lines of text about places there was no way to reach.
+ *
+ * So: the whole ring (ninety-six entries, scrolling), newest first, and SELECTING A LINE TAKES
+ * YOU THERE. That turns the log from a wall of history into the way you get around, and it
+ * turns the auto-pan from something that happens to you into something you can do on purpose.
+ *
+ * If the panning itself is the problem, MENU > WORLD LAWS > FOLLOW switches it off, and the
+ * chronicle then becomes the only way the world tells you anything — which is why it had to
+ * be navigable before that was a reasonable thing to suggest.
+ */
 static void chronicle_menu(void)
 {
-    /* The engine menu is a list, and a history IS a list — so the chronicle needs
-     * no screen of its own, and scrolls with the same buttons as everything else. */
-    int n = mb_chron_count();
-    if (n <= 0) {
-        const char *none[] = { "nothing has happened yet", "BACK" };
-        mote->menu("CHRONICLE", none, 2);
-        return;
+    /* The engine menu is a list, and a history IS a list — so the chronicle needs no screen
+     * of its own, and it scrolls with the same buttons as everything else. */
+    for (;;) {
+        int n = mb_chron_count();
+        if (n <= 0) {
+            const char *none[] = { "nothing has happened yet", "BACK" };
+            mote->menu("CHRONICLE", none, 2);
+            return;
+        }
+        if (n > 40) n = 40;
+        static char rows[41][34];
+        const char *items[42];
+        for (int i = 0; i < n; i++) {
+            int year = 0; char line[30];
+            mb_chron_line(line, sizeof line, i, &year);
+            /* NO MARKER AND NO COORDINATES. A log is read as history; a grid reference tells
+             * you nothing you can act on, and a symbol in front of every other line is just
+             * clutter. Selecting a line still travels to it — the navigation is silent. */
+            snprintf(rows[i], sizeof rows[i], "Y%d %s", year, line);
+            items[i] = rows[i];
+        }
+        items[n] = "BACK";
+        int c = mote->menu("CHRONICLE", items, n + 1);
+        if (c < 0 || c >= n) return;
+        int wx, wy;
+        if (mb_chron_where(c, &wx, &wy)) {
+            s_cx = wx; s_cy = wy;
+            s_pan_x = -1;                  /* cancel any auto-pan: this was deliberate */
+            s_idle = 0.0f;                 /* and do not immediately pan away again */
+            if (!s_god) cam_follow();
+            return;
+        }
     }
-    if (n > 24) n = 24;
-    static char rows[25][34];
-    const char *items[25];
-    for (int i = 0; i < n; i++) {
-        int year = 0; char line[30];
-        mb_chron_line(line, sizeof line, i, &year);
-        snprintf(rows[i], sizeof rows[i], "Y%d %s", year, line);
-        items[i] = rows[i];
-    }
-    items[n] = "BACK";
-    mote->menu("CHRONICLE", items, n + 1);
 }
 
 /* --- THE WORLD REPORT ---------------------------------------------------
@@ -1137,6 +1166,28 @@ static void g_init(void)
                 }
                 fprintf(stderr, "the bomb: %d kingdoms have it, %d silos standing, "
                                 "%d strikes launched\n", armed, silos, fired);
+                /* WHY IT DID OR DID NOT FIRE. Three preconditions have to hold at once — a
+                 * silo, a living rival, and either a hawkish lord or a losing war — and
+                 * "0 strikes launched" says nothing about which one was missing. */
+                for (int k = 1; k < MAXK; k++) {
+                    if (!mb_k[k].alive || !mb_tech_known(k, TECH_NUKE)) continue;
+                    int mysilo = 0, rivals = 0, hawk = 0, mytowns = 0;
+                    for (int v = 1; v < MAXV; v++) {
+                        if (!mb_v[v].alive || mb_v[v].kingdom != k) continue;
+                        mytowns++; mysilo += mb_civ_count(v, O_SILO);
+                        int h = mb_v[v].lord_war;
+                        if (mb_v[v].lord_traits & TR_AMBITIOUS) h += 25;
+                        if (mb_v[v].lord_traits & TR_VENGEFUL)  h += 30;
+                        if (mb_v[v].lord_traits & TR_MADNESS)   h += 40;
+                        if (h > hawk) hawk = h;
+                    }
+                    for (int e = 1; e < MAXK; e++) if (e != k && mb_k[e].alive) rivals++;
+                    char kn[24]; mb_name_str(kn, sizeof kn, 1, mb_k[k].name);
+                    fprintf(stderr, "   %s: %d silos, %d towns, %d rivals, hawk %d%s, "
+                                    "wars %d, weariness %d\n", kn, mysilo, mytowns, rivals,
+                            hawk, hawk >= 95 ? " FIRST-STRIKE" : "",
+                            mb_k[k].war_with ? 1 : 0, mb_k[k].exhaustion);
+                }
                 {   /* THE CIVIC LADDER, counted. Nine buildings gated on nine techs is nine
                      * more chances for a feature to exist and never be built — which has
                      * happened three times in this game already. */
@@ -1657,8 +1708,14 @@ static void g_overlay(uint16_t *fb)
                      MB_TIER_NAME[mb_v[v].tier < TIER_N ? mb_v[v].tier : 0], mb_v[v].pop);
         } else if (o && o < O_N && O_NAME[o][0])
             snprintf(buf, sizeof buf, "%s %s", B_NAME[b < B_N ? b : 0], O_NAME[o]);
-        else
-            snprintf(buf, sizeof buf, "%s %d,%d", B_NAME[b < B_N ? b : 0], s_cx, s_cy);
+        else {
+            /* NO GRID REFERENCE. The fallback used to print "GRASS 68,15", and a coordinate is
+             * the one thing on this HUD a player can do nothing with — there is no way to type
+             * one in and nothing else displays them. Elevation at least says something about
+             * the ground you are looking at, which is what the relief is drawn from. */
+            snprintf(buf, sizeof buf, "%s  elev %d", B_NAME[b < B_N ? b : 0],
+                     mb_w.elev[AT(s_cx, s_cy)]);
+        }
         hud_text(fb, buf, HC_INFO_X, HUD_Y + 8, HC_INFO_W, k ? C_WARN : C_TEXT, -1);
 
         if (s_denied > 0.0f) {

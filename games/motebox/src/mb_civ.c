@@ -1642,9 +1642,18 @@ static void loyalty_step(int v)
 static void nuke_think(int k)
 {
     Kingdom *K = &mb_k[k];
-    if (!K->alive || !K->war_with) return;
+    if (!K->alive) return;
     if (!mb_tech_known(k, TECH_NUKE)) return;
-    if ((mb_w.tick % 52)) return;                       /* the decision is taken once a year */
+    /* NO ABSOLUTE-TIME GATE. This is the third time this exact bug has appeared, so it is
+     * worth naming: king_think() runs ONE kingdom every 32 ticks, so kingdom k is visited when
+     * tick % 352 == 32(k-1). Requiring `tick % 52 == 0` as well asks two unrelated schedules to
+     * coincide, which for most k happens about once every eighty-eight years — and the decision
+     * to launch effectively never got taken. The caravans died the same way (one delivery in
+     * four hundred years) and so did the silo's build turn.
+     *
+     * A rate limit has to be expressed in the SCHEDULER'S OWN UNITS. The visit itself is the
+     * limiter here — about once every seven years per kingdom — and the roll below is the
+     * probability. */
 
     int silos = 0, mytowns = 0;
     for (int v = 1; v < MAXV; v++) {
@@ -1654,18 +1663,55 @@ static void nuke_think(int k)
     }
     if (!silos) return;
 
-    /* the enemy it is most losing to */
+    /* WHO FIRES FIRST. A doctrine of last resort is the better story, and it is also why no
+     * strike was ever observed in nine hundred years of testing: a silo-owning kingdom had to
+     * be at war AND losing at the same moment, and by the time anyone reaches the last rung of
+     * a thirty-five tech tree it has usually outlived its rivals — war_with sits at zero for
+     * ever. Nine silos stood in one measured world and not one was used.
+     *
+     * Hawkishness comes from the LORDS, which is where this game keeps character: the most
+     * warlike lord in the realm, plus his ambition, his grudges and his sanity. A realm led by
+     * a vengeful warlord does not wait to be attacked and does not wait to be losing — it
+     * needs only a rival. A cautious one still fires solely as the last act of a kingdom going
+     * under. So the bomb is offensive for SOME crowns and defensive for the rest, and which is
+     * which falls out of who happens to be in charge when the silo is finished. */
+    int hawk = 0;
+    for (int v = 1; v < MAXV; v++) {
+        if (!mb_v[v].alive || mb_v[v].kingdom != k) continue;
+        int h = mb_v[v].lord_war;
+        if (mb_v[v].lord_traits & TR_AMBITIOUS) h += 25;
+        if (mb_v[v].lord_traits & TR_VENGEFUL)  h += 30;
+        if (mb_v[v].lord_traits & TR_MADNESS)   h += 40;
+        if (h > hawk) hawk = h;
+    }
+    /* EIGHTY, not ninety-five. Instrumented across five 900-year worlds, the two armed
+     * kingdoms were: one with nine silos, a hawk of 106 and NO RIVALS LEFT — it had unified
+     * the world, so there was nothing to strike — and one with a silo, two rivals, and a hawk
+     * of NINETY-FOUR. One point under the bar, with no war to open the defensive path either.
+     * A threshold that a realm led by a warlord misses by one point is the wrong threshold. */
+    const int first_strike = hawk >= 80;
+
+    /* The target. A hawk will hit the strongest rival in the world whether or not a war has
+     * been declared; everyone else only hits an enemy it is already fighting and losing to. */
     int foe = 0, foetowns = 0;
     for (int e = 1; e < MAXK; e++) {
-        if (e == k || !(K->war_with & (1u << e)) || !mb_k[e].alive) continue;
+        if (e == k || !mb_k[e].alive) continue;
+        if (!first_strike && !(K->war_with & (1u << e))) continue;
         int t = 0;
         for (int v = 1; v < MAXV; v++) if (mb_v[v].alive && mb_v[v].kingdom == e) t++;
         if (t > foetowns) { foetowns = t; foe = e; }
     }
     if (!foe) return;
-    int desperate = (K->exhaustion > 35) || (foetowns >= mytowns);
-    if (!desperate) return;
-    if ((mb_rand((uint32_t)(k * 40503u + (uint32_t)mb_w.tick)) & 1)) return;   /* not every year */
+
+    if (!first_strike) {
+        if (!K->war_with) return;
+        int desperate = (K->exhaustion > 35) || (foetowns >= mytowns);
+        if (!desperate) return;
+    }
+
+    /* and a warlord does not deliberate for long */
+    unsigned roll = mb_rand((uint32_t)(k * 40503u + (uint32_t)mb_w.tick));
+    if ((roll & (first_strike ? 1u : 3u))) return;
 
     int target = 0;
     for (int v = 1; v < MAXV; v++)
@@ -1674,6 +1720,9 @@ static void nuke_think(int k)
     if (!target) return;
 
     mb_nuke_strike(k, mb_v[target].x, mb_v[target].y);
+    /* An unprovoked strike is a declaration in itself. */
+    K->war_with |= (1u << foe);
+    mb_k[foe].war_with |= (1u << k);
     K->exhaustion = (uint8_t)(K->exhaustion > 30 ? K->exhaustion - 30 : 0);
 }
 

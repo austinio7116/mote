@@ -291,6 +291,18 @@ int mb_chron_grudge(int a, int b)
 
 int mb_chron_count(void) { return s_n; }
 
+/* WHERE an entry happened, so the log can be navigated instead of merely read. The ring has
+ * always stored coordinates — the auto-follow camera uses them — but nothing exposed them, so
+ * the chronicle was a wall of text about places you could not get to. */
+int mb_chron_where(int back, int *x, int *y)
+{
+    if (back < 0 || back >= s_n) return 0;
+    int idx = (s_head - 1 - back + NEV * 2) % NEV;
+    if (!s_ev[idx].x && !s_ev[idx].y) return 0;
+    *x = s_ev[idx].x; *y = s_ev[idx].y;
+    return 1;
+}
+
 /* `back` 0 is the newest. Renders on demand — the ring holds no text. */
 void mb_chron_line(char *out, int n, int back, int *year)
 {

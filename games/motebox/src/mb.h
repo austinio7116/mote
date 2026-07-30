@@ -507,6 +507,7 @@ const char *mb_chron_word(int id);
 int         mb_chron_grudge(int a, int b);
 int         mb_chron_count(void);
 void        mb_chron_line(char *out, int n, int back, int *year);
+int         mb_chron_where(int back, int *x, int *y);   /* jump to an entry */
 const char *mb_chron_toast(void);      /* NULL when none is showing */
 void        mb_chron_step(float dt);
 int         mb_chron_focus(int *x, int *y);   /* where the last big event was */

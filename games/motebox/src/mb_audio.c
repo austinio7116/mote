@@ -54,11 +54,25 @@ static float s_now;
 
 void mb_audio_step(float dt) { s_now += dt; }
 
+/* SOUND IS OFF, deliberately and temporarily.
+ *
+ * Every effect in this game has been through several visual passes and none of them has been
+ * through an audio one: the sound set is placeholder beeps chosen alongside features that have
+ * since been rebuilt from scratch (the fire, the tsunami, the bomb). Rather than ship a
+ * soundtrack nobody has listened to, the whole layer is muted at its single entry point — one
+ * flag, so turning it back on is one line and nothing else has to be remembered.
+ *
+ * Everything downstream still runs: the cadence limiter below keeps its state, and mb_snd_at()
+ * keeps culling by distance, so re-enabling it will not reveal a pile of rot that only worked
+ * because it was never called. */
+#define MB_SOUND_ON 0
+
 void mb_snd(int id)
 {
     if (id < 0 || id >= SND_N) return;
     if (s_now - s_last[id] < MIND[id]) return;
     s_last[id] = s_now;
+    if (!MB_SOUND_ON) return;
     g_api->audio_play_sfx(SFX[id], GAIN[id]);
 }
 
