@@ -832,14 +832,69 @@ enum { BS_BUILD = 0, BS_PROPS, BS_PLAN, BS_NATURE, BS_TOOLS };
 #define TOWN_COL_APARTMENT (O_N - O_BUILD0 + 0)
 #define TOWN_COL_TOWER     (O_N - O_BUILD0 + 1)
 #define TOWN_COL_CITYBLOCK (O_N - O_BUILD0 + 2)
+/* --- ALTERNATIVE DESIGNS ---------------------------------------------------
+ * A street of identical sprites reads as wallpaper however good the sprite is, and the banner
+ * rows only vary the COLOUR — vary that alone and a street looks like a paint chart. These
+ * differ in silhouette: roof pitch, gable direction, storey count, a lean-to, a shopfront.
+ * One is chosen per cell by a position hash, so it is stable (a house does not flicker between
+ * designs) and neighbours rarely match. */
+#define TOWN_COL_HOUSE_B   (O_N - O_BUILD0 + 3)
+#define TOWN_COL_HOUSE_C   (O_N - O_BUILD0 + 4)
+#define TOWN_COL_COTTAGE_B (O_N - O_BUILD0 + 5)
+#define TOWN_COL_MANOR_B   (O_N - O_BUILD0 + 6)
+#define TOWN_COL_APT_B     (O_N - O_BUILD0 + 7)
+#define TOWN_COL_APT_C     (O_N - O_BUILD0 + 8)
+/* and what the founding campfire becomes: fire, then water, then light */
+#define TOWN_COL_WELL      (O_N - O_BUILD0 + 9)
+#define TOWN_COL_GASLAMP   (O_N - O_BUILD0 + 10)
+#define TOWN_COL_LIGHT     (O_N - O_BUILD0 + 11)
 
-typedef struct { uint8_t col, tech; } ModernForm;
-static const ModernForm MB_MODERN[O_N - O_BUILD0] = {
-    [O_HOUSE1 - O_BUILD0] = { TOWN_COL_APARTMENT, TECH_STEAM },
-    [O_HOUSE2 - O_BUILD0] = { TOWN_COL_APARTMENT, TECH_STEAM },
-    [O_HOUSE3 - O_BUILD0] = { TOWN_COL_TOWER,     TECH_STEAM },
-    [O_MARKET - O_BUILD0] = { TOWN_COL_CITYBLOCK, TECH_ELECTRIC },
+/* Alternatives per column, including the base as the first entry. Indexed by the column that
+ * has already been resolved for era, so a modern block draws from the modern set. */
+typedef struct { uint8_t n, col[3]; } VariantSet;
+static const VariantSet MB_VARIANT[] = {
+    /* the plain house, the gable-end and the narrow two-storey */
+    { 3, { O_HOUSE1 - O_BUILD0, TOWN_COL_HOUSE_B, TOWN_COL_HOUSE_C } },
+    { 2, { O_HOUSE2 - O_BUILD0, TOWN_COL_COTTAGE_B, 0 } },
+    { 2, { O_HOUSE3 - O_BUILD0, TOWN_COL_MANOR_B, 0 } },
+    { 3, { TOWN_COL_APARTMENT,  TOWN_COL_APT_B, TOWN_COL_APT_C } },
 };
+#define MB_NVARIANT ((int)(sizeof MB_VARIANT / sizeof MB_VARIANT[0]))
+
+/* A LADDER, not one swap. The campfire needs three rungs — a settlement is not still
+ * gathering round an open fire once it has a power station, and going straight from fire to
+ * electric light skips the whole of history in between. Rungs are listed OLDEST FIRST and the
+ * last one whose tech is known wins, so a kingdom shows the most recent thing it can build. */
+typedef struct { uint8_t col, tech; } Rung;
+typedef struct { Rung up[3]; } ModernForm;
+static const ModernForm MB_MODERN[O_N - O_BUILD0] = {
+    /* the founding fire: a fire, then a well, then a gas lamp, then a street light —
+     * the same idea each time, the thing the town gathers round */
+    [O_FIRE_PIT - O_BUILD0] = {{ { TOWN_COL_WELL,    TECH_MASONRY  },
+                                 { TOWN_COL_GASLAMP, TECH_STEAM    },
+                                 { TOWN_COL_LIGHT,   TECH_ELECTRIC } }},
+    [O_HOUSE1 - O_BUILD0] = {{ { TOWN_COL_APARTMENT, TECH_STEAM } }},
+    [O_HOUSE2 - O_BUILD0] = {{ { TOWN_COL_APARTMENT, TECH_STEAM } }},
+    [O_HOUSE3 - O_BUILD0] = {{ { TOWN_COL_TOWER,     TECH_STEAM } }},
+    [O_MARKET - O_BUILD0] = {{ { TOWN_COL_CITYBLOCK, TECH_ELECTRIC } }},
+};
+
+/* WHICH COLUMN A BUILDING ACTUALLY DRAWS AS, given who owns it and where it stands: the
+ * era form first, then an alternative design for that form. Split out of the draw loop so
+ * the audit can tally it (MOTEBOX_LOOPS) — "does the campfire become a street light" is a
+ * question about one kingdom's tech and one cell's hash, and counting is the only honest way
+ * to answer it. Squinting at a screenshot of a town the camera happened to stop on is not. */
+int mb_draw_form_col(uint8_t o, int k, int c, int r)
+{
+    int col = o - O_BUILD0;
+    const ModernForm *mf = &MB_MODERN[col];
+    for (int u = 0; u < 3; u++)
+        if (mf->up[u].tech && mb_tech_known(k, mf->up[u].tech)) col = mf->up[u].col;
+    for (int vi = 0; vi < MB_NVARIANT; vi++)
+        if (MB_VARIANT[vi].col[0] == col)
+            return MB_VARIANT[vi].col[mb__hash2(c, r) % MB_VARIANT[vi].n];
+    return col;
+}
 
 static const BldSpr MB_BLD[O_N - O_BUILD0] = {
     { BS_NATURE,12, 0 },   /* fire pit  "fountain/well" — a village well marks a
@@ -1115,13 +1170,8 @@ void mb_draw_mortal(int cam_x, int cam_y)
             if (c < 0 || c >= MW) continue;
             uint8_t o = mb_w.obj[AT(c, r)];
             if (!mb_is_build(o)) continue;
-            int col = o - O_BUILD0;
             int k = mb_kingdom_of(mb_w.claim[AT(c, r)]);
-            /* the later-age form, if its owner has got that far */
-            {
-                const ModernForm *mf = &MB_MODERN[col];
-                if (mf->tech && mb_tech_known(k, mf->tech)) col = mf->col;
-            }
+            int col = mb_draw_form_col(o, k, c, r);
             int row = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;   /* 4 = unclaimed grey */
             MoteSprite spr = { &town_img, (int16_t)(c * TILE),
                                (int16_t)(r * TILE + TOWN_ANCHOR_Y),

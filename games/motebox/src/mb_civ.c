@@ -396,6 +396,26 @@ const char *const MB_TECH_NAME[TECH_N] = {
 };
 typedef char mb_technames_complete[(sizeof MB_TECH_NAME / sizeof MB_TECH_NAME[0]) == TECH_N ? 1 : -1];
 
+/* WHAT A KINGDOM'S SOLDIERS FIRE, and how far. This is the tech tree arriving in the one place
+ * a player is already looking. Everyone can throw a rock; a bow needs bronze; a musket needs
+ * gunpowder; a field gun needs metallurgy; a rocket needs rocketry. Range rises with each,
+ * which is why an army that has crossed a weapons era beats one that has not for a reason you
+ * can watch rather than one you have to infer from hit points. */
+int mb_war_shot_kind(int k)
+{
+    if (mb_tech_known(k, TECH_ROCKETRY))  return MB_SHOT_MISSILE;
+    if (mb_tech_known(k, TECH_METALLURGY))return MB_SHOT_SHELL;
+    if (mb_tech_known(k, TECH_GUNPOWDER)) return MB_SHOT_BULLET;
+    if (mb_tech_known(k, TECH_BRONZE))    return MB_SHOT_ARROW;
+    return MB_SHOT_ROCK;
+}
+
+int mb_war_shot_range(int kind)
+{
+    static const uint8_t R[MB_SHOT_N] = { 3, 5, 7, 9, 12 };
+    return R[(kind >= 0 && kind < MB_SHOT_N) ? kind : 0];
+}
+
 int mb_tech_known(int k, int t)
 {
     if (k <= 0 || k >= MAXK || !mb_k[k].alive) return t <= TECH_NONE;
@@ -1068,6 +1088,131 @@ static int wall_site(int v, int *ox, int *oy)
  * refuses simply never gets paved, so a town on a headland is shaped by the headland
  * without a single special case.
  */
+/* --- GARDENS ------------------------------------------------------------
+ * The inside of a block is bare ground, and a town of houses on scraped earth looks like a
+ * building site. A cell that is claimed, unpaved, unbuilt and next to a building gets planted:
+ * a tree, a bush, a tuft or a flower. It costs nothing — the clutter pass already draws these
+ * objects — and it is what makes a street look lived in rather than laid out.
+ */
+/* --- THE PLAZA ----------------------------------------------------------
+ * A town's hall stands in a street like everything else, so the biggest building in the
+ * world got no more space than a cottage and nowhere to be seen from. A settlement past
+ * hamlet paves the block the hall is on and stands a monument in it; a city adds a fountain.
+ *
+ * IT PAVES RATHER THAN CLEARS. Knocking houses down to make room would be the obvious way
+ * and it is the wrong one: the square would appear one day where a street used to be, and
+ * whoever lived there would be homeless for reasons no player could see. Instead it only
+ * takes cells that are EMPTY, so the plaza grows into the gaps and a tight town simply never
+ * gets a big one — which is itself the right answer.
+ */
+/* A plaza cell that can take a landmark: this village's ground, buildable, and nothing
+ * standing on it. Paving does not disqualify it — the square is paved first and the monument
+ * then stands IN the square, which is the whole idea. */
+static int plaza_free(int v, int x, int y)
+{
+    if (!mb_in(x, y)) return 0;
+    int i = AT(x, y);
+    return mb_w.claim[i] == v && buildable(x, y) && !mb_is_build(mb_w.obj[i]);
+}
+
+static void village_plaza(int v)
+{
+    Village *V = &mb_v[v];
+    if (V->tier < TIER_TOWN) return;
+    /* the hall is the anchor: find it once, near the centre */
+    int hx = -1, hy = -1;
+    for (int dy = -3; dy <= 3 && hx < 0; dy++)
+        for (int dx = -3; dx <= 3 && hx < 0; dx++) {
+            int x = V->x + dx, y = V->y + dy;
+            if (!mb_in(x, y)) continue;
+            uint8_t o = mb_w.obj[AT(x, y)];
+            if (o == O_HALL1 || o == O_HALL2 || o == O_HALL3) { hx = x; hy = y; }
+        }
+    if (hx < 0) return;
+
+    /* pave what is free in a 5x3 in front of it — wider than tall, because the view is
+     * three-quarters-on and a square that is square looks like a courtyard from above */
+    int mon = 0, fount = 0;
+    for (int dy = 1; dy <= 3; dy++)
+        for (int dx = -2; dx <= 2; dx++) {
+            int x = hx + dx, y = hy + dy;
+            if (!mb_in(x, y)) continue;
+            int i = AT(x, y);
+            if (mb_w.claim[i] != v || !buildable(x, y)) continue;
+            uint8_t o = mb_w.obj[i];
+            if (mb_is_build(o)) { if (o == O_MONUMENT) mon = 1;
+                                  if (o == O_FOUNTAIN) fount = 1; continue; }
+            mb_w.obj[i] = O_NONE;                       /* a tuft is not paving */
+            mb_w.road[i] = 1;
+        }
+    /* Then the thing worth walking to. THE SPOT IS SEARCHED FOR, not fixed: the first go
+     * named one cell for each (hall+2 and hall-2,+2) and if that cell happened to be a house,
+     * or outside the claim, that town simply never got one — a landmark that depends on a
+     * single lucky tile is a landmark that mostly does not exist. The monument takes the cell
+     * nearest the middle of the square and the fountain the one furthest from it, so when a
+     * town has both they are two landmarks rather than one stack. */
+    if (!mon) {
+        int bx = -1, by = 0, bd = 1 << 20;
+        for (int dy = 1; dy <= 3; dy++)
+            for (int dx = -2; dx <= 2; dx++) {
+                int x = hx + dx, y = hy + dy;
+                if (!plaza_free(v, x, y)) continue;
+                int d = dx * dx + (dy - 2) * (dy - 2);
+                if (d < bd) { bd = d; bx = x; by = y; }
+            }
+        if (bx >= 0) {
+            mb_w.obj[AT(bx, by)] = O_MONUMENT;
+            mb_w.road[AT(bx, by)] = 0;
+            mb_chron_build(v, "monument");
+            mon = 1;
+        }
+    }
+    /* THE FOUNTAIN IS GATED ON TECH, NOT ON TIER. It was TIER_CITY, which wants pop 34 in one
+     * settlement — a world caps around 222 souls across ten of them, so in six hundred years of
+     * five worlds not one fountain was ever built. A fountain needs a water supply, so the
+     * honest gate is the engineering that makes one, and that a kingdom really does reach. */
+    if (!fount && mon && mb_civ_tech_ok(v, TECH_ENGINEER)) {
+        int bx = -1, by = 0, bd = -1;
+        for (int dy = 1; dy <= 3; dy++)
+            for (int dx = -2; dx <= 2; dx++) {
+                int x = hx + dx, y = hy + dy;
+                if (!plaza_free(v, x, y)) continue;
+                int d = dx * dx + (dy - 2) * (dy - 2);
+                if (d > bd) { bd = d; bx = x; by = y; }
+            }
+        if (bx >= 0) {
+            mb_w.obj[AT(bx, by)] = O_FOUNTAIN;
+            mb_w.road[AT(bx, by)] = 0;
+            mb_chron_build(v, "fountain");
+        }
+    }
+}
+
+static void village_gardens(int v)
+{
+    Village *V = &mb_v[v];
+    for (int pass = 0; pass < 4; pass++) {
+        uint32_t r = mb_rand((uint32_t)(v * 6151u + (uint32_t)mb_w.tick * 131u + pass));
+        int x = V->x + (int)(r % 19u) - 9, y = V->y + (int)((r >> 8) % 19u) - 9;
+        if (!mb_in(x, y)) continue;
+        int i = AT(x, y);
+        if (mb_w.claim[i] != v || mb_w.road[i] || mb_w.obj[i]) continue;
+        if (!buildable(x, y)) continue;
+        if (street_at(v, x, y)) continue;              /* never plant in a future street */
+        int near = 0;
+        for (int k = 0; k < 8 && !near; k++) {
+            static const int8_t DX[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
+            static const int8_t DY[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
+            int nx = x + DX[k], ny = y + DY[k];
+            if (mb_in(nx, ny) && mb_is_build(mb_w.obj[AT(nx, ny)])) near = 1;
+        }
+        if (!near) continue;                            /* a garden belongs to a building */
+        int pick = (int)((r >> 20) & 7);
+        mb_w.obj[i] = (pick < 3) ? O_TUFT : (pick < 5) ? O_BUSH
+                    : (pick < 7) ? O_FLOWER : O_TREE;
+    }
+}
+
 static void village_streets(int v)
 {
     Village *V = &mb_v[v];
@@ -1877,6 +2022,8 @@ void mb_civ_step(void)
         succession_step(v);
         caravan_step(v);
         village_streets(v);
+        village_plaza(v);
+        village_gardens(v);
         try_build(v);
         claim_creep(v);
         loyalty_step(v);

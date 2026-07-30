@@ -615,7 +615,23 @@ static void act(int i)
             u->job = JOB_IDLE; break;
         }
         int ex = mb_u[e].x >> 4, ey = mb_u[e].y >> 4;
-        if ((ex - x) * (ex - x) + (ey - y) * (ey - y) <= 2) {
+        int d2 = (ex - x) * (ex - x) + (ey - y) * (ey - y);
+
+        /* RANGED FIRE, which is what makes a war look like a war.
+         *
+         * Combat was melee only: two figures walked into each other and one lost hit points, so
+         * a battle between kingdoms looked exactly like a wolf eating a deer, and five thousand
+         * research points spent on gunpowder changed nothing on screen. Soldiers now shoot from
+         * as far as their kingdom's weapons allow — a thrown rock at three tiles, an arrow at
+         * five, a musket ball at seven, a shell at nine, a missile at twelve.
+         *
+         * A shot is worth less than a blow, so closing is still the way to finish somebody; and
+         * the cadence is thinned, because a soldier firing every tick at ten tiles would empty a
+         * battlefield before either side arrived. */
+        int shk = mb_war_shot_kind(u->village ? mb_v[u->village].kingdom : 0);
+        int rng = mb_war_shot_range(shk);
+
+        if (d2 <= 2) {
             int dmg = 18 + (u->traits & TR_TOUGH ? 8 : 0) + (int)(r & 7);
             mb_u[e].hp -= (int8_t)dmg;
             mb_u[e].happy -= 8;
@@ -625,6 +641,18 @@ static void act(int i)
                 if (u->kills == 10) mb_chron_legend(i, LEGEND_KILLS);
                 u->job = JOB_IDLE;
             }
+        } else if (u->sp < SP_CIV_N && d2 <= rng * rng && (r & 3) == 0) {
+            mb_fx_shot((float)x, (float)y, (float)ex, (float)ey, shk);
+            int dmg = 7 + (int)(r >> 4 & 5) + shk * 2;      /* a better weapon hits harder */
+            mb_u[e].hp -= (int8_t)dmg;
+            mb_u[e].happy -= 5;
+            if (mb_u[e].hp <= 0) {
+                kill(e, CAUSE_SLAIN);
+                u->kills++;
+                if (u->kills == 10) mb_chron_legend(i, LEGEND_KILLS);
+            }
+            /* and they still advance while shooting, so a battle closes rather than stalling */
+            if (d2 > 6) step_toward(u, ex, ey);
         } else step_toward(u, ex, ey);
         break;
     }

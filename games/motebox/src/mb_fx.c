@@ -714,3 +714,134 @@ void mb_fx_draw_nuke(uint16_t *fb, int cam_x, int cam_y, float dt)
 }
 
 void mb_fx_nuke_clear(void) { for (int i = 0; i < NCLOUD; i++) s_cloud[i].on = 0; }
+
+/* --- SHOTS: what a war looks like ---------------------------------------
+ *
+ * Combat was melee only — two figures walked into each other and one lost hit points. A war
+ * between two kingdoms therefore looked exactly like a wolf eating a deer, and five thousand
+ * research points spent on gunpowder changed nothing you could see.
+ *
+ * So armies have REACH, and the projectile dates the battle: a thrown rock, then an arrow,
+ * then a musket ball, then a shell, then a missile. That is the tech tree arriving in the one
+ * place a player is already looking, and it means an army that has crossed a weapons era beats
+ * one that has not for a visible reason rather than an arithmetical one.
+ *
+ * Each kind is drawn differently because each should be legible at a glance:
+ *   ROCK    slow, high arc, dull — you can see it coming
+ *   ARROW   quick, shallow arc, a two-pixel shaft along its own direction
+ *   BULLET  very fast, flat, a bright point with a muzzle flash behind it
+ *   SHELL   arcing, orange, a smoke trail and a bang at the end
+ *   MISSILE fast, flat, white core on a long burning trail
+ */
+#define NSHOT 24
+static struct {
+    float x0, y0, x1, y1;      /* tile coordinates, start and end */
+    float t;                   /* 0..1 along the flight */
+    float speed;               /* 1/seconds */
+    uint8_t kind, on;
+} s_shot[NSHOT];
+
+static const struct { float speed, arc; uint16_t core, trail; } SHOT_DEF[MB_SHOT_N] = {
+    /*                 speed  arc     core                        trail                  */
+    /* ROCK    */ { 2.2f, 3.0f, MOTE_RGB565(150, 120,  90), MOTE_RGB565( 90,  70,  55) },
+    /* ARROW   */ { 4.5f, 1.2f, MOTE_RGB565(230, 225, 210), MOTE_RGB565(130, 110,  80) },
+    /* BULLET  */ { 9.0f, 0.0f, MOTE_RGB565(255, 250, 200), MOTE_RGB565(200, 160,  60) },
+    /* SHELL   */ { 3.2f, 2.6f, MOTE_RGB565(255, 190,  70), MOTE_RGB565(120, 110, 105) },
+    /* MISSILE */ { 6.5f, 0.4f, MOTE_RGB565(255, 245, 230), MOTE_RGB565(255, 130,  40) },
+};
+
+int mb_shots_fired[MB_SHOT_N];      /* counted per kind, for the war measurement */
+
+void mb_fx_shot(float fx, float fy, float tx, float ty, int kind)
+{
+    if (kind < 0 || kind >= MB_SHOT_N) return;
+    int slot = -1;
+    for (int i = 0; i < NSHOT; i++) if (!s_shot[i].on) { slot = i; break; }
+    if (slot < 0) {                                   /* full: steal the furthest along */
+        slot = 0;
+        for (int i = 1; i < NSHOT; i++) if (s_shot[i].t > s_shot[slot].t) slot = i;
+    }
+    s_shot[slot].on = 1; s_shot[slot].t = 0.0f;
+    s_shot[slot].x0 = fx; s_shot[slot].y0 = fy;
+    s_shot[slot].x1 = tx; s_shot[slot].y1 = ty;
+    s_shot[slot].kind = (uint8_t)kind;
+    mb_shots_fired[kind]++;
+    /* longer flights are not slower: the speed is per-second along the whole path, so a
+     * distant shot simply takes longer, which is what makes an arc worth drawing */
+    float dx = tx - fx, dy = ty - fy;
+    float d = sqrtf(dx * dx + dy * dy);
+    if (d < 0.5f) d = 0.5f;
+    s_shot[slot].speed = SHOT_DEF[kind].speed / d;
+}
+
+void mb_fx_shots_clear(void) { for (int i = 0; i < NSHOT; i++) s_shot[i].on = 0; }
+
+static inline void shot_px(uint16_t *fb, int px, int py, uint16_t col, float a)
+{
+    if (px < 0 || px >= 128 || py < 0 || py >= VIEW_H) return;
+    if (a <= 0.05f) return;
+    if (a > 1.0f) a = 1.0f;
+    fb[py * 128 + px] = lerp565(fb[py * 128 + px], col, a);
+}
+
+void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt)
+{
+    for (int i = 0; i < NSHOT; i++) {
+        if (!s_shot[i].on) continue;
+        const int kind = s_shot[i].kind;
+        const uint16_t core = SHOT_DEF[kind].core, trail = SHOT_DEF[kind].trail;
+        s_shot[i].t += s_shot[i].speed * dt;
+
+        if (s_shot[i].t >= 1.0f) {
+            /* THE IMPACT, which is what tells you the shot arrived rather than expired. */
+            int ix = (int)(s_shot[i].x1 * 8.0f) + 4 - cam_x;
+            int iy = (int)(s_shot[i].y1 * 8.0f) + 4 - cam_y;
+            int rad = (kind == MB_SHOT_SHELL || kind == MB_SHOT_MISSILE) ? 4 : 2;
+            for (int dy = -rad; dy <= rad; dy++)
+                for (int dx = -rad; dx <= rad; dx++)
+                    if (dx * dx + dy * dy <= rad * rad)
+                        shot_px(fb, ix + dx, iy + dy, core, 0.75f);
+            s_shot[i].on = 0;
+            continue;
+        }
+
+        /* the flight: a straight line plus a parabolic lift, so an arc is one term */
+        const float t = s_shot[i].t;
+        const float lift = SHOT_DEF[kind].arc * 4.0f * t * (1.0f - t);   /* px, upward */
+        #define SHOT_AT(tt, ox, oy) do {                                              \
+            float _l = SHOT_DEF[kind].arc * 4.0f * (tt) * (1.0f - (tt));               \
+            (ox) = (int)((s_shot[i].x0 + (s_shot[i].x1 - s_shot[i].x0) * (tt)) * 8.0f) \
+                   + 4 - cam_x;                                                        \
+            (oy) = (int)((s_shot[i].y0 + (s_shot[i].y1 - s_shot[i].y0) * (tt)) * 8.0f) \
+                   + 4 - cam_y - (int)_l;                                              \
+        } while (0)
+
+        int hx, hy; SHOT_AT(t, hx, hy);
+        (void)lift;
+
+        /* the tail, drawn back along the path so it curves with the arc */
+        int taillen = (kind == MB_SHOT_MISSILE) ? 7 : (kind == MB_SHOT_BULLET) ? 4
+                    : (kind == MB_SHOT_ARROW)   ? 3 : 2;
+        for (int k = 1; k <= taillen; k++) {
+            float tt = t - (float)k * 0.035f;
+            if (tt < 0.0f) break;
+            int tx2, ty2; SHOT_AT(tt, tx2, ty2);
+            shot_px(fb, tx2, ty2, trail, 0.75f - 0.09f * (float)k);
+        }
+        /* and the head, which for everything but a rock is brighter than its own trail */
+        shot_px(fb, hx, hy, core, 1.0f);
+        if (kind == MB_SHOT_ARROW || kind == MB_SHOT_MISSILE) {
+            int px2, py2; SHOT_AT(t - 0.02f, px2, py2);
+            shot_px(fb, px2, py2, core, 0.85f);
+        }
+        /* a muzzle flash, for the two that have one */
+        if (t < 0.12f && (kind == MB_SHOT_BULLET || kind == MB_SHOT_MISSILE)) {
+            int mx, my; SHOT_AT(0.0f, mx, my);
+            float a = 1.0f - t / 0.12f;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                    shot_px(fb, mx + dx, my + dy, SHOT_DEF[kind].core, a * 0.9f);
+        }
+        #undef SHOT_AT
+    }
+}

@@ -314,6 +314,13 @@ void mb_chron_line(char *out, int n, int back, int *year)
 
 const char *mb_chron_toast(void) { return (s_toast_t > 0.0f && s_toast[0]) ? s_toast : 0; }
 
+/* THE CAPTION FOR WHERE THE CAMERA WENT. The toast lasts 3.4 s and the auto-pan then glides
+ * for another second or two, so a hands-off player watched the world arrive somewhere with
+ * the explanation already gone — "I am jumped around to things that are usually not obvious".
+ * This is the same line with no timer on it, and the HUD keeps it up for as long as nobody
+ * is touching anything: if the world is driving, the world says where it took you. */
+const char *mb_chron_headline(void) { return s_toast[0] ? s_toast : 0; }
+
 int mb_chron_focus(int *x, int *y)
 {
     if (!s_have_focus) return 0;

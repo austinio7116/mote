@@ -136,8 +136,8 @@ def house(banner):
     _door(px, 3, body + 4, BROWN, TIMBER)
     _window(px, 1, body + 1); _window(px, 6, body + 1)
     _window(px, 1, body + 4); _window(px, 6, body + 4)  # an upper floor
-    _rect(px, 6, 0, 6, 1, DKGREY)                       # a chimney
-    px[6, 0] = LTGREY + (255,)
+    _rect(px, 6, 2, 6, 3, DKGREY)                       # a chimney, SITTING ON the roof:
+    px[6, 2] = LTGREY + (255,)                          # the slope reaches x=6 at row 4
     return im
 
 
@@ -152,7 +152,7 @@ def manor(banner):
     _door(px, 3, 10, BROWN, STONE_LIT)
     _window(px, 1, 7); _window(px, 6, 7)
     _window(px, 1, 10); _window(px, 6, 10)
-    _rect(px, 1, 0, 1, 1, DKGREY); px[1, 0] = LTGREY + (255,)
+    _rect(px, 1, 1, 1, 2, DKGREY); px[1, 1] = LTGREY + (255,)   # down to the slope
     return im
 
 
@@ -178,8 +178,15 @@ def great_hall(banner):
     _wall(px, body + 1, STONE, STONE_SHADE)
     _door(px, 3, body + 2, BROWN, STONE_LIT)
     _window(px, 1, body + 1); _window(px, 6, body + 1)
-    _rect(px, 1, 0, 1, 2, DKGREY)                     # the flagstaff
-    _rect(px, 2, 0, 3, 1, roof)                       # and its banner
+    # THE STAFF IS WHAT TOUCHES THE ROOF, and the flag flies at the top of it. Both used to
+    # stop at row 2 with the slope starting at row 5, so the whole thing floated two pixels
+    # clear of the building. Bringing the FLAG down to the roof instead just buried it in the
+    # roof's own highlight — a pole planted in the slope with the flag up top is both the fix
+    # and the right picture.
+    _rect(px, 1, 0, 1, 4, DKGREY)                     # the staff, down into the slope
+    px[1, 0] = LTGREY + (255,)
+    _rect(px, 2, 0, 3, 1, roof)                       # the flag, clear at the top
+    _rect(px, 2, 0, 3, 0, ridge)
     return im
 
 
@@ -342,451 +349,15 @@ def campfire(banner):
     return im
 
 
-def cottage(banner):
-    """The commonest building in the world, so it has to be the most legible one."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 4, roof, shade, ridge)          # rows 4-7
-    _wall(px, body, WALL, WALL_SHADE, TIMBER)           # rows 8-13
-    _door(px, 3, body + 2, BROWN, TIMBER)
-    _window(px, 1, body + 1)
-    _window(px, 6, body + 1)
-    return im
-
-
-def house(banner):
-    """A storey taller than the cottage: the roof starts higher and the wall shows two
-    windows, so a grown village reads as grown."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 2, roof, shade, ridge)          # a storey taller
-    _wall(px, body, WALL, WALL_SHADE, TIMBER)
-    _door(px, 3, body + 4, BROWN, TIMBER)
-    _window(px, 1, body + 1); _window(px, 6, body + 1)
-    _window(px, 1, body + 4); _window(px, 6, body + 4)  # an upper floor
-    _rect(px, 6, 0, 6, 1, DKGREY)                       # a chimney
-    px[6, 0] = LTGREY + (255,)
-    return im
-
-
-def manor(banner):
-    """Two gables and a stone ground floor — the richest private house."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 1, roof, shade, ridge)          # a deep roof, rows 1-4
-    _rect(px, 0, 5, W - 1, 5, shade)                    # and a bold eaves line
-    _rect(px, 0, 5, 3, 5, ridge)
-    _wall(px, 6, STONE, STONE_SHADE)                    # a stone ground floor
-    _door(px, 3, 10, BROWN, STONE_LIT)
-    _window(px, 1, 7); _window(px, 6, 7)
-    _window(px, 1, 10); _window(px, 6, 10)
-    _rect(px, 1, 0, 1, 1, DKGREY); px[1, 0] = LTGREY + (255,)
-    return im
-
-
-def hall(banner):
-    """A long low mead hall: a wide roof carried down almost to the ground."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 5, roof, shade, ridge)          # broad and low: a mead hall
-    _rect(px, 0, body, W - 1, body, shade)              # deep overhanging eaves
-    _rect(px, 0, body, 3, body, ridge)
-    _wall(px, body + 1, WALL, WALL_SHADE, TIMBER)
-    _door(px, 3, body + 1, BROWN, TIMBER)
-    return im
-
-
-def great_hall(banner):
-    """The hall grown into a stone-walled thing with a banner on it."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 3, roof, shade, ridge)
-    _rect(px, 0, body, W - 1, body, shade)
-    _rect(px, 0, body, 3, body, ridge)
-    _wall(px, body + 1, STONE, STONE_SHADE)
-    _door(px, 3, body + 2, BROWN, STONE_LIT)
-    _window(px, 1, body + 1); _window(px, 6, body + 1)
-    _rect(px, 1, 0, 1, 2, DKGREY)                     # the flagstaff
-    _rect(px, 2, 0, 3, 1, roof)                       # and its banner
-    return im
-
-
-def castle(banner):
-    """A crenellated keep. No pitched roof at all, which is what makes a castle read
-    as a castle at eight pixels: the silhouette is battlements, not a triangle."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    _rect(px, 0, 3, W - 1, H - 1, STONE)
-    _rect(px, 5, 3, W - 1, H - 1, STONE_SHADE)        # the shaded face
-    for x in range(0, W, 2):                          # battlements
-        _rect(px, x, 2, x, 2, STONE)
-        _rect(px, x, 1, x, 1, STONE_LIT)
-    _rect(px, 0, 4, W - 1, 4, STONE_LIT)              # a string course
-    _door(px, 3, 10, NAVY, STONE_LIT)                 # the gate
-    _window(px, 1, 7); _window(px, 6, 7)
-    _rect(px, 4, 0, 4, 1, DKGREY)
-    _rect(px, 5, 0, 6, 0, roof)                       # the standard
-    return im
-
-
-def barn(banner):
-    """A farm building: a big roof, a big door, and hay showing inside."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 4, BROWN, DKGREY, ORANGE)
-    _rect(px, 0, body, W - 1, body, DKGREY)           # eaves
-    _rect(px, 0, body, 3, body, BROWN)
-    _wall(px, body + 1, BROWN, DKGREY)
-    _rect(px, 2, body + 1, 5, H - 2, YELLOW)          # the open bay, full of hay
-    _rect(px, 2, body + 1, 5, body + 1, ORANGE)
-    return im
-
-
-def temple(banner):
-    """Columns and a pediment. The one building that is pure stone and pure geometry."""
-    im, px = _blank()
-    for i in range(4):                                # pediment
-        _rect(px, 3 - i, 4 - i, 4 + i, 4 - i, STONE)
-        px[3 - i, 4 - i] = STONE_LIT + (255,)
-    _rect(px, 0, 5, W - 1, 6, STONE)
-    _rect(px, 0, 5, W - 1, 5, STONE_LIT)              # architrave
-    for x in (1, 3, 5, 6):                            # columns
-        _rect(px, x, 7, x, H - 2, STONE)
-        px[x, 7] = STONE_LIT + (255,)
-    _rect(px, 0, H - 1, W - 1, H - 1, STONE_SHADE)    # stylobate
-    return im
-
-
-def tower(banner):
-    """A watchtower: tall, narrow, with a lit beacon so it reads at night and at
-    distance. Narrow is the point — it must not be confused with a keep."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    _rect(px, 1, 4, 6, H - 1, STONE)
-    _rect(px, 4, 4, 6, H - 1, STONE_SHADE)
-    _rect(px, 1, 4, 6, 4, STONE_LIT)                  # a corbel course
-    for x in range(1, 7, 2):
-        _rect(px, x, 3, x, 3, STONE)                  # battlements
-    _rect(px, 3, 1, 4, 2, ORANGE)                     # the beacon burning on top
-    _rect(px, 3, 1, 4, 1, YELLOW)
-    _window(px, 2, 8); _window(px, 5, 8)
-    _door(px, 3, 11, BROWN, STONE_LIT)
-    return im
-
-
-def barracks(banner):
-    """Low, long, shuttered, with a shield hung on the front."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 5, DKGREY, NAVY, LTGREY)
-    _wall(px, body, BROWN, DKGREY, TIMBER)
-    _rect(px, 3, body + 2, 4, body + 3, roof)         # a shield hung on the front
-    px[3, body + 2] = ridge + (255,)
-    _door(px, 1, body + 2, DKGREY)
-    return im
-
-
-def mine(banner):
-    """A timbered adit into a spoil heap. Reads as a hole in the ground, which is what
-    distinguishes it from every building that stands up."""
-    im, px = _blank()
-    _rect(px, 0, 8, W - 1, H - 1, DKGREY)             # the spoil
-    _rect(px, 0, 8, W - 1, 8, LTGREY)
-    _rect(px, 2, 6, 5, 12, BLACK)                     # the adit mouth
-    _rect(px, 2, 6, 5, 6, BROWN)                      # its lintel
-    _rect(px, 2, 7, 2, 12, BROWN)                     # and its props
-    _rect(px, 5, 7, 5, 12, BROWN)
-    px[3, 9] = YELLOW + (255,)                        # a lamp inside
-    return im
-
-
-def woodcutter(banner):
-    """A lean-to, a stack of cut logs and an axe in a block."""
-    im, px = _blank()
-    _rect(px, 0, 6, W - 1, 7, BROWN)                  # the lean-to roof
-    _rect(px, 0, 6, W - 1, 6, ORANGE)
-    _rect(px, 0, 8, 1, H - 1, BROWN)                  # its post
-    for y in range(9, H - 1, 2):                      # the log stack
-        _rect(px, 3, y, 6, y, BROWN)
-        px[3, y] = PEACH + (255,)
-        px[5, y] = PEACH + (255,)
-    _rect(px, 2, 8, 2, 9, LTGREY)                     # the axe
-    return im
-
-
-def dock(banner):
-    """A jetty with a moored boat: the only building that belongs on the water's edge,
-    so its silhouette has to say so."""
-    im, px = _blank()
-    _rect(px, 0, 9, W - 1, 10, BROWN)                 # the decking
-    _rect(px, 0, 9, W - 1, 9, PEACH)
-    for x in (1, 4, 6):
-        _rect(px, x, 11, x, H - 1, DKGREY)            # piles
-    _rect(px, 2, 6, 2, 8, BROWN)                      # the mast
-    _rect(px, 3, 6, 5, 8, WHITE)                      # and its sail
-    px[3, 6] = LTGREY + (255,)
-    return im
-
-
-def wall_seg(banner):
-    """A stretch of town wall with a walkway on top."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    _rect(px, 0, 6, W - 1, H - 1, STONE)
-    _rect(px, 0, 9, W - 1, H - 1, STONE_SHADE)
-    _rect(px, 0, 6, W - 1, 6, STONE_LIT)
-    for x in range(0, W, 2):
-        _rect(px, x, 5, x, 5, STONE)
-    return im
-
-
-def campfire(banner):
-    """The founding marker, and it is SMALL. A fire is knee-high.
-
-    Drawn first as a village well (a windlass over a bucket, which is what "a T over a
-    water bowl" was), then as a campfire that filled the full 8x14 building cell — so the
-    village's first fire stood as tall as a house. Everything on this sheet is 14 rows so
-    that HOUSES can have a roof above their footprint; a fire has no reason to use them.
-    It sits in the bottom six rows and leaves the rest empty.
-    """
-    im, px = _blank()
-    _rect(px, 2, 8, 5, 9, YELLOW)                      # the flame, four rows in total
-    _rect(px, 2, 10, 5, 11, ORANGE)
-    px[2, 9] = ORANGE + (255,); px[5, 9] = ORANGE + (255,)
-    _rect(px, 1, 12, 6, 12, BROWN)                     # logs across the base
-    px[1, 12] = PEACH + (255,); px[6, 12] = PEACH + (255,)
-    px[2, 12] = RED + (255,); px[5, 12] = RED + (255,)  # burning where the flame meets them
-    _rect(px, 1, 13, 6, 13, DKGREY)                    # and its shadow on the ground
-    return im
-
-
-def cottage(banner):
-    """The commonest building in the world, so it has to be the most legible one."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 4, roof, shade, ridge)          # rows 4-7
-    _wall(px, body, WALL, WALL_SHADE, TIMBER)           # rows 8-13
-    _door(px, 3, body + 2, BROWN, TIMBER)
-    _window(px, 1, body + 1)
-    _window(px, 6, body + 1)
-    return im
-
-
-def house(banner):
-    """A storey taller than the cottage: the roof starts higher and the wall shows two
-    windows, so a grown village reads as grown."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 2, roof, shade, ridge)          # a storey taller
-    _wall(px, body, WALL, WALL_SHADE, TIMBER)
-    _door(px, 3, body + 4, BROWN, TIMBER)
-    _window(px, 1, body + 1); _window(px, 6, body + 1)
-    _window(px, 1, body + 4); _window(px, 6, body + 4)  # an upper floor
-    _rect(px, 6, 0, 6, 1, DKGREY)                       # a chimney
-    px[6, 0] = LTGREY + (255,)
-    return im
-
-
-def manor(banner):
-    """Two gables and a stone ground floor — the richest private house."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 1, roof, shade, ridge)          # a deep roof, rows 1-4
-    _rect(px, 0, 5, W - 1, 5, shade)                    # and a bold eaves line
-    _rect(px, 0, 5, 3, 5, ridge)
-    _wall(px, 6, STONE, STONE_SHADE)                    # a stone ground floor
-    _door(px, 3, 10, BROWN, STONE_LIT)
-    _window(px, 1, 7); _window(px, 6, 7)
-    _window(px, 1, 10); _window(px, 6, 10)
-    _rect(px, 1, 0, 1, 1, DKGREY); px[1, 0] = LTGREY + (255,)
-    return im
-
-
-def hall(banner):
-    """A long low mead hall: a wide roof carried down almost to the ground."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 5, roof, shade, ridge)          # broad and low: a mead hall
-    _rect(px, 0, body, W - 1, body, shade)              # deep overhanging eaves
-    _rect(px, 0, body, 3, body, ridge)
-    _wall(px, body + 1, WALL, WALL_SHADE, TIMBER)
-    _door(px, 3, body + 1, BROWN, TIMBER)
-    return im
-
-
-def great_hall(banner):
-    """The hall grown into a stone-walled thing with a banner on it."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 3, roof, shade, ridge)
-    _rect(px, 0, body, W - 1, body, shade)
-    _rect(px, 0, body, 3, body, ridge)
-    _wall(px, body + 1, STONE, STONE_SHADE)
-    _door(px, 3, body + 2, BROWN, STONE_LIT)
-    _window(px, 1, body + 1); _window(px, 6, body + 1)
-    _rect(px, 1, 0, 1, 2, DKGREY)                     # the flagstaff
-    _rect(px, 2, 0, 3, 1, roof)                       # and its banner
-    return im
-
-
-def castle(banner):
-    """A crenellated keep. No pitched roof at all, which is what makes a castle read
-    as a castle at eight pixels: the silhouette is battlements, not a triangle."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    _rect(px, 0, 3, W - 1, H - 1, STONE)
-    _rect(px, 5, 3, W - 1, H - 1, STONE_SHADE)        # the shaded face
-    for x in range(0, W, 2):                          # battlements
-        _rect(px, x, 2, x, 2, STONE)
-        _rect(px, x, 1, x, 1, STONE_LIT)
-    _rect(px, 0, 4, W - 1, 4, STONE_LIT)              # a string course
-    _door(px, 3, 10, NAVY, STONE_LIT)                 # the gate
-    _window(px, 1, 7); _window(px, 6, 7)
-    _rect(px, 4, 0, 4, 1, DKGREY)
-    _rect(px, 5, 0, 6, 0, roof)                       # the standard
-    return im
-
-
-def barn(banner):
-    """A farm building: a big roof, a big door, and hay showing inside."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 4, BROWN, DKGREY, ORANGE)
-    _rect(px, 0, body, W - 1, body, DKGREY)           # eaves
-    _rect(px, 0, body, 3, body, BROWN)
-    _wall(px, body + 1, BROWN, DKGREY)
-    _rect(px, 2, body + 1, 5, H - 2, YELLOW)          # the open bay, full of hay
-    _rect(px, 2, body + 1, 5, body + 1, ORANGE)
-    return im
-
-
-def temple(banner):
-    """Columns and a pediment. The one building that is pure stone and pure geometry."""
-    im, px = _blank()
-    for i in range(4):                                # pediment
-        _rect(px, 3 - i, 4 - i, 4 + i, 4 - i, STONE)
-        px[3 - i, 4 - i] = STONE_LIT + (255,)
-    _rect(px, 0, 5, W - 1, 6, STONE)
-    _rect(px, 0, 5, W - 1, 5, STONE_LIT)              # architrave
-    for x in (1, 3, 5, 6):                            # columns
-        _rect(px, x, 7, x, H - 2, STONE)
-        px[x, 7] = STONE_LIT + (255,)
-    _rect(px, 0, H - 1, W - 1, H - 1, STONE_SHADE)    # stylobate
-    return im
-
-
-def tower(banner):
-    """A watchtower: tall, narrow, with a lit beacon so it reads at night and at
-    distance. Narrow is the point — it must not be confused with a keep."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    _rect(px, 1, 4, 6, H - 1, STONE)
-    _rect(px, 4, 4, 6, H - 1, STONE_SHADE)
-    _rect(px, 1, 4, 6, 4, STONE_LIT)                  # a corbel course
-    for x in range(1, 7, 2):
-        _rect(px, x, 3, x, 3, STONE)                  # battlements
-    _rect(px, 3, 1, 4, 2, ORANGE)                     # the beacon burning on top
-    _rect(px, 3, 1, 4, 1, YELLOW)
-    _window(px, 2, 8); _window(px, 5, 8)
-    _door(px, 3, 11, BROWN, STONE_LIT)
-    return im
-
-
-def barracks(banner):
-    """Low, long, shuttered, with a shield hung on the front."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    body = _pitched(px, 5, DKGREY, NAVY, LTGREY)
-    _wall(px, body, BROWN, DKGREY, TIMBER)
-    _rect(px, 3, body + 2, 4, body + 3, roof)         # a shield hung on the front
-    px[3, body + 2] = ridge + (255,)
-    _door(px, 1, body + 2, DKGREY)
-    return im
-
-
-def mine(banner):
-    """A timbered adit into a spoil heap. Reads as a hole in the ground, which is what
-    distinguishes it from every building that stands up."""
-    im, px = _blank()
-    _rect(px, 0, 8, W - 1, H - 1, DKGREY)             # the spoil
-    _rect(px, 0, 8, W - 1, 8, LTGREY)
-    _rect(px, 2, 6, 5, 12, BLACK)                     # the adit mouth
-    _rect(px, 2, 6, 5, 6, BROWN)                      # its lintel
-    _rect(px, 2, 7, 2, 12, BROWN)                     # and its props
-    _rect(px, 5, 7, 5, 12, BROWN)
-    px[3, 9] = YELLOW + (255,)                        # a lamp inside
-    return im
-
-
-def woodcutter(banner):
-    """A lean-to, a stack of cut logs and an axe in a block."""
-    im, px = _blank()
-    _rect(px, 0, 6, W - 1, 7, BROWN)                  # the lean-to roof
-    _rect(px, 0, 6, W - 1, 6, ORANGE)
-    _rect(px, 0, 8, 1, H - 1, BROWN)                  # its post
-    for y in range(9, H - 1, 2):                      # the log stack
-        _rect(px, 3, y, 6, y, BROWN)
-        px[3, y] = PEACH + (255,)
-        px[5, y] = PEACH + (255,)
-    _rect(px, 2, 8, 2, 9, LTGREY)                     # the axe
-    return im
-
-
-def dock(banner):
-    """A jetty with a moored boat: the only building that belongs on the water's edge,
-    so its silhouette has to say so."""
-    im, px = _blank()
-    _rect(px, 0, 9, W - 1, 10, BROWN)                 # the decking
-    _rect(px, 0, 9, W - 1, 9, PEACH)
-    for x in (1, 4, 6):
-        _rect(px, x, 11, x, H - 1, DKGREY)            # piles
-    _rect(px, 2, 6, 2, 8, BROWN)                      # the mast
-    _rect(px, 3, 6, 5, 8, WHITE)                      # and its sail
-    px[3, 6] = LTGREY + (255,)
-    return im
-
-
-def wall_seg(banner):
-    """A stretch of town wall with a walkway on top."""
-    roof, shade, ridge = banner
-    im, px = _blank()
-    _rect(px, 0, 6, W - 1, H - 1, STONE)
-    _rect(px, 0, 9, W - 1, H - 1, STONE_SHADE)
-    _rect(px, 0, 6, W - 1, 6, STONE_LIT)
-    for x in range(0, W, 2):
-        _rect(px, x, 5, x, 5, STONE)
-    return im
-
-
-def campfire(banner):
-    """The founding marker, and it is a CAMPFIRE — the first thing settlers light.
-
-    This was drawn as a village well: a stone rim with blue water and a windlass frame
-    over it. The object it stands for is O_FIRE_PIT, which the game calls a campfire, so
-    the art and the name disagreed and it read as "a T over a water bowl" — which is
-    exactly what a windlass over a full bucket looks like at eight pixels.
-
-    The master's own (3,9) is labelled campfire at LOW confidence and is a brown mound
-    with orange flecks; it reads as a loaf. Its flame cells are good but have no logs. So
-    this is logs plus a flame: crossed timber with lit ends, a tapering flame above in
-    yellow through red, and two embers. A fire is the one thing whose silhouette has to
-    say "fire" instantly, because it is the marker that says a village starts HERE.
-    """
-    im, px = _blank()
-    # the flame, widest at its base and tapering, three tones out from the core
-    _rect(px, 2, 9, 5, 10, RED)
-    _rect(px, 2, 7, 5, 8, ORANGE)
-    _rect(px, 3, 5, 4, 6, YELLOW)
-    px[3, 4] = YELLOW + (255,)
-    px[2, 6] = RED + (255,); px[5, 6] = RED + (255,)   # licks off the sides
-    # crossed logs under it, lit where the fire touches them
-    _rect(px, 0, 11, 7, 12, BROWN)
-    px[0, 11] = PEACH + (255,); px[7, 11] = PEACH + (255,)
-    px[1, 12] = ORANGE + (255,); px[6, 12] = ORANGE + (255,)
-    _rect(px, 0, 13, 7, 13, DKGREY)                    # its shadow on the ground
-    px[1, 10] = ORANGE + (255,); px[6, 10] = ORANGE + (255,)   # embers
-    return im
-
+# --- WHAT THE FIRE BECOMES -------------------------------------------------
+# The campfire is the founding marker: the first thing settlers light, and for a long time
+# the only public thing in the settlement. It should not still be burning in a city with a
+# power station — a fire in a tarmac plaza reads as a bin alight, not as heritage.
+#
+# So it climbs a ladder of its own, one rung per age, and every rung is the SAME IDEA: the
+# thing the town gathers round. Fire, then water, then light. All three sit low in the cell
+# for the same reason the fire does — none of them is a building, and none should stand as
+# tall as the houses behind it.
 
 def plan(banner):
     """A surveyor's peg and a line of string: decided, not yet paid for. Deliberately
@@ -1088,6 +659,243 @@ def cityblock(banner):
     return im
 
 
+
+# --- ALTERNATIVE DESIGNS ---------------------------------------------------
+# A street of one sprite repeated is wallpaper however good the sprite is. The banner rows
+# already vary the COLOUR, so varying that again would only make a paint chart — these differ
+# in SILHOUETTE: which way the gable faces, how many storeys, whether there is a lean-to on
+# the side. One is picked per cell by a position hash (see MB_VARIANT in mb_draw.c), so a
+# house never flickers between designs and neighbours rarely match.
+
+def house_b(banner):
+    """GABLE END ON. The same house turned ninety degrees: the roof is a triangle rather than
+    two slopes, which is the biggest silhouette change available in eight pixels."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    for n, y in enumerate(range(2, 7)):               # the gable, widening downward
+        x0 = 3 - n if 3 - n > 0 else 0
+        x1 = 4 + n if 4 + n < W else W - 1
+        _rect(px, x0, y, x1, y, roof)
+        px[x0, y] = ridge + (255,); px[x1, y] = shade + (255,)
+    _wall(px, 7, WALL, WALL_SHADE, TIMBER)
+    _rect(px, 3, 4, 4, 6, WALL)                       # the gable wall showing under the ridge
+    _window(px, 3, 5)
+    _door(px, 3, 10, BROWN, TIMBER)
+    _window(px, 1, 8); _window(px, 6, 8)
+    return im
+
+
+def house_c(banner):
+    """NARROW, WITH A LEAN-TO. Two storeys on six pixels and a single-slope outhouse tacked on
+    the side — the shape a town gets when it runs out of frontage."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 3, 5, 3, ridge)                      # the main roof, over the left six
+    _rect(px, 0, 4, 5, 5, roof)
+    _rect(px, 0, 6, 5, 6, shade)
+    _rect(px, 0, 7, 5, H - 1, WALL)                   # its wall
+    _rect(px, 5, 7, 5, H - 1, WALL_SHADE)
+    _window(px, 1, 8); _window(px, 3, 8)
+    _door(px, 2, 11, BROWN, TIMBER)
+    _rect(px, 6, 8, 7, 8, shade)                      # the lean-to: one slope, no ridge
+    _rect(px, 6, 9, 7, H - 1, WALL_SHADE)
+    px[6, 10] = TIMBER + (255,)
+    _rect(px, 0, H - 1, 7, H - 1, TIMBER)
+    return im
+
+
+def cottage_b(banner):
+    """DOOR IN THE GABLE, and a chimney tall enough to see. Same footprint as the cottage,
+    entered from the end instead of the front."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 5, 2, 6, 4, DKGREY)                     # the chimney, drawn before the roof
+    px[5, 2] = LTGREY + (255,)                        # so the gable laps over its foot
+    for n, y in enumerate(range(3, 8)):
+        x0 = 3 - n if 3 - n > 0 else 0
+        x1 = 4 + n if 4 + n < W else W - 1
+        _rect(px, x0, y, x1, y, roof)
+        px[x0, y] = ridge + (255,); px[x1, y] = shade + (255,)
+    _wall(px, 8, WALL, WALL_SHADE, TIMBER)
+    _rect(px, 3, 5, 4, 7, WALL)
+    _door(px, 3, 9, BROWN, TIMBER)
+    _window(px, 1, 9); _window(px, 6, 9)
+    return im
+
+
+def manor_b(banner):
+    """A WING. The manor with a lower cross-range on one side, so the biggest private house
+    in a street is not always the same block twice."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 1, 4, 1, ridge)                      # the main range, tall, on the left
+    _rect(px, 0, 2, 4, 3, roof)
+    _rect(px, 0, 4, 4, 4, shade)
+    _rect(px, 0, 5, 4, H - 1, STONE)
+    _rect(px, 0, 5, 0, H - 1, STONE_LIT)
+    _window(px, 1, 6); _window(px, 3, 6)
+    _window(px, 1, 9)
+    _door(px, 3, 10, BROWN, STONE_LIT)
+    _rect(px, 5, 5, 7, 5, ridge)                      # the wing, two rows down
+    _rect(px, 5, 6, 7, 7, roof)
+    _rect(px, 5, 8, 7, 8, shade)
+    _rect(px, 5, 9, 7, H - 1, STONE)
+    _rect(px, 7, 9, 7, H - 1, STONE_SHADE)
+    _window(px, 6, 10)
+    _rect(px, 0, H - 1, 7, H - 1, STONE_SHADE)
+    return im
+
+
+def apartment_b(banner):
+    """A SHOPFRONT under the flats, with an awning in the crown's colour. The ground floor is
+    the only part of a tenement anyone sees from the street, so it is the part to vary."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 0, 3, 7, H - 1, BRICK)
+    _rect(px, 0, 3, 7, 3, BRICK_LIT)
+    _rect(px, 7, 4, 7, H - 1, BRICK_DARK)
+    _rect(px, 0, 2, 7, 2, BRICK_DARK)
+    for y in (5, 8):
+        for x in (1, 3, 5):
+            _rect(px, x, y, x, y, GLASS)
+        _rect(px, 3, y, 3, y, GLASS_LIT)
+    _rect(px, 0, 10, 7, 10, roof)                     # the awning
+    for x in range(0, 8, 2):
+        _rect(px, x, 10, x, 10, WHITE)                # and its stripes
+    _rect(px, 0, 11, 7, 11, shade)
+    _rect(px, 1, 12, 6, H - 1, GLASS_LIT)             # the lit shop window
+    _rect(px, 3, 12, 4, H - 1, BRICK_DARK)            # its door
+    return im
+
+
+def apartment_c(banner):
+    """A STEPPED PARAPET, and one floor more. The block that decided it was a landmark."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    del roof, shade, ridge
+    _rect(px, 0, 3, 7, H - 1, BRICK)
+    _rect(px, 1, 1, 6, 2, BRICK)                      # the parapet, stepped twice
+    _rect(px, 3, 0, 4, 0, BRICK)
+    _rect(px, 1, 1, 6, 1, BRICK_LIT)
+    _rect(px, 3, 0, 4, 0, BRICK_LIT)
+    _rect(px, 7, 4, 7, H - 1, BRICK_DARK)
+    for y in (4, 7, 10):
+        for x in (1, 3, 5):
+            _rect(px, x, y, x, y, GLASS)
+        _rect(px, 1, y, 1, y, GLASS_LIT)
+    _door(px, 3, H - 3)
+    return im
+
+
+def well(banner):
+    """MASONRY. A stone rim with a windlass over it.
+
+    First go filled the rim with STONE and put a STONE_LIT (white) edge on it, and at eight
+    pixels that reads as a washing machine — a white bar, a dark bar and a grey bar. A well is
+    a HOLE: the stone has to be a RING with the dark down the middle, and the frame thin enough
+    to read as timber rather than as the lid of the box.
+    """
+    im, px = _blank()
+    del banner
+    _rect(px, 2, 5, 5, 5, WOOD_DARK)                  # the beam, on two thin posts
+    px[2, 6] = WOOD_DARK + (255,); px[5, 6] = WOOD_DARK + (255,)
+    px[2, 7] = WOOD_DARK + (255,); px[5, 7] = WOOD_DARK + (255,)
+    px[3, 5] = WOOD + (255,)                          # the windlass drum
+    px[3, 7] = LTGREY + (255,)                        # the bucket, hanging in the frame
+    _rect(px, 1, 9, 6, 12, STONE)                     # the ring of stones
+    _rect(px, 2, 10, 5, 12, (24, 34, 54))             # and the shaft down the middle of it
+    px[2, 10] = (44, 78, 120) + (255,)                # one glint of water in it
+    _rect(px, 6, 9, 6, 12, DKGREY)                    # shaded on the right, like every wall
+    px[1, 9] = LTGREY + (255,); px[4, 9] = DKGREY + (255,)
+    _rect(px, 1, 13, 6, 13, DKGREY)                   # its shadow on the ground
+    return im
+
+
+def gas_lamp(banner):
+    """STEAM. A cast-iron standard with a lantern on it — the first time a street is lit by
+    something that is not a fire, and the flame inside is the campfire's own three tones, which
+    is the point: it IS the fire, put in a box and raised up a pole.
+
+    The post is ONE pixel wide and the lantern is THREE rows. Taller than that and the lit part
+    reads as an orange stripe rather than as a light in a frame."""
+    im, px = _blank()
+    del banner
+    px[3, 3] = DKGREY + (255,)                        # the finial
+    _rect(px, 2, 4, 5, 4, DKGREY)                     # the cap, oversailing the frame
+    _rect(px, 2, 5, 2, 7, DKGREY)                     # the frame, either side of the glass
+    _rect(px, 5, 5, 5, 7, DKGREY)
+    _rect(px, 3, 5, 4, 7, ORANGE)                     # the light in it
+    px[3, 6] = YELLOW + (255,); px[4, 6] = YELLOW + (255,)
+    _rect(px, 2, 8, 5, 8, DKGREY)                     # the tray under it
+    _rect(px, 3, 9, 3, 12, DKGREY)                    # the standard
+    _rect(px, 2, 13, 5, 13, (40, 40, 48))             # the pool of light on the ground
+    return im
+
+
+def street_light(banner):
+    """ELECTRICITY. A concrete standard with a bracket head, and the only WHITE light in the
+    world — every other lit thing on this sheet is a yellow window or an orange fire, so an
+    electric street reads as electric at a glance.
+
+    The head HANGS from the bracket rather than sitting on it: a lamp on top of the arm looks
+    like a flag, which is what the first go looked like."""
+    im, px = _blank()
+    del banner
+    _rect(px, 2, 2, 2, 12, CONC)                      # the standard, lit down one side
+    px[2, 2] = CONC_LIT + (255,)
+    _rect(px, 3, 2, 5, 2, CONC)                       # the bracket reaching over the road
+    _rect(px, 4, 3, 6, 3, CONC_DARK)                  # the lamp housing, hung under it
+    _rect(px, 4, 4, 6, 4, WHITE)                      # the lamp itself
+    px[5, 5] = GLASS_LIT + (255,)                     # and the light falling off it
+    px[4, 6] = GLASS + (255,); px[6, 6] = GLASS + (255,)
+    _rect(px, 1, 13, 3, 13, CONC_DARK)                # its base
+    return im
+
+
+def monument(banner):
+    """A stone column on a stepped plinth with the crown's banner at the top. The banner is
+    the only colour on it, so a monument tells you whose town this is from across the map —
+    the same job the roof colours do for the houses, done by the one thing at eye level."""
+    roof, shade, ridge = banner
+    im, px = _blank()
+    _rect(px, 2, 3, 5, 4, roof)                           # the banner, hung from the finial
+    _rect(px, 2, 3, 5, 3, ridge)
+    _rect(px, 2, 5, 5, 5, shade)                          # its shadow on the shaft
+    _rect(px, 3, 2, 4, 2, GOLD)                           # the finial
+    _rect(px, 3, 5, 4, H - 4, STONE)                      # the shaft
+    _rect(px, 3, 5, 3, H - 4, STONE_LIT)                  # lit on the left, like the houses
+    _rect(px, 4, 5, 4, H - 4, STONE_SHADE)
+    _rect(px, 2, H - 3, 5, H - 3, STONE)                  # two steps, so it has a base
+    px[2, H - 3] = LTGREY + (255,); px[5, H - 3] = DKGREY + (255,)
+    _rect(px, 1, H - 2, 6, H - 2, STONE)
+    px[1, H - 2] = LTGREY + (255,); px[6, H - 2] = DKGREY + (255,)
+    _rect(px, 1, H - 1, 6, H - 1, DKGREY)                 # and the shadow it stands in
+    return im
+
+
+def fountain(banner):
+    """CITY. A round basin with a jet in it. WATER IS THE POINT — it is the only thing a town
+    makes that moves — but drawn as a pale disc over a pale box it read as two stacked crates.
+    So the basin is DARK water inside a low stone kerb, and the jet is one pixel wide with its
+    spray falling back either side, which is the only way this reads as water at this size."""
+    im, px = _blank()
+    del banner
+    px[3, 6] = WHITE + (255,)                         # the top of the jet
+    _rect(px, 3, 7, 3, 9, (140, 200, 232))            # the jet
+    px[2, 8] = (140, 200, 232) + (255,)               # spray, falling back either side
+    px[4, 8] = (140, 200, 232) + (255,)
+    px[1, 9] = (110, 170, 210) + (255,)
+    px[5, 9] = (110, 170, 210) + (255,)
+    _rect(px, 0, 10, 7, 12, (30, 74, 118))            # the water in the basin: dark
+    _rect(px, 0, 10, 7, 10, (60, 122, 176))           # catching the light at the surface
+    _rect(px, 0, 10, 0, 12, STONE)                    # the kerb round it
+    _rect(px, 7, 10, 7, 12, DKGREY)
+    _rect(px, 0, 12, 7, 12, DKGREY)
+    px[1, 12] = LTGREY + (255,)
+    _rect(px, 0, 13, 7, 13, (40, 40, 48))
+    return im
+
+
 BUILDINGS = [
     ("campfire",   campfire),
     ("hall",       hall),
@@ -1114,11 +922,24 @@ BUILDINGS = [
     ("station",    station),
     ("power",      power),
     ("silo",       silo),
+    ("monument",   monument),
+    ("fountain",   fountain),
     ("plan",       plan),
     # --- later-age FORMS of the above, not objects of their own ---
     ("apartment",  apartment),
     ("tower",      tower_block),
     ("cityblock",  cityblock),
+    # --- alternative designs, chosen by position hash so a street is not one sprite ---
+    ("house_b",      house_b),
+    ("house_c",      house_c),
+    ("cottage_b",    cottage_b),
+    ("manor_b",      manor_b),
+    ("apartment_b",  apartment_b),
+    ("apartment_c",  apartment_c),
+    # --- what the founding fire becomes, one rung per age ---
+    ("well",         well),
+    ("gas_lamp",     gas_lamp),
+    ("street_light", street_light),
 ]
 
 

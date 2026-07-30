@@ -78,6 +78,12 @@ enum {
     O_STATION,               /* the railway  — caravans go further, oftener */
     O_POWER,                 /* electricity  — research, and it looks modern */
     O_SILO,                  /* the bomb: the end of the tree, made concrete */
+    /* --- THE PLAZA, which is not a rung on any ladder -----------------------
+     * These are the only built things with no yield at all. A town that has grown past a
+     * hamlet paves a square by its hall and puts something in it, because a settlement of
+     * pure function looks like a depot — see village_plaza(). */
+    O_MONUMENT,              /* TOWN tier — a column with the crown's banner on it */
+    O_FOUNTAIN,              /* CITY tier — the only water a city makes itself     */
     O_PLAN,                  /* a blueprint ghost: decided, not yet paid for */
     O_N
 };
@@ -467,6 +473,14 @@ int  mb_civ_tech_ok(int v, int need);  /* does this village's kingdom know `need
 int  mb_tech_known(int k, int t);      /* by kingdom */
 int  mb_tech_avail(int k, int t);      /* prerequisites met and not yet known */
 void mb_nuke_strike(int from_k, int x, int y);
+/* WAR PROJECTILES, in the order the tech tree grants them. The kind dates the battle. */
+enum { MB_SHOT_ROCK = 0, MB_SHOT_ARROW, MB_SHOT_BULLET, MB_SHOT_SHELL, MB_SHOT_MISSILE,
+       MB_SHOT_N };
+void mb_fx_shot(float fx, float fy, float tx, float ty, int kind);
+void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt);
+void mb_fx_shots_clear(void);
+int  mb_war_shot_kind(int k);        /* what this kingdom's soldiers fire */
+int  mb_war_shot_range(int kind);    /* how far, in tiles */
 void mb_fx_nuke(int cx, int cy);                 /* start a mushroom cloud */
 void mb_fx_draw_nuke(uint16_t *fb, int cam_x, int cam_y, float dt);
 void mb_fx_nuke_clear(void);
@@ -509,6 +523,7 @@ int         mb_chron_count(void);
 void        mb_chron_line(char *out, int n, int back, int *year);
 int         mb_chron_where(int back, int *x, int *y);   /* jump to an entry */
 const char *mb_chron_toast(void);      /* NULL when none is showing */
+const char *mb_chron_headline(void);   /* the last one, no timer */
 void        mb_chron_step(float dt);
 int         mb_chron_focus(int *x, int *y);   /* where the last big event was */
 enum { LEGEND_KILLS = 0, LEGEND_KING, LEGEND_SURVIVOR, LEGEND_FOUNDER, LEGEND_N };
@@ -575,6 +590,7 @@ void mb_god_units(uint16_t *fb, int y0, int y1);
 uint16_t mb_kingdom_colour(int k);
 void mb_dim_rect(uint16_t *fb, int x, int y, int w, int h, uint16_t toward, int amt);
 void mb_draw_sprite_load(int *want, int *lost);
+int  mb_draw_form_col(uint8_t o, int k, int c, int r); /* the column it draws as */
 void mb_draw_sea_band(uint16_t *fb, int y0, int y1);
 void mb_draw_mortal_sprites(uint16_t *fb);
 void mb_draw_relief(uint16_t *fb, int cam_x, int cam_y);

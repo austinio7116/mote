@@ -695,20 +695,25 @@ static void god_menu(void)
                  mb_pop_civ(), mb_village_count(), mb_kingdom_count());
         static char st4[30];
         snprintf(st4, sizeof st4, "MAP: %s", MB_MAPMODE_NAME[mb_draw_mapmode()]);
-        const char *items[] = { st[0], st[1], st[2], st[3],
-                                st4, "THE WORLD REPORT",
-                                "CHRONICLE", "WORLD LAWS", "SAVE WORLD", "LOAD WORLD",
+        /* THE THINGS YOU CAME HERE TO DO GO FIRST. This menu used to open on four rows of
+         * status, so the log was the seventh line down a screen that did not look like a
+         * list of actions — and it was called CHRONICLE, which is a lovely word and not a
+         * word anybody hunting for a log would read as one. Both fixed: it is the top row,
+         * and it says what it is. */
+        const char *items[] = { "EVENT LOG", "THE WORLD REPORT",
+                                st4, st[0], st[1], st[2], st[3],
+                                "WORLD LAWS", "SAVE WORLD", "LOAD WORLD",
                                 "NEW WORLD", "CLOSE" };
         int c = mote->menu("MOTEBOX", items, 12);
         switch (c) {
-        case 2: mb_mode_set(mb_mode() == MODE_SANDBOX ? MODE_PANTHEON : MODE_SANDBOX); break;
+        case 0: chronicle_menu(); break;
+        case 1: world_report(); break;
         /* THE MAP IS A LENS. Cycling it here rather than on a button keeps the world's own
          * controls for the world, and the four modes are the only place tech, creed and tier
          * are visible at world scale — see mb_draw_prepare(). */
-        case 4: mb_draw_mapmode_set((mb_draw_mapmode() + 1) % MAPMODE_N);
+        case 2: mb_draw_mapmode_set((mb_draw_mapmode() + 1) % MAPMODE_N);
                 mb_draw_init(); break;
-        case 5: world_report(); break;
-        case 6: chronicle_menu(); break;
+        case 5: mb_mode_set(mb_mode() == MODE_SANDBOX ? MODE_PANTHEON : MODE_SANDBOX); break;
         case 7: law_menu(); break;
         case 8: {
             int ok = mb_save_write(0, s_cx, s_cy, s_god);
@@ -920,6 +925,34 @@ static void g_init(void)
                              fprintf(stderr, "cam -> village %d pop %d at %d,%d\n",
                                      best, mb_v[best].pop, s_cx, s_cy); }
             else fprintf(stderr, "cam -> no village alive\n");
+        } else if (cv && *cv == 'm') {
+            /* CAM=m parks on a PLAZA. CAM=v aims at a village centre, and a plaza is two
+             * rows south of the hall — close enough to be in shot, far enough that "is the
+             * monument there" was answered by scanning a screenshot for a small pale column. */
+            int fx = -1, fy = -1;
+            for (int y = 0; y < MH && fx < 0; y++)
+                for (int x = 0; x < MW; x++)
+                    if (mb_w.obj[AT(x, y)] == O_MONUMENT) { fx = x; fy = y; break; }
+            if (fx >= 0) {
+                s_cx = fx; s_cy = fy;
+                fprintf(stderr, "cam -> monument at %d,%d\n", fx, fy);
+                /* and the plaza around it as text, because "is the square paved" is a
+                 * question about eight cells and reading it off a screenshot is guesswork:
+                 * '#' paved, letters a building, '.' bare, ',' planted */
+                for (int y = fy - 4; y <= fy + 3; y++) {
+                    char row[20]; int n = 0;
+                    for (int x = fx - 5; x <= fx + 5; x++) {
+                        if (!mb_in(x, y)) { row[n++] = ' '; continue; }
+                        int i = AT(x, y); uint8_t o = mb_w.obj[i];
+                        row[n++] = (o == O_MONUMENT) ? 'M' : (o == O_FOUNTAIN) ? 'F'
+                                 : (o == O_HALL1 || o == O_HALL2 || o == O_HALL3) ? 'H'
+                                 : mb_is_build(o) ? 'B' : mb_w.road[i] ? '#'
+                                 : o ? ',' : '.';
+                    }
+                    row[n] = 0; fprintf(stderr, "  %s\n", row);
+                }
+            }
+            else fprintf(stderr, "cam -> no monument standing\n");
         } else if (cv) {
             int x = 0, y = 0;
             while (*cv >= '0' && *cv <= '9') x = x * 10 + (*cv++ - '0');
@@ -1080,6 +1113,43 @@ static void g_init(void)
      * without it: the kaiju cost 300 to 550 faith and a ninety-year test world has less, so
      * every beast cast was DENIED and eight powers photographed as "nothing happens". */
     if (getenv("MOTEBOX_SANDBOX")) mb_mode_set(MODE_SANDBOX);
+    /* MOTEBOX_BATTLE=1 starts a war between the two biggest kingdoms and sets a crowd of
+     * both to fighting at the camera. Wars are rare and their front lines wander, so
+     * "does a battle look like a battle" was not a question a screenshot could answer
+     * without this — the same reason the tsunami and the strike have hooks. */
+    if (getenv("MOTEBOX_BATTLE")) {
+        int a = 0, b = 0;
+        for (int k = 1; k < MAXK; k++) {
+            if (!mb_k[k].alive) continue;
+            if (!a) a = k; else if (!b) b = k;
+        }
+        if (a && b) {
+            mb_k[a].war_with |= (1u << b);
+            mb_k[b].war_with |= (1u << a);
+            int put = 0;
+            for (int i = 0; i < mb_nu && put < 40; i++) {
+                Unit *u = &mb_u[i];
+                if (!u->alive || u->sp >= SP_CIV_N) continue;
+                int kk = u->village ? mb_v[u->village].kingdom : 0;
+                if (kk != a && kk != b) continue;
+                /* line them up either side of the cursor, a few tiles apart */
+                int side = (kk == a) ? -1 : 1;
+                /* CLAMPED. Placing them at s_cx +/- an offset with no bound put units off the
+                 * map when the chosen town was near an edge, and a unit whose tile index is
+                 * out of range segfaults the moment anything reads the terrain under it. */
+                int px = s_cx + side * (3 + (put % 5));
+                int py = s_cy - 4 + (put % 9);
+                if (px < 1) px = 1; if (px > MW - 2) px = MW - 2;
+                if (py < 1) py = 1; if (py > MH - 2) py = MH - 2;
+                u->x = (uint16_t)(px * 16 + 8);
+                u->y = (uint16_t)(py * 16 + 8);
+                u->job = JOB_FIGHT; u->target = 0xFFFF;
+                put++;
+            }
+            fprintf(stderr, "battle: kingdoms %d vs %d, %d fighters, shots %d/%d\n",
+                    a, b, put, mb_war_shot_kind(a), mb_war_shot_kind(b));
+        }
+    }
     /* MOTEBOX_NUKE=1 fires a strike at the biggest town. A kingdom has to reach the last
      * rung of a thirty-six tech tree, build a silo and then be losing a war before this
      * happens on its own — which is right for the game and useless for looking at it. */
@@ -1148,11 +1218,54 @@ static void g_init(void)
             fprintf(stderr, "\ntowns by creed:");
             for (int i = 0; i < CREED_N; i++) if (creed[i]) fprintf(stderr, " %s=%d", MB_CREED_NAME[i], creed[i]);
             fprintf(stderr, "\ncaravans delivered (lifetime): %d\n", traded);
+            /* THE TOWNSCAPE, COUNTED. "Do the towns look varied" is not a question a
+             * screenshot of one settlement answers — a plaza that only ever appears in the
+             * capital, or gardens that never plant, look identical to working code from the
+             * outside. These are the three cosmetic loops, in numbers. */
+            {   int mon = 0, fnt = 0, garden = 0, paved = 0;
+                for (int i = 0; i < MW * MH; i++) {
+                    uint8_t o = mb_w.obj[i];
+                    if (o == O_MONUMENT) mon++;
+                    else if (o == O_FOUNTAIN) fnt++;
+                    else if (mb_w.claim[i] && (o == O_TUFT || o == O_BUSH
+                                               || o == O_FLOWER || o == O_TREE)) garden++;
+                    if (mb_w.road[i]) paved++;
+                }
+                fprintf(stderr, "townscape: %d monuments %d fountains, "
+                                "%d planted cells, %d paved\n", mon, fnt, garden, paved);
+                /* AND WHAT THE FIRE HAS BECOME. The founding campfire climbs a ladder — fire,
+                 * well, gas lamp, street light — and every rung is one column on the sheet, so
+                 * the tally of resolved columns is the whole answer. */
+                {   int rung[4] = {0};
+                    for (int y = 0; y < MH; y++)
+                        for (int x = 0; x < MW; x++) {
+                            if (mb_w.obj[AT(x, y)] != O_FIRE_PIT) continue;
+                            int kk = mb_kingdom_of(mb_w.claim[AT(x, y)]);
+                            int cc = mb_draw_form_col(O_FIRE_PIT, kk, x, y);
+                            int base = O_N - O_BUILD0;
+                            rung[cc == base + 9 ? 1 : cc == base + 10 ? 2
+                                 : cc == base + 11 ? 3 : 0]++;
+                        }
+                    fprintf(stderr, "founding marks: %d fires %d wells %d gas lamps "
+                                    "%d street lights\n", rung[0], rung[1], rung[2], rung[3]);
+                }
+            }
             /* SEAFARING, CONFIRMED OR NOT. A feature nobody can see is a feature nobody
              * can trust: this is the only place that says whether a kingdom which learned to
              * sail ever actually settled across water. */
             { extern int mb_seaborne_colonies;
               fprintf(stderr, "colonies founded by ship: %d\n", mb_seaborne_colonies); }
+            {   /* WAR, COUNTED BY WEAPON. Battles are rare and brief, so "do armies shoot"
+                 * and "does the weapon follow the tech" are not questions a screenshot of one
+                 * moment can answer. */
+                extern int mb_shots_fired[MB_SHOT_N];
+                static const char *const SN[MB_SHOT_N] = { "rocks", "arrows", "bullets",
+                                                           "shells", "missiles" };
+                fprintf(stderr, "shots fired:");
+                for (int i = 0; i < MB_SHOT_N; i++)
+                    fprintf(stderr, " %s=%d", SN[i], mb_shots_fired[i]);
+                fprintf(stderr, "\n");
+            }
             {   /* THE END OF THE TREE, counted. "Does anybody ever get the bomb, build a
                  * silo and use it" is three separate questions and none of them can be
                  * answered from a screenshot. */
@@ -1638,6 +1751,7 @@ static void g_overlay(uint16_t *fb)
         /* THE CLOUD LAST, over everything. It is the one effect that is meant to dominate
          * the frame — a strike should be unmistakable from across the map, and a mushroom
          * behind a row of houses is not. */
+        mb_fx_draw_shots(fb, s_cam_x, s_cam_y, s_dt);
         mb_fx_draw_nuke(fb, s_cam_x, s_cam_y, s_dt);
     }
 
@@ -1668,6 +1782,10 @@ static void g_overlay(uint16_t *fb)
     mote->draw_rect(fb, 0, HUD_Y, 128, 128 - HUD_Y, C_HUDBG, 1, 0, 128);
 
     const char *toast = mb_chron_toast();
+    /* and while the world is driving itself, the last headline STAYS on the strip — see
+     * mb_chron_headline(). The cursor readout is only worth the row when there is a hand
+     * on the cursor. */
+    if (!toast && s_idle > FOLLOW_IDLE && mb_law(LAW_FOLLOW)) toast = mb_chron_headline();
     if (toast) {
         /* A HEADLINE TAKES THE WHOLE STRIP for a few seconds — interrupting the
          * readout is the point, the story is more urgent than the coordinates —
