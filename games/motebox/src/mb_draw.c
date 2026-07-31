@@ -1215,6 +1215,17 @@ void mb_draw_fields(uint16_t *fb, int cam_x, int cam_y)
             /* the furrows run with the tile, but their PHASE comes from the cell, so a
              * field is a field and not a set of identical stamps */
             int phase = (int)(mb__hash2(c, r) & 3u);
+            /* SOFT EDGES. A field was painted as a hard 8x8 rectangle, so a belt of them read
+             * as a chequerboard pinned to the tile grid — the same complaint the burn scars
+             * had. Worked land has a ragged boundary: the plough turns at the headland and the
+             * last furrow never reaches the hedge. So a cell that borders NON-farm ground
+             * leaves pixels along that side unpainted, chosen by a position hash, and the
+             * terrain underneath shows through as an organic fringe. Interior cells are solid,
+             * which keeps a big field looking like one field. */
+            int open_n = !(mb_in(c, r - 1) && mb_w.biome[AT(c, r - 1)] == B_FARM);
+            int open_s = !(mb_in(c, r + 1) && mb_w.biome[AT(c, r + 1)] == B_FARM);
+            int open_w = !(mb_in(c - 1, r) && mb_w.biome[AT(c - 1, r)] == B_FARM);
+            int open_e = !(mb_in(c + 1, r) && mb_w.biome[AT(c + 1, r)] == B_FARM);
             for (int y = 0; y < TILE; y++) {
                 int fy = py0 + y;
                 if (fy < 0 || fy >= VIEW_H) continue;
@@ -1222,6 +1233,13 @@ void mb_draw_fields(uint16_t *fb, int cam_x, int cam_y)
                 for (int x = 0; x < TILE; x++) {
                     int fx = px0 + x;
                     if (fx < 0 || fx >= 128) continue;
+                    /* the fringe: how deep into this cell the unploughed headland reaches on
+                     * each open side, two pixels at most and hashed per pixel so no two cells
+                     * break up the same way */
+                    unsigned h = mb__hash2(c * 31 + x, r * 17 + y);
+                    int bite = (int)(h & 1u) + 1;
+                    if ((open_n && y < bite) || (open_s && y >= TILE - bite) ||
+                        (open_w && x < bite) || (open_e && x >= TILE - bite)) continue;
                     int furrow = (((x + phase) & 3) == 0);
                     uint16_t col = furrow ? FURROW : SOIL;
                     if (!furrow) {

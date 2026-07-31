@@ -2667,8 +2667,16 @@ static void g_overlay(uint16_t *fb)
         /* A HEADLINE TAKES THE WHOLE STRIP for a few seconds — interrupting the
          * readout is the point, the story is more urgent than the coordinates —
          * and it gets its own row so nothing sits on top of it. */
-        snprintf(buf, sizeof buf, "Y%d %s", year, mb_age_name());
-        hud_text(fb, buf, 1, HUD_Y, 126, C_TEXT, -1);
+        /* TWO LINES OF LOG, not one line of log and one of "AGE OF IRON". The age changes
+         * about once a century, it is on the world screen, and it was eating most of a
+         * fourteen-pixel strip that is the game's only running commentary. The older entry
+         * goes above the newer one in the dimmer colour, so the pair reads as a feed. */
+        const char *prev = mb_chron_recent(1);
+        if (prev) hud_text(fb, prev, 1, HUD_Y, 126, C_TEXT, -1);
+        else {
+            snprintf(buf, sizeof buf, "Y%d %s", year, mb_age_name());
+            hud_text(fb, buf, 1, HUD_Y, 126, C_TEXT, -1);
+        }
         hud_text(fb, toast, 1, HUD_Y + 8, 126, C_CURS, -1);
     } else {
         /* row one: speed, year, the selected power, the view */

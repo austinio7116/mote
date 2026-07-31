@@ -356,6 +356,25 @@ const char *mb_chron_toast(void) { return (s_toast_t > 0.0f && s_toast[0]) ? s_t
  * is touching anything: if the world is driving, the world says where it took you. */
 const char *mb_chron_headline(void) { return s_toast[0] ? s_toast : 0; }
 
+/* THE ONE BEFORE IT. The HUD's top row was spending most of its width on "AGE OF IRON", which
+ * changes about once a century and is already on the world screen — while the log, the thing
+ * that actually tells you what is happening, had one line. Two lines of history is worth far
+ * more than a caption you have read a hundred times. Returns the newest NOTABLE entry at or
+ * after `back`, so the caller can walk the ring without knowing what is in it. */
+const char *mb_chron_recent(int back)
+{
+    static char line[30];
+    int seen = 0;
+    for (int i = 0; i < s_n; i++) {
+        if (!mb_chron_notable(i)) continue;
+        if (seen++ != back) continue;
+        int year = 0;
+        mb_chron_line(line, sizeof line, i, &year);
+        return line;
+    }
+    return 0;
+}
+
 int mb_chron_focus(int *x, int *y)
 {
     if (!s_have_focus) return 0;

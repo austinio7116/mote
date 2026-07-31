@@ -571,6 +571,7 @@ void        mb_chron_line(char *out, int n, int back, int *year);
 int         mb_chron_where(int back, int *x, int *y);   /* jump to an entry */
 const char *mb_chron_toast(void);      /* NULL when none is showing */
 const char *mb_chron_headline(void);   /* the last one, no timer */
+const char *mb_chron_recent(int back); /* the nth most recent notable line */
 void        mb_chron_step(float dt);
 int         mb_chron_focus(int *x, int *y);   /* where the last big event was */
 enum { LEGEND_KILLS = 0, LEGEND_KING, LEGEND_SURVIVOR, LEGEND_FOUNDER, LEGEND_N };
