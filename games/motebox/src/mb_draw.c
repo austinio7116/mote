@@ -1139,6 +1139,82 @@ static int rl_hard(uint8_t b)      /* rock: shaded hard, because this is the mou
            b == B_RUBBLE || b == B_ASH;
 }
 
+/* --- WORKED LAND, AND WHAT IS GROWING ON IT ------------------------------
+ *
+ * Farmland had a bespoke ploughed-furrow tileset in authoring/biomes.py and it was NEVER DRAWN.
+ * Mortal view does not render terrain per biome — it renders eight shared BANDS — and B_FARM
+ * is lumped into bd_dry with savanna, hill and tundra. So the one biome in the game that is
+ * meant to look man-made was rendered as the same anonymous dry ground as a hillside, which is
+ * exactly the "just muddy terrain" it looked like. MB_TILES, the per-biome table this would
+ * have come from, is dead code.
+ *
+ * Painting it here instead of adding a ninth band: the band system is eight layers with one bit
+ * per layer, so a ninth is an engine change, and drawing it as sprites would put a hundred-odd
+ * cells through a list that already carries a hundred and thirty. Direct pixels cost nothing,
+ * cannot overflow anything, and — the real prize — let the crop GROW.
+ *
+ * FOUR STAGES on a two-year cycle: ploughed earth, shoots, green stand, ripe gold. Every field
+ * in the world turns together, because the alternative is per-cell growth state and there is no
+ * spare byte in the map for one. That is not a compromise so much as the right picture: a
+ * countryside ripens as one, and watching the whole map go gold and then bare is worth far more
+ * than each field keeping its own private calendar.
+ */
+void mb_draw_fields(uint16_t *fb, int cam_x, int cam_y)
+{
+    /* 26 ticks a stage: at x1 that is a little over three seconds, slow enough to notice and
+     * quick enough that you see a harvest in a sitting. A year is 52 ticks. */
+    const int stage = (int)((mb_w.tick / 26u) & 3u);
+
+    static const uint16_t SOIL   = MOTE_RGB565(122,  74,  46);   /* the ridge, lit      */
+    static const uint16_t FURROW = MOTE_RGB565( 78,  46,  30);   /* the trench, shaded  */
+    static const uint16_t SHOOT  = MOTE_RGB565( 96, 160,  66);
+    static const uint16_t STALK  = MOTE_RGB565( 74, 146,  54);
+    static const uint16_t RIPE   = MOTE_RGB565(214, 176,  62);
+    static const uint16_t EAR    = MOTE_RGB565(246, 218, 104);
+
+    const int c0 = cam_x >> 3, r0 = cam_y >> 3;
+    for (int r = r0; r <= r0 + MVH + 1; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0; c <= c0 + MVW; c++) {
+            if (c < 0 || c >= MW) continue;
+            if (mb_w.biome[AT(c, r)] != B_FARM) continue;
+            int px0 = c * TILE - cam_x, py0 = r * TILE - cam_y;
+            /* the furrows run with the tile, but their PHASE comes from the cell, so a
+             * field is a field and not a set of identical stamps */
+            int phase = (int)(mb__hash2(c, r) & 3u);
+            for (int y = 0; y < TILE; y++) {
+                int fy = py0 + y;
+                if (fy < 0 || fy >= VIEW_H) continue;
+                uint16_t *row = fb + fy * 128;
+                for (int x = 0; x < TILE; x++) {
+                    int fx = px0 + x;
+                    if (fx < 0 || fx >= 128) continue;
+                    int furrow = (((x + phase) & 3) == 0);
+                    uint16_t col = furrow ? FURROW : SOIL;
+                    if (!furrow) {
+                        int ridge = ((x + phase) & 3);
+                        switch (stage) {
+                        case 0: break;                       /* ploughed: bare earth */
+                        case 1:                                   /* shoots */
+                            if (ridge == 2 && (y & 3) == 1) col = SHOOT;
+                            break;
+                        case 2:                                   /* a green stand */
+                            if (ridge != 1 && (y & 1) == 0) col = STALK;
+                            else if (ridge == 2) col = SHOOT;
+                            break;
+                        default:                                  /* ripe, and heavy */
+                            if (ridge != 1) col = ((y & 3) == 0) ? EAR : RIPE;
+                            else if ((y & 3) == 2) col = RIPE;
+                            break;
+                        }
+                    }
+                    row[fx] = col;
+                }
+            }
+        }
+    }
+}
+
 void mb_draw_relief(uint16_t *fb, int cam_x, int cam_y)
 {
     const int c0 = (cam_x >> 3) - 1, r0 = (cam_y >> 3) - 1;

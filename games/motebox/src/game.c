@@ -938,6 +938,23 @@ static void g_init(void)
                              fprintf(stderr, "cam -> village %d pop %d at %d,%d\n",
                                      best, mb_v[best].pop, s_cx, s_cy); }
             else fprintf(stderr, "cam -> no village alive\n");
+        } else if (cv && *cv == 'f') {
+            /* CAM=f parks on FARMLAND, because the fields are wherever the good soil was and
+             * CAM=v lands on a town that may have none in shot. */
+            int fx = -1, fy = -1, bestn = 0;
+            for (int y = 4; y < MH - 4 && 1; y += 2)
+                for (int x = 4; x < MW - 4; x += 2) {
+                    int n = 0;
+                    for (int dy = -3; dy <= 3; dy++)
+                        for (int dx = -3; dx <= 3; dx++)
+                            if (mb_in(x + dx, y + dy)
+                                && mb_w.biome[AT(x + dx, y + dy)] == B_FARM) n++;
+                    if (n > bestn) { bestn = n; fx = x; fy = y; }
+                }
+            if (fx >= 0) { s_cx = fx; s_cy = fy;
+                           fprintf(stderr, "cam -> %d field cells around %d,%d\n",
+                                   bestn, fx, fy); }
+            else fprintf(stderr, "cam -> no farmland anywhere\n");
         } else if (cv && *cv == 'm') {
             /* CAM=m parks on a PLAZA. CAM=v aims at a village centre, and a plaza is two
              * rows south of the hall — close enough to be in shot, far enough that "is the
@@ -1965,6 +1982,9 @@ static void g_overlay(uint16_t *fb)
         if (!getenv("MOTEBOX_NORELIEF"))
 #endif
             mb_draw_relief(fb, s_cam_x, s_cam_y);
+        /* worked land, over the band that drew the bare ground and under everything that
+         * stands on it — see mb_draw_fields() */
+        mb_draw_fields(fb, s_cam_x, s_cam_y);
         mb_draw_mortal_sprites(fb);
         mb_fx_flux_render(fb, s_cam_x, s_cam_y);
         mb_fx_draw_mortal_px(fb, s_cam_x, s_cam_y);
