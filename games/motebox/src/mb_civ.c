@@ -1130,6 +1130,24 @@ static int wall_site(int v, int *ox, int *oy)
             if (mb_is_build(mb_w.obj[i])) continue;
             if (mb_w.road[i]) continue;
 
+            /* A WALL IS ONE STONE THICK. The ring is a bounding box round the buildings, and
+             * the box GROWS as the town builds outward — so last century's rampart ends up
+             * inside this century's ring and the town acquires a second wall parallel to the
+             * first. Two touching rows is not a thicker wall, it is two walls: every cell then
+             * has both a horizontal and a vertical neighbour, so the renderer correctly draws
+             * the whole run as corner joins and a rampart comes out as a row of stone mounds.
+             * Refusing to lay alongside an existing line keeps it a line. */
+            int par = 0;
+            if (y == y0 || y == y1) {                        /* a horizontal side */
+                if (mb_in(x, y - 1) && mb_w.obj[AT(x, y - 1)] == O_WALL) par = 1;
+                if (mb_in(x, y + 1) && mb_w.obj[AT(x, y + 1)] == O_WALL) par = 1;
+            }
+            if (x == x0 || x == x1) {                        /* a vertical side   */
+                if (mb_in(x - 1, y) && mb_w.obj[AT(x - 1, y)] == O_WALL) par = 1;
+                if (mb_in(x + 1, y) && mb_w.obj[AT(x + 1, y)] == O_WALL) par = 1;
+            }
+            if (par) continue;
+
             int adj = 0;
             if (mb_in(x - 1, y) && mb_w.obj[AT(x - 1, y)] == O_WALL) adj++;
             if (mb_in(x + 1, y) && mb_w.obj[AT(x + 1, y)] == O_WALL) adj++;

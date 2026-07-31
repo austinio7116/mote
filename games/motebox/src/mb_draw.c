@@ -1396,29 +1396,34 @@ void mb_draw_mortal(int cam_x, int cam_y)
             int wn = WALL_AT(c, r - 1), we = WALL_AT(c + 1, r);
             int ws = WALL_AT(c, r + 1), ww = WALL_AT(c - 1, r);
             #undef WALL_AT
+            /* THE TWO ROUNDED PIECES ARE CORNERS, NOT END CAPS. I had them closing the
+             * ends of runs, which is why a rampart was punctuated by stone mounds: they are
+             * for JOINS — anywhere a horizontal wall meets a vertical one — and the only
+             * thing that chooses between them is whether the wall carries on BELOW, because
+             * one of them has the connector drawn for that and the other does not.
+             *
+             * An end of a run is just the run: a horizontal wall that stops still looks like
+             * a horizontal wall. */
+            int horiz = (we || ww), vert = (wn || ws);
             int cx, cy;
-            if (we || ww) {
-                if (we && ww)   { cx = 1; cy = 0; }      /* mid-run, side-on          */
-                else if (ws)    { cx = 0; cy = 0; }      /* an end that turns down    */
-                else            { cx = 2; cy = 0; }      /* a plain end               */
-            } else if (wn || ws) { cx = 0; cy = 1; }     /* a vertical run, face-on   */
-            else {
-                /* A LONE SEGMENT FACES OUTWARD. Most wall cells have no neighbour at all,
-                 * because the lord places them as scattered objects rather than laying a
-                 * perimeter — so drawing every one as a capped post gave a town a field of
-                 * stone mounds. A wall is built to face SOMETHING, and the something is
-                 * outward from the settlement it defends: a segment out on the eastern flank
-                 * runs north-south, one on the northern flank runs east-west. Reading the
-                 * orientation off the offset from the centre costs nothing and turns a field
-                 * of posts into the beginnings of a rampart. */
+            if (horiz && vert) {
+                cx = ws ? 0 : 2; cy = 0;                 /* a corner: notched if it drops */
+            } else if (horiz) {
+                cx = 1; cy = 0;                          /* a horizontal run, ends and all */
+            } else if (vert) {
+                cx = 0; cy = 1;                          /* a vertical run, ends and all   */
+            } else {
+                /* A LONE SEGMENT FACES OUTWARD. With the wall now planned as a line these
+                 * are rare, but a stone with nothing beside it yet still has to pick a face,
+                 * and the sensible one is across the direction it defends: a segment out on
+                 * the eastern flank of a town runs north-south. */
                 int v2 = mb_w.claim[AT(c, r)];
                 int dx = 0, dy = 0;
                 if (v2 && v2 < MAXV && mb_v[v2].alive) {
                     dx = c - mb_v[v2].x; dy = r - mb_v[v2].y;
                 }
                 int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
-                if (adx > ady) { cx = 0; cy = 1; }       /* east or west flank: vertical  */
-                else           { cx = 1; cy = 0; }       /* north or south flank: across  */
+                if (adx > ady) { cx = 0; cy = 1; } else { cx = 1; cy = 0; }
             }
             MoteSprite spr = { &wall_stone_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
                                (uint16_t)(cx * TILE), (uint16_t)(cy * TILE),
