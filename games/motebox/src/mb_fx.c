@@ -14,6 +14,7 @@
  * impact spends its budget on a white frame flash and the rumble motor instead.
  */
 #include "mb.h"
+#include "fx_mono.h"
 #include <math.h>
 
 #include "fx_fire.h"
@@ -853,14 +854,15 @@ void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt)
         s_shot[i].t += s_shot[i].speed * dt;
 
         if (s_shot[i].t >= 1.0f) {
-            /* THE IMPACT, which is what tells you the shot arrived rather than expired. */
+            /* THE IMPACT, which is what says the shot ARRIVED rather than expired. A star
+             * burst for a stone, an arrow or a ball; an expanding ring for a shell or a
+             * missile, because a shockwave is the thing those two actually make. */
             int ix = (int)(s_shot[i].x1 * 8.0f) + 4 - cam_x;
             int iy = (int)(s_shot[i].y1 * 8.0f) + 4 - cam_y;
-            int rad = (kind == MB_SHOT_SHELL || kind == MB_SHOT_MISSILE) ? 4 : 2;
-            for (int dy = -rad; dy <= rad; dy++)
-                for (int dx = -rad; dx <= rad; dx++)
-                    if (dx * dx + dy * dy <= rad * rad)
-                        shot_px(fb, ix + dx, iy + dy, core, 0.75f);
+            int heavy = (kind == MB_SHOT_SHELL || kind == MB_SHOT_MISSILE);
+            g_api->blit_ex(fb, &fx_mono_img, (float)ix, (float)iy,
+                           (heavy ? 9 : 12) * 8, (heavy ? 4 : 5) * 8, 8, 8,
+                           0.0f, heavy ? 1.6f : 1.0f, 0, 0, VIEW_H);
             s_shot[i].on = 0;
             continue;
         }
@@ -879,75 +881,53 @@ void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt)
         int hx, hy; SHOT_AT(t, hx, hy);
         (void)lift;
 
-        /* THE RIM. One near-black used by every kind, because the projectiles have to read
-         * against the whole palette and a coloured outline reads as part of the terrain. */
-        const uint16_t rim = MOTE_RGB565(14, 12, 20);
+        /* --- THE ARTIST'S OWN PROJECTILES ------------------------------------
+         *
+         * These were drawn procedurally: a 2x2 core with a dark rim, which was legible only
+         * because I kept making it louder. fx_mono is a COMBAT set — bolts with dark fletching,
+         * tracer streaks, round stones, and rings and bursts for the impacts — and using it
+         * puts every missile in the game into the same hand that drew everything else.
+         *
+         * The bolts and streaks are drawn pointing UP-RIGHT, so they are rotated by the flight
+         * angle plus a quarter turn to bring that baseline onto the heading. blit_ex takes an
+         * angle and a scale and centres on the point, which is exactly what a projectile wants
+         * and is why nothing here needs a per-direction sprite. */
+        int hx2, hy2; SHOT_AT(t > 0.04f ? t - 0.04f : 0.0f, hx2, hy2);
+        float rot = atan2f((float)(hy - hy2), (float)(hx - hx2)) + 0.7853982f;
 
-        /* the tail, back along the path so it curves with the arc, and each puff SMALLER
-         * than the one in front so the thing has a direction at a glance */
-        int taillen = (kind == MB_SHOT_MISSILE) ? 6 : (kind == MB_SHOT_BULLET) ? 4
-                    : (kind == MB_SHOT_ARROW)   ? 3 : 2;
-        /* THE TAIL IS A FIXED LENGTH IN PIXELS, not in flight fraction. At a constant 0.045 of
-         * t per segment the tail scaled with the projectile's SPEED, so once the speeds were
-         * raised to something realistic a bullet trailed a streak the width of the screen and
-         * read as a laser beam rather than as a shot. Two and a half pixels a segment, whatever
-         * the missile and however far it has to go. */
-        float pdx = s_shot[i].x1 - s_shot[i].x0, pdy = s_shot[i].y1 - s_shot[i].y0;
-        float plen = sqrtf(pdx * pdx + pdy * pdy) * 8.0f;      /* the path, in pixels */
-        if (plen < 1.0f) plen = 1.0f;
-        const float seg = 2.5f / plen;
-        for (int k = taillen; k >= 1; k--) {
-            float tt = t - (float)k * seg;
-            if (tt < 0.0f) continue;
-            int tx2, ty2; SHOT_AT(tt, tx2, ty2);
-            int tw = (k == 1 && (kind == MB_SHOT_SHELL || kind == MB_SHOT_MISSILE)) ? 2 : 1;
-            shot_blob(fb, tx2, ty2, tw, tw, trail, rim, 0.7f - 0.11f * (float)k);
-        }
-
-        /* and the head. Each kind is a different SHAPE, because the whole point of the
-         * weapons ladder is that you can see which age a war is being fought in. */
         switch (kind) {
-        case MB_SHOT_ROCK:                                   /* a tumbling lump */
-            shot_blob(fb, hx, hy, 2, 2, core, rim, 1.0f);
+        case MB_SHOT_ROCK:                                   /* a tumbling stone */
+            g_api->blit_ex(fb, &fx_mono_img, (float)hx, (float)hy,
+                           6 * 8, 3 * 8, 8, 8, t * 9.0f, 1.0f, 0, 0, VIEW_H);
             break;
-        case MB_SHOT_ARROW: {                                /* a shaft, along its flight */
-            int bx, by; SHOT_AT(t > seg * 2.0f ? t - seg * 2.0f : 0.0f, bx, by);
-            int dx = hx - bx, dy = hy - by;
-            int nx = (dx > 0) - (dx < 0), ny = (dy > 0) - (dy < 0);
-            for (int k = 0; k < 3; k++)
-                shot_blob(fb, hx - nx * k, hy - ny * k, 1, 1,
-                          k ? trail : core, rim, 1.0f - 0.12f * (float)k);
+        case MB_SHOT_ARROW:                                  /* a bolt, along its flight */
+            g_api->blit_ex(fb, &fx_mono_img, (float)hx, (float)hy,
+                           3 * 8, 1 * 8, 8, 8, rot, 1.0f, 0, 0, VIEW_H);
             break;
-        }
-        case MB_SHOT_BULLET: {                               /* a streak */
-            int bx, by; SHOT_AT(t > seg * 2.0f ? t - seg * 2.0f : 0.0f, bx, by);
-            int dx = hx - bx, dy = hy - by;
-            int nx = (dx > 0) - (dx < 0), ny = (dy > 0) - (dy < 0);
-            shot_blob(fb, hx, hy, 2, 1, core, rim, 1.0f);
-            for (int k = 1; k <= 3; k++)
-                shot_blob(fb, hx - nx * k * 2, hy - ny * k * 2, 1, 1, trail, rim,
-                          0.9f - 0.2f * (float)k);
+        case MB_SHOT_BULLET:                                 /* a tracer streak */
+            g_api->blit_ex(fb, &fx_mono_img, (float)hx, (float)hy,
+                           2 * 8, 0 * 8, 8, 8, rot, 1.0f, 0, 0, VIEW_H);
             break;
-        }
-        case MB_SHOT_SHELL:                                  /* a fat round, smoking */
-            shot_blob(fb, hx, hy, 2, 2, core, rim, 1.0f);
-            shot_blob(fb, hx, hy - 2, 1, 1, trail, rim, 0.7f);
+        case MB_SHOT_SHELL:                                  /* a heavy round, smoking */
+            g_api->blit_ex(fb, &fx_mono_img, (float)hx, (float)hy,
+                           7 * 8, 3 * 8, 8, 8, t * 6.0f, 1.0f, 0, 0, VIEW_H);
+            g_api->blit_ex(fb, &fx_mono_img, (float)hx2, (float)hy2,
+                           12 * 8, 6 * 8, 8, 8, 0.0f, 1.0f, 0, 0, VIEW_H);
             break;
-        default:                                             /* MISSILE: a burning dart */
-            shot_blob(fb, hx, hy, 2, 2, core, rim, 1.0f);
-            { int bx, by; SHOT_AT(t > seg * 2.0f ? t - seg * 2.0f : 0.0f, bx, by);
-              int dx = hx - bx, dy = hy - by;
-              int nx = (dx > 0) - (dx < 0), ny = (dy > 0) - (dy < 0);
-              shot_blob(fb, hx - nx * 3, hy - ny * 3, 2, 2,
-                        MOTE_RGB565(255, 150, 40), rim, 0.95f); }
+        default:                                             /* a missile, burning */
+            g_api->blit_ex(fb, &fx_mono_img, (float)hx, (float)hy,
+                           3 * 8, 1 * 8, 8, 8, rot, 1.0f, 0, 0, VIEW_H);
+            g_api->blit_ex(fb, &fx_mono_img, (float)hx2, (float)hy2,
+                           11 * 8, 6 * 8, 8, 8, 0.0f, 1.0f, 0, 0, VIEW_H);
             break;
         }
 
-        /* a muzzle flash, for the two that have one */
+        /* the muzzle flash, for the two that have one — the sheet's own spark cross */
         if (t < 0.12f && (kind == MB_SHOT_BULLET || kind == MB_SHOT_MISSILE)) {
             int mx, my; SHOT_AT(0.0f, mx, my);
-            float a = 1.0f - t / 0.12f;
-            shot_blob(fb, mx - 1, my - 1, 3, 3, SHOT_DEF[kind].core, rim, a * 0.9f);
+            g_api->blit_ex(fb, &fx_mono_img, (float)mx, (float)my,
+                           13 * 8, 6 * 8, 8, 8, 0.0f, 1.0f + (0.12f - t) * 4.0f,
+                           0, 0, VIEW_H);
         }
         #undef SHOT_AT
     }
