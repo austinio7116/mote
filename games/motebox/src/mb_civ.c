@@ -737,9 +737,9 @@ int mb_civ_prof_pick(int v)
      * (measured: soldier=0 across 222 people and ten towns), the barracks a lord had paid for
      * meant nothing, and the lord's guard could never form. A garrison is what a barracks IS. */
     if (mb_civ_count(v, O_BARRACKS) && roll < 22)     return PROF_SOLDIER;
-    if (V->threat > 30 && roll < 25)                 return PROF_SOLDIER;
-    if (mb_civ_count(v, O_TEMPLE) && roll < 32)       return PROF_PRIEST;
-    if (V->tier >= TIER_TOWN && roll < 42)           return PROF_TRADER;
+    if (MB_GATE(GT_SOLDIER_THREAT, V->threat > 30) && roll < 25) return PROF_SOLDIER;
+    if (MB_GATE(GT_PRIEST_TEMPLE, mb_civ_count(v, O_TEMPLE) > 0) && roll < 32) return PROF_PRIEST;
+    if (MB_GATE(GT_TRADER_TOWN, V->tier >= TIER_TOWN) && roll < 42) return PROF_TRADER;
     if (roll < 52)                                   return PROF_BUILDER;
     if (roll < 76)                                   return (int)V->spec;   /* the town's trade */
     if (roll < 88)                                   return PROF_FARMER;
@@ -1139,8 +1139,8 @@ static void lord_think(int v)
      * A lord who can afford a keep builds the keep. It is ten wood and ten stone, it is the
      * cheapest thing in the table above a house, and everything the town does afterwards
      * depends on it. */
-    if (V->hall == 1) want_list[nwant++] = 9;
-    if (V->hall == 2) want_list[nwant++] = 10;
+    if (MB_GATE(GT_HALL2, V->hall == 1)) want_list[nwant++] = 9;
+    if (MB_GATE(GT_HALL3, V->hall == 2)) want_list[nwant++] = 10;
 
     /* A TOWN WORKS ON ITS WALL ALONGSIDE EVERYTHING ELSE. The lord takes the first
      * affordable want and stops, so anything at the BACK of the list is only ever built
@@ -1151,7 +1151,7 @@ static void lord_think(int v)
     /* ONE VISIT IN THREE GOES TO THE CIVIC LADDER, so a city actually modernises. */
     if (((mb_w.tick >> 5) % 3) == 0) {
         int c = civic_pick(v);
-        if (c >= 0) want_list[nwant++] = (uint8_t)c;
+        if (MB_GATE(GT_CIVIC, c >= 0)) want_list[nwant++] = (uint8_t)c;
     }
 
     /* A SILO GETS ITS OWN TURN, for the same reason the wall does. The lord takes the first
@@ -1166,7 +1166,7 @@ static void lord_think(int v)
      * kingdoms with the bomb produced one silo across five 900-year worlds and not a single
      * strike. If a kingdom has spent three thousand research on the bomb, its towns want the
      * thing it bought. */
-    if (mb_civ_tech_ok(v, TECH_NUKE) && mb_civ_count(v, O_SILO) < 1)
+    if (MB_GATE(GT_SILO, mb_civ_tech_ok(v, TECH_NUKE) && mb_civ_count(v, O_SILO) < 1))
         want_list[nwant++] = 22;
 
     /* A TOWER BELONGS ON A WALL, and it was gated on `threat > 25` — a monster or an army
@@ -1174,15 +1174,15 @@ static void lord_think(int v)
      * barracks were built in a measured world and NOT ONE TOWER. A town that has raised a
      * curtain wall, or whose crown is at war, puts towers on it: that is what the building is
      * for and what tower_step() now makes it do. */
-    if (V->hall >= 2 && mb_civ_count(v, O_TOWER) < 3
+    if (MB_GATE(GT_TOWER, V->hall >= 2 && mb_civ_count(v, O_TOWER) < 3
         && (V->threat > 25 || mb_civ_count(v, O_WALL) > 6
-            || (V->kingdom && mb_k[V->kingdom].alive && mb_k[V->kingdom].war_with)))
+            || (V->kingdom && mb_k[V->kingdom].alive && mb_k[V->kingdom].war_with))))
         want_list[nwant++] = 8;
 
     int wall_turn = (V->hall >= 2 && mb_civ_count(v, O_WALL) < 44 &&
                      (V->threat > 25 || V->pop >= 14 || V->stone > 40) &&
                      ((mb_w.tick >> 6) % 3) == 0);
-    if (wall_turn) want_list[nwant++] = 11;
+    if (MB_GATE(GT_WALL_TURN, wall_turn)) want_list[nwant++] = 11;
     /* FARMS SCALE WITH MOUTHS. A flat cap of four farms fed about a dozen people, so
      * any village that grew past that starved for ever — and the audit found a world
      * that lost 2251 people to hunger while sitting at the population ceiling. Four
@@ -1227,17 +1227,21 @@ static void lord_think(int v)
      * that across four measured 400-year worlds only ONE ever built a quay — and a quay is
      * what lets a kingdom settle across water, so seaborne colonisation fired in one world
      * of four and looked broken. A farming town on a coast still builds a jetty. */
-    if (V->coast >= 8 && mb_civ_count(v, O_DOCK) < 2)          want_list[nwant++] = 12;
+    if (MB_GATE(GT_QUAY_COAST, V->coast >= 8 && mb_civ_count(v, O_DOCK) < 2))
+                                                              want_list[nwant++] = 12;
 
     /* A BARRACKS AT A STONE HALL, not only under threat. Gating it on threat > 40 meant a town
      * at peace never built one, so no town ever had a soldier, so the lord had no guard and the
      * building was decoration in the table. A seat of power keeps a garrison; that is what turns
      * a hall into a keep. */
-    if ((V->threat > 40 || V->hall >= 2) && mb_civ_count(v, O_BARRACKS) < 1)
+    if (MB_GATE(GT_BARRACKS, (V->threat > 40 || V->hall >= 2)
+                             && mb_civ_count(v, O_BARRACKS) < 1))
                                                              want_list[nwant++] = 6;
-    if (V->hall >= 2 && mb_civ_count(v, O_TEMPLE) < 1)         want_list[nwant++] = 7;
+    if (MB_GATE(GT_TEMPLE, V->hall >= 2 && mb_civ_count(v, O_TEMPLE) < 1))
+                                                              want_list[nwant++] = 7;
     /* and the room for the next generation, once the civic ladder has had its turn */
-    if (V->food > pop * 2 && housing < pop + slack)           want_list[nwant++] = 0;
+    if (MB_GATE(GT_HOUSE, V->food > pop * 2 && housing < pop + slack))
+                                                              want_list[nwant++] = 0;
     /* A WALL, once the hall is stone and somebody is worth keeping out. Late in the list:
      * a town builds beds, bread and a barracks before it builds a curtain. */
     /* A WALL when the town is worth walling: threatened, OR simply established and
@@ -1876,7 +1880,8 @@ static void caravan_step(int v)
     /* THE SALE. A caravan to another crown is a sale, not a gift: gold comes home with the
      * wagon, which is the whole point of a trading town and the only source of coin a kingdom
      * with no seam of its own has. */
-    if (mb_v[best].kingdom != V->kingdom) {
+    (void)MB_GATE(GT_CARAVAN, 1);
+    if (MB_GATE(GT_CARAVAN_FAR, mb_v[best].kingdom != V->kingdom)) {
         V->gold = (uint16_t)(V->gold + 6);
 #if MOTE_HOST
         {   extern uint32_t mb_trades_far; mb_trades_far++; }
@@ -2303,6 +2308,7 @@ static void village_expedition(int v)
         if (u->age < best_age) { best_age = u->age; best = i; }
     }
     if (best < 0) return;
+    (void)MB_GATE(GT_EXPEDITION, 1);
     mb_u[best].job = JOB_WORK;
     mb_u[best].target = goal;
     mb_u[best].mission = (uint16_t)(goal + 1);
@@ -2455,6 +2461,7 @@ void mb_village_work(int v, int ui)
         else if (({ int qx2 = -1, qy2 = -1;
                     village_quay(v, &qx2, &qy2) && fishable(v, tx, ty, qx2, qy2); })) {
             u->carry = 10; u->carry_kind = CARRY_FOOD;
+            (void)MB_GATE(GT_FISH, 1);
 #if MOTE_HOST
             {   extern uint32_t mb_fish; mb_fish++; }
 #endif
@@ -2562,6 +2569,18 @@ void mb_civ_rehome(void)
 }
 
 
+#if MOTE_HOST
+uint32_t mb_gate_seen[GT_N], mb_gate_hit[GT_N];
+const char *const MB_GATE_NAME[GT_N] = {
+    "soldier from threat", "priest wants temple", "trader at town", "quay on a coast",
+    "wall turn", "tower wanted", "barracks wanted", "temple wanted", "silo wanted",
+    "civic pick", "great hall wanted", "castle wanted", "house wanted", "colony sent",
+    "caravan despatched", "caravan across border", "rebellion", "war declared", "peace made",
+    "alliance", "town taken", "expedition sent", "stock raised", "beast driven off",
+    "hunt scored", "catch landed",
+};
+#endif
+
 static int s_flock_total;
 int mb_flock_total(void) { return s_flock_total; }
 
@@ -2653,7 +2672,7 @@ static void conquest_check(int v)
     }
     /* it takes a real force, and an undefended hall. Two invaders against nobody takes a
      * town; two against three does not, and they will have to fight it out first. */
-    if (invaders < 2 || defenders * 2 > invaders) return;
+    if (!MB_GATE(GT_CONQUEST, invaders >= 2 && defenders * 2 <= invaders)) return;
 
     mb_chron_taken(v, foe);
     V->kingdom = (uint8_t)foe;
@@ -2727,6 +2746,54 @@ static void tower_step(int v)
  * The flock is kept OUT of the wild budget (see mb_pop_class_full): domestic sheep must not
  * crowd the deer out of the world, and a cull must not leave a permanent hole in the ecology.
  */
+/* --- HOW FRIGHTENED THIS TOWN IS ---------------------------------------
+ *
+ * NOTHING EVER WROTE V->threat. It is declared on the Village, read by five gates — whether a
+ * town raises soldiers, wants a barracks, wants towers, wants a wall — and shown on the inspect
+ * page, and no line of code in the game had ever assigned it. It was permanently zero, so every
+ * one of those gates was dead: measured by the gate census, "soldier from threat" passed 0 times
+ * out of 8415. That is exactly the bug ally_with had, and the reason walls, barracks and towers
+ * all needed a second condition bolted on to work at all.
+ *
+ * Threat is what a lord can see from the wall: a war on, an enemy in the fields, wolves at the
+ * edge of the parish, a monster on the horizon. It decays on its own, because fear should fade.
+ */
+static void threat_step(int v)
+{
+    Village *V = &mb_v[v];
+    int t = 0;
+    if (V->kingdom && mb_k[V->kingdom].alive && mb_k[V->kingdom].war_with) t += 22;
+
+    for (int i = 0; i < mb_nu; i++) {
+        const Unit *u = &mb_u[i];
+        if (!u->alive) continue;
+        int dx = (u->x >> 4) - V->x, dy = (u->y >> 4) - V->y;
+        int d2 = dx * dx + dy * dy;
+        if (d2 > 12 * 12) continue;
+        if (u->sp < SP_CIV_N) {
+            int uk = u->village ? mb_v[u->village].kingdom : 0;
+            if (uk && uk != V->kingdom && mb_at_war(V->kingdom, uk)) t += (d2 <= 64) ? 9 : 4;
+        } else if (MB_SP[u->sp].diet == DIET_MEAT && d2 <= 49) {
+            t += 3;                                     /* wolves at the edge of the parish */
+        }
+        if (t > 100) break;
+    }
+    /* and whatever the world has sent walking at them */
+    { int ax, ay, ak;
+      for (int ai = 0; ai < mb_agent_max(); ai++) {
+          if (!mb_agent_get(ai, &ax, &ay, &ak)) continue;
+          if (ak < AG_KAIJU0 || ak == AG_ANGEL) continue;
+          int dx = ax - V->x, dy = ay - V->y;
+          if (dx * dx + dy * dy <= 14 * 14) { t += 45; break; }
+      } }
+
+    if (t > 100) t = 100;
+    /* fear fades: it rises at once and falls a point a visit, so a town stays wary for a while
+     * after the wolves have gone — which is when it actually builds the wall */
+    if (t > V->threat) V->threat = (uint8_t)t;
+    else if (V->threat) V->threat--;
+}
+
 static void village_husbandry(int v)
 {
     Village *V = &mb_v[v];
@@ -2759,7 +2826,8 @@ static void village_husbandry(int v)
         if (b != B_GRASS && b != B_MEADOW && b != B_FARM && b != B_SAVANNA) continue;
         if (mb_w.road[AT(x, y)] || mb_is_build(mb_w.obj[AT(x, y)])) continue;
         int sp = (r & 1) ? SP_SHEEP : SP_HEN;
-        int ui = mb_unit_spawn_forced(sp, x, y);         /* the town pays, so no wild cap */
+        (void)MB_GATE(GT_HUSBANDRY, 1);
+        int ui = mb_unit_spawn_forced(sp, x, y);   /* the town pays, so no wild cap */
         if (ui < 0) return;
         mb_u[ui].village = (uint8_t)v;
         V->food = (uint16_t)(V->food > 6 ? V->food - 6 : 0);
@@ -2811,6 +2879,7 @@ static void maybe_settle(int v)
      * years — so a thriving village never colonised anything and the world stayed
      * a single village however well it did. */
     if (mb_w.tick - V->last_settle < 400) return;   /* eight years between colonies */
+    (void)MB_GATE(GT_SETTLE, 1);
     V->last_settle = mb_w.tick;
     uint32_t r = mb_rand((uint32_t)(v * 6151u + 3u + (uint32_t)mb_w.tick));
 
@@ -2902,7 +2971,7 @@ static void loyalty_step(int v)
     V->loyalty += (int8_t)((target > V->loyalty) ? 1 : (target < V->loyalty ? -1 : 0));
 
     if (V->loyalty < 0) {
-        if (++V->unrest >= 8) {                      /* eight ticks under: it goes */
+        if (MB_GATE(GT_REBEL, ++V->unrest >= 8)) {                      /* eight ticks under: it goes */
             int k = 0;
             for (int i = 1; i < MAXK; i++) if (!mb_k[i].alive) { k = i; break; }
 #if MOTE_HOST
@@ -3119,12 +3188,12 @@ static void king_think(int k)
         int peace_score = K->exhaustion * 4 + 30 + (mb_k[o].sp == K->sp ? 15 : 0);
 
         if (mb_at_war(k, o)) {
-            if (peace_score > war_score) {
+            if (MB_GATE(GT_PEACE, peace_score > war_score)) {
                 K->war_with &= ~((uint32_t)1u << o);
                 mb_k[o].war_with &= ~((uint32_t)1u << k);
                 mb_chron_peace(k, o);
             }
-        } else if (war_score > peace_score + 20 && mb_law(LAW_WAR)
+        } else if (MB_GATE(GT_WAR, war_score > peace_score + 20 && mb_law(LAW_WAR)
                    /* A CROWN WITH ONE TOWN DOES NOT START A WAR. Giving war a REACH rather than
                     * a shared border made early wars possible for the first time, and in a young
                     * world they are fatal to both sides: a measured world reached 151 souls and
@@ -3132,7 +3201,7 @@ static void king_think(int k)
                     * forty, and limped at fifty people for a century before dying out. Two towns
                     * and twenty souls is the threshold for having something to fight WITH. It
                     * gates only the DECLARATION — anyone can be attacked, and defends. */
-                   && my_v >= 2 && my_pop >= 20) {
+                   && my_v >= 2 && my_pop >= 20)) {
             K->war_with |= (uint32_t)1u << o;
             mb_k[o].war_with |= (uint32_t)1u << k;
             /* AND AN ALLIANCE DOES NOT SURVIVE A DECLARATION. */
@@ -3162,7 +3231,7 @@ static void king_think(int k)
                            + (mb_k[o].sp == K->sp ? 18 : 0)
                            + (mb_k[o].creed == K->creed && K->creed ? 15 : 0)
                            - grudge * 10 - covet * 2 - K->exhaustion;
-            if (ally_score > 55) {
+            if (MB_GATE(GT_ALLY, ally_score > 55)) {
                 K->ally_with |= (uint32_t)1u << o;
                 mb_k[o].ally_with |= (uint32_t)1u << k;
                 mb_chron_ally(k, o);
@@ -3361,6 +3430,7 @@ void mb_civ_step(void)
         village_streets(v);
         village_plaza(v);
         village_gardens(v);
+        threat_step(v);
         village_husbandry(v);
         try_build(v);
         village_expedition(v);

@@ -2124,6 +2124,15 @@ static void g_init(void)
         fprintf(stderr, "arena left after init: %u bytes\n", g_api->arena_free());
     }
 #endif
+    /* THE GATE CENSUS. A zero in the "passed" column is a feature that does not exist — see
+     * MB_GATE in mb.h for the nine that were found the hard way. */
+    if (getenv("MOTEBOX_GATES")) {
+        fprintf(stderr, "\n--- the gates, year %d ---\n", (int)(mb_w.tick / 52));
+        for (int g = 0; g < GT_N; g++)
+            fprintf(stderr, "  %-24s %8u passed of %8u  %s\n", MB_GATE_NAME[g],
+                    mb_gate_hit[g], mb_gate_seen[g],
+                    mb_gate_hit[g] ? "" : "<-- NEVER FIRES");
+    }
     if (getenv("MOTEBOX_LOOPS")) {
         fprintf(stderr, "\n--- the loops, year %d ---\n", (int)(mb_w.tick / 52));
         for (int k = 1; k < MAXK; k++) {

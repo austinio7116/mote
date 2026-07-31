@@ -602,6 +602,37 @@ void mb_civ_need_flush(void);    /* drop the per-tick want cache (world reset) *
 int  mb_village_lord_unit(int v);   /* the person holding the office, or -1 */
 int  mb_road_grade(int cell);       /* -1 unpaved, else 0..4 — see mb_civ.c */
 int  mb_flock_total(void);          /* owned livestock, kept out of the wild budget */
+
+/* --- THE GATE CENSUS ------------------------------------------------------
+ *
+ * Nine features in this game did nothing because a condition never became true, and every one
+ * was found by accident, one player question at a time: the wall, the barracks, the tower, the
+ * temple's priest, the quay, the alliance, the succession, the soldier's defence, the road's
+ * speed. They all looked like working code and read like working code.
+ *
+ * A gate that never fires is invisible to review and obvious to a counter. MB_GATE(id, cond)
+ * evaluates the condition exactly once, counts the test and the pass, and returns it — so it can
+ * wrap an `if` in place. MOTEBOX_GATES=1 prints the table at the end of a run, and a zero in the
+ * "passed" column is a feature that does not exist. Host only; on the device MB_GATE is the bare
+ * condition and costs nothing. */
+enum { GT_SOLDIER_THREAT = 0, GT_PRIEST_TEMPLE, GT_TRADER_TOWN, GT_QUAY_COAST,
+       GT_WALL_TURN, GT_TOWER, GT_BARRACKS, GT_TEMPLE, GT_SILO, GT_CIVIC,
+       GT_HALL2, GT_HALL3, GT_HOUSE, GT_SETTLE, GT_CARAVAN, GT_CARAVAN_FAR,
+       GT_REBEL, GT_WAR, GT_PEACE, GT_ALLY, GT_CONQUEST, GT_EXPEDITION,
+       GT_HUSBANDRY, GT_CULL, GT_HUNT, GT_FISH, GT_N };
+#if MOTE_HOST
+extern uint32_t mb_gate_seen[GT_N], mb_gate_hit[GT_N];
+extern const char *const MB_GATE_NAME[GT_N];
+static inline int mb_gate(int id, int cond)
+{
+    mb_gate_seen[id]++;
+    if (cond) mb_gate_hit[id]++;
+    return cond;
+}
+#define MB_GATE(id, cond) mb_gate((id), (cond))
+#else
+#define MB_GATE(id, cond) (cond)
+#endif
 int  mb_village_resource(int v, int kind, int *ox, int *oy);
 /* For the renderer: a pending site is marked on the ground with a stake. */
 int  mb_village_site(int v, int slot, int *ox, int *oy);

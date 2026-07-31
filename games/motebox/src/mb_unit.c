@@ -838,7 +838,7 @@ static void think(int i)
                 if (dxb * dxb + dyb * dyb <= 16) {
                     int sv = 48 + (u->traits & TR_BRAVE ? 12 : 0)
                                 - (u->traits & TR_COWARD ? 24 : 0);
-                    if (sv > bestv) {
+                    if (MB_GATE(GT_CULL, sv > bestv)) {
                         bestv = sv; best = JOB_CULL;
                         u->target = (uint16_t)AT(bx, by);
                     }
@@ -888,7 +888,7 @@ static void think(int i)
             if (g >= 0) {
                 int hv = 26 + ((u->prof == PROF_SOLDIER || u->prof == PROF_FORESTER) ? 10 : 0)
                             + ((u->traits & TR_BRAVE) ? 6 : 0);
-                if (hv > bestv) {
+                if (MB_GATE(GT_HUNT, hv > bestv)) {
                     bestv = hv; best = JOB_HUNT;
                     u->target = (uint16_t)AT(mb_u[g].x >> 4, mb_u[g].y >> 4);
                 }
