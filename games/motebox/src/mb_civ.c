@@ -680,7 +680,7 @@ static void research_step(int v)
     for (int t = TECH_TOOLS; t < TECH_N; t++)
         if (mb_tech_known(k, t) && MB_TECH[t].era > era) era = MB_TECH[t].era;
     K->era = (uint8_t)era;
-    mb_chron_disaster(MB_TECH_NAME[K->goal], V->x, V->y);
+    mb_chron_tech(k, MB_TECH_NAME[K->goal], V->x, V->y);
     K->goal = (uint8_t)research_pick(k);
 }
 
@@ -1411,7 +1411,7 @@ static void succession_step(int v)
     V->lord_age = (uint8_t)(19 + (r >> 8) % 16u);
     /* a new lord is untested: the town holds its breath */
     V->loyalty = (int8_t)(V->loyalty > 20 ? V->loyalty - 15 : V->loyalty);
-    mb_chron_age(MB_TIER_NAME[V->tier]);
+    mb_chron_lord(v);
 }
 
 /* --- WHERE A FIELD GOES ---------------------------------------------------

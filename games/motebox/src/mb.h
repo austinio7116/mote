@@ -575,6 +575,8 @@ void        mb_chron_death(int u, int cause);
 void        mb_chron_legend(int u, int why);
 void        mb_chron_disaster(const char *what, int x, int y);
 void        mb_chron_age(const char *name);
+void        mb_chron_tech(int k, const char *what, int x, int y);
+void        mb_chron_lord(int v);
 const char *mb_chron_word(int id);
 int         mb_chron_grudge(int a, int b);
 int         mb_chron_count(void);

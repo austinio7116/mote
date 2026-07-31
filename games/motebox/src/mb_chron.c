@@ -58,8 +58,13 @@ void mb_name_str(char *out, int n, int kind, uint16_t id)
 
 /* --- the ring ----------------------------------------------------------- */
 
+/* EV_TECH AND EV_LORD EXIST BECAUSE THEY WERE BEING FAKED. A kingdom learning something was
+ * pushed as a DISASTER carrying the tech's name, so the log line for the discovery of tools
+ * was the single word "tools" — no subject, no verb, and sitting in the same list as "a
+ * plague". A new lord was pushed as an AGE carrying the town's TIER, so the death of a lord
+ * read "the hamlet begins". Both are proper events with proper sentences now. */
 enum { EV_FOUND = 0, EV_FALL, EV_BUILD, EV_WAR, EV_PEACE, EV_REBEL, EV_BIRTH,
-       EV_DEATH, EV_LEGEND, EV_DISASTER, EV_AGE, EV_N };
+       EV_DEATH, EV_LEGEND, EV_DISASTER, EV_AGE, EV_TECH, EV_LORD, EV_N };
 
 typedef struct {
     uint8_t  type, a, b, mag;      /* a/b: village, kingdom or unit, per type */
@@ -185,6 +190,16 @@ static void render(char *out, int n, const Event *e)
     case EV_AGE:
         snprintf(out, (size_t)n, "the %s begins", mb_chron_word(e->extra));
         break;
+    case EV_TECH:
+        mb_name_str(n1, sizeof n1, NK_KINGDOM, e->name);
+        snprintf(out, (size_t)n, "%s learns %s", n1, mb_chron_word(e->extra));
+        break;
+    case EV_LORD:
+        /* the lord first: it is the person who is new, and the place is the qualifier */
+        mb_name_str(n1, sizeof n1, NK_PERSON, e->name);
+        mb_name_str(n2, sizeof n2, NK_PLACE, e->extra);
+        snprintf(out, (size_t)n, "%s rules %s", n1, n2);
+        break;
     default:
         snprintf(out, (size_t)n, "?");
         break;
@@ -233,6 +248,18 @@ void mb_chron_build(int v, const char *what)
                  || !strcmp(what, "farm"))) return;
     push(EV_BUILD, v, 0, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y, intern(what));
     mb_snd(SND_BUILD);
+}
+/* A DISCOVERY IS THE KINGDOM'S, and it is announced from its capital so the camera has
+ * somewhere to go. The tech name is interned like any other word. */
+void mb_chron_tech(int k, const char *what, int x, int y)
+{
+    push(EV_TECH, k, 0, 0, mb_k[k].name, x, y, intern(what));
+}
+/* A NEW LORD. Not a headline — succession happens somewhere in the world every few years and
+ * a toast for each one would bury the wars — but it belongs in the log, with both names. */
+void mb_chron_lord(int v)
+{
+    push(EV_LORD, v, 0, 0, mb_v[v].lord_name, mb_v[v].x, mb_v[v].y, mb_v[v].name);
 }
 void mb_chron_war(int a, int b)
 {
