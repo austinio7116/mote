@@ -789,12 +789,31 @@ int mb_power_input(const MoteInput *in)
     }
     if (!s_wheel) return 0;
 
-    /* EDGE-triggered: the second press of the same direction is what steps out
-     * to the far slot, so a held direction must not oscillate between them. */
+    /* A GRID CURSOR. The radial version asked you to learn that a direction pressed ONCE
+     * meant the near slot and pressed AGAIN meant the far one on the same arm — eight powers
+     * behind four directions with a hidden second state each, and six tabs behind a shoulder
+     * button. It worked and nobody could read it.
+     *
+     * Now the d-pad moves a cursor over a 4x2 page of icons, which is the arrangement every
+     * console menu has used for thirty years. Running off the left or right edge PAGES to the
+     * neighbouring tab and enters it from the opposite side, so all forty-eight powers are
+     * reachable by holding one direction — and RB still jumps a whole page for anyone who
+     * knows where they are going. */
     int arm = pressed_arm(in);
     if (arm >= 0) {
-        int cur_arm = s_wheel_pick >> 1, cur_far = s_wheel_pick & 1;
-        s_wheel_pick = (arm == cur_arm) ? (arm * 2 + (cur_far ^ 1)) : (arm * 2);
+        int col = s_wheel_pick & 3, row = (s_wheel_pick >> 2) & 1;
+        switch (arm) {
+        case 0: case 2: row ^= 1; break;                       /* two rows: either flips */
+        case 1:
+            if (col < 3) col++;
+            else { s_tab = (s_tab + 1) % NTAB; col = 0; }
+            break;
+        default:
+            if (col > 0) col--;
+            else { s_tab = (s_tab + NTAB - 1) % NTAB; col = 3; }
+            break;
+        }
+        s_wheel_pick = row * 4 + col;
     }
     if (mote_just_pressed(in, MOTE_BTN_RB)) {
         s_tab = (s_tab + 1) % NTAB;
@@ -847,69 +866,45 @@ void mb_power_draw_wheel(uint16_t *fb, const MoteFont *font)
     const uint16_t rim  = MOTE_RGB565(131, 118, 156);
     const uint16_t hi   = MOTE_RGB565(255, 236,  39);
     const uint16_t txt  = MOTE_RGB565(255, 241, 232);
+    const uint16_t off  = MOTE_RGB565( 70,  64,  96);
 
-    /* A TRANSLUCENT CROSS, which is the shape the control actually is: two bars, one
-     * per axis, reaching to the far slots. Earlier tries were a scanline dim of the
-     * whole screen (bright terrain between dark lines — CRT interference) and then an
-     * opaque disc (clean, but it blacked out a third of the map). Blending toward navy
-     * at three quarters keeps the world legible under the arms, and the shape tells
-     * you what the d-pad does before you read a single label. */
-    const int BAR = 13, REACH = WR_FAR + 7;
-    /* Dim the cross ONCE — three rectangles that tile it with no overlap. Dimming two
-     * crossing bars instead put the centre through the blend twice, and the square
-     * where they met came out visibly darker than the arms: a seam right under the
-     * hub, which is the one place the eye is already looking. */
-    mb_dim_rect(fb, WCX - BAR,   WCY - REACH, BAR * 2,   REACH - BAR, dim, 190);
-    mb_dim_rect(fb, WCX - REACH, WCY - BAR,   REACH * 2, BAR * 2,     dim, 190);
-    mb_dim_rect(fb, WCX - BAR,   WCY + BAR,   BAR * 2,   REACH - BAR, dim, 190);
-    /* and outline the true cross perimeter — twelve segments, not two boxes */
-    const int L = WCX - REACH, R = WCX + REACH - 1, T = WCY - REACH, B = WCY + REACH - 1;
-    const int l = WCX - BAR,   r = WCX + BAR - 1,   t = WCY - BAR,   b = WCY + BAR - 1;
-    g_api->draw_line(fb, l, T, r, T, rim, 0, VIEW_H);       /* north cap  */
-    g_api->draw_line(fb, l, B, r, B, rim, 0, VIEW_H);       /* south cap  */
-    g_api->draw_line(fb, L, t, L, b, rim, 0, VIEW_H);       /* west cap   */
-    g_api->draw_line(fb, R, t, R, b, rim, 0, VIEW_H);       /* east cap   */
-    g_api->draw_line(fb, l, T, l, t, rim, 0, VIEW_H);       /* the eight  */
-    g_api->draw_line(fb, r, T, r, t, rim, 0, VIEW_H);       /* re-entrant */
-    g_api->draw_line(fb, l, b, l, B, rim, 0, VIEW_H);       /* sides that */
-    g_api->draw_line(fb, r, b, r, B, rim, 0, VIEW_H);       /* make it a  */
-    g_api->draw_line(fb, L, t, l, t, rim, 0, VIEW_H);       /* cross and  */
-    g_api->draw_line(fb, r, t, R, t, rim, 0, VIEW_H);       /* not a pair */
-    g_api->draw_line(fb, L, b, l, b, rim, 0, VIEW_H);       /* of boxes   */
-    g_api->draw_line(fb, r, b, R, b, rim, 0, VIEW_H);
+    /* THE PANEL. A page of icons wants to be a page — one rectangle, not a cross of arms —
+     * and it is dimmed rather than opaque so you can still see what you are about to cast on.
+     * Centred vertically, full width bar the margins, and it never covers the HUD. */
+    const int PX = 6, PW = 128 - PX * 2;
+    const int PH = 62, PY = (VIEW_H - PH) / 2;
+    mb_dim_rect(fb, PX, PY, PW, PH, dim, 205);
+    g_api->draw_rect(fb, PX, PY, PW, PH, rim, 0, 0, VIEW_H);
 
     int pick = (s_wheel_pick >= 0) ? s_wheel_pick : s_sel[s_tab];
-    int pick_arm = pick >> 1, pick_far = pick & 1;
+    if (pick < 0 || pick > 7) pick = 0;
 
-    /* the spokes, drawn first so every disc sits on top of them */
-    for (int arm = 0; arm < 4; arm++) {
-        int live = (arm == pick_arm);
-        g_api->draw_line(fb, WCX + ARMX[arm] * (WR_ARROW + 4),
-                             WCY + ARMY[arm] * (WR_ARROW + 4),
-                             WCX + ARMX[arm] * (WR_FAR - 5),
-                             WCY + ARMY[arm] * (WR_FAR - 5),
-                             live ? hi : rim, 0, VIEW_H);
+    /* THE TABS AS PIPS, so which of six pages you are on is visible instead of remembered.
+     * The radial had the page name and no sense of how many there were or where this one sat
+     * in them, which is why paging felt like guessing. */
+    {
+        const int pw = 5, gap = 2;
+        int total = NTAB * pw + (NTAB - 1) * gap;
+        int x0 = 64 - total / 2;
+        for (int t = 0; t < NTAB; t++) {
+            int x = x0 + t * (pw + gap);
+            g_api->draw_rect(fb, x, PY + 3, pw, 3, t == s_tab ? hi : off, 1, 0, VIEW_H);
+        }
     }
 
-    /* the hub: the master's ring/target, which reads as a dial centre */
-    g_api->blit(fb, &ui_gauges_img, WCX - 4, WCY - 4, 1 * TILE, 2 * TILE,
-                TILE, TILE, 0, 0, VIEW_H);
+    /* the page name, and the shoulder hint next to it */
+    const char *tn = TABS[s_tab].name;
+    g_api->text_font(fb, font, tn, 64 - (int)strlen(tn) * 3, PY + 8, txt);
+    g_api->text_font(fb, font, "RB", PX + PW - 16, PY + 8, rim);
 
-    /* a cardinal arrow per arm, so "press UP" is shown rather than remembered */
-    for (int arm = 0; arm < 4; arm++) {
-        int live = (arm == pick_arm);
-        int ax = WCX + ARMX[arm] * WR_ARROW - 4;
-        int ay = WCY + ARMY[arm] * WR_ARROW - 4;
-        g_api->blit(fb, &ui_gauges_img, ax, ay,
-                    (ARROW_CX[arm] + (live ? 0 : 3)) * TILE, ARROW_CY[arm] * TILE,
-                    TILE, TILE, 0, 0, VIEW_H);
-    }
-
-    /* the eight slots: a drawn button disc, the power icon on it, and a gold ring
-     * around the one that is picked */
+    /* THE GRID: four across, two down. Cell pitch is 26 so eight-pixel icons sit in real
+     * space rather than jammed together — a row of touching icons reads as one texture. */
+    const int CW = 26, CH = 20;
+    const int GX = 64 - (4 * CW) / 2 + (CW - TILE) / 2;
+    const int GY = PY + 18;
     for (int i = 0; i < 8; i++) {
-        int arm = i >> 1, far = i & 1, x, y;
-        slot_pos(arm, far, &x, &y);
+        int col = i & 3, row = i >> 2;
+        int x = GX + col * CW, y = GY + row * CH;
         int on = (i == pick);
         g_api->blit(fb, &ui_buttons_img, x, y,
                     (on ? BTN_LIT_CX : BTN_DIM_CX) * TILE,
@@ -918,26 +913,17 @@ void mb_power_draw_wheel(uint16_t *fb, const MoteFont *font)
         g_api->blit(fb, tab[i].icon, x, y, tab[i].ix * TILE, tab[i].iy * TILE,
                     TILE, TILE, 0, 0, VIEW_H);
         if (on) {
-            g_api->draw_rect(fb, x - 2, y - 2, TILE + 4, TILE + 4, hi, 0, 0, VIEW_H);
+            /* a gold ring with a dark ring outside it, so the selection reads on any icon */
+            g_api->draw_rect(fb, x - 2, y - 2, TILE + 4, TILE + 4, hi,  0, 0, VIEW_H);
             g_api->draw_rect(fb, x - 3, y - 3, TILE + 6, TILE + 6, dim, 0, 0, VIEW_H);
-        }
-        /* the near slot of the live arm carries a hint that pressing again steps out */
-        if (arm == pick_arm && !far && !pick_far) {
-            int hx = WCX + ARMX[arm] * ((WR_NEAR + WR_FAR) / 2) - 4;
-            int hy = WCY + ARMY[arm] * ((WR_NEAR + WR_FAR) / 2) - 4;
-            g_api->blit(fb, &ui_gauges_img, hx, hy,
-                        ARROW_CX[arm] * TILE, ARROW_CY[arm] * TILE, TILE, TILE,
-                        0, 0, VIEW_H);
         }
     }
 
-    /* Labels on the two empty strips, never across the wheel: three stacked lines
-     * through the hub overlapped each other AND sat where the near icons are. */
-    const char *tn = TABS[s_tab].name;
-    const char *pn = tab[pick].name;
-    g_api->draw_rect(fb, 0, 0, 128, 10, dim, 1, 0, VIEW_H);
-    g_api->draw_rect(fb, 0, VIEW_H - 10, 128, 10, dim, 1, 0, VIEW_H);
-    g_api->text_font(fb, font, tn, WCX - (int)strlen(tn) * 3, 1, txt);
-    g_api->text_font(fb, font, "RB", 112, 1, rim);
-    g_api->text_font(fb, font, pn, WCX - (int)strlen(pn) * 3, VIEW_H - 9, hi);
+    /* the name and the price of the one under the cursor, on the panel's bottom edge */
+    {
+        char buf[32];
+        const char *pn = tab[pick].name;
+        snprintf(buf, sizeof buf, "%s  %d", pn, (int)tab[pick].cost);
+        g_api->text_font(fb, font, buf, 64 - (int)strlen(buf) * 3, PY + PH - 9, hi);
+    }
 }
