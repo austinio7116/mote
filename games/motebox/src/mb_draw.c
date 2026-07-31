@@ -1328,22 +1328,30 @@ void mb_draw_mortal(int cam_x, int cam_y)
          * rounding. The lerp then fills in the frames BETWEEN ticks, which is the other half:
          * at x1 the sim ticks eight times a second and the screen draws sixty. */
         int sx = lerp_px(u->ox, u->x), sy = lerp_px(u->oy, u->y);
-        /* A FOOTSTEP. One pixel up and down as it walks, so a static sprite reads as animated
-         * and a crowd reads as a crowd rather than as a set of stickers sliding about. The
-         * phase comes from the figure's own POSITION, not from the clock — so it bobs in step
-         * with its own stride, it stops dead when the figure stops, and no two neighbours walk
-         * in lockstep. Nothing above ground level: the bob lifts, it never sinks, or everything
-         * would appear to be wading. */
-        if (u->x != u->ox || u->y != u->oy)
-            sy -= (int)(((u->x + u->y) >> 3) & 1u);
+        /* A FOOTSTEP, so a static sprite reads as animated and a crowd reads as a crowd rather
+         * than as stickers sliding about.
+         *
+         * The phase is taken from the DRAWN position, not from the tick's endpoints. First
+         * attempt used u->x + u->y, which only changes when the sim steps — so the bob was
+         * constant for every frame of a tick and toggled about once a tick, which is not a
+         * stride, it is a twitch. Off the interpolated pixel it advances whenever the figure
+         * visibly moves, and stops dead the moment it stands still.
+         *
+         * A 0-1-2-1 cycle rather than a 1-pixel flip: a two-state bob at this size reads as
+         * flicker, and a rise-and-fall reads as a step. It only ever LIFTS — a bob that sinks
+         * makes everything look like it is wading. */
+        if (u->x != u->ox || u->y != u->oy) {
+            static const int8_t STRIDE[4] = { 0, 1, 2, 1 };
+            sy -= STRIDE[((unsigned)(sx + sy) >> 1) & 3u];
+        }
 #if MOTE_HOST
         { static int dbg = -1, trackee = -1;
           if (dbg < 0) dbg = getenv("MOTEBOX_LERPDBG") ? 1 : 0;
           if (dbg) {
               if (trackee < 0 && u->sp < SP_CIV_N && u->job == JOB_WANDER) trackee = i;
               if (i == trackee)
-                  fprintf(stderr, "t%-6u ox %4d x %4d a %.3f px %3d\n",
-                          (unsigned)mb_w.tick, u->ox, u->x, (double)s_lerp, sx); } }
+                  fprintf(stderr, "t%-6u x %4d a %.3f  px %3d py %3d\n",
+                          (unsigned)mb_w.tick, u->x, (double)s_lerp, sx, sy); } }
 #endif
         MoteSprite spr = { img, (int16_t)sx, (int16_t)sy,
                            (uint16_t)(cx * TILE), (uint16_t)(cy * TILE),
