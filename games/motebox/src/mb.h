@@ -582,6 +582,8 @@ int  mb_civ_tech_ok(int v, int need);  /* does this village's kingdom know `need
 int  mb_tech_known(int k, int t);      /* by kingdom */
 int  mb_tech_avail(int k, int t);      /* prerequisites met and not yet known */
 void mb_nuke_strike(int from_k, int x, int y);
+void mb_blast_step(void);    /* the front travels a cell a tick — see mb_flux.c */
+void mb_blast_clear(void);
 /* WAR PROJECTILES, in the order the tech tree grants them. The kind dates the battle. */
 enum { MB_SHOT_ROCK = 0, MB_SHOT_ARROW, MB_SHOT_BULLET, MB_SHOT_SHELL, MB_SHOT_MISSILE,
        MB_SHOT_N };
@@ -594,6 +596,7 @@ int  mb_war_shot_range(int kind);    /* how far, in tiles */
 void mb_fx_nuke(int cx, int cy);                 /* start a mushroom cloud */
 void mb_fx_draw_nuke(uint16_t *fb, int cam_x, int cam_y, float dt);
 void mb_fx_nuke_clear(void);
+int  mb_fx_nuke_last(int *x, int *y);
 void mb_civ_specialise(int v);         /* what the surrounding land makes it good at */
 int  mb_civ_prof_pick(int v);          /* the trade a newborn of this village takes up */
 void mb_civ_deliver(int v, int kind, int amount);   /* a caravan arrives */

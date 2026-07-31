@@ -605,18 +605,25 @@ void mb_fx_nuke(int cx, int cy)
     s_cloud[slot].t = 0.0f;
 }
 
-/* One pixel of the cloud, blended by heat. `heat` 0..1 runs ash -> orange -> white. */
+/* ONE PIXEL OF THE CLOUD. `heat` 0..1 runs ash -> ember -> white, and the important half of
+ * this function is the ASH end, because that is what a mushroom cloud is for all but the first
+ * second of its life. The old version spent its whole range between two fire colours, so the
+ * cloud was orange from the flash to the fade and read as a lava fountain rather than a cloud
+ * of pulverised ground. */
 static inline void cloud_px(uint16_t *fb, int px, int py, float heat, float alpha)
 {
     if (px < 0 || px >= 128 || py < 0 || py >= VIEW_H) return;
     if (alpha <= 0.02f) return;
     if (alpha > 1.0f) alpha = 1.0f;
     uint16_t col;
-    if (heat <= 0.5f) {
-        /* ash grey to ember: the cloud after it has cooled */
-        col = lerp565(MOTE_RGB565(96, 92, 96), RAMP_FIRE[2], heat * 2.0f);
+    if (heat <= 0.55f) {
+        /* the dust: warm brown-grey at the bottom of the range, cool grey at the top of it.
+         * Two greys rather than a grey and a flame, so a cooled cloud is a CLOUD. */
+        col = lerp565(MOTE_RGB565( 74, 68,  66), MOTE_RGB565(126, 116, 106), heat * 1.8f);
+    } else if (heat <= 0.8f) {
+        col = lerp565(MOTE_RGB565(126, 116, 106), RAMP_FIRE[3], (heat - 0.55f) * 4.0f);
     } else {
-        col = lerp565(RAMP_FIRE[2], RAMP_FIRE[5], (heat - 0.5f) * 2.0f);
+        col = lerp565(RAMP_FIRE[3], MOTE_RGB565(255, 248, 226), (heat - 0.8f) * 5.0f);
     }
     fb[py * 128 + px] = lerp565(fb[py * 128 + px], col, alpha);
 }
@@ -627,91 +634,141 @@ void mb_fx_draw_nuke(uint16_t *fb, int cam_x, int cam_y, float dt)
         if (!s_cloud[i].on) continue;
         s_cloud[i].t += dt;
         float t = s_cloud[i].t;
-        const float LIFE = 7.0f;
+        const float LIFE = 11.0f;
         if (t > LIFE) { s_cloud[i].on = 0; continue; }
 
-        /* the ground zero, in screen pixels */
         int gx = (int)(s_cloud[i].x * 8.0f) - cam_x;
         int gy = (int)(s_cloud[i].y * 8.0f) - cam_y;
 
-        float rise = t < 1.4f ? (t / 1.4f) : 1.0f;      /* how far up the cap has got */
-        float age  = t / LIFE;                          /* how far through its life    */
-        float heat = 1.0f - age * 1.15f;                 /* white -> orange -> grey     */
-        if (heat < 0.0f) heat = 0.0f;
-        float fade = t > LIFE - 2.0f ? (LIFE - t) * 0.5f : 1.0f;
+        /* --- THE CLOCK. Everything below is a function of these four ------------
+         *
+         * The old timing had the whole cloud at full height in 1.4 s and then held it
+         * absolutely still for five and a half seconds: no rise to follow, no boil, no drift —
+         * eight recorded frames of which the last five were identical. A detonation is mostly
+         * MOVEMENT, and the movement is what says how long ago it happened.
+         *
+         *   climb   0 -> 1 over three seconds, eased, so the eye can follow the cap up
+         *   boil    keeps growing for the whole life: the cap never stops spreading
+         *   heat    white for a quarter-second, orange for one, ash for the other ten
+         *   fade    the last three seconds
+         */
+        float climb = t / 3.0f;  if (climb > 1.0f) climb = 1.0f;
+        climb = 1.0f - (1.0f - climb) * (1.0f - climb);        /* ease out */
+        float boil = t / LIFE;
+        float heat = 1.0f - t / 1.5f;  if (heat < 0.0f) heat = 0.0f;
+        float fade = t > LIFE - 3.0f ? (LIFE - t) / 3.0f : 1.0f;
 
-        /* THE FLASH, first, and brighter than anything else on screen. */
-        if (t < 0.35f) {
-            int fr = (int)(10.0f + 30.0f * (t / 0.35f));
-            float fa = 1.0f - t / 0.35f;
+        /* THE FLASH, brighter than anything else on screen and over almost at once. */
+        if (t < 0.30f) {
+            int fr = (int)(12.0f + 34.0f * (t / 0.30f));
+            float fa = 1.0f - t / 0.30f;
             for (int dy = -fr; dy <= fr; dy++)
                 for (int dx = -fr; dx <= fr; dx++) {
                     if (dx * dx + dy * dy > fr * fr) continue;
                     int px = gx + dx, py = gy + dy;
                     if (px < 0 || px >= 128 || py < 0 || py >= VIEW_H) continue;
                     fb[py * 128 + px] = lerp565(fb[py * 128 + px],
-                                                MOTE_RGB565(255, 250, 225), fa * 0.9f);
+                                                MOTE_RGB565(255, 252, 235), fa * 0.95f);
                 }
         }
 
-        /* GEOMETRY. Held deliberately large: at eight pixels a tile a cloud that is
-         * physically to scale is a two-pixel thread, and the first attempt was exactly that
-         * — a wisp. This is a SILHOUETTE meant to be read from across the map. */
-        /* TALLER AND NARROWER. At 30 px with a wide flared base the cap sat straight on the
-         * ground and the whole thing read as a VOLCANO PLUME. The mushroom silhouette is a
-         * thin column with a cap several times its width, clearly clear of the ground. */
-        int stem_h = (int)(42.0f * rise);                /* the column's height, px */
-        int cap_y  = gy - stem_h;
-        float spread = 17.0f + 13.0f * (t / LIFE);       /* the cap keeps boiling outward */
-        int cap_w = (int)spread;
-        int cap_h = (int)(spread * 0.45f);
-
-        /* --- the stem: flared at the foot, pinched at the waist ---------------- */
-        for (int py = gy; py > gy - stem_h; py--) {
-            float up = (float)(gy - py) / (float)(stem_h > 1 ? stem_h : 1);
-            /* wide where the fireball sat, pinched, then widening into the cap: the pinch
-             * is the whole reason this reads as a mushroom rather than a chimney */
-            /* base 8, waist 3, and 5 where it feeds the cap: the cap is then five to nine
-             * times the waist, which is the ratio that makes the overhang unmistakable. */
-            float w = 3.0f + 5.0f * (1.0f - up) * (1.0f - up) * (1.0f - up)
-                           + 2.5f * up * up * up;
-            float lean = 3.0f * up * up;                 /* a slow lean, so it is not a ruler */
+        /* --- THE STEM ---------------------------------------------------------
+         *
+         * Thin. The whole silhouette depends on the cap being several times the width of the
+         * column holding it up, and the old stem flared to eight pixels at the foot and again
+         * into the cap, so the two met and the thing read as a funnel — a tornado, not a
+         * detonation. Two pixels at the waist, five at the foot where the dust is still being
+         * sucked up, and it THINS as the cloud pulls away from the ground. */
+        /* HOW HIGH IT CLIMBS, and it has to stay in the frame. Measured with the topmost cloud
+         * row of a recorded strike: at 34 px of climb plus a growing crown the cap's top sat at
+         * ROW 2 for most of the cloud's life — the silhouette this whole effect exists for was
+         * being cropped by the top of the view band. Twenty-four leaves the crown clear. */
+        int top_y = gy - (int)(24.0f * climb);
+        float thin = 1.0f - 0.45f * boil;                       /* the column pulls away */
+        for (int py = gy; py > top_y; py--) {
+            float up = (float)(gy - py) / (float)(gy - top_y > 1 ? gy - top_y : 1);
+            float w = (2.4f + 3.4f * (1.0f - up) * (1.0f - up) * (1.0f - up)) * thin;
+            float lean = 4.0f * up * up * (0.6f + 0.4f * boil);  /* it drifts as it rises */
             int cxp = gx + (int)lean, iw = (int)w;
             for (int dx = -iw; dx <= iw; dx++) {
-                /* A PLATEAU, NOT A RAMP. A linear falloff to the edges leaves only a
-                 * two-pixel core visible once heat and fade are applied, which is what made
-                 * the first version a thread. This is opaque through the body and soft only
-                 * in the last pixel or two. */
-                float e = (1.0f - (float)(dx < 0 ? -dx : dx) / (w + 0.5f)) * 2.6f;
+                float e = (1.0f - (float)(dx < 0 ? -dx : dx) / (w + 0.6f)) * 2.2f;
                 if (e > 1.0f) e = 1.0f;
-                unsigned h = px_hash(cxp + dx, py) ^ (unsigned)(t * 12.0f);
-                float n = 0.80f + 0.20f * (float)(h & 63) / 63.0f;
-                cloud_px(fb, cxp + dx, py, heat * (0.5f + 0.5f * up), e * n * fade);
+                unsigned h = px_hash(cxp + dx, py) ^ (unsigned)(t * 14.0f);
+                float n = 0.78f + 0.22f * (float)(h & 63) / 63.0f;
+                /* hot at the foot for the first second — that is the fireball, not the cloud */
+                float hh = heat * (0.85f - 0.35f * up);
+                cloud_px(fb, cxp + dx, py, hh, e * n * fade);
             }
         }
 
-        /* --- the cap: an overhanging dome, widest below its own crown ----------- */
-        for (int dy = -cap_h; dy <= cap_h; dy++) {
-            /* THE OVERHANG. A circle on a stick reads as a tree; what reads as a detonation
-             * is a cap widest a little BELOW its top that curls under at the rim. */
-            float v = (float)dy / (float)(cap_h > 1 ? cap_h : 1);      /* -1 top, +1 bottom */
-            float prof = 1.0f - v * v * 0.5f;
-            if (v > 0.3f)  prof *= 1.0f - (v - 0.3f) * 1.15f;           /* curl under */
-            if (v < -0.6f) prof *= 1.0f + (v + 0.6f) * 0.9f;            /* round the crown */
-            if (prof < 0.05f) continue;
+        /* --- THE CAP: BIG, and it keeps boiling outward -------------------------
+         *
+         * "Needs a larger head": it was seventeen pixels of half-width growing to thirty, on a
+         * stem nearly as wide — so the head read as a lid rather than a cloud. Twenty-two
+         * growing to forty-four, against a two-pixel waist, which is the ratio a photograph
+         * actually has. The cap also RISES with the stem's top and rolls: the churn comes from
+         * hashing on a coordinate that moves with time, so the edge crawls. */
+        /* --- THE CAP -----------------------------------------------------------
+         *
+         * A DOME ON TOP AND A SKIRT UNDER IT, not a diamond. The first attempt at this scaled a
+         * single quadratic down at both ends, which put a point at the top and a point at the
+         * bottom: the cloud came out as a grey kite. A cap is a hemisphere sitting on a wider,
+         * flatter, curling-under skirt, and the widest part is BELOW the crown.
+         *
+         * It is also kept in frame. Fifty-six pixels of climb plus a tall cap put the head off
+         * the top of a 112-pixel view band — the most important shape in the game, cropped. */
+        int cap_y = top_y - 2;
+        float spread = 15.0f + 11.0f * boil;      /* it keeps boiling outward */
+        int cap_w = (int)spread;
+        int crown = (int)(spread * 0.62f);       /* above the widest line */
+        int skirt = (int)(spread * 0.34f);       /* below it              */
+        for (int dy = -crown; dy <= skirt; dy++) {
+            float prof;
+            if (dy <= 0) {
+                float u = (float)(-dy) / (float)(crown > 1 ? crown : 1);   /* 0..1 to the top */
+                prof = sqrtf(1.0f - u * u * 0.93f);                        /* a dome          */
+            } else {
+                float u = (float)dy / (float)(skirt > 1 ? skirt : 1);      /* 0..1 to the rim */
+                prof = 1.0f - u * u * 0.72f;                               /* curling under   */
+            }
+            if (prof < 0.06f) continue;
             int w = (int)(cap_w * prof);
             int py = cap_y + dy;
             for (int dx = -w; dx <= w; dx++) {
-                float e = (1.0f - (float)(dx < 0 ? -dx : dx) / (float)(w + 1)) * 2.4f;
+                int ax = dx < 0 ? -dx : dx;
+                float e = (1.0f - (float)ax / (float)(w + 2)) * 2.4f;
                 if (e > 1.0f) e = 1.0f;
-                unsigned h = px_hash(gx + dx, py) ^ (unsigned)(t * 9.0f);
-                float n = 0.78f + 0.22f * (float)(h & 63) / 63.0f;
-                /* hotter in the core, cooler at the rim, where the grey shows first */
-                float core = 1.0f - (float)(dx < 0 ? -dx : dx) / (float)(cap_w + 1);
-                cloud_px(fb, gx + dx, py, heat * (0.3f + 0.7f * core), e * n * fade);
+                /* THE BOIL: hashing on a coordinate that drifts with time makes the cap churn
+                 * instead of standing still, which is the difference between smoke and paint. */
+                unsigned h = px_hash(gx + dx + (int)(t * 3.0f), py - (int)(t * 5.0f));
+                float n = 0.84f + 0.16f * (float)(h & 63) / 63.0f;
+                /* lit on the crown, shadowed underneath, and glowing in its own core while it
+                 * is still young — which is what makes it a cloud rather than a grey shape */
+                float core = 1.0f - (float)ax / (float)(cap_w + 1);
+                float shade = (dy <= 0) ? 1.0f : 0.80f;
+                float hh = heat * (0.25f + 0.75f * core);
+                cloud_px(fb, gx + dx, py, hh, e * n * fade * shade);
+                /* THE LIT EDGE. A dome painted in one value is a slab whatever its outline;
+                 * two rows of brighter dust along the crown give it a top and therefore a
+                 * shape. */
+                if (dy < -crown / 3 && ax > w - 3)
+                    cloud_px(fb, gx + dx, py, heat * 0.35f + 0.30f, e * fade * 0.8f);
             }
         }
     }
+}
+
+/* Where the last cloud was raised, so a scripted capture can point the camera at the thing it
+ * is trying to photograph: MOTEBOX_NUKE parks on the biggest town and the missile flies at an
+ * ENEMY one, so every recording of this effect until now had it half off the top of the view. */
+int mb_fx_nuke_last(int *x, int *y)
+{
+    int best = -1;
+    for (int i = 0; i < NCLOUD; i++)
+        if (s_cloud[i].on && (best < 0 || s_cloud[i].t < s_cloud[best].t)) best = i;
+    if (best < 0) return 0;
+    *x = (int)s_cloud[best].x; *y = (int)s_cloud[best].y;
+    return 1;
 }
 
 void mb_fx_nuke_clear(void) { for (int i = 0; i < NCLOUD; i++) s_cloud[i].on = 0; }

@@ -1467,7 +1467,7 @@ static void fast_forward(int years)
     for (int y = 0; y < years; y++) {
         for (int t = 0; t < 52; t++) {
             mb_w.tick++;
-            mb_flux_step();
+            mb_flux_step(); mb_blast_step();
             mb_flux_natural();
             mb_unit_step();
             mb_unit_plague_step();
@@ -1762,7 +1762,7 @@ static void g_init(void)
             fprintf(stderr, "the cast lit %d cells\n", after - before);
             fprintf(stderr, "tick burning built dousing fleeing pop\n");
             for (int t = 0; t <= 60; t++) {
-                if (t) { mb_flux_step(); mb_unit_step(); mb_civ_step(); mb_w.tick++; }
+                if (t) { mb_flux_step(); mb_blast_step(); mb_unit_step(); mb_civ_step(); mb_w.tick++; }
                 int burning = 0, built = 0, dousing = 0, fleeing = 0, pop = 0;
                 for (int c = 0; c < NC; c++) {
                     if (mb_fkind(mb_w.flux[c]) == FX_FIRE) burning++;
@@ -1837,7 +1837,7 @@ static void g_init(void)
             mb_w.flux[AT(fx0, fy0)] = (uint8_t)((FX_FIRE << 4) | 12);
             fprintf(stderr, "tick  burning   r_min r_max  band   burnt\n");
             for (int t = 0; t <= 90; t++) {
-                if (t) { mb_flux_step(); mb_w.tick++; }
+                if (t) { mb_flux_step(); mb_blast_step(); mb_w.tick++; }
                 int burning = 0, burnt = 0, rmin = 999, rmax = 0;
                 for (int y = 0; y < MH; y++)
                     for (int x = 0; x < MW; x++) {
@@ -1933,8 +1933,17 @@ static void g_init(void)
         int best = 0;
         for (int v = 1; v < MAXV; v++)
             if (mb_v[v].alive && (!best || mb_v[v].pop > mb_v[best].pop)) best = v;
-        if (best) { s_cx = mb_v[best].x; s_cy = mb_v[best].y;
-                    mb_nuke_strike(mb_v[best].kingdom, s_cx, s_cy); }
+        if (best) {
+            s_cx = mb_v[best].x; s_cy = mb_v[best].y;
+            mb_nuke_strike(mb_v[best].kingdom, s_cx, s_cy);
+            /* and watch where it LANDED, which is an enemy town rather than this one */
+            int nx, ny;
+            if (mb_fx_nuke_last(&nx, &ny)) { s_cx = nx; s_cy = ny; }
+            /* AND STOP THE WORLD DRIVING. Follow History pans to each new headline after a few
+             * seconds of no input, so every recording of this effect wandered off the crater
+             * halfway through the cloud's life and the last two thirds were of somewhere else. */
+            if (mb_law(LAW_FOLLOW)) mb_law_toggle(LAW_FOLLOW);
+        }
     }
     /* MOTEBOX_EVENT=tsunami|sinkhole fires a world event now, so a rare disaster can be
      * watched instead of waited for. */
@@ -2001,7 +2010,7 @@ static void g_init(void)
                 int gone_at = -1, last_hp = 6000, hp0 = 6000;
                 for (int t = 0; t < 900; t++) {
                     mb_w.tick++;
-                    mb_flux_step(); mb_unit_step(); mb_civ_step(); mb_fx_step(0.125f);
+                    mb_flux_step(); mb_blast_step(); mb_unit_step(); mb_civ_step(); mb_fx_step(0.125f);
                     int ax, ay, ak, live = 0;
                     for (int ai = 0; ai < mb_agent_max(); ai++)
                         if (mb_agent_get(ai, &ax, &ay, &ak) && ak >= AG_KAIJU0) {
@@ -2635,7 +2644,7 @@ static void g_update(float dt)
                  * a burning cell this tick is hurt by it rather than a tick late;
                  * the civ pass runs after the units so its census sees the day's
                  * deaths; Faith and the age read the finished state. */
-                mb_flux_step();
+                mb_flux_step(); mb_blast_step();
                 mb_flux_natural();
                 mb_unit_step();
                 mb_unit_plague_step();

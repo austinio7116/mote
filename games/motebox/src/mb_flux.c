@@ -1080,11 +1080,70 @@ void mb_flux_test_event(const char *name, uint32_t r)
  * It is deliberately far bigger than any god power. A meteor is a disaster; this is a
  * decision somebody made.
  */
+/* --- A BLAST IS A FRONT, NOT AN EVENT ------------------------------------
+ *
+ * Every bit of this — the crater, the firestorm twelve cells out, the dead — was applied on the
+ * single tick of the launch, while the cloud above it took three seconds to climb. So the fire
+ * had spread off the screen before the column had left the ground: the two halves of the same
+ * explosion ran on different clocks and the order was backwards.
+ *
+ * The damage now travels. One cell of radius per tick from ground zero, which at eight ticks a
+ * second reaches the edge of the firestorm in about a second and a half — so the sequence a
+ * player sees is the flash, then the ground going dark under the fireball, then the ring of fire
+ * running outward, then the column, then the cap spreading. People die as the wave reaches them
+ * rather than all at once, which is also how the crowd scatters outward ahead of it.
+ *
+ * On the SIMULATION's clock, not the renderer's: mb_flux_step runs in the headless fast-forward
+ * too, and a strike in a fast-forwarded century has to complete like any other.
+ */
+#define NBLAST 2
+#define BLAST_RAD  7                        /* the crater */
+#define BLAST_BURN 12                       /* and the firestorm around it */
+static struct { uint8_t on, x, y, r; } s_blast[NBLAST];
+
+static void blast_ring(int bx, int by, int r)
+{
+    /* the cells whose distance from ground zero has just been reached */
+    for (int y = by - r; y <= by + r; y++)
+        for (int x = bx - r; x <= bx + r; x++) {
+            if (!mb_in(x, y)) continue;
+            int d2 = (x - bx) * (x - bx) + (y - by) * (y - by);
+            if (d2 > r * r || d2 <= (r - 1) * (r - 1)) continue;      /* this ring only */
+            int i = AT(x, y);
+            if (r <= BLAST_RAD) {
+                if (mb_land(mb_w.biome[i])) {
+                    mb_w.biome[i] = (r <= BLAST_RAD / 2) ? B_RUBBLE : B_SCORCHED;
+                    mb_w.obj[i] = O_NONE;
+                    mb_w.road[i] = 0;
+                    mb_w.elev[i] = (uint8_t)(mb_w.elev[i] > 24 ? mb_w.elev[i] - 24 : 0);
+                }
+                /* NO ACID HERE. The first version used FX_ACID as "fallout", and acid dissolves
+                 * terrain a rung at a time all the way down to open sea — so within a minute the
+                 * crater had filled with BRIGHT BLUE WATER and a nuclear strike looked like
+                 * somebody had dug a lake. The scar has to be dry. */
+            } else if ((mb_rand((uint32_t)i * 2654435761u) & 3) != 0) {
+                mb_flux_ignite(x, y, 0);
+            }
+        }
+    /* and the people the front has just reached */
+    if (r <= BLAST_RAD + 2) mb_unit_area(bx, by, r, UAP_KILL, CAUSE_DISASTER);
+}
+
+void mb_blast_step(void)
+{
+    for (int i = 0; i < NBLAST; i++) {
+        if (!s_blast[i].on) continue;
+        s_blast[i].r++;
+        blast_ring(s_blast[i].x, s_blast[i].y, s_blast[i].r);
+        if (s_blast[i].r >= BLAST_BURN) s_blast[i].on = 0;
+    }
+}
+
+void mb_blast_clear(void) { for (int i = 0; i < NBLAST; i++) s_blast[i].on = 0; }
+
 void mb_nuke_strike(int from_k, int cx, int cy)
 {
     if (!mb_in(cx, cy)) return;
-    const int rad = 7;                     /* the crater */
-    const int burn = 12;                   /* and the firestorm around it */
 
     mb_snd(SND_BOOM);
     mb_fx_impact((float)cx, (float)cy, FXE_FIRE, 3.0f);
@@ -1095,33 +1154,19 @@ void mb_nuke_strike(int from_k, int cx, int cy)
                     PK_RING, FXE_FIRE, a, 0.9f);
     }
 
-    for (int y = cy - burn; y <= cy + burn; y++)
-        for (int x = cx - burn; x <= cx + burn; x++) {
-            if (!mb_in(x, y)) continue;
-            int d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
-            int i = AT(x, y);
-            if (d2 <= rad * rad) {
-                if (mb_land(mb_w.biome[i])) {
-                    mb_w.biome[i] = (d2 <= (rad / 2) * (rad / 2)) ? B_RUBBLE : B_SCORCHED;
-                    mb_w.obj[i] = O_NONE;
-                    mb_w.road[i] = 0;
-                    mb_w.elev[i] = (uint8_t)(mb_w.elev[i] > 24 ? mb_w.elev[i] - 24 : 0);
-                }
-                /* NO ACID HERE. The first version used FX_ACID as "fallout", and acid
-                 * dissolves terrain one rung at a time all the way down to open sea — so
-                 * within a minute the crater had filled with BRIGHT BLUE WATER and a nuclear
-                 * strike looked like somebody had dug a lake. The scar has to be dry. */
-            } else if (d2 <= burn * burn) {
-                if ((mb_rand((uint32_t)i * 2654435761u) & 3) != 0) mb_flux_ignite(x, y, 0);
-            }
-        }
-    mb_unit_area(cx, cy, rad + 2, UAP_KILL, CAUSE_DISASTER);
+    /* ground zero goes at once; everything further out waits for the front */
+    int slot = 0;
+    for (int i = 0; i < NBLAST; i++) if (!s_blast[i].on) { slot = i; break; }
+    s_blast[slot].on = 1; s_blast[slot].x = (uint8_t)cx; s_blast[slot].y = (uint8_t)cy;
+    s_blast[slot].r = 0;
+    blast_ring(cx, cy, 1);
+
     /* RADIATION SICKNESS, on the survivors just outside the crater. There is no fallout flux
      * kind and adding one would touch six tables, but the plague machinery already models
      * exactly this: an illness that kills slowly, spreads to whoever tends the sick, and
      * leaves the immune behind. So the ring outside the blast is where the world learns what
      * the bomb really costs, weeks after the flash. */
-    mb_unit_area(cx, cy, burn, UAP_TRAIT, TR_PLAGUE | TR_CONTAGIOUS);
+    mb_unit_area(cx, cy, BLAST_BURN, UAP_TRAIT, TR_PLAGUE | TR_CONTAGIOUS);
 
     if (from_k > 0 && from_k < MAXK && mb_k[from_k].alive) mb_k[from_k].nuked++;
     mb_chron_disaster("the sky burns", cx, cy);
