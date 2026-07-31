@@ -14,6 +14,7 @@
  * it falls out of the utility score rather than being special-cased.
  */
 #include "mb.h"
+#include <stdlib.h>        /* getenv, for the host-only test hooks */
 #include <stdio.h>
 #include <string.h>
 
@@ -858,6 +859,16 @@ int mb_village_style(int v)
         { TP_ORGANIC, TP_ORGANIC, TP_GREEN,   TP_RIBBON  },   /* orc   */
     };
     int sp = mb_v[v].sp; if (sp < 0 || sp >= SP_CIV_N) sp = 0;
+#if MOTE_HOST
+    /* MOTEBOX_PLAN=g|r|b|o|n forces every town to one morphology. Comparing six of a kind
+     * side by side is the only way to see whether a plan VARIES; hunting the world for two
+     * examples of one style told me nothing about the eight cases I had not seen. */
+    { const char *pl = getenv("MOTEBOX_PLAN");
+      if (pl) switch (*pl) {
+      case 'g': return TP_GRID;    case 'r': return TP_RADIAL;
+      case 'b': return TP_RIBBON;  case 'o': return TP_ORGANIC;
+      default:  return TP_GREEN;   } }
+#endif
     return LEAN[sp][mb_shash((uint32_t)v * 2654435761u ^ 0x70a17u) & 3u];
 }
 #define town_style mb_village_style
@@ -952,18 +963,49 @@ static int street_at(int v, int x, int y)
     default: break;                                    /* TP_GRID, below */
     }
 
-    /* --- the planned grid, as it was ---------------------------------- */
+    /* --- THE PLANNED GRID, and there is more than one kind of grid -----
+     *
+     * This was a high street with lanes off it every third cell, symmetric about the hall: one
+     * fabric, a centre cross with equal blocks around it, in every planned town in the world.
+     * Flipping the axis and the second street's side is a mirror, not a difference.
+     *
+     * What actually distinguishes one planned town from another, all of it decided once per
+     * settlement from its own hash:
+     *
+     *   BLOCK SIZE   lanes every two, three or four cells — short blocks or long ones
+     *   PHASE        whether the hall stands on a junction or halfway down a block
+     *   STAGGER      lanes on the two sides of the high street offset by half a block, so the
+     *                junctions are Ts rather than crossroads. Real towns have few crossroads.
+     *   HIGH STREETS one, or two parallel at two to five cells apart
+     *   CROSS STREET one street running right through at a position off the lane grid
+     *   DEPTH        per lane AND per side, so the built-up edge is lopsided, not a rectangle
+     *   DROPOUT      one lane in five missing, so blocks merge and it is not a waffle iron
+     */
     if (a > reach) return 0;
-    if (across == 0) return 1;                           /* the high street */
-    /* A SECOND high street, three cells over, once there is a town to put on it. Which
-     * side it goes is the village's own, so a pair of towns do not mirror each other. */
-    if (V->pop >= 20 && across == ((v & 2) ? 3 : -3)) return 1;
-    /* The lanes. Depth is per-lane and hashed, so the town's outline is ragged. */
-    if (along % 3) return 0;
-    int deep = 2 + V->pop / 10;  if (deep > 5) deep = 5;
-    int lane = 2 + (int)(mb_shash((uint32_t)(v * 2654435761u) ^ (uint32_t)((along + 64) * 40503u))
-                         % (uint32_t)(deep - 1));
-    return c <= lane;
+    {
+        uint32_t g = mb_shash((uint32_t)v * 0x9E3779B9u ^ 0x6a71du);
+        int spacing = 2 + (int)(g & 3u);        if (spacing > 4) spacing = 4;
+        int phase   = (int)((g >> 2) & 3u) % spacing;
+        int stagger = (int)((g >> 4) & 1u);
+        int two     = V->pop >= 18 && ((g >> 5) & 1u);
+        int hsep    = 2 + (int)((g >> 6) & 3u);
+        int hside   = ((g >> 8) & 1u) ? 1 : -1;
+        int deep    = 2 + V->pop / 10;          if (deep > 5) deep = 5;
+        int crossat = (int)((g >> 10) % (uint32_t)(2 * reach - 1)) - (reach - 1);
+
+        if (across == 0) return 1;                          /* the high street */
+        if (two && across == hside * hsep) return 1;         /* and its parallel */
+        if (along == crossat && c <= deep + 1) return 1;      /* the cross street */
+
+        /* the lanes: this side's phase, this town's spacing */
+        int ph = (across < 0 && stagger) ? (phase + spacing / 2) : phase;
+        int m  = (along - ph) % spacing;  if (m < 0) m += spacing;
+        if (m) return 0;
+        uint32_t lh = mb_shash((uint32_t)(v * 7717u) ^ (uint32_t)((along + 64) * 40503u)
+                               ^ (across < 0 ? 0x5a5au : 0u));
+        if ((lh % 5u) == 0u) return 0;                       /* a missing lane */
+        return c <= 1 + (int)((lh >> 8) % (uint32_t)deep);
+    }
 }
 
 /* THE PLAN'S FOOTPRINT: street, plus any ground the plan wants left OPEN but unpaved. Only
