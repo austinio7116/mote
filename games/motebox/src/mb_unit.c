@@ -698,7 +698,26 @@ static void think(int i)
     int threat = -1;
     if (sp->diet != DIET_MEAT) {
         threat = nearest(i, x, y, NEAR_THREAT);
-        if (threat >= 0) danger += 50;
+        /* PANIC ONLY AT SOMETHING THAT WOULD ACTUALLY EAT YOU.
+         *
+         * Any meat-eater in sight was worth fifty points of danger, and JOB_FLEE outranks work
+         * and courtship — but a predator's own rule (see NEAR_PREY) is that it will not touch a
+         * person who is not starving, and never on claimed ground. So the two halves disagreed:
+         * the wolf had no intention of attacking and the villager fled anyway.
+         *
+         * It did not show while predators were being hunted to extinction. Giving them their own
+         * budget so they PERSIST — twenty wolves in every world, for ever — turned that
+         * disagreement into an economy-wide failure: measured, 110 of 118 people fleeing at once,
+         * and the audit's total end population fell from 3142 to 1895 across eight worlds. The
+         * villagers were not dying, they were panicking instead of working.
+         *
+         * The panic now matches the rule that governs the wolf. A hungry wolf, or open ground,
+         * is still worth running from. */
+        if (threat >= 0) {
+            int hungry = mb_u[threat].hunger >= 120;
+            int home   = (sp->drives == DRV_CIV) && mb_w.claim[AT(x, y)] != 0;
+            if (hungry || !home) danger += 50;
+        }
     }
     /* --- FIGHT THE FIRE, if it is theirs to fight ------------------------
      *
