@@ -561,6 +561,18 @@ int  mb_ui_textw(const char *s);
 void mb_ui_text(uint16_t *fb, int x, int y, const char *s, uint16_t col, int maxw);
 void mb_ui_text_r(uint16_t *fb, int x2, int y, const char *s, uint16_t col);
 void mb_ui_actions(uint16_t *fb, const char *a, const char *b, uint16_t fill);
+/* A LIST IN OUR OWN PANELS. Everything the MENU button used to open was a blocking
+ * mote->menu(), which cannot animate, cannot be screenshotted, and takes the whole frame
+ * loop with it — which is why a 3-second MENU hold could never reach the engine's own menu.
+ * `vals` is optional and right-aligned, for the rows that carry a setting. */
+void mb_ui_list(uint16_t *fb, int x, int y, int w, int rows,
+                const char *const *items, const char *const *vals, int n,
+                int sel, int top, uint16_t line, uint16_t fill, int sel_skip);
+/* how many leading characters to drop from the selected row this frame, so a line too long
+ * for the row can still be read to the end. Pass 0 for a list whose rows always fit. */
+int  mb_ui_marquee(const char *s, int roomw, float dt);
+int  mb_ui_list_top(int sel, int top, int n, int rows);   /* scroll to keep sel visible */
+#define MB_UI_ROW_H 10
 /* the cast cell for a species+role, with no Unit to hand: the LORD screen needs it because a
  * village's lord is stats and a name on the Village, not a person in the world. */
 void mb_cast_role(int sp, int role, unsigned seed, int *sheet, int *cx, int *cy);

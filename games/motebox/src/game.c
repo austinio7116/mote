@@ -312,7 +312,24 @@ static void seek_next(void)
     if (bx >= 0) { s_cx = bx; s_cy = by; if (!s_god) cam_follow(); }
 }
 
-static void god_menu(void);
+/* A FRESH WORLD, from the god menu's NEW WORLD row. Reset, not init: the arena is bump-only,
+ * so re-initialising would leak a whole world's worth of buffers per reroll. */
+static void world_reroll(void)
+{
+    uint32_t ns = (uint32_t)mote->micros() ^ (mb_w.seed * 2654435761u);
+    mb_world_gen(ns);
+    mb_unit_reset(); mb_civ_reset(); mb_flux_reset();
+    mb_chron_init(); mb_age_init(); mb_faith_init(); mb_fx_init();
+    mb_unit_seed_wildlife();
+    /* AND THEN THE PEOPLES. A fresh world used to contain deer, goats and a wolf and nothing
+     * else, because founding a civilisation was a power you had to know about. */
+    mb_civ_seed_world(4);
+    mb_world_start(&s_cx, &s_cy);
+    /* open on a civilisation: worldgen picks a pleasant spot, which is usually nobody's */
+    for (int i = 1; i < MAXV; i++)
+        if (mb_v[i].alive) { s_cx = mb_v[i].x; s_cy = mb_v[i].y; break; }
+    mb_bands_rebuild();
+}
 
 /* --- B: THE INSPECT PAGES ----------------------------------------------
  *
@@ -592,26 +609,11 @@ static void view_set(int god)
 
 /* --- the God Menu ------------------------------------------------------- */
 
-static void law_menu(void)
-{
-    for (;;) {
-        const char *items[LAW_N + 1];
-        static char rows[LAW_N][28];
-        for (int i = 0; i < LAW_N; i++) {
-            snprintf(rows[i], sizeof rows[i], "%s %s", mb_law(i) ? "ON " : "off", mb_law_name(i));
-            items[i] = rows[i];
-        }
-        items[LAW_N] = "BACK";
-        int c = mote->menu("WORLD LAWS", items, LAW_N + 1);
-        if (c < 0 || c == LAW_N) return;
-        mb_law_toggle(c);
-    }
-}
-
 /* ===================================================================== *
  *  THE INFORMATION SCREENS
  *
- *  These replace six mote->menu() lists. A menu was the wrong tool three times over: it is a
+ *  These replaced six mote->menu() lists, and the three list views below finished the job:
+ *  there is no blocking menu left in the game. A menu was the wrong tool three times over: it is a
  *  LIST, so it can hold text and nothing else — no portrait, no bar, no sprite; it SCROLLS,
  *  so a screen becomes a corridor; and it BLOCKS, so it cannot animate and cannot be
  *  screenshotted (an entire session went by without anyone seeing one of these pages).
@@ -623,13 +625,24 @@ static void law_menu(void)
  *  The journey is WHO IS HERE -> the subject -> what a god can do about it.
  * ===================================================================== */
 
-enum { UI_NONE = 0, UI_PICK, UI_SOUL, UI_SHAPE, UI_LORD, UI_TOWN, UI_KING, UI_LAND, UI_WORLD };
+enum { UI_NONE = 0, UI_PICK, UI_SOUL, UI_SHAPE, UI_LORD, UI_TOWN, UI_KING, UI_LAND, UI_WORLD,
+       /* AND THE THREE THAT USED TO BE BLOCKING MENUS. The last of the mote->menu() calls: the
+        * god menu itself, the chronicle, and the world laws. They are ordinary views now, which
+        * is what hands the MENU button's three-second hold back to the engine's own menu — it
+        * was unreachable for the whole life of the game, because the blocking list ran its own
+        * frame loop and the OS never saw the button go down. */
+       UI_GOD, UI_CHRON, UI_LAWS };
 static int s_ui;                 /* which screen, UI_NONE for the world */
 static int s_ui_row;             /* the cursor within it */
+static int s_ui_top;             /* the scroll offset of a list view      */
+static float s_ui_note_t;        /* a one-line result, shown for a moment */
+static char  s_ui_note[24];      /* "saved", "NO SAVE", "world rerolled"  */
+static int   s_ui_arm;           /* a destructive row wants a second press */
 static int s_subject;            /* unit index the SOUL/SHAPE screens are about */
 static int s_subject_v;          /* village index the LORD/TOWN screens are about */
 #define MB_LORD_RAISE 50   /* Faith for one step of a lord's stat: see ui_draw_lord */
 static float s_ui_flash;         /* a spend just happened: flash the number */
+static float s_menu_hold;        /* how long MENU has been down: tap vs hold */
 
 /* WHAT IS ON THIS GROUND. Everything whose sprite OVERLAPS the cell, not merely everything
  * whose tile index equals it — figures are drawn at sub-pixel positions now, so a villager
@@ -1160,65 +1173,124 @@ static void ui_draw_land(uint16_t *fb)
     mb_ui_actions(fb, "RB NEXT", "B<", FILL);
 }
 
-/* --- THE CHRONICLE, as a log you can navigate ---------------------------
+/* --- THE CHRONICLE, THE GOD MENU AND THE LAWS, as views ------------------
  *
- * The world pans itself to each new headline after a few seconds of no input, which is right
- * for a game you leave running and disorienting for one you are watching: you arrive
- * somewhere with no idea what happened or where you were. The chronicle was the answer and
- * was not usable as one — twenty-four lines of text about places there was no way to reach.
+ * These were the last three blocking mote->menu() lists in the game, and they were the reason
+ * the engine's own menu could not be opened: mote->menu() runs its own input and present loop,
+ * so a MENU press that opened the god menu also stopped the frame loop that counts a
+ * three-second hold. Tap for the game's menu, hold for the engine's — which only works if the
+ * game's menu is an ordinary view drawn in the ordinary frame.
  *
- * So: the whole ring (ninety-six entries, scrolling), newest first, and SELECTING A LINE TAKES
- * YOU THERE. That turns the log from a wall of history into the way you get around, and it
- * turns the auto-pan from something that happens to you into something you can do on purpose.
- *
- * If the panning itself is the problem, MENU > WORLD LAWS > FOLLOW switches it off, and the
- * chronicle then becomes the only way the world tells you anything — which is why it had to
- * be navigable before that was a reasonable thing to suggest.
+ * They are also better as views. The chronicle can scroll a hundred entries with the world
+ * moving behind it and can be screenshotted; the laws show their state on the row; and the god
+ * menu can put the age, the faith and the population on the panel instead of spending four
+ * list rows on them.
  */
-static void chronicle_menu(void)
+
+/* THE LOG. The world pans itself to each new headline after a few seconds of no input, which is
+ * right for a game you leave running and disorienting for one you are watching: you arrive
+ * somewhere with no idea what happened. SELECTING A LINE TAKES YOU THERE, which turns the log
+ * from a wall of history into the way you get around — and the auto-pan from something that
+ * happens to you into something you can do on purpose. */
+#define CHRON_ROWS 40
+static int  s_chron_n;                       /* how many rows the list currently holds */
+static int  s_chron_back[CHRON_ROWS];        /* which ring entry each row is           */
+static char s_chron_row[CHRON_ROWS][34];
+
+static void chron_build(void)
 {
-    /* The engine menu is a list, and a history IS a list — so the chronicle needs no screen
-     * of its own, and it scrolls with the same buttons as everything else. */
-    for (;;) {
-        int n = mb_chron_count();
-        if (n <= 0) {
-            const char *none[] = { "nothing has happened yet", "BACK" };
-            mote->menu("EVENT LOG", none, 2);
-            return;
-        }
-        static char rows[41][34];
-        static int  back_of[41];        /* which ring entry each row is, so BACK still travels */
-        const char *items[42];
-        int rown = 0;
-        for (int i = 0; i < n && rown < 40; i++) {
-            if (!mb_chron_notable(i)) continue;      /* see mb_chron_notable() */
-            int year = 0; char line[30];
-            mb_chron_line(line, sizeof line, i, &year);
-            back_of[rown] = i;
-            /* NO MARKER AND NO COORDINATES. A log is read as history; a grid reference tells
-             * you nothing you can act on, and a symbol in front of every other line is just
-             * clutter. Selecting a line still travels to it — the navigation is silent. */
-            snprintf(rows[rown], sizeof rows[rown], "Y%d %s", year, line);
-            items[rown] = rows[rown];
-            rown++;
-        }
-        if (rown == 0) {
-            const char *none[] = { "nothing of note yet", "BACK" };
-            mote->menu("EVENT LOG", none, 2);
-            return;
-        }
-        items[rown] = "BACK";
-        int c = mote->menu("EVENT LOG", items, rown + 1);
-        if (c < 0 || c >= rown) return;
-        int wx, wy;
-        if (mb_chron_where(back_of[c], &wx, &wy)) {
-            s_cx = wx; s_cy = wy;
-            s_pan_x = -1;                  /* cancel any auto-pan: this was deliberate */
-            s_idle = 0.0f;                 /* and do not immediately pan away again */
-            if (!s_god) cam_follow();
-            return;
-        }
+    int n = mb_chron_count();
+    s_chron_n = 0;
+    for (int i = 0; i < n && s_chron_n < CHRON_ROWS; i++) {
+        if (!mb_chron_notable(i)) continue;      /* see mb_chron_notable() */
+        int year = 0; char line[30];
+        mb_chron_line(line, sizeof line, i, &year);
+        s_chron_back[s_chron_n] = i;
+        /* NO MARKER AND NO COORDINATES. A log is read as history; a grid reference tells you
+         * nothing you can act on. Selecting a line still travels to it — silently. */
+        snprintf(s_chron_row[s_chron_n], sizeof s_chron_row[0], "y%d %s", year, line);
+        s_chron_n++;
     }
+}
+
+static void ui_draw_chron(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(20, 18, 30);
+    mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_GOLD, FILL, 1);
+    mb_ui_text(fb, 7, 6, "THE CHRONICLE", MB_UI_CREAM, 114);
+    mb_ui_rule(fb, 6, 17, 116, 0, MB_UI_GOLD, FILL, MB_UI_DIM);
+    if (!s_chron_n) {
+        mb_ui_text(fb, 7, 30, "nothing yet", MB_UI_DIM, 112);
+    } else {
+        const char *items[CHRON_ROWS];
+        for (int i = 0; i < s_chron_n; i++) items[i] = s_chron_row[i];
+        /* the selected line scrolls, because a chronicle entry is a sentence and the row is
+         * 112 px — the same reason the HUD strip scrolls. */
+        mb_ui_list(fb, 5, 22, 118, 8, items, 0, s_chron_n, s_ui_row, s_ui_top,
+                   MB_UI_GOLD, FILL,
+                   mb_ui_marquee(items[s_ui_row < s_chron_n ? s_ui_row : 0], 112, s_dt));
+    }
+    mb_ui_actions(fb, "A GO THERE", "B<", FILL);
+}
+
+/* THE LAWS. Eleven switches on what the world is allowed to do to itself. */
+static void ui_draw_laws(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(14, 26, 30);
+    mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_SKY, FILL, 1);
+    mb_ui_text(fb, 7, 6, "WORLD LAWS", MB_UI_CREAM, 92);
+    mb_ui_rule(fb, 6, 17, 116, 0, MB_UI_SKY, FILL, MB_UI_DIM);
+    static char rows[LAW_N][22];
+    const char *items[LAW_N], *vals[LAW_N];
+    for (int i = 0; i < LAW_N; i++) {
+        snprintf(rows[i], sizeof rows[i], "%s", mb_law_name(i));
+        items[i] = rows[i];
+        vals[i]  = mb_law(i) ? "ON" : "off";
+    }
+    mb_ui_list(fb, 5, 22, 118, 8, items, vals, LAW_N, s_ui_row, s_ui_top, MB_UI_SKY,
+               FILL, 0);      /* every law name fits: see authoring/uifit.py */
+    mb_ui_actions(fb, "A TOGGLE", "B<", FILL);
+}
+
+/* THE GOD MENU. The things you came here to do are rows; the things you came here to read are
+ * on the panel above them, which is four list lines the old menu spent on status. */
+enum { GM_LOG = 0, GM_REPORT, GM_LAWS, GM_MAP, GM_SPEED, GM_MODE,
+       GM_SAVE, GM_LOAD, GM_NEW, GM_N };
+
+static void ui_draw_god(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(18, 16, 34);
+    mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_GOLD, FILL, 1);
+    mb_ui_text(fb, 7, 6, "MOTEBOX", MB_UI_CREAM, 70);
+    char buf[24];
+    snprintf(buf, sizeof buf, "y%d", (int)(mb_w.tick / TPY));
+    mb_ui_text_r(fb, 120, 6, buf, MB_UI_DIM);
+    /* the age gets the whole row: "AGE OF WONDERS" measures 114 px, which is the row. */
+    mb_ui_text(fb, 7, 15, mb_age_name(), MB_UI_GOLD, 114);
+    mb_ui_rule(fb, 6, 26, 116, 0, MB_UI_GOLD, FILL, MB_UI_DIM);
+
+    static char vspeed[10], vmap[12], vmode[10];
+    snprintf(vspeed, sizeof vspeed, "%s", SPEED_NAME[s_speed]);
+    snprintf(vmap,   sizeof vmap,   "%s", MB_MAPMODE_NAME[mb_draw_mapmode()]);
+    snprintf(vmode,  sizeof vmode,  "%s", mb_mode() == MODE_SANDBOX ? "SANDBOX" : "PANTHEON");
+    static const char *const NAMES[GM_N] = {
+        "THE CHRONICLE", "WORLD REPORT", "WORLD LAWS",
+        "MAP", "SPEED", "MODE", "SAVE WORLD", "LOAD WORLD", "NEW WORLD" };
+    const char *vals[GM_N] = { 0, 0, 0, vmap, vspeed, vmode, 0, 0, 0 };
+    if (s_ui_arm && s_ui_row == GM_NEW) vals[GM_NEW] = "SURE?";
+    mb_ui_list(fb, 5, 31, 118, 7, NAMES, vals, GM_N, s_ui_row, s_ui_top, MB_UI_GOLD,
+               FILL, 0);      /* these are labels, and they fit */
+
+    /* the note line doubles as the state of the world when it has nothing to report */
+    if (s_ui_note_t > 0.0f) mb_ui_text(fb, 7, 103, s_ui_note, MB_UI_OK, 114);
+    else {
+        snprintf(buf, sizeof buf, "%d faith", mb_faith());
+        mb_ui_text(fb, 7, 103, buf, MB_UI_SKY, 70);
+    }
+    /* what A does depends on the row, which is the whole reason the footer is a function */
+    { static const char *const ACT[GM_N] = { "A OPEN", "A OPEN", "A OPEN", "A CYCLE",
+        "A CYCLE", "A CYCLE", "A SAVE", "A LOAD", "A REROLL" };
+      mb_ui_actions(fb, ACT[s_ui_row < GM_N ? s_ui_row : 0], "B<", FILL); }
 }
 
 /* --- THE WORLD REPORT ---------------------------------------------------
@@ -1230,80 +1302,6 @@ static void chronicle_menu(void)
  *
  * This is the same data MOTEBOX_LOOPS prints for the audit — the tooling and the game
  * read the simulation the same way, which is why the numbers can be trusted. */
-
-static void god_menu(void)
-{
-    for (;;) {
-        static char st[4][30];
-        snprintf(st[0], sizeof st[0], "%s", mb_age_name());
-        snprintf(st[1], sizeof st[1], "FAITH %d  (+%d/yr)", mb_faith(), mb_faith_income());
-        snprintf(st[2], sizeof st[2], "MODE: %s", mb_mode() == MODE_SANDBOX ? "SANDBOX" : "PANTHEON");
-        snprintf(st[3], sizeof st[3], "pop %d  villages %d  kingdoms %d",
-                 mb_pop_civ(), mb_village_count(), mb_kingdom_count());
-        static char st4[30], st5[30];
-        snprintf(st4, sizeof st4, "MAP: %s", MB_MAPMODE_NAME[mb_draw_mapmode()]);
-        snprintf(st5, sizeof st5, "SPEED: %s", SPEED_NAME[s_speed]);
-        /* THE THINGS YOU CAME HERE TO DO GO FIRST. This menu used to open on four rows of
-         * status, so the log was the seventh line down a screen that did not look like a
-         * list of actions — and it was called CHRONICLE, which is a lovely word and not a
-         * word anybody hunting for a log would read as one. Both fixed: it is the top row,
-         * and it says what it is. */
-        const char *items[] = { "EVENT LOG", "THE WORLD REPORT",
-                                st4, st5, st[0], st[1], st[2], st[3],
-                                "WORLD LAWS", "SAVE WORLD", "LOAD WORLD",
-                                "NEW WORLD", "CLOSE" };
-        int c = mote->menu("MOTEBOX", items, 13);
-        switch (c) {
-        case 0: chronicle_menu(); break;
-        case 1: s_ui = UI_WORLD; s_ui_row = 0; return;   /* the drawn screen */
-        /* THE MAP IS A LENS. Cycling it here rather than on a button keeps the world's own
-         * controls for the world, and the four modes are the only place tech, creed and tier
-         * are visible at world scale — see mb_draw_prepare(). */
-        case 2: mb_draw_mapmode_set((mb_draw_mapmode() + 1) % MAPMODE_N);
-                mb_draw_init(); break;
-        /* the clock, cycling like the lens: pause, x1, x3, x8, x25 */
-        case 3: s_speed = (s_speed + 1) % 5; break;
-        case 6: mb_mode_set(mb_mode() == MODE_SANDBOX ? MODE_PANTHEON : MODE_SANDBOX); break;
-        case 8: law_menu(); break;
-        case 9: {
-            int ok = mb_save_write(0, s_cx, s_cy, s_god);
-            const char *m[] = { ok ? "saved" : "SAVE FAILED", "BACK" };
-            mote->menu("SAVE", m, 2);
-            break;
-        }
-        case 10: {
-            int cx = s_cx, cy = s_cy, god = s_god;
-            int ok = mb_save_read(0, &cx, &cy, &god);
-            if (ok) { s_cx = cx; s_cy = cy; view_set(god); }
-            const char *m[] = { ok ? "loaded" : "NO SAVE", "BACK" };
-            mote->menu("LOAD", m, 2);
-            break;
-        }
-        case 11: {
-            uint32_t ns = (uint32_t)mote->micros() ^ (mb_w.seed * 2654435761u);
-            mb_world_gen(ns);
-            /* RESET, not init: the arena is bump-only, so re-initialising would
-             * leak a whole world's worth of buffers per reroll. */
-            mb_unit_reset(); mb_civ_reset(); mb_flux_reset();
-            mb_chron_init(); mb_age_init(); mb_faith_init(); mb_fx_init();
-            mb_unit_seed_wildlife();
-    /* AND THEN THE PEOPLES. A fresh world used to contain deer, goats and a wolf and
-     * nothing else, because founding a civilisation was a power you had to know about.
-     * Boot into a living history instead. */
-    mb_civ_seed_world(4);
-    mb_world_start(&s_cx, &s_cy);
-    /* AND OPEN ON A CIVILISATION. Worldgen picks a pleasant spot, which on a 96x96 map
-     * is usually nobody's spot — so the first thing the player saw was empty coastline
-     * even once the world had peoples in it. Start the cursor on a founding party: the
-     * opening frame should contain the thing the game is about. */
-    for (int i = 1; i < MAXV; i++)
-        if (mb_v[i].alive) { s_cx = mb_v[i].x; s_cy = mb_v[i].y; break; }
-            return;
-        }
-        default: return;
-        }
-    }
-}
 
 #if MOTE_HOST
 /* --- the fast-forward (MOTEBOX_YEARS=500) ------------------------------
@@ -1918,7 +1916,7 @@ static void g_init(void)
         /* WHAT THE LOG ACTUALLY SHOWS. The engine's menu blocks, so the frame counter never
          * advances inside it and a submenu cannot be screenshotted — and "the event log has
          * only births and deaths" is a claim about the LIST, not about the ring. So the list
-         * is printed exactly as chronicle_menu() builds it. */
+         * is printed exactly as the chronicle view builds it. */
         int n = mb_chron_count(), shown = 0;
         fprintf(stderr, "\n--- the event log, %d in the ring ---\n", n);
         for (int i = 0; i < n && shown < 20; i++) {
@@ -2441,6 +2439,33 @@ static void g_update(float dt)
         s_hold = 0.0f; s_move_acc = 0.0f;
     }
 
+    /* MENU: A TAP OPENS OURS, A HOLD OPENS THE ENGINE'S.
+     *
+     * This used to call a blocking mote->menu() on the press. A blocking list runs its own
+     * input and present loop, so the frame loop that counts the engine's three-second MENU hold
+     * never advanced: the engine menu — brightness, volume, exit to lobby — was unreachable for
+     * the whole life of the game, from inside a game that opened its own menu on that button.
+     *
+     * So the god menu opens on RELEASE after a short press and a longer hold falls through to
+     * the OS untouched. 0.45 s is the threshold: long enough that a deliberate tap always
+     * registers, short enough that nobody holding for the engine menu sees ours flash up.
+     *
+     * It is ABOVE the screens' early return, so a tap also closes whatever is open — which is
+     * what every other menu button on the device does. */
+    if (!wheel) {
+        if (mote_pressed(in, MOTE_BTN_MENU)) s_menu_hold += dt;
+        else {
+            if (s_menu_hold > 0.0f && s_menu_hold < 0.45f) {
+                if (s_ui) { s_ui = UI_NONE; }
+                else      { s_ui = UI_GOD; }
+                s_ui_row = 0; s_ui_top = 0; s_ui_arm = 0;
+                s_menu_hold = 0.0f;
+                return;
+            }
+            s_menu_hold = 0.0f;
+        }
+    }
+
     /* --- THE INFORMATION SCREENS OWN THE PAD WHILE ONE IS OPEN ---
      * Returning early is what makes them screens rather than menus: the world keeps ticking
      * behind them (a soul's hunger really is rising while you read about it) but the cursor
@@ -2448,6 +2473,100 @@ static void g_update(float dt)
     if (s_ui) {
         int up   = mote_just_pressed(in, MOTE_BTN_UP);
         int down = mote_just_pressed(in, MOTE_BTN_DOWN);
+        if (s_ui_note_t > 0.0f) s_ui_note_t -= dt;
+        /* --- the three list views ------------------------------------------------------
+         * One block, because a list is a list: up and down move, A acts, B goes back one
+         * level. The scroll offset is recomputed from the row rather than tracked, so a
+         * list that changes length under you (the chronicle does, constantly) cannot end
+         * up scrolled past its own end. */
+        if (s_ui == UI_GOD || s_ui == UI_CHRON || s_ui == UI_LAWS) {
+            int n    = s_ui == UI_GOD ? GM_N : s_ui == UI_LAWS ? LAW_N : s_chron_n;
+            int rows = s_ui == UI_GOD ? 7 : 8;
+            /* THE LOG IS A SNAPSHOT, taken when you opened it. Rebuilding it every frame was
+             * the obvious thing and the wrong one: the world keeps running behind a view, so a
+             * new event pushed every line down and the row under the cursor became a different
+             * event while you were reading it. History as of when you asked is what a chronicle
+             * is anyway; the next entries are there the next time you open it. */
+            if (n < 1) n = 1;
+            if (up)   { s_ui_row = (s_ui_row - 1 + n) % n; s_ui_arm = 0; }
+            if (down) { s_ui_row = (s_ui_row + 1) % n;     s_ui_arm = 0; }
+            if (s_ui_row >= n) s_ui_row = n - 1;
+            s_ui_top = mb_ui_list_top(s_ui_row, s_ui_top, n, rows);
+            if (mote_just_pressed(in, MOTE_BTN_B)) {
+                s_ui = (s_ui == UI_GOD) ? UI_NONE : UI_GOD;
+                s_ui_row = 0; s_ui_top = 0; s_ui_arm = 0;
+                return;
+            }
+            if (mote_just_pressed(in, MOTE_BTN_A)) {
+                if (s_ui == UI_LAWS) mb_law_toggle(s_ui_row);
+                else if (s_ui == UI_CHRON) {
+                    /* travel to where it happened, which is the whole point of the list */
+                    int wx, wy;
+                    if (s_chron_n && mb_chron_where(s_chron_back[s_ui_row], &wx, &wy)) {
+                        s_cx = wx; s_cy = wy;
+                        s_pan_x = -1;      /* cancel any auto-pan: this was deliberate */
+                        s_idle = 0.0f;     /* and do not immediately pan away again     */
+                        if (!s_god) cam_follow();
+                        s_ui = UI_NONE; s_ui_row = 0; s_ui_top = 0;
+                        return;
+                    }
+                    mb_snd(SND_DENY);
+                } else switch (s_ui_row) {
+                case GM_LOG:    s_ui = UI_CHRON; s_ui_row = 0; s_ui_top = 0; chron_build(); break;
+                case GM_REPORT: s_ui = UI_WORLD; s_ui_row = 0; break;
+                case GM_LAWS:   s_ui = UI_LAWS;  s_ui_row = 0; s_ui_top = 0; break;
+                /* THE MAP IS A LENS. Cycling it here rather than on a button keeps the
+                 * world's own controls for the world, and the four modes are the only place
+                 * tech, creed and tier are visible at world scale. */
+                case GM_MAP:    mb_draw_mapmode_set((mb_draw_mapmode() + 1) % MAPMODE_N);
+                                mb_draw_init(); break;
+                case GM_SPEED:  s_speed = (s_speed + 1) % 5; break;
+                case GM_MODE:   mb_mode_set(mb_mode() == MODE_SANDBOX ? MODE_PANTHEON
+                                                                     : MODE_SANDBOX); break;
+                case GM_SAVE: {
+                    int ok = mb_save_write(0, s_cx, s_cy, s_god);
+                    snprintf(s_ui_note, sizeof s_ui_note, "%s", ok ? "saved" : "SAVE FAILED");
+                    s_ui_note_t = 2.0f;
+                    break;
+                }
+                case GM_LOAD: {
+                    int cx = s_cx, cy = s_cy, god = s_god;
+                    int ok = mb_save_read(0, &cx, &cy, &god);
+                    if (ok) { s_cx = cx; s_cy = cy; view_set(god); }
+                    snprintf(s_ui_note, sizeof s_ui_note, "%s", ok ? "loaded" : "NO SAVE");
+                    s_ui_note_t = 2.0f;
+                    break;
+                }
+                /* A WORLD IS NOT THROWN AWAY ON ONE BUTTON. The blocking version had a
+                 * confirmation list of its own; a view has the row itself, which asks
+                 * "SURE?" and takes a second press. */
+                case GM_NEW:
+                    if (!s_ui_arm) { s_ui_arm = 1; break; }
+                    s_ui_arm = 0;
+                    world_reroll();
+                    s_ui = UI_NONE; s_ui_row = 0; s_ui_top = 0;
+                    return;
+                default: break;
+                }
+                if (s_ui_row != GM_NEW) s_ui_arm = 0;
+            }
+            /* LEFT/RIGHT nudge a setting without leaving the row, which is what the OS list
+             * does and therefore what the footer of every other screen has taught. */
+            if (s_ui == UI_GOD) {
+                int step = mote_just_pressed(in, MOTE_BTN_RIGHT)
+                         - mote_just_pressed(in, MOTE_BTN_LEFT);
+                if (step) {
+                    if (s_ui_row == GM_SPEED) s_speed = (s_speed + 5 + step) % 5;
+                    if (s_ui_row == GM_MAP) {
+                        mb_draw_mapmode_set((mb_draw_mapmode() + MAPMODE_N + step) % MAPMODE_N);
+                        mb_draw_init();
+                    }
+                    if (s_ui_row == GM_MODE)
+                        mb_mode_set(mb_mode() == MODE_SANDBOX ? MODE_PANTHEON : MODE_SANDBOX);
+                }
+            }
+            return;
+        }
         if (s_ui == UI_PICK) {
             pick_build();                        /* the crowd moves; the list must follow */
             if (up   && s_ui_row > 0) s_ui_row--;
@@ -2523,10 +2642,6 @@ static void g_update(float dt)
         return;
     }
 
-    /* MENU opens the God Menu: the laws, the chronicle, the legends, the save.
-     * A blocking engine menu is the right tool — it is a pause, and the sim
-     * genuinely should stop while you read a history. */
-    if (mote_just_pressed(in, MOTE_BTN_MENU) && !wheel) god_menu();
     /* B: WHO IS HERE — every figure and thing overlapping the cell, so you can choose which
      * of a crowd of twenty to look at. It used to open a text card about whatever the cursor
      * happened to resolve to, which in a town is a lottery. */
@@ -2662,6 +2777,9 @@ static void g_overlay(uint16_t *fb)
         case UI_KING:  ui_draw_king(fb);  break;
         case UI_WORLD: ui_draw_world(fb); break;
         case UI_LAND:  ui_draw_land(fb);  break;
+        case UI_GOD:   ui_draw_god(fb);   break;
+        case UI_CHRON: ui_draw_chron(fb); break;
+        case UI_LAWS:  ui_draw_laws(fb);  break;
         default:       ui_draw_pick(fb);  break;
         }
         return;

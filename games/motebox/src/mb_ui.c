@@ -24,6 +24,8 @@
  */
 
 #include "mb.h"
+#include <stdio.h>
+#include <string.h>
 #include "font_cp437.h"
 #include "ui_plaque.h"
 #include "ui_status.h"
@@ -261,4 +263,99 @@ int mb_ui_traits(uint16_t *fb, int x, int y, uint32_t traits)
 void mb_ui_icon(uint16_t *fb, int x, int y, int cx, int cy)
 {
     g_api->blit(fb, &ui_status_img, x, y, cx * 8, cy * 8, 8, 8, 0, 0, 128);
+}
+
+/* --- A LIST, IN OUR OWN PANELS -------------------------------------------
+ *
+ * Everything behind the MENU button was a blocking mote->menu(). Three things were wrong with
+ * that, and they are the same three that got the information screens rewritten: a menu holds
+ * TEXT and nothing else, it takes the whole frame loop with it so nothing under it can move
+ * and nothing can be captured, and — the one that finally forced this — it swallowed the MENU
+ * button, so the engine's own menu on a three-second hold was unreachable for the entire game.
+ *
+ * The selection bar is a filled row with a bright left edge, which is what the OS list does and
+ * therefore what a Mote player already reads as "this one". Values are right-aligned on the
+ * same row: a setting and its state belong on one line.
+ */
+int mb_ui_list_top(int sel, int top, int n, int rows)
+{
+    if (rows < 1) rows = 1;
+    if (sel < top) top = sel;
+    if (sel >= top + rows) top = sel - rows + 1;
+    if (top > n - rows) top = n - rows;
+    if (top < 0) top = 0;
+    return top;
+}
+
+void mb_ui_list(uint16_t *fb, int x, int y, int w, int rows,
+                const char *const *items, const char *const *vals, int n,
+                int sel, int top, uint16_t line, uint16_t fill, int sel_skip)
+{
+    for (int r = 0; r < rows && top + r < n; r++) {
+        int i = top + r, ry = y + r * MB_UI_ROW_H;
+        int on = (i == sel);
+        if (on) {
+            g_api->draw_rect(fb, x, ry, w, MB_UI_ROW_H - 1, MB_UI_OFF, 1, 0, 128);
+            g_api->draw_rect(fb, x, ry, 2, MB_UI_ROW_H - 1, line, 1, 0, 128);
+        }
+        int vw = (vals && vals[i]) ? mb_ui_textw(vals[i]) + 4 : 0;
+        /* THE ROW YOU ARE READING SCROLLS. A chronicle line is a sentence and the row is
+         * 112 px, so half the log was truncated in the middle of a word — the same complaint
+         * the HUD strip had. The step is a WHOLE CHARACTER, which means the text can simply
+         * start further in and be truncated at the row's end as usual: no clip rectangle, and
+         * nothing spills over the panel frame. Slightly steppy, entirely readable. */
+        const char *txt = items[i];
+        if (on && sel_skip > 0) {
+            int k = 0;
+            while (k < sel_skip && txt[k]) k++;
+            txt += k;
+        }
+        mb_ui_text(fb, x + 5, ry + 1, txt, on ? MB_UI_CREAM : MB_UI_DIM, w - 6 - vw);
+        if (vw) mb_ui_text_r(fb, x + w - 2, ry + 1, vals[i], on ? line : MB_UI_DIM);
+    }
+    /* the scroll arrows, in the frame's own colour so they read as part of it */
+    if (top > 0)
+        for (int k = 0; k < 3; k++)
+            g_api->draw_rect(fb, x + w - 5 - k, y - 3 + k, 1 + k * 2, 1, line, 1, 0, 128);
+    if (top + rows < n)
+        for (int k = 0; k < 3; k++)
+            g_api->draw_rect(fb, x + w - 5 - (2 - k), y + rows * MB_UI_ROW_H + k,
+                             5 - k * 2, 1, line, 1, 0, 128);
+    (void)fill;
+}
+
+/* --- READING A ROW THAT IS TOO LONG --------------------------------------
+ *
+ * Returns how many leading characters the caller should drop from the string so that its tail
+ * comes into view: nothing for a while, then one character at a time, then nothing again at the
+ * end, then back to the start. One state, because only one row is ever selected — and it resets
+ * whenever the string changes, which is what makes moving down a list feel immediate.
+ */
+int mb_ui_marquee(const char *s, int roomw, float dt)
+{
+    static char  last[40];
+    static float t;
+    static int   skip;
+    if (!s) return 0;
+    if (strncmp(last, s, sizeof last - 1) != 0) {
+        snprintf(last, sizeof last, "%s", s);
+        t = 0.0f; skip = 0;
+        return 0;
+    }
+    if (mb_ui_textw(s) <= roomw) { skip = 0; return 0; }
+    t += dt;
+    /* 0.9 s to start reading, then five characters a second, then a second at the end */
+    if (t < 0.9f) return skip = 0;
+    int step = (int)((t - 0.9f) * 5.0f);
+    /* how far it may travel: until the tail is on screen */
+    int len = (int)strlen(s), max = 0;
+    for (int k = 1; k < len; k++) {
+        if (mb_ui_textw(s + k) <= roomw) { max = k; break; }
+        max = k;
+    }
+    if (step >= max) {
+        if (t > 0.9f + (float)max / 5.0f + 1.0f) { t = 0.0f; return skip = 0; }
+        return skip = max;
+    }
+    return skip = step;
 }
