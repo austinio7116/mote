@@ -254,6 +254,7 @@ extern const TechDef MB_TECH[TECH_N];
 extern const char *const MB_ERA_NAME[ERA_N];
 /* Kept for the HUD and the old call sites: the NAME of a tech id. */
 extern const char *const MB_TECH_NAME[TECH_N];
+int  mb_tech_price(int t);      /* what a tech ACTUALLY costs — see TECH_PACE */
 enum { NEAR_PREY = 0, NEAR_MATE, NEAR_THREAT, NEAR_ENEMY };
 enum { CAUSE_AGE = 0, CAUSE_WOUNDS, CAUSE_EATEN, CAUSE_SLAIN, CAUSE_DISASTER,
        CAUSE_PLAGUE, CAUSE_STARVED, CAUSE_N };

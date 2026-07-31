@@ -527,7 +527,7 @@ static int page_town(const char **items, int v)
             n = ir_add(items, n, "there is nothing left to learn");
         else
             n = ir_add(items, n, "research %d of %d: %s", K->bank,
-                       MB_TECH[K->goal].cost, MB_TECH[K->goal].name);
+                       mb_tech_price(K->goal), MB_TECH[K->goal].name);
     }
     return n;
 }
@@ -559,7 +559,7 @@ static int page_kingdom(const char **items, int v)
                MB_ERA_NAME[K->era < ERA_N ? K->era : 0], K->tech, TECH_N - 1);
     if (K->goal)
         n = ir_add(items, n, "working on %s (%d/%d)", MB_TECH[K->goal].name,
-                   K->bank, MB_TECH[K->goal].cost);
+                   K->bank, mb_tech_price(K->goal));
     else
         n = ir_add(items, n, "it has learned everything");
     if (mb_tech_known(k, TECH_NUKE))

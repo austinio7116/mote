@@ -617,6 +617,26 @@ static int research_pick(int k)
     return best;
 }
 
+/* --- THE PACE OF THE TREE ------------------------------------------------
+ *
+ * This is a handheld game. The costs in MB_TECH were written for a simulation you leave running:
+ * measured, the leading kingdom of a world reached 33 of 35 techs by YEAR 800 and was still
+ * working on fission, so the last era existed only in theory — the gate census found "silo
+ * wanted" passing 0 times in 800 years, meaning no crown could ever build a silo and no AI nuke
+ * had ever been launched in the game's history.
+ *
+ * One number, so the whole tree keeps its SHAPE — the relative cost of pottery against physics is
+ * a design decision and is unchanged — and only its duration moves. See the sweep in the commit:
+ * the value is chosen so a leading kingdom finishes the tree in the third or fourth century, which
+ * is a session, and a laggard still spends its whole history in the iron age.
+ */
+#define TECH_PACE 50        /* per cent of the authored cost */
+int mb_tech_price(int t)
+{
+    int c = (int)MB_TECH[t].cost * TECH_PACE / 100;
+    return c < 20 ? 20 : c;
+}
+
 static void research_step(int v)
 {
     Village *V = &mb_v[v];
@@ -671,7 +691,7 @@ static void research_step(int v)
     }
 
     K->bank = (uint16_t)(K->bank + gain);
-    if (K->bank < MB_TECH[K->goal].cost) return;
+    if (K->bank < mb_tech_price(K->goal)) return;
 
     K->known |= TECHB(K->goal);
     K->tech++;
