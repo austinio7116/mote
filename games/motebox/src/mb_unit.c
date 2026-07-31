@@ -135,7 +135,20 @@ int mb_pop_class_full(int sp)
      * 70% civ and 45% wild the array filled, every birth of every kind failed, and
      * the wildlife then decayed to zero through predation while the civ held its
      * slots. 58 + 34 leaves 8% of slack for a spawned herd or a risen graveyard. */
-    if (sp >= SP_CIV_N) return mb_pop_wild() >= MAXU * 34 / 100;
+    /* THE ECOLOGY IS A WORLD, NOT A SHARE OF THE ARRAY. The wild budget was 34% of MAXU, so
+     * raising the unit cap to make room for bigger empires ALSO raised the number of wolves —
+     * and measured at MAXU 768 a world opened with 285 animals against 40 founders, 37 of whom
+     * were eaten inside forty years. Every civilisation was gone by year 40 and the world ran
+     * three and a half centuries as a wildlife park.
+     *
+     * How many deer a 128x112 map supports is a fact about the map. 130 is what the tuned world
+     * has always had (34% of 384), so this changes nothing today and stops the ecology inflating
+     * when the ceiling for PEOPLE goes up. */
+    if (sp >= SP_CIV_N) {
+        int wildcap = MAXU * 34 / 100;
+        if (wildcap > 80) wildcap = 80;
+        return mb_pop_wild() >= wildcap;
+    }
     return mb_pop_civ() >= MAXU * 58 / 100;
 }
 /* After a load the array is authoritative and the counters are not, so they are
@@ -1250,8 +1263,22 @@ void mb_unit_seed_wildlife(void)
     /* Leave most of the array for people. The first version spawned 383 animals
      * into a 384-slot array, so a dropped village got two settlers and every
      * later birth silently failed — the world was full of deer and nothing else
-     * could ever happen in it. */
-    const int cap = MAXU * 2 / 5;
+     * could ever happen in it.
+     *
+     * AND IT IS AN ABSOLUTE NUMBER, NOT A SHARE. As `MAXU * 2 / 5` it inflated with the unit
+     * cap: raising the ceiling to make room for bigger empires opened the world with 352
+     * animals against 40 founders, and measured at MAXU 1024 twenty-two of the forty were
+     * EATEN inside ten years and every civilisation was gone by year 40. How much game a
+     * 128x112 map carries is a fact about the map.
+     *
+     * AND IT IS FEWER THAN IT WAS. Two fifths of 384 is 153 animals on 14336 cells — one every
+     * ninety-three — which reads as a game park rather than a wilderness with things living in
+     * it. Measured across four hundred years at 130, 100, 80 and 60: the population sits exactly
+     * at whatever cap it is given (the ecology is cap-bound, not predation-bound) and the CIV
+     * population ends at 222 in every case, so this is purely a question of how busy the world
+     * looks. 94 seeded, settling to 80. */
+    int cap = MAXU * 2 / 5;
+    if (cap > 94) cap = 94;
     for (int tries = 0; tries < 2600 && mb_pop_all() < cap; tries++) {
         uint32_t r = mb_rand((uint32_t)tries * 2654435761u + 99u);
         int x = (int)(r % MW), y = (int)((r >> 10) % MH);

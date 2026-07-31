@@ -118,6 +118,21 @@ enum { PK_SPARK = 0, PK_SMOKE, PK_RING, PK_BOLT, PK_GUST, PK_STAR, PK_N };
  * One struct for villagers, kings, deer and wolves: they share the brain and
  * differ by species and by which drives they carry. That is why the ecology cost
  * nothing extra to build. */
+/* THE POPULATION CEILING. 384 slots at 36 bytes is 13.8 KB of a 100 KB world, and the civ
+ * share of it (58%) is the 222 souls a world fills to. Measured on the host at 400 years, with
+ * the ecology budget no longer scaling alongside it:
+ *
+ *     MAXU   souls   towns   arena left   400y sim
+ *      384     222      10      75200      8.8 s     <- here
+ *      512     296      13      70592      9.2 s
+ *      768     445      19      61376     11.1 s
+ *     1024     593      25      52160     12.0 s
+ *     1536     890      38      33728     15.1 s
+ *
+ * Every one of them fills to its cap, and RAM is not the constraint. What is unmeasured is the
+ * DEVICE: the brain is a 1/8 stagger over the array plus a bucket grid, so it is linear in
+ * units, and at x25 the sim runs many ticks a frame. Raising this needs MAXV (48) and MAXK (12)
+ * raised with it past about 1024, since 38 towns is already close to the village ceiling. */
 #define MAXU 384
 
 enum {

@@ -2112,6 +2112,18 @@ static void g_init(void)
         if (gaps) fprintf(stderr, "BUG: %d unnamed table entries\n", gaps);
     }
 #endif
+#if MOTE_HOST
+    /* MOTEBOX_RAM=1 reports what the world costs and what is left, so the population cap can
+     * be argued about with numbers instead of guesses. */
+    if (getenv("MOTEBOX_RAM")) {
+        fprintf(stderr, "sizeof Unit %d, Village %d, Kingdom %d\n",
+                (int)sizeof(Unit), (int)sizeof(Village), (int)sizeof(Kingdom));
+        fprintf(stderr, "MAXU %d -> civ cap %d, wild cap %d, unit table %d bytes\n",
+                MAXU, MAXU * 58 / 100, MAXU * 34 / 100, MAXU * (int)sizeof(Unit));
+        fprintf(stderr, "map layers 7 x %d = %d bytes\n", NC, 7 * NC);
+        fprintf(stderr, "arena left after init: %u bytes\n", g_api->arena_free());
+    }
+#endif
     if (getenv("MOTEBOX_LOOPS")) {
         fprintf(stderr, "\n--- the loops, year %d ---\n", (int)(mb_w.tick / 52));
         for (int k = 1; k < MAXK; k++) {
