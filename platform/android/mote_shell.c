@@ -61,10 +61,17 @@ enum { EB_A, EB_B, EB_UP, EB_DOWN, EB_LEFT, EB_RIGHT, EB_LB, EB_RB, EB_MENU, EB_
 #define D_HALF 0.115f            /* half the d-pad cross, in WIDTH fractions */
 #define D_ARM  0.105f            /* arm length for the outline */
 #define D_WID  0.036f            /* arm half-width for the outline */
-#define SH_W   0.190f            /* shoulder pad: width (of photo width) */
-#define SH_H   0.115f            /* shoulder pad: height (of photo height) */
-#define LB_X   0.020f
-#define RB_X   0.790f
+/* The shoulders are the one pair that cannot sit where the hardware puts them.
+ * On the handheld they are under your index fingers on the back edge; on a phone
+ * held in landscape there is nothing behind the glass and both thumbs are at the
+ * BOTTOM corners. So these two pads are anchored to the window, not to the photo
+ * — the only controls in the shell that are — and sized for a thumb. They clear
+ * the d-pad, MENU and A/B, all of which stay on the chassis where you can see
+ * them. Fractions are of the window's smaller side. */
+#define SH_W    0.26f            /* pad width  */
+#define SH_H    0.14f            /* pad height */
+#define SH_EDGE 0.025f           /* inset from the left/right edge */
+#define SH_LIFT 0.030f           /* lift off the bottom, clear of the nav gesture */
 
 /* Screen square inside the photo, in photo pixels (studio/assets/screen.cfg). */
 static float s_spx = 1011.2f, s_spy = 319.6f, s_sps = 888.8f;
@@ -294,6 +301,17 @@ static int s_dx, s_dy, s_dw, s_dh;      /* chassis rect, window px */
 static int s_sx, s_sy, s_ss;            /* LCD square, window px */
 static int s_ow = 1, s_oh = 1;          /* renderer output size */
 static int s_down[EB_N];                /* buttons held this frame (touch OR pad) */
+static SDL_Rect s_lb_rect, s_rb_rect;   /* shoulder pads, window-anchored */
+
+/* Bottom corners, where the thumbs already are. Hit-test and draw share this so
+ * they can never disagree. */
+static void shoulder_layout(void) {
+    int mind = s_ow < s_oh ? s_ow : s_oh;
+    int w = (int)(SH_W * mind), h = (int)(SH_H * mind);
+    int ex = (int)(SH_EDGE * mind), y = s_oh - h - (int)(SH_LIFT * mind);
+    s_lb_rect = (SDL_Rect){ ex, y, w, h };
+    s_rb_rect = (SDL_Rect){ s_ow - w - ex, y, w, h };
+}
 
 static void layout(void) {
     SDL_GetRendererOutputSize(ren, &s_ow, &s_oh);
@@ -331,6 +349,7 @@ static void layout(void) {
     if (tex_frame)
         SDL_SetTextureScaleMode(tex_frame, (s_ss % MOTE_FB_W) == 0 ? SDL_ScaleModeNearest
                                                                   : SDL_ScaleModeLinear);
+    shoulder_layout();
 }
 
 /* chassis-normalised -> window px */
@@ -338,10 +357,18 @@ static int BX(float n) { return s_dx + (int)(n * s_dw); }
 static int BY(float n) { return s_dy + (int)(n * s_dh); }
 static int BR(float n) { return (int)(n * s_dw); }
 
-/* Which chassis button is under a window-space point (-1 = none). Touch slop is
- * generous: a thumb landing near an edge should still count. */
+static int in_rect(const SDL_Rect *r, int x, int y) {
+    return x >= r->x && x < r->x + r->w && y >= r->y && y < r->y + r->h;
+}
+
+/* Which button is under a window-space point (-1 = none). Touch slop is generous:
+ * a thumb landing near an edge should still count. The chassis buttons are tested
+ * first, so where a window-anchored shoulder pad happens to reach across MENU's
+ * slop the button you can actually see wins. */
 static int hit_button(int mx, int my) {
-    if (s_dw <= 0) return -1;
+    if (s_dw <= 0)
+        return in_rect(&s_lb_rect, mx, my) ? EB_LB
+             : in_rect(&s_rb_rect, mx, my) ? EB_RB : -1;
     struct { int b; float cx, cy, r; } round_[3] = {
         { EB_A, A_CX, A_CY, A_R }, { EB_B, B_CX, B_CY, B_R }, { EB_MENU, M_CX, M_CY, M_R },
     };
@@ -356,8 +383,8 @@ static int hit_button(int mx, int my) {
         if (fabsf(ndx) > fabsf(ndy)) return ndx < 0 ? EB_LEFT : EB_RIGHT;
         return ndy < 0 ? EB_UP : EB_DOWN;
     }
-    if (mx >= BX(LB_X) && mx < BX(LB_X + SH_W) && my >= BY(0.0f) && my < BY(SH_H)) return EB_LB;
-    if (mx >= BX(RB_X) && mx < BX(RB_X + SH_W) && my >= BY(0.0f) && my < BY(SH_H)) return EB_RB;
+    if (in_rect(&s_lb_rect, mx, my)) return EB_LB;
+    if (in_rect(&s_rb_rect, mx, my)) return EB_RB;
     return -1;
 }
 
@@ -422,33 +449,34 @@ static SDL_Texture *label_tex(const char *s, int *out_w, int *out_h) {
     return t;
 }
 
-/* The shoulder buttons wrap around the back of the shell, so a front-on product
- * photo shows nothing to aim at. Draw their pads in the top corners — where the
- * real buttons are — always visible, brighter while held. */
+/* The shoulders have no on-photo target (they are on the back edge of the real
+ * shell), and no thumb reaches the top of a phone held in landscape. So they get
+ * labelled pads in the bottom corners, always visible, brighter while held. */
 static SDL_Texture *tex_lb, *tex_rb;
 static int lb_w, lb_h, rb_w, rb_h;
 
 static void shoulder_pads(void) {
     if (!tex_lb) tex_lb = label_tex("LB", &lb_w, &lb_h);
     if (!tex_rb) tex_rb = label_tex("RB", &rb_w, &rb_h);
-    struct { float x; SDL_Texture *t; int tw, th; int down; } p[2] = {
-        { LB_X, tex_lb, lb_w, lb_h, s_down[EB_LB] },
-        { RB_X, tex_rb, rb_w, rb_h, s_down[EB_RB] },
+    struct { const SDL_Rect *r; SDL_Texture *t; int tw, th; int down; } p[2] = {
+        { &s_lb_rect, tex_lb, lb_w, lb_h, s_down[EB_LB] },
+        { &s_rb_rect, tex_rb, rb_w, rb_h, s_down[EB_RB] },
     };
-    int h = (int)(SH_H * s_dh), w = BR(SH_W);
     for (int i = 0; i < 2; i++) {
-        int x = BX(p[i].x), y = BY(0.0f);
+        const SDL_Rect *r = p[i].r;
+        int rad = r->h / 4;
         if (p[i].down) {
-            box(x, y, w, h, 100, 175, 235, 175);
-            box_outline(x, y, w, h, 3, 190, 230, 255, 255);
+            box(r->x, r->y, r->w, r->h, 100, 175, 235, 185);
+            box_outline(r->x, r->y, r->w, r->h, 3, 190, 230, 255, 255);
         } else {
-            box(x, y, w, h, 26, 32, 48, 105);
-            box_outline(x, y, w, h, 2, 130, 190, 240, 110);
+            box(r->x, r->y, r->w, r->h, 22, 27, 42, 120);
+            box_outline(r->x, r->y, r->w, r->h, 2, 130, 190, 240, 130);
         }
+        (void)rad;
         if (!p[i].t) continue;
-        int lh = h / 2, lw = p[i].tw * lh / (p[i].th ? p[i].th : 1);
-        SDL_Rect d = { x + (w - lw) / 2, y + (h - lh) / 2, lw, lh };
-        SDL_SetTextureAlphaMod(p[i].t, p[i].down ? 255 : 170);
+        int lh = r->h / 2, lw = p[i].tw * lh / (p[i].th ? p[i].th : 1);
+        SDL_Rect d = { r->x + (r->w - lw) / 2, r->y + (r->h - lh) / 2, lw, lh };
+        SDL_SetTextureAlphaMod(p[i].t, p[i].down ? 255 : 190);
         SDL_RenderCopy(ren, p[i].t, NULL, &d);
     }
 }
