@@ -13,6 +13,10 @@
  * standard raster, both are dual-core and both show in the perf meter.
  */
 #include "mb.h"
+#if MOTE_HOST
+#include <stdio.h>
+#include <stdlib.h>
+#endif
 
 /* the baked biome rulesets — one per B_* id, in enum order */
 #include "bio_ocean.tiles.h"
@@ -777,13 +781,45 @@ static const uint8_t MB_PROF_ROLE[PROF_N] = {
  * fighter placed by a test hook, a body respawned — and interpolating across that would drag
  * the sprite over the whole map for a tick. Anything that jumped more than two cells is drawn
  * where it is now. */
+/* THE CLOCK IS TIED TO THE DATA, not to the frame loop.
+ *
+ * First attempt read the main loop's tick accumulator; second measured time since the last
+ * step. Both flickered, and tracing one walker frame by frame showed why: the drawn x went
+ * 961 -> 968 -> 964, because the frame on which the positions advanced still carried the OLD
+ * alpha and the reset landed a frame late. Chasing the exact update/draw ordering was the
+ * wrong fight — the fix is to notice, HERE, that the positions have changed at all.
+ *
+ * mb_unit_step_seq is bumped once per step. When the renderer sees a new value the clock goes
+ * back to zero, so the interpolation can never be out of step with the pair it interpolates,
+ * whatever order the host calls things in. */
 static float s_lerp;
-void mb_draw_set_lerp(float a) { s_lerp = (a < 0.0f) ? 0.0f : (a > 1.0f ? 1.0f : a); }
+static uint32_t s_lerp_tick;
+
+void mb_draw_set_lerp(float dticks)
+{
+    /* Keyed on mb_w.tick, observed HERE. Two earlier attempts read the main loop's own
+     * accumulator and both flickered a frame late; tracing one walker showed the drawn x going
+     * 961 -> 970 -> 965, because the first frame carrying the NEW positions still carried the
+     * OLD alpha. The world's tick counter is the one thing that is guaranteed to have advanced
+     * by the time these positions have, so the clock is derived from it and cannot be out of
+     * phase with the pair it interpolates. */
+    if ((uint32_t)mb_w.tick != s_lerp_tick) { s_lerp_tick = (uint32_t)mb_w.tick; s_lerp = 0.0f; }
+    s_lerp += dticks;
+    if (s_lerp > 1.0f) s_lerp = 1.0f;
+    if (s_lerp < 0.0f) s_lerp = 0.0f;
+}
+
+/* SIX CELLS, not two. The guard is meant to catch a TELEPORT — a colonist put ashore, a body
+ * respawned, a test hook placing a fighter — which moves tens of cells. At two cells it also
+ * caught legitimate movement: a mounted soldier calls step_toward TWICE in a tick and a fast
+ * one covers thirty-six sixteenths, so cavalry lost its interpolation and visibly jumped a
+ * cell every tick. Anything walking covers at most about fifty in the worst case. */
+#define LERP_MAX_STEP 96
 
 static int lerp_px(int was, int is)
 {
     int d = is - was;
-    if (d > 32 || d < -32) return is >> 1;          /* a jump, not a step */
+    if (d > LERP_MAX_STEP || d < -LERP_MAX_STEP) return is >> 1;   /* a jump, not a step */
     return (int)((float)was + (float)d * s_lerp) >> 1;
 }
 
@@ -1243,6 +1279,15 @@ void mb_draw_mortal(int cam_x, int cam_y)
          * rounding. The lerp then fills in the frames BETWEEN ticks, which is the other half:
          * at x1 the sim ticks eight times a second and the screen draws sixty. */
         int sx = lerp_px(u->ox, u->x), sy = lerp_px(u->oy, u->y);
+#if MOTE_HOST
+        { static int dbg = -1, trackee = -1;
+          if (dbg < 0) dbg = getenv("MOTEBOX_LERPDBG") ? 1 : 0;
+          if (dbg) {
+              if (trackee < 0 && u->sp < SP_CIV_N && u->job == JOB_WANDER) trackee = i;
+              if (i == trackee)
+                  fprintf(stderr, "t%-6u ox %4d x %4d a %.3f px %3d\n",
+                          (unsigned)mb_w.tick, u->ox, u->x, (double)s_lerp, sx); } }
+#endif
         MoteSprite spr = { img, (int16_t)sx, (int16_t)sy,
                            (uint16_t)(cx * TILE), (uint16_t)(cy * TILE),
                            TILE, TILE, 40, 0 };

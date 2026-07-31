@@ -1723,6 +1723,19 @@ static void g_update(float dt)
             }
         }
     }
+    /* THE MOVEMENT CLOCK, advanced AFTER the ticks have run.
+     *
+     * mb_draw_set_lerp() resets itself when it sees a new mb_w.tick, so it has to be called
+     * once the tick has actually advanced. Calling it earlier in the frame — which is where it
+     * naturally wants to go — meant it always observed the OLD tick, so the reset landed a
+     * frame late and the first frame of every tick drew with the previous tick's maxed-out
+     * alpha. A walker's drawn x went 961 -> 970 -> 965: the once-per-cell flicker. Three
+     * attempts at fixing the arithmetic failed because the arithmetic was never wrong; printing
+     * the setter's own calls interleaved with the draws is what showed the ordering.
+     *
+     * This game draws BEFORE it updates, so the frame after this one is the one that uses it. */
+    if (tps) mb_draw_set_lerp(dt * (float)tps);
+
     mb_fx_step(dt);
     mb_chron_step(dt);
     mb_draw_prepare();
@@ -1952,8 +1965,6 @@ static void g_overlay(uint16_t *fb)
         if (!getenv("MOTEBOX_NORELIEF"))
 #endif
             mb_draw_relief(fb, s_cam_x, s_cam_y);
-        /* how far through the current tick this frame is — see mb_draw_set_lerp() */
-        mb_draw_set_lerp(s_tick_acc);
         mb_draw_mortal_sprites(fb);
         mb_fx_flux_render(fb, s_cam_x, s_cam_y);
         mb_fx_draw_mortal_px(fb, s_cam_x, s_cam_y);

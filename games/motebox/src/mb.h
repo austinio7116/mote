@@ -597,8 +597,9 @@ void mb_god_units(uint16_t *fb, int y0, int y1);
 uint16_t mb_kingdom_colour(int k);
 void mb_dim_rect(uint16_t *fb, int x, int y, int w, int h, uint16_t toward, int amt);
 void mb_draw_sprite_load(int *want, int *lost);
-/* How far through the current tick the frame is, 0..1. Set once a frame before drawing. */
-void mb_draw_set_lerp(float a);
+/* Advance the movement-interpolation clock by this many TICKS (dt * ticks-per-second). Call
+ * once a frame before drawing; it resynchronises itself against mb_unit_step_seq. */
+void mb_draw_set_lerp(float dticks);
 int  mb_draw_form_col(uint8_t o, int k, int c, int r); /* the column it draws as */
 void mb_draw_sea_band(uint16_t *fb, int y0, int y1);
 void mb_draw_mortal_sprites(uint16_t *fb);
