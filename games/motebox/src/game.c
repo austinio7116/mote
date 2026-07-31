@@ -579,6 +579,411 @@ static void law_menu(void)
     }
 }
 
+/* ===================================================================== *
+ *  THE INFORMATION SCREENS
+ *
+ *  These replace six mote->menu() lists. A menu was the wrong tool three times over: it is a
+ *  LIST, so it can hold text and nothing else — no portrait, no bar, no sprite; it SCROLLS,
+ *  so a screen becomes a corridor; and it BLOCKS, so it cannot animate and cannot be
+ *  screenshotted (an entire session went by without anyone seeing one of these pages).
+ *
+ *  Exploring is what this game is for, so the screens are drawn in the ordinary frame like
+ *  everything else: g_update takes the input, g_overlay paints over the scene. That means they
+ *  can animate, they can show the world moving underneath, and they can be captured.
+ *
+ *  The journey is WHO IS HERE -> the subject -> what a god can do about it.
+ * ===================================================================== */
+
+enum { UI_NONE = 0, UI_PICK, UI_SOUL, UI_SHAPE, UI_LORD, UI_TOWN, UI_KING, UI_LAND, UI_WORLD };
+static int s_ui;                 /* which screen, UI_NONE for the world */
+static int s_ui_row;             /* the cursor within it */
+static int s_subject;            /* unit index the SOUL/SHAPE screens are about */
+static int s_subject_v;          /* village index the LORD/TOWN screens are about */
+#define MB_LORD_RAISE 50   /* Faith for one step of a lord's stat: see ui_draw_lord */
+static float s_ui_flash;         /* a spend just happened: flash the number */
+
+/* WHAT IS ON THIS GROUND. Everything whose sprite OVERLAPS the cell, not merely everything
+ * whose tile index equals it — figures are drawn at sub-pixel positions now, so a villager
+ * standing on the boundary appears on the cell you are pointing at and must be listed there.
+ * Buildings and the lord are listed too, so this doubles as "what am I looking at". */
+enum { PK_UNIT = 0, PK_BUILD, PK_LORD };
+#define PK_MAX 10
+static struct { uint8_t kind; uint16_t idx; } s_pick[PK_MAX];
+static int s_pick_n;
+
+static void pick_build(void)
+{
+    s_pick_n = 0;
+    const int cxs = s_cx * 16, cys = s_cy * 16;      /* the cell, in sixteenths */
+    for (int i = 0; i < mb_nu && s_pick_n < PK_MAX; i++) {
+        const Unit *u = &mb_u[i];
+        if (!u->alive) continue;
+        int dx = (int)u->x - cxs, dy = (int)u->y - cys;
+        if (dx < -15 || dx > 15 || dy < -15 || dy > 15) continue;   /* sprite overlap */
+        s_pick[s_pick_n].kind = PK_UNIT; s_pick[s_pick_n].idx = (uint16_t)i; s_pick_n++;
+    }
+    int v = mb_w.claim[AT(s_cx, s_cy)];
+    uint8_t o = mb_w.obj[AT(s_cx, s_cy)];
+    if (mb_is_build(o) && s_pick_n < PK_MAX) {
+        s_pick[s_pick_n].kind = PK_BUILD; s_pick[s_pick_n].idx = o; s_pick_n++;
+    }
+    /* the lord belongs to the hall: it is the only place in the world you can meet them,
+     * because a lord is stats and a name on the Village and has never been a person */
+    if (v && mb_v[v].alive && s_pick_n < PK_MAX
+        && (o == O_HALL1 || o == O_HALL2 || o == O_HALL3)) {
+        s_pick[s_pick_n].kind = PK_LORD; s_pick[s_pick_n].idx = (uint16_t)v; s_pick_n++;
+    }
+    if (s_ui_row >= s_pick_n) s_ui_row = s_pick_n ? s_pick_n - 1 : 0;
+}
+
+/* the sprite for one pick row */
+static void pick_sprite(int i, const MoteImage **img, int *cx, int *cy, int *h)
+{
+    *h = 1;
+    if (s_pick[i].kind == PK_UNIT) {
+        const Unit *u = &mb_u[s_pick[i].idx];
+        int sh, sx, sy;
+        mb_cast_pick_pub(u, mb_hash2(s_pick[i].idx, u->given), &sh, &sx, &sy);
+        *img = mb_ui_sheet(sh); *cx = sx; *cy = sy;
+    } else if (s_pick[i].kind == PK_BUILD) {
+        *img = mb_ui_town_sheet();
+        *cx = mb_draw_form_col((uint8_t)s_pick[i].idx, 0, s_cx, s_cy);
+        *cy = 4; *h = 2;                       /* the unclaimed grey banner row */
+    } else {
+        int v = s_pick[i].idx, sh, sx, sy;
+        mb_cast_role(mb_v[v].sp, mb_cast_role_lord(), (unsigned)v * 7919u, &sh, &sx, &sy);
+        *img = mb_ui_sheet(sh); *cx = sx; *cy = sy;
+    }
+}
+
+static void pick_label(int i, char *out, int n, char *role, int rn)
+{
+    out[0] = role[0] = 0;
+    if (s_pick[i].kind == PK_UNIT) {
+        const Unit *u = &mb_u[s_pick[i].idx];
+        if (u->sp < SP_CIV_N) {
+            mb_name_str(out, n, NK_PERSON, u->given);
+            snprintf(role, (size_t)rn, "%s", MB_PROF_NAME[u->prof < PROF_N ? u->prof : 0]);
+        } else {
+            snprintf(out, (size_t)n, "%s", MB_SP[u->sp].name);
+            snprintf(role, (size_t)rn, "beast");
+        }
+    } else if (s_pick[i].kind == PK_BUILD) {
+        snprintf(out, (size_t)n, "%s", O_NAME[s_pick[i].idx]);
+        snprintf(role, (size_t)rn, "built");
+    } else {
+        mb_name_str(out, n, NK_PERSON, mb_v[s_pick[i].idx].lord_name);
+        snprintf(role, (size_t)rn, "LORD");
+    }
+}
+
+/* ------------------------------------------------------------------ WHO IS HERE */
+static void ui_draw_pick(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(18, 24, 44);
+    mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_SKY, FILL, 1);
+    mb_ui_text(fb, 7, 6, "WHO IS HERE", MB_UI_CREAM, 100);
+    char buf[32];
+    snprintf(buf, sizeof buf, "%d on this ground", s_pick_n);
+    mb_ui_text(fb, 7, 15, buf, MB_UI_DIM, 112);
+    if (!s_pick_n) {
+        mb_ui_text(fb, 7, 26, "bare ground", MB_UI_DIM, 112);
+        mb_ui_actions(fb, "A LAND", "B<", FILL);
+        return;
+    }
+    for (int i = 0; i < s_pick_n && i < 6; i++) {
+        int y = 26 + i * 13;
+        int sel = (i == s_ui_row);
+        if (sel) g_api->draw_rect(fb, 5, y - 1, 118, 12, MOTE_RGB565(44, 58, 102), 1, 0, 128);
+        const MoteImage *img; int cx, cy, h;
+        pick_sprite(i, &img, &cx, &cy, &h);
+        g_api->blit(fb, img, 8, y - (h > 1 ? 4 : 0), cx * 8, cy * 8, 8, 8 * h, 0, 0, 128);
+        char name[24], role[16];
+        pick_label(i, name, sizeof name, role, sizeof role);
+        mb_ui_text(fb, 20, y + 1, name, sel ? MB_UI_CREAM : MB_UI_DIM, 44);
+        mb_ui_text(fb, 66, y + 1, role,
+                   s_pick[i].kind == PK_LORD ? MB_UI_GOLD : MB_UI_OK, 54);
+    }
+    mb_ui_actions(fb, "A LOOK", "B<", FILL);
+}
+
+/* ------------------------------------------------------------------ A SOUL */
+static void ui_draw_soul(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(20, 26, 50);
+    mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_SKY, FILL, 1);
+    if (s_subject < 0 || s_subject >= mb_nu || !mb_u[s_subject].alive) {
+        mb_ui_text(fb, 7, 30, "they are gone", MB_UI_DIM, 112);
+        mb_ui_actions(fb, 0, "B<", FILL);
+        return;
+    }
+    const Unit *u = &mb_u[s_subject];
+    const MbSpecies *S = &MB_SP[u->sp];
+    char gn[24], fn[24], buf[40];
+    mb_name_str(gn, sizeof gn, NK_PERSON, u->given);
+    mb_name_str(fn, sizeof fn, NK_FAMILY, u->family);
+    mb_ui_text(fb, 7, 6, gn, MB_UI_CREAM, 78);
+    mb_ui_hearts(fb, 88, 6, 4, u->hp > 0 ? u->hp : 0, 100);
+    snprintf(buf, sizeof buf, "%s %s", S->name,
+             MB_PROF_NAME[u->prof < PROF_N ? u->prof : 0]);
+    mb_ui_text(fb, 7, 15, buf, MB_UI_GOLD, 114);
+    /* the likeness, on the plaque */
+    mb_ui_plaque(fb, 5, 23, 32, 32, MOTE_RGB565(12, 16, 34));
+    { int sh, cx, cy;
+      mb_cast_pick_pub(u, mb_hash2(s_subject, u->given), &sh, &cx, &cy);
+      mb_ui_blit3(fb, mb_ui_sheet(sh), cx, cy, 9, 27, 3); }
+    snprintf(buf, sizeof buf, "aged %d", u->age);
+    mb_ui_text(fb, 40, 25, buf, MB_UI_DIM, 82);
+    mb_ui_text(fb, 40, 34, fn, MB_UI_DIM, 82);
+    if (u->village && mb_v[u->village].alive) {
+        char pl[24]; mb_name_str(pl, sizeof pl, NK_PLACE, mb_v[u->village].name);
+        mb_ui_text(fb, 40, 43, pl, MB_UI_DIM, 82);
+    }
+    mb_ui_face(fb, 7, 56, u->happy);
+    mb_ui_meter(fb, 20, 57, 7, u->happy + 100, 200, 0);
+    mb_ui_rule(fb, 6, 64, 116, "WORK", MB_UI_SKY, FILL, MB_UI_DIM);
+    mb_ui_text(fb, 7, 72, JOB_NAME[u->job < JOB_N ? u->job : 0], MB_UI_CREAM, 114);
+    mb_ui_icon(fb, 7, 81, 4, 5);
+    mb_ui_meter(fb, 20, 82, 7, 128 - u->hunger, 128, 0);
+    mb_ui_rule(fb, 6, 92, 116, "TRAITS & KIN", MB_UI_SKY, FILL, MB_UI_DIM);
+    mb_ui_traits(fb, 7, 101, u->traits);
+    if (u->mate && mb_u[u->mate - 1].alive) {
+        const Unit *m = &mb_u[u->mate - 1];
+        int sh, cx, cy;
+        mb_cast_pick_pub(m, mb_hash2(u->mate - 1, m->given), &sh, &cx, &cy);
+        g_api->blit(fb, mb_ui_sheet(sh), 74, 101, cx * 8, cy * 8, 8, 8, 0, 0, 128);
+        char mn[24]; mb_name_str(mn, sizeof mn, NK_PERSON, m->given);
+        mb_ui_text(fb, 86, 102, mn, MB_UI_DIM, 34);
+    } else {
+        mb_ui_text(fb, 74, 102, "unwed", MB_UI_DIM, 46);
+    }
+    mb_ui_actions(fb, "A SHAPE", "B<", FILL);
+}
+
+/* ------------------------------------------------------------------ SHAPE A SOUL
+ *
+ * WHAT A GOD MAY DO TO ONE PERSON, and why these and not others: a Unit holds hp, happy,
+ * hunger, age, traits, trade and a spouse — and nothing else. There is no strength or wit to
+ * raise, so rather than invent three stats and leave them as decoration on this page, every
+ * row here changes something the simulation ALREADY reads every tick.
+ *
+ * Prices are set against a measured income of 191-432 Faith a year and a 700 reserve, so a
+ * gift is a real decision and a handful of them is a season's devotion.
+ */
+typedef struct { const char *name; uint16_t cost; uint32_t trait; uint8_t op; } Gift;
+enum { GF_TRAIT = 0, GF_HEAL, GF_CHEER, GF_FEED, GF_TRADE, GF_LORD };
+static const Gift GIFTS[] = {
+    { "MEND",      30, 0,           GF_HEAL  },   /* hp to full                      */
+    { "GLADDEN",   25, 0,           GF_CHEER },   /* mood, which drives the tithe     */
+    { "FEED",      20, 0,           GF_FEED  },   /* hunger is the top killer         */
+    { "BLESS",     60, TR_BLESSED,  GF_TRAIT },
+    { "TOUGHEN",   50, TR_TOUGH,    GF_TRAIT },   /* +8 melee, and survives a plague  */
+    { "QUICKEN",   50, TR_FAST,     GF_TRAIT },   /* +50% speed                       */
+    { "EMBOLDEN",  40, TR_BRAVE,    GF_TRAIT },   /* +20 to the will to fight         */
+    { "MAKE FERTILE", 45, TR_FERTILE, GF_TRAIT },
+    { "CURE",      55, 0,           GF_TRAIT },   /* lifts plague and curse: see below */
+    { "RAISE UP",  90, 0,           GF_LORD  },   /* make them the lord of their town  */
+};
+#define N_GIFTS ((int)(sizeof GIFTS / sizeof GIFTS[0]))
+
+static const char *gift_note(const Gift *g, const Unit *u)
+{
+    switch (g->op) {
+    case GF_HEAL:  return u->hp > 90 ? "already whole" : "wounds close";
+    case GF_CHEER: return u->happy > 60 ? "already glad" : "spirits lift";
+    case GF_FEED:  return u->hunger < 20 ? "not hungry" : "belly filled";
+    case GF_LORD:  return "the town obeys";
+    case GF_TRAIT:
+        if (!g->trait) return (u->traits & (TR_PLAGUE | TR_CURSED)) ? "the sickness leaves"
+                                                                   : "nothing to cure";
+        return (u->traits & g->trait) ? "already theirs" : "theirs for life";
+    default: return "";
+    }
+}
+
+static int gift_apply(const Gift *g, int ui)
+{
+    Unit *u = &mb_u[ui];
+    switch (g->op) {
+    case GF_HEAL:  if (u->hp > 90) return 0; u->hp = 100; return 1;
+    case GF_CHEER: if (u->happy > 60) return 0; u->happy = 100; return 1;
+    case GF_FEED:  if (u->hunger < 20) return 0; u->hunger = 0; return 1;
+    case GF_LORD:  if (!u->village || !mb_v[u->village].alive) return 0;
+                   mb_v[u->village].lord_name = u->given;
+                   mb_v[u->village].lord_age  = u->age;
+                   u->prof = PROF_LORD;
+                   return 1;
+    default:
+        if (!g->trait) {
+            if (!(u->traits & (TR_PLAGUE | TR_CURSED))) return 0;
+            u->traits &= ~(TR_PLAGUE | TR_CONTAGIOUS | TR_CURSED);
+            u->sick = 0; return 1;
+        }
+        if (u->traits & g->trait) return 0;
+        u->traits |= g->trait; return 1;
+    }
+}
+
+static void ui_draw_shape(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(28, 20, 44);
+    const uint16_t LINE = MOTE_RGB565(210, 160, 250);
+    mb_ui_panel(fb, 0, 0, 128, 128, LINE, FILL, 1);
+    if (s_subject < 0 || s_subject >= mb_nu || !mb_u[s_subject].alive) {
+        mb_ui_text(fb, 7, 30, "they are gone", MB_UI_DIM, 112);
+        mb_ui_actions(fb, 0, "B<", FILL); return;
+    }
+    const Unit *u = &mb_u[s_subject];
+    char buf[40], gn[24];
+    mb_name_str(gn, sizeof gn, NK_PERSON, u->given);
+    mb_ui_text(fb, 7, 6, "SHAPE", MB_UI_CREAM, 50);
+    snprintf(buf, sizeof buf, "%d", mb_faith());
+    mb_ui_text_r(fb, 121, 7, buf, s_ui_flash > 0.0f ? MB_UI_CREAM : MB_UI_GOLD);
+    mb_ui_icon(fb, 121 - mb_ui_textw(buf) - 10, 6, 3, 3);
+    /* the likeness, small: this page is about the list, not the portrait */
+    mb_ui_plaque(fb, 6, 16, 22, 22, MOTE_RGB565(14, 10, 24));
+    { int sh, cx, cy;
+      mb_cast_pick_pub(u, mb_hash2(s_subject, u->given), &sh, &cx, &cy);
+      mb_ui_blit3(fb, mb_ui_sheet(sh), cx, cy, 9, 19, 2); }
+    mb_ui_text(fb, 32, 17, gn, MB_UI_CREAM, 88);
+    mb_ui_text(fb, 32, 26, MB_PROF_NAME[u->prof < PROF_N ? u->prof : 0], MB_UI_DIM, 88);
+    mb_ui_traits(fb, 32, 35, u->traits);
+    /* the gift list, four rows at a time around the cursor */
+    int first = s_ui_row - 1; if (first < 0) first = 0;
+    if (first > N_GIFTS - 4) first = N_GIFTS - 4;
+    for (int r = 0; r < 4; r++) {
+        int i = first + r, y = 48 + r * 12;
+        if (i >= N_GIFTS) break;
+        const Gift *g = &GIFTS[i];
+        int sel = (i == s_ui_row);
+        int can = mb_faith_afford(g->cost);
+        if (sel) g_api->draw_rect(fb, 5, y - 1, 118, 11, MOTE_RGB565(70, 50, 110), 1, 0, 128);
+        mb_ui_text(fb, 8, y, g->name, sel ? MB_UI_CREAM : MB_UI_DIM, 84);
+        snprintf(buf, sizeof buf, "%d", g->cost);
+        mb_ui_text_r(fb, 120, y, buf, can ? (sel ? MB_UI_GOLD : MB_UI_DIM) : MB_UI_RED);
+    }
+    /* AND WHAT IT WILL DO. A price with no consequence beside it is a guess. */
+    mb_ui_rule(fb, 6, 96, 116, "EFFECT", LINE, FILL, MB_UI_DIM);
+    mb_ui_text(fb, 7, 104, gift_note(&GIFTS[s_ui_row], u), MB_UI_OK, 114);
+    mb_ui_actions(fb, "A GIVE", "B<", FILL);
+}
+
+/* ------------------------------------------------------------------ A LORD
+ * The three stats here are the highest-leverage numbers a god can touch, because the
+ * simulation already reads all three every rotation — and it says so on the page, because a
+ * bar with no consequence written beside it teaches nobody anything. */
+static void ui_draw_lord(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(30, 24, 16);
+    mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_GOLD, FILL, 1);
+    int v = s_subject_v;
+    if (v <= 0 || v >= MAXV || !mb_v[v].alive) {
+        mb_ui_text(fb, 7, 30, "no lord here", MB_UI_DIM, 112);
+        mb_ui_actions(fb, 0, "B<", FILL); return;
+    }
+    Village *V = &mb_v[v];
+    char ln[24], pl[24], buf[40];
+    mb_name_str(ln, sizeof ln, NK_PERSON, V->lord_name);
+    mb_name_str(pl, sizeof pl, NK_PLACE, V->name);
+    snprintf(buf, sizeof buf, "LORD %s", ln);
+    mb_ui_text(fb, 7, 7, buf, MB_UI_CREAM, 78);
+    snprintf(buf, sizeof buf, "%d", mb_faith());
+    mb_ui_text_r(fb, 121, 7, buf, MB_UI_GOLD);
+    snprintf(buf, sizeof buf, "%s  aged %d", pl, V->lord_age);
+    mb_ui_text(fb, 7, 16, buf, MB_UI_DIM, 114);
+    /* THE LORD'S OWN FACE — the CR_LORD figures were hand-picked for all four races and had
+     * never been drawn anywhere, because no unit is ever given PROF_LORD. */
+    mb_ui_plaque(fb, 6, 26, 26, 26, MOTE_RGB565(14, 12, 20));
+    { int sh, cx, cy;
+      mb_cast_role(V->sp, mb_cast_role_lord(), (unsigned)v * 7919u, &sh, &cx, &cy);
+      mb_ui_blit3(fb, mb_ui_sheet(sh), cx, cy, 9, 29, 2); }
+    static const char *const SN[3] = { "STEWARD", "DIPLOMAT", "WARLORD" };
+    const int val[3] = { V->lord_stew, V->lord_diplo, V->lord_war };
+    for (int i = 0; i < 3; i++) {
+        int y = 27 + i * 9, sel = (i == s_ui_row);
+        if (sel) g_api->draw_rect(fb, 34, y - 1, 88, 10, MOTE_RGB565(76, 60, 26), 1, 0, 128);
+        mb_ui_text(fb, 36, y, SN[i], sel ? MB_UI_CREAM : MB_UI_DIM, 46);
+        mb_ui_pips(fb, 84, y + 2, (val[i] + 19) / 20, 5, MB_UI_OK, MB_UI_OFF);
+    }
+    /* WHAT THAT MEANS — the real thresholds, read back in words */
+    mb_ui_rule(fb, 6, 56, 116, "CONSEQUENCE", MB_UI_GOLD, FILL, MB_UI_DIM);
+    int hawk = V->lord_war
+             + ((V->lord_traits & TR_AMBITIOUS) ? 25 : 0)
+             + ((V->lord_traits & TR_VENGEFUL)  ? 30 : 0)
+             + ((V->lord_traits & TR_MADNESS)   ? 40 : 0);
+    int loyal = (V->lord_diplo >> 2) + ((V->lord_traits & TR_LOYAL) ? 25 : 0)
+              - ((V->lord_traits & TR_AMBITIOUS) ? 45 : 0);
+    int ln2 = 65;
+    mb_ui_text(fb, 7, ln2, hawk >= 80 ? "strikes first" :
+                           hawk >= 60 ? "wants a war" : "keeps the peace",
+               hawk >= 80 ? MB_UI_RED : hawk >= 60 ? MB_UI_GOLD : MB_UI_OK, 114);
+    ln2 += 9;
+    mb_ui_text(fb, 7, ln2, loyal < 0  ? "rebellion near" :
+                           loyal < 15 ? "loyalty is thin" : "loyal to it",
+               loyal < 0 ? MB_UI_RED : loyal < 15 ? MB_UI_GOLD : MB_UI_OK, 114);
+    ln2 += 9;
+    mb_ui_text(fb, 7, ln2, V->lord_stew >= 60 ? "builds boldly" :
+                           V->lord_stew >= 30 ? "builds if it can" : "builds little",
+               V->lord_stew >= 60 ? MB_UI_OK : MB_UI_DIM, 114);
+    mb_ui_rule(fb, 6, 92, 116, "TEMPERAMENT", MB_UI_GOLD, FILL, MB_UI_DIM);
+    mb_ui_traits(fb, 7, 100, V->lord_traits);
+    snprintf(buf, sizeof buf, "A RAISE %d", MB_LORD_RAISE);
+    mb_ui_actions(fb, buf, "B<", FILL);
+}
+
+/* ------------------------------------------------------------------ THE LAND */
+static void ui_draw_land(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(26, 22, 14);
+    const uint16_t LINE = MOTE_RGB565(210, 170, 110);
+    mb_ui_panel(fb, 0, 0, 128, 128, LINE, FILL, 1);
+    int i = AT(s_cx, s_cy);
+    uint8_t b = mb_w.biome[i], o = mb_w.obj[i], fk = mb_fkind(mb_w.flux[i]);
+    int v = mb_w.claim[i];
+    char buf[40];
+    mb_ui_text(fb, 7, 6, B_NAME[b < B_N ? b : 0], MB_UI_CREAM, 100);
+    if (v && mb_v[v].alive) {
+        char pl[24]; mb_name_str(pl, sizeof pl, NK_PLACE, mb_v[v].name);
+        mb_ui_text(fb, 7, 15, pl, MB_UI_DIM, 78);
+        mb_ui_text_r(fb, 120, 15, "held", MB_UI_DIM);
+    } else {
+        mb_ui_text(fb, 7, 15, "nobody's land", MB_UI_DIM, 112);
+    }
+    mb_ui_rule(fb, 6, 26, 116, "TERRAIN", LINE, FILL, MB_UI_DIM);
+    mb_ui_text(fb, 7, 35, "height", MB_UI_DIM, 50);
+    mb_ui_meter(fb, 54, 34, 7, mb_w.elev[i], 255, 0);
+    mb_ui_text(fb, 7, 45, mb_w.road[i] ? "a road here" : "no road",
+               MB_UI_DIM, 112);
+    if (fk && fk < FX_N) mb_ui_text(fb, 7, 55, FX_NAME[fk], MB_UI_RED, 112);
+    else                 mb_ui_text(fb, 7, 55, "all is still", MB_UI_DIM, 112);
+    /* THE LAND AROUND IT, as God's Eye would colour it: a 7x7 of the same per-biome colours
+     * the map uses, so you can see what kind of place this is without leaving the page. */
+    mb_ui_rule(fb, 6, 66, 116, "SURROUNDINGS", LINE, FILL, MB_UI_DIM);
+    for (int dy = -3; dy <= 3; dy++)
+        for (int dx = -3; dx <= 3; dx++) {
+            int x = s_cx + dx, y = s_cy + dy;
+            uint16_t c = mb_in(x, y) ? mb_biome_colour(mb_w.biome[AT(x, y)])
+                                     : MOTE_RGB565(10, 12, 24);
+            g_api->draw_rect(fb, 8 + (dx + 3) * 5, 76 + (dy + 3) * 5, 5, 5, c, 1, 0, 128);
+        }
+    g_api->draw_rect(fb, 8 + 3 * 5 - 1, 76 + 3 * 5 - 1, 7, 7, MB_UI_CREAM, 0, 0, 128);
+    /* and what stands on the cell itself */
+    if (o && o < O_N && O_NAME[o][0]) {
+        if (mb_is_build(o)) {
+            int k = mb_kingdom_of(v);
+            int col = mb_draw_form_col(o, k, s_cx, s_cy);
+            int row = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;
+            g_api->blit(fb, mb_ui_town_sheet(), 52, 76, col * 8, row * 14, 8, 14, 0, 0, 128);
+            mb_ui_text(fb, 66, 82, O_NAME[o], MB_UI_CREAM, 54);
+        } else {
+            mb_ui_text(fb, 52, 82, O_NAME[o], MB_UI_CREAM, 68);
+        }
+    } else {
+        mb_ui_text(fb, 52, 82, "bare", MB_UI_DIM, 68);
+    }
+    mb_ui_actions(fb, "B<", 0, FILL);
+}
+
 /* --- THE CHRONICLE, as a log you can navigate ---------------------------
  *
  * The world pans itself to each new headline after a few seconds of no input, which is right
@@ -955,6 +1360,15 @@ static void g_init(void)
                            fprintf(stderr, "cam -> %d field cells around %d,%d\n",
                                    bestn, fx, fy); }
             else fprintf(stderr, "cam -> no farmland anywhere\n");
+        } else if (cv && *cv == 'u') {
+            /* CAM=u parks on a PERSON. The soul screen is the richest page in the game and
+             * CAM=v lands on a hall, where the only thing to inspect is masonry. */
+            for (int i = 0; i < mb_nu; i++)
+                if (mb_u[i].alive && mb_u[i].sp < SP_CIV_N && mb_u[i].village) {
+                    s_cx = mb_u[i].x >> 4; s_cy = mb_u[i].y >> 4;
+                    fprintf(stderr, "cam -> a person at %d,%d\n", s_cx, s_cy);
+                    break;
+                }
         } else if (cv && *cv == 'm') {
             /* CAM=m parks on a PLAZA. CAM=v aims at a village centre, and a plaza is two
              * rows south of the hall — close enough to be in shot, far enough that "is the
@@ -1806,12 +2220,83 @@ static void g_update(float dt)
         s_hold = 0.0f; s_move_acc = 0.0f;
     }
 
+    /* --- THE INFORMATION SCREENS OWN THE PAD WHILE ONE IS OPEN ---
+     * Returning early is what makes them screens rather than menus: the world keeps ticking
+     * behind them (a soul's hunger really is rising while you read about it) but the cursor
+     * does not wander and A does not cast a power into the map you cannot see. */
+    if (s_ui) {
+        int up   = mote_just_pressed(in, MOTE_BTN_UP);
+        int down = mote_just_pressed(in, MOTE_BTN_DOWN);
+        if (s_ui == UI_PICK) {
+            pick_build();                        /* the crowd moves; the list must follow */
+            if (up   && s_ui_row > 0) s_ui_row--;
+            if (down && s_ui_row + 1 < s_pick_n) s_ui_row++;
+            if (mote_just_pressed(in, MOTE_BTN_A) && s_pick_n) {
+                int k = s_pick[s_ui_row].kind;
+                if (k == PK_UNIT)  { s_subject = s_pick[s_ui_row].idx; s_ui = UI_SOUL; }
+                else if (k == PK_LORD) { s_subject_v = s_pick[s_ui_row].idx; s_ui = UI_LORD; }
+                else               { s_ui = UI_LAND; }
+                s_ui_row = 0;
+            } else if (mote_just_pressed(in, MOTE_BTN_A)) {
+                s_ui = UI_LAND;
+            }
+            if (mote_just_pressed(in, MOTE_BTN_B)) s_ui = UI_NONE;
+        } else if (s_ui == UI_SHAPE) {
+            if (up   && s_ui_row > 0) s_ui_row--;
+            if (down && s_ui_row + 1 < N_GIFTS) s_ui_row++;
+            if (mote_just_pressed(in, MOTE_BTN_A)) {
+                const Gift *g = &GIFTS[s_ui_row];
+                /* A GIFT THAT WOULD DO NOTHING COSTS NOTHING. Charging for MEND on somebody
+                 * already whole is the sort of thing that teaches a player to distrust a
+                 * screen — gift_apply reports whether it changed anything and the Faith only
+                 * leaves if it did. */
+                if (s_subject >= 0 && s_subject < mb_nu && mb_u[s_subject].alive
+                    && mb_faith_afford(g->cost) && gift_apply(g, s_subject)) {
+                    mb_faith_spend(g->cost);
+                    s_ui_flash = 0.5f;
+                    mb_snd(SND_BLESS);
+                } else {
+                    mb_snd(SND_DENY);
+                }
+            }
+            if (mote_just_pressed(in, MOTE_BTN_B)) { s_ui = UI_SOUL; s_ui_row = 0; }
+        } else if (s_ui == UI_LORD) {
+            if (up   && s_ui_row > 0) s_ui_row--;
+            if (down && s_ui_row < 2) s_ui_row++;
+            if (mote_just_pressed(in, MOTE_BTN_A)) {
+                Village *V = &mb_v[s_subject_v];
+                uint8_t *stat = (s_ui_row == 0) ? &V->lord_stew
+                              : (s_ui_row == 1) ? &V->lord_diplo : &V->lord_war;
+                if (V->alive && *stat < 100 && mb_faith_afford(MB_LORD_RAISE)) {
+                    int nv = *stat + 20; *stat = (uint8_t)(nv > 100 ? 100 : nv);
+                    mb_faith_spend(MB_LORD_RAISE);
+                    s_ui_flash = 0.5f;
+                    mb_snd(SND_BLESS);
+                } else {
+                    mb_snd(SND_DENY);
+                }
+            }
+            if (mote_just_pressed(in, MOTE_BTN_B)) { s_ui = UI_PICK; s_ui_row = 0; }
+        } else {
+            if (mote_just_pressed(in, MOTE_BTN_B)) { s_ui = UI_PICK; s_ui_row = 0; }
+            if (mote_just_pressed(in, MOTE_BTN_A) && s_ui == UI_SOUL) {
+                s_ui = UI_SHAPE; s_ui_row = 0;
+            }
+        }
+        if (s_ui_flash > 0.0f) s_ui_flash -= dt;
+        return;
+    }
+
     /* MENU opens the God Menu: the laws, the chronicle, the legends, the save.
      * A blocking engine menu is the right tool — it is a pause, and the sim
      * genuinely should stop while you read a history. */
     if (mote_just_pressed(in, MOTE_BTN_MENU) && !wheel) god_menu();
-    /* B: inspect whatever the cursor is on. */
-    if (mote_just_pressed(in, MOTE_BTN_B) && !wheel) soul_card();
+    /* B: WHO IS HERE — every figure and thing overlapping the cell, so you can choose which
+     * of a crowd of twenty to look at. It used to open a text card about whatever the cursor
+     * happened to resolve to, which in a town is a lottery. */
+    if (mote_just_pressed(in, MOTE_BTN_B) && !wheel) {
+        pick_build(); s_ui_row = 0; s_ui = UI_PICK;
+    }
 
     /* --- A casts. A brush power keeps casting while held, on a fixed cadence so
      * painting terrain feels like a brush rather than a machine gun; everything
@@ -1926,6 +2411,20 @@ static void g_overlay(uint16_t *fb)
 {
     char buf[40];
     int year = (int)(mb_w.tick / TPY);
+
+    /* AN INFORMATION SCREEN COVERS THE WORLD, and is drawn here rather than through
+     * mote->menu() so it can hold sprites, animate, and be captured. */
+    if (s_ui) {
+        switch (s_ui) {
+        case UI_PICK:  ui_draw_pick(fb);  break;
+        case UI_SOUL:  ui_draw_soul(fb);  break;
+        case UI_SHAPE: ui_draw_shape(fb); break;
+        case UI_LORD:  ui_draw_lord(fb);  break;
+        case UI_LAND:  ui_draw_land(fb);  break;
+        default:       ui_draw_pick(fb);  break;
+        }
+        return;
+    }
 
 #if MOTE_HOST
     /* MOTEBOX_PERF=1 times the world rasteriser, so a change to it (or to the sim

@@ -44,7 +44,6 @@ uint16_t mb_name_place(uint32_t salt)   { return (uint16_t)(nh(salt ^ 0xA1u) & 0
 uint16_t mb_name_kingdom(uint32_t salt) { return (uint16_t)(nh(salt ^ 0xB2u) & 0xFFFF); }
 uint16_t mb_name_person(uint32_t salt)  { return (uint16_t)(nh(salt ^ 0xC3u) & 0xFFFF); }
 
-enum { NK_PLACE = 0, NK_KINGDOM, NK_PERSON };
 
 void mb_name_str(char *out, int n, int kind, uint16_t id)
 {

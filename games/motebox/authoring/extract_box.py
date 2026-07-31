@@ -136,6 +136,12 @@ SPRITE_SHEETS = {
     "ui_gauges":   (48, 16, 59, 19),   # 8-dir arrows, bars, signal gauges
     "ui_buttons":  (48, 20, 63, 23),   # A/B/X/Y prompts
     "panels":      ( 0, 20, 15, 23),   # rounded panels in 4 colours
+    # THE INFO-SCREEN FRAMES. Two sets, chosen by trying all three candidates side by side
+    # with identical content (see the mockups): the CP437 box-drawing glyphs make the screen
+    # frame — thinnest, so the most room inside, and recolourable per screen — and this
+    # rounded cream plaque with its own drop shadow is the INSET, for portraits. The third
+    # candidate (master 50-52) is a dashed certificate border that fought the content.
+    "ui_plaque":   ( 3, 32,  5, 34),   # 3x3 nine-slice: a framed likeness
     "ui_symbols":  (48, 32, 51, 32),   # lineage marks
     "font_cp437":  (48,  0, 63, 15),   # monospace atlas (char c -> cell c%16, c/16)
 }

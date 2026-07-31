@@ -872,6 +872,33 @@ static int lerp_px(int was, int is)
     return (int)((float)was + (float)d * s_lerp) >> 1;
 }
 
+/* --- what the information screens need from this file ---------------------
+ * The sheets and the cast table live here and are static; the screens live in game.c. These
+ * are the only three things they need, so they are the only three things exported. */
+const MoteImage *mb_ui_sheet(int which)
+{
+    return (which == 0) ? &characters_img : (which == 1) ? &monsters_img : &animals_img;
+}
+const MoteImage *mb_ui_town_sheet(void) { return &town_img; }
+unsigned mb_hash2(int x, int y) { return mb__hash2(x, y); }
+
+/* THE CAST CELL FOR A ROLE, with no Unit to hand.
+ *
+ * A village's lord is three stats and a name on the Village struct — there is no unit anywhere
+ * with PROF_LORD, which means the CR_LORD figures that were hand-picked for all four races have
+ * never been drawn in this game. The lord screen draws them through here. */
+void mb_cast_role(int sp, int role, unsigned seed, int *sheet, int *cx, int *cy)
+{
+    if (sp < 0 || sp >= SP_CIV_N) sp = 0;
+    if (role < 0 || role >= CR_N) role = CR_CIVILIAN;
+    const CastSlot *slot = &MB_CAST[sp][role];
+    if (!slot->n) slot = &MB_CAST[sp][CR_CIVILIAN];
+    if (!slot->n) { *sheet = 0; *cx = 2; *cy = 3; return; }
+    const Fig *f = &slot->v[seed % slot->n];
+    *sheet = f->sh ? 1 : 0; *cx = f->cx; *cy = f->cy;
+}
+int mb_cast_role_lord(void) { return CR_LORD; }
+
 /* The figure for one person: age first, then trade, then the pool, then the species cell.
  * `seed` is the unit's own — a stable pick, so somebody does not change face as they walk. */
 static void mb_cast_pick(const Unit *u, unsigned seed, int *sheet, int *cx, int *cy)
@@ -902,6 +929,11 @@ static void mb_cast_pick(const Unit *u, unsigned seed, int *sheet, int *cx, int 
     if (!slot->n) return;
     const Fig *f = &slot->v[seed % slot->n];
     *sheet = f->sh ? 1 : 0; *cx = f->cx; *cy = f->cy;
+}
+
+void mb_cast_pick_pub(const Unit *u, unsigned seed, int *sheet, int *cx, int *cy)
+{
+    mb_cast_pick(u, seed, sheet, cx, cy);
 }
 
 /* One sprite per visible flux cell. Lava needs none — it IS the biome — so the table

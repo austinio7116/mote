@@ -506,11 +506,50 @@ int  mb_kingdom_count(void);
 int  mb_at_war(int a, int b);
 int  mb_border_len(int a, int b);
 
+/* mb_ui.c — the widget kit the information screens are built from (see that file for why
+ * the CP437 frame and the master's plaque were chosen over the third candidate). */
+#define MB_UI_CREAM MOTE_RGB565(255, 241, 232)
+#define MB_UI_DIM   MOTE_RGB565(150, 156, 190)
+#define MB_UI_GOLD  MOTE_RGB565(255, 236,  39)
+#define MB_UI_RED   MOTE_RGB565(255,  90, 110)
+#define MB_UI_OK    MOTE_RGB565(120, 220, 130)
+#define MB_UI_SKY   MOTE_RGB565(140, 200, 240)
+#define MB_UI_OFF   MOTE_RGB565( 58,  62,  86)
+void mb_ui_panel(uint16_t *fb, int x, int y, int w, int h,
+                 uint16_t line, uint16_t fill, int hatch);
+void mb_ui_rule(uint16_t *fb, int x, int y, int w, const char *label,
+                uint16_t line, uint16_t fill, uint16_t txt);
+void mb_ui_plaque(uint16_t *fb, int x, int y, int w, int h, uint16_t inner);
+void mb_ui_meter(uint16_t *fb, int x, int y, int cells, int num, int den, int style);
+void mb_ui_hearts(uint16_t *fb, int x, int y, int n, int num, int den);
+void mb_ui_pips(uint16_t *fb, int x, int y, int lvl, int n, uint16_t on, uint16_t off);
+void mb_ui_face(uint16_t *fb, int x, int y, int mood);
+int  mb_ui_textw(const char *s);
+void mb_ui_text(uint16_t *fb, int x, int y, const char *s, uint16_t col, int maxw);
+void mb_ui_text_r(uint16_t *fb, int x2, int y, const char *s, uint16_t col);
+void mb_ui_actions(uint16_t *fb, const char *a, const char *b, uint16_t fill);
+/* the cast cell for a species+role, with no Unit to hand: the LORD screen needs it because a
+ * village's lord is stats and a name on the Village, not a person in the world. */
+void mb_cast_role(int sp, int role, unsigned seed, int *sheet, int *cx, int *cy);
+const MoteImage *mb_ui_sheet(int which);      /* 0 characters, 1 monsters, 2 animals */
+const MoteImage *mb_ui_town_sheet(void);
+unsigned mb_hash2(int x, int y);
+void mb_cast_pick_pub(const Unit *u, unsigned seed, int *sheet, int *cx, int *cy);
+void mb_ui_blit3(uint16_t *fb, const MoteImage *img, int cx, int cy, int x, int y, int scale);
+int  mb_ui_traits(uint16_t *fb, int x, int y, uint32_t traits);
+void mb_ui_icon(uint16_t *fb, int x, int y, int cx, int cy);
+/* mb_name_str kinds. These were an enum private to mb_chron.c while every OTHER caller
+ * passed a bare 0, 1 or 2 — the sort of thing that is obvious for a week and then is not.
+ * A family surname uses the PLACE list, which is deliberate: the Thornwoods are named for a
+ * place, and it is why the two share a kind. */
+int  mb_cast_role_lord(void);      /* CR_LORD, so callers need not include the draw enum */
+
 /* mb_chron.c — names, events, legends: the story engine (DESIGN.md 9) */
 void        mb_chron_init(void);
 uint16_t    mb_name_place(uint32_t salt);
 uint16_t    mb_name_kingdom(uint32_t salt);
 uint16_t    mb_name_person(uint32_t salt);
+enum { NK_PLACE = 0, NK_KINGDOM, NK_PERSON, NK_FAMILY = NK_PLACE };
 void        mb_name_str(char *out, int n, int kind, uint16_t id);
 void        mb_chron_found(int v);
 void        mb_chron_fall(int v);
