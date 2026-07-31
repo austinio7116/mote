@@ -142,6 +142,13 @@ SPRITE_SHEETS = {
     # rounded cream plaque with its own drop shadow is the INSET, for portraits. The third
     # candidate (master 50-52) is a dashed certificate border that fought the content.
     "ui_plaque":   ( 3, 32,  5, 34),   # 3x3 nine-slice: a framed likeness
+    # THE CITY WALL, and it is FOUR CELLS, not a forty-seven-cell blob set. The master draws a
+    # wall in elevation rather than plan: a horizontal run seen side-on with its own shadow, a
+    # vertical run seen face-on, and two rounded end caps that differ only in whether the wall
+    # carries on BELOW them. Layout after extraction (4 wide, 2 tall):
+    #   (0,0) top corner: the run turns down here    (1,0) horizontal run
+    #   (2,0) bottom corner: nothing below           (0,1) vertical run
+    "wall_stone":  (12, 47, 15, 48),
     "ui_symbols":  (48, 32, 51, 32),   # lineage marks
     "font_cp437":  (48,  0, 63, 15),   # monospace atlas (char c -> cell c%16, c/16)
 }
