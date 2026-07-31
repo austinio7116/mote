@@ -138,6 +138,10 @@ typedef char mb_jobnames_complete[(sizeof JOB_NAME / sizeof JOB_NAME[0]) == JOB_
  * So every field declares a COLUMN, and text is measured against the real glyph
  * advances and truncated to fit it. Nothing can overlap anything, whatever the
  * world does. */
+/* The overlay's last frame time, set by the update — see s_dt below. Declared here
+ * because the marquee is the only thing in the HUD that moves in real time. */
+static float s_dt;
+
 static int hud_w(const char *s)
 {
     int w = 0;
@@ -162,6 +166,60 @@ static void hud_text(uint16_t *fb, const char *s, int x, int y, int maxw,
     }
     int w = hud_w(buf);
     mote->text_font(fb, &rogue8, buf, align > 0 ? x + maxw - w : x, y, col);
+}
+
+/* THE LOG SCROLLS RATHER THAN BEING CUT OFF.
+ *
+ * A chronicle line is a sentence — "Uroth learns navigation", "Blackmoor is founded",
+ * "Relda rules Stormcrest" — and rogue8 fits about twenty characters across the strip, so
+ * hud_text() was chopping the end off a good half of the news in the game and the player was
+ * reading fragments. The strip cannot get wider, and the sentences cannot get shorter without
+ * going back to the one-word lines that caused the complaint in the first place.
+ *
+ * So the line moves: it holds still long enough to start reading, slides left until its tail
+ * is on screen, holds again, and slides back. Ping-pong rather than a wrap, because a snap
+ * back to the start mid-sentence reads as a glitch. The font blitter clips per pixel at the
+ * screen edge, so the overhang simply runs off both sides of the strip.
+ *
+ * Only the two log rows use it. The cursor readout shares its row with the faith counter and
+ * a sliding string there would run straight through it. */
+static void hud_marquee(uint16_t *fb, const char *s, int x, int y, int maxw,
+                        uint16_t col, int slot)
+{
+    #define MQ_SLOTS 2
+    #define MQ_HOLD  1.1f          /* seconds still at each end     */
+    #define MQ_SPEED 20.0f         /* pixels a second while sliding */
+    static char  mq_last[MQ_SLOTS][48];
+    static float mq_t[MQ_SLOTS];
+    if (slot < 0 || slot >= MQ_SLOTS) { hud_text(fb, s, x, y, maxw, col, -1); return; }
+
+#if MOTE_HOST
+    /* MOTEBOX_MQ=1 forces a line too long for the strip into both log rows, because the
+     * marquee only does anything when a line overflows and most of them do not — the first
+     * check of it caught two short lines and proved nothing. */
+    { static const char *mq_force; static int mq_looked;
+      if (!mq_looked) { mq_looked = 1; mq_force = getenv("MOTEBOX_MQ"); }
+      if (mq_force) s = "Dralmark learns architecture"; }
+#endif
+    int w = hud_w(s);
+    if (strncmp(mq_last[slot], s, sizeof mq_last[slot] - 1) != 0) {
+        snprintf(mq_last[slot], sizeof mq_last[slot], "%s", s);
+        mq_t[slot] = 0.0f;                       /* a new line starts from the beginning */
+    }
+    if (w <= maxw) { mote->text_font(fb, &rogue8, s, x, y, col); return; }
+
+    float extra  = (float)(w - maxw);
+    float travel = extra / MQ_SPEED;
+    float cycle  = MQ_HOLD + travel + MQ_HOLD + travel;
+    mq_t[slot] += s_dt;
+    if (mq_t[slot] > cycle) mq_t[slot] -= cycle;
+    float t = mq_t[slot], off;
+    if      (t < MQ_HOLD)                   off = 0.0f;
+    else if (t < MQ_HOLD + travel)          off = (t - MQ_HOLD) * MQ_SPEED;
+    else if (t < MQ_HOLD + travel + MQ_HOLD) off = extra;
+    else                                    off = extra - (t - MQ_HOLD - travel - MQ_HOLD) * MQ_SPEED;
+    if (off < 0.0f) off = 0.0f;
+    mote->text_font(fb, &rogue8, s, x - (int)off, y, col);
 }
 
 /* The columns. Two rows of 8 px in the 16 px strip, and every field's width is
@@ -2230,8 +2288,8 @@ static void g_init(void)
 }
 
 /* The overlay has no dt of its own — the engine hands it only a framebuffer — so the update
- * leaves the last one here for the effects that animate in world time. */
-static float s_dt;
+ * leaves the last one in s_dt (declared up with the HUD helpers) for the effects that animate
+ * in world time. */
 
 static void g_update(float dt)
 {
@@ -2704,12 +2762,12 @@ static void g_overlay(uint16_t *fb)
         const char *prev = mb_chron_recent(1);
         if (prev && toast && !strcmp(prev, toast)) prev = mb_chron_recent(2);
         if (prev && toast && !strcmp(prev, toast)) prev = mb_chron_recent(3);
-        if (prev) hud_text(fb, prev, 1, HUD_Y, 126, C_TEXT, -1);
+        if (prev) hud_marquee(fb, prev, 1, HUD_Y, 126, C_TEXT, 0);
         else {
             snprintf(buf, sizeof buf, "Y%d %s", year, mb_age_name());
             hud_text(fb, buf, 1, HUD_Y, 126, C_TEXT, -1);
         }
-        hud_text(fb, toast, 1, HUD_Y + 8, 126, C_CURS, -1);
+        hud_marquee(fb, toast, 1, HUD_Y + 8, 126, C_CURS, 1);
     } else {
         /* row one: speed, year, the selected power, the view */
         hud_text(fb, SPEED_NAME[s_speed], HC_SPEED_X, HUD_Y, HC_SPEED_W, C_HI, -1);
