@@ -124,7 +124,8 @@ static Event *push(int type, int a, int b, int mag, uint16_t name, int x, int y,
         case EV_AGE:   mb_snd(SND_AGE);   break;
         default:       break;
         }
-        s_focus_x = (uint8_t)x; s_focus_y = (uint8_t)y; s_have_focus = 1;
+        /* only if it HAPPENED somewhere: see mb_chron_age() */
+        if (x || y) { s_focus_x = (uint8_t)x; s_focus_y = (uint8_t)y; s_have_focus = 1; }
     }
     return e;
 }
@@ -312,7 +313,12 @@ void mb_chron_disaster(const char *what, int x, int y)
 }
 void mb_chron_age(const char *name)
 {
-    push(EV_AGE, 0, 0, 0, 0, MW / 2, MH / 2, intern(name));
+    /* AN AGE HAS NO PLACE. This passed the middle of the map, which on most worlds is open
+     * ocean — so every age change flew the camera out to sea and left you looking at water with
+     * a caption about the Age of Iron. A headline that is about the whole world does not have
+     * somewhere to take you; only a thing that happened to a person or a town does. Zero is the
+     * ring's "no location", which mb_chron_where() already reports as unreachable. */
+    push(EV_AGE, 0, 0, 0, 0, 0, 0, intern(name));
 }
 
 /* --- queries ------------------------------------------------------------ */

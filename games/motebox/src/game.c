@@ -1008,25 +1008,35 @@ static void ui_draw_lord(uint16_t *fb)
     char ln[24], pl[24], buf[40];
     mb_name_str(ln, sizeof ln, NK_PERSON, V->lord_name);
     mb_name_str(pl, sizeof pl, NK_PLACE, V->name);
-    snprintf(buf, sizeof buf, "LORD %s", ln);
-    mb_ui_text(fb, 7, 7, buf, MB_UI_CREAM, 78);
+    /* THE HEADER, MEASURED. "LORD %s" was 88 px in a 78 px slot, so a lord called Ashla was
+     * "LORD Ashl", and "%s aged %d" was 120 px in a 114 px row, so their town was "Stormcr".
+     * The name and the place each get a row of their own; the faith and the age ride on the
+     * right in their own colours, because that is the only way both fit. The word LORD is not
+     * needed on a page you reach from a button that says THE LORD, under a crowned portrait. */
+    mb_ui_text(fb, 7, 7, ln, MB_UI_CREAM, 70);
     snprintf(buf, sizeof buf, "%d", mb_faith());
     mb_ui_text_r(fb, 121, 7, buf, MB_UI_GOLD);
-    snprintf(buf, sizeof buf, "%s  aged %d", pl, V->lord_age);
-    mb_ui_text(fb, 7, 16, buf, MB_UI_DIM, 114);
+    mb_ui_text(fb, 7, 16, pl, MB_UI_DIM, 90);
+    snprintf(buf, sizeof buf, "%d", V->lord_age);
+    mb_ui_text_r(fb, 121, 16, buf, MB_UI_SKY);
     /* THE LORD'S OWN FACE — the CR_LORD figures were hand-picked for all four races and had
      * never been drawn anywhere, because no unit is ever given PROF_LORD. */
     mb_ui_plaque(fb, 6, 26, 26, 26, MOTE_RGB565(14, 12, 20));
     { int sh, cx, cy;
       mb_cast_role(V->sp, mb_cast_role_lord(), (unsigned)v * 7919u, &sh, &cx, &cy);
       mb_ui_blit3(fb, mb_ui_sheet(sh), cx, cy, 9, 29, 2); }
-    static const char *const SN[3] = { "STEWARD", "DIPLOMAT", "WARLORD" };
+    /* WHAT THE STAT DOES, not what the office is called. The column between the portrait and
+     * the pips is 48 px: "STEWARD" measures 63 and even lower-case "steward" 55, so the first
+     * two builds of this page read "STEWA" and "stewa". These are the three things the numbers
+     * actually drive in lord_think() — how boldly it builds, how it treats its neighbours, how
+     * readily it goes to war — and they fit. */
+    static const char *const SN[3] = { "builds", "talks", "fights" };
     const int val[3] = { V->lord_stew, V->lord_diplo, V->lord_war };
     for (int i = 0; i < 3; i++) {
         int y = 27 + i * 9, sel = (i == s_ui_row);
         if (sel) g_api->draw_rect(fb, 34, y - 1, 88, 10, MOTE_RGB565(76, 60, 26), 1, 0, 128);
-        mb_ui_text(fb, 36, y, SN[i], sel ? MB_UI_CREAM : MB_UI_DIM, 46);
-        mb_ui_pips(fb, 84, y + 2, (val[i] + 19) / 20, 5, MB_UI_OK, MB_UI_OFF);
+        mb_ui_text(fb, 36, y, SN[i], sel ? MB_UI_CREAM : MB_UI_DIM, 48);
+        mb_ui_pips(fb, 86, y + 2, (val[i] + 19) / 20, 5, MB_UI_OK, MB_UI_OFF);
     }
     /* WHAT THAT MEANS — the real thresholds, read back in words */
     mb_ui_rule(fb, 6, 56, 116, "CONSEQUENCE", MB_UI_GOLD, FILL, MB_UI_DIM);
@@ -1089,7 +1099,14 @@ static void ui_draw_town(uint16_t *fb)
     snprintf(buf, sizeof buf, "%d of %d", V->pop, V->housing);
     mb_ui_text(fb, 40, 25, buf, MB_UI_CREAM, 80);
     mb_ui_meter(fb, 40, 34, 7, V->pop, V->housing ? V->housing : 1, 0);
-    mb_ui_text(fb, 40, 45, MB_CREED_NAME[V->creed < CREED_N ? V->creed : 0], MB_UI_DIM, 80);
+    /* WHO RULES IT, and how to get at them. The lord was reachable from exactly one cell in
+     * the world — the hall, via WHAT IS HERE — and this screen, which is about their town, did
+     * not so much as name them. A lord is the most consequential thing a god can buy with
+     * Faith, so it needs a road: any villager -> RB -> their town -> A -> their lord. */
+    { char ln[24];
+      mb_name_str(ln, sizeof ln, NK_PERSON, V->lord_name);
+      mb_ui_text(fb, 40, 45, ln, MB_UI_GOLD, 46);
+      mb_ui_text_r(fb, 120, 45, MB_CREED_NAME[V->creed < CREED_N ? V->creed : 0], MB_UI_DIM); }
     mb_ui_rule(fb, 6, 58, 116, "STOCKPILE", LINE, FILL, MB_UI_DIM);
     { static const uint8_t IC[4][2] = { { 1, 3 }, { 3, 5 }, { 5, 3 }, { 3, 3 } };
       const int val[4] = { V->food, V->wood, V->stone, V->gold };
@@ -1111,7 +1128,7 @@ static void ui_draw_town(uint16_t *fb)
           shown++;
       }
       if (!shown) mb_ui_text(fb, 7, 101, "nothing built", MB_UI_DIM, 112); }
-    mb_ui_actions(fb, "RB NEXT", "B<", FILL);
+    mb_ui_actions(fb, "A THE LORD", "B<", FILL);
 }
 
 /* ------------------------------------------------------------------ A KINGDOM */
@@ -2563,8 +2580,13 @@ static void g_update(float dt)
 
     /* --- cursor: accelerates while held, so crossing the world is quick but a
      * single tap is still one tile --- */
-    int dx = wheel ? 0 : mote_pressed(in, MOTE_BTN_RIGHT) - mote_pressed(in, MOTE_BTN_LEFT);
-    int dy = wheel ? 0 : mote_pressed(in, MOTE_BTN_DOWN)  - mote_pressed(in, MOTE_BTN_UP);
+    /* AND NOT WHILE A SCREEN IS OPEN. This block ran before the screens took the pad, so
+     * scrolling down a list ALSO walked the world cursor a cell — and since WHAT IS HERE is
+     * rebuilt from the cursor's cell every frame, moving down the list changed the list you
+     * were moving down. You could not reach the third row of a crowd. */
+    int held = (wheel || s_ui) ? 0 : 1;
+    int dx = held ? mote_pressed(in, MOTE_BTN_RIGHT) - mote_pressed(in, MOTE_BTN_LEFT) : 0;
+    int dy = held ? mote_pressed(in, MOTE_BTN_DOWN)  - mote_pressed(in, MOTE_BTN_UP)   : 0;
     if (dx || dy) {
         int first = (s_hold == 0.0f);
         s_hold += dt;
@@ -2766,6 +2788,12 @@ static void g_update(float dt)
             if (mote_just_pressed(in, MOTE_BTN_B)) { s_ui = UI_PICK; s_ui_row = 0; }
             if (mote_just_pressed(in, MOTE_BTN_A) && s_ui == UI_SOUL) {
                 s_ui = UI_SHAPE; s_ui_row = 0;
+            }
+            /* A ON A TOWN OPENS ITS LORD, which is the only route to them that does not
+             * require standing on the hall — see the note in ui_draw_town. */
+            if (mote_just_pressed(in, MOTE_BTN_A) && s_ui == UI_TOWN
+                && s_subject_v > 0 && s_subject_v < MAXV && mb_v[s_subject_v].alive) {
+                s_ui = UI_LORD; s_ui_row = 0;
             }
             /* RB PAGES OUT. From a person to their town, to the crown above it, to the world:
              * the whole hierarchy on one button, in the order you would ask the questions. */

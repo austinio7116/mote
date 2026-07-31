@@ -209,7 +209,10 @@ void mb_ui_text_r(uint16_t *fb, int x2, int y, const char *s, uint16_t col)
 void mb_ui_actions(uint16_t *fb, const char *a, const char *b, uint16_t fill)
 {
     g_api->draw_rect(fb, 5, 112, 118, 10, fill, 1, 0, 128);
-    if (a) mb_ui_text(fb, 7, 113, a, MB_UI_GOLD, 70);
+    /* 70 px cut "A THE LORD" to "A THE LOR" and "A RAISE 50" to "A RAISE 5". The right-hand
+     * label is "B<" or "B BACK" — 17 to 45 px — so the left one can have 84 and still not
+     * meet it. Measured with authoring/uifit.py's own glyph advances. */
+    if (a) mb_ui_text(fb, 7, 113, a, MB_UI_GOLD, 84);
     if (b) mb_ui_text_r(fb, 121, 113, b, MB_UI_DIM);
 }
 
