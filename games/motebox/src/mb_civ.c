@@ -1203,9 +1203,29 @@ static void village_plaza(int v)
         }
     if (hx < 0) return;
 
+    /* ONE MONUMENT PER TOWN, FOUND ANYWHERE IN THE CLAIM.
+     *
+     * `mon` used to be set only by looking inside the 5x3 square — and the square is anchored
+     * to the HALL, which MOVES when the hall upgrades to a great hall or a castle (build_site
+     * picks a fresh plot). So a town that grew put up a second monument at its new square and
+     * abandoned the first, which then sat in an ordinary street or a field: three monuments
+     * were measured against one town. The tier that gates all this fluctuates with population
+     * too, so the same thing happened to a village that crossed TOWN twice.
+     *
+     * Searching the whole claim costs one pass of a 23x23 box on a visit that already does
+     * several, and it means a town has one monument for as long as it stands. */
+    int mon = 0, fount = 0;
+    for (int dy = -11; dy <= 11 && !(mon && fount); dy++)
+        for (int dx = -11; dx <= 11; dx++) {
+            int x = V->x + dx, y = V->y + dy;
+            if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v) continue;
+            uint8_t o = mb_w.obj[AT(x, y)];
+            if (o == O_MONUMENT) mon = 1;
+            else if (o == O_FOUNTAIN) fount = 1;
+        }
+
     /* pave what is free in a 5x3 in front of it — wider than tall, because the view is
      * three-quarters-on and a square that is square looks like a courtyard from above */
-    int mon = 0, fount = 0;
     for (int dy = 1; dy <= 3; dy++)
         for (int dx = -2; dx <= 2; dx++) {
             int x = hx + dx, y = hy + dy;
