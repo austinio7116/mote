@@ -2370,6 +2370,8 @@ static void g_init(void)
                                     mb_alliances);
                             extern uint32_t mb_tower_shots, mb_fish;
                             extern uint32_t mb_refugees;
+                            { extern uint32_t mb_dosed;
+                              if (mb_dosed) fprintf(stderr, "  %u dosed by fallout\n", mb_dosed); }
                             extern uint32_t mb_stock_raised;
                             int flock = 0;
                             for (int q = 1; q < MAXV; q++)
@@ -2981,7 +2983,17 @@ static void g_update(float dt)
                  * broken button — and the powers that act on PEOPLE are exactly the
                  * ones whose target you cannot see, because a villager is one pixel in
                  * God's Eye. -1 means the power does not target people at all. */
-                if (mb_power_last_reach() == 0) { s_nobody = 0.9f; mb_snd(SND_DENY); }
+                /* AND A CAST THAT REACHED NOBODY IS REFUNDED. The Faith is spent before the
+                 * cast because most powers cannot know their own reach until they run — but a
+                 * blessing that found no one to bless, or a founding the ground refused, has
+                 * done nothing, and charging for it is the same lesson the gift screen already
+                 * learned: "a gift that would do nothing costs nothing". Only the powers that
+                 * TARGET something report a reach at all; terrain powers leave it at -1 and pay
+                 * as before. */
+                if (mb_power_last_reach() == 0) {
+                    mb_faith_grant(cost);
+                    s_nobody = 0.9f; mb_snd(SND_DENY);
+                }
                 s_cast_cool = 0.10f;
             } else {
                 /* no Faith: say so once rather than silently doing nothing, which

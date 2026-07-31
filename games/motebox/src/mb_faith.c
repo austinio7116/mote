@@ -32,6 +32,28 @@ int  mb_mode(void)         { return s_mode; }
 void mb_mode_set(int m)    { s_mode = m; }
 void mb_faith_set(int v)   { s_faith = v; }
 
+/* THE CEILING, in one place. It was computed inline in the step, which was fine while nothing
+ * else could add Faith; the refund below is a second source and two copies of a cap drift. */
+static int s_temples;               /* what the last step counted */
+int mb_faith_temples(void) { return s_temples; }
+
+int mb_faith_cap(int temples)
+{
+    int32_t cap = 700 + temples * 120;
+    return cap > 6000 ? 6000 : (int)cap;
+}
+
+/* GIVE IT BACK. A cast that reached nobody has done nothing, and the Faith has to be spent
+ * before the cast because most powers cannot know their own reach until they run — so the
+ * refund is the honest half of that arrangement. Never above the ceiling the religion has
+ * earned, so a refund cannot be used to bank more than the cap allows. */
+void mb_faith_grant(int amount)
+{
+    s_faith += amount;
+    int cap = mb_faith_cap(mb_faith_temples());
+    if (s_faith > cap) s_faith = cap;
+}
+
 int mb_faith_afford(int cost)
 {
     if (s_mode == MODE_SANDBOX) return 1;
@@ -92,8 +114,9 @@ void mb_faith_step(void)
      * temples standing at year 100, 400 and 700 across a world, because a temple needs gold
      * and gold did not exist until the mines were fixed. The base now clears the dearest
      * power with room to spare, and temples still mean a bigger religion holds more. */
-    int32_t cap = 700 + temples * 120;
-    if (cap > 6000) cap = 6000;
+    s_temples = (int)temples;
+    int32_t cap = mb_faith_cap((int)temples);
+
 
     s_income = gain;
     s_faith += gain;

@@ -770,6 +770,9 @@ int  mb_faith_income(void);
 int  mb_faith_afford(int cost);
 void mb_faith_spend(int cost);
 void mb_faith_set(int v);
+void mb_faith_grant(int amount);   /* a refused cast is refunded */
+int  mb_faith_cap(int temples);
+int  mb_faith_temples(void);
 int  mb_mode(void);
 void mb_mode_set(int m);
 

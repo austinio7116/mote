@@ -1100,6 +1100,9 @@ void mb_flux_test_event(const char *name, uint32_t r)
 #define BLAST_RAD  7                        /* the crater */
 #define BLAST_BURN 12                       /* and the firestorm around it */
 static struct { uint8_t on, x, y, r; } s_blast[NBLAST];
+#if MOTE_HOST
+uint32_t mb_dosed;
+#endif
 
 static void blast_ring(int bx, int by, int r)
 {
@@ -1172,7 +1175,23 @@ void mb_nuke_strike(int from_k, int cx, int cy)
      * exactly this: an illness that kills slowly, spreads to whoever tends the sick, and
      * leaves the immune behind. So the ring outside the blast is where the world learns what
      * the bomb really costs, weeks after the flash. */
-    mb_unit_area(cx, cy, BLAST_BURN, UAP_TRAIT, TR_PLAGUE | TR_CONTAGIOUS);
+    /* AND IT IS FOR THE SURVIVORS. Applying the dose out to the firestorm's edge wasted almost
+     * all of it: everyone within nine cells is killed by the front as it passes and everything
+     * from there to twelve is burning. The people who matter are the ring OUTSIDE — far enough
+     * to live through the flash, close enough to have taken it, and they walk home and begin to
+     * die weeks later, infecting whoever nurses them. That is the ring where a world learns what
+     * the bomb actually cost. */
+    for (int i = 0; i < mb_nu; i++) {
+        Unit *u = &mb_u[i];
+        if (!u->alive || u->sp >= SP_CIV_N) continue;
+        int dx = (u->x >> 4) - cx, dy = (u->y >> 4) - cy, d2 = dx * dx + dy * dy;
+        if (d2 < BLAST_BURN * BLAST_BURN) continue;                    /* dead or burning */
+        if (d2 > (BLAST_BURN + 8) * (BLAST_BURN + 8)) continue;        /* out of the fallout */
+        u->traits |= TR_PLAGUE | TR_CONTAGIOUS;
+#if MOTE_HOST
+        {   extern uint32_t mb_dosed; mb_dosed++; }
+#endif
+    }
 
     if (from_k > 0 && from_k < MAXK && mb_k[from_k].alive) mb_k[from_k].nuked++;
     mb_chron_disaster("the sky burns", cx, cy);

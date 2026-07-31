@@ -411,14 +411,31 @@ static void cast_at(int id, int r, int cx, int cy)
         mb_fx_burst((float)cx, (float)cy, 8, PK_STAR, FXE_HOLY, 2.0f, 0.6f);
         break;
     }
-    case PW_VILLAGE:
-        /* A founding party. The ground has to allow it — WorldBox's own rule —
-         * so this can legitimately do nothing, and says so with a dud sparkle. */
-        if (mb_civ_drop_village(SP_HUMAN + (int)(mb_rand((uint32_t)mb_w.tick) % 4), cx, cy))
-            mb_fx_burst((float)cx, (float)cy, 14, PK_STAR, FXE_HOLY, 3.0f, 0.9f);
-        else
-            mb_fx_burst((float)cx, (float)cy, 4, PK_SMOKE, FXE_ASH, 1.0f, 0.5f);
+    case PW_VILLAGE: {
+        /* A founding party, and the ground has to allow it: the siting rule wants 32 of the 36
+         * cells in a 6x6 box to be open land, so anywhere within three cells of a coast, a lake,
+         * a mountain or a lava field refuses. That is the right rule for the WORLD placing a
+         * village and much too literal for a GOD pointing at a valley — measured with
+         * MOTEBOX_PWTEST, this was the one power in forty-eight that did NOTHING, and it charges
+         * ninety faith, the second-highest price on the wheel.
+         *
+         * So the cast searches outward a few cells for a site that will take it, which is what
+         * worldgen does four thousand times over. If nothing within three cells will do, it
+         * reports reaching nobody — and a cast that reached nobody is refunded (see game.c),
+         * because being charged ninety faith for a sparkle is indistinguishable from a bug. */
+        int sp = SP_HUMAN + (int)(mb_rand((uint32_t)mb_w.tick) % 4);
+        int ok = 0;
+        for (int rad = 0; rad <= 3 && !ok; rad++)
+            for (int dy = -rad; dy <= rad && !ok; dy++)
+                for (int dx = -rad; dx <= rad && !ok; dx++) {
+                    if (rad && dx * dx + dy * dy < (rad - 1) * (rad - 1)) continue;
+                    if (mb_civ_drop_village(sp, cx + dx, cy + dy)) ok = 1;
+                }
+        s_last_reach = ok;
+        if (ok) mb_fx_burst((float)cx, (float)cy, 14, PK_STAR, FXE_HOLY, 3.0f, 0.9f);
+        else    mb_fx_burst((float)cx, (float)cy, 4, PK_SMOKE, FXE_ASH, 1.0f, 0.5f);
         break;
+    }
     case PW_HERD:
         for (int i = 0; i < 6; i++) {
             uint32_t rr = mb_rand((uint32_t)(i * 911u + (uint32_t)mb_w.tick));
