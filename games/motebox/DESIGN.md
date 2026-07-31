@@ -54,7 +54,7 @@ Research summary, with the design call on each system.
 | **Kings & lords** | king per kingdom, lord per village; Diplomacy / Stewardship / Warfare stats drive development | **Keep** — this is the cheapest way to make two villages feel different |
 | **Loyalty & rebellion** | distance from capital, weak king, ambitious lord → village breaks away hostile | **Keep** — the best story generator in the game |
 | **Diplomacy & war** | numeric peace/war/alliance likelihood, armies march, peace on exhaustion or conquest | **Keep**, with grudges read back out of the chronicle |
-| **Culture / knowledge** | knowledge points unlock weapons, ships, architecture, rare metallurgy | **Compress to 5 tech tiers** per kingdom, each visibly changing sprites |
+| **Culture / knowledge** | knowledge points unlock weapons, ships, architecture, rare metallurgy | **A real tree: 35 techs over 9 eras**, each visibly changing sprites, roads and weapons — see [The tech tree](#the-tech-tree). (This row said "compress to 5 tech tiers" for a long time after that stopped being true, which is why the diagram is generated and not typed.) |
 | **Ages** | 10 ages ≥30 years each: Hope, Sun (heatwaves), Chaos (rage clouds), Ash (DoT, no armies), Despair (ice monsters)… | **Keep 8 ages** as global sim modifiers + a palette shift |
 | **Traits** | 116 creature traits; ~29 non-random (Plague, Zombie, Blessed, Madness, Chosen One…) | **32 traits**, 8 of them god-granted only |
 | **Happiness** | −100..+100 per unit, drives everything | **Keep** as a signed byte; it is the utility AI's main input |
@@ -887,3 +887,134 @@ Not built, and honestly so:
   per line at MED is too few for chronicle prose. The split in §9 is a deliberate exception,
   and if the 8 px CP437 proves hard to read on the panel, the chronicle gets shorter templates
   rather than a smaller font.
+
+## The tech tree
+
+<!-- BEGIN GENERATED TECH TREE (authoring/techtree.py) -->
+
+```mermaid
+graph LR
+  subgraph Stone
+    direction TB
+    TTools["tools<br/>270"]
+    TAgriculture["agriculture<br/>330"]
+    TPottery["pottery<br/>360"]
+  end
+  subgraph Bronze
+    direction TB
+    TMasonry["masonry<br/>570"]
+    TBronze["bronze<br/>600"]
+    TTheWheel["the wheel<br/>540"]
+    TWriting["writing<br/>660"]
+  end
+  subgraph Iron
+    direction TB
+    TIronwork["ironwork<br/>960"]
+    TSeafaring["seafaring<br/>900"]
+    TArchitecture["architecture<br/>1020"]
+    TCurrency["currency<br/>930"]
+  end
+  subgraph Classical
+    direction TB
+    TEngineering["engineering<br/>1380"]
+    TMathematics["mathematics<br/>1320"]
+    TCavalry["cavalry<br/>1260"]
+    TLaw["law<br/>1350"]
+  end
+  subgraph Medieval
+    direction TB
+    TGunpowder["gunpowder<br/>1860"]
+    TNavigation["navigation<br/>1800"]
+    TBanking["banking<br/>1770"]
+    TTheUniversity["the university<br/>640"]
+  end
+  subgraph Renaissance
+    direction TB
+    TPrinting["printing<br/>2400"]
+    TMetallurgy["metallurgy<br/>2580"]
+    TSanitation["sanitation<br/>2460"]
+    TEconomics["economics<br/>2340"]
+  end
+  subgraph Industrial
+    direction TB
+    TSteam["steam<br/>3150"]
+    TTheRailway["the railway<br/>3300"]
+    TChemistry["chemistry<br/>3240"]
+    TElectricity["electricity<br/>3360"]
+  end
+  subgraph Modern
+    direction TB
+    TCombustion["combustion<br/>4200"]
+    TFlight["flight<br/>4500"]
+    TRadio["radio<br/>4140"]
+    TMedicine["medicine<br/>4320"]
+  end
+  subgraph Atomic
+    direction TB
+    TPhysics["physics<br/>5700"]
+    TFission["fission<br/>6900"]
+    TRocketry["rocketry<br/>6600"]
+    TTheBomb["the bomb<br/>9000"]
+  end
+  TTools --> TMasonry
+  TTools --> TBronze
+  TTools --> TTheWheel
+  TPottery --> TWriting
+  TBronze --> TIronwork
+  TPottery --> TSeafaring
+  TMasonry --> TArchitecture
+  TWriting --> TCurrency
+  TArchitecture --> TEngineering
+  TWriting --> TMathematics
+  TCurrency --> TMathematics
+  TWriting --> TLaw
+  TAgriculture --> TLaw
+  TSeafaring --> TNavigation
+  TCurrency --> TBanking
+  TLaw --> TBanking
+  TLaw --> TTheUniversity
+  TTheUniversity --> TPrinting
+  TWriting --> TPrinting
+  TGunpowder --> TMetallurgy
+  TTheUniversity --> TSanitation
+  TBanking --> TEconomics
+  TTheUniversity --> TEconomics
+  TMetallurgy --> TSteam
+  TEconomics --> TSteam
+  TSteam --> TTheRailway
+  TSanitation --> TChemistry
+  TMetallurgy --> TChemistry
+  TSteam --> TElectricity
+  TPrinting --> TElectricity
+  TSteam --> TCombustion
+  TChemistry --> TCombustion
+  TCombustion --> TFlight
+  TElectricity --> TFlight
+  TElectricity --> TRadio
+  TPrinting --> TRadio
+  TSanitation --> TMedicine
+  TChemistry --> TMedicine
+  TElectricity --> TPhysics
+  TPhysics --> TFission
+  TChemistry --> TFission
+  TFlight --> TRocketry
+  TPhysics --> TRocketry
+  TFission --> TTheBomb
+  TRocketry --> TTheBomb
+```
+
+| era | techs (cost) |
+|---|---|
+| **Stone** | tools (270) · agriculture (330) · pottery (360) |
+| **Bronze** | masonry (570) · bronze (600) · the wheel (540) · writing (660) |
+| **Iron** | ironwork (960) · seafaring (900) · architecture (1020) · currency (930) |
+| **Classical** | engineering (1380) · mathematics (1320) · cavalry (1260) · law (1350) |
+| **Medieval** | gunpowder (1860) · navigation (1800) · banking (1770) · the university (640) |
+| **Renaissance** | printing (2400) · metallurgy (2580) · sanitation (2460) · economics (2340) |
+| **Industrial** | steam (3150) · the railway (3300) · chemistry (3240) · electricity (3360) |
+| **Modern** | combustion (4200) · flight (4500) · radio (4140) · medicine (4320) |
+| **Atomic** | physics (5700) · fission (6900) · rocketry (6600) · the bomb (9000) |
+
+35 techs, 9 eras. Generated from `MB_TECH` in `src/mb_civ.c` by `authoring/techtree.py` — do not edit by hand.
+
+<!-- END GENERATED TECH TREE -->
