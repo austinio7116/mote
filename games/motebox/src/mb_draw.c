@@ -1774,21 +1774,14 @@ void mb_draw_mortal(int cam_x, int cam_y)
             if (r < MH - 1 && mb_w.road[AT(c, r + 1)]) m |= 4;
             if (c > 0      && mb_w.road[AT(c - 1, r)]) m |= 8;
 
-            /* the grade: the best surface this cell's owner knows how to lay */
-            int grade = 0;
-            {
-                int ov = mb_w.claim[AT(c, r)];
-                int ok = (ov && ov < MAXV && mb_v[ov].alive) ? mb_v[ov].kingdom : 0;
-                /* Each surface needs a WINDOW to be seen in. Gating tarmac on steam and the
-                 * markings on combustion skipped plain tarmac entirely — measured across five
-                 * sample years, grade 3 was never once drawn — because a kingdom with steam
-                 * has combustion within a generation. Spaced out across the tree, every one
-                 * of the five gets its own era. */
-                if (mb_tech_known(ok, TECH_FLIGHT))         grade = 4;   /* lines painted on */
-                else if (mb_tech_known(ok, TECH_COMBUSTION))grade = 3;   /* asphalt          */
-                else if (mb_tech_known(ok, TECH_ENGINEER))  grade = 2;   /* dressed flags    */
-                else if (mb_tech_known(ok, TECH_MASONRY))   grade = 1;   /* set cobbles      */
-            }
+            /* THE GRADE, from the same function the WALKING uses (mb_road_grade) — the
+             * surface you can see has to be the surface you can feel, and two copies of this
+             * derivation would drift the first time either was touched. Each surface needs a
+             * WINDOW in the tree to be seen in: gating tarmac on steam and the markings on
+             * combustion skipped plain tarmac entirely, measured across five sample years,
+             * because a kingdom with steam has combustion within a generation. */
+            int grade = mb_road_grade(AT(c, r));
+            if (grade < 0) grade = 0;
             MoteSprite spr = { &road_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
                                (uint16_t)(m * TILE), (uint16_t)(grade * TILE),
                                TILE, TILE, 12, 0 };

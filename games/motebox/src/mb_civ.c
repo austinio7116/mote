@@ -1664,6 +1664,29 @@ uint32_t mb_succ_dead, mb_succ_left, mb_succ_none;
  * world, against 8 lords who actually died) or, when the baby happened to be born in the same
  * village, that its lord was a person aged nought. The given name pins it: names are 16-bit
  * hashes rolled per person, and the office holds the one it appointed. */
+/* --- A ROAD IS FOR TRAVELLING ON ---------------------------------------
+ *
+ * Four surfaces, drawn beautifully, gated across the tech tree — and until now worth exactly
+ * nothing: a villager crossed dressed flagstones at the same speed as a swamp. A road is the
+ * oldest piece of infrastructure there is and the only reason to build one is that it is
+ * faster, so this is the difference between a street network and a decoration.
+ *
+ * The grade is DERIVED, not stored: mb_w.road holds "paved" and the surface is whatever the
+ * cell's owner knows how to lay. The renderer worked that out for itself; now both ask the same
+ * function, so the tarmac you can see is the tarmac you can feel.
+ */
+int mb_road_grade(int cell)
+{
+    if (cell < 0 || cell >= NC || !mb_w.road[cell]) return -1;
+    int ov = mb_w.claim[cell];
+    int ok = (ov && ov < MAXV && mb_v[ov].alive) ? mb_v[ov].kingdom : 0;
+    if (mb_tech_known(ok, TECH_FLIGHT))      return 4;   /* lines painted on */
+    if (mb_tech_known(ok, TECH_COMBUSTION))  return 3;   /* asphalt          */
+    if (mb_tech_known(ok, TECH_ENGINEER))    return 2;   /* dressed flags    */
+    if (mb_tech_known(ok, TECH_MASONRY))     return 1;   /* set cobbles      */
+    return 0;                                            /* a beaten track   */
+}
+
 int mb_village_lord_unit(int v)
 {
     if (v <= 0 || v >= MAXV || !mb_v[v].alive) return -1;

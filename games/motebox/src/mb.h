@@ -123,9 +123,9 @@ enum { PK_SPARK = 0, PK_SMOKE, PK_RING, PK_BOLT, PK_GUST, PK_STAR, PK_N };
  * the ecology budget no longer scaling alongside it:
  *
  *     MAXU   souls   towns   arena left   400y sim
- *      384     222      10      75200      8.8 s     <- here
+ *      384     222      10      75200      8.8 s
  *      512     296      13      70592      9.2 s
- *      768     445      19      61376     11.1 s
+ *      768     445      19      61376     11.1 s     <- here
  *     1024     593      25      52160     12.0 s
  *     1536     890      38      33728     15.1 s
  *
@@ -133,7 +133,7 @@ enum { PK_SPARK = 0, PK_SMOKE, PK_RING, PK_BOLT, PK_GUST, PK_STAR, PK_N };
  * DEVICE: the brain is a 1/8 stagger over the array plus a bucket grid, so it is linear in
  * units, and at x25 the sim runs many ticks a frame. Raising this needs MAXV (48) and MAXK (12)
  * raised with it past about 1024, since 38 towns is already close to the village ceiling. */
-#define MAXU 384
+#define MAXU 768
 
 enum {
     /* FOUR HUMANOID PEOPLES, and they must stay first: `sp < SP_CIV_N` is the whole
@@ -585,6 +585,7 @@ int  mb_village_found(int sp, int x, int y, int kingdom);
 int  mb_village_need(int v, uint16_t *target);
 void mb_civ_need_flush(void);    /* drop the per-tick want cache (world reset) */
 int  mb_village_lord_unit(int v);   /* the person holding the office, or -1 */
+int  mb_road_grade(int cell);       /* -1 unpaved, else 0..4 — see mb_civ.c */
 int  mb_village_resource(int v, int kind, int *ox, int *oy);
 /* For the renderer: a pending site is marked on the ground with a stake. */
 int  mb_village_site(int v, int slot, int *ox, int *oy);

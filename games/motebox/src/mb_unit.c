@@ -408,6 +408,14 @@ static void step_toward(Unit *u, int tx, int ty)
     if (u->traits & TR_FAST) spd += spd >> 1;
     if (u->hunger > 80) spd -= spd >> 2;                 /* starving is slow */
     int cx = u->x >> 4, cy = u->y >> 4;
+    /* AND THE ROAD UNDER THEIR FEET. A beaten track is a quarter faster than open ground and
+     * painted tarmac is double — so a caravan really does prefer the highway, a town's streets
+     * are worth paving, and the four surfaces the tech tree unlocks are four different speeds
+     * rather than four textures. Only for those who walk: a fish is unimpressed. */
+    if (MB_SP[u->sp].drives != DRV_FISH) {
+        int g = mb_road_grade(AT(cx, cy));
+        if (g >= 0) spd += spd * (5 + g * 3) / 20;        /* +25% track .. +100% tarmac */
+    }
     int dx = tx - cx, dy = ty - cy;
     if (!dx && !dy) return;
 
@@ -575,6 +583,43 @@ static void idle_pick(int i)
     u->target = (uint16_t)AT(wx, wy);
 }
 
+/* --- MEAT ---------------------------------------------------------------
+ *
+ * A hunter killed a deer and the carcass VANISHED: predators ate to fill their own bellies and
+ * villagers only ever picked berries, so half the living things on the map were scenery to a
+ * civilisation and a forest was worth less to a town than a hedge.
+ *
+ * Not just deer. Anything a village would butcher — the grazers and the vermin, which is every
+ * plant-eating beast in the table: deer, boar, sheep, hen, goat, rat and frog. Predators are
+ * not on the menu (nobody eats wolf), and killing THEM is what soldiers and JOB_FIGHT are for.
+ * A carcass is worth about two and a half berry-bushes, and it has to be carried home like any
+ * other load, so a hunt is a trip rather than a snack. */
+static int is_game(int sp)
+{
+    if (sp < 0 || sp >= SP_N) return 0;
+    if (sp < SP_CIV_N) return 0;                       /* people are not game */
+    if (sp >= SP_WIGHT) return 0;                      /* nor is the risen dead */
+    return MB_SP[sp].diet != DIET_MEAT;
+}
+
+/* The nearest animal worth killing, within a few cells. Its own scan rather than nearest()'s
+ * NEAR_PREY, which is written for a predator: that one refuses to touch anything on claimed
+ * ground (a rule that exists to stop wolves eating the population) and a villager hunting on
+ * its own village's fields is exactly the case we want. */
+static int nearest_game(int self, int x, int y)
+{
+    int best = -1, bestd = 1 << 30;
+    for (int j = 0; j < mb_nu; j++) {
+        if (j == self || !mb_u[j].alive) continue;
+        if (!is_game(mb_u[j].sp)) continue;
+        int dx = (mb_u[j].x >> 4) - x, dy = (mb_u[j].y >> 4) - y;
+        int d = dx * dx + dy * dy;
+        if (d > 81 || d >= bestd) continue;            /* nine cells, nearest wins */
+        bestd = d; best = j;
+    }
+    return best;
+}
+
 /* --- the brain ---------------------------------------------------------- */
 
 /* Actions are scored, not sequenced. The winner needs to beat the incumbent by
@@ -713,6 +758,27 @@ static void think(int i)
                             - (u->traits & TR_COWARD ? 30 : 0);
                 if (bestd < (1 << 30) && vb > bestv) {
                     bestv = vb; best = JOB_FIGHT; u->target = 0xFFFF;
+                }
+            }
+        }
+    }
+
+    /* --- A VILLAGE THAT WANTS FOOD SENDS OUT HUNTERS ---------------------
+     *
+     * Scored against the same want the fields and the berry bushes answer, and a little above
+     * it, because a carcass is worth two and a half bushes. Gated on the village actually
+     * being short: a town with a full granary does not need to thin the deer, which is also
+     * what keeps the ecology from being hunted flat. */
+    if (sp->drives == DRV_CIV && u->village && u->prof != PROF_LORD && u->hunger < 120) {
+        const Village *HV = &mb_v[u->village];
+        if (HV->alive && HV->food < HV->pop * 4) {
+            int g = nearest_game(i, x, y);
+            if (g >= 0) {
+                int hv = 26 + ((u->prof == PROF_SOLDIER || u->prof == PROF_FORESTER) ? 10 : 0)
+                            + ((u->traits & TR_BRAVE) ? 6 : 0);
+                if (hv > bestv) {
+                    bestv = hv; best = JOB_HUNT;
+                    u->target = (uint16_t)AT(mb_u[g].x >> 4, mb_u[g].y >> 4);
                 }
             }
         }
@@ -878,19 +944,30 @@ static void act(int i)
     }
 
     case JOB_HUNT: {
-        int p = nearest(i, x, y, NEAR_PREY);
+        /* A VILLAGER HUNTS FOR THE TOWN, a beast hunts for itself. Same chase, different
+         * ending: the beast eats where it stands, the villager carries the carcass home
+         * through the ordinary JOB_WORK delivery path. */
+        int civ = (sp->drives == DRV_CIV);
+        int p = civ ? nearest_game(i, x, y) : nearest(i, x, y, NEAR_PREY);
         if (p < 0) { u->job = JOB_WANDER; break; }
         int px = mb_u[p].x >> 4, py = mb_u[p].y >> 4;
         if ((px - x) * (px - x) + (py - y) * (py - y) <= 2) {
             /* 35, not 60: at 60 a wolf killed a full-health villager in two bites,
              * which left no window for the villager to flee or fight back and made
              * every predator encounter a death sentence. */
-            mb_u[p].hp -= 35;
+            mb_u[p].hp -= (int8_t)(civ ? 45 : 35);     /* a spear beats a jaw */
             if (mb_u[p].hp <= 0) {
                 kill(p, CAUSE_EATEN);
-                u->hunger = 0; u->happy += 6;
                 u->kills++;
-                u->job = JOB_IDLE;
+                u->happy = (int8_t)(u->happy < 118 ? u->happy + 6 : u->happy);
+                if (civ) {
+                    /* the carcass goes home: 15 food, against 6 for a berry bush */
+                    u->carry = 15; u->carry_kind = CARRY_FOOD;
+                    u->job = JOB_WORK; u->target = 0xFFFF;
+                } else {
+                    u->hunger = 0;
+                    u->job = JOB_IDLE;
+                }
             }
         } else step_toward(u, px, py);
         break;
