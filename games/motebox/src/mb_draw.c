@@ -889,6 +889,19 @@ const MoteImage *mb_ui_sheet(int which)
     return (which == 0) ? &characters_img : (which == 1) ? &monsters_img : &animals_img;
 }
 const MoteImage *mb_ui_town_sheet(void) { return &town_img; }
+
+/* THE SPRITE FOR A THING ON THE GROUND, for the screens. The inspect list could show a
+ * person and a building and named an ore seam in text only, so the one part of the map you
+ * are told to go and find was the one part with no picture of itself. This file owns
+ * MB_OBJ_SPR; nothing else should know what a tree looks like. */
+int mb_obj_sprite(int obj, const MoteImage **img, int *cx, int *cy)
+{
+    if (obj <= 0 || obj >= O_BUILD0) return 0;
+    const ObjSpr *o = &MB_OBJ_SPR[obj];
+    if (!o->img) return 0;
+    *img = o->img; *cx = o->cx; *cy = o->cy;
+    return 1;
+}
 unsigned mb_hash2(int x, int y) { return mb__hash2(x, y); }
 
 /* THE CAST CELL FOR A ROLE, with no Unit to hand.

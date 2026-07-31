@@ -648,10 +648,51 @@ static float s_menu_hold;        /* how long MENU has been down: tap vs hold */
  * whose tile index equals it — figures are drawn at sub-pixel positions now, so a villager
  * standing on the boundary appears on the cell you are pointing at and must be listed there.
  * Buildings and the lord are listed too, so this doubles as "what am I looking at". */
-enum { PK_UNIT = 0, PK_BUILD, PK_LORD };
+/* PK_THING and PK_GROUND were missing, and they are half of what is on a map. The list
+ * offered people, a building and a lord; an iron seam, a wood, a boulder field, a grave and
+ * the ground itself were all unlisted — so the resources the whole economy runs on were the
+ * one thing you could not point at and ask about. */
+enum { PK_UNIT = 0, PK_BUILD, PK_LORD, PK_THING, PK_GROUND };
 #define PK_MAX 10
 static struct { uint8_t kind; uint16_t idx; } s_pick[PK_MAX];
 static int s_pick_n;
+
+/* WHAT IT IS GOOD FOR, in one word, and the same word the land page uses. Written from the
+ * gatherer's side rather than the geologist's: a villager walks to a tree for timber and to a
+ * seam for iron, and that is the fact worth putting on a list. */
+static const char *thing_role(uint8_t o)
+{
+    switch (o) {
+    case O_TREE: case O_TREE2: case O_DEAD:        return "timber";
+    case O_BUSH: case O_FLOWER:                    return "forage";
+    case O_ROCK: case O_BOULDER:                   return "stone";
+    case O_PEAKROCK:                               return "crag";
+    case O_ORE:                                    return "iron";
+    case O_SILVER: case O_GOLD: case O_GEM:        return "gold";
+    case O_TUFT: case O_REEDS:                     return "scrub";
+    case O_GRAVE:                                  return "a grave";
+    case O_SOWN: case O_SHOOTS: case O_GROWN:      return "growing";
+    case O_RIPE:                                   return "harvest";
+    default:                                       return "";
+    }
+}
+
+/* AND WHAT ONE TRIP FETCHES, which is the number a god actually wants: it is the difference
+ * between a wood worth settling beside and a bush. These are mb_village_work()'s own figures —
+ * if they drift, the page is lying about the simulation. */
+static int thing_yield(uint8_t o, int *renews)
+{
+    *renews = 0;
+    switch (o) {
+    case O_TREE: case O_TREE2: case O_DEAD:  return 8;
+    case O_ROCK: case O_BOULDER:             return 8;
+    case O_BUSH: case O_FLOWER:              return 6;
+    case O_ORE:                              *renews = 1; return 6;
+    case O_SILVER: case O_GOLD: case O_GEM:  *renews = 1; return 5;
+    case O_RIPE:                             return 24;
+    default:                                 return 0;
+    }
+}
 
 static void pick_build(void)
 {
@@ -675,6 +716,18 @@ static void pick_build(void)
         && (o == O_HALL1 || o == O_HALL2 || o == O_HALL3)) {
         s_pick[s_pick_n].kind = PK_LORD; s_pick[s_pick_n].idx = (uint16_t)v; s_pick_n++;
     }
+    /* whatever is growing, standing or seamed here */
+    if (o && !mb_is_build(o) && s_pick_n < PK_MAX) {
+        s_pick[s_pick_n].kind = PK_THING; s_pick[s_pick_n].idx = o; s_pick_n++;
+    }
+    /* AND THE GROUND ITSELF, always, last. It was reachable only by pressing A on a row that
+     * was about something else, or on the "bare ground" message — so the page that carries the
+     * terrain, the height, the claim and the surroundings had no line of its own. */
+    if (s_pick_n < PK_MAX) {
+        s_pick[s_pick_n].kind = PK_GROUND;
+        s_pick[s_pick_n].idx = mb_w.biome[AT(s_cx, s_cy)];
+        s_pick_n++;
+    }
     if (s_ui_row >= s_pick_n) s_ui_row = s_pick_n ? s_pick_n - 1 : 0;
 }
 
@@ -691,10 +744,14 @@ static void pick_sprite(int i, const MoteImage **img, int *cx, int *cy, int *h)
         *img = mb_ui_town_sheet();
         *cx = mb_draw_form_col((uint8_t)s_pick[i].idx, 0, s_cx, s_cy);
         *cy = 4; *h = 2;                       /* the unclaimed grey banner row */
-    } else {
+    } else if (s_pick[i].kind == PK_LORD) {
         int v = s_pick[i].idx, sh, sx, sy;
         mb_cast_role(mb_v[v].sp, mb_cast_role_lord(), (unsigned)v * 7919u, &sh, &sx, &sy);
         *img = mb_ui_sheet(sh); *cx = sx; *cy = sy;
+    } else if (s_pick[i].kind == PK_THING) {
+        if (!mb_obj_sprite(s_pick[i].idx, img, cx, cy)) { *img = 0; *cx = *cy = 0; }
+    } else {
+        *img = 0; *cx = *cy = 0;             /* the ground draws its own colour swatch */
     }
 }
 
@@ -711,11 +768,24 @@ static void pick_label(int i, char *out, int n, char *role, int rn)
             snprintf(role, (size_t)rn, "beast");
         }
     } else if (s_pick[i].kind == PK_BUILD) {
+        /* NO ROLE WORD FOR A BUILDING. It said "built", which the sprite already says, and it
+         * cost the name the room it needed: "great hall" is 78 px against a 56 px column. */
         snprintf(out, (size_t)n, "%s", O_NAME[s_pick[i].idx]);
-        snprintf(role, (size_t)rn, "built");
-    } else {
+        (void)rn;
+    } else if (s_pick[i].kind == PK_LORD) {
         mb_name_str(out, n, NK_PERSON, mb_v[s_pick[i].idx].lord_name);
         snprintf(role, (size_t)rn, "LORD");
+    } else if (s_pick[i].kind == PK_THING) {
+        uint8_t o = (uint8_t)s_pick[i].idx;
+        /* the crop's own names are sentences ("standing crop", "sown field") and this is a
+         * 56 px column, so on this list a field of wheat is simply "wheat" */
+        if (o >= O_SOWN && o <= O_RIPE) snprintf(out, (size_t)n, "wheat");
+        else snprintf(out, (size_t)n, "%s", O_NAME[o < O_N ? o : 0]);
+        snprintf(role, (size_t)rn, "%s", thing_role(o));
+    } else {
+        uint8_t b = (uint8_t)s_pick[i].idx;
+        snprintf(out, (size_t)n, "%s", B_NAME[b < B_N ? b : 0]);
+        snprintf(role, (size_t)rn, "the land");
     }
 }
 
@@ -724,27 +794,34 @@ static void ui_draw_pick(uint16_t *fb)
 {
     const uint16_t FILL = MOTE_RGB565(18, 24, 44);
     mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_SKY, FILL, 1);
-    mb_ui_text(fb, 7, 6, "WHO IS HERE", MB_UI_CREAM, 100);
+    mb_ui_text(fb, 7, 6, "WHAT IS HERE", MB_UI_CREAM, 108);
     char buf[32];
-    snprintf(buf, sizeof buf, "%d on this ground", s_pick_n);
+    snprintf(buf, sizeof buf, "%d things here", s_pick_n);
     mb_ui_text(fb, 7, 15, buf, MB_UI_DIM, 112);
-    if (!s_pick_n) {
-        mb_ui_text(fb, 7, 26, "bare ground", MB_UI_DIM, 112);
-        mb_ui_actions(fb, "A LAND", "B<", FILL);
-        return;
-    }
     for (int i = 0; i < s_pick_n && i < 6; i++) {
         int y = 26 + i * 13;
         int sel = (i == s_ui_row);
         if (sel) g_api->draw_rect(fb, 5, y - 1, 118, 12, MOTE_RGB565(44, 58, 102), 1, 0, 128);
         const MoteImage *img; int cx, cy, h;
         pick_sprite(i, &img, &cx, &cy, &h);
-        g_api->blit(fb, img, 8, y - (h > 1 ? 4 : 0), cx * 8, cy * 8, 8, 8 * h, 0, 0, 128);
+        if (img)
+            g_api->blit(fb, img, 8, y - (h > 1 ? 4 : 0), cx * 8, cy * 8, 8, 8 * h, 0, 0, 128);
+        else if (s_pick[i].kind == PK_GROUND)
+            /* the ground's own God's Eye colour, which is the only portrait it has */
+            g_api->draw_rect(fb, 9, y + 1, 6, 6, mb_biome_colour((uint8_t)s_pick[i].idx),
+                             1, 0, 128);
         char name[24], role[16];
         pick_label(i, name, sizeof name, role, sizeof role);
-        mb_ui_text(fb, 20, y + 1, name, sel ? MB_UI_CREAM : MB_UI_DIM, 44);
-        mb_ui_text(fb, 66, y + 1, role,
-                   s_pick[i].kind == PK_LORD ? MB_UI_GOLD : MB_UI_OK, 54);
+        /* MEASURED COLUMNS. 44 and 54 were set when every row was a person's given name and
+         * a one-word trade; "standing crop" is 97 px and "the land" 57, so the first pass at
+         * this printed "silve" and "the lon". The name gets 56 and the role the rest. */
+        /* the name takes whatever the role leaves, measured, so a long name is only cut when
+         * there is genuinely nothing to cut it from */
+        int rw = role[0] ? mb_ui_textw(role) + 5 : 0;
+        mb_ui_text(fb, 18, y + 1, name, sel ? MB_UI_CREAM : MB_UI_DIM, 103 - rw);
+        if (role[0])
+            mb_ui_text_r(fb, 121, y + 1, role,
+                         s_pick[i].kind == PK_LORD ? MB_UI_GOLD : MB_UI_OK);
     }
     mb_ui_actions(fb, "A LOOK", "B<", FILL);
 }
@@ -1156,7 +1233,10 @@ static void ui_draw_land(uint16_t *fb)
             g_api->draw_rect(fb, 8 + (dx + 3) * 5, 76 + (dy + 3) * 5, 5, 5, c, 1, 0, 128);
         }
     g_api->draw_rect(fb, 8 + 3 * 5 - 1, 76 + 3 * 5 - 1, 7, 7, MB_UI_CREAM, 0, 0, 128);
-    /* and what stands on the cell itself */
+    /* AND WHAT STANDS ON THE CELL, which for a resource is the part a god came here for: its
+     * own sprite, what one trip fetches, whether working it uses it up, and how much more of
+     * the same is within a gatherer's reach. "iron" on its own tells you nothing about whether
+     * this is a valley worth putting a town in. */
     if (o && o < O_N && O_NAME[o][0]) {
         if (mb_is_build(o)) {
             int k = mb_kingdom_of(v);
@@ -1165,7 +1245,28 @@ static void ui_draw_land(uint16_t *fb)
             g_api->blit(fb, mb_ui_town_sheet(), 52, 76, col * 8, row * 14, 8, 14, 0, 0, 128);
             mb_ui_text(fb, 66, 82, O_NAME[o], MB_UI_CREAM, 54);
         } else {
-            mb_ui_text(fb, 52, 82, O_NAME[o], MB_UI_CREAM, 68);
+            const MoteImage *img; int scx, scy;
+            if (mb_obj_sprite(o, &img, &scx, &scy))
+                mb_ui_blit3(fb, img, scx, scy, 52, 76, 2);
+            mb_ui_text(fb, 70, 76, O_NAME[o], MB_UI_CREAM, 50);
+            int renews = 0, y = thing_yield(o, &renews);
+            if (y) {
+                snprintf(buf, sizeof buf, "%d a trip", y);
+                mb_ui_text(fb, 70, 85, buf, MB_UI_OK, 50);
+                /* how much of the same lies within the fourteen-cell spiral a villager
+                 * searches — see mb_village_resource() */
+                int near = 0;
+                for (int dy = -7; dy <= 7; dy++)
+                    for (int dx = -7; dx <= 7; dx++) {
+                        int x = s_cx + dx, yy = s_cy + dy;
+                        if (mb_in(x, yy) && mb_w.obj[AT(x, yy)] == o) near++;
+                    }
+                snprintf(buf, sizeof buf, "%d near", near);
+                mb_ui_text(fb, 70, 94, buf, MB_UI_DIM, 50);
+                if (renews) mb_ui_text(fb, 70, 103, "a seam", MB_UI_SKY, 50);
+            } else {
+                mb_ui_text(fb, 70, 85, thing_role(o), MB_UI_DIM, 50);
+            }
         }
     } else {
         mb_ui_text(fb, 52, 82, "bare", MB_UI_DIM, 68);
@@ -1496,6 +1597,22 @@ static void g_init(void)
                            fprintf(stderr, "cam -> %d field cells around %d,%d\n",
                                    bestn, fx, fy); }
             else fprintf(stderr, "cam -> no farmland anywhere\n");
+        } else if (cv && *cv == 'o') {
+            /* CAM=o parks on an ORE SEAM. The resource pages are about the things the economy
+             * runs on, and those are scattered over a 96x96 map — every check of them was
+             * otherwise a hunt with the cursor. */
+            int ox = -1, oy = 0;
+            for (int y = 0; y < MH && ox < 0; y++)
+                for (int x = 0; x < MW; x++) {
+                    uint8_t oo = mb_w.obj[AT(x, y)];
+                    if (oo == O_ORE || oo == O_GOLD || oo == O_GEM || oo == O_SILVER) {
+                        ox = x; oy = y; break;
+                    }
+                }
+            if (ox >= 0) { s_cx = ox; s_cy = oy;
+                           fprintf(stderr, "cam -> %s at %d,%d\n",
+                                   O_NAME[mb_w.obj[AT(ox, oy)]], ox, oy); }
+            else fprintf(stderr, "cam -> no ore anywhere\n");
         } else if (cv && *cv == 'u') {
             /* CAM=u parks on a PERSON. The soul screen is the richest page in the game and
              * CAM=v lands on a hall, where the only thing to inspect is masonry. */
@@ -2575,7 +2692,10 @@ static void g_update(float dt)
                 int k = s_pick[s_ui_row].kind;
                 if (k == PK_UNIT)  { s_subject = s_pick[s_ui_row].idx; s_ui = UI_SOUL; }
                 else if (k == PK_LORD) { s_subject_v = s_pick[s_ui_row].idx; s_ui = UI_LORD; }
-                else               { s_ui = UI_LAND; }
+                else if (k == PK_BUILD) { s_subject_v = mb_w.claim[AT(s_cx, s_cy)];
+                                          s_ui = s_subject_v && mb_v[s_subject_v].alive
+                                               ? UI_TOWN : UI_LAND; }
+                else               { s_ui = UI_LAND; }   /* a thing, and the ground */
                 s_ui_row = 0;
             } else if (mote_just_pressed(in, MOTE_BTN_A)) {
                 s_ui = UI_LAND;

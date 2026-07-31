@@ -578,6 +578,7 @@ int  mb_ui_list_top(int sel, int top, int n, int rows);   /* scroll to keep sel 
 void mb_cast_role(int sp, int role, unsigned seed, int *sheet, int *cx, int *cy);
 const MoteImage *mb_ui_sheet(int which);      /* 0 characters, 1 monsters, 2 animals */
 const MoteImage *mb_ui_town_sheet(void);
+int  mb_obj_sprite(int obj, const MoteImage **img, int *cx, int *cy);
 unsigned mb_hash2(int x, int y);
 void mb_cast_pick_pub(const Unit *u, unsigned seed, int *sheet, int *cx, int *cy);
 void mb_ui_blit3(uint16_t *fb, const MoteImage *img, int cx, int cy, int x, int y, int scale);
