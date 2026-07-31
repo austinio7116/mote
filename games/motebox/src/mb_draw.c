@@ -361,15 +361,27 @@ void mb_draw_prepare(void)
         case MAPMODE_GROWTH: kc = (k > 0 && k <= TIER_N) ? GROWTH_COL[k - 1] : 0; break;
         default:             kc = (k > 0) ? mb_kingdom_colour(k) : 0; break;
         }
-        /* The non-political modes wash HARDER, because they are the point of the view
-         * while they are on: at the political tint's 40/255 a creed was a suggestion. */
-        int wash_in = (mode == MAPMODE_POWER) ? 40 : 120;
+        /* A TERRITORY IS AN OVERLAY, NOT A REPAINT.
+         *
+         * The interior was already a light 40/255 wash — but the BORDER was blended at
+         * 220/255, which is not a border tint, it is a solid recolour of the pixel. And since
+         * a claim boundary at one pixel per tile is fractal, a large share of the cells near a
+         * town qualified as border, so a realm rendered as broken bands of near-solid colour
+         * laid over the ground. It read as a display fault rather than as a frontier.
+         *
+         * Both are now genuinely translucent: the ground still shows through everywhere, and
+         * the border is simply FIRMER than the interior rather than opaque. The lens modes wash
+         * harder because dominating the view is their entire purpose while they are on — at the
+         * political tint's strength a creed was a suggestion — but even they stay see-through.
+         */
+        int wash_in = (mode == MAPMODE_POWER) ?  30 : 105;
+        int wash_ed = (mode == MAPMODE_POWER) ?  92 : 165;
         for (int b = 0; b < B_COUNT; b++) {
             uint16_t base = MB_COL[b];
             uint16_t in = base, ed = base;
             if ((tint || mode != MAPMODE_POWER) && kc) {
                 in = blend565(base, kc, wash_in);
-                ed = blend565(base, kc, 220);
+                ed = blend565(base, kc, wash_ed);
             }
             if (amt) { in = blend565(in, age_col, amt); ed = blend565(ed, age_col, amt); }
             s_lut_in[k][b] = in;
@@ -572,11 +584,48 @@ void mb_god_band(uint16_t *fb, int y0, int y1)
             int k = s_kof[crow[x] < MAXV ? crow[x] : 0];
             uint16_t c;
             if (k) {
-                int edge = (x > 0      && s_kof[crow[x - 1]]  != k) ||
-                           (x < MW - 1 && s_kof[crow[x + 1]]  != k) ||
-                           (y > 0      && s_kof[crow[x - MW]] != k) ||
-                           (y < MH - 1 && s_kof[crow[x + MW]] != k);
-                c = edge ? s_lut_edge[k][b - 1] : s_lut_in[k][b - 1];
+                /* THE BORDER IS AN OUTLINE, NOT A HATCH.
+                 *
+                 * The edge tint is nearly solid kingdom colour and it fired on any cell with a
+                 * differing neighbour — but a claim boundary at one pixel per tile is FRACTAL.
+                 * Villages claim ragged blobs with holes and single-cell filaments in them, so
+                 * most cells within a few tiles of a town qualified as "edge" and the territory
+                 * rendered as broken pink bands over the ground: it read as a display fault,
+                 * not as a frontier.
+                 *
+                 * So a cell only carries the line if it is genuinely PART of the territory —
+                 * at least two of its four neighbours share its owner. A speck or a one-cell
+                 * thread gets the light interior wash instead, which is what it is. That
+                 * leaves a real outline one pixel wide around the solid mass of a realm. */
+                /* SMOOTHED, then outlined. Requiring two like neighbours helped and was not
+                 * enough: a claim is a ragged blob with holes and one-cell threads in it, and
+                 * drawing that honestly at one pixel per tile is indistinguishable from noise.
+                 *
+                 * So the territory is decided by a MAJORITY of the 3x3 — five of the nine cells
+                 * around it must share the owner. That fills the holes, deletes the specks and
+                 * the filaments, and leaves a solid mass whose boundary is worth drawing. A
+                 * cell that fails the test is drawn as plain ground: an outlying claimed tile
+                 * in the middle of a forest is not a country. */
+                int same3 = 0;
+                for (int ddy = -1; ddy <= 1; ddy++) {
+                    int yy = y + ddy;
+                    if (yy < 0 || yy >= MH) continue;
+                    const uint8_t *nrow = mb_w.claim + yy * MW;
+                    for (int ddx = -1; ddx <= 1; ddx++) {
+                        int xx = x + ddx;
+                        if (xx < 0 || xx >= MW) continue;
+                        if (s_kof[nrow[xx]] == k) same3++;
+                    }
+                }
+                if (same3 < 5) {
+                    c = s_lut_in[0][b - 1];              /* not a country, just ground */
+                } else {
+                    int diff = (x > 0      && s_kof[crow[x - 1]]  != k) ||
+                               (x < MW - 1 && s_kof[crow[x + 1]]  != k) ||
+                               (y > 0      && s_kof[crow[x - MW]] != k) ||
+                               (y < MH - 1 && s_kof[crow[x + MW]] != k);
+                    c = diff ? s_lut_edge[k][b - 1] : s_lut_in[k][b - 1];
+                }
             } else {
                 c = s_lut_in[0][b - 1];
             }
@@ -1279,6 +1328,14 @@ void mb_draw_mortal(int cam_x, int cam_y)
          * rounding. The lerp then fills in the frames BETWEEN ticks, which is the other half:
          * at x1 the sim ticks eight times a second and the screen draws sixty. */
         int sx = lerp_px(u->ox, u->x), sy = lerp_px(u->oy, u->y);
+        /* A FOOTSTEP. One pixel up and down as it walks, so a static sprite reads as animated
+         * and a crowd reads as a crowd rather than as a set of stickers sliding about. The
+         * phase comes from the figure's own POSITION, not from the clock — so it bobs in step
+         * with its own stride, it stops dead when the figure stops, and no two neighbours walk
+         * in lockstep. Nothing above ground level: the bob lifts, it never sinks, or everything
+         * would appear to be wading. */
+        if (u->x != u->ox || u->y != u->oy)
+            sy -= (int)(((u->x + u->y) >> 3) & 1u);
 #if MOTE_HOST
         { static int dbg = -1, trackee = -1;
           if (dbg < 0) dbg = getenv("MOTEBOX_LERPDBG") ? 1 : 0;
