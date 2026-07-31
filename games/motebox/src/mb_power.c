@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "ui_status.h"
+#include "fx_mono.h"
 #include "ui_gauges.h"
 #include "crowns_fx.h"
 #include "nature.h"
@@ -31,6 +32,7 @@ enum {
     PW_RAISE, PW_MOUNTAIN, PW_FOREST, PW_GRASS, PW_LOWER, PW_WATER, PW_DESERT, PW_ROAD,
     /* WRATH */
     PW_FIRE, PW_LIGHTNING, PW_METEOR, PW_VOLCANO, PW_QUAKE, PW_TORNADO, PW_ACID, PW_FREEZE,
+    PW_NUKE_STRIKE,
     /* LIFE */
     PW_HUMAN, PW_ELF, PW_DWARF, PW_ORC, PW_VILLAGE, PW_HERD, PW_WOLVES, PW_PLANTS,
     /* BLESS */
@@ -81,7 +83,17 @@ static const Power P_WRATH[8] = {
     { PW_VOLCANO,  "VOLCANO",  &crowns_fx_img,  6, 7, 1, 0, 200 },   /* fire/explosion, not the brown CROWN the old cell was */
     { PW_QUAKE,    "QUAKE",    &ui_status_img,  5, 3, 0, 0,  60 },
     { PW_TORNADO,  "TORNADO",  &ui_status_img,  2, 3, 0, 0,  90 },
-    { PW_ACID,     "ACID",     &ui_status_img, 10, 5, 2, 1,  40 },
+    /* THE BOMB, AS A WRATH. A kingdom that finishes the tech tree can launch one at a rival
+     * (nuke_think), and the god had no way to do it at all — the single most dramatic thing in
+     * the game was locked behind six hundred years of somebody else's research. It goes in
+     * ACID's slot because the tab holds exactly eight and acid was the most redundant of them:
+     * a radius-2 brush doing what FIRE already does. FX_ACID still exists as a natural
+     * disaster and as the Maw's leavings.
+     *
+     * Priced above every other wrath — it is a bigger event than a volcano — and it reuses
+     * mb_nuke_strike(), so the god's bomb is the same flash, mushroom, crater, firestorm ring
+     * and lingering radiation a kingdom's is. */
+    { PW_NUKE_STRIKE, "THE BOMB", &fx_mono_img,  8, 3, 0, 0, 500 },
     { PW_FREEZE,   "FREEZE",   &ui_status_img,  6, 3, 3, 1,  30 },
 };
 
@@ -517,6 +529,9 @@ static void cast_at(int id, int r, int cx, int cy)
         break;
     }
     case PW_MARK:     s_last_reach = mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_MARKED); break;
+
+    /* from_k 0: this one is nobody's foreign policy, it is an act of god */
+    case PW_NUKE_STRIKE: mb_nuke_strike(0, cx, cy); break;
 
     /* --- BEASTS: the kaiju ------------------------------------------- */
     case PW_TITAN: case PW_MEDUSA: case PW_REAPER: case PW_DRAGON:

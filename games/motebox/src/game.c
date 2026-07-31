@@ -1894,6 +1894,20 @@ static void g_init(void)
             fprintf(stderr, "\ntowns by creed:");
             for (int i = 0; i < CREED_N; i++) if (creed[i]) fprintf(stderr, " %s=%d", MB_CREED_NAME[i], creed[i]);
             fprintf(stderr, "\ncaravans delivered (lifetime): %d\n", traded);
+            /* WHAT ARE THEY ACTUALLY DOING? "They swarm around the town and nothing changes"
+             * is a question about the JOB histogram, and nothing was printing it — the trade
+             * census says what somebody IS, not what they are doing this tick. */
+            {   int jc[JOB_N] = {0}, civ = 0;
+                for (int i = 0; i < mb_nu; i++) {
+                    if (!mb_u[i].alive || mb_u[i].sp >= SP_CIV_N) continue;
+                    civ++;
+                    jc[mb_u[i].job < JOB_N ? mb_u[i].job : 0]++;
+                }
+                fprintf(stderr, "doing (%d civ):", civ);
+                for (int j = 0; j < JOB_N; j++)
+                    if (jc[j]) fprintf(stderr, " %s=%d", JOB_NAME[j], jc[j]);
+                fprintf(stderr, "\n");
+            }
             /* THE METAL ECONOMY, which had none. Iron and gold were listed as build costs and
              * produced by nothing that depended on the ground, so the inspect dump read
              * `iron 0, gold 0` in every world and every expensive project needed exempting

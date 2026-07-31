@@ -1557,7 +1557,11 @@ void mb_draw_mortal(int cam_x, int cam_y)
         typedef struct { const MoteImage *img; uint8_t cx, cy, w; } AgSpr;
         static const AgSpr AG_SPR[AG_N] = {
             [AG_TORNADO] = { &crowns_fx_img, 3, 7, 1 },   /* the smoke swirl */
-            [AG_VENT]    = { &crowns_fx_img, 5, 5, 1 },   /* the cone        */
+            /* (4,7) is the master's red-and-orange ERUPTION. It was (5,5) — a brown SLIME
+             * BLOB two cells past the end of the five crowns — so every volcanic vent in the
+             * game has been drawn as a monster. The comment said "the cone", which is what
+             * made it look deliberate. */
+            [AG_VENT]    = { &crowns_fx_img, 4, 7, 1 },   /* the eruption    */
             /* CHECKED AGAINST THE SHEET, cell by cell, because two of these named one
              * monster and drew another: the "SKULL TITAN" was pointing at (4,3), which is
              * the HOODED REAPER WITH A SCYTHE, and the "REAPER" at (10,1), which is an
