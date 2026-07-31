@@ -6,6 +6,9 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <!-- Dock mode: a handheld on the cable gets online play and the gallery
+         through the phone. Optional — the app is a console on its own. -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <!-- Rumble (the handheld's motor). -->
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -35,6 +38,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Plugging a Thumby Color in grants USB permission and brings the
+                 app up, so docking is just docking. -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
     </application>
 </manifest>

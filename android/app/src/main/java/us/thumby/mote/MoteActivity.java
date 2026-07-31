@@ -32,6 +32,7 @@ public class MoteActivity extends SDLActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         sInstance = this;
+        MoteUsb.init(this);          /* before the native side starts asking */
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }

@@ -26,4 +26,25 @@ int  mote_android_os_add_module(const char *path);
 void mote_android_gallery_screen(void);
 void mote_android_gallery_set_base(const char *base);   /* NULL = compiled default */
 
+/* ---- the manifest, as the USB dock needs it (blocking; dock thread only) ---
+ * A docked handheld wants the same catalogue with its own .mote artifacts, so it
+ * reads the one already-parsed manifest through here rather than parsing again. */
+int         mote_gallery_ensure(void);                  /* 0 = loaded */
+int         mote_gallery_count(void);
+int         mote_gallery_manifest_line(int i, char *out, int cap);
+int         mote_gallery_shot_url(int i, int shot, char *out, int cap);
+int         mote_gallery_mote_url(int i, char *out, int cap);
+const char *mote_gallery_mote_sha(int i);
+long        mote_gallery_mote_size(int i);
+long        mote_gallery_desc(int i, char *out, int cap);
+int         mote_gallery_sha256_file(const char *path, char *hex);
+
+/* ---- USB dock (os/android/mote_android_dock.c) --------------------------- */
+/* Start the dock service thread. Idles until a handheld is on the cable. */
+void        mote_android_dock_start(void);
+void        mote_android_dock_stop(void);
+/* One line for the shell's status pill, or "" when nothing is docked. */
+const char *mote_android_dock_status(void);
+int         mote_android_dock_attached(void);
+
 #endif /* MOTE_ANDROID_OS_H */

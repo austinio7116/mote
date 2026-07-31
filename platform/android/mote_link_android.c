@@ -32,6 +32,7 @@
 #include "mote_plat_android.h"
 #include "mote_api.h"          /* MOTE_LINK_* status values */
 #include "link_net.h"
+#include "mote_mn1.h"
 
 #include <SDL.h>
 #include <stdio.h>
@@ -93,17 +94,6 @@ static void out_clear(void) { s_out_head = s_out_tail = 0; }
 
 static void info(const char *s) { snprintf(s_info, sizeof s_info, "%s", s); }
 
-static void gen_room_code(char *out) {
-    static const char A[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   /* no 0/O/1/I */
-    static uint32_t rng;
-    if (!rng) rng = SDL_GetTicks() * 2654435761u + 1u;
-    for (int i = 0; i < 4; i++) {
-        rng = rng * 1664525u + 1013904223u;
-        out[i] = A[(rng >> 17) % (sizeof A - 1)];
-    }
-    out[4] = 0;
-}
-
 void mote_shell_set_relay(const char *hostport) {
     if (!hostport || !hostport[0]) return;
     snprintf(s_relay_cfg, sizeof s_relay_cfg, "%s", hostport);
@@ -140,61 +130,39 @@ static int list_thread(void *a) { (void)a;
     return 0;
 }
 
-/* Act on one MN1 line. Mirrors studio/main.c proxy_command, minus the gallery
- * verbs (those only ever come from a docked device over USB). */
+/* Reply sink for the shared verb table: straight into the out-ring. */
+static void mn1_reply(void *ud, const char *s) { (void)ud; out_str(s); }
+
+/* Act on one MN1 line. The verbs live in mote_mn1.c (shared with the USB dock);
+ * what belongs here is the non-blocking bookkeeping — the ack, resend suppression
+ * and handing LIST to a worker, because this runs inside the OS frame loop. */
 static void mn1_command(char *line) {
     if (strncmp(line, "MN1 ", 4) != 0) return;
     out_str("MN1 OK\n");                        /* ack now: the lobby resends until heard */
 
-    char *cmd = line + 4;
-    char *sp  = strchr(cmd, ' ');
-    char verb[12];
-    int  vl = sp ? (int)(sp - cmd) : (int)strlen(cmd); if (vl > 11) vl = 11;
-    memcpy(verb, cmd, (size_t)vl); verb[vl] = 0;
-    unsigned gid = sp ? (unsigned)strtoul(sp + 1, NULL, 10) : 0u;
+    /* A resend of the command we're already acting on must not restart it. */
+    if (s_awaiting && !strcmp(s_last_cmd, line)) return;
 
-    if (!strcmp(verb, "CANCEL")) {
-        link_net_stop(); s_awaiting = 0; s_room[0] = 0; s_last_cmd[0] = 0;
+    char code[6];
+    int act = mote_mn1_dispatch(line, s_label, mn1_reply, NULL, code);
+
+    if (act == MOTE_MN1_CANCEL) {
+        s_awaiting = 0; s_room[0] = 0; s_last_cmd[0] = 0;
         info("cancelled");
         return;
     }
-    /* A resend of the command we're already acting on must not restart it. */
-    if (s_awaiting && !strcmp(s_last_cmd, line)) return;
     snprintf(s_last_cmd, sizeof s_last_cmd, "%s", line);
+    snprintf(s_room, sizeof s_room, "%s", code);
 
-    if (!strcmp(verb, "LANHOST")) { link_net_host();      s_awaiting = 1; info("hosting on the local network"); return; }
-    if (!strcmp(verb, "LANJOIN")) { link_net_join(NULL);  s_awaiting = 1; info("searching the local network");  return; }
-
-    if (!mote_shell_get_relay()[0]) { out_str("MN1 ERR no relay\n"); return; }
-    link_net_relay_game(gid);
-
-    if (!strcmp(verb, "QUICK")) {
-        s_room[0] = 0; link_net_relay_quick(s_label); s_awaiting = 1;
-        info("quick match"); return;
-    }
-    if (!strcmp(verb, "HOST")) {
-        gen_room_code(s_room);
-        link_net_relay_host(s_room, 1, s_label); s_awaiting = 1;
-        char m[32]; snprintf(m, sizeof m, "MN1 CODE %s\n", s_room); out_str(m);
-        info("hosting a room"); return;
-    }
-    if (!strcmp(verb, "JOIN")) {
-        char code[8] = {0};
-        char *c2 = sp ? strchr(sp + 1, ' ') : NULL;
-        if (c2) { c2++; int k = 0; while (c2[k] && c2[k] != ' ' && k < 7) { code[k] = c2[k]; k++; } }
-        snprintf(s_room, sizeof s_room, "%s", code);
-        link_net_relay_join(code); s_awaiting = 1;
-        info("joining a room"); return;
-    }
-    if (!strcmp(verb, "LIST")) {
+    if (act == MOTE_MN1_PENDING) { s_awaiting = 1; info("setting up a match"); return; }
+    if (act == MOTE_MN1_LIST) {
         if (s_list_busy) return;                       /* already browsing */
         if (s_list_th) { SDL_WaitThread(s_list_th, NULL); s_list_th = NULL; }
         s_list_done = 0; s_list_busy = 1; s_list_n = 0;
         s_list_th = SDL_CreateThread(list_thread, "mn1list", NULL);
         if (!s_list_th) { s_list_busy = 0; out_str("MN1 ENDROOMS\n"); }
-        info("browsing rooms"); return;
+        info("browsing rooms");
     }
-    out_str("MN1 ERR badcmd\n");
 }
 
 /* Feed one byte of the game's MN1 stream into the line accumulator. */
@@ -209,18 +177,7 @@ static void list_drain(void) {
     if (!s_list_done) return;
     s_list_done = 0;
     if (s_list_th) { SDL_WaitThread(s_list_th, NULL); s_list_th = NULL; }
-    if (s_list_n > 0) {
-        char *p = s_list_buf;
-        while (*p) {
-            char *e = strchr(p, '\n');
-            int len = e ? (int)(e - p) : (int)strlen(p); if (len > 50) len = 50;
-            char m[80]; memcpy(m, "MN1 ROOM ", 9); memcpy(m + 9, p, (size_t)len);
-            m[9 + len] = '\n'; out_put(m, 10 + len);
-            if (!e) break;
-            p = e + 1;
-        }
-    }
-    out_str("MN1 ENDROOMS\n");
+    mote_mn1_emit_rooms(s_list_buf, s_list_n, mn1_reply, NULL);
     s_last_cmd[0] = 0;                 /* the follow-up JOIN is a fresh command */
 }
 

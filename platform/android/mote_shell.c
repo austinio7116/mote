@@ -266,6 +266,131 @@ static void shell_rumble(float intensity, int ms) {
 
 static void tap_haptic(void) { if (cfg.haptics) jni_rumble(0.45f, 12); }
 
+/* ====================================================================== *
+ *  USB host: the byte pipe to a docked handheld
+ *
+ *  Android does it through Java (MoteUsb), because C cannot open a USB device
+ *  here. The desktop build uses a Unix socket instead — MOTE_DOCK_SOCK — so the
+ *  whole dock service (MN1 online proxy + gallery server) can be driven by a
+ *  fake device without any hardware.
+ * ====================================================================== */
+#ifdef __ANDROID__
+static jclass s_usb_cls;
+
+static void usb_bind(void) {
+    JNIEnv *env = SDL_AndroidGetJNIEnv();
+    if (!env) return;
+    jclass local = (*env)->FindClass(env, "us/thumby/mote/MoteUsb");
+    if (!local) { (*env)->ExceptionClear(env); return; }
+    s_usb_cls = (jclass)(*env)->NewGlobalRef(env, local);
+    (*env)->DeleteLocalRef(env, local);
+}
+static int usb_call_i(const char *name, const char *sig, ...) {
+    if (!s_usb_cls) return -1;
+    JNIEnv *env = SDL_AndroidGetJNIEnv();
+    if (!env) return -1;
+    jmethodID m = (*env)->GetStaticMethodID(env, s_usb_cls, name, sig);
+    if (!m) { (*env)->ExceptionClear(env); return -1; }
+    va_list ap; va_start(ap, sig);
+    jint r = (*env)->CallStaticIntMethodV(env, s_usb_cls, m, ap);
+    va_end(ap);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); return -1; }
+    return (int)r;
+}
+static int  usb_present(void) { return usb_call_i("motePresent", "()I") == 1; }
+static int  usb_open(void)    { return usb_call_i("moteOpen", "()I") == 1; }
+static void usb_close(void) {
+    if (!s_usb_cls) return;
+    JNIEnv *env = SDL_AndroidGetJNIEnv();
+    if (!env) return;
+    jmethodID m = (*env)->GetStaticMethodID(env, s_usb_cls, "moteClose", "()V");
+    if (m) (*env)->CallStaticVoidMethod(env, s_usb_cls, m);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+}
+static int usb_read(void *buf, int max, int timeout_ms) {
+    if (!s_usb_cls) return -1;
+    JNIEnv *env = SDL_AndroidGetJNIEnv();
+    if (!env) return -1;
+    jmethodID m = (*env)->GetStaticMethodID(env, s_usb_cls, "moteRead", "([BI)I");
+    if (!m) { (*env)->ExceptionClear(env); return -1; }
+    jbyteArray arr = (*env)->NewByteArray(env, max);
+    if (!arr) return -1;
+    jint n = (*env)->CallStaticIntMethod(env, s_usb_cls, m, arr, (jint)timeout_ms);
+    if (n > 0) (*env)->GetByteArrayRegion(env, arr, 0, n, (jbyte *)buf);
+    (*env)->DeleteLocalRef(env, arr);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); return -1; }
+    return (int)n;
+}
+static int usb_write(const void *buf, int len) {
+    if (!s_usb_cls) return -1;
+    JNIEnv *env = SDL_AndroidGetJNIEnv();
+    if (!env) return -1;
+    jmethodID m = (*env)->GetStaticMethodID(env, s_usb_cls, "moteWrite", "([BI)I");
+    if (!m) { (*env)->ExceptionClear(env); return -1; }
+    jbyteArray arr = (*env)->NewByteArray(env, len);
+    if (!arr) return -1;
+    (*env)->SetByteArrayRegion(env, arr, 0, len, (const jbyte *)buf);
+    jint n = (*env)->CallStaticIntMethod(env, s_usb_cls, m, arr, (jint)len);
+    (*env)->DeleteLocalRef(env, arr);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); return -1; }
+    return (int)n;
+}
+#else  /* desktop: a Unix socket stands in for the cable */
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+static int s_dock_fd = -1;
+static const char *dock_sock_path(void) { return SDL_getenv("MOTE_DOCK_SOCK"); }
+static void usb_bind(void) {}
+static int  usb_present(void) {
+    const char *p = dock_sock_path();
+    if (!p) return 0;
+    if (s_dock_fd >= 0) return 1;
+    struct stat st;
+    return stat(p, &st) == 0;
+}
+static int usb_open(void) {
+    if (s_dock_fd >= 0) return 1;
+    const char *p = dock_sock_path();
+    if (!p) return 0;
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return 0;
+    struct sockaddr_un a; memset(&a, 0, sizeof a);
+    a.sun_family = AF_UNIX;
+    snprintf(a.sun_path, sizeof a.sun_path, "%s", p);
+    if (connect(fd, (struct sockaddr *)&a, sizeof a) != 0) { close(fd); return 0; }
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+    s_dock_fd = fd;
+    return 1;
+}
+static void usb_close(void) { if (s_dock_fd >= 0) { close(s_dock_fd); s_dock_fd = -1; } }
+static int usb_read(void *buf, int max, int timeout_ms) {
+    if (s_dock_fd < 0) return -1;
+    for (int waited = 0;; waited += 5) {
+        ssize_t r = recv(s_dock_fd, buf, (size_t)max, MSG_DONTWAIT);
+        if (r > 0) return (int)r;
+        if (r == 0) return -1;                              /* peer closed */
+        if (errno != EAGAIN && errno != EWOULDBLOCK) return -1;
+        if (waited >= timeout_ms) return 0;
+        SDL_Delay(5);
+    }
+}
+static int usb_write(const void *buf, int len) {
+    if (s_dock_fd < 0) return -1;
+    ssize_t w = send(s_dock_fd, buf, (size_t)len, MSG_DONTWAIT | MSG_NOSIGNAL);
+    if (w >= 0) return (int)w;
+    if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+    return -1;
+}
+#endif
+
+static const MoteUsbHost s_usb_host = {
+    usb_present, usb_open, usb_close, usb_read, usb_write
+};
+
 /* ---- HTTPS for the gallery ---------------------------------------------- *
  * No TLS in C here, so Java does it on Android (HttpsURLConnection) and curl
  * does it on the desktop. Called from the gallery's worker thread. */
@@ -454,6 +579,10 @@ static SDL_Texture *label_tex(const char *s, int *out_w, int *out_h) {
  * labelled pads in the bottom corners, always visible, brighter while held. */
 static SDL_Texture *tex_lb, *tex_rb;
 static int lb_w, lb_h, rb_w, rb_h;
+/* the docked-handheld banner: re-rendered only when the status text changes */
+static SDL_Texture *tex_dock;
+static int dock_w, dock_h;
+static char s_dock_txt[120];
 
 static void shoulder_pads(void) {
     if (!tex_lb) tex_lb = label_tex("LB", &lb_w, &lb_h);
@@ -876,8 +1005,10 @@ int main(int argc, char *argv[]) {
     if (cfg.relay[0]) mote_shell_set_relay(cfg.relay);
     else              snprintf(cfg.relay, sizeof cfg.relay, "%s", mote_shell_get_relay());
     jni_bind();
+    usb_bind();
     mote_shell_set_rumble_cb(shell_rumble);
     mote_shell_set_http_cb(shell_http_get);
+    mote_shell_set_usb_host(&s_usb_host);
     mote_android_gallery_set_base(SDL_getenv("MOTE_GALLERY_BASE"));
 
     /* ---- where game modules live ----
@@ -904,6 +1035,9 @@ int main(int argc, char *argv[]) {
     if (SDL_getenv("MOTE_SHELL_PANEL")) s_settings_open = 1;   /* capture the panel */
 
     pads_scan();
+    /* The dock idles until a handheld is on the cable, so starting it always is
+     * free — and it means plugging one in Just Works with no mode to select. */
+    mote_android_dock_start();
     s_engine = SDL_CreateThread(engine_thread, "mote-engine", NULL);
     if (!s_engine) { SDL_Log("engine thread failed: %s", SDL_GetError()); return 1; }
 
@@ -1111,6 +1245,30 @@ int main(int argc, char *argv[]) {
                     s / 2, s / 12 + 1, 200, 220, 240, 220);
         }
 
+        /* Docked-handheld banner. The phone is busy being a dock as well as a
+         * console, and the player needs to see that it took the cable — and what
+         * it is doing with it — without opening anything. */
+        if (mote_android_dock_attached()) {
+            const char *st = mote_android_dock_status();
+            int lh = s_oh / 26; if (lh < 16) lh = 16;
+            int bw = s_ow / 3;  if (bw < 200) bw = 200;
+            int bx = (s_ow - bw) / 2, by = s_gear_rect.y + s_gear_rect.h + lh / 3;
+            box(bx, by, bw, lh, 16, 34, 26, 205);
+            box_outline(bx, by, bw, lh, 1, 90, 220, 150, 220);
+            if (!tex_dock || strcmp(st, s_dock_txt)) {
+                if (tex_dock) SDL_DestroyTexture(tex_dock);
+                snprintf(s_dock_txt, sizeof s_dock_txt, "%s", st);
+                tex_dock = label_tex(st[0] ? st : "Thumby docked", &dock_w, &dock_h);
+            }
+            if (tex_dock && dock_h > 0) {
+                int th = lh * 3 / 5, tw = dock_w * th / dock_h;
+                if (tw > bw - 12) { tw = bw - 12; }
+                SDL_Rect d = { bx + (bw - tw) / 2, by + (lh - th) / 2, tw, th };
+                SDL_SetTextureAlphaMod(tex_dock, 235);
+                SDL_RenderCopy(ren, tex_dock, NULL, &d);
+            }
+        }
+
         if (s_settings_open) settings_draw();
 
         if (s_shot_path && ++s_frame_no >= s_shot_frame) { dump_ppm(s_shot_path); running = 0; }
@@ -1129,6 +1287,7 @@ int main(int argc, char *argv[]) {
     }
 
     mote_shell_request_quit();
+    mote_android_dock_stop();
     if (s_engine) SDL_WaitThread(s_engine, NULL);
     if (s_pad) SDL_GameControllerClose(s_pad);
     if (tex_lb) SDL_DestroyTexture(tex_lb);

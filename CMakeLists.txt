@@ -100,8 +100,10 @@ if(MOTE_TARGET STREQUAL "host")
         platform/android/mote_plat_android.c
         platform/android/mote_link_android.c
         studio/link_net.c
+        platform/android/mote_mn1.c
         os/android/mote_android_os.c
         os/android/mote_android_gallery.c
+        os/android/mote_android_dock.c
         os/mote_os.c
         os/mote_launcher.c
         os/mote_menu.c

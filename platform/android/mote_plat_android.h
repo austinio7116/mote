@@ -49,6 +49,22 @@ void mote_shell_set_rumble_cb(void (*cb)(float intensity, int ms));
  * Returns 0 on success. Call from a worker thread. */
 void mote_shell_set_http_cb(int (*cb)(const char *url, const char *dest));
 int  mote_shell_http_get(const char *url, const char *dest);
+
+/* ---- USB host: the byte pipe to a docked handheld ----------------------- *
+ * The handheld is a plain CDC-ACM device (VID:PID CAFE:4D01, 64-byte bulk
+ * endpoints). C cannot open it here, so the shell supplies the transport:
+ * Android claims the interface through Java's UsbManager; the desktop build
+ * uses a Unix socket so the whole dock can be tested without hardware.
+ * Every call is made from the dock thread. */
+typedef struct {
+    int  (*present)(void);                                   /* 1 = device attached */
+    int  (*open)(void);                                      /* 1 = pipe is up */
+    void (*close)(void);
+    int  (*read)(void *buf, int max, int timeout_ms);         /* >0 got, 0 idle, <0 gone */
+    int  (*write)(const void *buf, int len);                  /* >=0 written, <0 gone */
+} MoteUsbHost;
+void               mote_shell_set_usb_host(const MoteUsbHost *h);
+const MoteUsbHost *mote_shell_usb_host(void);
 /* Cap the engine's frame rate so it doesn't spin a core (0 = uncapped). */
 void mote_shell_set_present_cap(int fps);
 

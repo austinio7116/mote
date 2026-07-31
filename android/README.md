@@ -100,6 +100,57 @@ adb push build_android/modules/arm64-v8a/libmg_mygame.so \
     /sdcard/Android/data/us.thumby.mote/files/games/
 ```
 
+## Dock mode: the phone as the Thumby's dock
+
+Plug a **real Thumby Color** into the phone (USB-C to USB-C, or an OTG adapter)
+and the app becomes the thing the handheld normally needs a PC and Mote Studio
+for. The handheld drives it, from its own screens:
+
+| On the handheld | What the phone does |
+|-----------------|---------------------|
+| its **multiplayer lobby** → Internet / LAN | performs the relay or LAN room action and splices the byte pipe, so the match runs over **mobile data** |
+| its **gallery** (RB in the Mote launcher) | serves the manifest, the 64×64 thumbnails, the descriptions, and the sha256-verified `.mote` to install or update |
+
+**The handheld needs no changes.** It already speaks the MN1 control protocol
+over its USB pipe and does not care whether a Studio or a phone answers — that is
+the whole point of the auto-proxy design, and it means a phone-docked Thumby and
+a PC-docked one land in the same relay room.
+
+Docking is just docking: the manifest matches VID:PID `CAFE:4D01`, so plugging the
+handheld in grants USB permission and brings the app up. A green banner appears
+under the settings pip showing what the dock is doing (`Thumby docked`,
+`online: relaying`, `gallery: installed 128 KB`). The dock idles at no cost when
+nothing is attached, so there is no mode to switch into.
+
+Two things to know before relying on it:
+
+- **The phone powers the bus.** In USB-host mode it will not charge, and the
+  handheld draws from the phone's battery. A powered OTG hub avoids that.
+- **USB host (OTG) support varies** by phone. The feature is declared
+  `required="false"`, so the app still installs and works as a console without it.
+
+Under the hood: `MoteUsb.java` claims the CDC data interface and moves bytes with
+`bulkTransfer` (no driver, no root) and asserts DTR, which the device's log
+channel gates on; `os/android/mote_android_dock.c` is the server, on its own
+thread; and the room verbs come from `platform/android/mote_mn1.c`, shared with
+the in-app link server so both answer a lobby identically.
+
+### Testing the dock without hardware
+
+The desktop build swaps the cable for a Unix socket, and there is a fake handheld
+that speaks the device's half of the protocol:
+
+```bash
+python3 android/tools/fake_device.py --sock /tmp/dock.sock gallery &
+MOTE_DOCK_SOCK=/tmp/dock.sock ./build_shell/mote_shell
+```
+
+`gallery` walks the manifest → thumbnail → description → `.mote` install and
+checks each reply (including that the image really starts `MOTE` and matches the
+manifest's byte count). `lanhost` / `host` / `quick` / `join` / `browse` exercise
+the online path — `lanhost` pairs against a second `mote_shell` running a game,
+which is how the whole path was verified.
+
 ## The online gallery
 
 **RB** in the launcher opens it. The screen fetches `games.json` straight from the

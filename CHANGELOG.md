@@ -20,6 +20,28 @@ modules can be dropped into the app's external `games/` folder later. `moria` is
 the one exclusion: its coroutine layer needs `getcontext`/`swapcontext`, which
 bionic doesn't implement.
 
+**A phone can now be the Thumby's dock.** Plug a real handheld into the Android
+app over USB-OTG and it gets the two things it otherwise needs a PC and Mote
+Studio for: internet/LAN matches set up from its own lobby, and gallery installs
+and updates from its own gallery screen — both over the phone's mobile data. The
+device is unchanged; it already speaks MN1 over its USB pipe and does not care
+whether a Studio or a phone answers, so a phone-docked Thumby and a PC-docked one
+land in the same relay room. `MoteUsb.java` claims the CDC interface with
+`bulkTransfer` (no driver, no root) and asserts DTR;
+`os/android/mote_android_dock.c` is the server, on its own thread, answering the
+room verbs and serving the manifest, 64×64 thumbnails, descriptions and
+sha256-verified `.mote` bytes. Docking is just docking — the manifest matches
+VID:PID CAFE:4D01, so plugging in grants permission and launches the app, and a
+banner shows what the dock is doing. The room verbs moved to
+`platform/android/mote_mn1.c`, shared with the in-app link server so both answer a
+lobby identically. `android/tools/fake_device.py` speaks the device's half of the
+protocol so all of it is testable without hardware.
+
+**Shoulder buttons moved.** LB/RB were drawn at the photo's top corners — where
+the real buttons are, and exactly where no thumb reaches on a phone held in
+landscape. They are now the only controls anchored to the window rather than the
+chassis: thumb-sized pads in the bottom corners, clear of the navigation gesture.
+
 **The gallery is live on Android**, not just baked in. `games.json` now carries an
 optional per-game `android` block (module path, size, sha256 per ABI), staged by
 `android/tools/build_modules.sh --publish` and picked up by

@@ -51,12 +51,25 @@
 #define GAL_MAX 128
 
 typedef struct {
-    char id[32], name[40], version[16], tag[64];
+    char id[32], name[40], version[16], tag[64], author[32];
     int  abi;                       /* engine ABI the game needs */
-    char file[200];                 /* module path, relative to the base URL */
+    int  mp;                        /* multiplayer flag, for the device's list */
+    char file[200];                 /* our own module path, relative to the base */
     char sha256[68];
     long size;
     int  have_module;               /* the manifest has a module for our ABI */
+    /* The handheld's artifact. A docked device wants the .mote, not our .so, so
+     * the dock serves these; they are in the same manifest either way. */
+    char mote_file[80];
+    char mote_sha[68];
+    long mote_size;
+    /* Screenshot paths, for the thumbnails the device's gallery screen asks for. */
+    char shot[4][72];
+    int  nshots;
+    /* The description is up to ~2 KB per game, which is not worth keeping 31 of
+     * in memory: record where it sits in the cached manifest and read the slice
+     * back off disk when the device actually asks. */
+    long desc_off, desc_len;
 } GalEnt;
 
 static GalEnt s_g[GAL_MAX];
@@ -121,6 +134,12 @@ static void sha_final(sha256_t *ctx, char *hex) {
     sha_update(ctx, L, 8);
     for (int i = 0; i < 8; i++) snprintf(hex + i*8, 9, "%08x", ctx->s[i]);
 }
+static int sha_file(const char *path, char *hex);
+
+/* Also the dock's verifier: a downloaded .mote must match the manifest before it
+ * is handed to a handheld that will run it in place from flash. */
+int mote_gallery_sha256_file(const char *path, char *hex) { return sha_file(path, hex); }
+
 static int sha_file(const char *path, char *hex) {
     FILE *f = fopen(path, "rb"); if (!f) return -1;
     sha256_t c; sha_init(&c);
@@ -196,7 +215,37 @@ static int parse_manifest(const char *path) {
         field_str(field(p, oe, "name"),    oe, g->name,    sizeof g->name);
         field_str(field(p, oe, "version"), oe, g->version, sizeof g->version);
         field_str(field(p, oe, "tag"),     oe, g->tag,     sizeof g->tag);
+        field_str(field(p, oe, "author"),  oe, g->author,  sizeof g->author);
         g->abi = (int)field_num(field(p, oe, "abi"), oe);
+        /* the handheld's artifact, and the metadata its own gallery screen shows */
+        field_str(field(p, oe, "file"),    oe, g->mote_file, sizeof g->mote_file);
+        field_str(field(p, oe, "sha256"),  oe, g->mote_sha,  sizeof g->mote_sha);
+        g->mote_size = field_num(field(p, oe, "size"), oe);
+        { const char *mv = field(p, oe, "multiplayer");
+          g->mp = (mv && mv < oe && *mv == 't') ? 1 : 0; }
+        /* screenshots: a JSON array of paths, first four kept */
+        { const char *sv = field(p, oe, "screenshots");
+          if (sv && *sv == '[') {
+              const char *se = obj_end(sv, oe);
+              const char *q = sv;
+              while (g->nshots < 4) {
+                  q = memchr(q, '"', (size_t)(se - q));
+                  if (!q) break;
+                  field_str(q, se, g->shot[g->nshots], sizeof g->shot[0]);
+                  if (!g->shot[g->nshots][0]) break;
+                  g->nshots++;
+                  q += 1 + strlen(g->shot[g->nshots - 1]) + 1;   /* past the close quote */
+                  if (q >= se) break;
+              }
+          } }
+        /* description: remember the slice rather than copying it */
+        { const char *dv = field(p, oe, "desc");
+          if (dv && *dv == '"') {
+              const char *d = dv + 1, *q = d;
+              while (q < oe && *q != '"') { if (*q == '\\' && q + 1 < oe) q++; q++; }
+              g->desc_off = (long)(d - buf);
+              g->desc_len = (long)(q - d);
+          } }
         /* the per-ABI module block, if this game publishes one */
         const char *av = field(p, oe, "android");
         if (av && *av == '{') {
@@ -325,6 +374,101 @@ static const char *state_tag(int st) {
     case ST_ABI:       return "NEW ENGINE";
     default:           return "-";
     }
+}
+
+/* ================================================================== *
+ *  Accessors for the USB dock (os/android/mote_android_dock.c)
+ *
+ *  A docked handheld asks for the same catalogue this screen shows, but wants
+ *  the .mote artifacts and its own wire format. Rather than parse the manifest
+ *  twice, the dock reads it through here.
+ * ================================================================== */
+
+/* Fetch + parse the manifest if it is not loaded yet. Blocking — dock thread
+ * only. 0 on success. */
+int mote_gallery_ensure(void) {
+    if (s_n > 0) return 0;
+    if (!s_base[0]) mote_android_gallery_set_base(NULL);
+    gal_paths();
+    char url[300];
+    snprintf(url, sizeof url, "%s/games.json", s_base);
+    /* A cached copy is good enough if the network is not there right now. */
+    if (mote_shell_http_get(url, s_cache) != 0 && !file_size(s_cache)) {
+        snprintf(s_err, sizeof s_err, "no manifest");
+        return -1;
+    }
+    return parse_manifest(s_cache);
+}
+
+int mote_gallery_count(void) { return s_n; }
+
+/* One GMANIFEST line, in the wire format os/device/lobby_main.c parses:
+ *   MN1 GAME <idx> <abi> <mp> <nshots> <size> <ver> <fname>|<author>|<name>
+ * fname is the .mote basename without its extension — the name the device
+ * stores the file under. Only <name> may contain spaces, so it goes last. */
+int mote_gallery_manifest_line(int i, char *out, int cap) {
+    if (i < 0 || i >= s_n || !out) return -1;
+    const GalEnt *g = &s_g[i];
+    /* "games/Moita.mote" -> "Moita" */
+    const char *b = strrchr(g->mote_file, '/');
+    b = b ? b + 1 : g->mote_file;
+    char base[80];
+    snprintf(base, sizeof base, "%s", b);
+    char *dot = strstr(base, ".mote");
+    if (dot) *dot = 0;
+    if (!base[0]) return -1;
+    snprintf(out, cap, "MN1 GAME %d %d %d %d %ld %s %s|%s|%s\n",
+             i, g->abi, g->mp, g->nshots ? g->nshots : 1, g->mote_size,
+             g->version[0] ? g->version : "0", base,
+             g->author[0] ? g->author : "unknown", g->name);
+    return 0;
+}
+
+int mote_gallery_shot_url(int i, int shot, char *out, int cap) {
+    if (i < 0 || i >= s_n || !out) return -1;
+    const GalEnt *g = &s_g[i];
+    if (g->nshots <= 0) return -1;
+    if (shot < 0 || shot >= g->nshots) shot = 0;
+    snprintf(out, cap, "%s/%s", s_base, g->shot[shot]);
+    return 0;
+}
+
+int mote_gallery_mote_url(int i, char *out, int cap) {
+    if (i < 0 || i >= s_n || !out || !s_g[i].mote_file[0]) return -1;
+    snprintf(out, cap, "%s/%s", s_base, s_g[i].mote_file);
+    return 0;
+}
+
+const char *mote_gallery_mote_sha(int i) {
+    return (i >= 0 && i < s_n) ? s_g[i].mote_sha : "";
+}
+long mote_gallery_mote_size(int i) {
+    return (i >= 0 && i < s_n) ? s_g[i].mote_size : 0;
+}
+
+/* Read a description back out of the cached manifest. Returns the number of
+ * bytes written, and un-escapes the two sequences the generator can emit. */
+long mote_gallery_desc(int i, char *out, int cap) {
+    if (i < 0 || i >= s_n || !out || cap <= 0) return 0;
+    const GalEnt *g = &s_g[i];
+    if (g->desc_len <= 0) { out[0] = 0; return 0; }
+    FILE *f = fopen(s_cache, "rb");
+    if (!f) { out[0] = 0; return 0; }
+    long want = g->desc_len < cap - 1 ? g->desc_len : cap - 1;
+    fseek(f, g->desc_off, SEEK_SET);
+    size_t got = fread(out, 1, (size_t)want, f);
+    fclose(f);
+    /* JSON escapes: the manifest is generated with ensure_ascii=False, so only
+     * backslash pairs appear. Collapse them so the device shows real text. */
+    long o = 0;
+    for (size_t k = 0; k < got; k++) {
+        if (out[k] == '\\' && k + 1 < got) {
+            k++;
+            out[o++] = out[k] == 'n' ? '\n' : out[k] == 't' ? ' ' : out[k];
+        } else out[o++] = out[k];
+    }
+    out[o] = 0;
+    return o;
 }
 
 void mote_android_gallery_set_base(const char *base) {

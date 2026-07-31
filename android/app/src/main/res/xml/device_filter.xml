@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Thumby Color's USB-CDC channel. Matching it here means plugging the
+     handheld into the phone grants this app permission and launches it, with no
+     dialog to chase — see MoteUsb.java. -->
+<resources>
+    <usb-device vendor-id="52222" product-id="19713" />
+</resources>

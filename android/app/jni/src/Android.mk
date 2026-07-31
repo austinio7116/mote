@@ -40,9 +40,11 @@ LOCAL_SRC_FILES := \
     $(MOTE_ROOT)/platform/android/mote_shell.c \
     $(MOTE_ROOT)/platform/android/mote_plat_android.c \
     $(MOTE_ROOT)/platform/android/mote_link_android.c \
+    $(MOTE_ROOT)/platform/android/mote_mn1.c \
     $(MOTE_ROOT)/studio/link_net.c \
     $(MOTE_ROOT)/os/android/mote_android_os.c \
     $(MOTE_ROOT)/os/android/mote_android_gallery.c \
+    $(MOTE_ROOT)/os/android/mote_android_dock.c \
     $(MOTE_ROOT)/os/mote_os.c \
     $(MOTE_ROOT)/os/mote_launcher.c \
     $(MOTE_ROOT)/os/mote_menu.c \

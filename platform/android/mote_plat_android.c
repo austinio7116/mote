@@ -193,6 +193,10 @@ int  mote_shell_http_get(const char *url, const char *dest) {
     return s_http_cb ? s_http_cb(url, dest) : -1;
 }
 
+static const MoteUsbHost *s_usb;
+void               mote_shell_set_usb_host(const MoteUsbHost *h) { s_usb = h; }
+const MoteUsbHost *mote_shell_usb_host(void) { return s_usb; }
+
 /* ---- per-slot save (files under <storage>/saves) ------------------------ */
 #define AND_SAVE_SLOTS 64        /* flash-free: give games the full slot range */
 
