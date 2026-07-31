@@ -1438,6 +1438,24 @@ static void g_init(void)
                     fprintf(stderr, "cam -> a person at %d,%d\n", s_cx, s_cy);
                     break;
                 }
+        } else if (cv && *cv == 'w') {
+            /* CAM=w parks on the thickest run of city WALL, which is the only way to see
+             * whether the forty-seven-cell sets are turning corners. */
+            int bx = -1, by = 0, best = 0, total = 0;
+            for (int i = 0; i < NC; i++) if (mb_w.obj[i] == O_WALL) total++;
+            for (int y = 3; y < MH - 3; y++)
+                for (int x = 3; x < MW - 3; x++) {
+                    int n = 0;
+                    for (int dy = -3; dy <= 3; dy++)
+                        for (int dx = -3; dx <= 3; dx++)
+                            if (mb_in(x + dx, y + dy)
+                                && mb_w.obj[AT(x + dx, y + dy)] == O_WALL) n++;
+                    if (n > best) { best = n; bx = x; by = y; }
+                }
+            if (bx >= 0) { s_cx = bx; s_cy = by;
+                           fprintf(stderr, "cam -> %d wall cells in the world, %d around %d,%d\n",
+                                   total, best, bx, by); }
+            else fprintf(stderr, "cam -> no walls anywhere\n");
         } else if (cv && *cv == 'm') {
             /* CAM=m parks on a PLAZA. CAM=v aims at a village centre, and a plaza is two
              * rows south of the hall — close enough to be in shot, far enough that "is the

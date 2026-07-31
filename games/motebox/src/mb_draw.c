@@ -46,6 +46,10 @@
 #include "nature.h"
 #include "rocks.h"
 #include "blob47_same.h"
+#include "wall_brick.tiles.h"
+#include "wall_marble.tiles.h"
+#include "wall_aztec.tiles.h"
+#include "wall_bone.tiles.h"
 #include "treasure_ore.h"
 #include "ore.h"
 #include "road.h"
@@ -1369,6 +1373,47 @@ void mb_draw_mortal(int cam_x, int cam_y)
      * the picture is unchanged while there is room; past the cap you now lose a few
      * tufts of grass instead of the town. */
     int c0 = cam_x / TILE, r0 = cam_y / TILE;
+    /* --- CITY WALLS, WHICH CONNECT ---------------------------------------
+     *
+     * Four full forty-seven-cell wall sets are generated and baked — brick for humans, marble
+     * for elves, aztec for orcs, bone for ruins — and NOTHING HAS EVER DRAWN THEM. O_WALL was
+     * one flat `wall_seg` sprite off the town sheet, so a city wall was a row of identical
+     * stamps with no corners, no tees and no ends: it read as a fence of unrelated posts.
+     *
+     * The cell comes from which of the eight neighbours is ALSO a wall, through the same
+     * MB_B47_SAME table the burn scars use, so a wall turns corners and closes gates on its
+     * own. The SET comes from the race that built it, which is the cheapest way to make two
+     * kingdoms' fortifications look like different civilisations.
+     */
+    for (int r = r0; r <= r0 + MVH + 1; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0; c <= c0 + MVW; c++) {
+            if (c < 0 || c >= MW) continue;
+            if (mb_w.obj[AT(c, r)] != O_WALL) continue;
+            int m = 0;
+            static const int8_t NX[8] = {  0,  1, 1, 1,  0, -1, -1, -1 };
+            static const int8_t NY[8] = { -1, -1, 0, 1,  1,  1,  0, -1 };
+            for (int k = 0; k < 8; k++) {
+                int nx = c + NX[k], ny = r + NY[k];
+                /* off-map counts as wall, so a rampart at the world's edge is not left open */
+                if (!mb_in(nx, ny) || mb_w.obj[AT(nx, ny)] == O_WALL) m |= 1 << k;
+            }
+            int cell = MB_B47_SAME[m];
+            int v = mb_w.claim[AT(c, r)];
+            const MoteImage *img = &wall_bone_img;          /* unclaimed: a ruin */
+            if (v && v < MAXV && mb_v[v].alive) {
+                switch (mb_v[v].sp) {
+                case 1:  img = &wall_marble_img; break;     /* elf   */
+                case 3:  img = &wall_aztec_img;  break;     /* orc   */
+                default: img = &wall_brick_img;  break;     /* human, dwarf */
+                }
+            }
+            MoteSprite spr = { img, (int16_t)(c * TILE), (int16_t)(r * TILE),
+                               (uint16_t)(cell * TILE), 0, TILE, TILE, 28, 0 };
+            add(&spr);
+        }
+    }
+
     /* BUILDINGS, from the game's OWN sprite sheet (authoring/build_sprites.py), and
      * EIGHT BY FOURTEEN rather than eight by eight.
      *
@@ -1390,6 +1435,7 @@ void mb_draw_mortal(int cam_x, int cam_y)
             if (c < 0 || c >= MW) continue;
             uint8_t o = mb_w.obj[AT(c, r)];
             if (!mb_is_build(o)) continue;
+            if (o == O_WALL) continue;        /* drawn by the wall pass, with real corners */
             int k = mb_kingdom_of(mb_w.claim[AT(c, r)]);
             int col = mb_draw_form_col(o, k, c, r);
             int row = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;   /* 4 = unclaimed grey */
