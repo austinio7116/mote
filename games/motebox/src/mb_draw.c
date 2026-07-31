@@ -1468,10 +1468,30 @@ void mb_draw_mortal(int cam_x, int cam_y)
             if (o == O_HALL2 || o == O_HALL3) {
                 int v = mb_w.claim[AT(c, r)];
                 if (k && mb_k[k].alive && mb_k[k].capital == v) {
-                    MoteSprite cr = { &crowns_fx_img, (int16_t)(c * TILE),
+                    /* A CROWN JEWEL, IN THE CROWN'S OWN COLOUR.
+                     *
+                     * This drew crowns_fx (colour, 5) for years. The master has no crown set —
+                     * what sits there is something else entirely, and I kept reading it as
+                     * crowns off my own 8-pixel crops and asserting it was right. Lesson
+                     * taken: I cannot referee this sheet by eye.
+                     *
+                     * treasure_ore row 3 is a gem in eleven colours, and five of them are the
+                     * five KING_COL banner colours exactly — so a capital is marked by a jewel
+                     * that matches its banner, which is both unambiguous art and the only
+                     * option here that can be colour-coded at all. The one crown-like sprite
+                     * on the sheet is gold only, so it cannot tell two kingdoms apart. */
+                    static const uint8_t GEM_OF_COLOUR[5] = {
+                        2,   /* pink  */
+                        9,   /* blue  */
+                        6,   /* gold  */
+                        8,   /* green */
+                        0,   /* white */
+                    };
+                    int gem = GEM_OF_COLOUR[mb_k[k].colour % 5];
+                    MoteSprite cr = { &treasure_ore_img, (int16_t)(c * TILE),
                                       (int16_t)(r * TILE + TOWN_ANCHOR_Y - 6),
-                                      (uint16_t)((mb_k[k].colour % 5) * TILE),
-                                      (uint16_t)(5 * TILE), TILE, TILE, 34, 0 };
+                                      (uint16_t)(gem * TILE), (uint16_t)(3 * TILE),
+                                      TILE, TILE, 34, 0 };
                     add(&cr);
                 }
             }
