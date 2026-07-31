@@ -1102,32 +1102,52 @@ static int wall_site(int v, int *ox, int *oy)
             }
     x0--; y0--; x1++; y1++;                       /* one clear cell outside the buildings */
 
-    int n = 0;
-    for (int pass = 0; pass < 2; pass++) {
-        /* pass 0 counts the candidates, pass 1 picks one — so the wall does not always
-         * start from the same corner and creep round predictably */
-        int want = n ? (int)(mb_rand((uint32_t)(v * 977u + (uint32_t)mb_w.tick)) % (uint32_t)n) : 0;
-        int seen = 0;
-        for (int y = y0; y <= y1; y++)
-            for (int x = x0; x <= x1; x++) {
-                if (y != y0 && y != y1 && x != x0 && x != x1) continue;   /* ring only */
-                if (!mb_in(x, y)) continue;
-                int i = AT(x, y);
-                if (!mb_land(mb_w.biome[i])) continue;
-                /* BUILDINGS and STREETS are respected — a street crossing the line is a
-                 * gate, and a town with no way in reads as a prison. Everything else is
-                 * scrub the masons clear. Refusing any cell with an object at all was why
-                 * the first working version still laid nothing: the ring of a developed
-                 * village is full of trees, rocks and tufts. */
-                if (mb_is_build(mb_w.obj[i])) continue;
-                if (mb_w.road[i]) continue;
-                if (pass == 0) { n++; continue; }
-                if (seen++ != want) continue;
-                *ox = x; *oy = y; return 1;
-            }
-        if (!n) return 0;
-    }
-    return 0;
+    /* A WALL IS LAID AS A LINE, NOT SPRINKLED ROUND A RING.
+     *
+     * The ring itself was right — a bounding box a cell clear of the buildings — but the cell
+     * on it was chosen AT RANDOM, so sixty stones went down as sixty unconnected posts spread
+     * evenly round the perimeter. Every one of them was an isolated segment, which is why the
+     * renderer had to guess an orientation for almost every cell it drew.
+     *
+     * So a stone prefers to go where it CONTINUES something: beside exactly one existing wall
+     * extends a run, beside two closes a gap, and beside none starts a fresh one — which is
+     * why a corner is worth a bonus, since a rampart that begins at a corner grows two ways
+     * along the sides instead of stranding itself mid-wall. Same principle as village_streets
+     * paving outward from the hall: build connected at every stage, so a half-finished thing
+     * still reads as the thing.
+     */
+    int best = -1, bx = 0, by = 0;
+    for (int y = y0; y <= y1; y++)
+        for (int x = x0; x <= x1; x++) {
+            if (y != y0 && y != y1 && x != x0 && x != x1) continue;   /* the ring only */
+            if (!mb_in(x, y)) continue;
+            int i = AT(x, y);
+            if (!mb_land(mb_w.biome[i])) continue;
+            /* BUILDINGS and STREETS are respected — a street crossing the line is a gate, and
+             * a town with no way in reads as a prison. Everything else is scrub the masons
+             * clear; refusing any cell with an object at all was why an earlier version laid
+             * nothing at all, because the ring of a developed village is full of trees. */
+            if (mb_is_build(mb_w.obj[i])) continue;
+            if (mb_w.road[i]) continue;
+
+            int adj = 0;
+            if (mb_in(x - 1, y) && mb_w.obj[AT(x - 1, y)] == O_WALL) adj++;
+            if (mb_in(x + 1, y) && mb_w.obj[AT(x + 1, y)] == O_WALL) adj++;
+            if (mb_in(x, y - 1) && mb_w.obj[AT(x, y - 1)] == O_WALL) adj++;
+            if (mb_in(x, y + 1) && mb_w.obj[AT(x, y + 1)] == O_WALL) adj++;
+
+            int score = (adj == 1) ? 400            /* extend a run: much the best move */
+                      : (adj == 2) ? 200            /* close a gap in one              */
+                      : (adj == 0) ?  60            /* start one                       */
+                                   :  10;
+            if (adj == 0 && (x == x0 || x == x1) && (y == y0 || y == y1)) score += 50;
+            /* a small per-town jitter, so two realms do not lay identical ramparts */
+            score += (int)(mb_rand((uint32_t)(v * 977u + (uint32_t)(y * MW + x))) % 24u);
+            if (score > best) { best = score; bx = x; by = y; }
+        }
+    if (best < 0) return 0;
+    *ox = bx; *oy = by;
+    return 1;
 }
 
 /* PAVE THE PLAN, nearest the hall first, a few cells a visit.
