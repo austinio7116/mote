@@ -2067,7 +2067,26 @@ static void g_init(void)
                             if (kd > 0 && kd < 5) q[kd]++;
                         }
                     }
-                    fprintf(stderr, "work staked out: %d builds %d paving %d ploughing "
+                    /* AND HOW THE TOWNS ARE LAID OUT. One morphology for every settlement in
+                 * the world was the complaint; the only way to know it is fixed is to count
+                 * the kinds, because a screenshot shows one town. */
+                {   int st[5] = { 0 };
+                    for (int vv = 1; vv < MAXV; vv++)
+                        if (mb_v[vv].alive) {
+                            int k = mb_village_style(vv);
+                            if (k >= 0 && k < 5) st[k]++;
+                        }
+                    for (int vv = 1; vv < MAXV; vv++)
+                        if (mb_v[vv].alive)
+                            fprintf(stderr, "   town %2d %-8s pop %-3d at %d,%d\n", vv,
+                                    MB_TOWNPLAN_NAME[mb_village_style(vv) % 5],
+                                    mb_v[vv].pop, mb_v[vv].x, mb_v[vv].y);
+                    fprintf(stderr, "town plans:");
+                    for (int k = 0; k < 5; k++)
+                        fprintf(stderr, " %s=%d", MB_TOWNPLAN_NAME[k], st[k]);
+                    fprintf(stderr, "\n");
+                }
+                fprintf(stderr, "work staked out: %d builds %d paving %d ploughing "
                                     "%d planting\n", q[WS_BUILD], q[WS_PAVE], q[WS_PLOUGH],
                             q[WS_PLANT]);
                 }

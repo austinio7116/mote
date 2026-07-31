@@ -525,6 +525,9 @@ int  mb_village_need(int v, uint16_t *target);
 int  mb_village_resource(int v, int kind, int *ox, int *oy);
 /* For the renderer: a pending site is marked on the ground with a stake. */
 int  mb_village_site(int v, int slot, int *ox, int *oy);
+/* TP_* — which of the five morphologies this town was laid out as */
+int  mb_village_style(int v);
+extern const char *const MB_TOWNPLAN_NAME[5];
 void mb_village_work(int v, int ui);
 int  mb_village_mustering(int v);
 int  mb_village_step_home(int v, int x, int y, int *ox, int *oy);
@@ -680,6 +683,22 @@ void mb_draw_fields(uint16_t *fb, int cam_x, int cam_y);  /* worked land + crop 
 void mb_draw_sites(uint16_t *fb, int cam_x, int cam_y);   /* surveyors' stakes   */
 void mb_draw_mortal(int cam_x, int cam_y);           /* scene2d pass */
 uint16_t mb_biome_colour(uint8_t b);
+
+/* A STABLE HASH: the world's seed and nothing else.
+ *
+ * mb_rand() folds in mb_w.tick, which is right for anything that rolls a die and WRONG for
+ * anything that describes the world. The town plan was built on mb_rand, so a lane's depth was
+ * re-rolled every tick: a cell was part of the street on one tick and not on the next, and the
+ * "ragged edge" the plan comment claims was really a boundary that flickered. Anything that
+ * has to give the same answer twice — a street plan, a town's layout style, a building's
+ * variant — uses this. */
+static inline uint32_t mb_shash(uint32_t salt)
+{
+    uint32_t x = mb_w.seed ^ salt;
+    x ^= x >> 16; x *= 0x7feb352du;
+    x ^= x >> 15; x *= 0x846ca68bu;
+    x ^= x >> 16; return x;
+}
 
 /* defined here rather than in a .c so the whole sim inlines it */
 static inline uint32_t mb_rand(uint32_t salt)

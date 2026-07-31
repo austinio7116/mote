@@ -813,34 +813,172 @@ static void creed_step(int v)
  * without a paved neighbour. Frontage stops being a preference and becomes a requirement,
  * which is the whole difference between a street with houses either side and a car park.
  *
- * It stays irregular where it matters. The axis and the lane pattern come from the village
- * id, so neighbouring towns are not copies; each lane's DEPTH is hashed, so the built-up
- * edge is ragged rather than a rectangle; and terrain masks the plan wherever it crosses
- * water, rock or an existing building, so a town on a headland is shaped by the headland.
+ * It stays irregular where it matters. Terrain masks the plan wherever it crosses water,
+ * rock or an existing building, so a town on a headland is shaped by the headland.
+ *
+ * --- AND EVERY TOWN HAD THE SAME PLAN ------------------------------------
+ *
+ * One high street with lanes off it every third cell is ONE morphology, and it was every
+ * settlement in the world: axis and side flipped with the village id, which is a mirror, not a
+ * difference. Ten towns read as ten copies of a car park with a road down the middle.
+ *
+ * Real settlements come in recognisable kinds, and the kind is usually decided by how the
+ * place started rather than by anything about the terrain. Five of them, one per town, drawn
+ * from a table that LEANS by race so a people has a habit without a rule:
+ *
+ *   GRID     the planned town: a high street, lanes every third cell. What every town was.
+ *   RADIAL   spokes out of the market place and a ring road round it — the medieval European
+ *            market town, and what most people picture when they picture a walled city.
+ *   RIBBON   one long street and nothing else, houses down both sides: the Straßendorf, the
+ *            village that is a road with a place attached.
+ *   ORGANIC  no plan at all. A lane that wanders out of the centre, drifting a cell at a time,
+ *            with side lanes striking off it at hashed intervals. Medieval accretion.
+ *   GREEN    the Rundling: a ring of plots around an open common, with one way in. The green
+ *            is RESERVED rather than paved, which is what plan_open() below is for.
+ *
+ * All five are pure functions of the village and the cell, like the original — no state to
+ * keep in sync, and answerable about ground that has not been paved yet. They use mb_shash()
+ * rather than mb_rand(): the plan must give the same answer on every tick, and the lane depths
+ * in the first version did not, so the "ragged edge" it claimed was a flickering one.
  */
+enum { TP_GRID = 0, TP_RADIAL, TP_RIBBON, TP_ORGANIC, TP_GREEN, TP_N };
+const char *const MB_TOWNPLAN_NAME[TP_N] = { "grid", "radial", "ribbon",
+                                            "organic", "green" };
+
+/* WHAT KIND OF PLACE THIS IS. Four candidates per race, picked by the village's own hash, so
+ * a race has a leaning and a town still surprises you: humans plan and build ribbons along
+ * their roads, elves grow organically around greens, dwarves cut grids and spokes out of the
+ * rock, orcs sprawl. */
+int mb_village_style(int v)
+{
+    static const uint8_t LEAN[SP_CIV_N][4] = {
+        { TP_GRID,    TP_RIBBON,  TP_RADIAL,  TP_ORGANIC },   /* human */
+        { TP_ORGANIC, TP_GREEN,   TP_ORGANIC, TP_RADIAL  },   /* elf   */
+        { TP_GRID,    TP_RADIAL,  TP_GRID,    TP_RIBBON  },   /* dwarf */
+        { TP_ORGANIC, TP_ORGANIC, TP_GREEN,   TP_RIBBON  },   /* orc   */
+    };
+    int sp = mb_v[v].sp; if (sp < 0 || sp >= SP_CIV_N) sp = 0;
+    return LEAN[sp][mb_shash((uint32_t)v * 2654435761u ^ 0x70a17u) & 3u];
+}
+#define town_style mb_village_style
+
+/* THE DRIFT of an organic lane: a random walk out from the centre, accumulated so that
+ * neighbouring cells of the lane are never more than one apart — which is what makes it a
+ * lane you can walk rather than a scatter of cells. Bounded to three either side so a town
+ * does not wander out of its own claim. */
+static int lane_drift(int v, int along)
+{
+    int w = 0, step = along < 0 ? -1 : 1;
+    for (int a = step; a != along + step; a += step) {
+        uint32_t h = mb_shash((uint32_t)(v * 7717u) ^ (uint32_t)((a + 64) * 40503u));
+        if ((h & 3u) == 0u) w += ((h >> 8) & 1u) ? 1 : -1;
+        if (w >  3) w =  3;
+        if (w < -3) w = -3;
+    }
+    return w;
+}
+
 static int street_at(int v, int x, int y)
 {
     const Village *V = &mb_v[v];
-    int hor    = v & 1;                                 /* which way the high street runs */
-    int along  = hor ? (x - V->x) : (y - V->y);
-    int across = hor ? (y - V->y) : (x - V->x);
+    int dx = x - V->x, dy = y - V->y;
+    int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    int cheb = adx > ady ? adx : ady;
+    int reach = 3 + V->pop / 2;  if (reach > 11) reach = 11;
+
+    int hor    = v & 1;                                 /* which way the main street runs */
+    int along  = hor ? dx : dy;
+    int across = hor ? dy : dx;
     int a = along  < 0 ? -along  : along;
     int c = across < 0 ? -across : across;
 
-    int reach = 3 + V->pop / 2;  if (reach > 11) reach = 11;
+    switch (town_style(v)) {
+
+    case TP_RADIAL: {
+        /* spokes and rings. The four cardinal spokes always; the diagonals for about half
+         * the towns, which is the difference between a crossroads and a starburst. */
+        if (cheb > reach) return 0;
+        if (dx == 0 || dy == 0) return 1;
+        if (adx == ady && (mb_shash((uint32_t)v * 31u) & 1u)) return 1;
+        int r1 = 3 + (int)(mb_shash((uint32_t)v * 131u) % 2u);
+        if (cheb == r1) return 1;                                  /* the ring road */
+        if (V->pop >= 22 && cheb == r1 + 3) return 1;              /* and an outer ring */
+        return 0;
+    }
+
+    case TP_RIBBON: {
+        /* one street, twice as long as a grid town's, and stubs where a lane would be
+         * useful. A ribbon village is a road with houses on it. */
+        int len = 6 + V->pop / 2;  if (len > 14) len = 14;
+        if (a > len) return 0;
+        if (across == 0) return 1;
+        if (c == 1 && (along % 4) == 0
+            && (mb_shash((uint32_t)(v * 911u) ^ (uint32_t)(along + 64)) & 1u)) return 1;
+        return 0;
+    }
+
+    case TP_ORGANIC: {
+        /* the wandering lane, plus up to three side lanes struck off it */
+        if (a > reach) return 0;
+        int w = lane_drift(v, along);
+        if (across == w) return 1;
+        uint32_t bh = mb_shash((uint32_t)v * 99991u);
+        for (int b = 0; b < 3; b++) {
+            int span = 2 * reach + 1;
+            int bp   = (int)(((bh >> (b * 9)) % (uint32_t)span)) - reach;
+            if (along != bp) continue;
+            int bl   = 1 + (int)((bh >> (b * 9 + 5)) & 3u);
+            int side = ((bh >> (b * 9 + 7)) & 1u) ? 1 : -1;
+            int rel  = (across - lane_drift(v, bp)) * side;
+            if (rel >= 0 && rel <= bl) return 1;
+        }
+        return 0;
+    }
+
+    case TP_GREEN: {
+        /* the ring lane around the common, and one way in and out of it */
+        if (cheb > reach) return 0;
+        int r = 2 + (V->pop >= 18 ? 1 : 0);
+        if (cheb == r) return 1;
+        if (cheb < r) return 0;                       /* the green: reserved, see plan_open */
+        switch (mb_shash((uint32_t)v * 7u) & 3u) {    /* the approach road */
+        case 0: return dx == 0 && dy < 0;
+        case 1: return dx == 0 && dy > 0;
+        case 2: return dy == 0 && dx < 0;
+        default:return dy == 0 && dx > 0;
+        }
+    }
+
+    default: break;                                    /* TP_GRID, below */
+    }
+
+    /* --- the planned grid, as it was ---------------------------------- */
     if (a > reach) return 0;
     if (across == 0) return 1;                           /* the high street */
-
     /* A SECOND high street, three cells over, once there is a town to put on it. Which
      * side it goes is the village's own, so a pair of towns do not mirror each other. */
     if (V->pop >= 20 && across == ((v & 2) ? 3 : -3)) return 1;
-
     /* The lanes. Depth is per-lane and hashed, so the town's outline is ragged. */
     if (along % 3) return 0;
     int deep = 2 + V->pop / 10;  if (deep > 5) deep = 5;
-    int lane = 2 + (int)(mb_rand((uint32_t)(v * 2654435761u + (uint32_t)(along + 64) * 40503u))
+    int lane = 2 + (int)(mb_shash((uint32_t)(v * 2654435761u) ^ (uint32_t)((along + 64) * 40503u))
                          % (uint32_t)(deep - 1));
     return c <= lane;
+}
+
+/* THE PLAN'S FOOTPRINT: street, plus any ground the plan wants left OPEN but unpaved. Only
+ * the village green needs it — a common with houses built all over it is not a common — and
+ * only the things that would fill it in consult this. Paving still follows street_at(), so
+ * the green stays grass. */
+static int plan_open(int v, int x, int y)
+{
+    if (street_at(v, x, y)) return 1;
+    if (town_style(v) != TP_GREEN) return 0;
+    const Village *V = &mb_v[v];
+    int dx = x - V->x, dy = y - V->y;
+    int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    int cheb = adx > ady ? adx : ady;
+    return cheb < 2 + (V->pop >= 18 ? 1 : 0);
 }
 
 static int build_site(int v, int *ox, int *oy)
@@ -863,7 +1001,7 @@ static int build_site(int v, int *ox, int *oy)
             int x = V->x + dx, y = V->y + dy;
             if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v) continue;
             if (!buildable(x, y) || mb_is_build(mb_w.obj[AT(x, y)])) continue;
-            if (mb_w.road[AT(x, y)] || street_at(v, x, y)) continue;   /* never in the road */
+            if (mb_w.road[AT(x, y)] || plan_open(v, x, y)) continue;   /* never in the road */
 
             /* FRONTAGE IS A REQUIREMENT, NOT A BONUS. This one line is what makes a
              * street have houses either side of it instead of a road network with
@@ -1216,6 +1354,8 @@ static int plaza_free(int v, int x, int y)
 static int  ws_find(int v, int x, int y);
 static int  ws_push(int v, int kind, int x, int y, int arg);
 static void ws_apply(int v, int slot);
+static int  street_at(int v, int x, int y);
+static int  plan_open(int v, int x, int y);
 
 static void village_plaza(int v)
 {
@@ -1268,6 +1408,10 @@ static void village_plaza(int v)
             if (mb_is_build(o)) { if (o == O_MONUMENT) mon = 1;
                                   if (o == O_FOUNTAIN) fount = 1; continue; }
             if (mb_w.road[i]) continue;                 /* already flagged */
+            /* AND NOT ACROSS THE COMMON. A green town's whole point is the open middle, and
+             * the plaza pass would flag it over — the first green towns had a paved square
+             * exactly where the grass was supposed to be. */
+            if (plan_open(v, x, y) && !street_at(v, x, y)) continue;
             laid = ws_push(v, WS_PAVE, x, y, 0);
         }
     /* and the two landmarks still need finding even if the paving pass stopped early */
@@ -1323,7 +1467,7 @@ static void village_gardens(int v)
         int i = AT(x, y);
         if (mb_w.claim[i] != v || mb_w.road[i] || mb_w.obj[i]) continue;
         if (!buildable(x, y)) continue;
-        if (street_at(v, x, y)) continue;              /* never plant in a future street */
+        if (plan_open(v, x, y)) continue;              /* never plant in a future street */
         int near = 0;
         for (int k = 0; k < 8 && !near; k++) {
             static const int8_t DX[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
@@ -1444,7 +1588,7 @@ static int field_site(int v, int *ox, int *oy)
             if (mb_w.claim[i] != v || mb_w.road[i]) continue;
             if (mb_is_build(mb_w.obj[i])) continue;
             if (!buildable(x, y)) continue;
-            if (street_at(v, x, y)) continue;          /* never on a future street */
+            if (plan_open(v, x, y)) continue;          /* never on a future street */
             uint8_t b = mb_w.biome[i];
             if (b == B_FARM) continue;                 /* already sown */
             if (b != B_GRASS && b != B_MEADOW && b != B_SAVANNA) continue;   /* soil only */
