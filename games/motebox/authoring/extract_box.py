@@ -651,172 +651,141 @@ def build_roads():
 
 
 def build_icon():
-    """60x60 launcher icon: a world under a god's hand.
+    """60x60 launcher icon: a hand over a small world.
 
-    The old one was a disc of blue banding with two amorphous green blobs and a
-    meteor drawn as orange confetti — three ideas at low contrast, none of which
-    survived being shrunk to a launcher tile. This is ONE idea: a small round
-    world, and something enormous reaching down to touch it.
+    Two earlier goes both failed the same way — they used the game's 8-pixel BIOME TILES, whose
+    ink is a wave band, and at this size that band is enormous: the disc came out as a stack of
+    triangular stripes with the actual subject lost inside it. NO TILE TEXTURES HERE. Flat
+    colours, hand-placed, because a launcher icon is a piece of graphic design and not a
+    screenshot of the map.
 
-    What makes it read at 60 pixels:
-      - the disc is LIT. A rim highlight top-left, a terminator shading the
-        lower-right limb, and a darkened edge all the way round, so it is a
-        sphere and not a circle with a map painted on it.
-      - the land is ONE landmass with a bay and a snow-capped spine, not two
-        blobs. A silhouette you can name beats texture you cannot.
-      - the water is TWO tones, deep and shallow, so a coast exists.
-      - the town is the game's OWN building sprites, at their own scale.
-      - the god is a HAND, in silhouette, with the strike leaving its finger.
-        A meteor could be any space game; a hand reaching into the world is
-        this one.
+    One idea, three shapes: a dark hand from above, a lit world below it, a strike between them.
+    Everything else was cut. What makes it read at 60 pixels:
 
-    Every terrain pixel still comes from the biome recipes the map itself uses,
-    so the icon cannot drift from what the game draws.
+      - the HAND is the biggest shape and it is nearly black, so it separates from everything
+        by tone alone before any colour is involved. A meteor could belong to any space game;
+        a hand reaching into a world is this one.
+      - the WORLD is a lit sphere: bright rim on the upper-left, terminator falling away to the
+        lower-right, and it is drawn with FOUR flat colours (sea, land, forest, snow-capped
+        ridge) so the continent is a silhouette you can name.
+      - the STRIKE is the only pure white and the only yellow, so the eye lands there.
     """
-    W, R, CX, CY = 60, 26, 30, 33
+    import math
+    W = 60
     icon = Image.new("RGBA", (W, W), NAVY + (255,))
     px = icon.load()
 
-    # --- space, with a few stars so the navy is not dead flat -----------------
-    for sx, sy in ((4, 6), (13, 3), (52, 8), (56, 22), (7, 20), (47, 3), (24, 5)):
-        px[sx, sy] = SLATE + (255,)
-    for sx, sy in ((9, 11), (55, 14), (3, 27)):
-        px[sx, sy] = WHITE + (255,)
+    SEA_LIT   = ( 58, 148, 216)
+    SEA       = ( 34, 104, 176)
+    SEA_DEEP  = ( 22,  62, 118)
+    LAND      = ( 96, 168,  74)
+    LAND_LIT  = (138, 198,  96)
+    FOREST    = ( 42, 112,  62)
+    RIDGE     = (150, 146, 140)
+    SNOW      = (238, 240, 236)
+    SHADOW    = ( 20,  30,  58)
+    HAND      = ( 16,  18,  34)
+    HAND_LIT  = ( 74,  70, 104)
 
-    tiles = {
-        "deep":  flat(NAVY,    ((48, 35), 0, 0), SLATE),
-        "sea":   flat(BLUE,    ((48, 35), 0, 0), SLATE),
-        "grass": flat(DKGREEN, (( 0, 47), 0, 0), GREEN),
-        "sand":  flat(PEACH,   (( 6, 48), 0, 0), WHITE),
-        "rock":  flat(DKGREY,  (( 1, 47), 0, 0), LTGREY),
-        "snow":  flat(LTGREY,  (( 1, 47), 0, 0), WHITE),
-    }
-    tp = {k: v.load() for k, v in tiles.items()}
+    # --- stars, so the ground of the picture is not dead flat ----------------
+    for sx, sy in ((5, 33), (12, 47), (52, 41), (56, 19), (47, 52), (3, 21)):
+        px[sx, sy] = (78, 84, 120) + (255,)
+    for sx, sy in ((9, 40), (54, 30)):
+        px[sx, sy] = (150, 156, 190) + (255,)
 
-    def land(x, y):
-        """One continent: a big ellipse with a bay bitten out of the east side and
-        a wobble on the coast. Returns <1 inside the land."""
-        a = ((x - 26) ** 2) / 210.0 + ((y - 32) ** 2) / 150.0
-        bay = ((x - 41) ** 2) / 46.0 + ((y - 40) ** 2) / 40.0
-        w = 0.13 * (((x * 7 + y * 13) % 11) / 11.0)
+    # --- the world: a disc, low in the frame, with the hand above it ---------
+    R, CX, CY = 21, 30, 39
+
+    def continent(x, y):
+        """One landmass with a bay on its east side. Returns <1 inside."""
+        a = ((x - 25) ** 2) / 150.0 + ((y - 38) ** 2) / 105.0
+        bay = ((x - 38) ** 2) / 30.0 + ((y - 44) ** 2) / 26.0
+        w = 0.10 * (((x * 5 + y * 11) % 7) / 7.0)
         v = a + w
-        if bay < 1.0:                      # the bay is sea cut into the land
-            v = max(v, 1.06)
-        return v
+        return max(v, 1.10) if bay < 1.0 else v
 
     for y in range(W):
         for x in range(W):
             dx, dy = x - CX, y - CY
             d2 = dx * dx + dy * dy
             if d2 > R * R:
-                continue                                  # space
-            L = land(x, y)
-            if   L < 0.74: t = "grass"
-            elif L < 0.92: t = "sand"
-            elif L < 1.35: t = "sea"
-            else:          t = "deep"
-            # a mountain spine across the continent, snow on its crest
-            spine = abs((y - 30) - (x - 22) // 3)
-            if L < 0.52 and spine < 3:
-                t = "snow" if spine < 2 else "rock"
-            px[x, y] = tp[t][x % TS, y % TS]
+                continue
+            L = continent(x, y)
+            if   L < 0.86: c = LAND
+            elif L < 0.99: c = LAND_LIT          # a coastal strip, so land has an edge
+            elif L < 1.45: c = SEA
+            else:          c = SEA_DEEP
+            # woodland as PATCHES on the land, not as a core. Filling the middle with the
+            # darkest green turned the continent into a ring with a hole in it.
+            if L < 0.80 and ((x * 3 + y * 7) % 11) < 4:
+                c = FOREST
+            # a ridge with snow on it, across the north of the continent
+            spine = abs((y - 34) - (x - 22) // 4)
+            if L < 0.62 and spine < 3 and ((x + y) % 5) != 0:
+                c = SNOW if spine < 1 else RIDGE   # broken, so it reads as peaks not a wall
+            # LIGHT: the lower-right limb falls into shadow, so it is a sphere
+            sh = (dx + dy) / (2.0 * R)
+            if sh > 0.10:
+                k = min(0.66, (sh - 0.10) * 1.7)
+                c = tuple(int(c[i] * (1 - k) + SHADOW[i] * k) for i in range(3))
+            elif sh < -0.45 and c in (SEA, SEA_DEEP):
+                c = SEA_LIT                       # specular on the lit ocean
+            px[x, y] = c + (255,)
 
-    # --- LIGHT IT. Without this the disc is a sticker; with it, a world. ------
+    # THE RIM IS PART OF THE SPHERE, not a line beside it. Drawn with cos/sin at exactly R it
+    # landed a pixel outside the filled disc in places and read as a separate white crescent.
+    # This walks the fill and lights any pixel on its outermost ring, upper-left only.
     for y in range(W):
         for x in range(W):
             dx, dy = x - CX, y - CY
             d2 = dx * dx + dy * dy
-            if d2 > R * R:
+            if d2 > R * R or d2 < (R - 1) * (R - 1):
                 continue
-            r, g, b, _ = px[x, y]
-            # terminator: the lower-right limb falls away into shadow
-            shade = (dx + dy) / (2.0 * R)                  # -1 .. +1
-            if shade > 0.15:
-                k = min(0.62, (shade - 0.15) * 1.5)
-                r, g, b = (int(r * (1 - k) + NAVY[0] * k),
-                           int(g * (1 - k) + NAVY[1] * k),
-                           int(b * (1 - k) + NAVY[2] * k))
-            # and the very edge is always darker, all the way round
-            if d2 > (R - 2) * (R - 2):
-                r, g, b = int(r * 0.55), int(g * 0.55), int(b * 0.6)
-            px[x, y] = (r, g, b, 255)
-    # rim highlight on the lit side only
-    for a10 in range(140, 260):
-        import math
-        rad = math.radians(a10)
-        rx = int(CX + math.cos(rad) * (R - 1))
-        ry = int(CY + math.sin(rad) * (R - 1))
-        if 0 <= rx < W and 0 <= ry < W:
-            px[rx, ry] = WHITE + (255,)
+            if dx + dy < -4:
+                px[x, y] = SNOW + (255,)
 
-    # --- the town: the game's own buildings, so the icon looks like the game --
-    town = Image.open(os.path.join(GAME, "assets", "sheets", "town.png")).convert("RGBA")
-    def stamp(col, row, dx, dy):
-        icon.alpha_composite(town.crop((col * 8, row * 14, col * 8 + 8, row * 14 + 14)),
-                             (dx, dy))
-    stamp(2, 0, 20, 28)      # a great hall, red roof, on the plain
-    stamp(4, 1, 28, 31)      # a house, blue roof
-    stamp(5, 0, 15, 33)      # a cottage
+    # --- NO HAND. Two attempts at one failed the same way: at twenty pixels across, a
+    #     tapering palm reads as a funnel and a palm with fingers reads as a rain cloud. A
+    #     hand needs knuckles and creases to be a hand, and there is no room for them here.
+    #     So the strike arrives from OFF THE TOP EDGE, which says something is up there
+    #     without asking sixty pixels to draw it — and the world carries a few buildings, so
+    #     what is being struck is plainly somebody's home rather than a bare rock.
 
-    # --- THE GOD: a hand in silhouette, reaching in from the top-left --------
-    # Drawn as a mask so it is one solid shape: at this size an outlined hand is
-    # mush. Dark, because it is between the light and the world.
-    hand = [
-        "......XXXX..........",
-        ".....XXXXXX.........",
-        "....XXXXXXXX........",
-        "...XXXXXXXXXX.......",
-        "...XXXXXXXXXXX......",
-        "..XXXXXXXXXXXXX.....",
-        "..XXXXXXXXXXXXX.....",
-        "...XXXXXXXXXXX......",
-        "....XXXXXXXXX.......",
-        ".....XXXXXXX........",
-        "......XXXXX.........",
-        ".......XXX..........",
-        "........X...........",
-    ]
-    HX, HY = 6, 0
-    dark = (18, 24, 46)
-    for j, rowstr in enumerate(hand):
-        for i, ch in enumerate(rowstr):
-            if ch != "X":
-                continue
-            x, y = HX + i, HY + j
-            if 0 <= x < W and 0 <= y < W:
-                px[x, y] = dark + (255,)
-    # a lit edge down the left of the hand, so it separates from space
-    for j, rowstr in enumerate(hand):
-        first = rowstr.find("X")
-        if first < 0:
-            continue
-        x, y = HX + first, HY + j
-        if 0 <= x < W and 0 <= y < W:
-            px[x, y] = SLATE + (255,)
+    # --- somebody lives here: three roofs, drawn as roof-plus-wall so they read as
+    #     buildings and not as coloured specks --------------------------------------
+    for bx, by, roof in ((22, 44, (206, 62, 92)), (27, 47, (72, 118, 196)),
+                         (36, 42, (206, 62, 92))):
+        for dx in range(-1, 2):
+            if 0 <= bx + dx < W and 0 <= by < W:
+                px[bx + dx, by] = roof + (255,)
+        for dx in range(-1, 2):
+            if 0 <= bx + dx < W and 0 <= by + 1 < W:
+                px[bx + dx, by + 1] = (232, 206, 178) + (255,)
 
-    # --- the strike: from the fingertip into the mountains -------------------
-    bolt = [(14, 13), (15, 16), (13, 18), (16, 21), (14, 24), (17, 26)]
+    # --- the strike, out of the sky and into the ridge ------------------------
+    bolt = [(26, 0), (29, 6), (26, 12), (30, 19), (27, 25), (31, 31)]
     for i in range(len(bolt) - 1):
         x0, y0 = bolt[i]; x1, y1 = bolt[i + 1]
-        steps = max(abs(x1 - x0), abs(y1 - y0))
-        for t in range(steps + 1):
-            x = x0 + (x1 - x0) * t // steps
-            y = y0 + (y1 - y0) * t // steps
+        n = max(abs(x1 - x0), abs(y1 - y0))
+        for t in range(n + 1):
+            x = x0 + (x1 - x0) * t // n
+            y = y0 + (y1 - y0) * t // n
             if 0 <= x < W and 0 <= y < W:
-                px[x, y] = WHITE + (255,)
-                if x + 1 < W:
+                px[x, y] = SNOW + (255,)
+                if x + 1 < W and px[x + 1, y] != HAND + (255,):
                     px[x + 1, y] = YELLOW + (255,)
+
     # the flash where it lands
-    fx, fy = 17, 27
-    for dy in range(-3, 4):
-        for dx in range(-3, 4):
+    fx, fy = 31, 32
+    for dy in range(-4, 5):
+        for dx in range(-4, 5):
             d = dx * dx + dy * dy
             x, y = fx + dx, fy + dy
-            if not (0 <= x < W and 0 <= y < W) or d > 9:
+            if not (0 <= x < W and 0 <= y < W) or d > 16:
                 continue
-            if d <= 1:   px[x, y] = WHITE + (255,)
-            elif d <= 4: px[x, y] = YELLOW + (255,)
-            elif (dx + dy) % 2 == 0: px[x, y] = ORANGE + (255,)
+            if   d <= 2: px[x, y] = SNOW + (255,)
+            elif d <= 6: px[x, y] = YELLOW + (255,)
+            elif d <= 12 and (dx + dy) % 2 == 0: px[x, y] = ORANGE + (255,)
 
     icon.convert("RGB").save(os.path.join(GAME, "icon.png"))
     print("[icon]    60x60 -> icon.png")
