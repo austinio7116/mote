@@ -559,6 +559,12 @@ static void civic_yield(int v)
         V->gold = (uint16_t)(V->gold + yg);
         mb_mined_iron += yi; mb_mined_gold += yg;
     }
+    /* NO UPKEEP. A wear term was tried here — a town spending timber and stone in proportion
+     * to how much of it there is — on the theory that a stockpile filled once and never falling
+     * is why wants dry up. It does dry them up, but the cure was worse: at built/4 a mature town
+     * spent faster than it could gather and populations fell from 222 to 27 by year 600; at
+     * built/6 they still fell to 123. Standing still costing nothing is the lesser wrong.
+     */
     if (V->gold  > 900) V->gold  = 900;
     if (V->iron  > 900) V->iron  = 900;
 }
@@ -1583,9 +1589,24 @@ int mb_village_need(int v, uint16_t *target)
     if (v <= 0 || v >= MAXV || !mb_v[v].alive) return 0;
     Village *V = &mb_v[v];
     /* the scarcest thing wins, so labour follows shortage without a scheduler */
-    int need_food = V->food < V->pop * 3 ? 60 - V->food : 0;
-    int need_wood = 40 - (V->wood > 40 ? 40 : V->wood);
-    int need_stone = 30 - (V->stone > 30 ? 30 : V->stone);
+    /* WHY EVERYBODY WAS IDLE. A job census found four fifths of every population doing
+     * nothing at every point in history — 180 of 222 at year 100, 159 of 222 at year 600 — and
+     * the reason is all three of these lines.
+     *
+     * The food want fired only below pop*3 and then asked for `60 - food`, which is NEGATIVE
+     * for any town holding sixty or more: so a hungry town of thirty (needing ninety) wanted
+     * nothing at all. Wood capped at forty and stone at thirty, which a village fills in its
+     * first decade and never falls below again. All three wants sat at zero for ever, the
+     * utility brain found nothing worth doing, and two hundred people milled about the square.
+     *
+     * Wants scale with the MOUTHS and the WORK now, and none of them can go negative. A town
+     * always has something worth doing, which is the whole point of having people in it. */
+    int need_food  = V->pop * 8 - (int)V->food;
+    int need_wood  = 90 - (int)V->wood;
+    int need_stone = 70 - (int)V->stone;
+    if (need_food  < 0) need_food  = 0;
+    if (need_wood  < 0) need_wood  = 0;
+    if (need_stone < 0) need_stone = 0;
     /* IRON AND GOLD, WANTED FOR A REASON. The gates were `hall >= 2` for iron and
      * `hall >= 3` for gold — and a tier-three hall COSTS gold, so a village could not want
      * gold until it already had the building that gold pays for. Nothing in any run ever
@@ -2247,7 +2268,14 @@ void mb_civ_step(void)
             for (int x = V->x - 8; x <= V->x + 8; x++)
                 if (mb_in(x, y) && mb_w.claim[AT(x, y)] == v && mb_w.biome[AT(x, y)] == B_FARM)
                     fields++;
-        V->food = (uint16_t)(V->food + farms * 6 + fields);
+        /* THE BARN STORES; THE FIELD IS HARVESTED BY HAND. This was farms*6 + fields, so a
+         * town with a forty-cell belt gained forty-odd food a visit whatever anybody did —
+         * the granary stayed full, nothing was ever wanted, and the farmers had no reason to
+         * go out. The building keeps a small yield of its own (a barn does hold something),
+         * and the rest of the crop has to be carried in: mb_village_resource already treats a
+         * B_FARM cell as a food target and mb_village_work already pays seven for working
+         * one, so the labour existed and had simply been made pointless. */
+        V->food = (uint16_t)(V->food + farms * 5 + fields / 3);
 
         /* the field ring: a farm turns the ground around it into worked land,
          * which is the harvest AND the most legible sign of a working village */
