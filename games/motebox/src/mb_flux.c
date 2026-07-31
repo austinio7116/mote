@@ -778,6 +778,39 @@ static void agent_step(void)
                  * slower and worse than being flattened. */
                 int hx = a->dx ? a->dx : 1, hy = a->dy;
                 int mx = a->x + (hx > 0 ? 1 : 0) + hx, my = a->y - 1 + hy;
+
+                /* AND IT ONLY BREATHES AT SOMETHING. The breath fired on every agent tick
+                 * wherever the dragon happened to be looking, so it crossed empty moorland
+                 * laying a permanent burning furrow behind it and arrived at the town it was
+                 * summoned to destroy having already set fire to half a continent. A dragon
+                 * breathing constantly also reads as a machine rather than an animal.
+                 *
+                 * So it looks first: a person, an animal or a building anywhere in the cone it
+                 * is about to fill. Nothing there, no fire — it just flies on, which is both
+                 * cheaper and much more frightening to watch. */
+                int prey = 0;
+                for (int step = 0; step < 7 && !prey; step++) {
+                    int spread = step / 2;  if (spread > 2) spread = 2;
+                    for (int off = -spread; off <= spread && !prey; off++) {
+                        int bx = mx + hx * step - hy * off;
+                        int by = my + hy * step + hx * off;
+                        if (!mb_in(bx, by)) continue;
+                        if (mb_is_build(mb_w.obj[AT(bx, by)])) prey = 1;
+                    }
+                }
+                for (int i = 0; i < mb_nu && !prey; i++) {
+                    if (!mb_u[i].alive) continue;
+                    int dx = (mb_u[i].x >> 4) - mx, dy = (mb_u[i].y >> 4) - my;
+                    /* in front of it, not behind: the dot product with the heading */
+                    if (dx * hx + dy * hy < 0) continue;
+                    if (dx * dx + dy * dy <= 7 * 7) prey = 1;
+                }
+#if MOTE_HOST
+                {   extern uint32_t mb_breath_fired, mb_breath_held;
+                    if (prey) mb_breath_fired++; else mb_breath_held++; }
+#endif
+                if (!prey) break;
+
                 for (int step = 0; step < 7; step++) {
                     int spread = step / 2;                     /* 0,0,1,1,2,2,3 -> a cone */
                     if (spread > 2) spread = 2;
@@ -1101,7 +1134,7 @@ void mb_flux_test_event(const char *name, uint32_t r)
 #define BLAST_BURN 12                       /* and the firestorm around it */
 static struct { uint8_t on, x, y, r; } s_blast[NBLAST];
 #if MOTE_HOST
-uint32_t mb_dosed;
+uint32_t mb_dosed, mb_breath_fired, mb_breath_held;
 #endif
 
 static void blast_ring(int bx, int by, int r)

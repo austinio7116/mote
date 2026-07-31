@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motebox — A God’s Handbook</title>
+<style>
+  :root{
+    --bg:#0b0d14; --panel:#141826; --panel2:#1b2032; --ink:#dfe3ef;
+    --dim:#8f96ad; --red:#3f7fd0; --redl:#6aa8e8; --gold:#f0cf55; --steel:#8892a0;
+    --line:#28304a; --grid:#1f2436;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  img{max-width:100%;image-rendering:pixelated;image-rendering:crisp-edges;}
+  a{color:var(--gold);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+
+  /* header */
+  header.hero{background:
+      radial-gradient(120% 140% at 80% -20%, #16294a 0%, transparent 55%),
+      linear-gradient(180deg,#101422,#0b0d14);
+    border-bottom:2px solid var(--red);padding:38px 0 30px;}
+  .hrow{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+  .hicon{width:96px;height:96px;border:2px solid var(--steel);border-radius:8px;
+    background:#0a0a08;flex:0 0 auto;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+  .htext h1{margin:0;font-size:2.6rem;letter-spacing:.06em;color:var(--red);
+    text-shadow:0 2px 0 #123059;font-weight:800}
+  .htext .sub{color:var(--ink);font-size:1.15rem;margin-top:2px}
+  .htext .by{color:var(--dim);font-size:.9rem;margin-top:8px;letter-spacing:.04em}
+  .badges{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+  .badge{background:var(--panel2);border:1px solid var(--line);color:var(--gold);
+    font-size:.78rem;padding:4px 10px;border-radius:20px;letter-spacing:.04em}
+
+  /* sticky nav */
+  nav.toc{position:sticky;top:0;z-index:5;background:rgba(13,15,12,.94);
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+  nav.toc .wrap{display:flex;gap:4px;flex-wrap:wrap;padding:8px 20px}
+  nav.toc a{color:var(--dim);font-size:.82rem;padding:5px 10px;border-radius:6px}
+  nav.toc a:hover{color:var(--ink);background:var(--panel);text-decoration:none}
+
+  section{padding:34px 0 8px;border-bottom:1px solid var(--grid)}
+  h2{font-size:1.5rem;color:var(--gold);margin:0 0 4px;letter-spacing:.03em;
+    display:flex;align-items:baseline;gap:10px}
+  h2::before{content:"▸";color:var(--red);font-size:1rem}
+  .lede{color:var(--dim);margin:0 0 20px;max-width:70ch}
+  h3{color:var(--redl);margin:22px 0 8px;font-size:1.05rem}
+  p{max-width:74ch}
+  ul{max-width:74ch}
+  li{margin:4px 0}
+  b,strong{color:var(--ink)}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;font-size:.88em;color:var(--gold)}
+
+  /* cards / grids */
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:720px){.g2,.g3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .card h3{margin-top:0}
+  .shot{border:1px solid var(--line);border-radius:8px;display:block;width:100%}
+  .shotcap{color:var(--dim);font-size:.82rem;text-align:center;margin-top:6px}
+
+  /* tables */
+  .tw{overflow-x:auto;margin:6px 0 4px;-webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse;width:100%;min-width:560px;font-size:.9rem}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line)}
+  thead th{color:var(--gold);font-size:.76rem;text-transform:uppercase;letter-spacing:.06em;
+    border-bottom:2px solid var(--line);white-space:nowrap}
+  tbody tr:hover{background:var(--panel)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.nm{font-weight:600;color:var(--ink);white-space:nowrap}
+  .ab{display:inline-block;margin-left:8px;color:var(--dim);font-weight:400;font-size:.78rem;
+    letter-spacing:.06em}
+  td.role,td.pre{color:var(--dim);font-size:.86rem}
+  td.pw.pos{color:#7cc85e} td.pw.neg{color:var(--redl)}
+
+  /* damage matrix */
+  table.dmg{min-width:480px}
+  table.dmg td.wnm{font-weight:600;color:var(--ink)}
+  td.dm{text-align:center;font-variant-numeric:tabular-nums;font-weight:600;color:#0c0f0a}
+  .d0{background:#2a2320;color:#6b6355;font-weight:400}
+  .d1{background:#7d2b22;color:#f2d3cd}
+  .d2{background:#9c6b1f;color:#fbe7c4}
+  .d3{background:#4f7d2b;color:#e8f5d6}
+  .d4{background:#2f9c52;color:#e6fbe9}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:12px 0 0;font-size:.8rem;color:var(--dim)}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .sw{width:14px;height:14px;border-radius:3px;display:inline-block}
+
+  /* controls */
+  .keys{display:grid;grid-template-columns:auto 1fr;gap:10px 16px;align-items:start;
+    max-width:74ch}
+  .kb{background:var(--panel2);border:1px solid var(--steel);border-bottom-width:3px;
+    border-radius:6px;padding:3px 10px;font-weight:700;color:var(--gold);font-size:.85rem;
+    white-space:nowrap;justify-self:start;text-align:center;min-width:44px}
+
+  /* tech tree */
+  .tiers{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:720px){.tiers{grid-template-columns:1fr 1fr}}
+  .tier{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .tier h4{margin:0 0 8px;color:var(--gold);font-size:.9rem;letter-spacing:.04em}
+  .tier ul{margin:0;padding-left:18px;font-size:.9rem}
+  .tier li{color:var(--dim)} .tier li b{color:var(--ink)}
+  .arrow{text-align:center;color:var(--red);font-size:1.4rem;line-height:1;margin:-4px 0}
+
+  /* mission cards */
+  .mcard{display:flex;gap:16px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--red);border-radius:10px;padding:16px;margin-bottom:12px}
+  .mnum{flex:0 0 auto;width:40px;height:40px;border-radius:50%;background:#22110f;
+    border:2px solid var(--red);color:var(--redl);font-weight:800;font-size:1.2rem;
+    display:flex;align-items:center;justify-content:center}
+  .mbody h3{margin:2px 0 6px;color:var(--ink)}
+  .mbody p{margin:0 0 10px;color:var(--dim)}
+  .mmeta{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.83rem;color:var(--dim)}
+  .mmeta b{color:var(--gold);font-weight:600}
+  .mmeta .teach b{color:var(--redl)}
+
+  .callout{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:8px;padding:14px 16px;margin:16px 0;color:var(--ink)}
+  .callout b{color:var(--gold)}
+  footer{padding:30px 0 50px;color:var(--dim);font-size:.85rem;text-align:center}
+
+  /* light theme fallback */
+  @media (prefers-color-scheme:light){
+    :root{--bg:#f3f1e8;--panel:#fff;--panel2:#efece0;--ink:#23281c;--dim:#5c614f;
+      --line:#d8d5c4;--grid:#e6e3d4;}
+    .htext h1{text-shadow:none}
+    td.dm{color:#0c0f0a}
+  }
+
+  /* print / PDF: light palette, keep the heatmap colours, avoid ugly breaks */
+  @media print{
+    :root{--bg:#fff;--panel:#fff;--panel2:#f4f2ea;--ink:#1c2016;--dim:#4a4f3e;
+      --line:#cfccbc;--grid:#e2dfd0;}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body{font-size:11pt}
+    nav.toc{display:none}
+    header.hero{border-bottom:2px solid var(--red)}
+    .wrap{max-width:none;padding:0}
+    section{padding:14px 0 4px;border-bottom:none}
+    h2{page-break-after:avoid}  h3{page-break-after:avoid}
+    .card,.tier,.mcard,.callout,tr,.grid>div{page-break-inside:avoid}
+    table{min-width:0}  .tw{overflow:visible}
+    #intro,#buildings,#tech,#units,#counters,#campaign{page-break-before:auto}
+    .htext h1{text-shadow:none}
+    td.dm{color:#0c0f0a}
+    a{color:var(--ink)}
+    footer{padding:16px 0}
+  }
+  @page{margin:14mm 12mm}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap hrow">
+    <img class="hicon" src="img/gallery/motebox-icon.png" alt="Motebox icon">
+    <div class="htext">
+      <h1>MOTEBOX</h1>
+      <div class="sub">A god game: watch a small world run, and change it.</div>
+      <div class="by">by austinio7116 · for Thumby Color</div>
+      <div class="badges">
+        <span class="badge">god simulator</span>
+        <span class="badge">128×112 world</span>
+        <span class="badge">48 powers</span>
+        <span class="badge">35 techs</span>
+        <span class="badge">445 people</span>
+        <span class="badge">save &amp; resume</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#start">Start here</a>
+  <a href="#views">Two views</a>
+  <a href="#controls">Controls</a>
+  <a href="#people">People</a>
+  <a href="#towns">Towns</a>
+  <a href="#farming">Food</a>
+  <a href="#lords">Lords</a>
+  <a href="#crowns">Kingdoms</a>
+  <a href="#tech">Tech tree</a>
+  <a href="#powers">Powers</a>
+  <a href="#screens">Screens</a>
+  <a href="#laws">Laws &amp; time</a>
+  <a href="#tips">Tips</a>
+</div></nav>
+
+<div class="wrap">
+
+<section id="start">
+  <h2>Start here</h2>
+  <p class="lede">When you start a game the world is already running. Four peoples already have towns and farms, and are already wary of each other.</p>
+
+  <p>You do not play a character. You have a cursor, a supply of Faith, and 48 powers to spend it
+  on — anything from a rain shower to a nuclear strike. The rest happens by itself: farmers plant
+  and harvest, lords grow old and are replaced, kingdoms fight, towns burn down, and a log records
+  it.</p>
+
+  <div class="grid g2">
+    <div><img class="shot" src="img/gallery/motebox-g-god.png" alt="God's Eye">
+      <div class="shotcap">God’s Eye: the whole world, one pixel per cell, coloured by who owns what</div></div>
+    <div><img class="shot" src="img/gallery/motebox-g-town.png" alt="Mortal View">
+      <div class="shotcap">Mortal View: the same world close up, where you can see the people</div></div>
+  </div>
+
+  <p>A good way to begin is to watch. Set the speed to ×3, read the two lines of news at the bottom
+  of the screen, and see which town is growing fastest. Then decide whether to help it.</p>
+</section>
+
+<section id="views">
+  <h2>Two views</h2>
+  <p class="lede">Hold <b>RB</b> to switch between them. It is the same world either way.</p>
+  <div class="grid g2">
+    <div class="card">
+      <h3>God’s Eye</h3>
+      <p>The whole map at once. Each kingdom’s land is tinted its colour and capitals are marked.
+      You can also switch the map to show tech level, religion or town size instead of borders
+      (MENU → MAP). Use this to see where borders are moving.</p>
+    </div>
+    <div class="card">
+      <h3>Mortal View</h3>
+      <p>About 16 by 14 cells of ground with everyone drawn individually — farmers, soldiers,
+      elders, the lord in a crown. Buildings show their age: a wooden hall becomes a stone keep and
+      then a castle; dirt tracks become cobbles and eventually tarmac. Use this to see why the
+      border moved.</p>
+    </div>
+  </div>
+</section>
+
+<section id="controls">
+  <h2>Controls</h2>
+  <div class="keys">
+    <span class="kb">D-PAD</span><div>Move the cursor. Hold it down to move faster.</div>
+    <span class="kb">A</span><div>Use the selected power where the cursor is. Brush powers keep working while you hold A.</div>
+    <span class="kb">B</span><div>Show a list of everything on that cell: people, animals, buildings, resources and the ground.</div>
+    <span class="kb">LB</span><div>Open the power menu. Once it is open, LB and RB flip between pages.</div>
+    <span class="kb">RB</span><div>Hold to switch views. Inside an info screen, RB moves out a level: person → town → kingdom → world.</div>
+    <span class="kb">MENU</span><div>Tap for the game menu (log, world report, laws, speed, save). Hold for the console menu (brightness, volume, exit).</div>
+  </div>
+  <h3>The bottom strip</h3>
+  <p>The bottom two lines show the last two things that happened. Long lines scroll sideways so you
+  can read them. In the log screen you can select an entry to jump to where it happened.</p>
+</section>
+
+<section id="people">
+  <h2>People</h2>
+  <p class="lede">Everyone is simulated separately: a name, an age, a job, a partner, a mood, some
+  personality traits, and whatever they have decided to do right now.</p>
+
+  <p>They choose what to do by comparing their options — run away, eat, work, find a partner,
+  fight, put out a fire — so a crowd is hundreds of separate decisions rather than a script. Things
+  you will see them doing:</p>
+
+  <div class="grid g3">
+    <div class="card"><h3>Working</h3><p>Fetching wood, stone, iron and gold. Sowing and harvesting.
+    Paving streets. Putting up whatever the lord has decided to build. Nothing gets built in a town
+    unless someone walks there and builds it.</p></div>
+    <div class="card"><h3>Time off</h3><p>Villagers who are fed and have no work take a break: a
+    walk along the streets, a trip out of town, a game by the monument, or a lie in the sun. It
+    makes them happier, and happier people have more children and are more loyal.</p></div>
+    <div class="card"><h3>Jobs with a purpose</h3><p>Soldiers stay near their lord and drive off
+    wolves that come close. Priests sit at the temple and cheer up whoever is nearby. Traders take
+    caravans to other towns.</p></div>
+  </div>
+
+  <h3>The four peoples</h3>
+  <p>Humans, elves, dwarves and orcs all live in the same world and build the same things, but
+  their towns are laid out differently and their sprites are their own. The last three only appear through disasters and powers: skeletons rise from graveyards, ghosts
+  appear in ruins, and demons are summoned.</p>
+  <img src="img/gallery/motebox-p-folk.png" alt="The four peoples and the risen" style="width:100%;max-width:520px;display:block;margin:6px 0 18px">
+
+  <div class="grid g2">
+    <div><img class="shot" src="img/gallery/motebox-g-pick.png" alt="What is here">
+      <div class="shotcap">Press B on a hall to get the building, the lord, and the ground</div></div>
+    <div><img class="shot" src="img/gallery/motebox-g-pickland.png" alt="A resource">
+      <div class="shotcap">Press B on a seam to see what it is and how much one trip brings back</div></div>
+  </div>
+</section>
+
+<section id="towns">
+  <h2>Towns</h2>
+  <p class="lede">A town is streets with buildings along them, and everything in it was carried
+  there by someone.</p>
+
+  <p>The lord picks what to build next based on what the town is short of. The town’s stores pay for
+  it. Then it stays as an outline until a builder walks over and puts it up. The same is true of
+  paving, new fields, planted trees and monuments. A small wooden stake on the ground means work
+  that is waiting for someone to do it.</p>
+
+  <h3>Towns are laid out differently</h3>
+  <p>Each town uses one of five street plans. Races tend towards particular ones, but it is not
+  fixed:</p>
+  <div class="tw"><table>
+    <thead><tr><th>Plan</th><th>What you see</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">Grid</td><td>A main street with side lanes. Block size, spacing, offsets and lane length all vary, so two grid towns still look different.</td></tr>
+      <tr><td class="nm">Radial</td><td>Streets radiating from the centre with a ring road around them.</td></tr>
+      <tr><td class="nm">Ribbon</td><td>One long street with houses down both sides.</td></tr>
+      <tr><td class="nm">Organic</td><td>No plan. A lane wanders out from the centre and side lanes branch off it.</td></tr>
+      <tr><td class="nm">Green</td><td>Houses around an open common. Nothing is allowed to build on the common.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Build order</h3>
+  <p>Houses and farms first, then a stone hall. The stone hall is what allows walls, a barracks and
+  a temple. After that the town works up the list as its kingdom learns new technology: granary,
+  market, library, foundry, college, hospital, factory, station, power station, missile silo.</p>
+
+  <div class="grid g2">
+    <div><img class="shot" src="img/gallery/motebox-g-early.png" alt="A walled town">
+      <div class="shotcap">A stone hall with a wall around it and towers on the wall</div></div>
+    <div><img class="shot" src="img/gallery/motebox-g-city.png" alt="An industrial city">
+      <div class="shotcap">Four centuries later: factories, a railway station and tarmac roads</div></div>
+  </div>
+
+  <h3>Everything a town can build</h3>
+  <img src="img/gallery/motebox-p-buildings.png" alt="Every building in the game" style="width:100%;display:block;margin:6px 0 4px">
+  <p class="lede" style="margin-top:2px">The fire pit appears when a town is founded. Everything
+  else has to be chosen by the lord, paid for out of the town stores, and built by a villager.</p>
+
+  <h3>Walls actually work</h3>
+  <p>Enemy soldiers and wild animals cannot walk through a wall. The town’s own people can. An
+  attacking army has to stop outside, and soldiers standing next to a wall will break through it
+  after a while. Towers on the wall shoot at any enemy within four cells.</p>
+</section>
+
+<section id="farming">
+  <h2>Food</h2>
+  <p class="lede">There are four ways to feed a town, and you can see all four happening.</p>
+
+  <div class="grid g2">
+    <div><img class="shot" src="img/gallery/motebox-g-farm.png" alt="A farm belt">
+      <div class="shotcap">One belt of fields showing all five stages at once</div></div>
+    <div><img class="shot" src="img/gallery/motebox-g-coast.png" alt="A town and its fields">
+      <div class="shotcap">Fields spread out around a town as it grows</div></div>
+  </div>
+  <div class="grid g2">
+    <div class="card">
+      <h3>Crops</h3>
+      <p>A farmer walks to an empty field and sows it. The crop grows on its own. A farmer comes
+      back, harvests it, and carries it home. Each field is on its own timer, so a belt of fields
+      shows bare earth, seed, shoots, full crop and ripe crop all at the same time. Casting
+      <b>rain</b> moves every field in range on one stage.</p>
+    </div>
+  </div>
+
+  <h3>The wildlife</h3>
+  <p>Deer, boar, sheep, hens and goats can be eaten. Wolves, wild dogs, snakes, spiders and bats hunt
+  other animals, and will attack people who are away from their own land. Predators and prey have
+  separate population limits, so killing off the wolves does not fill the world with deer.</p>
+  <img src="img/gallery/motebox-p-animals.png" alt="Every animal in the game" style="width:100%;display:block;margin:6px 0 18px">
+
+  <div class="grid g3">
+    <div class="card"><h3>Livestock</h3><p>A town with a farm buys two animals. The flock breeds up
+    to the size the town can feed, produces a little food every year, and gets eaten when the store
+    runs low. Wolves will not come into the pasture.</p></div>
+    <div class="card"><h3>Hunting</h3><p>When food runs short, villagers hunt wild animals — deer,
+    boar, goat, hen, rat. One carcass is worth about two and a half berry bushes. Hunt too much and
+    the wildlife starts to run out.</p></div>
+    <div class="card"><h3>Fishing</h3><p>A dock lets villagers fish the water next to it. A coastal
+    town can live mostly on fish; an inland one gets nothing from the building.</p></div>
+  </div>
+</section>
+
+<section id="lords">
+  <h2>Lords</h2>
+  <p class="lede">Each town has a lord, and the lord is one of its villagers. You can find them at
+  the hall, or from the town screen.</p>
+
+  <div class="grid g2">
+    <div><img class="shot" src="img/gallery/motebox-g-lord.png" alt="A lord">
+      <div class="shotcap">Three stats, what they currently mean, and what 50 Faith buys</div></div>
+    <div class="card">
+      <h3>What the stats do</h3>
+      <ul>
+        <li><b>builds</b> — how ambitiously the town spends on new buildings.</li>
+        <li><b>talks</b> — how loyal the town stays, and how easily its kingdom makes allies.</li>
+        <li><b>fights</b> — how quickly the kingdom declares war, if this town is the capital.</li>
+      </ul>
+      <p>Traits matter too. An <b>ambitious</b> lord builds a monument to himself early and costs
+      his kingdom a lot of loyalty. A <b>vengeful</b> lord in a capital makes wars more likely.</p>
+    </div>
+  </div>
+
+  <p>Lords age and die like anyone else, and the town picks a new one from its own people. It
+  prefers the old lord’s family while any of them are still alive, so one family can hold a town
+  for generations. A lord can also be killed by a wolf or in a war, which is why soldiers stay
+  close to them.</p>
+
+  <p><b>You can spend Faith on a lord.</b> 50 Faith adds 20 to one stat. This is usually the
+  cheapest way to change what a kingdom does, because most of a town’s decisions come from the
+  person in the hall.</p>
+</section>
+
+<section id="crowns">
+  <h2>Kingdoms</h2>
+  <p class="lede">A kingdom is a group of towns, and towns can change hands.</p>
+
+  <div class="grid g2">
+    <div class="card"><h3>Why wars start</h3>
+      <p>Kingdoms weigh up how close they are, how big their armies are, past grudges, how tired
+      they are of fighting, the temper of the lord in the capital, and what the other side has. A
+      kingdom with no iron next to one with plenty is much more likely to attack. A kingdom with
+      only one town will not start a war.</p></div>
+    <div class="card"><h3>Taking a town</h3>
+      <p>If enemy soldiers reach a town’s hall and its own people are not there to defend it, the
+      town changes owner. It keeps its buildings, fields and people, but flies a new flag and starts
+      with very low loyalty — so you may have to hold it.</p></div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card"><h3>Rebellion</h3>
+      <p>Loyalty rises or falls depending on how far the town is from its capital, how tired of war
+      the kingdom is, how happy the town is, and who its lord is. If loyalty stays below zero long
+      enough, the town breaks away as a new kingdom and immediately goes to war with the one it
+      left. Distance matters most, so large empires tend to lose their outer towns on their own.</p></div>
+    <div class="card"><h3>Trade and allies</h3>
+      <p>Caravans carry spare food and materials to towns that need them. Inside a kingdom it is
+      free; across a peaceful border it is a sale and brings back gold. Two kingdoms with a common
+      enemy, or a shared race or religion, and a capable lord in the capital may become allies.</p></div>
+  </div>
+
+  <div class="grid g2">
+    <div><img class="shot" src="img/gallery/motebox-g-war.png" alt="A war">
+      <div class="shotcap">Armies fight at a distance. The weapon depends on their technology:
+      thrown rocks, arrows, musket balls, shells, missiles</div></div>
+    <div><img class="shot" src="img/gallery/motebox-g-siege.png" alt="A walled coastal town">
+      <div class="shotcap">A walled town on a coast. An attacking army has to get through the wall
+      or around it</div></div>
+  </div>
+</section>
+
+<section id="tech">
+  <h2>Tech tree</h2>
+  <p class="lede">35 technologies across nine eras. Each one changes something you can see.</p>
+  <p>Kingdoms earn research from their people, their temples, libraries and colleges, and their
+  trade. What a kingdom knows decides what its towns can build, what its soldiers throw, and what
+  its roads are made of, so you can usually tell a kingdom’s era just by looking at one of its
+  towns.</p>
+
+  <div class="tiers">
+    <div class="tier"><h4>Stone → Bronze</h4><ul>
+      <li><b>tools</b> — stone hall, and everything that needs one</li>
+      <li><b>agriculture, pottery</b> — granary</li>
+      <li><b>masonry</b> — cobbles, walls, towers</li>
+      <li><b>bronze</b> — barracks</li>
+      <li><b>writing</b> — temple, library</li>
+    </ul></div>
+    <div class="tier"><h4>Iron → Classical</h4><ul>
+      <li><b>ironwork</b> — better weapons</li>
+      <li><b>seafaring</b> — docks, and settling across water</li>
+      <li><b>currency</b> — market, and gold income</li>
+      <li><b>engineering</b> — flagstones, fountains</li>
+      <li><b>maths, law, cavalry</b></li>
+    </ul></div>
+    <div class="tier"><h4>Medieval → Industrial</h4><ul>
+      <li><b>gunpowder</b> — muskets</li>
+      <li><b>metallurgy</b> — foundry, and iron income</li>
+      <li><b>university, printing</b> — faster research</li>
+      <li><b>sanitation</b> — hospital</li>
+      <li><b>steam, railway</b> — factory, station</li>
+    </ul></div>
+    <div class="tier"><h4>Modern → Atomic</h4><ul>
+      <li><b>combustion, flight</b> — tarmac, then road markings</li>
+      <li><b>electricity, radio</b> — power station</li>
+      <li><b>medicine, physics</b></li>
+      <li><b>fission, rocketry</b></li>
+      <li><b>the bomb</b> — missile silo, and a kingdom that can use it</li>
+    </ul></div>
+  </div>
+  <p>A kingdom that is doing well finishes the tree somewhere in the third or fourth century. One
+  that is doing badly can spend the whole game in the iron age.</p>
+</section>
+
+<section id="powers">
+  <h2>Powers</h2>
+  <p class="lede">48 powers in six pages. They cost Faith, which builds up from how happy your
+  followers are and how many temples they have built. There is a maximum you can hold.</p>
+
+  <div class="grid g2">
+    <div><img class="shot" src="img/gallery/motebox-g-powers.png" alt="The power menu">
+      <div class="shotcap">Tap LB to open it, D-pad to choose, LB and RB to change page, A to select</div></div>
+    <div><img class="shot" src="img/gallery/motebox-g-nuke.png" alt="A nuclear strike">
+      <div class="shotcap">A nuclear strike: the flash, the crater, fire spreading out, then the cloud</div></div>
+  </div>
+
+  <div class="tw"><table>
+    <thead><tr><th>Page</th><th>What is on it</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">LAND</td><td>Raise and lower ground, plant forest, build roads, add water, change one terrain type into another.</td></tr>
+      <tr><td class="nm">LIFE</td><td>Rain, fertility, healing, inspiration, peace, gold seams, blessings, resurrection.</td></tr>
+      <tr><td class="nm">PEOPLE</td><td>Found a village, add settlers of any of the four races, herds of animals, wolves.</td></tr>
+      <tr><td class="nm">WRATH</td><td>Fire, meteor, earthquake, flood, lightning, plague, madness, and a nuclear strike.</td></tr>
+      <tr><td class="nm">BEASTS</td><td>Seven monsters you can summon. An army can kill any of them.</td></tr>
+      <tr><td class="nm">MIND</td><td>Effects on individual people: bless, mark, enrage, make immortal.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>If a power has no effect — a blessing with nobody nearby, or a village on ground that will not
+  take one — you get the Faith back.</p>
+
+  <h3>Monsters you can summon</h3>
+  <p>There are eight. An army with enough soldiers can kill any of them. The angel is the only one
+  that helps rather than attacks.</p>
+  <img src="img/gallery/motebox-p-bosses.png" alt="The eight summonable monsters" style="width:100%;max-width:560px;display:block;margin:6px auto 0">
+</section>
+
+<section id="screens">
+  <h2>Info screens</h2>
+  <p class="lede">Looking things up is a large part of the game. <b>RB</b> moves out one level each
+  time: from a person to their town, then their kingdom, then the world.</p>
+
+  <div class="grid g3">
+    <div class="card"><h3>What is here</h3><p>Press <b>B</b> on any cell. Lists everyone and
+    everything on it, so you can pick which one of a crowd to look at, plus the resources and the
+    ground itself.</p></div>
+    <div class="card"><h3>A person</h3><p>Name, family, age, job, partner, mood, hunger, health and
+    traits. Press <b>A</b> to spend Faith on their health, hunger, mood or personality.</p></div>
+    <div class="card"><h3>A lord</h3><p>Their three stats, what those stats currently mean for the
+    town, and 50 Faith to raise one.</p></div>
+    <div class="card"><h3>A town</h3><p>Size, population against available housing, religion, its
+    lord, its stores and what has been built. Press <b>A</b> for the lord.</p></div>
+    <div class="card"><h3>A kingdom</h3><p>Era, research progress, a bar for each town, and who it
+    is at war with.</p></div>
+    <div class="card"><h3>The world</h3><p>Every kingdom with its era and number of towns, and the
+    total population.</p></div>
+  </div>
+
+  <div class="grid g2">
+    <div><img class="shot" src="img/gallery/motebox-g-chron.png" alt="The log">
+      <div class="shotcap">The log keeps 160 entries, newest first. Select one to jump there</div></div>
+    <div><img class="shot" src="img/gallery/motebox-g-world.png" alt="The world report">
+      <div class="shotcap">The world report: who is ahead and how many people are left</div></div>
+  </div>
+</section>
+
+<section id="laws">
+  <h2>Laws and time</h2>
+  <div class="grid g2">
+    <div class="card"><h3>Speed</h3><p>Five speeds from paused to ×25, in the game menu. ×3 is
+    comfortable for watching; ×25 is for skipping ahead a century.</p></div>
+    <div class="card"><h3>World laws</h3><p>Eleven on/off switches for what the world is allowed to
+    do: disasters, war, rebellion, plague, ageing, having children, monsters, historical ages, and
+    Follow History, which moves the camera to each new event when you are not touching the
+    controls.</p></div>
+  </div>
+  <div class="grid g2">
+    <div><img class="shot" src="img/gallery/motebox-g-lens.png" alt="The game menu">
+      <div class="shotcap">The game menu: log, world report, laws, map lens, speed, mode and save</div></div>
+    <div><img class="shot" src="img/gallery/motebox-g-town.png" alt="A town close up">
+      <div class="shotcap">Ages tint the world as they pass</div></div>
+  </div>
+  <p>The world moves through historical ages by itself — the Age of Hope, the Age of Iron, the Age
+  of Ash and so on. Each one changes the simulation while it lasts: how well crops grow, how likely
+  wars are, how often disasters happen. The colours on screen shift with it.</p>
+  <p><b>You can save the whole world.</b> Save from the game menu and everything is kept: the map,
+  every person, every kingdom and the whole log. A world you spent an hour on will still be there
+  tomorrow.</p>
+</section>
+
+<section id="tips">
+  <h2>Tips</h2>
+  <ul>
+    <li><b>Watch first.</b> At ×3, a minute of real time is about a decade. You can see which towns
+    are doing well without spending anything.</li>
+    <li><b>Press B on everything.</b> It is how you find out what anything is — people, buildings,
+    ore, crops, terrain.</li>
+    <li><b>Spend on lords.</b> 50 Faith on <i>talks</i> in a distant town can prevent a rebellion. 50 on
+    <i>builds</i> can turn a village into a city.</li>
+    <li><b>Rain is useful.</b> It puts out fires and moves every field in range on one stage.</li>
+    <li><b>Use the log to navigate.</b> Selecting an entry takes you straight to where it happened,
+    which is the quickest way to find a war you just read about.</li>
+    <li><b>You do not have to fix everything.</b> Plagues, rebellions and monsters all have knock-on
+    effects, and the world usually recovers on its own.</li>
+  </ul>
+</section>
+
+</div>
+
+<footer style="padding:30px 0 60px;color:var(--dim);font-size:.85rem">
+  <div class="wrap">
+    <p style="border-left:2px solid var(--gold);padding-left:.9rem;max-width:74ch">
+      Every tile, character, building and effect in this game comes from the
+      <a href="https://ink-slime.itch.io/simple-roguelike-tileset">Simple Roguelike Tileset</a>
+      by <b>Ink_Slime</b> (DC Slime), released CC0. The look of Motebox is their work: 8×8 tiles
+      catalogued and given jobs, with nothing drawn on top. Roguemote uses the same sheet.</p>
+    <p>Every sprite on this page is cropped out of the game’s own sheets, and every screenshot is
+      taken from a running world.</p>
+    <p>Motebox · by austinio7116 · a Mote game for the Thumby Color ·
+      <a href="games.html">back to the gallery</a></p>
+  </div>
+</footer>
+</body>
+</html>

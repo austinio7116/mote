@@ -14,7 +14,7 @@
 #include "mb.h"
 MOTE_GAME_MODULE();
 MOTE_GAME_META("Motebox", "austinio7116");
-MOTE_GAME_VERSION("0.1.0");
+MOTE_GAME_VERSION("1.0.0");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
@@ -2034,6 +2034,10 @@ static void g_init(void)
                     b1[4]-b0[4], b1[5]-b0[5], mb_pop_civ()-pop0, shots1-shots0, fate);
                 fprintf(stderr, "             hp %d/6000 after %d ticks\n",
                         last_hp, gone_at >= 0 ? gone_at : 900);
+                {   extern uint32_t mb_breath_fired, mb_breath_held;
+                    if (mb_breath_fired || mb_breath_held)
+                        fprintf(stderr, "             breath: %u at a target, %u held back\n",
+                                mb_breath_fired, mb_breath_held); }
                 #undef TALLY
             }
         }
