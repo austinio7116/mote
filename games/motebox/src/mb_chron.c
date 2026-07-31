@@ -74,7 +74,12 @@ typedef struct {
     uint16_t extra;
 } Event;
 
-#define NEV 96
+/* 160, UP FROM 96. Now that a lord is a real person who dies, a world of ten towns produces
+ * about one succession a year — and a 96-entry ring covers less than a century of that, so the
+ * wars, conquests and rebellions a player actually wants to read were being pushed off the end
+ * by "Garvek rules Oakwick". Sixty-four more entries is 768 bytes and about two more centuries
+ * of history. */
+#define NEV 160
 static Event s_ev[NEV];
 static int   s_n, s_head;
 static char  s_toast[44];

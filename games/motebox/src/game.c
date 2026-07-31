@@ -2284,7 +2284,10 @@ static void g_init(void)
                                             "  %u towns taken by force, "
                                             "%u caravans across a border\n",
                                     lords, guards, mb_expeditions,
-                                    mb_conquests, mb_trades_far); }
+                                    mb_conquests, mb_trades_far);
+                            extern uint32_t mb_rebellions, mb_rebel_blocked;
+                            fprintf(stderr, "  %u rebellions, %u blocked for want of a "
+                                            "free crown\n", mb_rebellions, mb_rebel_blocked); }
                     }
                     fprintf(stderr, "town plans:");
                     for (int k = 0; k < 5; k++)

@@ -1976,7 +1976,7 @@ static int mb_village_need_calc(int v, uint16_t *target);
 static int village_far_resource(int v, int kind, int *ox, int *oy);
 static void village_expedition(int v);
 #if MOTE_HOST
-uint32_t mb_expeditions, mb_conquests, mb_trades_far;
+uint32_t mb_expeditions, mb_conquests, mb_trades_far, mb_rebellions, mb_rebel_blocked;
 #endif
 
 /* ONE ANSWER PER VILLAGE PER TICK.
@@ -2622,6 +2622,10 @@ static void loyalty_step(int v)
         if (++V->unrest >= 8) {                      /* eight ticks under: it goes */
             int k = 0;
             for (int i = 1; i < MAXK; i++) if (!mb_k[i].alive) { k = i; break; }
+#if MOTE_HOST
+            {   extern uint32_t mb_rebellions, mb_rebel_blocked;
+                if (k) mb_rebellions++; else mb_rebel_blocked++; }
+#endif
             if (k) {
                 memset(&mb_k[k], 0, sizeof mb_k[k]);
                 mb_k[k].alive = 1; mb_k[k].sp = V->sp;
