@@ -895,4 +895,4 @@ static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
    games/moria/README.md, on the in-game Info > Licence page, and in the gallery
    description; this is the short form the launcher shows. */
 MOTE_GAME_META("Moria", "Koeneke/Wilson, port austinio7116");
-MOTE_GAME_VERSION("0.9.0");
+MOTE_GAME_VERSION("0.9.1");
