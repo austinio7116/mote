@@ -665,7 +665,11 @@ static void act(int i)
             if (bestd <= 6) {                       /* in reach: strike it */
                 if (mb_agent_hurt(x, y, 9 + (u->traits & TR_TOUGH ? 5 : 0))) u->kills++;
             } else if (bestd <= rng2 * rng2 && (r & 1) == 0) {
-                mb_fx_shot((float)x, (float)y, (float)bx, (float)by, shk2);
+                /* from the FIGURE, in sixteenths, not from the middle of its tile: the
+                 * sprites are drawn at sub-pixel positions, so tile centres put the tracer
+                 * up to half a cell away from the soldier it came out of */
+                mb_fx_shot((float)u->x / 16.0f, (float)u->y / 16.0f,
+                           (float)bx, (float)by, shk2);
                 if (mb_agent_hurt(bx, by, 3 + shk2 * 3)) u->kills++;
                 int hold2 = (rng2 * 3) / 4; if (hold2 < 3) hold2 = 3;
                 if (bestd > hold2 * hold2) step_toward(u, bx, by);
@@ -719,7 +723,8 @@ static void act(int i)
          * are continuous while it holds, and the weapon tier sets how far apart the two sides
          * stand — which is what the tech tree was supposed to be buying. */
         } else if (u->sp < SP_CIV_N && d2 <= rng * rng && (r & 1) == 0) {
-            mb_fx_shot((float)x, (float)y, (float)ex, (float)ey, shk);
+            mb_fx_shot((float)u->x / 16.0f, (float)u->y / 16.0f,
+                       (float)mb_u[e].x / 16.0f, (float)mb_u[e].y / 16.0f, shk);
             int dmg = 7 + (int)(r >> 4 & 5) + shk * 2;      /* a better weapon hits harder */
             mb_u[e].hp -= (int8_t)dmg;
             mb_u[e].happy -= 5;

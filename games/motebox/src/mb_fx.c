@@ -757,13 +757,21 @@ static struct {
  * at x1. Six cut every flight off in mid-air. */
 #define SHOT_TICKS 20
 
+/* SPEED IS IN TILES PER SECOND, and the first set was slower than the men doing the throwing.
+ * A villager covers 0.75 of a tile per tick at eight ticks a second — SIX tiles a second — and
+ * a thrown rock was set to 2.2, so every missile in the game drifted along at a third of
+ * walking pace and looked like litter floating near the fighting rather than anything anybody
+ * had thrown. These are the speeds of the actual objects: a stone is fast, an arrow is much
+ * faster, a bullet is very nearly instant. A rock now crosses its four-tile reach in about a
+ * fifth of a second.
+ */
 static const struct { float speed, arc; uint16_t core, trail; } SHOT_DEF[MB_SHOT_N] = {
     /*                 speed  arc     core                        trail                  */
-    /* ROCK    */ { 2.2f, 3.0f, MOTE_RGB565(150, 120,  90), MOTE_RGB565( 90,  70,  55) },
-    /* ARROW   */ { 4.5f, 1.2f, MOTE_RGB565(230, 225, 210), MOTE_RGB565(130, 110,  80) },
-    /* BULLET  */ { 9.0f, 0.0f, MOTE_RGB565(255, 250, 200), MOTE_RGB565(200, 160,  60) },
-    /* SHELL   */ { 3.2f, 2.6f, MOTE_RGB565(255, 190,  70), MOTE_RGB565(120, 110, 105) },
-    /* MISSILE */ { 6.5f, 0.4f, MOTE_RGB565(255, 245, 230), MOTE_RGB565(255, 130,  40) },
+    /* ROCK    */ { 18.0f, 3.0f, MOTE_RGB565(150, 120,  90), MOTE_RGB565( 90,  70,  55) },
+    /* ARROW   */ { 34.0f, 1.2f, MOTE_RGB565(230, 225, 210), MOTE_RGB565(130, 110,  80) },
+    /* BULLET  */ { 90.0f, 0.0f, MOTE_RGB565(255, 250, 200), MOTE_RGB565(200, 160,  60) },
+    /* SHELL   */ { 28.0f, 2.6f, MOTE_RGB565(255, 190,  70), MOTE_RGB565(120, 110, 105) },
+    /* MISSILE */ { 60.0f, 0.4f, MOTE_RGB565(255, 245, 230), MOTE_RGB565(255, 130,  40) },
 };
 
 int mb_shots_fired[MB_SHOT_N];      /* counted per kind, for the war measurement */
@@ -879,8 +887,17 @@ void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt)
          * than the one in front so the thing has a direction at a glance */
         int taillen = (kind == MB_SHOT_MISSILE) ? 6 : (kind == MB_SHOT_BULLET) ? 4
                     : (kind == MB_SHOT_ARROW)   ? 3 : 2;
+        /* THE TAIL IS A FIXED LENGTH IN PIXELS, not in flight fraction. At a constant 0.045 of
+         * t per segment the tail scaled with the projectile's SPEED, so once the speeds were
+         * raised to something realistic a bullet trailed a streak the width of the screen and
+         * read as a laser beam rather than as a shot. Two and a half pixels a segment, whatever
+         * the missile and however far it has to go. */
+        float pdx = s_shot[i].x1 - s_shot[i].x0, pdy = s_shot[i].y1 - s_shot[i].y0;
+        float plen = sqrtf(pdx * pdx + pdy * pdy) * 8.0f;      /* the path, in pixels */
+        if (plen < 1.0f) plen = 1.0f;
+        const float seg = 2.5f / plen;
         for (int k = taillen; k >= 1; k--) {
-            float tt = t - (float)k * 0.045f;
+            float tt = t - (float)k * seg;
             if (tt < 0.0f) continue;
             int tx2, ty2; SHOT_AT(tt, tx2, ty2);
             int tw = (k == 1 && (kind == MB_SHOT_SHELL || kind == MB_SHOT_MISSILE)) ? 2 : 1;
@@ -894,7 +911,7 @@ void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt)
             shot_blob(fb, hx, hy, 2, 2, core, rim, 1.0f);
             break;
         case MB_SHOT_ARROW: {                                /* a shaft, along its flight */
-            int bx, by; SHOT_AT(t > 0.06f ? t - 0.06f : 0.0f, bx, by);
+            int bx, by; SHOT_AT(t > seg * 2.0f ? t - seg * 2.0f : 0.0f, bx, by);
             int dx = hx - bx, dy = hy - by;
             int nx = (dx > 0) - (dx < 0), ny = (dy > 0) - (dy < 0);
             for (int k = 0; k < 3; k++)
@@ -903,7 +920,7 @@ void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt)
             break;
         }
         case MB_SHOT_BULLET: {                               /* a streak */
-            int bx, by; SHOT_AT(t > 0.05f ? t - 0.05f : 0.0f, bx, by);
+            int bx, by; SHOT_AT(t > seg * 2.0f ? t - seg * 2.0f : 0.0f, bx, by);
             int dx = hx - bx, dy = hy - by;
             int nx = (dx > 0) - (dx < 0), ny = (dy > 0) - (dy < 0);
             shot_blob(fb, hx, hy, 2, 1, core, rim, 1.0f);
@@ -918,7 +935,7 @@ void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt)
             break;
         default:                                             /* MISSILE: a burning dart */
             shot_blob(fb, hx, hy, 2, 2, core, rim, 1.0f);
-            { int bx, by; SHOT_AT(t > 0.05f ? t - 0.05f : 0.0f, bx, by);
+            { int bx, by; SHOT_AT(t > seg * 2.0f ? t - seg * 2.0f : 0.0f, bx, by);
               int dx = hx - bx, dy = hy - by;
               int nx = (dx > 0) - (dx < 0), ny = (dy > 0) - (dy < 0);
               shot_blob(fb, hx - nx * 3, hy - ny * 3, 2, 2,
