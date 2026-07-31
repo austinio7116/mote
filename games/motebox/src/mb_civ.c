@@ -1350,6 +1350,53 @@ static void succession_step(int v)
     mb_chron_age(MB_TIER_NAME[V->tier]);
 }
 
+/* --- WHERE A FIELD GOES ---------------------------------------------------
+ *
+ * Fields were sited with build_site() — the HOUSE-PLOT picker, which by design requires street
+ * frontage. So farmland was sown on exactly the plots the town was about to build on, and
+ * housing won: measured across a run, 24 farms and 163 field cells at year 60 collapsing to 10
+ * and 51 by year 200. The fields were not failing to appear, they were being built over.
+ *
+ * A field wants the opposite of a building plot: OFF the street plan, out toward the edge of
+ * the claim, and next to other fields so the land reads as a belt of worked ground rather than
+ * as green confetti. Scrub is cleared to sow — that is what clearing land IS — but nothing
+ * built is ever touched.
+ */
+static int field_site(int v, int *ox, int *oy)
+{
+    Village *V = &mb_v[v];
+    int best = -1, bx = 0, by = 0;
+    for (int dy = -11; dy <= 11; dy++)
+        for (int dx = -11; dx <= 11; dx++) {
+            int x = V->x + dx, y = V->y + dy;
+            if (!mb_in(x, y)) continue;
+            int i = AT(x, y);
+            if (mb_w.claim[i] != v || mb_w.road[i]) continue;
+            if (mb_is_build(mb_w.obj[i])) continue;
+            if (!buildable(x, y)) continue;
+            if (street_at(v, x, y)) continue;          /* never on a future street */
+            uint8_t b = mb_w.biome[i];
+            if (b == B_FARM) continue;                 /* already sown */
+            if (b != B_GRASS && b != B_MEADOW && b != B_SAVANNA) continue;   /* soil only */
+            /* next to worked land first, then the outskirts: a belt, growing outward */
+            int adj = 0;
+            if (x > 0      && mb_w.biome[i - 1]  == B_FARM) adj++;
+            if (x < MW - 1 && mb_w.biome[i + 1]  == B_FARM) adj++;
+            if (y > 0      && mb_w.biome[i - MW] == B_FARM) adj++;
+            if (y < MH - 1 && mb_w.biome[i + MW] == B_FARM) adj++;
+            /* ADJACENCY DOMINATES. At adj*60 the distance term (up to 242 at this radius)
+             * outweighed a full set of worked neighbours, so fields scattered along the rim of
+             * the claim as green confetti instead of joining up. Worked land wants to be a
+             * BLOCK — that is what a field is — so sharing an edge with one is worth more than
+             * any amount of being far out. */
+            int score = adj * 400 + dx * dx + dy * dy;
+            if (score > best) { best = score; bx = x; by = y; }
+        }
+    if (best < 0) return 0;
+    *ox = bx; *oy = by;
+    return 1;
+}
+
 /* --- CARAVANS: a surplus in one town is a shortage answered in another -
  * Roads existed and carried nobody. Nothing ever moved between settlements, so a famine
  * was always local, a rich town's granary did nothing for its neighbour, and the road
@@ -2146,11 +2193,14 @@ void mb_civ_step(void)
 
         /* the field ring: a farm turns the ground around it into worked land,
          * which is the harvest AND the most legible sign of a working village */
-        if (farms > 0) {
+        /* A BELT AS BIG AS THE MOUTHS IT FEEDS. The ceiling was a flat twenty cells for any
+         * settlement, which a hamlet never reaches and a city of thirty outgrows immediately. */
+        if (farms > 0 && fields < 6 + V->pop * 2) {
             int fx, fy;
-            if (build_site(v, &fx, &fy) && mb_land(mb_w.biome[AT(fx, fy)])
-                && mb_w.biome[AT(fx, fy)] != B_FARM && fields < 20)
+            if (field_site(v, &fx, &fy)) {
+                mb_w.obj[AT(fx, fy)] = O_NONE;            /* clear the scrub to sow */
                 mb_w.biome[AT(fx, fy)] = B_FARM;
+            }
         }
 
         /* AND THE VILLAGE FEEDS ITS PEOPLE. This is the point of a granary, and it
