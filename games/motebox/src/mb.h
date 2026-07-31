@@ -152,7 +152,11 @@ enum { JOB_IDLE = 0, JOB_WANDER, JOB_FORAGE, JOB_HUNT, JOB_FLEE, JOB_BREED,
         * None of them needs a timer, which is the part that makes them cheap: leisure is what
         * you do while you are fed, and hunger rises whatever you are doing, so a pastime ends
         * when the forage score (hunger - 30) overtakes it. */
-       JOB_STROLL, JOB_ROAM, JOB_SPORT, JOB_BASK, JOB_N };
+       JOB_STROLL, JOB_ROAM, JOB_SPORT, JOB_BASK,
+       /* AND THE LORD'S GUARD. A lord who is a person can be eaten by a wolf, so soldiers
+        * with no war to fight stand near them instead of milling about — which is both what
+        * an army is for between wars and the reason a lord is worth assassinating. */
+       JOB_GUARD, JOB_N };
 
 /* PROFESSIONS. A job is what somebody is doing this minute; a profession is what they
  * are for. Splitting them is what lets a village have a shape — nine farmers and one
@@ -332,6 +336,25 @@ typedef struct {
     uint8_t  threat, exhaustion, unrest, mustering, soldiers;
     uint8_t  lord_diplo, lord_stew, lord_war;   /* the lord's three stats */
     uint32_t lord_traits;
+    /* THE LORD IS A PERSON. They were three numbers and a name on the Village and nothing
+     * else — nobody in the world held the office, so a lord could not be met, could not be
+     * killed, and could not be succeeded by anybody real. Worse, their age advanced only on
+     * the one tick a year their village happened to be visited, so a lord aged one year per
+     * ten and NOT ONE SUCCESSION happened in four hundred years: measured, zero.
+     *
+     * lord_unit is a unit index + 1 (0 = the office is vacant). The lord's age is that
+     * person's age, so they grow old and die exactly as everyone else does, and the town
+     * chooses again from its own people — preferring the old lord's family if it has one. */
+    uint16_t lord_unit;
+    uint16_t lord_family;   /* the outgoing lord's surname, so a dynasty can be preferred */
+    /* THE FAR PROSPECT. A villager's world was a fourteen-cell spiral, so a town with no ore
+     * within a quarter of a mile could never gather iron — and because the blueprint slot is
+     * exclusive and a barracks costs four iron, such a town planned one, could not pay for it,
+     * and NEVER BUILT ANYTHING AGAIN. This is where the expedition goes instead: found by a
+     * whole-map search, cached for a decade, and worth walking to. */
+    uint8_t  far_x, far_y, far_kind;
+    int32_t  far_tick;
+    uint8_t  plan_wait;     /* visits the blueprint has gone unpaid; it is abandoned in the end */
     uint8_t  plan_obj, plan_x, plan_y, plan_i;  /* the blueprint ghost */
     int32_t  founded, last_settle;
     uint16_t name;
@@ -538,6 +561,7 @@ void mb_civ_deliver(int v, int kind, int amount);   /* a caravan arrives */
 int  mb_village_found(int sp, int x, int y, int kingdom);
 int  mb_village_need(int v, uint16_t *target);
 void mb_civ_need_flush(void);    /* drop the per-tick want cache (world reset) */
+int  mb_village_lord_unit(int v);   /* the person holding the office, or -1 */
 int  mb_village_resource(int v, int kind, int *ox, int *oy);
 /* For the renderer: a pending site is marked on the ground with a stake. */
 int  mb_village_site(int v, int slot, int *ox, int *oy);

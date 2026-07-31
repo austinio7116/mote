@@ -404,9 +404,11 @@ static int leisure_pick(int i, uint16_t *target)
     const Village *V = &mb_v[u->village];
     uint32_t lh = mb_rand((uint32_t)i * 6151u + 0x1e15u);
     int pick;
+    int is_lord = (u->prof == PROF_LORD);
     int old_enough = u->age > MB_SP[u->sp].lifespan * 3 / 5;
     if (old_enough || (u->happy > 40 && (lh & 3u) == 0u))       pick = JOB_BASK;
-    else if ((u->traits & TR_BRAVE) && (lh & 7u) < 3u)          pick = JOB_ROAM;
+    /* a lord does not go wandering over the hill: they are expected at the hall */
+    else if (!is_lord && (u->traits & TR_BRAVE) && (lh & 7u) < 3u) pick = JOB_ROAM;
     else if ((lh & 3u) == 1u)                                   pick = JOB_SPORT;
     else                                                        pick = JOB_STROLL;
 
@@ -415,7 +417,8 @@ static int leisure_pick(int i, uint16_t *target)
         /* open, soft ground out of the street: a meadow, a beach, a green */
         for (int t = 0; t < 6 && gx < 0; t++) {
             uint32_t h = mb_rand((uint32_t)(i * 977u + t * 131u));
-            int bx = x + (int)(h % 11u) - 5, by = y + (int)((h >> 8) % 11u) - 5;
+            int ax = is_lord ? V->x : x, ay = is_lord ? V->y : y;
+            int bx = ax + (int)(h % 11u) - 5, by = ay + (int)((h >> 8) % 11u) - 5;
             if (!mb_in(bx, by)) continue;
             uint8_t b = mb_w.biome[AT(bx, by)];
             if (b != B_MEADOW && b != B_GRASS && b != B_BEACH && b != B_SAVANNA) continue;
@@ -483,7 +486,8 @@ static void idle_pick(int i)
     int hx = u->x >> 4, hy = u->y >> 4, span = 13;
     if (MB_SP[u->sp].drives == DRV_CIV && u->village && u->village < MAXV
         && mb_v[u->village].alive) {
-        hx = mb_v[u->village].x; hy = mb_v[u->village].y; span = 9;
+        hx = mb_v[u->village].x; hy = mb_v[u->village].y;
+        span = (u->prof == PROF_LORD) ? 5 : 9;      /* a lord keeps to their own square */
     }
     int wx = hx + (int)((r >> 3) % (uint32_t)span) - span / 2;
     int wy = hy + (int)((r >> 9) % (uint32_t)span) - span / 2;
@@ -592,7 +596,10 @@ static void think(int i)
     }
 
     /* --- civ work: a village asks for labour, and duty answers --- */
-    if (u->sp < SP_DEER && u->village) {
+    /* EXCEPT THE LORD. They are a person now, and a person with an office: a lord who walks
+     * off to chop wood is not running anything, and a lord found three valleys away cannot be
+     * met at their own hall. They stay in town — see the leisure and wander clamps below. */
+    if (u->sp < SP_DEER && u->village && u->prof != PROF_LORD) {
         int need = mb_village_need(u->village, &u->target);
         if (need > 0) {
             /* HALVED, and capped by the +15 floor rather than by the need itself.
@@ -629,6 +636,24 @@ static void think(int i)
                 if (bestd < (1 << 30) && vb > bestv) {
                     bestv = vb; best = JOB_FIGHT; u->target = 0xFFFF;
                 }
+            }
+        }
+    }
+
+    /* --- THE LORD'S GUARD ------------------------------------------------
+     *
+     * What an army does between wars. A soldier with nobody to fight stands near their lord,
+     * which gives the square its knot of spears, gives a lord who is now a real person some
+     * protection from the wolf that would otherwise eat them, and makes assassination a thing
+     * that has to get past somebody. It scores below fighting and fleeing on purpose: a war or
+     * a monster pulls the guard off the door, which is exactly when a town is vulnerable. */
+    if (u->prof == PROF_SOLDIER && u->village && sp->drives == DRV_CIV) {
+        int lu = mb_village_lord_unit(u->village);
+        if (lu >= 0 && lu != i) {
+            int gv = 34 + ((u->traits & TR_LOYAL) ? 12 : 0);
+            if (gv > bestv) {
+                bestv = gv; best = JOB_GUARD;
+                u->target = (uint16_t)AT(mb_u[lu].x >> 4, mb_u[lu].y >> 4);
             }
         }
     }
@@ -712,7 +737,8 @@ static void think(int i)
         if (sp->drives == DRV_CIV && u->village && u->village < MAXV
             && mb_v[u->village].alive) {
             hx = mb_v[u->village].x; hy = mb_v[u->village].y;
-            span = 9;                 /* and they keep tighter to it than a beast does */
+            span = (u->prof == PROF_LORD) ? 5 : 9;   /* tighter than a beast; tightest of all
+                                                      * for the one who has to be findable */
         }
         int wx = hx + (int)((r >> 3) % span) - span / 2;
         int wy = hy + (int)((r >> 9) % span) - span / 2;
@@ -998,6 +1024,17 @@ static void act(int i)
      * a walk that follows the streets, a figure out on its own in the hills, a knot of people
      * jostling round the monument, and somebody lying still in a meadow. All four end by
      * themselves when hunger overtakes them — see the leisure block in think(). */
+    case JOB_GUARD: {
+        /* close, but not on top of them: a ring rather than a stack */
+        int lu = mb_village_lord_unit(u->village);
+        if (lu < 0) { u->job = JOB_IDLE; break; }
+        int lx = mb_u[lu].x >> 4, ly = mb_u[lu].y >> 4;
+        int d = (lx - x) * (lx - x) + (ly - y) * (ly - y);
+        if (d > 4) step_toward(u, lx, ly);
+        else if (d < 2) step_toward(u, lx + (int)(r % 3u) - 1, ly + (int)((r >> 3) % 3u) - 1);
+        break;
+    }
+
     case JOB_STROLL:
     case JOB_ROAM:
         if (u->target == 0xFFFF) { u->job = JOB_IDLE; break; }

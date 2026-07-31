@@ -732,6 +732,11 @@ int mb_civ_prof_pick(int v)
     Village *V = &mb_v[v];
     uint32_t r = mb_rand((uint32_t)(v * 2654435761u + (uint32_t)mb_w.tick * 7717u));
     int roll = (int)(r % 100u);
+    /* A BARRACKS MAKES SOLDIERS. The only route to PROF_SOLDIER was a threat above 30, which
+     * is a monster or an army already in sight — so a world at peace had NO soldiers at all
+     * (measured: soldier=0 across 222 people and ten towns), the barracks a lord had paid for
+     * meant nothing, and the lord's guard could never form. A garrison is what a barracks IS. */
+    if (mb_civ_count(v, O_BARRACKS) && roll < 22)     return PROF_SOLDIER;
     if (V->threat > 30 && roll < 25)                 return PROF_SOLDIER;
     if (mb_civ_count(v, O_TEMPLE) && roll < 32)       return PROF_PRIEST;
     if (V->tier >= TIER_TOWN && roll < 42)           return PROF_TRADER;
@@ -1199,7 +1204,12 @@ static void lord_think(int v)
      * of four and looked broken. A farming town on a coast still builds a jetty. */
     if (V->coast >= 8 && mb_civ_count(v, O_DOCK) < 2)          want_list[nwant++] = 12;
 
-    if (V->threat > 40 && mb_civ_count(v, O_BARRACKS) < 1)     want_list[nwant++] = 6;
+    /* A BARRACKS AT A STONE HALL, not only under threat. Gating it on threat > 40 meant a town
+     * at peace never built one, so no town ever had a soldier, so the lord had no guard and the
+     * building was decoration in the table. A seat of power keeps a garrison; that is what turns
+     * a hall into a keep. */
+    if ((V->threat > 40 || V->hall >= 2) && mb_civ_count(v, O_BARRACKS) < 1)
+                                                             want_list[nwant++] = 6;
     if (V->hall == 1)                                         want_list[nwant++] = 9;
     if (V->hall == 2)                                         want_list[nwant++] = 10;
     if (V->hall >= 2 && mb_civ_count(v, O_TEMPLE) < 1)         want_list[nwant++] = 7;
@@ -1568,42 +1578,114 @@ static void village_streets(int v)
 }
 
 
-/* --- SUCCESSION: a town's fortunes turn on who is running it -----------
- * The lord had three stats and a trait roll and then lived for ever, so a village's
- * character was fixed on its founding tick — a well-stewarded town stayed well stewarded
- * for five hundred years and a badly led one never got a second chance. That is the
- * opposite of what makes a history worth reading.
+/* WHO STEPS UP.
  *
- * So lords age and die, and the heir is their own child: stats near the parent's but not
- * equal, traits mostly inherited. A dynasty therefore has a character that drifts, an
- * ambitious line stays ambitious, and the death of a good lord is genuinely bad news for
- * the town — which is a thing you can watch happen in the chronicle.
+ * The old heir was notional: stats drifted from the parent, a fresh random name, and nobody in
+ * the world was any of it. The town chooses one of its own people now — the eldest adult,
+ * preferring the outgoing lord's family if any of them are still alive, so a dynasty holds a
+ * town for as long as it has heirs and a commoner takes over when it does not.
+ */
+static int lord_candidate(int v)
+{
+    int best = -1, best_score = -1;
+    for (int i = 0; i < mb_nu; i++) {
+        const Unit *u = &mb_u[i];
+        if (!u->alive || u->village != v || u->sp >= SP_CIV_N) continue;
+        /* ADULTHOOD IS RELATIVE TO THE SPECIES. A flat "age >= 16" was written as if these
+         * were human years: a human's whole LIFESPAN is 20 of them, so the only eligible
+         * candidates were sixteen to twenty — a handful of people already dying of old age.
+         * That is where the churn came from, and the empty offices with it. */
+        int span = MB_SP[u->sp].lifespan;
+        if (u->age < span / 4) continue;                      /* a child cannot rule */
+        /* PRIME AGE, NOT GREATEST AGE. Choosing the eldest looked like seniority and behaved
+         * like a revolving door: the oldest person in town is the one about to die of old age.
+         * A lord at half their span reigns for the other half, which is what makes a reign a
+         * thing you can watch happen. */
+        int prime = span / 2;
+        int off   = (int)u->age - prime;  if (off < 0) off = -off;
+        int score = 60 - off * 2;
+        if (mb_v[v].lord_family && u->family == mb_v[v].lord_family) score += 30;
+        if (u->traits & TR_AMBITIOUS) score += 12;            /* they put themselves forward */
+        if (u->traits & TR_LOYAL)     score += 6;
+        if (score > best_score) { best_score = score; best = i; }
+    }
+    return best;
+}
+
+/* Hand the office to a person. `fresh` rolls the three stats from nothing (a founding); a
+ * succession blends the office's numbers with the new lord's own roll, so a town's character
+ * carries over without being fixed for ever. */
+static void lord_install(int v, int ui, int fresh)
+{
+    Village *V = &mb_v[v];
+    uint32_t r = mb_rand((uint32_t)(v * 2654435761u + (uint32_t)(ui + 1) * 131u));
+    #define TAKE(stat) do { int n = (int)(r % 100u); r = mb_rand(r ^ 0x9e37u);            \
+        V->stat = (uint8_t)(fresh ? n : (((int)V->stat + n) / 2)); } while (0)
+    TAKE(lord_stew); TAKE(lord_diplo); TAKE(lord_war);
+    #undef TAKE
+    if (ui >= 0 && ui < mb_nu) {
+        Unit *u = &mb_u[ui];
+        u->prof        = PROF_LORD;
+        V->lord_unit   = (uint16_t)(ui + 1);
+        V->lord_name   = u->given;
+        V->lord_family = u->family;
+        V->lord_traits = u->traits;
+        V->lord_age    = u->age;
+    } else return;                 /* callers must not ask: see succession_step */
+    /* a new lord is untested: the town holds its breath */
+    V->loyalty = (int8_t)(V->loyalty > 20 ? V->loyalty - 15 : V->loyalty);
+    mb_chron_lord(v);
+}
+
+#if MOTE_HOST
+uint32_t mb_succ_dead, mb_succ_left, mb_succ_none;
+#endif
+
+/* A UNIT INDEX IS NOT AN IDENTITY. Dead slots are reused by the next birth, so a lord who
+ * died was replaced in their own slot by somebody else's newborn — and the village then either
+ * thought the office had "moved" to another town (214 of 236 successions in a two-hundred-year
+ * world, against 8 lords who actually died) or, when the baby happened to be born in the same
+ * village, that its lord was a person aged nought. The given name pins it: names are 16-bit
+ * hashes rolled per person, and the office holds the one it appointed. */
+int mb_village_lord_unit(int v)
+{
+    if (v <= 0 || v >= MAXV || !mb_v[v].alive) return -1;
+    int lu = (int)mb_v[v].lord_unit - 1;
+    if (lu < 0 || lu >= mb_nu) return -1;
+    const Unit *u = &mb_u[lu];
+    if (!u->alive || u->village != v) return -1;
+    if (u->prof != PROF_LORD || u->given != mb_v[v].lord_name) return -1;
+    return lu;
+}
+
+/* --- SUCCESSION: a town's fortunes turn on who is running it -----------
+ *
+ * There is no clock here any more, which is the whole fix. The lord's age was a counter on the
+ * Village incremented on `tick % 52` — but only for the ONE village being visited on that tick,
+ * so a lord aged a year per decade and the succession this function exists for never once fired
+ * in four hundred years. The lord's age is now the age of the person holding the office; they
+ * die of old age, or of a wolf, or of the plague, like anybody else, and the town chooses again.
  */
 static void succession_step(int v)
 {
     Village *V = &mb_v[v];
-    if ((mb_w.tick % 52)) return;                      /* once a year: 52 ticks */
-    V->lord_age++;
-    if (V->lord_age < 58) return;
-    if ((mb_rand((uint32_t)(v * 7717u + (uint32_t)mb_w.tick)) & 7) > 2) return;
-
-    uint32_t r = mb_rand((uint32_t)(v * 2654435761u + (uint32_t)mb_w.tick * 131u));
-    /* the heir: near the parent, drifting, with a real chance of being a disappointment */
-    #define HEIR(stat) do {                                                        \
-        int base = (int)V->stat, d = (int)(r % 41u) - 20;                           \
-        r = mb_rand(r);                                                             \
-        base += d; V->stat = (uint8_t)(base < 0 ? 0 : base > 99 ? 99 : base);        \
-    } while (0)
-    HEIR(lord_diplo); HEIR(lord_stew); HEIR(lord_war);
-    #undef HEIR
-    /* traits pass down, and one in four mutates — the same rule bloodlines use */
-    if ((r & 3) == 0) V->lord_traits ^= TR_AMBITIOUS;
-    if (((r >> 2) & 7) == 0) V->lord_traits ^= TR_LOYAL;
-    V->lord_name = mb_name_person(r ^ (uint32_t)mb_w.tick);
-    V->lord_age = (uint8_t)(19 + (r >> 8) % 16u);
-    /* a new lord is untested: the town holds its breath */
-    V->loyalty = (int8_t)(V->loyalty > 20 ? V->loyalty - 15 : V->loyalty);
-    mb_chron_lord(v);
+    int lu = mb_village_lord_unit(v);
+    if (lu >= 0) { V->lord_age = mb_u[lu].age; return; }    /* still with us */
+#if MOTE_HOST
+    {   extern uint32_t mb_succ_dead, mb_succ_left, mb_succ_none;
+        int raw = (int)V->lord_unit - 1;
+        if (raw < 0 || raw >= mb_nu)            mb_succ_none++;
+        else if (!mb_u[raw].alive)              mb_succ_dead++;
+        else                                    mb_succ_left++;
+    }
+#endif
+    /* NOBODY ELIGIBLE: LEAVE THE OFFICE EXACTLY AS IT IS. Calling install with no candidate
+     * re-rolled the three stats on every visit — six times a year, for as long as the town had
+     * no grown-up — so a lord's numbers visibly changed every few seconds. An office nobody can
+     * fill is an office that does not change. */
+    int ui = lord_candidate(v);
+    if (ui < 0) return;
+    lord_install(v, ui, 0);
 }
 
 /* --- WHERE A FIELD GOES ---------------------------------------------------
@@ -1840,10 +1922,22 @@ static void ws_apply(int v, int slot)
 static void try_build(int v)
 {
     Village *V = &mb_v[v];
-    if (!V->plan_obj) return;
+    if (!V->plan_obj) { V->plan_wait = 0; return; }
     const BuildDef *B = &BUILD[V->plan_i];
-    if (V->wood < B->wood || V->stone < B->stone || V->iron < B->iron || V->gold < B->gold)
+    if (V->wood < B->wood || V->stone < B->stone || V->iron < B->iron || V->gold < B->gold) {
+        /* A PLAN NOBODY CAN PAY FOR IS ABANDONED. The blueprint slot is exclusive, so a town
+         * that decided on something beyond its means — a barracks needs four iron, and a valley
+         * with no ore in it cannot produce any — stopped building for ever. Two hundred and
+         * fifty visits is about forty years of trying, which is long enough to be patient and
+         * short enough that a town gets another idea within a lifetime. */
+        if (V->plan_wait < 250) { V->plan_wait++; return; }
+        V->plan_wait = 0;
+        if (mb_in(V->plan_x, V->plan_y) && mb_w.obj[AT(V->plan_x, V->plan_y)] == O_PLAN)
+            mb_w.obj[AT(V->plan_x, V->plan_y)] = O_NONE;
+        V->plan_obj = 0;
         return;
+    }
+    V->plan_wait = 0;
     if (ws_find(v, V->plan_x, V->plan_y) >= 0) return;      /* already paid for and waiting */
     V->wood -= B->wood; V->stone -= B->stone; V->iron -= B->iron; V->gold -= B->gold;
     /* PAID FOR IS NOT BUILT. The materials are on site and the blueprint ghost stays up; the
@@ -1860,6 +1954,11 @@ static void try_build(int v)
 
 /* --- what a village asks of its people ---------------------------------- */
 static int mb_village_need_calc(int v, uint16_t *target);
+static int village_far_resource(int v, int kind, int *ox, int *oy);
+static void village_expedition(int v);
+#if MOTE_HOST
+uint32_t mb_expeditions;
+#endif
 
 /* ONE ANSWER PER VILLAGE PER TICK.
  *
@@ -1969,11 +2068,118 @@ static int mb_village_need_calc(int v, uint16_t *target)
     if (need_iron > best)  { best = need_iron;  kind = CARRY_IRON; }
     if (need_gold > best)  { best = need_gold;  kind = CARRY_GOLD; }
     if (best <= 0) return 0;
-    /* the target is a resource cell of that kind near the village */
+    /* THE ORDINARY LABOUR POOL STAYS LOCAL. Handing the far prospect to this want was
+     * measured and it emptied the towns: the want is ONE number read by every soul in the
+     * village, so "the nearest iron is forty cells east" sent the whole population east —
+     * 41 of 50 people further than ten cells from home, and the world's population fell from
+     * 222 to 50. An expedition is a PARTY, not a policy: see village_expedition(). */
     int x, y;
     if (!mb_village_resource(v, kind, &x, &y)) return 0;
     *target = (uint16_t)AT(x, y);
     return best / 2 + 20;
+}
+
+/* --- THE EXPEDITION ------------------------------------------------------
+ *
+ * When the valley has none, somebody has to go and look. The local search is a fourteen-cell
+ * spiral, which is right for firewood and wrong for the one seam of iron on the continent: a
+ * town with no ore in reach could not gather iron at all, and since a barracks costs four iron
+ * and the blueprint slot is exclusive, such a town planned one, never paid for it, and never
+ * built anything else for the rest of the world's life. Nothing said so — it simply looked like
+ * a town that had stopped.
+ *
+ * So the whole map is searched, once per town per decade per kind, and the answer is cached on
+ * the village. The trip is then long, deliberate and visible: people really do walk off across
+ * the world and come back with a load, which is what a frontier looks like.
+ */
+static int far_hit(int kind, int i)
+{
+    uint8_t o = mb_w.obj[i], b = mb_w.biome[i];
+    switch (kind) {
+    case CARRY_WOOD:  return o == O_TREE || o == O_TREE2 || o == O_DEAD;
+    case CARRY_STONE: return o == O_ROCK || o == O_BOULDER || b == B_MOUNTAIN || b == B_HILL;
+    case CARRY_IRON:  return o == O_ORE;
+    case CARRY_GOLD:  return o == O_GOLD || o == O_GEM || o == O_SILVER;
+    default:          return o == O_BUSH || o == O_FLOWER ||
+                             (b == B_FARM && (o == O_RIPE || o == O_NONE));
+    }
+}
+
+static int village_far_resource(int v, int kind, int *ox, int *oy)
+{
+    Village *V = &mb_v[v];
+    /* the cache: one prospect per town, good for ten years. A kind change re-prospects. */
+    if (V->far_kind == (uint8_t)(kind + 1) && mb_w.tick - V->far_tick < 520
+        && mb_in(V->far_x, V->far_y) && far_hit(kind, AT(V->far_x, V->far_y))) {
+        *ox = V->far_x; *oy = V->far_y;
+        return 1;
+    }
+    /* a strided scan of the world, nearest first by squared distance. Every third cell is
+     * plenty for a seam that is never one cell wide, and it is 1024 reads. */
+    int bx = -1, by = 0, bd = 1 << 30;
+    for (int y = 0; y < MH; y += 3)
+        for (int x = 0; x < MW; x += 3) {
+            int i = AT(x, y);
+            if (!far_hit(kind, i)) continue;
+            int dx = x - V->x, dy = y - V->y, d = dx * dx + dy * dy;
+            if (d < bd) { bd = d; bx = x; by = y; }
+        }
+    V->far_tick = mb_w.tick;
+    V->far_kind = (uint8_t)(bx >= 0 ? kind + 1 : 0);
+    if (bx < 0) return 0;
+    V->far_x = (uint8_t)bx; V->far_y = (uint8_t)by;
+    *ox = bx; *oy = by;
+    return 1;
+}
+
+/* SEND ONE PARTY. Whatever the blueprint is short of, if the valley has none of it, one
+ * villager is sent to the nearest of it in the world — and only one at a time, because the
+ * measured alternative was the entire population walking east.
+ *
+ * Forty cells is the limit. Beyond that the trip costs more lives than the load is worth, and
+ * the honest outcome for a town with no iron within forty cells is that it never builds the
+ * thing that needs iron — which try_build()'s patience now handles by abandoning the plan. */
+static void village_expedition(int v)
+{
+    Village *V = &mb_v[v];
+    if (!V->plan_obj || V->plan_i >= NBUILD || V->pop < 6) return;
+    const BuildDef *B = &BUILD[V->plan_i];
+    int kind = -1;
+    if (V->iron  < B->iron)  kind = CARRY_IRON;
+    else if (V->gold  < B->gold)  kind = CARRY_GOLD;
+    else if (V->stone < B->stone) kind = CARRY_STONE;
+    else if (V->wood  < B->wood)  kind = CARRY_WOOD;
+    if (kind < 0) return;
+    int lx, ly;
+    if (mb_village_resource(v, kind, &lx, &ly)) return;      /* it is in the valley after all */
+    if (!village_far_resource(v, kind, &lx, &ly)) return;
+    int dx = lx - V->x, dy = ly - V->y;
+    if (dx * dx + dy * dy > 40 * 40) return;                 /* too far to be worth a life */
+
+    /* is somebody already out there for it? then this town has its expedition */
+    uint16_t goal = (uint16_t)AT(lx, ly);
+    for (int i = 0; i < mb_nu; i++) {
+        const Unit *u = &mb_u[i];
+        if (u->alive && u->village == v && u->job == JOB_WORK && u->target == goal) return;
+    }
+    /* the youngest fit adult who is not the lord: an expedition is for the strong */
+    int best = -1, best_age = 255;
+    for (int i = 0; i < mb_nu; i++) {
+        Unit *u = &mb_u[i];
+        if (!u->alive || u->village != v || u->sp >= SP_CIV_N) continue;
+        if (u->prof == PROF_LORD || u->carry) continue;
+        int span = MB_SP[u->sp].lifespan;
+        if (u->age < span / 4 || u->age > span * 3 / 4) continue;
+        if (u->hunger > 60 || u->hp < 60) continue;
+        if (u->age < best_age) { best_age = u->age; best = i; }
+    }
+    if (best < 0) return;
+    mb_u[best].job = JOB_WORK;
+    mb_u[best].target = goal;
+#if MOTE_HOST
+    {   extern uint32_t mb_expeditions;
+        mb_expeditions++; }
+#endif
 }
 
 /* Find the nearest thing of a kind worth walking to. Deliberately a bounded
@@ -2301,7 +2507,12 @@ static void maybe_settle(int v)
             /* four colonists change allegiance; if they sailed, they arrive */
             int moved = 0;
             for (int i = 0; i < mb_nu && moved < 4; i++)
-                if (mb_u[i].alive && mb_u[i].village == v) {
+                /* NOT THE LORD. The colonists were simply the first four units of the village
+                 * found in index order, and one of them was usually the person holding the
+                 * office — so founding a colony deposed the mother town's lord. Measured: 231
+                 * of the 239 successions in a two-hundred-year world were "the lord left the
+                 * village", against 8 who actually died. */
+                if (mb_u[i].alive && mb_u[i].village == v && mb_u[i].prof != PROF_LORD) {
                     mb_u[i].village = (uint8_t)nv;
                     mb_u[i].job = JOB_IDLE; mb_u[i].target = 0xFFFF;
                     if (seaborne) {
@@ -2660,6 +2871,7 @@ void mb_civ_step(void)
         village_plaza(v);
         village_gardens(v);
         try_build(v);
+        village_expedition(v);
         claim_creep(v);
         loyalty_step(v);
         maybe_settle(v);

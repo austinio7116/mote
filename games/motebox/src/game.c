@@ -129,7 +129,7 @@ static const char *const JOB_NAME[JOB_N] = {
     /* "hauling" was missing — the array is [JOB_N] so the gap was a NULL, and every job
      * census in the audit printed "(null)=1" for the caravan driver. */
     "hauling",
-    "strolling", "exploring", "playing", "in the sun",
+    "strolling", "exploring", "playing", "in the sun", "on guard",
 };
 typedef char mb_jobnames_complete[(sizeof JOB_NAME / sizeof JOB_NAME[0]) == JOB_N ? 1 : -1];
 
@@ -995,8 +995,29 @@ static void ui_draw_shape(uint16_t *fb)
  * The three stats here are the highest-leverage numbers a god can touch, because the
  * simulation already reads all three every rotation — and it says so on the page, because a
  * bar with no consequence written beside it teaches nobody anything. */
+/* WHOSE TOWN, WHEN NOBODY SAID. s_subject_v is set when you arrive from a person or from the
+ * pick list, and left alone otherwise — so paging RB from the land or the world, or opening the
+ * town page while standing in the middle of a town, showed "no town here" with people milling
+ * about outside the panel. The ground under the cursor knows who claims it; that is the answer
+ * whenever a caller has not named a subject. */
+static void ui_subject_from_cursor(void)
+{
+    if (s_subject_v > 0 && s_subject_v < MAXV && mb_v[s_subject_v].alive) return;
+    int v = mb_w.claim[AT(s_cx, s_cy)];
+    if (v > 0 && v < MAXV && mb_v[v].alive) { s_subject_v = v; return; }
+    /* not claimed: the nearest settlement within a few cells still counts as "here" */
+    int best = 0, bd = 6 * 6;
+    for (int i = 1; i < MAXV; i++) {
+        if (!mb_v[i].alive) continue;
+        int dx = mb_v[i].x - s_cx, dy = mb_v[i].y - s_cy, d = dx * dx + dy * dy;
+        if (d < bd) { bd = d; best = i; }
+    }
+    s_subject_v = best;
+}
+
 static void ui_draw_lord(uint16_t *fb)
 {
+    ui_subject_from_cursor();
     const uint16_t FILL = MOTE_RGB565(30, 24, 16);
     mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_GOLD, FILL, 1);
     int v = s_subject_v;
@@ -1070,6 +1091,7 @@ static void ui_draw_lord(uint16_t *fb)
  * strip of the buildings that ACTUALLY STAND there drawn from the town sheet. */
 static void ui_draw_town(uint16_t *fb)
 {
+    ui_subject_from_cursor();
     const uint16_t FILL = MOTE_RGB565(18, 30, 26);
     const uint16_t LINE = MOTE_RGB565(120, 220, 130);
     mb_ui_panel(fb, 0, 0, 128, 128, LINE, FILL, 1);
@@ -1134,6 +1156,7 @@ static void ui_draw_town(uint16_t *fb)
 /* ------------------------------------------------------------------ A KINGDOM */
 static void ui_draw_king(uint16_t *fb)
 {
+    ui_subject_from_cursor();
     const uint16_t FILL = MOTE_RGB565(34, 28, 14);
     mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_GOLD, FILL, 1);
     int k = (s_subject_v > 0 && s_subject_v < MAXV) ? mb_v[s_subject_v].kingdom : 0;
@@ -2237,6 +2260,28 @@ static void g_init(void)
                         fprintf(stderr, "leisure: %u thoughts, %u past the gate, %u found a "
                                         "spot, %u chose it\n", mb_leis_seen, mb_leis_gate,
                                 mb_leis_spot, mb_leis_win);
+                    }
+                    {   extern uint32_t mb_succ_dead, mb_succ_left, mb_succ_none;
+                        /* "left" cannot be told from "died and the slot was reused by a
+                         * newborn", so the two are reported together as what they are. */
+                        fprintf(stderr, "successions: %u the lord's person was gone, "
+                                        "%u nobody eligible\n",
+                                mb_succ_dead + mb_succ_left, mb_succ_none);
+                        int prof[PROF_N] = { 0 }, lords = 0, guards = 0;
+                        for (int q = 0; q < mb_nu; q++) {
+                            const Unit *uu = &mb_u[q];
+                            if (!uu->alive || uu->sp >= SP_CIV_N) continue;
+                            if (uu->prof < PROF_N) prof[uu->prof]++;
+                            if (uu->prof == PROF_LORD) lords++;
+                            if (uu->job == JOB_GUARD) guards++;
+                        }
+                        fprintf(stderr, "trades:");
+                        for (int q = 1; q < PROF_N; q++)
+                            fprintf(stderr, " %s=%d", MB_PROF_NAME[q], prof[q]);
+                        {   extern uint32_t mb_expeditions;
+                            fprintf(stderr, "\n  lords in the world %d, on guard %d, "
+                                            "%u expeditions sent\n",
+                                    lords, guards, mb_expeditions); }
                     }
                     fprintf(stderr, "town plans:");
                     for (int k = 0; k < 5; k++)
