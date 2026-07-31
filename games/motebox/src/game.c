@@ -517,37 +517,6 @@ static int page_kingdom(const char **items, int v)
     return n;
 }
 
-static void soul_card(void)
-{
-    int x = s_cx, y = s_cy;
-    if (!mb_in(x, y)) return;
-    int v = ir_village(x, y);
-    int page = 0;
-
-    for (;;) {
-        const char *items[IR_ROWS + 4];
-        static const char *const TITLE[3] = { "HERE", "THE TOWN", "THE CROWN" };
-        int n = (page == 0) ? page_here(items, x, y)
-              : (page == 1) ? page_town(items, v)
-                            : page_kingdom(items, v);
-        int nav = n;
-        if (page != 0) items[n++] = "< HERE";
-        if (page != 1) items[n++] = "< THE TOWN";
-        if (page != 2) items[n++] = "< THE CROWN";
-        items[n++] = "BACK";
-
-        int sel = mote->menu(TITLE[page], items, n);
-        if (sel < nav) return;                       /* a detail row, or B: done */
-        int pick = sel - nav;
-        int order[3];
-        int m = 0;
-        if (page != 0) order[m++] = 0;
-        if (page != 1) order[m++] = 1;
-        if (page != 2) order[m++] = 2;
-        if (pick >= m) return;                       /* BACK */
-        page = order[pick];
-    }
-}
 
 static void view_set(int god)
 {
@@ -931,6 +900,153 @@ static void ui_draw_lord(uint16_t *fb)
     mb_ui_actions(fb, buf, "B<", FILL);
 }
 
+/* ------------------------------------------------------------------ A TOWN
+ * Everything the town-development loops produce, as things you can see rather than a column of
+ * numbers: its own hall at double size, the stores as meters in the artist's colours, and a
+ * strip of the buildings that ACTUALLY STAND there drawn from the town sheet. */
+static void ui_draw_town(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(18, 30, 26);
+    const uint16_t LINE = MOTE_RGB565(120, 220, 130);
+    mb_ui_panel(fb, 0, 0, 128, 128, LINE, FILL, 1);
+    int v = s_subject_v;
+    if (v <= 0 || v >= MAXV || !mb_v[v].alive) {
+        mb_ui_text(fb, 7, 26, "no town here", MB_UI_DIM, 112);
+        mb_ui_actions(fb, "RB NEXT", "B<", FILL); return;
+    }
+    Village *V = &mb_v[v];
+    char buf[40], pl[24];
+    mb_name_str(pl, sizeof pl, NK_PLACE, V->name);
+    mb_ui_text(fb, 7, 6, pl, MB_UI_CREAM, 98);
+    /* the banner, so whose town this is needs no reading */
+    { int k = V->kingdom;
+      uint16_t kc = (k && mb_k[k].alive) ? mb_kingdom_colour(k) : MB_UI_OFF;
+      g_api->draw_rect(fb, 112, 6, 8, 8, kc, 1, 0, 128); }
+    mb_ui_text(fb, 7, 15, MB_TIER_NAME[V->tier < TIER_N ? V->tier : 0], MB_UI_GOLD, 56);
+    mb_ui_text_r(fb, 120, 15, MB_PROF_NAME[V->spec < PROF_N ? V->spec : 0], MB_UI_DIM);
+    /* its own hall, at double size */
+    mb_ui_plaque(fb, 5, 24, 30, 32, MOTE_RGB565(10, 18, 16));
+    { int hall = (V->hall >= 3) ? O_HALL3 : (V->hall >= 2) ? O_HALL2 : O_HALL1;
+      int k = V->kingdom;
+      int col = mb_draw_form_col((uint8_t)hall, k, V->x, V->y);
+      int row = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;
+      g_api->blit_ex(fb, mb_ui_town_sheet(), 20.0f, 40.0f,
+                     col * 8, row * 14, 8, 14, 0.0f, 2.0f, 0, 0, 128); }
+    snprintf(buf, sizeof buf, "%d of %d", V->pop, V->housing);
+    mb_ui_text(fb, 40, 25, buf, MB_UI_CREAM, 80);
+    mb_ui_meter(fb, 40, 34, 7, V->pop, V->housing ? V->housing : 1, 0);
+    mb_ui_text(fb, 40, 45, MB_CREED_NAME[V->creed < CREED_N ? V->creed : 0], MB_UI_DIM, 80);
+    mb_ui_rule(fb, 6, 58, 116, "STOCKPILE", LINE, FILL, MB_UI_DIM);
+    { static const uint8_t IC[4][2] = { { 1, 3 }, { 3, 5 }, { 5, 3 }, { 3, 3 } };
+      const int val[4] = { V->food, V->wood, V->stone, V->gold };
+      for (int i = 0; i < 4; i++) {
+          int x = 7 + (i & 1) * 58, y = 67 + (i >> 1) * 11;
+          mb_ui_icon(fb, x, y, IC[i][0], IC[i][1]);
+          mb_ui_meter(fb, x + 11, y, 4, val[i], 120, i == 2 ? 2 : 0);
+      } }
+    mb_ui_rule(fb, 6, 90, 116, "BUILDINGS", LINE, FILL, MB_UI_DIM);
+    /* what actually stands: walk the claim once and show the first eight kinds found */
+    { int shown = 0;
+      for (int o = O_BUILD0 + 1; o < O_N && shown < 8; o++) {
+          if (o == O_PLAN || !mb_civ_count(v, o)) continue;
+          int k = V->kingdom;
+          int col = mb_draw_form_col((uint8_t)o, k, V->x + shown, V->y);
+          int row = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;
+          g_api->blit(fb, mb_ui_town_sheet(), 7 + shown * 14, 98,
+                      col * 8, row * 14, 8, 14, 0, 0, 128);
+          shown++;
+      }
+      if (!shown) mb_ui_text(fb, 7, 101, "nothing built", MB_UI_DIM, 112); }
+    mb_ui_actions(fb, "RB NEXT", "B<", FILL);
+}
+
+/* ------------------------------------------------------------------ A KINGDOM */
+static void ui_draw_king(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(34, 28, 14);
+    mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_GOLD, FILL, 1);
+    int k = (s_subject_v > 0 && s_subject_v < MAXV) ? mb_v[s_subject_v].kingdom : 0;
+    if (k <= 0 || k >= MAXK || !mb_k[k].alive) {
+        mb_ui_text(fb, 7, 26, "no crown here", MB_UI_DIM, 112);
+        mb_ui_actions(fb, "RB NEXT", "B<", FILL); return;
+    }
+    Kingdom *K = &mb_k[k];
+    char buf[40], kn[24];
+    mb_name_str(kn, sizeof kn, NK_KINGDOM, K->name);
+    g_api->draw_rect(fb, 7, 6, 8, 8, mb_kingdom_colour(k), 1, 0, 128);
+    mb_ui_text(fb, 19, 6, kn, MB_UI_CREAM, 100);
+    mb_ui_text(fb, 7, 15, MB_ERA_NAME[K->era < ERA_N ? K->era : 0], MB_UI_DIM, 112);
+    mb_ui_rule(fb, 6, 27, 116, "RESEARCH", MB_UI_GOLD, FILL, MB_UI_DIM);
+    snprintf(buf, sizeof buf, "%d of %d known", K->tech, TECH_N - 1);
+    mb_ui_text(fb, 7, 36, buf, MB_UI_CREAM, 112);
+    mb_ui_meter(fb, 7, 45, 14, K->tech, TECH_N - 1, 0);
+    if (K->goal) {
+        snprintf(buf, sizeof buf, "next: %s", MB_TECH_NAME[K->goal]);
+        mb_ui_text(fb, 7, 55, buf, MB_UI_GOLD, 112);
+    }
+    mb_ui_rule(fb, 6, 65, 116, "SETTLEMENTS", MB_UI_GOLD, FILL, MB_UI_DIM);
+    /* one bar per town, its height the tier: a realm's shape at a glance */
+    { int n = 0;
+      for (int i = 1; i < MAXV && n < 8; i++) {
+          if (!mb_v[i].alive || mb_v[i].kingdom != k) continue;
+          int t = mb_v[i].tier < TIER_N ? mb_v[i].tier : 0;
+          int h = 4 + t * 3;
+          g_api->draw_rect(fb, 8 + n * 14, 86 - h, 9, h,
+                           i == s_subject_v ? MB_UI_CREAM : MB_UI_OK, 1, 0, 128);
+          n++;
+      }
+      if (!n) mb_ui_text(fb, 7, 76, "no towns left", MB_UI_DIM, 112); }
+    mb_ui_rule(fb, 6, 90, 116, "AT WAR", MB_UI_GOLD, FILL, MB_UI_DIM);
+    { int n = 0;
+      for (int o = 1; o < MAXK && n < 3; o++) {
+          if (o == k || !mb_k[o].alive || !(K->war_with & (1u << o))) continue;
+          char on[24]; mb_name_str(on, sizeof on, NK_KINGDOM, mb_k[o].name);
+          g_api->draw_rect(fb, 7 + n * 40, 99, 7, 7, mb_kingdom_colour(o), 1, 0, 128);
+          mb_ui_text(fb, 17 + n * 40, 99, on, MB_UI_DIM, 26);
+          n++;
+      }
+      if (!n) mb_ui_text(fb, 7, 99, "at peace", MB_UI_OK, 112); }
+    if (mb_tech_known(k, TECH_NUKE)) mb_ui_text_r(fb, 120, 90, "THE BOMB", MB_UI_RED);
+    mb_ui_actions(fb, "RB NEXT", "B<", FILL);
+}
+
+/* ------------------------------------------------------------------ THE WORLD */
+static void ui_draw_world(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(16, 22, 42);
+    mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_SKY, FILL, 1);
+    char buf[40];
+    mb_ui_text(fb, 7, 6, "THE WORLD", MB_UI_CREAM, 78);
+    snprintf(buf, sizeof buf, "y%d", (int)(mb_w.tick / TPY));
+    mb_ui_text_r(fb, 120, 6, buf, MB_UI_DIM);
+    mb_ui_text(fb, 7, 15, mb_age_name(), MB_UI_GOLD, 112);
+    mb_ui_rule(fb, 6, 27, 116, "KINGDOMS", MB_UI_SKY, FILL, MB_UI_DIM);
+    /* strongest first by era, which is the state of play in one column */
+    { int n = 0;
+      for (int era = ERA_N - 1; era >= 0 && n < 5; era--)
+          for (int k = 1; k < MAXK && n < 5; k++) {
+              if (!mb_k[k].alive || mb_k[k].era != era) continue;
+              int towns = 0;
+              for (int i = 1; i < MAXV; i++)
+                  if (mb_v[i].alive && mb_v[i].kingdom == k) towns++;
+              int y = 36 + n * 10;
+              char kn[24]; mb_name_str(kn, sizeof kn, NK_KINGDOM, mb_k[k].name);
+              g_api->draw_rect(fb, 7, y, 7, 7, mb_kingdom_colour(k), 1, 0, 128);
+              mb_ui_text(fb, 17, y, kn, MB_UI_CREAM, 60);
+              snprintf(buf, sizeof buf, "%d", towns);
+              mb_ui_text(fb, 82, y, buf, MB_UI_DIM, 18);
+              if (mb_tech_known(k, TECH_NUKE)) mb_ui_icon(fb, 100, y - 1, 11, 1);
+              n++;
+          }
+      if (!n) mb_ui_text(fb, 7, 36, "no crowns left", MB_UI_DIM, 112); }
+    mb_ui_rule(fb, 6, 88, 116, "POPULATION", MB_UI_SKY, FILL, MB_UI_DIM);
+    snprintf(buf, sizeof buf, "%d souls", mb_pop_civ());
+    mb_ui_text(fb, 7, 97, buf, MB_UI_CREAM, 74);
+    snprintf(buf, sizeof buf, "%d", mb_village_count());
+    mb_ui_text_r(fb, 120, 97, buf, MB_UI_DIM);
+    mb_ui_actions(fb, "RB NEXT", "B<", FILL);
+}
+
 /* ------------------------------------------------------------------ THE LAND */
 static void ui_draw_land(uint16_t *fb)
 {
@@ -981,7 +1097,7 @@ static void ui_draw_land(uint16_t *fb)
     } else {
         mb_ui_text(fb, 52, 82, "bare", MB_UI_DIM, 68);
     }
-    mb_ui_actions(fb, "B<", 0, FILL);
+    mb_ui_actions(fb, "RB NEXT", "B<", FILL);
 }
 
 /* --- THE CHRONICLE, as a log you can navigate ---------------------------
@@ -1054,53 +1170,6 @@ static void chronicle_menu(void)
  *
  * This is the same data MOTEBOX_LOOPS prints for the audit — the tooling and the game
  * read the simulation the same way, which is why the numbers can be trusted. */
-static void world_report(void)
-{
-    const char *items[IR_ROWS + 1];
-    int n = 0;
-    n = ir_add(items, n, "%s   year %d", mb_age_name(), (int)(mb_w.tick / 52));
-
-    /* the crowns, strongest first by what they know */
-    n = ir_add(items, n, "-- the crowns --");
-    /* Most advanced first, by era then by count, so the state of play is the first thing
-     * on the page rather than something to work out. */
-    for (int era = ERA_N - 1; era >= 0 && n < IR_ROWS - 8; era--)
-        for (int k = 1; k < MAXK && n < IR_ROWS - 8; k++) {
-            if (!mb_k[k].alive || mb_k[k].era != era) continue;
-            char kn[24]; mb_name_str(kn, sizeof kn, 1, mb_k[k].name);
-            int towns = 0, pop = 0;
-            for (int v = 1; v < MAXV; v++)
-                if (mb_v[v].alive && mb_v[v].kingdom == k) { towns++; pop += mb_v[v].pop; }
-            n = ir_add(items, n, "%s: %s%s, %d towns", kn, MB_ERA_NAME[era],
-                       mb_tech_known(k, TECH_NUKE) ? " +BOMB" : "", towns);
-            (void)pop;
-        }
-
-    {   int creed[CREED_N] = {0}, spec[PROF_N] = {0}, tier[TIER_N] = {0}, traded = 0, road = 0;
-        for (int v = 1; v < MAXV; v++) {
-            if (!mb_v[v].alive) continue;
-            creed[mb_v[v].creed < CREED_N ? mb_v[v].creed : 0] += mb_v[v].pop;
-            spec[mb_v[v].spec < PROF_N ? mb_v[v].spec : 0]++;
-            tier[mb_v[v].tier < TIER_N ? mb_v[v].tier : 0]++;
-            traded += mb_v[v].traded;
-        }
-        for (int i = 0; i < mb_nu; i++)
-            if (mb_u[i].alive && mb_u[i].job == JOB_HAUL) road++;
-
-        n = ir_add(items, n, "-- the faiths (souls) --");
-        for (int i = 1; i < CREED_N && n < IR_ROWS - 5; i++)
-            if (creed[i]) n = ir_add(items, n, "%s %d", MB_CREED_NAME[i], creed[i]);
-        n = ir_add(items, n, "-- the trades (towns) --");
-        for (int i = 1; i < PROF_N && n < IR_ROWS - 3; i++)
-            if (spec[i]) n = ir_add(items, n, "%s %d", MB_PROF_NAME[i], spec[i]);
-        n = ir_add(items, n, "-- how far they got --");
-        for (int i = TIER_N - 1; i >= 0 && n < IR_ROWS - 2; i--)
-            if (tier[i]) n = ir_add(items, n, "%s %d", MB_TIER_NAME[i], tier[i]);
-        n = ir_add(items, n, "caravans arrived %d, on the road %d", traded, road);
-    }
-    items[n++] = "BACK";
-    mote->menu("THE WORLD", items, n);
-}
 
 static void god_menu(void)
 {
@@ -1125,7 +1194,7 @@ static void god_menu(void)
         int c = mote->menu("MOTEBOX", items, 12);
         switch (c) {
         case 0: chronicle_menu(); break;
-        case 1: world_report(); break;
+        case 1: s_ui = UI_WORLD; s_ui_row = 0; return;   /* the drawn screen */
         /* THE MAP IS A LENS. Cycling it here rather than on a button keeps the world's own
          * controls for the world, and the four modes are the only place tech, creed and tier
          * are visible at world scale — see mb_draw_prepare(). */
@@ -1538,9 +1607,11 @@ static void g_init(void)
             }
         }
     }
-    /* MOTEBOX_INSPECT=1 prints the three inspect pages for the cursor's cell. Driving a
-     * blocking menu from a scripted key stream is unreliable — nine DOWNs with autorepeat
-     * is not a repeatable test — and what needs checking is the CONTENT, not the widget. */
+    /* MOTEBOX_INSPECT=1 prints the three inspect pages for the cursor's cell.
+     *
+     * The MENUS these came from are gone — B opens the drawn screens now. The page builders
+     * stay because this hook is the only thing that dumps a cell's whole state as TEXT, which
+     * is what a balance question wants; a screenshot of a panel is not greppable. */
     if (getenv("MOTEBOX_INSPECT")) {
         const char *items[IR_ROWS + 4];
         int v = ir_village(s_cx, s_cy);
@@ -2282,6 +2353,21 @@ static void g_update(float dt)
             if (mote_just_pressed(in, MOTE_BTN_A) && s_ui == UI_SOUL) {
                 s_ui = UI_SHAPE; s_ui_row = 0;
             }
+            /* RB PAGES OUT. From a person to their town, to the crown above it, to the world:
+             * the whole hierarchy on one button, in the order you would ask the questions. */
+            if (mote_just_pressed(in, MOTE_BTN_RB)) {
+                switch (s_ui) {
+                case UI_SOUL:
+                    if (s_subject >= 0 && s_subject < mb_nu) s_subject_v = mb_u[s_subject].village;
+                    s_ui = UI_TOWN; break;
+                case UI_LORD: s_ui = UI_TOWN;  break;
+                case UI_TOWN: s_ui = UI_KING;  break;
+                case UI_KING: s_ui = UI_WORLD; break;
+                case UI_WORLD: s_ui = UI_LAND; break;
+                default:      s_ui = UI_TOWN;  break;
+                }
+                s_ui_row = 0;
+            }
         }
         if (s_ui_flash > 0.0f) s_ui_flash -= dt;
         return;
@@ -2420,6 +2506,9 @@ static void g_overlay(uint16_t *fb)
         case UI_SOUL:  ui_draw_soul(fb);  break;
         case UI_SHAPE: ui_draw_shape(fb); break;
         case UI_LORD:  ui_draw_lord(fb);  break;
+        case UI_TOWN:  ui_draw_town(fb);  break;
+        case UI_KING:  ui_draw_king(fb);  break;
+        case UI_WORLD: ui_draw_world(fb); break;
         case UI_LAND:  ui_draw_land(fb);  break;
         default:       ui_draw_pick(fb);  break;
         }
