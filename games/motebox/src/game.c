@@ -1275,6 +1275,35 @@ static void g_init(void)
             }
         }
     }
+    /* MOTEBOX_RISE=1 kills a crowd, buries them and raises the boneyard, then counts what
+     * actually stood up. The rising is the one disaster whose victims become the disaster, and
+     * SP_DEMON had a sprite, sixty years of life and the fastest legs in the game while being
+     * spawned by nothing at all — so "do demons appear" needed counting, not hoping. */
+    if (getenv("MOTEBOX_RISE")) {
+        int v = 0;
+        for (int i = 1; i < MAXV; i++)
+            if (mb_v[i].alive && (!v || mb_v[i].pop > mb_v[v].pop)) v = i;
+        if (v) {
+            int gx = mb_v[v].x, gy = mb_v[v].y, buried = 0;
+            for (int dy = -5; dy <= 5; dy++)
+                for (int dx = -5; dx <= 5; dx++) {
+                    int x = gx + dx, y = gy + dy;
+                    if (!mb_in(x, y) || !mb_land(mb_w.biome[AT(x, y)])) continue;
+                    if (mb_is_build(mb_w.obj[AT(x, y)])) continue;
+                    mb_w.obj[AT(x, y)] = O_GRAVE; buried++;
+                }
+            int n = mb_unit_raise_dead(gx, gy, 5);
+            int w = 0, g = 0, d = 0;
+            for (int i = 0; i < mb_nu; i++) {
+                if (!mb_u[i].alive) continue;
+                if (mb_u[i].sp == SP_WIGHT) w++;
+                else if (mb_u[i].sp == SP_GHOST) g++;
+                else if (mb_u[i].sp == SP_DEMON) d++;
+            }
+            fprintf(stderr, "rising: %d graves -> %d risen (%d wights %d ghosts %d DEMONS)\n",
+                    buried, n, w, g, d);
+        }
+    }
     if (getenv("MOTEBOX_LOG")) {
         /* WHAT THE LOG ACTUALLY SHOWS. The engine's menu blocks, so the frame counter never
          * advances inside it and a submenu cannot be screenshotted — and "the event log has

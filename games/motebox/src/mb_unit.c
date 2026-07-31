@@ -72,8 +72,13 @@ const MbSpecies MB_SP[SP_N] = {
     { "bat",       2,  5, 1, 20,  5, DIET_MEAT,  DRV_BEAST },
     { "rat",       2,  0, 3, 14,  6, DIET_PLANT, DRV_BEAST },
     /* --- what the world raises rather than breeds --- */
-    { "wight",     0,  8, 5, 12, 40, DIET_MEAT,  DRV_BEAST },
-    { "ghost",     1,  0, 3, 14, 40, DIET_MEAT,  DRV_BEAST },
+    /* THE RISEN WEAR BONES. "wight" pointed at characters (8,5) — a living person's cell —
+     * so a graveyard stood up as a crowd of ordinary villagers, and "ghost" drew the
+     * skeleton. Row 3 of the monsters sheet is seven skeletons in different poses; both
+     * anchor there and mb_cast_pick spreads them across it, because a rising is a CROWD and
+     * one repeated sprite is the thing that makes a crowd look like a mistake. */
+    { "wight",     1,  0, 3, 12, 40, DIET_MEAT,  DRV_BEAST },
+    { "ghost",     1,  7, 3, 14, 40, DIET_MEAT,  DRV_BEAST },
     { "demon",     1,  3, 7, 15, 60, DIET_MEAT,  DRV_BEAST },
 };
 
@@ -1037,7 +1042,14 @@ int mb_unit_raise_dead(int cx, int cy, int r)
             if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r) continue;
             mb_w.obj[AT(x, y)] = O_NONE;
             uint32_t rr = mb_rand((uint32_t)AT(x, y) * 733u);
-            int u = mb_unit_spawn((rr & 7) ? SP_WIGHT : SP_GHOST, x, y);
+            /* AND SOMETHING WORSE COMES WITH A BIG ONE. SP_DEMON existed, had a sprite, had
+             * sixty years of life and the fastest legs of anything the world raises — and was
+             * spawned by absolutely nothing, in any scenario, ever. A grave or two gives up a
+             * skeleton; a boneyard gives up a demon, which is the escalation the rising was
+             * missing and the reason a big graveyard is worth being afraid of. */
+            int sp = (rr & 7) ? SP_WIGHT : SP_GHOST;
+            if (n >= 8 && (rr >> 12 & 7) == 0) sp = SP_DEMON;
+            int u = mb_unit_spawn(sp, x, y);
             if (u >= 0) { mb_u[u].traits |= TR_ZOMBIE; n++; }
         }
     return n;

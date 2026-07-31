@@ -126,7 +126,10 @@ static const Power P_BEASTS[8] = {
      * exists. The reserve caps at 700 now (mb_faith.c) and these were 200-550 against a cap
      * of 400 — half of them unreachable. A beast should be a season's devotion, not a
      * lifetime's: at a couple of hundred Faith a year the dearest is about two years of it. */
-    { PW_TITAN,   "SKULL TITAN", &bosses_img, 14, 1, 0, 0, 400 },
+    /* The enum is still PW_TITAN/AG_TITAN — renaming it across five files buys nothing —
+     * but what it summons is the armoured skeleton at (10,1), which is a general and looks
+     * like one. The giant skull it used to be is left on the sheet unused. */
+    { PW_TITAN,   "BONE KING",   &bosses_img, 10, 1, 0, 0, 400 },
     { PW_MEDUSA,  "MEDUSA",      &bosses_img,  8, 1, 0, 0, 300 },
     { PW_REAPER,  "REAPER",      &bosses_img,  4, 3, 0, 0, 360 },
     { PW_DRAGON,  "DRAGON",      &bosses_img,  0, 1, 0, 0, 320 },

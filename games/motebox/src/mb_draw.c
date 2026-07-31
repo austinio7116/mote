@@ -775,7 +775,16 @@ static void mb_cast_pick(const Unit *u, unsigned seed, int *sheet, int *cx, int 
 {
     const MbSpecies *S = &MB_SP[u->sp];
     *sheet = S->sheet; *cx = S->cx; *cy = S->cy;
-    if (u->sp >= SP_CIV_N) return;                  /* beasts and the risen keep their own */
+    if (u->sp >= SP_CIV_N) {
+        /* A HORDE IS NOT ONE SPRITE. Beasts keep their own cell, but the risen and the
+         * demons arrive in numbers from a single event, and forty identical skeletons read
+         * as a rendering fault rather than as an army of the dead. The sheet has seven
+         * skeleton poses in a row and six demons; each figure takes one by its own seed, so
+         * it is stable and its neighbour is probably different. */
+        if (u->sp == SP_WIGHT)      *cx = (int)(seed % 7);          /* monsters (0..6, 3) */
+        else if (u->sp == SP_DEMON) *cx = 3 + (int)(seed % 6);      /* monsters (3..8, 7) */
+        return;
+    }
 
     int span = S->lifespan ? S->lifespan : 20;
     int prof = u->prof < PROF_N ? u->prof : PROF_NONE;
@@ -1243,7 +1252,7 @@ void mb_draw_mortal(int cam_x, int cam_y)
              * the HOODED REAPER WITH A SCYTHE, and the "REAPER" at (10,1), which is an
              * ordinary skeleton with a sword and a shield. So the titan was Death and Death
              * was a footsoldier. The blocks start on even columns and ODD rows. */
-            [AG_TITAN]   = { &bosses_img,   14, 1, 2 },   /* the giant white skull       */
+            [AG_TITAN]   = { &bosses_img,   10, 1, 2 },   /* the BONE KING: sword, shield */
             [AG_MEDUSA]  = { &bosses_img,    8, 1, 2 },   /* green snake hair            */
             [AG_REAPER]  = { &bosses_img,    4, 3, 2 },   /* hooded, scythe: Death itself */
             /* (0,1), NOT (2,3). The gold beast at (2,3) is a flame-bird, which is exactly

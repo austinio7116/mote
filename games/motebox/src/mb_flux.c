@@ -916,6 +916,14 @@ static void agent_step(void)
                 mb_w.elev[AT(mx, my)] = 0;
             }
             mb_unit_area(a->x, a->y, 2, UAP_KILL, CAUSE_DISASTER);
+            /* AND THINGS COME OUT OF IT. The Maw is a hole into somewhere else that eats the
+             * world and never stops, and until now the only thing that ever emerged was more
+             * ocean. A demon every so often is what makes it a gate rather than a drain. */
+            if ((r & 63) == 0) {
+                int sx = a->x + (int)((r >> 8) & 7) - 3, sy = a->y + (int)((r >> 11) & 7) - 3;
+                if (mb_in(sx, sy) && mb_land(mb_w.biome[AT(sx, sy)]))
+                    mb_unit_spawn(SP_DEMON, sx, sy);
+            }
             /* it drifts, so it does not simply drill one hole */
             if ((r & 7) == 0) { a->x = (int16_t)(a->x + a->dx); a->y = (int16_t)(a->y + a->dy); }
             mb_fx_burst((float)a->x, (float)a->y, 2, PK_RING, FXE_VOID, 0.6f, 1.0f);
