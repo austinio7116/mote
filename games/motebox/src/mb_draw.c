@@ -769,6 +769,24 @@ static const uint8_t MB_PROF_ROLE[PROF_N] = {
     CR_PRIEST, CR_TRADER, CR_BUILDER, CR_LORD,
 };
 
+/* --- MOVEMENT BETWEEN TICKS ---------------------------------------------
+ * The fraction of the current tick this frame represents, set by the main loop from its own
+ * tick accumulator. Everything that moves is drawn at (was + (is - was) * alpha).
+ *
+ * A TELEPORT MUST NOT SMEAR. Units are also moved instantly — a colonist put ashore, a
+ * fighter placed by a test hook, a body respawned — and interpolating across that would drag
+ * the sprite over the whole map for a tick. Anything that jumped more than two cells is drawn
+ * where it is now. */
+static float s_lerp;
+void mb_draw_set_lerp(float a) { s_lerp = (a < 0.0f) ? 0.0f : (a > 1.0f ? 1.0f : a); }
+
+static int lerp_px(int was, int is)
+{
+    int d = is - was;
+    if (d > 32 || d < -32) return is >> 1;          /* a jump, not a step */
+    return (int)((float)was + (float)d * s_lerp) >> 1;
+}
+
 /* The figure for one person: age first, then trade, then the pool, then the species cell.
  * `seed` is the unit's own — a stable pick, so somebody does not change face as they walk. */
 static void mb_cast_pick(const Unit *u, unsigned seed, int *sheet, int *cx, int *cy)
@@ -1214,7 +1232,18 @@ void mb_draw_mortal(int cam_x, int cam_y)
         mb_cast_pick(u, mb__hash2(i, u->given), &sheet, &cx, &cy);
         const MoteImage *img = (sheet == 0) ? &characters_img
                              : (sheet == 1) ? &monsters_img : &animals_img;
-        MoteSprite spr = { img, (int16_t)(u->x >> 4 << 3), (int16_t)(u->y >> 4 << 3),
+        /* SUB-PIXEL, AND INTERPOLATED. This was `u->x >> 4 << 3` — take the tile, multiply
+         * back up — which threw away the whole point of storing positions in sixteenths of a
+         * cell. The struct's own comment promised "sub-tile smoothness" and the renderer
+         * snapped every figure to the 8-pixel grid, so a villager that moves six pixels a tick
+         * appeared to stand still and then teleport a full cell sideways. Everything on the
+         * map moved like that: people, wolves, the risen, kaiju.
+         *
+         * Positions are 1/16 tile and a tile is 8 pixels, so pixels are x >> 1 — exact, no
+         * rounding. The lerp then fills in the frames BETWEEN ticks, which is the other half:
+         * at x1 the sim ticks eight times a second and the screen draws sixty. */
+        int sx = lerp_px(u->ox, u->x), sy = lerp_px(u->oy, u->y);
+        MoteSprite spr = { img, (int16_t)sx, (int16_t)sy,
                            (uint16_t)(cx * TILE), (uint16_t)(cy * TILE),
                            TILE, TILE, 40, 0 };
         add(&spr);

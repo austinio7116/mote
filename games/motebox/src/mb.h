@@ -265,6 +265,10 @@ extern const MbSpecies MB_SP[SP_N];
 typedef struct {
     uint8_t  alive, sp, job, village;
     uint16_t x, y;
+    /* WHERE IT WAS LAST TICK, so the renderer can draw the space between. The sim runs at
+     * eight to two hundred ticks a second and the screen at sixty frames, so without this a
+     * villager holds still for six frames and then jumps — see mb_draw_set_lerp(). */
+    uint16_t ox, oy;
     int8_t   hp, happy;
     uint8_t  age, hunger;
     uint16_t target;        /* cell index, 0xFFFF = none */
@@ -593,6 +597,8 @@ void mb_god_units(uint16_t *fb, int y0, int y1);
 uint16_t mb_kingdom_colour(int k);
 void mb_dim_rect(uint16_t *fb, int x, int y, int w, int h, uint16_t toward, int amt);
 void mb_draw_sprite_load(int *want, int *lost);
+/* How far through the current tick the frame is, 0..1. Set once a frame before drawing. */
+void mb_draw_set_lerp(float a);
 int  mb_draw_form_col(uint8_t o, int k, int c, int r); /* the column it draws as */
 void mb_draw_sea_band(uint16_t *fb, int y0, int y1);
 void mb_draw_mortal_sprites(uint16_t *fb);

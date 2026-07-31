@@ -61,16 +61,21 @@ const MbSpecies MB_SP[SP_N] = {
     { "boar",      2,  5, 0, 12, 14, DIET_PLANT, DRV_BEAST },
     { "sheep",     2, 10, 0,  9, 10, DIET_PLANT, DRV_BEAST },
     { "hen",       2,  8, 0, 10,  6, DIET_PLANT, DRV_BEAST },
-    { "goat",      1,  9, 3, 12,  9, DIET_PLANT, DRV_BEAST },
+    /* FIVE OF THESE DREW THE WRONG ANIMAL, which nothing caught because a cell reference is
+     * just two numbers and a wrong one is still a picture. Rendering every species next to its
+     * NAME found them in one look: the goat was a yellow blob off the monsters sheet, the wolf
+     * was a navy creature, the rat was a wolf, the wild dog was a deer and the spider was a
+     * fox. Anything that indexes art by coordinate wants a proof sheet, not a code review. */
+    { "goat",      2, 11, 0, 12,  9, DIET_PLANT, DRV_BEAST },   /* brown, horned      */
     /* --- predators --- */
-    { "wolf",      2, 15, 3, 17, 16, DIET_MEAT,  DRV_BEAST },
-    { "wild dog",  2,  2, 0, 15, 14, DIET_MEAT,  DRV_BEAST },
+    { "wolf",      2,  3, 3, 17, 16, DIET_MEAT,  DRV_BEAST },   /* grey, pink eyes    */
+    { "wild dog",  2,  1, 1, 15, 14, DIET_MEAT,  DRV_BEAST },   /* the orange jackal  */
     { "snake",     2,  3, 1, 11, 10, DIET_MEAT,  DRV_BEAST },
-    { "spider",    2,  0, 1, 12,  8, DIET_MEAT,  DRV_BEAST },
+    { "spider",    1,  2, 0, 12,  8, DIET_MEAT,  DRV_BEAST },   /* red, many-legged   */
     /* --- water, swarm, vermin --- */
     { "frog",      2,  6, 4, 12,  6, DIET_PLANT, DRV_FISH  },
     { "bat",       2,  5, 1, 20,  5, DIET_MEAT,  DRV_BEAST },
-    { "rat",       2,  0, 3, 14,  6, DIET_PLANT, DRV_BEAST },
+    { "rat",       2,  9, 1, 14,  6, DIET_PLANT, DRV_BEAST },   /* small, pink tail   */
     /* --- what the world raises rather than breeds --- */
     /* THE RISEN WEAR BONES. "wight" pointed at characters (8,5) — a living person's cell —
      * so a graveyard stood up as a crowd of ordinary villagers, and "ghost" drew the
@@ -659,10 +664,11 @@ static void act(int i)
              * shot scales with it. */
             if (bestd <= 6) {                       /* in reach: strike it */
                 if (mb_agent_hurt(x, y, 9 + (u->traits & TR_TOUGH ? 5 : 0))) u->kills++;
-            } else if (bestd <= rng2 * rng2 && (r & 3) == 0) {
+            } else if (bestd <= rng2 * rng2 && (r & 1) == 0) {
                 mb_fx_shot((float)x, (float)y, (float)bx, (float)by, shk2);
                 if (mb_agent_hurt(bx, by, 3 + shk2 * 3)) u->kills++;
-                if (bestd > 16) step_toward(u, bx, by);
+                int hold2 = (rng2 * 3) / 4; if (hold2 < 3) hold2 = 3;
+                if (bestd > hold2 * hold2) step_toward(u, bx, by);
             } else {
                 step_toward(u, bx, by);             /* march on it */
             }
@@ -702,7 +708,17 @@ static void act(int i)
                 if (u->kills == 10) mb_chron_legend(i, LEGEND_KILLS);
                 u->job = JOB_IDLE;
             }
-        } else if (u->sp < SP_CIV_N && d2 <= rng * rng && (r & 3) == 0) {
+        /* AND A MISSILE TROOP HOLDS ITS GROUND. This is why nobody had ever seen a rock
+         * thrown. A soldier fired on one tick in four and CLOSED on the other three, and a
+         * thrown rock reached three cells while melee starts at one and a half — so the window
+         * in which a stone-age fighter could throw anything was one cell wide and it walked
+         * through it in a single tick. Most battles produced no projectile at all.
+         *
+         * Now anything with reach stops at about three quarters of it and shoots from there,
+         * closing only if the enemy is further off than that. A firing line forms, the tracers
+         * are continuous while it holds, and the weapon tier sets how far apart the two sides
+         * stand — which is what the tech tree was supposed to be buying. */
+        } else if (u->sp < SP_CIV_N && d2 <= rng * rng && (r & 1) == 0) {
             mb_fx_shot((float)x, (float)y, (float)ex, (float)ey, shk);
             int dmg = 7 + (int)(r >> 4 & 5) + shk * 2;      /* a better weapon hits harder */
             mb_u[e].hp -= (int8_t)dmg;
@@ -713,7 +729,8 @@ static void act(int i)
                 if (u->kills == 10) mb_chron_legend(i, LEGEND_KILLS);
             }
             /* and they still advance while shooting, so a battle closes rather than stalling */
-            if (d2 > 6) step_toward(u, ex, ey);
+            int hold = (rng * 3) / 4; if (hold < 2) hold = 2;
+            if (d2 > hold * hold) step_toward(u, ex, ey);   /* hold the line */
         } else {
             step_toward(u, ex, ey);
             if (horse) step_toward(u, ex, ey);        /* mounted: twice the ground a tick */
@@ -880,6 +897,15 @@ static void suffer(int i)
 
 void mb_unit_step(void)
 {
+    /* THE PREVIOUS POSITION, captured for every unit before any of them move. It has to be
+     * a separate pass: brains move units in index order and a unit can be shoved by another
+     * one's step, so recording it inside the same loop would give some of them this tick's
+     * position as their own history and they would not move on screen at all. */
+    for (int i = 0; i < mb_nu; i++) {
+        if (!mb_u[i].alive) continue;
+        mb_u[i].ox = mb_u[i].x; mb_u[i].oy = mb_u[i].y;
+    }
+
     grid_build();
     int phase = (int)(mb_w.tick & 7);
     for (int i = 0; i < mb_nu; i++) {

@@ -1279,6 +1279,27 @@ static void g_init(void)
      * actually stood up. The rising is the one disaster whose victims become the disaster, and
      * SP_DEMON had a sprite, sixty years of life and the fastest legs in the game while being
      * spawned by nothing at all — so "do demons appear" needed counting, not hoping. */
+    /* MOTEBOX_SPAWN=<n> drops a kaiju at the biggest village and RETURNS, so the fight happens
+     * in the live rendered frames rather than inside a headless loop. Every previous attempt to
+     * photograph a projectile used a hook that simulated the whole battle first and then handed
+     * the renderer the aftermath. */
+    /* MOTEBOX_SPAWN=<n> drops a kaiju by the biggest village and RETURNS, so the battle happens
+     * in the live rendered frames. Every earlier attempt to photograph a projectile used a hook
+     * that simulated the whole fight headlessly first and then handed the renderer the
+     * aftermath — which is why three rounds of "adjust the frame number" found nothing. */
+    {
+        const char *spw = getenv("MOTEBOX_SPAWN");
+        if (spw && *spw) {
+            int v = 0;
+            for (int i = 1; i < MAXV; i++)
+                if (mb_v[i].alive && (!v || mb_v[i].pop > mb_v[v].pop)) v = i;
+            if (v) {
+                s_cx = mb_v[v].x; s_cy = mb_v[v].y;
+                mb_agent_spawn(AG_KAIJU0 + atoi(spw), mb_v[v].x - 5, mb_v[v].y);
+                fprintf(stderr, "spawned beast %d beside the largest village\n", atoi(spw));
+            }
+        }
+    }
     if (getenv("MOTEBOX_RISE")) {
         int v = 0;
         for (int i = 1; i < MAXV; i++)
@@ -1411,8 +1432,14 @@ static void g_init(void)
                                                || o == O_FLOWER || o == O_TREE)) garden++;
                     if (mb_w.road[i]) paved++;
                 }
+                int farms = 0, fields = 0;
+                for (int i = 0; i < NC; i++) {
+                    if (mb_w.obj[i] == O_FARM) farms++;
+                    if (mb_w.biome[i] == B_FARM) fields++;
+                }
                 fprintf(stderr, "townscape: %d monuments %d fountains, "
-                                "%d planted cells, %d paved\n", mon, fnt, garden, paved);
+                                "%d planted cells, %d paved, %d farms, %d field cells\n",
+                        mon, fnt, garden, paved, farms, fields);
                 /* AND WHAT THE FIRE HAS BECOME. The founding campfire climbs a ladder — fire,
                  * well, gas lamp, street light — and every rung is one column on the sheet, so
                  * the tally of resolved columns is the whole answer. */
@@ -1925,6 +1952,8 @@ static void g_overlay(uint16_t *fb)
         if (!getenv("MOTEBOX_NORELIEF"))
 #endif
             mb_draw_relief(fb, s_cam_x, s_cam_y);
+        /* how far through the current tick this frame is — see mb_draw_set_lerp() */
+        mb_draw_set_lerp(s_tick_acc);
         mb_draw_mortal_sprites(fb);
         mb_fx_flux_render(fb, s_cam_x, s_cam_y);
         mb_fx_draw_mortal_px(fb, s_cam_x, s_cam_y);

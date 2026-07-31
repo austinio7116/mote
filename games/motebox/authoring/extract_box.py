@@ -651,62 +651,175 @@ def build_roads():
 
 
 def build_icon():
-    """60x60 launcher icon: the world as a disc, with a meteor coming in.
+    """60x60 launcher icon: a world under a god's hand.
 
-    Reads at launcher size because it is one bold silhouette — a circle — rather
-    than a screenshot. Every pixel comes from the game's own biome tiles and the
-    master's FX cells, so the icon can never drift from what the game draws:
-    the terrain textures are the same BIOMES recipes the map uses, and the
-    meteor is the crowns_fx explosion cell.
+    The old one was a disc of blue banding with two amorphous green blobs and a
+    meteor drawn as orange confetti — three ideas at low contrast, none of which
+    survived being shrunk to a launcher tile. This is ONE idea: a small round
+    world, and something enormous reaching down to touch it.
+
+    What makes it read at 60 pixels:
+      - the disc is LIT. A rim highlight top-left, a terminator shading the
+        lower-right limb, and a darkened edge all the way round, so it is a
+        sphere and not a circle with a map painted on it.
+      - the land is ONE landmass with a bay and a snow-capped spine, not two
+        blobs. A silhouette you can name beats texture you cannot.
+      - the water is TWO tones, deep and shallow, so a coast exists.
+      - the town is the game's OWN building sprites, at their own scale.
+      - the god is a HAND, in silhouette, with the strike leaving its finger.
+        A meteor could be any space game; a hand reaching into the world is
+        this one.
+
+    Every terrain pixel still comes from the biome recipes the map itself uses,
+    so the icon cannot drift from what the game draws.
     """
-    W, R, CX, CY = 60, 27, 30, 31
+    W, R, CX, CY = 60, 26, 30, 33
     icon = Image.new("RGBA", (W, W), NAVY + (255,))
+    px = icon.load()
+
+    # --- space, with a few stars so the navy is not dead flat -----------------
+    for sx, sy in ((4, 6), (13, 3), (52, 8), (56, 22), (7, 20), (47, 3), (24, 5)):
+        px[sx, sy] = SLATE + (255,)
+    for sx, sy in ((9, 11), (55, 14), (3, 27)):
+        px[sx, sy] = WHITE + (255,)
+
     tiles = {
-        "ocean": flat(NAVY,    ((48, 35), 0, 0), SLATE),
+        "deep":  flat(NAVY,    ((48, 35), 0, 0), SLATE),
         "sea":   flat(BLUE,    ((48, 35), 0, 0), SLATE),
         "grass": flat(DKGREEN, (( 0, 47), 0, 0), GREEN),
         "sand":  flat(PEACH,   (( 6, 48), 0, 0), WHITE),
-        "peak":  flat(LTGREY,  (( 1, 47), 0, 0), WHITE),
-        "lava":  flat(RED,     ((48, 35), 0, 0), ORANGE),
+        "rock":  flat(DKGREY,  (( 1, 47), 0, 0), LTGREY),
+        "snow":  flat(LTGREY,  (( 1, 47), 0, 0), WHITE),
     }
     tp = {k: v.load() for k, v in tiles.items()}
 
     def land(x, y):
-        """A blobby continent: two overlapping ellipses plus a wobble, so the
-        coastline has bays instead of reading as a drawn shape."""
-        a = ((x - 24) ** 2) / 190.0 + ((y - 26) ** 2) / 130.0
-        b = ((x - 38) ** 2) / 90.0 + ((y - 38) ** 2) / 70.0
-        w = 0.16 * (((x * 7 + y * 13) % 11) / 11.0)
-        return min(a, b) + w
+        """One continent: a big ellipse with a bay bitten out of the east side and
+        a wobble on the coast. Returns <1 inside the land."""
+        a = ((x - 26) ** 2) / 210.0 + ((y - 32) ** 2) / 150.0
+        bay = ((x - 41) ** 2) / 46.0 + ((y - 40) ** 2) / 40.0
+        w = 0.13 * (((x * 7 + y * 13) % 11) / 11.0)
+        v = a + w
+        if bay < 1.0:                      # the bay is sea cut into the land
+            v = max(v, 1.06)
+        return v
 
-    px = icon.load()
     for y in range(W):
         for x in range(W):
             dx, dy = x - CX, y - CY
             d2 = dx * dx + dy * dy
             if d2 > R * R:
                 continue                                  # space
-            if d2 > (R - 1) * (R - 1):
-                px[x, y] = SLATE + (255,)                 # rim light
-                continue
             L = land(x, y)
-            if   L < 0.62: t = "grass"
-            elif L < 0.80: t = "sand"
-            else:          t = "sea"   # all water bright, so the disc reads against NAVY space
-            if L < 0.30 and abs(dx + dy // 2) < 3: t = "peak"    # a spine of mountains
+            if   L < 0.74: t = "grass"
+            elif L < 0.92: t = "sand"
+            elif L < 1.35: t = "sea"
+            else:          t = "deep"
+            # a mountain spine across the continent, snow on its crest
+            spine = abs((y - 30) - (x - 22) // 3)
+            if L < 0.52 and spine < 3:
+                t = "snow" if spine < 2 else "rock"
             px[x, y] = tp[t][x % TS, y % TS]
-    # the meteor: a fire trail from the top-right corner into the disc, then the
-    # master's explosion cell at the impact point
-    for i in range(13):
-        mx, my = 56 - i * 2, 3 + i * 2
-        px[mx, my] = (YELLOW if i % 2 else ORANGE) + (255,)
-        if mx + 1 < W: px[mx + 1, my] = ORANGE + (255,)
-    boom = cell(36, 31)                                   # crowns_fx explosion (37,31 is a sparkle)
-    boom = boom.resize((16, 16), Image.NEAREST)   # 2x keeps the pixels crisp
-    icon.paste(boom, (24, 19), boom)               # centred where the trail ends
-    p = os.path.join(GAME, "icon.png")
-    icon.convert("RGB").save(p)
-    print(f"[icon]    icon.png 60x60 -> {os.path.relpath(p, GAME)}")
+
+    # --- LIGHT IT. Without this the disc is a sticker; with it, a world. ------
+    for y in range(W):
+        for x in range(W):
+            dx, dy = x - CX, y - CY
+            d2 = dx * dx + dy * dy
+            if d2 > R * R:
+                continue
+            r, g, b, _ = px[x, y]
+            # terminator: the lower-right limb falls away into shadow
+            shade = (dx + dy) / (2.0 * R)                  # -1 .. +1
+            if shade > 0.15:
+                k = min(0.62, (shade - 0.15) * 1.5)
+                r, g, b = (int(r * (1 - k) + NAVY[0] * k),
+                           int(g * (1 - k) + NAVY[1] * k),
+                           int(b * (1 - k) + NAVY[2] * k))
+            # and the very edge is always darker, all the way round
+            if d2 > (R - 2) * (R - 2):
+                r, g, b = int(r * 0.55), int(g * 0.55), int(b * 0.6)
+            px[x, y] = (r, g, b, 255)
+    # rim highlight on the lit side only
+    for a10 in range(140, 260):
+        import math
+        rad = math.radians(a10)
+        rx = int(CX + math.cos(rad) * (R - 1))
+        ry = int(CY + math.sin(rad) * (R - 1))
+        if 0 <= rx < W and 0 <= ry < W:
+            px[rx, ry] = WHITE + (255,)
+
+    # --- the town: the game's own buildings, so the icon looks like the game --
+    town = Image.open(os.path.join(GAME, "assets", "sheets", "town.png")).convert("RGBA")
+    def stamp(col, row, dx, dy):
+        icon.alpha_composite(town.crop((col * 8, row * 14, col * 8 + 8, row * 14 + 14)),
+                             (dx, dy))
+    stamp(2, 0, 20, 28)      # a great hall, red roof, on the plain
+    stamp(4, 1, 28, 31)      # a house, blue roof
+    stamp(5, 0, 15, 33)      # a cottage
+
+    # --- THE GOD: a hand in silhouette, reaching in from the top-left --------
+    # Drawn as a mask so it is one solid shape: at this size an outlined hand is
+    # mush. Dark, because it is between the light and the world.
+    hand = [
+        "......XXXX..........",
+        ".....XXXXXX.........",
+        "....XXXXXXXX........",
+        "...XXXXXXXXXX.......",
+        "...XXXXXXXXXXX......",
+        "..XXXXXXXXXXXXX.....",
+        "..XXXXXXXXXXXXX.....",
+        "...XXXXXXXXXXX......",
+        "....XXXXXXXXX.......",
+        ".....XXXXXXX........",
+        "......XXXXX.........",
+        ".......XXX..........",
+        "........X...........",
+    ]
+    HX, HY = 6, 0
+    dark = (18, 24, 46)
+    for j, rowstr in enumerate(hand):
+        for i, ch in enumerate(rowstr):
+            if ch != "X":
+                continue
+            x, y = HX + i, HY + j
+            if 0 <= x < W and 0 <= y < W:
+                px[x, y] = dark + (255,)
+    # a lit edge down the left of the hand, so it separates from space
+    for j, rowstr in enumerate(hand):
+        first = rowstr.find("X")
+        if first < 0:
+            continue
+        x, y = HX + first, HY + j
+        if 0 <= x < W and 0 <= y < W:
+            px[x, y] = SLATE + (255,)
+
+    # --- the strike: from the fingertip into the mountains -------------------
+    bolt = [(14, 13), (15, 16), (13, 18), (16, 21), (14, 24), (17, 26)]
+    for i in range(len(bolt) - 1):
+        x0, y0 = bolt[i]; x1, y1 = bolt[i + 1]
+        steps = max(abs(x1 - x0), abs(y1 - y0))
+        for t in range(steps + 1):
+            x = x0 + (x1 - x0) * t // steps
+            y = y0 + (y1 - y0) * t // steps
+            if 0 <= x < W and 0 <= y < W:
+                px[x, y] = WHITE + (255,)
+                if x + 1 < W:
+                    px[x + 1, y] = YELLOW + (255,)
+    # the flash where it lands
+    fx, fy = 17, 27
+    for dy in range(-3, 4):
+        for dx in range(-3, 4):
+            d = dx * dx + dy * dy
+            x, y = fx + dx, fy + dy
+            if not (0 <= x < W and 0 <= y < W) or d > 9:
+                continue
+            if d <= 1:   px[x, y] = WHITE + (255,)
+            elif d <= 4: px[x, y] = YELLOW + (255,)
+            elif (dx + dy) % 2 == 0: px[x, y] = ORANGE + (255,)
+
+    icon.convert("RGB").save(os.path.join(GAME, "icon.png"))
+    print("[icon]    60x60 -> icon.png")
 
 
 def preview():

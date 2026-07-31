@@ -752,7 +752,10 @@ static struct {
  * new was visible at all.
  *
  * Ticks, not seconds, because ticks are what both paths share. */
-#define SHOT_TICKS 6
+/* Long enough for the slowest missile to cross its own reach: a thrown rock travels 2.2
+ * tiles a second and has to cover four cells, which is nearly two seconds — sixteen ticks
+ * at x1. Six cut every flight off in mid-air. */
+#define SHOT_TICKS 20
 
 static const struct { float speed, arc; uint16_t core, trail; } SHOT_DEF[MB_SHOT_N] = {
     /*                 speed  arc     core                        trail                  */
@@ -802,6 +805,26 @@ static inline void shot_px(uint16_t *fb, int px, int py, uint16_t col, float a)
     fb[py * 128 + px] = lerp565(fb[py * 128 + px], col, a);
 }
 
+/* --- A PROJECTILE IS AN OBJECT, NOT A PIXEL ------------------------------
+ * Every shot was ONE pixel for its head plus a few single-pixel trail dots at 75% alpha
+ * blended into whatever was behind them. On a 128-pixel screen with 8-pixel tiles that is a
+ * sixty-fourth of a tile, and it was invisible in play — I twice mistook the cursor's own
+ * brush circle for a tracer in screenshots, which is exactly what happens when the thing you
+ * are looking for is too small to see.
+ *
+ * Two rules make a small bright thing legible over arbitrary terrain: give it AREA, and give
+ * it a DARK RIM. The rim is what stops a pale rock disappearing into sand and a white missile
+ * core disappearing into snow. */
+static void shot_blob(uint16_t *fb, int x, int y, int w, int h,
+                      uint16_t core, uint16_t rim, float a)
+{
+    for (int dy = -1; dy <= h; dy++)
+        for (int dx = -1; dx <= w; dx++) {
+            int in = (dx >= 0 && dx < w && dy >= 0 && dy < h);
+            shot_px(fb, x + dx, y + dy, in ? core : rim, in ? a : a * 0.45f);
+        }
+}
+
 /* HOW MANY ARE IN THE AIR RIGHT NOW. Three screenshot hunts failed to catch a single tracer
  * and I kept adjusting the frame number instead of asking whether there was ever anything to
  * photograph. There is no substitute for counting. */
@@ -848,28 +871,66 @@ void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt)
         int hx, hy; SHOT_AT(t, hx, hy);
         (void)lift;
 
-        /* the tail, drawn back along the path so it curves with the arc */
-        int taillen = (kind == MB_SHOT_MISSILE) ? 7 : (kind == MB_SHOT_BULLET) ? 4
+        /* THE RIM. One near-black used by every kind, because the projectiles have to read
+         * against the whole palette and a coloured outline reads as part of the terrain. */
+        const uint16_t rim = MOTE_RGB565(14, 12, 20);
+
+        /* the tail, back along the path so it curves with the arc, and each puff SMALLER
+         * than the one in front so the thing has a direction at a glance */
+        int taillen = (kind == MB_SHOT_MISSILE) ? 6 : (kind == MB_SHOT_BULLET) ? 4
                     : (kind == MB_SHOT_ARROW)   ? 3 : 2;
-        for (int k = 1; k <= taillen; k++) {
-            float tt = t - (float)k * 0.035f;
-            if (tt < 0.0f) break;
+        for (int k = taillen; k >= 1; k--) {
+            float tt = t - (float)k * 0.045f;
+            if (tt < 0.0f) continue;
             int tx2, ty2; SHOT_AT(tt, tx2, ty2);
-            shot_px(fb, tx2, ty2, trail, 0.75f - 0.09f * (float)k);
+            int tw = (k == 1 && (kind == MB_SHOT_SHELL || kind == MB_SHOT_MISSILE)) ? 2 : 1;
+            shot_blob(fb, tx2, ty2, tw, tw, trail, rim, 0.7f - 0.11f * (float)k);
         }
-        /* and the head, which for everything but a rock is brighter than its own trail */
-        shot_px(fb, hx, hy, core, 1.0f);
-        if (kind == MB_SHOT_ARROW || kind == MB_SHOT_MISSILE) {
-            int px2, py2; SHOT_AT(t - 0.02f, px2, py2);
-            shot_px(fb, px2, py2, core, 0.85f);
+
+        /* and the head. Each kind is a different SHAPE, because the whole point of the
+         * weapons ladder is that you can see which age a war is being fought in. */
+        switch (kind) {
+        case MB_SHOT_ROCK:                                   /* a tumbling lump */
+            shot_blob(fb, hx, hy, 2, 2, core, rim, 1.0f);
+            break;
+        case MB_SHOT_ARROW: {                                /* a shaft, along its flight */
+            int bx, by; SHOT_AT(t > 0.06f ? t - 0.06f : 0.0f, bx, by);
+            int dx = hx - bx, dy = hy - by;
+            int nx = (dx > 0) - (dx < 0), ny = (dy > 0) - (dy < 0);
+            for (int k = 0; k < 3; k++)
+                shot_blob(fb, hx - nx * k, hy - ny * k, 1, 1,
+                          k ? trail : core, rim, 1.0f - 0.12f * (float)k);
+            break;
         }
+        case MB_SHOT_BULLET: {                               /* a streak */
+            int bx, by; SHOT_AT(t > 0.05f ? t - 0.05f : 0.0f, bx, by);
+            int dx = hx - bx, dy = hy - by;
+            int nx = (dx > 0) - (dx < 0), ny = (dy > 0) - (dy < 0);
+            shot_blob(fb, hx, hy, 2, 1, core, rim, 1.0f);
+            for (int k = 1; k <= 3; k++)
+                shot_blob(fb, hx - nx * k * 2, hy - ny * k * 2, 1, 1, trail, rim,
+                          0.9f - 0.2f * (float)k);
+            break;
+        }
+        case MB_SHOT_SHELL:                                  /* a fat round, smoking */
+            shot_blob(fb, hx, hy, 2, 2, core, rim, 1.0f);
+            shot_blob(fb, hx, hy - 2, 1, 1, trail, rim, 0.7f);
+            break;
+        default:                                             /* MISSILE: a burning dart */
+            shot_blob(fb, hx, hy, 2, 2, core, rim, 1.0f);
+            { int bx, by; SHOT_AT(t > 0.05f ? t - 0.05f : 0.0f, bx, by);
+              int dx = hx - bx, dy = hy - by;
+              int nx = (dx > 0) - (dx < 0), ny = (dy > 0) - (dy < 0);
+              shot_blob(fb, hx - nx * 3, hy - ny * 3, 2, 2,
+                        MOTE_RGB565(255, 150, 40), rim, 0.95f); }
+            break;
+        }
+
         /* a muzzle flash, for the two that have one */
         if (t < 0.12f && (kind == MB_SHOT_BULLET || kind == MB_SHOT_MISSILE)) {
             int mx, my; SHOT_AT(0.0f, mx, my);
             float a = 1.0f - t / 0.12f;
-            for (int dy = -1; dy <= 1; dy++)
-                for (int dx = -1; dx <= 1; dx++)
-                    shot_px(fb, mx + dx, my + dy, SHOT_DEF[kind].core, a * 0.9f);
+            shot_blob(fb, mx - 1, my - 1, 3, 3, SHOT_DEF[kind].core, rim, a * 0.9f);
         }
         #undef SHOT_AT
     }

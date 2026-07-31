@@ -412,7 +412,10 @@ int mb_war_shot_kind(int k)
 
 int mb_war_shot_range(int kind)
 {
-    static const uint8_t R[MB_SHOT_N] = { 3, 5, 7, 9, 12 };
+    /* A THROWN ROCK AT THREE CELLS is not a missile, it is a shove: melee begins at one and a
+     * half, so the stone age had a one-cell firing window and effectively no ranged combat.
+     * Four is enough to stand off in, and the ladder still more than triples by the end. */
+    static const uint8_t R[MB_SHOT_N] = { 4, 6, 8, 10, 13 };
     return R[(kind >= 0 && kind < MB_SHOT_N) ? kind : 0];
 }
 
