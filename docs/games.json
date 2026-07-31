@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-31T22:37:43+00:00",
+ "generated": "2026-07-31T22:39:53+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -215,8 +215,8 @@
     "img/gallery/motebox-2.png",
     "img/gallery/motebox-3.png"
    ],
-   "tag": "A world in a box — god simulator",
-   "desc": "A WorldBox-style god simulator that boots into a world already living: four peoples settled, farming and suspicious of each other. Watch it from God’s Eye as a political map of 445 souls, or drop into Mortal View where every villager is drawn as themselves — a farmer, a soldier, an elder, a lord in a crown. Nothing here is scenery. Crops are sown and cut one cell at a time by farmers who walk out to them; every building, street and field is carried there by somebody; lords are real people who age, die and are succeeded from their own town’s families; kingdoms covet each other’s iron, take towns by force, trade across quiet borders and shed distant provinces to rebellion. A 35-tech tree over nine eras rewrites the skyline as it goes, from a thatched hall and dirt tracks to factories, tarmac and a missile silo. Then interfere: forty-eight powers across six tabs — raise land, make it rain on the fields, found a village, bless a dynasty, or summon a dragon and watch an army bring it down. 160 entries of chronicle remember all of it, and the whole world saves whole.",
+   "tag": "God simulator: a small world you can change",
+   "desc": "A WorldBox-style god simulator. The world is already running when you arrive: four peoples with towns, farms and a wary eye on each other. Watch the whole map from above as a political map of 445 people, or drop in close where every villager is drawn individually — a farmer, a soldier, an elder, a lord in a crown. Farmers sow and harvest one field at a time. Every building, street and field is carried there by somebody. Lords are ordinary villagers who age, die and are replaced from their own town, and their personalities decide what the town builds and whether the kingdom goes to war. Kingdoms fight over iron, capture each other’s towns, trade across peaceful borders and lose distant provinces to rebellion. A 35-technology tree over nine eras changes what towns can build as it goes, from a wooden hall and dirt tracks to factories, tarmac and a missile silo. Then interfere, using 48 powers across six pages: raise land, make it rain on the fields, found a village, improve a lord, or summon a dragon and watch an army bring it down. A 160-entry log records it all, and you can save the whole world.",
    "guide": "motebox-guide.html",
    "multiplayer": false,
    "android": {
