@@ -446,9 +446,44 @@ static void cast_at(int id, int r, int cx, int cy)
     /* --- BLESS ------------------------------------------------------- */
     case PW_RAIN:
         mb_snd(SND_SPLASH);
-        /* water flux with a short life: extinguishes fire, greens the ground,
-         * and does not flood — the counter to a firestorm */
-        mb_flux_blob(cx, cy, r, FX_WATER, 4);
+        /* RAIN IS NOT A FLOOD, and this comment used to claim it wasn't while the code cast
+         * FX_WATER — which is the flood channel. mb_flux.c says so in as many words two hundred
+         * lines up, where the FIREFIGHTING code explains that it deliberately does not leave
+         * FX_WATER behind because "it turns the tile into shallow water and deletes whatever is
+         * standing on it, so a village fighting a fire drowned itself and demolished the houses
+         * it was trying to save". A six-faith blessing on the LIFE tab did exactly that:
+         * measured with MOTEBOX_PWTEST, one cast on a town moved 1712 cells of terrain and
+         * destroyed 31 buildings and trees.
+         *
+         * So it does what rain does. It puts fires out — properly, by subtracting intensity
+         * through the same douse the bucket chains use, so a firestorm needs more than one cast
+         * — and it wets dry ground a rung: desert becomes savanna, ash and scorched earth start
+         * again as grass. Nothing is drowned and nothing is demolished. */
+        for (int y = cy - r; y <= cy + r; y++)
+            for (int x = cx - r; x <= cx + r; x++) {
+                if (!mb_in(x, y) || (x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r) continue;
+                mb_flux_douse(x, y, 3);
+                uint8_t *b = &mb_w.biome[AT(x, y)];
+                if (*b == B_DESERT)                        *b = B_SAVANNA;
+                else if (*b == B_ASH || *b == B_SCORCHED)   *b = B_GRASS;
+                /* and a wet season on ordinary ground: grass thickens to meadow. One rung, so
+                 * it stays the cheap wide blessing and FERTILITY at four times the price stays
+                 * the one that makes forest. Without this, rain cast anywhere green did nothing
+                 * measurable at all — which for a power a player pays for is the same as broken. */
+                else if (*b == B_GRASS)                     *b = B_MEADOW;
+                /* AND IT WATERS THE CROP, which is what a farmer prays for rain FOR. A field
+                 * moves one stage on: sown comes up, shoots thicken, a standing crop ripens.
+                 * It does not sow — that is a farmer's job, and a god who could sow would make
+                 * the whole per-cell harvest cycle pointless. This is also what stops rain being
+                 * a power that does nothing on a healthy town: measured with MOTEBOX_PWTEST, a
+                 * cast with only the fire and desert clauses reported NOTHING CHANGED. */
+                else if (*b == B_FARM) {
+                    uint8_t *o = &mb_w.obj[AT(x, y)];
+                    if      (*o == O_SOWN)   *o = O_SHOOTS;
+                    else if (*o == O_SHOOTS) *o = O_GROWN;
+                    else if (*o == O_GROWN)  *o = O_RIPE;
+                }
+            }
         mb_fx_burst((float)cx, (float)cy, 12, PK_SMOKE, FXE_FROST, 1.5f, 1.0f);
         break;
     case PW_FERTILITY:
@@ -807,8 +842,13 @@ int mb_power_input(const MoteInput *in)
             s_wheel = 1;
             s_wheel_pick = s_sel[s_tab];  /* open on what you last used */
         } else {
-            if (s_wheel_pick >= 0) s_sel[s_tab] = s_wheel_pick;   /* commit */
-            s_wheel = 0; s_wheel_pick = -1;
+            /* LB PAGES LEFT once the menu is open, which is what a shoulder button is for
+             * when its partner pages right. It used to COMMIT and close — the same press
+             * doing three different things depending on state, and the one binding a player
+             * would reach for to go back a page instead threw them out of the menu. A takes,
+             * B backs out; the shoulders are for turning pages. */
+            s_tab = (s_tab + NTAB - 1) % NTAB;
+            s_wheel_pick = s_sel[s_tab];
             return 1;
         }
     }
@@ -931,23 +971,30 @@ void mb_power_draw_wheel(uint16_t *fb, const MoteFont *font)
 
     /* and the page it came from, four across and two down */
     mb_ui_rule(fb, 6, 54, 116, "POWERS", LINE, FILL, MB_UI_DIM);
-    const int CW = 27, CH = 22, GX = 64 - (4 * CW) / 2 + (CW - TILE) / 2, GY = 64;
+    /* AT DOUBLE SIZE. The grid drew each power as an eight-pixel sprite in a
+     * twenty-seven-pixel cell, so two thirds of every cell was empty hatch and the icons were
+     * unreadable on the panel they had all this room in. Sixteen pixels, on a disc scaled to
+     * match, is what the space was for. */
+    const int CW = 30, CH = 24, GX = 64 - (4 * CW) / 2, GY = 60;
     for (int i = 0; i < 8; i++) {
         int col = i & 3, row = i >> 2;
-        int x = GX + col * CW, y = GY + row * CH;
+        float cx = (float)(GX + col * CW + CW / 2);
+        float cy = (float)(GY + row * CH + CH / 2);
         int on = (i == pick);
-        g_api->blit(fb, &ui_buttons_img, x, y,
-                    (on ? BTN_LIT_CX : BTN_DIM_CX) * TILE,
-                    (on ? BTN_LIT_CY : BTN_DIM_CY) * TILE, TILE, TILE, 0, 0, 128);
-        g_api->blit(fb, tab[i].icon, x, y, tab[i].ix * TILE, tab[i].iy * TILE,
-                    TILE, TILE, 0, 0, 128);
+        g_api->blit_ex(fb, &ui_buttons_img, cx, cy,
+                       (on ? BTN_LIT_CX : BTN_DIM_CX) * TILE,
+                       (on ? BTN_LIT_CY : BTN_DIM_CY) * TILE, TILE, TILE,
+                       0.0f, 2.0f, 0, 0, 128);
+        g_api->blit_ex(fb, tab[i].icon, cx, cy, tab[i].ix * TILE, tab[i].iy * TILE,
+                       TILE, TILE, 0.0f, 2.0f, 0, 0, 128);
+        int x0 = (int)cx - 8, y0 = (int)cy - 8;
         if (on) {
-            g_api->draw_rect(fb, x - 2, y - 2, TILE + 4, TILE + 4, MB_UI_GOLD, 0, 0, 128);
-            g_api->draw_rect(fb, x - 3, y - 3, TILE + 6, TILE + 6, FILL, 0, 0, 128);
+            g_api->draw_rect(fb, x0 - 2, y0 - 2, 20, 20, MB_UI_GOLD, 0, 0, 128);
+            g_api->draw_rect(fb, x0 - 3, y0 - 3, 22, 22, FILL, 0, 0, 128);
         }
         /* a power you cannot pay for says so here rather than on the cast */
         if (!mb_faith_afford(tab[i].cost))
-            mb_dim_rect(fb, x - 1, y - 1, TILE + 2, TILE + 2, FILL, 140);
+            mb_dim_rect(fb, x0 - 1, y0 - 1, 18, 18, FILL, 140);
     }
-    mb_ui_actions(fb, "A TAKE", "RB PAGE", FILL);
+    mb_ui_actions(fb, "A TAKE", "B BACK", FILL);
 }

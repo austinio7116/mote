@@ -1131,11 +1131,17 @@ static void blast_ring(int bx, int by, int r)
 
 void mb_blast_step(void)
 {
+    /* TWO CELLS A TICK, not one. At one the ground took a second and a half to finish while the
+     * column was still climbing, which made the blast look like a slow stain spreading rather
+     * than a shock — the cloud's timing is right and the ground's was half its speed. Both rings
+     * are applied so no cell is stepped over. */
     for (int i = 0; i < NBLAST; i++) {
         if (!s_blast[i].on) continue;
-        s_blast[i].r++;
-        blast_ring(s_blast[i].x, s_blast[i].y, s_blast[i].r);
-        if (s_blast[i].r >= BLAST_BURN) s_blast[i].on = 0;
+        for (int step = 0; step < 2 && s_blast[i].on; step++) {
+            s_blast[i].r++;
+            blast_ring(s_blast[i].x, s_blast[i].y, s_blast[i].r);
+            if (s_blast[i].r >= BLAST_BURN) s_blast[i].on = 0;
+        }
     }
 }
 
