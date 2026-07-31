@@ -1288,6 +1288,38 @@ void mb_draw_fields(uint16_t *fb, int cam_x, int cam_y)
     }
 }
 
+/* --- WHAT IS ABOUT TO BE DONE ---------------------------------------------
+ *
+ * A town's decisions are visible while they are still decisions. A building already had its
+ * blueprint ghost; a street cell, a new field and a planting had nothing, so from the outside
+ * they went from nothing to finished with no warning and no way to tell that the villager
+ * walking out of town was going anywhere in particular.
+ *
+ * A surveyor's stake: two pixels of post and a bright head, in the colour of the trade — grey
+ * for stone, brown for the plough, green for planting. Small on purpose. It marks a cell
+ * without pretending to be anything standing on it.
+ */
+void mb_draw_sites(uint16_t *fb, int cam_x, int cam_y)
+{
+    static const uint16_t HEAD[5] = { 0, 0,
+        MOTE_RGB565(210, 210, 216),      /* pave   */
+        MOTE_RGB565(196, 150,  92),      /* plough */
+        MOTE_RGB565(150, 226, 120) };    /* plant  */
+    static const uint16_t POST = MOTE_RGB565(64, 48, 34);
+    for (int v = 1; v < MAXV; v++) {
+        if (!mb_v[v].alive) continue;
+        for (int sl = 0; sl < NWS; sl++) {
+            int sx, sy, kind = mb_village_site(v, sl, &sx, &sy);
+            if (kind <= WS_BUILD) continue;             /* a build has its blueprint ghost */
+            int px = sx * TILE - cam_x + 3, py = sy * TILE - cam_y + 2;
+            if (px < 0 || px > 127 || py < 0 || py + 4 >= VIEW_H) continue;
+            for (int k = 1; k < 5; k++) fb[(py + k) * 128 + px] = POST;
+            fb[py * 128 + px] = HEAD[kind];
+            if (px + 1 <= 127) fb[py * 128 + px + 1] = HEAD[kind];
+        }
+    }
+}
+
 void mb_draw_relief(uint16_t *fb, int cam_x, int cam_y)
 {
     const int c0 = (cam_x >> 3) - 1, r0 = (cam_y >> 3) - 1;

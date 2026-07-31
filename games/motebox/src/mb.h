@@ -303,6 +303,11 @@ extern int   mb_nu;         /* high-water mark; scans stop here */
 
 enum { CARRY_FOOD = 0, CARRY_WOOD, CARRY_STONE, CARRY_IRON, CARRY_GOLD };
 
+/* A pending piece of work on one cell. `arg` is the object for the kinds that place one. */
+enum { WS_NONE = 0, WS_BUILD, WS_PAVE, WS_PLOUGH, WS_PLANT };
+typedef struct { uint8_t x, y, kind, arg; } WorkSite;
+#define NWS 4                   /* four per village: one build and three small jobs */
+
 typedef struct {
     uint8_t  alive, sp, x, y;
     uint8_t  kingdom, hall, dirty, grace;
@@ -329,6 +334,16 @@ typedef struct {
      * a farmer to do and its fields sat at whatever stage they were last left in. */
     uint8_t  ripe;          /* field cells with a crop ready to cut  */
     uint8_t  fallow;        /* field cells with bare ground to sow   */
+    /* THE WORK SITES: things the town has decided on that nobody has done yet.
+     *
+     * Every one of these used to be written straight onto the map by the village tick — a
+     * building appeared the instant the stockpile could pay for it, a street cell paved itself,
+     * farmland spread, a monument and a fountain rose out of nothing, and gardens planted
+     * themselves. The town therefore built itself while its people milled about the square,
+     * which is exactly backwards for a game whose whole subject is watching little people do
+     * things. A site is now a DECISION with a location: somebody has to walk to it and do the
+     * work before anything changes on the map. */
+    WorkSite ws[NWS];
 } Village;
 
 typedef struct {
@@ -508,6 +523,8 @@ void mb_civ_deliver(int v, int kind, int amount);   /* a caravan arrives */
 int  mb_village_found(int sp, int x, int y, int kingdom);
 int  mb_village_need(int v, uint16_t *target);
 int  mb_village_resource(int v, int kind, int *ox, int *oy);
+/* For the renderer: a pending site is marked on the ground with a stake. */
+int  mb_village_site(int v, int slot, int *ox, int *oy);
 void mb_village_work(int v, int ui);
 int  mb_village_mustering(int v);
 int  mb_village_step_home(int v, int x, int y, int *ox, int *oy);
@@ -660,6 +677,7 @@ void mb_draw_sea_band(uint16_t *fb, int y0, int y1);
 void mb_draw_mortal_sprites(uint16_t *fb);
 void mb_draw_relief(uint16_t *fb, int cam_x, int cam_y);
 void mb_draw_fields(uint16_t *fb, int cam_x, int cam_y);  /* worked land + crop */
+void mb_draw_sites(uint16_t *fb, int cam_x, int cam_y);   /* surveyors' stakes   */
 void mb_draw_mortal(int cam_x, int cam_y);           /* scene2d pass */
 uint16_t mb_biome_colour(uint8_t b);
 

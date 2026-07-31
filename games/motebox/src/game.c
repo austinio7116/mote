@@ -2055,6 +2055,22 @@ static void g_init(void)
                  * question that matters about it is whether the stages are MIXED: all fallow
                  * means nobody sows, all ripe means nobody reaps, and one stage across the
                  * whole world is the global clock this replaced. */
+                /* AND WHAT IS WAITING FOR HANDS. Every one of these used to happen by decree,
+                 * so the only way to know the labour is actually flowing is to watch the queue
+                 * NOT back up: a town that has staked out four jobs and finished none has
+                 * villagers who cannot reach them. */
+                {   int q[5] = { 0 };
+                    for (int vv = 1; vv < MAXV; vv++) {
+                        if (!mb_v[vv].alive) continue;
+                        for (int sl = 0; sl < NWS; sl++) {
+                            int qx, qy, kd = mb_village_site(vv, sl, &qx, &qy);
+                            if (kd > 0 && kd < 5) q[kd]++;
+                        }
+                    }
+                    fprintf(stderr, "work staked out: %d builds %d paving %d ploughing "
+                                    "%d planting\n", q[WS_BUILD], q[WS_PAVE], q[WS_PLOUGH],
+                            q[WS_PLANT]);
+                }
                 fprintf(stderr, "the belt: %d fallow %d sown %d shoots %d standing %d ripe\n",
                         crop[0], crop[1], crop[2], crop[3], crop[4]);
                 /* AND WHAT THE FIRE HAS BECOME. The founding campfire climbs a ladder — fire,
@@ -2690,6 +2706,7 @@ static void g_overlay(uint16_t *fb)
         /* worked land, over the band that drew the bare ground and under everything that
          * stands on it — see mb_draw_fields() */
         mb_draw_fields(fb, s_cam_x, s_cam_y);
+        mb_draw_sites(fb, s_cam_x, s_cam_y);      /* staked out, not yet done */
         mb_draw_mortal_sprites(fb);
         mb_fx_flux_render(fb, s_cam_x, s_cam_y);
         mb_fx_draw_mortal_px(fb, s_cam_x, s_cam_y);

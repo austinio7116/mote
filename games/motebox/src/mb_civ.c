@@ -1212,6 +1212,11 @@ static int plaza_free(int v, int x, int y)
     return mb_w.claim[i] == v && buildable(x, y) && !mb_is_build(mb_w.obj[i]);
 }
 
+/* the work-site queue, defined further down with the rest of the labour code */
+static int  ws_find(int v, int x, int y);
+static int  ws_push(int v, int kind, int x, int y, int arg);
+static void ws_apply(int v, int slot);
+
 static void village_plaza(int v)
 {
     Village *V = &mb_v[v];
@@ -1250,8 +1255,11 @@ static void village_plaza(int v)
 
     /* pave what is free in a 5x3 in front of it — wider than tall, because the view is
      * three-quarters-on and a square that is square looks like a courtyard from above */
-    for (int dy = 1; dy <= 3; dy++)
-        for (int dx = -2; dx <= 2; dx++) {
+    /* ONE FLAGSTONE A VISIT, laid by hand like every other cell of street. Paving the whole
+     * 5x3 in one tick is how a square used to appear complete the instant a town crossed the
+     * tier — fifteen cells of stone out of nowhere while the masons stood in it. */
+    for (int dy = 1, laid = 0; dy <= 3 && !laid; dy++)
+        for (int dx = -2; dx <= 2 && !laid; dx++) {
             int x = hx + dx, y = hy + dy;
             if (!mb_in(x, y)) continue;
             int i = AT(x, y);
@@ -1259,8 +1267,17 @@ static void village_plaza(int v)
             uint8_t o = mb_w.obj[i];
             if (mb_is_build(o)) { if (o == O_MONUMENT) mon = 1;
                                   if (o == O_FOUNTAIN) fount = 1; continue; }
-            mb_w.obj[i] = O_NONE;                       /* a tuft is not paving */
-            mb_w.road[i] = 1;
+            if (mb_w.road[i]) continue;                 /* already flagged */
+            laid = ws_push(v, WS_PAVE, x, y, 0);
+        }
+    /* and the two landmarks still need finding even if the paving pass stopped early */
+    for (int dy = 1; dy <= 3 && !(mon && fount); dy++)
+        for (int dx = -2; dx <= 2; dx++) {
+            int x = hx + dx, y = hy + dy;
+            if (!mb_in(x, y)) continue;
+            uint8_t o = mb_w.obj[AT(x, y)];
+            if (o == O_MONUMENT) mon = 1;
+            else if (o == O_FOUNTAIN) fount = 1;
         }
     /* Then the thing worth walking to. THE SPOT IS SEARCHED FOR, not fixed: the first go
      * named one cell for each (hall+2 and hall-2,+2) and if that cell happened to be a house,
@@ -1277,12 +1294,7 @@ static void village_plaza(int v)
                 int d = dx * dx + (dy - 2) * (dy - 2);
                 if (d < bd) { bd = d; bx = x; by = y; }
             }
-        if (bx >= 0) {
-            mb_w.obj[AT(bx, by)] = O_MONUMENT;
-            mb_w.road[AT(bx, by)] = 0;
-            mb_chron_build(v, "monument");
-            mon = 1;
-        }
+        if (bx >= 0 && ws_push(v, WS_BUILD, bx, by, O_MONUMENT)) mon = 1;
     }
     /* THE FOUNTAIN IS GATED ON TECH, NOT ON TIER. It was TIER_CITY, which wants pop 34 in one
      * settlement — a world caps around 222 souls across ten of them, so in six hundred years of
@@ -1297,11 +1309,7 @@ static void village_plaza(int v)
                 int d = dx * dx + (dy - 2) * (dy - 2);
                 if (d > bd) { bd = d; bx = x; by = y; }
             }
-        if (bx >= 0) {
-            mb_w.obj[AT(bx, by)] = O_FOUNTAIN;
-            mb_w.road[AT(bx, by)] = 0;
-            mb_chron_build(v, "fountain");
-        }
+        if (bx >= 0) ws_push(v, WS_BUILD, bx, by, O_FOUNTAIN);
     }
 }
 
@@ -1325,8 +1333,8 @@ static void village_gardens(int v)
         }
         if (!near) continue;                            /* a garden belongs to a building */
         int pick = (int)((r >> 20) & 7);
-        mb_w.obj[i] = (pick < 3) ? O_TUFT : (pick < 5) ? O_BUSH
-                    : (pick < 7) ? O_FLOWER : O_TREE;
+        ws_push(v, WS_PLANT, x, y, (pick < 3) ? O_TUFT : (pick < 5) ? O_BUSH
+                                 : (pick < 7) ? O_FLOWER : O_TREE);
     }
 }
 
@@ -1370,9 +1378,7 @@ static void village_streets(int v)
             if (best < 0 || d < best) { best = d; bx = x; by = y; }
         }
     if (best < 0) return;
-    int i = AT(bx, by);
-    mb_w.road[i] = 1;
-    if (mb_w.obj[i] && !mb_is_build(mb_w.obj[i])) mb_w.obj[i] = O_NONE;      /* clear scrub */
+    ws_push(v, WS_PAVE, bx, by, 0);       /* staked out; a pair of hands lays it */
 }
 
 
@@ -1561,6 +1567,89 @@ void mb_civ_deliver(int v, int kind, int amount)
     V->happy = (int8_t)(V->happy < 120 ? V->happy + 2 : V->happy);
 }
 
+/* --- THE WORK SITES -------------------------------------------------------
+ *
+ * Push a decision, and let somebody walk to it. Rules, in order of how much they matter:
+ *
+ *   A BUILD IS NEVER DROPPED. Its materials came out of the stockpile when it was pushed, so
+ *   losing the site loses the town's timber for nothing. Everything else may be overwritten
+ *   when the queue is full — a paving job that nobody got round to is no loss.
+ *
+ *   NO DUPLICATES. The village tick re-picks the same nearest street cell every visit until it
+ *   is paved, so without this the queue would be four copies of one job.
+ */
+static int ws_find(int v, int x, int y)
+{
+    for (int i = 0; i < NWS; i++)
+        if (mb_v[v].ws[i].kind && mb_v[v].ws[i].x == x && mb_v[v].ws[i].y == y) return i;
+    return -1;
+}
+static int ws_push(int v, int kind, int x, int y, int arg)
+{
+    Village *V = &mb_v[v];
+    if (!mb_in(x, y)) return 0;
+    if (ws_find(v, x, y) >= 0) return 0;
+    int slot = -1;
+    for (int i = 0; i < NWS; i++) if (!V->ws[i].kind) { slot = i; break; }
+    if (slot < 0) {
+        if (kind == WS_BUILD) {                 /* a build always gets a slot: it is paid for */
+            for (int i = 0; i < NWS; i++) if (V->ws[i].kind != WS_BUILD) { slot = i; break; }
+        }
+        if (slot < 0) return 0;
+    }
+    V->ws[slot].kind = (uint8_t)kind; V->ws[slot].x = (uint8_t)x;
+    V->ws[slot].y = (uint8_t)y;       V->ws[slot].arg = (uint8_t)arg;
+    return 1;
+}
+int mb_village_site(int v, int slot, int *ox, int *oy)
+{
+    if (v <= 0 || v >= MAXV || slot < 0 || slot >= NWS || !mb_v[v].alive) return 0;
+    const WorkSite *w = &mb_v[v].ws[slot];
+    if (!w->kind) return 0;
+    *ox = w->x; *oy = w->y;
+    return w->kind;
+}
+
+/* THE WORK ITSELF, done the moment a pair of hands arrives. */
+static void ws_apply(int v, int slot)
+{
+    Village *V = &mb_v[v];
+    WorkSite *w = &V->ws[slot];
+    int i = AT(w->x, w->y);
+    /* the world may have moved on since the decision: a nuke, a rival's claim, a flood */
+    if (mb_w.claim[i] != v) { w->kind = WS_NONE; return; }
+    switch (w->kind) {
+    case WS_BUILD:
+        mb_w.obj[i] = w->arg;
+        if (w->arg == O_MONUMENT || w->arg == O_FOUNTAIN) mb_w.road[i] = 0;
+        if (V->plan_obj && w->x == V->plan_x && w->y == V->plan_y) {
+            if (w->arg == O_HALL2) V->hall = 2;
+            if (w->arg == O_HALL3) V->hall = 3;
+            mb_chron_build(v, BUILD[V->plan_i].name);
+            V->plan_obj = 0;
+        } else {
+            mb_chron_build(v, w->arg == O_FOUNTAIN ? "fountain" : "monument");
+        }
+        V->dirty = 1;
+        break;
+    case WS_PAVE:
+        if (mb_w.obj[i] && !mb_is_build(mb_w.obj[i])) mb_w.obj[i] = O_NONE;   /* clear scrub */
+        mb_w.road[i] = 1;
+        break;
+    case WS_PLOUGH:
+        if (mb_is_build(mb_w.obj[i])) break;             /* somebody built here meanwhile */
+        mb_w.obj[i] = O_NONE;
+        mb_w.biome[i] = B_FARM;
+        break;
+    case WS_PLANT:
+        if (mb_w.obj[i] || mb_w.road[i]) break;
+        mb_w.obj[i] = w->arg;
+        break;
+    default: break;
+    }
+    w->kind = WS_NONE;
+}
+
 /* Pay for the plan if the store allows, and raise the building. */
 static void try_build(int v)
 {
@@ -1569,17 +1658,18 @@ static void try_build(int v)
     const BuildDef *B = &BUILD[V->plan_i];
     if (V->wood < B->wood || V->stone < B->stone || V->iron < B->iron || V->gold < B->gold)
         return;
+    if (ws_find(v, V->plan_x, V->plan_y) >= 0) return;      /* already paid for and waiting */
     V->wood -= B->wood; V->stone -= B->stone; V->iron -= B->iron; V->gold -= B->gold;
-    mb_w.obj[AT(V->plan_x, V->plan_y)] = V->plan_obj;
-    /* NO SPUR ROAD. Every finished building used to run an L back to the hall, which is
-     * where the stubs and the tangle came from. The street plan is connected by
-     * construction and the building had to have frontage to be sited at all, so it is
-     * already on a street: there is nothing left to connect. */
-    if (V->plan_obj == O_HALL2) V->hall = 2;
-    if (V->plan_obj == O_HALL3) V->hall = 3;
-    V->dirty = 1;
-    mb_chron_build(v, B->name);
-    V->plan_obj = 0;
+    /* PAID FOR IS NOT BUILT. The materials are on site and the blueprint ghost stays up; the
+     * building itself appears when a builder walks over and raises it. Until then the town
+     * cannot plan anything else, which is the right behaviour anyway: a settlement finishes
+     * what it started.
+     *
+     * NO SPUR ROAD when it does go up. Every finished building used to run an L back to the
+     * hall, which is where the stubs and the tangle came from. The street plan is connected by
+     * construction and the building had to have frontage to be sited at all, so it is already
+     * on a street: there is nothing left to connect. */
+    ws_push(v, WS_BUILD, V->plan_x, V->plan_y, V->plan_obj);
 }
 
 /* --- what a village asks of its people ---------------------------------- */
@@ -1601,6 +1691,23 @@ int mb_village_need(int v, uint16_t *target)
      *
      * Wants scale with the MOUTHS and the WORK now, and none of them can go negative. A town
      * always has something worth doing, which is the whole point of having people in it. */
+    /* THE TOWN'S OWN DECISIONS COME FIRST, for a share of the labour. A third of the callers
+     * are sent to a work site if there is one — a building whose materials are already paid
+     * for, a street cell staked out, ground to break, a tree to plant. Not ALL of them: the
+     * plan still has to be paid for out of the stockpile, so a town that stopped gathering the
+     * moment it decided anything would never afford the next thing it decided. */
+    {
+        static uint8_t ws_turn;
+        if ((ws_turn++ % 3u) == 0u) {
+            for (int i = 0; i < NWS; i++) {
+                const WorkSite *w = &V->ws[i];
+                if (!w->kind) continue;
+                *target = (uint16_t)AT(w->x, w->y);
+                /* a paid-for building outranks anything else a village wants */
+                return w->kind == WS_BUILD ? 90 : 50;
+            }
+        }
+    }
     int need_food  = V->pop * 8 - (int)V->food;
     /* AND THE BELT ITSELF IS WORK. Food used to be wanted only in proportion to how empty
      * the granary was, so a town with a full barn wanted nothing from its fields — the crop
@@ -1720,6 +1827,15 @@ void mb_village_work(int v, int ui)
     if (u->target == 0xFFFF) { u->job = JOB_IDLE; return; }
     int tx = u->target % MW, ty = u->target / MW;
     if ((tx - x) * (tx - x) + (ty - y) * (ty - y) <= 2) {          /* arrived */
+        /* IS THERE WORK STAKED OUT HERE? Then that is what this trip was for, and it takes
+         * priority over whatever happens to be growing on the cell. */
+        int ws = ws_find(v, tx, ty);
+        if (ws >= 0) {
+            ws_apply(v, ws);
+            u->happy = (int8_t)(u->happy < 120 ? u->happy + 3 : u->happy);
+            u->target = 0xFFFF;
+            return;
+        }
         uint8_t *o = &mb_w.obj[AT(tx, ty)];
         uint8_t b = mb_w.biome[AT(tx, ty)];
         if (*o == O_TREE || *o == O_TREE2 || *o == O_DEAD) { *o = O_NONE; u->carry = 8; u->carry_kind = CARRY_WOOD; }
@@ -2221,6 +2337,7 @@ static void village_death_check(int v)
         && mb_w.obj[AT(V->plan_x, V->plan_y)] == O_PLAN)
         mb_w.obj[AT(V->plan_x, V->plan_y)] = O_NONE;
     V->plan_obj = 0;
+    for (int i = 0; i < NWS; i++) V->ws[i].kind = WS_NONE;   /* nobody left to do the work */
     for (int i = 0; i < NC; i++) if (mb_w.claim[i] == v) mb_w.claim[i] = 0;
     for (int i = 0; i < mb_nu; i++) if (mb_u[i].alive && mb_u[i].village == v) mb_u[i].village = 0;
     if (mb_k[V->kingdom].capital == v) {
@@ -2259,6 +2376,38 @@ void mb_civ_step(void)
      * check is a population test and one lookup; it is cheap enough to do properly. */
     for (int dv = 1; dv < MAXV; dv++)
         if (mb_v[dv].alive) village_death_check(dv);
+
+    /* A KINGDOM WITH NO TOWNS IS NOT A KINGDOM, and its wars are nobody's.
+     *
+     * The dead-kingdom cleanup lives in village_death_check, so it only runs when a village
+     * DIES. A village that rebels to another crown, or is annexed by one, leaves its old
+     * kingdom with nothing while every village involved is still standing — and nothing then
+     * cleared the crown or the war bits, so the survivors stayed at war with a name on a list
+     * for as long as the world lasted. The audit caught it as "31 years at war with under two
+     * kingdoms"; in play it means towns mustering, and soldiers marching, against nobody.
+     *
+     * Twelve crowns against forty-seven villages is cheap enough to check properly. */
+    for (int k = 1; k < MAXK; k++) {
+        if (!mb_k[k].alive) continue;
+        int towns = 0;
+        for (int vv = 1; vv < MAXV && !towns; vv++)
+            if (mb_v[vv].alive && mb_v[vv].kingdom == k) towns = 1;
+        if (towns) {
+            /* and no war against a crown that is already gone */
+            for (int o = 1; o < MAXK; o++)
+                if (!mb_k[o].alive) {
+                    mb_k[k].war_with  &= ~((uint32_t)1u << o);
+                    mb_k[k].ally_with &= ~((uint32_t)1u << o);
+                }
+            continue;
+        }
+        mb_k[k].alive = 0;
+        mb_k[k].war_with = 0;
+        for (int o = 1; o < MAXK; o++) {
+            mb_k[o].war_with  &= ~((uint32_t)1u << k);
+            mb_k[o].ally_with &= ~((uint32_t)1u << k);
+        }
+    }
 
     /* one village per tick gets the full treatment: its lord decides, its field
      * rebuilds if dirty, its claim creeps, its loyalty moves */
@@ -2342,10 +2491,7 @@ void mb_civ_step(void)
          * settlement, which a hamlet never reaches and a city of thirty outgrows immediately. */
         if (farms > 0 && fields < 6 + V->pop * 2) {
             int fx, fy;
-            if (field_site(v, &fx, &fy)) {
-                mb_w.obj[AT(fx, fy)] = O_NONE;            /* clear the scrub to sow */
-                mb_w.biome[AT(fx, fy)] = B_FARM;
-            }
+            if (field_site(v, &fx, &fy)) ws_push(v, WS_PLOUGH, fx, fy, 0);
         }
 
         /* AND THE VILLAGE FEEDS ITS PEOPLE. This is the point of a granary, and it
