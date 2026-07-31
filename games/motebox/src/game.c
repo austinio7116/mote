@@ -2278,10 +2278,13 @@ static void g_init(void)
                         fprintf(stderr, "trades:");
                         for (int q = 1; q < PROF_N; q++)
                             fprintf(stderr, " %s=%d", MB_PROF_NAME[q], prof[q]);
-                        {   extern uint32_t mb_expeditions;
+                        {   extern uint32_t mb_expeditions, mb_conquests, mb_trades_far;
                             fprintf(stderr, "\n  lords in the world %d, on guard %d, "
-                                            "%u expeditions sent\n",
-                                    lords, guards, mb_expeditions); }
+                                            "%u expeditions sent\n"
+                                            "  %u towns taken by force, "
+                                            "%u caravans across a border\n",
+                                    lords, guards, mb_expeditions,
+                                    mb_conquests, mb_trades_far); }
                     }
                     fprintf(stderr, "town plans:");
                     for (int k = 0; k < 5; k++)

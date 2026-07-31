@@ -747,6 +747,14 @@ static void think(int i)
         u->target = (uint16_t)AT(wx, wy);
     }
 
+    /* AN ERRAND OUTRANKS THE ROTA. A villager three valleys out for iron is not re-tasked
+     * with the timber the village happens to want this tick — that is how the expedition
+     * turned round eight ticks after setting off, every time. Danger still wins: nobody
+     * carries on prospecting through a wolf. */
+    if (u->mission && best != JOB_FLEE && best != JOB_FIGHT && best != JOB_DOUSE) {
+        best = JOB_WORK;
+        u->target = (uint16_t)(u->mission - 1);
+    }
     if (best != u->job) u->job = (uint8_t)best;
 }
 

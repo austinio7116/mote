@@ -64,7 +64,7 @@ void mb_name_str(char *out, int n, int kind, uint16_t id)
  * plague". A new lord was pushed as an AGE carrying the town's TIER, so the death of a lord
  * read "the hamlet begins". Both are proper events with proper sentences now. */
 enum { EV_FOUND = 0, EV_FALL, EV_BUILD, EV_WAR, EV_PEACE, EV_REBEL, EV_BIRTH,
-       EV_DEATH, EV_LEGEND, EV_DISASTER, EV_AGE, EV_TECH, EV_LORD, EV_N };
+       EV_DEATH, EV_LEGEND, EV_DISASTER, EV_AGE, EV_TECH, EV_LORD, EV_TAKEN, EV_N };
 
 typedef struct {
     uint8_t  type, a, b, mag;      /* a/b: village, kingdom or unit, per type */
@@ -86,7 +86,8 @@ static uint8_t s_focus_x, s_focus_y, s_have_focus;
 static int is_headline(int type)
 {
     return type == EV_FALL || type == EV_WAR || type == EV_REBEL ||
-           type == EV_LEGEND || type == EV_DISASTER || type == EV_AGE;
+           type == EV_LEGEND || type == EV_DISASTER || type == EV_AGE ||
+           type == EV_TAKEN;
 }
 
 void mb_chron_init(void)
@@ -195,6 +196,11 @@ static void render(char *out, int n, const Event *e)
         mb_name_str(n1, sizeof n1, NK_KINGDOM, e->name);
         snprintf(out, (size_t)n, "%s learns %s", n1, mb_chron_word(e->extra));
         break;
+    case EV_TAKEN:
+        mb_name_str(n1, sizeof n1, NK_PLACE, e->name);
+        mb_name_str(n2, sizeof n2, NK_KINGDOM, e->extra);
+        snprintf(out, (size_t)n, "%s taken by %s", n1, n2);
+        break;
     case EV_LORD:
         /* the lord first: it is the person who is new, and the place is the qualifier */
         mb_name_str(n1, sizeof n1, NK_PERSON, e->name);
@@ -258,6 +264,13 @@ void mb_chron_tech(int k, const char *what, int x, int y)
 }
 /* A NEW LORD. Not a headline — succession happens somewhere in the world every few years and
  * a toast for each one would bury the wars — but it belongs in the log, with both names. */
+/* A TOWN CHANGES HANDS. This is a headline: a border moving is the biggest thing that
+ * happens in a war, and until now nothing in the game could do it — a war could only kill
+ * people, so the political map never moved except by rebellion. */
+void mb_chron_taken(int v, int by)
+{
+    push(EV_TAKEN, v, by, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y, mb_k[by].name);
+}
 void mb_chron_lord(int v)
 {
     push(EV_LORD, v, 0, 0, mb_v[v].lord_name, mb_v[v].x, mb_v[v].y, mb_v[v].name);

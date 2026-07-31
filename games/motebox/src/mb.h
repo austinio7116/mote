@@ -306,6 +306,12 @@ typedef struct {
     uint16_t mate;          /* unit index + 1 of their spouse; 0 = unwed */
     uint8_t  prof;          /* PROF_* — what they do, not what they are doing */
     uint8_t  dest;          /* a hauler's destination village; 0 = none */
+    /* AN ERRAND THE BRAIN MAY NOT FORGET. A villager sent across the world for iron was given
+     * JOB_WORK and a far target — and then re-thought eight ticks later, took the village's own
+     * local want, and turned round. Measured: 7241 expeditions "sent" in one 400-year world and
+     * none of them arriving. A mission is a cell index + 1 that survives re-thinking; only
+     * fleeing and fighting override it. */
+    uint16_t mission;
     uint32_t traits;
     uint8_t  kills, carry, carry_kind;
     uint8_t  sick;          /* ticks of plague left to run; 0 = well */
@@ -650,6 +656,7 @@ void        mb_chron_disaster(const char *what, int x, int y);
 void        mb_chron_age(const char *name);
 void        mb_chron_tech(int k, const char *what, int x, int y);
 void        mb_chron_lord(int v);
+void        mb_chron_taken(int v, int by);
 const char *mb_chron_word(int id);
 int         mb_chron_grudge(int a, int b);
 int         mb_chron_count(void);

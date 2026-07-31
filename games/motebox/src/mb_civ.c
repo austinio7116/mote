@@ -1783,15 +1783,25 @@ static void caravan_step(int v)
         int dx = mb_v[u].x - V->x, dy = mb_v[u].y - V->y;
         int d2 = dx * dx + dy * dy;
         if (d2 > (rail ? 4900 : 1600)) continue;       /* forty cells on foot, seventy by rail */
+        /* AND ACROSS A QUIET BORDER. Trade was restricted to a town's own kingdom and its
+         * formal allies, so a world of separate crowns had no commerce in it at all — every
+         * settlement dealt only with its own family, which is precisely why they felt insular.
+         * Anybody not at war with us will buy grain. A neutral sale is smaller (a stranger
+         * takes less on credit) and it pays in GOLD, which is what makes a trading town rich
+         * and gives a landlocked crown a way to afford what its ground cannot give it. */
         int friendly = (mb_v[u].kingdom == V->kingdom) ||
                        (V->kingdom && (mb_k[V->kingdom].ally_with & (1u << mb_v[u].kingdom)));
-        if (!friendly) continue;
+        int neutral  = !friendly && V->kingdom && mb_v[u].kingdom
+                    && !mb_at_war(V->kingdom, mb_v[u].kingdom);
+        if (!friendly && !neutral) continue;
         int need = 0;
         if (kind == CARRY_FOOD)       need = mb_v[u].pop * 3 - (int)mb_v[u].food;
         else if (kind == CARRY_WOOD)  need = 30 - (int)mb_v[u].wood;
         else if (kind == CARRY_IRON)  need = 30 - (int)mb_v[u].iron;
         else if (kind == CARRY_GOLD)  need = 30 - (int)mb_v[u].gold;
         else                          need = 30 - (int)mb_v[u].stone;
+        /* a stranger's custom is worth having but a kinsman's need comes first */
+        if (neutral) need = need / 2;
         if (need > bestneed) { bestneed = need; best = u; }
     }
     if (best < 0) return;
@@ -1811,6 +1821,15 @@ static void caravan_step(int v)
     Unit *h = &mb_u[who];
     h->job = JOB_HAUL;
     h->dest = (uint8_t)best;
+    /* THE SALE. A caravan to another crown is a sale, not a gift: gold comes home with the
+     * wagon, which is the whole point of a trading town and the only source of coin a kingdom
+     * with no seam of its own has. */
+    if (mb_v[best].kingdom != V->kingdom) {
+        V->gold = (uint16_t)(V->gold + 6);
+#if MOTE_HOST
+        {   extern uint32_t mb_trades_far; mb_trades_far++; }
+#endif
+    }
     h->carry = (uint8_t)amount;
     h->carry_kind = (uint8_t)kind;
     h->target = (uint16_t)AT(mb_v[best].x, mb_v[best].y);
@@ -1957,7 +1976,7 @@ static int mb_village_need_calc(int v, uint16_t *target);
 static int village_far_resource(int v, int kind, int *ox, int *oy);
 static void village_expedition(int v);
 #if MOTE_HOST
-uint32_t mb_expeditions;
+uint32_t mb_expeditions, mb_conquests, mb_trades_far;
 #endif
 
 /* ONE ANSWER PER VILLAGE PER TICK.
@@ -2160,7 +2179,7 @@ static void village_expedition(int v)
     uint16_t goal = (uint16_t)AT(lx, ly);
     for (int i = 0; i < mb_nu; i++) {
         const Unit *u = &mb_u[i];
-        if (u->alive && u->village == v && u->job == JOB_WORK && u->target == goal) return;
+        if (u->alive && u->village == v && u->mission == (uint16_t)(goal + 1)) return;
     }
     /* the youngest fit adult who is not the lord: an expedition is for the strong */
     int best = -1, best_age = 255;
@@ -2176,6 +2195,7 @@ static void village_expedition(int v)
     if (best < 0) return;
     mb_u[best].job = JOB_WORK;
     mb_u[best].target = goal;
+    mb_u[best].mission = (uint16_t)(goal + 1);
 #if MOTE_HOST
     {   extern uint32_t mb_expeditions;
         mb_expeditions++; }
@@ -2261,6 +2281,7 @@ void mb_village_work(int v, int ui)
     if ((tx - x) * (tx - x) + (ty - y) * (ty - y) <= 2) {          /* arrived */
         /* IS THERE WORK STAKED OUT HERE? Then that is what this trip was for, and it takes
          * priority over whatever happens to be growing on the cell. */
+        u->mission = 0;                 /* wherever this was, the errand ends on arrival */
         int ws = ws_find(v, tx, ty);
         if (ws >= 0) {
             ws_apply(v, ws);
@@ -2421,6 +2442,51 @@ static void claim_creep(int v)
 
 /* Settlers: a full village sends a party out to found another. This is how a
  * single spawn becomes a civilisation, and it is why the world fills in. */
+/* --- CONQUEST: THE MAP CHANGES HANDS ------------------------------------
+ *
+ * A war could only kill people. Claim creep takes UNCLAIMED ground, rebellion moves a town
+ * between crowns, and nothing else in the game could move a border — so "fight for ownership
+ * of the map" was not a thing the simulation could express, however many battles it fought.
+ *
+ * A town falls when enemy soldiers stand at its hall and its own people are not there to hold
+ * it. It keeps its buildings, its fields and its people; what changes is whose flag flies and
+ * who its lord answers to. Its loyalty starts low, which is what makes a conquest something you
+ * then have to hold — see loyalty_step, and expect a rebellion.
+ */
+static void conquest_check(int v)
+{
+    Village *V = &mb_v[v];
+    int myk = V->kingdom;
+    if (!myk || !mb_k[myk].alive) return;
+    if (!mb_w.tick || !mb_k[myk].war_with) return;      /* nobody is fighting for it */
+
+    int defenders = 0, invaders = 0, foe = 0;
+    for (int i = 0; i < mb_nu; i++) {
+        const Unit *u = &mb_u[i];
+        if (!u->alive || u->sp >= SP_CIV_N || !u->village) continue;
+        int dx = (u->x >> 4) - V->x, dy = (u->y >> 4) - V->y;
+        if (dx * dx + dy * dy > 9) continue;             /* three cells of the hall */
+        int uk = mb_v[u->village].kingdom;
+        if (uk == myk) { defenders++; continue; }
+        if (!uk || !mb_at_war(myk, uk)) continue;
+        invaders++; foe = uk;
+    }
+    /* it takes a real force, and an undefended hall. Two invaders against nobody takes a
+     * town; two against three does not, and they will have to fight it out first. */
+    if (invaders < 2 || defenders * 2 > invaders) return;
+
+    mb_chron_taken(v, foe);
+    V->kingdom = (uint8_t)foe;
+    V->loyalty = 15;                 /* held, not owned */
+    V->unrest  = 0;
+    V->exhaustion = (uint8_t)(V->exhaustion > 20 ? V->exhaustion - 20 : 0);
+    /* the winner's appetite is partly satisfied: a war that took something can end */
+    if (mb_k[foe].exhaustion < 40) mb_k[foe].exhaustion += 12;
+#if MOTE_HOST
+    {   extern uint32_t mb_conquests; mb_conquests++; }
+#endif
+}
+
 static void maybe_settle(int v)
 {
     Village *V = &mb_v[v];
@@ -2683,15 +2749,56 @@ static void king_think(int k)
     if (!my_v) { K->alive = 0; return; }
     K->pop = (uint16_t)my_pop;
 
+    /* WHAT THIS CROWN HAS AND HAS NOT. Counted once, and used twice below: a kingdom whose
+     * ground holds no iron wants somebody else's, which is the oldest reason for a war there
+     * is. Before this, the war score knew about borders, numbers, grudges and tiredness — and
+     * nothing whatever about wealth, so no war in the history of this game was ever ABOUT
+     * anything. */
+    int my_iron = 0, my_gold = 0;
+    for (int v = 1; v < MAXV; v++) {
+        if (!mb_v[v].alive || mb_v[v].kingdom != k) continue;
+        my_iron += mb_v[v].iron; my_gold += mb_v[v].gold;
+    }
+
     for (int o = 1; o < MAXK; o++) {
         if (o == k || !mb_k[o].alive) continue;
         int their_pop = mb_k[o].pop;
         int border = mb_border_len(k, o);
-        if (!border) continue;
+        /* REACH, NOT ONLY A SHARED FENCE. Requiring a touching border meant that in a world of
+         * ten towns on a 96x96 map two kingdoms almost never qualified, and the measured result
+         * was ZERO WARS IN FOUR HUNDRED YEARS — a war system that had never once run. Claims
+         * are about eleven cells across; thirty-five between capitals is a march, not a
+         * frontier dispute, and a touching border still counts for far more. */
+        int reach = 0;
+        {   int bd = 1 << 30;
+            for (int a = 1; a < MAXV; a++) {
+                if (!mb_v[a].alive || mb_v[a].kingdom != k) continue;
+                for (int b = 1; b < MAXV; b++) {
+                    if (!mb_v[b].alive || mb_v[b].kingdom != o) continue;
+                    int dx = mb_v[a].x - mb_v[b].x, dy = mb_v[a].y - mb_v[b].y;
+                    int d = dx * dx + dy * dy;
+                    if (d < bd) bd = d;
+                }
+            }
+            if (bd <= 35 * 35) reach = 1;
+        }
+        if (!border && !reach) continue;
+
+        /* WHAT THEY HAVE THAT WE LACK. Iron is the one the building ladder actually stops
+         * for — a barracks, a foundry, a castle — so a crown with none and a neighbour with
+         * plenty has a reason to march. */
+        int their_iron = 0, their_gold = 0;
+        for (int v = 1; v < MAXV; v++) {
+            if (!mb_v[v].alive || mb_v[v].kingdom != o) continue;
+            their_iron += mb_v[v].iron; their_gold += mb_v[v].gold;
+        }
+        int covet = 0;
+        if (my_iron < 20 && their_iron > 40) covet += 28;
+        if (my_gold < 20 && their_gold > 40) covet += 16;
 
         int strength = (my_pop * 20) / (their_pop + 1);
         int grudge   = mb_chron_grudge(k, o);
-        int war_score = border + strength + grudge * 6 - K->exhaustion * 3
+        int war_score = border + strength + grudge * 6 + covet - K->exhaustion * 3
                       + mb_age_war_bias();
         int peace_score = K->exhaustion * 4 + 30 + (mb_k[o].sp == K->sp ? 15 : 0);
 
@@ -2872,6 +2979,7 @@ void mb_civ_step(void)
         village_gardens(v);
         try_build(v);
         village_expedition(v);
+        conquest_check(v);
         claim_creep(v);
         loyalty_step(v);
         maybe_settle(v);
