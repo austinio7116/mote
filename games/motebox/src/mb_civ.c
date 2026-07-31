@@ -1127,6 +1127,21 @@ static void lord_think(int v)
      */
     int want_list[14], nwant = 0;
 
+    /* THE SEAT OF POWER COMES FIRST, and this is the line that unblocks half the game.
+     *
+     * The hall upgrade sat below the civic ladder in this list, and a GRAND project (a college,
+     * a factory) deliberately skips the affordability test and becomes the plan — so a town
+     * with tools, timber and stone planned a college it could not afford, held the exclusive
+     * blueprint slot with it, and NEVER UPGRADED ITS HALL. Measured after four hundred years:
+     * every town in the world still hall 1, and therefore not one wall, barracks or temple
+     * anywhere, because all three are gated on a stone hall.
+     *
+     * A lord who can afford a keep builds the keep. It is ten wood and ten stone, it is the
+     * cheapest thing in the table above a house, and everything the town does afterwards
+     * depends on it. */
+    if (V->hall == 1) want_list[nwant++] = 9;
+    if (V->hall == 2) want_list[nwant++] = 10;
+
     /* A TOWN WORKS ON ITS WALL ALONGSIDE EVERYTHING ELSE. The lord takes the first
      * affordable want and stops, so anything at the BACK of the list is only ever built
      * when nothing ahead of it is wanted — and beds, bread, timber and towers are always
@@ -1210,8 +1225,6 @@ static void lord_think(int v)
      * a hall into a keep. */
     if ((V->threat > 40 || V->hall >= 2) && mb_civ_count(v, O_BARRACKS) < 1)
                                                              want_list[nwant++] = 6;
-    if (V->hall == 1)                                         want_list[nwant++] = 9;
-    if (V->hall == 2)                                         want_list[nwant++] = 10;
     if (V->hall >= 2 && mb_civ_count(v, O_TEMPLE) < 1)         want_list[nwant++] = 7;
     /* and the room for the next generation, once the civic ladder has had its turn */
     if (V->food > pop * 2 && housing < pop + slack)           want_list[nwant++] = 0;
@@ -1261,6 +1274,10 @@ static void lord_think(int v)
     else if (B->obj == O_WALL) { if (!wall_site(v, &x, &y)) return; }
     else if (!build_site(v, &x, &y)) return;
 
+#if MOTE_HOST
+    {   extern uint32_t mb_plan_of[64];
+        if (B->obj < 64) mb_plan_of[B->obj]++; }
+#endif
     V->plan_obj = B->obj; V->plan_x = (uint8_t)x; V->plan_y = (uint8_t)y;
     V->plan_i = (uint8_t)want;
     if (B->obj != O_HALL2 && B->obj != O_HALL3) mb_w.obj[AT(x, y)] = O_PLAN;
@@ -1903,10 +1920,61 @@ static void ws_apply(int v, int slot)
     Village *V = &mb_v[v];
     WorkSite *w = &V->ws[slot];
     int i = AT(w->x, w->y);
-    /* the world may have moved on since the decision: a nuke, a rival's claim, a flood */
-    if (mb_w.claim[i] != v) { w->kind = WS_NONE; return; }
+    /* THE CLAIM IS NOT THE TEST FOR A BUILD, and getting that wrong cost this simulation
+     * dearly: wall_site lays on a bounding ring a cell clear of the buildings, which is often
+     * OUTSIDE the claim, so 2237 of 2666 paid-for builds were thrown away here — and because
+     * try_build only skips a plan it can still see in the queue, the town paid the timber and
+     * stone AGAIN on the next visit, for ever. That is where the missing walls went, and most
+     * of the missing stone with them.
+     *
+     * What actually matters for a build is the GROUND: land, and nothing already standing on
+     * it. For paving, ploughing and planting the claim is the right test — those are things a
+     * town does to its own territory. */
+    int drop = 0;
+    if (w->kind == WS_BUILD) {
+        /* O_PLAN IS ABOVE O_BUILD0, so mb_is_build() is true for the blueprint ghost that
+         * this very build is standing on — the first version of this test dropped every
+         * build in the world. It is the site's own marker, not somebody else's building. */
+        uint8_t here = mb_w.obj[i];
+        /* AND A HALL IS UPGRADED IN PLACE. A hall gets no blueprint ghost — the old hall stays
+         * standing and is replaced by the new one — so the cell legitimately holds a building,
+         * and rejecting that meant no town in any world ever reached a STONE hall. Everything
+         * gated on hall >= 2 died with it: the wall, the barracks, the temple. Measured:
+         * "walls in the world: 0, qualifying villages: 0". */
+        /* A HALL IS RAISED ON THE VILLAGE'S OWN CENTRE, over whatever stands there — and what
+         * stands there is NOT an O_HALL1: a founding lays the FIRE PIT, which then climbs its
+         * own ladder to a well and a street light. V->hall is a number on the village, not an
+         * object on the map. Testing for an O_HALL1 underneath therefore never matched, 2747
+         * paid-for great halls were dropped as "occupied", and no settlement in the history of
+         * this game ever had a stone hall — which is what the wall, the barracks and the temple
+         * are all gated on. The centre of your own village is always yours to build on. */
+        int upgrade = (w->arg == O_HALL2 || w->arg == O_HALL3)
+                   && w->x == V->x && w->y == V->y;
+        if (!mb_land(mb_w.biome[i])) drop = 1;
+        else if (mb_is_build(here) && here != O_PLAN && !upgrade) drop = 1;
+    } else if (mb_w.claim[i] != v) drop = 1;
+    if (drop) {
+#if MOTE_HOST
+        {   extern uint32_t mb_ws_dropped[5];
+            if (w->kind < 5) mb_ws_dropped[w->kind]++;
+            }
+#endif
+        /* AND THE PLAN GOES WITH IT. Leaving plan_obj set on a site that has just been
+         * abandoned is what let the same building be paid for over and over. */
+        if (w->kind == WS_BUILD && V->plan_obj
+            && w->x == V->plan_x && w->y == V->plan_y) {
+            if (mb_w.obj[i] == O_PLAN) mb_w.obj[i] = O_NONE;
+            V->plan_obj = 0;
+            V->plan_wait = 0;
+        }
+        w->kind = WS_NONE; return;
+    }
     switch (w->kind) {
     case WS_BUILD:
+#if MOTE_HOST
+        {   extern uint32_t mb_built_of[64];
+            if (w->arg < 64) mb_built_of[w->arg]++; }
+#endif
         mb_w.obj[i] = w->arg;
         if (w->arg == O_MONUMENT || w->arg == O_FOUNTAIN) mb_w.road[i] = 0;
         if (V->plan_obj && w->x == V->plan_x && w->y == V->plan_y) {
@@ -1934,6 +2002,10 @@ static void ws_apply(int v, int slot)
         break;
     default: break;
     }
+#if MOTE_HOST
+    {   extern uint32_t mb_ws_done[5];
+        if (w->kind < 5) mb_ws_done[w->kind]++; }
+#endif
     w->kind = WS_NONE;
 }
 
@@ -1977,6 +2049,8 @@ static int village_far_resource(int v, int kind, int *ox, int *oy);
 static void village_expedition(int v);
 #if MOTE_HOST
 uint32_t mb_expeditions, mb_conquests, mb_trades_far, mb_rebellions, mb_rebel_blocked;
+uint32_t mb_ws_dropped[5], mb_ws_done[5];
+uint32_t mb_plan_of[64], mb_built_of[64];
 #endif
 
 /* ONE ANSWER PER VILLAGE PER TICK.
@@ -2627,7 +2701,22 @@ static void loyalty_step(int v)
                 if (k) mb_rebellions++; else mb_rebel_blocked++; }
 #endif
             if (k) {
+                int from = V->kingdom;
                 memset(&mb_k[k], 0, sizeof mb_k[k]);
+                /* A PROVINCE THAT SECEDES DOES NOT FORGET HOW TO MAKE TOOLS.
+                 *
+                 * The new crown was memset to zero, so a rebel kingdom began the world's fourth
+                 * century in the stone age knowing NOTHING — and everything gated on knowing
+                 * something went with it: no stone hall, therefore no wall, no barracks and no
+                 * temple. With twenty-five to thirty-eight rebellions in a four-hundred-year
+                 * world, most crowns alive at the end were tech-poor infants, which is why
+                 * MEASURED WORLDS CONTAINED NO WALLS AT ALL and every town in them still had a
+                 * timber hall after four centuries. The men who mined the ore and cut the stone
+                 * are the same men the morning after. */
+                mb_k[k].known = mb_k[from].known;
+                mb_k[k].tech  = mb_k[from].tech;
+                mb_k[k].era   = mb_k[from].era;
+                mb_k[k].creed = V->creed;
                 mb_k[k].alive = 1; mb_k[k].sp = V->sp;
                 mb_k[k].colour = (uint8_t)(k % 5);
                 mb_k[k].capital = (uint8_t)v;

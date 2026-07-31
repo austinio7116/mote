@@ -162,6 +162,69 @@ int mb_unit_passable(int sp, int x, int y)
     return mb_land(b);
 }
 
+/* --- A WALL IS WORTH BUILDING -------------------------------------------
+ *
+ * Walls cost two wood and ten stone a cell, a town lays sixty of them, and until now they did
+ * NOTHING: an enemy army walked straight through a curtain wall as if it were a hedge, so the
+ * most expensive thing a lord ever built was scenery. It is also the one building whose purpose
+ * a player can see at a glance, which makes it the worst possible thing to have no effect.
+ *
+ * The rule: a wall cell is closed to anybody who does not belong to the kingdom that raised it,
+ * and to every beast. Its own people pass — they have the gate — so a walled town still works.
+ * That makes an army pile up outside, which is what a siege looks like, and makes conquest
+ * something that has to get THROUGH something. It cannot be absolute or a walled town would be
+ * invulnerable, so a besieger breaches it: see mb_unit_siege().
+ *
+ * Every beast is stopped, bats included — there is no flight drive in the species table to
+ * make an exception for. See the note in the body.
+ */
+int mb_unit_may_enter(int i, int x, int y)
+{
+    const Unit *u = &mb_u[i];
+    if (!mb_unit_passable(u->sp, x, y)) return 0;
+    int c = AT(x, y);
+    if (mb_w.obj[c] != O_WALL) return 1;
+    /* There is no DRV_FLY: bats are DRV_BEAST like everything else, so a wall stops them too.
+     * Worth revisiting if flight ever becomes a drive of its own — a bat over a battlement is
+     * correct, and it would make the air a real weakness of a walled town. */
+    int owner = mb_w.claim[c];
+    if (!owner || !mb_v[owner].alive) return 1;               /* a wall nobody holds is rubble */
+    if (!u->village) return 0;                                 /* beasts and drifters: no */
+    if (u->village == owner) return 1;
+    return mb_v[u->village].kingdom == mb_v[owner].kingdom;    /* the same crown may pass */
+}
+
+/* A BESIEGER BREAKS IT DOWN. Without this a walled town could never be taken, and a rule that
+ * cannot be beaten is not a rule, it is a wall around the simulation. A soldier of a kingdom at
+ * war with the wall's owner, standing beside it with nothing else to do, brings it down slowly:
+ * about one cell per soldier per twenty ticks, so a lone raider achieves nothing and an army
+ * opens a breach in a season. The breach is real — the cell becomes rubble and stays open. */
+void mb_unit_siege(int i)
+{
+    Unit *u = &mb_u[i];
+    if (u->prof != PROF_SOLDIER || !u->village || u->sp >= SP_CIV_N) return;
+    int myk = mb_v[u->village].kingdom;
+    if (!myk || !mb_k[myk].war_with) return;
+    int x = u->x >> 4, y = u->y >> 4;
+    static const int8_t DX[4] = { 1, -1, 0, 0 }, DY[4] = { 0, 0, 1, -1 };
+    for (int k = 0; k < 4; k++) {
+        int nx = x + DX[k], ny = y + DY[k];
+        if (!mb_in(nx, ny)) continue;
+        int c = AT(nx, ny);
+        if (mb_w.obj[c] != O_WALL) continue;
+        int owner = mb_w.claim[c];
+        if (!owner || !mb_v[owner].alive) continue;
+        if (!mb_at_war(myk, mb_v[owner].kingdom)) continue;
+        if ((mb_rand((uint32_t)i * 7919u + (uint32_t)c) & 31u) != 0u) continue;
+        mb_w.obj[c] = O_NONE;                    /* a breach, and it stays breached */
+        mb_v[owner].dirty = 1;
+#if MOTE_HOST
+        {   extern uint32_t mb_breaches; mb_breaches++; }
+#endif
+        return;
+    }
+}
+
 int mb_unit_spawn(int sp, int x, int y)
 {
     if (sp < 0 || sp >= SP_N) return -1;
@@ -340,9 +403,10 @@ static void step_toward(Unit *u, int tx, int ty)
     int nx = u->x + sx, ny = u->y + sy;
     int px = nx >> 4, py = ny >> 4;
 
-    if (mb_unit_passable(u->sp, px, py)) { u->x = (uint16_t)nx; u->y = (uint16_t)ny; return; }
-    if (sx && mb_unit_passable(u->sp, px, cy)) { u->x = (uint16_t)nx; return; }
-    if (sy && mb_unit_passable(u->sp, cx, py)) { u->y = (uint16_t)ny; return; }
+    int self = (int)(u - mb_u);
+    if (mb_unit_may_enter(self, px, py)) { u->x = (uint16_t)nx; u->y = (uint16_t)ny; return; }
+    if (sx && mb_unit_may_enter(self, px, cy)) { u->x = (uint16_t)nx; return; }
+    if (sy && mb_unit_may_enter(self, cx, py)) { u->y = (uint16_t)ny; return; }
     /* boxed in: give up on this target so the brain picks something reachable */
     u->target = 0xFFFF;
 }
@@ -374,6 +438,7 @@ static int find_forage(int x, int y, int r, int *ox, int *oy)
 
 #if MOTE_HOST
 uint32_t mb_leis_seen, mb_leis_gate, mb_leis_spot, mb_leis_win;
+uint32_t mb_breaches;
 #endif
 
 /* --- LEISURE: what a fed, safe, unemployed person does ----------------------
@@ -1168,6 +1233,7 @@ void mb_unit_step(void)
          * quietly because of it. */
         if ((i & 7) == phase || u->job == JOB_IDLE) think(i);
         act(i);
+        mb_unit_siege(i);      /* a soldier beside an enemy wall works at it */
         suffer(i);
     }
     /* trim the high-water mark so a die-off makes the scans cheap again */

@@ -513,6 +513,8 @@ void mb_unit_step(void);
 int  mb_unit_spawn(int sp, int x, int y);
 void mb_unit_kill(int i, int cause);
 int  mb_unit_passable(int sp, int x, int y);
+int  mb_unit_may_enter(int i, int x, int y);   /* passability + whose wall it is */
+void mb_unit_siege(int i);
 int  mb_unit_nearest(int self, int x, int y, int mode);
 void mb_unit_seed_wildlife(void);
 /* One pass over the units in a disc — the shape every unit-targeting power and

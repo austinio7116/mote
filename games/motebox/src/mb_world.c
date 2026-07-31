@@ -778,7 +778,21 @@ void mb_grow_step(void)
         int fert = mb_age_fertility();
         switch (b) {
         case B_FOREST:
-            if (roll * 100 < 70 * fert && neigh) mb_w.obj[i] = (r & 1) ? O_TREE : O_TREE2;
+            /* A FOREST IS ITS OWN SEED SOURCE. Requiring a neighbouring tree is right for grass
+             * and meadow — woodland should advance from its edges — but on FOREST ground it
+             * meant that a valley logged bare stayed bare for ever: the biome was still forest,
+             * every tree object in it was gone, and there was nothing left to regrow from.
+             *
+             * That one condition was starving the whole economy. A four-hundred-year town was
+             * measured holding 1756 STONE AND 8 WOOD with no tree inside sixteen cells, and
+             * since almost everything in the build table costs timber, it could not raise the
+             * ten-wood keep that the wall, the barracks and the temple are all gated on. Half
+             * the game's buildings were unreachable because of a forestry rule.
+             *
+             * Bare forest ground still regrows more slowly than forest beside a wood, which
+             * keeps the spreading behaviour that rule was written for. */
+            if (roll * 100 < (neigh ? 70 : 22) * fert)
+                mb_w.obj[i] = (r & 1) ? O_TREE : O_TREE2;
             break;
         case B_MEADOW:
             if (roll * 100 < 40 * fert) mb_w.obj[i] = neigh ? O_BUSH : O_TUFT;

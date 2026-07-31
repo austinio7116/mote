@@ -108,6 +108,12 @@ static const char *const O_NAME[O_N] = {
     "farm", "mine", "woodcutter", "barracks", "temple", "tower", "dock", "wall",
     "granary", "market", "library", "foundry", "college", "hospital",
     "factory", "station", "power station", "missile silo",
+    /* THE PLAZA'S TWO. These were missing, and because the array is declared [O_N] a short
+     * initialiser is silently zero-filled: so every name from here on was shifted by two, a
+     * monument was called "plan" everywhere in the UI, and a fountain had NO NAME AT ALL. The
+     * tripwire below cannot catch that — sizeof/sizeof is O_N whatever the list contains — so
+     * there is a host-side check that every entry is non-NULL as well. */
+    "monument", "fountain",
     "plan",
 };
 /* A compile-time tripwire for exactly the mistake above. */
@@ -2091,6 +2097,21 @@ static void g_init(void)
         for (int i = 0; i < n; i++) notable += mb_chron_notable(i) ? 1 : 0;
         fprintf(stderr, "  (%d of %d entries are news)\n", notable, n);
     }
+#if MOTE_HOST
+    /* A POSITIONAL NAME TABLE DECLARED [O_N] CANNOT BE CHECKED AT COMPILE TIME: a short list is
+     * zero-filled and the typedef tripwire still passes, which is how the monument came to be
+     * called "plan". This has now happened three times in this file (JOB_NAME lost "hauling",
+     * MB_OBJ_SPR lost the graves), so it is worth a loop at startup. */
+    {   int gaps = 0;
+        for (int q = 0; q < O_N; q++) if (!O_NAME[q]) {
+            fprintf(stderr, "BUG: O_NAME[%d] is NULL\n", q); gaps++;
+        }
+        for (int q = 0; q < JOB_N; q++) if (!JOB_NAME[q]) {
+            fprintf(stderr, "BUG: JOB_NAME[%d] is NULL\n", q); gaps++;
+        }
+        if (gaps) fprintf(stderr, "BUG: %d unnamed table entries\n", gaps);
+    }
+#endif
     if (getenv("MOTEBOX_LOOPS")) {
         fprintf(stderr, "\n--- the loops, year %d ---\n", (int)(mb_w.tick / 52));
         for (int k = 1; k < MAXK; k++) {
@@ -2237,9 +2258,13 @@ static void g_init(void)
                         }
                     for (int vv = 1; vv < MAXV; vv++)
                         if (mb_v[vv].alive)
-                            fprintf(stderr, "   town %2d %-8s pop %-3d at %d,%d\n", vv,
+                            fprintf(stderr, "   town %2d %-8s pop %-3d hall %d tier %d stone %d "
+                                            "wood %d plan %s at %d,%d\n", vv,
                                     MB_TOWNPLAN_NAME[mb_village_style(vv) % 5],
-                                    mb_v[vv].pop, mb_v[vv].x, mb_v[vv].y);
+                                    mb_v[vv].pop, mb_v[vv].hall, mb_v[vv].tier,
+                                    mb_v[vv].stone, mb_v[vv].wood,
+                                    mb_v[vv].plan_obj ? O_NAME[mb_v[vv].plan_obj] : "-",
+                                    mb_v[vv].x, mb_v[vv].y);
                     /* AND HOW MANY ARE WHERE THEY LIVE. A random walk DIFFUSES — an early version of the
                      * wander spread every village's population evenly across the map, so a town
                      * reporting eighteen people had nobody within five tiles of its own hall. Leisure
@@ -2286,8 +2311,23 @@ static void g_init(void)
                                     lords, guards, mb_expeditions,
                                     mb_conquests, mb_trades_far);
                             extern uint32_t mb_rebellions, mb_rebel_blocked;
+                            extern uint32_t mb_ws_dropped[5], mb_ws_done[5];
+                            fprintf(stderr, "  work done  build=%u pave=%u plough=%u plant=%u\n"
+                                            "  work LOST  build=%u pave=%u plough=%u plant=%u\n",
+                                    mb_ws_done[1], mb_ws_done[2], mb_ws_done[3], mb_ws_done[4],
+                                    mb_ws_dropped[1], mb_ws_dropped[2], mb_ws_dropped[3],
+                                    mb_ws_dropped[4]);
+                            extern uint32_t mb_plan_of[64], mb_built_of[64];
+                            fprintf(stderr, "  planned/built:");
+                            for (int q = O_BUILD0; q < O_N && q < 64; q++)
+                                if (mb_plan_of[q] || mb_built_of[q])
+                                    fprintf(stderr, " %s %u/%u", O_NAME[q],
+                                            mb_plan_of[q], mb_built_of[q]);
+                            fprintf(stderr, "\n");
+                            extern uint32_t mb_breaches;
                             fprintf(stderr, "  %u rebellions, %u blocked for want of a "
-                                            "free crown\n", mb_rebellions, mb_rebel_blocked); }
+                                            "free crown, %u walls breached\n",
+                                    mb_rebellions, mb_rebel_blocked, mb_breaches); }
                     }
                     fprintf(stderr, "town plans:");
                     for (int k = 0; k < 5; k++)
