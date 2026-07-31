@@ -942,7 +942,7 @@ static void ui_draw_town(uint16_t *fb)
       for (int i = 0; i < 4; i++) {
           int x = 7 + (i & 1) * 58, y = 67 + (i >> 1) * 11;
           mb_ui_icon(fb, x, y, IC[i][0], IC[i][1]);
-          mb_ui_meter(fb, x + 11, y, 4, val[i], 120, i == 2 ? 2 : 0);
+          mb_ui_meter(fb, x + 11, y, 4, val[i], 120, 0);
       } }
     mb_ui_rule(fb, 6, 90, 116, "BUILDINGS", LINE, FILL, MB_UI_DIM);
     /* what actually stands: walk the claim once and show the first eight kinds found */

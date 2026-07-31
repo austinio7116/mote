@@ -520,6 +520,7 @@ void mb_ui_panel(uint16_t *fb, int x, int y, int w, int h,
 void mb_ui_rule(uint16_t *fb, int x, int y, int w, const char *label,
                 uint16_t line, uint16_t fill, uint16_t txt);
 void mb_ui_plaque(uint16_t *fb, int x, int y, int w, int h, uint16_t inner);
+#define MB_METER_INVERT 1     /* high is bad: ramp red->green instead */
 void mb_ui_meter(uint16_t *fb, int x, int y, int cells, int num, int den, int style);
 void mb_ui_hearts(uint16_t *fb, int x, int y, int n, int num, int den);
 void mb_ui_pips(uint16_t *fb, int x, int y, int lvl, int n, uint16_t on, uint16_t off);

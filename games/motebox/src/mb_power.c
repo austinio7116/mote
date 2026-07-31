@@ -861,69 +861,66 @@ static void slot_pos(int arm, int far, int *ox, int *oy)
 void mb_power_draw_wheel(uint16_t *fb, const MoteFont *font)
 {
     if (!s_wheel) return;
+    (void)font;
     const Power *tab = TABS[s_tab].p;
-    const uint16_t dim  = MOTE_RGB565( 12,  14,  26);
-    const uint16_t rim  = MOTE_RGB565(131, 118, 156);
-    const uint16_t hi   = MOTE_RGB565(255, 236,  39);
-    const uint16_t txt  = MOTE_RGB565(255, 241, 232);
-    const uint16_t off  = MOTE_RGB565( 70,  64,  96);
+    const uint16_t FILL = MOTE_RGB565(20, 18, 40);
+    const uint16_t LINE = MOTE_RGB565(180, 170, 240);
 
-    /* THE PANEL. A page of icons wants to be a page — one rectangle, not a cross of arms —
-     * and it is dimmed rather than opaque so you can still see what you are about to cast on.
-     * Centred vertically, full width bar the margins, and it never covers the HUD. */
-    const int PX = 6, PW = 128 - PX * 2;
-    const int PH = 62, PY = (VIEW_H - PH) / 2;
-    mb_dim_rect(fb, PX, PY, PW, PH, dim, 205);
-    g_api->draw_rect(fb, PX, PY, PW, PH, rim, 0, 0, VIEW_H);
+    /* THE SAME PANEL AS EVERY OTHER SCREEN. The first replacement for the radial wheel was a
+     * bare grid of icons on a dimmed rectangle — the navigation was right and it looked like a
+     * debug overlay, because it shared nothing with the information screens: no frame, no
+     * hatch, no section rules, and icons at their world size of eight pixels.
+     *
+     * So it is built from mb_ui: the CP437 frame, the hatched interior, a titled rule, and the
+     * SELECTED power drawn at triple size on the master's plaque — because the one you are
+     * about to spend Faith on should be the biggest thing on the screen. */
+    mb_ui_panel(fb, 0, 0, 128, 128, LINE, FILL, 1);
 
     int pick = (s_wheel_pick >= 0) ? s_wheel_pick : s_sel[s_tab];
     if (pick < 0 || pick > 7) pick = 0;
+    const Power *p = &tab[pick];
 
-    /* THE TABS AS PIPS, so which of six pages you are on is visible instead of remembered.
-     * The radial had the page name and no sense of how many there were or where this one sat
-     * in them, which is why paging felt like guessing. */
-    {
-        const int pw = 5, gap = 2;
-        int total = NTAB * pw + (NTAB - 1) * gap;
-        int x0 = 64 - total / 2;
-        for (int t = 0; t < NTAB; t++) {
-            int x = x0 + t * (pw + gap);
-            g_api->draw_rect(fb, x, PY + 3, pw, 3, t == s_tab ? hi : off, 1, 0, VIEW_H);
-        }
+    /* the page, and where it sits in the six */
+    mb_ui_text(fb, 7, 6, TABS[s_tab].name, MB_UI_CREAM, 70);
+    for (int t = 0; t < NTAB; t++)
+        g_api->draw_rect(fb, 84 + t * 6, 8, 4, 4,
+                         t == s_tab ? MB_UI_GOLD : MOTE_RGB565(70, 64, 96), 1, 0, 128);
+
+    /* the chosen power, large, with its name and price */
+    mb_ui_plaque(fb, 5, 18, 32, 32, MOTE_RGB565(12, 10, 26));
+    g_api->blit_ex(fb, p->icon, 21.0f, 34.0f, p->ix * TILE, p->iy * TILE, TILE, TILE,
+                   0.0f, 3.0f, 0, 0, 128);
+    mb_ui_text(fb, 42, 20, p->name, MB_UI_CREAM, 80);
+    { char buf[24];
+      snprintf(buf, sizeof buf, "%d faith", (int)p->cost);
+      mb_ui_text(fb, 42, 30, buf, mb_faith_afford(p->cost) ? MB_UI_GOLD : MB_UI_RED, 80); }
+    if (p->radius) {
+        char buf[24];
+        snprintf(buf, sizeof buf, "reach %d", (int)p->radius);
+        mb_ui_text(fb, 42, 40, buf, MB_UI_DIM, 80);
+    } else if (p->brush) {
+        mb_ui_text(fb, 42, 40, "a brush", MB_UI_DIM, 80);
     }
 
-    /* the page name, and the shoulder hint next to it */
-    const char *tn = TABS[s_tab].name;
-    g_api->text_font(fb, font, tn, 64 - (int)strlen(tn) * 3, PY + 8, txt);
-    g_api->text_font(fb, font, "RB", PX + PW - 16, PY + 8, rim);
-
-    /* THE GRID: four across, two down. Cell pitch is 26 so eight-pixel icons sit in real
-     * space rather than jammed together — a row of touching icons reads as one texture. */
-    const int CW = 26, CH = 20;
-    const int GX = 64 - (4 * CW) / 2 + (CW - TILE) / 2;
-    const int GY = PY + 18;
+    /* and the page it came from, four across and two down */
+    mb_ui_rule(fb, 6, 54, 116, "POWERS", LINE, FILL, MB_UI_DIM);
+    const int CW = 27, CH = 22, GX = 64 - (4 * CW) / 2 + (CW - TILE) / 2, GY = 64;
     for (int i = 0; i < 8; i++) {
         int col = i & 3, row = i >> 2;
         int x = GX + col * CW, y = GY + row * CH;
         int on = (i == pick);
         g_api->blit(fb, &ui_buttons_img, x, y,
                     (on ? BTN_LIT_CX : BTN_DIM_CX) * TILE,
-                    (on ? BTN_LIT_CY : BTN_DIM_CY) * TILE,
-                    TILE, TILE, 0, 0, VIEW_H);
+                    (on ? BTN_LIT_CY : BTN_DIM_CY) * TILE, TILE, TILE, 0, 0, 128);
         g_api->blit(fb, tab[i].icon, x, y, tab[i].ix * TILE, tab[i].iy * TILE,
-                    TILE, TILE, 0, 0, VIEW_H);
+                    TILE, TILE, 0, 0, 128);
         if (on) {
-            /* a gold ring with a dark ring outside it, so the selection reads on any icon */
-            g_api->draw_rect(fb, x - 2, y - 2, TILE + 4, TILE + 4, hi,  0, 0, VIEW_H);
-            g_api->draw_rect(fb, x - 3, y - 3, TILE + 6, TILE + 6, dim, 0, 0, VIEW_H);
+            g_api->draw_rect(fb, x - 2, y - 2, TILE + 4, TILE + 4, MB_UI_GOLD, 0, 0, 128);
+            g_api->draw_rect(fb, x - 3, y - 3, TILE + 6, TILE + 6, FILL, 0, 0, 128);
         }
+        /* a power you cannot pay for says so here rather than on the cast */
+        if (!mb_faith_afford(tab[i].cost))
+            mb_dim_rect(fb, x - 1, y - 1, TILE + 2, TILE + 2, FILL, 140);
     }
-
-    /* the name and the price of the one under the cursor, on the panel's bottom edge */
-    {
-        char buf[32];
-        const char *pn = tab[pick].name;
-        snprintf(buf, sizeof buf, "%s  %d", pn, (int)tab[pick].cost);
-        g_api->text_font(fb, font, buf, 64 - (int)strlen(buf) * 3, PY + PH - 9, hi);
-    }
+    mb_ui_actions(fb, "LB HOLD  RB PAGE", 0, FILL);
 }

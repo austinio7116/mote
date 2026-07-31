@@ -113,15 +113,36 @@ void mb_ui_plaque(uint16_t *fb, int x, int y, int w, int h, uint16_t inner)
  * in the world's palette for free, which a draw_rect bar never does. */
 void mb_ui_meter(uint16_t *fb, int x, int y, int cells, int num, int den, int style)
 {
+    /* THE ART IS A DEPLETING GAUGE, not a set of coloured segments.
+     *
+     * Row 7 cols 5..14 is ONE cell emptying by stages — full green, green with a notch, yellow
+     * from the right, orange, red, a red sliver, empty — so the COLOUR IS THE LEVEL. I first
+     * read it as full/partial pairs per colour and drew every filled cell in col 5 and every
+     * empty one in col 15, which threw away eight of the ten steps and is why a bar only ever
+     * showed whole green blocks.
+     *
+     * Used properly: whole cells are full, the boundary cell takes the stage matching the
+     * remainder, and the rest are empty. That is ten sub-steps on the end cap for free, and a
+     * bar that runs low goes amber and then red WITHOUT being told to — which is what a
+     * condition gauge should do. `style` therefore no longer picks a hue; it is kept so a
+     * caller can flag a meter where high is BAD and the ramp should run the other way.
+     */
     if (den <= 0) den = 1;
-    int lit = num * cells / den;
-    if (lit > cells) lit = cells;
-    if (lit < 0) lit = 0;
-    static const uint8_t COL[4] = { 5, 7, 9, 11 };
-    int c = COL[style & 3];
-    for (int i = 0; i < cells; i++)
-        g_api->blit(fb, &ui_status_img, x + i * 8, y,
-                    (i < lit ? c : 15) * 8, 7 * 8, 8, 8, 0, 0, 128);
+    if (num < 0) num = 0;
+    if (num > den) num = den;
+    const int STEPS = 10;                    /* cols 5..14 */
+    long tenths = (long)num * cells * STEPS / den;
+    for (int i = 0; i < cells; i++) {
+        long lo = (long)i * STEPS;
+        int c;
+        if (tenths >= lo + STEPS)      c = 5;                       /* full        */
+        else if (tenths <= lo)         c = 14;                      /* empty       */
+        else                           c = 5 + (int)(STEPS - 1 - (tenths - lo));
+        if (style & MB_METER_INVERT) {       /* high is bad: run the ramp backwards */
+            if (c >= 5 && c <= 14) c = 19 - c;
+        }
+        g_api->blit(fb, &ui_status_img, x + i * 8, y, c * 8, 7 * 8, 8, 8, 0, 0, 128);
+    }
 }
 
 /* ui_status row 7 cols 0..4: a heart at five fill levels, full through empty. */
