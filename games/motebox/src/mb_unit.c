@@ -784,6 +784,30 @@ static void think(int i)
         }
     }
 
+    /* --- THE PRIEST KEEPS THE TEMPLE --------------------------------------
+     *
+     * A temple fed research and the Faith ceiling; the PRIEST fed nothing, so a village with
+     * twenty of them in cowls had twenty ordinary villagers hauling stone. A priest goes to the
+     * temple and stays, and while they are there the people around them are consoled — which is
+     * a real mechanic, because happiness feeds breeding, loyalty and therefore rebellion. It
+     * also puts a small crowd at the temple door, which is what a temple is for. */
+    if (u->prof == PROF_PRIEST && u->village && sp->drives == DRV_CIV) {
+        const Village *TV = &mb_v[u->village];
+        if (TV->alive) {
+            int tx = -1, ty = -1;
+            for (int dy = -8; dy <= 8 && tx < 0; dy++)
+                for (int dx = -8; dx <= 8; dx++) {
+                    int bx = TV->x + dx, by = TV->y + dy;
+                    if (!mb_in(bx, by) || mb_w.claim[AT(bx, by)] != u->village) continue;
+                    if (mb_w.obj[AT(bx, by)] == O_TEMPLE) { tx = bx; ty = by; break; }
+                }
+            if (tx >= 0) {
+                int pv = 30 + ((u->traits & TR_LOYAL) ? 8 : 0);
+                if (pv > bestv) { bestv = pv; best = JOB_PRAY; u->target = (uint16_t)AT(tx, ty); }
+            }
+        }
+    }
+
     /* --- THE LORD'S GUARD ------------------------------------------------
      *
      * What an army does between wars. A soldier with nobody to fight stands near their lord,
@@ -1187,6 +1211,26 @@ static void act(int i)
      * a walk that follows the streets, a figure out on its own in the hills, a knot of people
      * jostling round the monument, and somebody lying still in a meadow. All four end by
      * themselves when hunger overtakes them — see the leisure block in think(). */
+    case JOB_PRAY: {
+        if (u->target == 0xFFFF) { u->job = JOB_IDLE; break; }
+        int tx = u->target % MW, ty = u->target / MW;
+        int d = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+        if (d > 2) { step_toward(u, tx, ty); break; }
+        /* at the door: console whoever is here, and write something down */
+        u->happy = (int8_t)(u->happy < 120 ? u->happy + 2 : u->happy);
+        if ((mb_w.tick & 7) == 0) {
+            for (int j = 0; j < mb_nu; j++) {
+                if (j == i || !mb_u[j].alive || mb_u[j].village != u->village) continue;
+                int dx = (mb_u[j].x >> 4) - x, dy = (mb_u[j].y >> 4) - y;
+                if (dx * dx + dy * dy > 9) continue;
+                if (mb_u[j].happy < 110) mb_u[j].happy += 2;
+            }
+            if (u->village && mb_v[u->village].alive && mb_v[u->village].research < 60000)
+                mb_v[u->village].research++;
+        }
+        break;
+    }
+
     case JOB_GUARD: {
         /* close, but not on top of them: a ring rather than a stack */
         int lu = mb_village_lord_unit(u->village);

@@ -1169,6 +1169,16 @@ static void lord_think(int v)
     if (mb_civ_tech_ok(v, TECH_NUKE) && mb_civ_count(v, O_SILO) < 1)
         want_list[nwant++] = 22;
 
+    /* A TOWER BELONGS ON A WALL, and it was gated on `threat > 25` — a monster or an army
+     * already in sight — sitting behind the houses in a list the lord reads in order. Fifteen
+     * barracks were built in a measured world and NOT ONE TOWER. A town that has raised a
+     * curtain wall, or whose crown is at war, puts towers on it: that is what the building is
+     * for and what tower_step() now makes it do. */
+    if (V->hall >= 2 && mb_civ_count(v, O_TOWER) < 3
+        && (V->threat > 25 || mb_civ_count(v, O_WALL) > 6
+            || (V->kingdom && mb_k[V->kingdom].alive && mb_k[V->kingdom].war_with)))
+        want_list[nwant++] = 8;
+
     int wall_turn = (V->hall >= 2 && mb_civ_count(v, O_WALL) < 44 &&
                      (V->threat > 25 || V->pop >= 14 || V->stone > 40) &&
                      ((mb_w.tick >> 6) % 3) == 0);
@@ -1228,7 +1238,6 @@ static void lord_think(int v)
     if (V->hall >= 2 && mb_civ_count(v, O_TEMPLE) < 1)         want_list[nwant++] = 7;
     /* and the room for the next generation, once the civic ladder has had its turn */
     if (V->food > pop * 2 && housing < pop + slack)           want_list[nwant++] = 0;
-    if (V->threat > 25 && mb_civ_count(v, O_TOWER) < 3)        want_list[nwant++] = 8;
     /* A WALL, once the hall is stone and somebody is worth keeping out. Late in the list:
      * a town builds beds, bread and a barracks before it builds a curtain. */
     /* A WALL when the town is worth walling: threatened, OR simply established and
@@ -1429,7 +1438,10 @@ static int  plan_open(int v, int x, int y);
 static void village_plaza(int v)
 {
     Village *V = &mb_v[v];
-    if (V->tier < TIER_TOWN) return;
+    /* AND AN AMBITIOUS LORD DOES NOT WAIT TO BE A TOWN. A monument is the cheapest thing
+     * vanity buys, and it is the one piece of a settlement that exists to say who runs it. */
+    int need_tier = (V->lord_traits & TR_AMBITIOUS) ? TIER_VILLAGE : TIER_TOWN;
+    if (V->tier < need_tier) return;
     /* the hall is the anchor: find it once, near the centre */
     int hx = -1, hy = -1;
     for (int dy = -3; dy <= 3 && hx < 0; dy++)
@@ -2072,7 +2084,8 @@ static int village_far_resource(int v, int kind, int *ox, int *oy);
 static void village_expedition(int v);
 #if MOTE_HOST
 uint32_t mb_expeditions, mb_conquests, mb_trades_far, mb_rebellions, mb_rebel_blocked;
-uint32_t mb_ws_dropped[5], mb_ws_done[5];
+uint32_t mb_ws_dropped[5], mb_ws_done[5], mb_alliances, mb_tower_shots, mb_fish;
+uint32_t mb_refugees;
 uint32_t mb_plan_of[64], mb_built_of[64];
 #endif
 
@@ -2299,11 +2312,46 @@ static void village_expedition(int v)
 #endif
 }
 
+/* WHERE THE QUAY IS. Fishing has to be tied to it or the whole coastline becomes a larder:
+ * measured with any shore cell of the claim allowed, one world landed 95508 catches in four
+ * hundred years — over a million food — and the fields, the bushes and the hunt stopped
+ * mattering at all. A boat lands its catch at the quay, so the fishable water is the quay's
+ * own: three cells, which is a harbour. Returns 0 if the town has no dock. */
+static int village_quay(int v, int *qx, int *qy)
+{
+    const Village *V = &mb_v[v];
+    for (int dy = -11; dy <= 11; dy++)
+        for (int dx = -11; dx <= 11; dx++) {
+            int x = V->x + dx, y = V->y + dy;
+            if (!mb_in(x, y)) continue;
+            if (mb_w.obj[AT(x, y)] == O_DOCK && mb_w.claim[AT(x, y)] == v) {
+                *qx = x; *qy = y; return 1;
+            }
+        }
+    return 0;
+}
+
+static int fishable(int v, int x, int y, int qx, int qy)
+{
+    if (qx < 0) return 0;
+    int dx = x - qx, dy = y - qy;
+    if (dx * dx + dy * dy > 9) return 0;               /* the harbour, not the coast */
+    if (!mb_land(mb_w.biome[AT(x, y)]) || mb_w.obj[AT(x, y)]) return 0;
+    (void)v;
+    return (mb_in(x + 1, y) && mb_water(mb_w.biome[AT(x + 1, y)])) ||
+           (mb_in(x - 1, y) && mb_water(mb_w.biome[AT(x - 1, y)])) ||
+           (mb_in(x, y + 1) && mb_water(mb_w.biome[AT(x, y + 1)])) ||
+           (mb_in(x, y - 1) && mb_water(mb_w.biome[AT(x, y - 1)]));
+}
+
 /* Find the nearest thing of a kind worth walking to. Deliberately a bounded
  * spiral rather than a search over the map: a villager's world is its valley. */
 int mb_village_resource(int v, int kind, int *ox, int *oy)
 {
     Village *V = &mb_v[v];
+    /* the quay, found once per call rather than per candidate cell */
+    int qx = -1, qy = -1;
+    if (kind == CARRY_FOOD) { if (!village_quay(v, &qx, &qy)) qx = -1; }
     /* SPREAD THE LABOUR. The spiral returned the first hit in a fixed scan order, so every
      * villager who wanted the same thing was sent to the same cell — one tree felled by a
      * queue of nine while the wood behind it stood, and one field cell worked over and over
@@ -2330,6 +2378,10 @@ int mb_village_resource(int v, int kind, int *ox, int *oy)
                  * sow. Which of the two it is, is decided on arrival by what is actually there. */
                 if (kind == CARRY_FOOD)  hit = (o == O_BUSH || o == O_FLOWER ||
                                                 (b == B_FARM && (o == O_RIPE || o == O_NONE)));
+                /* AND A QUAY MAKES THE WATER FOOD. A dock cost eight wood, let a kingdom
+                 * settle across the sea, and gave the town that built it nothing to eat — the
+                 * whole ocean was scenery. The harbour is fishable; see village_quay(). */
+                if (kind == CARRY_FOOD && !hit && fishable(v, x, y, qx, qy)) hit = 1;
                 if (hit) {
                     if (fx < 0) { fx = x; fy = y; }
                     if (skip-- <= 0) { *ox = x; *oy = y; return 1; }
@@ -2398,6 +2450,15 @@ void mb_village_work(int v, int ui)
         else if (*o == O_GOLD || *o == O_SILVER || *o == O_GEM) { u->carry = 5; u->carry_kind = CARRY_GOLD; }
         else if (*o == O_BUSH || *o == O_FLOWER)           { *o = O_NONE; u->carry = 6; u->carry_kind = CARRY_FOOD; }
         else if (b == B_MOUNTAIN || b == B_HILL)           { u->carry = 5; u->carry_kind = CARRY_STONE; }
+        /* THE CATCH, landed at the quay: ten food, between a berry bush and a carcass, and the
+         * sea does not run out — which is what makes an island town viable. */
+        else if (({ int qx2 = -1, qy2 = -1;
+                    village_quay(v, &qx2, &qy2) && fishable(v, tx, ty, qx2, qy2); })) {
+            u->carry = 10; u->carry_kind = CARRY_FOOD;
+#if MOTE_HOST
+            {   extern uint32_t mb_fish; mb_fish++; }
+#endif
+        }
         /* THE FIELD IS SOWN AND CUT BY HAND. This paid seven food for standing on any farm
          * cell whatever was growing on it, which is why the whole belt ripened and was cut on
          * one world tick with the farmers as bystanders. A farmer now finds either bare
@@ -2455,14 +2516,28 @@ void mb_civ_rehome(void)
         if (!u->alive || u->sp >= SP_CIV_N || u->village) continue;
         int ux = u->x >> 4, uy = u->y >> 4;
 
-        int best = 0, bestd = 21 * 21;
+        /* THE NEAREST TOWN, and they have to REACH it: a refugee is adopted on arrival, not
+         * on being orphaned. Out of range, they keep walking toward it — the wander floor is
+         * anchored to a village they no longer have, so without this they would mill about
+         * their own ruins for ever. */
+        int best = 0, bestd = 1 << 30;
         for (int v = 1; v < MAXV; v++) {
             if (!mb_v[v].alive) continue;
             int dx = mb_v[v].x - ux, dy = mb_v[v].y - uy;
             int d = dx * dx + dy * dy;
             if (d < bestd) { bestd = d; best = v; }
         }
-        if (best) { u->village = (uint8_t)best; continue; }
+        if (best && bestd <= 36) { u->village = (uint8_t)best; continue; }   /* arrived */
+        if (best && bestd <= 45 * 45) {
+            if (u->job != JOB_ROAM || u->target == 0xFFFF) {
+                u->job = JOB_ROAM;
+                u->target = (uint16_t)AT(mb_v[best].x, mb_v[best].y);
+#if MOTE_HOST
+                {   extern uint32_t mb_refugees; mb_refugees++; }
+#endif
+            }
+            continue;
+        }
 
         /* Nothing within reach. Found one where they stand — but only if this is
          * ground worth settling, and only for one wanderer per tick, or a scattered
@@ -2582,6 +2657,51 @@ static void conquest_check(int v)
 #if MOTE_HOST
     {   extern uint32_t mb_conquests; mb_conquests++; }
 #endif
+}
+
+/* --- A TOWER SHOOTS AT WHOEVER IS OUTSIDE IT ---------------------------
+ *
+ * Towers cost six wood and twelve stone, a town builds up to three, and they did nothing at all
+ * — not even when an army was standing under them. A tower is a shooting platform: any enemy of
+ * this village within four cells of one takes an arrow. That gives the defensive buildings a
+ * job, gives a besieger a reason to bring numbers, and it is visible, because the shot is drawn
+ * by the same effect an archer's is.
+ *
+ * Deliberately weak per hit — a tower wears an army down, it does not rout one — and it only
+ * fires on a kingdom this town is at war with, so it is not a random hazard.
+ */
+static void tower_step(int v)
+{
+    Village *V = &mb_v[v];
+    int myk = V->kingdom;
+    if (!myk || !mb_k[myk].alive || !mb_k[myk].war_with) return;
+    if ((mb_w.tick & 3) != 0) return;                  /* a shot every fourth tick at most */
+
+    for (int dy = -11; dy <= 11; dy++)
+        for (int dx = -11; dx <= 11; dx++) {
+            int tx = V->x + dx, ty = V->y + dy;
+            if (!mb_in(tx, ty)) continue;
+            int c = AT(tx, ty);
+            if (mb_w.obj[c] != O_TOWER || mb_w.claim[c] != v) continue;
+            /* the nearest enemy under it */
+            for (int i = 0; i < mb_nu; i++) {
+                Unit *u = &mb_u[i];
+                if (!u->alive || u->sp >= SP_CIV_N || !u->village) continue;
+                int uk = mb_v[u->village].kingdom;
+                if (!uk || uk == myk || !mb_at_war(myk, uk)) continue;
+                int ux = u->x >> 4, uy = u->y >> 4;
+                int ex = ux - tx, ey = uy - ty;
+                if (ex * ex + ey * ey > 16) continue;
+                u->hp = (int8_t)(u->hp > 9 ? u->hp - 9 : 0);
+                u->happy -= 4;
+                mb_fx_shot((float)tx + 0.5f, (float)ty + 0.5f,
+                           (float)ux + 0.5f, (float)uy + 0.5f, MB_SHOT_ARROW);
+#if MOTE_HOST
+                {   extern uint32_t mb_tower_shots; mb_tower_shots++; }
+#endif
+                return;                                /* one arrow per visit */
+            }
+        }
 }
 
 static void maybe_settle(int v)
@@ -2914,7 +3034,21 @@ static void king_think(int k)
 
         int strength = (my_pop * 20) / (their_pop + 1);
         int grudge   = mb_chron_grudge(k, o);
-        int war_score = border + strength + grudge * 6 + covet - K->exhaustion * 3
+        /* WHO IS IN CHARGE MATTERS. A lord's three stats and their traits drove the town's
+         * building and its loyalty and had NO say in whether the realm went to war — so an
+         * ambitious, vengeful warlord in the capital behaved exactly like a mild steward, and
+         * the personality this game spends most of its character budget on was invisible at the
+         * one moment it should decide everything. The capital's lord is the crown's temper. */
+        int temper = 0;
+        if (K->capital > 0 && K->capital < MAXV && mb_v[K->capital].alive) {
+            const Village *CAP = &mb_v[K->capital];
+            temper = CAP->lord_war / 4;
+            if (CAP->lord_traits & TR_VENGEFUL)  temper += 18;
+            if (CAP->lord_traits & TR_AMBITIOUS) temper += 12;
+            if (CAP->lord_traits & TR_MADNESS)   temper += 20;
+            if (CAP->lord_traits & TR_COWARD)    temper -= 25;
+        }
+        int war_score = border + strength + grudge * 6 + covet + temper - K->exhaustion * 3
                       + mb_age_war_bias();
         int peace_score = K->exhaustion * 4 + 30 + (mb_k[o].sp == K->sp ? 15 : 0);
 
@@ -2927,7 +3061,41 @@ static void king_think(int k)
         } else if (war_score > peace_score + 20 && mb_law(LAW_WAR)) {
             K->war_with |= (uint32_t)1u << o;
             mb_k[o].war_with |= (uint32_t)1u << k;
+            /* AND AN ALLIANCE DOES NOT SURVIVE A DECLARATION. */
+            K->ally_with &= ~((uint32_t)1u << o);
+            mb_k[o].ally_with &= ~((uint32_t)1u << k);
             mb_chron_war(k, o);
+        } else if (!(K->ally_with & (1u << o))) {
+            /* --- AN ALLIANCE, which nothing in this game could form -------------
+             *
+             * ally_with is read in three places — who a caravan will trade with, and twice in
+             * the war maths — and was only ever CLEARED. No code anywhere set the bit, so in
+             * the entire history of the game not one alliance had ever existed and the friendly
+             * half of the diplomacy model was dead weight.
+             *
+             * What makes two crowns friends: a common enemy above all (the oldest reason
+             * there is), kinship of race and of creed, a capital with a lord who can talk —
+             * and the absence of the two things that make enemies, which are a grudge and
+             * an appetite for what they have. */
+            int common = 0;
+            for (int t = 1; t < MAXK; t++)
+                if (t != k && t != o && mb_k[t].alive
+                    && (K->war_with & (1u << t)) && (mb_k[o].war_with & (1u << t))) common++;
+            int diplo = 0;
+            if (K->capital > 0 && K->capital < MAXV && mb_v[K->capital].alive)
+                diplo = mb_v[K->capital].lord_diplo / 3;
+            int ally_score = 12 + common * 40 + diplo
+                           + (mb_k[o].sp == K->sp ? 18 : 0)
+                           + (mb_k[o].creed == K->creed && K->creed ? 15 : 0)
+                           - grudge * 10 - covet * 2 - K->exhaustion;
+            if (ally_score > 55) {
+                K->ally_with |= (uint32_t)1u << o;
+                mb_k[o].ally_with |= (uint32_t)1u << k;
+                mb_chron_ally(k, o);
+#if MOTE_HOST
+                {   extern uint32_t mb_alliances; mb_alliances++; }
+#endif
+            }
         }
     }
 
@@ -2999,7 +3167,33 @@ static void village_death_check(int v)
     V->plan_obj = 0;
     for (int i = 0; i < NWS; i++) V->ws[i].kind = WS_NONE;   /* nobody left to do the work */
     for (int i = 0; i < NC; i++) if (mb_w.claim[i] == v) mb_w.claim[i] = 0;
-    for (int i = 0; i < mb_nu; i++) if (mb_u[i].alive && mb_u[i].village == v) mb_u[i].village = 0;
+    /* --- REFUGEES ------------------------------------------------------------
+     *
+     * Survivors were set adrift where they stood and then silently reassigned to whatever
+     * village happened to be within twenty-one cells — their allegiance teleported and their
+     * bodies did not, so a town falling produced no visible consequence at all: the same people
+     * standing in the same ruins, now labelled as somebody else's.
+     *
+     * They walk. Each one is pointed at the nearest surviving settlement and sent, which makes
+     * a war legible in the demography — a thin column of people crossing the map away from a
+     * burning town, arriving somewhere that has to feed them. mb_civ_rehome() adopts them when
+     * they get there rather than the moment their town dies. */
+    {
+        int rx = -1, ry = -1, bd = 1 << 30;
+        for (int o = 1; o < MAXV; o++) {
+            if (o == v || !mb_v[o].alive) continue;
+            int dx = mb_v[o].x - V->x, dy = mb_v[o].y - V->y, d = dx * dx + dy * dy;
+            if (d < bd) { bd = d; rx = mb_v[o].x; ry = mb_v[o].y; }
+        }
+        for (int i = 0; i < mb_nu; i++) {
+            Unit *u = &mb_u[i];
+            if (!u->alive || u->village != v) continue;
+            u->village = 0;
+            u->carry = 0; u->mission = 0;
+            if (u->prof == PROF_LORD) u->prof = PROF_NONE;   /* no town, no office */
+            if (rx >= 0) { u->job = JOB_ROAM; u->target = (uint16_t)AT(rx, ry); }
+        }
+    }
     if (mb_k[V->kingdom].capital == v) {
         /* the crown moves to the largest surviving village, or the kingdom ends */
         int best = 0, bestp = -1;
@@ -3096,6 +3290,7 @@ void mb_civ_step(void)
         try_build(v);
         village_expedition(v);
         conquest_check(v);
+        tower_step(v);
         claim_creep(v);
         loyalty_step(v);
         maybe_settle(v);

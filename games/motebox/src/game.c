@@ -135,7 +135,7 @@ static const char *const JOB_NAME[JOB_N] = {
     /* "hauling" was missing — the array is [JOB_N] so the gap was a NULL, and every job
      * census in the audit printed "(null)=1" for the caravan driver. */
     "hauling",
-    "strolling", "exploring", "playing", "in the sun", "on guard",
+    "strolling", "exploring", "playing", "in the sun", "on guard", "at prayer",
 };
 typedef char mb_jobnames_complete[(sizeof JOB_NAME / sizeof JOB_NAME[0]) == JOB_N ? 1 : -1];
 
@@ -2337,9 +2337,16 @@ static void g_init(void)
                                             mb_plan_of[q], mb_built_of[q]);
                             fprintf(stderr, "\n");
                             extern uint32_t mb_breaches;
+                            extern uint32_t mb_alliances;
                             fprintf(stderr, "  %u rebellions, %u blocked for want of a "
-                                            "free crown, %u walls breached\n",
-                                    mb_rebellions, mb_rebel_blocked, mb_breaches); }
+                                            "free crown, %u walls breached, %u alliances\n",
+                                    mb_rebellions, mb_rebel_blocked, mb_breaches,
+                                    mb_alliances);
+                            extern uint32_t mb_tower_shots, mb_fish;
+                            extern uint32_t mb_refugees;
+                            fprintf(stderr, "  %u tower arrows, %u catches landed, "
+                                            "%u refugees sent walking\n",
+                                    mb_tower_shots, mb_fish, mb_refugees); }
                     }
                     fprintf(stderr, "town plans:");
                     for (int k = 0; k < 5; k++)

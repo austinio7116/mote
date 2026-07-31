@@ -64,7 +64,7 @@ void mb_name_str(char *out, int n, int kind, uint16_t id)
  * plague". A new lord was pushed as an AGE carrying the town's TIER, so the death of a lord
  * read "the hamlet begins". Both are proper events with proper sentences now. */
 enum { EV_FOUND = 0, EV_FALL, EV_BUILD, EV_WAR, EV_PEACE, EV_REBEL, EV_BIRTH,
-       EV_DEATH, EV_LEGEND, EV_DISASTER, EV_AGE, EV_TECH, EV_LORD, EV_TAKEN, EV_N };
+       EV_DEATH, EV_LEGEND, EV_DISASTER, EV_AGE, EV_TECH, EV_LORD, EV_TAKEN, EV_ALLY, EV_N };
 
 typedef struct {
     uint8_t  type, a, b, mag;      /* a/b: village, kingdom or unit, per type */
@@ -92,7 +92,7 @@ static int is_headline(int type)
 {
     return type == EV_FALL || type == EV_WAR || type == EV_REBEL ||
            type == EV_LEGEND || type == EV_DISASTER || type == EV_AGE ||
-           type == EV_TAKEN;
+           type == EV_TAKEN || type == EV_ALLY;
 }
 
 void mb_chron_init(void)
@@ -201,6 +201,11 @@ static void render(char *out, int n, const Event *e)
         mb_name_str(n1, sizeof n1, NK_KINGDOM, e->name);
         snprintf(out, (size_t)n, "%s learns %s", n1, mb_chron_word(e->extra));
         break;
+    case EV_ALLY:
+        mb_name_str(n1, sizeof n1, NK_KINGDOM, e->name);
+        mb_name_str(n2, sizeof n2, NK_KINGDOM, e->extra);
+        snprintf(out, (size_t)n, "%s+%s: allied", n1, n2);
+        break;
     case EV_TAKEN:
         mb_name_str(n1, sizeof n1, NK_PLACE, e->name);
         mb_name_str(n2, sizeof n2, NK_KINGDOM, e->extra);
@@ -272,6 +277,13 @@ void mb_chron_tech(int k, const char *what, int x, int y)
 /* A TOWN CHANGES HANDS. This is a headline: a border moving is the biggest thing that
  * happens in a war, and until now nothing in the game could do it — a war could only kill
  * people, so the political map never moved except by rebellion. */
+/* TWO CROWNS COME TO TERMS. A headline, like a war: an alliance changes who a third kingdom
+ * dares to attack, and it is the only good news the diplomacy model can produce. */
+void mb_chron_ally(int a, int b)
+{
+    Village *c = &mb_v[mb_k[a].capital];
+    push(EV_ALLY, a, b, 0, mb_k[a].name, c->x, c->y, mb_k[b].name);
+}
 void mb_chron_taken(int v, int by)
 {
     push(EV_TAKEN, v, by, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y, mb_k[by].name);

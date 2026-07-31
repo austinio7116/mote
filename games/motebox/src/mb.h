@@ -171,7 +171,10 @@ enum { JOB_IDLE = 0, JOB_WANDER, JOB_FORAGE, JOB_HUNT, JOB_FLEE, JOB_BREED,
        /* AND THE LORD'S GUARD. A lord who is a person can be eaten by a wolf, so soldiers
         * with no war to fight stand near them instead of milling about — which is both what
         * an army is for between wars and the reason a lord is worth assassinating. */
-       JOB_GUARD, JOB_N };
+       JOB_GUARD,
+       /* AND THE TEMPLE. A priest with nowhere to be was a villager in a cowl: the trade
+        * existed, the building existed, and neither did anything. */
+       JOB_PRAY, JOB_N };
 
 /* PROFESSIONS. A job is what somebody is doing this minute; a profession is what they
  * are for. Splitting them is what lets a village have a shape — nine farmers and one
@@ -675,6 +678,7 @@ void        mb_chron_age(const char *name);
 void        mb_chron_tech(int k, const char *what, int x, int y);
 void        mb_chron_lord(int v);
 void        mb_chron_taken(int v, int by);
+void        mb_chron_ally(int a, int b);
 const char *mb_chron_word(int id);
 int         mb_chron_grudge(int a, int b);
 int         mb_chron_count(void);
