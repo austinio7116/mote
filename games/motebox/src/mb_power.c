@@ -24,6 +24,7 @@
 #include "buildings.h"
 #include "treasure_ore.h"
 #include "ui_buttons.h"
+#include <stdio.h>          /* snprintf: implicit here on the device toolchain */
 
 /* --- what a power is ---------------------------------------------------- */
 
