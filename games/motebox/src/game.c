@@ -135,7 +135,7 @@ static const char *const JOB_NAME[JOB_N] = {
     /* "hauling" was missing — the array is [JOB_N] so the gap was a NULL, and every job
      * census in the audit printed "(null)=1" for the caravan driver. */
     "hauling",
-    "strolling", "exploring", "playing", "in the sun", "on guard", "at prayer",
+    "strolling", "exploring", "playing", "in the sun", "on guard", "at prayer", "driving it off",
 };
 typedef char mb_jobnames_complete[(sizeof JOB_NAME / sizeof JOB_NAME[0]) == JOB_N ? 1 : -1];
 
@@ -2311,6 +2311,14 @@ static void g_init(void)
                             if (uu->prof < PROF_N) prof[uu->prof]++;
                             if (uu->prof == PROF_LORD) lords++;
                             if (uu->job == JOB_GUARD) guards++;
+                        }
+                        {   int bysp[SP_N] = { 0 };
+                            for (int q = 0; q < mb_nu; q++)
+                                if (mb_u[q].alive && mb_u[q].sp < SP_N) bysp[mb_u[q].sp]++;
+                            fprintf(stderr, "  wild:");
+                            for (int q = SP_CIV_N; q < SP_N; q++)
+                                if (bysp[q]) fprintf(stderr, " %s=%d", MB_SP[q].name, bysp[q]);
+                            fprintf(stderr, "\n");
                         }
                         fprintf(stderr, "trades:");
                         for (int q = 1; q < PROF_N; q++)

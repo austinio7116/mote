@@ -147,7 +147,19 @@ int mb_pop_class_full(int sp)
     if (sp >= SP_CIV_N) {
         int wildcap = MAXU * 34 / 100;
         if (wildcap > 80) wildcap = 80;
-        return mb_pop_wild() >= wildcap;
+        /* PREDATORS AND PREY HAVE SEPARATE BUDGETS. One pool for all wildlife meant whichever
+         * species bred fastest took every slot: with soldiers now clearing wolves off their own
+         * fields, a measured world ended as EIGHTY DEER AND NOTHING ELSE — no wolf, no boar, no
+         * goat, no bat, because deer filled the cap and nothing else could fit. A quarter of the
+         * wild is meat-eaters, which is roughly what a food chain looks like, and it means a
+         * hunted-out predator has a slot to come back into. */
+        int pred = 0, graze = 0;
+        for (int q = SP_CIV_N; q < SP_N; q++) {
+            if (q >= SP_WIGHT) continue;                  /* the risen are not ecology */
+            if (MB_SP[q].diet == DIET_MEAT) pred += mb_pop(q); else graze += mb_pop(q);
+        }
+        if (MB_SP[sp].diet == DIET_MEAT) return pred >= wildcap / 4;
+        return graze >= wildcap * 3 / 4;
     }
     return mb_pop_civ() >= MAXU * 58 / 100;
 }
@@ -734,6 +746,44 @@ static void think(int i)
             if (v > 48) v = 48;
             if (v > bestv) { bestv = v; best = JOB_WORK; }
         }
+        /* --- A SOLDIER KILLS THE WOLF ----------------------------------------
+         *
+         * They did not. The whole fight block below is gated on already fighting or on the
+         * village MUSTERING, and mustering happens for a war or for a KAIJU — which is an
+         * agent, not a unit — so a wolf never triggered it. The old comment said as much:
+         * "JOB_FIGHT below, which no beast ever triggers". A garrison stood in the square while
+         * a bear worked its way along the hedge, and the only reason nobody died of it is that
+         * a predator is separately forbidden from touching a person who is not starving or from
+         * hunting on claimed ground at all. Measured across three worlds: 12 to 44 people eaten
+         * in four hundred years, under 1% of deaths.
+         *
+         * So this is what a garrison is FOR between wars, and it is the honest half of the
+         * bargain the flee rule makes: a farmhand runs from a wolf because a farmhand loses,
+         * and somebody with a spear comes instead. Scored above the lord's guard and below a
+         * war — a border dispute outranks vermin — and only inside the village's own reach, so
+         * soldiers clear the fields rather than crusading across the map after every jackal. */
+        if (u->prof == PROF_SOLDIER && u->village && mb_v[u->village].alive) {
+            int th = nearest(i, x, y, NEAR_THREAT);
+            if (th >= 0) {
+                int bx = mb_u[th].x >> 4, by = mb_u[th].y >> 4;
+                /* DEFENSIVELY, AND ONLY THAT. Anything wider is a hunt, and a hunt strips the
+                 * map: with the whole CLAIM as the boundary, soldiers took every predator in the
+                 * world to extinction and a measured 400-year world ended as sixty deer and one
+                 * bat. Four cells is arm's reach — the wolf has come to the people, which is the
+                 * case a garrison exists for. A wolf in the hills, or one merely inside the
+                 * parish, is nobody's business. */
+                int dxb = bx - x, dyb = by - y;
+                if (dxb * dxb + dyb * dyb <= 16) {
+                    int sv = 48 + (u->traits & TR_BRAVE ? 12 : 0)
+                                - (u->traits & TR_COWARD ? 24 : 0);
+                    if (sv > bestv) {
+                        bestv = sv; best = JOB_CULL;
+                        u->target = (uint16_t)AT(bx, by);
+                    }
+                }
+            }
+        }
+
         /* war: a soldier of a kingdom at war looks for someone to fight */
         if (u->job == JOB_FIGHT || mb_village_mustering(u->village)) {
             int e = nearest(i, x, y, NEAR_ENEMY);
@@ -1211,6 +1261,26 @@ static void act(int i)
      * a walk that follows the streets, a figure out on its own in the hills, a knot of people
      * jostling round the monument, and somebody lying still in a meadow. All four end by
      * themselves when hunger overtakes them — see the leisure block in think(). */
+    case JOB_CULL: {
+        /* DRIVE IT OFF. Its own job so it can never turn into a war (see JOB_CULL in mb.h), and
+         * it gives up the moment the beast is out of reach: a soldier defends the people in
+         * front of them, they do not pursue a wolf over the hill. */
+        int th = nearest(i, x, y, NEAR_THREAT);
+        if (th < 0) { u->job = JOB_IDLE; break; }
+        int bx = mb_u[th].x >> 4, by = mb_u[th].y >> 4;
+        int d = (bx - x) * (bx - x) + (by - y) * (by - y);
+        if (d > 36) { u->job = JOB_IDLE; break; }        /* it ran; let it go */
+        if (d > 2) { step_toward(u, bx, by); break; }
+        mb_u[th].hp = (int8_t)(mb_u[th].hp > 45 ? mb_u[th].hp - 45 : 0);
+        if (mb_u[th].hp <= 0) {
+            kill(th, CAUSE_SLAIN);
+            u->kills++;
+            u->happy = (int8_t)(u->happy < 116 ? u->happy + 4 : u->happy);
+            u->job = JOB_IDLE;
+        }
+        break;
+    }
+
     case JOB_PRAY: {
         if (u->target == 0xFFFF) { u->job = JOB_IDLE; break; }
         int tx = u->target % MW, ty = u->target / MW;
@@ -1585,14 +1655,52 @@ void mb_unit_madness_step(void)
 void mb_unit_migrate(void)
 {
     if ((mb_w.tick % 52) != 0) return;               /* once a year */
-    int wild = mb_pop_wild();
-    if (wild >= 45) return;                          /* the floor, not the ceiling */
+    /* NO BLANKET FLOOR. `wild >= 45` counted every animal together, so once the grazers filled
+     * their sixty slots nothing was ever restocked — and a predator hunted off the fields by
+     * soldiers could never return, however empty the meat-eaters' budget was. Measured: a world
+     * of sixty deer and NOT ONE WOLF, for three centuries. mb_pop_class_full() below already
+     * knows each class's budget; it is the only gate this needs. */
 
-    for (int t = 0; t < 6; t++) {
+    /* WHICH CLASS IS SHORT. The table below is deliberately herbivore-heavy — a world that has
+     * lost its wildlife needs prey back before it needs wolves, or the wolves eat the seed stock
+     * — but that also meant predators got about one attempt in six while the grazers held every
+     * slot, so a hunted-out wolf population never recovered: measured, fifty-nine deer and ONE
+     * bat after four hundred years. When the meat-eaters' budget has room and the grazers' has
+     * not, restock the thing that is missing. */
+    int pred = 0, graze = 0;
+    for (int q = SP_CIV_N; q < SP_N; q++) {
+        if (q >= SP_WIGHT) continue;
+        if (MB_SP[q].diet == DIET_MEAT) pred += mb_pop(q); else graze += mb_pop(q);
+    }
+    int wildcap = MAXU * 34 / 100;  if (wildcap > 80) wildcap = 80;
+    int want_pred = (pred < wildcap / 4) && (graze >= wildcap * 3 / 4);
+
+    /* AND THE RESTOCK KEEPS UP WITH THE HUNTING. Six attempts a year was written for a world
+     * of 222 people who only picked berries. Four hundred and forty-five of them, with meat in
+     * the diet, took one measured world's wildlife from sixty animals to EIGHT — the herd cannot
+     * breed back from that. The rate now follows the shortfall, so a plundered ecology refills
+     * over a few years and a full one costs almost nothing. */
+    int gap = wildcap - pred - graze;  if (gap < 0) gap = 0;
+    int tries = 6 + gap / 2;  if (tries > 40) tries = 40;
+    for (int t = 0; t < tries; t++) {
         uint32_t r = mb_rand((uint32_t)t * 7717u + 0x1a17u);
         int x = (int)(r % MW), y = (int)((r >> 11) % MH);
         uint8_t b = mb_w.biome[AT(x, y)];
         int sp = -1, roll = (int)((r >> 22) & 255);
+        if (want_pred) {
+            /* the predator this ground would carry */
+            switch (b) {
+            case B_FOREST:  sp = (roll & 3) ? SP_WOLF : SP_SPIDER; break;
+            case B_MEADOW: case B_GRASS: case B_TUNDRA: case B_HILL: sp = SP_WOLF; break;
+            case B_SAVANNA: sp = (roll & 1) ? SP_DOG : SP_SNAKE; break;
+            case B_SWAMP:   sp = (roll & 1) ? SP_SNAKE : SP_SPIDER; break;
+            case B_DESERT:  sp = SP_SNAKE; break;
+            case B_MOUNTAIN:sp = SP_BAT;   break;
+            default: break;
+            }
+            if (sp >= 0 && !mb_pop_class_full(sp)) mb_unit_spawn(sp, x, y);
+            continue;
+        }
         /* herbivores overwhelmingly: a world that has lost its wildlife needs prey
          * back before it needs wolves, or the wolves simply eat the seed stock */
         switch (b) {

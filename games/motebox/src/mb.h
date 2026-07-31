@@ -174,7 +174,12 @@ enum { JOB_IDLE = 0, JOB_WANDER, JOB_FORAGE, JOB_HUNT, JOB_FLEE, JOB_BREED,
        JOB_GUARD,
        /* AND THE TEMPLE. A priest with nowhere to be was a villager in a cowl: the trade
         * existed, the building existed, and neither did anything. */
-       JOB_PRAY, JOB_N };
+       JOB_PRAY,
+       /* AND PEST CONTROL IS NOT WAR. Scoring the wolf hunt as JOB_FIGHT was a bad shortcut:
+        * that job's execution re-queries the nearest ENEMY and only falls back to a beast, so
+        * "kill the wolf on our fields" became "attack whoever is nearest" and every garrison in
+        * the world went permanently to war. Measured: 2524 slain in a world that then died out. */
+       JOB_CULL, JOB_N };
 
 /* PROFESSIONS. A job is what somebody is doing this minute; a profession is what they
  * are for. Splitting them is what lets a village have a shape — nine farmers and one
