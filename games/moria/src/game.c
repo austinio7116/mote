@@ -200,10 +200,15 @@ static const char KB[] =
 #define KBN   ((int)(sizeof(KB)-1))
 #define KBCOL 10
 static int s_kb_sel;
-/* movement / direction poll (with 1-frame coalesce so diagonals register) */
+/* movement / direction poll (with 1-frame coalesce so diagonals register).
+   Repeat timing is in REAL TIME (mote->micros), not frames, so it feels the
+   same regardless of the device's frame rate. */
 static int s_dp_prev, s_dp_settle, s_dp_hold;
-#define REP_DELAY 26   /* frames before hold-to-move repeats (~0.85s; tap=1 step) */
-#define REP_INT   10   /* frames between repeats while held (~3 steps/sec)        */
+static uint64_t s_dp_next_us;
+#define REP_DELAY_US 1000000u   /* hold ~1.0s before it starts walking */
+#define REP_INT_US    440000u   /* ~2.3 steps/sec while held           */
+#define REP_DELAY 26            /* (sheet scroll, frame-based)          */
+#define REP_INT   10
 
 /* ---- input helpers ------------------------------------------------------- */
 static int dpad_mask(const MoteInput *in)
@@ -232,10 +237,12 @@ static int dir_from_mask(int m)
 static int poll_dir(const MoteInput *in, int allow_repeat)
 {
     int m = dpad_mask(in);
-    if (m == 0)          { s_dp_prev = 0; s_dp_settle = 0; s_dp_hold = 0; return 0; }
-    if (m != s_dp_prev)  { s_dp_prev = m; s_dp_settle = 1; s_dp_hold = 0; return 0; }
-    if (s_dp_settle)     { s_dp_settle = 0; s_dp_hold = REP_DELAY; return dir_from_mask(m); }
-    if (allow_repeat && --s_dp_hold <= 0) { s_dp_hold = REP_INT; return dir_from_mask(m); }
+    uint64_t now = mote->micros();
+    if (m == 0)          { s_dp_prev = 0; s_dp_settle = 0; return 0; }
+    if (m != s_dp_prev)  { s_dp_prev = m; s_dp_settle = 1; return 0; }
+    /* one settle frame so a diagonal (two edges a frame apart) reads as one dir */
+    if (s_dp_settle)     { s_dp_settle = 0; s_dp_next_us = now + REP_DELAY_US; return dir_from_mask(m); }
+    if (allow_repeat && now >= s_dp_next_us) { s_dp_next_us = now + REP_INT_US; return dir_from_mask(m); }
     return 0;
 }
 static int any_confirm(const MoteInput *in)

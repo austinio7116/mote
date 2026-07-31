@@ -2969,7 +2969,17 @@ static void g_update(float dt)
     /* --- A casts. A brush power keeps casting while held, on a fixed cadence so
      * painting terrain feels like a brush rather than a machine gun; everything
      * else fires once per press, because a meteor should cost a decision. --- */
-    if (!wheel) {
+    /* THE PRESS THAT CHOSE A POWER MUST NOT ALSO CAST IT.
+     *
+     * A brush power fires on A HELD rather than on the press, so choosing one in the picker with
+     * a natural press-and-hold closed the menu and then immediately painted the terrain under
+     * the cursor with the very power you had just picked. A has to be RELEASED once before it
+     * counts as a cast — the same "armed" latch the engine's own menu uses on its way out. */
+    static int a_armed = 1;
+    if (wheel) a_armed = 0;
+    else if (!mote_pressed(in, MOTE_BTN_A)) a_armed = 1;
+
+    if (!wheel && a_armed) {
         int fire = mb_power_brush()
                  ? (mote_pressed(in, MOTE_BTN_A) && (s_cast_cool -= dt) <= 0.0f)
                  : mote_just_pressed(in, MOTE_BTN_A);

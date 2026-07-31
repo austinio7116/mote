@@ -99,9 +99,15 @@ for i in $(seq 1 "$SEEDS"); do
         if (late_plague_delta > years * 4) {
             printf "  endemic plague: %d deaths across the second half\n", late_plague_delta; bad++
         }
-        # 7. starvation must be rare — a village beside a full barn should not starve
-        if (endstarve > endpop * 3 + 40) {
-            printf "  famine: %d starvation deaths against a final pop of %d\n", endstarve, endpop; bad++
+        # 7. starvation must be rare — a village beside a full barn should not starve.
+        #    AGAINST THE PEAK, NOT THE END. Measured against the final population this fired on
+        #    any world that died of something else: a world lost to a war (239 slain) reported
+        #    "famine: 45 starvation deaths against a final pop of 0" and failed the audit, when
+        #    45 across four centuries is nothing. What the invariant means is that starvation
+        #    is not a major cause of death here, and the size of a world is its PEAK.
+        #    (No apostrophes in this file: the awk program is inside a single-quoted string.)
+        if (endstarve > maxpop / 2 + 40) {
+            printf "  famine: %d starvation deaths in a world that peaked at %d\n", endstarve, maxpop; bad++
         }
         if (bad == 0)
             printf "seed %-7s ok   end: pop %-4d villages %-3d kingdoms %-2d  peak pop %d\n",
