@@ -211,6 +211,10 @@ static const uint16_t MB_OBJ_COL[O_N] = {
     C_MAROON,                /* gems      */
     0, 0,                    /* boulder, crag */
     C_SLATE,                 /* grave     — a battlefield should be visible */
+    0,                       /* sown      — bare earth, the biome says it      */
+    0,                       /* shoots                                         */
+    C_DKGREEN,               /* standing crop                                  */
+    C_YELLOW,                /* ripe      — a gold harvest, readable from orbit */
 };
 
 /* The five banner colours the buildings sheet is drawn in — so a kingdom's tint
@@ -722,6 +726,8 @@ typedef struct { const MoteImage *img; uint8_t cx, cy; } ObjSpr;
  * which the labels call "ghost icon (grey, large)". The rest of the list was no
  * better — the mine was a "station/shop" (a computer terminal), the dock was "train
  * track corner", the fire pit was "hay" and the farm was "orange flowers". */
+/* The four crop stages have NO sprite: mb_draw_fields paints them per pixel along with the
+ * furrows, which is what lets a field's edge be ragged and its rows line up. */
 static const ObjSpr MB_OBJ_SPR[O_N] = {
     { 0, 0, 0 },                        /* none                                  */
     { &nature_img,        6, 4 },       /* tree      "tree (foliage on trunk)"   */
@@ -751,6 +757,8 @@ static const ObjSpr MB_OBJ_SPR[O_N] = {
     { &rocks_img,         1, 0 },       /* boulder   — an outcrop breaking the surface */
     { &rocks_img,         2, 0 },       /* crag      — a snow-crowned high crag        */
     { &nature_img,       15, 0 },       /* grave     "tombstone"  (was a GHOST)  */
+    { 0, 0, 0 }, { 0, 0, 0 },           /* sown, shoots                          */
+    { 0, 0, 0 }, { 0, 0, 0 },           /* standing crop, ripe crop              */
 };
 /* The tripwire O_NAME has. This array was 15 entries long while the enum grew past
  * 30, so graves drew nothing at all: a battlefield with thirty-four dead showed bare
@@ -1194,12 +1202,15 @@ static int rl_hard(uint8_t b)      /* rock: shaded hard, because this is the mou
  */
 void mb_draw_fields(uint16_t *fb, int cam_x, int cam_y)
 {
-    /* 26 ticks a stage: at x1 that is a little over three seconds, slow enough to notice and
-     * quick enough that you see a harvest in a sitting. A year is 52 ticks. */
-    const int stage = (int)((mb_w.tick / 26u) & 3u);
+    /* THE STAGE IS THE CELL'S, NOT THE CLOCK'S. This was `(mb_w.tick / 26) & 3` — one number
+     * for the whole world, so every field on the map ripened and was cut on the same tick and
+     * the farmers walking through them had nothing to do with any of it. Each cell now carries
+     * its own crop as an object: a farmer sows it, it grows on its own schedule, a farmer cuts
+     * it. A field with no crop object on it is ploughed ground waiting for seed. */
 
     static const uint16_t SOIL   = MOTE_RGB565(122,  74,  46);   /* the ridge, lit      */
     static const uint16_t FURROW = MOTE_RGB565( 78,  46,  30);   /* the trench, shaded  */
+    static const uint16_t SEED   = MOTE_RGB565( 58,  34,  22);   /* seed in the drill   */
     static const uint16_t SHOOT  = MOTE_RGB565( 96, 160,  66);
     static const uint16_t STALK  = MOTE_RGB565( 74, 146,  54);
     static const uint16_t RIPE   = MOTE_RGB565(214, 176,  62);
@@ -1211,6 +1222,14 @@ void mb_draw_fields(uint16_t *fb, int cam_x, int cam_y)
         for (int c = c0; c <= c0 + MVW; c++) {
             if (c < 0 || c >= MW) continue;
             if (mb_w.biome[AT(c, r)] != B_FARM) continue;
+            int stage;
+            switch (mb_w.obj[AT(c, r)]) {
+            case O_SOWN:   stage = 1; break;
+            case O_SHOOTS: stage = 2; break;
+            case O_GROWN:  stage = 3; break;
+            case O_RIPE:   stage = 4; break;
+            default:       stage = 0; break;   /* no crop: ploughed and waiting for seed */
+            }
             int px0 = c * TILE - cam_x, py0 = r * TILE - cam_y;
             /* the furrows run with the tile, but their PHASE comes from the cell, so a
              * field is a field and not a set of identical stamps */
@@ -1246,10 +1265,13 @@ void mb_draw_fields(uint16_t *fb, int cam_x, int cam_y)
                         int ridge = ((x + phase) & 3);
                         switch (stage) {
                         case 0: break;                       /* ploughed: bare earth */
-                        case 1:                                   /* shoots */
+                        case 1:                                   /* sown: seed in the drill */
+                            if (ridge == 2 && (y & 3) == 2) col = SEED;
+                            break;
+                        case 2:                                   /* shoots */
                             if (ridge == 2 && (y & 3) == 1) col = SHOOT;
                             break;
-                        case 2:                                   /* a green stand */
+                        case 3:                                   /* a green stand */
                             if (ridge != 1 && (y & 1) == 0) col = STALK;
                             else if (ridge == 2) col = SHOOT;
                             break;

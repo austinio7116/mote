@@ -21,7 +21,7 @@
 /* v2: units gained a given name, a spouse, a trade and a haul destination; villages
  * gained a lord name and age, a creed, a specialisation, a tier and a research store. */
 /* v3: villages gained `coast`, the water count a quay is gated on. */
-#define SAVE_VERSION 3
+#define SAVE_VERSION 4   /* v4: Village gained ripe/fallow */
 
 typedef struct {
     uint32_t magic, version;

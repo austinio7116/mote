@@ -56,6 +56,12 @@ enum {
     O_NONE = 0,
     O_TREE, O_TREE2, O_DEAD, O_BUSH, O_TUFT, O_ROCK, O_REEDS, O_FLOWER,
     O_ORE, O_SILVER, O_GOLD, O_GEM, O_BOULDER, O_PEAKROCK, O_GRAVE,
+    /* --- THE CROP, one cell at a time -------------------------------------
+     * Growth used to be a single global stage off the world tick, so every field in the world
+     * turned together and no farmer had anything to do with it. A crop is per-cell state, and
+     * the per-cell byte that already exists and is already drawn is the OBJECT — so the crop
+     * IS an object, sown by a farmer, ripened by time, and carried off by a farmer. */
+    O_SOWN, O_SHOOTS, O_GROWN, O_RIPE,
     /* --- built things (Phase 4) --- */
     O_BUILD0,
     O_FIRE_PIT = O_BUILD0,   /* the founding marker */
@@ -317,6 +323,12 @@ typedef struct {
     uint8_t  tier;          /* TIER_*, recomputed each visit; cached so the HUD is cheap */
     uint16_t research;      /* accumulates toward the kingdom's next tech */
     uint16_t traded;        /* lifetime caravans received — a trade hub is a real thing */
+    /* THE STATE OF THE BELT, counted on the village visit. A harvest standing uncut and a
+     * field lying unsown are work whether or not the granary is full — without these two
+     * numbers the food want is a pure store level, so a town with a full barn had nothing for
+     * a farmer to do and its fields sat at whatever stage they were last left in. */
+    uint8_t  ripe;          /* field cells with a crop ready to cut  */
+    uint8_t  fallow;        /* field cells with bare ground to sow   */
 } Village;
 
 typedef struct {

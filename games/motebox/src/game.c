@@ -52,6 +52,7 @@ static int s_frame;
 
 /* --- view + cursor ------------------------------------------------------ */
 static int s_god = 1;                /* 1 = God's Eye, 0 = Mortal View */
+static int s_boot_mortal = 0;        /* MOTEBOX_MORTAL=1, host captures only  */
 static int s_cx = MW / 2, s_cy = MH / 2;
 static int s_cam_x, s_cam_y;
 static float s_hold;                 /* how long the d-pad has been held */
@@ -100,6 +101,7 @@ static const char *const FX_NAME[FX_N] = { "", "BURNING", "LAVA", "FLOOD", "ACID
 static const char *const O_NAME[O_N] = {
     "", "tree", "tree", "dead tree", "bush", "grass", "rock", "reeds",
     "reeds", "iron", "silver", "gold", "gems", "boulder", "crag", "grave",
+    "sown field", "shoots", "standing crop", "ripe crop",
     /* --- built --- */
     "campfire", "hall", "great hall", "castle",
     "house", "cottage", "manor",
@@ -1180,18 +1182,19 @@ static void god_menu(void)
         snprintf(st[2], sizeof st[2], "MODE: %s", mb_mode() == MODE_SANDBOX ? "SANDBOX" : "PANTHEON");
         snprintf(st[3], sizeof st[3], "pop %d  villages %d  kingdoms %d",
                  mb_pop_civ(), mb_village_count(), mb_kingdom_count());
-        static char st4[30];
+        static char st4[30], st5[30];
         snprintf(st4, sizeof st4, "MAP: %s", MB_MAPMODE_NAME[mb_draw_mapmode()]);
+        snprintf(st5, sizeof st5, "SPEED: %s", SPEED_NAME[s_speed]);
         /* THE THINGS YOU CAME HERE TO DO GO FIRST. This menu used to open on four rows of
          * status, so the log was the seventh line down a screen that did not look like a
          * list of actions — and it was called CHRONICLE, which is a lovely word and not a
          * word anybody hunting for a log would read as one. Both fixed: it is the top row,
          * and it says what it is. */
         const char *items[] = { "EVENT LOG", "THE WORLD REPORT",
-                                st4, st[0], st[1], st[2], st[3],
+                                st4, st5, st[0], st[1], st[2], st[3],
                                 "WORLD LAWS", "SAVE WORLD", "LOAD WORLD",
                                 "NEW WORLD", "CLOSE" };
-        int c = mote->menu("MOTEBOX", items, 12);
+        int c = mote->menu("MOTEBOX", items, 13);
         switch (c) {
         case 0: chronicle_menu(); break;
         case 1: s_ui = UI_WORLD; s_ui_row = 0; return;   /* the drawn screen */
@@ -1200,15 +1203,17 @@ static void god_menu(void)
          * are visible at world scale — see mb_draw_prepare(). */
         case 2: mb_draw_mapmode_set((mb_draw_mapmode() + 1) % MAPMODE_N);
                 mb_draw_init(); break;
-        case 5: mb_mode_set(mb_mode() == MODE_SANDBOX ? MODE_PANTHEON : MODE_SANDBOX); break;
-        case 7: law_menu(); break;
-        case 8: {
+        /* the clock, cycling like the lens: pause, x1, x3, x8, x25 */
+        case 3: s_speed = (s_speed + 1) % 5; break;
+        case 6: mb_mode_set(mb_mode() == MODE_SANDBOX ? MODE_PANTHEON : MODE_SANDBOX); break;
+        case 8: law_menu(); break;
+        case 9: {
             int ok = mb_save_write(0, s_cx, s_cy, s_god);
             const char *m[] = { ok ? "saved" : "SAVE FAILED", "BACK" };
             mote->menu("SAVE", m, 2);
             break;
         }
-        case 9: {
+        case 10: {
             int cx = s_cx, cy = s_cy, god = s_god;
             int ok = mb_save_read(0, &cx, &cy, &god);
             if (ok) { s_cx = cx; s_cy = cy; view_set(god); }
@@ -1216,7 +1221,7 @@ static void god_menu(void)
             mote->menu("LOAD", m, 2);
             break;
         }
-        case 10: {
+        case 11: {
             uint32_t ns = (uint32_t)mote->micros() ^ (mb_w.seed * 2654435761u);
             mb_world_gen(ns);
             /* RESET, not init: the arena is bump-only, so re-initialising would
@@ -1388,6 +1393,12 @@ static void g_init(void)
 
         const char *yy = getenv("MOTEBOX_YEARS");
         if (yy && *yy) fast_forward(atoi(yy));
+        /* MOTEBOX_MORTAL=1 boots straight into the Mortal View. Every scripted capture of a
+         * field, a fight or a footstep had to be taken in God's Eye because that is where the
+         * game opens, so half the checks were made on a 1x1-pixel-per-cell map that cannot
+         * show any of it. Set after the fast-forward so the follow camera lands on the
+         * cursor's town. */
+        if (getenv("MOTEBOX_MORTAL")) s_boot_mortal = 1;
     }
 #endif
     mb_world_start(&s_cx, &s_cy);
@@ -1966,14 +1977,28 @@ static void g_init(void)
                                                || o == O_FLOWER || o == O_TREE)) garden++;
                     if (mb_w.road[i]) paved++;
                 }
-                int farms = 0, fields = 0;
+                int farms = 0, fields = 0, crop[5] = { 0 };
                 for (int i = 0; i < NC; i++) {
                     if (mb_w.obj[i] == O_FARM) farms++;
-                    if (mb_w.biome[i] == B_FARM) fields++;
+                    if (mb_w.biome[i] != B_FARM) continue;
+                    fields++;
+                    switch (mb_w.obj[i]) {
+                    case O_SOWN:   crop[1]++; break;
+                    case O_SHOOTS: crop[2]++; break;
+                    case O_GROWN:  crop[3]++; break;
+                    case O_RIPE:   crop[4]++; break;
+                    default:       crop[0]++; break;
+                    }
                 }
                 fprintf(stderr, "townscape: %d monuments %d fountains, "
                                 "%d planted cells, %d paved, %d farms, %d field cells\n",
                         mon, fnt, garden, paved, farms, fields);
+                /* THE BELT, STAGE BY STAGE. A field's crop is per-cell state now, so the only
+                 * question that matters about it is whether the stages are MIXED: all fallow
+                 * means nobody sows, all ripe means nobody reaps, and one stage across the
+                 * whole world is the global clock this replaced. */
+                fprintf(stderr, "the belt: %d fallow %d sown %d shoots %d standing %d ripe\n",
+                        crop[0], crop[1], crop[2], crop[3], crop[4]);
                 /* AND WHAT THE FIRE HAS BECOME. The founding campfire climbs a ladder — fire,
                  * well, gas lamp, street light — and every rung is one column on the sheet, so
                  * the tally of resolved columns is the whole answer. */
@@ -2201,7 +2226,7 @@ static void g_init(void)
      * first world tick — which at 400 fps is a tenth of a second, long enough to be the
      * first thing a screenshot catches and long enough to look like a bug. */
     mb_bands_rebuild();
-    view_set(1);
+    view_set(s_boot_mortal ? 0 : 1);
 }
 
 /* The overlay has no dt of its own — the engine hands it only a framebuffer — so the update
@@ -2483,8 +2508,10 @@ static void g_update(float dt)
 
     /* --- LB TAP cycles speed (LB HOLD is the wheel, handled above); RB toggles
      * the zoom, unless the wheel is up, where RB pages tabs --- */
-    if (!wheel && mote_just_released(in, MOTE_BTN_LB) && !s_lb_was_wheel)
-        s_speed = (s_speed + 1) % 5;
+    /* LB OPENS THE POWER MENU ON A TAP now, so it can no longer also be the speed control —
+     * one press cannot mean two things, and a hold-to-open menu was a tax on the commonest
+     * action in the game. Speed lives in the god menu beside the map lens, which is where a
+     * setting belongs and is discoverable rather than remembered. */
     s_lb_was_wheel = wheel;
     /* RB: TAP TOGGLES THE VIEW, HOLD SEEKS. One shoulder, two verbs, no chord — the
      * same tap/hold split LB already uses for speed and the wheel. The threshold has
@@ -2671,7 +2698,12 @@ static void g_overlay(uint16_t *fb)
          * about once a century, it is on the world screen, and it was eating most of a
          * fourteen-pixel strip that is the game's only running commentary. The older entry
          * goes above the newer one in the dimmer colour, so the pair reads as a feed. */
+        /* DON'T PRINT THE SAME LINE TWICE. Two blizzards in a row are two real events, but a
+         * strip reading "a blizzard / a blizzard" reads as a bug, so an entry that repeats the
+         * one below it is skipped in favour of the next distinct one. */
         const char *prev = mb_chron_recent(1);
+        if (prev && toast && !strcmp(prev, toast)) prev = mb_chron_recent(2);
+        if (prev && toast && !strcmp(prev, toast)) prev = mb_chron_recent(3);
         if (prev) hud_text(fb, prev, 1, HUD_Y, 126, C_TEXT, -1);
         else {
             snprintf(buf, sizeof buf, "Y%d %s", year, mb_age_name());

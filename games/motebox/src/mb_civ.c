@@ -1602,6 +1602,13 @@ int mb_village_need(int v, uint16_t *target)
      * Wants scale with the MOUTHS and the WORK now, and none of them can go negative. A town
      * always has something worth doing, which is the whole point of having people in it. */
     int need_food  = V->pop * 8 - (int)V->food;
+    /* AND THE BELT ITSELF IS WORK. Food used to be wanted only in proportion to how empty
+     * the granary was, so a town with a full barn wanted nothing from its fields — the crop
+     * stood uncut and the bare ground stayed bare, which is the whole difference between a
+     * farm that is farmed and a texture that changes colour. A standing harvest is worth
+     * fetching at any store level, and next year's sowing is worth doing today. */
+    if (V->ripe   * 7 > need_food) need_food = V->ripe   * 7;
+    if (V->fallow * 3 > need_food) need_food = V->fallow * 3;
     int need_wood  = 90 - (int)V->wood;
     int need_stone = 70 - (int)V->stone;
     if (need_food  < 0) need_food  = 0;
@@ -1641,6 +1648,14 @@ int mb_village_need(int v, uint16_t *target)
 int mb_village_resource(int v, int kind, int *ox, int *oy)
 {
     Village *V = &mb_v[v];
+    /* SPREAD THE LABOUR. The spiral returned the first hit in a fixed scan order, so every
+     * villager who wanted the same thing was sent to the same cell — one tree felled by a
+     * queue of nine while the wood behind it stood, and one field cell worked over and over
+     * while the rest of the belt lay unsown. A rotating skip hands consecutive callers
+     * different cells for the price of one byte, and the first hit is kept as a fallback so a
+     * valley with a single tree left in it still gets pointed at that tree. */
+    static uint8_t s_spread;
+    int skip = (int)(s_spread++ & 3u), fx = -1, fy = -1;
     for (int rad = 1; rad < 14; rad++)
         for (int dy = -rad; dy <= rad; dy++)
             for (int dx = -rad; dx <= rad; dx++) {
@@ -1653,9 +1668,18 @@ int mb_village_resource(int v, int kind, int *ox, int *oy)
                 if (kind == CARRY_STONE) hit = (o == O_ROCK || o == O_BOULDER || b == B_MOUNTAIN || b == B_HILL);
                 if (kind == CARRY_IRON)  hit = (o == O_ORE);
                 if (kind == CARRY_GOLD)  hit = (o == O_GOLD || o == O_GEM || o == O_SILVER);
-                if (kind == CARRY_FOOD)  hit = (o == O_BUSH || o == O_FLOWER || b == B_FARM);
-                if (hit) { *ox = x; *oy = y; return 1; }
+                /* A GROWING CROP IS NOT A TARGET. `b == B_FARM` matched a field at any stage,
+                 * so villagers walked into standing wheat and took seven food out of it. Two
+                 * things on a field are worth the walk: a ripe crop to cut, and bare ground to
+                 * sow. Which of the two it is, is decided on arrival by what is actually there. */
+                if (kind == CARRY_FOOD)  hit = (o == O_BUSH || o == O_FLOWER ||
+                                                (b == B_FARM && (o == O_RIPE || o == O_NONE)));
+                if (hit) {
+                    if (fx < 0) { fx = x; fy = y; }
+                    if (skip-- <= 0) { *ox = x; *oy = y; return 1; }
+                }
             }
+    if (fx >= 0) { *ox = fx; *oy = fy; return 1; }
     return 0;
 }
 
@@ -1708,7 +1732,16 @@ void mb_village_work(int v, int ui)
         else if (*o == O_GOLD || *o == O_SILVER || *o == O_GEM) { u->carry = 5; u->carry_kind = CARRY_GOLD; }
         else if (*o == O_BUSH || *o == O_FLOWER)           { *o = O_NONE; u->carry = 6; u->carry_kind = CARRY_FOOD; }
         else if (b == B_MOUNTAIN || b == B_HILL)           { u->carry = 5; u->carry_kind = CARRY_STONE; }
-        else if (b == B_FARM)                              { u->carry = 7; u->carry_kind = CARRY_FOOD; }
+        /* THE FIELD IS SOWN AND CUT BY HAND. This paid seven food for standing on any farm
+         * cell whatever was growing on it, which is why the whole belt ripened and was cut on
+         * one world tick with the farmers as bystanders. A farmer now finds either bare
+         * ground, and sows it, or a ripe crop, and carries it in. */
+        else if (b == B_FARM) {
+            if (*o == O_RIPE)      { *o = O_NONE; u->carry = 24; u->carry_kind = CARRY_FOOD; }
+            else if (*o == O_NONE) { *o = O_SOWN; u->happy += 1;
+                                     u->target = 0xFFFF; return; }   /* sown, and home empty-handed */
+            else { u->target = 0xFFFF; u->job = JOB_IDLE; return; }
+        }
         else { u->target = 0xFFFF; u->job = JOB_IDLE; return; }
         u->target = 0xFFFF;
         return;
@@ -2263,11 +2296,26 @@ void mb_civ_step(void)
          * stone, and it deadlocked: with no food the lord could not afford a farm,
          * and with no farm there was no food. Worked land producing on its own is
          * both how every other sim does it and the only version that cannot lock. */
-        int farms = mb_civ_count(v, O_FARM), fields = 0;
+        int farms = mb_civ_count(v, O_FARM), fields = 0, n_ripe = 0, n_fallow = 0;
         for (int y = V->y - 8; y <= V->y + 8; y++)
-            for (int x = V->x - 8; x <= V->x + 8; x++)
-                if (mb_in(x, y) && mb_w.claim[AT(x, y)] == v && mb_w.biome[AT(x, y)] == B_FARM)
-                    fields++;
+            for (int x = V->x - 8; x <= V->x + 8; x++) {
+                if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v ||
+                    mb_w.biome[AT(x, y)] != B_FARM) continue;
+                fields++;
+                if (mb_w.obj[AT(x, y)] == O_RIPE) n_ripe++;
+                if (mb_w.obj[AT(x, y)] == O_NONE) n_fallow++;
+                /* AND THE CROP GROWS ON ITS OWN CLOCK, one cell at a time. A village is
+                 * visited every alive_n ticks, so a one-in-eight chance per stage per visit
+                 * puts a sowing about two years from the harvest — long enough to watch, and
+                 * independent per cell, which is the whole point: a belt shows sown earth,
+                 * green shoots, a standing crop and gold waiting to be cut, all at once. */
+                uint8_t *co = &mb_w.obj[AT(x, y)];
+                if ((mb_rand((uint32_t)AT(x, y) * 2246822519u) & 7u) == 0u) {
+                    if      (*co == O_SOWN)   *co = O_SHOOTS;
+                    else if (*co == O_SHOOTS) *co = O_GROWN;
+                    else if (*co == O_GROWN)  *co = O_RIPE;
+                }
+            }
         /* THE BARN STORES; THE FIELD IS HARVESTED BY HAND. This was farms*6 + fields, so a
          * town with a forty-cell belt gained forty-odd food a visit whatever anybody did —
          * the granary stayed full, nothing was ever wanted, and the farmers had no reason to
@@ -2275,7 +2323,18 @@ void mb_civ_step(void)
          * and the rest of the crop has to be carried in: mb_village_resource already treats a
          * B_FARM cell as a food target and mb_village_work already pays seven for working
          * one, so the labour existed and had simply been made pointless. */
-        V->food = (uint16_t)(V->food + farms * 5 + fields / 3);
+        V->ripe   = (uint8_t)(n_ripe   > 255 ? 255 : n_ripe);
+        V->fallow = (uint8_t)(n_fallow > 255 ? 255 : n_fallow);
+
+        /* THE PASSIVE TERM COUNTS WORKED LAND ONLY. `fields / 3` paid for every cell of the
+         * belt whatever state it was in, so a town gained thirteen food a visit whether or not
+         * one farmer left the square. Dropping it entirely was measured too: the audit's end
+         * populations fell from 222 to the eighties on half the seeds, because a hand harvest
+         * alone cannot feed a town of thirty. A cell that has been SOWN pays; a fallow one does
+         * not — so the yield still has to be earned, and the belt-as-work floor above keeps
+         * the farmers in the fields even when the barn is full. */
+        int worked = fields - n_fallow;
+        V->food = (uint16_t)(V->food + farms * 5 + worked / 2);
 
         /* the field ring: a farm turns the ground around it into worked land,
          * which is the harvest AND the most legible sign of a working village */

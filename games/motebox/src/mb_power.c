@@ -797,10 +797,19 @@ static int pressed_arm(const MoteInput *in)
 /* Returns 1 while the wheel owns the d-pad, so the cursor does not move. */
 int mb_power_input(const MoteInput *in)
 {
-    int lb = mote_pressed(in, MOTE_BTN_LB);
-    if (lb && !s_wheel) {
-        s_wheel = 1;
-        s_wheel_pick = s_sel[s_tab];      /* open on what you last used */
+    /* LB TOGGLES. It used to be a HOLD: open while the shoulder was down, commit on release.
+     * A hold is for a thing you peek at, and this is a menu of forty-eight powers you read,
+     * page through and choose from — holding a button for that is just a tax. Tap to open, pick
+     * with the d-pad, A or LB to take it, B to leave it as it was. */
+    if (mote_just_pressed(in, MOTE_BTN_LB)) {
+        if (!s_wheel) {
+            s_wheel = 1;
+            s_wheel_pick = s_sel[s_tab];  /* open on what you last used */
+        } else {
+            if (s_wheel_pick >= 0) s_sel[s_tab] = s_wheel_pick;   /* commit */
+            s_wheel = 0; s_wheel_pick = -1;
+            return 1;
+        }
     }
     if (!s_wheel) return 0;
 
@@ -835,8 +844,10 @@ int mb_power_input(const MoteInput *in)
         s_wheel_pick = s_sel[s_tab];
     }
 
-    if (!lb) {                            /* released: commit */
+    if (mote_just_pressed(in, MOTE_BTN_A)) {          /* A takes it too */
         if (s_wheel_pick >= 0) s_sel[s_tab] = s_wheel_pick;
+        s_wheel = 0; s_wheel_pick = -1;
+    } else if (mote_just_pressed(in, MOTE_BTN_B)) {   /* B leaves it as it was */
         s_wheel = 0; s_wheel_pick = -1;
     }
     return 1;
@@ -937,5 +948,5 @@ void mb_power_draw_wheel(uint16_t *fb, const MoteFont *font)
         if (!mb_faith_afford(tab[i].cost))
             mb_dim_rect(fb, x - 1, y - 1, TILE + 2, TILE + 2, FILL, 140);
     }
-    mb_ui_actions(fb, "LB HOLD  RB PAGE", 0, FILL);
+    mb_ui_actions(fb, "A TAKE", "RB PAGE", FILL);
 }
