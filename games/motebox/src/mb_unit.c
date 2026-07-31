@@ -372,6 +372,127 @@ static int find_forage(int x, int y, int r, int *ox, int *oy)
     return 0;
 }
 
+#if MOTE_HOST
+uint32_t mb_leis_seen, mb_leis_gate, mb_leis_spot, mb_leis_win;
+#endif
+
+/* --- LEISURE: what a fed, safe, unemployed person does ----------------------
+ *
+ * Scored BELOW work and courtship and ABOVE the wander floor, which is precisely the gap the
+ * idle population was sitting in: a town with a full granary wants no labour, so 150 of 222
+ * souls had nothing scored above 14 and stood in the square.
+ *
+ * The pastime is mostly CHARACTER — a hash of the person, so the same villager tends to the
+ * same thing and you can recognise them by it — crossed with who they are: elders and the
+ * content lie in the sun, the brave go looking over the hill, the young play in the square if
+ * anybody will play with them, and everybody else walks the streets.
+ *
+ * Its own function because TWO callers need it: the brain, and the cheap re-think an idle
+ * villager gets on the ticks between its brain's turns (see mb_unit_step). The searches here
+ * are a handful of random samples on purpose — the expensive part of thinking is the resource
+ * spiral, and a person who has just finished a job can start walking without solving where the
+ * next job is.
+ *
+ * Returns the job, or 0, and fills `target`.
+ */
+static int leisure_pick(int i, uint16_t *target)
+{
+    Unit *u = &mb_u[i];
+    int x = u->x >> 4, y = u->y >> 4;
+    if (MB_SP[u->sp].drives != DRV_CIV || !u->village) return 0;
+    if (!mb_v[u->village].alive) return 0;
+    const Village *V = &mb_v[u->village];
+    uint32_t lh = mb_rand((uint32_t)i * 6151u + 0x1e15u);
+    int pick;
+    int old_enough = u->age > MB_SP[u->sp].lifespan * 3 / 5;
+    if (old_enough || (u->happy > 40 && (lh & 3u) == 0u))       pick = JOB_BASK;
+    else if ((u->traits & TR_BRAVE) && (lh & 7u) < 3u)          pick = JOB_ROAM;
+    else if ((lh & 3u) == 1u)                                   pick = JOB_SPORT;
+    else                                                        pick = JOB_STROLL;
+
+    int gx = -1, gy = -1;
+    if (pick == JOB_BASK) {
+        /* open, soft ground out of the street: a meadow, a beach, a green */
+        for (int t = 0; t < 6 && gx < 0; t++) {
+            uint32_t h = mb_rand((uint32_t)(i * 977u + t * 131u));
+            int bx = x + (int)(h % 11u) - 5, by = y + (int)((h >> 8) % 11u) - 5;
+            if (!mb_in(bx, by)) continue;
+            uint8_t b = mb_w.biome[AT(bx, by)];
+            if (b != B_MEADOW && b != B_GRASS && b != B_BEACH && b != B_SAVANNA) continue;
+            if (mb_w.road[AT(bx, by)] || mb_w.obj[AT(bx, by)]) continue;
+            gx = bx; gy = by;
+        }
+    } else if (pick == JOB_STROLL) {
+        for (int t = 0; t < 8 && gx < 0; t++) {              /* a paved cell of their town */
+            uint32_t h = mb_rand((uint32_t)(i * 1543u + t * 7717u));
+            int bx = V->x + (int)(h % 17u) - 8, by = V->y + (int)((h >> 8) % 17u) - 8;
+            if (!mb_in(bx, by)) continue;
+            if (!mb_w.road[AT(bx, by)] || mb_w.claim[AT(bx, by)] != u->village) continue;
+            gx = bx; gy = by;
+        }
+    } else if (pick == JOB_ROAM) {
+        /* over the hill: far enough to be somewhere else, and the wander floor walks them
+         * home again afterwards because it is anchored to the hall */
+        for (int t = 0; t < 8 && gx < 0; t++) {
+            uint32_t h = mb_rand((uint32_t)(i * 3079u + t * 40503u));
+            int rad = 12 + (int)(h % 14u);
+            int bx = V->x + (int)((h >> 6) % (uint32_t)(2 * rad + 1)) - rad;
+            int by = V->y + (int)((h >> 17) % (uint32_t)(2 * rad + 1)) - rad;
+            if (!mb_in(bx, by) || !mb_land(mb_w.biome[AT(bx, by)])) continue;
+            gx = bx; gy = by;
+        }
+    } else {
+        /* THE SQUARE, and only if somebody else of the town is near enough to play with. A
+         * game of one is a person standing in a plaza, which is what this exists to stop. */
+        int near_kin = 0;
+        for (int q = 0; q < 6; q++) {
+            int j = (i + 1 + q * 7) % (mb_nu > 0 ? mb_nu : 1);
+            const Unit *o = &mb_u[j];
+            if (j == i || !o->alive || o->village != u->village) continue;
+            int dx = (o->x >> 4) - x, dy = (o->y >> 4) - y;
+            if (dx * dx + dy * dy <= 64) { near_kin = 1; break; }
+        }
+        if (near_kin) {
+            /* the monument or the fountain if the town has raised one; the hall otherwise */
+            for (int dy = -6; dy <= 6 && gx < 0; dy++)
+                for (int dx = -6; dx <= 6; dx++) {
+                    int bx = V->x + dx, by = V->y + dy;
+                    if (!mb_in(bx, by) || mb_w.claim[AT(bx, by)] != u->village) continue;
+                    uint8_t o = mb_w.obj[AT(bx, by)];
+                    if (o == O_MONUMENT || o == O_FOUNTAIN) { gx = bx; gy = by; break; }
+                }
+            if (gx < 0) { gx = V->x; gy = V->y; }
+        }
+    }
+    if (gx < 0) return 0;
+    *target = (uint16_t)AT(gx, gy);
+    return pick;
+}
+
+/* THE CHEAP RE-THINK an idle villager gets between its brain's turns: a pastime, or the walk
+ * home. Everything expensive — the resource spiral, the threat and mate queries — waits for
+ * the unit's own phase. */
+static void idle_pick(int i)
+{
+    Unit *u = &mb_u[i];
+    uint16_t t = 0xFFFF;
+    int job = leisure_pick(i, &t);
+    if (job) { u->job = (uint8_t)job; u->target = t; return; }
+    /* the wander floor, anchored to home — see the note on diffusion in think() */
+    uint32_t r = mb_rand((uint32_t)i * 40503u + 3u);
+    int hx = u->x >> 4, hy = u->y >> 4, span = 13;
+    if (MB_SP[u->sp].drives == DRV_CIV && u->village && u->village < MAXV
+        && mb_v[u->village].alive) {
+        hx = mb_v[u->village].x; hy = mb_v[u->village].y; span = 9;
+    }
+    int wx = hx + (int)((r >> 3) % (uint32_t)span) - span / 2;
+    int wy = hy + (int)((r >> 9) % (uint32_t)span) - span / 2;
+    if (wx < 0) wx = 0; if (wx >= MW) wx = MW - 1;
+    if (wy < 0) wy = 0; if (wy >= MH) wy = MH - 1;
+    u->job = JOB_WANDER;
+    u->target = (uint16_t)AT(wx, wy);
+}
+
 /* --- the brain ---------------------------------------------------------- */
 
 /* Actions are scored, not sequenced. The winner needs to beat the incumbent by
@@ -559,6 +680,32 @@ static void think(int i)
      * firefighting never triggered once — there was nobody near the fire to fight it.
      * Anchoring the walk to the hall makes a village a PLACE: people mill about it,
      * leave to forage or work, and come back when they have nothing to do. */
+    /* --- leisure, scored: see leisure_pick() above ------------------------ */
+#if MOTE_HOST
+    extern uint32_t mb_leis_seen, mb_leis_gate, mb_leis_spot, mb_leis_win;
+    if (sp->drives == DRV_CIV && u->village) mb_leis_seen++;
+#endif
+    if (sp->drives == DRV_CIV && u->village && bestv < 22
+        && u->hunger < 90 && danger < 20 && u->age >= 8) {
+#if MOTE_HOST
+        mb_leis_gate++;
+#endif
+        uint16_t lt = 0xFFFF;
+        int lj = leisure_pick(i, &lt);
+        if (lj) {
+#if MOTE_HOST
+            mb_leis_spot++;
+#endif
+            int lv = 16 + (int)((r >> 24) & 7u) + u->happy / 12;
+            if (lv > bestv) {
+                bestv = lv; best = lj; u->target = lt;
+#if MOTE_HOST
+                mb_leis_win++;
+#endif
+            }
+        }
+    }
+
     if (bestv < 14) {
         best = JOB_WANDER;
         int hx = x, hy = y, span = 13;
@@ -845,6 +992,45 @@ static void act(int i)
         mb_village_work(u->village, i);
         break;
 
+    /* --- LEISURE ---------------------------------------------------------
+     *
+     * Four pastimes, and the difference between them is meant to be visible at eight pixels:
+     * a walk that follows the streets, a figure out on its own in the hills, a knot of people
+     * jostling round the monument, and somebody lying still in a meadow. All four end by
+     * themselves when hunger overtakes them — see the leisure block in think(). */
+    case JOB_STROLL:
+    case JOB_ROAM:
+        if (u->target == 0xFFFF) { u->job = JOB_IDLE; break; }
+        step_toward(u, u->target % MW, u->target / MW);
+        u->happy = (int8_t)(u->happy < 120 ? u->happy + 1 : u->happy);
+        if ((u->x >> 4) == (int)(u->target % MW) && (u->y >> 4) == (int)(u->target / MW))
+            u->job = JOB_IDLE;                  /* arrived; the brain picks the next leg */
+        break;
+
+    case JOB_SPORT: {
+        /* converge on the square, then JOSTLE: short random steps around it. A crowd doing
+         * this reads as a game, where a crowd walking to one cell reads as a queue. */
+        if (u->target == 0xFFFF) { u->job = JOB_IDLE; break; }
+        int tx = u->target % MW, ty = u->target / MW;
+        int d = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+        if (d > 4) step_toward(u, tx, ty);
+        else {
+            step_toward(u, tx + (int)(r % 3u) - 1, ty + (int)((r >> 3) % 3u) - 1);
+            u->happy = (int8_t)(u->happy < 120 ? u->happy + 3 : u->happy);
+        }
+        break;
+    }
+
+    case JOB_BASK:
+        /* walk to the spot and then STOP. Standing still is the whole point: a village where
+         * three people are not moving is a village at its ease. */
+        if (u->target == 0xFFFF) { u->job = JOB_IDLE; break; }
+        if ((u->x >> 4) != (int)(u->target % MW) || (u->y >> 4) != (int)(u->target / MW))
+            step_toward(u, u->target % MW, u->target / MW);
+        else
+            u->happy = (int8_t)(u->happy < 120 ? u->happy + 2 : u->happy);
+        break;
+
     case JOB_WANDER:
     default:
         if (u->target == 0xFFFF) { u->job = JOB_IDLE; break; }
@@ -916,7 +1102,26 @@ void mb_unit_step(void)
     for (int i = 0; i < mb_nu; i++) {
         Unit *u = &mb_u[i];
         if (!u->alive) continue;
-        if ((i & 7) == phase) think(i);      /* one eighth of the population */
+        /* AN IDLE PERSON THINKS AT ONCE. The stagger is what keeps two hundred brains
+         * affordable, but it also meant that finishing a job — arriving with a load, or
+         * finding somebody else had already taken the tree — dropped a villager into JOB_IDLE
+         * for up to eight ticks with no target and no movement at all. Measured: 151 of 222
+         * souls standing still at any instant, which is exactly the "swarming around doing
+         * nothing" this all started from. Idle is not a state anybody should be left in, so it
+         * is the one case that jumps the queue. */
+        /* AND NOBODY IS LEFT STANDING STILL. The stagger is what keeps two hundred brains
+         * affordable, but it also meant that finishing a job — arriving with a load, or finding
+         * that somebody else had already taken the tree — dropped a villager into JOB_IDLE with
+         * no target and no movement for up to eight ticks. Measured: 151 of 222 souls motionless
+         * at any instant, which is exactly the "swarming about doing nothing" this started from.
+         * A full re-think for all of them cost 60% more sim time at first (7.3 s to 11.7 s over
+         * four hundred years, measured) — nearly all of it in mb_village_need's resource spiral,
+         * which is now cached per village per tick because it never depended on the villager
+         * asking. With that in place the idle can afford to think properly, which matters: the
+         * cheap version (a pastime or the walk home, no work query) left a struggling village's
+         * hands playing in the square for seven ticks out of eight and one audit world died out
+         * quietly because of it. */
+        if ((i & 7) == phase || u->job == JOB_IDLE) think(i);
         act(i);
         suffer(i);
     }

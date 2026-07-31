@@ -1859,10 +1859,42 @@ static void try_build(int v)
 }
 
 /* --- what a village asks of its people ---------------------------------- */
+static int mb_village_need_calc(int v, uint16_t *target);
+
+/* ONE ANSWER PER VILLAGE PER TICK.
+ *
+ * This is the most expensive query in the simulation — a want vector and then a bounded spiral
+ * over up to 729 cells — and it was being run once per villager per think, two hundred times a
+ * tick, for an answer that does not depend on the villager at all: it reads the village's
+ * stores and searches around the village's hall. Caching it by tick made the brain cheap
+ * enough that an idle villager can have a FULL re-think instead of a reduced one, which is what
+ * actually gets people off the square (see mb_unit_step).
+ *
+ * The rotating skip inside mb_village_resource still spreads the labour: consecutive TICKS get
+ * different cells, rather than consecutive callers within one tick. */
+static struct { int32_t tick; uint16_t target; int16_t need; } s_needc[MAXV];
+
+void mb_civ_need_flush(void)
+{
+    for (int i = 0; i < MAXV; i++) s_needc[i].tick = -1;
+}
 
 int mb_village_need(int v, uint16_t *target)
 {
     if (v <= 0 || v >= MAXV || !mb_v[v].alive) return 0;
+    if (s_needc[v].tick == mb_w.tick) {
+        *target = s_needc[v].target;
+        return s_needc[v].need;
+    }
+    int r = mb_village_need_calc(v, target);
+    s_needc[v].tick   = mb_w.tick;
+    s_needc[v].target = *target;
+    s_needc[v].need   = (int16_t)(r > 32767 ? 32767 : r);
+    return r;
+}
+
+static int mb_village_need_calc(int v, uint16_t *target)
+{
     Village *V = &mb_v[v];
     /* the scarcest thing wins, so labour follows shortage without a scheduler */
     /* WHY EVERYBODY WAS IDLE. A job census found four fifths of every population doing
@@ -1900,8 +1932,16 @@ int mb_village_need(int v, uint16_t *target)
      * stood uncut and the bare ground stayed bare, which is the whole difference between a
      * farm that is farmed and a texture that changes colour. A standing harvest is worth
      * fetching at any store level, and next year's sowing is worth doing today. */
-    if (V->ripe   * 7 > need_food) need_food = V->ripe   * 7;
-    if (V->fallow * 3 > need_food) need_food = V->fallow * 3;
+    /* BOUNDED BY THE HANDS IT NEEDS. A sixty-cell belt asked for sixty cells' worth of
+     * labour, and because the want is one number for the whole village every soul in it read
+     * that as "go to the fields" — so a prosperous town with a full granary still scored work
+     * above everything and nobody ever had an hour off. A third of the town is a farm's worth
+     * of hands; past that the fields can wait, and the rest can find something else to do. */
+    int hands = V->pop / 3 + 1;
+    int r_ripe   = (V->ripe   < hands ? V->ripe   : hands) * 7;
+    int r_fallow = (V->fallow < hands ? V->fallow : hands) * 3;
+    if (r_ripe   > need_food) need_food = r_ripe;
+    if (r_fallow > need_food) need_food = r_fallow;
     int need_wood  = 90 - (int)V->wood;
     int need_stone = 70 - (int)V->stone;
     if (need_food  < 0) need_food  = 0;

@@ -126,6 +126,10 @@ typedef char mb_trnames_complete[(sizeof TR_NAME / sizeof TR_NAME[0]) == TR_N ? 
 static const char *const JOB_NAME[JOB_N] = {
     "idle", "wandering", "foraging", "hunting", "fleeing", "courting",
     "working", "fighting", "FIGHTING THE FIRE",
+    /* "hauling" was missing — the array is [JOB_N] so the gap was a NULL, and every job
+     * census in the audit printed "(null)=1" for the caravan driver. */
+    "hauling",
+    "strolling", "exploring", "playing", "in the sun",
 };
 typedef char mb_jobnames_complete[(sizeof JOB_NAME / sizeof JOB_NAME[0]) == JOB_N ? 1 : -1];
 
@@ -2196,6 +2200,27 @@ static void g_init(void)
                             fprintf(stderr, "   town %2d %-8s pop %-3d at %d,%d\n", vv,
                                     MB_TOWNPLAN_NAME[mb_village_style(vv) % 5],
                                     mb_v[vv].pop, mb_v[vv].x, mb_v[vv].y);
+                    /* AND HOW MANY ARE WHERE THEY LIVE. A random walk DIFFUSES — an early version of the
+                     * wander spread every village's population evenly across the map, so a town
+                     * reporting eighteen people had nobody within five tiles of its own hall. Leisure
+                     * sends people out on purpose, so this number is the one to watch. */
+                    {   int home = 0, away = 0;
+                        for (int q = 0; q < mb_nu; q++) {
+                            const Unit *uu = &mb_u[q];
+                            if (!uu->alive || uu->sp >= SP_CIV_N || !uu->village) continue;
+                            int vx = mb_v[uu->village].x, vy = mb_v[uu->village].y;
+                            int qx = uu->x >> 4, qy = uu->y >> 4;
+                            if ((vx - qx) * (vx - qx) + (vy - qy) * (vy - qy) <= 100) home++;
+                            else away++;
+                        }
+                        fprintf(stderr, "at home: %d within ten cells, %d further off\n",
+                                home, away);
+                    }
+                    {   extern uint32_t mb_leis_seen, mb_leis_gate, mb_leis_spot, mb_leis_win;
+                        fprintf(stderr, "leisure: %u thoughts, %u past the gate, %u found a "
+                                        "spot, %u chose it\n", mb_leis_seen, mb_leis_gate,
+                                mb_leis_spot, mb_leis_win);
+                    }
                     fprintf(stderr, "town plans:");
                     for (int k = 0; k < 5; k++)
                         fprintf(stderr, " %s=%d", MB_TOWNPLAN_NAME[k], st[k]);

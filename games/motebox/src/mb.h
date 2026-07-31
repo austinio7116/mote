@@ -137,7 +137,22 @@ enum {
 enum { DIET_PLANT = 0, DIET_MEAT };
 enum { DRV_CIV = 0, DRV_BEAST, DRV_FISH };   /* which drive set a species carries */
 enum { JOB_IDLE = 0, JOB_WANDER, JOB_FORAGE, JOB_HUNT, JOB_FLEE, JOB_BREED,
-       JOB_WORK, JOB_FIGHT, JOB_DOUSE, JOB_HAUL, JOB_N };
+       JOB_WORK, JOB_FIGHT, JOB_DOUSE, JOB_HAUL,
+       /* --- LEISURE ---------------------------------------------------------
+        * A town that has filled its granary and its woodshed wants nothing, so two thirds of
+        * its people stood in the square doing nothing at all — measured at 150 of 222 souls.
+        * "Idle" is the honest name for that and a terrible thing to watch.
+        *
+        * People with full bellies and no work do things anyway, and the four here are chosen
+        * to be READABLE from outside at eight pixels a person: a walk along the streets the
+        * town just paved, a wander out to somewhere nobody has been, a game in the square,
+        * and lying in the sun. Each one raises happiness, which feeds breeding and loyalty —
+        * so leisure is not decoration, it is what a prosperous town converts wealth into.
+        *
+        * None of them needs a timer, which is the part that makes them cheap: leisure is what
+        * you do while you are fed, and hunger rises whatever you are doing, so a pastime ends
+        * when the forage score (hunger - 30) overtakes it. */
+       JOB_STROLL, JOB_ROAM, JOB_SPORT, JOB_BASK, JOB_N };
 
 /* PROFESSIONS. A job is what somebody is doing this minute; a profession is what they
  * are for. Splitting them is what lets a village have a shape — nine farmers and one
@@ -522,6 +537,7 @@ int  mb_civ_prof_pick(int v);          /* the trade a newborn of this village ta
 void mb_civ_deliver(int v, int kind, int amount);   /* a caravan arrives */
 int  mb_village_found(int sp, int x, int y, int kingdom);
 int  mb_village_need(int v, uint16_t *target);
+void mb_civ_need_flush(void);    /* drop the per-tick want cache (world reset) */
 int  mb_village_resource(int v, int kind, int *ox, int *oy);
 /* For the renderer: a pending site is marked on the ground with a stake. */
 int  mb_village_site(int v, int slot, int *ox, int *oy);
