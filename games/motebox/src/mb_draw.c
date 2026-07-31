@@ -1402,7 +1402,24 @@ void mb_draw_mortal(int cam_x, int cam_y)
                 else if (ws)    { cx = 0; cy = 0; }      /* an end that turns down    */
                 else            { cx = 2; cy = 0; }      /* a plain end               */
             } else if (wn || ws) { cx = 0; cy = 1; }     /* a vertical run, face-on   */
-            else                 { cx = 2; cy = 0; }     /* a lone capped post        */
+            else {
+                /* A LONE SEGMENT FACES OUTWARD. Most wall cells have no neighbour at all,
+                 * because the lord places them as scattered objects rather than laying a
+                 * perimeter — so drawing every one as a capped post gave a town a field of
+                 * stone mounds. A wall is built to face SOMETHING, and the something is
+                 * outward from the settlement it defends: a segment out on the eastern flank
+                 * runs north-south, one on the northern flank runs east-west. Reading the
+                 * orientation off the offset from the centre costs nothing and turns a field
+                 * of posts into the beginnings of a rampart. */
+                int v2 = mb_w.claim[AT(c, r)];
+                int dx = 0, dy = 0;
+                if (v2 && v2 < MAXV && mb_v[v2].alive) {
+                    dx = c - mb_v[v2].x; dy = r - mb_v[v2].y;
+                }
+                int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+                if (adx > ady) { cx = 0; cy = 1; }       /* east or west flank: vertical  */
+                else           { cx = 1; cy = 0; }       /* north or south flank: across  */
+            }
             MoteSprite spr = { &wall_stone_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
                                (uint16_t)(cx * TILE), (uint16_t)(cy * TILE),
                                TILE, TILE, 28, 0 };
