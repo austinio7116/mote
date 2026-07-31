@@ -159,6 +159,12 @@ int mb_pop_class_full(int sp)
             if (MB_SP[q].diet == DIET_MEAT) pred += mb_pop(q); else graze += mb_pop(q);
         }
         if (MB_SP[sp].diet == DIET_MEAT) return pred >= wildcap / 4;
+        /* DOMESTIC STOCK IS NOT WILDLIFE. A town's flock carries its village id and is counted
+         * separately; leaving it in this total would mean a prosperous farming world slowly
+         * squeezed the deer out of existence, and every cull would open a hole in the ecology
+         * that the restock would then fill with sheep. */
+        graze -= mb_flock_total();
+        if (graze < 0) graze = 0;
         return graze >= wildcap * 3 / 4;
     }
     return mb_pop_civ() >= MAXU * 58 / 100;
@@ -250,7 +256,23 @@ void mb_unit_siege(int i)
     }
 }
 
+static int mb_unit_spawn_raw(int sp, int x, int y);
+
+/* STOCK THE TOWN PAID FOR does not come out of the ecology's budget: a farmyard is not a
+ * wilderness, and a sheep in a pen must not cost a deer its slot. The array cap still applies —
+ * there is a hard limit on units however they arrive. */
+int mb_unit_spawn_forced(int sp, int x, int y)
+{
+    if (mb_pop_all() >= MAXU - 4) return -1;
+    return mb_unit_spawn_raw(sp, x, y);
+}
+
 int mb_unit_spawn(int sp, int x, int y)
+{
+    return mb_unit_spawn_raw(sp, x, y);
+}
+
+static int mb_unit_spawn_raw(int sp, int x, int y)
 {
     if (sp < 0 || sp >= SP_N) return -1;
     int slot = -1;
@@ -379,6 +401,15 @@ static int nearest(int self, int x, int y, int mode)
                     if (o->sp < SP_CIV_N) {
                         if (me->hunger < 120) continue;
                         if (mb_w.claim[AT(o->x >> 4, o->y >> 4)]) continue;
+                    } else if (o->village) {
+                        /* AND A PASTURE IS NOT A HUNTING GROUND. This rule protected PEOPLE on
+                         * claimed ground and said nothing about their animals, so twenty wolves
+                         * ate every flock in the world as fast as it was bred: 4413 beasts raised
+                         * across four hundred years with SIX standing, the town paying six food
+                         * a head to feed the wolves and its own people starving for it. A wolf
+                         * that walks into a village after a sheep gets speared; that it does not
+                         * try is the same abstraction as it not eating the shepherd. */
+                        if (mb_w.claim[AT(o->x >> 4, o->y >> 4)] == o->village) continue;
                     }
                 } else if (mode == NEAR_MATE) {
                     /* mature for its own species: a constant here stopped
@@ -620,10 +651,22 @@ static int is_game(int sp)
  * its own village's fields is exactly the case we want. */
 static int nearest_game(int self, int x, int y)
 {
+    /* OUR OWN FLOCK IS A RESERVE, NOT A LARDER. Livestock stand in the pasture beside the hall,
+     * so they are always the nearest thing worth killing — and with that alone deciding, a town
+     * paid six food to raise a sheep, ate it within the week, and paid again: 4412 beasts raised
+     * across four hundred years with FIFTEEN standing, the yield never accumulating and the food
+     * going backwards. A shepherd eats the flock when there is nothing else, which is the same
+     * rule the whole feature exists to express. Wild game first; the herd when it is really
+     * hunger and not merely appetite. */
+    const Unit *me = &mb_u[self];
+    int desperate = 1;
+    if (me->village && me->village < MAXV && mb_v[me->village].alive)
+        desperate = mb_v[me->village].food < mb_v[me->village].pop;
     int best = -1, bestd = 1 << 30;
     for (int j = 0; j < mb_nu; j++) {
         if (j == self || !mb_u[j].alive) continue;
         if (!is_game(mb_u[j].sp)) continue;
+        if (!desperate && mb_u[j].village && mb_u[j].village == me->village) continue;
         int dx = (mb_u[j].x >> 4) - x, dy = (mb_u[j].y >> 4) - y;
         int d = dx * dx + dy * dy;
         if (d > 81 || d >= bestd) continue;            /* nine cells, nearest wins */
@@ -885,6 +928,15 @@ static void think(int i)
     if (u->sp < SP_CIV_N && u->village) {
         const Village *V = &mb_v[u->village];
         has_room = V->pop < V->housing && V->food > V->pop / 2;
+    } else if (u->village && u->village < MAXV && mb_v[u->village].alive) {
+        /* A FLOCK IS KEPT AT THE SIZE THE TOWN CAN FEED. Domestic stock is outside the wild
+         * budget by design, and it BREEDS — so with nothing capping it a farmyard grew without
+         * limit: measured, 724 sheep in one world, filling the unit array until the civ
+         * population collapsed from 445 to FORTY. A farmer culls a surplus, they do not raise
+         * it, so a flock at or above the town's want does not breed. This is the same number
+         * village_husbandry() raises stock up to. */
+        const Village *V = &mb_v[u->village];
+        has_room = (int)V->flock < V->pop / 6 + 2;
     }
     if (has_room && u->hunger < 45 && u->age >= sp->lifespan / 4
         && u->age < sp->lifespan - 1 && danger < 30) {
@@ -952,11 +1004,12 @@ static void think(int i)
     if (bestv < 14) {
         best = JOB_WANDER;
         int hx = x, hy = y, span = 13;
-        if (sp->drives == DRV_CIV && u->village && u->village < MAXV
-            && mb_v[u->village].alive) {
+        if (u->village && u->village < MAXV && mb_v[u->village].alive) {
             hx = mb_v[u->village].x; hy = mb_v[u->village].y;
-            span = (u->prof == PROF_LORD) ? 5 : 9;   /* tighter than a beast; tightest of all
-                                                      * for the one who has to be findable */
+            /* A FLOCK STAYS IN ITS PASTURE — six cells, tighter than a villager's nine, because
+             * stock that wanders off is stock somebody else eats. A LORD is tightest of all,
+             * being the one person who has to be findable. */
+            span = (sp->drives != DRV_CIV) ? 6 : ((u->prof == PROF_LORD) ? 5 : 9);
         }
         int wx = hx + (int)((r >> 3) % span) - span / 2;
         int wy = hy + (int)((r >> 9) % span) - span / 2;

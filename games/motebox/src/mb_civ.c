@@ -2085,7 +2085,7 @@ static void village_expedition(int v);
 #if MOTE_HOST
 uint32_t mb_expeditions, mb_conquests, mb_trades_far, mb_rebellions, mb_rebel_blocked;
 uint32_t mb_ws_dropped[5], mb_ws_done[5], mb_alliances, mb_tower_shots, mb_fish;
-uint32_t mb_refugees;
+uint32_t mb_refugees, mb_stock_raised;
 uint32_t mb_plan_of[64], mb_built_of[64];
 #endif
 
@@ -2533,7 +2533,7 @@ void mb_civ_rehome(void)
                 u->job = JOB_ROAM;
                 u->target = (uint16_t)AT(mb_v[best].x, mb_v[best].y);
 #if MOTE_HOST
-                {   extern uint32_t mb_refugees; mb_refugees++; }
+                {   extern uint32_t mb_refugees, mb_stock_raised; mb_refugees++; }
 #endif
             }
             continue;
@@ -2562,17 +2562,25 @@ void mb_civ_rehome(void)
 }
 
 
+static int s_flock_total;
+int mb_flock_total(void) { return s_flock_total; }
+
 static void census(void)
 {
     for (int v = 1; v < MAXV; v++) {
         if (!mb_v[v].alive) continue;
-        mb_v[v].pop = 0; mb_v[v].happy = 0; mb_v[v].soldiers = 0;
+        mb_v[v].pop = 0; mb_v[v].happy = 0; mb_v[v].soldiers = 0; mb_v[v].flock = 0;
     }
+    s_flock_total = 0;
     for (int i = 0; i < mb_nu; i++) {
         Unit *u = &mb_u[i];
         if (!u->alive || !u->village || u->village >= MAXV) continue;
         Village *V = &mb_v[u->village];
         if (!V->alive) { u->village = 0; continue; }
+        /* A SHEEP IS NOT A CITIZEN. Everything with a village id was counted as population, so
+         * a flock would have driven housing, food consumption, breeding, settling and the tier
+         * — thirty sheep would have read as thirty mouths that needed beds. */
+        if (u->sp >= SP_CIV_N) { V->flock++; s_flock_total++; continue; }
         V->pop++;
         V->happy = (int8_t)((V->happy * 3 + u->happy) / 4);
         if (u->job == JOB_FIGHT) V->soldiers++;
@@ -2702,6 +2710,64 @@ static void tower_step(int v)
                 return;                                /* one arrow per visit */
             }
         }
+}
+
+/* --- HUSBANDRY ----------------------------------------------------------
+ *
+ * Where routine meat belongs. Hunting wild game is a lean-year measure and has to stay one — the
+ * whole ecology is eighty animals and four hundred people can strip it, measured — so the meat a
+ * town eats every year comes from stock it keeps.
+ *
+ * The loop is the oldest one in farming: a town with a farm and food to spare raises another
+ * beast; the flock gives milk and eggs every year for nothing; and when the granary runs low the
+ * hunters take the nearest animal, which is the flock, because it is standing in the pasture
+ * rather than out in the forest. So a well-fed town accumulates a visible herd, a hungry one
+ * eats it, and the herd comes back when the harvest does.
+ *
+ * The flock is kept OUT of the wild budget (see mb_pop_class_full): domestic sheep must not
+ * crowd the deer out of the world, and a cull must not leave a permanent hole in the ecology.
+ */
+static void village_husbandry(int v)
+{
+    Village *V = &mb_v[v];
+    if (!mb_civ_count(v, O_FARM)) return;               /* no farm, no farmyard */
+
+    /* the yield: eggs and milk, a third of the flock a visit. Earned, because the flock is a
+     * real population of real animals that can be eaten or eaten BY something. */
+    V->food = (uint16_t)(V->food + V->flock / 3);
+
+    /* SEED STOCK ONLY. Paying for every head was measured and it starves worlds: sheep live ten
+     * years and hens six, so a flock dies of old age continuously and a town that BUYS each
+     * replacement pays for ever — 2254 beasts raised in four hundred years against a yield that
+     * cannot cover it, 1256 starvation deaths, and four of eight audit worlds lost, two of them
+     * to quiet extinction.
+     *
+     * A flock is livestock: it breeds. The town buys its first two head and after that husbandry
+     * is the breeding gate in the unit brain, which holds the herd at the size the town can feed
+     * (the same `want` as here). So the cost is once, the yield is for ever, and a cull is paid
+     * for by the ewes rather than the granary. */
+    int want = V->pop / 6 + 2;   /* the same number the breeding gate uses */
+    if ((int)V->flock >= 2 || (int)V->flock >= want) return;
+    if (V->food < V->pop * 3 + 20) return;
+    if (mb_w.tick - V->last_settle == 0) return;         /* not on the founding tick */
+    uint32_t r = mb_rand((uint32_t)(v * 3079u + 0x110cu));
+    for (int t = 0; t < 8; t++) {
+        int x = V->x + (int)((r >> (t * 3)) % 9u) - 4;
+        int y = V->y + (int)((r >> (t * 3 + 4)) % 9u) - 4;
+        if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v) continue;
+        uint8_t b = mb_w.biome[AT(x, y)];
+        if (b != B_GRASS && b != B_MEADOW && b != B_FARM && b != B_SAVANNA) continue;
+        if (mb_w.road[AT(x, y)] || mb_is_build(mb_w.obj[AT(x, y)])) continue;
+        int sp = (r & 1) ? SP_SHEEP : SP_HEN;
+        int ui = mb_unit_spawn_forced(sp, x, y);         /* the town pays, so no wild cap */
+        if (ui < 0) return;
+        mb_u[ui].village = (uint8_t)v;
+        V->food = (uint16_t)(V->food > 6 ? V->food - 6 : 0);
+#if MOTE_HOST
+        {   extern uint32_t mb_stock_raised; mb_stock_raised++; }
+#endif
+        return;
+    }
 }
 
 static void maybe_settle(int v)
@@ -3058,7 +3124,15 @@ static void king_think(int k)
                 mb_k[o].war_with &= ~((uint32_t)1u << k);
                 mb_chron_peace(k, o);
             }
-        } else if (war_score > peace_score + 20 && mb_law(LAW_WAR)) {
+        } else if (war_score > peace_score + 20 && mb_law(LAW_WAR)
+                   /* A CROWN WITH ONE TOWN DOES NOT START A WAR. Giving war a REACH rather than
+                    * a shared border made early wars possible for the first time, and in a young
+                    * world they are fatal to both sides: a measured world reached 151 souls and
+                    * seven towns by year twenty, lost 63 of them and five towns to a war by year
+                    * forty, and limped at fifty people for a century before dying out. Two towns
+                    * and twenty souls is the threshold for having something to fight WITH. It
+                    * gates only the DECLARATION — anyone can be attacked, and defends. */
+                   && my_v >= 2 && my_pop >= 20) {
             K->war_with |= (uint32_t)1u << o;
             mb_k[o].war_with |= (uint32_t)1u << k;
             /* AND AN ALLIANCE DOES NOT SURVIVE A DECLARATION. */
@@ -3287,6 +3361,7 @@ void mb_civ_step(void)
         village_streets(v);
         village_plaza(v);
         village_gardens(v);
+        village_husbandry(v);
         try_build(v);
         village_expedition(v);
         conquest_check(v);
@@ -3461,7 +3536,8 @@ int mb_civ_drop_village(int sp, int x, int y)
     for (int i = 0; i < 5; i++) {
         uint32_t lr = mb_rand((uint32_t)(i * 5171u + (uint32_t)mb_w.tick));
         int lx = x + (int)(lr % 7) - 3, ly = y + (int)((lr >> 6) % 7) - 3;
-        mb_unit_spawn((lr & 1) ? SP_SHEEP : SP_HEN, lx, ly);
+        {   int li = mb_unit_spawn((lr & 1) ? SP_SHEEP : SP_HEN, lx, ly);
+            if (li >= 0) mb_u[li].village = (uint8_t)v;   /* the founding flock */ }
     }
     mb_v[v].food = 30; mb_v[v].wood = 12; mb_v[v].stone = 6;
     /* Clear the immediate neighbourhood of predators. A settlement founded in the

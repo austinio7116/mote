@@ -384,6 +384,12 @@ typedef struct {
     uint8_t  far_x, far_y, far_kind;
     int32_t  far_tick;
     uint8_t  plan_wait;     /* visits the blueprint has gone unpaid; it is abandoned in the end */
+    /* THE FLOCK. Sheep and hens seeded beside a founding were wild animals that happened to be
+     * standing near a village: nobody owned them, nobody bred them, and the only thing husbandry
+     * meant was that a hungry villager killed the nearest one. Livestock BELONG to a town now —
+     * they carry its village id — which is what lets them be counted, kept, culled and restocked
+     * rather than merely eaten once. */
+    uint16_t flock;
     uint8_t  plan_obj, plan_x, plan_y, plan_i;  /* the blueprint ghost */
     int32_t  founded, last_settle;
     uint16_t name;
@@ -534,6 +540,7 @@ void mb_unit_init(void);      /* allocs once */
 void mb_unit_reset(void);     /* a new world: no allocation, the arena has no free */
 void mb_unit_step(void);
 int  mb_unit_spawn(int sp, int x, int y);
+int  mb_unit_spawn_forced(int sp, int x, int y);   /* stock a town paid for */
 void mb_unit_kill(int i, int cause);
 int  mb_unit_passable(int sp, int x, int y);
 int  mb_unit_may_enter(int i, int x, int y);   /* passability + whose wall it is */
@@ -594,6 +601,7 @@ int  mb_village_need(int v, uint16_t *target);
 void mb_civ_need_flush(void);    /* drop the per-tick want cache (world reset) */
 int  mb_village_lord_unit(int v);   /* the person holding the office, or -1 */
 int  mb_road_grade(int cell);       /* -1 unpaved, else 0..4 — see mb_civ.c */
+int  mb_flock_total(void);          /* owned livestock, kept out of the wild budget */
 int  mb_village_resource(int v, int kind, int *ox, int *oy);
 /* For the renderer: a pending site is marked on the ground with a stake. */
 int  mb_village_site(int v, int slot, int *ox, int *oy);

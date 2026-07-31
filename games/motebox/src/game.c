@@ -2352,9 +2352,15 @@ static void g_init(void)
                                     mb_alliances);
                             extern uint32_t mb_tower_shots, mb_fish;
                             extern uint32_t mb_refugees;
+                            extern uint32_t mb_stock_raised;
+                            int flock = 0;
+                            for (int q = 1; q < MAXV; q++)
+                                if (mb_v[q].alive) flock += mb_v[q].flock;
                             fprintf(stderr, "  %u tower arrows, %u catches landed, "
-                                            "%u refugees sent walking\n",
-                                    mb_tower_shots, mb_fish, mb_refugees); }
+                                            "%u refugees sent walking\n"
+                                            "  %u beasts raised, %d head of stock standing\n",
+                                    mb_tower_shots, mb_fish, mb_refugees,
+                                    mb_stock_raised, flock); }
                     }
                     fprintf(stderr, "town plans:");
                     for (int k = 0; k < 5; k++)

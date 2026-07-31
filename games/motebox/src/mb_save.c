@@ -21,7 +21,7 @@
 /* v2: units gained a given name, a spouse, a trade and a haul destination; villages
  * gained a lord name and age, a creed, a specialisation, a tier and a research store. */
 /* v3: villages gained `coast`, the water count a quay is gated on. */
-#define SAVE_VERSION 8   /* v8: one blob per section, and the road layer at last */
+#define SAVE_VERSION 9   /* v9: + the flock */
 
 typedef struct {
     uint32_t magic, version;
