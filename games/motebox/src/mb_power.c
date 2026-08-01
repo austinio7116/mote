@@ -143,9 +143,10 @@ static const Power P_CURSE[8] = {
 };
 /* The seventeen 2x2 kaiju live on the bosses sheet; eight are summonable. */
 static const Power P_BEASTS[8] = {
-    /* Each icon is the TOP-LEFT cell of that kaiju's 2x2 block on the bosses sheet.
-     * They were half-cells of the wrong block before — the "titan" icon was the right
-     * half of the great eye, and the "golem" the right half of the maw. */
+    /* Each icon is the top-left cell of that kaiju's 2x2 block, and icon_src() draws all
+     * FOUR cells: showing one was showing a quarter of a creature. They were half-cells of
+     * the wrong block before that — the "titan" icon was the right half of the great eye,
+     * and the "golem" the right half of the maw. */
     /* PRICED AGAINST THE CEILING, which is the thing that actually decides whether a power
      * exists. The reserve caps at 700 now (mb_faith.c) and these were 200-550 against a cap
      * of 400 — half of them unreachable. A beast should be a season's devotion, not a
@@ -202,11 +203,28 @@ int         mb_wheel_open(void)   { return s_wheel; }
  * the tile it occupies. The village icon wants our own house rather than a borrowed one, so
  * it takes the top eight rows of that cell — roof plus upper storey, which is a whole little
  * house — and every other power keeps the plain 8x8 lookup. */
-static void icon_src(const Power *p, int *sx, int *sy)
+static void icon_src(const Power *p, int *sx, int *sy, int *sw, int *sh)
 {
-    if (p->icon == &town_img) { *sx = p->ix * 8;    *sy = p->iy * 14 + 2; }
-    else                      { *sx = p->ix * TILE; *sy = p->iy * TILE;   }
+    if (p->icon == &town_img) {
+        /* OUR town sheet is 8 wide and 14 tall per cell, because a building stands six pixels
+         * above the tile it occupies. The village icon takes the top eight rows of its cell —
+         * roof plus upper storey, which is a whole little house. */
+        *sx = p->ix * 8; *sy = p->iy * 14 + 2; *sw = TILE; *sh = TILE;
+    } else if (p->icon == &bosses_img) {
+        /* EVERY KAIJU IS 2x2 (see the AG_* table in mb_draw.c), and the icons used to show the
+         * TOP-LEFT CELL of one: a quarter of a creature. The reaper was a grey smudge, the
+         * dragon a red corner, the angel a wing. The grid cell is sixteen pixels on screen,
+         * which is exactly a 2x2 sprite's own size, so the whole beast fits in the space the
+         * quarter was drawn in — it just draws at 1:1 instead of doubled. */
+        *sx = p->ix * TILE; *sy = p->iy * TILE; *sw = 2 * TILE; *sh = 2 * TILE;
+    } else {
+        *sx = p->ix * TILE; *sy = p->iy * TILE; *sw = TILE; *sh = TILE;
+    }
 }
+
+/* An icon is drawn at the size the 8x8 ones get, whatever its source size: a 16x16 kaiju
+ * halves the scale so it lands on the same square. */
+static float icon_scale(float base, int sw) { return base * (float)TILE / (float)sw; }
 
 static int s_last_reach = -1;
 int mb_power_last_reach(void) { return s_last_reach; }
@@ -994,8 +1012,9 @@ void mb_power_draw_wheel(uint16_t *fb, const MoteFont *font)
 
     /* the chosen power, large, with its name and price */
     mb_ui_plaque(fb, 5, 18, 32, 32, MOTE_RGB565(12, 10, 26));
-    { int sx, sy; icon_src(p, &sx, &sy);
-      g_api->blit_ex(fb, p->icon, 21.0f, 34.0f, sx, sy, TILE, TILE, 0.0f, 3.0f, 0, 0, 128); }
+    { int sx, sy, sw, sh; icon_src(p, &sx, &sy, &sw, &sh);
+      g_api->blit_ex(fb, p->icon, 21.0f, 34.0f, sx, sy, sw, sh,
+                     0.0f, icon_scale(3.0f, sw), 0, 0, 128); }
     mb_ui_text(fb, 42, 20, p->name, MB_UI_CREAM, 80);
     { char buf[24];
       snprintf(buf, sizeof buf, "%d faith", (int)p->cost);
@@ -1024,8 +1043,9 @@ void mb_power_draw_wheel(uint16_t *fb, const MoteFont *font)
                        (on ? BTN_LIT_CX : BTN_DIM_CX) * TILE,
                        (on ? BTN_LIT_CY : BTN_DIM_CY) * TILE, TILE, TILE,
                        0.0f, 2.0f, 0, 0, 128);
-        { int sx, sy; icon_src(&tab[i], &sx, &sy);
-          g_api->blit_ex(fb, tab[i].icon, cx, cy, sx, sy, TILE, TILE, 0.0f, 2.0f, 0, 0, 128); }
+        { int sx, sy, sw, sh; icon_src(&tab[i], &sx, &sy, &sw, &sh);
+          g_api->blit_ex(fb, tab[i].icon, cx, cy, sx, sy, sw, sh,
+                         0.0f, icon_scale(2.0f, sw), 0, 0, 128); }
         int x0 = (int)cx - 8, y0 = (int)cy - 8;
         if (on) {
             g_api->draw_rect(fb, x0 - 2, y0 - 2, 20, 20, MB_UI_GOLD, 0, 0, 128);
