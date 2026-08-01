@@ -41,6 +41,7 @@
 #include "blob47_lut.h"
 #include "town.h"
 #include "ships.h"
+#include "caravans.h"   /* the covered wagon a hauler is drawn as */
 #include "hot.h"
 
 /* The town sheet's geometry, in one place: 8 wide, 14 tall, drawn six pixels above
@@ -1548,6 +1549,16 @@ void mb_draw_mortal(int cam_x, int cam_y)
             cx = u->boat - 1;
             cy = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;
             img = &ships_img;
+        } else if (u->job == JOB_HAUL && u->carry && u->dest) {
+            /* ON THE ROAD THEY ARE A CARAVAN. A hauler crossing forty cells with a town's
+             * surplus on their back was drawn as one more villager, so the only visible trace
+             * of the whole trade system was a granary filling up somewhere else. One column,
+             * one row per banner colour — the pennant says whose wagon it is, exactly as a
+             * sail does at sea. */
+            int k = u->village ? mb_v[u->village].kingdom : 0;
+            cx = 0;
+            cy = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;
+            img = &caravans_img;
         } else {
             mb_cast_pick(u, mb__hash2(i, u->given), &sheet, &cx, &cy);
             img = (sheet == 0) ? &characters_img
@@ -1609,11 +1620,15 @@ void mb_draw_mortal(int cam_x, int cam_y)
          * so each of these is directly above the icon the game already uses for that state.
          * It bobs a pixel, which is what makes it read as a bubble rather than a tile. */
         if (MB_SP[u->sp].drives == DRV_CIV) {
-            int bcx = -1, bcy = 2;                     /* ui_status row 2 == master row 26 */
-            if (u->traits & TR_MADNESS)      bcx = 2;  /* the spiral                       */
-            else if (u->sick)                bcx = 0;  /* the poison cloud                 */
-            else if (u->hunger > 90)         bcx = 13; /* the loaf                         */
-            else if (u->hp < 25)             bcx = 15; /* the broken heart                 */
+            /* ui_status row 2 IS master row 26 (the atlas starts at 48,24), so the cells below
+             * read as their master coordinates minus that origin. In order of what is about to
+             * happen to them: mad, ill, hunted, starving, bleeding. */
+            int bcx = -1, bcy = 2;
+            if (u->traits & TR_MADNESS)      bcx = 2;  /* 50,26 the spiral      */
+            else if (u->sick)                bcx = 1;  /* 49,26 the sickness    */
+            else if (u->traits & TR_MARKED)  bcx = 12; /* 60,26 the mark        */
+            else if (u->hunger > 90)         bcx = 13; /* 61,26 nothing to eat  */
+            else if (u->hp < 25)             bcx = 9;  /* 57,26 blood           */
             if (bcx >= 0) {
                 int bob = ((mb_w.tick + (unsigned)i) >> 3) & 1;
                 MoteSprite bub = { &ui_status_img, (int16_t)sx,

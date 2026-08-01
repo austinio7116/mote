@@ -1101,6 +1101,54 @@ def caravel(banner):
     return im
 
 
+# --- THE CARAVAN ----------------------------------------------------------
+# A town with a surplus sends one of its own to a neighbour with a load, and the hauler was drawn
+# as an ordinary villager — so the trade that turns a local famine into a regional one with a
+# chance of rescue was invisible on the map. Seven candidates were drawn and the covered wagon
+# was chosen: at eight pixels it is the only one of them with a silhouette you can read at a
+# glance, which is the whole job. The canvas stays cream as chosen; the kingdom shows as a
+# pennant, the same way a sail carries a banner at sea.
+CARAVAN_W, CARAVAN_H = 8, 8
+CANVAS_L = (250, 246, 232)
+CANVAS   = (222, 214, 190)
+CANVAS_D = (176, 168, 146)
+CART_OUT = (36, 28, 22)
+
+
+def wagon(banner):
+    roof, shade, _ridge = banner
+    im = Image.new("RGBA", (CARAVAN_W, CARAVAN_H), (0, 0, 0, 0))
+    px = im.load()
+    _rect(px, 1, 1, 6, 4, CANVAS)                   # the hood
+    _rect(px, 2, 1, 5, 1, CANVAS_L)                 # lit along the top
+    _rect(px, 1, 4, 6, 4, CANVAS_D)                 # and shaded under the curve
+    px[1, 1] = CART_OUT + (255,)                    # the corners, so it reads as cloth on hoops
+    px[6, 1] = CART_OUT + (255,)
+    _rect(px, 0, 5, 7, 5, CART_OUT)                 # the bed
+    px[1, 6] = DKGREY + (255,)                      # four wheels
+    px[2, 6] = LTGREY + (255,)
+    px[5, 6] = LTGREY + (255,)
+    px[6, 6] = DKGREY + (255,)
+    px[1, 7] = CART_OUT + (255,)
+    px[6, 7] = CART_OUT + (255,)
+    px[6, 0] = roof + (255,)                        # the pennant: whose caravan this is
+    px[7, 0] = shade + (255,)
+    return im
+
+
+CARAVANS = [("wagon", wagon)]
+
+
+def build_caravans():
+    """One column per vehicle, one row per banner colour, like the ships."""
+    sheet = Image.new("RGBA", (CARAVAN_W * len(CARAVANS), CARAVAN_H * len(BANNERS)),
+                      (0, 0, 0, 0))
+    for row, banner in enumerate(BANNERS):
+        for col, (_name, fn) in enumerate(CARAVANS):
+            sheet.paste(fn(banner), (col * CARAVAN_W, row * CARAVAN_H))
+    return sheet
+
+
 SHIPS = [("smack", smack), ("caravel", caravel)]
 
 

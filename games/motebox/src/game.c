@@ -55,6 +55,7 @@ static int s_god = 1;                /* 1 = God's Eye, 0 = Mortal View */
 static int s_boot_mortal = 0;        /* MOTEBOX_MORTAL=1, host captures only  */
 static int s_cx = MW / 2, s_cy = MH / 2;
 int mb_cam_ship;    /* MOTEBOX_CAM=s: keep the camera on a ship at sea */
+int mb_cam_haul;    /* MOTEBOX_CAM=c: keep the camera on a caravan on the road */
 static int s_cam_x, s_cam_y;
 static float s_hold;                 /* how long the d-pad has been held */
 static float s_move_acc;
@@ -2134,6 +2135,17 @@ static void g_init(void)
                     fprintf(stderr, "cam -> a ship at %d,%d\n", s_cx, s_cy);
                     break;
                 }
+        } else if (cv && *cv == 'c') {
+            /* CAM=c parks on a CARAVAN, for the same reason CAM=s parks on a ship: a town
+             * despatches one every third rotation and the trip lasts a few dozen ticks, so a
+             * fixed camera photographs an empty road. */
+            mb_cam_haul = 1;
+            for (int i = 0; i < mb_nu; i++)
+                if (mb_u[i].alive && mb_u[i].job == JOB_HAUL && mb_u[i].carry) {
+                    s_cx = mb_u[i].x >> 4; s_cy = mb_u[i].y >> 4;
+                    fprintf(stderr, "cam -> a caravan at %d,%d\n", s_cx, s_cy);
+                    break;
+                }
         } else if (cv && *cv == 'w') {
             /* CAM=w parks on the thickest run of city WALL, which is the only way to see
              * whether the forty-seven-cell sets are turning corners. */
@@ -3342,6 +3354,14 @@ static void g_update(float dt)
                 /* MOTEBOX_CAM=s / MOTEBOX_SAIL: hold the camera on whatever is at sea. A
                  * crossing lasts about forty ticks and a town settles once in eight years,
                  * so a fixed camera photographs an empty ocean. */
+                if (mb_cam_haul) {
+                    for (int q = 0; q < mb_nu; q++)
+                        if (mb_u[q].alive && mb_u[q].job == JOB_HAUL && mb_u[q].carry) {
+                            s_cx = (mb_u[q].x >> 4) + 3; s_cy = mb_u[q].y >> 4;
+                            cam_follow();
+                            break;
+                        }
+                }
                 if (mb_cam_ship) {
                     for (int q = 0; q < mb_nu; q++)
                         if (mb_u[q].alive && (mb_u[q].boat || mb_u[q].voyage)) {

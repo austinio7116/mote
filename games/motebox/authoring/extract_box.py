@@ -758,6 +758,12 @@ def build_ships():
     save_sheet("ships", build_sprites.build_ships())
 
 
+def build_caravans():
+    """The covered wagon a hauler is drawn as, one row per banner colour."""
+    import build_sprites
+    save_sheet("caravans", build_sprites.build_caravans())
+
+
 def build_town():
     """The settlement's own sprites — see authoring/build_sprites.py.
 
@@ -975,6 +981,7 @@ def main():
     build_tech()
     build_traits()
     build_ships()
+    build_caravans()
     build_town()
     build_bands()
     build_hot()
