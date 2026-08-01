@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-08-01T06:08:21+00:00",
+ "generated": "2026-08-01T07:29:45+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -205,8 +205,8 @@
    "author": "austinio7116",
    "version": "1.0.0",
    "abi": 47,
-   "size": 349024,
-   "sha256": "bccc3cabd1f61dd42cfb7fa6f21f56b7ad67d5eb86bd2104626f964485cf5735",
+   "size": 373064,
+   "sha256": "ba05a79517d954ba0ecb04fadb190bb92dfecb92ee81d956f39069ac72450941",
    "file": "games/Motebox.mote",
    "icon": "img/gallery/motebox-icon.png",
    "thumb": "img/gallery/motebox-1.png",
@@ -222,8 +222,8 @@
    "android": {
     "arm64-v8a": {
      "file": "games/android/arm64-v8a/libmg_motebox.so",
-     "size": 533576,
-     "sha256": "5ec563876101874392e3a461d998de610c2053fb6b31c15066e53dfb71627593"
+     "size": 557880,
+     "sha256": "6dabe1c5501238dcbf8d009c2c27e795e6e42eea87acef26a084c5705b01a24a"
     }
    }
   },
