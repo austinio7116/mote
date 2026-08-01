@@ -1738,17 +1738,22 @@ static int voyage_step(int i)
         }
         if (bi >= 0) {                               /* ashore, and on foot from here */
 #if MOTE_HOST
-            { extern uint32_t mb_voyages_landed, mb_land_ticks;
-              mb_voyages_landed++; mb_land_ticks += u->sail_wait; }
+            /* counted apart: a fishing trip is a voyage, and there are tens of thousands of
+             * them, so lumped in they drown the crossings the numbers are about */
+            { extern uint32_t mb_voyages_landed, mb_land_ticks, mb_fish_landed;
+              if (u->sail_trip == SEA_TRIP_FISH) mb_fish_landed++;
+              else { mb_voyages_landed++; mb_land_ticks += u->sail_wait; } }
 #endif
             u->x = (uint16_t)((x + SEA_DX[bi]) * 16 + 8);
             u->y = (uint16_t)((y + SEA_DY[bi]) * 16 + 8);
+            /* AND THEY WALK FOR A WHILE BEFORE TAKING SHIP AGAIN — unless it was a fishing
+             * trip, which is meant to repeat. A traveller who lands still across water from
+             * where it is going will book another passage on the spot, land in the same bay,
+             * and do it again: measured as three hundred and forty landings against
+             * eighty-nine boardings. A fisher held ashore for forty ticks after every catch
+             * is the opposite failure. */
+            u->sail_wait = (u->sail_trip == SEA_TRIP_FISH) ? SEA_FISH_WAIT : SEA_ASHORE_WAIT;
             u->boat = SHIP_NONE; u->voyage = 0; u->sail_trip = 0;
-            /* AND THEY WALK FOR A WHILE BEFORE TAKING SHIP AGAIN. A traveller who lands and
-             * is still across water from where it is going will book another passage on the
-             * spot, land in the same bay, and do it again — measured as three hundred and
-             * forty landings against eighty-nine boardings. */
-            u->sail_wait = SEA_ASHORE_WAIT;
             return 0;                                /* the brain takes over again this tick */
         }
     }
@@ -1759,6 +1764,30 @@ static int voyage_step(int i)
      * every obstacle and would keep following long after the way was clear, so a ship bound
      * for an island forty cells away spent two years tracing the bays of its own coastline.
      * The route already knows which way round a landmass to go; the ship only has to steer. */
+    if (u->sail_trip == SEA_TRIP_FISH) {
+        /* A SMACK WORKING ITS OWN HARBOUR DOES NOT STEER: it is fishing, a cell off the quay
+         * it launched from, and the landing above brings it back in three ticks. Steering it
+         * was actively harmful — the route points at the shore cell it came from, which is
+         * land and cannot be entered, so the nudge walked it sideways down the coast until
+         * that cell was no longer beside it and it could never get off. Measured: fifteen
+         * thousand nine hundred and fifty fishing trips out of forty thousand ended adrift.
+         *
+         * The tick still has to be counted here — the landing above waits three of them, and
+         * the counter lives at the bottom of this function, past the return. */
+        if (++u->sail_wait > 20) {                   /* the quay went, or the ice came in */
+            int bx, by;
+            if (beach_nearest(x, y, &bx, &by)) {
+                u->x = (uint16_t)(bx * 16 + 8); u->y = (uint16_t)(by * 16 + 8);
+#if MOTE_HOST
+                { extern uint32_t mb_fish_beached; mb_fish_beached++; }
+#endif
+                u->boat = SHIP_NONE; u->voyage = 0; u->sail_wait = 0; u->sail_trip = 0;
+                return 0;
+            }
+            u->sail_wait = 10;
+        }
+        return 1;
+    }
     int wx, wy;
     sea_waypoint(x, y, lx, ly, &wx, &wy);
     int want = heading_to(wx - x, wy - y);
@@ -1774,10 +1803,11 @@ static int voyage_step(int i)
         if (beach_nearest(x, y, &wx, &wy)) {
             u->x = (uint16_t)(wx * 16 + 8); u->y = (uint16_t)(wy * 16 + 8);
         }
-        u->boat = SHIP_NONE; u->voyage = 0; u->sail_wait = 0; u->sail_trip = 0;
 #if MOTE_HOST
-        { extern uint32_t mb_voyages_beached; mb_voyages_beached++; }
+        { extern uint32_t mb_voyages_beached, mb_fish_beached;
+          if (u->sail_trip == SEA_TRIP_FISH) mb_fish_beached++; else mb_voyages_beached++; }
 #endif
+        u->boat = SHIP_NONE; u->voyage = 0; u->sail_wait = 0; u->sail_trip = 0;
         return 0;
     }
     u->sail_dir = (uint8_t)go;
@@ -1803,10 +1833,11 @@ static int voyage_step(int i)
         int bx, by;
         if (beach_nearest(x, y, &bx, &by)) {
             u->x = (uint16_t)(bx * 16 + 8); u->y = (uint16_t)(by * 16 + 8);
-            u->boat = SHIP_NONE; u->voyage = 0; u->sail_wait = 0; u->sail_trip = 0;
 #if MOTE_HOST
-            { extern uint32_t mb_voyages_beached; mb_voyages_beached++; }
+            { extern uint32_t mb_voyages_beached, mb_fish_beached;
+              if (u->sail_trip == SEA_TRIP_FISH) mb_fish_beached++; else mb_voyages_beached++; }
 #endif
+            u->boat = SHIP_NONE; u->voyage = 0; u->sail_wait = 0; u->sail_trip = 0;
         } else u->sail_wait = 200;                  /* nowhere to land: keep trying */
     }
     return 1;

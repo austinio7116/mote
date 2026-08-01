@@ -1974,6 +1974,22 @@ static void g_init(void)
                 int py = s_cy - 4 + (put % 9);
                 if (px < 1) px = 1; if (px > MW - 2) px = MW - 2;
                 if (py < 1) py = 1; if (py > MH - 2) py = MH - 2;
+                /* ON LAND. The clamp kept them on the map and nothing kept them out of the
+                 * sea, so a battle staged at a coastal town put one side's firing line in the
+                 * water — fifteen soldiers standing on the waves in the demo reel. */
+                if (!mb_land(mb_w.biome[AT(px, py)])) {
+                    int fx = -1, fy = 0;
+                    for (int r = 1; r <= 6 && fx < 0; r++)
+                        for (int oy = -r; oy <= r && fx < 0; oy++)
+                            for (int ox = -r; ox <= r && fx < 0; ox++) {
+                                int qx = px + ox, qy = py + oy;
+                                if (mb_in(qx, qy) && mb_land(mb_w.biome[AT(qx, qy)])) {
+                                    fx = qx; fy = qy;
+                                }
+                            }
+                    if (fx < 0) continue;              /* nowhere to stand: skip this one */
+                    px = fx; py = fy;
+                }
                 u->x = (uint16_t)(px * 16 + 8);
                 u->y = (uint16_t)(py * 16 + 8);
                 u->job = JOB_FIGHT; u->target = 0xFFFF;
@@ -2405,7 +2421,8 @@ static void g_init(void)
                         {   extern uint32_t mb_expeditions, mb_conquests, mb_trades_far;
                             extern uint32_t mb_voyages, mb_voyages_sailed;
                             extern uint32_t mb_voyages_landed, mb_voyages_beached, mb_voyages_lost;
-                            extern uint32_t mb_lost_ticks, mb_lost_hunger, mb_land_ticks, mb_fish_trips;
+                            extern uint32_t mb_lost_ticks, mb_lost_hunger, mb_land_ticks;
+                            extern uint32_t mb_fish_trips, mb_fish_landed, mb_fish_beached;
                             extern int mb_seaborne_colonies;
                             int afloat = 0;
                             for (int q = 0; q < mb_nu; q++)
@@ -2417,7 +2434,8 @@ static void g_init(void)
                                             "  %u expeditions took ship, %d colonies sailed, "
                                             "%d at sea now\n"
                                             "  voyages: %u boarded, %u landed, %u put in short, %u lost at sea\n"
-                                            "  mean ticks: landed %u, lost %u (hunger %u); %u fishing trips\n",
+                                            "  mean ticks: landed %u, lost %u (hunger %u)\n"
+                                            "  fishing: %u trips, %u landed, %u adrift\n",
                                     lords, guards, mb_expeditions,
                                     mb_conquests, mb_trades_far,
                                     mb_voyages, mb_seaborne_colonies, afloat,
@@ -2425,7 +2443,7 @@ static void g_init(void)
                                     mb_voyages_landed ? mb_land_ticks / mb_voyages_landed : 0,
                                     mb_voyages_lost ? mb_lost_ticks / mb_voyages_lost : 0,
                                     mb_voyages_lost ? mb_lost_hunger / mb_voyages_lost : 0,
-                                    mb_fish_trips);
+                                    mb_fish_trips, mb_fish_landed, mb_fish_beached);
                             extern uint32_t mb_rebellions, mb_rebel_blocked;
                             extern uint32_t mb_ws_dropped[5], mb_ws_done[5];
                             fprintf(stderr, "  work done  build=%u pave=%u plough=%u plant=%u\n"

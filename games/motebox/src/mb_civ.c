@@ -2166,7 +2166,7 @@ uint32_t mb_refugees, mb_stock_raised;
 uint32_t mb_voyages, mb_voyages_sailed, mb_voyages_landed, mb_voyages_beached;
 uint32_t mb_voyages_lost;   /* died at sea: hunger, age, or a kaiju in the water */
 uint32_t mb_lost_ticks, mb_lost_hunger, mb_land_ticks;
-uint32_t mb_fish_trips;     /* smacks put out from a quay */
+uint32_t mb_fish_trips, mb_fish_landed, mb_fish_beached;   /* smacks from a quay */
 uint32_t mb_plan_of[64], mb_built_of[64];
 #endif
 
@@ -2583,8 +2583,28 @@ void mb_village_work(int v, int ui)
         int tx = u->target % MW, ty = u->target / MW;
         int spd = MB_SP[u->sp].speed;
         int dx = tx * 16 + 8 - u->x, dy = ty * 16 + 8 - u->y;
-        u->x = (uint16_t)(u->x + (dx > spd ? spd : (dx < -spd ? -spd : dx)));
-        u->y = (uint16_t)(u->y + (dy > spd ? spd : (dy < -spd ? -spd : dy)));
+        int nx = u->x + (dx > spd ? spd : (dx < -spd ? -spd : dx));
+        int ny = u->y + (dy > spd ? spd : (dy < -spd ? -spd : dy));
+        /* AND THE GROUND HAS TO HOLD THEM. This wrote the new position straight in, with no
+         * passability test of any kind — the only movement in the game that did — so anybody
+         * carrying a load walked home in a straight line over open sea and through city walls.
+         * It is why a screenshot of a coastal battle had fifteen people standing on the water,
+         * and it quietly undid the point of ships: an expedition that correctly took ship to
+         * reach a far shore could simply walk back across the strait with the iron.
+         *
+         * Sliding along one axis when the diagonal is blocked is what step_toward does, and it
+         * is what keeps a carrier following a coast instead of stopping dead against it. */
+        int cx0 = u->x >> 4, cy0 = u->y >> 4;
+        if (!mb_unit_may_enter(ui, cx0, cy0)) {        /* already somewhere it cannot be:
+                                                        * let it walk out rather than freeze */
+            u->x = (uint16_t)nx; u->y = (uint16_t)ny;
+        } else if (mb_unit_may_enter(ui, nx >> 4, ny >> 4)) {
+            u->x = (uint16_t)nx; u->y = (uint16_t)ny;
+        } else if (mb_unit_may_enter(ui, nx >> 4, cy0)) {
+            u->x = (uint16_t)nx;
+        } else if (mb_unit_may_enter(ui, cx0, ny >> 4)) {
+            u->y = (uint16_t)ny;
+        }
         return;
     }
 
