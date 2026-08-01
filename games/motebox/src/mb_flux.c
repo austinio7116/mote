@@ -21,6 +21,17 @@
 #include <stdio.h>
 #include <string.h>
 
+#if MOTE_HOST
+uint32_t mb_dosed, mb_breath_fired, mb_breath_held;
+/* WHAT A VOLCANO LEFT BEHIND, counted: cells promoted to mountain and to peak. A cone that
+ * raises elevation but never crosses a band is indistinguishable from a scorch mark, and the
+ * only way to know which happened is to count the promotions. */
+uint32_t mb_vent_mtn, mb_vent_peak;
+#define MB_VENT_TALLY(k) do { if ((k) == 2) mb_vent_peak++; else mb_vent_mtn++; } while (0)
+#else
+#define MB_VENT_TALLY(k) ((void)0)
+#endif
+
 static uint8_t *s_next;          /* what this tick writes; swapped in at the end */
 
 /* --- the fuel model ----------------------------------------------------- */
@@ -961,17 +972,54 @@ static void agent_step(void)
             if ((r & 7) == 0) { a->x = (int16_t)(a->x + a->dx); a->y = (int16_t)(a->y + a->dy); }
             mb_fx_burst((float)a->x, (float)a->y, 2, PK_RING, FXE_VOID, 0.6f, 1.0f);
         } else {                                    /* AG_VENT */
-            /* a volcano keeps erupting: lava every tick, so it builds a cone and
-             * the flow finds its own drainage */
+            /* --- A VOLCANO BUILDS A MOUNTAIN ---------------------------------
+             *
+             * It used to pour lava and raise the ONE cell under itself by a point a tick — forty
+             * points over its life, on a single cell, which changes no biome and reads as nothing.
+             * So a volcano was a fire that happened to be orange, and once the lava cooled the
+             * ground was flat again with a scorch mark on it.
+             *
+             * A volcano leaves a mountain. The cone rises fastest at the vent and tapers over
+             * four cells, and when a cell crosses the elevation worldgen uses for high ground
+             * (172 hill, 196 mountain, 214 peak — see mb_world.c) its biome is promoted to match.
+             * That is a permanent change to the map: the lava cools, the fires burn out, and a
+             * new peak is standing where the town was. */
             mb_flux_add(a->x, a->y, FX_LAVA, 14);
             if ((r & 1)) mb_flux_add(a->x + (int)((r >> 1) & 1) - 1,
                                      a->y + (int)((r >> 2) & 1) - 1, FX_LAVA, 12);
-            if (mb_in(a->x, a->y) && mb_w.elev[AT(a->x, a->y)] < 250)
-                mb_w.elev[AT(a->x, a->y)] += 1;
+            for (int dy = -4; dy <= 4; dy++)
+                for (int dx = -4; dx <= 4; dx++) {
+                    int mx = a->x + dx, my = a->y + dy;
+                    if (!mb_in(mx, my)) continue;
+                    int d2 = dx * dx + dy * dy;
+                    if (d2 > 16) continue;
+                    if (!mb_land(mb_w.biome[AT(mx, my)])) continue;   /* it does not fill the sea */
+                    int lift = d2 <= 1 ? 3 : (d2 <= 4 ? 2 : 1);
+                    int i = AT(mx, my);
+                    int e = mb_w.elev[i] + lift;
+                    mb_w.elev[i] = (uint8_t)(e > 250 ? 250 : e);
+                    /* and the ground becomes what its height says it is */
+                    uint8_t *b = &mb_w.biome[i];
+                    if      (mb_w.elev[i] > 214) { if (*b != B_PEAK) MB_VENT_TALLY(2);
+                                                   *b = B_PEAK;     mb_w.obj[i] = O_NONE; }
+                    else if (mb_w.elev[i] > 196) { if (*b != B_MOUNTAIN && *b != B_PEAK)
+                                                       MB_VENT_TALLY(1);
+                                                   *b = B_MOUNTAIN; mb_w.obj[i] = O_NONE; }
+                    else if (mb_w.elev[i] > 172 && *b != B_MOUNTAIN && *b != B_PEAK) {
+                        if (*b != B_HILL) { *b = B_HILL; mb_w.obj[i] = O_NONE; }
+                    }
+                }
             mb_fx_burst((float)a->x, (float)a->y, 2, PK_SPARK, FXE_FIRE, 3.0f, 0.7f);
         }
 
-        if (!mb_in(a->x, a->y) || --a->life == 0) a->alive = 0;
+        if (!mb_in(a->x, a->y) || --a->life == 0) {
+            a->alive = 0;
+#if MOTE_HOST
+            if (a->kind == AG_VENT)
+                fprintf(stderr, "volcano done: %u cells now mountain, %u now peak\n",
+                        mb_vent_mtn, mb_vent_peak);
+#endif
+        }
     }
 }
 
@@ -1133,9 +1181,7 @@ void mb_flux_test_event(const char *name, uint32_t r)
 #define BLAST_RAD  7                        /* the crater */
 #define BLAST_BURN 12                       /* and the firestorm around it */
 static struct { uint8_t on, x, y, r; } s_blast[NBLAST];
-#if MOTE_HOST
-uint32_t mb_dosed, mb_breath_fired, mb_breath_held;
-#endif
+
 
 static void blast_ring(int bx, int by, int r)
 {

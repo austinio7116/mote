@@ -2395,6 +2395,14 @@ static void g_init(void)
                                     "%d planting\n", q[WS_BUILD], q[WS_PAVE], q[WS_PLOUGH],
                             q[WS_PLANT]);
                 }
+                {   int mtn=0, pk=0;
+                    for (int q = 0; q < NC; q++) {
+                        if (mb_w.biome[q] == B_MOUNTAIN) mtn++;
+                        else if (mb_w.biome[q] == B_PEAK) pk++;
+                    }
+                    fprintf(stderr, "high ground: %d mountain %d peak of %d cells\n",
+                            mtn, pk, NC);
+                }
                 fprintf(stderr, "the belt: %d fallow %d sown %d shoots %d standing %d ripe\n",
                         crop[0], crop[1], crop[2], crop[3], crop[4]);
                 /* AND WHAT THE FIRE HAS BECOME. The founding campfire climbs a ladder — fire,
@@ -2703,6 +2711,10 @@ static void g_update(float dt)
 #if MOTE_HOST
     /* the scripted cast, once, after the world has settled into a frame */
     if (s_cast_script[0] && ++s_frame == 12) {
+        /* AND HOLD THE CAMERA. Follow History pans to each new headline after a few seconds of
+         * no input, so a scripted cast that takes a while to finish — a volcano runs for forty
+         * ticks — was photographed halfway through from the middle of the ocean. */
+        if (mb_law(LAW_FOLLOW)) mb_law_toggle(LAW_FOLLOW);
         char *p = s_cast_script;
         while (*p) {
             char name[24]; int x = 0, y = 0, n = 0;
