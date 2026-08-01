@@ -13,6 +13,10 @@
  * Screen shake is Mortal-View-only: God's Eye has no camera to shake, so a heavy
  * impact spends its budget on a white frame flash and the rumble motor instead.
  */
+#if MOTE_HOST
+#include <stdio.h>
+#include <stdlib.h>
+#endif
 #include "mb.h"
 #include "fx_mono.h"
 #include <math.h>
@@ -40,6 +44,16 @@ static Part s_pt[NPART];
 static int  s_next_pt;
 
 /* --- screen-level state ------------------------------------------------- */
+/* --- RAIN, as weather rather than as a cast -----------------------------
+ * Three can run at once, which is enough for a god pointing at three valleys, and each
+ * spawns drops across its own disc every frame for as long as it lasts. */
+#define NRAIN 3
+static struct { float x, y, r, t, acc; } s_rain[NRAIN];
+static uint32_t s_rain_seed = 12345u;
+#if MOTE_HOST
+unsigned long mb_rain_spawned;
+#endif
+
 static float s_time;             /* animation clock for the flame turbulence */
 static float s_shake;            /* amplitude in px, decays */
 static float s_flash;            /* 0..1 white-out */
@@ -80,6 +94,7 @@ static const FxCell KIND_CELL[PK_N] = {
     {  2, 0, 4 },   /* PK_BOLT   — bolt streaks */
     { 12, 7, 3 },   /* PK_GUST   — wind swoosh */
     { 12, 4, 3 },   /* PK_STAR   — twinkle */
+    {  0, 0, 0 },   /* PK_RAIN   — no sprite: drawn as pixels, see the px pass */
 };
 
 void mb_fx_init(void)
@@ -148,8 +163,75 @@ void mb_fx_impact(float tx, float ty, int elem, float power)
     g_api->rumble(power > 1.0f ? 1.0f : power, (int)(80 + 160 * power));
 }
 
+void mb_fx_rain(float tx, float ty, float radius, float secs)
+{
+#if MOTE_HOST
+    if (getenv("MOTEBOX_RAINDBG"))
+        fprintf(stderr, "rain: at %.1f,%.1f r=%.1f for %.1fs\n",
+                (double)tx, (double)ty, (double)radius, (double)secs);
+#endif
+    for (int i = 0; i < NRAIN; i++)
+        if (s_rain[i].t <= 0.0f) {
+            s_rain[i].x = tx; s_rain[i].y = ty; s_rain[i].r = radius;
+            s_rain[i].t = secs; s_rain[i].acc = 0.0f;
+            return;
+        }
+    s_rain[0].x = tx; s_rain[0].y = ty; s_rain[0].r = radius;
+    s_rain[0].t = secs; s_rain[0].acc = 0.0f;
+}
+
+/* Drops for one frame of one shower. They start a tile and a half ABOVE where they will
+ * land and fall onto it, so the eye reads a direction: a drop that appears where it dies is
+ * a sparkle. */
+static void rain_emit(int i, float dt)
+{
+    /* DROPS PER SECOND, accumulated — not per frame. Counting per frame with a minimum of one
+     * makes the rainfall depend on the frame rate, and on the host that is three hundred
+     * frames a second, so the shower came out as a dozen drops instead of seventy. The
+     * accumulator carries the fraction between frames, so the rate is the rate whatever the
+     * machine is doing, which is also what makes a recording of it reproducible.
+     *
+     * Thirty-four drops a second per square tile, and a drop lives about a third of a second,
+     * so a four-tile shower keeps about a hundred and fifty in the air — five per cent of the
+     * pixels it covers, which is the difference between rain and drizzle. The particle pool
+     * is 448, so three showers of this size at once is its limit and that is fine: a fourth
+     * would be recycling somebody else's embers. */
+    struct { float x, y, r, t, acc; } *R = &s_rain[i];
+    R->acc += R->r * R->r * 34.0f * dt;
+    int n = (int)R->acc;
+    if (n > 30) n = 30;                        /* a frame-time spike is not a cloudburst */
+    R->acc -= (float)n;
+    for (int k = 0; k < n; k++) {
+        /* rejection sampling in the square: cheaper than a sqrt and exactly uniform */
+        s_rain_seed = s_rain_seed * 1664525u + 1013904223u;
+        float gx = R->x + (float)((int)((s_rain_seed >> 8) % 2001) - 1000) / 1000.0f * R->r;
+        s_rain_seed = s_rain_seed * 1664525u + 1013904223u;
+        float gy = R->y + (float)((int)((s_rain_seed >> 8) % 2001) - 1000) / 1000.0f * R->r;
+        if ((gx - R->x) * (gx - R->x) + (gy - R->y) * (gy - R->y) > R->r * R->r) continue;
+        mb_fx_spawn_v(gx, gy - 1.4f, 0.0f, 5.0f, PK_RAIN, FXE_FROST, 0.28f);
+#if MOTE_HOST
+        { extern unsigned long mb_rain_spawned; mb_rain_spawned++; }
+#endif
+    }
+}
+
 void mb_fx_step(float dt)
 {
+    for (int i = 0; i < NRAIN; i++)
+        if (s_rain[i].t > 0.0f) { rain_emit(i, dt); s_rain[i].t -= dt; }
+#if MOTE_HOST
+    if (getenv("MOTEBOX_RAINDBG")) {
+        int nr = 0, tot = 0;
+        for (int i = 0; i < NPART; i++) {
+            if (s_pt[i].life <= 0) continue;
+            tot++;
+            if (s_pt[i].kind == PK_RAIN) nr++;
+        }
+        if (nr) fprintf(stderr, "rain: %d aloft, %lu spawned so far, %d live\n",
+                        nr, mb_rain_spawned, tot);
+    }
+#endif
+
     for (int i = 0; i < NPART; i++) {
         Part *p = &s_pt[i];
         if (p->life <= 0.0f) continue;
@@ -158,7 +240,8 @@ void mb_fx_step(float dt)
         /* Sideways drag only. Damping the VERTICAL as hard killed every plume inside a
          * tenth of a second — an ember that stops rising is just a dot. */
         p->vx *= 0.90f;
-        if (p->kind == PK_SMOKE || p->kind == PK_SPARK) p->vy -= 1.1f * dt;
+        if (p->kind == PK_RAIN) { p->vx = 0.0f; }        /* straight down, and no drag */
+        else if (p->kind == PK_SMOKE || p->kind == PK_SPARK) p->vy -= 1.1f * dt;
         else p->vy *= 0.94f;
     }
     s_time += dt;
@@ -552,6 +635,23 @@ void mb_fx_draw_mortal_px(uint16_t *fb, int cam_x, int cam_y)
         float f = p->life / (p->max > 0.001f ? p->max : 1.0f);
         int hot = (f > 0.45f);
         uint16_t col = hot ? ELEM_HI[p->elem] : ELEM_LO[p->elem];
+
+        /* RAIN: a falling streak, then a splash where it lands. Two pixels of vertical
+         * streak give the direction, and three pixels spread sideways at the end give the
+         * hit — which is the whole difference between weather and a sprinkle of sparkles. */
+        if (p->kind == PK_RAIN) {
+            if (f > 0.22f) {
+                fb[py * 128 + px] = lerp565(fb[py * 128 + px], col, 0.9f);
+                if (py > 0) fb[(py - 1) * 128 + px] = lerp565(fb[(py - 1) * 128 + px], col, 0.6f);
+                if (py > 1) fb[(py - 2) * 128 + px] = lerp565(fb[(py - 2) * 128 + px], col, 0.3f);
+            } else {
+                uint16_t sp = ELEM_HI[p->elem];
+                fb[py * 128 + px] = lerp565(fb[py * 128 + px], sp, 0.55f);
+                if (px > 0)   fb[py * 128 + px - 1] = lerp565(fb[py * 128 + px - 1], sp, 0.35f);
+                if (px < 127) fb[py * 128 + px + 1] = lerp565(fb[py * 128 + px + 1], sp, 0.35f);
+            }
+            continue;
+        }
 
         if (ELEM_ADD[p->elem]) {
             /* Full brightness while hot, fading only as it dies. Scaling by 0.85 on top

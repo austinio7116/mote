@@ -541,7 +541,9 @@ static void cast_at(int id, int r, int cx, int cy)
                     else if (*o == O_GROWN)  *o = O_RIPE;
                 }
             }
-        mb_fx_burst((float)cx, (float)cy, 12, PK_SMOKE, FXE_FROST, 1.5f, 1.0f);
+        /* AND IT LOOKS LIKE RAIN. Twelve frost particles at the centre read as a spell being
+         * cast; a shower falls across the whole reach for a second and a half and lands. */
+        mb_fx_rain((float)cx, (float)cy, (float)r, 1.6f);
         break;
     case PW_FERTILITY:
         for (int y = cy - r; y <= cy + r; y++)

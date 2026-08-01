@@ -1070,7 +1070,18 @@ static void ui_draw_lord(uint16_t *fb)
         int y = 27 + i * 9, sel = (i == s_ui_row);
         if (sel) g_api->draw_rect(fb, 34, y - 1, 88, 10, MOTE_RGB565(76, 60, 26), 1, 0, 128);
         mb_ui_text(fb, 36, y, SN[i], sel ? MB_UI_CREAM : MB_UI_DIM, 48);
-        mb_ui_pips(fb, 86, y + 2, (val[i] + 19) / 20, 5, MB_UI_OK, MB_UI_OFF);
+        /* THE SELECTED ROW SHOWS ITS NUMBER. Five pips is a twenty-point step, so a lord on
+         * 41 and one on 59 read identically — and the raise you are about to buy is worth 20,
+         * which the pips cannot show you either. The name is 46 px, five pips 35 and a
+         * three-digit number 27, which does not fit in the 88 px between the portrait and the
+         * edge; so the row you are pointing at trades its pips for the figure. */
+        if (sel) {
+            char nb[8];
+            snprintf(nb, sizeof nb, "%d", val[i]);
+            mb_ui_text_r(fb, 121, y, nb, MB_UI_GOLD);
+        } else {
+            mb_ui_pips(fb, 86, y + 2, (val[i] + 19) / 20, 5, MB_UI_OK, MB_UI_OFF);
+        }
     }
     /* WHAT THAT MEANS — the real thresholds, read back in words */
     mb_ui_rule(fb, 6, 56, 116, "CONSEQUENCE", MB_UI_GOLD, FILL, MB_UI_DIM);
@@ -1088,12 +1099,27 @@ static void ui_draw_lord(uint16_t *fb)
     mb_ui_text(fb, 7, ln2, loyal < 0  ? "rebellion near" :
                            loyal < 15 ? "loyalty is thin" : "loyal to it",
                loyal < 0 ? MB_UI_RED : loyal < 15 ? MB_UI_GOLD : MB_UI_OK, 114);
-    ln2 += 9;
-    mb_ui_text(fb, 7, ln2, V->lord_stew >= 60 ? "builds boldly" :
-                           V->lord_stew >= 30 ? "builds if it can" : "builds little",
-               V->lord_stew >= 60 ? MB_UI_OK : MB_UI_DIM, 114);
-    mb_ui_rule(fb, 6, 92, 116, "TEMPERAMENT", MB_UI_GOLD, FILL, MB_UI_DIM);
-    mb_ui_traits(fb, 7, 100, V->lord_traits);
+    /* AND NOT A THIRD LINE ABOUT BUILDING. It said "builds boldly" off the same number the
+     * stat row now prints, so it was the only one of the three that told you nothing new —
+     * and this page had run out of rows for the things it was not showing at all: whose house
+     * the lord is, what they believe, and what sort of mood they are in. */
+    mb_ui_rule(fb, 6, 84, 116, "TEMPERAMENT", MB_UI_GOLD, FILL, MB_UI_DIM);
+    mb_ui_traits(fb, 7, 92, V->lord_traits);
+    /* WHOSE HOUSE, WHAT THEY BELIEVE, AND HOW THEY ARE. None of the three was on this page:
+     * the dynasty is the thing that makes a succession worth watching, the creed is what the
+     * town builds temples to, and a lord in poor health or foul temper is about to become a
+     * succession. The line under the traits carries all three — surname on the left, creed
+     * and a mood face on the right — and the numbers behind the face are the lord's own,
+     * because the lord IS one of the town's people. */
+    { int lu = mb_village_lord_unit(v);
+      char hb[24];
+      mb_name_str(hb, sizeof hb, NK_FAMILY, V->lord_family);
+      /* 104..122 is the action bar's own strip, so this line sits at 104 and the block above
+       * it moved up eight pixels to make room. Measured: the surname gets 66 px, which fits
+       * every name the generator makes; the creed is four letters and the face is eight. */
+      mb_ui_text(fb, 7, 102, hb, MB_UI_DIM, 66);
+      mb_ui_text_r(fb, 104, 102, MB_CREED_NAME[V->creed < CREED_N ? V->creed : 0], MB_UI_SKY);
+      if (lu >= 0) mb_ui_face(fb, 113, 101, mb_u[lu].happy); }
     snprintf(buf, sizeof buf, "A RAISE %d", MB_LORD_RAISE);
     mb_ui_actions(fb, buf, "B<", FILL);
 }
@@ -1918,6 +1944,28 @@ static void g_init(void)
      * few seconds without input, which is right in play and wrong for anything recorded: half
      * the scenes of the first demo reel drifted off their subject into open sea while the
      * clip was still running. The scripted cast turns it off for the same reason. */
+    /* MOTEBOX_PAGE=lord|town|king|world|land opens an info screen straight away, on the
+     * village the camera is parked on. The screenshot recipes used to reach the lord's page by
+     * pressing B and then guessing how many times to press DOWN to land on the crowned line of
+     * a list whose contents change with the world — so the moment the game changed, the guide
+     * quietly grew a picture of a patch of grass instead. */
+    {   const char *pg = getenv("MOTEBOX_PAGE");
+        if (pg && *pg) {
+            int best = 0, bd = 1 << 30;
+            for (int v = 1; v < MAXV; v++) {
+                if (!mb_v[v].alive) continue;
+                int dx = mb_v[v].x - s_cx, dy = mb_v[v].y - s_cy, d = dx * dx + dy * dy;
+                if (d < bd) { bd = d; best = v; }
+            }
+            s_subject_v = best;
+            s_ui_row = 0;
+            s_ui = !strcmp(pg, "lord")  ? UI_LORD  : !strcmp(pg, "town") ? UI_TOWN
+                 : !strcmp(pg, "king")  ? UI_KING  : !strcmp(pg, "world") ? UI_WORLD
+                 : !strcmp(pg, "land")  ? UI_LAND  : UI_PICK;
+            { int nv = 0; for (int v = 1; v < MAXV; v++) if (mb_v[v].alive) nv++;
+              fprintf(stderr, "page: %s on village %d (%d alive, cursor %d,%d)\n",
+                      pg, best, nv, s_cx, s_cy); }
+        } }
     if (getenv("MOTEBOX_NOFOLLOW") && mb_law(LAW_FOLLOW)) mb_law_toggle(LAW_FOLLOW);
     if (getenv("MOTEBOX_SAIL")) {
         int sent = 0;

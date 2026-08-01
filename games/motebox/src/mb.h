@@ -112,7 +112,12 @@ static inline uint8_t mb_fint(uint8_t f)  { return (uint8_t)(f & 15); }
 /* FX sheets: the six elemental recolours of the master's mono FX band. */
 enum { FXE_FIRE = 0, FXE_FROST, FXE_ACID, FXE_ASH, FXE_HOLY, FXE_VOID, FXE_N };
 /* particle shapes, each a cell run in those sheets */
-enum { PK_SPARK = 0, PK_SMOKE, PK_RING, PK_BOLT, PK_GUST, PK_STAR, PK_N };
+enum { PK_SPARK = 0, PK_SMOKE, PK_RING, PK_BOLT, PK_GUST, PK_STAR,
+       /* RAIN falls and lands. It is drawn as a streak while it drops and a three-pixel
+        * splash on the last fraction of its life, which is the whole effect: the old rain
+        * was a twelve-particle puff of frost over the middle of the area and read as a
+        * spell being cast, not as weather. */
+       PK_RAIN, PK_N };
 
 /* --- life ---------------------------------------------------------------
  * One struct for villagers, kings, deer and wolves: they share the brain and
@@ -530,6 +535,9 @@ void  mb_fx_init(void);
 void  mb_fx_step(float dt);
 void  mb_fx_spawn(float tx, float ty, int kind, int elem, float speed, float life);
 void  mb_fx_burst(float tx, float ty, int n, int kind, int elem, float speed, float life);
+/* Rain over a disc for a while: emits drops every frame rather than all at once, because
+ * weather is a duration and a burst is an event. */
+void  mb_fx_rain(float tx, float ty, float radius, float secs);
 void  mb_fx_impact(float tx, float ty, int elem, float power);
 void  mb_fx_shake(float amp);
 void  mb_fx_flash(float amt);
