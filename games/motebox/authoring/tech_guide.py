@@ -62,6 +62,48 @@ ROADS = [
     ("the university", "#7cc85e", "THE TALKER",    "writing, law, coin, then a college"),
 ]
 
+# WHAT EACH RUNG ACTUALLY CHANGES, with the numbers where there are numbers. The guide used to
+# carry this as four columns of bullet lists grouped by era; the era grouping said nothing the
+# colour key does not, and half the entries said only "research". Every line here was checked
+# against the code that reads the tech.
+EFFECT = {
+    "tools":          "A stone hall, a mine and a woodcutter: the first three things a town can build.",
+    "agriculture":    "Half again from every harvest.",
+    "pottery":        "A granary, so a town can hold food through a bad year.",
+    "masonry":        "Cobbled streets, walls, towers and a castle.",
+    "bronze":         "A barracks, and arrows instead of thrown stones.",
+    "the wheel":      "Carts: half again carried, of anything, on every trip.",
+    "writing":        "A temple and a library, and +1 research from each town.",
+    "ironwork":       "Iron tools: half again of wood and of stone.",
+    "seafaring":      "Docks and ships — and colonies across open water.",
+    "architecture":   "A quarter off the timber and stone of every building.",
+    "currency":       "A market, and gold coming in.",
+    "engineering":    "Flagstones and fountains.",
+    "mathematics":    "+2 research from each town.",
+    "law":            "Courts: +18 loyalty, so distant towns stay yours.",
+    "cavalry":        "Horses: twice the closing speed, and harder hits.",
+    "gunpowder":      "Muskets.",
+    "navigation":     "Colonies far further out to sea.",
+    "banking":        "Markets pay double.",
+    "the university": "A college, and +4 research from each town.",
+    "printing":       "+4 research from each town.",
+    "metallurgy":     "A foundry, and shells.",
+    "sanitation":     "A hospital.",
+    "economics":      "Markets pay half again on top of banking.",
+    "steam":          "A factory, apartments and tower blocks.",
+    "the railway":    "A station.",
+    "chemistry":      "A plague runs its course a third quicker — twenty days rather than thirty.",
+    "electricity":    "A power station, street lights, city blocks, and +6 research from each town.",
+    "combustion":     "Tarmac.",
+    "flight":         "Aircraft: half again the reach in war, and expeditions cross water with no dock.",
+    "radio":          "+6 research from each town.",
+    "medicine":       "A plague is short and rarely kills — twelve days rather than thirty.",
+    "physics":        "Towers reach five cells, and hit harder.",
+    "fission":        "A power station is worth double: twelve research rather than six.",
+    "rocketry":       "Missiles.",
+    "the bomb":       "A missile silo — and a kingdom that will use it.",
+}
+
 
 # --------------------------------------------------------------- the data ----
 
@@ -214,24 +256,21 @@ def full_tree(D, uris):
     W = M * 2 + max(D["rown"]) * PX
     # THE HEADER IS MEASURED, NOT ASSUMED. A fixed header height put the era key through the
     # middle of a caption that had wrapped onto three lines.
-    head = ['<text x="%d" y="34" fill="%s" font-size="20" font-weight="700">The tech tree, '
-            'as the handheld draws it</text>' % (M, INK)]
-    cap, capb = para("35 rungs in 11 layers. A rung sits one layer below its deepest "
-                     "prerequisite and needs BOTH of the rungs that feed it, so a link can also "
-                     "reach up past a layer. Where one line crosses another it breaks: a break "
-                     "is a crossing, a corner is a join.", M, 54, W - M * 2, 13, DIM)
-    head.append(cap)
-    ky = capb + 22
+    # NO TITLE AND NO CAPTION INSIDE THE PICTURE. The guide already has a heading and a caption
+    # around it in its own type; a diagram that repeats them in a second voice reads as a poster.
+    # What belongs in the picture is the key, because that is part of reading it.
+    # THE KEY, IN TWO EVEN ROWS. Nine era names are wider than five columns of icons, and letting
+    # them wrap where they ran out of room left "atomic" alone on a second line like a widow.
+    head, ky = [], 20
     x = M
-    for e in ERA_ORDER:                       # the key, spaced by the width of its own words
+    for i, e in enumerate(ERA_ORDER):
         w = e[4:].lower()
-        adv = 15 + int(len(w) * 6.1) + 14
-        if x + adv > W - M:                   # nine era names are wider than five columns
+        if i == (len(ERA_ORDER) + 1) // 2:
             x, ky = M, ky + 18
         head.append('<rect x="%d" y="%d" width="11" height="11" fill="%s"/>'
                     % (x, ky - 9, ERA_COL[e]))
         head.append('<text x="%d" y="%d" fill="%s" font-size="11">%s</text>' % (x + 15, ky, DIM, w))
-        x += adv
+        x += 15 + int(len(w) * 6.1) + 14
 
     t = Tree(D, M, ky + 30, S, PX, PY)
     H = ky + 30 + t.height() + 30
@@ -259,13 +298,8 @@ def roads(D, uris):
     M, GAP = 22, 30
     panel = max(D["rown"]) * PX
     W = M * 2 + panel * 3 + GAP * 2
-    head = ['<text x="%d" y="32" fill="%s" font-size="19" font-weight="700">Three lords, three '
-            'roads through the same tree</text>' % (M, INK)]
-    cap, capb = para("What a kingdom learns is chosen by its lord and its land, so the same tree "
-                     "is walked differently in every realm. Lit in each panel: the rungs that "
-                     "road needs, and every rung it needs first.", M, 52, W - M * 2, 12.5, DIM)
-    head.append(cap)
-    TOPH = capb + 56                              # room for each panel's own two-line heading
+    head = []
+    TOPH = 54                                     # each panel's own two-line heading
     trees = [Tree(D, M + i * (panel + GAP), TOPH, S, PX, PY) for i in range(3)]
     H = TOPH + trees[0].height() + 40
     o = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" '
@@ -302,6 +336,45 @@ def roads(D, uris):
     return "\n".join(o), (W, H)
 
 
+# ------------------------------------------------------------- the details ----
+
+GUIDE = os.path.join(ROOT, "docs", "motebox-guide.html")
+BEGIN, END = "<!-- TECHTABLE:BEGIN -->", "<!-- TECHTABLE:END -->"
+
+
+def table(D, uris):
+    """Every rung, in tree order: its icon, its era, what it needs, what it costs and what it
+    changes. Written into the guide between markers so it cannot fall out of step with the game
+    data it is generated from."""
+    era_name = {e: e[4:].lower() for e in ERA_COL}
+    # WHAT THE GAME CHARGES, not what the table authors. mb_tech_price() takes TECH_PACE per cent
+    # of the cost in mb_civ.c, and the tech screen on the handheld prints that number — a guide
+    # that quoted the raw figure would disagree with the screen beside it.
+    pace = int(re.search(r"#define TECH_PACE (\d+)",
+                         open(os.path.join(GAME, "src", "mb_civ.c")).read()).group(1))
+    rows = ['<div class="tw"><table class="techtab">',
+            '<thead><tr><th>Technology</th><th>Era</th><th>Needs</th>'
+            '<th class="num">Research</th><th>What it changes</th></tr></thead><tbody>']
+    for n in D["order"]:
+        need = D["pre"][n]
+        rows.append(
+            '<tr><td class="tname"><img class="ticon" src="%s" alt=""><b>%s</b></td>'
+            '<td style="color:%s">%s</td><td class="tneed">%s</td>'
+            '<td class="num">%d</td><td>%s</td></tr>'
+            % (uris[n], esc(n), ERA_COL[D["era"][n]], era_name[D["era"][n]],
+               esc(" + ".join(need)) if need else "&mdash;",
+               max(20, D["cost"][n] * pace // 100),
+               esc(EFFECT[n])))
+    rows.append("</tbody></table></div>")
+    html = "\n".join(rows)
+
+    g = open(GUIDE).read()
+    assert BEGIN in g and END in g, "the guide has no TECHTABLE markers"
+    a, b = g.index(BEGIN) + len(BEGIN), g.index(END)
+    open(GUIDE, "w").write(g[:a] + "\n" + html + "\n  " + g[b:])
+    print("[html] %s  (%d rows)" % (GUIDE, len(D["order"])))
+
+
 def main():
     D = load()
     uris = icon_uris(D)
@@ -311,6 +384,7 @@ def main():
         p = os.path.join(OUT, name)
         open(p, "w").write(svg + "\n")
         print("[svg] %s  %dx%d  %.0f kB" % (p, w, h, len(svg) / 1024.0))
+    table(D, uris)
 
 
 if __name__ == "__main__":

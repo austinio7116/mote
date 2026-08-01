@@ -235,10 +235,13 @@ static void hud_marquee(uint16_t *fb, const char *s, int x, int y, int maxw,
 
 /* The columns. Two rows of 8 px in the 16 px strip, and every field's width is
  * declared here rather than discovered at runtime. */
-#define HC_SPEED_X   1
-#define HC_SPEED_W  20     /* "x1" measures 16 px in rogue8; 14 clipped the digit */
-#define HC_YEAR_X   22
-#define HC_YEAR_W   26
+/* THE YEAR OWNS THE LEFT OF THE STRIP. It had 26 px from x=22, and "Y340" measures 36 — so
+ * hud_text cut it to "Y3" and the third century of a world was indistinguishable from its third
+ * year. The speed indicator that sat in front of it is gone: the speed is one of nine things the
+ * menu already shows, and it was costing the one field on the HUD that counts up. 46 px holds
+ * "Y9999", which is longer than any world will run. */
+#define HC_YEAR_X    1
+#define HC_YEAR_W   46
 #define HC_POWER_X  48
 #define HC_POWER_W  58
 #define HC_VIEW_X  108
@@ -1032,100 +1035,229 @@ static void ui_subject_from_cursor(void)
     s_subject_v = best;
 }
 
+/* WHAT A GOD CAN CHANGE ABOUT A LORD, as a list rather than as three stats.
+ *
+ * This page had exactly three editable numbers on it — how boldly the lord builds, how it treats
+ * its neighbours, how readily it goes to war — and everything else about the office was printed
+ * and untouchable: the traits that steer a realm, the creed its towns build temples to, the
+ * lord's own health and temper. So a god could nudge three sliders and watch.
+ *
+ * Every row below changes something the simulation ALREADY reads. The five traits are the five
+ * the ruling code looks at (research_pick, the war temper, the loyalty sum and the settle rule);
+ * TR_IMMORTAL is read by suffer(), which is what makes a dynasty stop ending. Nothing here is
+ * decoration, which is the same rule the gift list on the SHAPE page is built to.
+ *
+ * A lord's traits are a COPY of the lord unit's traits, taken at succession, so both have to be
+ * written or the change lasts until the next crowning and then vanishes.
+ */
+enum { DC_STAT = 0, DC_TRAIT, DC_MOOD, DC_HEAL, DC_CREED };
+typedef struct {
+    const char *name;
+    uint16_t    cost;
+    uint32_t    trait;
+    uint8_t     op, idx, bit; /* bit: TR_*_B, for the row's own icon */
+    const char *note;         /* what it means, for the line under the list */
+} Decree;
+static const Decree DECREES[] = {
+    { "builds",    MB_LORD_RAISE, 0, DC_STAT,  0, 0, 0 },  /* note is the consequence: below */
+    { "talks",     MB_LORD_RAISE, 0, DC_STAT,  1, 0, 0 },
+    { "fights",    MB_LORD_RAISE, 0, DC_STAT,  2, 0, 0 },
+    { "temper",     25, 0,            DC_MOOD,  0, 0, 0 },
+    { "health",     30, 0,            DC_HEAL,  0, 0, 0 },
+    { "creed",      60, 0,            DC_CREED, 0, 0, 0 },
+    { "ambition",   40, TR_AMBITIOUS, DC_TRAIT, 0, TR_AMBITIOUS_B, "wants more land" },
+    { "loyalty",    40, TR_LOYAL,     DC_TRAIT, 0, TR_LOYAL_B,     "the town holds" },
+    { "vengeance",  40, TR_VENGEFUL,  DC_TRAIT, 0, TR_VENGEFUL_B,  "holds a grudge" },
+    { "madness",    55, TR_MADNESS,   DC_TRAIT, 0, TR_MADNESS_B,   "mad in war" },
+    { "cowardice",  35, TR_COWARD,    DC_TRAIT, 0, TR_COWARD_B,    "afraid of war" },
+    { "undying",   150, TR_IMMORTAL,  DC_TRAIT, 0, TR_IMMORTAL_B,  "deathless" },
+};
+#define N_DECREE ((int)(sizeof DECREES / sizeof DECREES[0]))
+#define DC_VIS   5
+
+/* the value each row is about, as a level out of five, or -1 for the rows that are not levels */
+static int decree_level(const Village *V, const Decree *d, int lu)
+{
+    switch (d->op) {
+    case DC_STAT: { int v = d->idx == 0 ? V->lord_stew : d->idx == 1 ? V->lord_diplo
+                                                                     : V->lord_war;
+                    return (v + 19) / 20; }
+    case DC_MOOD: return lu >= 0 ? (mb_u[lu].happy + 19) / 20 : 0;
+    case DC_HEAL: return lu >= 0 ? (mb_u[lu].hp + 19) / 20 : 0;
+    default:      return -1;
+    }
+}
+
+static int decree_next_creed(const Village *V)
+{
+    int c = V->creed + 1;
+    if (c >= CREED_N) c = CREED_SUN;      /* CREED_NONE is not a thing a god decrees */
+    return c;
+}
+
+/* WHAT PRESSING A WILL DO, in the words the rest of the game uses. The three stats show the
+ * consequence at their CURRENT value rather than the number, because a raise is exactly one pip
+ * and the pips are the reading; printing "76" in place of the pips, which this page did for one
+ * build, replaced a picture with a figure and told you less. */
+static const char *decree_note(const Village *V, const Decree *d, int lu, uint16_t *col)
+{
+    *col = MB_UI_OK;
+    switch (d->op) {
+    case DC_STAT:
+        if (d->idx == 0) return V->lord_stew >= 70 ? "builds boldly"
+                              : V->lord_stew >= 40 ? "builds steadily" : "builds slowly";
+        if (d->idx == 1) { int loyal = (V->lord_diplo >> 2)
+                                     + ((V->lord_traits & TR_LOYAL) ? 25 : 0)
+                                     - ((V->lord_traits & TR_AMBITIOUS) ? 45 : 0);
+                           *col = loyal < 0 ? MB_UI_RED : loyal < 15 ? MB_UI_GOLD : MB_UI_OK;
+                           return loyal < 0 ? "rebellion near"
+                                : loyal < 15 ? "loyalty is thin" : "loyal to it"; }
+        { int hawk = V->lord_war
+                   + ((V->lord_traits & TR_AMBITIOUS) ? 25 : 0)
+                   + ((V->lord_traits & TR_VENGEFUL)  ? 30 : 0)
+                   + ((V->lord_traits & TR_MADNESS)   ? 40 : 0);
+          *col = hawk >= 80 ? MB_UI_RED : hawk >= 60 ? MB_UI_GOLD : MB_UI_OK;
+          return hawk >= 80 ? "strikes first" : hawk >= 60 ? "wants a war" : "keeps the peace"; }
+    case DC_MOOD:  return lu < 0 ? "no lord here"
+                        : mb_u[lu].happy > 60 ? "already glad" : "spirits lift";
+    case DC_HEAL:  return lu < 0 ? "no lord here"
+                        : mb_u[lu].hp > 90 ? "already whole" : "wounds close";
+    case DC_CREED: { static char cb[24];
+                     *col = MB_UI_SKY;
+                     snprintf(cb, sizeof cb, "turns to %s", MB_CREED_NAME[decree_next_creed(V)]);
+                     return cb; }
+    default:       /* a trait is a fact about the lord, not good news or bad */
+                   *col = (V->lord_traits & d->trait) ? MB_UI_GOLD : MB_UI_DIM;
+                   return d->note ? d->note : "";
+    }
+}
+
+/* and what the button says, price included, because the price is not on the row: the row is
+ * showing the state of the thing instead. Measured against the 84 px the action bar allows —
+ * "A RAISE 50" is 78 and "A GIVE 150" 78. */
+static const char *decree_action(const Village *V, const Decree *d)
+{
+    static char ab[16];
+    const char *verb = d->op == DC_STAT  ? "RAISE"
+                     : d->op == DC_CREED ? "CYCLE"
+                     : (d->op == DC_TRAIT && (V->lord_traits & d->trait)) ? "TAKE" : "GIVE";
+    snprintf(ab, sizeof ab, "A %s %d", verb, (int)d->cost);
+    return ab;
+}
+
+static int decree_apply(int v, const Decree *d)
+{
+    Village *V = &mb_v[v];
+    int lu = mb_village_lord_unit(v);
+    switch (d->op) {
+    case DC_STAT: {
+        uint8_t *stat = d->idx == 0 ? &V->lord_stew : d->idx == 1 ? &V->lord_diplo : &V->lord_war;
+        if (*stat >= 100) return 0;
+        int nv = *stat + 20; *stat = (uint8_t)(nv > 100 ? 100 : nv);
+        return 1; }
+    case DC_MOOD:  if (lu < 0 || mb_u[lu].happy > 60) return 0;
+                   mb_u[lu].happy = 100; return 1;
+    case DC_HEAL:  if (lu < 0 || mb_u[lu].hp > 90) return 0;
+                   mb_u[lu].hp = 100; return 1;
+    case DC_CREED: V->creed = (uint8_t)decree_next_creed(V); return 1;
+    default:
+        /* BOTH COPIES, or the next succession undoes it (mb_civ.c crowns from unit traits) */
+        if (V->lord_traits & d->trait) {
+            V->lord_traits &= ~d->trait;
+            if (lu >= 0) mb_u[lu].traits &= ~d->trait;
+        } else {
+            V->lord_traits |= d->trait;
+            if (lu >= 0) mb_u[lu].traits |= d->trait;
+        }
+        return 1;
+    }
+}
+
 static void ui_draw_lord(uint16_t *fb)
 {
+    const uint16_t FILL = MOTE_RGB565(30, 24, 12);
+    const uint16_t LINE = MB_UI_GOLD;
+    mb_ui_panel(fb, 0, 0, 128, 128, LINE, FILL, 1);
     ui_subject_from_cursor();
-    const uint16_t FILL = MOTE_RGB565(30, 24, 16);
-    mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_GOLD, FILL, 1);
     int v = s_subject_v;
     if (v <= 0 || v >= MAXV || !mb_v[v].alive) {
         mb_ui_text(fb, 7, 30, "no lord here", MB_UI_DIM, 112);
         mb_ui_actions(fb, 0, "B<", FILL); return;
     }
     Village *V = &mb_v[v];
-    char ln[24], pl[24], buf[40];
+    int lu = mb_village_lord_unit(v);
+    char ln[24], pl[24], hb[24], buf[40];
     mb_name_str(ln, sizeof ln, NK_PERSON, V->lord_name);
-    mb_name_str(pl, sizeof pl, NK_PLACE, V->name);
-    /* THE HEADER, MEASURED. "LORD %s" was 88 px in a 78 px slot, so a lord called Ashla was
-     * "LORD Ashl", and "%s aged %d" was 120 px in a 114 px row, so their town was "Stormcr".
-     * The name and the place each get a row of their own; the faith and the age ride on the
-     * right in their own colours, because that is the only way both fit. The word LORD is not
-     * needed on a page you reach from a button that says THE LORD, under a crowned portrait. */
-    mb_ui_text(fb, 7, 7, ln, MB_UI_CREAM, 70);
-    snprintf(buf, sizeof buf, "%d", mb_faith());
-    mb_ui_text_r(fb, 121, 7, buf, MB_UI_GOLD);
-    mb_ui_text(fb, 7, 16, pl, MB_UI_DIM, 90);
-    snprintf(buf, sizeof buf, "%d", V->lord_age);
-    mb_ui_text_r(fb, 121, 16, buf, MB_UI_SKY);
-    /* THE LORD'S OWN FACE — the CR_LORD figures were hand-picked for all four races and had
-     * never been drawn anywhere, because no unit is ever given PROF_LORD. */
-    mb_ui_plaque(fb, 6, 26, 26, 26, MOTE_RGB565(14, 12, 20));
+    mb_name_str(pl, sizeof pl, NK_PLACE,  V->name);
+    mb_name_str(hb, sizeof hb, NK_FAMILY, V->lord_family);
+
+    /* THE HEADER: who they are, whose house, which town — and the three numbers that belong to
+     * the god rather than the lord on the right. Measured: the name column is 54 px from x=31,
+     * which is what is left beside a portrait and a right-hand figure. */
+    mb_ui_plaque(fb, 5, 4, 22, 22, MOTE_RGB565(14, 12, 20));
     { int sh, cx, cy;
       mb_cast_role(V->sp, mb_cast_role_lord(), (unsigned)v * 7919u, &sh, &cx, &cy);
-      mb_ui_blit3(fb, mb_ui_sheet(sh), cx, cy, 9, 29, 2); }
-    /* WHAT THE STAT DOES, not what the office is called. The column between the portrait and
-     * the pips is 48 px: "STEWARD" measures 63 and even lower-case "steward" 55, so the first
-     * two builds of this page read "STEWA" and "stewa". These are the three things the numbers
-     * actually drive in lord_think() — how boldly it builds, how it treats its neighbours, how
-     * readily it goes to war — and they fit. */
-    static const char *const SN[3] = { "builds", "talks", "fights" };
-    const int val[3] = { V->lord_stew, V->lord_diplo, V->lord_war };
-    for (int i = 0; i < 3; i++) {
-        int y = 27 + i * 9, sel = (i == s_ui_row);
-        if (sel) g_api->draw_rect(fb, 34, y - 1, 88, 10, MOTE_RGB565(76, 60, 26), 1, 0, 128);
-        mb_ui_text(fb, 36, y, SN[i], sel ? MB_UI_CREAM : MB_UI_DIM, 48);
-        /* THE SELECTED ROW SHOWS ITS NUMBER. Five pips is a twenty-point step, so a lord on
-         * 41 and one on 59 read identically — and the raise you are about to buy is worth 20,
-         * which the pips cannot show you either. The name is 46 px, five pips 35 and a
-         * three-digit number 27, which does not fit in the 88 px between the portrait and the
-         * edge; so the row you are pointing at trades its pips for the figure. */
-        if (sel) {
-            char nb[8];
-            snprintf(nb, sizeof nb, "%d", val[i]);
-            mb_ui_text_r(fb, 121, y, nb, MB_UI_GOLD);
+      mb_ui_blit3(fb, mb_ui_sheet(sh), cx, cy, 8, 7, 2); }
+    mb_ui_text(fb, 31, 5, ln, MB_UI_CREAM, 54);
+    snprintf(buf, sizeof buf, "%d", mb_faith());
+    mb_ui_text_r(fb, 121, 5, buf, s_ui_flash > 0.0f ? MB_UI_CREAM : MB_UI_GOLD);
+    snprintf(buf, sizeof buf, "%d", V->lord_age);
+    mb_ui_text_r(fb, 121, 14, buf, MB_UI_SKY);
+    /* the house gets what the age leaves (a three-digit age would start at 94) and the town gets
+     * the rest of its row, because the creed that used to sit here is a row in the list with its
+     * own value beside it — "Grimho" and "Stonew" were the cost of printing it twice. */
+    mb_ui_text(fb, 31, 14, hb, MB_UI_DIM, 68);
+    mb_ui_text(fb, 31, 23, pl, MB_UI_DIM, 90);   /* "Stonewatch" and "Stormcrest" are 79 px */
+    /* WHAT THEY ALREADY ARE, and how they are taking it. The strip was drawn from a table that
+     * had a picture for twelve of the twenty-five traits, so a lord the list below showed as
+     * "ambition yes" was summarised here as "plain"; every trait has a cell now, so this row
+     * tells the truth and the list is the place to change it. */
+    mb_ui_traits(fb, 7, 31, V->lord_traits);
+    /* the face rides at the end of the trait strip rather than over the town's name: five trait
+     * icons reach x=62, and "Stonewatch" needs the row above out to 110 */
+    if (lu >= 0) mb_ui_face(fb, 112, 31, mb_u[lu].happy);
+
+    /* THE LIST. Five rows around the cursor, the state of each on the right: a level out of five
+     * for the things that are levels, the word for the things that are not. */
+    if (s_ui_row >= N_DECREE) s_ui_row = N_DECREE - 1;
+    int first = s_ui_row - 2;
+    if (first > N_DECREE - DC_VIS) first = N_DECREE - DC_VIS;
+    if (first < 0) first = 0;
+    for (int r = 0; r < DC_VIS; r++) {
+        int i = first + r, y = 44 + r * 11;
+        if (i >= N_DECREE) break;
+        const Decree *d = &DECREES[i];
+        int sel = (i == s_ui_row);
+        if (sel) g_api->draw_rect(fb, 5, y - 2, 117, 11, MOTE_RGB565(76, 60, 26), 1, 0, 128);
+        if (d->op == DC_TRAIT) {
+            mb_ui_icon_trait(fb, 7, y, d->bit);
+            mb_ui_text(fb, 18, y, d->name, sel ? MB_UI_CREAM : MB_UI_DIM, 78);  /* "vengeance" */
         } else {
-            mb_ui_pips(fb, 86, y + 2, (val[i] + 19) / 20, 5, MB_UI_OK, MB_UI_OFF);
+            mb_ui_text(fb, 8, y, d->name, sel ? MB_UI_CREAM : MB_UI_DIM, 74);
+        }
+        int lvl = decree_level(V, d, lu);
+        if (lvl >= 0) {
+            mb_ui_pips(fb, 84, y + 2, lvl, 5, MB_UI_OK, MB_UI_OFF);
+        } else if (d->op == DC_CREED) {
+            mb_ui_text_r(fb, 120, y, MB_CREED_NAME[V->creed < CREED_N ? V->creed : 0],
+                         sel ? MB_UI_SKY : MB_UI_DIM);
+        } else {
+            int has = (V->lord_traits & d->trait) != 0;
+            mb_ui_text_r(fb, 120, y, has ? "yes" : "-", has ? MB_UI_OK : MB_UI_OFF);
         }
     }
-    /* WHAT THAT MEANS — the real thresholds, read back in words */
-    mb_ui_rule(fb, 6, 56, 116, "CONSEQUENCE", MB_UI_GOLD, FILL, MB_UI_DIM);
-    int hawk = V->lord_war
-             + ((V->lord_traits & TR_AMBITIOUS) ? 25 : 0)
-             + ((V->lord_traits & TR_VENGEFUL)  ? 30 : 0)
-             + ((V->lord_traits & TR_MADNESS)   ? 40 : 0);
-    int loyal = (V->lord_diplo >> 2) + ((V->lord_traits & TR_LOYAL) ? 25 : 0)
-              - ((V->lord_traits & TR_AMBITIOUS) ? 45 : 0);
-    int ln2 = 65;
-    mb_ui_text(fb, 7, ln2, hawk >= 80 ? "strikes first" :
-                           hawk >= 60 ? "wants a war" : "keeps the peace",
-               hawk >= 80 ? MB_UI_RED : hawk >= 60 ? MB_UI_GOLD : MB_UI_OK, 114);
-    ln2 += 9;
-    mb_ui_text(fb, 7, ln2, loyal < 0  ? "rebellion near" :
-                           loyal < 15 ? "loyalty is thin" : "loyal to it",
-               loyal < 0 ? MB_UI_RED : loyal < 15 ? MB_UI_GOLD : MB_UI_OK, 114);
-    /* AND NOT A THIRD LINE ABOUT BUILDING. It said "builds boldly" off the same number the
-     * stat row now prints, so it was the only one of the three that told you nothing new —
-     * and this page had run out of rows for the things it was not showing at all: whose house
-     * the lord is, what they believe, and what sort of mood they are in. */
-    mb_ui_rule(fb, 6, 84, 116, "TEMPERAMENT", MB_UI_GOLD, FILL, MB_UI_DIM);
-    mb_ui_traits(fb, 7, 92, V->lord_traits);
-    /* WHOSE HOUSE, WHAT THEY BELIEVE, AND HOW THEY ARE. None of the three was on this page:
-     * the dynasty is the thing that makes a succession worth watching, the creed is what the
-     * town builds temples to, and a lord in poor health or foul temper is about to become a
-     * succession. The line under the traits carries all three — surname on the left, creed
-     * and a mood face on the right — and the numbers behind the face are the lord's own,
-     * because the lord IS one of the town's people. */
-    { int lu = mb_village_lord_unit(v);
-      char hb[24];
-      mb_name_str(hb, sizeof hb, NK_FAMILY, V->lord_family);
-      /* 104..122 is the action bar's own strip, so this line sits at 104 and the block above
-       * it moved up eight pixels to make room. Measured: the surname gets 66 px, which fits
-       * every name the generator makes; the creed is four letters and the face is eight. */
-      mb_ui_text(fb, 7, 102, hb, MB_UI_DIM, 66);
-      mb_ui_text_r(fb, 104, 102, MB_CREED_NAME[V->creed < CREED_N ? V->creed : 0], MB_UI_SKY);
-      if (lu >= 0) mb_ui_face(fb, 113, 101, mb_u[lu].happy); }
-    snprintf(buf, sizeof buf, "A RAISE %d", MB_LORD_RAISE);
-    mb_ui_actions(fb, buf, "B<", FILL);
+    /* how far down the list this is */
+    { const int Y0 = 42, H = 56;
+      int h = H * DC_VIS / N_DECREE;
+      int top = Y0 + (N_DECREE > DC_VIS ? (H - h) * first / (N_DECREE - DC_VIS) : 0);
+      g_api->draw_rect(fb, 124, Y0, 2, H, MOTE_RGB565(60, 48, 24), 1, 0, 128);
+      g_api->draw_rect(fb, 124, top, 2, h, MB_UI_GOLD, 1, 0, 128); }
+
+    /* AND WHAT IT MEANS. A price with no consequence beside it is a guess — the same rule the
+     * gift list follows. Long notes scroll rather than being cut. */
+    { uint16_t nc; const char *nt = decree_note(V, &DECREES[s_ui_row], lu, &nc);
+      mb_ui_text(fb, 7, 100, nt + mb_ui_marquee(nt, 114, s_dt), nc, 114); }
+    mb_ui_actions(fb, decree_action(V, &DECREES[s_ui_row]), "B<", FILL);
 }
 
 /* ------------------------------------------------------------------ A TOWN
@@ -3426,14 +3558,16 @@ static void g_update(float dt)
             if (mote_just_pressed(in, MOTE_BTN_B)) { s_ui = UI_KING; }
         } else if (s_ui == UI_LORD) {
             if (up   && s_ui_row > 0) s_ui_row--;
-            if (down && s_ui_row < 2) s_ui_row++;
+            if (down && s_ui_row < N_DECREE - 1) s_ui_row++;
             if (mote_just_pressed(in, MOTE_BTN_A)) {
-                Village *V = &mb_v[s_subject_v];
-                uint8_t *stat = (s_ui_row == 0) ? &V->lord_stew
-                              : (s_ui_row == 1) ? &V->lord_diplo : &V->lord_war;
-                if (V->alive && *stat < 100 && mb_faith_afford(MB_LORD_RAISE)) {
-                    int nv = *stat + 20; *stat = (uint8_t)(nv > 100 ? 100 : nv);
-                    mb_faith_spend(MB_LORD_RAISE);
+                int v2 = s_subject_v;
+                const Decree *d = &DECREES[s_ui_row < N_DECREE ? s_ui_row : 0];
+                /* A DECREE THAT WOULD DO NOTHING COSTS NOTHING, as with the gifts: mending a
+                 * lord who is whole, or raising a stat already at a hundred, is refused rather
+                 * than charged for. */
+                if (v2 > 0 && v2 < MAXV && mb_v[v2].alive && mb_faith_afford(d->cost)
+                    && decree_apply(v2, d)) {
+                    mb_faith_spend(d->cost);
                     s_ui_flash = 0.5f;
                     mb_snd(SND_BLESS);
                 } else {
@@ -3787,8 +3921,7 @@ static void g_overlay(uint16_t *fb)
         }
         hud_marquee(fb, toast, 1, HUD_Y + 8, 126, C_CURS, 1);
     } else {
-        /* row one: speed, year, the selected power, the view */
-        hud_text(fb, SPEED_NAME[s_speed], HC_SPEED_X, HUD_Y, HC_SPEED_W, C_HI, -1);
+        /* row one: the year, the selected power, the view */
         snprintf(buf, sizeof buf, "Y%d", year);
         hud_text(fb, buf, HC_YEAR_X, HUD_Y, HC_YEAR_W, C_HI, -1);
         hud_text(fb, mb_power_name(), HC_POWER_X, HUD_Y, HC_POWER_W, C_HI, -1);

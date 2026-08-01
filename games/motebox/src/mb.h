@@ -736,6 +736,7 @@ unsigned mb_hash2(int x, int y);
 void mb_cast_pick_pub(const Unit *u, unsigned seed, int *sheet, int *cx, int *cy);
 void mb_ui_blit3(uint16_t *fb, const MoteImage *img, int cx, int cy, int x, int y, int scale);
 int  mb_ui_traits(uint16_t *fb, int x, int y, uint32_t traits);
+void mb_ui_icon_trait(uint16_t *fb, int x, int y, int bit);
 void mb_ui_icon(uint16_t *fb, int x, int y, int cx, int cy);
 void mb_ui_icon_ore(uint16_t *fb, int x, int y, int cx, int cy);  /* metals, heraldry */
 void mb_ui_icon_store(uint16_t *fb, int x, int y, int which);     /* 0..4: food wood stone iron gold */

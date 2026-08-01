@@ -704,6 +704,54 @@ def build_tech():
     save_sheet("tech", sheet)
 
 
+# THE TRAIT ICONS, in TR_*_B bit order so the sheet column IS the bit index.
+#
+# mb_ui_traits() drew a strip of icons for a person or a lord out of the STATUS atlas, and only
+# twelve of the twenty-five traits had a cell there — so a lord the LORD page listed as
+# "ambition yes" was summarised one row above as "plain", because the strip had nothing to draw
+# for ambition, loyalty, vengeance, immortality, genius, piety or six others. Every trait has a
+# cell now, chosen cell by cell in the picker (authoring/icon_picker.py traits), and they all
+# live on one baked sheet so the drawing code needs no per-trait atlas.
+#
+# The twelve that already had pictures keep them: their old STATUS and ORE cells are given here
+# as their MASTER cells, which is the same picture from the sheet those atlases are cut from.
+TRAIT_ICON = [
+    (52, 29),   # TOUGH        the flexed arm            (status 4,5)
+    (51, 27),   # FAST         the lightning star        (status 3,3)
+    (16, 19),   # BRAVE        a heraldic shield         (ore 0,3)
+    (52, 27),   # COWARD       the ZZZ                   (status 4,3)
+    (23,  8),   # GREEDY       - as picked
+    (48, 31),   # LOYAL        - as picked
+    (51, 29),   # AMBITIOUS    - as picked
+    (48, 29),   # FERTILE      the green plus            (status 0,5)
+    (50, 30),   # BARREN       - as picked
+    (27,  5),   # GENIUS       - as picked
+    (26,  5),   # STUPID       - as picked
+    (20,  5),   # PIOUS        - as picked
+    (33, 25),   # VENGEFUL     - as picked
+    (37, 31),   # REGEN        - as picked
+    (53, 25),   # BLESSED      the green tick            (status 5,1)
+    (54, 25),   # CURSED       the red bar               (status 6,1)
+    (28, 15),   # CHOSEN       - as picked
+    (51, 24),   # MARKED       the ... bubble            (status 3,0)
+    (48, 27),   # PLAGUE       the poison cloud          (status 0,3)
+    (50, 27),   # MADNESS      the spiral                (status 2,3)
+    ( 9, 10),   # CONTAGIOUS   - as picked
+    (59, 27),   # ZOMBIE       the ghost                 (status 11,3)
+    (29, 15),   # IMMORTAL     - as picked
+    (29, 16),   # VETERAN      - as picked
+    (60, 27),   # IMMUNE       the red cross             (status 12,3)
+]
+
+
+def build_traits():
+    """One 8x8 cell per trait, in TR_*_B bit order."""
+    sheet = Image.new("RGBA", (TS * len(TRAIT_ICON), TS), (0, 0, 0, 0))
+    for i, (c, r) in enumerate(TRAIT_ICON):
+        sheet.paste(cell(c, r), (i * TS, 0))
+    save_sheet("traits", sheet)
+
+
 def build_ships():
     """The vessels — their own 8x8 sheet, because a ship is drawn where a person is."""
     import build_sprites
@@ -925,6 +973,7 @@ def main():
     build_rocks()
     build_stores()
     build_tech()
+    build_traits()
     build_ships()
     build_town()
     build_bands()

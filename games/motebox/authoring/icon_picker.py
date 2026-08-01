@@ -19,7 +19,7 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 GAME = os.path.dirname(HERE)
 SRC = os.path.join(HERE, "source_tileset.png")
-OUT = "/tmp/motebox_icon_picker.html"
+OUT = "/tmp/motebox_icon_picker.html"   # traits mode writes _traits, see main()
 
 def cell_ink(im):
     """Which cells have anything in them. The sheet is mostly empty and the first version of
@@ -67,7 +67,33 @@ def techs():
         return depth[n]
     for n in pre:
         d(n)
-    return [(n, depth[n]) for n in sorted(pre, key=lambda x: (depth[x], x))]
+    return [(n, "layer %d" % depth[n]) for n in sorted(pre, key=lambda x: (depth[x], x))]
+
+
+# THE TRAITS WITH NO PICTURE. mb_ui_traits draws a strip of icons for a person or a lord and
+# TRAIT_ICON covers twelve of the twenty-five traits, so a lord who is ambitious and loyal was
+# described as "plain" — the strip could not draw either one. These are the thirteen that have
+# nothing, with what each one actually does beside it, because a picture is being chosen FOR the
+# effect and not for the word.
+TRAITS = [
+    ("TR_AMBITIOUS",   "a lord who builds above what the town has earned; -45 loyalty"),
+    ("TR_LOYAL",       "+20 to the will to fight, readier to haul; +25 loyalty under a lord"),
+    ("TR_VENGEFUL",    "a lord much readier to go to war"),
+    ("TR_IMMORTAL",    "does not die of old age"),
+    ("TR_GENIUS",      "research from this priest is worth three"),
+    ("TR_STUPID",      "research from this priest is worth nothing"),
+    ("TR_PIOUS",       "doubles the Faith they give you"),
+    ("TR_GREEDY",      "eats more before it counts as fed"),
+    ("TR_BARREN",      "-60 on the chance of a child"),
+    ("TR_REGEN",       "heals three a tick instead of one"),
+    ("TR_VETERAN",     "+6 damage, earned with three kills"),
+    ("TR_CHOSEN",      "+3 Faith, and never runs from anything"),
+    ("TR_CONTAGIOUS",  "spreads the plague it is dying of"),
+]
+
+
+def traits():
+    return [(k, h) for k, h in TRAITS]
 
 
 CSS = """
@@ -111,9 +137,19 @@ button:hover{background:#33406a}
 """
 
 
+MODE = "techs"
+VAR = "TECH_ICON"
+
+
 def main():
+    global MODE, VAR
+    MODE = (sys.argv[1] if len(sys.argv) > 1 else "techs").lower()
+    assert MODE in ("techs", "traits"), "usage: icon_picker.py [techs|traits]"
+    VAR = "TECH_ICON" if MODE == "techs" else "TRAIT_ICON"
+    SUBJ = "technology" if MODE == "techs" else "trait"
+    out = OUT if MODE == "techs" else OUT.replace(".html", "_traits.html")
     uri, (W, H), ink = sheet_data_uri()
-    tl = techs()
+    tl = techs() if MODE == "techs" else traits()
     Z = 34.0 / 8.0                      # a cell is drawn at 34 px, so the sheet scales by this
     bg = ('background-image:url(%s);background-size:%.1fpx %.1fpx'
           % (uri, W * Z, H * Z))
@@ -121,11 +157,11 @@ def main():
              % (uri, W * 4.0, H * 4.0))
 
     side = []
-    for n, lv in tl:
+    for n, hint in tl:
         side.append('<div class="t" data-t="%s"><div class="sw" id="sw-%s"></div>'
-                    '<div class="nm">%s<div class="lv">layer %d</div></div>'
+                    '<div class="nm">%s<div class="lv">%s</div></div>'
                     '<div class="cell" id="cl-%s">--</div></div>'
-                    % (n, n, n, lv, n))
+                    % (n, n, n, hint, n))
 
     # THE SHEET'S OWN LAYOUT. It is four bands of sixteen columns — items and terrain, items and
     # treasure, creatures, then the font and UI — and within a band the rows mean something: a
@@ -159,8 +195,9 @@ def main():
 
     js = """
 const TECHS = %s;
+const KEY = '%s', VAR = '%s';
 let sel = TECHS[0][0];
-const pick = JSON.parse(localStorage.getItem('mbicons') || '{}');
+const pick = JSON.parse(localStorage.getItem(KEY) || '{}');
 const CELL = 34, ZOOM = 4;
 function paint(){
   document.querySelectorAll('.t').forEach(e=>e.classList.toggle('on', e.dataset.t===sel));
@@ -180,31 +217,31 @@ function paint(){
 }
 function out(){
   const lines = TECHS.map(([n])=> '    "'+n+'": '+(pick[n]?'('+pick[n][0]+', '+pick[n][1]+'),':'None,  # not chosen'));
-  document.getElementById('out').value = 'TECH_ICON = {\\n' + lines.join('\\n') + '\\n}';
+  document.getElementById('out').value = VAR + ' = {\\n' + lines.join('\\n') + '\\n}';
 }
 document.addEventListener('click', ev=>{
   const t = ev.target.closest('.t');
   if(t){ sel = t.dataset.t; paint(); return; }
   const c = ev.target.closest('.c');
   if(c){ pick[sel] = [ +c.dataset.c, +c.dataset.r ];
-    localStorage.setItem('mbicons', JSON.stringify(pick));
+    localStorage.setItem(KEY, JSON.stringify(pick));
     const i = TECHS.findIndex(x=>x[0]===sel);        /* advance, so a run of picks is quick */
     if(i>=0 && i+1<TECHS.length) sel = TECHS[i+1][0];
     paint(); }
 });
 document.getElementById('clear').onclick = ()=>{
   if(confirm('Clear every choice?')){ Object.keys(pick).forEach(k=>delete pick[k]);
-    localStorage.removeItem('mbicons'); paint(); } };
+    localStorage.removeItem(KEY); paint(); } };
 document.getElementById('copy').onclick = ()=>{
   const t=document.getElementById('out'); t.select(); document.execCommand('copy'); };
 paint();
-""" % str([[n, lv] for n, lv in tl])
+""" % (str([[n, h] for n, h in tl]), 'mbicons-' + MODE, VAR)
 
     html = ("<!doctype html><html><head><meta charset=\"utf-8\">"
             "<title>Motebox icon picker</title><style>%s\n.sw{%s}\n.c{%s}</style></head><body>"
-            "<header><h1>Motebox &mdash; choose an icon for each technology</h1>"
-            "<div class=\"hint\">Click a technology on the left, then click a cell. It advances to "
-            "the next technology automatically, so you can work straight down the list. Green dots "
+            "<header><h1>Motebox &mdash; choose an icon for each %s</h1>"
+            "<div class=\"hint\">Click a %s on the left, then click a cell. It advances "
+            "to the next one automatically, so you can work straight down the list. Green dots "
             "mark cells already in use. Choices are kept if you reload. "
             "<span class=\"count\" id=\"done\"></span></div></header>"
             "<div class=\"layout\"><div class=\"side\">%s</div><div class=\"main\">%s</div></div>"
@@ -212,9 +249,9 @@ paint();
             "<button id=\"clear\">Clear</button>"
             "<textarea id=\"out\" spellcheck=\"false\"></textarea></footer>"
             "<script>%s</script></body></html>"
-            % (CSS, bg_sw, bg, "".join(side), "".join(zones), js))
-    open(OUT, "w").write(html)
-    print("wrote %s  (%d cells, %d technologies)" % (OUT, (W // 8) * (H // 8), len(tl)))
+            % (CSS, bg_sw, bg, SUBJ, SUBJ, "".join(side), "".join(zones), js))
+    open(out, "w").write(html)
+    print("wrote %s  (%d cells, %d %s)" % (out, (W // 8) * (H // 8), len(tl), MODE))
 
 
 if __name__ == "__main__":

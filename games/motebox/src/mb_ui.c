@@ -33,6 +33,7 @@
 #include "treasure_ore.h"   /* the metals, and the shields: see mb_ui_icon_ore */
 #include "stores.h"         /* the five town stores, one row: see mb_ui_icon_store */
 #include "tech.h"           /* one icon per technology, in TECH_* order */
+#include "traits.h"         /* one icon per trait, in TR_*_B bit order */
 #include "rogue8.font.h"
 
 /* --- the CP437 pieces ---------------------------------------------------- */
@@ -234,38 +235,30 @@ void mb_ui_blit3(uint16_t *fb, const MoteImage *img, int cx, int cy, int x, int 
  * A trait list was six words of text per soul. These are the artist's own status icons, so a
  * blessing and a plague read at a glance and in the same visual language as the rest of the
  * game. Only the traits that HAVE an icon are drawn; the rest fall through to the count. */
-typedef struct { uint32_t bit; uint8_t cx, cy, ore; } TraitIcon;
-static const TraitIcon TRAIT_ICON[] = {
-    { TR_BLESSED,    5,  1, 0 },   /* the green tick     */
-    { TR_CURSED,     6,  1, 0 },   /* the red bar        */
-    { TR_PLAGUE,     0,  3, 0 },   /* poison cloud       */
-    { TR_IMMUNE,    12,  3, 0 },   /* the red cross      */
-    { TR_TOUGH,      4,  5, 0 },   /* the flexed arm     */
-    { TR_FAST,       3,  3, 0 },   /* the lightning star */
-    /* A SHIELD, off the ore sheet's heraldry row. It was the green leaf at (1,3), which is
-     * also what a town's FOOD store is drawn with — the same picture meaning two unrelated
-     * things two screens apart is exactly the thing that makes an icon unreadable. */
-    { TR_BRAVE,      0,  3, 1 },
-    { TR_COWARD,     4,  3, 0 },   /* the ZZZ            */
-    { TR_MADNESS,    2,  3, 0 },   /* the spiral         */
-    { TR_ZOMBIE,    11,  3, 0 },   /* the ghost          */
-    { TR_FERTILE,    0,  5, 0 },   /* the green plus     */
-    { TR_MARKED,     3,  0, 0 },   /* the ... bubble     */
-};
-#define N_TRAIT_ICON ((int)(sizeof TRAIT_ICON / sizeof TRAIT_ICON[0]))
-
+/* THE TRAIT STRIP, off one baked sheet in bit order.
+ *
+ * This used to be a table of cells in the STATUS atlas covering twelve of the twenty-five
+ * traits, so the thirteen with no cell were INVISIBLE: a lord the LORD page listed as
+ * "ambition yes" was summarised, one row above, as "plain". Every trait has a cell now
+ * (authoring/extract_box.py TRAIT_ICON, chosen in the picker), the sheet is in TR_*_B order, and
+ * the column IS the bit — so there is no table here to fall behind the enum. */
 int mb_ui_traits(uint16_t *fb, int x, int y, uint32_t traits)
 {
     int n = 0;
-    for (int i = 0; i < N_TRAIT_ICON && n < 5; i++) {
-        if (!(traits & TRAIT_ICON[i].bit)) continue;
-        g_api->blit(fb, TRAIT_ICON[i].ore ? &treasure_ore_img : &ui_status_img,
-                    x + n * 11, y,
-                    TRAIT_ICON[i].cx * 8, TRAIT_ICON[i].cy * 8, 8, 8, 0, 0, 128);
+    for (int b = 0; b < TR_N && n < 5; b++) {
+        if (!(traits & TRB(b))) continue;
+        g_api->blit(fb, &traits_img, x + n * 11, y, b * 8, 0, 8, 8, 0, 0, 128);
         n++;
     }
     if (!n) mb_ui_text(fb, x, y + 1, "plain", MB_UI_DIM, 40);
     return n;
+}
+
+/* one named trait, for a row that is about that trait */
+void mb_ui_icon_trait(uint16_t *fb, int x, int y, int bit)
+{
+    if (bit < 0 || bit >= TR_N) return;
+    g_api->blit(fb, &traits_img, x, y, bit * 8, 0, 8, 8, 0, 0, 128);
 }
 
 /* ONE OF THE FIVE TOWN STORES, by index: food, wood, stone, iron, gold. They live on their own

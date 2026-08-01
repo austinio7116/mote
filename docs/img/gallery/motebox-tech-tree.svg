@@ -1,185 +1,183 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="642" height="1144" viewBox="0 0 642 1144" font-family="ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif">
-<rect width="642" height="1144" fill="#0d1018"/>
-<text x="26" y="34" fill="#e7e3d4" font-size="20" font-weight="700">The tech tree, as the handheld draws it</text>
-<text y="54" fill="#8f96ad" font-size="13"><tspan x="26" dy="0">35 rungs in 11 layers. A rung sits one layer below its deepest prerequisite and needs</tspan><tspan x="26" dy="18">BOTH of the rungs that feed it, so a link can also reach up past a layer. Where one</tspan><tspan x="26" dy="18">line crosses another it breaks: a break is a crossing, a corner is a join.</tspan></text>
-<rect x="26" y="103" width="11" height="11" fill="#7a8496"/>
-<text x="41" y="112" fill="#8f96ad" font-size="11">stone</text>
-<rect x="85" y="103" width="11" height="11" fill="#968a5a"/>
-<text x="100" y="112" fill="#8f96ad" font-size="11">bronze</text>
-<rect x="150" y="103" width="11" height="11" fill="#7e7e8c"/>
-<text x="165" y="112" fill="#8f96ad" font-size="11">iron</text>
-<rect x="203" y="103" width="11" height="11" fill="#629674"/>
-<text x="218" y="112" fill="#8f96ad" font-size="11">classical</text>
-<rect x="286" y="103" width="11" height="11" fill="#747aa8"/>
-<text x="301" y="112" fill="#8f96ad" font-size="11">medieval</text>
-<rect x="363" y="103" width="11" height="11" fill="#8e769e"/>
-<text x="378" y="112" fill="#8f96ad" font-size="11">renaissance</text>
-<rect x="459" y="103" width="11" height="11" fill="#927460"/>
-<text x="474" y="112" fill="#8f96ad" font-size="11">industrial</text>
-<rect x="549" y="103" width="11" height="11" fill="#608ea4"/>
-<text x="564" y="112" fill="#8f96ad" font-size="11">modern</text>
-<rect x="26" y="121" width="11" height="11" fill="#a66c6c"/>
-<text x="41" y="130" fill="#8f96ad" font-size="11">atomic</text>
-<path d="M321 194V244M144 244V252M321 244H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M439 194V244M262 244V252M439 244H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M439 194V244M380 244V252M439 244H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M439 194V244M498 244V252M439 244H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 286V327M144 335V336M85 336V344M144 336H85" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M203 194V240M203 248V331M85 331V344M203 331H85" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 286V327M144 335V336M203 336V344M144 336H203" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M262 286V336M321 336V344M262 336H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M380 286V327M380 335V336M439 336V344M380 336H439" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M498 286V327M498 335V336M557 336V344M498 336H557" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M321 194V240M321 248V331M557 331V344M321 331H557" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 286V327M144 335V419M144 427V428M144 428V436M144 428H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M203 378V423M144 423V436M203 423H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M203 378V419M203 427V428M262 428V436M203 428H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M85 378V423M262 423V436M85 423H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M321 378V428M380 428V436M321 428H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M498 286V327M498 335V423M380 423V436M498 423H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M439 378V419M439 427V428M498 428V436M439 428H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M321 378V423M498 423V436M321 423H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 470V511M144 519V520M203 520V528M144 520H203" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M85 378V515M203 515V528M85 515H203" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M321 378V511M321 519V520M321 520V528M321 520H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 470V515M321 515V528M144 515H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M557 378V520M439 520V528M557 520H439" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 470V515M439 515V528M144 515H439" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M203 562V612M144 612V620M203 612H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 286V327M144 335V419M144 427V511M144 519V607M144 607V620M144 607H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M262 470V511M262 519V612M262 612V620M262 612H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M203 562V607M262 607V608M262 616V620M203 607H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M203 562V612M380 612V620M203 612H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M498 470V516M498 524V607M380 607V608M380 616V620M498 607H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M321 562V612M498 612V620M321 612H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M498 470V516M498 524V607M498 607V620M498 607H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M498 654V704M262 704V712M498 704H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M262 654V699M262 699V712M262 699H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M380 654V704M380 704V712M380 704H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M498 654V699M380 699V700M380 708V712M498 699H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M262 746V796M144 796V804M262 796H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 654V791M144 791V804M144 791H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M262 746V796M262 796V804M262 796H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M380 746V791M262 791V804M380 791H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M380 654V700M380 708V796M380 796V804M380 796H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M380 746V791M380 791V792M380 800V804M380 791H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M262 746V796M498 796V804M262 796H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M498 470V516M498 524V791M498 791V804M498 791H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 838V888M203 888V896M144 888H203" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 654V883M203 883V884M203 892V896M144 883H203" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 838V888M321 888V896M144 888H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 470V511M144 519V883M321 883V884M321 892V896M144 883H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M262 838V879M262 887V888M439 888V896M262 888H439" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M144 838V883M439 883V896M144 883H439" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M321 930V971M321 979V980M262 980V988M321 980H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M380 746V792M380 800V879M380 892V975M262 975V988M380 975H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M439 930V980M380 980V988M439 980H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M321 930V975M380 975V988M321 975H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M262 1022V1072M321 1072V1080M262 1072H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<path d="M380 1022V1067M321 1067V1080M380 1067H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
-<rect x="183" y="157" width="40" height="40" fill="#141a28" stroke="#7a8496" stroke-width="2"/>
-<image x="186" y="160" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAt0lEQVR4nGNkoBD8//jiPynqD1+6j8JnotQBlIJRBzCSqgE9ztHjlBCw1VNE4Q94CIw6gIWQAlLjfO6UDhR+ck4FXvUDHgKjDiCYBhj5JVDKikOHj6OkCVLjHB0MeAiMOoBgXfB/MQNKnK9Zb4YiL144Ea9+9LIfPU0NeAiMOgCjHCAU51tYJVH4C20tUeIUve5Aj3N0MOAhMOoARpLjfOVGktuR+MCAh8CoA1joHefoYMBDYNQBAKrSOKEVH5BqAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
-<text x="203" y="209" fill="#e7e3d4" font-size="12" text-anchor="middle">agriculture</text>
-<rect x="301" y="157" width="40" height="40" fill="#141a28" stroke="#7a8496" stroke-width="2"/>
-<image x="304" y="160" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAk0lEQVR4nGNkQAP/FzP8RxfDB9asNyNFOUPRTVkUPhNJumkARh3ASEjB6iAzlDSxhVUSr/p9V1jwyj++uhbFzgEPgVEHYKQBQuUAqfkeHYyWA4POAYy0jnNCYMBDYNQBGAU3reMcvS4Z8BAYdcCoA0YdwELvfI8OBjwERh2A0SZE7wcQAoTiGB0sXLlxtF8wuBwAAITgIGzROJyfAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
-<text x="321" y="209" fill="#e7e3d4" font-size="12" text-anchor="middle">pottery</text>
-<rect x="419" y="157" width="40" height="40" fill="#141a28" stroke="#7a8496" stroke-width="2"/>
-<image x="422" y="160" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApUlEQVR4nGNkQAP/P774jy5GEdgkgcJds94Mhc9EVcvIAKMOYEGP88OX7lPXBoXjKNwtrB0o/AEPgVEHMFJqwP/FDKhpCC3OCYEBD4FRB5CcBtDjHL1s38IqicJPzqnAa96Ah8CoAwimAVLjfOHKjShmHjp8HG/7YsBDYNQBLOgClMY5qWDAQ2DUASz0jnN0MOAhMOoAFnrHuZ2tJYp5Ax4Cow4AAB24Nt+HYqO+AAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
-<text x="439" y="209" fill="#e7e3d4" font-size="12" text-anchor="middle">tools</text>
-<rect x="124" y="249" width="40" height="40" fill="#141a28" stroke="#968a5a" stroke-width="2"/>
-<image x="127" y="252" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAkElEQVR4nGNkIBGsDjL7T6oeZBC67hQjMp+JEsOoAUYdwEJpnFIKBjwERh3AQqqGkKoSktQzmoQx4pMf8BAYdQBG/Pw/s4qicmFNWw8KH73sRwcDHgKjDiCYBtDjFB1QWi4MeAiMOoDm5QB6GhlNA4POAXjLaQYGwuXCaDkw5B1AchogaCCBNiA6GPAQGHUAAE/nKD+6xI5rAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
-<text x="144" y="301" fill="#e7e3d4" font-size="12" text-anchor="middle">writing</text>
-<rect x="242" y="249" width="40" height="40" fill="#141a28" stroke="#968a5a" stroke-width="2"/>
-<image x="245" y="252" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAxUlEQVR4nGNkIAD+f3zxH5l/+NJ9QlpQgJ2tJSM+eSaSTKMBGHUAC7oAepwnpKWjyPv8fk6SBYcOH0cxDz1NDHgIjDqAkdpxTghsYZVE4Q94CIw6gAW9bCcU5yGzPqIKbL+Jwl2z3owkBwx4CIw6AKMuIAgojPN9V1CtHPAQGHUAyWmA1DhHL/vRwYCHwKgDMNrs6G24l/35JBmIHufo+f7x1bWjbcLB5QC8/TYGBgaG+HD///jk0eMYHaDHOToY8BAYdQAAJz47N44CtO0AAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
-<text x="262" y="301" fill="#e7e3d4" font-size="12" text-anchor="middle">bronze</text>
-<rect x="360" y="249" width="40" height="40" fill="#141a28" stroke="#968a5a" stroke-width="2"/>
-<image x="363" y="252" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAcklEQVR4nGOU1Q7+zzCAgGkgLR91AAMDAwPjocPHUdLA3CkdJBmw7woLCn/pjBKS9A94CIw6gIXUOCcVEDJ/wENg1AGjDhh1AONoe2DEO4AFXYDU+hwdkFq3DHgIjDoAIw2gA1q3FwY8BEYdMOqAUQcAAIEiFFiaIz7pAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
-<text x="380" y="301" fill="#e7e3d4" font-size="12" text-anchor="middle">masonry</text>
-<rect x="478" y="249" width="40" height="40" fill="#141a28" stroke="#968a5a" stroke-width="2"/>
-<image x="481" y="252" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAjElEQVR4nGNkIAAOHT7+n5AafMDO1pIRnzwTJYZTA4w6gAVdAD3O507poMgCdPPQ08SAh8CoAxhJjfPknAq88qTqH/AQGHUARjmADtDjzFZPEb8GNPWE0sSAh8CoA0YdMOoAguUARj6msC5ABwMeAqMOwGizU7tNiF6XjLYJB50D8PbbGBhG+4YjwAEAMToqWEf8rqIAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
-<text x="498" y="301" fill="#e7e3d4" font-size="12" text-anchor="middle">the wheel</text>
-<rect x="65" y="341" width="40" height="40" fill="#141a28" stroke="#629674" stroke-width="2"/>
-<image x="68" y="344" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAg0lEQVR4nGNkIAD+f3zxn5AafICRX4IRnzwTJYZTA4w6gAVdgNI4JxUMeAiMOoCR1DgnlK/RAbr56PoHPARGHYBRDqADUuOcVDDgITDqgFEHjDqAYB4nVFccvnQfhW+rp4hqwWibcLA7ACN+aN0mHG0PDDoHsFAa54TKAUJgwENg1AEAd20iGoUM7TwAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
-<text x="85" y="393" fill="#e7e3d4" font-size="12" text-anchor="middle">law</text>
-<rect x="183" y="341" width="40" height="40" fill="#141a28" stroke="#7e7e8c" stroke-width="2"/>
-<image x="186" y="344" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAoElEQVR4nGNkIAD+f3zxH0Xgtz0Kl1HkJiMhM/ABJko0UwOMOoAFXQAjzjdJ4DXg/xt1FPWkpokBD4FRB2CkAYw491THb8L2mxQ5YMBDYNQBBPPs/8UM//HJM8aimkFq3THgITDqAMJ1AYE4pLTuGPAQGHUAC6VxSGndMeAhMOoARoyynsQ4xKgLSKw7BjwERh2A0R4gNQ4pBQMeAqMOAAAzoD3eTh6zMAAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="203" y="393" fill="#e7e3d4" font-size="12" text-anchor="middle">currency</text>
-<rect x="301" y="341" width="40" height="40" fill="#141a28" stroke="#7e7e8c" stroke-width="2"/>
-<image x="304" y="344" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAlElEQVR4nGNkoDH4//HFf2Q+I78EIzKfidYOIARGHcBCbQMPHT7+n7AqBBjwEBh1AMVpgNQ4RwcDHgKjDmAkrAQVEIpzWz1FVAvQyn50MOAhMOoAgmmA2nGODgY8BEYdgBFftI5zdDDgITDqAMb4cH+8cb5g1kxUDRTGOToY8BAYdQBGm3DfFVQhasc5OhjwEBh1AACfChyXj+B5gAAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="321" y="393" fill="#e7e3d4" font-size="12" text-anchor="middle">ironwork</text>
-<rect x="419" y="341" width="40" height="40" fill="#141a28" stroke="#7e7e8c" stroke-width="2"/>
-<image x="422" y="344" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAf0lEQVR4nGNkIABktYP/E1KDDzy+upYRnzwTJYZTA4w6ACN+KI1zQgA9TQx4CIw6gJFQnC+dUUKRBdEZPXjlBzwERh2AkQYojXNCAD1NDHgIjDqA8dDh4zQt+wmBAQ+BUQew0NqCuVM6UPjJORUo/AEPgVEHjJYDow4YdcCoAwDWARsHZL8TKQAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="439" y="393" fill="#e7e3d4" font-size="12" text-anchor="middle">architecture</text>
-<rect x="537" y="341" width="40" height="40" fill="#141a28" stroke="#7e7e8c" stroke-width="2"/>
-<image x="540" y="344" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAmElEQVR4nGNkoDNYHWT2H5nPRG8HoINRBzDS2gL0OA+ZvwlFfsBDYNQBVE8DhOIcHQx4CIw6gOI0gB7noetOoZj5/+MLFHlGfgkU+QEPgVEHkJwGKI1zdPkBD4FRB7AQUkBpnBMCAx4Cow7ASAOE6vNDhfcpinMG/lQU7oCHwKgDWAjlc/Q4nzulgyILDx+uQuEPeAiMOgAAYC44SJf1SOIAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
-<text x="557" y="393" fill="#e7e3d4" font-size="12" text-anchor="middle">seafaring</text>
-<rect x="124" y="433" width="40" height="40" fill="#141a28" stroke="#629674" stroke-width="2"/>
-<image x="127" y="436" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAgklEQVR4nGNkoDKQ1Q7+T4p6Jmo7gFQw6gAWWluQ+AuVP58NlT/gITDqAJqnAfQ4RwcDHgKjDmAkVQOpZX2atycKf9bW7Sj8AQ+BUQdglAOkxjFP0xoU/pe6EJIcMOAhMOoAgnUBpXFMCAx4CIw6YNQBow7AaA+QWhdQCgY8BEYdAABEMRJT08rj9wAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="144" y="485" fill="#e7e3d4" font-size="12" text-anchor="middle">mathematics</text>
-<rect x="242" y="433" width="40" height="40" fill="#141a28" stroke="#747aa8" stroke-width="2"/>
-<image x="245" y="436" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAbElEQVR4nGNgGAWjYBSMdMDI8MTsP7LAofsTURTYKeZTZAEh85goMp0KYNQBLKRqQI9TdEBqmhnwEBh1wKgDRh1AcjlAad2ADgY8BEYdwMjQHojSHoi/8A9FwUIDytxIyLwBD4FRB4w6YNQBACoeE/FFfkikAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
-<text x="262" y="485" fill="#e7e3d4" font-size="12" text-anchor="middle">banking</text>
-<rect x="360" y="433" width="40" height="40" fill="#141a28" stroke="#629674" stroke-width="2"/>
-<image x="363" y="436" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApElEQVR4nGNgGAWjYBSMdMD4/436fxQBkZuM9HQAEz0tG3UANsDCsP0migCt08Shw8dRzB/wEBh1AOP/xQz/CStDAp7qpNmAlsYStvij8Ac8BEYdwIIusGa9GQo/dN0plHLg/+KbJKUZxlgGFP2y2iyj5cDgcgDj6iAzlDjBjHPUcgI9jRACIYGnUC1ESxMDHgKjDiC5rie17kCPc3Qw4CEw6gAAErEok4gI3ykAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
-<text x="380" y="485" fill="#e7e3d4" font-size="12" text-anchor="middle">cavalry</text>
-<rect x="478" y="433" width="40" height="40" fill="#141a28" stroke="#629674" stroke-width="2"/>
-<image x="481" y="436" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAvklEQVR4nGNkoDL4//HFf2T+4Uv3UeTtbC0ZkflM1HYAqWDUAYyEleAHpMY5uvoBD4FRB7AQUoAeZ+gAPc5t9RRRFbQHouhn/OyHIj3gITDqAIw0QChfo4O5UzpQBXIq8Nu4WBqFO+AhMOoAlvhwf5LiHL1sR9ePASrXj9YFg9sBGOVAdEYPCv/x1bV42wwLV25El0eJ40OHj6PWBfwSo23CweUARlntYJQ4ctL5g6IASxxTFQx4CIw6YBSMAgDgV0EAU5qD8QAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="498" y="485" fill="#e7e3d4" font-size="12" text-anchor="middle">engineering</text>
-<rect x="183" y="525" width="40" height="40" fill="#141a28" stroke="#747aa8" stroke-width="2"/>
-<image x="186" y="528" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAjklEQVR4nGOMD/f/zzCAgGkgLR91AAMDAwOLz+/nA+qAAQ+BUQewoAuErBNH4dersqHwV3esQeGHVoSg8JuS/qHwZZeg+rFP/TEKf8BDYNQBow4YdQDj6iCz0fbAyHYARl1QF30ShX/9VhAKH71sf3T1Fwpfa+0mFD56XaGrO1oXjDpg1AGDzAGjdcGoAwDe9BzagKFdmAAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="203" y="577" fill="#e7e3d4" font-size="12" text-anchor="middle">the university</text>
-<rect x="301" y="525" width="40" height="40" fill="#141a28" stroke="#747aa8" stroke-width="2"/>
-<image x="304" y="528" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAiUlEQVR4nGNkoDI4dPj4f2S+rW0bijwjw2ZGZD4TtR1AKhh1ACNhJfgBepzb2VqSZOaAh8CoAwjGl6x28H9CavCBx1fX4rVjwENg1AEY8YMe54+OTcVrgJxVNkkWoqeJAQ+BUQewkKqB1DgnBAY8BEYdQDANUDvO0cGAh8CoA0YdMOqA0TbhqAMA1f0ZxqqMzQMAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
-<text x="321" y="577" fill="#e7e3d4" font-size="12" text-anchor="middle">gunpowder</text>
-<rect x="419" y="525" width="40" height="40" fill="#141a28" stroke="#747aa8" stroke-width="2"/>
-<image x="422" y="528" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAmUlEQVR4nGNkIAD+f3zxn5AafICRX4IRnzwTJYZTA4w6ACN+0OOcUBwSAoTMG/AQGHUAC6kaZLWDKSoX0MGAh8CoA0hOA+jg8dW1KPma1DQy4CEw6gCMNHD40n2qWkDIvAEPgVEHEKzrDx0+TlHZb2drOdomHNwOILm9h17WE6oL0OXRwYCHwKgDKG4PoANCcY4OBjwERh0AAFXVJS3SQB1pAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
-<text x="439" y="577" fill="#e7e3d4" font-size="12" text-anchor="middle">navigation</text>
-<rect x="124" y="617" width="40" height="40" fill="#141a28" stroke="#8e769e" stroke-width="2"/>
-<image x="127" y="620" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAiUlEQVR4nGNgGAUjHTASUvD/44v/eA3glyBoBj7ARIlmaoBRB2DEH6E4J2ggiWliwENg1AEY8XXo8HGUNGCrp0iZBQTSxICHwKgDCOZZWqeJAQ+BUQeQXJdTO00MeAiMOoCR0vr/8KX7KHxS08SAh8CoA1gIKag3ycYr33hmKgqfUJoYrQsGnQMA4VchDEGE1akAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
-<text x="144" y="669" fill="#e7e3d4" font-size="12" text-anchor="middle">printing</text>
-<rect x="242" y="617" width="40" height="40" fill="#141a28" stroke="#8e769e" stroke-width="2"/>
-<image x="245" y="620" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAsUlEQVR4nGNkQAP/FzP8RxfDB9asNyNFOUPRTVkUPhNJumkARh3ASEjB6iAzlDSxhVUSr/p9V1jwyj++uhbFzgEPgVEHYKQBQuUAoyNp+X51Hip/tBwYdA5gJDXO0eOUUjDgITDqAIyCG6N+d0Tlhk4izQL0NINelwx4CIw6AH/lzUB6vic1jQx4CIw6gIVQu57a+R4dDHgIjDoAo02I3g8gBAjFMTpYuHLjaL9gcDkAABqhJq9HAseaAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
-<text x="262" y="669" fill="#e7e3d4" font-size="12" text-anchor="middle">economics</text>
-<rect x="360" y="617" width="40" height="40" fill="#141a28" stroke="#8e769e" stroke-width="2"/>
-<image x="363" y="620" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAhUlEQVR4nGNkIAD+f3zxn5AafICRX4IRnzwTJYZTA4w6gAVdAD3OD1+6T5EF6Oahp4kBD4FRBzCSGudzp3TglU/OqcArb6uniMIf8BAYdQBGOYAO0OOcUByTqn7AQ2DUAaMOGHXAaF0w6gCMNju124TocT7aJhx0DsDbb2NgGO0bjgAHAAAmDjM5dPmXYgAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="380" y="669" fill="#e7e3d4" font-size="12" text-anchor="middle">sanitation</text>
-<rect x="478" y="617" width="40" height="40" fill="#141a28" stroke="#8e769e" stroke-width="2"/>
-<image x="481" y="620" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAsElEQVR4nGNkIAD+f3zxH588I78EIyEz8AEmSjRTA4w6gAVdAD3OE9LS8RqArv7wpfso8na2lnjTyICHwKgDMOInPtwfb74nBBbMmonCJ5QmBjwERh1AsBynNE2gg4UrN46mgcHlAIJpgNS6gVQw4CEw6gCC7QH0snzfFVQtTjp/KHLAgIfAqAMYCcX53CkdKHz0shwdEKo7RuuCQecAxkOHj6PEGalxTikY8BAYdQAAZGI+krBbDMQAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
-<text x="498" y="669" fill="#e7e3d4" font-size="12" text-anchor="middle">metallurgy</text>
-<rect x="242" y="709" width="40" height="40" fill="#141a28" stroke="#927460" stroke-width="2"/>
-<image x="245" y="712" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAoElEQVR4nGM8dPj4fwYkYKunyIAPHL50H4VvZ2vJiMwnZB66fia8ttEBjDqA8f/HF/8JK8MN0OOUUBpCBwMeAqMOYCE1DgmVA6SmqQEPgVEHMKILoJflpMYxoTQ1WhcMOgcwklp/EyonGPkl8LYP0NPUgIfAqANIbg8QimNS65IBD4FRB5CcBihtA6KDAQ+BUQcQbBNS2hdEB6PlwKBzAADYBVRCXrdufQAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="262" y="761" fill="#e7e3d4" font-size="12" text-anchor="middle">steam</text>
-<rect x="360" y="709" width="40" height="40" fill="#141a28" stroke="#927460" stroke-width="2"/>
-<image x="363" y="712" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAvklEQVR4nGNkIBH8X8zwH5m/Zr0ZinzoulOMpJjHRKoDqA1GHUAwvv5/fIES54cv3SfJAjtbS7x2DHgIjDqAhZAC9DgnFKeHDh//j08eHQx4CIw6gGAaQAf/y1egxnHnUhTuYRLNG/AQGHUAyWkAPc7RwdwpHSQZN+AhMOoA0tMAGqhXZUMT+UOS/gEPgVEHEEwD6Pl6D0aco4J9V0hLVgMeAqMOIKkfx8DAwBAf7o/SHkCP88dX1472DYeWAwAk1yeNBg559AAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="380" y="761" fill="#e7e3d4" font-size="12" text-anchor="middle">chemistry</text>
-<rect x="124" y="801" width="40" height="40" fill="#141a28" stroke="#927460" stroke-width="2"/>
-<image x="127" y="804" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAiElEQVR4nGNkoDL4/0b9P4rA9psoXMZYBkZkPhO1HUAqGHUAI2ElqAAjjtEBgThHBwMeAqMOwIif/4sZUOPYUx2/CSTGOToY8BAYdQAjyXFOCIyWA0PNAQTzLK3TyICHwKgDSG8PULmuGPAQGHUA1csBRpGbo+2BoeUAktuEpMYxITDgITDqAACGNCXaphRmjQAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="144" y="853" fill="#e7e3d4" font-size="12" text-anchor="middle">electricity</text>
-<rect x="242" y="801" width="40" height="40" fill="#141a28" stroke="#608ea4" stroke-width="2"/>
-<image x="245" y="804" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApklEQVR4nO1WwQ2AIBA7jCMwg87iwxGYzhF4OIs7uAN+vZLYEGPw0f4u9Ehz7RGCERRby70OlgPraekfWi77AhJA/SybeQ+T73mbke4TkIDKL+YpntuW/YWYEZKh7hOQgJERKs9b+QkZPjPdJyAB9TsAe2tp9QTYe1tmX8fpka934HcC6gycs8/AfngCeo4g/BAPZeBfAvifEDNB9px5jug+AQkQhAs9zjDbPp2TbwAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="262" y="853" fill="#e7e3d4" font-size="12" text-anchor="middle">combustion</text>
-<rect x="360" y="801" width="40" height="40" fill="#141a28" stroke="#608ea4" stroke-width="2"/>
-<image x="363" y="804" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAm0lEQVR4nGNgGAWjYBSMdMBISMH/jy/+U2LB4Uv3Ufh2tpYodjJRYjg1wKgDMNIAqXHO+NkPhX/o/kSSHDDgITDqAJLTAHqcY4DF0ijcQzZleJUPeAiMOoAFXSAhLR2vhkM5qPnc7kgXqjxanEdn9OA1b8BDYNQBJJcDhNLIviuoyWrpjBK86gc8BEYdQHF7AL3NRyoY8BAYdQAAQeArlWKkYx0AAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
-<text x="380" y="853" fill="#e7e3d4" font-size="12" text-anchor="middle">medicine</text>
-<rect x="478" y="801" width="40" height="40" fill="#141a28" stroke="#927460" stroke-width="2"/>
-<image x="481" y="804" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAZElEQVR4nGNkQAOrg8z+o4shg9B1pxjxyZOqnwmfYnqAUQcw/v/4Am+cURscvnQfhT/gITDqABb0OKE1mDulA4U/4CEw6gCMcn20Lhh1wKgDRpwDRtsDow4YbQ+MOmC0PTDqAAAtyC0wv63eiwAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="498" y="853" fill="#e7e3d4" font-size="12" text-anchor="middle">the railway</text>
-<rect x="183" y="893" width="40" height="40" fill="#141a28" stroke="#608ea4" stroke-width="2"/>
-<image x="186" y="896" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAxUlEQVR4nGNkoDGQ1Q7+j8xfOqMERZ6J1g4gBEYdwEipAehxjA4eX12L144BD4FRBxBMA5TGMSEw4CEw6gBGWscxITDgITDqAMb/ixlQ0kDCFn8UBck5FSh82weWJFmwZr0ZCj903SmUNDXgITDqABZCcT53SgeqjpzjKFz0NIFhXiGqeasZ8lHS3ICHwKgDGA8dPo4SJ+hxTihNLPDZiMI/rICaRtDV+/x+jsIf8BAYdQBGXUAoDtHjnFSAXjcMeAiMOgAAK2c9n0bsciIAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
-<text x="203" y="945" fill="#e7e3d4" font-size="12" text-anchor="middle">radio</text>
-<rect x="301" y="893" width="40" height="40" fill="#141a28" stroke="#a66c6c" stroke-width="2"/>
-<image x="304" y="896" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAk0lEQVR4nGNgGAUjHTASUvD/jfp/FA0iNxmpKc9ErEtpBUYdgJEG0OMsIVuDIgsWrtyIN50NeAiMOoAFXQA9n8aHa6CkieScChT1c6d0oPD3XUE18v9iBtRyIJZhtBwYXA6gejmAngYeX107Wg4MbgeQXA6gxzEhMFoODHoHECwHMNp4BOKUkDw6GPAQGHXAKBgFAA/RNfVLjOUjAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
-<text x="321" y="945" fill="#e7e3d4" font-size="12" text-anchor="middle">physics</text>
-<rect x="419" y="893" width="40" height="40" fill="#141a28" stroke="#608ea4" stroke-width="2"/>
-<image x="422" y="896" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAmklEQVR4nGNgGAUjHTDS2oLVQWb/kfmh606h2MlEawcQAqMOoHoaQI/zkPmb8Kof8BAYdQALpQagx/kWVkkUefFL91H4tnqKKPwBD4FRB5BcDhCK8wWzZuK3kF9itC4YXA4gWA4Qqs/jw/3/M+ABh9HKAXQw4CEw6gCMcoBQnBMC6GmCULkw4CEw6gAWSuOcEEAvB0bbA4POAQBtHim5R85ZkwAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
-<text x="439" y="945" fill="#e7e3d4" font-size="12" text-anchor="middle">flight</text>
-<rect x="242" y="985" width="40" height="40" fill="#141a28" stroke="#a66c6c" stroke-width="2"/>
-<image x="245" y="988" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApElEQVR4nO1XIQ6AMAxcCR6L5QN4xHg8CDwfwGJ5wdC7Jbs0FTU9t3VpLndtt0kyonxv6cVlmqUXH6wErAgCI24c51V5uudNenHmMcvnrkAQEOxj5imeP++niqPHDO4KBIFmDiCwjxF5Xaq1tkbcFQgCTc+i5+gxA/Mca8RdgSCgmtsp8RrR3iXuCgQB9ZuQvRFZPqwRdwWCAJ0D1r8fg7sCQeAHdY9Hr5nYk4gAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
-<text x="262" y="1037" fill="#e7e3d4" font-size="12" text-anchor="middle">fission</text>
-<rect x="360" y="985" width="40" height="40" fill="#141a28" stroke="#a66c6c" stroke-width="2"/>
-<image x="363" y="988" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAnElEQVR4nGNgGAUjHTDS2oL/H1/8R7GQXwLFTiZaO4AQGHUAxWngP4MvShwzfJyNagFanKODAQ+BUQewoAscOnwcJU5t9RRRFfCnovIXb8YvTwAMeAiMOoCR4jiP9UU1kGEzSWXLgIfAqANIrgsoLfvRwYCHwKgDMOoCggAtzg9fuk+RAwY8BEYdQHIaQI9zO1tLitqVAx4Cow4AAAOcIHkYPZxOAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
-<text x="380" y="1037" fill="#e7e3d4" font-size="12" text-anchor="middle">rocketry</text>
-<rect x="301" y="1077" width="40" height="40" fill="#141a28" stroke="#a66c6c" stroke-width="2"/>
-<image x="304" y="1080" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAh0lEQVR4nGNkIABktYP/E1KDDyydUYLCt7VtQ+EzUWI4NcCoAxjRBdDj/NGxqSjyclbZFFn4+OpaFDsHPARGHcBIKM4JAUrTxICHwKgDMNIAOqB2OYAOBjwERh1AMA3QGgx4CIw6YNQBow4g2CakNhhtEw46B2CkAXRAaZpAj3N0MOAhMOoAAO08HlM3sSaeAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
-<text x="321" y="1129" fill="#e7e3d4" font-size="12" text-anchor="middle">the bomb</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="642" height="1052" viewBox="0 0 642 1052" font-family="ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif">
+<rect width="642" height="1052" fill="#0d1018"/>
+<rect x="26" y="11" width="11" height="11" fill="#7a8496"/>
+<text x="41" y="20" fill="#8f96ad" font-size="11">stone</text>
+<rect x="85" y="11" width="11" height="11" fill="#968a5a"/>
+<text x="100" y="20" fill="#8f96ad" font-size="11">bronze</text>
+<rect x="150" y="11" width="11" height="11" fill="#7e7e8c"/>
+<text x="165" y="20" fill="#8f96ad" font-size="11">iron</text>
+<rect x="203" y="11" width="11" height="11" fill="#629674"/>
+<text x="218" y="20" fill="#8f96ad" font-size="11">classical</text>
+<rect x="286" y="11" width="11" height="11" fill="#747aa8"/>
+<text x="301" y="20" fill="#8f96ad" font-size="11">medieval</text>
+<rect x="26" y="29" width="11" height="11" fill="#8e769e"/>
+<text x="41" y="38" fill="#8f96ad" font-size="11">renaissance</text>
+<rect x="122" y="29" width="11" height="11" fill="#927460"/>
+<text x="137" y="38" fill="#8f96ad" font-size="11">industrial</text>
+<rect x="212" y="29" width="11" height="11" fill="#608ea4"/>
+<text x="227" y="38" fill="#8f96ad" font-size="11">modern</text>
+<rect x="277" y="29" width="11" height="11" fill="#a66c6c"/>
+<text x="292" y="38" fill="#8f96ad" font-size="11">atomic</text>
+<path d="M321 102V152M144 152V160M321 152H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M439 102V152M262 152V160M439 152H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M439 102V152M380 152V160M439 152H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M439 102V152M498 152V160M439 152H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 194V235M144 243V244M85 244V252M144 244H85" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M203 102V148M203 156V239M85 239V252M203 239H85" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 194V235M144 243V244M203 244V252M144 244H203" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M262 194V244M321 244V252M262 244H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M380 194V235M380 243V244M439 244V252M380 244H439" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M498 194V235M498 243V244M557 244V252M498 244H557" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M321 102V148M321 156V239M557 239V252M321 239H557" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 194V235M144 243V327M144 335V336M144 336V344M144 336H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M203 286V331M144 331V344M203 331H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M203 286V327M203 335V336M262 336V344M203 336H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M85 286V331M262 331V344M85 331H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M321 286V336M380 336V344M321 336H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M498 194V235M498 243V331M380 331V344M498 331H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M439 286V327M439 335V336M498 336V344M439 336H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M321 286V331M498 331V344M321 331H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 378V419M144 427V428M203 428V436M144 428H203" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M85 286V423M203 423V436M85 423H203" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M321 286V419M321 427V428M321 428V436M321 428H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 378V423M321 423V436M144 423H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M557 286V428M439 428V436M557 428H439" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 378V423M439 423V436M144 423H439" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M203 470V520M144 520V528M203 520H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 194V235M144 243V327M144 335V419M144 427V515M144 515V528M144 515H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M262 378V419M262 427V520M262 520V528M262 520H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M203 470V515M262 515V516M262 524V528M203 515H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M203 470V520M380 520V528M203 520H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M498 378V424M498 432V515M380 515V516M380 524V528M498 515H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M321 470V520M498 520V528M321 520H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M498 378V424M498 432V515M498 515V528M498 515H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M498 562V612M262 612V620M498 612H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M262 562V607M262 607V620M262 607H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M380 562V612M380 612V620M380 612H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M498 562V607M380 607V608M380 616V620M498 607H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M262 654V704M144 704V712M262 704H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 562V699M144 699V712M144 699H144" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M262 654V704M262 704V712M262 704H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M380 654V699M262 699V712M380 699H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M380 562V608M380 616V704M380 704V712M380 704H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M380 654V699M380 699V700M380 708V712M380 699H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M262 654V704M498 704V712M262 704H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M498 378V424M498 432V699M498 699V712M498 699H498" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 746V796M203 796V804M144 796H203" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 562V791M203 791V792M203 800V804M144 791H203" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 746V796M321 796V804M144 796H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 378V419M144 427V791M321 791V792M321 800V804M144 791H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M262 746V787M262 795V796M439 796V804M262 796H439" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M144 746V791M439 791V804M144 791H439" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M321 838V879M321 887V888M262 888V896M321 888H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M380 654V700M380 708V787M380 800V883M262 883V896M380 883H262" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M439 838V888M380 888V896M439 888H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M321 838V883M380 883V896M321 883H380" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M262 930V980M321 980V988M262 980H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<path d="M380 930V975M321 975V988M380 975H321" stroke="#3d4a70" stroke-width="2" fill="none" stroke-linecap="square"/>
+<rect x="183" y="65" width="40" height="40" fill="#141a28" stroke="#7a8496" stroke-width="2"/>
+<image x="186" y="68" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAt0lEQVR4nGNkoBD8//jiPynqD1+6j8JnotQBlIJRBzCSqgE9ztHjlBCw1VNE4Q94CIw6gIWQAlLjfO6UDhR+ck4FXvUDHgKjDiCYBhj5JVDKikOHj6OkCVLjHB0MeAiMOoBgXfB/MQNKnK9Zb4YiL144Ea9+9LIfPU0NeAiMOgCjHCAU51tYJVH4C20tUeIUve5Aj3N0MOAhMOoARpLjfOVGktuR+MCAh8CoA1joHefoYMBDYNQBAKrSOKEVH5BqAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
+<text x="203" y="117" fill="#e7e3d4" font-size="12" text-anchor="middle">agriculture</text>
+<rect x="301" y="65" width="40" height="40" fill="#141a28" stroke="#7a8496" stroke-width="2"/>
+<image x="304" y="68" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAk0lEQVR4nGNkQAP/FzP8RxfDB9asNyNFOUPRTVkUPhNJumkARh3ASEjB6iAzlDSxhVUSr/p9V1jwyj++uhbFzgEPgVEHYKQBQuUAqfkeHYyWA4POAYy0jnNCYMBDYNQBGAU3reMcvS4Z8BAYdcCoA0YdwELvfI8OBjwERh2A0SZE7wcQAoTiGB0sXLlxtF8wuBwAAITgIGzROJyfAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
+<text x="321" y="117" fill="#e7e3d4" font-size="12" text-anchor="middle">pottery</text>
+<rect x="419" y="65" width="40" height="40" fill="#141a28" stroke="#7a8496" stroke-width="2"/>
+<image x="422" y="68" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApUlEQVR4nGNkQAP/P774jy5GEdgkgcJds94Mhc9EVcvIAKMOYEGP88OX7lPXBoXjKNwtrB0o/AEPgVEHMFJqwP/FDKhpCC3OCYEBD4FRB5CcBtDjHL1s38IqicJPzqnAa96Ah8CoAwimAVLjfOHKjShmHjp8HG/7YsBDYNQBLOgClMY5qWDAQ2DUASz0jnN0MOAhMOoAFnrHuZ2tJYp5Ax4Cow4AAB24Nt+HYqO+AAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
+<text x="439" y="117" fill="#e7e3d4" font-size="12" text-anchor="middle">tools</text>
+<rect x="124" y="157" width="40" height="40" fill="#141a28" stroke="#968a5a" stroke-width="2"/>
+<image x="127" y="160" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAkElEQVR4nGNkIBGsDjL7T6oeZBC67hQjMp+JEsOoAUYdwEJpnFIKBjwERh3AQqqGkKoSktQzmoQx4pMf8BAYdQBG/Pw/s4qicmFNWw8KH73sRwcDHgKjDiCYBtDjFB1QWi4MeAiMOoDm5QB6GhlNA4POAXjLaQYGwuXCaDkw5B1AchogaCCBNiA6GPAQGHUAAE/nKD+6xI5rAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
+<text x="144" y="209" fill="#e7e3d4" font-size="12" text-anchor="middle">writing</text>
+<rect x="242" y="157" width="40" height="40" fill="#141a28" stroke="#968a5a" stroke-width="2"/>
+<image x="245" y="160" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAxUlEQVR4nGNkIAD+f3zxH5l/+NJ9QlpQgJ2tJSM+eSaSTKMBGHUAC7oAepwnpKWjyPv8fk6SBYcOH0cxDz1NDHgIjDqAkdpxTghsYZVE4Q94CIw6gAW9bCcU5yGzPqIKbL+Jwl2z3owkBwx4CIw6AKMuIAgojPN9V1CtHPAQGHUAyWmA1DhHL/vRwYCHwKgDMNrs6G24l/35JBmIHufo+f7x1bWjbcLB5QC8/TYGBgaG+HD///jk0eMYHaDHOToY8BAYdQAAJz47N44CtO0AAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
+<text x="262" y="209" fill="#e7e3d4" font-size="12" text-anchor="middle">bronze</text>
+<rect x="360" y="157" width="40" height="40" fill="#141a28" stroke="#968a5a" stroke-width="2"/>
+<image x="363" y="160" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAcklEQVR4nGOU1Q7+zzCAgGkgLR91AAMDAwPjocPHUdLA3CkdJBmw7woLCn/pjBKS9A94CIw6gIXUOCcVEDJ/wENg1AGjDhh1AONoe2DEO4AFXYDU+hwdkFq3DHgIjDoAIw2gA1q3FwY8BEYdMOqAUQcAAIEiFFiaIz7pAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
+<text x="380" y="209" fill="#e7e3d4" font-size="12" text-anchor="middle">masonry</text>
+<rect x="478" y="157" width="40" height="40" fill="#141a28" stroke="#968a5a" stroke-width="2"/>
+<image x="481" y="160" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAjElEQVR4nGNkIAAOHT7+n5AafMDO1pIRnzwTJYZTA4w6gAVdAD3O507poMgCdPPQ08SAh8CoAxhJjfPknAq88qTqH/AQGHUARjmADtDjzFZPEb8GNPWE0sSAh8CoA0YdMOoAguUARj6msC5ABwMeAqMOwGizU7tNiF6XjLYJB50D8PbbGBhG+4YjwAEAMToqWEf8rqIAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
+<text x="498" y="209" fill="#e7e3d4" font-size="12" text-anchor="middle">the wheel</text>
+<rect x="65" y="249" width="40" height="40" fill="#141a28" stroke="#629674" stroke-width="2"/>
+<image x="68" y="252" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAg0lEQVR4nGNkIAD+f3zxn5AafICRX4IRnzwTJYZTA4w6gAVdgNI4JxUMeAiMOoCR1DgnlK/RAbr56PoHPARGHYBRDqADUuOcVDDgITDqgFEHjDqAYB4nVFccvnQfhW+rp4hqwWibcLA7ACN+aN0mHG0PDDoHsFAa54TKAUJgwENg1AEAd20iGoUM7TwAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
+<text x="85" y="301" fill="#e7e3d4" font-size="12" text-anchor="middle">law</text>
+<rect x="183" y="249" width="40" height="40" fill="#141a28" stroke="#7e7e8c" stroke-width="2"/>
+<image x="186" y="252" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAoElEQVR4nGNkIAD+f3zxH0Xgtz0Kl1HkJiMhM/ABJko0UwOMOoAFXQAjzjdJ4DXg/xt1FPWkpokBD4FRB2CkAYw491THb8L2mxQ5YMBDYNQBBPPs/8UM//HJM8aimkFq3THgITDqAMJ1AYE4pLTuGPAQGHUAC6VxSGndMeAhMOoARoyynsQ4xKgLSKw7BjwERh2A0R4gNQ4pBQMeAqMOAAAzoD3eTh6zMAAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="203" y="301" fill="#e7e3d4" font-size="12" text-anchor="middle">currency</text>
+<rect x="301" y="249" width="40" height="40" fill="#141a28" stroke="#7e7e8c" stroke-width="2"/>
+<image x="304" y="252" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAlElEQVR4nGNkoDH4//HFf2Q+I78EIzKfidYOIARGHcBCbQMPHT7+n7AqBBjwEBh1AMVpgNQ4RwcDHgKjDmAkrAQVEIpzWz1FVAvQyn50MOAhMOoAgmmA2nGODgY8BEYdgBFftI5zdDDgITDqAMb4cH+8cb5g1kxUDRTGOToY8BAYdQBGm3DfFVQhasc5OhjwEBh1AACfChyXj+B5gAAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="321" y="301" fill="#e7e3d4" font-size="12" text-anchor="middle">ironwork</text>
+<rect x="419" y="249" width="40" height="40" fill="#141a28" stroke="#7e7e8c" stroke-width="2"/>
+<image x="422" y="252" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAf0lEQVR4nGNkIABktYP/E1KDDzy+upYRnzwTJYZTA4w6ACN+KI1zQgA9TQx4CIw6gJFQnC+dUUKRBdEZPXjlBzwERh2AkQYojXNCAD1NDHgIjDqA8dDh4zQt+wmBAQ+BUQew0NqCuVM6UPjJORUo/AEPgVEHjJYDow4YdcCoAwDWARsHZL8TKQAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="439" y="301" fill="#e7e3d4" font-size="12" text-anchor="middle">architecture</text>
+<rect x="537" y="249" width="40" height="40" fill="#141a28" stroke="#7e7e8c" stroke-width="2"/>
+<image x="540" y="252" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAmElEQVR4nGNkoDNYHWT2H5nPRG8HoINRBzDS2gL0OA+ZvwlFfsBDYNQBVE8DhOIcHQx4CIw6gOI0gB7noetOoZj5/+MLFHlGfgkU+QEPgVEHkJwGKI1zdPkBD4FRB7AQUkBpnBMCAx4Cow7ASAOE6vNDhfcpinMG/lQU7oCHwKgDWAjlc/Q4nzulgyILDx+uQuEPeAiMOgAAYC44SJf1SOIAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
+<text x="557" y="301" fill="#e7e3d4" font-size="12" text-anchor="middle">seafaring</text>
+<rect x="124" y="341" width="40" height="40" fill="#141a28" stroke="#629674" stroke-width="2"/>
+<image x="127" y="344" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAgklEQVR4nGNkoDKQ1Q7+T4p6Jmo7gFQw6gAWWluQ+AuVP58NlT/gITDqAJqnAfQ4RwcDHgKjDmAkVQOpZX2atycKf9bW7Sj8AQ+BUQdglAOkxjFP0xoU/pe6EJIcMOAhMOoAgnUBpXFMCAx4CIw6YNQBow7AaA+QWhdQCgY8BEYdAABEMRJT08rj9wAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="144" y="393" fill="#e7e3d4" font-size="12" text-anchor="middle">mathematics</text>
+<rect x="242" y="341" width="40" height="40" fill="#141a28" stroke="#747aa8" stroke-width="2"/>
+<image x="245" y="344" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAbElEQVR4nGNgGAWjYBSMdMDI8MTsP7LAofsTURTYKeZTZAEh85goMp0KYNQBLKRqQI9TdEBqmhnwEBh1wKgDRh1AcjlAad2ADgY8BEYdwMjQHojSHoi/8A9FwUIDytxIyLwBD4FRB4w6YNQBACoeE/FFfkikAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
+<text x="262" y="393" fill="#e7e3d4" font-size="12" text-anchor="middle">banking</text>
+<rect x="360" y="341" width="40" height="40" fill="#141a28" stroke="#629674" stroke-width="2"/>
+<image x="363" y="344" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApElEQVR4nGNgGAWjYBSMdMD4/436fxQBkZuM9HQAEz0tG3UANsDCsP0migCt08Shw8dRzB/wEBh1AOP/xQz/CStDAp7qpNmAlsYStvij8Ac8BEYdwIIusGa9GQo/dN0plHLg/+KbJKUZxlgGFP2y2iyj5cDgcgDj6iAzlDjBjHPUcgI9jRACIYGnUC1ESxMDHgKjDiC5rie17kCPc3Qw4CEw6gAAErEok4gI3ykAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
+<text x="380" y="393" fill="#e7e3d4" font-size="12" text-anchor="middle">cavalry</text>
+<rect x="478" y="341" width="40" height="40" fill="#141a28" stroke="#629674" stroke-width="2"/>
+<image x="481" y="344" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAvklEQVR4nGNkoDL4//HFf2T+4Uv3UeTtbC0ZkflM1HYAqWDUAYyEleAHpMY5uvoBD4FRB7AQUoAeZ+gAPc5t9RRRFbQHouhn/OyHIj3gITDqAIw0QChfo4O5UzpQBXIq8Nu4WBqFO+AhMOoAlvhwf5LiHL1sR9ePASrXj9YFg9sBGOVAdEYPCv/x1bV42wwLV25El0eJ40OHj6PWBfwSo23CweUARlntYJQ4ctL5g6IASxxTFQx4CIw6YBSMAgDgV0EAU5qD8QAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="498" y="393" fill="#e7e3d4" font-size="12" text-anchor="middle">engineering</text>
+<rect x="183" y="433" width="40" height="40" fill="#141a28" stroke="#747aa8" stroke-width="2"/>
+<image x="186" y="436" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAjklEQVR4nGOMD/f/zzCAgGkgLR91AAMDAwOLz+/nA+qAAQ+BUQewoAuErBNH4dersqHwV3esQeGHVoSg8JuS/qHwZZeg+rFP/TEKf8BDYNQBow4YdQDj6iCz0fbAyHYARl1QF30ShX/9VhAKH71sf3T1Fwpfa+0mFD56XaGrO1oXjDpg1AGDzAGjdcGoAwDe9BzagKFdmAAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="203" y="485" fill="#e7e3d4" font-size="12" text-anchor="middle">the university</text>
+<rect x="301" y="433" width="40" height="40" fill="#141a28" stroke="#747aa8" stroke-width="2"/>
+<image x="304" y="436" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAiUlEQVR4nGNkoDI4dPj4f2S+rW0bijwjw2ZGZD4TtR1AKhh1ACNhJfgBepzb2VqSZOaAh8CoAwjGl6x28H9CavCBx1fX4rVjwENg1AEY8YMe54+OTcVrgJxVNkkWoqeJAQ+BUQewkKqB1DgnBAY8BEYdQDANUDvO0cGAh8CoA0YdMOqA0TbhqAMA1f0ZxqqMzQMAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
+<text x="321" y="485" fill="#e7e3d4" font-size="12" text-anchor="middle">gunpowder</text>
+<rect x="419" y="433" width="40" height="40" fill="#141a28" stroke="#747aa8" stroke-width="2"/>
+<image x="422" y="436" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAmUlEQVR4nGNkIAD+f3zxn5AafICRX4IRnzwTJYZTA4w6ACN+0OOcUBwSAoTMG/AQGHUAC6kaZLWDKSoX0MGAh8CoA0hOA+jg8dW1KPma1DQy4CEw6gCMNHD40n2qWkDIvAEPgVEHEKzrDx0+TlHZb2drOdomHNwOILm9h17WE6oL0OXRwYCHwKgDKG4PoANCcY4OBjwERh0AAFXVJS3SQB1pAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
+<text x="439" y="485" fill="#e7e3d4" font-size="12" text-anchor="middle">navigation</text>
+<rect x="124" y="525" width="40" height="40" fill="#141a28" stroke="#8e769e" stroke-width="2"/>
+<image x="127" y="528" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAiUlEQVR4nGNgGAUjHTASUvD/44v/eA3glyBoBj7ARIlmaoBRB2DEH6E4J2ggiWliwENg1AEY8XXo8HGUNGCrp0iZBQTSxICHwKgDCOZZWqeJAQ+BUQeQXJdTO00MeAiMOoCR0vr/8KX7KHxS08SAh8CoA1gIKag3ycYr33hmKgqfUJoYrQsGnQMA4VchDEGE1akAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
+<text x="144" y="577" fill="#e7e3d4" font-size="12" text-anchor="middle">printing</text>
+<rect x="242" y="525" width="40" height="40" fill="#141a28" stroke="#8e769e" stroke-width="2"/>
+<image x="245" y="528" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAsUlEQVR4nGNkQAP/FzP8RxfDB9asNyNFOUPRTVkUPhNJumkARh3ASEjB6iAzlDSxhVUSr/p9V1jwyj++uhbFzgEPgVEHYKQBQuUAoyNp+X51Hip/tBwYdA5gJDXO0eOUUjDgITDqAIyCG6N+d0Tlhk4izQL0NINelwx4CIw6AH/lzUB6vic1jQx4CIw6gIVQu57a+R4dDHgIjDoAo02I3g8gBAjFMTpYuHLjaL9gcDkAABqhJq9HAseaAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
+<text x="262" y="577" fill="#e7e3d4" font-size="12" text-anchor="middle">economics</text>
+<rect x="360" y="525" width="40" height="40" fill="#141a28" stroke="#8e769e" stroke-width="2"/>
+<image x="363" y="528" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAhUlEQVR4nGNkIAD+f3zxn5AafICRX4IRnzwTJYZTA4w6gAVdAD3OD1+6T5EF6Oahp4kBD4FRBzCSGudzp3TglU/OqcArb6uniMIf8BAYdQBGOYAO0OOcUByTqn7AQ2DUAaMOGHXAaF0w6gCMNju124TocT7aJhx0DsDbb2NgGO0bjgAHAAAmDjM5dPmXYgAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="380" y="577" fill="#e7e3d4" font-size="12" text-anchor="middle">sanitation</text>
+<rect x="478" y="525" width="40" height="40" fill="#141a28" stroke="#8e769e" stroke-width="2"/>
+<image x="481" y="528" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAsElEQVR4nGNkIAD+f3zxH588I78EIyEz8AEmSjRTA4w6gAVdAD3OE9LS8RqArv7wpfso8na2lnjTyICHwKgDMOInPtwfb74nBBbMmonCJ5QmBjwERh1AsBynNE2gg4UrN46mgcHlAIJpgNS6gVQw4CEw6gCC7QH0snzfFVQtTjp/KHLAgIfAqAMYCcX53CkdKHz0shwdEKo7RuuCQecAxkOHj6PEGalxTikY8BAYdQAAZGI+krBbDMQAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
+<text x="498" y="577" fill="#e7e3d4" font-size="12" text-anchor="middle">metallurgy</text>
+<rect x="242" y="617" width="40" height="40" fill="#141a28" stroke="#927460" stroke-width="2"/>
+<image x="245" y="620" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAoElEQVR4nGM8dPj4fwYkYKunyIAPHL50H4VvZ2vJiMwnZB66fia8ttEBjDqA8f/HF/8JK8MN0OOUUBpCBwMeAqMOYCE1DgmVA6SmqQEPgVEHMKILoJflpMYxoTQ1WhcMOgcwklp/EyonGPkl8LYP0NPUgIfAqANIbg8QimNS65IBD4FRB5CcBihtA6KDAQ+BUQcQbBNS2hdEB6PlwKBzAADYBVRCXrdufQAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="262" y="669" fill="#e7e3d4" font-size="12" text-anchor="middle">steam</text>
+<rect x="360" y="617" width="40" height="40" fill="#141a28" stroke="#927460" stroke-width="2"/>
+<image x="363" y="620" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAvklEQVR4nGNkIBH8X8zwH5m/Zr0ZinzoulOMpJjHRKoDqA1GHUAwvv5/fIES54cv3SfJAjtbS7x2DHgIjDqAhZAC9DgnFKeHDh//j08eHQx4CIw6gGAaQAf/y1egxnHnUhTuYRLNG/AQGHUAyWkAPc7RwdwpHSQZN+AhMOoA0tMAGqhXZUMT+UOS/gEPgVEHEEwD6Pl6D0aco4J9V0hLVgMeAqMOIKkfx8DAwBAf7o/SHkCP88dX1472DYeWAwAk1yeNBg559AAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="380" y="669" fill="#e7e3d4" font-size="12" text-anchor="middle">chemistry</text>
+<rect x="124" y="709" width="40" height="40" fill="#141a28" stroke="#927460" stroke-width="2"/>
+<image x="127" y="712" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAiElEQVR4nGNkoDL4/0b9P4rA9psoXMZYBkZkPhO1HUAqGHUAI2ElqAAjjtEBgThHBwMeAqMOwIif/4sZUOPYUx2/CSTGOToY8BAYdQAjyXFOCIyWA0PNAQTzLK3TyICHwKgDSG8PULmuGPAQGHUA1csBRpGbo+2BoeUAktuEpMYxITDgITDqAACGNCXaphRmjQAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="144" y="761" fill="#e7e3d4" font-size="12" text-anchor="middle">electricity</text>
+<rect x="242" y="709" width="40" height="40" fill="#141a28" stroke="#608ea4" stroke-width="2"/>
+<image x="245" y="712" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApklEQVR4nO1WwQ2AIBA7jCMwg87iwxGYzhF4OIs7uAN+vZLYEGPw0f4u9Ehz7RGCERRby70OlgPraekfWi77AhJA/SybeQ+T73mbke4TkIDKL+YpntuW/YWYEZKh7hOQgJERKs9b+QkZPjPdJyAB9TsAe2tp9QTYe1tmX8fpka934HcC6gycs8/AfngCeo4g/BAPZeBfAvifEDNB9px5jug+AQkQhAs9zjDbPp2TbwAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="262" y="761" fill="#e7e3d4" font-size="12" text-anchor="middle">combustion</text>
+<rect x="360" y="709" width="40" height="40" fill="#141a28" stroke="#608ea4" stroke-width="2"/>
+<image x="363" y="712" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAm0lEQVR4nGNgGAWjYBSMdMBISMH/jy/+U2LB4Uv3Ufh2tpYodjJRYjg1wKgDMNIAqXHO+NkPhX/o/kSSHDDgITDqAJLTAHqcY4DF0ijcQzZleJUPeAiMOoAFXSAhLR2vhkM5qPnc7kgXqjxanEdn9OA1b8BDYNQBJJcDhNLIviuoyWrpjBK86gc8BEYdQHF7AL3NRyoY8BAYdQAAQeArlWKkYx0AAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
+<text x="380" y="761" fill="#e7e3d4" font-size="12" text-anchor="middle">medicine</text>
+<rect x="478" y="709" width="40" height="40" fill="#141a28" stroke="#927460" stroke-width="2"/>
+<image x="481" y="712" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAZElEQVR4nGNkQAOrg8z+o4shg9B1pxjxyZOqnwmfYnqAUQcw/v/4Am+cURscvnQfhT/gITDqABb0OKE1mDulA4U/4CEw6gCMcn20Lhh1wKgDRpwDRtsDow4YbQ+MOmC0PTDqAAAtyC0wv63eiwAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="498" y="761" fill="#e7e3d4" font-size="12" text-anchor="middle">the railway</text>
+<rect x="183" y="801" width="40" height="40" fill="#141a28" stroke="#608ea4" stroke-width="2"/>
+<image x="186" y="804" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAxUlEQVR4nGNkoDGQ1Q7+j8xfOqMERZ6J1g4gBEYdwEipAehxjA4eX12L144BD4FRBxBMA5TGMSEw4CEw6gBGWscxITDgITDqAMb/ixlQ0kDCFn8UBck5FSh82weWJFmwZr0ZCj903SmUNDXgITDqABZCcT53SgeqjpzjKFz0NIFhXiGqeasZ8lHS3ICHwKgDGA8dPo4SJ+hxTihNLPDZiMI/rICaRtDV+/x+jsIf8BAYdQBGXUAoDtHjnFSAXjcMeAiMOgAAK2c9n0bsciIAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
+<text x="203" y="853" fill="#e7e3d4" font-size="12" text-anchor="middle">radio</text>
+<rect x="301" y="801" width="40" height="40" fill="#141a28" stroke="#a66c6c" stroke-width="2"/>
+<image x="304" y="804" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAk0lEQVR4nGNgGAUjHTASUvD/jfp/FA0iNxmpKc9ErEtpBUYdgJEG0OMsIVuDIgsWrtyIN50NeAiMOoAFXQA9n8aHa6CkieScChT1c6d0oPD3XUE18v9iBtRyIJZhtBwYXA6gejmAngYeX107Wg4MbgeQXA6gxzEhMFoODHoHECwHMNp4BOKUkDw6GPAQGHXAKBgFAA/RNfVLjOUjAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
+<text x="321" y="853" fill="#e7e3d4" font-size="12" text-anchor="middle">physics</text>
+<rect x="419" y="801" width="40" height="40" fill="#141a28" stroke="#608ea4" stroke-width="2"/>
+<image x="422" y="804" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAmklEQVR4nGNgGAUjHTDS2oLVQWb/kfmh606h2MlEawcQAqMOoHoaQI/zkPmb8Kof8BAYdQALpQagx/kWVkkUefFL91H4tnqKKPwBD4FRB5BcDhCK8wWzZuK3kF9itC4YXA4gWA4Qqs/jw/3/M+ABh9HKAXQw4CEw6gCMcoBQnBMC6GmCULkw4CEw6gAWSuOcEEAvB0bbA4POAQBtHim5R85ZkwAAAABJRU5ErkJggg==" style="image-rendering:pixelated"/>
+<text x="439" y="853" fill="#e7e3d4" font-size="12" text-anchor="middle">flight</text>
+<rect x="242" y="893" width="40" height="40" fill="#141a28" stroke="#a66c6c" stroke-width="2"/>
+<image x="245" y="896" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApElEQVR4nO1XIQ6AMAxcCR6L5QN4xHg8CDwfwGJ5wdC7Jbs0FTU9t3VpLndtt0kyonxv6cVlmqUXH6wErAgCI24c51V5uudNenHmMcvnrkAQEOxj5imeP++niqPHDO4KBIFmDiCwjxF5Xaq1tkbcFQgCTc+i5+gxA/Mca8RdgSCgmtsp8RrR3iXuCgQB9ZuQvRFZPqwRdwWCAJ0D1r8fg7sCQeAHdY9Hr5nYk4gAAAAASUVORK5CYII=" style="image-rendering:pixelated"/>
+<text x="262" y="945" fill="#e7e3d4" font-size="12" text-anchor="middle">fission</text>
+<rect x="360" y="893" width="40" height="40" fill="#141a28" stroke="#a66c6c" stroke-width="2"/>
+<image x="363" y="896" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAnElEQVR4nGNgGAUjHTDS2oL/H1/8R7GQXwLFTiZaO4AQGHUAxWngP4MvShwzfJyNagFanKODAQ+BUQewoAscOnwcJU5t9RRRFfCnovIXb8YvTwAMeAiMOoCR4jiP9UU1kGEzSWXLgIfAqANIrgsoLfvRwYCHwKgDMOoCggAtzg9fuk+RAwY8BEYdQHIaQI9zO1tLitqVAx4Cow4AAAOcIHkYPZxOAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
+<text x="380" y="945" fill="#e7e3d4" font-size="12" text-anchor="middle">rocketry</text>
+<rect x="301" y="985" width="40" height="40" fill="#141a28" stroke="#a66c6c" stroke-width="2"/>
+<image x="304" y="988" width="34" height="34" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAh0lEQVR4nGNkIABktYP/E1KDDyydUYLCt7VtQ+EzUWI4NcCoAxjRBdDj/NGxqSjyclbZFFn4+OpaFDsHPARGHcBIKM4JAUrTxICHwKgDMNIAOqB2OYAOBjwERh1AMA3QGgx4CIw6YNQBow4g2CakNhhtEw46B2CkAXRAaZpAj3N0MOAhMOoAAO08HlM3sSaeAAAAAElFTkSuQmCC" style="image-rendering:pixelated"/>
+<text x="321" y="1037" fill="#e7e3d4" font-size="12" text-anchor="middle">the bomb</text>
 </svg>
