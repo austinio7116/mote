@@ -1901,6 +1901,11 @@ static void g_init(void)
      * parks the camera on them. A voyage lasts about forty ticks and a town settles once in
      * eight years, so photographing one otherwise means running a world and hoping — three
      * attempts at that produced three pictures of an empty ocean. */
+    /* MOTEBOX_NOFOLLOW=1 pins the camera. Follow History pans to each new headline after a
+     * few seconds without input, which is right in play and wrong for anything recorded: half
+     * the scenes of the first demo reel drifted off their subject into open sea while the
+     * clip was still running. The scripted cast turns it off for the same reason. */
+    if (getenv("MOTEBOX_NOFOLLOW") && mb_law(LAW_FOLLOW)) mb_law_toggle(LAW_FOLLOW);
     if (getenv("MOTEBOX_SAIL")) {
         int sent = 0;
         for (int v = 1; v < MAXV && !sent; v++) {

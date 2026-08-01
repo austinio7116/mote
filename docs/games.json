@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-08-01T09:16:56+00:00",
+ "generated": "2026-08-01T09:39:37+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -222,8 +222,8 @@
    "android": {
     "arm64-v8a": {
      "file": "games/android/arm64-v8a/libmg_motebox.so",
-     "size": 571384,
-     "sha256": "2b7d6d81066cd603b4994118e5bbf80ae0b1797fa9a6603b322e8194956968d6"
+     "size": 571432,
+     "sha256": "b47dc7d3c503402df9df18e05c11cef3f4683bc71ec3c243e8ab1178243dab87"
     }
    }
   },
