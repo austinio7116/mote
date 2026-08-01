@@ -49,6 +49,9 @@ for i in $(seq 1 "$SEEDS"); do
     {
         y=$1; pop=$2; wild=$3; v=$4; k=$5; wars=$6; faith=$7; ruin=$8
         dstarve=$16; dplague=$15; dslain=$13; ddis=$14
+        # every cause, so a share of the dying can be taken: age, wounds, eaten, slain,
+        # disaster, plague, starvation
+        alldeath=$10+$11+$12+$13+$14+$15+$16
         if (pop > 20) everlived = 1
         if (y > 30 && pop == 0 && everlived) zeropop++
         if (dslain > maxslain) maxslain = dslain
@@ -62,7 +65,7 @@ for i in $(seq 1 "$SEEDS"); do
         # the population must not be a one-way ramp: a healthy world oscillates
         if (pop > maxpop) maxpop = pop
         if (y == years - 1) { endpop = pop; endv = v; endk = k
-                              endstarve = dstarve; endplague = dplague }
+                              endstarve = dstarve; endplague = dplague; deaths = alldeath }
         lastplague = dplague; n++
         if (y >= years/2) { late_plague_delta += dplague - prev_plague }
         prev_plague = dplague
@@ -106,8 +109,16 @@ for i in $(seq 1 "$SEEDS"); do
         #    45 across four centuries is nothing. What the invariant means is that starvation
         #    is not a major cause of death here, and the size of a world is its PEAK.
         #    (No apostrophes in this file: the awk program is inside a single-quoted string.)
-        if (endstarve > maxpop / 2 + 40) {
-            printf "  famine: %d starvation deaths in a world that peaked at %d\n", endstarve, maxpop; bad++
+        # 7b. AS A SHARE OF THE DYING, not as a raw total. Against maxpop/2+40 this compared a
+        #     FOUR-HUNDRED-YEAR TOTAL with a snapshot, so a long healthy world accumulated its
+        #     way over the line: measured, one world in eight tripped it whichever way the
+        #     carriers walked, at 278 deaths in one build and 361 in the other, in worlds that
+        #     were at the population cap and growing. What the check is FOR is stated in its
+        #     own comment — that starvation is not a major cause of death here — so that is
+        #     what it now measures. A third of all deaths is a famine; a tenth is attrition.
+        if (deaths > 60 && endstarve * 100 > deaths * 33) {
+            printf "  famine: %d of %d deaths were starvation (%d%%), peak pop %d\n",
+                   endstarve, deaths, endstarve * 100 / deaths, maxpop; bad++
         }
         if (bad == 0)
             printf "seed %-7s ok   end: pop %-4d villages %-3d kingdoms %-2d  peak pop %d\n",

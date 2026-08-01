@@ -2595,15 +2595,53 @@ void mb_village_work(int v, int ui)
          * Sliding along one axis when the diagonal is blocked is what step_toward does, and it
          * is what keeps a carrier following a coast instead of stopping dead against it. */
         int cx0 = u->x >> 4, cy0 = u->y >> 4;
+#if MOTE_HOST
+        /* MOTEBOX_SWIMMERS=1 restores the old behaviour — a laden villager walking home over
+         * water and through walls — so the cost of fixing it can be measured, not argued. */
+        {   static int swim = -1;
+            if (swim < 0) swim = getenv("MOTEBOX_SWIMMERS") ? 1 : 0;
+            if (swim) { u->x = (uint16_t)nx; u->y = (uint16_t)ny; return; } }
+#endif
         if (!mb_unit_may_enter(ui, cx0, cy0)) {        /* already somewhere it cannot be:
                                                         * let it walk out rather than freeze */
             u->x = (uint16_t)nx; u->y = (uint16_t)ny;
-        } else if (mb_unit_may_enter(ui, nx >> 4, ny >> 4)) {
+            return;
+        }
+        if (mb_unit_may_enter(ui, nx >> 4, ny >> 4)) {
             u->x = (uint16_t)nx; u->y = (uint16_t)ny;
-        } else if (mb_unit_may_enter(ui, nx >> 4, cy0)) {
-            u->x = (uint16_t)nx;
-        } else if (mb_unit_may_enter(ui, cx0, ny >> 4)) {
-            u->y = (uint16_t)ny;
+            return;
+        }
+        if (dx && mb_unit_may_enter(ui, nx >> 4, cy0)) { u->x = (uint16_t)nx; return; }
+        if (dy && mb_unit_may_enter(ui, cx0, ny >> 4)) { u->y = (uint16_t)ny; return; }
+
+        /* AND IF EVERY WAY IS SHUT, GO ROUND. The first version of this did NOTHING when the
+         * diagonal and both axes were blocked, so a carrier that met a coastline or a wall
+         * between it and the hall stood there for the rest of its life holding the town's
+         * dinner. Measured on one seed: 989 starvation deaths and the world dead by year 249,
+         * against 2 deaths when carriers could still walk on water. step_toward has always
+         * dropped its target when boxed in, for exactly this reason.
+         *
+         * A laden villager takes the best open neighbour instead — the one that gets it
+         * closest to home, or failing that any open one, which walks it along the shore until
+         * the way opens. */
+        {   static const int8_t AX[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
+            static const int8_t AY[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
+            int bi = -1, bd = 1 << 30, any = -1;
+            for (int k = 0; k < 8; k++) {
+                int ax = cx0 + AX[k], ay = cy0 + AY[k];
+                if (!mb_in(ax, ay) || !mb_unit_may_enter(ui, ax, ay)) continue;
+                if (any < 0) any = k;
+                int ex = tx - ax, ey = ty - ay, d = ex * ex + ey * ey;
+                if (d < bd) { bd = d; bi = k; }
+            }
+            int here = (tx - cx0) * (tx - cx0) + (ty - cy0) * (ty - cy0);
+            int use = (bi >= 0 && bd < here) ? bi : any;
+            if (use >= 0) {
+                u->x = (uint16_t)((cx0 + AX[use]) * 16 + 8);
+                u->y = (uint16_t)((cy0 + AY[use]) * 16 + 8);
+            } else {
+                u->target = 0xFFFF;                    /* walled in entirely: re-think */
+            }
         }
         return;
     }

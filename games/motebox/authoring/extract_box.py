@@ -626,6 +626,31 @@ def build_rocks():
     save_sheet("rocks", rocks.build())
 
 
+# THE FIVE TOWN STORES, gathered into one row. They were borrowed from whatever rectangle
+# happened to have something the right colour, and it showed: food was a clover ("green
+# splodges"), timber was a blob that reads as a bent-up ARROW, and iron and gold were two piles
+# of nuggets you had to tell apart by hue. The master has a proper picture of each — a joint of
+# meat, the same tree the forests are drawn with, a boulder, an ingot and a pile of coin — and
+# one sheet of five cells is easier to reason about than five coordinates in three sheets.
+STORES = [
+    ("food",  23,  8),   # a roast on the bone
+    ("wood",   6, 12),   # the forest tree, so the store matches the thing it comes from
+    ("stone", 23, 16),   # a boulder
+    ("iron",  20, 17),   # an ingot: a BAR against gold's PILE, so shape tells them apart
+    ("gold",  17, 16),   # a pile of coin
+]
+
+
+def build_stores():
+    sheet = Image.new("RGBA", (TS * len(STORES), TS), (0, 0, 0, 0))
+    for i, (_name, c, r) in enumerate(STORES):
+        # cell(), NOT a raw crop: the master's transparency is palette index 0, which IS
+        # black, so a raw crop bakes an opaque black square. It showed as an ingot in a hole.
+        sheet.paste(cell(c, r), (i * TS, 0))
+    save_sheet("stores", sheet)
+    print("[stores]  " + ", ".join("%s=%d,%d" % s for s in STORES))
+
+
 def build_ships():
     """The vessels — their own 8x8 sheet, because a ship is drawn where a person is."""
     import build_sprites
@@ -845,6 +870,7 @@ def main():
     build_ore()
     build_roads()
     build_rocks()
+    build_stores()
     build_ships()
     build_town()
     build_bands()

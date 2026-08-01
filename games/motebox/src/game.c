@@ -14,7 +14,7 @@
 #include "mb.h"
 MOTE_GAME_MODULE();
 MOTE_GAME_META("Motebox", "austinio7116");
-MOTE_GAME_VERSION("1.0.0");
+MOTE_GAME_VERSION("1.0.1");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
@@ -912,6 +912,12 @@ static const Gift GIFTS[] = {
     { "EMBOLDEN",  40, TR_BRAVE,    GF_TRAIT },   /* +20 to the will to fight         */
     { "MAKE FERTILE", 45, TR_FERTILE, GF_TRAIT },
     { "CURE",      55, 0,           GF_TRAIT },   /* lifts plague and curse: see below */
+    /* THE DEAREST THING A GOD CAN DO FOR ONE PERSON. TR_IMMORTAL was implemented — suffer()
+     * checks it before death by age — and nothing in the game granted it, so the one trait
+     * that stops a soul dying could never be given to anybody. It is the most expensive gift
+     * on the list by half again: a bloodline you have followed for two centuries stops
+     * ending. */
+    { "UNDYING",  150, TR_IMMORTAL, GF_TRAIT },
     { "RAISE UP",  90, 0,           GF_LORD  },   /* make them the lord of their town  */
 };
 #define N_GIFTS ((int)(sizeof GIFTS / sizeof GIFTS[0]))
@@ -1137,12 +1143,19 @@ static void ui_draw_town(uint16_t *fb)
       mb_ui_text(fb, 40, 45, ln, MB_UI_GOLD, 46);
       mb_ui_text_r(fb, 120, 45, MB_CREED_NAME[V->creed < CREED_N ? V->creed : 0], MB_UI_DIM); }
     mb_ui_rule(fb, 6, 58, 116, "STOCKPILE", LINE, FILL, MB_UI_DIM);
-    { static const uint8_t IC[4][2] = { { 1, 3 }, { 3, 5 }, { 5, 3 }, { 3, 3 } };
-      const int val[4] = { V->food, V->wood, V->stone, V->gold };
-      for (int i = 0; i < 4; i++) {
-          int x = 7 + (i & 1) * 58, y = 67 + (i >> 1) * 11;
-          mb_ui_icon(fb, x, y, IC[i][0], IC[i][1]);
-          mb_ui_meter(fb, x + 11, y, 4, val[i], 120, 0);
+    /* FIVE STORES, AND THE RIGHT PICTURES ON THEM.
+     *
+     * It showed four — food, wood, stone, gold — and IRON was not on the screen at all, which
+     * is the one a town most often cannot get: a barracks costs four of it, and "why has this
+     * town built nothing for eighty years" is usually an iron answer.
+     *
+     * Gold was drawn with the LIGHTNING BOLT, which is also the FAST trait and the LIGHTNING
+     * power. Gold and iron come off the ore sheet now, where they are what they say. */
+    { const int val[5] = { V->food, V->wood, V->stone, V->iron, V->gold };
+      for (int i = 0; i < 5; i++) {
+          int x = 7 + (i % 3) * 39, y = 67 + (i / 3) * 11;
+          mb_ui_icon_store(fb, x, y, i);
+          mb_ui_meter(fb, x + 10, y, 3, val[i], 120, 0);
       } }
     mb_ui_rule(fb, 6, 90, 116, "BUILDINGS", LINE, FILL, MB_UI_DIM);
     /* what actually stands: walk the claim once and show the first eight kinds found */

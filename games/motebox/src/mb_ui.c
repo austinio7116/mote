@@ -30,6 +30,8 @@
 #include "ui_plaque.h"
 #include "ui_status.h"
 #include "ui_gauges.h"
+#include "treasure_ore.h"   /* the metals, and the shields: see mb_ui_icon_ore */
+#include "stores.h"         /* the five town stores, one row: see mb_ui_icon_store */
 #include "rogue8.font.h"
 
 /* --- the CP437 pieces ---------------------------------------------------- */
@@ -231,20 +233,23 @@ void mb_ui_blit3(uint16_t *fb, const MoteImage *img, int cx, int cy, int x, int 
  * A trait list was six words of text per soul. These are the artist's own status icons, so a
  * blessing and a plague read at a glance and in the same visual language as the rest of the
  * game. Only the traits that HAVE an icon are drawn; the rest fall through to the count. */
-typedef struct { uint32_t bit; uint8_t cx, cy; } TraitIcon;
+typedef struct { uint32_t bit; uint8_t cx, cy, ore; } TraitIcon;
 static const TraitIcon TRAIT_ICON[] = {
-    { TR_BLESSED,    5,  1 },   /* the green tick     */
-    { TR_CURSED,     6,  1 },   /* the red bar        */
-    { TR_PLAGUE,     0,  3 },   /* poison cloud       */
-    { TR_IMMUNE,    12,  3 },   /* the red cross      */
-    { TR_TOUGH,      4,  5 },   /* the flexed arm     */
-    { TR_FAST,       3,  3 },   /* the lightning star */
-    { TR_BRAVE,      1,  3 },   /* the leaf           */
-    { TR_COWARD,     4,  3 },   /* the ZZZ            */
-    { TR_MADNESS,    2,  3 },   /* the spiral         */
-    { TR_ZOMBIE,    11,  3 },   /* the ghost          */
-    { TR_FERTILE,    0,  5 },   /* the green plus     */
-    { TR_MARKED,     3,  0 },   /* the ... bubble     */
+    { TR_BLESSED,    5,  1, 0 },   /* the green tick     */
+    { TR_CURSED,     6,  1, 0 },   /* the red bar        */
+    { TR_PLAGUE,     0,  3, 0 },   /* poison cloud       */
+    { TR_IMMUNE,    12,  3, 0 },   /* the red cross      */
+    { TR_TOUGH,      4,  5, 0 },   /* the flexed arm     */
+    { TR_FAST,       3,  3, 0 },   /* the lightning star */
+    /* A SHIELD, off the ore sheet's heraldry row. It was the green leaf at (1,3), which is
+     * also what a town's FOOD store is drawn with — the same picture meaning two unrelated
+     * things two screens apart is exactly the thing that makes an icon unreadable. */
+    { TR_BRAVE,      0,  3, 1 },
+    { TR_COWARD,     4,  3, 0 },   /* the ZZZ            */
+    { TR_MADNESS,    2,  3, 0 },   /* the spiral         */
+    { TR_ZOMBIE,    11,  3, 0 },   /* the ghost          */
+    { TR_FERTILE,    0,  5, 0 },   /* the green plus     */
+    { TR_MARKED,     3,  0, 0 },   /* the ... bubble     */
 };
 #define N_TRAIT_ICON ((int)(sizeof TRAIT_ICON / sizeof TRAIT_ICON[0]))
 
@@ -253,12 +258,31 @@ int mb_ui_traits(uint16_t *fb, int x, int y, uint32_t traits)
     int n = 0;
     for (int i = 0; i < N_TRAIT_ICON && n < 5; i++) {
         if (!(traits & TRAIT_ICON[i].bit)) continue;
-        g_api->blit(fb, &ui_status_img, x + n * 11, y,
+        g_api->blit(fb, TRAIT_ICON[i].ore ? &treasure_ore_img : &ui_status_img,
+                    x + n * 11, y,
                     TRAIT_ICON[i].cx * 8, TRAIT_ICON[i].cy * 8, 8, 8, 0, 0, 128);
         n++;
     }
     if (!n) mb_ui_text(fb, x, y + 1, "plain", MB_UI_DIM, 40);
     return n;
+}
+
+/* ONE OF THE FIVE TOWN STORES, by index: food, wood, stone, iron, gold. They live on their own
+ * five-cell sheet (authoring/extract_box.py STORES) rather than being fished out of three
+ * different rectangles, which is how food came to be drawn with a clover and timber with a blob
+ * that reads as an arrow. */
+void mb_ui_icon_store(uint16_t *fb, int x, int y, int which)
+{
+    if (which < 0 || which > 4) return;
+    g_api->blit(fb, &stores_img, x, y, which * 8, 0, 8, 8, 0, 0, 128);
+}
+
+/* One 8x8 cell from the ORE atlas — the metals and the heraldry. A town's stores are metals
+ * and the status atlas has no coin in it: gold was being drawn with the lightning bolt, which
+ * is also the FAST trait and the LIGHTNING power. */
+void mb_ui_icon_ore(uint16_t *fb, int x, int y, int cx, int cy)
+{
+    g_api->blit(fb, &treasure_ore_img, x, y, cx * 8, cy * 8, 8, 8, 0, 0, 128);
 }
 
 /* One 8x8 cell from the status atlas. game.c never includes a sheet header — the screens ask

@@ -415,8 +415,14 @@ static int nearest(int self, int x, int y, int mode)
                      * breed. A wolf that only takes a person when it is desperate
                      * is also simply what a wolf does. */
                     if (o->sp < SP_CIV_N) {
-                        if (me->hunger < 120) continue;
-                        if (mb_w.claim[AT(o->x >> 4, o->y >> 4)]) continue;
+                        /* UNLESS THEY ARE MARKED. The god's mark cost thirty Faith and did
+                         * nothing whatever — it set a bit, drew an icon, and no code read it.
+                         * A marked person is what every hunting thing goes for, hungry or
+                         * not, and their own claim does not protect them. */
+                        if (!(o->traits & TR_MARKED)) {
+                            if (me->hunger < 120) continue;
+                            if (mb_w.claim[AT(o->x >> 4, o->y >> 4)]) continue;
+                        }
                     } else if (o->village) {
                         /* AND A PASTURE IS NOT A HUNTING GROUND. This rule protected PEOPLE on
                          * claimed ground and said nothing about their animals, so twenty wolves
@@ -447,6 +453,8 @@ static int nearest(int self, int x, int y, int mode)
                  * convenient meat on the map and no civilisation survived its
                  * first thirty years. */
                 if (mode == NEAR_PREY && o->sp < SP_CIV_N) d += 400;
+                /* and the mark outweighs all of it, which is the whole point of it */
+                if (o->traits & TR_MARKED) d -= 900;
                 if (d < bestd) { bestd = d; best = k; }
             }
         }
@@ -800,7 +808,10 @@ static void think(int i)
         }
     }
 
-    if (danger > bestv) { bestv = danger; best = JOB_FLEE; }
+    /* THE CHOSEN DO NOT RUN. Somebody the god pulled out of a grave is not going to be
+     * frightened off by a wolf, and the trait had no effect of any kind before — it could
+     * not even be acquired. */
+    if (danger > bestv && !(u->traits & TR_CHOSEN)) { bestv = danger; best = JOB_FLEE; }
 
     /* A villager does NOT brawl with a wolf. It was tried: a bear does 35 a bite
      * and a farmhand does 18, so every "cornered villager fights" ended with a dead
@@ -1211,7 +1222,8 @@ static void act(int i)
         int horse = mb_tech_known(kk, TECH_CAVALRY);
 
         if (d2 <= 2) {
-            int dmg = 18 + (u->traits & TR_TOUGH ? 8 : 0) + (int)(r & 7) + (horse ? 7 : 0);
+            int dmg = 18 + (u->traits & TR_TOUGH ? 8 : 0) + (u->traits & TR_VETERAN ? 6 : 0)
+                    + (int)(r & 7) + (horse ? 7 : 0);
             mb_u[e].hp -= (int8_t)dmg;
             mb_u[e].happy -= 8;
             if (mb_u[e].hp <= 0) {
@@ -1393,8 +1405,15 @@ static void act(int i)
                 if (dx * dx + dy * dy > 9) continue;
                 if (mb_u[j].happy < 110) mb_u[j].happy += 2;
             }
-            if (u->village && mb_v[u->village].alive && mb_v[u->village].research < 60000)
-                mb_v[u->village].research++;
+            /* AND A CLEVER ONE IS WORTH THREE. genius and stupid could be rolled at birth
+             * and inherited down a bloodline, they were listed on the soul card, and NOTHING
+             * IN THE GAME READ THEM — a trait a player can see and follow that changes
+             * nothing is a promise the game does not keep. Research is the right place for
+             * them: it is what this job produces. */
+            if (u->village && mb_v[u->village].alive && mb_v[u->village].research < 60000) {
+                int r = (u->traits & TR_GENIUS) ? 3 : (u->traits & TR_STUPID) ? 0 : 1;
+                mb_v[u->village].research = (uint16_t)(mb_v[u->village].research + r);
+            }
         }
         break;
     }
@@ -1467,6 +1486,11 @@ static void suffer(int i)
     if (kind == FX_ACID)  { u->hp -= (int8_t)(4 + inten); u->happy -= 6; }
     if (kind == FX_FROST) { u->hp -= (int8_t)(2 + (inten >> 1)); u->happy -= 4; }
     if (kind == FX_WATER && MB_SP[u->sp].drives != DRV_FISH) { u->hp -= 3; u->happy -= 3; }
+
+    /* A VETERAN IS MADE, NOT BORN. The trait existed, was listed, and could never be
+     * acquired by anybody: nothing granted it and nothing read it. Three kills is a soldier
+     * who has survived a war, and it is worth six points of damage afterwards. */
+    if (u->kills >= 3 && !(u->traits & TR_VETERAN)) u->traits |= TR_VETERAN;
 
     /* hunger, and starvation */
     int starving = 0;

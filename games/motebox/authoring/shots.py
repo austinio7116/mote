@@ -64,6 +64,10 @@ SHOTS = {
     # FIVE DOWNS is where the crowned line sits in this world at this frame — the list is
     # people first and the lord is one of them, so the count is part of the recipe. One down
     # got a dwarf farmer's page, which is the same screen about nobody in particular.
+    # THE TOWN PAGE, which is where the five stores are: B for the list, A for a person, RB to
+    # page out to their town.
+    "townscr":  (dict(SEED="3", YEARS="220", MORTAL="1", CAM="v", NOFOLLOW="1"),
+                 "b:200-202 a:220-222 rb:240-242", 270, 3, "motebox-g-townscr.png"),
     "lord":     (dict(SEED="47514", YEARS="300", MORTAL="1", CAM="v"),
                  "b:400-402 down:410-411 down:416-417 down:422-423 down:428-429 "
                  "down:434-435 a:446-447", 470, 3, "motebox-g-lord.png"),

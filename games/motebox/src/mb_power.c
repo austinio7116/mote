@@ -588,7 +588,11 @@ static void cast_at(int id, int r, int cx, int cy)
                 if (!mb_in(x, y) || mb_w.obj[AT(x, y)] != O_GRAVE) continue;
                 mb_w.obj[AT(x, y)] = O_NONE;
                 int u = mb_unit_spawn(SP_HUMAN, x, y);
-                if (u >= 0) mb_u[u].traits |= TR_BLESSED;
+                /* AND THEY COME BACK CHOSEN. TR_CHOSEN was in the table, on the soul card and
+                 * in the save format, and there was no way on earth to acquire it. Somebody a
+                 * god has pulled out of a grave is the obvious owner: they give three extra
+                 * Faith a tithe and they never run. */
+                if (u >= 0) mb_u[u].traits |= TR_BLESSED | TR_CHOSEN;
             }
         mb_fx_burst((float)cx, (float)cy, 14, PK_STAR, FXE_HOLY, 2.0f, 1.1f);
         break;

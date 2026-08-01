@@ -104,6 +104,24 @@ def buildings_plate(out, cols=9, zoom=4, row=0):
     print("wrote", out, im.size)
 
 
+# THE TRAITS THAT HAVE AN ICON, in the order mb_ui.c draws them. The rest of a soul's
+# traits are shown as a count, and the guide lists them as text.
+TRAITS = [
+    ("blessed", "ui_status",  5, 1), ("cursed",  "ui_status",  6, 1),
+    ("plagued", "ui_status",  0, 3), ("immune",  "ui_status", 12, 3),
+    ("tough",   "ui_status",  4, 5), ("fast",    "ui_status",  3, 3),
+    ("brave",   "treasure_ore", 0, 3), ("coward", "ui_status",  4, 3),
+    ("mad",     "ui_status",  2, 3), ("risen",   "ui_status", 11, 3),
+    ("fertile", "ui_status",  0, 5), ("marked",  "ui_status",  3, 0),
+]
+
+
+STORES = [("food", "stores", 0, 0), ("wood", "stores", 1, 0), ("stone", "stores", 2, 0),
+          ("iron", "stores", 3, 0), ("gold", "stores", 4, 0)]
+
+
 if __name__ == "__main__":
     plate(ANIMALS, os.path.join(DOCS, "motebox-p-animals.png"))
     buildings_plate(os.path.join(DOCS, "motebox-p-buildings.png"))
+    plate(TRAITS, os.path.join(DOCS, "motebox-p-traits.png"), cols=6)
+    plate(STORES, os.path.join(DOCS, "motebox-p-stores.png"), cols=5)

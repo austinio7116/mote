@@ -88,6 +88,7 @@ void mb_faith_step(void)
         int v = 1 + u->happy / 24;
         if (u->traits & TR_PIOUS)   v *= 2;
         if (u->traits & TR_BLESSED) v += 2;
+        if (u->traits & TR_CHOSEN)  v += 3;     /* raised from the dead by a god: they know */
         if (u->traits & TR_CURSED)  v -= 2;
         if (u->traits & TR_MADNESS) v -= 3;     /* the mad do not pray */
         gain += v;
