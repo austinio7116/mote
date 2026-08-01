@@ -2166,6 +2166,7 @@ uint32_t mb_refugees, mb_stock_raised;
 uint32_t mb_voyages, mb_voyages_sailed, mb_voyages_landed, mb_voyages_beached;
 uint32_t mb_voyages_lost;   /* died at sea: hunger, age, or a kaiju in the water */
 uint32_t mb_lost_ticks, mb_lost_hunger, mb_land_ticks;
+uint32_t mb_fish_trips;     /* smacks put out from a quay */
 uint32_t mb_plan_of[64], mb_built_of[64];
 #endif
 
@@ -2556,7 +2557,7 @@ void mb_village_work(int v, int ui)
                 u->voyage = (uint16_t)(AT(qx, qy) + 1);
                 u->boat = (uint8_t)(((qx - x) * (qx - x) + (qy - y) * (qy - y)) > 100
                                     ? SHIP_CARAVEL : SHIP_SMACK);
-                u->sail_wait = 0; u->sail_hit = 0;
+                u->sail_wait = 0; u->sail_trip = 0;
 #if MOTE_HOST
                 { extern uint32_t mb_voyages_sailed; mb_voyages_sailed++; }
 #endif
@@ -2616,7 +2617,51 @@ void mb_village_work(int v, int ui)
          * sea does not run out — which is what makes an island town viable. */
         else if (({ int qx2 = -1, qy2 = -1;
                     village_quay(v, &qx2, &qy2) && fishable(v, tx, ty, qx2, qy2); })) {
-            u->carry = 10; u->carry_kind = CARRY_FOOD;
+            /* AND THEY PUT OUT TO DO IT. village_quay's comment has said "a boat lands its
+             * catch at the quay" since fishing was written, and there was no boat: a fisher
+             * stood on the sand and food appeared. The catch is unchanged — the fisher takes a
+             * smack a cell or two into the harbour first, works it for a few ticks and lands
+             * back on the same shore, which is when this runs and the fish come in.
+             *
+             * It reuses the voyage machinery whole: a trip out is a voyage whose destination
+             * is the shore cell it started from, so the landfall rule brings it back by
+             * itself. The ashore timer that voyage_step sets on landing is also what stops a
+             * fisher putting straight back out on the tick it returns. */
+#if MOTE_HOST
+            {   static int noboat = -1;
+                if (noboat < 0) noboat = getenv("MOTEBOX_NOFISHBOAT") ? 1 : 0;
+                if (noboat) goto shore_catch; }
+#endif
+            if (!u->boat && !u->voyage && !u->sail_wait && !u->carry) {
+                static const int8_t FX2[4] = { 1, -1, 0, 0 }, FY2[4] = { 0, 0, 1, -1 };
+                for (int k = 0; k < 4; k++) {
+                    int wx = tx + FX2[k], wy = ty + FY2[k];
+                    if (!mb_in(wx, wy) || !mb_water(mb_w.biome[AT(wx, wy)])) continue;
+                    if (mb_w.biome[AT(wx, wy)] == B_ICE) continue;
+                    u->x = (uint16_t)(wx * 16 + 8); u->y = (uint16_t)(wy * 16 + 8);
+                    u->boat = SHIP_SMACK;
+                    u->voyage = (uint16_t)(AT(tx, ty) + 1);
+                    u->sail_wait = 0; u->sail_trip = SEA_TRIP_FISH;
+                    /* THE CATCH IS ABOARD. Carrying it out of the harbour rather than
+                     * awarding it on the way back keeps the whole trip in one place, and it
+                     * means a fisher lost at sea takes the fish down with them. When the smack
+                     * lands, the ordinary carry-it-home path picks up from there. */
+                    u->carry = 10; u->carry_kind = CARRY_FOOD;
+                    (void)MB_GATE(GT_FISH, 1);
+#if MOTE_HOST
+                    { extern uint32_t mb_fish, mb_fish_trips; mb_fish++; mb_fish_trips++; }
+#endif
+                    return;
+                }
+            }
+#if MOTE_HOST
+        shore_catch:
+#endif
+            /* FROM THE SAND, when there is no boat to be had — the smack is already out, or
+             * the fisher has just landed one, or the water beside them is ice. A line off the
+             * beach is worth less than a morning's netting: four against ten, so a harbour
+             * with boats working it feeds a town and a shore without them merely helps. */
+            u->carry = 4; u->carry_kind = CARRY_FOOD;
             (void)MB_GATE(GT_FISH, 1);
 #if MOTE_HOST
             {   extern uint32_t mb_fish; mb_fish++; }

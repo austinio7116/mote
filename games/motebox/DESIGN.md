@@ -332,7 +332,7 @@ cannibal · vengeful · loyal · ambitious · immortal · regenerating` + 8 god-
 inherited with mutation, which is what makes bloodlines interesting.
 
 **Ecology runs on the same brain**, cheaper: wildlife from `animals` (deer, boar, sheep,
-chicken, rabbit as prey; wolf, bear, snake, spider as predators; fish; bees as the swarm
+chicken, rabbit as prey; wolf, bear, snake, crab as predators; fish; bees as the swarm
 disaster; rats as the plague vector) with only `hunger · fear · breed`. Populations
 genuinely oscillate, and overhunting a region visibly empties it.
 

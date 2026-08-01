@@ -2400,7 +2400,7 @@ static void g_init(void)
                         {   extern uint32_t mb_expeditions, mb_conquests, mb_trades_far;
                             extern uint32_t mb_voyages, mb_voyages_sailed;
                             extern uint32_t mb_voyages_landed, mb_voyages_beached, mb_voyages_lost;
-                            extern uint32_t mb_lost_ticks, mb_lost_hunger, mb_land_ticks;
+                            extern uint32_t mb_lost_ticks, mb_lost_hunger, mb_land_ticks, mb_fish_trips;
                             extern int mb_seaborne_colonies;
                             int afloat = 0;
                             for (int q = 0; q < mb_nu; q++)
@@ -2412,14 +2412,15 @@ static void g_init(void)
                                             "  %u expeditions took ship, %d colonies sailed, "
                                             "%d at sea now\n"
                                             "  voyages: %u boarded, %u landed, %u put in short, %u lost at sea\n"
-                                            "  mean ticks: landed %u, lost %u (hunger %u)\n",
+                                            "  mean ticks: landed %u, lost %u (hunger %u); %u fishing trips\n",
                                     lords, guards, mb_expeditions,
                                     mb_conquests, mb_trades_far,
                                     mb_voyages, mb_seaborne_colonies, afloat,
                                     mb_voyages_sailed, mb_voyages_landed, mb_voyages_beached, mb_voyages_lost,
                                     mb_voyages_landed ? mb_land_ticks / mb_voyages_landed : 0,
                                     mb_voyages_lost ? mb_lost_ticks / mb_voyages_lost : 0,
-                                    mb_voyages_lost ? mb_lost_hunger / mb_voyages_lost : 0);
+                                    mb_voyages_lost ? mb_lost_hunger / mb_voyages_lost : 0,
+                                    mb_fish_trips);
                             extern uint32_t mb_rebellions, mb_rebel_blocked;
                             extern uint32_t mb_ws_dropped[5], mb_ws_done[5];
                             fprintf(stderr, "  work done  build=%u pave=%u plough=%u plant=%u\n"

@@ -50,8 +50,8 @@ int mb_nodouse;
  *
  * THE WILDLIFE IS WILD FIRST. The animals sheet is genuinely farm-heavy — the labels
  * count dogs, pigs, chicks, hens, lambs, sheep, ducks and geese — so the wilderness
- * is stocked from what IS wild in it (deer, the navy wolf, owl, snake, spider, bat,
- * rat, frog) plus the ox and goat off the monsters sheet, and the sheep and hens are
+ * is stocked from what IS wild in it (deer, the navy wolf, owl, snake, crab, bat,
+ * rat, turtle) plus the ox and goat off the monsters sheet, and the sheep and hens are
  * livestock that only appear near a village (see mb_unit_seed_wildlife).
  */
 const MbSpecies MB_SP[SP_N] = {
@@ -68,16 +68,16 @@ const MbSpecies MB_SP[SP_N] = {
     /* FIVE OF THESE DREW THE WRONG ANIMAL, which nothing caught because a cell reference is
      * just two numbers and a wrong one is still a picture. Rendering every species next to its
      * NAME found them in one look: the goat was a yellow blob off the monsters sheet, the wolf
-     * was a navy creature, the rat was a wolf, the wild dog was a deer and the spider was a
+     * was a navy creature, the rat was a wolf, the wild dog was a deer and the crab was a
      * fox. Anything that indexes art by coordinate wants a proof sheet, not a code review. */
     { "goat",      2, 11, 0, 12,  9, DIET_PLANT, DRV_BEAST },   /* brown, horned      */
     /* --- predators --- */
     { "wolf",      2,  3, 3, 17, 16, DIET_MEAT,  DRV_BEAST },   /* grey, pink eyes    */
     { "wild dog",  2,  1, 1, 15, 14, DIET_MEAT,  DRV_BEAST },   /* the orange jackal  */
     { "snake",     2,  3, 1, 11, 10, DIET_MEAT,  DRV_BEAST },
-    { "spider",    1,  2, 0, 12,  8, DIET_MEAT,  DRV_BEAST },   /* red, many-legged   */
+    { "crab",      1,  2, 0, 12,  8, DIET_MEAT,  DRV_BEAST },   /* red, two raised claws */
     /* --- water, swarm, vermin --- */
-    { "frog",      2,  6, 4, 12,  6, DIET_PLANT, DRV_FISH  },
+    { "turtle",    2,  6, 4, 12,  6, DIET_PLANT, DRV_FISH  },   /* a domed green shell */
     { "bat",       2,  5, 1, 20,  5, DIET_MEAT,  DRV_BEAST },
     { "rat",       2,  9, 1, 14,  6, DIET_PLANT, DRV_BEAST },   /* small, pink tail   */
     /* --- what the world raises rather than breeds --- */
@@ -659,7 +659,7 @@ static void idle_pick(int i)
  * civilisation and a forest was worth less to a town than a hedge.
  *
  * Not just deer. Anything a village would butcher — the grazers and the vermin, which is every
- * plant-eating beast in the table: deer, boar, sheep, hen, goat, rat and frog. Predators are
+ * plant-eating beast in the table: deer, boar, sheep, hen, goat, rat and turtle. Predators are
  * not on the menu (nobody eats wolf), and killing THEM is what soldiers and JOB_FIGHT are for.
  * A carcass is worth about two and a half berry-bushes, and it has to be carried home like any
  * other load, so a hunt is a trip rather than a snack. */
@@ -1535,6 +1535,7 @@ static int beach_nearest(int x, int y, int *bx, int *by)
 /* Can a ship be here? Open water, or the one piece of land it is aiming at. */
 #define SEA_LANDFALL 7        /* cells from the destination at which a ship puts in regardless */
 #define SEA_ASHORE_WAIT 40    /* ticks a lander must walk before it may take ship again */
+#define SEA_FISH_WAIT    2    /* ...but a fisher is back out almost at once */
 
 static int sailable(const Unit *u, int x, int y)
 {
@@ -1742,7 +1743,7 @@ static int voyage_step(int i)
 #endif
             u->x = (uint16_t)((x + SEA_DX[bi]) * 16 + 8);
             u->y = (uint16_t)((y + SEA_DY[bi]) * 16 + 8);
-            u->boat = SHIP_NONE; u->voyage = 0; u->sail_hit = 0;
+            u->boat = SHIP_NONE; u->voyage = 0; u->sail_trip = 0;
             /* AND THEY WALK FOR A WHILE BEFORE TAKING SHIP AGAIN. A traveller who lands and
              * is still across water from where it is going will book another passage on the
              * spot, land in the same bay, and do it again — measured as three hundred and
@@ -1773,7 +1774,7 @@ static int voyage_step(int i)
         if (beach_nearest(x, y, &wx, &wy)) {
             u->x = (uint16_t)(wx * 16 + 8); u->y = (uint16_t)(wy * 16 + 8);
         }
-        u->boat = SHIP_NONE; u->voyage = 0; u->sail_wait = 0; u->sail_hit = 0;
+        u->boat = SHIP_NONE; u->voyage = 0; u->sail_wait = 0; u->sail_trip = 0;
 #if MOTE_HOST
         { extern uint32_t mb_voyages_beached; mb_voyages_beached++; }
 #endif
@@ -1802,7 +1803,7 @@ static int voyage_step(int i)
         int bx, by;
         if (beach_nearest(x, y, &bx, &by)) {
             u->x = (uint16_t)(bx * 16 + 8); u->y = (uint16_t)(by * 16 + 8);
-            u->boat = SHIP_NONE; u->voyage = 0; u->sail_wait = 0; u->sail_hit = 0;
+            u->boat = SHIP_NONE; u->voyage = 0; u->sail_wait = 0; u->sail_trip = 0;
 #if MOTE_HOST
             { extern uint32_t mb_voyages_beached; mb_voyages_beached++; }
 #endif
@@ -1926,20 +1927,20 @@ void mb_unit_seed_wildlife(void)
          * of poultry is a farmyard, not a world. */
         switch (b) {
         case B_FOREST:  sp = roll <  90 ? SP_DEER  : (roll < 140 ? SP_BAT   :
-                             roll < 158 ? SP_WOLF  : (roll < 170 ? SP_SPIDER : -1)); break;
+                             roll < 158 ? SP_WOLF  : (roll < 170 ? SP_CRAB : -1)); break;
         case B_MEADOW:  sp = roll <  85 ? SP_DEER  : (roll < 130 ? SP_GOAT  :
                              roll < 148 ? SP_WOLF  : -1); break;
         case B_GRASS:   sp = roll <  70 ? SP_DEER  : (roll < 120 ? SP_DEER    :
                              roll < 140 ? SP_RAT   : -1); break;
         case B_SAVANNA: sp = roll <  70 ? SP_BOAR  : (roll < 115 ? SP_SNAKE :
                              roll < 132 ? SP_DOG   : -1); break;
-        case B_SWAMP:   sp = roll <  70 ? SP_SNAKE : (roll < 120 ? SP_SPIDER :
-                             roll < 145 ? SP_FROG  : -1); break;
+        case B_SWAMP:   sp = roll <  70 ? SP_SNAKE : (roll < 120 ? SP_CRAB :
+                             roll < 145 ? SP_TURTLE  : -1); break;
         case B_DESERT:  sp = roll <  45 ? SP_SNAKE : (roll <  60 ? SP_BAT   : -1); break;
         case B_HILL:    sp = roll <  55 ? SP_GOAT  : (roll <  75 ? SP_WOLF  : -1); break;
         case B_MOUNTAIN:sp = roll <  30 ? SP_GOAT  : (roll <  42 ? SP_BAT   : -1); break;
         case B_TUNDRA:  sp = roll <  40 ? SP_DEER  : (roll <  55 ? SP_WOLF  : -1); break;
-        case B_SEA: case B_SHALLOW: sp = roll < 70 ? SP_FROG : -1; break;
+        case B_SEA: case B_SHALLOW: sp = roll < 70 ? SP_TURTLE : -1; break;
         default: break;
         }
         if (sp >= 0) mb_unit_spawn(sp, x, y);
@@ -2136,10 +2137,10 @@ void mb_unit_migrate(void)
         if (want_pred) {
             /* the predator this ground would carry */
             switch (b) {
-            case B_FOREST:  sp = (roll & 3) ? SP_WOLF : SP_SPIDER; break;
+            case B_FOREST:  sp = (roll & 3) ? SP_WOLF : SP_CRAB; break;
             case B_MEADOW: case B_GRASS: case B_TUNDRA: case B_HILL: sp = SP_WOLF; break;
             case B_SAVANNA: sp = (roll & 1) ? SP_DOG : SP_SNAKE; break;
-            case B_SWAMP:   sp = (roll & 1) ? SP_SNAKE : SP_SPIDER; break;
+            case B_SWAMP:   sp = (roll & 1) ? SP_SNAKE : SP_CRAB; break;
             case B_DESERT:  sp = SP_SNAKE; break;
             case B_MOUNTAIN:sp = SP_BAT;   break;
             default: break;
@@ -2157,7 +2158,7 @@ void mb_unit_migrate(void)
             sp = roll < 120 ? SP_DEER : (roll < 200 ? SP_BOAR : SP_GOAT);
             break;
         case B_SEA: case B_SHALLOW:
-            sp = SP_FROG;
+            sp = SP_TURTLE;
             break;
         default: break;
         }

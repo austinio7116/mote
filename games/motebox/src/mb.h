@@ -142,8 +142,8 @@ enum {
      * confidence. It is a scorpion. A low-confidence label is a hint, not an answer. */
     SP_HUMAN = 0, SP_ELF, SP_DWARF, SP_ORC,
     SP_DEER, SP_BOAR, SP_SHEEP, SP_HEN, SP_GOAT,           /* grazers and prey */
-    SP_WOLF, SP_DOG, SP_SNAKE, SP_SPIDER,                  /* predators */
-    SP_FROG, SP_BAT, SP_RAT,                               /* water, swarm, vermin */
+    SP_WOLF, SP_DOG, SP_SNAKE, SP_CRAB,                  /* predators */
+    SP_TURTLE, SP_BAT, SP_RAT,                             /* water, swarm, vermin */
     SP_WIGHT, SP_GHOST, SP_DEMON,                          /* what the world raises */
     SP_N
 };
@@ -354,7 +354,7 @@ typedef struct {
      *   sail_wait  ticks of no progress. A headland can block a straight line and there is no
      *           sea pathfinder, so a stuck ship beaches itself rather than sailing for ever. */
     uint16_t voyage;
-    uint8_t  boat, sail_wait, sail_dir, sail_hit;
+    uint8_t  boat, sail_wait, sail_dir, sail_trip;
 } Unit;
 extern Unit *mb_u;
 extern int   mb_nu;         /* high-water mark; scans stop here */
@@ -374,6 +374,7 @@ enum { CARRY_FOOD = 0, CARRY_WOOD, CARRY_STONE, CARRY_IRON, CARRY_GOLD };
  * decided by the length of the crossing, so a ten-cell strait and an ocean do not look
  * the same. */
 enum { SHIP_NONE = 0, SHIP_SMACK, SHIP_CARAVEL };
+enum { SEA_TRIP_CROSS = 0, SEA_TRIP_FISH };   /* what a voyage is FOR — see Unit.sail_trip */
 
 /* A pending piece of work on one cell. `arg` is the object for the kinds that place one. */
 enum { WS_NONE = 0, WS_BUILD, WS_PAVE, WS_PLOUGH, WS_PLANT };

@@ -50,7 +50,7 @@ hat)" · `dwarf` characters[5,3] "dwarf" (human-labelled) · `orc` monsters[7,4]
 
 **The wildlife is wild first.** The animals sheet is genuinely farm-heavy — the labels
 count dogs, pigs, chicks, hens, lambs, sheep, ducks and geese — so the wilderness is
-stocked from what *is* wild in it (deer, the navy wolf, snake, spider, bat, rat, frog)
+stocked from what *is* wild in it (deer, the navy wolf, snake, crab, bat, rat, turtle)
 plus the goat off the monsters sheet, and **sheep and hens are livestock that only
 spawn beside a village**. A wilderness full of poultry is a farmyard, not a world.
 
