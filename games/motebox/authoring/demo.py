@@ -27,8 +27,16 @@ WORK = "/tmp/motebox_demo_frames"
 OUT = "/tmp/motebox_demo.mp4"
 
 FPS = 30
-ZOOM = 4                      # 128 -> 512
+# THE REEL IS SHOT IN THE CHASSIS. The frames are composited into the screen of Studio's
+# product photo, at the same rectangle Studio uses (studio/assets/screen.cfg, calibrated by
+# `mote studio calibrate`), so the clip looks like the handheld running rather than like a
+# window. --plain gives the older captioned version instead.
+CHASSIS = "studio/assets/thumby_color.png"
+SCREEN_CFG = "studio/assets/screen.cfg"
+OUT_W = 1280                  # the chassis, scaled down; the screen lands at about 396 px
+BACKDROP = (11, 13, 20)       # the product photo is cut out; this is behind it
 CAPTION_H = 34
+ZOOM = 4                      # --plain only: 128 -> 512
 
 # name, caption, env, keys, frames, skip (frames recorded then dropped from the front)
 SCENES = [
@@ -74,6 +82,25 @@ def record(name, env_extra, keys, frames):
     return d, got
 
 
+def chassis_plate():
+    """The product photo at OUT_W, and where the screen sits in it."""
+    from PIL import Image
+    shot = Image.open(os.path.join(ROOT, CHASSIS)).convert("RGBA")
+    im = Image.new("RGB", shot.size, BACKDROP)      # the photo is cut out, so give it a room
+    im.paste(shot, (0, 0), shot)
+    sx, sy, ss = 1011.2, 319.6, 888.8
+    try:
+        with open(os.path.join(ROOT, SCREEN_CFG)) as f:
+            sx, sy, ss = (float(v) for v in f.read().split()[:3])
+    except IOError:
+        pass                                     # the defaults compiled into studio/main.c
+    k = OUT_W / float(im.width)
+    h = int(round(im.height * k))
+    h -= h & 1                                   # even, or yuv420p will not have it
+    plate = im.resize((OUT_W, h), Image.LANCZOS)
+    return plate, (int(round(sx * k)), int(round(sy * k)), int(round(ss * k)))
+
+
 def caption(im, text, draw_cls, font=None):
     from PIL import Image
     W = im.width
@@ -94,6 +121,12 @@ def main():
         if os.path.exists(p):
             font = ImageFont.truetype(p, 15)
             break
+    plain = "--plain" in sys.argv
+    plate = screen = None
+    if not plain:
+        plate, screen = chassis_plate()
+        print("chassis %dx%d, screen %dx%d at %d,%d"
+              % (plate.width, plate.height, screen[2], screen[2], screen[0], screen[1]))
     shutil.rmtree(WORK, ignore_errors=True)
     os.makedirs(WORK)
     seq = os.path.join(WORK, "seq")
@@ -103,9 +136,14 @@ def main():
         d, got = record(name, env, keys, frames)
         for f in got[skip:]:
             im = Image.open(os.path.join(d, f)).convert("RGB")
-            im = im.resize((im.width * ZOOM, im.height * ZOOM), Image.NEAREST)
-            caption(im, cap, ImageDraw, font).save(
-                os.path.join(seq, "%05d.png" % n))
+            if plain:
+                im = im.resize((im.width * ZOOM, im.height * ZOOM), Image.NEAREST)
+                out = caption(im, cap, ImageDraw, font)
+            else:
+                out = plate.copy()
+                sx, sy, ss = screen
+                out.paste(im.resize((ss, ss), Image.NEAREST), (sx, sy))
+            out.save(os.path.join(seq, "%05d.png" % n))
             n += 1
         shutil.rmtree(d, ignore_errors=True)
     print("stitching %d frames (%.1f s)" % (n, n / float(FPS)))
