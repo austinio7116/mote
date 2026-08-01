@@ -20,13 +20,12 @@ at runtime. For the zone map of the master, see
 
 ## 1. Sprite subsheets — `assets/sheets/*.png` → `src/<name>.h` (`<name>_img`)
 
-28 thematic rectangles, layout preserved so colour-variant families stay column/row
+27 thematic rectangles, layout preserved so colour-variant families stay column/row
 aligned. Same rectangles as roguemote where the contents are the same — but **named for
 what they draw**, which matters in one case:
 
 | Motebox | roguemote | Why the rename |
 |---|---|---|
-| `buildings` | `doors_gems_banners` | The rectangle is **door-closed / door-open / house / house-extend × 5 colour rows**, which roguemote's own ASSETS.md records as a correction to the agent labels. It is the entire per-kingdom building set, and **the row index is the kingdom colour**. |
 | `nature` | `trinkets` | Trees, bushes, cactus, rocks, mushrooms, flowers, clouds, ooze splats — the vegetation layer, not jewellery. |
 | `props` | `props_light` | Campfire, torches, fences, bridges, signposts, mushroom house, statue, throne. |
 
@@ -63,7 +62,7 @@ spawn beside a village**. A wilderness full of poultry is a farmyard, not a worl
 | the five dynasty crowns | `crowns_fx` (0–4, 5) |
 | tree / dead tree / bush / rock / cactus | `nature` (6,4) (7,4) · (8,4) · (4,4) · (5,4) · (9,3) |
 | bonfire · torch · bridge · fence · statue | `props` (3,3) · (7,2) · (2,2) · (0,2) · (2,3) |
-| house / house-extend per kingdom colour | `buildings` (2,row) / (3,row) |
+| every building, per kingdom colour | `town` (column per building, row = colour) — OUR OWN sheet, `authoring/build_sprites.py`. The master tileset's door/house cells are used nowhere in the game. |
 | iron / silver / gold / gem deposit | `treasure_ore` (1,2) / (1,1) / (1,0) / (7,0) |
 
 `crowns_fx` (5,7) is a **sparkle**, not an explosion — an easy and costly mix-up, since it

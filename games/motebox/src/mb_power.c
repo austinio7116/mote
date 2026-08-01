@@ -21,7 +21,7 @@
 #include "animals.h"
 #include "bosses.h"
 #include "monsters.h"
-#include "buildings.h"
+#include "town.h"
 #include "treasure_ore.h"
 #include "ui_buttons.h"
 #include <stdio.h>          /* snprintf: implicit here on the device toolchain */
@@ -105,9 +105,20 @@ static const Power P_LIFE[8] = {
     { PW_ELF,     "ELVES",    &characters_img, 8, 1, 0, 0,  20 },
     { PW_DWARF,   "DWARVES",  &characters_img, 5, 3, 0, 0,  20 },
     { PW_ORC,     "ORCS",     &monsters_img,   7, 4, 0, 0,  20 },
-    { PW_VILLAGE, "VILLAGE",  &buildings_img,  2, 2, 0, 0,  90 },
-    { PW_HERD,    "HERD",     &animals_img,    0, 0, 1, 0,  10 },
-    { PW_WOLVES,  "WOLVES",   &animals_img,    3, 1, 0, 0,  10 },
+    /* THREE OF THESE DREW THE WRONG THING, and the game's own species table (MB_SP in
+     * mb_unit.c) had the right cells all along — the same class of mistake that table
+     * documents having made twice. Rendering all forty-eight icons beside their names found
+     * them in one look; a wrong cell reference is still a valid picture.
+     *   WOLVES drew animals[3,1], the GREEN SNAKE. The wolf is animals[3,3].
+     *   HERD   drew animals[0,0], an unidentifiable brown animal. It spawns deer first, and
+     *          the deer with antlers at animals[4,0] is unmistakable.
+     *   SWARM  (in the beasts tab) drew an insect. It summons bats.
+     * VILLAGE drew Ink_Slime's house, the last thing in the game that read buildings.png at
+     * all. It draws OUR OWN first house now, off the town sheet the towns are built from —
+     * see icon_src() for why that sheet needs a source rect of its own. */
+    { PW_VILLAGE, "VILLAGE",  &town_img,       4, 0, 0, 0,  90 },
+    { PW_HERD,    "HERD",     &animals_img,    4, 0, 1, 0,  10 },
+    { PW_WOLVES,  "WOLVES",   &animals_img,    3, 3, 0, 0,  10 },
     { PW_PLANTS,  "PLANTS",   &nature_img,     4, 4, 3, 1,   4 },
 };
 static const Power P_BLESS[8] = {
@@ -147,7 +158,7 @@ static const Power P_BEASTS[8] = {
     { PW_REAPER,  "REAPER",      &bosses_img,  4, 3, 0, 0, 360 },
     { PW_DRAGON,  "DRAGON",      &bosses_img,  0, 1, 0, 0, 320 },
     { PW_GOLEM,   "GOLEM",       &bosses_img,  2, 1, 0, 0, 240 },
-    { PW_SWARM,   "SWARM",       &animals_img, 0, 4, 2, 0, 160 },
+    { PW_SWARM,   "SWARM",       &animals_img, 5, 1, 2, 0, 160 },   /* the bat: what it summons */
     { PW_EYE,     "THE EYE",     &bosses_img,  6, 1, 0, 0, 280 },
     { PW_ANGEL,   "ANGEL",       &bosses_img,  0, 5, 0, 0, 420 },
 };
@@ -186,6 +197,17 @@ int         mb_wheel_open(void)   { return s_wheel; }
  * The unit-targeting radii were also simply too tight: BLESS and CURSE at radius 1
  * cover five tiles, while a village spreads over seventeen by seventeen, so most
  * casts on the hall genuinely reached no one. They are radius 3 now. */
+/* WHERE AN ICON IS ON ITS SHEET. Every sheet carved out of the master is an 8x8 grid, but
+ * OUR town sheet is 8 wide and 14 tall per cell, because a building stands six pixels above
+ * the tile it occupies. The village icon wants our own house rather than a borrowed one, so
+ * it takes the top eight rows of that cell — roof plus upper storey, which is a whole little
+ * house — and every other power keeps the plain 8x8 lookup. */
+static void icon_src(const Power *p, int *sx, int *sy)
+{
+    if (p->icon == &town_img) { *sx = p->ix * 8;    *sy = p->iy * 14 + 2; }
+    else                      { *sx = p->ix * TILE; *sy = p->iy * TILE;   }
+}
+
 static int s_last_reach = -1;
 int mb_power_last_reach(void) { return s_last_reach; }
 
@@ -972,8 +994,8 @@ void mb_power_draw_wheel(uint16_t *fb, const MoteFont *font)
 
     /* the chosen power, large, with its name and price */
     mb_ui_plaque(fb, 5, 18, 32, 32, MOTE_RGB565(12, 10, 26));
-    g_api->blit_ex(fb, p->icon, 21.0f, 34.0f, p->ix * TILE, p->iy * TILE, TILE, TILE,
-                   0.0f, 3.0f, 0, 0, 128);
+    { int sx, sy; icon_src(p, &sx, &sy);
+      g_api->blit_ex(fb, p->icon, 21.0f, 34.0f, sx, sy, TILE, TILE, 0.0f, 3.0f, 0, 0, 128); }
     mb_ui_text(fb, 42, 20, p->name, MB_UI_CREAM, 80);
     { char buf[24];
       snprintf(buf, sizeof buf, "%d faith", (int)p->cost);
@@ -1002,8 +1024,8 @@ void mb_power_draw_wheel(uint16_t *fb, const MoteFont *font)
                        (on ? BTN_LIT_CX : BTN_DIM_CX) * TILE,
                        (on ? BTN_LIT_CY : BTN_DIM_CY) * TILE, TILE, TILE,
                        0.0f, 2.0f, 0, 0, 128);
-        g_api->blit_ex(fb, tab[i].icon, cx, cy, tab[i].ix * TILE, tab[i].iy * TILE,
-                       TILE, TILE, 0.0f, 2.0f, 0, 0, 128);
+        { int sx, sy; icon_src(&tab[i], &sx, &sy);
+          g_api->blit_ex(fb, tab[i].icon, cx, cy, sx, sy, TILE, TILE, 0.0f, 2.0f, 0, 0, 128); }
         int x0 = (int)cx - 8, y0 = (int)cy - 8;
         if (on) {
             g_api->draw_rect(fb, x0 - 2, y0 - 2, 20, 20, MB_UI_GOLD, 0, 0, 128);

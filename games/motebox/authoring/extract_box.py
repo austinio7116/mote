@@ -115,12 +115,11 @@ SPRITE_SHEETS = {
     "bosses":      (32, 32, 47, 39),   # 17 kaiju, every one 2x2
     "crowns_fx":   (32, 24, 40, 31),   # crowns (5 colours), explosion/fire/splash/smoke
     # --- buildings & world props ---
-    # Named for what it DRAWS. roguemote calls this rectangle
-    # "doors_gems_banners" and its ASSETS.md already records the correction: cols
-    # 11-14 are door-closed / door-open / house / house-extend, five colour rows
-    # deep. That is the whole per-kingdom building set, so it gets the real name
-    # here and the row index IS the kingdom colour.
-    "buildings":   (11,  1, 14,  5),   # door / open door / house / house-extend x 5 colours
+    # NO BUILDINGS ARE TAKEN FROM THE MASTER. Its door/house/house-extend rectangle used to be
+    # carved out here as "buildings" for one thing only, the 8x8 VILLAGE power icon, while every
+    # building actually standing in a town came from our own town sheet (build_sprites.py). One
+    # borrowed sprite meant the credit had to claim the buildings were the artist's, which they
+    # are not, so the icon points at our own first house and the rectangle is gone.
     "nature":      ( 0,  8, 15, 13),   # trees, bushes, rocks, mushrooms, clouds, splats
     # --- economy & tech iconography ---
     "treasure_ore": (16, 16, 27, 19),  # ore/gold/gem deposits + 9 heraldic shields
