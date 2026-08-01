@@ -61,7 +61,6 @@ typedef char mb_town_covers_builds[(town_W / TOWN_W) >= (O_N - O_BUILD0) ? 1 : -
 #include "animals.h"
 #include "monsters.h"
 #include "bosses.h"   /* the seventeen kaiju, 2x2 each */
-#include "buildings.h"
 
 /* Ruleset per biome id. Index i is biome id i+1 — the engine reads
  * tiles[t-1] for cell value t, so this array's ORDER IS the B_* enum. */
@@ -153,7 +152,7 @@ static const uint16_t MB_OBJ_COL[O_N] = {
     C_YELLOW,                /* ripe      — a gold harvest, readable from orbit */
 };
 
-/* The five banner colours the buildings sheet is drawn in — so a kingdom's tint
+/* The five banner colours the town sheet is drawn in — so a kingdom's tint
  * on the political map is the SAME colour as its houses when you zoom in. */
 static const uint16_t KING_COL[5] = {
     MOTE_RGB565(255, 119, 168),   /* pink   */
@@ -906,12 +905,12 @@ static const FluxSpr FLUX_SPR[FX_N] = {
     { &fx_frost_img,  12, 4, 3 },         /* frost — twinkle */
 };
 
-/* BUILDINGS, every cell confirmed against the label set.
+/* BUILDINGS, every cell confirmed by rendering the sheet with its column names.
  *
- * The buildings sheet is FOUR COLUMNS BY FIVE COLOUR ROWS: col 0 a full-tile walled
- * face with a window, col 1 the same with the door open, col 2 a house with a
- * narrower pitched roof, col 3 its wide continuation. The row is the kingdom's banner
- * colour, so a village is visibly one kingdom's village.
+ * They come from OUR OWN town sheet: one column per building, five rows for the five
+ * banner colours, so a village is visibly one kingdom's village. The master tileset's
+ * door/house rectangle is not used anywhere in the game — see the note at the sprite
+ * table below for why it could not carry a settlement.
  *
  * THE HALL IS THE SOLID BLOCK, THE HOUSE IS THE PITCHED ROOF — that is what lets you
  * tell the centre of a village from its outskirts at eight pixels. */
@@ -950,16 +949,22 @@ enum { BS_BUILD = 0, BS_PROPS, BS_PLAN, BS_NATURE, BS_TOOLS };
 #define TOWN_COL_WELL      (O_N - O_BUILD0 + 9)
 #define TOWN_COL_GASLAMP   (O_N - O_BUILD0 + 10)
 #define TOWN_COL_LIGHT     (O_N - O_BUILD0 + 11)
+/* Two more designs, appended to the town sheet after the first three were reviewed at actual
+ * size against a sheet of fourteen candidates (authoring/house_options.py): a half-timbered
+ * house with a jettied upper floor, and a tower house. */
+#define TOWN_COL_HOUSE_D   (O_N - O_BUILD0 + 12)
+#define TOWN_COL_MANOR_C   (O_N - O_BUILD0 + 13)
 
 /* Alternatives per column, including the base as the first entry. Indexed by the column that
  * has already been resolved for era, so a modern block draws from the modern set. */
-typedef struct { uint8_t n, col[3]; } VariantSet;
+typedef struct { uint8_t n, col[4]; } VariantSet;
 static const VariantSet MB_VARIANT[] = {
-    /* the plain house, the gable-end and the narrow two-storey */
-    { 3, { O_HOUSE1 - O_BUILD0, TOWN_COL_HOUSE_B, TOWN_COL_HOUSE_C } },
-    { 2, { O_HOUSE2 - O_BUILD0, TOWN_COL_COTTAGE_B, 0 } },
-    { 2, { O_HOUSE3 - O_BUILD0, TOWN_COL_MANOR_B, 0 } },
-    { 3, { TOWN_COL_APARTMENT,  TOWN_COL_APT_B, TOWN_COL_APT_C } },
+    /* THE COMMONEST BUILDING GETS THE MOST DESIGNS, because it is the one a street is made of:
+     * the plain gable, the L-plan, the narrow one with a lean-to, and the half-timbered one. */
+    { 4, { O_HOUSE1 - O_BUILD0, TOWN_COL_HOUSE_B, TOWN_COL_HOUSE_C, TOWN_COL_HOUSE_D } },
+    { 2, { O_HOUSE2 - O_BUILD0, TOWN_COL_COTTAGE_B, 0, 0 } },   /* cottage, and one behind a yard wall */
+    { 3, { O_HOUSE3 - O_BUILD0, TOWN_COL_MANOR_B, TOWN_COL_MANOR_C, 0 } },  /* manor, wing, tower house */
+    { 3, { TOWN_COL_APARTMENT,  TOWN_COL_APT_B, TOWN_COL_APT_C, 0 } },
 };
 #define MB_NVARIANT ((int)(sizeof MB_VARIANT / sizeof MB_VARIANT[0]))
 
@@ -1456,7 +1461,7 @@ void mb_draw_mortal(int cam_x, int cam_y)
     /* BUILDINGS, from the game's OWN sprite sheet (authoring/build_sprites.py), and
      * EIGHT BY FOURTEEN rather than eight by eight.
      *
-     * The master's buildings rectangle offers two usable standalone fronts for a ladder
+     * The master tileset's door/house rectangle offers two usable standalone fronts for a ladder
      * of six dwelling and hall tiers plus a temple, a barracks, a tower, a barn, a mine
      * and a dock — so most of the settlement shared art, and a castle looked like a
      * great hall. These are drawn instead, one column per O_* id and one row per banner

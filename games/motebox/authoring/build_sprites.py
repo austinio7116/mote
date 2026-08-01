@@ -667,59 +667,126 @@ def cityblock(banner):
 # the side. One is picked per cell by a position hash (see MB_VARIANT in mb_draw.c), so a
 # house never flickers between designs and neighbours rarely match.
 
+def _slope(px, x0, x1, top, roof, shade, ridge):
+    """A pitched roof over the span x0..x1 only, apex centred, 45 degrees. Returns the first
+    wall row.
+
+    Same light rule as _pitched — lit ridge down the left edge, the half right of the apex in
+    shade — but PLACEABLE, which is what the variants need: a roof that is not full width is
+    the difference between a silhouette and a slab. An earlier version shaded only the single
+    rightmost pixel of each row, and every variant came out looking flat-topped.
+    """
+    span = x1 - x0 + 1
+    rows = (span + 1) // 2
+    cx = (x0 + x1) / 2.0
+    for i in range(rows):
+        a, b = int(cx - 0.5 - i), int(cx + 0.5 + i)
+        a, b = max(a, x0), min(b, x1)
+        y = top + i
+        _rect(px, a, y, b, y, roof)
+        mid = (a + b) // 2
+        _rect(px, mid + 1, y, b, y, shade)
+        px[a, y] = ridge + (255,)
+    return top + rows
+
+
 def house_b(banner):
-    """GABLE END ON. The same house turned ninety degrees: the roof is a triangle rather than
-    two slopes, which is the biggest silhouette change available in eight pixels."""
+    """L-PLAN. A two-storey range under a pitched roof on the right, and a lower wing on the left
+    whose roof falls away one row at a time, so the outline steps down. No other house has a
+    stepped outline.
+    """
     roof, shade, ridge = banner
     im, px = _blank()
-    for n, y in enumerate(range(2, 7)):               # the gable, widening downward
-        x0 = 3 - n if 3 - n > 0 else 0
-        x1 = 4 + n if 4 + n < W else W - 1
-        _rect(px, x0, y, x1, y, roof)
-        px[x0, y] = ridge + (255,); px[x1, y] = shade + (255,)
-    _wall(px, 7, WALL, WALL_SHADE, TIMBER)
-    _rect(px, 3, 4, 4, 6, WALL)                       # the gable wall showing under the ridge
-    _window(px, 3, 5)
-    _door(px, 3, 10, BROWN, TIMBER)
-    _window(px, 1, 8); _window(px, 6, 8)
+    body = _slope(px, 3, 7, 2, roof, shade, ridge)
+    _rect(px, 3, body, 7, H - 1, WALL)
+    px[7, body] = TIMBER + (255,)
+    _window(px, 5, body + 1); _window(px, 5, body + 4)
+    px[2, 6] = ridge + (255,)
+    _rect(px, 1, 7, 2, 7, roof); px[1, 7] = ridge + (255,)
+    _rect(px, 0, 8, 2, 8, shade)
+    _rect(px, 0, 9, 2, H - 1, WALL)
+    px[0, 9] = TIMBER + (255,)
+    _door(px, 1, 11, BROWN, TIMBER)
+    _rect(px, 0, H - 1, 7, H - 1, WALL_SHADE)
     return im
 
 
 def house_c(banner):
-    """NARROW, WITH A LEAN-TO. Two storeys on six pixels and a single-slope outhouse tacked on
-    the side — the shape a town gets when it runs out of frontage."""
+    """NARROW, WITH A LEAN-TO. Six pixels of pitched house and a single-slope outhouse on the
+    shaded side: the shape a town gets when it runs out of frontage.
+    """
     roof, shade, ridge = banner
     im, px = _blank()
-    _rect(px, 0, 3, 5, 3, ridge)                      # the main roof, over the left six
-    _rect(px, 0, 4, 5, 5, roof)
-    _rect(px, 0, 6, 5, 6, shade)
-    _rect(px, 0, 7, 5, H - 1, WALL)                   # its wall
-    _rect(px, 5, 7, 5, H - 1, WALL_SHADE)
-    _window(px, 1, 8); _window(px, 3, 8)
-    _door(px, 2, 11, BROWN, TIMBER)
-    _rect(px, 6, 8, 7, 8, shade)                      # the lean-to: one slope, no ridge
+    body = _slope(px, 0, 5, 3, roof, shade, ridge)
+    _rect(px, 0, body, 5, H - 1, WALL)
+    _rect(px, 5, body, 5, H - 1, WALL_SHADE)
+    px[0, body] = TIMBER + (255,)
+    _window(px, 1, body + 1); _window(px, 3, body + 1)
+    _door(px, 2, body + 4, BROWN, TIMBER)
+    px[6, 8] = roof + (255,); px[7, 8] = shade + (255,)
     _rect(px, 6, 9, 7, H - 1, WALL_SHADE)
     px[6, 10] = TIMBER + (255,)
     _rect(px, 0, H - 1, 7, H - 1, TIMBER)
     return im
 
 
-def cottage_b(banner):
-    """DOOR IN THE GABLE, and a chimney tall enough to see. Same footprint as the cottage,
-    entered from the end instead of the front."""
+def house_d(banner):
+    """HALF-TIMBERED. The same gable, but the upper floor is jettied out over a ground floor set
+    back behind it, framed in dark timber with braces. The most decorated house on the sheet.
+    """
     roof, shade, ridge = banner
     im, px = _blank()
-    _rect(px, 5, 2, 6, 4, DKGREY)                     # the chimney, drawn before the roof
-    px[5, 2] = LTGREY + (255,)                        # so the gable laps over its foot
-    for n, y in enumerate(range(3, 8)):
-        x0 = 3 - n if 3 - n > 0 else 0
-        x1 = 4 + n if 4 + n < W else W - 1
-        _rect(px, x0, y, x1, y, roof)
-        px[x0, y] = ridge + (255,); px[x1, y] = shade + (255,)
-    _wall(px, 8, WALL, WALL_SHADE, TIMBER)
-    _rect(px, 3, 5, 4, 7, WALL)
-    _door(px, 3, 9, BROWN, TIMBER)
-    _window(px, 1, 9); _window(px, 6, 9)
+    body = _pitched(px, 2, roof, shade, ridge)
+    _rect(px, 0, body, 7, body + 3, WALL)                # the jettied storey, full width
+    _rect(px, 0, body, 0, body + 3, TIMBER)
+    _rect(px, 7, body, 7, body + 3, TIMBER)
+    px[2, body + 1] = TIMBER + (255,); px[5, body + 1] = TIMBER + (255,)
+    _window(px, 3, body + 1); _window(px, 4, body + 1)
+    _rect(px, 0, body + 4, 7, body + 4, TIMBER)          # the bressumer it sits on
+    _rect(px, 1, body + 5, 6, H - 1, WALL)               # ground floor, set back
+    _rect(px, 1, body + 5, 1, H - 1, TIMBER)
+    _rect(px, 6, body + 5, 6, H - 1, TIMBER)
+    _door(px, 3, body + 5, BROWN, TIMBER)
+    _window(px, 2, H - 3)
+    _rect(px, 1, H - 1, 6, H - 1, WALL_SHADE)
+    return im
+
+
+def cottage_b(banner):
+    """A WALLED YARD. The cottage set back behind its own low wall with a gate in it, so the
+    sprite contains GROUND as well as building — two depths, which nothing else on the sheet has.
+    """
+    roof, shade, ridge = banner
+    im, px = _blank()
+    body = _slope(px, 1, 7, 2, roof, shade, ridge)        # set right and back
+    _rect(px, 1, body, 7, H - 3, WALL)
+    px[1, body] = TIMBER + (255,); px[7, body] = TIMBER + (255,)
+    _window(px, 3, body + 1); _window(px, 6, body + 1)
+    _door(px, 4, H - 4, BROWN, TIMBER)
+    _rect(px, 0, H - 2, 7, H - 1, LTGREY)                 # the yard wall, in front of it
+    _rect(px, 0, H - 1, 7, H - 1, DKGREY)
+    _rect(px, 2, H - 2, 3, H - 1, BROWN)                  # a gate in it
+    return im
+
+
+def manor_c(banner):
+    """A TOWER HOUSE. Three storeys on five pixels with a steep roof, and a one-storey annexe
+    beside it — the tallest silhouette in the game that is not a modern block.
+    """
+    roof, shade, ridge = banner
+    im, px = _blank()
+    px[2, 0] = ridge + (255,); px[3, 0] = shade + (255,)
+    _rect(px, 1, 1, 4, 1, roof); px[1, 1] = ridge + (255,); _rect(px, 3, 1, 4, 1, shade)
+    _rect(px, 0, 2, 5, 2, roof); px[0, 2] = ridge + (255,); _rect(px, 3, 2, 5, 2, shade)
+    _rect(px, 0, 3, 5, 3, shade)
+    _rect(px, 1, 4, 4, H - 1, WALL)
+    px[1, 4] = TIMBER + (255,); px[4, 4] = TIMBER + (255,)
+    _window(px, 2, 5); _window(px, 2, 8)
+    _door(px, 2, 11, BROWN, TIMBER)
+    _rect(px, 5, 9, 7, 9, roof); px[5, 9] = ridge + (255,); px[7, 9] = shade + (255,)
+    _rect(px, 5, 10, 7, H - 1, WALL_SHADE)
+    _window(px, 6, 11)
+    _rect(px, 0, H - 1, 7, H - 1, WALL_SHADE)
     return im
 
 
@@ -940,6 +1007,10 @@ BUILDINGS = [
     ("well",         well),
     ("gas_lamp",     gas_lamp),
     ("street_light", street_light),
+    # --- appended, NOT inserted: mb_draw.c derives TOWN_COL_* from position in this list,
+    #     so a new design in the middle silently renames every column after it ---
+    ("house_d",      house_d),
+    ("manor_c",      manor_c),
 ]
 
 
