@@ -70,6 +70,12 @@ void mote_shell_set_present_cap(int fps);
 
 /* ---- multiplayer (platform/android/mote_link_android.c) ----------------- */
 /* "host" or "host:port" for the internet relay (port defaults to 443). */
+/* The public match relay. A player never has to type this — the settings sheet
+ * shows "Default" while it is unchanged, precisely so nobody goes looking for
+ * something to configure. */
+#ifndef MOTE_ANDROID_RELAY_DEFAULT
+#define MOTE_ANDROID_RELAY_DEFAULT "141.147.78.173:443"
+#endif
 void        mote_shell_set_relay(const char *hostport);
 const char *mote_shell_get_relay(void);
 /* Room label shown in the relay's Browse listing (the running game's name). */

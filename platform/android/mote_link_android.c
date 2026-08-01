@@ -39,10 +39,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef MOTE_ANDROID_RELAY_DEFAULT
-#define MOTE_ANDROID_RELAY_DEFAULT "141.147.78.173:443"
-#endif
-
 enum { LK_OFF = 0, LK_SNIFF, LK_CTRL, LK_RAW, LK_PAIRED };
 
 static int   s_mode;

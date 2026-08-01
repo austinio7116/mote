@@ -100,10 +100,12 @@ public class MoteActivity extends SDLActivity {
             return 0;
         } catch (Exception e) {
             new File(dest).delete();
+            if (conn != null) conn.disconnect();   /* a broken one is not worth pooling */
             return -1;
-        } finally {
-            if (conn != null) conn.disconnect();
         }
+        /* Deliberately NOT disconnect() on success: that evicts the connection
+         * from the keep-alive pool, and the gallery fetches a hundred small
+         * files — a fresh TLS handshake each would dominate the time. */
     }
 
     /** Called from the native rumble hook (any thread). ms<=0 stops nothing — it just returns. */

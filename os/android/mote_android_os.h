@@ -6,6 +6,8 @@
 #ifndef MOTE_ANDROID_OS_H
 #define MOTE_ANDROID_OS_H
 
+#include <stdint.h>
+
 /* Where to look for libmg_<game>.so modules, highest priority first. The first
  * writable dir added is also where gallery installs land. */
 void mote_android_os_add_dir(const char *dir);
@@ -38,6 +40,9 @@ const char *mote_gallery_mote_sha(int i);
 long        mote_gallery_mote_size(int i);
 long        mote_gallery_desc(int i, char *out, int cap);
 int         mote_gallery_sha256_file(const char *path, char *hex);
+/* A published screenshot as the 64x64 RGB565 tile both galleries show. */
+int         mote_gallery_thumb(int idx, int shot, uint16_t *out64);
+const char *gal_cache_dir(void);
 
 /* ---- USB dock (os/android/mote_android_dock.c) --------------------------- */
 /* Start the dock service thread. Idles until a handheld is on the cable. */

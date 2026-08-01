@@ -40,7 +40,6 @@
 #include <strings.h>
 #include <sys/stat.h>
 
-#include "stb_image.h"      /* implementation lives in mote_shell.c */
 
 /* ---------------------------------------------------------------- state */
 static SDL_Thread  *s_th;
@@ -151,15 +150,6 @@ static int dock_readline(char *out, int cap) {
 }
 
 /* ------------------------------------------------------- gallery service */
-static const char *cache_dir(void) {
-    static char d[600];
-    if (!d[0]) {
-        const char *base = mote_android_os_install_dir();
-        snprintf(d, sizeof d, "%s/dockcache", base ? base : ".");
-        mkdir(d, 0770);
-    }
-    return d;
-}
 
 static void serve_manifest(void) {
     if (mote_gallery_ensure() != 0) { dock_say(NULL, "MN1 GERR fetch\n"); return; }
@@ -178,36 +168,9 @@ static void serve_manifest(void) {
 static void serve_thumb(int idx, int shot) {
     enum { TW = 64, TH = 64 };
     static uint16_t sc[TW * TH];
-    memset(sc, 0, sizeof sc);
-
-    char url[400], path[700];
-    if (mote_gallery_ensure() == 0 && mote_gallery_shot_url(idx, shot, url, sizeof url) == 0) {
-        snprintf(path, sizeof path, "%s/thumb.png", cache_dir());
-        if (mote_shell_http_get(url, path) == 0) {
-            /* stb is compiled STBI_NO_STDIO in this app (the shell reads assets
-             * out of the APK), so decode from memory. */
-            int w = 0, h = 0, comp = 0;
-            unsigned char *png = NULL; long pl = 0;
-            FILE *pf = fopen(path, "rb");
-            if (pf) {
-                fseek(pf, 0, SEEK_END); pl = ftell(pf); fseek(pf, 0, SEEK_SET);
-                if (pl > 0 && pl < 4 * 1024 * 1024 && (png = malloc((size_t)pl)))
-                    if (fread(png, 1, (size_t)pl, pf) != (size_t)pl) { free(png); png = NULL; }
-                fclose(pf);
-            }
-            unsigned char *px = png ? stbi_load_from_memory(png, (int)pl, &w, &h, &comp, 4) : NULL;
-            free(png);
-            if (px && w > 0 && h > 0) {
-                for (int y = 0; y < TH; y++)
-                    for (int x = 0; x < TW; x++) {
-                        const unsigned char *s = px + ((size_t)(y * h / TH) * w + (x * w / TW)) * 4;
-                        sc[y * TW + x] = (uint16_t)(((s[0] & 0xF8) << 8) |
-                                                    ((s[1] & 0xFC) << 3) | (s[2] >> 3));
-                    }
-            }
-            if (px) stbi_image_free(px);
-        }
-    }
+    /* Exactly the tile the app's own gallery shows — one decoder, one look. */
+    if (mote_gallery_ensure() != 0 || mote_gallery_thumb(idx, shot, sc) != 0)
+        memset(sc, 0, sizeof sc);
     char hd[64];
     snprintf(hd, sizeof hd, "MN1 GTHUMB %d %d %d %d %d\n", idx, shot, TW, TH, (int)sizeof sc);
     dock_write(hd, (int)strlen(hd));
@@ -233,7 +196,7 @@ static void serve_fetch(int idx) {
         dock_say(NULL, "MN1 GERR idx\n"); return;
     }
     const char *b = strrchr(url, '/');
-    snprintf(path, sizeof path, "%s/%s", cache_dir(), b ? b + 1 : "game.mote");
+    snprintf(path, sizeof path, "%s/%s", gal_cache_dir(), b ? b + 1 : "game.mote");
 
     const char *want = mote_gallery_mote_sha(idx);
     int have = (mote_gallery_sha256_file(path, hex) == 0 && want[0] &&
