@@ -48,7 +48,8 @@ static int  s_next_pt;
  * Three can run at once, which is enough for a god pointing at three valleys, and each
  * spawns drops across its own disc every frame for as long as it lasts. */
 #define NRAIN 3
-static struct { float x, y, r, t, acc; } s_rain[NRAIN];
+typedef struct { float x, y, r, t, acc; } Shower;
+static Shower s_rain[NRAIN];
 static uint32_t s_rain_seed = 12345u;
 #if MOTE_HOST
 unsigned long mb_rain_spawned;
@@ -196,7 +197,7 @@ static void rain_emit(int i, float dt)
      * pixels it covers, which is the difference between rain and drizzle. The particle pool
      * is 448, so three showers of this size at once is its limit and that is fine: a fourth
      * would be recycling somebody else's embers. */
-    struct { float x, y, r, t, acc; } *R = &s_rain[i];
+    Shower *R = &s_rain[i];
     R->acc += R->r * R->r * 34.0f * dt;
     int n = (int)R->acc;
     if (n > 30) n = 30;                        /* a frame-time spike is not a cloudburst */

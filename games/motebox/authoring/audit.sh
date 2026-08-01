@@ -130,6 +130,37 @@ for i in $(seq 1 "$SEEDS"); do
 done
 
 echo
+# --- 8. DOES THE TREE BRANCH -------------------------------------------------
+# The tech tree has always had the SHAPE of a tree — two prerequisites a rung, four rungs an
+# era — and until the chooser was rewritten nothing picked between the branches: it scored
+# `12000 - cost` and took the cheapest rung, so every crown in a world walked one line and held
+# the same list. That is invisible in the CSV, so it needs its own pass: a short world, and the
+# tech sets of its kingdoms compared.
+#
+# Mid-tree is the only place to look. By year 250 a surviving kingdom has most of the tree and
+# every set converges, which is correct — a long-lived realm eventually learns everything.
+echo
+echo "branching (tech sets at year 120):"
+BRANCH_FAIL=0
+for i in $(seq 1 "$SEEDS"); do
+    SEED=$((i * 7919))
+    OUT="$TMP/t$SEED.txt"
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy MOTE_AUTORUN=1 MOTE_DT_MS=33 \
+        MOTEBOX_SEED=$SEED MOTEBOX_SEEDN="$DROPS" MOTEBOX_YEARS=120 MOTEBOX_TECHDBG=1 \
+        MOTE_SHOT=/dev/null MOTE_SHOT_FRAME=2 \
+        ./tools/mote run games/motebox 2>"$OUT" >/dev/null
+    # one line per living kingdom; the tech names follow the lord stats
+    KN=$(grep -c "^K[0-9]" "$OUT" || true)
+    UNIQ=$(grep "^K[0-9]" "$OUT" | sed "s/^K[0-9]* *//; s/lord [^ ]* [^ ]* [^ ]* *//" | sort -u | wc -l)
+    if [ "$KN" -ge 2 ] && [ "$UNIQ" -lt 2 ]; then
+        echo "  seed $SEED: FAIL — $KN kingdoms, one tech set between them"
+        BRANCH_FAIL=$((BRANCH_FAIL + 1))
+    else
+        echo "  seed $SEED: $KN kingdoms, $UNIQ distinct tech sets"
+    fi
+done
+FAIL=$((FAIL + BRANCH_FAIL))
+
 if [ "$FAIL" -eq 0 ]; then
     echo "PASS — $SEEDS worlds, $YEARS years each, all invariants held"
 else

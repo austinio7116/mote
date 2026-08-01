@@ -1176,7 +1176,7 @@ static void act(int i)
             if (bx < 0) { u->job = JOB_IDLE; break; }
             int kk2 = u->village ? mb_v[u->village].kingdom : 0;
             int shk2 = mb_war_shot_kind(kk2);
-            int rng2 = mb_war_shot_range(shk2);
+            int rng2 = mb_war_shot_range(shk2) + mb_war_air_bonus(kk2) * (mb_war_shot_range(shk2) / 2);
             /* A SPEAR DOES LESS TO A KAIJU THAN TO A MAN, which is the whole point of one.
              * At full melee damage a dozen militia deleted six thousand hit points in a few
              * ticks; this makes it a grind, and the weapons tree still matters because the
@@ -1213,7 +1213,9 @@ static void act(int i)
          * battlefield before either side arrived. */
         int kk = u->village ? mb_v[u->village].kingdom : 0;
         int shk = mb_war_shot_kind(kk);
+        /* and FLIGHT adds half again to it — see mb_war_air_bonus */
         int rng = mb_war_shot_range(shk);
+        rng += mb_war_air_bonus(kk) * (rng / 2);
         /* CAVALRY, which was a leaf: research_pick STEERS a kingdom at war toward it and
          * knowing it changed nothing whatever. A horse is reach in the other direction from a
          * bow — not distance but SPEED — so mounted troops close the ground twice as fast and
@@ -2061,12 +2063,17 @@ void mb_unit_plague_step(void)
          * medicine had no building and no effect, so a modern realm buried its people at the
          * same rate as a stone-age one. It shortens the illness and it stops the dying, which
          * are the two things a doctor does. */
-        int med = 0;
-        if (u->village && mb_v[u->village].alive)
-            med = mb_tech_known(mb_v[u->village].kingdom, TECH_MEDICINE);
-
-        if (!u->sick) u->sick = (uint8_t)((med ? 12 : 30)
-                                          + (mb_rand((uint32_t)i * 17u) & (med ? 15 : 31)));
+        int med = 0, chem = 0;
+        if (u->village && mb_v[u->village].alive) {
+            int kk = mb_v[u->village].kingdom;
+            med  = mb_tech_known(kk, TECH_MEDICINE);
+            /* CHEMISTRY is half a doctor: it was a pure prerequisite, and the era that
+             * discovered what disease is made of should shorten one. */
+            chem = mb_tech_known(kk, TECH_CHEMISTRY);
+        }
+        int span = med ? 12 : chem ? 20 : 30;
+        if (!u->sick) u->sick = (uint8_t)(span + (mb_rand((uint32_t)i * 17u)
+                                                 & (med ? 15 : chem ? 23 : 31)));
         if (--u->sick == 0) {
             /* SURVIVORS ARE IMMUNE, and without that a plague cannot end in a world whose
              * population sits at its ceiling: recovery alone just returns a fresh host to

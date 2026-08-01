@@ -629,7 +629,8 @@ void mb_fx_draw_shots(uint16_t *fb, int cam_x, int cam_y, float dt);
 int  mb_fx_shots_live(void);
 void mb_fx_shots_clear(void);
 int  mb_war_shot_kind(int k);        /* what this kingdom's soldiers fire */
-int  mb_war_shot_range(int kind);    /* how far, in tiles */
+int  mb_war_shot_range(int kind);
+int  mb_war_air_bonus(int k);   /* flight: half again the reach */    /* how far, in tiles */
 void mb_fx_nuke(int cx, int cy);                 /* start a mushroom cloud */
 void mb_fx_draw_nuke(uint16_t *fb, int cam_x, int cam_y, float dt);
 void mb_fx_nuke_clear(void);

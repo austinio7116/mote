@@ -2681,6 +2681,22 @@ static void g_init(void)
     }
     /* MOTEBOX_PWTEST=1 casts all forty-eight powers and reports what each did. */
     if (getenv("MOTEBOX_PWTEST")) mb_power_test_all(s_cx, s_cy);
+    /* MOTEBOX_TECHDBG=1 prints every living kingdom's tech set. "Does the tree branch" is a
+     * question about eight worlds, not about one screenshot: with the old cheapest-first rule
+     * every crown in a world held nearly the same list. */
+    if (getenv("MOTEBOX_TECHDBG")) {
+        for (int k = 1; k < MAXK; k++) {
+            if (!mb_k[k].alive) continue;
+            const Village *C = (mb_k[k].capital && mb_v[mb_k[k].capital].alive)
+                             ? &mb_v[mb_k[k].capital] : NULL;
+            int n = 0;
+            fprintf(stderr, "K%-2d lord b%-3d t%-3d f%-3d  ", k,
+                    C ? C->lord_stew : -1, C ? C->lord_diplo : -1, C ? C->lord_war : -1);
+            for (int t = TECH_TOOLS; t < TECH_N; t++)
+                if (mb_tech_known(k, t)) { fprintf(stderr, "%s ", MB_TECH_NAME[t]); n++; }
+            fprintf(stderr, " [%d]\n", n);
+        }
+    }
     if (getenv("MOTEBOX_VSTAT")) {
         for (int i = 0; i < MAXV; i++) {
             if (!mb_v[i].alive) continue;

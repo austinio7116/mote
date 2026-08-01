@@ -420,6 +420,18 @@ int mb_war_shot_range(int kind)
     return R[(kind >= 0 && kind < MB_SHOT_N) ? kind : 0];
 }
 
+/* WHAT FLIGHT IS FOR. Its only effect in the game was the FOURTH GRADE OF ROAD SURFACE —
+ * painted lines — which is a strange legacy for the Wright brothers. A kingdom that can fly
+ * strikes from half again as far, and its expeditions cross water without needing a dock: an
+ * aeroplane is reach, and reach is the thing a late war and a late frontier are made of.
+ *
+ * Half again rather than triple, because the shot ladder already more than triples across the
+ * whole tree and a missile at thirteen cells covers a fifth of the map. */
+int mb_war_air_bonus(int k)
+{
+    return mb_tech_known(k, TECH_FLIGHT) ? 1 : 0;
+}
+
 int mb_tech_known(int k, int t)
 {
     if (k <= 0 || k >= MAXK || !mb_k[k].alive) return t <= TECH_NONE;
@@ -510,7 +522,13 @@ static void civic_yield(int v)
     int k = V->kingdom;
     int mk = mb_civ_count(v, O_MARKET), fo = mb_civ_count(v, O_FOUNDRY);
     int gr = mb_civ_count(v, O_GRANARY), fa = mb_civ_count(v, O_FACTORY);
-    if (mk) V->gold  = (uint16_t)(V->gold  + mk * (mb_tech_known(k, TECH_BANKING) ? 2 : 1));
+    /* BANKING doubles what a market pays and ECONOMICS adds half again on top of that, so the
+     * three money technologies each show up in the treasury instead of two of them being
+     * prerequisites with a price tag. */
+    if (mk) { int per = mb_tech_known(k, TECH_BANKING) ? 2 : 1;
+              int tot = mk * per;
+              if (mb_tech_known(k, TECH_ECONOMICS)) tot += tot / 2 + 1;
+              V->gold = (uint16_t)(V->gold + tot); }
     if (fo) V->iron  = (uint16_t)(V->iron  + fo * (mb_tech_known(k, TECH_STEAM)   ? 2 : 1));
     if (gr) V->food  = (uint16_t)(V->food  + gr * 2);        /* a store keeps what it holds */
     if (fa) { V->wood  = (uint16_t)(V->wood  + fa * 2);
@@ -584,30 +602,122 @@ static int research_pick(int k)
      * UNFINISHABLE: a kingdom reached 29 of 35 and then sat there with no goal from year 150
      * to year 400, which the loops report showed as "goal -" and nothing moving. */
     int best = TECH_NONE, bestscore = -(1 << 30);
-    int atwar = K->war_with != 0, coastal = 0, rich = 0;
+    /* WHAT THIS KINGDOM IS LIKE, which is the whole reason the tree branches.
+     *
+     * It used to score `12000 - cost` and take the cheapest rung in reach, with four small
+     * nudges for war, coast, wealth and exhaustion. That is a LINE, not a tree: every crown in
+     * a world walked the same order and each era's four techs were taken in price order by
+     * everybody. The shape was always there — two prerequisites a rung, four rungs an era —
+     * and nothing was choosing between the branches.
+     *
+     * Three things choose now. THE LORD IN THE CAPITAL, because every other decision a kingdom
+     * makes in this game already comes from that person: a builder reaches for masonry and
+     * engineering, a warmonger for bronze and gunpowder, a talker for writing and law. WHAT THE
+     * GROUND HAS, because a realm with iron in its hills should work it and one with none
+     * should take to the sea and buy it. And WHAT IT HAS TAKEN ALREADY, so a kingdom that has
+     * spent two rungs on war spends the third there too and reads as having a character rather
+     * than a shopping list.
+     *
+     * Cost still counts, divided by four: it breaks ties between branches the kingdom wants
+     * equally instead of deciding for it. */
+    int atwar = K->war_with != 0, coastal = 0, rich = 0, ore = 0, wood = 0, hills = 0;
+    const Village *CAP = (K->capital && mb_v[K->capital].alive) ? &mb_v[K->capital] : NULL;
+    int stew = CAP ? CAP->lord_stew : 40, diplo = CAP ? CAP->lord_diplo : 40;
+    int war = CAP ? CAP->lord_war : 40;
+    uint32_t lt = CAP ? CAP->lord_traits : 0u;
     for (int v = 1; v < MAXV; v++) {
         if (!mb_v[v].alive || mb_v[v].kingdom != k) continue;
         if (mb_v[v].coast >= 8) coastal = 1;
-        if (mb_v[v].gold > 40) rich = 1;
+        if (mb_v[v].gold > 40)  rich = 1;
+        if (mb_v[v].iron > 8)   ore = 1;
+        if (mb_v[v].wood > 40)  wood = 1;
+        for (int dy = -6; dy <= 6 && !hills; dy++)           /* stone worth quarrying */
+            for (int dx = -6; dx <= 6; dx++) {
+                int x = mb_v[v].x + dx, y = mb_v[v].y + dy;
+                if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v) continue;
+                uint8_t b = mb_w.biome[AT(x, y)];
+                if (b == B_HILL || b == B_MOUNTAIN || b == B_PEAK) { hills = 1; break; }
+            }
     }
+    /* how it has spent itself so far: the inertia term */
+    int had_war = 0, had_build = 0, had_talk = 0;
+    {   static const uint8_t WT[6] = { TECH_BRONZE, TECH_IRON, TECH_CAVALRY,
+                                       TECH_GUNPOWDER, TECH_METALLURGY, TECH_COMBUSTION };
+        static const uint8_t BT[6] = { TECH_MASONRY, TECH_ARCHITECTURE, TECH_ENGINEER,
+                                       TECH_RAILWAY, TECH_STEAM, TECH_ELECTRIC };
+        static const uint8_t TT[6] = { TECH_WRITING, TECH_LAW, TECH_CURRENCY,
+                                       TECH_BANKING, TECH_PRINTING, TECH_UNIVERSITY };
+        for (int i = 0; i < 6; i++) {
+            if (mb_tech_known(k, WT[i])) had_war++;
+            if (mb_tech_known(k, BT[i])) had_build++;
+            if (mb_tech_known(k, TT[i])) had_talk++;
+        } }
+
+    /* AND HOW MANY DOORS IT OPENS. Without this the branch terms starved the tree: measured,
+     * one kingdom held six technologies at year 100 and none of them was TOOLS, because tools
+     * itself does little and every rung it unlocks — masonry, bronze, the wheel — was therefore
+     * out of reach for ever. A kingdom locked into the branch it started in and stopped.
+     *
+     * A tech is worth something for what it leads to, so each one carries the number of rungs
+     * that name it as a prerequisite. Counted once, on the first call. */
+    static int8_t s_opens[TECH_N];
+    static int s_opens_done;
+    if (!s_opens_done) {
+        s_opens_done = 1;
+        for (int t = TECH_TOOLS; t < TECH_N; t++)
+            for (int i = 0; i < 2; i++) {
+                int pre = MB_TECH[t].need[i];
+                if (pre > TECH_NONE && pre < TECH_N) s_opens[pre]++;
+            }
+    }
+
     for (int t = TECH_TOOLS; t < TECH_N; t++) {
         if (!mb_tech_avail(k, t)) continue;
-        /* cheap is good — a kingdom takes the next rung it can reach */
-        int score = 12000 - (int)MB_TECH[t].cost;   /* cheap first, but never negative */
+        int score = 3000 - (int)MB_TECH[t].cost / 4 + s_opens[t] * 220;
         switch (t) {
+        /* the sword: a warlike lord, a war on, and a realm already armed */
         case TECH_BRONZE: case TECH_IRON: case TECH_CAVALRY:
         case TECH_GUNPOWDER: case TECH_METALLURGY: case TECH_COMBUSTION:
-            if (atwar) score += 700; break;
+            score += war * 4 + had_war * 45;
+            if (atwar) score += 700;
+            if (lt & TR_VENGEFUL) score += 250;
+            if (t == TECH_IRON && ore) score += 350;          /* work what the hills hold */
+            break;
+        /* the trowel: a steward who builds, and ground worth quarrying */
+        case TECH_MASONRY: case TECH_ARCHITECTURE: case TECH_ENGINEER:
+        case TECH_RAILWAY: case TECH_STEAM: case TECH_ELECTRIC:
+            score += stew * 4 + had_build * 45;
+            if (hills) score += 250;
+            if (lt & TR_AMBITIOUS) score += 300;              /* build big, and soon */
+            break;
+        /* the pen: a lord who talks, and a realm with coin */
+        case TECH_WRITING: case TECH_LAW: case TECH_CURRENCY:
+        case TECH_BANKING: case TECH_PRINTING: case TECH_UNIVERSITY:
+            score += diplo * 4 + had_talk * 45;
+            if (rich) score += 300;
+            if (lt & TR_LOYAL) score += 150;
+            break;
+        /* the keel: a coast, and no iron of its own */
         case TECH_SEAFARING: case TECH_NAVIGATION:
-            if (coastal) score += 600; break;
-        case TECH_CURRENCY: case TECH_BANKING: case TECH_ECONOMICS:
-            if (rich) score += 400; break;
-        case TECH_SANITATION: case TECH_MEDICINE:
-            if (K->exhaustion > 40) score += 500; break;
+            if (coastal) score += 900;
+            if (!ore) score += 350;                           /* buy what you cannot dig */
+            break;
+        case TECH_AGRICULTURE: case TECH_POTTERY:
+            score += 200; break;                              /* everybody eats */
+        case TECH_MATHS: case TECH_ECONOMICS:
+            score += diplo * 3 + (rich ? 250 : 0); break;
+        case TECH_SANITATION: case TECH_MEDICINE: case TECH_CHEMISTRY:
+            if (K->exhaustion > 40) score += 500;
+            score += (100 - (CAP ? CAP->happy : 0)) * 2;      /* a wretched realm wants doctors */
+            break;
+        case TECH_WHEEL:
+            score += 150 + (wood ? 150 : 0); break;
         /* AND THE BOMB IS ALWAYS WANTED once it is in reach, which is the whole point of
          * putting it at the end of the tree rather than behind a die roll. */
-        case TECH_FISSION: case TECH_ROCKETRY: case TECH_NUKE:
+        case TECH_PHYSICS: case TECH_FISSION: case TECH_ROCKETRY: case TECH_NUKE:
             score += 900; break;
+        case TECH_FLIGHT: case TECH_RADIO:
+            score += 300 + war * 2; break;
         default: break;
         }
         /* a little per-kingdom bias, so two crowns in identical circumstances still differ */
@@ -663,7 +773,9 @@ static void research_step(int v)
      * a year-150 town) but the cause was here. */
     gain += mb_civ_count(v, O_LIBRARY) * 2;
     gain += mb_civ_count(v, O_COLLEGE) * 4;
-    gain += mb_civ_count(v, O_POWER)   * 6;
+    /* FISSION doubles what a power station is worth — the tech that split the atom did
+     * nothing but gate the bomb, and a reactor is the obvious thing for it to change. */
+    gain += mb_civ_count(v, O_POWER) * (mb_tech_known(mb_v[v].kingdom, TECH_FISSION) ? 12 : 6);
     if (V->gold > 20) gain += 1;                    /* and the means to pay for it */
     if (V->creed == K->creed && V->creed) gain += 1;
     /* THE TREE PAYS FOR ITSELF. Without these a thirty-six tech ladder costing twenty
@@ -1061,6 +1173,17 @@ static int plan_open(int v, int x, int y)
  * A quay wants a shore cell with real water off it — two cells of it, so a puddle in a
  * meadow is not a harbour — and it does NOT require frontage: a coast with no street on it is
  * exactly where a dock belongs, and requiring a road there means a town never builds one. */
+/* What a quantity of timber or stone actually costs this town: architecture takes a quarter
+ * off. One function so the affordability test and the payment can never disagree, which is the
+ * classic way a build becomes free or impossible. */
+static int mb_civ_arch_cost(int v, int amount)
+{
+    if (!amount) return 0;
+    if (!mb_civ_tech_ok(v, TECH_ARCHITECTURE)) return amount;
+    int c = amount - amount / 4;
+    return c < 1 ? 1 : c;
+}
+
 static int quay_site(int v, int *ox, int *oy)
 {
     Village *V = &mb_v[v];
@@ -1341,7 +1464,12 @@ static void lord_think(int v)
         /* Affordable now, or within a stewardship-flavoured stretch: a good steward
          * will start something it is close to paying for, a poor one will not. */
         int slack = V->lord_stew / 12;
-        if (V->wood + slack < B->wood || V->stone + slack < B->stone
+        /* ARCHITECTURE takes a quarter off the timber and stone of everything, which is the
+         * plainest thing "we now know how to build" can mean — and it was another of the nine
+         * technologies that unlocked nothing whatever. It makes the great hall and the castle
+         * reachable a generation earlier, which is where it shows. */
+        int aw = mb_civ_arch_cost(v, B->wood), as = mb_civ_arch_cost(v, B->stone);
+        if (V->wood + slack < aw || V->stone + slack < as
             || V->iron + slack < B->iron || V->gold + slack < B->gold) continue;
         want = want_list[i];
         break;
@@ -2138,7 +2266,8 @@ static void try_build(int v)
     }
     V->plan_wait = 0;
     if (ws_find(v, V->plan_x, V->plan_y) >= 0) return;      /* already paid for and waiting */
-    V->wood -= B->wood; V->stone -= B->stone; V->iron -= B->iron; V->gold -= B->gold;
+    V->wood -= mb_civ_arch_cost(v, B->wood); V->stone -= mb_civ_arch_cost(v, B->stone);
+    V->iron -= B->iron; V->gold -= B->gold;
     /* PAID FOR IS NOT BUILT. The materials are on site and the blueprint ghost stays up; the
      * building itself appears when a builder walks over and raises it. Until then the town
      * cannot plan anything else, which is the right behaviour anyway: a settlement finishes
@@ -2374,7 +2503,10 @@ static void village_expedition(int v)
      * surf. */
     int by_sea = mb_sea_between(V->x, V->y, lx, ly);
     if (by_sea) {
-        if (!mb_civ_can_sail(v)) return;
+        /* FLIGHT crosses water without a quay: a kingdom that can fly does not need a harbour
+         * to reach the far shore, which is the other half of what an aeroplane is for. */
+        if (mb_civ_tech_ok(v, TECH_FLIGHT)) by_sea = 0;
+        else if (!mb_civ_can_sail(v)) return;
         /* and the ship aims at the seam ITSELF: it puts in at the coast nearest it (the
          * landfall rule in mb_unit.c) and the party walks the last few cells. */
     }
@@ -2730,12 +2862,31 @@ void mb_village_work(int v, int ui)
          * one world tick with the farmers as bystanders. A farmer now finds either bare
          * ground, and sows it, or a ripe crop, and carries it in. */
         else if (b == B_FARM) {
-            if (*o == O_RIPE)      { *o = O_NONE; u->carry = 24; u->carry_kind = CARRY_FOOD; }
+            /* AGRICULTURE, which until now unlocked nothing at all: a reaped field is worth
+             * half again as much to a kingdom that knows how to farm it. */
+            if (*o == O_RIPE)      { *o = O_NONE; u->carry_kind = CARRY_FOOD;
+                                     u->carry = (uint8_t)(mb_tech_known(V->kingdom,
+                                                          TECH_AGRICULTURE) ? 36 : 24); }
             else if (*o == O_NONE) { *o = O_SOWN; u->happy += 1;
                                      u->target = 0xFFFF; return; }   /* sown, and home empty-handed */
             else { u->target = 0xFFFF; u->job = JOB_IDLE; return; }
         }
         else { u->target = 0xFFFF; u->job = JOB_IDLE; return; }
+        /* WHAT THE AGE ADDS TO A PAIR OF HANDS.
+         *
+         * THE WHEEL and IRONWORK were two of nine technologies that unlocked NOTHING — they
+         * cost a kingdom hundreds of research and existed only as prerequisites for the next
+         * rung, which is a strange thing for a game to charge for. A cart carries half again
+         * as much of anything; iron tools cut and quarry half again as much wood and stone.
+         * Both are visible where it matters, in the stores on the town page. */
+        if (u->carry) {
+            int kt = V->kingdom, add = 0;
+            if (mb_tech_known(kt, TECH_WHEEL)) add += u->carry / 2;
+            if ((u->carry_kind == CARRY_WOOD || u->carry_kind == CARRY_STONE)
+                && mb_tech_known(kt, TECH_IRON)) add += u->carry / 2;
+            int c2 = (int)u->carry + add;
+            u->carry = (uint8_t)(c2 > 200 ? 200 : c2);
+        }
         u->target = 0xFFFF;
         return;
     }
@@ -2977,8 +3128,12 @@ static void tower_step(int v)
                 if (!uk || uk == myk || !mb_at_war(myk, uk)) continue;
                 int ux = u->x >> 4, uy = u->y >> 4;
                 int ex = ux - tx, ey = uy - ty;
-                if (ex * ex + ey * ey > 16) continue;
-                u->hp = (int8_t)(u->hp > 9 ? u->hp - 9 : 0);
+                /* PHYSICS lengthens the shot and hardens it: reach five cells instead of
+                 * four and twelve damage instead of nine. It was a pure prerequisite too. */
+                int phys = mb_tech_known(myk, TECH_PHYSICS);
+                if (ex * ex + ey * ey > (phys ? 25 : 16)) continue;
+                int dmg = phys ? 12 : 9;
+                u->hp = (int8_t)(u->hp > dmg ? u->hp - dmg : 0);
                 u->happy -= 4;
                 mb_fx_shot((float)tx + 0.5f, (float)ty + 0.5f,
                            (float)ux + 0.5f, (float)uy + 0.5f, MB_SHOT_ARROW);
@@ -3257,7 +3412,11 @@ static void loyalty_step(int v)
      * the whole reason big kingdoms fracture without the player touching them. */
     int target = 40 - dist - V->exhaustion * 3 + V->happy / 4
                + (V->lord_diplo >> 2) + ((V->lord_traits & TR_LOYAL) ? 25 : 0)
-               - ((V->lord_traits & TR_AMBITIOUS) ? 45 : 0);
+               - ((V->lord_traits & TR_AMBITIOUS) ? 45 : 0)
+               /* THE LAW, which is what it is FOR. Another of the nine that did nothing: a
+                * kingdom with courts holds its distant towns about eighteen points better,
+                * which is roughly six tiles of extra reach before the edges start to shed. */
+               + (mb_tech_known(V->kingdom, TECH_LAW) ? 18 : 0);
     if (K->capital == v) target += 60;               /* the capital is loyal to itself */
     V->loyalty += (int8_t)((target > V->loyalty) ? 1 : (target < V->loyalty ? -1 : 0));
 
