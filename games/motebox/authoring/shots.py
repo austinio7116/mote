@@ -64,6 +64,12 @@ SHOTS = {
     # FIVE DOWNS is where the crowned line sits in this world at this frame — the list is
     # people first and the lord is one of them, so the count is part of the recipe. One down
     # got a dwarf farmer's page, which is the same screen about nobody in particular.
+    # THE GIFT LIST, scrolled down far enough to show UNDYING at the bottom of it. SANDBOX
+    # makes casting free so the Faith column is not all red.
+    "gifts":    (dict(SEED="3", YEARS="220", MORTAL="1", CAM="v", NOFOLLOW="1", SANDBOX="1"),
+                 "b:200-202 a:220-222 a:250-252 down:270-272 down:280-282 down:290-292 "
+                 "down:300-302 down:310-312 down:320-322 down:330-332", 350, 3,
+                 "motebox-g-gifts.png"),
     # THE TOWN PAGE, which is where the five stores are: B for the list, A for a person, RB to
     # page out to their town.
     "townscr":  (dict(SEED="3", YEARS="220", MORTAL="1", CAM="v", NOFOLLOW="1"),
