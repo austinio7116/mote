@@ -651,6 +651,59 @@ def build_stores():
     print("[stores]  " + ", ".join("%s=%d,%d" % s for s in STORES))
 
 
+# ONE ICON PER TECHNOLOGY, chosen cell by cell out of the master sheet with
+# authoring/icon_picker.py — a page of every inked cell with the thirty-five rungs down the
+# side. Guessing coordinates off a catalogue produced a set that was mostly wrong (a dog for
+# cavalry, a bow for fission), which is what the picker exists to prevent.
+#
+# In TECH_* enum order, so the sheet's column IS the tech id and the C side needs no table.
+TECH_ICON = [
+    (20,  6),   # tools           a hammer
+    (21,  6),   # agriculture     a hoe
+    (23,  6),   # pottery         a clay pot
+    (11, 25),   # masonry         dressed stone
+    (24, 22),   # bronze          a bronze disc
+    (62, 46),   # the wheel       a wheel
+    (24,  0),   # writing         a scroll
+    (18, 30),   # ironwork        a blade
+    (22,  6),   # seafaring       a mast
+    (13,  5),   # architecture    a cut block
+    (17, 16),   # currency        coins
+    (21, 35),   # engineering     — as picked
+    (56, 19),   # mathematics     a bar chart
+    (28,  6),   # cavalry         a horn
+    (23, 23),   # law             a shield
+    (24,  1),   # gunpowder       a bomb
+    (24,  5),   # navigation      an instrument
+    (17, 15),   # banking         a note
+    (10,  8),   # the university  a bookshelf
+    (19,  5),   # printing        a press
+    (24, 30),   # metallurgy      a hammer
+    (61, 46),   # sanitation      a drain
+    (19, 15),   # economics       a ledger mark
+    (61, 39),   # steam           a plume
+    ( 1,  8),   # the railway     — as picked
+    (17,  0),   # chemistry       a flask
+    (51, 27),   # electricity     a bolt
+    (58, 27),   # combustion      fire
+    (30, 29),   # flight          — as picked
+    (30,  5),   # radio           a signal
+    (22,  0),   # medicine        a green cross
+    (21,  5),   # physics         an atom
+    (62, 38),   # fission         a cloud
+    (26,  0),   # rocketry        a rocket
+    (25,  1),   # the bomb        a bomb
+]
+
+
+def build_tech():
+    """The tech icons, one row of 8x8 cells in TECH_* order."""
+    sheet = Image.new("RGBA", (TS * len(TECH_ICON), TS), (0, 0, 0, 0))
+    for i, (c, r) in enumerate(TECH_ICON):
+        sheet.paste(cell(c, r), (i * TS, 0))
+    save_sheet("tech", sheet)
+
+
 def build_ships():
     """The vessels — their own 8x8 sheet, because a ship is drawn where a person is."""
     import build_sprites
@@ -871,6 +924,7 @@ def main():
     build_roads()
     build_rocks()
     build_stores()
+    build_tech()
     build_ships()
     build_town()
     build_bands()

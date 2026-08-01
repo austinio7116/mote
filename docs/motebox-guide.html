@@ -64,6 +64,11 @@
   .card h3{margin-top:0}
   .shot{border:1px solid var(--line);border-radius:8px;display:block;width:100%}
   .shotcap{color:var(--dim);font-size:.82rem;text-align:center;margin-top:6px}
+  /* the generated tree diagrams: their own background, so they sit as plates rather than
+     floating on the page, and never wider than the column */
+  .diagram{display:block;width:100%;max-width:660px;margin:14px auto;border:1px solid var(--line);
+    border-radius:10px;background:#0d1018}
+  .diagram.wide{max-width:100%}
 
   /* tables */
   .tw{overflow-x:auto;margin:6px 0 4px;-webkit-overflow-scrolling:touch}
@@ -477,12 +482,21 @@
 
 <section id="tech">
   <h2>Tech tree</h2>
-  <p class="lede">35 technologies across nine eras, two prerequisites each, four to an era — and
-  which branch a kingdom takes is decided by its lord and its land.</p>
+  <p class="lede">35 technologies, each needing two others before it, arranged in eleven layers —
+  and which way through them a kingdom goes is decided by its lord and its land.</p>
   <p>Kingdoms earn research from their people, their temples, libraries and colleges, and their
   trade. What a kingdom knows decides what its towns can build, what its soldiers throw, how far
   they can throw it, what its roads are made of and how much a pair of hands brings home — so you
   can usually tell a kingdom's era, and its character, by looking at one of its towns.</p>
+
+  <h3>The whole tree</h3>
+  <p>A rung needs <b>both</b> of the rungs that feed it, and sits one layer below the deeper of
+  the two — so the layers are not eras, they are how far down the dependencies you are. The nine
+  eras are a colour here: a kingdom's era is simply the latest one it has reached anything in.</p>
+  <img class="diagram" src="img/gallery/motebox-tech-tree.svg"
+       alt="The 35 technologies as a tree of 11 layers, linked by their prerequisites">
+  <div class="shotcap">Where one line crosses another it breaks either side of it. A break is a
+  crossing; a corner is a join. The game draws it the same way, from the same layout.</div>
 
   <h3>Which way a kingdom goes</h3>
   <p>The lord in the capital chooses the branch. A <b>builder</b> reaches for masonry,
@@ -495,6 +509,31 @@
   long-lived one eventually learns nearly everything; the interesting part is the order, and what
   it means in the meantime.</p>
 
+  <img class="diagram wide" src="img/gallery/motebox-tech-roads.svg"
+       alt="The same tree three times, with a different route lit in each">
+  <div class="shotcap">Three lords in the same tree. Each road is only seven or eight rungs of
+  thirty-five — which is as far as most kingdoms get in their first two centuries.</div>
+
+  <h3>Reading it on the handheld</h3>
+  <p>Press <b>B</b> on one of your own towns, open <b>THE KINGDOM</b>, and press <b>A</b> on
+  <b>RESEARCH</b>. The same tree scrolls in the same layout: the D-pad moves between rungs, the
+  links of the rung you are on light up, and the two lines at the bottom name it and say where it
+  stands — <i>known</i>, the price in research if it is in reach, or which prerequisite is
+  missing if it is not. A prerequisite too long for the line scrolls past rather than being cut
+  off. The frame around each icon is its era colour; a rung the kingdom cannot reach yet is dimmed
+  into the background, and the one it is working towards has a pale ring.</p>
+  <div class="grid g2">
+    <div><img class="shot" src="img/gallery/motebox-g-tech.png" alt="The tech tree screen">
+      <div class="shotcap">Mathematics, known — its links to the rungs it opens lit in gold</div></div>
+    <div><img class="shot" src="img/gallery/motebox-g-techdeep.png" alt="Deeper in the tree">
+      <div class="shotcap">Further down: electricity, out of reach until this kingdom has
+      steam</div></div>
+  </div>
+
+  <h3>What each rung gives you</h3>
+  <p>Grouped by era, because that is how a kingdom's towns change: what it knows decides what it
+  can build, what its soldiers throw and how far, what its roads are made of, and how much a pair
+  of hands brings home.</p>
   <div class="tiers">
     <div class="tier"><h4>Stone → Bronze</h4><ul>
       <li><b>tools</b> — stone hall, mine, woodcutter</li>

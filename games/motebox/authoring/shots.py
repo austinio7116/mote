@@ -78,6 +78,13 @@ SHOTS = {
                  "", 40, 3, "motebox-g-townscr.png"),
     "lord":     (dict(SEED="3", YEARS="220", MORTAL="1", CAM="v", NOFOLLOW="1", PAGE="lord"),
                  "", 40, 3, "motebox-g-lord.png"),
+    # THE TECH TREE, twice: a rung in reach and a rung out of reach, because the two states are
+    # what the screen is for. MOTEBOX_TTROW parks the cursor on a layer, so the shot does not
+    # depend on how far the goal of this particular kingdom happens to be from the top.
+    "tech":     (dict(SEED="39595", SEEDN="5", YEARS="180", MORTAL="1", CAM="v", NOFOLLOW="1",
+                      PAGE="tech", TTROW="3"), "", 40, 3, "motebox-g-tech.png"),
+    "techdeep": (dict(SEED="39595", SEEDN="5", YEARS="180", MORTAL="1", CAM="v", NOFOLLOW="1",
+                      PAGE="tech", TTROW="7"), "", 40, 3, "motebox-g-techdeep.png"),
     # THE SIX PAGES OF POWERS. One shot each, because the wheel is a third of what the god
     # actually does and the guide had a single picture of one page of it. RB turns the page.
     "powers":   (dict(SEED="7", YEARS="40"), "lb:300-302", 330, 3, "motebox-g-powers.png"),

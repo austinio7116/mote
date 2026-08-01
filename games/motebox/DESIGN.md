@@ -964,27 +964,38 @@ graph LR
   TTools --> TTheWheel
   TPottery --> TWriting
   TBronze --> TIronwork
+  TTheWheel --> TSeafaring
   TPottery --> TSeafaring
   TMasonry --> TArchitecture
   TWriting --> TCurrency
   TArchitecture --> TEngineering
+  TIronwork --> TEngineering
   TWriting --> TMathematics
   TCurrency --> TMathematics
+  TIronwork --> TCavalry
+  TTheWheel --> TCavalry
   TWriting --> TLaw
   TAgriculture --> TLaw
+  TIronwork --> TGunpowder
+  TMathematics --> TGunpowder
   TSeafaring --> TNavigation
+  TMathematics --> TNavigation
   TCurrency --> TBanking
   TLaw --> TBanking
+  TMathematics --> TTheUniversity
   TLaw --> TTheUniversity
   TTheUniversity --> TPrinting
   TWriting --> TPrinting
   TGunpowder --> TMetallurgy
+  TEngineering --> TMetallurgy
   TTheUniversity --> TSanitation
+  TEngineering --> TSanitation
   TBanking --> TEconomics
   TTheUniversity --> TEconomics
   TMetallurgy --> TSteam
   TEconomics --> TSteam
   TSteam --> TTheRailway
+  TEngineering --> TTheRailway
   TSanitation --> TChemistry
   TMetallurgy --> TChemistry
   TSteam --> TElectricity
@@ -998,6 +1009,7 @@ graph LR
   TSanitation --> TMedicine
   TChemistry --> TMedicine
   TElectricity --> TPhysics
+  TMathematics --> TPhysics
   TPhysics --> TFission
   TChemistry --> TFission
   TFlight --> TRocketry

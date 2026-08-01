@@ -32,6 +32,7 @@
 #include "ui_gauges.h"
 #include "treasure_ore.h"   /* the metals, and the shields: see mb_ui_icon_ore */
 #include "stores.h"         /* the five town stores, one row: see mb_ui_icon_store */
+#include "tech.h"           /* one icon per technology, in TECH_* order */
 #include "rogue8.font.h"
 
 /* --- the CP437 pieces ---------------------------------------------------- */
@@ -275,6 +276,15 @@ void mb_ui_icon_store(uint16_t *fb, int x, int y, int which)
 {
     if (which < 0 || which > 4) return;
     g_api->blit(fb, &stores_img, x, y, which * 8, 0, 8, 8, 0, 0, 128);
+}
+
+/* ONE TECHNOLOGY'S ICON, by tech id minus TECH_TOOLS. Chosen cell by cell out of the master
+ * sheet with authoring/icon_picker.py and baked into a single row, so the sheet column IS the
+ * tech and there is no table here to drift. */
+void mb_ui_icon_tech(uint16_t *fb, int x, int y, int which)
+{
+    if (which < 0 || which >= 35) return;
+    g_api->blit(fb, &tech_img, x, y, which * 8, 0, 8, 8, 0, 0, 128);
 }
 
 /* One 8x8 cell from the ORE atlas — the metals and the heraldry. A town's stores are metals

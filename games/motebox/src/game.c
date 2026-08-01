@@ -244,9 +244,13 @@ static void hud_marquee(uint16_t *fb, const char *s, int x, int y, int maxw,
 #define HC_VIEW_X  108
 #define HC_VIEW_W   19
 #define HC_INFO_X    1
-#define HC_INFO_W   88
-#define HC_FAITH_X  92
-#define HC_FAITH_W  35
+#define HC_INFO_W   82
+/* FOUR DIGITS. The ceiling is 6000 (mb_faith_cap), "9999" measures 36 px in rogue8, and this
+ * slot was 35 — so hud_text, which cuts a string until it fits, has been showing a thousand
+ * Faith as "100" and six thousand as "600". A dropped leading digit is worse than an overflow,
+ * because it looks like a real number. 41 px holds the widest four digits with room. */
+#define HC_FAITH_X  86
+#define HC_FAITH_W  41
 
 /* --- helpers ----------------------------------------------------------- */
 
@@ -636,7 +640,7 @@ static void view_set(int god)
  *  The journey is WHO IS HERE -> the subject -> what a god can do about it.
  * ===================================================================== */
 
-enum { UI_NONE = 0, UI_PICK, UI_SOUL, UI_SHAPE, UI_LORD, UI_TOWN, UI_KING, UI_LAND, UI_WORLD,
+enum { UI_NONE = 0, UI_PICK, UI_SOUL, UI_SHAPE, UI_LORD, UI_TOWN, UI_KING, UI_TECH, UI_LAND, UI_WORLD,
        /* AND THE THREE THAT USED TO BE BLOCKING MENUS. The last of the mote->menu() calls: the
         * god menu itself, the chronicle, and the world laws. They are ordinary views now, which
         * is what hands the MENU button's three-second hold back to the engine's own menu — it
@@ -1247,10 +1251,284 @@ static void ui_draw_king(uint16_t *fb)
       }
       if (!n) mb_ui_text(fb, 7, 99, "at peace", MB_UI_OK, 112); }
     if (mb_tech_known(k, TECH_NUKE)) mb_ui_text_r(fb, 120, 90, "THE BOMB", MB_UI_RED);
-    mb_ui_actions(fb, "RB NEXT", "B<", FILL);
+    /* 84 px exactly, measured. "A TECH TREE" is 87 and would lose its E — and this page
+     * already calls the section RESEARCH, so the button and the heading agree. */
+    mb_ui_actions(fb, "A RESEARCH", "B<", FILL);
 }
 
-/* ------------------------------------------------------------------ THE WORLD */
+/* --------------------------------------------------------------- THE TECH TREE
+ *
+ * "35 technologies" and a progress bar is not a tree, and the guide's four columns of bullets
+ * were not one either: the shape — which rung leads to which, and which branch this kingdom is
+ * on — is the whole content, and none of it was anywhere in the game.
+ *
+ * Nine eras down, four rungs across, and a LINE between every rung and the two it grew out of.
+ * A cell is one of four things and its colour says which: known, available now, out of reach,
+ * or the one being worked on. The d-pad walks it and the two lines under the grid name whatever
+ * the cursor is on and say what it still needs — which is the only way thirty-five names fit on
+ * a screen this size.
+ */
+/* --------------------------------------------------------------- THE TECH TREE
+ *
+ * Laid out by DEPENDENCY DEPTH, not by era: a rung sits one row below its deepest
+ * prerequisite. The era grid was the thing making this unreadable — nine rows of four forced
+ * links to reach back two generations and to run sideways inside a row, and no amount of
+ * routing rescued it (measured: fifteen crossings and twenty-nine lines passing over a rung at
+ * the best possible column order). By depth it is eleven layers, widest five, and every link
+ * is a step downward. Eras survive as the COLOUR of a rung, which is where they belong.
+ *
+ * The layout — which layer, which column — is baked by authoring/techtree.py, because getting
+ * the column order right needs crossing minimisation and that is not work for a handheld at
+ * boot. Eleven layers do not fit in a hundred and twenty pixels, so the grid scrolls and keeps
+ * the cursor in view.
+ *
+ * Crossings must read as crossings. Every connector is drawn twice — once in the panel colour,
+ * three pixels wide, then the line itself — so whichever line is drawn later breaks the one
+ * beneath it. Without that, two lines meeting at a point read as a junction that does not
+ * exist, which is exactly what the first version did.
+ */
+#include "tech_layout.h"
+
+#define TT_VIS   6                              /* layers on screen at once */
+#define TT_PITCH 14                             /* a layer, in pixels */
+#define TT_XP    22                             /* a column, in pixels */
+#define TT_Y0    17
+/* THE SCROLL WINDOW, and the vertical budget that has to fit inside it. The title owns 4..11
+ * and the two label rows own 100..116, so the tree gets 13..97 and nothing may draw outside
+ * that. Every number below is checked against it: a row is drawn at y, its era frame at y-1,
+ * and the cursor ring at y-2 for twelve pixels, so the first row can be no higher than 15 and
+ * the sixth no lower than 88. At pitch 14 from 17 the rows land on 17..87, the ring on the last
+ * one ends at 96, and the two connector shelves above the first row (y-3 and y-4) land on 14
+ * and 13 — inside, so a link from off the top still shows where it enters. */
+#define TT_VY0   13
+#define TT_VY1   97
+
+static int8_t s_tt_at[TT_LAYERS][TT_WIDE];      /* layer,col -> tech id, -1 empty */
+static int    s_tt_built, s_tt_top;
+static int    s_tt_cr, s_tt_cc;                 /* the cursor, as layer and column */
+
+static void tt_build(void)
+{
+    if (s_tt_built) return;
+    s_tt_built = 1;
+    for (int r = 0; r < TT_LAYERS; r++)
+        for (int c = 0; c < TT_WIDE; c++) s_tt_at[r][c] = -1;
+    for (int t = TECH_TOOLS; t < TECH_N; t++)
+        s_tt_at[TT_LAYER[t]][TT_COL[t]] = (int8_t)t;
+}
+
+/* CENTRED ON EACH ROW. The layers are three, four, five, four, three, four, two, four, three,
+ * two and one wide, and left-aligning them made the tree look like a ragged list — centred, it
+ * reads as one thing that narrows towards the bomb, which is what it is. */
+static int tt_x(int layer, int col)
+{
+    int n = TT_ROWN[layer];
+    int span = n * TT_XP - (TT_XP - 8);
+    return 64 - span / 2 + col * TT_XP;
+}
+static int tt_y(int r) { return TT_Y0 + (r - s_tt_top) * TT_PITCH; }
+
+/* A LINK, AS SEGMENTS. Every connector is the same three pieces — down out of the parent, along
+ * a shelf, down into the child — and holding them as data rather than drawing them as they are
+ * computed is what lets a crossing be given a gap: a line cannot hop over something that has
+ * not been worked out yet. */
+#define TT_LMAX ((TECH_N - TECH_TOOLS) * 2)
+typedef struct { int16_t x0, y0, ym, x1, y1; uint8_t hi; } TtLink;
+
+/* CLIPPED TO THE WINDOW. There is no clip rectangle in the draw API, so the segments clip
+ * themselves: a connector that leaves the scrolling area is cut at the edge rather than drawn
+ * across the title or over the label underneath. */
+static void tt_hseg(uint16_t *fb, int xa, int xb, int y, uint16_t c)
+{
+    if (y < TT_VY0 || y > TT_VY1) return;
+    if (xa > xb) { int t = xa; xa = xb; xb = t; }
+    g_api->draw_line(fb, xa, y, xb, y, c, 0, 128);
+}
+
+/* A CROSSING IS NOT A JUNCTION, so the vertical HOPS: where it passes a shelf that is not part
+ * of its own route it stops a pixel short, skips the shelf, and carries on a pixel beyond — a
+ * single dark pixel either side of the line being crossed, which is how a schematic has always
+ * said "these two do not meet".
+ *
+ * The test for "not part of its own route" is geometric rather than bookkeeping: a shelf that
+ * BEGINS or ENDS at this x is joined to this line (it is the same link, or a sibling leaving the
+ * same parent, or another parent arriving at the same child) and must stay solid, and a shelf
+ * level with either end of the vertical is a corner, not a crossing. Everything else is drawn
+ * over and gets a gap. Filled once per vertical into a short sorted list, because a connector
+ * crosses at most a handful of shelves and walking the span pixel by pixel against every shelf
+ * on screen would be half a million tests a frame on the device. */
+static void tt_vhop(uint16_t *fb, int x, int ya, int yb, uint16_t c,
+                    const TtLink *L, int nl)
+{
+    if (ya > yb) { int t = ya; ya = yb; yb = t; }
+    if (yb < TT_VY0 || ya > TT_VY1) return;
+    /* the TRUE span decides what is crossed; the clipped one decides what is drawn. Testing the
+     * clipped span made a link entering the row below the window end exactly on the shelf it was
+     * crossing, so it counted as a corner and drew through: four dim pixels punched into a gold
+     * shelf, which read as gaps in the shelf rather than a hop in the line. */
+    int ra = ya, rb = yb;
+    if (ya < TT_VY0) ya = TT_VY0;
+    if (yb > TT_VY1) yb = TT_VY1;
+
+    int br[12], nb = 0;
+    for (int j = 0; j < nl && nb < 12; j++) {
+        int hy = L[j].ym, xa = L[j].x0, xb = L[j].x1;
+        if (xa > xb) { int t = xa; xa = xb; xb = t; }
+        if (hy <= ra || hy >= rb) continue;      /* level with an end: a corner */
+        if (hy < ya || hy > yb) continue;        /* clipped away: nothing to break */
+        if (x <= xa || x >= xb) continue;        /* meets an end: a junction */
+        int at = nb;                             /* keep the list sorted, and unique */
+        while (at > 0 && br[at - 1] > hy) at--;
+        if (at > 0 && br[at - 1] == hy) continue;
+        for (int m = nb; m > at; m--) br[m] = br[m - 1];
+        br[at] = hy; nb++;
+    }
+    int cur = ya;
+    for (int j = 0; j < nb; j++) {
+        if (br[j] - 2 >= cur) g_api->draw_line(fb, x, cur, x, br[j] - 2, c, 0, 128);
+        cur = br[j] + 2;
+    }
+    if (yb >= cur) g_api->draw_line(fb, x, cur, x, yb, c, 0, 128);
+}
+
+/* the era's colour, which is all the era means on this screen */
+static uint16_t tt_era_col(int t)
+{
+    switch (MB_TECH[t].era) {
+    case ERA_STONE:       return MOTE_RGB565(122, 132, 150);
+    case ERA_BRONZE:      return MOTE_RGB565(150, 138,  90);
+    case ERA_IRON:        return MOTE_RGB565(126, 126, 140);
+    case ERA_CLASSICAL:   return MOTE_RGB565( 98, 150, 116);
+    case ERA_MEDIEVAL:    return MOTE_RGB565(116, 122, 168);
+    case ERA_RENAISSANCE: return MOTE_RGB565(142, 118, 158);
+    case ERA_INDUSTRIAL:  return MOTE_RGB565(146, 116,  96);
+    case ERA_MODERN:      return MOTE_RGB565( 96, 142, 164);
+    default:              return MOTE_RGB565(166, 108, 108);
+    }
+}
+
+static void ui_draw_tech(uint16_t *fb)
+{
+    const uint16_t FILL = MOTE_RGB565(14, 18, 32);
+    const uint16_t DIM  = MOTE_RGB565(46, 52, 74);
+    mb_ui_panel(fb, 0, 0, 128, 128, MB_UI_SKY, FILL, 0);   /* no hatch: this is a diagram */
+    tt_build();
+    int k = (s_subject_v > 0 && s_subject_v < MAXV && mb_v[s_subject_v].alive)
+          ? mb_v[s_subject_v].kingdom : 0;
+    if (s_tt_cr < s_tt_top) s_tt_top = s_tt_cr;
+    if (s_tt_cr > s_tt_top + TT_VIS - 1) s_tt_top = s_tt_cr - TT_VIS + 1;
+    if (s_tt_top > TT_LAYERS - TT_VIS) s_tt_top = TT_LAYERS - TT_VIS;
+    if (s_tt_top < 0) s_tt_top = 0;
+
+    mb_ui_text(fb, 7, 4, "TECH TREE", MB_UI_CREAM, 80);
+    mb_ui_text_r(fb, 121, 4, "B<", MB_UI_DIM);
+    int sel = s_tt_at[s_tt_cr][s_tt_cc];
+
+    /* THE CONNECTORS. Shelves first, then the verticals hopping over them, so that a crossing
+     * shows as a break and a junction shows as a join. The selected rung's links go last and in
+     * cream, so they read above the rest of the tree rather than through it. */
+    static TtLink L[TT_LMAX];
+    int nl = 0;
+    for (int t = TECH_TOOLS; t < TECH_N && nl < TT_LMAX; t++)
+        for (int i = 0; i < 2; i++) {
+            int pre = MB_TECH[t].need[i];
+            if (pre <= TECH_NONE || pre >= TECH_N) continue;
+            int r0 = TT_LAYER[pre], r1 = TT_LAYER[t];
+            TtLink *l = &L[nl++];
+            l->x0 = (int16_t)(tt_x(r0, TT_COL[pre]) + 4);
+            l->y0 = (int16_t)(tt_y(r0) + 8);
+            l->x1 = (int16_t)(tt_x(r1, TT_COL[t]) + 4);
+            l->y1 = (int16_t)tt_y(r1);
+            l->ym = (int16_t)(l->y1 - 3 - i);
+            l->hi = (uint8_t)((t == sel || pre == sel) ? (t == sel ? 2 : 1) : 0);
+        }
+    /* the dim tree complete, THEN the selected rung's links complete, so that a dim line can
+     * never overwrite a highlighted one. Drawing every shelf and then every vertical put four
+     * dim pixels through a gold shelf where two links to the same layer shared a shelf level.
+     * The hop list is built from ALL the shelves either way, so a dim vertical still leaves its
+     * gap for a gold shelf that has not been drawn yet. */
+    for (int pass = 0; pass < 2; pass++) {
+        for (int j = 0; j < nl; j++) {
+            if ((L[j].hi != 0) != pass) continue;
+            uint16_t c = L[j].hi == 2 ? MB_UI_CREAM : L[j].hi ? MB_UI_GOLD : DIM;
+            tt_hseg(fb, L[j].x0, L[j].x1, L[j].ym, c);
+        }
+        for (int j = 0; j < nl; j++) {
+            if ((L[j].hi != 0) != pass) continue;
+            uint16_t c = L[j].hi == 2 ? MB_UI_CREAM : L[j].hi ? MB_UI_GOLD : DIM;
+            tt_vhop(fb, L[j].x0, L[j].y0, L[j].ym, c, L, nl);
+            tt_vhop(fb, L[j].x1, L[j].ym, L[j].y1, c, L, nl);
+        }
+    }
+
+    /* THE RUNGS: an icon each, framed in its era's colour. Known is full brightness, in reach is
+     * framed gold, out of reach is dimmed into the background. Only rows that fit whole are
+     * drawn — half an icon at the edge of the window is a smear, not information. */
+    for (int r = s_tt_top; r < s_tt_top + TT_VIS && r < TT_LAYERS; r++) {
+        int y = tt_y(r);
+        if (y - 1 < TT_VY0 || y + 9 > TT_VY1) continue;
+        for (int c = 0; c < TT_WIDE; c++) {
+            int t = s_tt_at[r][c];
+            if (t < 0) continue;
+            int x = tt_x(r, c);
+            int known = k && mb_tech_known(k, t);
+            int avail = k && !known && mb_tech_avail(k, t);
+            mb_ui_icon_tech(fb, x, y, t - TECH_TOOLS);
+            if (!known && !avail) mb_dim_rect(fb, x, y, 8, 8, FILL, 150);
+            uint16_t fc = known ? tt_era_col(t) : avail ? MB_UI_GOLD : DIM;
+            g_api->draw_rect(fb, x - 1, y - 1, 10, 10, fc, 0, 0, 128);
+            if (k && mb_k[k].goal == t)
+                g_api->draw_rect(fb, x - 2, y - 2, 12, 12, MB_UI_CREAM, 0, 0, 128);
+        }
+    }
+    { int x = tt_x(s_tt_cr, s_tt_cc), y = tt_y(s_tt_cr);           /* the cursor */
+      if (y - 2 >= TT_VY0 && y + 10 <= TT_VY1)
+          g_api->draw_rect(fb, x - 2, y - 2, 12, 12, MB_UI_SKY, 0, 0, 128); }
+
+    /* HOW FAR DOWN THE TREE THIS IS. The thumb is sized by what fraction of the tree is on
+     * screen and then moved across the REMAINING track, not across the whole of it: scaling the
+     * position by top/TT_LAYERS left the thumb short of the bottom at full scroll, so the tree
+     * looked as though it had more below it when the cursor was already on the last layer. */
+    { int H = TT_VY1 - TT_VY0 + 1;
+      int h = H * TT_VIS / TT_LAYERS;
+      int mx = TT_LAYERS - TT_VIS;
+      int top = TT_VY0 + (mx > 0 ? (H - h) * s_tt_top / mx : 0);
+      g_api->draw_rect(fb, 124, TT_VY0, 2, H, DIM, 1, 0, 128);
+      g_api->draw_rect(fb, 124, top, 2, h, MB_UI_SKY, 1, 0, 128); }
+
+    /* and what the cursor is on. The second line MARQUEES when it does not fit, because
+     * "needs electricity" is a hundred pixels in a hundred and fourteen and the next one will
+     * not be — a truncated prerequisite is the one word you needed. */
+    if (sel > TECH_NONE) {
+        char buf[44];
+        int known = k && mb_tech_known(k, sel);
+        mb_ui_text(fb, 7, 100, MB_TECH_NAME[sel], known ? MB_UI_OK : MB_UI_CREAM, 114);
+        /* MEASURED, so the marquee is the exception and not the normal state of this line.
+         * "ready: 165 research" was 143 px and "stone era, known" 115, in a 114 px row — both
+         * would have scrolled for no reason. The era is dropped from the four long ones rather
+         * than scrolled, because the frame colour says which era a rung is in anyway; what
+         * cannot be dropped is the name of the prerequisite, so that is what marquees. */
+        if (known) {
+            snprintf(buf, sizeof buf, "known, %s", MB_ERA_NAME[MB_TECH[sel].era]);
+            if (mb_ui_textw(buf) > 114) snprintf(buf, sizeof buf, "known");
+        }
+        else if (k && mb_tech_avail(k, sel)) snprintf(buf, sizeof buf, "%d research",
+                                                      (int)mb_tech_price(sel));
+        else {
+            const char *miss = "-";
+            for (int i = 0; i < 2; i++) {
+                int pre = MB_TECH[sel].need[i];
+                if (pre > TECH_NONE && pre < TECH_N && !(k && mb_tech_known(k, pre))) {
+                    miss = MB_TECH_NAME[pre]; break;
+                }
+            }
+            snprintf(buf, sizeof buf, "needs %s", miss);
+        }
+        mb_ui_text(fb, 7, 109, buf + mb_ui_marquee(buf, 114, s_dt), MB_UI_DIM, 114);
+    }
+}
+
+/* ------------------------------------------------------------------ THE WORLD *//* ------------------------------------------------------------------ THE WORLD *//* ------------------------------------------------------------------ THE WORLD *//* ------------------------------------------------------------------ THE WORLD */
 static void ui_draw_world(uint16_t *fb)
 {
     const uint16_t FILL = MOTE_RGB565(16, 22, 42);
@@ -1476,7 +1754,7 @@ static void ui_draw_god(uint16_t *fb)
     if (s_ui_note_t > 0.0f) mb_ui_text(fb, 7, 103, s_ui_note, MB_UI_OK, 114);
     else {
         snprintf(buf, sizeof buf, "%d faith", mb_faith());
-        mb_ui_text(fb, 7, 103, buf, MB_UI_SKY, 70);
+        mb_ui_text(fb, 7, 103, buf, MB_UI_SKY, 80);   /* "6000 faith" is 77 px */
     }
     /* what A does depends on the row, which is the whole reason the footer is a function */
     { static const char *const ACT[GM_N] = { "A OPEN", "A OPEN", "A OPEN", "A CYCLE",
@@ -1961,7 +2239,26 @@ static void g_init(void)
             s_ui_row = 0;
             s_ui = !strcmp(pg, "lord")  ? UI_LORD  : !strcmp(pg, "town") ? UI_TOWN
                  : !strcmp(pg, "king")  ? UI_KING  : !strcmp(pg, "world") ? UI_WORLD
-                 : !strcmp(pg, "land")  ? UI_LAND  : UI_PICK;
+                 : !strcmp(pg, "land")  ? UI_LAND  : !strcmp(pg, "tech") ? UI_TECH
+                 : UI_PICK;
+            if (s_ui == UI_TECH) {                 /* start the cursor on the current goal */
+                tt_build();
+                int kk = mb_v[best].alive ? mb_v[best].kingdom : 0;
+                int g = (kk && mb_k[kk].goal > TECH_NONE && mb_k[kk].goal < TECH_N)
+                      ? mb_k[kk].goal : TECH_TOOLS;
+                s_tt_cr = TT_LAYER[g]; s_tt_cc = TT_COL[g];
+                /* MOTEBOX_TTROW=n parks the cursor on layer n, which is the only way to shoot
+                 * the top, middle and bottom of a scrolling window without guessing how many
+                 * DOWN presses the goal happens to be from each. */
+                const char *tr = getenv("MOTEBOX_TTROW");
+                if (tr && *tr) {
+                    int r = atoi(tr);
+                    if (r < 0) r = 0;
+                    if (r > TT_LAYERS - 1) r = TT_LAYERS - 1;
+                    s_tt_cr = r; s_tt_cc = 0;
+                    while (s_tt_cc < TT_WIDE - 1 && s_tt_at[r][s_tt_cc] < 0) s_tt_cc++;
+                }
+            }
             { int nv = 0; for (int v = 1; v < MAXV; v++) if (mb_v[v].alive) nv++;
               fprintf(stderr, "page: %s on village %d (%d alive, cursor %d,%d)\n",
                       pg, best, nv, s_cx, s_cy); }
@@ -2980,6 +3277,9 @@ static void g_update(float dt)
     if (s_ui) {
         int up   = mote_just_pressed(in, MOTE_BTN_UP);
         int down = mote_just_pressed(in, MOTE_BTN_DOWN);
+        /* left and right are only wanted by the tech tree, which is a GRID rather than a list */
+        int left  = mote_just_pressed(in, MOTE_BTN_LEFT);
+        int right = mote_just_pressed(in, MOTE_BTN_RIGHT);
         if (s_ui_note_t > 0.0f) s_ui_note_t -= dt;
         /* --- the three list views ------------------------------------------------------
          * One block, because a list is a list: up and down move, A acts, B goes back one
@@ -3110,6 +3410,20 @@ static void g_update(float dt)
                 }
             }
             if (mote_just_pressed(in, MOTE_BTN_B)) { s_ui = UI_SOUL; s_ui_row = 0; }
+        } else if (s_ui == UI_TECH) {
+            if (up    && s_tt_cr > 0) s_tt_cr--;
+            if (down  && s_tt_cr < TT_LAYERS - 1) s_tt_cr++;
+            if (left  && s_tt_cc > 0) s_tt_cc--;
+            if (right && s_tt_cc < TT_WIDE - 1) s_tt_cc++;
+            /* the layers are not all the same width, so slide onto the nearest real rung
+             * rather than letting the cursor sit on a hole */
+            if (s_tt_at[s_tt_cr][s_tt_cc] < 0) {
+                int c = s_tt_cc;
+                while (c > 0 && s_tt_at[s_tt_cr][c] < 0) c--;
+                while (c < TT_WIDE - 1 && s_tt_at[s_tt_cr][c] < 0) c++;
+                s_tt_cc = c;
+            }
+            if (mote_just_pressed(in, MOTE_BTN_B)) { s_ui = UI_KING; }
         } else if (s_ui == UI_LORD) {
             if (up   && s_ui_row > 0) s_ui_row--;
             if (down && s_ui_row < 2) s_ui_row++;
@@ -3137,6 +3451,19 @@ static void g_update(float dt)
             if (mote_just_pressed(in, MOTE_BTN_A) && s_ui == UI_TOWN
                 && s_subject_v > 0 && s_subject_v < MAXV && mb_v[s_subject_v].alive) {
                 s_ui = UI_LORD; s_ui_row = 0;
+            }
+            /* A ON A CROWN OPENS ITS TREE. The kingdom page said "35 technologies" and drew a
+             * progress bar, which says how far along a line a realm is and nothing about which
+             * way it went — and the way it went is now the interesting part. */
+            if (mote_just_pressed(in, MOTE_BTN_A) && s_ui == UI_KING) {
+                tt_build();
+                int k2 = (s_subject_v > 0 && s_subject_v < MAXV && mb_v[s_subject_v].alive)
+                       ? mb_v[s_subject_v].kingdom : 0;
+                /* open on whatever it is working on, so the cursor starts somewhere meaningful */
+                int g = (k2 && mb_k[k2].goal > TECH_NONE && mb_k[k2].goal < TECH_N)
+                      ? mb_k[k2].goal : TECH_TOOLS;
+                s_tt_cr = TT_LAYER[g]; s_tt_cc = TT_COL[g];
+                s_ui = UI_TECH;
             }
             /* RB PAGES OUT. From a person to their town, to the crown above it, to the world:
              * the whole hierarchy on one button, in the order you would ask the questions. */
@@ -3311,6 +3638,7 @@ static void g_overlay(uint16_t *fb)
         case UI_LORD:  ui_draw_lord(fb);  break;
         case UI_TOWN:  ui_draw_town(fb);  break;
         case UI_KING:  ui_draw_king(fb);  break;
+        case UI_TECH:  ui_draw_tech(fb);  break;
         case UI_WORLD: ui_draw_world(fb); break;
         case UI_LAND:  ui_draw_land(fb);  break;
         case UI_GOD:   ui_draw_god(fb);   break;
@@ -3499,16 +3827,22 @@ static void g_overlay(uint16_t *fb)
             snprintf(buf, sizeof buf, "%s  elev %d", B_NAME[b < B_N ? b : 0],
                      mb_w.elev[AT(s_cx, s_cy)]);
         }
+        /* THE REFUSAL TAKES THE ROW. "NO FAITH" is 66 px and "NOBODY" is 54, so in the Faith
+         * slot they were drawn as "NO F" and "NOB". They only appear for a moment after a cast
+         * that could not run, and in that moment the ground under the cursor is not the thing
+         * the player needs to read, so the biome line stands down and the refusal is given the
+         * whole strip, right-aligned so it lands where the Faith number was. */
+        if (s_denied > 0.0f || s_nobody > 0.0f) {
+            hud_text(fb, s_denied > 0.0f ? "NO FAITH" : "NOBODY THERE",
+                     HC_INFO_X, HUD_Y + 8, 126, C_WARN, 1);
+        } else {
         hud_text(fb, buf, HC_INFO_X, HUD_Y + 8, HC_INFO_W, k ? C_WARN : C_TEXT, -1);
 
-        if (s_denied > 0.0f) {
-            hud_text(fb, "NO FAITH", HC_FAITH_X, HUD_Y + 8, HC_FAITH_W, C_WARN, 1);
-        } else if (s_nobody > 0.0f) {
-            hud_text(fb, "NOBODY", HC_FAITH_X, HUD_Y + 8, HC_FAITH_W, C_WARN, 1);
-        } else if (mb_mode() == MODE_PANTHEON) {
+        if (mb_mode() == MODE_PANTHEON) {
             snprintf(buf, sizeof buf, "%d", mb_faith());
             hud_text(fb, buf, HC_FAITH_X, HUD_Y + 8, HC_FAITH_W,
                      mb_faith_afford(mb_power_cost()) ? C_HI : C_WARN, 1);
+        }
         }
     }
 
