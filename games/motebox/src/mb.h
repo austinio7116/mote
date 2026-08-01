@@ -428,6 +428,13 @@ typedef struct {
     uint8_t  creed;         /* CREED_* — what this town believes */
     uint8_t  spec;          /* PROF_* — what the land around it makes it good at */
     uint8_t  coast;         /* water cells within reach; a quay needs some */
+    /* THE PASTURE. Husbandry spawned the town's first two head within four cells of the hall and
+     * the flock's wander was anchored to the hall as well, so every sheep and hen a town ever
+     * bred milled about its market square — a town of eighteen people with nine animals standing
+     * in the streets. A pasture is a piece of the town's own ground, five to eight cells out,
+     * grazeable and off the roads: the stock is born there and stays there, which is what
+     * husbandry means. 0,0 is "none yet". */
+    uint8_t  pasture_x, pasture_y;
     uint8_t  tier;          /* TIER_*, recomputed each visit; cached so the HUD is cheap */
     uint16_t research;      /* accumulates toward the kingdom's next tech */
     uint16_t traded;        /* lifetime caravans received — a trade hub is a real thing */
@@ -642,6 +649,7 @@ int  mb_village_found(int sp, int x, int y, int kingdom);
 int  mb_village_need(int v, uint16_t *target);
 void mb_civ_need_flush(void);    /* drop the per-tick want cache (world reset) */
 int  mb_village_lord_unit(int v);   /* the person holding the office, or -1 */
+int  mb_village_pasture(int v, int *x, int *y);   /* the flock's field, if it has one */
 int  mb_road_grade(int cell);       /* -1 unpaved, else 0..4 — see mb_civ.c */
 int  mb_flock_total(void);          /* owned livestock, kept out of the wild budget */
 

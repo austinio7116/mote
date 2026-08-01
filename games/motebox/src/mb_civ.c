@@ -1239,6 +1239,15 @@ static int build_site(int v, int *ox, int *oy)
             if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v) continue;
             if (!buildable(x, y) || mb_is_build(mb_w.obj[AT(x, y)])) continue;
             if (mb_w.road[AT(x, y)] || plan_open(v, x, y)) continue;   /* never in the road */
+            /* AND NEVER IN THE PASTURE. A city grows over its own field otherwise: measured, a
+             * town of sixty head had its flock back among the houses by year 200 because the
+             * builders treated grazed meadow as the best ground in the parish. A field is spoken
+             * for — the stock has nowhere else to be. */
+            {   int px2 = 0, py2 = 0;
+                if (mb_village_pasture(v, &px2, &py2)) {
+                    int fdx = x - px2, fdy = y - py2;
+                    if (fdx >= -2 && fdx <= 2 && fdy >= -2 && fdy <= 2) continue;
+                } }
 
             /* FRONTAGE IS A REQUIREMENT, NOT A BONUS. This one line is what makes a
              * street have houses either side of it instead of a road network with
@@ -2041,6 +2050,11 @@ static void caravan_step(int v)
          * Anybody not at war with us will buy grain. A neutral sale is smaller (a stranger
          * takes less on credit) and it pays in GOLD, which is what makes a trading town rich
          * and gives a landlocked crown a way to afford what its ground cannot give it. */
+        /* AND ON THIS SIDE OF THE WATER. A caravan is a person carrying a sack: it cannot swim,
+         * and nothing was checking. Measured over four hundred years, 429 of them walked to a
+         * coast and gave up there — the load written off, the town that needed it none the wiser.
+         * A hauler goes where a hauler can walk; the sea route is what the SHIPS are for. */
+        if (mb_sea_between(V->x, V->y, mb_v[u].x, mb_v[u].y)) continue;
         int friendly = (mb_v[u].kingdom == V->kingdom) ||
                        (V->kingdom && (mb_k[V->kingdom].ally_with & (1u << mb_v[u].kingdom)));
         int neutral  = !friendly && V->kingdom && mb_v[u].kingdom
@@ -2073,6 +2087,7 @@ static void caravan_step(int v)
     Unit *h = &mb_u[who];
     h->job = JOB_HAUL;
     h->dest = (uint8_t)best;
+    h->sail_wait = 0;                   /* the hauler's patience: see JOB_HAUL in mb_unit.c */
     /* THE SALE. A caravan to another crown is a sale, not a gift: gold comes home with the
      * wagon, which is the whole point of a trading town and the only source of coin a kingdom
      * with no seam of its own has. */
@@ -3208,6 +3223,72 @@ static void threat_step(int v)
     else if (V->threat) V->threat--;
 }
 
+/* WHERE THE FLOCK LIVES.
+ *
+ * A field, on the town's own ground, five to eight cells from the hall: far enough that the
+ * animals are not in the market square, near enough that a shepherd can walk out to them. The
+ * ground is turned to meadow, which is what a grazed field looks like and what the forage rule
+ * already reads as food — so the pasture feeds the stock that stands in it.
+ *
+ * Chosen once and remembered. A site needs grazeable ground, no road and no building, and at
+ * least six of its eight neighbours the same, so the field is a field and not a gap between two
+ * houses. */
+static void village_pasture(int v)
+{
+    Village *V = &mb_v[v];
+    if (V->pasture_x || V->pasture_y) return;           /* already has one */
+    if (!mb_civ_count(v, O_FARM)) return;               /* husbandry comes with the farm */
+
+    uint32_t r = mb_rand((uint32_t)(v * 6151u + 0x9e37u));
+    int best = -1, bx = 0, by = 0;
+    for (int t = 0; t < 24; t++) {
+        int ang = (int)((r >> (t & 15)) % 16u);
+        int dist = 5 + (int)((r >> (t + 3)) % 4u);      /* five to eight cells out */
+        static const int8_t DX[16] = { 4, 4, 3, 2, 0,-2,-3,-4,-4,-4,-3,-2, 0, 2, 3, 4 };
+        static const int8_t DY[16] = { 0, 2, 3, 4, 4, 4, 3, 2, 0,-2,-3,-4,-4,-4,-3,-2 };
+        int x = V->x + DX[ang] * dist / 4, y = V->y + DY[ang] * dist / 4;
+        if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v) continue;
+        int score = 0, ok = 1;
+        for (int dy = -1; dy <= 1 && ok; dy++)
+            for (int dx = -1; dx <= 1; dx++) {
+                int nx = x + dx, ny = y + dy;
+                if (!mb_in(nx, ny)) { ok = 0; break; }
+                int i = AT(nx, ny);
+                uint8_t b = mb_w.biome[i];
+                if (mb_w.road[i] || mb_is_build(mb_w.obj[i])) { if (!dx && !dy) ok = 0; continue; }
+                if (b == B_GRASS || b == B_MEADOW || b == B_SAVANNA || b == B_FARM) score++;
+            }
+        if (!ok || score < 6) continue;
+        if (score > best) { best = score; bx = x; by = y; }
+    }
+    if (best < 0) return;
+    V->pasture_x = (uint8_t)bx;
+    V->pasture_y = (uint8_t)by;
+    /* LAY THE FIELD OUT, five by five. Three by three was measured with fifteen head standing in
+     * it and they were shoulder to shoulder — a pen, not a pasture. Twenty-five cells is room for
+     * the largest flock a town will hold (pop/6 + 2), and the stock's wander is widened to match.
+     * Roads, buildings and water are left alone: the field goes round them. */
+    for (int dy = -2; dy <= 2; dy++)
+        for (int dx = -2; dx <= 2; dx++) {
+            int fx = bx + dx, fy = by + dy;
+            if (!mb_in(fx, fy) || mb_w.claim[AT(fx, fy)] != v) continue;
+            int i = AT(fx, fy);
+            if (mb_w.road[i] || mb_is_build(mb_w.obj[i])) continue;
+            if (mb_water(mb_w.biome[i])) continue;
+            mb_w.biome[i] = B_MEADOW;
+            if (mb_w.obj[i] && !mb_is_build(mb_w.obj[i])) mb_w.obj[i] = O_NONE;
+        }
+    V->dirty = 1;
+}
+
+int mb_village_pasture(int v, int *x, int *y)
+{
+    if (v <= 0 || v >= MAXV || !mb_v[v].alive) return 0;
+    if (!mb_v[v].pasture_x && !mb_v[v].pasture_y) return 0;
+    *x = mb_v[v].pasture_x; *y = mb_v[v].pasture_y;
+    return 1;
+}
+
 static void village_husbandry(int v)
 {
     Village *V = &mb_v[v];
@@ -3232,9 +3313,14 @@ static void village_husbandry(int v)
     if (V->food < V->pop * 3 + 20) return;
     if (mb_w.tick - V->last_settle == 0) return;         /* not on the founding tick */
     uint32_t r = mb_rand((uint32_t)(v * 3079u + 0x110cu));
+    /* IN THE PASTURE. These used to be dropped anywhere within four cells of the hall, which is
+     * the middle of the town: the flock was born in the streets and the wander floor kept it
+     * there. No field, no stock — the town lays one out first (village_pasture). */
+    int px = 0, py = 0;
+    if (!mb_village_pasture(v, &px, &py)) return;
     for (int t = 0; t < 8; t++) {
-        int x = V->x + (int)((r >> (t * 3)) % 9u) - 4;
-        int y = V->y + (int)((r >> (t * 3 + 4)) % 9u) - 4;
+        int x = px + (int)((r >> (t * 3)) % 3u) - 1;
+        int y = py + (int)((r >> (t * 3 + 4)) % 3u) - 1;
         if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v) continue;
         uint8_t b = mb_w.biome[AT(x, y)];
         if (b != B_GRASS && b != B_MEADOW && b != B_FARM && b != B_SAVANNA) continue;
@@ -3881,6 +3967,7 @@ void mb_civ_step(void)
         village_plaza(v);
         village_gardens(v);
         threat_step(v);
+        village_pasture(v);
         village_husbandry(v);
         try_build(v);
         village_expedition(v);
@@ -4053,9 +4140,17 @@ int mb_civ_drop_village(int sp, int x, int y)
      * scattered across a wilderness — a world stocked with poultry is a farmyard.
      * A few head by the founding fire is also the fastest way to make a new village
      * read as inhabited rather than as four buildings. */
+    /* IN A RING, not in the middle. Three cells of a hall is the hall's own yard, so a founding
+     * put its five head where the market square was about to be; four to six cells out is the
+     * edge of the settlement, and once the town has a farm they walk to the pasture it lays out
+     * (village_pasture) because that is what their wander is anchored to. */
     for (int i = 0; i < 5; i++) {
         uint32_t lr = mb_rand((uint32_t)(i * 5171u + (uint32_t)mb_w.tick));
-        int lx = x + (int)(lr % 7) - 3, ly = y + (int)((lr >> 6) % 7) - 3;
+        int ring = 4 + (int)(lr % 3u);
+        int ang  = (int)((lr >> 7) % 8u);
+        static const int8_t RX[8] = { 1, 1, 0,-1,-1,-1, 0, 1 };
+        static const int8_t RY[8] = { 0, 1, 1, 1, 0,-1,-1,-1 };
+        int lx = x + RX[ang] * ring, ly = y + RY[ang] * ring;
         {   int li = mb_unit_spawn((lr & 1) ? SP_SHEEP : SP_HEN, lx, ly);
             if (li >= 0) mb_u[li].village = (uint8_t)v;   /* the founding flock */ }
     }

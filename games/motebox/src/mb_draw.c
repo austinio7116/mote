@@ -1600,7 +1600,29 @@ void mb_draw_mortal(int cam_x, int cam_y)
          * legend you have to learn is not the fix: on screen it was thirty coloured
          * squares floating over a town, which is noise, and it made the settlement look
          * LESS like a place. Life has to come from the simulation having more in it, not
-         * from annotating what it already has. */
+         * from annotating what it already has.
+         *
+         * A BUBBLE FOR SOMETHING CRITICAL is a different thing, and the reason is the word
+         * critical: a dot on every villager annotated the ordinary, and this marks the four
+         * states that are about to kill somebody. The master sheet has the band for it —
+         * row 26 is a symbol inside a speech bubble and row 27 is the same symbol on its own,
+         * so each of these is directly above the icon the game already uses for that state.
+         * It bobs a pixel, which is what makes it read as a bubble rather than a tile. */
+        if (MB_SP[u->sp].drives == DRV_CIV) {
+            int bcx = -1, bcy = 2;                     /* ui_status row 2 == master row 26 */
+            if (u->traits & TR_MADNESS)      bcx = 2;  /* the spiral                       */
+            else if (u->sick)                bcx = 0;  /* the poison cloud                 */
+            else if (u->hunger > 90)         bcx = 13; /* the loaf                         */
+            else if (u->hp < 25)             bcx = 15; /* the broken heart                 */
+            if (bcx >= 0) {
+                int bob = ((mb_w.tick + (unsigned)i) >> 3) & 1;
+                MoteSprite bub = { &ui_status_img, (int16_t)sx,
+                                   (int16_t)(sy - TILE - bob),
+                                   (uint16_t)(bcx * TILE), (uint16_t)(bcy * TILE),
+                                   TILE, TILE, 45, 0 };
+                add(&bub);
+            }
+        }
     }
     /* THE WALKING DISASTERS, and the kaiju are 2x2.
      *

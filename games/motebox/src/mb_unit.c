@@ -24,6 +24,13 @@ int mb_nodouse;
 #endif
 #include <string.h>
 
+#if MOTE_HOST
+/* WHERE A CARAVAN ACTUALLY ENDS UP. Despatches were counted and arrivals were counted and the two
+ * did not agree by a factor of thirty, which is not something a screenshot or a one-tick census
+ * can explain. Every exit from JOB_HAUL is counted here instead. */
+uint32_t mb_haul_deliver, mb_haul_drop, mb_haul_retask, mb_haul_die;
+#endif
+
 /* --- species ------------------------------------------------------------ */
 
 /* Civ species come first so `sp < SP_DEER` is the whole "can build a village"
@@ -226,6 +233,39 @@ int mb_unit_may_enter(int i, int x, int y)
     }
     if (!mb_unit_passable(u->sp, x, y)) return 0;
     int c = AT(x, y);
+    /* A HOUSE IS NOT A FOOTPATH.
+     *
+     * Only walls blocked anybody, so every villager, soldier, hauler and wolf walked THROUGH the
+     * buildings — over the hall, across the granary roof, out the other side of the barracks. A
+     * town read as a decorated field rather than as a place with streets in it, and the roads it
+     * spends its timber paving were a texture.
+     *
+     * A built cell is closed, with two exceptions that keep the town working:
+     *   - THE DOOR: a cell that is the unit's own target is enterable, because half the errands
+     *     in the game end at a building — the hall to hand in a load, the granary, the barracks,
+     *     the temple. Without this a carrier can never arrive and a town starves with a full
+     *     wagon standing outside.
+     *   - THE WAY OUT: a unit already standing on a built cell may cross to another, or anyone
+     *     born in the hall (which is where a village spawns its people) would be walled in.
+     * A blueprint is a ghost, not a building, and stays open. */
+    uint8_t o = mb_w.obj[c];
+    if (mb_is_build(o) && o != O_WALL && o != O_PLAN) {
+        /* A BEAST NEVER GOES INSIDE. Not even to reach its prey: a wolf that could follow
+         * somebody through the front door made a town no safer than open country, and closing
+         * the buildings to everyone had exactly that effect — the audit found a world eaten
+         * to nothing, 277 taken and the population gone from 68 to 2 in twenty years, because
+         * the houses that used to be open ground were now a maze that favoured whichever
+         * animal was faster. */
+        if (MB_SP[u->sp].drives != DRV_CIV) return 0;
+        /* AND A PERSON BEING CHASED DUCKS INSIDE. That is what a door is for, and it is the
+         * other half of the same fix: fleeing into the buildings is now an escape rather than
+         * running into a wall. */
+        if (u->job == JOB_FLEE) return 1;
+        if ((int)u->target == c) return 1;
+        int hc = AT(u->x >> 4, u->y >> 4);
+        if (mb_is_build(mb_w.obj[hc]) && mb_w.obj[hc] != O_PLAN) return 1;
+        return 0;
+    }
     if (mb_w.obj[c] != O_WALL) return 1;
     /* There is no DRV_FLY: bats are DRV_BEAST like everything else, so a wall stops them too.
      * Worth revisiting if flight ever becomes a drive of its own — a bat over a battlement is
@@ -334,7 +374,12 @@ static void kill(int i, int cause)
     }
     /* a hauler killed on the road loses what it was carrying, and the town waiting for
      * it simply never receives — which is the point of trade being a person on a road */
-    if (u->job == JOB_HAUL) u->carry = 0;
+    if (u->job == JOB_HAUL) {
+#if MOTE_HOST
+        if (u->carry) mb_haul_die++;
+#endif
+        u->carry = 0;
+    }
     int tx = u->x >> 4, ty = u->y >> 4;
 #if MOTE_HOST
     if (u->boat) { extern uint32_t mb_voyages_lost, mb_lost_ticks, mb_lost_hunger;
@@ -502,9 +547,64 @@ static void step_toward(Unit *u, int tx, int ty)
     int px = nx >> 4, py = ny >> 4;
 
     int self = (int)(u - mb_u);
+    /* THEY TAKE THE ROAD.
+     *
+     * The step was a plain greedy diagonal with an axis slide when the diagonal was blocked, so a
+     * person crossing a town cut the corner off every block and the street beside them went
+     * unused. All three candidate steps make progress; when one of them is on a made road, a
+     * walker on foot takes that one. It costs one road lookup a step, no pathfinding, and it is
+     * the same rule that makes the road speed bonus worth having.
+     *
+     * Only for people, and only when they are actually going somewhere: a beast has no business
+     * on the highway, and a step of one or two cells is a shuffle, not a journey. */
+    int road_pref = (MB_SP[u->sp].drives == DRV_CIV)
+                 && (dx * dx + dy * dy > 4);
+    if (road_pref) {
+        int bestg = -1, bx = u->x, by = u->y;
+        struct { int x, y, cx, cy; } cand[3] = {
+            { nx, ny, px, py }, { nx, u->y, px, cy }, { u->x, ny, cx, py },
+        };
+        for (int k = 0; k < 3; k++) {
+            if (k == 1 && !sx) continue;
+            if (k == 2 && !sy) continue;
+            if (!mb_unit_may_enter(self, cand[k].cx, cand[k].cy)) continue;
+            int g = mb_road_grade(AT(cand[k].cx, cand[k].cy));
+            /* the diagonal wins ties: it is the shortest way there */
+            if (g > bestg) { bestg = g; bx = cand[k].x; by = cand[k].y; }
+        }
+        if (bestg >= 0) { u->x = (uint16_t)bx; u->y = (uint16_t)by; return; }
+        /* nothing on a road and nothing off it: fall through to the slide below */
+    }
     if (mb_unit_may_enter(self, px, py)) { u->x = (uint16_t)nx; u->y = (uint16_t)ny; return; }
     if (sx && mb_unit_may_enter(self, px, cy)) { u->x = (uint16_t)nx; return; }
     if (sy && mb_unit_may_enter(self, cx, py)) { u->y = (uint16_t)ny; return; }
+
+    /* THEN SLIDE, and only give up if there is genuinely nowhere to go.
+     *
+     * Abandoning the target on the first refusal was survivable while the only obstacle was a
+     * wall. With the buildings closed it is not: a caravan crossing its own town meets a house,
+     * drops its errand, and the load is written off — 2225 despatched against 61 delivered.
+     * So before giving up, try the four cardinals and take the one that gets no further away.
+     * That is a wall slide rather than a path, which is all a town needs; equal distance is
+     * allowed, because sliding along the front of a terrace makes no progress until it ends. */
+    {   static const int8_t OX[4] = { 1, -1, 0, 0 }, OY[4] = { 0, 0, 1, -1 };
+        int want = dx * dx + dy * dy, bk = -1, bd = 1 << 30;
+        for (int k = 0; k < 4; k++) {
+            int qx = cx + OX[k], qy = cy + OY[k];
+            if (!mb_unit_may_enter(self, qx, qy)) continue;
+            int ddx = tx - qx, ddy = ty - qy, d = ddx * ddx + ddy * ddy;
+            if (d <= want && d < bd) { bd = d; bk = k; }
+        }
+        if (bk >= 0) {
+            /* INTO THE CELL THAT WAS TESTED, not spd pixels in that direction. A road bonus can
+             * put spd above sixteen, so adding it stepped straight over the cell the slide had
+             * just checked — off the edge of the map at the border, which segfaulted on the
+             * first four-hundred-year run. Snapping to the centre of the tested cell cannot. */
+            u->x = (uint16_t)(((cx + OX[bk]) << 4) + 8);
+            u->y = (uint16_t)(((cy + OY[bk]) << 4) + 8);
+            return;
+        }
+    }
     /* boxed in: give up on this target so the brain picks something reachable */
     u->target = 0xFFFF;
 }
@@ -1062,16 +1162,34 @@ static void think(int i)
         int hx = x, hy = y, span = 13;
         if (u->village && u->village < MAXV && mb_v[u->village].alive) {
             hx = mb_v[u->village].x; hy = mb_v[u->village].y;
-            /* A FLOCK STAYS IN ITS PASTURE — six cells, tighter than a villager's nine, because
-             * stock that wanders off is stock somebody else eats. A LORD is tightest of all,
-             * being the one person who has to be findable. */
-            span = (sp->drives != DRV_CIV) ? 6 : ((u->prof == PROF_LORD) ? 5 : 9);
+            /* A FLOCK STAYS IN ITS PASTURE — and the pasture is now a REAL PLACE rather than a
+             * turn of phrase in this comment. The anchor was the hall, so a town's sheep and hens
+             * milled about its market square and a grown town looked like a farmyard; the field
+             * husbandry lays out is five to eight cells from the hall, and five cells of slack
+             * around it keeps the flock in it. A LORD is tightest of all, being the one person
+             * who has to be findable. */
+            span = (sp->drives != DRV_CIV) ? 7 : ((u->prof == PROF_LORD) ? 5 : 9);
+            if (sp->drives != DRV_CIV) {
+                int fx = 0, fy = 0;
+                if (mb_village_pasture(u->village, &fx, &fy)) { hx = fx; hy = fy; }
+            }
         }
-        int wx = hx + (int)((r >> 3) % span) - span / 2;
-        int wy = hy + (int)((r >> 9) % span) - span / 2;
-        if (wx < 0) wx = 0; if (wx >= MW) wx = MW - 1;
-        if (wy < 0) wy = 0; if (wy >= MH) wy = MH - 1;
-        u->target = (uint16_t)AT(wx, wy);
+        /* AND NOT ONTO A ROOF. A built cell is enterable when it is the unit's own target (see
+         * mb_unit_may_enter), which is what lets a carrier reach the granary — but the wander
+         * floor was picking cells at random around the hall, hitting buildings, and standing
+         * people on them: measured, 47 of 199 townspeople were on a building. Three tries for
+         * open ground, and if the town really is that solid, stay put. */
+        int wx = hx, wy = hy, got = 0;
+        for (int t = 0; t < 3 && !got; t++) {
+            int cxw = hx + (int)((r >> (3 + t * 6)) % span) - span / 2;
+            int cyw = hy + (int)((r >> (9 + t * 6)) % span) - span / 2;
+            if (cxw < 0) cxw = 0; if (cxw >= MW) cxw = MW - 1;
+            if (cyw < 0) cyw = 0; if (cyw >= MH) cyw = MH - 1;
+            uint8_t wo = mb_w.obj[AT(cxw, cyw)];
+            if (mb_is_build(wo) && wo != O_PLAN) continue;
+            wx = cxw; wy = cyw; got = 1;
+        }
+        if (got) u->target = (uint16_t)AT(wx, wy);
     }
 
     /* AN ERRAND OUTRANKS THE ROTA. A villager three valleys out for iron is not re-tasked
@@ -1081,6 +1199,34 @@ static void think(int i)
     if (u->mission && best != JOB_FLEE && best != JOB_FIGHT && best != JOB_DOUSE) {
         best = JOB_WORK;
         u->target = (uint16_t)(u->mission - 1);
+    }
+    /* AND SO DOES A CARAVAN, which had no protection at all.
+     *
+     * caravan_step() drafts a trader, puts a load on their back and points them at another town —
+     * and then think() ran on the very next tick, scored the errand it knew nothing about at
+     * zero, and re-tasked them with whatever their own village happened to want. Measured over
+     * four hundred years: 1928 caravans despatched, and NOT ONE on the road at the census. The
+     * whole trade system existed, was gated correctly, and delivered almost nothing, because a
+     * hauler was a hauler for a single tick.
+     *
+     * A load with a destination outranks the rota exactly as a mission does, and it also has to
+     * restore the target, because the scoring above has already overwritten it. If the town it
+     * was going to is gone, the errand is over. */
+    if (u->carry && u->dest && (best == JOB_FLEE || best == JOB_FIGHT || best == JOB_DOUSE)) {
+#if MOTE_HOST
+        mb_haul_retask++;               /* delayed, not dropped: the load and the dest survive */
+#endif
+    } else if (u->carry && u->dest) {
+        /* THE ERRAND RESUMES. A wolf on the road turned a caravan into an ordinary villager
+         * carrying somebody else's grain for the rest of its life — the job changed and nothing
+         * ever changed it back, so 235 loads a world simply stopped moving. A load with a live
+         * destination is a haul again as soon as the fight is over. */
+        if (u->dest < MAXV && mb_v[u->dest].alive) {
+            best = JOB_HAUL;
+            u->target = (uint16_t)AT(mb_v[u->dest].x, mb_v[u->dest].y);
+        } else {
+            u->carry = 0; u->dest = 0; u->sail_wait = 0;
+        }
     }
     if (best != u->job) u->job = (uint8_t)best;
 }
@@ -1270,11 +1416,32 @@ static void act(int i)
      * wolf or cut down in a war, and if it is, the goods are lost and the town that was
      * waiting for them goes hungry. That is what makes a trade road worth defending. */
     case JOB_HAUL: {
-        if (u->target == 0xFFFF || !u->dest) { u->job = JOB_IDLE; u->carry = 0; break; }
+        /* A CARAVAN DOES NOT ABANDON ITS LOAD THE FIRST TIME IT MEETS A WALL.
+         *
+         * step_toward clears the target when it can neither step nor slide, and this used to
+         * treat that as the end of the errand: measured, 337 loads a world were written off on
+         * the way, most of them at a headland or in the middle of somebody else's town. Now the
+         * hauler re-aims at the town it was sent to and keeps trying; sail_wait counts the ticks
+         * it makes no progress (the same meaning it has for a ship, and a walker never sails),
+         * and after about two years of getting nowhere the errand really is hopeless. */
+        if (u->target == 0xFFFF && u->dest && u->dest < MAXV && mb_v[u->dest].alive
+            && u->sail_wait < 120) {
+            u->sail_wait++;
+            u->target = (uint16_t)AT(mb_v[u->dest].x, mb_v[u->dest].y);
+            break;
+        }
+        if (u->target == 0xFFFF || !u->dest) {
+#if MOTE_HOST
+            if (u->carry) mb_haul_drop++;
+#endif
+            u->job = JOB_IDLE; u->carry = 0; u->sail_wait = 0; break; }
         int tx = u->target % MW, ty = u->target / MW;
         if ((tx - x) * (tx - x) + (ty - y) * (ty - y) <= 2) {
             mb_civ_deliver(u->dest, u->carry_kind, u->carry);
-            u->carry = 0; u->dest = 0; u->job = JOB_IDLE; u->happy += 6;
+#if MOTE_HOST
+            mb_haul_deliver++;
+#endif
+            u->carry = 0; u->dest = 0; u->sail_wait = 0; u->job = JOB_IDLE; u->happy += 6;
         } else {
             step_toward(u, tx, ty);
             u->hunger += 1;                 /* the road is work */

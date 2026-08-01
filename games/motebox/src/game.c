@@ -3084,7 +3084,11 @@ static void g_init(void)
             }
             fprintf(stderr, "people by trade: ");
             for (int i = 0; i < PROF_N; i++) if (prof[i]) fprintf(stderr, " %s=%d", MB_PROF_NAME[i], prof[i]);
-            fprintf(stderr, "\nwed %d   on the road %d   named %d   plague-immune %d\n",
+            {   extern uint32_t mb_haul_deliver, mb_haul_drop, mb_haul_retask, mb_haul_die;
+                fprintf(stderr, "\ncaravans: %u delivered, %u gave up on the way, "
+                                "%u ticks lost to fights, %u killed carrying\n",
+                        mb_haul_deliver, mb_haul_drop, mb_haul_retask, mb_haul_die); }
+            fprintf(stderr, "wed %d   on the road %d   named %d   plague-immune %d\n",
                     wed, hauling, named, immune);
         }
         {   int lo = 255, hi = 0, sum = 0, n = 0;
@@ -3169,6 +3173,72 @@ static void g_init(void)
         }
         fprintf(stderr, "walls in the world: %d   qualifying villages: %d   "
                         "wall plans pending: %d\n", world_walls, qualify, plans);
+    }
+    /* MOTEBOX_FLOCKDBG=1 says where every town's stock is standing, because a screenshot of a
+     * town cannot tell a sheep in a field from a sheep in the market square: per village, the
+     * hall, the pasture, and how much of the flock is at each. */
+    if (getenv("MOTEBOX_FLOCKDBG")) {
+        int tot = 0, atfield = 0, athall = 0, nofield = 0, fields = 0;
+        for (int v = 1; v < MAXV; v++) {
+            if (!mb_v[v].alive) continue;
+            int px = 0, py = 0, has = mb_village_pasture(v, &px, &py);
+            int n = 0, nf = 0, nh = 0;
+            for (int i = 0; i < mb_nu; i++) {
+                const Unit *u = &mb_u[i];
+                if (!u->alive || u->village != v || MB_SP[u->sp].drives == DRV_CIV) continue;
+                int ux = u->x >> 4, uy = u->y >> 4;
+                n++;
+                if (has) { int dx = ux - px, dy = uy - py;
+                           if (dx*dx + dy*dy <= 9) nf++; }
+                { int dx = ux - mb_v[v].x, dy = uy - mb_v[v].y;
+                  if (dx*dx + dy*dy <= 9) nh++; }
+            }
+            if (has) fields++; else if (n) nofield += n;
+            tot += n; atfield += nf; athall += nh;
+            if (n) fprintf(stderr, "  v%-3d hall %3d,%-3d field %3d,%-3d  stock %2d  "
+                                   "in field %2d  in town %2d\n",
+                           v, mb_v[v].x, mb_v[v].y, px, py, n, nf, nh);
+        }
+        fprintf(stderr, "flock: %d head, %d fields; %d standing in a field, %d in a town square, "
+                        "%d belong to a town with no field\n",
+                tot, fields, atfield, athall, nofield);
+        /* AND HOW FAR THE REST ARE. "in the field" is a three-cell test, and a bare count of
+         * misses cannot tell a sheep grazing at the fence from one three valleys away. */
+        {   int band[4] = { 0, 0, 0, 0 };
+            for (int v = 1; v < MAXV; v++) {
+                int px = 0, py = 0;
+                if (!mb_v[v].alive || !mb_village_pasture(v, &px, &py)) continue;
+                for (int i = 0; i < mb_nu; i++) {
+                    const Unit *u = &mb_u[i];
+                    if (!u->alive || u->village != v || MB_SP[u->sp].drives == DRV_CIV) continue;
+                    int dx = (u->x >> 4) - px, dy = (u->y >> 4) - py, d2 = dx*dx + dy*dy;
+                    band[d2 <= 9 ? 0 : d2 <= 36 ? 1 : d2 <= 144 ? 2 : 3]++;
+                }
+            }
+            fprintf(stderr, "  from the field: %d within 3, %d within 6, %d within 12, %d further\n",
+                    band[0], band[1], band[2], band[3]);
+        }
+    }
+    /* MOTEBOX_ROADDBG=1: where the townspeople are actually standing. A house that blocks and a
+     * road that attracts are both invisible in a screenshot of a crowd, so this counts them —
+     * civilians inside a claim, split by what is under their feet. */
+    if (getenv("MOTEBOX_ROADDBG")) {
+        int onroad = 0, onbuild = 0, open_ = 0, moving = 0, mroad = 0, atwork = 0;
+        for (int i = 0; i < mb_nu; i++) {
+            const Unit *u = &mb_u[i];
+            if (!u->alive || MB_SP[u->sp].drives != DRV_CIV || !u->village) continue;
+            int ux = u->x >> 4, uy = u->y >> 4;
+            if (!mb_in(ux, uy) || !mb_w.claim[AT(ux, uy)]) continue;
+            int c = AT(ux, uy);
+            int r = mb_w.road[c] != 0, b = mb_is_build(mb_w.obj[c]);
+            if (b) { onbuild++; if ((int)u->target == c) atwork++; }
+            else if (r) onroad++; else open_++;
+            if (u->target != 0xFFFF) { moving++; if (r) mroad++; }
+        }
+        fprintf(stderr, "town feet: %d on a road, %d on open ground, %d on a building "
+                        "(%d of those AT it: a farm, a mine, the hall); "
+                        "of %d on an errand, %d are on a road\n",
+                onroad, open_, onbuild, atwork, moving, mroad);
     }
     if (getenv("MOTEBOX_CENSUS")) {
         int seen[SP_N] = { 0 }, build[O_N] = { 0 };
