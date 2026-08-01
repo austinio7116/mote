@@ -67,9 +67,45 @@ SHOTS = {
     "lord":     (dict(SEED="47514", YEARS="300", MORTAL="1", CAM="v"),
                  "b:400-402 down:410-411 down:416-417 down:422-423 down:428-429 "
                  "down:434-435 a:446-447", 470, 3, "motebox-g-lord.png"),
+    # THE SIX PAGES OF POWERS. One shot each, because the wheel is a third of what the god
+    # actually does and the guide had a single picture of one page of it. RB turns the page.
     "powers":   (dict(SEED="7", YEARS="40"), "lb:300-302", 330, 3, "motebox-g-powers.png"),
+    "pw_life":  (dict(SEED="7", YEARS="40"), "lb:300-302 rb:320-322", 340, 3,
+                 "motebox-g-pw-life.png"),
+    "pw_bless": (dict(SEED="7", YEARS="40"), "lb:300-302 rb:320-322 rb:330-332", 350, 3,
+                 "motebox-g-pw-bless.png"),
+    "pw_curse": (dict(SEED="7", YEARS="40"),
+                 "lb:300-302 rb:320-322 rb:330-332 rb:340-342", 360, 3,
+                 "motebox-g-pw-curse.png"),
+    "pw_wrath": (dict(SEED="7", YEARS="40"),
+                 "lb:300-302 rb:320-322 rb:330-332 rb:340-342 rb:350-352", 370, 3,
+                 "motebox-g-pw-wrath.png"),
+    "pw_beast": (dict(SEED="7", YEARS="40"),
+                 "lb:300-302 rb:320-322 rb:330-332 rb:340-342 rb:350-352 rb:360-362", 380, 3,
+                 "motebox-g-pw-beasts.png"),
+    # AND FOUR OF THEM DOING SOMETHING. A menu of forty-eight icons says nothing about what
+    # any of them is like; MOTEBOX_CAST fires one at a named cell so the guide can show it.
+    "cast_volcano": (dict(SEED="5", YEARS="200", MORTAL="1", CAM="47,59",
+                          CAST="VOLCANO@50,59", SANDBOX="1"), "", 90, 3,
+                     "motebox-g-cast-volcano.png"),
+    "cast_meteor":  (dict(SEED="3", YEARS="200", MORTAL="1", CAM="115,69",
+                          CAST="METEOR@116,70", SANDBOX="1"), "", 40, 3,
+                     "motebox-g-cast-meteor.png"),
+    "cast_dragon":  (dict(SEED="47514", YEARS="200", MORTAL="1", CAM="65,15",
+                          CAST="DRAGON@68,15", SANDBOX="1"), "", 120, 3,
+                     "motebox-g-cast-dragon.png"),
+    # RAIN was the fourth of these and it does not photograph: it douses fires and waters
+    # crops, which is a change of state rather than a picture. Lightning leaves a bolt and a
+    # scorch mark.
+    "cast_light":   (dict(SEED="5", YEARS="200", MORTAL="1", CAM="47,59",
+                          CAST="LIGHTNING@49,58", SANDBOX="1"), "", 26, 3,
+                     "motebox-g-cast-lightning.png"),
     "nuke":     (dict(SEED="5", YEARS="150", NUKE="1", MORTAL="1"), "", 520, 3,
                  "motebox-g-nuke.png"),
+    # A SHIP AT SEA. MOTEBOX_SAIL sends one, because a crossing lasts a few dozen ticks out of
+    # a town's eight-year settling cycle and a blind camera photographs empty water.
+    "ship":     (dict(SEED="23757", YEARS="200", MORTAL="1", SAIL="1"), "", 70, 3,
+                 "motebox-g-ship.png"),
     # --- the three the gallery card uses, at 2x ---
     "shot1":    (dict(SEED="5", YEARS="250"), "", 300, 2, "motebox-1.png"),
     "shot2":    (dict(SEED="3", YEARS="220", MORTAL="1", CAM="v"), "", 420, 2, "motebox-2.png"),
