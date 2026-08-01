@@ -339,6 +339,22 @@ typedef struct {
     uint32_t traits;
     uint8_t  kills, carry, carry_kind;
     uint8_t  sick;          /* ticks of plague left to run; 0 = well */
+    /* AT SEA. Water is the one thing a villager could never cross, and three parts of the
+     * game already wanted them to: colonists were TELEPORTED to an island (the settle code
+     * said so in as many words), an expedition to a seam of iron on the far shore walked
+     * until it was boxed in and gave up, and village_quay's own comment claimed "a boat lands
+     * its catch at the quay" when there was no boat anywhere in the game.
+     *
+     * A ship is not a new kind of thing: it is a person with a boat under them. That keeps
+     * saves, the unit cap, culling, the chronicle and the inspect screens working untouched.
+     *   voyage  landing cell + 1, and it OUTRANKS the brain — like `mission`, which exists
+     *           because a re-think eight ticks later used to turn every expedition round.
+     *   boat    SHIP_* once aboard. voyage set with boat 0 is passage booked: the traveller
+     *           is walking to their own town's quay to take ship.
+     *   sail_wait  ticks of no progress. A headland can block a straight line and there is no
+     *           sea pathfinder, so a stuck ship beaches itself rather than sailing for ever. */
+    uint16_t voyage;
+    uint8_t  boat, sail_wait, sail_dir, sail_hit;
 } Unit;
 extern Unit *mb_u;
 extern int   mb_nu;         /* high-water mark; scans stop here */
@@ -351,6 +367,13 @@ extern int   mb_nu;         /* high-water mark; scans stop here */
 #define MAXK 12
 
 enum { CARRY_FOOD = 0, CARRY_WOOD, CARRY_STONE, CARRY_IRON, CARRY_GOLD };
+
+/* The two vessels, one column each on the ships sheet. A SMACK is the short hop — a hull, a
+ * low sail and a net over the side. A CARAVEL is what a town builds when it means to cross
+ * something: colonists to an island, or an expedition to another shore. Which one sails is
+ * decided by the length of the crossing, so a ten-cell strait and an ocean do not look
+ * the same. */
+enum { SHIP_NONE = 0, SHIP_SMACK, SHIP_CARAVEL };
 
 /* A pending piece of work on one cell. `arg` is the object for the kinds that place one. */
 enum { WS_NONE = 0, WS_BUILD, WS_PAVE, WS_PLOUGH, WS_PLANT };
@@ -579,6 +602,11 @@ int  mb_civ_count(int v, uint8_t obj);   /* how many of `obj` this village has *
 extern int mb_mined_iron, mb_mined_gold;  /* lifetime mine yield */
 int  mb_civ_tier(int v);               /* TIER_* from pop and what is standing */
 int  mb_civ_tech_ok(int v, int need);  /* does this village's kingdom know `need`? */
+int  mb_civ_quay(int v, int *qx, int *qy);   /* where this town's dock is; 0 if it has none */
+int  mb_civ_can_sail(int v);                 /* seafaring, and a dock to sail from */
+int  mb_sea_between(int ax, int ay, int bx, int by);   /* is there water on the straight line? */
+int  mb_unit_book_passage(int i, int lx, int ly);      /* walk to the quay and take ship */
+int  mb_unit_sea_route(int fx, int fy, int tx, int ty); /* is there a way by sea? */
 int  mb_tech_known(int k, int t);      /* by kingdom */
 int  mb_tech_avail(int k, int t);      /* prerequisites met and not yet known */
 void mb_nuke_strike(int from_k, int x, int y);
@@ -623,7 +651,7 @@ enum { GT_SOLDIER_THREAT = 0, GT_PRIEST_TEMPLE, GT_TRADER_TOWN, GT_QUAY_COAST,
        GT_WALL_TURN, GT_TOWER, GT_BARRACKS, GT_TEMPLE, GT_SILO, GT_CIVIC,
        GT_HALL2, GT_HALL3, GT_HOUSE, GT_SETTLE, GT_CARAVAN, GT_CARAVAN_FAR,
        GT_REBEL, GT_WAR, GT_PEACE, GT_ALLY, GT_CONQUEST, GT_EXPEDITION,
-       GT_HUSBANDRY, GT_CULL, GT_HUNT, GT_FISH, GT_N };
+       GT_HUSBANDRY, GT_CULL, GT_HUNT, GT_FISH, GT_VOYAGE, GT_N };
 #if MOTE_HOST
 extern uint32_t mb_gate_seen[GT_N], mb_gate_hit[GT_N];
 extern const char *const MB_GATE_NAME[GT_N];

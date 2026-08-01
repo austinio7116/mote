@@ -40,6 +40,7 @@
 #include "bd_rock.tiles.h"
 #include "blob47_lut.h"
 #include "town.h"
+#include "ships.h"
 #include "hot.h"
 
 /* The town sheet's geometry, in one place: 8 wide, 14 tall, drawn six pixels above
@@ -82,6 +83,12 @@ static const MoteAutotile *const MB_BANDS[8] = {
  * the two views agree — zooming in never recolours the ground. Kept as one table
  * next to the tileset list, because the pair has to move together. */
 #define C_NAVY    MOTE_RGB565( 29,  43,  83)
+/* THE DEEP, and it is the sea's own colour with the light taken out of it, not navy.
+ * The old value was a different hue as well as a much darker one, so the line where the
+ * deep met the shallows read as two unrelated surfaces meeting rather than as water
+ * getting deeper — and the deep has no tileset to soften that edge with: it is the scene
+ * BACKGROUND, one flat colour with a ripple pass drawn into it (mb_draw_sea_band). */
+#define C_DEEP    MOTE_RGB565( 25, 107, 158)
 #define C_MAROON  MOTE_RGB565(126,  37,  83)
 #define C_DKGREEN MOTE_RGB565(  0, 135,  81)
 /* The GRASS BAND is a third of the way to bright green so the artist's dark foliage
@@ -113,7 +120,7 @@ static const MoteAutotile *const MB_BANDS[8] = {
  * holding twenty tr_*.tiles.h headers, 192 KB of generated art, in every build. */
 
 static const uint16_t MB_COL[B_COUNT] = {
-    C_NAVY,    /* ocean    */ C_BLUE,   /* sea      */ C_BLUE,   /* shallow  */
+    C_DEEP,    /* ocean    */ C_BLUE,   /* sea      */ C_BLUE,   /* shallow  */
     C_WHITE,   /* ice      */ C_PEACH,  /* beach    */ C_YELLOW, /* desert   */
     C_ORANGE,  /* savanna  */ C_GRASS,  /* grass    */ C_GRASS,  /* swamp    */
     C_BROWN,   /* hill     */ C_DKGREY, /* mountain */ C_LTGREY, /* peak     */
@@ -412,10 +419,10 @@ static int s_cam_px, s_cam_py;
  */
 #define SEA_GRID   8          /* the lattice, one cell per tile, as in the tileset */
 #define SEA_DASHES 3          /* per cell — bands.ripples() lays three, so this lays three */
-static const uint16_t SEA_BODY  = MOTE_RGB565( 29,  43,  83);   /* C_NAVY: MB_COL[B_OCEAN] */
+static const uint16_t SEA_BODY  = C_DEEP;                      /* == MB_COL[B_OCEAN] */
 static const uint16_t SEA_CREST[2] = {
-    MOTE_RGB565( 45,  63, 112),   /* the ripple */
-    MOTE_RGB565( 62,  84, 140),   /* and the odd brighter one, as in the shallows */
+    MOTE_RGB565( 38, 128, 182),   /* the ripple */
+    MOTE_RGB565( 52, 148, 205),   /* and the odd brighter one, as in the shallows */
 };
 
 void mb_draw_sea_band(uint16_t *fb, int y0, int y1)
@@ -483,7 +490,7 @@ void mb_god_towns(uint16_t *fb, int y0, int y1)
                 int x = cx + dx, y = cy + dy;
                 if (x < 0 || x >= MW || y < y0 || y >= y1 || y >= VIEW_H) continue;
                 int inner = (dx >= -r && dx <= r && dy >= -r && dy <= r);
-                if (!inner) px_put(fb, x, y, C_NAVY);
+                if (!inner) px_put(fb, x, y, C_DEEP);
             }
         for (int dy = -r; dy <= r; dy++)
             for (int dx = -r; dx <= r; dx++) {
@@ -505,7 +512,7 @@ void mb_god_band(uint16_t *fb, int y0, int y1)
 
     for (int y = y0; y < y1; y++) {
         if (y >= VIEW_H) {                       /* HUD strip: overlay owns it */
-            for (int x = 0; x < MW; x++) px_put(fb, x, y, C_NAVY);
+            for (int x = 0; x < MW; x++) px_put(fb, x, y, C_DEEP);
             continue;
         }
         const uint8_t *brow = bio + y * MW;
@@ -1532,9 +1539,20 @@ void mb_draw_mortal(int cam_x, int cam_y)
         if (px < cam_x - TILE || py < cam_y - TILE ||
             px > cam_x + 128 || py > cam_y + VIEW_H) continue;
         int sheet, cx, cy;
-        mb_cast_pick(u, mb__hash2(i, u->given), &sheet, &cx, &cy);
-        const MoteImage *img = (sheet == 0) ? &characters_img
-                             : (sheet == 1) ? &monsters_img : &animals_img;
+        const MoteImage *img;
+        if (u->boat) {
+            /* AT SEA THEY ARE A SHIP. One column per vessel and one row per banner colour,
+             * because a sail is where a kingdom shows at sea — a brown mark on the water
+             * tells you nothing about whose expedition it is. */
+            int k = u->village ? mb_v[u->village].kingdom : 0;
+            cx = u->boat - 1;
+            cy = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;
+            img = &ships_img;
+        } else {
+            mb_cast_pick(u, mb__hash2(i, u->given), &sheet, &cx, &cy);
+            img = (sheet == 0) ? &characters_img
+                : (sheet == 1) ? &monsters_img : &animals_img;
+        }
         /* SUB-PIXEL, AND INTERPOLATED. This was `u->x >> 4 << 3` — take the tile, multiply
          * back up — which threw away the whole point of storing positions in sixteenths of a
          * cell. The struct's own comment promised "sub-tile smoothness" and the renderer

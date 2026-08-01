@@ -1048,6 +1048,53 @@ static int plan_open(int v, int x, int y)
     return cheb < 2 + (V->pop >= 18 ? 1 : 0);
 }
 
+/* WHERE A DOCK GOES: on the water, which nothing was checking.
+ *
+ * build_site() scores street frontage and closeness to the hall and knows nothing about the
+ * sea, so a town with a coast built its dock wherever the next plot happened to be — inland,
+ * usually, because that is where the streets are. Two systems were quietly built on top of
+ * that: fishing, which allows a catch only within three cells of the quay and so mostly
+ * yielded nothing, and now voyages, which put a ship in a field. Traced tick by tick, every
+ * ship in eight worlds beached on its first move because the quay it sailed from had no water
+ * beside it.
+ *
+ * A quay wants a shore cell with real water off it — two cells of it, so a puddle in a
+ * meadow is not a harbour — and it does NOT require frontage: a coast with no street on it is
+ * exactly where a dock belongs, and requiring a road there means a town never builds one. */
+static int quay_site(int v, int *ox, int *oy)
+{
+    Village *V = &mb_v[v];
+    int best = -1, bx = 0, by = 0;
+    static const int8_t FX[4] = { 1, -1, 0, 0 }, FY[4] = { 0, 0, 1, -1 };
+    for (int dy = -14; dy <= 14; dy++)
+        for (int dx = -14; dx <= 14; dx++) {
+            int x = V->x + dx, y = V->y + dy;
+            if (!mb_in(x, y) || mb_w.claim[AT(x, y)] != v) continue;
+            if (!buildable(x, y) || mb_is_build(mb_w.obj[AT(x, y)])) continue;
+            if (mb_w.road[AT(x, y)] || plan_open(v, x, y)) continue;
+            int sea = 0, open_sea = 0;
+            for (int k = 0; k < 4; k++) {
+                int nx = x + FX[k], ny = y + FY[k];
+                if (!mb_in(nx, ny) || !mb_water(mb_w.biome[AT(nx, ny)])) continue;
+                sea++;
+                /* and something to sail INTO: one more water cell the same way out */
+                int fx = x + FX[k] * 2, fy = y + FY[k] * 2;
+                if (mb_in(fx, fy) && mb_water(mb_w.biome[AT(fx, fy)])) open_sea = 1;
+            }
+            if (!sea || !open_sea) continue;
+            int front = 0;
+            for (int k = 0; k < 4; k++) {
+                int nx = x + FX[k], ny = y + FY[k];
+                if (mb_in(nx, ny) && mb_w.road[AT(nx, ny)]) front++;
+            }
+            int score = sea * 20 + front * 8 - (dx * dx + dy * dy) / 4;
+            if (score > best) { best = score; bx = x; by = y; }
+        }
+    if (best < 0) return 0;
+    *ox = bx; *oy = by;
+    return 1;
+}
+
 static int build_site(int v, int *ox, int *oy)
 {
     Village *V = &mb_v[v];
@@ -1305,6 +1352,7 @@ static void lord_think(int v)
     int x, y;
     if (B->obj == O_HALL2 || B->obj == O_HALL3) { x = V->x; y = V->y; }
     else if (B->obj == O_WALL) { if (!wall_site(v, &x, &y)) return; }
+    else if (B->obj == O_DOCK) { if (!quay_site(v, &x, &y)) return; }
     else if (!build_site(v, &x, &y)) return;
 
 #if MOTE_HOST
@@ -2111,6 +2159,13 @@ static void village_expedition(int v);
 uint32_t mb_expeditions, mb_conquests, mb_trades_far, mb_rebellions, mb_rebel_blocked;
 uint32_t mb_ws_dropped[5], mb_ws_done[5], mb_alliances, mb_tower_shots, mb_fish;
 uint32_t mb_refugees, mb_stock_raised;
+/* VOYAGES, counted at every stage, because "do ships happen" is a question about a
+ * running world and not about the code: booked (passage taken), sailed (actually got
+ * aboard at a quay), landed (arrived where it meant to), beached (a headland beat the
+ * straight line and it put in short). */
+uint32_t mb_voyages, mb_voyages_sailed, mb_voyages_landed, mb_voyages_beached;
+uint32_t mb_voyages_lost;   /* died at sea: hunger, age, or a kaiju in the water */
+uint32_t mb_lost_ticks, mb_lost_hunger, mb_land_ticks;
 uint32_t mb_plan_of[64], mb_built_of[64];
 #endif
 
@@ -2310,6 +2365,19 @@ static void village_expedition(int v)
     int dx = lx - V->x, dy = ly - V->y;
     if (dx * dx + dy * dy > 40 * 40) return;                 /* too far to be worth a life */
 
+    /* IS IT ACROSS WATER? Until now the answer did not matter and the party was sent anyway:
+     * a walker cannot enter the sea, so it paced up the beach until step_toward gave up and
+     * dropped the target, and an island town could not prospect at all. Now a town with a
+     * quay and seafaring sends the party BY SHIP, and a town without one does not send it at
+     * all — a party that cannot arrive is four hundred years of somebody walking into the
+     * surf. */
+    int by_sea = mb_sea_between(V->x, V->y, lx, ly);
+    if (by_sea) {
+        if (!mb_civ_can_sail(v)) return;
+        /* and the ship aims at the seam ITSELF: it puts in at the coast nearest it (the
+         * landfall rule in mb_unit.c) and the party walks the last few cells. */
+    }
+
     /* is somebody already out there for it? then this town has its expedition */
     uint16_t goal = (uint16_t)AT(lx, ly);
     for (int i = 0; i < mb_nu; i++) {
@@ -2332,6 +2400,12 @@ static void village_expedition(int v)
     mb_u[best].job = JOB_WORK;
     mb_u[best].target = goal;
     mb_u[best].mission = (uint16_t)(goal + 1);
+    if (by_sea) {
+        (void)MB_GATE(GT_VOYAGE, mb_unit_book_passage(best, lx, ly));
+#if MOTE_HOST
+        {   extern uint32_t mb_voyages; mb_voyages++; }
+#endif
+    }
 #if MOTE_HOST
     {   extern uint32_t mb_expeditions;
         mb_expeditions++; }
@@ -2346,14 +2420,53 @@ static void village_expedition(int v)
 static int village_quay(int v, int *qx, int *qy)
 {
     const Village *V = &mb_v[v];
-    for (int dy = -11; dy <= 11; dy++)
-        for (int dx = -11; dx <= 11; dx++) {
+    /* FOURTEEN, to match quay_site's reach. It was eleven, and a dock sited twelve or
+     * fourteen cells out — which the build-site scan allows — could not be found by the town
+     * that built it: no fishing from it, and colonists fell through to being teleported. */
+    for (int dy = -14; dy <= 14; dy++)
+        for (int dx = -14; dx <= 14; dx++) {
             int x = V->x + dx, y = V->y + dy;
             if (!mb_in(x, y)) continue;
             if (mb_w.obj[AT(x, y)] == O_DOCK && mb_w.claim[AT(x, y)] == v) {
                 *qx = x; *qy = y; return 1;
             }
         }
+    return 0;
+}
+
+/* THE THREE QUESTIONS A VOYAGE ASKS, public because the answers belong to the town and the
+ * asking is done by the traveller (mb_unit.c). */
+int mb_civ_quay(int v, int *qx, int *qy)
+{
+    if (v <= 0 || v >= MAXV || !mb_v[v].alive) return 0;
+    return village_quay(v, qx, qy);
+}
+
+int mb_civ_can_sail(int v)
+{
+    int qx, qy;
+    return v > 0 && v < MAXV && mb_v[v].alive
+        && mb_civ_tech_ok(v, TECH_SEAFARING) && village_quay(v, &qx, &qy);
+}
+
+/* Is there water on the straight line between two cells? Not a route — a route over water is
+ * what the ship is for — but the question "would walking this mean walking on the sea", which
+ * is what decides whether a party goes on foot or takes passage. Bresenham, so it costs the
+ * length of the line and nothing else. */
+int mb_sea_between(int ax, int ay, int bx, int by)
+{
+    int dx = bx - ax, dy = by - ay;
+    int sx = dx < 0 ? -1 : 1, sy = dy < 0 ? -1 : 1;
+    if (dx < 0) dx = -dx;
+    if (dy < 0) dy = -dy;
+    int err = dx - dy, x = ax, y = ay;
+    for (int guard = 0; guard < MW + MH; guard++) {
+        if (x == bx && y == by) return 0;
+        if (mb_in(x, y) && mb_water(mb_w.biome[AT(x, y)])) return 1;
+        int e2 = err * 2;
+        if (e2 > -dy) { err -= dy; x += sx; }
+        if (e2 <  dx) { err += dx; y += sy; }
+    }
     return 0;
 }
 
@@ -2427,6 +2540,29 @@ void mb_village_work(int v, int ui)
 
     if (u->carry) {                                    /* heading home */
         int hx, hy;
+        /* THE RETURN LEG. Without this the walk home is a straight line to the hall — over the
+         * sea, because the laden walk follows a gradient and falls back to a bee-line — so the
+         * expedition that correctly took ship on the way out came back across the water on
+         * foot. A carrier standing on a shore, with its town across water and a quay to make
+         * for, takes ship. Inland it keeps walking, which is how it reaches the shore. */
+        if (!u->boat && !u->voyage && !u->sail_wait && u->mission && mb_civ_can_sail(v)
+            && mb_sea_between(x, y, V->x, V->y)
+            && ((mb_in(x + 1, y) && mb_water(mb_w.biome[AT(x + 1, y)])) ||
+                (mb_in(x - 1, y) && mb_water(mb_w.biome[AT(x - 1, y)])) ||
+                (mb_in(x, y + 1) && mb_water(mb_w.biome[AT(x, y + 1)])) ||
+                (mb_in(x, y - 1) && mb_water(mb_w.biome[AT(x, y - 1)])))) {
+            int qx, qy;
+            if (village_quay(v, &qx, &qy) && mb_unit_sea_route(x, y, qx, qy)) {
+                u->voyage = (uint16_t)(AT(qx, qy) + 1);
+                u->boat = (uint8_t)(((qx - x) * (qx - x) + (qy - y) * (qy - y)) > 100
+                                    ? SHIP_CARAVEL : SHIP_SMACK);
+                u->sail_wait = 0; u->sail_hit = 0;
+#if MOTE_HOST
+                { extern uint32_t mb_voyages_sailed; mb_voyages_sailed++; }
+#endif
+                return;                                /* under way: voyage_step has them now */
+            }
+        }
         if ((x == V->x && y == V->y) ||
             ((V->x - x) * (V->x - x) + (V->y - y) * (V->y - y) <= 2)) {
             switch (u->carry_kind) {
@@ -2597,7 +2733,7 @@ const char *const MB_GATE_NAME[GT_N] = {
     "civic pick", "great hall wanted", "castle wanted", "house wanted", "colony sent",
     "caravan despatched", "caravan across border", "rebellion", "war declared", "peace made",
     "alliance", "town taken", "expedition sent", "stock raised", "beast driven off",
-    "hunt scored", "catch landed",
+    "hunt scored", "catch landed", "passage booked",
 };
 #endif
 
@@ -2931,6 +3067,16 @@ static void maybe_settle(int v)
         int nav = mb_civ_tech_ok(v, TECH_NAVIGATION);
         if (seaborne && ((t & 1) || nav)) d += 12 + (int)((r >> t) & 15) + (nav ? 14 : 0);
         int x = V->x + DX[ang] * d, y = V->y + DY[ang] * d;
+        /* AND IF IT IS ACROSS WATER, A SHIP HAS TO BE ABLE TO GET THERE. Otherwise the colony
+         * is founded, the fleet sails, and four colonists spend two years failing to reach a
+         * hall on the wrong side of a continent — which is what the counters showed: more
+         * crossings put in short than ever landed. Checked before founding, so the town
+         * simply tries another heading. */
+        {   int qx2, qy2;
+            if (mb_in(x, y) && mb_sea_between(V->x, V->y, x, y)
+                && (!village_quay(v, &qx2, &qy2) || !mb_unit_sea_route(qx2, qy2, x, y)))
+                continue;
+        }
         if (mb_village_found(V->sp, x, y, V->kingdom)) {
             int nv = mb_village_count_last();
 #if MOTE_HOST
@@ -2954,8 +3100,30 @@ static void maybe_settle(int v)
                     mb_u[i].village = (uint8_t)nv;
                     mb_u[i].job = JOB_IDLE; mb_u[i].target = 0xFFFF;
                     if (seaborne) {
-                        mb_u[i].x = (uint16_t)(mb_v[nv].x * 16 + 8);
-                        mb_u[i].y = (uint16_t)(mb_v[nv].y * 16 + 8);
+                        /* THEY TAKE SHIP instead of appearing on the far shore. The colony is
+                         * founded at departure — the hall goes up and the claim is made — and
+                         * the four of them are put aboard at the parent town's quay with the
+                         * new hall as their landing. The village cannot die while they are at
+                         * sea: they already belong to it, so its population is four.
+                         *
+                         * They are placed ON the quay rather than walking to it, which the
+                         * expedition does: their village is already the new one, so there is
+                         * no town of their own left for them to walk through. */
+                        int qx = 0, qy = 0;
+                        if (village_quay(v, &qx, &qy)) {
+                            mb_u[i].x = (uint16_t)(qx * 16 + 8);
+                            mb_u[i].y = (uint16_t)(qy * 16 + 8);
+                            mb_u[i].voyage = (uint16_t)(AT(mb_v[nv].x, mb_v[nv].y) + 1);
+                            mb_u[i].boat = SHIP_CARAVEL;
+                            mb_u[i].sail_wait = 0;
+                            mb_u[i].sail_dir = 0;
+#if MOTE_HOST
+                            {   extern uint32_t mb_voyages_sailed; mb_voyages_sailed++; }
+#endif
+                        } else {                     /* no quay: the old behaviour, ashore */
+                            mb_u[i].x = (uint16_t)(mb_v[nv].x * 16 + 8);
+                            mb_u[i].y = (uint16_t)(mb_v[nv].y * 16 + 8);
+                        }
                     }
                     moved++;
                 }

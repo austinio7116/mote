@@ -293,17 +293,37 @@ def woodcutter(banner):
     return im
 
 
+# The dock's own timbers. Everything else on this sheet is a building seen from the side,
+# so it shares WALL/roof colours; a jetty is decking seen from ABOVE and wants plank tones.
+PLANK, PLANK2 = (150, 106, 72), (128, 88, 58)
+PLANK_LIT, PLANK_GAP = (188, 142, 98), (86, 62, 44)
+POST = (74, 56, 42)
+
+
 def dock(banner):
-    """A jetty with a moored boat: the only building that belongs on the water's edge,
-    so its silhouette has to say so."""
+    """AN L-JETTY, SEEN FROM ABOVE. Boards run out from the shore and then turn along it, so
+    the water inside the elbow is sheltered — the most harbour-like shape available in eight
+    pixels, and the only building outline that is not a rectangle.
+
+    IT IS DRAWN TOP DOWN, in the bottom eight rows of the cell, which is the whole point. Every
+    other building here is an elevation with a pitched roof, because a house is a thing you see
+    the side of. A dock is not: it is flat, it lies ON the water, and the old side-on version
+    with a mast and a sail read as a table with a napkin on it. Top down it lies on the ground
+    the way a road does, and the boats moored to it are drawn as boats.
+    """
+    (void_roof, void_shade, void_ridge) = banner
     im, px = _blank()
-    _rect(px, 0, 9, W - 1, 10, BROWN)                 # the decking
-    _rect(px, 0, 9, W - 1, 9, PEACH)
-    for x in (1, 4, 6):
-        _rect(px, x, 11, x, H - 1, DKGREY)            # piles
-    _rect(px, 2, 6, 2, 8, BROWN)                      # the mast
-    _rect(px, 3, 6, 5, 8, WHITE)                      # and its sail
-    px[3, 6] = LTGREY + (255,)
+    t = H - 8                                       # the tile itself starts here
+    for x in (1, 2):                                # the walk out, north to south
+        _rect(px, x, t, x, H - 1, PLANK if x == 1 else PLANK2)
+    for y in range(H - 2, H):                       # and the arm along the shore
+        _rect(px, 1, y, 7, y, PLANK if y % 2 else PLANK2)
+    _rect(px, 1, t, 2, t, PLANK_LIT)                # the landward end catches the light
+    _rect(px, 1, H - 2, 7, H - 2, PLANK_LIT)
+    _rect(px, 3, H - 1, 3, H - 1, PLANK_GAP)        # two board gaps, so it reads as decking
+    _rect(px, 6, H - 1, 6, H - 1, PLANK_GAP)
+    px[7, H - 3] = POST + (255,)                    # mooring posts on the outer arm
+    px[5, H - 3] = POST + (255,)
     return im
 
 
@@ -1025,3 +1045,69 @@ def build():
 
 def names():
     return [n for n, _ in BUILDINGS]
+
+
+# --------------------------------------------------------------------- ships ----
+# EIGHT BY EIGHT, not 8x14: a ship is drawn where a person would be, on open water, so it is
+# a unit-sized sprite rather than a building. Five rows again — the SAIL takes the banner
+# colour, which is what makes a ship at sea readable as somebody's ship rather than as a
+# brown mark. Chosen from a sheet of six candidates; see authoring/dock_ship_options.py.
+
+SHIP_W = SHIP_H = 8
+HULL, HULL_LIT = BROWN, (186, 138, 96)
+WAKE = (36, 62, 104)
+NET = (120, 130, 120)
+
+
+def _blank8():
+    im = Image.new("RGBA", (SHIP_W, SHIP_H), (0, 0, 0, 0))
+    return im, im.load()
+
+
+def smack(banner):
+    """THE FISHING BOAT. A small hull, a low dirty sail and a net trailing over the side: what
+    puts out from a quay to fish rather than to travel. One figure aboard, in the town's
+    colour."""
+    roof, shade, ridge = banner
+    im, px = _blank8()
+    _rect(px, 4, 1, 4, 4, TIMBER)                   # the mast
+    _rect(px, 2, 2, 3, 4, WHITE)                    # a small sail, weathered
+    px[2, 2] = LTGREY + (255,)
+    _rect(px, 1, 5, 6, 6, HULL)
+    _rect(px, 1, 5, 6, 5, HULL_LIT)
+    px[0, 6] = NET + (255,); px[1, 7] = NET + (255,)   # the net, trailing
+    px[6, 4] = roof + (255,)                        # a fisher aboard
+    _rect(px, 2, 7, 5, 7, WAKE)
+    return im
+
+
+def caravel(banner):
+    """THE TRAVELLING SHIP. Two masts, a square sail forward and a lateen aft — what a town
+    builds when it means to CROSS something: colonists to an island, an expedition to a seam
+    of iron on another shore."""
+    roof, shade, ridge = banner
+    im, px = _blank8()
+    _rect(px, 2, 0, 2, 5, TIMBER)
+    _rect(px, 5, 1, 5, 5, TIMBER)
+    _rect(px, 0, 1, 1, 4, roof)                     # the square sail forward
+    _rect(px, 1, 1, 1, 4, shade)
+    px[0, 1] = ridge + (255,)
+    px[6, 2] = roof + (255,)                        # the lateen aft, a triangle
+    _rect(px, 6, 3, 7, 4, roof)
+    px[7, 4] = shade + (255,)
+    _rect(px, 0, 5, 7, 6, HULL)
+    _rect(px, 1, 5, 6, 5, HULL_LIT)
+    _rect(px, 2, 7, 5, 7, WAKE)
+    return im
+
+
+SHIPS = [("smack", smack), ("caravel", caravel)]
+
+
+def build_ships():
+    """One column per vessel, one row per banner colour: 2 x 5 cells of 8 x 8."""
+    sheet = Image.new("RGBA", (SHIP_W * len(SHIPS), SHIP_H * len(BANNERS)), (0, 0, 0, 0))
+    for row, banner in enumerate(BANNERS):
+        for col, (_name, fn) in enumerate(SHIPS):
+            sheet.paste(fn(banner), (col * SHIP_W, row * SHIP_H))
+    return sheet

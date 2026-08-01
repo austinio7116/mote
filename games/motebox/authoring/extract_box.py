@@ -626,6 +626,12 @@ def build_rocks():
     save_sheet("rocks", rocks.build())
 
 
+def build_ships():
+    """The vessels — their own 8x8 sheet, because a ship is drawn where a person is."""
+    import build_sprites
+    save_sheet("ships", build_sprites.build_ships())
+
+
 def build_town():
     """The settlement's own sprites — see authoring/build_sprites.py.
 
@@ -839,6 +845,7 @@ def main():
     build_ore()
     build_roads()
     build_rocks()
+    build_ships()
     build_town()
     build_bands()
     build_hot()

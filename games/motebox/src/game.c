@@ -54,6 +54,7 @@ static int s_frame;
 static int s_god = 1;                /* 1 = God's Eye, 0 = Mortal View */
 static int s_boot_mortal = 0;        /* MOTEBOX_MORTAL=1, host captures only  */
 static int s_cx = MW / 2, s_cy = MH / 2;
+int mb_cam_ship;    /* MOTEBOX_CAM=s: keep the camera on a ship at sea */
 static int s_cam_x, s_cam_y;
 static float s_hold;                 /* how long the d-pad has been held */
 static float s_move_acc;
@@ -1672,6 +1673,18 @@ static void g_init(void)
                     fprintf(stderr, "cam -> a person at %d,%d\n", s_cx, s_cy);
                     break;
                 }
+        } else if (cv && *cv == 's') {
+            /* CAM=s parks on a SHIP, and if none is at sea it waits for one: a voyage lasts
+             * about forty ticks out of a town's eight-year settling cycle, so the odds of a
+             * blind screenshot catching one are poor enough that the first three attempts
+             * photographed an empty ocean. mb_cam_follow_ship keeps the camera on it. */
+            mb_cam_ship = 1;
+            for (int i = 0; i < mb_nu; i++)
+                if (mb_u[i].alive && mb_u[i].boat) {
+                    s_cx = mb_u[i].x >> 4; s_cy = mb_u[i].y >> 4;
+                    fprintf(stderr, "cam -> a ship at %d,%d\n", s_cx, s_cy);
+                    break;
+                }
         } else if (cv && *cv == 'w') {
             /* CAM=w parks on the thickest run of city WALL, which is the only way to see
              * whether the forty-seven-cell sets are turning corners. */
@@ -1884,6 +1897,45 @@ static void g_init(void)
      * both to fighting at the camera. Wars are rare and their front lines wander, so
      * "does a battle look like a battle" was not a question a screenshot could answer
      * without this — the same reason the tsunami and the strike have hooks. */
+    /* MOTEBOX_SAIL=1 sends one villager of a town with a quay across the water at once, and
+     * parks the camera on them. A voyage lasts about forty ticks and a town settles once in
+     * eight years, so photographing one otherwise means running a world and hoping — three
+     * attempts at that produced three pictures of an empty ocean. */
+    if (getenv("MOTEBOX_SAIL")) {
+        int sent = 0;
+        for (int v = 1; v < MAXV && !sent; v++) {
+            int qx, qy;
+            if (!mb_v[v].alive || !mb_civ_quay(v, &qx, &qy)) continue;
+            /* the farthest shore cell across water from this quay, so the crossing is a
+             * crossing and not a paddle */
+            int bx = -1, by = 0, bd = 0;
+            for (int y = 0; y < MH; y += 2)
+                for (int x = 0; x < MW; x += 2) {
+                    if (!mb_land(mb_w.biome[AT(x, y)])) continue;
+                    if (!((mb_in(x + 1, y) && mb_water(mb_w.biome[AT(x + 1, y)])) ||
+                          (mb_in(x - 1, y) && mb_water(mb_w.biome[AT(x - 1, y)])) ||
+                          (mb_in(x, y + 1) && mb_water(mb_w.biome[AT(x, y + 1)])) ||
+                          (mb_in(x, y - 1) && mb_water(mb_w.biome[AT(x, y - 1)])))) continue;
+                    if (!mb_sea_between(qx, qy, x, y)) continue;
+                    int d = (x - qx) * (x - qx) + (y - qy) * (y - qy);
+                    if (d > bd && d < 60 * 60) { bd = d; bx = x; by = y; }
+                }
+            if (bx < 0) continue;
+            for (int i = 0; i < mb_nu && !sent; i++) {
+                if (!mb_u[i].alive || mb_u[i].village != v || mb_u[i].sp >= SP_CIV_N) continue;
+                if (mb_u[i].prof == PROF_LORD) continue;
+                mb_u[i].x = (uint16_t)(qx * 16 + 8);
+                mb_u[i].y = (uint16_t)(qy * 16 + 8);
+                if (!mb_unit_book_passage(i, bx, by)) continue;
+                sent = 1;
+                mb_cam_ship = 1;
+                s_cx = qx; s_cy = qy;
+                fprintf(stderr, "sail: %d,%d -> %d,%d (%d cells)\n",
+                        qx, qy, bx, by, (int)(bd > 0 ? 1 : 0) ? (int)(bx - qx) : 0);
+            }
+        }
+        if (!sent) fprintf(stderr, "sail: no town with a quay and a shore across water\n");
+    }
     if (getenv("MOTEBOX_BATTLE")) {
         int a = 0, b = 0;
         for (int k = 1; k < MAXK; k++) {
@@ -2346,12 +2398,28 @@ static void g_init(void)
                         for (int q = 1; q < PROF_N; q++)
                             fprintf(stderr, " %s=%d", MB_PROF_NAME[q], prof[q]);
                         {   extern uint32_t mb_expeditions, mb_conquests, mb_trades_far;
+                            extern uint32_t mb_voyages, mb_voyages_sailed;
+                            extern uint32_t mb_voyages_landed, mb_voyages_beached, mb_voyages_lost;
+                            extern uint32_t mb_lost_ticks, mb_lost_hunger, mb_land_ticks;
+                            extern int mb_seaborne_colonies;
+                            int afloat = 0;
+                            for (int q = 0; q < mb_nu; q++)
+                                if (mb_u[q].alive && mb_u[q].boat) afloat++;
                             fprintf(stderr, "\n  lords in the world %d, on guard %d, "
                                             "%u expeditions sent\n"
                                             "  %u towns taken by force, "
-                                            "%u caravans across a border\n",
+                                            "%u caravans across a border\n"
+                                            "  %u expeditions took ship, %d colonies sailed, "
+                                            "%d at sea now\n"
+                                            "  voyages: %u boarded, %u landed, %u put in short, %u lost at sea\n"
+                                            "  mean ticks: landed %u, lost %u (hunger %u)\n",
                                     lords, guards, mb_expeditions,
-                                    mb_conquests, mb_trades_far);
+                                    mb_conquests, mb_trades_far,
+                                    mb_voyages, mb_seaborne_colonies, afloat,
+                                    mb_voyages_sailed, mb_voyages_landed, mb_voyages_beached, mb_voyages_lost,
+                                    mb_voyages_landed ? mb_land_ticks / mb_voyages_landed : 0,
+                                    mb_voyages_lost ? mb_lost_ticks / mb_voyages_lost : 0,
+                                    mb_voyages_lost ? mb_lost_hunger / mb_voyages_lost : 0);
                             extern uint32_t mb_rebellions, mb_rebel_blocked;
                             extern uint32_t mb_ws_dropped[5], mb_ws_done[5];
                             fprintf(stderr, "  work done  build=%u pave=%u plough=%u plant=%u\n"
@@ -2671,6 +2739,20 @@ static void g_update(float dt)
                 mb_faith_step();
                 mb_age_step();
 #if MOTE_HOST
+                /* MOTEBOX_CAM=s / MOTEBOX_SAIL: hold the camera on whatever is at sea. A
+                 * crossing lasts about forty ticks and a town settles once in eight years,
+                 * so a fixed camera photographs an empty ocean. */
+                if (mb_cam_ship) {
+                    for (int q = 0; q < mb_nu; q++)
+                        if (mb_u[q].alive && (mb_u[q].boat || mb_u[q].voyage)) {
+                            /* THREE CELLS OFF, so the inspect ring is not sitting on top of the
+                             * thing being photographed: it is drawn at the cursor and it covers
+                             * a ship exactly. */
+                            s_cx = (mb_u[q].x >> 4) + 3; s_cy = mb_u[q].y >> 4;
+                            cam_follow();
+                            break;
+                        }
+                }
                 if (s_trace)
                     fprintf(stderr, "tick %d flux=%d pop=%d civ=%d v=%d k=%d faith=%d %s"
                                     " wild=%d died a%d w%d e%d s%d d%d p%d f%d"

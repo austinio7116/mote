@@ -14,6 +14,10 @@
  *
  * All integer, all from mb_rand(seed, tick, salt): a world replays exactly.
  */
+#if MOTE_HOST
+#include <stdio.h>        /* the ship trace, MOTEBOX_SHIPDBG */
+#include <stdlib.h>
+#endif
 #include "mb.h"
 #if MOTE_HOST
 int mb_nodouse;
@@ -212,6 +216,14 @@ int mb_unit_passable(int sp, int x, int y)
 int mb_unit_may_enter(int i, int x, int y)
 {
     const Unit *u = &mb_u[i];
+    if (u->boat) {
+        /* AT SEA THE RULE INVERTS: open water is the road and land is the wall. Getting off
+         * is not a move — see the landfall rule in voyage_step, which puts the traveller on
+         * the beach and takes the boat away in one step. */
+        if (!mb_in(x, y)) return 0;
+        uint8_t b = mb_w.biome[AT(x, y)];
+        return mb_water(b) && b != B_ICE;
+    }
     if (!mb_unit_passable(u->sp, x, y)) return 0;
     int c = AT(x, y);
     if (mb_w.obj[c] != O_WALL) return 1;
@@ -324,6 +336,10 @@ static void kill(int i, int cause)
      * it simply never receives — which is the point of trade being a person on a road */
     if (u->job == JOB_HAUL) u->carry = 0;
     int tx = u->x >> 4, ty = u->y >> 4;
+#if MOTE_HOST
+    if (u->boat) { extern uint32_t mb_voyages_lost, mb_lost_ticks, mb_lost_hunger;
+                   mb_voyages_lost++; mb_lost_ticks += u->sail_wait; mb_lost_hunger += u->hunger; }
+#endif
     s_pop[u->sp]--; s_deaths++;
     if (u->sp < SP_CIV_N && cause >= 0 && cause < CAUSE_N) s_dcause[cause]++;
     mb_chron_death(i, cause);
@@ -459,6 +475,16 @@ static void step_toward(Unit *u, int tx, int ty)
         int g = mb_road_grade(AT(cx, cy));
         if (g >= 0) spd += spd * (5 + g * 3) / 20;        /* +25% track .. +100% tarmac */
     }
+    /* AND A SHIP OUTRUNS A WALKER, which is the reason to have one at all: open water is the
+     * fastest road in the world before roads are metalled.
+     *
+     * CAPPED BELOW ONE CELL A TICK, and that cap is not a detail. A step is checked at its
+     * DESTINATION cell only, so a stride longer than a cell steps OVER the cell in between —
+     * and a ship doing a cell and a half a tick, sitting near the edge of its square, lands
+     * on the far bank of a one-cell channel every single time, is refused every single time,
+     * and never moves again. Traced: a ship stuck on the same square for a hundred and
+     * twenty ticks, asking for the same heading, granted it, and going nowhere. */
+    if (u->boat) { spd *= 2; if (spd > 15) spd = 15; }
     int dx = tx - cx, dy = ty - cy;
     if (!dx && !dy) return;
 
@@ -1444,7 +1470,12 @@ static void suffer(int i)
 
     /* hunger, and starvation */
     int starving = 0;
-    if (u->hunger < 255) u->hunger++;
+    /* A SHIP CARRIES PROVISIONS. Measured without this: of 184 crossings in one world, 152
+     * ended with the traveller dead of hunger at sea — a colony fleet that starves to a man
+     * is not a colony fleet. Salt meat and water is the oldest thing about a ship, and it
+     * makes the sea a delay rather than a death sentence. It only slows hunger, so a voyage
+     * that goes badly wrong still ends badly. */
+    if (u->hunger < 255 && (!u->boat || (mb_w.tick & 3) == 0)) u->hunger++;
     if (u->hunger > 200) { u->hp -= 2; u->happy -= 2; starving = 1; }
 
     /* regeneration when fed and safe */
@@ -1471,6 +1502,344 @@ static void suffer(int i)
 }
 
 /* --- the tick ----------------------------------------------------------- */
+
+/* --- VOYAGES -------------------------------------------------------------
+ *
+ * A voyage outranks everything a villager might otherwise be thinking about, which is the
+ * whole reason it is a field of its own rather than a job: a job is re-decided every eight
+ * ticks and a crossing takes forty. Three things book one — colonists for an island, an
+ * expedition to a resource on another shore, and the same expedition coming home — and all
+ * three go through here.
+ *
+ * There is NO SEA PATHFINDER. A ship steers straight for its landing and slides along when a
+ * headland is in the way, which is enough for the crossings that actually get booked (the
+ * caller only books one when the straight line is mostly water). When it is not enough the
+ * ship beaches itself at the nearest shore rather than butting against a cliff for ever:
+ * arriving in the wrong bay and walking is a worse outcome than the voyage, and an infinitely
+ * stuck unit is a bug.
+ *
+ * Returns 1 if the traveller is under way and the ordinary brain must not run this tick. */
+static int beach_nearest(int x, int y, int *bx, int *by)
+{
+    for (int r = 1; r <= 6; r++)
+        for (int dy = -r; dy <= r; dy++)
+            for (int dx = -r; dx <= r; dx++) {
+                if (dx * dx + dy * dy > r * r) continue;
+                int nx = x + dx, ny = y + dy;
+                if (!mb_in(nx, ny) || !mb_land(mb_w.biome[AT(nx, ny)])) continue;
+                *bx = nx; *by = ny; return 1;
+            }
+    return 0;
+}
+
+/* Can a ship be here? Open water, or the one piece of land it is aiming at. */
+#define SEA_LANDFALL 7        /* cells from the destination at which a ship puts in regardless */
+#define SEA_ASHORE_WAIT 40    /* ticks a lander must walk before it may take ship again */
+
+static int sailable(const Unit *u, int x, int y)
+{
+    (void)u;
+    if (!mb_in(x, y)) return 0;
+    uint8_t b = mb_w.biome[AT(x, y)];
+    return mb_water(b) && b != B_ICE;                /* ice is not water you can sail */
+}
+
+static const int8_t SEA_DX[8] = {  1,  1,  0, -1, -1, -1,  0,  1 };
+static const int8_t SEA_DY[8] = {  0,  1,  1,  1,  0, -1, -1, -1 };
+
+static int heading_to(int dx, int dy)
+{
+    /* the eight-way direction of (dx, dy), as an index into SEA_D* */
+    if (dx > 0 && dy == 0) return 0;
+    if (dx > 0 && dy > 0)  return 1;
+    if (dx == 0 && dy > 0) return 2;
+    if (dx < 0 && dy > 0)  return 3;
+    if (dx < 0 && dy == 0) return 4;
+    if (dx < 0 && dy < 0)  return 5;
+    if (dx == 0 && dy < 0) return 6;
+    return 7;
+}
+
+/* --- THE SEA ROUTE -------------------------------------------------------
+ *
+ * Coast-following alone cannot route around a landmass, and the measurements said so: with
+ * nothing but a heading and a wall-follow, roughly three crossings in four ended with the
+ * ship giving up two years later and putting in wherever it had got to. A ship needs to know
+ * that the way round an island is south before it sails north for a hundred ticks.
+ *
+ * So there is a flood fill from the destination over open water, on a COARSE grid — one cell
+ * per four, thirty-two by twenty-eight — and the ship steers down its gradient. Coarse
+ * because that is what fits: the fine grid would want fourteen kilobytes of scratch and the
+ * device has none to spare, while four-cell steering is more than precise enough when the
+ * coast-follow below handles the last few pixels. The field is built once per destination and
+ * shared by every ship going there, which is what a colony fleet is.
+ */
+#define SEA_C   4
+#define SEA_CW  (MW / SEA_C)
+#define SEA_CH  (MH / SEA_C)
+#define SEA_FAR 255
+
+static uint8_t  s_sea_d[SEA_CW * SEA_CH];
+static uint16_t s_sea_q[SEA_CW * SEA_CH];
+static int      s_sea_goal = -1;      /* the destination the field was built for */
+static int32_t  s_sea_built = -1;     /* and when, so terrain changes are picked up */
+
+/* MOSTLY water, not merely touching it. With "any water counts" the route happily ran through
+ * a square that was fifteen parts rock and one part rock pool, and the ship then steered at a
+ * wall: traced, a ship asking for the same blocked heading for a hundred and twenty ticks
+ * while the field insisted that was the way. Half the square has to be sea for a ship to be
+ * routed through it, which keeps the route in open water where a ship belongs. */
+static int sea_coarse_water(int cx, int cy)
+{
+    if (cx < 0 || cy < 0 || cx >= SEA_CW || cy >= SEA_CH) return 0;
+    int n = 0;
+    for (int y = cy * SEA_C; y < cy * SEA_C + SEA_C; y++)
+        for (int x = cx * SEA_C; x < cx * SEA_C + SEA_C; x++) {
+            uint8_t b = mb_w.biome[AT(x, y)];
+            if (mb_water(b) && b != B_ICE) n++;
+        }
+    return n * 2 >= SEA_C * SEA_C;
+}
+
+static void sea_field(int goal)
+{
+    if (s_sea_goal == goal && mb_w.tick - s_sea_built < 200) return;
+    s_sea_goal = goal; s_sea_built = mb_w.tick;
+    for (int i = 0; i < SEA_CW * SEA_CH; i++) s_sea_d[i] = SEA_FAR;
+    int gx = (goal % MW) / SEA_C, gy = (goal / MW) / SEA_C;
+    int head = 0, tail = 0;
+    /* SEEDED FROM THE WATER NEAR THE DESTINATION, not from the destination itself. A hall or a
+     * seam of iron is usually inland, and an inland coarse cell has no water in it, so a field
+     * grown from the cell itself came out completely empty — every ship then fell back to
+     * steering by eye and hugging whatever coast it met. Every water square within three
+     * coarse cells of the destination is a place worth arriving at, so they are all sources. */
+    for (int dy = -3; dy <= 3; dy++)
+        for (int dx = -3; dx <= 3; dx++) {
+            int nx = gx + dx, ny = gy + dy;
+            if (nx < 0 || ny < 0 || nx >= SEA_CW || ny >= SEA_CH) continue;
+            if (!sea_coarse_water(nx, ny)) continue;
+            int n = ny * SEA_CW + nx;
+            s_sea_d[n] = 0;
+            s_sea_q[tail++] = (uint16_t)n;
+        }
+    while (head < tail) {
+        int c = s_sea_q[head++];
+        int cx = c % SEA_CW, cy = c / SEA_CW;
+        int nd = s_sea_d[c] + 1;
+        if (nd >= SEA_FAR) continue;
+        for (int k = 0; k < 8; k++) {
+            int nx = cx + SEA_DX[k], ny = cy + SEA_DY[k];
+            if (nx < 0 || ny < 0 || nx >= SEA_CW || ny >= SEA_CH) continue;
+            int n = ny * SEA_CW + nx;
+            if (s_sea_d[n] <= nd) continue;
+            if (!sea_coarse_water(nx, ny)) continue;   /* the goal itself may be dry land */
+            s_sea_d[n] = (uint8_t)nd;
+            if (tail < SEA_CW * SEA_CH) s_sea_q[tail++] = (uint16_t)n;
+        }
+    }
+}
+
+/* The cell to steer for: the middle of the next coarse cell down the gradient, or the
+ * destination itself once we are in its coarse cell (or the field has nothing to say). */
+static void sea_waypoint(int x, int y, int lx, int ly, int *wx, int *wy)
+{
+    *wx = lx; *wy = ly;
+    sea_field(AT(lx, ly));
+    int cx = x / SEA_C, cy = y / SEA_C;
+    int here = s_sea_d[cy * SEA_CW + cx];
+    if (here == 0) return;                              /* in the destination's own square */
+    int best = here, bx = -1, by = 0;
+    for (int k = 0; k < 8; k++) {
+        int nx = cx + SEA_DX[k], ny = cy + SEA_DY[k];
+        if (nx < 0 || ny < 0 || nx >= SEA_CW || ny >= SEA_CH) continue;
+        int d = s_sea_d[ny * SEA_CW + nx];
+        if (d < best) { best = d; bx = nx; by = ny; }
+    }
+    if (bx < 0) return;                                 /* off the field: steer by eye */
+    *wx = bx * SEA_C + SEA_C / 2;
+    *wy = by * SEA_C + SEA_C / 2;
+}
+
+static int voyage_step(int i)
+{
+    Unit *u = &mb_u[i];
+    if (!u->voyage) return 0;
+#if MOTE_HOST
+    {   static int dbg0 = -1;
+        if (dbg0 < 0) dbg0 = getenv("MOTEBOX_SHIPDBG") ? 1 : 0;
+        if (dbg0) fprintf(stderr, "voy %d t%u boat %d voyage %d at %d,%d village %d\n",
+                          i, (unsigned)mb_w.tick, (int)u->boat, (int)u->voyage,
+                          u->x >> 4, u->y >> 4, (int)u->village); }
+#endif
+    int x = u->x >> 4, y = u->y >> 4;
+    int lx = (int)((u->voyage - 1) % MW), ly = (int)((u->voyage - 1) / MW);
+
+    if (!u->boat) {
+        /* PASSAGE BOOKED, not yet aboard: the traveller walks through their own town to the
+         * quay. Worth the extra leg — a party that vanishes from the square and reappears at
+         * sea is a teleport with a sail on it, and the walk to the dock is the part that says
+         * where they are going. */
+        int qx, qy;
+        if (!mb_civ_quay(u->village, &qx, &qy)) { u->voyage = 0; return 0; }  /* dock gone */
+        if (x == qx && y == qy) {
+            int d = (lx - x) * (lx - x) + (ly - y) * (ly - y);
+            u->boat = (uint8_t)(d > 100 ? SHIP_CARAVEL : SHIP_SMACK);
+            u->sail_wait = 0;
+            u->sail_dir = (uint8_t)heading_to(lx - x, ly - y);
+#if MOTE_HOST
+            { extern uint32_t mb_voyages_sailed; mb_voyages_sailed++; }
+#endif
+            return 1;
+        }
+        step_toward(u, qx, qy);
+        /* and if the quay is unreachable on foot, give up rather than shuffle for ever */
+        if (u->x == u->ox && u->y == u->oy && ++u->sail_wait > 60) { u->voyage = 0; u->sail_wait = 0; }
+        return 1;
+    }
+
+    /* LANDFALL, which is the whole shape of a voyage: a ship does not sail to a doorstep. It
+     * makes for the coast nearest what it wants, puts everybody ashore, and they walk the
+     * rest — an inland hall, a seam of iron in the hills.
+     *
+     * Steering for the destination CELL was the first version and it arrived nowhere at all:
+     * four hundred and sixty crossings over eight worlds, not one landing. The ship reached
+     * the right coast and then followed it round and round for two hundred ticks, because the
+     * cell it was steering for was three cells inland and could not be entered from the water
+     * however long it looked. */
+    int adx = lx - x, ady = ly - y;
+    if (adx < 0) adx = -adx;
+    if (ady < 0) ady = -ady;
+    int dist = adx > ady ? adx : ady;                /* king-move cells still to run */
+
+    /* WHERE TO PUT IN. Not "sail to the destination" — a hall or a seam of iron is usually
+     * inland and a ship can never reach it — but "get off where you can walk the rest of the
+     * way". So the ship lands on a shore from which the destination needs no more water
+     * crossed, or once it is within a few cells of it.
+     *
+     * The two rules this replaces both failed, in opposite directions. Steering for the
+     * destination cell itself: four hundred and sixty crossings, not one landing, all of them
+     * following the coast round for ever beside a cell they could not enter. Landing on any
+     * shore that was merely CLOSER: the ship hops off after five ticks, because a coast it is
+     * sailing along is always closer to somewhere inland than the boat is — a voyage that
+     * ends where it began. */
+    if (u->sail_wait >= 3) {
+        int bi = -1, bd = dist * dist;               /* strictly better than where we are */
+        for (int k = 0; k < 8; k++) {
+            int nx = x + SEA_DX[k], ny = y + SEA_DY[k];
+            if (!mb_in(nx, ny) || !mb_land(mb_w.biome[AT(nx, ny)])) continue;
+            if (mb_w.obj[AT(nx, ny)] == O_WALL) continue;      /* not over a sea wall */
+            int ex = lx - nx, ey = ly - ny;
+            int d = ex * ex + ey * ey;
+            if (d >= bd) continue;
+            /* and the rest of the journey has to be walkable from there */
+            if (d > SEA_LANDFALL * SEA_LANDFALL && mb_sea_between(nx, ny, lx, ly)) continue;
+            bd = d; bi = k;
+        }
+        if (bi >= 0) {                               /* ashore, and on foot from here */
+#if MOTE_HOST
+            { extern uint32_t mb_voyages_landed, mb_land_ticks;
+              mb_voyages_landed++; mb_land_ticks += u->sail_wait; }
+#endif
+            u->x = (uint16_t)((x + SEA_DX[bi]) * 16 + 8);
+            u->y = (uint16_t)((y + SEA_DY[bi]) * 16 + 8);
+            u->boat = SHIP_NONE; u->voyage = 0; u->sail_hit = 0;
+            /* AND THEY WALK FOR A WHILE BEFORE TAKING SHIP AGAIN. A traveller who lands and
+             * is still across water from where it is going will book another passage on the
+             * spot, land in the same bay, and do it again — measured as three hundred and
+             * forty landings against eighty-nine boardings. */
+            u->sail_wait = SEA_ASHORE_WAIT;
+            return 0;                                /* the brain takes over again this tick */
+        }
+    }
+
+    /* SHE CROSSES. Steering is down the route and nothing else: take the heading toward the
+     * next square of the field, and if a rock or a spit is exactly in the way, try the two
+     * headings either side of it. No coast-hugging — an earlier version wall-followed round
+     * every obstacle and would keep following long after the way was clear, so a ship bound
+     * for an island forty cells away spent two years tracing the bays of its own coastline.
+     * The route already knows which way round a landmass to go; the ship only has to steer. */
+    int wx, wy;
+    sea_waypoint(x, y, lx, ly, &wx, &wy);
+    int want = heading_to(wx - x, wy - y);
+    int go = -1;
+    static const int8_t NUDGE[5] = { 0, 1, -1, 2, -2 };
+    for (int k = 0; k < 5; k++) {
+        int t = (want + NUDGE[k] + 8) & 7;
+        if (sailable(u, x + SEA_DX[t], y + SEA_DY[t])) { go = t; break; }
+    }
+
+    if (go < 0) {                                    /* walled in: this is not a sea at all */
+        int wx, wy;
+        if (beach_nearest(x, y, &wx, &wy)) {
+            u->x = (uint16_t)(wx * 16 + 8); u->y = (uint16_t)(wy * 16 + 8);
+        }
+        u->boat = SHIP_NONE; u->voyage = 0; u->sail_wait = 0; u->sail_hit = 0;
+#if MOTE_HOST
+        { extern uint32_t mb_voyages_beached; mb_voyages_beached++; }
+#endif
+        return 0;
+    }
+    u->sail_dir = (uint8_t)go;
+    step_toward(u, x + SEA_DX[go], y + SEA_DY[go]);
+#if MOTE_HOST
+    {   static int dbg = -1;
+        if (dbg < 0) dbg = getenv("MOTEBOX_SHIPDBG") ? 1 : 0;
+        if (dbg) fprintf(stderr, "ship %d t%u at %d,%d -> %d,%d want %d go %d moved %d wait %d\n",
+                         (int)(u - mb_u), (unsigned)mb_w.tick, x, y, lx, ly, want, go,
+                         (u->x != u->ox || u->y != u->oy), (int)u->sail_wait); }
+#endif
+
+    /* AND NO VOYAGE LASTS FOR EVER. Coast-following gets round a headland but it can be led
+     * up a fjord or sent after a shore that cannot be reached from this sea at all.
+     *
+     * The cap has to be well under the time it takes to starve, and it was not: at two
+     * hundred and fifty ticks the mean failed voyage ended at 199 ticks with the traveller
+     * dead of hunger, a hundred and fifty-two of them in one world. At a hundred and twenty
+     * — about ninety cells of sailing, more than most crossings need — a ship that has been
+     * beaten by the geography puts in wherever it can and its passengers walk. A failed
+     * voyage should cost a season, not a life. */
+    if (++u->sail_wait > 90) {
+        int bx, by;
+        if (beach_nearest(x, y, &bx, &by)) {
+            u->x = (uint16_t)(bx * 16 + 8); u->y = (uint16_t)(by * 16 + 8);
+            u->boat = SHIP_NONE; u->voyage = 0; u->sail_wait = 0; u->sail_hit = 0;
+#if MOTE_HOST
+            { extern uint32_t mb_voyages_beached; mb_voyages_beached++; }
+#endif
+        } else u->sail_wait = 200;                  /* nowhere to land: keep trying */
+    }
+    return 1;
+}
+
+/* IS THERE A WAY BY SEA AT ALL? The field is grown from the water around the destination, so
+ * this asks whether the departure point is connected to it — an inland lake, a landlocked sea
+ * or an island on the wrong side of the world all answer no.
+ *
+ * Asking BEFORE anybody sails is the difference between a decision and a disaster: without
+ * it, half of every world's crossings were ships setting out for somewhere unreachable and
+ * discovering it two years later, at the far end of the timeout, wherever they had drifted
+ * to. A town that cannot get there should simply not send them. */
+int mb_unit_sea_route(int fx, int fy, int tx, int ty)
+{
+    if (!mb_in(fx, fy) || !mb_in(tx, ty)) return 0;
+    sea_field(AT(tx, ty));
+    int c = (fy / SEA_C) * SEA_CW + (fx / SEA_C);
+    return s_sea_d[c] < SEA_FAR;
+}
+
+/* Book a passage to (lx, ly): the traveller heads for their town's quay and takes ship there.
+ * Returns 0 if the town has no dock to sail from, in which case nothing has changed. */
+int mb_unit_book_passage(int i, int lx, int ly)
+{
+    Unit *u = &mb_u[i];
+    int qx, qy;
+    if (!mb_in(lx, ly) || !mb_civ_quay(u->village, &qx, &qy)) return 0;
+    if (!mb_unit_sea_route(qx, qy, lx, ly)) return 0;      /* no water road: they walk */
+    u->voyage = (uint16_t)(AT(lx, ly) + 1);
+    u->boat = SHIP_NONE;
+    u->sail_wait = 0;
+    return 1;
+}
 
 void mb_unit_step(void)
 {
@@ -1507,6 +1876,11 @@ void mb_unit_step(void)
          * cheap version (a pastime or the walk home, no work query) left a struggling village's
          * hands playing in the square for seven ticks out of eight and one audit world died out
          * quietly because of it. */
+        /* AT SEA, NOTHING ELSE HAPPENS. No thinking, no work, no siege — a person in a boat
+         * in the middle of the ocean has one thing to do. They still age and hunger, which is
+         * what makes a long crossing cost something. */
+        if (u->sail_wait && !u->boat && !u->voyage) u->sail_wait--;   /* the walk-it-off timer */
+        if (voyage_step(i)) { suffer(i); continue; }
         if ((i & 7) == phase || u->job == JOB_IDLE) think(i);
         act(i);
         mb_unit_siege(i);      /* a soldier beside an enemy wall works at it */
