@@ -57,13 +57,20 @@ int         mote_android_dock_attached(void) { return s_attached; }
 /* ------------------------------------------------------------ transport */
 static const MoteUsbHost *usb(void) { return mote_shell_usb_host(); }
 
+/* Writes go out in endpoint-friendly chunks. A bulk transfer that times out
+ * part-way reports failure without saying how much left, which would desync the
+ * stream, so keep each one small enough that it cannot straddle the device's
+ * 256-byte CDC FIFO for long. (Bulk OUT is flow-controlled by the device NAKing,
+ * so this costs nothing but transfer count.) */
 static int dock_write(const void *b, int n) {
     const MoteUsbHost *u = usb();
     if (!u) return -1;
     const uint8_t *p = b;
     int off = 0;
     while (off < n) {
-        int w = u->write(p + off, n - off);
+        int want = n - off;
+        if (want > 512) want = 512;
+        int w = u->write(p + off, want);
         if (w < 0) return -1;
         if (w == 0) { SDL_Delay(2); continue; }
         off += w;
@@ -72,18 +79,74 @@ static int dock_write(const void *b, int n) {
 }
 static void dock_say(void *ud, const char *s) { (void)ud; dock_write(s, (int)strlen(s)); }
 
-/* Read one '\n'-terminated line. 0 = nothing to read yet, -1 = pipe gone. */
-static int dock_readline(char *out, int cap) {
+/* ---- inbound buffer -----------------------------------------------------
+ * A bulk IN transfer MUST be asked for a whole packet at a time: request fewer
+ * bytes than the endpoint's 64 and the USB stack hands over what was asked and
+ * DISCARDS the remainder of that packet. Reading a line a byte at a time
+ * therefore kept the first byte of every packet and threw away 63 — which a
+ * socket stand-in cannot reproduce, because a stream socket has no packets. So
+ * the cable is always read in big chunks and every consumer parses from here. */
+static uint8_t s_rx[4096];
+static int     s_rx_n, s_rx_off;
+
+static int rx_fill(int timeout_ms) {
     const MoteUsbHost *u = usb();
     if (!u) return -1;
-    int n = 0;
-    for (;;) {
-        char c;
-        int r = u->read(&c, 1, 120);
+    if (s_rx_off >= s_rx_n) s_rx_off = s_rx_n = 0;
+    else if (s_rx_off > (int)sizeof s_rx / 2) {
+        memmove(s_rx, s_rx + s_rx_off, (size_t)(s_rx_n - s_rx_off));
+        s_rx_n -= s_rx_off; s_rx_off = 0;
+    }
+    /* Never ask for less than a packet: a short request throws the rest of the
+     * packet away. If there is not room for one, the consumer must drain first. */
+    int space = (int)sizeof s_rx - s_rx_n;
+    if (space < 64) return 0;
+    int r = u->read(s_rx + s_rx_n, space, timeout_ms);
+    if (r < 0) return -1;
+    s_rx_n += r;
+    return r;
+}
+static void rx_reset(void) { s_rx_n = s_rx_off = 0; }
+
+/* 1 = got a byte, 0 = nothing yet, -1 = pipe gone. */
+static int rx_byte(int *out, int timeout_ms) {
+    if (s_rx_off >= s_rx_n) {
+        int r = rx_fill(timeout_ms);
         if (r < 0) return -1;
-        if (r == 0) return n > 0 ? 0 : 0;      /* partial lines simply wait */
-        if (c == '\n') { out[n] = 0; return n ? n : 0; }
-        if (c != '\r' && n < cap - 1) out[n++] = c;
+        if (r == 0) return 0;
+    }
+    *out = s_rx[s_rx_off++];
+    return 1;
+}
+/* Bytes already buffered, topped up if empty. <0 = gone. */
+static int rx_get(void *dst, int max, int timeout_ms) {
+    if (s_rx_off >= s_rx_n) {
+        int r = rx_fill(timeout_ms);
+        if (r < 0) return -1;
+    }
+    int have = s_rx_n - s_rx_off;
+    if (have <= 0) return 0;
+    if (have > max) have = max;
+    memcpy(dst, s_rx + s_rx_off, (size_t)have);
+    s_rx_off += have;
+    return have;
+}
+
+/* Read one '\n'-terminated line. 0 = no complete line yet, -1 = pipe gone. */
+static int dock_readline(char *out, int cap) {
+    static char part[300];
+    static int  pn;
+    for (;;) {
+        int c, r = rx_byte(&c, 120);
+        if (r < 0) { pn = 0; return -1; }
+        if (r == 0) return 0;                    /* a partial line waits here */
+        if (c == '\n') {
+            int n = pn; pn = 0;
+            if (n >= cap) n = cap - 1;
+            memcpy(out, part, (size_t)n); out[n] = 0;
+            return n ? n : 0;
+        }
+        if (c != '\r' && pn < (int)sizeof part - 1) part[pn++] = (char)c;
     }
 }
 
@@ -218,9 +281,7 @@ static int await_pair(void) {
         if (st == LINK_NET_OFF) { dock_say(NULL, "MN1 ERR failed\n"); return 0; }
         if (SDL_GetTicks() - t0 > 180000) { dock_say(NULL, "MN1 ERR timeout\n"); return 0; }
 
-        const MoteUsbHost *u = usb();
-        char c;
-        int r = u ? u->read(&c, 1, 60) : -1;
+        int c, r = rx_byte(&c, 60);
         if (r < 0) return 0;
         if (r == 1) {
             if (c == '\n') {
@@ -248,7 +309,7 @@ static void splice(void) {
     while (s_run) {
         const MoteUsbHost *u = usb();
         if (!u) break;
-        int n = u->read(buf, (int)sizeof buf, 20);
+        int n = rx_get(buf, (int)sizeof buf, 20);
         if (n < 0) break;
         if (n == 0 && SDL_GetTicks() - last_rx > SILENCE_MS) break;
         if (n > 0) {
@@ -287,6 +348,7 @@ static void splice(void) {
 
 /* --------------------------------------------------------------- service */
 static void handle_line(char *line) {
+    { char m[160]; snprintf(m, sizeof m, "[dock] <- %.140s", line); mote_plat_log(m); }
     if (strncmp(line, "MN1 ", 4) != 0) return;
     dock_say(NULL, "MN1 OK\n");                   /* ack now: the device resends */
 
@@ -334,6 +396,7 @@ static int dock_thread(void *a) { (void)a;
         }
         if (!u->open()) { SDL_Delay(1200); continue; }
         s_attached = 1;
+        rx_reset();
         status("Thumby docked");
         mote_plat_log("[dock] handheld attached");
 

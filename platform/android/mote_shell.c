@@ -61,17 +61,18 @@ enum { EB_A, EB_B, EB_UP, EB_DOWN, EB_LEFT, EB_RIGHT, EB_LB, EB_RB, EB_MENU, EB_
 #define D_HALF 0.115f            /* half the d-pad cross, in WIDTH fractions */
 #define D_ARM  0.105f            /* arm length for the outline */
 #define D_WID  0.036f            /* arm half-width for the outline */
-/* The shoulders are the one pair that cannot sit where the hardware puts them.
- * On the handheld they are under your index fingers on the back edge; on a phone
- * held in landscape there is nothing behind the glass and both thumbs are at the
- * BOTTOM corners. So these two pads are anchored to the window, not to the photo
- * — the only controls in the shell that are — and sized for a thumb. They clear
- * the d-pad, MENU and A/B, all of which stay on the chassis where you can see
- * them. Fractions are of the window's smaller side. */
+/* Shoulder placement. On the handheld these are on the back top edge, under your
+ * index fingers; held like a gamepad, a phone puts those fingers at the TOP
+ * corners, which is the default. SHELL puts them on the chassis instead, at the
+ * real angles its top edges run at. Fractions are of the window's smaller side. */
 #define SH_W    0.26f            /* pad width  */
-#define SH_H    0.14f            /* pad height */
-#define SH_EDGE 0.025f           /* inset from the left/right edge */
-#define SH_LIFT 0.030f           /* lift off the bottom, clear of the nav gesture */
+#define SH_H    0.11f            /* pad height */
+#define SH_EDGE 0.020f           /* inset from the left/right edge */
+#define SH_LIFT 0.020f           /* drop from the top edge */
+/* SHELL mode: the angles the photo's own top edges run at, fitted to the alpha
+ * edge of thumby_color.png across each shoulder zone. */
+#define SHELL_LB_DEG (-23.2f)
+#define SHELL_RB_DEG (+17.4f)
 
 /* Screen square inside the photo, in photo pixels (studio/assets/screen.cfg). */
 static float s_spx = 1011.2f, s_spy = 319.6f, s_sps = 888.8f;
@@ -183,12 +184,14 @@ static void load_screen_cfg(void) {
  *  settings (persisted next to the saves)
  * ====================================================================== */
 enum { LAY_CHASSIS = 0, LAY_FILL = 1 };
+enum { SH_TOP = 0, SH_SHELL = 1 };   /* shoulder placement */
 static struct {
     int  layout;        /* LAY_* */
+    int  shoulder;      /* SH_*  */
     int  clear;         /* see-through chassis */
     int  haptics;
     char relay[80];
-} cfg = { LAY_CHASSIS, 0, 1, "" };
+} cfg = { LAY_CHASSIS, SH_TOP, 0, 1, "" };
 
 static char s_cfg_path[600];
 
@@ -204,6 +207,7 @@ static void cfg_load(void) {
         char *v = eq + 1;
         char *nl = strpbrk(v, "\r\n"); if (nl) *nl = 0;
         if      (!strcmp(ln, "layout"))  cfg.layout  = atoi(v);
+        else if (!strcmp(ln, "shoulder")) cfg.shoulder = atoi(v);
         else if (!strcmp(ln, "clear"))   cfg.clear   = atoi(v);
         else if (!strcmp(ln, "haptics")) cfg.haptics = atoi(v);
         else if (!strcmp(ln, "relay"))   snprintf(cfg.relay, sizeof cfg.relay, "%s", v);
@@ -214,8 +218,8 @@ static void cfg_save(void) {
     if (!s_cfg_path[0]) return;
     FILE *f = fopen(s_cfg_path, "w");
     if (!f) return;
-    fprintf(f, "layout=%d\nclear=%d\nhaptics=%d\nrelay=%s\n",
-            cfg.layout, cfg.clear, cfg.haptics, cfg.relay);
+    fprintf(f, "layout=%d\nshoulder=%d\nclear=%d\nhaptics=%d\nrelay=%s\n",
+            cfg.layout, cfg.shoulder, cfg.clear, cfg.haptics, cfg.relay);
     fclose(f);
 }
 
@@ -307,17 +311,32 @@ static void usb_close(void) {
     if (m) (*env)->CallStaticVoidMethod(env, s_usb_cls, m);
     if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
 }
+/* One reusable transfer array, kept as a global ref: the splice loop runs every
+ * few ms and a NewByteArray per call would churn the JNI heap for nothing. */
+#define USB_XFER 4096
+static jbyteArray s_usb_arr;
+static jbyteArray usb_arr(JNIEnv *env) {
+    if (!s_usb_arr) {
+        jbyteArray a = (*env)->NewByteArray(env, USB_XFER);
+        if (!a) return NULL;
+        s_usb_arr = (jbyteArray)(*env)->NewGlobalRef(env, a);
+        (*env)->DeleteLocalRef(env, a);
+    }
+    return s_usb_arr;
+}
 static int usb_read(void *buf, int max, int timeout_ms) {
     if (!s_usb_cls) return -1;
     JNIEnv *env = SDL_AndroidGetJNIEnv();
     if (!env) return -1;
-    jmethodID m = (*env)->GetStaticMethodID(env, s_usb_cls, "moteRead", "([BI)I");
-    if (!m) { (*env)->ExceptionClear(env); return -1; }
-    jbyteArray arr = (*env)->NewByteArray(env, max);
-    if (!arr) return -1;
-    jint n = (*env)->CallStaticIntMethod(env, s_usb_cls, m, arr, (jint)timeout_ms);
-    if (n > 0) (*env)->GetByteArrayRegion(env, arr, 0, n, (jbyte *)buf);
-    (*env)->DeleteLocalRef(env, arr);
+    jmethodID m = (*env)->GetStaticMethodID(env, s_usb_cls, "moteRead", "([BII)I");
+    jbyteArray arr = usb_arr(env);
+    if (!m || !arr) { (*env)->ExceptionClear(env); return -1; }
+    if (max > USB_XFER) max = USB_XFER;
+    jint n = (*env)->CallStaticIntMethod(env, s_usb_cls, m, arr, (jint)max, (jint)timeout_ms);
+    if (n > 0) {
+        if (n > max) n = max;
+        (*env)->GetByteArrayRegion(env, arr, 0, n, (jbyte *)buf);
+    }
     if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); return -1; }
     return (int)n;
 }
@@ -326,12 +345,11 @@ static int usb_write(const void *buf, int len) {
     JNIEnv *env = SDL_AndroidGetJNIEnv();
     if (!env) return -1;
     jmethodID m = (*env)->GetStaticMethodID(env, s_usb_cls, "moteWrite", "([BI)I");
-    if (!m) { (*env)->ExceptionClear(env); return -1; }
-    jbyteArray arr = (*env)->NewByteArray(env, len);
-    if (!arr) return -1;
+    jbyteArray arr = usb_arr(env);
+    if (!m || !arr) { (*env)->ExceptionClear(env); return -1; }
+    if (len > USB_XFER) len = USB_XFER;
     (*env)->SetByteArrayRegion(env, arr, 0, len, (const jbyte *)buf);
     jint n = (*env)->CallStaticIntMethod(env, s_usb_cls, m, arr, (jint)len);
-    (*env)->DeleteLocalRef(env, arr);
     if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); return -1; }
     return (int)n;
 }
@@ -426,17 +444,13 @@ static int s_dx, s_dy, s_dw, s_dh;      /* chassis rect, window px */
 static int s_sx, s_sy, s_ss;            /* LCD square, window px */
 static int s_ow = 1, s_oh = 1;          /* renderer output size */
 static int s_down[EB_N];                /* buttons held this frame (touch OR pad) */
-static SDL_Rect s_lb_rect, s_rb_rect;   /* shoulder pads, window-anchored */
 
-/* Bottom corners, where the thumbs already are. Hit-test and draw share this so
- * they can never disagree. */
-static void shoulder_layout(void) {
-    int mind = s_ow < s_oh ? s_ow : s_oh;
-    int w = (int)(SH_W * mind), h = (int)(SH_H * mind);
-    int ex = (int)(SH_EDGE * mind), y = s_oh - h - (int)(SH_LIFT * mind);
-    s_lb_rect = (SDL_Rect){ ex, y, w, h };
-    s_rb_rect = (SDL_Rect){ s_ow - w - ex, y, w, h };
-}
+/* Shoulder bumpers: centre, size and tilt in window pixels. Both the hit-test
+ * and the draw read these, so they cannot disagree. */
+typedef struct { float cx, cy, w, h, deg; } Bumper;
+static Bumper s_bump[2];                /* 0 = LB, 1 = RB */
+
+static void shoulder_layout(void);
 
 static void layout(void) {
     SDL_GetRendererOutputSize(ren, &s_ow, &s_oh);
@@ -482,8 +496,33 @@ static int BX(float n) { return s_dx + (int)(n * s_dw); }
 static int BY(float n) { return s_dy + (int)(n * s_dh); }
 static int BR(float n) { return (int)(n * s_dw); }
 
-static int in_rect(const SDL_Rect *r, int x, int y) {
-    return x >= r->x && x < r->x + r->w && y >= r->y && y < r->y + r->h;
+/* Where the two bumpers sit. Hit-test and draw both read s_pad, so they cannot
+ * disagree. SHELL mode is anchored to the chassis (it must move with the photo);
+ * TOP mode is anchored to the window. */
+static void shoulder_layout(void) {
+    int mind = s_ow < s_oh ? s_ow : s_oh;
+    if (cfg.shoulder == SH_SHELL && s_dw > 0) {
+        /* Straddle the shell's own top edges, at the angles those edges run at. */
+        float w = 0.195f * s_dw, h = 0.075f * s_dh;
+        /* Pulled a little inboard of the fitted midpoint: the shell's corner
+         * curves away from the straight line the angle was fitted to. */
+        s_bump[0] = (Bumper){ (float)BX(0.130f), (float)BY(0.168f), w, h, SHELL_LB_DEG };
+        s_bump[1] = (Bumper){ (float)BX(0.872f), (float)BY(0.138f), w, h, SHELL_RB_DEG };
+    } else {
+        float w = SH_W * mind, h = SH_H * mind;
+        float ex = SH_EDGE * mind + w * 0.5f, y = SH_LIFT * mind + h * 0.5f;
+        s_bump[0] = (Bumper){ ex, y, w, h, 0.0f };
+        s_bump[1] = (Bumper){ s_ow - ex, y, w, h, 0.0f };
+    }
+}
+
+/* Point in a tilted pad, with a little slop for a thumb landing on the edge. */
+static int in_pad(const Bumper *b, int x, int y) {
+    float a = -b->deg * 3.14159265f / 180.0f;
+    float dx = x - b->cx, dy = y - b->cy;
+    float rx = dx * cosf(a) - dy * sinf(a);
+    float ry = dx * sinf(a) + dy * cosf(a);
+    return fabsf(rx) <= b->w * 0.60f && fabsf(ry) <= b->h * 0.70f;
 }
 
 /* Which button is under a window-space point (-1 = none). Touch slop is generous:
@@ -492,8 +531,8 @@ static int in_rect(const SDL_Rect *r, int x, int y) {
  * slop the button you can actually see wins. */
 static int hit_button(int mx, int my) {
     if (s_dw <= 0)
-        return in_rect(&s_lb_rect, mx, my) ? EB_LB
-             : in_rect(&s_rb_rect, mx, my) ? EB_RB : -1;
+        return in_pad(&s_bump[0], mx, my) ? EB_LB
+             : in_pad(&s_bump[1], mx, my) ? EB_RB : -1;
     struct { int b; float cx, cy, r; } round_[3] = {
         { EB_A, A_CX, A_CY, A_R }, { EB_B, B_CX, B_CY, B_R }, { EB_MENU, M_CX, M_CY, M_R },
     };
@@ -508,8 +547,8 @@ static int hit_button(int mx, int my) {
         if (fabsf(ndx) > fabsf(ndy)) return ndx < 0 ? EB_LEFT : EB_RIGHT;
         return ndy < 0 ? EB_UP : EB_DOWN;
     }
-    if (in_rect(&s_lb_rect, mx, my)) return EB_LB;
-    if (in_rect(&s_rb_rect, mx, my)) return EB_RB;
+    if (in_pad(&s_bump[0], mx, my)) return EB_LB;
+    if (in_pad(&s_bump[1], mx, my)) return EB_RB;
     return -1;
 }
 
@@ -543,24 +582,32 @@ static void box_outline(int x, int y, int w, int h, int th, Uint8 rr, Uint8 gg, 
     for (int t = 0; t < th; t++) { SDL_Rect r = { x + t, y + t, w - 2 * t, h - 2 * t }; SDL_RenderDrawRect(ren, &r); }
 }
 
-/* A little label texture rendered with the OS's own UI font, so the shell needs
- * no second font: draw white-on-black into a scratch RGB565 buffer, then key the
- * black out to alpha. */
-static SDL_Texture *label_tex(const char *s, int *out_w, int *out_h) {
+/* Rasterise a label with the OS's own UI font, so the shell needs no second font:
+ * draw white-on-black into a scratch RGB565 buffer and read the luminance back as
+ * coverage (the font is anti-aliased). Returns a malloc'd 8-bit alpha bitmap. */
+static uint8_t *text_alpha(const char *s, int *out_w, int *out_h) {
     int w = mote_ui_text_w(s) + 2, h = mote_ui_text_h() + 2;
     if (w < 2 || h < 2 || w > MOTE_FB_W || h > MOTE_FB_H) return NULL;
     static uint16_t buf[MOTE_FB_W * MOTE_FB_H];
     memset(buf, 0, sizeof buf);
     mote_ui_text(buf, s, 1, 1, 0xFFFF);
-    uint32_t *px = malloc((size_t)w * h * 4);
-    if (!px) return NULL;
+    uint8_t *a = malloc((size_t)w * h);
+    if (!a) return NULL;
     for (int y = 0; y < h; y++)
-        for (int x = 0; x < w; x++) {
-            uint16_t c = buf[y * MOTE_FB_W + x];
-            /* the font is anti-aliased, so luminance doubles as coverage */
-            int lum = ((c >> 11) & 0x1F) << 3;
-            px[y * w + x] = ((uint32_t)lum << 24) | 0x00FFFFFFu;
-        }
+        for (int x = 0; x < w; x++)
+            a[y * w + x] = (uint8_t)(((buf[y * MOTE_FB_W + x] >> 11) & 0x1F) << 3);
+    *out_w = w; *out_h = h;
+    return a;
+}
+
+static SDL_Texture *label_tex(const char *s, int *out_w, int *out_h) {
+    int w = 0, h = 0;
+    uint8_t *a = text_alpha(s, &w, &h);
+    if (!a) return NULL;
+    uint32_t *px = malloc((size_t)w * h * 4);
+    if (!px) { free(a); return NULL; }
+    for (int i = 0; i < w * h; i++) px[i] = ((uint32_t)a[i] << 24) | 0x00FFFFFFu;
+    free(a);
     SDL_Texture *t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888,
                                        SDL_TEXTUREACCESS_STATIC, w, h);
     if (t) {
@@ -574,39 +621,122 @@ static SDL_Texture *label_tex(const char *s, int *out_w, int *out_h) {
     return t;
 }
 
-/* The shoulders have no on-photo target (they are on the back edge of the real
- * shell), and no thumb reaches the top of a phone held in landscape. So they get
- * labelled pads in the bottom corners, always visible, brighter while held. */
-static SDL_Texture *tex_lb, *tex_rb;
-static int lb_w, lb_h, rb_w, rb_h;
+/* ====================================================================== *
+ *  Shoulder bumpers
+ *
+ *  The shoulders are the one pair with nothing to aim at on a front-on photo:
+ *  on the real shell they are on the back top edge. So they are drawn — as
+ *  bumpers, not rectangles: a rounded body with a lit top edge and a shaded
+ *  underside, the way a moulded button catches light, with the label baked in
+ *  so one rotated blit draws the whole thing.
+ *
+ *  Two placements (SHOULDER in the settings panel):
+ *    TOP    the window's top corners, level, where index fingers rest when the
+ *           phone is held like a gamepad
+ *    SHELL  the shell's own shoulder positions, tilted to the angles measured
+ *           off the product photo's top edges (-23.2 and +17.4 degrees), so they
+ *           sit along the chassis exactly where the hardware's buttons are
+ * ====================================================================== */
+/* Draw a rounded bumper into an ARGB buffer: gradient body, lit top bevel,
+ * shaded underside, and the label centred in it. `lit` is the pressed state. */
+static SDL_Texture *gen_bumper(const char *label, int lit) {
+    enum { W = 160, H = 56 };
+    const float rad = 18.0f;
+    uint32_t *px = calloc(W * H, 4);
+    if (!px) return NULL;
+
+    for (int y = 0; y < H; y++) {
+        for (int x = 0; x < W; x++) {
+            /* rounded-rect coverage, anti-aliased off the corner distance */
+            float dx = fabsf(x + 0.5f - W * 0.5f) - (W * 0.5f - rad);
+            float dy = fabsf(y + 0.5f - H * 0.5f) - (H * 0.5f - rad);
+            float d = (dx > 0 && dy > 0) ? sqrtf(dx * dx + dy * dy) - rad
+                                         : fmaxf(dx, dy) - rad;
+            float cov = 1.0f - (d + 1.0f);            /* ~1px feather */
+            if (cov <= 0.0f) continue;
+            if (cov > 1.0f) cov = 1.0f;
+
+            float t = (float)y / (float)(H - 1);      /* 0 top .. 1 bottom */
+            float shade = 1.0f - 0.45f * t;           /* body falls off downwards */
+            int r, g, b;
+            if (lit) { r = (int)(120 * shade + 60); g = (int)(190 * shade + 55); b = (int)(240 * shade + 15); }
+            else     { r = (int)( 54 * shade + 18); g = (int)( 62 * shade + 22); b = (int)( 86 * shade + 30); }
+
+            /* bevel: a bright rim along the top, a dark one under the bottom */
+            float edge_top = 1.0f - (float)y / 5.0f;
+            float edge_bot = 1.0f - (float)(H - 1 - y) / 4.0f;
+            if (edge_top > 0) { r += (int)(150 * edge_top); g += (int)(165 * edge_top); b += (int)(185 * edge_top); }
+            if (edge_bot > 0) { r -= (int)(28 * edge_bot);  g -= (int)(28 * edge_bot);  b -= (int)(26 * edge_bot); }
+            r = r > 255 ? 255 : r < 0 ? 0 : r;
+            g = g > 255 ? 255 : g < 0 ? 0 : g;
+            b = b > 255 ? 255 : b < 0 ? 0 : b;
+
+            int a = (int)(cov * (lit ? 236 : 170));
+            px[y * W + x] = ((uint32_t)a << 24) | ((uint32_t)r << 16) |
+                            ((uint32_t)g << 8) | (uint32_t)b;
+        }
+    }
+    /* the label, scaled to the bumper and composited over the body */
+    int tw = 0, th = 0;
+    uint8_t *ta = text_alpha(label, &tw, &th);
+    if (ta && tw > 0 && th > 0) {
+        int lh = H / 2, lw = tw * lh / th;
+        if (lw > W - 24) { lw = W - 24; lh = th * lw / tw; }
+        int ox = (W - lw) / 2, oy = (H - lh) / 2;
+        for (int y = 0; y < lh; y++)
+            for (int x = 0; x < lw; x++) {
+                int a = ta[(y * th / lh) * tw + (x * tw / lw)];
+                if (!a) continue;
+                uint32_t *d = &px[(oy + y) * W + ox + x];
+                uint32_t da = (*d >> 24) & 0xFF;
+                uint32_t na = da > (uint32_t)a ? da : (uint32_t)a;
+                int mix = a * 255 / 255;
+                int dr = (*d >> 16) & 0xFF, dg = (*d >> 8) & 0xFF, db = *d & 0xFF;
+                int lr = lit ? 20 : 235, lg = lit ? 30 : 242, lb = lit ? 46 : 255;
+                dr = (dr * (255 - mix) + lr * mix) / 255;
+                dg = (dg * (255 - mix) + lg * mix) / 255;
+                db = (db * (255 - mix) + lb * mix) / 255;
+                *d = (na << 24) | ((uint32_t)dr << 16) | ((uint32_t)dg << 8) | (uint32_t)db;
+            }
+    }
+    free(ta);
+
+    SDL_Texture *t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888,
+                                       SDL_TEXTUREACCESS_STATIC, W, H);
+    if (t) {
+        SDL_UpdateTexture(t, NULL, px, W * 4);
+        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(t, SDL_ScaleModeLinear);
+    }
+    free(px);
+    return t;
+}
+
+static SDL_Texture *tex_sh[2][2];   /* [side][pressed] */
 /* the docked-handheld banner: re-rendered only when the status text changes */
 static SDL_Texture *tex_dock;
 static int dock_w, dock_h;
 static char s_dock_txt[120];
 
 static void shoulder_pads(void) {
-    if (!tex_lb) tex_lb = label_tex("LB", &lb_w, &lb_h);
-    if (!tex_rb) tex_rb = label_tex("RB", &rb_w, &rb_h);
-    struct { const SDL_Rect *r; SDL_Texture *t; int tw, th; int down; } p[2] = {
-        { &s_lb_rect, tex_lb, lb_w, lb_h, s_down[EB_LB] },
-        { &s_rb_rect, tex_rb, rb_w, rb_h, s_down[EB_RB] },
-    };
+    static const char *L[2] = { "LB", "RB" };
     for (int i = 0; i < 2; i++) {
-        const SDL_Rect *r = p[i].r;
-        int rad = r->h / 4;
-        if (p[i].down) {
-            box(r->x, r->y, r->w, r->h, 100, 175, 235, 185);
-            box_outline(r->x, r->y, r->w, r->h, 3, 190, 230, 255, 255);
-        } else {
-            box(r->x, r->y, r->w, r->h, 22, 27, 42, 120);
-            box_outline(r->x, r->y, r->w, r->h, 2, 130, 190, 240, 130);
-        }
-        (void)rad;
-        if (!p[i].t) continue;
-        int lh = r->h / 2, lw = p[i].tw * lh / (p[i].th ? p[i].th : 1);
-        SDL_Rect d = { r->x + (r->w - lw) / 2, r->y + (r->h - lh) / 2, lw, lh };
-        SDL_SetTextureAlphaMod(p[i].t, p[i].down ? 255 : 190);
-        SDL_RenderCopy(ren, p[i].t, NULL, &d);
+        int down = s_down[i == 0 ? EB_LB : EB_RB];
+        if (!tex_sh[i][down]) tex_sh[i][down] = gen_bumper(L[i], down);
+        SDL_Texture *t = tex_sh[i][down];
+        if (!t) continue;
+        const Bumper *b = &s_bump[i];
+        SDL_Rect d = { (int)(b->cx - b->w * 0.5f), (int)(b->cy - b->h * 0.5f),
+                       (int)b->w, (int)b->h };
+        /* A drop shadow first, so a bumper reads as sitting above the shell
+         * rather than painted onto it. */
+        SDL_SetTextureColorMod(t, 0, 0, 0);
+        SDL_SetTextureAlphaMod(t, 90);
+        SDL_Rect sh = { d.x, d.y + (int)(b->h * 0.10f), d.w, d.h };
+        SDL_RenderCopyEx(ren, t, NULL, &sh, b->deg, NULL, SDL_FLIP_NONE);
+        SDL_SetTextureColorMod(t, 255, 255, 255);
+        SDL_SetTextureAlphaMod(t, 255);
+        SDL_RenderCopyEx(ren, t, NULL, &d, b->deg, NULL, SDL_FLIP_NONE);
     }
 }
 
@@ -716,7 +846,8 @@ static void keys_read(int *out) {
  * doesn't have. BACK TO GAMES only appears while a game is running; the relay
  * editor swaps the list for a value + OK/CANCEL so the soft keyboard never hides
  * the way out. */
-enum { ROW_LAYOUT = 0, ROW_CHASSIS, ROW_HAPTIC, ROW_FPS, ROW_RELAY, ROW_BACK, ROW_CLOSE, ROW_MAX };
+enum { ROW_LAYOUT = 0, ROW_SHOULDER, ROW_CHASSIS, ROW_HAPTIC, ROW_FPS, ROW_RELAY,
+       ROW_BACK, ROW_CLOSE, ROW_MAX };
 enum { ED_OK = 0, ED_CANCEL, ED_N };
 /* mirrors PERF_NAME in os/mote_menu.c */
 static const char *const PERF_LEVEL[4] = { "OFF", "FPS", "MINI", "FULL" };
@@ -734,6 +865,7 @@ static SDL_Rect s_gear_rect;
 static int settings_ids(int *ids) {
     int n = 0;
     ids[n++] = ROW_LAYOUT;
+    ids[n++] = ROW_SHOULDER;
     ids[n++] = ROW_CHASSIS;
     ids[n++] = ROW_HAPTIC;
     ids[n++] = ROW_FPS;
@@ -760,6 +892,7 @@ static void fps_sample(void) {
 static void settings_row_label(int id, char *out, int cap) {
     switch (id) {
     case ROW_LAYOUT:  snprintf(out, cap, "LAYOUT  %s", cfg.layout == LAY_CHASSIS ? "CHASSIS" : "FILL"); break;
+    case ROW_SHOULDER: snprintf(out, cap, "LB/RB   %s", cfg.shoulder == SH_TOP ? "TOP" : "ON SHELL"); break;
     case ROW_CHASSIS: snprintf(out, cap, "SHELL   %s", cfg.clear ? "CLEAR" : "PHOTO"); break;
     case ROW_HAPTIC:  snprintf(out, cap, "HAPTICS %s", cfg.haptics ? "ON" : "OFF"); break;
     case ROW_FPS:     snprintf(out, cap, "FPS  %d   %s", s_fps, PERF_LEVEL[mote_perf_level() & 3]); break;
@@ -772,6 +905,7 @@ static void settings_row_label(int id, char *out, int cap) {
 static void settings_activate(int id) {
     switch (id) {
     case ROW_LAYOUT:  cfg.layout = !cfg.layout; layout(); break;
+    case ROW_SHOULDER: cfg.shoulder = !cfg.shoulder; layout(); break;
     case ROW_CHASSIS: cfg.clear = !cfg.clear; break;
     case ROW_HAPTIC:  cfg.haptics = !cfg.haptics; break;
     case ROW_FPS:     mote_perf_toggle(); return;   /* cycles the on-LCD perf overlay */
@@ -1062,8 +1196,8 @@ int main(int argc, char *argv[]) {
                 if (tex_clear) { SDL_DestroyTexture(tex_clear); tex_clear = NULL; }
                 if (tex_ui)    { SDL_DestroyTexture(tex_ui);    tex_ui = NULL; }
                 if (tex_frame) { SDL_DestroyTexture(tex_frame); tex_frame = NULL; }
-                if (tex_lb)    { SDL_DestroyTexture(tex_lb);    tex_lb = NULL; }
-                if (tex_rb)    { SDL_DestroyTexture(tex_rb);    tex_rb = NULL; }
+                for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++)
+                    if (tex_sh[i][j]) { SDL_DestroyTexture(tex_sh[i][j]); tex_sh[i][j] = NULL; }
                 tex_photo = load_png("thumby_color.png", &photo_w, &photo_h);
                 { int cw, ch; tex_clear = load_png("thumby_color_clear.png", &cw, &ch); }
                 tex_frame = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB565,
@@ -1290,8 +1424,8 @@ int main(int argc, char *argv[]) {
     mote_android_dock_stop();
     if (s_engine) SDL_WaitThread(s_engine, NULL);
     if (s_pad) SDL_GameControllerClose(s_pad);
-    if (tex_lb) SDL_DestroyTexture(tex_lb);
-    if (tex_rb) SDL_DestroyTexture(tex_rb);
+    for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++)
+        if (tex_sh[i][j]) SDL_DestroyTexture(tex_sh[i][j]);
     if (tex_ui) SDL_DestroyTexture(tex_ui);
     if (tex_frame) SDL_DestroyTexture(tex_frame);
     if (tex_clear) SDL_DestroyTexture(tex_clear);

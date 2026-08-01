@@ -30,9 +30,10 @@ you can see in it.
 
 ## Controls
 
-**Touch** — press the buttons on the photo: d-pad, A, B, LB/RB in the top corners,
-MENU below the d-pad. Multi-touch, and sliding between d-pad arms re-triggers, so
-diagonals and rolls work. Each press gives a short haptic tick.
+**Touch** — press the buttons on the photo: d-pad, A, B, MENU below the d-pad,
+and the two drawn LB/RB bumpers (see `LB/RB` in the settings for where they sit).
+Multi-touch, and sliding between d-pad arms re-triggers, so diagonals and rolls
+work. Each press gives a short haptic tick.
 
 **Game controller** (auto-detected, USB or Bluetooth): d-pad *or* left stick =
 d-pad, A/B = A/B, L1/R1 = LB/RB, triggers double as A/B, Start = MENU. The touch
@@ -52,6 +53,7 @@ doesn't have:
 | Row | What it does |
 |-----|--------------|
 | `LAYOUT` | `CHASSIS` — the LCD is an exact integer multiple of 128, so the frame is pixel-perfect; the chassis is sized to match. `FILL` — chassis scaled to fill the screen (bigger, slightly soft). |
+| `LB/RB` | `TOP` — bumpers in the window's top corners, where index fingers rest when the phone is held like a gamepad. `ON SHELL` — on the chassis itself, tilted to the angles its own top edges run at, where the hardware's shoulders are. |
 | `SHELL` | the solid product photo, or the see-through chassis. |
 | `HAPTICS` | touch ticks + game rumble on/off. |
 | `FPS` | the engine's measured frame rate. Tapping it cycles the on-LCD perf overlay (`OFF` / `FPS` / `MINI` / `FULL`) — the touch equivalent of the handheld's LB+RB. |
@@ -130,10 +132,27 @@ Two things to know before relying on it:
   `required="false"`, so the app still installs and works as a console without it.
 
 Under the hood: `MoteUsb.java` claims the CDC data interface and moves bytes with
-`bulkTransfer` (no driver, no root) and asserts DTR, which the device's log
-channel gates on; `os/android/mote_android_dock.c` is the server, on its own
-thread; and the room verbs come from `platform/android/mote_mn1.c`, shared with
-the in-app link server so both answer a lobby identically.
+`bulkTransfer` (no driver, no root); `os/android/mote_android_dock.c` is the
+server, on its own thread; and the room verbs come from
+`platform/android/mote_mn1.c`, shared with the in-app link server so both answer
+a lobby identically.
+
+Two details there are load-bearing, and both cost a debugging round when they
+were wrong:
+
+- **A read must ask for a whole packet.** Request fewer than the endpoint's 64
+  bytes and the USB stack hands over what you asked for and *discards the rest of
+  that packet*. Reading a line a byte at a time therefore kept the first byte of
+  every packet and threw away 63. The cable is now always read in 4 KB chunks
+  into a buffer that every consumer parses from.
+- **DTR must be asserted**, via `SET_CONTROL_LINE_STATE` addressed to the **COMM**
+  interface — sending it to the data interface is a silent no-op. Without DTR
+  TinyUSB treats the port as closed and `tud_cdc_write` *reports success while
+  dropping the bytes* (there is a comment about exactly this in
+  `os/device/mote_link.c`), so the handheld's replies vanish.
+
+If a dock session misbehaves, `adb logcat -s mote` prints every MN1 line the
+handheld sends and each state change.
 
 ### Testing the dock without hardware
 

@@ -21,9 +21,14 @@ import java.util.HashMap;
  *
  * The handheld is a plain CDC-ACM device (VID:PID CAFE:4D01) with 64-byte bulk
  * endpoints, so no driver is involved: claim the data interface and move bytes
- * with bulkTransfer. The only control request that matters is
- * SET_CONTROL_LINE_STATE with DTR asserted — TinyUSB's tud_cdc_connected() gates
- * the device's log path on it.
+ * with bulkTransfer.
+ *
+ * Two details are load-bearing. DTR must be asserted (SET_CONTROL_LINE_STATE on
+ * the COMM interface, not the data one): without it TinyUSB treats the port as
+ * closed, and tud_cdc_write reports success while dropping the bytes — so the
+ * handheld's replies vanish. And a read must ask for a whole packet: request
+ * fewer than the endpoint's 64 bytes and the remainder of the packet is
+ * discarded, so the native side always reads in 4 KB chunks.
  *
  * Every method here is called from the native dock thread, so this class is
  * deliberately free of any UI or main-thread work.
@@ -33,7 +38,8 @@ public final class MoteUsb {
     private static final int VID = 0xCAFE;
     private static final int PID = 0x4D01;
 
-    /** CDC: SET_CONTROL_LINE_STATE, DTR|RTS. */
+    /** CDC class requests. */
+    private static final int CDC_SET_LINE_CODING = 0x20;
     private static final int CDC_SET_CONTROL_LINE_STATE = 0x22;
     private static final int CDC_OUT_REQTYPE = 0x21;   // host->device, class, interface
 
@@ -43,9 +49,15 @@ public final class MoteUsb {
     private static UsbManager sMgr;
 
     private static UsbDeviceConnection sConn;
-    private static UsbInterface sIface;
+    private static UsbInterface sIface, sComm;
     private static UsbEndpoint sIn, sOut;
     private static volatile boolean sAsking;
+    /* A connection can go stale without the device disappearing from the device
+     * list — same VID/PID enumerates again after any re-plug or re-enumeration.
+     * bulkTransfer then fails forever while find() still succeeds, so count the
+     * consecutive failures and declare the pipe gone; the dock reopens. */
+    private static int sFails;
+    private static final int FAIL_LIMIT = 40;
 
     private MoteUsb() { }
 
@@ -108,13 +120,15 @@ public final class MoteUsb {
             return 0;
         }
 
-        /* Prefer the interface that actually carries the bulk endpoints: on a CDC
-         * device that is the DATA interface (class 0x0A), not the notification
-         * one. Fall back to any interface with a bulk pair. */
-        UsbInterface pick = null;
+        /* The bulk endpoints live on the CDC DATA interface (class 0x0A); the
+         * COMM interface (class 0x02) carries only the notification endpoint but
+         * is the one a line-state request must be addressed to. Find both. */
+        UsbInterface pick = null, comm = null;
         UsbEndpoint in = null, out = null;
-        for (int i = 0; i < dev.getInterfaceCount() && pick == null; i++) {
+        for (int i = 0; i < dev.getInterfaceCount(); i++) {
             UsbInterface itf = dev.getInterface(i);
+            if (itf.getInterfaceClass() == UsbConstants.USB_CLASS_COMM && comm == null)
+                comm = itf;
             UsbEndpoint bin = null, bout = null;
             for (int e = 0; e < itf.getEndpointCount(); e++) {
                 UsbEndpoint ep = itf.getEndpoint(e);
@@ -122,20 +136,30 @@ public final class MoteUsb {
                 if (ep.getDirection() == UsbConstants.USB_DIR_IN) bin = ep;
                 else bout = ep;
             }
-            if (bin != null && bout != null) { pick = itf; in = bin; out = bout; }
+            if (pick == null && bin != null && bout != null) { pick = itf; in = bin; out = bout; }
         }
         if (pick == null) return 0;
 
         UsbDeviceConnection conn = sMgr.openDevice(dev);
         if (conn == null) return 0;
         if (!conn.claimInterface(pick, true)) { conn.close(); return 0; }
+        /* Claiming the comm interface too keeps anything else off the port. */
+        if (comm != null) conn.claimInterface(comm, true);
 
-        /* DTR|RTS on. Without it the device considers the port closed and stays
-         * quiet on its log channel. Failure is not fatal for bulk traffic. */
+        /* Baud is meaningless over USB but TinyUSB still expects a coherent line
+         * coding, and DTR must be asserted or the device treats the port as
+         * closed and says nothing on its log channel. wIndex is the COMM
+         * interface, not the data one — addressing the data interface is a
+         * silent no-op, which is why this had to be got right. */
+        int ifidx = comm != null ? comm.getId() : 0;
+        byte[] coding = { (byte) 0x00, (byte) 0xC2, (byte) 0x01, 0, /* 115200 */
+                          0 /* 1 stop */, 0 /* no parity */, 8 /* data bits */ };
+        conn.controlTransfer(CDC_OUT_REQTYPE, CDC_SET_LINE_CODING, 0, ifidx,
+                             coding, coding.length, 300);
         conn.controlTransfer(CDC_OUT_REQTYPE, CDC_SET_CONTROL_LINE_STATE,
-                             0x03, pick.getId(), null, 0, 200);
+                             0x03, ifidx, null, 0, 300);
 
-        sConn = conn; sIface = pick; sIn = in; sOut = out;
+        sConn = conn; sIface = pick; sComm = comm; sIn = in; sOut = out;
         return 1;
     }
 
@@ -143,24 +167,34 @@ public final class MoteUsb {
         if (sConn != null) {
             try {
                 if (sIface != null) sConn.releaseInterface(sIface);
+                if (sComm != null) sConn.releaseInterface(sComm);
                 sConn.close();
             } catch (Exception ignored) { }
         }
-        sConn = null; sIface = null; sIn = null; sOut = null;
+        sConn = null; sIface = null; sComm = null; sIn = null; sOut = null;
+        sFails = 0;
     }
 
     /**
-     * Read up to buf.length bytes. Returns the count, 0 on timeout, -1 if the
-     * pipe is gone. A CDC read timing out is normal: the device only speaks when
-     * it has something to say.
+     * Read up to max bytes (never more than one transfer's worth). Returns the
+     * count, 0 on timeout, -1 if the pipe is gone. A CDC read timing out is
+     * normal: the device only speaks when it has something to say.
+     *
+     * max must be at least the endpoint packet size, or the tail of a packet is
+     * discarded by the USB stack — the caller guarantees that.
      */
-    public static int moteRead(byte[] buf, int timeoutMs) {
+    public static int moteRead(byte[] buf, int max, int timeoutMs) {
         UsbDeviceConnection c = sConn;
         UsbEndpoint ep = sIn;
         if (c == null || ep == null) return -1;
         try {
-            int n = c.bulkTransfer(ep, buf, buf.length, timeoutMs);
-            if (n < 0) return find() == null ? -1 : 0;   /* timeout vs unplugged */
+            if (max > buf.length) max = buf.length;
+            int n = c.bulkTransfer(ep, buf, max, timeoutMs);
+            if (n < 0) {
+                if (find() == null) return -1;
+                return ++sFails >= FAIL_LIMIT ? -1 : 0;  /* timeout, or gone stale */
+            }
+            sFails = 0;
             return n;
         } catch (Exception e) {
             return -1;
@@ -175,8 +209,9 @@ public final class MoteUsb {
         try {
             /* One bulk transfer per endpoint packet run; the endpoint is 64 bytes
              * but bulkTransfer handles the splitting itself. */
-            int n = c.bulkTransfer(ep, buf, len, 2000);
-            if (n < 0) return find() == null ? -1 : 0;
+            int n = c.bulkTransfer(ep, buf, len, 3000);
+            if (n < 0) return -1;      /* a partial write would desync the stream */
+            sFails = 0;
             return n;
         } catch (Exception e) {
             return -1;
