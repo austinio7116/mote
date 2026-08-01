@@ -22,6 +22,7 @@ CELL, PAD, LABEL = 64, 6, 16          # 70 x 70 a cell, six across — matches t
 BG = (32, 38, 54)
 CELLBG = (44, 50, 70)
 INK = (150, 158, 186)
+SEA = (25, 107, 158)      # the game's deep water, for the one tile that sits in it
 
 # name, sheet, column, row — the SAME cells as MB_SP in src/mb_unit.c
 ANIMALS = [
@@ -67,5 +68,42 @@ def plate(entries, out, cols=6, zoom=7):
     print("wrote", out, im.size)
 
 
+# THE TOWN SHEET, whose cells are 8 wide and 14 TALL — a building stands above its tile — so
+# the buildings plate needs its own crop. Names as the game names them (O_NAME), in the order
+# the sheet is built, minus the blueprint ghost which is not a building.
+BUILDINGS = [
+    "fire pit", "hall", "great hall", "castle", "house", "cottage", "manor", "farm", "mine",
+    "woodcutter", "barracks", "temple", "tower", "dock", "wall", "granary", "market", "library",
+    "foundry", "college", "hospital", "factory", "station", "power station", "silo", "monument",
+    "fountain",
+]
+
+
+def buildings_plate(out, cols=9, zoom=4, row=0):
+    """One column of the town sheet per building, in the kingdom colour `row`."""
+    sheet = load("town")
+    cw = 8 * zoom + 18
+    ch = 14 * zoom + LABEL + 6
+    rows = (len(BUILDINGS) + cols - 1) // cols
+    im = Image.new("RGB", (cols * cw, rows * ch), BG)
+    d = ImageDraw.Draw(im)
+    for i, name in enumerate(BUILDINGS):
+        src = sheet.crop((i * 8, row * 14, i * 8 + 8, row * 14 + 14))
+        x, y = (i % cols) * cw, (i // cols) * ch
+        d.rectangle([x + 2, y + 2, x + cw - 4, y + ch - LABEL - 4], fill=CELLBG)
+        if name == "dock":
+            # The one building drawn from ABOVE, lying flat on the water. Against a plain
+            # cell it reads as a dropped plank; against water it reads as a jetty. It occupies
+            # the bottom eight rows of its cell, which is its tile.
+            d.rectangle([x + 2, y + 4 + 6 * zoom, x + cw - 4, y + ch - LABEL - 4], fill=SEA)
+        big = src.resize((8 * zoom, 14 * zoom), Image.NEAREST)
+        im.paste(big, (x + (cw - 8 * zoom) // 2, y + 4), big)
+        w = d.textlength(name)
+        d.text((x + (cw - w) / 2, y + ch - LABEL), name, fill=INK)
+    im.save(out)
+    print("wrote", out, im.size)
+
+
 if __name__ == "__main__":
     plate(ANIMALS, os.path.join(DOCS, "motebox-p-animals.png"))
+    buildings_plate(os.path.join(DOCS, "motebox-p-buildings.png"))
