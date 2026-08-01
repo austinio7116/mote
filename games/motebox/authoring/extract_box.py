@@ -397,6 +397,38 @@ def build_fx_recolours():
         save_sheet(name, im)
 
 
+def build_dryflora():
+    """The savanna's own grass and scrub: the artist's tuft and bush, recoloured dry.
+
+    A savanna cell drew the SAME BRIGHT GREEN TUFT as a water meadow, so the one biome whose
+    whole character is that the grass has died back was speckled with fresh growth. There is no
+    dry tuft in the master and no tint at blit time, so one is made: the cell's own shape, with
+    every pixel mapped by its luminance onto a tawny ramp. The shape is the artist's, the colour
+    is the biome's.
+    """
+    import palette
+    ramp = palette.ramp((150, 116, 54), (226, 198, 120))   # dry stalk to bleached tip
+    # THE SAME SHAPES THE MEADOW USES. MB_OBJ_SPR names these as nature (2,4) and (4,4) — cells
+    # of the NATURE ATLAS, not of the master — and cell() takes master coordinates, so the first
+    # version recoloured master (2,4) and (4,4) and put a brown LEVER in the grass. The nature
+    # atlas starts at the master's (0,8), so the tuft and the bush are (2,12) and (4,12).
+    _nc, _nr = SPRITE_SHEETS["nature"][0], SPRITE_SHEETS["nature"][1]
+    src = [(_nc + 2, _nr + 4), (_nc + 4, _nr + 4)]         # the tuft and the bush
+    sheet = Image.new("RGBA", (TS * len(src), TS), (0, 0, 0, 0))
+    for i, (c, r) in enumerate(src):
+        cel = cell(c, r).copy()
+        px = cel.load()
+        for y in range(TS):
+            for x in range(TS):
+                pr, pg, pb, pa = px[x, y]
+                if not pa:
+                    continue
+                lum = (pr * 30 + pg * 59 + pb * 11) // 100
+                px[x, y] = ramp[min(len(ramp) - 1, lum * len(ramp) // 256)] + (255,)
+        sheet.paste(cel, (i * TS, 0))
+    save_sheet("dryflora", sheet)
+
+
 def build_ore():
     """Ore deposits, generated — because the master has none.
 
@@ -524,22 +556,70 @@ def check_transition_bodies():
 # therefore covers every cell at band L or above, the engine autotiles it against its own
 # bit, and its fringe reveals the band below — which turns out to be the NEIGHBOUR's own
 # colour, because a neighbour in a lower band is exactly a cell that lacks this bit.
+# HILLS HAVE A BAND OF THEIR OWN, paid for by merging two that did not need to be separate.
+#
+# Eight autotile layers is the hard limit, and all eight were spoken for — so hills shared bd_dry
+# with farmland and tundra, which is why they were the same red-brown as a ploughed field and why
+# "make the hills less brown" also made the farms less brown. Beach and desert are both sand and
+# were holding a layer each; merged into one sand band they free a layer, and hills take it. What
+# each band is made of stays overridable from the environment so a tone can be tried without
+# editing this file (authoring/hill_palettes.py).
+SAND         = (250, 222, 150)      # one tone for beach AND desert, now that they share a band
+HILL_BAND    = os.environ.get("MB_HILL_BAND", "bd_hill")
+_DRY_BODY    = os.environ.get("MB_DRY_BODY", "")
+_DRY_FRINGE  = os.environ.get("MB_DRY_FRINGE", "")
+_HILL_BODY   = os.environ.get("MB_HILL_BODY", "")
+_HILL_FRINGE = os.environ.get("MB_HILL_FRINGE", "")
+_SAND_BODY   = os.environ.get("MB_SAND_BODY", "")
+
+
+def _band_rgb(spec, fallback):
+    """A "r,g,b" override from the environment, or the colour this band has always had."""
+    if not spec:
+        return fallback
+    r, g, b = (int(v) for v in spec.split(","))
+    return (r, g, b)
+
+
 BAND_LIST = [
     ("bd_water",   BLUE,    WHITE,   ["sea", "shallow"]),
     ("bd_frost",   WHITE,   BLUE,    ["ice", "snow"]),
-    ("bd_sand",    PEACH,   WHITE,   ["beach"]),
-    ("bd_desert",  YELLOW,  WHITE,   ["desert"]),
+    # BEACH AND DESERT TOGETHER. They were a layer each, PEACH and YELLOW, and the difference
+    # between them was never the point: both are sand, and the coastline reads from the water it
+    # meets rather than from its own hue. One band, one tone, and a layer freed for the hills.
+    ("bd_sand",    _band_rgb(_SAND_BODY, SAND), WHITE, ["beach", "desert"]),
     # A LIGHTER GRASS. The band body was DKGREEN and so is the artist's tree foliage, so
     # a wood was invisible against the field it stood in. Grass is a third of the way to
     # GREEN now, which leaves his trees reading dark against it.
     ("bd_green",   mix(DKGREEN, GREEN, 0.30), GREEN, ["grass", "swamp", "acid", "meadow", "forest"]),
-    ("bd_savanna", ORANGE,  YELLOW,  ["savanna"]),
+    # LESS ORANGE. ORANGE (255,163,0) is a traffic cone, and a savanna is dry grass: this is
+    # tawny, and it leaves the artist's own orange for things that are actually orange.
+    ("bd_savanna", _band_rgb(os.environ.get("MB_SAV_BODY", ""), (214, 168, 74)),
+                   _band_rgb(os.environ.get("MB_SAV_FRINGE", ""), (240, 212, 132)),
+                   ["savanna"]),
     # Ash and scorched sit on this band: their sprite fringes reveal BARE EARTH,
     # which is what is under a burn. On the rock band a burnt forest showed light
     # grey stone through its own edge.
-    ("bd_dry",     BROWN,   ORANGE,  ["farm", "hill", "tundra", "ash", "scorched"]),
+    # PEAT, not clay. This band is tundra, ploughed farmland and the bare ground a fire leaves,
+    # and all three are dark wet earth rather than the red-orange of a plant pot: chosen off the
+    # candidate sheet (authoring/ground_palettes.py tundra).
+    ("bd_dry",     _band_rgb(_DRY_BODY, (98, 84, 70)),
+                   _band_rgb(_DRY_FRINGE, (144, 126, 104)),
+                   ["farm", "tundra", "ash", "scorched"]),
+    # THE HILLS, in their own right: between the dry ground below them and the rock above.
+    # UPLAND GRASS, chosen off the candidate sheet: a hillside is grazed grass going brown at
+    # the top, not the clay of a ploughed field, which is what it was when it shared bd_dry.
+    ("bd_hill",    _band_rgb(_HILL_BODY, (96, 134, 72)),
+                   _band_rgb(_HILL_FRINGE, (150, 180, 104)), []),
     ("bd_rock",    LTGREY,  WHITE,   ["peak", "rubble", "road", "mountain"]),
 ]
+# hills go wherever they have been assigned, so exactly one band claims them
+for _i, _b in enumerate(BAND_LIST):
+    if _b[0] == HILL_BAND:
+        BAND_LIST[_i] = (_b[0], _b[1], _b[2], _b[3] + ["hill"])
+        break
+else:
+    raise SystemExit("MB_HILL_BAND=%s is not a band" % HILL_BAND)
 
 
 # Burnt ground. Not from the artist's sixteen — see the note in build_hot().
@@ -980,6 +1060,7 @@ def main():
     build_stores()
     build_tech()
     build_traits()
+    build_dryflora()
     build_ships()
     build_caravans()
     build_town()

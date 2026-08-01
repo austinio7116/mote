@@ -691,23 +691,23 @@ void mb_bands_rebuild(void)
          0,   /* shallow  */
          1,   /* ice      */
          2,   /* beach    */
-         3,   /* desert   */
-         5,   /* savanna  */
-         4,   /* grass    */
-         4,   /* swamp    */
-         6,   /* hill     */
+         2,   /* desert   — the same sand band as the beach now: see MB_BANDS */
+         4,   /* savanna  */
+         3,   /* grass    */
+         3,   /* swamp    */
+         6,   /* hill     — a band of its own, paid for by that merge */
          7,   /* mountain — rock underneath its sprite */
          7,   /* peak     */
-         6,   /* tundra   */
+         5,   /* tundra   */
          1,   /* snow     */
-         6,   /* ash      — bare earth under its sprite, not stone */
-         6,   /* scorched — dry under its sprite */
-         6,   /* lava     — dry under its sprite */
-         4,   /* acid     */
-         6,   /* farm     */
+         5,   /* ash      — bare earth under its sprite, not stone */
+         5,   /* scorched — dry under its sprite */
+         5,   /* lava     — dry under its sprite */
+         3,   /* acid     */
+         5,   /* farm     */
          7,   /* rubble   */
-         4,   /* meadow   */
-         4,   /* forest   */
+         3,   /* meadow   */
+         3,   /* forest   */
          7,   /* road     */
     };
     for (int i = 0; i < NC; i++) {

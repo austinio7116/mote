@@ -85,6 +85,12 @@ static int   s_n, s_head;
 static char  s_toast[44];
 static float s_toast_t;
 static uint8_t s_focus_x, s_focus_y, s_have_focus;
+/* WEATHER IS NOT AN EVENT. Every EV_DISASTER flew the camera to where it happened, and two of
+ * them are weather that covers a quarter of a continent and changes almost nothing: being taken
+ * off a town to watch a blizzard fall on empty tundra is an interruption with no story in it. A
+ * quiet entry still gets its headline and its line in the chronicle; it just does not move the
+ * camera. */
+static int s_quiet;
 
 /* Only these are worth interrupting the player for. A birth is a line in the log;
  * a kingdom falling is a headline. */
@@ -131,7 +137,9 @@ static Event *push(int type, int a, int b, int mag, uint16_t name, int x, int y,
         default:       break;
         }
         /* only if it HAPPENED somewhere: see mb_chron_age() */
-        if (x || y) { s_focus_x = (uint8_t)x; s_focus_y = (uint8_t)y; s_have_focus = 1; }
+        if ((x || y) && !s_quiet) {
+            s_focus_x = (uint8_t)x; s_focus_y = (uint8_t)y; s_have_focus = 1;
+        }
     }
     return e;
 }
@@ -339,7 +347,15 @@ void mb_chron_legend(int u, int why)
 }
 void mb_chron_disaster(const char *what, int x, int y)
 {
+    s_quiet = 0;
     push(EV_DISASTER, 0, 0, 0, 0, x, y, intern(what));
+}
+/* the same entry, without dragging the camera to it: see s_quiet */
+void mb_chron_weather(const char *what, int x, int y)
+{
+    s_quiet = 1;
+    push(EV_DISASTER, 0, 0, 0, 0, x, y, intern(what));
+    s_quiet = 0;
 }
 void mb_chron_age(const char *name)
 {

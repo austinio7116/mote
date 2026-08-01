@@ -37,6 +37,8 @@
 #include "bd_green.tiles.h"
 #include "bd_savanna.tiles.h"
 #include "bd_dry.tiles.h"
+#include "bd_hill.tiles.h"
+#include "dryflora.h"   /* the savanna's own tuft and bush */
 #include "bd_rock.tiles.h"
 #include "blob47_lut.h"
 #include "town.h"
@@ -71,8 +73,11 @@ typedef char mb_town_covers_builds[(town_W / TOWN_W) >= (O_N - O_BUILD0) ? 1 : -
  * the per-biome opaque autotile AND the per-cell sprite transition pass: every boundary
  * in the world is now drawn by the ruleset system, for zero sprites. */
 static const MoteAutotile *const MB_BANDS[8] = {
-    &bd_water_at, &bd_frost_at, &bd_sand_at, &bd_desert_at,
-    &bd_green_at, &bd_savanna_at, &bd_dry_at, &bd_rock_at,
+    /* BEACH AND DESERT SHARE THE SAND BAND, which is what pays for the hills having a band of
+     * their own: eight layers is the limit, both of those are sand, and hills were sharing the
+     * dry band with ploughed fields — which is why a hillside was the colour of a farm. */
+    &bd_water_at, &bd_frost_at, &bd_sand_at, &bd_green_at,
+    &bd_savanna_at, &bd_dry_at, &bd_hill_at, &bd_rock_at,
 };
 
 /* THE PER-BIOME AUTOTILE TABLE IS GONE. Twenty-three rulesets, one per biome, replaced by the
@@ -120,14 +125,37 @@ static const MoteAutotile *const MB_BANDS[8] = {
  * job in the ruleset system now, for no sprites at all — and the two tables sat here afterwards
  * holding twenty tr_*.tiles.h headers, 192 KB of generated art, in every build. */
 
+/* THE HILL COLOUR, in one place and overridable at build time, because it is the one ground
+ * tone that has been argued about: authoring/hill_palettes.py bakes a set of candidates and
+ * photographs each at both zoom levels rather than describing them. */
+#ifndef MB_HILL_COL
+#define MB_HILL_COL MOTE_RGB565(96, 134, 72)      /* upland grass: the chosen tone */
+#endif
+#ifndef MB_TUNDRA_COL
+#define MB_TUNDRA_COL MOTE_RGB565(98, 84, 70)     /* peat: the tone chosen for the dry band */
+#endif
+#ifndef MB_SAND_COL
+#define MB_SAND_COL MOTE_RGB565(250, 222, 150)    /* beach and desert are the same sand */
+#endif
+/* THE GOD'S EYE AND THE GROUND AGREE. Every one of these is the BODY COLOUR of the band that
+ * draws that ground close up (authoring/extract_box.py BAND_LIST), so zooming in never changes
+ * what a place is made of. Savanna was C_ORANGE against a tawny band, and farmland was the old
+ * clay red against peat. */
+#ifndef MB_SAV_COL
+#define MB_SAV_COL MOTE_RGB565(214, 168, 74)      /* tawny, as the savanna band */
+#endif
+#ifndef MB_FARM_COL
+#define MB_FARM_COL MOTE_RGB565(98, 84, 70)       /* ploughed peat, as the dry band */
+#endif
+
 static const uint16_t MB_COL[B_COUNT] = {
     C_DEEP,    /* ocean    */ C_BLUE,   /* sea      */ C_BLUE,   /* shallow  */
-    C_WHITE,   /* ice      */ C_PEACH,  /* beach    */ C_YELLOW, /* desert   */
-    C_ORANGE,  /* savanna  */ C_GRASS,  /* grass    */ C_GRASS,  /* swamp    */
-    C_BROWN,   /* hill     */ C_DKGREY, /* mountain */ C_LTGREY, /* peak     */
-    C_BROWN,   /* tundra   */ C_WHITE,  /* snow     */ C_ASH,    /* ash      */
+    C_WHITE,   /* ice      */ MB_SAND_COL, /* beach */ MB_SAND_COL, /* desert */
+    MB_SAV_COL, /* savanna */ C_GRASS,  /* grass    */ C_GRASS,  /* swamp    */
+    MB_HILL_COL, /* hill   */ C_DKGREY, /* mountain */ C_LTGREY, /* peak     */
+    MB_TUNDRA_COL, /* tundra */ C_WHITE,  /* snow     */ C_ASH,    /* ash      */
     C_CHAR,    /* scorched */ C_RED,    /* lava     */ C_GREEN,  /* acid     */
-    C_BROWN,   /* farm     */ C_LTGREY, /* rubble   */ C_GRASS,  /* meadow   */
+    MB_FARM_COL, /* farm   */ C_LTGREY, /* rubble   */ C_GRASS,  /* meadow   */
     C_GRASS,   /* forest   */ C_DKGREY, /* road     */
 };
 
@@ -1794,6 +1822,16 @@ void mb_draw_mortal(int cam_x, int cam_y)
             uint8_t o = mb_w.obj[AT(c, r)];
             if (!o || o >= O_N) continue;
             const ObjSpr *s = &MB_OBJ_SPR[o];
+            /* DRY GRASS ON DRY GROUND. A savanna cell drew the same bright green tuft as a
+             * water meadow, so the one biome whose character is that the grass has died back was
+             * speckled with fresh growth. Same shape, mapped onto a tawny ramp at bake time. */
+            ObjSpr dry;
+            if ((o == O_TUFT || o == O_BUSH) && mb_w.biome[AT(c, r)] == B_SAVANNA) {
+                dry.img = &dryflora_img;
+                dry.cx = (uint8_t)(o == O_TUFT ? 0 : 1);
+                dry.cy = 0;
+                s = &dry;
+            }
             if (!s->img) continue;
             MoteSprite spr = {
                 s->img, (int16_t)(c * TILE), (int16_t)(r * TILE),

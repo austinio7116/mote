@@ -772,6 +772,7 @@ void        mb_chron_birth(int child, int parent);
 void        mb_chron_death(int u, int cause);
 void        mb_chron_legend(int u, int why);
 void        mb_chron_disaster(const char *what, int x, int y);
+void        mb_chron_weather(const char *what, int x, int y);  /* news, no camera pan */
 void        mb_chron_age(const char *name);
 void        mb_chron_tech(int k, const char *what, int x, int y);
 void        mb_chron_lord(int v);

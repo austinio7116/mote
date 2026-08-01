@@ -2164,6 +2164,42 @@ static void g_init(void)
                            fprintf(stderr, "cam -> %d wall cells in the world, %d around %d,%d\n",
                                    total, best, bx, by); }
             else fprintf(stderr, "cam -> no walls anywhere\n");
+        } else if (cv && (*cv == 'h' || *cv == 'b')) {
+            /* CAM=h parks on HILL COUNTRY, and CAM=b:NAME on the thickest patch of any named
+             * biome — "is that colour right" is a question about a whole hillside, and a fixed
+             * coordinate lands in a meadow as soon as the seed or the generator changes. */
+            int want = B_HILL;
+            if (*cv == 'b') {
+                const char *nm = strchr(cv, ':');
+                nm = nm ? nm + 1 : "hill";
+                /* B_NAME is upper case ("HILL", "TUNDRA"), and typing MOTEBOX_CAM=b:TUNDRA on
+                 * a shell line is not the experience: matched without case. */
+                for (int q = 1; q < B_N; q++) {
+                    if (!B_NAME[q]) continue;
+                    const char *a2 = B_NAME[q], *b2 = nm;
+                    while (*a2 && *b2) {
+                        int ca = *a2 >= 'A' && *a2 <= 'Z' ? *a2 + 32 : *a2;
+                        int cb = *b2 >= 'A' && *b2 <= 'Z' ? *b2 + 32 : *b2;
+                        if (ca != cb) break;
+                        a2++; b2++;
+                    }
+                    if (!*a2 && !*b2) { want = q; break; }
+                }
+            }
+            int bx = -1, by = 0, best = -1;
+            for (int y = 4; y < MH - 4; y += 2)
+                for (int x = 4; x < MW - 4; x += 2) {
+                    int n = 0;
+                    for (int dy = -4; dy <= 4; dy++)
+                        for (int dx = -4; dx <= 4; dx++)
+                            if (mb_w.biome[AT(x + dx, y + dy)] == want) n++;
+                    if (n > best) { best = n; bx = x; by = y; }
+                }
+            if (bx >= 0) {
+                s_cx = bx; s_cy = by;
+                fprintf(stderr, "cam -> %s country at %d,%d (%d of 81 cells)\n",
+                        B_NAME[want], bx, by, best);
+            }
         } else if (cv && *cv == 'm') {
             /* CAM=m parks on a PLAZA. CAM=v aims at a village centre, and a plaza is two
              * rows south of the hall — close enough to be in shot, far enough that "is the

@@ -1042,7 +1042,7 @@ void mb_flux_natural(void)
     if (dry > 100 && (r & 255) < (uint32_t)(dry >> 4)) {
         int x = (int)((r >> 8) % MW), y = (int)((r >> 18) % MH);
         mb_flux_ignite(x, y, 1);
-        if ((r & 7) == 0) mb_chron_disaster("a heatwave", x, y);
+        if ((r & 7) == 0) mb_chron_weather("a heatwave", x, y);
     }
 
     /* BLIZZARD: frost at the latitudes the climate already made cold */
@@ -1050,7 +1050,7 @@ void mb_flux_natural(void)
         int x = (int)((r >> 9) % MW);
         int y = (r & 0x10000u) ? (int)((r >> 19) % 18) : MH - 1 - (int)((r >> 19) % 18);
         mb_flux_blob(x, y, 2, FX_FROST, 7);
-        if ((r & 15) == 0) mb_chron_disaster("a blizzard", x, y);
+        if ((r & 15) == 0) mb_chron_weather("a blizzard", x, y);
     }
 
     /* ASHFALL: the Age of Ash on everyone, a little at a time. Deliberately weak

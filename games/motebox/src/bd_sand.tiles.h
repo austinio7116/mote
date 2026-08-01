@@ -3,7 +3,7 @@
 #define MOTE_T_bd_sand_H
 #include "mote_tile.h"
 
-static const uint16_t bd_sand_pal[5] = { 0xf81f,0xfe75,0xfe96,0xfed8,0xff19 };
+static const uint16_t bd_sand_pal[5] = { 0xf81f,0xfef2,0xff14,0xff36,0xff58 };
 static const uint8_t bd_sand_idx[6144] = {
   0,0,0,0,35,65,20,50,0,0,0,34,35,65,17,67,35,65,17,17,0,0,0,0,35,65,20,50,0,0,0,34,
   35,65,17,67,35,65,17,17,0,0,0,34,35,65,17,67,35,65,17,17,32,0,0,0,52,17,20,50,32,0,0,34,
