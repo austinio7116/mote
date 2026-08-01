@@ -103,6 +103,10 @@ def save_sheet(name, img):
 
 # ------------------------------------------------------------ subsheets ------
 # (c0, r0, c1, r1) inclusive, in source cell coordinates.
+# TWELVE RECTANGLES WERE CUT AND NEVER DRAWN. props, terrain_edges, furniture, blueprint,
+# chests, food, weapons, tools, devices, ui_icons, ui_symbols and panels were extracted, baked
+# into headers, compiled into every build and referenced by nothing — 14 KB of sheets and 60 KB
+# of headers. They are cut from this list rather than the master, so re-adding one is a line.
 SPRITE_SHEETS = {
     # --- actors ---
     "characters":  (32,  0, 47,  7),   # @, portraits, adventurers, villagers, kings
@@ -117,25 +121,14 @@ SPRITE_SHEETS = {
     # deep. That is the whole per-kingdom building set, so it gets the real name
     # here and the row index IS the kingdom colour.
     "buildings":   (11,  1, 14,  5),   # door / open door / house / house-extend x 5 colours
-    "props":       ( 0,  6,  9,  9),   # campfire, torches, fences, bridges, house, igloo, logs
     "nature":      ( 0,  8, 15, 13),   # trees, bushes, rocks, mushrooms, clouds, splats
-    "terrain_edges": (48, 33, 63, 39), # coast foam, cloud, drift, debris
-    "furniture":   ( 0, 53,  5, 55),   # top-down beds/tables/dressers for interiors
-    "blueprint":   ( 0, 50, 11, 52),   # floor-plan line art: the lords' build ghosts
-    "chests":      ( 0,  1,  1,  5),   # stockpiles / tribute, 5 colours
     # --- economy & tech iconography ---
     "treasure_ore": (16, 16, 27, 19),  # ore/gold/gem deposits + 9 heraldic shields
-    "food":        (16,  8, 27, 13),   # crops, market goods
-    "weapons":     (16,  0, 23,  6),   # tech-tier weapon icons
-    "tools":       (16, 28, 31, 31),   # pickaxes, axes, hammers, staffs
-    "devices":     (24,  5, 31,  6),   # lamps, crystal ball, HOURGLASS, instruments
     # --- UI ---
     "fx_mono":     (48, 36, 63, 43),   # bolts, rings, sparkles, wind — the FX master
     "ui_status":   (48, 24, 63, 31),   # mood faces, element icons, hearts, meter segments
-    "ui_icons":    ( 0, 14, 15, 15),   # tiny HUD icons
     "ui_gauges":   (48, 16, 59, 19),   # 8-dir arrows, bars, signal gauges
     "ui_buttons":  (48, 20, 63, 23),   # A/B/X/Y prompts
-    "panels":      ( 0, 20, 15, 23),   # rounded panels in 4 colours
     # THE INFO-SCREEN FRAMES. Two sets, chosen by trying all three candidates side by side
     # with identical content (see the mockups): the CP437 box-drawing glyphs make the screen
     # frame — thinnest, so the most room inside, and recolourable per screen — and this
@@ -149,7 +142,6 @@ SPRITE_SHEETS = {
     #   (0,0) top corner: the run turns down here    (1,0) horizontal run
     #   (2,0) bottom corner: nothing below           (0,1) vertical run
     "wall_stone":  (12, 47, 15, 48),
-    "ui_symbols":  (48, 32, 51, 32),   # lineage marks
     "font_cp437":  (48,  0, 63, 15),   # monospace atlas (char c -> cell c%16, c/16)
 }
 
@@ -851,9 +843,22 @@ def main():
     build_town()
     build_bands()
     build_hot()
-    build_biomes()
-    check_transition_bodies()
-    sync_terrain()
+    # THE PER-BIOME AUTOTILES AND THE TRANSITION OVERLAY ARE NOT BUILT ANY MORE.
+    #
+    # build_biomes() wrote 20 bio_*.tileset blob47 sets and check_transition_bodies() the 20
+    # tr_* overlays; both were replaced by the eight shared BANDS (build_bands, and MB_BANDS in
+    # mb_draw.c) and neither had been drawn since. Between them they were 48 tileset files, 40
+    # generated headers and 525 KB, rebuilt on every pipeline run and compiled into every
+    # binary. The functions are kept because the reasoning in them is worth reading and because
+    # a future per-biome pass would start there; they are simply not called.
+    #
+    # sync_terrain() copied roguemote's hand-drawn rulesets in. Only the four wall_* sets and
+    # the three floor_*/hedge sets came through it, and nothing drew any of them either.
+    build_bands_only = True
+    if not build_bands_only:
+        build_biomes()
+        check_transition_bodies()
+        sync_terrain()
     build_icon()
     print("\nbiome tilesets written (the B_* enum in src/mb.h must match this order):")
     import glob

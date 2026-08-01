@@ -19,26 +19,6 @@
 #endif
 
 /* the baked biome rulesets — one per B_* id, in enum order */
-#include "bio_ocean.tiles.h"
-#include "bio_sea.tiles.h"
-#include "bio_shallow.tiles.h"
-#include "bio_ice.tiles.h"
-#include "bio_beach.tiles.h"
-#include "bio_desert.tiles.h"
-#include "bio_savanna.tiles.h"
-#include "bio_grass.tiles.h"
-#include "bio_swamp.tiles.h"
-#include "bio_hill.tiles.h"
-#include "bio_mountain.tiles.h"
-#include "bio_peak.tiles.h"
-#include "bio_tundra.tiles.h"
-#include "bio_snow.tiles.h"
-#include "bio_ash.tiles.h"
-#include "bio_scorched.tiles.h"
-#include "bio_lava.tiles.h"
-#include "bio_acid.tiles.h"
-#include "bio_farm.tiles.h"
-#include "bio_rubble.tiles.h"
 #include "floor_jungle.tiles.h"      /* B_MEADOW */
 #include "hedge.tiles.h"             /* B_FOREST */
 #include "floor_cobble.tiles.h"      /* B_ROAD   */
@@ -59,26 +39,6 @@
 #include "bd_dry.tiles.h"
 #include "bd_rock.tiles.h"
 #include "blob47_lut.h"
-#include "tr_ocean.tiles.h"
-#include "tr_sea.tiles.h"
-#include "tr_shallow.tiles.h"
-#include "tr_ice.tiles.h"
-#include "tr_beach.tiles.h"
-#include "tr_desert.tiles.h"
-#include "tr_savanna.tiles.h"
-#include "tr_grass.tiles.h"
-#include "tr_swamp.tiles.h"
-#include "tr_hill.tiles.h"
-#include "tr_mountain.tiles.h"
-#include "tr_peak.tiles.h"
-#include "tr_tundra.tiles.h"
-#include "tr_snow.tiles.h"
-#include "tr_ash.tiles.h"
-#include "tr_scorched.tiles.h"
-#include "tr_lava.tiles.h"
-#include "tr_acid.tiles.h"
-#include "tr_farm.tiles.h"
-#include "tr_rubble.tiles.h"
 #include "town.h"
 #include "hot.h"
 
@@ -94,7 +54,6 @@
  * (see MB_MODERN below) in columns past the object range. */
 typedef char mb_town_covers_builds[(town_W / TOWN_W) >= (O_N - O_BUILD0) ? 1 : -1];
 #include "ui_status.h"
-#include "tools.h"
 #include "crowns_fx.h"
 #include "fx_frost.h"
 #include "fx_acid.h"
@@ -103,8 +62,6 @@ typedef char mb_town_covers_builds[(town_W / TOWN_W) >= (O_N - O_BUILD0) ? 1 : -
 #include "monsters.h"
 #include "bosses.h"   /* the seventeen kaiju, 2x2 each */
 #include "buildings.h"
-#include "props.h"
-#include "blueprint.h"
 
 /* Ruleset per biome id. Index i is biome id i+1 — the engine reads
  * tiles[t-1] for cell value t, so this array's ORDER IS the B_* enum. */
@@ -117,13 +74,10 @@ static const MoteAutotile *const MB_BANDS[8] = {
     &bd_green_at, &bd_savanna_at, &bd_dry_at, &bd_rock_at,
 };
 
-static const MoteAutotile *const MB_TILES[B_COUNT] = {
-    &bio_ocean_at, &bio_sea_at, &bio_shallow_at, &bio_ice_at, &bio_beach_at,
-    &bio_desert_at, &bio_savanna_at, &bio_grass_at, &bio_swamp_at, &bio_hill_at,
-    &bio_mountain_at, &bio_peak_at, &bio_tundra_at, &bio_snow_at, &bio_ash_at,
-    &bio_scorched_at, &bio_lava_at, &bio_acid_at, &bio_farm_at, &bio_rubble_at,
-    &floor_jungle_at, &hedge_at, &floor_cobble_at,
-};
+/* THE PER-BIOME AUTOTILE TABLE IS GONE. Twenty-three rulesets, one per biome, replaced by the
+ * eight shared BANDS above — see the comment on MB_BANDS. The table survived the change as dead
+ * code and kept twenty generated headers (bio_*.tiles.h) and their forty-eight tileset files in
+ * the build for a year: nothing read it but a size tripwire. */
 
 /* God's Eye colour per biome: the BASE colour of that biome's tile recipe, so
  * the two views agree — zooming in never recolours the ground. Kept as one table
@@ -154,28 +108,10 @@ static const MoteAutotile *const MB_TILES[B_COUNT] = {
 #define C_CHAR    MOTE_RGB565( 70,  52,  46)
 #define C_ASH     MOTE_RGB565(108, 100,  96)
 
-/* TERRAIN TRANSITIONS: which sheet each biome bleeds with, and how high it sits.
- *
- * A cell may only paint its own eight pixels, so in one opaque layer the colour
- * boundary is pinned to the tile grid and every coast is a staircase of straight
- * segments. The base pass paints flat fields; this table drives a SECOND pass that
- * paints the boundary in the HIGHER terrain's colours inside the LOWER terrain's cell,
- * so the visible edge is organic and owes nothing to the grid.
- *
- * Precedence is a height in a stack — water at the bottom, rock at the top, which is
- * also the order they lie in reality. Only the higher one bleeds, so a boundary is
- * drawn exactly once and two neighbours can never both claim the same pixels. */
-static const MoteImage *const MB_TRANS[B_COUNT] = {
-    &tr_ocean_img, &tr_sea_img, &tr_shallow_img, &tr_ice_img, &tr_beach_img, &tr_desert_img, &tr_savanna_img, &tr_grass_img, &tr_swamp_img, &tr_hill_img, &tr_mountain_img, &tr_peak_img, &tr_tundra_img, &tr_snow_img, &tr_ash_img, &tr_scorched_img, &tr_lava_img, &tr_acid_img, &tr_farm_img, &tr_rubble_img,
-    0, 0, 0,   /* meadow, forest and road are synced rulesets: no overlay */
-};
-
-static const uint8_t MB_PREC[B_COUNT] = {
-    0, 1, 2, 3, 6, 7, 8, 10, 5, 16, 17, 18, 12, 11, 13, 14, 4, 4, 9, 15,
-    10, 11, 9,   /* meadow, forest, road */
-};
-typedef char mb_trans_covers[(sizeof MB_TRANS / sizeof MB_TRANS[0]) == B_COUNT ? 1 : -1];
-typedef char mb_prec_covers[(sizeof MB_PREC / sizeof MB_PREC[0]) == B_COUNT ? 1 : -1];
+/* AND SO IS THE TRANSITION OVERLAY. MB_TRANS and MB_PREC drove a second pass that painted each
+ * boundary in the higher terrain's colours inside the lower terrain's cell. The bands do that
+ * job in the ruleset system now, for no sprites at all — and the two tables sat here afterwards
+ * holding twenty tr_*.tiles.h headers, 192 KB of generated art, in every build. */
 
 static const uint16_t MB_COL[B_COUNT] = {
     C_NAVY,    /* ocean    */ C_BLUE,   /* sea      */ C_BLUE,   /* shallow  */
