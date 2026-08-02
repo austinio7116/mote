@@ -70,13 +70,14 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
     - [For developers — one call, then bytes](#for-developers--one-call-then-bytes)
 11. [Device workflow — build, push, flash](#11-device-workflow)
     - [Flashing firmware (only when you change engine/OS C code)](#flashing-firmware-only-when-you-change-engineos-c-code)
-12. [Gotchas + rough edges](#12-gotchas--rough-edges)
+12. [Mote on Android — the phone build, and the phone as a dock](#12-mote-on-android)
+13. [Gotchas + rough edges](#13-gotchas--rough-edges)
     - [Real gotchas (things that *will* bite you)](#real-gotchas-things-that-will-bite-you)
     - [Rough edges](#rough-edges)
-13. [Project layout + reference](#13-project-layout--reference)
+14. [Project layout + reference](#14-project-layout--reference)
     - [Example games — what each one teaches](#example-games--what-each-one-teaches)
     - [Key reference files to read when in doubt](#key-reference-files-to-read-when-in-doubt)
-14. [Changelog](#14-changelog)
+15. [Changelog](#15-changelog)
 
 ---
 
@@ -85,6 +86,8 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 *Games built with Mote — voxel survival, 3D snooker, an Elite-style space sim, kart racing, a raycaster FPS, top-down action, 3D Tetris and golf — all native, all running on the one resident engine:*
 
 ![A gallery of Mote games: ThumbyCraft, ThumbyCue, Indemnity Run, MotoKart, Wolfmote, Nightmote, Tetris 3D, Golf](docs/img/games-gallery.png)
+
+> **Mote also runs on Android** — a 1.3 MB app that is the whole platform on a phone, and that a real Thumby Color can plug into over USB-C for online play and gallery downloads on mobile data. See [§12](#12-mote-on-android).
 
 > **Mote ships on real hardware as part of [ThumbyOne](https://github.com/austinio7116/ThumbyOne).** The ThumbyOne multi-boot firmware bundles the Mote engine as a slot, so the `.mote` games you build here run on an actual **Thumby Color** — not just the desktop emulator. Flash ThumbyOne, drop `.mote` files into the device's `/mote/` folder over USB, and they appear in the **MOTE** tile's launcher. (You can develop entirely in the Studio emulator without a device — the firmware is only needed to run on hardware.)
 
@@ -2089,14 +2092,15 @@ procedural effects (tiny, editable); **WAV → `MoteSound`** for recorded/sample
 
 Mote multiplayer is **engine-owned end to end**: a game asks the engine for an
 opponent with one call, and the engine handles everything a player sees —
-transport choice, rooms, pairing, the handshake, and link health. Seven games
+transport choice, rooms, pairing, the handshake, and link health. Twelve games
 ship with 2-player modes: **DeepThumb** (chess), **Wolfmote** (deathmatch with
 loot drops), **Grand Thumb Auto** (open-city deathmatch, shared traffic),
 **MotoKart** (racing with the full item game), **ThumbyCue** (pool & snooker),
-**PaperMote** (territory duel) and **Indemnity Run** (1v1 arena with your saved
-ship + loadout).
+**PaperMote** (territory duel), **Indemnity Run** (1v1 arena with your saved
+ship + loadout), **Wormote** (Liero-style dig-and-shoot), **TerraMote** (co-op
+survival), **RedMote** (RTS), **ScrapWing** and **Moita** (wizard duel).
 
-<p align="center"><img src="docs/img/multiplayer-topologies.svg" width="860" alt="The four multiplayer topologies: two Thumbys on one USB-C cable; a Thumby docked into Mote Studio playing the Studio's preview emulator (auto-bridged); two Thumbys each docked into a Studio on the same LAN (tcp 42450 broadcast); and two docked Thumbys paired over the internet through a relay server both Studios connect out to, with 4-letter room codes"></p>
+<p align="center"><img src="docs/img/multiplayer-topologies.svg" width="860" alt="The six multiplayer topologies: two Thumby Colors on one USB-C cable; a Thumby Color docked into Mote Studio playing the Studio's preview emulator (auto-bridged); two Thumby Colors each docked into a Studio on the same LAN (tcp 42450 broadcast); two docked Thumby Colors paired over the internet through a relay server both Studios connect out to, with 4-letter room codes; Mote for Android playing over mobile data or Wi-Fi with no PC; and a Thumby Color plugged into a phone by USB-C, the phone relaying it online over mobile data"></p>
 
 ### Playing — connecting two players
 
@@ -2116,6 +2120,17 @@ automatically — great for testing a game against yourself.
 **LAN — two Studios on the same network.** Each player docks their Thumby in a
 Mote Studio; pick *LAN* → Host on one device, *LAN* → Join on the other. The
 Studios find each other by broadcast (tcp 42450) and relay the two devices.
+
+**Phone — no PC, no cable.** Mote for Android joins the same rooms over mobile
+data or Wi-Fi: quick match, host, join by code and browse, all from the app. A
+phone can play someone on a Thumby Color, and two phones can play each other.
+
+**Phone as the dock — your Thumby Color online, anywhere.** Plug a Thumby Color
+into an Android phone with a USB-C cable and the phone does what a PC and Mote
+Studio would: it answers the lobby and relays the match over mobile data. The
+Thumby Color drives everything from its own lobby and needs no setup; the phone
+is only a cable with a data plan. A phone-docked Thumby Color and a PC-docked
+one land in the same rooms.
 
 **Internet — anywhere.** Dock the Thumby in Mote Studio (the Studio must show
 **Device: ON** in the DEVICE tab's MULTIPLAYER row — it does by default), then
@@ -2253,7 +2268,46 @@ RP2350 mass-storage drive.
 
 ---
 
-## 12. Gotchas + rough edges
+## 12. Mote on Android
+
+`mote-android-arm64.apk` on the [latest release](https://github.com/austinio7116/mote/releases/latest)
+turns a phone into a Thumby Color. It is the whole platform, not a viewer: the
+launcher, the gallery, the engine menu, save slots, multiplayer and every game
+in the library, running the unchanged shared sources at 128×128 and 22 kHz.
+
+- **It looks like the device** because it is the device — the screen is the same
+  product photograph and the same `screen.cfg` calibration Mote Studio's emulator
+  uses, so the touch targets sit on the buttons you can see.
+- **Controllers work**, picked up automatically: d-pad or left stick, A/B, Start
+  for MENU, and either the shoulder buttons or the triggers for LB and RB.
+  Rumble goes to the phone's vibrator.
+- **Games come from the gallery.** The APK is 1.3 MB and ships empty; you install
+  what you want from the same hero view the device has, over the phone's own
+  connection. Installed games update in place.
+- **Multiplayer needs nothing else** — see [§10](#10-multiplayer), topologies 5
+  and 6.
+
+### The phone as a dock
+
+Plug a Thumby Color into the phone with a USB-C cable and the phone does the job
+a PC and Mote Studio otherwise do: it answers the device's lobby and relays
+matches, and it serves the gallery so games install and update over mobile data.
+The Thumby Color needs no update and nothing to configure — plugging it in is
+the whole setup, and it lands in the same relay rooms a Studio-docked one does.
+
+### Building it
+
+```bash
+python3 android/tools/gen_chassis.py      # bake the chassis photo (once)
+cd android && ./gradlew assembleRelease   # -> app/build/outputs/apk/release/
+```
+
+`-PmoteGames=all` bundles the whole library into the APK instead of leaving it
+empty; `-PmoteAbis=arm64-v8a,x86_64` adds the emulator ABI. The shell also
+builds for the desktop (`cmake --build build_shell --target mote_shell`) with
+mouse and keyboard, which is how its UI is developed and captured.
+
+## 13. Gotchas + rough edges
 
 ### Real gotchas (things that *will* bite you)
 
@@ -2311,7 +2365,7 @@ RP2350 mass-storage drive.
 
 ---
 
-## 13. Project layout + reference
+## 14. Project layout + reference
 
 ```
 engine/     the engine — math/ render/ physics/ audio/ input/ assets/ core/
@@ -2405,7 +2459,7 @@ level). Its `.mote` ships in the games bundle attached to the
 - **`os/mote_os.c`** — the exact frame loop and how the ABI table is assembled.
 - **`examples/hello-mesh/src/game.c`** — the smallest complete game.
 
-## 14. Changelog
+## 15. Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
