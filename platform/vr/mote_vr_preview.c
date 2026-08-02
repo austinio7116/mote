@@ -23,6 +23,12 @@
  *   MOTE_VR_TESTCARD=1        replace the LCD with a known pattern, to check
  *                             that the 128x128 lands exactly on the glass
  *   MOTE_VR_GRIP=both         hold the side trigger(s): both | left | right
+ *   MOTE_VR_SRGB=1            render through an sRGB framebuffer with the shader
+ *                             emitting linear — bit for bit what a Quest's sRGB
+ *                             swapchain does, so the headset's colour pipeline
+ *                             can be measured from a desk
+ *   MOTE_VR_TESTFILL=r,g,b    fill the LCD with one known colour (0-255), for
+ *                             measuring what actually comes out the far end
  *
  * Live, it is a normal window: drag to orbit, wheel to dolly, WASD/arrows for
  * the d-pad, J/K for A/B, U/I for LB/RB, Enter for MENU. G squeezes both side
@@ -152,6 +158,12 @@ static void testcard(uint16_t *fb) {
         }
 }
 
+/* Flat fill, for measuring the colour pipeline end to end. */
+static void testfill(uint16_t *fb, int r, int g, int b) {
+    uint16_t c = MOTE_RGB565(r, g, b);
+    for (int i = 0; i < MOTE_FB_W * MOTE_FB_H; i++) fb[i] = c;
+}
+
 static void apply_keys(const char *spec) {
     if (!spec) return;
     char buf[128];
@@ -229,11 +241,44 @@ int main(int argc, char **argv) {
     if (!assets.chassis_mesh || !assets.chassis_tex) return 1;
     if (mote_vr_render_init(&assets) != 0) return 1;
 
+    /* The headset renders into an sRGB swapchain, which encodes on write. To
+     * measure that path rather than trust it, do the same here: an FBO with an
+     * sRGB colour attachment, the shader emitting linear, and the read-back
+     * taken from the FBO — so the bytes measured are the bytes a Quest's
+     * compositor would be handed. */
+    const int srgb_fbo = getenv("MOTE_VR_SRGB") != NULL;
+    GLuint fbo = 0, fbo_tex = 0, fbo_depth = 0;
+    if (srgb_fbo) {
+        glGenTextures(1, &fbo_tex);
+        glBindTexture(GL_TEXTURE_2D, fbo_tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glGenRenderbuffers(1, &fbo_depth);
+        glBindRenderbuffer(GL_RENDERBUFFER, fbo_depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+        glGenFramebuffers(1, &fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fbo_tex, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, fbo_depth);
+        GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (st != GL_FRAMEBUFFER_COMPLETE) {
+            fprintf(stderr, "mote-vr: sRGB FBO incomplete (0x%04x)\n", st);
+            return 1;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        mote_vr_render_set_target_srgb(1);
+        printf("mote-vr: rendering through an sRGB framebuffer (headset path)\n");
+    }
+
     MoteVrHoldState hold;
     float tilt = -18.0f;
     { const char *v = getenv("MOTE_VR_TILT"); if (v) tilt = (float)atof(v); }
     mote_vr_hold_init(&hold, MOTE_VR_SCALE_DEFAULT, tilt);
     const int card = getenv("MOTE_VR_TESTCARD") != NULL;
+    int fill_rgb[3] = { -1, 0, 0 };
+    { const char *v = getenv("MOTE_VR_TESTFILL");
+      if (v) sscanf(v, "%d,%d,%d", &fill_rgb[0], &fill_rgb[1], &fill_rgb[2]); }
 
     SDL_Thread *eng = SDL_CreateThread(engine_thread, "mote-engine", NULL);
     if (!eng) { fprintf(stderr, "engine thread: %s\n", SDL_GetError()); return 1; }
@@ -311,7 +356,12 @@ int main(int argc, char **argv) {
         mote_shell_set_buttons(&btn);
 
         uint32_t seq = mote_shell_frame_seq();
-        if (card) {
+        if (fill_rgb[0] >= 0) {
+            if (last_seq == (uint32_t)-1) {
+                testfill(frame, fill_rgb[0], fill_rgb[1], fill_rgb[2]);
+                mote_vr_render_set_frame(frame, 1); last_seq = 1;
+            }
+        } else if (card) {
             if (last_seq == (uint32_t)-1) { testcard(frame); mote_vr_render_set_frame(frame, 1); last_seq = 1; }
         } else if (seq != last_seq) {
             last_seq = seq;
@@ -319,6 +369,7 @@ int main(int argc, char **argv) {
             mote_vr_render_set_frame(frame, seq);
         }
 
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glViewport(0, 0, w, h);
         glClearColor(0.055f, 0.06f, 0.075f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -330,8 +381,15 @@ int main(int argc, char **argv) {
 
         if (shot && nframe == shot_frame) {
             glFinish();
-            write_png(shot, w, h);
+            write_png(shot, w, h);      /* reads from whichever FBO is bound */
             running = 0;
+        }
+        if (srgb_fbo) {
+            /* mirror it to the window so the live view still works */
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
         SDL_GL_SwapWindow(win);
         nframe++;
