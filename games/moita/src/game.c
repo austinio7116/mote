@@ -48,7 +48,7 @@ MOTE_MODULE_HEADER();
 #include "denied.sfx.h"
 
 MOTE_GAME_META("Moita", "austinio7116");
-MOTE_GAME_VERSION("0.6.0");
+MOTE_GAME_VERSION("0.7.0");
 
 /* ============================================================ constants === */
 #define WW 128
@@ -1981,6 +1981,9 @@ static int      mp_hello_ok=0, mp_hello_sent=0, mp_role_set=0, mp_seed_go=0;
 static int      mp_frame=0, mp_peer_frame=-1, mp_ready[2]={0,0};
 static float    mp_acc=0;
 static uint8_t  mp_in[2][MP_RING], mp_prevmask[2]={0,0};
+/* Who the lobby made host. Authoritative for the role tie-break: link_is_host()
+ * describes the transport, which over a relay is the proxy, not the player. */
+static int      mp_lobby_host;
 static uint8_t  mp_rx[256]; static int mp_rxn=0;
 static const uint16_t MP_TEAM[2]={ MOTE_RGB565(70,140,255), MOTE_RGB565(255,120,60) };  /* p0 azure · p1 ember */
 
@@ -2100,9 +2103,23 @@ static void mp_edit_update(const MoteInput*in){
         if(getenv("MOITA_MP_HASH")) fprintf(stderr,"HOST ADVANCE round=%d\n",mp_round+1);
         mp_seed=(mp_seed*1664525u+1013904223u)|1u; mp_round++; mp_bcast_seed(); }
 }
+/* Bumped whenever a change would desync a peer running the old build; it and
+ * the name form the id that gates rooms, so only matching builds ever pair. */
+#define MOITA_PROTO 1
+
 static void mp_enter(void){
-    mote->link_start(); mp_on=1; mp_phase=MPP_LOBBY; state=ST_MP; state_t=0;
-    mp_nonce=0;   /* computed once the link is up (needs link_is_host) */
+    /* The standard lobby: it offers the cable, LAN and internet, runs the room
+     * matching and the handshake, and hands back a connected link. Moita used to
+     * call link_start() straight out, which opens the cable and nothing else --
+     * so it was the one 2-player game in the library with no way to play online.
+     * Everything below this line is unchanged: the nonce exchange that decides
+     * who is player 0 works over any transport. */
+    int host = 0;
+    MoteNetCfg cfg = { "Moita", MOITA_PROTO, 0 };
+    if(mote->net_lobby(&cfg, &host) != MOTE_NET_CONNECTED){ state=ST_TITLE; state_t=0; return; }
+    mp_lobby_host = host;
+    mp_on=1; mp_phase=MPP_LOBBY; state=ST_MP; state_t=0;
+    mp_nonce=0;   /* computed once the link is up */
     mp_hello_ok=mp_hello_sent=mp_role_set=mp_seed_go=0; mp_peer_frame=-1; mp_rxn=0;
     mp_score[0]=mp_score[1]=0; mp_round=0; localp=0;
 }
@@ -2114,16 +2131,17 @@ static void mp_update(float dt){
     if(mp_phase==MPP_LOBBY){
         if(mote_just_pressed(in,MOTE_BTN_MENU)){ mp_exit(); return; }
         if(mote->link_status()==MOTE_LINK_CONNECTED){
-            if(mp_nonce==0){    /* top bit = transport role (host emu/USB always differ); low bits = clock+ASLR for the LAN-bridge case */
+            if(mp_nonce==0){    /* top bit = room role, low bits = clock+ASLR so two
+                                   peers that started in the same microsecond still differ */
                 uint32_t base=(((uint32_t)mote->micros())^((uint32_t)(uintptr_t)&mp_rxn))&0x7fffffffu;
-                mp_nonce=(mote->link_is_host()?0x80000000u:0u)|base|1u; }
+                mp_nonce=(mp_lobby_host?0x80000000u:0u)|base|1u; }
             mp_hello_sent++; if(mp_hello_sent%8==1){ uint8_t pl[4]={(uint8_t)(mp_nonce>>24),
                 (uint8_t)(mp_nonce>>16),(uint8_t)(mp_nonce>>8),(uint8_t)mp_nonce}; mp_send(1,pl,4); }
             if(mp_hello_ok && !mp_role_set){
                 if(mp_nonce!=mp_peer_nonce) localp=(mp_nonce>mp_peer_nonce)?0:1;
-                else localp=mote->link_is_host()?0:1;   /* identical nonce → fall back to transport host/client */
+                else localp=mp_lobby_host?0:1;   /* identical nonce -> the room role decides */
                 mp_role_set=1;
-                if(getenv("MOITA_MP_HASH")) fprintf(stderr,"ROLE lp=%d nonce=%08x peer=%08x ishost=%d\n",localp,mp_nonce,mp_peer_nonce,mote->link_is_host());
+                if(getenv("MOITA_MP_HASH")) fprintf(stderr,"ROLE lp=%d nonce=%08x peer=%08x ishost=%d\n",localp,mp_nonce,mp_peer_nonce,mp_lobby_host);
                 if(localp==0){ mp_round=0; mp_seed=((uint32_t)mote->micros())|1u; mp_bcast_seed(); } }
         }
         return;
