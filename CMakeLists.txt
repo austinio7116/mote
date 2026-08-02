@@ -178,6 +178,39 @@ if(MOTE_TARGET STREQUAL "host")
     endif()
     endif()  # NOT WIN32 (VR preview)
 
+    # CueVR preview: the cue-sports headset game minus OpenXR. Same table, same
+    # physics, same cue geometry, same shaders — with mouse-driven hands, so the
+    # thing can be screenshotted without a headset. See games/cuevr.
+    if(NOT WIN32 AND GLESV2_LIB)
+    add_executable(cuevr_preview
+        games/cuevr/src/cuevr_preview.c
+        games/cuevr/src/cuevr_app.c
+        games/cuevr/src/cuevr_render.c
+        games/cuevr/src/cuevr_cue.c
+        games/cuevr/src/cuevr_setup.c
+        games/thumbycue/src/cue_physics.c
+        games/thumbycue/src/cue_table.c
+        games/thumbycue/src/cue_rules.c
+        games/thumbycue/src/cue_ai.c
+        games/thumbycue/src/craft_font.c)
+    target_include_directories(cuevr_preview PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/cuevr/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/platform/xr
+        ${CMAKE_CURRENT_SOURCE_DIR}/studio/third_party)
+    target_compile_definitions(cuevr_preview PRIVATE MOTE_HOST=1)
+    target_compile_options(cuevr_preview PRIVATE -O2 -ffast-math -Wall -Wextra
+        -Wno-unused-parameter)
+    target_link_libraries(cuevr_preview PRIVATE ${GLESV2_LIB} m)
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(cuevr_preview PRIVATE SDL2::SDL2)
+    else()
+        target_include_directories(cuevr_preview PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(cuevr_preview PRIVATE ${SDL2_LIBRARIES})
+    endif()
+    endif()  # CueVR preview
+
     # Mote Studio: the bespoke IDE — embeds the engine via the studio platform
     # backend (offscreen present + Studio-fed buttons) and draws it in a device shell.
     add_executable(mote_studio
