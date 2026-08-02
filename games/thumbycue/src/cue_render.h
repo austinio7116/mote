@@ -19,6 +19,28 @@ size_t cue_render_tab_bytes(void);
 size_t cue_render_stri_bytes(void);
 void   cue_render_set_buffers(void *tab, void *stri);
 
+/* The static table mesh, in world space: the cloth bed fanned over the real
+ * knuckle boundary, the cushion cross-sections, the jaws, the pocket voids and
+ * the drop lips. This is the table — the shapes here are what the game is — so
+ * hosts that rasterise it themselves (the VR build uploads it straight to GL)
+ * draw exactly the same geometry the handheld does rather than approximating it
+ * from the collision segments. */
+typedef struct { Vec3 v[3]; Vec3 nrm; uint16_t color; } CueTri;
+
+/* Valid after cue_render_build_table(). Returns the triangle count and, through
+ * the out params, the two layer boundaries the handheld's own draw order uses:
+ * [0, bed) is the flat cloth, [bed, lip) is everything raised, and [lip, count)
+ * are the pocket drop lips, which are drawn last with depth writes off so balls
+ * sitting in a pocket still cover them. */
+int cue_render_table_tris(const CueTri **out, int *bed, int *lip);
+
+/* The authored ball surface: the colour at ball-local direction `nb` on ball
+ * `id`, for the ball set currently selected by cue_render_set_ball_set(). This
+ * is the same function the handheld shades every ball with, so a host that
+ * bakes it into a texture (the VR build does, once per ball at start-up) gets
+ * the real numbers, stripes and spots rather than an approximation of them. */
+uint16_t cue_render_ball_texel(uint8_t id, Vec3 nb);
+
 /* Camera: world position + orthonormal basis (rows right/up/forward) + fov. */
 typedef struct { Vec3 pos; Mat3 basis; float fov_deg; } CueView;
 

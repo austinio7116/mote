@@ -6,12 +6,14 @@
  * whether the final encode happens here or in the swapchain is asked, not
  * assumed (see mote_xr_target_is_srgb).
  *
- * The table geometry is *built from the physics world*, not modelled beside it.
- * cue_table.c fills a CueWorld with the cushion nose segments, the jaw knuckles
- * and the pocket circles the balls actually collide with; the mesh here is
- * extruded from those same segments. So the cushion you can see and the cushion
- * the ball bounces off are the same numbers, on all seven tables, and a pocket
- * that looks tight is tight. There is no second source of truth to drift.
+ * The table is not modelled here at all. cue_render.c already builds it — the
+ * cloth bed fanned over the real knuckle boundary so pocket mouths are true
+ * gaps, the K66 cushion cross-section with its overhanging nose and undercut,
+ * the splayed jaw facings, the pocket voids, the drop lips, the baulk line and
+ * the D — and those shapes, tuned table by table, ARE the game. So CueVR calls
+ * cue_render_build_table() and uploads the triangles it produces straight to
+ * GL. Same geometry the handheld draws, on all seven tables; the only thing
+ * that changes is who rasterises it.
  *
  * Balls are one unit sphere drawn many times, each with its own CueBall.orient
  * — the physics integrates a real orientation matrix from the angular velocity,
@@ -21,6 +23,7 @@
  */
 #include "cuevr.h"
 #include "cuevr_render.h"
+#include "cue_render.h"
 #include "craft_font.h"
 
 #include <GLES3/gl3.h>
@@ -46,13 +49,16 @@ static const char *VS =
 "layout(location=0) in vec3 a_pos;\n"
 "layout(location=1) in vec3 a_nrm;\n"
 "layout(location=2) in vec2 a_uv;\n"
+"layout(location=3) in vec3 a_col;\n"
 "uniform mat4 u_mvp;\n"
 "uniform mat4 u_model;\n"
 "out vec3 v_nrm;\n"
 "out vec2 v_uv;\n"
 "out vec3 v_local;\n"
+"out vec3 v_col;\n"
 "void main() {\n"
 "    v_uv = a_uv;\n"
+"    v_col = a_col;\n"
 "    v_local = a_pos;\n"
 "    v_nrm = normalize(mat3(u_model) * a_nrm);\n"
 "    gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
@@ -65,13 +71,15 @@ static const char *FS =
 "in vec3 v_nrm;\n"
 "in vec2 v_uv;\n"
 "in vec3 v_local;\n"
+"in vec3 v_col;\n"
 "uniform sampler2D u_tex;\n"
 "uniform int   u_mode;\n"
 "uniform int   u_encode;\n"
 "uniform vec4  u_colour;\n"
 "uniform vec4  u_colour2;\n"   /* balls: the stripe/secondary colour */
 "uniform vec3  u_light;\n"
-"uniform float u_ballkind;\n"  /* 0 solid, 1 striped, 2 cue (spots) */
+"uniform float u_ballslice;\n" /* which id's slice of the ball atlas */
+"uniform float u_ballslices;\n"
 "out vec4 o_col;\n"
 "vec3 to_linear(vec3 c) {\n"
 "    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));\n"
@@ -96,28 +104,61 @@ static const char *FS =
 "        float fade = clamp(1.0 - length(v_local.xz) / 7.0, 0.0, 1.0);\n"
 "        o_col = emit(to_linear(u_colour.rgb) * line * fade, line * fade, 1.0);\n"
 "    } else if (u_mode == 1) {\n"
-"        // A ball. v_local is the unit sphere in the BALL's own frame, so the\n"
-"        // markings turn with it and you can read the spin off a rolling ball\n"
-"        // exactly as you can on a table.\n"
-"        vec3 base = to_linear(u_colour.rgb);\n"
-"        vec3 mark = to_linear(u_colour2.rgb);\n"
-"        vec3 c = base;\n"
-"        if (u_ballkind > 1.5) {\n"
-"            // cue ball: two small spots, so its own spin is legible too\n"
-"            float d = min(length(v_local - vec3(0.0, 0.92, 0.0)),\n"
-"                          length(v_local - vec3(0.0,-0.92, 0.0)));\n"
-"            c = mix(mark, base, smoothstep(0.24, 0.30, d));\n"
-"        } else if (u_ballkind > 0.5) {\n"
-"            // striped: white ball with a band around its equator\n"
-"            c = mix(base, mark, smoothstep(0.56, 0.50, abs(v_local.y)));\n"
-"        }\n"
+"        // A ball, painted by the handheld's own ball_sample() baked into an\n"
+"        // equirectangular atlas. v_local is the unit sphere in the BALL's\n"
+"        // frame, so the lookup turns with the ball and you can read the spin\n"
+"        // off it exactly as on a table.\n"
+"        vec3 nb = normalize(v_local);\n"
+"        float u = atan(nb.z, nb.x) / 6.2831853 + 0.5;\n"
+"        float v = acos(clamp(nb.y, -1.0, 1.0)) / 3.14159265;\n"
+"        v = (u_ballslice + clamp(v, 0.001, 0.999)) / u_ballslices;\n"
+"        vec3 c = to_linear(texture(u_tex, vec2(u, v)).rgb);\n"
 "        float d = max(dot(v_nrm, L), 0.0);\n"
-"        // A polished phenolic ball: broad diffuse, one tight highlight, and a\n"
-"        // little bounce off the cloth so the underside is not dead black.\n"
-"        vec3 h = normalize(L + vec3(0.0, 0.0, 1.0));\n"
 "        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 1.0, 0.0))), 0.0), 48.0);\n"
 "        float bounce = max(-v_nrm.y, 0.0) * 0.10;\n"
-"        o_col = emit(c * (0.30 + 0.72 * d + bounce) + vec3(spec) * 0.45, 1.0, 1.0);\n"
+"        o_col = emit(c * (0.42 + 0.62 * d + bounce) + vec3(spec) * 0.40, 1.0, 1.0);\n"
+"    } else if (u_mode == 5) {\n"
+"        // The cue. v_uv.y is the fraction along it (0 = tip) and v_uv.x runs\n"
+"        // around it, which is all a hand-spliced cue needs: leather, ferrule,\n"
+"        // ash, four ebony points and an ebony butt, with grain along the\n"
+"        // shaft. No texture, and it stays sharp with the tip a hand's width\n"
+"        // from your eye.\n"
+"        float t = v_uv.y, a = v_uv.x;\n"
+"        vec3 ash   = vec3(0.86, 0.74, 0.54);\n"
+"        vec3 ebony = vec3(0.085, 0.065, 0.055);\n"
+"        vec3 c;\n"
+"        float gloss = 42.0, spec_k = 0.30;\n"
+"        if (t < 0.0069) { c = vec3(0.42, 0.55, 0.62); gloss = 8.0; spec_k = 0.05; }\n"      // leather tip
+"        else if (t < 0.0221) { c = vec3(0.93, 0.91, 0.84); gloss = 70.0; spec_k = 0.45; }\n" // ferrule
+"        else {\n"
+"            // Grain: fine rings along the shaft, plus a slow wander so it is\n"
+"            // not a barcode.\n"
+"            float g = sin(t * 520.0 + sin(a * 6.2831853) * 1.7) * 0.5 + 0.5;\n"
+"            c = mix(ash * 0.90, ash * 1.06, g);\n"
+"            // Four-point hand splice: ebony points running up out of the butt,\n"
+"            // each narrowing to nothing at the top of the splice.\n"
+"            float sp0 = 0.586, sp1 = 0.800;\n"   // where the points start and end
+"            if (t > sp0) {\n"
+"                float k = clamp((t - sp0) / (sp1 - sp0), 0.0, 1.0);\n"
+"                float halfw = mix(0.125, 0.0, k * k);\n"      // width tapers to a point
+"                float f = fract(a * 4.0);\n"                   // four points
+"                float d = min(f, 1.0 - f);\n"
+"                c = mix(c, ebony, smoothstep(halfw, halfw * 0.72, d));\n"
+"            }\n"
+"            if (t > sp1) c = ebony;\n"                        // solid butt above the splice
+"            if (t > 0.9793 && t < 0.9931) c = vec3(0.62, 0.50, 0.22);\n"  // brass collar
+"        }\n"
+"        float d = max(dot(v_nrm, L), 0.0);\n"
+"        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), gloss);\n"
+"        o_col = emit(to_linear(c) * (0.34 + 0.70 * d) + vec3(spec) * spec_k, 1.0, 1.0);\n"
+"    } else if (u_mode == 4) {\n"
+"        // The table, exactly as cue_render.c built it: flat-shaded triangles\n"
+"        // carrying their own colours, which already encode the cloth, the\n"
+"        // shaded undercut, the wood, the pocket voids and the drop lips.\n"
+"        // Lighting here is gentle so those authored tones survive.\n"
+"        vec3 c = to_linear(v_col);\n"
+"        float d = max(dot(v_nrm, L), 0.0);\n"
+"        o_col = emit(c * (0.68 + 0.42 * d), 1.0, 1.0);\n"
 "    } else {\n"
 "        vec3 c = to_linear(u_colour.rgb);\n"
 "        float d = max(dot(v_nrm, L), 0.0);\n"
@@ -127,7 +168,7 @@ static const char *FS =
 
 /* ---- mesh building ------------------------------------------------------ */
 
-typedef struct { float p[3], n[3], uv[2]; } Vtx;
+typedef struct { float p[3], n[3], uv[2], c[3]; } Vtx;
 
 typedef struct {
     Vtx     *v;
@@ -149,6 +190,7 @@ static int b_vert(Builder *b, float x, float y, float z,
     t->p[0]=x; t->p[1]=y; t->p[2]=z;
     t->n[0]=nx; t->n[1]=ny; t->n[2]=nz;
     t->uv[0]=u; t->uv[1]=v;
+    t->c[0]=t->c[1]=t->c[2]=1.0f;
     return b->nv++;
 }
 static void b_tri(Builder *b, int a, int c, int d) {
@@ -195,9 +237,11 @@ static void mesh_upload(Mesh *m, const Builder *b) {
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vtx), (void *)0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vtx), (void *)12);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vtx), (void *)24);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vtx), (void *)32);
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
     glEnableVertexAttribArray(2);
+    glEnableVertexAttribArray(3);
     glGenBuffers(1, &m->ibo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m->ibo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)b->ni * 2, b->i, GL_STATIC_DRAW);
@@ -217,12 +261,15 @@ static void mesh_free(Mesh *m) {
 
 static struct {
     GLuint prog;
-    GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light, u_ballkind;
-    Mesh   cloth, cushions, rails, pockets, ball, cue, quad, floor;
+    GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
+    GLint  u_ballslice, u_ballslices;
+    Mesh   table, lips, ball, cue, quad, floor;
+    GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     GLuint hud_tex;
     int    encode;
     int    ready;
     CueTable tab;
+    void *tab_buf, *stri_buf;
 } G;
 
 static GLuint compile(GLenum type, const char *src) {
@@ -255,112 +302,146 @@ static void build_sphere(Builder *b, int slices, int stacks) {
         }
 }
 
-/* A cone/cylinder along +Y from y=0 (r0) to y=1 (r1) — the cue stick. */
-static void build_taper(Builder *b, int slices, float r0, float r1) {
-    for (int i = 0; i <= slices; i++) {
-        float u = (float)i / slices, th = u * 2.0f * PI;
-        float cx = cosf(th), cz = sinf(th);
-        b_vert(b, cx * r0, 0.0f, cz * r0, cx, 0.0f, cz, u, 0.0f);
-        b_vert(b, cx * r1, 1.0f, cz * r1, cx, 0.0f, cz, u, 1.0f);
-    }
-    for (int i = 0; i < slices; i++) {
-        int a = i * 2;
-        b_quad(b, a, a + 2, a + 3, a + 1);
-    }
-}
-
-/* The cloth bed: one quad at y = 0, plus a skirt so the bed has thickness when
- * you look at it edge-on from a low chair. */
-static void build_cloth(Builder *b, const CueTable *t) {
-    float L = t->half_len, W = t->half_wid;
-    float p0[3] = {-L, 0, -W}, p1[3] = { L, 0, -W}, p2[3] = { L, 0, W}, p3[3] = {-L, 0, W};
-    float up[3] = {0, 1, 0};
-    b_face(b, p0, p1, p2, p3, up);
-}
-
-/* The cushions, extruded from the physics world's own nose segments.
+/* A cue, turned on a lathe.
  *
- * Each CueSeg is a line in the X-Z plane with an inward normal. A real cushion
- * is a wedge: the nose stands at cushion_h and the face slopes back and down to
- * the cloth, with a flat top running outward to the rail. Building that from
- * the collision segments — rather than from a second set of numbers — is what
- * guarantees that a pocket which looks tight plays tight.
- */
-static void build_cushions(Builder *b, const CueTable *t, const CueWorld *w) {
-    const float h = t->cushion_h;
-    const float top_out = t->rail_w * 0.55f;   /* how far the flat top runs out */
-    const float undercut = h * 0.45f;          /* how far the face leans back */
+ * The one thing here that is NOT the handheld's — its cue is drawn in screen
+ * space as part of the aim overlay, so there is no mesh to borrow. A cue is
+ * also the object closest to your face for the whole game, so it earns the
+ * geometry.
+ *
+ * Built from a real cue's profile along its 1.45 m: a 10 mm leather tip, a
+ * brass-white ferrule, an ash shaft swelling from 9.5 mm to 19 mm, then the
+ * ebony butt out to 29 mm with a rounded cap. The four-point hand splice and
+ * the grain are shaded in cuevr's fragment shader from the axial and angular
+ * coordinates carried in uv, so the cue needs no texture at all.
+ *
+ * y = 0 is the TIP and +Y runs back to the butt, which is how it is positioned:
+ * the tip goes where the cue line meets the ball and the rest follows behind,
+ * through and past your hands, as a real cue does. */
+#define CUE_LEN 1.45f
 
-    for (int s = 0; s < w->nseg; s++) {
-        const CueSeg *g = &w->seg[s];
-        /* Interpolated end normals keep the chain continuous around the jaws. */
-        float na[3] = { g->na.x, 0, g->na.z }, nb[3] = { g->nb.x, 0, g->nb.z };
-        float ax = g->a.x, az = g->a.z, bx = g->b.x, bz = g->b.z;
-
-        /* nose (top of the face), bed (bottom, pushed outward), top-outer */
-        float n_a[3] = { ax, h, az }, n_b[3] = { bx, h, bz };
-        float d_a[3] = { ax - na[0]*(-undercut), 0.0f, az - na[2]*(-undercut) };
-        float d_b[3] = { bx - nb[0]*(-undercut), 0.0f, bz - nb[2]*(-undercut) };
-        float o_a[3] = { ax - na[0]*top_out, h, az - na[2]*top_out };
-        float o_b[3] = { bx - nb[0]*top_out, h, bz - nb[2]*top_out };
-
-        /* The playing face, which is what the ball meets. Normal points in. */
-        float fn[3] = { (na[0]+nb[0])*0.5f, 0.30f, (na[2]+nb[2])*0.5f };
-        float fl = sqrtf(fn[0]*fn[0]+fn[1]*fn[1]+fn[2]*fn[2]);
-        if (fl > 1e-6f) { fn[0]/=fl; fn[1]/=fl; fn[2]/=fl; }
-        b_face(b, d_a, d_b, n_b, n_a, fn);
-
-        /* The flat top. */
-        float up[3] = {0, 1, 0};
-        b_face(b, n_a, n_b, o_b, o_a, up);
+/* radius (m) at a fraction along the cue, tip to butt */
+static float cue_radius(float t) {
+    const float x = t * CUE_LEN;
+    if (x < 0.010f) return 0.0050f;                                  /* tip */
+    if (x < 0.032f) return 0.0051f;                                  /* ferrule */
+    if (x < 1.100f) {                                                /* ash shaft */
+        float k = (x - 0.032f) / (1.100f - 0.032f);
+        return 0.0051f + k * (0.0095f - 0.0051f);
     }
+    if (x < 1.410f) {                                                /* ebony butt */
+        float k = (x - 1.100f) / (1.410f - 1.100f);
+        return 0.0095f + k * (0.0145f - 0.0095f);
+    }
+    /* rounded butt cap */
+    float k = (x - 1.410f) / (CUE_LEN - 1.410f);
+    if (k > 1.0f) k = 1.0f;
+    return 0.0145f * sqrtf(1.0f - k * k * 0.95f);
 }
 
-/* The rail frame: a box around the outside of the playing area, at cushion
- * height, in the darker rail colour. Drawn as four slabs so the corners meet. */
-static void build_rails(Builder *b, const CueTable *t) {
-    float L = t->half_len, W = t->half_wid, rw = t->rail_w, h = t->cushion_h;
-    float top = h * 1.06f;
-    float ex = L + rw, ez = W + rw;
-    float up[3] = {0,1,0};
-    struct { float x0, z0, x1, z1; } slab[4] = {
-        { -ex, -ez,  ex, -W - rw*0.45f },
-        { -ex,  W + rw*0.45f,  ex,  ez },
-        { -ex, -ez, -L - rw*0.45f,  ez },
-        {  L + rw*0.45f, -ez,  ex,  ez },
-    };
-    for (int k = 0; k < 4; k++) {
-        float x0 = slab[k].x0, z0 = slab[k].z0, x1 = slab[k].x1, z1 = slab[k].z1;
-        float a[3]={x0,top,z0}, c[3]={x1,top,z0}, d[3]={x1,top,z1}, e[3]={x0,top,z1};
-        b_face(b, a, c, d, e, up);
-        /* outer skirt down to the floor line, so the table has a body */
-        float depth = 0.18f;
-        float s0[3]={x0,top,z0}, s1[3]={x1,top,z0}, s2[3]={x1,top-depth,z0}, s3[3]={x0,top-depth,z0};
-        float nz[3]={0,0,-1};
-        b_face(b, s3, s2, s1, s0, nz);
-        float t0[3]={x0,top,z1}, t1[3]={x1,top,z1}, t2[3]={x1,top-depth,z1}, t3[3]={x0,top-depth,z1};
-        float pz[3]={0,0,1};
-        b_face(b, t0, t1, t2, t3, pz);
-    }
-}
-
-/* Pocket mouths: a dark disc sunk just under the cloth at each pocket centre.
- * Cheap, and from any angle you actually play from it reads as a hole. */
-static void build_pockets(Builder *b, const CueWorld *w) {
-    const int seg = 20;
-    for (int p = 0; p < w->npocket; p++) {
-        float cx = w->pocket[p].x, cz = w->pocket[p].z, r = w->pocket_r[p];
-        int centre = b_vert(b, cx, -0.004f, cz, 0, 1, 0, 0.5f, 0.5f);
-        int first = 0;
-        for (int i = 0; i <= seg; i++) {
-            float th = (float)i / seg * 2.0f * PI;
-            int v = b_vert(b, cx + cosf(th)*r, -0.010f, cz + sinf(th)*r, 0, 1, 0,
-                           0.5f + cosf(th)*0.5f, 0.5f + sinf(th)*0.5f);
-            if (i == 0) first = v;
-            else b_tri(b, centre, v - 1, v);
+static void build_cue(Builder *b, int slices, int rings) {
+    for (int j = 0; j <= rings; j++) {
+        /* Rings bunch towards the tip, where the profile actually changes and
+         * where your eye is. */
+        float f = (float)j / rings;
+        float t = f * f * 0.55f + f * 0.45f;
+        float y = t * CUE_LEN, r = cue_radius(t);
+        float r2 = cue_radius(t + 0.004f > 1.0f ? 1.0f : t + 0.004f);
+        float slope = (r2 - r) / (0.004f * CUE_LEN);
+        for (int i = 0; i <= slices; i++) {
+            float u = (float)i / slices, th = u * 2.0f * PI;
+            float cx = cosf(th), cz = sinf(th);
+            /* normal follows the taper, so the shaft is not lit like a cylinder */
+            float nl = 1.0f / sqrtf(1.0f + slope * slope);
+            b_vert(b, cx * r, y, cz * r, cx * nl, -slope * nl, cz * nl, u, t);
         }
-        (void)first;
     }
+    for (int j = 0; j < rings; j++)
+        for (int i = 0; i < slices; i++) {
+            int a = j * (slices + 1) + i, c = a + slices + 1;
+            b_quad(b, a, a + 1, c + 1, c);
+        }
+}
+
+/* The table, exactly as the handheld builds it.
+ *
+ * cue_render_build_table() emits a world-space triangle soup — cloth bed fanned
+ * over the real knuckle boundary, K66 cushion cross-sections with the
+ * overhanging nose and its undercut, splayed jaw facings, pocket voids, drop
+ * lips, baulk line, D and spots — each triangle carrying its own authored
+ * colour. Those shapes were tuned table by table and they are what the game is,
+ * so nothing here reshapes them: the triangles are copied into a vertex buffer
+ * and handed to GL as they come.
+ *
+ * The handheld's own draw order is preserved too: [0, lip) normally, then the
+ * drop lips last with depth writes off, so a ball sitting in a pocket covers
+ * them rather than being covered.
+ */
+static void build_from_cue_render(Builder *b, const CueTri *tri_, int from, int to) {
+    for (int i = from; i < to; i++) {
+        const CueTri *t = &tri_[i];
+        float r = ((t->color >> 11) & 31) / 31.0f;
+        float g = ((t->color >> 5) & 63) / 63.0f;
+        float bl = (t->color & 31) / 31.0f;
+        int idx[3];
+        for (int k = 0; k < 3; k++) {
+            idx[k] = b_vert(b, t->v[k].x, t->v[k].y, t->v[k].z,
+                            t->nrm.x, t->nrm.y, t->nrm.z, 0.0f, 0.0f);
+            Vtx *vx = &b->v[idx[k]];
+            vx->c[0] = r; vx->c[1] = g; vx->c[2] = bl;
+        }
+        b_tri(b, idx[0], idx[1], idx[2]);
+    }
+}
+
+/* The balls, exactly as the handheld paints them.
+ *
+ * cue_render shades every ball through ball_sample(id, nb, base), a function of
+ * the BALL-LOCAL normal — which is to say it is already a texture over the
+ * sphere, complete with the numbers, the stripes, the spots and whichever of
+ * the five authored ball sets is selected. So bake it: sample that function
+ * over an equirectangular grid once per ball id at start-up and upload the lot
+ * as one atlas, a slice per id. The fragment shader then looks up the same
+ * colour the handheld would have computed, and because the lookup is by
+ * ball-local direction it rotates with the ball's own orientation matrix —
+ * the markings roll exactly as they should.
+ *
+ * An earlier version of this file invented its own palette and drew stripes
+ * with a smoothstep. It looked plausible and it was not the game. */
+#define BTEX_W   64
+#define BTEX_H   32
+#define BTEX_IDS 24            /* 0..15 pool, 20..23+ snooker colours */
+
+static void bake_ball_atlas(void) {
+    uint16_t *px = malloc((size_t)BTEX_W * BTEX_H * BTEX_IDS * sizeof(uint16_t));
+    if (!px) { LOGI("[cuevr] no memory for the ball atlas"); return; }
+    for (int id = 0; id < BTEX_IDS; id++) {
+        uint16_t *slice = px + (size_t)id * BTEX_W * BTEX_H;
+        for (int y = 0; y < BTEX_H; y++) {
+            float phi = ((float)y + 0.5f) / BTEX_H * PI;          /* 0 = +Y pole */
+            for (int x = 0; x < BTEX_W; x++) {
+                float th = (((float)x + 0.5f) / BTEX_W - 0.5f) * 2.0f * PI;
+                Vec3 nb;
+                nb.x = sinf(phi) * cosf(th);
+                nb.y = cosf(phi);
+                nb.z = sinf(phi) * sinf(th);
+                slice[y * BTEX_W + x] = cue_render_ball_texel((uint8_t)id, nb);
+            }
+        }
+    }
+    glGenTextures(1, &G.ball_tex);
+    glBindTexture(GL_TEXTURE_2D, G.ball_tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB565, BTEX_W, BTEX_H * BTEX_IDS, 0,
+                 GL_RGB, GL_UNSIGNED_SHORT_5_6_5, px);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    /* Wrap in u so the seam behind the ball closes; clamp in v so a slice
+     * cannot bleed into its neighbour at the poles. */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    free(px);
+    LOGI("[cuevr] baked %d ball surfaces from cue_render", BTEX_IDS);
 }
 
 /* ---- init --------------------------------------------------------------- */
@@ -385,7 +466,8 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_colour   = glGetUniformLocation(G.prog, "u_colour");
     G.u_colour2  = glGetUniformLocation(G.prog, "u_colour2");
     G.u_light    = glGetUniformLocation(G.prog, "u_light");
-    G.u_ballkind = glGetUniformLocation(G.prog, "u_ballkind");
+    G.u_ballslice  = glGetUniformLocation(G.prog, "u_ballslice");
+    G.u_ballslices = glGetUniformLocation(G.prog, "u_ballslices");
     G.encode = target_is_srgb ? 0 : 1;
     G.tab = *t;
 
@@ -397,8 +479,8 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     mesh_upload(&G.ball, &b);
     b_free(&b);
 
-    b_init(&b, 256, 512);
-    build_taper(&b, 16, 0.0065f, 0.014f);      /* tip 13 mm, butt 28 mm */
+    b_init(&b, 20 * 64 + 64, 20 * 64 * 6 + 64);
+    build_cue(&b, 20, 48);
     mesh_upload(&G.cue, &b);
     b_free(&b);
 
@@ -423,6 +505,8 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     mesh_upload(&G.floor, &b);
     b_free(&b);
 
+    bake_ball_atlas();
+
     glGenTextures(1, &G.hud_tex);
     glBindTexture(GL_TEXTURE_2D, G.hud_tex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB565, CUEVR_HUD_W, CUEVR_HUD_H, 0,
@@ -440,21 +524,46 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
 
 void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
     G.tab = *t;
-    mesh_free(&G.cloth); mesh_free(&G.cushions); mesh_free(&G.rails); mesh_free(&G.pockets);
+    mesh_free(&G.table); mesh_free(&G.lips);
+
+    /* cue_render keeps its two big buffers outside itself (on the handheld they
+     * live in the engine arena); here they are just malloc'd once. */
+    if (!G.tab_buf) {
+        G.tab_buf  = malloc(cue_render_tab_bytes());
+        G.stri_buf = malloc(cue_render_stri_bytes());
+        if (!G.tab_buf || !G.stri_buf) { LOGI("[cuevr] out of memory for the table mesh"); return; }
+        cue_render_set_buffers(G.tab_buf, G.stri_buf);
+    }
+    cue_render_build_table(t, w);
+
+    const CueTri *tris = NULL;
+    int bed = 0, lip = 0;
+    int n = cue_render_table_tris(&tris, &bed, &lip);
+    if (!tris || n <= 0) { LOGI("[cuevr] the table mesh came back empty"); return; }
+
     Builder b;
-    b_init(&b, 64, 96);      build_cloth(&b, t);        mesh_upload(&G.cloth, &b);    b_free(&b);
-    b_init(&b, CUE_MAX_SEG * 16, CUE_MAX_SEG * 24); build_cushions(&b, t, w);
-    mesh_upload(&G.cushions, &b); b_free(&b);
-    b_init(&b, 512, 768);    build_rails(&b, t);        mesh_upload(&G.rails, &b);    b_free(&b);
-    b_init(&b, 256, 384);    build_pockets(&b, w);      mesh_upload(&G.pockets, &b);  b_free(&b);
+    b_init(&b, lip * 3 + 8, lip * 3 + 8);
+    build_from_cue_render(&b, tris, 0, lip);
+    mesh_upload(&G.table, &b);
+    b_free(&b);
+
+    int nlip = n - lip;
+    if (nlip > 0) {
+        b_init(&b, nlip * 3 + 8, nlip * 3 + 8);
+        build_from_cue_render(&b, tris, lip, n);
+        mesh_upload(&G.lips, &b);
+        b_free(&b);
+    }
+    LOGI("[cuevr] table mesh %d tris (%d bed, %d lip) from cue_render", n, bed, nlip);
 }
 
 void cuevr_render_shutdown(void) {
     if (!G.ready) return;
-    mesh_free(&G.cloth); mesh_free(&G.cushions); mesh_free(&G.rails);
-    mesh_free(&G.pockets); mesh_free(&G.ball); mesh_free(&G.cue);
-    mesh_free(&G.quad); mesh_free(&G.floor);
+    mesh_free(&G.table); mesh_free(&G.lips); mesh_free(&G.ball);
+    mesh_free(&G.cue); mesh_free(&G.quad); mesh_free(&G.floor);
     glDeleteTextures(1, &G.hud_tex);
+    glDeleteTextures(1, &G.ball_tex);
+    free(G.tab_buf); free(G.stri_buf); G.tab_buf = G.stri_buf = NULL;
     glDeleteProgram(G.prog);
     G.ready = 0;
 }
@@ -492,53 +601,6 @@ static void colour565(uint16_t c, float mul) {
     colour(r * mul, g * mul, b * mul, 1.0f);
 }
 
-/* Ball colours. Pool: 1-7 solids, 8 black, 9-15 the same hues striped.
- * Snooker: the six colours by id. */
-static void ball_colours(int id, int snooker, float *base, float *mark, float *kind) {
-    static const float POOL[8][3] = {
-        {0.98f,0.98f,0.96f},          /* 0 cue */
-        {0.98f,0.78f,0.10f},          /* 1 yellow */
-        {0.10f,0.28f,0.78f},          /* 2 blue */
-        {0.85f,0.12f,0.12f},          /* 3 red */
-        {0.38f,0.12f,0.58f},          /* 4 purple */
-        {0.95f,0.45f,0.08f},          /* 5 orange */
-        {0.05f,0.45f,0.22f},          /* 6 green */
-        {0.55f,0.12f,0.16f},          /* 7 maroon */
-    };
-    kind[0] = 0.0f;
-    mark[0] = mark[1] = mark[2] = 0.98f;
-    if (id == CUE_ID_CUE) {
-        base[0]=POOL[0][0]; base[1]=POOL[0][1]; base[2]=POOL[0][2];
-        mark[0]=0.85f; mark[1]=0.15f; mark[2]=0.12f;    /* red spots */
-        kind[0] = 2.0f;
-        return;
-    }
-    if (snooker) {
-        static const float SNK[6][3] = {
-            {0.95f,0.80f,0.15f}, {0.06f,0.45f,0.20f}, {0.45f,0.28f,0.10f},
-            {0.10f,0.30f,0.80f}, {0.95f,0.55f,0.65f}, {0.05f,0.05f,0.06f},
-        };
-        if (id >= CUE_ID_YELLOW && id <= CUE_ID_BLACK) {
-            const float *c = SNK[id - CUE_ID_YELLOW];
-            base[0]=c[0]; base[1]=c[1]; base[2]=c[2];
-        } else {                                        /* a red */
-            base[0]=0.80f; base[1]=0.09f; base[2]=0.09f;
-        }
-        return;
-    }
-    if (id == 8) { base[0]=0.05f; base[1]=0.05f; base[2]=0.06f; return; }
-    int hue = id > 8 ? id - 8 : id;
-    if (hue < 1) hue = 1;
-    if (hue > 7) hue = 7;
-    if (id > 8) {                                       /* striped */
-        base[0]=0.97f; base[1]=0.97f; base[2]=0.95f;
-        mark[0]=POOL[hue][0]; mark[1]=POOL[hue][1]; mark[2]=POOL[hue][2];
-        kind[0] = 1.0f;
-    } else {
-        base[0]=POOL[hue][0]; base[1]=POOL[hue][1]; base[2]=POOL[hue][2];
-    }
-}
-
 void cuevr_render_eye(const float *view, const float *proj,
                       const CueVrScene *s, int draw_room)
 {
@@ -553,7 +615,6 @@ void cuevr_render_eye(const float *view, const float *proj,
     glActiveTexture(GL_TEXTURE0);
     glUniform1i(G.u_tex, 0);
     glUniform1i(G.u_encode, G.encode);
-    glUniform1f(G.u_ballkind, 0.0f);
     /* Overhead and slightly behind, like the light over a real table. */
     glUniform3f(G.u_light, -0.25f, 0.90f, 0.36f);
 
@@ -581,23 +642,25 @@ void cuevr_render_eye(const float *view, const float *proj,
         glDisable(GL_BLEND);
     }
 
-    glUniform1i(G.u_mode, 0);
+    /* No backface culling on the table. cue_render's mesh is authored for a
+     * software rasteriser that does not cull — the cloth fan, the cushion
+     * faces and the pocket voids are wound for shading, not for a front-face
+     * convention — so culling it silently drops the bed and half the rails.
+     * Depth sorts it correctly regardless. */
+    glDisable(GL_CULL_FACE);
+    glUniform1i(G.u_mode, 4);          /* vertex colours, as authored */
     set_model(T);
-    colour565(G.tab.cloth, 1.0f);   draw(&G.cloth);
-    colour565(G.tab.cloth, 0.86f);  draw(&G.cushions);
-    colour565(G.tab.rail,  1.0f);   draw(&G.rails);
-    colour(0.015f, 0.012f, 0.010f, 1.0f); draw(&G.pockets);
+    draw(&G.table);
 
     /* ---- balls ---- */
     glUniform1i(G.u_mode, 1);
+    glBindTexture(GL_TEXTURE_2D, G.ball_tex);
+    glUniform1f(G.u_ballslices, (float)BTEX_IDS);
     for (int i = 0; i < s->nballs; i++) {
         const CueBall *bl = &s->balls[i];
         if (!bl->on) continue;
-        float base[3], mark[3], kind;
-        ball_colours(bl->id, G.tab.is_snooker, base, mark, &kind);
-        glUniform4f(G.u_colour,  base[0], base[1], base[2], 1.0f);
-        glUniform4f(G.u_colour2, mark[0], mark[1], mark[2], 1.0f);
-        glUniform1f(G.u_ballkind, kind);
+        int slice = bl->id < BTEX_IDS ? bl->id : 0;
+        glUniform1f(G.u_ballslice, (float)slice);
 
         /* model = table * translate(ball) * orient * scale(R) */
         float B[16], M[16];
@@ -611,16 +674,28 @@ void cuevr_render_eye(const float *view, const float *proj,
         set_model(M);
         draw(&G.ball);
     }
-    glUniform1f(G.u_ballkind, 0.0f);
+
+    /* The pocket drop lips last, with depth writes off — the handheld's own
+     * order, so a ball resting in a pocket covers the lip rather than the lip
+     * drawing across it. */
+    if (G.lips.n) {
+        glDepthMask(GL_FALSE);
+        glUniform1i(G.u_mode, 4);
+        set_model(T);
+        draw(&G.lips);
+        glDepthMask(GL_TRUE);
+    }
+    glEnable(GL_CULL_FACE);
 
     /* ---- the cue ---- */
     if (s->cue_visible) {
-        glUniform1i(G.u_mode, 0);
-        colour(0.68f, 0.50f, 0.28f, 1.0f);
-        /* A unit taper runs along +Y; aim it down the cue's axis and stretch it
-         * from the butt to the tip. */
-        MoteVrV3 a = s->cue_butt, b = s->cue_tip;
-        MoteVrV3 d = mv3_sub(b, a);
+        glUniform1i(G.u_mode, 5);
+        /* The mesh is a real cue, 1.45 m with y=0 at the tip. So put the tip
+         * where the cue line meets the ball and run +Y back along the shaft —
+         * past your hands and out behind you, as a real cue does. It is NOT
+         * stretched between the controllers: a cue is a fixed length, and
+         * making it rubbery is the fastest way to stop believing in it. */
+        MoteVrV3 d = mv3_sub(s->cue_butt, s->cue_tip);
         float len = mv3_len(d);
         if (len > 0.02f) {
             MoteVrV3 u = mv3_scale(d, 1.0f / len);
@@ -630,11 +705,9 @@ void cuevr_render_eye(const float *view, const float *proj,
             MoteVrQ q = (s_ < 1e-5f)
                 ? (c_ > 0.0f ? mq_ident() : mq_axis_angle(mv3(1,0,0), PI))
                 : mq_axis_angle(ax, atan2f(s_, c_));
-            MoteVrPose cp; cp.p = a; cp.q = q;
-            float C[16], S[16], M[16];
-            mm4_from_pose(C, cp, 1.0f);
-            mm4_identity(S); S[5] = len;      /* stretch along its own +Y */
-            mm4_mul(M, C, S);
+            MoteVrPose cp; cp.p = s->cue_tip; cp.q = q;
+            float M[16];
+            mm4_from_pose(M, cp, 1.0f);
             set_model(M);
             draw(&G.cue);
         }

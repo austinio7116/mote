@@ -26,6 +26,13 @@ LOCAL_C_INCLUDES := \
     $(MOTE_ROOT)/games/thumbycue/src \
     $(MOTE_ROOT)/engine/core \
     $(MOTE_ROOT)/engine/math \
+    $(MOTE_ROOT)/engine/render \
+    $(MOTE_ROOT)/engine/assets \
+    $(MOTE_ROOT)/engine/input \
+    $(MOTE_ROOT)/engine/physics \
+    $(MOTE_ROOT)/engine/audio \
+    $(MOTE_ROOT)/engine/scene \
+    $(MOTE_ROOT)/sdk \
     $(MOTE_ROOT)/platform/xr
 
 LOCAL_CFLAGS := -DMOTE_HOST=1 -DNDEBUG -O2 -ffast-math -std=gnu11 \
@@ -42,6 +49,8 @@ LOCAL_SRC_FILES := \
     $(MOTE_ROOT)/games/thumbycue/src/cue_table.c \
     $(MOTE_ROOT)/games/thumbycue/src/cue_rules.c \
     $(MOTE_ROOT)/games/thumbycue/src/cue_ai.c \
+    $(MOTE_ROOT)/games/thumbycue/src/cue_render.c \
+    $(MOTE_ROOT)/games/thumbycue/src/r3d_raster.c \
     $(MOTE_ROOT)/games/thumbycue/src/craft_font.c
 
 LOCAL_STATIC_LIBRARIES := android_native_app_glue

@@ -192,6 +192,8 @@ if(MOTE_TARGET STREQUAL "host")
         games/thumbycue/src/cue_table.c
         games/thumbycue/src/cue_rules.c
         games/thumbycue/src/cue_ai.c
+        games/thumbycue/src/cue_render.c
+        games/thumbycue/src/r3d_raster.c
         games/thumbycue/src/craft_font.c)
     target_include_directories(cuevr_preview PRIVATE
         ${MOTE_INCLUDE_DIRS}

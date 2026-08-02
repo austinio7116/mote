@@ -13,7 +13,8 @@
 #define CUE_DEPTH_K (65535.0f * CUE_NEAR)
 
 /* ---- static table mesh (world space) ---------------------------------- */
-typedef struct { Vec3 v[3]; Vec3 nrm; uint16_t color; } CueTri;
+/* CueTri now lives in cue_render.h so hosts that draw the table themselves can
+ * read it — see cue_render_table_tris(). */
 #define MAX_TABLE_TRI 2200
 #define MAX_STRI      3000     /* near-clipping can split a tri into two */
 static CueTri  *s_tab;          /* arena-allocated (Mote) — see cue_render_set_buffers() */
@@ -603,6 +604,13 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
 
     s_lip_ntab = s_ntab;      /* lips drawn last + depth-write OFF so balls cover them */
     emit_pocket_lips(t, w);   /* drop lip last → layers over the voids cleanly */
+}
+
+int cue_render_table_tris(const CueTri **out, int *bed, int *lip) {
+    if (out) *out = s_tab;
+    if (bed) *bed = s_bed_ntab;
+    if (lip) *lip = s_lip_ntab;
+    return s_ntab;
 }
 
 /* ---- per-frame build --------------------------------------------------- */
@@ -1371,4 +1379,8 @@ void cue_render_set_preview(uint16_t *fb, int cx, int cy, int rad,
         }
     }
     s_ball_set = sb; s_is_snooker = ss;
+}
+
+uint16_t cue_render_ball_texel(uint8_t id, Vec3 nb) {
+    return ball_sample(id, nb, ball_base(id));
 }
