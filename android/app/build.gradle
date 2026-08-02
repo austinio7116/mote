@@ -1,9 +1,14 @@
 apply plugin: 'com.android.application'
 
-// Which ABIs and which games go in the APK. arm64-v8a alone keeps the APK to one
-// copy of ~30 game modules; add x86_64 for the emulator.
+// Which ABIs and which games go in the APK. arm64-v8a alone; add x86_64 for the
+// emulator.
+//
+// No games are bundled by default: the app downloads what you want from the
+// gallery, which keeps the APK small and means a game is never two versions --
+// one baked in, one installed. -PmoteGames=all bundles the lot (a ~12 MB APK),
+// or name them: -PmoteGames="moita wormote".
 def moteAbis  = (project.findProperty('moteAbis')  ?: 'arm64-v8a').split(',').collect { it.trim() }
-def moteGames = (project.findProperty('moteGames') ?: '').trim()
+def moteGames = (project.findProperty('moteGames') ?: 'none').trim()
 
 android {
     namespace 'us.thumby.mote'
@@ -19,7 +24,7 @@ android {
         externalNativeBuild {
             ndkBuild {
                 arguments 'APP_PLATFORM=android-23'
-                if (moteGames) arguments += "MOTE_GAMES=${moteGames}".toString()
+                arguments += "MOTE_GAMES=${moteGames}".toString()
                 abiFilters(*moteAbis)
             }
         }

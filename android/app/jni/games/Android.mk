@@ -34,12 +34,17 @@ MOTE_GAME_CFLAGS := -DMOTE_HOST=1 -DNDEBUG -O2 -ffast-math -std=gnu11 \
 # for __ANDROID__ -- see games/moria/src/mote_fiber.c.)
 MOTE_GAME_SKIP :=
 
-# gradle may narrow the set via -PmoteGames (passed through as MOTE_GAMES).
-ifeq ($(strip $(MOTE_GAMES)),)
+# gradle passes -PmoteGames through as MOTE_GAMES: a list of game names, "all"
+# for every game under games/, or "none" (the default) for an empty APK that
+# fills itself from the gallery.
+MOTE_GAMES_ARG := $(strip $(MOTE_GAMES))
+ifeq ($(MOTE_GAMES_ARG),none)
+  MOTE_GAME_LIST :=
+else ifneq ($(filter-out all,$(MOTE_GAMES_ARG)),)
+  MOTE_GAME_LIST := $(MOTE_GAMES_ARG)
+else
   MOTE_GAME_DIRS := $(patsubst %/src/,%,$(sort $(dir $(wildcard $(MOTE_ROOT)/games/*/src/*.c))))
   MOTE_GAME_LIST := $(notdir $(MOTE_GAME_DIRS))
-else
-  MOTE_GAME_LIST := $(strip $(MOTE_GAMES))
 endif
 MOTE_GAME_LIST := $(filter-out $(MOTE_GAME_SKIP),$(MOTE_GAME_LIST))
 

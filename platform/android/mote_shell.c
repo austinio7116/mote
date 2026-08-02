@@ -69,12 +69,11 @@ enum { EB_A, EB_B, EB_UP, EB_DOWN, EB_LEFT, EB_RIGHT, EB_LB, EB_RB, EB_MENU, EB_
 #define SH_H    0.11f            /* pad height */
 #define SH_EDGE 0.020f           /* inset from the left/right edge */
 #define SH_LIFT 0.020f           /* drop from the top edge */
-/* SHELL mode tilt. Fitting each bumper to its own shoulder in the photo gave
- * -23.2 and +17.4 degrees — the photo is very slightly off-axis, so the two
- * shoulders do not run at the same angle. Following the photo exactly made the
- * pair look wonky, which matters more than matching a lens: they are mirrored
- * about one tilt, the mean of the two, and placed at mirrored x and identical y
- * so the pair reads level. */
+/* SHELL mode tilt. Fitting each bumper to the alpha edge of its own shoulder
+ * gave -23.2 and +17.4 degrees, but the shell is symmetric — the light falls
+ * differently on the two shoulders, so the edge the fit found is not quite the
+ * edge the shell has. One tilt, the mean of the two, mirrored; x mirrored about
+ * the chassis centre and y identical, so the pair reads level. */
 #define SHELL_TILT_DEG 20.3f
 #define SHELL_LB_DEG (-SHELL_TILT_DEG)
 #define SHELL_RB_DEG (+SHELL_TILT_DEG)

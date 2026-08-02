@@ -72,13 +72,20 @@ static void uppch(char *o, const char *n) { o[0] = (n[0] >= 'a' && n[0] <= 'z') 
 static void draw(const MoteCatalog *cat, int sel, int top) {
     (void)top;
     mote_ui_ground(s_fb);
-    mote_ui_header(s_fb, "MOTE", sel + 1, cat->count);
+    mote_ui_header(s_fb, "MOTE", sel + 1, cat->count ? cat->count : -1);   /* -1: no "1/0" */
 
     if (cat->count == 0) {
         mote_ui_text(s_fb, "no games installed", (MOTE_FB_W - mote_ui_text_w("no games installed")) / 2, 50, COL_DIM);
-#ifdef THUMBYONE_SLOT_MODE
-        mote_ui_text(s_fb, "press RB for the GALLERY", (MOTE_FB_W - mote_ui_text_w("press RB for the GALLERY")) / 2, 66, COL_HINT);
+        /* Wherever the gallery key exists, say so — on Android the app now ships
+         * empty on purpose, so this screen is the first thing a new player sees
+         * and it had better point somewhere. */
+#if defined(THUMBYONE_SLOT_MODE) || defined(MOTE_LAUNCHER_GALLERY_KEY)
+        mote_ui_text(s_fb, "press RB for GAMES", (MOTE_FB_W - mote_ui_text_w("press RB for GAMES")) / 2, 66, COL_HINT);
+# ifdef THUMBYONE_SLOT_MODE
         mote_ui_text(s_fb, "(dock in Mote Studio)", (MOTE_FB_W - mote_ui_text_w("(dock in Mote Studio)")) / 2, 80, COL_DIM);
+# else
+        mote_ui_text(s_fb, "from the gallery", (MOTE_FB_W - mote_ui_text_w("from the gallery")) / 2, 80, COL_DIM);
+# endif
 #else
         mote_ui_text(s_fb, "mote push a game", (MOTE_FB_W - mote_ui_text_w("mote push a game")) / 2, 66, COL_HINT);
 #endif

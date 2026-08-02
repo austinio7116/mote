@@ -221,6 +221,12 @@ int mote_android_os_main(void) {
             mote_plat_log("[mote] MOTE_SHELL_AUTORUN: no such module");
         }
     }
+    /* A fresh install ships with no games, so the launcher would open on an empty
+     * list. Go straight to the gallery instead — but only once, and only while
+     * nothing is installed, so it never gets in the way of someone who has
+     * deliberately removed everything and wants the list. */
+    if (s_nmod == 0) mote_android_gallery_screen();
+
     for (;;) {
         int idx = mote_launcher_run(fill);
         if (mote_shell_take_exit_game()) continue;      /* stray BACK: stay in the list */

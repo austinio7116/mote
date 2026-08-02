@@ -303,7 +303,7 @@ static int fetch_thread(void *a) { (void)a;
     char url[300];
     snprintf(url, sizeof url, "%s/games.json", s_base);
     if (mote_shell_http_get(url, s_cache) != 0) {
-        snprintf(s_err, sizeof s_err, "fetch failed - no network?");
+        snprintf(s_err, sizeof s_err, "no network?");
         s_job = JOB_FAIL; return 0;
     }
     s_job = parse_manifest(s_cache) == 0 ? JOB_OK : JOB_FAIL;
@@ -902,9 +902,11 @@ void mote_android_gallery_screen(void) {
             if (mote_just_pressed(&in, MOTE_BTN_A)) { mote_android_gallery_screen(); return; }
             mote_ui_ground(fb);
             mote_ui_title(fb, "NO GALLERY", (MOTE_FB_W - mote_ui_title_w("NO GALLERY")) / 2, 16, 0xFD40);
-            mote_ui_text(fb, s_err[0] ? s_err : "could not reach the gallery",
-                         (MOTE_FB_W - mote_ui_text_w(s_err[0] ? s_err : "could not reach the gallery")) / 2,
-                         44, MOTE_UI_TEXT);
+            /* A message wider than the screen used to centre to a negative x and
+             * lose both ends; clamp so it always starts on-screen. */
+            { const char *m = s_err[0] ? s_err : "could not be reached";
+              int mx = (MOTE_FB_W - mote_ui_text_w(m)) / 2; if (mx < 2) mx = 2;
+              mote_ui_text(fb, m, mx, 44, MOTE_UI_TEXT); }
             mote_ui_text(fb, "check the connection",
                          (MOTE_FB_W - mote_ui_text_w("check the connection")) / 2, 64, 0x9CD3);
             mote_ui_text(fb, "A retry      B back",
