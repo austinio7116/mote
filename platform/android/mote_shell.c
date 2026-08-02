@@ -917,9 +917,14 @@ static void pad_read(void) {
     };
     for (unsigned i = 0; i < sizeof map / sizeof map[0]; i++)
         if (SDL_GameControllerGetButton(s_pad, map[i].sdl)) s_pad_down[map[i].eb] = 1;
-    /* Triggers as extra A/B so twin-stick-ish pads feel right. */
-    if (SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 12000) s_pad_down[EB_A] = 1;
-    if (SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT)  > 12000) s_pad_down[EB_B] = 1;
+    /* The triggers double the shoulders rather than the face buttons: LT and LB
+     * both mean LB, RT and RB both mean RB. The handheld only has the two
+     * shoulder buttons, so on a pad that has four there is no reason to make the
+     * player learn which pair the game wants — either works. (They used to be a
+     * second A and B, which meant a stray trigger pull fired the action button.)
+     * The threshold is well past the resting jitter of a worn analogue trigger. */
+    if (SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT)  > 12000) s_pad_down[EB_LB] = 1;
+    if (SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 12000) s_pad_down[EB_RB] = 1;
     for (int i = 0; i < EB_N; i++) if (s_pad_down[i]) { s_using_pad = 1; break; }
 }
 
@@ -1148,38 +1153,38 @@ static void settings_draw(void) {
     if (cw < mind) cw = mind < s_ow ? mind : s_ow;
     int cx = (s_ow - cw) / 2;
     int pad = mind / 36;
-    int title_h = mind / 12;
+    int title_h = mind / 10;
 
     box(0, 0, s_ow, s_oh, 0, 0, 0, 205);                       /* backdrop */
 
     if (s_editing_relay) {
         /* Keyboard is about to cover the lower half, so this sheet lives at the
          * top and its two buttons are large and unmissable. */
-        int h = title_h + mind * 2 / 5;
+        int h = title_h + mind * 1 / 2;
         int y = pad;
         card(cx, y, cw, h, 16, 19, 28, 245);
         box(cx, y, cw, 3, 96, 176, 255, 255);
-        txt_draw("Internet match server", cx + pad, y + pad, mind / 20, TXT_L, 255, 206, 92, 255);
+        txt_draw("Internet match server", cx + pad, y + pad, mind / 17, TXT_L, 255, 206, 92, 255);
         char v[96]; snprintf(v, sizeof v, "%.40s_", s_edit);
-        txt_draw(v, cx + pad, y + pad + mind / 20 + pad / 2, mind / 17, TXT_L, 235, 240, 250, 255);
+        txt_draw(v, cx + pad, y + pad + mind / 17 + pad / 2, mind / 15, TXT_L, 235, 240, 250, 255);
         static const char *const why[] = {
             "Games you play over the Internet meet here.",
             "You do not need to change this - the address",
             "above is the public one, and it is already set.",
             "LAN games and a docked handheld never use it.",
         };
-        int hy = y + pad + mind / 20 + mind / 17 + pad, lh = mind / 26;
+        int hy = y + pad + mind / 17 + mind / 15 + pad, lh = mind / 22;
         for (int i = 0; i < 4; i++)
-            txt_draw(why[i], cx + pad, hy + i * lh, mind / 32, TXT_L, 130, 142, 168, 255);
+            txt_draw(why[i], cx + pad, hy + i * lh, mind / 26, TXT_L, 130, 142, 168, 255);
         int bh = mind / 9, by = y + h - bh - pad, bw = (cw - 3 * pad) / 2;
         s_ed_ok     = (SDL_Rect){ cx + pad, by, bw, bh };
         s_ed_cancel = (SDL_Rect){ cx + cw - pad - bw, by, bw, bh };
         box(s_ed_ok.x, s_ed_ok.y, bw, bh, 40, 96, 150, 255);
         box_outline(s_ed_ok.x, s_ed_ok.y, bw, bh, 2, 120, 200, 255, 255);
-        txt_draw("OK", s_ed_ok.x + bw / 2, by + (bh - mind / 22) / 2, mind / 22, TXT_C, 255, 255, 255, 255);
+        txt_draw("OK", s_ed_ok.x + bw / 2, by + (bh - mind / 18) / 2, mind / 18, TXT_C, 255, 255, 255, 255);
         box(s_ed_cancel.x, s_ed_cancel.y, bw, bh, 40, 44, 58, 255);
         box_outline(s_ed_cancel.x, s_ed_cancel.y, bw, bh, 2, 110, 118, 140, 255);
-        txt_draw("Cancel", s_ed_cancel.x + bw / 2, by + (bh - mind / 22) / 2, mind / 22, TXT_C,
+        txt_draw("Cancel", s_ed_cancel.x + bw / 2, by + (bh - mind / 18) / 2, mind / 18, TXT_C,
                  210, 216, 230, 255);
         s_row_slots = 0;
         return;
@@ -1205,9 +1210,9 @@ static void settings_draw(void) {
 
     card(cx, top, cw, ch, 16, 19, 28, 242);
     box(cx, top, cw, 3, 96, 176, 255, 255);
-    txt_draw("MOTE", cx + pad, top + (title_h - mind / 20) / 2, mind / 20, TXT_L, 255, 206, 92, 255);
-    txt_draw("settings", cx + pad + mind / 6, top + (title_h - mind / 26) / 2 + mind / 60,
-             mind / 26, TXT_L, 130, 142, 168, 255);
+    txt_draw("MOTE", cx + pad, top + (title_h - mind / 16) / 2, mind / 16, TXT_L, 255, 206, 92, 255);
+    txt_draw("settings", cx + pad + mind / 5, top + (title_h - mind / 22) / 2 + mind / 70,
+             mind / 22, TXT_L, 130, 142, 168, 255);
 
     s_row_slots = 0;
     for (int i = 0; i < n; i++) {
@@ -1221,7 +1226,10 @@ static void settings_draw(void) {
         if (ids[i] == ROW_BACK || ids[i] == ROW_CLOSE)
             box(cx + pad / 2, ry + 2, 4, row_h - 4, 120, 200, 255, 200);
 
-        int nh = mind / 24, hh = mind / 36;
+        /* Sized for a phone held at arm's length, not for the 128px screen this
+         * sheet used to be drawn into. On a 1280-tall display that is a ~75px
+         * name over a ~49px explanation, inside a ~157px row. */
+        int nh = mind / 17, hh = mind / 26;
         txt_draw(name, cx + pad, ry + row_h / 2 - nh, nh, TXT_L, 236, 240, 250, 255);
         txt_draw(hint, cx + pad, ry + row_h / 2 + nh / 5, hh, TXT_L, 128, 140, 166, 255);
         if (val[0])
