@@ -508,7 +508,7 @@ static void shoulder_layout(void) {
          * corner curves away from the straight line the angle was fitted to.
          * Both sit at the SAME height — the right one's, lifted slightly — so the
          * pair reads level even though each follows its own edge's tilt. */
-        const float sy = 0.125f;
+        const float sy = 0.088f;   /* half a button higher than the shell fit */
         s_bump[0] = (Bumper){ (float)BX(0.130f), (float)BY(sy), w, h, SHELL_LB_DEG };
         s_bump[1] = (Bumper){ (float)BX(0.872f), (float)BY(sy), w, h, SHELL_RB_DEG };
     } else {
@@ -756,11 +756,13 @@ static void shoulder_pads(void) {
         /* A drop shadow first, so a bumper reads as sitting above the shell
          * rather than painted onto it. */
         SDL_SetTextureColorMod(t, 0, 0, 0);
-        SDL_SetTextureAlphaMod(t, 90);
+        SDL_SetTextureAlphaMod(t, 70);
         SDL_Rect sh = { d.x, d.y + (int)(b->h * 0.10f), d.w, d.h };
         SDL_RenderCopyEx(ren, t, NULL, &sh, b->deg, NULL, SDL_FLIP_NONE);
         SDL_SetTextureColorMod(t, 255, 255, 255);
-        SDL_SetTextureAlphaMod(t, 255);
+        /* Translucent enough to read the shell through, opaque enough to press
+         * with confidence — and brighter while held, so the press still shows. */
+        SDL_SetTextureAlphaMod(t, down ? 235 : 170);
         SDL_RenderCopyEx(ren, t, NULL, &d, b->deg, NULL, SDL_FLIP_NONE);
     }
 }
