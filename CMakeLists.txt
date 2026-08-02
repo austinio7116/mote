@@ -159,6 +159,7 @@ if(MOTE_TARGET STREQUAL "host")
         ${CMAKE_CURRENT_SOURCE_DIR}/os/android
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/android
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/vr
+        ${CMAKE_CURRENT_SOURCE_DIR}/platform/xr
         ${CMAKE_CURRENT_SOURCE_DIR}/studio
         ${CMAKE_CURRENT_SOURCE_DIR}/studio/third_party)
     target_compile_definitions(mote_vr_preview PRIVATE MOTE_HOST=1 MOTE_SHELL_DESKTOP=1

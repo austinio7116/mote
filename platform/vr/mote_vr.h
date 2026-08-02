@@ -18,7 +18,7 @@
  *   mote_vr_render.c   GLES3. Draws the chassis, the live LCD and the room.
  *                      Takes view/projection matrices; does not know where they
  *                      came from.
- *   mote_vr_xr.c       OpenXR: session, swapchains, poses, actions, passthrough.
+ *   mote_vr_app.c      the four callbacks platform/xr's OpenXR host calls.
  *   mote_vr_preview.c  the same hold + render code driven by a mouse in a
  *                      desktop window, so the thing can be developed and
  *                      screenshotted without putting a headset on.
@@ -28,29 +28,7 @@
 
 #include <stdint.h>
 #include "mote_input.h"
-#include "mote_vr_math.h"
-
-/* ---- what the tracking layer produces ---------------------------------- */
-
-typedef struct {
-    MoteVrPose pose;        /* grip pose: where the hand is */
-    int        tracked;     /* pose is valid this frame */
-    float      stick_x;     /* thumbstick, -1..1, +x right, +y up */
-    float      stick_y;
-    float      trigger;     /* 0..1 */
-    float      squeeze;     /* 0..1 grip */
-    int        btn_lower;   /* A (right hand) / X (left hand) */
-    int        btn_upper;   /* B (right hand) / Y (left hand) */
-    int        menu;        /* only the left controller has one on Quest */
-} MoteVrHand;
-
-enum { MOTE_VR_LEFT = 0, MOTE_VR_RIGHT = 1 };
-
-typedef struct {
-    MoteVrHand hand[2];
-    MoteVrPose head;
-    float      dt;          /* seconds since the last tracking update */
-} MoteVrTracking;
+#include "mote_xr.h"        /* tracking types + the shared OpenXR host */
 
 /* ---- where the console ends up ----------------------------------------- */
 

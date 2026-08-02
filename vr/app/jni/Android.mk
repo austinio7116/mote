@@ -43,6 +43,7 @@ LOCAL_C_INCLUDES := \
     $(MOTE_ROOT)/os/android \
     $(MOTE_ROOT)/platform/android \
     $(MOTE_ROOT)/platform/vr \
+    $(MOTE_ROOT)/platform/xr \
     $(MOTE_ROOT)/platform/vr/compat \
     $(MOTE_ROOT)/studio \
     $(MOTE_ROOT)/studio/third_party
@@ -54,7 +55,8 @@ LOCAL_CFLAGS := -DMOTE_HOST=1 -DMOTE_VR=1 -DMOTE_LAUNCHER_GALLERY_KEY=1 -DNDEBUG
 
 LOCAL_SRC_FILES := \
     $(MOTE_ROOT)/platform/vr/mote_vr_main_android.c \
-    $(MOTE_ROOT)/platform/vr/mote_vr_xr.c \
+    $(MOTE_ROOT)/platform/xr/mote_xr.c \
+    $(MOTE_ROOT)/platform/vr/mote_vr_app.c \
     $(MOTE_ROOT)/platform/vr/mote_vr_render.c \
     $(MOTE_ROOT)/platform/vr/mote_vr_hold.c \
     $(MOTE_ROOT)/platform/android/mote_plat_android.c \

@@ -12,7 +12,7 @@
  * multiplayer without a line of code here mentioning any of them.
  */
 #include "mote_vr.h"
-#include "mote_vr_xr.h"
+#include "mote_vr_app.h"
 #include "mote_platform.h"
 #include "mote_plat_android.h"
 #include "mote_android_os.h"
@@ -107,10 +107,10 @@ static void on_cmd(struct android_app *app, int32_t cmd) {
     }
 }
 
-void android_main(struct android_app *app) {
-    app->onAppCmd = on_cmd;
-    s_vm = app->activity->vm;
-    s_activity = app->activity->clazz;
+void android_main(struct android_app *a) {
+    a->onAppCmd = on_cmd;
+    s_vm = a->activity->vm;
+    s_activity = a->activity->clazz;
 
     JNIEnv *env = env_here();
     if (env) {
@@ -119,7 +119,7 @@ void android_main(struct android_app *app) {
     }
 
     /* ---- where things live ---- */
-    mote_shell_set_storage(app->activity->internalDataPath);
+    mote_shell_set_storage(a->activity->internalDataPath);
     mote_shell_set_http_cb(vr_http_get);
     {   /* Same priority order as the phone: writable internal first (the only
          * place a downloaded module can be dlopen'd from), then the external
@@ -132,9 +132,9 @@ void android_main(struct android_app *app) {
 
     MoteVrAssets assets;
     memset(&assets, 0, sizeof assets);
-    assets.chassis_mesh = asset_slurp(app->activity->assetManager, "chassis.mvm",
+    assets.chassis_mesh = asset_slurp(a->activity->assetManager, "chassis.mvm",
                                       &assets.chassis_mesh_len);
-    assets.chassis_tex  = asset_slurp(app->activity->assetManager, "chassis.jpg",
+    assets.chassis_tex  = asset_slurp(a->activity->assetManager, "chassis.jpg",
                                       &assets.chassis_tex_len);
     if (!assets.chassis_mesh || !assets.chassis_tex) {
         logv("[mote-vr] no chassis assets — cannot start");
@@ -143,34 +143,41 @@ void android_main(struct android_app *app) {
 
     /* OpenXR before the engine: if the headset will not have us, there is no
      * point spinning up a console nobody can see. */
-    if (mote_vr_xr_init(s_vm, s_activity, &assets, -18.0f) != 0) {
+    MoteXrApp app;
+    mote_vr_app_describe(&app, &assets, -18.0f);
+    if (mote_xr_init(s_vm, s_activity, &app) != 0) {
         logv("[mote-vr] OpenXR init failed");
-        mote_vr_xr_shutdown();
+        mote_xr_shutdown();
         return;
     }
 
     /* Start parked: the session is not running until the runtime says READY,
      * and an engine simulating into a void just burns battery. */
-    mote_shell_set_paused(1);
+    mote_vr_app_set_paused(1);
     pthread_t eng;
     pthread_create(&eng, NULL, engine_thread, NULL);
 
-    while (!s_destroy && !mote_vr_xr_should_quit()) {
+    int was_running = 0;
+    while (!s_destroy && !mote_xr_should_quit()) {
         /* Drain the Android queue. Block only when there is nothing to draw,
          * so a backgrounded app costs nothing. */
         int events;
         struct android_poll_source *src;
-        while (ALooper_pollAll(mote_vr_xr_running() ? 0 : 250, NULL, &events,
+        while (ALooper_pollAll(mote_xr_running() ? 0 : 250, NULL, &events,
                                (void **)&src) >= 0) {
-            if (src) src->process(app, src);
-            if (app->destroyRequested) s_destroy = 1;
+            if (src) src->process(a, src);
+            if (a->destroyRequested) s_destroy = 1;
         }
-        mote_vr_xr_frame();
+        /* The engine simulates only while the session is up — off-headset it
+         * would just burn battery into a void. */
+        int running = mote_xr_running();
+        if (running != was_running) { mote_vr_app_set_paused(!running); was_running = running; }
+        mote_xr_frame();
     }
 
     mote_shell_request_quit();
-    mote_shell_set_paused(0);              /* let the engine thread out of publish() */
+    mote_vr_app_set_paused(0);             /* let the engine thread out of publish() */
     pthread_join(eng, NULL);
-    mote_vr_xr_shutdown();
+    mote_xr_shutdown();
     logv("[mote-vr] bye");
 }

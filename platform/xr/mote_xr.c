@@ -1,5 +1,5 @@
 /*
- * Mote VR — OpenXR: the headset, the hands, and the room behind it all.
+ * Mote XR — the one OpenXR bring-up, shared by every headset app here.
  *
  * Everything here is the standard OpenXR bring-up in the order the spec insists
  * on (loader init, instance, system, graphics requirements, session, spaces,
@@ -21,17 +21,12 @@
  *    legal.
  *
  *  · The right controller's system button belongs to the system. Only the left
- *    controller has a menu button an app may bind, which is why MENU is where
- *    it is (see mote_vr_hold.c).
+ *    controller has a menu button an app may bind.
  *
- * The frame loop owns no game state: it asks mote_vr_hold.c where the console
- * is, hands the engine its buttons, and asks mote_vr_render.c to draw. The
- * engine itself is on another thread entirely and has never heard of any of it.
+ * The frame loop owns no app state at all: it hands the app tracking, then asks
+ * it to draw each eye. See MoteXrApp in mote_xr.h.
  */
-#include "mote_vr.h"
-#include "mote_config.h"
-#include "mote_platform.h"
-#include "mote_plat_android.h"
+#include "mote_xr.h"
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -49,17 +44,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "mote_vr_xr.h"
 
 #define MAX_VIEWS 2
 
+#include <android/log.h>
 static void xrlog(const char *fmt, ...) {
     char b[256];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(b, sizeof b, fmt, ap);
     va_end(ap);
-    mote_plat_log(b);
+    __android_log_print(ANDROID_LOG_INFO, "mote", "%s", b);
 }
 
 /* ---- state -------------------------------------------------------------- */
@@ -111,8 +106,8 @@ static struct {
     EGLSurface egl_surf;
     EGLConfig  egl_cfg;
 
-    MoteVrHoldState hold;
-    XrTime      pred_display;
+    MoteXrApp   app;
+    int         srgb;
     XrTime      last_display;
 } S;
 
@@ -120,7 +115,7 @@ static int failed(XrResult r, const char *what) {
     if (XR_SUCCEEDED(r)) return 0;
     char s[XR_MAX_RESULT_STRING_SIZE] = "?";
     if (S.instance) xrResultToString(S.instance, r, s);
-    xrlog("[mote-vr] %s failed: %s (%d)", what, s, (int)r);
+    xrlog("[mote-xr] %s failed: %s (%d)", what, s, (int)r);
     return 1;
 }
 
@@ -128,8 +123,8 @@ static int failed(XrResult r, const char *what) {
 
 static int egl_up(void) {
     S.egl_dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (S.egl_dpy == EGL_NO_DISPLAY) { xrlog("[mote-vr] no EGL display"); return -1; }
-    if (!eglInitialize(S.egl_dpy, NULL, NULL)) { xrlog("[mote-vr] eglInitialize"); return -1; }
+    if (S.egl_dpy == EGL_NO_DISPLAY) { xrlog("[mote-xr] no EGL display"); return -1; }
+    if (!eglInitialize(S.egl_dpy, NULL, NULL)) { xrlog("[mote-xr] eglInitialize"); return -1; }
 
     const EGLint cfg_attr[] = {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT_KHR,
@@ -140,16 +135,16 @@ static int egl_up(void) {
     };
     EGLint n = 0;
     if (!eglChooseConfig(S.egl_dpy, cfg_attr, &S.egl_cfg, 1, &n) || n < 1) {
-        xrlog("[mote-vr] no EGL config"); return -1;
+        xrlog("[mote-xr] no EGL config"); return -1;
     }
     const EGLint ctx_attr[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
     S.egl_ctx = eglCreateContext(S.egl_dpy, S.egl_cfg, EGL_NO_CONTEXT, ctx_attr);
-    if (S.egl_ctx == EGL_NO_CONTEXT) { xrlog("[mote-vr] eglCreateContext"); return -1; }
+    if (S.egl_ctx == EGL_NO_CONTEXT) { xrlog("[mote-xr] eglCreateContext"); return -1; }
     const EGLint surf_attr[] = { EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE };
     S.egl_surf = eglCreatePbufferSurface(S.egl_dpy, S.egl_cfg, surf_attr);
-    if (S.egl_surf == EGL_NO_SURFACE) { xrlog("[mote-vr] eglCreatePbufferSurface"); return -1; }
+    if (S.egl_surf == EGL_NO_SURFACE) { xrlog("[mote-xr] eglCreatePbufferSurface"); return -1; }
     if (!eglMakeCurrent(S.egl_dpy, S.egl_surf, S.egl_surf, S.egl_ctx)) {
-        xrlog("[mote-vr] eglMakeCurrent"); return -1;
+        xrlog("[mote-xr] eglMakeCurrent"); return -1;
     }
     return 0;
 }
@@ -190,12 +185,12 @@ static int make_instance(JavaVM *vm, jobject activity) {
     if (S.has_passthrough) want[nw++] = XR_FB_PASSTHROUGH_EXTENSION_NAME;
     for (uint32_t i = 0; i < nw; i++)
         if (!have_ext(ext, n, want[i])) {
-            xrlog("[mote-vr] runtime lacks %s", want[i]);
+            xrlog("[mote-xr] runtime lacks %s", want[i]);
             free(ext);
             return -1;
         }
     free(ext);
-    xrlog("[mote-vr] passthrough %s", S.has_passthrough ? "available" : "NOT available");
+    xrlog("[mote-xr] passthrough %s", S.has_passthrough ? "available" : "NOT available");
 
     XrInstanceCreateInfoAndroidKHR aci = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
     aci.applicationVM = vm;
@@ -206,7 +201,8 @@ static int make_instance(JavaVM *vm, jobject activity) {
     ici.enabledExtensionCount = nw;
     ici.enabledExtensionNames = want;
     snprintf(ici.applicationInfo.applicationName,
-             sizeof ici.applicationInfo.applicationName, "Mote");
+             sizeof ici.applicationInfo.applicationName, "%s",
+             S.app.name ? S.app.name : "Mote");
     ici.applicationInfo.applicationVersion = 1;
     snprintf(ici.applicationInfo.engineName,
              sizeof ici.applicationInfo.engineName, "Mote");
@@ -219,7 +215,7 @@ static int make_instance(JavaVM *vm, jobject activity) {
 
     XrSystemProperties sp = { XR_TYPE_SYSTEM_PROPERTIES };
     if (XR_SUCCEEDED(xrGetSystemProperties(S.instance, S.system, &sp)))
-        xrlog("[mote-vr] %s", sp.systemName);
+        xrlog("[mote-xr] %s", sp.systemName);
     return 0;
 }
 
@@ -278,12 +274,12 @@ static int make_swapchains(void) {
         if (fmt[i] == GL_RGBA8) want = fmt[i];
     if (!want && nf) want = fmt[0];
     free(fmt);
-    /* Tell the renderer who does the sRGB encode. Getting this backwards is the
-     * washed-out bug, and it is invisible from here — so it is logged. */
-    int srgb = (want == GL_SRGB8_ALPHA8);
-    mote_vr_render_set_target_srgb(srgb);
-    xrlog("[mote-vr] swapchain format 0x%04x (%s)", (unsigned)want,
-          srgb ? "sRGB, runtime encodes" : "linear, shader encodes");
+    /* Who performs the sRGB encode. Getting this backwards is the washed-out
+     * bug, and it is invisible from here — so the app can ask, and it is
+     * logged either way. */
+    S.srgb = (want == GL_SRGB8_ALPHA8);
+    xrlog("[mote-xr] swapchain format 0x%04x (%s)", (unsigned)want,
+          S.srgb ? "sRGB, runtime encodes" : "linear, shader encodes");
 
     for (uint32_t i = 0; i < n; i++) {
         Eye *e = &S.eye[i];
@@ -324,7 +320,7 @@ static int make_swapchains(void) {
                                       GL_RENDERBUFFER, e->depth);
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        xrlog("[mote-vr] eye %u: %dx%d, %u images", i, e->w, e->h, e->n);
+        xrlog("[mote-xr] eye %u: %dx%d, %u images", i, e->w, e->h, e->n);
     }
     return 0;
 }
@@ -393,7 +389,7 @@ static int make_actions(void) {
     sb.suggestedBindings = tb;
     sb.countSuggestedBindings = sizeof tb / sizeof tb[0];
     if (!XR_SUCCEEDED(xrSuggestInteractionProfileBindings(S.instance, &sb)))
-        xrlog("[mote-vr] touch bindings rejected");
+        xrlog("[mote-xr] touch bindings rejected");
 
     XrActionSuggestedBinding kb[] = {
         { S.a_pose,   path("/user/hand/left/input/grip/pose") },
@@ -515,7 +511,7 @@ static void passthrough_up(void) {
     }
     if (S.xrPassthroughStartFB_) S.xrPassthroughStartFB_(S.passthrough);
     if (S.xrPassthroughLayerResumeFB_) S.xrPassthroughLayerResumeFB_(S.pt_layer);
-    xrlog("[mote-vr] passthrough running");
+    xrlog("[mote-xr] passthrough running");
 }
 
 /* ---- the frame ----------------------------------------------------------- */
@@ -524,7 +520,6 @@ static void draw_frame(void) {
     XrFrameWaitInfo fwi = { XR_TYPE_FRAME_WAIT_INFO };
     XrFrameState fs = { XR_TYPE_FRAME_STATE };
     if (failed(xrWaitFrame(S.session, &fwi, &fs), "xrWaitFrame")) return;
-    S.pred_display = fs.predictedDisplayTime;
 
     XrFrameBeginInfo fbi = { XR_TYPE_FRAME_BEGIN_INFO };
     xrBeginFrame(S.session, &fbi);
@@ -572,19 +567,7 @@ static void draw_frame(void) {
                 0.5f);
         }
 
-        MoteVrConsole console;
-        MoteButtons btn;
-        mote_vr_hold_update(&S.hold, &track, &console, &btn);
-        mote_shell_set_buttons(&btn);
-
-        static uint16_t frame[MOTE_FB_W * MOTE_FB_H];
-        static uint32_t last_seq = (uint32_t)-1;
-        uint32_t seq = mote_shell_frame_seq();
-        if (seq != last_seq) {
-            last_seq = seq;
-            mote_shell_get_frame(frame);
-            mote_vr_render_set_frame(frame, seq);
-        }
+        if (S.app.update) S.app.update(S.app.user, &track);
 
         for (uint32_t i = 0; i < nv; i++) {
             Eye *e = &S.eye[i];
@@ -610,7 +593,8 @@ static void draw_frame(void) {
             mm4_view_from_pose(view, eye_pose);
             mm4_proj_fov(projm, S.views[i].fov.angleLeft, S.views[i].fov.angleRight,
                          S.views[i].fov.angleUp, S.views[i].fov.angleDown, 0.02f, 50.0f);
-            mote_vr_render_eye(view, projm, &console, &btn, &track, !S.has_passthrough);
+            if (S.app.draw_eye)
+                S.app.draw_eye(S.app.user, view, projm, !S.has_passthrough);
 
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             XrSwapchainImageReleaseInfo ri = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
@@ -663,13 +647,10 @@ static void pump_events(void) {
             if (e->state == XR_SESSION_STATE_READY) {
                 XrSessionBeginInfo bi = { XR_TYPE_SESSION_BEGIN_INFO };
                 bi.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-                if (!failed(xrBeginSession(S.session, &bi), "xrBeginSession")) {
+                if (!failed(xrBeginSession(S.session, &bi), "xrBeginSession"))
                     S.running = 1;
-                    mote_shell_set_paused(0);
-                }
             } else if (e->state == XR_SESSION_STATE_STOPPING) {
                 S.running = 0;
-                mote_shell_set_paused(1);
                 xrEndSession(S.session);
             } else if (e->state == XR_SESSION_STATE_EXITING ||
                        e->state == XR_SESSION_STATE_LOSS_PENDING) {
@@ -687,34 +668,34 @@ static void pump_events(void) {
     }
 }
 
-/* ---- the interface the Android entry point uses -------------------------- */
+/* ---- what the app sees --------------------------------------------------- */
 
-int mote_vr_xr_init(void *vm, void *activity, const MoteVrAssets *assets, float tilt_deg) {
+int mote_xr_init(void *vm, void *activity, const MoteXrApp *app) {
     memset(&S, 0, sizeof S);
+    if (app) S.app = *app;
     if (egl_up() != 0) return -1;
     if (make_instance((JavaVM *)vm, (jobject)activity) != 0) return -1;
     if (make_session() != 0) return -1;
     if (make_swapchains() != 0) return -1;
     if (make_actions() != 0) return -1;
     passthrough_up();
-    if (mote_vr_render_init(assets) != 0) return -1;
-    mote_vr_hold_init(&S.hold, MOTE_VR_SCALE_DEFAULT, tilt_deg);
-    /* Games call the engine's rumble; on a handheld that is a motor, and here
-     * it is the controllers. Same hook the phone uses for its vibrator. */
-    mote_shell_set_rumble_cb(haptic);
+    if (S.app.gl_init && S.app.gl_init(S.app.user) != 0) return -1;
     return 0;
 }
 
-int  mote_vr_xr_should_quit(void) { return S.quit; }
-int  mote_vr_xr_running(void)     { return S.running; }
+int  mote_xr_should_quit(void)     { return S.quit; }
+int  mote_xr_running(void)         { return S.running; }
+int  mote_xr_has_passthrough(void) { return S.has_passthrough; }
+int  mote_xr_target_is_srgb(void)  { return S.srgb; }
+void mote_xr_haptic(float i, int ms) { haptic(i, ms); }
 
-void mote_vr_xr_frame(void) {
+void mote_xr_frame(void) {
     pump_events();
     if (S.running) draw_frame();
 }
 
-void mote_vr_xr_shutdown(void) {
-    mote_vr_render_shutdown();
+void mote_xr_shutdown(void) {
+    if (S.app.gl_shutdown) S.app.gl_shutdown(S.app.user);
     for (uint32_t i = 0; i < S.nview; i++) {
         Eye *e = &S.eye[i];
         if (e->fbo) { glDeleteFramebuffers((GLsizei)e->n, e->fbo); free(e->fbo); }
