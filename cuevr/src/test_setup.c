@@ -6,7 +6,7 @@
  * that wrong and the ball swings away from your bridge hand every time you turn
  * the table, which is precisely the thing setup exists to prevent.
  *
- *   cc -I. -I../../thumbycue/src -I../../../engine/math -I../../../platform/xr \
+ *   cc -I. -I../../games/thumbycue/src -I../../engine/math -I../../platform/xr \
  *      -o /tmp/test_setup test_setup.c cuevr_setup.c cuevr_cue.c -lm && /tmp/test_setup
  */
 #include "cuevr.h"

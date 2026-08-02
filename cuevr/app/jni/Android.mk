@@ -22,7 +22,7 @@ LOCAL_MODULE := cuevr
 
 LOCAL_C_INCLUDES := \
     $(OPENXR) \
-    $(MOTE_ROOT)/games/cuevr/src \
+    $(MOTE_ROOT)/cuevr/src \
     $(MOTE_ROOT)/games/thumbycue/src \
     $(MOTE_ROOT)/engine/core \
     $(MOTE_ROOT)/engine/math \
@@ -32,11 +32,11 @@ LOCAL_CFLAGS := -DMOTE_HOST=1 -DNDEBUG -O2 -ffast-math -std=gnu11 \
                 -Wall -Wno-unused-parameter
 
 LOCAL_SRC_FILES := \
-    $(MOTE_ROOT)/games/cuevr/src/cuevr_main_android.c \
-    $(MOTE_ROOT)/games/cuevr/src/cuevr_app.c \
-    $(MOTE_ROOT)/games/cuevr/src/cuevr_render.c \
-    $(MOTE_ROOT)/games/cuevr/src/cuevr_cue.c \
-    $(MOTE_ROOT)/games/cuevr/src/cuevr_setup.c \
+    $(MOTE_ROOT)/cuevr/src/cuevr_main_android.c \
+    $(MOTE_ROOT)/cuevr/src/cuevr_app.c \
+    $(MOTE_ROOT)/cuevr/src/cuevr_render.c \
+    $(MOTE_ROOT)/cuevr/src/cuevr_cue.c \
+    $(MOTE_ROOT)/cuevr/src/cuevr_setup.c \
     $(MOTE_ROOT)/platform/xr/mote_xr.c \
     $(MOTE_ROOT)/games/thumbycue/src/cue_physics.c \
     $(MOTE_ROOT)/games/thumbycue/src/cue_table.c \

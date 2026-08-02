@@ -8,7 +8,7 @@
  * of the stroke, side and screw from where the tip lands, elevation from the
  * back hand, and a miscue when the tip is too far off centre.
  *
- *   cc -I. -I../../thumbycue/src -I../../../engine/math -I../../../platform/xr \
+ *   cc -I. -I../../games/thumbycue/src -I../../engine/math -I../../platform/xr \
  *      -o /tmp/test_cue test_cue.c cuevr_cue.c -lm && /tmp/test_cue
  */
 #include "cuevr.h"

@@ -180,14 +180,14 @@ if(MOTE_TARGET STREQUAL "host")
 
     # CueVR preview: the cue-sports headset game minus OpenXR. Same table, same
     # physics, same cue geometry, same shaders — with mouse-driven hands, so the
-    # thing can be screenshotted without a headset. See games/cuevr.
+    # thing can be screenshotted without a headset. See cuevr/src.
     if(NOT WIN32 AND GLESV2_LIB)
     add_executable(cuevr_preview
-        games/cuevr/src/cuevr_preview.c
-        games/cuevr/src/cuevr_app.c
-        games/cuevr/src/cuevr_render.c
-        games/cuevr/src/cuevr_cue.c
-        games/cuevr/src/cuevr_setup.c
+        cuevr/src/cuevr_preview.c
+        cuevr/src/cuevr_app.c
+        cuevr/src/cuevr_render.c
+        cuevr/src/cuevr_cue.c
+        cuevr/src/cuevr_setup.c
         games/thumbycue/src/cue_physics.c
         games/thumbycue/src/cue_table.c
         games/thumbycue/src/cue_rules.c
@@ -195,7 +195,7 @@ if(MOTE_TARGET STREQUAL "host")
         games/thumbycue/src/craft_font.c)
     target_include_directories(cuevr_preview PRIVATE
         ${MOTE_INCLUDE_DIRS}
-        ${CMAKE_CURRENT_SOURCE_DIR}/games/cuevr/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/cuevr/src
         ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/xr
         ${CMAKE_CURRENT_SOURCE_DIR}/studio/third_party)
