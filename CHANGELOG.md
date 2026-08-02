@@ -40,7 +40,9 @@ under whatever game that Studio happened to have open. It now carries the name o
 game the handheld is actually running. Only the label was ever wrong — two different
 games could never pair.
 
-Engine ABI is unchanged (**v47**): every installed game keeps working untouched.
+The app is `mote-android-arm64.apk` on this release. Sideload it — arm64 phones,
+Android 6 or later. Engine ABI is unchanged (**v47**): every installed game keeps
+working untouched.
 
 ## 0.20-alpha — show your whole library
 
