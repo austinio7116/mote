@@ -4,15 +4,15 @@
 
 **Mote runs on Android.** There is now a sideloadable app that turns a phone into a
 Thumby Color. It is the whole thing, not a demo: the launcher, the gallery, the engine
-menu, save slots, multiplayer and every game in the library, running the same code the
-handheld runs, at the same 128×128 and the same 22 kHz. The screen is the real product
+menu, save slots, multiplayer and every game in the library, running the same code a
+Thumby Color runs, at the same 128×128 and the same 22 kHz. The screen is the real product
 photograph with the buttons where you can see them — press the A on the shell and you
 press A. Game controllers are picked up automatically: d-pad or left stick, A/B, Start
 for MENU, and either the shoulder buttons or the triggers for LB and RB. Rumble goes to
 the phone's vibrator.
 
 The download is **1.3 MB and arrives with no games in it**. You pick what you want from
-the gallery — the same hero view the handheld has, one big screenshot per game with its
+the gallery — the same hero view the Thumby Color has, one big screenshot per game with its
 description a button away — and it installs over your phone's own connection, with no PC
 involved. Installed games stay installed and update in place when a new version is
 published. Settings sit behind the button at the top of the screen: a pixel-perfect or
@@ -20,12 +20,12 @@ a larger screen, where the LB/RB buttons sit, vibration, and a frame-rate readou
 
 **Your phone can be the dock.** Plug a real Thumby Color into an Android phone with a
 USB-C cable and it gets the two things it otherwise needs a PC and Mote Studio for:
-internet and LAN matches set up from the handheld's own lobby, and gallery installs and
-updates — both over the phone's mobile data. The handheld needs no update and nothing to
-configure; plugging it in is the whole setup. A phone-docked Thumby and a PC-docked one
+internet and LAN matches set up from the Thumby Color's own lobby, and gallery installs
+and updates — both over the phone's mobile data. The Thumby Color needs no update and
+nothing to configure; plugging it in is the whole setup. A phone-docked Thumby and a PC-docked one
 land in the same rooms, so it makes no difference to whoever you are playing.
 
-Multiplayer works from the app itself too, with no handheld and no PC anywhere in the
+Multiplayer works from the app itself too, with no Thumby Color and no PC anywhere in the
 loop: quick match, host, join by code and browse, over the internet or your local Wi-Fi.
 A phone can share a room with a Thumby docked in a Studio.
 
@@ -35,9 +35,9 @@ Change them in Mote's own MENU and the lobby agrees when you go back, instead of
 change being lost the moment you left. Needs the matching **ThumbyOne 1.36.0** firmware.
 
 **Online rooms are named after the game being played.** A room opened by a docked
-handheld took its name from the Studio, so it could appear in someone's Browse list
+Thumby Color took its name from the Studio, so it could appear in someone's Browse list
 under whatever game that Studio happened to have open. It now carries the name of the
-game the handheld is actually running. Only the label was ever wrong — two different
+game the Thumby Color is actually running. Only the label was ever wrong — two different
 games could never pair.
 
 The app is `mote-android-arm64.apk` on this release. Sideload it — arm64 phones,
