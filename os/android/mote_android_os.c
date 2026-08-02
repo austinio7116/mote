@@ -107,6 +107,37 @@ static int by_name(const void *a, const void *b) {
 
 /* Scan the search dirs once at boot. Later dirs never shadow earlier ones, so a
  * side-loaded module with the same filename as a bundled one is skipped. */
+/* Copy a module into the install dir. The external dir is the only one a file
+ * manager can reach, and it is mounted noexec — a .so there can be read but
+ * never dlopen'd — so anything found out there has to be brought inside before
+ * it can run. Returns 0 and fills `out` with the new path. */
+static int import_module(const char *src, const char *file, char *out, int cap) {
+    const char *dst_dir = mote_android_os_install_dir();
+    if (!dst_dir) return -1;
+    snprintf(out, cap, "%s/%s", dst_dir, file);
+    if (!strcmp(out, src)) return -1;                 /* already where it belongs */
+
+    FILE *in = fopen(src, "rb");
+    if (!in) return -1;
+    char tmp[520];
+    snprintf(tmp, sizeof tmp, "%s.part", out);
+    FILE *o = fopen(tmp, "wb");
+    if (!o) { fclose(in); return -1; }
+    char buf[8192];
+    size_t n;
+    int ok = 1;
+    while ((n = fread(buf, 1, sizeof buf, in)) > 0)
+        if (fwrite(buf, 1, n, o) != n) { ok = 0; break; }
+    fclose(in);
+    if (fclose(o) != 0) ok = 0;
+    if (!ok) { remove(tmp); return -1; }
+    remove(out);
+    if (rename(tmp, out) != 0) { remove(tmp); return -1; }
+    { char m[600]; snprintf(m, sizeof m, "[mote] imported %s -> %s", file, dst_dir);
+      mote_plat_log(m); }
+    return 0;
+}
+
 static void scan(void) {
     for (int d = 0; d < s_ndir; d++) {
         DIR *dp = opendir(s_dir[d]);
@@ -125,7 +156,17 @@ static void scan(void) {
             if (dup) continue;
             char path[512];
             snprintf(path, sizeof path, "%s/%s", s_dir[d], e->d_name);
+            int before = s_nmod;
             probe(path, e->d_name);
+            if (s_nmod == before && d > 0) {
+                /* Would not load where it is. On the noexec external dir that is
+                 * expected rather than exceptional, and it is also how a module
+                 * downloaded by an older build — which installed out there —
+                 * gets rescued rather than staying dead. */
+                char inner[520];
+                if (import_module(path, e->d_name, inner, sizeof inner) == 0)
+                    probe(inner, e->d_name);
+            }
         }
         closedir(dp);
     }
@@ -152,7 +193,7 @@ int mote_android_os_add_module(const char *path) {
         }
     int before = s_nmod;
     probe(path, file);
-    if (s_nmod == before) return -1;          /* not a loadable game module */
+    if (s_nmod == before) return -1;          /* not loadable — probe() logged why */
     if (s_nmod > 1) qsort(s_mod, (size_t)s_nmod, sizeof s_mod[0], by_name);
     return 0;
 }

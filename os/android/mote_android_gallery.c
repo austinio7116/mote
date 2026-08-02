@@ -338,9 +338,12 @@ static int install_thread(void *a) { (void)a;
         snprintf(s_err, sizeof s_err, "cannot save module");
         remove(s_part); s_job = JOB_FAIL; return 0;
     }
-    /* Hand it to the launcher's catalog straight away — no relaunch needed. */
+    /* Hand it to the launcher's catalog straight away — no relaunch needed.
+     * If it will not load, saying "needs a restart" is worse than useless: the
+     * next launch probes the same file and fails the same way. dlopen's reason
+     * is in logcat; here there is only room to say it did not load. */
     if (mote_android_os_add_module(s_dest) != 0)
-        snprintf(s_err, sizeof s_err, "installed, needs a restart");
+        snprintf(s_err, sizeof s_err, "downloaded but will not load");
     s_job = JOB_OK;
     return 0;
 }

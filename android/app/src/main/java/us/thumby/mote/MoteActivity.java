@@ -62,17 +62,33 @@ public class MoteActivity extends SDLActivity {
 
     /**
      * Module search path, highest priority first — read by
-     * mote_android_os_add_dir() in argv order. The writable games dir comes FIRST
-     * so a gallery install (or a side-loaded module) shadows the copy baked into
-     * the APK, which is what makes updates possible; it is also where the gallery
-     * writes.
+     * mote_android_os_add_dir() in argv order.
+     *
+     * INTERNAL storage comes first, and it has to: it is the only writable place
+     * a downloaded .so can actually be run from. getExternalFilesDir() looks
+     * ideal — visible over USB, easy to drop files into — but that path is on
+     * the emulated-SD FUSE mount, which is mounted noexec. A module installed
+     * there writes perfectly and then fails at dlopen, every time, including
+     * after a restart. So internal is where the gallery installs and where
+     * modules load from, and it shadows the copies baked into the APK, which is
+     * what makes an update mean anything.
+     *
+     * The external dir stays in the list as a drop zone for side-loading, since
+     * it is the only one a file manager can reach. Anything found there that
+     * will not load in place gets imported into internal — see scan() in
+     * os/android/mote_android_os.c.
      */
     @Override
     protected String[] getArguments() {
-        File games = new File(getExternalFilesDir(null), "games");
+        File internal = new File(getFilesDir(), "games");
         //noinspection ResultOfMethodCallIgnored
-        games.mkdirs();
-        return new String[] { games.getAbsolutePath(), getApplicationInfo().nativeLibraryDir };
+        internal.mkdirs();
+        File external = new File(getExternalFilesDir(null), "games");
+        //noinspection ResultOfMethodCallIgnored
+        external.mkdirs();
+        return new String[] { internal.getAbsolutePath(),
+                              external.getAbsolutePath(),
+                              getApplicationInfo().nativeLibraryDir };
     }
 
     /**
