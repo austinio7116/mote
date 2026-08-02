@@ -89,6 +89,10 @@ void mote_plat_log(const char *s) {
 }
 void mote_plat_shutdown(void)        { }
 void mote_plat_set_brightness(int p) { (void)p; }
+/* No cross-process settings store here: the window/phone owns its own brightness
+ * and the volume lives in this process only. */
+int  mote_plat_settings_load(int *b, int *v) { (void)b; (void)v; return 0; }
+void mote_plat_settings_save(int b, int v)   { (void)b; (void)v; }
 void mote_plat_set_volume(int p)     { mote_audio_set_volume(p / 100.0f); }
 void mote_plat_audio_pump(void)      { }
 void mote_plat_audio_start(void)     { mote_audio_off(); }

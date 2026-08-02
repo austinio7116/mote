@@ -69,6 +69,17 @@ void mote_plat_shutdown(void);
 void mote_plat_set_brightness(int pct);
 void mote_plat_set_volume(int pct);
 
+/* System-wide brightness/volume, on platforms that keep them somewhere that
+ * outlives the process. ThumbyOne does: one flash sector shared by the lobby
+ * and every slot, so "turn it down" in its lobby has to mean the same thing
+ * inside Mote, and a change made in Mote's own menu has to survive going back.
+ *
+ * load() fills the two percentages and returns 1; it returns 0 where there is
+ * no such store (host, Studio, Android, a standalone handheld), leaving the
+ * caller's values untouched. save() is a no-op there. Both take 0..100. */
+int  mote_plat_settings_load(int *bright_pct, int *vol_pct);
+void mote_plat_settings_save(int bright_pct, int vol_pct);
+
 /* Keep the audio output fed — called once per frame by the OS. On the device it
  * refills the PWM ring from the synth; on the host SDL pulls, so it's a no-op. */
 void mote_plat_audio_pump(void);

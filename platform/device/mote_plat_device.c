@@ -153,6 +153,14 @@ int mote_plat_init(const char *title) {
     rumble_init();
     mote_audio_init();
     mote_audio_pwm_init();
+#if THUMBYONE_SLOT_MODE
+    /* Brightness is already on the panel by now — both slot mains call
+     * thumbyone_slot_init_brightness_and_led() before this. Volume had nobody
+     * applying it, so Mote came up at its own default however quiet the rest of
+     * the machine was set. */
+    { int b = 0, v = 0;
+      if (mote_plat_settings_load(&b, &v)) mote_plat_set_volume(v); }
+#endif
     s_strip_lock = spin_lock_init(spin_lock_claim_unused(true));
     multicore_launch_core1(core1_entry);
 #if !MOTE_USB_GATED
@@ -219,8 +227,65 @@ int mote_plat_pending_launch(void) { return mote_usb_take_launch(); }
 
 void mote_plat_shutdown(void) { mote_lcd_backlight(0); }
 
+/* ---- brightness / volume ---------------------------------------------------
+ * Standalone, Mote owns the panel and drives GP7's PWM itself. As a ThumbyOne
+ * slot it must not: the lobby and every other slot share one brightness, kept
+ * in a 4 KB flash sector, and the front LED scales itself by whatever
+ * thumbyone_backlight_get() last saw. Driving the pin behind that module's back
+ * would leave the LED bright on a dimmed screen and lose the setting the moment
+ * you left Mote.
+ *
+ * The mirror sector sits at 6.43 MB, inside ATRANS[1]'s window. The runner only
+ * ever rewrites ATRANS[2] (mote_loader.c), so the XIP read below is looking at
+ * real flash even with a game mapped, and thumbyone_settings.c saves/restores
+ * all four ATRANS registers around its own erase/program. Hence no fat_enter()
+ * bracket here — unlike the save backend further down, which really does go
+ * through FatFs.
+ * -------------------------------------------------------------------------- */
+#if THUMBYONE_SLOT_MODE
+#include "thumbyone_settings.h"
+#include "thumbyone_backlight.h"
+
+/* 0..100 <-> ThumbyOne's 0..255 backlight and 0..20 volume scale. */
+static inline uint8_t bri_to_t1(int pct) {
+    if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+    return (uint8_t)((pct * 255 + 50) / 100);
+}
+static inline int bri_to_pct(uint8_t v) { return (v * 100 + 127) / 255; }
+static inline uint8_t vol_to_t1(int pct) {
+    if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+    return (uint8_t)((pct * THUMBYONE_VOLUME_MAX + 50) / 100);
+}
+static inline int vol_to_pct(uint8_t v) {
+    if (v > THUMBYONE_VOLUME_MAX) v = THUMBYONE_VOLUME_MAX;
+    return (v * 100 + THUMBYONE_VOLUME_MAX / 2) / THUMBYONE_VOLUME_MAX;
+}
+
+void mote_plat_set_brightness(int pct) { thumbyone_backlight_set(bri_to_t1(pct)); }
+void mote_plat_set_volume(int pct)     { mote_audio_set_volume(pct / 100.0f); }
+
+int mote_plat_settings_load(int *bright_pct, int *vol_pct) {
+    if (bright_pct) *bright_pct = bri_to_pct(thumbyone_settings_load_brightness());
+    if (vol_pct)    *vol_pct    = vol_to_pct(thumbyone_settings_load_volume());
+    return 1;
+}
+void mote_plat_settings_save(int bright_pct, int vol_pct) {
+    /* One flash erase+program per call, which is why the menu only calls this on
+     * close and only when something actually moved. It runs with a game still
+     * mapped: safe for the same reason mote_plat_save is — core 1 has finished
+     * the frame and is spinning in core1_entry, so it is not mid-read of
+     * anything, and thumbyone_settings.c disables interrupts and restores all
+     * four ATRANS registers plus fast XIP around the op itself. */
+    uint8_t b = bri_to_t1(bright_pct), v = vol_to_t1(vol_pct);
+    if (thumbyone_settings_load_brightness() != b) thumbyone_settings_save_brightness(b);
+    if (thumbyone_settings_load_volume()     != v) thumbyone_settings_save_volume(v);
+}
+#else
 void mote_plat_set_brightness(int pct) { mote_lcd_brightness(pct); }
 void mote_plat_set_volume(int pct) { mote_audio_set_volume(pct / 100.0f); }
+int  mote_plat_settings_load(int *b, int *v) { (void)b; (void)v; return 0; }
+void mote_plat_settings_save(int b, int v)   { (void)b; (void)v; }
+#endif
 
 /* ---- ABI v23: rumble motor on GP5 (PWM 2B), eased-out pulse ---- */
 #define RUMBLE_PIN  5

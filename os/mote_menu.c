@@ -14,7 +14,10 @@
 #include "mote_usb.h"        /* USB LOGS toggle (runner only) */
 #endif
 
-/* Sticky across opens so the player's choices persist within a session. */
+/* Sticky across opens so the player's choices persist within a session. On a
+ * platform with a shared store (ThumbyOne) these are seeded from it on every
+ * open and written back on close, so the sliders here and the ones in that
+ * machine's own lobby are the same two numbers. */
 static int s_bright = 100;
 static int s_vol    = 100;
 
@@ -95,6 +98,11 @@ int mote_engine_menu(uint16_t *fb) {
     /* Sync the slider to the live engine master so a game's own volume option and
      * this menu show the same value (and opening the menu never resets it). */
     s_vol = (int)(mote_audio_get_volume() * 100.0f + 0.5f);
+    /* Where brightness is system-wide, show what the system says rather than
+     * whatever this session last set — someone may have changed it elsewhere. */
+    { int b = s_bright, v = s_vol;
+      if (mote_plat_settings_load(&b, &v)) s_bright = b; }
+    int open_bright = s_bright, open_vol = s_vol;
     mote_plat_set_brightness(s_bright);
     dim(fb);                           /* darken the frozen frame once */
 
@@ -132,6 +140,11 @@ int mote_engine_menu(uint16_t *fb) {
             ret = 0;
 
         if (ret >= 0) {
+            /* Write the sliders back to the system-wide store, once, on the way
+             * out — a flash erase per keypress would be absurd, and the value is
+             * already live on the panel and in the mixer either way. */
+            if (s_bright != open_bright || s_vol != open_vol)
+                mote_plat_settings_save(s_bright, s_vol);
             /* Drain A/B/MENU before handing control back, so the game or launcher
              * doesn't see a phantom just-pressed from the button we exited on. */
             for (;;) { MoteButtons r; mote_plat_buttons(&r);
