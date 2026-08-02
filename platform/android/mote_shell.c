@@ -966,6 +966,11 @@ static SDL_Rect s_row_rect[ROW_MAX];
 static int      s_row_id[ROW_MAX];
 static int      s_row_slots;
 static SDL_Rect s_gear_rect, s_ed_ok, s_ed_cancel;
+static int      s_gear_armed;
+static int in_gear(int x, int y) {
+    return x >= s_gear_rect.x && x < s_gear_rect.x + s_gear_rect.w &&
+           y >= s_gear_rect.y && y < s_gear_rect.y + s_gear_rect.h;
+}
 
 /* ---- cached text textures ------------------------------------------------
  * Rasterising a string through the engine font is cheap, but making an SDL
@@ -1298,6 +1303,33 @@ static void dump_ppm(const char *path) {
     free(px);
 }
 
+/* MOTE_SHELL_TAP="gear@30" or "640,120@30" — inject one press+release at a
+ * window pixel (or the settings gear) on the given frame. The panel captures
+ * used MOTE_SHELL_PANEL, which forces the sheet open and so never exercised the
+ * gear or the release that follows it — which is precisely where the sheet grew
+ * a bug that shut it the instant it opened. */
+static int s_tap_frame = -1, s_tap_x, s_tap_y, s_tap_gear, s_tap_done;
+static void tap_parse(void) {
+    const char *e = SDL_getenv("MOTE_SHELL_TAP");
+    if (!e) return;
+    const char *at = strchr(e, '@');
+    if (!at) return;
+    s_tap_frame = atoi(at + 1);
+    if (!strncmp(e, "gear", 4)) s_tap_gear = 1;
+    else { s_tap_x = atoi(e); const char *c = strchr(e, ','); s_tap_y = c ? atoi(c + 1) : 0; }
+}
+static void tap_pump(void) {
+    if (s_tap_done || s_tap_frame < 0 || s_frame_no < s_tap_frame) return;
+    s_tap_done = 1;
+    int x = s_tap_gear ? s_gear_rect.x + s_gear_rect.w / 2 : s_tap_x;
+    int y = s_tap_gear ? s_gear_rect.y + s_gear_rect.h / 2 : s_tap_y;
+    SDL_Event d = {0}, u = {0};
+    d.type = SDL_MOUSEBUTTONDOWN; d.button.button = SDL_BUTTON_LEFT; d.button.x = x; d.button.y = y;
+    u.type = SDL_MOUSEBUTTONUP;   u.button.button = SDL_BUTTON_LEFT; u.button.x = x; u.button.y = y;
+    SDL_PushEvent(&d); SDL_PushEvent(&u);
+    SDL_Log("[mote] tap %d,%d at frame %d", x, y, s_frame_no);
+}
+
 /* MOTE_SHELL_KEYS="a:5-15 up:40-60" — hold a button over a frame range.
  * "panel:from-to" is a pseudo-button that holds the settings panel open, so the
  * panel's own rows can be driven from a script too. */
@@ -1332,7 +1364,7 @@ static void script_parse(void) {
     }
 }
 static void script_apply(int *down) {
-    if (s_nscript < 0) script_parse();
+    if (s_nscript < 0) { script_parse(); tap_parse(); }
     int has_panel = 0, want_panel = 0;
     for (int i = 0; i < s_nscript; i++) {
         int panel = (s_script[i].btn == SCRIPT_PANEL);
@@ -1496,10 +1528,7 @@ int main(int argc, char *argv[]) {
                 s_using_pad = 0;
                 int mx = (int)(ev.tfinger.x * s_ow), my = (int)(ev.tfinger.y * s_oh);
                 if (s_settings_open) { panel_press(mx, my); break; }
-                if (mx >= s_gear_rect.x && mx < s_gear_rect.x + s_gear_rect.w &&
-                    my >= s_gear_rect.y && my < s_gear_rect.y + s_gear_rect.h) {
-                    s_settings_open = 1; s_sel = 0; s_scroll = 0; tap_haptic(); break;
-                }
+                if (in_gear(mx, my)) { s_gear_armed = 1; tap_haptic(); break; }
                 Touch *t = touch_alloc();
                 if (!t) break;
                 t->active = 1; t->id = ev.tfinger.fingerId;
@@ -1518,10 +1547,17 @@ int main(int argc, char *argv[]) {
                 break;
             }
             case SDL_FINGERUP: {
-                if (s_settings_open) {
-                    panel_release((int)(ev.tfinger.x * s_ow), (int)(ev.tfinger.y * s_oh));
+                int ux = (int)(ev.tfinger.x * s_ow), uy = (int)(ev.tfinger.y * s_oh);
+                /* The gear opens on release. Opening it on press looked fine and
+                 * was not: the sheet was already up by the time the finger
+                 * lifted, so its own release landed in panel_release(), hit no
+                 * row, and read as a tap outside. The menu shut itself. */
+                if (s_gear_armed) {
+                    s_gear_armed = 0;
+                    if (in_gear(ux, uy)) { s_settings_open = 1; s_sel = 0; s_scroll = 0; }
                     break;
                 }
+                if (s_settings_open) { panel_release(ux, uy); break; }
                 Touch *t = touch_find(ev.tfinger.fingerId);
                 if (t) { t->active = 0; t->btn = -1; }
                 break;
@@ -1531,8 +1567,7 @@ int main(int argc, char *argv[]) {
             case SDL_MOUSEBUTTONDOWN: {
                 int mx = ev.button.x, my = ev.button.y;
                 if (s_settings_open) { panel_press(mx, my); break; }
-                if (mx >= s_gear_rect.x && mx < s_gear_rect.x + s_gear_rect.w &&
-                    my >= s_gear_rect.y && my < s_gear_rect.y + s_gear_rect.h) { s_settings_open = 1; s_scroll = 0; break; }
+                if (in_gear(mx, my)) { s_gear_armed = 1; break; }
                 Touch *t = touch_alloc();
                 if (t) { t->active = 1; t->id = -1 - ev.button.button;
                          t->x = mx / (float)s_ow; t->y = my / (float)s_oh;
@@ -1547,6 +1582,11 @@ int main(int argc, char *argv[]) {
                 break;
             }
             case SDL_MOUSEBUTTONUP: {
+                if (s_gear_armed) {
+                    s_gear_armed = 0;
+                    if (in_gear(ev.button.x, ev.button.y)) { s_settings_open = 1; s_sel = 0; s_scroll = 0; }
+                    break;
+                }
                 if (s_settings_open) { panel_release(ev.button.x, ev.button.y); break; }
                 Touch *t = touch_find(-1 - ev.button.button);
                 if (t) { t->active = 0; t->btn = -1; }
@@ -1667,6 +1707,7 @@ int main(int argc, char *argv[]) {
 
         if (s_settings_open) settings_draw();
 
+        tap_pump();                       /* scripted tap, before the frame counter moves on */
         if (s_shot_path && ++s_frame_no >= s_shot_frame) { dump_ppm(s_shot_path); running = 0; }
         else if (!s_shot_path) s_frame_no++;
 
