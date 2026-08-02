@@ -1291,8 +1291,13 @@ int main(int argc, char *argv[]) {
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
 
 #ifdef MOTE_SHELL_DESKTOP
+    /* MOTE_SHELL_SIZE=2340x1080 — check a layout at a real phone's proportions
+     * (a 16:9 desktop window is a poor stand-in for a 19.5:9 handset). */
+    int dw = 1280, dh = 720;
+    { const char *sz = SDL_getenv("MOTE_SHELL_SIZE");
+      if (sz) { int a, b; if (sscanf(sz, "%dx%d", &a, &b) == 2 && a > 200 && b > 200) { dw = a; dh = b; } } }
     win = SDL_CreateWindow("Mote (Android shell)", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                           1280, 720, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+                           dw, dh, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
 #else
     win = SDL_CreateWindow("Mote", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 0, 0,
                            SDL_WINDOW_FULLSCREEN | SDL_WINDOW_SHOWN);

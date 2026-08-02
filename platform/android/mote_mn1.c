@@ -10,6 +10,33 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Skip `n` space-separated tokens after the verb and return what is left, or
+ * NULL. The device puts its game name LAST precisely so it can contain spaces —
+ * so this returns the whole remainder, trimmed. */
+static const char *tail_after(const char *args, int n) {
+    const char *p = args;
+    for (int i = 0; i < n; i++) {
+        while (*p == ' ') p++;
+        if (!*p) return 0;
+        while (*p && *p != ' ') p++;
+    }
+    while (*p == ' ') p++;
+    return *p ? p : 0;
+}
+/* The docked handheld's own game name, copied out clean. The host is only a
+ * cable — it may have a different game open, or none — so a room labelled from
+ * the host's state would name the wrong game in someone else's browse list. */
+static const char *peer_label(const char *args, int nskip, const char *fallback,
+                              char *buf, int cap) {
+    const char *t = tail_after(args, nskip);
+    if (!t) return fallback;
+    int k = 0;
+    while (t[k] && t[k] != '\r' && t[k] != '\n' && k < cap - 1) { buf[k] = t[k]; k++; }
+    while (k > 0 && buf[k - 1] == ' ') k--;
+    buf[k] = 0;
+    return k ? buf : fallback;
+}
+
 /* No confusable 0/O/1/I: a player reads this off one screen and types it on
  * another. Same alphabet as the Studio's gen_room_code(). */
 static void gen_room_code(char *out) {
@@ -50,14 +77,17 @@ int mote_mn1_dispatch(const char *line, const char *label,
      * through a public quick match. */
     link_net_relay_game(gid);
 
+    char lb[40];
+    const char *args = sp ? sp + 1 : "";
+
     if (!strcmp(verb, "QUICK")) {
-        link_net_relay_quick(label);
+        link_net_relay_quick(peer_label(args, 1, label, lb, sizeof lb));
         return MOTE_MN1_PENDING;
     }
     if (!strcmp(verb, "HOST")) {
         char code[6];
         gen_room_code(code);
-        link_net_relay_host(code, 1, label);
+        link_net_relay_host(code, 1, peer_label(args, 1, label, lb, sizeof lb));
         if (room_code) memcpy(room_code, code, 5);
         if (reply) { char m[32]; snprintf(m, sizeof m, "MN1 CODE %s\n", code); reply(ud, m); }
         return MOTE_MN1_PENDING;
@@ -66,7 +96,7 @@ int mote_mn1_dispatch(const char *line, const char *label,
         char code[8] = {0};
         const char *c2 = sp ? strchr(sp + 1, ' ') : NULL;
         if (c2) { c2++; int k = 0; while (c2[k] && c2[k] != ' ' && k < 7) { code[k] = c2[k]; k++; } }
-        link_net_relay_join(code);
+        link_net_relay_join(code);   /* a joiner names nothing: the room already has a label */
         if (room_code) snprintf(room_code, 6, "%s", code);
         return MOTE_MN1_PENDING;
     }

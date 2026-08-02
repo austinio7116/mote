@@ -5287,6 +5287,20 @@ static void gen_room_code(void){
     g_room_code[4]=0;
 }
 static const char *room_label(void){ return (g_sel>=0)?g_games[g_sel].name:"MOTE"; }
+/* A docked device puts its own game name last on the MN1 line. That is the name
+ * the room must carry: the Studio here is only the cable, and may have a
+ * different game selected (or none), so labelling from room_label() would name
+ * the wrong game in the other player's browse list. nskip counts the fields
+ * between the verb and the name. */
+static const char *dev_label(const char*args,int nskip,char*buf,int cap){
+    const char*p=args?args:"";
+    for(int i=0;i<nskip;i++){ while(*p==' ')p++; if(!*p) return room_label(); while(*p&&*p!=' ')p++; }
+    while(*p==' ')p++;
+    int k=0; while(p[k]&&p[k]!='\r'&&p[k]!='\n'&&k<cap-1){ buf[k]=p[k]; k++; }
+    while(k>0&&buf[k-1]==' ')k--;
+    buf[k]=0;
+    return k?buf:room_label();
+}
 /* Room gating: derive a game id from the selected game's name (FNV-1a) so Browse/
  * Quick/Join only pair the same game. (The device-driven lobby will later supply
  * the game's own id + protocol version; for the Studio-driven path this is the
@@ -5384,8 +5398,9 @@ static int proxy_command(Chan*c,char*line){
     if(!strcmp(verb,"LANJOIN")){ link_net_join(getenv("MOTE_LINK_PEER")); log_add("online: joining LAN"); return 1; }
     if(!g_relay_cfg[0]){ proxy_send(c,"MN1 ERR no relay\n"); return 0; }
     link_net_relay_game(gid);
-    if(!strcmp(verb,"QUICK")){ g_room_code[0]=0; link_net_relay_quick(room_label()); log_add("online: quick match"); return 1; }
-    if(!strcmp(verb,"HOST")){ gen_room_code(); link_net_relay_host(g_room_code,1,room_label());
+    char lb[40]; const char*args=sp?sp+1:"";
+    if(!strcmp(verb,"QUICK")){ g_room_code[0]=0; link_net_relay_quick(dev_label(args,1,lb,sizeof lb)); log_add("online: quick match"); return 1; }
+    if(!strcmp(verb,"HOST")){ gen_room_code(); link_net_relay_host(g_room_code,1,dev_label(args,1,lb,sizeof lb));
         char m[32]; snprintf(m,sizeof m,"MN1 CODE %s\n",g_room_code); proxy_send(c,m);
         char l[48]; snprintf(l,sizeof l,"online: hosting room %s",g_room_code); log_add(l); return 1; }
     if(!strcmp(verb,"JOIN")){ char code[8]={0}; char*c2=sp?strchr(sp+1,' '):NULL;

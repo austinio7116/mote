@@ -14,10 +14,16 @@
  *    runs over the now-transparent relayed pipe, exactly like the cable case.
  *
  * MN1 control protocol (device <-> Studio, before the pipe goes transparent):
- *   dev->studio  MN1 QUICK <gid>              one-tap public match
- *                MN1 HOST <gid>               open a room; studio picks a code
- *                MN1 JOIN <gid> <code>        join a room by code
+ *   dev->studio  MN1 QUICK <gid> <name>       one-tap public match
+ *                MN1 HOST <gid> <name>        open a room; studio picks a code
+ *                MN1 JOIN <gid> <code> <name> join a room by code
  *                MN1 LIST <gid>               list open public rooms
+ * <name> is the game's own name, always the LAST field so it may contain spaces.
+ * It is what the room is labelled with in another player's browse list; the host
+ * is only a cable, and may well have a different game open (or none), so a label
+ * taken from the host's own state would name the wrong game. Optional: a host
+ * that predates it falls back to its own label, and a device that predates it
+ * simply sends nothing extra.
  *                MN1 LANHOST <gid> / LANJOIN <gid>   LAN peer studio
  *                MN1 CANCEL
  *   studio->dev  MN1 CODE <code>              room opened, here's the code
@@ -78,6 +84,17 @@ static void bcpy(char *d, const char *s, int cap) {
     int i = 0; while (s[i] && i < cap - 1) { d[i] = s[i]; i++; } d[i] = 0;
 }
 
+/* Append " <game name>" — the room label the other player will read. Kept to
+ * printable ASCII and one line, since it travels through a text protocol. */
+static void append_name(char *out, int *pos, int cap, const MoteNetCfg *cfg) {
+    const char *s = (cfg && cfg->game_name) ? cfg->game_name : 0;
+    if (!s || !*s || *pos + 2 >= cap) return;
+    out[(*pos)++] = ' ';
+    for (int i = 0; s[i] && i < 24 && *pos < cap - 2; i++)
+        out[(*pos)++] = (s[i] >= 32 && s[i] < 127) ? s[i] : ' ';
+    out[*pos] = 0;
+}
+
 /* append base-10 of v to out (at *pos), NUL-safe within cap */
 static void u32dec(char *out, int *pos, int cap, uint32_t v) {
     char t[10]; int n = 0;
@@ -110,7 +127,7 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
     /* online control state */
     int   ctrl_sent = 0;                 /* MN1 command sent to the Studio yet */
     int   ctrl_acked = 0;                /* Studio replied (OK/CODE/...): stop resending */
-    char  cmdline[48]; int cmdlen = 0;   /* the command, kept for resends */
+    char  cmdline[80]; int cmdlen = 0;   /* the command, kept for resends */
     float resend_t = 0;
     int   go = 0;                        /* Studio said GO — pipe is transparent */
     char  mln[80]; int mn_n = 0;         /* MN1 line accumulator */
@@ -225,6 +242,8 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
                 { int k = 0; while (verb[k]) cmdline[p++] = verb[k++]; }
                 cmdline[p++] = ' '; u32dec(cmdline, &p, sizeof cmdline, gid);
                 if (action == ACT_JOIN) { cmdline[p++] = ' '; memcpy(cmdline + p, room_code, 4); p += 4; }
+                if (action == ACT_QUICK || action == ACT_HOST || action == ACT_JOIN)
+                    append_name(cmdline, &p, (int)sizeof cmdline, cfg);
                 cmdline[p++] = '\n'; cmdlen = p;
                 mote_plat_link_send("MN1 CANCEL\n", 11);   /* clear any stale Studio session */
                 mote_plat_link_send(cmdline, cmdlen); ctrl_sent = 1; resend_t = 0.6f;
@@ -301,7 +320,9 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
                     memcpy(room_code, rooms[sel], 4); room_code[4] = 0;
                     int p = 0; memcpy(cmdline, "MN1 JOIN ", 9); p = 9;
                     u32dec(cmdline, &p, sizeof cmdline, gid); cmdline[p++] = ' ';
-                    memcpy(cmdline + p, room_code, 4); p += 4; cmdline[p++] = '\n'; cmdlen = p;
+                    memcpy(cmdline + p, room_code, 4); p += 4;
+                    append_name(cmdline, &p, (int)sizeof cmdline, cfg);
+                    cmdline[p++] = '\n'; cmdlen = p;
                     mote_plat_link_send(cmdline, cmdlen);
                     action = ACT_JOIN; ctrl_sent = 1; ctrl_acked = 0; resend_t = 0.6f;
                     go = 0; mn_n = 0; screen = SC_CTRL;
