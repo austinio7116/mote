@@ -78,6 +78,9 @@ static const char *FS =
 "uniform vec4  u_colour;\n"
 "uniform vec4  u_colour2;\n"   /* balls: the stripe/secondary colour */
 "uniform vec3  u_light;\n"
+"uniform vec3  u_lampH[4];\n"   // the four overhead lamps, as half-vectors
+"uniform vec3  u_clothsh;\n"    // cloth bounce tint
+
 "uniform float u_ballslice;\n" /* which id's slice of the ball atlas */
 "uniform float u_ballslices;\n"
 "out vec4 o_col;\n"
@@ -104,19 +107,32 @@ static const char *FS =
 "        float fade = clamp(1.0 - length(v_local.xz) / 7.0, 0.0, 1.0);\n"
 "        o_col = emit(to_linear(u_colour.rgb) * line * fade, line * fade, 1.0);\n"
 "    } else if (u_mode == 1) {\n"
-"        // A ball, painted by the handheld's own ball_sample() baked into an\n"
-"        // equirectangular atlas. v_local is the unit sphere in the BALL's\n"
-"        // frame, so the lookup turns with the ball and you can read the spin\n"
-"        // off it exactly as on a table.\n"
+"        // A ball, shaded the way the handheld shades it — this is\n"
+"        // cue_ball_shade()'s default mode, not an approximation of it. The\n"
+"        // albedo is ball_sample() baked into an atlas and looked up by the\n"
+"        // BALL-LOCAL normal, so the numbers turn with the ball; the lighting\n"
+"        // on top is the snooker rig: one nearly-overhead key, the cloth\n"
+"        // bouncing colour back up onto the underside, and four lamps whose\n"
+"        // sharp reflections are what make a polished ball look polished.\n"
+"        // All of it in the same non-linear space shade565() worked in, or the\n"
+"        // balance between the three comes out wrong.\n"
 "        vec3 nb = normalize(v_local);\n"
 "        float u = atan(nb.z, nb.x) / 6.2831853 + 0.5;\n"
-"        float v = acos(clamp(nb.y, -1.0, 1.0)) / 3.14159265;\n"
-"        v = (u_ballslice + clamp(v, 0.001, 0.999)) / u_ballslices;\n"
-"        vec3 c = to_linear(texture(u_tex, vec2(u, v)).rgb);\n"
-"        float d = max(dot(v_nrm, L), 0.0);\n"
-"        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 1.0, 0.0))), 0.0), 48.0);\n"
-"        float bounce = max(-v_nrm.y, 0.0) * 0.10;\n"
-"        o_col = emit(c * (0.42 + 0.62 * d + bounce) + vec3(spec) * 0.40, 1.0, 1.0);\n"
+"        float vv = acos(clamp(nb.y, -1.0, 1.0)) / 3.14159265;\n"
+"        vv = (u_ballslice + clamp(vv, 0.001, 0.999)) / u_ballslices;\n"
+"        vec3 bc = texture(u_tex, vec2(u, vv)).rgb;\n"
+"        vec3 nw = normalize(v_nrm);\n"
+"        float diff = max(dot(nw, L), 0.0);\n"
+"        float down = max(-nw.y, 0.0);\n"
+"        vec3 c = bc * (0.46 + 0.54 * diff);\n"
+"        c = mix(c, u_clothsh, (1.0 - diff) * 0.40 + down * 0.42);\n"
+"        float refl = 0.0;\n"
+"        for (int i = 0; i < 4; i++) {\n"
+"            float si = dot(nw, u_lampH[i]);\n"
+"            if (si > 0.975) { float h = (si - 0.975) / 0.025; refl += h * h; }\n"
+"        }\n"
+"        c = mix(c, vec3(1.0), clamp(refl, 0.0, 1.0));\n"
+"        o_col = emit(to_linear(c), 1.0, 1.0);\n"
 "    } else if (u_mode == 5) {\n"
 "        // The cue. v_uv.y is the fraction along it (0 = tip) and v_uv.x runs\n"
 "        // around it, which is all a hand-spliced cue needs: leather, ferrule,\n"
@@ -152,13 +168,17 @@ static const char *FS =
 "        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), gloss);\n"
 "        o_col = emit(to_linear(c) * (0.34 + 0.70 * d) + vec3(spec) * spec_k, 1.0, 1.0);\n"
 "    } else if (u_mode == 4) {\n"
-"        // The table, exactly as cue_render.c built it: flat-shaded triangles\n"
-"        // carrying their own colours, which already encode the cloth, the\n"
-"        // shaded undercut, the wood, the pocket voids and the drop lips.\n"
-"        // Lighting here is gentle so those authored tones survive.\n"
-"        vec3 c = to_linear(v_col);\n"
-"        float d = max(dot(v_nrm, L), 0.0);\n"
-"        o_col = emit(c * (0.68 + 0.42 * d), 1.0, 1.0);\n"
+"        // The table, with the handheld's own shading: colours authored per\n"
+"        // triangle, lit by the ABSOLUTE dot with the overhead key. Absolute\n"
+"        // because the mesh is double-sided — the cloth fan and the pocket\n"
+"        // voids are wound for shading, not for a front-face convention.\n"
+"        float ndl = abs(dot(normalize(v_nrm), L));\n"
+"        o_col = emit(to_linear(v_col * (0.32 + 0.68 * ndl)), 1.0, 1.0);\n"
+"    } else if (u_mode == 6) {\n"
+"        // A ball's shadow on the cloth: a soft decal, as scene_add_shadow\n"
+"        // draws it. Without these the balls hover.\n"
+"        float d = length(v_uv - vec2(0.5)) * 2.0;\n"
+"        o_col = emit(to_linear(u_colour.rgb), 0.5 * (1.0 - smoothstep(0.55, 1.0, d)), 0.0);\n"
 "    } else {\n"
 "        vec3 c = to_linear(u_colour.rgb);\n"
 "        float d = max(dot(v_nrm, L), 0.0);\n"
@@ -262,7 +282,7 @@ static void mesh_free(Mesh *m) {
 static struct {
     GLuint prog;
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
-    GLint  u_ballslice, u_ballslices;
+    GLint  u_ballslice, u_ballslices, u_lampH, u_clothsh;
     Mesh   table, lips, ball, cue, quad, floor;
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     GLuint hud_tex;
@@ -410,9 +430,22 @@ static void build_from_cue_render(Builder *b, const CueTri *tri_, int from, int 
  * with a smoothstep. It looked plausible and it was not the game. */
 #define BTEX_W   64
 #define BTEX_H   32
-#define BTEX_IDS 24            /* 0..15 pool, 20..23+ snooker colours */
+/* Derived, not chosen. Snooker ids run past the pool set — cue, 1..15 reds,
+ * then CUE_ID_YELLOW(20) through CUE_ID_BLACK(25) — and picking a round number
+ * here instead of reading the enum is how pink and black ended up sharing the
+ * cue ball's slice. */
+#define BTEX_IDS (CUE_ID_BLACK + 1)
 
+/* Re-baked whenever the table changes, NOT once at start-up.
+ *
+ * ball_sample() answers differently depending on s_is_snooker and the selected
+ * ball set, and cue_render_build_table() is what sets the former. Baking once
+ * meant every snooker frame was played with pool balls: ids 1..15 came out as
+ * solids and stripes rather than reds. The original never had this failure
+ * mode because it evaluates the function per pixel; the cache is mine, so
+ * keeping it in step is mine too. */
 static void bake_ball_atlas(void) {
+    if (G.ball_tex) { glDeleteTextures(1, &G.ball_tex); G.ball_tex = 0; }
     uint16_t *px = malloc((size_t)BTEX_W * BTEX_H * BTEX_IDS * sizeof(uint16_t));
     if (!px) { LOGI("[cuevr] no memory for the ball atlas"); return; }
     for (int id = 0; id < BTEX_IDS; id++) {
@@ -468,6 +501,15 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_light    = glGetUniformLocation(G.prog, "u_light");
     G.u_ballslice  = glGetUniformLocation(G.prog, "u_ballslice");
     G.u_ballslices = glGetUniformLocation(G.prog, "u_ballslices");
+    /* Array uniforms: ask for element 0 by name. Querying the bare array name
+     * is legal but not honoured by every driver, and a silent -1 here sets no
+     * lamps at all — which looks exactly like a polished ball with no lamps
+     * above it. Every location is checked below for the same reason. */
+    G.u_lampH      = glGetUniformLocation(G.prog, "u_lampH[0]");
+    G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
+    if (G.u_lampH < 0 || G.u_clothsh < 0 || G.u_light < 0)
+        LOGI("[cuevr] WARNING: lighting uniforms missing (lampH %d clothsh %d light %d)",
+             G.u_lampH, G.u_clothsh, G.u_light);
     G.encode = target_is_srgb ? 0 : 1;
     G.tab = *t;
 
@@ -504,8 +546,6 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     }
     mesh_upload(&G.floor, &b);
     b_free(&b);
-
-    bake_ball_atlas();
 
     glGenTextures(1, &G.hud_tex);
     glBindTexture(GL_TEXTURE_2D, G.hud_tex);
@@ -554,7 +594,9 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
         mesh_upload(&G.lips, &b);
         b_free(&b);
     }
-    LOGI("[cuevr] table mesh %d tris (%d bed, %d lip) from cue_render", n, bed, nlip);
+    bake_ball_atlas();
+    LOGI("[cuevr] table mesh %d tris (%d bed, %d lip), balls re-baked (%s)",
+         n, bed, nlip, t->is_snooker ? "snooker" : "pool");
 }
 
 void cuevr_render_shutdown(void) {
@@ -615,8 +657,39 @@ void cuevr_render_eye(const float *view, const float *proj,
     glActiveTexture(GL_TEXTURE0);
     glUniform1i(G.u_tex, 0);
     glUniform1i(G.u_encode, G.encode);
-    /* Overhead and slightly behind, like the light over a real table. */
-    glUniform3f(G.u_light, -0.25f, 0.90f, 0.36f);
+
+    /* The lighting rig is the handheld's, moved into room space.
+     *
+     * cue_render lights everything with one nearly-overhead key (snooker
+     * lamps) plus a cluster of four lamps whose reflections give the balls
+     * their polish, and it builds those as half-vectors once per frame from
+     * the camera direction. Same here — but the table can be stood anywhere in
+     * your room and turned to any angle, so the rig is rotated with it. The
+     * lamps hang over the table, not over your kitchen. */
+    const MoteVrV3 key_t = { 0.10f, 0.975f, 0.20f };
+    const float lx = 0.42f, lz = 0.28f;
+    float cy = cosf(s->place->yaw), sy = sinf(s->place->yaw);
+    #define TO_WORLD(v) mv3_norm(mv3((v).x * cy - (v).z * sy, (v).y, (v).x * sy + (v).z * cy))
+    MoteVrV3 key = TO_WORLD(key_t);
+    /* The eye direction: the view matrix's third row is the camera's backward
+     * axis, which is exactly the `vcam` cue_render uses. */
+    MoteVrV3 vcam = mv3_norm(mv3(view[2], view[6], view[10]));
+    float lamps[12];
+    for (int i = 0; i < 4; i++) {
+        MoteVrV3 o = mv3(key_t.x + ((i & 1) ? -lx : lx), key_t.y,
+                         key_t.z + ((i & 2) ? -lz : lz));
+        MoteVrV3 h = mv3_norm(mv3_add(TO_WORLD(o), vcam));
+        lamps[i*3+0] = h.x; lamps[i*3+1] = h.y; lamps[i*3+2] = h.z;
+    }
+    #undef TO_WORLD
+    glUniform3f(G.u_light, key.x, key.y, key.z);
+    glUniform3fv(G.u_lampH, 4, lamps);
+    {   /* cloth bounce: the cloth's own colour at 0.42, as shade565 gives it */
+        float r = ((G.tab.cloth >> 11) & 31) / 31.0f;
+        float g = ((G.tab.cloth >> 5) & 63) / 63.0f;
+        float b = (G.tab.cloth & 31) / 31.0f;
+        glUniform3f(G.u_clothsh, r * 0.42f, g * 0.42f, b * 0.42f);
+    }
 
     /* The table's own transform: yaw about vertical, then out into the room. */
     float T[16];
@@ -651,6 +724,37 @@ void cuevr_render_eye(const float *view, const float *proj,
     glUniform1i(G.u_mode, 4);          /* vertex colours, as authored */
     set_model(T);
     draw(&G.table);
+
+    /* ---- ball shadows on the cloth ---- *
+     * The handheld drops a soft decal under every ball. Without them the balls
+     * hover a centimetre above the cloth and nothing on the table feels like it
+     * is resting on anything. */
+    {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        glDisable(GL_CULL_FACE);
+        glUniform1i(G.u_mode, 6);
+        glUniform4f(G.u_colour, 0.0f, 0.0f, 0.0f, 1.0f);
+        float rad = G.tab.R * 1.55f;
+        for (int i = 0; i < s->nballs; i++) {
+            const CueBall *bl = &s->balls[i];
+            if (!bl->on) continue;
+            float local[16], model[16], rot[16];
+            mm4_identity(local);
+            local[0] = rad * 2.0f; local[5] = rad * 2.0f;
+            mm4_identity(rot);
+            rot[5] = 0.0f; rot[6] = -1.0f; rot[9] = 1.0f; rot[10] = 0.0f;  /* lie it flat */
+            mm4_mul(local, rot, local);
+            local[12] = bl->pos.x; local[13] = 0.0015f; local[14] = bl->pos.z;
+            mm4_mul(model, T, local);
+            set_model(model);
+            draw(&G.quad);
+        }
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glEnable(GL_CULL_FACE);
+    }
 
     /* ---- balls ---- */
     glUniform1i(G.u_mode, 1);
