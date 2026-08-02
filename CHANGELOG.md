@@ -2,146 +2,45 @@
 
 ## 0.21-alpha — Mote on your phone
 
-**Mote for Android.** The whole engine and OS now build for Android as a
-sideloadable APK (`android/`), and the phone plays the library the same way the
-handheld does — the launcher, the engine menu, save slots, the multiplayer lobby
-and every game come from the unchanged shared sources, at 128×128 and 22 kHz. The
-screen is the real product photo with the Studio's own `screen.cfg` calibration,
-and the touch targets sit on the buttons you can see in it; game controllers are
-auto-detected (d-pad or left stick, A/B, L1/R1, Start = MENU) and take the rumble.
-Three new files carry the port: `platform/android/mote_plat_android.c`
-(`mote_platform.h` on bionic + SDL), `platform/android/mote_link_android.c`, and
-`platform/android/mote_shell.c` (the chassis UI). Engine ABI unchanged (**v47**).
+**Mote runs on Android.** There is now a sideloadable app that turns a phone into a
+Thumby Color. It is the whole thing, not a demo: the launcher, the gallery, the engine
+menu, save slots, multiplayer and every game in the library, running the same code the
+handheld runs, at the same 128×128 and the same 22 kHz. The screen is the real product
+photograph with the buttons where you can see them — press the A on the shell and you
+press A. Game controllers are picked up automatically: d-pad or left stick, A/B, Start
+for MENU, and either the shoulder buttons or the triggers for LB and RB. Rumble goes to
+the phone's vibrator.
 
-Each game becomes its own `libmg_<game>.so` — a module that links no engine code
-and reaches the engine only through the ABI it is handed, exactly like the `.mote`
-the handheld runs. The APK ships with **no games in it**: you pick what you want
-from the gallery, which keeps the download small and means a game is never two
-versions at once, one baked in and one installed over the top. (`-PmoteGames=all`
-still bundles the lot for a self-contained build.) Every game builds, `moria`
-included — its coroutine layer wanted `getcontext`/`swapcontext`, which bionic
-does not implement, so its fiber gained a pthread backend.
+The download is **1.3 MB and arrives with no games in it**. You pick what you want from
+the gallery — the same hero view the handheld has, one big screenshot per game with its
+description a button away — and it installs over your phone's own connection, with no PC
+involved. Installed games stay installed and update in place when a new version is
+published. Settings sit behind the button at the top of the screen: a pixel-perfect or
+a larger screen, where the LB/RB buttons sit, vibration, and a frame-rate readout.
 
-**A phone can now be the Thumby's dock.** Plug a real handheld into the Android
-app over USB-OTG and it gets the two things it otherwise needs a PC and Mote
-Studio for: internet/LAN matches set up from its own lobby, and gallery installs
-and updates from its own gallery screen — both over the phone's mobile data. The
-device is unchanged; it already speaks MN1 over its USB pipe and does not care
-whether a Studio or a phone answers, so a phone-docked Thumby and a PC-docked one
-land in the same relay room. `MoteUsb.java` claims the CDC interface with
-`bulkTransfer` (no driver, no root) and asserts DTR;
-`os/android/mote_android_dock.c` is the server, on its own thread, answering the
-room verbs and serving the manifest, 64×64 thumbnails, descriptions and
-sha256-verified `.mote` bytes. Docking is just docking — the manifest matches
-VID:PID CAFE:4D01, so plugging in grants permission and launches the app, and a
-banner shows what the dock is doing. The room verbs moved to
-`platform/android/mote_mn1.c`, shared with the in-app link server so both answer a
-lobby identically. `android/tools/fake_device.py` speaks the device's half of the
-protocol so all of it is testable without hardware.
+**Your phone can be the dock.** Plug a real Thumby Color into an Android phone with a
+USB-C cable and it gets the two things it otherwise needs a PC and Mote Studio for:
+internet and LAN matches set up from the handheld's own lobby, and gallery installs and
+updates — both over the phone's mobile data. The handheld needs no update and nothing to
+configure; plugging it in is the whole setup. A phone-docked Thumby and a PC-docked one
+land in the same rooms, so it makes no difference to whoever you are playing.
 
-**USB dock, fixed against real hardware.** The first cut got the permission
-dialog and then did nothing, for two reasons the socket stand-in could not
-reproduce. The dock read the cable a byte at a time, and a bulk IN transfer asked
-for fewer bytes than the endpoint's 64 discards the rest of the packet — so every
-line the handheld sent lost 63 of its 64 bytes. And DTR was being asserted
-against the data interface instead of the COMM interface, which is a silent
-no-op; without it TinyUSB treats the port as closed and `tud_cdc_write` reports
-success while dropping the bytes, so the replies vanished too. Reads are now
-buffered in 4 KB chunks, the line-coding and line-state requests go to the right
-interface, writes are chunked so a timeout cannot desync the stream, a stale
-connection is detected and reopened, and every MN1 line is logged to logcat.
+Multiplayer works from the app itself too, with no handheld and no PC anywhere in the
+loop: quick match, host, join by code and browse, over the internet or your local Wi-Fi.
+A phone can share a room with a Thumby docked in a Studio.
 
-**A proper adaptive launcher icon.** The icon was a legacy bitmap, which Android
-pastes onto a white plate. It is now a real adaptive icon — the dark shell and
-sunbeam as the background layer, the mote itself in the 72dp safe zone as the
-foreground, so the launcher masks and parallaxes it like every other icon — plus
-a monochrome layer for Android 13+ themed icons. Generated by
-`android/tools/gen_icon.py` from the same design as `studio/assets/mote.svg`.
+**On ThumbyOne, Mote now shares the machine's volume and brightness.** Set them in the
+ThumbyOne lobby and Mote obeys — including the volume, which it used to ignore entirely.
+Change them in Mote's own MENU and the lobby agrees when you go back, instead of the
+change being lost the moment you left. Needs the matching **ThumbyOne 1.36.0** firmware.
 
-**Shoulder buttons are bumpers now, with a choice of placement.** They were flat
-rectangles at the photo's top corners. They are drawn as moulded bumpers — a
-rounded body with a lit top bevel, a shaded underside and a drop shadow, at 170
-alpha so the shell reads through them — and the `LB / RB buttons` setting picks
-where. The default is **on the shell**, sitting on its shoulders; `Top corners`
-puts them in the window's corners where index fingers rest when the phone is held
-like a gamepad. Fitting each bumper to its own shoulder in the photo gave -23.2
-and +17.4 degrees, because the light catches the two sides differently — so they
-are mirrored about one tilt instead, at mirrored x and identical y, which is what
-makes the pair read level.
+**Online rooms are named after the game being played.** A room opened by a docked
+handheld took its name from the Studio, so it could appear in someone's Browse list
+under whatever game that Studio happened to have open. It now carries the name of the
+game the handheld is actually running. Only the label was ever wrong — two different
+games could never pair.
 
-**The gallery is live on Android**, not just baked in. `games.json` now carries an
-optional per-game `android` block (module path, size, sha256 per ABI), staged by
-`android/tools/build_modules.sh --publish` and picked up by
-`tools/gen_gallery.py`; the block is additive, so `.mote` consumers ignore it. RB
-in the launcher opens the same hero gallery the handheld has — one big framed
-screenshot that cycles while you read, the game's state as a chip, its
-description a button away — fetching the manifest over HTTPS itself, with no
-Studio dock. On install it downloads the `.so`, verifies its sha256 and hands it
-to the launcher's catalogue immediately; if it fails it says which step failed.
-Screenshots are cached to disk as 8 KB tiles and a background thread warms the
-whole catalogue while you read the first page, so browsing is only slow once. Modules in the app's
-writable games dir now take precedence over the copies inside the APK, which is
-what makes an update mean anything. `os/mote_launcher.c` gained one guarded
-opt-in, `MOTE_LAUNCHER_GALLERY_KEY`, so a platform that serves its own gallery can
-have the RB key that was previously slot-build-only; device builds are unchanged.
-
-**The settings sheet is a phone screen, not a shrunken handheld one.** It was
-drawn into the 128x128 emulated screen using the handheld's own list widget,
-which meant eight rows where six fitted and no gesture that could reach the rest
-— a finger-down selected a row, so nothing scrolled. It is drawn natively now at
-the phone's own resolution, still in the engine's font: rows sized so the whole
-sheet always fits, each with a line underneath saying what it does, and
-press/drag/release handling so a finger can slide off the wrong row. **Online
-relay** was the worst of them, a bare IP address with no clue what it was for; it
-reads `Internet match server / Default` now and says outright that LAN and USB
-play never touch it. There is a **Back to games** row so leaving a game doesn't
-depend on a three-second hold, and a **Frame rate** row showing the measured rate
-that cycles the on-LCD perf overlay when tapped. The engine's frame pacing was
-also genuinely wrong: a bare `nanosleep` returns early when a signal lands, so the
-present cap leaked a few frames a second past 60.
-
-Multiplayer works without a Studio anywhere in the loop:
-`platform/android/mote_link_android.c` answers the lobby's MN1 control protocol
-in process and drives the same `link_net` transport the Studio uses, so Internet
-(quick match / host / join / browse, over the same relay) and LAN both work, and a
-phone can share a relay room with a Studio-docked Thumby. With no cable to offer,
-the lobby's USB option becomes zero-config auto-pairing on the local network.
-
-**A 1.3 MB download.** With the games out of it, the two chassis photographs were
-88% of the APK — lossless PNG for a photograph, at 2872x1668 when the tallest
-phone in landscape can only show 1280 of those rows. `android/tools/gen_chassis.py`
-bakes an APK copy: 0.8 scale, RGB as a quality-88 JPEG, alpha as a separate 8-bit
-mask, and `screen.cfg` scaled by the same factor since every layout number is
-derived from it. At a Pixel 9 Pro's own display size it differs from the original
-by 0.66/255 and the LCD lands one pixel from where it did. The see-through casing
-is gone, and with it the `Casing` row. 12.4 MB with games, 8.8 MB without, 1.3 MB
-now.
-
-**Online rooms are named by the game, not by whatever the host has open.** A
-docked handheld's room took its label from the host — the Studio sent whatever
-game it had selected, the phone sent a hardcoded `MOTE` — so a room could appear
-in another player's browse list under the wrong game's name, which makes it look
-as though cross-game pairing is meant to work. It never was: gating is by the
-game id the device itself sends. The device now puts its own game name last on
-the MN1 line (`MN1 QUICK <gid> <name>`, and so on — last, so it may contain
-spaces), and both hosts label the room with it, falling back to their own label
-for a device that predates the field.
-
-**Volume and brightness are the machine's, on ThumbyOne.** That handheld keeps
-one volume and one brightness for the whole device in a shared flash sector, set
-in its lobby and honoured by every slot. Mote honoured half of it: the panel came
-up at the right brightness, but volume was never read at all — Mote started at
-its own default however quiet the machine was set — and the engine menu drove the
-backlight pin directly, behind the shared driver's back, so the front LED scaled
-itself by a stale value and the change was thrown away the moment you left Mote.
-A new platform hook, `mote_plat_settings_load`/`_save`, reads and writes that
-store; opening the menu seeds both sliders from it, closing writes them back once
-if anything moved, and every other platform is a no-op.
-
-The shell also builds for the desktop (`cmake --target mote_shell`) with mouse and
-keyboard, plus `MOTE_SHELL_SHOT`/`MOTE_SHELL_KEYS`/`MOTE_SHELL_AUTORUN` for
-headless capture — the same scripted-input workflow as the host emulator, and
-`MOTE_SHELL_SIZE=2340x1080` to check a layout at a real phone's proportions.
+Engine ABI is unchanged (**v47**): every installed game keeps working untouched.
 
 ## 0.20-alpha — show your whole library
 
