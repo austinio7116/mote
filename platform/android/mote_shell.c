@@ -69,10 +69,15 @@ enum { EB_A, EB_B, EB_UP, EB_DOWN, EB_LEFT, EB_RIGHT, EB_LB, EB_RB, EB_MENU, EB_
 #define SH_H    0.11f            /* pad height */
 #define SH_EDGE 0.020f           /* inset from the left/right edge */
 #define SH_LIFT 0.020f           /* drop from the top edge */
-/* SHELL mode: the angles the photo's own top edges run at, fitted to the alpha
- * edge of thumby_color.png across each shoulder zone. */
-#define SHELL_LB_DEG (-23.2f)
-#define SHELL_RB_DEG (+17.4f)
+/* SHELL mode tilt. Fitting each bumper to its own shoulder in the photo gave
+ * -23.2 and +17.4 degrees — the photo is very slightly off-axis, so the two
+ * shoulders do not run at the same angle. Following the photo exactly made the
+ * pair look wonky, which matters more than matching a lens: they are mirrored
+ * about one tilt, the mean of the two, and placed at mirrored x and identical y
+ * so the pair reads level. */
+#define SHELL_TILT_DEG 20.3f
+#define SHELL_LB_DEG (-SHELL_TILT_DEG)
+#define SHELL_RB_DEG (+SHELL_TILT_DEG)
 
 /* Screen square inside the photo, in photo pixels (studio/assets/screen.cfg). */
 static float s_spx = 1011.2f, s_spy = 319.6f, s_sps = 888.8f;
@@ -509,8 +514,15 @@ static void shoulder_layout(void) {
          * Both sit at the SAME height — the right one's, lifted slightly — so the
          * pair reads level even though each follows its own edge's tilt. */
         const float sy = 0.088f;   /* half a button higher than the shell fit */
-        s_bump[0] = (Bumper){ (float)BX(0.130f), (float)BY(sy), w, h, SHELL_LB_DEG };
-        s_bump[1] = (Bumper){ (float)BX(0.872f), (float)BY(sy), w, h, SHELL_RB_DEG };
+        const float sx = 0.130f;
+        /* Mirror RB from LB in float about the chassis centre, rather than
+         * evaluating BX(1-sx): two integer truncations left the pair four pixels
+         * out of true, which is small but is exactly the kind of thing that
+         * makes a symmetric pair look wrong. */
+        float lbx = (float)s_dx + sx * (float)s_dw;
+        float rbx = 2.0f * (float)s_dx + (float)s_dw - lbx;
+        s_bump[0] = (Bumper){ lbx, (float)BY(sy), w, h, SHELL_LB_DEG };
+        s_bump[1] = (Bumper){ rbx, (float)BY(sy), w, h, SHELL_RB_DEG };
     } else {
         float w = SH_W * mind, h = SH_H * mind;
         float ex = SH_EDGE * mind + w * 0.5f, y = SH_LIFT * mind + h * 0.5f;
@@ -751,8 +763,11 @@ static void shoulder_pads(void) {
         SDL_Texture *t = tex_sh[i][down];
         if (!t) continue;
         const Bumper *b = &s_bump[i];
-        SDL_Rect d = { (int)(b->cx - b->w * 0.5f), (int)(b->cy - b->h * 0.5f),
-                       (int)b->w, (int)b->h };
+        /* Round rather than truncate: truncation biases left/up, which breaks the
+         * mirror between the two pads. */
+        SDL_Rect d = { (int)floorf(b->cx - b->w * 0.5f + 0.5f),
+                       (int)floorf(b->cy - b->h * 0.5f + 0.5f),
+                       (int)(b->w + 0.5f), (int)(b->h + 0.5f) };
         /* A drop shadow first, so a bumper reads as sitting above the shell
          * rather than painted onto it. */
         SDL_SetTextureColorMod(t, 0, 0, 0);
@@ -1171,10 +1186,12 @@ static void panel_press(int mx, int my) {
     s_drag_active = 1; s_drag_y0 = my; s_drag_s0 = s_scroll; s_dragged = 0;
 }
 static void panel_drag(int my) {
-    if (!s_drag_active) return;
+    if (!s_drag_active || !s_scroll_max) return;   /* nothing to scroll: it stays a tap */
+    int mind = s_ow < s_oh ? s_ow : s_oh;
+    int slop = mind / 40;                          /* ~7mm of finger roll, not 12 raw px */
+    if (slop < 6) slop = 6;
     int dy = my - s_drag_y0;
-    if (dy > 12 || dy < -12) s_dragged = 1;         /* past the slop: it's a scroll */
-    if (!s_scroll_max) return;
+    if (dy > slop || dy < -slop) s_dragged = 1;
     s_scroll = s_drag_s0 - dy;
     if (s_scroll < 0) s_scroll = 0;
     if (s_scroll > s_scroll_max) s_scroll = s_scroll_max;
