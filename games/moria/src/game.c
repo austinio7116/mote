@@ -205,8 +205,26 @@ static int s_kb_sel;
    same regardless of the device's frame rate. */
 static int s_dp_prev, s_dp_settle, s_dp_hold;
 static uint64_t s_dp_next_us;
-#define REP_DELAY_US 1000000u   /* hold ~1.0s before it starts walking */
-#define REP_INT_US    440000u   /* ~2.3 steps/sec while held           */
+static uint32_t s_dp_iv_us;     /* current repeat gap; shrinks the longer you hold */
+
+/* Hold-to-move. Two constants could never do this job: the wait before the
+   first repeat has to be long enough that a deliberate tap is one step and
+   never two, but that same wait is what you sit through every single time you
+   want to walk somewhere. Earlier builds kept trading one against the other --
+   0.66s then 0.85s then a full 1.0s, and the walk down to 2.3 steps/sec with it.
+
+   So the gap accelerates instead. A tap is one step; a brief hold gives a few
+   careful steps, which is what you want in a doorway; keep holding and it winds
+   up to a proper corridor pace. Changing direction resets it, so turning a
+   corner starts careful again.
+
+     step:   1     2     3     4     5     6     7     8
+     at:   0.00  0.30  0.54  0.73  0.87  0.99  1.10  1.21   (seconds)   */
+#define REP_DELAY_US  300000u   /* before the first repeat -- 2x a deliberate tap */
+#define REP_START_US  240000u   /* first repeat gap                               */
+#define REP_MIN_US    110000u   /* floor: ~9 steps/sec                            */
+#define REP_RAMP_NUM  78        /* gap *= 0.78 each repeat                        */
+#define REP_RAMP_DEN  100
 #define REP_DELAY 26            /* (sheet scroll, frame-based)          */
 #define REP_INT   10
 
@@ -232,8 +250,8 @@ static int dir_from_mask(int m)
     return 0;
 }
 /* Returns 1-9 on a d-pad edge (after a 1-frame diagonal coalesce), then a
-   step per press.  With allow_repeat, holding a direction auto-walks -- but
-   slowly (long initial delay so a tap is always one step, gentle repeat). */
+   step per press.  With allow_repeat, holding a direction auto-walks, starting
+   carefully and winding up -- see the timing block above. */
 static int poll_dir(const MoteInput *in, int allow_repeat)
 {
     int m = dpad_mask(in);
@@ -241,8 +259,15 @@ static int poll_dir(const MoteInput *in, int allow_repeat)
     if (m == 0)          { s_dp_prev = 0; s_dp_settle = 0; return 0; }
     if (m != s_dp_prev)  { s_dp_prev = m; s_dp_settle = 1; return 0; }
     /* one settle frame so a diagonal (two edges a frame apart) reads as one dir */
-    if (s_dp_settle)     { s_dp_settle = 0; s_dp_next_us = now + REP_DELAY_US; return dir_from_mask(m); }
-    if (allow_repeat && now >= s_dp_next_us) { s_dp_next_us = now + REP_INT_US; return dir_from_mask(m); }
+    if (s_dp_settle)     { s_dp_settle = 0; s_dp_next_us = now + REP_DELAY_US;
+                           s_dp_iv_us = REP_START_US;          /* a new direction walks carefully again */
+                           return dir_from_mask(m); }
+    if (allow_repeat && now >= s_dp_next_us) {
+        s_dp_next_us = now + s_dp_iv_us;
+        uint32_t nx = (uint32_t)(((uint64_t)s_dp_iv_us * REP_RAMP_NUM) / REP_RAMP_DEN);
+        s_dp_iv_us = nx < REP_MIN_US ? REP_MIN_US : nx;
+        return dir_from_mask(m);
+    }
     return 0;
 }
 static int any_confirm(const MoteInput *in)
@@ -382,7 +407,7 @@ static void start_game(void)
     s_menu_open = 0; s_menu_cat = 0; s_menu_item = 0;
     s_item_sel = 0; s_nrows = 0; s_kb_sel = 0;
     s_text_col = 0; s_text_row = 0; s_prev_mode = -1;
-    s_dp_prev = 0; s_dp_settle = 0; s_dp_hold = 0;
+    s_dp_prev = 0; s_dp_settle = 0; s_dp_hold = 0; s_dp_iv_us = REP_START_US;
     s_page = 0; s_show_sheet = 0; s_peek = 0;
     /* A restart re-enters umoria_main() in the same process, so anything that
        lives outside Umoria's own startup survives it.  Blank the virtual
@@ -551,6 +576,63 @@ static void draw_row(uint16_t *fb, int term_row, int screen_y, int vx, uint16_t 
         if (gc < 0 || gc >= MT_COLS) continue;
         draw_cell(fb, c * CW, screen_y, g_w->ch[term_row][gc], g_w->at[term_row][gc], fg);
     }
+}
+
+/* ---- the message line ----------------------------------------------------
+   Umoria writes messages into an 80-column terminal row; 32 of those columns
+   fit across the screen, so anything longer simply had its tail cut off -- and
+   Moria's messages are frequently longer ("You have 14 Flasks of oil (e).",
+   spell failures, monster descriptions). Row 0 now scrolls instead.
+
+   It scrolls by PIXELS rather than whole cells, because at 4 px per column a
+   cell-at-a-time crawl reads as a stutter. It waits before starting, so a short
+   message that happens to overflow by two characters does not lurch the moment
+   it appears, and it stops at the end rather than cycling -- a line that never
+   stops moving is hard to ignore while you are trying to read the map. Any
+   change to the row restarts it, which is what makes each new message begin at
+   its own beginning. */
+#define MSG_LEAD_US 800000u   /* pause before it starts moving */
+#define MSG_PX_PER_S     36   /* 9 columns a second            */
+
+static uint32_t s_msg_hash;
+static int      s_msg_len;
+static uint64_t s_msg_t0;
+
+static int msg_row_len(void)
+{
+    int n = 0;
+    for (int c = 0; c < MT_COLS; c++) {
+        int ch = g_w->ch[0][c];
+        if (ch && ch != ' ') n = c + 1;
+    }
+    return n;
+}
+static uint32_t msg_row_hash(void)
+{
+    uint32_t h = 2166136261u;
+    for (int c = 0; c < MT_COLS; c++) { h ^= g_w->ch[0][c]; h *= 16777619u; }
+    return h;
+}
+static void draw_msg_line(uint16_t *fb, uint16_t fg)
+{
+    uint32_t h = msg_row_hash();
+    uint64_t now = mote->micros();
+    if (h != s_msg_hash) { s_msg_hash = h; s_msg_len = msg_row_len(); s_msg_t0 = now; }
+
+    int off = 0;
+    if (s_msg_len > VIEW_COLS) {
+        int span = (s_msg_len - VIEW_COLS) * CW;          /* px left to reveal */
+        uint64_t el = now - s_msg_t0;
+        if (el > MSG_LEAD_US) {
+            uint64_t moved = ((el - MSG_LEAD_US) * MSG_PX_PER_S) / 1000000u;
+            off = moved > (uint64_t)span ? span : (int)moved;
+        }
+    }
+    /* One column past the right edge so a glyph slides in rather than popping;
+       the engine's text routine clips whatever falls outside the framebuffer. */
+    int c0 = off / CW;
+    for (int c = c0; c < c0 + VIEW_COLS + 1 && c < MT_COLS; c++)
+        draw_cell(fb, c * CW - off, 0, g_w->ch[0][c], g_w->at[0][c], fg);
 }
 
 /* ---- overlays ------------------------------------------------------------ */
@@ -801,7 +883,7 @@ static void g_overlay(uint16_t *fb)
         moria_player_abs(&prow, &pcol);
         {
             int top = prow - MAP_ROWS / 2, left = pcol - VIEW_COLS / 2;
-            draw_row(fb, 0, 0, 0, COL_MSG);                 /* message line */
+            draw_msg_line(fb, COL_MSG);                     /* scrolls if it overflows */
             for (r = 0; r < MAP_ROWS; r++)
                 for (c = 0; c < VIEW_COLS; c++) {
                     int col, ch = moria_map_cell(top + r, left + c, &col);
@@ -895,4 +977,4 @@ static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
    games/moria/README.md, on the in-game Info > Licence page, and in the gallery
    description; this is the short form the launcher shows. */
 MOTE_GAME_META("Moria", "Koeneke/Wilson, port austinio7116");
-MOTE_GAME_VERSION("0.9.1");
+MOTE_GAME_VERSION("0.9.2");
