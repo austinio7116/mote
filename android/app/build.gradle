@@ -7,7 +7,10 @@ apply plugin: 'com.android.application'
 // gallery, which keeps the APK small and means a game is never two versions --
 // one baked in, one installed. -PmoteGames=all bundles the lot (a ~12 MB APK),
 // or name them: -PmoteGames="moita wormote".
-def moteAbis  = (project.findProperty('moteAbis')  ?: 'arm64-v8a').split(',').collect { it.trim() }
+// Both ARM ABIs by default: 64-bit for anything modern, 32-bit so the app still
+// installs on older hardware (a 2012 tablet on LineageOS 13 is Android 6 and
+// armeabi-v7a -- exactly our floor). The second copy of SDL costs ~600 KB.
+def moteAbis  = (project.findProperty('moteAbis')  ?: 'arm64-v8a,armeabi-v7a').split(',').collect { it.trim() }
 def moteGames = (project.findProperty('moteGames') ?: 'none').trim()
 
 android {

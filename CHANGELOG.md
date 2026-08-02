@@ -40,9 +40,10 @@ under whatever game that Studio happened to have open. It now carries the name o
 game the Thumby Color is actually running. Only the label was ever wrong — two different
 games could never pair.
 
-The app is `mote-android-arm64.apk` on this release. Sideload it — arm64 phones,
-Android 6 or later. Engine ABI is unchanged (**v47**): every installed game keeps
-working untouched.
+The app is `mote-android.apk` on this release. Sideload it — Android 6 or later,
+64-bit or 32-bit ARM, so it reaches hardware old enough to need LineageOS to get
+to Android 6 at all. Engine ABI is unchanged (**v47**): every installed game
+keeps working untouched.
 
 ## 0.20-alpha — show your whole library
 

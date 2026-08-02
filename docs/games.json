@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-08-02T16:03:54+00:00",
+ "generated": "2026-08-02T16:28:02+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -28,6 +28,11 @@
      "file": "games/android/arm64-v8a/libmg_moita.so",
      "size": 151360,
      "sha256": "1ef75d66e0a913747b500156c9372704e9885159fb36cf1da35bd48dd75f2a71"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_moita.so",
+     "size": 180064,
+     "sha256": "b1293427022470aff7f7fa5f2a9b1e34d9502f0007db1f3af2887afcec0f4b56"
     }
    }
   },
@@ -56,6 +61,11 @@
      "file": "games/android/arm64-v8a/libmg_terramote.so",
      "size": 795944,
      "sha256": "4fdbb9c81a1613cd7156f1d139c51cf4d6b0776450eecf0ec67736c6e9e299b8"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_terramote.so",
+     "size": 787896,
+     "sha256": "70361223077c523e8fc228c20d6454c0e5358facad512f01613947d11a3ba55e"
     }
    }
   },
@@ -84,6 +94,11 @@
      "file": "games/android/arm64-v8a/libmg_scrapwing.so",
      "size": 535608,
      "sha256": "cb7e15beb3358f83aba01d40a635c681e4293a25601f22e46aeb416c6670c57f"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_scrapwing.so",
+     "size": 556348,
+     "sha256": "db66fc37180910a6c47dc5067edd66db498c24fa5fb3705591c2c12c5b0f1cd4"
     }
    }
   },
@@ -112,6 +127,11 @@
      "file": "games/android/arm64-v8a/libmg_roguemote.so",
      "size": 208648,
      "sha256": "20ae7b3e9e219727c64a1b7ea97e167654f74338214aaaba747950bb1b1baf33"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_roguemote.so",
+     "size": 198604,
+     "sha256": "59567c8dadcf40e970024907e864da2957c98e97eb8be32c12bc0ce017b290af"
     }
    }
   },
@@ -140,6 +160,11 @@
      "file": "games/android/arm64-v8a/libmg_moria.so",
      "size": 508896,
      "sha256": "e46d923ccf373b752951acba87d247b56a30ae75bbe77dee1b8db50b28c9727f"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_moria.so",
+     "size": 469836,
+     "sha256": "4b8c237592c5f02005bb0f1a0bc95b24b0456174a4948b3241002a38a5c2b32c"
     }
    }
   },
@@ -168,6 +193,11 @@
      "file": "games/android/arm64-v8a/libmg_wormote.so",
      "size": 59080,
      "sha256": "65468b66cc00695a1e67af697375c0104a14dfb9e6d43d089c12c36586f7a187"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_wormote.so",
+     "size": 62456,
+     "sha256": "d63d8d2d08d1fe9827bae5a28c46bdc6ec35508271f352682503a67f7e8ffeaa"
     }
    }
   },
@@ -196,6 +226,11 @@
      "file": "games/android/arm64-v8a/libmg_lavaflow.so",
      "size": 55024,
      "sha256": "81f5cab3031972869322726ae8b0957e16c1f89845b131472bcc332f697a9a81"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_lavaflow.so",
+     "size": 66712,
+     "sha256": "668893e5281396d7d9ca3007b6125de0c9fd4f9126e6bb289b94f6b150f11b4a"
     }
    }
   },
@@ -224,6 +259,11 @@
      "file": "games/android/arm64-v8a/libmg_motebox.so",
      "size": 602944,
      "sha256": "99dbd2d612de9ac4d794aa5ecc302056512e1e0ce89cfa3f4d364373d4ce4801"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_motebox.so",
+     "size": 601576,
+     "sha256": "a9d6d254366d743749811f591d61e86e810f81ee9573559e187eb014aade50c6"
     }
    }
   },
@@ -252,6 +292,11 @@
      "file": "games/android/arm64-v8a/libmg_redmote.so",
      "size": 241960,
      "sha256": "d24301a907553f2e117318e6dda68fb98ba435ea6d26cc380ccb2701a8289fe7"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_redmote.so",
+     "size": 250280,
+     "sha256": "9f3c7b81176ec82b8c76219e84ee93947e4f7811c744cfb67ede0691f8173f23"
     }
    }
   },
@@ -282,6 +327,11 @@
      "file": "games/android/arm64-v8a/libmg_thumbprince.so",
      "size": 212000,
      "sha256": "59ce518109a1074b20d544f50a1a44221b75e00dbcd692572d736c7e48366578"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_thumbprince.so",
+     "size": 223504,
+     "sha256": "54fef176c8eb5942788dd624e9a196a97844ceedc4c1c2fc920cb52307f7be41"
     }
    }
   },
@@ -312,6 +362,11 @@
      "file": "games/android/arm64-v8a/libmg_kingsandpigs.so",
      "size": 606768,
      "sha256": "e9753b985ae62651ae72ceeff97f84792ac030fd9cdc98e0711f99e5d2f80666"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_kingsandpigs.so",
+     "size": 594708,
+     "sha256": "911ff86b1e36f5619436c09be7975919bdab61a04d3447514a388c09cbe5dd50"
     }
    }
   },
@@ -340,6 +395,11 @@
      "file": "games/android/arm64-v8a/libmg_wolfmote.so",
      "size": 315496,
      "sha256": "efb7823b42a35fa791f567dd842bc076149838b847e08695725100e4a64ba6e5"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_wolfmote.so",
+     "size": 323520,
+     "sha256": "9d8171f146c51bf2844cdde09c4937f902e236e18692d907c171890c904225a1"
     }
    }
   },
@@ -368,6 +428,11 @@
      "file": "games/android/arm64-v8a/libmg_grandthumbauto.so",
      "size": 510680,
      "sha256": "4162eecdda8ff7c48143aa16faf813d26517d34bca853e738ac99bc77ae2eff8"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_grandthumbauto.so",
+     "size": 536668,
+     "sha256": "6462c083452519af5bbc3faa596b1e20b9bba5e4f52f9aeb68981a0a5affaf3f"
     }
    }
   },
@@ -396,6 +461,11 @@
      "file": "games/android/arm64-v8a/libmg_galaxyswarm.so",
      "size": 536568,
      "sha256": "bed6ec71c4c1b70488d59846c09242493df3f0a32fa3895152efc0666a115892"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_galaxyswarm.so",
+     "size": 533760,
+     "sha256": "18fc89604f2c099abca4e93ca382822bde3176954d3024770ff023fe17f8a068"
     }
    }
   },
@@ -424,6 +494,11 @@
      "file": "games/android/arm64-v8a/libmg_thumbalaga.so",
      "size": 427264,
      "sha256": "1113046f450617b685f78c17f64f952efd6e30ca648297f8d2ed50daaa9c13cd"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_thumbalaga.so",
+     "size": 430812,
+     "sha256": "efd2b926336ead396bf6a3d30d283b0a3d63fe0b30748e2ae9b05c843cd1b58e"
     }
    }
   },
@@ -451,6 +526,11 @@
      "file": "games/android/arm64-v8a/libmg_thumbatro.so",
      "size": 172928,
      "sha256": "16b13cb736c77f2fa0dd1e870de9cb21c0c317ff8f9b5aa357c97d8a1734ecc0"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_thumbatro.so",
+     "size": 172292,
+     "sha256": "0981105ea1316aed321fda977256a01ff6f662530321f1b6de8a68423a5ea8b4"
     }
    }
   },
@@ -479,6 +559,11 @@
      "file": "games/android/arm64-v8a/libmg_thumbyrogue.so",
      "size": 509008,
      "sha256": "6fdfd1ab0f11c03b0bb18910bb25784fa9fc892f1b0b702e7cf1152b2df8b741"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_thumbyrogue.so",
+     "size": 512712,
+     "sha256": "48db5106989ac054157d038cf2aca1aaf2bfa9c7179b0da9ac6c89f6ef4d38de"
     }
    }
   },
@@ -507,6 +592,11 @@
      "file": "games/android/arm64-v8a/libmg_thumbycraft.so",
      "size": 455792,
      "sha256": "ecf2161390284622ef1949886cdfe74209d666f1da259bf395a170f15737f900"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_thumbycraft.so",
+     "size": 462636,
+     "sha256": "2ea58e75663513ecd973ce91ee1ad22377d610a18ff108ee845eaf0a275610ca"
     }
    }
   },
@@ -535,6 +625,11 @@
      "file": "games/android/arm64-v8a/libmg_thumbycue.so",
      "size": 356032,
      "sha256": "ebb9b50d69fa3176446c2866d7f0f705c4a777451b2a8db3d30528d0d25a31a5"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_thumbycue.so",
+     "size": 362972,
+     "sha256": "456a80e049dc63955080f51448cb741e2023313b2f49a592eec9089c901d9a41"
     }
    }
   },
@@ -562,6 +657,11 @@
      "file": "games/android/arm64-v8a/libmg_indemnity.so",
      "size": 523448,
      "sha256": "b7681993076dfd4cb74150590467b4ffcdad640e1550ff92510398957ed84f73"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_indemnity.so",
+     "size": 522632,
+     "sha256": "61b8109cc504dac4789775a873bcda6d2d407c1639c50fdac437aec1340c8594"
     }
    }
   },
@@ -588,6 +688,11 @@
      "file": "games/android/arm64-v8a/libmg_deepthumb.so",
      "size": 121440,
      "sha256": "4681385eef41ed7b9cd8f4f35f4cc7f965a62fee850f9e011c0504cda28009ad"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_deepthumb.so",
+     "size": 124224,
+     "sha256": "925433ce4c3e586ecba36643ed3205274c6bd35fa6d8a43c06c73c9253909a28"
     }
    }
   },
@@ -616,6 +721,11 @@
      "file": "games/android/arm64-v8a/libmg_motokart.so",
      "size": 77592,
      "sha256": "3dfd57f4f4e11daf604fff4e2adeb4a961716b6b291cb8c970812189484da408"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_motokart.so",
+     "size": 79100,
+     "sha256": "35a41a2c87abeb3a6936b78d0b7e765ba6645f806401fa516637948f7ca4d6e7"
     }
    }
   },
@@ -644,6 +754,11 @@
      "file": "games/android/arm64-v8a/libmg_nightmote.so",
      "size": 75312,
      "sha256": "da34a28a06ccf3141411268ca81e24a32a7038375238286ea0d420dd06829292"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_nightmote.so",
+     "size": 74256,
+     "sha256": "935dbb40a1ce2ab6f2254ee61b0c0a5fe63b70f55de1d78fe8a3694c82ab6403"
     }
    }
   },
@@ -672,6 +787,11 @@
      "file": "games/android/arm64-v8a/libmg_papermote.so",
      "size": 61056,
      "sha256": "08157a1e83c8ca1f5f129c6ebf4b2f37328811555a07650551c50379c8a72a00"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_papermote.so",
+     "size": 55476,
+     "sha256": "4ad11a0e0f0d61d11e484b320f49c33bd4e7a10a433c97c2fdf0c4b6099e9586"
     }
    }
   },
@@ -700,6 +820,11 @@
      "file": "games/android/arm64-v8a/libmg_golf.so",
      "size": 41944,
      "sha256": "cfcb4d4a5c9b81442197c5adb4ae66f6681dfa8e64863c369b959ee7403ad8d9"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_golf.so",
+     "size": 42304,
+     "sha256": "8ac1f9a78a392b8e7b381dbc4d32cdaf6264dae661c12a72349ad3367a127683"
     }
    }
   },
@@ -726,6 +851,11 @@
      "file": "games/android/arm64-v8a/libmg_tanks.so",
      "size": 28072,
      "sha256": "0d6f95b563c06873176a5ecdb0b8efb092240d01429a44f830b39c35e933256e"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_tanks.so",
+     "size": 26840,
+     "sha256": "bf6b0e1e6d5f2b1ca8391958c6d21ac34134a21cb564224573021f11e4fdbb26"
     }
    }
   },
@@ -752,6 +882,11 @@
      "file": "games/android/arm64-v8a/libmg_chess.so",
      "size": 58632,
      "sha256": "c130a588cdc2d221e7b29d949143dcd009ea713977e9f69f71fcfd5b0ddb56bb"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_chess.so",
+     "size": 60296,
+     "sha256": "52089177c7fcc301f5da7aadb6ac1cee0c717c67d6237289e4e2e3ef1c3a45fc"
     }
    }
   },
@@ -778,6 +913,11 @@
      "file": "games/android/arm64-v8a/libmg_tetris3d.so",
      "size": 18160,
      "sha256": "6874ddec72d3ea5f76e667487bf935946f5ed5b0874f3860710ef045802659cf"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_tetris3d.so",
+     "size": 18628,
+     "sha256": "dc6863b0072fc963309e8b25ca839a2201e396e86fa58ae13948a37d1e560f79"
     }
    }
   },
@@ -804,6 +944,11 @@
      "file": "games/android/arm64-v8a/libmg_arkanoid3d.so",
      "size": 32408,
      "sha256": "58746d704b18d3a2bd42663f82458ab850b9d7bdc215d114a79c9e4efa7dac6c"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_arkanoid3d.so",
+     "size": 31972,
+     "sha256": "e69bd28294fac1ce97a7c559fa084cafcc7fa7e9c3e63d1f24ffc5de6acb899c"
     }
    }
   },
@@ -830,6 +975,11 @@
      "file": "games/android/arm64-v8a/libmg_pong3d.so",
      "size": 15792,
      "sha256": "7dd17d6dc087cd6999e4966cededca83c2bc3b67865c693d62d1166cc2882069"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_pong3d.so",
+     "size": 15716,
+     "sha256": "e701b3b7812cf5d365792cf5621bc1521059007dd5cee640f4b6ae67abd2de1c"
     }
    }
   },
@@ -856,6 +1006,11 @@
      "file": "games/android/arm64-v8a/libmg_fling.so",
      "size": 28056,
      "sha256": "081d5e87d681137febfbc570b24c27121a5f0283296263a9c573e5d3c5868fd2"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_fling.so",
+     "size": 29504,
+     "sha256": "d895831a0099b1bbf64d4de3deb9cce1ed97bdcbdf2462dc98c5636342ef61f3"
     }
    }
   },
@@ -884,6 +1039,11 @@
      "file": "games/android/arm64-v8a/libmg_thumboxels.so",
      "size": 41208,
      "sha256": "afc13bc845e8d43579ce75a89e9a2e5da4b81c7ac2e082d4124c331f8e902012"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_thumboxels.so",
+     "size": 43004,
+     "sha256": "0f2651ccb8f6bccb5578229eef5cfebd9fed562b55b1c42f635dfab8bcc939ee"
     }
    }
   }

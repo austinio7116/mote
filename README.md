@@ -87,7 +87,7 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 
 ![A gallery of Mote games: ThumbyCraft, ThumbyCue, Indemnity Run, MotoKart, Wolfmote, Nightmote, Tetris 3D, Golf](docs/img/games-gallery.png)
 
-> **Mote also runs on Android** — a 1.3 MB app that is the whole platform on a phone, and that a real Thumby Color can plug into over USB-C for online play and gallery downloads on mobile data. See [§12](#12-mote-on-android).
+> **Mote also runs on Android** — a 1.9 MB app that is the whole platform on a phone, and that a real Thumby Color can plug into over USB-C for online play and gallery downloads on mobile data. See [§12](#12-mote-on-android).
 
 > **Mote ships on real hardware as part of [ThumbyOne](https://github.com/austinio7116/ThumbyOne).** The ThumbyOne multi-boot firmware bundles the Mote engine as a slot, so the `.mote` games you build here run on an actual **Thumby Color** — not just the desktop emulator. Flash ThumbyOne, drop `.mote` files into the device's `/mote/` folder over USB, and they appear in the **MOTE** tile's launcher. (You can develop entirely in the Studio emulator without a device — the firmware is only needed to run on hardware.)
 
@@ -2270,8 +2270,8 @@ RP2350 mass-storage drive.
 
 ## 12. Mote on Android
 
-`mote-android-arm64.apk` on the [latest release](https://github.com/austinio7116/mote/releases/latest)
-turns a phone into a Thumby Color. It is the whole platform, not a viewer: the
+`mote-android.apk` on the [latest release](https://github.com/austinio7116/mote/releases/latest)
+turns a phone into a Thumby Color. Android 6 or later, 64-bit or 32-bit ARM. It is the whole platform, not a viewer: the
 launcher, the gallery, the engine menu, save slots, multiplayer and every game
 in the library, running the unchanged shared sources at 128×128 and 22 kHz.
 
@@ -2281,7 +2281,7 @@ in the library, running the unchanged shared sources at 128×128 and 22 kHz.
 - **Controllers work**, picked up automatically: d-pad or left stick, A/B, Start
   for MENU, and either the shoulder buttons or the triggers for LB and RB.
   Rumble goes to the phone's vibrator.
-- **Games come from the gallery.** The APK is 1.3 MB and ships empty; you install
+- **Games come from the gallery.** The APK is 1.9 MB and ships empty; you install
   what you want from the same hero view the device has, over the phone's own
   connection. Installed games update in place.
 - **Multiplayer needs nothing else** — see [§10](#10-multiplayer), topologies 5
@@ -2303,7 +2303,9 @@ cd android && ./gradlew assembleRelease   # -> app/build/outputs/apk/release/
 ```
 
 `-PmoteGames=all` bundles the whole library into the APK instead of leaving it
-empty; `-PmoteAbis=arm64-v8a,x86_64` adds the emulator ABI. The shell also
+empty; the default `-PmoteAbis` is `arm64-v8a,armeabi-v7a`, and adding `x86_64`
+covers the Android emulator. Gallery modules are published per ABI, so a new one
+needs `android/tools/build_modules.sh --abi <abi> --publish` too. The shell also
 builds for the desktop (`cmake --build build_shell --target mote_shell`) with
 mouse and keyboard, which is how its UI is developed and captured.
 
