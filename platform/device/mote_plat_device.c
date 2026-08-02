@@ -235,12 +235,22 @@ void mote_plat_shutdown(void) { mote_lcd_backlight(0); }
  * would leave the LED bright on a dimmed screen and lose the setting the moment
  * you left Mote.
  *
- * The mirror sector sits at 6.43 MB, inside ATRANS[1]'s window. The runner only
- * ever rewrites ATRANS[2] (mote_loader.c), so the XIP read below is looking at
- * real flash even with a game mapped, and thumbyone_settings.c saves/restores
- * all four ATRANS registers around its own erase/program. Hence no fat_enter()
- * bracket here — unlike the save backend further down, which really does go
- * through FatFs.
+ * These deliberately do NOT use the fat_enter() bracket the save backend below
+ * needs, for two reasons.
+ *
+ * It would be redundant. The mirror sector is at physical 0x66F000, and every
+ * slot's init maps ATRANS[1] identity over 0x400000..0x800000
+ * (thumbyone_handoff.c:163) — the runner only ever rewrites ATRANS[2]
+ * (mote_loader.c), so the absolute XIP address thumbyone_settings.c reads is
+ * looking at real flash even with a game mapped. The write protects itself:
+ * it saves and restores all four ATRANS registers and re-establishes fast QPI
+ * XIP afterwards.
+ *
+ * And it would be worse than redundant. fat_enter() flushes the XIP cache,
+ * which throws away core 1's cached spin loop immediately before core 0
+ * disables interrupts and erases a sector. Core 1 would then have to fetch that
+ * loop from flash during the erase. Leaving the cache alone is what keeps core 1
+ * off the flash entirely for the duration.
  * -------------------------------------------------------------------------- */
 #if THUMBYONE_SLOT_MODE
 #include "thumbyone_settings.h"
@@ -265,8 +275,10 @@ void mote_plat_set_brightness(int pct) { thumbyone_backlight_set(bri_to_t1(pct))
 void mote_plat_set_volume(int pct)     { mote_audio_set_volume(pct / 100.0f); }
 
 int mote_plat_settings_load(int *bright_pct, int *vol_pct) {
-    if (bright_pct) *bright_pct = bri_to_pct(thumbyone_settings_load_brightness());
-    if (vol_pct)    *vol_pct    = vol_to_pct(thumbyone_settings_load_volume());
+    uint8_t b = thumbyone_settings_load_brightness();
+    uint8_t v = thumbyone_settings_load_volume();
+    if (bright_pct) *bright_pct = bri_to_pct(b);
+    if (vol_pct)    *vol_pct    = vol_to_pct(v);
     return 1;
 }
 void mote_plat_settings_save(int bright_pct, int vol_pct) {
