@@ -58,47 +58,83 @@ static const char *VS =
 "    gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
 "}\n";
 
-/* u_mode: 0 lit+textured (the shell), 1 unlit+textured (the LCD),
- *         2 flat colour (button glow), 3 floor grid */
+/* Colour lives in LINEAR here, start to finish.
+ *
+ * Both textures are decoded in the shader rather than by an sRGB texture format.
+ * GL_SRGB8 is the tidier answer and it is one line — but the LCD is RGB565,
+ * which has no sRGB format at all, so the shader needs the decode anyway; and a
+ * silently-rejected internal format leaves a black texture, which is exactly
+ * what it did here. One path, no format negotiation, same on every driver.
+ * Shading happens on linear values. What happens at the end depends on the
+ * target:
+ * an sRGB swapchain (what a Quest gives us) re-encodes on write, so we hand it
+ * linear; a plain window (the desktop preview) does not, so we encode here.
+ *
+ * Getting this wrong in the obvious direction — sample sRGB as if it were
+ * linear, then let an sRGB swapchain encode it a second time — lifts the blacks
+ * and squeezes everything into the top of the range. It reads as washed out,
+ * and because the top of the range is where the levels are coarsest, it also
+ * reads as though the colour depth had dropped. It had not.
+ *
+ * u_mode: 0 lit+textured (the shell), 1 the LCD, 2 button glow, 3 floor grid
+ */
 static const char *FS =
 "#version 300 es\n"
-"precision mediump float;\n"
+"precision highp float;\n"
 "in vec3 v_nrm;\n"
 "in vec2 v_uv;\n"
 "in vec3 v_world;\n"
 "uniform sampler2D u_tex;\n"
 "uniform int   u_mode;\n"
+"uniform int   u_encode;\n"     /* 1 = target does not do sRGB for us */
 "uniform vec4  u_colour;\n"
 "uniform vec3  u_light;\n"
 "out vec4 o_col;\n"
+"vec3 to_linear(vec3 c) { return pow(c, vec3(2.2)); }\n"
+"// A moulded purple shell is one big smooth gradient, and a smooth gradient is\n"
+"// where an 8-bit buffer shows its seams — as bands wide enough to look like\n"
+"// the colour depth dropped. Half a level of hash noise, applied in the space\n"
+"// the buffer is actually quantised in, turns each seam into noise the eye\n"
+"// integrates away. Costs nothing and is invisible except by its absence.\n"
+"float hash12(vec2 p) {\n"
+"    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);\n"
+"}\n"
+"vec4 emit(vec3 c, float a) {\n"
+"    vec3 o = u_encode == 1 ? pow(max(c, 0.0), vec3(1.0/2.2)) : c;\n"
+"    return vec4(o + (hash12(gl_FragCoord.xy) - 0.5) / 255.0, a);\n"
+"}\n"
 "void main() {\n"
 "    if (u_mode == 1) {\n"
-"        // The LCD. Slightly lifted so it reads as emissive against a lit\n"
-"        // room rather than as a sticker on the front of the shell.\n"
-"        vec3 c = texture(u_tex, v_uv).rgb;\n"
-"        o_col = vec4(c * 1.12 + 0.02, 1.0);\n"
+"        // The LCD. RGB565 holds what the panel would show, so decode it as\n"
+"        // sRGB and let the pipeline put it back exactly — no shifted hue, no\n"
+"        // crushed darks. The small lift is applied in linear so it reads as a\n"
+"        // lit display rather than as a sticker, without greying the blacks.\n"
+"        vec3 c = to_linear(texture(u_tex, v_uv).rgb);\n"
+"        o_col = emit(c * 1.10 + 0.004, 1.0);\n"
 "    } else if (u_mode == 2) {\n"
 "        // Button feedback. Soft-edged, and elliptical in UV space so the same\n"
 "        // quad reads as a disc on A/B and as a capsule on a d-pad arm — a hard\n"
 "        // rectangle looks like a sticker stuck on the shell.\n"
 "        float d = length(v_uv - vec2(0.5)) * 2.0;\n"
-"        o_col = vec4(u_colour.rgb, u_colour.a * smoothstep(1.0, 0.25, d));\n"
+"        o_col = emit(to_linear(u_colour.rgb), u_colour.a * smoothstep(1.0, 0.25, d));\n"
 "    } else if (u_mode == 3) {\n"
 "        // A grid that fades out with distance, for runtimes with no\n"
 "        // passthrough. Never drawn on a Quest.\n"
 "        vec2 g = abs(fract(v_world.xz * 2.0) - 0.5) / fwidth(v_world.xz * 2.0);\n"
 "        float line = 1.0 - min(min(g.x, g.y), 1.0);\n"
 "        float fade = clamp(1.0 - length(v_world.xz) / 6.0, 0.0, 1.0);\n"
-"        o_col = vec4(u_colour.rgb * line * fade, u_colour.a * line * fade);\n"
+"        o_col = emit(to_linear(u_colour.rgb) * line * fade, u_colour.a * line * fade);\n"
 "    } else {\n"
 "        // The shell. The photograph already carries the product shot's own\n"
 "        // lighting, so this adds only enough directionality for the rounded\n"
-"        // edge to read as round.\n"
+"        // edge to read as round. The rim term multiplies rather than adds:\n"
+"        // adding a constant to every fragment lifts the black glass and the\n"
+"        // black buttons along with the shell, which is most of the front.\n"
 "        vec3 n = normalize(v_nrm);\n"
 "        float d = max(dot(n, normalize(u_light)), 0.0);\n"
-"        float rim = pow(1.0 - abs(n.z), 3.0) * 0.10;\n"
-"        vec3 c = texture(u_tex, v_uv).rgb * (0.62 + 0.45 * d) + rim;\n"
-"        o_col = vec4(c, 1.0);\n"
+"        vec3 c = to_linear(texture(u_tex, v_uv).rgb);\n"
+"        float rim = 1.0 + pow(1.0 - abs(n.z), 3.0) * 0.35;\n"
+"        o_col = emit(c * min(0.72 + 0.36 * d, 1.15) * rim, 1.0);\n"
 "    }\n"
 "}\n";
 
@@ -107,7 +143,8 @@ static const char *FS =
 static GLuint s_prog, s_vao_mesh, s_vbo_mesh, s_ibo_mesh;
 static GLuint s_vao_quad, s_vbo_quad;
 static GLuint s_tex_shell, s_tex_lcd;
-static GLint  s_u_mvp, s_u_model, s_u_tex, s_u_mode, s_u_colour, s_u_light;
+static GLint  s_u_mvp, s_u_model, s_u_tex, s_u_mode, s_u_colour, s_u_light, s_u_encode;
+static int    s_encode = 1;   /* assume a plain window until told otherwise */
 static int    s_mesh_indices;
 static uint32_t s_lcd_seq = (uint32_t)-1;
 static int    s_ready;
@@ -173,6 +210,7 @@ int mote_vr_render_init(const MoteVrAssets *a) {
     s_u_mode   = glGetUniformLocation(s_prog, "u_mode");
     s_u_colour = glGetUniformLocation(s_prog, "u_colour");
     s_u_light  = glGetUniformLocation(s_prog, "u_light");
+    s_u_encode = glGetUniformLocation(s_prog, "u_encode");
 
     /* ---- the chassis mesh ---- */
     const unsigned char *m = a->chassis_mesh;
@@ -217,6 +255,8 @@ int mote_vr_render_init(const MoteVrAssets *a) {
     glGenTextures(1, &s_tex_shell);
     glBindTexture(GL_TEXTURE_2D, s_tex_shell);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, tw, th, 0, GL_RGB, GL_UNSIGNED_BYTE, px);
+    { GLenum e = glGetError();
+      if (e) logf_("[mote-vr] shell texture upload: GL error 0x%04x", (unsigned)e); }
     glGenerateMipmap(GL_TEXTURE_2D);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -252,6 +292,10 @@ void mote_vr_render_shutdown(void) {
     glDeleteTextures(1, &s_tex_shell);
     glDeleteTextures(1, &s_tex_lcd);
     s_ready = 0;
+}
+
+void mote_vr_render_set_target_srgb(int target_encodes_srgb) {
+    s_encode = target_encodes_srgb ? 0 : 1;
 }
 
 void mote_vr_render_set_frame(const uint16_t *fb, uint32_t seq) {
@@ -306,6 +350,7 @@ void mote_vr_render_eye(const float *view, const float *proj,
     /* Over the player's left shoulder: the direction a room light usually is,
      * and it keeps the rounded edge nearest the eye the bright one. */
     glUniform3f(s_u_light, -0.35f, 0.62f, 0.70f);
+    glUniform1i(s_u_encode, s_encode);
 
     if (backdrop) {
         /* Lay the quad down as a floor 1.1 m below the eye line: scale, then

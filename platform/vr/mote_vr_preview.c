@@ -22,10 +22,13 @@
  *   MOTE_VR_TILT=0            override the handheld pitch (degrees)
  *   MOTE_VR_TESTCARD=1        replace the LCD with a known pattern, to check
  *                             that the 128x128 lands exactly on the glass
+ *   MOTE_VR_GRIP=both         hold the side trigger(s): both | left | right
  *
  * Live, it is a normal window: drag to orbit, wheel to dolly, WASD/arrows for
- * the d-pad, J/K for A/B, U/I for LB/RB, Enter for MENU, [ and ] to resize the
- * console the way the grip gesture does.
+ * the d-pad, J/K for A/B, U/I for LB/RB, Enter for MENU. G squeezes both side
+ * triggers (F and H one at a time), which is how the console is picked up and
+ * moved; [ and ] pull the fake hands together and apart, so holding G with [ or
+ * ] exercises the real two-handed resize.
  */
 #include "mote_vr.h"
 #include "mote_config.h"
@@ -61,14 +64,17 @@ static void *slurp(const char *path, int *len) {
 static float s_yaw = 0.0f, s_pitch = -0.30f, s_dist = 0.55f;
 static float s_span = 0.20f;
 static MoteButtons s_keys;                 /* keyboard stand-in for controllers */
-static int   s_sizing;
+static int   s_grip[2];                    /* side triggers, per hand */
+/* The console is world-anchored now, so the camera orbits *it* rather than the
+ * origin — otherwise it would be placed in front of the head on frame 0 and
+ * then sit off to one side of every screenshot. */
+static MoteVrV3 s_focus;
 
 static void fake_tracking(MoteVrTracking *t, float dt) {
     memset(t, 0, sizeof *t);
     t->dt = dt;
 
-    /* The head orbits a point 1.1 m up, looking at it. */
-    MoteVrV3 focus = mv3(0.0f, 0.0f, 0.0f);
+    MoteVrV3 focus = s_focus;
     MoteVrV3 dir = mv3(cosf(s_pitch) * sinf(s_yaw), sinf(s_pitch),
                        cosf(s_pitch) * cosf(s_yaw));
     t->head.p = mv3_add(focus, mv3_scale(dir, s_dist));
@@ -84,7 +90,7 @@ static void fake_tracking(MoteVrTracking *t, float dt) {
         t->hand[i].pose.p = mv3_add(focus, mv3_scale(right, side * s_span));
         t->hand[i].pose.q = mq_ident();
         t->hand[i].tracked = 1;
-        t->hand[i].squeeze = s_sizing ? 1.0f : 0.0f;
+        t->hand[i].squeeze = s_grip[i] ? 1.0f : 0.0f;
     }
     /* Keyboard drives the same fields the controllers would. */
     t->hand[MOTE_VR_RIGHT].stick_x = s_keys.right ? 1.0f : (s_keys.left ? -1.0f : 0.0f);
@@ -177,6 +183,9 @@ int main(int argc, char **argv) {
     int shot_frame = 120;
     { const char *v = getenv("MOTE_VR_SHOT_FRAME"); if (v) shot_frame = atoi(v); }
     apply_keys(getenv("MOTE_VR_KEYS"));
+    { const char *v = getenv("MOTE_VR_GRIP");   /* "both" | "left" | "right" */
+      if (v) { s_grip[MOTE_VR_LEFT]  = (!strcmp(v,"both") || !strcmp(v,"left"));
+               s_grip[MOTE_VR_RIGHT] = (!strcmp(v,"both") || !strcmp(v,"right")); } }
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -273,8 +282,11 @@ int main(int argc, char **argv) {
                 case SDLK_u: s_keys.lb = d; break;
                 case SDLK_i: s_keys.rb = d; break;
                 case SDLK_RETURN: s_keys.menu = d; break;
-                case SDLK_LEFTBRACKET:  if (d) { s_sizing = 1; s_span *= 0.94f; } break;
-                case SDLK_RIGHTBRACKET: if (d) { s_sizing = 1; s_span *= 1.06f; } break;
+                case SDLK_g: s_grip[0] = s_grip[1] = d; break;
+                case SDLK_f: s_grip[MOTE_VR_LEFT]  = d; break;
+                case SDLK_h: s_grip[MOTE_VR_RIGHT] = d; break;
+                case SDLK_LEFTBRACKET:  if (d) s_span *= 0.94f; break;
+                case SDLK_RIGHTBRACKET: if (d) s_span *= 1.06f; break;
                 default: break;
                 }
                 break;
@@ -290,11 +302,12 @@ int main(int argc, char **argv) {
 
         MoteVrTracking track;
         fake_tracking(&track, dt);
-        s_sizing = 0;
 
         MoteVrConsole console;
         MoteButtons btn;
+        int was_placed = hold.placed;
         mote_vr_hold_update(&hold, &track, &console, &btn);
+        if (!was_placed && console.placed) s_focus = console.pose.p;
         mote_shell_set_buttons(&btn);
 
         uint32_t seq = mote_shell_frame_seq();

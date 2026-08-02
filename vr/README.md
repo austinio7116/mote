@@ -38,27 +38,37 @@ portability calls the shared networking code makes into SDL are answered by
 
 ## Controls
 
-The console sits **between your two controllers** and follows them: its centre
-is the midpoint of your hands, its left-right axis is the line between them, and
-its screen always turns to face you — so you can never tilt it away from
-yourself by accident.
+The console is **an object in your room**. It stays where you put it; a **side
+trigger** takes hold of it.
+
+| Gesture | What happens |
+|---|---|
+| **one side trigger** | the console follows that hand — move and turn it |
+| **both side triggers** | move, turn *and* resize: pull your hands apart to grow it, push them together to shrink it |
+| let go | it stays exactly where you left it |
+| both side triggers + both index triggers | lost it? snaps back in front of your face |
 
 | On the controller | On the console |
 |---|---|
 | either thumbstick | d-pad |
 | **A** / **X** | A |
 | **B** / **Y** | B |
-| left trigger / right trigger | LB / RB |
+| left index trigger / right index trigger | LB / RB |
 | left **menu** | MENU (hold 3 s for the engine menu) |
-| **both grips**, hands apart/together | resize the console |
 
 Rumble goes to both controllers. Whichever button a press landed on lights up on
 the console itself, because a controller trigger has no travel to tell you.
 
+An earlier version had the console track the midpoint of your hands
+continuously. It reads well written down and is wrong in a headset: your hands
+are never as still as a 128×128 screen you are reading needs them to be, and
+every button press nudges the very thing you are pressing.
+
 **Size.** A real Thumby Color is 51.6 mm across, and at life size its 128×128
 screen is about sixty headset pixels — a smudge, not a display. So it is held at
 3× by default (155 mm, near enough a Game Boy Advance), which puts the LCD at
-roughly 1.5 headset pixels per Mote pixel. Squeeze both grips to change it.
+roughly 1.5 headset pixels per Mote pixel. Grab it with both hands to change it,
+between 1× and 8×.
 
 ## Build
 
@@ -116,8 +126,21 @@ SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
 | `MOTE_VR_BACKDROP=0` | no floor grid — what passthrough looks like |
 | `MOTE_VR_GAME=wormote` | boot straight into a game |
 | `MOTE_VR_TILT` / `MOTE_VR_SPAN` | console pitch, hand separation |
+| `MOTE_VR_GRIP=both` | hold the side trigger(s): `both`, `left`, `right` |
 
-Keys: WASD/arrows d-pad, J/K A/B, U/I LB/RB, Enter MENU, `[` `]` resize.
+Keys: WASD/arrows d-pad, J/K A/B, U/I LB/RB, Enter MENU. **G** squeezes both
+side triggers (**F**/**H** one at a time) to pick the console up; `[` and `]`
+move the fake hands together and apart, so holding **G** with them exercises the
+real two-handed resize.
+
+Two behaviours are covered by tests rather than by eye, because both fail in
+ways you would only notice in a headset half an hour later:
+
+```bash
+cc -I. -I../../engine/core -I../../engine/input -o /tmp/test_hold \
+   platform/vr/test_hold.c platform/vr/mote_vr_hold.c -lm && /tmp/test_hold
+cc -o /tmp/test_resample platform/vr/test_resample.c -lm && /tmp/test_resample
+```
 
 ## The model
 
@@ -166,4 +189,5 @@ desktop harness it would grow out of.
   (`os/android/mote_android_dock.c` is not in the VR build yet).
 * No in-headset settings panel — brightness, volume and the relay address are
   reachable through the engine menu (hold MENU) but not through a VR UI.
-* Console scale is not yet persisted between runs.
+* Console position and scale are not yet persisted between runs — it is placed
+  in front of you at 3× each time.

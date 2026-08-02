@@ -50,7 +50,7 @@ RIM_R  = 0.0026          # metres, how far the shell rolls over at the edge
 RIM_STEPS = 4            # quarter-round subdivisions per side (4 = smooth enough)
 
 TEX_W  = 1024            # baked texture width
-JPEG_Q = 90
+JPEG_Q = 96          # smooth purple is where JPEG blocking shows as banding
 BLEED_PX = 12            # how far to push the shell out past the silhouette
 OUTLINE_N = 224          # outline vertices, evenly spaced
 OUTLINE_SMOOTH = 6       # [1,2,1] passes over the traced edge

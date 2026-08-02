@@ -45,6 +45,12 @@ static inline MoteVrQ mq_norm(MoteVrQ q) {
     return r;
 }
 
+/* Inverse, for unit quaternions. */
+static inline MoteVrQ mq_conj(MoteVrQ q) {
+    MoteVrQ r = {-q.x, -q.y, -q.z, q.w};
+    return r;
+}
+
 static inline MoteVrQ mq_mul(MoteVrQ a, MoteVrQ b) {
     MoteVrQ r;
     r.w = a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z;

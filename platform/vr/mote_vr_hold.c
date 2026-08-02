@@ -1,24 +1,26 @@
 /*
  * Mote VR — where the console is, and what you are pressing on it.
  *
- * Two decisions worth explaining, because both were choices and not the obvious
- * thing:
+ * The console is a thing in your room, not a thing stapled to your hands.
  *
- * 1. The screen always faces you. The console's position and its left-right
- *    axis come from the two grip *positions* — unambiguous, and they are what
- *    "holding it" means — but its facing comes from the line to your head
- *    rather than from the controllers' orientation. That is partly because the
- *    grip pose's axis convention is a thing you get subtly wrong and only find
- *    out about in a headset, and mostly because a handheld you are looking at
- *    should be legible: you should never be able to tilt the screen away from
- *    yourself by accident. Hand roll still tilts it, via the pitch trim below.
+ * The first version had it follow the midpoint of the two controllers
+ * continuously. That reads well written down and is wrong in a headset: your
+ * hands are never as still as a 128x128 screen you are reading needs them to be,
+ * and worse, every button press nudges the very thing you are pressing. So it
+ * sits still in the world, and a **side trigger** takes hold of it:
  *
- * 2. Size is a gesture, not a menu. Squeeze both grips and move your hands
- *    apart. Nothing else uses both grips at once, so there is no mode to enter
- *    and nothing to discover.
+ *   one grip     the console follows that hand rigidly
+ *   both grips   move, rotate and resize it — hands apart makes it bigger
+ *   let go       it stays exactly where you left it
  *
- * Pure maths over MoteVrTracking: no GL, no OpenXR, no globals. The preview
- * drives it from a mouse and gets exactly the behaviour the headset gets.
+ * A grab records the console's pose *relative to the hand that grabbed it* and
+ * replays that relationship every frame. That is what makes it feel like
+ * picking something up, and it also means none of this depends on knowing which
+ * way a grip pose's axes happen to point — a thing that can only be got wrong
+ * in a headset, which is the one place it cannot be checked from here.
+ *
+ * Pure maths over MoteVrTracking: no GL, no OpenXR, no globals, so the desktop
+ * preview drives it from a mouse and gets exactly the headset's behaviour.
  */
 #include "mote_vr.h"
 
@@ -30,13 +32,17 @@
 #define STICK_ON   0.55f
 #define STICK_OFF  0.35f
 
-/* Tracking is quiet but not still, and a screen 40 cm away magnifies a
- * millimetre of jitter into something you notice. ~60 ms to close most of the
- * gap: firm enough to feel attached to your hands, slow enough to read. */
-#define SMOOTH_TAU 0.060f
+/* Side trigger. A high bar to take hold, a low one to keep hold, so a hand
+ * relaxing mid-move does not drop the console. */
+#define GRIP_ON    0.60f
+#define GRIP_OFF   0.35f
 
-#define GRIP_ON    0.7f
-#define GRIP_OFF   0.4f
+/* Only while being moved. ~30 ms: firm enough to feel attached to the hand,
+ * slow enough to take the tremor out of a screen you are reading. Released, it
+ * does not move at all, so there is nothing to smooth. */
+#define SMOOTH_TAU 0.030f
+
+#define DEG        (3.14159265f / 180.0f)
 
 void mote_vr_hold_init(MoteVrHoldState *h, float scale, float tilt_deg) {
     memset(h, 0, sizeof *h);
@@ -44,6 +50,7 @@ void mote_vr_hold_init(MoteVrHoldState *h, float scale, float tilt_deg) {
     if (h->scale < MOTE_VR_SCALE_MIN) h->scale = MOTE_VR_SCALE_MIN;
     if (h->scale > MOTE_VR_SCALE_MAX) h->scale = MOTE_VR_SCALE_MAX;
     h->tilt_deg = tilt_deg;
+    h->pose.q = mq_ident();
 }
 
 /* Latch a stick axis into two booleans with the hysteresis above. */
@@ -54,13 +61,115 @@ static void axis_to_pair(float v, int *neg, int *pos) {
     else      { if (v < -STICK_ON)  *neg = 1; }
 }
 
+/* Put it at reading distance in front of the face, screen turned towards you
+ * and tipped back the way a handheld is actually held. Used on the first frame
+ * and by the recall gesture. */
+static void place_in_front(MoteVrHoldState *h, const MoteVrPose *head) {
+    MoteVrV3 fwd = mq_rot(head->q, mv3(0, 0, -1));
+    h->pose.p = mv3_add(head->p, mv3_scale(fwd, 0.45f));
+
+    MoteVrV3 z = mv3_norm(mv3_sub(head->p, h->pose.p));      /* faces the head */
+    MoteVrV3 x = mv3_cross(mv3(0, 1, 0), z);
+    if (mv3_len(x) < 0.05f) x = mv3(1, 0, 0);                /* looking straight up */
+    x = mv3_norm(x);
+    MoteVrV3 y = mv3_cross(z, x);
+    h->pose.q = mq_mul(mq_from_axes(x, y, z),
+                       mq_axis_angle(mv3(1, 0, 0), h->tilt_deg * DEG));
+    h->placed = 1;
+}
+
+/* The frame the two hands define together: X along the line between them, and
+ * an up hint averaged from both grips so rolling your wrists rolls the console.
+ * Only ever used as a delta against the frame captured at grab time, so its
+ * absolute convention does not matter. */
+static MoteVrQ hand_frame(const MoteVrHand *L, const MoteVrHand *R) {
+    MoteVrV3 x = mv3_norm(mv3_sub(R->pose.p, L->pose.p));
+    MoteVrV3 up = mv3_norm(mv3_add(mq_rot(L->pose.q, mv3(0, 1, 0)),
+                                   mq_rot(R->pose.q, mv3(0, 1, 0))));
+    MoteVrV3 z = mv3_cross(x, up);
+    if (mv3_len(z) < 0.05f) z = mv3_cross(x, mv3(0, 1, 0));  /* hands rolled flat */
+    if (mv3_len(z) < 0.05f) z = mv3(0, 0, 1);
+    z = mv3_norm(z);
+    return mq_from_axes(x, mv3_cross(z, x), z);
+}
+
 void mote_vr_hold_update(MoteVrHoldState *h, const MoteVrTracking *t,
                          MoteVrConsole *out, MoteButtons *btn)
 {
     const MoteVrHand *L = &t->hand[MOTE_VR_LEFT];
     const MoteVrHand *R = &t->hand[MOTE_VR_RIGHT];
 
-    /* ---- buttons ------------------------------------------------------- *
+    if (!h->placed) place_in_front(h, &t->head);
+
+    /* ---- who is holding it --------------------------------------------- */
+    int was = h->grab, was_hand = h->grab_hand;
+    for (int i = 0; i < 2; i++) {
+        float s = t->hand[i].squeeze;
+        if (!t->hand[i].tracked) { h->held[i] = 0; continue; }
+        if (h->held[i]) { if (s < GRIP_OFF) h->held[i] = 0; }
+        else            { if (s > GRIP_ON)  h->held[i] = 1; }
+    }
+    h->grab = h->held[0] + h->held[1];
+    if (h->grab == 1) h->grab_hand = h->held[MOTE_VR_RIGHT] ? MOTE_VR_RIGHT : MOTE_VR_LEFT;
+
+    /* Thrown it behind you? Both grips and both index triggers brings it back.
+     * It needs both grips, so it cannot be hit while playing. */
+    if (h->grab == 2 && L->trigger > 0.7f && R->trigger > 0.7f) {
+        place_in_front(h, &t->head);
+        was = -1;                      /* force a re-capture on the next frame */
+    }
+
+    /* Re-capture whenever the configuration changes: picking up, letting one
+     * hand go, adding a second. Each capture freezes the current relationship
+     * so nothing jumps at the moment your grip crosses the threshold. */
+    if (h->grab != was || (h->grab == 1 && h->grab_hand != was_hand)) {
+        if (h->grab == 1) {
+            const MoteVrHand *H = &t->hand[h->grab_hand];
+            MoteVrQ inv = mq_conj(H->pose.q);
+            h->rel_q = mq_mul(inv, h->pose.q);
+            h->rel_p = mq_rot(inv, mv3_sub(h->pose.p, H->pose.p));
+        } else if (h->grab == 2) {
+            MoteVrV3 mid = mv3_scale(mv3_add(L->pose.p, R->pose.p), 0.5f);
+            float span = mv3_len(mv3_sub(R->pose.p, L->pose.p));
+            h->frame0 = hand_frame(L, R);
+            h->q0     = h->pose.q;
+            h->off0   = mv3_sub(h->pose.p, mid);
+            h->span0  = span > 0.02f ? span : 0.02f;
+            h->scale0 = h->scale;
+        }
+    }
+
+    /* ---- move it -------------------------------------------------------- */
+    if (h->grab) {
+        MoteVrPose want = h->pose;
+        float want_scale = h->scale;
+
+        if (h->grab == 1) {
+            const MoteVrHand *H = &t->hand[h->grab_hand];
+            want.q = mq_mul(H->pose.q, h->rel_q);
+            want.p = mv3_add(H->pose.p, mq_rot(H->pose.q, h->rel_p));
+        } else {
+            MoteVrV3 mid = mv3_scale(mv3_add(L->pose.p, R->pose.p), 0.5f);
+            float span = mv3_len(mv3_sub(R->pose.p, L->pose.p));
+            float k = span / h->span0;
+            MoteVrQ dq = mq_mul(hand_frame(L, R), mq_conj(h->frame0));
+            want.q = mq_mul(dq, h->q0);
+            /* The offset scales with the hands too, so the whole thing grows
+             * about the midpoint rather than sliding as it grows. */
+            want.p = mv3_add(mid, mq_rot(dq, mv3_scale(h->off0, k)));
+            want_scale = h->scale0 * k;
+            if (want_scale < MOTE_VR_SCALE_MIN) want_scale = MOTE_VR_SCALE_MIN;
+            if (want_scale > MOTE_VR_SCALE_MAX) want_scale = MOTE_VR_SCALE_MAX;
+        }
+
+        float dt = t->dt > 0.0f ? t->dt : 1.0f/72.0f;
+        float a = 1.0f - expf(-dt / SMOOTH_TAU);
+        h->pose.p = mv3_lerp(h->pose.p, want.p, a);
+        h->pose.q = mq_nlerp(h->pose.q, want.q, a);
+        h->scale += (want_scale - h->scale) * a;
+    }
+
+    /* ---- buttons -------------------------------------------------------- *
      * Both sticks drive the d-pad: which thumb someone steers with is a
      * preference, and there is no cost to honouring both. */
     enum { U = 0, D = 1, LF = 2, RT = 3 };
@@ -80,85 +189,20 @@ void mote_vr_hold_update(MoteVrHoldState *h, const MoteVrTracking *t,
      * steering with the left stick still has both buttons under that thumb. */
     btn->a  = R->btn_lower || L->btn_lower;
     btn->b  = R->btn_upper || L->btn_upper;
-    /* Shoulders are the triggers: the same fingers the real ones sit under. */
-    btn->lb = L->trigger > 0.5f;
-    btn->rb = R->trigger > 0.5f;
+    /* Shoulders are the index triggers: the same fingers the real ones sit
+     * under. Suppressed while both hands hold the console, because that is the
+     * recall gesture and firing LB+RB into a game as you tidy up is not what
+     * anyone meant. */
+    if (h->grab < 2) {
+        btn->lb = L->trigger > 0.5f;
+        btn->rb = R->trigger > 0.5f;
+    }
     /* Only the left controller has a menu button an app is allowed to see; the
      * right one belongs to the system. Holding it for 3 s still opens the
      * engine menu, exactly as holding MENU does on the handheld. */
     btn->menu = L->menu != 0;
 
-    /* ---- the resize gesture -------------------------------------------- */
-    int both = L->tracked && R->tracked;
-    float span = 0.0f;
-    if (both) span = mv3_len(mv3_sub(R->pose.p, L->pose.p));
-
-    int squeezing = both &&
-        (h->sizing ? (L->squeeze > GRIP_OFF && R->squeeze > GRIP_OFF)
-                   : (L->squeeze > GRIP_ON  && R->squeeze > GRIP_ON));
-    if (squeezing && !h->sizing) {
-        h->sizing = 1;
-        h->grab_span = span > 0.02f ? span : 0.02f;
-        h->grab_scale = h->scale;
-    } else if (!squeezing) {
-        h->sizing = 0;
-    }
-    if (h->sizing && span > 0.02f) {
-        float s = h->grab_scale * (span / h->grab_span);
-        if (s < MOTE_VR_SCALE_MIN) s = MOTE_VR_SCALE_MIN;
-        if (s > MOTE_VR_SCALE_MAX) s = MOTE_VR_SCALE_MAX;
-        h->scale = s;
-    }
-
-    /* ---- where it sits -------------------------------------------------- */
-    MoteVrPose want;
-    if (both) {
-        want.p = mv3_scale(mv3_add(L->pose.p, R->pose.p), 0.5f);
-    } else if (L->tracked || R->tracked) {
-        /* One hand: hang it off that hand, offset towards where the other would
-         * be so it does not sit inside the controller. */
-        const MoteVrHand *one = L->tracked ? L : R;
-        float side = L->tracked ? 1.0f : -1.0f;
-        MoteVrV3 toward = mv3_norm(mv3_sub(t->head.p, one->pose.p));
-        MoteVrV3 across = mv3_norm(mv3_cross(mv3(0, 1, 0), toward));
-        want.p = mv3_add(one->pose.p, mv3_scale(across, side * 0.07f * h->scale));
-    } else {
-        /* Nothing tracked: park it where you are looking, at reading distance,
-         * so the app is never showing an empty room. */
-        MoteVrV3 fwd = mq_rot(t->head.q, mv3(0, 0, -1));
-        want.p = mv3_add(t->head.p, mv3_scale(fwd, 0.45f));
-    }
-
-    /* Facing: +Z out of the screen points at the head; +X follows the hands. */
-    MoteVrV3 z = mv3_norm(mv3_sub(t->head.p, want.p));
-    MoteVrV3 x;
-    if (both && span > 0.03f) {
-        x = mv3_norm(mv3_sub(R->pose.p, L->pose.p));
-        /* Orthogonalise against z: the hands are rarely exactly square on. */
-        x = mv3_norm(mv3_sub(x, mv3_scale(z, mv3_dot(x, z))));
-        if (mv3_len(x) < 0.3f) x = mv3_norm(mv3_cross(mv3(0, 1, 0), z));
-    } else {
-        x = mv3_norm(mv3_cross(mv3(0, 1, 0), z));
-    }
-    MoteVrV3 y = mv3_cross(z, x);
-    want.q = mq_from_axes(x, y, z);
-
-    /* A handheld is not held face-on to your eyes, it is held lower down and
-     * tipped back. Pitch it about its own left-right axis so it reads as a
-     * thing in your hands rather than a poster in front of you. */
-    if (h->tilt_deg != 0.0f)
-        want.q = mq_mul(want.q, mq_axis_angle(mv3(1, 0, 0), h->tilt_deg * 3.14159265f/180.0f));
-
-    /* ---- smooth --------------------------------------------------------- */
-    float dt = t->dt > 0.0f ? t->dt : 1.0f/72.0f;
-    float k = 1.0f - expf(-dt / SMOOTH_TAU);
-    if (!h->have_smoothed) { h->smoothed = want; h->have_smoothed = 1; }
-    else {
-        h->smoothed.p = mv3_lerp(h->smoothed.p, want.p, k);
-        h->smoothed.q = mq_nlerp(h->smoothed.q, want.q, k);
-    }
-
-    out->pose   = h->smoothed;
+    out->pose   = h->pose;
     out->scale  = h->scale;
-    out->placed = 1;
+    out->placed = h->placed;
 }

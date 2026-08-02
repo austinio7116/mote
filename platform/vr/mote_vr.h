@@ -64,23 +64,43 @@ typedef struct {
  * screen under about sixty pixels of headset — not a display, a smudge. So the
  * object you hold is scaled up: at 3x it is 155 mm across, near enough a Game
  * Boy Advance, and the LCD lands at roughly 1.5 headset pixels per Mote pixel,
- * which is legible with room to lean in. The gesture below changes it live and
- * the value is remembered between sessions. */
+ * which is legible with room to lean in. Grab it with both hands and move them
+ * apart to change it. */
 #define MOTE_VR_SCALE_DEFAULT 3.0f
 #define MOTE_VR_SCALE_MIN     1.0f
 #define MOTE_VR_SCALE_MAX     8.0f
 
+/* The console stays where you put it.
+ *
+ * Making it track the hands continuously sounded right and was not: your hands
+ * are never as still as a screen you are reading needs to be, and every button
+ * press moves the thing you are pressing. So it is an object in the room —
+ * squeeze a side trigger to take hold of it, let go and it stays.
+ *
+ * The grab records the console's pose *relative to the hand that grabbed it*
+ * and replays that relationship, which means it needs to know nothing about
+ * which way a grip pose's axes point. Rotate your wrist and it rotates with you;
+ * whatever it looked like when you grabbed it is what it still looks like.
+ */
 typedef struct {
-    /* Squeeze BOTH grips and move your hands apart or together to resize.
-     * Nothing else uses both grips at once, so there is no mode to enter. */
-    int   sizing;
-    float grab_span;        /* hand separation when the gesture started */
-    float grab_scale;
-    float scale;            /* current, smoothed */
-    MoteVrPose smoothed;
-    int   have_smoothed;
-    float tilt_deg;         /* extra pitch, so the screen sits as a handheld does */
+    MoteVrPose pose;        /* authoritative world pose — survives release */
+    float      scale;
+    int        placed;
+
+    int   grab;             /* hands currently holding it: 0, 1 or 2 */
+    int   grab_hand;        /* which one, when grab == 1 */
+    int   held[2];          /* per-hand grip latch (hysteresis) */
+
+    MoteVrQ  rel_q;         /* one-handed: console relative to that hand */
+    MoteVrV3 rel_p;
+
+    MoteVrQ  frame0;        /* two-handed: the hand-pair frame at grab */
+    MoteVrQ  q0;            /* and the console's pose and size then */
+    MoteVrV3 off0;
+    float    span0, scale0;
+
     int   dpad[4];          /* up/down/left/right, latched with hysteresis */
+    float tilt_deg;         /* pitch used when first placed / recalled */
 } MoteVrHoldState;
 
 void mote_vr_hold_init(MoteVrHoldState *h, float scale, float tilt_deg);
@@ -102,6 +122,11 @@ typedef struct {
 /* Build GL objects. Returns 0 on success; the reason is logged on failure. */
 int  mote_vr_render_init(const MoteVrAssets *a);
 void mote_vr_render_shutdown(void);
+
+/* Whether the framebuffer being drawn into performs the linear->sRGB encode
+ * itself. An OpenXR sRGB swapchain does (pass 0); a plain GL window does not
+ * (pass 1, the default), so the shader encodes. Set once, after init. */
+void mote_vr_render_set_target_srgb(int target_encodes_srgb);
 
 /* Hand the renderer the newest LCD contents (128*128 uint16 RGB565). Cheap to
  * call with an unchanged frame — it uploads only when `seq` moves. */

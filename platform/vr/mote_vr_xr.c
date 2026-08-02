@@ -278,6 +278,12 @@ static int make_swapchains(void) {
         if (fmt[i] == GL_RGBA8) want = fmt[i];
     if (!want && nf) want = fmt[0];
     free(fmt);
+    /* Tell the renderer who does the sRGB encode. Getting this backwards is the
+     * washed-out bug, and it is invisible from here — so it is logged. */
+    int srgb = (want == GL_SRGB8_ALPHA8);
+    mote_vr_render_set_target_srgb(srgb);
+    xrlog("[mote-vr] swapchain format 0x%04x (%s)", (unsigned)want,
+          srgb ? "sRGB, runtime encodes" : "linear, shader encodes");
 
     for (uint32_t i = 0; i < n; i++) {
         Eye *e = &S.eye[i];
