@@ -30,7 +30,10 @@
 #include <string.h>
 
 #define STB_IMAGE_IMPLEMENTATION
+/* PNG for the alpha mask and the icons, JPEG for the chassis photograph — see
+ * android/tools/gen_chassis.py for why the photo is not a PNG. */
 #define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
 #define STBI_NO_STDIO
 #include "stb_image.h"
 
@@ -78,6 +81,12 @@ enum { EB_A, EB_B, EB_UP, EB_DOWN, EB_LEFT, EB_RIGHT, EB_LB, EB_RB, EB_MENU, EB_
 #define SHELL_LB_DEG (-SHELL_TILT_DEG)
 #define SHELL_RB_DEG (+SHELL_TILT_DEG)
 
+/* The chassis photo: the APK carries a baked JPEG + alpha mask (240 KB), while
+ * a desktop dev build falls back to studio/assets/thumby_color.png so editing
+ * the source photo needs no bake step. Either way screen.cfg sits beside it and
+ * is in that image's own pixels. */
+static void load_chassis(void);
+
 /* Screen square inside the photo, in photo pixels (studio/assets/screen.cfg). */
 static float s_spx = 1011.2f, s_spy = 319.6f, s_sps = 888.8f;
 
@@ -86,17 +95,30 @@ static float s_spx = 1011.2f, s_spy = 319.6f, s_sps = 888.8f;
  * ====================================================================== */
 static SDL_Renderer *ren;
 static SDL_Window   *win;
-static SDL_Texture  *tex_photo, *tex_clear;   /* solid / see-through chassis */
+static SDL_Texture  *tex_photo;
 static SDL_Texture  *tex_frame;               /* the live 128x128 LCD */
 static SDL_Texture  *tex_ui;                  /* settings panel (128x128) */
 static int           photo_w, photo_h;
 
 /* Assets live in the APK on Android and in the repo on the desktop. */
+/* Same as asset_load but silent when missing — used for optional assets. */
+static void *asset_load_quiet(const char *name, size_t *out_len);
+
 static void *asset_load(const char *name, size_t *out_len) {
-    const char *tries[3];
-    char rel[256];
+    void *p = asset_load_quiet(name, out_len);
+    if (!p) SDL_Log("[mote] asset not found: %s", name);
+    return p;
+}
+
+static void *asset_load_quiet(const char *name, size_t *out_len) {
+    const char *tries[4];
+    char baked[256], rel[256];
+    /* On Android these are all one directory; on the desktop the baked APK copy
+     * is tried first so a dev build shows exactly what ships, falling back to
+     * the full-resolution source when it has not been baked. */
+    snprintf(baked, sizeof baked, "android/assets/%s", name);
     snprintf(rel, sizeof rel, "studio/assets/%s", name);
-    tries[0] = name; tries[1] = rel; tries[2] = NULL;
+    tries[0] = name; tries[1] = baked; tries[2] = rel; tries[3] = NULL;
     for (int i = 0; tries[i]; i++) {
         SDL_RWops *f = SDL_RWFromFile(tries[i], "rb");
         if (!f) continue;
@@ -110,7 +132,6 @@ static void *asset_load(const char *name, size_t *out_len) {
         *out_len = got;
         return buf;
     }
-    SDL_Log("[mote] asset not found: %s", name);
     return NULL;
 }
 
@@ -134,19 +155,46 @@ static unsigned char *halve_rgba(const unsigned char *src, int w, int h, int *ow
     return dst;
 }
 
-/* Decode a PNG asset into a texture, halving it while it exceeds the renderer's
- * texture limit (a 2872px chassis outgrows some older GPUs and every software
- * renderer). ow/oh report the ORIGINAL image size, not the texture's: the texture
- * is always drawn into a scaled dest rect, and screen.cfg's calibration is in
- * original-photo pixels, so layout must stay in those units. */
-static SDL_Texture *load_png(const char *name, int *ow, int *oh) {
+/* Paint an 8-bit mask into an RGBA buffer's alpha channel. The APK's chassis is
+ * a JPEG (a photograph; PNG was costing 3.6 MB for it) plus a separate mask,
+ * because JPEG has no alpha of its own — see android/tools/gen_chassis.py. */
+static void apply_alpha(unsigned char *px, int w, int h, const char *mask_name) {
     size_t len = 0;
-    void *raw = asset_load(name, &len);
+    void *raw = asset_load_quiet(mask_name, &len);
+    if (!raw) return;
+    int mw, mh, mn;
+    unsigned char *m = stbi_load_from_memory(raw, (int)len, &mw, &mh, &mn, 1);
+    SDL_free(raw);
+    if (!m) return;
+    if (mw == w && mh == h)
+        for (int i = 0; i < w * h; i++) px[i * 4 + 3] = m[i];
+    else
+        SDL_Log("[mote] %s: %dx%d does not match the photo's %dx%d", mask_name, mw, mh, w, h);
+    stbi_image_free(m);
+}
+
+/* Decode an image asset into a texture, halving it while it exceeds the
+ * renderer's texture limit (a 2872px chassis outgrows some older GPUs and every
+ * software renderer). ow/oh report the ORIGINAL image size, not the texture's:
+ * the texture is always drawn into a scaled dest rect, and screen.cfg's
+ * calibration is in photo pixels, so layout must stay in those units.
+ *
+ * `name` may be a JPEG; if it is, an alpha mask named <stem>_a.png is applied
+ * over it when one exists. */
+static SDL_Texture *load_png_ex(const char *name, int *ow, int *oh, int quiet) {
+    size_t len = 0;
+    void *raw = quiet ? asset_load_quiet(name, &len) : asset_load(name, &len);
     if (!raw) return NULL;
     int w, h, n;
     unsigned char *px = stbi_load_from_memory(raw, (int)len, &w, &h, &n, 4);
     SDL_free(raw);
     if (!px) { SDL_Log("[mote] %s: %s", name, stbi_failure_reason()); return NULL; }
+    { const char *dot = strrchr(name, '.');
+      if (dot && (!strcmp(dot, ".jpg") || !strcmp(dot, ".jpeg"))) {
+          char mask[256];
+          snprintf(mask, sizeof mask, "%.*s_a.png", (int)(dot - name), name);
+          apply_alpha(px, w, h, mask);
+      } }
     if (ow) *ow = w;
     if (oh) *oh = h;
 
@@ -171,6 +219,17 @@ static SDL_Texture *load_png(const char *name, int *ow, int *oh) {
     if (owned_by_stb) stbi_image_free(cur); else free(cur);
     return t;
 }
+static SDL_Texture *load_png(const char *n, int *w, int *h)       { return load_png_ex(n, w, h, 0); }
+static SDL_Texture *load_png_quiet(const char *n, int *w, int *h) { return load_png_ex(n, w, h, 1); }
+
+static void load_chassis(void) {
+    int w = 0, h = 0;
+    SDL_Texture *t = load_png_quiet("thumby_color.jpg", &w, &h);
+    if (!t) t = load_png("thumby_color.png", &w, &h);
+    if (!t) return;
+    if (tex_photo) SDL_DestroyTexture(tex_photo);
+    tex_photo = t; photo_w = w; photo_h = h;
+}
 
 static void load_screen_cfg(void) {
     size_t len = 0;
@@ -192,7 +251,8 @@ enum { SH_TOP = 0, SH_SHELL = 1 };   /* shoulder placement */
 static struct {
     int  layout;        /* LAY_* */
     int  shoulder;      /* SH_*  */
-    int  clear;         /* see-through chassis */
+    int  clear;         /* unused since the see-through photo was dropped; the
+                         * field stays so an older shell.cfg still parses */
     int  haptics;
     char relay[80];
 } cfg = { LAY_CHASSIS, SH_SHELL, 0, 1, "" };
@@ -895,7 +955,7 @@ static void keys_read(int *out) {
  * ====================================================================== */
 static const char *const PERF_LEVEL[4] = { "OFF", "FPS", "MINI", "FULL" };
 
-enum { ROW_LAYOUT = 0, ROW_SHOULDER, ROW_CHASSIS, ROW_HAPTIC, ROW_FPS, ROW_RELAY,
+enum { ROW_LAYOUT = 0, ROW_SHOULDER, ROW_HAPTIC, ROW_FPS, ROW_RELAY,
        ROW_BACK, ROW_CLOSE, ROW_MAX };
 
 static int  s_settings_open, s_sel;
@@ -984,7 +1044,6 @@ static int settings_ids(int *ids) {
     int n = 0;
     ids[n++] = ROW_LAYOUT;
     ids[n++] = ROW_SHOULDER;
-    ids[n++] = ROW_CHASSIS;
     ids[n++] = ROW_HAPTIC;
     ids[n++] = ROW_FPS;
     ids[n++] = ROW_RELAY;
@@ -1012,11 +1071,6 @@ static void row_text(int id, char *name, char *val, char *hint, int cap) {
         snprintf(name, cap, "LB / RB buttons");
         snprintf(val, cap, "%s", cfg.shoulder == SH_TOP ? "Top corners" : "On the shell");
         snprintf(hint, cap, "Where the shoulder buttons sit");
-        break;
-    case ROW_CHASSIS:
-        snprintf(name, cap, "Casing");
-        snprintf(val, cap, "%s", cfg.clear ? "See-through" : "Photo");
-        snprintf(hint, cap, "How the console around the screen looks");
         break;
     case ROW_HAPTIC:
         snprintf(name, cap, "Vibration");
@@ -1062,7 +1116,6 @@ static void settings_activate(int id) {
     switch (id) {
     case ROW_LAYOUT:   cfg.layout = !cfg.layout; layout(); break;
     case ROW_SHOULDER: cfg.shoulder = !cfg.shoulder; layout(); break;
-    case ROW_CHASSIS:  cfg.clear = !cfg.clear; break;
     case ROW_HAPTIC:   cfg.haptics = !cfg.haptics; break;
     case ROW_FPS:      mote_perf_toggle(); return;   /* cycles the on-LCD overlay */
     case ROW_RELAY:
@@ -1356,8 +1409,7 @@ int main(int argc, char *argv[]) {
 
     /* ---- assets ---- */
     load_screen_cfg();
-    tex_photo = load_png("thumby_color.png", &photo_w, &photo_h);
-    { int cw, ch; tex_clear = load_png("thumby_color_clear.png", &cw, &ch); }
+    load_chassis();
     tex_frame = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING,
                                  MOTE_FB_W, MOTE_FB_H);
     SDL_SetTextureScaleMode(tex_frame, SDL_ScaleModeNearest);
@@ -1398,14 +1450,12 @@ int main(int argc, char *argv[]) {
             case SDL_RENDER_TARGETS_RESET:
             case SDL_RENDER_DEVICE_RESET:
                 if (tex_photo) { SDL_DestroyTexture(tex_photo); tex_photo = NULL; }
-                if (tex_clear) { SDL_DestroyTexture(tex_clear); tex_clear = NULL; }
                 if (tex_ui)    { SDL_DestroyTexture(tex_ui);    tex_ui = NULL; }
                 if (tex_frame) { SDL_DestroyTexture(tex_frame); tex_frame = NULL; }
                 for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++)
                     if (tex_sh[i][j]) { SDL_DestroyTexture(tex_sh[i][j]); tex_sh[i][j] = NULL; }
                 txt_free();
-                tex_photo = load_png("thumby_color.png", &photo_w, &photo_h);
-                { int cw, ch; tex_clear = load_png("thumby_color_clear.png", &cw, &ch); }
+                load_chassis();
                 tex_frame = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB565,
                                               SDL_TEXTUREACCESS_STREAMING, MOTE_FB_W, MOTE_FB_H);
                 last_seq = (uint32_t)-1;
@@ -1557,7 +1607,7 @@ int main(int argc, char *argv[]) {
         SDL_SetRenderDrawColor(ren, 8, 9, 14, 255);
         SDL_RenderClear(ren);
 
-        SDL_Texture *chassis = (cfg.clear && tex_clear) ? tex_clear : tex_photo;
+        SDL_Texture *chassis = tex_photo;
         if (chassis) {
             SDL_Rect d = { s_dx, s_dy, s_dw, s_dh };
             SDL_RenderCopy(ren, chassis, NULL, &d);
@@ -1641,7 +1691,6 @@ int main(int argc, char *argv[]) {
     txt_free();
     if (tex_ui) SDL_DestroyTexture(tex_ui);
     if (tex_frame) SDL_DestroyTexture(tex_frame);
-    if (tex_clear) SDL_DestroyTexture(tex_clear);
     if (tex_photo) SDL_DestroyTexture(tex_photo);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);

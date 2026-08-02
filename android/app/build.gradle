@@ -76,16 +76,26 @@ android {
     }
 }
 
-// The chassis photo, the see-through variant and the screen calibration come
-// straight from studio/assets, so the app and the Studio emulator can never
-// disagree about what the handheld looks like or where its LCD sits.
+// The chassis photo, baked for the phone by android/tools/gen_chassis.py: a
+// JPEG plus its alpha mask at 0.8 scale, and screen.cfg scaled to match. 240 KB
+// where the full-resolution PNG pair was 7.8 MB, and still above 1:1 on the
+// tallest phone in landscape. Regenerate after editing studio/assets.
 task copyChassisAssets(type: Copy) {
-    from("${rootDir}/../studio/assets") {
-        include 'thumby_color.png'
-        include 'thumby_color_clear.png'
+    // Wipe first: Copy leaves whatever a previous build put here, and a stale
+    // 3.6 MB thumby_color.png would ride along in the APK unnoticed.
+    doFirst { delete "${buildDir}/generated/moteAssets" }
+    from("${rootDir}/assets") {
+        include 'thumby_color.jpg'
+        include 'thumby_color_a.png'
         include 'screen.cfg'
     }
     into "${buildDir}/generated/moteAssets"
+    doLast {
+        ['thumby_color.jpg', 'thumby_color_a.png', 'screen.cfg'].each {
+            if (!file("${buildDir}/generated/moteAssets/${it}").exists())
+                throw new GradleException("missing baked asset ${it} -- run: python3 android/tools/gen_chassis.py")
+        }
+    }
 }
 // Every variant task runs after preBuild, so this one hook orders the staging
 // ahead of asset merging, packaging and lint alike.
