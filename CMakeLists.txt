@@ -129,6 +129,54 @@ if(MOTE_TARGET STREQUAL "host")
     endif()
     endif()  # NOT WIN32 (desktop build of the Android shell)
 
+    # Mote VR preview: the headset app minus OpenXR. The same engine thread, the
+    # same chassis mesh, the same shaders and the same hold logic the Quest build
+    # runs — with two fake controllers driven by a mouse, because a Quest build
+    # cannot be looked at from the machine that writes it. Runs headless
+    # (SDL_VIDEODRIVER=offscreen) and screenshots itself; see platform/vr.
+    if(NOT WIN32)
+    find_library(GLESV2_LIB GLESv2)
+    if(GLESV2_LIB)
+    add_executable(mote_vr_preview
+        platform/vr/mote_vr_preview.c
+        platform/vr/mote_vr_render.c
+        platform/vr/mote_vr_hold.c
+        platform/android/mote_plat_android.c
+        platform/android/mote_link_android.c
+        platform/android/mote_mn1.c
+        studio/link_net.c
+        os/android/mote_android_os.c
+        os/android/mote_android_gallery.c
+        os/android/mote_android_dock.c
+        os/mote_os.c
+        os/mote_launcher.c
+        os/mote_menu.c
+        os/mote_ui.c
+        os/mote_lobby.c
+        os/mote_netshim.c)
+    target_include_directories(mote_vr_preview PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/os/android
+        ${CMAKE_CURRENT_SOURCE_DIR}/platform/android
+        ${CMAKE_CURRENT_SOURCE_DIR}/platform/vr
+        ${CMAKE_CURRENT_SOURCE_DIR}/studio
+        ${CMAKE_CURRENT_SOURCE_DIR}/studio/third_party)
+    target_compile_definitions(mote_vr_preview PRIVATE MOTE_HOST=1 MOTE_SHELL_DESKTOP=1
+        MOTE_LAUNCHER_GALLERY_KEY=1)
+    target_compile_options(mote_vr_preview PRIVATE -O2 -ffast-math -Wall -Wextra
+        -Wno-unused-parameter -Wno-format-truncation)
+    target_link_libraries(mote_vr_preview PRIVATE mote_engine ${GLESV2_LIB} ${CMAKE_DL_LIBS})
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(mote_vr_preview PRIVATE SDL2::SDL2)
+    else()
+        target_include_directories(mote_vr_preview PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(mote_vr_preview PRIVATE ${SDL2_LIBRARIES})
+    endif()
+    else()
+        message(STATUS "libGLESv2 not found — skipping mote_vr_preview")
+    endif()
+    endif()  # NOT WIN32 (VR preview)
+
     # Mote Studio: the bespoke IDE — embeds the engine via the studio platform
     # backend (offscreen present + Studio-fed buttons) and draws it in a device shell.
     add_executable(mote_studio

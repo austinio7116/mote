@@ -13,13 +13,26 @@
  * Also compiles for the desktop (-DMOTE_SHELL_DESKTOP) so the shell UI can be
  * run and screenshotted without a phone; only logging and the storage default
  * differ.
+ *
+ * And it is the backend for the VR build too (-DMOTE_VR, platform/vr): a
+ * headset is an embedded presentation surface like any other, so everything
+ * below — the frame handoff, saves, key-value blobs, the Java hooks — is the
+ * same code. Only the audio device differs: the phone pulls through SDL, and
+ * the headset has no SDL at all, so it uses AAudio directly. Nothing else here
+ * is allowed to know which app it is in.
  */
 #include "mote_platform.h"
 #include "mote_config.h"
 #include "mote_plat_android.h"
 #include "mote_audio.h"
 
+#if MOTE_AUDIO_SDL
 #include <SDL.h>
+#else
+#include <aaudio/AAudio.h>
+#include "mote_vr_resample.h"
+#endif
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,8 +50,8 @@ static volatile int s_quit;
 
 /* Double-buffer: the engine renders into the shared launcher fb, then present
  * copies the COMPLETE frame here under a lock; the UI only ever reads this. */
-static uint16_t   s_display[MOTE_FB_W * MOTE_FB_H];
-static SDL_mutex *s_lock;
+static uint16_t s_display[MOTE_FB_W * MOTE_FB_H];
+static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint32_t   s_seq;
 static uint64_t   s_last_present;
 static int        s_present_cap = 60;      /* engine fps ceiling (0 = uncapped) */
@@ -58,20 +71,18 @@ int  mote_shell_in_game(void) { return s_in_game; }
 
 void mote_shell_get_frame(uint16_t *out) {
     if (!out) return;
-    if (!s_lock) { SDL_memset(out, 0, sizeof s_display); return; }
-    SDL_LockMutex(s_lock);
-    SDL_memcpy(out, s_display, sizeof s_display);
-    SDL_UnlockMutex(s_lock);
+    pthread_mutex_lock(&s_lock);
+    memcpy(out, s_display, sizeof s_display);
+    pthread_mutex_unlock(&s_lock);
 }
 uint32_t mote_shell_frame_seq(void) { return s_seq; }
 
 static void publish(const uint16_t *fb) {
-    if (!s_lock) s_lock = SDL_CreateMutex();
-    SDL_LockMutex(s_lock);
-    SDL_memcpy(s_display, fb, sizeof s_display);
+    pthread_mutex_lock(&s_lock);
+    memcpy(s_display, fb, sizeof s_display);
     s_seq++;
-    SDL_UnlockMutex(s_lock);
-    while (s_paused && !s_quit) SDL_Delay(60);
+    pthread_mutex_unlock(&s_lock);
+    while (s_paused && !s_quit) mote_plat_sleep_us(60000);
     /* Pace the engine so a light game doesn't burn a core (and dt stays sane).
      * Start-to-start pacing, same shape as the Studio backend. */
     if (s_present_cap > 0) {
@@ -90,17 +101,76 @@ static void publish(const uint16_t *fb) {
 }
 
 /* ---- audio -------------------------------------------------------------- */
+#if MOTE_AUDIO_SDL
+
 static SDL_AudioDeviceID s_audio;
 static void audio_cb(void *u, Uint8 *stream, int len) { (void)u;
     mote_audio_render((int16_t *)stream, len / 2);   /* 16-bit mono */
 }
+static void audio_open(void) {
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) return;
+    SDL_AudioSpec want; memset(&want, 0, sizeof want);
+    want.freq = MOTE_AUDIO_RATE; want.format = AUDIO_S16SYS; want.channels = 1;
+    want.samples = 512; want.callback = audio_cb;
+    s_audio = SDL_OpenAudioDevice(NULL, 0, &want, NULL, 0);
+    if (s_audio) SDL_PauseAudioDevice(s_audio, 0);
+}
+static void audio_pause(int paused) { if (s_audio) SDL_PauseAudioDevice(s_audio, paused); }
+static void audio_close(void) { if (s_audio) { SDL_CloseAudioDevice(s_audio); s_audio = 0; } }
+
+#else   /* AAudio: the headset build links no SDL */
+
+static AAudioStream    *s_audio;
+static int32_t          s_audio_rate = MOTE_AUDIO_RATE;
+static MoteVrResampler  s_rs;
+
+static aaudio_data_callback_result_t aa_cb(AAudioStream *st, void *u,
+                                           void *data, int32_t frames) {
+    (void)st; (void)u;
+    if (s_audio_rate == MOTE_AUDIO_RATE) mote_audio_render((int16_t *)data, frames);
+    else mote_vr_rs_render(&s_rs, (int16_t *)data, frames, mote_audio_render);
+    return AAUDIO_CALLBACK_RESULT_CONTINUE;
+}
+
+static void audio_open(void) {
+    AAudioStreamBuilder *b = NULL;
+    if (AAudio_createStreamBuilder(&b) != AAUDIO_OK || !b) return;
+    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
+    AAudioStreamBuilder_setChannelCount(b, 1);
+    AAudioStreamBuilder_setSampleRate(b, MOTE_AUDIO_RATE);
+    AAudioStreamBuilder_setPerformanceMode(b, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+    AAudioStreamBuilder_setDataCallback(b, aa_cb, NULL);
+    aaudio_result_t r = AAudioStreamBuilder_openStream(b, &s_audio);
+    AAudioStreamBuilder_delete(b);
+    if (r != AAUDIO_OK || !s_audio) { s_audio = NULL; mote_plat_log("[mote] no audio device"); return; }
+    s_audio_rate = AAudioStream_getSampleRate(s_audio);
+    if (s_audio_rate <= 0) s_audio_rate = MOTE_AUDIO_RATE;
+    mote_vr_rs_init(&s_rs, MOTE_AUDIO_RATE, s_audio_rate);
+    { char m[80]; snprintf(m, sizeof m, "[mote] audio %d Hz%s", (int)s_audio_rate,
+        s_audio_rate == MOTE_AUDIO_RATE ? "" : " (resampling from 22050)");
+      mote_plat_log(m); }
+    AAudioStream_requestStart(s_audio);
+}
+static void audio_pause(int paused) {
+    if (!s_audio) return;
+    if (paused) AAudioStream_requestPause(s_audio);
+    else        AAudioStream_requestStart(s_audio);
+}
+static void audio_close(void) {
+    if (!s_audio) return;
+    AAudioStream_requestStop(s_audio);
+    AAudioStream_close(s_audio);
+    s_audio = NULL;
+}
+
+#endif  /* MOTE_AUDIO_SDL */
 
 /* Backgrounded: park the engine inside publish() (and silence audio) instead of
  * letting it keep simulating off-screen. The frame loop clamps dt, so a long park
  * resumes as one short frame rather than a time jump. */
 void mote_shell_set_paused(int paused) {
     s_paused = paused ? 1 : 0;
-    if (s_audio) SDL_PauseAudioDevice(s_audio, s_paused);
+    audio_pause(s_paused);
 }
 
 /* ---- storage ------------------------------------------------------------ */
@@ -121,14 +191,7 @@ void mote_shell_set_storage(const char *dir) {
 /* ---- platform surface --------------------------------------------------- */
 int mote_plat_init(const char *title) { (void)title;
     mote_audio_init();
-    if (SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
-        SDL_AudioSpec want; SDL_memset(&want, 0, sizeof want);
-        want.freq = MOTE_AUDIO_RATE; want.format = AUDIO_S16SYS; want.channels = 1;
-        want.samples = 512; want.callback = audio_cb;
-        s_audio = SDL_OpenAudioDevice(NULL, 0, &want, NULL, 0);
-        if (s_audio) SDL_PauseAudioDevice(s_audio, 0);
-    }
-    if (!s_lock) s_lock = SDL_CreateMutex();
+    audio_open();
     return 0;
 }
 
@@ -170,9 +233,7 @@ void mote_plat_log(const char *s) {
 #endif
 }
 
-void mote_plat_shutdown(void) {
-    if (s_audio) { SDL_CloseAudioDevice(s_audio); s_audio = 0; }
-}
+void mote_plat_shutdown(void) { audio_close(); }
 
 void mote_plat_set_brightness(int pct) { (void)pct; }   /* the OS owns the panel */
 /* No cross-process settings store here: the window/phone owns its own brightness

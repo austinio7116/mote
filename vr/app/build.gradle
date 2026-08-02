@@ -1,0 +1,81 @@
+apply plugin: 'com.android.application'
+
+// Which games go in the APK. As on the phone, none by default: the app fills
+// itself from the gallery, so a game is never two versions — one baked in, one
+// installed. -PmoteGames=all bundles the lot, or name them:
+//   ./gradlew assembleRelease -PmoteGames="moita wormote"
+def moteGames = (project.findProperty('moteGames') ?: 'none').trim()
+
+android {
+    namespace 'us.thumby.motevr'
+    compileSdk 35
+    ndkVersion '26.3.11579264'
+
+    defaultConfig {
+        applicationId 'us.thumby.motevr'
+        // Quest 3 is Android 12. 29 is the floor the OpenXR loader and AAudio
+        // both sit comfortably above.
+        minSdk 29
+        targetSdk 35
+        versionCode 1
+        versionName '0.1-alpha'
+        externalNativeBuild {
+            ndkBuild {
+                arguments 'APP_PLATFORM=android-29'
+                arguments += "MOTE_GAMES=${moteGames}".toString()
+                abiFilters 'arm64-v8a'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        ndkBuild {
+            path 'jni/Android.mk'
+        }
+    }
+
+    sourceSets.main {
+        // The chassis mesh and its texture, baked by vr/tools/gen_vr_chassis.py.
+        // Staged from vr/assets rather than duplicated into the source tree.
+        assets.srcDirs += "${rootDir}/assets"
+    }
+
+    packaging {
+        jniLibs {
+            // The launcher enumerates game modules with opendir() on the app's
+            // native-library dir, so the modules must be real files on disk.
+            useLegacyPackaging = true
+        }
+    }
+
+    buildTypes {
+        release {
+            // Signed with the debug key: this is a sideloaded APK, not a store
+            // upload, and a keystore would just be a build-time hurdle.
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+// The mesh and texture must exist before the APK is packaged; they are generated,
+// not checked in as art.
+task checkChassisAssets {
+    doFirst {
+        ['chassis.mvm', 'chassis.jpg'].each {
+            if (!file("${rootDir}/assets/${it}").exists())
+                throw new GradleException("missing ${it} — run: python3 vr/tools/gen_vr_chassis.py")
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn checkChassisAssets }

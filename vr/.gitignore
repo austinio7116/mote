@@ -1,0 +1,5 @@
+# gradle build output + the local SDK path
+app/build/
+build/
+.gradle/
+local.properties

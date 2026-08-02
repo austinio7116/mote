@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:installLocation="auto">
+
+    <!-- A headset, not a phone: the app is stereo, tracked and standalone. -->
+    <uses-feature android:name="android.hardware.vr.headtracking"
+        android:required="true" android:version="1" />
+    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+    <!-- Passthrough is what makes it a console on your desk rather than a
+         console in a void. Not required: without it the app draws its own room
+         (see mote_vr_render.c), so it still runs on a SteamVR headset. -->
+    <uses-feature android:name="com.oculus.feature.PASSTHROUGH" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <!-- The OpenXR loader talks to the runtime through a broker; these are the
+         entries the Khronos loader AAR would inject if it were a gradle
+         dependency. It is vendored instead (vr/third_party/openxr) so the build
+         is reproducible offline. -->
+    <uses-permission android:name="org.khronos.openxr.permission.OPENXR" />
+    <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
+    <queries>
+        <provider android:authorities="org.khronos.openxr.runtime_broker;org.khronos.openxr.system_runtime_broker" />
+        <intent>
+            <action android:name="org.khronos.openxr.OpenXRRuntimeService" />
+        </intent>
+        <intent>
+            <action android:name="org.khronos.openxr.OpenXRApiLayerService" />
+        </intent>
+    </queries>
+
+    <!-- 2-player link: LAN discovery and the internet relay, exactly as on the
+         phone and the handheld. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:hasCode="true"
+        android:extractNativeLibs="true">
+
+        <!-- The launcher enumerates game modules with opendir() on the native
+             library dir, so they must be real files on disk, not entries left
+             compressed inside the APK. -->
+        <meta-data android:name="com.samsung.android.vr.application.mode" android:value="vr_only" />
+
+        <activity
+            android:name=".MoteVrActivity"
+            android:label="@string/app_name"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:excludeFromRecents="false"
+            android:configChanges="screenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode|density"
+            android:exported="true">
+
+            <!-- android_main lives in libmotevr.so -->
+            <meta-data android:name="android.app.lib_name" android:value="motevr" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- Horizon OS shows the app in the headset's library rather
+                     than in the flat-app panel. -->
+                <category android:name="com.oculus.intent.category.VR" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -17,6 +17,17 @@
 #include <stdint.h>
 #include "mote_input.h"
 
+/* Which audio device the backend opens. SDL wherever the app already links it
+ * (the phone shell and its desktop build); AAudio in the VR build, which is a
+ * NativeActivity with no SDL in it at all. */
+#ifndef MOTE_AUDIO_SDL
+#  if defined(MOTE_VR) && defined(__ANDROID__)
+#    define MOTE_AUDIO_SDL 0
+#  else
+#    define MOTE_AUDIO_SDL 1
+#  endif
+#endif
+
 /* ---- shell UI -> engine ------------------------------------------------- */
 void mote_shell_set_buttons(const MoteButtons *b);
 void mote_shell_request_quit(void);            /* stop mote_os_run + the launcher */
