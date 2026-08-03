@@ -129,7 +129,7 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
                                mv3_scale(live_axis, CUEVR_CUE_LEN - c->grip));
         c->have_prev = 0;
         c->struck = 0;
-        c->speed_prev = c->speed_peak = 0.0f;
+        c->speed_n = 0;
     } else if (!want_stroke) {
         c->stroking = 0;
     }
@@ -210,28 +210,38 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
          * safety and a power shot. That is what made the power feel random. A
          * 35 ms attack averages two or three frames: fast enough to follow a
          * real delivery, slow enough that jitter cannot dominate it. */
-        /* Power: the PEAK of a two-frame mean of the closing speed.
+        /* Power: the mean closing speed over the last few frames, taken AT the
+         * moment of contact.
          *
-         * One frame at 72 Hz is 14 ms, and a millimetre of tracking noise over
-         * that reads as 0.07 m/s — so two or three millimetres between frames
-         * separates a safety from a power shot, which is what made the power
-         * feel random. Averaging two frames halves that and still converges the
-         * moment the cue is genuinely moving, which matters because a hard shot
-         * over a short gap connects in one or two frames: an exponential attack
-         * (tried first) cannot converge in that time and reads LOW on exactly
-         * the fastest strokes. Taking the peak over the delivery rather than the
-         * value at contact then covers the tip's slight deceleration as it
-         * arrives, and the fact that you hold the trigger while still addressing
-         * the ball, so the first samples are zero. */
+         * Not the peak over the delivery, which is what this did and which is
+         * not linear in anything: a peak inflates a hard stroke more than a
+         * gentle one, so soft shots came out weak and hard ones came out
+         * overpowered. Worse, it is not even local to the strike — address the
+         * ball and feather the cue with the trigger held, as everyone does, and
+         * the peak is the fastest practice stroke rather than the shot.
+         *
+         * A short trailing mean is linear in the speed of the delivery, is the
+         * speed the tip was genuinely doing as it arrived, and still averages
+         * away the frame-to-frame jitter that made it random in the first place. */
         float closing = (c->prev_gap - c->gap) / t->dt;
-        float mean2 = 0.5f * (closing + c->speed_prev);
-        c->speed_prev = closing;
-        if (mean2 > c->speed_peak) c->speed_peak = mean2;
-        c->speed = c->speed_peak;
-        if (c->gap <= 0.0f && c->speed_peak > 0.12f) {
+        for (int i = CUEVR_SPEED_N - 1; i > 0; i--) c->speed_hist[i] = c->speed_hist[i-1];
+        c->speed_hist[0] = closing;
+        if (c->speed_n < CUEVR_SPEED_N) c->speed_n++;
+        /* Average only the frames the cue was going FORWARD. While you address
+         * the ball it is stationary, and during a backswing it is going the
+         * wrong way; including either drags the mean down — badly, because a
+         * hard delivery is only two or three frames long, so a stationary frame
+         * can be a third of the window. The delivery IS the forward motion, so
+         * that is what gets averaged. */
+        float sum = 0.0f;
+        int nfwd = 0;
+        for (int i = 0; i < c->speed_n; i++)
+            if (c->speed_hist[i] > 0.0f) { sum += c->speed_hist[i]; nfwd++; }
+        c->speed = nfwd ? sum / (float)nfwd : 0.0f;
+        if (c->gap <= 0.0f && c->speed > 0.12f) {
             c->struck = 1;
             out->struck   = 1;
-            out->speed    = c->speed_peak;
+            out->speed    = c->speed;
             out->tip_side = c->tip_side;
             out->tip_vert = c->tip_vert;
             out->elev     = c->elev;

@@ -677,10 +677,15 @@ static void app_update(void *u, const MoteVrTracking *t) {
             pos = mv3_add(t->head.p, mv3_scale(mv3_norm(fwd), 0.75f));
             S.scene.hud_w = 0.42f;
         } else {
+            /* High and well back. At 45 cm above the cloth just past the rail it
+             * sat in the line of any shot played up the table — you were cueing
+             * through the scoreboard. Above head height when you are down on the
+             * ball, and half a metre clear of the cushion, it cannot be in the
+             * way of anything and you glance up for it. */
             pos = cuevr_table_to_room(&S.setup.place,
-                (Vec3){ S.tab.half_len + 0.30f, 0.0f, 0.0f });
-            pos.y += 0.45f;
-            S.scene.hud_w = 0.34f;
+                (Vec3){ S.tab.half_len + 0.55f, 0.0f, 0.0f });
+            pos.y += 0.95f;
+            S.scene.hud_w = 0.44f;
         }
         S.scene.hud_pos = pos;
         MoteVrV3 to_head = mv3_sub(t->head.p, pos);

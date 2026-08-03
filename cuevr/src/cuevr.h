@@ -79,6 +79,11 @@ int  cuevr_setup_update(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_bal
 void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_ball_room,
                         int allow_height);
 
+/* Frames averaged for power. Three at 72 Hz is a 42 ms window: long enough that
+ * a millimetre of tracking jitter cannot dominate it, short enough to be the
+ * speed the cue was ACTUALLY doing as it arrived. */
+#define CUEVR_SPEED_N 3
+
 /* ---- the cue ------------------------------------------------------------ *
  * "Natural" cueing, as in Unlimited Snooker: the left hand is the bridge the
  * cue rests on and the right hand is the butt. The two together are the cue —
@@ -122,8 +127,10 @@ typedef struct {
     float prev_gap;
     int   have_prev;
     float speed;         /* closing speed along the axis (m/s) */
-    float speed_prev;    /* last frame's closing speed, for a 2-frame mean */
-    float speed_peak;    /* the fastest the delivery got: what the ball gets */
+    /* The last few frames' closing speeds. Power is their mean at the moment of
+     * contact — local to the strike, and linear in the speed of the delivery. */
+    float speed_hist[CUEVR_SPEED_N];
+    int   speed_n;
     MoteVrV3 prev_hand[2];   /* for sliding a hand along the cue */
     int   have_hand;
     int   struck;            /* this stroke has already made contact */
