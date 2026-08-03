@@ -74,6 +74,10 @@ void cuevr_setup_init(CueVrSetup *s, float floor_y);
  * continue, 0 once the player has confirmed. */
 int  cuevr_setup_update(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_ball_room);
 
+/* Just the sticks — slide, turn about the cue ball, height. Live during
+ * setup and during aiming, because the shot has to be brought to you. */
+void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_ball_room);
+
 /* ---- the cue ------------------------------------------------------------ *
  * "Natural" cueing, as in Unlimited Snooker: the left hand is the bridge the
  * cue rests on and the right hand is the butt. The two together are the cue —
@@ -89,6 +93,7 @@ typedef struct {
     /* live, recomputed each frame */
     MoteVrV3 butt, bridge, tip;
     MoteVrV3 axis;       /* unit, butt -> tip */
+    int   tracked;       /* both hands are held apart: there is a cue */
     int   on_ball;       /* the cue line actually meets the cue ball */
     float gap;           /* tip to ball surface along the axis (m), <0 = through */
     float tip_side;      /* contact offset, fractions of R (+ = right english) */

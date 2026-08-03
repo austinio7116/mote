@@ -183,7 +183,8 @@ static const char *FS =
 "        vec3 c;\n"
 "        float gloss = 42.0, spec_k = 0.30;\n"
 "        if (t < 0.0069) { c = vec3(0.42, 0.55, 0.62); gloss = 8.0; spec_k = 0.05; }\n"      // leather tip
-"        else if (t < 0.0221) { c = vec3(0.93, 0.91, 0.84); gloss = 70.0; spec_k = 0.45; }\n" // ferrule
+"        else if (t < 0.0221) { c = mix(vec3(0.93,0.91,0.84), vec3(0.45,1.0,0.55),\n"
+"                                        u_colour.a); gloss = 70.0; spec_k = 0.45; }\n" // ferrule: green when the line is live
 "        else {\n"
 "            // Grain: fine rings along the shaft, plus a slow wander so it is\n"
 "            // not a barcode.\n"
@@ -872,6 +873,10 @@ void cuevr_render_eye(const float *view, const float *proj,
     /* ---- the cue ---- */
     if (s->cue_visible) {
         glUniform1i(G.u_mode, 5);
+        /* The one piece of aim feedback there is: the ferrule goes green when
+         * the cue line actually meets the ball. No aim line, no ghost ball —
+         * but you should not have to guess whether you are even on it. */
+        glUniform4f(G.u_colour, 1, 1, 1, s->cue_on_ball ? 1.0f : 0.0f);
         /* The mesh is a real cue, 1.45 m with y=0 at the tip. So put the tip
          * where the cue line meets the ball and run +Y back along the shaft —
          * past your hands and out behind you, as a real cue does. It is NOT

@@ -54,6 +54,7 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     if (!bridge_hand->tracked || !butt_hand->tracked) {
         c->have_prev = 0;
         c->on_ball = 0;
+        c->tracked = 0;
         return;
     }
 
@@ -61,11 +62,13 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     c->butt   = butt_hand->pose.p;
 
     MoteVrV3 along = mv3_sub(c->bridge, c->butt);
-    if (mv3_len(along) < 0.05f) {       /* hands together: no cue to speak of */
+    if (mv3_len(along) < 0.05f) {       /* hands together: no direction to hold */
         c->have_prev = 0;
         c->on_ball = 0;
+        c->tracked = 0;
         return;
     }
+    c->tracked = 1;
     c->axis = mv3_norm(along);
     c->tip  = mv3_add(c->bridge, mv3_scale(c->axis, c->bridge_len));
 
@@ -88,9 +91,13 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     float r2 = R * R;
 
     if (perp2 > r2) {
+        /* The cue line misses the ball. That is a perfectly normal state — it is
+         * most of the time, while you are lining up — so the cue still exists
+         * and is still drawn; only the strike is unavailable. An earlier version
+         * drew nothing until the line happened to cross the ball, which meant
+         * you could not see the cue you were trying to aim. */
         c->on_ball = 0;
         c->have_prev = 0;
-        /* Still report the gap so the renderer can fade the tip highlight. */
         c->gap = along_axis - R;
         return;
     }

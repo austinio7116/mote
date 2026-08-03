@@ -54,8 +54,10 @@ static float dead(float v) {
     return 0.0f;
 }
 
-int cuevr_setup_update(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_room) {
-    if (!s->active) return 0;
+/* The sticks, on their own. Called every frame of setup AND every frame you
+ * are down on a shot, because bringing the table to you is not a thing you
+ * only need once. */
+void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_room) {
     float dt = t->dt > 0.0f && t->dt < 0.25f ? t->dt : 1.0f / 72.0f;
 
     const MoteVrHand *L = &t->hand[MOTE_VR_LEFT];
@@ -104,9 +106,13 @@ int cuevr_setup_update(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_roo
         s->last_height  = h;
     }
 
-    /* ---- done ------------------------------------------------------------ *
-     * A, or the right index trigger — whichever the player reaches for. */
-    if (Rh->btn_lower || Rh->trigger > 0.7f) {
+}
+
+int cuevr_setup_update(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_room) {
+    if (!s->active) return 0;
+    cuevr_setup_adjust(s, t, ball_room);
+    /* Done: A, or the right index trigger — whichever the player reaches for. */
+    if (t->hand[MOTE_VR_RIGHT].btn_lower || t->hand[MOTE_VR_RIGHT].trigger > 0.7f) {
         s->active = 0;
         s->confirmed = 1;
         return 0;

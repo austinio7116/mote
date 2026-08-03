@@ -474,6 +474,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
     }
 
     case ST_AIM: {
+        /* The sticks keep working. "Move the table, not yourself" is the whole
+         * answer to a twelve-foot table in a small room, and it is no use only
+         * during setup — the shot you want has to be brought to you on every
+         * visit. Nothing else in aiming uses them. */
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room());
+
         CueVrShot shot;
         cuevr_cue_update(&S.cue, t, &S.setup.place, cue_ball_room(), S.tab.R, &shot);
         S.hud_dirty = 1;             /* the tip readout moves every frame */
@@ -609,7 +615,11 @@ static void app_update(void *u, const MoteVrTracking *t) {
     S.scene.place   = &S.setup.place;
     S.scene.balls   = S.balls;
     S.scene.nballs  = S.nballs;
-    S.scene.cue_visible = (S.state == ST_AIM) && S.cue.on_ball;
+    /* Visible whenever you are holding it, not only when it happens to be
+     * lined up. cue_on_ball tells the renderer to mark the ferrule so you
+     * can see when the line is actually live. */
+    S.scene.cue_visible = (S.state == ST_AIM || S.state == ST_PLACE) && S.cue.tracked;
+    S.scene.cue_on_ball = S.cue.on_ball;
     S.scene.cue_butt = S.cue.butt;
     S.scene.cue_tip  = S.cue.tip;
 

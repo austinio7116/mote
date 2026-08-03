@@ -23,6 +23,7 @@ typedef struct {
     int nballs;
 
     int      cue_visible;
+    int      cue_on_ball;   /* tips the ferrule when the line is live */
     MoteVrV3 cue_butt, cue_tip;
 
     int      hud_visible;
