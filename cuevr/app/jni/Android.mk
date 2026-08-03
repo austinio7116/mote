@@ -43,7 +43,7 @@ LOCAL_C_INCLUDES := \
 # shots examined per plan, and more of them simulated each frame so the extra
 # depth does not turn into a longer wait.
 LOCAL_CFLAGS := -DMOTE_HOST=1 -DNDEBUG -O2 -ffast-math -std=gnu11 \
-                -DSIM_CAP=160 -DSIMS_PER_TICK=10 \
+                -DCUE_JAW_SEGS=10 -DCUE_ARC_SEGS=20 -DCUE_MAX_SEG=256 -DMAX_TABLE_TRI=9000 -DSIM_CAP=160 -DSIMS_PER_TICK=10 \
                 -Wall -Wno-unused-parameter
 
 LOCAL_SRC_FILES := \

@@ -27,7 +27,9 @@
 #include <stdint.h>
 
 #define CUE_MAX_BALLS   22   /* snooker: cue + 15 reds + 6 colours */
+#ifndef CUE_MAX_SEG
 #define CUE_MAX_SEG     96   /* cushion nose segments (snooker uses curved jaws) */
+#endif
 #define CUE_MAX_JAW     24   /* bed-boundary knuckle points */
 #define CUE_MAX_POCKET   6
 

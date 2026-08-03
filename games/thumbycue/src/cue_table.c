@@ -10,6 +10,10 @@
  * from this one description, so they can never disagree.
  */
 #include "cue_table.h"
+
+#ifndef CUE_JAW_SEGS
+#define CUE_JAW_SEGS 3
+#endif
 #include "cue_types.h"
 #include <string.h>
 #include <math.h>
@@ -243,7 +247,13 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         const float bg = t->pr_corner + 0.5f*R;
         const float cgap = bg + 0.333f*R, mgap = bg + 0.583f*R;
         const float cl = 2.0f*R, ml = 1.6f*R, e3 = 0.25f*R;
-        const float ca = 0.6f, ma = 0.7f; const int nc = 3, nm = 3;
+        /* Bezier steps per jaw. Three is right for a 128x128 screen and reads as
+         * blocky knuckles when the pocket is 30 cm from your eye, so the VR build
+         * raises it. More steps approximate the SAME intended curve more closely,
+         * so this refines the collision geometry rather than changing it — but it
+         * is a compile-time knob so the handheld's physics stays bit-identical. */
+        const float ca = 0.6f, ma = 0.7f;
+        const int nc = CUE_JAW_SEGS, nm = CUE_JAW_SEGS;
         /* C1 top-left */
         add_curved_chain(w, v3(-hl+cgap - cl*0.7f - e3,0,-hw - cl*0.7f), v3(-hl+cgap,0,-hw),
                             v3(-mgap,0,-hw), v3(-bg + ml*0.3f + e3,0,-hw - ml), ca, ma, nc, nm);

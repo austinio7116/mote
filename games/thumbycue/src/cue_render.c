@@ -16,7 +16,16 @@
 /* ---- static table mesh (world space) ---------------------------------- */
 /* CueTri now lives in cue_render.h so hosts that draw the table themselves can
  * read it — see cue_render_table_tris(). */
+#ifndef MAX_TABLE_TRI
 #define MAX_TABLE_TRI 2200
+#endif
+
+/* Render-only tessellation of the pocket arcs, throats and lips. Nothing here
+ * touches physics — it is the difference between a pocket mouth that reads as a
+ * curve and one that reads as a hexagon at close range. */
+#ifndef CUE_ARC_SEGS
+#define CUE_ARC_SEGS 6
+#endif
 #define MAX_STRI      3000     /* near-clipping can split a tri into two */
 static CueTri  *s_tab;          /* arena-allocated (Mote) — see cue_render_set_buffers() */
 static int      s_ntab;
@@ -254,7 +263,7 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
 static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0, float z1,
                       float ytop, float ybot, uint16_t top, uint16_t wall,
                       int axis, int rail_hi) {
-    const int N = 16;
+    const int N = CUE_ARC_SEGS * 3;
     for (int k = 0; k < N; k++) {
         if (axis == 0) {                       /* columns along X, depth along Z */
             float u0 = x0 + (x1-x0)*k/N, u1 = x0 + (x1-x0)*(k+1)/N;
@@ -368,7 +377,7 @@ static void cloth_disc(float cx, float cz, float r, uint16_t col) {
     }
 }
 static void cloth_arc(float cx, float cz, float r, float a0, float a1, float w, uint16_t col) {
-    const int N = 14;
+    const int N = CUE_ARC_SEGS * 3;
     for (int k = 0; k < N; k++) {
         float t0 = a0 + (a1-a0)*k/N, t1 = a0 + (a1-a0)*(k+1)/N;
         cloth_line(cx+r*cosf(t0), cz+r*sinf(t0), cx+r*cosf(t1), cz+r*sinf(t1), w, col);
@@ -452,7 +461,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                 float dx = w->pocket[q].x - m.x, dz = w->pocket[q].z - m.z, dd = dx*dx + dz*dz;
                 if (dd < best) { best = dd; pidx = q; }
             }
-            const int N = 6;
+            const int N = CUE_ARC_SEGS;
             Vec3 arc[N + 1];
             pocket_circ_arc(w->pocket[pidx], w->pocket_r[pidx] * 1.35f, a, b, arc, N);
             for (int k = 1; k <= N; k++)
@@ -584,7 +593,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         float cx = w->pocket[p].x, cz = w->pocket[p].z;
         float r = w->pocket_r[p];     /* void = the functional drop (matches the red line) */
         Vec3 floor_c = v3(cx, floor_y, cz);
-        const int N = 20;
+        const int N = CUE_ARC_SEGS * 4;
         float base = atan2f(cz, cx);
         for (int k = 0; k < N; k++) {
             float a0 = base + k * (6.2831853f / N), a1 = base + (k + 1) * (6.2831853f / N);
