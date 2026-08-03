@@ -23,6 +23,7 @@
 #include "cuevr.h"
 #include "cuevr_render.h"
 #include "cue_ai.h"
+#include "cue_render.h"
 #include "craft_font.h"
 
 #include <math.h>
@@ -41,7 +42,7 @@
  * in the range it was tuned for. */
 #define MAX_STRIKE_SPEED 8.5f
 
-enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_OVER };
+enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_PLACE, ST_DECIDE, ST_OVER };
 
 static const struct { CueGameKind kind; const char *name; } MENU[] = {
     { CUE_GAME_UK8,   "UK 8-BALL 7FT" },
@@ -56,8 +57,9 @@ static const struct { CueGameKind kind; const char *name; } MENU[] = {
 
 static struct {
     int state;
-    int menu_sel, menu_latch;
+    int menu_sel, menu_latch, menu_row;
     int persona;                 /* CPU difficulty */
+    int ballset;                 /* cue_render's authored sets */
 
     CueTable  tab;
     CueWorld  world;
@@ -73,6 +75,7 @@ static struct {
 
     float     menu_hold;         /* left menu button held, seconds */
     int       hud_dirty;
+    int       dec_latch;
     uint16_t  hud[CUEVR_HUD_W * CUEVR_HUD_H];
     char      msg[32];
     float     msg_time;
@@ -131,7 +134,15 @@ static void hud_build(void) {
             }
             craft_font_draw_2x(S.hud, MENU[i].name, 12, y, i == S.menu_sel ? TXT : DIM);
         }
-        craft_font_draw(S.hud, "STICK TO CHOOSE   A TO PLAY", 4, CUEVR_HUD_H - 8, DIM);
+        {   char o[40];
+            snprintf(o, sizeof o, "VS %s (%d)", CUE_PERSONAS[S.persona].name,
+                     CUE_PERSONAS[S.persona].elo);
+            craft_font_draw(S.hud, o, 4, CUEVR_HUD_H - 24, TXT);
+            /* the live ball set, drawn by cue_render itself */
+            cue_render_set_preview(S.hud, 96, CUEVR_HUD_H - 21, 5,
+                                   S.ballset, MENU[S.menu_sel].kind >= CUE_GAME_FIRST_SNK);
+        }
+        craft_font_draw(S.hud, "R STICK L/R OPPONENT  A PLAY", 4, CUEVR_HUD_H - 8, DIM);
         return;
     }
 
@@ -172,9 +183,43 @@ static void hud_build(void) {
     cue_rules_status(&S.rules, b, sizeof b);
     craft_font_draw(S.hud, b, 4, 62, TXT);
 
+    /* What you are on, drawn by the game that already knows how: the snooker
+     * ball-on icon, the 8-ball group ball, the 9-ball next ball. */
+    if (S.tab.is_snooker)
+        cue_render_onball_icon(S.hud, 112, 66, 7, S.rules.target, S.rules.seq);
+    else if (S.tab.kind == CUE_GAME_US9)
+        cue_render_ball_icon(S.hud, 112, 66, 7, S.rules.seq > 0 ? S.rules.seq : 1);
+    else if (S.rules.group[S.rules.turn])
+        cue_render_group_icon(S.hud, 112, 66, 7, S.rules.group[S.rules.turn]);
+
+    /* Where the tip is on the cue ball — the handheld's own spin indicator.
+     * In VR this matters MORE than it did there: with no power bar and no aim
+     * line, it is the only readout of what you are about to do to the ball. */
+    if (S.state == ST_AIM && S.cue.on_ball)
+        cue_render_spin_ball(S.hud, 108, 104, 11, S.cue.tip_side, S.cue.tip_vert);
+
     if (S.msg_time > 0.0f) craft_font_draw_2x(S.hud, S.msg, 4, 76, HI);
 
-    if (S.state == ST_THINK)      craft_font_draw(S.hud, "CPU THINKING...", 4, 96, DIM);
+    if (S.state == ST_PLACE) {
+        craft_font_draw_2x(S.hud, "BALL IN HAND", 4, 76, HI);
+        craft_font_draw(S.hud, "L STICK MOVE   A PLACE", 4, 96, TXT);
+    }
+    else if (S.state == ST_DECIDE) {
+        if (S.rules.pushout_offer) {
+            craft_font_draw_2x(S.hud, "PUSH OUT?", 4, 76, HI);
+            craft_font_draw(S.hud, "A YES        B NO", 4, 96, TXT);
+        } else if (S.rules.dec_can_restore) {
+            craft_font_draw_2x(S.hud, "FOUL + MISS", 4, 76, HI);
+            craft_font_draw(S.hud, "A PLAY ON    B REPLAY", 4, 96, TXT);
+        } else if (S.rules.dec_free_ball) {
+            craft_font_draw_2x(S.hud, "FREE BALL", 4, 76, HI);
+            craft_font_draw(S.hud, "A PLAY ON    B FREE BALL", 4, 96, TXT);
+        } else {
+            craft_font_draw_2x(S.hud, "YOUR CALL", 4, 76, HI);
+            craft_font_draw(S.hud, "A PLAY ON", 4, 96, TXT);
+        }
+    }
+    else if (S.state == ST_THINK)      craft_font_draw(S.hud, "CPU THINKING...", 4, 96, DIM);
     else if (S.state == ST_ROLL)  craft_font_draw(S.hud, "...", 4, 96, DIM);
     else if (S.state == ST_AIM) {
         if (!S.cue.on_ball)       craft_font_draw(S.hud, "CUE IS OFF THE BALL", 4, 96, DIM);
@@ -197,6 +242,14 @@ static void hud_build(void) {
 }
 
 /* ---- shots -------------------------------------------------------------- */
+
+/* The striker's shot is about to start. cue_rules expects the host to have
+ * decided whether they were snookered BEFORE it, because foul-and-a-miss turns
+ * on it: a miss is only a miss if there was a ball on to be hit. cue_game does
+ * this and I had not, which quietly disabled the whole rule. */
+static void arm_shot(void) {
+    S.rules.was_snookered = cue_rules_is_snookered(&S.rules, S.balls, S.nballs);
+}
 
 static void begin_shot(void) {
     for (int i = 0; i < S.nballs; i++) S.was_on[i] = S.balls[i].on;
@@ -223,23 +276,65 @@ static void resolve_shot(void) {
     S.msg_time = 2.5f;
     S.hud_dirty = 1;
 
+    if (S.rules.frame_over) { S.state = ST_OVER; return; }
+
+    /* A pending decision is the rules engine asking a question — after a
+     * snooker foul (play on / make them play again / free ball) or before the
+     * first shot of a 9-ball frame (push out?). It waits for an answer, and
+     * never answering is not neutral: the frame simply plays on under the wrong
+     * assumption. The player gets asked; the CPU decides for itself. */
+    if (S.rules.pushout_offer || S.rules.decision == CUE_DEC_PENDING) {
+        if (S.rules.cpu && S.rules.turn == 1) {
+            if (S.rules.pushout_offer) {
+                CueAIShot p = cue_ai_pushout(&S.world, &S.tab, &S.rules,
+                                             S.balls, S.nballs,
+                                             &CUE_PERSONAS[S.persona], &S.rng);
+                S.rules.is_pushout = p.valid;
+                S.rules.pushout_offer = 0;
+                S.rules.pushout_avail = 0;
+            } else {
+                /* Make them play it again when that is on offer: the striker
+                 * left the table in trouble, so give it back. */
+                cue_rules_apply_decision(&S.rules,
+                    S.rules.dec_can_restore ? CUE_DEC_REPLAY : CUE_DEC_PLAY);
+            }
+        } else {
+            S.state = ST_DECIDE;
+            S.hud_dirty = 1;
+            return;
+        }
+    }
+
     if (S.rules.ball_in_hand) {
-        /* Put it back on its spot and let whoever is at the table move it. The
-         * handheld offers a placement mode; here the simplest honest thing is
-         * to drop it home and play on. */
-        Vec3 home = cue_table_cue_home(&S.tab);
-        S.balls[0].pos = home;
+        /* Ball in hand. Start it on its home spot, legal by construction, and
+         * let the player walk it about with the left stick before playing. */
+        S.balls[0].pos = cue_table_cue_home(&S.tab);
         S.balls[0].vel = (Vec3){0, 0, 0};
         S.balls[0].w   = (Vec3){0, 0, 0};
         S.balls[0].on  = 1;
         S.rules.ball_in_hand = 0;
+        if (!(S.rules.cpu && S.rules.turn == 1)) {
+            S.state = ST_PLACE;
+            S.hud_dirty = 1;
+            return;
+        }
+        /* The CPU places for itself. */
+        S.balls[0].pos = cue_ai_place(&S.world, &S.tab, &S.rules, S.balls,
+                                      S.nballs, &CUE_PERSONAS[S.persona],
+                                      !S.tab.is_snooker && S.tab.kind != CUE_GAME_US8
+                                          && S.tab.kind != CUE_GAME_US9,
+                                      &S.rng);
     }
 
-    if (S.rules.frame_over) { S.state = ST_OVER; return; }
-    S.state = (S.rules.cpu && S.rules.turn == 1) ? ST_THINK : ST_AIM;
-    if (S.state == ST_THINK)
+    if (S.rules.cpu && S.rules.turn == 1) {
+        arm_shot();
+        S.state = ST_THINK;
         cue_ai_plan_start(&S.world, &S.tab, &S.rules, S.balls, S.nballs,
                           &CUE_PERSONAS[S.persona], &S.rng);
+    } else {
+        arm_shot();
+        S.state = ST_AIM;
+    }
 }
 
 /* ---- the callbacks ------------------------------------------------------ */
@@ -298,7 +393,25 @@ static void app_update(void *u, const MoteVrTracking *t) {
             if (S.menu_sel >= MENU_N) S.menu_sel = 0;
             S.hud_dirty = 1;
         }
+        /* Left and right choose the opponent and the ball set — both of which
+         * the handheld already has: eight personas with ELO ratings in
+         * CUE_PERSONAS, and five authored ball sets in cue_render. Neither was
+         * worth inventing a substitute for. */
+        float xx = t->hand[MOTE_VR_RIGHT].stick_x + t->hand[MOTE_VR_LEFT].stick_x;
+        if (fabsf(xx) < 0.4f) S.menu_row = 0;
+        else if (!S.menu_row) {
+            S.menu_row = 1;
+            int d = xx > 0.0f ? 1 : -1;
+            if (t->hand[MOTE_VR_LEFT].stick_x != 0.0f && fabsf(t->hand[MOTE_VR_LEFT].stick_x) > 0.4f) {
+                S.ballset = (S.ballset + d + 5) % 5;
+                cue_render_set_ball_set(S.ballset);
+            } else {
+                S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS;
+            }
+            S.hud_dirty = 1;
+        }
         if (t->hand[MOTE_VR_RIGHT].btn_lower || t->hand[MOTE_VR_RIGHT].trigger > 0.7f) {
+            cue_render_set_ball_set(S.ballset);
             start_frame(MENU[S.menu_sel].kind);
             S.setup.active = 1;
             S.state = ST_SETUP;
@@ -361,6 +474,68 @@ static void app_update(void *u, const MoteVrTracking *t) {
             }
             begin_shot();
         }
+        break;
+    }
+
+    case ST_PLACE: {
+        /* Walk the cue ball about with the left stick, in your own view frame,
+         * clamped to wherever the rules allow it (the D, or behind the head
+         * string) by cue_table_clamp_placement — so an illegal placement is not
+         * possible rather than merely discouraged. */
+        float sx = t->hand[MOTE_VR_LEFT].stick_x, sy = t->hand[MOTE_VR_LEFT].stick_y;
+        if (fabsf(sx) > 0.18f || fabsf(sy) > 0.18f) {
+            float cyw = cosf(-S.setup.place.yaw), syw = sinf(-S.setup.place.yaw);
+            MoteVrV3 fwd = mq_rot(t->head.q, mv3(0, 0, -1));
+            fwd.y = 0.0f;
+            fwd = mv3_len(fwd) > 1e-3f ? mv3_norm(fwd) : mv3(0, 0, -1);
+            MoteVrV3 rgt = mv3_norm(mv3_cross(mv3(0, 1, 0), mv3_scale(fwd, -1.0f)));
+            MoteVrV3 d = mv3_add(mv3_scale(fwd, sy * 0.45f * dt),
+                                 mv3_scale(rgt, sx * 0.45f * dt));
+            /* room -> table */
+            Vec3 p = S.balls[0].pos;
+            p.x += d.x * cyw - d.z * syw;
+            p.z += d.x * syw + d.z * cyw;
+            S.balls[0].pos = cue_table_clamp_placement(&S.tab, p);
+            S.hud_dirty = 1;
+        }
+        if (t->hand[MOTE_VR_RIGHT].btn_lower || t->hand[MOTE_VR_RIGHT].trigger > 0.7f) {
+            arm_shot();
+            S.state = ST_AIM;
+            S.hud_dirty = 1;
+        }
+        break;
+    }
+
+    case ST_DECIDE: {
+        /* A / B answer whatever the rules engine asked. */
+        int a = t->hand[MOTE_VR_RIGHT].btn_lower, b = t->hand[MOTE_VR_RIGHT].btn_upper;
+        if (!a && !b) { S.dec_latch = 0; break; }
+        if (S.dec_latch) break;
+        S.dec_latch = 1;
+        if (S.rules.pushout_offer) {
+            S.rules.is_pushout = a ? 1 : 0;
+            S.rules.pushout_offer = 0;
+            S.rules.pushout_avail = 0;
+        } else if (b && S.rules.dec_can_restore) {
+            cue_rules_apply_decision(&S.rules, CUE_DEC_REPLAY);
+        } else if (b && S.rules.dec_free_ball) {
+            cue_rules_apply_decision(&S.rules, CUE_DEC_FREEBALL);
+        } else {
+            cue_rules_apply_decision(&S.rules, CUE_DEC_PLAY);
+        }
+        if (S.rules.ball_in_hand) {
+            S.balls[0].pos = cue_table_cue_home(&S.tab);
+            S.balls[0].on = 1;
+            S.rules.ball_in_hand = 0;
+            S.state = ST_PLACE;
+        } else {
+            arm_shot();
+            S.state = (S.rules.cpu && S.rules.turn == 1) ? ST_THINK : ST_AIM;
+            if (S.state == ST_THINK)
+                cue_ai_plan_start(&S.world, &S.tab, &S.rules, S.balls, S.nballs,
+                                  &CUE_PERSONAS[S.persona], &S.rng);
+        }
+        S.hud_dirty = 1;
         break;
     }
 
