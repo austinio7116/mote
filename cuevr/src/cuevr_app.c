@@ -243,8 +243,10 @@ static void hud_build(void) {
                 snprintf(b, sizeof b, "SIDE %+.2f SCREW %+.2f", 
                          (double)S.cue.tip_side, (double)S.cue.tip_vert);
                 craft_font_draw(S.hud, b, 4, 90, DIM);
-                craft_font_draw(S.hud, S.cue.stroking ? "STROKE - PUSH THROUGH"
-                                                      : "R TRIGGER TO CUE  GRIP=SIDE TRIG",
+                craft_font_draw(S.hud,
+                    S.cue.stroking  ? "STROKE - PUSH THROUGH" :
+                    S.cue.adjusting ? "SLIDING HAND ALONG CUE" :
+                                      "R TRIG CUE   SIDE TRIG SLIDE HAND",
                                 4, 98, S.cue.stroking ? HI : DIM);
             }
         }

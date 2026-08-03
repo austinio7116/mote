@@ -69,19 +69,35 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     c->tracked = 1;
     MoteVrV3 live_axis = mv3_len(along) > 1e-4f ? mv3_norm(along) : mv3(1, 0, 0);
 
-    /* ---- grip: slide your hand along the cue ---------------------------- *
-     * Hold a side trigger and move: the cue stays where it is in the world and
-     * your hand travels along it, so the amount of cue in front of the bridge
-     * changes. Which is how you shorten up for a tight shot. */
-    int gripping = (Rh->squeeze > 0.5f || Lh->squeeze > 0.5f) && !c->stroking;
-    if (gripping && c->have_hand) {
-        float d = mv3_dot(mv3_sub(Rh->pose.p, c->prev_hand), live_axis);
+    /* ---- sliding a hand along the cue ----------------------------------- *
+     * Either side trigger, and each hand does the thing that hand does. The
+     * shared rule is the physical one: sliding your hand ALONG a cue does not
+     * move the cue, so while a side trigger is held the aim is pinned and only
+     * the hand travels.
+     *
+     *   right (grip)   changes how much cue is in front of the bridge — this is
+     *                  how you shorten up for a tight shot.
+     *   left (bridge)  repositions your bridge along the shaft without steering,
+     *                  which is otherwise impossible: the bridge hand IS the aim,
+     *                  so moving it normally swings the cue.
+     *
+     * The first version accepted either trigger but only ever measured the RIGHT
+     * hand's motion, so squeezing the left did nothing at all. */
+    int adj_r = Rh->squeeze > 0.5f && !c->stroking;
+    int adj_l = Lh->squeeze > 0.5f && !c->stroking;
+    int adjusting = adj_r || adj_l;
+    if (adjusting && !c->adjusting) c->adj_axis = live_axis;
+    if (adjusting && c->have_hand && adj_r) {
+        float d = mv3_dot(mv3_sub(Rh->pose.p, c->prev_hand[MOTE_VR_RIGHT]), c->adj_axis);
         c->grip += d;
         if (c->grip < CUEVR_GRIP_MIN) c->grip = CUEVR_GRIP_MIN;
         if (c->grip > CUEVR_GRIP_MAX) c->grip = CUEVR_GRIP_MAX;
     }
-    c->prev_hand = Rh->pose.p;
+    c->adjusting = adjusting;
+    c->prev_hand[MOTE_VR_LEFT]  = Lh->pose.p;
+    c->prev_hand[MOTE_VR_RIGHT] = Rh->pose.p;
     c->have_hand = 1;
+    if (adjusting) live_axis = c->adj_axis;   /* the cue holds still while you slide */
 
     /* ---- the stroke ----------------------------------------------------- */
     int want_stroke = Rh->trigger > 0.45f;

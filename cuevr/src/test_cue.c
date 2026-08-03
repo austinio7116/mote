@@ -193,6 +193,33 @@ int main(void) {
     check(reach1 < reach0 - 0.05f, "which leaves less cue in front of the hand");
     check(!shot.struck, "and sliding the grip never plays a shot");
 
+    /* ---- 8b. the LEFT side trigger works, and works on the left hand ----- *
+     * The bridge hand is the aim, so moving it normally swings the cue. Holding
+     * its side trigger must let it slide along the shaft instead, changing
+     * nothing but where you are bridging — and it must not touch the grip. */
+    cuevr_cue_init(&c);
+    aim(&t, &c, 0.05f, 0, 0, 0);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    MoteVrV3 axis0 = c.axis, tip0 = c.tip;
+    float gripL = c.grip;
+    t.hand[MOTE_VR_LEFT].squeeze = 1.0f;
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);        /* establish prev */
+    /* slide the bridge along the cue AND wobble it sideways */
+    t.hand[MOTE_VR_LEFT].pose.p = mv3_add(t.hand[MOTE_VR_LEFT].pose.p, mv3(-0.15f, 0, 0.05f));
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    checkf(mv3_len(mv3_sub(c.axis, axis0)), 0.0f, 1e-4f,
+           "the left side trigger pins the aim while the bridge slides");
+    checkf(mv3_len(mv3_sub(c.tip, tip0)), 0.0f, 1e-4f, "so the cue does not move at all");
+    checkf(c.grip, gripL, 1e-4f, "and the bridge hand never changes the grip");
+    check(!shot.struck, "sliding the bridge never plays a shot");
+
+    /* Without the trigger, that same bridge movement DOES steer — otherwise
+     * there would be no way to aim. */
+    t.hand[MOTE_VR_LEFT].squeeze = 0.0f;
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    check(mv3_len(mv3_sub(c.axis, axis0)) > 0.01f,
+          "and releasing it hands the aim back to the bridge hand");
+
     /* ---- 9. the bridge is a pivot during the delivery ------------------- *
      * Once the trigger is down the aim is locked: waving the bridge hand about
      * mid-stroke must not steer the ball. */

@@ -121,8 +121,10 @@ typedef struct {
     float prev_gap;
     int   have_prev;
     float speed;         /* closing speed along the axis (m/s) */
-    MoteVrV3 prev_hand;  /* for sliding the grip */
+    MoteVrV3 prev_hand[2];   /* for sliding a hand along the cue */
     int   have_hand;
+    int   adjusting;         /* a side trigger is held: the aim is held still */
+    MoteVrV3 adj_axis;
 } CueVrCue;
 
 /* A real cue is 1.45 m. Fixed — a cue that stretches between your hands is the
