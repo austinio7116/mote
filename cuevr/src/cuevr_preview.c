@@ -75,6 +75,32 @@ static void fake_tracking(MoteVrTracking *t, float dt) {
     t->hand[MOTE_VR_LEFT].squeeze = s_lsqueeze;
     t->hand[MOTE_VR_LEFT].pose.p  = s_bridge;
     t->hand[MOTE_VR_RIGHT].pose.p = s_butt;
+
+    /* Give the fake hands a REAL grip orientation, not identity. Without it the
+     * controller models render in their own axes and there is no way to tell
+     * whether the model-to-grip transform is right — which is the only thing that
+     * matters for them.
+     *
+     * OpenXR/WebXR grip space: the origin is the centroid of the fist, -Z runs
+     * along the handle toward the thumb, and X is perpendicular to the palm (+X out
+     * of the back of the RIGHT hand, -X for the left). Holding a cue, the handle
+     * lies along the cue, so -Z points up the cue toward the tip. */
+    {
+        MoteVrV3 fwd = mv3_sub(s_bridge, s_butt);
+        if (mv3_len(fwd) > 1e-4f) {
+            fwd = mv3_norm(fwd);                       /* toward the tip */
+            MoteVrV3 zax = mv3_scale(fwd, -1.0f);      /* grip -Z is forward */
+            MoteVrV3 up  = mv3(0, 1, 0);
+            MoteVrV3 xax = mv3_cross(up, zax);
+            if (mv3_len(xax) < 1e-3f) xax = mv3(1, 0, 0);
+            xax = mv3_norm(xax);
+            MoteVrV3 yax = mv3_cross(zax, xax);
+            t->hand[MOTE_VR_RIGHT].pose.q = mq_from_axes(xax, yax, zax);
+            /* the left hand is the mirror: +X the other way out of the palm */
+            t->hand[MOTE_VR_LEFT].pose.q =
+                mq_from_axes(mv3_scale(xax, -1.0f), mv3_scale(yax, -1.0f), zax);
+        }
+    }
     t->hand[MOTE_VR_LEFT].pose.q  = mq_ident();
     t->hand[MOTE_VR_RIGHT].pose.q = mq_ident();
     t->hand[MOTE_VR_LEFT].stick_x  = s_stick_l[0];

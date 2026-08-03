@@ -26,6 +26,8 @@
 #include "cuevr_text.h"
 #include "cuevr_font_lg.h"
 #include "cuevr_font_xl.h"
+#include "cuevr_ctrl_left.h"
+#include "cuevr_ctrl_right.h"
 #include "cue_render.h"
 #include "cuevr_frame.h"
 #include "craft_font.h"
@@ -841,6 +843,7 @@ static struct {
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_furslice, u_furslices, u_furdbg, u_shell,
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
+    Mesh   ctrl[2];
     Mesh   fins, bed, table, lips, frame, ball, cue, quad, floor, grip;
     int    frame_sel;
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
@@ -1730,6 +1733,38 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     mesh_upload(&G.cue, &b);
     b_free(&b);
 
+    /* The real controllers, from Meta's own Touch Pro models (tools/stl2ctrl.py
+     * welds and decimates them). They are here so you can see where your hands are
+     * and line the cue up against a contact point that makes sense — not to be
+     * admired — so 3000 triangles each after welding is ample and the block proxies
+     * that stood in for them are gone. */
+    {
+        Builder cb;
+        b_init(&cb, CTRL_LEFT_NV + 4, CTRL_LEFT_NI + 8);
+        for (int i = 0; i < CTRL_LEFT_NV; i++) {
+            const int16_t *p = ctrl_left_pos + i * 3;
+            const int8_t  *n = ctrl_left_nrm + i * 3;
+            b_vert(&cb, p[0] * CTRL_LEFT_SCALE, p[1] * CTRL_LEFT_SCALE, p[2] * CTRL_LEFT_SCALE,
+                   n[0] / 127.0f, n[1] / 127.0f, n[2] / 127.0f, 0.0f, 0.0f);
+        }
+        for (int i = 0; i < CTRL_LEFT_NI; i += 3)
+            b_tri(&cb, ctrl_left_idx[i], ctrl_left_idx[i+1], ctrl_left_idx[i+2]);
+        mesh_upload(&G.ctrl[0], &cb);
+        b_free(&cb);
+
+        b_init(&cb, CTRL_RIGHT_NV + 4, CTRL_RIGHT_NI + 8);
+        for (int i = 0; i < CTRL_RIGHT_NV; i++) {
+            const int16_t *p = ctrl_right_pos + i * 3;
+            const int8_t  *n = ctrl_right_nrm + i * 3;
+            b_vert(&cb, p[0] * CTRL_RIGHT_SCALE, p[1] * CTRL_RIGHT_SCALE, p[2] * CTRL_RIGHT_SCALE,
+                   n[0] / 127.0f, n[1] / 127.0f, n[2] / 127.0f, 0.0f, 0.0f);
+        }
+        for (int i = 0; i < CTRL_RIGHT_NI; i += 3)
+            b_tri(&cb, ctrl_right_idx[i], ctrl_right_idx[i+1], ctrl_right_idx[i+2]);
+        mesh_upload(&G.ctrl[1], &cb);
+        b_free(&cb);
+    }
+
     /* Controller proxy: a small block, tapered like a grip. */
     b_init(&b, 64, 96);
     {
@@ -1866,6 +1901,7 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
 
 void cuevr_render_shutdown(void) {
     if (!G.ready) return;
+    mesh_free(&G.ctrl[0]); mesh_free(&G.ctrl[1]);
     mesh_free(&G.fins);
     mesh_free(&G.bed);
     mesh_free(&G.grip);
@@ -2234,12 +2270,36 @@ skip_shadows:
     /* ---- your hands ---- */
     if (s->hands_valid) {
         glUniform1i(G.u_mode, 0);
-        colour(0.10f, 0.105f, 0.12f, 1.0f);
+        colour(0.16f, 0.17f, 0.19f, 1.0f);
         for (int i = 0; i < 2; i++) {
-            float M[16];
-            mm4_from_pose(M, s->hand[i], 1.0f);
+            float M[16], P[16], K[16];
+            mm4_from_pose(P, s->hand[i], 1.0f);
+            /* MODEL -> GRIP.
+             *
+             * The STL's long axis (109 mm, its y) is the handle, and its origin sits
+             * centred in x and y at the z = 0 face. Grip space (OpenXR/WebXR) puts
+             * the origin at the centroid of the fist with -Z running along the handle
+             * toward the thumb and X perpendicular to the palm. So the handle has to
+             * go from model y onto grip Z, which is what was missing — drawn raw, the
+             * controller lay across the cue instead of along it.
+             *
+             *     grip.x =  model.x
+             *     grip.y = -(model.z - CTRL_ZMID)   pull the origin into the handle
+             *     grip.z =  model.y
+             *
+             * Which end of the handle the thumb is at is a coin flip from the bounds
+             * alone; CTRL_FLIP settles it in one look on a headset. */
+            const float CTRL_ZMID = 0.0418f;      /* half the model's 83.5 mm depth */
+            const float CTRL_FLIP = 1.0f;         /* -1 to spin the handle end for end */
+            mm4_identity(K);
+            K[0]  =  1.0f;                        /* col 0: model x -> grip x */
+            K[1]  =  0.0f; K[2] = 0.0f;
+            K[4]  =  0.0f; K[5] = 0.0f; K[6] = CTRL_FLIP;   /* model y -> grip z */
+            K[8]  =  0.0f; K[9] = -CTRL_FLIP; K[10] = 0.0f; /* model z -> grip -y */
+            K[13] =  CTRL_ZMID * CTRL_FLIP;       /* and centre it on the fist */
+            mm4_mul(M, P, K);
             set_model(M);
-            draw(&G.grip);
+            draw(G.ctrl[i].n ? &G.ctrl[i] : &G.grip);
         }
         /* Where the cue is resting on the bridge: a small pale marker, so the
          * rest adjustment has something to show for itself. */
