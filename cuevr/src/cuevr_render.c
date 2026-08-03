@@ -89,6 +89,7 @@ static const char *FS =
 "uniform vec3  u_eye;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
+"uniform float u_fur;\n"        // CUEVR_FUR: force full fur at any distance
 "uniform vec3  u_markc;\n"      // chalk
 "uniform float u_baulk;\n"
 "uniform float u_drad;\n"
@@ -301,27 +302,81 @@ static const char *FS =
 "        vec2 q = v_local.xz;\n"
 "        float aa = max(fwidth(v_local.x), fwidth(v_local.z)) * 1.2 + 1e-6;\n"
 "\n"
-"        // Baize. Two scales of fibre, drawn out ALONG the nap rather than\n"
-"        // isotropic, because that is what a brushed cloth looks like: fine\n"
-"        // filaments the length of the table and a slower clumping across it.\n"
-"        // Three scales, and the middle one is the one that matters. Fibres at a\n"
-"        // third of a millimetre are the truth but they average to flat green at\n"
-"        // any normal viewing distance, which is how the first attempt at this\n"
-"        // looked: correct and invisible. The nap CLUMPS at a centimetre or so,\n"
-"        // and that is what you actually see across a table.\n"
-"        float fib  = vnoise(q * vec2(2600.0, 800.0));\n"
-"        float fib2 = vnoise(q * vec2(900.0, 1400.0) + 31.7);\n"
-"        float clump = vnoise(q * vec2(150.0, 95.0) + 7.3);\n"
-"        float drift = vnoise(q * vec2(26.0, 34.0) + 3.9);\n"
-"        // Brush streaks down the length, as a cloth is ironed.\n"
-"        float streak = vnoise(vec2(q.x * 8.0, q.y * 420.0) + 11.0);\n"
-"        float nap = 0.90 + 0.055 * fib + 0.035 * fib2\n"
-"                        + 0.075 * clump + 0.055 * drift + 0.045 * streak;\n"
-"        vec3 cloth = to_linear(u_cloth) * nap;\n"
-"        // A faint sheen along the nap, so the cloth is not flat matte.\n"
+"        // Baize as FUR, not as a picture of fur.\n"
+"        //\n"
+"        // Noise alone cannot do this. What sells cloth up close is that the nap\n"
+"        // has DEPTH — fibres stand up, occlude each other, and catch the lamps\n"
+"        // along their length rather than across their surface. Two pieces:\n"
+"        //\n"
+"        //  * a short parallax march down through the nap, so looking across the\n"
+"        //    cloth at a shallow angle you see along the fibres and they shift\n"
+"        //    against the backing the way real ones do;\n"
+"        //  * Kajiya-Kay specular, which is a fibre model rather than a surface\n"
+"        //    one: the highlight depends on the fibre TANGENT, so it lands as a\n"
+"        //    glint running along a strand instead of a blob on a facet.\n"
+"        //\n"
+"        // Both are gated on distance. Full march within arm's reach, nothing at\n"
+"        // all across the table — this is a whole-screen surface on a mobile GPU,\n"
+"        // and the detail is worthless at a distance anyway.\n"
 "        vec3 nv = normalize(v_nrm);\n"
 "        vec3 V = normalize(u_eye - v_world);\n"
-"        float sheen = pow(1.0 - abs(dot(nv, V)), 3.0) * 0.06;\n"
+"        float dist = length(u_eye - v_world);\n"
+"        float near = max(clamp(1.0 - (dist - 0.45) / 1.35, 0.0, 1.0), u_fur);\n"
+"\n"
+"        // The nap lies along the table's length, with a slow wander so it is not\n"
+"        // a combed grid. This is the fibre tangent Kajiya-Kay needs.\n"
+"        float lay = (vnoise(q * vec2(9.0, 12.0)) - 0.5) * 0.55;\n"
+"        vec2  dirn = normalize(vec2(1.0, lay));\n"
+"        vec3  T = normalize(vec3(dirn.x, 0.28, dirn.y));\n"
+"\n"
+"        // Fibre field: high frequency ACROSS the lay, stretched along it, which\n"
+"        // is what makes strands rather than gravel.\n"
+"        vec2 fq = vec2(dot(q, dirn) * 300.0, dot(q, vec2(-dirn.y, dirn.x)) * 2400.0);\n"
+"\n"
+"        // March down through the nap. Each step is deeper, so a strand found\n"
+"        // late is further down and gets less light — that self-shadowing is what\n"
+"        // reads as thickness.\n"
+"        float H = 0.0026;                       // ~2.6 mm of pile\n"
+"        vec2 step_uv = -V.xz / max(abs(V.y), 0.20) * H;\n"
+"        float cover = 0.0, depth = 1.0, glint = 0.0;\n"
+"        const int NL = 5;\n"
+"        for (int i = 0; i < NL; i++) {\n"
+"            float t = float(i) / float(NL - 1);\n"
+"            vec2 sq = fq + step_uv * t * vec2(300.0, 2400.0);\n"
+"            float f = vnoise(sq);\n"
+"            // A strand exists where the field is high; sharpen it so strands are\n"
+"            // thin rather than a smear.\n"
+"            float strand = smoothstep(0.58, 0.86, f);\n"
+"            if (strand > cover) { cover = strand; depth = t; }\n"
+"            glint += strand * (1.0 - t);\n"
+"        }\n"
+"        glint /= float(NL);\n"
+"        // Away from the fur range, collapse to the flat weave rather than\n"
+"        // whatever the march happened to land on.\n"
+"        cover = mix(0.5, cover, near);\n"
+"        depth = mix(0.5, depth, near);\n"
+"\n"
+"        // Base weave, still there underneath and still what you see at range.\n"
+"        float fib  = vnoise(q * vec2(2600.0, 800.0));\n"
+"        float clump = vnoise(q * vec2(150.0, 95.0) + 7.3);\n"
+"        float drift = vnoise(q * vec2(26.0, 34.0) + 3.9);\n"
+"        float nap = 0.90 + 0.055 * fib + 0.075 * clump + 0.055 * drift;\n"
+"        // Fibre tips are lighter than the roots: dye sits deeper at the base.\n"
+"        nap *= mix(0.80, 1.12, cover * (1.0 - depth * 0.75));\n"
+"        vec3 cloth = to_linear(u_cloth) * nap;\n"
+"\n"
+"        // Kajiya-Kay. sin of the angle between the fibre and each of L and V —\n"
+"        // a cylinder scatters in a cone about its axis, so this is the whole\n"
+"        // model, and it is why the highlight streaks instead of dotting.\n"
+"        float TdL = dot(T, L), TdV = dot(T, V);\n"
+"        float sL = sqrt(max(1.0 - TdL * TdL, 0.0));\n"
+"        float sV = sqrt(max(1.0 - TdV * TdV, 0.0));\n"
+"        float kk = pow(max(sL * sV - TdL * TdV, 0.0), 34.0);\n"
+"        // Grazing views see the sides of standing fibres, so the sheen rises at\n"
+"        // shallow angles — the effect you notice looking along a table.\n"
+"        float graze = pow(1.0 - abs(dot(nv, V)), 2.6);\n"
+"        float sheen = kk * (0.16 + 0.60 * near) * (0.35 + 0.9 * glint)\n"
+"                    + graze * (0.035 + 0.055 * near);\n"
 "\n"
 "        // Chalk. A distance field per marking, then a shared dusty coverage:\n"
 "        // chalk sits IN the weave rather than on top of it, so the grain has to\n"
@@ -346,7 +401,8 @@ static const char *FS =
 "\n"
 "        float ndl = abs(dot(nv, L));\n"
 "        vec3 c = mix(cloth, to_linear(u_markc), m * 0.88);\n"
-"        o_col = emit(c * (0.32 + 0.68 * ndl) + vec3(sheen), 1.0, 1.0);\n"
+"        // Chalk is powder ON the fibres: it kills the fibre sheen.\n"
+"        o_col = emit(c * (0.32 + 0.68 * ndl) + vec3(sheen * (1.0 - m * 0.85)), 1.0, 1.0);\n"
 "    } else if (u_mode == 6) {\n"
 "        // A ball's shadow on the cloth: a soft decal, as scene_add_shadow\n"
 "        // draws it. Without these the balls hover.\n"
@@ -457,7 +513,7 @@ static struct {
     GLuint prog;
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
-    GLint  u_cloth, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
+    GLint  u_cloth, u_fur, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
     Mesh   bed, table, lips, frame, ball, cue, quad, floor, grip;
     int    frame_sel;
@@ -758,6 +814,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_eye        = glGetUniformLocation(G.prog, "u_eye");
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
     G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
+    G.u_fur        = glGetUniformLocation(G.prog, "u_fur");
     G.u_markc      = glGetUniformLocation(G.prog, "u_markc");
     G.u_baulk      = glGetUniformLocation(G.prog, "u_baulk");
     G.u_drad       = glGetUniformLocation(G.prog, "u_drad");
@@ -1105,6 +1162,7 @@ void cuevr_render_eye(const float *view, const float *proj,
             float bb = (tb->spot & 31) / 31.0f;
             glUniform3f(G.u_markc, r, g, bb);
         }
+        glUniform1f(G.u_fur, getenv("CUEVR_FUR") ? 1.0f : 0.0f);
         glUniform1f(G.u_baulk, tb->baulk_x);
         glUniform1f(G.u_drad,  tb->d_radius);
         glUniform1f(G.u_linew, 0.0016f);      /* a chalk line is ~3 mm wide */
