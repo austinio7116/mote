@@ -68,6 +68,7 @@ typedef struct {
     float shaft[3];      /* the shaft wood */
     float splice[3];     /* the four points */
     float accent[3];     /* the veneer flashed along each point */
+    float burr[3];       /* the figured panel inlaid in the butt */
     float butt[3];
     int   flash;         /* 1 = show the accent veneer */
 } CueVrCueDesign;

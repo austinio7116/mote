@@ -107,6 +107,7 @@ static const char *FS =
 "uniform vec3  u_csplice;\n"
 "uniform vec3  u_caccent;\n"
 "uniform vec3  u_cbutt;\n"
+"uniform vec3  u_cburr;\n"
 "uniform float u_cflash;\n"
 "uniform vec3  u_markc;\n"      // chalk
 "uniform float u_baulk;\n"
@@ -480,7 +481,46 @@ static const char *FS =
 "                float flash = 1.0 - smoothstep(0.0, halfw * 0.09 + 0.0035, edge);\n"
 "                c = mix(c, u_caccent, flash * u_cflash * 0.95);\n"
 "            }\n"
-"            if (t > sp_base) c = u_cbutt;\n"                        // solid butt above the splice
+"            if (t > sp_base) {\n"
+"                c = u_cbutt;\n"
+"                // The inlaid BURR PANEL. A hand-spliced butt has a figured veneer\n"
+"                // panel let into one side, bordered by the same veneer lines that\n"
+"                // flash the splice points. Centred opposite the flat.\n"
+"                float aa2 = a;\n"
+"                float da = abs(fract(aa2 + 0.5) - 0.5);   // 0 at the far side\n"
+"                if (u_cflash > 0.5 && t < 0.955) {\n"
+"                    float pw = 0.105;\n"
+"                    float inb = 1.0 - smoothstep(pw, pw * 0.92, da);\n"
+"                    // figure across the panel\n"
+"                    float f1 = texture(u_nap, vec2(t * 26.0, a * 3.0)).r;\n"
+"                    float f2 = texture(u_nap, vec2(t * 90.0, a * 8.0)).g;\n"
+"                    // FIGURED WOOD, not the veneer colour. The accent is the thin\n"
+"                    // border line only; using it for the panel body turned the\n"
+"                    // whole butt turquoise.\n"
+"                    vec3 burr = u_cburr * (0.62 + 0.62 * f1) * (0.84 + 0.30 * f2);\n"
+"                    c = mix(c, burr, inb);\n"
+"                    // the veneer border lines down each edge of the panel\n"
+"                    float ln = 1.0 - smoothstep(0.0, 0.012, abs(da - pw));\n"
+"                    c = mix(c, u_caccent * 1.5, ln * 0.9);\n"
+"                }\n"
+"                // The BADGE PLATE, let into the flat: ivory, with four screws.\n"
+"                float af = abs(fract(a + 0.5) - 0.5);     // 0 on the flat side? no:\n"
+"                float ac = abs(a > 0.5 ? a - 1.0 : a);    // 0 at a == 0, the flat\n"
+"                if (t > 0.905 && t < 0.958 && ac < 0.105) {\n"
+"                    vec3 ivory = vec3(0.92, 0.90, 0.82);\n"
+"                    float ex = smoothstep(0.105, 0.098, ac);\n"
+"                    float ey = smoothstep(0.905, 0.912, t) * (1.0 - smoothstep(0.951, 0.958, t));\n"
+"                    float pl = ex * ey;\n"
+"                    c = mix(c, ivory, pl);\n"
+"                    // four brass screws, one at each corner of the plate\n"
+"                    vec2 sp2 = vec2((t - 0.9315) / 0.020, ac / 0.078);\n"
+"                    vec2 g2 = abs(sp2) - vec2(0.72, 0.72);\n"
+"                    float sd = length(max(g2, 0.0)) + min(max(g2.x, g2.y), 0.0);\n"
+"                    float scr = 1.0 - smoothstep(0.10, 0.16, abs(sd));\n"
+"                    c = mix(c, vec3(0.72, 0.58, 0.26), scr * pl * 0.95);\n"
+"                    gloss = mix(gloss, 70.0, pl);\n"
+"                }\n"
+"            }\n"                        // solid butt above the splice
 "            // Brass. A three-quarter jointed cue has a bright collar at the\n"
 "            // joint and another at the butt cap, and both catch the light hard\n"
 "            // enough to be a feature rather than a detail.\n"
@@ -799,7 +839,7 @@ static struct {
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_furslice, u_furslices, u_furdbg, u_shell,
-           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
+           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
     Mesh   fins, bed, table, lips, frame, ball, cue, quad, floor, grip;
     int    frame_sel;
@@ -906,6 +946,33 @@ static float cue_radius(float t) {
     return 0.0145f * sqrtf(1.0f - k * k * 0.95f);
 }
 
+/* A real cue is NOT a solid of revolution. The butt of a hand-spliced cue carries
+ * a FLAT down one side — it is planed off so the badge plate can be let into it, and
+ * it is also what stops the cue rolling off the table and tells your hand which way
+ * up it is. Lathing a perfect cylinder is the giveaway that a cue was turned by a
+ * computer rather than made.
+ *
+ * The flat starts where the splice ends and runs to the butt cap, deepening as the
+ * cue thickens so its width stays roughly constant. */
+static float cue_flat_scale(float t, float ang) {
+    const float F0 = 0.815f, F1 = 0.975f;      /* splice base -> just short of the cap */
+    if (t < F0 || t > F1) return 1.0f;
+    /* Centred on ang = 0, about 78 degrees wide. */
+    float a = ang;
+    while (a >  PI) a -= 2.0f * PI;
+    while (a < -PI) a += 2.0f * PI;
+    float half = 0.68f;
+    if (fabsf(a) > half) return 1.0f;
+    /* Fade in and out along the length so it does not start with a step. */
+    float lz = (t - F0) / 0.05f;  if (lz > 1.0f) lz = 1.0f;
+    float lo = (F1 - t) / 0.05f;  if (lo > 1.0f) lo = 1.0f;
+    float run = lz < lo ? lz : lo;
+    /* A chord across the circle: the surface is planar, so the radius at angle a
+     * is cos(half)/cos(a) of the full radius. */
+    float chord = cosf(half) / cosf(a);
+    return 1.0f - (1.0f - chord) * run;
+}
+
 static void build_cue(Builder *b, int slices, int rings) {
     for (int j = 0; j <= rings; j++) {
         /* Rings, and the distribution is the whole reason the tip looked like a
@@ -943,15 +1010,23 @@ static void build_cue(Builder *b, int slices, int rings) {
             }
             t = x / CUE_LEN;
         }
-        float y = t * CUE_LEN, r = cue_radius(t);
-        float r2 = cue_radius(t + 0.004f > 1.0f ? 1.0f : t + 0.004f);
-        float slope = (r2 - r) / (0.004f * CUE_LEN);
+        float y = t * CUE_LEN, r0 = cue_radius(t);
+        float rn = cue_radius(t + 0.004f > 1.0f ? 1.0f : t + 0.004f);
+        float slope0 = (rn - r0) / (0.004f * CUE_LEN);
         for (int i = 0; i <= slices; i++) {
             float u = (float)i / slices, th = u * 2.0f * PI;
             float cx = cosf(th), cz = sinf(th);
-            /* normal follows the taper, so the shaft is not lit like a cylinder */
-            float nl = 1.0f / sqrtf(1.0f + slope * slope);
-            b_vert(b, cx * r, y, cz * r, cx * nl, -slope * nl, cz * nl, u, t);
+            /* The flat makes the radius depend on the ANGLE as well as the length. */
+            float fs = cue_flat_scale(t, th);
+            float r = r0 * fs;
+            float slope = slope0 * fs;
+            /* Across-section slope where the flat meets the round, so the edge of
+             * the flat lights as an edge instead of vanishing. */
+            float fs2 = cue_flat_scale(t, th + 0.06f);
+            float dtan = (fs2 - fs) * r0 / (0.06f * r0 + 1e-6f);
+            float nl = 1.0f / sqrtf(1.0f + slope * slope + dtan * dtan);
+            b_vert(b, cx * r, y, cz * r,
+                   (cx - (-cz) * dtan) * nl, -slope * nl, (cz - cx * dtan) * nl, u, t);
         }
     }
     /* Note the order is the REVERSE of build_sphere's, and has to be: the
@@ -1168,20 +1243,14 @@ static float fur_noise(float x, float y, int px, int py) {
  * coloured line flashed down each side of a splice point, which is the detail
  * that makes a cue look made rather than turned. */
 static const CueVrCueDesign CUE_RACK[] = {
-  { "ASH & EBONY",  {0.86f,0.74f,0.54f}, {0.085f,0.065f,0.055f},
-                    {0.085f,0.065f,0.055f}, {0.085f,0.065f,0.055f}, 0 },
-  { "TURQUOISE",    {0.84f,0.72f,0.52f}, {0.10f,0.075f,0.06f},
-                    {0.20f,0.72f,0.74f},    {0.055f,0.05f,0.05f},   1 },
-  { "BURR WALNUT",  {0.87f,0.75f,0.55f}, {0.34f,0.20f,0.10f},
-                    {0.72f,0.56f,0.30f},    {0.26f,0.15f,0.08f},    1 },
-  { "EBONY PRO",    {0.72f,0.61f,0.45f}, {0.06f,0.05f,0.05f},
-                    {0.80f,0.80f,0.82f},    {0.045f,0.04f,0.04f},   1 },
-  { "MAPLE & BLUE", {0.93f,0.86f,0.70f}, {0.09f,0.07f,0.07f},
-                    {0.18f,0.38f,0.80f},    {0.07f,0.07f,0.09f},    1 },
-  { "ROSEWOOD",     {0.82f,0.68f,0.48f}, {0.36f,0.13f,0.11f},
-                    {0.78f,0.34f,0.20f},    {0.24f,0.09f,0.08f},    1 },
-  { "TOURNAMENT",   {0.90f,0.82f,0.63f}, {0.08f,0.06f,0.055f},
-                    {0.16f,0.52f,0.28f},    {0.06f,0.055f,0.05f},   1 },
+  /*  name            shaft                splice                  accent (veneer)        butt                    burr panel            flash */
+  { "ASH & EBONY",  {0.86f,0.74f,0.54f}, {0.085f,0.065f,0.055f}, {0.085f,0.065f,0.055f}, {0.085f,0.065f,0.055f}, {0.085f,0.065f,0.055f}, 0 },
+  { "TURQUOISE",    {0.84f,0.72f,0.52f}, {0.10f,0.075f,0.06f},   {0.20f,0.72f,0.74f},    {0.055f,0.05f,0.05f},   {0.42f,0.26f,0.13f},    1 },
+  { "BURR WALNUT",  {0.87f,0.75f,0.55f}, {0.34f,0.20f,0.10f},    {0.72f,0.56f,0.30f},    {0.26f,0.15f,0.08f},    {0.52f,0.34f,0.16f},    1 },
+  { "EBONY PRO",    {0.72f,0.61f,0.45f}, {0.06f,0.05f,0.05f},    {0.80f,0.80f,0.82f},    {0.045f,0.04f,0.04f},   {0.30f,0.22f,0.16f},    1 },
+  { "MAPLE & BLUE", {0.93f,0.86f,0.70f}, {0.09f,0.07f,0.07f},    {0.18f,0.38f,0.80f},    {0.07f,0.07f,0.09f},    {0.38f,0.30f,0.22f},    1 },
+  { "ROSEWOOD",     {0.82f,0.68f,0.48f}, {0.36f,0.13f,0.11f},    {0.78f,0.34f,0.20f},    {0.24f,0.09f,0.08f},    {0.46f,0.20f,0.13f},    1 },
+  { "TOURNAMENT",   {0.90f,0.82f,0.63f}, {0.08f,0.06f,0.055f},   {0.16f,0.52f,0.28f},    {0.06f,0.055f,0.05f},   {0.34f,0.24f,0.14f},    1 },
 };
 #define CUE_RACK_N ((int)(sizeof CUE_RACK / sizeof CUE_RACK[0]))
 static int s_cue_sel;
@@ -1632,6 +1701,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_csplice    = glGetUniformLocation(G.prog, "u_csplice");
     G.u_caccent    = glGetUniformLocation(G.prog, "u_caccent");
     G.u_cbutt      = glGetUniformLocation(G.prog, "u_cbutt");
+    G.u_cburr      = glGetUniformLocation(G.prog, "u_cburr");
     G.u_cflash     = glGetUniformLocation(G.prog, "u_cflash");
     G.u_shell      = glGetUniformLocation(G.prog, "u_shell");
     G.u_markc      = glGetUniformLocation(G.prog, "u_markc");
@@ -2019,6 +2089,7 @@ void cuevr_render_eye(const float *view, const float *proj,
             glUniform3fv(G.u_csplice, 1, cd->splice);
             glUniform3fv(G.u_caccent, 1, cd->accent);
             glUniform3fv(G.u_cbutt, 1, cd->butt);
+            glUniform3fv(G.u_cburr, 1, cd->burr);
             glUniform1f(G.u_cflash, (float)cd->flash);
         }
         glUniform1f(G.u_baulk, tb->baulk_x);
