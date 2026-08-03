@@ -1511,6 +1511,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
     if (S.hud_dirty) { hud_build(); cuevr_render_hud(S.hud); S.hud_dirty = 0; }
 }
 
+/* Multiview: one pass, both eyes. The XR host calls this instead of app_draw_eye
+ * when the runtime has GL_OVR_multiview2 — half the draw calls and half the vertex
+ * work, which on a Quest is the single biggest structural win available. */
+static void app_draw_views(void *u, const float *view2, const float *proj2, int draw_room) {
+    (void)u;
+    cuevr_render_views(view2, proj2, &S.scene, draw_room);
+}
+
 static void app_draw_eye(void *u, const float *view, const float *proj, int draw_room) {
     (void)u;
     cuevr_render_eye(view, proj, &S.scene, draw_room);
@@ -1525,5 +1533,6 @@ void cuevr_app_describe(MoteXrApp *out) {
     out->gl_init     = app_gl_init;
     out->update      = app_update;
     out->draw_eye    = app_draw_eye;
+    out->draw_views  = app_draw_views;
     out->gl_shutdown = app_gl_shutdown;
 }

@@ -77,6 +77,14 @@ typedef struct {
      * no passthrough, so the app should fill the world with something rather
      * than leave the player in a void. */
     void (*draw_eye)(void *user, const float *view, const float *proj, int draw_room);
+    /* MULTIVIEW: called ONCE with both eyes' matrices, drawing into a 2-layer
+     * framebuffer with gl_ViewID_OVR selecting the layer. One pass instead of two
+     * — half the draw calls, half the vertex work, and the driver's own fast path
+     * on Quest. `view` and `proj` are each two 4x4 matrices back to back.
+     *
+     * Optional: a renderer that does not supply it, or a runtime without
+     * GL_OVR_multiview2, falls back to draw_eye per eye. */
+    void (*draw_views)(void *user, const float *view2, const float *proj2, int draw_room);
 
     void (*gl_shutdown)(void *user);
     void *user;

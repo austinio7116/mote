@@ -79,6 +79,10 @@ void        cuevr_render_set_cue(int i);
 int         cuevr_render_cue(void);
 
 void cuevr_render_hud(const uint16_t *px);       /* CUEVR_HUD_W*H RGB565 */
+/* Multiview: both eyes in one pass. view2/proj2 are two 4x4s back to back. */
+void cuevr_render_views(const float *view2, const float *proj2,
+                        const CueVrScene *s, int draw_room);
+
 void cuevr_render_eye(const float *view, const float *proj,
                       const CueVrScene *s, int draw_room);
 void cuevr_render_shutdown(void);

@@ -51,12 +51,11 @@
 /* ---- shaders ------------------------------------------------------------ */
 
 static const char *VS =
-"#version 300 es\n"
 "layout(location=0) in vec3 a_pos;\n"
 "layout(location=1) in vec3 a_nrm;\n"
 "layout(location=2) in vec2 a_uv;\n"
 "layout(location=3) in vec3 a_col;\n"
-"uniform mat4 u_mvp;\n"
+"uniform mat4 u_mvp[2];\n"
 "uniform mat4 u_model;\n"
 "uniform float u_shell;\n"   // metres to extrude along the normal (fur shells)
 
@@ -65,8 +64,11 @@ static const char *VS =
 "out vec3 v_local;\n"
 "out vec3 v_col;\n"
 "out vec3 v_world;\n"
+"uniform vec3 u_eye[2];\n"
+"out vec3 v_eyepos;\n"
 "void main() {\n"
 
+"    v_eyepos = u_eye[VIEW_ID];\n"
 "    v_uv = a_uv;\n"
 "    v_col = a_col;\n"
 "    v_local = a_pos;\n"
@@ -74,12 +76,11 @@ static const char *VS =
 "    v_local = p;\n"
 "    v_world = (u_model * vec4(p, 1.0)).xyz;\n"
 "    v_nrm = normalize(mat3(u_model) * a_nrm);\n"
-"    gl_Position = u_mvp * vec4(p, 1.0);\n"
+"    gl_Position = u_mvp[VIEW_ID] * vec4(p, 1.0);\n"
 "}\n";
 
 /* u_mode: 0 lit flat colour, 1 ball, 2 unlit textured (HUD), 3 room grid */
 static const char *FS =
-"#version 300 es\n"
 "precision highp float;\n"
 "in vec3 v_nrm;\n"
 "in vec2 v_uv;\n"
@@ -96,7 +97,7 @@ static const char *FS =
 "uniform vec3  u_lampX[4];\n"   // half-extent along the table's length
 "uniform vec3  u_lampZ[4];\n"   // half-extent across it
 "uniform int   u_nlamp;\n"
-"uniform vec3  u_eye;\n"
+"in vec3 v_eyepos;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
 "uniform highp sampler2DArray u_fur;\n"
@@ -359,7 +360,7 @@ static const char *FS =
 "        // the lamps, they stretch and skew across the curve the way real\n"
 "        // ones do, and they slide correctly as you walk around the table —\n"
 "        // none of which a half-vector threshold can do.\n"
-"        vec3 V = normalize(u_eye - v_world);\n"
+"        vec3 V = normalize(v_eyepos - v_world);\n"
 "        vec3 Rv = reflect(-V, nw);\n"
 "        float refl = 0.0;\n"
 "        if (Rv.y > 1e-4) {\n"
@@ -406,7 +407,7 @@ static const char *FS =
 "            // blow out where it catches a lamp. The band round the shaft is\n"
 "            // the giveaway: bright top, dark flank, bright rim.\n"
 "            vec3 nn = normalize(v_nrm);\n"
-"            vec3 Vv = normalize(u_eye - v_world);\n"
+"            vec3 Vv = normalize(v_eyepos - v_world);\n"
 "            vec3 R = reflect(-Vv, nn);\n"
 "            float up = clamp(R.y * 0.5 + 0.5, 0.0, 1.0);\n"
 "            float band = pow(up, 3.0);\n"
@@ -552,7 +553,7 @@ static const char *FS =
 "            // Same model as the bed: bend the normal, let the sheen make the tone.\n"
 "            NapSample nsc = nap_sample(v_local, v_nrm);\n"
 "            sn = mix(sn, cloth_normal(v_nrm, nsc), iscloth);\n"
-"            vec3 Vv = normalize(u_eye - v_world);\n"
+"            vec3 Vv = normalize(v_eyepos - v_world);\n"
 "            vec3 Hv = normalize(L + Vv);\n"
 "            float nh = max(dot(sn, Hv), 0.0);\n"
 "            float nl = max(dot(sn, L), 0.0);\n"
@@ -591,7 +592,7 @@ static const char *FS =
 "        vec2 q = v_local.xz;\n"
 "        float aa = max(fwidth(v_local.x), fwidth(v_local.z)) * 1.2 + 1e-6;\n"
 "        vec3 nv = normalize(v_nrm);\n"
-"        vec3 V = normalize(u_eye - v_world);\n"
+"        vec3 V = normalize(v_eyepos - v_world);\n"
 "\n"
 "        // The nap: three octaves of the MIPMAPPED tile. Mipmapped is the whole\n"
 "        // point — the hardware band-limits it per pixel AND per axis, so it can\n"
@@ -642,7 +643,7 @@ static const char *FS =
 "        if (cov < 0.02) discard;\n"
 "        float hh = (u_furslice + 0.5) / u_furslices;\n"
 "        vec3 nv = normalize(v_nrm);\n"
-"        vec3 V = normalize(u_eye - v_world);\n"
+"        vec3 V = normalize(v_eyepos - v_world);\n"
 "        // Kajiya-Kay along the strand: a cylinder scatters in a cone about its\n"
 "        // own axis, so the highlight runs ALONG a hair rather than dotting a\n"
 "        // facet. With the hairs as geometry this is now shading a real strand.\n"
@@ -686,7 +687,7 @@ static const char *FS =
 "        cov *= (1.0 - across * across) * (1.0 - hv * 0.55);\n"
 "        if (cov < 0.03) discard;\n"
 "        vec3 nv = normalize(v_nrm);\n"
-"        vec3 V = normalize(u_eye - v_world);\n"
+"        vec3 V = normalize(v_eyepos - v_world);\n"
 "        vec3 T3 = normalize(vec3(1.0, 0.75, 0.0));\n"
 "        float TdL = dot(T3, L), TdV = dot(T3, V);\n"
 "        float sL = sqrt(max(1.0 - TdL * TdL, 0.0));\n"
@@ -825,9 +826,35 @@ static struct {
     void *tab_buf, *stri_buf;
 } G;
 
+/* The multiview header, prepended at compile time.
+ *
+ * The same shader source has to work both ways: multiview needs the extension, the
+ * num_views layout and gl_ViewID_OVR, and the per-eye fallback has none of those.
+ * A VIEW_ID macro is the whole difference — the body indexes u_mvp[VIEW_ID] and
+ * u_eye[VIEW_ID] either way, and VIEW_ID is 0 when there is only one view per pass.
+ *
+ * gl_ViewID_OVR is a VERTEX stage builtin, so the eye position is resolved there
+ * and handed to the fragment stage as a varying rather than read from a uniform. */
+static int s_mv_shader;      /* compile the multiview variant */
+
 static GLuint compile(GLenum type, const char *src) {
+    const char *hdr = s_mv_shader
+        ? "#version 300 es\n"
+          "#extension GL_OVR_multiview2 : require\n"
+          "layout(num_views = 2) in;\n"
+          "#define VIEW_ID int(gl_ViewID_OVR)\n"
+        : "#version 300 es\n"
+          "#define VIEW_ID 0\n";
+    /* the layout(num_views) qualifier is vertex-only */
+    const char *hdr_fs = s_mv_shader
+        ? "#version 300 es\n"
+          "#extension GL_OVR_multiview2 : require\n"
+          "#define VIEW_ID int(gl_ViewID_OVR)\n"
+        : "#version 300 es\n"
+          "#define VIEW_ID 0\n";
+    const char *parts[2] = { (type == GL_VERTEX_SHADER) ? hdr : hdr_fs, src };
     GLuint s = glCreateShader(type);
-    glShaderSource(s, 1, &src, NULL);
+    glShaderSource(s, 2, parts, NULL);
     glCompileShader(s);
     GLint ok = 0;
     glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
@@ -1906,12 +1933,16 @@ void cuevr_render_hud(const uint16_t *px) {
 
 /* ---- drawing ------------------------------------------------------------ */
 
-static float VP[16];
+/* Two view-projections, because multiview draws both eyes in one pass. The
+ * non-multiview path fills only slot 0 and the shader's VIEW_ID is 0, so the same
+ * code serves both. */
+static float VP[2][16];
+static int   VP_n = 1;
 
 static void set_model(const float *m) {
-    float mvp[16];
-    mm4_mul(mvp, VP, m);
-    glUniformMatrix4fv(G.u_mvp, 1, GL_FALSE, mvp);
+    float mvp[2][16];
+    for (int v = 0; v < VP_n; v++) mm4_mul(mvp[v], VP[v], m);
+    glUniformMatrix4fv(G.u_mvp, VP_n, GL_FALSE, mvp[0]);
     glUniformMatrix4fv(G.u_model, 1, GL_FALSE, m);
 }
 
@@ -1929,11 +1960,19 @@ static void colour565(uint16_t c, float mul) {
     colour(r * mul, g * mul, b * mul, 1.0f);
 }
 
+/* Multiview entry point: the same renderer, told there are two views. */
+void cuevr_render_views(const float *view2, const float *proj2,
+                        const CueVrScene *s, int draw_room) {
+    VP_n = 2;
+    cuevr_render_eye(view2, proj2, s, draw_room);
+    VP_n = 1;
+}
+
 void cuevr_render_eye(const float *view, const float *proj,
                       const CueVrScene *s, int draw_room)
 {
     if (!G.ready) return;
-    mm4_mul(VP, proj, view);
+    for (int v = 0; v < VP_n; v++) mm4_mul(VP[v], proj + v * 16, view + v * 16);
 
     glUseProgram(G.prog);
     glEnable(GL_DEPTH_TEST);
@@ -1986,10 +2025,17 @@ void cuevr_render_eye(const float *view, const float *proj,
      * and its translation is that basis applied to -eye, so undo it. */
     MoteVrV3 eye;
     {
-        eye.x = -(view[12]*view[0] + view[13]*view[1] + view[14]*view[2]);
-        eye.y = -(view[12]*view[4] + view[13]*view[5] + view[14]*view[6]);
-        eye.z = -(view[12]*view[8] + view[13]*view[9] + view[14]*view[10]);
-        glUniform3f(G.u_eye, eye.x, eye.y, eye.z);
+        float ep[2][3];
+        for (int v = 0; v < VP_n; v++) {
+            const float *vw = view + v * 16;
+            ep[v][0] = -(vw[12]*vw[0] + vw[13]*vw[1] + vw[14]*vw[2]);
+            ep[v][1] = -(vw[12]*vw[4] + vw[13]*vw[5] + vw[14]*vw[6]);
+            ep[v][2] = -(vw[12]*vw[8] + vw[13]*vw[9] + vw[14]*vw[10]);
+        }
+        glUniform3fv(G.u_eye, VP_n, ep[0]);
+        /* Shading that wants a single eye — the fur gate, the scoreboard sizing —
+         * uses the left, which is within 32 mm of the right. */
+        eye = mv3(ep[0][0], ep[0][1], ep[0][2]);
     }
 
     /* The key light stays the handheld's: nearly overhead, rotated with the

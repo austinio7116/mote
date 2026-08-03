@@ -65,7 +65,7 @@ typedef struct {
     uint32_t    n;
     XrSwapchainImageOpenGLESKHR *images;
     GLuint     *fbo;
-    GLuint      depth;
+    GLuint      depth;      /* renderbuffer (per-eye) or 2-layer texture (multiview) */
 } Eye;
 
 /* GL_EXT_multisampled_render_to_texture, resolved at runtime. Declared here
@@ -74,6 +74,17 @@ typedef void (*PFN_glFramebufferTexture2DMultisampleEXT)(GLenum, GLenum, GLenum,
                                                          GLuint, GLint, GLsizei);
 typedef void (*PFN_glRenderbufferStorageMultisampleEXT)(GLenum, GLsizei, GLenum,
                                                         GLsizei, GLsizei);
+
+/* GL_OVR_multiview2 (+ the multisampled variant), also resolved at runtime.
+ *
+ * Multiview renders both eyes in ONE pass into a two-layer framebuffer, with
+ * gl_ViewID_OVR picking the layer inside the shader. It is the standard way to
+ * render on a Quest: the geometry is submitted once instead of twice, so the draw
+ * calls and the vertex work halve, and the driver takes a path built for it. */
+typedef void (*PFN_glFramebufferTextureMultiviewOVR)(GLenum, GLenum, GLuint,
+                                                     GLint, GLint, GLsizei);
+typedef void (*PFN_glFramebufferTextureMultisampleMultiviewOVR)(GLenum, GLenum, GLuint,
+                                                                GLint, GLsizei, GLint, GLsizei);
 
 static struct {
     XrInstance  instance;
@@ -118,6 +129,9 @@ static struct {
     int         floor;
     XrTime      last_display;
     int msaa;      /* samples per pixel; 0 = off, -1 = not yet decided */
+    int multiview; /* 1 = one array swapchain, both eyes in a single pass */
+    PFN_glFramebufferTextureMultiviewOVR            p_fbmv;
+    PFN_glFramebufferTextureMultisampleMultiviewOVR p_fbmvms;
     PFN_glFramebufferTexture2DMultisampleEXT p_tex2dms;
     PFN_glRenderbufferStorageMultisampleEXT  p_rbms;
 } S;
@@ -309,9 +323,27 @@ static int make_swapchains(void) {
     xrlog("[mote-xr] swapchain format 0x%04x (%s)", (unsigned)want,
           S.srgb ? "sRGB, runtime encodes" : "linear, shader encodes");
 
+    /* Multiview, decided before anything is created because it changes the SHAPE
+     * of what gets created: one array swapchain instead of two flat ones. It needs
+     * the app to supply draw_views as well — a renderer whose shaders are not
+     * view-indexed cannot use it, and falling back is not a failure. */
+    {
+        const char *ext = (const char *)glGetString(GL_EXTENSIONS);
+        int have = ext && strstr(ext, "GL_OVR_multiview2");
+        S.p_fbmv = have ? (PFN_glFramebufferTextureMultiviewOVR)
+            eglGetProcAddress("glFramebufferTextureMultiviewOVR") : NULL;
+        S.p_fbmvms = (have && ext && strstr(ext, "GL_OVR_multiview_multisampled_render_to_texture"))
+            ? (PFN_glFramebufferTextureMultisampleMultiviewOVR)
+              eglGetProcAddress("glFramebufferTextureMultisampleMultiviewOVR") : NULL;
+        S.multiview = (S.p_fbmv && S.app.draw_views && n == 2) ? 1 : 0;
+        xrlog("[mote-xr] multiview %s%s", S.multiview ? "on" : "off",
+              (S.multiview && !S.p_fbmvms) ? " (no multisampled variant: MSAA off)" : "");
+    }
+
     S.msaa = -1;    /* probed once, on the first eye */
 
-    for (uint32_t i = 0; i < n; i++) {
+    /* Multiview needs ONE swapchain with two layers, not one per eye. */
+    for (uint32_t i = 0; i < (S.multiview ? 1u : n); i++) {
         Eye *e = &S.eye[i];
         e->w = (int32_t)S.vcfg[i].recommendedImageRectWidth;
         e->h = (int32_t)S.vcfg[i].recommendedImageRectHeight;
@@ -328,7 +360,7 @@ static int make_swapchains(void) {
         sc.width = e->w;
         sc.height = e->h;
         sc.faceCount = 1;
-        sc.arraySize = 1;
+        sc.arraySize = S.multiview ? 2 : 1;   /* one image, two layers */
         sc.mipCount = 1;
         if (failed(xrCreateSwapchain(S.session, &sc, &e->handle), "xrCreateSwapchain"))
             return -1;
@@ -373,25 +405,49 @@ static int make_swapchains(void) {
                   S.msaa ? "" : " (extension unavailable)");
         }
 
-        glGenRenderbuffers(1, &e->depth);
-        glBindRenderbuffer(GL_RENDERBUFFER, e->depth);
-        if (S.msaa > 0)
-            S.p_rbms(GL_RENDERBUFFER, S.msaa, GL_DEPTH_COMPONENT24, e->w, e->h);
-        else
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, e->w, e->h);
+        if (S.multiview) {
+            /* Depth has to be a two-layer TEXTURE, not a renderbuffer: a layered
+             * framebuffer's attachments must all be layered. */
+            if (S.msaa > 0 && !S.p_fbmvms) S.msaa = 0;
+            glGenTextures(1, &e->depth);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, e->depth);
+            glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_DEPTH_COMPONENT24, e->w, e->h, 2);
+        } else {
+            glGenRenderbuffers(1, &e->depth);
+            glBindRenderbuffer(GL_RENDERBUFFER, e->depth);
+            if (S.msaa > 0)
+                S.p_rbms(GL_RENDERBUFFER, S.msaa, GL_DEPTH_COMPONENT24, e->w, e->h);
+            else
+                glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, e->w, e->h);
+        }
 
         e->fbo = calloc(e->n, sizeof *e->fbo);
         glGenFramebuffers((GLsizei)e->n, e->fbo);
         for (uint32_t k = 0; k < e->n; k++) {
             glBindFramebuffer(GL_FRAMEBUFFER, e->fbo[k]);
-            if (S.msaa > 0)
+            if (S.multiview) {
+                if (S.msaa > 0) {
+                    S.p_fbmvms(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               e->images[k].image, 0, S.msaa, 0, 2);
+                    S.p_fbmvms(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                               e->depth, 0, S.msaa, 0, 2);
+                } else {
+                    S.p_fbmv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                             e->images[k].image, 0, 0, 2);
+                    S.p_fbmv(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                             e->depth, 0, 0, 2);
+                }
+            } else if (S.msaa > 0) {
                 S.p_tex2dms(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                             e->images[k].image, 0, S.msaa);
-            else
+                glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                          GL_RENDERBUFFER, e->depth);
+            } else {
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                                        e->images[k].image, 0);
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                                      GL_RENDERBUFFER, e->depth);
+                glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                          GL_RENDERBUFFER, e->depth);
+            }
             if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE
                 && S.msaa > 0) {
                 /* Incomplete with MSAA: drop it and rebuild this one plainly
@@ -656,6 +712,56 @@ static void draw_frame(void) {
 
         if (S.app.update) S.app.update(S.app.user, &track);
 
+        if (S.multiview) {
+            /* ONE pass, both eyes. The geometry is submitted once into a two-layer
+             * framebuffer and gl_ViewID_OVR picks the layer inside the shader, so
+             * the draw calls and the vertex work halve. Both projection views then
+             * reference the SAME swapchain with different imageArrayIndex — that is
+             * the part that is easy to miss and shows up as one eye being black. */
+            Eye *e = &S.eye[0];
+            uint32_t idx = 0;
+            XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+            if (!failed(xrAcquireSwapchainImage(e->handle, &ai, &idx), "acquire")) {
+                XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+                wi.timeout = XR_INFINITE_DURATION;
+                xrWaitSwapchainImage(e->handle, &wi);
+
+                glBindFramebuffer(GL_FRAMEBUFFER, e->fbo[idx]);
+                glViewport(0, 0, e->w, e->h);
+                glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+                glClearDepthf(1.0f);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+                float view2[32], proj2[32];
+                for (uint32_t i = 0; i < 2; i++) {
+                    uint32_t vi = (i < nv) ? i : 0;
+                    MoteVrPose ep;
+                    memcpy(&ep.q, &S.views[vi].pose.orientation, sizeof ep.q);
+                    memcpy(&ep.p, &S.views[vi].pose.position, sizeof ep.p);
+                    mm4_view_from_pose(view2 + i * 16, ep);
+                    mm4_proj_fov(proj2 + i * 16,
+                                 S.views[vi].fov.angleLeft, S.views[vi].fov.angleRight,
+                                 S.views[vi].fov.angleUp, S.views[vi].fov.angleDown,
+                                 0.02f, 50.0f);
+                }
+                S.app.draw_views(S.app.user, view2, proj2, !S.has_passthrough);
+
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                XrSwapchainImageReleaseInfo ri = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+                xrReleaseSwapchainImage(e->handle, &ri);
+            }
+            for (uint32_t i = 0; i < nv; i++) {
+                pv[i] = (XrCompositionLayerProjectionView){ XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW };
+                pv[i].pose = S.views[i].pose;
+                pv[i].fov  = S.views[i].fov;
+                pv[i].subImage.swapchain = e->handle;
+                pv[i].subImage.imageArrayIndex = i;      /* the layer for this eye */
+                pv[i].subImage.imageRect.offset.x = 0;
+                pv[i].subImage.imageRect.offset.y = 0;
+                pv[i].subImage.imageRect.extent.width  = e->w;
+                pv[i].subImage.imageRect.extent.height = e->h;
+            }
+        } else
         for (uint32_t i = 0; i < nv; i++) {
             Eye *e = &S.eye[i];
             uint32_t idx = 0;
