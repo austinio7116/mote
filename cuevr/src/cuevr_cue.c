@@ -188,11 +188,19 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
         if (c->grip > CUEVR_GRIP_MAX) c->grip = CUEVR_GRIP_MAX;
     }
     if (adjusting && c->have_hand && adj_l) {
-        /* Move your hand, and the bridge offset moves with it — all three axes,
-         * directly, so where you put your hand is where the cue rests. Clamped
-         * only so a wild sweep cannot leave the cue out of arm's reach. */
+        /* Hold the trigger and the cue STAYS WHERE IT IS while your hand moves
+         * under it — the offset absorbs the motion exactly, all three axes. Let
+         * go and that relationship is what you keep. This is a hand sliding on a
+         * stationary cue, which is the real thing being modelled.
+         *
+         * The clamp is a generous sphere rather than the tight vertical band it
+         * started as. That band was ±2 cm to +14 cm, so a hand raised more than
+         * about five centimetres hit the floor of it and simply stopped
+         * tracking — which is what "it snaps back to the same place whatever I
+         * do" actually was. A limit you can reach during normal use is not a
+         * safety rail, it is a bug. */
         MoteVrV3 m = mv3_sub(Lh->pose.p, c->prev_hand[MOTE_VR_LEFT]);
-        c->rest = mv3_add(c->rest, m);
+        c->rest = mv3_sub(c->rest, m);
         float len = mv3_len(c->rest);
         if (len > CUEVR_REST_MAXLEN)
             c->rest = mv3_scale(c->rest, CUEVR_REST_MAXLEN / len);

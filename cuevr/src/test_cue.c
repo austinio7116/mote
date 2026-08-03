@@ -331,9 +331,9 @@ int main(void) {
     MoteVrV3 restSet = c.rest;
     check(mv3_len(mv3_sub(restSet, rest0)) > 0.02f,
           "the left side trigger moves the bridge offset");
-    check(restSet.y > rest0.y, "raising the hand raises the cue off it");
-    check(mv3_len(mv3_sub(c.axis, axis0)) > 1e-4f,
-          "and you can SEE it happen — the cue is not frozen while you set it");
+    check(restSet.y < rest0.y, "raising the hand lowers the stored offset");
+    checkf(mv3_len(mv3_sub(c.axis, axis0)), 0.0f, 1e-4f,
+           "the cue stays exactly still while your hand moves under it");
     checkf(c.grip, gripL, 1e-4f, "the bridge hand never changes the grip");
     check(!shot.struck, "setting the bridge never plays a shot");
 
