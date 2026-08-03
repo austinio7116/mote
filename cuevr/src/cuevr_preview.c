@@ -23,7 +23,11 @@
  * menu button. IJKL/UO drive the sticks for setup.
  */
 #include "cuevr.h"
+
+/* How many rows below GAME the START row sits. Must track the menu. */
+#define MR_START_STEPS 6
 MoteVrV3 cuevr_app_rest(void);
+int cuevr_app_aiming(void);
 float cuevr_app_grip(void);
 #include "cuevr_app.h"
 #include "cuevr_audio.h"
@@ -119,6 +123,14 @@ int main(int argc, char **argv) {
      * the only way to settle "the offset never changes on the headset" from
      * here: an isolated unit test passing proves the maths, not the wiring. */
     int auto_adjust = getenv("CUEVR_ADJUST") != NULL;
+    /* CUEVR_PAUSE=<frame>: tap MENU then, so the options screen can be
+     * captured without a keyboard. */
+    /* CUEVR_NET=host|join: drive the lobby to a LAN session, so two instances on
+     * one machine can be paired from a script. Networking that has never had two
+     * ends talk to each other is not networking, it is hope. */
+    const char *auto_net = getenv("CUEVR_NET");
+    int auto_pause = -1;
+    { const char *v = getenv("CUEVR_PAUSE"); if (v) auto_pause = atoi(v); }
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -212,25 +224,88 @@ int main(int argc, char **argv) {
          * produces the same picture. */
         if (shot) dt = 1.0f / 72.0f;
 
-        /* Scripted run-in, so a screenshot needs no keyboard. */
-        if (auto_table >= 0) {
-            if (nframe == 3)  { s_stick_r[1] = 0.0f; }
-            if (nframe >= 4 && nframe < 4 + auto_table * 2) {
-                s_stick_r[1] = (nframe & 1) ? -1.0f : 0.0f;   /* step down the menu */
-            } else if (nframe == 4 + auto_table * 2) {
+        /* Scripted run-in, so a screenshot needs no keyboard.
+         *
+         * The order changed when levelling moved to the front, and this script
+         * is part of that change rather than a victim of it: it now confirms the
+         * level FIRST, then walks the menu. Left as fixed frame numbers on
+         * purpose — the capture step is pinned to 1/72 s so frame N is always the
+         * same moment, and a scripted run that drifts is a scripted run that
+         * silently stops testing anything.
+         *
+         *   f4    confirm the levelling screen  -> the menu
+         *   f10+  step DOWN to the GAME row is unnecessary (it starts there),
+         *         so nudge RIGHT auto_table times to pick the table
+         *   then  step down to START and press A
+         */
+        /* CUEVR_NET takes the menu over after the levelling: two scripts both
+         * pressing A in the same menu is two scripts pressing A in the same
+         * menu, and the table script got there first and started a CPU game. */
+        if (auto_table >= 0 && !auto_net) {
+            const int F_LEVEL = 4;                       /* confirm the level */
+            const int F_PICK  = 10;                      /* start choosing the table */
+            const int F_ROW   = F_PICK + auto_table * 2 + 4;
+            const int F_GO    = F_ROW + MR_START_STEPS * 2 + 4;
+
+            if (nframe == F_LEVEL)     s_a = 1;
+            if (nframe == F_LEVEL + 2) s_a = 0;
+
+            /* GAME row: nudge right once per table index. */
+            if (nframe >= F_PICK && nframe < F_PICK + auto_table * 2)
+                s_stick_r[0] = (nframe & 1) ? 1.0f : 0.0f;
+            else if (nframe == F_PICK + auto_table * 2)
+                s_stick_r[0] = 0.0f;
+
+            /* Down to the START row. */
+            if (nframe >= F_ROW && nframe < F_ROW + MR_START_STEPS * 2)
+                s_stick_r[1] = (nframe & 1) ? -1.0f : 0.0f;
+            else if (nframe == F_ROW + MR_START_STEPS * 2)
                 s_stick_r[1] = 0.0f;
-            }
-            if (nframe == 10 + auto_table * 2) s_a = 1;
-            if (nframe == 12 + auto_table * 2) s_a = 0;
-            if (nframe == 18 + auto_table * 2) s_a = 1;       /* confirm setup */
-            if (nframe == 20 + auto_table * 2) s_a = 0;
+
+            if (nframe == F_GO)     s_a = 1;
+            if (nframe == F_GO + 2) s_a = 0;
+            /* and confirm the table placement the frame put us back into */
+            if (nframe == F_GO + 10) s_a = 1;
+            if (nframe == F_GO + 12) s_a = 0;
         }
         /* Hold the LEFT side trigger and move the bridge hand, then let go. At
          * TOP level, not inside the stroke script: the first version of this was
          * nested inside `if (auto_stroke)` and silently never ran, which is the
          * same class of mistake as the bug it is here to find. */
+        if (auto_net) {
+            if (nframe == 4) s_a = 1;            /* confirm the levelling */
+            if (nframe == 6) s_a = 0;
+            /* From the menu: down to OPPONENT, right to ONLINE, down to START,
+             * A, then LAN, then HOST or JOIN. */
+            const int F = 12;
+            if (nframe == F)      s_stick_r[1] = -1.0f;      /* -> OPPONENT */
+            if (nframe == F + 1)  s_stick_r[1] = 0.0f;
+            /* The default is VS CPU, so exactly ONE nudge right reaches ONLINE.
+             * Two wrapped round to PRACTICE and started a local game, which the
+             * state trace showed as MENU -> AIM instead of MENU -> LOBBY. */
+            if (nframe == F + 3)  s_stick_r[0] = 1.0f;       /* VS CPU -> ONLINE */
+            if (nframe == F + 4)  s_stick_r[0] = 0.0f;
+            for (int k = 0; k < 5; k++) {                    /* -> START row */
+                if (nframe == F + 10 + k * 2)     s_stick_r[1] = -1.0f;
+                if (nframe == F + 11 + k * 2)     s_stick_r[1] = 0.0f;
+            }
+            if (nframe == F + 22) s_a = 1;                   /* enter the lobby */
+            if (nframe == F + 24) s_a = 0;
+            if (nframe == F + 28) s_a = 1;                   /* choose LAN */
+            if (nframe == F + 30) s_a = 0;
+            if (!strcmp(auto_net, "join")) {
+                if (nframe == F + 33) s_stick_r[1] = -1.0f;  /* HOST -> JOIN */
+                if (nframe == F + 34) s_stick_r[1] = 0.0f;
+            }
+            if (nframe == F + 38) s_a = 1;                   /* host or join */
+            if (nframe == F + 40) s_a = 0;
+        }
+        if (auto_pause >= 0) {
+            if (nframe == auto_pause)     s_menu = 1;
+            if (nframe == auto_pause + 2) s_menu = 0;
+        }
         if (auto_adjust) {
-            if (nframe >= 60 && nframe < 90) {
+            if (nframe >= 90 && nframe < 120) {
                 s_lsqueeze = 1.0f;
                 s_bridge.y += 0.001f;          /* raise the hand 3 cm in total */
             } else if (nframe == 90) {
@@ -247,15 +322,33 @@ int main(int argc, char **argv) {
 
         /* A scripted cue action: take hold of the cue, then drive the grip hand
          * through. The bridge does not move — that is the point of it. */
+        /* Frames since play actually began. Absolute frame numbers cannot work
+         * here: the online run-in waits on a network handshake, which takes
+         * however long it takes, and by the time the table was live the scripted
+         * stroke frame was thousands of frames in the past. */
+        static int play_f = -1;
+        if (play_f < 0) { if (cuevr_app_aiming()) play_f = 0; }
+        else play_f++;
+
         if (auto_stroke) {
-            if (nframe >= 36) s_trig = 1;
-            if (nframe == 40) s_butt.x += 0.12f;
+            /* AFTER the run-in, not at a frame number that happened to be past
+             * it once. The run-in grew when levelling moved to the front, and a
+             * stroke scripted at frame 36 then fired inside the menu and quietly
+             * did nothing — the same silent-harness failure as before. */
+            /* The online run-in is longer again (lobby, transport, action), so
+             * the stroke waits longer still. */
+            if (play_f >= 6)  s_trig = 1;
+            if (play_f == 10) s_butt.x += 0.12f;
         }
 
         /* Park the fake hands behind the cue ball the first time the table is
          * placed, so the cue starts pointing at something. After that WASD and
          * the arrows move them, as your real hands would. */
-        if (!hands_placed && nframe > 24) {
+        /* Place the fake hands only once the table is actually sited and we are
+         * aiming — at frame 24 the cue ball is still wherever the default
+         * placement put it, so the hands were lined up on a table that then
+         * moved. Another consequence of levelling moving to the front. */
+        if (!hands_placed && cuevr_app_aiming()) {
             MoteVrV3 b = cuevr_app_cue_ball_room();
             /* The tip is (CUE_LEN - grip) in front of the GRIP hand now, so
              * place that hand from the ball backwards and put the bridge a

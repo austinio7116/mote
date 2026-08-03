@@ -27,6 +27,8 @@ LOCAL_C_INCLUDES := \
     $(MOTE_ROOT)/engine/core \
     $(MOTE_ROOT)/engine/math \
     $(MOTE_ROOT)/engine/render \
+    $(MOTE_ROOT)/platform/vr/compat \
+    $(MOTE_ROOT)/studio \
     $(MOTE_ROOT)/engine/assets \
     $(MOTE_ROOT)/engine/input \
     $(MOTE_ROOT)/engine/physics \
@@ -48,7 +50,7 @@ LOCAL_SRC_FILES := \
     $(MOTE_ROOT)/cuevr/src/cuevr_main_android.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_app.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_render.c \
-    $(MOTE_ROOT)/cuevr/src/cuevr_cue.c $(MOTE_ROOT)/cuevr/src/cuevr_text.c \
+    $(MOTE_ROOT)/cuevr/src/cuevr_cue.c $(MOTE_ROOT)/cuevr/src/cuevr_text.c $(MOTE_ROOT)/studio/link_net.c $(MOTE_ROOT)/cuevr/src/cuevr_net.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_setup.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_audio.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_frame.c \

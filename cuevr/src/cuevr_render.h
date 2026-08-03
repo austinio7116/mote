@@ -18,9 +18,16 @@
  * 128x128 bilinear-stretched onto it was simply blurry. Layout stays in
  * 128-space — CUEVR_HUD_SS scales it on the way in — so the coordinates in
  * hud_build() still read as they always did. */
+/* 16:9, not square. A real snooker scoreboard is wide and short — two player
+ * rows and a big score — and a square panel forced everything into a column that
+ * read like a handheld screen because it WAS a handheld screen's proportions.
+ * Layout stays in 128-wide space (CUEVR_HUD_SS scales it on the way in), so the
+ * numbers in hud_build() are still legible as coordinates. */
 #define CUEVR_HUD_SS 4
-#define CUEVR_HUD_W (128 * CUEVR_HUD_SS)
-#define CUEVR_HUD_H (128 * CUEVR_HUD_SS)
+#define CUEVR_HUD_LW 128
+#define CUEVR_HUD_LH 72
+#define CUEVR_HUD_W (CUEVR_HUD_LW * CUEVR_HUD_SS)
+#define CUEVR_HUD_H (CUEVR_HUD_LH * CUEVR_HUD_SS)
 
 typedef struct {
     const CueVrPlacement *place;

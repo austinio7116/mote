@@ -4,6 +4,7 @@
  * driven from the shot-resolve step here.
  */
 #include "cue_game.h"
+#include "cue_theme.h"
 #ifdef MOTE_HOST
 #include <stdlib.h>
 #include <stdio.h>
@@ -46,34 +47,9 @@ enum { SC_TITLE = 0, SC_MAIN, SC_PLAY, SC_OPTIONS, SC_CUSTOM, SC_GAME, SC_PAUSE,
 /* In-game sub-states. */
 enum { GS_AIM = 0, GS_BACKSWING, GS_SHOOTING, GS_PLACE, GS_DECIDE };
 
-/* ---- options / settings ---------------------------------------------- */
-#define CUE_NCLOTH 10
-static const uint16_t k_cloth[CUE_NCLOTH] = {
-    RGB565C(4,135,21),    /* GREEN  — classic championship green */
-    RGB565C(18,72,140),   /* BLUE   — tournament blue */
-    RGB565C(20,110,92),   /* TEAL */
-    RGB565C(150,24,30),   /* RED */
-    RGB565C(120,30,50),   /* CLARET */
-    RGB565C(82,42,132),   /* PURPLE */
-    RGB565C(112,120,132), /* SLATE — lighter slate-grey (was too dark) */
-    RGB565C(150,112,58),  /* TAN */
-    RGB565C(22,30,92),     /* NAVY */
-    RGB565C(26,26,30),    /* BLACK */
-};
-static const char *k_cloth_name[CUE_NCLOTH] = {
-    "GREEN","BLUE","TEAL","RED","CLARET","PURPLE","SLATE","TAN","NAVY","BLACK" };
-
-/* Frame / rail wood — browns through blacks & greys. Each entry is the side
- * (shadowed) rail colour plus the lit top edge. */
-#define CUE_NFRAME 7
-static const uint16_t k_frame_rail[CUE_NFRAME] = {
-    RGB565C(96,54,26),   RGB565C(150,110,60), RGB565C(110,40,30), RGB565C(64,38,22),
-    RGB565C(28,26,28),   RGB565C(60,62,68),   RGB565C(120,124,130) };
-static const uint16_t k_frame_top[CUE_NFRAME] = {
-    RGB565C(128,78,38),  RGB565C(185,145,90), RGB565C(145,65,45), RGB565C(94,58,36),
-    RGB565C(54,50,52),   RGB565C(96,98,104),  RGB565C(168,171,178) };
-static const char *k_frame_name[CUE_NFRAME] = {
-    "WALNUT","OAK","MAHOGANY","WENGE","EBONY","CHARCOAL","SILVER" };
+/* ---- options / settings ---------------------------------------------- *
+ * The palettes live in cue_theme.h so the VR build can offer the same choices
+ * from the same authored values. */
 static int s_frame_idx;
 
 static int s_kind;            /* CueGameKind: 0 UK8, 1 US8, 2 US9, 3 CN8, 4 SNK10... */
@@ -90,21 +66,12 @@ static int s_link_me;         /* local player index 0/1 */
 static int s_link_settled;    /* one-shot: our shot just fully resolved */
 static int s_link_end_reason; /* SC_OVER banner: 0 normal, 1 opp left, 2 link lost */
 static int s_cloth_idx;
-static int s_ballset;          /* see k_ballset_name */
-#define CUE_NBALLSET 8
-static const char *k_ballset_name[CUE_NBALLSET] = {
-    "PRO", "UK Y/B", "UK Y/R", "DYNA", "PRO TOUR", "HOT PINK", "SPACE", "VINTAGE" };
-/* 9-ball needs every ball distinguishable, so only fully per-number sets are
- * valid: PRO (0), PRO TOUR (4), SPACE (6), VINTAGE (7). The grouped 2-colour
- * sets (UK Y/B, UK Y/R, DYNA, HOT PINK) are excluded for US9. */
-static int ballset_ok(int mode, int set) {
-    if (mode == CUE_GAME_US9) return set == 0 || set == 4 || set == 6 || set == 7;
-    return 1;
-}
+static int s_ballset;          /* see k_ballset_name in cue_theme.h */
+
 static int next_ballset(int mode, int set, int dir) {
     for (int i = 0; i < CUE_NBALLSET; i++) {
         set = (set + dir + CUE_NBALLSET) % CUE_NBALLSET;
-        if (ballset_ok(mode, set)) return set;
+        if (cue_ballset_ok(mode, set)) return set;
     }
     return set;
 }
@@ -256,7 +223,7 @@ static void rack(void) {
     cue_render_build_table(&s_table, &s_world);
 }
 static void new_frame(void) {
-    if (!ballset_ok(s_kind, s_ballset))      /* e.g. a grouped set isn't valid for 9-ball */
+    if (!cue_ballset_ok(s_kind, s_ballset))      /* e.g. a grouped set isn't valid for 9-ball */
         s_ballset = default_ballset(s_kind);
     rack();
     cue_rules_init(&s_rules, &s_table, any_cpu());
@@ -955,7 +922,7 @@ void cue_game_start_demo(int mode, int p1, int p2, int cloth, int frame,
     s_cloth_idx = (cloth<0||cloth>=CUE_NCLOTH) ? 0 : cloth;
     s_frame_idx = (frame<0||frame>=CUE_NFRAME) ? 0 : frame;
     s_ballset   = ballset;
-    if (!ballset_ok(s_kind, s_ballset)) s_ballset = default_ballset(s_kind);
+    if (!cue_ballset_ok(s_kind, s_ballset)) s_ballset = default_ballset(s_kind);
     s_match_bo  = (bo < 1) ? 1 : bo;
     new_match();
     s_screen = SC_GAME;
@@ -1450,7 +1417,7 @@ void cue_game_link_begin(int me, int kind) {
     s_link_me = me & 1;
     s_link_on = 1; s_link_settled = 0; s_link_end_reason = 0;
     s_match_bo = 1;                 /* single frame over the link (known gap) */
-    if (!ballset_ok(s_kind, s_ballset)) s_ballset = default_ballset(s_kind);
+    if (!cue_ballset_ok(s_kind, s_ballset)) s_ballset = default_ballset(s_kind);
     s_frames[0] = s_frames[1] = 0; s_match_over = 0;
     s_breaker = 0;                  /* player 0 (the nonce winner) breaks */
     new_frame();                    /* racks + cue_rules_init, turn = s_breaker = 0 */

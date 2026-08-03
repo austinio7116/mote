@@ -100,6 +100,7 @@ if(MOTE_TARGET STREQUAL "host")
         platform/android/mote_plat_android.c
         platform/android/mote_link_android.c
         studio/link_net.c
+        cuevr/src/cuevr_net.c
         platform/android/mote_mn1.c
         os/android/mote_android_os.c
         os/android/mote_android_gallery.c
@@ -188,6 +189,8 @@ if(MOTE_TARGET STREQUAL "host")
         cuevr/src/cuevr_render.c
         cuevr/src/cuevr_cue.c
         cuevr/src/cuevr_text.c
+        studio/link_net.c
+        cuevr/src/cuevr_net.c
         cuevr/src/cuevr_setup.c
         cuevr/src/cuevr_audio.c
         cuevr/src/cuevr_frame.c
@@ -204,6 +207,7 @@ if(MOTE_TARGET STREQUAL "host")
         ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/xr
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/vr
+        ${CMAKE_CURRENT_SOURCE_DIR}/studio
         ${CMAKE_CURRENT_SOURCE_DIR}/studio/third_party)
     target_compile_definitions(cuevr_preview PRIVATE MOTE_HOST=1
         SIM_CAP=160 SIMS_PER_TICK=10)

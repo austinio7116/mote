@@ -189,9 +189,12 @@ void cuevr_cue_init(CueVrCue *c);
  * they matched to a real surface, and the bridge they make. Stored beside the
  * app's own data; set the directory once at start-up. */
 void cuevr_prefs_dir(const char *dir);
-void cuevr_prefs_load(float *table_height, MoteVrV3 *rest, float *grip, int *table_kind, int *ballset, int *persona);
+void cuevr_prefs_load(float *table_height, MoteVrV3 *rest, float *grip,
+                      int *table_kind, int *ballset, int *persona,
+                      int *cloth, int *frame, int *opp);
 void cuevr_prefs_save(float table_height, MoteVrV3 rest, float grip,
-                      int table_kind, int ballset, int persona);
+                      int table_kind, int ballset, int persona,
+                      int cloth, int frame, int opp);
 
 /* A struck shot, as the physics wants it. */
 typedef struct {
