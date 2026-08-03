@@ -129,6 +129,7 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
                                mv3_scale(live_axis, CUEVR_CUE_LEN - c->grip));
         c->have_prev = 0;
         c->struck = 0;
+        c->speed_prev = c->speed_peak = 0.0f;
     } else if (!want_stroke) {
         c->stroking = 0;
     }
@@ -201,12 +202,36 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
      * which is how you address a ball, and there is no reason to require a
      * backswing that the player may already have made. */
     if (c->stroking && !c->struck && c->have_prev && t->dt > 1e-5f) {
+        /* Power from a SMOOTHED stroke speed, not from one frame of it.
+         *
+         * A single frame at 72 Hz is 14 ms, and a millimetre of tracking noise
+         * over that reads as 0.07 m/s — so a difference of two or three
+         * millimetres between consecutive frames is the difference between a
+         * safety and a power shot. That is what made the power feel random. A
+         * 35 ms attack averages two or three frames: fast enough to follow a
+         * real delivery, slow enough that jitter cannot dominate it. */
+        /* Power: the PEAK of a two-frame mean of the closing speed.
+         *
+         * One frame at 72 Hz is 14 ms, and a millimetre of tracking noise over
+         * that reads as 0.07 m/s — so two or three millimetres between frames
+         * separates a safety from a power shot, which is what made the power
+         * feel random. Averaging two frames halves that and still converges the
+         * moment the cue is genuinely moving, which matters because a hard shot
+         * over a short gap connects in one or two frames: an exponential attack
+         * (tried first) cannot converge in that time and reads LOW on exactly
+         * the fastest strokes. Taking the peak over the delivery rather than the
+         * value at contact then covers the tip's slight deceleration as it
+         * arrives, and the fact that you hold the trigger while still addressing
+         * the ball, so the first samples are zero. */
         float closing = (c->prev_gap - c->gap) / t->dt;
-        c->speed = closing;
-        if (c->gap <= 0.0f && closing > 0.12f) {
+        float mean2 = 0.5f * (closing + c->speed_prev);
+        c->speed_prev = closing;
+        if (mean2 > c->speed_peak) c->speed_peak = mean2;
+        c->speed = c->speed_peak;
+        if (c->gap <= 0.0f && c->speed_peak > 0.12f) {
             c->struck = 1;
             out->struck   = 1;
-            out->speed    = closing;
+            out->speed    = c->speed_peak;
             out->tip_side = c->tip_side;
             out->tip_vert = c->tip_vert;
             out->elev     = c->elev;

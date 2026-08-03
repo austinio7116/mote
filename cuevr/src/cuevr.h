@@ -76,7 +76,8 @@ int  cuevr_setup_update(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_bal
 
 /* Just the sticks — slide, turn about the cue ball, height. Live during
  * setup and during aiming, because the shot has to be brought to you. */
-void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_ball_room);
+void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_ball_room,
+                        int allow_height);
 
 /* ---- the cue ------------------------------------------------------------ *
  * "Natural" cueing, as in Unlimited Snooker: the left hand is the bridge the
@@ -121,6 +122,8 @@ typedef struct {
     float prev_gap;
     int   have_prev;
     float speed;         /* closing speed along the axis (m/s) */
+    float speed_prev;    /* last frame's closing speed, for a 2-frame mean */
+    float speed_peak;    /* the fastest the delivery got: what the ball gets */
     MoteVrV3 prev_hand[2];   /* for sliding a hand along the cue */
     int   have_hand;
     int   struck;            /* this stroke has already made contact */

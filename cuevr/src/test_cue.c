@@ -81,6 +81,28 @@ static void trig(MoteVrTracking *t, int on) {
     t->hand[MOTE_VR_RIGHT].trigger = on ? 1.0f : 0.0f;
 }
 
+/* Deliver the cue: from `from` metres of gap, forward at `speed` m/s, one frame
+ * at a time until it connects or `frames` run out. A real stroke is 150-250 ms
+ * of movement, not a single frame — and the power reported is a smoothed peak,
+ * so measuring it needs a stroke with some frames in it. */
+static CueVrShot stroke(MoteVrTracking *t, CueVrCue *c, float from, float speed,
+                        int frames, float side_frac, float vert_frac, float elev_deg)
+{
+    CueVrShot shot;
+    memset(&shot, 0, sizeof shot);
+    aim(t, c, from, side_frac, vert_frac, elev_deg);
+    trig(t, 1);
+    cuevr_cue_update(c, t, &PLACE, BALL, R, &shot);   /* take hold */
+    float gap = from;
+    for (int i = 0; i < frames && !shot.struck; i++) {
+        gap -= speed * DT;
+        aim(t, c, gap, side_frac, vert_frac, elev_deg);
+        trig(t, 1);
+        cuevr_cue_update(c, t, &PLACE, BALL, R, &shot);
+    }
+    return shot;
+}
+
 int main(void) {
     CueVrCue c;
     MoteVrTracking t;
@@ -100,28 +122,23 @@ int main(void) {
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     check(!shot.struck, "pushing the cue through with no trigger is not a shot");
 
-    /* Pull the trigger to take hold of the cue, then push through: 0.105 m of
-     * gap closed in one frame at 72 Hz. */
+    /* Take hold, then deliver at 4 m/s over ~2 cm. */
     cuevr_cue_init(&c);
     aim(&t, &c, 0.10f, 0, 0, 0);  trig(&t, 1);
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     check(c.stroking, "the right trigger takes hold of the cue");
-    aim(&t, &c, -0.005f, 0, 0, 0); trig(&t, 1);
-    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    shot = stroke(&t, &c, 0.10f, 4.0f, 40, 0, 0, 0);
     check(shot.struck, "pushing the tip through the ball plays the shot");
-    checkf(shot.speed, 0.105f / DT, 0.4f, "power is the speed of the stroke");
+    checkf(shot.speed, 4.0f, 0.5f, "power is the speed of the stroke");
     checkf(shot.dir.x, 1.0f, 0.01f, "it goes where the cue points");
     checkf(shot.dir.z, 0.0f, 0.01f, "and not sideways");
     check(!shot.miscue, "centre ball does not miscue");
 
     /* ---- 2. a slow stroke is a slow shot -------------------------------- */
     cuevr_cue_init(&c);
-    aim(&t, &c, 0.02f, 0, 0, 0);  trig(&t, 1);
-    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
-    aim(&t, &c, -0.002f, 0, 0, 0); trig(&t, 1);
-    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    shot = stroke(&t, &c, 0.06f, 0.8f, 60, 0, 0, 0);
     check(shot.struck, "a gentle stroke still connects");
-    checkf(shot.speed, 0.022f / DT, 0.3f, "and is proportionally gentler");
+    checkf(shot.speed, 0.8f, 0.25f, "and is proportionally gentler");
 
     /* ---- 3. side and screw come from where the tip lands ---------------- */
     cuevr_cue_init(&c);
@@ -149,12 +166,9 @@ int main(void) {
     aim(&t, &c, 0.06f, 0.72f, 0.0f, 0);
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     check(c.on_ball, "an extreme tip position still touches the ball");
-    aim(&t, &c, 0.06f, 0.72f, 0.0f, 0);  trig(&t, 1);
-    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
-    aim(&t, &c, -0.004f, 0.72f, 0.0f, 0); trig(&t, 1);
-    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    shot = stroke(&t, &c, 0.06f, 4.0f, 40, 0.72f, 0.0f, 0);
     check(shot.struck && shot.miscue, "but playing it is a miscue");
-    check(shot.speed < 0.06f / DT, "and most of the power is lost");
+    check(shot.speed < 4.0f * 0.6f, "and most of the power is lost");
 
     /* ---- 6. missing the ball entirely ----------------------------------- */
     cuevr_cue_init(&c);
@@ -206,10 +220,16 @@ int main(void) {
     CueVrPlacement turned = PLACE;
     turned.yaw = 3.14159265f / 2.0f;
     cuevr_cue_init(&c);
-    aim(&t, &c, 0.05f, 0, 0, 0);  trig(&t, 1);
-    cuevr_cue_update(&c, &t, &turned, BALL, R, &shot);
-    aim(&t, &c, -0.004f, 0, 0, 0); trig(&t, 1);
-    cuevr_cue_update(&c, &t, &turned, BALL, R, &shot);
+    {   /* same delivery, table turned */
+        aim(&t, &c, 0.05f, 0, 0, 0); trig(&t, 1);
+        cuevr_cue_update(&c, &t, &turned, BALL, R, &shot);
+        float g = 0.05f;
+        for (int i = 0; i < 40 && !shot.struck; i++) {
+            g -= 4.0f * DT;
+            aim(&t, &c, g, 0, 0, 0); trig(&t, 1);
+            cuevr_cue_update(&c, &t, &turned, BALL, R, &shot);
+        }
+    }
     check(shot.struck, "the stroke still connects with the table turned");
     checkf(shot.dir.x, 0.0f, 0.02f, "and the aim is expressed in table space");
     /* +1, not -1: this assertion used to encode the mirrored convention that
@@ -243,8 +263,7 @@ int main(void) {
     aim(&t, &c, 0.001f, 0, 0, 0);   trig(&t, 1);       /* addressed, all but touching */
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     check(!shot.struck, "addressing the ball is not yet a shot");
-    aim(&t, &c, -0.03f, 0, 0, 0);   trig(&t, 1);       /* push straight through */
-    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    shot = stroke(&t, &c, 0.001f, 3.0f, 40, 0, 0, 0);
     check(shot.struck, "pushing through from address connects");
     check(shot.speed > 1.0f, "with the power of the push behind it");
 

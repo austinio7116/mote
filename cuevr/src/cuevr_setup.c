@@ -57,7 +57,8 @@ static float dead(float v) {
 /* The sticks, on their own. Called every frame of setup AND every frame you
  * are down on a shot, because bringing the table to you is not a thing you
  * only need once. */
-void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_room) {
+void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_room,
+                        int allow_height) {
     float dt = t->dt > 0.0f && t->dt < 0.25f ? t->dt : 1.0f / 72.0f;
 
     const MoteVrHand *L = &t->hand[MOTE_VR_LEFT];
@@ -86,7 +87,7 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_ro
      * hand, while the table turns beneath it. */
     float rx = dead(Rh->stick_x);
     if (rx != 0.0f) {
-        float dyaw = -rx * YAW_RATE * dt;
+        float dyaw = rx * YAW_RATE * dt;
         /* Orbit the table's origin about the ball by the SAME rotation the yaw
          * itself means — the renderer's, x' = x·cos + z·sin. Using the transpose
          * here (which is what it did) leaves the ball drifting across the cloth
@@ -100,8 +101,13 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_ro
         s->place.yaw += dyaw;
     }
 
-    /* ---- height ---------------------------------------------------------- */
-    float ry = dead(Rh->stick_y);
+    /* ---- height ---------------------------------------------------------- *
+     * Setup only. Leaving it on a live stick during play meant any thumb
+     * pressure walked the cloth up or down while you were lining up, so the
+     * table you had carefully matched to a real surface would not stay put.
+     * Sliding and turning stay live — those you want on every shot — but the
+     * height is set once and then left alone. */
+    float ry = allow_height ? dead(Rh->stick_y) : 0.0f;
     if (ry != 0.0f) {
         float h = s->place.height + ry * HEIGHT_RATE * dt;
         if (h < HEIGHT_MIN) h = HEIGHT_MIN;
@@ -115,7 +121,7 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_ro
 
 int cuevr_setup_update(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_room) {
     if (!s->active) return 0;
-    cuevr_setup_adjust(s, t, ball_room);
+    cuevr_setup_adjust(s, t, ball_room, 1);
     /* Done: A only. The right trigger is the cue stroke now, so it cannot also
      * mean "yes" — confirming setup with it would immediately arm a shot. */
     if (t->hand[MOTE_VR_RIGHT].btn_lower) {

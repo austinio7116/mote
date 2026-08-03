@@ -483,7 +483,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * answer to a twelve-foot table in a small room, and it is no use only
          * during setup — the shot you want has to be brought to you on every
          * visit. Nothing else in aiming uses them. */
-        cuevr_setup_adjust(&S.setup, t, cue_ball_room());
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
 
         CueVrShot shot;
         cuevr_cue_update(&S.cue, t, &S.setup.place, cue_ball_room(), S.tab.R, &shot);
@@ -508,6 +508,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
     }
 
     case ST_ROLL: {
+        /* Keep the sticks live: a shot takes several seconds to settle and that
+         * is exactly when you want to be lining up the next one. */
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
         uint32_t ev = 0;
         int moving = cue_phys_step(&S.world, S.balls, S.nballs, dt, &ev);
         S.shot_events |= ev;
@@ -536,6 +539,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
     }
 
     case ST_THINK: {
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
         if (cue_ai_plan_tick()) {
             CueAIShot p = cue_ai_plan_result();
             if (p.valid) {
