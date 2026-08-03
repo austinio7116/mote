@@ -56,10 +56,12 @@ static const char *VS =
 "out vec2 v_uv;\n"
 "out vec3 v_local;\n"
 "out vec3 v_col;\n"
+"out vec3 v_world;\n"
 "void main() {\n"
 "    v_uv = a_uv;\n"
 "    v_col = a_col;\n"
 "    v_local = a_pos;\n"
+"    v_world = (u_model * vec4(a_pos, 1.0)).xyz;\n"
 "    v_nrm = normalize(mat3(u_model) * a_nrm);\n"
 "    gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
 "}\n";
@@ -72,13 +74,18 @@ static const char *FS =
 "in vec2 v_uv;\n"
 "in vec3 v_local;\n"
 "in vec3 v_col;\n"
+"in vec3 v_world;\n"
 "uniform sampler2D u_tex;\n"
 "uniform int   u_mode;\n"
 "uniform int   u_encode;\n"
 "uniform vec4  u_colour;\n"
 "uniform vec4  u_colour2;\n"   /* balls: the stripe/secondary colour */
 "uniform vec3  u_light;\n"
-"uniform vec3  u_lampH[4];\n"   // the four overhead lamps, as half-vectors
+"uniform vec3  u_lampC[4];\n"   // lamp centres, world space
+"uniform vec3  u_lampX[4];\n"   // half-extent along the table's length
+"uniform vec3  u_lampZ[4];\n"   // half-extent across it
+"uniform int   u_nlamp;\n"
+"uniform vec3  u_eye;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 
 "uniform float u_ballslice;\n" /* which id's slice of the ball atlas */
@@ -124,14 +131,45 @@ static const char *FS =
 "        vec3 nw = normalize(v_nrm);\n"
 "        float diff = max(dot(nw, L), 0.0);\n"
 "        float down = max(-nw.y, 0.0);\n"
-"        vec3 c = bc * (0.46 + 0.54 * diff);\n"
-"        c = mix(c, u_clothsh, (1.0 - diff) * 0.40 + down * 0.42);\n"
+"        // Diffuse, then the cloth's bounce ADDED rather than mixed in.\n"
+"        // The handheld lerps up to 82% toward the cloth tint on the\n"
+"        // shadow side, which at 128x128 reads as 'in shadow' and at this\n"
+"        // size reads as a red ball turning muddy green. Adding the bounce\n"
+"        // instead lights the underside without draining the hue out of it,\n"
+"        // and a snooker ball under a lamp is a *saturated* object.\n"
+"        vec3 c = bc * (0.52 + 0.62 * diff) + u_clothsh * (down * 0.34 + 0.10);\n"
+"        // The lamps, reflected properly.\n"
+"        //\n"
+"        // The handheld tests the half-vector against 0.975 and lights a\n"
+"        // pixel or two. That IS the right answer at 128x128 — a single white\n"
+"        // dot is all the room there is to say 'lamp'. Here a ball is two\n"
+"        // hundred pixels across and the same test renders as nothing at all,\n"
+"        // so this does what a polished ball actually does: mirror the shade.\n"
+"        // Reflect the view vector about the surface, intersect the reflected\n"
+"        // ray with each lamp rectangle hanging over the table, and light the\n"
+"        // fragment where it hits one. The highlights are then the shape of\n"
+"        // the lamps, they stretch and skew across the curve the way real\n"
+"        // ones do, and they slide correctly as you walk around the table —\n"
+"        // none of which a half-vector threshold can do.\n"
+"        vec3 V = normalize(u_eye - v_world);\n"
+"        vec3 Rv = reflect(-V, nw);\n"
 "        float refl = 0.0;\n"
-"        for (int i = 0; i < 4; i++) {\n"
-"            float si = dot(nw, u_lampH[i]);\n"
-"            if (si > 0.975) { float h = (si - 0.975) / 0.025; refl += h * h; }\n"
+"        if (Rv.y > 1e-4) {\n"
+"            for (int i = 0; i < u_nlamp; i++) {\n"
+"                float t = (u_lampC[i].y - v_world.y) / Rv.y;\n"
+"                if (t <= 0.0) continue;\n"
+"                vec3 d = (v_world + Rv * t) - u_lampC[i];\n"
+"                float a = dot(d, u_lampX[i]) / dot(u_lampX[i], u_lampX[i]);\n"
+"                float b = dot(d, u_lampZ[i]) / dot(u_lampZ[i], u_lampZ[i]);\n"
+"                // A shade has a hard edge and a hot centre. smoothstep over\n"
+"                // the last few percent keeps it from aliasing to a crawling\n"
+"                // staircase as the ball rolls.\n"
+"                float e = max(abs(a), abs(b));\n"
+"                refl += (1.0 - smoothstep(0.88, 1.0, e)) * (1.0 - 0.25 * e);\n"
+"            }\n"
 "        }\n"
-"        c = mix(c, vec3(1.0), clamp(refl, 0.0, 1.0));\n"
+"        // The shade is a bright source: let it blow out to white.\n"
+"        c += vec3(1.0) * clamp(refl, 0.0, 1.4);\n"
 "        o_col = emit(to_linear(c), 1.0, 1.0);\n"
 "    } else if (u_mode == 5) {\n"
 "        // The cue. v_uv.y is the fraction along it (0 = tip) and v_uv.x runs\n"
@@ -282,7 +320,8 @@ static void mesh_free(Mesh *m) {
 static struct {
     GLuint prog;
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
-    GLint  u_ballslice, u_ballslices, u_lampH, u_clothsh;
+    GLint  u_ballslice, u_ballslices, u_clothsh;
+    GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
     Mesh   table, lips, ball, cue, quad, floor;
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     GLuint hud_tex;
@@ -505,11 +544,15 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
      * is legal but not honoured by every driver, and a silent -1 here sets no
      * lamps at all — which looks exactly like a polished ball with no lamps
      * above it. Every location is checked below for the same reason. */
-    G.u_lampH      = glGetUniformLocation(G.prog, "u_lampH[0]");
+    G.u_lampC      = glGetUniformLocation(G.prog, "u_lampC[0]");
+    G.u_lampX      = glGetUniformLocation(G.prog, "u_lampX[0]");
+    G.u_lampZ      = glGetUniformLocation(G.prog, "u_lampZ[0]");
+    G.u_nlamp      = glGetUniformLocation(G.prog, "u_nlamp");
+    G.u_eye        = glGetUniformLocation(G.prog, "u_eye");
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
-    if (G.u_lampH < 0 || G.u_clothsh < 0 || G.u_light < 0)
-        LOGI("[cuevr] WARNING: lighting uniforms missing (lampH %d clothsh %d light %d)",
-             G.u_lampH, G.u_clothsh, G.u_light);
+    if (G.u_lampC < 0 || G.u_eye < 0 || G.u_clothsh < 0 || G.u_light < 0)
+        LOGI("[cuevr] WARNING: lighting uniforms missing (lampC %d eye %d clothsh %d light %d)",
+             G.u_lampC, G.u_eye, G.u_clothsh, G.u_light);
     G.encode = target_is_srgb ? 0 : 1;
     G.tab = *t;
 
@@ -658,32 +701,61 @@ void cuevr_render_eye(const float *view, const float *proj,
     glUniform1i(G.u_tex, 0);
     glUniform1i(G.u_encode, G.encode);
 
-    /* The lighting rig is the handheld's, moved into room space.
+    /* The lighting rig: shades hanging over the table, as a real room has.
      *
-     * cue_render lights everything with one nearly-overhead key (snooker
-     * lamps) plus a cluster of four lamps whose reflections give the balls
-     * their polish, and it builds those as half-vectors once per frame from
-     * the camera direction. Same here — but the table can be stood anywhere in
-     * your room and turned to any angle, so the rig is rotated with it. The
-     * lamps hang over the table, not over your kitchen. */
-    const MoteVrV3 key_t = { 0.10f, 0.975f, 0.20f };
-    const float lx = 0.42f, lz = 0.28f;
+     * The handheld carries four lamp DIRECTIONS and tests a half-vector,
+     * because at 128x128 a reflection is one white pixel and a direction is all
+     * you need to place it. Here the reflection is a shape, so the lamps have
+     * to be objects: rectangles at a height above the cloth, which the shader
+     * intersects with the reflected view ray. They hang over the table, so they
+     * are built in table space and carried out into the room with it.
+     */
+    /* Sized and hung like the real thing. A snooker light is a long low bar of
+     * big shades — and the size of the reflection is the size of the SOURCE:
+     * a small lamp high up reflects in a 26 mm ball as a speck, which is what
+     * the first attempt at this looked like. Low and wide gives the long bright
+     * streaks you actually see down a table. */
+    const float LAMP_H  = 0.62f;      /* above the cloth */
+    const float LAMP_HX = 0.30f;      /* half the shade, along the table */
+    const float LAMP_HZ = 0.17f;      /* and across it */
     float cy = cosf(s->place->yaw), sy = sinf(s->place->yaw);
-    #define TO_WORLD(v) mv3_norm(mv3((v).x * cy - (v).z * sy, (v).y, (v).x * sy + (v).z * cy))
-    MoteVrV3 key = TO_WORLD(key_t);
-    /* The eye direction: the view matrix's third row is the camera's backward
-     * axis, which is exactly the `vcam` cue_render uses. */
-    MoteVrV3 vcam = mv3_norm(mv3(view[2], view[6], view[10]));
-    float lamps[12];
-    for (int i = 0; i < 4; i++) {
-        MoteVrV3 o = mv3(key_t.x + ((i & 1) ? -lx : lx), key_t.y,
-                         key_t.z + ((i & 2) ? -lz : lz));
-        MoteVrV3 h = mv3_norm(mv3_add(TO_WORLD(o), vcam));
-        lamps[i*3+0] = h.x; lamps[i*3+1] = h.y; lamps[i*3+2] = h.z;
+    int nlamp = (int)(G.tab.half_len * 2.0f / 0.85f + 0.5f);
+    if (nlamp < 2) nlamp = 2;
+    if (nlamp > 4) nlamp = 4;
+    {
+        float cen[12], axx[12], axz[12];
+        float L = G.tab.half_len * 2.0f;
+        for (int i = 0; i < nlamp; i++) {
+            float tx = ((float)i + 0.5f) / nlamp * L - L * 0.5f;
+            cen[i*3+0] = s->place->pos.x + tx * cy;
+            cen[i*3+1] = s->place->pos.y + LAMP_H;
+            cen[i*3+2] = s->place->pos.z + tx * sy;
+            axx[i*3+0] = LAMP_HX * cy;  axx[i*3+1] = 0.0f; axx[i*3+2] = LAMP_HX * sy;
+            axz[i*3+0] = -LAMP_HZ * sy; axz[i*3+1] = 0.0f; axz[i*3+2] = LAMP_HZ * cy;
+        }
+        glUniform3fv(G.u_lampC, nlamp, cen);
+        glUniform3fv(G.u_lampX, nlamp, axx);
+        glUniform3fv(G.u_lampZ, nlamp, axz);
+        glUniform1i(G.u_nlamp, nlamp);
     }
-    #undef TO_WORLD
-    glUniform3f(G.u_light, key.x, key.y, key.z);
-    glUniform3fv(G.u_lampH, 4, lamps);
+
+    /* The eye, recovered from the view matrix: its rows are the camera basis
+     * and its translation is that basis applied to -eye, so undo it. */
+    {
+        float e0 = -(view[12]*view[0] + view[13]*view[1] + view[14]*view[2]);
+        float e1 = -(view[12]*view[4] + view[13]*view[5] + view[14]*view[6]);
+        float e2 = -(view[12]*view[8] + view[13]*view[9] + view[14]*view[10]);
+        glUniform3f(G.u_eye, e0, e1, e2);
+    }
+
+    /* The key light stays the handheld's: nearly overhead, rotated with the
+     * table so it is over the cloth and not over your kitchen. */
+    {
+        MoteVrV3 k = mv3_norm(mv3(0.10f * cy - 0.20f * sy, 0.975f,
+                                  0.10f * sy + 0.20f * cy));
+        glUniform3f(G.u_light, k.x, k.y, k.z);
+    }
+
     {   /* cloth bounce: the cloth's own colour at 0.42, as shade565 gives it */
         float r = ((G.tab.cloth >> 11) & 31) / 31.0f;
         float g = ((G.tab.cloth >> 5) & 63) / 63.0f;
