@@ -88,6 +88,14 @@ static const char *FS =
 "uniform int   u_nlamp;\n"
 "uniform vec3  u_eye;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
+"uniform vec3  u_cloth;\n"      // the cloth's own colour
+"uniform vec3  u_markc;\n"      // chalk
+"uniform float u_baulk;\n"
+"uniform float u_drad;\n"
+"uniform float u_linew;\n"
+"uniform float u_spotr;\n"
+"uniform int   u_nspot;\n"
+"uniform vec2  u_spots[8];\n"
 
 "uniform float u_ballslice;\n"  /* which layer of the ball array */
 /* GLSL ES has no default precision for sampler2DArray — unlike sampler2D —
@@ -102,6 +110,15 @@ static const char *FS =
 "    return mix(c * 12.92, 1.055 * pow(c, vec3(1.0/2.4)) - 0.055, step(0.0031308, c));\n"
 "}\n"
 "float hash12(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n"
+"// Smoothed value noise. floor()'d hash alone gives square cells, which on cloth\n"
+"// reads as digital dirt rather than fibre.\n"
+"float vnoise(vec2 p) {\n"
+"    vec2 i = floor(p), f = fract(p);\n"
+"    f = f * f * (3.0 - 2.0 * f);\n"
+"    float a = hash12(i), b = hash12(i + vec2(1.0, 0.0));\n"
+"    float c = hash12(i + vec2(0.0, 1.0)), d = hash12(i + vec2(1.0, 1.0));\n"
+"    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n"
+"}\n"
 "vec4 emit(vec3 c, float a, float dither) {\n"
 "    vec3 o = u_encode == 1 ? to_srgb(c) : c;\n"
 "    return vec4(o + (hash12(gl_FragCoord.xy) - 0.5) * dither / 255.0, a);\n"
@@ -256,6 +273,64 @@ static const char *FS =
 "        // voids are wound for shading, not for a front-face convention.\n"
 "        float ndl = abs(dot(normalize(v_nrm), L));\n"
 "        o_col = emit(to_linear(v_col * (0.32 + 0.68 * ndl)), 1.0, 1.0);\n"
+"    } else if (u_mode == 8) {\n"
+"        // The cloth, and the chalk on it.\n"
+"        //\n"
+"        // The markings used to be POLYGONS with the line and the D and the\n"
+"        // spots baked in as coloured triangles. At 128x128 that was fine; on a\n"
+"        // panel you can lean over, a polygonal arc is a visible chain of flat\n"
+"        // segments with hard stair-stepped edges. Computed here instead, from\n"
+"        // the table-space position, they are exact at any distance and their\n"
+"        // edges are as soft as the pixel footprint requires.\n"
+"        vec2 q = v_local.xz;\n"
+"        float aa = max(fwidth(v_local.x), fwidth(v_local.z)) * 1.2 + 1e-6;\n"
+"\n"
+"        // Baize. Two scales of fibre, drawn out ALONG the nap rather than\n"
+"        // isotropic, because that is what a brushed cloth looks like: fine\n"
+"        // filaments the length of the table and a slower clumping across it.\n"
+"        // Three scales, and the middle one is the one that matters. Fibres at a\n"
+"        // third of a millimetre are the truth but they average to flat green at\n"
+"        // any normal viewing distance, which is how the first attempt at this\n"
+"        // looked: correct and invisible. The nap CLUMPS at a centimetre or so,\n"
+"        // and that is what you actually see across a table.\n"
+"        float fib  = vnoise(q * vec2(2600.0, 800.0));\n"
+"        float fib2 = vnoise(q * vec2(900.0, 1400.0) + 31.7);\n"
+"        float clump = vnoise(q * vec2(150.0, 95.0) + 7.3);\n"
+"        float drift = vnoise(q * vec2(26.0, 34.0) + 3.9);\n"
+"        // Brush streaks down the length, as a cloth is ironed.\n"
+"        float streak = vnoise(vec2(q.x * 8.0, q.y * 420.0) + 11.0);\n"
+"        float nap = 0.90 + 0.055 * fib + 0.035 * fib2\n"
+"                        + 0.075 * clump + 0.055 * drift + 0.045 * streak;\n"
+"        vec3 cloth = to_linear(u_cloth) * nap;\n"
+"        // A faint sheen along the nap, so the cloth is not flat matte.\n"
+"        vec3 nv = normalize(v_nrm);\n"
+"        vec3 V = normalize(u_eye - v_world);\n"
+"        float sheen = pow(1.0 - abs(dot(nv, V)), 3.0) * 0.06;\n"
+"\n"
+"        // Chalk. A distance field per marking, then a shared dusty coverage:\n"
+"        // chalk sits IN the weave rather than on top of it, so the grain has to\n"
+"        // erode the mark or it reads as printed vinyl.\n"
+"        float m = 0.0;\n"
+"        if (u_linew > 0.0) {\n"
+"            float dl = abs(q.x - u_baulk);\n"
+"            m = 1.0 - smoothstep(u_linew, u_linew + aa, dl);\n"
+"            if (u_drad > 0.0 && q.x < u_baulk) {\n"
+"                float dr = abs(length(q - vec2(u_baulk, 0.0)) - u_drad);\n"
+"                m = max(m, 1.0 - smoothstep(u_linew, u_linew + aa, dr));\n"
+"            }\n"
+"        }\n"
+"        for (int i = 0; i < 8; i++) {\n"
+"            if (i >= u_nspot) break;\n"
+"            float d = length(q - u_spots[i]);\n"
+"            m = max(m, 1.0 - smoothstep(u_spotr * 0.72, u_spotr + aa, d));\n"
+"        }\n"
+"        float grain = vnoise(q * 1600.0);\n"
+"        float grain2 = vnoise(q * 420.0 + 3.1);\n"
+"        m = clamp(m * (0.58 + 0.44 * grain + 0.22 * grain2), 0.0, 1.0);\n"
+"\n"
+"        float ndl = abs(dot(nv, L));\n"
+"        vec3 c = mix(cloth, to_linear(u_markc), m * 0.88);\n"
+"        o_col = emit(c * (0.32 + 0.68 * ndl) + vec3(sheen), 1.0, 1.0);\n"
 "    } else if (u_mode == 6) {\n"
 "        // A ball's shadow on the cloth: a soft decal, as scene_add_shadow\n"
 "        // draws it. Without these the balls hover.\n"
@@ -366,8 +441,9 @@ static struct {
     GLuint prog;
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
+    GLint  u_cloth, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
-    Mesh   table, lips, frame, ball, cue, quad, floor, grip;
+    Mesh   bed, table, lips, frame, ball, cue, quad, floor, grip;
     int    frame_sel;
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     GLuint hud_tex;
@@ -665,6 +741,14 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_nlamp      = glGetUniformLocation(G.prog, "u_nlamp");
     G.u_eye        = glGetUniformLocation(G.prog, "u_eye");
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
+    G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
+    G.u_markc      = glGetUniformLocation(G.prog, "u_markc");
+    G.u_baulk      = glGetUniformLocation(G.prog, "u_baulk");
+    G.u_drad       = glGetUniformLocation(G.prog, "u_drad");
+    G.u_linew      = glGetUniformLocation(G.prog, "u_linew");
+    G.u_spotr      = glGetUniformLocation(G.prog, "u_spotr");
+    G.u_nspot      = glGetUniformLocation(G.prog, "u_nspot");
+    G.u_spots      = glGetUniformLocation(G.prog, "u_spots");
     if (G.u_lampC < 0 || G.u_eye < 0 || G.u_clothsh < 0 || G.u_light < 0)
         LOGI("[cuevr] WARNING: lighting uniforms missing (lampC %d eye %d clothsh %d light %d)",
              G.u_lampC, G.u_eye, G.u_clothsh, G.u_light);
@@ -754,9 +838,16 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
     int n = cue_render_table_tris(&tris, &bed, &lip);
     if (!tris || n <= 0) { LOGI("[cuevr] the table mesh came back empty"); return; }
 
+    /* The flat cloth goes into its own mesh: it is the one surface whose
+     * markings are computed rather than baked, so it needs its own shader. */
     Builder b;
-    b_init(&b, lip * 3 + 8, lip * 3 + 8);
-    build_from_cue_render(&b, tris, 0, lip);
+    b_init(&b, bed * 3 + 8, bed * 3 + 8);
+    build_from_cue_render(&b, tris, 0, bed);
+    mesh_upload(&G.bed, &b);
+    b_free(&b);
+
+    b_init(&b, (lip - bed) * 3 + 8, (lip - bed) * 3 + 8);
+    build_from_cue_render(&b, tris, bed, lip);
     mesh_upload(&G.table, &b);
     b_free(&b);
 
@@ -802,6 +893,7 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
 
 void cuevr_render_shutdown(void) {
     if (!G.ready) return;
+    mesh_free(&G.bed);
     mesh_free(&G.grip);
     mesh_free(&G.table); mesh_free(&G.lips); mesh_free(&G.frame); mesh_free(&G.ball);
     mesh_free(&G.cue); mesh_free(&G.quad); mesh_free(&G.floor);
@@ -965,6 +1057,49 @@ void cuevr_render_eye(const float *view, const float *proj,
     draw(&G.table);
 
     if (getenv("CUEVR_NOSHADOW")) goto skip_shadows;
+    /* ---- the cloth, with its chalk ---- *
+     * The spots come from the table itself rather than from anything invented
+     * here: snooker's six colours sit on the D ends, the centre of the D, and
+     * the blue, pink and black spots along the middle; a pool table keeps its
+     * centre and black spots. Same numbers the rack is laid out from, so the
+     * chalk is under the ball rather than near it. */
+    if (G.bed.n) {
+        const CueTable *tb = &G.tab;
+        float sp[16]; int ns = 0;
+        if (tb->is_snooker) {
+            sp[ns*2] = tb->baulk_x; sp[ns*2+1] = -tb->d_radius; ns++;   /* green  */
+            sp[ns*2] = tb->baulk_x; sp[ns*2+1] =  tb->d_radius; ns++;   /* yellow */
+            sp[ns*2] = tb->baulk_x; sp[ns*2+1] =  0.0f;         ns++;   /* brown  */
+            sp[ns*2] = tb->blue_x;  sp[ns*2+1] =  0.0f;         ns++;
+            sp[ns*2] = tb->pink_x;  sp[ns*2+1] =  0.0f;         ns++;
+            sp[ns*2] = tb->black_x; sp[ns*2+1] =  0.0f;         ns++;
+        } else {
+            sp[ns*2] = 0.0f;        sp[ns*2+1] = 0.0f;          ns++;   /* centre */
+            sp[ns*2] = tb->black_x; sp[ns*2+1] = 0.0f;          ns++;
+        }
+        {
+            float r = ((tb->cloth >> 11) & 31) / 31.0f;
+            float g = ((tb->cloth >> 5) & 63) / 63.0f;
+            float bb = (tb->cloth & 31) / 31.0f;
+            glUniform3f(G.u_cloth, r, g, bb);
+        }
+        {
+            float r = ((tb->spot >> 11) & 31) / 31.0f;
+            float g = ((tb->spot >> 5) & 63) / 63.0f;
+            float bb = (tb->spot & 31) / 31.0f;
+            glUniform3f(G.u_markc, r, g, bb);
+        }
+        glUniform1f(G.u_baulk, tb->baulk_x);
+        glUniform1f(G.u_drad,  tb->d_radius);
+        glUniform1f(G.u_linew, 0.0016f);      /* a chalk line is ~3 mm wide */
+        glUniform1f(G.u_spotr, 0.0040f);      /* and a spot ~8 mm across */
+        glUniform1i(G.u_nspot, ns);
+        glUniform2fv(G.u_spots, ns, sp);
+        glUniform1i(G.u_mode, 8);
+        set_model(T);
+        draw(&G.bed);
+    }
+
     /* ---- ball shadows on the cloth ---- *
      * The handheld drops a soft decal under every ball. Without them the balls
      * hover a centimetre above the cloth and nothing on the table feels like it
