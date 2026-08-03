@@ -53,6 +53,11 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
     w->_acc = 0.0f;
 }
 
+/* Cue-ball deflection (squirt) at full side, radians. ~1.4 degrees: low-deflection
+ * territory, which is where a decent modern shaft sits, and low enough that it
+ * reads as character rather than as the aim being unreliable. */
+#define CUE_SQUIRT_RAD 0.025f
+
 void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev) {
     dir.y = 0.0f;
@@ -71,17 +76,23 @@ void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
     float ce = cosf(elev), se = sinf(elev);
     Vec3 cdir = v3(fwd.x * ce, -se, fwd.z * ce);     /* cue direction, 3-D */
 
-    /* Where the tip lands changes how much of the stroke drives the ball and
-     * how much becomes spin. Translation is driven by the component along the
-     * LINE OF CENTRES, and the tip is off that line by tip offset / R — so the
-     * drive falls off as sqrt(1 - f^2) while the impulse, and therefore the
-     * spin below, keeps its full magnitude. This is why maximum side and
-     * maximum power are not available on the same shot: at half a ball off
-     * centre a seventh of the drive has gone into making it spin instead. */
-    float f2 = tip_side * tip_side + tip_vert * tip_vert;
-    if (f2 > 1.0f) f2 = 1.0f;
-    float drive = sqrtf(1.0f - f2);
-    b->vel = v3_scale(fwd, speed * ce * drive);
+    /* Off centre costs almost no PACE. An earlier version scaled the drive by
+     * sqrt(1 - offset^2), reasoning that only the component along the line of
+     * centres translates — which is true of the impulse but wrong about the
+     * outcome: a cue ball struck near its edge leaves at very nearly the speed
+     * of one struck in the middle, it just leaves spinning and pointing
+     * slightly elsewhere. Scaling the pace made side and screw feel like a
+     * power penalty, and at large offsets it cancelled the shot entirely.
+     *
+     * What off centre really does, besides the spin below, is SQUIRT: the ball
+     * departs a little away from the side the tip struck, because the tip has to
+     * shove the ball's mass sideways to get there. It is a couple of degrees at
+     * most on a modern shaft, and deliberately kept small here — enough to be
+     * felt as a thing to allow for, not enough to make aiming a guess. */
+    float squirt = -tip_side * CUE_SQUIRT_RAD;      /* right-hand side -> left */
+    float cq = cosf(squirt), sq = sinf(squirt);
+    Vec3 aim = v3_norm(v3_add(v3_scale(fwd, cq), v3_scale(right, sq)));
+    b->vel = v3_scale(aim, speed * ce);
     b->vel.y = 0.0f;
 
     Vec3 r = v3_add(v3_scale(right, tip_side * w->R),
