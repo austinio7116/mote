@@ -125,6 +125,8 @@ int main(int argc, char **argv) {
     if (!ctx) { fprintf(stderr, "context: %s\n", SDL_GetError()); return 1; }
     SDL_GL_SetSwapInterval(shot ? 0 : 1);
 
+    { const char *d = getenv("CUEVR_PREFS_DIR"); cuevr_prefs_dir(d ? d : "."); }
+
     MoteXrApp app;
     cuevr_app_describe(&app);
     if (app.gl_init(app.user) != 0) { fprintf(stderr, "cuevr: init failed\n"); return 1; }
@@ -229,9 +231,13 @@ int main(int argc, char **argv) {
             /* The tip is (CUE_LEN - grip) in front of the GRIP hand now, so
              * place that hand from the ball backwards and put the bridge a
              * stance in front of it. */
+            /* The cue now rests ABOVE the bridge hand by rest_lift, so the fake
+             * hand goes that much lower to put the cue on the ball's line. A real
+             * hand does this without being told. */
             float reach = CUEVR_CUE_LEN - 0.20f;      /* default grip */
-            s_butt   = mv3(b.x - reach - 0.10f, b.y + 0.075f, b.z);
-            s_bridge = mv3(s_butt.x + 0.90f, b.y + 0.030f, b.z);
+            float lift = 0.030f;                      /* default rest_lift */
+            s_butt   = mv3(b.x - reach - 0.10f, b.y, b.z);
+            s_bridge = mv3(s_butt.x + 0.90f, b.y - lift, b.z);
             s_focus  = b;
             hands_placed = 1;
         }

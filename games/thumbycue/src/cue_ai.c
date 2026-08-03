@@ -691,8 +691,15 @@ static int find_kick(const AiCtx *c, Cand *out) {
 /* full-settle sim is far costlier — we sim the analytically-best SIM_CAP and pick  */
 /* by real position. The coarse substep (1/1000) + SIMS_PER_TICK keep think short. */
 /* ---------------------------------------------------------------------- */
+/* Sim budget. The defaults are the handheld's, sized for a 280 MHz Cortex-M33
+ * with one core to spare — overridable so a host with more to spend can think
+ * harder without changing what the handheld does. */
+#ifndef SIM_CAP
 #define SIM_CAP 32        /* ceiling; the per-plan budget scales with persona skill */
+#endif
+#ifndef SIMS_PER_TICK
 #define SIMS_PER_TICK 1   /* one sim/frame keeps the thinking-orbit smooth */
+#endif
 enum { PH_IDLE = 0, PH_SIM, PH_DONE };
 
 static struct {

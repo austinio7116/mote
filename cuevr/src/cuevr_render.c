@@ -354,7 +354,7 @@ static struct {
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_ballslices, u_clothsh;
     GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
-    Mesh   table, lips, frame, ball, cue, quad, floor;
+    Mesh   table, lips, frame, ball, cue, quad, floor, grip;
     int    frame_sel;
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     GLuint hud_tex;
@@ -613,6 +613,21 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     mesh_upload(&G.cue, &b);
     b_free(&b);
 
+    /* Controller proxy: a small block, tapered like a grip. */
+    b_init(&b, 64, 96);
+    {
+        const float w = 0.021f, h = 0.030f, d = 0.052f;
+        const float f[3] = {0,0,1}, bk[3] = {0,0,-1}, l[3] = {-1,0,0},
+                    r[3] = {1,0,0}, u[3] = {0,1,0}, dn[3] = {0,-1,0};
+        float A[3]={-w,-h,-d}, B[3]={w,-h,-d}, C[3]={w*0.75f,h,-d*0.55f}, D[3]={-w*0.75f,h,-d*0.55f};
+        float E[3]={-w,-h, d}, F[3]={w,-h, d}, G[3]={w*0.75f,h, d*0.35f}, H[3]={-w*0.75f,h, d*0.35f};
+        b_face(&b, A,B,C,D, bk); b_face(&b, E,F,G,H, f);
+        b_face(&b, A,E,H,D, l);  b_face(&b, B,F,G,C, r);
+        b_face(&b, D,C,G,H, u);  b_face(&b, A,B,F,E, dn);
+    }
+    mesh_upload(&G.grip, &b);
+    b_free(&b);
+
     b_init(&b, 8, 12);
     {   float p0[3]={-0.5f,-0.5f,0}, p1[3]={0.5f,-0.5f,0}, p2[3]={0.5f,0.5f,0}, p3[3]={-0.5f,0.5f,0};
         float n[3]={0,0,1};
@@ -716,6 +731,7 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
 
 void cuevr_render_shutdown(void) {
     if (!G.ready) return;
+    mesh_free(&G.grip);
     mesh_free(&G.table); mesh_free(&G.lips); mesh_free(&G.frame); mesh_free(&G.ball);
     mesh_free(&G.cue); mesh_free(&G.quad); mesh_free(&G.floor);
     glDeleteTextures(1, &G.hud_tex);
@@ -982,6 +998,31 @@ void cuevr_render_eye(const float *view, const float *proj,
             mm4_from_pose(M, cp, 1.0f);
             set_model(M);
             draw(&G.cue);
+        }
+    }
+
+    /* ---- your hands ---- */
+    if (s->hands_valid) {
+        glUniform1i(G.u_mode, 0);
+        colour(0.10f, 0.105f, 0.12f, 1.0f);
+        for (int i = 0; i < 2; i++) {
+            float M[16];
+            mm4_from_pose(M, s->hand[i], 1.0f);
+            set_model(M);
+            draw(&G.grip);
+        }
+        /* Where the cue is resting on the bridge: a small pale marker, so the
+         * rest adjustment has something to show for itself. */
+        if (s->rest_visible) {
+            glUniform1i(G.u_mode, 0);
+            colour(0.55f, 0.52f, 0.44f, 1.0f);
+            float L[16], M2[16];
+            mm4_identity(L);
+            L[0] = 0.016f; L[5] = 0.016f;
+            L[12] = s->rest_pos.x; L[13] = s->rest_pos.y; L[14] = s->rest_pos.z;
+            mm4_mul(M2, L, L);
+            set_model(L);
+            draw(&G.quad);
         }
     }
 

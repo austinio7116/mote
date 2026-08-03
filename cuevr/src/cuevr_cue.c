@@ -18,6 +18,7 @@
 #include "cuevr.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 void cuevr_cue_init(CueVrCue *c) {
@@ -26,6 +27,49 @@ void cuevr_cue_init(CueVrCue *c) {
      * hand the usual 85-95 cm in front of that, the tip lands ~30 cm past the
      * bridge — which is where it should be. */
     c->grip = 0.20f;
+    c->rest_lift = CUEVR_REST_LIFT_DEFAULT; /* the cue sits on top of the hand, not in it */
+    c->rest_fwd  = 0.0f;
+}
+
+/* ---- preferences -------------------------------------------------------- *
+ * A plain text file. Six numbers and a name is not worth a format, and being
+ * text means it can be read, edited and diffed when something looks wrong. */
+static char s_prefs_path[512];
+
+void cuevr_prefs_dir(const char *dir) {
+    if (dir && dir[0]) snprintf(s_prefs_path, sizeof s_prefs_path, "%s/cuevr.cfg", dir);
+    else               snprintf(s_prefs_path, sizeof s_prefs_path, "cuevr.cfg");
+}
+
+void cuevr_prefs_load(float *h, float *lift, float *fwd, float *grip,
+                      int *kind, int *ballset, int *persona) {
+    if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
+    FILE *f = fopen(s_prefs_path, "r");
+    if (!f) return;
+    float a = 0, b = 0, c2 = 0, d = 0;
+    int k = 0, bs = 0, ps = 0;
+    if (fscanf(f, "%f %f %f %f %d %d %d", &a, &b, &c2, &d, &k, &bs, &ps) == 7) {
+        /* Sanity-check every one: a corrupt file must not put the table through
+         * the ceiling or the cue inside your hand. */
+        if (h && a > 0.25f && a < 1.4f) *h = a;
+        if (lift && b >= CUEVR_REST_MIN && b <= CUEVR_REST_MAX) *lift = b;
+        if (fwd  && c2 > -0.3f && c2 < 0.3f) *fwd = c2;
+        if (grip && d >= CUEVR_GRIP_MIN && d <= CUEVR_GRIP_MAX) *grip = d;
+        if (kind && k >= 0 && k < CUE_GAME_COUNT) *kind = k;
+        if (ballset && bs >= 0 && bs < 8) *ballset = bs;
+        if (persona && ps >= 0 && ps < 32) *persona = ps;
+    }
+    fclose(f);
+}
+
+void cuevr_prefs_save(float h, float lift, float fwd, float grip,
+                      int kind, int ballset, int persona) {
+    if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
+    FILE *f = fopen(s_prefs_path, "w");
+    if (!f) return;
+    fprintf(f, "%.4f %.4f %.4f %.4f %d %d %d\n",
+            (double)h, (double)lift, (double)fwd, (double)grip, kind, ballset, persona);
+    fclose(f);
 }
 
 /* Room space <-> the table's own frame (metres, X length, Z width, Y up from
@@ -56,6 +100,11 @@ MoteVrV3 cuevr_room_to_table(const CueVrPlacement *p, MoteVrV3 r) {
     return mv3(d.x * c - d.z * s, d.y, d.x * s + d.z * c);
 }
 
+MoteVrV3 cuevr_table_dir_to_room(const CueVrPlacement *p, Vec3 v) {
+    float c = cosf(p->yaw), s = sinf(p->yaw);
+    return mv3(v.x * c + v.z * s, v.y, -v.x * s + v.z * c);
+}
+
 /* A direction only — the same rotation, no translation. */
 static MoteVrV3 room_dir_to_table(const CueVrPlacement *p, MoteVrV3 v) {
     float c = cosf(p->yaw), s = sinf(p->yaw);
@@ -75,7 +124,8 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
         return;
     }
 
-    c->bridge = Lh->pose.p;
+    /* The cue rests ABOVE your bridge hand, by however much you have set. */
+    c->bridge = mv3_add(Lh->pose.p, mv3(0.0f, c->rest_lift, 0.0f));
 
     /* Aim: the line from your grip hand through your bridge hand. Once the
      * stroke is under way it is frozen — the bridge is a pivot during a
@@ -111,6 +161,20 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
         c->grip += d;
         if (c->grip < CUEVR_GRIP_MIN) c->grip = CUEVR_GRIP_MIN;
         if (c->grip > CUEVR_GRIP_MAX) c->grip = CUEVR_GRIP_MAX;
+    }
+    if (adjusting && c->have_hand && adj_l) {
+        /* The left hand sets the REST: raise or lower your hand to change how
+         * high the cue sits above it, slide along the cue to change where on the
+         * shaft you are bridging. Both stick, and both are saved — a bridge is
+         * something a player has, not something a shot has. */
+        MoteVrV3 m = mv3_sub(Lh->pose.p, c->prev_hand[MOTE_VR_LEFT]);
+        c->rest_lift -= m.y;                    /* hand down -> cue sits higher */
+        c->rest_fwd  += mv3_dot(m, c->adj_axis);
+        if (c->rest_lift < CUEVR_REST_MIN) c->rest_lift = CUEVR_REST_MIN;
+        if (c->rest_lift > CUEVR_REST_MAX) c->rest_lift = CUEVR_REST_MAX;
+        if (c->rest_fwd < -0.25f) c->rest_fwd = -0.25f;
+        if (c->rest_fwd >  0.25f) c->rest_fwd =  0.25f;
+        c->bridge = mv3_add(Lh->pose.p, mv3(0.0f, c->rest_lift, 0.0f));
     }
     c->adjusting = adjusting;
     c->prev_hand[MOTE_VR_LEFT]  = Lh->pose.p;

@@ -76,7 +76,11 @@ static void aim(MoteVrTracking *t, CueVrCue *c, float gap,
     /* grip hand sits (CUE_LEN - grip) behind the tip; bridge a stance in front */
     MoteVrV3 grip_hand = mv3_sub(tip, mv3_scale(axis, CUEVR_CUE_LEN - c->grip));
     t->hand[MOTE_VR_RIGHT].pose.p = grip_hand;
-    t->hand[MOTE_VR_LEFT].pose.p  = mv3_add(grip_hand, mv3_scale(axis, HAND_SPAN));
+    /* The cue rests ABOVE the bridge hand by rest_lift, so the hand sits that
+     * much lower for the cue itself to lie along `axis`. A real bridge hand does
+     * this without being asked; a test has to be told. */
+    t->hand[MOTE_VR_LEFT].pose.p  = mv3_sub(mv3_add(grip_hand, mv3_scale(axis, HAND_SPAN)),
+                                            mv3(0, CUEVR_REST_LIFT_DEFAULT, 0));
 }
 
 /* Hold the trigger: the stroke is the only thing that can play a shot. */

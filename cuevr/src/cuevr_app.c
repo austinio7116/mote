@@ -74,7 +74,8 @@
  * was landing slightly heavy. One number, no pretence that it is derived. */
 #define CUEVR_POWER_TRIM 0.90f
 
-enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_PLACE, ST_DECIDE, ST_OVER };
+enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_CPUCUE, ST_PLACE,
+       ST_DECIDE, ST_OVER };
 
 static const struct { CueGameKind kind; const char *name; } MENU[] = {
     { CUE_GAME_UK8,   "UK 8-BALL 7FT" },
@@ -109,6 +110,14 @@ static struct {
     int       hud_dirty;
     int       dec_latch;
     int       sited;             /* the table has been put somewhere real */
+    float     pref_height;      /* the height they set last time */
+
+    /* The CPU's shot, once it has decided on it. It gets a cue and takes the
+     * shot with it rather than the ball simply leaving: you should be able to
+     * see what it is about to do, and hear it played. */
+    CueAIShot cpu_shot;
+    float     cpu_t;            /* seconds into its stroke */
+    MoteVrV3  cpu_tip, cpu_butt;
     uint16_t  hud[CUEVR_HUD_W * CUEVR_HUD_H];
     char      msg[32];
     float     msg_time;
@@ -256,6 +265,7 @@ static void hud_build(void) {
         }
     }
     else if (S.state == ST_THINK)      craft_font_draw(S.hud, "CPU THINKING...", 4, 96, DIM);
+    else if (S.state == ST_CPUCUE)     craft_font_draw(S.hud, "CPU CUEING...", 4, 96, HI);
     else if (S.state == ST_ROLL)  craft_font_draw(S.hud, "...", 4, 96, DIM);
     else if (S.state == ST_AIM) {
         if (!S.cue.on_ball)       craft_font_draw(S.hud, "CUE IS OFF THE BALL", 4, 96, DIM);
@@ -391,6 +401,22 @@ static int app_gl_init(void *u) {
     cuevr_setup_init(&S.setup, 0.0f);
     S.setup.active = 0;              /* the menu comes first */
     cuevr_cue_init(&S.cue);
+
+    /* Whatever the player set last time. Height and rest especially: they
+     * matched the cloth to a real surface and made a bridge that suits them,
+     * and being asked to do both again every session is the kind of small
+     * insult that stops people playing. */
+    {
+        int kind = (int)S.tab.kind;
+        float h = S.setup.place.height;
+        cuevr_prefs_load(&h, &S.cue.rest_lift, &S.cue.rest_fwd, &S.cue.grip,
+                         &kind, &S.ballset, &S.persona);
+        S.setup.place.height = h;
+        S.pref_height = h;
+        for (int i = 0; i < MENU_N; i++) if ((int)MENU[i].kind == kind) S.menu_sel = i;
+        cue_render_set_ball_set(S.ballset);
+    }
+
     S.hud_dirty = 1;
     return 0;
 }
@@ -422,9 +448,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
         MoteVrV3 fwd = mq_rot(t->head.q, mv3(0, 0, -1));
         fwd.y = 0.0f;
         fwd = mv3_len(fwd) > 1e-3f ? mv3_norm(fwd) : mv3(0, 0, -1);
-        S.setup.place.height = mote_xr_floor_relative()
-                             ? CUEVR_TABLE_HEIGHT          /* above the real floor */
-                             : t->head.p.y - 0.75f;        /* no STAGE: guess from the eyes */
+        /* The height they set last time, if they have ever set one — that is the
+         * whole point of remembering it. Otherwise a match table's height above
+         * the real floor, or eye level less three quarters of a metre where the
+         * runtime cannot tell us where the floor is. */
+        float dflt = mote_xr_floor_relative() ? CUEVR_TABLE_HEIGHT
+                                              : t->head.p.y - 0.75f;
+        S.setup.place.height = S.pref_height > 0.25f ? S.pref_height : dflt;
         S.setup.place.pos = mv3_add(t->head.p,
                                     mv3_scale(fwd, S.tab.half_len + 0.35f));
         S.setup.place.pos.y = S.setup.place.height;
@@ -571,12 +601,51 @@ static void app_update(void *u, const MoteVrTracking *t) {
     case ST_THINK: {
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
         if (cue_ai_plan_tick()) {
-            CueAIShot p = cue_ai_plan_result();
-            if (p.valid) {
-                Vec3 dir = { cosf(p.aim), 0.0f, sinf(p.aim) };
-                cue_phys_strike_elev(&S.world, &S.balls[0], dir,
-                                     p.power01 * MAX_STRIKE_SPEED,
-                                     p.tip_side, p.tip_vert, 0.0f);
+            S.cpu_shot = cue_ai_plan_result();
+            S.cpu_t = 0.0f;
+            S.state = ST_CPUCUE;
+            S.hud_dirty = 1;
+        }
+        break;
+    }
+
+    case ST_CPUCUE: {
+        /* The CPU cues its shot instead of the ball simply departing. It
+         * addresses the ball, draws back, and comes through — and the strike is
+         * played on contact, so the cue-shot and the clack arrive when you can
+         * see what caused them. Cosmetic, but a ball that moves with no cue and
+         * no sound reads as the game glitching rather than as an opponent. */
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        S.cpu_t += dt;
+
+        const float ADDRESS = 0.35f, BACK = 0.30f, THROUGH = 0.16f;
+        float travel;                       /* tip distance behind the ball */
+        if (S.cpu_t < ADDRESS)                       travel = 0.045f;
+        else if (S.cpu_t < ADDRESS + BACK) {
+            float k = (S.cpu_t - ADDRESS) / BACK;
+            travel = 0.045f + 0.13f * sinf(k * 1.5708f);
+        } else {
+            float k = (S.cpu_t - ADDRESS - BACK) / THROUGH;
+            if (k > 1.0f) k = 1.0f;
+            travel = (0.045f + 0.13f) * (1.0f - k * k);   /* accelerating through */
+        }
+
+        /* Lay the cue along the aim it chose, behind the cue ball. */
+        Vec3 aim_t = { cosf(S.cpu_shot.aim), 0.0f, sinf(S.cpu_shot.aim) };
+        MoteVrV3 ball = cue_ball_room();
+        MoteVrV3 aim_r = mv3_norm(cuevr_table_dir_to_room(&S.setup.place, aim_t));
+        S.cpu_tip  = mv3_sub(ball, mv3_scale(aim_r, S.tab.R + CUEVR_TIP_R + travel));
+        S.cpu_butt = mv3_sub(S.cpu_tip, mv3_scale(aim_r, CUEVR_CUE_LEN));
+
+        if (S.cpu_t >= ADDRESS + BACK + THROUGH) {
+            if (S.cpu_shot.valid) {
+                float sp = S.cpu_shot.power01 * MAX_STRIKE_SPEED;
+                cue_audio_sfx(CUE_SFX_STRIKE, S.cpu_shot.power01);
+                cue_phys_strike_elev(&S.world, &S.balls[0], aim_t, sp,
+                                     S.cpu_shot.tip_side, S.cpu_shot.tip_vert, 0.0f);
+                LOGI("[cuevr] cpu strike %.2f m/s  side %+.2f vert %+.2f%s",
+                     (double)sp, (double)S.cpu_shot.tip_side,
+                     (double)S.cpu_shot.tip_vert, S.cpu_shot.safe ? "  (safety)" : "");
             }
             begin_shot();
         }
@@ -657,10 +726,17 @@ static void app_update(void *u, const MoteVrTracking *t) {
     /* Visible whenever you are holding it, not only when it happens to be
      * lined up. cue_on_ball tells the renderer to mark the ferrule so you
      * can see when the line is actually live. */
-    S.scene.cue_visible = (S.state == ST_AIM || S.state == ST_PLACE) && S.cue.tracked;
-    S.scene.cue_on_ball = S.cue.on_ball;
-    S.scene.cue_butt = S.cue.butt;
-    S.scene.cue_tip  = S.cue.tip;
+    if (S.state == ST_CPUCUE) {
+        S.scene.cue_visible = 1;
+        S.scene.cue_on_ball = 0;
+        S.scene.cue_tip = S.cpu_tip;
+        S.scene.cue_butt = S.cpu_butt;
+    } else {
+        S.scene.cue_visible = (S.state == ST_AIM || S.state == ST_PLACE) && S.cue.tracked;
+        S.scene.cue_on_ball = S.cue.on_ball;
+        S.scene.cue_butt = S.cue.butt;
+        S.scene.cue_tip  = S.cue.tip;
+    }
 
     /* Where the panel goes depends on what it is for.
      *
@@ -701,6 +777,32 @@ static void app_update(void *u, const MoteVrTracking *t) {
         x = mv3_norm(x);
         S.scene.hud_rot = mq_from_axes(x, mv3_cross(z, x), z);
         S.scene.hud_visible = 1;
+    }
+
+    S.scene.hands_valid = t->hand[MOTE_VR_LEFT].tracked && t->hand[MOTE_VR_RIGHT].tracked;
+    S.scene.hand[0] = t->hand[MOTE_VR_LEFT].pose;
+    S.scene.hand[1] = t->hand[MOTE_VR_RIGHT].pose;
+    S.scene.rest_visible = S.scene.cue_visible && S.state != ST_CPUCUE;
+    S.scene.rest_pos = S.cue.bridge;
+
+    /* Save what the player has set, when it changes and no more often — the
+     * cloth height they matched to a real surface, the bridge they make, where
+     * they grip, and what they chose to play. All of it is a property of the
+     * player rather than of the frame, so none of it should have to be redone. */
+    {
+        static float last[4]; static int lastk[3]; static float since;
+        float now[4] = { S.setup.place.height, S.cue.rest_lift, S.cue.rest_fwd, S.cue.grip };
+        int nowk[3] = { (int)S.tab.kind, S.ballset, S.persona };
+        int changed = 0;
+        for (int i = 0; i < 4; i++) if (fabsf(now[i] - last[i]) > 0.0005f) changed = 1;
+        for (int i = 0; i < 3; i++) if (nowk[i] != lastk[i]) changed = 1;
+        since += dt;
+        if (changed && since > 1.0f) {
+            cuevr_prefs_save(now[0], now[1], now[2], now[3], nowk[0], nowk[1], nowk[2]);
+            memcpy(last, now, sizeof last);
+            memcpy(lastk, nowk, sizeof lastk);
+            since = 0.0f;
+        }
     }
 
     if (S.hud_dirty) { hud_build(); cuevr_render_hud(S.hud); S.hud_dirty = 0; }

@@ -49,6 +49,9 @@ typedef struct {
 /* Converting between the two. */
 MoteVrV3 cuevr_table_to_room(const CueVrPlacement *p, Vec3 t);
 MoteVrV3 cuevr_room_to_table(const CueVrPlacement *p, MoteVrV3 r);
+/* A direction from table space out into the room — the CPU's aim, so its cue
+ * can be laid along it. */
+MoteVrV3 cuevr_table_dir_to_room(const CueVrPlacement *p, Vec3 v);
 
 /* ---- setup ------------------------------------------------------------- *
  * Every session starts here, because the point of playing in passthrough is
@@ -109,6 +112,15 @@ typedef struct {
      * hand along the cue to change it. */
     float grip;
 
+    /* Where the cue rests relative to your left hand. A real bridge holds the
+     * cue ABOVE the hand, not through the middle of it, and how high depends on
+     * how you make your bridge — so it is adjustable, with the left side
+     * trigger, and it persists: it is a property of the player, not of the shot.
+     * `rest_lift` raises the cue off the controller; `rest_fwd` slides where
+     * along the shaft the hand sits, which only moves the drawn bridge. */
+    float rest_lift;
+    float rest_fwd;
+
     /* The stroke. Pulling the right trigger locks the aim and hands the cue to
      * your grip hand: the bridge becomes a fixed pivot and the cue slides
      * through it, forward and back, as your back hand moves. That is what a
@@ -158,10 +170,23 @@ typedef struct {
 #define CUEVR_CUE_LEN  1.45f
 /* The leather tip's radius: contact is its surface, not a line. */
 #define CUEVR_TIP_R    0.005f
+#define CUEVR_REST_LIFT_DEFAULT 0.030f  /* a knuckle's worth of bridge */
+#define CUEVR_REST_MIN  -0.02f
+#define CUEVR_REST_MAX   0.14f
+
 #define CUEVR_GRIP_MIN 0.06f
 #define CUEVR_GRIP_MAX 0.55f
 
 void cuevr_cue_init(CueVrCue *c);
+
+/* Player preferences that outlive a frame and a session: the cloth height
+ * they matched to a real surface, and the bridge they make. Stored beside the
+ * app's own data; set the directory once at start-up. */
+void cuevr_prefs_dir(const char *dir);
+void cuevr_prefs_load(float *table_height, float *rest_lift, float *rest_fwd,
+                      float *grip, int *table_kind, int *ballset, int *persona);
+void cuevr_prefs_save(float table_height, float rest_lift, float rest_fwd,
+                      float grip, int table_kind, int ballset, int persona);
 
 /* A struck shot, as the physics wants it. */
 typedef struct {

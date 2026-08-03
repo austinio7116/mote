@@ -26,6 +26,17 @@ typedef struct {
     int      cue_on_ball;   /* tips the ferrule when the line is live */
     MoteVrV3 cue_butt, cue_tip;
 
+    /* Your hands. There is no Meta hand or controller MODEL here: the runtime
+     * can hand one over through XR_FB_render_model, but it arrives as glTF and
+     * parsing that is a project of its own. These are proxies — a grip block
+     * where each controller is, and a low wedge for the bridge — enough to give
+     * your hands a position in the scene and show where the cue is resting.
+     * hands_valid is 0 while tracking is lost. */
+    int      hands_valid;
+    MoteVrPose hand[2];
+    MoteVrV3 rest_pos;      /* where the cue is sitting on the bridge */
+    int      rest_visible;
+
     int      hud_visible;
     MoteVrV3 hud_pos;
     MoteVrQ  hud_rot;

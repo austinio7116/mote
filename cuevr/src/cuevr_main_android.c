@@ -26,6 +26,10 @@ static void on_cmd(struct android_app *app, int32_t cmd) {
 void android_main(struct android_app *a) {
     a->onAppCmd = on_cmd;
 
+    /* Where preferences live. The table height a player matched to their real
+     * desk, and the bridge they make, are theirs — they persist here. */
+    cuevr_prefs_dir(a->activity->internalDataPath);
+
     MoteXrApp app;
     cuevr_app_describe(&app);
     if (mote_xr_init(a->activity->vm, a->activity->clazz, &app) != 0) {

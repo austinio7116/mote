@@ -36,7 +36,12 @@ LOCAL_C_INCLUDES := \
     $(MOTE_ROOT)/platform/xr \
     $(MOTE_ROOT)/platform/vr
 
+# A Quest's CPU is an order of magnitude faster than the RP2350 the AI's
+# defaults were sized for, so it gets a far bigger sim budget: more candidate
+# shots examined per plan, and more of them simulated each frame so the extra
+# depth does not turn into a longer wait.
 LOCAL_CFLAGS := -DMOTE_HOST=1 -DNDEBUG -O2 -ffast-math -std=gnu11 \
+                -DSIM_CAP=160 -DSIMS_PER_TICK=10 \
                 -Wall -Wno-unused-parameter
 
 LOCAL_SRC_FILES := \
