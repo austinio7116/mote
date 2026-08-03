@@ -202,7 +202,11 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
      * when the tip is already touching at the moment the trigger goes down,
      * which is how you address a ball, and there is no reason to require a
      * backswing that the player may already have made. */
-    if (c->stroking && !c->struck && c->have_prev && t->dt > 1e-5f) {
+    /* Sample from the FIRST frame of the stroke, not the second. Waiting for a
+     * previous frame leaves a two-frame delivery — a hard shot played from close
+     * to the ball — with a single sample and therefore no baseline to measure
+     * over at all, so it silently would not fire. */
+    if (c->stroking && !c->struck && t->dt > 1e-5f) {
         /* Power from a SMOOTHED stroke speed, not from one frame of it.
          *
          * A single frame at 72 Hz is 14 ms, and a millimetre of tracking noise
@@ -245,7 +249,16 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
          * truncates the baseline to two or three frames at random, which is
          * precisely how the same stroke came out as a tap or a smash. Taking the
          * maximum is immune to that and finds the turnaround of the backswing on
-         * its own. */
+         * its own.
+         *
+         * Ties resolve to the NEWEST of the equal samples, and they have to: the
+         * gap is constant while you address the ball, so the window fills with
+         * equal values, and reaching past them would drag all that stationary
+         * time into the baseline and dilute the speed towards zero. The cost is
+         * that the first frame of a delivery has only itself to measure over —
+         * the baseline lengthens as the stroke proceeds — so a shot that connects
+         * within a frame or two of leaving the address is measured over a short
+         * span. The log reports that span for exactly this reason. */
         int start = 0;
         for (int i = 1; i < c->speed_n; i++)
             if (c->gap_hist[i] > c->gap_hist[start]) start = i;
@@ -256,7 +269,7 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
         c->m_dist = dgap;
         c->m_time = dtime;
 
-        if (c->gap <= 0.0f && c->speed > 0.12f) {
+        if (c->speed_n >= 2 && c->gap <= 0.0f && c->speed > 0.12f) {
             c->struck = 1;
             out->struck   = 1;
             out->speed    = c->speed;
