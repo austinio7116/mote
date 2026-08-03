@@ -226,7 +226,8 @@ static const char *FS =
 "        // A ball's shadow on the cloth: a soft decal, as scene_add_shadow\n"
 "        // draws it. Without these the balls hover.\n"
 "        float d = length(v_uv - vec2(0.5)) * 2.0;\n"
-"        o_col = emit(to_linear(u_colour.rgb), 0.5 * (1.0 - smoothstep(0.55, 1.0, d)), 0.0);\n"
+"        float a = 0.55 * (1.0 - smoothstep(0.10, 1.0, d));\n"
+"        o_col = emit(to_linear(u_clothsh) * 0.55, a, 0.0);\n"
 "    } else {\n"
 "        vec3 c = to_linear(u_colour.rgb);\n"
 "        float d = max(dot(v_nrm, L), 0.0);\n"
@@ -824,10 +825,22 @@ void cuevr_render_eye(const float *view, const float *proj,
      * is resting on anything. */
     {
         glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        /* Colour blends; ALPHA IS LEFT ALONE.
+         *
+         * A plain glBlendFunc applies to the alpha channel too, so a shadow at
+         * half alpha drops the framebuffer's alpha from 1 to 0.75 — and that
+         * alpha is exactly what the Quest compositor uses to blend this layer
+         * over the passthrough camera feed. The shadows were not dark blobs on
+         * the cloth, they were holes punched through it: you could see the real
+         * room, and the real table you had matched the height to, straight
+         * through the baize. Anything translucent drawn into a passthrough layer
+         * has to preserve destination alpha. */
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
         glDepthMask(GL_FALSE);
         glDisable(GL_CULL_FACE);
         glUniform1i(G.u_mode, 6);
+        /* Darken toward the cloth's own shadowed tone rather than toward black:
+         * a ball on baize does not cast an inky disc. */
         glUniform4f(G.u_colour, 0.0f, 0.0f, 0.0f, 1.0f);
         float rad = G.tab.R * 1.55f;
         for (int i = 0; i < s->nballs; i++) {

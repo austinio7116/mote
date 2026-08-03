@@ -49,6 +49,23 @@
  * surface they are standing at. */
 #define CUEVR_TABLE_HEIGHT 0.85f
 
+/* Cue tip speed -> ball speed.
+ *
+ * A one-dimensional impact of a cue (mass M, speed V) on a stationary ball
+ * (mass m) with restitution e leaves the ball at
+ *
+ *     v = V * M(1 + e) / (M + m)
+ *
+ * A leather tip on phenolic measures e = 0.71-0.75 (drdavepoolinfo.com's
+ * property tables), and a cue is 17-19 oz. That works out at about 1.33 for a
+ * 5.5 oz pool ball and 1.35 for a lighter snooker ball — so the ball always
+ * leaves faster than the tip arrives, and passing the tip's speed straight
+ * through as the ball's, which is what this did, under-read every shot by a
+ * third. Derived from the table's own ball mass rather than hard-coded, since
+ * snooker and pool balls differ and CueTable knows which is on the cloth. */
+#define CUEVR_CUE_MASS 0.52f    /* 18 oz */
+#define CUEVR_TIP_E    0.73f    /* leather on phenolic */
+
 enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_PLACE, ST_DECIDE, ST_OVER };
 
 static const struct { CueGameKind kind; const char *name; } MENU[] = {
@@ -489,10 +506,18 @@ static void app_update(void *u, const MoteVrTracking *t) {
         cuevr_cue_update(&S.cue, t, &S.setup.place, cue_ball_room(), S.tab.R, &shot);
         S.hud_dirty = 1;             /* the tip readout moves every frame */
         if (shot.struck) {
-            float sp = shot.speed;
+            /* The ball leaves faster than the tip arrives. A cue is heavier
+             * than a ball (~0.55 kg against 0.16) and the contact is fairly
+             * elastic, so for a centre-ball hit the ball departs at roughly 1.35
+             * times the tip's speed. Passing the tip speed straight through as
+             * the ball's — which is what it did — under-reads every shot by
+             * about a third, consistently, which is exactly how it felt. */
+            float transfer = CUEVR_CUE_MASS * (1.0f + CUEVR_TIP_E) /
+                             (CUEVR_CUE_MASS + S.tab.mass);
+            float sp = shot.speed * transfer;
             if (sp > MAX_STRIKE_SPEED) sp = MAX_STRIKE_SPEED;
-            LOGI("[cuevr] strike %.2f m/s  side %+.2f vert %+.2f  elev %.1f deg%s",
-                 (double)sp, (double)shot.tip_side, (double)shot.tip_vert,
+            LOGI("[cuevr] strike tip %.2f -> ball %.2f m/s  side %+.2f vert %+.2f  elev %.1f deg%s",
+                 (double)shot.speed, (double)sp, (double)shot.tip_side, (double)shot.tip_vert,
                  (double)(shot.elev * 180.0f / 3.14159265f),
                  shot.miscue ? "  MISCUE" : "");
             cue_phys_strike_elev(&S.world, &S.balls[0], shot.dir, sp,
