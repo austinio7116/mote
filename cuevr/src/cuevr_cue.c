@@ -28,19 +28,38 @@ void cuevr_cue_init(CueVrCue *c) {
     c->grip = 0.20f;
 }
 
-/* Room space -> the table's own frame (metres, X length, Z width, Y up from
- * the cloth), which is the only frame the physics knows about. */
-MoteVrV3 cuevr_room_to_table(const CueVrPlacement *p, MoteVrV3 r) {
-    MoteVrV3 d = mv3_sub(r, p->pos);
-    float cs = cosf(-p->yaw), sn = sinf(-p->yaw);
-    return mv3(d.x * cs - d.z * sn, d.y, d.x * sn + d.z * cs);
+/* Room space <-> the table's own frame (metres, X length, Z width, Y up from
+ * the cloth), which is the only frame the physics knows about.
+ *
+ * These MUST agree with the rotation the renderer's model matrix applies, and
+ * for a long time they did not: table_to_room used the transpose, so with any
+ * non-zero table yaw — and the table is always sited at a yaw taken from the
+ * player's head direction — every ball was drawn in one place and tested in
+ * another, mirrored across the yaw. The cue tip went through the ball it could
+ * see and missed the ball it was tested against, and the on-ball indicator
+ * never lit because it was telling the truth.
+ *
+ * The renderer builds its transform from a quaternion about +Y, which for a
+ * point p gives  x' = x·cos + z·sin,  z' = -x·sin + z·cos.  That is the
+ * definition these follow now, and test_cue.c checks them against a matrix
+ * built the same way the renderer builds it rather than against my arithmetic. */
+MoteVrV3 cuevr_table_to_room(const CueVrPlacement *p, Vec3 t) {
+    float c = cosf(p->yaw), s = sinf(p->yaw);
+    return mv3(p->pos.x + t.x * c + t.z * s,
+               p->pos.y + t.y,
+               p->pos.z - t.x * s + t.z * c);
 }
 
-MoteVrV3 cuevr_table_to_room(const CueVrPlacement *p, Vec3 t) {
-    float cs = cosf(p->yaw), sn = sinf(p->yaw);
-    return mv3(p->pos.x + t.x * cs - t.z * sn,
-               p->pos.y + t.y,
-               p->pos.z + t.x * sn + t.z * cs);
+MoteVrV3 cuevr_room_to_table(const CueVrPlacement *p, MoteVrV3 r) {
+    MoteVrV3 d = mv3_sub(r, p->pos);
+    float c = cosf(p->yaw), s = sinf(p->yaw);
+    return mv3(d.x * c - d.z * s, d.y, d.x * s + d.z * c);
+}
+
+/* A direction only — the same rotation, no translation. */
+static MoteVrV3 room_dir_to_table(const CueVrPlacement *p, MoteVrV3 v) {
+    float c = cosf(p->yaw), s = sinf(p->yaw);
+    return mv3(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
 }
 
 void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
@@ -191,10 +210,10 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
             out->tip_side = c->tip_side;
             out->tip_vert = c->tip_vert;
             out->elev     = c->elev;
-            float cs = cosf(-p->yaw), sn = sinf(-p->yaw);
-            out->dir.x = c->aim_dir.x * cs - c->aim_dir.z * sn;
+            MoteVrV3 td = room_dir_to_table(p, c->aim_dir);
+            out->dir.x = td.x;
             out->dir.y = 0.0f;
-            out->dir.z = c->aim_dir.x * sn + c->aim_dir.z * cs;
+            out->dir.z = td.z;
             float r_off = sqrtf(c->tip_side * c->tip_side + c->tip_vert * c->tip_vert);
             if (r_off > CUEVR_MISCUE_LIMIT) {
                 out->miscue = 1;

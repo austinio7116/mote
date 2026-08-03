@@ -87,11 +87,16 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_ro
     float rx = dead(Rh->stick_x);
     if (rx != 0.0f) {
         float dyaw = -rx * YAW_RATE * dt;
+        /* Orbit the table's origin about the ball by the SAME rotation the yaw
+         * itself means — the renderer's, x' = x·cos + z·sin. Using the transpose
+         * here (which is what it did) leaves the ball drifting across the cloth
+         * as the table turns, which is the one thing this gesture exists to
+         * prevent. */
         float cs = cosf(dyaw), sn = sinf(dyaw);
         MoteVrV3 rel = mv3_sub(s->place.pos, ball_room);
-        s->place.pos = mv3(ball_room.x + rel.x * cs - rel.z * sn,
+        s->place.pos = mv3(ball_room.x + rel.x * cs + rel.z * sn,
                            s->place.pos.y,
-                           ball_room.z + rel.x * sn + rel.z * cs);
+                           ball_room.z - rel.x * sn + rel.z * cs);
         s->place.yaw += dyaw;
     }
 

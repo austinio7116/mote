@@ -164,6 +164,41 @@ int main(void) {
     check(!c.on_ball, "a cue pointed past the ball is not on the ball");
     check(!shot.struck, "and cannot play a shot");
 
+    /* ---- 6b. the frames agree with what the RENDERER draws -------------- *
+     * The bug this exists to catch: table_to_room used the transpose of the
+     * rotation the renderer's model matrix applies, so with any table yaw the
+     * balls were drawn in one place and tested in another. Every self-consistent
+     * test still passed, because the arithmetic agreed with itself. So check it
+     * against a matrix built exactly the way cuevr_render.c builds it. */
+    {
+        for (int k = 0; k < 6; k++) {
+            CueVrPlacement pl;
+            pl.yaw = (float)k * 0.7f - 1.4f;
+            pl.height = 0.85f;
+            pl.pos = mv3(0.3f, 0.85f, -0.2f);
+
+            /* the renderer's transform, verbatim: a quaternion about +Y */
+            float M[16];
+            MoteVrPose tp;
+            tp.p = pl.pos;
+            tp.q = mq_axis_angle(mv3(0, 1, 0), pl.yaw);
+            mm4_from_pose(M, tp, 1.0f);
+
+            Vec3 tb = { 0.62f, 0.026f, -0.31f };     /* a ball on the cloth */
+            MoteVrV3 drawn = mv3(M[0]*tb.x + M[4]*tb.y + M[8]*tb.z  + M[12],
+                                 M[1]*tb.x + M[5]*tb.y + M[9]*tb.z  + M[13],
+                                 M[2]*tb.x + M[6]*tb.y + M[10]*tb.z + M[14]);
+            MoteVrV3 tested = cuevr_table_to_room(&pl, tb);
+            checkf(mv3_len(mv3_sub(drawn, tested)), 0.0f, 1e-5f,
+                   "a ball is tested where the renderer draws it");
+
+            /* and the inverse really is the inverse */
+            MoteVrV3 back = cuevr_room_to_table(&pl, tested);
+            checkf(fabsf(back.x - tb.x) + fabsf(back.z - tb.z), 0.0f, 1e-5f,
+                   "room_to_table undoes table_to_room");
+        }
+    }
+
     /* ---- 7. the table's rotation is not the room's ---------------------- *
      * Turn the table 90 degrees under the same physical stroke: the shot must
      * come out rotated in table space, because that is the only space the
@@ -177,7 +212,9 @@ int main(void) {
     cuevr_cue_update(&c, &t, &turned, BALL, R, &shot);
     check(shot.struck, "the stroke still connects with the table turned");
     checkf(shot.dir.x, 0.0f, 0.02f, "and the aim is expressed in table space");
-    checkf(shot.dir.z, -1.0f, 0.02f, "rotated by the table's own yaw");
+    /* +1, not -1: this assertion used to encode the mirrored convention that
+     * made the cue miss. It is now checked against the renderer's rotation. */
+    checkf(shot.dir.z, 1.0f, 0.02f, "rotated by the table's own yaw");
 
     /* ---- 8. the grip slides along the cue ------------------------------- *
      * Hold a side trigger and move your hand up the cue: the hand travels along
