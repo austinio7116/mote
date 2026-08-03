@@ -64,11 +64,14 @@ static void aim(MoteVrTracking *t, CueVrCue *c, float gap,
     /* Contact is the tip's surface against the ball's, so the geometry the test
      * builds has to use the same reach the cue does. */
     const float reach = R + CUEVR_TIP_R;
-    float perp = R * sqrtf(side_frac*side_frac + vert_frac*vert_frac);
+    /* side_frac / vert_frac are fractions of the contactable radius — dead
+     * centre 0, the edge of the ball 1 — so the perpendicular offset is a
+     * fraction of REACH, matching what cuevr_cue reports. */
+    float perp = reach * sqrtf(side_frac*side_frac + vert_frac*vert_frac);
     float half_chord = sqrtf(reach*reach - perp*perp);
     MoteVrV3 tip = mv3_sub(BALL, mv3_scale(axis, half_chord + gap));
-    tip = mv3_add(tip, mv3_add(mv3_scale(side, side_frac * R),
-                               mv3_scale(vert, vert_frac * R)));
+    tip = mv3_add(tip, mv3_add(mv3_scale(side, side_frac * reach),
+                               mv3_scale(vert, vert_frac * reach)));
 
     /* grip hand sits (CUE_LEN - grip) behind the tip; bridge a stance in front */
     MoteVrV3 grip_hand = mv3_sub(tip, mv3_scale(axis, CUEVR_CUE_LEN - c->grip));

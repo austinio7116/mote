@@ -202,8 +202,23 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     if (mv3_len(side) < 1e-4f) side = mv3(1, 0, 0);
     side = mv3_norm(side);
     MoteVrV3 vert = mv3_norm(mv3_cross(c->axis, side));
-    c->tip_side = mv3_dot(off, side) / R;
-    c->tip_vert = mv3_dot(off, vert) / R;
+    /* Divide by REACH, not by R.
+     *
+     * `off` runs from the ball's centre to the point where the TIP's surface
+     * meets it, so its length is R + the tip's radius — and dividing that by R
+     * scaled every offset up by 19%. The physics reads these as a fraction of
+     * the ball's radius, so it saw contacts at 1.19 where the ball ends at 1.0,
+     * and the consequences were both severe: the drive term is
+     * sqrt(1 - side^2 - vert^2), which clamps to ZERO once the pair exceeds one,
+     * so a merely off-centre contact gave the ball full spin and no speed at all
+     * — the tip visibly striking and the ball barely leaving. And the miscue
+     * threshold of 0.55 was tripping at a true offset of 0.46, docking two
+     * thirds of the power off ordinary side and screw.
+     *
+     * Normalised by reach, dead centre is 0 and the edge of the ball is 1, which
+     * is what tip_side and tip_vert are defined to mean. */
+    c->tip_side = mv3_dot(off, side) / reach;
+    c->tip_vert = mv3_dot(off, vert) / reach;
     c->gap = t_enter;
 
     /* Contact.
