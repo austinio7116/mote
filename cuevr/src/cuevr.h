@@ -116,10 +116,12 @@ typedef struct {
      * cue ABOVE the hand, not through the middle of it, and how high depends on
      * how you make your bridge — so it is adjustable, with the left side
      * trigger, and it persists: it is a property of the player, not of the shot.
-     * `rest_lift` raises the cue off the controller; `rest_fwd` slides where
-     * along the shaft the hand sits, which only moves the drawn bridge. */
+     *
+     * Only the vertical offset exists, and that is structural rather than an
+     * omission: the cue is built from the grip hand and the bridge only supplies
+     * the aim DIRECTION, so an offset along the cue is parallel to it and can
+     * move nothing. */
     float rest_lift;
-    float rest_fwd;
 
     /* The stroke. Pulling the right trigger locks the aim and hands the cue to
      * your grip hand: the bridge becomes a fixed pivot and the cue slides
@@ -183,10 +185,8 @@ void cuevr_cue_init(CueVrCue *c);
  * they matched to a real surface, and the bridge they make. Stored beside the
  * app's own data; set the directory once at start-up. */
 void cuevr_prefs_dir(const char *dir);
-void cuevr_prefs_load(float *table_height, float *rest_lift, float *rest_fwd,
-                      float *grip, int *table_kind, int *ballset, int *persona);
-void cuevr_prefs_save(float table_height, float rest_lift, float rest_fwd,
-                      float grip, int table_kind, int ballset, int persona);
+void cuevr_prefs_load(float *table_height, float *rest_lift, float *grip, int *table_kind, int *ballset, int *persona);
+void cuevr_prefs_save(float table_height, float rest_lift, float grip, int table_kind, int ballset, int persona);
 
 /* A struck shot, as the physics wants it. */
 typedef struct {

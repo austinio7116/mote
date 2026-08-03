@@ -28,7 +28,6 @@ void cuevr_cue_init(CueVrCue *c) {
      * bridge — which is where it should be. */
     c->grip = 0.20f;
     c->rest_lift = CUEVR_REST_LIFT_DEFAULT; /* the cue sits on top of the hand, not in it */
-    c->rest_fwd  = 0.0f;
 }
 
 /* ---- preferences -------------------------------------------------------- *
@@ -41,19 +40,22 @@ void cuevr_prefs_dir(const char *dir) {
     else               snprintf(s_prefs_path, sizeof s_prefs_path, "cuevr.cfg");
 }
 
-void cuevr_prefs_load(float *h, float *lift, float *fwd, float *grip,
+void cuevr_prefs_load(float *h, float *lift, float *grip,
                       int *kind, int *ballset, int *persona) {
     if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
     FILE *f = fopen(s_prefs_path, "r");
     if (!f) return;
     float a = 0, b = 0, c2 = 0, d = 0;
     int k = 0, bs = 0, ps = 0;
+    /* Seven fields, and it stays seven: slot 3 is a dead rest_fwd that files
+     * from an earlier build still carry, and dropping it would shift every
+     * field after it. Read past it, write a zero, leave it reserved. */
     if (fscanf(f, "%f %f %f %f %d %d %d", &a, &b, &c2, &d, &k, &bs, &ps) == 7) {
+        (void)c2;
         /* Sanity-check every one: a corrupt file must not put the table through
          * the ceiling or the cue inside your hand. */
         if (h && a > 0.25f && a < 1.4f) *h = a;
         if (lift && b >= CUEVR_REST_MIN && b <= CUEVR_REST_MAX) *lift = b;
-        if (fwd  && c2 > -0.3f && c2 < 0.3f) *fwd = c2;
         if (grip && d >= CUEVR_GRIP_MIN && d <= CUEVR_GRIP_MAX) *grip = d;
         if (kind && k >= 0 && k < CUE_GAME_COUNT) *kind = k;
         if (ballset && bs >= 0 && bs < 8) *ballset = bs;
@@ -62,13 +64,13 @@ void cuevr_prefs_load(float *h, float *lift, float *fwd, float *grip,
     fclose(f);
 }
 
-void cuevr_prefs_save(float h, float lift, float fwd, float grip,
+void cuevr_prefs_save(float h, float lift, float grip,
                       int kind, int ballset, int persona) {
     if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
     FILE *f = fopen(s_prefs_path, "w");
     if (!f) return;
     fprintf(f, "%.4f %.4f %.4f %.4f %d %d %d\n",
-            (double)h, (double)lift, (double)fwd, (double)grip, kind, ballset, persona);
+            (double)h, (double)lift, 0.0, (double)grip, kind, ballset, persona);
     fclose(f);
 }
 
@@ -163,17 +165,22 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
         if (c->grip > CUEVR_GRIP_MAX) c->grip = CUEVR_GRIP_MAX;
     }
     if (adjusting && c->have_hand && adj_l) {
-        /* The left hand sets the REST: raise or lower your hand to change how
-         * high the cue sits above it, slide along the cue to change where on the
-         * shaft you are bridging. Both stick, and both are saved — a bridge is
-         * something a player has, not something a shot has. */
+        /* The left hand sets the REST: raise or lower your hand and the cue sits
+         * higher or lower above it. It sticks, and it is saved — a bridge is
+         * something a player has, not something a shot has.
+         *
+         * There is only ONE useful axis here, which cost a wrong feature to
+         * learn. The cue is built as tip = right_hand + axis*(LEN-grip), so the
+         * bridge contributes its DIRECTION and nothing else. Sliding the rest
+         * along that axis is parallel to it and cannot move the cue by so much
+         * as a millimetre — the old rest_fwd accumulated, clamped and saved
+         * itself faithfully while doing absolutely nothing, which is exactly
+         * what a rest that "snaps back when you let go" feels like. Where on the
+         * shaft you bridge is already set by where you put your hand. */
         MoteVrV3 m = mv3_sub(Lh->pose.p, c->prev_hand[MOTE_VR_LEFT]);
         c->rest_lift -= m.y;                    /* hand down -> cue sits higher */
-        c->rest_fwd  += mv3_dot(m, c->adj_axis);
         if (c->rest_lift < CUEVR_REST_MIN) c->rest_lift = CUEVR_REST_MIN;
         if (c->rest_lift > CUEVR_REST_MAX) c->rest_lift = CUEVR_REST_MAX;
-        if (c->rest_fwd < -0.25f) c->rest_fwd = -0.25f;
-        if (c->rest_fwd >  0.25f) c->rest_fwd =  0.25f;
         c->bridge = mv3_add(Lh->pose.p, mv3(0.0f, c->rest_lift, 0.0f));
     }
     c->adjusting = adjusting;

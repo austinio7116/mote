@@ -125,6 +125,14 @@ static struct {
     CueVrScene scene;
 } S;
 
+/* The rest the player has set. Only the scripted preview harness wants this:
+ * its fake bridge hand has to sit rest_lift below the aim line to put the cue on
+ * the ball, exactly as a real hand does without being told. Hardcoding the
+ * default here meant the harness went quiet the moment a saved rest was
+ * loaded — a stroke that never lands looks identical to a test that passes. */
+float cuevr_app_rest_lift(void) { return S.cue.rest_lift; }
+float cuevr_app_grip(void)      { return S.cue.grip; }
+
 /* ---- table setup -------------------------------------------------------- */
 
 static void start_frame(CueGameKind kind) {
@@ -134,7 +142,15 @@ static void start_frame(CueGameKind kind) {
     cue_rules_init(&S.rules, &S.tab, 1);            /* player 1 is the CPU */
     cuevr_render_set_table(&S.tab, &S.world);
     cue_audio_set_snooker(S.tab.is_snooker);
-    cuevr_cue_init(&S.cue);
+    /* Re-racking the balls does not re-make the player. The bridge height and
+     * the grip are things a player HAS, not things a frame has — and wiping
+     * them here was what made the rest snap back to default. */
+    {
+        float keep_lift = S.cue.rest_lift, keep_grip = S.cue.grip;
+        cuevr_cue_init(&S.cue);
+        S.cue.rest_lift = keep_lift;
+        S.cue.grip      = keep_grip;
+    }
     S.sited = 0;      /* a 12 ft table does not go where a 7 ft one did */
     S.shot_events = 0;
     snprintf(S.msg, sizeof S.msg, "%s", MENU[S.menu_sel].name);
@@ -331,7 +347,19 @@ static void resolve_shot(void) {
      * never answering is not neutral: the frame simply plays on under the wrong
      * assumption. The player gets asked; the CPU decides for itself. */
     if (S.rules.pushout_offer || S.rules.decision == CUE_DEC_PENDING) {
-        if (S.rules.cpu && S.rules.turn == 1) {
+        /* WHO answers is not the same question for the two offers.
+         *
+         * A push-out belongs to the player about to play, so that one follows
+         * the turn. A snooker foul does not: the choice is the fouled-AGAINST
+         * player's, and cue_rules deliberately leaves r->turn sitting on the
+         * offender until the decision is applied (it only moves in
+         * cue_rules_apply_decision). Testing the turn therefore handed every
+         * foul decision to whoever committed the foul — so you were asked to
+         * choose after your own foul, and the CPU quietly chose for itself
+         * after its own. Exactly backwards, both ways round. */
+        int decider = S.rules.pushout_offer ? S.rules.turn
+                                            : 1 - S.rules.dec_offender;
+        if (S.rules.cpu && decider == 1) {
             if (S.rules.pushout_offer) {
                 CueAIShot p = cue_ai_pushout(&S.world, &S.tab, &S.rules,
                                              S.balls, S.nballs,
@@ -340,8 +368,9 @@ static void resolve_shot(void) {
                 S.rules.pushout_offer = 0;
                 S.rules.pushout_avail = 0;
             } else {
-                /* Make them play it again when that is on offer: the striker
-                 * left the table in trouble, so give it back. */
+                /* The CPU is the fouled-against player here, always. A miss
+                 * gets handed straight back: the striker left the table in
+                 * trouble, so make them play it again. */
                 cue_rules_apply_decision(&S.rules,
                     S.rules.dec_can_restore ? CUE_DEC_REPLAY : CUE_DEC_PLAY);
             }
@@ -409,7 +438,7 @@ static int app_gl_init(void *u) {
     {
         int kind = (int)S.tab.kind;
         float h = S.setup.place.height;
-        cuevr_prefs_load(&h, &S.cue.rest_lift, &S.cue.rest_fwd, &S.cue.grip,
+        cuevr_prefs_load(&h, &S.cue.rest_lift, &S.cue.grip,
                          &kind, &S.ballset, &S.persona);
         S.setup.place.height = h;
         S.pref_height = h;
@@ -519,6 +548,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
     case ST_SETUP: {
         int h0 = (int)(S.setup.place.height * 1000.0f);
         if (!cuevr_setup_update(&S.setup, t, cue_ball_room())) {
+            /* They have settled on a height — that is the one to remember, and
+             * the one the next frame should site itself at. */
+            S.pref_height = S.setup.place.height;
             S.state = (S.rules.cpu && S.rules.turn == 1) ? ST_THINK : ST_AIM;
             if (S.state == ST_THINK)
                 cue_ai_plan_start(&S.world, &S.tab, &S.rules, S.balls, S.nballs,
@@ -790,15 +822,15 @@ static void app_update(void *u, const MoteVrTracking *t) {
      * they grip, and what they chose to play. All of it is a property of the
      * player rather than of the frame, so none of it should have to be redone. */
     {
-        static float last[4]; static int lastk[3]; static float since;
-        float now[4] = { S.setup.place.height, S.cue.rest_lift, S.cue.rest_fwd, S.cue.grip };
+        static float last[3]; static int lastk[3]; static float since;
+        float now[3] = { S.setup.place.height, S.cue.rest_lift, S.cue.grip };
         int nowk[3] = { (int)S.tab.kind, S.ballset, S.persona };
         int changed = 0;
-        for (int i = 0; i < 4; i++) if (fabsf(now[i] - last[i]) > 0.0005f) changed = 1;
+        for (int i = 0; i < 3; i++) if (fabsf(now[i] - last[i]) > 0.0005f) changed = 1;
         for (int i = 0; i < 3; i++) if (nowk[i] != lastk[i]) changed = 1;
         since += dt;
         if (changed && since > 1.0f) {
-            cuevr_prefs_save(now[0], now[1], now[2], now[3], nowk[0], nowk[1], nowk[2]);
+            cuevr_prefs_save(now[0], now[1], now[2], nowk[0], nowk[1], nowk[2]);
             memcpy(last, now, sizeof last);
             memcpy(lastk, nowk, sizeof lastk);
             since = 0.0f;
