@@ -68,6 +68,12 @@
 #define CUEVR_CUE_MASS 0.52f    /* 18 oz */
 #define CUEVR_TIP_E    0.73f    /* leather on phenolic */
 
+/* A feel trim on top of the derived transfer, and labelled as exactly that: the
+ * physics above says how fast the ball leaves, but how hard a stroke FEELS in a
+ * headset depends on how much your arm is really moving, and a centre-ball hit
+ * was landing slightly heavy. One number, no pretence that it is derived. */
+#define CUEVR_POWER_TRIM 0.90f
+
 enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_PLACE, ST_DECIDE, ST_OVER };
 
 static const struct { CueGameKind kind; const char *name; } MENU[] = {
@@ -516,7 +522,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
              * about a third, consistently, which is exactly how it felt. */
             float transfer = CUEVR_CUE_MASS * (1.0f + CUEVR_TIP_E) /
                              (CUEVR_CUE_MASS + S.tab.mass);
-            float sp = shot.speed * transfer;
+            float sp = shot.speed * transfer * CUEVR_POWER_TRIM;
             if (sp > MAX_STRIKE_SPEED) sp = MAX_STRIKE_SPEED;
             LOGI("[cuevr] strike tip %.2f -> ball %.2f m/s  [%d fr, %.1f mm in %.1f ms]  side %+.2f vert %+.2f  elev %.1f deg%s",
                  (double)shot.speed, (double)sp,

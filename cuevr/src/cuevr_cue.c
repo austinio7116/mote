@@ -359,11 +359,20 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
             out->dir.y = 0.0f;
             out->dir.z = td.z;
             float r_off = sqrtf(c->tip_side * c->tip_side + c->tip_vert * c->tip_vert);
+            /* Off centre costs a little pace — some of the stroke has gone into
+             * making the ball spin — but only a little: at the very edge about a
+             * tenth. Nothing like the cliff that was here. */
+            out->speed *= 1.0f - 0.10f * r_off * r_off;
             if (r_off > CUEVR_MISCUE_LIMIT) {
+                /* A slip, not a wall. It comes on progressively from the limit
+                 * out to the edge, where two fifths of the pace is gone and the
+                 * spin only partly takes. */
+                float k = (r_off - CUEVR_MISCUE_LIMIT) / (1.0f - CUEVR_MISCUE_LIMIT);
+                if (k > 1.0f) k = 1.0f;
                 out->miscue = 1;
-                out->speed *= 0.35f;
-                out->tip_side *= 0.5f;
-                out->tip_vert *= 0.5f;
+                out->speed *= 1.0f - 0.40f * k;
+                out->tip_side *= 1.0f - 0.35f * k;
+                out->tip_vert *= 1.0f - 0.35f * k;
             }
             return;
         }

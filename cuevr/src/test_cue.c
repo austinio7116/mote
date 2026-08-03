@@ -166,12 +166,13 @@ int main(void) {
 
     /* ---- 5. too far off centre and the tip slides off ------------------- */
     cuevr_cue_init(&c);
-    aim(&t, &c, 0.06f, 0.72f, 0.0f, 0);
+    aim(&t, &c, 0.06f, 0.94f, 0.0f, 0);
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     check(c.on_ball, "an extreme tip position still touches the ball");
-    shot = stroke(&t, &c, 0.06f, 4.0f, 40, 0.72f, 0.0f, 0);
+    shot = stroke(&t, &c, 0.06f, 4.0f, 40, 0.94f, 0.0f, 0);
     check(shot.struck && shot.miscue, "but playing it is a miscue");
-    check(shot.speed < 4.0f * 0.6f, "and most of the power is lost");
+    check(shot.speed < 4.0f * 0.85f && shot.speed > 4.0f * 0.4f,
+          "and it costs pace without cancelling the shot");
 
     /* ---- 6. missing the ball entirely ----------------------------------- */
     cuevr_cue_init(&c);

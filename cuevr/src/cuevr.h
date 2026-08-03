@@ -178,7 +178,11 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
                       const CueVrPlacement *p, MoteVrV3 ball_room, float R,
                       CueVrShot *out);
 
-/* Beyond this fraction of the radius a real tip slides off the ball. */
-#define CUEVR_MISCUE_LIMIT 0.55f
+/* Where a tip really starts to slide off. Half a ball of side is an ordinary
+ * shot, not a miscue: players use it constantly. 0.55 was far too tight, and
+ * because the penalty was also a cliff — a flat 35% of the pace the moment you
+ * crossed it — "a lot of side" cost two thirds of the shot. Real slip starts
+ * around three quarters of the way out and comes on gradually. */
+#define CUEVR_MISCUE_LIMIT 0.78f
 
 #endif /* CUEVR_H */
