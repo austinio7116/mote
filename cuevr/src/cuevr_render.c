@@ -200,15 +200,37 @@ static const char *FS =
 "    vec3 b = cross(n, t);\n"
 "    return vec2(dot(pos, t), dot(pos, b));\n"
 "}\n"
+"// Sampling with a CAPPED anisotropy ratio.\n"
+"//\n"
+"// A cushion top seen almost edge-on has a footprint tens of times longer along the\n"
+"// strip than across it. Automatic LOD takes the longer axis, so it picks a mip\n"
+"// sized for the length and everything goes soft and blocky — which is what the\n"
+"// cushion tops were doing while the bed beside them stayed sharp. Hardware\n"
+"// anisotropic filtering caps at 16:1 and a grazing cushion is well past that, so\n"
+"// the hardware cannot rescue it either.\n"
+"//\n"
+"// Shortening the longer gradient until the ratio is inside what 16x aniso can\n"
+"// resolve hands the GPU a footprint it can actually filter. The trade is some\n"
+"// aliasing along the length, which MSAA takes care of, in exchange for not\n"
+"// throwing the detail away.\n"
+"vec2 nap_fetch(vec2 uv) {\n"
+"    vec2 dx = dFdx(uv), dy = dFdy(uv);\n"
+"    float lx = max(length(dx), 1e-8), ly = max(length(dy), 1e-8);\n"
+"    float cap = min(lx, ly) * 12.0;\n"
+"    if (lx > cap) dx *= cap / lx;\n"
+"    if (ly > cap) dy *= cap / ly;\n"
+"    return textureGrad(u_nap, uv, dx, dy).rg - 0.5;\n"
+"}\n"
 "vec2 nap_lean(vec3 pos, vec3 nrm, float span) {\n"
 "    vec2 uv = surf_uv(pos, nrm) / span;\n"
-"    // Two samples at an incommensurate scale and a rotation, so the 11 mm tile\n"
-"    // does not read as a repeat when your eye is close to it.\n"
-"    vec2 a1 = texture(u_nap, uv).rg - 0.5;\n"
+"    // Two samples at an incommensurate scale and rotation, so the 11 mm tile does\n"
+"    // not read as a repeat when your eye is close to it.\n"
+"    vec2 a1 = nap_fetch(uv);\n"
 "    vec2 r  = vec2(uv.x * 0.786 - uv.y * 0.618, uv.x * 0.618 + uv.y * 0.786) * 1.63;\n"
-"    vec2 a2 = texture(u_nap, r).rg - 0.5;\n"
+"    vec2 a2 = nap_fetch(r);\n"
 "    return (a1 * 0.62 + a2 * 0.38) * 2.0;\n"
 "}\n"
+
 "\n"
 "// Two scales of lean: a broad sweep about a centimetre across, which is the\n"
 "// tonal variation, and a fine one at fibre scale on top of it.\n"
@@ -257,8 +279,13 @@ static const char *FS =
 "    // weave you see on a real cloth is a fraction of a millimetre. 11 mm spans\n"
 "    // 1.4 mm down to 0.09 mm, which is the band, and the broad sweep is nearly\n"
 "    // gone because cloth is far more even than I kept making it.\n"
-"    vec2 lean = nap_lean(pos, nrm, 0.038) * 0.05\n"
-"              + nap_lean(pos, nrm, 0.011) * 0.38;\n"
+"    // The coarse term is nearly gone. It is invisible on the bed, but a cushion\n"
+"    // top sits at a grazing angle to BOTH light and eye, which is where the\n"
+"    // sheen lobe is strongest — so whatever large-scale lean is left gets\n"
+"    // amplified hardest exactly there, and read as blotches on the one surface\n"
+"    // that should look like the rest.\n"
+"    vec2 lean = nap_lean(pos, nrm, 0.038) * 0.015\n"
+"              + nap_lean(pos, nrm, 0.011) * 0.40;\n"
 "    vec3 n = normalize(nrm);\n"
 "    // Build a tangent frame from the normal so the lean is along the surface.\n"
 "    vec3 up = abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);\n"
@@ -953,21 +980,101 @@ static void build_cue(Builder *b, int slices, int rings) {
  * drop lips last with depth writes off, so a ball sitting in a pocket covers
  * them rather than being covered.
  */
+/* ---- smoothed normals ----------------------------------------------------- *
+ * cue_render gives every triangle a FLAT face normal — t->nrm = cross(edge, edge) —
+ * and the builder used to hand that same normal to all three vertices. So the table
+ * was flat-shaded throughout, with no interpolation anywhere. On a 128x128 screen
+ * that is invisible. At thirty centimetres it is the faceting, and it was also
+ * quietly wrecking the cloth: the nap's texture frame is derived from the normal, so
+ * a normal that jumps at every triangle boundary makes the texture orientation jump
+ * with it, which is why the cushion tops showed blocky patches the size of their
+ * triangles while the flat bed beside them looked fine.
+ *
+ * Averaging normals across triangles that share a position fixes both. Creases have
+ * to survive though — the join between a cushion's undercut face and its top is a
+ * real edge, not a smoothing error — so a face only contributes to a vertex whose
+ * own face points within CREASE degrees of it. That is the standard treatment and
+ * it keeps the sharp edges sharp.
+ *
+ * A spatial hash on the quantised position, because the mesh is a few thousand
+ * triangles and O(n^2) over their vertices would not be. */
+#define SMOOTH_CREASE_COS 0.62f      /* ~52 degrees */
+#define SMOOTH_BUCKETS    8192
+
+typedef struct { int tri, corner, next; } SmoothRef;
+
+static unsigned smooth_hash(const Vec3 *p) {
+    /* 0.1 mm buckets: fine enough that distinct features never share one, coarse
+     * enough that the same welded corner always does. */
+    int x = (int)floorf(p->x * 10000.0f);
+    int y = (int)floorf(p->y * 10000.0f);
+    int z = (int)floorf(p->z * 10000.0f);
+    unsigned h = (unsigned)x * 73856093u ^ (unsigned)y * 19349663u ^ (unsigned)z * 83492791u;
+    return h & (SMOOTH_BUCKETS - 1);
+}
+
 static void build_from_cue_render(Builder *b, const CueTri *tri_, int from, int to) {
-    for (int i = from; i < to; i++) {
-        const CueTri *t = &tri_[i];
+    const int n = to - from;
+    if (n <= 0) return;
+
+    int *head = (int *)malloc(sizeof(int) * SMOOTH_BUCKETS);
+    SmoothRef *refs = (SmoothRef *)malloc(sizeof(SmoothRef) * (size_t)n * 3);
+    if (!head || !refs) {          /* no memory: flat normals, as before */
+        free(head); free(refs);
+        for (int i = from; i < to; i++) {
+            const CueTri *t = &tri_[i];
+            float r = ((t->color >> 11) & 31) / 31.0f;
+            float g = ((t->color >> 5) & 63) / 63.0f;
+            float bl = (t->color & 31) / 31.0f;
+            int idx[3];
+            for (int k = 0; k < 3; k++) {
+                idx[k] = b_vert(b, t->v[k].x, t->v[k].y, t->v[k].z,
+                                t->nrm.x, t->nrm.y, t->nrm.z, 0.0f, 0.0f);
+                Vtx *vx = &b->v[idx[k]];
+                vx->c[0] = r; vx->c[1] = g; vx->c[2] = bl;
+            }
+            b_tri(b, idx[0], idx[1], idx[2]);
+        }
+        return;
+    }
+    for (int i = 0; i < SMOOTH_BUCKETS; i++) head[i] = -1;
+    for (int i = 0; i < n; i++) {
+        for (int k = 0; k < 3; k++) {
+            unsigned h = smooth_hash(&tri_[from + i].v[k]);
+            int r = i * 3 + k;
+            refs[r].tri = i; refs[r].corner = k;
+            refs[r].next = head[h]; head[h] = r;
+        }
+    }
+
+    for (int i = 0; i < n; i++) {
+        const CueTri *t = &tri_[from + i];
         float r = ((t->color >> 11) & 31) / 31.0f;
         float g = ((t->color >> 5) & 63) / 63.0f;
         float bl = (t->color & 31) / 31.0f;
         int idx[3];
         for (int k = 0; k < 3; k++) {
+            Vec3 acc = t->nrm;
+            for (int e = head[smooth_hash(&t->v[k])]; e >= 0; e = refs[e].next) {
+                if (refs[e].tri == i) continue;
+                const CueTri *o = &tri_[from + refs[e].tri];
+                Vec3 op = o->v[refs[e].corner];
+                if (fabsf(op.x - t->v[k].x) > 1e-4f ||
+                    fabsf(op.y - t->v[k].y) > 1e-4f ||
+                    fabsf(op.z - t->v[k].z) > 1e-4f) continue;
+                /* Only across a smooth join, so real creases stay crisp. */
+                if (v3_dot(o->nrm, t->nrm) < SMOOTH_CREASE_COS) continue;
+                acc = v3_add(acc, o->nrm);
+            }
+            Vec3 nn = v3_len(acc) > 1e-5f ? v3_norm(acc) : t->nrm;
             idx[k] = b_vert(b, t->v[k].x, t->v[k].y, t->v[k].z,
-                            t->nrm.x, t->nrm.y, t->nrm.z, 0.0f, 0.0f);
+                            nn.x, nn.y, nn.z, 0.0f, 0.0f);
             Vtx *vx = &b->v[idx[k]];
             vx->c[0] = r; vx->c[1] = g; vx->c[2] = bl;
         }
         b_tri(b, idx[0], idx[1], idx[2]);
     }
+    free(head); free(refs);
 }
 
 /* The balls, exactly as the handheld paints them.
