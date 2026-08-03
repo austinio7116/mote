@@ -48,7 +48,7 @@ LOCAL_SRC_FILES := \
     $(MOTE_ROOT)/cuevr/src/cuevr_main_android.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_app.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_render.c \
-    $(MOTE_ROOT)/cuevr/src/cuevr_cue.c \
+    $(MOTE_ROOT)/cuevr/src/cuevr_cue.c $(MOTE_ROOT)/cuevr/src/cuevr_text.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_setup.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_audio.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_frame.c \

@@ -14,8 +14,13 @@
  * buffer and shown on a panel above the table — so the scoreboard in the
  * headset is the scoreboard from the handheld, at the size a wall would give
  * it. 128 wide is what craft_font strides to. */
-#define CUEVR_HUD_W 128
-#define CUEVR_HUD_H 128
+/* 4x the handheld's panel. The HUD is a screen you can lean towards in VR, so
+ * 128x128 bilinear-stretched onto it was simply blurry. Layout stays in
+ * 128-space — CUEVR_HUD_SS scales it on the way in — so the coordinates in
+ * hud_build() still read as they always did. */
+#define CUEVR_HUD_SS 4
+#define CUEVR_HUD_W (128 * CUEVR_HUD_SS)
+#define CUEVR_HUD_H (128 * CUEVR_HUD_SS)
 
 typedef struct {
     const CueVrPlacement *place;

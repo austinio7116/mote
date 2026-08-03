@@ -33,11 +33,32 @@ void cuevr_cue_init(CueVrCue *c) {
 /* ---- preferences -------------------------------------------------------- *
  * A plain text file. Six numbers and a name is not worth a format, and being
  * text means it can be read, edited and diffed when something looks wrong. */
+/* cuevr_cue.c is otherwise pure maths and is linked into the unit tests, which
+ * have no logger. Preferences are the one part that touches the filesystem, and
+ * a silent failure there is exactly what "it never saved anything" looks like. */
+#if defined(__ANDROID__)
+#include <android/log.h>
+#define CUEVR_PREFS_LOG(...) __android_log_print(ANDROID_LOG_INFO, "cuevr", __VA_ARGS__)
+#else
+#include <stdio.h>
+#define CUEVR_PREFS_LOG(...) (fprintf(stderr, __VA_ARGS__), fputc('\n', stderr))
+#endif
+
 static char s_prefs_path[512];
 
 void cuevr_prefs_dir(const char *dir) {
-    if (dir && dir[0]) snprintf(s_prefs_path, sizeof s_prefs_path, "%s/cuevr.cfg", dir);
-    else               snprintf(s_prefs_path, sizeof s_prefs_path, "cuevr.cfg");
+    /* A relative path here is not a harmless fallback: an Android process starts
+     * with "/" as its working directory and that is read-only, so every save
+     * would fail and nothing would ever persist — silently, because nobody
+     * checks the return of a preferences write. If there is no usable directory
+     * we say so once, plainly, instead of pretending. */
+    if (dir && dir[0]) {
+        snprintf(s_prefs_path, sizeof s_prefs_path, "%s/cuevr.cfg", dir);
+    } else {
+        snprintf(s_prefs_path, sizeof s_prefs_path, "cuevr.cfg");
+        CUEVR_PREFS_LOG("[cuevr] no data directory — preferences will not persist");
+    }
+    CUEVR_PREFS_LOG("[cuevr] preferences: %s", s_prefs_path);
 }
 
 void cuevr_prefs_load(float *h, MoteVrV3 *rest, float *grip,
@@ -69,7 +90,7 @@ void cuevr_prefs_save(float h, MoteVrV3 rest, float grip,
                       int kind, int ballset, int persona) {
     if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
     FILE *f = fopen(s_prefs_path, "w");
-    if (!f) return;
+    if (!f) { CUEVR_PREFS_LOG("[cuevr] cannot write %s", s_prefs_path); return; }
     fprintf(f, "%.4f %.4f %.4f %.4f %.4f %d %d %d\n",
             (double)h, (double)rest.x, (double)rest.y, (double)rest.z,
             (double)grip, kind, ballset, persona);

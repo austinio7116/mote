@@ -22,6 +22,9 @@
  */
 #include "cuevr.h"
 #include "cuevr_render.h"
+#include "cuevr_text.h"
+#include "cuevr_font_md.h"
+#include "cuevr_font_lg.h"
 #include "cue_ai.h"
 #include "cue_render.h"
 #include "craft_font.h"
@@ -160,11 +163,49 @@ static void start_frame(CueGameKind kind) {
 
 /* ---- the HUD ------------------------------------------------------------ */
 
+#define HW 128   /* layout space — NOT CUEVR_HUD_W, which is 4x this */
+#define HH 128
+
+/* The HUD's layout is written in 128-space and drawn at CUEVR_HUD_SS times that.
+ * Text is real Audiowide at the size it is actually seen, not the 3x5 handheld
+ * font magnified — there is no detail in a 3x5 glyph to enlarge. The two baked
+ * sizes stand in for the old 1x and 2x calls. */
+#define HS CUEVR_HUD_SS
+
+static int hud_text(const char *t, int x, int y, uint16_t c) {
+    /* y was a 6px-cell top-left in 128-space; Audiowide's box is taller, so nudge
+     * it up a touch to keep the old baselines looking right. */
+    return cuevr_text_draw(S.hud, CUEVR_HUD_W, CUEVR_HUD_H, &cuevr_font_md,
+                           t, x * HS, y * HS - 2, c) / HS;
+}
+static int hud_text_2x(const char *t, int x, int y, uint16_t c) {
+    return cuevr_text_draw(S.hud, CUEVR_HUD_W, CUEVR_HUD_H, &cuevr_font_lg,
+                           t, x * HS, y * HS - 4, c) / HS;
+}
+static int hud_text_w(const char *t)    { return cuevr_text_width(&cuevr_font_md, t) / HS; }
+static int hud_text_w_2x(const char *t) { return cuevr_text_width(&cuevr_font_lg, t) / HS; }
+
+/* The ball graphics are drawn analytically from a centre and a radius, so they
+ * come out at whatever size they are asked for — 4x here costs nothing but the
+ * pixels. Wrappers so the call sites keep their 128-space numbers. */
+static void cue_render_onball_icon_hs(int cx, int cy, int r, int tgt, int seq)
+    { cue_render_onball_icon(S.hud, cx*HS, cy*HS, r*HS, tgt, seq); }
+static void cue_render_group_icon_hs(int cx, int cy, int r, int g)
+    { cue_render_group_icon(S.hud, cx*HS, cy*HS, r*HS, g); }
+static void cue_render_ball_icon_hs(int cx, int cy, int r, int id)
+    { cue_render_ball_icon(S.hud, cx*HS, cy*HS, r*HS, id); }
+
+static void cue_render_set_preview_hs(int cx, int cy, int r, int a, int b)
+    { cue_render_set_preview(S.hud, cx*HS, cy*HS, r*HS, a, b); }
+static void cue_render_spin_ball_hs(int cx, int cy, int r, float sd, float vt)
+    { cue_render_spin_ball(S.hud, cx*HS, cy*HS, r*HS, sd, vt); }
+
 static void hud_clear(uint16_t c) {
     for (int i = 0; i < CUEVR_HUD_W * CUEVR_HUD_H; i++) S.hud[i] = c;
 }
 
 static void hud_rect(int x, int y, int w, int h, uint16_t c) {
+    x *= HS; y *= HS; w *= HS; h *= HS;
     for (int j = y; j < y + h; j++) {
         if (j < 0 || j >= CUEVR_HUD_H) continue;
         for (int i = x; i < x + w; i++) {
@@ -182,114 +223,114 @@ static void hud_build(void) {
     const uint16_t HI   = RGB565C(250, 205, 60);
 
     hud_clear(BG);
-    hud_rect(0, 13, CUEVR_HUD_W, 1, LINE);
+    hud_rect(0, 13, HW, 1, LINE);
 
     if (S.state == ST_MENU) {
-        craft_font_draw_2x(S.hud, "CUEVR", 4, 2, HI);
+        hud_text_2x("CUEVR", 4, 2, HI);
         for (int i = 0; i < MENU_N; i++) {
             int y = 16 + i * 12;
             if (i == S.menu_sel) {
-                hud_rect(2, y - 2, CUEVR_HUD_W - 4, 11, RGB565C(28, 42, 66));
-                craft_font_draw_2x(S.hud, ">", 3, y, HI);
+                hud_rect(2, y - 2, HW - 4, 11, RGB565C(28, 42, 66));
+                hud_text_2x(">", 3, y, HI);
             }
-            craft_font_draw_2x(S.hud, MENU[i].name, 12, y, i == S.menu_sel ? TXT : DIM);
+            hud_text_2x(MENU[i].name, 12, y, i == S.menu_sel ? TXT : DIM);
         }
         {   char o[40];
             snprintf(o, sizeof o, "VS %s (%d)", CUE_PERSONAS[S.persona].name,
                      CUE_PERSONAS[S.persona].elo);
-            craft_font_draw(S.hud, o, 4, CUEVR_HUD_H - 26, TXT);
+            hud_text(o, 4, HH - 26, TXT);
             /* the live ball set, drawn by cue_render itself */
-            cue_render_set_preview(S.hud, CUEVR_HUD_W - 20, CUEVR_HUD_H - 13, 4,
+            cue_render_set_preview_hs(HW - 20, HH - 13, 4,
                                    S.ballset, MENU[S.menu_sel].kind >= CUE_GAME_FIRST_SNK);
         }
-        craft_font_draw(S.hud, "R STICK L/R VS   A PLAY", 4, CUEVR_HUD_H - 14, DIM);
-        craft_font_draw(S.hud, "L STICK L/R BALLS", 4, CUEVR_HUD_H - 7, DIM);
+        hud_text("R STICK L/R VS   A PLAY", 4, HH - 14, DIM);
+        hud_text("L STICK L/R BALLS", 4, HH - 7, DIM);
         return;
     }
 
     if (S.state == ST_SETUP) {
-        craft_font_draw_2x(S.hud, "PLACE TABLE", 4, 2, HI);
+        hud_text_2x("PLACE TABLE", 4, 2, HI);
         char b[40];
         int cm = (int)(S.setup.place.height * 100.0f + 0.5f);
         snprintf(b, sizeof b, "HEIGHT %d CM", cm);
-        craft_font_draw_2x(S.hud, b, 4, 24, TXT);
-        craft_font_draw(S.hud, "SET IT TO YOUR REAL", 4, 44, DIM);
-        craft_font_draw(S.hud, "TABLE OR DESK.", 4, 52, DIM);
-        craft_font_draw(S.hud, "L STICK   SLIDE", 4, 68, TXT);
-        craft_font_draw(S.hud, "R STICK X TURN", 4, 78, TXT);
-        craft_font_draw(S.hud, "R STICK Y HEIGHT", 4, 88, TXT);
-        craft_font_draw(S.hud, "A         DONE", 4, 98, HI);
-        craft_font_draw(S.hud, "TURNS ABOUT THE CUE BALL", 4, CUEVR_HUD_H - 8, DIM);
+        hud_text_2x(b, 4, 24, TXT);
+        hud_text("SET IT TO YOUR REAL", 4, 44, DIM);
+        hud_text("TABLE OR DESK.", 4, 52, DIM);
+        hud_text("L STICK   SLIDE", 4, 68, TXT);
+        hud_text("R STICK X TURN", 4, 78, TXT);
+        hud_text("R STICK Y HEIGHT", 4, 88, TXT);
+        hud_text("A         DONE", 4, 98, HI);
+        hud_text("TURNS ABOUT THE CUE BALL", 4, HH - 8, DIM);
         return;
     }
 
     /* in play */
     char b[48];
-    craft_font_draw_2x(S.hud, S.tab.is_snooker ? "SNOOKER" : "POOL", 4, 2, HI);
+    hud_text_2x(S.tab.is_snooker ? "SNOOKER" : "POOL", 4, 2, HI);
 
     if (S.tab.is_snooker) {
         snprintf(b, sizeof b, "YOU %d", S.rules.score[0]);
-        craft_font_draw_2x(S.hud, b, 4, 20, S.rules.turn == 0 ? TXT : DIM);
+        hud_text_2x(b, 4, 20, S.rules.turn == 0 ? TXT : DIM);
         snprintf(b, sizeof b, "CPU %d", S.rules.score[1]);
-        craft_font_draw_2x(S.hud, b, 4, 34, S.rules.turn == 1 ? TXT : DIM);
+        hud_text_2x(b, 4, 34, S.rules.turn == 1 ? TXT : DIM);
         if (S.rules.brk > 0) {
             snprintf(b, sizeof b, "BREAK %d", S.rules.brk);
-            craft_font_draw(S.hud, b, 4, 50, HI);
+            hud_text(b, 4, 50, HI);
         }
     } else {
-        craft_font_draw_2x(S.hud, S.rules.turn == 0 ? "YOUR SHOT" : "CPU SHOT",
+        hud_text_2x(S.rules.turn == 0 ? "YOUR SHOT" : "CPU SHOT",
                            4, 22, S.rules.turn == 0 ? HI : DIM);
     }
 
     cue_rules_status(&S.rules, b, sizeof b);
-    craft_font_draw(S.hud, b, 4, 62, TXT);
+    hud_text(b, 4, 62, TXT);
 
     /* What you are on, drawn by the game that already knows how: the snooker
      * ball-on icon, the 8-ball group ball, the 9-ball next ball. */
     if (S.tab.is_snooker)
-        cue_render_onball_icon(S.hud, 112, 66, 7, S.rules.target, S.rules.seq);
+        cue_render_onball_icon_hs(112, 66, 7, S.rules.target, S.rules.seq);
     else if (S.tab.kind == CUE_GAME_US9)
-        cue_render_ball_icon(S.hud, 112, 66, 7, S.rules.seq > 0 ? S.rules.seq : 1);
+        cue_render_ball_icon_hs(112, 66, 7, S.rules.seq > 0 ? S.rules.seq : 1);
     else if (S.rules.group[S.rules.turn])
-        cue_render_group_icon(S.hud, 112, 66, 7, S.rules.group[S.rules.turn]);
+        cue_render_group_icon_hs(112, 66, 7, S.rules.group[S.rules.turn]);
 
     /* Where the tip is on the cue ball — the handheld's own spin indicator.
      * In VR this matters MORE than it did there: with no power bar and no aim
      * line, it is the only readout of what you are about to do to the ball. */
     if (S.state == ST_AIM && S.cue.on_ball)
-        cue_render_spin_ball(S.hud, 108, 104, 11, S.cue.tip_side, S.cue.tip_vert);
+        cue_render_spin_ball_hs(108, 104, 11, S.cue.tip_side, S.cue.tip_vert);
 
-    if (S.msg_time > 0.0f) craft_font_draw_2x(S.hud, S.msg, 4, 76, HI);
+    if (S.msg_time > 0.0f) hud_text_2x(S.msg, 4, 76, HI);
 
     if (S.state == ST_PLACE) {
-        craft_font_draw_2x(S.hud, "BALL IN HAND", 4, 76, HI);
-        craft_font_draw(S.hud, "L STICK MOVE   A PLACE", 4, 96, TXT);
+        hud_text_2x("BALL IN HAND", 4, 76, HI);
+        hud_text("L STICK MOVE   A PLACE", 4, 96, TXT);
     }
     else if (S.state == ST_DECIDE) {
         if (S.rules.pushout_offer) {
-            craft_font_draw_2x(S.hud, "PUSH OUT?", 4, 76, HI);
-            craft_font_draw(S.hud, "A YES        B NO", 4, 96, TXT);
+            hud_text_2x("PUSH OUT?", 4, 76, HI);
+            hud_text("A YES        B NO", 4, 96, TXT);
         } else if (S.rules.dec_can_restore) {
-            craft_font_draw_2x(S.hud, "FOUL + MISS", 4, 76, HI);
-            craft_font_draw(S.hud, "A PLAY ON    B REPLAY", 4, 96, TXT);
+            hud_text_2x("FOUL + MISS", 4, 76, HI);
+            hud_text("A PLAY ON    B REPLAY", 4, 96, TXT);
         } else if (S.rules.dec_free_ball) {
-            craft_font_draw_2x(S.hud, "FREE BALL", 4, 76, HI);
-            craft_font_draw(S.hud, "A PLAY ON    B FREE BALL", 4, 96, TXT);
+            hud_text_2x("FREE BALL", 4, 76, HI);
+            hud_text("A PLAY ON    B FREE BALL", 4, 96, TXT);
         } else {
-            craft_font_draw_2x(S.hud, "YOUR CALL", 4, 76, HI);
-            craft_font_draw(S.hud, "A PLAY ON", 4, 96, TXT);
+            hud_text_2x("YOUR CALL", 4, 76, HI);
+            hud_text("A PLAY ON", 4, 96, TXT);
         }
     }
-    else if (S.state == ST_THINK)      craft_font_draw(S.hud, "CPU THINKING...", 4, 96, DIM);
-    else if (S.state == ST_CPUCUE)     craft_font_draw(S.hud, "CPU CUEING...", 4, 96, HI);
-    else if (S.state == ST_ROLL)  craft_font_draw(S.hud, "...", 4, 96, DIM);
+    else if (S.state == ST_THINK)      hud_text("CPU THINKING...", 4, 96, DIM);
+    else if (S.state == ST_CPUCUE)     hud_text("CPU CUEING...", 4, 96, HI);
+    else if (S.state == ST_ROLL)  hud_text("...", 4, 96, DIM);
     else if (S.state == ST_AIM) {
-        if (!S.cue.on_ball)       craft_font_draw(S.hud, "CUE IS OFF THE BALL", 4, 96, DIM);
+        if (!S.cue.on_ball)       hud_text("CUE IS OFF THE BALL", 4, 96, DIM);
         else {
             {
                 snprintf(b, sizeof b, "SIDE %+.2f SCREW %+.2f", 
                          (double)S.cue.tip_side, (double)S.cue.tip_vert);
-                craft_font_draw(S.hud, b, 4, 90, DIM);
+                hud_text(b, 4, 90, DIM);
                 craft_font_draw(S.hud,
                     S.cue.stroking  ? "STROKE - PUSH THROUGH" :
                     S.cue.adjusting ? "SLIDING HAND ALONG CUE" :
@@ -299,9 +340,9 @@ static void hud_build(void) {
         }
     }
     if (S.state == ST_OVER)
-        craft_font_draw_2x(S.hud, S.rules.winner == 0 ? "YOU WIN" : "CPU WINS", 4, 96, HI);
+        hud_text_2x(S.rules.winner == 0 ? "YOU WIN" : "CPU WINS", 4, 96, HI);
 
-    craft_font_draw(S.hud, "HOLD MENU TO REPLACE TABLE", 2, CUEVR_HUD_H - 8, DIM);
+    hud_text("HOLD MENU TO REPLACE TABLE", 2, HH - 8, DIM);
 }
 
 /* ---- shots -------------------------------------------------------------- */

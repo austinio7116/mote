@@ -49,6 +49,7 @@ void mote_xr_haptic(float i, int ms) { (void)i; (void)ms; }
 /* ---- the fake head and hands -------------------------------------------- */
 static float s_yaw = 0.35f, s_pitch = 0.55f, s_dist = 1.6f;  /* eye above the cloth, as a player stands */
 static MoteVrV3 s_focus = { 0.0f, 0.85f, 0.0f };
+static float s_lsqueeze = 0.0f;
 static MoteVrV3 s_bridge = { -0.20f, 0.90f, 0.0f };
 static MoteVrV3 s_butt   = { -0.78f, 0.98f, 0.0f };
 static float s_stick_l[2], s_stick_r[2];
@@ -66,6 +67,7 @@ static void fake_tracking(MoteVrTracking *t, float dt) {
     t->head.q = mq_from_axes(right, mv3_cross(back, right), back);
 
     t->hand[MOTE_VR_LEFT].tracked = t->hand[MOTE_VR_RIGHT].tracked = 1;
+    t->hand[MOTE_VR_LEFT].squeeze = s_lsqueeze;
     t->hand[MOTE_VR_LEFT].pose.p  = s_bridge;
     t->hand[MOTE_VR_RIGHT].pose.p = s_butt;
     t->hand[MOTE_VR_LEFT].pose.q  = mq_ident();
@@ -112,6 +114,11 @@ int main(int argc, char **argv) {
     int auto_table = -1;
     { const char *v = getenv("CUEVR_TABLE"); if (v) auto_table = atoi(v); }
     int auto_stroke = getenv("CUEVR_STROKE") != NULL;
+    /* CUEVR_ADJUST: hold the LEFT side trigger, move the bridge hand, let go —
+     * through the app's real update path, not cuevr_cue.c in isolation. This is
+     * the only way to settle "the offset never changes on the headset" from
+     * here: an isolated unit test passing proves the maths, not the wiring. */
+    int auto_adjust = getenv("CUEVR_ADJUST") != NULL;
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -218,6 +225,26 @@ int main(int argc, char **argv) {
             if (nframe == 18 + auto_table * 2) s_a = 1;       /* confirm setup */
             if (nframe == 20 + auto_table * 2) s_a = 0;
         }
+        /* Hold the LEFT side trigger and move the bridge hand, then let go. At
+         * TOP level, not inside the stroke script: the first version of this was
+         * nested inside `if (auto_stroke)` and silently never ran, which is the
+         * same class of mistake as the bug it is here to find. */
+        if (auto_adjust) {
+            if (nframe >= 60 && nframe < 90) {
+                s_lsqueeze = 1.0f;
+                s_bridge.y += 0.001f;          /* raise the hand 3 cm in total */
+            } else if (nframe == 90) {
+                s_lsqueeze = 0.0f;
+                MoteVrV3 r = cuevr_app_rest();
+                printf("[adjust] 30 held frames: rest = (%.4f %.4f %.4f) len %.4f\n",
+                       (double)r.x, (double)r.y, (double)r.z, (double)mv3_len(r));
+            } else if (nframe == 130) {
+                MoteVrV3 r = cuevr_app_rest();
+                printf("[adjust] 40 frames after release: rest = (%.4f %.4f %.4f) len %.4f\n",
+                       (double)r.x, (double)r.y, (double)r.z, (double)mv3_len(r));
+            }
+        }
+
         /* A scripted cue action: take hold of the cue, then drive the grip hand
          * through. The bridge does not move — that is the point of it. */
         if (auto_stroke) {

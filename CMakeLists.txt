@@ -187,6 +187,7 @@ if(MOTE_TARGET STREQUAL "host")
         cuevr/src/cuevr_app.c
         cuevr/src/cuevr_render.c
         cuevr/src/cuevr_cue.c
+        cuevr/src/cuevr_text.c
         cuevr/src/cuevr_setup.c
         cuevr/src/cuevr_audio.c
         cuevr/src/cuevr_frame.c
