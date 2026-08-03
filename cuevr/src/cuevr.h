@@ -169,7 +169,6 @@ typedef struct {
     Vec3  dir;
     float speed;
     float tip_side, tip_vert, elev;
-    int   miscue;        /* contact too far off centre — a real cue would slip */
 } CueVrShot;
 
 /* Update the cue from the hands and decide whether it has just hit the ball.
@@ -177,12 +176,5 @@ typedef struct {
 void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
                       const CueVrPlacement *p, MoteVrV3 ball_room, float R,
                       CueVrShot *out);
-
-/* Where a tip really starts to slide off. Half a ball of side is an ordinary
- * shot, not a miscue: players use it constantly. 0.55 was far too tight, and
- * because the penalty was also a cliff — a flat 35% of the pace the moment you
- * crossed it — "a lot of side" cost two thirds of the shot. Real slip starts
- * around three quarters of the way out and comes on gradually. */
-#define CUEVR_MISCUE_LIMIT 0.78f
 
 #endif /* CUEVR_H */

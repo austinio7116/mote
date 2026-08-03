@@ -260,11 +260,7 @@ static void hud_build(void) {
     else if (S.state == ST_AIM) {
         if (!S.cue.on_ball)       craft_font_draw(S.hud, "CUE IS OFF THE BALL", 4, 96, DIM);
         else {
-            float off = sqrtf(S.cue.tip_side * S.cue.tip_side +
-                              S.cue.tip_vert * S.cue.tip_vert);
-            if (off > CUEVR_MISCUE_LIMIT)
-                craft_font_draw(S.hud, "TOO FAR OFF CENTRE", 4, 96, RGB565C(240,90,80));
-            else {
+            {
                 snprintf(b, sizeof b, "SIDE %+.2f SCREW %+.2f", 
                          (double)S.cue.tip_side, (double)S.cue.tip_vert);
                 craft_font_draw(S.hud, b, 4, 90, DIM);
@@ -529,14 +525,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
                  S.cue.m_frames, (double)(S.cue.m_dist * 1000.0f),
                  (double)(S.cue.m_time * 1000.0f), (double)shot.tip_side, (double)shot.tip_vert,
                  (double)(shot.elev * 180.0f / 3.14159265f),
-                 shot.miscue ? "  MISCUE" : "");
+                 "");
             cue_phys_strike_elev(&S.world, &S.balls[0], shot.dir, sp,
                                  shot.tip_side, shot.tip_vert, shot.elev);
             /* Power relative to the hardest shot there is, so a delicate safety
              * whispers and a break cracks. */
             cue_audio_sfx(CUE_SFX_STRIKE, sp / MAX_STRIKE_SPEED);
-            mote_xr_haptic(shot.miscue ? 0.25f : 0.75f, shot.miscue ? 40 : 70);
-            if (shot.miscue) { snprintf(S.msg, sizeof S.msg, "MISCUE"); S.msg_time = 1.6f; }
+            mote_xr_haptic(0.75f, 70);
             begin_shot();
         }
         break;

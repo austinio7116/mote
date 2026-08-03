@@ -358,22 +358,20 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
             out->dir.x = td.x;
             out->dir.y = 0.0f;
             out->dir.z = td.z;
-            float r_off = sqrtf(c->tip_side * c->tip_side + c->tip_vert * c->tip_vert);
-            /* Off centre costs a little pace — some of the stroke has gone into
-             * making the ball spin — but only a little: at the very edge about a
-             * tenth. Nothing like the cliff that was here. */
-            out->speed *= 1.0f - 0.10f * r_off * r_off;
-            if (r_off > CUEVR_MISCUE_LIMIT) {
-                /* A slip, not a wall. It comes on progressively from the limit
-                 * out to the edge, where two fifths of the pace is gone and the
-                 * spin only partly takes. */
-                float k = (r_off - CUEVR_MISCUE_LIMIT) / (1.0f - CUEVR_MISCUE_LIMIT);
-                if (k > 1.0f) k = 1.0f;
-                out->miscue = 1;
-                out->speed *= 1.0f - 0.40f * k;
-                out->tip_side *= 1.0f - 0.35f * k;
-                out->tip_vert *= 1.0f - 0.35f * k;
-            }
+            /* No pace penalty for striking off centre, and no miscue at all.
+             *
+             * There was a cliff here — past 0.55 of the radius the pace was cut
+             * to a flat 35% — and then a gentler version of the same idea. Both
+             * were wrong. Half a ball of side is an ordinary shot, and a hard
+             * step is a poor model of anything physical even where the effect is
+             * real. These are good cues with chalk on them: a tip does not slide
+             * off, so nothing here needs to pretend it might.
+             *
+             * Off centre gives you the spin, and the degree and a half of squirt
+             * cue_phys applies, at the pace you played it. That is the whole of
+             * it, and the tip cannot reach past the edge of the ball anyway —
+             * the contact test is a sphere against a sphere, so there is no
+             * region beyond the ball to need a rule for. */
             return;
         }
     } else if (!c->stroking) {

@@ -6,7 +6,7 @@
  * on. So it is pure geometry over two hand poses, and this drives scripted
  * strokes through it and asserts the shot that comes out — power from the speed
  * of the stroke, side and screw from where the tip lands, elevation from the
- * back hand, and a miscue when the tip is too far off centre.
+ * back hand, and that extreme side costs no pace.
  *
  *   cc -I. -I../../games/thumbycue/src -I../../engine/math -I../../platform/xr \
  *      -o /tmp/test_cue test_cue.c cuevr_cue.c -lm && /tmp/test_cue
@@ -135,7 +135,6 @@ int main(void) {
     checkf(shot.speed, 4.0f, 0.5f, "power is the speed of the stroke");
     checkf(shot.dir.x, 1.0f, 0.01f, "it goes where the cue points");
     checkf(shot.dir.z, 0.0f, 0.01f, "and not sideways");
-    check(!shot.miscue, "centre ball does not miscue");
 
     /* ---- 2. a slow stroke is a slow shot -------------------------------- */
     cuevr_cue_init(&c);
@@ -164,15 +163,22 @@ int main(void) {
            "raising the butt elevates the cue");
     check(c.butt.y > c.bridge.y, "which is to say the back hand is higher");
 
-    /* ---- 5. too far off centre and the tip slides off ------------------- */
-    cuevr_cue_init(&c);
-    aim(&t, &c, 0.06f, 0.94f, 0.0f, 0);
-    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
-    check(c.on_ball, "an extreme tip position still touches the ball");
-    shot = stroke(&t, &c, 0.06f, 4.0f, 40, 0.94f, 0.0f, 0);
-    check(shot.struck && shot.miscue, "but playing it is a miscue");
-    check(shot.speed < 4.0f * 0.85f && shot.speed > 4.0f * 0.4f,
-          "and it costs pace without cancelling the shot");
+    /* ---- 5. extreme side costs no pace ---------------------------------- *
+     * There is no miscue model: good cues have chalk on them, a tip does not
+     * slide off, and a hard step in the power curve is a poor model of anything
+     * physical. Striking near the edge should give the same pace as striking the
+     * middle — the difference goes into spin and a degree and a half of squirt,
+     * both of which the physics applies, not into losing the shot. */
+    {
+        cuevr_cue_init(&c);
+        CueVrShot mid = stroke(&t, &c, 0.06f, 4.0f, 40, 0.0f, 0.0f, 0);
+        cuevr_cue_init(&c);
+        CueVrShot edge = stroke(&t, &c, 0.06f, 4.0f, 40, 0.94f, 0.0f, 0);
+        check(mid.struck && edge.struck, "both a centre and an edge contact connect");
+        checkf(edge.speed, mid.speed, mid.speed * 0.02f,
+               "striking near the edge carries the same pace as centre ball");
+        check(fabsf(edge.tip_side) > 0.85f, "and reports the side it was given");
+    }
 
     /* ---- 6. missing the ball entirely ----------------------------------- */
     cuevr_cue_init(&c);
