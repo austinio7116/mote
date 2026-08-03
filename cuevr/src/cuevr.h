@@ -82,7 +82,14 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_bal
 /* How many (position, time) samples of the delivery to keep. Power is measured
  * over the longest run of forward motion inside this window, up to ~110 ms at
  * 72 Hz, which is most of a real delivery. */
-#define CUEVR_SPEED_N 20
+/* Samples kept, and how many of them power is measured over. The window is
+ * FIXED because a real delivery accelerates: a variable-length baseline reports
+ * a different part of the stroke every time, which is a lottery, whereas a fixed
+ * one always reports the arrival speed. Three is ~42 ms at 72 Hz — long enough
+ * that tracking noise cannot dominate, short enough to be the speed the tip was
+ * doing as it arrived rather than the average of the whole swing. */
+#define CUEVR_SPEED_N       12
+#define CUEVR_SPEED_WINDOW  3
 
 /* ---- the cue ------------------------------------------------------------ *
  * "Natural" cueing, as in Unlimited Snooker: the left hand is the bridge the

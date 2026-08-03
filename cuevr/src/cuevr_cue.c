@@ -118,8 +118,22 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     c->have_hand = 1;
     if (adjusting) live_axis = c->adj_axis;   /* the cue holds still while you slide */
 
-    /* ---- the stroke ----------------------------------------------------- */
-    int want_stroke = Rh->trigger > 0.45f;
+    /* ---- the stroke ----------------------------------------------------- *
+     * Hysteresis on the trigger, and a wide band of it: pull past 0.55 to take
+     * hold, and it does not let go until you release below 0.15.
+     *
+     * A single threshold is what made the power a lottery. An index trigger is
+     * analogue and your whole arm is moving during a delivery, so finger
+     * pressure dips — and one dip below the threshold disarmed the stroke, the
+     * next frame re-armed it, and re-arming resets the sample window, the clock
+     * and the locked tip. The measurement restarted from nothing with a
+     * one-frame baseline, at a random point in the delivery.
+     *
+     * And it was invisible. The cue is drawn from the same hand positions
+     * either way, and the re-locked axis differs by however far the hands moved
+     * in one frame, which is nothing. So the cue looked perfectly smooth while
+     * the number behind it was being thrown away and rebuilt mid-stroke. */
+    int want_stroke = c->stroking ? (Rh->trigger > 0.15f) : (Rh->trigger > 0.55f);
     if (want_stroke && !c->stroking) {
         c->stroking = 1;
         c->lock_axis = live_axis;
@@ -259,12 +273,61 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
          * the baseline lengthens as the stroke proceeds — so a shot that connects
          * within a frame or two of leaving the address is measured over a short
          * span. The log reports that span for exactly this reason. */
-        int start = 0;
-        for (int i = 1; i < c->speed_n; i++)
-            if (c->gap_hist[i] > c->gap_hist[start]) start = i;
-        float dgap = c->gap_hist[start] - c->gap_hist[0];
-        float dtime = c->t_hist[0] - c->t_hist[start];
-        c->speed = (dtime > 1e-4f && dgap > 0.0f) ? dgap / dtime : 0.0f;
+        /* Measure over a FIXED short baseline ending at contact — the speed the
+         * tip was doing as it arrived — not from the start of the delivery.
+         *
+         * This is the whole bug. A real delivery ACCELERATES, and once it does,
+         * "average over the delivery so far" and "speed at contact" are
+         * different numbers; which one you get depends on how many frames happen
+         * to be in the window, and that varied with where the contact landed and
+         * with anything that reset the window. Same stroke, different answer,
+         * every time. Every test I wrote used a constant-velocity delivery, which
+         * measures identically over any baseline, so all of them passed while the
+         * thing was a lottery in the hand.
+         *
+         * A fixed window is consistent by construction: it always reports the
+         * same part of the stroke. Three samples is ~42 ms — long enough that
+         * tracking noise cannot dominate, short enough to be the arrival speed
+         * rather than the whole swing. */
+        /* The speed at CONTACT, from a second-order backward difference.
+         *
+         * A trailing average — over the delivery, or over a fixed window — is
+         * biased low by however much the cue accelerated inside it, and that
+         * bias grows with the stroke: soft shots came out right and hard ones
+         * came out at three quarters. Every earlier test missed it because they
+         * all delivered at constant velocity, which has no acceleration to be
+         * biased by and measures identically over any baseline.
+         *
+         *   v ≈ (-3·g0 + 4·g1 - g2) / 2h
+         *
+         * is exact for constant acceleration, so it reports the arrival speed
+         * rather than the average of the swing, and being a three-point estimate
+         * it still averages tracking noise. Sampled two frames apart so h is
+         * wide enough that noise does not get amplified by the differencing. */
+        const int SP = 2;                    /* frames between the three samples */
+        int start = 2 * SP;
+        float dgap, dtime;
+        if (c->speed_n > 2 * SP) {
+            float g0 = c->gap_hist[0], g1 = c->gap_hist[SP], g2 = c->gap_hist[2*SP];
+            float h = (c->t_hist[0] - c->t_hist[2*SP]) * 0.5f;
+            /* Only when the whole span is forward motion; a backswing inside it
+             * would make the fit meaningless. */
+            if (h > 1e-4f && g1 > g0 && g2 > g1) {
+                c->speed = (-3.0f * g0 + 4.0f * g1 - g2) / (2.0f * h);
+                dgap = g2 - g0; dtime = h * 2.0f;
+            } else {
+                start = 1;
+                dgap = c->gap_hist[1] - g0;
+                dtime = c->t_hist[0] - c->t_hist[1];
+                c->speed = dtime > 1e-4f ? dgap / dtime : 0.0f;
+            }
+        } else {
+            start = c->speed_n > 1 ? 1 : 0;
+            dgap = c->gap_hist[start] - c->gap_hist[0];
+            dtime = c->t_hist[0] - c->t_hist[start];
+            c->speed = (dtime > 1e-4f && dgap > 0.0f) ? dgap / dtime : 0.0f;
+        }
+        if (c->speed < 0.0f) c->speed = 0.0f;
         c->m_frames = start;
         c->m_dist = dgap;
         c->m_time = dtime;

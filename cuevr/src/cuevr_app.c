@@ -39,10 +39,12 @@
 #define LOGI(...) do { printf(__VA_ARGS__); printf("\n"); } while (0)
 #endif
 
-/* The handheld's own ceiling on how hard a shot can be played, so a full-blooded
- * VR stroke tops out where the handheld's power bar did and the physics stays
- * in the range it was tuned for. */
-#define MAX_STRIKE_SPEED 8.5f
+/* The handheld's ceiling was 8.5 m/s, which is what its power bar reached at
+ * 100%. In VR you are not moving a bar, you are moving an arm: a firm stroke
+ * puts the tip through at 6-7 m/s, which becomes 8-9 m/s of ball, so every
+ * committed shot was landing on the clamp and coming out identical. Raised
+ * enough that only a genuinely violent swing reaches it. */
+#define MAX_STRIKE_SPEED 12.0f
 
 /* Cloth height above the floor. A match table is 2 ft 10 in; a pub table is
  * near enough the same. The player adjusts it in setup to match whatever real
