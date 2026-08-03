@@ -98,6 +98,7 @@ static const char *FS =
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
 "uniform highp sampler2DArray u_fur;\n"
+"uniform highp sampler2D u_nap;\n"
 "uniform float u_feltspan;\n"
 "uniform float u_furslice;\n"
 "uniform float u_furslices;\n"
@@ -146,46 +147,14 @@ static const char *FS =
 "// carry it. Drawing it only on the backing meant eight layers of green were\n"
 "// then drawn over the top and the baulk line faded out wherever the pile was\n"
 "// densest — which is everywhere you are close enough to see the pile at all.\n"
-"// Triplanar cloth sampling.\n"
-"//\n"
-"// Picking ONE axis per fragment from whichever component of the normal is\n"
-"// largest is what put hard horizontal stripes down the cushion tops: the choice\n"
-"// flips partway along a curved strip, and on a sloping face the chosen plane is\n"
-"// nearly edge-on so the texture stretches into bands. Blending all three\n"
-"// projections by the normal removes both — it is the standard answer and I should\n"
-"// have reached for it rather than a ternary.\n"
-"float cloth_tex(vec3 pos, vec3 nrm, float span) {\n"
-"    vec3 w = abs(normalize(nrm));\n"
-"    w = w / max(w.x + w.y + w.z, 1e-5);\n"
-"    float cx = texture(u_fur, vec3(pos.zy / span, 0.0)).r;\n"
-"    float cy = texture(u_fur, vec3(pos.xz / span, 0.0)).r;\n"
-"    float cz = texture(u_fur, vec3(pos.xy / span, 0.0)).r;\n"
-"    return cx * w.x + cy * w.y + cz * w.z;\n"
-"}\n"
-"// Four octaves of it, which is what gives grain at every scale you can resolve\n"
-"// instead of one blotchy scale.\n"
-"// How strongly the pile shows, which is NOT a constant. This is the thing I had\n"
-"// wrong all along.\n"
-"//\n"
-"// On a real cloth the brightly lit areas are nearly SMOOTH and the texture appears\n"
-"// in the shaded bands and on the slopes, where the light rakes across the pile:\n"
-"// raking light lets every fibre cast a micro-shadow on its neighbours so contrast\n"
-"// jumps, whereas light square on hides those shadows behind the fibres themselves\n"
-"// and washes the texture out. A fixed amplitude is a baked mould pattern, which is\n"
-"// what it looked like however finely I tuned the scale — the scale was never it.\n"
 "// ---- cloth sheen: the Charlie distribution -------------------------------\n"
 "//\n"
 "// Estevez and Kulla, Production Friendly Microfacet Sheen BRDF (SIGGRAPH 2017),\n"
 "// as specified in glTF KHR_materials_sheen and used by Autodesk Standard Surface\n"
-"// and the UE/HDRP cloth materials. This is the documented model for exactly this\n"
-"// problem and I should have gone looking for it several attempts ago instead of\n"
-"// inventing grazing terms.\n"
-"//\n"
-"// The idea: velvet is a forest of near-vertical specular fibres, so its\n"
-"// microfacet distribution peaks at GRAZING half-angles rather than at the normal\n"
-"// — an exponentiated sinusoid instead of a Gaussian. That is what makes the fuzz\n"
-"// light up at the edges and along a shaded slope, and why the colour genuinely\n"
-"// depends on the angle rather than being a baked pattern.\n"
+"// and the UE/HDRP cloth materials. Velvet is a forest of near-vertical specular\n"
+"// fibres, so its microfacet distribution peaks at GRAZING half-angles rather than\n"
+"// at the normal, an exponentiated sinusoid instead of a Gaussian. That is why the\n"
+"// fuzz lights up at the edges and along a shaded slope.\n"
 "float sheen_charlie(float NdotH, float rough) {\n"
 "    float alpha = max(rough * rough, 1e-4);\n"
 "    float invr  = 1.0 / alpha;\n"
@@ -193,32 +162,85 @@ static const char *FS =
 "    return (2.0 + invr) * pow(sin2, invr * 0.5) / 6.2831853;\n"
 "}\n"
 "// Ashikhmin-Premoze visibility, the simplified option the spec offers. The full\n"
-"// Charlie lambda needs a fitted table and this is a mobile GPU.\n"
+"// Charlie lambda wants a fitted table and this is a mobile GPU.\n"
 "float sheen_vis(float NdotL, float NdotV) {\n"
 "    return 1.0 / max(4.0 * (NdotL + NdotV - NdotL * NdotV), 1e-4);\n"
 "}\n"
+"// ---- the nap, as a perturbed NORMAL --------------------------------------\n"
+"//\n"
+"// Not as brightness. Modulating colour with noise can only ever look like dirt —\n"
+"// and with a coverage mask as the source it looked exactly like black speckle over\n"
+"// flat green, which is what it was.\n"
+"//\n"
+"// A real pile leans, and because the sheen lobe peaks at grazing angles a small\n"
+"// change of lean swings the brightness a long way. That is where velvet gets its\n"
+"// soft sweeping tone. So the field is a signed 2-vector — the direction the pile\n"
+"// leans — it bends the shading normal, and the BRDF does the rest.\n"
+"//\n"
+"// Triplanar, blended by the normal: choosing one axis by whichever component is\n"
+"// largest flips partway along a curved cushion and stretches into bands on a\n"
+"// slope.\n"
+"vec2 nap_lean(vec3 pos, vec3 nrm, float span) {\n"
+"    vec3 w = abs(normalize(nrm));\n"
+"    w = w / max(w.x + w.y + w.z, 1e-5);\n"
+"    vec2 lx = texture(u_nap, pos.zy / span).rg - 0.5;\n"
+"    vec2 ly = texture(u_nap, pos.xz / span).rg - 0.5;\n"
+"    vec2 lz = texture(u_nap, pos.xy / span).rg - 0.5;\n"
+"    return (lx * w.x + ly * w.y + lz * w.z) * 2.0;\n"
+"}\n"
 "\n"
-"float cloth_amp(vec3 nrm, vec3 Ldir) {\n"
-"    float ndl = abs(dot(normalize(nrm), Ldir));\n"
-"    float graze = 1.0 - ndl;              // 0 = square on, 1 = raking\n"
-"    // The floor is set from measurement, not taste: at 0.12 the lit bed came\n"
-"    // out at 0.31% texture contrast against the photograph 1.69%, five times\n"
-"    // too weak. Lit cloth still has visible weave — it just has LESS of it\n"
-"    // than raking light gives.\n"
-"    return 0.62 + 1.55 * graze * graze;\n"
+"// Two scales of lean: a broad sweep about a centimetre across, which is the\n"
+"// tonal variation, and a fine one at fibre scale on top of it.\n"
+"// How much of the fine lean survived mipmapping, 0 = all of it, 1 = none.\n"
+"//\n"
+"// Mipmapping a NORMAL field averages the vectors toward zero, so fine fibre\n"
+"// detail does not soften with distance, it VANISHES — which is why the bed went\n"
+"// flat the moment the energy moved to the fine end. Toksvig (Mipmapping Normal\n"
+"// Maps, 2005) is the standard answer: when normal variance is averaged away,\n"
+"// widen the specular lobe by the amount lost, so the detail carries on reading as\n"
+"// fuzz instead of disappearing. Comparing the length of the filtered lean against\n"
+"// its unfiltered magnitude is a cheap stand-in for the variance.\n"
+"// Micro-occlusion between fibres: how much light a point loses to its own\n"
+"// neighbours. Where the pile is tilted or parted the gaps are shadowed, and\n"
+"// crucially this does NOT depend on the light direction — which is why the bed\n"
+"// stayed flat with only a sheen lobe. Sheen is grazing-weighted by construction,\n"
+"// so on a surface lit square on it contributes almost nothing, yet real baize\n"
+"// plainly still shows its grain there. This is that missing term.\n"
+"float nap_occlusion(vec3 pos, vec3 nrm, float span) {\n"
+"    // Two fine scales and a modest amplitude. At one sample of 32 mm the 4 mm\n"
+"    // end of its octave stack dominated and the bed read as marbling; the\n"
+"    // occlusion between fibres happens at a fraction of a millimetre, not at\n"
+"    // half a centimetre.\n"
+"    float cav = length(nap_lean(pos, nrm, span * 0.42)) * 0.70\n"
+"              + length(nap_lean(pos, nrm, span * 0.14)) * 0.30;\n"
+"    // Calibrated, not chosen: at 0.62 the bed measured 2.68% texture contrast\n"
+"    // against the photograph 1.66%, about 60% too strong.\n"
+"    return 1.0 - clamp(cav * 0.38, 0.0, 0.14);\n"
 "}\n"
-"float cloth_nap(vec3 pos, vec3 nrm, float span) {\n"
-"    // Two octaves, close together. The wide ones were the real too-coarse: they\n"
-"    // put big soft blotches across the bed, and a real cloth is uniform grain from\n"
-"    // edge to edge.\n"
-"    // Three octaves. Two matched the reference per-pixel gradient but left the\n"
-"    // total contrast at half of it, which means mid-scale energy was missing —\n"
-"    // a real cloth is not just per-pixel noise, it has visible clumping. The\n"
-"    // third octave is moderate, unlike the wide ones that produced blotches.\n"
-"    return (cloth_tex(pos, nrm, span)       - 0.86) * 0.38\n"
-"         + (cloth_tex(pos, nrm, span * 2.1) - 0.86) * 0.25\n"
-"         + (cloth_tex(pos, nrm, span * 5.0) - 0.86) * 0.17;\n"
+"float lean_lost(vec3 pos, vec3 nrm, float span) {\n"
+
+"    float filt = length(nap_lean(pos, nrm, span));\n"
+"    return clamp(1.0 - filt / 0.22, 0.0, 1.0);\n"
 "}\n"
+"vec3 cloth_normal(vec3 pos, vec3 nrm, float span) {\n"
+
+"    // Scales chosen in ABSOLUTE METRES for the band that matters, rather than\n"
+"    // as multiples of a tile size. The nap field carries five octaves, so one\n"
+"    // sample at 32 mm spans 4 mm down to 0.25 mm — which IS the microvelvet\n"
+"    // band: fine enough to read as fibre at a hand's distance, coarse enough\n"
+"    // to survive the mip chain there. My earlier stack spread four samples\n"
+"    // over 100 mm to 0.03 mm, so it was blotchy at one end and invisible at\n"
+"    // the other, both at once.\n"
+"    vec2 lean = nap_lean(pos, nrm, 0.115) * 0.09\n"
+"              + nap_lean(pos, nrm, 0.032) * 0.36;\n"
+"    vec3 n = normalize(nrm);\n"
+"    // Build a tangent frame from the normal so the lean is along the surface.\n"
+"    vec3 up = abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);\n"
+"    vec3 t = normalize(cross(up, n));\n"
+"    vec3 b = cross(n, t);\n"
+"    return normalize(n + t * lean.x + b * lean.y);\n"
+"}\n"
+"\n"
 "float mark_cov(vec2 q, float aa) {\n"
 
 "    float m = 0.0;\n"
@@ -464,12 +486,41 @@ static const char *FS =
 "        // for a red or a blue cloth as well as a green one.\n"
 "        float iscloth = 1.0 - smoothstep(0.06, 0.26,\n"
 "            distance(normalize(v_col + 1e-4), normalize(u_cloth + 1e-4)));\n"
+"        vec3 sn = normalize(v_nrm);\n"
 "        if (iscloth > 0.01) {\n"
-"            // Triplanar, so a curved cushion strip does not band where the\n"
-"            // dominant axis of its normal changes.\n"
-"            tc *= 1.0 + iscloth * cloth_nap(v_local, v_nrm, u_feltspan)\n"
-"                      * cloth_amp(v_nrm, L);\n"
+"            // Same model as the bed: bend the normal, let the sheen make the tone.\n"
+"            sn = mix(sn, cloth_normal(v_local, v_nrm, u_feltspan), iscloth);\n"
+"            vec3 Vv = normalize(u_eye - v_world);\n"
+"            vec3 Hv = normalize(L + Vv);\n"
+"            float nh = max(dot(sn, Hv), 0.0);\n"
+"            float nl = max(dot(sn, L), 0.0);\n"
+"            float nv2 = max(abs(dot(sn, Vv)), 1e-3);\n"
+"            float lost = lean_lost(v_local, v_nrm, 0.032);\n"
+"            float sh = sheen_charlie(nh, mix(0.26, 0.62, lost))\n"
+"                     * sheen_vis(nl, nv2) * nl;\n"
+"            vec3 sc = mix(to_linear(v_col) * 1.9, vec3(1.0), 0.30);\n"
+"            float mocc = nap_occlusion(v_local, v_nrm, 0.032);\n"
+"            tc = v_col * (0.30 + 0.70 * abs(dot(sn, L)))\n"
+"               * mix(1.0, mocc, iscloth);\n"
+"            o_col = emit(to_linear(tc) + sc * sh * 0.85 * iscloth, 1.0, 1.0);\n"
+"            return;\n"
 "        }\n"
+"        \n"
+"        if (iscloth < 0.99) {\n"
+"            // FIGURED timber — burr walnut rather than plain-sawn. I had written this off\n"
+"            // as a blotchy mistake and it is the look that was wanted: a veneered rail\n"
+"            // has strong swirling figure, not quiet parallel lines.\n"
+"            vec3 an = abs(normalize(v_nrm));\n"
+"            vec2 wq = (an.x > an.z) ? vec2(v_local.z * 0.10, v_local.y + v_local.x * 0.02)\n"
+"                                    : vec2(v_local.x * 0.10, v_local.y + v_local.z * 0.02);\n"
+"            float w1 = texture(u_fur, vec3(wq / 0.055, 0.0)).r;\n"
+"            float w2 = texture(u_fur, vec3(wq / 0.014, 0.0)).r;\n"
+"            float pore = texture(u_fur, vec3(wq / 0.004, 0.0)).r;\n"
+"            float grain = 1.0 + (w1 - 0.86) * 0.30 + (w2 - 0.86) * 0.16;\n"
+"            grain *= 1.0 - smoothstep(0.93, 1.0, pore) * 0.22;   // open pores\n"
+"            tc *= mix(1.0, grain, 1.0 - iscloth);\n"
+"        }\n"
+"        \n"
 "        o_col = emit(to_linear(tc * (0.32 + 0.68 * ndl)), 1.0, 1.0);\n"
 "    } else if (u_mode == 8) {\n"
 "        // The cloth, and the chalk on it. Rewritten whole rather than patched:\n"
@@ -486,36 +537,32 @@ static const char *FS =
 "        // away. Everything I generated procedurally in here either aliased into\n"
 "        // a swirling moire or, keyed to the pixel footprint, produced\n"
 "        // axis-aligned square cells that read as blockiness under magnification.\n"
-"        // Amplitudes measured against the reference photograph rather than chosen:\n"
-"        // high-passing both said mine had more total contrast but the wrong balance\n"
-"        // between scales, and that the visible gap was colour, not texture.\n"
-"        float nap = 1.0 + cloth_nap(v_local, nv, u_feltspan)\n"
-"                        * cloth_amp(nv, L);\n"
-"        float n1 = cloth_tex(v_local, nv, u_feltspan);\n"
-"        vec3 cloth = to_linear(u_cloth) * nap;\n"
-"\n"
-"        // Velvet sheen: strongest at a glance, and modulated by the nap so it\n"
-"        // breaks up over the weave instead of washing the whole cloth.\n"
-"        // The sheen lobe, and the grain modulates it: a fibre that is standing\n"
-"        // proud catches the light and one lying down does not, so tying the two\n"
-"        // together is what makes it read as fluff rather than as a pattern with a\n"
-"        // highlight painted over it.\n"
+"        // The pile leans, and everything follows from that. No brightness noise:\n"
+"        // the tone is the sheen lobe reading the bent normal, which is how velvet\n"
+"        // gets soft sweeping variation rather than speckle.\n"
+"        vec3 N = cloth_normal(v_local, nv, u_feltspan);\n"
+"        vec3 cloth = to_linear(u_cloth);\n"
+"        \n"
+"        // Charlie sheen (Estevez and Kulla 2017 / glTF KHR_materials_sheen).\n"
 "        vec3 Hv = normalize(L + V);\n"
-"        float NdotH = max(dot(nv, Hv), 0.0);\n"
-"        float NdotL = max(dot(nv, L), 0.0);\n"
-"        float NdotV = max(abs(dot(nv, V)), 1e-3);\n"
-"        float sh = sheen_charlie(NdotH, 0.32) * sheen_vis(NdotL, NdotV) * NdotL;\n"
-"        // Baize fuzz is its own colour lit white — a desaturated version of the\n"
-"        // cloth, not pure white, or the bed goes grey at the edges.\n"
-"        vec3 sheenC = mix(to_linear(u_cloth) * 1.7, vec3(1.0), 0.35);\n"
-"        float sheenAmt = sh * (0.55 + 1.30 * n1) * 0.55;\n"
-"        // Albedo scaling, so the sheen layer does not add energy on top of a\n"
-"        // fully bright diffuse (the spec's simplified single-direction form).\n"
+"        float NdotH = max(dot(N, Hv), 0.0);\n"
+"        float NdotL = max(dot(N, L), 0.0);\n"
+"        float NdotV = max(abs(dot(N, V)), 1e-3);\n"
+"        // Toksvig: the lobe widens by however much fine lean the mip chain ate,\n"
+"        // so the cloth stays fuzzy at a distance instead of going flat.\n"
+"        float lost = lean_lost(v_local, nv, 0.032);\n"
+"        float shR = mix(0.26, 0.62, lost);\n"
+"        float sh = sheen_charlie(NdotH, shR) * sheen_vis(NdotL, NdotV) * NdotL;\n"
+"        vec3 sheenC = mix(cloth * 1.9, vec3(1.0), 0.30);\n"
+"        float sheenAmt = sh * 0.85;\n"
 "        float scal = 1.0 - max(max(sheenC.r, sheenC.g), sheenC.b) * 0.16;\n"
 "        \n"
 "        float m = mark_cov(q, aa);\n"
-"        float ndl = abs(dot(nv, L));\n"
-"        vec3 c = mix(cloth, to_linear(u_markc), m * 0.88);\n"
+"        // Diffuse off the BENT normal too, so the lean shows in the body of\n"
+"        // the colour and not only in the sheen.\n"
+"        float ndl = abs(dot(N, L));\n"
+"        float mocc = nap_occlusion(v_local, nv, 0.032);\n"
+"        vec3 c = mix(cloth * mocc, to_linear(u_markc), m * 0.88);\n"
 "        // Chalk is powder ON the fibres: it kills the sheen where it lands.\n"
 "        // And a touch less ambient lift, so the cloth keeps its saturation in\n"
 "        // the shadowed half instead of going grey.\n"
@@ -698,13 +745,14 @@ static struct {
     GLuint prog;
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
-    GLint  u_cloth, u_fur, u_feltspan, u_furslice, u_furslices, u_furdbg, u_shell,
+    GLint  u_cloth, u_fur, u_nap, u_feltspan, u_furslice, u_furslices, u_furdbg, u_shell,
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
     Mesh   fins, bed, table, lips, frame, ball, cue, quad, floor, grip;
     int    frame_sel;
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     float  fur_scale;
+    GLuint nap_tex;
     GLuint fur_tex;       /* fur volume: FUR_SLICES layers of strand coverage */
     GLuint hud_tex;
     int    encode;
@@ -1011,6 +1059,66 @@ const char *cuevr_render_cue_name(int i) {
 }
 void cuevr_render_set_cue(int i) { s_cue_sel = (i < 0 || i >= CUE_RACK_N) ? 0 : i; }
 int         cuevr_render_cue(void) { return s_cue_sel; }
+
+/* ---- the nap: a balanced pile-LEAN field --------------------------------- *
+ * Not a coverage mask. The fur volume's slice 0 is mostly 1.0 with dark gaps
+ * between strands, so subtracting its mean gave small positives and occasional
+ * large negatives — black speckle over flat green, which is exactly what it
+ * looked like. A coverage mask is the wrong source for a nap.
+ *
+ * And brightness is the wrong thing to modulate. On real velvet the tone comes
+ * from the pile LEANING: the sheen lobe peaks at grazing angles, so a small change
+ * in fibre direction swings the brightness a long way, which is what produces
+ * those soft sweeping tonal bands instead of dots. So this bakes a two-component
+ * signed vector field — the direction the pile leans — and the shader perturbs the
+ * shading normal with it and lets the BRDF do the rest.
+ *
+ * RG8, zero-mean, several octaves, isotropic, tiling, mipmapped. */
+#define NAP_N 512
+
+static void bake_nap(void) {
+    if (G.nap_tex) { glDeleteTextures(1, &G.nap_tex); G.nap_tex = 0; }
+    uint8_t *px = (uint8_t *)malloc((size_t)NAP_N * NAP_N * 2);
+    if (!px) { LOGI("[cuevr] no memory for the nap field"); return; }
+    for (int y = 0; y < NAP_N; y++) {
+        for (int x = 0; x < NAP_N; x++) {
+            float u = (float)x / NAP_N, v = (float)y / NAP_N;
+            float ax = 0.0f, az = 0.0f, amp = 1.0f, norm = 0.0f;
+            int per = 8;
+            /* Five octaves, each doubling, each half the amplitude: 1/f, which is
+             * what a fibrous surface actually measures as. */
+            for (int o = 0; o < 5; o++) {
+                ax += (fur_noise(u * per, v * per, per, per) - 0.5f) * amp;
+                az += (fur_noise(u * per + 37.0f, v * per + 11.0f, per, per) - 0.5f) * amp;
+                norm += amp;
+                amp *= 0.55f;
+                per *= 2;
+            }
+            ax /= norm; az /= norm;                 /* back to about -0.5..0.5 */
+            int r = (int)((ax + 0.5f) * 255.0f + 0.5f);
+            int g = (int)((az + 0.5f) * 255.0f + 0.5f);
+            px[((size_t)y * NAP_N + x) * 2 + 0] = (uint8_t)(r < 0 ? 0 : r > 255 ? 255 : r);
+            px[((size_t)y * NAP_N + x) * 2 + 1] = (uint8_t)(g < 0 ? 0 : g > 255 ? 255 : g);
+        }
+    }
+    glGenTextures(1, &G.nap_tex);
+    glBindTexture(GL_TEXTURE_2D, G.nap_tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RG8, NAP_N, NAP_N, 0, GL_RG, GL_UNSIGNED_BYTE, px);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    {   GLfloat aniso = 0.0f;
+        glGetFloatv(0x84FF, &aniso);
+        if (aniso > 1.0f) { if (aniso > 16.0f) aniso = 16.0f;
+            glTexParameterf(GL_TEXTURE_2D, 0x84FE, aniso); }
+        while (glGetError() != GL_NO_ERROR) { }
+    }
+    free(px);
+    LOGI("[cuevr] baked a %dx%d nap lean field (5 octaves, zero mean)", NAP_N, NAP_N);
+}
 
 static void bake_fur(void) {
     if (G.fur_tex) { glDeleteTextures(1, &G.fur_tex); G.fur_tex = 0; }
@@ -1382,6 +1490,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
     G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
     G.u_fur        = glGetUniformLocation(G.prog, "u_fur");
+    G.u_nap        = glGetUniformLocation(G.prog, "u_nap");
     G.u_feltspan   = glGetUniformLocation(G.prog, "u_feltspan");
     G.u_furslice   = glGetUniformLocation(G.prog, "u_furslice");
     G.u_furslices  = glGetUniformLocation(G.prog, "u_furslices");
@@ -1508,6 +1617,7 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
         mesh_upload(&G.lips, &b);
         b_free(&b);
     }
+    bake_nap();
     bake_fur();
     {   /* One patch, built once, moved to follow the eye. */
         int n = (int)(FIN_HALF * 2.0f / FIN_SPACING);
@@ -1558,6 +1668,7 @@ void cuevr_render_shutdown(void) {
     mesh_free(&G.grip);
     mesh_free(&G.table); mesh_free(&G.lips); mesh_free(&G.frame); mesh_free(&G.ball);
     mesh_free(&G.cue); mesh_free(&G.quad); mesh_free(&G.floor);
+    if (G.nap_tex) glDeleteTextures(1, &G.nap_tex);
     if (G.fur_tex) glDeleteTextures(1, &G.fur_tex);
     glDeleteTextures(1, &G.hud_tex);
     glDeleteTextures(1, &G.ball_tex);
@@ -1758,6 +1869,10 @@ void cuevr_render_eye(const float *view, const float *proj,
         glBindTexture(GL_TEXTURE_2D_ARRAY, G.fur_tex);
         glActiveTexture(GL_TEXTURE0);
         glUniform1i(G.u_fur, 2);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, G.nap_tex);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(G.u_nap, 3);
         /* CUEVR_FUR scales the WHOLE pile — tile span and height together — so
          * the preview can zoom into a 3 mm pile it otherwise cannot resolve.
          * Scaling only the tile made hairs 6 mm wide and 3 mm tall, which is a
