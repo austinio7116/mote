@@ -2,6 +2,7 @@
  * ThumbyCue — scene renderer. See cue_render.h.
  */
 #include "cue_render.h"
+#include "cue_faces.h"
 #include "cue_types.h"
 #include "r3d_raster.h"
 #include "mote_api.h"      /* MoteApi / MoteSphereTex / scene_add_* (engine port) */
@@ -1260,12 +1261,56 @@ void cue_render_raster(uint16_t *fb, int y0, int y1) {
 /* Draw one flat sphere-shaded ball icon using the live ball_base/ball_sample.
  * face_x: 0 = +z toward viewer (stripe reads as a mid band; for HUD group hint);
  *         1 = +x toward viewer (the number circle faces out; for menu previews). */
+/* ---- HUD icon target ---------------------------------------------------- *
+ * The icon helpers below used to write with a hard-coded CUE_FB_W stride and clip
+ * to CUE_FB_H. That is right for the handheld, where the HUD IS the framebuffer,
+ * and silently wrong for the VR build, whose panel is 512x288: every icon was
+ * clipped away at x >= 128 and simply never appeared. Same shape of fix as
+ * craft_font_set_target — the caller says how big the target is, and the default
+ * keeps the handheld byte-identical. */
+static int s_icon_w = CUE_FB_W, s_icon_h = CUE_FB_H;
+void cue_render_icon_target(int w, int h) {
+    s_icon_w = (w > 0) ? w : CUE_FB_W;
+    s_icon_h = (h > 0) ? h : CUE_FB_H;
+}
+
+/* A persona's avatar, from the 2dpool portraits baked into cue_faces.h. Nearest
+ * sampled from the 32x32 source into whatever box is asked for, with the alpha
+ * respected so the cut-out sits on the panel rather than in a black square. */
+void cue_render_face(uint16_t *fb, int cx, int cy, int size, int persona) {
+    if (!fb || persona < 0 || persona >= CUE_NUM_FACES || size <= 0) return;
+    const uint16_t *src = cue_face32_rgb[persona];
+    const uint8_t  *sa  = cue_face32_a[persona];
+    int x0 = cx - size / 2, y0 = cy - size / 2;
+    for (int j = 0; j < size; j++) {
+        int y = y0 + j;
+        if (y < 0 || y >= s_icon_h) continue;
+        int sy = j * CUE_FACE32_H / size;
+        for (int i = 0; i < size; i++) {
+            int x = x0 + i;
+            if (x < 0 || x >= s_icon_w) continue;
+            int sx = i * CUE_FACE32_W / size;
+            int a = sa[sy * CUE_FACE32_W + sx];
+            if (a < 24) continue;
+            uint16_t c = src[sy * CUE_FACE32_W + sx];
+            if (a >= 232) { fb[y * s_icon_w + x] = c; continue; }
+            uint16_t d = fb[y * s_icon_w + x];
+            int r = ((c >> 11) & 31), g = ((c >> 5) & 63), b = (c & 31);
+            int dr = ((d >> 11) & 31), dg = ((d >> 5) & 63), db = (d & 31);
+            dr += ((r - dr) * a) >> 8;
+            dg += ((g - dg) * a) >> 8;
+            db += ((b - db) * a) >> 8;
+            fb[y * s_icon_w + x] = (uint16_t)((dr << 11) | (dg << 5) | db);
+        }
+    }
+}
+
 static void draw_ball_icon(uint16_t *fb, int cx, int cy, int rad, uint8_t id, int face_x) {
     uint16_t base = ball_base(id);
     for (int dy = -rad; dy <= rad; dy++) {
-        int y = cy + dy; if (y < 0 || y >= CUE_FB_H) continue;
+        int y = cy + dy; if (y < 0 || y >= s_icon_h) continue;
         for (int dx = -rad; dx <= rad; dx++) {
-            int x = cx + dx; if (x < 0 || x >= CUE_FB_W) continue;
+            int x = cx + dx; if (x < 0 || x >= s_icon_w) continue;
             float u = (float)dx / rad, v = (float)dy / rad;
             float r2 = u * u + v * v; if (r2 > 1.0f) continue;
             float nz = sqrtf(1.0f - r2);
@@ -1274,7 +1319,7 @@ static void draw_ball_icon(uint16_t *fb, int cx, int cy, int rad, uint8_t id, in
             float hl = -0.5f * u - 0.5f * v + 0.7f * nz;   /* top-left spec */
             if (hl > 0.95f) c = RGB565C(255, 255, 255);
             else            c = shade565(c, 0.45f + 0.55f * nz);
-            fb[y * CUE_FB_W + x] = c;
+            fb[y * s_icon_w + x] = c;
         }
     }
 }
@@ -1304,9 +1349,9 @@ void cue_render_onball_icon(uint16_t *fb, int cx, int cy, int rad, int target, i
         RGB565C(235,200,40), RGB565C(20,130,50), RGB565C(120,70,35),
         RGB565C(30,80,200), RGB565C(235,120,150), RGB565C(40,40,44) };
     for (int dy = -rad; dy <= rad; dy++) {
-        int y = cy + dy; if (y < 0 || y >= CUE_FB_H) continue;
+        int y = cy + dy; if (y < 0 || y >= s_icon_h) continue;
         for (int dx = -rad; dx <= rad; dx++) {
-            int x = cx + dx; if (x < 0 || x >= CUE_FB_W) continue;
+            int x = cx + dx; if (x < 0 || x >= s_icon_w) continue;
             float u = (float)dx/rad, v = (float)dy/rad;
             float r2 = u*u + v*v; if (r2 > 1.0f) continue;
             float nz = sqrtf(1.0f - r2);
@@ -1314,7 +1359,7 @@ void cue_render_onball_icon(uint16_t *fb, int cx, int cy, int rad, int target, i
             if (w < 0) w = 0; if (w > 5) w = 5;
             float hl = -0.5f*u - 0.5f*v + 0.7f*nz;
             uint16_t c = (hl > 0.95f) ? RGB565C(255,255,255) : shade565(cols[w], 0.45f + 0.55f*nz);
-            fb[y*CUE_FB_W + x] = c;
+            fb[y*s_icon_w + x] = c;
         }
     }
     s_is_snooker = was;
@@ -1331,9 +1376,9 @@ void cue_render_spin_ball(uint16_t *fb, int cx, int cy, int rad,
     const uint16_t ring = RGB565C(120, 24, 22);
     float ms = 0.30f;                 /* marker radius (fraction of ball) */
     for (int dy = -rad; dy <= rad; dy++) {
-        int y = cy + dy; if (y < 0 || y >= CUE_FB_H) continue;
+        int y = cy + dy; if (y < 0 || y >= s_icon_h) continue;
         for (int dx = -rad; dx <= rad; dx++) {
-            int x = cx + dx; if (x < 0 || x >= CUE_FB_W) continue;
+            int x = cx + dx; if (x < 0 || x >= s_icon_w) continue;
             float u = (float)dx / rad, v = (float)dy / rad;
             float r2 = u * u + v * v; if (r2 > 1.0f) continue;
             float nz = sqrtf(1.0f - r2);
@@ -1347,7 +1392,7 @@ void cue_render_spin_ball(uint16_t *fb, int cx, int cy, int rad,
                 c = (hl > 0.95f) ? RGB565C(255,255,255)
                                  : shade565(body, 0.5f + 0.5f * nz);
             }
-            fb[y * CUE_FB_W + x] = c;
+            fb[y * s_icon_w + x] = c;
         }
     }
 }

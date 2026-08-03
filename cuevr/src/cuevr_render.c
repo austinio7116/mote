@@ -23,6 +23,9 @@
  */
 #include "cuevr.h"
 #include "cuevr_render.h"
+#include "cuevr_text.h"
+#include "cuevr_font_lg.h"
+#include "cuevr_font_xl.h"
 #include "cue_render.h"
 #include "cuevr_frame.h"
 #include "craft_font.h"
@@ -53,18 +56,23 @@ static const char *VS =
 "layout(location=3) in vec3 a_col;\n"
 "uniform mat4 u_mvp;\n"
 "uniform mat4 u_model;\n"
+"uniform float u_shell;\n"   // metres to extrude along the normal (fur shells)
+
 "out vec3 v_nrm;\n"
 "out vec2 v_uv;\n"
 "out vec3 v_local;\n"
 "out vec3 v_col;\n"
 "out vec3 v_world;\n"
 "void main() {\n"
+
 "    v_uv = a_uv;\n"
 "    v_col = a_col;\n"
 "    v_local = a_pos;\n"
-"    v_world = (u_model * vec4(a_pos, 1.0)).xyz;\n"
+"    vec3 p = a_pos + a_nrm * u_shell;\n"
+"    v_local = p;\n"
+"    v_world = (u_model * vec4(p, 1.0)).xyz;\n"
 "    v_nrm = normalize(mat3(u_model) * a_nrm);\n"
-"    gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
+"    gl_Position = u_mvp * vec4(p, 1.0);\n"
 "}\n";
 
 /* u_mode: 0 lit flat colour, 1 ball, 2 unlit textured (HUD), 3 room grid */
@@ -89,7 +97,11 @@ static const char *FS =
 "uniform vec3  u_eye;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
-"uniform float u_fur;\n"        // CUEVR_FUR: pretend the eye is closer (footprint scale)
+"uniform highp sampler2DArray u_fur;\n"
+"uniform float u_feltspan;\n"
+"uniform float u_furslice;\n"
+"uniform float u_furslices;\n"
+"uniform float u_furdbg;\n"
 "uniform vec3  u_markc;\n"      // chalk
 "uniform float u_baulk;\n"
 "uniform float u_drad;\n"
@@ -124,7 +136,32 @@ static const char *FS =
 "    vec3 o = u_encode == 1 ? to_srgb(c) : c;\n"
 "    return vec4(o + (hash12(gl_FragCoord.xy) - 0.5) * dither / 255.0, a);\n"
 "}\n"
+"// The chalk, as a distance field. Shared by the cloth AND by every shell of the\n"
+"// pile, which is the point: chalk is painted ON a cloth, so the pile has to\n"
+"// carry it. Drawing it only on the backing meant eight layers of green were\n"
+"// then drawn over the top and the baulk line faded out wherever the pile was\n"
+"// densest — which is everywhere you are close enough to see the pile at all.\n"
+"float mark_cov(vec2 q, float aa) {\n"
+"    float m = 0.0;\n"
+"    if (u_linew > 0.0) {\n"
+"        float dl = abs(q.x - u_baulk);\n"
+"        m = 1.0 - smoothstep(u_linew, u_linew + aa, dl);\n"
+"        if (u_drad > 0.0 && q.x < u_baulk) {\n"
+"            float dr = abs(length(q - vec2(u_baulk, 0.0)) - u_drad);\n"
+"            m = max(m, 1.0 - smoothstep(u_linew, u_linew + aa, dr));\n"
+"        }\n"
+"    }\n"
+"    for (int i = 0; i < 8; i++) {\n"
+"        if (i >= u_nspot) break;\n"
+"        float d = length(q - u_spots[i]);\n"
+"        m = max(m, 1.0 - smoothstep(u_spotr * 0.72, u_spotr + aa, d));\n"
+"    }\n"
+"    float g1 = vnoise(q * 1600.0);\n"
+"    float g2 = vnoise(q * 420.0 + 3.1);\n"
+"    return clamp(m * (0.58 + 0.44 * g1 + 0.22 * g2), 0.0, 1.0);\n"
+"}\n"
 "void main() {\n"
+
 "    vec3 L = normalize(u_light);\n"
 "    if (u_mode == 2) {\n"
 "        vec4 t = texture(u_tex, v_uv);\n"
@@ -230,9 +267,12 @@ static const char *FS =
 "        vec3 ebony = vec3(0.085, 0.065, 0.055);\n"
 "        vec3 c;\n"
 "        float gloss = 42.0, spec_k = 0.30;\n"
-"        if (t < 0.0069) { c = vec3(0.42, 0.55, 0.62); gloss = 8.0; spec_k = 0.05; }\n"      // leather tip
-"        else if (t < 0.0221) { c = mix(vec3(0.93,0.91,0.84), vec3(0.45,1.0,0.55),\n"
-"                                        u_colour.a); gloss = 70.0; spec_k = 0.45; }\n" // ferrule: green when the line is live
+"        // A snooker tip is GREEN leather and the ferrule is bright metal. It\n"
+"        // had them the other way about, a blue-grey pad behind a green band,\n"
+"        // because the ferrule was doubling as the aim indicator. That is now\n"
+"        // a brightening of the metal, so the tip can be the colour it is.\n"
+"        if (t < 0.0076) { c = vec3(0.16, 0.42, 0.30); gloss = 6.0; spec_k = 0.04; }\n"      // leather tip
+"        else if (t < 0.0138) { c = vec3(0.84, 0.84, 0.87); gloss = 90.0; spec_k = 0.60; }\n" // ferrule: green when the line is live
 "        else {\n"
 "            // Ash grain runs the LENGTH of the cue as fine lines, so it has\n"
 "            // to vary with the angle round the shaft and only drift slowly\n"
@@ -302,119 +342,101 @@ static const char *FS =
 "        vec2 q = v_local.xz;\n"
 "        float aa = max(fwidth(v_local.x), fwidth(v_local.z)) * 1.2 + 1e-6;\n"
 "\n"
-"        // Baize as fur, band-limited.\n"
-"        //\n"
-"        // The first attempt was a psychedelic swirl across half the table, and\n"
-"        // the reason is worth writing down: a fibre field at ~2400 cycles per\n"
-"        // metre, seen from a metre away, is FAR above Nyquist. Procedural noise\n"
-"        // has no mip chain to fall back on, so it aliases, and aliasing on a\n"
-"        // surface receding from the eye is moire — which swirls. It was not a fur\n"
-"        // effect at all, it was undersampling.\n"
-"        //\n"
-"        // So the gate is not distance, it is the SCREEN FOOTPRINT. fwidth(q) is\n"
-"        // how many metres of cloth one pixel covers; a fibre may only exist once\n"
-"        // a pixel is smaller than one. That is exactly the brief — solid from\n"
-"        // anywhere, hairs when your eye is right down on it — and it is a\n"
-"        // sampling rule rather than a tuned number, so it cannot swirl again.\n"
+"        // The cloth itself: plain baize with a slow mottle. The hairs are NOT here\n"
+"        // any more — they are real geometry, drawn as shells above this surface\n"
+"        // (mode 9). Two attempts at faking them in this shader both aliased into a\n"
+"        // swirling moire, because a picture of fur cannot occlude itself however it\n"
+"        // is filtered. This is just the backing the pile grows out of.\n"
 "        vec3 nv = normalize(v_nrm);\n"
 "        vec3 V = normalize(u_eye - v_world);\n"
-"\n"
-"        // The nap lies along the table with a slow wander, so it is combed\n"
-"        // rather than random. T2/B2 are along and across it; everything to do\n"
-"        // with fibres happens in THAT basis, which is the other half of what\n"
-"        // went wrong — the old parallax offset was in world xz while the fibre\n"
-"        // field was in nap space, so it smeared sideways across the grain.\n"
-"        float lay = (vnoise(q * vec2(7.0, 9.0)) - 0.5) * 0.5;\n"
-"        vec2 T2 = normalize(vec2(1.0, lay));\n"
-"        vec2 B2 = vec2(-T2.y, T2.x);\n"
-"        vec2 nq = vec2(dot(q, T2), dot(q, B2));   // metres, along/across the nap\n"
-"\n"
-"        const float FIB_ACROSS = 1600.0;          // ~0.6 mm between hairs\n"
-"        const float FIB_ALONG  = 130.0;           // drawn out along the lay\n"
-"        // u_fur shrinks the apparent footprint so the hairs can be inspected\n"
-"        // from the preview's fixed camera. On the headset it is 1.0 and the real\n"
-"        // footprint decides: a Quest pixel covers about 0.2 mm of cloth at 25 cm\n"
-"        // and 0.9 mm at a metre, so hairs appear when your eye is down near the\n"
-"        // baize and are gone by the time you are standing up. Verifying this at\n"
-"        // true scale would need a 14000-pixel-wide render.\n"
-"        float texel = max(fwidth(q.x), fwidth(q.y)) * u_fur;\n"
-"        // 1 when a pixel is well inside one hair spacing, 0 by the time it spans\n"
-"        // two. Smoothstep so it arrives gradually instead of popping.\n"
-"        float sharp = 1.0 - smoothstep(0.35 / FIB_ACROSS, 1.2 / FIB_ACROSS, texel);\n"
-"\n"
+"        vec3 N = nv;\n"
 "        float nap = 1.0;\n"
-"        float sheen = 0.0;\n"
-"        // A very slight large-scale mottle, which is safe at any distance\n"
-"        // because it is low frequency, and is what stops the cloth being a flat\n"
-"        // fill of one colour.\n"
-"        nap += (vnoise(q * vec2(22.0, 28.0)) - 0.5) * 0.055;\n"
-"        nap += (vnoise(q * vec2(105.0, 70.0)) - 0.5) * 0.040;\n"
-"\n"
-"        if (sharp > 0.002) {\n"
-"            // Parallax, in nap space, and deliberately tiny: the pile is about\n"
-"            // two millimetres, so at anything but a very shallow angle the\n"
-"            // offset is a fraction of a hair. Clamped so a grazing view cannot\n"
-"            // turn it into a smear.\n"
-"            const float H = 0.0020;\n"
-"            vec2 vt = vec2(dot(V.xz, T2), dot(V.xz, B2));\n"
-"            vec2 off = -vt * (H / max(abs(V.y), 0.30));\n"
-"            float lim = 1.5 / FIB_ACROSS;\n"
-"            float ol = length(off);\n"
-"            if (ol > lim) off *= lim / ol;\n"
-"\n"
-"            // March down through the pile. A hair found deeper is shaded darker,\n"
-"            // and that occlusion is the whole of the 3D read.\n"
-"            float cover = 0.0, depth = 1.0;\n"
-"            const int NL = 4;\n"
-"            for (int i = 0; i < NL; i++) {\n"
-"                float tt = float(i) / float(NL - 1);\n"
-"                vec2 sq = (nq + off * tt) * vec2(FIB_ALONG, FIB_ACROSS);\n"
-"                float f = vnoise(sq);\n"
-"                float strand = smoothstep(0.55, 0.80, f);\n"
-"                if (strand > cover) { cover = strand; depth = tt; }\n"
-"            }\n"
-"            // Tips catch light, roots sit in shadow. Small amplitude — hairs are\n"
-"            // a texture you notice, not a pattern you read.\n"
-"            nap += sharp * (cover * (1.0 - depth) * 0.22 - (1.0 - cover) * 0.10);\n"
-"\n"
-"            // Kajiya-Kay: a cylinder scatters in a cone about its own axis, so\n"
-"            // the highlight runs ALONG a hair instead of dotting a facet. This is\n"
-"            // what makes light catch individual fibres.\n"
-"            vec3 T3 = normalize(vec3(T2.x, 0.30, T2.y));\n"
-"            float TdL = dot(T3, L), TdV = dot(T3, V);\n"
-"            float sL = sqrt(max(1.0 - TdL * TdL, 0.0));\n"
-"            float sV = sqrt(max(1.0 - TdV * TdV, 0.0));\n"
-"            float kk = pow(max(sL * sV - TdL * TdV, 0.0), 30.0);\n"
-"            sheen = sharp * kk * cover * 0.30;\n"
-"        }\n"
+"        nap += (vnoise(q * vec2(19.0, 24.0)) - 0.5) * 0.06;\n"
+"        nap += (vnoise(q * vec2(90.0, 62.0)) - 0.5) * 0.035;\n"
+"        // The velvet grain, read from the MIPMAPPED fur volume rather than\n"
+"        // generated here. That is the whole difference: the hardware\n"
+"        // band-limits it per pixel and per axis, so it can be this fine\n"
+"        // without aliasing, and it fades to flat on its own with distance.\n"
+"        // Low contrast on purpose — a real cloth has a nap you can see and\n"
+"        // not a pattern you can read.\n"
+"        nap += (texture(u_fur, vec3(v_local.xz / u_feltspan, 0.0)).r - 0.85)\n"
+"             * 0.075;\n"
 "        vec3 cloth = to_linear(u_cloth) * nap;\n"
-"\n"
-"        // Chalk. A distance field per marking, then a shared dusty coverage:\n"
-"        // chalk sits IN the weave rather than on top of it, so the grain has to\n"
-"        // erode the mark or it reads as printed vinyl.\n"
-"        float m = 0.0;\n"
-"        if (u_linew > 0.0) {\n"
-"            float dl = abs(q.x - u_baulk);\n"
-"            m = 1.0 - smoothstep(u_linew, u_linew + aa, dl);\n"
-"            if (u_drad > 0.0 && q.x < u_baulk) {\n"
-"                float dr = abs(length(q - vec2(u_baulk, 0.0)) - u_drad);\n"
-"                m = max(m, 1.0 - smoothstep(u_linew, u_linew + aa, dr));\n"
-"            }\n"
-"        }\n"
-"        for (int i = 0; i < 8; i++) {\n"
-"            if (i >= u_nspot) break;\n"
-"            float d = length(q - u_spots[i]);\n"
-"            m = max(m, 1.0 - smoothstep(u_spotr * 0.72, u_spotr + aa, d));\n"
-"        }\n"
-"        float grain = vnoise(q * 1600.0);\n"
-"        float grain2 = vnoise(q * 420.0 + 3.1);\n"
-"        m = clamp(m * (0.58 + 0.44 * grain + 0.22 * grain2), 0.0, 1.0);\n"
-"\n"
-"        float ndl = abs(dot(nv, L));\n"
+"        float sheen = 0.0;\n"
+"        \n"
+"        float m = mark_cov(q, aa);\n"
+"        float ndl = abs(dot(N, L));\n"
 "        vec3 c = mix(cloth, to_linear(u_markc), m * 0.88);\n"
 "        // Chalk is powder ON the fibres: it kills the fibre sheen.\n"
 "        o_col = emit(c * (0.32 + 0.68 * ndl) + vec3(sheen * (1.0 - m * 0.85)), 1.0, 1.0);\n"
+"    } else if (u_mode == 9) {\n"
+"        // One shell of the pile. The vertex shader has already lifted this copy\n"
+"        // of the cloth by u_shell metres along the normal; u_furslice says which\n"
+"        // slice of the volume belongs at that height. Strands that do not reach\n"
+"        // this high simply are not in the slice, so the pile tapers.\n"
+"        vec2 fq = v_local.xz / u_feltspan;\n"
+"        vec2 fur = texture(u_fur, vec3(fq, u_furslice)).rg;\n"
+"        float cov = fur.r;\n"
+"        if (cov < 0.02) discard;\n"
+"        float hh = (u_furslice + 0.5) / u_furslices;\n"
+"        vec3 nv = normalize(v_nrm);\n"
+"        vec3 V = normalize(u_eye - v_world);\n"
+"        // Kajiya-Kay along the strand: a cylinder scatters in a cone about its\n"
+"        // own axis, so the highlight runs ALONG a hair rather than dotting a\n"
+"        // facet. With the hairs as geometry this is now shading a real strand.\n"
+"        vec3 T3 = normalize(vec3(1.0, 0.55, 0.0));\n"
+"        float TdL = dot(T3, L), TdV = dot(T3, V);\n"
+"        float sL = sqrt(max(1.0 - TdL * TdL, 0.0));\n"
+"        float sV = sqrt(max(1.0 - TdV * TdV, 0.0));\n"
+"        float kk = pow(max(sL * sV - TdL * TdV, 0.0), 24.0);\n"
+"        // Tips are lighter than roots: dye sits deeper at the base, and the\n"
+"        // deeper hair is shadowed by everything above it.\n"
+"        float lit = 0.80 + 0.24 * hh;\n"
+"        float ndl = abs(dot(nv, L));\n"
+"        // Close to the cloth's own colour on purpose. A shell should be\n"
+"        // almost invisible looking straight down at it — the pile only\n"
+"        // announces itself where you see THROUGH many shells at once,\n"
+"        // which is the fuzzy silhouette over a pocket or a cushion. A\n"
+"        // shell you can pick out on the flat is a stripe, not fur.\n"
+"        vec3 c = to_linear(u_cloth) * (0.86 + 0.24 * fur.g) * lit\n"
+"               * (0.55 + 0.45 * ndl) + vec3(kk * 0.05 * hh);\n"
+"        // Chalk on the fibres. Slightly stronger up the strand, because\n"
+"        // powder settles on the tips.\n"
+"        float aa9 = max(fwidth(v_local.x), fwidth(v_local.z)) * 1.2 + 1e-6;\n"
+"        float m9 = mark_cov(v_local.xz, aa9);\n"
+"        c = mix(c, to_linear(u_markc) * (0.80 + 0.30 * hh), m9 * 0.92);\n"
+"        if (u_furdbg > 0.5) { o_col = vec4(1.0, 0.0, 1.0, cov); return; }\n"
+"        o_col = emit(c, cov, 0.0);\n"
+"    } else if (u_mode == 10) {\n"
+"        // A fin: one card of hair standing up out of the cloth. uv.y walks UP\n"
+"        // the card, and walking up the card means walking up through the fur\n"
+"        // volume — so the card carries the same strand profile the shells do,\n"
+"        // thinning towards the tips, and the two agree with each other.\n"
+"        float hv = v_uv.y;\n"
+"        float sl = hv * (u_furslices - 1.0);\n"
+"        vec2 fq = v_local.xz / u_feltspan;\n"
+"        float cov = texture(u_fur, vec3(fq, floor(sl))).r;\n"
+"        float cov2 = texture(u_fur, vec3(fq, min(floor(sl) + 1.0, u_furslices - 1.0))).r;\n"
+"        cov = mix(cov, cov2, fract(sl));\n"
+"        // Taper the card itself so a strand is a cone, and fade the very tips\n"
+"        // so they do not end in a hard cut.\n"
+"        float across = abs(v_uv.x - 0.5) * 2.0;\n"
+"        cov *= (1.0 - across * across) * (1.0 - hv * 0.55);\n"
+"        if (cov < 0.03) discard;\n"
+"        vec3 nv = normalize(v_nrm);\n"
+"        vec3 V = normalize(u_eye - v_world);\n"
+"        vec3 T3 = normalize(vec3(1.0, 0.75, 0.0));\n"
+"        float TdL = dot(T3, L), TdV = dot(T3, V);\n"
+"        float sL = sqrt(max(1.0 - TdL * TdL, 0.0));\n"
+"        float sV = sqrt(max(1.0 - TdV * TdV, 0.0));\n"
+"        float kk = pow(max(sL * sV - TdL * TdV, 0.0), 22.0);\n"
+"        float lit = 0.38 + 0.62 * hv;          // roots in shadow, tips in light\n"
+"        vec3 c = to_linear(u_cloth) * lit * 1.05 + vec3(kk * (0.04 + 0.55 * hv));\n"
+"        if (u_furdbg > 0.5) { o_col = vec4(1.0, 0.4, 0.0, cov); return; }\n"
+"        o_col = emit(c, cov, 0.0);\n"
 "    } else if (u_mode == 6) {\n"
+
+
 "        // A ball's shadow on the cloth: a soft decal, as scene_add_shadow\n"
 "        // draws it. Without these the balls hover.\n"
 "        float d = length(v_uv - vec2(0.5)) * 2.0;\n"
@@ -524,11 +546,13 @@ static struct {
     GLuint prog;
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
-    GLint  u_cloth, u_fur, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
+    GLint  u_cloth, u_fur, u_feltspan, u_furslice, u_furslices, u_furdbg, u_shell, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
-    Mesh   bed, table, lips, frame, ball, cue, quad, floor, grip;
+    Mesh   fins, bed, table, lips, frame, ball, cue, quad, floor, grip;
     int    frame_sel;
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
+    float  fur_scale;
+    GLuint fur_tex;       /* fur volume: FUR_SLICES layers of strand coverage */
     GLuint hud_tex;
     int    encode;
     int    ready;
@@ -593,8 +617,19 @@ static void build_sphere(Builder *b, int slices, int stacks) {
 /* radius (m) at a fraction along the cue, tip to butt */
 static float cue_radius(float t) {
     const float x = t * CUE_LEN;
-    if (x < 0.010f) return 0.0050f;                                  /* tip */
-    if (x < 0.032f) return 0.0051f;                                  /* ferrule */
+    /* The tip is DOMED, not a flat disc. A snooker tip is a leather pad shaped
+     * to about the curve of a sixpence, and the flat cylinder it was before read
+     * as a cut-off dowel from the distance you actually see it — a hand's width
+     * away. A spherical cap over the last 3 mm. */
+    const float TIP_R = 0.0051f;      /* the tip's full radius */
+    const float DOME  = 0.0030f;      /* how far back the dome reaches */
+    if (x < DOME) {
+        float k = (DOME - x) / DOME;                 /* 1 at the very end */
+        float r = TIP_R * sqrtf(1.0f - k * k * 0.92f);
+        return r < 0.0008f ? 0.0008f : r;
+    }
+    if (x < 0.011f) return TIP_R;                                    /* leather pad */
+    if (x < 0.020f) return 0.00515f;                                 /* ferrule */
     if (x < 1.100f) {                                                /* ash shaft */
         float k = (x - 0.032f) / (1.100f - 0.032f);
         return 0.0051f + k * (0.0095f - 0.0051f);
@@ -688,8 +723,14 @@ static void build_from_cue_render(Builder *b, const CueTri *tri_, int from, int 
  * old bake was simply discarding detail it could have had. At 128x128 on the
  * handheld a ball was a few dozen pixels across and 64x32 was ample; in VR you
  * can put your eye next to one. */
-#define BTEX_W   256
-#define BTEX_H   128
+/* 512x256 per ball. The number patch covers only about a quarter of the sphere's
+ * longitude and latitude, so at 256x128 the circle was a mere 37 texels across
+ * and the digit inside it was maybe 20 — which is why it looked low-resolution
+ * however good the font was. At 512x256 the circle is 74 texels and the digit
+ * reads properly. 26 balls at RG565 plus mips is about 7 MB, which is affordable
+ * for the thing you spend the whole game looking at. */
+#define BTEX_W   512
+#define BTEX_H   256
 /* Derived, not chosen. Snooker ids run past the pool set — cue, 1..15 reds,
  * then CUE_ID_YELLOW(20) through CUE_ID_BLACK(25) — and picking a round number
  * here instead of reading the enum is how pink and black ended up sharing the
@@ -704,7 +745,272 @@ static void build_from_cue_render(Builder *b, const CueTri *tri_, int from, int 
  * solids and stripes rather than reds. The original never had this failure
  * mode because it evaluates the function per pixel; the cache is mine, so
  * keeping it in step is mine too. */
+/* ---- the fur volume ------------------------------------------------------ *
+ * Shells and fins, after Lengyel et al. 2001 and NVIDIA's WP-03021 write-up of
+ * it. This is the standard interactive fur method and it is a VOLUME technique,
+ * which is the thing my previous two attempts got wrong: a normal map is a
+ * picture of fur, and no amount of filtering turns a picture into geometry that
+ * occludes itself.
+ *
+ * The volume is a stack of 2D slices through a field of hair. Slice k contains
+ * the cross-sections of every strand tall enough to reach height k, so the
+ * strands thin out as you go up. At draw time the cloth is rendered n times,
+ * each pass extruded along the normal by its share of the pile height and
+ * textured with its own slice — so the hairs are real geometry at real heights,
+ * and a hair nearer the eye really does hide one behind it.
+ *
+ * A texture array, one layer per slice, which is exactly what the DirectX 10
+ * sample used it for: no rebinding between shell passes. */
+#define FUR_N      256      /* slice resolution */
+#define FUR_SLICES 8        /* shells through the pile */
+/* 18 mm per tile: 256 texels across it is 0.07 mm a texel, so the grain is
+ * FINE — dense velvet rather than countable hairs. The reference photograph is
+ * the argument: a real cloth close up has no resolvable strands on the flat, it
+ * has a uniform suede nap, and the only place the pile announces itself is the
+ * soft fuzzy silhouette where the cloth turns away over a pocket. */
+#define FUR_SPAN   0.018f   /* metres of cloth per tile */
+#define FUR_PILE   0.0022f  /* total pile height in metres */
+
+static float fur_hash(int x, int y, int px, int py) {
+    x = ((x % px) + px) % px;
+    y = ((y % py) + py) % py;
+    unsigned h = (unsigned)x * 374761393u + (unsigned)y * 668265263u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return (float)((h ^ (h >> 16)) & 0xFFFF) / 65535.0f;
+}
+static float fur_noise(float x, float y, int px, int py) {
+    int xi = (int)floorf(x), yi = (int)floorf(y);
+    float fx = x - xi, fy = y - yi;
+    fx = fx * fx * (3.0f - 2.0f * fx);
+    fy = fy * fy * (3.0f - 2.0f * fy);
+    float a = fur_hash(xi, yi, px, py), b = fur_hash(xi + 1, yi, px, py);
+    float c = fur_hash(xi, yi + 1, px, py), d = fur_hash(xi + 1, yi + 1, px, py);
+    float ab = a + (b - a) * fx, cd = c + (d - c) * fx;
+    return ab + (cd - ab) * fy;
+}
+
+static void bake_fur(void) {
+    if (G.fur_tex) { glDeleteTextures(1, &G.fur_tex); G.fur_tex = 0; }
+    /* RG: coverage, and a per-strand shade so they are not all identical. */
+    uint8_t *px = (uint8_t *)malloc((size_t)FUR_N * FUR_N * FUR_SLICES * 2);
+    if (!px) { LOGI("[cuevr] no memory for the fur volume"); return; }
+
+    const int PA = 10, PC = 110;        /* periods along / across the tile */
+    for (int y = 0; y < FUR_N; y++) {
+        for (int x = 0; x < FUR_N; x++) {
+            float u = (float)x / FUR_N, v = (float)y / FUR_N;
+            /* The lay wanders, baked in rather than rotated per pixel. */
+            float warp = (fur_noise(u * 4.0f, v * 4.0f, 4, 4) - 0.5f) * 0.10f;
+            float vw = v + warp;
+            /* Strand density: fine across the nap, drawn out along it. */
+            float d = fur_noise(u * PA, vw * PC, PA, PC) * 0.7f
+                    + fur_noise(u * PA * 3 + 5.0f, vw * PC * 2 + 3.0f, PA * 3, PC * 2) * 0.3f;
+            /* How TALL this strand is. Not every hair reaches the top — that
+             * variation is what stops the pile looking like a solid slab. */
+            float tall = fur_noise(u * PA * 2 + 17.0f, vw * PC + 29.0f, PA * 2, PC) ;
+            float shade = fur_noise(u * PC + 41.0f, vw * PA + 13.0f, PC, PA);
+            for (int k = 0; k < FUR_SLICES; k++) {
+                float hh = ((float)k + 0.5f) / FUR_SLICES;   /* height of this slice */
+                /* A strand exists in this slice if it is dense enough AND tall
+                 * enough to reach it. Tapering the threshold with height is what
+                 * makes a hair a cone rather than a post. */
+                /* Thresholds set from the MEASURED distribution of dd, not from
+                 * guesses: the first attempt asked for more density than the noise
+                 * ever produced, so every slice clamped to zero and the shells
+                 * drew nothing at all. Baize is nearly solid at the roots and
+                 * thins to a few tips, so slice 0 wants ~90% coverage and the top
+                 * slice a few percent. */
+                float need = 0.13f + 0.50f * hh;
+                float dd = d * (0.55f + 0.45f * tall);
+                float cov = (dd - need) / 0.10f;
+                if (cov < 0.0f) cov = 0.0f;
+                if (cov > 1.0f) cov = 1.0f;
+                if (tall < hh * 0.55f) cov = 0.0f;           /* too short to be here */
+                uint8_t *o = px + (((size_t)k * FUR_N * FUR_N) + (size_t)y * FUR_N + x) * 2;
+                o[0] = (uint8_t)(cov * 255.0f);
+                o[1] = (uint8_t)(shade * 255.0f);
+            }
+        }
+    }
+
+    glGenTextures(1, &G.fur_tex);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, G.fur_tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RG8, FUR_N, FUR_N, FUR_SLICES, 0,
+                 GL_RG, GL_UNSIGNED_BYTE, px);
+    glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    {   GLfloat aniso = 0.0f;
+        glGetFloatv(0x84FF, &aniso);
+        if (aniso > 1.0f) {
+            if (aniso > 16.0f) aniso = 16.0f;
+            glTexParameterf(GL_TEXTURE_2D_ARRAY, 0x84FE, aniso);
+        }
+        while (glGetError() != GL_NO_ERROR) { }
+    }
+    free(px);
+    /* Report what actually got baked. Guessing thresholds against a noise
+     * distribution is how the first version came out empty: every slice was
+     * clamped to zero coverage and the shells drew nothing at all. */
+    for (int k = 0; k < FUR_SLICES; k += FUR_SLICES - 1 > 0 ? FUR_SLICES - 1 : 1) {
+        long sum = 0, nz = 0;
+        for (int i = 0; i < FUR_N * FUR_N; i++) {
+            int c = px[(((size_t)k * FUR_N * FUR_N) + i) * 2];
+            sum += c;
+            if (c > 8) nz++;
+        }
+        LOGI("[cuevr] fur slice %d: mean cover %.3f, %.1f%% of texels covered",
+             k, (double)sum / (255.0 * FUR_N * FUR_N),
+             100.0 * (double)nz / (FUR_N * FUR_N));
+    }
+    LOGI("[cuevr] baked a %d-slice fur volume (%dx%d, %.1f mm pile)",
+         FUR_SLICES, FUR_N, FUR_N, (double)(FUR_PILE * 1000.0f));
+}
+
+/* ---- fins ---------------------------------------------------------------- *
+ * The other half of shells-and-fins, and the half that actually shows you a
+ * hair. Shells alone only read where the pile is seen edge-on: look down into
+ * them and eight layers inside three millimetres collapse into one. NVIDIA's
+ * sample extrudes fins from silhouette EDGES, which works on a cat and does
+ * nothing on a snooker table, because a flat plane has no interior silhouette
+ * edges at all — its only edges are its boundary.
+ *
+ * So the fins are distributed instead of found: a patch of crossed vertical
+ * cards, each one a slice of hair standing up out of the cloth. Crossed pairs so
+ * there is always a card facing you whichever way you look. This is how grass is
+ * drawn, and grass is the same problem — a flat surface, fine strands, and a
+ * viewer who is usually looking along it rather than down at it.
+ *
+ * A patch, not the whole table: at 7 mm spacing the full twelve-foot cloth would
+ * be ninety thousand cards, and you can only ever be close to one place at a
+ * time. The patch follows your eye, snapped to its own grid so it does not crawl
+ * underneath you. */
+#define FIN_SPACING 0.007f     /* metres between cards */
+#define FIN_HALF    0.22f      /* patch half-extent */
+#define FIN_W       0.0075f    /* card width */
+
+static void build_fins(Builder *b) {
+    int n = (int)(FIN_HALF * 2.0f / FIN_SPACING);
+    for (int j = 0; j < n; j++) {
+        for (int i = 0; i < n; i++) {
+            float x = -FIN_HALF + ((float)i + 0.5f) * FIN_SPACING;
+            float z = -FIN_HALF + ((float)j + 0.5f) * FIN_SPACING;
+            /* Jitter so the cards are not a visible lattice. Deterministic. */
+            unsigned h = (unsigned)(i * 73856093) ^ (unsigned)(j * 19349663);
+            float jx = ((float)((h >> 8) & 255) / 255.0f - 0.5f) * FIN_SPACING * 0.8f;
+            float jz = ((float)((h >> 16) & 255) / 255.0f - 0.5f) * FIN_SPACING * 0.8f;
+            x += jx; z += jz;
+            /* Every pair gets its own ANGLE and its own height. Axis-aligned
+             * crosses on a regular grid read as exactly that — a lattice of X
+             * shapes — because every card in the patch faces the same two ways and
+             * ends at the same height. Rotating and shortening each one
+             * independently is what turns a grid of cards into a pile of hair. */
+            float ang = (float)((h >> 3) & 1023) / 1023.0f * 3.14159265f;
+            float hgt = 0.55f + (float)((h >> 21) & 255) / 255.0f * 0.45f;
+            float ca = cosf(ang), sa = sinf(ang);
+            for (int k = 0; k < 2; k++) {
+                /* the pair is at ang and ang+90 */
+                float ux = k ? -sa : ca, uz = k ? ca : sa;
+                float dx = ux * FIN_W * 0.5f;
+                float dz = uz * FIN_W * 0.5f;
+                /* uv.x runs across the card, uv.y up it, so the shader can walk
+                 * the fur volume vertically and get a strand profile. */
+                int a0 = b_vert(b, x - dx, 0.0f, z - dz, 0, 1, 0, 0.0f, 0.0f);
+                int a1 = b_vert(b, x + dx, 0.0f, z + dz, 0, 1, 0, 1.0f, 0.0f);
+                int a2 = b_vert(b, x + dx, hgt, z + dz, 0, 1, 0, 1.0f, 1.0f);
+                int a3 = b_vert(b, x - dx, hgt, z - dz, 0, 1, 0, 0.0f, 1.0f);
+                b_tri(b, a0, a1, a2);
+                b_tri(b, a0, a2, a3);
+            }
+        }
+    }
+}
+
+/* ---- ball numbers, in Audiowide ------------------------------------------ *
+ * cue_render draws them from the handheld's 3x5 bitmap font, which is right for a
+ * 128x128 screen and looks like a spreadsheet when the ball is 6 cm from your
+ * eye. The letterforms are the same Audiowide the rest of the UI now uses.
+ *
+ * The trick is knowing WHERE the number is without reproducing cue_render's
+ * layout: number_patch() paints its circle in one exact white and its ink in one
+ * exact near-black, so a texel coming back as either of those is a texel inside
+ * the number patch. That is a reliable marker and it costs nothing.
+ *
+ * The patch maps the +x pole cap to a unit disc: py = nb.y * 2.30, pz = nb.z *
+ * 2.30, inside r <= 1. Same mapping here, so the digit lands exactly where
+ * cue_render put its circle. */
+#define NUMG   128                 /* glyph raster per ball */
+static uint8_t s_numg[16][NUMG * NUMG];
+static int     s_numbox[16][4];   /* ink bbox: x0,y0,x1,y1 */
+static int     s_numg_ready;
+
+static void bake_ball_numbers(void) {
+    if (s_numg_ready) return;
+    s_numg_ready = 1;
+    static uint16_t tmp[NUMG * NUMG];
+    for (int n = 1; n <= 15; n++) {
+        memset(tmp, 0, sizeof tmp);
+        char txt[4];
+        snprintf(txt, sizeof txt, "%d", n);
+        /* Centre it. The lg face is 44 px in a 64 box, which leaves the digits
+         * filling the circle the way a real ball's do. */
+        /* Render big, then record where the INK actually is. Mapping the
+         * padded raster onto the ball is what kept the digit small: a font box
+         * carries room for ascenders and descenders that no digit uses, so most
+         * of what got mapped was empty margin. The bbox is mapped instead, which
+         * is what makes the number fill its circle the way a real ball's does. */
+        int w = cuevr_text_width(&cuevr_font_xl, txt);
+        cuevr_text_draw(tmp, NUMG, NUMG, &cuevr_font_xl, txt,
+                        (NUMG - w) / 2, NUMG / 4, 0xFFFF);
+        {
+            int x0 = NUMG, y0 = NUMG, x1 = -1, y1 = -1;
+            for (int yy = 0; yy < NUMG; yy++)
+                for (int xx = 0; xx < NUMG; xx++)
+                    if (tmp[yy * NUMG + xx]) {
+                        if (xx < x0) x0 = xx;
+                        if (xx > x1) x1 = xx;
+                        if (yy < y0) y0 = yy;
+                        if (yy > y1) y1 = yy;
+                    }
+            if (x1 < x0) { x0 = y0 = 0; x1 = y1 = NUMG - 1; }
+            s_numbox[n][0] = x0; s_numbox[n][1] = y0;
+            s_numbox[n][2] = x1; s_numbox[n][3] = y1;
+        }
+        for (int i = 0; i < NUMG * NUMG; i++)
+            s_numg[n][i] = (uint8_t)(((tmp[i] >> 5) & 63) * 255 / 63);   /* green = coverage */
+    }
+}
+
+/* Coverage of ball `id`'s number at pole-cap coordinates (py, pz), or -1 if this
+ * texel is not in the digit area at all. */
+static float ball_number_cov(uint8_t id, float py, float pz) {
+    if (id < 1 || id > 15) return -1.0f;
+    const int *bx = s_numbox[id];
+    float bw = (float)(bx[2] - bx[0] + 1), bh = (float)(bx[3] - bx[1] + 1);
+    /* The digit's height on the ball, in disc units where the circle has radius
+     * 1. A real ball's number stands about 55% of the circle's diameter. */
+    float wh = 1.05f;
+    float ww = wh * (bw / bh);
+    float gu = (pz + ww * 0.5f) / ww;
+    float gv = (wh * 0.5f - py) / wh;
+    if (gu < 0.0f || gu > 1.0f || gv < 0.0f || gv > 1.0f) return 0.0f;
+    float fx = (float)bx[0] + gu * (bw - 1.0f);
+    float fy = (float)bx[1] + gv * (bh - 1.0f);
+    int x0 = (int)fx, y0 = (int)fy;
+    int x1 = x0 + 1 < NUMG ? x0 + 1 : x0, y1 = y0 + 1 < NUMG ? y0 + 1 : y0;
+    float tx = fx - x0, ty = fy - y0;
+    const uint8_t *g = s_numg[id];
+    float a = g[y0 * NUMG + x0] / 255.0f, b = g[y0 * NUMG + x1] / 255.0f;
+    float c = g[y1 * NUMG + x0] / 255.0f, d = g[y1 * NUMG + x1] / 255.0f;
+    float t0 = a + (b - a) * tx, t1 = c + (d - c) * tx;
+    return t0 + (t1 - t0) * ty;
+}
+
 static void bake_ball_atlas(void) {
+    bake_ball_numbers();
     if (G.ball_tex) { glDeleteTextures(1, &G.ball_tex); G.ball_tex = 0; }
     uint16_t *px = malloc((size_t)BTEX_W * BTEX_H * BTEX_IDS * sizeof(uint16_t));
     if (!px) { LOGI("[cuevr] no memory for the ball atlas"); return; }
@@ -718,7 +1024,23 @@ static void bake_ball_atlas(void) {
                 nb.x = sinf(phi) * cosf(th);
                 nb.y = cosf(phi);
                 nb.z = sinf(phi) * sinf(th);
-                slice[y * BTEX_W + x] = cue_render_ball_texel((uint8_t)id, nb);
+                uint16_t c = cue_render_ball_texel((uint8_t)id, nb);
+                /* A texel that came back as the patch's white or its ink is a
+                 * texel inside the number circle — so re-draw the digit there in
+                 * Audiowide instead of the 3x5 font's version of it. */
+                if (c == RGB565C(245, 245, 245) || c == RGB565C(15, 15, 18)) {
+                    float py = nb.y * 2.30f, pz = nb.z * 2.30f;
+                    float cov = ball_number_cov((uint8_t)id, py, pz);
+                    if (cov >= 0.0f) {
+                        const int wr = 245, wg = 245, wb = 245;
+                        const int ir = 15,  ig = 15,  ib = 18;
+                        int r = (int)(wr + (ir - wr) * cov);
+                        int g2 = (int)(wg + (ig - wg) * cov);
+                        int b2 = (int)(wb + (ib - wb) * cov);
+                        c = (uint16_t)(((r >> 3) << 11) | ((g2 >> 2) << 5) | (b2 >> 3));
+                    }
+                }
+                slice[y * BTEX_W + x] = c;
             }
         }
     }
@@ -826,6 +1148,11 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
     G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
     G.u_fur        = glGetUniformLocation(G.prog, "u_fur");
+    G.u_feltspan   = glGetUniformLocation(G.prog, "u_feltspan");
+    G.u_furslice   = glGetUniformLocation(G.prog, "u_furslice");
+    G.u_furslices  = glGetUniformLocation(G.prog, "u_furslices");
+    G.u_furdbg     = glGetUniformLocation(G.prog, "u_furdbg");
+    G.u_shell      = glGetUniformLocation(G.prog, "u_shell");
     G.u_markc      = glGetUniformLocation(G.prog, "u_markc");
     G.u_baulk      = glGetUniformLocation(G.prog, "u_baulk");
     G.u_drad       = glGetUniformLocation(G.prog, "u_drad");
@@ -942,6 +1269,16 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
         mesh_upload(&G.lips, &b);
         b_free(&b);
     }
+    bake_fur();
+    {   /* One patch, built once, moved to follow the eye. */
+        int n = (int)(FIN_HALF * 2.0f / FIN_SPACING);
+        Builder fb;
+        b_init(&fb, n * n * 8 + 8, n * n * 12 + 8);
+        build_fins(&fb);
+        mesh_upload(&G.fins, &fb);
+        LOGI("[cuevr] fin patch: %d cards, %d tris", n * n * 2, fb.ni / 3);
+        b_free(&fb);
+    }
     bake_ball_atlas();
 
     /* The frame is generated separately and drawn separately — nothing above
@@ -977,10 +1314,12 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
 
 void cuevr_render_shutdown(void) {
     if (!G.ready) return;
+    mesh_free(&G.fins);
     mesh_free(&G.bed);
     mesh_free(&G.grip);
     mesh_free(&G.table); mesh_free(&G.lips); mesh_free(&G.frame); mesh_free(&G.ball);
     mesh_free(&G.cue); mesh_free(&G.quad); mesh_free(&G.floor);
+    if (G.fur_tex) glDeleteTextures(1, &G.fur_tex);
     glDeleteTextures(1, &G.hud_tex);
     glDeleteTextures(1, &G.ball_tex);
     free(G.tab_buf); free(G.stri_buf); G.tab_buf = G.stri_buf = NULL;
@@ -1076,11 +1415,12 @@ void cuevr_render_eye(const float *view, const float *proj,
 
     /* The eye, recovered from the view matrix: its rows are the camera basis
      * and its translation is that basis applied to -eye, so undo it. */
+    MoteVrV3 eye;
     {
-        float e0 = -(view[12]*view[0] + view[13]*view[1] + view[14]*view[2]);
-        float e1 = -(view[12]*view[4] + view[13]*view[5] + view[14]*view[6]);
-        float e2 = -(view[12]*view[8] + view[13]*view[9] + view[14]*view[10]);
-        glUniform3f(G.u_eye, e0, e1, e2);
+        eye.x = -(view[12]*view[0] + view[13]*view[1] + view[14]*view[2]);
+        eye.y = -(view[12]*view[4] + view[13]*view[5] + view[14]*view[6]);
+        eye.z = -(view[12]*view[8] + view[13]*view[9] + view[14]*view[10]);
+        glUniform3f(G.u_eye, eye.x, eye.y, eye.z);
     }
 
     /* The key light stays the handheld's: nearly overhead, rotated with the
@@ -1173,7 +1513,20 @@ void cuevr_render_eye(const float *view, const float *proj,
             float bb = (tb->spot & 31) / 31.0f;
             glUniform3f(G.u_markc, r, g, bb);
         }
-        glUniform1f(G.u_fur, getenv("CUEVR_FUR") ? (float)atof(getenv("CUEVR_FUR")) : 1.0f);
+        /* The fur volume on unit 2. CUEVR_FUR scales the tile, which is the only
+         * knob: bigger means coarser, more visible hairs. */
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, G.fur_tex);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(G.u_fur, 2);
+        /* CUEVR_FUR scales the WHOLE pile — tile span and height together — so
+         * the preview can zoom into a 3 mm pile it otherwise cannot resolve.
+         * Scaling only the tile made hairs 6 mm wide and 3 mm tall, which is a
+         * blob, not a hair, and told me nothing. */
+        G.fur_scale = getenv("CUEVR_FUR") ? (float)atof(getenv("CUEVR_FUR")) : 1.0f;
+        glUniform1f(G.u_feltspan, FUR_SPAN * G.fur_scale);
+        glUniform1f(G.u_furslices, (float)FUR_SLICES);
+        glUniform1f(G.u_furdbg, getenv("CUEVR_FURDBG") ? 1.0f : 0.0f);
         glUniform1f(G.u_baulk, tb->baulk_x);
         glUniform1f(G.u_drad,  tb->d_radius);
         glUniform1f(G.u_linew, 0.0016f);      /* a chalk line is ~3 mm wide */
@@ -1181,8 +1534,71 @@ void cuevr_render_eye(const float *view, const float *proj,
         glUniform1i(G.u_nspot, ns);
         glUniform2fv(G.u_spots, ns, sp);
         glUniform1i(G.u_mode, 8);
+        glUniform1f(G.u_shell, 0.0f);
         set_model(T);
         draw(&G.bed);
+
+        /* ---- the pile: shells ----------------------------------------------
+         * The order and the state are the technique, not decoration. The base
+         * cloth went down first WITH depth writes, above. The shells now go on
+         * from the inside out, alpha blended, depth test ON and depth write OFF
+         * — that is what lets a nearer hair hide one behind it without the
+         * shells occluding each other wholesale.
+         *
+         * glBlendFuncSeparate, not glBlendFunc: a plain blend applies to the
+         * alpha channel too and would punch holes straight through the
+         * passthrough camera layer. That mistake has already been made once in
+         * this file, on the ball shadows.
+         *
+         * Gated on how close your eye is. Eight extra passes over the cloth is
+         * real fill cost on a mobile GPU, and at two metres the pile is far
+         * below a pixel anyway — which is also exactly the brief. */
+        {
+            /* Distance to the NEAREST POINT of the cloth, not to its centre.
+             * Centre distance is nearly two metres on a twelve foot table even
+             * when you are leaning on the rail, so the pile never appeared at
+             * all — the gate was measuring the wrong thing. */
+            MoteVrV3 et = cuevr_room_to_table(s->place, eye);
+            float hx = G.tab.half_len, hz = G.tab.half_wid;
+            float cx = et.x < -hx ? -hx : (et.x > hx ? hx : et.x);
+            float cz = et.z < -hz ? -hz : (et.z > hz ? hz : et.z);
+            float dx = et.x - cx, dz = et.z - cz;
+            float d = sqrtf(dx * dx + et.y * et.y + dz * dz);
+            int shells = 0;
+            if (d < 0.45f)      shells = FUR_SLICES;
+            else if (d < 1.30f) shells = (int)(FUR_SLICES * (1.30f - d) / 0.85f);
+            {   /* CUEVR_SHELLS forces the count, because the preview camera is
+                 * bolted down and cannot walk up to the cloth. */
+                const char *ov = getenv("CUEVR_SHELLS");
+                if (ov) shells = atoi(ov);
+                if (shells > FUR_SLICES) shells = FUR_SLICES;
+            }
+            {   static int said = 0;
+                if (!said) { said = 1;
+                    LOGI("[cuevr] fur: %d shells at %.2f m, u_shell loc %d, u_fur loc %d",
+                         shells, (double)d, G.u_shell, G.u_fur); }
+            }
+            if (shells > 0) {
+                glEnable(GL_BLEND);
+                glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
+                                    GL_ZERO, GL_ONE);
+                glDepthMask(GL_FALSE);
+                glDisable(GL_CULL_FACE);
+                glUniform1i(G.u_mode, 9);
+                for (int k = 0; k < shells; k++) {
+                    float t01 = ((float)k + 0.5f) / (float)FUR_SLICES;
+                    glUniform1f(G.u_shell, t01 * FUR_PILE * G.fur_scale);
+                    glUniform1f(G.u_furslice, (float)k);
+                    set_model(T);
+                    draw(&G.bed);
+                }
+                glUniform1f(G.u_shell, 0.0f);
+
+                glEnable(GL_CULL_FACE);
+                glDepthMask(GL_TRUE);
+                glDisable(GL_BLEND);
+            }
+        }
     }
 
     /* ---- ball shadows on the cloth ---- *

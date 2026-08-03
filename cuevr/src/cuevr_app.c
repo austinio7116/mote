@@ -77,8 +77,9 @@
 /* A feel trim on top of the derived transfer, and labelled as exactly that: the
  * physics above says how fast the ball leaves, but how hard a stroke FEELS in a
  * headset depends on how much your arm is really moving, and a centre-ball hit
- * was landing slightly heavy. One number, no pretence that it is derived. */
-#define CUEVR_POWER_TRIM 0.90f
+ * was landing slightly heavy. One number, no pretence that it is derived. Taken
+ * from 0.90 to 0.82 after play: still a touch hot at 0.90. */
+#define CUEVR_POWER_TRIM 0.82f
 
 enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_CPUCUE, ST_PLACE,
        ST_DECIDE, ST_OVER, ST_PAUSE, ST_LOBBY };
@@ -179,6 +180,14 @@ static struct {
  * loaded — a stroke that never lands looks identical to a test that passes. */
 MoteVrV3 cuevr_app_rest(void) { return S.cue.rest; }
 int cuevr_app_aiming(void) { return S.state == ST_AIM; }
+
+/* A corner pocket, in ROOM space. Only the preview wants this: aiming its camera
+ * by hand meant guessing where the table had been placed, and every guess landed
+ * somewhere in the middle of the cloth. Ask the app instead. */
+MoteVrV3 cuevr_app_pocket_room(void) {
+    Vec3 t = { S.tab.half_len, 0.0f, S.tab.half_wid };
+    return cuevr_table_to_room(&S.setup.place, t);
+}
 float cuevr_app_grip(void)      { return S.cue.grip; }
 
 /* ---- table setup -------------------------------------------------------- */
@@ -211,6 +220,24 @@ static void start_frame(CueGameKind kind) {
     S.shot_events = 0;
     snprintf(S.msg, sizeof S.msg, "%s", MENU[S.menu_sel].name);
     S.msg_time = 3.0f;
+    S.hud_dirty = 1;
+}
+
+/* The menu previews itself on the real table.
+ *
+ * Choosing a 12 ft snooker table, claret cloth and ebony frame from a text list
+ * and only finding out what you picked after the break is a poor way to choose.
+ * Every change re-racks the table in front of you, so the menu IS the preview.
+ * Only on change — this rebuilds meshes and re-bakes the ball atlas. */
+static void menu_preview(void) {
+    cue_table_init(&S.tab, MENU[S.menu_sel].kind);
+    S.tab.cloth    = k_cloth[S.cloth_idx];
+    S.tab.rail     = k_frame_rail[S.frame_idx];
+    S.tab.rail_top = k_frame_top[S.frame_idx];
+    cue_table_build_world(&S.tab, &S.world);
+    S.nballs = cue_table_rack(&S.tab, S.balls);
+    cue_render_set_ball_set(S.ballset);
+    cuevr_render_set_table(&S.tab, &S.world);
     S.hud_dirty = 1;
 }
 
@@ -303,6 +330,8 @@ static void cue_render_group_icon_hs(int cx, int cy, int r, int g)
 static void cue_render_ball_icon_hs(int cx, int cy, int r, int id)
     { cue_render_ball_icon(S.hud, cx*HS, cy*HS, r*HS, id); }
 
+static void hud_face(int cx, int cy, int size, int persona)
+    { cue_render_face(S.hud, cx*HS, cy*HS, size*HS, persona); }
 static void cue_render_set_preview_hs(int cx, int cy, int r, int a, int b)
     { cue_render_set_preview(S.hud, cx*HS, cy*HS, r*HS, a, b); }
 static void cue_render_spin_ball_hs(int cx, int cy, int r, float sd, float vt)
@@ -344,12 +373,15 @@ static void hud_opt(int row, const char *label, const char *value, int sel,
     int y = 12 + row * 8;
     if (sel) hud_rect(1, y - 1, HW - 2, 8, RGB565C(30, 46, 72));
     hud_text(label, 4, y, sel ? HI : DIM);
+    /* The right-hand 18 columns are the icon gutter — an avatar or a ball rack
+     * lives there — so values are right-aligned to its edge rather than to the
+     * panel's. Without the gutter the face landed on top of the persona's name. */
     if (value)
-        hud_text_r(value, HW - 5, y, enabled ? (sel ? TXT : DIM)
-                                             : RGB565C(70, 78, 92));
+        hud_text_r(value, HW - 20, y, enabled ? (sel ? TXT : DIM)
+                                              : RGB565C(70, 78, 92));
     if (sel && value) {
-        hud_text("<", 44, y, HI);
-        hud_text(">", HW - 3, y, HI);
+        hud_text("<", 46, y, HI);
+        hud_text(">", HW - 18, y, HI);
     }
 }
 
@@ -377,6 +409,9 @@ static void hud_build(void) {
                  CUE_PERSONAS[S.persona].elo);
         hud_opt(MR_STRENGTH, "STRENGTH", v, S.menu_row == MR_STRENGTH,
                 S.opp == OPP_CPU, TXT, DIM, HI);
+        /* Who you are about to play, with their face — the portraits have been
+         * sitting in cue_faces.h all along. */
+        if (S.opp == OPP_CPU) hud_face(HW - 9, 12 + MR_STRENGTH * 8 + 3, 9, S.persona);
         hud_opt(MR_CLOTH, "CLOTH", k_cloth_name[S.cloth_idx], S.menu_row == MR_CLOTH, 1, TXT, DIM, HI);
         hud_opt(MR_FRAME, "FRAME", k_frame_name[S.frame_idx], S.menu_row == MR_FRAME, 1, TXT, DIM, HI);
         hud_opt(MR_BALLS, "BALLS", k_ballset_name[S.ballset], S.menu_row == MR_BALLS, 1, TXT, DIM, HI);
@@ -387,7 +422,7 @@ static void hud_build(void) {
                         4, y - 1, S.menu_row == MR_START ? LIVE : DIM);
         }
         /* the live ball set, drawn by cue_render itself */
-        cue_render_set_preview_hs(HW - 16, 12 + MR_BALLS * 8 + 3, 3,
+        cue_render_set_preview_hs(HW - 9, 12 + MR_BALLS * 8 + 3, 2,
                                   S.ballset, MENU[S.menu_sel].kind >= CUE_GAME_FIRST_SNK);
         hud_text("STICK: UP/DOWN ROW  L/R CHANGE   A SELECT", 4, HH - 6, DIM);
         return;
@@ -545,7 +580,12 @@ static void hud_build(void) {
             hud_rect(0, y, HW, 18, RGB565C(20, 34, 54));
             hud_rect(0, y, 3, 18, HI);           /* the striker's flash */
         }
-        hud_text_2x(p == 0 ? me : them, 8, y + 3, striker ? TXT : DIM);
+        /* A face on each row, the way a broadcast board carries a headshot. You
+         * get the cue ball, since the one thing every player has in common is
+         * that they are the one down on the white. */
+        if (p == 1 && S.opp == OPP_CPU) hud_face(11, y + 9, 16, S.persona);
+        else                            cue_render_ball_icon_hs(11, y + 9, 7, CUE_ID_CUE);
+        hud_text_2x(p == 0 ? me : them, 22, y + 3, striker ? TXT : DIM);
         if (S.tab.is_snooker) {
             snprintf(b, sizeof b, "%d", S.rules.score[p]);
             hud_text_r_xl(b, HW - 5, y + 1, striker ? TXT : DIM);
@@ -557,10 +597,10 @@ static void hud_build(void) {
                 if (S.balls[i].on && cue_rules_ball_legal(&S.rules, S.balls, S.nballs,
                                                           S.balls[i].id)) left++;
             if (S.rules.group[p]) {
-                cue_render_group_icon_hs(HW - 14, y + 9, 6, S.rules.group[p]);
+                cue_render_group_icon_hs(HW - 13, y + 9, 8, S.rules.group[p]);
                 if (striker) {
                     snprintf(b, sizeof b, "%d", left);
-                    hud_text_r_xl(b, HW - 24, y + 1, TXT);
+                    hud_text_r_xl(b, HW - 26, y + 1, TXT);
                 }
             } else {
                 hud_text_r("OPEN", HW - 6, y + 7, striker ? TXT : DIM);
@@ -592,16 +632,16 @@ static void hud_build(void) {
         int rem = reds * 8 + colours;
         snprintf(b, sizeof b, "REM %d", rem);
         hud_text_r(b, HW - 22, 51, DIM);
-        cue_render_onball_icon_hs(HW - 10, 54, 6, S.rules.target, S.rules.seq);
+        cue_render_onball_icon_hs(HW - 11, 55, 8, S.rules.target, S.rules.seq);
     } else if (S.tab.kind == CUE_GAME_US9) {
-        cue_render_ball_icon_hs(HW - 10, 54, 6, S.rules.seq > 0 ? S.rules.seq : 1);
+        cue_render_ball_icon_hs(HW - 11, 55, 8, S.rules.seq > 0 ? S.rules.seq : 1);
     }
 
     /* The spin indicator. In VR this matters MORE than on the handheld: with no
      * power bar and no aim line it is the only readout of what you are about to
      * do to the ball. */
     if (S.state == ST_AIM && S.cue.on_ball)
-        cue_render_spin_ball_hs(HW - 26, 61, 7, S.cue.tip_side, S.cue.tip_vert);
+        cue_render_spin_ball_hs(HW - 30, 60, 9, S.cue.tip_side, S.cue.tip_vert);
 
     /* The one big line. */
     if (S.state == ST_PLACE) {
@@ -625,8 +665,9 @@ static void hud_build(void) {
     else if (S.state == ST_CPUCUE) hud_text_2x("OPPONENT CUEING...", 4, 58, HI);
     else if (S.state == ST_ROLL)   hud_text_2x("...", 4, 58, DIM);
     else if (S.state == ST_AIM) {
-        if (!S.cue.on_ball) hud_text("CUE IS OFF THE BALL    MENU FOR OPTIONS", 4, 60, DIM);
-        else if (S.cue.stroking)  hud_text_2x("STROKE - PUSH THROUGH", 4, 58, HI);
+        /* No "cue is off the ball" prompt: you can see whether you are on it,
+         * and a panel telling you so is noise. */
+        if (S.cue.stroking)       hud_text_2x("STROKE - PUSH THROUGH", 4, 58, HI);
         else if (S.cue.adjusting) hud_text_2x("SETTING YOUR BRIDGE", 4, 58, HI);
         else hud_text("R TRIG CUE   SIDE TRIG HAND   MENU OPTIONS", 4, 60, DIM);
     }
@@ -758,6 +799,8 @@ static int app_gl_init(void *u) {
     cue_table_build_world(&S.tab, &S.world);
     S.nballs = cue_table_rack(&S.tab, S.balls);
     if (cuevr_render_init(&S.tab, &S.world, mote_xr_target_is_srgb()) != 0) return -1;
+    /* Without this every ball icon and avatar is clipped away at x >= 128. */
+    cue_render_icon_target(CUEVR_HUD_W, CUEVR_HUD_H);
     cuevr_audio_open();
     cuevr_setup_init(&S.setup, 0.0f);
     cuevr_cue_init(&S.cue);
@@ -899,6 +942,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
             }
             default: break;
             }
+            /* Show it, do not just name it. */
+            if (S.menu_row == MR_GAME || S.menu_row == MR_CLOTH ||
+                S.menu_row == MR_FRAME || S.menu_row == MR_BALLS)
+                menu_preview();
             S.hud_dirty = 1;
         }
         if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.menu_latch) {
@@ -1076,6 +1123,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     if (S.opp == OPP_ONLINE) cuevr_net_stop();
                     S.state = ST_MENU;
                     S.menu_row = MR_GAME;
+                    menu_preview();
                     break;
                 }
             }
@@ -1097,6 +1145,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                  * it is done, the menu. */
                 S.levelled = 1;
                 S.state = ST_MENU;
+                menu_preview();
             } else {
                 hand_over();
             }

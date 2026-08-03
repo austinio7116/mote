@@ -92,6 +92,14 @@ void cue_render_set_preview(uint16_t *fb, int cx, int cy, int rad,
 /* Draw a single ball id (number facing out) with the live set — 9-ball next ball. */
 void cue_render_ball_icon(uint16_t *fb, int cx, int cy, int rad, int id);
 
+/* Where the icon helpers above are drawing. The handheld never calls this — its
+ * HUD IS the framebuffer — but the VR panel is 512x288, and without it every icon
+ * was clipped at x >= 128 and never appeared. */
+void cue_render_icon_target(int w, int h);
+
+/* A persona's avatar (cue_faces.h), scaled into a `size` box, alpha respected. */
+void cue_render_face(uint16_t *fb, int cx, int cy, int size, int persona);
+
 /* 3D-shaded cue ball for the spin HUD; marker at tip (side,vert) in R-fractions. */
 void cue_render_spin_ball(uint16_t *fb, int cx, int cy, int rad,
                           float side, float vert);

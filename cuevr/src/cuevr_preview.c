@@ -28,6 +28,7 @@
 #define MR_START_STEPS 6
 MoteVrV3 cuevr_app_rest(void);
 int cuevr_app_aiming(void);
+MoteVrV3 cuevr_app_pocket_room(void);
 float cuevr_app_grip(void);
 #include "cuevr_app.h"
 #include "cuevr_audio.h"
@@ -109,6 +110,14 @@ int main(int argc, char **argv) {
     int w = 1200, h = 800;
     { const char *v = getenv("MOTE_VR_SIZE");
       if (v) { int a, b; if (sscanf(v, "%dx%d", &a, &b) == 2 && a > 64 && b > 64) { w = a; h = b; } } }
+    /* MOTE_VR_FOCUS=pocket puts the eye on a corner pocket, which is the shot
+     * worth comparing against a photograph. Resolved from the app each frame,
+     * because the table has to be placed before its corner exists. */
+    int focus_pocket = 0;
+    { const char *v = getenv("MOTE_VR_FOCUS");
+      if (v && !strcmp(v, "pocket")) focus_pocket = 1;
+      else if (v) { float a, b, c; if (sscanf(v, "%f,%f,%f", &a, &b, &c) == 3)
+          s_focus = mv3(a, b, c); } }
     { const char *v = getenv("MOTE_VR_VIEW");
       if (v) { float a, b, c; if (sscanf(v, "%f,%f,%f", &a, &b, &c) == 3) {
           s_yaw = a * 3.14159265f/180.0f; s_pitch = b * 3.14159265f/180.0f; s_dist = c; } } }
@@ -272,6 +281,8 @@ int main(int argc, char **argv) {
          * TOP level, not inside the stroke script: the first version of this was
          * nested inside `if (auto_stroke)` and silently never ran, which is the
          * same class of mistake as the bug it is here to find. */
+        if (focus_pocket) s_focus = cuevr_app_pocket_room();
+
         if (auto_net) {
             if (nframe == 4) s_a = 1;            /* confirm the levelling */
             if (nframe == 6) s_a = 0;
