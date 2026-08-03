@@ -103,6 +103,7 @@ static const char *FS =
 "uniform highp sampler2DArray u_fur;\n"
 "uniform highp sampler2D u_nap;\n"
 "uniform float u_feltspan;\n"
+"uniform vec2  u_half;\n"
 "uniform float u_furslice;\n"
 "uniform float u_furslices;\n"
 "uniform float u_furdbg;\n"
@@ -1015,7 +1016,7 @@ static struct {
     GLuint prog;
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
-    GLint  u_cloth, u_fur, u_nap, u_feltspan, u_furslice, u_furslices, u_furdbg, u_shell,
+    GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
     Mesh   ctrl[2];
@@ -1910,6 +1911,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_fur        = glGetUniformLocation(G.prog, "u_fur");
     G.u_nap        = glGetUniformLocation(G.prog, "u_nap");
     G.u_feltspan   = glGetUniformLocation(G.prog, "u_feltspan");
+    G.u_half       = glGetUniformLocation(G.prog, "u_half");
     G.u_furslice   = glGetUniformLocation(G.prog, "u_furslice");
     G.u_furslices  = glGetUniformLocation(G.prog, "u_furslices");
     G.u_furdbg     = glGetUniformLocation(G.prog, "u_furdbg");
@@ -2351,6 +2353,7 @@ void cuevr_render_eye(const float *view, const float *proj,
         G.fur_scale = getenv("CUEVR_FUR") ? (float)atof(getenv("CUEVR_FUR")) : 1.0f;
         glUniform1f(G.u_feltspan, FUR_SPAN * G.fur_scale);
         glUniform1f(G.u_furslices, (float)FUR_SLICES);
+        glUniform2f(G.u_half, G.tab.half_len, G.tab.half_wid);
         glUniform1f(G.u_furdbg, getenv("CUEVR_FURDBG") ? 1.0f : 0.0f);
         {   const CueVrCueDesign *cd = &CUE_RACK[s_cue_sel];
             glUniform3fv(G.u_cshaft, 1, cd->shaft);
