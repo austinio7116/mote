@@ -25,7 +25,7 @@
 #include "cuevr.h"
 
 /* How many rows below GAME the START row sits. Must track the menu. */
-#define MR_START_STEPS 6
+#define MR_START_STEPS 7
 MoteVrV3 cuevr_app_rest(void);
 int cuevr_app_aiming(void);
 MoteVrV3 cuevr_app_pocket_room(void);
@@ -116,6 +116,7 @@ int main(int argc, char **argv) {
     int focus_pocket = 0;
     { const char *v = getenv("MOTE_VR_FOCUS");
       if (v && !strcmp(v, "pocket")) focus_pocket = 1;
+      else if (v && !strcmp(v, "butt")) focus_pocket = 2;
       else if (v) { float a, b, c; if (sscanf(v, "%f,%f,%f", &a, &b, &c) == 3)
           s_focus = mv3(a, b, c); } }
     { const char *v = getenv("MOTE_VR_VIEW");
@@ -281,7 +282,8 @@ int main(int argc, char **argv) {
          * TOP level, not inside the stroke script: the first version of this was
          * nested inside `if (auto_stroke)` and silently never ran, which is the
          * same class of mistake as the bug it is here to find. */
-        if (focus_pocket) s_focus = cuevr_app_pocket_room();
+        if (focus_pocket == 1) s_focus = cuevr_app_pocket_room();
+        else if (focus_pocket == 2) s_focus = s_butt;   /* the cue's butt hand */
 
         if (auto_net) {
             if (nframe == 4) s_a = 1;            /* confirm the levelling */

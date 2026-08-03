@@ -94,7 +94,7 @@ static const char *OPP_NAME[OPP_N] = { "PRACTICE", "VS CPU", "ONLINE" };
  * six things to choose and a list only chooses one. Up/down picks the row,
  * left/right changes it, A activates. */
 enum { MR_GAME = 0, MR_OPP, MR_STRENGTH, MR_CLOTH, MR_FRAME, MR_BALLS,
-       MR_START, MR_N };
+       MR_CUE, MR_START, MR_N };
 
 /* The pause menu, on the MENU button. */
 /* The lobby, matching the Mote lobby's own shape: pick a transport, then an
@@ -125,6 +125,7 @@ static struct {
     int menu_updown;             /* latch for row movement */
     int opp;                     /* OPP_* */
     int cloth_idx, frame_idx;    /* cue_theme.h palettes */
+    int cue_idx;                 /* which cue off the rack */
     int levelled;                /* the table has been sited once this session */
     int pause_sel, pause_latch;
     int net_me;                  /* our player index in an online match */
@@ -415,6 +416,7 @@ static void hud_build(void) {
         hud_opt(MR_CLOTH, "CLOTH", k_cloth_name[S.cloth_idx], S.menu_row == MR_CLOTH, 1, TXT, DIM, HI);
         hud_opt(MR_FRAME, "FRAME", k_frame_name[S.frame_idx], S.menu_row == MR_FRAME, 1, TXT, DIM, HI);
         hud_opt(MR_BALLS, "BALLS", k_ballset_name[S.ballset], S.menu_row == MR_BALLS, 1, TXT, DIM, HI);
+        hud_opt(MR_CUE, "CUE", cuevr_render_cue_name(S.cue_idx), S.menu_row == MR_CUE, 1, TXT, DIM, HI);
 
         {   int y = 12 + MR_START * 8;
             if (S.menu_row == MR_START) hud_rect(1, y - 1, HW - 2, 9, RGB565C(30, 60, 40));
@@ -814,7 +816,8 @@ static int app_gl_init(void *u) {
         float h = S.setup.place.height;
         cuevr_prefs_load(&h, &S.cue.rest, &S.cue.grip,
                          &kind, &S.ballset, &S.persona,
-                         &S.cloth_idx, &S.frame_idx, &S.opp);
+                         &S.cloth_idx, &S.frame_idx, &S.opp, &S.cue_idx);
+        cuevr_render_set_cue(S.cue_idx);
         S.setup.place.height = h;
         S.pref_height = h;
         for (int i = 0; i < MENU_N; i++) if ((int)MENU[i].kind == kind) S.menu_sel = i;
@@ -931,6 +934,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
             case MR_STRENGTH: S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS; break;
             case MR_CLOTH:    S.cloth_idx = (S.cloth_idx + d + CUE_NCLOTH) % CUE_NCLOTH; break;
             case MR_FRAME:    S.frame_idx = (S.frame_idx + d + CUE_NFRAME) % CUE_NFRAME; break;
+            case MR_CUE: {
+                int n = cuevr_render_cue_count();
+                S.cue_idx = (S.cue_idx + d + n) % n;
+                cuevr_render_set_cue(S.cue_idx);
+                break;
+            }
             case MR_BALLS: {
                 int b0 = S.ballset;
                 do {
@@ -1468,18 +1477,18 @@ static void app_update(void *u, const MoteVrTracking *t) {
      * they grip, and what they chose to play. All of it is a property of the
      * player rather than of the frame, so none of it should have to be redone. */
     {
-        static float last[5]; static int lastk[6]; static float since;
+        static float last[5]; static int lastk[7]; static float since;
         float now[5] = { S.setup.place.height, S.cue.rest.x, S.cue.rest.y,
                          S.cue.rest.z, S.cue.grip };
-        int nowk[6] = { (int)S.tab.kind, S.ballset, S.persona,
-                        S.cloth_idx, S.frame_idx, S.opp };
+        int nowk[7] = { (int)S.tab.kind, S.ballset, S.persona,
+                        S.cloth_idx, S.frame_idx, S.opp, S.cue_idx };
         int changed = 0;
         for (int i = 0; i < 5; i++) if (fabsf(now[i] - last[i]) > 0.0005f) changed = 1;
-        for (int i = 0; i < 6; i++) if (nowk[i] != lastk[i]) changed = 1;
+        for (int i = 0; i < 7; i++) if (nowk[i] != lastk[i]) changed = 1;
         since += dt;
         if (changed && since > 1.0f) {
             cuevr_prefs_save(now[0], S.cue.rest, now[4], nowk[0], nowk[1], nowk[2],
-                             nowk[3], nowk[4], nowk[5]);
+                             nowk[3], nowk[4], nowk[5], nowk[6]);
             memcpy(last, now, sizeof last);
             memcpy(lastk, nowk, sizeof lastk);
             since = 0.0f;

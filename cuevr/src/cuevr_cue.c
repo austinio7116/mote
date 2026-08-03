@@ -64,12 +64,12 @@ void cuevr_prefs_dir(const char *dir) {
 
 void cuevr_prefs_load(float *h, MoteVrV3 *rest, float *grip,
                       int *kind, int *ballset, int *persona,
-                      int *cloth, int *frame, int *opp) {
+                      int *cloth, int *frame, int *opp, int *cue) {
     if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
     FILE *f = fopen(s_prefs_path, "r");
     if (!f) return;
     float a = 0, d = 0;
-    int k = 0, bs = 0, ps = 0, cl = 0, fr = 0, op = 1;
+    int k = 0, bs = 0, ps = 0, cl = 0, fr = 0, op = 1, cu = 0;
     /* Seven fields, and it stays seven: slot 3 is a dead rest_fwd that files
      * from an earlier build still carry, and dropping it would shift every
      * field after it. Read past it, write a zero, leave it reserved. */
@@ -78,8 +78,8 @@ void cuevr_prefs_load(float *h, MoteVrV3 *rest, float *grip,
      * simply keeps its default rather than the whole thing being thrown
      * away — losing a saved table height because a new option appeared
      * would be a poor trade. */
-    int got = fscanf(f, "%f %f %f %f %f %d %d %d %d %d %d",
-                     &a, &rx, &ry, &rz, &d, &k, &bs, &ps, &cl, &fr, &op);
+    int got = fscanf(f, "%f %f %f %f %f %d %d %d %d %d %d %d",
+                     &a, &rx, &ry, &rz, &d, &k, &bs, &ps, &cl, &fr, &op, &cu);
     if (got >= 8) {
         /* Sanity-check every one: a corrupt file must not put the table through
          * the ceiling or the cue inside your hand. */
@@ -95,19 +95,20 @@ void cuevr_prefs_load(float *h, MoteVrV3 *rest, float *grip,
             if (frame && fr >= 0 && fr < CUE_NFRAME)  *frame = fr;
             if (opp   && op >= 0 && op < 3)           *opp   = op;
         }
+        if (got >= 12 && cue && cu >= 0 && cu < 32) *cue = cu;
     }
     fclose(f);
 }
 
 void cuevr_prefs_save(float h, MoteVrV3 rest, float grip,
                       int kind, int ballset, int persona,
-                      int cloth, int frame, int opp) {
+                      int cloth, int frame, int opp, int cue) {
     if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
     FILE *f = fopen(s_prefs_path, "w");
     if (!f) { CUEVR_PREFS_LOG("[cuevr] cannot write %s", s_prefs_path); return; }
-    fprintf(f, "%.4f %.4f %.4f %.4f %.4f %d %d %d %d %d %d\n",
+    fprintf(f, "%.4f %.4f %.4f %.4f %.4f %d %d %d %d %d %d %d\n",
             (double)h, (double)rest.x, (double)rest.y, (double)rest.z,
-            (double)grip, kind, ballset, persona, cloth, frame, opp);
+            (double)grip, kind, ballset, persona, cloth, frame, opp, cue);
     fclose(f);
 }
 

@@ -102,6 +102,11 @@ static const char *FS =
 "uniform float u_furslice;\n"
 "uniform float u_furslices;\n"
 "uniform float u_furdbg;\n"
+"uniform vec3  u_cshaft;\n"
+"uniform vec3  u_csplice;\n"
+"uniform vec3  u_caccent;\n"
+"uniform vec3  u_cbutt;\n"
+"uniform float u_cflash;\n"
 "uniform vec3  u_markc;\n"      // chalk
 "uniform float u_baulk;\n"
 "uniform float u_drad;\n"
@@ -263,8 +268,8 @@ static const char *FS =
 "        // shaft. No texture, and it stays sharp with the tip a hand's width\n"
 "        // from your eye.\n"
 "        float t = v_uv.y, a = v_uv.x;\n"
-"        vec3 ash   = vec3(0.86, 0.74, 0.54);\n"
-"        vec3 ebony = vec3(0.085, 0.065, 0.055);\n"
+"        vec3 ash   = u_cshaft;\n"
+"        vec3 ebony = u_csplice;\n"
 "        vec3 c;\n"
 "        float gloss = 42.0, spec_k = 0.30;\n"
 "        // A snooker tip is GREEN leather and the ferrule is bright metal. It\n"
@@ -275,7 +280,26 @@ static const char *FS =
 "        // as guesses: the green ran to 11 mm before, which is three times the\n"
 "        // pad on a real cue and read as a long coloured cone.\n"
 "        if (t < 0.00241) { c = vec3(0.16, 0.42, 0.30); gloss = 6.0; spec_k = 0.04; }\n"
-"        else if (t < 0.00931) { c = vec3(0.84, 0.84, 0.87); gloss = 90.0; spec_k = 0.60; }\n" // ferrule: green when the line is live
+"        else if (t < 0.00931) {\n"
+"            // A ferrule is polished metal, and flat grey with one Blinn\n"
+"            // highlight is what plastic looks like. Metal has almost no\n"
+"            // diffuse and nearly all of its brightness comes from what it is\n"
+"            // reflecting, so it needs to go DARK where it reflects nothing and\n"
+"            // blow out where it catches a lamp. The band round the shaft is\n"
+"            // the giveaway: bright top, dark flank, bright rim.\n"
+"            vec3 nn = normalize(v_nrm);\n"
+"            vec3 Vv = normalize(u_eye - v_world);\n"
+"            vec3 R = reflect(-Vv, nn);\n"
+"            float up = clamp(R.y * 0.5 + 0.5, 0.0, 1.0);\n"
+"            float band = pow(up, 3.0);\n"
+"            float rim = pow(1.0 - abs(dot(nn, Vv)), 2.5);\n"
+"            vec3 metal = vec3(0.62, 0.63, 0.66);\n"
+"            c = metal * (0.42 + 1.25 * band) + vec3(rim * 0.45);\n"
+"            // a tight lamp glint on top of that\n"
+"            float g = pow(max(dot(nn, normalize(L + Vv)), 0.0), 180.0);\n"
+"            c += vec3(g * 1.6);\n"
+"            gloss = 160.0; spec_k = 0.0;\n"
+"        }\n" // ferrule: green when the line is live
 "        else {\n"
 "            // Ash grain runs the LENGTH of the cue as fine lines, so it has\n"
 "            // to vary with the angle round the shaft and only drift slowly\n"
@@ -299,9 +323,30 @@ static const char *FS =
 "                float f = fract(a * 4.0);\n"
 "                float d = min(f, 1.0 - f);\n"
 "                c = mix(c, ebony, smoothstep(halfw, halfw * 0.86, d));\n"
+"                // The accent veneer: a thin coloured line flashed down BOTH\n"
+"                // edges of every point. On a real cue this is a sliver of dyed\n"
+"                // wood between the splice and the shaft, and it is the detail\n"
+"                // that makes the cue look made rather than turned.\n"
+"                float edge = abs(d - halfw);\n"
+"                float flash = 1.0 - smoothstep(0.0, halfw * 0.09 + 0.0035, edge);\n"
+"                c = mix(c, u_caccent, flash * u_cflash * 0.95);\n"
 "            }\n"
-"            if (t > sp_base) c = ebony;\n"                        // solid butt above the splice
-"            if (t > 0.9793 && t < 0.9931) c = vec3(0.62, 0.50, 0.22);\n"  // brass collar
+"            if (t > sp_base) c = u_cbutt;\n"                        // solid butt above the splice
+"            // Brass. A three-quarter jointed cue has a bright collar at the\n"
+"            // joint and another at the butt cap, and both catch the light hard\n"
+"            // enough to be a feature rather than a detail.\n"
+"            float brass_lit = 0.0;\n"
+"            // The butt collar sits just SHORT of the cap. Sitting on it, the\n"
+"            // brass wrapped the rounded end and the cue finished in a gold\n"
+"            // cone — a real one finishes in a dark rubber or horn cap with the\n"
+"            // brass ring behind it.\n"
+"            if ((t > 0.7240 && t < 0.7355) ||\n"
+"                (t > 0.9600 && t < 0.9710)) {\n"
+"                c = vec3(0.78, 0.62, 0.26);\n"
+"                brass_lit = 1.0;\n"
+"            }\n"
+"            gloss = mix(gloss, 120.0, brass_lit);\n"
+"            spec_k = mix(spec_k, 0.85, brass_lit);\n"  // brass collar
 "        }\n"
 "        float d = max(dot(v_nrm, L), 0.0);\n"
 "        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), gloss);\n"
@@ -362,9 +407,28 @@ static const char *FS =
 "        // and it fades to flat on its own as you back away. Two octaves —\n"
 "        // the fine one is the fibre grain you see with your eye down on the\n"
 "        // cloth, the coarser one is the mottle you can still see standing up.\n"
-"        float n1 = texture(u_fur, vec3(v_local.xz / u_feltspan, 0.0)).r;\n"
 "        float n2 = texture(u_fur, vec3(v_local.xz / (u_feltspan * 5.0), 0.0)).r;\n"
-"        nap += (n1 - 0.88) * 0.20 + (n2 - 0.88) * 0.11;\n"
+"        nap += (n2 - 0.88) * 0.09;      // slow mottle only\n"
+"\n"
+"        // SPARKLE. What you see on a real cloth head-on is not a pattern, it\n"
+"        // is individual fibre tips catching the light — single-pixel highlights\n"
+"        // and lowlights, dense and uncorrelated.\n"
+"        //\n"
+"        // The cell size is tied to the PIXEL FOOTPRINT, so a cell is always\n"
+"        // about a pixel however far away you are. That is the opposite of what\n"
+"        // I kept doing: a fixed-size feature either aliases into moire or gets\n"
+"        // averaged into nothing. And because the speckle is UNCORRELATED rather\n"
+"        // than a directional pattern, undersampling it reads as twinkle — the\n"
+"        // thing you actually want — instead of as a swirl.\n"
+"        float fp = max(fwidth(v_local.x), fwidth(v_local.z));\n"
+"        vec2 cell = floor(v_local.xz / max(fp * 1.35, 1e-6));\n"
+"        float sp = hash12(cell);\n"
+"        // Strongest looking straight down into the pile, which is where the\n"
+"        // tips point at you; glancing views see their sides instead.\n"
+"        float faceon = abs(dot(nv, V));\n"
+"        float lift = smoothstep(0.80, 1.0, sp) * (0.10 + 0.16 * faceon);\n"
+"        float dip  = smoothstep(0.80, 1.0, 1.0 - sp) * (0.06 + 0.10 * faceon);\n"
+"        nap += lift - dip;\n"
 "        vec3 cloth = to_linear(u_cloth) * nap;\n"
 "        float sheen = 0.0;\n"
 "        \n"
@@ -550,7 +614,8 @@ static struct {
     GLuint prog;
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
-    GLint  u_cloth, u_fur, u_feltspan, u_furslice, u_furslices, u_furdbg, u_shell, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
+    GLint  u_cloth, u_fur, u_feltspan, u_furslice, u_furslices, u_furdbg, u_shell,
+           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
     Mesh   fins, bed, table, lips, frame, ball, cue, quad, floor, grip;
     int    frame_sel;
@@ -670,16 +735,28 @@ static void build_cue(Builder *b, int slices, int rings) {
          * nearly straight and need almost nothing. */
         float t;
         {
-            int tipr = rings / 4;
-            if (tipr < 10) tipr = 10;
+            /* THREE zones, because both ends are rounded and the middle is very
+             * nearly straight. The version before this had two, and the butt cap
+             * got exactly one ring across its last 40 mm — so the cue finished in
+             * a black cone, the identical fault the tip had. Whenever the profile
+             * curves, the rings have to be there to see it. */
+            int tipr  = rings / 4;  if (tipr  < 10) tipr  = 10;
+            int buttr = rings / 6;  if (buttr < 6)  buttr = 6;
+            int mid   = rings - tipr - buttr;
+            if (mid < 4) mid = 4;
+            const float TIPZ = 0.015f, BUTTZ = CUE_LEN - 0.050f;
+            float x;
             if (j <= tipr) {
                 float u = (float)j / (float)tipr;
-                t = (0.015f * u * u) / CUE_LEN;        /* 0 -> 15 mm, dense at 0 */
+                x = TIPZ * u * u;                       /* dense at the tip */
+            } else if (j <= tipr + mid) {
+                float v = (float)(j - tipr) / (float)mid;
+                x = TIPZ + (BUTTZ - TIPZ) * v;          /* the straight run */
             } else {
-                float v = (float)(j - tipr) / (float)(rings - tipr);
-                float x = 0.015f + (CUE_LEN - 0.015f) * v;
-                t = x / CUE_LEN;
+                float v = (float)(j - tipr - mid) / (float)buttr;
+                x = BUTTZ + (CUE_LEN - BUTTZ) * v;      /* the rounded cap */
             }
+            t = x / CUE_LEN;
         }
         float y = t * CUE_LEN, r = cue_radius(t);
         float r2 = cue_radius(t + 0.004f > 1.0f ? 1.0f : t + 0.004f);
@@ -819,6 +896,37 @@ static float fur_noise(float x, float y, int px, int py) {
     float ab = a + (b - a) * fx, cd = c + (d - c) * fx;
     return ab + (cd - ab) * fy;
 }
+
+/* ---- the cue rack -------------------------------------------------------- *
+ * Loosely after the British ranges — an ash-and-ebony hand splice is the default
+ * and everything else is a variation on it. The accent veneer is the thin
+ * coloured line flashed down each side of a splice point, which is the detail
+ * that makes a cue look made rather than turned. */
+static const CueVrCueDesign CUE_RACK[] = {
+  { "ASH & EBONY",  {0.86f,0.74f,0.54f}, {0.085f,0.065f,0.055f},
+                    {0.085f,0.065f,0.055f}, {0.085f,0.065f,0.055f}, 0 },
+  { "TURQUOISE",    {0.84f,0.72f,0.52f}, {0.10f,0.075f,0.06f},
+                    {0.20f,0.72f,0.74f},    {0.055f,0.05f,0.05f},   1 },
+  { "BURR WALNUT",  {0.87f,0.75f,0.55f}, {0.34f,0.20f,0.10f},
+                    {0.72f,0.56f,0.30f},    {0.26f,0.15f,0.08f},    1 },
+  { "EBONY PRO",    {0.72f,0.61f,0.45f}, {0.06f,0.05f,0.05f},
+                    {0.80f,0.80f,0.82f},    {0.045f,0.04f,0.04f},   1 },
+  { "MAPLE & BLUE", {0.93f,0.86f,0.70f}, {0.09f,0.07f,0.07f},
+                    {0.18f,0.38f,0.80f},    {0.07f,0.07f,0.09f},    1 },
+  { "ROSEWOOD",     {0.82f,0.68f,0.48f}, {0.36f,0.13f,0.11f},
+                    {0.78f,0.34f,0.20f},    {0.24f,0.09f,0.08f},    1 },
+  { "TOURNAMENT",   {0.90f,0.82f,0.63f}, {0.08f,0.06f,0.055f},
+                    {0.16f,0.52f,0.28f},    {0.06f,0.055f,0.05f},   1 },
+};
+#define CUE_RACK_N ((int)(sizeof CUE_RACK / sizeof CUE_RACK[0]))
+static int s_cue_sel;
+
+int         cuevr_render_cue_count(void) { return CUE_RACK_N; }
+const char *cuevr_render_cue_name(int i) {
+    return (i >= 0 && i < CUE_RACK_N) ? CUE_RACK[i].name : "";
+}
+void cuevr_render_set_cue(int i) { s_cue_sel = (i < 0 || i >= CUE_RACK_N) ? 0 : i; }
+int         cuevr_render_cue(void) { return s_cue_sel; }
 
 static void bake_fur(void) {
     if (G.fur_tex) { glDeleteTextures(1, &G.fur_tex); G.fur_tex = 0; }
@@ -1185,6 +1293,11 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_furslice   = glGetUniformLocation(G.prog, "u_furslice");
     G.u_furslices  = glGetUniformLocation(G.prog, "u_furslices");
     G.u_furdbg     = glGetUniformLocation(G.prog, "u_furdbg");
+    G.u_cshaft     = glGetUniformLocation(G.prog, "u_cshaft");
+    G.u_csplice    = glGetUniformLocation(G.prog, "u_csplice");
+    G.u_caccent    = glGetUniformLocation(G.prog, "u_caccent");
+    G.u_cbutt      = glGetUniformLocation(G.prog, "u_cbutt");
+    G.u_cflash     = glGetUniformLocation(G.prog, "u_cflash");
     G.u_shell      = glGetUniformLocation(G.prog, "u_shell");
     G.u_markc      = glGetUniformLocation(G.prog, "u_markc");
     G.u_baulk      = glGetUniformLocation(G.prog, "u_baulk");
@@ -1560,6 +1673,13 @@ void cuevr_render_eye(const float *view, const float *proj,
         glUniform1f(G.u_feltspan, FUR_SPAN * G.fur_scale);
         glUniform1f(G.u_furslices, (float)FUR_SLICES);
         glUniform1f(G.u_furdbg, getenv("CUEVR_FURDBG") ? 1.0f : 0.0f);
+        {   const CueVrCueDesign *cd = &CUE_RACK[s_cue_sel];
+            glUniform3fv(G.u_cshaft, 1, cd->shaft);
+            glUniform3fv(G.u_csplice, 1, cd->splice);
+            glUniform3fv(G.u_caccent, 1, cd->accent);
+            glUniform3fv(G.u_cbutt, 1, cd->butt);
+            glUniform1f(G.u_cflash, (float)cd->flash);
+        }
         glUniform1f(G.u_baulk, tb->baulk_x);
         glUniform1f(G.u_drad,  tb->d_radius);
         glUniform1f(G.u_linew, 0.0016f);      /* a chalk line is ~3 mm wide */

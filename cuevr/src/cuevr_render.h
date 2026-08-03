@@ -57,6 +57,26 @@ typedef struct {
 
 int  cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb);
 void cuevr_render_set_table(const CueTable *t, const CueWorld *w);
+/* ---- the cue rack -------------------------------------------------------- *
+ * A cue is a handful of colours and a splice style, which is very nearly what a
+ * real one is: a shaft wood, the timber of the four-point hand splice, an accent
+ * veneer flashed along the points, a butt, and brass at the joint. Everything is
+ * shaded from the axial and angular coordinates, so a new cue is six numbers and
+ * no new geometry or textures. */
+typedef struct {
+    const char *name;
+    float shaft[3];      /* the shaft wood */
+    float splice[3];     /* the four points */
+    float accent[3];     /* the veneer flashed along each point */
+    float butt[3];
+    int   flash;         /* 1 = show the accent veneer */
+} CueVrCueDesign;
+
+int         cuevr_render_cue_count(void);
+const char *cuevr_render_cue_name(int i);
+void        cuevr_render_set_cue(int i);
+int         cuevr_render_cue(void);
+
 void cuevr_render_hud(const uint16_t *px);       /* CUEVR_HUD_W*H RGB565 */
 void cuevr_render_eye(const float *view, const float *proj,
                       const CueVrScene *s, int draw_room);
