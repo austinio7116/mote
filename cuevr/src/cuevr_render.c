@@ -232,11 +232,11 @@ static const char *FS =
 "NapSample nap_sample(vec3 pos, vec3 nrm) {\n"
 "    vec2 uv = surf_uv(pos, nrm);\n"
 "    NapSample s;\n"
-"    s.coarse = nap_fetch(uv / 0.011);\n"
+"    s.coarse = nap_fetch(uv / 0.045);\n"
 "    // The fine one takes a plain fetch: it feeds occlusion, where a slightly soft\n"
 "    // grazing footprint costs nothing anyone can see, and it saves the derivative\n"
 "    // work and the branches.\n"
-"    s.fine = (texture(u_nap, uv / 0.0037).rg - 0.5) * 2.0;\n"
+"    s.fine = (texture(u_nap, uv / 0.0085).rg - 0.5) * 2.0;\n"
 "    return s;\n"
 "}\n"
 "\n"
@@ -1247,7 +1247,14 @@ int         cuevr_render_cue(void) { return s_cue_sel; }
  * shading normal with it and lets the BRDF do the rest.
  *
  * RG8, zero-mean, several octaves, isotropic, tiling, mipmapped. */
-#define NAP_N 512
+/* 1024, and seven octaves. The point of a bigger tile is not resolution for its own
+ * sake — it is that ONE fetch then contains detail from 6 mm down to 0.09 mm, and
+ * the pattern does not repeat until 45 mm. The small tile gave a single fetch few
+ * octaves (bland) repeating every 11 mm (repetitive), and I had been buying the
+ * detail back with extra fetches, which is what cost the frame rate. Bake it in
+ * once instead. 2 MB, mipmapped. */
+#define NAP_N 1024
+#define NAP_SPAN 0.045f
 
 static void bake_nap(void) {
     if (G.nap_tex) { glDeleteTextures(1, &G.nap_tex); G.nap_tex = 0; }
@@ -1258,13 +1265,17 @@ static void bake_nap(void) {
             float u = (float)x / NAP_N, v = (float)y / NAP_N;
             float ax = 0.0f, az = 0.0f, amp = 1.0f, norm = 0.0f;
             int per = 8;
-            /* Five octaves, each doubling, each half the amplitude: 1/f, which is
-             * what a fibrous surface actually measures as. */
-            for (int o = 0; o < 5; o++) {
+            /* Seven octaves, and the WEIGHTING is the thing that matters. Standard
+             * 1/f halves the amplitude each octave, so the coarsest dominates and
+             * the field reads as cloud — which is exactly how the bed looked. Cloth
+             * is the other way round: almost all of its energy is at the fine end,
+             * with only a whisper of large-scale unevenness. A gentle 0.86 falloff
+             * over seven octaves puts the weight where the weave is. */
+            for (int o = 0; o < 7; o++) {
                 ax += (fur_noise(u * per, v * per, per, per) - 0.5f) * amp;
                 az += (fur_noise(u * per + 37.0f, v * per + 11.0f, per, per) - 0.5f) * amp;
                 norm += amp;
-                amp *= 0.55f;
+                amp *= 0.86f;
                 per *= 2;
             }
             ax /= norm; az /= norm;                 /* back to about -0.5..0.5 */
@@ -1290,7 +1301,8 @@ static void bake_nap(void) {
         while (glGetError() != GL_NO_ERROR) { }
     }
     free(px);
-    LOGI("[cuevr] baked a %dx%d nap lean field (5 octaves, zero mean)", NAP_N, NAP_N);
+    LOGI("[cuevr] baked a %dx%d nap lean field (7 octaves, %.0f mm tile)",
+         NAP_N, NAP_N, (double)(NAP_SPAN * 1000.0f));
 }
 
 static void bake_fur(void) {
@@ -2259,12 +2271,16 @@ skip_shadows:
              * alone; CTRL_FLIP settles it in one look on a headset. */
             const float CTRL_ZMID = 0.0418f;      /* half the model's 83.5 mm depth */
             const float CTRL_FLIP = 1.0f;         /* -1 to spin the handle end for end */
+            /* Plus 180 degrees about grip Z: the model faces backwards out of the
+             * hand otherwise — the thumbstick pointing at the palm instead of at
+             * the thumb. Not derivable from the bounding box, only from looking. */
+            const float CTRL_ROLL = -1.0f;        /* 180 deg about Z */
             mm4_identity(K);
-            K[0]  =  1.0f;                        /* col 0: model x -> grip x */
+            K[0]  =  CTRL_ROLL;                   /* col 0: model x -> grip x */
             K[1]  =  0.0f; K[2] = 0.0f;
             K[4]  =  0.0f; K[5] = 0.0f; K[6] = CTRL_FLIP;   /* model y -> grip z */
-            K[8]  =  0.0f; K[9] = -CTRL_FLIP; K[10] = 0.0f; /* model z -> grip -y */
-            K[13] =  CTRL_ZMID * CTRL_FLIP;       /* and centre it on the fist */
+            K[8]  =  0.0f; K[9] = -CTRL_FLIP * CTRL_ROLL; K[10] = 0.0f;
+            K[13] =  CTRL_ZMID * CTRL_FLIP * CTRL_ROLL;
             mm4_mul(M, P, K);
             set_model(M);
             draw(G.ctrl[i].n ? &G.ctrl[i] : &G.grip);
