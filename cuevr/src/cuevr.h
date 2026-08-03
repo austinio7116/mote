@@ -112,16 +112,19 @@ typedef struct {
      * hand along the cue to change it. */
     float grip;
 
-    /* Where the cue rests relative to your left hand. A real bridge holds the
-     * cue ABOVE the hand, not through the middle of it, and how high depends on
-     * how you make your bridge — so it is adjustable, with the left side
-     * trigger, and it persists: it is a property of the player, not of the shot.
+    /* Where the bridge sits relative to the CENTRE of your left controller.
+     * A stored 3D offset, nothing cleverer: hold the left side trigger, move
+     * your hand, and the offset moves with it, so you place the cue where your
+     * bridge actually is and it stays there.
      *
-     * Only the vertical offset exists, and that is structural rather than an
-     * omission: the cue is built from the grip hand and the bridge only supplies
-     * the aim DIRECTION, so an offset along the cue is parallel to it and can
-     * move nothing. */
-    float rest_lift;
+     * The first version subtracted the motion instead of adding it, on the idea
+     * that a hand slides along a stationary cue. That inverts the control: the
+     * instinctive gesture for "lift the cue" is to raise your hand, and raising
+     * your hand drove the offset to ZERO — putting the cue through the middle of
+     * the controller, every time, no matter how carefully it was aligned. It
+     * also froze the drawn cue while the trigger was held, so none of it was
+     * visible until you let go. Direct, and live, is what this wants to be. */
+    MoteVrV3 rest;
 
     /* The stroke. Pulling the right trigger locks the aim and hands the cue to
      * your grip hand: the bridge becomes a fixed pivot and the cue slides
@@ -173,6 +176,7 @@ typedef struct {
 /* The leather tip's radius: contact is its surface, not a line. */
 #define CUEVR_TIP_R    0.005f
 #define CUEVR_REST_LIFT_DEFAULT 0.030f  /* a knuckle's worth of bridge */
+#define CUEVR_REST_MAXLEN 0.30f         /* the cue stays within reach of the hand */
 #define CUEVR_REST_MIN  -0.02f
 #define CUEVR_REST_MAX   0.14f
 
@@ -185,8 +189,9 @@ void cuevr_cue_init(CueVrCue *c);
  * they matched to a real surface, and the bridge they make. Stored beside the
  * app's own data; set the directory once at start-up. */
 void cuevr_prefs_dir(const char *dir);
-void cuevr_prefs_load(float *table_height, float *rest_lift, float *grip, int *table_kind, int *ballset, int *persona);
-void cuevr_prefs_save(float table_height, float rest_lift, float grip, int table_kind, int ballset, int persona);
+void cuevr_prefs_load(float *table_height, MoteVrV3 *rest, float *grip, int *table_kind, int *ballset, int *persona);
+void cuevr_prefs_save(float table_height, MoteVrV3 rest, float grip,
+                      int table_kind, int ballset, int persona);
 
 /* A struck shot, as the physics wants it. */
 typedef struct {

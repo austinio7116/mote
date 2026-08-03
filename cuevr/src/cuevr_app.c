@@ -130,7 +130,7 @@ static struct {
  * the ball, exactly as a real hand does without being told. Hardcoding the
  * default here meant the harness went quiet the moment a saved rest was
  * loaded — a stroke that never lands looks identical to a test that passes. */
-float cuevr_app_rest_lift(void) { return S.cue.rest_lift; }
+MoteVrV3 cuevr_app_rest(void) { return S.cue.rest; }
 float cuevr_app_grip(void)      { return S.cue.grip; }
 
 /* ---- table setup -------------------------------------------------------- */
@@ -146,9 +146,9 @@ static void start_frame(CueGameKind kind) {
      * the grip are things a player HAS, not things a frame has — and wiping
      * them here was what made the rest snap back to default. */
     {
-        float keep_lift = S.cue.rest_lift, keep_grip = S.cue.grip;
+        MoteVrV3 keep_rest = S.cue.rest; float keep_grip = S.cue.grip;
         cuevr_cue_init(&S.cue);
-        S.cue.rest_lift = keep_lift;
+        S.cue.rest      = keep_rest;
         S.cue.grip      = keep_grip;
     }
     S.sited = 0;      /* a 12 ft table does not go where a 7 ft one did */
@@ -438,7 +438,7 @@ static int app_gl_init(void *u) {
     {
         int kind = (int)S.tab.kind;
         float h = S.setup.place.height;
-        cuevr_prefs_load(&h, &S.cue.rest_lift, &S.cue.grip,
+        cuevr_prefs_load(&h, &S.cue.rest, &S.cue.grip,
                          &kind, &S.ballset, &S.persona);
         S.setup.place.height = h;
         S.pref_height = h;
@@ -822,15 +822,16 @@ static void app_update(void *u, const MoteVrTracking *t) {
      * they grip, and what they chose to play. All of it is a property of the
      * player rather than of the frame, so none of it should have to be redone. */
     {
-        static float last[3]; static int lastk[3]; static float since;
-        float now[3] = { S.setup.place.height, S.cue.rest_lift, S.cue.grip };
+        static float last[5]; static int lastk[3]; static float since;
+        float now[5] = { S.setup.place.height, S.cue.rest.x, S.cue.rest.y,
+                         S.cue.rest.z, S.cue.grip };
         int nowk[3] = { (int)S.tab.kind, S.ballset, S.persona };
         int changed = 0;
-        for (int i = 0; i < 3; i++) if (fabsf(now[i] - last[i]) > 0.0005f) changed = 1;
+        for (int i = 0; i < 5; i++) if (fabsf(now[i] - last[i]) > 0.0005f) changed = 1;
         for (int i = 0; i < 3; i++) if (nowk[i] != lastk[i]) changed = 1;
         since += dt;
         if (changed && since > 1.0f) {
-            cuevr_prefs_save(now[0], now[1], now[2], nowk[0], nowk[1], nowk[2]);
+            cuevr_prefs_save(now[0], S.cue.rest, now[4], nowk[0], nowk[1], nowk[2]);
             memcpy(last, now, sizeof last);
             memcpy(lastk, nowk, sizeof lastk);
             since = 0.0f;

@@ -39,10 +39,10 @@ static void hold(MoteVrTracking *t, CueVrCue *c, float gap, float dt) {
     MoteVrV3 tip = mv3_sub(BALL, mv3_scale(ax, (R + CUEVR_TIP_R) + gap));
     MoteVrV3 grip = mv3_sub(tip, mv3_scale(ax, CUEVR_CUE_LEN - c->grip));
     t->hand[MOTE_VR_RIGHT].pose.p = grip;
-    /* The cue rests ABOVE the bridge hand by rest_lift, so the hand goes that
-     * much lower for the cue to lie along ax. */
+    /* The cue passes through bridge_hand + rest, so the hand sits back by the
+     * whole offset for the cue itself to lie along ax. */
     t->hand[MOTE_VR_LEFT].pose.p  = mv3_sub(mv3_add(grip, mv3_scale(ax, 0.90f)),
-                                            mv3(0, c->rest_lift, 0));
+                                            c->rest);
     t->hand[MOTE_VR_RIGHT].trigger = g_trigger;
 }
 

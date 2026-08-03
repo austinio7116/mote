@@ -23,7 +23,7 @@
  * menu button. IJKL/UO drive the sticks for setup.
  */
 #include "cuevr.h"
-float cuevr_app_rest_lift(void);
+MoteVrV3 cuevr_app_rest(void);
 float cuevr_app_grip(void);
 #include "cuevr_app.h"
 #include "cuevr_audio.h"
@@ -237,9 +237,9 @@ int main(int argc, char **argv) {
              * hand goes that much lower to put the cue on the ball's line. A real
              * hand does this without being told. */
             float reach = CUEVR_CUE_LEN - cuevr_app_grip();
-            float lift = cuevr_app_rest_lift();       /* whatever is loaded */
+            MoteVrV3 rst = cuevr_app_rest();          /* whatever is loaded */
             s_butt   = mv3(b.x - reach - 0.10f, b.y, b.z);
-            s_bridge = mv3(s_butt.x + 0.90f, b.y - lift, b.z);
+            s_bridge = mv3_sub(mv3(s_butt.x + 0.90f, b.y, b.z), rst);
             s_focus  = b;
             hands_placed = 1;
         }

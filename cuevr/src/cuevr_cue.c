@@ -27,7 +27,7 @@ void cuevr_cue_init(CueVrCue *c) {
      * hand the usual 85-95 cm in front of that, the tip lands ~30 cm past the
      * bridge — which is where it should be. */
     c->grip = 0.20f;
-    c->rest_lift = CUEVR_REST_LIFT_DEFAULT; /* the cue sits on top of the hand, not in it */
+    c->rest = mv3(0.0f, CUEVR_REST_LIFT_DEFAULT, 0.0f); /* on top of the hand, not through it */
 }
 
 /* ---- preferences -------------------------------------------------------- *
@@ -40,22 +40,23 @@ void cuevr_prefs_dir(const char *dir) {
     else               snprintf(s_prefs_path, sizeof s_prefs_path, "cuevr.cfg");
 }
 
-void cuevr_prefs_load(float *h, float *lift, float *grip,
+void cuevr_prefs_load(float *h, MoteVrV3 *rest, float *grip,
                       int *kind, int *ballset, int *persona) {
     if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
     FILE *f = fopen(s_prefs_path, "r");
     if (!f) return;
-    float a = 0, b = 0, c2 = 0, d = 0;
+    float a = 0, d = 0;
     int k = 0, bs = 0, ps = 0;
     /* Seven fields, and it stays seven: slot 3 is a dead rest_fwd that files
      * from an earlier build still carry, and dropping it would shift every
      * field after it. Read past it, write a zero, leave it reserved. */
-    if (fscanf(f, "%f %f %f %f %d %d %d", &a, &b, &c2, &d, &k, &bs, &ps) == 7) {
-        (void)c2;
+    float rx = 0, ry = 0, rz = 0;
+    if (fscanf(f, "%f %f %f %f %f %d %d %d", &a, &rx, &ry, &rz, &d, &k, &bs, &ps) == 8) {
         /* Sanity-check every one: a corrupt file must not put the table through
          * the ceiling or the cue inside your hand. */
         if (h && a > 0.25f && a < 1.4f) *h = a;
-        if (lift && b >= CUEVR_REST_MIN && b <= CUEVR_REST_MAX) *lift = b;
+        if (rest && rx*rx + ry*ry + rz*rz <= CUEVR_REST_MAXLEN*CUEVR_REST_MAXLEN)
+            *rest = mv3(rx, ry, rz);
         if (grip && d >= CUEVR_GRIP_MIN && d <= CUEVR_GRIP_MAX) *grip = d;
         if (kind && k >= 0 && k < CUE_GAME_COUNT) *kind = k;
         if (ballset && bs >= 0 && bs < 8) *ballset = bs;
@@ -64,13 +65,14 @@ void cuevr_prefs_load(float *h, float *lift, float *grip,
     fclose(f);
 }
 
-void cuevr_prefs_save(float h, float lift, float grip,
+void cuevr_prefs_save(float h, MoteVrV3 rest, float grip,
                       int kind, int ballset, int persona) {
     if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
     FILE *f = fopen(s_prefs_path, "w");
     if (!f) return;
-    fprintf(f, "%.4f %.4f %.4f %.4f %d %d %d\n",
-            (double)h, (double)lift, 0.0, (double)grip, kind, ballset, persona);
+    fprintf(f, "%.4f %.4f %.4f %.4f %.4f %d %d %d\n",
+            (double)h, (double)rest.x, (double)rest.y, (double)rest.z,
+            (double)grip, kind, ballset, persona);
     fclose(f);
 }
 
@@ -127,7 +129,7 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     }
 
     /* The cue rests ABOVE your bridge hand, by however much you have set. */
-    c->bridge = mv3_add(Lh->pose.p, mv3(0.0f, c->rest_lift, 0.0f));
+    c->bridge = mv3_add(Lh->pose.p, c->rest);
 
     /* Aim: the line from your grip hand through your bridge hand. Once the
      * stroke is under way it is frozen — the bridge is a pivot during a
@@ -165,29 +167,23 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
         if (c->grip > CUEVR_GRIP_MAX) c->grip = CUEVR_GRIP_MAX;
     }
     if (adjusting && c->have_hand && adj_l) {
-        /* The left hand sets the REST: raise or lower your hand and the cue sits
-         * higher or lower above it. It sticks, and it is saved — a bridge is
-         * something a player has, not something a shot has.
-         *
-         * There is only ONE useful axis here, which cost a wrong feature to
-         * learn. The cue is built as tip = right_hand + axis*(LEN-grip), so the
-         * bridge contributes its DIRECTION and nothing else. Sliding the rest
-         * along that axis is parallel to it and cannot move the cue by so much
-         * as a millimetre — the old rest_fwd accumulated, clamped and saved
-         * itself faithfully while doing absolutely nothing, which is exactly
-         * what a rest that "snaps back when you let go" feels like. Where on the
-         * shaft you bridge is already set by where you put your hand. */
+        /* Move your hand, and the bridge offset moves with it — all three axes,
+         * directly, so where you put your hand is where the cue rests. Clamped
+         * only so a wild sweep cannot leave the cue out of arm's reach. */
         MoteVrV3 m = mv3_sub(Lh->pose.p, c->prev_hand[MOTE_VR_LEFT]);
-        c->rest_lift -= m.y;                    /* hand down -> cue sits higher */
-        if (c->rest_lift < CUEVR_REST_MIN) c->rest_lift = CUEVR_REST_MIN;
-        if (c->rest_lift > CUEVR_REST_MAX) c->rest_lift = CUEVR_REST_MAX;
-        c->bridge = mv3_add(Lh->pose.p, mv3(0.0f, c->rest_lift, 0.0f));
+        c->rest = mv3_add(c->rest, m);
+        float len = mv3_len(c->rest);
+        if (len > CUEVR_REST_MAXLEN)
+            c->rest = mv3_scale(c->rest, CUEVR_REST_MAXLEN / len);
+        c->bridge = mv3_add(Lh->pose.p, c->rest);
     }
     c->adjusting = adjusting;
     c->prev_hand[MOTE_VR_LEFT]  = Lh->pose.p;
     c->prev_hand[MOTE_VR_RIGHT] = Rh->pose.p;
     c->have_hand = 1;
-    if (adjusting) live_axis = c->adj_axis;   /* the cue holds still while you slide */
+    if (adj_r && !adj_l) live_axis = c->adj_axis;   /* a grip slide does not steer */
+    if (adj_l) live_axis = mv3_len(mv3_sub(c->bridge, Rh->pose.p)) > 1e-4f
+                         ? mv3_norm(mv3_sub(c->bridge, Rh->pose.p)) : live_axis;
 
     /* ---- the stroke ----------------------------------------------------- *
      * Hysteresis on the trigger, and a wide band of it: pull past 0.55 to take

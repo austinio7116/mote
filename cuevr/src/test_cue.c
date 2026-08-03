@@ -301,32 +301,58 @@ int main(void) {
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     check(!shot.struck, "a slow drift onto the ball is not a stroke");
 
-    /* ---- 8b. the LEFT side trigger works, and works on the left hand ----- *
-     * The bridge hand is the aim, so moving it normally swings the cue. Holding
-     * its side trigger must let it slide along the shaft instead, changing
-     * nothing but where you are bridging — and it must not touch the grip. */
+    /* ---- 8b. the LEFT side trigger sets the bridge offset ---------------- *
+     * This block used to assert the opposite — that holding the left side
+     * trigger pinned the cue and moved nothing. That was the bug, reported twice
+     * from the headset as "the cue snaps back every time to the centre of the
+     * controller": the motion was SUBTRACTED from the offset, so raising your
+     * hand (the instinctive way to lift a cue off your bridge) drove the offset
+     * to zero and ran the shaft through the middle of the controller, however
+     * carefully it had been aligned. And because the drawn cue was frozen while
+     * the trigger was held, none of it was visible until you let go.
+     *
+     * What it must do instead: move the offset with your hand, live, and keep
+     * it. Nothing here touches the grip. */
     cuevr_cue_init(&c);
     aim(&t, &c, 0.05f, 0, 0, 0);
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
-    MoteVrV3 axis0 = c.axis, tip0 = c.tip;
+    MoteVrV3 axis0 = c.axis;
     float gripL = c.grip;
+    MoteVrV3 rest0 = c.rest;
     t.hand[MOTE_VR_LEFT].squeeze = 1.0f;
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);        /* establish prev */
-    /* slide the bridge along the cue AND wobble it sideways */
-    t.hand[MOTE_VR_LEFT].pose.p = mv3_add(t.hand[MOTE_VR_LEFT].pose.p, mv3(-0.15f, 0, 0.05f));
-    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
-    checkf(mv3_len(mv3_sub(c.axis, axis0)), 0.0f, 1e-4f,
-           "the left side trigger pins the aim while the bridge slides");
-    checkf(mv3_len(mv3_sub(c.tip, tip0)), 0.0f, 1e-4f, "so the cue does not move at all");
-    checkf(c.grip, gripL, 1e-4f, "and the bridge hand never changes the grip");
-    check(!shot.struck, "sliding the bridge never plays a shot");
 
-    /* Without the trigger, that same bridge movement DOES steer — otherwise
-     * there would be no way to aim. */
+    /* Align the bridge: up a bit, forward a bit, across a bit. */
+    for (int i = 0; i < 10; i++) {
+        t.hand[MOTE_VR_LEFT].pose.p = mv3_add(t.hand[MOTE_VR_LEFT].pose.p,
+                                              mv3(-0.004f, 0.004f, 0.002f));
+        cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    }
+    MoteVrV3 restSet = c.rest;
+    check(mv3_len(mv3_sub(restSet, rest0)) > 0.02f,
+          "the left side trigger moves the bridge offset");
+    check(restSet.y > rest0.y, "raising the hand raises the cue off it");
+    check(mv3_len(mv3_sub(c.axis, axis0)) > 1e-4f,
+          "and you can SEE it happen — the cue is not frozen while you set it");
+    checkf(c.grip, gripL, 1e-4f, "the bridge hand never changes the grip");
+    check(!shot.struck, "setting the bridge never plays a shot");
+
+    /* Let go, and hold still. This is the assertion the hardware wanted. */
     t.hand[MOTE_VR_LEFT].squeeze = 0.0f;
+    for (int i = 0; i < 5; i++) cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    checkf(mv3_len(mv3_sub(c.rest, restSet)), 0.0f, 1e-6f,
+           "the offset is still there after release");
+    check(mv3_len(c.rest) > 0.02f, "it did not collapse to the controller centre");
+    checkf(mv3_len(mv3_sub(mv3_sub(c.bridge, t.hand[MOTE_VR_LEFT].pose.p), c.rest)),
+           0.0f, 1e-6f, "the cue passes through the offset point, not the hand centre");
+
+    /* Ordinary hand movement carries the offset along rather than editing it. */
+    t.hand[MOTE_VR_LEFT].pose.p = mv3_add(t.hand[MOTE_VR_LEFT].pose.p, mv3(0, 0.05f, 0));
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    checkf(mv3_len(mv3_sub(c.rest, restSet)), 0.0f, 1e-6f,
+           "ordinary hand movement does not change the offset");
     check(mv3_len(mv3_sub(c.axis, axis0)) > 0.01f,
-          "and releasing it hands the aim back to the bridge hand");
+          "and the bridge hand still steers the cue");
 
     /* ---- 9. the bridge is a pivot during the delivery ------------------- *
      * Once the trigger is down the aim is locked: waving the bridge hand about

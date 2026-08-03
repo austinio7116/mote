@@ -89,8 +89,10 @@ static const char *FS =
 "uniform vec3  u_eye;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 
-"uniform float u_ballslice;\n" /* which id's slice of the ball atlas */
-"uniform float u_ballslices;\n"
+"uniform float u_ballslice;\n"  /* which layer of the ball array */
+/* GLSL ES has no default precision for sampler2DArray — unlike sampler2D —
+ * so it must be stated or the shader will not compile at all. */
+"uniform highp sampler2DArray u_balls;\n"
 "out vec4 o_col;\n"
 "vec3 to_linear(vec3 c) {\n"
 "    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));\n"
@@ -127,8 +129,12 @@ static const char *FS =
 "        vec3 nb = normalize(v_local);\n"
 "        float u = atan(nb.z, nb.x) / 6.2831853 + 0.5;\n"
 "        float vv = acos(clamp(nb.y, -1.0, 1.0)) / 3.14159265;\n"
-"        vv = (u_ballslice + clamp(vv, 0.001, 0.999)) / u_ballslices;\n"
-"        vec3 bc = texture(u_tex, vec2(u, vv)).rgb;\n"
+"        // A texture ARRAY, not one tall atlas. An atlas cannot be mipmapped:\n"
+"        // level 1 blends the bottom of one ball into the top of the next, so\n"
+"        // the choice would be a sharp ball that shimmers or a smooth ball with\n"
+"        // its neighbour bleeding into its poles. A layer per ball has its own\n"
+"        // mip chain and has neither problem.\n"
+"        vec3 bc = texture(u_balls, vec3(u, clamp(vv, 0.001, 0.999), u_ballslice)).rgb;\n"
 "        vec3 nw = normalize(v_nrm);\n"
 "        float diff = max(dot(nw, L), 0.0);\n"
 "        float down = max(-nw.y, 0.0);\n"
@@ -352,7 +358,7 @@ static void mesh_free(Mesh *m) {
 static struct {
     GLuint prog;
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
-    GLint  u_ballslice, u_ballslices, u_clothsh;
+    GLint  u_ballslice, u_balls, u_clothsh;
     GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
     Mesh   table, lips, frame, ball, cue, quad, floor, grip;
     int    frame_sel;
@@ -511,8 +517,13 @@ static void build_from_cue_render(Builder *b, const CueTri *tri_, int from, int 
  *
  * An earlier version of this file invented its own palette and drew stripes
  * with a smoothstep. It looked plausible and it was not the game. */
-#define BTEX_W   64
-#define BTEX_H   32
+/* 256x128 per ball, up from 64x32. ball_sample() is analytic — sharp thresholds
+ * on the ball-local normal — so it has no native resolution of its own and the
+ * old bake was simply discarding detail it could have had. At 128x128 on the
+ * handheld a ball was a few dozen pixels across and 64x32 was ample; in VR you
+ * can put your eye next to one. */
+#define BTEX_W   256
+#define BTEX_H   128
 /* Derived, not chosen. Snooker ids run past the pool set — cue, 1..15 reds,
  * then CUE_ID_YELLOW(20) through CUE_ID_BLACK(25) — and picking a round number
  * here instead of reading the enum is how pink and black ended up sharing the
@@ -546,16 +557,31 @@ static void bake_ball_atlas(void) {
         }
     }
     glGenTextures(1, &G.ball_tex);
-    glBindTexture(GL_TEXTURE_2D, G.ball_tex);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, G.ball_tex);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB565, BTEX_W, BTEX_H * BTEX_IDS, 0,
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGB565, BTEX_W, BTEX_H, BTEX_IDS, 0,
                  GL_RGB, GL_UNSIGNED_SHORT_5_6_5, px);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    /* Wrap in u so the seam behind the ball closes; clamp in v so a slice
-     * cannot bleed into its neighbour at the poles. */
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    /* Mipmaps matter as much as the resolution does. A 256x128 ball seen across
+     * a 12 ft table covers a handful of pixels, and point-sampling a sharp
+     * number or stripe at that rate crawls and sparkles as the ball rolls.
+     * Trilinear picks the level that matches the footprint. */
+    glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    /* Wrap in u so the seam behind the ball closes. v is clamped, but a layer
+     * has no neighbour to bleed from now, so this is only about the poles. */
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    {   /* Anisotropy if the driver has it: a ball is a sphere, so its texture
+         * footprint is stretched badly near the silhouette. */
+        GLfloat aniso = 0.0f;
+        glGetFloatv(0x84FF /* MAX_TEXTURE_MAX_ANISOTROPY_EXT */, &aniso);
+        if (aniso > 1.0f) {
+            if (aniso > 8.0f) aniso = 8.0f;
+            glTexParameterf(GL_TEXTURE_2D_ARRAY, 0x84FE /* TEXTURE_MAX_ANISOTROPY_EXT */, aniso);
+        }
+        while (glGetError() != GL_NO_ERROR) { }   /* absent extension is fine */
+    }
     free(px);
     LOGI("[cuevr] baked %d ball surfaces from cue_render", BTEX_IDS);
 }
@@ -583,7 +609,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_colour2  = glGetUniformLocation(G.prog, "u_colour2");
     G.u_light    = glGetUniformLocation(G.prog, "u_light");
     G.u_ballslice  = glGetUniformLocation(G.prog, "u_ballslice");
-    G.u_ballslices = glGetUniformLocation(G.prog, "u_ballslices");
+    G.u_balls      = glGetUniformLocation(G.prog, "u_balls");
     /* Array uniforms: ask for element 0 by name. Querying the bare array name
      * is legal but not honoured by every driver, and a silent -1 here sets no
      * lamps at all — which looks exactly like a polished ball with no lamps
@@ -938,8 +964,11 @@ void cuevr_render_eye(const float *view, const float *proj,
 
     /* ---- balls ---- */
     glUniform1i(G.u_mode, 1);
-    glBindTexture(GL_TEXTURE_2D, G.ball_tex);
-    glUniform1f(G.u_ballslices, (float)BTEX_IDS);
+    /* The ball array lives on unit 1 for the whole pass; u_tex keeps unit 0. */
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, G.ball_tex);
+    glActiveTexture(GL_TEXTURE0);
+    glUniform1i(G.u_balls, 1);
     for (int i = 0; i < s->nballs; i++) {
         const CueBall *bl = &s->balls[i];
         if (!bl->on) continue;

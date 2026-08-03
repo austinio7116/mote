@@ -68,6 +68,13 @@ typedef struct {
     GLuint      depth;
 } Eye;
 
+/* GL_EXT_multisampled_render_to_texture, resolved at runtime. Declared here
+ * rather than pulled from a header so a stale NDK cannot break the build. */
+typedef void (*PFN_glFramebufferTexture2DMultisampleEXT)(GLenum, GLenum, GLenum,
+                                                         GLuint, GLint, GLsizei);
+typedef void (*PFN_glRenderbufferStorageMultisampleEXT)(GLenum, GLsizei, GLenum,
+                                                        GLsizei, GLsizei);
+
 static struct {
     XrInstance  instance;
     XrSystemId  system;
@@ -110,6 +117,9 @@ static struct {
     int         srgb;
     int         floor;
     XrTime      last_display;
+    int msaa;      /* samples per pixel; 0 = off, -1 = not yet decided */
+    PFN_glFramebufferTexture2DMultisampleEXT p_tex2dms;
+    PFN_glRenderbufferStorageMultisampleEXT  p_rbms;
 } S;
 
 static int failed(XrResult r, const char *what) {
@@ -299,6 +309,8 @@ static int make_swapchains(void) {
     xrlog("[mote-xr] swapchain format 0x%04x (%s)", (unsigned)want,
           S.srgb ? "sRGB, runtime encodes" : "linear, shader encodes");
 
+    S.msaa = -1;    /* probed once, on the first eye */
+
     for (uint32_t i = 0; i < n; i++) {
         Eye *e = &S.eye[i];
         e->w = (int32_t)S.vcfg[i].recommendedImageRectWidth;
@@ -308,6 +320,10 @@ static int make_swapchains(void) {
         sc.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
                         XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
         sc.format = want;
+        /* The swapchain itself stays single-sample. MSAA is applied on our own
+         * framebuffer with an implicit resolve (see below), which is both the
+         * cheap path on tiled hardware and the only one that keeps these images
+         * ordinary GL_TEXTURE_2Ds. */
         sc.sampleCount = 1;
         sc.width = e->w;
         sc.height = e->h;
@@ -324,18 +340,71 @@ static int make_swapchains(void) {
         xrEnumerateSwapchainImages(e->handle, e->n, &e->n,
                                    (XrSwapchainImageBaseHeader *)e->images);
 
+        /* MSAA, via GL_EXT_multisampled_render_to_texture.
+         *
+         * The scene is close to the worst case for aliasing: a handful of smooth
+         * curved objects against a real room, where a ball's silhouette and the
+         * cue's long taper are exactly the near-vertical edges that crawl as
+         * your head moves. There is no geometry density to hide it behind.
+         *
+         * This extension is the right tool on a tiled GPU. Multisampling happens
+         * inside tile memory and resolves on the way out, so the extra samples
+         * never cost main-memory bandwidth — which is why it is the standard
+         * path on this hardware rather than an explicit multisample texture plus
+         * a blit. It also leaves the swapchain images as ordinary textures.
+         *
+         * Entirely optional: if the extension is missing we render exactly as
+         * before. Quality must never be the reason the app fails to start. */
+        if (S.msaa < 0) {
+            const char *ext = (const char *)glGetString(GL_EXTENSIONS);
+            int have = ext && strstr(ext, "GL_EXT_multisampled_render_to_texture");
+            S.p_tex2dms = have ? (PFN_glFramebufferTexture2DMultisampleEXT)
+                eglGetProcAddress("glFramebufferTexture2DMultisampleEXT") : NULL;
+            S.p_rbms = have ? (PFN_glRenderbufferStorageMultisampleEXT)
+                eglGetProcAddress("glRenderbufferStorageMultisampleEXT") : NULL;
+            if (S.p_tex2dms && S.p_rbms) {
+                GLint max_s = 0;
+                glGetIntegerv(GL_MAX_SAMPLES, &max_s);
+                S.msaa = max_s >= 4 ? 4 : (max_s >= 2 ? 2 : 0);
+            } else {
+                S.msaa = 0;
+            }
+            xrlog("[mote-xr] MSAA %dx%s", S.msaa ? S.msaa : 1,
+                  S.msaa ? "" : " (extension unavailable)");
+        }
+
         glGenRenderbuffers(1, &e->depth);
         glBindRenderbuffer(GL_RENDERBUFFER, e->depth);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, e->w, e->h);
+        if (S.msaa > 0)
+            S.p_rbms(GL_RENDERBUFFER, S.msaa, GL_DEPTH_COMPONENT24, e->w, e->h);
+        else
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, e->w, e->h);
 
         e->fbo = calloc(e->n, sizeof *e->fbo);
         glGenFramebuffers((GLsizei)e->n, e->fbo);
         for (uint32_t k = 0; k < e->n; k++) {
             glBindFramebuffer(GL_FRAMEBUFFER, e->fbo[k]);
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                                   e->images[k].image, 0);
+            if (S.msaa > 0)
+                S.p_tex2dms(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                            e->images[k].image, 0, S.msaa);
+            else
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                                       e->images[k].image, 0);
             glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
                                       GL_RENDERBUFFER, e->depth);
+            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE
+                && S.msaa > 0) {
+                /* Incomplete with MSAA: drop it and rebuild this one plainly
+                 * rather than present a broken eye. */
+                xrlog("[mote-xr] MSAA framebuffer incomplete — falling back to 1x");
+                S.msaa = 0;
+                glBindRenderbuffer(GL_RENDERBUFFER, e->depth);
+                glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, e->w, e->h);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                                       e->images[k].image, 0);
+                glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                          GL_RENDERBUFFER, e->depth);
+            }
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         xrlog("[mote-xr] eye %u: %dx%d, %u images", i, e->w, e->h, e->n);
