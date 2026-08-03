@@ -240,9 +240,12 @@ static void hud_build(void) {
             if (off > CUEVR_MISCUE_LIMIT)
                 craft_font_draw(S.hud, "TOO FAR OFF CENTRE", 4, 96, RGB565C(240,90,80));
             else {
-                snprintf(b, sizeof b, "SIDE %+.2f  SCREW %+.2f",
+                snprintf(b, sizeof b, "SIDE %+.2f SCREW %+.2f", 
                          (double)S.cue.tip_side, (double)S.cue.tip_vert);
-                craft_font_draw(S.hud, b, 4, 96, DIM);
+                craft_font_draw(S.hud, b, 4, 90, DIM);
+                craft_font_draw(S.hud, S.cue.stroking ? "STROKE - PUSH THROUGH"
+                                                      : "R TRIGGER TO CUE  GRIP=SIDE TRIG",
+                                4, 98, S.cue.stroking ? HI : DIM);
             }
         }
     }
@@ -450,7 +453,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             }
             S.hud_dirty = 1;
         }
-        if (t->hand[MOTE_VR_RIGHT].btn_lower || t->hand[MOTE_VR_RIGHT].trigger > 0.7f) {
+        if (t->hand[MOTE_VR_RIGHT].btn_lower) {
             cue_render_set_ball_set(S.ballset);
             start_frame(MENU[S.menu_sel].kind);
             S.setup.active = 1;
@@ -565,7 +568,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.balls[0].pos = cue_table_clamp_placement(&S.tab, p);
             S.hud_dirty = 1;
         }
-        if (t->hand[MOTE_VR_RIGHT].btn_lower || t->hand[MOTE_VR_RIGHT].trigger > 0.7f) {
+        if (t->hand[MOTE_VR_RIGHT].btn_lower) {
             arm_shot();
             S.state = ST_AIM;
             S.hud_dirty = 1;

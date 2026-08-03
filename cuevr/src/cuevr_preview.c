@@ -214,18 +214,24 @@ int main(int argc, char **argv) {
             if (nframe == 18 + auto_table * 2) s_a = 1;       /* confirm setup */
             if (nframe == 20 + auto_table * 2) s_a = 0;
         }
-        if (auto_stroke && nframe == 40) s_bridge.x += 0.12f;
+        /* A scripted cue action: take hold of the cue, then drive the grip hand
+         * through. The bridge does not move — that is the point of it. */
+        if (auto_stroke) {
+            if (nframe >= 36) s_trig = 1;
+            if (nframe == 40) s_butt.x += 0.12f;
+        }
 
         /* Park the fake hands behind the cue ball the first time the table is
          * placed, so the cue starts pointing at something. After that WASD and
          * the arrows move them, as your real hands would. */
         if (!hands_placed && nframe > 24) {
             MoteVrV3 b = cuevr_app_cue_ball_room();
-            /* The tip sits bridge_len (0.28 m) ahead of the bridge hand, so
-             * the bridge has to be further back than that or the cue starts
-             * already through the ball and no stroke can ever begin. */
-            s_bridge = mv3(b.x - 0.40f, b.y + 0.030f, b.z);
-            s_butt   = mv3(b.x - 1.02f, b.y + 0.075f, b.z);
+            /* The tip is (CUE_LEN - grip) in front of the GRIP hand now, so
+             * place that hand from the ball backwards and put the bridge a
+             * stance in front of it. */
+            float reach = CUEVR_CUE_LEN - 0.20f;      /* default grip */
+            s_butt   = mv3(b.x - reach - 0.10f, b.y + 0.075f, b.z);
+            s_bridge = mv3(s_butt.x + 0.90f, b.y + 0.030f, b.z);
             s_focus  = b;
             hands_placed = 1;
         }

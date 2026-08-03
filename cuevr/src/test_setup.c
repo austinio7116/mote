@@ -135,12 +135,13 @@ int main(void) {
     checkf(mv3_len(mv3_sub(s.place.pos, after.pos)), 0.0f, 1e-6f,
            "and the sticks no longer move the table once you are playing");
 
-    /* the trigger does the same job for anyone who reaches for it */
+    /* The right trigger must NOT confirm: it is the cue stroke, so accepting it
+     * here would leave setup and arm a shot in the same instant. */
     cuevr_setup_init(&s, 0.0f);
     base(&t);
     t.hand[MOTE_VR_RIGHT].trigger = 1.0f;
     cuevr_setup_update(&s, &t, ball);
-    check(!s.active, "the right trigger confirms too");
+    check(s.active, "the right trigger does not confirm — it is the stroke");
 
     printf(fail ? "\nFAILED\n" : "\nall good\n");
     return fail;

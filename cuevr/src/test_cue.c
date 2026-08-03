@@ -41,8 +41,14 @@ static CueVrPlacement PLACE = { { 0.0f, 1.0f, 0.0f }, 0.0f, 1.0f };
 static MoteVrV3 BALL = { 0.0f, 1.0f + R, 0.0f };
 
 /* Put the hands so the cue points along +X at the ball, with the tip `gap`
- * metres short of the ball's surface, offset from centre by (side, vert)
- * fractions of R, and elevated by `elev_deg`. */
+ * metres short of the ball's surface and offset from centre by (side, vert)
+ * fractions of R, elevated by `elev_deg`.
+ *
+ * The tip's distance now comes from the GRIP: it is CUE_LEN - grip in front of
+ * the right hand, so that hand is positioned from the tip backwards, and the
+ * bridge hand goes a realistic stance apart from it along the same line. */
+#define HAND_SPAN 0.90f
+
 static void aim(MoteVrTracking *t, CueVrCue *c, float gap,
                 float side_frac, float vert_frac, float elev_deg)
 {
@@ -51,24 +57,25 @@ static void aim(MoteVrTracking *t, CueVrCue *c, float gap,
     t->hand[MOTE_VR_LEFT].tracked = t->hand[MOTE_VR_RIGHT].tracked = 1;
 
     float e = elev_deg * 3.14159265f / 180.0f;
-    /* axis runs butt -> tip; cueing down means it points below horizontal */
     MoteVrV3 axis = mv3(cosf(e), -sinf(e), 0.0f);
     MoteVrV3 side = mv3_norm(mv3_cross(mv3(0, 1, 0), axis));
     MoteVrV3 vert = mv3_norm(mv3_cross(axis, side));
 
-    /* Contact point we want on the ball, then walk back down the axis. */
-    MoteVrV3 want = mv3_add(BALL, mv3_add(mv3_scale(side, side_frac * R),
-                                          mv3_scale(vert, vert_frac * R)));
-    /* distance from tip to that point along the axis = gap + half-chord */
     float perp = R * sqrtf(side_frac*side_frac + vert_frac*vert_frac);
     float half_chord = sqrtf(R*R - perp*perp);
-    MoteVrV3 tip = mv3_sub(want, mv3_scale(axis, -0.0f));
-    tip = mv3_sub(BALL, mv3_scale(axis, half_chord + gap));
+    MoteVrV3 tip = mv3_sub(BALL, mv3_scale(axis, half_chord + gap));
     tip = mv3_add(tip, mv3_add(mv3_scale(side, side_frac * R),
                                mv3_scale(vert, vert_frac * R)));
 
-    t->hand[MOTE_VR_LEFT].pose.p  = mv3_sub(tip, mv3_scale(axis, c->bridge_len));
-    t->hand[MOTE_VR_RIGHT].pose.p = mv3_sub(tip, mv3_scale(axis, c->bridge_len + 0.55f));
+    /* grip hand sits (CUE_LEN - grip) behind the tip; bridge a stance in front */
+    MoteVrV3 grip_hand = mv3_sub(tip, mv3_scale(axis, CUEVR_CUE_LEN - c->grip));
+    t->hand[MOTE_VR_RIGHT].pose.p = grip_hand;
+    t->hand[MOTE_VR_LEFT].pose.p  = mv3_add(grip_hand, mv3_scale(axis, HAND_SPAN));
+}
+
+/* Hold the trigger: the stroke is the only thing that can play a shot. */
+static void trig(MoteVrTracking *t, int on) {
+    t->hand[MOTE_VR_RIGHT].trigger = on ? 1.0f : 0.0f;
 }
 
 int main(void) {
@@ -85,9 +92,18 @@ int main(void) {
     checkf(c.gap, 0.10f, 0.002f, "the gap to the ball reads true");
     checkf(c.tip_side, 0.0f, 0.01f, "centre ball has no side");
     checkf(c.tip_vert, 0.0f, 0.01f, "centre ball has no screw");
+    /* Shuffling the cue about while lining up must never play the ball. */
+    aim(&t, &c, -0.01f, 0, 0, 0);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    check(!shot.struck, "pushing the cue through with no trigger is not a shot");
 
-    /* push through: 0.10 m of gap closed in one frame at 72 Hz = 7.2 m/s */
-    aim(&t, &c, -0.005f, 0, 0, 0);
+    /* Pull the trigger to take hold of the cue, then push through: 0.105 m of
+     * gap closed in one frame at 72 Hz. */
+    cuevr_cue_init(&c);
+    aim(&t, &c, 0.10f, 0, 0, 0);  trig(&t, 1);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    check(c.stroking, "the right trigger takes hold of the cue");
+    aim(&t, &c, -0.005f, 0, 0, 0); trig(&t, 1);
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     check(shot.struck, "pushing the tip through the ball plays the shot");
     checkf(shot.speed, 0.105f / DT, 0.4f, "power is the speed of the stroke");
@@ -97,9 +113,9 @@ int main(void) {
 
     /* ---- 2. a slow stroke is a slow shot -------------------------------- */
     cuevr_cue_init(&c);
-    aim(&t, &c, 0.02f, 0, 0, 0);
+    aim(&t, &c, 0.02f, 0, 0, 0);  trig(&t, 1);
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
-    aim(&t, &c, -0.002f, 0, 0, 0);
+    aim(&t, &c, -0.002f, 0, 0, 0); trig(&t, 1);
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     check(shot.struck, "a gentle stroke still connects");
     checkf(shot.speed, 0.022f / DT, 0.3f, "and is proportionally gentler");
@@ -130,7 +146,9 @@ int main(void) {
     aim(&t, &c, 0.06f, 0.72f, 0.0f, 0);
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     check(c.on_ball, "an extreme tip position still touches the ball");
-    aim(&t, &c, -0.004f, 0.72f, 0.0f, 0);
+    aim(&t, &c, 0.06f, 0.72f, 0.0f, 0);  trig(&t, 1);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    aim(&t, &c, -0.004f, 0.72f, 0.0f, 0); trig(&t, 1);
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     check(shot.struck && shot.miscue, "but playing it is a miscue");
     check(shot.speed < 0.06f / DT, "and most of the power is lost");
@@ -150,13 +168,42 @@ int main(void) {
     CueVrPlacement turned = PLACE;
     turned.yaw = 3.14159265f / 2.0f;
     cuevr_cue_init(&c);
-    aim(&t, &c, 0.05f, 0, 0, 0);
+    aim(&t, &c, 0.05f, 0, 0, 0);  trig(&t, 1);
     cuevr_cue_update(&c, &t, &turned, BALL, R, &shot);
-    aim(&t, &c, -0.004f, 0, 0, 0);
+    aim(&t, &c, -0.004f, 0, 0, 0); trig(&t, 1);
     cuevr_cue_update(&c, &t, &turned, BALL, R, &shot);
     check(shot.struck, "the stroke still connects with the table turned");
     checkf(shot.dir.x, 0.0f, 0.02f, "and the aim is expressed in table space");
     checkf(shot.dir.z, -1.0f, 0.02f, "rotated by the table's own yaw");
+
+    /* ---- 8. the grip slides along the cue ------------------------------- *
+     * Hold a side trigger and move your hand up the cue: the hand travels along
+     * it, so less cue is left in front of the bridge. */
+    cuevr_cue_init(&c);
+    aim(&t, &c, 0.05f, 0, 0, 0);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    float grip0 = c.grip, reach0 = mv3_len(mv3_sub(c.tip, t.hand[MOTE_VR_RIGHT].pose.p));
+    t.hand[MOTE_VR_RIGHT].squeeze = 1.0f;
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);      /* establish prev hand */
+    t.hand[MOTE_VR_RIGHT].pose.p = mv3_add(t.hand[MOTE_VR_RIGHT].pose.p,
+                                           mv3(0.08f, 0, 0));   /* slide up the cue */
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    checkf(c.grip - grip0, 0.08f, 0.002f, "a side trigger slides the grip up the cue");
+    float reach1 = mv3_len(mv3_sub(c.tip, t.hand[MOTE_VR_RIGHT].pose.p));
+    check(reach1 < reach0 - 0.05f, "which leaves less cue in front of the hand");
+    check(!shot.struck, "and sliding the grip never plays a shot");
+
+    /* ---- 9. the bridge is a pivot during the delivery ------------------- *
+     * Once the trigger is down the aim is locked: waving the bridge hand about
+     * mid-stroke must not steer the ball. */
+    cuevr_cue_init(&c);
+    aim(&t, &c, 0.08f, 0, 0, 0); trig(&t, 1);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    MoteVrV3 locked = c.axis;
+    t.hand[MOTE_VR_LEFT].pose.p = mv3_add(t.hand[MOTE_VR_LEFT].pose.p, mv3(0, 0, 0.25f));
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    checkf(mv3_len(mv3_sub(c.axis, locked)), 0.0f, 1e-4f,
+           "the aim is frozen once the stroke starts");
 
     printf(fail ? "\nFAILED\n" : "\nall good\n");
     return fail;

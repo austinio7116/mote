@@ -111,8 +111,9 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_ro
 int cuevr_setup_update(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_room) {
     if (!s->active) return 0;
     cuevr_setup_adjust(s, t, ball_room);
-    /* Done: A, or the right index trigger — whichever the player reaches for. */
-    if (t->hand[MOTE_VR_RIGHT].btn_lower || t->hand[MOTE_VR_RIGHT].trigger > 0.7f) {
+    /* Done: A only. The right trigger is the cue stroke now, so it cannot also
+     * mean "yes" — confirming setup with it would immediately arm a shot. */
+    if (t->hand[MOTE_VR_RIGHT].btn_lower) {
         s->active = 0;
         s->confirmed = 1;
         return 0;

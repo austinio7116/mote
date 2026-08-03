@@ -88,7 +88,23 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_bal
  * The stroke is a real stroke: the tip's closing speed along its own axis at
  * the moment it reaches the ball. Pull back and push through. */
 typedef struct {
-    float bridge_len;    /* bridge hand to tip (m) — how far the cue sticks out */
+    /* Where your grip hand sits on the butt, measured from the butt end. This —
+     * not a fixed bridge-to-tip length — is what decides how much cue is in
+     * front of the bridge, exactly as on a real cue: the butt end is behind
+     * your grip hand, the tip is CUE_LEN away from it, and your bridge hand is
+     * wherever you have put it in between. Hold the side trigger and slide your
+     * hand along the cue to change it. */
+    float grip;
+
+    /* The stroke. Pulling the right trigger locks the aim and hands the cue to
+     * your grip hand: the bridge becomes a fixed pivot and the cue slides
+     * through it, forward and back, as your back hand moves. That is what a
+     * cue action is — the bridge does not move during the delivery. */
+    int      stroking;
+    MoteVrV3 lock_axis;      /* aim, frozen at the moment the trigger went down */
+    MoteVrV3 lock_tip0;      /* where the tip was then */
+    MoteVrV3 lock_butt0;     /* and where the grip hand was */
+    MoteVrV3 lock_bridge;
 
     /* live, recomputed each frame */
     MoteVrV3 butt, bridge, tip;
@@ -105,7 +121,15 @@ typedef struct {
     float prev_gap;
     int   have_prev;
     float speed;         /* closing speed along the axis (m/s) */
+    MoteVrV3 prev_hand;  /* for sliding the grip */
+    int   have_hand;
 } CueVrCue;
+
+/* A real cue is 1.45 m. Fixed — a cue that stretches between your hands is the
+ * fastest way to stop believing in it. */
+#define CUEVR_CUE_LEN  1.45f
+#define CUEVR_GRIP_MIN 0.06f
+#define CUEVR_GRIP_MAX 0.55f
 
 void cuevr_cue_init(CueVrCue *c);
 
