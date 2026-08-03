@@ -354,10 +354,16 @@ static void build_sphere(Builder *b, int slices, int stacks) {
             b_vert(b, x, y, z, x, y, z, u, v);
         }
     }
+    /* Wind outward. The obvious ordering here (a, c, c+1, a+1) walks DOWN a
+     * stack before going round, which puts the face normal on the INSIDE of the
+     * sphere: with culling on, every near surface is discarded, so you see the
+     * cloth and its markings straight through the ball and the lamp highlight
+     * lands on the far inner wall — which reads as reflections stuck under the
+     * ball rather than as a winding bug. Go round first, then down. */
     for (int j = 0; j < stacks; j++)
         for (int i = 0; i < slices; i++) {
             int a = j * (slices + 1) + i, c = a + slices + 1;
-            b_quad(b, a, c, c + 1, a + 1);
+            b_quad(b, a, a + 1, c + 1, c);
         }
 }
 
