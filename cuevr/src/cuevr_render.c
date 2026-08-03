@@ -2355,6 +2355,46 @@ skip_shadows:
         }
     }
 
+    /* CUEVR_CTRLAXES: draw the LEFT controller at the table centre, unrotated, with
+     * a stick along each of its own axes — red = +x, green = +y, blue = +z. Seven
+     * attempts at the model-to-grip matrix were spent guessing which model axis is
+     * the handle and which way it points, from bounding-box numbers. This answers it
+     * outright, and should have been the first thing built. */
+    if (getenv("CUEVR_CTRLAXES") && G.ctrl[0].n) {
+        float T2[16], Sm[16], M2[16];
+        /* 40 cm in front of the eye, so it is always in shot whatever the camera
+         * is pointed at — the table is not at the world origin and the first
+         * version of this put the model somewhere off screen. */
+        mm4_identity(T2);
+        {
+            /* the view matrix's third ROW is the camera's backward axis */
+            MoteVrV3 fwd = mv3(-view[2], -view[6], -view[10]);
+            float l = mv3_len(fwd);
+            if (l > 1e-4f) fwd = mv3_scale(fwd, 1.0f / l);
+            T2[12] = eye.x + fwd.x * 0.40f;
+            T2[13] = eye.y + fwd.y * 0.40f;
+            T2[14] = eye.z + fwd.z * 0.40f;
+        }
+        glUniform1i(G.u_mode, 0);
+        colour(0.35f, 0.36f, 0.40f, 1.0f);
+        set_model(T2);
+        draw(&G.ctrl[0]);
+        /* A coloured ball 90 mm out along each of the model's OWN axes:
+         * red = +x, green = +y, blue = +z. Spheres rather than the stretched blocks
+         * the first version used — those came out microscopic because the block is
+         * already a fixed size and scaling it by a length does not work. A ball at a
+         * known offset labels an axis without ambiguity. */
+        for (int ax = 0; ax < 3; ax++) {
+            mm4_identity(Sm);
+            Sm[0] = Sm[5] = Sm[10] = 0.012f;
+            Sm[12 + ax] = 0.090f;
+            mm4_mul(M2, T2, Sm);
+            colour(ax == 0 ? 1.0f : 0.05f, ax == 1 ? 1.0f : 0.05f, ax == 2 ? 1.0f : 0.05f, 1.0f);
+            set_model(M2);
+            draw(&G.ball);
+        }
+    }
+
     /* ---- your hands ---- */
     if (s->hands_valid) {
         glUniform1i(G.u_mode, 0);
@@ -2364,51 +2404,37 @@ skip_shadows:
             mm4_from_pose(P, s->hand[i], 1.0f);
             /* MODEL -> GRIP.
              *
-             * The STL's long axis (109 mm, its y) is the handle, and its origin sits
-             * centred in x and y at the z = 0 face. Grip space (OpenXR/WebXR) puts
-             * the origin at the centroid of the fist with -Z running along the handle
-             * toward the thumb and X perpendicular to the palm. So the handle has to
-             * go from model y onto grip Z, which is what was missing — drawn raw, the
-             * controller lay across the cue instead of along it.
+             * Established by rendering the model with its own axes labelled (see
+             * CUEVR_CTRLAXES), which is what I should have built before touching the
+             * matrix at all rather than after seven attempts at guessing it:
              *
-             *     grip.x =  model.x
-             *     grip.y = -(model.z - CTRL_ZMID)   pull the origin into the handle
-             *     grip.z =  model.y
+             *   model +y  up the HANDLE, away from the button end
+             *   model +z  out of the button face
+             *   model +x  across, to the right
              *
-             * Which end of the handle the thumb is at is a coin flip from the bounds
-             * alone; CTRL_FLIP settles it in one look on a headset. */
-            /* MODEL -> GRIP, COMPOSED rather than hand-multiplied.
-             *
-             * The previous version negated individual matrix elements to "rotate
-             * 180 about Z", which is not a rotation at all — negating K[0] and K[9]
-             * is a reflection, and it landed the model 90 degrees out in a third
-             * axis. Writing the product by hand is exactly how that happens. Build
-             * the axis map, build the roll, and multiply them.
-             *
-             * Axis map: the STL's long axis (109 mm, its Y) is the handle, and grip
-             * space runs the handle along Z with -Z toward the thumb. Its origin is
-             * at the z = 0 face, so it also has to be pulled into the fist.
-             *
-             *     grip.x =  model.x
-             *     grip.y = -(model.z - CTRL_ZMID)
-             *     grip.z =  model.y
-             */
-            const float CTRL_ZMID = 0.0418f;      /* half the model's 83.5 mm depth */
-            const float CTRL_ROLL_DEG = 180.0f;   /* about grip Z, from looking at it */
-            float A[16], R[16];
-            mm4_identity(A);
-            A[0] = 1.0f; A[1] = 0.0f;  A[2]  = 0.0f;   /* model x -> grip  x */
-            A[4] = 0.0f; A[5] = 0.0f;  A[6]  = 1.0f;   /* model y -> grip  z */
-            A[8] = 0.0f; A[9] = -1.0f; A[10] = 0.0f;   /* model z -> grip -y */
-            A[13] = CTRL_ZMID;
+             * Grip space runs the handle along Z with -Z toward the thumb, and the
+             * thumb is at the button end, so model +y maps to grip +z. That part is
+             * settled. The only freedom left is the ROLL about that axis, and it
+             * cannot be derived from the model — only looked at. CUEVR_CTRLROLL sets
+             * it in degrees so all four can be compared in one go instead of guessed
+             * one at a time. */
+            const float CTRL_ZMID = 0.0418f;
+            float roll = 0.0f;
+            { const char *rv = getenv("CUEVR_CTRLROLL"); if (rv) roll = (float)atof(rv); }
             {
-                float c = cosf(CTRL_ROLL_DEG * 3.14159265f / 180.0f);
-                float sn = sinf(CTRL_ROLL_DEG * 3.14159265f / 180.0f);
-                mm4_identity(R);
-                R[0] = c;  R[1] = sn;
+                float A[16], R[16];
+                mm4_identity(A);
+                A[0] = 1.0f;  A[1] = 0.0f;  A[2]  =  0.0f;   /* model x -> grip  x */
+                A[4] = 0.0f;  A[5] = 0.0f;  A[6]  =  1.0f;   /* model y -> grip  z (handle) */
+                A[8] = 0.0f;  A[9] = -1.0f; A[10] =  0.0f;   /* model z -> grip -y */
+                A[13] = CTRL_ZMID;
+                float c = cosf(roll * 3.14159265f / 180.0f);
+                float sn = sinf(roll * 3.14159265f / 180.0f);
+                mm4_identity(R);                             /* about grip Z, the handle */
+                R[0] = c;   R[1] = sn;
                 R[4] = -sn; R[5] = c;
+                mm4_mul(K, R, A);
             }
-            mm4_mul(K, R, A);
             mm4_mul(M, P, K);
             set_model(M);
             draw(G.ctrl[i].n ? &G.ctrl[i] : &G.grip);

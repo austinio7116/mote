@@ -101,8 +101,9 @@ static void fake_tracking(MoteVrTracking *t, float dt) {
                 mq_from_axes(mv3_scale(xax, -1.0f), mv3_scale(yax, -1.0f), zax);
         }
     }
-    t->hand[MOTE_VR_LEFT].pose.q  = mq_ident();
-    t->hand[MOTE_VR_RIGHT].pose.q = mq_ident();
+    /* NOTE: these two lines used to sit here and overwrote the grip frame set
+     * above with identity, so every controller render was unrotated. Removed — the
+     * frame above is the point of the block. */
     t->hand[MOTE_VR_LEFT].stick_x  = s_stick_l[0];
     t->hand[MOTE_VR_LEFT].stick_y  = s_stick_l[1];
     t->hand[MOTE_VR_RIGHT].stick_x = s_stick_r[0];
