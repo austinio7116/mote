@@ -25,6 +25,8 @@
 #include "cue_ai.h"
 #include "cue_render.h"
 #include "craft_font.h"
+#include "cue_audio.h"
+#include "cuevr_audio.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -97,6 +99,7 @@ static void start_frame(CueGameKind kind) {
     S.nballs = cue_table_rack(&S.tab, S.balls);
     cue_rules_init(&S.rules, &S.tab, 1);            /* player 1 is the CPU */
     cuevr_render_set_table(&S.tab, &S.world);
+    cue_audio_set_snooker(S.tab.is_snooker);
     cuevr_cue_init(&S.cue);
     S.sited = 0;      /* a 12 ft table does not go where a 7 ft one did */
     S.shot_events = 0;
@@ -358,6 +361,7 @@ static int app_gl_init(void *u) {
     cue_table_build_world(&S.tab, &S.world);
     S.nballs = cue_table_rack(&S.tab, S.balls);
     if (cuevr_render_init(&S.tab, &S.world, mote_xr_target_is_srgb()) != 0) return -1;
+    cuevr_audio_open();
     cuevr_setup_init(&S.setup, 0.0f);
     S.setup.active = 0;              /* the menu comes first */
     cuevr_cue_init(&S.cue);
@@ -482,6 +486,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
                  shot.miscue ? "  MISCUE" : "");
             cue_phys_strike_elev(&S.world, &S.balls[0], shot.dir, sp,
                                  shot.tip_side, shot.tip_vert, shot.elev);
+            /* Power relative to the hardest shot there is, so a delicate safety
+             * whispers and a break cracks. */
+            cue_audio_sfx(CUE_SFX_STRIKE, sp / MAX_STRIKE_SPEED);
             mote_xr_haptic(shot.miscue ? 0.25f : 0.75f, shot.miscue ? 40 : 70);
             if (shot.miscue) { snprintf(S.msg, sizeof S.msg, "MISCUE"); S.msg_time = 1.6f; }
             begin_shot();
@@ -493,8 +500,26 @@ static void app_update(void *u, const MoteVrTracking *t) {
         uint32_t ev = 0;
         int moving = cue_phys_step(&S.world, S.balls, S.nballs, dt, &ev);
         S.shot_events |= ev;
-        if (ev & (CUE_EV_POCKET)) mote_xr_haptic(0.5f, 60);
-        else if (ev & CUE_EV_BALL_HIT) mote_xr_haptic(0.18f, 25);
+        /* Loudness from the actual impact, not a constant: cue_phys reports the
+         * loudest rail approach of the step, and the same figure scaled to the
+         * hardest possible shot serves for ball-on-ball. A clack that is always
+         * the same volume tells you nothing about how you hit it. */
+        if (ev & CUE_EV_BALL_HIT) {
+            float i = cue_phys_cushion_impact() / (MAX_STRIKE_SPEED * 0.55f);
+            cue_audio_sfx(CUE_SFX_CLACK, i > 0.05f ? i : 0.5f);
+            mote_xr_haptic(0.18f, 25);
+        }
+        if (ev & CUE_EV_CUSHION) {
+            float i = cue_phys_cushion_impact() / (MAX_STRIKE_SPEED * 0.55f);
+            cue_audio_sfx(CUE_SFX_CUSHION, i);
+        }
+        if (ev & CUE_EV_JAW) cue_audio_sfx(CUE_SFX_CUSHION, 0.55f);
+        if (ev & CUE_EV_POCKET) {
+            float i = cue_phys_cushion_impact() / (MAX_STRIKE_SPEED * 0.55f);
+            cue_audio_sfx(CUE_SFX_POT, i > 0.1f ? i : 0.45f);
+            mote_xr_haptic(0.5f, 60);
+        }
+        cue_audio_tick(dt);
         if (!moving) resolve_shot();
         break;
     }
@@ -632,7 +657,7 @@ static void app_draw_eye(void *u, const float *view, const float *proj, int draw
     cuevr_render_eye(view, proj, &S.scene, draw_room);
 }
 
-static void app_gl_shutdown(void *u) { (void)u; cuevr_render_shutdown(); }
+static void app_gl_shutdown(void *u) { (void)u; cuevr_audio_close(); cuevr_render_shutdown(); }
 
 void cuevr_app_describe(MoteXrApp *out) {
     memset(out, 0, sizeof *out);

@@ -33,7 +33,8 @@ LOCAL_C_INCLUDES := \
     $(MOTE_ROOT)/engine/audio \
     $(MOTE_ROOT)/engine/scene \
     $(MOTE_ROOT)/sdk \
-    $(MOTE_ROOT)/platform/xr
+    $(MOTE_ROOT)/platform/xr \
+    $(MOTE_ROOT)/platform/vr
 
 LOCAL_CFLAGS := -DMOTE_HOST=1 -DNDEBUG -O2 -ffast-math -std=gnu11 \
                 -Wall -Wno-unused-parameter
@@ -44,6 +45,7 @@ LOCAL_SRC_FILES := \
     $(MOTE_ROOT)/cuevr/src/cuevr_render.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_cue.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_setup.c \
+    $(MOTE_ROOT)/cuevr/src/cuevr_audio.c \
     $(MOTE_ROOT)/platform/xr/mote_xr.c \
     $(MOTE_ROOT)/games/thumbycue/src/cue_physics.c \
     $(MOTE_ROOT)/games/thumbycue/src/cue_table.c \
@@ -55,7 +57,7 @@ LOCAL_SRC_FILES := \
 
 LOCAL_STATIC_LIBRARIES := android_native_app_glue
 LOCAL_SHARED_LIBRARIES := openxr_loader
-LOCAL_LDLIBS := -lGLESv3 -lEGL -llog -landroid -lm
+LOCAL_LDLIBS := -lGLESv3 -lEGL -laaudio -llog -landroid -lm
 
 include $(BUILD_SHARED_LIBRARY)
 

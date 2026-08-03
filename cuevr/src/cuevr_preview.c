@@ -24,6 +24,8 @@
  */
 #include "cuevr.h"
 #include "cuevr_app.h"
+#include "cuevr_audio.h"
+#include "cue_audio.h"
 
 #include <SDL.h>
 #include <GLES3/gl3.h>
@@ -241,6 +243,24 @@ int main(int argc, char **argv) {
         mm4_perspective(proj, 62.0f * 3.14159265f/180.0f, (float)w / (float)h, 0.02f, 60.0f);
         app.draw_eye(app.user, view, proj, 1);
 
+        /* The preview has no audio device, but the mixer is the real one — so
+         * pull from it and report the peak. A shot that made no noise is a shot
+         * whose events never reached the mixer, and that is worth failing on. */
+        if (getenv("CUEVR_AUDIO")) {
+            static int16_t buf[512];
+            static long peak_at = -1;
+            static int peak = 0;
+            cue_audio_render(buf, 512);
+            for (int i = 0; i < 512; i++) {
+                int v = buf[i] < 0 ? -buf[i] : buf[i];
+                if (v > peak) { peak = v; peak_at = nframe; }
+            }
+            if (nframe == shot_frame)
+                printf("cuevr: audio peak %d at frame %ld — strike %d clack %d cushion %d pot %d\n",
+                       peak, peak_at,
+                       cuevr_audio_count(CUE_SFX_STRIKE), cuevr_audio_count(CUE_SFX_CLACK),
+                       cuevr_audio_count(CUE_SFX_CUSHION), cuevr_audio_count(CUE_SFX_POT));
+        }
         if (shot && nframe == shot_frame) { glFinish(); write_png(shot, w, h); running = 0; }
         SDL_GL_SwapWindow(win);
         nframe++;

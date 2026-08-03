@@ -188,6 +188,7 @@ if(MOTE_TARGET STREQUAL "host")
         cuevr/src/cuevr_render.c
         cuevr/src/cuevr_cue.c
         cuevr/src/cuevr_setup.c
+        cuevr/src/cuevr_audio.c
         games/thumbycue/src/cue_physics.c
         games/thumbycue/src/cue_table.c
         games/thumbycue/src/cue_rules.c
@@ -200,6 +201,7 @@ if(MOTE_TARGET STREQUAL "host")
         ${CMAKE_CURRENT_SOURCE_DIR}/cuevr/src
         ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/xr
+        ${CMAKE_CURRENT_SOURCE_DIR}/platform/vr
         ${CMAKE_CURRENT_SOURCE_DIR}/studio/third_party)
     target_compile_definitions(cuevr_preview PRIVATE MOTE_HOST=1)
     target_compile_options(cuevr_preview PRIVATE -O2 -ffast-math -Wall -Wextra
