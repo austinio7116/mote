@@ -288,7 +288,7 @@ static const char *FS =
 "//     and oak have and what pine does not.\n"
 "//\n"
 "// Two fetches, the same budget the stripes cost.\n"
-"vec3 timber(vec3 base, vec2 wq, vec2 warp, vec2 fine) {\n"
+"vec3 timber(vec3 base, vec2 wq, vec2 warp, vec2 fine, vec3 nrm, vec3 Ldir) {\n"
 "    const float PITH_OFF   = 0.085;   /* metres from the board to the log centre */\n"
 "    const float RINGS_PER_M = 105.0;  /* ~9.5 mm a season, as a hardwood rail */\n"
 "    const float RING = 1.0 / RINGS_PER_M;   /* one ring, in metres */\n"
@@ -329,6 +329,31 @@ static const char *FS =
 "    c = mix(c, lw, late * 0.40);\n"
 "    c += base * fleck * 0.10;\n"
 "    c *= 1.0 - pore * 0.14;\n"
+"    // VARNISH, and it is anisotropic. This is most of what separates polished\n"
+"    // timber from a brown pattern: the highlight on a finished rail stretches ALONG\n"
+"    // the grain, because the fibres under the finish are cylinders lying in one\n"
+"    // direction, exactly as they do on cloth. Same Kajiya-Kay lobe, much tighter,\n"
+"    // with the tangent along the board instead of across the nap.\n"
+"    //\n"
+"    // It is also brighter over latewood: the dense bands take a finish harder than\n"
+"    // the soft earlywood does, so the sheen carries the ring pattern with it. That\n"
+"    // coupling is what makes it read as one material rather than a gloss layer\n"
+"    // sitting on top of a texture.\n"
+"    {\n"
+"        vec3 n = normalize(nrm);\n"
+"        vec3 up = abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);\n"
+"        vec3 tg = normalize(cross(up, n));      /* along the board, as surf_uv */\n"
+"        vec3 Vv = normalize(v_eyepos - v_world);\n"
+"        float TdL = dot(tg, Ldir), TdV = dot(tg, Vv);\n"
+"        float sL = sqrt(max(1.0 - TdL * TdL, 0.0));\n"
+"        float sV = sqrt(max(1.0 - TdV * TdV, 0.0));\n"
+"        float aniso = pow(max(sL * sV - TdL * TdV, 0.0), 120.0);\n"
+"        float gloss = 0.55 + 0.85 * late;       /* latewood takes the finish harder */\n"
+"        c += vec3(aniso * gloss * 0.60);\n"
+"        /* and a broad sheen so the whole rail looks finished rather than raw */\n"
+"        float broad = pow(max(dot(n, normalize(Ldir + Vv)), 0.0), 22.0);\n"
+"        c += vec3(broad * 0.10);\n"
+"    }\n"
 "    return c;\n"
 "}\n"
 "\n"
@@ -643,7 +668,7 @@ static const char *FS =
 "            // One low-frequency fetch for the turbulence, one high for grain and pores.\n"
 "            vec2 warp = (texture(u_nap, wq / 0.55).rg - 0.5) * 2.0;\n"
 "            vec2 fine = (texture(u_nap, vec2(wq.x / 0.22, wq.y / 0.020)).rg - 0.5) * 2.0;\n"
-"            tc = mix(tc, timber(v_col, wq, warp, fine), 1.0 - iscloth);\n"
+"            tc = mix(tc, timber(v_col, wq, warp, fine, v_nrm, L), 1.0 - iscloth);\n"
 "        }\n"
 "        \n"
 "        o_col = emit(to_linear(tc * (0.32 + 0.68 * ndl)), 1.0, 1.0);\n"
@@ -2419,7 +2444,11 @@ skip_shadows:
              * it in degrees so all four can be compared in one go instead of guessed
              * one at a time. */
             const float CTRL_ZMID = 0.0418f;
-            float roll = 0.0f;
+            /* 180 about the handle. Chosen by comparing all four in one render
+             * rather than guessed — the model's axes are known (CUEVR_CTRLAXES) so
+             * the roll is the only free parameter, and it is not derivable from the
+             * geometry. CUEVR_CTRLROLL still overrides it. */
+            float roll = 180.0f;
             { const char *rv = getenv("CUEVR_CTRLROLL"); if (rv) roll = (float)atof(rv); }
             {
                 float A[16], R[16];
