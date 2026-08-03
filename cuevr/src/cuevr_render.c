@@ -24,6 +24,7 @@
 #include "cuevr.h"
 #include "cuevr_render.h"
 #include "cue_render.h"
+#include "cuevr_frame.h"
 #include "craft_font.h"
 
 #include <GLES3/gl3.h>
@@ -215,6 +216,26 @@ static const char *FS =
 "        float d = max(dot(v_nrm, L), 0.0);\n"
 "        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), gloss);\n"
 "        o_col = emit(to_linear(c) * (0.34 + 0.70 * d) + vec3(spec) * spec_k, 1.0, 1.0);\n"
+"    } else if (u_mode == 7) {\n"
+"        // Timber. The frame carries its own base colour per piece and a grain\n"
+"        // coordinate that runs ALONG whichever length of wood the vertex\n"
+"        // belongs to, so the grain follows the apron round the table and runs\n"
+"        // UP the legs, instead of everything being striped in world space.\n"
+"        vec3 base = to_linear(v_col);\n"
+"        float g = v_uv.x;\n"
+"        // Two octaves: close-spaced lines, and a slow wander so the figure is\n"
+"        // not a barcode. Modulated across the grain so lines drift rather than\n"
+"        // running dead straight for a metre.\n"
+"        float fine = sin(g * 210.0 + sin(v_uv.y * 26.0) * 1.3);\n"
+"        float slow = sin(g * 31.0 - v_uv.y * 3.0);\n"
+"        float fig  = 0.5 + 0.30 * fine + 0.20 * slow;\n"
+"        vec3 c = base * (0.80 + 0.42 * fig);\n"
+"        vec3 n = normalize(v_nrm);\n"
+"        float d = max(dot(n, L), 0.0);\n"
+"        // French polish: a broad sheen plus a tight highlight, so the apron\n"
+"        // catches the lamps the way varnished wood does.\n"
+"        float spec = pow(max(dot(n, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), 26.0);\n"
+"        o_col = emit(c * (0.26 + 0.72 * d) + vec3(spec) * 0.16, 1.0, 1.0);\n"
 "    } else if (u_mode == 4) {\n"
 "        // The table, with the handheld's own shading: colours authored per\n"
 "        // triangle, lit by the ABSOLUTE dot with the overhead key. Absolute\n"
@@ -333,7 +354,8 @@ static struct {
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_ballslices, u_clothsh;
     GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
-    Mesh   table, lips, ball, cue, quad, floor;
+    Mesh   table, lips, frame, ball, cue, quad, floor;
+    int    frame_sel;
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     GLuint hud_tex;
     int    encode;
@@ -660,13 +682,41 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
         b_free(&b);
     }
     bake_ball_atlas();
+
+    /* The frame is generated separately and drawn separately — nothing above
+     * this line knows it exists, and swapping designs cannot disturb the bed,
+     * the cushions or the pockets. */
+    mesh_free(&G.frame);
+    {
+        int cv, ci;
+        cuevr_frame_capacity(&cv, &ci);
+        CueVrFrameMesh fm;
+        memset(&fm, 0, sizeof fm);
+        fm.v = malloc(sizeof(CueVrFrameVtx) * (size_t)cv);
+        fm.idx = malloc(sizeof(uint16_t) * (size_t)ci);
+        fm.cap_v = cv; fm.cap_i = ci;
+        if (fm.v && fm.idx) {
+            cuevr_frame_build(G.frame_sel, &fm, t);
+            if (fm.overflow) LOGI("[cuevr] frame '%s' ran out of room",
+                                  CUEVR_FRAMES[G.frame_sel].name);
+            /* CueVrFrameVtx and the renderer's Vtx are the same layout, so this
+             * goes straight to the GPU. */
+            Builder fb;
+            fb.v = (Vtx *)fm.v; fb.i = fm.idx;
+            fb.nv = fm.nv; fb.ni = fm.ni; fb.cap_v = cv; fb.cap_i = ci;
+            mesh_upload(&G.frame, &fb);
+            LOGI("[cuevr] frame '%s': %d tris", CUEVR_FRAMES[G.frame_sel].name, fm.ni / 3);
+        }
+        free(fm.v); free(fm.idx);
+    }
+
     LOGI("[cuevr] table mesh %d tris (%d bed, %d lip), balls re-baked (%s)",
          n, bed, nlip, t->is_snooker ? "snooker" : "pool");
 }
 
 void cuevr_render_shutdown(void) {
     if (!G.ready) return;
-    mesh_free(&G.table); mesh_free(&G.lips); mesh_free(&G.ball);
+    mesh_free(&G.table); mesh_free(&G.lips); mesh_free(&G.frame); mesh_free(&G.ball);
     mesh_free(&G.cue); mesh_free(&G.quad); mesh_free(&G.floor);
     glDeleteTextures(1, &G.hud_tex);
     glDeleteTextures(1, &G.ball_tex);
@@ -807,6 +857,14 @@ void cuevr_render_eye(const float *view, const float *proj,
         draw(&G.floor);
         glEnable(GL_CULL_FACE);
         glDisable(GL_BLEND);
+    }
+
+    /* The frame first: it is underneath everything and honestly wound, so it
+     * keeps backface culling. */
+    if (G.frame.n) {
+        glUniform1i(G.u_mode, 7);
+        set_model(T);
+        draw(&G.frame);
     }
 
     /* No backface culling on the table. cue_render's mesh is authored for a

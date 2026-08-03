@@ -46,6 +46,7 @@ LOCAL_SRC_FILES := \
     $(MOTE_ROOT)/cuevr/src/cuevr_cue.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_setup.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_audio.c \
+    $(MOTE_ROOT)/cuevr/src/cuevr_frame.c \
     $(MOTE_ROOT)/platform/xr/mote_xr.c \
     $(MOTE_ROOT)/games/thumbycue/src/cue_physics.c \
     $(MOTE_ROOT)/games/thumbycue/src/cue_table.c \
