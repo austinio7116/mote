@@ -211,9 +211,13 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
         Vec3 pc = w->pocket[pidx];
         float pr = (pidx < 4) ? t->pr_corner : t->pr_side;
         float fd = w->pocket_r[pidx];            /* the FUNCTIONAL drop circle (= void) */
-        /* the bed-edge circle around the drop (matches the bed cut) — the lip
-         * rolls from here down to the drop fd */
-        const int N = 6;
+        /* The bed-edge circle around the drop, and it MUST match the bed cut
+         * exactly — the lip's outer ring and the bed's inner ring are the same
+         * boundary, so the two arcs have to be generated with the same segment
+         * count or the seam opens into gaps. That is what happened when the bed's
+         * arc became tunable and this stayed at a hard-coded 6. The comment said
+         * "matches the bed cut"; it now actually does. */
+        const int N = CUE_ARC_SEGS;
         Vec3 arc[N + 1];
         pocket_circ_arc(pc, fd * 1.35f, a, b, arc, N);
         int M; float ld;
