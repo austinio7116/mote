@@ -516,8 +516,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
                              (CUEVR_CUE_MASS + S.tab.mass);
             float sp = shot.speed * transfer;
             if (sp > MAX_STRIKE_SPEED) sp = MAX_STRIKE_SPEED;
-            LOGI("[cuevr] strike tip %.2f -> ball %.2f m/s  side %+.2f vert %+.2f  elev %.1f deg%s",
-                 (double)shot.speed, (double)sp, (double)shot.tip_side, (double)shot.tip_vert,
+            LOGI("[cuevr] strike tip %.2f -> ball %.2f m/s  [%d fr, %.1f mm in %.1f ms]  side %+.2f vert %+.2f  elev %.1f deg%s",
+                 (double)shot.speed, (double)sp,
+                 S.cue.m_frames, (double)(S.cue.m_dist * 1000.0f),
+                 (double)(S.cue.m_time * 1000.0f), (double)shot.tip_side, (double)shot.tip_vert,
                  (double)(shot.elev * 180.0f / 3.14159265f),
                  shot.miscue ? "  MISCUE" : "");
             cue_phys_strike_elev(&S.world, &S.balls[0], shot.dir, sp,

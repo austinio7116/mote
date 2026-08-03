@@ -30,6 +30,10 @@ static const float MAHOGANY[3] = { 0.286f, 0.129f, 0.086f };
 static const float MAHOGANY_LIT[3] = { 0.353f, 0.169f, 0.106f };
 static const float EBONISED[3] = { 0.086f, 0.055f, 0.047f };
 static const float BRASS[3] = { 0.451f, 0.333f, 0.145f };
+/* The top face of the frame is what you see when you look down a pocket, so
+ * it is black: a pocket has no floor to show you, and anything lighter reads
+ * as the hole having been filled in with wood — which is what it looked like. */
+static const float SHADOW[3] = { 0.012f, 0.010f, 0.010f };
 
 /* ---- emit --------------------------------------------------------------- */
 
@@ -165,9 +169,14 @@ static void regency(CueVrFrameMesh *m, const CueTable *t) {
     const float bead_y   = ap_top - 0.040f;
     const float bead_d   = 0.006f;
 
-    /* moulded top course, oversailing all round */
+    /* The top course, in two: a black plate at the very top and the moulding
+     * below it. The plate is all you see looking down through a pocket, and
+     * black is the only right answer — there is nothing down a pocket. The
+     * moulding is what you see from the side, so it keeps its timber. */
+    box(m, -ox - oversail, ap_top - 0.007f, -oz - oversail,
+            ox + oversail, ap_top,           oz + oversail, 0, SHADOW);
     box(m, -ox - oversail, ap_top - 0.026f, -oz - oversail,
-            ox + oversail, ap_top,           oz + oversail, 0, MAHOGANY_LIT);
+            ox + oversail, ap_top - 0.007f,  oz + oversail, 0, MAHOGANY_LIT);
     /* the apron proper, in four runs so the grain follows each length */
     box(m, -ox, ap_bot, -oz, ox, ap_top - 0.026f, -oz + 0.026f, 0, MAHOGANY);
     box(m, -ox, ap_bot,  oz - 0.026f, ox, ap_top - 0.026f, oz, 0, MAHOGANY);

@@ -130,6 +130,7 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
         c->have_prev = 0;
         c->struck = 0;
         c->speed_n = 0;
+        c->t_accum = 0.0f;
     } else if (!want_stroke) {
         c->stroking = 0;
     }
@@ -210,34 +211,51 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
          * safety and a power shot. That is what made the power feel random. A
          * 35 ms attack averages two or three frames: fast enough to follow a
          * real delivery, slow enough that jitter cannot dominate it. */
-        /* Power: the mean closing speed over the last few frames, taken AT the
-         * moment of contact.
+        /* Power: one distance over one span of time.
          *
-         * Not the peak over the delivery, which is what this did and which is
-         * not linear in anything: a peak inflates a hard stroke more than a
-         * gentle one, so soft shots came out weak and hard ones came out
-         * overpowered. Worse, it is not even local to the strike — address the
-         * ball and feather the cue with the trigger held, as everyone does, and
-         * the peak is the fastest practice stroke rather than the shot.
+         * Every previous attempt computed a speed per frame — this frame's
+         * movement divided by this frame's dt — and then combined those. That
+         * multiplies the frame-timing noise straight into the answer: a
+         * predicted display time that lands a millisecond early, or a dropped
+         * frame that reports one interval's dt for two intervals' motion, and
+         * the same physical stroke reads as a tap or a smash. At 72 Hz a dt
+         * that is 30% out is a power reading 30% out, and dt at the head of a
+         * stroke is exactly where a runtime's prediction is least settled.
          *
-         * A short trailing mean is linear in the speed of the delivery, is the
-         * speed the tip was genuinely doing as it arrived, and still averages
-         * away the frame-to-frame jitter that made it random in the first place. */
-        float closing = (c->prev_gap - c->gap) / t->dt;
-        for (int i = CUEVR_SPEED_N - 1; i > 0; i--) c->speed_hist[i] = c->speed_hist[i-1];
-        c->speed_hist[0] = closing;
+         * So keep the raw (gap, elapsed) samples and take a single finite
+         * difference across the longest run of FORWARD motion in the window:
+         * total distance travelled divided by the total time it took. Individual
+         * dt errors cancel because the same frames' times are summed, and a
+         * ~100 ms baseline over a real delivery leaves tracking jitter nowhere
+         * to hide. Walking back only while the motion is forward means the
+         * baseline stops at the turnaround, so a backswing cannot dilute it.
+         */
+        c->t_accum += t->dt;
+        for (int i = CUEVR_SPEED_N - 1; i > 0; i--) {
+            c->gap_hist[i] = c->gap_hist[i-1];
+            c->t_hist[i]   = c->t_hist[i-1];
+        }
+        c->gap_hist[0] = c->gap;
+        c->t_hist[0]   = c->t_accum;
         if (c->speed_n < CUEVR_SPEED_N) c->speed_n++;
-        /* Average only the frames the cue was going FORWARD. While you address
-         * the ball it is stationary, and during a backswing it is going the
-         * wrong way; including either drags the mean down — badly, because a
-         * hard delivery is only two or three frames long, so a stationary frame
-         * can be a third of the window. The delivery IS the forward motion, so
-         * that is what gets averaged. */
-        float sum = 0.0f;
-        int nfwd = 0;
-        for (int i = 0; i < c->speed_n; i++)
-            if (c->speed_hist[i] > 0.0f) { sum += c->speed_hist[i]; nfwd++; }
-        c->speed = nfwd ? sum / (float)nfwd : 0.0f;
+
+        /* The start of the delivery is the FURTHEST BACK the cue went inside the
+         * window — the largest gap. Not "walk back while each step is forward":
+         * a millimetre of tracking wobble makes one step non-monotonic and
+         * truncates the baseline to two or three frames at random, which is
+         * precisely how the same stroke came out as a tap or a smash. Taking the
+         * maximum is immune to that and finds the turnaround of the backswing on
+         * its own. */
+        int start = 0;
+        for (int i = 1; i < c->speed_n; i++)
+            if (c->gap_hist[i] > c->gap_hist[start]) start = i;
+        float dgap = c->gap_hist[start] - c->gap_hist[0];
+        float dtime = c->t_hist[0] - c->t_hist[start];
+        c->speed = (dtime > 1e-4f && dgap > 0.0f) ? dgap / dtime : 0.0f;
+        c->m_frames = start;
+        c->m_dist = dgap;
+        c->m_time = dtime;
+
         if (c->gap <= 0.0f && c->speed > 0.12f) {
             c->struck = 1;
             out->struck   = 1;

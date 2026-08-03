@@ -79,10 +79,10 @@ int  cuevr_setup_update(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_bal
 void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_ball_room,
                         int allow_height);
 
-/* Frames averaged for power. Three at 72 Hz is a 42 ms window: long enough that
- * a millimetre of tracking jitter cannot dominate it, short enough to be the
- * speed the cue was ACTUALLY doing as it arrived. */
-#define CUEVR_SPEED_N 3
+/* How many (position, time) samples of the delivery to keep. Power is measured
+ * over the longest run of forward motion inside this window, up to ~110 ms at
+ * 72 Hz, which is most of a real delivery. */
+#define CUEVR_SPEED_N 20
 
 /* ---- the cue ------------------------------------------------------------ *
  * "Natural" cueing, as in Unlimited Snooker: the left hand is the bridge the
@@ -127,10 +127,18 @@ typedef struct {
     float prev_gap;
     int   have_prev;
     float speed;         /* closing speed along the axis (m/s) */
-    /* The last few frames' closing speeds. Power is their mean at the moment of
-     * contact — local to the strike, and linear in the speed of the delivery. */
-    float speed_hist[CUEVR_SPEED_N];
+    /* The delivery, as (gap, elapsed) samples rather than per-frame speeds.
+     * Dividing each frame's movement by that frame's dt and then averaging
+     * multiplies the timing noise in; measuring one distance over one span of
+     * time does not. */
+    float gap_hist[CUEVR_SPEED_N];
+    float t_hist[CUEVR_SPEED_N];
     int   speed_n;
+    float t_accum;
+    /* what the last strike was measured from — for the log, so a bad reading on
+     * hardware can be diagnosed instead of theorised about */
+    int   m_frames;
+    float m_dist, m_time;
     MoteVrV3 prev_hand[2];   /* for sliding a hand along the cue */
     int   have_hand;
     int   struck;            /* this stroke has already made contact */
