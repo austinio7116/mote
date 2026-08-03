@@ -53,6 +53,17 @@ typedef struct {
 typedef struct {
     const char *name;                 /* OpenXR application name */
 
+    /* Ask for a FLOOR-relative world (OpenXR's STAGE space, y = 0 at the real
+     * floor) rather than a head-relative one (LOCAL, whose origin is at the
+     * headset — roughly eye height). Anything that stands on the floor wants
+     * this: a table placed "0.85 m up" in LOCAL space ends up 0.85 m above your
+     * eyes, which is the ceiling. Something you hold does not care and LOCAL
+     * needs no room setup, so it stays the default.
+     *
+     * STAGE is not guaranteed. Check mote_xr_floor_relative() after init for
+     * what you actually got. */
+    int floor_relative;
+
     /* GL is current and the swapchains exist. Build meshes, textures, shaders.
      * Return 0 on success; non-zero aborts start-up. */
     int  (*gl_init)(void *user);
@@ -94,5 +105,8 @@ int  mote_xr_has_passthrough(void);
 /* True when the swapchain does the linear->sRGB encode, so the app's shaders
  * should emit linear. False means the app encodes. */
 int  mote_xr_target_is_srgb(void);
+
+/* True when the world really is floor-relative, i.e. y = 0 is the floor. */
+int  mote_xr_floor_relative(void);
 
 #endif /* MOTE_XR_H */

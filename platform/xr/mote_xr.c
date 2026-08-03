@@ -108,6 +108,7 @@ static struct {
 
     MoteXrApp   app;
     int         srgb;
+    int         floor;
     XrTime      last_display;
 } S;
 
@@ -240,11 +241,28 @@ static int make_session(void) {
     sci.systemId = S.system;
     if (failed(xrCreateSession(S.instance, &sci, &S.session), "xrCreateSession")) return -1;
 
-    /* LOCAL, not STAGE: this is a thing you hold, not a thing on the floor, so
-     * it should sit where you are rather than where the guardian's origin is —
-     * and LOCAL needs no room setup at all. */
+    /* LOCAL for something you hold — it sits where you are and needs no room
+     * setup. STAGE when the app says it puts things on the floor, because
+     * LOCAL's origin is the HEADSET, so "0.85 m up" in it is 0.85 m above your
+     * eyes. STAGE is not guaranteed, so ask the runtime and fall back. */
+    XrReferenceSpaceType want = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    if (S.app.floor_relative) {
+        uint32_t ns = 0;
+        xrEnumerateReferenceSpaces(S.session, 0, &ns, NULL);
+        XrReferenceSpaceType *avail = calloc(ns ? ns : 1, sizeof *avail);
+        xrEnumerateReferenceSpaces(S.session, ns, &ns, avail);
+        for (uint32_t i = 0; i < ns; i++)
+            if (avail[i] == XR_REFERENCE_SPACE_TYPE_STAGE) {
+                want = XR_REFERENCE_SPACE_TYPE_STAGE;
+                S.floor = 1;
+                break;
+            }
+        free(avail);
+        xrlog("[mote-xr] %s space (app wanted the floor)",
+              S.floor ? "STAGE" : "LOCAL — no STAGE, falling back");
+    }
     XrReferenceSpaceCreateInfo rs = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
-    rs.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    rs.referenceSpaceType = want;
     rs.poseInReferenceSpace.orientation.w = 1.0f;
     if (failed(xrCreateReferenceSpace(S.session, &rs, &S.space), "xrCreateReferenceSpace"))
         return -1;
@@ -687,6 +705,7 @@ int  mote_xr_should_quit(void)     { return S.quit; }
 int  mote_xr_running(void)         { return S.running; }
 int  mote_xr_has_passthrough(void) { return S.has_passthrough; }
 int  mote_xr_target_is_srgb(void)  { return S.srgb; }
+int  mote_xr_floor_relative(void)  { return S.floor; }
 void mote_xr_haptic(float i, int ms) { haptic(i, ms); }
 
 void mote_xr_frame(void) {

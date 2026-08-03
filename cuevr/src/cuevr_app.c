@@ -42,6 +42,11 @@
  * in the range it was tuned for. */
 #define MAX_STRIKE_SPEED 8.5f
 
+/* Cloth height above the floor. A match table is 2 ft 10 in; a pub table is
+ * near enough the same. The player adjusts it in setup to match whatever real
+ * surface they are standing at. */
+#define CUEVR_TABLE_HEIGHT 0.85f
+
 enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_PLACE, ST_DECIDE, ST_OVER };
 
 static const struct { CueGameKind kind; const char *name; } MENU[] = {
@@ -76,6 +81,7 @@ static struct {
     float     menu_hold;         /* left menu button held, seconds */
     int       hud_dirty;
     int       dec_latch;
+    int       sited;             /* the table has been put somewhere real */
     uint16_t  hud[CUEVR_HUD_W * CUEVR_HUD_H];
     char      msg[32];
     float     msg_time;
@@ -92,6 +98,7 @@ static void start_frame(CueGameKind kind) {
     cue_rules_init(&S.rules, &S.tab, 1);            /* player 1 is the CPU */
     cuevr_render_set_table(&S.tab, &S.world);
     cuevr_cue_init(&S.cue);
+    S.sited = 0;      /* a 12 ft table does not go where a 7 ft one did */
     S.shot_events = 0;
     snprintf(S.msg, sizeof S.msg, "%s", MENU[S.menu_sel].name);
     S.msg_time = 3.0f;
@@ -127,9 +134,9 @@ static void hud_build(void) {
     if (S.state == ST_MENU) {
         craft_font_draw_2x(S.hud, "CUEVR", 4, 2, HI);
         for (int i = 0; i < MENU_N; i++) {
-            int y = 18 + i * 13;
+            int y = 16 + i * 12;
             if (i == S.menu_sel) {
-                hud_rect(2, y - 2, CUEVR_HUD_W - 4, 12, RGB565C(28, 42, 66));
+                hud_rect(2, y - 2, CUEVR_HUD_W - 4, 11, RGB565C(28, 42, 66));
                 craft_font_draw_2x(S.hud, ">", 3, y, HI);
             }
             craft_font_draw_2x(S.hud, MENU[i].name, 12, y, i == S.menu_sel ? TXT : DIM);
@@ -137,12 +144,13 @@ static void hud_build(void) {
         {   char o[40];
             snprintf(o, sizeof o, "VS %s (%d)", CUE_PERSONAS[S.persona].name,
                      CUE_PERSONAS[S.persona].elo);
-            craft_font_draw(S.hud, o, 4, CUEVR_HUD_H - 24, TXT);
+            craft_font_draw(S.hud, o, 4, CUEVR_HUD_H - 26, TXT);
             /* the live ball set, drawn by cue_render itself */
-            cue_render_set_preview(S.hud, 96, CUEVR_HUD_H - 21, 5,
+            cue_render_set_preview(S.hud, CUEVR_HUD_W - 20, CUEVR_HUD_H - 13, 4,
                                    S.ballset, MENU[S.menu_sel].kind >= CUE_GAME_FIRST_SNK);
         }
-        craft_font_draw(S.hud, "R STICK L/R OPPONENT  A PLAY", 4, CUEVR_HUD_H - 8, DIM);
+        craft_font_draw(S.hud, "R STICK L/R VS   A PLAY", 4, CUEVR_HUD_H - 14, DIM);
+        craft_font_draw(S.hud, "L STICK L/R BALLS", 4, CUEVR_HUD_H - 7, DIM);
         return;
     }
 
@@ -367,6 +375,34 @@ MoteVrV3 cuevr_app_cue_ball_room(void) { return cue_ball_room(); }
 static void app_update(void *u, const MoteVrTracking *t) {
     (void)u;
     float dt = t->dt > 0.0f && t->dt < 0.25f ? t->dt : 1.0f / 72.0f;
+
+    /* Put the table somewhere real, the first time we know where the player is.
+     *
+     * The height comes off the FLOOR: the app asks the OpenXR host for a
+     * floor-relative world (STAGE), so y = 0 is the actual floor of the room
+     * and a table stands 0.85 m above it, like a table. Where a runtime cannot
+     * give us that, LOCAL's origin is the HEADSET — and "0.85 m up" in LOCAL is
+     * 0.85 m above the player's EYES, which is the ceiling, with the HUD
+     * hanging off the table and going up there with it. So the fallback derives
+     * the floor from eye level instead.
+     *
+     * Left-right and facing always come from the head: centred in front, length
+     * running away, so the player starts at the baulk end. */
+    if (!S.sited) {
+        MoteVrV3 fwd = mq_rot(t->head.q, mv3(0, 0, -1));
+        fwd.y = 0.0f;
+        fwd = mv3_len(fwd) > 1e-3f ? mv3_norm(fwd) : mv3(0, 0, -1);
+        S.setup.place.height = mote_xr_floor_relative()
+                             ? CUEVR_TABLE_HEIGHT          /* above the real floor */
+                             : t->head.p.y - 0.75f;        /* no STAGE: guess from the eyes */
+        S.setup.place.pos = mv3_add(t->head.p,
+                                    mv3_scale(fwd, S.tab.half_len + 0.35f));
+        S.setup.place.pos.y = S.setup.place.height;
+        S.setup.place.yaw = atan2f(fwd.z, fwd.x);   /* +X, the length, points away */
+        S.setup.last_height = S.setup.place.height;
+        S.sited = 1;
+        S.hud_dirty = 1;
+    }
     if (S.msg_time > 0.0f) { S.msg_time -= dt; if (S.msg_time <= 0.0f) S.hud_dirty = 1; }
 
     /* Hold MENU to put the table somewhere else. */
@@ -552,19 +588,39 @@ static void app_update(void *u, const MoteVrTracking *t) {
     S.scene.cue_butt = S.cue.butt;
     S.scene.cue_tip  = S.cue.tip;
 
-    /* The panel stands up past the far end of the table, facing wherever you
-     * are — a scoreboard on the wall behind the table, in other words. */
+    /* Where the panel goes depends on what it is for.
+     *
+     * While the game is asking you something — the table menu, placing the
+     * table, placing the cue ball, answering a foul — it sits in front of your
+     * face, at arm's length, because a panel you cannot find is a game you
+     * cannot start. Hanging it off the table was how a mis-sited table took the
+     * whole interface with it.
+     *
+     * In play it is a scoreboard on the wall past the far end, where you can
+     * glance at it without it being in the way of a shot. */
     {
-        MoteVrV3 far_end = cuevr_table_to_room(&S.setup.place,
-            (Vec3){ S.tab.half_len + 0.30f, 0.0f, 0.0f });
-        far_end.y += 0.45f;
-        S.scene.hud_pos = far_end;
-        MoteVrV3 to_head = mv3_sub(t->head.p, far_end);
-        to_head.y = 0.0f;
+        int asking = (S.state == ST_MENU || S.state == ST_SETUP ||
+                      S.state == ST_PLACE || S.state == ST_DECIDE ||
+                      S.state == ST_OVER);
+        MoteVrV3 pos;
+        if (asking) {
+            MoteVrV3 fwd = mq_rot(t->head.q, mv3(0, 0, -1));
+            pos = mv3_add(t->head.p, mv3_scale(mv3_norm(fwd), 0.75f));
+            S.scene.hud_w = 0.42f;
+        } else {
+            pos = cuevr_table_to_room(&S.setup.place,
+                (Vec3){ S.tab.half_len + 0.30f, 0.0f, 0.0f });
+            pos.y += 0.45f;
+            S.scene.hud_w = 0.34f;
+        }
+        S.scene.hud_pos = pos;
+        MoteVrV3 to_head = mv3_sub(t->head.p, pos);
+        if (!asking) to_head.y = 0.0f;
         MoteVrV3 z = mv3_len(to_head) > 1e-3f ? mv3_norm(to_head) : mv3(0, 0, 1);
         MoteVrV3 x = mv3_norm(mv3_cross(mv3(0, 1, 0), z));
+        if (mv3_len(x) < 0.05f) x = mv3(1, 0, 0);
+        x = mv3_norm(x);
         S.scene.hud_rot = mq_from_axes(x, mv3_cross(z, x), z);
-        S.scene.hud_w = 0.34f;
         S.scene.hud_visible = 1;
     }
 
@@ -581,6 +637,7 @@ static void app_gl_shutdown(void *u) { (void)u; cuevr_render_shutdown(); }
 void cuevr_app_describe(MoteXrApp *out) {
     memset(out, 0, sizeof *out);
     out->name        = "CueVR";
+    out->floor_relative = 1;      /* a table stands on the floor */
     out->gl_init     = app_gl_init;
     out->update      = app_update;
     out->draw_eye    = app_draw_eye;
