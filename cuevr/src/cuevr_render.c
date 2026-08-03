@@ -271,8 +271,11 @@ static const char *FS =
 "        // had them the other way about, a blue-grey pad behind a green band,\n"
 "        // because the ferrule was doubling as the aim indicator. That is now\n"
 "        // a brightening of the metal, so the tip can be the colour it is.\n"
-"        if (t < 0.0076) { c = vec3(0.16, 0.42, 0.30); gloss = 6.0; spec_k = 0.04; }\n"      // leather tip
-"        else if (t < 0.0138) { c = vec3(0.84, 0.84, 0.87); gloss = 90.0; spec_k = 0.60; }\n" // ferrule: green when the line is live
+"        // 3.5 mm of leather then a 10 mm ferrule, as measured lengths and not\n"
+"        // as guesses: the green ran to 11 mm before, which is three times the\n"
+"        // pad on a real cue and read as a long coloured cone.\n"
+"        if (t < 0.00241) { c = vec3(0.16, 0.42, 0.30); gloss = 6.0; spec_k = 0.04; }\n"
+"        else if (t < 0.00931) { c = vec3(0.84, 0.84, 0.87); gloss = 90.0; spec_k = 0.60; }\n" // ferrule: green when the line is live
 "        else {\n"
 "            // Ash grain runs the LENGTH of the cue as fine lines, so it has\n"
 "            // to vary with the angle round the shaft and only drift slowly\n"
@@ -353,14 +356,15 @@ static const char *FS =
 "        float nap = 1.0;\n"
 "        nap += (vnoise(q * vec2(19.0, 24.0)) - 0.5) * 0.06;\n"
 "        nap += (vnoise(q * vec2(90.0, 62.0)) - 0.5) * 0.035;\n"
-"        // The velvet grain, read from the MIPMAPPED fur volume rather than\n"
-"        // generated here. That is the whole difference: the hardware\n"
-"        // band-limits it per pixel and per axis, so it can be this fine\n"
-"        // without aliasing, and it fades to flat on its own with distance.\n"
-"        // Low contrast on purpose — a real cloth has a nap you can see and\n"
-"        // not a pattern you can read.\n"
-"        nap += (texture(u_fur, vec3(v_local.xz / u_feltspan, 0.0)).r - 0.85)\n"
-"             * 0.075;\n"
+"        // The nap, read from the MIPMAPPED volume rather than generated\n"
+"        // here. That is the whole difference: the hardware band-limits it\n"
+"        // per pixel AND per axis, so it can be this fine without aliasing,\n"
+"        // and it fades to flat on its own as you back away. Two octaves —\n"
+"        // the fine one is the fibre grain you see with your eye down on the\n"
+"        // cloth, the coarser one is the mottle you can still see standing up.\n"
+"        float n1 = texture(u_fur, vec3(v_local.xz / u_feltspan, 0.0)).r;\n"
+"        float n2 = texture(u_fur, vec3(v_local.xz / (u_feltspan * 5.0), 0.0)).r;\n"
+"        nap += (n1 - 0.88) * 0.20 + (n2 - 0.88) * 0.11;\n"
 "        vec3 cloth = to_linear(u_cloth) * nap;\n"
 "        float sheen = 0.0;\n"
 "        \n"
@@ -617,19 +621,27 @@ static void build_sphere(Builder *b, int slices, int stacks) {
 /* radius (m) at a fraction along the cue, tip to butt */
 static float cue_radius(float t) {
     const float x = t * CUE_LEN;
-    /* The tip is DOMED, not a flat disc. A snooker tip is a leather pad shaped
-     * to about the curve of a sixpence, and the flat cylinder it was before read
-     * as a cut-off dowel from the distance you actually see it — a hand's width
-     * away. A spherical cap over the last 3 mm. */
-    const float TIP_R = 0.0051f;      /* the tip's full radius */
-    const float DOME  = 0.0030f;      /* how far back the dome reaches */
+    /* The tip is a shallow spherical cap, and the numbers matter. A snooker tip
+     * is about 10 mm across, domed to roughly the curve of a sixpence — a
+     * curvature radius of ~10.5 mm. On a 5.1 mm tip radius that cap is only
+     * 1.32 mm DEEP:
+     *
+     *     h = Rc - sqrt(Rc^2 - Rt^2) = 10.5 - sqrt(110.25 - 26.01) = 1.32 mm
+     *
+     * and the profile through it is r = sqrt(2*Rc*x - x^2).
+     *
+     * The version before this made up its own curve and tapered from 5.1 mm down
+     * to 1.4 mm over a full 3 mm, which is not a domed tip, it is a sharpened
+     * pencil. Worth doing the arithmetic rather than picking a shape. */
+    const float TIP_R = 0.0051f;      /* tip radius: a 10.2 mm tip */
+    const float TIP_RC = 0.0105f;     /* curvature radius of the dome */
+    const float DOME = 0.00132f;      /* therefore this deep */
     if (x < DOME) {
-        float k = (DOME - x) / DOME;                 /* 1 at the very end */
-        float r = TIP_R * sqrtf(1.0f - k * k * 0.92f);
-        return r < 0.0008f ? 0.0008f : r;
+        float r = sqrtf(2.0f * TIP_RC * x - x * x);
+        return r > TIP_R ? TIP_R : r;
     }
-    if (x < 0.011f) return TIP_R;                                    /* leather pad */
-    if (x < 0.020f) return 0.00515f;                                 /* ferrule */
+    if (x < 0.0035f) return TIP_R;                                   /* leather pad */
+    if (x < 0.0135f) return 0.00515f;                                /* 10 mm ferrule */
     if (x < 1.100f) {                                                /* ash shaft */
         float k = (x - 0.032f) / (1.100f - 0.032f);
         return 0.0051f + k * (0.0095f - 0.0051f);
@@ -646,10 +658,29 @@ static float cue_radius(float t) {
 
 static void build_cue(Builder *b, int slices, int rings) {
     for (int j = 0; j <= rings; j++) {
-        /* Rings bunch towards the tip, where the profile actually changes and
-         * where your eye is. */
-        float f = (float)j / rings;
-        float t = f * f * 0.55f + f * 0.45f;
+        /* Rings, and the distribution is the whole reason the tip looked like a
+         * sharpened pencil. The old curve put ring 0 at x=0 and ring 1 at 13.9 mm,
+         * so a 1.32 mm dome had NOTHING sampling it and the lathe ran a straight
+         * cone from the apex to full shaft radius. The profile function was right
+         * and unreachable.
+         *
+         * Two zones: the first quarter of the rings resolve the first 15 mm — the
+         * dome, the leather and the ferrule, where the shape changes and where your
+         * eye actually is — and the rest carry the shaft and butt, which are very
+         * nearly straight and need almost nothing. */
+        float t;
+        {
+            int tipr = rings / 4;
+            if (tipr < 10) tipr = 10;
+            if (j <= tipr) {
+                float u = (float)j / (float)tipr;
+                t = (0.015f * u * u) / CUE_LEN;        /* 0 -> 15 mm, dense at 0 */
+            } else {
+                float v = (float)(j - tipr) / (float)(rings - tipr);
+                float x = 0.015f + (CUE_LEN - 0.015f) * v;
+                t = x / CUE_LEN;
+            }
+        }
         float y = t * CUE_LEN, r = cue_radius(t);
         float r2 = cue_radius(t + 0.004f > 1.0f ? 1.0f : t + 0.004f);
         float slope = (r2 - r) / (0.004f * CUE_LEN);
@@ -990,9 +1021,11 @@ static float ball_number_cov(uint8_t id, float py, float pz) {
     if (id < 1 || id > 15) return -1.0f;
     const int *bx = s_numbox[id];
     float bw = (float)(bx[2] - bx[0] + 1), bh = (float)(bx[3] - bx[1] + 1);
-    /* The digit's height on the ball, in disc units where the circle has radius
-     * 1. A real ball's number stands about 55% of the circle's diameter. */
-    float wh = 1.05f;
+    /* The digit's height, in disc units where the circle has radius 1 (so the
+     * circle's diameter is 2). On a real ball the number stands about a third of
+     * the circle's diameter, not the whole of it — 1.05 filled the circle edge to
+     * edge and looked like a logo. */
+    float wh = 0.72f;
     float ww = wh * (bw / bh);
     float gu = (pz + ww * 0.5f) / ww;
     float gv = (wh * 0.5f - py) / wh;
@@ -1538,67 +1571,20 @@ void cuevr_render_eye(const float *view, const float *proj,
         set_model(T);
         draw(&G.bed);
 
-        /* ---- the pile: shells ----------------------------------------------
-         * The order and the state are the technique, not decoration. The base
-         * cloth went down first WITH depth writes, above. The shells now go on
-         * from the inside out, alpha blended, depth test ON and depth write OFF
-         * — that is what lets a nearer hair hide one behind it without the
-         * shells occluding each other wholesale.
+        /* No shell passes.
          *
-         * glBlendFuncSeparate, not glBlendFunc: a plain blend applies to the
-         * alpha channel too and would punch holes straight through the
-         * passthrough camera layer. That mistake has already been made once in
-         * this file, on the ball shadows.
+         * They were eight extra draws of the whole cloth, they were invisible at
+         * every distance anyone actually plays from, and they were actively
+         * damaging the chalk: the markings live on the backing, so eight layers of
+         * pile drawn over them washed the baulk line out wherever the pile was
+         * densest. Making every shell carry the chalk fixed the fading and left
+         * the line grainy and degraded instead.
          *
-         * Gated on how close your eye is. Eight extra passes over the cloth is
-         * real fill cost on a mobile GPU, and at two metres the pile is far
-         * below a pixel anyway — which is also exactly the brief. */
-        {
-            /* Distance to the NEAREST POINT of the cloth, not to its centre.
-             * Centre distance is nearly two metres on a twelve foot table even
-             * when you are leaning on the rail, so the pile never appeared at
-             * all — the gate was measuring the wrong thing. */
-            MoteVrV3 et = cuevr_room_to_table(s->place, eye);
-            float hx = G.tab.half_len, hz = G.tab.half_wid;
-            float cx = et.x < -hx ? -hx : (et.x > hx ? hx : et.x);
-            float cz = et.z < -hz ? -hz : (et.z > hz ? hz : et.z);
-            float dx = et.x - cx, dz = et.z - cz;
-            float d = sqrtf(dx * dx + et.y * et.y + dz * dz);
-            int shells = 0;
-            if (d < 0.45f)      shells = FUR_SLICES;
-            else if (d < 1.30f) shells = (int)(FUR_SLICES * (1.30f - d) / 0.85f);
-            {   /* CUEVR_SHELLS forces the count, because the preview camera is
-                 * bolted down and cannot walk up to the cloth. */
-                const char *ov = getenv("CUEVR_SHELLS");
-                if (ov) shells = atoi(ov);
-                if (shells > FUR_SLICES) shells = FUR_SLICES;
-            }
-            {   static int said = 0;
-                if (!said) { said = 1;
-                    LOGI("[cuevr] fur: %d shells at %.2f m, u_shell loc %d, u_fur loc %d",
-                         shells, (double)d, G.u_shell, G.u_fur); }
-            }
-            if (shells > 0) {
-                glEnable(GL_BLEND);
-                glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
-                                    GL_ZERO, GL_ONE);
-                glDepthMask(GL_FALSE);
-                glDisable(GL_CULL_FACE);
-                glUniform1i(G.u_mode, 9);
-                for (int k = 0; k < shells; k++) {
-                    float t01 = ((float)k + 0.5f) / (float)FUR_SLICES;
-                    glUniform1f(G.u_shell, t01 * FUR_PILE * G.fur_scale);
-                    glUniform1f(G.u_furslice, (float)k);
-                    set_model(T);
-                    draw(&G.bed);
-                }
-                glUniform1f(G.u_shell, 0.0f);
-
-                glEnable(GL_CULL_FACE);
-                glDepthMask(GL_TRUE);
-                glDisable(GL_BLEND);
-            }
-        }
+         * The reference photograph is the argument for dropping them. A real cloth
+         * close up has NO resolvable strands — it has a fine even nap. That is a
+         * detail texture, and one mipmapped pass gives it honestly, cannot alias,
+         * and cannot touch the chalk. Shells earn their cost on a cat, not on a
+         * flat sheet of baize. */
     }
 
     /* ---- ball shadows on the cloth ---- *
