@@ -109,6 +109,7 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
         c->lock_tip0 = mv3_add(Rh->pose.p,
                                mv3_scale(live_axis, CUEVR_CUE_LEN - c->grip));
         c->have_prev = 0;
+        c->struck = 0;
     } else if (!want_stroke) {
         c->stroking = 0;
     }
@@ -137,17 +138,22 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     c->aim_dir = mv3_len(flat) > 1e-4f ? mv3_norm(flat) : mv3(1, 0, 0);
 
     /* ---- where the line meets the ball ---------------------------------- */
+    /* The tip is a 5 mm object, so contact is its surface against the ball's,
+     * not an infinitely thin line through the ball's centre. It widens the
+     * target by the tip's own radius — which is what a real tip does — and it is
+     * the physically right test regardless. */
     MoteVrV3 to_ball = mv3_sub(ball_room, c->tip);
     float along_axis = mv3_dot(to_ball, c->axis);
     float perp2 = mv3_dot(to_ball, to_ball) - along_axis * along_axis;
-    float r2 = R * R;
+    float reach = R + CUEVR_TIP_R;
+    float r2 = reach * reach;
 
     if (perp2 > r2) {
         /* Missing the ball is the normal state while you line up, so the cue
          * still exists and is still drawn — only the strike is unavailable. */
         c->on_ball = 0;
         c->have_prev = 0;
-        c->gap = along_axis - R;
+        c->gap = along_axis - reach;
         return;
     }
     c->on_ball = 1;
@@ -165,12 +171,21 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     c->tip_vert = mv3_dot(off, vert) / R;
     c->gap = t_enter;
 
-    /* Only a stroke can play a shot: shuffling the cue about while lining up
-     * must never send the ball away. */
-    if (c->stroking && c->have_prev && t->dt > 1e-5f) {
+    /* Contact.
+     *
+     * Only a stroke can play a shot — shuffling about while lining up must never
+     * send the ball away — and a stroke plays at most one.
+     *
+     * The condition is "at or inside the surface, moving forward" rather than
+     * "crossed from outside to inside this frame". The stricter form also fails
+     * when the tip is already touching at the moment the trigger goes down,
+     * which is how you address a ball, and there is no reason to require a
+     * backswing that the player may already have made. */
+    if (c->stroking && !c->struck && c->have_prev && t->dt > 1e-5f) {
         float closing = (c->prev_gap - c->gap) / t->dt;
         c->speed = closing;
-        if (c->prev_gap > 0.0f && c->gap <= 0.0f && closing > 0.05f) {
+        if (c->gap <= 0.0f && closing > 0.12f) {
+            c->struck = 1;
             out->struck   = 1;
             out->speed    = closing;
             out->tip_side = c->tip_side;
@@ -187,7 +202,6 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
                 out->tip_side *= 0.5f;
                 out->tip_vert *= 0.5f;
             }
-            c->have_prev = 0;
             return;
         }
     } else if (!c->stroking) {

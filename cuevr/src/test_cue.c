@@ -61,8 +61,11 @@ static void aim(MoteVrTracking *t, CueVrCue *c, float gap,
     MoteVrV3 side = mv3_norm(mv3_cross(mv3(0, 1, 0), axis));
     MoteVrV3 vert = mv3_norm(mv3_cross(axis, side));
 
+    /* Contact is the tip's surface against the ball's, so the geometry the test
+     * builds has to use the same reach the cue does. */
+    const float reach = R + CUEVR_TIP_R;
     float perp = R * sqrtf(side_frac*side_frac + vert_frac*vert_frac);
-    float half_chord = sqrtf(R*R - perp*perp);
+    float half_chord = sqrtf(reach*reach - perp*perp);
     MoteVrV3 tip = mv3_sub(BALL, mv3_scale(axis, half_chord + gap));
     tip = mv3_add(tip, mv3_add(mv3_scale(side, side_frac * R),
                                mv3_scale(vert, vert_frac * R)));
@@ -192,6 +195,41 @@ int main(void) {
     float reach1 = mv3_len(mv3_sub(c.tip, t.hand[MOTE_VR_RIGHT].pose.p));
     check(reach1 < reach0 - 0.05f, "which leaves less cue in front of the hand");
     check(!shot.struck, "and sliding the grip never plays a shot");
+
+    /* ---- 7b. a stroke played from ADDRESS connects ----------------------- *
+     * This is the one that failed on hardware. You address a ball with the tip
+     * almost touching it, so at the moment the trigger goes down the gap is
+     * already ~0. Requiring a positive-to-negative crossing meant a player who
+     * pushed straight through from there never made contact and simply watched
+     * the cue pass through the ball. */
+    cuevr_cue_init(&c);
+    aim(&t, &c, 0.001f, 0, 0, 0);   trig(&t, 1);       /* addressed, all but touching */
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    check(!shot.struck, "addressing the ball is not yet a shot");
+    aim(&t, &c, -0.03f, 0, 0, 0);   trig(&t, 1);       /* push straight through */
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    check(shot.struck, "pushing through from address connects");
+    check(shot.speed > 1.0f, "with the power of the push behind it");
+
+    /* And exactly one shot per stroke, however far the cue carries on. */
+    aim(&t, &c, -0.09f, 0, 0, 0);   trig(&t, 1);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    check(!shot.struck, "a follow-through does not play a second shot");
+    trig(&t, 0);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    aim(&t, &c, 0.001f, 0, 0, 0);   trig(&t, 1);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    aim(&t, &c, -0.03f, 0, 0, 0);   trig(&t, 1);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    check(shot.struck, "but releasing and cueing again does");
+
+    /* A drift forward too slow to be a stroke is not a shot. */
+    cuevr_cue_init(&c);
+    aim(&t, &c, 0.001f, 0, 0, 0);   trig(&t, 1);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    aim(&t, &c, -0.0002f, 0, 0, 0); trig(&t, 1);
+    cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    check(!shot.struck, "a slow drift onto the ball is not a stroke");
 
     /* ---- 8b. the LEFT side trigger works, and works on the left hand ----- *
      * The bridge hand is the aim, so moving it normally swings the cue. Holding

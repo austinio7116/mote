@@ -186,21 +186,30 @@ static const char *FS =
 "        else if (t < 0.0221) { c = mix(vec3(0.93,0.91,0.84), vec3(0.45,1.0,0.55),\n"
 "                                        u_colour.a); gloss = 70.0; spec_k = 0.45; }\n" // ferrule: green when the line is live
 "        else {\n"
-"            // Grain: fine rings along the shaft, plus a slow wander so it is\n"
-"            // not a barcode.\n"
-"            float g = sin(t * 520.0 + sin(a * 6.2831853) * 1.7) * 0.5 + 0.5;\n"
-"            c = mix(ash * 0.90, ash * 1.06, g);\n"
-"            // Four-point hand splice: ebony points running up out of the butt,\n"
-"            // each narrowing to nothing at the top of the splice.\n"
-"            float sp0 = 0.586, sp1 = 0.800;\n"   // where the points start and end
-"            if (t > sp0) {\n"
-"                float k = clamp((t - sp0) / (sp1 - sp0), 0.0, 1.0);\n"
-"                float halfw = mix(0.125, 0.0, k * k);\n"      // width tapers to a point
-"                float f = fract(a * 4.0);\n"                   // four points
+"            // Ash grain runs the LENGTH of the cue as fine lines, so it has\n"
+"            // to vary with the angle round the shaft and only drift slowly\n"
+"            // along it. Varying it along the length instead — which is the\n"
+"            // obvious reading of \"grain along the shaft\" — draws rings, and a\n"
+"            // few hundred rings on a 13 mm shaft is a blur.\n"
+"            float ang = a * 6.2831853;\n"
+"            float lines = sin(ang * 23.0 + sin(t * 7.0) * 0.9);\n"
+"            float fleck = sin(ang * 6.0 - t * 31.0);\n"
+"            float g = clamp(0.5 + 0.30 * lines + 0.14 * fleck, 0.0, 1.0);\n"
+"            c = mix(ash * 0.84, ash * 1.08, g);\n"
+"            // Four-point hand splice. The ebony points rise OUT of the butt\n"
+"            // and taper to a needle toward the tip — so they are widest at the\n"
+"            // butt end, not the tip end, and at the base they very nearly meet\n"
+"            // one another. Built the other way up and too narrow, they read as\n"
+"            // four thin darts pointing the wrong way down the cue.\n"
+"            float sp_tip = 0.560, sp_base = 0.815;\n"
+"            if (t > sp_tip) {\n"
+"                float k = clamp((t - sp_tip) / (sp_base - sp_tip), 0.0, 1.0);\n"
+"                float halfw = 0.44 * pow(k, 0.80);\n"
+"                float f = fract(a * 4.0);\n"
 "                float d = min(f, 1.0 - f);\n"
-"                c = mix(c, ebony, smoothstep(halfw, halfw * 0.72, d));\n"
+"                c = mix(c, ebony, smoothstep(halfw, halfw * 0.86, d));\n"
 "            }\n"
-"            if (t > sp1) c = ebony;\n"                        // solid butt above the splice
+"            if (t > sp_base) c = ebony;\n"                        // solid butt above the splice
 "            if (t > 0.9793 && t < 0.9931) c = vec3(0.62, 0.50, 0.22);\n"  // brass collar
 "        }\n"
 "        float d = max(dot(v_nrm, L), 0.0);\n"
@@ -422,10 +431,15 @@ static void build_cue(Builder *b, int slices, int rings) {
             b_vert(b, cx * r, y, cz * r, cx * nl, -slope * nl, cz * nl, u, t);
         }
     }
+    /* Note the order is the REVERSE of build_sphere's, and has to be: the
+     * sphere's rings run from +Y down (y = cos(phi)) while the cue's run from
+     * the tip up (y = t * CUE_LEN), so the identical index pattern produces
+     * opposite handedness. Getting it wrong here made the cue hollow — you saw
+     * its inside wall, lit by a normal pointing the wrong way. */
     for (int j = 0; j < rings; j++)
         for (int i = 0; i < slices; i++) {
             int a = j * (slices + 1) + i, c = a + slices + 1;
-            b_quad(b, a, a + 1, c + 1, c);
+            b_quad(b, a, c, c + 1, a + 1);
         }
 }
 

@@ -123,6 +123,7 @@ typedef struct {
     float speed;         /* closing speed along the axis (m/s) */
     MoteVrV3 prev_hand[2];   /* for sliding a hand along the cue */
     int   have_hand;
+    int   struck;            /* this stroke has already made contact */
     int   adjusting;         /* a side trigger is held: the aim is held still */
     MoteVrV3 adj_axis;
 } CueVrCue;
@@ -130,6 +131,8 @@ typedef struct {
 /* A real cue is 1.45 m. Fixed — a cue that stretches between your hands is the
  * fastest way to stop believing in it. */
 #define CUEVR_CUE_LEN  1.45f
+/* The leather tip's radius: contact is its surface, not a line. */
+#define CUEVR_TIP_R    0.005f
 #define CUEVR_GRIP_MIN 0.06f
 #define CUEVR_GRIP_MAX 0.55f
 

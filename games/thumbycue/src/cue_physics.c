@@ -70,7 +70,18 @@ void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
      * then turns into a curving path (swerve / masse). */
     float ce = cosf(elev), se = sinf(elev);
     Vec3 cdir = v3(fwd.x * ce, -se, fwd.z * ce);     /* cue direction, 3-D */
-    b->vel = v3_scale(fwd, speed * ce);
+
+    /* Where the tip lands changes how much of the stroke drives the ball and
+     * how much becomes spin. Translation is driven by the component along the
+     * LINE OF CENTRES, and the tip is off that line by tip offset / R — so the
+     * drive falls off as sqrt(1 - f^2) while the impulse, and therefore the
+     * spin below, keeps its full magnitude. This is why maximum side and
+     * maximum power are not available on the same shot: at half a ball off
+     * centre a seventh of the drive has gone into making it spin instead. */
+    float f2 = tip_side * tip_side + tip_vert * tip_vert;
+    if (f2 > 1.0f) f2 = 1.0f;
+    float drive = sqrtf(1.0f - f2);
+    b->vel = v3_scale(fwd, speed * ce * drive);
     b->vel.y = 0.0f;
 
     Vec3 r = v3_add(v3_scale(right, tip_side * w->R),
