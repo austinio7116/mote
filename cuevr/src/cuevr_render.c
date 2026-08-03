@@ -2315,18 +2315,38 @@ skip_shadows:
              *
              * Which end of the handle the thumb is at is a coin flip from the bounds
              * alone; CTRL_FLIP settles it in one look on a headset. */
+            /* MODEL -> GRIP, COMPOSED rather than hand-multiplied.
+             *
+             * The previous version negated individual matrix elements to "rotate
+             * 180 about Z", which is not a rotation at all — negating K[0] and K[9]
+             * is a reflection, and it landed the model 90 degrees out in a third
+             * axis. Writing the product by hand is exactly how that happens. Build
+             * the axis map, build the roll, and multiply them.
+             *
+             * Axis map: the STL's long axis (109 mm, its Y) is the handle, and grip
+             * space runs the handle along Z with -Z toward the thumb. Its origin is
+             * at the z = 0 face, so it also has to be pulled into the fist.
+             *
+             *     grip.x =  model.x
+             *     grip.y = -(model.z - CTRL_ZMID)
+             *     grip.z =  model.y
+             */
             const float CTRL_ZMID = 0.0418f;      /* half the model's 83.5 mm depth */
-            const float CTRL_FLIP = 1.0f;         /* -1 to spin the handle end for end */
-            /* Plus 180 degrees about grip Z: the model faces backwards out of the
-             * hand otherwise — the thumbstick pointing at the palm instead of at
-             * the thumb. Not derivable from the bounding box, only from looking. */
-            const float CTRL_ROLL = -1.0f;        /* 180 deg about Z */
-            mm4_identity(K);
-            K[0]  =  CTRL_ROLL;                   /* col 0: model x -> grip x */
-            K[1]  =  0.0f; K[2] = 0.0f;
-            K[4]  =  0.0f; K[5] = 0.0f; K[6] = CTRL_FLIP;   /* model y -> grip z */
-            K[8]  =  0.0f; K[9] = -CTRL_FLIP * CTRL_ROLL; K[10] = 0.0f;
-            K[13] =  CTRL_ZMID * CTRL_FLIP * CTRL_ROLL;
+            const float CTRL_ROLL_DEG = 180.0f;   /* about grip Z, from looking at it */
+            float A[16], R[16];
+            mm4_identity(A);
+            A[0] = 1.0f; A[1] = 0.0f;  A[2]  = 0.0f;   /* model x -> grip  x */
+            A[4] = 0.0f; A[5] = 0.0f;  A[6]  = 1.0f;   /* model y -> grip  z */
+            A[8] = 0.0f; A[9] = -1.0f; A[10] = 0.0f;   /* model z -> grip -y */
+            A[13] = CTRL_ZMID;
+            {
+                float c = cosf(CTRL_ROLL_DEG * 3.14159265f / 180.0f);
+                float sn = sinf(CTRL_ROLL_DEG * 3.14159265f / 180.0f);
+                mm4_identity(R);
+                R[0] = c;  R[1] = sn;
+                R[4] = -sn; R[5] = c;
+            }
+            mm4_mul(K, R, A);
             mm4_mul(M, P, K);
             set_model(M);
             draw(G.ctrl[i].n ? &G.ctrl[i] : &G.grip);
