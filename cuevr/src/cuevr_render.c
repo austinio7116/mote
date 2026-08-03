@@ -563,6 +563,29 @@ static void bake_ball_atlas(void) {
             }
         }
     }
+    /* CUEVR_DUMP_BALLS=<id>: write the baked slice as a PPM. Looking at the
+     * texture itself is the only way to tell a bake problem from a shading one. */
+    if (getenv("CUEVR_DUMP_BALLS")) {
+        int id = atoi(getenv("CUEVR_DUMP_BALLS"));
+        if (id >= 0 && id < BTEX_IDS) {
+            FILE *fp = fopen("/tmp/ball_slice.ppm", "wb");
+            if (fp) {
+                fprintf(fp, "P6\n%d %d\n255\n", BTEX_W, BTEX_H);
+                const uint16_t *sl = px + (size_t)id * BTEX_W * BTEX_H;
+                for (int i = 0; i < BTEX_W * BTEX_H; i++) {
+                    uint16_t c = sl[i];
+                    unsigned char rgb[3] = {
+                        (unsigned char)(((c >> 11) & 0x1F) * 255 / 31),
+                        (unsigned char)(((c >> 5) & 0x3F) * 255 / 63),
+                        (unsigned char)((c & 0x1F) * 255 / 31) };
+                    fwrite(rgb, 1, 3, fp);
+                }
+                fclose(fp);
+                LOGI("[cuevr] dumped ball %d to /tmp/ball_slice.ppm", id);
+            }
+        }
+    }
+
     glGenTextures(1, &G.ball_tex);
     glBindTexture(GL_TEXTURE_2D_ARRAY, G.ball_tex);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
@@ -573,7 +596,22 @@ static void bake_ball_atlas(void) {
      * number or stripe at that rate crawls and sparkles as the ball rolls.
      * Trilinear picks the level that matches the footprint. */
     glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, getenv("CUEVR_NOMIP") ? GL_LINEAR : GL_LINEAR_MIPMAP_LINEAR);
+    /* Do not let it reach the coarsest levels. An equirect map smears anything
+     * sitting on a pole across every longitude — the cue ball's two pole dots
+     * become full-width red bands in the texture — and at a sphere's SILHOUETTE
+     * the u derivative explodes, because a whole revolution of longitude
+     * compresses into a couple of pixels. The GPU then picks a mip near the top
+     * of the chain, and those levels average the pole bands into everything,
+     * which painted a red ring right around the ball: the "strange equator".
+     *
+     * Level 4 is 16x8, still coarse enough to stop distant balls shimmering and
+     * still fine enough that a pole band does not contaminate the equator. The
+     * residual rim aliasing is what MSAA is for.
+     *
+     * The proper fix is to stop using an equirect map for a sphere at all — a
+     * cube map has no poles to smear and filters correctly across its seams. */
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, 4);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     /* Wrap in u so the seam behind the ball closes. v is clamped, but a layer
      * has no neighbour to bleed from now, so this is only about the poles. */
@@ -583,7 +621,7 @@ static void bake_ball_atlas(void) {
          * footprint is stretched badly near the silhouette. */
         GLfloat aniso = 0.0f;
         glGetFloatv(0x84FF /* MAX_TEXTURE_MAX_ANISOTROPY_EXT */, &aniso);
-        if (aniso > 1.0f) {
+        if (aniso > 1.0f && !getenv("CUEVR_NOMIP")) {
             if (aniso > 8.0f) aniso = 8.0f;
             glTexParameterf(GL_TEXTURE_2D_ARRAY, 0x84FE /* TEXTURE_MAX_ANISOTROPY_EXT */, aniso);
         }
@@ -926,6 +964,7 @@ void cuevr_render_eye(const float *view, const float *proj,
     set_model(T);
     draw(&G.table);
 
+    if (getenv("CUEVR_NOSHADOW")) goto skip_shadows;
     /* ---- ball shadows on the cloth ---- *
      * The handheld drops a soft decal under every ball. Without them the balls
      * hover a centimetre above the cloth and nothing on the table feels like it
@@ -969,6 +1008,7 @@ void cuevr_render_eye(const float *view, const float *proj,
         glEnable(GL_CULL_FACE);
     }
 
+skip_shadows:
     /* ---- balls ---- */
     glUniform1i(G.u_mode, 1);
     /* The ball array lives on unit 1 for the whole pass; u_tex keeps unit 0. */
