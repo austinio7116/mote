@@ -1681,46 +1681,43 @@ static void app_update(void *u, const MoteVrTracking *t) {
         S.scene.hud_rot = mq_from_axes(x, mv3_cross(z, x), z);
         S.scene.hud_visible = 1;
 
-        /* The cue you are choosing, on show under the panel.
+        /* The cue you are choosing, LYING ON THE TABLE.
          *
          * Picking one off a list of names with nothing to look at is choosing
          * blind: the rack differs in the shaft timber, the four-point splice,
          * the veneer flash and the butt, and none of that is in the words
-         * "ASH & EBONY". It lies across in front of you, TURNING — all the
-         * asymmetry is on one face, so a static cue hides half of what you are
-         * choosing between.
+         * "ASH & EBONY".
          *
-         * Placed here rather than up with the rest of the scene because it
-         * hangs off the panel, and the panel has only just been positioned. */
+         * It used to hang in the air below the panel, which read as a cue
+         * floating in your room. On the cloth is where a cue between frames
+         * actually is — laid along the table, butt at the baulk end, off the
+         * cushions — and it is somewhere you are already looking, at a distance
+         * that shows the whole length of it.
+         *
+         * Still turning slowly: all the asymmetry is on one face, so a static
+         * cue hides half of what you are choosing between.
+         *
+         * Placed in TABLE space and carried out to the room, so it lies with the
+         * table wherever the table has been put. */
         if (S.state == ST_MENU) {
-            MoteVrV3 f2 = mq_rot(t->head.q, mv3(0, 0, -1));
-            f2.y = 0.0f;
-            if (mv3_len(f2) < 1e-3f) f2 = mv3(0, 0, -1);
-            f2 = mv3_norm(f2);
-            MoteVrV3 right = mv3_norm(mv3_cross(mv3(0, 1, 0), f2));
-            float half_h = S.scene.hud_w * (float)CUEVR_HUD_LH
-                         / (float)CUEVR_HUD_LW * 0.5f;
-            /* At the PANEL's distance, not further back. "Below the panel" is a
-             * statement about angles, not about metres: a cue 13 cm lower but
-             * twice as far away subtends a SMALLER angle below the eye than the
-             * panel's own bottom edge does, so it went behind the panel and all
-             * you could see was the two ends sticking out past it.
-             *
-             * A 1.45 m cue at 80 cm is wider than the panel and runs off both
-             * sides, which is right: the middle of a cue is the joint and the
-             * splice, and those are what you are choosing between. */
-            MoteVrV3 c = mv3_add(t->head.p, mv3_scale(f2, 0.80f));
-            c.y = S.scene.hud_pos.y - half_h - 0.14f;
-            /* A little oblique so it has some perspective rather than reading as
-             * a flat stick, but only a little — steeply angled, one end comes
-             * close enough to be in your face. */
-            MoteVrV3 along = mv3_norm(mv3_add(mv3_scale(right, 0.985f),
-                                              mv3_scale(f2, 0.17f)));
-            float half = CUEVR_CUE_LEN * 0.5f;
+            float hl = S.tab.half_len, hw = S.tab.half_wid;
+            /* Clear of the baulk cushion by a comfortable hand's width, and off
+             * to one side so it is not lying across the D and the spots. */
+            float bx = -hl + 0.16f;
+            float tx = bx + CUEVR_CUE_LEN;
+            if (tx > hl - 0.10f) {          /* a short table: centre it instead */
+                float over = tx - (hl - 0.10f);
+                bx -= over * 0.5f; tx -= over * 0.5f;
+            }
+            float z  = hw * 0.55f;
+            /* Resting ON the cloth: the butt is the thick end, so the axis sits
+             * a butt-radius up rather than at y = 0. */
+            const float LIE = 0.016f;
+            Vec3 bt = { bx, LIE, z }, tp = { tx, LIE, z };
             S.scene.cue_visible = 1;
             S.scene.cue_on_ball = 0;
-            S.scene.cue_tip  = mv3_add(c, mv3_scale(along, -half));
-            S.scene.cue_butt = mv3_add(c, mv3_scale(along,  half));
+            S.scene.cue_butt = cuevr_table_to_room(&S.setup.place, bt);
+            S.scene.cue_tip  = cuevr_table_to_room(&S.setup.place, tp);
             S.menu_cue_roll += dt * 0.55f;
             if (S.menu_cue_roll > 6.2831853f) S.menu_cue_roll -= 6.2831853f;
             S.scene.cue_roll = S.menu_cue_roll;
