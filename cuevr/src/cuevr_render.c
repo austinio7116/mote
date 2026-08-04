@@ -433,10 +433,16 @@ static const char *FS =
 "}\n"
 "\n"
 "vec3 timber(vec3 base, vec2 wq, vec2 warp, vec2 fine, vec3 nrm, vec3 tang, vec3 Ldir,\n"
+"            float rings_per_m,\n"
 "            out float varnish) {\n"
 "    const float PITH_OFF   = 0.085;   /* metres from the board to the log centre */\n"
-"    const float RINGS_PER_M = 105.0;  /* ~9.5 mm a season, as a hardwood rail */\n"
-"    const float RING = 1.0 / RINGS_PER_M;   /* one ring, in metres */\n"
+"    // Rings per metre, from the caller. 105 is ~9.5 mm a season, right for a\n"
+"    // hardwood rail — and quite wrong for a 30 mm cue butt, where it puts about\n"
+"    // nine broad bands round the whole circumference. Same wood, different\n"
+"    // scale: everything else in here, the cathedral figure, the pores, the ray\n"
+"    // fleck, the varnish, is expressed in RINGs and so follows automatically.\n"
+"    float RINGS_PER_M = rings_per_m;\n"
+"    float RING = 1.0 / RINGS_PER_M;   /* one ring, in metres */\n"
 "    // EVERY perturbation below is a fraction of RING. Expressed in absolute\n"
 "    // metres they were enormous next to it — the first attempt displaced the pith\n"
 "    // distance by up to 30 mm on a 4.8 mm ring, which is six rings of shift per\n"
@@ -870,15 +876,61 @@ static const char *FS =
 "            if (t > bs_tip) {\n"
 "                /* The burr itself: dark grey, strongly figured ACROSS the\n"
 "                 * grain, which is what distinguishes it from plain ebony. */\n"
-"                // Burr figure. Burr is a knotty swirl, not a stripe, so it wants\n"
-"                // two scales beating against each other rather than one sine —\n"
-"                // and a wide swing, because on a real burr butt the light and\n"
-"                // dark are nearly black to nearly white.\n"
-"                float w1 = sin(a * 6.2831853 * 5.0 + t * 26.0)\n"
-"                         * sin(t * 61.0 - a * 9.0);\n"
-"                float w2 = sin(a * 6.2831853 * 13.0 - t * 47.0 + w1 * 2.4);\n"
-"                float fg = clamp(0.5 + 0.36 * w1 + 0.26 * w2, 0.0, 1.0);\n"
-"                vec3 burr = mix(u_cburr * 0.34, u_cburr * 1.75, fg);\n"
+"                // Wood for a CUE BUTT, written for the job.\n"
+"                //\n"
+"                // The table's timber() was tried and reverted: it puts a growth\n"
+"                // ring every 9.5 mm across the grain, which is right for a 90 mm\n"
+"                // rail and gives about nine broad bands around a 30 mm butt.\n"
+"                // Before that it was two low sines beating together, which is a\n"
+"                // swirl, and a regular high sine, which is corduroy.\n"
+"                //\n"
+"                // What a turned butt actually shows: the grain runs ALONG the\n"
+"                // cue, so the fibres are lines of constant angle — a function of\n"
+"                // `a`, not of `t`. They must be FINE and IRREGULAR: evenly\n"
+"                // spaced lines read as fabric. So the spacing is warped by a\n"
+"                // slow drift, two fibre scales are laid over each other, and a\n"
+"                // few darker streaks run the length the way the dark bands do in\n"
+"                // the reference.\n"
+"                // THE TABLE'S WOOD, at cue scale.\n"
+"                //\n"
+"                // Four hand-rolled attempts came before this — two low sines\n"
+"                // (marble), one high sine (corduroy), lengthwise fibres (a\n"
+"                // turned dowel) and a domain-warped swirl — and none of them\n"
+"                // had what the rails have: growth rings, cathedral figure,\n"
+"                // pores and ray fleck all belonging to one piece of timber.\n"
+"                //\n"
+"                // timber() has all of that already. The only reason it failed\n"
+"                // here first time is that its ring spacing was fixed at a\n"
+"                // rail's 9.5 mm, which round a 30 mm butt is about nine broad\n"
+"                // bands. It takes the density as a parameter now, so the same\n"
+"                // wood can be turned down to cue scale: ~3 mm a ring, which\n"
+"                // gives a dozen or so across the face you can see.\n"
+"                //\n"
+"                // The board runs ALONG the cue — wq.x is the length in metres\n"
+"                // and wq.y is the way round it — so the rings read as lines\n"
+"                // down the butt, which is how a turned piece looks.\n"
+"                vec2 wq   = vec2(t * 1.45, a * 0.090);\n"
+"                vec2 warp = (texture(u_nap, wq / 0.16).rg - 0.5) * 2.0;\n"
+"                vec2 fine = (texture(u_nap, vec2(wq.x / 0.07, wq.y / 0.006)).rg - 0.5) * 2.0;\n"
+"                // The cue's axis in WORLD space. u_model is a vertex uniform and\n"
+"                // does not exist here, so take it from the screen-space rate of\n"
+"                // change of world position against t — t runs along the cue, so\n"
+"                // that gradient IS the axis, whatever the cue is lying at.\n"
+"                vec3 tang;\n"
+"                {\n"
+"                    vec3 px = dFdx(v_world), py = dFdy(v_world);\n"
+"                    float tx = dFdx(v_uv.y), ty = dFdy(v_uv.y);\n"
+"                    tang = px * tx + py * ty;\n"
+"                    float tl = length(tang);\n"
+"                    tang = tl > 1e-9 ? tang / tl : vec3(0.0, 1.0, 0.0);\n"
+"                }\n"
+"                float bvarn = 0.0;\n"
+"                vec3 burr = timber(u_cburr, wq, warp, fine, v_nrm, tang, L,\n"
+"                                   210.0, bvarn);\n"
+"                // Varnish. A spliced butt is finished and polished, so the\n"
+"                // figure should have a sheen sliding over it as the cue turns.\n"
+"                spec_k = max(spec_k, bvarn * 3.4);\n"
+"                gloss  = max(gloss, 90.0);\n"
 "                float k = clamp((t - bs_tip) / (bs_base - bs_tip), 0.0, 1.0);\n"
 "                float hw = 0.46 * pow(k, 0.55);\n"
 "                float e = smoothstep(hw, hw * 0.84, d);\n"
@@ -894,9 +946,16 @@ static const char *FS =
 "                    // it to at least the local derivative keeps it solid at any\n"
 "                    // distance without fattening it up close.\n"
 "                    float edge = abs(d - hw);\n"
-"                    float px   = fwidth(d) * 1.2;\n"
-"                    float wln  = max(0.0055, px);\n"
-"                    float ln = 1.0 - smoothstep(0.0, wln, edge);\n"
+"                    // Flat-topped: solid out to wln, then a short fade. A\n"
+"                    // smoothstep from zero is full strength only exactly on the\n"
+"                    // edge, so widening it just widened a blur with a thread\n"
+"                    // down the middle — which is why the line kept reading as\n"
+"                    // too thin however far the number was pushed. Nothing else\n"
+"                    // about the butt is touched: the burr figure and the point\n"
+"                    // shape are as they were.\n"
+"                    float px  = fwidth(d) * 1.2;\n"
+"                    float wln = max(0.013, px);\n"
+"                    float ln  = 1.0 - smoothstep(wln, wln + max(0.005, px), edge);\n"
 "                    c = mix(c, u_caccent, ln * 0.95);\n"
 "                }\n"
 "                // Below the points the whole butt is burr — on a real cue the\n"
@@ -907,13 +966,16 @@ static const char *FS =
 "\n"
 "            /* 3. the badge: a round ivory plate on the very end, and the black\n"
 "             *    band the cap is finished with. */\n"
-"            if (t > 0.975) {\n"
-"                float bd = length(vec2((t - 0.9875) * 26.0, (fract(a) - 0.5) * 1.1));\n"
-"                float pl = 1.0 - smoothstep(0.30, 0.36, bd);\n"
-"                c = mix(c, vec3(0.92, 0.90, 0.84), pl);\n"
-"                gloss = mix(gloss, 70.0, pl);\n"
-"            }\n"
-"            if (t > 0.958 && t < 0.972) c = u_cbutt * 0.35;   /* cap band */\n"
+"            // NO BADGE. A maker's disc belongs on the flat oval of a butt cap,\n"
+"            // and this butt is a surface of revolution — so it was being\n"
+"            // wrapped round a curve, which is not where a badge goes and looked\n"
+"            // it. Better absent than wrong; it needs a flat end to sit on, and\n"
+"            // that is a geometry change rather than a shader one.\n"
+"            // A thin dark line at the very end, which is all a real butt cap\n"
+"            // shows. It was 20 mm of black across the end of the cue, added to\n"
+"            // frame a badge that has since gone, and it read as a stripe\n"
+"            // painted on rather than as the end of the cue.\n"
+"            if (t > 0.9865 && t < 0.9915) c = u_cbutt * 0.30;\n"
 "            // Brass. A three-quarter jointed cue has a bright collar at the\n"
 "            // joint and another at the butt cap, and both catch the light hard\n"
 "            // enough to be a feature rather than a detail.\n"
@@ -1104,7 +1166,7 @@ static const char *FS =
 "            vec2 warp = (texture(u_nap, wq / 0.55).rg - 0.5) * 2.0;\n"
 "            vec2 fine = (texture(u_nap, vec2(wq.x / 0.22, wq.y / 0.020)).rg - 0.5) * 2.0;\n"
 "            float varn = 0.0;\n"
-"            tc = mix(tc, timber(v_col, wq, warp, fine, v_nrm, tang, L, varn),\n"
+"            tc = mix(tc, timber(v_col, wq, warp, fine, v_nrm, tang, L, 105.0, varn),\n"
 "                     1.0 - iscloth);\n"
 "            // NO VARNISH ON THE TABLE'S WOODWORK.\n"
 "            //\n"
@@ -1610,10 +1672,17 @@ static float cue_radius(float t) {
         float k = (x - 1.100f) / (1.410f - 1.100f);
         return 0.0105f + k * (0.0160f - 0.0105f);
     }
-    /* rounded butt cap */
+    /* THE BUTT CAP, nearly flat.
+     *
+     * It was 0.0160 * sqrt(1 - k^2 * 0.95) — a hemisphere, so the cue finished
+     * in a bulb. A real butt is cut off square and the edge just broken: it
+     * holds full width almost to the end and then turns over in the last two or
+     * three millimetres. That flat is also what a badge would need to sit on. */
     float k = (x - 1.410f) / (CUE_LEN - 1.410f);
     if (k > 1.0f) k = 1.0f;
-    return 0.0160f * sqrtf(1.0f - k * k * 0.95f);
+    /* Plain round, with a shallow break rather than a hemisphere: the bulb was
+     * wrong and so was the near-flat end that replaced it. */
+    return 0.0160f * sqrtf(1.0f - k * k * 0.55f);
 }
 
 /* A real cue is NOT a solid of revolution. The butt of a hand-spliced cue carries
@@ -1624,23 +1693,15 @@ static float cue_radius(float t) {
  *
  * The flat starts where the splice ends and runs to the butt cap, deepening as the
  * cue thickens so its width stays roughly constant. */
+/* PLAIN ROUND. There used to be a planed flat down one side of the butt from the
+ * end of the splice to the cap — a real hand-spliced cue has one, so the badge
+ * can be let in and so it does not roll off the table. Drawn on a shape this
+ * size it reads as a dent rather than as a facet, and with the badge gone it has
+ * nothing to be there for. Kept as a function rather than deleted so the shape
+ * is still described in one place if it is ever wanted back. */
 static float cue_flat_scale(float t, float ang) {
-    const float F0 = 0.815f, F1 = 0.975f;      /* splice base -> just short of the cap */
-    if (t < F0 || t > F1) return 1.0f;
-    /* Centred on ang = 0, about 78 degrees wide. */
-    float a = ang;
-    while (a >  PI) a -= 2.0f * PI;
-    while (a < -PI) a += 2.0f * PI;
-    float half = 0.68f;
-    if (fabsf(a) > half) return 1.0f;
-    /* Fade in and out along the length so it does not start with a step. */
-    float lz = (t - F0) / 0.05f;  if (lz > 1.0f) lz = 1.0f;
-    float lo = (F1 - t) / 0.05f;  if (lo > 1.0f) lo = 1.0f;
-    float run = lz < lo ? lz : lo;
-    /* A chord across the circle: the surface is planar, so the radius at angle a
-     * is cos(half)/cos(a) of the full radius. */
-    float chord = cosf(half) / cosf(a);
-    return 1.0f - (1.0f - chord) * run;
+    (void)t; (void)ang;
+    return 1.0f;
 }
 
 static void build_cue(Builder *b, int slices, int rings) {
