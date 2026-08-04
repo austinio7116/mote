@@ -187,6 +187,63 @@ static void box(CueVrFrameMesh *m, float x0, float y0, float z0,
  * the covered cells dropped, which on a 12 ft table is 179 x 89 cells and 32,000
  * triangles for one moulding. It overran the frame buffer and left the whole
  * body untextured. Five faces and no tessellation costs nothing. */
+/* A horizontal face with the pockets CUT OUT of it.
+ *
+ * Any full-footprint face inside the bucket's depth is visible down a pocket —
+ * the apron's underside sits about 30 mm below the bed and the bucket goes to
+ * 140, so it cut straight through the throat and read as a beam across the hole.
+ *
+ * Cut as a grid, but with the grid edges taken from the POCKETS rather than laid
+ * out uniformly: four subdivisions across each pocket's extent and nothing in
+ * between. A uniform 20 mm grid over a 12 ft table is 16,000 cells and overran
+ * the frame buffer when it was tried; this is a few hundred, because the only
+ * place that needs resolution is the eight centimetres around each hole. */
+static void holed_face(CueVrFrameMesh *m, const CueWorld *w, float y,
+                       float x0, float z0, float x1, float z1,
+                       const float *n, const float *col) {
+    if (!w) {
+        float p0[3]={x0,y,z0},p1[3]={x1,y,z0},p2[3]={x1,y,z1},p3[3]={x0,y,z1};
+        quad(m, p0, p1, p2, p3, n, x1-x0, z1-z0, col);
+        return;
+    }
+    const int SUB = 3;
+    float ex[4 + CUE_MAX_POCKET * (SUB + 1)], ez[4 + CUE_MAX_POCKET * (SUB + 1)];
+    int nx = 0, nz = 0;
+    ex[nx++] = x0; ex[nx++] = x1;
+    ez[nz++] = z0; ez[nz++] = z1;
+    for (int k = 0; k < w->npocket; k++) {
+        float r = w->pocket_r[k] * 1.5f;
+        for (int i = 0; i <= SUB; i++) {
+            float f = (float)i / SUB;
+            float vx = w->pocket[k].x - r + 2.0f*r*f;
+            float vz = w->pocket[k].z - r + 2.0f*r*f;
+            if (vx > x0 && vx < x1 && nx < (int)(sizeof ex/sizeof ex[0])) ex[nx++] = vx;
+            if (vz > z0 && vz < z1 && nz < (int)(sizeof ez/sizeof ez[0])) ez[nz++] = vz;
+        }
+    }
+    for (int i = 1; i < nx; i++) { float e = ex[i]; int j = i-1;
+        while (j >= 0 && ex[j] > e) { ex[j+1] = ex[j]; j--; } ex[j+1] = e; }
+    for (int i = 1; i < nz; i++) { float e = ez[i]; int j = i-1;
+        while (j >= 0 && ez[j] > e) { ez[j+1] = ez[j]; j--; } ez[j+1] = e; }
+    for (int i = 0; i < nx-1; i++) {
+        if (ex[i+1] - ex[i] < 1e-5f) continue;
+        for (int k = 0; k < nz-1; k++) {
+            if (ez[k+1] - ez[k] < 1e-5f) continue;
+            float mx = 0.5f*(ex[i]+ex[i+1]), mz = 0.5f*(ez[k]+ez[k+1]);
+            int covered = 0;
+            for (int q = 0; q < w->npocket && !covered; q++) {
+                float dx = mx - w->pocket[q].x, dz = mz - w->pocket[q].z;
+                float rr = w->pocket_r[q] * 1.5f;
+                if (dx*dx + dz*dz < rr*rr) covered = 1;
+            }
+            if (covered) continue;
+            float p0[3]={ex[i],y,ez[k]},   p1[3]={ex[i+1],y,ez[k]};
+            float p2[3]={ex[i+1],y,ez[k+1]},p3[3]={ex[i],y,ez[k+1]};
+            quad(m, p0, p1, p2, p3, n, ex[i+1]-ex[i], ez[k+1]-ez[k], col);
+        }
+    }
+}
+
 static void holed_top(CueVrFrameMesh *m, const CueWorld *w,
                       float x0, float y0, float z0, float x1, float y1, float z1,
                       const float *col) {
@@ -200,67 +257,86 @@ static void holed_top(CueVrFrameMesh *m, const CueWorld *w,
       n[0]=-1;n[1]=0;n[2]=0; quad(m,a,b,c,d,n,z1-z0,y1-y0,col); }
     { float a[3]={x1,y0,z0},b[3]={x1,y0,z1},c[3]={x1,y1,z1},d[3]={x1,y1,z0};
       n[0]=1;n[1]=0;n[2]=0;  quad(m,a,b,c,d,n,z1-z0,y1-y0,col); }
-    /* the underside, which you DO see when you stoop for a shot */
-    { float a[3]={x0,y0,z0},b[3]={x1,y0,z0},c[3]={x1,y0,z1},d[3]={x0,y0,z1};
-      n[0]=0;n[1]=-1;n[2]=0; quad(m,a,b,c,d,n,x1-x0,z1-z0,col); }
+    /* The underside, which you DO see when you stoop for a shot — and which you
+     * also see straight down a POCKET, so the holes have to be cut out of it. */
+    { n[0]=0;n[1]=-1;n[2]=0; holed_face(m, w, y0, x0, z0, x1, z1, n, col); }
 }
 
-/* A DARK BUCKET under each pocket. Part of the frame; the pocket cut, the throat
- * and the cloth lip are all cue_render's and are not touched.
+/* A DARK BUCKET under each pocket, with its top cut to the ARC OF THE LIP.
  *
- * Shaped from the BORE, which is what makes it work. The wood bore is already
- * cut through the rail plank at pr_corner / pr_side, so a cylinder of that exact
- * radius meets the bottom of the bore with no gap to see through — and cannot
- * protrude, because the bore is by construction inside the woodwork. The
- * previous attempts were a circle 1.55x wider than the pocket, which hung out
- * past the apron, and then that circle clamped to the frame's footprint, which
- * squared off the very corners it was there to fill.
+ * The cloth lip is not a rim, it is a rolled band: cue_render sweeps it from the
+ * bed edge at 1.35x the drop circle down and inward to the drop circle itself,
+ * about 0.8 of a pocket radius deep. So a straight cylinder cannot work at any
+ * radius. At the bore radius it slices clean through the middle of that band; at
+ * the band's outer radius it hangs past the woodwork. Both were tried.
  *
- * Its floor is FLAT and sits well below the lowest point of the cloth lip, so
- * the lip rolls down inside it and is never covered. The depth is what makes a
- * pocket read as hollow rather than as a black disc laid over the hole. */
+ * The bucket's top edge therefore follows the same curve the lip does, offset a
+ * few millimetres out and down — sitting just under the lip along its whole
+ * roll, never touching it, and reaching all the way out to where the lip meets
+ * the bed, which is what finally closes the sight-line. Below the lip it drops
+ * straight to a flat floor.
+ *
+ * The pocket cut, the throat and the lip are cue_render's and are not touched. */
 static void pocket_liners(CueVrFrameMesh *m, const CueTable *t, const CueWorld *w,
                           float top, float ox, float oz) {
-    (void)ox; (void)oz;
+    (void)t; (void)ox; (void)oz;
     if (!w) return;
     const int SIDES = 20;
+    const int RINGS = 6;              /* stations down the lip's roll */
+    const float CLEAR = 0.004f;       /* how far clear of the lip to stay */
+
     for (int k = 0; k < w->npocket; k++) {
         float cx = w->pocket[k].x, cz = w->pocket[k].z;
-        /* The wood bore, not the functional drop circle — see wood_plank_bored. */
-        float r = (k < 4) ? t->pr_corner : t->pr_side;
-        /* Start at the bed, so the wall is continuous with the bore above it. */
-        float y0 = top < -0.002f ? top : -0.002f;
-        /* The cloth lip rolls down to about 0.8 of the pocket radius; the floor
-         * goes comfortably past that so it can never cap the lip. */
-        float y1 = -(0.055f + r * 2.2f);
-        for (int i = 0; i < SIDES; i++) {
-            float a0 = 6.2831853f * i / SIDES, a1 = 6.2831853f * (i+1) / SIDES;
-            float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
-            float p0[3] = { cx + c0*r, y0, cz + s0*r };
-            float p1[3] = { cx + c1*r, y0, cz + s1*r };
-            float p2[3] = { cx + c1*r, y1, cz + s1*r };
-            float p3[3] = { cx + c0*r, y1, cz + s0*r };
-            float mc = (c0 + c1) * 0.5f, ms = (s0 + s1) * 0.5f;
-            float l = sqrtf(mc*mc + ms*ms);
-            if (l < 1e-6f) continue;
-            /* Double-sided: from above you are inside it looking at the far
-             * wall, from a low angle you are outside it looking at the near one,
-             * and culling would drop whichever you were using. */
-            float no[3] = {  mc/l, 0.0f,  ms/l };
-            float ni[3] = { -mc/l, 0.0f, -ms/l };
-            quad(m, p0, p1, p2, p3, no, 0.05f, 0.05f, SHADOW);
-            quad(m, p0, p1, p2, p3, ni, 0.05f, 0.05f, SHADOW);
+        float fd = w->pocket_r[k];        /* the drop circle the lip rolls to */
+        float ld = fd * 0.80f;            /* the deepest lip mode's roll depth */
+
+        /* The profile: radius and height at each station, following the lip and
+         * standing off it, then a straight drop to the floor. */
+        float pr_[RINGS + 2], py_[RINGS + 2];
+        for (int s2 = 0; s2 <= RINGS; s2++) {
+            float phi = (float)s2 / RINGS * 1.5707963f;
+            float rr = fd * (1.35f - 0.35f * sinf(phi));
+            float yy = -ld * (1.0f - cosf(phi));
+            pr_[s2] = rr + CLEAR;
+            py_[s2] = yy - CLEAR;
         }
-        /* The flat floor, as a fan of quads spanning two segments each — a fan of
-         * triangles would need half of every quad to be degenerate. */
+        /* and the floor, well below the lip so it can never cap it */
+        pr_[RINGS + 1] = fd + CLEAR;
+        py_[RINGS + 1] = -(0.070f + fd * 1.6f);
+        /* the very top ring tucks under the bed rather than standing proud */
+        if (py_[0] > top - 0.002f) py_[0] = top - 0.002f;
+
+        for (int s2 = 0; s2 <= RINGS; s2++) {
+            for (int i = 0; i < SIDES; i++) {
+                float a0 = 6.2831853f * i / SIDES, a1 = 6.2831853f * (i+1) / SIDES;
+                float c0 = cosf(a0), n0 = sinf(a0), c1 = cosf(a1), n1 = sinf(a1);
+                float r0 = pr_[s2],     y0 = py_[s2];
+                float r1 = pr_[s2 + 1], y1 = py_[s2 + 1];
+                float p0[3] = { cx + c0*r0, y0, cz + n0*r0 };
+                float p1[3] = { cx + c1*r0, y0, cz + n1*r0 };
+                float p2[3] = { cx + c1*r1, y1, cz + n1*r1 };
+                float p3[3] = { cx + c0*r1, y1, cz + n0*r1 };
+                float mc = (c0 + c1) * 0.5f, ms = (n0 + n1) * 0.5f;
+                float l = sqrtf(mc*mc + ms*ms);
+                if (l < 1e-6f) continue;
+                /* Double-sided: from above you are inside it looking at the far
+                 * wall, from a low angle outside it looking at the near one. */
+                float no[3] = {  mc/l, 0.0f,  ms/l };
+                float ni[3] = { -mc/l, 0.0f, -ms/l };
+                quad(m, p0, p1, p2, p3, no, 0.05f, 0.05f, SHADOW);
+                quad(m, p0, p1, p2, p3, ni, 0.05f, 0.05f, SHADOW);
+            }
+        }
+        /* The flat floor, as a fan of quads spanning two segments each. */
+        float rf = pr_[RINGS + 1], yf = py_[RINGS + 1];
         for (int i = 0; i < SIDES; i += 2) {
             float a0 = 6.2831853f * i / SIDES;
             float a1 = 6.2831853f * (i+1) / SIDES;
             float a2 = 6.2831853f * (i+2) / SIDES;
-            float p0[3] = { cx, y1, cz };
-            float p1[3] = { cx + cosf(a0)*r, y1, cz + sinf(a0)*r };
-            float p2[3] = { cx + cosf(a1)*r, y1, cz + sinf(a1)*r };
-            float p3[3] = { cx + cosf(a2)*r, y1, cz + sinf(a2)*r };
+            float p0[3] = { cx, yf, cz };
+            float p1[3] = { cx + cosf(a0)*rf, yf, cz + sinf(a0)*rf };
+            float p2[3] = { cx + cosf(a1)*rf, yf, cz + sinf(a1)*rf };
+            float p3[3] = { cx + cosf(a2)*rf, yf, cz + sinf(a2)*rf };
             float n[3] = { 0.0f, 1.0f, 0.0f };
             quad(m, p0, p1, p2, p3, n, 0.05f, 0.05f, SHADOW);
         }
@@ -754,8 +830,11 @@ void cuevr_frame_capacity(int *max_verts, int *max_indices) {
      * shoe. Generous — this is a one-off allocation. */
     /* The Victorian's turned legs dominate: 40 stations x 10 sides is 400 quads
      * a leg, and a 10 ft table has six of them. Everything else is boxes. */
-    if (max_verts)   *max_verts   = 16384;
-    if (max_indices) *max_indices = 24576;
+    /* The Victorian's turned legs dominate, and the pocket cut-outs in the
+     * horizontal faces add a few thousand more. Indices are 16-bit, so the vertex
+     * ceiling is the real constraint; this is one malloc at start-up. */
+    if (max_verts)   *max_verts   = 40000;
+    if (max_indices) *max_indices = 60000;
 }
 
 float cuevr_frame_depth(const CueTable *t) {
