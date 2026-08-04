@@ -103,7 +103,8 @@ static const char *FS =
 "uniform float u_lampround;\n" // 1 = discs (downlights), 0 = rectangles (shades)
 "uniform vec3  u_keyc;\n"      // the light's own colour, multiplying everything
 "uniform float u_fill;\n"      // how much of the diffuse arrives from the room
-"uniform float u_hudv;\n"      // fraction of the HUD texture's height in use
+"uniform float u_hudv;\n"
+"uniform vec2  u_shadow;\n"  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
 "in vec3 v_eyepos;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
@@ -999,7 +1000,14 @@ static const char *FS =
 "        float d = length(v_uv - vec2(0.5)) * 2.0;\n"
 "        // u_colour.a is this blob's share: a rig with six lamps casts six\n"
 "        // shadows and each one has to be correspondingly faint.\n"
-"        float a = 0.55 * u_colour.a * (1.0 - smoothstep(0.10, 1.0, d));\n"
+"        //\n"
+"        // The EDGE comes from the rig. Every mode was using one very soft\n"
+"        // falloff — smoothstep from 0.10, so the blob faded across nine tenths\n"
+"        // of its own width — which made a bar of hard shades over a table look\n"
+"        // like an overcast afternoon. A small source close overhead throws an\n"
+"        // edge you could cut yourself on; only the window should be woolly.\n"
+"        float inner = 1.0 - u_shadow.x;\n"
+"        float a = u_shadow.y * u_colour.a * (1.0 - smoothstep(inner, 1.0, d));\n"
 "        o_col = emit(to_linear(u_clothsh) * 0.55, a, 0.0);\n"
 "    } else {\n"
 "        vec3 c = to_linear(u_colour.rgb);\n"
@@ -1108,7 +1116,7 @@ static struct {
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_nlamp, u_lampround, u_eye;
-    GLint  u_keyc, u_fill, u_hudv;
+    GLint  u_keyc, u_fill, u_hudv, u_shadow;
     int    minimal;            /* the real shader would not build; see FS_MIN */
     /* The runtime's own controller models, when XR_FB_render_model gives them.
      * They supersede the baked STLs — including the model-to-grip matrix below,
@@ -2213,6 +2221,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_keyc       = glGetUniformLocation(G.prog, "u_keyc");
     G.u_fill       = glGetUniformLocation(G.prog, "u_fill");
     G.u_hudv       = glGetUniformLocation(G.prog, "u_hudv");
+    G.u_shadow     = glGetUniformLocation(G.prog, "u_shadow");
     G.u_eye        = glGetUniformLocation(G.prog, "u_eye");
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
     G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
@@ -2572,6 +2581,7 @@ void cuevr_render_eye(const float *view, const float *proj,
         glUniform1f(G.u_lampround, rig->round ? 1.0f : 0.0f);
         glUniform1f(G.u_fill, rig->fill);
         glUniform3fv(G.u_keyc, 1, rig->keyc);
+        glUniform2f(G.u_shadow, rig->soft, rig->dark);
     }
 
     /* The eye, recovered from the view matrix: its rows are the camera basis
@@ -2808,7 +2818,11 @@ after_table: ;
                     float d = sqrtf(dx*dx + dz*dz), lim = G.tab.R * 3.2f;
                     if (d > lim) { ox = bl->pos.x + dx * lim / d;
                                    oz = bl->pos.z + dz * lim / d; d = lim; }
-                    spread = 1.0f + d / (G.tab.R * 2.2f);  /* softer as it lengthens */
+                    /* A lengthening shadow stretches a little, but nothing like
+                     * as much as this used to: 1 + d/2.2R doubled the blob over
+                     * a few centimetres of offset and then faded it by the same
+                     * factor, which is most of why they all looked like smoke. */
+                    spread = 1.0f + d / (G.tab.R * 9.0f);
                 }
                 float local[16], model[16], rot[16];
                 mm4_identity(local);

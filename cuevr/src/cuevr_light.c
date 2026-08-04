@@ -71,6 +71,7 @@ void cuevr_light_build(int mode, const CueTable *t, CueVrLightRig *out) {
     switch (mode) {
     default:
     case CUEVR_LIGHT_MATCH:
+        out->soft = 0.10f; out->dark = 0.72f;
         /* What the table has had all along, kept exactly: two to four shades
          * on ~850 mm centres, 620 mm up, in a dark hall. Changing this while
          * adding the others would have meant the mode everyone plays in shifted
@@ -88,6 +89,7 @@ void cuevr_light_build(int mode, const CueTable *t, CueVrLightRig *out) {
         break;
 
     case CUEVR_LIGHT_SIX:
+        out->soft = 0.14f; out->dark = 0.66f;
         /* The full match rig: six smaller shades instead of three big ones, so
          * a ball carries six distinct streaks and the cloth is lit evenly from
          * baulk to black. Hung a little higher because six of them at 620 mm
@@ -97,10 +99,18 @@ void cuevr_light_build(int mode, const CueTable *t, CueVrLightRig *out) {
         set3(out->keyc, 1.0f, 0.995f, 0.97f);
         out->fill = 0.06f;
         out->round = 0;
-        bar(out, 6, L * 0.94f, 0.70f, 0.155f, 0.155f, 0.82f);
+        /* THREE BY TWO, not a line of six. A six-shade rig is two rows down the
+         * table, which is what puts a highlight on both flanks of a ball
+         * instead of six in a stripe along the top of it. */
+        grid(out, 3, 2, L * 0.94f, W * 0.62f, 0.70f, 0.0f, 0.82f);
+        for (int i = 0; i < out->nlamp; i++) {
+            out->lamp[i].ax[0] = 0.185f; out->lamp[i].ax[2] = 0.0f;
+            out->lamp[i].az[0] = 0.0f;   out->lamp[i].az[2] = 0.150f;
+        }
         break;
 
     case CUEVR_LIGHT_ROOM:
+        out->soft = 0.30f; out->dark = 0.55f;
         /* An ordinary room with the ceiling lights on. Six downlights on a
          * 3 x 2 grid over an area half again the size of the table, 1.75 m
          * above the cloth — a 2.4 m ceiling over a 0.85 m table. Small discs,
@@ -113,10 +123,14 @@ void cuevr_light_build(int mode, const CueTable *t, CueVrLightRig *out) {
         set3(out->keyc, 1.0f, 0.945f, 0.86f);
         out->fill = 0.42f;
         out->round = 1;
-        grid(out, 3, 2, L * 1.15f, W * 1.9f, 1.75f, 0.045f, 0.62f);
+        /* 110 mm across, not 45. A domestic downlight has a wide diffuser and a
+         * ball mirrors the SOURCE — at 45 mm the reflections were specks, which
+         * is not what a lit room looks like in a polished ball. */
+        grid(out, 3, 2, L * 1.15f, W * 1.9f, 1.75f, 0.110f, 0.62f);
         break;
 
     case CUEVR_LIGHT_WINDOW:
+        out->soft = 0.70f; out->dark = 0.48f;
         /* Daylight from one side. One source, metres across, at head height and
          * out beyond the long rail — so the key is raked rather than overhead,
          * every ball throws one long shadow across the cloth, and the far side

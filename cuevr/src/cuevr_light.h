@@ -53,6 +53,15 @@ typedef struct {
      * being four tints of the same picture. */
     float fill;
 
+    /* What the shadows look like. A bar of hard shades over a table throws a
+     * shadow with an edge you could cut yourself on; a window on a grey day
+     * throws one you can barely find. `soft` is the width of the penumbra as a
+     * fraction of the blob, `dark` how black the umbra gets. Every rig was
+     * sharing one very soft setting, which made even the match rig look like an
+     * overcast afternoon. */
+    float     soft;
+    float     dark;
+
     int       nlamp;
     int       round;     /* fixtures are discs, not rectangles */
     CueVrLamp lamp[CUEVR_MAX_LAMPS];

@@ -130,6 +130,13 @@ static struct {
     int cloth_idx, frame_idx;    /* cue_theme.h palettes */
     int light_idx;               /* the lighting rig, cuevr_light.h */
     float menu_cue_roll;         /* the display cue turning in the menu */
+    /* Frame timing, on screen. "It hitches sometimes" cannot be acted on; a
+     * worst-frame number over the last second can. The MINIMUM is the figure
+     * that matters — a mean of 72 with one 40 ms frame in it still reads as a
+     * lurch, and the mean will happily hide it. */
+    float fps_acc, fps_worst, fps_win;
+    int   fps_n;
+    float fps_show, fps_low;
     SDL_Thread *ai_th;           /* the opponent, thinking off the render thread */
     volatile int ai_done;
     int body_idx;                /* the frame model; -1 = the one that suits */
@@ -451,6 +458,20 @@ static void hud_build(void) {
      * before it draws. */
     hud_height(CUEVR_HUD_BOARD_LH);
     hud_clear(BG);
+
+    /* Frame rate, small, top right, always. It is the one number that says
+     * whether the headset is being given what it needs, and it has to be
+     * visible while PLAYING — a hitch you can only reproduce in play is not one
+     * you can measure from a log afterwards. Red when a frame in the last half
+     * second missed 72 Hz. */
+    {
+        char f[24];
+        snprintf(f, sizeof f, "%d/%d", (int)(S.fps_show + 0.5f), (int)(S.fps_low + 0.5f));
+        uint16_t c = (S.fps_low >= 71.0f) ? RGB565C(70, 150, 90)
+                   : (S.fps_low >= 55.0f) ? RGB565C(210, 180, 60)
+                                          : RGB565C(230, 70, 60);
+        hud_text_r(f, HW - 2, 2, c);
+    }
 
     /* ---- the menu ---- */
     if (S.state == ST_MENU) {
@@ -1712,6 +1733,23 @@ static void app_update(void *u, const MoteVrTracking *t) {
     S.scene.rest_visible = S.scene.cue_visible && S.state != ST_CPUCUE
                         && S.state != ST_MENU;
     S.scene.rest_pos = S.cue.bridge;
+
+    /* Frame timing. Accumulated here rather than in the renderer because this is
+     * the whole frame — tracking, planning, physics and draw — which is what the
+     * headset actually has to deliver inside 13.9 ms. */
+    if (dt > 0.0f) {
+        S.fps_acc += dt;
+        S.fps_n++;
+        if (dt > S.fps_worst) S.fps_worst = dt;
+        S.fps_win += dt;
+        if (S.fps_win >= 0.5f) {
+            S.fps_show = S.fps_n > 0 ? (float)S.fps_n / S.fps_acc : 0.0f;
+            S.fps_low  = S.fps_worst > 1e-6f ? 1.0f / S.fps_worst : 0.0f;
+            S.fps_acc = S.fps_win = S.fps_worst = 0.0f;
+            S.fps_n = 0;
+            S.hud_dirty = 1;
+        }
+    }
 
     /* Ask the runtime for its controller models until it has them.
      *

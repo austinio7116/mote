@@ -205,89 +205,76 @@ static void holed_top(CueVrFrameMesh *m, const CueWorld *w,
       n[0]=0;n[1]=-1;n[2]=0; quad(m,a,b,c,d,n,x1-x0,z1-z0,col); }
 }
 
-/* A DARK BUCKET under each pocket. Part of the frame; it does not touch the
- * pocket geometry, which is cue_render's and stays exactly as it is.
+/* A DARK BOX under each pocket. Part of the frame; the pocket cut itself is
+ * cue_render's and is not touched.
  *
- * Two things are being hidden. Looking straight down a pocket you must see
- * blackness with depth rather than a disc — that is what a real pocket looks
- * like, and it used to be a flat black lid across the whole frame. And looking
- * at the pocket from the side, through the gap between the pocket cut and the
- * woodwork, you must not see the inside of the table. That gap is why the bucket
- * is a good deal WIDER than the pocket: a liner that only just lines the hole
- * leaves the sight-line through the gap open, which reads as the table being
- * hollow and unfinished.
+ * Two constraints that have to be met TOGETHER, which is why a circle did not
+ * work. It has to close every sight-line through the gap around the pocket cut,
+ * or you see the inside of the table. And it must not protrude past the
+ * woodwork, or it breaks the table's silhouette from every angle you play from.
+ * A pocket sits at or just outside the corner of the frame, so a circle wide
+ * enough for the first is too wide for the second — and clamping the circle to
+ * the footprint leaves the corners it was meant to fill unfilled, which is
+ * exactly what happened.
  *
- * Double-sided, because both of those views exist: from above you are inside the
- * bucket looking at its far wall, and from the side you are outside it looking
- * at its near wall. Backface culling would drop whichever one you were using. */
+ * So it is not a circle. It is a box, built FROM the frame's footprint: it runs
+ * from the pocket inward far enough to cover the cut, and outward it simply
+ * stops at the woodwork. Nothing to clamp, nothing to protrude, no corner left
+ * open. Nobody can see its shape — it is a volume of darkness — so the only
+ * thing that matters is that it contains the hole and fits inside the frame. */
 static void pocket_liners(CueVrFrameMesh *m, const CueTable *t, const CueWorld *w,
                           float top, float ox, float oz) {
     (void)t;
     if (!w) return;
-    const int SIDES = 16;
-    /* Deep enough that the floor is nowhere near the mouth — the pocket has to
-     * read as HOLLOW. A shallow bucket is a black disc pasted over the hole, and
-     * a black disc is exactly what a pocket must not look like. Still comfortably
-     * inside the apron, so nothing hangs below the woodwork either. */
-    const float DEPTH = 0.130f;
-/* Just INSIDE, not flush. Clamped exactly to the footprint the bucket wall
- * lands coplanar with the apron's outer face and shows through it as a black
- * rectangle — the frame's own face and the darkness behind it fighting for the
- * same depth. A few millimetres of clearance and it is simply hidden. */
-#define CIN 0.006f
-#define CLX(v) ((v) >  ox-CIN ?  ox-CIN : ((v) < -ox+CIN ? -ox+CIN : (v)))
-#define CLZ(v) ((v) >  oz-CIN ?  oz-CIN : ((v) < -oz+CIN ? -oz+CIN : (v)))
-    const float WIDEN = 1.55f;      /* covers the gap around the cut, not just it */
+    /* Strictly below the bed. The box is wider than the pocket, so its top runs
+     * under CLOTH — at y = 0 it would poke through the bed and lay a black
+     * rectangle around the pocket lip. */
+    float y0 = top < -0.006f ? top : -0.006f;
+    /* Deep, because the pocket has to read as HOLLOW. A shallow box is a black
+     * disc pasted over the hole, which is what a pocket must never look like. */
+    const float DEPTH = 0.150f;
+    float y1 = y0 - DEPTH;
+    const float IN = 0.004f;        /* clear of the apron's outer face */
+
     for (int k = 0; k < w->npocket; k++) {
         float cx = w->pocket[k].x, cz = w->pocket[k].z;
-        float r = w->pocket_r[k] * WIDEN;
-        /* STRICTLY below the bed, whatever a design passes in. The bucket is
-         * wider than the pocket, so its rim runs under cloth rather than under
-         * the hole — if it ever came up to y = 0 it would poke through the bed
-         * and lay a black ring around the pocket lip. Clamped here rather than
-         * trusted to each design's own top. */
-        float y0 = top < -0.006f ? top : -0.006f;
-        float y1 = y0 - DEPTH;
-        for (int i = 0; i < SIDES; i++) {
-            float a0 = 6.2831853f * i / SIDES, a1 = 6.2831853f * (i+1) / SIDES;
-            float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
-            /* CLAMPED INTO THE FRAME. A pocket sits at or just outside the
-             * corner of the woodwork, so a bucket wide enough to close the gap
-             * around it is wider than the frame — and hangs out past the apron,
-             * which breaks the table's silhouette from every angle you play
-             * from. Squaring it off against the frame's own footprint costs
-             * nothing: what is being shaped here is a volume of darkness and
-             * nobody can see the shape of it. */
-            float p0[3] = { CLX(cx + c0*r), y0, CLZ(cz + s0*r) };
-            float p1[3] = { CLX(cx + c1*r), y0, CLZ(cz + s1*r) };
-            float p2[3] = { CLX(cx + c1*r), y1, CLZ(cz + s1*r) };
-            float p3[3] = { CLX(cx + c0*r), y1, CLZ(cz + s0*r) };
-            float mc = (c0 + c1) * 0.5f, ms = (s0 + s1) * 0.5f;
-            float l = sqrtf(mc*mc + ms*ms);
-            if (l < 1e-6f) continue;
-            float no[3] = {  mc/l, 0.0f,  ms/l };     /* outward */
-            float ni[3] = { -mc/l, 0.0f, -ms/l };     /* and inward */
-            quad(m, p0, p1, p2, p3, no, 0.05f, DEPTH, SHADOW);
-            quad(m, p0, p1, p2, p3, ni, 0.05f, DEPTH, SHADOW);
-        }
-        /* The floor, so it is a bucket and not a pipe through the room. A fan of
-         * quads spanning two segments each — a fan of triangles would need half
-         * of every quad to be degenerate. */
-        for (int i = 0; i < SIDES; i += 2) {
-            float a0 = 6.2831853f * i / SIDES;
-            float a1 = 6.2831853f * (i+1) / SIDES;
-            float a2 = 6.2831853f * (i+2) / SIDES;
-            float p0[3] = { cx, y1, cz };
-            float p1[3] = { CLX(cx + cosf(a0)*r), y1, CLZ(cz + sinf(a0)*r) };
-            float p2[3] = { CLX(cx + cosf(a1)*r), y1, CLZ(cz + sinf(a1)*r) };
-            float p3[3] = { CLX(cx + cosf(a2)*r), y1, CLZ(cz + sinf(a2)*r) };
-            float n[3] = { 0.0f, 1.0f, 0.0f };
-            quad(m, p0, p1, p2, p3, n, 0.05f, 0.05f, SHADOW);
+        float r  = w->pocket_r[k];
+        /* Inward far enough to cover the cut and the gap around it; outward as
+         * far as the frame goes and no further. */
+        float x0 = cx - r * 1.9f, x1 = cx + r * 1.9f;
+        float z0 = cz - r * 1.9f, z1 = cz + r * 1.9f;
+        if (x0 < -ox + IN) x0 = -ox + IN;
+        if (x1 >  ox - IN) x1 =  ox - IN;
+        if (z0 < -oz + IN) z0 = -oz + IN;
+        if (z1 >  oz - IN) z1 =  oz - IN;
+        if (x1 - x0 < 1e-3f || z1 - z0 < 1e-3f) continue;
+
+        /* Five faces, double-sided on the walls: from above you are inside it
+         * looking at the far wall, from the side you are outside it looking at
+         * the near one, and culling would drop whichever you were using. */
+        const float F[5][3] = { {0,0,-1}, {0,0,1}, {-1,0,0}, {1,0,0}, {0,1,0} };
+        for (int f = 0; f < 5; f++) {
+            float p[4][3];
+            if (f == 0 || f == 1) {
+                float z = f ? z1 : z0;
+                p[0][0]=x0; p[0][1]=y0; p[0][2]=z;  p[1][0]=x1; p[1][1]=y0; p[1][2]=z;
+                p[2][0]=x1; p[2][1]=y1; p[2][2]=z;  p[3][0]=x0; p[3][1]=y1; p[3][2]=z;
+            } else if (f == 2 || f == 3) {
+                float x = (f == 3) ? x1 : x0;
+                p[0][0]=x; p[0][1]=y0; p[0][2]=z0;  p[1][0]=x; p[1][1]=y0; p[1][2]=z1;
+                p[2][0]=x; p[2][1]=y1; p[2][2]=z1;  p[3][0]=x; p[3][1]=y1; p[3][2]=z0;
+            } else {
+                p[0][0]=x0; p[0][1]=y1; p[0][2]=z0; p[1][0]=x1; p[1][1]=y1; p[1][2]=z0;
+                p[2][0]=x1; p[2][1]=y1; p[2][2]=z1; p[3][0]=x0; p[3][1]=y1; p[3][2]=z1;
+            }
+            float n[3] = { F[f][0], F[f][1], F[f][2] };
+            quad(m, p[0], p[1], p[2], p[3], n, 0.05f, 0.05f, SHADOW);
+            if (f < 4) {
+                float ni[3] = { -n[0], -n[1], -n[2] };
+                quad(m, p[0], p[1], p[2], p[3], ni, 0.05f, 0.05f, SHADOW);
+            }
         }
     }
-#undef CLX
-#undef CLZ
-#undef CIN
 }
 
 /* ---- Regency ------------------------------------------------------------ */
