@@ -29,6 +29,7 @@ LOCAL_C_INCLUDES := \
     $(MOTE_ROOT)/engine/render \
     $(MOTE_ROOT)/platform/vr/compat \
     $(MOTE_ROOT)/studio \
+    $(MOTE_ROOT)/studio/third_party \
     $(MOTE_ROOT)/engine/assets \
     $(MOTE_ROOT)/engine/input \
     $(MOTE_ROOT)/engine/physics \
@@ -55,6 +56,7 @@ LOCAL_SRC_FILES := \
     $(MOTE_ROOT)/cuevr/src/cuevr_audio.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_frame.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_light.c \
+    $(MOTE_ROOT)/cuevr/src/cuevr_glb.c \
     $(MOTE_ROOT)/platform/xr/mote_xr.c \
     $(MOTE_ROOT)/games/thumbycue/src/cue_physics.c \
     $(MOTE_ROOT)/games/thumbycue/src/cue_table.c \

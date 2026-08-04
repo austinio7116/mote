@@ -54,6 +54,28 @@ static int s_target_srgb;
 int  mote_xr_target_is_srgb(void) { return s_target_srgb; }
 int  mote_xr_floor_relative(void) { return 1; }   /* the preview's y=0 is the floor */
 int  mote_xr_multiview(void)      { return 0; }   /* one eye, one pass */
+/* No runtime, so no render models. CUEVR_RENDER_MODEL=<file.glb> feeds one in
+ * from disk anyway, which is the only way to look at the parser's output
+ * without a headset — and the parser is the part most likely to be wrong. */
+void *mote_xr_render_model_take(int hand, uint32_t *out_len) {
+    static int done[2];
+    if (out_len) *out_len = 0;
+    if (hand < 0 || hand > 1 || done[hand]) return NULL;
+    done[hand] = 1;
+    const char *path = getenv(hand ? "CUEVR_RENDER_MODEL_R" : "CUEVR_RENDER_MODEL");
+    if (!path) return NULL;
+    FILE *f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "cuevr: cannot open %s\n", path); return NULL; }
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    void *b = malloc((size_t)n);
+    if (b && fread(b, 1, (size_t)n, f) == (size_t)n) {
+        if (out_len) *out_len = (uint32_t)n;
+    } else { free(b); b = NULL; }
+    fclose(f);
+    return b;
+}
 void mote_xr_haptic(float i, int ms) { (void)i; (void)ms; }
 
 /* ---- the fake head and hands -------------------------------------------- */

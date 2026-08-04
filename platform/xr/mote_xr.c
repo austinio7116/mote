@@ -107,6 +107,17 @@ static struct {
     XrPath      hand_path[2];
     XrSpace     hand_space[2];
 
+    /* render models — the runtime's own picture of the hardware in your hands.
+     * Absent on runtimes without XR_FB_render_model, and absent for a while even
+     * on ones that have it: a model does not exist until its controller has been
+     * seen, so this is asked for repeatedly rather than once. */
+    int   has_render_model;
+    PFN_xrEnumerateRenderModelPathsFB xrEnumerateRenderModelPathsFB_;
+    PFN_xrGetRenderModelPropertiesFB  xrGetRenderModelPropertiesFB_;
+    PFN_xrLoadRenderModelFB           xrLoadRenderModelFB_;
+    int   rm_done[2];        /* stop asking: either handed over, or hopeless */
+    int   rm_tries[2];
+
     /* passthrough (absent on runtimes without XR_FB_passthrough) */
     int                 has_passthrough;
     XrPassthroughFB     passthrough;
@@ -208,6 +219,10 @@ static int make_instance(JavaVM *vm, jobject activity) {
     want[nw++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
     S.has_passthrough = have_ext(ext, n, XR_FB_PASSTHROUGH_EXTENSION_NAME);
     if (S.has_passthrough) want[nw++] = XR_FB_PASSTHROUGH_EXTENSION_NAME;
+    /* Optional, and unlike passthrough its absence costs nothing: the app draws
+     * its own controller proxies when there is no model to be had. */
+    S.has_render_model = have_ext(ext, n, XR_FB_RENDER_MODEL_EXTENSION_NAME);
+    if (S.has_render_model) want[nw++] = XR_FB_RENDER_MODEL_EXTENSION_NAME;
     for (uint32_t i = 0; i < nw; i++)
         if (!have_ext(ext, n, want[i])) {
             xrlog("[mote-xr] runtime lacks %s", want[i]);
@@ -216,6 +231,7 @@ static int make_instance(JavaVM *vm, jobject activity) {
         }
     free(ext);
     xrlog("[mote-xr] passthrough %s", S.has_passthrough ? "available" : "NOT available");
+    xrlog("[mote-xr] render models %s", S.has_render_model ? "available" : "NOT available");
 
     XrInstanceCreateInfoAndroidKHR aci = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
     aci.applicationVM = vm;
@@ -882,6 +898,88 @@ int  mote_xr_has_passthrough(void) { return S.has_passthrough; }
 int  mote_xr_target_is_srgb(void)  { return S.srgb; }
 int  mote_xr_floor_relative(void)  { return S.floor; }
 int  mote_xr_multiview(void)       { return S.multiview; }
+
+/* ---- render models ------------------------------------------------------- *
+ *
+ * XR_FB_render_model hands over the runtime's own glTF of the controller the
+ * player is actually holding, in the controller's own grip space. That last
+ * part is the whole value of it: a model shipped with the app has to be aligned
+ * to the grip frame by hand, which took nine attempts and was still a guess,
+ * and it is the wrong model the moment somebody plays on different hardware.
+ *
+ * The awkwardness is timing. A model does not exist until its controller has
+ * been seen by the runtime, so the first few asks legitimately fail, and asking
+ * once at start-up gets you nothing on a headset whose controllers wake on
+ * motion. So this is polled: the app calls until it gets something, and after
+ * enough refusals it stops so a runtime that will never answer does not cost a
+ * path enumeration every frame for the rest of the session.
+ *
+ * Ownership passes to the caller — it wants to parse the bytes, upload them and
+ * forget them, and keeping a megabyte per hand alive here for the life of the
+ * app to no purpose would be worse. */
+void *mote_xr_render_model_take(int hand, uint32_t *out_len) {
+    if (out_len) *out_len = 0;
+    if (!S.has_render_model || S.session == XR_NULL_HANDLE) return NULL;
+    if (hand < 0 || hand > 1 || S.rm_done[hand]) return NULL;
+    if (++S.rm_tries[hand] > 240) {          /* ~4 s of asking at 60 Hz of polls */
+        S.rm_done[hand] = 1;
+        xrlog("[mote-xr] no render model for the %s controller; using the proxy",
+              hand ? "right" : "left");
+        return NULL;
+    }
+
+    if (!S.xrLoadRenderModelFB_) {
+        xrGetInstanceProcAddr(S.instance, "xrEnumerateRenderModelPathsFB",
+            (PFN_xrVoidFunction *)&S.xrEnumerateRenderModelPathsFB_);
+        xrGetInstanceProcAddr(S.instance, "xrGetRenderModelPropertiesFB",
+            (PFN_xrVoidFunction *)&S.xrGetRenderModelPropertiesFB_);
+        xrGetInstanceProcAddr(S.instance, "xrLoadRenderModelFB",
+            (PFN_xrVoidFunction *)&S.xrLoadRenderModelFB_);
+        if (!S.xrLoadRenderModelFB_ || !S.xrGetRenderModelPropertiesFB_) {
+            S.rm_done[0] = S.rm_done[1] = 1;
+            return NULL;
+        }
+    }
+
+    /* The path is fixed by the extension, so there is no need to enumerate to
+     * find it — but a path that the runtime does not publish is not loadable,
+     * and asking for properties on one is how you find that out. */
+    XrPath path = XR_NULL_PATH;
+    if (xrStringToPath(S.instance,
+                       hand ? "/model_fb/controller/right" : "/model_fb/controller/left",
+                       &path) != XR_SUCCESS) {
+        S.rm_done[hand] = 1;
+        return NULL;
+    }
+
+    XrRenderModelPropertiesFB props = { XR_TYPE_RENDER_MODEL_PROPERTIES_FB };
+    if (S.xrGetRenderModelPropertiesFB_(S.session, path, &props) != XR_SUCCESS)
+        return NULL;                            /* not ready yet — ask again */
+    if (props.modelKey == XR_NULL_RENDER_MODEL_KEY_FB || props.modelVersion == 0)
+        return NULL;
+
+    XrRenderModelLoadInfoFB li = { XR_TYPE_RENDER_MODEL_LOAD_INFO_FB };
+    li.modelKey = props.modelKey;
+    XrRenderModelBufferFB buf = { XR_TYPE_RENDER_MODEL_BUFFER_FB };
+    /* Two calls: the first for the size, the second for the bytes. */
+    buf.bufferCapacityInput = 0;
+    if (S.xrLoadRenderModelFB_(S.session, &li, &buf) != XR_SUCCESS) return NULL;
+    uint32_t n = buf.bufferCountOutput;
+    if (!n) return NULL;
+    uint8_t *bytes = (uint8_t *)malloc(n);
+    if (!bytes) { S.rm_done[hand] = 1; return NULL; }
+    buf.bufferCapacityInput = n;
+    buf.buffer = bytes;
+    if (S.xrLoadRenderModelFB_(S.session, &li, &buf) != XR_SUCCESS) {
+        free(bytes);
+        return NULL;
+    }
+    S.rm_done[hand] = 1;
+    xrlog("[mote-xr] %s controller render model: %u bytes",
+          hand ? "right" : "left", (unsigned)n);
+    if (out_len) *out_len = n;
+    return bytes;
+}
 void mote_xr_haptic(float i, int ms) { haptic(i, ms); }
 
 void mote_xr_frame(void) {

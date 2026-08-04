@@ -195,6 +195,7 @@ if(MOTE_TARGET STREQUAL "host")
         cuevr/src/cuevr_audio.c
         cuevr/src/cuevr_frame.c
         cuevr/src/cuevr_light.c
+        cuevr/src/cuevr_glb.c
         games/thumbycue/src/cue_physics.c
         games/thumbycue/src/cue_table.c
         games/thumbycue/src/cue_rules.c

@@ -116,6 +116,15 @@ const char *cuevr_render_light_name(int i);
 void        cuevr_render_set_light(int i);
 int         cuevr_render_light(void);
 
+/* ---- the runtime's own controller models ---------------------------------- *
+ * From XR_FB_render_model: glTF binary for the hardware actually in the
+ * player's hands, authored in the GRIP frame — so unlike anything shipped in
+ * the APK it needs no model-to-grip matrix and it is right on every controller.
+ * Hand it the bytes; it parses, uploads and takes over from the baked proxy.
+ * A model it cannot use is refused and logged, and the proxy stays. */
+void cuevr_render_set_ctrl_model(int hand, const void *glb_bytes, unsigned len);
+int  cuevr_render_has_ctrl_model(int hand);
+
 void cuevr_render_hud(const uint16_t *px);       /* CUEVR_HUD_W*H RGB565 */
 /* Multiview: both eyes in one pass. view2/proj2 are two 4x4s back to back. */
 void cuevr_render_views(const float *view2, const float *proj2,

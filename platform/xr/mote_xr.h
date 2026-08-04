@@ -129,4 +129,12 @@ int  mote_xr_floor_relative(void);
  * gl_init is called, precisely so that it can be asked there. */
 int  mote_xr_multiview(void);
 
+/* The runtime's own model of the controller in `hand` (0 = left), as glTF
+ * binary. NULL until the runtime has one, which on a headset whose controllers
+ * wake on motion may be several seconds, so CALL IT REPEATEDLY until it answers
+ * or stops trying; NULL for ever on a runtime without XR_FB_render_model.
+ *
+ * Ownership passes to the caller: free() it once it has been parsed. */
+void *mote_xr_render_model_take(int hand, uint32_t *out_len);
+
 #endif /* MOTE_XR_H */

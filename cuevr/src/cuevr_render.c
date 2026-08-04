@@ -31,6 +31,7 @@
 #include "cue_render.h"
 #include "cuevr_frame.h"
 #include "cuevr_light.h"
+#include "cuevr_glb.h"
 #include "craft_font.h"
 
 #include <GLES3/gl3.h>
@@ -746,6 +747,15 @@ static const char *FS =
 "        float d = diffuse(v_nrm, L);\n"
 "        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), gloss);\n"
 "        o_col = emit(to_linear(c) * (0.34 + 0.70 * d) + vec3(spec) * spec_k, 1.0, 1.0);\n"
+"    } else if (u_mode == 9) {\n"
+"        // A runtime-supplied controller model: a base-colour texture times a\n"
+"        // factor, and one light. Deliberately plain — this is Meta's picture of\n"
+"        // Meta's hardware and the job here is to show it, not to restyle it.\n"
+"        // Parts with no texture are given a 1x1 white one so there is no branch.\n"
+"        vec4 t = texture(u_tex, v_uv);\n"
+"        vec3 c = to_linear(t.rgb) * u_colour.rgb;\n"
+"        float d = diffuse(normalize(v_nrm), L);\n"
+"        o_col = emit(c * (0.40 + 0.66 * d), 1.0, 1.0);\n"
 "    } else if (u_mode == 4 || u_mode == 7) {\n"
 "        // The table (4) and the body under it (7), through ONE wood path.\n"
 "        //\n"
@@ -1092,6 +1102,18 @@ static struct {
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_nlamp, u_lampround, u_eye;
     GLint  u_keyc, u_fill, u_hudv;
     int    minimal;            /* the real shader would not build; see FS_MIN */
+    /* The runtime's own controller models, when XR_FB_render_model gives them.
+     * They supersede the baked STLs — including the model-to-grip matrix below,
+     * which stops being a guess because the runtime authors its model in the
+     * grip frame. */
+    struct {
+        Mesh   mesh;
+        int    nparts;
+        struct { int first, count, tex; float base[4]; } part[CUEVR_GLB_MAX_PARTS];
+        GLuint tex[CUEVR_GLB_MAX_PARTS];
+        int    ntex;
+        int    have;
+    } rm[2];
     CueVrLightRig rig;
     int    light_mode;
     MoteVrV3 key_room;
@@ -1593,6 +1615,94 @@ const char *cuevr_render_cue_name(int i) {
     return (i >= 0 && i < CUE_RACK_N) ? CUE_RACK[i].name : "";
 }
 void cuevr_render_set_cue(int i) { s_cue_sel = (i < 0 || i >= CUE_RACK_N) ? 0 : i; }
+
+/* ---- the runtime's controller models -------------------------------------- *
+ *
+ * XR_FB_render_model gives the actual hardware in the player's hands, authored
+ * in the controller's GRIP frame — which is the whole point. The baked STLs
+ * needed a model-to-grip matrix that could not be derived, only looked at, and
+ * they are the wrong shape the moment somebody plays on a different controller.
+ *
+ * A model arrives as glTF and comes apart into one draw per material, so it
+ * keeps its own small vertex buffer rather than joining the scene's. */
+
+static GLuint s_white;      /* 1x1, for parts with no texture */
+
+static void rm_free(int h) {
+    mesh_free(&G.rm[h].mesh);
+    if (G.rm[h].ntex) glDeleteTextures(G.rm[h].ntex, G.rm[h].tex);
+    memset(&G.rm[h], 0, sizeof G.rm[h]);
+}
+
+void cuevr_render_set_ctrl_model(int hand, const void *bytes, unsigned len) {
+    if (hand < 0 || hand > 1 || !bytes || !len) return;
+    CueVrGlbModel m;
+    if (cuevr_glb_parse(bytes, (uint32_t)len, &m) != 0) {
+        LOGI("[cuevr] the %s render model would not parse: %s",
+             hand ? "right" : "left", cuevr_glb_error());
+        return;
+    }
+    /* The scene's meshes index with 16 bits. A controller is a few thousand
+     * triangles so this should never fire, but silently drawing a third of a
+     * model is worse than keeping the proxy. */
+    if (m.nv > 65535) {
+        LOGI("[cuevr] the %s render model has %d vertices; keeping the proxy",
+             hand ? "right" : "left", m.nv);
+        cuevr_glb_free(&m);
+        return;
+    }
+
+    rm_free(hand);
+
+    Builder b;
+    b_init(&b, m.nv, m.ni);
+    for (int i = 0; i < m.nv; i++)
+        b_vert(&b, m.v[i].p[0], m.v[i].p[1], m.v[i].p[2],
+                   m.v[i].n[0], m.v[i].n[1], m.v[i].n[2],
+                   m.v[i].uv[0], m.v[i].uv[1]);
+    for (int i = 0; i < m.ni; i++) b.i[b.ni++] = (uint16_t)m.idx[i];
+    mesh_upload(&G.rm[hand].mesh, &b);
+    b_free(&b);
+
+    for (int i = 0; i < m.ntex; i++) {
+        glGenTextures(1, &G.rm[hand].tex[i]);
+        glBindTexture(GL_TEXTURE_2D, G.rm[hand].tex[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m.tex[i].w, m.tex[i].h, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, m.tex[i].px);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    }
+    G.rm[hand].ntex = m.ntex;
+
+    G.rm[hand].nparts = m.nparts;
+    for (int i = 0; i < m.nparts; i++) {
+        G.rm[hand].part[i].first = m.part[i].first_index;
+        G.rm[hand].part[i].count = m.part[i].n_index;
+        G.rm[hand].part[i].tex   = m.part[i].tex;
+        memcpy(G.rm[hand].part[i].base, m.part[i].base, sizeof m.part[i].base);
+    }
+    G.rm[hand].have = 1;
+
+    /* The bounding box, logged. If the model ever comes out mis-oriented on
+     * hardware this is the number that says so, and it is the one thing that
+     * cannot be recovered afterwards from a screenshot. */
+    float lo[3] = { 1e9f, 1e9f, 1e9f }, hi[3] = { -1e9f, -1e9f, -1e9f };
+    for (int i = 0; i < m.nv; i++)
+        for (int k = 0; k < 3; k++) {
+            if (m.v[i].p[k] < lo[k]) lo[k] = m.v[i].p[k];
+            if (m.v[i].p[k] > hi[k]) hi[k] = m.v[i].p[k];
+        }
+    LOGI("[cuevr] %s render model: %d tris, %d parts, %d textures, "
+         "bounds x[%.3f %.3f] y[%.3f %.3f] z[%.3f %.3f]",
+         hand ? "right" : "left", m.ni / 3, m.nparts, m.ntex,
+         lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]);
+    cuevr_glb_free(&m);
+}
+
+int cuevr_render_has_ctrl_model(int hand) {
+    return (hand >= 0 && hand <= 1) ? G.rm[hand].have : 0;
+}
 
 /* ---- the lighting rig ---------------------------------------------------- *
  * Selected here rather than passed in the scene, because it changes once when
@@ -2209,6 +2319,18 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     mesh_upload(&G.floor, &b);
     b_free(&b);
 
+    /* A 1x1 white texture, so a render-model part with no base-colour map can
+     * be drawn by exactly the same code as one that has. A branch in a fragment
+     * shader to avoid a texture fetch is a poor trade. */
+    {
+        const uint8_t w[4] = { 255, 255, 255, 255 };
+        glGenTextures(1, &s_white);
+        glBindTexture(GL_TEXTURE_2D, s_white);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, w);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
+
     glGenTextures(1, &G.hud_tex);
     glBindTexture(GL_TEXTURE_2D, G.hud_tex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB565, CUEVR_HUD_W, CUEVR_HUD_H, 0,
@@ -2321,6 +2443,8 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
 void cuevr_render_shutdown(void) {
     if (!G.ready) return;
     mesh_free(&G.ctrl[0]); mesh_free(&G.ctrl[1]);
+    rm_free(0); rm_free(1);
+    if (s_white) { glDeleteTextures(1, &s_white); s_white = 0; }
     mesh_free(&G.fins);
     mesh_free(&G.bed);
     mesh_free(&G.grip);
@@ -2836,9 +2960,33 @@ skip_shadows:
                 R[4] = -sn; R[5] = c;
                 mm4_mul(K, R, A);
             }
-            mm4_mul(M, P, K);
-            set_model(M);
-            draw(G.ctrl[i].n ? &G.ctrl[i] : &G.grip);
+            if (G.rm[i].have) {
+                /* The runtime's model needs NO model-to-grip matrix: it is
+                 * authored in the grip frame, which is the reason for preferring
+                 * it over anything shipped in the APK. Straight at the pose. */
+                set_model(P);
+                glUniform1i(G.u_mode, 9);
+                glActiveTexture(GL_TEXTURE0);
+                glBindVertexArray(G.rm[i].mesh.vao);
+                for (int q = 0; q < G.rm[i].nparts; q++) {
+                    int ti = G.rm[i].part[q].tex;
+                    glBindTexture(GL_TEXTURE_2D,
+                                  (ti >= 0 && ti < G.rm[i].ntex) ? G.rm[i].tex[ti]
+                                                                 : s_white);
+                    const float *bc = G.rm[i].part[q].base;
+                    glUniform4f(G.u_colour, bc[0], bc[1], bc[2], bc[3]);
+                    glDrawElements(GL_TRIANGLES, G.rm[i].part[q].count,
+                                   GL_UNSIGNED_SHORT,
+                                   (void *)(intptr_t)(G.rm[i].part[q].first * 2));
+                }
+                glBindVertexArray(0);
+                glUniform1i(G.u_mode, 0);
+                colour(0.16f, 0.17f, 0.19f, 1.0f);
+            } else {
+                mm4_mul(M, P, K);
+                set_model(M);
+                draw(G.ctrl[i].n ? &G.ctrl[i] : &G.grip);
+            }
         }
         /* Where the cue is resting on the bridge: a small pale marker, so the
          * rest adjustment has something to show for itself. */

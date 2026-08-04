@@ -37,6 +37,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>   /* getenv, free — the render-model poll */
 #include <string.h>
 
 #ifdef __ANDROID__
@@ -1643,6 +1644,30 @@ static void app_update(void *u, const MoteVrTracking *t) {
     S.scene.rest_visible = S.scene.cue_visible && S.state != ST_CPUCUE
                         && S.state != ST_MENU;
     S.scene.rest_pos = S.cue.bridge;
+
+    /* Ask the runtime for its controller models until it has them.
+     *
+     * Not once at start-up: a model does not exist until the runtime has seen
+     * that controller, and on a headset whose controllers wake on motion that
+     * can be seconds after the app is up. mote_xr gives up on its own after
+     * enough refusals, so this costs nothing on a runtime that will never
+     * answer, and CUEVR_NO_RENDER_MODEL keeps the baked proxies for comparing
+     * the two on hardware. */
+    {
+        static int rm_off = -1;
+        if (rm_off < 0) rm_off = getenv("CUEVR_NO_RENDER_MODEL") ? 1 : 0;
+        if (!rm_off) {
+            for (int h = 0; h < 2; h++) {
+                if (cuevr_render_has_ctrl_model(h)) continue;
+                uint32_t n = 0;
+                void *b = mote_xr_render_model_take(h, &n);
+                if (b) {
+                    cuevr_render_set_ctrl_model(h, b, n);
+                    free(b);
+                }
+            }
+        }
+    }
 
     /* Save what the player has set, when it changes and no more often — the
      * cloth height they matched to a real surface, the bridge they make, where
