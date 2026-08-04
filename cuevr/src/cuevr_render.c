@@ -107,7 +107,10 @@ static const char *FS =
 "uniform vec2  u_shadow;\n"
 "uniform float u_clothlod;\n"
 "uniform float u_rawcol;\n"
-"uniform vec3  u_varn;\n"   // along-grain roughness, across, strength   // debug: show the authored vertex colour, unshaded  // 0 = plain cloth, 1 = the full nap  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
+"uniform vec3  u_varn;\n"
+"uniform highp sampler2DShadow u_shmap;\n"
+"uniform mat4  u_shmat;\n"
+"uniform float u_shon;\n"   // along-grain roughness, across, strength   // debug: show the authored vertex colour, unshaded  // 0 = plain cloth, 1 = the full nap  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
 "in vec3 v_eyepos;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
@@ -173,15 +176,31 @@ static const char *FS =
 "//\n"
 "// At u_fill = 0 this is exactly max(dot(N, L), 0.0), so the match rig every\n"
 "// existing screenshot was tuned against is untouched.\n"
+"// How much of the key reaches this point. 1 = lit, 0 = fully shadowed.\n"
+"//\n"
+"// One hardware PCF fetch. The bias is along the light rather than a constant,\n"
+"// so a surface at a grazing angle to the lamp — the far side of a ball, the\n"
+"// slope of a cushion — does not shadow-acne itself, and a ball still meets its\n"
+"// own shadow at the contact patch instead of hovering over it.\n"
+"float g_sh = 1.0;\n"
+"float shadow_at(vec3 wp, vec3 N, vec3 L) {\n"
+"    if (u_shon < 0.5) return 1.0;\n"
+"    float sl = clamp(1.0 - dot(N, L), 0.0, 1.0);\n"
+"    vec4 lp = u_shmat * vec4(wp + N * (0.0015 + 0.006 * sl), 1.0);\n"
+"    vec3 q = lp.xyz / lp.w * 0.5 + 0.5;\n"
+"    if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0 || q.z > 1.0)\n"
+"        return 1.0;                 // outside the map: unshadowed, never dark\n"
+"    return texture(u_shmap, q);\n"
+"}\n"
 "float diffuse(vec3 N, vec3 L) {\n"
-"    float ndl = max(dot(N, L), 0.0);\n"
+"    float ndl = max(dot(N, L), 0.0) * g_sh;\n"
 "    return mix(ndl, 0.45 + 0.55 * (0.5 + 0.5 * N.y), u_fill);\n"
 "}\n"
 "// The same, for the surfaces whose normals are two-sided — the cloth over a\n"
 "// cushion nose, the fur shells — where the shaded half should go dim rather\n"
 "// than go out.\n"
 "float diffuse_abs(vec3 N, vec3 L) {\n"
-"    return mix(abs(dot(N, L)), 0.45 + 0.55 * (0.5 + 0.5 * abs(N.y)), u_fill);\n"
+"    return mix(abs(dot(N, L)) * g_sh, 0.45 + 0.55 * (0.5 + 0.5 * abs(N.y)), u_fill);\n"
 "}\n"
 "// The chalk, as a distance field. Shared by the cloth AND by every shell of the\n"
 "// pile, which is the point: chalk is painted ON a cloth, so the pile has to\n"
@@ -600,6 +619,7 @@ static const char *FS =
 "void main() {\n"
 
 "    vec3 L = normalize(u_light);\n"
+"    g_sh = shadow_at(v_world, normalize(v_nrm), L);\n"
 "    if (u_mode == 2) {\n"
 "        // Only the top u_hudv of the panel texture is in use — see\n"
 "        // CUEVR_HUD_LH. v runs from the top, so this is a straight scale.\n"
@@ -1043,7 +1063,10 @@ static const char *FS =
 "        // colour, the lighting and the chalk, and drops the rest.\n"
 "        if (u_clothlod < 0.5) {\n"
 "            float m0 = mark_cov(q, aa);\n"
-"            float d0 = 0.30 + 0.70 * abs(dot(nv, L));\n"
+"            // Through diffuse_abs, so the bed RECEIVES SHADOW. Computing the\n"
+"            // lambert term inline here bypassed g_sh entirely, which is why the\n"
+"            // cloth — the one surface every shadow lands on — had none.\n"
+"            float d0 = 0.30 + 0.70 * diffuse_abs(nv, L);\n"
 "            vec3 c0 = mix(to_linear(u_cloth) * d0, to_linear(u_markc), m0 * 0.88);\n"
 "            o_col = emit(c0, 1.0, 1.0);\n"
 "            return;\n"
@@ -1286,7 +1309,11 @@ static struct {
     Mesh   ctrl[2];
     Mesh   fins, bed, table, lips, frame, ball, cue, quad, floor, grip;
     int    frame_sel;          /* -1 = whichever design suits the table */
-    int    frame_timber_n;     /* indices of the frame that are wood; see cuevr_frame.h */
+    int    frame_timber_n;
+    GLuint sh_fbo, sh_tex, sh_prog;
+    GLint  sh_u_lightvp, sh_u_model;
+    GLint  u_shmap, u_shmat, u_shon;
+    int    sh_size;     /* indices of the frame that are wood; see cuevr_frame.h */
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     float  fur_scale;
     GLuint nap_tex;
@@ -1343,6 +1370,32 @@ static GLuint compile(GLenum type, const char *src) {
     if (!ok) { char l[4096]; glGetShaderInfoLog(s, sizeof l, NULL, l); LOGI("[cuevr] shader: %s", l); return 0; }
     return s;
 }
+
+/* ---- the shadow map ------------------------------------------------------ *
+ *
+ * One depth pass from the key light, orthographic over the table. It replaces
+ * the blob decals entirely: a decal is a guess at where a shadow would be, and
+ * it cannot put the cue's shadow on the cloth, cannot let one ball shade another
+ * in the pack, and cannot shade a ball against the cushion it is frozen on.
+ *
+ * View-INDEPENDENT, so it is rendered once a frame rather than once per eye —
+ * multiview does not double it.
+ *
+ * Deliberately low resolution. The usual reason shadow mapping gets expensive is
+ * chasing crisp edges with 9- or 16-tap filtering, and crisp is exactly what a
+ * cue sports table must not have: it is lit by wide sources close overhead, so
+ * the shadow under a ball is small and soft. At 1024 over a 12 ft table a texel
+ * is 3.5 mm, and a single hardware PCF fetch through sampler2DShadow gives a
+ * penumbra of about that — which is the look, arrived at by being cheap. */
+static const char *VS_SHADOW =
+"layout(location=0) in vec3 a_pos;\n"
+"uniform mat4 u_lightvp;\n"
+"uniform mat4 u_model;\n"
+"void main() { gl_Position = u_lightvp * u_model * vec4(a_pos, 1.0); }\n";
+
+static const char *FS_SHADOW =
+"precision highp float;\n"
+"void main() { }\n";
 
 /* The fallback fragment shader.
  *
@@ -2381,6 +2434,9 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_clothlod   = glGetUniformLocation(G.prog, "u_clothlod");
     G.u_rawcol     = glGetUniformLocation(G.prog, "u_rawcol");
     G.u_varn       = glGetUniformLocation(G.prog, "u_varn");
+    G.u_shmap      = glGetUniformLocation(G.prog, "u_shmap");
+    G.u_shmat      = glGetUniformLocation(G.prog, "u_shmat");
+    G.u_shon       = glGetUniformLocation(G.prog, "u_shon");
     G.u_eye        = glGetUniformLocation(G.prog, "u_eye");
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
     G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
@@ -2506,6 +2562,53 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, w);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
+
+    /* The shadow map. 1024 over a 12 ft table is a 3.5 mm texel, which with one
+     * hardware PCF fetch gives a penumbra about that wide — small and soft,
+     * which is what a table lit by wide overhead sources actually has. */
+    G.sh_size = 1024;
+    {
+        GLuint vs2 = compile(GL_VERTEX_SHADER, VS_SHADOW);
+        GLuint fs2 = compile(GL_FRAGMENT_SHADER, FS_SHADOW);
+        if (vs2 && fs2) {
+            G.sh_prog = glCreateProgram();
+            glAttachShader(G.sh_prog, vs2);
+            glAttachShader(G.sh_prog, fs2);
+            glLinkProgram(G.sh_prog);
+            GLint ok2 = 0;
+            glGetProgramiv(G.sh_prog, GL_LINK_STATUS, &ok2);
+            if (!ok2) { glDeleteProgram(G.sh_prog); G.sh_prog = 0; }
+            else {
+                G.sh_u_lightvp = glGetUniformLocation(G.sh_prog, "u_lightvp");
+                G.sh_u_model   = glGetUniformLocation(G.sh_prog, "u_model");
+            }
+        }
+        if (vs2) glDeleteShader(vs2);
+        if (fs2) glDeleteShader(fs2);
+    }
+    if (G.sh_prog) {
+        glGenTextures(1, &G.sh_tex);
+        glBindTexture(GL_TEXTURE_2D, G.sh_tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, G.sh_size, G.sh_size,
+                     0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        /* Comparison sampling: the fetch returns "is this lit", filtered in
+         * hardware across four texels for the price of one. */
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        glGenFramebuffers(1, &G.sh_fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, G.sh_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D,
+                               G.sh_tex, 0);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            LOGI("[cuevr] no shadow map: incomplete framebuffer");
+            glDeleteFramebuffers(1, &G.sh_fbo); G.sh_fbo = 0;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
     glGenTextures(1, &G.hud_tex);
@@ -2688,11 +2791,114 @@ void cuevr_render_eye(const float *view, const float *proj,
                       const CueVrScene *s, int draw_room)
 {
     if (!G.ready) return;
+    /* The host owns the framebuffer and the viewport; the shadow pass borrows
+     * both and must hand them back exactly as they were. */
+    GLint fbo_before = 0, vp_before[4] = { 0, 0, 0, 0 };
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fbo_before);
+    glGetIntegerv(GL_VIEWPORT, vp_before);
     for (int v = 0; v < VP_n; v++) mm4_mul(VP[v], proj + v * 16, view + v * 16);
+
+    /* ---- the shadow pass ---- *
+     * Once a frame, before anything else, and view-independent — multiview does
+     * not double it. The casters are the balls and the cue: the frame and the
+     * rails cast onto nothing you can see, and leaving them out keeps the pass
+     * to a couple of thousand triangles of depth-only work. */
+    float SHMAT[16];
+    int sh_ready = 0;
+    if (G.sh_fbo && G.sh_prog && !getenv("CUEVR_NOSHMAP")) {
+        MoteVrV3 Ld = G.key_room;
+        if (mv3_len(Ld) < 1e-3f) Ld = mv3(0, 1, 0);
+        Ld = mv3_norm(Ld);
+        /* An orthographic box over the table, looking down the key. Sized from
+         * the table's own diagonal plus a margin so a ball frozen on a cushion
+         * is still inside the map — a caster that falls outside it is not
+         * unshadowed, it is a shadow that vanishes as you move. */
+        float ext = sqrtf(G.tab.half_len * G.tab.half_len
+                        + G.tab.half_wid * G.tab.half_wid) + 0.35f;
+        MoteVrV3 ctr = s->place->pos;
+        MoteVrV3 eye = mv3_add(ctr, mv3_scale(Ld, 2.2f));
+        MoteVrV3 up  = fabsf(Ld.y) > 0.95f ? mv3(1, 0, 0) : mv3(0, 1, 0);
+        MoteVrV3 zx  = mv3_norm(mv3_sub(eye, ctr));
+        MoteVrV3 xx  = mv3_norm(mv3_cross(up, zx));
+        MoteVrV3 yy  = mv3_cross(zx, xx);
+        float V[16] = { xx.x, yy.x, zx.x, 0,
+                        xx.y, yy.y, zx.y, 0,
+                        xx.z, yy.z, zx.z, 0,
+                        -(xx.x*eye.x + xx.y*eye.y + xx.z*eye.z),
+                        -(yy.x*eye.x + yy.y*eye.y + yy.z*eye.z),
+                        -(zx.x*eye.x + zx.y*eye.y + zx.z*eye.z), 1 };
+        float n0 = 0.05f, f0 = 5.0f;
+        float P[16] = { 1.0f/ext, 0, 0, 0,
+                        0, 1.0f/ext, 0, 0,
+                        0, 0, -2.0f/(f0-n0), 0,
+                        0, 0, -(f0+n0)/(f0-n0), 1 };
+        mm4_mul(SHMAT, P, V);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, G.sh_fbo);
+        glViewport(0, 0, G.sh_size, G.sh_size);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LEQUAL);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_CULL_FACE);
+        glUseProgram(G.sh_prog);
+        glUniformMatrix4fv(G.sh_u_lightvp, 1, GL_FALSE, SHMAT);
+        {   /* the balls */
+            float T2[16];
+            MoteVrPose bp;
+            bp.q = mq_axis_angle(mv3(0, 1, 0), s->place->yaw);
+            bp.p = s->place->pos;
+            float TT[16];
+            mm4_from_pose(TT, bp, 1.0f);
+            for (int i = 0; i < s->nballs; i++) {
+                const CueBall *bl = &s->balls[i];
+                if (!bl->on) continue;
+                float L2[16];
+                mm4_identity(L2);
+                L2[0] = L2[5] = L2[10] = G.tab.R;
+                L2[12] = bl->pos.x; L2[13] = bl->pos.y; L2[14] = bl->pos.z;
+                mm4_mul(T2, TT, L2);
+                glUniformMatrix4fv(G.sh_u_model, 1, GL_FALSE, T2);
+                glBindVertexArray(G.ball.vao);
+                glDrawElements(GL_TRIANGLES, G.ball.n, GL_UNSIGNED_SHORT, 0);
+            }
+        }
+        if (s->cue_visible && G.cue.n) {
+            MoteVrV3 d = mv3_sub(s->cue_butt, s->cue_tip);
+            float len = mv3_len(d);
+            if (len > 0.02f) {
+                MoteVrV3 u = mv3_scale(d, 1.0f / len);
+                MoteVrV3 up2 = mv3(0, 1, 0);
+                MoteVrV3 ax = mv3_cross(up2, u);
+                float s_ = mv3_len(ax), c_ = mv3_dot(up2, u);
+                MoteVrQ q = (s_ < 1e-5f)
+                    ? (c_ > 0.0f ? mq_ident() : mq_axis_angle(mv3(1,0,0), PI))
+                    : mq_axis_angle(ax, atan2f(s_, c_));
+                MoteVrPose cp; cp.p = s->cue_tip; cp.q = q;
+                float M2[16];
+                mm4_from_pose(M2, cp, 1.0f);
+                glUniformMatrix4fv(G.sh_u_model, 1, GL_FALSE, M2);
+                glBindVertexArray(G.cue.vao);
+                glDrawElements(GL_TRIANGLES, G.cue.n, GL_UNSIGNED_SHORT, 0);
+            }
+        }
+        glBindVertexArray(0);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo_before);
+        glViewport(vp_before[0], vp_before[1], vp_before[2], vp_before[3]);
+        sh_ready = 1;
+    }
 
     glUseProgram(G.prog);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
+    if (sh_ready) {
+        glActiveTexture(GL_TEXTURE5);
+        glBindTexture(GL_TEXTURE_2D, G.sh_tex);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(G.u_shmap, 5);
+        glUniformMatrix4fv(G.u_shmat, 1, GL_FALSE, SHMAT);
+    }
+    glUniform1f(G.u_shon, sh_ready ? 1.0f : 0.0f);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
     glActiveTexture(GL_TEXTURE0);
@@ -2967,7 +3173,13 @@ after_table: ;
          * A real one is barely wider than the ball, dark in the middle and gone
          * within a few millimetres. Size, edge and darkness are all overridable
          * so variants can be rendered side by side and chosen. */
+        /* The decals are a STAND-IN for the shadow map, not a companion to it.
+         * With the map running they are drawn over real shadows and double them,
+         * and they cannot do any of the things the map can — the cue's shadow on
+         * the cloth, one ball shading another in the pack, a ball shaded against
+         * the cushion it is frozen on. */
         float shrad = 1.00f, shsoft = 0.45f, shdark = 0.55f;   /* option A */
+        if (sh_ready) shrad = 0.0f;
         { const char *v;
           if ((v = getenv("CUEVR_SH_RAD")))  shrad  = (float)atof(v);
           if ((v = getenv("CUEVR_SH_SOFT"))) shsoft = (float)atof(v);
