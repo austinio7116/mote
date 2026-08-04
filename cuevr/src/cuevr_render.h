@@ -68,14 +68,6 @@ typedef struct {
     MoteVrQ  hud_rot;
     float    hud_w;          /* panel width in metres */
     int      hud_rows;       /* logical rows in use; 0 = all CUEVR_HUD_LH */
-    /* A small HEAD-LOCKED copy of the panel's top-right corner, where the frame
-     * rate is drawn. The counter was already there and unreadable: it lives on
-     * the scoreboard, and the scoreboard hangs past the far end of the table. A
-     * number you cannot read while playing cannot tell you what is slow. */
-    int      fps_visible;
-    MoteVrV3 fps_pos;
-    MoteVrQ  fps_rot;
-    float    fps_w;
 } CueVrScene;
 
 /* Ask mote_xr_multiview() and pass it here BEFORE cuevr_render_init — the

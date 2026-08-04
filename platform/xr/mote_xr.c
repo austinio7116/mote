@@ -113,6 +113,7 @@ static struct {
      * seen, so this is asked for repeatedly rather than once. */
     int   has_render_model;
     int   has_perf;
+    int   has_refresh;
     PFN_xrEnumerateRenderModelPathsFB xrEnumerateRenderModelPathsFB_;
     PFN_xrGetRenderModelPropertiesFB  xrGetRenderModelPropertiesFB_;
     PFN_xrLoadRenderModelFB           xrLoadRenderModelFB_;
@@ -229,6 +230,8 @@ static int make_instance(JavaVM *vm, jobject activity) {
      * frame time available anywhere, because it costs no pixels at all. */
     S.has_perf = have_ext(ext, n, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
     if (S.has_perf) want[nw++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
+    S.has_refresh = have_ext(ext, n, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+    if (S.has_refresh) want[nw++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
     for (uint32_t i = 0; i < nw; i++)
         if (!have_ext(ext, n, want[i])) {
             xrlog("[mote-xr] runtime lacks %s", want[i]);
@@ -915,6 +918,45 @@ int mote_xr_init(void *vm, void *activity, const MoteXrApp *app) {
     if (make_instance((JavaVM *)vm, (jobject)activity) != 0) return -1;
     if (make_session() != 0) return -1;
     if (make_swapchains() != 0) return -1;
+
+    /* 72 Hz, asked for explicitly.
+     *
+     * The runtime picks a rate on its own and a Quest 3 may offer 72, 80, 90 or
+     * 120 — and whatever it picks becomes the deadline every frame has to meet.
+     * A cue game wants the LOWEST sensible one: nothing in it moves fast enough
+     * to need 90, and 13.9 ms of budget instead of 11.1 is a quarter more time
+     * for the same picture. Asking for a rate the headset does not offer is an
+     * error rather than a hint, so the list is enumerated first and 72 taken
+     * only if it is really there. */
+    if (S.has_refresh) {
+        PFN_xrEnumerateDisplayRefreshRatesFB enumrr = NULL;
+        PFN_xrRequestDisplayRefreshRateFB    setrr  = NULL;
+        xrGetInstanceProcAddr(S.instance, "xrEnumerateDisplayRefreshRatesFB",
+                              (PFN_xrVoidFunction *)&enumrr);
+        xrGetInstanceProcAddr(S.instance, "xrRequestDisplayRefreshRateFB",
+                              (PFN_xrVoidFunction *)&setrr);
+        if (enumrr && setrr) {
+            uint32_t nr = 0;
+            enumrr(S.session, 0, &nr, NULL);
+            if (nr) {
+                float *rates = (float *)calloc(nr, sizeof(float));
+                if (rates) {
+                    enumrr(S.session, nr, &nr, rates);
+                    int have72 = 0;
+                    for (uint32_t i = 0; i < nr; i++)
+                        if (rates[i] > 71.0f && rates[i] < 73.0f) have72 = 1;
+                    if (have72) {
+                        XrResult rr = setrr(S.session, 72.0f);
+                        xrlog("[mote-xr] display refresh 72 Hz %s",
+                              XR_SUCCEEDED(rr) ? "set" : "REFUSED");
+                    } else {
+                        xrlog("[mote-xr] 72 Hz not offered; leaving the runtime's choice");
+                    }
+                    free(rates);
+                }
+            }
+        }
+    }
 
     /* SUSTAINED_HIGH on both domains, not BOOST. Boost is for a few seconds of
      * loading; a cue game runs for an hour and being throttled mid-frame is

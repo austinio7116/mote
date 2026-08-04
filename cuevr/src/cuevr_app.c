@@ -487,19 +487,6 @@ static void hud_build(void) {
     hud_height(CUEVR_HUD_BOARD_LH);
     hud_clear(BG);
 
-    /* Frame rate, small, top right, always. It is the one number that says
-     * whether the headset is being given what it needs, and it has to be
-     * visible while PLAYING — a hitch you can only reproduce in play is not one
-     * you can measure from a log afterwards. Red when a frame in the last half
-     * second missed 72 Hz. */
-    {
-        char f[24];
-        snprintf(f, sizeof f, "%d/%d", (int)(S.fps_show + 0.5f), (int)(S.fps_low + 0.5f));
-        uint16_t c = (S.fps_low >= 71.0f) ? RGB565C(70, 150, 90)
-                   : (S.fps_low >= 55.0f) ? RGB565C(210, 180, 60)
-                                          : RGB565C(230, 70, 60);
-        hud_text_r(f, HW - 2, 2, c);
-    }
 
     /* ---- the menu ---- */
     if (S.state == ST_MENU) {
@@ -1719,20 +1706,6 @@ static void app_update(void *u, const MoteVrTracking *t) {
         S.scene.hud_rot = mq_from_axes(x, mv3_cross(z, x), z);
         S.scene.hud_visible = 1;
 
-        /* The frame-rate chip: locked to your view, low and to the right, always.
-         * The counter on the scoreboard is unreadable from the table, and a
-         * number you cannot read while playing cannot tell you what is slow. */
-        {
-            MoteVrV3 f = mq_rot(t->head.q, mv3(0, 0, -1));
-            MoteVrV3 r = mq_rot(t->head.q, mv3(1, 0, 0));
-            MoteVrV3 u = mq_rot(t->head.q, mv3(0, 1, 0));
-            S.scene.fps_pos = mv3_add(t->head.p,
-                mv3_add(mv3_scale(f, 0.60f),
-                        mv3_add(mv3_scale(r, 0.20f), mv3_scale(u, -0.17f))));
-            S.scene.fps_rot = t->head.q;
-            S.scene.fps_w = 0.11f;
-            S.scene.fps_visible = 1;
-        }
 
         /* The cue you are choosing, LYING ON THE TABLE.
          *

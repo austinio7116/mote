@@ -788,6 +788,7 @@ static const char *FS =
 "        // shaft. No texture, and it stays sharp with the tip a hand's width\n"
 "        // from your eye.\n"
 "        float t = v_uv.y, a = v_uv.x;\n"
+"        float butt_varn = 0.0;\n"
 "        vec3 ash   = u_cshaft;\n"
 "        vec3 ebony = u_csplice;\n"
 "        vec3 c;\n"
@@ -938,8 +939,13 @@ static const char *FS =
 "                // was missing.\n"
 "                float gtone = dot(burr, vec3(0.30, 0.59, 0.11))\n"
 "                            / max(dot(u_cburr, vec3(0.30, 0.59, 0.11)), 1e-3);\n"
-"                spec_k = max(spec_k, bvarn * 3.0 * (0.35 + 0.95 * gtone));\n"
-"                gloss  = max(gloss, 110.0);\n"
+"                // ADDED to the colour, the way the rails do it. Feeding it into\n"
+"                // spec_k only routed it through a Blinn lobe with a FIXED light\n"
+"                // direction bolted on — which on a cylinder almost never lines\n"
+"                // up, so the butt had no sheen at all. timber() already returns\n"
+"                // the varnish it computed against the real key and the grain;\n"
+"                // it just needs to reach the pixel.\n"
+"                butt_varn = bvarn * 2.6 * (0.30 + 1.00 * gtone);\n"
 "                float k = clamp((t - bs_tip) / (bs_base - bs_tip), 0.0, 1.0);\n"
 "                float hw = 0.46 * pow(k, 0.55);\n"
 "                float e = smoothstep(hw, hw * 0.84, d);\n"
@@ -1030,7 +1036,8 @@ static const char *FS =
 "        }\n"
 "        float d = diffuse(v_nrm, L);\n"
 "        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), gloss);\n"
-"        o_col = emit(to_linear(c) * (0.34 + 0.70 * d) + vec3(spec) * spec_k, 1.0, 1.0);\n"
+"        o_col = emit(to_linear(c) * (0.34 + 0.70 * d) + vec3(spec) * spec_k\n"
+"                   + vec3(butt_varn), 1.0, 1.0);\n"
 "    } else if (u_mode == 12) {\n"
 "        // The frame's NON-timber pieces: brass, chrome, laminate, and the black\n"
 "        // down a pocket. Vertex colour and one light, and above all no varnish\n"
@@ -2138,7 +2145,11 @@ int cuevr_render_has_ctrl_model(int hand) {
  * which is the default and what most players will leave it on. Takes effect on
  * the next set_table, so the menu's live preview re-racks and rebuilds together. */
 /* ---- feature toggles ----------------------------------------------------- */
-static int s_fx[CUEVR_FX_N] = { 1, 1, 1, 0, 1 };   /* nap off by default */
+/* Defaults chosen from play, not from the measurements: shadows and the ball
+ * reflections earn their cost, the frame body's timber does not — you never see
+ * apron grain from playing distance and it was the single most expensive thing
+ * drawn. The nap stays off; it is nearly free but was not missed. */
+static int s_fx[CUEVR_FX_N] = { 1, 1, 1, 0, 0 };
 static const char *FX_NAME[CUEVR_FX_N] = {
     "SHADOWS", "VARNISH", "BALL REFLECT", "CLOTH NAP", "FRAME WOOD" };
 void cuevr_render_fx_set(int w, int on) { if (w >= 0 && w < CUEVR_FX_N) s_fx[w] = on ? 1 : 0; }
@@ -3694,39 +3705,6 @@ skip_shadows:
         glEnable(GL_DEPTH_TEST);
         glUniform3fv(G.u_keyc, 1, G.rig.keyc);
         glUniform1f(G.u_hudv, 1.0f);
-        glUniform4f(G.u_hudrect, 0.0f, 0.0f, 1.0f, 1.0f);
-    }
-
-    /* ---- the frame-rate chip ---- *
-     * Head-locked, small, drawn last with the depth test OFF so nothing can hide
-     * it. It shows the top-right corner of the panel texture, which is where the
-     * counter is already drawn — no second texture and no second layout. The
-     * counter existed before this and was unreadable, because it lives on the
-     * scoreboard and the scoreboard hangs past the far end of the table. */
-    if (s->fps_visible) {
-        glUniform1i(G.u_mode, 2);
-        glUniform3f(G.u_keyc, 1.0f, 1.0f, 1.0f);
-        glUniform4f(G.u_colour, 1, 1, 1, 1);
-        const float FW = 0.34f, FH = 10.0f / (float)CUEVR_HUD_LH;
-        glUniform4f(G.u_hudrect, 1.0f - FW, 0.0f, FW, FH);
-        glUniform1f(G.u_hudv, 1.0f);
-        glBindTexture(GL_TEXTURE_2D, G.hud_tex);
-        glDisable(GL_CULL_FACE);
-        glDisable(GL_DEPTH_TEST);
-        float P[16], S2[16], M[16];
-        MoteVrPose hp;
-        hp.p = s->fps_pos;
-        hp.q = s->fps_rot;
-        mm4_from_pose(P, hp, 1.0f);
-        mm4_identity(S2);
-        S2[0] = s->fps_w;
-        S2[5] = s->fps_w * (10.0f / (FW * (float)CUEVR_HUD_LW));
-        mm4_mul(M, P, S2);
-        set_model(M);
-        draw(&G.quad);
-        glEnable(GL_DEPTH_TEST);
-        glEnable(GL_CULL_FACE);
-        glUniform3fv(G.u_keyc, 1, G.rig.keyc);
         glUniform4f(G.u_hudrect, 0.0f, 0.0f, 1.0f, 1.0f);
     }
 
