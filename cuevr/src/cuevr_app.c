@@ -81,8 +81,11 @@
  * physics above says how fast the ball leaves, but how hard a stroke FEELS in a
  * headset depends on how much your arm is really moving, and a centre-ball hit
  * was landing slightly heavy. One number, no pretence that it is derived. Taken
- * from 0.90 to 0.82 after play: still a touch hot at 0.90. */
-#define CUEVR_POWER_TRIM 0.82f
+ * from 0.90 to 0.82 to 0.70 after play, each time on the same report: still
+ * heavy. A real stroke is slower than it feels — in a headset your arm swings
+ * freely with no cue weight and no cloth to push against, so the tip arrives
+ * faster than the same-looking stroke would on a table. */
+#define CUEVR_POWER_TRIM 0.70f
 
 enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_CPUCUE, ST_PLACE,
        ST_DECIDE, ST_OVER, ST_PAUSE, ST_LOBBY };
