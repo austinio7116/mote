@@ -536,15 +536,26 @@ static const float SPIN_LEVELS[] = {-0.9f,-0.5f,-0.2f,0.0f,0.2f,0.5f,0.9f};
  * handheld cannot afford three times as much of it. CUE_AI_NSIDE = 1 is the old
  * behaviour exactly (the only level is 0.0).
  *
- * AND IT IS 1, BECAUSE SIDE MEASURED WORSE. Over 60 self-play frames on the
+ * AND IT IS 1, BECAUSE SIDE MEASURED WORSE — TWICE, FOR TWO DIFFERENT REASONS. Over 60 self-play frames on the
  * 12 ft table, two seeds, turning it on took the pot rate from 79% to 64% and
  * the mean best break from 30 to 18. The reason is at the top of cue_ai.h: the
  * planner aims by ghost ball and the throw compensation was dropped because
  * "the engine pots cleanly". With side it does not — the contact friction
  * throws the object ball off the ghost-ball line, and every sided shot misses
- * by that much. Side cannot be added until the aim compensates for the throw it
- * causes. Kept as scaffolding, and as a record, so the next attempt starts from
- * the throw model rather than from here. */
+ * by that much. That one is fixed: the aim is corrected off the engine's own
+ * measurement now.
+ *
+ * It still loses. With the correction in, 60 frames on two seeds: the pot rate
+ * holds up (92.3% against 93.1%) but the mean best break falls from 42.9 to
+ * 34.7, "potted, then nothing on" rises from 24% to 28%, and safeties from 35%
+ * to 39%. So the shots go in and the POSITION is worse, which points straight at
+ * predict_end(): it models the natural angle off the object ball and cannot see
+ * side at all. The analytic pre-rank therefore cannot order sided variants
+ * against unsided ones, and with the sim budget fixed at SIM_CAP they crowd out
+ * better candidates that would have been simulated instead.
+ *
+ * So the next attempt starts at predict_end, not here. Kept as scaffolding and
+ * as a record of what has already been ruled out. */
 #ifndef CUE_AI_NSIDE
 #define CUE_AI_NSIDE 1
 #endif
