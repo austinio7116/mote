@@ -205,74 +205,64 @@ static void holed_top(CueVrFrameMesh *m, const CueWorld *w,
       n[0]=0;n[1]=-1;n[2]=0; quad(m,a,b,c,d,n,x1-x0,z1-z0,col); }
 }
 
-/* A DARK BOX under each pocket. Part of the frame; the pocket cut itself is
- * cue_render's and is not touched.
+/* A DARK BUCKET under each pocket. Part of the frame; the pocket cut, the throat
+ * and the cloth lip are all cue_render's and are not touched.
  *
- * Two constraints that have to be met TOGETHER, which is why a circle did not
- * work. It has to close every sight-line through the gap around the pocket cut,
- * or you see the inside of the table. And it must not protrude past the
- * woodwork, or it breaks the table's silhouette from every angle you play from.
- * A pocket sits at or just outside the corner of the frame, so a circle wide
- * enough for the first is too wide for the second — and clamping the circle to
- * the footprint leaves the corners it was meant to fill unfilled, which is
- * exactly what happened.
+ * Shaped from the BORE, which is what makes it work. The wood bore is already
+ * cut through the rail plank at pr_corner / pr_side, so a cylinder of that exact
+ * radius meets the bottom of the bore with no gap to see through — and cannot
+ * protrude, because the bore is by construction inside the woodwork. The
+ * previous attempts were a circle 1.55x wider than the pocket, which hung out
+ * past the apron, and then that circle clamped to the frame's footprint, which
+ * squared off the very corners it was there to fill.
  *
- * So it is not a circle. It is a box, built FROM the frame's footprint: it runs
- * from the pocket inward far enough to cover the cut, and outward it simply
- * stops at the woodwork. Nothing to clamp, nothing to protrude, no corner left
- * open. Nobody can see its shape — it is a volume of darkness — so the only
- * thing that matters is that it contains the hole and fits inside the frame. */
+ * Its floor is FLAT and sits well below the lowest point of the cloth lip, so
+ * the lip rolls down inside it and is never covered. The depth is what makes a
+ * pocket read as hollow rather than as a black disc laid over the hole. */
 static void pocket_liners(CueVrFrameMesh *m, const CueTable *t, const CueWorld *w,
                           float top, float ox, float oz) {
-    (void)t;
+    (void)ox; (void)oz;
     if (!w) return;
-    /* Strictly below the bed. The box is wider than the pocket, so its top runs
-     * under CLOTH — at y = 0 it would poke through the bed and lay a black
-     * rectangle around the pocket lip. */
-    float y0 = top < -0.006f ? top : -0.006f;
-    /* Deep, because the pocket has to read as HOLLOW. A shallow box is a black
-     * disc pasted over the hole, which is what a pocket must never look like. */
-    const float DEPTH = 0.150f;
-    float y1 = y0 - DEPTH;
-    const float IN = 0.004f;        /* clear of the apron's outer face */
-
+    const int SIDES = 20;
     for (int k = 0; k < w->npocket; k++) {
         float cx = w->pocket[k].x, cz = w->pocket[k].z;
-        float r  = w->pocket_r[k];
-        /* Inward far enough to cover the cut and the gap around it; outward as
-         * far as the frame goes and no further. */
-        float x0 = cx - r * 1.9f, x1 = cx + r * 1.9f;
-        float z0 = cz - r * 1.9f, z1 = cz + r * 1.9f;
-        if (x0 < -ox + IN) x0 = -ox + IN;
-        if (x1 >  ox - IN) x1 =  ox - IN;
-        if (z0 < -oz + IN) z0 = -oz + IN;
-        if (z1 >  oz - IN) z1 =  oz - IN;
-        if (x1 - x0 < 1e-3f || z1 - z0 < 1e-3f) continue;
-
-        /* Five faces, double-sided on the walls: from above you are inside it
-         * looking at the far wall, from the side you are outside it looking at
-         * the near one, and culling would drop whichever you were using. */
-        const float F[5][3] = { {0,0,-1}, {0,0,1}, {-1,0,0}, {1,0,0}, {0,1,0} };
-        for (int f = 0; f < 5; f++) {
-            float p[4][3];
-            if (f == 0 || f == 1) {
-                float z = f ? z1 : z0;
-                p[0][0]=x0; p[0][1]=y0; p[0][2]=z;  p[1][0]=x1; p[1][1]=y0; p[1][2]=z;
-                p[2][0]=x1; p[2][1]=y1; p[2][2]=z;  p[3][0]=x0; p[3][1]=y1; p[3][2]=z;
-            } else if (f == 2 || f == 3) {
-                float x = (f == 3) ? x1 : x0;
-                p[0][0]=x; p[0][1]=y0; p[0][2]=z0;  p[1][0]=x; p[1][1]=y0; p[1][2]=z1;
-                p[2][0]=x; p[2][1]=y1; p[2][2]=z1;  p[3][0]=x; p[3][1]=y1; p[3][2]=z0;
-            } else {
-                p[0][0]=x0; p[0][1]=y1; p[0][2]=z0; p[1][0]=x1; p[1][1]=y1; p[1][2]=z0;
-                p[2][0]=x1; p[2][1]=y1; p[2][2]=z1; p[3][0]=x0; p[3][1]=y1; p[3][2]=z1;
-            }
-            float n[3] = { F[f][0], F[f][1], F[f][2] };
-            quad(m, p[0], p[1], p[2], p[3], n, 0.05f, 0.05f, SHADOW);
-            if (f < 4) {
-                float ni[3] = { -n[0], -n[1], -n[2] };
-                quad(m, p[0], p[1], p[2], p[3], ni, 0.05f, 0.05f, SHADOW);
-            }
+        /* The wood bore, not the functional drop circle — see wood_plank_bored. */
+        float r = (k < 4) ? t->pr_corner : t->pr_side;
+        /* Start at the bed, so the wall is continuous with the bore above it. */
+        float y0 = top < -0.002f ? top : -0.002f;
+        /* The cloth lip rolls down to about 0.8 of the pocket radius; the floor
+         * goes comfortably past that so it can never cap the lip. */
+        float y1 = -(0.055f + r * 2.2f);
+        for (int i = 0; i < SIDES; i++) {
+            float a0 = 6.2831853f * i / SIDES, a1 = 6.2831853f * (i+1) / SIDES;
+            float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
+            float p0[3] = { cx + c0*r, y0, cz + s0*r };
+            float p1[3] = { cx + c1*r, y0, cz + s1*r };
+            float p2[3] = { cx + c1*r, y1, cz + s1*r };
+            float p3[3] = { cx + c0*r, y1, cz + s0*r };
+            float mc = (c0 + c1) * 0.5f, ms = (s0 + s1) * 0.5f;
+            float l = sqrtf(mc*mc + ms*ms);
+            if (l < 1e-6f) continue;
+            /* Double-sided: from above you are inside it looking at the far
+             * wall, from a low angle you are outside it looking at the near one,
+             * and culling would drop whichever you were using. */
+            float no[3] = {  mc/l, 0.0f,  ms/l };
+            float ni[3] = { -mc/l, 0.0f, -ms/l };
+            quad(m, p0, p1, p2, p3, no, 0.05f, 0.05f, SHADOW);
+            quad(m, p0, p1, p2, p3, ni, 0.05f, 0.05f, SHADOW);
+        }
+        /* The flat floor, as a fan of quads spanning two segments each — a fan of
+         * triangles would need half of every quad to be degenerate. */
+        for (int i = 0; i < SIDES; i += 2) {
+            float a0 = 6.2831853f * i / SIDES;
+            float a1 = 6.2831853f * (i+1) / SIDES;
+            float a2 = 6.2831853f * (i+2) / SIDES;
+            float p0[3] = { cx, y1, cz };
+            float p1[3] = { cx + cosf(a0)*r, y1, cz + sinf(a0)*r };
+            float p2[3] = { cx + cosf(a1)*r, y1, cz + sinf(a1)*r };
+            float p3[3] = { cx + cosf(a2)*r, y1, cz + sinf(a2)*r };
+            float n[3] = { 0.0f, 1.0f, 0.0f };
+            quad(m, p0, p1, p2, p3, n, 0.05f, 0.05f, SHADOW);
         }
     }
 }
