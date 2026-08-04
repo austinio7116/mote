@@ -219,11 +219,24 @@ static CUE_HOT int collide_ball_ball(const CueWorld *w, CueBall *bi, CueBall *bj
         float Jt = (Jt_stop < Jt_max) ? Jt_stop : Jt_max;
         Vec3 Jt_v = v3_scale(that, Jt);
         float I = 0.4f * m * w->R * w->R;
-        /* j gets +Jt_v, i gets −Jt_v (friction opposes j's slip relative to i). */
-        bj->vel = v3_add(bj->vel, v3_scale(Jt_v, 1.0f / m));
-        bi->vel = v3_sub(bi->vel, v3_scale(Jt_v, 1.0f / m));
-        bj->w = v3_add(bj->w, v3_scale(v3_cross(rj, Jt_v), 1.0f / I));
-        bi->w = v3_sub(bi->w, v3_scale(v3_cross(ri, Jt_v), 1.0f / I));
+        /* `that` is the direction j's surface is sliding RELATIVE TO i's, so
+         * friction on j is along MINUS it, and i takes the reaction. The four
+         * lines here used to be the other way round — the comment above them
+         * said "friction opposes j's slip" and the code then applied +Jt_v to j,
+         * which is friction along the slip.
+         *
+         * That inverts throw. Measured out of the engine (test_throw.c), a
+         * plain cut with no side threw the object ball up to 4 degrees off the
+         * ghost-ball line and in the WRONG DIRECTION — a cut was overcut where
+         * every real table undercuts. On a one-metre pot 4 degrees is 68 mm,
+         * which is most of a snooker pocket, and it is why cue_ai.h had to claim
+         * "the engine pots cleanly, so the ghost-ball aim is the true aim" while
+         * the planner quietly missed cuts it rated highly. It also made side
+         * unusable: turn it on and every sided shot missed by the throw. */
+        bj->vel = v3_sub(bj->vel, v3_scale(Jt_v, 1.0f / m));
+        bi->vel = v3_add(bi->vel, v3_scale(Jt_v, 1.0f / m));
+        bj->w = v3_sub(bj->w, v3_scale(v3_cross(rj, Jt_v), 1.0f / I));
+        bi->w = v3_add(bi->w, v3_scale(v3_cross(ri, Jt_v), 1.0f / I));
     }
     bi->vel.y = bj->vel.y = 0.0f;
     return 1;

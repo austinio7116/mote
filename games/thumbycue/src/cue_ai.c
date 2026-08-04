@@ -90,6 +90,40 @@ typedef struct {
 #define AI_SIM_SPEED 8.5f
 static float s_max_speed = AI_SIM_SPEED;
 
+/* ---- tuning knobs, host only ---------------------------------------------- *
+ * Three numbers in here decide most of how strongly the AI plays, and all three
+ * were picked by argument rather than by measurement. test_ai_frames.c can now
+ * sweep them over hundreds of frames instead. Read once, absent on device — the
+ * bare game module has neither getenv nor a way to set it. */
+/* What ai_sim integrates at. It was 1 ms — half the live 2 kHz step — to make
+ * the ranking sims cheap. But the sim's entire job is to predict where the cue
+ * ball will STOP, and a prediction made at a different fidelity from the shot it
+ * is predicting is worth proportionally less: matching the live step took the
+ * mean best break from 30.0 to 32.6 over 60 frames on two seeds, cut "potted,
+ * then nothing on" from 21.9% to 20.3%, and reduced safeties by two points.
+ *
+ * It costs twice as much per sim. The device build can buy the speed back with
+ * -DCUE_AI_SUBSTEP_S, at the cost of the same accuracy. */
+#ifndef CUE_AI_SUBSTEP_S
+#define CUE_AI_SUBSTEP_S (1.0f / 2000.0f)   /* == CUE_H, the live step */
+#endif
+static float K_SUBSTEP = CUE_AI_SUBSTEP_S;
+static float K_POSCAP  = 0.6f;             /* ceiling on the position weight */
+static float K_CONF    = 1.0f;             /* multiplier on the attack threshold */
+
+static void ai_knobs(void) {
+#ifndef MOTE_DEVICE
+    static int done;
+    if (done) return;
+    done = 1;
+    const char *v;
+    if ((v = getenv("CUE_AI_SUBSTEP"))) K_SUBSTEP = (float)atof(v);
+    if ((v = getenv("CUE_AI_POSCAP")))  K_POSCAP  = (float)atof(v);
+    if ((v = getenv("CUE_AI_CONF")))    K_CONF    = (float)atof(v);
+    if (K_SUBSTEP <= 0.0f) K_SUBSTEP = 1.0f / 1000.0f;
+#endif
+}
+
 void cue_ai_set_max_speed(float mps) {
     s_max_speed = (mps > 0.5f) ? mps : AI_SIM_SPEED;
 }
@@ -121,7 +155,7 @@ static void ai_sim(const CueWorld *w, const CueBall *balls, int n, int cue_idx,
     }
     extern void cue_phys_strike(const CueWorld*, CueBall*, Vec3, float, float, float);
     extern void cue_phys_set_substep(float);
-    cue_phys_set_substep(1.0f / 1000.0f);     /* coarser step: ~2x faster ranking sims */
+    cue_phys_set_substep(K_SUBSTEP);          /* coarser step: ~2x faster ranking sims */
     Vec3 dir = v3(cosf(aim), 0, sinf(aim));
     cue_phys_strike(&s_sw, &s_sb[cue_idx], dir, power01 * AI_SIM_SPEED, tip_side, tip_vert);
 
@@ -457,7 +491,7 @@ typedef struct {
     float aim;
     float cut, dg, dpk;
     float js_power, spinY;
-    float power01, tip_vert;
+    float power01, tip_vert, tip_side;
     float potScore, posScore;
     Vec3  cue_end;
     int   simmed;
@@ -470,6 +504,35 @@ static const float POWER_LEVELS[] = {2.5f,3.5f,4.5f,5.5f,6.5f,8.5f,10.5f,13.5f,1
 #define NPOW (int)(sizeof(POWER_LEVELS)/sizeof(POWER_LEVELS[0]))
 static const float SPIN_LEVELS[] = {-0.9f,-0.5f,-0.2f,0.0f,0.2f,0.5f,0.9f};
 #define NSPIN (int)(sizeof(SPIN_LEVELS)/sizeof(SPIN_LEVELS[0]))
+
+/* SIDE. The planner played every shot dead centre — tip_side was passed through
+ * ai_sim and the final answer hard-coded it to zero, so the cue ball could only
+ * ever be moved with power and with follow/draw. Side is how a break-builder
+ * widens or squares the angle off a cushion, and without it whole classes of
+ * position are unreachable: the ball goes where the natural angle sends it.
+ *
+ * It is a compile-time axis because the candidate pool is a static array and the
+ * handheld cannot afford three times as much of it. CUE_AI_NSIDE = 1 is the old
+ * behaviour exactly (the only level is 0.0).
+ *
+ * AND IT IS 1, BECAUSE SIDE MEASURED WORSE. Over 60 self-play frames on the
+ * 12 ft table, two seeds, turning it on took the pot rate from 79% to 64% and
+ * the mean best break from 30 to 18. The reason is at the top of cue_ai.h: the
+ * planner aims by ghost ball and the throw compensation was dropped because
+ * "the engine pots cleanly". With side it does not — the contact friction
+ * throws the object ball off the ghost-ball line, and every sided shot misses
+ * by that much. Side cannot be added until the aim compensates for the throw it
+ * causes. Kept as scaffolding, and as a record, so the next attempt starts from
+ * the throw model rather than from here. */
+#ifndef CUE_AI_NSIDE
+#define CUE_AI_NSIDE 1
+#endif
+#if CUE_AI_NSIDE >= 3
+static const float SIDE_LEVELS[] = {-0.45f, 0.0f, 0.45f};
+#else
+static const float SIDE_LEVELS[] = {0.0f};
+#endif
+#define NSIDE (int)(sizeof(SIDE_LEVELS)/sizeof(SIDE_LEVELS[0]))
 
 /* Group scores for one (target,pocket) pot. Returns 0 if not feasible.
  * bestPot is exact over the power/spin sweep (cheap); bestPos is sampled from a
@@ -743,7 +806,7 @@ static struct {
     uint32_t *rng;
     int phase;
     CueAIShot result;
-    Cand pool[NPOW*NSPIN]; int npool, sim_i, sim_cap;
+    Cand pool[NPOW*NSPIN*NSIDE]; int npool, sim_i, sim_cap;
     int ti;
     float posAware;
 } P;
@@ -759,7 +822,7 @@ static void plan_finalize(void) {
      * weight — otherwise a pure-position persona (The Machine) happily picks a
      * rattle-prone high-power variant just for a slightly better leave and misses
      * the pot. We want "good chance to pot AND good leave", never leave-at-any-cost. */
-    float posAware = P.posAware; if (posAware > 0.6f) posAware = 0.6f;
+    float posAware = P.posAware; if (posAware > K_POSCAP) posAware = K_POSCAP;
 
     /* final sort: blend pot/position by persona.position, soft-shot bonus, and
      * a HARD penalty for shots that scratch (in-off) or hit the wrong ball first
@@ -792,7 +855,7 @@ static void plan_finalize(void) {
     float urg = snooker_urgency(c);
     float baseThresh = c->snooker ? 8.0f : 0.0f;
     float minConf = baseThresh + ((p->safety_bias + 30.0f) / 50.0f) * 40.0f;
-    minConf *= clampf(0.45f + p->line_acc * 0.45f, 0.45f, 1.2f);
+    minConf *= clampf(0.45f + p->line_acc * 0.45f, 0.45f, 1.2f) * K_CONF;
     minConf += urg * 35.0f;        /* needing snookers → only attack near-certain pots */
     if (best_unsafe || best.potScore < minConf) {
         Cand sc;
@@ -818,7 +881,7 @@ static void plan_finalize(void) {
     float powErr = (rnd(P.rng) - 0.5f) * 2.0f * p->power_acc;
     out.aim = best.aim + aimErr;
     out.power01 = clampf(best.power01 * (1.0f + powErr), 0.05f, 1.0f);
-    out.tip_vert = best.tip_vert; out.tip_side = 0.0f;
+    out.tip_vert = best.tip_vert; out.tip_side = best.tip_side;
     out.safe = 0; out.valid = 1; out.score = best.potScore;
     P.result = out;
 }
@@ -831,6 +894,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         .S = 12.0f / t->R, .maxdist_m = fmaxf(t->half_len, t->half_wid) * 2.0f,
         .snooker = t->is_snooker,
     };
+    ai_knobs();
     P.ctx = ctx; P.rng = rng; P.npool = 0; P.sim_i = 0;
     P.posAware = p->position; P.phase = PH_DONE;
     AiCtx *c = &P.ctx;
@@ -986,7 +1050,20 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             v.tip_vert = clampf(-spinY*0.5f, -0.45f, 0.45f);
             v.potScore = potScore;
             v.posScore = position_quality(c, predict_end(c,ghost,target,pk,cut,eff,spinY), ti, NULL);
-            P.pool[npool++] = v;
+            for (int di = 0; di < NSIDE; di++) {
+                Cand vs = v;
+                vs.tip_side = SIDE_LEVELS[di];
+                /* Side is not free. It throws the object ball a little and it
+                 * needs a straighter delivery, so a sided pot is a slightly
+                 * worse pot — enough that the planner only reaches for it when
+                 * the LEAVE is worth it, which is exactly when a player does.
+                 * The analytic position estimate cannot see side at all (it
+                 * models the natural angle), so a sided variant only earns its
+                 * place once the real engine has simulated it. */
+                if (vs.tip_side != 0.0f) vs.potScore -= 6.0f * fabsf(vs.tip_side) / 0.45f;
+                if (fabsf(vs.tip_side) > maxspin + 0.001f) continue;
+                P.pool[npool++] = vs;
+            }
         }
     }
     /* Sort by ANALYTIC COMPOSITE (pot + predicted position), not pot alone, so
@@ -1024,7 +1101,7 @@ int cue_ai_plan_tick(void) {
     for (int s = 0; s < SIMS_PER_TICK && P.sim_i < P.sim_cap; s++) {
         Cand *v = &P.pool[P.sim_i];
         AiSim sim;
-        ai_sim(c->w, c->b, c->n, 0, v->aim, v->power01, 0, v->tip_vert, &sim);
+        ai_sim(c->w, c->b, c->n, 0, v->aim, v->power01, v->tip_side, v->tip_vert, &sim);
         v->simmed = 1; v->cue_end = sim.cue_end;
         v->scratch = sim.cue_potted;
         /* The sim's job is NOT to decide whether the pot drops — that's the
