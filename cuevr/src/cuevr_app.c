@@ -22,6 +22,7 @@
  */
 #include "cuevr.h"
 #include "cuevr_render.h"
+#include "cuevr_frame.h"
 #include "cuevr_text.h"
 #include "cuevr_font_md.h"
 #include "cuevr_font_lg.h"
@@ -93,8 +94,8 @@ static const char *OPP_NAME[OPP_N] = { "PRACTICE", "VS CPU", "ONLINE" };
 /* The menu is rows of options rather than a list of games, because there are now
  * six things to choose and a list only chooses one. Up/down picks the row,
  * left/right changes it, A activates. */
-enum { MR_GAME = 0, MR_OPP, MR_STRENGTH, MR_CLOTH, MR_FRAME, MR_BALLS,
-       MR_CUE, MR_START, MR_N };
+enum { MR_GAME = 0, MR_OPP, MR_STRENGTH, MR_CLOTH, MR_FRAME, MR_BODY,
+       MR_LIGHT, MR_BALLS, MR_CUE, MR_START, MR_N };
 
 /* The pause menu, on the MENU button. */
 /* The lobby, matching the Mote lobby's own shape: pick a transport, then an
@@ -125,6 +126,9 @@ static struct {
     int menu_updown;             /* latch for row movement */
     int opp;                     /* OPP_* */
     int cloth_idx, frame_idx;    /* cue_theme.h palettes */
+    int light_idx;               /* the lighting rig, cuevr_light.h */
+    float menu_cue_roll;         /* the display cue turning in the menu */
+    int body_idx;                /* the frame model; -1 = the one that suits */
     int cue_idx;                 /* which cue off the rack */
     int levelled;                /* the table has been sited once this session */
     int pause_sel, pause_latch;
@@ -188,6 +192,29 @@ int cuevr_app_aiming(void) { return S.state == ST_AIM; }
 MoteVrV3 cuevr_app_pocket_room(void) {
     Vec3 t = { S.tab.half_len, 0.0f, S.tab.half_wid };
     return cuevr_table_to_room(&S.setup.place, t);
+}
+
+/* Any point in TABLE space, in room space — as fractions of the half-extents,
+ * so one camera position means the same thing on a 7 ft pub table and a 12 ft
+ * match table. The pocket accessor above is this with (1,0,1), and everything
+ * else I wanted to photograph needed the same translation done by hand. */
+MoteVrV3 cuevr_app_table_room(float fx, float y, float fz) {
+    Vec3 t = { fx * S.tab.half_len, y, fz * S.tab.half_wid };
+    return cuevr_table_to_room(&S.setup.place, t);
+}
+float cuevr_app_table_yaw(void) { return S.setup.place.yaw; }
+
+/* Forcing a rig or a body from the harness. After the preferences load, because
+ * otherwise the saved value would immediately win and the capture would be of
+ * whatever was last played rather than of what was asked for. */
+void cuevr_app_force_light(int i) {
+    S.light_idx = i;
+    cuevr_render_set_light(i);
+}
+void cuevr_app_force_body(int i) {
+    S.body_idx = i;
+    cuevr_render_set_body(i);
+    cuevr_render_set_table(&S.tab, &S.world);
 }
 float cuevr_app_grip(void)      { return S.cue.grip; }
 
@@ -300,7 +327,13 @@ static void rerack(void) {
 /* ---- the HUD ------------------------------------------------------------ */
 
 #define HW 128   /* layout space — NOT CUEVR_HUD_W, which is 4x this */
-#define HH 128
+/* How many rows the screen being drawn is using. It is NOT a constant: the
+ * scoreboard is 16:9 and the list screens are taller (see CUEVR_HUD_LH). This
+ * was hard-coded at 128 while the texture was only 72 rows deep, so every
+ * screen's help line — and, once the menu grew, START GAME itself — was being
+ * drawn past the bottom edge and simply never appeared. */
+static int s_hud_rows = CUEVR_HUD_LH;
+#define HH s_hud_rows
 
 /* The HUD's layout is written in 128-space and drawn at CUEVR_HUD_SS times that.
  * Text is real Audiowide at the size it is actually seen, not the 3x5 handheld
@@ -340,6 +373,15 @@ static void cue_render_spin_ball_hs(int cx, int cy, int r, float sd, float vt)
 
 static void hud_clear(uint16_t c) {
     for (int i = 0; i < CUEVR_HUD_W * CUEVR_HUD_H; i++) S.hud[i] = c;
+}
+
+/* How tall the screen about to be drawn is, in layout rows. The renderer shapes
+ * the panel to it, so a screen only has to say what it needs. */
+static void hud_height(int rows) {
+    if (rows < 16) rows = 16;
+    if (rows > CUEVR_HUD_LH) rows = CUEVR_HUD_LH;
+    s_hud_rows = rows;
+    S.scene.hud_rows = rows;
 }
 
 static void hud_rect(int x, int y, int w, int h, uint16_t c) {
@@ -395,10 +437,14 @@ static void hud_build(void) {
     const uint16_t HI   = RGB565C(250, 205, 60);
     const uint16_t LIVE = RGB565C(40, 190, 90);
 
+    /* The scoreboard is the 16:9 one; any screen that is a list overrides this
+     * before it draws. */
+    hud_height(CUEVR_HUD_BOARD_LH);
     hud_clear(BG);
 
     /* ---- the menu ---- */
     if (S.state == ST_MENU) {
+        hud_height(CUEVR_HUD_LH);
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("CUEVR", 4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
@@ -415,6 +461,17 @@ static void hud_build(void) {
         if (S.opp == OPP_CPU) hud_face(HW - 9, 12 + MR_STRENGTH * 8 + 3, 9, S.persona);
         hud_opt(MR_CLOTH, "CLOTH", k_cloth_name[S.cloth_idx], S.menu_row == MR_CLOTH, 1, TXT, DIM, HI);
         hud_opt(MR_FRAME, "FRAME", k_frame_name[S.frame_idx], S.menu_row == MR_FRAME, 1, TXT, DIM, HI);
+        /* The body under the slate. AUTO names the design it has chosen rather
+         * than just saying AUTO, because "AUTO" alone tells you nothing about
+         * what you are looking at. */
+        if (S.body_idx < 0)
+            snprintf(v, sizeof v, "AUTO (%s)",
+                     cuevr_render_body_name(cuevr_frame_default(&S.tab)));
+        else
+            snprintf(v, sizeof v, "%s", cuevr_render_body_name(S.body_idx));
+        hud_opt(MR_BODY, "TABLE", v, S.menu_row == MR_BODY, 1, TXT, DIM, HI);
+        hud_opt(MR_LIGHT, "LIGHTING", cuevr_render_light_name(S.light_idx),
+                S.menu_row == MR_LIGHT, 1, TXT, DIM, HI);
         hud_opt(MR_BALLS, "BALLS", k_ballset_name[S.ballset], S.menu_row == MR_BALLS, 1, TXT, DIM, HI);
         hud_opt(MR_CUE, "CUE", cuevr_render_cue_name(S.cue_idx), S.menu_row == MR_CUE, 1, TXT, DIM, HI);
 
@@ -432,6 +489,7 @@ static void hud_build(void) {
 
     /* ---- placing the table ---- */
     if (S.state == ST_SETUP) {
+        hud_height(CUEVR_HUD_LH);
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x(S.levelled ? "PLACE TABLE" : "LEVEL THE TABLE", 4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
@@ -451,6 +509,7 @@ static void hud_build(void) {
 
     /* ---- the lobby: same options as the Mote lobby ---- */
     if (S.state == ST_LOBBY) {
+        hud_height(CUEVR_HUD_LH);
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("ONLINE", 4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
@@ -529,6 +588,7 @@ static void hud_build(void) {
 
     /* ---- paused ---- */
     if (S.state == ST_PAUSE) {
+        hud_height(CUEVR_HUD_LH);
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("PAUSED", 4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
@@ -797,6 +857,7 @@ static int app_gl_init(void *u) {
     S.levelled = 0;
     S.menu_sel = 0;
     S.opp = OPP_CPU;
+    S.body_idx = -1;             /* the body that suits the table, until told otherwise */
     cue_table_init(&S.tab, CUE_GAME_UK8);
     cue_table_build_world(&S.tab, &S.world);
     S.nballs = cue_table_rack(&S.tab, S.balls);
@@ -812,15 +873,30 @@ static int app_gl_init(void *u) {
      * and being asked to do both again every session is the kind of small
      * insult that stops people playing. */
     {
-        int kind = (int)S.tab.kind;
-        float h = S.setup.place.height;
-        cuevr_prefs_load(&h, &S.cue.rest, &S.cue.grip,
-                         &kind, &S.ballset, &S.persona,
-                         &S.cloth_idx, &S.frame_idx, &S.opp, &S.cue_idx);
+        CueVrPrefs pr;
+        cuevr_prefs_defaults(&pr);
+        pr.table_height = S.setup.place.height;
+        pr.rest = S.cue.rest;
+        pr.grip = S.cue.grip;
+        pr.table_kind = (int)S.tab.kind;
+        pr.ballset = S.ballset; pr.persona = S.persona;
+        pr.cloth = S.cloth_idx; pr.frame = S.frame_idx;
+        pr.opp = S.opp; pr.cue = S.cue_idx;
+        pr.light = S.light_idx; pr.body = S.body_idx;
+        cuevr_prefs_load(&pr);
+
+        S.cue.rest = pr.rest; S.cue.grip = pr.grip;
+        S.ballset = pr.ballset; S.persona = pr.persona;
+        S.cloth_idx = pr.cloth; S.frame_idx = pr.frame;
+        S.opp = pr.opp; S.cue_idx = pr.cue;
+        S.light_idx = pr.light; S.body_idx = pr.body;
         cuevr_render_set_cue(S.cue_idx);
-        S.setup.place.height = h;
-        S.pref_height = h;
-        for (int i = 0; i < MENU_N; i++) if ((int)MENU[i].kind == kind) S.menu_sel = i;
+        cuevr_render_set_light(S.light_idx);
+        cuevr_render_set_body(S.body_idx);
+        S.setup.place.height = pr.table_height;
+        S.pref_height = pr.table_height;
+        for (int i = 0; i < MENU_N; i++)
+            if ((int)MENU[i].kind == pr.table_kind) S.menu_sel = i;
         cue_render_set_ball_set(S.ballset);
     }
 
@@ -934,6 +1010,21 @@ static void app_update(void *u, const MoteVrTracking *t) {
             case MR_STRENGTH: S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS; break;
             case MR_CLOTH:    S.cloth_idx = (S.cloth_idx + d + CUE_NCLOTH) % CUE_NCLOTH; break;
             case MR_FRAME:    S.frame_idx = (S.frame_idx + d + CUE_NFRAME) % CUE_NFRAME; break;
+            case MR_BODY: {
+                /* -1 is AUTO and sits before the first design, so the list runs
+                 * AUTO, REGENCY, CABINET, ... and wraps. */
+                int n = cuevr_render_body_count() + 1;
+                int i = S.body_idx + 1;
+                i = (i + d + n) % n;
+                S.body_idx = i - 1;
+                cuevr_render_set_body(S.body_idx);
+                break;
+            }
+            case MR_LIGHT:
+                S.light_idx = (S.light_idx + d + cuevr_render_light_count())
+                            % cuevr_render_light_count();
+                cuevr_render_set_light(S.light_idx);
+                break;
             case MR_CUE: {
                 int n = cuevr_render_cue_count();
                 S.cue_idx = (S.cue_idx + d + n) % n;
@@ -953,7 +1044,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
             }
             /* Show it, do not just name it. */
             if (S.menu_row == MR_GAME || S.menu_row == MR_CLOTH ||
-                S.menu_row == MR_FRAME || S.menu_row == MR_BALLS)
+                S.menu_row == MR_FRAME || S.menu_row == MR_BALLS ||
+                S.menu_row == MR_BODY)
                 menu_preview();
             S.hud_dirty = 1;
         }
@@ -1407,6 +1499,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         S.scene.cue_on_ball = S.cue.on_ball;
         S.scene.cue_butt = S.cue.butt;
         S.scene.cue_tip  = S.cue.tip;
+        S.scene.cue_roll = 0.0f;
     }
 
     /* Where the panel goes depends on what it is for.
@@ -1426,9 +1519,40 @@ static void app_update(void *u, const MoteVrTracking *t) {
                       S.state == ST_LOBBY);
         MoteVrV3 pos;
         if (asking) {
+            /* HEADING only, not the full gaze. The panel used to be placed
+             * along wherever you were looking, and when you look down at the
+             * table — which is what you do — 75 cm along that line is UNDER the
+             * cloth. At the levelling camera the centre worked out at y = 0.827
+             * with the cloth at 0.85, so the bottom half of every list screen
+             * was inside the slate. Take the direction you are facing, keep the
+             * panel upright, and then hold it clear of the bed. */
             MoteVrV3 fwd = mq_rot(t->head.q, mv3(0, 0, -1));
-            pos = mv3_add(t->head.p, mv3_scale(mv3_norm(fwd), 0.75f));
-            S.scene.hud_w = 0.42f;
+            fwd.y = 0.0f;
+            if (mv3_len(fwd) < 1e-3f) {
+                /* Looking straight down: -Z is vertical and has no heading. The
+                 * head's own up vector still does. */
+                fwd = mq_rot(t->head.q, mv3(0, 1, 0));
+                fwd.y = 0.0f;
+                if (mv3_len(fwd) < 1e-3f) fwd = mv3(0, 0, -1);
+            }
+            pos = mv3_add(t->head.p, mv3_scale(mv3_norm(fwd), 0.80f));
+            /* 55 cm at 80 cm is about a 38 degree field — a laptop lid at arm's
+             * length. It was 42 cm, which is a postcard. */
+            S.scene.hud_w = 0.55f;
+            pos.y = t->head.p.y - 0.08f;      /* a shade below eye level */
+            /* And never lower than clear of the table, whatever you do with your
+             * head — the whole panel, not just its centre. */
+            {
+                float half = S.scene.hud_w * (float)CUEVR_HUD_LH
+                           / (float)CUEVR_HUD_LW * 0.5f;
+                /* The menu hangs the cue you are choosing below the panel, so
+                 * the thing being held clear of the bed is the pair of them —
+                 * clamping the panel alone just pushed the cue into the cloth
+                 * instead. */
+                float under = (S.state == ST_MENU) ? 0.22f : 0.0f;
+                float floor_of_it = S.setup.place.pos.y + 0.06f + half + under;
+                if (pos.y < floor_of_it) pos.y = floor_of_it;
+            }
         } else {
             /* High and well back. At 45 cm above the cloth just past the rail it
              * sat in the line of any shot played up the table — you were cueing
@@ -1464,12 +1588,58 @@ static void app_update(void *u, const MoteVrTracking *t) {
         x = mv3_norm(x);
         S.scene.hud_rot = mq_from_axes(x, mv3_cross(z, x), z);
         S.scene.hud_visible = 1;
+
+        /* The cue you are choosing, on show under the panel.
+         *
+         * Picking one off a list of names with nothing to look at is choosing
+         * blind: the rack differs in the shaft timber, the four-point splice,
+         * the veneer flash and the butt, and none of that is in the words
+         * "ASH & EBONY". It lies across in front of you, TURNING — all the
+         * asymmetry is on one face, so a static cue hides half of what you are
+         * choosing between.
+         *
+         * Placed here rather than up with the rest of the scene because it
+         * hangs off the panel, and the panel has only just been positioned. */
+        if (S.state == ST_MENU) {
+            MoteVrV3 f2 = mq_rot(t->head.q, mv3(0, 0, -1));
+            f2.y = 0.0f;
+            if (mv3_len(f2) < 1e-3f) f2 = mv3(0, 0, -1);
+            f2 = mv3_norm(f2);
+            MoteVrV3 right = mv3_norm(mv3_cross(mv3(0, 1, 0), f2));
+            float half_h = S.scene.hud_w * (float)CUEVR_HUD_LH
+                         / (float)CUEVR_HUD_LW * 0.5f;
+            /* At the PANEL's distance, not further back. "Below the panel" is a
+             * statement about angles, not about metres: a cue 13 cm lower but
+             * twice as far away subtends a SMALLER angle below the eye than the
+             * panel's own bottom edge does, so it went behind the panel and all
+             * you could see was the two ends sticking out past it.
+             *
+             * A 1.45 m cue at 80 cm is wider than the panel and runs off both
+             * sides, which is right: the middle of a cue is the joint and the
+             * splice, and those are what you are choosing between. */
+            MoteVrV3 c = mv3_add(t->head.p, mv3_scale(f2, 0.80f));
+            c.y = S.scene.hud_pos.y - half_h - 0.14f;
+            /* A little oblique so it has some perspective rather than reading as
+             * a flat stick, but only a little — steeply angled, one end comes
+             * close enough to be in your face. */
+            MoteVrV3 along = mv3_norm(mv3_add(mv3_scale(right, 0.985f),
+                                              mv3_scale(f2, 0.17f)));
+            float half = CUEVR_CUE_LEN * 0.5f;
+            S.scene.cue_visible = 1;
+            S.scene.cue_on_ball = 0;
+            S.scene.cue_tip  = mv3_add(c, mv3_scale(along, -half));
+            S.scene.cue_butt = mv3_add(c, mv3_scale(along,  half));
+            S.menu_cue_roll += dt * 0.55f;
+            if (S.menu_cue_roll > 6.2831853f) S.menu_cue_roll -= 6.2831853f;
+            S.scene.cue_roll = S.menu_cue_roll;
+        }
     }
 
     S.scene.hands_valid = t->hand[MOTE_VR_LEFT].tracked && t->hand[MOTE_VR_RIGHT].tracked;
     S.scene.hand[0] = t->hand[MOTE_VR_LEFT].pose;
     S.scene.hand[1] = t->hand[MOTE_VR_RIGHT].pose;
-    S.scene.rest_visible = S.scene.cue_visible && S.state != ST_CPUCUE;
+    S.scene.rest_visible = S.scene.cue_visible && S.state != ST_CPUCUE
+                        && S.state != ST_MENU;
     S.scene.rest_pos = S.cue.bridge;
 
     /* Save what the player has set, when it changes and no more often — the
@@ -1477,20 +1647,35 @@ static void app_update(void *u, const MoteVrTracking *t) {
      * they grip, and what they chose to play. All of it is a property of the
      * player rather than of the frame, so none of it should have to be redone. */
     {
-        static float last[5]; static int lastk[7]; static float since;
-        float now[5] = { S.setup.place.height, S.cue.rest.x, S.cue.rest.y,
-                         S.cue.rest.z, S.cue.grip };
-        int nowk[7] = { (int)S.tab.kind, S.ballset, S.persona,
-                        S.cloth_idx, S.frame_idx, S.opp, S.cue_idx };
-        int changed = 0;
-        for (int i = 0; i < 5; i++) if (fabsf(now[i] - last[i]) > 0.0005f) changed = 1;
-        for (int i = 0; i < 7; i++) if (nowk[i] != lastk[i]) changed = 1;
+        static CueVrPrefs last; static float since;
+        CueVrPrefs now;
+        now.table_height = S.setup.place.height;
+        now.rest = S.cue.rest;
+        now.grip = S.cue.grip;
+        now.table_kind = (int)S.tab.kind;
+        now.ballset = S.ballset; now.persona = S.persona;
+        now.cloth = S.cloth_idx; now.frame = S.frame_idx;
+        now.opp = S.opp; now.cue = S.cue_idx;
+        now.light = S.light_idx; now.body = S.body_idx;
+        /* Floats compared with a tolerance, not bit-for-bit: the table height is
+         * being recomputed every frame while the player is levelling, and an
+         * exact compare would rewrite the file once a second for ever on a value
+         * that had not really moved. */
+        int changed =
+            fabsf(now.table_height - last.table_height) > 0.0005f ||
+            fabsf(now.rest.x - last.rest.x) > 0.0005f ||
+            fabsf(now.rest.y - last.rest.y) > 0.0005f ||
+            fabsf(now.rest.z - last.rest.z) > 0.0005f ||
+            fabsf(now.grip - last.grip) > 0.0005f ||
+            now.table_kind != last.table_kind || now.ballset != last.ballset ||
+            now.persona != last.persona || now.cloth != last.cloth ||
+            now.frame != last.frame || now.opp != last.opp ||
+            now.cue != last.cue || now.light != last.light ||
+            now.body != last.body;
         since += dt;
         if (changed && since > 1.0f) {
-            cuevr_prefs_save(now[0], S.cue.rest, now[4], nowk[0], nowk[1], nowk[2],
-                             nowk[3], nowk[4], nowk[5], nowk[6]);
-            memcpy(last, now, sizeof last);
-            memcpy(lastk, nowk, sizeof lastk);
+            cuevr_prefs_save(&now);
+            last = now;
             since = 0.0f;
         }
     }

@@ -48,7 +48,17 @@ extern const int CUEVR_FRAME_COUNT;
 
 /* Build design `which` for `t` into `m`. The caller owns m->v / m->idx and sets
  * the caps; cuevr_frame_capacity() says how much is enough for any design. */
+/* The timber every design is made of: the colour the player picked for the
+ * cushion rails. Set it before building, or the body will be a different wood
+ * from the rails standing on it. Metal and the black down a pocket are not
+ * affected. */
+void cuevr_frame_set_timber(const float rgb[3]);
+
 void cuevr_frame_build(int which, CueVrFrameMesh *m, const CueTable *t);
+
+/* The design that suits `t` when the player has not picked one — a pub table is
+ * a cabinet, a 9 ft American is an American, and so on. */
+int  cuevr_frame_default(const CueTable *t);
 void cuevr_frame_capacity(int *max_verts, int *max_indices);
 
 /* How far below the cloth the frame reaches — the renderer wants it to know

@@ -23,9 +23,17 @@
  * read like a handheld screen because it WAS a handheld screen's proportions.
  * Layout stays in 128-wide space (CUEVR_HUD_SS scales it on the way in), so the
  * numbers in hud_build() are still legible as coordinates. */
+/* The panel is TALLER than the board that usually fills it. The scoreboard is
+ * 16:9 and wants 72 rows; the menu, the lobby and the pause screen are lists
+ * and want more — with a lighting rig and a frame model to choose, the menu is
+ * ten rows and START was running off the bottom edge of the texture. So the
+ * texture is sized for the tallest screen and each screen says how many rows it
+ * actually uses (CueVrScene::hud_rows); the panel's shape and the sampled range
+ * follow from that, so the board is still exactly 16:9. */
 #define CUEVR_HUD_SS 4
 #define CUEVR_HUD_LW 128
-#define CUEVR_HUD_LH 72
+#define CUEVR_HUD_LH 112
+#define CUEVR_HUD_BOARD_LH 72   /* what the TV-style scoreboard uses */
 #define CUEVR_HUD_W (CUEVR_HUD_LW * CUEVR_HUD_SS)
 #define CUEVR_HUD_H (CUEVR_HUD_LH * CUEVR_HUD_SS)
 
@@ -37,6 +45,12 @@ typedef struct {
     int      cue_visible;
     int      cue_on_ball;   /* tips the ferrule when the line is live */
     MoteVrV3 cue_butt, cue_tip;
+    /* Roll about the cue's own axis. Zero in play — as far as the shot is
+     * concerned the cue is a lathe of revolution and nothing depends on which
+     * way up it is. The menu turns it, because the splice, the veneer flash and
+     * the badge plate are all on ONE side, and a cue you cannot see the face of
+     * is a cue you cannot choose. */
+    float    cue_roll;
 
     /* Your hands. There is no Meta hand or controller MODEL here: the runtime
      * can hand one over through XR_FB_render_model, but it arrives as glTF and
@@ -53,6 +67,7 @@ typedef struct {
     MoteVrV3 hud_pos;
     MoteVrQ  hud_rot;
     float    hud_w;          /* panel width in metres */
+    int      hud_rows;       /* logical rows in use; 0 = all CUEVR_HUD_LH */
 } CueVrScene;
 
 int  cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb);
@@ -77,6 +92,25 @@ int         cuevr_render_cue_count(void);
 const char *cuevr_render_cue_name(int i);
 void        cuevr_render_set_cue(int i);
 int         cuevr_render_cue(void);
+
+/* ---- the lighting rig ---------------------------------------------------- *
+ * Four rooms to play in: a match table under a bar of shades, the full six-shade
+ * rig, an ordinary room with the ceiling lights on, and daylight from a window.
+ * They differ in the number, size, height and colour of the sources, which is
+ * what changes the shape of every highlight and the number of shadows — see
+ * cuevr_light.h. Setting one refits it to the current table. */
+/* ---- the body under the slate -------------------------------------------- *
+ * Four designs — see cuevr_frame.h. -1 is AUTO: the one that suits the table,
+ * which is a cabinet for a pub table and an American for a 9 ft. */
+void        cuevr_render_set_body(int i);
+int         cuevr_render_body(void);
+int         cuevr_render_body_count(void);
+const char *cuevr_render_body_name(int i);
+
+int         cuevr_render_light_count(void);
+const char *cuevr_render_light_name(int i);
+void        cuevr_render_set_light(int i);
+int         cuevr_render_light(void);
 
 void cuevr_render_hud(const uint16_t *px);       /* CUEVR_HUD_W*H RGB565 */
 /* Multiview: both eyes in one pass. view2/proj2 are two 4x4s back to back. */

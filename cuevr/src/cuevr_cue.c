@@ -32,8 +32,9 @@ void cuevr_cue_init(CueVrCue *c) {
 }
 
 /* ---- preferences -------------------------------------------------------- *
- * A plain text file. Six numbers and a name is not worth a format, and being
- * text means it can be read, edited and diffed when something looks wrong. */
+ * A plain text file of KEY VALUE lines. Being text means it can be read, edited
+ * and diffed when something looks wrong, which on a headset — where there is no
+ * shell and no file browser — is most of how a preferences bug gets diagnosed. */
 /* cuevr_cue.c is otherwise pure maths and is linked into the unit tests, which
  * have no logger. Preferences are the one part that touches the filesystem, and
  * a silent failure there is exactly what "it never saved anything" looks like. */
@@ -62,53 +63,112 @@ void cuevr_prefs_dir(const char *dir) {
     CUEVR_PREFS_LOG("[cuevr] preferences: %s", s_prefs_path);
 }
 
-void cuevr_prefs_load(float *h, MoteVrV3 *rest, float *grip,
-                      int *kind, int *ballset, int *persona,
-                      int *cloth, int *frame, int *opp, int *cue) {
+/* Loading and saving.
+ *
+ * KEY VALUE, one per line, because the positional format this replaces had got
+ * to "eleven fields and it stays eleven, slot 3 is a dead field nobody can
+ * remove" — and the next option after that is the one that shifts everything
+ * and quietly loads a lighting mode into a cue index. Named fields can be added,
+ * reordered and retired, and an unknown key is skipped rather than fatal.
+ *
+ * Files written by the old build are still read: they have no key on the first
+ * line, which is unambiguous, so they are parsed positionally and rewritten in
+ * the new form the first time anything changes. Losing a table height that
+ * somebody matched to their real kitchen table would be a poor way to ship a
+ * file format.
+ */
+void cuevr_prefs_defaults(CueVrPrefs *p) {
+    memset(p, 0, sizeof *p);
+    p->table_height = 0.85f;
+    p->rest  = mv3(0.0f, CUEVR_REST_LIFT_DEFAULT, 0.0f);
+    p->grip  = 0.20f;
+    p->opp   = 1;               /* vs CPU */
+    p->body  = -1;              /* whichever suits the table */
+}
+
+/* Every field is range-checked on the way in: a corrupt or hand-edited file
+ * must not put the table through the ceiling or the cue inside your hand. */
+static void prefs_put(CueVrPrefs *p, const char *k, double v) {
+    int i = (int)v;
+    if      (!strcmp(k, "height"))  { if (v > 0.25 && v < 1.4) p->table_height = (float)v; }
+    else if (!strcmp(k, "rest_x"))  p->rest.x = (float)v;
+    else if (!strcmp(k, "rest_y"))  p->rest.y = (float)v;
+    else if (!strcmp(k, "rest_z"))  p->rest.z = (float)v;
+    else if (!strcmp(k, "grip"))    { if (v >= CUEVR_GRIP_MIN && v <= CUEVR_GRIP_MAX) p->grip = (float)v; }
+    else if (!strcmp(k, "table"))   { if (i >= 0 && i < CUE_GAME_COUNT) p->table_kind = i; }
+    else if (!strcmp(k, "balls"))   { if (i >= 0 && i < 8)  p->ballset = i; }
+    else if (!strcmp(k, "persona")) { if (i >= 0 && i < 32) p->persona = i; }
+    else if (!strcmp(k, "cloth"))   { if (i >= 0 && i < CUE_NCLOTH) p->cloth = i; }
+    else if (!strcmp(k, "frame"))   { if (i >= 0 && i < CUE_NFRAME) p->frame = i; }
+    else if (!strcmp(k, "opp"))     { if (i >= 0 && i < 3)  p->opp = i; }
+    else if (!strcmp(k, "cue"))     { if (i >= 0 && i < 32) p->cue = i; }
+    else if (!strcmp(k, "light"))   { if (i >= 0 && i < 16) p->light = i; }
+    else if (!strcmp(k, "body"))    { if (i >= -1 && i < 16) p->body = i; }
+    /* anything else: a field from a newer build, or a typo. Skip it. */
+}
+
+/* The rest offset is checked as a whole, not per-axis: it is a length. */
+static void prefs_fix_rest(CueVrPrefs *p) {
+    float l2 = p->rest.x*p->rest.x + p->rest.y*p->rest.y + p->rest.z*p->rest.z;
+    if (l2 > CUEVR_REST_MAXLEN * CUEVR_REST_MAXLEN)
+        p->rest = mv3(0.0f, CUEVR_REST_LIFT_DEFAULT, 0.0f);
+}
+
+void cuevr_prefs_load(CueVrPrefs *p) {
     if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
     FILE *f = fopen(s_prefs_path, "r");
     if (!f) return;
-    float a = 0, d = 0;
-    int k = 0, bs = 0, ps = 0, cl = 0, fr = 0, op = 1, cu = 0;
-    /* Seven fields, and it stays seven: slot 3 is a dead rest_fwd that files
-     * from an earlier build still carry, and dropping it would shift every
-     * field after it. Read past it, write a zero, leave it reserved. */
-    float rx = 0, ry = 0, rz = 0;
-    /* Eleven fields now. A short read means an older file, and the tail
-     * simply keeps its default rather than the whole thing being thrown
-     * away — losing a saved table height because a new option appeared
-     * would be a poor trade. */
-    int got = fscanf(f, "%f %f %f %f %f %d %d %d %d %d %d %d",
-                     &a, &rx, &ry, &rz, &d, &k, &bs, &ps, &cl, &fr, &op, &cu);
-    if (got >= 8) {
-        /* Sanity-check every one: a corrupt file must not put the table through
-         * the ceiling or the cue inside your hand. */
-        if (h && a > 0.25f && a < 1.4f) *h = a;
-        if (rest && rx*rx + ry*ry + rz*rz <= CUEVR_REST_MAXLEN*CUEVR_REST_MAXLEN)
-            *rest = mv3(rx, ry, rz);
-        if (grip && d >= CUEVR_GRIP_MIN && d <= CUEVR_GRIP_MAX) *grip = d;
-        if (kind && k >= 0 && k < CUE_GAME_COUNT) *kind = k;
-        if (ballset && bs >= 0 && bs < 8) *ballset = bs;
-        if (persona && ps >= 0 && ps < 32) *persona = ps;
-        if (got >= 11) {
-            if (cloth && cl >= 0 && cl < CUE_NCLOTH)  *cloth = cl;
-            if (frame && fr >= 0 && fr < CUE_NFRAME)  *frame = fr;
-            if (opp   && op >= 0 && op < 3)           *opp   = op;
+
+    char line[128];
+    if (!fgets(line, sizeof line, f)) { fclose(f); return; }
+
+    /* Legacy: the first character of the first line is a number. */
+    if (line[0] == '-' || line[0] == '.' || (line[0] >= '0' && line[0] <= '9')) {
+        float a = 0, rx = 0, ry = 0, rz = 0, d = 0;
+        int k = 0, bs = 0, ps = 0, cl = 0, fr = 0, op = 1, cu = 0;
+        int got = sscanf(line, "%f %f %f %f %f %d %d %d %d %d %d %d",
+                         &a, &rx, &ry, &rz, &d, &k, &bs, &ps, &cl, &fr, &op, &cu);
+        if (got >= 8) {
+            prefs_put(p, "height", a);
+            p->rest = mv3(rx, ry, rz);
+            prefs_put(p, "grip", d);
+            prefs_put(p, "table", k);
+            prefs_put(p, "balls", bs);
+            prefs_put(p, "persona", ps);
+            if (got >= 11) {
+                prefs_put(p, "cloth", cl);
+                prefs_put(p, "frame", fr);
+                prefs_put(p, "opp", op);
+            }
+            if (got >= 12) prefs_put(p, "cue", cu);
         }
-        if (got >= 12 && cue && cu >= 0 && cu < 32) *cue = cu;
+        prefs_fix_rest(p);
+        fclose(f);
+        CUEVR_PREFS_LOG("[cuevr] preferences read in the old format; will rewrite");
+        return;
     }
+
+    do {
+        char key[32];
+        double val;
+        if (sscanf(line, "%31s %lf", key, &val) == 2) prefs_put(p, key, val);
+    } while (fgets(line, sizeof line, f));
+    prefs_fix_rest(p);
     fclose(f);
 }
 
-void cuevr_prefs_save(float h, MoteVrV3 rest, float grip,
-                      int kind, int ballset, int persona,
-                      int cloth, int frame, int opp, int cue) {
+void cuevr_prefs_save(const CueVrPrefs *p) {
     if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
     FILE *f = fopen(s_prefs_path, "w");
     if (!f) { CUEVR_PREFS_LOG("[cuevr] cannot write %s", s_prefs_path); return; }
-    fprintf(f, "%.4f %.4f %.4f %.4f %.4f %d %d %d %d %d %d %d\n",
-            (double)h, (double)rest.x, (double)rest.y, (double)rest.z,
-            (double)grip, kind, ballset, persona, cloth, frame, opp, cue);
+    fprintf(f,
+            "height %.4f\nrest_x %.4f\nrest_y %.4f\nrest_z %.4f\ngrip %.4f\n"
+            "table %d\nballs %d\npersona %d\ncloth %d\nframe %d\nopp %d\n"
+            "cue %d\nlight %d\nbody %d\n",
+            (double)p->table_height, (double)p->rest.x, (double)p->rest.y,
+            (double)p->rest.z, (double)p->grip,
+            p->table_kind, p->ballset, p->persona, p->cloth, p->frame, p->opp,
+            p->cue, p->light, p->body);
     fclose(f);
 }
 

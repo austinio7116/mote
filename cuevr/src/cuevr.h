@@ -185,16 +185,30 @@ typedef struct {
 
 void cuevr_cue_init(CueVrCue *c);
 
-/* Player preferences that outlive a frame and a session: the cloth height
- * they matched to a real surface, and the bridge they make. Stored beside the
- * app's own data; set the directory once at start-up. */
+/* Player preferences that outlive a frame and a session: the cloth height they
+ * matched to a real surface, the bridge they make, and everything they chose to
+ * play with. Stored beside the app's own data; set the directory once at
+ * start-up. A struct and a named-field file, because the positional argument
+ * list this replaces had reached ten parameters of which seven were int. */
+typedef struct {
+    float    table_height;
+    MoteVrV3 rest;
+    float    grip;
+    int      table_kind;
+    int      ballset;
+    int      persona;
+    int      cloth;
+    int      frame;      /* the frame COLOUR, from cue_theme.h */
+    int      opp;
+    int      cue;
+    int      light;      /* the lighting rig — see cuevr_light.h */
+    int      body;       /* the frame MODEL; -1 = whichever suits the table */
+} CueVrPrefs;
+
 void cuevr_prefs_dir(const char *dir);
-void cuevr_prefs_load(float *table_height, MoteVrV3 *rest, float *grip,
-                      int *table_kind, int *ballset, int *persona,
-                      int *cloth, int *frame, int *opp, int *cue);
-void cuevr_prefs_save(float table_height, MoteVrV3 rest, float grip,
-                      int table_kind, int ballset, int persona,
-                      int cloth, int frame, int opp, int cue);
+void cuevr_prefs_defaults(CueVrPrefs *p);
+void cuevr_prefs_load(CueVrPrefs *p);      /* leaves untouched what the file omits */
+void cuevr_prefs_save(const CueVrPrefs *p);
 
 /* A struck shot, as the physics wants it. */
 typedef struct {

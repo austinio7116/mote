@@ -30,6 +30,7 @@
 #include "cuevr_ctrl_right.h"
 #include "cue_render.h"
 #include "cuevr_frame.h"
+#include "cuevr_light.h"
 #include "craft_font.h"
 
 #include <GLES3/gl3.h>
@@ -93,10 +94,15 @@ static const char *FS =
 "uniform vec4  u_colour;\n"
 "uniform vec4  u_colour2;\n"   /* balls: the stripe/secondary colour */
 "uniform vec3  u_light;\n"
-"uniform vec3  u_lampC[4];\n"   // lamp centres, world space
-"uniform vec3  u_lampX[4];\n"   // half-extent along the table's length
-"uniform vec3  u_lampZ[4];\n"   // half-extent across it
+"uniform vec3  u_lampC[8];\n"   // lamp centres, world space
+"uniform vec3  u_lampX[8];\n"   // half-extent vector, one way across the face
+"uniform vec3  u_lampZ[8];\n"   // and the other: together they span the plane
+"uniform float u_lampG[8];\n"   // how bright each one's reflection is
 "uniform int   u_nlamp;\n"
+"uniform float u_lampround;\n" // 1 = discs (downlights), 0 = rectangles (shades)
+"uniform vec3  u_keyc;\n"      // the light's own colour, multiplying everything
+"uniform float u_fill;\n"      // how much of the diffuse arrives from the room
+"uniform float u_hudv;\n"      // fraction of the HUD texture's height in use
 "in vec3 v_eyepos;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
@@ -144,8 +150,33 @@ static const char *FS =
 "    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n"
 "}\n"
 "vec4 emit(vec3 c, float a, float dither) {\n"
-"    vec3 o = u_encode == 1 ? to_srgb(c) : c;\n"
+"    // u_keyc is the light's colour, so it multiplies EVERYTHING the light\n"
+"    // reaches — a tungsten room does not warm the highlights and leave the\n"
+"    // shadows neutral. The HUD sets it to white before it draws, because a\n"
+"    // scoreboard is a screen and not a lit surface.\n"
+"    vec3 o = u_encode == 1 ? to_srgb(c * u_keyc) : c * u_keyc;\n"
 "    return vec4(o + (hash12(gl_FragCoord.xy) - 0.5) * dither / 255.0, a);\n"
+"}\n"
+"// The rig's diffuse response, in place of a bare N.L.\n"
+"//\n"
+"// u_fill is how much of a surface's light arrives from the room rather than\n"
+"// from the key: nothing at all in a dark hall under a bar of shades, about half\n"
+"// in a front room with the ceiling lights on and the walls a metre away. The\n"
+"// fill term is hemispherical — brighter facing up, because ceilings and windows\n"
+"// are up — which is what lifts the underside of a cushion and the inside of a\n"
+"// pocket out of black without flattening the whole table.\n"
+"//\n"
+"// At u_fill = 0 this is exactly max(dot(N, L), 0.0), so the match rig every\n"
+"// existing screenshot was tuned against is untouched.\n"
+"float diffuse(vec3 N, vec3 L) {\n"
+"    float ndl = max(dot(N, L), 0.0);\n"
+"    return mix(ndl, 0.45 + 0.55 * (0.5 + 0.5 * N.y), u_fill);\n"
+"}\n"
+"// The same, for the surfaces whose normals are two-sided — the cloth over a\n"
+"// cushion nose, the fur shells — where the shaded half should go dim rather\n"
+"// than go out.\n"
+"float diffuse_abs(vec3 N, vec3 L) {\n"
+"    return mix(abs(dot(N, L)), 0.45 + 0.55 * (0.5 + 0.5 * abs(N.y)), u_fill);\n"
 "}\n"
 "// The chalk, as a distance field. Shared by the cloth AND by every shell of the\n"
 "// pile, which is the point: chalk is painted ON a cloth, so the pile has to\n"
@@ -403,16 +434,24 @@ static const char *FS =
 "    // woodgrain wallpaper.\n"
 "    c = mix(c, lw, late * 0.40);\n"
 "    c += base * fleck * 0.10;\n"
-"    // The knot itself: a dark core, warmer and much darker than the latewood,\n"
-"    // with a hard-ish rim where the branch met the trunk.\n"
-"    // The knot: its own tight rings over a dark warm body, then the rim on top,\n"
-"    // which is nearly black on a real one.\n"
-"    // And much lighter. A knot is DARKER timber, not a hole — at 0.20 of the base\n"
-"    // it read as a bolt head punched through the rail.\n"
-"    vec3 kbody = base * (0.52 + 0.30 * kn.ring);\n"
-"    kbody.r *= 1.16; kbody.g *= 1.00; kbody.b *= 0.78;\n"
-"    c = mix(c, kbody, kn.core * 0.95);\n"
-"    c = mix(c, base * 0.34, kn.rim * 0.70);\n"
+"    // The knot. Same TIMBER, not a feature drawn on top of it.\n"
+"    //\n"
+"    // A knot is the branch the trunk grew round: identical wood, cut across so\n"
+"    // its rings are tight and closed instead of long and open. So it belongs in\n"
+"    // the same colour range as the rings around it — the latewood bands land at\n"
+"    // about 0.81 of the base, and the knot has no business being darker or\n"
+"    // browner than they are. It was at 0.52 of base with the red pushed 16 per\n"
+"    // cent and the blue pulled 22, ringed in near-black: a loud, hot blob that\n"
+"    // read as a bolt head rather than as figure.\n"
+"    //\n"
+"    // No hue shift at all now, and the swing across the knot's own rings is\n"
+"    // wider than its offset from the base — which is what makes it read as\n"
+"    // PATTERN. You see it as a tight whorl in the grain, and only when you look.\n"
+"    vec3 kbody = base * (0.74 + 0.20 * kn.ring);\n"
+"    c = mix(c, kbody, kn.core * 0.85);\n"
+"    // The rim, where the branch met the trunk. Present, because the grain does\n"
+"    // close hard there — but at the darkness of a latewood band, not of a hole.\n"
+"    c = mix(c, base * 0.62, kn.rim * 0.45);\n"
 "    c *= 1.0 - pore * 0.14;\n"
 "    // VARNISH, and it is anisotropic. This is most of what separates polished timber\n"
 "    // from a brown pattern: the highlight on a finished rail stretches ALONG the\n"
@@ -473,7 +512,9 @@ static const char *FS =
 
 "    vec3 L = normalize(u_light);\n"
 "    if (u_mode == 2) {\n"
-"        vec4 t = texture(u_tex, v_uv);\n"
+"        // Only the top u_hudv of the panel texture is in use — see\n"
+"        // CUEVR_HUD_LH. v runs from the top, so this is a straight scale.\n"
+"        vec4 t = texture(u_tex, vec2(v_uv.x, v_uv.y * u_hudv));\n"
 "        o_col = emit(to_linear(t.rgb), t.a * u_colour.a, 0.0);\n"
 "    } else if (u_mode == 3) {\n"
 "        vec2 g = abs(fract(v_local.xz * 2.0) - 0.5) / fwidth(v_local.xz * 2.0);\n"
@@ -523,7 +564,7 @@ static const char *FS =
 "        vec3 bc = textureGrad(u_balls, vec3(u, clamp(vv, 0.001, 0.999), u_ballslice),\n"
 "                              vec2(gu.x, gv.x), vec2(gu.y, gv.y)).rgb;\n"
 "        vec3 nw = normalize(v_nrm);\n"
-"        float diff = max(dot(nw, L), 0.0);\n"
+"        float diff = diffuse(nw, L);\n"
 "        float down = max(-nw.y, 0.0);\n"
 "        // Diffuse, then the cloth's bounce ADDED rather than mixed in.\n"
 "        // The handheld lerps up to 82% toward the cloth tint on the\n"
@@ -548,18 +589,29 @@ static const char *FS =
 "        vec3 V = normalize(v_eyepos - v_world);\n"
 "        vec3 Rv = reflect(-V, nw);\n"
 "        float refl = 0.0;\n"
-"        if (Rv.y > 1e-4) {\n"
+"        {\n"
+"            // Intersect the reflected ray with each fixture's own PLANE, not\n"
+"            // with a horizontal one. A shade hangs face down and a window\n"
+"            // stands on its edge, and the first version, which solved for the\n"
+"            // height of the lamp, simply could not see a vertical source at\n"
+"            // all — the window mode reflected nothing.\n"
 "            for (int i = 0; i < u_nlamp; i++) {\n"
-"                float t = (u_lampC[i].y - v_world.y) / Rv.y;\n"
+"                vec3 pn = cross(u_lampX[i], u_lampZ[i]);\n"
+"                float dn = dot(Rv, pn);\n"
+"                if (abs(dn) < 1e-6) continue;\n"
+"                float t = dot(u_lampC[i] - v_world, pn) / dn;\n"
 "                if (t <= 0.0) continue;\n"
 "                vec3 d = (v_world + Rv * t) - u_lampC[i];\n"
 "                float a = dot(d, u_lampX[i]) / dot(u_lampX[i], u_lampX[i]);\n"
 "                float b = dot(d, u_lampZ[i]) / dot(u_lampZ[i], u_lampZ[i]);\n"
 "                // A shade has a hard edge and a hot centre. smoothstep over\n"
 "                // the last few percent keeps it from aliasing to a crawling\n"
-"                // staircase as the ball rolls.\n"
-"                float e = max(abs(a), abs(b));\n"
-"                refl += (1.0 - smoothstep(0.88, 1.0, e)) * (1.0 - 0.25 * e);\n"
+"                // staircase as the ball rolls. A downlight is a disc, and a\n"
+"                // square highlight is the giveaway that it was never modelled.\n"
+"                float e = mix(max(abs(a), abs(b)), length(vec2(a, b)),\n"
+"                              u_lampround);\n"
+"                refl += (1.0 - smoothstep(0.88, 1.0, e)) * (1.0 - 0.25 * e)\n"
+"                      * u_lampG[i];\n"
 "            }\n"
 "        }\n"
 "        // The shade is a bright source: let it blow out to white.\n"
@@ -691,35 +743,42 @@ static const char *FS =
 "            gloss = mix(gloss, 120.0, brass_lit);\n"
 "            spec_k = mix(spec_k, 0.85, brass_lit);\n"  // brass collar
 "        }\n"
-"        float d = max(dot(v_nrm, L), 0.0);\n"
+"        float d = diffuse(v_nrm, L);\n"
 "        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), gloss);\n"
 "        o_col = emit(to_linear(c) * (0.34 + 0.70 * d) + vec3(spec) * spec_k, 1.0, 1.0);\n"
 "    } else if (u_mode == 7) {\n"
-"        // Timber. The frame carries its own base colour per piece and a grain\n"
-"        // coordinate that runs ALONG whichever length of wood the vertex\n"
-"        // belongs to, so the grain follows the apron round the table and runs\n"
-"        // UP the legs, instead of everything being striped in world space.\n"
-"        vec3 base = to_linear(v_col);\n"
-"        float g = v_uv.x;\n"
-"        // Two octaves: close-spaced lines, and a slow wander so the figure is\n"
-"        // not a barcode. Modulated across the grain so lines drift rather than\n"
-"        // running dead straight for a metre.\n"
-"        float fine = sin(g * 210.0 + sin(v_uv.y * 26.0) * 1.3);\n"
-"        float slow = sin(g * 31.0 - v_uv.y * 3.0);\n"
-"        float fig  = 0.5 + 0.30 * fine + 0.20 * slow;\n"
-"        vec3 c = base * (0.80 + 0.42 * fig);\n"
-"        vec3 n = normalize(v_nrm);\n"
-"        float d = max(dot(n, L), 0.0);\n"
-"        // French polish: a broad sheen plus a tight highlight, so the apron\n"
-"        // catches the lamps the way varnished wood does.\n"
-"        float spec = pow(max(dot(n, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), 26.0);\n"
-"        o_col = emit(c * (0.26 + 0.72 * d) + vec3(spec) * 0.16, 1.0, 1.0);\n"
+"        // The body under the slate — apron, cabinet, legs — in THE SAME TIMBER\n"
+"        // as the cushion rails, through the same timber() the rails use.\n"
+"        //\n"
+"        // It had its own wood: two sine octaves, no rings, no pores, no knots\n"
+"        // and a fixed white highlight. Next to a rail with cathedral figure and\n"
+"        // an anisotropic varnish it read as painted MDF, and the table looked\n"
+"        // like two different objects bolted together. There is no reason for a\n"
+"        // second wood shader to exist.\n"
+"        //\n"
+"        // The frame authors its own grain coordinate — uv.x ALONG whichever\n"
+"        // length of timber the vertex belongs to and uv.y across it — which is\n"
+"        // better than what the rails have to do, where the board axes are\n"
+"        // inferred from the geometry. Feed it straight in.\n"
+"        vec2 wq = v_uv;\n"
+"        vec2 warp = (texture(u_nap, wq / 0.55).rg - 0.5) * 2.0;\n"
+"        vec2 fine = (texture(u_nap, vec2(wq.x / 0.22, wq.y / 0.020)).rg - 0.5) * 2.0;\n"
+"        float varn = 0.0;\n"
+"        vec3 c = timber(v_col, wq, warp, fine, v_nrm, L, varn);\n"
+"        // A higher ambient floor than the rails get, and it is not a fudge:\n"
+"        // the rails lie under the lamps and the body does not. Every face of\n"
+"        // an apron or a leg is vertical or downward, so essentially none of\n"
+"        // the key reaches it and what lights it is bounce — off the floor, off\n"
+"        // the walls, off the cloth. At the rails' 0.30 the whole body went to\n"
+"        // near-black and took the figure with it.\n"
+"        float d = diffuse(normalize(v_nrm), L);\n"
+"        o_col = emit(to_linear(c * (0.46 + 0.56 * d)) + vec3(varn) * 0.7, 1.0, 1.0);\n"
 "    } else if (u_mode == 4) {\n"
 "        // The table, with the handheld's own shading: colours authored per\n"
 "        // triangle, lit by the ABSOLUTE dot with the overhead key. Absolute\n"
 "        // because the mesh is double-sided — the cloth fan and the pocket\n"
 "        // voids are wound for shading, not for a front-face convention.\n"
-"        float ndl = abs(dot(normalize(v_nrm), L));\n"
+"        float ndl = diffuse_abs(normalize(v_nrm), L);\n"
 "        vec3 tc = v_col;\n"
 "        float wood_spec = 0.0;\n"
 "        // The cushions, the jaws and the pocket throats are COVERED IN THE\n"
@@ -749,7 +808,7 @@ static const char *FS =
 "                     * sheen_vis(nl, nv2) * nl;\n"
 "            vec3 sc = mix(to_linear(v_col) * 1.9, vec3(1.0), 0.30);\n"
 "            float mocc = nap_occlusion(nsc);\n"
-"            tc = v_col * (0.30 + 0.70 * abs(dot(sn, L)))\n"
+"            tc = v_col * (0.30 + 0.70 * diffuse_abs(sn, L))\n"
 "               * mix(1.0, mocc, iscloth);\n"
 "            o_col = emit(to_linear(tc) + sc * sh * 0.85 * iscloth, 1.0, 1.0);\n"
 "            return;\n"
@@ -772,8 +831,18 @@ static const char *FS =
 "            {\n"
 "                vec3 nn = normalize(v_nrm);\n"
 "                if (abs(nn.y) > 0.7) {\n"
-"                    vec2 a2 = (abs(v_local.z) > abs(v_local.x)) ? vec2(1.0, 0.0)\n"
-"                                                                : vec2(0.0, 1.0);\n"
+"                    // Which rail am I standing on? NOT |x| vs |z| — a table is twice\n"
+"                    // as long as it is wide, so that test switches along the diagonal\n"
+"                    // through the table CENTRE, which crosses the side rails about a\n"
+"                    // third of the way down and turns the grain there. Compare the\n"
+"                    // distance to each pair of edges instead: the locus where those\n"
+"                    // are equal is the 45 degree bisector out of the corner, which is\n"
+"                    // exactly where a real frame is mitred. rail_w is the same all\n"
+"                    // round, so that one line passes through the inner corner and the\n"
+"                    // outer corner both.\n"
+"                    vec2 d = u_half - abs(v_local.xz);\n"
+"                    vec2 a2 = (d.y < d.x) ? vec2(1.0, 0.0)   // side rail: along x\n"
+"                                          : vec2(0.0, 1.0);  // end rail:  along z\n"
 "                    wq = vec2(dot(v_local.xz, a2), dot(v_local.xz, vec2(-a2.y, a2.x)));\n"
 "                } else {\n"
 "                    vec2 a2 = normalize(vec2(-nn.z, nn.x) + 1e-6);\n"
@@ -831,7 +900,7 @@ static const char *FS =
 "        float m = mark_cov(q, aa);\n"
 "        // Diffuse off the BENT normal too, so the lean shows in the body of\n"
 "        // the colour and not only in the sheen.\n"
-"        float ndl = abs(dot(N, L));\n"
+"        float ndl = diffuse_abs(N, L);\n"
 "        float mocc = nap_occlusion(nsm);\n"
 "        vec3 c = mix(cloth * mocc, to_linear(u_markc), m * 0.88);\n"
 "        // Chalk is powder ON the fibres: it kills the sheen where it lands.\n"
@@ -862,7 +931,7 @@ static const char *FS =
 "        // Tips are lighter than roots: dye sits deeper at the base, and the\n"
 "        // deeper hair is shadowed by everything above it.\n"
 "        float lit = 0.80 + 0.24 * hh;\n"
-"        float ndl = abs(dot(nv, L));\n"
+"        float ndl = diffuse_abs(nv, L);\n"
 "        // Close to the cloth's own colour on purpose. A shell should be\n"
 "        // almost invisible looking straight down at it — the pile only\n"
 "        // announces itself where you see THROUGH many shells at once,\n"
@@ -910,11 +979,13 @@ static const char *FS =
 "        // A ball's shadow on the cloth: a soft decal, as scene_add_shadow\n"
 "        // draws it. Without these the balls hover.\n"
 "        float d = length(v_uv - vec2(0.5)) * 2.0;\n"
-"        float a = 0.55 * (1.0 - smoothstep(0.10, 1.0, d));\n"
+"        // u_colour.a is this blob's share: a rig with six lamps casts six\n"
+"        // shadows and each one has to be correspondingly faint.\n"
+"        float a = 0.55 * u_colour.a * (1.0 - smoothstep(0.10, 1.0, d));\n"
 "        o_col = emit(to_linear(u_clothsh) * 0.55, a, 0.0);\n"
 "    } else {\n"
 "        vec3 c = to_linear(u_colour.rgb);\n"
-"        float d = max(dot(v_nrm, L), 0.0);\n"
+"        float d = diffuse(v_nrm, L);\n"
 "        o_col = emit(c * (0.42 + 0.62 * d), u_colour.a, 1.0);\n"
 "    }\n"
 "}\n";
@@ -1018,10 +1089,14 @@ static struct {
     GLint  u_ballslice, u_balls, u_clothsh;
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
-    GLint  u_lampC, u_lampX, u_lampZ, u_nlamp, u_eye;
+    GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_nlamp, u_lampround, u_eye;
+    GLint  u_keyc, u_fill, u_hudv;
+    CueVrLightRig rig;
+    int    light_mode;
+    MoteVrV3 key_room;
     Mesh   ctrl[2];
     Mesh   fins, bed, table, lips, frame, ball, cue, quad, floor, grip;
-    int    frame_sel;
+    int    frame_sel;          /* -1 = whichever design suits the table */
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     float  fur_scale;
     GLuint nap_tex;
@@ -1137,18 +1212,28 @@ static float cue_radius(float t) {
     }
     if (x < 0.0035f) return TIP_R;                                   /* leather pad */
     if (x < 0.0135f) return 0.00515f;                                /* 10 mm ferrule */
+    /* The taper. A cue is not a stick that happens to be pointed: the whole
+     * middle of it is one long cone, and how fast that cone opens is most of
+     * what makes it read as a cue rather than as a dowel.
+     *
+     * 29 mm at the butt is within the range a real snooker cue is made in, but
+     * at the thin end of it, and it looked thin. 32 mm is a full-handed butt —
+     * and the joint has to come up with it or the extra only appears in the last
+     * 30 cm and the cue looks like a stick with a knob on. So the joint goes
+     * from 19 to 21 mm too, which steepens the shaft's taper by about a quarter
+     * over its whole 1.07 m. */
     if (x < 1.100f) {                                                /* ash shaft */
         float k = (x - 0.032f) / (1.100f - 0.032f);
-        return 0.0051f + k * (0.0095f - 0.0051f);
+        return 0.0051f + k * (0.0105f - 0.0051f);
     }
     if (x < 1.410f) {                                                /* ebony butt */
         float k = (x - 1.100f) / (1.410f - 1.100f);
-        return 0.0095f + k * (0.0145f - 0.0095f);
+        return 0.0105f + k * (0.0160f - 0.0105f);
     }
     /* rounded butt cap */
     float k = (x - 1.410f) / (CUE_LEN - 1.410f);
     if (k > 1.0f) k = 1.0f;
-    return 0.0145f * sqrtf(1.0f - k * k * 0.95f);
+    return 0.0160f * sqrtf(1.0f - k * k * 0.95f);
 }
 
 /* A real cue is NOT a solid of revolution. The butt of a hand-spliced cue carries
@@ -1465,6 +1550,32 @@ const char *cuevr_render_cue_name(int i) {
     return (i >= 0 && i < CUE_RACK_N) ? CUE_RACK[i].name : "";
 }
 void cuevr_render_set_cue(int i) { s_cue_sel = (i < 0 || i >= CUE_RACK_N) ? 0 : i; }
+
+/* ---- the lighting rig ---------------------------------------------------- *
+ * Selected here rather than passed in the scene, because it changes once when
+ * the player picks it and then not again for the whole frame — and because the
+ * rig has to be REBUILT against the table, so it cannot just be a number the
+ * draw call reads. */
+/* The body under the slate. -1 asks cuevr_frame.c which design suits the table,
+ * which is the default and what most players will leave it on. Takes effect on
+ * the next set_table, so the menu's live preview re-racks and rebuilds together. */
+void cuevr_render_set_body(int i) {
+    G.frame_sel = (i >= 0 && i < CUEVR_FRAME_COUNT) ? i : -1;
+}
+int cuevr_render_body(void) { return G.frame_sel; }
+int cuevr_render_body_count(void) { return CUEVR_FRAME_COUNT; }
+const char *cuevr_render_body_name(int i) {
+    return (i >= 0 && i < CUEVR_FRAME_COUNT) ? CUEVR_FRAMES[i].name : "AUTO";
+}
+
+int cuevr_render_light_count(void) { return CUEVR_LIGHT_N; }
+const char *cuevr_render_light_name(int i) { return cuevr_light_name(i); }
+int cuevr_render_light(void) { return G.light_mode; }
+void cuevr_render_set_light(int i) {
+    if (i < 0 || i >= CUEVR_LIGHT_N) i = 0;
+    G.light_mode = i;
+    cuevr_light_build(i, &G.tab, &G.rig);
+}
 int         cuevr_render_cue(void) { return s_cue_sel; }
 
 /* ---- the nap: a balanced pile-LEAN field --------------------------------- *
@@ -1904,7 +2015,12 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_lampC      = glGetUniformLocation(G.prog, "u_lampC[0]");
     G.u_lampX      = glGetUniformLocation(G.prog, "u_lampX[0]");
     G.u_lampZ      = glGetUniformLocation(G.prog, "u_lampZ[0]");
+    G.u_lampG      = glGetUniformLocation(G.prog, "u_lampG[0]");
     G.u_nlamp      = glGetUniformLocation(G.prog, "u_nlamp");
+    G.u_lampround  = glGetUniformLocation(G.prog, "u_lampround");
+    G.u_keyc       = glGetUniformLocation(G.prog, "u_keyc");
+    G.u_fill       = glGetUniformLocation(G.prog, "u_fill");
+    G.u_hudv       = glGetUniformLocation(G.prog, "u_hudv");
     G.u_eye        = glGetUniformLocation(G.prog, "u_eye");
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
     G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
@@ -2083,6 +2199,10 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
     }
     bake_ball_atlas();
 
+    /* The rig is fitted to the table too: the shades hang over THIS table's
+     * length, so a 7 ft pub table does not get a 12 ft match table's bar. */
+    cuevr_light_build(G.light_mode, t, &G.rig);
+
     /* The frame is generated separately and drawn separately — nothing above
      * this line knows it exists, and swapping designs cannot disturb the bed,
      * the cushions or the pockets. */
@@ -2096,16 +2216,23 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
         fm.idx = malloc(sizeof(uint16_t) * (size_t)ci);
         fm.cap_v = cv; fm.cap_i = ci;
         if (fm.v && fm.idx) {
-            cuevr_frame_build(G.frame_sel, &fm, t);
+            /* The body is made of the same timber as the rails. t->rail is the
+             * authored RGB565 the FRAME menu row chose. */
+            float tw[3] = { ((t->rail >> 11) & 31) / 31.0f,
+                            ((t->rail >>  5) & 63) / 63.0f,
+                            ( t->rail        & 31) / 31.0f };
+            cuevr_frame_set_timber(tw);
+            int fs = G.frame_sel < 0 ? cuevr_frame_default(t) : G.frame_sel;
+            cuevr_frame_build(fs, &fm, t);
             if (fm.overflow) LOGI("[cuevr] frame '%s' ran out of room",
-                                  CUEVR_FRAMES[G.frame_sel].name);
+                                  CUEVR_FRAMES[fs].name);
             /* CueVrFrameVtx and the renderer's Vtx are the same layout, so this
              * goes straight to the GPU. */
             Builder fb;
             fb.v = (Vtx *)fm.v; fb.i = fm.idx;
             fb.nv = fm.nv; fb.ni = fm.ni; fb.cap_v = cv; fb.cap_i = ci;
             mesh_upload(&G.frame, &fb);
-            LOGI("[cuevr] frame '%s': %d tris", CUEVR_FRAMES[G.frame_sel].name, fm.ni / 3);
+            LOGI("[cuevr] frame '%s': %d tris", CUEVR_FRAMES[fs].name, fm.ni / 3);
         }
         free(fm.v); free(fm.idx);
     }
@@ -2200,33 +2327,38 @@ void cuevr_render_eye(const float *view, const float *proj,
      * intersects with the reflected view ray. They hang over the table, so they
      * are built in table space and carried out into the room with it.
      */
-    /* Sized and hung like the real thing. A snooker light is a long low bar of
-     * big shades — and the size of the reflection is the size of the SOURCE:
-     * a small lamp high up reflects in a 26 mm ball as a speck, which is what
-     * the first attempt at this looked like. Low and wide gives the long bright
-     * streaks you actually see down a table. */
-    const float LAMP_H  = 0.62f;      /* above the cloth */
-    const float LAMP_HX = 0.30f;      /* half the shade, along the table */
-    const float LAMP_HZ = 0.17f;      /* and across it */
+    /* Which rig, and where its fixtures end up in the room. The layout comes
+     * from cuevr_light.c — sizes, heights and counts that are the real ones —
+     * and all that happens here is the rotation out of table space into the
+     * room, which is the same yaw the table itself is carried out by. Vectors
+     * rotate; only the centre translates. */
     float cy = cosf(s->place->yaw), sy = sinf(s->place->yaw);
-    int nlamp = (int)(G.tab.half_len * 2.0f / 0.85f + 0.5f);
-    if (nlamp < 2) nlamp = 2;
-    if (nlamp > 4) nlamp = 4;
+    const CueVrLightRig *rig = &G.rig;
+    int nlamp = rig->nlamp;
     {
-        float cen[12], axx[12], axz[12];
-        float L = G.tab.half_len * 2.0f;
+        float cen[CUEVR_MAX_LAMPS*3], axx[CUEVR_MAX_LAMPS*3], axz[CUEVR_MAX_LAMPS*3];
+        float gain[CUEVR_MAX_LAMPS];
         for (int i = 0; i < nlamp; i++) {
-            float tx = ((float)i + 0.5f) / nlamp * L - L * 0.5f;
-            cen[i*3+0] = s->place->pos.x + tx * cy;
-            cen[i*3+1] = s->place->pos.y + LAMP_H;
-            cen[i*3+2] = s->place->pos.z + tx * sy;
-            axx[i*3+0] = LAMP_HX * cy;  axx[i*3+1] = 0.0f; axx[i*3+2] = LAMP_HX * sy;
-            axz[i*3+0] = -LAMP_HZ * sy; axz[i*3+1] = 0.0f; axz[i*3+2] = LAMP_HZ * cy;
+            const CueVrLamp *l = &rig->lamp[i];
+            cen[i*3+0] = s->place->pos.x + l->c[0] * cy - l->c[2] * sy;
+            cen[i*3+1] = s->place->pos.y + l->c[1];
+            cen[i*3+2] = s->place->pos.z + l->c[0] * sy + l->c[2] * cy;
+            axx[i*3+0] = l->ax[0] * cy - l->ax[2] * sy;
+            axx[i*3+1] = l->ax[1];
+            axx[i*3+2] = l->ax[0] * sy + l->ax[2] * cy;
+            axz[i*3+0] = l->az[0] * cy - l->az[2] * sy;
+            axz[i*3+1] = l->az[1];
+            axz[i*3+2] = l->az[0] * sy + l->az[2] * cy;
+            gain[i] = l->gain;
         }
         glUniform3fv(G.u_lampC, nlamp, cen);
         glUniform3fv(G.u_lampX, nlamp, axx);
         glUniform3fv(G.u_lampZ, nlamp, axz);
+        glUniform1fv(G.u_lampG, nlamp, gain);
         glUniform1i(G.u_nlamp, nlamp);
+        glUniform1f(G.u_lampround, rig->round ? 1.0f : 0.0f);
+        glUniform1f(G.u_fill, rig->fill);
+        glUniform3fv(G.u_keyc, 1, rig->keyc);
     }
 
     /* The eye, recovered from the view matrix: its rows are the camera basis
@@ -2246,12 +2378,13 @@ void cuevr_render_eye(const float *view, const float *proj,
         eye = mv3(ep[0][0], ep[0][1], ep[0][2]);
     }
 
-    /* The key light stays the handheld's: nearly overhead, rotated with the
-     * table so it is over the cloth and not over your kitchen. */
+    /* The key, rotated with the table so it is over the cloth and not over your
+     * kitchen. The match rig's direction is the handheld's, unchanged. */
     {
-        MoteVrV3 k = mv3_norm(mv3(0.10f * cy - 0.20f * sy, 0.975f,
-                                  0.10f * sy + 0.20f * cy));
+        MoteVrV3 k = mv3_norm(mv3(rig->key[0] * cy - rig->key[2] * sy, rig->key[1],
+                                  rig->key[0] * sy + rig->key[2] * cy));
         glUniform3f(G.u_light, k.x, k.y, k.z);
+        G.key_room = k;
     }
 
     {   /* cloth bounce: the cloth's own colour at 0.42, as shade565 gives it */
@@ -2412,21 +2545,56 @@ void cuevr_render_eye(const float *view, const float *proj,
         glUniform1i(G.u_mode, 6);
         /* Darken toward the cloth's own shadowed tone rather than toward black:
          * a ball on baize does not cast an inky disc. */
-        glUniform4f(G.u_colour, 0.0f, 0.0f, 0.0f, 1.0f);
+        /* ONE SHADOW PER FIXTURE. A ball under a bar of three shades has three
+         * shadows, faint and fanned out; a ball in a lit front room has six; a
+         * ball by a window has one, long, thrown right across the cloth. That
+         * count and that offset are most of how you read a room's lighting
+         * without looking up at it, so drawing a single blob centred under the
+         * ball threw away the whole point of having rigs.
+         *
+         * The offset is where the ball's centre projects from each lamp onto
+         * the cloth, and each blob carries its share of the total darkness — so
+         * six lights give six pale shadows, not six times the shadow. */
         float rad = G.tab.R * 1.55f;
+        int nsh = nlamp < 1 ? 1 : nlamp;
+        float share = 1.0f / sqrtf((float)nsh);   /* they overlap under the ball */
         for (int i = 0; i < s->nballs; i++) {
             const CueBall *bl = &s->balls[i];
             if (!bl->on) continue;
-            float local[16], model[16], rot[16];
-            mm4_identity(local);
-            local[0] = rad * 2.0f; local[5] = rad * 2.0f;
-            mm4_identity(rot);
-            rot[5] = 0.0f; rot[6] = -1.0f; rot[9] = 1.0f; rot[10] = 0.0f;  /* lie it flat */
-            mm4_mul(local, rot, local);
-            local[12] = bl->pos.x; local[13] = 0.0015f; local[14] = bl->pos.z;
-            mm4_mul(model, T, local);
-            set_model(model);
-            draw(&G.quad);
+            for (int k = 0; k < nsh; k++) {
+                /* Lamp centre in TABLE space — the balls are drawn under T, so
+                 * the projection has to be done before the table's own yaw, not
+                 * after it. */
+                float lx = rig->lamp[k].c[0], ly = rig->lamp[k].c[1],
+                      lz = rig->lamp[k].c[2];
+                float h = ly - G.tab.R;
+                float ox = bl->pos.x, oz = bl->pos.z, spread = 1.0f;
+                if (h > 0.05f) {
+                    /* Similar triangles from the lamp through the ball centre
+                     * down to the cloth. Clamped, because a low window source
+                     * would otherwise throw the shadow off the table and onto
+                     * the floor, which is true but useless. */
+                    float k2 = G.tab.R / h;
+                    ox = bl->pos.x + (bl->pos.x - lx) * k2;
+                    oz = bl->pos.z + (bl->pos.z - lz) * k2;
+                    float dx = ox - bl->pos.x, dz = oz - bl->pos.z;
+                    float d = sqrtf(dx*dx + dz*dz), lim = G.tab.R * 3.2f;
+                    if (d > lim) { ox = bl->pos.x + dx * lim / d;
+                                   oz = bl->pos.z + dz * lim / d; d = lim; }
+                    spread = 1.0f + d / (G.tab.R * 2.2f);  /* softer as it lengthens */
+                }
+                float local[16], model[16], rot[16];
+                mm4_identity(local);
+                local[0] = rad * 2.0f * spread; local[5] = rad * 2.0f * spread;
+                mm4_identity(rot);
+                rot[5] = 0.0f; rot[6] = -1.0f; rot[9] = 1.0f; rot[10] = 0.0f;  /* lie it flat */
+                mm4_mul(local, rot, local);
+                local[12] = ox; local[13] = 0.0015f; local[14] = oz;
+                mm4_mul(model, T, local);
+                glUniform4f(G.u_colour, 0.0f, 0.0f, 0.0f, share / spread);
+                set_model(model);
+                draw(&G.quad);
+            }
         }
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
@@ -2494,6 +2662,11 @@ skip_shadows:
             MoteVrQ q = (s_ < 1e-5f)
                 ? (c_ > 0.0f ? mq_ident() : mq_axis_angle(mv3(1,0,0), PI))
                 : mq_axis_angle(ax, atan2f(s_, c_));
+            /* Roll first, about the mesh's own +Y axis, THEN swing that axis
+             * onto the cue line — the other order would roll about the world's
+             * vertical and tumble the cue instead of spinning it. */
+            if (s->cue_roll != 0.0f)
+                q = mq_mul(q, mq_axis_angle(mv3(0, 1, 0), s->cue_roll));
             MoteVrPose cp; cp.p = s->cue_tip; cp.q = q;
             float M[16];
             mm4_from_pose(M, cp, 1.0f);
@@ -2608,7 +2781,15 @@ skip_shadows:
     /* ---- the HUD panel ---- */
     if (s->hud_visible) {
         glUniform1i(G.u_mode, 2);
+        /* White light for the scoreboard. It is a lit panel, not a lit SURFACE:
+         * a tungsten room should not turn the scores orange any more than it
+         * turns a television orange. */
+        glUniform3f(G.u_keyc, 1.0f, 1.0f, 1.0f);
         glUniform4f(G.u_colour, 1, 1, 1, 1);
+        int rows = (s->hud_rows > 0 && s->hud_rows <= CUEVR_HUD_LH)
+                 ? s->hud_rows : CUEVR_HUD_LH;
+        float vf = (float)rows / (float)CUEVR_HUD_LH;
+        glUniform1f(G.u_hudv, vf);
         glBindTexture(GL_TEXTURE_2D, G.hud_tex);
         glDisable(GL_CULL_FACE);
         float P[16];
@@ -2619,12 +2800,17 @@ skip_shadows:
         float S[16];
         mm4_identity(S);
         S[0] = s->hud_w;
-        S[5] = s->hud_w * (float)CUEVR_HUD_H / (float)CUEVR_HUD_W;
+        /* The panel's shape is the shape of the rows in use, not of the whole
+         * texture — otherwise a 72-row scoreboard would be drawn on a
+         * 112-row-tall board with a third of it empty. */
+        S[5] = s->hud_w * (float)rows / (float)CUEVR_HUD_LW;
         float M[16];
         mm4_mul(M, P, S);
         set_model(M);
         draw(&G.quad);
         glEnable(GL_CULL_FACE);
+        glUniform3fv(G.u_keyc, 1, G.rig.keyc);
+        glUniform1f(G.u_hudv, 1.0f);
     }
 
     glBindVertexArray(0);

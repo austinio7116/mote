@@ -25,10 +25,14 @@
 #include "cuevr.h"
 
 /* How many rows below GAME the START row sits. Must track the menu. */
-#define MR_START_STEPS 7
+#define MR_START_STEPS 9
 MoteVrV3 cuevr_app_rest(void);
 int cuevr_app_aiming(void);
 MoteVrV3 cuevr_app_pocket_room(void);
+MoteVrV3 cuevr_app_table_room(float fx, float y, float fz);
+float cuevr_app_table_yaw(void);
+void cuevr_app_force_light(int i);
+void cuevr_app_force_body(int i);
 float cuevr_app_grip(void);
 #include "cuevr_app.h"
 #include "cuevr_audio.h"
@@ -53,6 +57,8 @@ void mote_xr_haptic(float i, int ms) { (void)i; (void)ms; }
 
 /* ---- the fake head and hands -------------------------------------------- */
 static float s_yaw = 0.35f, s_pitch = 0.55f, s_dist = 1.6f;  /* eye above the cloth, as a player stands */
+static float s_yaw0 = 0.35f;          /* the requested yaw, before the table's own */
+static float s_tfocus[3];             /* MOTE_VR_FOCUS=t:fx,y,fz — table space */
 static MoteVrV3 s_focus = { 0.0f, 0.85f, 0.0f };
 static float s_lsqueeze = 0.0f;
 static MoteVrV3 s_bridge = { -0.20f, 0.90f, 0.0f };
@@ -144,17 +150,30 @@ int main(int argc, char **argv) {
     { const char *v = getenv("MOTE_VR_FOCUS");
       if (v && !strcmp(v, "pocket")) focus_pocket = 1;
       else if (v && !strcmp(v, "butt")) focus_pocket = 2;
+      else if (v && !strncmp(v, "t:", 2)) {
+          float a, b, c;
+          if (sscanf(v + 2, "%f,%f,%f", &a, &b, &c) == 3) {
+              focus_pocket = 3; s_tfocus[0] = a; s_tfocus[1] = b; s_tfocus[2] = c;
+          }
+      }
       else if (v) { float a, b, c; if (sscanf(v, "%f,%f,%f", &a, &b, &c) == 3)
           s_focus = mv3(a, b, c); } }
     { const char *v = getenv("MOTE_VR_VIEW");
       if (v) { float a, b, c; if (sscanf(v, "%f,%f,%f", &a, &b, &c) == 3) {
           s_yaw = a * 3.14159265f/180.0f; s_pitch = b * 3.14159265f/180.0f; s_dist = c; } } }
+    s_yaw0 = s_yaw;
     const char *shot = getenv("MOTE_VR_SHOT");
     int shot_frame = 120;
     { const char *v = getenv("MOTE_VR_SHOT_FRAME"); if (v) shot_frame = atoi(v); }
     int auto_table = -1;
     { const char *v = getenv("CUEVR_TABLE"); if (v) auto_table = atoi(v); }
     int auto_stroke = getenv("CUEVR_STROKE") != NULL;
+    /* CUEVR_LIGHT / CUEVR_BODY: force a rig and a frame design without walking
+     * the menu, so each one can be photographed from a script. Applied after the
+     * app has loaded its preferences, or the saved value would win. */
+    int force_light = -1, force_body = -2;
+    { const char *v = getenv("CUEVR_LIGHT"); if (v) force_light = atoi(v); }
+    { const char *v = getenv("CUEVR_BODY");  if (v) force_body  = atoi(v); }
     /* CUEVR_ADJUST: hold the LEFT side trigger, move the bridge hand, let go —
      * through the app's real update path, not cuevr_cue.c in isolation. This is
      * the only way to settle "the offset never changes on the headset" from
@@ -188,6 +207,8 @@ int main(int argc, char **argv) {
     MoteXrApp app;
     cuevr_app_describe(&app);
     if (app.gl_init(app.user) != 0) { fprintf(stderr, "cuevr: init failed\n"); return 1; }
+    if (force_light >= 0) cuevr_app_force_light(force_light);
+    if (force_body >= -1) cuevr_app_force_body(force_body);
 
     int running = 1, dragging = 0, hands_placed = 0;
     uint64_t prev = SDL_GetPerformanceCounter();
@@ -311,6 +332,13 @@ int main(int argc, char **argv) {
          * same class of mistake as the bug it is here to find. */
         if (focus_pocket == 1) s_focus = cuevr_app_pocket_room();
         else if (focus_pocket == 2) s_focus = s_butt;   /* the cue's butt hand */
+        else if (focus_pocket == 3) {
+            /* Table-space focus, as fractions of the half-extents. Yaw follows
+             * the table too, so "look along the side rail" is one number and not
+             * a guess about where the table was dropped in the room. */
+            s_focus = cuevr_app_table_room(s_tfocus[0], s_tfocus[1], s_tfocus[2]);
+            s_yaw = s_yaw0 + cuevr_app_table_yaw();
+        }
 
         if (auto_net) {
             if (nframe == 4) s_a = 1;            /* confirm the levelling */
