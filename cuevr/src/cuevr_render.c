@@ -104,7 +104,8 @@ static const char *FS =
 "uniform vec3  u_keyc;\n"      // the light's own colour, multiplying everything
 "uniform float u_fill;\n"      // how much of the diffuse arrives from the room
 "uniform float u_hudv;\n"
-"uniform vec2  u_shadow;\n"  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
+"uniform vec2  u_shadow;\n"
+"uniform float u_clothlod;\n"  // 0 = plain cloth, 1 = the full nap  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
 "in vec3 v_eyepos;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
@@ -574,7 +575,17 @@ static const char *FS =
 "        // size reads as a red ball turning muddy green. Adding the bounce\n"
 "        // instead lights the underside without draining the hue out of it,\n"
 "        // and a snooker ball under a lamp is a *saturated* object.\n"
-"        vec3 c = bc * (0.52 + 0.62 * diff) + u_clothsh * (down * 0.34 + 0.10);\n"
+"        // CONTACT OCCLUSION. The bounce term was weighted by `down`, so the\n"
+"        // closer a piece of ball faced the cloth the MORE light it was given —\n"
+"        // and nothing at all represented the ball shadowing itself against the\n"
+"        // table it is resting on. The underside glowed. A ball sitting on cloth\n"
+"        // has its contact patch in near darkness and it lifts over the bottom\n"
+"        // third; the bounce is real, but it is what fills that shadow, not\n"
+"        // something added on top of a surface that should already be dark.\n"
+"        float below = clamp(down, 0.0, 1.0);\n"
+"        float occ   = 1.0 - 0.72 * below * below;\n"
+"        vec3 c = bc * (0.52 + 0.62 * diff) * occ\n"
+"               + u_clothsh * (below * 0.16 + 0.08) * occ;\n"
 "        // The lamps, reflected properly.\n"
 "        //\n"
 "        // The handheld tests the half-vector against 0.975 and lights a\n"
@@ -898,6 +909,18 @@ static const char *FS =
 "        // The pile leans, and everything follows from that. No brightness noise:\n"
 "        // the tone is the sheen lobe reading the bent normal, which is how velvet\n"
 "        // gets soft sweeping variation rather than speckle.\n"
+"        // PLAIN CLOTH. The nap is the most expensive thing on screen — two\n"
+"        // gradient-capped fetches, a Charlie sheen lobe, micro-occlusion and\n"
+"        // two value-noise calls, over the largest area in the frame — and at\n"
+"        // playing distance very little of it survives. This path keeps the\n"
+"        // colour, the lighting and the chalk, and drops the rest.\n"
+"        if (u_clothlod < 0.5) {\n"
+"            float m0 = mark_cov(q, aa);\n"
+"            float d0 = 0.30 + 0.70 * abs(dot(nv, L));\n"
+"            vec3 c0 = mix(to_linear(u_cloth) * d0, to_linear(u_markc), m0 * 0.88);\n"
+"            o_col = emit(c0, 1.0, 1.0);\n"
+"            return;\n"
+"        }\n"
 "        NapSample nsm = nap_sample(v_local, nv);\n"
 "        vec3 N = cloth_normal(nv, nsm);\n"
 "        vec3 cloth = to_linear(u_cloth);\n"
@@ -1116,7 +1139,7 @@ static struct {
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_nlamp, u_lampround, u_eye;
-    GLint  u_keyc, u_fill, u_hudv, u_shadow;
+    GLint  u_keyc, u_fill, u_hudv, u_shadow, u_clothlod;
     int    minimal;            /* the real shader would not build; see FS_MIN */
     /* The runtime's own controller models, when XR_FB_render_model gives them.
      * They supersede the baked STLs — including the model-to-grip matrix below,
@@ -2222,6 +2245,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_fill       = glGetUniformLocation(G.prog, "u_fill");
     G.u_hudv       = glGetUniformLocation(G.prog, "u_hudv");
     G.u_shadow     = glGetUniformLocation(G.prog, "u_shadow");
+    G.u_clothlod   = glGetUniformLocation(G.prog, "u_clothlod");
     G.u_eye        = glGetUniformLocation(G.prog, "u_eye");
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
     G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
@@ -2582,6 +2606,10 @@ void cuevr_render_eye(const float *view, const float *proj,
         glUniform1f(G.u_fill, rig->fill);
         glUniform3fv(G.u_keyc, 1, rig->keyc);
         glUniform2f(G.u_shadow, rig->soft, rig->dark);
+        /* Plain by default. The nap was the most expensive thing on screen and
+         * very little of it survived at playing distance. CUEVR_NAPCLOTH brings
+         * it back for comparison. */
+        glUniform1f(G.u_clothlod, getenv("CUEVR_NAPCLOTH") ? 1.0f : 0.0f);
     }
 
     /* The eye, recovered from the view matrix: its rows are the camera basis
@@ -2781,61 +2809,40 @@ after_table: ;
         glUniform1i(G.u_mode, 6);
         /* Darken toward the cloth's own shadowed tone rather than toward black:
          * a ball on baize does not cast an inky disc. */
-        /* ONE SHADOW PER FIXTURE. A ball under a bar of three shades has three
-         * shadows, faint and fanned out; a ball in a lit front room has six; a
-         * ball by a window has one, long, thrown right across the cloth. That
-         * count and that offset are most of how you read a room's lighting
-         * without looking up at it, so drawing a single blob centred under the
-         * ball threw away the whole point of having rigs.
+        /* ONE shadow per ball, small and soft, tucked under it.
          *
-         * The offset is where the ball's centre projects from each lamp onto
-         * the cloth, and each blob carries its share of the total darkness — so
-         * six lights give six pale shadows, not six times the shadow. */
-        float rad = G.tab.R * 1.55f;
-        int nsh = nlamp < 1 ? 1 : nlamp;
-        if (getenv("CUEVR_NOBLOB")) nsh = 0;
-        float share = 1.0f / sqrtf((float)nsh);   /* they overlap under the ball */
-        for (int i = 0; i < s->nballs; i++) {
+         * It briefly became one blob PER FIXTURE, fanned out and faded — on the
+         * reasoning that six lights throw six shadows. They do, but a cue sports
+         * rig is wide soft sources close overhead, so those six overlap into a
+         * single small penumbra directly under the ball. Drawn separately they
+         * read as a ring of circles round each ball, which is nothing like a
+         * table and is worse than what it replaced.
+         *
+         * A real one is barely wider than the ball, dark in the middle and gone
+         * within a few millimetres. Size, edge and darkness are all overridable
+         * so variants can be rendered side by side and chosen. */
+        float shrad = 1.00f, shsoft = 0.45f, shdark = 0.55f;   /* option A */
+        { const char *v;
+          if ((v = getenv("CUEVR_SH_RAD")))  shrad  = (float)atof(v);
+          if ((v = getenv("CUEVR_SH_SOFT"))) shsoft = (float)atof(v);
+          if ((v = getenv("CUEVR_SH_DARK"))) shdark = (float)atof(v); }
+        glUniform2f(G.u_shadow, shsoft, shdark);
+        float rad = G.tab.R * shrad;
+        if (getenv("CUEVR_NOBLOB")) rad = 0.0f;
+        for (int i = 0; i < s->nballs && rad > 0.0f; i++) {
             const CueBall *bl = &s->balls[i];
             if (!bl->on) continue;
-            for (int k = 0; k < nsh; k++) {
-                /* Lamp centre in TABLE space — the balls are drawn under T, so
-                 * the projection has to be done before the table's own yaw, not
-                 * after it. */
-                float lx = rig->lamp[k].c[0], ly = rig->lamp[k].c[1],
-                      lz = rig->lamp[k].c[2];
-                float h = ly - G.tab.R;
-                float ox = bl->pos.x, oz = bl->pos.z, spread = 1.0f;
-                if (h > 0.05f) {
-                    /* Similar triangles from the lamp through the ball centre
-                     * down to the cloth. Clamped, because a low window source
-                     * would otherwise throw the shadow off the table and onto
-                     * the floor, which is true but useless. */
-                    float k2 = G.tab.R / h;
-                    ox = bl->pos.x + (bl->pos.x - lx) * k2;
-                    oz = bl->pos.z + (bl->pos.z - lz) * k2;
-                    float dx = ox - bl->pos.x, dz = oz - bl->pos.z;
-                    float d = sqrtf(dx*dx + dz*dz), lim = G.tab.R * 3.2f;
-                    if (d > lim) { ox = bl->pos.x + dx * lim / d;
-                                   oz = bl->pos.z + dz * lim / d; d = lim; }
-                    /* A lengthening shadow stretches a little, but nothing like
-                     * as much as this used to: 1 + d/2.2R doubled the blob over
-                     * a few centimetres of offset and then faded it by the same
-                     * factor, which is most of why they all looked like smoke. */
-                    spread = 1.0f + d / (G.tab.R * 9.0f);
-                }
-                float local[16], model[16], rot[16];
-                mm4_identity(local);
-                local[0] = rad * 2.0f * spread; local[5] = rad * 2.0f * spread;
-                mm4_identity(rot);
-                rot[5] = 0.0f; rot[6] = -1.0f; rot[9] = 1.0f; rot[10] = 0.0f;  /* lie it flat */
-                mm4_mul(local, rot, local);
-                local[12] = ox; local[13] = 0.0015f; local[14] = oz;
-                mm4_mul(model, T, local);
-                glUniform4f(G.u_colour, 0.0f, 0.0f, 0.0f, share / spread);
-                set_model(model);
-                draw(&G.quad);
-            }
+            float local[16], model[16], rot[16];
+            mm4_identity(local);
+            local[0] = rad * 2.0f; local[5] = rad * 2.0f;
+            mm4_identity(rot);
+            rot[5] = 0.0f; rot[6] = -1.0f; rot[9] = 1.0f; rot[10] = 0.0f;  /* lie it flat */
+            mm4_mul(local, rot, local);
+            local[12] = bl->pos.x; local[13] = 0.0015f; local[14] = bl->pos.z;
+            mm4_mul(model, T, local);
+            glUniform4f(G.u_colour, 0.0f, 0.0f, 0.0f, 1.0f);
+            set_model(model);
+            draw(&G.quad);
         }
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
