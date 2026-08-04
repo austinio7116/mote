@@ -862,6 +862,13 @@ static int app_gl_init(void *u) {
     cue_table_init(&S.tab, CUE_GAME_UK8);
     cue_table_build_world(&S.tab, &S.world);
     S.nballs = cue_table_rack(&S.tab, S.balls);
+    /* The planner simulates every candidate at its own 8.5 m/s and hands back a
+     * FRACTION of full power; we multiply that by 12.0, because a real stroke can
+     * be swung harder than a slider can be dragged. Unless it is told, every CPU
+     * shot lands 41% harder than the one that was planned — worth a highest break
+     * of 22 instead of 67 over 40 measured frames. */
+    cue_ai_set_max_speed(MAX_STRIKE_SPEED);
+
     /* Before init: it decides which shader gets compiled. */
     cuevr_render_set_multiview(mote_xr_multiview());
     if (cuevr_render_init(&S.tab, &S.world, mote_xr_target_is_srgb()) != 0) return -1;

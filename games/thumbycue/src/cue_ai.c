@@ -68,6 +68,42 @@ typedef struct {
     int  first_hit_idx;
 } AiSim;
 
+/* ---- what "power01 = 1" means --------------------------------------------- *
+ *
+ * The planner's whole scoring calibration — the JS POWER_LEVELS, calc_power,
+ * every distance constant — was tuned against a full-power strike of 8.5 m/s,
+ * and ai_sim simulates at that speed. But power01 is handed BACK to a front-end
+ * that multiplies it by its own maximum, and those are not the same number: the
+ * handheld's is 8.5, CueVR's is 12.0 because a real arm can swing harder than a
+ * power slider.
+ *
+ * So on CueVR every shot the AI planned was struck 41% harder than it had
+ * simulated. Measured over 40 self-play frames that is the difference between a
+ * highest break of 67 and of 22 — pots rattle out of the jaws, the cue ball runs
+ * two cushions past the position it was aiming for, and the AI answers by
+ * playing safe on 46% of shots instead of 33%. It was not a subtle degradation
+ * and none of it was the planner's fault.
+ *
+ * Fixed at the boundary rather than by retuning: the planner keeps thinking in
+ * its own units, and the answer is converted once, on the way out, to whatever
+ * the caller's full power happens to be. */
+#define AI_SIM_SPEED 8.5f
+static float s_max_speed = AI_SIM_SPEED;
+
+void cue_ai_set_max_speed(float mps) {
+    s_max_speed = (mps > 0.5f) ? mps : AI_SIM_SPEED;
+}
+
+/* Every plan leaves through here, so there is one place to get it right. */
+static CueAIShot to_caller_power(CueAIShot s) {
+    if (s.valid && s_max_speed != AI_SIM_SPEED) {
+        s.power01 *= AI_SIM_SPEED / s_max_speed;
+        if (s.power01 > 1.0f) s.power01 = 1.0f;
+        if (s.power01 < 0.01f) s.power01 = 0.01f;
+    }
+    return s;
+}
+
 static CueWorld s_sw;            /* scratch world (copied per plan) */
 static CueBall  s_sb[CUE_MAX_BALLS];
 
@@ -87,7 +123,7 @@ static void ai_sim(const CueWorld *w, const CueBall *balls, int n, int cue_idx,
     extern void cue_phys_set_substep(float);
     cue_phys_set_substep(1.0f / 1000.0f);     /* coarser step: ~2x faster ranking sims */
     Vec3 dir = v3(cosf(aim), 0, sinf(aim));
-    cue_phys_strike(&s_sw, &s_sb[cue_idx], dir, power01 * 8.5f, tip_side, tip_vert);
+    cue_phys_strike(&s_sw, &s_sb[cue_idx], dir, power01 * AI_SIM_SPEED, tip_side, tip_vert);
 
     /* Settle to a TRUE rest. This engine's cloth is low-drag — a ball rolls for
      * ~5-8 s (120-170 calls at dt=0.05) before stopping, so the old 45-call cap
@@ -1006,7 +1042,7 @@ int cue_ai_plan_tick(void) {
     return 0;
 }
 
-CueAIShot cue_ai_plan_result(void) { return P.result; }
+CueAIShot cue_ai_plan_result(void) { return to_caller_power(P.result); }
 
 CueAIShot cue_ai_plan(const CueWorld *w, const CueTable *t, const CueRules *r,
                       const CueBall *balls, int n, const CuePersona *p,
@@ -1038,7 +1074,7 @@ CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r
     /* default: roll gently away from the on-ball (or straight up-table) */
     Vec3 cue = balls[0].pos;
     out.aim = (L >= 0) ? atan2f(cue.z - balls[L].pos.z, cue.x - balls[L].pos.x) : 0.0f;
-    if (L < 0) return out;
+    if (L < 0) return to_caller_power(out);
 
     /* Aim for a MODERATELY difficult leave, not the toughest one. A push-out is
      * symmetric: whatever shot we leave, the opponent simply passes it back to us
@@ -1071,7 +1107,7 @@ CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r
         }
     }
     (void)found;
-    return out;
+    return to_caller_power(out);
 }
 
 /* ---- ball-in-hand placement ----------------------------------------- */

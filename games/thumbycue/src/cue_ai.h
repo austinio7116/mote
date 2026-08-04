@@ -51,6 +51,14 @@ typedef struct {
                        * 0 on a safety. Used by the foul / push-out decision AI. */
 } CueAIShot;
 
+/* What the CALLER's full power is, in m/s — whatever it multiplies the
+ * returned power01 by before striking. The planner simulates at 8.5 m/s, which
+ * is what its scoring was tuned against, and converts on the way out; so a
+ * front-end whose maximum is anything else MUST say so or every shot it plays
+ * will be harder or softer than the one that was planned. Defaults to 8.5, so
+ * the handheld needs no call. */
+void cue_ai_set_max_speed(float mps);
+
 /* Plan a shot for the current table state. `rng` is an xorshift state advanced
  * in place (so persona error/selection are reproducible from a seed). */
 CueAIShot cue_ai_plan(const CueWorld *w, const CueTable *t, const CueRules *r,
