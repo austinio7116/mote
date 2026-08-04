@@ -1713,7 +1713,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
             /* Resting ON the cloth: the butt is the thick end, so the axis sits
              * a butt-radius up rather than at y = 0. */
             const float LIE = 0.016f;
-            Vec3 bt = { bx, LIE, z }, tp = { tx, LIE, z };
+            /* BUTT TOWARD THE PLAYER. The table is sited with +X pointing away
+             * (see the yaw taken from the head direction at setup), so the butt
+             * goes at the far end of the run and the tip points back down the
+             * table — which puts the thick end, the splice and the badge, the
+             * parts you are actually choosing between, nearest your eye. */
+            Vec3 bt = { tx, LIE, z }, tp = { bx, LIE, z };
             S.scene.cue_visible = 1;
             S.scene.cue_on_ball = 0;
             S.scene.cue_butt = cuevr_table_to_room(&S.setup.place, bt);
