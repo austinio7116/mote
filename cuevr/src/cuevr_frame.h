@@ -36,6 +36,12 @@ typedef struct {
     int nv, ni;
     int cap_v, cap_i;
     int overflow;    /* set if the design ran out of room — check it */
+    /* Indices [0, n_timber_idx) are wood and want the rails' timber shader; the
+     * rest are brass, chrome, laminate and the black inside a pocket, and
+     * emphatically do not — a varnish highlight on a near-black surface is a
+     * grey square, which is what appeared around every pocket when the two were
+     * drawn with one shader. */
+    int n_timber_idx;
 } CueVrFrameMesh;
 
 typedef struct {
@@ -54,7 +60,8 @@ extern const int CUEVR_FRAME_COUNT;
  * affected. */
 void cuevr_frame_set_timber(const float rgb[3]);
 
-void cuevr_frame_build(int which, CueVrFrameMesh *m, const CueTable *t);
+void cuevr_frame_build(int which, CueVrFrameMesh *m, const CueTable *t,
+                       const CueWorld *w);
 
 /* The design that suits `t` when the player has not picked one — a pub table is
  * a cabinet, a 9 ft American is an American, and so on. */

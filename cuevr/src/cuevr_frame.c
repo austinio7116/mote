@@ -65,6 +65,28 @@ void cuevr_frame_set_timber(const float rgb[3]) {
 }
 
 static const float BRASS[3] = { 0.451f, 0.333f, 0.145f };
+
+/* ---- what is timber and what is not --------------------------------------- *
+ *
+ * The renderer draws the body through the RAILS' wood shader, which is right for
+ * the apron and the legs and quite wrong for brass, chrome, laminate and the
+ * black inside a pocket. timber() adds a varnish specular, and a varnish
+ * specular on a near-black surface is a grey square — which is exactly what
+ * appeared around every pocket the moment the two shaders were merged.
+ *
+ * So a design is emitted TWICE and the mesh comes out in two runs: timber first,
+ * everything else after, with the boundary recorded. Two draw calls, one buffer,
+ * and no material tag needed on the vertex — the colour a piece is made of says
+ * which it is, and every design draws from these arrays. */
+static int s_pass;      /* 0 = emitting timber, 1 = emitting the rest */
+/* The pocket positions live on the WORLD, not the table, and only the liners
+ * want them — threading a second parameter through four design signatures and
+ * every helper to reach one call each would be worse than this. */
+static const CueWorld *WRLD;
+
+static int is_timber(const float *col) {
+    return col == PAL_WOOD || col == PAL_LIT || col == PAL_DARK;
+}
 /* The top face of the frame is what you see when you look down a pocket, so
  * it is black: a pocket has no floor to show you, and anything lighter reads
  * as the hole having been filled in with wood — which is what it looked like. */
@@ -96,6 +118,7 @@ static void tri(CueVrFrameMesh *m, int a, int b, int c) {
 static void quad(CueVrFrameMesh *m, const float *p0, const float *p1,
                  const float *p2, const float *p3, const float *n,
                  float grain_len, float grain_wid, const float *col) {
+    if (is_timber(col) != (s_pass == 0)) return;
     float u[3] = { p1[0]-p0[0], p1[1]-p0[1], p1[2]-p0[2] };
     float w[3] = { p2[0]-p0[0], p2[1]-p0[1], p2[2]-p0[2] };
     float cr[3] = { u[1]*w[2]-u[2]*w[1], u[2]*w[0]-u[0]*w[2], u[0]*w[1]-u[1]*w[0] };
@@ -149,6 +172,89 @@ static void box(CueVrFrameMesh *m, float x0, float y0, float z0,
     n[1]=1;
     a[1]=b[1]=c[1]=d[1]=y1;
     quad(m, a,b,c,d, n, gx, dz, col);
+}
+
+/* A pocket is a HOLE. The frame used to close its top with one black plate
+ * across the whole footprint, on the reasoning that a pocket has no floor to
+ * show you — and that read as a lid the moment the plate stopped being black.
+ *
+ * This is the real shape instead: at each pocket, a cylinder dropped through
+ * where the plate would have been, closed at the bottom, so you look down a
+ * throat with depth rather than at a disc. The rest of the frame's top is not
+ * drawn at all, because the cloth and the rails cover everything else — the
+ * plate only ever existed for the pockets. */
+/* A top course of the frame, WITHOUT its top face.
+ *
+ * Every design capped its woodwork with a slab spanning the whole footprint. A
+ * slab under a slate is invisible — except through the six holes in the slate,
+ * and once the black lid over the pockets went away you were looking down a
+ * pocket at varnished timber. A liner cannot fix that, because the slab is
+ * INSIDE the liner.
+ *
+ * The first attempt cut the holes properly, as a grid with the covered cells
+ * dropped. That is 179 x 89 cells on a 12 ft table — 32,000 triangles for one
+ * moulding, which overran the frame buffer and left the whole thing untextured.
+ *
+ * The right answer is that the top face should never have been there. It is
+ * under the slate everywhere it exists; the only place it is visible is exactly
+ * the place it must not be. So: five faces, not six, and no tessellation. */
+static void holed_top(CueVrFrameMesh *m, const CueWorld *w,
+                      float x0, float y0, float z0, float x1, float y1, float z1,
+                      const float *col) {
+    (void)w;
+    float n[3];
+    { float a[3]={x0,y0,z0},b[3]={x1,y0,z0},c[3]={x1,y1,z0},d[3]={x0,y1,z0};
+      n[0]=0;n[1]=0;n[2]=-1; quad(m,a,b,c,d,n,x1-x0,y1-y0,col); }
+    { float a[3]={x0,y0,z1},b[3]={x1,y0,z1},c[3]={x1,y1,z1},d[3]={x0,y1,z1};
+      n[0]=0;n[1]=0;n[2]=1;  quad(m,a,b,c,d,n,x1-x0,y1-y0,col); }
+    { float a[3]={x0,y0,z0},b[3]={x0,y0,z1},c[3]={x0,y1,z1},d[3]={x0,y1,z0};
+      n[0]=-1;n[1]=0;n[2]=0; quad(m,a,b,c,d,n,z1-z0,y1-y0,col); }
+    { float a[3]={x1,y0,z0},b[3]={x1,y0,z1},c[3]={x1,y1,z1},d[3]={x1,y1,z0};
+      n[0]=1;n[1]=0;n[2]=0;  quad(m,a,b,c,d,n,z1-z0,y1-y0,col); }
+    /* the underside, which you DO see when you stoop for a shot */
+    { float a[3]={x0,y0,z0},b[3]={x1,y0,z0},c[3]={x1,y0,z1},d[3]={x0,y0,z1};
+      n[0]=0;n[1]=-1;n[2]=0; quad(m,a,b,c,d,n,x1-x0,z1-z0,col); }
+}
+
+static void pocket_liners(CueVrFrameMesh *m, const CueTable *t, const CueWorld *w,
+                          float top) {
+    if (!w) return;
+    const int SIDES = 16;
+    const float DEPTH = 0.115f;
+    for (int k = 0; k < w->npocket; k++) {
+        float cx = w->pocket[k].x, cz = w->pocket[k].z;
+        /* A shade wider than the drop, so the liner is never visible THROUGH the
+         * hole it lines. */
+        float r = w->pocket_r[k] * 1.06f;
+        float y0 = top, y1 = top - DEPTH;
+        for (int i = 0; i < SIDES; i++) {
+            float a0 = 6.2831853f * i / SIDES, a1 = 6.2831853f * (i+1) / SIDES;
+            float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
+            float p0[3] = { cx + c0*r, y0, cz + s0*r };
+            float p1[3] = { cx + c1*r, y0, cz + s1*r };
+            float p2[3] = { cx + c1*r, y1, cz + s1*r };
+            float p3[3] = { cx + c0*r, y1, cz + s0*r };
+            /* Facing INWARD: you only ever see a pocket from above and inside. */
+            float mc = -(c0 + c1) * 0.5f, ms = -(s0 + s1) * 0.5f;
+            float l = sqrtf(mc*mc + ms*ms);
+            float n[3] = { l > 1e-6f ? mc/l : 1.0f, 0.0f, l > 1e-6f ? ms/l : 0.0f };
+            quad(m, p0, p1, p2, p3, n, 0.05f, DEPTH, SHADOW);
+        }
+        /* The floor, so it is a pocket and not a pipe through the room. A fan of
+         * quads spanning two segments each — a fan of TRIANGLES would need half
+         * of every quad to be degenerate. */
+        for (int i = 0; i < SIDES; i += 2) {
+            float a0 = 6.2831853f * i / SIDES;
+            float a1 = 6.2831853f * (i+1) / SIDES;
+            float a2 = 6.2831853f * (i+2) / SIDES;
+            float p0[3] = { cx, y1, cz };
+            float p1[3] = { cx + cosf(a0)*r, y1, cz + sinf(a0)*r };
+            float p2[3] = { cx + cosf(a1)*r, y1, cz + sinf(a1)*r };
+            float p3[3] = { cx + cosf(a2)*r, y1, cz + sinf(a2)*r };
+            float n[3] = { 0.0f, 1.0f, 0.0f };
+            quad(m, p0, p1, p2, p3, n, 0.05f, 0.05f, SHADOW);
+        }
+    }
 }
 
 /* ---- Regency ------------------------------------------------------------ */
@@ -216,10 +322,9 @@ static void regency(CueVrFrameMesh *m, const CueTable *t) {
      * below it. The plate is all you see looking down through a pocket, and
      * black is the only right answer — there is nothing down a pocket. The
      * moulding is what you see from the side, so it keeps its timber. */
-    box(m, -ox - oversail, ap_top - 0.007f, -oz - oversail,
-            ox + oversail, ap_top,           oz + oversail, 0, SHADOW);
-    box(m, -ox - oversail, ap_top - 0.026f, -oz - oversail,
-            ox + oversail, ap_top - 0.007f,  oz + oversail, 0, PAL_LIT);
+    pocket_liners(m, t, WRLD, ap_top);
+    holed_top(m, WRLD, -ox - oversail, ap_top - 0.026f, -oz - oversail,
+                        ox + oversail, ap_top - 0.007f,  oz + oversail, PAL_LIT);
     /* the apron proper, in four runs so the grain follows each length */
     box(m, -ox, ap_bot, -oz, ox, ap_top - 0.026f, -oz + 0.026f, 0, PAL_WOOD);
     box(m, -ox, ap_bot,  oz - 0.026f, ox, ap_top - 0.026f, oz, 0, PAL_WOOD);
@@ -351,8 +456,7 @@ static void cabinet(CueVrFrameMesh *m, const CueTable *t) {
     const float body_bot = floor_y + leg_h;
     const float TAPER   = 0.078f;                /* per side, over the body */
 
-    /* looking down a pocket you see nothing */
-    box(m, -ox, top - 0.008f, -oz, ox, top, oz, 0, SHADOW);
+    pocket_liners(m, t, WRLD, top);
 
     /* The body, as three bands of one continuous taper: a trim course at the
      * top, the long laminate flank, and a trim course at the foot. The
@@ -486,14 +590,13 @@ static void victorian(CueVrFrameMesh *m, const CueTable *t) {
     const float ap_bot = ap_top - ap_h;
     const float floor_y = -cuevr_frame_depth(t);
 
-    box(m, -ox - 0.012f, ap_top - 0.008f, -oz - 0.012f,
-            ox + 0.012f, ap_top,           oz + 0.012f, 0, SHADOW);
+    pocket_liners(m, t, WRLD, ap_top);
     /* An ovolo top course that oversails properly — this is a heavier table
      * than the Regency and the mouldings are correspondingly bolder. */
-    box(m, -ox - 0.016f, ap_top - 0.034f, -oz - 0.016f,
-            ox + 0.016f, ap_top - 0.008f,  oz + 0.016f, 0, PAL_LIT);
-    box(m, -ox - 0.006f, ap_top - 0.046f, -oz - 0.006f,
-            ox + 0.006f, ap_top - 0.034f,  oz + 0.006f, 0, PAL_DARK);
+    holed_top(m, WRLD, -ox - 0.016f, ap_top - 0.034f, -oz - 0.016f,
+                        ox + 0.016f, ap_top - 0.008f,  oz + 0.016f, PAL_LIT);
+    holed_top(m, WRLD, -ox - 0.006f, ap_top - 0.046f, -oz - 0.006f,
+                        ox + 0.006f, ap_top - 0.034f,  oz + 0.006f, PAL_DARK);
 
     box(m, -ox, ap_bot, -oz, ox, ap_top - 0.046f, -oz + 0.028f, 0, PAL_WOOD);
     box(m, -ox, ap_bot,  oz - 0.028f, ox, ap_top - 0.046f, oz, 0, PAL_WOOD);
@@ -546,10 +649,10 @@ static void american(CueVrFrameMesh *m, const CueTable *t) {
     const float skirt_bot = top - skirt_h;
     const float inlay_y  = top - 0.118f;
 
-    box(m, -ox, top - 0.009f, -oz, ox, top, oz, 0, SHADOW);
+    pocket_liners(m, t, WRLD, top);
     /* a flat oversailing cap, square-edged, no ovolo */
-    box(m, -ox - 0.016f, top - 0.030f, -oz - 0.016f,
-            ox + 0.016f, top - 0.009f,  oz + 0.016f, 0, PAL_LIT);
+    holed_top(m, WRLD, -ox - 0.016f, top - 0.030f, -oz - 0.016f,
+                        ox + 0.016f, top - 0.009f,  oz + 0.016f, PAL_LIT);
 
     /* The skirt, in four runs, split above and below the inlay so each band is
      * its own timber and the grain follows each side. */
@@ -603,11 +706,20 @@ const CueVrFrameDesign CUEVR_FRAMES[] = {
 };
 const int CUEVR_FRAME_COUNT = (int)(sizeof CUEVR_FRAMES / sizeof CUEVR_FRAMES[0]);
 
-void cuevr_frame_build(int which, CueVrFrameMesh *m, const CueTable *t) {
+void cuevr_frame_build(int which, CueVrFrameMesh *m, const CueTable *t,
+                       const CueWorld *w) {
     if (which < 0 || which >= CUEVR_FRAME_COUNT) which = 0;
     m->nv = m->ni = 0;
     m->overflow = 0;
+    WRLD = w;
+    /* Timber first, then everything else, with the boundary recorded — the
+     * renderer draws the two runs with two different shaders. See is_timber. */
+    s_pass = 0;
     CUEVR_FRAMES[which].build(m, t);
+    m->n_timber_idx = m->ni;
+    s_pass = 1;
+    CUEVR_FRAMES[which].build(m, t);
+    WRLD = NULL;
 }
 
 /* Which design suits a given table, when the player has not chosen one. Every

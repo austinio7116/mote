@@ -66,6 +66,14 @@ typedef struct {
     Vec3 end_pos[CUE_MAX_BALLS];                  /* per-index final pos */
     int  on[CUE_MAX_BALLS];                       /* per-index still on table */
     int  first_hit_idx;
+    /* Which way the first object ball ACTUALLY left, unit, in the XZ plane.
+     * The planner aims by ghost ball, which assumes the object leaves along the
+     * line of centres — and it does not: the contact friction throws it, by up
+     * to 3.4 degrees on a plain cut and by ten with side on. This is how far off
+     * that assumption was, measured rather than modelled, so the aim can be
+     * corrected without anyone having to fit a throw curve. */
+    Vec3 hit_dir;
+    int  have_hit_dir;
 } AiSim;
 
 /* ---- what "power01 = 1" means --------------------------------------------- *
@@ -163,9 +171,22 @@ static void ai_sim(const CueWorld *w, const CueBall *balls, int n, int cue_idx,
      * ~5-8 s (120-170 calls at dt=0.05) before stopping, so the old 45-call cap
      * captured the cue ball MID-ROLL and the AI's position estimate was garbage.
      * Run until everything actually stops (natural break), with a safe ceiling. */
+    out->have_hit_dir = 0;
+    out->hit_dir = v3(0,0,0);
     for (int it = 0; it < 220; it++) {
         uint32_t ev = 0;
         cue_phys_step(&s_sw, s_sb, n, 0.05f, &ev);
+        /* The first object ball's heading, read on the first step after contact
+         * — before a cushion or another ball can answer for it. */
+        if (!out->have_hit_dir && s_sw.first_hit_idx > 0
+            && s_sw.first_hit_idx < n) {
+            Vec3 v = s_sb[s_sw.first_hit_idx].vel;
+            float sp = sqrtf(v.x*v.x + v.z*v.z);
+            if (sp > 0.05f) {
+                out->hit_dir = v3(v.x/sp, 0, v.z/sp);
+                out->have_hit_dir = 1;
+            }
+        }
         if (!s_sb[cue_idx].on) break;
         if (!cue_phys_moving(&s_sw, s_sb, n)) break;
     }
@@ -877,6 +898,49 @@ static void plan_finalize(void) {
                 (P.ti<c->n? c->b[P.ti].id : -1), posAware, P.npool, npool);
     }
 #endif
+    /* ---- aim off the throw ------------------------------------------------- *
+     *
+     * The ghost-ball aim assumes the object ball leaves along the line of
+     * centres. It does not: contact friction throws it, up to 3.4 degrees on a
+     * plain cut — 68 mm at a metre, most of a snooker pocket — and much further
+     * with side on. cue_ai.h used to claim the engine "pots cleanly", which was
+     * only ever true because the planner never used side and nobody measured the
+     * cuts.
+     *
+     * Rather than fit a throw curve, ask the engine. Simulate the chosen shot,
+     * see which way the object ball really went, and rotate the aim to put it
+     * back on the pocket. Two corrections, because the second is worth about a
+     * tenth of the first and a third is worth nothing.
+     *
+     * The gearing is geometric AND IT IS NEGATIVE. Rotating the aim by d moves
+     * the cue ball's contact point about dg*d to the left, which swings the line
+     * of centres — and so the object ball — to the RIGHT, by dg*d/(2R). So to
+     * move the object by E, rotate the aim by -E*2R/dg.
+     *
+     * Getting that sign wrong does not degrade gracefully: each pass doubles the
+     * error instead of removing it. Measured, it took the pot rate from 87% to
+     * 31%. On a long pot 2R/dg is a very small number, which is both why the
+     * uncorrected throw matters so much and why the correction is so touchy —
+     * hence the tight clamp as well. */
+    {
+        Vec3 want = nrm2(sub2(pocket_aim_t(c, best.pk, c->b[best.tidx].pos),
+                              c->b[best.tidx].pos));
+        float gear = 2.0f * c->t->R / fmaxf(best.dg, 4.0f * c->t->R);
+        for (int pass = 0; pass < 2; pass++) {
+            AiSim sim;
+            ai_sim(c->w, c->b, c->n, 0, best.aim, best.power01,
+                   best.tip_side, best.tip_vert, &sim);
+            if (!sim.have_hit_dir || sim.first_hit_idx != best.tidx) break;
+            float err = wrapPI(atan2f(sim.hit_dir.z, sim.hit_dir.x)
+                             - atan2f(want.z, want.x));
+            if (fabsf(err) < 0.0005f) break;              /* 0.03 degrees */
+            /* Clamped: a wild reading (a double kiss, a ball nudged on the way)
+             * must not send the aim somewhere the planner never evaluated. */
+            float d = clampf(err * gear, -0.03f, 0.03f);
+            best.aim += d;
+        }
+    }
+
     float aimErr = (rnd(P.rng) - 0.5f) * 2.0f * p->line_acc * RAD;
     float powErr = (rnd(P.rng) - 0.5f) * 2.0f * p->power_acc;
     out.aim = best.aim + aimErr;

@@ -747,7 +747,15 @@ static const char *FS =
 "        float d = diffuse(v_nrm, L);\n"
 "        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), gloss);\n"
 "        o_col = emit(to_linear(c) * (0.34 + 0.70 * d) + vec3(spec) * spec_k, 1.0, 1.0);\n"
-"    } else if (u_mode == 9) {\n"
+"    } else if (u_mode == 12) {\n"
+"        // The frame's NON-timber pieces: brass, chrome, laminate, and the black\n"
+"        // down a pocket. Vertex colour and one light, and above all no varnish\n"
+"        // — timber()'s specular on a near-black surface is a grey square, which\n"
+"        // is precisely what a pocket looked like when these went through the\n"
+"        // wood shader with everything else.\n"
+"        float d = diffuse(normalize(v_nrm), L);\n"
+"        o_col = emit(to_linear(v_col) * (0.34 + 0.70 * d), 1.0, 1.0);\n"
+"    } else if (u_mode == 11) {\n"
 "        // A runtime-supplied controller model: a base-colour texture times a\n"
 "        // factor, and one light. Deliberately plain — this is Meta's picture of\n"
 "        // Meta's hardware and the job here is to show it, not to restyle it.\n"
@@ -1120,6 +1128,7 @@ static struct {
     Mesh   ctrl[2];
     Mesh   fins, bed, table, lips, frame, ball, cue, quad, floor, grip;
     int    frame_sel;          /* -1 = whichever design suits the table */
+    int    frame_timber_n;     /* indices of the frame that are wood; see cuevr_frame.h */
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     float  fur_scale;
     GLuint nap_tex;
@@ -2422,7 +2431,7 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
                             ( t->rail        & 31) / 31.0f };
             cuevr_frame_set_timber(tw);
             int fs = G.frame_sel < 0 ? cuevr_frame_default(t) : G.frame_sel;
-            cuevr_frame_build(fs, &fm, t);
+            cuevr_frame_build(fs, &fm, t, w);
             if (fm.overflow) LOGI("[cuevr] frame '%s' ran out of room",
                                   CUEVR_FRAMES[fs].name);
             /* CueVrFrameVtx and the renderer's Vtx are the same layout, so this
@@ -2431,7 +2440,10 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
             fb.v = (Vtx *)fm.v; fb.i = fm.idx;
             fb.nv = fm.nv; fb.ni = fm.ni; fb.cap_v = cv; fb.cap_i = ci;
             mesh_upload(&G.frame, &fb);
-            LOGI("[cuevr] frame '%s': %d tris", CUEVR_FRAMES[fs].name, fm.ni / 3);
+            G.frame_timber_n = fm.n_timber_idx;
+            LOGI("[cuevr] frame '%s': %d tris (%d timber, %d other)",
+                 CUEVR_FRAMES[fs].name, fm.ni / 3,
+                 fm.n_timber_idx / 3, (fm.ni - fm.n_timber_idx) / 3);
         }
         free(fm.v); free(fm.idx);
     }
@@ -2622,9 +2634,20 @@ void cuevr_render_eye(const float *view, const float *proj,
     /* The frame first: it is underneath everything and honestly wound, so it
      * keeps backface culling. */
     if (G.frame.n) {
-        glUniform1i(G.u_mode, 7);
         set_model(T);
-        draw(&G.frame);
+        glBindVertexArray(G.frame.vao);
+        if (G.frame_timber_n > 0) {
+            glUniform1i(G.u_mode, 7);          /* the rails' own timber */
+            glDrawElements(GL_TRIANGLES, G.frame_timber_n, GL_UNSIGNED_SHORT,
+                           (void *)0);
+        }
+        if (G.frame.n > G.frame_timber_n) {
+            glUniform1i(G.u_mode, 12);         /* brass, chrome, laminate, void */
+            glDrawElements(GL_TRIANGLES, G.frame.n - G.frame_timber_n,
+                           GL_UNSIGNED_SHORT,
+                           (void *)(intptr_t)(G.frame_timber_n * 2));
+        }
+        glBindVertexArray(0);
     }
 
     /* No backface culling on the table. cue_render's mesh is authored for a
@@ -2965,7 +2988,7 @@ skip_shadows:
                  * authored in the grip frame, which is the reason for preferring
                  * it over anything shipped in the APK. Straight at the pose. */
                 set_model(P);
-                glUniform1i(G.u_mode, 9);
+                glUniform1i(G.u_mode, 11);
                 glActiveTexture(GL_TEXTURE0);
                 glBindVertexArray(G.rm[i].mesh.vao);
                 for (int q = 0; q < G.rm[i].nparts; q++) {
