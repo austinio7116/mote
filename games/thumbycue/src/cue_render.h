@@ -25,7 +25,14 @@ void   cue_render_set_buffers(void *tab, void *stri);
  * hosts that rasterise it themselves (the VR build uploads it straight to GL)
  * draw exactly the same geometry the handheld does rather than approximating it
  * from the collision segments. */
-typedef struct { Vec3 v[3]; Vec3 nrm; uint16_t color; } CueTri;
+/* `mat` is what the triangle IS, not what colour it happens to be. The VR build
+ * shades cloth and timber completely differently and had been telling them apart
+ * by comparing the vertex colour's hue to the cloth's — which is a guess, and it
+ * guessed wrong on the dark wood inside a pocket bore, running the cloth's sheen
+ * over it and leaving a pale square beside every pocket on every table. The mesh
+ * knows; it just was not saying. */
+enum { CUE_MAT_WOOD = 0, CUE_MAT_CLOTH = 1 };
+typedef struct { Vec3 v[3]; Vec3 nrm; uint16_t color; uint8_t mat; } CueTri;
 
 /* Valid after cue_render_build_table(). Returns the triangle count and, through
  * the out params, the two layer boundaries the handheld's own draw order uses:

@@ -105,7 +105,8 @@ static const char *FS =
 "uniform float u_fill;\n"      // how much of the diffuse arrives from the room
 "uniform float u_hudv;\n"
 "uniform vec2  u_shadow;\n"
-"uniform float u_clothlod;\n"  // 0 = plain cloth, 1 = the full nap  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
+"uniform float u_clothlod;\n"
+"uniform float u_rawcol;\n"   // debug: show the authored vertex colour, unshaded  // 0 = plain cloth, 1 = the full nap  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
 "in vec3 v_eyepos;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
@@ -410,6 +411,7 @@ static const char *FS =
 "    float depth = 0.030 + RING * 5.5 * sin(along * 5.0 + warp.x * 1.1)\n"
 "                        + RING * 2.2 * sin(along * 13.0 + warp.y * 0.7);\n"
 "    Knot kn = knots(wq);\n"
+"    if (u_rawcol > 1.5) { kn.bulge = 0.0; kn.core = 0.0; kn.ring = 0.0; kn.rim = 0.0; }\n"
 "    float d = length(vec2(across + warp.x * RING * 1.6 + kn.bulge, depth));\n"
 "    // And a wander in the ring EDGE of about a fifth of a ring, which is what stops\n"
 "    // it being a machined part without destroying the rings themselves.\n"
@@ -486,7 +488,22 @@ static const char *FS =
 "        // throat out to white — a surface facing away from the lamp was returning\n"
 "        // a full highlight. And the amplitude was far too high for a rail.\n"
 "        float lit = max(dot(n, Ldir), 0.0);\n"
-"        varnish = (aniso * (0.30 + 0.70 * late) * 0.34 + broad * 0.06) * lit;\n"
+"        // SCALED BY THE TIMBER'S OWN BRIGHTNESS.\n"
+"        //\n"
+"        // The varnish is added in linear space after the diffuse, which is\n"
+"        // right, but its size was tuned against mid-brown rail stock. Put the\n"
+"        // same absolute highlight on a surface a third as bright — the dark\n"
+"        // bore wall inside a pocket, shade565(woodt, 0.42) — and it does not\n"
+"        // sheen it, it swamps it: measured, an authored (49,28,8) came out at\n"
+"        // (144,100,75), three times brighter and washed grey. That is the pale\n"
+"        // square that has been sitting beside every pocket on every table.\n"
+"        //\n"
+"        // A finish takes the colour of what it is on. Scaling by the base's own\n"
+"        // luminance keeps the rails exactly as they were and lets dark timber\n"
+"        // stay dark, which is also simply what varnish does.\n"
+"        float base_l = dot(base, vec3(0.30, 0.59, 0.11));\n"
+"        float shine  = clamp(base_l / 0.34, 0.0, 1.0);\n"
+"        varnish = (aniso * (0.30 + 0.70 * late) * 0.34 + broad * 0.06) * lit * shine;\n"
 "    }\n"
 "    return c;\n"
 "}\n"
@@ -777,6 +794,11 @@ static const char *FS =
 "        float d = diffuse(normalize(v_nrm), L);\n"
 "        o_col = emit(c * (0.40 + 0.66 * d), 1.0, 1.0);\n"
 "    } else if (u_mode == 4 || u_mode == 7) {\n"
+"        // Debug: the AUTHORED colour, unshaded. Reading the code and guessing\n"
+"        // which quad a stray patch is has now failed three times; this makes\n"
+"        // the mesh say what it is, and the answer can be compared numerically\n"
+"        // against the palette it was built from.\n"
+"        if (u_rawcol > 0.5 && u_rawcol < 1.5) { o_col = vec4(v_col, 1.0); return; }\n"
 "        // The table (4) and the body under it (7), through ONE wood path.\n"
 "        //\n"
 "        // They were two branches with a timber() call each. timber() is a big\n"
@@ -808,9 +830,20 @@ static const char *FS =
 "        // distance test failed on exactly the surfaces that looked most\n"
 "        // plastic. Normalising first makes it shade-independent, and it works\n"
 "        // for a red or a blue cloth as well as a green one.\n"
-"        // The body is never cloth, so it skips the test outright.\n"
-"        float iscloth = u_mode == 7 ? 0.0 : (1.0 - smoothstep(0.06, 0.26,\n"
-"            distance(normalize(v_col + 1e-4), normalize(u_cloth + 1e-4))));\n"
+"        // WHAT THE SURFACE IS, from the mesh. uv.x is 1 on cloth and 0 on\n"
+"        // timber, stamped by cue_render at emit time.\n"
+"        //\n"
+"        // It used to compare the vertex colour's HUE to the cloth's and guess.\n"
+"        // That is not a material system, it is a coincidence detector, and it\n"
+"        // guessed wrong on the dark wood inside a pocket bore — running the\n"
+"        // cloth's Charlie sheen over it, which ADDS a 30%-white lobe and turned\n"
+"        // an authored (49,28,8) into (135,98,79). That was the pale square\n"
+"        // beside every pocket on every table, and it survived three wrong\n"
+"        // diagnoses because I kept looking for a stray quad instead of asking\n"
+"        // what the shader thought it was drawing.\n"
+"        //\n"
+"        // The body (mode 7) is never cloth.\n"
+"        float iscloth = u_mode == 7 ? 0.0 : v_uv.x;\n"
 "        vec3 sn = normalize(v_nrm);\n"
 "        if (iscloth > 0.01) {\n"
 "            // Same model as the bed: bend the normal, let the sheen make the tone.\n"
@@ -1139,7 +1172,7 @@ static struct {
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_nlamp, u_lampround, u_eye;
-    GLint  u_keyc, u_fill, u_hudv, u_shadow, u_clothlod;
+    GLint  u_keyc, u_fill, u_hudv, u_shadow, u_clothlod, u_rawcol;
     int    minimal;            /* the real shader would not build; see FS_MIN */
     /* The runtime's own controller models, when XR_FB_render_model gives them.
      * They supersede the baked STLs — including the model-to-grip matrix below,
@@ -1498,8 +1531,13 @@ static void build_from_cue_render(Builder *b, const CueTri *tri_, int from, int 
             float bl = (t->color & 31) / 31.0f;
             int idx[3];
             for (int k = 0; k < 3; k++) {
+                /* uv.x carries the MATERIAL. The table mesh derives its board
+                 * coordinates from v_local, so uv is free — and the shader must
+                 * be told what a surface is rather than inferring it from the
+                 * colour, which is what put a pale square beside every pocket. */
                 idx[k] = b_vert(b, t->v[k].x, t->v[k].y, t->v[k].z,
-                                t->nrm.x, t->nrm.y, t->nrm.z, 0.0f, 0.0f);
+                                t->nrm.x, t->nrm.y, t->nrm.z,
+                                t->mat == CUE_MAT_CLOTH ? 1.0f : 0.0f, 0.0f);
                 Vtx *vx = &b->v[idx[k]];
                 vx->c[0] = r; vx->c[1] = g; vx->c[2] = bl;
             }
@@ -1538,7 +1576,8 @@ static void build_from_cue_render(Builder *b, const CueTri *tri_, int from, int 
             }
             Vec3 nn = v3_len(acc) > 1e-5f ? v3_norm(acc) : t->nrm;
             idx[k] = b_vert(b, t->v[k].x, t->v[k].y, t->v[k].z,
-                            nn.x, nn.y, nn.z, 0.0f, 0.0f);
+                            nn.x, nn.y, nn.z,
+                            t->mat == CUE_MAT_CLOTH ? 1.0f : 0.0f, 0.0f);
             Vtx *vx = &b->v[idx[k]];
             vx->c[0] = r; vx->c[1] = g; vx->c[2] = bl;
         }
@@ -2246,6 +2285,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_hudv       = glGetUniformLocation(G.prog, "u_hudv");
     G.u_shadow     = glGetUniformLocation(G.prog, "u_shadow");
     G.u_clothlod   = glGetUniformLocation(G.prog, "u_clothlod");
+    G.u_rawcol     = glGetUniformLocation(G.prog, "u_rawcol");
     G.u_eye        = glGetUniformLocation(G.prog, "u_eye");
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
     G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
@@ -2610,6 +2650,8 @@ void cuevr_render_eye(const float *view, const float *proj,
          * very little of it survived at playing distance. CUEVR_NAPCLOTH brings
          * it back for comparison. */
         glUniform1f(G.u_clothlod, getenv("CUEVR_NAPCLOTH") ? 1.0f : 0.0f);
+        { const char *rc = getenv("CUEVR_RAWCOL");
+          glUniform1f(G.u_rawcol, rc ? (float)atof(rc) : 0.0f); }
     }
 
     /* The eye, recovered from the view matrix: its rows are the camera basis

@@ -128,12 +128,18 @@ static int project_z(Vec3 world, float *sx, float *sy, float *vz) {
 }
 
 /* ---- table mesh build -------------------------------------------------- */
+/* What is being emitted right now. The table is built in runs — the bed, the
+ * cushions, then the woodwork — so this is set once per run rather than passed
+ * through twenty emitter signatures. */
+static uint8_t s_mat = CUE_MAT_CLOTH;
+
 static void tri(Vec3 a, Vec3 b, Vec3 c, uint16_t col) {
     if (s_ntab >= MAX_TABLE_TRI) return;
     CueTri *t = &s_tab[s_ntab++];
     t->v[0] = a; t->v[1] = b; t->v[2] = c;
     t->nrm = v3_norm(v3_cross(v3_sub(b, a), v3_sub(c, a)));
     t->color = col;
+    t->mat = s_mat;
 }
 static void quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, uint16_t col) {
     tri(a, b, c, col); tri(a, c, d, col);
@@ -429,6 +435,8 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     { extern char *getenv(const char*); const char *e = getenv("CUE_LIP"); if (e) s_lip_mode = e[0]-'0'; }
     { extern char *getenv(const char*); const char *e2 = getenv("CUE_BALLSET"); if (e2) s_ball_set = e2[0]-'0'; }
     s_ntab = 0;
+    s_mat = CUE_MAT_CLOTH;   /* the bed and the cushions are cloth; the run below
+                              * switches to timber when the woodwork starts */
     s_cloth = t->cloth;
     s_ballR = t->R;
     s_is_snooker = t->is_snooker;
@@ -574,6 +582,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * column, so they skip the pocket mouths (no wood line across the side
      * pockets). rail_h is passed as the riser bottom. */
     uint16_t wlip = shade565(woodt, 0.80f);
+    s_mat = CUE_MAT_WOOD;          /* everything from here down is timber */
     wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, rail_h, wlip); /* +z */
     wood_plank_bored(-ox, ox, -oz, -ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 0, rail_h, wlip); /* -z */
     wood_plank_bored(ibx, ox, -ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, rail_h, wlip); /* +x */
