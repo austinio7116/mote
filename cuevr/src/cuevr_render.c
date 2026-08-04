@@ -2750,7 +2750,7 @@ void cuevr_render_eye(const float *view, const float *proj,
         /* x = the Kajiya-Kay exponent (how tight the sheen is along the grain),
          * y = spare, z = strength. Left as knobs so the finish can be tuned on
          * the headset without a rebuild. */
-        { float ax = 34.0f, ay = 0.25f, k = 0.34f;
+        { float ax = 34.0f, ay = 0.25f, k = 0.22f;
           const char *v;
           if ((v = getenv("CUEVR_VAX"))) ax = (float)atof(v);
           if ((v = getenv("CUEVR_VAY"))) ay = (float)atof(v);
