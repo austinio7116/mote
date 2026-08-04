@@ -230,7 +230,14 @@ int main(int argc, char **argv) {
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
     SDL_Window *win = SDL_CreateWindow("CueVR (preview)", SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED, w, h, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+        SDL_WINDOWPOS_CENTERED, w, h,
+        /* HIDDEN when we are only rendering into it. SDL_VIDEODRIVER=dummy is
+         * the usual way to go headless and is no use here — it has no GL at all
+         * — but a hidden window still gets a real context, and it does not take
+         * the keyboard away from whoever is using the machine. Every scripted
+         * capture and benchmark was stealing focus. */
+        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE
+        | ((shot || bench) ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN));
     if (!win) { fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
     SDL_GLContext ctx = SDL_GL_CreateContext(win);
     if (!ctx) { fprintf(stderr, "context: %s\n", SDL_GetError()); return 1; }
