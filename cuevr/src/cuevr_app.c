@@ -222,6 +222,17 @@ void cuevr_app_force_light(int i) {
     S.light_idx = i;
     cuevr_render_set_light(i);
 }
+/* Where the display cue is, in room space. The preview cannot frame it from
+ * table-space guesses — it moves with the table size and with which end the butt
+ * is at — so it asks. */
+MoteVrV3 cuevr_app_cue_mid(void) {
+    return mv3_add(mv3_scale(S.scene.cue_butt, 0.72f),
+                   mv3_scale(S.scene.cue_tip,  0.28f));
+}
+void cuevr_app_force_cue(int i) {
+    S.cue_idx = i;
+    cuevr_render_set_cue(i);
+}
 void cuevr_app_force_body(int i) {
     S.body_idx = i;
     cuevr_render_set_body(i);

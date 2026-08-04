@@ -33,6 +33,8 @@ MoteVrV3 cuevr_app_table_room(float fx, float y, float fz);
 float cuevr_app_table_yaw(void);
 void cuevr_app_force_light(int i);
 void cuevr_app_force_body(int i);
+void cuevr_app_force_cue(int i);
+MoteVrV3 cuevr_app_cue_mid(void);
 float cuevr_app_grip(void);
 #include "cuevr_app.h"
 #include "cuevr_audio.h"
@@ -44,6 +46,7 @@ float cuevr_app_grip(void);
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STBI_WRITE_NO_STDIO
@@ -173,6 +176,10 @@ int main(int argc, char **argv) {
     { const char *v = getenv("MOTE_VR_FOCUS");
       if (v && !strcmp(v, "pocket")) focus_pocket = 1;
       else if (v && !strcmp(v, "butt")) focus_pocket = 2;
+      /* MOTE_VR_FOCUS=cue: square on the butt of the cue the menu is showing,
+       * wherever the table put it. Guessing table-space fractions for this
+       * missed three times running. */
+      else if (v && !strcmp(v, "cue")) focus_pocket = 4;
       else if (v && !strncmp(v, "t:", 2)) {
           float a, b, c;
           if (sscanf(v + 2, "%f,%f,%f", &a, &b, &c) == 3) {
@@ -185,6 +192,10 @@ int main(int argc, char **argv) {
       if (v) { float a, b, c; if (sscanf(v, "%f,%f,%f", &a, &b, &c) == 3) {
           s_yaw = a * 3.14159265f/180.0f; s_pitch = b * 3.14159265f/180.0f; s_dist = c; } } }
     s_yaw0 = s_yaw;
+    /* MOTE_VR_BENCH=n: run n frames as fast as the machine will go and report
+     * the frame time. The only honest way to say what a feature COSTS. */
+    int bench = 0;
+    { const char *v = getenv("MOTE_VR_BENCH"); if (v) bench = atoi(v); }
     const char *shot = getenv("MOTE_VR_SHOT");
     int shot_frame = 120;
     { const char *v = getenv("MOTE_VR_SHOT_FRAME"); if (v) shot_frame = atoi(v); }
@@ -223,7 +234,7 @@ int main(int argc, char **argv) {
     if (!win) { fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
     SDL_GLContext ctx = SDL_GL_CreateContext(win);
     if (!ctx) { fprintf(stderr, "context: %s\n", SDL_GetError()); return 1; }
-    SDL_GL_SetSwapInterval(shot ? 0 : 1);
+    SDL_GL_SetSwapInterval((shot || bench) ? 0 : 1);
 
     { const char *d = getenv("CUEVR_PREFS_DIR"); cuevr_prefs_dir(d ? d : "."); }
 
@@ -232,6 +243,7 @@ int main(int argc, char **argv) {
     if (app.gl_init(app.user) != 0) { fprintf(stderr, "cuevr: init failed\n"); return 1; }
     if (force_light >= 0) cuevr_app_force_light(force_light);
     if (force_body >= -1) cuevr_app_force_body(force_body);
+    { const char *v = getenv("CUEVR_CUE"); if (v) cuevr_app_force_cue(atoi(v)); }
 
     int running = 1, dragging = 0, hands_placed = 0;
     uint64_t prev = SDL_GetPerformanceCounter();
@@ -355,6 +367,7 @@ int main(int argc, char **argv) {
          * same class of mistake as the bug it is here to find. */
         if (focus_pocket == 1) s_focus = cuevr_app_pocket_room();
         else if (focus_pocket == 2) s_focus = s_butt;   /* the cue's butt hand */
+        else if (focus_pocket == 4) s_focus = cuevr_app_cue_mid();
         else if (focus_pocket == 3) {
             /* Table-space focus, as fractions of the half-extents. Yaw follows
              * the table too, so "look along the side rail" is one number and not
@@ -487,6 +500,29 @@ int main(int argc, char **argv) {
                        cuevr_audio_count(CUE_SFX_CUSHION), cuevr_audio_count(CUE_SFX_POT));
         }
         if (shot && nframe == shot_frame) { glFinish(); write_png(shot, w, h); running = 0; }
+        /* Benchmark. Timed with glFinish either side so the number is the GPU's
+         * work and not how far ahead the driver has queued. The first 60 frames
+         * are discarded: shader compilation, the first upload of every texture
+         * and the AI's opening plan all land in them. */
+        if (bench) {
+            static double t_prev, acc, worst;
+            static long n_meas;
+            struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+            double now = ts.tv_sec + ts.tv_nsec * 1e-9;
+            glFinish();
+            if (nframe > 60 && t_prev > 0.0) {
+                double e = now - t_prev;
+                acc += e; n_meas++;
+                if (e > worst) worst = e;
+            }
+            t_prev = now;
+            if (nframe >= bench) {
+                printf("BENCH frames=%ld mean=%.3f ms worst=%.3f ms (%.1f fps)\n",
+                       n_meas, n_meas ? acc * 1e3 / n_meas : 0.0, worst * 1e3,
+                       n_meas ? n_meas / acc : 0.0);
+                running = 0;
+            }
+        }
         SDL_GL_SwapWindow(win);
         nframe++;
     }
