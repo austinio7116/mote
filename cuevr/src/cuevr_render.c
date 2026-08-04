@@ -106,7 +106,8 @@ static const char *FS =
 "uniform float u_hudv;\n"
 "uniform vec2  u_shadow;\n"
 "uniform float u_clothlod;\n"
-"uniform float u_rawcol;\n"   // debug: show the authored vertex colour, unshaded  // 0 = plain cloth, 1 = the full nap  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
+"uniform float u_rawcol;\n"
+"uniform vec3  u_varn;\n"   // along-grain roughness, across, strength   // debug: show the authored vertex colour, unshaded  // 0 = plain cloth, 1 = the full nap  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
 "in vec3 v_eyepos;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
@@ -489,18 +490,60 @@ static const char *FS =
 "        vec3 n = normalize(nrm);\n"
 "        vec3 tg = normalize(tang - n * dot(tang, n) + vec3(1e-6));\n"
 "        vec3 Vv = normalize(v_eyepos - v_world);\n"
-"        float TdL = dot(tg, Ldir), TdV = dot(tg, Vv);\n"
+"        // A WARD-STYLE ANISOTROPIC LOBE ON THE HALF-VECTOR.\n"
+"        //\n"
+"        // This was Kajiya-Kay: pow(sin.sin - cos.cos, 34) over the tangent, the\n"
+"        // light and the view. That is a model for FIBRES, where there is no\n"
+"        // normal around the strand, AND IT NEVER REFERENCES THE SURFACE NORMAL.\n"
+"        // On a flat plank it therefore has no idea which way the wood faces: on\n"
+"        // a horizontal rail top under an overhead lamp both L and V sit nearly\n"
+"        // perpendicular to the grain, the term saturates to 1 across the whole\n"
+"        // surface, and a highlight with no shape reads as no highlight at all.\n"
+"        // The verticals looked varnished and the tops looked flat — and because\n"
+"        // the only remaining variation came from N.L, ANY perturbation of the\n"
+"        // normal showed up as a hard edge. That is what drew a square around\n"
+"        // every pocket, where the crease-smoothed normals tilt at the bore.\n"
+"        //\n"
+"        // A varnished plank is a rough MIRROR, so the lobe belongs on the half\n"
+"        // vector and must fall off away from the normal. Stretching it along the\n"
+"        // grain and pinching it across gives the sheen that slides down a rail\n"
+"        // as you move, on every face, at any orientation.\n"
+"        // The Kajiya-Kay fibre lobe, which is the right shape for varnished\n"
+"        // timber — the sheen stretches along the fibres and slides as you move.\n"
+"        //\n"
+"        // THE EXPONENT WAS THE BUG. At 34 the lobe only fires when the grain\n"
+"        // runs nearly across your line of sight. Worked through for a rail top\n"
+"        // with the eye at 55 degrees and the key overhead: a SIDE rail, grain\n"
+"        // along x, gives T.L = 0.10, T.V = 0 and a lobe of 0.995^34 = 0.84 —\n"
+"        // full sheen. The END rail, grain along z, gives T.L = 0.20, T.V = 0.57\n"
+"        // and 0.69^34 = 0.000003 — nothing at all. At a corner the two meet, so\n"
+"        // one side of the mitre was varnished and the other was dead, and the\n"
+"        // only other lit patch was the ring at the bore where the smoothed\n"
+"        // normals push the tangent back onto the lobe. Those lit patches were\n"
+"        // never the artefact; the dead wood around them was.\n"
+"        //\n"
+"        // A finish is rough, so the lobe is broad. u_varn.x is the exponent.\n"
+"        vec3 tgv = tg;\n"
+"        float TdL = dot(tgv, Ldir), TdV = dot(tgv, Vv);\n"
 "        float sL = sqrt(max(1.0 - TdL * TdL, 0.0));\n"
 "        float sV = sqrt(max(1.0 - TdV * TdV, 0.0));\n"
-"        // 120 was a razor line that only lit where the geometry happened to satisfy\n"
-"        // it. 34 is a sheen you can see travel as you move.\n"
-"        float aniso = pow(max(sL * sV - TdL * TdV, 0.0), 34.0);\n"
-"        float broad = pow(max(dot(n, normalize(Ldir + Vv)), 0.0), 16.0);\n"
+"        float aniso = pow(max(sL * sV - TdL * TdV, 0.0), u_varn.x);\n"
 "        // Weighted by N.L, because a specular still needs the light to REACH the\n"
 "        // surface. Without it the anisotropic lobe blew the inside of the pocket\n"
 "        // throat out to white — a surface facing away from the lamp was returning\n"
 "        // a full highlight. And the amplitude was far too high for a rail.\n"
-"        float lit = max(dot(n, Ldir), 0.0);\n"
+"        // ABSOLUTE. The table mesh is DOUBLE-SIDED — cue_render authors it for a\n"
+"        // software rasteriser that does not cull, so a face normal points\n"
+"        // whichever way the winding happened to fall. That is why the diffuse\n"
+"        // uses diffuse_abs(). The varnish did not, and a rail-top quad wound so\n"
+"        // its normal points DOWN gives dot(n, L) = -0.975, so lit = 0 and the\n"
+"        // sheen was switched off across the entire top of the frame, all four\n"
+"        // sides. The only place it survived was the ring at each pocket bore,\n"
+"        // where the crease-smoothed normals average with the vertical bore wall\n"
+"        // and tilt far enough off straight-down for the dot to come back\n"
+"        // positive. That ring was never an artefact — it was the only correctly\n"
+"        // lit wood on the rail, which is exactly what it looked like.\n"
+"        float lit = abs(dot(n, Ldir));\n"
 "        // SCALED BY THE TIMBER'S OWN BRIGHTNESS.\n"
 "        //\n"
 "        // The varnish is added in linear space after the diffuse, which is\n"
@@ -516,7 +559,20 @@ static const char *FS =
 "        // stay dark, which is also simply what varnish does.\n"
 "        float base_l = dot(base, vec3(0.30, 0.59, 0.11));\n"
 "        float shine  = clamp(base_l / 0.34, 0.0, 1.0);\n"
-"        varnish = (aniso * (0.30 + 0.70 * late) * 0.34 + broad * 0.06) * lit * shine;\n"
+"        // THE ANISOTROPIC LOBE ONLY.\n"
+"        //\n"
+"        // There used to be a broad Blinn term alongside it, on the raw normal.\n"
+"        // Bisected against the pale patch that sat on the rail top around every\n"
+"        // pocket: with only the anisotropic lobe it is gone; with only the broad\n"
+"        // one it is plainly there. A generic highlight taken off the normal is\n"
+"        // exactly what misbehaves where the crease-smoothed normals tilt at the\n"
+"        // bore, and the bore is notched out of the plank as a bounding BOX, so\n"
+"        // the triangles bordering it form a square ring round a round hole.\n"
+"        //\n"
+"        // Losing it costs nothing. The anisotropic lobe is the one that makes\n"
+"        // timber look VARNISHED — a sheen stretched along the fibres, sliding\n"
+"        // as you move — and the broad term was a general gloss sitting under it.\n"
+"        varnish = clamp(aniso, 0.0, 3.0) * (0.30 + 0.70 * late) * u_varn.z * lit * shine;\n"
 "    }\n"
 "    return c;\n"
 "}\n"
@@ -948,7 +1004,7 @@ static const char *FS =
 "            // and a highlight that only ever showed up as a bug is not worth\n"
 "            // three more attempts. The frame body (mode 7) keeps its sheen —\n"
 "            // an apron IS polished.\n"
-"            wood_spec = (u_mode == 7) ? varn * (1.0 - iscloth) : 0.0;\n"
+"            wood_spec = varn * (1.0 - iscloth);\n"
 "        }\n"
 "        \n"
 "        // Specular ADDED after the diffuse, not folded into it.\n"
@@ -1210,7 +1266,7 @@ static struct {
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_nlamp, u_lampround, u_eye;
-    GLint  u_keyc, u_fill, u_hudv, u_shadow, u_clothlod, u_rawcol;
+    GLint  u_keyc, u_fill, u_hudv, u_shadow, u_clothlod, u_rawcol, u_varn;
     int    minimal;            /* the real shader would not build; see FS_MIN */
     /* The runtime's own controller models, when XR_FB_render_model gives them.
      * They supersede the baked STLs — including the model-to-grip matrix below,
@@ -2324,6 +2380,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_shadow     = glGetUniformLocation(G.prog, "u_shadow");
     G.u_clothlod   = glGetUniformLocation(G.prog, "u_clothlod");
     G.u_rawcol     = glGetUniformLocation(G.prog, "u_rawcol");
+    G.u_varn       = glGetUniformLocation(G.prog, "u_varn");
     G.u_eye        = glGetUniformLocation(G.prog, "u_eye");
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
     G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
@@ -2690,6 +2747,15 @@ void cuevr_render_eye(const float *view, const float *proj,
         glUniform1f(G.u_clothlod, getenv("CUEVR_NAPCLOTH") ? 1.0f : 0.0f);
         { const char *rc = getenv("CUEVR_RAWCOL");
           glUniform1f(G.u_rawcol, rc ? (float)atof(rc) : 0.0f); }
+        /* x = the Kajiya-Kay exponent (how tight the sheen is along the grain),
+         * y = spare, z = strength. Left as knobs so the finish can be tuned on
+         * the headset without a rebuild. */
+        { float ax = 34.0f, ay = 0.25f, k = 0.34f;
+          const char *v;
+          if ((v = getenv("CUEVR_VAX"))) ax = (float)atof(v);
+          if ((v = getenv("CUEVR_VAY"))) ay = (float)atof(v);
+          if ((v = getenv("CUEVR_VK")))  k  = (float)atof(v);
+          glUniform3f(G.u_varn, ax, ay, k); }
     }
 
     /* The eye, recovered from the view matrix: its rows are the camera basis
