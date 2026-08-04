@@ -367,8 +367,30 @@ static int make_swapchains(void) {
     /* Multiview needs ONE swapchain with two layers, not one per eye. */
     for (uint32_t i = 0; i < (S.multiview ? 1u : n); i++) {
         Eye *e = &S.eye[i];
-        e->w = (int32_t)S.vcfg[i].recommendedImageRectWidth;
-        e->h = (int32_t)S.vcfg[i].recommendedImageRectHeight;
+        /* 2x MSAA at a HIGHER resolution rather than 4x at the recommended one.
+         *
+         * On a tiler the cost of MSAA is tile memory and resolve bandwidth, and
+         * it scales with the sample count; the cost of resolution scales with
+         * the pixel count. Trading two samples for a quarter more pixels each
+         * way is usually cheaper AND sharper, because the extra samples only
+         * ever help at edges while the extra pixels help everywhere — text on
+         * the scoreboard, the numbers on a ball, the chalk on the cloth.
+         *
+         * Clamped to the runtime's own maximum: asking for more than
+         * maxImageRect is not a request, it is an error. */
+        float scale = 1.25f;
+        int32_t rw = (int32_t)S.vcfg[i].recommendedImageRectWidth;
+        int32_t rh = (int32_t)S.vcfg[i].recommendedImageRectHeight;
+        e->w = (int32_t)(rw * scale);
+        e->h = (int32_t)(rh * scale);
+        if ((uint32_t)e->w > S.vcfg[i].maxImageRectWidth)
+            e->w = (int32_t)S.vcfg[i].maxImageRectWidth;
+        if ((uint32_t)e->h > S.vcfg[i].maxImageRectHeight)
+            e->h = (int32_t)S.vcfg[i].maxImageRectHeight;
+        if (i == 0)
+            xrlog("[mote-xr] eye %dx%d (recommended %dx%d, max %ux%u)",
+                  e->w, e->h, rw, rh,
+                  S.vcfg[i].maxImageRectWidth, S.vcfg[i].maxImageRectHeight);
 
         XrSwapchainCreateInfo sc = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
         sc.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
@@ -419,7 +441,8 @@ static int make_swapchains(void) {
             if (S.p_tex2dms && S.p_rbms) {
                 GLint max_s = 0;
                 glGetIntegerv(GL_MAX_SAMPLES, &max_s);
-                S.msaa = max_s >= 4 ? 4 : (max_s >= 2 ? 2 : 0);
+                /* 2x, paired with the resolution increase above. */
+                S.msaa = max_s >= 2 ? 2 : 0;
             } else {
                 S.msaa = 0;
             }

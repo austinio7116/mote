@@ -98,7 +98,9 @@ static const char *FS =
 "uniform vec3  u_lampC[8];\n"   // lamp centres, world space
 "uniform vec3  u_lampX[8];\n"   // half-extent vector, one way across the face
 "uniform vec3  u_lampZ[8];\n"   // and the other: together they span the plane
-"uniform float u_lampG[8];\n"   // how bright each one's reflection is
+"uniform float u_lampG[8];\n"
+"uniform vec3  u_lampN[8];\n"   // plane normal, precomputed
+"uniform vec2  u_lampI[8];\n"   // 1/|X|^2 and 1/|Z|^2   // how bright each one's reflection is
 "uniform int   u_nlamp;\n"
 "uniform float u_lampround;\n" // 1 = discs (downlights), 0 = rectangles (shades)
 "uniform vec3  u_keyc;\n"      // the light's own colour, multiplying everything
@@ -112,7 +114,8 @@ static const char *FS =
 "uniform mat4  u_shmat;\n"
 "uniform float u_shon;\n"
 "uniform float u_shtexel;\n"
-"uniform float u_shsoft;\n"   // along-grain roughness, across, strength   // debug: show the authored vertex colour, unshaded  // 0 = plain cloth, 1 = the full nap  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
+"uniform float u_shsoft;\n"
+"uniform float u_norefl;\n"   // along-grain roughness, across, strength   // debug: show the authored vertex colour, unshaded  // 0 = plain cloth, 1 = the full nap  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
 "in vec3 v_eyepos;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
@@ -737,14 +740,28 @@ static const char *FS =
 "            // height of the lamp, simply could not see a vertical source at\n"
 "            // all — the window mode reflected nothing.\n"
 "            for (int i = 0; i < u_nlamp; i++) {\n"
-"                vec3 pn = cross(u_lampX[i], u_lampZ[i]);\n"
+"                if (u_norefl > 0.5) break;   // measurement only\n"
+"                // The plane normal and the two inverse-square lengths are the\n"
+"                // SAME for every fragment of every ball — they change when a\n"
+"                // lamp moves, which is once a frame. They were being recomputed\n"
+"                // per fragment per lamp: a cross product and two dot products,\n"
+"                // eight times over, on every pixel of every ball. Measured at\n"
+"                // 0.87 ms of a 7.31 ms frame, which is 12% for arithmetic whose\n"
+"                // answer never changes. Precomputed on the CPU now; the picture\n"
+"                // is identical.\n"
+"                //\n"
+"                // Distance-gating the loop was the other candidate and would\n"
+"                // not have worked: the cost is per FRAGMENT, so it is dominated\n"
+"                // by near balls covering many pixels, and those are exactly the\n"
+"                // ones that cannot be skipped.\n"
+"                vec3 pn = u_lampN[i];\n"
 "                float dn = dot(Rv, pn);\n"
 "                if (abs(dn) < 1e-6) continue;\n"
 "                float t = dot(u_lampC[i] - v_world, pn) / dn;\n"
 "                if (t <= 0.0) continue;\n"
 "                vec3 d = (v_world + Rv * t) - u_lampC[i];\n"
-"                float a = dot(d, u_lampX[i]) / dot(u_lampX[i], u_lampX[i]);\n"
-"                float b = dot(d, u_lampZ[i]) / dot(u_lampZ[i], u_lampZ[i]);\n"
+"                float a = dot(d, u_lampX[i]) * u_lampI[i].x;\n"
+"                float b = dot(d, u_lampZ[i]) * u_lampI[i].y;\n"
 "                // A shade has a hard edge and a hot centre. smoothstep over\n"
 "                // the last few percent keeps it from aliasing to a crawling\n"
 "                // staircase as the ball rolls. A downlight is a disc, and a\n"
@@ -853,10 +870,15 @@ static const char *FS =
 "            if (t > bs_tip) {\n"
 "                /* The burr itself: dark grey, strongly figured ACROSS the\n"
 "                 * grain, which is what distinguishes it from plain ebony. */\n"
-"                float fig = sin(a * 6.2831853 * 9.0 + sin(t * 40.0) * 2.2)\n"
-"                          * sin(t * 90.0 + a * 12.0);\n"
-"                vec3 burr = mix(u_cburr * 0.72, u_cburr * 1.22,\n"
-"                                clamp(0.5 + 0.5 * fig, 0.0, 1.0));\n"
+"                // Burr figure. Burr is a knotty swirl, not a stripe, so it wants\n"
+"                // two scales beating against each other rather than one sine —\n"
+"                // and a wide swing, because on a real burr butt the light and\n"
+"                // dark are nearly black to nearly white.\n"
+"                float w1 = sin(a * 6.2831853 * 5.0 + t * 26.0)\n"
+"                         * sin(t * 61.0 - a * 9.0);\n"
+"                float w2 = sin(a * 6.2831853 * 13.0 - t * 47.0 + w1 * 2.4);\n"
+"                float fg = clamp(0.5 + 0.36 * w1 + 0.26 * w2, 0.0, 1.0);\n"
+"                vec3 burr = mix(u_cburr * 0.34, u_cburr * 1.75, fg);\n"
 "                float k = clamp((t - bs_tip) / (bs_base - bs_tip), 0.0, 1.0);\n"
 "                float hw = 0.46 * pow(k, 0.55);\n"
 "                float e = smoothstep(hw, hw * 0.84, d);\n"
@@ -865,11 +887,22 @@ static const char *FS =
 "                 * every point, not a flash near it. This is the detail that\n"
 "                 * makes a spliced butt look made rather than painted. */\n"
 "                if (u_cflash > 0.5) {\n"
+"                    // A CONTINUOUS line, width-matched to the pixel. A fixed\n"
+"                    // 0.004 in the angular coordinate is finer than a pixel at\n"
+"                    // most viewing distances, so the veneer broke into dashes —\n"
+"                    // it read as a dotted line rather than as an inlay. Widening\n"
+"                    // it to at least the local derivative keeps it solid at any\n"
+"                    // distance without fattening it up close.\n"
 "                    float edge = abs(d - hw);\n"
-"                    float ln = 1.0 - smoothstep(0.0, 0.0040, edge);\n"
+"                    float px   = fwidth(d) * 1.2;\n"
+"                    float wln  = max(0.0055, px);\n"
+"                    float ln = 1.0 - smoothstep(0.0, wln, edge);\n"
 "                    c = mix(c, u_caccent, ln * 0.95);\n"
 "                }\n"
-"                if (t > bs_base) c = burr;      /* solid burr below the points */\n"
+"                // Below the points the whole butt is burr — on a real cue the\n"
+"                // splice rises OUT of the butt wood, so the wood is what the\n"
+"                // butt is made of, not a panel let into black.\n"
+"                if (t > bs_base) c = burr;\n"
 "            }\n"
 "\n"
 "            /* 3. the badge: a round ivory plate on the very end, and the black\n"
@@ -893,11 +926,35 @@ static const char *FS =
 "            // points. On a real cue the joint is a band of bare ebony with the\n"
 "            // collar on it, and a collar crossing the splice is the one thing\n"
 "            // that instantly reads as wrong.\n"
-"            if (t > 0.645 && t < 0.660) {\n"
-"                c = vec3(0.78, 0.62, 0.26);\n"
+"            // 3 mm of collar. It was 0.645 to 0.660, which on a 1.45 m cue is\n"
+"            // 22 mm — a band you could read a maker's name off, not a joint.\n"
+"            if (t > 0.6480 && t < 0.6501) {\n"
+"                // BRASS, treated as metal — the same way the ferrule is.\n"
+"                //\n"
+"                // A flat yellow with a Blinn highlight on it is what yellow\n"
+"                // PLASTIC looks like, and that is exactly how it read. Metal\n"
+"                // has almost no diffuse: nearly all its brightness is what it\n"
+"                // is reflecting, so it has to go dark where it reflects nothing\n"
+"                // and blow out where it catches a lamp. On a collar wrapped\n"
+"                // round a shaft that gives the giveaway signature — bright\n"
+"                // along the top, dark down the flank, and a bright rim where\n"
+"                // the curve turns away.\n"
+"                //\n"
+"                // Brass rather than steel: warm, and the reflection is TINTED\n"
+"                // by the metal instead of staying white, which is the whole\n"
+"                // difference between a gold metal and a grey one.\n"
+"                vec3 nn = normalize(v_nrm);\n"
+"                vec3 Vv = normalize(v_eyepos - v_world);\n"
+"                vec3 R  = reflect(-Vv, nn);\n"
+"                float up   = clamp(R.y * 0.5 + 0.5, 0.0, 1.0);\n"
+"                float band = pow(up, 3.0);\n"
+"                float rim  = pow(1.0 - abs(dot(nn, Vv)), 2.5);\n"
+"                vec3 brass = vec3(0.72, 0.53, 0.19);\n"
+"                c = brass * (0.30 + 1.45 * band)\n"
+"                  + vec3(0.95, 0.82, 0.52) * rim * 0.42;\n"
 "                brass_lit = 1.0;\n"
 "            }\n"
-"            gloss = mix(gloss, 120.0, brass_lit);\n"
+"            gloss = mix(gloss, 160.0, brass_lit);\n"
 "            spec_k = mix(spec_k, 0.85, brass_lit);\n"  // brass collar
 "        }\n"
 "        float d = diffuse(v_nrm, L);\n"
@@ -1326,7 +1383,7 @@ static struct {
     GLint  u_ballslice, u_balls, u_clothsh;
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
-    GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_nlamp, u_lampround, u_eye;
+    GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_lampN, u_lampI, u_nlamp, u_lampround, u_eye;
     GLint  u_keyc, u_fill, u_hudv, u_shadow, u_clothlod, u_rawcol, u_varn;
     int    minimal;            /* the real shader would not build; see FS_MIN */
     /* The runtime's own controller models, when XR_FB_render_model gives them.
@@ -1350,7 +1407,7 @@ static struct {
     int    frame_timber_n;
     GLuint sh_fbo, sh_tex, sh_prog;
     GLint  sh_u_lightvp, sh_u_model;
-    GLint  u_shmap, u_shmat, u_shon, u_shtexel, u_shsoft;
+    GLint  u_shmap, u_shmat, u_shon, u_shtexel, u_shsoft, u_norefl;
     int    sh_size;     /* indices of the frame that are wood; see cuevr_frame.h */
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     float  fur_scale;
@@ -1864,18 +1921,22 @@ static float fur_noise(float x, float y, int px, int py) {
 static const CueVrCueDesign CUE_RACK[] = {
   /* Read off the reference set: every one is an ash shaft, an ebony butt and a
    * GREY-BLACK BURR splice, and what distinguishes them is the colour of the
-   * veneer outlining the points. The burr used to be various browns, which is a
-   * different (and much commoner) kind of cue — these are the figured grey
-   * ebony-burr butts, and the grey is most of why they look like this set.
+   * veneer outlining the points.
    *
-   *  name              shaft                 ebony                   veneer                  butt                    burr                  veneer? */
-  { "ASH & EBONY",  {0.86f,0.74f,0.54f}, {0.075f,0.060f,0.052f}, {0.075f,0.060f,0.052f}, {0.075f,0.060f,0.052f}, {0.30f,0.29f,0.28f},  0 },
-  { "BLUE POINT",   {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.16f,0.52f,0.78f},    {0.070f,0.058f,0.052f}, {0.30f,0.29f,0.28f},  1 },
-  { "GREEN POINT",  {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.36f,0.72f,0.42f},    {0.070f,0.058f,0.052f}, {0.30f,0.29f,0.28f},  1 },
-  { "RED POINT",    {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.78f,0.16f,0.24f},    {0.070f,0.058f,0.052f}, {0.31f,0.29f,0.28f},  1 },
-  { "IVORY POINT",  {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.90f,0.84f,0.68f},    {0.070f,0.058f,0.052f}, {0.30f,0.29f,0.28f},  1 },
-  { "SKY POINT",    {0.87f,0.75f,0.55f}, {0.070f,0.058f,0.052f}, {0.34f,0.68f,0.86f},    {0.070f,0.058f,0.052f}, {0.29f,0.28f,0.28f},  1 },
-  { "BURR WALNUT",  {0.87f,0.75f,0.55f}, {0.20f,0.12f,0.07f},    {0.72f,0.56f,0.30f},    {0.20f,0.12f,0.07f},    {0.44f,0.30f,0.16f},  1 },
+   * FIELD ORDER IS shaft, splice, accent, BURR, BUTT — burr before butt. The
+   * first version of this table listed butt before burr, so every cue got the
+   * near-black butt colour as its burr: the splice points were being drawn, in
+   * black, onto black, and all that showed was the veneer outline as a dotted
+   * blue line. It looked like a shader bug and was a column swap.
+   *
+   *  name              shaft                 splice/ebony            accent (veneer)         burr (splice wood)    butt                    veneer? */
+  { "ASH & EBONY",  {0.86f,0.74f,0.54f}, {0.075f,0.060f,0.052f}, {0.075f,0.060f,0.052f}, {0.28f,0.27f,0.26f},  {0.075f,0.060f,0.052f}, 0 },
+  { "BLUE POINT",   {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.16f,0.52f,0.78f},    {0.30f,0.29f,0.28f},  {0.070f,0.058f,0.052f}, 1 },
+  { "GREEN POINT",  {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.36f,0.72f,0.42f},    {0.30f,0.29f,0.28f},  {0.070f,0.058f,0.052f}, 1 },
+  { "RED POINT",    {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.78f,0.16f,0.24f},    {0.31f,0.29f,0.28f},  {0.070f,0.058f,0.052f}, 1 },
+  { "IVORY POINT",  {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.90f,0.84f,0.68f},    {0.30f,0.29f,0.28f},  {0.070f,0.058f,0.052f}, 1 },
+  { "SKY POINT",    {0.87f,0.75f,0.55f}, {0.070f,0.058f,0.052f}, {0.34f,0.68f,0.86f},    {0.29f,0.28f,0.28f},  {0.070f,0.058f,0.052f}, 1 },
+  { "BURR WALNUT",  {0.87f,0.75f,0.55f}, {0.20f,0.12f,0.07f},    {0.72f,0.56f,0.30f},    {0.46f,0.31f,0.17f},  {0.20f,0.12f,0.07f},    1 },
 };
 #define CUE_RACK_N ((int)(sizeof CUE_RACK / sizeof CUE_RACK[0]))
 static int s_cue_sel;
@@ -2469,6 +2530,8 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_lampX      = glGetUniformLocation(G.prog, "u_lampX[0]");
     G.u_lampZ      = glGetUniformLocation(G.prog, "u_lampZ[0]");
     G.u_lampG      = glGetUniformLocation(G.prog, "u_lampG[0]");
+    G.u_lampN      = glGetUniformLocation(G.prog, "u_lampN[0]");
+    G.u_lampI      = glGetUniformLocation(G.prog, "u_lampI[0]");
     G.u_nlamp      = glGetUniformLocation(G.prog, "u_nlamp");
     G.u_lampround  = glGetUniformLocation(G.prog, "u_lampround");
     G.u_keyc       = glGetUniformLocation(G.prog, "u_keyc");
@@ -2483,6 +2546,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_shon       = glGetUniformLocation(G.prog, "u_shon");
     G.u_shtexel    = glGetUniformLocation(G.prog, "u_shtexel");
     G.u_shsoft     = glGetUniformLocation(G.prog, "u_shsoft");
+    G.u_norefl     = glGetUniformLocation(G.prog, "u_norefl");
     G.u_eye        = glGetUniformLocation(G.prog, "u_eye");
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
     G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
@@ -3003,6 +3067,21 @@ void cuevr_render_eye(const float *view, const float *proj,
         glUniform3fv(G.u_lampX, nlamp, axx);
         glUniform3fv(G.u_lampZ, nlamp, axz);
         glUniform1fv(G.u_lampG, nlamp, gain);
+        {   /* what the fragment shader used to work out per pixel */
+            float pn[CUEVR_MAX_LAMPS*3], iv[CUEVR_MAX_LAMPS*2];
+            for (int i = 0; i < nlamp; i++) {
+                const float *X = &axx[i*3], *Z = &axz[i*3];
+                pn[i*3+0] = X[1]*Z[2] - X[2]*Z[1];
+                pn[i*3+1] = X[2]*Z[0] - X[0]*Z[2];
+                pn[i*3+2] = X[0]*Z[1] - X[1]*Z[0];
+                float xx = X[0]*X[0] + X[1]*X[1] + X[2]*X[2];
+                float zz = Z[0]*Z[0] + Z[1]*Z[1] + Z[2]*Z[2];
+                iv[i*2+0] = xx > 1e-9f ? 1.0f / xx : 0.0f;
+                iv[i*2+1] = zz > 1e-9f ? 1.0f / zz : 0.0f;
+            }
+            glUniform3fv(G.u_lampN, nlamp, pn);
+            glUniform2fv(G.u_lampI, nlamp, iv);
+        }
         glUniform1i(G.u_nlamp, nlamp);
         glUniform1f(G.u_lampround, rig->round ? 1.0f : 0.0f);
         glUniform1f(G.u_fill, rig->fill);
@@ -3014,6 +3093,7 @@ void cuevr_render_eye(const float *view, const float *proj,
         glUniform1f(G.u_clothlod, getenv("CUEVR_NAPCLOTH") ? 1.0f : 0.0f);
         { const char *rc = getenv("CUEVR_RAWCOL");
           glUniform1f(G.u_rawcol, rc ? (float)atof(rc) : 0.0f); }
+        glUniform1f(G.u_norefl, getenv("CUEVR_NOREFL") ? 1.0f : 0.0f);
         /* x = the Kajiya-Kay exponent (how tight the sheen is along the grain),
          * y = spare, z = strength. Left as knobs so the finish can be tuned on
          * the headset without a rebuild. */
