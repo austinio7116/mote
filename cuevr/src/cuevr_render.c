@@ -3167,15 +3167,24 @@ void cuevr_render_eye(const float *view, const float *proj,
         float gain[CUEVR_MAX_LAMPS];
         for (int i = 0; i < nlamp; i++) {
             const CueVrLamp *l = &rig->lamp[i];
-            cen[i*3+0] = s->place->pos.x + l->c[0] * cy - l->c[2] * sy;
+            /* THE SAME ROTATION THE TABLE USES. cuevr_table_to_room is
+             *     x' = x*cos + z*sin,  z' = -x*sin + z*cos
+             * and this was the TRANSPOSE of it — the opposite rotation. The
+             * table is always sited at a yaw taken from the player's head
+             * direction, so the lamps have been hanging mirrored about the
+             * table's own axis: the reflections tracked the head correctly and
+             * were reflecting lights that were in the wrong place, which is
+             * exactly what "they move, but not how lights above the table
+             * should" looks like. */
+            cen[i*3+0] = s->place->pos.x + l->c[0] * cy + l->c[2] * sy;
             cen[i*3+1] = s->place->pos.y + l->c[1];
-            cen[i*3+2] = s->place->pos.z + l->c[0] * sy + l->c[2] * cy;
-            axx[i*3+0] = l->ax[0] * cy - l->ax[2] * sy;
+            cen[i*3+2] = s->place->pos.z - l->c[0] * sy + l->c[2] * cy;
+            axx[i*3+0] = l->ax[0] * cy + l->ax[2] * sy;
             axx[i*3+1] = l->ax[1];
-            axx[i*3+2] = l->ax[0] * sy + l->ax[2] * cy;
-            axz[i*3+0] = l->az[0] * cy - l->az[2] * sy;
+            axx[i*3+2] = -l->ax[0] * sy + l->ax[2] * cy;
+            axz[i*3+0] = l->az[0] * cy + l->az[2] * sy;
             axz[i*3+1] = l->az[1];
-            axz[i*3+2] = l->az[0] * sy + l->az[2] * cy;
+            axz[i*3+2] = -l->az[0] * sy + l->az[2] * cy;
             gain[i] = l->gain;
         }
         glUniform3fv(G.u_lampC, nlamp, cen);
@@ -3241,8 +3250,9 @@ void cuevr_render_eye(const float *view, const float *proj,
     /* The key, rotated with the table so it is over the cloth and not over your
      * kitchen. The match rig's direction is the handheld's, unchanged. */
     {
-        MoteVrV3 k = mv3_norm(mv3(rig->key[0] * cy - rig->key[2] * sy, rig->key[1],
-                                  rig->key[0] * sy + rig->key[2] * cy));
+        /* Same rotation as the lamps and as cuevr_table_to_room. */
+        MoteVrV3 k = mv3_norm(mv3(rig->key[0] * cy + rig->key[2] * sy, rig->key[1],
+                                  -rig->key[0] * sy + rig->key[2] * cy));
         glUniform3f(G.u_light, k.x, k.y, k.z);
         G.key_room = k;
     }
