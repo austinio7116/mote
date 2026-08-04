@@ -2657,8 +2657,10 @@ void cuevr_render_eye(const float *view, const float *proj,
      * Depth sorts it correctly regardless. */
     glDisable(GL_CULL_FACE);
     glUniform1i(G.u_mode, 4);          /* vertex colours, as authored */
+    if (getenv("CUEVR_NOTABLE")) goto after_table;
     set_model(T);
     draw(&G.table);
+after_table: ;
 
     if (getenv("CUEVR_NOSHADOW")) goto skip_shadows;
     /* ---- the cloth, with its chalk ---- *
@@ -2781,6 +2783,7 @@ void cuevr_render_eye(const float *view, const float *proj,
          * six lights give six pale shadows, not six times the shadow. */
         float rad = G.tab.R * 1.55f;
         int nsh = nlamp < 1 ? 1 : nlamp;
+        if (getenv("CUEVR_NOBLOB")) nsh = 0;
         float share = 1.0f / sqrtf((float)nsh);   /* they overlap under the ball */
         for (int i = 0; i < s->nballs; i++) {
             const CueBall *bl = &s->balls[i];
@@ -2857,9 +2860,11 @@ skip_shadows:
      * drawing across it. */
     if (G.lips.n) {
         glDepthMask(GL_FALSE);
-        glUniform1i(G.u_mode, 4);
-        set_model(T);
-        draw(&G.lips);
+        if (!getenv("CUEVR_NOLIPS")) {
+            glUniform1i(G.u_mode, 4);
+            set_model(T);
+            draw(&G.lips);
+        }
         glDepthMask(GL_TRUE);
     }
     glEnable(GL_CULL_FACE);
