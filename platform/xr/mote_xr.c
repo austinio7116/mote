@@ -112,6 +112,7 @@ static struct {
      * on ones that have it: a model does not exist until its controller has been
      * seen, so this is asked for repeatedly rather than once. */
     int   has_render_model;
+    int   has_perf;
     PFN_xrEnumerateRenderModelPathsFB xrEnumerateRenderModelPathsFB_;
     PFN_xrGetRenderModelPropertiesFB  xrGetRenderModelPropertiesFB_;
     PFN_xrLoadRenderModelFB           xrLoadRenderModelFB_;
@@ -223,6 +224,11 @@ static int make_instance(JavaVM *vm, jobject activity) {
      * its own controller proxies when there is no model to be had. */
     S.has_render_model = have_ext(ext, n, XR_FB_RENDER_MODEL_EXTENSION_NAME);
     if (S.has_render_model) want[nw++] = XR_FB_RENDER_MODEL_EXTENSION_NAME;
+    /* Performance levels. Without this the runtime clocks the SoC for a MENU —
+     * it has no way to know it is running a game — and that is the cheapest
+     * frame time available anywhere, because it costs no pixels at all. */
+    S.has_perf = have_ext(ext, n, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+    if (S.has_perf) want[nw++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
     for (uint32_t i = 0; i < nw; i++)
         if (!have_ext(ext, n, want[i])) {
             xrlog("[mote-xr] runtime lacks %s", want[i]);
@@ -886,6 +892,22 @@ int mote_xr_init(void *vm, void *activity, const MoteXrApp *app) {
     if (make_instance((JavaVM *)vm, (jobject)activity) != 0) return -1;
     if (make_session() != 0) return -1;
     if (make_swapchains() != 0) return -1;
+
+    /* SUSTAINED_HIGH on both domains, not BOOST. Boost is for a few seconds of
+     * loading; a cue game runs for an hour and being throttled mid-frame is
+     * worse than never having had the clocks. */
+    if (S.has_perf) {
+        PFN_xrPerfSettingsSetPerformanceLevelEXT setlvl = NULL;
+        xrGetInstanceProcAddr(S.instance, "xrPerfSettingsSetPerformanceLevelEXT",
+                              (PFN_xrVoidFunction *)&setlvl);
+        if (setlvl) {
+            setlvl(S.session, XR_PERF_SETTINGS_DOMAIN_CPU_EXT,
+                   XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT);
+            setlvl(S.session, XR_PERF_SETTINGS_DOMAIN_GPU_EXT,
+                   XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT);
+            xrlog("[mote-xr] performance level: sustained high, CPU and GPU");
+        }
+    }
     if (make_actions() != 0) return -1;
     passthrough_up();
     if (S.app.gl_init && S.app.gl_init(S.app.user) != 0) return -1;
