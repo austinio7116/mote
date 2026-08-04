@@ -2633,7 +2633,7 @@ void cuevr_render_eye(const float *view, const float *proj,
 
     /* The frame first: it is underneath everything and honestly wound, so it
      * keeps backface culling. */
-    if (G.frame.n) {
+    if (G.frame.n && !getenv("CUEVR_NOFRAME")) {
         set_model(T);
         glBindVertexArray(G.frame.vao);
         if (G.frame_timber_n > 0) {

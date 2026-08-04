@@ -174,30 +174,19 @@ static void box(CueVrFrameMesh *m, float x0, float y0, float z0,
     quad(m, a,b,c,d, n, gx, dz, col);
 }
 
-/* A pocket is a HOLE. The frame used to close its top with one black plate
- * across the whole footprint, on the reasoning that a pocket has no floor to
- * show you — and that read as a lid the moment the plate stopped being black.
- *
- * This is the real shape instead: at each pocket, a cylinder dropped through
- * where the plate would have been, closed at the bottom, so you look down a
- * throat with depth rather than at a disc. The rest of the frame's top is not
- * drawn at all, because the cloth and the rails cover everything else — the
- * plate only ever existed for the pockets. */
 /* A top course of the frame, WITHOUT its top face.
  *
  * Every design capped its woodwork with a slab spanning the whole footprint. A
  * slab under a slate is invisible — except through the six holes in the slate,
- * and once the black lid over the pockets went away you were looking down a
- * pocket at varnished timber. A liner cannot fix that, because the slab is
- * INSIDE the liner.
+ * where you were then looking at varnished timber a few millimetres below the
+ * bed. The bucket below cannot hide it, because the slab is INSIDE the bucket.
  *
- * The first attempt cut the holes properly, as a grid with the covered cells
- * dropped. That is 179 x 89 cells on a 12 ft table — 32,000 triangles for one
- * moulding, which overran the frame buffer and left the whole thing untextured.
- *
- * The right answer is that the top face should never have been there. It is
- * under the slate everywhere it exists; the only place it is visible is exactly
- * the place it must not be. So: five faces, not six, and no tessellation. */
+ * Losing the face is the right answer rather than a shortcut: it is under the
+ * slate everywhere it exists, so the only place it is ever visible is exactly
+ * the place it must not be. Cutting proper holes was tried first — a grid with
+ * the covered cells dropped, which on a 12 ft table is 179 x 89 cells and 32,000
+ * triangles for one moulding. It overran the frame buffer and left the whole
+ * body untextured. Five faces and no tessellation costs nothing. */
 static void holed_top(CueVrFrameMesh *m, const CueWorld *w,
                       float x0, float y0, float z0, float x1, float y1, float z1,
                       const float *col) {
@@ -216,45 +205,89 @@ static void holed_top(CueVrFrameMesh *m, const CueWorld *w,
       n[0]=0;n[1]=-1;n[2]=0; quad(m,a,b,c,d,n,x1-x0,z1-z0,col); }
 }
 
+/* A DARK BUCKET under each pocket. Part of the frame; it does not touch the
+ * pocket geometry, which is cue_render's and stays exactly as it is.
+ *
+ * Two things are being hidden. Looking straight down a pocket you must see
+ * blackness with depth rather than a disc — that is what a real pocket looks
+ * like, and it used to be a flat black lid across the whole frame. And looking
+ * at the pocket from the side, through the gap between the pocket cut and the
+ * woodwork, you must not see the inside of the table. That gap is why the bucket
+ * is a good deal WIDER than the pocket: a liner that only just lines the hole
+ * leaves the sight-line through the gap open, which reads as the table being
+ * hollow and unfinished.
+ *
+ * Double-sided, because both of those views exist: from above you are inside the
+ * bucket looking at its far wall, and from the side you are outside it looking
+ * at its near wall. Backface culling would drop whichever one you were using. */
 static void pocket_liners(CueVrFrameMesh *m, const CueTable *t, const CueWorld *w,
-                          float top) {
+                          float top, float ox, float oz) {
+    (void)t;
     if (!w) return;
     const int SIDES = 16;
-    const float DEPTH = 0.115f;
+    /* Deep enough that the floor is nowhere near the mouth — the pocket has to
+     * read as HOLLOW. A shallow bucket is a black disc pasted over the hole, and
+     * a black disc is exactly what a pocket must not look like. Still comfortably
+     * inside the apron, so nothing hangs below the woodwork either. */
+    const float DEPTH = 0.130f;
+/* Just INSIDE, not flush. Clamped exactly to the footprint the bucket wall
+ * lands coplanar with the apron's outer face and shows through it as a black
+ * rectangle — the frame's own face and the darkness behind it fighting for the
+ * same depth. A few millimetres of clearance and it is simply hidden. */
+#define CIN 0.006f
+#define CLX(v) ((v) >  ox-CIN ?  ox-CIN : ((v) < -ox+CIN ? -ox+CIN : (v)))
+#define CLZ(v) ((v) >  oz-CIN ?  oz-CIN : ((v) < -oz+CIN ? -oz+CIN : (v)))
+    const float WIDEN = 1.55f;      /* covers the gap around the cut, not just it */
     for (int k = 0; k < w->npocket; k++) {
         float cx = w->pocket[k].x, cz = w->pocket[k].z;
-        /* A shade wider than the drop, so the liner is never visible THROUGH the
-         * hole it lines. */
-        float r = w->pocket_r[k] * 1.06f;
-        float y0 = top, y1 = top - DEPTH;
+        float r = w->pocket_r[k] * WIDEN;
+        /* STRICTLY below the bed, whatever a design passes in. The bucket is
+         * wider than the pocket, so its rim runs under cloth rather than under
+         * the hole — if it ever came up to y = 0 it would poke through the bed
+         * and lay a black ring around the pocket lip. Clamped here rather than
+         * trusted to each design's own top. */
+        float y0 = top < -0.006f ? top : -0.006f;
+        float y1 = y0 - DEPTH;
         for (int i = 0; i < SIDES; i++) {
             float a0 = 6.2831853f * i / SIDES, a1 = 6.2831853f * (i+1) / SIDES;
             float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
-            float p0[3] = { cx + c0*r, y0, cz + s0*r };
-            float p1[3] = { cx + c1*r, y0, cz + s1*r };
-            float p2[3] = { cx + c1*r, y1, cz + s1*r };
-            float p3[3] = { cx + c0*r, y1, cz + s0*r };
-            /* Facing INWARD: you only ever see a pocket from above and inside. */
-            float mc = -(c0 + c1) * 0.5f, ms = -(s0 + s1) * 0.5f;
+            /* CLAMPED INTO THE FRAME. A pocket sits at or just outside the
+             * corner of the woodwork, so a bucket wide enough to close the gap
+             * around it is wider than the frame — and hangs out past the apron,
+             * which breaks the table's silhouette from every angle you play
+             * from. Squaring it off against the frame's own footprint costs
+             * nothing: what is being shaped here is a volume of darkness and
+             * nobody can see the shape of it. */
+            float p0[3] = { CLX(cx + c0*r), y0, CLZ(cz + s0*r) };
+            float p1[3] = { CLX(cx + c1*r), y0, CLZ(cz + s1*r) };
+            float p2[3] = { CLX(cx + c1*r), y1, CLZ(cz + s1*r) };
+            float p3[3] = { CLX(cx + c0*r), y1, CLZ(cz + s0*r) };
+            float mc = (c0 + c1) * 0.5f, ms = (s0 + s1) * 0.5f;
             float l = sqrtf(mc*mc + ms*ms);
-            float n[3] = { l > 1e-6f ? mc/l : 1.0f, 0.0f, l > 1e-6f ? ms/l : 0.0f };
-            quad(m, p0, p1, p2, p3, n, 0.05f, DEPTH, SHADOW);
+            if (l < 1e-6f) continue;
+            float no[3] = {  mc/l, 0.0f,  ms/l };     /* outward */
+            float ni[3] = { -mc/l, 0.0f, -ms/l };     /* and inward */
+            quad(m, p0, p1, p2, p3, no, 0.05f, DEPTH, SHADOW);
+            quad(m, p0, p1, p2, p3, ni, 0.05f, DEPTH, SHADOW);
         }
-        /* The floor, so it is a pocket and not a pipe through the room. A fan of
-         * quads spanning two segments each — a fan of TRIANGLES would need half
+        /* The floor, so it is a bucket and not a pipe through the room. A fan of
+         * quads spanning two segments each — a fan of triangles would need half
          * of every quad to be degenerate. */
         for (int i = 0; i < SIDES; i += 2) {
             float a0 = 6.2831853f * i / SIDES;
             float a1 = 6.2831853f * (i+1) / SIDES;
             float a2 = 6.2831853f * (i+2) / SIDES;
             float p0[3] = { cx, y1, cz };
-            float p1[3] = { cx + cosf(a0)*r, y1, cz + sinf(a0)*r };
-            float p2[3] = { cx + cosf(a1)*r, y1, cz + sinf(a1)*r };
-            float p3[3] = { cx + cosf(a2)*r, y1, cz + sinf(a2)*r };
+            float p1[3] = { CLX(cx + cosf(a0)*r), y1, CLZ(cz + sinf(a0)*r) };
+            float p2[3] = { CLX(cx + cosf(a1)*r), y1, CLZ(cz + sinf(a1)*r) };
+            float p3[3] = { CLX(cx + cosf(a2)*r), y1, CLZ(cz + sinf(a2)*r) };
             float n[3] = { 0.0f, 1.0f, 0.0f };
             quad(m, p0, p1, p2, p3, n, 0.05f, 0.05f, SHADOW);
         }
     }
+#undef CLX
+#undef CLZ
+#undef CIN
 }
 
 /* ---- Regency ------------------------------------------------------------ */
@@ -322,7 +355,7 @@ static void regency(CueVrFrameMesh *m, const CueTable *t) {
      * below it. The plate is all you see looking down through a pocket, and
      * black is the only right answer — there is nothing down a pocket. The
      * moulding is what you see from the side, so it keeps its timber. */
-    pocket_liners(m, t, WRLD, ap_top);
+    pocket_liners(m, t, WRLD, ap_top, ox, oz);
     holed_top(m, WRLD, -ox - oversail, ap_top - 0.026f, -oz - oversail,
                         ox + oversail, ap_top - 0.007f,  oz + oversail, PAL_LIT);
     /* the apron proper, in four runs so the grain follows each length */
@@ -456,7 +489,7 @@ static void cabinet(CueVrFrameMesh *m, const CueTable *t) {
     const float body_bot = floor_y + leg_h;
     const float TAPER   = 0.078f;                /* per side, over the body */
 
-    pocket_liners(m, t, WRLD, top);
+    pocket_liners(m, t, WRLD, top, ox, oz);
 
     /* The body, as three bands of one continuous taper: a trim course at the
      * top, the long laminate flank, and a trim course at the foot. The
@@ -590,7 +623,7 @@ static void victorian(CueVrFrameMesh *m, const CueTable *t) {
     const float ap_bot = ap_top - ap_h;
     const float floor_y = -cuevr_frame_depth(t);
 
-    pocket_liners(m, t, WRLD, ap_top);
+    pocket_liners(m, t, WRLD, ap_top, ox, oz);
     /* An ovolo top course that oversails properly — this is a heavier table
      * than the Regency and the mouldings are correspondingly bolder. */
     holed_top(m, WRLD, -ox - 0.016f, ap_top - 0.034f, -oz - 0.016f,
@@ -649,7 +682,7 @@ static void american(CueVrFrameMesh *m, const CueTable *t) {
     const float skirt_bot = top - skirt_h;
     const float inlay_y  = top - 0.118f;
 
-    pocket_liners(m, t, WRLD, top);
+    pocket_liners(m, t, WRLD, top, ox, oz);
     /* a flat oversailing cap, square-edged, no ovolo */
     holed_top(m, WRLD, -ox - 0.016f, top - 0.030f, -oz - 0.016f,
                         ox + 0.016f, top - 0.009f,  oz + 0.016f, PAL_LIT);
