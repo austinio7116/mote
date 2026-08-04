@@ -117,4 +117,16 @@ int  mote_xr_target_is_srgb(void);
 /* True when the world really is floor-relative, i.e. y = 0 is the floor. */
 int  mote_xr_floor_relative(void);
 
+/* Whether the host will draw both eyes in one pass through GL_OVR_multiview2.
+ *
+ * The app MUST ask before it compiles its shaders, and compile the multiview
+ * variant if this says so — a vertex shader without `layout(num_views = 2) in;`
+ * drawing into a multiview framebuffer is an INVALID_OPERATION, and the draw is
+ * dropped. Every draw. Which in a passthrough headset looks like an app that
+ * silently failed to start rather than like a graphics error.
+ *
+ * Answerable from the moment the swapchains exist, which is before the app's
+ * gl_init is called, precisely so that it can be asked there. */
+int  mote_xr_multiview(void);
+
 #endif /* MOTE_XR_H */

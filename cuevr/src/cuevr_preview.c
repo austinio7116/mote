@@ -53,6 +53,7 @@ float cuevr_app_grip(void);
 static int s_target_srgb;
 int  mote_xr_target_is_srgb(void) { return s_target_srgb; }
 int  mote_xr_floor_relative(void) { return 1; }   /* the preview's y=0 is the floor */
+int  mote_xr_multiview(void)      { return 0; }   /* one eye, one pass */
 void mote_xr_haptic(float i, int ms) { (void)i; (void)ms; }
 
 /* ---- the fake head and hands -------------------------------------------- */

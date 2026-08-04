@@ -746,34 +746,21 @@ static const char *FS =
 "        float d = diffuse(v_nrm, L);\n"
 "        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), gloss);\n"
 "        o_col = emit(to_linear(c) * (0.34 + 0.70 * d) + vec3(spec) * spec_k, 1.0, 1.0);\n"
-"    } else if (u_mode == 7) {\n"
-"        // The body under the slate — apron, cabinet, legs — in THE SAME TIMBER\n"
-"        // as the cushion rails, through the same timber() the rails use.\n"
+"    } else if (u_mode == 4 || u_mode == 7) {\n"
+"        // The table (4) and the body under it (7), through ONE wood path.\n"
 "        //\n"
-"        // It had its own wood: two sine octaves, no rings, no pores, no knots\n"
-"        // and a fixed white highlight. Next to a rail with cathedral figure and\n"
-"        // an anisotropic varnish it read as painted MDF, and the table looked\n"
-"        // like two different objects bolted together. There is no reason for a\n"
-"        // second wood shader to exist.\n"
+"        // They were two branches with a timber() call each. timber() is a big\n"
+"        // function — rings, cathedral figure, knots, pores, ray fleck and an\n"
+"        // anisotropic varnish — and a GLSL compiler inlines it at every call\n"
+"        // site, so a second one very nearly doubled the fragment shader. A\n"
+"        // desktop driver shrugs at that; a tiled mobile GPU has a bounded\n"
+"        // instruction store and can simply refuse to link, and a program that\n"
+"        // does not link draws NOTHING AT ALL — which in a passthrough headset\n"
+"        // looks exactly like an app that failed to start.\n"
 "        //\n"
-"        // The frame authors its own grain coordinate — uv.x ALONG whichever\n"
-"        // length of timber the vertex belongs to and uv.y across it — which is\n"
-"        // better than what the rails have to do, where the board axes are\n"
-"        // inferred from the geometry. Feed it straight in.\n"
-"        vec2 wq = v_uv;\n"
-"        vec2 warp = (texture(u_nap, wq / 0.55).rg - 0.5) * 2.0;\n"
-"        vec2 fine = (texture(u_nap, vec2(wq.x / 0.22, wq.y / 0.020)).rg - 0.5) * 2.0;\n"
-"        float varn = 0.0;\n"
-"        vec3 c = timber(v_col, wq, warp, fine, v_nrm, L, varn);\n"
-"        // A higher ambient floor than the rails get, and it is not a fudge:\n"
-"        // the rails lie under the lamps and the body does not. Every face of\n"
-"        // an apron or a leg is vertical or downward, so essentially none of\n"
-"        // the key reaches it and what lights it is bounce — off the floor, off\n"
-"        // the walls, off the cloth. At the rails' 0.30 the whole body went to\n"
-"        // near-black and took the figure with it.\n"
-"        float d = diffuse(normalize(v_nrm), L);\n"
-"        o_col = emit(to_linear(c * (0.46 + 0.56 * d)) + vec3(varn) * 0.7, 1.0, 1.0);\n"
-"    } else if (u_mode == 4) {\n"
+"        // The two only ever differed in where the board coordinate comes from\n"
+"        // and how much ambient the surface gets, so that is all that branches.\n"
+
 "        // The table, with the handheld's own shading: colours authored per\n"
 "        // triangle, lit by the ABSOLUTE dot with the overhead key. Absolute\n"
 "        // because the mesh is double-sided — the cloth fan and the pocket\n"
@@ -791,8 +778,9 @@ static const char *FS =
 "        // distance test failed on exactly the surfaces that looked most\n"
 "        // plastic. Normalising first makes it shade-independent, and it works\n"
 "        // for a red or a blue cloth as well as a green one.\n"
-"        float iscloth = 1.0 - smoothstep(0.06, 0.26,\n"
-"            distance(normalize(v_col + 1e-4), normalize(u_cloth + 1e-4)));\n"
+"        // The body is never cloth, so it skips the test outright.\n"
+"        float iscloth = u_mode == 7 ? 0.0 : (1.0 - smoothstep(0.06, 0.26,\n"
+"            distance(normalize(v_col + 1e-4), normalize(u_cloth + 1e-4))));\n"
 "        vec3 sn = normalize(v_nrm);\n"
 "        if (iscloth > 0.01) {\n"
 "            // Same model as the bed: bend the normal, let the sheen make the tone.\n"
@@ -827,8 +815,12 @@ static const char *FS =
 "            // A rail runs along whichever world axis it is long in. On a horizontal face\n"
 "            // the second axis is the other horizontal one; on a vertical face it is HEIGHT,\n"
 "            // because that is the direction across the board there.\n"
-"            vec2 wq;\n"
-"            {\n"
+"            // The frame AUTHORS its grain coordinate — uv.x along whichever\n"
+"            // length of timber the vertex belongs to and uv.y across it — which\n"
+"            // is better than what the rails have to do below, where the board\n"
+"            // axes have to be inferred from the geometry.\n"
+"            vec2 wq = v_uv;\n"
+"            if (u_mode == 4) {\n"
 "                vec3 nn = normalize(v_nrm);\n"
 "                if (abs(nn.y) > 0.7) {\n"
 "                    // Which rail am I standing on? NOT |x| vs |z| — a table is twice\n"
@@ -859,7 +851,15 @@ static const char *FS =
 "        }\n"
 "        \n"
 "        // Specular ADDED after the diffuse, not folded into it.\n"
-"        o_col = emit(to_linear(tc * (0.32 + 0.68 * ndl)) + vec3(wood_spec),\n"
+"        //\n"
+"        // The body gets a higher ambient floor than the rails, and it is not a\n"
+"        // fudge: the rails lie under the lamps and the body does not. Every\n"
+"        // face of an apron or a leg is vertical or downward, so almost none of\n"
+"        // the key reaches it and what lights it is bounce — off the floor, off\n"
+"        // the walls, off the cloth. At the rails' 0.32 the whole body went to\n"
+"        // near-black and took the figure with it.\n"
+"        float amb = u_mode == 7 ? 0.46 : 0.32;\n"
+"        o_col = emit(to_linear(tc * (amb + (1.0 - amb) * ndl)) + vec3(wood_spec),\n"
 "                     1.0, 1.0);\n"
 "    } else if (u_mode == 8) {\n"
 "        // The cloth, and the chalk on it. Rewritten whole rather than patched:\n"
@@ -1091,6 +1091,7 @@ static struct {
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_nlamp, u_lampround, u_eye;
     GLint  u_keyc, u_fill, u_hudv;
+    int    minimal;            /* the real shader would not build; see FS_MIN */
     CueVrLightRig rig;
     int    light_mode;
     MoteVrV3 key_room;
@@ -1117,7 +1118,14 @@ static struct {
  *
  * gl_ViewID_OVR is a VERTEX stage builtin, so the eye position is resolved there
  * and handed to the fragment stage as a varying rather than read from a uniform. */
-static int s_mv_shader;      /* compile the multiview variant */
+/* Compile the multiview variant. Set from mote_xr_multiview() BEFORE
+ * cuevr_render_init, and it is not optional: a vertex shader with no
+ * `layout(num_views = 2) in;` drawing into a multiview framebuffer is an
+ * INVALID_OPERATION and the draw is discarded — so the whole game renders
+ * nothing at all and the headset shows bare passthrough. It sat here declared
+ * and never assigned, which is exactly that. */
+static int s_mv_shader;
+void cuevr_render_set_multiview(int on) { s_mv_shader = on ? 1 : 0; }
 
 static GLuint compile(GLenum type, const char *src) {
     const char *hdr = s_mv_shader
@@ -1140,9 +1148,44 @@ static GLuint compile(GLenum type, const char *src) {
     glCompileShader(s);
     GLint ok = 0;
     glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
-    if (!ok) { char l[1024]; glGetShaderInfoLog(s, sizeof l, NULL, l); LOGI("[cuevr] shader: %s", l); return 0; }
+    /* 4 KB, not 1: a mobile driver's link failure comes back as a paragraph and
+     * the reason is usually at the END of it. Truncating the one message that
+     * explains the failure is not a saving. */
+    if (!ok) { char l[4096]; glGetShaderInfoLog(s, sizeof l, NULL, l); LOGI("[cuevr] shader: %s", l); return 0; }
     return s;
 }
+
+/* The fallback fragment shader.
+ *
+ * If the real one will not compile or link, the app used to draw NOTHING — and
+ * in a passthrough headset an app that draws nothing is indistinguishable from
+ * an app that did not start. There is no console to look at and no way to tell
+ * a shader problem from a crash, which cost an entire debugging session.
+ *
+ * So there is always a program. This one is flat vertex colours and a single
+ * light, which is ugly and unmistakably wrong — you can see at a glance that
+ * the real shader failed, and everything else in the game still works while
+ * somebody reads the log. Every uniform the draw code sets that this does not
+ * declare resolves to -1, and glUniform on -1 is a defined no-op, so the
+ * drawing code needs no knowledge of which program is bound. */
+static const char *FS_MIN =
+"precision highp float;\n"
+"in vec3 v_nrm;\n"
+"in vec2 v_uv;\n"
+"in vec3 v_col;\n"
+"uniform sampler2D u_tex;\n"
+"uniform int  u_mode;\n"
+"uniform vec4 u_colour;\n"
+"out vec4 o_col;\n"
+"void main() {\n"
+"    if (u_mode == 2) {\n"
+"        vec4 t = texture(u_tex, v_uv);\n"
+"        o_col = vec4(t.rgb, t.a * u_colour.a);\n"
+"        return;\n"
+"    }\n"
+"    float d = max(dot(normalize(v_nrm), normalize(vec3(0.15, 0.95, 0.20))), 0.0);\n"
+"    o_col = vec4(v_col * (0.35 + 0.65 * d), 1.0);\n"
+"}\n";
 
 /* ---- the table ---------------------------------------------------------- */
 
@@ -1987,16 +2030,46 @@ static void bake_ball_atlas(void) {
 /* ---- init --------------------------------------------------------------- */
 
 int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) {
-    GLuint vs = compile(GL_VERTEX_SHADER, VS), fs = compile(GL_FRAGMENT_SHADER, FS);
-    if (!vs || !fs) return -1;
-    G.prog = glCreateProgram();
-    glAttachShader(G.prog, vs);
-    glAttachShader(G.prog, fs);
-    glLinkProgram(G.prog);
+    GLuint vs = compile(GL_VERTEX_SHADER, VS);
+    if (!vs) return -1;
+    GLuint fs = compile(GL_FRAGMENT_SHADER, FS);
     GLint ok = 0;
-    glGetProgramiv(G.prog, GL_LINK_STATUS, &ok);
-    if (!ok) { char l[1024]; glGetProgramInfoLog(G.prog, sizeof l, NULL, l); LOGI("[cuevr] link: %s", l); return -1; }
-    glDeleteShader(vs); glDeleteShader(fs);
+    if (fs) {
+        G.prog = glCreateProgram();
+        glAttachShader(G.prog, vs);
+        glAttachShader(G.prog, fs);
+        glLinkProgram(G.prog);
+        glGetProgramiv(G.prog, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            char l[4096];
+            glGetProgramInfoLog(G.prog, sizeof l, NULL, l);
+            LOGI("[cuevr] link: %s", l);
+            glDeleteProgram(G.prog);
+            G.prog = 0;
+        }
+        glDeleteShader(fs);
+    }
+    if (!ok) {
+        /* Draw SOMETHING. See FS_MIN. */
+        LOGI("[cuevr] the shading program failed — falling back to flat shading");
+        GLuint fm = compile(GL_FRAGMENT_SHADER, FS_MIN);
+        if (!fm) { glDeleteShader(vs); return -1; }
+        G.prog = glCreateProgram();
+        glAttachShader(G.prog, vs);
+        glAttachShader(G.prog, fm);
+        glLinkProgram(G.prog);
+        glGetProgramiv(G.prog, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            char l[4096];
+            glGetProgramInfoLog(G.prog, sizeof l, NULL, l);
+            LOGI("[cuevr] even the fallback would not link: %s", l);
+            glDeleteShader(vs); glDeleteShader(fm);
+            return -1;
+        }
+        glDeleteShader(fm);
+        G.minimal = 1;
+    }
+    glDeleteShader(vs);
 
     G.u_mvp      = glGetUniformLocation(G.prog, "u_mvp");
     G.u_model    = glGetUniformLocation(G.prog, "u_model");
@@ -2050,6 +2123,10 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
              G.u_lampC, G.u_eye, G.u_clothsh, G.u_light);
     G.encode = target_is_srgb ? 0 : 1;
     G.tab = *t;
+    /* Before anything can draw. The rig carries the light's COLOUR, which
+     * multiplies every fragment — so a zeroed rig is not "no lighting chosen",
+     * it is a black screen, and set_table (which builds it) has early returns. */
+    cuevr_light_build(G.light_mode, t, &G.rig);
 
     cuevr_render_set_table(t, w);
 

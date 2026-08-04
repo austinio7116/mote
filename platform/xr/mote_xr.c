@@ -881,6 +881,7 @@ int  mote_xr_running(void)         { return S.running; }
 int  mote_xr_has_passthrough(void) { return S.has_passthrough; }
 int  mote_xr_target_is_srgb(void)  { return S.srgb; }
 int  mote_xr_floor_relative(void)  { return S.floor; }
+int  mote_xr_multiview(void)       { return S.multiview; }
 void mote_xr_haptic(float i, int ms) { haptic(i, ms); }
 
 void mote_xr_frame(void) {

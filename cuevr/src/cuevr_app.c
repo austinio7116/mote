@@ -861,6 +861,8 @@ static int app_gl_init(void *u) {
     cue_table_init(&S.tab, CUE_GAME_UK8);
     cue_table_build_world(&S.tab, &S.world);
     S.nballs = cue_table_rack(&S.tab, S.balls);
+    /* Before init: it decides which shader gets compiled. */
+    cuevr_render_set_multiview(mote_xr_multiview());
     if (cuevr_render_init(&S.tab, &S.world, mote_xr_target_is_srgb()) != 0) return -1;
     /* Without this every ball icon and avatar is clipped away at x >= 128. */
     cue_render_icon_target(CUEVR_HUD_W, CUEVR_HUD_H);

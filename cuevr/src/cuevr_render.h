@@ -70,6 +70,10 @@ typedef struct {
     int      hud_rows;       /* logical rows in use; 0 = all CUEVR_HUD_LH */
 } CueVrScene;
 
+/* Ask mote_xr_multiview() and pass it here BEFORE cuevr_render_init — the
+ * shaders are compiled there and the two variants are not interchangeable. */
+void cuevr_render_set_multiview(int on);
+
 int  cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb);
 void cuevr_render_set_table(const CueTable *t, const CueWorld *w);
 /* ---- the cue rack -------------------------------------------------------- *
