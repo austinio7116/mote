@@ -68,6 +68,14 @@ typedef struct {
     MoteVrQ  hud_rot;
     float    hud_w;          /* panel width in metres */
     int      hud_rows;       /* logical rows in use; 0 = all CUEVR_HUD_LH */
+    /* A small HEAD-LOCKED copy of the panel's top-right corner, where the frame
+     * rate is drawn. The counter was already there and unreadable: it lives on
+     * the scoreboard, and the scoreboard hangs past the far end of the table. A
+     * number you cannot read while playing cannot tell you what is slow. */
+    int      fps_visible;
+    MoteVrV3 fps_pos;
+    MoteVrQ  fps_rot;
+    float    fps_w;
 } CueVrScene;
 
 /* Ask mote_xr_multiview() and pass it here BEFORE cuevr_render_init — the
@@ -106,6 +114,14 @@ int         cuevr_render_cue(void);
 /* ---- the body under the slate -------------------------------------------- *
  * Four designs — see cuevr_frame.h. -1 is AUTO: the one that suits the table,
  * which is a cabinet for a pub table and an American for a 9 ft. */
+/* Runtime feature toggles, for finding what is slow while wearing the headset.
+ * Each was an environment variable, which is no use on a Quest. */
+enum { CUEVR_FX_SHADOWS = 0, CUEVR_FX_VARNISH, CUEVR_FX_REFLECT,
+       CUEVR_FX_NAP, CUEVR_FX_FRAME, CUEVR_FX_N };
+void        cuevr_render_fx_set(int which, int on);
+int         cuevr_render_fx(int which);
+const char *cuevr_render_fx_name(int which);
+
 void        cuevr_render_set_body(int i);
 int         cuevr_render_body(void);
 int         cuevr_render_body_count(void);

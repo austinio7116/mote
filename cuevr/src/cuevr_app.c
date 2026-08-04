@@ -107,9 +107,23 @@ enum { TR_LAN = 0, TR_NET, TR_N };
 static const char *TR_NAME[TR_N] = { "LAN (WI-FI)", "INTERNET" };
 enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE };
 
-enum { PS_RESUME = 0, PS_UNDO, PS_RERACK, PS_PLACE, PS_QUIT, PS_N };
-static const char *PS_NAME[PS_N] = {
+/* The pause menu carries the render toggles: finding what is slow means turning
+ * things off ONE AT A TIME while wearing the headset and watching the frame
+ * rate, and an environment variable cannot be reached from in there. */
+enum { PS_RESUME = 0, PS_UNDO, PS_RERACK, PS_PLACE, PS_QUIT,
+       PS_FX0, PS_N = PS_FX0 + CUEVR_FX_N };
+static const char *PS_NAME[5] = {
     "RESUME", "UNDO SHOT", "RE-RACK", "PLACE TABLE", "BACK TO MENU" };
+
+/* A pause row's label. The first five are actions; the rest are the render
+ * toggles, drawn with their state so a row reads as a switch. */
+static const char *ps_label(int i, char *buf, int cap) {
+    if (i < PS_FX0) return PS_NAME[i];
+    int fx = i - PS_FX0;
+    snprintf(buf, (size_t)cap, "%-13s %s", cuevr_render_fx_name(fx),
+             cuevr_render_fx(fx) ? "ON" : "OFF");
+    return buf;
+}
 
 static const struct { CueGameKind kind; const char *name; } MENU[] = {
     { CUE_GAME_UK8,   "UK 8-BALL 7FT" },
@@ -644,7 +658,8 @@ static void hud_build(void) {
              * take back. Showing it greyed says so more clearly than hiding it. */
             int enabled = (i != PS_UNDO) || (S.opp == OPP_PRACTICE && S.have_snap);
             if (on) hud_rect(1, y - 1, HW - 2, 9, RGB565C(30, 46, 72));
-            hud_text_2x(PS_NAME[i], 6, y - 1,
+            char lb[40];
+            hud_text_2x(ps_label(i, lb, sizeof lb), 6, y - 1,
                         !enabled ? RGB565C(70, 78, 92) : (on ? HI : DIM));
         }
         hud_text("A SELECT    MENU RESUME", 4, HH - 6, DIM);
@@ -1331,6 +1346,15 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     S.menu_row = MR_GAME;
                     menu_preview();
                     break;
+                default:
+                    /* A render toggle: flip it and stay on the menu, so the
+                     * frame-rate chip can be watched while it changes. */
+                    if (S.pause_sel >= PS_FX0 && S.pause_sel < PS_N) {
+                        int fx = S.pause_sel - PS_FX0;
+                        cuevr_render_fx_set(fx, !cuevr_render_fx(fx));
+                        S.hud_dirty = 1;
+                    }
+                    break;
                 }
             }
             S.hud_dirty = 1;
@@ -1694,6 +1718,21 @@ static void app_update(void *u, const MoteVrTracking *t) {
         x = mv3_norm(x);
         S.scene.hud_rot = mq_from_axes(x, mv3_cross(z, x), z);
         S.scene.hud_visible = 1;
+
+        /* The frame-rate chip: locked to your view, low and to the right, always.
+         * The counter on the scoreboard is unreadable from the table, and a
+         * number you cannot read while playing cannot tell you what is slow. */
+        {
+            MoteVrV3 f = mq_rot(t->head.q, mv3(0, 0, -1));
+            MoteVrV3 r = mq_rot(t->head.q, mv3(1, 0, 0));
+            MoteVrV3 u = mq_rot(t->head.q, mv3(0, 1, 0));
+            S.scene.fps_pos = mv3_add(t->head.p,
+                mv3_add(mv3_scale(f, 0.60f),
+                        mv3_add(mv3_scale(r, 0.20f), mv3_scale(u, -0.17f))));
+            S.scene.fps_rot = t->head.q;
+            S.scene.fps_w = 0.11f;
+            S.scene.fps_visible = 1;
+        }
 
         /* The cue you are choosing, LYING ON THE TABLE.
          *

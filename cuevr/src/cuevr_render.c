@@ -929,8 +929,17 @@ static const char *FS =
 "                                   210.0, bvarn);\n"
 "                // Varnish. A spliced butt is finished and polished, so the\n"
 "                // figure should have a sheen sliding over it as the cue turns.\n"
-"                spec_k = max(spec_k, bvarn * 3.4);\n"
-"                gloss  = max(gloss, 90.0);\n"
+"                // The varnish PICKS OUT THE GRAIN. A finish is thinner over the\n"
+"                // hard late-season fibres and pools in the soft early ones, so\n"
+"                // the sheen carries the figure instead of lying over it as an\n"
+"                // even gloss — which is what makes polished wood look wet and\n"
+"                // a painted stick not. bvarn already varies with the rings;\n"
+"                // keying the strength to the grain's own light and dark is what\n"
+"                // was missing.\n"
+"                float gtone = dot(burr, vec3(0.30, 0.59, 0.11))\n"
+"                            / max(dot(u_cburr, vec3(0.30, 0.59, 0.11)), 1e-3);\n"
+"                spec_k = max(spec_k, bvarn * 3.0 * (0.35 + 0.95 * gtone));\n"
+"                gloss  = max(gloss, 110.0);\n"
 "                float k = clamp((t - bs_tip) / (bs_base - bs_tip), 0.0, 1.0);\n"
 "                float hw = 0.46 * pow(k, 0.55);\n"
 "                float e = smoothstep(hw, hw * 0.84, d);\n"
@@ -1446,7 +1455,7 @@ static struct {
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_lampN, u_lampI, u_nlamp, u_lampround, u_eye;
-    GLint  u_keyc, u_fill, u_hudv, u_shadow, u_clothlod, u_rawcol, u_varn;
+    GLint  u_keyc, u_fill, u_hudv, u_hudrect, u_shadow, u_clothlod, u_rawcol, u_varn;
     int    minimal;            /* the real shader would not build; see FS_MIN */
     /* The runtime's own controller models, when XR_FB_render_model gives them.
      * They supersede the baked STLs — including the model-to-grip matrix below,
@@ -1664,24 +1673,27 @@ static float cue_radius(float t) {
      * 30 cm and the cue looks like a stick with a knob on. So the joint goes
      * from 19 to 21 mm too, which steepens the shaft's taper by about a quarter
      * over its whole 1.07 m. */
-    if (x < 1.100f) {                                                /* ash shaft */
-        float k = (x - 0.032f) / (1.100f - 0.032f);
-        return 0.0051f + k * (0.0105f - 0.0051f);
-    }
-    if (x < 1.410f) {                                                /* ebony butt */
-        float k = (x - 1.100f) / (1.410f - 1.100f);
-        return 0.0105f + k * (0.0160f - 0.0105f);
+    /* ONE LINEAR TAPER, ferrule to butt.
+     *
+     * It used to be two segments with different rates and then a rounded cap on
+     * the end, which made the last 40 mm swell — and widening the butt only made
+     * the swelling worse, because a bigger radius on the same hemisphere is a
+     * bigger bulb. A cue is a straight cone: it gets steadily thicker all the way
+     * and then stops. The end is closed by a flat cap on the mesh, so nothing
+     * here needs to round it over. */
+    if (x < 1.410f) {
+        float k = (x - 0.032f) / (1.410f - 0.032f);
+        if (k < 0.0f) k = 0.0f;
+        return 0.0051f + k * (0.0160f - 0.0051f);
     }
     /* THE BUTT CAP, nearly flat.
      *
-     * It was 0.0160 * sqrt(1 - k^2 * 0.95) — a hemisphere, so the cue finished
-     * in a bulb. A real butt is cut off square and the edge just broken: it
-     * holds full width almost to the end and then turns over in the last two or
-     * three millimetres. That flat is also what a badge would need to sit on. */
+     * The taper above reaches the cue's MAX WIDTH at 1.410 and the last 40 mm
+     * round over from there. The max is where the cap BEGINS, not the very end
+     * of the stick — running the linear taper all the way to 1.45 made the whole
+     * cue a plain cone with a chopped-off end. */
     float k = (x - 1.410f) / (CUE_LEN - 1.410f);
     if (k > 1.0f) k = 1.0f;
-    /* Plain round, with a shallow break rather than a hemisphere: the bulb was
-     * wrong and so was the near-flat end that replaced it. */
     return 0.0160f * sqrtf(1.0f - k * k * 0.55f);
 }
 
@@ -1770,6 +1782,27 @@ static void build_cue(Builder *b, int slices, int rings) {
             int a = j * (slices + 1) + i, c = a + slices + 1;
             b_quad(b, a, c, c + 1, a + 1);
         }
+    /* CLOSE THE END. The lathe is a tube: the last ring has a radius, so the cue
+     * finished in an open hole you could see up if you looked at the butt end on.
+     * A fan of triangles across it caps the model, facing along the cue. */
+    {
+        float rend = cue_radius(1.0f);
+        int centre = b_vert(b, 0.0f, CUE_LEN, 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f);
+        int base = rings * (slices + 1);
+        for (int i = 0; i < slices; i++) {
+            /* Re-emitted rather than reusing the last ring's vertices: those
+             * carry the SIDE's normal, and a cap sharing them would smear the
+             * end into the flank instead of reading as a cut-off end. */
+            float u0 = (float)i / slices, u1 = (float)(i + 1) / slices;
+            float t0 = u0 * 2.0f * PI, t1 = u1 * 2.0f * PI;
+            int v0 = b_vert(b, cosf(t0) * rend, CUE_LEN, sinf(t0) * rend,
+                            0.0f, 1.0f, 0.0f, u0, 1.0f);
+            int v1 = b_vert(b, cosf(t1) * rend, CUE_LEN, sinf(t1) * rend,
+                            0.0f, 1.0f, 0.0f, u1, 1.0f);
+            b_tri(b, centre, v1, v0);
+        }
+        (void)base;
+    }
 }
 
 /* The table, exactly as the handheld builds it.
@@ -2104,6 +2137,16 @@ int cuevr_render_has_ctrl_model(int hand) {
 /* The body under the slate. -1 asks cuevr_frame.c which design suits the table,
  * which is the default and what most players will leave it on. Takes effect on
  * the next set_table, so the menu's live preview re-racks and rebuilds together. */
+/* ---- feature toggles ----------------------------------------------------- */
+static int s_fx[CUEVR_FX_N] = { 1, 1, 1, 0, 1 };   /* nap off by default */
+static const char *FX_NAME[CUEVR_FX_N] = {
+    "SHADOWS", "VARNISH", "BALL REFLECT", "CLOTH NAP", "FRAME WOOD" };
+void cuevr_render_fx_set(int w, int on) { if (w >= 0 && w < CUEVR_FX_N) s_fx[w] = on ? 1 : 0; }
+int  cuevr_render_fx(int w) { return (w >= 0 && w < CUEVR_FX_N) ? s_fx[w] : 1; }
+const char *cuevr_render_fx_name(int w) {
+    return (w >= 0 && w < CUEVR_FX_N) ? FX_NAME[w] : "?";
+}
+
 void cuevr_render_set_body(int i) {
     G.frame_sel = (i >= 0 && i < CUEVR_FRAME_COUNT) ? i : -1;
 }
@@ -2650,7 +2693,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     mesh_upload(&G.ball, &b);
     b_free(&b);
 
-    b_init(&b, 20 * 64 + 64, 20 * 64 * 6 + 64);
+    b_init(&b, 20 * 64 + 4096, 20 * 64 * 6 + 4096);   /* + the end cap */
     build_cue(&b, 20, 48);
     mesh_upload(&G.cue, &b);
     b_free(&b);
@@ -2988,7 +3031,7 @@ void cuevr_render_eye(const float *view, const float *proj,
      * lamps actually has is a small soft blob — which is exactly what a decal
      * IS. Kept behind CUEVR_SHMAP=1 rather than deleted, because it is the right
      * answer for the cue's shadow and for the pack, and worth returning to. */
-    if (G.sh_fbo && G.sh_prog && !getenv("CUEVR_NOSHMAP")) {
+    if (G.sh_fbo && G.sh_prog && s_fx[CUEVR_FX_SHADOWS] && !getenv("CUEVR_NOSHMAP")) {
         MoteVrV3 Ld = G.key_room;
         if (mv3_len(Ld) < 1e-3f) Ld = mv3(0, 1, 0);
         Ld = mv3_norm(Ld);
@@ -3151,10 +3194,10 @@ void cuevr_render_eye(const float *view, const float *proj,
         /* Plain by default. The nap was the most expensive thing on screen and
          * very little of it survived at playing distance. CUEVR_NAPCLOTH brings
          * it back for comparison. */
-        glUniform1f(G.u_clothlod, getenv("CUEVR_NAPCLOTH") ? 1.0f : 0.0f);
+        glUniform1f(G.u_clothlod, (s_fx[CUEVR_FX_NAP] || getenv("CUEVR_NAPCLOTH")) ? 1.0f : 0.0f);
         { const char *rc = getenv("CUEVR_RAWCOL");
           glUniform1f(G.u_rawcol, rc ? (float)atof(rc) : 0.0f); }
-        glUniform1f(G.u_norefl, getenv("CUEVR_NOREFL") ? 1.0f : 0.0f);
+        glUniform1f(G.u_norefl, (!s_fx[CUEVR_FX_REFLECT] || getenv("CUEVR_NOREFL")) ? 1.0f : 0.0f);
         /* x = the Kajiya-Kay exponent (how tight the sheen is along the grain),
          * y = spare, z = strength. Left as knobs so the finish can be tuned on
          * the headset without a rebuild. */
@@ -3163,6 +3206,7 @@ void cuevr_render_eye(const float *view, const float *proj,
           if ((v = getenv("CUEVR_VAX"))) ax = (float)atof(v);
           if ((v = getenv("CUEVR_VAY"))) ay = (float)atof(v);
           if ((v = getenv("CUEVR_VK")))  k  = (float)atof(v);
+          if (!s_fx[CUEVR_FX_VARNISH]) k = 0.0f;
           glUniform3f(G.u_varn, ax, ay, k); }
     }
 
@@ -3226,10 +3270,11 @@ void cuevr_render_eye(const float *view, const float *proj,
     /* The frame first: it is underneath everything and honestly wound, so it
      * keeps backface culling. */
     if (G.frame.n && !getenv("CUEVR_NOFRAME")) {
+        int fx_wood = s_fx[CUEVR_FX_FRAME];
         set_model(T);
         glBindVertexArray(G.frame.vao);
         if (G.frame_timber_n > 0) {
-            glUniform1i(G.u_mode, 7);          /* the rails' own timber */
+            glUniform1i(G.u_mode, fx_wood ? 7 : 12);   /* 12 = flat, no timber */
             glDrawElements(GL_TRIANGLES, G.frame_timber_n, GL_UNSIGNED_SHORT,
                            (void *)0);
         }
@@ -3646,8 +3691,43 @@ skip_shadows:
         set_model(M);
         draw(&G.quad);
         glEnable(GL_CULL_FACE);
+        glEnable(GL_DEPTH_TEST);
         glUniform3fv(G.u_keyc, 1, G.rig.keyc);
         glUniform1f(G.u_hudv, 1.0f);
+        glUniform4f(G.u_hudrect, 0.0f, 0.0f, 1.0f, 1.0f);
+    }
+
+    /* ---- the frame-rate chip ---- *
+     * Head-locked, small, drawn last with the depth test OFF so nothing can hide
+     * it. It shows the top-right corner of the panel texture, which is where the
+     * counter is already drawn — no second texture and no second layout. The
+     * counter existed before this and was unreadable, because it lives on the
+     * scoreboard and the scoreboard hangs past the far end of the table. */
+    if (s->fps_visible) {
+        glUniform1i(G.u_mode, 2);
+        glUniform3f(G.u_keyc, 1.0f, 1.0f, 1.0f);
+        glUniform4f(G.u_colour, 1, 1, 1, 1);
+        const float FW = 0.34f, FH = 10.0f / (float)CUEVR_HUD_LH;
+        glUniform4f(G.u_hudrect, 1.0f - FW, 0.0f, FW, FH);
+        glUniform1f(G.u_hudv, 1.0f);
+        glBindTexture(GL_TEXTURE_2D, G.hud_tex);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_DEPTH_TEST);
+        float P[16], S2[16], M[16];
+        MoteVrPose hp;
+        hp.p = s->fps_pos;
+        hp.q = s->fps_rot;
+        mm4_from_pose(P, hp, 1.0f);
+        mm4_identity(S2);
+        S2[0] = s->fps_w;
+        S2[5] = s->fps_w * (10.0f / (FW * (float)CUEVR_HUD_LW));
+        mm4_mul(M, P, S2);
+        set_model(M);
+        draw(&G.quad);
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glUniform3fv(G.u_keyc, 1, G.rig.keyc);
+        glUniform4f(G.u_hudrect, 0.0f, 0.0f, 1.0f, 1.0f);
     }
 
     glBindVertexArray(0);
