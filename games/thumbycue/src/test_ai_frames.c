@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* What the front-end multiplies the AI's power01 by. The handheld uses 8.5;
  * CueVR uses 12.0. cue_ai.c's own simulation hard-codes 8.5, so on CueVR every
@@ -115,6 +116,16 @@ typedef struct {
 } Stats;
 static Stats ST;
 
+/* Planning cost. The AI thinks on the RENDER THREAD, SIMS_PER_TICK sims at a
+ * time, so what matters for a headset is not the total but the worst single
+ * tick — that is the frame that hitches. */
+static double s_plan_total, s_plan_worst, s_tick_worst;
+static long   s_plans, s_ticks;
+static double nowsec(void) {
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+
 static int conf_bucket(float s) {
     if (s < 40.0f) return 0;
     if (s < 60.0f) return 1;
@@ -139,7 +150,20 @@ static int play_shot(const CuePersona *p) {
     }
     if (!B[0].on) { B[0].pos = cue_table_cue_home(&T); B[0].on = 1; }
 
-    CueAIShot s = cue_ai_plan(&W, &T, &R, B, N, p, &RNG);
+    double t0 = nowsec();
+    cue_ai_plan_start(&W, &T, &R, B, N, p, &RNG);
+    for (;;) {
+        double a = nowsec();
+        int done = cue_ai_plan_tick();
+        double e = nowsec() - a;
+        if (e > s_tick_worst) s_tick_worst = e;
+        s_ticks++;
+        if (done) break;
+    }
+    CueAIShot s = cue_ai_plan_result();
+    { double e = nowsec() - t0;
+      s_plan_total += e; s_plans++;
+      if (e > s_plan_worst) s_plan_worst = e; }
     if (!s.valid) return 0;
 
     ST.shots++;
@@ -320,6 +344,14 @@ int main(void) {
         printf("  %s  %5ld attempts  %5ld potted  %5.1f%%\n", CB[i],
                ST.conf_att[i], ST.conf_pot[i],
                ST.conf_att[i] ? 100.0 * ST.conf_pot[i] / ST.conf_att[i] : 0.0);
+
+    printf("\nplanning cost (on the render thread, as the game does it):\n");
+    printf("  plans          %ld,  %ld ticks  (%.1f ticks per plan)\n",
+           s_plans, s_ticks, s_plans ? (double)s_ticks / s_plans : 0.0);
+    printf("  mean plan      %6.1f ms\n", s_plans ? s_plan_total * 1e3 / s_plans : 0.0);
+    printf("  WORST plan     %6.1f ms\n", s_plan_worst * 1e3);
+    printf("  WORST tick     %6.1f ms   <- the frame that hitches (13.9 ms at 72 Hz)\n",
+           s_tick_worst * 1e3);
 
     printf("\nposition: the AI's confidence in the shot it left ITSELF\n"
            "          (measured after every pot that kept the table)\n");

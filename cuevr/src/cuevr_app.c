@@ -28,6 +28,7 @@
 #include "cuevr_font_lg.h"
 #include "cuevr_font_xl.h"
 #include "cuevr_net.h"
+#include <SDL.h>   /* the VR compat shim: threads only, no video */
 #include "cue_theme.h"
 #include "cue_ai.h"
 #include "cue_render.h"
@@ -129,6 +130,8 @@ static struct {
     int cloth_idx, frame_idx;    /* cue_theme.h palettes */
     int light_idx;               /* the lighting rig, cuevr_light.h */
     float menu_cue_roll;         /* the display cue turning in the menu */
+    SDL_Thread *ai_th;           /* the opponent, thinking off the render thread */
+    volatile int ai_done;
     int body_idx;                /* the frame model; -1 = the one that suits */
     int cue_idx;                 /* which cue off the rack */
     int levelled;                /* the table has been sited once this session */
@@ -221,7 +224,13 @@ float cuevr_app_grip(void)      { return S.cue.grip; }
 
 /* ---- table setup -------------------------------------------------------- */
 
+static void think_start(void);
+static void think_join(void);
+
 static void start_frame(CueGameKind kind) {
+    /* A re-rack while the opponent is mid-plan would move every ball out from
+     * under the thread reading them. */
+    think_join();
     cue_table_init(&S.tab, kind);
     /* The player's two table colours, from the authored palettes in cue_theme.h
      * — the same values the handheld offers, not a second set invented here. */
@@ -286,8 +295,7 @@ static void hand_over(void) {
         S.state = (S.rules.turn == S.net_me) ? ST_AIM : ST_THINK;
     } else if (S.rules.cpu && S.rules.turn == 1) {
         S.state = ST_THINK;
-        cue_ai_plan_start(&S.world, &S.tab, &S.rules, S.balls, S.nballs,
-                          &CUE_PERSONAS[S.persona], &S.rng);
+        think_start();
     } else {
         S.state = ST_AIM;
     }
@@ -302,6 +310,7 @@ static void snap_take(void) {
     S.have_snap = 1;
 }
 static int snap_restore(void) {
+    think_join();          /* undo rewrites the balls; see think_start */
     if (!S.have_snap) return 0;
     memcpy(S.balls, S.snap_balls, sizeof S.balls);
     S.nballs = S.snap_n;
@@ -837,8 +846,7 @@ static void resolve_shot(void) {
     if (S.rules.cpu && S.rules.turn == 1) {
         arm_shot();
         S.state = ST_THINK;
-        cue_ai_plan_start(&S.world, &S.tab, &S.rules, S.balls, S.nballs,
-                          &CUE_PERSONAS[S.persona], &S.rng);
+        think_start();
     } else {
         arm_shot();
         S.state = ST_AIM;
@@ -912,6 +920,58 @@ static int app_gl_init(void *u) {
 
     S.hud_dirty = 1;
     return 0;
+}
+
+/* ---- the opponent thinks on its own thread -------------------------------- *
+ *
+ * The planner simulates up to 160 candidate shots with the real engine, each one
+ * run to a true rest. Measured over real positions that is 95 ms of work for an
+ * average shot and 434 ms for a hard one, on a desktop — and it was being done
+ * on the RENDER thread, ten sims at a time, so a single frame could spend 172 ms
+ * inside cue_ai_plan_tick(). A frame at 72 Hz is 13.9 ms. In a headset that is
+ * not a dropped frame, it is the world lurching, and it happened every time the
+ * opponent got to the table.
+ *
+ * Ticking it more finely does not fix it — the work is real and it has to happen
+ * before the CPU can play. So it happens somewhere else. The render loop polls a
+ * flag and never touches the planner.
+ *
+ * What makes this safe is that nothing moves while it runs: the balls are at
+ * rest, the rules are settled, and ST_THINK's only other job is letting you
+ * nudge the TABLE around, which the planner never reads. The one shared piece of
+ * mutable state in the physics is the substep, and the planner now integrates at
+ * exactly the live rate, so setting it is a no-op. Every other cue_ai entry point
+ * (place, pushout) is called from states this thread cannot be alive in. */
+static int ai_worker(void *unused) {
+    (void)unused;
+    while (!cue_ai_plan_tick()) { }
+    S.ai_done = 1;
+    return 0;
+}
+
+/* Start thinking. Replaces cue_ai_plan_start at every call site so there is no
+ * way to start a plan that stays on the render thread by accident. */
+static void think_start(void) {
+    if (S.ai_th) { SDL_WaitThread(S.ai_th, NULL); S.ai_th = NULL; }
+    S.ai_done = 0;
+    cue_ai_plan_start(&S.world, &S.tab, &S.rules, S.balls, S.nballs,
+                      &CUE_PERSONAS[S.persona], &S.rng);
+    S.ai_th = SDL_CreateThread(ai_worker, "cuevr-ai", NULL);
+    if (!S.ai_th) {
+        /* No thread: fall back to thinking here. A hitch is better than a game
+         * that never takes its shot. */
+        while (!cue_ai_plan_tick()) { }
+        S.ai_done = 1;
+    }
+}
+
+/* The planner reads the ball array, so ANY path that disturbs it — a re-rack, an
+ * undo, quitting to the menu — has to wait for the thread first. */
+static void think_join(void) {
+    if (!S.ai_th) return;
+    SDL_WaitThread(S.ai_th, NULL);
+    S.ai_th = NULL;
+    S.ai_done = 0;
 }
 
 /* Where the cue ball is, in the room. */
@@ -1376,7 +1436,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
             }
             break;
         }
-        if (cue_ai_plan_tick()) {
+        if (S.ai_done) {
+            think_join();
             S.cpu_shot = cue_ai_plan_result();
             S.cpu_t = 0.0f;
             S.state = ST_CPUCUE;
