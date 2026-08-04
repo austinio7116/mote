@@ -110,7 +110,9 @@ static const char *FS =
 "uniform vec3  u_varn;\n"
 "uniform highp sampler2DShadow u_shmap;\n"
 "uniform mat4  u_shmat;\n"
-"uniform float u_shon;\n"   // along-grain roughness, across, strength   // debug: show the authored vertex colour, unshaded  // 0 = plain cloth, 1 = the full nap  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
+"uniform float u_shon;\n"
+"uniform float u_shtexel;\n"
+"uniform float u_shsoft;\n"   // along-grain roughness, across, strength   // debug: show the authored vertex colour, unshaded  // 0 = plain cloth, 1 = the full nap  // penumbra width, umbra darkness      // fraction of the HUD texture's height in use
 "in vec3 v_eyepos;\n"
 "uniform vec3  u_clothsh;\n"    // cloth bounce tint
 "uniform vec3  u_cloth;\n"      // the cloth's own colour
@@ -190,7 +192,27 @@ static const char *FS =
 "    vec3 q = lp.xyz / lp.w * 0.5 + 0.5;\n"
 "    if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0 || q.z > 1.0)\n"
 "        return 1.0;                 // outside the map: unshadowed, never dark\n"
-"    return texture(u_shmap, q);\n"
+"    // EIGHT TAPS over a real penumbra. Four taps at one texel is not a soft\n"
+"    // shadow, it is a hard test with its staircase filed off — which is what it\n"
+"    // looked like. A ball is 52 mm and the shadow under it on cloth, lit by\n"
+"    // shades a foot or two wide, has a penumbra of several millimetres, so the\n"
+"    // kernel has to be several millimetres too. u_shsoft is that radius in\n"
+"    // texels; at 2048 over a 12 ft table a texel is 2.3 mm.\n"
+"    float texel = 1.0 / u_shtexel;\n"
+"    float r = texel * u_shsoft;\n"
+"    const vec2 K[8] = vec2[8](\n"
+"        vec2( 0.000,  1.000), vec2( 0.707,  0.707),\n"
+"        vec2( 1.000,  0.000), vec2( 0.707, -0.707),\n"
+"        vec2( 0.000, -1.000), vec2(-0.707, -0.707),\n"
+"        vec2(-1.000,  0.000), vec2(-0.707,  0.707));\n"
+"    float sum = 0.0;\n"
+"    for (int i = 0; i < 8; i++) {\n"
+"        // Two rings, so the middle of the penumbra is sampled too rather than\n"
+"        // only its rim — a single ring gives a doughnut, not a gradient.\n"
+"        sum += texture(u_shmap, vec3(q.xy + K[i] * r,        q.z));\n"
+"        sum += texture(u_shmap, vec3(q.xy + K[i] * r * 0.45, q.z));\n"
+"    }\n"
+"    return sum * 0.0625;\n"
 "}\n"
 "float diffuse(vec3 N, vec3 L) {\n"
 "    float ndl = max(dot(N, L), 0.0) * g_sh;\n"
@@ -1312,7 +1334,7 @@ static struct {
     int    frame_timber_n;
     GLuint sh_fbo, sh_tex, sh_prog;
     GLint  sh_u_lightvp, sh_u_model;
-    GLint  u_shmap, u_shmat, u_shon;
+    GLint  u_shmap, u_shmat, u_shon, u_shtexel, u_shsoft;
     int    sh_size;     /* indices of the frame that are wood; see cuevr_frame.h */
     GLuint ball_tex;      /* equirect atlas, one slice per ball id */
     float  fur_scale;
@@ -2437,6 +2459,8 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_shmap      = glGetUniformLocation(G.prog, "u_shmap");
     G.u_shmat      = glGetUniformLocation(G.prog, "u_shmat");
     G.u_shon       = glGetUniformLocation(G.prog, "u_shon");
+    G.u_shtexel    = glGetUniformLocation(G.prog, "u_shtexel");
+    G.u_shsoft     = glGetUniformLocation(G.prog, "u_shsoft");
     G.u_eye        = glGetUniformLocation(G.prog, "u_eye");
     G.u_clothsh    = glGetUniformLocation(G.prog, "u_clothsh");
     G.u_cloth      = glGetUniformLocation(G.prog, "u_cloth");
@@ -2567,7 +2591,10 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     /* The shadow map. 1024 over a 12 ft table is a 3.5 mm texel, which with one
      * hardware PCF fetch gives a penumbra about that wide — small and soft,
      * which is what a table lit by wide overhead sources actually has. */
-    G.sh_size = 1024;
+    /* 2048, not 1024. At 1024 the ortho box over a 12 ft table gives a 4.6 mm
+     * texel — a ball's shadow is eleven texels across and reads as a jagged
+     * stencil. Halving that, with four PCF taps over it, is what makes it soft. */
+    G.sh_size = 2048;
     {
         GLuint vs2 = compile(GL_VERTEX_SHADER, VS_SHADOW);
         GLuint fs2 = compile(GL_FRAGMENT_SHADER, FS_SHADOW);
@@ -2805,6 +2832,15 @@ void cuevr_render_eye(const float *view, const float *proj,
      * to a couple of thousand triangles of depth-only work. */
     float SHMAT[16];
     int sh_ready = 0;
+    /* OFF BY DEFAULT. The map is correct — the cue casts, balls shade each other
+     * in the pack, a ball frozen on a cushion is shaded by it — and it still
+     * looks worse than the decals it was meant to replace: the shadows come out
+     * weak and the balls read as less grounded, which on a table is the whole
+     * job of a shadow. Even at 2048 with four PCF taps, a shadow map is a hard
+     * test softened at the edges, and what a ball on cloth under wide overhead
+     * lamps actually has is a small soft blob — which is exactly what a decal
+     * IS. Kept behind CUEVR_SHMAP=1 rather than deleted, because it is the right
+     * answer for the cue's shadow and for the pack, and worth returning to. */
     if (G.sh_fbo && G.sh_prog && !getenv("CUEVR_NOSHMAP")) {
         MoteVrV3 Ld = G.key_room;
         if (mv3_len(Ld) < 1e-3f) Ld = mv3(0, 1, 0);
@@ -2897,6 +2933,9 @@ void cuevr_render_eye(const float *view, const float *proj,
         glActiveTexture(GL_TEXTURE0);
         glUniform1i(G.u_shmap, 5);
         glUniformMatrix4fv(G.u_shmat, 1, GL_FALSE, SHMAT);
+        glUniform1f(G.u_shtexel, (float)G.sh_size);
+        { const char *v = getenv("CUEVR_SHSOFT");
+          glUniform1f(G.u_shsoft, v ? (float)atof(v) : 3.0f); }
     }
     glUniform1f(G.u_shon, sh_ready ? 1.0f : 0.0f);
     glEnable(GL_CULL_FACE);
