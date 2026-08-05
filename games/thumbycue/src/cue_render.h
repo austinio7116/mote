@@ -79,6 +79,10 @@ int cue_render_project(Vec3 world, float *sx, float *sy, uint16_t *d);
 
 /* Ball lighting style: 0 smooth, 1 hard, 2 toon, 3 gloss. */
 void cue_render_set_light_mode(int m);
+/* Draw the cone/pouch down each pocket, or not. On by default: the handheld
+ * game has nothing under the bed and needs it. CueVR turns it off — it has a
+ * solid body and a black tray under the whole table doing that job. */
+void cue_render_pocket_voids(int on);
 /* Cue-tip contact (side/vert as fractions of R) + cue elevation (rad). The cue
  * stick is drawn resting at this contact point, angled along the elevated cue. */
 void cue_render_set_cue_tip(float side, float vert, float elev);

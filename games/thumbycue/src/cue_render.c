@@ -98,6 +98,13 @@ static inline uint16_t mix565(uint16_t a, uint16_t b, float t) {
 /* Ball lighting style (0=smooth/current, 1=hard spec, 2=toon, 3=gloss). */
 static int s_light_mode = 1;
 void cue_render_set_light_mode(int m) { s_light_mode = m; }
+/* The pocket voids — the cone/pouch drawn down each hole. The handheld game
+ * needs them: it has nothing else under the bed, so without them a pocket is a
+ * hole onto the background. CueVR does not — it stands the table on a solid
+ * body with a black tray under the whole footprint, and a cone inside that
+ * tray is a second, shallower floor competing with the first. */
+static int s_voids = 1;
+void cue_render_pocket_voids(int on) { s_voids = on ? 1 : 0; }
 void cue_render_set_cue_tip(float side, float vert, float elev) {
     s_cue_side = side; s_cue_vert = vert; s_cue_elev = elev;
 }
@@ -599,6 +606,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * (mouth) half is left open so nothing floats above the playing surface. */
     /* Snooker: a deeper, dark-olive "net bag" pouch the potted ball drops into.
      * Pool: a shallow near-black void. */
+  if (s_voids) {
     uint16_t pk_floor = s_is_snooker ? RGB565C(34, 30, 20) : RGB565C(3, 4, 4);
     uint16_t pk_net   = s_is_snooker ? RGB565C(22, 20, 13) : RGB565C(6, 7, 7);
     const float floor_y = s_is_snooker ? -0.105f : -0.055f;
@@ -625,6 +633,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         }
     }
 
+  }
     s_lip_ntab = s_ntab;      /* lips drawn last + depth-write OFF so balls cover them */
     emit_pocket_lips(t, w);   /* drop lip last → layers over the voids cleanly */
 }

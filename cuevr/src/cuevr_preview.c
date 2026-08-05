@@ -25,7 +25,7 @@
 #include "cuevr.h"
 
 /* How many rows below GAME the START row sits. Must track the menu. */
-#define MR_START_STEPS 9
+#define MR_START_STEPS 10
 MoteVrV3 cuevr_app_rest(void);
 int cuevr_app_aiming(void);
 MoteVrV3 cuevr_app_pocket_room(void);
@@ -196,6 +196,7 @@ int main(int argc, char **argv) {
      * the frame time. The only honest way to say what a feature COSTS. */
     int bench = 0;
     { const char *v = getenv("MOTE_VR_BENCH"); if (v) bench = atoi(v); }
+    int bg_light = getenv("CUEVR_BG") != NULL;
     const char *shot = getenv("MOTE_VR_SHOT");
     int shot_frame = 120;
     { const char *v = getenv("MOTE_VR_SHOT_FRAME"); if (v) shot_frame = atoi(v); }
@@ -414,6 +415,12 @@ int main(int argc, char **argv) {
         if (auto_pause >= 0) {
             if (nframe == auto_pause)     s_menu = 1;
             if (nframe == auto_pause + 2) s_menu = 0;
+            /* and tap it again to RESUME. A pause that is never lifted cannot
+             * test what resuming does, which is where the bug was: the menu
+             * stopped a rolling shot and put you back in AIM, so the shot never
+             * resolved and the table was stuck. */
+            if (nframe == auto_pause + 40) s_menu = 1;
+            if (nframe == auto_pause + 42) s_menu = 0;
         }
         if (auto_adjust) {
             if (nframe >= 90 && nframe < 120) {
@@ -480,13 +487,21 @@ int main(int argc, char **argv) {
         app.update(app.user, &t);
 
         glViewport(0, 0, w, h);
-        glClearColor(0.05f, 0.055f, 0.07f, 1.0f);
+        /* CUEVR_BG=light: clear to a glaring colour instead of the dark room.
+         * On the headset anything the app fails to draw shows the passthrough
+         * camera, and a dark hole in a dark render is invisible — so for a
+         * capture that is asking "is this actually closed?", the background has
+         * to be the loudest thing on screen. */
+        if (bg_light) glClearColor(0.95f, 0.30f, 0.85f, 1.0f);
+        else          glClearColor(0.05f, 0.055f, 0.07f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         float view[16], proj[16];
         mm4_view_from_pose(view, t.head);
         mm4_perspective(proj, 62.0f * 3.14159265f/180.0f, (float)w / (float)h, 0.02f, 60.0f);
-        app.draw_eye(app.user, view, proj, 1);
+        /* ...and no room floor either, or the floor grid becomes the thing you
+         * see through the hole and the hole looks closed. */
+        app.draw_eye(app.user, view, proj, bg_light ? 0 : 1);
 
         /* The preview has no audio device, but the mixer is the real one — so
          * pull from it and report the peak. A shot that made no noise is a shot

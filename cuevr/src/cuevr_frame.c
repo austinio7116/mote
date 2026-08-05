@@ -31,6 +31,7 @@
 #include "cuevr_frame.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ---- timbers ------------------------------------------------------------ *
@@ -79,7 +80,7 @@ static const float BRASS[3] = { 0.451f, 0.333f, 0.145f };
  * and no material tag needed on the vertex — the colour a piece is made of says
  * which it is, and every design draws from these arrays. */
 static int s_pass;      /* 0 = emitting timber, 1 = emitting the rest */
-/* The pocket positions live on the WORLD, not the table, and only the liners
+/* The pocket positions live on the WORLD, not the table, and only the cut-outs
  * want them — threading a second parameter through four design signatures and
  * every helper to reach one call each would be worse than this. */
 static const CueWorld *WRLD;
@@ -91,6 +92,107 @@ static int is_timber(const float *col) {
  * it is black: a pocket has no floor to show you, and anything lighter reads
  * as the hole having been filled in with wood — which is what it looked like. */
 static const float SHADOW[3] = { 0.012f, 0.010f, 0.010f };
+/* The tray is the same black, except when CUEVR_TRAYVIS is set — then it is a
+ * bright blue, because a black occluder against black woodwork is invisible
+ * exactly when you need to see where it actually lies. */
+static float TRAY[3] = { 0.012f, 0.010f, 0.010f };
+
+/* ---- where the tray is, so that nothing else goes there ------------------ *
+ *
+ * The tray is the table's floor: a rim rectangle at the base of the pocket
+ * cut-outs, walls leaning in at 30 degrees, a flat bottom below the pockets.
+ * Everything else in this file has to keep out of it, and rather than each
+ * design carrying its own copy of those numbers (which is how the body ended up
+ * cutting across the pocket throats), they are computed once per build and every
+ * piece asks tray_x/tray_z how far in it may reach at its own height. */
+#define TRAY_RIM_Y   (-0.002f)        /* cue_render's bore_bot */
+#define TRAY_SLOPE   (0.5773503f)     /* 30 degrees off vertical */
+static float TRAY_RX, TRAY_RZ, TRAY_BOT;
+static float SURR_X, SURR_Z;      /* cue_render's rail frame, outer face */
+
+static void tray_measure(const CueTable *t, const CueWorld *w) {
+    TRAY_RX = TRAY_RZ = 0.0f;
+    if (w) for (int k = 0; k < w->npocket; k++) {
+        /* the outer corner of the square the pocket is cut out of: cue_render's
+         * bore notch, one bore radius beyond the pocket centre. Over EVERY
+         * pocket, not just the corners — on the shallow-railed tables the middle
+         * pockets' cut-outs reach 18 mm further out in Z than the corners do. */
+        float br = (k < 4) ? t->pr_corner : t->pr_side;
+        float ax = fabsf(w->pocket[k].x) + br, az = fabsf(w->pocket[k].z) + br;
+        if (ax > TRAY_RX) TRAY_RX = ax;
+        if (az > TRAY_RZ) TRAY_RZ = az;
+    }
+    /* Below the bottom of the pocket, not merely below the cloth lip: the lip
+     * stops 23-35 mm down but the throat runs to 55 mm on a pool table and
+     * 105 mm on a snooker one. Both are cue_render's own numbers. */
+    TRAY_BOT = (t->is_snooker ? -0.105f : -0.055f) - 0.008f;
+    /* and the rail above, whose outer face the body has to reach up to */
+    SURR_X = t->half_len + t->rail_w + 0.055f;
+    SURR_Z = t->half_wid + t->rail_w + 0.055f;
+}
+
+/* How far in a piece at height `y` may reach before it fouls the tray.
+ *
+ * The limit is the RIM rectangle, not the sloped wall at that height. The rim
+ * circumscribes every bore — it is one bore radius beyond each pocket centre on
+ * both axes — so a piece kept outside it can never appear inside a pocket, while
+ * a piece that merely follows the wall down shows as a crescent in the bore the
+ * moment the wall has leaned in past the bore's edge. That crescent is what the
+ * first attempt at this produced. Below the tray's floor there is nothing to
+ * avoid: the floor is opaque and hides everything under it. */
+static float tray_lim(float rim, float y) {
+    if (y <= TRAY_BOT) return 0.0f;
+    return rim + 0.002f;                          /* 2 mm so faces never touch */
+}
+static float tray_x(float y) { return tray_lim(TRAY_RX, y); }
+static float tray_z(float y) { return tray_lim(TRAY_RZ, y); }
+/* `v` pulled out to clear the tray at height y, if it does not already. */
+static float clear_x(float v, float y) { float l = tray_x(y); return v < l ? l : v; }
+static float clear_z(float v, float y) { float l = tray_z(y); return v < l ? l : v; }
+
+/* The woodwork's outer face: the design's own, widened only as far as the tray
+ * makes it. Every design was drawn to the rail's width, and on five of the seven
+ * tables that is INSIDE the tray's rim — by 25 mm on the 9 ft American, because
+ * its pockets are the biggest — so the body would stand in the tray. Widening to
+ * the rim plus a hair is the least that fixes it: nothing on the two snooker
+ * tables, 9 mm on the Chinese, 17 mm on the pub tables, 25 mm on the Americans.
+ *
+ * Taking it all the way out to the rail's own face instead was tried and is what
+ * "blockier than they need to be" looks like: a 12 ft table gained 45 mm a side
+ * for no reason, since it was already clear. The ledge that leaves under the
+ * rail is closed by rail_undercut() below, which is a moulding rather than more
+ * bulk. */
+static void body_box(const CueTable *t, float proud, float *ox, float *oz) {
+    (void)proud;
+    float bx = t->half_len + t->rail_w, bz = t->half_wid + t->rail_w;
+    float lx = TRAY_RX + 0.002f,        lz = TRAY_RZ + 0.002f;
+    *ox = bx > lx ? bx : lx;
+    *oz = bz > lz ? bz : lz;
+}
+
+static void slope_face(CueVrFrameMesh *m, const float *p0, const float *p1,
+                       const float *p2, const float *p3,
+                       float outx, float outz,
+                       float glen, float gwid, const float *col);
+
+/* The ledge between the body and the rail above it, closed as an undercut: a
+ * band leaning outward from the top of the body up to the rail's own face at the
+ * cloth line. Real tables have exactly this — the apron is inset and its top
+ * moulding runs out to carry the rail — and without it you look straight in
+ * under the rail and see the inside of the table. */
+static void rail_undercut(CueVrFrameMesh *m, float ox, float oz, float y_in,
+                          const float *col) {
+    if (SURR_X - ox < 0.001f && SURR_Z - oz < 0.001f) return;   /* already flush */
+    const float y_out = 0.0f;                     /* the base of the rail */
+    for (int sg = -1; sg <= 1; sg += 2) {
+        { float a[3]={-ox, y_in, (float)sg*oz},   b[3]={ ox, y_in, (float)sg*oz};
+          float c[3]={ SURR_X, y_out, (float)sg*SURR_Z}, d[3]={-SURR_X, y_out, (float)sg*SURR_Z};
+          slope_face(m, a, b, c, d, 0.0f, (float)sg, ox*2.0f, 0.030f, col); }
+        { float a[3]={(float)sg*ox, y_in, -oz},   b[3]={(float)sg*ox, y_in,  oz};
+          float c[3]={(float)sg*SURR_X, y_out,  SURR_Z}, d[3]={(float)sg*SURR_X, y_out, -SURR_Z};
+          slope_face(m, a, b, c, d, (float)sg, 0.0f, oz*2.0f, 0.030f, col); }
+    }
+}
 
 /* ---- emit --------------------------------------------------------------- */
 
@@ -174,80 +276,52 @@ static void box(CueVrFrameMesh *m, float x0, float y0, float z0,
     quad(m, a,b,c,d, n, gx, dz, col);
 }
 
-/* A top course of the frame, WITHOUT its top face.
- *
- * Every design capped its woodwork with a slab spanning the whole footprint. A
- * slab under a slate is invisible — except through the six holes in the slate,
- * where you were then looking at varnished timber a few millimetres below the
- * bed. The bucket below cannot hide it, because the slab is INSIDE the bucket.
- *
- * Losing the face is the right answer rather than a shortcut: it is under the
- * slate everywhere it exists, so the only place it is ever visible is exactly
- * the place it must not be. Cutting proper holes was tried first — a grid with
- * the covered cells dropped, which on a 12 ft table is 179 x 89 cells and 32,000
- * triangles for one moulding. It overran the frame buffer and left the whole
- * body untextured. Five faces and no tessellation costs nothing. */
-/* A horizontal face with the pockets CUT OUT of it.
- *
- * Any full-footprint face inside the bucket's depth is visible down a pocket —
- * the apron's underside sits about 30 mm below the bed and the bucket goes to
- * 140, so it cut straight through the throat and read as a beam across the hole.
- *
- * Cut as a grid, but with the grid edges taken from the POCKETS rather than laid
- * out uniformly: four subdivisions across each pocket's extent and nothing in
- * between. A uniform 20 mm grid over a 12 ft table is 16,000 cells and overran
- * the frame buffer when it was tried; this is a few hundred, because the only
- * place that needs resolution is the eight centimetres around each hole. */
-static void holed_face(CueVrFrameMesh *m, const CueWorld *w, float y,
-                       float x0, float z0, float x1, float z1,
-                       const float *n, const float *col) {
-    if (!w) {
-        float p0[3]={x0,y,z0},p1[3]={x1,y,z0},p2[3]={x1,y,z1},p3[3]={x0,y,z1};
-        quad(m, p0, p1, p2, p3, n, x1-x0, z1-z0, col);
-        return;
-    }
-    const int SUB = 3;
-    float ex[4 + CUE_MAX_POCKET * (SUB + 1)], ez[4 + CUE_MAX_POCKET * (SUB + 1)];
-    int nx = 0, nz = 0;
-    ex[nx++] = x0; ex[nx++] = x1;
-    ez[nz++] = z0; ez[nz++] = z1;
-    for (int k = 0; k < w->npocket; k++) {
-        float r = w->pocket_r[k] * 1.5f;
-        for (int i = 0; i <= SUB; i++) {
-            float f = (float)i / SUB;
-            float vx = w->pocket[k].x - r + 2.0f*r*f;
-            float vz = w->pocket[k].z - r + 2.0f*r*f;
-            if (vx > x0 && vx < x1 && nx < (int)(sizeof ex/sizeof ex[0])) ex[nx++] = vx;
-            if (vz > z0 && vz < z1 && nz < (int)(sizeof ez/sizeof ez[0])) ez[nz++] = vz;
-        }
-    }
-    for (int i = 1; i < nx; i++) { float e = ex[i]; int j = i-1;
-        while (j >= 0 && ex[j] > e) { ex[j+1] = ex[j]; j--; } ex[j+1] = e; }
-    for (int i = 1; i < nz; i++) { float e = ez[i]; int j = i-1;
-        while (j >= 0 && ez[j] > e) { ez[j+1] = ez[j]; j--; } ez[j+1] = e; }
-    for (int i = 0; i < nx-1; i++) {
-        if (ex[i+1] - ex[i] < 1e-5f) continue;
-        for (int k = 0; k < nz-1; k++) {
-            if (ez[k+1] - ez[k] < 1e-5f) continue;
-            float mx = 0.5f*(ex[i]+ex[i+1]), mz = 0.5f*(ez[k]+ez[k+1]);
-            int covered = 0;
-            for (int q = 0; q < w->npocket && !covered; q++) {
-                float dx = mx - w->pocket[q].x, dz = mz - w->pocket[q].z;
-                float rr = w->pocket_r[q] * 1.5f;
-                if (dx*dx + dz*dz < rr*rr) covered = 1;
-            }
-            if (covered) continue;
-            float p0[3]={ex[i],y,ez[k]},   p1[3]={ex[i+1],y,ez[k]};
-            float p2[3]={ex[i+1],y,ez[k+1]},p3[3]={ex[i],y,ez[k+1]};
-            quad(m, p0, p1, p2, p3, n, ex[i+1]-ex[i], ez[k+1]-ez[k], col);
-        }
-    }
+/* A band running right round the table: four runs of timber rather than one
+ * solid slab. Every bead and trim course here was a slab spanning the whole
+ * footprint — invisible under the slate, and very visible down a pocket, where
+ * it read as the hole having been floored over in wood. */
+static void band(CueVrFrameMesh *m, float ox, float oz, float y0, float y1,
+                 float thick, int grain, const float *col) {
+    float ix = clear_x(ox - thick, y1), iz = clear_z(oz - thick, y1);
+    box(m, -ox, y0, -oz, ox, y1, -iz, grain, col);
+    box(m, -ox, y0,  iz, ox, y1,  oz, grain, col);
+    box(m, -ox, y0, -iz, -ix, y1, iz, 2, col);
+    box(m,  ix, y0, -iz,  ox, y1, iz, 2, col);
 }
 
-static void holed_top(CueVrFrameMesh *m, const CueWorld *w,
-                      float x0, float y0, float z0, float x1, float y1, float z1,
-                      const float *col) {
-    (void)w;
+/* A horizontal face as a RING: the piece's own footprint with the tray's mouth
+ * taken out of it.
+ *
+ * This face is under the slate everywhere it exists, so the only place it can
+ * ever be looked at is down a pocket — and that is exactly the place it must not
+ * be. It used to be cut as a grid with the cells over each pocket dropped, a few
+ * hundred quads to make six holes. With the tray under the whole table the six
+ * holes are one hole: anything inside the tray's mouth is invisible, so the ring
+ * outside it is the entire face that can ever be seen. Four quads. */
+static void ring_under(CueVrFrameMesh *m, float y, float x0, float z0,
+                       float x1, float z1, const float *n, const float *col) {
+    float ix = tray_x(y), iz = tray_z(y);
+    float X = x1 > -x0 ? x1 : -x0, Z = z1 > -z0 ? z1 : -z0;
+    if (ix > X) ix = X;
+    if (iz > Z) iz = Z;
+    /* the two end bands, full width */
+    { float p0[3]={x0,y,z0},p1[3]={-ix,y,z0},p2[3]={-ix,y,z1},p3[3]={x0,y,z1};
+      if (-ix > x0 + 1e-5f) quad(m, p0,p1,p2,p3, n, -ix-x0, z1-z0, col); }
+    { float p0[3]={ix,y,z0},p1[3]={x1,y,z0},p2[3]={x1,y,z1},p3[3]={ix,y,z1};
+      if (x1 > ix + 1e-5f) quad(m, p0,p1,p2,p3, n, x1-ix, z1-z0, col); }
+    /* and the two side bands, between them */
+    { float p0[3]={-ix,y,z0},p1[3]={ix,y,z0},p2[3]={ix,y,-iz},p3[3]={-ix,y,-iz};
+      if (-iz > z0 + 1e-5f) quad(m, p0,p1,p2,p3, n, 2.0f*ix, -iz-z0, col); }
+    { float p0[3]={-ix,y,iz},p1[3]={ix,y,iz},p2[3]={ix,y,z1},p3[3]={-ix,y,z1};
+      if (z1 > iz + 1e-5f) quad(m, p0,p1,p2,p3, n, 2.0f*ix, z1-iz, col); }
+}
+
+/* A top course of the frame: its four outer faces, and an underside cut back to
+ * the tray. No top face — it is under the slate, and the one view that ever
+ * reached it was down a pocket. */
+static void top_course(CueVrFrameMesh *m,
+                       float x0, float y0, float z0, float x1, float y1, float z1,
+                       const float *col) {
     float n[3];
     { float a[3]={x0,y0,z0},b[3]={x1,y0,z0},c[3]={x1,y1,z0},d[3]={x0,y1,z0};
       n[0]=0;n[1]=0;n[2]=-1; quad(m,a,b,c,d,n,x1-x0,y1-y0,col); }
@@ -257,90 +331,74 @@ static void holed_top(CueVrFrameMesh *m, const CueWorld *w,
       n[0]=-1;n[1]=0;n[2]=0; quad(m,a,b,c,d,n,z1-z0,y1-y0,col); }
     { float a[3]={x1,y0,z0},b[3]={x1,y0,z1},c[3]={x1,y1,z1},d[3]={x1,y1,z0};
       n[0]=1;n[1]=0;n[2]=0;  quad(m,a,b,c,d,n,z1-z0,y1-y0,col); }
-    /* The underside, which you DO see when you stoop for a shot — and which you
-     * also see straight down a POCKET, so the holes have to be cut out of it. */
-    { n[0]=0;n[1]=-1;n[2]=0; holed_face(m, w, y0, x0, z0, x1, z1, n, col); }
+    { n[0]=0;n[1]=-1;n[2]=0; ring_under(m, y0, x0, z0, x1, z1, n, col); }
 }
 
-/* A DARK BUCKET under each pocket, with its top cut to the ARC OF THE LIP.
+/* ---- the tray ------------------------------------------------------------ *
  *
- * The cloth lip is not a rim, it is a rolled band: cue_render sweeps it from the
- * bed edge at 1.35x the drop circle down and inward to the drop circle itself,
- * about 0.8 of a pocket radius deep. So a straight cylinder cannot work at any
- * radius. At the bore radius it slices clean through the middle of that band; at
- * the band's outer radius it hangs past the woodwork. Both were tried.
+ * ONE opaque black box under the whole table, and it replaces every previous
+ * attempt to close the pockets off individually.
  *
- * The bucket's top edge therefore follows the same curve the lip does, offset a
- * few millimetres out and down — sitting just under the lip along its whole
- * roll, never touching it, and reaching all the way out to where the lip meets
- * the bed, which is what finally closes the sight-line. Below the lip it drops
- * straight to a flat floor.
+ * What is actually open: cue_render bores each pocket through the wood down to
+ * the bed (bore_bot), and the void/pouch below it starts at the DROP circle,
+ * which is smaller than the bore. That leaves a thin ring around every pocket
+ * with nothing behind it at all — you look through it, past the frame, and out
+ * of the bottom of the table into the room. The frame's own gaps (the body is
+ * narrower than the wood surround above it, and every design leaves the space
+ * between its top course and the slate open) are visible through the same ring.
  *
- * The pocket cut, the throat and the lip are cue_render's and are not touched. */
-static void pocket_liners(CueVrFrameMesh *m, const CueTable *t, const CueWorld *w,
-                          float top, float ox, float oz) {
-    (void)t; (void)ox; (void)oz;
-    if (!w) return;
-    const int SIDES = 20;
-    const int RINGS = 6;              /* stations down the lip's roll */
-    const float CLEAR = 0.004f;       /* how far clear of the lip to stay */
+ * Per-pocket liners were tried twice — a cylinder, then a bucket whose top edge
+ * followed the arc of the cloth lip. Both had to thread a curved surface between
+ * the lip above and the pouch below without touching either, on seven tables and
+ * two pocket profiles; both left seams, and together they cost about 7,000
+ * vertices. A single tray under everything has nothing to thread between,
+ * because it sits below all of it: eight vertices, five quads, and any
+ * sight-line that gets past the cloth lands on it.
+ *
+ * The shape: a rim rectangle at the outer corners of the pocket cut-outs, taken
+ * at their base, walls leaning in at 30 degrees off vertical, and a floor below
+ * the bottom of the pocket. */
+static void black_tray(CueVrFrameMesh *m, const CueTable *t, const CueWorld *w) {
+    if (!w || w->npocket == 0) return;
+    if (getenv("CUEVR_TRAYVIS")) { TRAY[0]=0.05f; TRAY[1]=0.35f; TRAY[2]=1.0f; }
 
-    for (int k = 0; k < w->npocket; k++) {
-        float cx = w->pocket[k].x, cz = w->pocket[k].z;
-        float fd = w->pocket_r[k];        /* the drop circle the lip rolls to */
-        float ld = fd * 0.80f;            /* the deepest lip mode's roll depth */
+    /* Its rim, its slope and its floor are tray_measure()'s — the same numbers
+     * every design keeps out of, so the tray and the woodwork can never disagree
+     * about where the tray is. */
+    (void)t;
+    const float rim_x = TRAY_RX, rim_z = TRAY_RZ;
+    const float rim_y = TRAY_RIM_Y, bot = TRAY_BOT;
+    const float drop  = rim_y - bot;
+    const float inset = drop * TRAY_SLOPE;
+    const float fx = rim_x - inset, fz = rim_z - inset;
 
-        /* The profile: radius and height at each station, following the lip and
-         * standing off it, then a straight drop to the floor. */
-        float pr_[RINGS + 2], py_[RINGS + 2];
-        for (int s2 = 0; s2 <= RINGS; s2++) {
-            float phi = (float)s2 / RINGS * 1.5707963f;
-            float rr = fd * (1.35f - 0.35f * sinf(phi));
-            float yy = -ld * (1.0f - cosf(phi));
-            pr_[s2] = rr + CLEAR;
-            py_[s2] = yy - CLEAR;
+    /* Four walls. The normal faces up and inward — this is the inside of a
+     * funnel, and inside is the only side it is ever seen from. */
+    const float nl = sqrtf(drop*drop + inset*inset);
+    const float nh = drop / nl, nv = inset / nl;
+    struct { float sx, sz; } side[4] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+    for (int s = 0; s < 4; s++) {
+        float sx = side[s].sx, sz = side[s].sz;
+        float n[3] = { -sx * nh, nv, -sz * nh };
+        float p0[3], p1[3], p2[3], p3[3];
+        if (sx != 0.0f) {                        /* a wall at x = +/- rim_x */
+            p0[0]=sx*rim_x; p0[1]=rim_y; p0[2]=-rim_z;
+            p1[0]=sx*rim_x; p1[1]=rim_y; p1[2]= rim_z;
+            p2[0]=sx*fx;    p2[1]=bot;   p2[2]= fz;
+            p3[0]=sx*fx;    p3[1]=bot;   p3[2]=-fz;
+        } else {                                 /* a wall at z = +/- rim_z */
+            p0[0]=-rim_x; p0[1]=rim_y; p0[2]=sz*rim_z;
+            p1[0]= rim_x; p1[1]=rim_y; p1[2]=sz*rim_z;
+            p2[0]= fx;    p2[1]=bot;   p2[2]=sz*fz;
+            p3[0]=-fx;    p3[1]=bot;   p3[2]=sz*fz;
         }
-        /* and the floor, well below the lip so it can never cap it */
-        pr_[RINGS + 1] = fd + CLEAR;
-        py_[RINGS + 1] = -(0.070f + fd * 1.6f);
-        /* the very top ring tucks under the bed rather than standing proud */
-        if (py_[0] > top - 0.002f) py_[0] = top - 0.002f;
-
-        for (int s2 = 0; s2 <= RINGS; s2++) {
-            for (int i = 0; i < SIDES; i++) {
-                float a0 = 6.2831853f * i / SIDES, a1 = 6.2831853f * (i+1) / SIDES;
-                float c0 = cosf(a0), n0 = sinf(a0), c1 = cosf(a1), n1 = sinf(a1);
-                float r0 = pr_[s2],     y0 = py_[s2];
-                float r1 = pr_[s2 + 1], y1 = py_[s2 + 1];
-                float p0[3] = { cx + c0*r0, y0, cz + n0*r0 };
-                float p1[3] = { cx + c1*r0, y0, cz + n1*r0 };
-                float p2[3] = { cx + c1*r1, y1, cz + n1*r1 };
-                float p3[3] = { cx + c0*r1, y1, cz + n0*r1 };
-                float mc = (c0 + c1) * 0.5f, ms = (n0 + n1) * 0.5f;
-                float l = sqrtf(mc*mc + ms*ms);
-                if (l < 1e-6f) continue;
-                /* Double-sided: from above you are inside it looking at the far
-                 * wall, from a low angle outside it looking at the near one. */
-                float no[3] = {  mc/l, 0.0f,  ms/l };
-                float ni[3] = { -mc/l, 0.0f, -ms/l };
-                quad(m, p0, p1, p2, p3, no, 0.05f, 0.05f, SHADOW);
-                quad(m, p0, p1, p2, p3, ni, 0.05f, 0.05f, SHADOW);
-            }
-        }
-        /* The flat floor, as a fan of quads spanning two segments each. */
-        float rf = pr_[RINGS + 1], yf = py_[RINGS + 1];
-        for (int i = 0; i < SIDES; i += 2) {
-            float a0 = 6.2831853f * i / SIDES;
-            float a1 = 6.2831853f * (i+1) / SIDES;
-            float a2 = 6.2831853f * (i+2) / SIDES;
-            float p0[3] = { cx, yf, cz };
-            float p1[3] = { cx + cosf(a0)*rf, yf, cz + sinf(a0)*rf };
-            float p2[3] = { cx + cosf(a1)*rf, yf, cz + sinf(a1)*rf };
-            float p3[3] = { cx + cosf(a2)*rf, yf, cz + sinf(a2)*rf };
-            float n[3] = { 0.0f, 1.0f, 0.0f };
-            quad(m, p0, p1, p2, p3, n, 0.05f, 0.05f, SHADOW);
-        }
+        quad(m, p0, p1, p2, p3, n, 0.05f, 0.05f, TRAY);
     }
+    /* and the floor */
+    { float n[3] = { 0.0f, 1.0f, 0.0f };
+      float p0[3]={-fx,bot,-fz}, p1[3]={fx,bot,-fz};
+      float p2[3]={ fx,bot, fz}, p3[3]={-fx,bot, fz};
+      quad(m, p0, p1, p2, p3, n, 0.05f, 0.05f, TRAY); }
 }
 
 /* ---- Regency ------------------------------------------------------------ */
@@ -360,10 +418,12 @@ static void octagon(float h, float ch, float *px, float *pz) {
     for (int i = 0; i < 8; i++) { px[i] = x[i]; pz[i] = z[i]; }
 }
 
-/* A chamfered, tapered post: the leg, and where most of the character is. A
- * plain box leg makes the whole table look like flat-pack. Grain runs UP it. */
-static void post(CueVrFrameMesh *m, float cx, float cz, float y_top, float y_bot,
-                 float w_top, float w_bot, float chamfer, const float *col)
+/* A chamfered, tapered post whose foot is somewhere other than under its head:
+ * the leg of a pub table rakes outward, and that splay is most of what the
+ * silhouette is. `post()` below is this with the foot under the head. */
+static void raked_post(CueVrFrameMesh *m, float cx, float cz, float bx_, float bz_,
+                       float y_top, float y_bot,
+                       float w_top, float w_bot, float chamfer, const float *col)
 {
     float tx[8], tz[8], bx[8], bz[8];
     octagon(w_top * 0.5f, chamfer, tx, tz);
@@ -374,8 +434,8 @@ static void post(CueVrFrameMesh *m, float cx, float cz, float y_top, float y_bot
         int j = (i + 1) % 8;
         float a[3] = { cx + tx[i], y_top, cz + tz[i] };
         float b[3] = { cx + tx[j], y_top, cz + tz[j] };
-        float c[3] = { cx + bx[j], y_bot, cz + bz[j] };
-        float d[3] = { cx + bx[i], y_bot, cz + bz[i] };
+        float c[3] = { bx_ + bx[j], y_bot, bz_ + bz[j] };
+        float d[3] = { bx_ + bx[i], y_bot, bz_ + bz[i] };
         /* Face normal: outward in plan, tilted a little by the taper so the
          * light breaks along each facet instead of flooding the whole leg. */
         float mx = (tx[i] + tx[j]) * 0.5f, mz = (tz[i] + tz[j]) * 0.5f;
@@ -387,12 +447,18 @@ static void post(CueVrFrameMesh *m, float cx, float cz, float y_top, float y_bot
     }
 }
 
-static void regency(CueVrFrameMesh *m, const CueTable *t) {
-    const float hl = t->half_len, hw = t->half_wid, rw = t->rail_w;
+static void post(CueVrFrameMesh *m, float cx, float cz, float y_top, float y_bot,
+                 float w_top, float w_bot, float chamfer, const float *col) {
+    raked_post(m, cx, cz, cx, cz, y_top, y_bot, w_top, w_bot, chamfer, col);
+}
 
-    /* The outer footprint of the woodwork: the rails' own outer edge, so the
-     * apron sits flush under them rather than proud of or inside them. */
-    const float ox = hl + rw, oz = hw + rw;
+static void regency(CueVrFrameMesh *m, const CueTable *t) {
+    const float hl = t->half_len, hw = t->half_wid;
+    (void)hw;
+
+    /* Out to the rail above, less the 10 mm this design's moulding oversails,
+     * so the moulding is the widest thing and lands flush with the rail. */
+    float ox, oz; body_box(t, 0.010f, &ox, &oz);
 
     /* Apron. Deep enough to read as a cabinet, with a moulded top course that
      * oversails slightly and a bead line struck along it — the two details that
@@ -408,17 +474,21 @@ static void regency(CueVrFrameMesh *m, const CueTable *t) {
      * below it. The plate is all you see looking down through a pocket, and
      * black is the only right answer — there is nothing down a pocket. The
      * moulding is what you see from the side, so it keeps its timber. */
-    pocket_liners(m, t, WRLD, ap_top, ox, oz);
-    holed_top(m, WRLD, -ox - oversail, ap_top - 0.026f, -oz - oversail,
-                        ox + oversail, ap_top - 0.007f,  oz + oversail, PAL_LIT);
-    /* the apron proper, in four runs so the grain follows each length */
-    box(m, -ox, ap_bot, -oz, ox, ap_top - 0.026f, -oz + 0.026f, 0, PAL_WOOD);
-    box(m, -ox, ap_bot,  oz - 0.026f, ox, ap_top - 0.026f, oz, 0, PAL_WOOD);
-    box(m, -ox, ap_bot, -oz + 0.026f, -ox + 0.026f, ap_top - 0.026f, oz - 0.026f, 2, PAL_WOOD);
-    box(m,  ox - 0.026f, ap_bot, -oz + 0.026f, ox, ap_top - 0.026f, oz - 0.026f, 2, PAL_WOOD);
+    top_course(m, -ox - oversail, ap_top - 0.026f, -oz - oversail,
+                   ox + oversail, ap_top - 0.007f,  oz + oversail, PAL_LIT);
+    rail_undercut(m, ox + oversail, oz + oversail, ap_top - 0.007f, PAL_LIT);
+    /* The apron proper, in four runs so the grain follows each length. The inner
+     * faces are pulled out to clear the tray where the two would have met — on a
+     * wide-railed table they never do and the apron keeps its drawn thickness. */
+    const float ap_y = ap_top - 0.026f;                  /* the apron's own top */
+    const float iz_a = clear_z(oz - 0.026f, ap_y);
+    const float ix_a = clear_x(ox - 0.026f, ap_y);
+    box(m, -ox, ap_bot, -oz, ox, ap_y, -iz_a, 0, PAL_WOOD);
+    box(m, -ox, ap_bot,  iz_a, ox, ap_y, oz, 0, PAL_WOOD);
+    box(m, -ox, ap_bot, -iz_a, -ix_a, ap_y, iz_a, 2, PAL_WOOD);
+    box(m,  ix_a, ap_bot, -iz_a, ox, ap_y, iz_a, 2, PAL_WOOD);
     /* bead: a thin darker line struck along the apron, catching a shadow */
-    box(m, -ox - 0.002f, bead_y - bead_d, -oz - 0.002f,
-            ox + 0.002f, bead_y,           oz + 0.002f, 0, PAL_DARK);
+    band(m, ox + 0.002f, oz + 0.002f, bead_y - bead_d, bead_y, 0.030f, 0, PAL_DARK);
 
     /* Cabinet: beams under the slate, seen when you stoop for a shot. Two
      * runners the length of the table and cross members between the legs. */
@@ -534,59 +604,87 @@ static void frustum_band(CueVrFrameMesh *m, float y0, float y1,
 }
 
 static void cabinet(CueVrFrameMesh *m, const CueTable *t) {
-    const float hl = t->half_len, hw = t->half_wid, rw = t->rail_w;
-    const float ox = hl + rw, oz = hw + rw;
-    const float top     = -0.004f;
+    const float hw = t->half_wid;
+    /* A pub table's body has no moulding proud of the rail — the flank IS the
+     * widest thing, so it goes right out to the rail's own face. */
+    float ox, oz; body_box(t, 0.0f, &ox, &oz);
+    const float top     = 0.0f;               /* flush with the base of the rail */
     const float floor_y = -cuevr_frame_depth(t);
-    const float leg_h   = 0.170f;                /* daylight under the body */
+    /* HALF the drop from the cushion to the floor, which is what the reference
+     * photograph actually measures: a Supreme-pattern body is a slab about as
+     * deep as the legs are long. Guessing it by eye gave a deep chest on stubs
+     * twice running. */
+    const float leg_h   = cuevr_frame_depth(t) * 0.50f;
     const float body_bot = floor_y + leg_h;
-    const float TAPER   = 0.078f;                /* per side, over the body */
-
-    pocket_liners(m, t, WRLD, top, ox, oz);
-
-    /* The body, as three bands of one continuous taper: a trim course at the
-     * top, the long laminate flank, and a trim course at the foot. The
-     * half-extents are interpolated down the taper so the three bands are one
-     * unbroken slope and not three stacked boxes. */
-    const float y_a = top - 0.008f;              /* under the black top plate */
-    const float y_b = y_a - 0.052f;              /* bottom of the top trim */
-    const float y_c = body_bot + 0.050f;         /* top of the foot trim */
+    /* Barely any. The body of a Supreme-pattern table is a slab with square
+     * ends; the splay that reads from across the room is in the LEGS, and
+     * putting it in the body instead — 78 mm a side, as this had — gives you a
+     * plant pot. 18 mm is what the mouldings actually take up. */
+    const float TAPER   = 0.018f;
+    const float y_a = top - 0.006f;
     const float H   = y_a - body_bot;
     #define CAB_IN(y)  (TAPER * ((y_a) - (y)) / (H))
+
+    /* A polished strip right under the rail and another along the foot: the two
+     * bright lines that separate the black body from everything above and below
+     * it, and the first thing you see in a photograph of one of these. */
+    const float y_b = y_a - 0.026f;              /* bottom of the top chrome band */
+    const float y_c = body_bot + 0.030f;         /* top of the foot chrome band */
+    rail_undercut(m, ox, oz, y_a, CAB_CHROME);
     frustum_band(m, y_a, y_b, ox, oz,
-                 ox - CAB_IN(y_b), oz - CAB_IN(y_b), CAB_TRIM);
+                 ox - CAB_IN(y_b), oz - CAB_IN(y_b), CAB_CHROME);
     frustum_band(m, y_b, y_c, ox - CAB_IN(y_b), oz - CAB_IN(y_b),
                  ox - CAB_IN(y_c), oz - CAB_IN(y_c), CAB_BODY);
     frustum_band(m, y_c, body_bot, ox - CAB_IN(y_c), oz - CAB_IN(y_c),
-                 ox - TAPER, oz - TAPER, CAB_TRIM);
+                 ox - TAPER, oz - TAPER, CAB_CHROME);
     /* the underside, so there is no hole when you stoop for a shot */
     box(m, -(ox - TAPER), body_bot - 0.012f, -(oz - TAPER),
            ox - TAPER, body_bot, oz - TAPER, 0, SHADOW);
 
-    /* Coin door and ball-return hatch, at the foot end. The two details that
-     * say this one takes pound coins — and they sit on the sloped face, so they
-     * are pushed out along it rather than bolted on flat. */
+    /* Chamfered corner posts with a bright quirk down them. On the real table
+     * the corner is a casting rather than a mitre, and the break of light down
+     * that chamfer is what stops the body reading as a plain black box. */
+    for (int sx = -1; sx <= 1; sx += 2)
+        for (int sz = -1; sz <= 1; sz += 2) {
+            float cx = (float)sx * (ox - 0.052f), cz = (float)sz * (oz - 0.052f);
+            post(m, cx, cz, y_a, body_bot,
+                 0.150f, 0.150f - TAPER * 2.0f, 0.062f, CAB_PANEL);
+            post(m, cx, cz, y_a - 0.002f, y_b, 0.152f, 0.152f, 0.063f, CAB_CHROME);
+        }
+
+    /* Coin mech at the foot end — a recessed plate with a chromed surround,
+     * which is the one piece of clutter a pub table always has. */
     {
         float ymid = (y_b + y_c) * 0.5f;
         float xf = ox - CAB_IN(ymid);
-        box(m, xf - 0.006f, ymid - 0.075f, -hw * 0.30f,
-               xf + 0.010f, ymid + 0.075f,  hw * 0.30f, 2, CAB_PANEL);
-        box(m, xf - 0.004f, ymid + 0.075f, -hw * 0.32f,
-               xf + 0.012f, ymid + 0.092f,  hw * 0.32f, 2, CAB_CHROME);
+        box(m, xf - 0.004f, ymid - 0.055f, -hw * 0.16f,
+               xf + 0.008f, ymid + 0.055f,  hw * 0.16f, 2, CAB_PANEL);
+        box(m, xf - 0.002f, ymid - 0.062f, -hw * 0.18f,
+               xf + 0.010f, ymid - 0.055f,  hw * 0.18f, 2, CAB_CHROME);
+        box(m, xf - 0.002f, ymid + 0.055f, -hw * 0.18f,
+               xf + 0.010f, ymid + 0.062f,  hw * 0.18f, 2, CAB_CHROME);
     }
 
-    /* Legs. Square, chunky, set in at the corners under the narrow end of the
-     * taper, with a chromed foot — which is what a pub table stands on and what
-     * lets you see that it is standing on anything. */
-    const float lw = 0.090f;
+    /* Legs. RAKED: square in section, set well in from the corners at the top
+     * and splaying out and forward to land almost under them, on a chromed
+     * shoe. Vertical stubs under the corners — which is what these were — read
+     * as a box on blocks; the rake is the whole stance of the table. */
+    /* Heavy. These carry a slate bed and they look it: near enough a hand's
+     * breadth square at the head, tapering by a third to the shoe. */
+    const float lw   = 0.190f;
+    const float in_x = 0.130f;                 /* how far in the leg head sits */
+    const float in_z = 0.075f;
+    const float rake = 0.105f;                 /* how far the foot travels out */
     for (int sx = -1; sx <= 1; sx += 2)
         for (int sz = -1; sz <= 1; sz += 2) {
-            float cx = (float)sx * (ox - TAPER - lw * 0.60f);
-            float cz = (float)sz * (oz - TAPER - lw * 0.60f);
-            post(m, cx, cz, body_bot, floor_y + 0.020f, lw, lw * 0.88f,
-                 lw * 0.16f, CAB_PANEL);
-            box(m, cx - lw * 0.52f, floor_y, cz - lw * 0.52f,
-                   cx + lw * 0.52f, floor_y + 0.020f, cz + lw * 0.52f,
+            float hx = (float)sx * (ox - TAPER - in_x);
+            float hz = (float)sz * (oz - TAPER - in_z);
+            float fx = hx + (float)sx * rake;
+            float fz = hz + (float)sz * rake * 0.55f;
+            raked_post(m, hx, hz, fx, fz, body_bot, floor_y + 0.026f,
+                       lw, lw * 0.66f, lw * 0.10f, CAB_BODY);
+            box(m, fx - lw * 0.36f, floor_y, fz - lw * 0.36f,
+                   fx + lw * 0.36f, floor_y + 0.026f, fz + lw * 0.36f,
                    1, CAB_CHROME);
         }
     #undef CAB_IN
@@ -669,30 +767,33 @@ static float baluster(float f) {
 }
 
 static void victorian(CueVrFrameMesh *m, const CueTable *t) {
-    const float hl = t->half_len, hw = t->half_wid, rw = t->rail_w;
-    const float ox = hl + rw, oz = hw + rw;
+    const float hl = t->half_len, hw = t->half_wid;
+    (void)hw;
+    /* less the 16 mm the ovolo oversails */
+    float ox, oz; body_box(t, 0.016f, &ox, &oz);
     const float ap_top = -0.004f;
     const float ap_h   = 0.205f;                  /* deeper than the Regency */
     const float ap_bot = ap_top - ap_h;
     const float floor_y = -cuevr_frame_depth(t);
 
-    pocket_liners(m, t, WRLD, ap_top, ox, oz);
     /* An ovolo top course that oversails properly — this is a heavier table
      * than the Regency and the mouldings are correspondingly bolder. */
-    holed_top(m, WRLD, -ox - 0.016f, ap_top - 0.034f, -oz - 0.016f,
-                        ox + 0.016f, ap_top - 0.008f,  oz + 0.016f, PAL_LIT);
-    holed_top(m, WRLD, -ox - 0.006f, ap_top - 0.046f, -oz - 0.006f,
-                        ox + 0.006f, ap_top - 0.034f,  oz + 0.006f, PAL_DARK);
+    top_course(m, -ox - 0.016f, ap_top - 0.034f, -oz - 0.016f,
+                   ox + 0.016f, ap_top - 0.008f,  oz + 0.016f, PAL_LIT);
+    rail_undercut(m, ox + 0.016f, oz + 0.016f, ap_top - 0.008f, PAL_LIT);
+    top_course(m, -ox - 0.006f, ap_top - 0.046f, -oz - 0.006f,
+                   ox + 0.006f, ap_top - 0.034f,  oz + 0.006f, PAL_DARK);
 
-    box(m, -ox, ap_bot, -oz, ox, ap_top - 0.046f, -oz + 0.028f, 0, PAL_WOOD);
-    box(m, -ox, ap_bot,  oz - 0.028f, ox, ap_top - 0.046f, oz, 0, PAL_WOOD);
-    box(m, -ox, ap_bot, -oz + 0.028f, -ox + 0.028f, ap_top - 0.046f, oz - 0.028f, 2, PAL_WOOD);
-    box(m,  ox - 0.028f, ap_bot, -oz + 0.028f, ox, ap_top - 0.046f, oz - 0.028f, 2, PAL_WOOD);
+    const float ap_y = ap_top - 0.046f;
+    const float iz_a = clear_z(oz - 0.028f, ap_y);
+    const float ix_a = clear_x(ox - 0.028f, ap_y);
+    box(m, -ox, ap_bot, -oz, ox, ap_y, -iz_a, 0, PAL_WOOD);
+    box(m, -ox, ap_bot,  iz_a, ox, ap_y, oz, 0, PAL_WOOD);
+    box(m, -ox, ap_bot, -iz_a, -ix_a, ap_y, iz_a, 2, PAL_WOOD);
+    box(m,  ix_a, ap_bot, -iz_a, ox, ap_y, iz_a, 2, PAL_WOOD);
     /* a carved bead low on the apron, and a beaded bottom edge */
-    box(m, -ox - 0.004f, ap_bot + 0.030f, -oz - 0.004f,
-            ox + 0.004f, ap_bot + 0.040f,  oz + 0.004f, 0, PAL_DARK);
-    box(m, -ox - 0.008f, ap_bot, -oz - 0.008f,
-            ox + 0.008f, ap_bot + 0.014f, oz + 0.008f, 0, PAL_LIT);
+    band(m, ox + 0.004f, oz + 0.004f, ap_bot + 0.030f, ap_bot + 0.040f, 0.030f, 0, PAL_DARK);
+    band(m, ox + 0.008f, oz + 0.008f, ap_bot, ap_bot + 0.014f, 0.030f, 0, PAL_LIT);
 
     /* Legs. A small snooker table is short enough for four; a 10 ft one wants
      * six or the slate sags at the middle pockets, same rule as the Regency. */
@@ -726,8 +827,10 @@ static void victorian(CueVrFrameMesh *m, const CueTable *t) {
  */
 
 static void american(CueVrFrameMesh *m, const CueTable *t) {
-    const float hl = t->half_len, hw = t->half_wid, rw = t->rail_w;
-    const float ox = hl + rw, oz = hw + rw;
+    const float hl = t->half_len, hw = t->half_wid;
+    (void)hw;
+    /* less the 16 mm the cap oversails */
+    float ox, oz; body_box(t, 0.016f, &ox, &oz);
     const float top = -0.004f;
     const float floor_y = -cuevr_frame_depth(t);
 
@@ -735,10 +838,10 @@ static void american(CueVrFrameMesh *m, const CueTable *t) {
     const float skirt_bot = top - skirt_h;
     const float inlay_y  = top - 0.118f;
 
-    pocket_liners(m, t, WRLD, top, ox, oz);
     /* a flat oversailing cap, square-edged, no ovolo */
-    holed_top(m, WRLD, -ox - 0.016f, top - 0.030f, -oz - 0.016f,
-                        ox + 0.016f, top - 0.009f,  oz + 0.016f, PAL_LIT);
+    top_course(m, -ox - 0.016f, top - 0.030f, -oz - 0.016f,
+                   ox + 0.016f, top - 0.009f,  oz + 0.016f, PAL_LIT);
+    rail_undercut(m, ox + 0.016f, oz + 0.016f, top - 0.009f, PAL_LIT);
 
     /* The skirt, in four runs, split above and below the inlay so each band is
      * its own timber and the grain follows each side. */
@@ -750,14 +853,15 @@ static void american(CueVrFrameMesh *m, const CueTable *t) {
         float y0 = bands[b][0], y1 = bands[b][1];
         const float *c = bcol[b];
         float pr = (b == 1) ? 0.005f : 0.0f;     /* the inlay stands slightly proud */
-        box(m, -ox, y0, -oz - pr, ox, y1, -oz + 0.032f, 0, c);
-        box(m, -ox, y0,  oz - 0.032f, ox, y1, oz + pr, 0, c);
-        box(m, -ox - pr, y0, -oz + 0.032f, -ox + 0.032f, y1, oz - 0.032f, 2, c);
-        box(m,  ox - 0.032f, y0, -oz + 0.032f, ox + pr, y1, oz - 0.032f, 2, c);
+        const float iz_s = clear_z(oz - 0.032f, y1);
+        const float ix_s = clear_x(ox - 0.032f, y1);
+        box(m, -ox, y0, -oz - pr, ox, y1, -iz_s, 0, c);
+        box(m, -ox, y0,  iz_s, ox, y1, oz + pr, 0, c);
+        box(m, -ox - pr, y0, -iz_s, -ix_s, y1, iz_s, 2, c);
+        box(m,  ix_s, y0, -iz_s, ox + pr, y1, iz_s, 2, c);
     }
     /* a plain chamfered bottom edge */
-    box(m, -ox + 0.006f, skirt_bot - 0.016f, -oz + 0.006f,
-            ox - 0.006f, skirt_bot,           oz - 0.006f, 0, PAL_LIT);
+    band(m, ox - 0.006f, oz - 0.006f, skirt_bot - 0.016f, skirt_bot, 0.034f, 0, PAL_LIT);
 
     /* Legs: square, tapered on all four faces, at the corners. `post` with no
      * chamfer to speak of gives a square section, which is what this wants —
@@ -798,13 +902,21 @@ void cuevr_frame_build(int which, CueVrFrameMesh *m, const CueTable *t,
     m->nv = m->ni = 0;
     m->overflow = 0;
     WRLD = w;
+    tray_measure(t, w);         /* before anything asks where the tray is */
     /* Timber first, then everything else, with the boundary recorded — the
      * renderer draws the two runs with two different shaders. See is_timber. */
+    /* CUEVR_TRAYONLY: the tray with no table around it, so its shape can be
+     * checked on its own instead of guessed at through a pocket. */
+    int only = getenv("CUEVR_TRAYONLY") != NULL;
     s_pass = 0;
-    CUEVR_FRAMES[which].build(m, t);
+    if (!only) CUEVR_FRAMES[which].build(m, t);
+    black_tray(m, t, w);            /* emits nothing in this pass: it is not timber */
     m->n_timber_idx = m->ni;
     s_pass = 1;
-    CUEVR_FRAMES[which].build(m, t);
+    if (!only) CUEVR_FRAMES[which].build(m, t);
+    /* Every design gets the tray, and gets it from here rather than from its own
+     * body, so a new design cannot forget to close the table off. */
+    black_tray(m, t, w);
     WRLD = NULL;
 }
 

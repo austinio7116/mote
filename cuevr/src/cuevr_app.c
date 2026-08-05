@@ -99,8 +99,12 @@ static const char *OPP_NAME[OPP_N] = { "PRACTICE", "VS CPU", "ONLINE" };
 /* The menu is rows of options rather than a list of games, because there are now
  * six things to choose and a list only chooses one. Up/down picks the row,
  * left/right changes it, A activates. */
-enum { MR_GAME = 0, MR_OPP, MR_STRENGTH, MR_CLOTH, MR_FRAME, MR_BODY,
+enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_CLOTH, MR_FRAME, MR_BODY,
        MR_LIGHT, MR_BALLS, MR_CUE, MR_START, MR_N };
+/* Match lengths. Odd numbers only — a best-of-even can be drawn, and there is
+ * nothing here to play off a draw with. */
+static const int MATCH_LEN[] = { 1, 3, 5, 7, 9, 11 };
+#define MATCH_LEN_N ((int)(sizeof MATCH_LEN / sizeof MATCH_LEN[0]))
 
 /* The pause menu, on the MENU button. */
 /* The lobby, matching the Mote lobby's own shape: pick a transport, then an
@@ -113,14 +117,25 @@ enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE }
 /* The pause menu carries the render toggles: finding what is slow means turning
  * things off ONE AT A TIME while wearing the headset and watching the frame
  * rate, and an environment variable cannot be reached from in there. */
-enum { PS_RESUME = 0, PS_UNDO, PS_RERACK, PS_PLACE, PS_QUIT,
-       PS_FX0, PS_N = PS_FX0 + CUEVR_FX_N };
-static const char *PS_NAME[5] = {
-    "RESUME", "UNDO SHOT", "RE-RACK", "PLACE TABLE", "BACK TO MENU" };
+enum { PS_RESUME = 0, PS_UNDO, PS_RERACK, PS_PLACE, PS_NOMINATE, PS_CONCEDE,
+       PS_QUIT, PS_FX0, PS_N = PS_FX0 + CUEVR_FX_N };
+static const char *PS_NAME[7] = {
+    "RESUME", "UNDO SHOT", "RE-RACK", "PLACE TABLE",
+    "NOMINATE", "CONCEDE FRAME", "BACK TO MENU" };
+static const char *COLOUR_NAME[8] = {
+    "", "", "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
 
 /* A pause row's label. The first five are actions; the rest are the render
  * toggles, drawn with their state so a row reads as a switch. */
-static const char *ps_label(int i, char *buf, int cap) {
+static const char *ps_label(int i, char *buf, int cap, int nominated) {
+    /* NOMINATE carries the colour it will pick next, so the row is both the
+     * control and the readout — you can see what you are about to name without
+     * opening anything. */
+    if (i == PS_NOMINATE) {
+        snprintf(buf, (size_t)cap, "NOMINATE %s",
+                 (nominated >= 2 && nominated <= 7) ? COLOUR_NAME[nominated] : "-");
+        return buf;
+    }
     if (i < PS_FX0) return PS_NAME[i];
     int fx = i - PS_FX0;
     snprintf(buf, (size_t)cap, "%-13s %s", cuevr_render_fx_name(fx),
@@ -190,6 +205,23 @@ static struct {
     float     menu_hold;         /* left menu button held, seconds */
     int       hud_dirty;
     int       dec_latch;
+    /* The press that got you INTO a placement must not also end it. The
+     * A that confirms the table placement carried straight through the
+     * break placement in one frame — SETUP, MENU, PLACE, AIM on one
+     * button-down — so the ball was never actually placeable. */
+    int       place_latch;
+    /* What the MENU tap interrupted. Resuming went to ST_AIM whatever it
+     * was, so pausing during a shot froze the balls mid-flight, never
+     * resolved it, and left you aiming a shot that was already in the
+     * air — the table was stuck for good. */
+    int       pause_from;
+    /* The player named the colour from the menu, so aiming must stop
+     * overriding it — you nominate a cushion-first shot precisely when
+     * the cue is NOT pointing at the ball you mean. Cleared when the
+     * nomination itself is (turn change, or off a colour). */
+    int       nom_manual;
+    int       match_idx;      /* index into MATCH_LEN */
+    int       over_latch;
     int       sited;             /* the table has been put somewhere real */
     float     pref_height;      /* the height they set last time */
 
@@ -281,6 +313,8 @@ static void start_frame(CueGameKind kind) {
     /* Only VS CPU has a CPU. Practice and online are both "player 1 is a person",
      * and in practice that person is also you. */
     cue_rules_init(&S.rules, &S.tab, S.opp == OPP_CPU);
+    S.rules.best_of = MATCH_LEN[S.match_idx];
+    S.rules.ball_in_hand = 1;              /* you break from the D / the string */
     cuevr_render_set_table(&S.tab, &S.world);
     cue_audio_set_snooker(S.tab.is_snooker);
     /* Re-racking the balls does not re-make the player. The bridge height and
@@ -321,8 +355,90 @@ static void menu_preview(void) {
  * "(rules.cpu && turn == 1) ? THINK : AIM" scattered about, which is how a mode
  * ends up almost working: practice never hands the table over at all, and online
  * waits on the wire rather than on the planner. */
+/* Put the cue ball in somebody's hand: on its home spot, legal by construction,
+ * for them to walk about before playing. Returns 1 if the table is now waiting
+ * on YOUR placement; the CPU and the far end place for themselves.
+ *
+ * Every frame starts here, because every one of these games breaks with the ball
+ * in hand — from the D on a snooker or UK table, from behind the head string on
+ * an American one. Racking straight into AIM skipped that, so the break was
+ * always played from wherever cue_table_rack happened to leave the ball. */
+static int take_ball_in_hand(void) {
+    S.balls[0].pos = cue_table_cue_home(&S.tab);
+    S.balls[0].vel = (Vec3){0, 0, 0};
+    S.balls[0].w   = (Vec3){0, 0, 0};
+    S.balls[0].on  = 1;
+    S.rules.ball_in_hand = 0;
+    if (S.opp == OPP_ONLINE && S.rules.turn != S.net_me) return 0;
+    if (S.rules.cpu && S.rules.turn == 1) {
+        /* Not on the break. cue_ai_place is a foul-recovery search — it looks
+         * for the best cut at an object ball, and a full rack has no such thing.
+         * The home spot IS the break position. */
+        if (!S.rules.break_shot)
+            S.balls[0].pos = cue_ai_place(&S.world, &S.tab, &S.rules, S.balls,
+                                          S.nballs, &CUE_PERSONAS[S.persona],
+                                          !S.tab.is_snooker && S.tab.kind != CUE_GAME_US8
+                                              && S.tab.kind != CUE_GAME_US9,
+                                          &S.rng);
+        return 0;
+    }
+    S.state = ST_PLACE;
+    S.place_latch = 1;
+    S.hud_dirty = 1;
+    return 1;
+}
+
+/* Back to whatever the MENU tap interrupted — the shot that is still rolling,
+ * the opponent that is still thinking, the ball you were still placing. */
+static void unpause(void) {
+    int back = S.pause_from;
+    if (S.rules.frame_over) back = ST_OVER;
+    else if (back == ST_PAUSE || back == ST_MENU || back == ST_SETUP
+             || back == ST_LOBBY) back = ST_AIM;
+    /* and the press that resumed must not also put the ball down */
+    if (back == ST_PLACE) S.place_latch = 1;
+    S.state = back;
+    S.hud_dirty = 1;
+}
+
+/* The colour the striker is aiming at, as its value 2..7, or 0.
+ *
+ * A snooker player names their colour out loud; here you name it by pointing the
+ * cue at it, which is the same act and costs no menu. Cast the aim line from the
+ * cue ball and take the first ball it would reach — that IS the nomination,
+ * because it is the ball the cue ball is about to hit. Manual nomination stays
+ * in the pause menu for the shot you mean to play off a cushion. */
+static int aimed_colour(void) {
+    if (!S.rules.kind || S.rules.target != 1) return 0;
+    MoteVrV3 d = S.cue.aim_dir;
+    /* room -> table */
+    float cy = cosf(-S.setup.place.yaw), sy = sinf(-S.setup.place.yaw);
+    float dx = d.x * cy - d.z * sy, dz = d.x * sy + d.z * cy;
+    float l = sqrtf(dx*dx + dz*dz);
+    if (l < 1e-4f) return 0;
+    dx /= l; dz /= l;
+    const float R = S.tab.R;
+    float best_t = 1e9f; int best = 0;
+    for (int i = 1; i < S.nballs; i++) {
+        if (!S.balls[i].on) continue;
+        float ox = S.balls[i].pos.x - S.balls[0].pos.x;
+        float oz = S.balls[i].pos.z - S.balls[0].pos.z;
+        float tt = ox*dx + oz*dz;                    /* along the aim */
+        if (tt <= 0.0f) continue;                    /* behind the cue ball */
+        float px = ox - dx*tt, pz = oz - dz*tt;      /* perpendicular miss */
+        if (px*px + pz*pz > (2.0f*R)*(2.0f*R)) continue;
+        if (tt < best_t) { best_t = tt; best = S.balls[i].id; }
+    }
+    if (best >= CUE_ID_YELLOW && best <= CUE_ID_BLACK)
+        return best - CUE_ID_YELLOW + 2;
+    return 0;
+}
+
 static void hand_over(void) {
+    if (!S.rules.nominated) S.nom_manual = 0;
     if (S.rules.frame_over) { S.state = ST_OVER; S.hud_dirty = 1; return; }
+    /* Before whose-turn routing: nobody can aim until the ball is down. */
+    if (S.rules.ball_in_hand && take_ball_in_hand()) return;
     if (S.opp == OPP_PRACTICE) {
         /* A free table. Fouls are still called and still shown, but the table
          * never changes hands — you are here to play the shot again, not to be
@@ -332,6 +448,18 @@ static void hand_over(void) {
     } else if (S.opp == OPP_ONLINE) {
         S.state = (S.rules.turn == S.net_me) ? ST_AIM : ST_THINK;
     } else if (S.rules.cpu && S.rules.turn == 1) {
+        /* Before it plans a shot at all: a snooker player who cannot catch up
+         * shakes hands. Same test the 2D game used — behind by more than the
+         * balls left can retrieve, by fifteen points with reds still on and
+         * twelve once it is down to the colours. */
+        if (cue_rules_should_concede(&S.rules, 1)) {
+            cue_rules_concede(&S.rules, 1);
+            snprintf(S.msg, sizeof S.msg, "OPPONENT CONCEDES");
+            S.msg_time = 4.0f;
+            S.state = ST_OVER;
+            S.hud_dirty = 1;
+            return;
+        }
         S.state = ST_THINK;
         think_start();
     } else {
@@ -365,6 +493,7 @@ static int snap_restore(void) {
 static void rerack(void) {
     S.nballs = cue_table_rack(&S.tab, S.balls);
     cue_rules_init(&S.rules, &S.tab, S.opp == OPP_CPU);
+    S.rules.ball_in_hand = 1;
     S.have_snap = 0;
     S.shot_events = 0;
     snprintf(S.msg, sizeof S.msg, "RE-RACKED");
@@ -501,6 +630,10 @@ static void hud_build(void) {
         char v[40];
         hud_opt(MR_GAME, "GAME", MENU[S.menu_sel].name, S.menu_row == MR_GAME, 1, TXT, DIM, HI);
         hud_opt(MR_OPP, "OPPONENT", OPP_NAME[S.opp], S.menu_row == MR_OPP, 1, TXT, DIM, HI);
+        {   char mv[16];
+            if (MATCH_LEN[S.match_idx] == 1) snprintf(mv, sizeof mv, "1 FRAME");
+            else snprintf(mv, sizeof mv, "BEST OF %d", MATCH_LEN[S.match_idx]);
+            hud_opt(MR_FRAMES, "MATCH", mv, S.menu_row == MR_FRAMES, 1, TXT, DIM, HI); }
         snprintf(v, sizeof v, "%s %d", CUE_PERSONAS[S.persona].name,
                  CUE_PERSONAS[S.persona].elo);
         hud_opt(MR_STRENGTH, "STRENGTH", v, S.menu_row == MR_STRENGTH,
@@ -649,7 +782,7 @@ static void hud_build(void) {
             int enabled = (i != PS_UNDO) || (S.opp == OPP_PRACTICE && S.have_snap);
             if (on) hud_rect(1, y - 1, HW - 2, 9, RGB565C(30, 46, 72));
             char lb[40];
-            hud_text_2x(ps_label(i, lb, sizeof lb), 6, y - 1,
+            hud_text_2x(ps_label(i, lb, sizeof lb, S.rules.nominated), 6, y - 1,
                         !enabled ? RGB565C(70, 78, 92) : (on ? HI : DIM));
         }
         hud_text("A SELECT    MENU RESUME", 4, HH - 6, DIM);
@@ -701,6 +834,12 @@ static void hud_build(void) {
         if (S.tab.is_snooker) {
             snprintf(b, sizeof b, "%d", S.rules.score[p]);
             hud_text_r_xl(b, HW - 5, y + 1, striker ? TXT : DIM);
+            /* Frames won, left of the points, only when there is a match to
+             * count — a single frame has no tally worth the room. */
+            if (S.rules.best_of > 1) {
+                snprintf(b, sizeof b, "(%d)", S.rules.frames[p]);
+                hud_text_r(b, HW - 34, y + 7, striker ? TXT : DIM);
+            }
         } else {
             /* Pool has no running score, so the board shows what it does have:
              * which group you are on, and how many of it is left. */
@@ -716,6 +855,10 @@ static void hud_build(void) {
                 }
             } else {
                 hud_text_r("OPEN", HW - 6, y + 7, striker ? TXT : DIM);
+            }
+            if (S.rules.best_of > 1) {
+                snprintf(b, sizeof b, "(%d)", S.rules.frames[p]);
+                hud_text_r(b, HW - 44, y + 7, striker ? TXT : DIM);
             }
         }
     }
@@ -743,10 +886,23 @@ static void hud_build(void) {
         }
         int rem = reds * 8 + colours;
         snprintf(b, sizeof b, "REM %d", rem);
-        hud_text_r(b, HW - 22, 51, DIM);
-        cue_render_onball_icon_hs(HW - 11, 55, 8, S.rules.target, S.rules.seq);
+        /* Clear of the SPIN indicator, which lives at x 89..107 on this line and
+         * was being drawn straight over this readout — the ball-on disc at
+         * HW-22 was measured against, but the spin ball sits further left again
+         * and is only there while you are down on the shot, which is exactly
+         * when you are looking at the board. */
+        hud_text_r(b, HW - 42, 51, DIM);
+        /* A nominated colour draws as THAT ball, not as the multicolour "any
+         * colour" disc — the disc is now only right before a nomination
+         * exists. Reuse the clearance path by handing it the nominated value. */
+        /* HW-14, not HW-11: an 8-radius ball centred at HW-11 reaches HW-3 and
+         * sat half off the edge of the panel. */
+        if (S.rules.target == 1 && S.rules.nominated)
+            cue_render_onball_icon_hs(HW - 14, 55, 8, 2, S.rules.nominated);
+        else
+            cue_render_onball_icon_hs(HW - 14, 55, 8, S.rules.target, S.rules.seq);
     } else if (S.tab.kind == CUE_GAME_US9) {
-        cue_render_ball_icon_hs(HW - 11, 55, 8, S.rules.seq > 0 ? S.rules.seq : 1);
+        cue_render_ball_icon_hs(HW - 14, 55, 8, S.rules.seq > 0 ? S.rules.seq : 1);
     }
 
     /* The spin indicator. In VR this matters MORE than on the handheld: with no
@@ -872,6 +1028,7 @@ static void resolve_shot(void) {
         S.rules.ball_in_hand = 0;
         if (!(S.rules.cpu && S.rules.turn == 1)) {
             S.state = ST_PLACE;
+            S.place_latch = 1;
             S.hud_dirty = 1;
             return;
         }
@@ -1078,10 +1235,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
         if (S.menu_hold > 0.02f && S.menu_hold <= 1.0f) {
             /* A tap. */
             if (S.state == ST_PAUSE) {
-                S.state = S.rules.frame_over ? ST_OVER : ST_AIM;
-                S.hud_dirty = 1;
+                unpause();
             } else if (S.state != ST_SETUP && S.state != ST_MENU && S.state != ST_LOBBY) {
                 S.pause_sel = PS_RESUME;
+                S.pause_from = S.state;
                 S.state = ST_PAUSE;
                 S.hud_dirty = 1;
             }
@@ -1117,6 +1274,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 }
                 break;
             case MR_OPP:      S.opp = (S.opp + d + OPP_N) % OPP_N; break;
+            case MR_FRAMES:   S.match_idx = (S.match_idx + d + MATCH_LEN_N) % MATCH_LEN_N; break;
             case MR_STRENGTH: S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS; break;
             case MR_CLOTH:    S.cloth_idx = (S.cloth_idx + d + CUE_NCLOTH) % CUE_NCLOTH; break;
             case MR_FRAME:    S.frame_idx = (S.frame_idx + d + CUE_NFRAME) % CUE_NFRAME; break;
@@ -1312,7 +1470,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             } else if (a) {
                 switch (S.pause_sel) {
                 case PS_RESUME:
-                    S.state = S.rules.frame_over ? ST_OVER : ST_AIM;
+                    unpause();
                     break;
                 case PS_UNDO:
                     /* Practice only, and only if there is a shot to take back. */
@@ -1324,11 +1482,39 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     break;
                 case PS_RERACK:
                     rerack();
-                    S.state = ST_AIM;
+                    hand_over();          /* which puts the ball back in hand */
                     break;
                 case PS_PLACE:
                     S.setup.active = 1;
                     S.state = ST_SETUP;
+                    break;
+                case PS_NOMINATE: {
+                    /* Steps through the colours still on the table rather than
+                     * all six: nominating a ball that has been potted is not a
+                     * choice, it is a mistake waiting to be made. */
+                    if (!S.rules.kind || S.rules.target != 1) break;
+                    int v = S.rules.nominated;
+                    for (int k = 0; k < 6; k++) {
+                        v = (v < 2 || v >= 7) ? 2 : v + 1;
+                        int id = CUE_ID_YELLOW + (v - 2), on = 0;
+                        for (int i = 1; i < S.nballs; i++)
+                            if (S.balls[i].on && S.balls[i].id == id) { on = 1; break; }
+                        if (on) break;
+                    }
+                    cue_rules_nominate(&S.rules, v);
+                    S.nom_manual = 1;
+                    break;
+                }
+                case PS_CONCEDE:
+                    /* Snooker only, and it ends the frame there and then — that
+                     * is what conceding is. The match tally moves with it. */
+                    if (S.rules.kind && !S.rules.frame_over) {
+                        think_join();
+                        cue_rules_concede(&S.rules, S.opp == OPP_ONLINE ? S.net_me : 0);
+                        snprintf(S.msg, sizeof S.msg, "FRAME CONCEDED");
+                        S.msg_time = 3.0f;
+                        S.state = ST_OVER;
+                    }
                     break;
                 case PS_QUIT:
                     if (S.opp == OPP_ONLINE) cuevr_net_stop();
@@ -1389,6 +1575,18 @@ static void app_update(void *u, const MoteVrTracking *t) {
         CueVrShot shot;
         cuevr_cue_update(&S.cue, t, &S.setup.place, cue_ball_room(), S.tab.R, &shot);
         S.hud_dirty = 1;             /* the tip readout moves every frame */
+
+        /* Nominate by aiming. Only while the cue is actually pointing at a
+         * colour — swinging past one on the way to another must not un-nominate
+         * the one you meant, so a null result leaves the last nomination alone
+         * and the pause menu can override it. */
+        if (mine && !S.nom_manual) {
+            int c = aimed_colour();
+            if (c && c != S.rules.nominated) {
+                cue_rules_nominate(&S.rules, c);
+                S.hud_dirty = 1;
+            }
+        }
         if (shot.struck && !mine) shot.struck = 0;
         if (shot.struck) {
             /* The ball leaves faster than the tip arrives. A cue is heavier
@@ -1556,10 +1754,36 @@ static void app_update(void *u, const MoteVrTracking *t) {
             Vec3 p = S.balls[0].pos;
             p.x += d.x * cyw - d.z * syw;
             p.z += d.x * syw + d.z * cyw;
-            S.balls[0].pos = cue_table_clamp_placement(&S.tab, p);
+            /* Clamped against the OTHER BALLS as well as the region, so the ball
+             * slides round an obstruction instead of being parked inside it and
+             * fired out again on the first tick of the shot. */
+            S.balls[0].pos = cue_table_clamp_placement_balls(&S.tab, p,
+                                                             S.balls, S.nballs);
             S.hud_dirty = 1;
         }
-        if (t->hand[MOTE_VR_RIGHT].btn_lower) {
+
+        /* The right stick ORBITS you about the ball you are placing: the table
+         * turns under your feet, keeping the cue ball where it is in the room.
+         * Placement is the one time you genuinely need to see a spot from the
+         * other side, and in a room the size anyone plays this in you cannot
+         * simply walk round to it. */
+        {
+            float rx = t->hand[MOTE_VR_RIGHT].stick_x;
+            if (fabsf(rx) > 0.20f) {
+                MoteVrV3 pivot = cuevr_table_to_room(&S.setup.place, S.balls[0].pos);
+                float a = -rx * 1.2f * dt;
+                float ca = cosf(a), sa = sinf(a);
+                /* swing the table's centre about the pivot, and its facing with it */
+                float ox = S.setup.place.pos.x - pivot.x;
+                float oz = S.setup.place.pos.z - pivot.z;
+                S.setup.place.pos.x = pivot.x + ox * ca - oz * sa;
+                S.setup.place.pos.z = pivot.z + ox * sa + oz * ca;
+                S.setup.place.yaw  += a;
+                S.hud_dirty = 1;
+            }
+        }
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.place_latch = 0;
+        else if (!S.place_latch) {
             arm_shot();
             S.state = ST_AIM;
             S.hud_dirty = 1;
@@ -1589,6 +1813,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.balls[0].on = 1;
             S.rules.ball_in_hand = 0;
             S.state = ST_PLACE;
+            S.place_latch = 1;
         } else {
             arm_shot();
             hand_over();
@@ -1598,7 +1823,29 @@ static void app_update(void *u, const MoteVrTracking *t) {
     }
 
     case ST_OVER:
-        if (t->hand[MOTE_VR_RIGHT].btn_lower) { S.state = ST_MENU; S.hud_dirty = 1; }
+        /* A won frame in an unfinished match leads to the next frame, not back
+         * to the main menu — otherwise "best of 7" is seven trips through the
+         * table setup. A won MATCH goes back. */
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.over_latch = 0;
+        else if (!S.over_latch) {
+            S.over_latch = 1;
+            if (S.rules.best_of > 1 && !S.rules.match_over) {
+                think_join();
+                cue_rules_next_frame(&S.rules, &S.tab);
+                S.nballs = cue_table_rack(&S.tab, S.balls);
+                S.have_snap = 0;
+                S.shot_events = 0;
+                S.nom_manual = 0;
+                snprintf(S.msg, sizeof S.msg, "FRAME %d",
+                         S.rules.frames[0] + S.rules.frames[1] + 1);
+                S.msg_time = 3.0f;
+                S.rules.ball_in_hand = 1;
+                hand_over();
+            } else {
+                S.state = ST_MENU;
+            }
+            S.hud_dirty = 1;
+        }
         break;
     }
 

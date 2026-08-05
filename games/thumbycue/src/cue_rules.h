@@ -31,9 +31,18 @@ typedef struct {
     /* snooker */
     int target;          /* 0 = red, 1 = a colour, 2 = clearance sequence */
     int seq;             /* clearance: value of the colour on (2..7) */
+    /* Which colour the striker is on, as its value 2..7, or 0 for "not yet
+     * nominated". Only meaningful while target == 1. Without it ANY colour was
+     * legal after a red, so there was no wrong colour to pot and no nomination
+     * for a foul to be priced against — a red then the black carried the same
+     * risk as a red then the yellow. */
+    int nominated;
     int reds_left;
     int brk;             /* current break points */
     Vec3 spot[8];        /* colour spots indexed by value 2..7 */
+    float baulk_x, d_radius;  /* the D — a free ball after a scratch is judged
+                               * from every position in it, so the rules need
+                               * its geometry as well as the renderer. */
 
     /* 9-ball push-out (WPA) */
     int pushout_avail;   /* the next shot (first after the break) may be a push-out */
@@ -51,6 +60,14 @@ typedef struct {
     int dec_scratch;     /* the foul was a scratch (cue potted) */
     int dec_offender;    /* player who committed the foul */
     int dec_penalty;     /* penalty already awarded (for restore re-apply) */
+
+    /* ---- the match, not the frame ----
+     * A frame is one rack; a match is the best of N of them. Everything above
+     * resets per frame, everything here carries. */
+    int frames[2];       /* frames won */
+    int best_of;         /* 1 = a single frame, else an odd number */
+    int match_over, match_winner;
+    int conceded;        /* the frame was given up rather than played out */
 } CueRules;
 
 /* decision codes. CUE_DEC_PENDING is parked in r->decision after a snooker foul
@@ -58,6 +75,22 @@ typedef struct {
 enum { CUE_DEC_NONE = 0, CUE_DEC_PENDING, CUE_DEC_PLAY, CUE_DEC_REPLAY, CUE_DEC_FREEBALL };
 
 void cue_rules_init(CueRules *r, const CueTable *t, int cpu);
+/* Re-rack for the next frame of the same match: the frame state resets, the
+ * frame tally and the match length do not. */
+void cue_rules_next_frame(CueRules *r, const CueTable *t);
+
+/* Give the frame up. The opponent takes it, and the match tally moves with it —
+ * which is the whole reason a snooker player concedes rather than potting out a
+ * frame they cannot win. */
+void cue_rules_concede(CueRules *r, int player);
+
+/* Should `player` concede? Ported from the 2D game: they need snookers, and
+ * there are not enough of them left on the table to get. */
+int  cue_rules_should_concede(const CueRules *r, int player);
+
+/* Nominate the colour `value` (2..7) as the ball on. Ignored unless the striker
+ * is on a colour in the reds phase. */
+void cue_rules_nominate(CueRules *r, int value);
 
 /* True if the player to strike has NO full-ball clear path to any ball-on
  * (used pre-shot to flag snookers for the miss / free-ball rules). */

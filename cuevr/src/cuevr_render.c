@@ -628,20 +628,36 @@ static const char *FS =
 "}\n"
 "\n"
 "float mark_cov(vec2 q, float aa) {\n"
-
+"    // The feather STRADDLES the edge rather than being added outside it.\n"
+"    // smoothstep(w, w + aa, d) puts the whole transition beyond the line, so\n"
+"    // the mark grew by however big fwidth was — and fwidth grows with distance\n"
+"    // and with grazing angle, which is why the far side of the table carried a\n"
+"    // fat blurred baulk line and the near side a crisp one. Centred, the width\n"
+"    // is the width wherever you stand.\n"
+"    // A mark thinner than a pixel cannot be drawn at its own width without\n"
+"    // breaking into dashes, so it is widened to one pixel and DIMMED by\n"
+"    // however much it was widened. That keeps the ink constant: the line reads\n"
+"    // the same weight across the whole table and simply fades away into the\n"
+"    // distance instead of flickering.\n"
+"    float px = min(aa, 0.010);\n"
+"    float h  = px * 0.5;\n"
 "    float m = 0.0;\n"
 "    if (u_linew > 0.0) {\n"
+"        float w = max(u_linew, h);\n"
+"        float fade = u_linew / w;\n"
 "        float dl = abs(q.x - u_baulk);\n"
-"        m = 1.0 - smoothstep(u_linew, u_linew + aa, dl);\n"
+"        m = (1.0 - smoothstep(w - h, w + h, dl)) * fade;\n"
 "        if (u_drad > 0.0 && q.x < u_baulk) {\n"
 "            float dr = abs(length(q - vec2(u_baulk, 0.0)) - u_drad);\n"
-"            m = max(m, 1.0 - smoothstep(u_linew, u_linew + aa, dr));\n"
+"            m = max(m, (1.0 - smoothstep(w - h, w + h, dr)) * fade);\n"
 "        }\n"
 "    }\n"
 "    for (int i = 0; i < 8; i++) {\n"
 "        if (i >= u_nspot) break;\n"
+"        float sr = max(u_spotr, h);\n"
+"        float sf = u_spotr / sr;\n"
 "        float d = length(q - u_spots[i]);\n"
-"        m = max(m, 1.0 - smoothstep(u_spotr * 0.72, u_spotr + aa, d));\n"
+"        m = max(m, (1.0 - smoothstep(sr - h, sr + h, d)) * sf);\n"
 "    }\n"
 "    float g1 = vnoise(q * 1600.0);\n"
 "    float g2 = vnoise(q * 420.0 + 3.1);\n"
@@ -2866,6 +2882,9 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
         if (!G.tab_buf || !G.stri_buf) { LOGI("[cuevr] out of memory for the table mesh"); return; }
         cue_render_set_buffers(G.tab_buf, G.stri_buf);
     }
+    /* No pocket cones here: the tray under the frame is the floor of every
+     * pocket now, and a cone inside it is a second, shallower one. */
+    cue_render_pocket_voids(0);
     cue_render_build_table(t, w);
 
     const CueTri *tris = NULL;
@@ -3100,7 +3119,7 @@ void cuevr_render_eye(const float *view, const float *proj,
                 glDrawElements(GL_TRIANGLES, G.ball.n, GL_UNSIGNED_SHORT, 0);
             }
         }
-        if (s->cue_visible && G.cue.n) {
+        if (s->cue_visible && G.cue.n && !getenv("CUEVR_NOCUE")) {
             MoteVrV3 d = mv3_sub(s->cue_butt, s->cue_tip);
             float len = mv3_len(d);
             if (len > 0.02f) {
@@ -3327,7 +3346,7 @@ after_table: ;
      * the blue, pink and black spots along the middle; a pool table keeps its
      * centre and black spots. Same numbers the rack is laid out from, so the
      * chalk is under the ball rather than near it. */
-    if (G.bed.n) {
+    if (G.bed.n && !getenv("CUEVR_NOTABLE")) {
         const CueTable *tb = &G.tab;
         float sp[16]; int ns = 0;
         if (tb->is_snooker) {
@@ -3338,8 +3357,15 @@ after_table: ;
             sp[ns*2] = tb->pink_x;  sp[ns*2+1] =  0.0f;         ns++;
             sp[ns*2] = tb->black_x; sp[ns*2+1] =  0.0f;         ns++;
         } else {
-            sp[ns*2] = 0.0f;        sp[ns*2+1] = 0.0f;          ns++;   /* centre */
-            sp[ns*2] = tb->black_x; sp[ns*2+1] = 0.0f;          ns++;
+            /* A pool table's two spots are the FOOT spot the rack apex sits on
+             * and the HEAD spot on the string. Not the centre of the table and
+             * not black_x, which is a snooker field and zero here — so both
+             * chalk marks were being drawn on top of each other in the middle
+             * of the bed. */
+            sp[ns*2] = tb->half_len * 0.5f; sp[ns*2+1] = 0.0f;  ns++;   /* foot */
+            if (tb->baulk_x != 0.0f) {
+                sp[ns*2] = tb->baulk_x; sp[ns*2+1] = 0.0f;      ns++;   /* head */
+            }
         }
         {
             float r = ((tb->cloth >> 11) & 31) / 31.0f;
@@ -3382,8 +3408,11 @@ after_table: ;
         }
         glUniform1f(G.u_baulk, tb->baulk_x);
         glUniform1f(G.u_drad,  tb->d_radius);
-        glUniform1f(G.u_linew, 0.0016f);      /* a chalk line is ~3 mm wide */
-        glUniform1f(G.u_spotr, 0.0040f);      /* and a spot ~8 mm across */
+        /* HALF-widths, both of them — which the old comments did not say, so the
+         * line was drawn at twice its stated size. A baulk line struck in chalk
+         * is about 2 mm across and a spot about 7 mm. */
+        glUniform1f(G.u_linew, 0.0010f);      /* 2 mm across */
+        glUniform1f(G.u_spotr, 0.0035f);      /* 7 mm across */
         glUniform1i(G.u_nspot, ns);
         glUniform2fv(G.u_spots, ns, sp);
         glUniform1i(G.u_mode, 8);
@@ -3520,7 +3549,9 @@ skip_shadows:
     glEnable(GL_CULL_FACE);
 
     /* ---- the cue ---- */
-    if (s->cue_visible) {
+    /* CUEVR_NOCUE: leave the cue out — a top-down capture wants the cloth
+     * markings, and the cue lies straight across the D. */
+    if (s->cue_visible && !getenv("CUEVR_NOCUE")) {
         glUniform1i(G.u_mode, 5);
         /* The one piece of aim feedback there is: the ferrule goes green when
          * the cue line actually meets the ball. No aim line, no ghost ball —

@@ -131,6 +131,14 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
      * pocket-mouth size so it tracks the official openings: a corner has a deep
      * fall (~0.6× its mouth radius), a middle pocket is shallow and the ball
      * must enter centrally, so it pulls straight back only a little (~0.3×). */
+    /* The head string, for the US-style tables that have one instead of a D.
+     * It has to live in `baulk_x` because that is the field every renderer asks
+     * for the cross-bed line — leave it zero and the line is drawn down the
+     * middle of the table, which is exactly what CueVR was doing. d_radius stays
+     * zero: an American table has a head string and no D. */
+    if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 || kind == CUE_GAME_CN8)
+        t->baulk_x = -t->half_len * 0.5f;
+
     t->drop_back      = 0.60f * t->pr_corner;
     t->drop_back_side = 0.30f * t->pr_side;
 }
@@ -337,7 +345,48 @@ Vec3 cue_table_cue_home(const CueTable *t) {
 /* Clamp a desired cue-ball placement to the legal ball-in-hand region:
  * inside the D (snooker / UK8) or behind the head string (US pool). Returns the
  * clamped XZ (y left to the caller). */
+static Vec3 clamp_region(const CueTable *t, Vec3 p);
+
 Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p) {
+    return cue_table_clamp_placement_balls(t, p, NULL, 0);
+}
+
+/* The legal region, and then out of anything already standing in it.
+ *
+ * Region-only clamping let the player park the cue ball inside another ball,
+ * which the solver then resolved by firing both of them apart on the first
+ * tick. Pushing out and re-clamping alternately is what makes the ball SLIDE
+ * around an obstruction instead of stopping dead at it or passing through: each
+ * pass moves it clear of the nearest ball, then back inside the region, and the
+ * two settle within a few passes. Six is enough for the worst case anyone can
+ * drive a stick into — a ball wedged against the baulk cushion between two
+ * others — and if it somehow does not settle, the last legal position stands. */
+Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
+                                     const CueBall *balls, int n) {
+    const float R = t->R;
+    const float sep = 2.0f * R + 0.0004f;      /* a whisker of daylight */
+    for (int pass = 0; pass < 6; pass++) {
+        p = clamp_region(t, p);
+        int moved = 0;
+        for (int i = 1; i < n; i++) {
+            if (!balls[i].on) continue;
+            float dx = p.x - balls[i].pos.x, dz = p.z - balls[i].pos.z;
+            float d2 = dx*dx + dz*dz;
+            if (d2 >= sep*sep) continue;
+            float d = sqrtf(d2);
+            if (d < 1e-5f) {                   /* dead centre: pick a direction */
+                dx = 1.0f; dz = 0.0f; d = 1.0f;
+            }
+            p.x = balls[i].pos.x + dx / d * sep;
+            p.z = balls[i].pos.z + dz / d * sep;
+            moved = 1;
+        }
+        if (!moved) break;
+    }
+    return p;
+}
+
+static Vec3 clamp_region(const CueTable *t, Vec3 p) {
     float R = t->R;
     if (t->is_snooker || t->kind == CUE_GAME_UK8) {
         /* the D: a half-disc of radius d_radius centred on (baulk_x,0), bulging
@@ -350,8 +399,9 @@ Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p) {
         if (d > rmax) { float s = rmax / d; p.x = t->baulk_x + dx*s; p.z = dz*s; }
         return p;
     }
-    /* US pool: behind the head string (at quarter table from the baulk end). */
-    float head = -t->half_len * 0.5f;
+    /* US pool: behind the head string. baulk_x carries it now, so the number
+     * is not written down twice and cannot drift from the line that is drawn. */
+    float head = t->baulk_x;
     float lim = t->half_wid - R;
     if (p.x > head - R) p.x = head - R;
     if (p.x < -(t->half_len - R)) p.x = -(t->half_len - R);
@@ -402,7 +452,12 @@ static int rack_pool(const CueTable *t, CueBall *b) {
             set_ball(&b[n++], rows[row][k], x, z, R);
         }
     }
-    set_ball(&b[0], CUE_ID_CUE, -t->half_len * 0.5f, 0.0f, R);
+    /* From cue_table_cue_home(), not from a repeat of the head-string number:
+     * a UK table breaks from inside the D, and hard-coding -hl/2 here put the
+     * cue ball a hand's breadth IN FRONT of its own baulk line — an illegal
+     * break, on the centre line, on the one table whose rules this file
+     * already knew. */
+    { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
     return n;
 }
 
@@ -420,7 +475,7 @@ static int rack_9ball(const CueTable *t, CueBall *b) {
     set_ball(&b[7], 6, footx + 3*dx,  -R,     R);
     set_ball(&b[8], 7, footx + 3*dx,  +R,     R);
     set_ball(&b[9], 8, footx + 4*dx,   0.0f,  R);
-    set_ball(&b[0], CUE_ID_CUE, -t->half_len * 0.5f, 0.0f, R);
+    { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
     return 10;
 }
 

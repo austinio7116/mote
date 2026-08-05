@@ -84,5 +84,11 @@ Vec3 cue_table_cue_home(const CueTable *t);
 /* Clamp a desired placement to the legal ball-in-hand region (the D for
  * snooker/UK8, behind the head string for US pool). */
 Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p);
+/* The same, but also pushed clear of every ball already on the table. Use
+ * this wherever the live balls are to hand: region-only clamping lets the
+ * player park the cue ball inside another one, and the solver then fires the
+ * pair apart on the first tick of the shot. */
+Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
+                                     const CueBall *balls, int n);
 
 #endif

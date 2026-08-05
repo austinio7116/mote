@@ -9,6 +9,8 @@
 #include <string.h>
 #include <stdio.h>
 
+static void book_frame(CueRules *r, int winner);
+
 /* ---- ball classification --------------------------------------------- */
 static int pool_group(int id) {            /* 1 low, 2 high, 0 = the 8 */
     if (id >= 1 && id <= 7) return 1;
@@ -43,6 +45,8 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
     r->cpu = cpu;
     r->turn = 0; r->winner = -1; r->open = 1; r->break_shot = 1;
     r->shots_remaining = 1; r->two_shot = 0; r->free_shot = 0;
+    r->baulk_x = t->baulk_x; r->d_radius = t->d_radius;
+    r->best_of = 1;
     if (r->kind) {
         r->target = 0; r->reds_left = t->reds ? t->reds : 15;
         /* colour spots by value 2..7 */
@@ -125,6 +129,7 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
             /* legal win only if the group was clear BEFORE potting the 8 */
             int win = !foul && !scratch && on_eight;
             r->frame_over = 1; r->winner = win ? r->turn : (1 - r->turn);
+            book_frame(r, r->winner);
             snprintf(r->msg, sizeof r->msg, win ? "FRAME WON!" : "FOUL ON 8");
             return;
         }
@@ -168,8 +173,63 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
 /* ---- snooker --------------------------------------------------------- */
 static int snk_on(const CueRules *r, int id) {
     if (r->target == 0) return is_red(id);
-    if (r->target == 1) return is_colour(id);
+    /* On a colour: the NOMINATED one, once there is one. Before it is named any
+     * colour is still "the ball on" — that is what lets the striker declare it
+     * by aiming at it rather than being forced to choose from a menu first. */
+    if (r->target == 1)
+        return is_colour(id) && (!r->nominated || snk_value(id) == r->nominated);
     return is_colour(id) && snk_value(id) == r->seq;   /* clearance */
+}
+
+/* Should this player give the frame up? Straight from the 2D game: they are
+ * behind, and further behind than the balls left can retrieve by a clear margin
+ * — fifteen points while there are still reds to be had, twelve once it is down
+ * to the colours, because a colours clearance is worth less and comes sooner. */
+int cue_rules_should_concede(const CueRules *r, int player) {
+    if (!r->kind || r->frame_over) return 0;
+    int deficit = r->score[1 - player] - r->score[player];
+    if (deficit <= 0) return 0;
+    int remaining;
+    if (r->reds_left > 0) remaining = r->reds_left * 8 + 27;
+    else { remaining = 0; for (int v = (r->seq < 2 ? 2 : r->seq); v <= 7; v++) remaining += v; }
+    int threshold = r->reds_left > 0 ? 15 : 12;
+    return (deficit - remaining) >= threshold;
+}
+
+/* A finished frame, booked into the match. Called from every place a frame can
+ * end — potted out, forfeited on three misses, or conceded — so the tally cannot
+ * be updated in some of them and not others. */
+static void book_frame(CueRules *r, int winner) {
+    if (winner < 0 || winner > 1) return;
+    r->frames[winner]++;
+    int need = (r->best_of > 1) ? (r->best_of / 2 + 1) : 1;
+    if (r->frames[winner] >= need) { r->match_over = 1; r->match_winner = winner; }
+}
+
+void cue_rules_concede(CueRules *r, int player) {
+    if (r->frame_over) return;
+    r->frame_over = 1;
+    r->conceded = 1;
+    r->winner = 1 - player;
+    r->brk = 0;
+    snprintf(r->msg, sizeof r->msg, "FRAME CONCEDED");
+    book_frame(r, r->winner);
+}
+
+void cue_rules_next_frame(CueRules *r, const CueTable *t) {
+    int f0 = r->frames[0], f1 = r->frames[1], bo = r->best_of, cpu = r->cpu;
+    int mo = r->match_over, mw = r->match_winner;
+    /* Alternate the break, as a match does. */
+    int first = (f0 + f1) & 1;
+    cue_rules_init(r, t, cpu);
+    r->frames[0] = f0; r->frames[1] = f1; r->best_of = bo;
+    r->match_over = mo; r->match_winner = mw;
+    r->turn = first;
+}
+
+void cue_rules_nominate(CueRules *r, int value) {
+    if (!r->kind || r->target != 1) return;
+    r->nominated = (value >= 2 && value <= 7) ? value : 0;
 }
 
 /* Full-ball line of sight from `from` to a target ball at `to` (XZ plane): both
@@ -213,6 +273,32 @@ int cue_rules_is_snookered(const CueRules *r, const CueBall *b, int n) {
     return any_target;                        /* all targets blocked → snookered */
 }
 
+/* Would the incoming player be snookered wherever in the D they put the ball?
+ * Sampled rather than solved: the D is a half-disc and the answer only has to be
+ * as good as a referee's eye. A ring of positions round the arc plus the middle
+ * covers it — if any one of them can see a ball on, there is no free ball. */
+static int snookered_from_whole_d(CueRules *r, CueBall *b, int n) {
+    if (r->d_radius <= 0.0f) return 0;
+    Vec3 keep = b[0].pos; int keep_on = b[0].on;
+    b[0].on = 1;
+    int snookered = 1;
+    const int RINGS = 3, ARC = 7;
+    for (int ring = 1; ring <= RINGS && snookered; ring++) {
+        float rr = r->d_radius * ((float)ring / RINGS) * 0.92f;
+        for (int k = 0; k < ARC && snookered; k++) {
+            float a = 1.5707963f + 3.14159265f * ((float)k / (ARC - 1));
+            b[0].pos = v3(r->baulk_x + rr * cosf(a), keep.y, rr * sinf(a));
+            if (!cue_rules_is_snookered(r, b, n)) snookered = 0;
+        }
+    }
+    if (snookered) {                       /* and the centre of the D */
+        b[0].pos = v3(r->baulk_x, keep.y, 0.0f);
+        if (!cue_rules_is_snookered(r, b, n)) snookered = 0;
+    }
+    b[0].pos = keep; b[0].on = keep_on;
+    return snookered;
+}
+
 static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
                             int scratch, const int *potted, int np) {
     r->break_shot = 0;            /* the opening break is over once it's resolved */
@@ -228,6 +314,7 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
      * shot, ANY ball may be struck/potted as the ball-on, scoring the ball-on's
      * value. Consumed whether the shot is legal or a foul. */
     int fb = r->free_ball; r->free_ball = 0;
+    int nominated_before = r->nominated;
     int bon_val = (target_before == 2) ? r->seq : 1;   /* value of the red/clearance ball-on */
     int legal_pots = 0, illegal_pot = 0, maxpot = 0, reds_potted = 0;
     for (int k = 0; k < np; k++) {
@@ -254,8 +341,16 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
          * Evaluated against the pre-shot target (r->target still == target_before). */
         int is_miss = (first_hit < 0) || (!fb && !snk_on(r, first_hit));
 
+        /* Max(4, value of the ball ON, value of the first ball hit, value of any
+         * ball potted). The ball-on's value while on a colour is the NOMINATED
+         * colour — and 7 if none was named, because an unnominated colour could
+         * have been any of them and the rule prices the striker's uncertainty
+         * against them. This read 1 before, so every foul on a colour cost the
+         * minimum 4 however dear the colour was. */
         int fv = 4;
-        int tv = (target_before == 2) ? r->seq : 1;
+        int tv = (target_before == 2) ? r->seq
+               : (target_before == 1) ? (nominated_before ? nominated_before : 7)
+               : 1;
         if (tv > fv) fv = tv;
         if (first_hit >= 0 && snk_value(first_hit) > fv) fv = snk_value(first_hit);
         if (maxpot > fv) fv = maxpot;
@@ -273,12 +368,17 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
         else { remaining = 0; for (int v = (seq_after < 2 ? 2 : seq_after); v <= 7; v++) remaining += v; }
         int deficit = r->score[opp] - r->score[off];
         int needs_snookers = deficit > remaining;
-        int miss_called = is_miss && !r->was_snookered && !needs_snookers;
+        /* NOT conditioned on having been snookered. Failing to escape a snooker
+         * is the commonest foul and a miss there is; suppressing the call there
+         * meant the opponent was never once offered the replay. Only the
+         * snookers-needed exemption suppresses it, per WPBSA. */
+        int miss_called = is_miss && !needs_snookers;
 
         /* 3-consecutive-miss forfeit (genuine, non-snookered misses only) */
         if (is_miss && !r->was_snookered) {
             if (++r->cmiss[off] >= 3) {
                 r->frame_over = 1; r->winner = opp;
+                book_frame(r, r->winner);
                 snprintf(r->msg, sizeof r->msg, "3 MISSES - LOSS");
                 return;
             }
@@ -287,16 +387,25 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
         /* Is the incoming player snookered on the post-foul ball-on? → free ball.
          * (Skipped after a scratch — the cue is replaced in the D.) */
         int opp_snk = 0;
-        if (!scratch) {
-            int sv_t = r->target, sv_s = r->seq;
-            r->target = target_after; r->seq = seq_after;
-            opp_snk = cue_rules_is_snookered(r, b, n);
-            r->target = sv_t; r->seq = sv_s;
+        {
+            int sv_t = r->target, sv_s = r->seq, sv_n = r->nominated;
+            r->target = target_after; r->seq = seq_after; r->nominated = 0;
+            /* After a scratch the incoming player picks their own spot in the D,
+             * so they are only snookered if they are snookered from EVERY spot
+             * in it. This case was skipped entirely, so a free ball that was due
+             * after a scratch was never awarded. */
+            opp_snk = scratch ? snookered_from_whole_d(r, b, n)
+                              : cue_rules_is_snookered(r, b, n);
+            r->target = sv_t; r->seq = sv_s; r->nominated = sv_n;
         }
 
-        r->target = target_after; r->seq = seq_after;
+        r->target = target_after; r->seq = seq_after; r->nominated = 0;
         r->dec_offender = off; r->dec_penalty = fv; r->dec_scratch = scratch;
-        r->dec_can_restore = miss_called; r->dec_free_ball = opp_snk;
+        /* ...and after a scratch played from a snooker: the opponent may prefer
+         * to put the striker back in the trouble they were in than to take the
+         * table with the cue ball in the D. */
+        r->dec_can_restore = miss_called || (scratch && r->was_snookered);
+        r->dec_free_ball = opp_snk;
 
         if (miss_called || opp_snk) {
             /* a real choice exists → park for the opponent's decision */
@@ -324,13 +433,28 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
         if (legal_pots > 0) {
             r->seq++;
             if (r->seq > 7) {
+                /* Level after the black is not a win for whoever the array puts
+                 * first: the black goes back on its spot and the frame is played
+                 * for it. The old code handed the frame to player 0. */
+                if (r->score[0] == r->score[1]) {
+                    respot_colour(r, b, n, CUE_ID_BLACK);
+                    r->seq = 7; r->target = 2; r->nominated = 0;
+                    r->turn = 1 - r->turn;    /* the non-potter plays first */
+                    r->brk = 0;
+                    r->ball_in_hand = 1;      /* ...from in hand, WPBSA */
+                    snprintf(r->msg, sizeof r->msg, "RESPOTTED BLACK");
+                    return;
+                }
                 r->frame_over = 1;
-                r->winner = (r->score[0] >= r->score[1]) ? 0 : 1;
+                r->winner = (r->score[0] > r->score[1]) ? 0 : 1;
+                book_frame(r, r->winner);
                 snprintf(r->msg, sizeof r->msg, "FRAME OVER");
                 return;
             }
         }
     }
+    /* The nomination belongs to one visit to a colour and nothing else. */
+    if (r->target != 1) r->nominated = 0;
 
     if (legal_pots > 0) { snprintf(r->msg, sizeof r->msg, "BREAK %d", r->brk); }
     else {
@@ -338,6 +462,7 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
         r->brk = 0; r->turn = 1 - r->turn;
         r->target = (r->reds_left > 0) ? 0 : 2;
         if (r->target == 2 && r->seq < 2) r->seq = 2;
+        r->nominated = 0;
         r->msg[0] = 0;
     }
 }
@@ -396,7 +521,7 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
 
     /* the 9: potted legally wins (incl. on the break); on a foul it respots */
     if (nine_potted) {
-        if (!foul) { r->frame_over = 1; r->winner = r->turn;
+        if (!foul) { r->frame_over = 1; r->winner = r->turn; book_frame(r, r->winner);
                      snprintf(r->msg, sizeof r->msg, "9-BALL!"); return; }
         respot_nine(r, b, n);
     }
@@ -404,7 +529,7 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
     if (foul) {
         r->cfoul[r->turn]++;
         if (r->cfoul[r->turn] >= 3) {           /* three consecutive fouls = loss */
-            r->frame_over = 1; r->winner = 1 - r->turn;
+            r->frame_over = 1; r->winner = 1 - r->turn; book_frame(r, r->winner);
             snprintf(r->msg, sizeof r->msg, "3 FOULS - LOSS"); return;
         }
         r->turn = 1 - r->turn; r->ball_in_hand = 1;
@@ -462,9 +587,14 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
 
 void cue_rules_status(const CueRules *r, char *buf, int cap) {
     if (r->kind) {
-        const char *on = r->target == 0 ? "RED" : r->target == 1 ? "COLOUR" :
-            (r->seq == 2 ? "YELLOW" : r->seq == 3 ? "GREEN" : r->seq == 4 ? "BROWN" :
-             r->seq == 5 ? "BLUE" : r->seq == 6 ? "PINK" : "BLACK");
+        static const char *CN[8] = { "", "", "YELLOW", "GREEN", "BROWN",
+                                     "BLUE", "PINK", "BLACK" };
+        /* On a colour, say WHICH — once it has been nominated. "ON COLOUR" was
+         * true of the rules as they were, when any colour would do; now that a
+         * nomination binds, the board has to carry it. */
+        const char *on = r->target == 0 ? "RED"
+                       : r->target == 1 ? (r->nominated ? CN[r->nominated] : "COLOUR")
+                       : CN[r->seq < 2 ? 2 : (r->seq > 7 ? 7 : r->seq)];
         snprintf(buf, cap, "ON %s", on);
     } else if (r->mode == CUE_GAME_US9) {
         snprintf(buf, cap, "ON %d", r->seq ? r->seq : 1);
