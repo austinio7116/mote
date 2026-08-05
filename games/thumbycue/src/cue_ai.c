@@ -934,13 +934,47 @@ static void opp_threat(const AiCtx *c, const Vec3 *pos, const int *on,
  * Two passes, because scoring every candidate against the opponent's whole table
  * is far too dear: rank cheaply on the leave, then score the survivors properly.
  * The very best of those then go through the REAL engine in plan_finalize. */
+/* TWO BUDGETS, because the two machines are not the same machine.
+ *
+ * The headset plans on a worker thread with a Snapdragon behind it, and can
+ * afford the 2D game's whole grid — twelve cut angles, six powers, three spins,
+ * every legal ball, six thousand candidates. The handheld plans inside its game
+ * loop on an RP2350, and the same search would simply stop the game.
+ *
+ * So the device gets a coarser sweep of the SAME SHAPE: the three cut angles
+ * that matter most out of each band, half the powers, and centre ball only. It
+ * is about a twelfth of the work and it still plays a fine cut, which is the
+ * thing it could not do at all before. CUE_AI_SAFE_FULL is the switch; a build
+ * can force either way, and MOTE_DEVICE picks the small one by default — the
+ * same arrangement SIM_CAP already uses (32 on the device, 160 for CueVR). */
+#ifndef CUE_AI_SAFE_FULL
+#  ifdef MOTE_DEVICE
+#    define CUE_AI_SAFE_FULL 0
+#  else
+#    define CUE_AI_SAFE_FULL 1
+#  endif
+#endif
+
+#if CUE_AI_SAFE_FULL
 static const float SAFE_ANG_FINE[] = { 55.0f, 60.0f, 65.0f, 70.0f, 75.0f };
 static const float SAFE_ANG_MID[]  = { 30.0f, 40.0f, 45.0f, 50.0f };
 static const float SAFE_ANG_FULL[] = {  0.0f,  5.0f, 10.0f };
 static const float SAFE_POW[]      = { 0.10f, 0.16f, 0.22f, 0.30f, 0.40f, 0.52f };
 static const float SAFE_SPIN[]     = { -0.3f, 0.0f, 0.3f };
-
 #define SAFE_POOL 24
+#else
+static const float SAFE_ANG_FINE[] = { 55.0f, 65.0f, 75.0f };
+static const float SAFE_ANG_MID[]  = { 30.0f, 45.0f };
+static const float SAFE_ANG_FULL[] = {  0.0f };
+static const float SAFE_POW[]      = { 0.14f, 0.26f, 0.42f };
+static const float SAFE_SPIN[]     = {  0.0f };
+#define SAFE_POOL 10
+#endif
+#define N_ANG_FINE ((int)(sizeof SAFE_ANG_FINE / sizeof SAFE_ANG_FINE[0]))
+#define N_ANG_MID  ((int)(sizeof SAFE_ANG_MID  / sizeof SAFE_ANG_MID[0]))
+#define N_ANG_FULL ((int)(sizeof SAFE_ANG_FULL / sizeof SAFE_ANG_FULL[0]))
+#define N_SAFE_POW ((int)(sizeof SAFE_POW / sizeof SAFE_POW[0]))
+#define N_SAFE_SPIN ((int)(sizeof SAFE_SPIN / sizeof SAFE_SPIN[0]))
 static Cand s_safe[SAFE_POOL];
 static int  s_nsafe;
 
@@ -1002,7 +1036,7 @@ static int find_safety(const AiCtx *c, Cand *out, uint32_t *rng) {
         for (int band = 0; band < 3; band++) {
             const float *angs = band == 0 ? SAFE_ANG_FINE
                               : band == 1 ? SAFE_ANG_MID : SAFE_ANG_FULL;
-            int nang = band == 0 ? 5 : band == 1 ? 4 : 3;
+            int nang = band == 0 ? N_ANG_FINE : band == 1 ? N_ANG_MID : N_ANG_FULL;
             for (int ai = 0; ai < nang; ai++)
             for (int sg = -1; sg <= 1; sg += 2) {
                 if (angs[ai] == 0.0f && sg > 0) continue;      /* dead full: once */
@@ -1028,8 +1062,8 @@ static int find_safety(const AiCtx *c, Cand *out, uint32_t *rng) {
                     if (d2(c->b[j].pos, cp) < 2.0f*R) clip = 1;
                 }
 
-                for (int pi = 0; pi < (int)(sizeof SAFE_POW/sizeof SAFE_POW[0]); pi++)
-                for (int si = 0; si < 3; si++) {
+                for (int pi = 0; pi < N_SAFE_POW; pi++)
+                for (int si = 0; si < N_SAFE_SPIN; si++) {
                     float p01 = SAFE_POW[pi], spin = SAFE_SPIN[si];
                     float jp = p01 * 46.0f;
                     Vec3 cue_end = predict_end_dir(c, cue, ghost, ca, cut, jp, spin);
@@ -1156,7 +1190,13 @@ static int find_kick(const AiCtx *c, Cand *out) {
 enum { PH_IDLE = 0, PH_SIM, PH_DONE };
 
 /* Room for the pot variants AND the reserved safety slots after them. */
+/* How many safeties get the real engine. The device verifies fewer, but it does
+ * verify — an unsimulated safety is a guess, and that was the whole complaint. */
+#if CUE_AI_SAFE_FULL
 #define NSAFE_SIM 6
+#else
+#define NSAFE_SIM 3
+#endif
 #define MAXPOOL (NPOW*NSPIN*NSIDE + NSAFE_SIM)
 
 static struct {
