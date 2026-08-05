@@ -344,7 +344,13 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
      * down on the ball (butt raised) points it below horizontal, and the
      * physics wants that as a positive angle. */
     float ay = c->axis.y < -1.0f ? -1.0f : (c->axis.y > 1.0f ? 1.0f : c->axis.y);
-    c->elev = -ay > 0.0f ? asinf(-ay) : 0.0f;
+    /* SIGNED. Clamping this at zero threw away the one case that matters for
+     * the bed: a cue angled down runs its shaft into the cloth behind the tip,
+     * and reporting that as "level" meant the floor below had nothing to push
+     * against, so you could cue clean through the felt. Negative is butt below
+     * tip; the forcing lifts it back to at least the required angle, which is
+     * never less than level, so what reaches the physics is still >= 0. */
+    c->elev = asinf(-ay);
 
     MoteVrV3 flat = mv3(c->axis.x, 0.0f, c->axis.z);
     c->aim_dir = mv3_len(flat) > 1e-4f ? mv3_norm(flat) : mv3(1, 0, 0);
