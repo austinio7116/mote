@@ -120,6 +120,13 @@ static float K_POSCAP  = 0.6f;             /* ceiling on the position weight */
 static float K_CONF    = 1.0f;             /* multiplier on the attack threshold */
 
 static float K_MISSCAUT = 25.0f;   /* how much a first miss tightens the gate */
+/* The three safety-scoring terms added last and never measured on their own.
+ * A wider, physics-verified search that DEFENDS WORSE than a two-angle guess is
+ * a symptom, not a trade-off, and these are the suspects. Knobs so each can be
+ * taken out one at a time over 30 frames instead of reasoned about. */
+static float K_AGGR     = 1.0f;    /* scale on the aggregate-threat bonus */
+static float K_NEARPATH = 15.0f;   /* penalty per ball crowding the cue path */
+static int   K_OPPFILT  = 1;       /* 1 = judge their ball-on as THEY will see it */
 
 static void ai_knobs(void) {
 #ifndef MOTE_DEVICE
@@ -133,6 +140,9 @@ static void ai_knobs(void) {
     if (K_SUBSTEP <= 0.0f) K_SUBSTEP = 1.0f / 1000.0f;
 #endif
     { const char *v = getenv("AI_MISSCAUT"); if (v) K_MISSCAUT = (float)atof(v); }
+    { const char *v = getenv("AI_AGGR");     if (v) K_AGGR = (float)atof(v); }
+    { const char *v = getenv("AI_NEARPATH"); if (v) K_NEARPATH = (float)atof(v); }
+    { const char *v = getenv("AI_OPPFILT");  if (v) K_OPPFILT = atoi(v); }
 }
 
 void cue_ai_set_max_speed(float mps) {
@@ -955,7 +965,7 @@ static void opp_threat(const AiCtx *c, const Vec3 *pos, const int *on,
     Vec3 cue = pos[0];
     for (int i = 1; i < c->n; i++) {
         if (!on[i]) continue;
-        if (!cue_rules_ball_legal(&ov, c->b, c->n, c->b[i].id)) continue;
+        if (K_OPPFILT && !cue_rules_ball_legal(&ov, c->b, c->n, c->b[i].id)) continue;
         float dd = d2(cue, pos[i]);
         if (dd < *nearest) *nearest = dd;
         /* can they hit it at all? */
@@ -1062,7 +1072,7 @@ static float safety_score(const AiCtx *c, Vec3 cue_end, Vec3 target, int tidx,
     /* and a bonus when nothing they CAN see is easy, not merely the best of it */
     if (visible > 0) {
         float mean = total / (float)visible;
-        score += clampf((40.0f - mean) * 0.25f, 0.0f, 10.0f);
+        score += K_AGGR * clampf((40.0f - mean) * 0.25f, 0.0f, 10.0f);
     }
 
     /* differentiation, all continuous — a safety that merely denies is worth
@@ -1076,7 +1086,7 @@ static float safety_score(const AiCtx *c, Vec3 cue_end, Vec3 target, int tidx,
 
     /* -15 per ball sitting near the cue ball's path, not a flat -30: two balls
      * to thread between is far worse than one to miss. */
-    score -= 15.0f * (float)hit_other_on_way;
+    score -= K_NEARPATH * (float)hit_other_on_way;
     if (tp->near_pocket)   score -= 25.0f;
     if (tp->hit_ball)      score -= 15.0f;
     if (tp->travel < c->t->R * 6.0f) score += 5.0f;   /* the object hardly moved */
@@ -1908,48 +1918,47 @@ CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r
 }
 
 /* ---- ball-in-hand placement ----------------------------------------- */
+/* Where to put the ball in hand.
+ *
+ * The legal REGION is not this function's business and never was: it asks
+ * cue_table_clamp_placement_balls, which is the same call the player's own
+ * placement goes through, so the two cannot disagree about what is legal. It
+ * used to take a restrict_d flag from the caller instead, and CueVR computed it
+ * as "!snooker && !US8 && !US9" — false for snooker, which is the ONE game that
+ * plays from the D, and true for Chinese 8-ball, which does not. The opponent
+ * placed its ball anywhere on a snooker table as a result.
+ *
+ * What IS this function's business is which legal spot is best, and that is the
+ * 2D game's answer: sample, score each by the best shot available from it, keep
+ * the highest. */
 Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
                   const CueBall *balls, int n, const CuePersona *p,
-                  int restrict_d, uint32_t *rng) {
+                  uint32_t *rng) {
     AiCtx ctx = {
         .w = w, .t = t, .r = r, .b = balls, .n = n, .p = p,
         .S = 12.0f / t->R, .maxdist_m = fmaxf(t->half_len, t->half_wid)*2.0f,
         .snooker = t->is_snooker,
     };
     AiCtx *c = &ctx;
-    (void)rng;
 
-    /* Sample candidate cue positions; pick the one giving the best pot. The
-     * caller clamps to the legal region, so we sample within it. */
-    Vec3 best_pos = cue_table_cue_home(t);
+    Vec3 best_pos = cue_table_clamp_placement_balls(t, cue_table_cue_home(t),
+                                                    balls, n);
     float best = -1e9f;
-    float hx = t->half_len - t->R, hz = t->half_wid - t->R;
 
-    /* mutable copy so we can probe positions through the planner geometry */
     static CueBall pb[CUE_MAX_BALLS];
     for (int i = 0; i < n; i++) pb[i] = balls[i];
     ctx.b = pb;
 
     for (int s = 0; s < 48; s++) {
-        Vec3 cand;
-        if (restrict_d) {
-            /* sample within the D: half-disc of radius d_radius at (baulk_x,0), x<=baulk_x */
-            float ang = rnd(rng) * (float)M_PI + (float)M_PI/2.0f; /* facing -x */
-            float rr = sqrtf(rnd(rng)) * t->d_radius;
-            cand = v3(t->baulk_x + cosf(ang)*rr, t->R, sinf(ang)*rr);
-            if (cand.x > t->baulk_x) cand.x = t->baulk_x;
-        } else {
-            cand = v3(-t->half_len*0.5f + (rnd(rng)-0.5f)*t->half_len,
-                      t->R, (rnd(rng)*2.0f-1.0f)*hz*0.9f);
-        }
-        cand.x = clampf(cand.x, -hx, hx); cand.z = clampf(cand.z, -hz, hz);
-        /* never place on / through an object ball */
-        int overlap = 0;
-        for (int i = 1; i < n; i++) {
-            if (!pb[i].on) continue;
-            if (d2(cand, pb[i].pos) < 2.0f * t->R) { overlap = 1; break; }
-        }
-        if (overlap) continue;
+        /* Sampled over the whole bed and then CLAMPED into whatever the rules
+         * allow — the D, or behind the head string. Sampling the region directly
+         * needed this function to know which region it was, which is the mistake
+         * that caused the bug. */
+        Vec3 cand = v3((rnd(rng) * 2.0f - 1.0f) * t->half_len,
+                       t->R,
+                       (rnd(rng) * 2.0f - 1.0f) * t->half_wid);
+        cand = cue_table_clamp_placement_balls(t, cand, balls, n);
+
         pb[0].pos = cand; pb[0].on = 1;
         float score = 0.0f;
         for (int i = 1; i < n; i++) {

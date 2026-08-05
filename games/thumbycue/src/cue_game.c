@@ -595,7 +595,7 @@ static void ingame_tick(const CraftRawButtons *b, float dt) {
     if (s_state == GS_PLACE) {
         if (cpu_turn) {            /* CPU positions its ball-in-hand, then aims */
             s_balls[0].pos = cue_ai_place(&s_world, &s_table, &s_rules, s_balls, s_n,
-                                          &CUE_PERSONAS[cur_persona()], s_place_restrict, &s_ai_rng);
+                                          &CUE_PERSONAS[cur_persona()], &s_ai_rng);
             s_balls[0].on = 1;
             s_state = GS_AIM;
             return;

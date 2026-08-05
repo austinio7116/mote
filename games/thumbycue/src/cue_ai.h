@@ -83,7 +83,7 @@ CueAIShot cue_ai_plan_result(void);
  * the D / behind the head string (placement already clamped by the caller). */
 Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
                   const CueBall *balls, int n, const CuePersona *p,
-                  int restrict_d, uint32_t *rng);
+                  uint32_t *rng);
 
 /* 9-ball push-out shot: deliberately roll the cue ball to a spot that leaves
  * the opponent the WORST possible shot on the ball-on (no must-hit constraint —

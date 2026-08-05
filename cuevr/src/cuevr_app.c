@@ -382,8 +382,6 @@ static int take_ball_in_hand(void) {
         if (!S.rules.break_shot)
             S.balls[0].pos = cue_ai_place(&S.world, &S.tab, &S.rules, S.balls,
                                           S.nballs, &CUE_PERSONAS[S.persona],
-                                          !S.tab.is_snooker && S.tab.kind != CUE_GAME_US8
-                                              && S.tab.kind != CUE_GAME_US9,
                                           &S.rng);
         return 0;
     }
@@ -1091,8 +1089,6 @@ static void resolve_shot(void) {
         /* The CPU places for itself. */
         S.balls[0].pos = cue_ai_place(&S.world, &S.tab, &S.rules, S.balls,
                                       S.nballs, &CUE_PERSONAS[S.persona],
-                                      !S.tab.is_snooker && S.tab.kind != CUE_GAME_US8
-                                          && S.tab.kind != CUE_GAME_US9,
                                       &S.rng);
     }
 
