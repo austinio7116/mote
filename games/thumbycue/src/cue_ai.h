@@ -54,6 +54,13 @@ typedef struct {
      * planner is the only thing that knows which one it picked. Without it the
      * CPU was the one player at the table exempt from nominating. */
     int   target_id;
+    /* The best POT confidence that was on the table when this shot was chosen,
+     * or -1 if the planner could not find a pot at all. Independent of what it
+     * actually played, which is the point: on a safety, `score` is 0 and tells
+     * you nothing about whether the safety was forced or elective. This
+     * separates "played safe because nothing was on" from "played safe with a
+     * frame ball sitting there", which are opposite diagnoses. */
+    float best_pot;
 } CueAIShot;
 
 /* What the CALLER's full power is, in m/s — whatever it multiplies the
@@ -63,6 +70,13 @@ typedef struct {
  * will be harder or softer than the one that was planned. Defaults to 8.5, so
  * the handheld needs no call. */
 void cue_ai_set_max_speed(float mps);
+
+/* Whether the ranking sims apply the forced cue elevation (cue_table_min_elev)
+ * that the front ends impose on the real shot. ON by default and it must stay
+ * on in a game: with it off the planner simulates a level cue, then the game
+ * tilts it and the ball leaves at cos(elev) of the planned pace, curving. The
+ * setter exists so the measurement harness can disable BOTH halves together. */
+void cue_ai_force_elev(int on);
 
 /* Plan a shot for the current table state. `rng` is an xorshift state advanced
  * in place (so persona error/selection are reproducible from a seed). */

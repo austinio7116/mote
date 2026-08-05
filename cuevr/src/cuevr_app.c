@@ -1104,6 +1104,21 @@ static void resolve_shot(void) {
 
 /* ---- the callbacks ------------------------------------------------------ */
 
+/* Test hook: park the cue ball at a chosen table-space spot after the rack, so
+ * a situation that is otherwise a matter of luck — the white tight under a
+ * cushion, a ball parked right behind it — can be staged for a screenshot or a
+ * regression run. CUEVR_CUEBALL="x,z" in metres. No effect unless set. */
+static void stage_cue_ball(void) {
+    const char *e = getenv("CUEVR_CUEBALL");
+    if (!e) return;
+    float x = 0.0f, z = 0.0f;
+    if (sscanf(e, "%f,%f", &x, &z) != 2) return;
+    S.balls[0].pos = v3(x, S.tab.R, z);
+    S.balls[0].on = 1;
+    S.balls[0].vel = v3(0,0,0); S.balls[0].w = v3(0,0,0);
+    LOGI("[cuevr] CUEVR_CUEBALL staged white at %.3f, %.3f", (double)x, (double)z);
+}
+
 static int app_gl_init(void *u) {
     (void)u;
     memset(&S, 0, sizeof S);
@@ -1119,6 +1134,7 @@ static int app_gl_init(void *u) {
     cue_table_init(&S.tab, CUE_GAME_UK8);
     cue_table_build_world(&S.tab, &S.world);
     S.nballs = cue_table_rack(&S.tab, S.balls);
+    stage_cue_ball();
     /* The planner simulates every candidate at its own 8.5 m/s and hands back a
      * FRACTION of full power; we multiply that by 12.0, because a real stroke can
      * be swung harder than a slider can be dragged. Unless it is told, every CPU
@@ -1624,6 +1640,18 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * aiming still works, so you can line up while they are playing. */
         int mine = (S.opp != OPP_ONLINE) || (S.rules.turn == S.net_me);
 
+        /* How steeply the cue is FORCED to sit for this aim, before the cue is
+         * read. It is a table-space question (which cushion, which balls) and
+         * the cue works in room space, so it is answered here and handed down.
+         * The aim it uses is last frame's — the two are mutually dependent and
+         * one frame of lag at 72 Hz is invisible and self-correcting. */
+        {
+            MoteVrV3 td = cuevr_room_dir_to_table(&S.setup.place, S.cue.aim_dir);
+            S.cue.min_elev = getenv("CUEVR_NOELEV") ? 0.0f
+                : cue_table_min_elev(&S.tab, S.balls, S.nballs, S.balls[0].pos,
+                                     atan2f(td.z, td.x), S.cue.tip_vert);
+        }
+
         CueVrShot shot;
         cuevr_cue_update(&S.cue, t, &S.setup.place, cue_ball_room(), S.tab.R, &shot);
         S.hud_dirty = 1;             /* the tip readout moves every frame */
@@ -1784,22 +1812,36 @@ static void app_update(void *u, const MoteVrTracking *t) {
             travel = (0.045f + 0.13f) * (1.0f - k * k);   /* accelerating through */
         }
 
-        /* Lay the cue along the aim it chose, behind the cue ball. */
+        /* Lay the cue along the aim it chose, behind the cue ball — and up at
+         * whatever elevation this shot forces, which is the same number its own
+         * ranking sims used. Two reasons it cannot stay level: the shaft would
+         * lie through the cushion in plain view, and the strike below would put
+         * the ball on a different line from the one the planner simulated. */
         Vec3 aim_t = { cosf(S.cpu_shot.aim), 0.0f, sinf(S.cpu_shot.aim) };
+        float cpu_elev = cue_table_min_elev(&S.tab, S.balls, S.nballs,
+                                            S.balls[0].pos, S.cpu_shot.aim,
+                                            S.cpu_shot.tip_vert);
         MoteVrV3 ball = cue_ball_room();
         MoteVrV3 aim_r = mv3_norm(cuevr_table_dir_to_room(&S.setup.place, aim_t));
-        S.cpu_tip  = mv3_sub(ball, mv3_scale(aim_r, S.tab.R + CUEVR_TIP_R + travel));
-        S.cpu_butt = mv3_sub(S.cpu_tip, mv3_scale(aim_r, CUEVR_CUE_LEN));
+        { /* tilt the drawn shaft up about the tip, in the room's vertical */
+            float ce = cosf(cpu_elev), se = sinf(cpu_elev);
+            MoteVrV3 shaft = mv3(aim_r.x * ce, -se, aim_r.z * ce);
+            S.cpu_tip  = mv3_sub(ball, mv3_scale(aim_r, S.tab.R + CUEVR_TIP_R + travel));
+            S.cpu_butt = mv3_sub(S.cpu_tip, mv3_scale(shaft, CUEVR_CUE_LEN));
+        }
 
         if (S.cpu_t >= ADDRESS + BACK + THROUGH) {
             if (S.cpu_shot.valid) {
                 float sp = S.cpu_shot.power01 * MAX_STRIKE_SPEED;
                 cue_audio_sfx(CUE_SFX_STRIKE, S.cpu_shot.power01);
                 cue_phys_strike_elev(&S.world, &S.balls[0], aim_t, sp,
-                                     S.cpu_shot.tip_side, S.cpu_shot.tip_vert, 0.0f);
-                LOGI("[cuevr] cpu strike %.2f m/s  side %+.2f vert %+.2f%s",
+                                     S.cpu_shot.tip_side, S.cpu_shot.tip_vert,
+                                     cpu_elev);
+                LOGI("[cuevr] cpu strike %.2f m/s  side %+.2f vert %+.2f  elev %.1f deg%s",
                      (double)sp, (double)S.cpu_shot.tip_side,
-                     (double)S.cpu_shot.tip_vert, S.cpu_shot.safe ? "  (safety)" : "");
+                     (double)S.cpu_shot.tip_vert,
+                     (double)(cpu_elev * 180.0f / 3.14159265f),
+                     S.cpu_shot.safe ? "  (safety)" : "");
             }
             begin_shot();
         }
@@ -1924,6 +1966,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 think_join();
                 cue_rules_next_frame(&S.rules, &S.tab);
                 S.nballs = cue_table_rack(&S.tab, S.balls);
+                stage_cue_ball();
                 S.have_snap = 0;
                 S.shot_events = 0;
                 S.nom_manual = 0;

@@ -245,46 +245,12 @@ static void new_match(void) {
 static Vec3 cue_pos(void) {
     return s_balls[0].on ? s_balls[0].pos : cue_table_cue_home(&s_table);
 }
-/* Minimum cue-butt elevation (rad) so the cue shaft — a line running BACK from
- * the tip contact, rising at the elevation angle — physically clears a cushion
- * or ball it would otherwise pass through. For an obstacle of top-height `h` at
- * horizontal distance `d` along the shaft, the shaft (starting at contact height
- * c) is above it when c + d·tan(e) ≥ h, i.e. e ≥ atan((h−c)/d). We take the max
- * over every obstacle the shaft actually runs into within its length. */
+/* Forced cue elevation. The geometry lives in cue_table so that this, CueVR,
+ * the AI's ranking sims and the measurement harness all get the identical
+ * number — see cue_table_min_elev. It used to live here as a static, and the
+ * AI consequently planned every shot as though the cue were level. */
 static float min_cue_elev(float aim) {
-    Vec3 cue = cue_pos();
-    float R = s_table.R;
-    float bx = -cosf(aim), bz = -sinf(aim);          /* shaft horizontal direction */
-    float ch = R * (1.0f + s_tip_vert);              /* tip contact height on the ball */
-    const float SHAFT = 0.55f;                       /* shaft reach (m) */
-    float need = 0.0f;
-
-    /* Cushion behind: where the shaft crosses the rail nose line. Only binds when
-     * close enough that you can't simply bridge level over the rail (~13 cm). */
-    float hl = s_table.half_len, hw = s_table.half_wid, dc = 1e9f;
-    if (bx >  1e-4f) dc = fminf(dc, (hl - cue.x)/bx);
-    if (bx < -1e-4f) dc = fminf(dc, (-hl - cue.x)/bx);
-    if (bz >  1e-4f) dc = fminf(dc, (hw - cue.z)/bz);
-    if (bz < -1e-4f) dc = fminf(dc, (-hw - cue.z)/bz);
-    if (dc > 0.0f && dc < 0.13f) {
-        float h = s_table.cushion_h + 0.4f*R;        /* clear the cushion nose */
-        if (h > ch) { float e = atan2f(h - ch, fmaxf(dc, 0.4f*R)); if (e > need) need = e; }
-    }
-    /* Any ball lying in the shaft's path (within the cue's lateral width): the
-     * cue must rise over it (you can't cue through a ball). */
-    for (int i = 1; i < s_n; i++) {
-        if (!s_balls[i].on) continue;
-        float dx = s_balls[i].pos.x - cue.x, dz = s_balls[i].pos.z - cue.z;
-        float along = dx*bx + dz*bz;
-        if (along <= 0.0f || along > SHAFT) continue;
-        float perp2 = (dx*dx + dz*dz) - along*along;
-        if (perp2 < (1.5f*R)*(1.5f*R)) {             /* shaft would clip this ball */
-            float h = 2.0f*R + 0.25f*R;              /* clear the ball top */
-            if (h > ch) { float e = atan2f(h - ch, fmaxf(along, 0.6f*R)); if (e > need) need = e; }
-        }
-    }
-    if (need > 1.30f) need = 1.30f;                  /* cap (steep masse) */
-    return need;
+    return cue_table_min_elev(&s_table, s_balls, s_n, cue_pos(), aim, s_tip_vert);
 }
 
 /* Would the cue ball at p overlap any object ball still on the table? */

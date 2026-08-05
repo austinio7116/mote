@@ -53,45 +53,24 @@ static int       trace;
 static int       no_elev;
 
 /* ---- the forced cue elevation -------------------------------------------- *
- * A verbatim port of cue_game.c's min_cue_elev. It has to be here rather than
- * be skipped, because it is applied to every shot the game plays and the AI
- * plans as though it were zero — which is itself one of the things worth
- * measuring, hence AI_NOELEV. */
+ * Now the shared cue_table_min_elev, which the AI's ranking sims use too. This
+ * was a hand-copied twin of a static in cue_game.c, and the duplication was
+ * the reason the AI never saw it: it planned level, the game tilted the cue,
+ * and the ball left at cos(elev) of the planned pace. AI_NOELEV still turns
+ * the whole thing off, so what it is worth stays measurable. */
 static float min_cue_elev(float aim, float tip_vert) {
-    Vec3 cue = B[0].pos;
-    float Rr = T.R;
-    float bx = -cosf(aim), bz = -sinf(aim);
-    float ch = Rr * (1.0f + tip_vert);
-    const float SHAFT = 0.55f;
-    float need = 0.0f;
-
-    float hl = T.half_len, hw = T.half_wid, dc = 1e9f;
-    if (bx >  1e-4f) dc = fminf(dc, (hl - cue.x)/bx);
-    if (bx < -1e-4f) dc = fminf(dc, (-hl - cue.x)/bx);
-    if (bz >  1e-4f) dc = fminf(dc, (hw - cue.z)/bz);
-    if (bz < -1e-4f) dc = fminf(dc, (-hw - cue.z)/bz);
-    if (dc > 0.0f && dc < 0.13f) {
-        float h = T.cushion_h + 0.4f*Rr;
-        if (h > ch) { float e = atan2f(h - ch, fmaxf(dc, 0.4f*Rr)); if (e > need) need = e; }
-    }
-    for (int i = 1; i < N; i++) {
-        if (!B[i].on) continue;
-        float dx = B[i].pos.x - cue.x, dz = B[i].pos.z - cue.z;
-        float along = dx*bx + dz*bz;
-        if (along <= 0.0f || along > SHAFT) continue;
-        float perp2 = (dx*dx + dz*dz) - along*along;
-        if (perp2 < (1.5f*Rr)*(1.5f*Rr)) {
-            float h = 2.0f*Rr + 0.25f*Rr;
-            if (h > ch) { float e = atan2f(h - ch, fmaxf(along, 0.6f*Rr)); if (e > need) need = e; }
-        }
-    }
-    if (need > 1.30f) need = 1.30f;
-    return need;
+    return cue_table_min_elev(&T, B, N, B[0].pos, aim, tip_vert);
 }
 
 /* ---- what we are counting ------------------------------------------------ */
 typedef struct {
     long shots, pot_attempts, pots, safeties, fouls, misses;
+    /* WHY it played safe. `score` is 0 on every safety, so without the best pot
+     * that was available you cannot tell a forced safety from a timid one. */
+    long safe_forced;   /* no pot existed at all */
+    long safe_thin;     /* best pot on the table < 40 confidence */
+    long safe_mid;      /* 40..74 */
+    long safe_easy;     /* >= 75 — turned down a good chance */
     long elev_forced;              /* shots the game tilted the cue on */
     double elev_sum;
     long breaks_started;           /* visits that scored at least one ball */
@@ -143,8 +122,7 @@ static int play_shot(const CuePersona *p) {
     R.was_snookered = cue_rules_is_snookered(&R, B, N);
 
     if (R.ball_in_hand) {
-        Vec3 pos = cue_ai_place(&W, &T, &R, B, N, p,
-                                T.is_snooker || T.kind == CUE_GAME_UK8, &RNG);
+        Vec3 pos = cue_ai_place(&W, &T, &R, B, N, p, &RNG);
         B[0].pos = pos; B[0].on = 1;
         B[0].vel = v3(0,0,0); B[0].w = v3(0,0,0);
         R.ball_in_hand = 0;
@@ -173,7 +151,13 @@ static int play_shot(const CuePersona *p) {
     if (!s.valid) return 0;
 
     ST.shots++;
-    if (s.safe) ST.safeties++;
+    if (s.safe) {
+        ST.safeties++;
+        if (s.best_pot < 0.0f)       ST.safe_forced++;
+        else if (s.best_pot < 40.0f) ST.safe_thin++;
+        else if (s.best_pot < 75.0f) ST.safe_mid++;
+        else                         ST.safe_easy++;
+    }
     else {
         ST.pot_attempts++;
         ST.conf_att[conf_bucket(s.score)]++;
@@ -320,6 +304,11 @@ int main(void) {
     /* Tell the planner what our full power is, exactly as a front-end must. */
     cue_ai_set_max_speed(MAX_STRIKE_SPEED);
     no_elev = getenv("AI_NOELEV") != NULL;
+    /* AI_ELEVBLIND reproduces the behaviour before the planner was taught about
+     * the forced elevation: the GAME still tilts the cue, the planner still
+     * simulates level. That is the comparison that says what the fix is worth. */
+    int elev_blind = getenv("AI_ELEVBLIND") != NULL;
+    cue_ai_force_elev(!no_elev && !elev_blind);
     if (pi < 0 || pi >= CUE_NUM_PERSONAS) pi = 0;
     if (!RNG) RNG = 1;
 
@@ -335,7 +324,9 @@ int main(void) {
     printf("  P0 %s  vs  P1 %s\n", p->name, p2->name);
     printf("  table     %.2f x %.2f m, %s%s\n", T.half_len*2, T.half_wid*2,
            T.is_snooker ? "snooker" : "pool",
-           no_elev ? ", forced cue elevation DISABLED" : "");
+           no_elev ? ", forced cue elevation DISABLED"
+                   : elev_blind ? ", cue elevation forced but PLANNER BLIND to it"
+                                : "");
     printf("  strike    power01 x %.1f m/s%s\n", MAX_STRIKE_SPEED,
            fabsf(MAX_STRIKE_SPEED - 8.5f) > 0.01f
              ? "   <-- the AI SIMULATES at 8.5" : "");
@@ -352,6 +343,12 @@ int main(void) {
     printf("  misses         %ld\n", ST.misses);
     printf("  safeties       %ld  (%.1f%% of shots)\n", ST.safeties,
            ST.shots ? 100.0 * ST.safeties / ST.shots : 0.0);
+    {   long sf = ST.safeties ? ST.safeties : 1;
+        printf("    forced (no pot on)   %6ld  %5.1f%%\n", ST.safe_forced, 100.0*ST.safe_forced/sf);
+        printf("    best pot was  <40    %6ld  %5.1f%%\n", ST.safe_thin,   100.0*ST.safe_thin/sf);
+        printf("    best pot was 40-74   %6ld  %5.1f%%\n", ST.safe_mid,    100.0*ST.safe_mid/sf);
+        printf("    best pot was  75+    %6ld  %5.1f%%   <- turned down a good chance\n",
+               ST.safe_easy, 100.0*ST.safe_easy/sf); }
     printf("  fouls          %ld\n", ST.fouls);
     printf("  cue forced up  %ld  (%.1f%% of shots, mean %.1f deg)\n",
            ST.elev_forced, ST.shots ? 100.0 * ST.elev_forced / ST.shots : 0.0,

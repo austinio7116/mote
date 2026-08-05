@@ -343,6 +343,32 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     MoteVrV3 flat = mv3(c->axis.x, 0.0f, c->axis.z);
     c->aim_dir = mv3_len(flat) > 1e-4f ? mv3_norm(flat) : mv3(1, 0, 0);
 
+    /* Forced elevation. You cannot cue through the cushion or through a ball
+     * behind the white, so where the geometry demands it the cue comes up —
+     * and the DRAWN shaft comes up with it, pivoting about the tip, which is
+     * the one point that must not move (it is on the ball). The alternative,
+     * playing elevated while drawing the cue along the hand, puts the shaft
+     * visibly through the rail on exactly the shots where the player is most
+     * carefully watching it.
+     *
+     * Cueing higher on the ball lowers the requirement, so the cue settles back
+     * down of its own accord as the tip is raised — which is the real
+     * technique, discovered rather than explained.
+     *
+     * Note what is deliberately NOT changed: c->axis stays the line the player
+     * is actually holding, because everything below derives the contact point
+     * on the ball from it. Where you hit the white is your business; how steeply
+     * the stick has to sit to get there is the table's. Only the played
+     * elevation and the drawn shaft pivot, both about the tip. */
+    c->elev_forced = 0;
+    if (c->elev < c->min_elev) {
+        c->elev = c->min_elev;
+        c->elev_forced = 1;
+        float ce = cosf(c->elev), se = sinf(c->elev);
+        MoteVrV3 shown = mv3(c->aim_dir.x * ce, -se, c->aim_dir.z * ce);
+        c->butt = mv3_sub(c->tip, mv3_scale(shown, CUEVR_CUE_LEN));
+    }
+
     /* ---- where the line meets the ball ---------------------------------- */
     /* The tip is a 5 mm object, so contact is its surface against the ball's,
      * not an infinitely thin line through the ball's centre. It widens the

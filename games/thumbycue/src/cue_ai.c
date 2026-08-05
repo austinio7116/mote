@@ -162,7 +162,15 @@ static CueAIShot to_caller_power(CueAIShot s) {
 static CueWorld s_sw;            /* scratch world (copied per plan) */
 static CueBall  s_sb[CUE_MAX_BALLS];
 
-static void ai_sim(const CueWorld *w, const CueBall *balls, int n, int cue_idx,
+/* Forced cue elevation, on by default. Off is a measurement mode only (the
+ * harness's AI_NOELEV): when the front end is not tilting the cue, the planner
+ * must not simulate as though it were, or the two disagree in the other
+ * direction. Never turn this off in a game — the front ends all force it. */
+static int s_force_elev = 1;
+void cue_ai_force_elev(int on) { s_force_elev = on ? 1 : 0; }
+
+static void ai_sim(const CueWorld *w, const CueTable *t,
+                   const CueBall *balls, int n, int cue_idx,
                    float aim, float power01, float tip_side, float tip_vert,
                    AiSim *out) {
     s_sw = *w;
@@ -174,11 +182,21 @@ static void ai_sim(const CueWorld *w, const CueBall *balls, int n, int cue_idx,
         s_sb[i].w   = v3(0,0,0);
         s_sb[i].drop = 0.0f;
     }
-    extern void cue_phys_strike(const CueWorld*, CueBall*, Vec3, float, float, float);
     extern void cue_phys_set_substep(float);
     cue_phys_set_substep(K_SUBSTEP);          /* coarser step: ~2x faster ranking sims */
     Vec3 dir = v3(cosf(aim), 0, sinf(aim));
-    cue_phys_strike(&s_sw, &s_sb[cue_idx], dir, power01 * AI_SIM_SPEED, tip_side, tip_vert);
+    /* Strike with the elevation the FRONT END will force on this shot, not
+     * level. The cue is a stick: near a cushion, or with a ball behind the
+     * white, it has to come up, and then only cos(elev) of the pace reaches the
+     * cloth and side spin swerves the path. Simulating level made the planner
+     * confidently choose shots the cue could not play — it would ask for a
+     * delicate roll-through that the tilt turned into a stun, and read a leave
+     * off a trajectory the ball never took. */
+    float elev = s_force_elev
+               ? cue_table_min_elev(t, s_sb, n, s_sb[cue_idx].pos, aim, tip_vert)
+               : 0.0f;
+    cue_phys_strike_elev(&s_sw, &s_sb[cue_idx], dir, power01 * AI_SIM_SPEED,
+                         tip_side, tip_vert, elev);
 
     /* Settle to a TRUE rest. This engine's cloth is low-drag — a ball rolls for
      * ~5-8 s (120-170 calls at dt=0.05) before stopping, so the old 45-call cap
@@ -1325,6 +1343,7 @@ static void plan_finalize(void) {
             o.aim = P.pool[bi].aim; o.power01 = P.pool[bi].power01;
             o.tip_vert = P.pool[bi].tip_vert; o.tip_side = P.pool[bi].tip_side;
             o.safe = 1; o.valid = 1;
+            o.best_pot = -1.0f;            /* no pot existed to turn down */
             o.target_id = (P.pool[bi].tidx > 0 && P.pool[bi].tidx < c->n)
                         ? c->b[P.pool[bi].tidx].id : -1;
         }
@@ -1401,6 +1420,7 @@ static void plan_finalize(void) {
                 out.aim = sc->aim; out.power01 = sc->power01;
                 out.tip_vert = sc->tip_vert; out.tip_side = sc->tip_side;
                 out.safe = 1; out.valid = 1;
+                out.best_pot = best.potScore;   /* what it turned down */
                 out.target_id = (sc->tidx > 0 && sc->tidx < c->n) ? c->b[sc->tidx].id : -1;
                 P.result = out; return;
             }
@@ -1444,7 +1464,7 @@ static void plan_finalize(void) {
         float gear = 2.0f * c->t->R / fmaxf(best.dg, 4.0f * c->t->R);
         for (int pass = 0; pass < 2; pass++) {
             AiSim sim;
-            ai_sim(c->w, c->b, c->n, 0, best.aim, best.power01,
+            ai_sim(c->w, c->t, c->b, c->n, 0, best.aim, best.power01,
                    best.tip_side, best.tip_vert, &sim);
             if (!sim.have_hit_dir || sim.first_hit_idx != best.tidx) break;
             float err = wrapPI(atan2f(sim.hit_dir.z, sim.hit_dir.x)
@@ -1465,6 +1485,7 @@ static void plan_finalize(void) {
     out.power01 = clampf(best.power01 * (1.0f + powErr), 0.05f, 1.0f);
     out.tip_vert = best.tip_vert; out.tip_side = best.tip_side;
     out.safe = 0; out.valid = 1; out.score = best.potScore;
+    out.best_pot = best.potScore;
     out.target_id = (best.tidx > 0 && best.tidx < c->n) ? c->b[best.tidx].id : -1;
     P.result = out;
 }
@@ -1774,7 +1795,7 @@ int cue_ai_plan_tick(void) {
     for (int s = 0; s < SIMS_PER_TICK && P.sim_i < P.sim_cap; s++) {
         Cand *v = &P.pool[P.sim_i];
         AiSim sim;
-        ai_sim(c->w, c->b, c->n, 0, v->aim, v->power01, v->tip_side, v->tip_vert, &sim);
+        ai_sim(c->w, c->t, c->b, c->n, 0, v->aim, v->power01, v->tip_side, v->tip_vert, &sim);
         v->simmed = 1; v->cue_end = sim.cue_end;
         v->scratch = sim.cue_potted;
         /* The sim's job is NOT to decide whether the pot drops — that's the
@@ -1896,7 +1917,7 @@ CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r
         float aim = 6.2831853f * (float)d / 12.0f;
         for (int pi = 0; pi < 3; pi++) {
             AiSim sim;
-            ai_sim(w, balls, n, 0, aim, POWS[pi], 0.0f, 0.0f, &sim);
+            ai_sim(w, t, balls, n, 0, aim, POWS[pi], 0.0f, 0.0f, &sim);
             if (sim.cue_potted) continue;                  /* never scratch on a push-out */
             /* opponent's best pot on the ball-on from the resulting layout */
             AiCtx cx = c; cx.b = s_sb;                     /* s_sb holds the settled balls */

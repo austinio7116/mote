@@ -152,6 +152,15 @@ typedef struct {
     float tip_side;      /* contact offset, fractions of R (+ = right english) */
     float tip_vert;      /* + = top/follow, - = bottom/draw */
     float elev;          /* radians above horizontal (butt raised) */
+    /* The floor under `elev`: the cue is a solid stick, so it cannot lie level
+     * through a cushion or through a ball sitting behind the white. The app
+     * fills this each frame from cue_table_min_elev (using the previous
+     * frame's aim — one frame of lag at 72 Hz, and self-correcting), and the
+     * update raises BOTH the played elevation and the drawn shaft to meet it.
+     * Drawing the cue where the hand is while playing it elevated would show
+     * the shaft passing through the rail, so the two move together. */
+    float min_elev;
+    int   elev_forced;   /* 1 while min_elev is what is actually in effect */
     MoteVrV3 aim_dir;    /* horizontal unit aim direction */
 
     /* stroke tracking */

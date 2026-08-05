@@ -510,3 +510,87 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
     if (t->kind == CUE_GAME_US9)  return rack_9ball(t, balls);
     return rack_pool(t, balls);   /* UK8 + US8 */
 }
+
+/* ---- forced cue elevation --------------------------------------------- *
+ * The cue is a solid stick, so the shot you can play is limited by what the
+ * SHAFT can pass through, not just by where the tip can touch. The shaft runs
+ * BACK from the tip contact, rising at the elevation angle; for an obstacle of
+ * top-height h at horizontal distance d along it, the shaft (starting at
+ * contact height c) clears when c + d·tan(e) >= h, i.e. e >= atan((h-c)/d).
+ * The answer is the max over every obstacle the shaft actually runs into.
+ *
+ * This lives here, beside the geometry it reasons about, because FOUR callers
+ * need the identical number and they must agree exactly: the handheld, CueVR,
+ * the AI's ranking sims, and the measurement harness. It was previously a
+ * static in cue_game.c with a hand-copied twin in the harness, which is why
+ * neither CueVR nor the AI ever applied it — the AI planned every shot as
+ * though the cue were level, then the game tilted it and the ball left at
+ * cos(elev) of the planned pace, curving.
+ *
+ * Raising the contact point on the ball (tip_vert -> +1) raises c and so
+ * lowers the answer: cueing high over an obstruction is exactly how a player
+ * keeps the cue down, and the number falls away continuously as they do it. */
+
+/* The cue is a rigid stick 1.45 m long and EVERY point along it has to clear
+ * whatever lies beneath it. There is no near band inside which obstacles count
+ * and beyond which they stop: a shaft that fouls the rail 40 cm back fouls it
+ * just as solidly as one that fouls it 4 cm back. Both of the limits that used
+ * to be here — a 0.55 m scan for balls and a 0.13 m cut-off on the cushion —
+ * were shortcuts that silently switched the constraint off, the second of them
+ * producing a visible step (9 degrees at 120 mm, nothing at 140 mm). */
+#define CUE_SHAFT_REACH 1.45f       /* == CUEVR_CUE_LEN */
+#define CUE_ELEV_MAX 1.30f          /* steep masse; past this it is not a shot */
+
+float cue_table_min_elev(const CueTable *t, const CueBall *balls, int n,
+                         Vec3 cue, float aim, float tip_vert) {
+    const float R = t->R;
+    float bx = -cosf(aim), bz = -sinf(aim);      /* shaft runs back from the tip */
+    float ch = R * (1.0f + tip_vert);            /* tip contact height on the ball */
+    float need = 0.0f;
+
+    /* The cushion + the wood frame behind it. Where the shaft crosses the nose
+     * line the ground steps up to the cushion's flat top and stays at or above
+     * it all the way out over the plank, so the near edge is what binds and one
+     * test covers both. Heights mirror cue_render's rail build exactly:
+     * flat top = cushion_h * 1.30, wood plank riding 0.085 R above that.
+     *
+     * This binds wherever the crossing falls within the cue's length — which,
+     * on a 7 ft table, is essentially every shot. That is correct and it is why
+     * players cue slightly downhill: a level cue would be inside the rail. Far
+     * from the cushion it comes to a degree or so and costs nothing; the number
+     * only grows into a real constraint as the white approaches the rail. */
+    {
+        float hl = t->half_len, hw = t->half_wid, dc = 1e9f;
+        if (bx >  1e-4f) dc = fminf(dc, ( hl - cue.x) / bx);
+        if (bx < -1e-4f) dc = fminf(dc, (-hl - cue.x) / bx);
+        if (bz >  1e-4f) dc = fminf(dc, ( hw - cue.z) / bz);
+        if (bz < -1e-4f) dc = fminf(dc, (-hw - cue.z) / bz);
+        if (dc > 0.0f && dc < CUE_SHAFT_REACH) {
+            float h = t->cushion_h * 1.30f + 0.085f * R;
+            if (h > ch) {
+                float e = atan2f(h - ch, fmaxf(dc, 0.4f * R));
+                if (e > need) need = e;
+            }
+        }
+    }
+
+    /* Any ball lying in the shaft's path, within the cue's lateral width. You
+     * cannot cue through a ball; you go over it. */
+    for (int i = 1; i < n; i++) {          /* balls[0] is the cue ball itself */
+        if (!balls[i].on) continue;
+        float dx = balls[i].pos.x - cue.x, dz = balls[i].pos.z - cue.z;
+        float along = dx * bx + dz * bz;
+        if (along <= 0.0f || along > CUE_SHAFT_REACH) continue;
+        float perp2 = (dx * dx + dz * dz) - along * along;
+        if (perp2 < (1.5f * R) * (1.5f * R)) {
+            float h = 2.0f * R + 0.25f * R;      /* clear the ball's top */
+            if (h > ch) {
+                float e = atan2f(h - ch, fmaxf(along, 0.6f * R));
+                if (e > need) need = e;
+            }
+        }
+    }
+
+    if (need > CUE_ELEV_MAX) need = CUE_ELEV_MAX;
+    return need;
+}
