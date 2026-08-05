@@ -414,8 +414,9 @@ static void unpause(void) {
  * cue ball and take the first ball it would reach — that IS the nomination,
  * because it is the ball the cue ball is about to hit. Manual nomination stays
  * in the pause menu for the shot you mean to play off a cushion. */
-static int aimed_colour(void) {
-    if (!S.rules.kind || S.rules.target != 1) return 0;
+/* The first ball the cue ball would reach along the aim line, as a ball id, or
+ * -1. aimed_colour() below narrows that to a colour value. */
+static int aimed_ball(void) {
     MoteVrV3 d = cuevr_room_dir_to_table(&S.setup.place, S.cue.aim_dir);
     float dx = d.x, dz = d.z;
     float l = sqrtf(dx*dx + dz*dz);
@@ -433,8 +434,13 @@ static int aimed_colour(void) {
         if (px*px + pz*pz > (2.0f*R)*(2.0f*R)) continue;
         if (tt < best_t) { best_t = tt; best = S.balls[i].id; }
     }
-    if (best >= CUE_ID_YELLOW && best <= CUE_ID_BLACK)
-        return best - CUE_ID_YELLOW + 2;
+    return best ? best : -1;
+}
+
+static int aimed_colour(void) {
+    if (!S.rules.kind || S.rules.target != 1) return 0;
+    int id = aimed_ball();
+    if (id >= CUE_ID_YELLOW && id <= CUE_ID_BLACK) return id - CUE_ID_YELLOW + 2;
     return 0;
 }
 
@@ -1002,8 +1008,13 @@ static void resolve_shot(void) {
      * one. A penalty landing on the other player is the only reliable signal
      * from out here that a foul was given. */
     if (cpu_played) {
-        if (S.rules.score[1 - was_turn] > score_before)
-            cue_ai_note_foul(S.cpu_shot.target_id);
+        if (S.rules.score[1 - was_turn] > score_before) {
+            /* which ball it actually hit matters as much as which it meant to:
+             * the planner steers away from the offender, not just the target */
+            int hit = (S.world.first_hit >= 0 && S.world.first_hit < S.nballs)
+                    ? S.balls[S.world.first_hit].id : -1;
+            cue_ai_note_foul(S.cpu_shot.target_id, hit);
+        }
         else
             cue_ai_clear_fouls();
     }
@@ -1632,6 +1643,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.hud_dirty = 1;
             }
         }
+        /* And the free ball, if one was awarded — same act, same ray. */
+        if (mine && S.rules.free_ball) {
+            int id = aimed_ball();
+            if (id > 0 && id != S.rules.free_ball_id) {
+                cue_rules_nominate_free(&S.rules, id);
+                S.hud_dirty = 1;
+            }
+        }
         if (shot.struck && !mine) shot.struck = 0;
         if (shot.struck) {
             /* The ball leaves faster than the tip arrives. A cue is heavier
@@ -1739,6 +1758,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.cpu_shot.target_id >= CUE_ID_YELLOW &&
                 S.cpu_shot.target_id <= CUE_ID_BLACK)
                 cue_rules_nominate(&S.rules, S.cpu_shot.target_id - CUE_ID_YELLOW + 2);
+            if (S.rules.free_ball && S.cpu_shot.target_id > 0)
+                cue_rules_nominate_free(&S.rules, S.cpu_shot.target_id);
             S.cpu_t = 0.0f;
             S.state = ST_CPUCUE;
             S.hud_dirty = 1;

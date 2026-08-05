@@ -101,7 +101,7 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
 /* Remember that a shot ON THIS BALL fouled, so the planner stops offering it
  * while anything else is available; and forget it all after a clean shot. The
  * planner keeps no state between shots, so the caller has to tell it. */
-void cue_ai_note_foul(int target_id);
+void cue_ai_note_foul(int target_id, int hit_id);
 void cue_ai_clear_fouls(void);
 
 int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,

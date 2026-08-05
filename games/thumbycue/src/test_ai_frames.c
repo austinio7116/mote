@@ -166,6 +166,7 @@ static int play_shot(const CuePersona *p) {
     if (R.kind && R.target == 1 &&
         s.target_id >= CUE_ID_YELLOW && s.target_id <= CUE_ID_BLACK)
         cue_rules_nominate(&R, s.target_id - CUE_ID_YELLOW + 2);
+    if (R.free_ball && s.target_id > 0) cue_rules_nominate_free(&R, s.target_id);
     { double e = nowsec() - t0;
       s_plan_total += e; s_plans++;
       if (e > s_plan_worst) s_plan_worst = e; }

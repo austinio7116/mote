@@ -356,6 +356,8 @@ static void cpu_apply(CueAIShot shot) {
     if (s_rules.kind && s_rules.target == 1 &&
         shot.target_id >= CUE_ID_YELLOW && shot.target_id <= CUE_ID_BLACK)
         cue_rules_nominate(&s_rules, shot.target_id - CUE_ID_YELLOW + 2);
+    if (s_rules.free_ball && shot.target_id > 0)
+        cue_rules_nominate_free(&s_rules, shot.target_id);
     if (!shot.valid) {                 /* no legal shot at all — nudge forward */
         s_power = 0.3f; s_tip_side = s_tip_vert = 0;
         return;
@@ -765,8 +767,11 @@ static void ingame_tick(const CraftRawButtons *b, float dt) {
             /* the planner keeps no state between shots, so tell it what its own
              * last one did — otherwise it offers the same fouling shot forever */
             if (cpu_played) {
-                if (s_rules.score[1 - was_turn] > score_before)
-                    cue_ai_note_foul(s_cpu_target);
+                if (s_rules.score[1 - was_turn] > score_before) {
+                    int hit = (s_first_hit >= 0 && s_first_hit < s_n)
+                            ? s_balls[s_first_hit].id : -1;
+                    cue_ai_note_foul(s_cpu_target, hit);
+                }
                 else
                     cue_ai_clear_fouls();
             }

@@ -53,6 +53,7 @@ typedef struct {
     /* snooker foul-and-a-miss + free ball (WPBSA) */
     int was_snookered;   /* striker had NO clear ball-on before the shot (set by cue_game) */
     int free_ball;       /* this shot is played under a free-ball award */
+    int free_ball_id;    /* WHICH ball was nominated as it, or 0 for any */
     int cmiss[2];        /* consecutive misses per player (3 = frame forfeit) */
     int decision;        /* pending opponent decision after a snooker foul (CUE_DEC_*) */
     int dec_can_restore; /* a "miss" was called → opponent may force a replay */
@@ -91,6 +92,8 @@ int  cue_rules_should_concede(const CueRules *r, int player);
 /* Nominate the colour `value` (2..7) as the ball on. Ignored unless the striker
  * is on a colour in the reds phase. */
 void cue_rules_nominate(CueRules *r, int value);
+/* Name the ball being taken as the free ball. Ignored unless one is awarded. */
+void cue_rules_nominate_free(CueRules *r, int id);
 
 /* True if the player to strike has NO full-ball clear path to any ball-on
  * (used pre-shot to flag snookers for the miss / free-ball rules). */
