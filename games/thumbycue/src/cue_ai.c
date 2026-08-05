@@ -221,6 +221,38 @@ static CueBall  s_sb[CUE_MAX_BALLS];
 static int s_force_elev = 1;
 void cue_ai_force_elev(int on) { s_force_elev = on ? 1 : 0; }
 
+/* The elevation this shot will really be played at, and the tip height that
+ * keeps it sane.
+ *
+ * The requirement falls as you cue HIGHER on the ball — a higher contact point
+ * is already above more of what the shaft has to clear — so a player faced
+ * with standing the cue on end gets up on the white instead. The planner had
+ * no such instinct: it swept tip_vert for spin alone, shortlisted on a score
+ * blind to elevation, and would happily settle on a centre-ball variant that
+ * needed seventy degrees when a touch of top brought it back to twenty.
+ *
+ * So past a sensible angle, walk the tip up the ball until the cue comes down
+ * or the tip runs out of ball. Deterministic in (aim, tip_vert, layout), which
+ * matters: ai_sim and the shot handed to the caller both run it and must land
+ * on the same answer. */
+#define AI_ELEV_OK   0.52f      /* ~30 deg: past this, get up on the ball */
+#define AI_TIPV_MAX  0.45f      /* miscue limit */
+
+static float ai_shot_elev(const CueTable *t, const CueBall *balls, int n,
+                          Vec3 cue, float aim, float *tip_vert) {
+    if (!s_force_elev) return 0.0f;
+    float tv = *tip_vert, ca = cosf(aim), sa = sinf(aim);
+    Vec3 tp = v3(cue.x - ca*t->R, t->R*(1.0f + tv), cue.z - sa*t->R);
+    float e = cue_table_min_elev(t, balls, n, tp, aim);
+    for (int k = 0; k < 10 && e > AI_ELEV_OK && tv < AI_TIPV_MAX; k++) {
+        tv += 0.06f; if (tv > AI_TIPV_MAX) tv = AI_TIPV_MAX;
+        tp = v3(cue.x - ca*t->R, t->R*(1.0f + tv), cue.z - sa*t->R);
+        e = cue_table_min_elev(t, balls, n, tp, aim);
+    }
+    *tip_vert = tv;
+    return e;
+}
+
 static void ai_sim(const CueWorld *w, const CueTable *t,
                    const CueBall *balls, int n, int cue_idx,
                    float aim, float power01, float tip_side, float tip_vert,
@@ -244,12 +276,7 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
      * confidently choose shots the cue could not play — it would ask for a
      * delicate roll-through that the tilt turned into a stun, and read a leave
      * off a trajectory the ball never took. */
-    float elev = 0.0f;
-    if (s_force_elev) {
-        Vec3 cb = s_sb[cue_idx].pos;
-        Vec3 tp = v3(cb.x - dir.x*t->R, t->R*(1.0f + tip_vert), cb.z - dir.z*t->R);
-        elev = cue_table_min_elev(t, s_sb, n, tp, aim);
-    }
+    float elev = ai_shot_elev(t, s_sb, n, s_sb[cue_idx].pos, aim, &tip_vert);
     cue_phys_strike_elev(&s_sw, &s_sb[cue_idx], dir, power01 * AI_SIM_SPEED,
                          tip_side, tip_vert, elev);
 
@@ -1509,6 +1536,9 @@ static void plan_finalize(void) {
         if (bi >= 0) {
             o.aim = P.pool[bi].aim; o.power01 = P.pool[bi].power01;
             o.tip_vert = P.pool[bi].tip_vert; o.tip_side = P.pool[bi].tip_side;
+            { float tv = o.tip_vert;
+              ai_shot_elev(c->t, c->b, c->n, c->b[0].pos, P.pool[bi].aim, &tv);
+              o.tip_vert = tv; }
             o.safe = 1; o.valid = 1;
             o.best_pot = -1.0f;            /* no pot existed to turn down */
             o.score = P.pool[bi].safeq;    /* the SAFETY's own quality */
@@ -1606,6 +1636,9 @@ static void plan_finalize(void) {
             if (best_unsafe || sc->posScore * 0.6f > best.potScore + aggression) {
                 out.aim = sc->aim; out.power01 = sc->power01;
                 out.tip_vert = sc->tip_vert; out.tip_side = sc->tip_side;
+                { float tv = out.tip_vert;
+                  ai_shot_elev(c->t, c->b, c->n, c->b[0].pos, sc->aim, &tv);
+                  out.tip_vert = tv; }
                 out.safe = 1; out.valid = 1;
                 out.best_pot = best.potScore;
     out.breakout = best.brk; out.freed_sim = best.freed;
@@ -1673,6 +1706,9 @@ static void plan_finalize(void) {
     out.aim = best.aim + aimErr;
     out.power01 = clampf(best.power01 * (1.0f + powErr), 0.05f, 1.0f);
     out.tip_vert = best.tip_vert; out.tip_side = best.tip_side;
+    { float tv = out.tip_vert;      /* same walk-up the sim used */
+      ai_shot_elev(c->t, c->b, c->n, c->b[0].pos, best.aim, &tv);
+      out.tip_vert = tv; }
     out.safe = 0; out.valid = 1; out.score = best.potScore;
     out.best_pot = best.potScore;
     out.breakout = best.brk; out.freed_sim = best.freed;

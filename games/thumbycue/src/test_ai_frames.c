@@ -84,7 +84,8 @@ typedef struct {
     long np_bucket[5];  /* how easy the next pot was, after a pot */
     long sq_n; double sq_sum, sq_min, sq_max; long sq_hist[12];  /* safety quality */
     long elev_forced;              /* shots the game tilted the cue on */
-    double elev_sum;
+    double elev_sum, elev_max;
+    long elev_over30, elev_over45, elev_over60;
     long breaks_started;           /* visits that scored at least one ball */
     long brk_hist[16];             /* 0-9, 10-19, ... 140+ */
     long best_p[2], brk_sum_p[2], brk_n_p[2];   /* per player */
@@ -190,7 +191,13 @@ static int play_shot(const CuePersona *p) {
     }
 
     float elev = no_elev ? 0.0f : min_cue_elev(s.aim, s.tip_vert);
-    if (elev > 1e-4f) { ST.elev_forced++; ST.elev_sum += elev; }
+    if (elev > 1e-4f) {
+        ST.elev_forced++; ST.elev_sum += elev;
+        if (elev > ST.elev_max) ST.elev_max = elev;
+        if (elev > 0.5236f) ST.elev_over30++;
+        if (elev > 0.7854f) ST.elev_over45++;
+        if (elev > 1.0472f) ST.elev_over60++;
+    }
 
     Vec3 dir = v3(cosf(s.aim), 0, sinf(s.aim));
     cue_phys_strike_elev(&W, &B[0], dir, s.power01 * MAX_STRIKE_SPEED,
@@ -423,6 +430,10 @@ int main(void) {
     printf("  cue forced up  %ld  (%.1f%% of shots, mean %.1f deg)\n",
            ST.elev_forced, ST.shots ? 100.0 * ST.elev_forced / ST.shots : 0.0,
            ST.elev_forced ? ST.elev_sum / ST.elev_forced * 57.2958 : 0.0);
+    printf("    max %.1f deg   over30 %ld (%.1f%% of shots)  over45 %ld  over60 %ld\n",
+           ST.elev_max * 57.2958, ST.elev_over30,
+           ST.shots ? 100.0 * ST.elev_over30 / ST.shots : 0.0,
+           ST.elev_over45, ST.elev_over60);
 
     static const char *CB[5] = { "  <40 ", " 40-59", " 60-74", " 75-89", "  90+ " };
     printf("\npot success by the AI's OWN confidence in the shot:\n");

@@ -1040,6 +1040,15 @@ static void resolve_shot(void) {
          * after its own. Exactly backwards, both ways round. */
         int decider = S.rules.pushout_offer ? S.rules.turn
                                             : 1 - S.rules.dec_offender;
+        /* Reported because a missed snooker escape was seen NOT to offer the
+         * replay, and the rules path that decides it reads correctly — so the
+         * next time it happens this says which link broke: whether the miss was
+         * called at all, whether a restore was on offer, and who was asked. */
+        LOGI("[cuevr] foul decision: offender %d decider %d  can_restore %d "
+             "free_ball %d scratch %d pushout %d cpu %d",
+             S.rules.dec_offender, decider, S.rules.dec_can_restore,
+             S.rules.dec_free_ball, S.rules.dec_scratch,
+             S.rules.pushout_offer, S.rules.cpu);
         if (S.rules.cpu && decider == 1) {
             if (S.rules.pushout_offer) {
                 CueAIShot p = cue_ai_pushout(&S.world, &S.tab, &S.rules,
