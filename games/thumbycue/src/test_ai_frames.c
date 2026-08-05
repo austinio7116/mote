@@ -96,6 +96,7 @@ typedef struct {
     double elev_sum;
     long breaks_started;           /* visits that scored at least one ball */
     long brk_hist[16];             /* 0-9, 10-19, ... 140+ */
+    long best_p[2], brk_sum_p[2], brk_n_p[2];   /* per player */
     long best_break;
     double sum_best_per_frame;
     long frames, frames_completed;
@@ -161,6 +162,10 @@ static int play_shot(const CuePersona *p) {
         if (done) break;
     }
     CueAIShot s = cue_ai_plan_result();
+    /* the harness plays BOTH sides, so both must nominate like a player */
+    if (R.kind && R.target == 1 &&
+        s.target_id >= CUE_ID_YELLOW && s.target_id <= CUE_ID_BLACK)
+        cue_rules_nominate(&R, s.target_id - CUE_ID_YELLOW + 2);
     { double e = nowsec() - t0;
       s_plan_total += e; s_plans++;
       if (e > s_plan_worst) s_plan_worst = e; }
@@ -252,21 +257,30 @@ static int play_shot(const CuePersona *p) {
 
 /* ---- one frame ----------------------------------------------------------- */
 
-static void play_frame(const CuePersona *p, int kind) {
+/* Two personas, because self-play with ONE tells you almost nothing about
+ * break-building: if both sides defend better, neither gets left in the balls
+ * and the breaks fall for reasons that have nothing to do with potting. Put a
+ * strong player in against a weak one and the strong one gets the chances a
+ * real opponent would give it. */
+static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
     cue_table_init(&T, (CueGameKind)kind);
     cue_table_build_world(&T, &W);
     N = cue_table_rack(&T, B);
     cue_rules_init(&R, &T, 1);
 
-    int best = 0, prev_brk = 0;
+    int best = 0, prev_brk = 0, prev_turn = 0;
     long guard = 0;
     while (!R.frame_over && guard++ < 500) {
-        if (!play_shot(p)) break;
+        if (!play_shot(R.turn ? p1 : p0)) break;
         if (R.brk > best) best = R.brk;
+        if (R.brk > 0) prev_turn = R.turn;
         if (R.brk == 0 && prev_brk > 0) {
             /* a visit ended: bucket what it made */
             int b = prev_brk / 10; if (b > 15) b = 15;
             ST.brk_hist[b]++;
+            if (prev_brk > ST.best_p[prev_turn & 1]) ST.best_p[prev_turn & 1] = prev_brk;
+            ST.brk_sum_p[prev_turn & 1] += prev_brk;
+            ST.brk_n_p[prev_turn & 1]++;
             ST.breaks_started++;
             if (prev_brk >= 100) ST.century++;
             else if (prev_brk >= 50) ST.fifty++;
@@ -296,6 +310,8 @@ int main(void) {
     int frames = 60, pi = 7, kind = CUE_GAME_SNK15;
     { const char *v = getenv("AI_FRAMES");  if (v) frames = atoi(v); }
     { const char *v = getenv("AI_PERSONA"); if (v) pi = atoi(v); }
+    int pi2 = -1;
+    { const char *v = getenv("AI_PERSONA2"); if (v) pi2 = atoi(v); }
     { const char *v = getenv("AI_GAME");    if (v) kind = atoi(v); }
     { const char *v = getenv("AI_SEED");    if (v) RNG = (uint32_t)atoi(v); }
     trace   = getenv("AI_TRACE") != NULL;
@@ -307,6 +323,7 @@ int main(void) {
     if (!RNG) RNG = 1;
 
     const CuePersona *p = &CUE_PERSONAS[pi];
+    const CuePersona *p2 = &CUE_PERSONAS[(pi2 >= 0 && pi2 < CUE_NUM_PERSONAS) ? pi2 : pi];
     cue_table_init(&T, (CueGameKind)kind);
 
     printf("ThumbyCue AI self-play\n");
@@ -314,6 +331,7 @@ int main(void) {
            "position %.2f, spin %.2f, select %d)\n",
            p->name, p->elo, p->line_acc, p->power_acc, p->position,
            p->spin_ability, p->shot_select);
+    printf("  P0 %s  vs  P1 %s\n", p->name, p2->name);
     printf("  table     %.2f x %.2f m, %s%s\n", T.half_len*2, T.half_wid*2,
            T.is_snooker ? "snooker" : "pool",
            no_elev ? ", forced cue elevation DISABLED" : "");
@@ -323,7 +341,7 @@ int main(void) {
     printf("  frames    %d\n\n", frames);
     fflush(stdout);
 
-    for (int i = 0; i < frames; i++) play_frame(p, kind);
+    for (int i = 0; i < frames; i++) play_frame2(p, p2, kind);
 
     printf("shots            %ld over %ld frames (%ld completed)\n",
            ST.shots, ST.frames, ST.frames_completed);
@@ -383,6 +401,11 @@ int main(void) {
     printf("  50+ breaks     %ld\n", ST.fifty + ST.century);
     printf("  centuries      %ld\n", ST.century);
     printf("  HIGHEST BREAK  %ld\n", ST.best_break);
+    printf("\n  per player:\n");
+    for (int q = 0; q < 2; q++)
+        printf("    P%d  best %3ld   mean visit %4.1f  over %ld scoring visits\n", q,
+               ST.best_p[q], ST.brk_n_p[q] ? (double)ST.brk_sum_p[q]/ST.brk_n_p[q] : 0.0,
+               ST.brk_n_p[q]);
     printf("  mean best break per frame  %.1f\n",
            ST.frames ? ST.sum_best_per_frame / ST.frames : 0.0);
     printf("  mean frame score  %.0f - %.0f\n",

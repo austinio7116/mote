@@ -119,6 +119,8 @@ static float K_SUBSTEP = CUE_AI_SUBSTEP_S;
 static float K_POSCAP  = 0.6f;             /* ceiling on the position weight */
 static float K_CONF    = 1.0f;             /* multiplier on the attack threshold */
 
+static float K_MISSCAUT = 25.0f;   /* how much a first miss tightens the gate */
+
 static void ai_knobs(void) {
 #ifndef MOTE_DEVICE
     static int done;
@@ -130,6 +132,7 @@ static void ai_knobs(void) {
     if ((v = getenv("CUE_AI_CONF")))    K_CONF    = (float)atof(v);
     if (K_SUBSTEP <= 0.0f) K_SUBSTEP = 1.0f / 1000.0f;
 #endif
+    { const char *v = getenv("AI_MISSCAUT"); if (v) K_MISSCAUT = (float)atof(v); }
 }
 
 void cue_ai_set_max_speed(float mps) {
@@ -490,11 +493,36 @@ static Vec3 predict_end_dir(const AiCtx *c, Vec3 cue, Vec3 ghost, Vec3 pdir,
     if (spinY > 0)      travel *= fmaxf(0.2f, 1.0f - spinY*1.5f);
     else if (spinY < 0) travel *= 1.0f + fabsf(spinY)*0.5f;
 
-    float ex = ghost.x + exitd.x*travel;
-    float ez = ghost.z + exitd.z*travel;
+    /* Bounce off the cushions rather than STOPPING at them.
+     *
+     * This clamped, so a cue ball sent into a rail was predicted to finish
+     * sitting on that rail. Most safeties worth playing put the cue ball into a
+     * cushion and bring it back up the table, and every one of them was being
+     * scored as though it had died on the rail it was aimed at. Pots survived
+     * the error because they are re-simulated afterwards; safeties never were.
+     *
+     * Reflection with a little loss per rail, folded until the travel is spent —
+     * four bounces is more than any real safety uses and the loop cannot run
+     * away. cue_phys is the authority on where a ball actually finishes; this
+     * only has to be right enough to RANK candidates before the survivors go
+     * through the real engine. */
     float hx = c->t->half_len - c->t->R, hz = c->t->half_wid - c->t->R;
-    ex = clampf(ex, -hx, hx); ez = clampf(ez, -hz, hz);
-    return v3(ex, 0, ez);
+    float px = ghost.x, pz = ghost.z, left = travel;
+    for (int b = 0; b < 4 && left > 1e-4f; b++) {
+        float nx = px + exitd.x * left, nz = pz + exitd.z * left;
+        /* how far along this leg the first rail is */
+        float tHit = 1.0f; int axis = -1;
+        if (nx >  hx && exitd.x > 0) { float tt = ( hx - px) / (exitd.x * left); if (tt < tHit) { tHit = tt; axis = 0; } }
+        if (nx < -hx && exitd.x < 0) { float tt = (-hx - px) / (exitd.x * left); if (tt < tHit) { tHit = tt; axis = 0; } }
+        if (nz >  hz && exitd.z > 0) { float tt = ( hz - pz) / (exitd.z * left); if (tt < tHit) { tHit = tt; axis = 1; } }
+        if (nz < -hz && exitd.z < 0) { float tt = (-hz - pz) / (exitd.z * left); if (tt < tHit) { tHit = tt; axis = 1; } }
+        if (axis < 0) { px = nx; pz = nz; break; }
+        px += exitd.x * left * tHit;
+        pz += exitd.z * left * tHit;
+        if (axis == 0) exitd.x = -exitd.x; else exitd.z = -exitd.z;
+        left *= (1.0f - tHit) * 0.82f;      /* a cushion eats about a fifth */
+    }
+    return v3(clampf(px, -hx, hx), 0, clampf(pz, -hz, hz));
 }
 
 static Vec3 predict_end(const AiCtx *c, Vec3 ghost, Vec3 target, int pk,
@@ -615,6 +643,37 @@ static int eval_pot(const AiCtx *c, int tidx, int pk,
 }
 
 /* persona shot selection from a sorted (best-first) candidate pool. */
+/* ---- what fouled last time --------------------------------------------- *
+ *
+ * The planner is stateless between shots, so without this it will happily play
+ * the same fouling shot again, and again — and now that three misses forfeits
+ * the frame, "again and again" is a way to lose. The 2D game keeps the last
+ * fouling shot and a short history, filters those out of the selection, and only
+ * falls back to them when there is nothing else. Cleared by a clean shot. */
+#define FOUL_MEM 4
+static struct { int target_id, pk; } s_foul[FOUL_MEM];
+static int s_nfoul;
+
+void cue_ai_note_foul(int target_id) {
+    for (int i = 0; i < s_nfoul; i++)
+        if (s_foul[i].target_id == target_id) return;      /* already known */
+    if (s_nfoul == FOUL_MEM) {
+        for (int i = 1; i < FOUL_MEM; i++) s_foul[i-1] = s_foul[i];
+        s_nfoul--;
+    }
+    s_foul[s_nfoul].target_id = target_id;
+    s_foul[s_nfoul].pk = -1;
+    s_nfoul++;
+}
+void cue_ai_clear_fouls(void) { s_nfoul = 0; }
+
+static int shot_fouled_before(const AiCtx *c, const Cand *q) {
+    if (q->tidx <= 0 || q->tidx >= c->n) return 0;
+    int id = c->b[q->tidx].id;
+    for (int i = 0; i < s_nfoul; i++) if (s_foul[i].target_id == id) return 1;
+    return 0;
+}
+
 static int select_shot(const AiCtx *c, int npool, uint32_t *rng) {
     if (npool <= 0) return -1;
     switch (c->p->shot_select) {
@@ -664,14 +723,49 @@ static float opponent_best_pot(const AiCtx *c, const Vec3 *pos, const int *on) {
 
 /* How badly the AI needs snookers: behind by more than the points left on the
  * table → 1.0 (must play for snookers). 0 = level or ahead. */
+/* How badly this player needs SNOOKERS — not merely how far behind they are.
+ *
+ * This was behind/available, a ramp that starts the moment you are a point down:
+ * ten behind with a full table gave 0.07 urgency and began nudging the planner
+ * toward safety, when a player in that position simply gets on with it. The 2D
+ * game's shape is a STEP — nothing at all while the balls can still retrieve it,
+ * then a jump to 0.25 and up as the snookers needed mount and the balls run
+ * out. And `available` was reds*8+27 unconditionally, so through the whole
+ * colours clearance it read 27 however few colours were left. */
 static float snooker_urgency(const AiCtx *c) {
     if (!c->snooker) return 0.0f;
-    int me = c->r->turn, opp = 1 - me;
-    int behind = c->r->score[opp] - c->r->score[me];
-    if (behind <= 0) return 0.0f;
-    int avail = c->r->reds_left * 8 + 27;        /* each red+colour, plus the colours */
-    if (avail <= 0) return 1.0f;
-    return clampf((float)behind / (float)avail, 0.0f, 1.0f);
+    const CueRules *r = c->r;
+    int me = r->turn, opp = 1 - me;
+    int deficit = r->score[opp] - r->score[me];
+    if (deficit <= 0) return 0.0f;
+
+    int remaining;
+    if (r->reds_left > 0) remaining = r->reds_left * 8 + 27;
+    else { remaining = 0; for (int v = (r->seq < 2 ? 2 : r->seq); v <= 7; v++) remaining += v; }
+    if (deficit <= remaining) return 0.0f;        /* still winnable on the balls */
+
+    /* the shortfall has to come from fouls, and the cheapest foul is 4 */
+    int needed = (deficit - remaining + 3) / 4;
+    float need_urg = clampf((float)needed / 4.0f, 0.0f, 1.0f);
+
+    /* and it is worse the fewer chances are left to lay one */
+    float scarcity;
+    if (r->reds_left <= 0)      scarcity = 1.00f;   /* colours: almost none left */
+    else if (r->reds_left <= 1) scarcity = 0.95f;
+    else if (r->reds_left <= 3) scarcity = 0.70f + (3 - r->reds_left) * 0.10f;
+    else if (r->reds_left <= 6) scarcity = 0.40f + (6 - r->reds_left) * 0.10f;
+    else                        scarcity = 0.30f;
+
+    return clampf(0.25f + 0.75f * fmaxf(need_urg, scarcity), 0.0f, 1.0f);
+}
+
+/* A snooker laid on the LAST red is worth more than any other: the foul is four,
+ * the free ball is another, and the colour after it can be seven. Worth chasing
+ * whenever we are behind at all, not only when snookers are formally needed. */
+static int last_red_snooker_valuable(const AiCtx *c) {
+    if (!c->snooker || c->r->reds_left != 1) return 0;
+    int me = c->r->turn;
+    return c->r->score[1 - me] > c->r->score[me];
 }
 
 /* From `cue_end`, can the opponent SEE (clear path to) any of their on-balls?
@@ -688,61 +782,289 @@ static int opp_on_visible(const AiCtx *c, Vec3 cue_end) {
 /* Analytic safety (no sims, so it never freezes): contact a legal ball softly
  * and leave the opponent poorly placed — and in snooker, ideally SNOOKERED.
  * Predicts the cue leave with predict_end_dir and scores the resulting layout. */
+/* ---- bank pots ---------------------------------------------------------- *
+ *
+ * Mirror the pocket across a rail, aim the object ball at the reflection, and it
+ * arrives at the pocket off the cushion. Tried only when NOTHING can be potted
+ * directly and only for balls the cue ball cannot see — which is the 2D game's
+ * rule, and the right one: a bank is a worse shot than any direct pot, so it is
+ * a last resort before conceding the visit to a safety.
+ *
+ * This is also the only caller of score_shot(), which was ported and then left
+ * unreferenced when the bank path was dropped. */
+static int find_banks(const AiCtx *c, Cand *out, int cap) {
+    if (cap <= 0) return 0;
+    Vec3 cue = c->b[0].pos;
+    float R = c->t->R;
+    float hx = c->t->half_len - R, hz = c->t->half_wid - R;
+    int nb = 0;
+
+    for (int i = 1; i < c->n && nb < cap; i++) {
+        if (!c->b[i].on) continue;
+        if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
+        /* only for balls we cannot simply shoot at */
+        if (path_clear(c, cue, c->b[i].pos, i)) continue;
+        Vec3 target = c->b[i].pos;
+
+        for (int pk = 0; pk < c->w->npocket && nb < cap; pk++) {
+            Vec3 ap = pocket_aim_t(c, pk, target);
+            for (int rail = 0; rail < 4 && nb < cap; rail++) {
+                /* the pocket, reflected in this rail */
+                Vec3 mir = ap;
+                float wall;
+                if (rail == 0) { wall =  hx; mir.x = 2*wall - ap.x; }
+                else if (rail == 1) { wall = -hx; mir.x = 2*wall - ap.x; }
+                else if (rail == 2) { wall =  hz; mir.z = 2*wall - ap.z; }
+                else { wall = -hz; mir.z = 2*wall - ap.z; }
+
+                Vec3 gdir = nrm2(sub2(mir, target));
+                if (len2(gdir) < 1e-6f) continue;
+                Vec3 ghost = v3(target.x - gdir.x*2*R, 0, target.z - gdir.z*2*R);
+                if (!path_clear(c, cue, ghost, i)) continue;
+
+                /* where the object meets the rail, and is that leg in front of it */
+                Vec3 tm = sub2(mir, target);
+                float tt;
+                if (rail < 2) { if (fabsf(tm.x) < 1e-6f) continue; tt = (wall - target.x) / tm.x; }
+                else          { if (fabsf(tm.z) < 1e-6f) continue; tt = (wall - target.z) / tm.z; }
+                if (tt <= 0.0f || tt > 1.0f) continue;
+                Vec3 hit = v3(target.x + tm.x*tt, 0, target.z + tm.z*tt);
+                if (!path_clear(c, target, hit, i)) continue;
+                if (!path_clear(c, hit, ap, i)) continue;
+
+                Vec3 aimv = nrm2(sub2(ghost, cue));
+                float cut = acosf(clampf(dot2(aimv, gdir), -1, 1)) * DEG;
+                if (cut > 40.0f) continue;             /* too fine to bank */
+
+                float dg = d2(cue, ghost);
+                float dpk = d2(target, hit) + d2(hit, ap);
+                float pw = calc_power(c, dg, dpk, cut);
+                float sc = score_shot(c, cut, dg, dpk, c->b[i].id, pw) - 25.0f;
+                if (sc <= 20.0f) continue;             /* not worth playing */
+
+                Cand *q = &out[nb++];
+                memset(q, 0, sizeof *q);
+                q->tidx = i; q->pk = pk; q->ghost = ghost;
+                q->aim = atan2f(ghost.z - cue.z, ghost.x - cue.x);
+                q->cut = cut; q->dg = dg; q->dpk = dpk;
+                q->js_power = pw; q->power01 = power01_of(pw);
+                q->potScore = sc; q->posScore = sc;
+            }
+        }
+    }
+    return nb;
+}
+
+/* Where the OBJECT ball finishes, and what it runs into on the way.
+ *
+ * A safety that rolls the red to the jaws of a pocket is not a safety, and this
+ * was not looked at at all — only the cue ball's leave was scored, so the AI
+ * could serve one up and score itself well for it. */
+typedef struct { Vec3 end; int near_pocket, hit_ball; float travel; } TgtPath;
+
+static TgtPath target_path(const AiCtx *c, Vec3 target, Vec3 dir, float js_power,
+                           float cut, int self_idx) {
+    TgtPath r; memset(&r, 0, sizeof r);
+    /* the object keeps the component along the contact line */
+    float keep = cosf(cut * RAD);
+    float travel = js_power * keep * PXm(c, 15) * 0.9f;
+    float hx = c->t->half_len - c->t->R, hz = c->t->half_wid - c->t->R;
+    Vec3 end = v3(clampf(target.x + dir.x*travel, -hx, hx), 0,
+                  clampf(target.z + dir.z*travel, -hz, hz));
+    r.end = end; r.travel = travel;
+    /* did it run into anything? */
+    for (int j = 1; j < c->n; j++) {
+        if (j == self_idx || !c->b[j].on) continue;
+        Vec3 rel = sub2(c->b[j].pos, target);
+        float along = dot2(rel, dir);
+        if (along < 0.0f || along > travel) continue;
+        Vec3 cp = v3(target.x + dir.x*along, 0, target.z + dir.z*along);
+        if (d2(c->b[j].pos, cp) < 2.0f*c->t->R) { r.hit_ball = 1; break; }
+    }
+    /* and did it finish hanging over a pocket? */
+    for (int pk = 0; pk < c->w->npocket; pk++)
+        if (d2(end, c->w->pocket[pk]) < c->w->pocket_r[pk] * 2.4f) { r.near_pocket = 1; break; }
+    return r;
+}
+
+/* How many of the opponent's balls they can even SEE from here, and how bad the
+ * worst of them is. Depth matters as well as the worst case: leaving them one
+ * awkward ball is a better safety than leaving them five awkward ones. */
+static void opp_threat(const AiCtx *c, const Vec3 *pos, const int *on,
+                       float *worst, int *visible, float *nearest)
+{
+    *worst = 0.0f; *visible = 0; *nearest = 1e9f;
+    Vec3 cue = pos[0];
+    for (int i = 1; i < c->n; i++) {
+        if (!on[i]) continue;
+        if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
+        float dd = d2(cue, pos[i]);
+        if (dd < *nearest) *nearest = dd;
+        /* can they hit it at all? */
+        int blocked = 0;
+        Vec3 d = sub2(pos[i], cue); float dl = len2(d);
+        if (dl > 1e-6f) {
+            Vec3 nd = v3(d.x/dl, 0, d.z/dl);
+            for (int j = 1; j < c->n; j++) {
+                if (j == i || !on[j]) continue;
+                Vec3 tb = sub2(pos[j], cue);
+                float pr = dot2(tb, nd);
+                if (pr < 0.0f || pr > dl) continue;
+                Vec3 cp = v3(cue.x + nd.x*pr, 0, cue.z + nd.z*pr);
+                if (d2(pos[j], cp) < 2.0f*c->t->R) { blocked = 1; break; }
+            }
+        }
+        if (blocked) continue;
+        (*visible)++;
+    }
+    *worst = opponent_best_pot(c, pos, on);
+    if (*nearest > 1e8f) *nearest = 0.0f;
+}
+
+/* ---- safety ------------------------------------------------------------ *
+ *
+ * The sweep is the 2D game's, because the shape of it is the strategy: FINE
+ * cuts are the bread and butter — the object barely moves and the cue ball's
+ * deflection is predictable — with mid cuts and a few near-full contacts under
+ * them. This searched two angles, 12 and 35 degrees, over the four nearest
+ * balls, with no side and no follow or draw at all: it could not play a fine cut
+ * and it could not check one, so its "best safety" was the best of forty-eight
+ * shots none of which a player would choose.
+ *
+ * Two passes, because scoring every candidate against the opponent's whole table
+ * is far too dear: rank cheaply on the leave, then score the survivors properly.
+ * The very best of those then go through the REAL engine in plan_finalize. */
+static const float SAFE_ANG_FINE[] = { 55.0f, 60.0f, 65.0f, 70.0f, 75.0f };
+static const float SAFE_ANG_MID[]  = { 30.0f, 40.0f, 45.0f, 50.0f };
+static const float SAFE_ANG_FULL[] = {  0.0f,  5.0f, 10.0f };
+static const float SAFE_POW[]      = { 0.10f, 0.16f, 0.22f, 0.30f, 0.40f, 0.52f };
+static const float SAFE_SPIN[]     = { -0.3f, 0.0f, 0.3f };
+
+#define SAFE_POOL 24
+static Cand s_safe[SAFE_POOL];
+static int  s_nsafe;
+
+static float safety_score(const AiCtx *c, Vec3 cue_end, Vec3 target, int tidx,
+                          const TgtPath *tp, int hit_other_on_way, float urg)
+{
+    static Vec3 pos[CUE_MAX_BALLS]; static int on[CUE_MAX_BALLS];
+    for (int i = 0; i < c->n; i++) { pos[i] = c->b[i].pos; on[i] = c->b[i].on; }
+    pos[0] = cue_end;
+    if (tidx > 0) pos[tidx] = tp->end;
+
+    float worst; int visible; float nearest;
+    opp_threat(c, pos, on, &worst, &visible, &nearest);
+
+    float score = 100.0f - worst;
+    if (worst > 50.0f) score -= 40.0f;            /* they have an easy one: it failed */
+
+    /* differentiation, all continuous — a safety that merely denies is worth
+     * less than one that also buries the cue ball a long way from everything */
+    score += clampf(nearest * 22.0f, 0.0f, 25.0f);
+    if (visible == 0) {
+        score += 20.0f + 70.0f * (1.0f + urg);                 /* snookered */
+        if (last_red_snooker_valuable(c)) score += 25.0f;      /* on the last red */
+    }
+    else              score += clampf((6.0f - visible) * 3.5f, 0.0f, 20.0f);
+
+    if (hit_other_on_way)  score -= 30.0f;
+    if (tp->near_pocket)   score -= 25.0f;
+    if (tp->hit_ball)      score -= 15.0f;
+    if (tp->travel < c->t->R * 6.0f) score += 5.0f;   /* the object hardly moved */
+
+    /* Snooker: baulk is the safest end of the table, and the further behind the
+     * line the better. Anywhere else, reward distance from the black. */
+    if (c->snooker) {
+        float bx = c->r->baulk_x;
+        float left = -c->t->half_len;
+        if (cue_end.x < bx && bx > left)
+            score += 15.0f + 10.0f * clampf((bx - cue_end.x) / (bx - left), 0.0f, 1.0f);
+        else if (c->t->half_len > bx)
+            score += 8.0f * clampf((c->t->half_len - cue_end.x) /
+                                   (c->t->half_len - bx), 0.0f, 1.0f);
+    }
+    return score;
+}
+
 static int find_safety(const AiCtx *c, Cand *out, uint32_t *rng) {
     (void)rng;
     Vec3 cue = c->b[0].pos;
     float R = c->t->R;
-    int cand[4]; float cd[4]; int nc = 0;
+    float urg = snooker_urgency(c);
+    s_nsafe = 0;
+
     for (int i = 1; i < c->n; i++) {
         if (!c->b[i].on) continue;
         if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
-        float dist = d2(cue, c->b[i].pos);
-        if (nc < 4) { cand[nc] = i; cd[nc] = dist; nc++; }
-        else { int wi=0; for (int k=1;k<4;k++) if (cd[k]>cd[wi]) wi=k;
-               if (dist < cd[wi]) { cand[wi]=i; cd[wi]=dist; } }
-    }
-    if (nc == 0) return 0;
-
-    float urg = snooker_urgency(c);
-    static const float angs[] = {12.0f, 35.0f};
-    static const float pows[] = {0.16f, 0.26f, 0.40f};
-    static Vec3 pos[CUE_MAX_BALLS]; static int on[CUE_MAX_BALLS];
-    for (int i = 0; i < c->n; i++) { pos[i] = c->b[i].pos; on[i] = c->b[i].on; }
-
-    float best_score = -1e9f; int found = 0; Cand bc; memset(&bc,0,sizeof bc);
-    for (int ci = 0; ci < nc; ci++) {
-        int i = cand[ci];
         Vec3 target = c->b[i].pos;
         Vec3 base = nrm2(sub2(target, cue));
-        for (int ai = 0; ai < 2; ai++) for (int sg = -1; sg <= 1; sg += 2) {
-            float a = angs[ai] * RAD * sg;
-            Vec3 ca = v3(base.x*cosf(a) - base.z*sinf(a), 0,
-                         base.x*sinf(a) + base.z*cosf(a));   /* object departs along ca */
-            Vec3 ghost = v3(target.x - ca.x*2*R, 0, target.z - ca.z*2*R);
-            if (!path_clear(c, cue, ghost, i)) continue;     /* → legal first contact */
-            float aim = atan2f(ghost.z - cue.z, ghost.x - cue.x);
-            float contact_cut = acosf(clampf(dot2(nrm2(sub2(ghost,cue)), ca), -1, 1)) * DEG;
-            for (int pi = 0; pi < 3; pi++) {
-                float jp = pows[pi] * 46.0f;     /* power01 → JS scalar for predict */
-                Vec3 cue_end = predict_end_dir(c, cue, ghost, ca, contact_cut, jp, 0.0f);
-                pos[0] = cue_end;
-                float deny = 100.0f - opponent_best_pot(c, pos, on);
-                float score = deny;
-                if (c->snooker) {
-                    if (!opp_on_visible(c, cue_end)) score += 70.0f * (1.0f + urg);  /* snookered! */
-                    /* otherwise reward leaving the cue far from the on-balls */
-                    score += d2(cue_end, target) * 8.0f;
+
+        for (int band = 0; band < 3; band++) {
+            const float *angs = band == 0 ? SAFE_ANG_FINE
+                              : band == 1 ? SAFE_ANG_MID : SAFE_ANG_FULL;
+            int nang = band == 0 ? 5 : band == 1 ? 4 : 3;
+            for (int ai = 0; ai < nang; ai++)
+            for (int sg = -1; sg <= 1; sg += 2) {
+                if (angs[ai] == 0.0f && sg > 0) continue;      /* dead full: once */
+                float a = angs[ai] * RAD * sg;
+                /* the object departs along ca; the ghost sits behind it */
+                Vec3 ca = v3(base.x*cosf(a) - base.z*sinf(a), 0,
+                             base.x*sinf(a) + base.z*cosf(a));
+                Vec3 ghost = v3(target.x - ca.x*2*R, 0, target.z - ca.z*2*R);
+                if (!path_clear(c, cue, ghost, i)) continue;   /* legal first contact */
+                Vec3 aimv = nrm2(sub2(ghost, cue));
+                float cut = acosf(clampf(dot2(aimv, ca), -1, 1)) * DEG;
+                if (cut > 78.0f) continue;                     /* too thin to trust */
+                float aim = atan2f(ghost.z - cue.z, ghost.x - cue.x);
+                /* anything the cue ball clips on the way to the ghost */
+                int clip = 0;
+                for (int j = 1; j < c->n && !clip; j++) {
+                    if (j == i || !c->b[j].on) continue;
+                    Vec3 rel = sub2(c->b[j].pos, cue);
+                    float along = dot2(rel, aimv);
+                    float dgh = d2(cue, ghost);
+                    if (along < 0.0f || along > dgh) continue;
+                    Vec3 cp = v3(cue.x + aimv.x*along, 0, cue.z + aimv.z*along);
+                    if (d2(c->b[j].pos, cp) < 2.0f*R) clip = 1;
                 }
-                if (score > best_score) {
-                    best_score = score; found = 1; memset(&bc,0,sizeof bc);
-                    bc.tidx = i; bc.aim = aim; bc.power01 = pows[pi];
-                    bc.cue_end = cue_end; bc.posScore = score;
+
+                for (int pi = 0; pi < (int)(sizeof SAFE_POW/sizeof SAFE_POW[0]); pi++)
+                for (int si = 0; si < 3; si++) {
+                    float p01 = SAFE_POW[pi], spin = SAFE_SPIN[si];
+                    float jp = p01 * 46.0f;
+                    Vec3 cue_end = predict_end_dir(c, cue, ghost, ca, cut, jp, spin);
+                    TgtPath tp = target_path(c, target, ca, jp, cut, i);
+                    float sc = safety_score(c, cue_end, target, i, &tp, clip, urg);
+                    /* keep the best SAFE_POOL, replacing the weakest */
+                    if (s_nsafe < SAFE_POOL) {
+                        Cand *q = &s_safe[s_nsafe++];
+                        memset(q, 0, sizeof *q);
+                        q->tidx = i; q->pk = -1; q->ghost = ghost; q->aim = aim;
+                        q->cut = cut; q->js_power = jp; q->spinY = spin;
+                        q->power01 = p01; q->tip_vert = spin; q->tip_side = 0.0f;
+                        q->cue_end = cue_end; q->posScore = sc; q->potScore = sc;
+                    } else {
+                        int wi = 0;
+                        for (int k = 1; k < SAFE_POOL; k++)
+                            if (s_safe[k].posScore < s_safe[wi].posScore) wi = k;
+                        if (sc > s_safe[wi].posScore) {
+                            Cand *q = &s_safe[wi];
+                            memset(q, 0, sizeof *q);
+                            q->tidx = i; q->pk = -1; q->ghost = ghost; q->aim = aim;
+                            q->cut = cut; q->js_power = jp; q->spinY = spin;
+                            q->power01 = p01; q->tip_vert = spin; q->tip_side = 0.0f;
+                            q->cue_end = cue_end; q->posScore = sc; q->potScore = sc;
+                        }
+                    }
                 }
             }
         }
     }
-    if (found) { *out = bc; return 1; }
-    return 0;
+    if (s_nsafe == 0) return 0;
+    int bi = 0;
+    for (int k = 1; k < s_nsafe; k++) if (s_safe[k].posScore > s_safe[bi].posScore) bi = k;
+    *out = s_safe[bi];
+    return 1;
 }
 
 /* First object ball a ray from `start` along unit `dir` would contact, within
@@ -833,23 +1155,62 @@ static int find_kick(const AiCtx *c, Cand *out) {
 #endif
 enum { PH_IDLE = 0, PH_SIM, PH_DONE };
 
+/* Room for the pot variants AND the reserved safety slots after them. */
+#define NSAFE_SIM 6
+#define MAXPOOL (NPOW*NSPIN*NSIDE + NSAFE_SIM)
+
 static struct {
     AiCtx ctx;
     uint32_t *rng;
     int phase;
     CueAIShot result;
-    Cand pool[NPOW*NSPIN*NSIDE]; int npool, sim_i, sim_cap;
+    Cand pool[MAXPOOL]; int npool, sim_i, sim_cap;
+    int nsafe_pool;      /* how many of the tail are safeties (pk < 0) */
+    int miss_caution;    /* one miss already: only take a solid pot */
+    int safety_only;     /* no pot existed: the whole pool is safeties */
     int ti;
     float posAware;
 } P;
 
+/* The best SIMULATED safety in the pool, or -1. Safeties carry pk < 0. */
+static int best_safety_idx(void) {
+    int bi = -1;
+    for (int k = 0; k < P.sim_cap; k++) {
+        Cand *q = &P.pool[k];
+        if (q->pk >= 0 || !q->simmed) continue;
+        if (q->scratch || q->bad_first) continue;   /* an in-off is not a safety */
+        if (bi < 0 || q->posScore > P.pool[bi].posScore) bi = k;
+    }
+    return bi;
+}
+
 static void plan_finalize(void) {
     AiCtx *c = &P.ctx;
     const CuePersona *p = c->p;
+
+    /* No pot existed: the pool is all safeties, every one of them verified. */
+    if (P.safety_only) {
+        CueAIShot o; memset(&o, 0, sizeof o);
+        int bi = best_safety_idx();
+        if (bi < 0) {                      /* every one scratched or fouled */
+            for (int k = 0; k < P.sim_cap; k++)
+                if (P.pool[k].simmed && (bi < 0 || P.pool[k].posScore > P.pool[bi].posScore)) bi = k;
+        }
+        if (bi >= 0) {
+            o.aim = P.pool[bi].aim; o.power01 = P.pool[bi].power01;
+            o.tip_vert = P.pool[bi].tip_vert; o.tip_side = P.pool[bi].tip_side;
+            o.safe = 1; o.valid = 1;
+            o.target_id = (P.pool[bi].tidx > 0 && P.pool[bi].tidx < c->n)
+                        ? c->b[P.pool[bi].tidx].id : -1;
+        }
+        P.result = o;
+        return;
+    }
     /* Only choose among variants we actually simulated (top SIM_CAP by potScore)
      * — every selectable shot is then scratch/foul-verified. Unsimmed variants
      * have unknown legality and must not be picked on position alone. */
-    int npool = P.sim_cap > 0 ? (P.npool < P.sim_cap ? P.npool : P.sim_cap) : P.npool;
+    int potcap = P.sim_cap - P.nsafe_pool;      /* the safeties live past this */
+    int npool = potcap > 0 ? (P.npool < potcap ? P.npool : potcap) : P.npool;
     /* Cap the position weight so the HEURISTIC pot-chance always carries real
      * weight — otherwise a pure-position persona (The Machine) happily picks a
      * rattle-prone high-power variant just for a slightly better leave and misses
@@ -871,6 +1232,17 @@ static void plan_finalize(void) {
             if (bs > as) { Cand tmp=P.pool[i]; P.pool[i]=P.pool[j]; P.pool[j]=tmp; }
         }
 
+    /* Push anything that fouled last visit to the back before choosing, so the
+     * persona's top-3 / random pick cannot land on it again while a clean
+     * alternative exists. If they ALL fouled, the order is unchanged and the
+     * aim error alone varies the attempt — which is what the 2D game does. */
+    if (s_nfoul > 0) {
+        for (int i = 0; i < npool; i++)
+            for (int j = i+1; j < npool; j++)
+                if (shot_fouled_before(c, &P.pool[i]) && !shot_fouled_before(c, &P.pool[j])) {
+                    Cand tmp = P.pool[i]; P.pool[i] = P.pool[j]; P.pool[j] = tmp;
+                }
+    }
     int sel = select_shot(c, npool, P.rng);
     if (sel < 0) sel = 0;
     /* never let random/top-3 selection land on a scratch/foul if a clean shot
@@ -889,14 +1261,22 @@ static void plan_finalize(void) {
     float minConf = baseThresh + ((p->safety_bias + 30.0f) / 50.0f) * 40.0f;
     minConf *= clampf(0.45f + p->line_acc * 0.45f, 0.45f, 1.2f) * K_CONF;
     minConf += urg * 35.0f;        /* needing snookers → only attack near-certain pots */
+    if (P.miss_caution) minConf += K_MISSCAUT;   /* one miss down: play the percentages */
     if (best_unsafe || best.potScore < minConf) {
-        Cand sc;
-        if (find_safety(c, &sc, P.rng)) {
+        /* The safeties are already in the pool and already through the engine —
+         * this picks the best VERIFIED one rather than re-running the analytic
+         * search and trusting its answer. */
+        int si = best_safety_idx();
+        if (si >= 0) {
+            Cand *sc = &P.pool[si];
             /* when behind & needing snookers, lean hard toward safety/snookering */
             float aggression = fmaxf(-10.0f, 25.0f - p->safety_bias) - urg * 40.0f;
             /* a scratch/foul pot is never worth taking over a legal safety */
-            if (best_unsafe || sc.posScore * 0.6f > best.potScore + aggression) {
-                out.aim = sc.aim; out.power01 = sc.power01; out.safe = 1; out.valid = 1;
+            if (best_unsafe || sc->posScore * 0.6f > best.potScore + aggression) {
+                out.aim = sc->aim; out.power01 = sc->power01;
+                out.tip_vert = sc->tip_vert; out.tip_side = sc->tip_side;
+                out.safe = 1; out.valid = 1;
+                out.target_id = (sc->tidx > 0 && sc->tidx < c->n) ? c->b[sc->tidx].id : -1;
                 P.result = out; return;
             }
         }
@@ -958,6 +1338,7 @@ static void plan_finalize(void) {
     out.power01 = clampf(best.power01 * (1.0f + powErr), 0.05f, 1.0f);
     out.tip_vert = best.tip_vert; out.tip_side = best.tip_side;
     out.safe = 0; out.valid = 1; out.score = best.potScore;
+    out.target_id = (best.tidx > 0 && best.tidx < c->n) ? c->b[best.tidx].id : -1;
     P.result = out;
 }
 
@@ -971,9 +1352,40 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     };
     ai_knobs();
     P.ctx = ctx; P.rng = rng; P.npool = 0; P.sim_i = 0;
+    P.nsafe_pool = 0; P.safety_only = 0; P.miss_caution = 0;
     P.posAware = p->position; P.phase = PH_DONE;
     AiCtx *c = &P.ctx;
     CueAIShot out; memset(&out, 0, sizeof out);
+
+    /* 0a. Two misses already. A third forfeits the frame, so nothing else
+     * matters: find the nearest ball-on with a clear path and hit it in the
+     * middle. No cuts, no safety, no cleverness — just make contact. Skipped
+     * when snookered, because then a miss is not a "miss" and the escape has to
+     * be played properly. */
+    if (c->snooker && r->cmiss[r->turn] >= 2 &&
+        !cue_rules_is_snookered(r, balls, n)) {
+        int bi = -1; float bd = 1e9f;
+        for (int i = 1; i < n; i++) {
+            if (!balls[i].on || !cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+            if (!path_clear(c, balls[0].pos, balls[i].pos, i)) continue;
+            float dd = d2(balls[0].pos, balls[i].pos);
+            if (dd < bd) { bd = dd; bi = i; }
+        }
+        if (bi >= 0) {
+            Vec3 d = sub2(balls[bi].pos, balls[0].pos);
+            out.aim = atan2f(d.z, d.x);
+            /* enough to reach it and no more — a firm shot into a thin contact
+             * is how the third miss happens */
+            out.power01 = clampf(0.22f + bd * 0.10f, 0.22f, 0.55f);
+            out.safe = 1; out.valid = 1; out.target_id = balls[bi].id;
+            P.result = out; P.phase = PH_DONE; return;
+        }
+    }
+
+    /* 0b. One miss. Not desperate, but not the moment for a thin cut either —
+     * the confidence gate is raised so only a solid pot is taken. */
+    P.miss_caution = (c->snooker && r->cmiss[r->turn] == 1 &&
+                      !cue_rules_is_snookered(r, balls, n)) ? 1 : 0;
 
     /* 0. Break shot. */
     if (r->break_shot) {
@@ -1039,11 +1451,47 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         }
     }
 
-    if (ng == 0) {                       /* no pot — safety, or nudge legally */
+    if (ng == 0) {                       /* nothing direct: bank, then safety */
+        Cand banks[8];
+        int nbank = find_banks(c, banks, 8);
         Cand sc;
+        if (nbank > 0 && find_safety(c, &sc, rng)) {
+            /* Both kinds into the pool and both verified, then the usual gate
+             * decides between "a bank I can see drop" and "a safety I can see
+             * land". A bank is a poor shot; it should only beat a safety when
+             * the safety is poorer still. */
+            for (int k = 0; k < s_nsafe; k++)
+                for (int j = k+1; j < s_nsafe; j++)
+                    if (s_safe[j].posScore > s_safe[k].posScore) {
+                        Cand tmp = s_safe[k]; s_safe[k] = s_safe[j]; s_safe[j] = tmp;
+                    }
+            int ns = s_nsafe < NSAFE_SIM ? s_nsafe : NSAFE_SIM;
+            for (int k = 0; k < nbank; k++) P.pool[k] = banks[k];
+            for (int k = 0; k < ns; k++)    P.pool[nbank + k] = s_safe[k];
+            P.npool = nbank; P.nsafe_pool = ns; P.safety_only = 0;
+            P.ti = banks[0].tidx; P.posAware = p->position;
+            P.sim_cap = nbank + ns; P.sim_i = 0;
+            P.phase = PH_SIM;
+            return;
+        }
         if (find_safety(c, &sc, rng)) {
-            out.aim = sc.aim; out.power01 = sc.power01; out.safe = 1; out.valid = 1;
-            P.result = out; return;
+            /* Into the pool and through the REAL engine, exactly like a pot.
+             * Returning the analytic pick here was the whole problem: a safety
+             * chosen on a prediction that stopped the cue ball dead at the first
+             * cushion, never checked against the physics that actually moves it. */
+            int ns = s_nsafe < NSAFE_SIM ? s_nsafe : NSAFE_SIM;
+            for (int k = 0; k < s_nsafe; k++)                 /* best first */
+                for (int j = k+1; j < s_nsafe; j++)
+                    if (s_safe[j].posScore > s_safe[k].posScore) {
+                        Cand tmp = s_safe[k]; s_safe[k] = s_safe[j]; s_safe[j] = tmp;
+                    }
+            for (int k = 0; k < ns; k++) P.pool[k] = s_safe[k];
+            P.npool = ns; P.ti = sc.tidx; P.posAware = p->position;
+            P.safety_only = 1;
+            P.sim_cap = ns;
+            P.sim_i = 0;
+            P.phase = PH_SIM;
+            return;
         }
         /* hooked (no direct contact at all): escape off a cushion */
         if (find_kick(c, &sc)) {
@@ -1068,6 +1516,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         if (bestn >= 0) {
             Vec3 d = sub2(balls[bestn].pos, balls[0].pos);
             out.aim = atan2f(d.z, d.x); out.power01 = 0.32f; out.safe = 1; out.valid = 1;
+            out.target_id = balls[bestn].id;
             P.result = out; return;
         }
         out.valid = 0; P.result = out; return;
@@ -1162,6 +1611,28 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     int cap = 10 + (int)(p->position * 22.0f + 0.5f);
     if (cap > SIM_CAP) cap = SIM_CAP;
     P.sim_cap = (npool < cap ? npool : cap);
+
+    /* And the safeties, in the SAME pass. The gate at the end of the plan has to
+     * choose between "the best pot I can verify" and "the best safety I can
+     * verify" — comparing a simulated pot against an analytic safety was
+     * comparing two different kinds of number. Reserved slots, so a big variant
+     * pool cannot crowd the safeties out. */
+    {
+        Cand sc;
+        P.nsafe_pool = 0;
+        if (P.sim_cap > 0 && find_safety(c, &sc, rng)) {
+            for (int k = 0; k < s_nsafe; k++)
+                for (int j = k+1; j < s_nsafe; j++)
+                    if (s_safe[j].posScore > s_safe[k].posScore) {
+                        Cand tmp = s_safe[k]; s_safe[k] = s_safe[j]; s_safe[j] = tmp;
+                    }
+            int ns = s_nsafe < NSAFE_SIM ? s_nsafe : NSAFE_SIM;
+            if (P.sim_cap + ns > MAXPOOL) ns = MAXPOOL - P.sim_cap;
+            for (int k = 0; k < ns; k++) P.pool[P.sim_cap + k] = s_safe[k];
+            P.nsafe_pool = ns;
+            P.sim_cap += ns;
+        }
+    }
     P.sim_i = 0;
     /* Always sim the top variants — even a persona with no positional play must
      * not deliberately scratch or foul. The sim is what catches those. */

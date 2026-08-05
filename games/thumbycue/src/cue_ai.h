@@ -49,6 +49,11 @@ typedef struct {
     int   valid;      /* 0 = no legal shot found at all (rare) */
     float score;      /* confidence of the chosen pot (~0..100, higher = easier);
                        * 0 on a safety. Used by the foul / push-out decision AI. */
+    /* WHICH ball this shot is on, as a ball id, or -1. The caller needs it to
+     * nominate: a snooker colour has to be named before the shot, and the
+     * planner is the only thing that knows which one it picked. Without it the
+     * CPU was the one player at the table exempt from nominating. */
+    int   target_id;
 } CueAIShot;
 
 /* What the CALLER's full power is, in m/s — whatever it multiplies the
@@ -93,6 +98,12 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
  *
  * On CUE_DEC_REPLAY the CALLER must restore the pre-shot layout before applying
  * the decision, exactly as with a human's choice. */
+/* Remember that a shot ON THIS BALL fouled, so the planner stops offering it
+ * while anything else is available; and forget it all after a clean shot. The
+ * planner keeps no state between shots, so the caller has to tell it. */
+void cue_ai_note_foul(int target_id);
+void cue_ai_clear_fouls(void);
+
 int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
                   const CueBall *balls, int n, const CuePersona *p,
                   uint32_t *rng);

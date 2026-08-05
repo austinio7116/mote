@@ -993,8 +993,20 @@ static void resolve_shot(void) {
     LOGI("[cuevr] settle: cue at %.2f,%.2f  first_hit %d  potted %d  scratch %d",
          (double)S.balls[0].pos.x, (double)S.balls[0].pos.z, S.world.first_hit, np, scratch);
     int cushion = (S.shot_events & CUE_EV_CUSHION) != 0;
+    int was_turn = S.rules.turn;
+    int cpu_played = (S.rules.cpu && was_turn == 1);
+    int score_before = S.rules.score[1 - was_turn];
     cue_rules_resolve(&S.rules, S.balls, S.nballs, &S.world,
                       S.world.first_hit, scratch, cushion, potted, np);
+    /* Tell the planner whether ITS shot fouled, so it stops offering the same
+     * one. A penalty landing on the other player is the only reliable signal
+     * from out here that a foul was given. */
+    if (cpu_played) {
+        if (S.rules.score[1 - was_turn] > score_before)
+            cue_ai_note_foul(S.cpu_shot.target_id);
+        else
+            cue_ai_clear_fouls();
+    }
     snprintf(S.msg, sizeof S.msg, "%s", S.rules.msg);
     S.msg_time = 2.5f;
     S.hud_dirty = 1;
@@ -1719,6 +1731,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
         if (S.ai_done) {
             think_join();
             S.cpu_shot = cue_ai_plan_result();
+            /* The CPU names its colour, like anybody else at the table. Without
+             * this it was the one player exempt from the nomination rule: any
+             * colour stayed legal for it while you were bound to the one you
+             * pointed at. */
+            if (S.rules.kind && S.rules.target == 1 &&
+                S.cpu_shot.target_id >= CUE_ID_YELLOW &&
+                S.cpu_shot.target_id <= CUE_ID_BLACK)
+                cue_rules_nominate(&S.rules, S.cpu_shot.target_id - CUE_ID_YELLOW + 2);
             S.cpu_t = 0.0f;
             S.state = ST_CPUCUE;
             S.hud_dirty = 1;

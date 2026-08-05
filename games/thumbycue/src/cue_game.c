@@ -348,7 +348,14 @@ static void clamp_tip(void) {
 }
 
 /* ---- CPU: apply a finished plan (cue_ai.c) to the aim/power state ----- */
+static int s_cpu_target = -1;      /* what the planner said it was on */
+
 static void cpu_apply(CueAIShot shot) {
+    s_cpu_target = shot.target_id;
+    /* The CPU names its colour before it plays, exactly as the player must. */
+    if (s_rules.kind && s_rules.target == 1 &&
+        shot.target_id >= CUE_ID_YELLOW && shot.target_id <= CUE_ID_BLACK)
+        cue_rules_nominate(&s_rules, shot.target_id - CUE_ID_YELLOW + 2);
     if (!shot.valid) {                 /* no legal shot at all — nudge forward */
         s_power = 0.3f; s_tip_side = s_tip_vert = 0;
         return;
@@ -750,8 +757,19 @@ static void ingame_tick(const CraftRawButtons *b, float dt) {
             int potted[CUE_MAX_BALLS], np = 0, cue_scratch = !s_balls[0].on;
             for (int i = 1; i < s_n; i++)
                 if (s_was_on[i] && !s_balls[i].on) potted[np++] = s_balls[i].id;
+            int was_turn = s_rules.turn;
+            int cpu_played = (s_rules.cpu && was_turn == 1);
+            int score_before = s_rules.score[1 - was_turn];
             cue_rules_resolve(&s_rules, s_balls, s_n, &s_world,
                               s_first_hit, cue_scratch, s_cushion_seen, potted, np);
+            /* the planner keeps no state between shots, so tell it what its own
+             * last one did — otherwise it offers the same fouling shot forever */
+            if (cpu_played) {
+                if (s_rules.score[1 - was_turn] > score_before)
+                    cue_ai_note_foul(s_cpu_target);
+                else
+                    cue_ai_clear_fouls();
+            }
             s_power = 0; s_pull = 0; s_tip_side = s_tip_vert = 0; s_elev = 0; s_aim = s_view_az;
             s_msg_t = 2.0f;
             route_post_shot();
