@@ -146,19 +146,32 @@ static float K_OPTS  = 4.0f;    /* per extra ball that is also on from the same 
  * Set AI_BREAK to enable it for measurement. */
 static float K_BREAK = 0.0f;    /* per red freed by disturbing a pack */
 /* Which number picks the safety, once a safety is being played. 0 = posScore
- * (position_quality); 1 = safeq (safety_score).
+ * (position_quality); 1 = safeq (safety_score, re-scored on the sim).
  *
- * safeq is the one that LOOKS right — position_quality asks what we could pot
- * from the leave, and after a safety it is the opponent who plays it. Measured
- * over 180 frames, with the change isolated so the decision to play safe at
- * all was untouched, it was clearly worse: conceded points 286 -> 415 (+45%),
- * fouls +42%, safeties +20%. Mean best break drifted up 0.9 (t=0.50, noise).
+ * safeq is the one that LOOKS right, and reading safety_score confirms its
+ * orientation is exactly what the name says: 100 - the opponent's best pot,
+ * less again if they have an easy one, plus up to +160 when they cannot see a
+ * ball. Higher is better. It was also, until the re-score above, computed off
+ * predict_end_dir — the analytic guess whose unreliability is the entire
+ * reason ai_sim exists. So the choice was between the right question about an
+ * imagined position and the wrong question about the real one.
  *
- * Conceded points IS the measure of whether a safety worked, so maximising
- * safety_score demonstrably leaves the opponent MORE, not less. Something in
- * that function does not mean what its name says, and the next move is to read
- * it rather than to keep guessing at where to store its output. Until then the
- * default is what measures better. */
+ * Fixing that did not rescue it. Measured over 180 frames with safeq computed
+ * from the engine's own result: safeties +105%, fouls +196%, pot success
+ * 69.8 -> 61.0, and the frame margin down from 2.32x to 1.53x. Frames become
+ * long safety exchanges that the AI wins by less.
+ *
+ * Two measurements, one before the re-score and one after, both against it.
+ * Whatever is wrong is inside safety_score's WEIGHTS — most likely the +160
+ * for a snooker, which will dominate every other term it has — and not in
+ * where the number is computed or stored. That is a tuning job with the
+ * harness, not a refactor.
+ *
+ * It still earns its keep as a MEASURE: CueAIShot.score carries it, and the
+ * re-scored version goes usefully negative (min -55) where the analytic one
+ * bottomed out at zero, so the foul decision can finally tell a bad safety
+ * from a good one. Judging safeties is one thing; choosing between them is
+ * another, and only the second is turned off. */
 static int K_SAFERANK = 0;
 static int   K_OPPFILT  = 1;       /* 1 = judge their ball-on as THEY will see it */
 
@@ -1995,6 +2008,38 @@ int cue_ai_plan_tick(void) {
              * genuinely ours to use, are scored on position. */
             v->posScore = position_quality(c, sim.cue_end, P.ti, sim.end_pos,
                                            &v->rawpot);
+
+            /* RE-SCORE A SAFETY ON WHAT THE ENGINE DID. safety_score was only
+             * ever computed during the sweep, off predict_end_dir — the cheap
+             * analytic guess whose whole reason for existing is that it is not
+             * trusted, which is why ai_sim runs at all. So the safety pool held
+             * the right question asked of a made-up position, while posScore
+             * held the wrong question asked of the real one, and the real one
+             * kept winning. Asked of sim.cue_end it is the right question about
+             * the right position. */
+            if (v->pk < 0 && v->tidx > 0 && v->tidx < c->n) {
+                int ti = v->tidx;
+                TgtPath tp;
+                tp.end = sim.end_pos[ti];
+                tp.travel = d2(tp.end, c->b[ti].pos);
+                tp.near_pocket = 0;
+                for (int pk = 0; pk < c->w->npocket; pk++)
+                    if (d2(tp.end, c->w->pocket[pk]) < c->w->pocket_r[pk] * 2.4f) {
+                        tp.near_pocket = 1; break;
+                    }
+                /* "did the object run into something": any OTHER ball ended up
+                 * somewhere it did not start. Read off the sim rather than
+                 * reconstructed from the analytic path. */
+                tp.hit_ball = 0;
+                for (int k = 1; k < c->n; k++) {
+                    if (k == ti || !c->b[k].on) continue;
+                    if (d2(sim.end_pos[k], c->b[k].pos) > c->t->R * 0.25f) {
+                        tp.hit_ball = 1; break;
+                    }
+                }
+                v->safeq = safety_score(c, sim.cue_end, c->b[ti].pos, ti, &tp,
+                                        v->nearpath, snooker_urgency(c));
+            }
             /* Opening the pack is only good if WE are the one staying at the
              * table. Safeties share this pool (they carry pk < 0), and on a
              * safety the same act is a disaster — you spread a frame's worth of
