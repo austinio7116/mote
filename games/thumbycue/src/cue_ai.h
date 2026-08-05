@@ -47,8 +47,13 @@ typedef struct {
     float tip_vert;   /* follow(+)/draw(-), fraction of R */
     int   safe;       /* 1 = this is a safety, not a pot attempt */
     int   valid;      /* 0 = no legal shot found at all (rare) */
-    float score;      /* confidence of the chosen pot (~0..100, higher = easier);
-                       * 0 on a safety. Used by the foul / push-out decision AI. */
+    float score;      /* on a POT: confidence it drops (~0..100, higher = easier).
+                       * on a SAFETY: the safety's own quality, from
+                       * safety_score() — how little the opponent is left with.
+                       * The two are different scales and must not be compared
+                       * to each other; `safe` says which one this is. It used
+                       * to be zero on a safety, which left the foul-decision AI
+                       * unable to tell a good safety from a hopeless one. */
     /* WHICH ball this shot is on, as a ball id, or -1. The caller needs it to
      * nominate: a snooker colour has to be named before the shot, and the
      * planner is the only thing that knows which one it picked. Without it the

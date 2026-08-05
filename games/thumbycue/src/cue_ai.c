@@ -1473,6 +1473,7 @@ static void plan_finalize(void) {
             o.tip_vert = P.pool[bi].tip_vert; o.tip_side = P.pool[bi].tip_side;
             o.safe = 1; o.valid = 1;
             o.best_pot = -1.0f;            /* no pot existed to turn down */
+            o.score = P.pool[bi].posScore; /* the SAFETY's own quality */
             o.target_id = (P.pool[bi].tidx > 0 && P.pool[bi].tidx < c->n)
                         ? c->b[P.pool[bi].tidx].id : -1;
         }
@@ -1959,8 +1960,19 @@ int cue_ai_plan_tick(void) {
                        !cue_rules_ball_legal(c->r, c->b, c->n, c->b[sim.first_hit_idx].id);
         if (sim.cue_potted) v->posScore = 0;          /* in-off → worthless leave */
         else {
-            v->posScore = position_quality(c, sim.cue_end, P.ti, sim.end_pos,
-                                           &v->rawpot);
+            /* SAFETIES KEEP THEIR OWN SCORE. They are built with
+             * safety_score() — opponent threat from the resulting leave, which
+             * is the right question when the opponent is the one about to play
+             * it — and this line used to overwrite that with position_quality,
+             * which measures what WE could pot from there. For a safety that is
+             * backwards, so best_safety_idx was choosing whichever safety left
+             * the OPPONENT the best shot. Only pot candidates, whose leave is
+             * genuinely ours to use, are scored on position. */
+            if (v->pk >= 0)
+                v->posScore = position_quality(c, sim.cue_end, P.ti, sim.end_pos,
+                                               &v->rawpot);
+            else
+                position_quality(c, sim.cue_end, P.ti, sim.end_pos, &v->rawpot);
             /* Opening the pack is only good if WE are the one staying at the
              * table. Safeties share this pool (they carry pk < 0), and on a
              * safety the same act is a disaster — you spread a frame's worth of
