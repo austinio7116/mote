@@ -1833,7 +1833,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
         { /* tilt the drawn shaft up about the tip, in the room's vertical */
             float ce = cosf(cpu_elev), se = sinf(cpu_elev);
             MoteVrV3 shaft = mv3(aim_r.x * ce, -se, aim_r.z * ce);
-            S.cpu_tip  = mv3_sub(ball, mv3_scale(aim_r, S.tab.R + CUEVR_TIP_R + travel));
+            /* Draw back ALONG THE CUE, not along the floor. The tip was being
+             * pulled straight back horizontally while the shaft sat at an
+             * angle, so an elevated cue slid sideways through its own line
+             * instead of stroking down it — which looks exactly as wrong as it
+             * is. One direction for the shaft and the travel, always. */
+            S.cpu_tip  = mv3_sub(ball, mv3_scale(shaft, S.tab.R + CUEVR_TIP_R + travel));
             S.cpu_butt = mv3_sub(S.cpu_tip, mv3_scale(shaft, CUEVR_CUE_LEN));
         }
 

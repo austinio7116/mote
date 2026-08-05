@@ -82,6 +82,7 @@ typedef struct {
     long brk_real_sum;  /* target balls actually freed, measured after the shot */
     long brk_real_pos;  /* attempts that freed at least one for real */
     long np_bucket[5];  /* how easy the next pot was, after a pot */
+    long sq_n; double sq_sum, sq_min, sq_max; long sq_hist[12];  /* safety quality */
     long elev_forced;              /* shots the game tilted the cue on */
     double elev_sum;
     long breaks_started;           /* visits that scored at least one ball */
@@ -164,6 +165,12 @@ static int play_shot(const CuePersona *p) {
     ST.shots++;
     if (s.safe) {
         ST.safeties++;
+        { float q = s.score;
+          if (!ST.sq_n || q < ST.sq_min) ST.sq_min = q;
+          if (!ST.sq_n || q > ST.sq_max) ST.sq_max = q;
+          ST.sq_n++; ST.sq_sum += q;
+          int b = (int)((q + 20.0f) / 20.0f); if (b < 0) b = 0; if (b > 11) b = 11;
+          ST.sq_hist[b]++; }
         if (s.best_pot < 0.0f)       ST.safe_forced++;
         else if (s.best_pot < 40.0f) ST.safe_thin++;
         else if (s.best_pot < 75.0f) ST.safe_mid++;
@@ -378,6 +385,17 @@ int main(void) {
     printf("  misses         %ld\n", ST.misses);
     printf("  safeties       %ld  (%.1f%% of shots)\n", ST.safeties,
            ST.shots ? 100.0 * ST.safeties / ST.shots : 0.0);
+    if (ST.sq_n) {
+        printf("\nsafety quality (safety_score of the safety actually played):\n");
+        printf("    n %ld   min %.1f   mean %.1f   max %.1f\n",
+               ST.sq_n, ST.sq_min, ST.sq_sum/ST.sq_n, ST.sq_max);
+        for (int i = 0; i < 12; i++) {
+            if (!ST.sq_hist[i]) continue;
+            printf("    %6.0f..%-6.0f %6ld  %5.1f%%\n", i*20.0-20.0, i*20.0,
+                   ST.sq_hist[i], 100.0*ST.sq_hist[i]/ST.sq_n);
+        }
+        printf("\n");
+    }
     {   long ba = ST.brk_att ? ST.brk_att : 1;
         printf("\nbreakbuilding (pot attempts that open the pack):\n");
         printf("    attempted            %6ld  %5.1f%% of pot attempts\n",

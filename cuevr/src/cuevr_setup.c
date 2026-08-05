@@ -29,7 +29,7 @@
 #include <string.h>
 
 #define DEADZONE     0.18f
-#define SLIDE_RATE   0.45f    /* m/s at full deflection */
+#define SLIDE_RATE  0.90f    /* m/s at full deflection */
 #define YAW_RATE     0.95f    /* rad/s (~54 deg/s) */
 #define HEIGHT_RATE  0.22f    /* m/s */
 

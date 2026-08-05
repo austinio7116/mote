@@ -145,6 +145,27 @@ static float K_OPTS  = 4.0f;    /* per extra ball that is also on from the same 
  * — so this waits for a cue-ball-in-cluster penalty rather than being deleted.
  * Set AI_BREAK to enable it for measurement. */
 static float K_BREAK = 0.0f;    /* per red freed by disturbing a pack */
+/* Safeties take their posScore from position_quality, like pot candidates.
+ *
+ * That looks wrong and may well BE wrong — position_quality asks what we could
+ * pot from the leave, and after a safety the opponent is the one playing it,
+ * so ranking safeties by it prefers the one that suits them. Building them
+ * with safety_score() and keeping that number instead was measured over 180
+ * frames and was WORSE on every axis: safeties +55%, fouls +36%, conceded
+ * points +27%, mean best break 40.6 -> 38.0.
+ *
+ * The reason is a scale collision, not the sign. safety_score runs 0..324
+ * (mean 77) against potScore's 0..100, and the choice between potting and
+ * playing safe compares them directly:
+ *     sc->posScore * 0.6f > best.potScore + aggression
+ * so the bigger number simply won, and the AI played safe out of positions
+ * that never called for it.
+ *
+ * Fixing it properly means giving safeties a field of their own for ranking
+ * against each other while leaving that comparison something commensurate —
+ * not overloading one field with two scales. Until then this keeps the
+ * behaviour that measures better. AI_SAFEPOS=0 selects the other one. */
+static int K_SAFEPOS = 1;
 static int   K_OPPFILT  = 1;       /* 1 = judge their ball-on as THEY will see it */
 
 static void ai_knobs(void) {
@@ -166,6 +187,7 @@ static void ai_knobs(void) {
     { const char *v = getenv("AI_IDEAL");    if (v) K_IDEAL    = (float)atof(v); }
     { const char *v = getenv("AI_OPTS");     if (v) K_OPTS     = (float)atof(v); }
     { const char *v = getenv("AI_BREAK");    if (v) K_BREAK    = (float)atof(v); }
+    { const char *v = getenv("AI_SAFEPOS");  if (v) K_SAFEPOS  = atoi(v); }
 }
 
 void cue_ai_set_max_speed(float mps) {
@@ -1968,7 +1990,7 @@ int cue_ai_plan_tick(void) {
              * backwards, so best_safety_idx was choosing whichever safety left
              * the OPPONENT the best shot. Only pot candidates, whose leave is
              * genuinely ours to use, are scored on position. */
-            if (v->pk >= 0)
+            if (v->pk >= 0 || K_SAFEPOS)
                 v->posScore = position_quality(c, sim.cue_end, P.ti, sim.end_pos,
                                                &v->rawpot);
             else
@@ -2018,6 +2040,12 @@ static int snk_left(const CueRules *r) {
     return rem;
 }
 
+/* What counts as a safety worth staying in for, on safety_score's own scale.
+ * Measured over 180 frames: the safeties this planner plays run 0..324 with a
+ * mean of 77, and 48% of them sit under 20 — a clear floor of poor ones with
+ * the rest spread from 80 up. 60 sits in the gap. */
+#define SAFE_GOOD 60.0f
+
 int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
                   const CueBall *balls, int n, const CuePersona *p,
                   uint32_t *rng) {
@@ -2043,25 +2071,25 @@ int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
     }
 
     if (can_restore) {
-        /* This branch only happens on a FOUL AND A MISS (dec_can_restore is set
-         * by a called miss, or a scratch while snookered), and that is the case
-         * where handing it back earns its keep: they are put down again in the
-         * position they have already just failed from, so there is a fair chance
-         * of another foul and another penalty. That is worth more than an
-         * ordinary shot.
+        /* A cascade, and each rung is judged on its OWN scale — a pot against
+         * pot confidence, a safety against safety quality. Nothing here
+         * compares the two to each other, which is the trap: safety_score runs
+         * to 300-odd and potScore stops at 100, so any direct comparison is won
+         * by whichever happens to be the bigger number.
          *
-         * But not more than a GOOD one. Giving the turn back also gives them the
-         * chance to play safe at you, so a real chance in hand is taken rather
-         * than declined — 70 up, which is the band this planner converts around
-         * seven times in eight. Below that, put them back in.
+         *   1. a good pot            -> take it
+         *   2. else a good safety    -> stay in and play it
+         *   3. else                  -> hand the turn back
          *
-         * Everywhere else — an ordinary foul with no miss — the turn is never
-         * handed over at all: you stay at the table and play your own safety
-         * rather than offer them the chance to play one at you. */
+         * This branch is a foul and a miss, so rung 3 is worth more than usual:
+         * they are put down again in the position they just failed from, with a
+         * fair chance of fouling again. Hence a stiffer bar on the pot than an
+         * ordinary foul would need. */
         if (need_snookers)
             return (fb_avail && fbHasPot && fbS > 70.0f) ? CUE_DEC_FREEBALL : CUE_DEC_REPLAY;
         if (fb_avail && fbHasPot && fbS > 75.0f) return CUE_DEC_FREEBALL;
         if (hasPot && pot.score > 70.0f)         return CUE_DEC_PLAY;
+        if (pot.safe && pot.score > SAFE_GOOD)   return CUE_DEC_PLAY;
         return CUE_DEC_REPLAY;
     }
 
@@ -2073,9 +2101,9 @@ int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
      * it, and take the penalty if they cannot. */
     if (fb_avail && fbHasPot) return CUE_DEC_FREEBALL;
     if (hasPot)               return CUE_DEC_PLAY;
-    if (!pot.valid || cue_rules_is_snookered(&mine, balls, n))
-        return CUE_DEC_REPLAY;
-    return CUE_DEC_PLAY;      /* no pot, but a real safety: play it */
+    if (pot.safe && pot.valid && pot.score > SAFE_GOOD)
+        return CUE_DEC_PLAY;  /* a safety worth playing beats giving them a turn */
+    return CUE_DEC_REPLAY;    /* nothing on and nothing to play: let them solve it */
 }
 
 CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r,
