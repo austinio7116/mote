@@ -2052,7 +2052,18 @@ int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
         if (hasPot && pot.score > 70.0f)         return CUE_DEC_PLAY;
         return CUE_DEC_REPLAY;
     }
-    return (fb_avail && fbHasPot) ? CUE_DEC_FREEBALL : CUE_DEC_PLAY;
+
+    /* An ordinary foul, with no miss called and so no restore on offer. The
+     * default is to stay in — a safety of your own beats offering them the
+     * chance to play one at you — but not from a position that cannot be
+     * played. If you are snookered, or the planner cannot find so much as a
+     * safety worth the name, then handing it over IS the shot: let them solve
+     * it, and take the penalty if they cannot. */
+    if (fb_avail && fbHasPot) return CUE_DEC_FREEBALL;
+    if (hasPot)               return CUE_DEC_PLAY;
+    if (!pot.valid || cue_rules_is_snookered(&mine, balls, n))
+        return CUE_DEC_REPLAY;
+    return CUE_DEC_PLAY;      /* no pot, but a real safety: play it */
 }
 
 CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r,
