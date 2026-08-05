@@ -250,7 +250,9 @@ static Vec3 cue_pos(void) {
  * number — see cue_table_min_elev. It used to live here as a static, and the
  * AI consequently planned every shot as though the cue were level. */
 static float min_cue_elev(float aim) {
-    return cue_table_min_elev(&s_table, s_balls, s_n, cue_pos(), aim, s_tip_vert);
+    Vec3 cb = cue_pos(); float R = s_table.R;
+    Vec3 tp = v3(cb.x - cosf(aim)*R, R*(1.0f + s_tip_vert), cb.z - sinf(aim)*R);
+    return cue_table_min_elev(&s_table, s_balls, s_n, tp, aim);
 }
 
 /* Would the cue ball at p overlap any object ball still on the table? */

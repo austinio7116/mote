@@ -91,27 +91,18 @@ Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p);
 Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
                                      const CueBall *balls, int n);
 
-/* Minimum cue elevation (radians above horizontal, butt raised) at which the
- * cue SHAFT clears the cushion, the wood frame and every ball it would
- * otherwise pass through, when striking the cue ball at `cue` along `aim` with
- * the tip `tip_vert` up the ball (fraction of R). Callers force the cue to at
- * least this, i.e. play at fmaxf(chosen_elev, this).
+/* Minimum cue elevation (radians, butt raised) at which the CUE — a tapered
+ * solid running back from `tip` along `aim` for its full length — clears the
+ * bed, the rail band, the frame and every ball. `tip` is the 3-D position of
+ * the tip ITSELF, not the cue ball: this asks where the stick is, not what the
+ * shot would need, which is the only version that means anything when the cue
+ * is being carried around a room. balls[0] is the cue ball and never blocks.
  *
- * Raising the contact point lowers the requirement, so it eases off
- * continuously as the player cues higher on the ball — which is the actual
- * technique for getting over an obstruction.
- *
- * Every front end AND the AI's ranking sims must use this same number: an
- * elevated cue delivers cos(elev) of its pace across the cloth and, with side
- * on, swerves. A planner that assumes a level cue is choosing shots the cue
- * cannot play. `balls[0]` is taken to be the cue ball and is never an obstacle.
- *
- * Every obstacle under the cue's full 1.45 m counts. There is no near band:
- * a rigid stick fouls a rail 40 cm back exactly as solidly as one 4 cm back,
- * so the answer falls away with distance rather than switching off. On a small
- * table that leaves a degree or two on almost every shot, which is right — it
- * is why a real cue sits slightly downhill rather than truly level. */
+ * Front ends play at fmaxf(their own elevation, this). The AI's ranking sims
+ * must use it too — an elevated cue delivers cos(elev) of its pace and, with
+ * side on, swerves, so a planner assuming a level cue picks shots that cannot
+ * be played. At address, pass the contact point on the white. */
 float cue_table_min_elev(const CueTable *t, const CueBall *balls, int n,
-                         Vec3 cue, float aim, float tip_vert);
+                         Vec3 tip, float aim);
 
 #endif

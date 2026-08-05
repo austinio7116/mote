@@ -215,9 +215,12 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
      * confidently choose shots the cue could not play — it would ask for a
      * delicate roll-through that the tilt turned into a stun, and read a leave
      * off a trajectory the ball never took. */
-    float elev = s_force_elev
-               ? cue_table_min_elev(t, s_sb, n, s_sb[cue_idx].pos, aim, tip_vert)
-               : 0.0f;
+    float elev = 0.0f;
+    if (s_force_elev) {
+        Vec3 cb = s_sb[cue_idx].pos;
+        Vec3 tp = v3(cb.x - dir.x*t->R, t->R*(1.0f + tip_vert), cb.z - dir.z*t->R);
+        elev = cue_table_min_elev(t, s_sb, n, tp, aim);
+    }
     cue_phys_strike_elev(&s_sw, &s_sb[cue_idx], dir, power01 * AI_SIM_SPEED,
                          tip_side, tip_vert, elev);
 

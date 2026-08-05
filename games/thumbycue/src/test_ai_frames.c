@@ -59,7 +59,9 @@ static int       no_elev;
  * and the ball left at cos(elev) of the planned pace. AI_NOELEV still turns
  * the whole thing off, so what it is worth stays measurable. */
 static float min_cue_elev(float aim, float tip_vert) {
-    return cue_table_min_elev(&T, B, N, B[0].pos, aim, tip_vert);
+    Vec3 cb = B[0].pos; float R = T.R;
+    Vec3 tp = v3(cb.x - cosf(aim)*R, R*(1.0f + tip_vert), cb.z - sinf(aim)*R);
+    return cue_table_min_elev(&T, B, N, tp, aim);
 }
 
 /* ---- what we are counting ------------------------------------------------ */

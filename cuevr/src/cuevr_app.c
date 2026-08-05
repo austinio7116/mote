@@ -1647,9 +1647,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * one frame of lag at 72 Hz is invisible and self-correcting. */
         {
             MoteVrV3 td = cuevr_room_dir_to_table(&S.setup.place, S.cue.aim_dir);
+            MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, S.cue.tip);
             S.cue.min_elev = getenv("CUEVR_NOELEV") ? 0.0f
-                : cue_table_min_elev(&S.tab, S.balls, S.nballs, S.balls[0].pos,
-                                     atan2f(td.z, td.x), S.cue.tip_vert);
+                : cue_table_min_elev(&S.tab, S.balls, S.nballs,
+                                     v3(tp.x, tp.y, tp.z), atan2f(td.z, td.x));
         }
 
         CueVrShot shot;
@@ -1818,9 +1819,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * lie through the cushion in plain view, and the strike below would put
          * the ball on a different line from the one the planner simulated. */
         Vec3 aim_t = { cosf(S.cpu_shot.aim), 0.0f, sinf(S.cpu_shot.aim) };
-        float cpu_elev = cue_table_min_elev(&S.tab, S.balls, S.nballs,
-                                            S.balls[0].pos, S.cpu_shot.aim,
-                                            S.cpu_shot.tip_vert);
+        float cpu_elev;
+        {   Vec3 cb = S.balls[0].pos; float Rr = S.tab.R;
+            Vec3 ctp = v3(cb.x - cosf(S.cpu_shot.aim)*Rr,
+                          Rr*(1.0f + S.cpu_shot.tip_vert),
+                          cb.z - sinf(S.cpu_shot.aim)*Rr);
+            cpu_elev = cue_table_min_elev(&S.tab, S.balls, S.nballs, ctp,
+                                          S.cpu_shot.aim); }
         MoteVrV3 ball = cue_ball_room();
         MoteVrV3 aim_r = mv3_norm(cuevr_table_dir_to_room(&S.setup.place, aim_t));
         { /* tilt the drawn shaft up about the tip, in the room's vertical */
