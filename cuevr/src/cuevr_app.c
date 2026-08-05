@@ -1647,10 +1647,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * one frame of lag at 72 Hz is invisible and self-correcting. */
         {
             MoteVrV3 td = cuevr_room_dir_to_table(&S.setup.place, S.cue.aim_dir);
-            MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, S.cue.tip);
+            float aim_t = atan2f(td.z, td.x);
+            Vec3 cb = S.balls[0].pos; float Rr = S.tab.R;
+            Vec3 tp = v3(cb.x - cosf(aim_t)*Rr, Rr*(1.0f + S.cue.tip_vert),
+                         cb.z - sinf(aim_t)*Rr);
             S.cue.min_elev = getenv("CUEVR_NOELEV") ? 0.0f
-                : cue_table_min_elev(&S.tab, S.balls, S.nballs,
-                                     v3(tp.x, tp.y, tp.z), atan2f(td.z, td.x));
+                : cue_table_min_elev(&S.tab, S.balls, S.nballs, tp, aim_t);
         }
 
         CueVrShot shot;

@@ -2031,13 +2031,20 @@ int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
     }
 
     if (can_restore) {
-        /* A replay is usually the strongest answer — the striker left the table
-         * in trouble, so make them play it again — but not blindly: an excellent
-         * shot in hand beats handing the table back. */
+        /* A replay hands back THE SAME POSITION, so it is only ever worth taking
+         * when that position is a poor one to be facing. The bar used to be a
+         * pot rated over 85, which meant giving the table away while holding
+         * shots this planner converts nearly nine times in ten (87% of the
+         * 60-74 band, 88% of 75-89) — and giving them to an opponent who then
+         * has exactly the same shots. Weak or nothing: make them play it. A
+         * real chance: take it.
+         *
+         * Needing snookers is the exception, where handing the table over is
+         * the point and only a near-certainty is worth breaking it for. */
         if (need_snookers)
             return (fb_avail && fbHasPot && fbS > 70.0f) ? CUE_DEC_FREEBALL : CUE_DEC_REPLAY;
         if (fb_avail && fbHasPot && fbS > 75.0f) return CUE_DEC_FREEBALL;
-        if (hasPot && pot.score > 85.0f)         return CUE_DEC_PLAY;
+        if (hasPot && pot.score > 55.0f)         return CUE_DEC_PLAY;
         return CUE_DEC_REPLAY;
     }
     return (fb_avail && fbHasPot) ? CUE_DEC_FREEBALL : CUE_DEC_PLAY;

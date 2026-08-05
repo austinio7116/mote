@@ -160,7 +160,8 @@ typedef struct {
      * Drawing the cue where the hand is while playing it elevated would show
      * the shaft passing through the rail, so the two move together. */
     float min_elev;
-    int   elev_forced;   /* 1 while min_elev is what is actually in effect */
+    float lock_elev;     /* min_elev as it was at trigger-down, held for the stroke */
+    int   elev_forced;   /* 1 while the forced angle is what is actually in effect */
     MoteVrV3 aim_dir;    /* horizontal unit aim direction */
 
     /* stroke tracking */

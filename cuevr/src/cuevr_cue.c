@@ -307,6 +307,12 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     int want_stroke = c->stroking ? (Rh->trigger > 0.15f) : (Rh->trigger > 0.55f);
     if (want_stroke && !c->stroking) {
         c->stroking = 1;
+        /* Freeze the forced elevation with everything else at trigger-down.
+         * It cannot be live: the geometry it comes from is measured from the
+         * tip, the tip travels back and forth through the delivery, so a live
+         * value would swing the cue line while you were stroking through the
+         * ball. One angle, decided when you commit to the shot, held. */
+        c->lock_elev = c->min_elev;
         c->lock_axis = live_axis;
         c->lock_bridge = c->bridge;
         c->lock_butt0 = Rh->pose.p;
@@ -360,9 +366,12 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
      * on the ball from it. Where you hit the white is your business; how steeply
      * the stick has to sit to get there is the table's. Only the played
      * elevation and the drawn shaft pivot, both about the tip. */
+    /* Only while actually shooting. Outside the stroke the cue is just a stick
+     * in your hands and nothing should move it — the correction exists to make
+     * a SHOT playable, not to police where you carry the cue. */
     c->elev_forced = 0;
-    if (c->elev < c->min_elev) {
-        c->elev = c->min_elev;
+    if (c->stroking && c->elev < c->lock_elev) {
+        c->elev = c->lock_elev;
         c->elev_forced = 1;
         float ce = cosf(c->elev), se = sinf(c->elev);
         MoteVrV3 shown = mv3(c->aim_dir.x * ce, -se, c->aim_dir.z * ce);
