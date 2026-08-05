@@ -145,27 +145,21 @@ static float K_OPTS  = 4.0f;    /* per extra ball that is also on from the same 
  * — so this waits for a cue-ball-in-cluster penalty rather than being deleted.
  * Set AI_BREAK to enable it for measurement. */
 static float K_BREAK = 0.0f;    /* per red freed by disturbing a pack */
-/* Safeties take their posScore from position_quality, like pot candidates.
+/* Which number picks the safety, once a safety is being played. 0 = posScore
+ * (position_quality); 1 = safeq (safety_score).
  *
- * That looks wrong and may well BE wrong — position_quality asks what we could
- * pot from the leave, and after a safety the opponent is the one playing it,
- * so ranking safeties by it prefers the one that suits them. Building them
- * with safety_score() and keeping that number instead was measured over 180
- * frames and was WORSE on every axis: safeties +55%, fouls +36%, conceded
- * points +27%, mean best break 40.6 -> 38.0.
+ * safeq is the one that LOOKS right — position_quality asks what we could pot
+ * from the leave, and after a safety it is the opponent who plays it. Measured
+ * over 180 frames, with the change isolated so the decision to play safe at
+ * all was untouched, it was clearly worse: conceded points 286 -> 415 (+45%),
+ * fouls +42%, safeties +20%. Mean best break drifted up 0.9 (t=0.50, noise).
  *
- * The reason is a scale collision, not the sign. safety_score runs 0..324
- * (mean 77) against potScore's 0..100, and the choice between potting and
- * playing safe compares them directly:
- *     sc->posScore * 0.6f > best.potScore + aggression
- * so the bigger number simply won, and the AI played safe out of positions
- * that never called for it.
- *
- * Fixing it properly means giving safeties a field of their own for ranking
- * against each other while leaving that comparison something commensurate —
- * not overloading one field with two scales. Until then this keeps the
- * behaviour that measures better. AI_SAFEPOS=0 selects the other one. */
-static int K_SAFEPOS = 1;
+ * Conceded points IS the measure of whether a safety worked, so maximising
+ * safety_score demonstrably leaves the opponent MORE, not less. Something in
+ * that function does not mean what its name says, and the next move is to read
+ * it rather than to keep guessing at where to store its output. Until then the
+ * default is what measures better. */
+static int K_SAFERANK = 0;
 static int   K_OPPFILT  = 1;       /* 1 = judge their ball-on as THEY will see it */
 
 static void ai_knobs(void) {
@@ -187,7 +181,7 @@ static void ai_knobs(void) {
     { const char *v = getenv("AI_IDEAL");    if (v) K_IDEAL    = (float)atof(v); }
     { const char *v = getenv("AI_OPTS");     if (v) K_OPTS     = (float)atof(v); }
     { const char *v = getenv("AI_BREAK");    if (v) K_BREAK    = (float)atof(v); }
-    { const char *v = getenv("AI_SAFEPOS");  if (v) K_SAFEPOS  = atoi(v); }
+    { const char *v = getenv("AI_SAFERANK"); if (v) K_SAFERANK = atoi(v); }
 }
 
 void cue_ai_set_max_speed(float mps) {
@@ -726,6 +720,14 @@ typedef struct {
     float brk;         /* breakout bonus folded into posScore (signed) */
     int   freed;       /* target balls the SIM says this shot frees (can be -ve) */
     float rawpot;      /* best RAW next-pot difficulty of the leave, no extras */
+    /* A SAFETY's own quality, from safety_score(): how little the opponent is
+     * left with. It needs its own field because posScore means something else
+     * — what WE could pot from the leave — and the two are on different scales,
+     * 0..324 against 0..100. Overloading one field with both was measured at
+     * +55% safeties and +36% fouls, because the choice between potting and
+     * playing safe compares posScore with potScore directly and the bigger
+     * number simply won. Separate fields, separate questions. */
+    float safeq;
 } Cand;
 
 /* JS variant sweep arrays. */
@@ -1330,7 +1332,7 @@ static int find_safety(const AiCtx *c, Cand *out, uint32_t *rng) {
                         q->tidx = i; q->pk = -1; q->nearpath = clip; q->ghost = ghost; q->aim = aim;
                         q->cut = cut; q->js_power = jp; q->spinY = spin;
                         q->power01 = p01; q->tip_vert = spin; q->tip_side = 0.0f;
-                        q->cue_end = cue_end; q->posScore = sc; q->potScore = sc;
+                        q->cue_end = cue_end; q->posScore = sc; q->potScore = sc; q->safeq = sc;
                     } else {
                         int wi = 0;
                         for (int k = 1; k < SAFE_POOL; k++)
@@ -1341,7 +1343,7 @@ static int find_safety(const AiCtx *c, Cand *out, uint32_t *rng) {
                             q->tidx = i; q->pk = -1; q->nearpath = clip; q->ghost = ghost; q->aim = aim;
                             q->cut = cut; q->js_power = jp; q->spinY = spin;
                             q->power01 = p01; q->tip_vert = spin; q->tip_side = 0.0f;
-                            q->cue_end = cue_end; q->posScore = sc; q->potScore = sc;
+                            q->cue_end = cue_end; q->posScore = sc; q->potScore = sc; q->safeq = sc;
                         }
                     }
                 }
@@ -1473,7 +1475,8 @@ static int best_safety_idx(void) {
         Cand *q = &P.pool[k];
         if (q->pk >= 0 || !q->simmed) continue;
         if (q->scratch || q->bad_first) continue;   /* an in-off is not a safety */
-        if (bi < 0 || q->posScore > P.pool[bi].posScore) bi = k;
+        if (K_SAFERANK) { if (bi < 0 || q->safeq    > P.pool[bi].safeq)    bi = k; }
+        else            { if (bi < 0 || q->posScore > P.pool[bi].posScore) bi = k; }
     }
     return bi;
 }
@@ -1495,7 +1498,7 @@ static void plan_finalize(void) {
             o.tip_vert = P.pool[bi].tip_vert; o.tip_side = P.pool[bi].tip_side;
             o.safe = 1; o.valid = 1;
             o.best_pot = -1.0f;            /* no pot existed to turn down */
-            o.score = P.pool[bi].posScore; /* the SAFETY's own quality */
+            o.score = P.pool[bi].safeq;    /* the SAFETY's own quality */
             o.target_id = (P.pool[bi].tidx > 0 && P.pool[bi].tidx < c->n)
                         ? c->b[P.pool[bi].tidx].id : -1;
         }
@@ -1990,11 +1993,8 @@ int cue_ai_plan_tick(void) {
              * backwards, so best_safety_idx was choosing whichever safety left
              * the OPPONENT the best shot. Only pot candidates, whose leave is
              * genuinely ours to use, are scored on position. */
-            if (v->pk >= 0 || K_SAFEPOS)
-                v->posScore = position_quality(c, sim.cue_end, P.ti, sim.end_pos,
-                                               &v->rawpot);
-            else
-                position_quality(c, sim.cue_end, P.ti, sim.end_pos, &v->rawpot);
+            v->posScore = position_quality(c, sim.cue_end, P.ti, sim.end_pos,
+                                           &v->rawpot);
             /* Opening the pack is only good if WE are the one staying at the
              * table. Safeties share this pool (they carry pk < 0), and on a
              * safety the same act is a disaster — you spread a frame's worth of
