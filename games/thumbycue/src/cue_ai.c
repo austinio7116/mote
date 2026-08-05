@@ -2031,20 +2031,25 @@ int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
     }
 
     if (can_restore) {
-        /* A replay hands back THE SAME POSITION, so it is only ever worth taking
-         * when that position is a poor one to be facing. The bar used to be a
-         * pot rated over 85, which meant giving the table away while holding
-         * shots this planner converts nearly nine times in ten (87% of the
-         * 60-74 band, 88% of 75-89) — and giving them to an opponent who then
-         * has exactly the same shots. Weak or nothing: make them play it. A
-         * real chance: take it.
+        /* This branch only happens on a FOUL AND A MISS (dec_can_restore is set
+         * by a called miss, or a scratch while snookered), and that is the case
+         * where handing it back earns its keep: they are put down again in the
+         * position they have already just failed from, so there is a fair chance
+         * of another foul and another penalty. That is worth more than an
+         * ordinary shot.
          *
-         * Needing snookers is the exception, where handing the table over is
-         * the point and only a near-certainty is worth breaking it for. */
+         * But not more than a GOOD one. Giving the turn back also gives them the
+         * chance to play safe at you, so a real chance in hand is taken rather
+         * than declined — 70 up, which is the band this planner converts around
+         * seven times in eight. Below that, put them back in.
+         *
+         * Everywhere else — an ordinary foul with no miss — the turn is never
+         * handed over at all: you stay at the table and play your own safety
+         * rather than offer them the chance to play one at you. */
         if (need_snookers)
             return (fb_avail && fbHasPot && fbS > 70.0f) ? CUE_DEC_FREEBALL : CUE_DEC_REPLAY;
         if (fb_avail && fbHasPot && fbS > 75.0f) return CUE_DEC_FREEBALL;
-        if (hasPot && pot.score > 55.0f)         return CUE_DEC_PLAY;
+        if (hasPot && pot.score > 70.0f)         return CUE_DEC_PLAY;
         return CUE_DEC_REPLAY;
     }
     return (fb_avail && fbHasPot) ? CUE_DEC_FREEBALL : CUE_DEC_PLAY;
