@@ -126,6 +126,25 @@ static float K_MISSCAUT = 25.0f;   /* how much a first miss tightens the gate */
  * taken out one at a time over 30 frames instead of reasoned about. */
 static float K_AGGR     = 1.0f;    /* scale on the aggregate-threat bonus */
 static float K_NEARPATH = 15.0f;   /* penalty per ball crowding the cue path */
+/* Leave quality. The old scorer asked one question of a leave — "can the next
+ * ball be potted from here" — and potting_difficulty answers that most warmly
+ * for a DEAD STRAIGHT shot. So the planner was steering the cue ball into the
+ * one position a break cannot continue from: straight on, with no angle to
+ * swing off and nothing but draw or follow along a single line. These three
+ * ask the other questions a break-builder asks. */
+static float K_ANGLE = 12.0f;   /* weight on leaving a WORKABLE angle, not a straight one */
+static float K_IDEAL = 22.0f;   /* the cut angle (deg) a break-builder wants on the next ball */
+static float K_OPTS  = 4.0f;    /* per extra ball that is also on from the same leave */
+/* OFF by default, pending the other half of the model. Measured over 180
+ * frames this term alone more than doubled the fouls (1486 -> 3204) and cost
+ * five points of pot success, because it scores only the pack OPENING and not
+ * where the cue ball finished. Park the white among the reds and the next shot
+ * has to reach a colour from inside the pack, which is how you miss the ball
+ * on. The telemetry says the idea is sound — 1.71 balls actually freed per
+ * attempt against 1.79 promised, deciding the shot 43% of the time it applies
+ * — so this waits for a cue-ball-in-cluster penalty rather than being deleted.
+ * Set AI_BREAK to enable it for measurement. */
+static float K_BREAK = 0.0f;    /* per red freed by disturbing a pack */
 static int   K_OPPFILT  = 1;       /* 1 = judge their ball-on as THEY will see it */
 
 static void ai_knobs(void) {
@@ -143,6 +162,10 @@ static void ai_knobs(void) {
     { const char *v = getenv("AI_AGGR");     if (v) K_AGGR = (float)atof(v); }
     { const char *v = getenv("AI_NEARPATH"); if (v) K_NEARPATH = (float)atof(v); }
     { const char *v = getenv("AI_OPPFILT");  if (v) K_OPPFILT = atoi(v); }
+    { const char *v = getenv("AI_ANGLE");    if (v) K_ANGLE    = (float)atof(v); }
+    { const char *v = getenv("AI_IDEAL");    if (v) K_IDEAL    = (float)atof(v); }
+    { const char *v = getenv("AI_OPTS");     if (v) K_OPTS     = (float)atof(v); }
+    { const char *v = getenv("AI_BREAK");    if (v) K_BREAK    = (float)atof(v); }
 }
 
 void cue_ai_set_max_speed(float mps) {
@@ -318,22 +341,32 @@ static Vec3 pocket_aim_t(const AiCtx *c, int pk, Vec3 target) {
 }
 
 /* Is the straight path start→end clear of all balls except `exclude` idx? */
-static int path_clear(const AiCtx *c, Vec3 start, Vec3 end, int exclude) {
+/* `pos`/`on` let this be asked of a layout OTHER than the live one — chiefly a
+ * simulated one, so "what did this shot open up" can be measured on the balls
+ * as they finished rather than guessed at from where they started. NULL for
+ * either means "use the live table". */
+static int path_clear_at(const AiCtx *c, Vec3 start, Vec3 end, int exclude,
+                         const Vec3 *pos, const int *on) {
     Vec3 dir = sub2(end, start);
     float dist = len2(dir);
     if (dist < PXm(c, 1)) return 1;
     Vec3 nd = v3(dir.x/dist, 0, dir.z/dist);
     float clr = 2.0f * c->t->R;
     for (int i = 0; i < c->n; i++) {
-        if (i == exclude || !c->b[i].on || c->b[i].id == CUE_ID_CUE) continue;
-        Vec3 tb = sub2(c->b[i].pos, start);
+        int alive = on ? on[i] : c->b[i].on;
+        if (i == exclude || !alive || c->b[i].id == CUE_ID_CUE) continue;
+        Vec3 bp = pos ? pos[i] : c->b[i].pos;
+        Vec3 tb = sub2(bp, start);
         float proj = dot2(tb, nd);
         if (proj < -PXm(c,5) || proj > dist + PXm(c,5)) continue;
         float cp = proj < 0 ? 0 : (proj > dist ? dist : proj);
         Vec3 closest = v3(start.x + nd.x*cp, 0, start.z + nd.z*cp);
-        if (d2(c->b[i].pos, closest) < clr) return 0;
+        if (d2(bp, closest) < clr) return 0;
     }
     return 1;
+}
+static int path_clear(const AiCtx *c, Vec3 start, Vec3 end, int exclude) {
+    return path_clear_at(c, start, end, exclude, NULL, NULL);
 }
 
 /* Approach angle gate (ai.js checkPocketApproach + calculatePocketApproachAngle). */
@@ -479,14 +512,72 @@ static int next_targets(const AiCtx *c, int just_idx, int *out_idx) {
 
 /* Position quality of a predicted cue leave: best next-shot difficulty (+value).
  * `pos_balls` are the simulated end positions (or live positions for analytic). */
+/* ---- breakouts ---------------------------------------------------------- *
+ * A pack of reds is not a hard shot, it is an ABSENT shot: every ball in it
+ * fails path_clear to every pocket, so the planner simply cannot see them and
+ * has no reason on earth to go near them. That is why 21% of this AI's pots
+ * left it with nothing at all — it would clear the loose balls and then find
+ * the frame had run out, with a dozen reds still sitting in a heap.
+ *
+ * Opening the pack is a skill, and the persona roster has always had a field
+ * for it (`freeing`) that nothing read. This is what reads it.
+ *
+ * The measure is deliberately an OUTCOME, not a prediction: count the target
+ * balls that have a clear line to some pocket before the shot and after it,
+ * over the balls that survive either way, and reward the difference. The sim
+ * has already told us where everything finished, so there is nothing to model
+ * — the same reason the throw correction measures rather than fits a curve. */
+static int open_targets(const AiCtx *c, const Vec3 *pos, const int *on) {
+    int cnt = 0;
+    for (int i = 0; i < c->n; i++) {
+        if (c->b[i].id == CUE_ID_CUE) continue;
+        if (on ? !on[i] : !c->b[i].on) continue;
+        /* The pack that matters: reds at snooker, our own group at pool. */
+        int mine = c->snooker ? (c->b[i].id < CUE_ID_YELLOW)
+                              : cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id);
+        if (!mine) continue;
+        Vec3 tp = pos ? pos[i] : c->b[i].pos;
+        for (int pk = 0; pk < c->w->npocket; pk++) {
+            if (!pocket_approach_ok(c, tp, pk)) continue;
+            if (path_clear_at(c, tp, pocket_aim_t(c, pk, tp), i, pos, on)) { cnt++; break; }
+        }
+    }
+    return cnt;
+}
+
+/* Both counts are taken over the SURVIVORS of the shot, so potting a red does
+ * not read as having buried one. */
+static float breakout_bonus(const AiCtx *c, const Vec3 *pos, const int *on,
+                            const CuePersona *p, int *out_freed) {
+    if (out_freed) *out_freed = 0;
+    if (K_BREAK <= 0.0f || p->freeing <= 0.0f) return 0.0f;
+    int before = open_targets(c, NULL, on);
+    int after  = open_targets(c, pos,  on);
+    int freed  = after - before;
+    if (out_freed) *out_freed = freed;
+    if (freed == 0) return 0.0f;
+    /* Worth most when there is least on: freeing the eleventh available red is
+     * housekeeping, freeing the first is the difference between a break and a
+     * safety exchange. Balls that get buried are penalised on the same scale,
+     * because rolling up behind the pack is its own kind of mistake. */
+    float scarcity = 1.0f / (1.0f + 0.35f * (float)(before < 0 ? 0 : before));
+    float v = (float)freed * K_BREAK * p->freeing * (0.35f + scarcity);
+    if (v >  45.0f) v =  45.0f;
+    if (v < -45.0f) v = -45.0f;
+    return v;
+}
+
 static float position_quality(const AiCtx *c, Vec3 cue_pos, int just_idx,
-                              const Vec3 *pos_balls) {
+                              const Vec3 *pos_balls, float *out_rawpot) {
     int idx[CUE_MAX_BALLS];
     int cnt = next_targets(c, just_idx, idx);
-    if (cnt == 0) return 100.0f;                 /* nothing left → frame won */
+    if (out_rawpot) *out_rawpot = 0.0f;
+    if (cnt == 0) { if (out_rawpot) *out_rawpot = 100.0f; return 100.0f; }
     float best = 0.0f;
+    int   nviable = 0;              /* distinct next balls that are actually on */
     for (int k = 0; k < cnt; k++) {
         int ti = idx[k];
+        int this_ball_on = 0;
         Vec3 tpos = pos_balls ? pos_balls[ti] : c->b[ti].pos;
         if (!path_clear(c, cue_pos, tpos, ti)) continue;
         for (int pk = 0; pk < c->w->npocket; pk++) {
@@ -494,10 +585,42 @@ static float position_quality(const AiCtx *c, Vec3 cue_pos, int just_idx,
             if (!path_clear(c, tpos, ap, ti)) continue;
             float diff = potting_difficulty(c, cue_pos, tpos, pk);
             if (diff < 20.0f) continue;
+            this_ball_on = 1;
+            if (out_rawpot && diff > *out_rawpot) *out_rawpot = diff;
             float fs = diff;
             if (c->snooker) fs += ai_value(c->b[ti].id) * 6.0f;
+
+            /* ANGLE. potting_difficulty is a pure "how likely is this to drop",
+             * and it peaks dead straight — so on its own it walks the cue ball
+             * into the one leave from which a break cannot go anywhere. Straight
+             * on you have a single line and only draw or follow along it; with
+             * twenty-odd degrees you can send the cue ball almost anywhere on
+             * the table. So a leave is also judged on the angle it leaves, and
+             * a straight one is very slightly worse than useless.
+             *
+             * Only when there is a ball after the next one: on the last ball of
+             * the frame, the easiest pot is simply the best pot. */
+            if (cnt > 1) {
+                Vec3 pd  = nrm2(sub2(c->w->pocket[pk], tpos));
+                Vec3 gh  = v3(tpos.x - pd.x*2*c->t->R, 0, tpos.z - pd.z*2*c->t->R);
+                Vec3 am  = nrm2(sub2(gh, cue_pos));
+                float cut = acosf(clampf(dot2(am, pd), -1, 1)) * DEG;
+                float dd = (cut - K_IDEAL) / K_IDEAL;      /* 0 ideal, 1 at 0 and 2*ideal */
+                float fit = 1.0f - dd * dd;                /* +1 ideal, 0 straight-ish, -ve wide */
+                if (fit < -1.0f) fit = -1.0f;
+                fs += fit * K_ANGLE;
+            }
             if (fs > best) best = fs;
         }
+        if (this_ball_on) nviable++;
+    }
+    /* OPTIONS. The score was a plain max, so one perfect ball beat four good
+     * ones. It does not, in practice: the aim carries persona error, the leave
+     * carries sim slop, and a position with alternatives survives both. Credit
+     * for having somewhere else to go, flattening off quickly. */
+    if (nviable > 1) {
+        int extra = nviable - 1; if (extra > 3) extra = 3;
+        best += K_OPTS * (float)extra;
     }
     return best;
 }
@@ -575,6 +698,9 @@ typedef struct {
     int   scratch;     /* cue ball potted in sim (in-off) */
     int   bad_first;   /* first object-ball contact wasn't the target (foul risk) */
     int   nearpath;    /* safeties: balls crowding the cue ball's path */
+    float brk;         /* breakout bonus folded into posScore (signed) */
+    int   freed;       /* target balls the SIM says this shot frees (can be -ve) */
+    float rawpot;      /* best RAW next-pot difficulty of the leave, no extras */
 } Cand;
 
 /* JS variant sweep arrays. */
@@ -667,7 +793,7 @@ static int eval_pot(const AiCtx *c, int tidx, int pk,
      * the chosen group's variants get accurate sim-based position later. */
     Vec3 end = predict_end(c, ghost, target, pk, cut, fmaxf(minPot, 13.5f)*cutF, 0.0f);
     *out_bestPot = bestPot;
-    *out_bestPos = position_quality(c, end, tidx, NULL);
+    *out_bestPos = position_quality(c, end, tidx, NULL, NULL);
     return 1;
 }
 
@@ -1376,6 +1502,25 @@ static void plan_finalize(void) {
             if (bs > as) { Cand tmp=P.pool[i]; P.pool[i]=P.pool[j]; P.pool[j]=tmp; }
         }
 
+    /* Did the breakout bonus DECIDE this shot? The pool is now sorted by the
+     * score that includes it, so index 0 is the winner with it; re-rank without
+     * it and see whether a different candidate would have come top. That is the
+     * only honest answer to "how often does breakbuilding actually pick the
+     * shot" — a bonus that is always applied and never changes the outcome is
+     * not doing anything, however large it looks. */
+    int brk_flip = 0;
+    {
+        float bw = -1e9f; int bi2 = -1;
+        for (int i = 0; i < npool; i++) {
+            Cand *q = &P.pool[i];
+            float ab = (1.0f - q->power01) * 10.0f * posAware;
+            float sc = q->potScore*(1-posAware) + (q->posScore - q->brk + ab)*posAware;
+            if (q->scratch || q->bad_first) sc -= 1000.0f;
+            if (sc > bw) { bw = sc; bi2 = i; }
+        }
+        brk_flip = (bi2 > 0);
+    }
+
     /* Push anything that fouled last visit to the back before choosing, so the
      * persona's top-3 / random pick cannot land on it again while a clean
      * alternative exists. If they ALL fouled, the order is unchanged and the
@@ -1420,7 +1565,9 @@ static void plan_finalize(void) {
                 out.aim = sc->aim; out.power01 = sc->power01;
                 out.tip_vert = sc->tip_vert; out.tip_side = sc->tip_side;
                 out.safe = 1; out.valid = 1;
-                out.best_pot = best.potScore;   /* what it turned down */
+                out.best_pot = best.potScore;
+    out.breakout = best.brk; out.freed_sim = best.freed;
+    out.next_pot = best.rawpot; out.brk_decided = brk_flip;   /* what it turned down */
                 out.target_id = (sc->tidx > 0 && sc->tidx < c->n) ? c->b[sc->tidx].id : -1;
                 P.result = out; return;
             }
@@ -1486,6 +1633,8 @@ static void plan_finalize(void) {
     out.tip_vert = best.tip_vert; out.tip_side = best.tip_side;
     out.safe = 0; out.valid = 1; out.score = best.potScore;
     out.best_pot = best.potScore;
+    out.breakout = best.brk; out.freed_sim = best.freed;
+    out.next_pot = best.rawpot; out.brk_decided = brk_flip;
     out.target_id = (best.tidx > 0 && best.tidx < c->n) ? c->b[best.tidx].id : -1;
     P.result = out;
 }
@@ -1721,7 +1870,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             v.power01 = power01_of(eff);
             v.tip_vert = clampf(-spinY*0.5f, -0.45f, 0.45f);
             v.potScore = potScore;
-            v.posScore = position_quality(c, predict_end(c,ghost,target,pk,cut,eff,spinY), ti, NULL);
+            v.posScore = position_quality(c, predict_end(c,ghost,target,pk,cut,eff,spinY), ti, NULL, NULL);
             for (int di = 0; di < NSIDE; di++) {
                 Cand vs = v;
                 vs.tip_side = SIDE_LEVELS[di];
@@ -1806,7 +1955,25 @@ int cue_ai_plan_tick(void) {
         v->bad_first = (sim.first_hit_idx < 0) ||
                        !cue_rules_ball_legal(c->r, c->b, c->n, c->b[sim.first_hit_idx].id);
         if (sim.cue_potted) v->posScore = 0;          /* in-off → worthless leave */
-        else v->posScore = position_quality(c, sim.cue_end, P.ti, sim.end_pos);
+        else {
+            v->posScore = position_quality(c, sim.cue_end, P.ti, sim.end_pos,
+                                           &v->rawpot);
+            /* Opening the pack is only good if WE are the one staying at the
+             * table. Safeties share this pool (they carry pk < 0), and on a
+             * safety the same act is a disaster — you spread a frame's worth of
+             * reds and hand your opponent the table. So the sign follows who
+             * gets to play next: reward on a pot, penalise on a safety.
+             *
+             * Note this never risks a foul either way. It only ever reweights a
+             * candidate that has already been through the engine and had its
+             * first contact checked against the rules (bad_first, above), so the
+             * cue ball can reach a pack only AFTER a legal ball has been struck
+             * — a deflection off the ball on, which is the only way a breakout
+             * is ever played. */
+            float br = breakout_bonus(c, sim.end_pos, sim.on, c->p, &v->freed);
+            v->brk = (v->pk < 0) ? -br : br;
+            v->posScore += v->brk;
+        }
         P.sim_i++;
     }
     if (P.sim_i >= P.sim_cap) { plan_finalize(); P.phase = PH_DONE; return 1; }
@@ -2004,4 +2171,15 @@ Vec3 cue_ai_pocket_aim(const CueWorld *w, const CueTable *t, int pk, Vec3 target
                 .maxdist_m = (t->half_len > t->half_wid ? t->half_len : t->half_wid) * 2.0f,
                 .snooker = t->is_snooker };
     return pocket_aim_t(&c, pk, target);
+}
+
+/* How many of our target balls currently have a clear line to some pocket —
+ * the same measure breakout_bonus scores a shot by, exposed so the harness can
+ * check the SIM's promise against what the played shot actually did. */
+int cue_ai_open_targets(const CueWorld *w, const CueTable *t, const CueRules *r,
+                        const CueBall *balls, int n) {
+    AiCtx c; memset(&c, 0, sizeof c);
+    c.w = w; c.t = t; c.r = r; c.b = balls; c.n = n;
+    c.S = 12.0f / t->R; c.snooker = t->is_snooker;
+    return open_targets(&c, NULL, NULL);
 }

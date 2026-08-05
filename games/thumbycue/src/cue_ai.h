@@ -61,6 +61,16 @@ typedef struct {
      * separates "played safe because nothing was on" from "played safe with a
      * frame ball sitting there", which are opposite diagnoses. */
     float best_pot;
+    /* Breakbuilding telemetry. `breakout` is the signed bonus this shot earned
+     * for opening (or burying) the pack, `freed_sim` how many target balls the
+     * simulation says it frees, `brk_decided` whether removing that bonus would
+     * have picked a different shot — the only figure that says the behaviour is
+     * doing anything. `next_pot` is the RAW difficulty of the easiest pot the
+     * leave offers, with no angle/value/option extras folded in. */
+    float breakout;
+    int   freed_sim;
+    int   brk_decided;
+    float next_pot;
 } CueAIShot;
 
 /* What the CALLER's full power is, in m/s — whatever it multiplies the
@@ -77,6 +87,12 @@ void cue_ai_set_max_speed(float mps);
  * tilts it and the ball leaves at cos(elev) of the planned pace, curving. The
  * setter exists so the measurement harness can disable BOTH halves together. */
 void cue_ai_force_elev(int on);
+
+/* Target balls with a clear line to a pocket — how much of the frame is
+ * actually available. Exposed so a harness can measure what a shot really
+ * freed, rather than trusting the planner's simulation of it. */
+int cue_ai_open_targets(const CueWorld *w, const CueTable *t, const CueRules *r,
+                        const CueBall *balls, int n);
 
 /* Plan a shot for the current table state. `rng` is an xorshift state advanced
  * in place (so persona error/selection are reproducible from a seed). */

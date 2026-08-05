@@ -71,6 +71,15 @@ typedef struct {
     long safe_thin;     /* best pot on the table < 40 confidence */
     long safe_mid;      /* 40..74 */
     long safe_easy;     /* >= 75 — turned down a good chance */
+    /* BREAKBUILDING. A bonus that is always applied and never changes the shot
+     * is doing nothing, so what matters is how often it DECIDES, and whether
+     * the break it promised actually happened on the table. */
+    long brk_att;       /* pot attempts carrying a positive breakout bonus */
+    long brk_decided;   /* ...where removing it would have picked another shot */
+    long brk_sim_sum;   /* target balls the sim promised to free */
+    long brk_real_sum;  /* target balls actually freed, measured after the shot */
+    long brk_real_pos;  /* attempts that freed at least one for real */
+    long np_bucket[5];  /* how easy the next pot was, after a pot */
     long elev_forced;              /* shots the game tilted the cue on */
     double elev_sum;
     long breaks_started;           /* visits that scored at least one ball */
@@ -163,6 +172,14 @@ static int play_shot(const CuePersona *p) {
         ST.conf_att[conf_bucket(s.score)]++;
     }
 
+    int open_before = cue_ai_open_targets(&W, &T, &R, B, N);
+    int brk_shot = (!s.safe && s.breakout > 0.0f);
+    if (brk_shot) {
+        ST.brk_att++;
+        ST.brk_sim_sum += s.freed_sim;
+        if (s.brk_decided) ST.brk_decided++;
+    }
+
     float elev = no_elev ? 0.0f : min_cue_elev(s.aim, s.tip_vert);
     if (elev > 1e-4f) { ST.elev_forced++; ST.elev_sum += elev; }
 
@@ -190,6 +207,22 @@ static int play_shot(const CuePersona *p) {
     int potted[CUE_MAX_BALLS], np = 0, scratch = !B[0].on;
     for (int i = 1; i < N; i++)
         if (was_on[i] && !B[i].on) potted[np++] = B[i].id;
+
+    if (brk_shot) {
+        /* Potted targets leave the table, which would read as balls BURIED, so
+         * add them back: this measures the layout opening up, not the rack
+         * emptying. */
+        int potted_targets = 0;
+        for (int i = 0; i < np; i++)
+            if (T.is_snooker ? (potted[i] < CUE_ID_YELLOW)
+                             : cue_rules_ball_legal(&R, B, N, potted[i]))
+                potted_targets++;
+        int freed_real = cue_ai_open_targets(&W, &T, &R, B, N)
+                       - open_before + potted_targets;
+        ST.brk_real_sum += freed_real;
+        if (freed_real > 0) ST.brk_real_pos++;
+    }
+    if (!s.safe) ST.np_bucket[conf_bucket(s.next_pot)]++;
 
     int brk_before = R.brk;
     int turn_before = R.turn;
@@ -343,6 +376,23 @@ int main(void) {
     printf("  misses         %ld\n", ST.misses);
     printf("  safeties       %ld  (%.1f%% of shots)\n", ST.safeties,
            ST.shots ? 100.0 * ST.safeties / ST.shots : 0.0);
+    {   long ba = ST.brk_att ? ST.brk_att : 1;
+        printf("\nbreakbuilding (pot attempts that open the pack):\n");
+        printf("    attempted            %6ld  %5.1f%% of pot attempts\n",
+               ST.brk_att, ST.pot_attempts ? 100.0*ST.brk_att/ST.pot_attempts : 0.0);
+        printf("    DECIDED the shot     %6ld  %5.1f%% of those\n",
+               ST.brk_decided, 100.0*ST.brk_decided/ba);
+        printf("    sim promised         %6.2f balls freed per attempt\n", (double)ST.brk_sim_sum/ba);
+        printf("    actually freed       %6.2f balls per attempt   (%.1f%% freed >=1)\n",
+               (double)ST.brk_real_sum/ba, 100.0*ST.brk_real_pos/ba);
+        printf("\n  easiest pot the LEAVE offered (raw difficulty, after a pot attempt):\n");
+        const char *nl[5] = {"  <40","40-59","60-74","75-89","  90+"};
+        long nt = 0; for (int i=0;i<5;i++) nt += ST.np_bucket[i];
+        for (int i=0;i<5;i++)
+            printf("    %s   %6ld  %5.1f%%\n", nl[i], ST.np_bucket[i],
+                   nt ? 100.0*ST.np_bucket[i]/nt : 0.0);
+        printf("\n");
+    }
     {   long sf = ST.safeties ? ST.safeties : 1;
         printf("    forced (no pot on)   %6ld  %5.1f%%\n", ST.safe_forced, 100.0*ST.safe_forced/sf);
         printf("    best pot was  <40    %6ld  %5.1f%%\n", ST.safe_thin,   100.0*ST.safe_thin/sf);
