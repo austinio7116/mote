@@ -52,6 +52,13 @@ MoteVrV3 cuevr_room_to_table(const CueVrPlacement *p, MoteVrV3 r);
 /* A direction from table space out into the room — the CPU's aim, so its cue
  * can be laid along it. */
 MoteVrV3 cuevr_table_dir_to_room(const CueVrPlacement *p, Vec3 v);
+/* ...and the other way. Exported because open-coding it is how two separate
+ * places ended up applying the TRANSPOSE — a rotation by -yaw instead of +yaw,
+ * which is silently correct only when the table happens to be square to the
+ * room. The stick walked the ball in hand mirrored about the table's axis, and
+ * the colour nomination named whatever ball lay along a line 2*yaw away from
+ * where the cue was actually pointing. */
+MoteVrV3 cuevr_room_dir_to_table(const CueVrPlacement *p, MoteVrV3 v);
 
 /* ---- setup ------------------------------------------------------------- *
  * Every session starts here, because the point of playing in passthrough is

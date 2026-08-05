@@ -83,6 +83,20 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
 /* 9-ball push-out shot: deliberately roll the cue ball to a spot that leaves
  * the opponent the WORST possible shot on the ball-on (no must-hit constraint —
  * that's the whole point of a push-out). Returns a safety-flagged shot. */
+/* Which of PLAY / REPLAY / FREEBALL to take after the opponent's snooker foul,
+ * chosen on MERIT: what can actually be potted from where the balls lie, what a
+ * free ball would be worth, and whether snookers are needed. Returns a CUE_DEC_*.
+ *
+ * Shared because CueVR had a one-line stand-in — "restore if you can, else
+ * play" — which took the replay on every foul that offered one and never once
+ * looked at the table. The handheld had the real thing; now there is one of it.
+ *
+ * On CUE_DEC_REPLAY the CALLER must restore the pre-shot layout before applying
+ * the decision, exactly as with a human's choice. */
+int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
+                  const CueBall *balls, int n, const CuePersona *p,
+                  uint32_t *rng);
+
 CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r,
                          const CueBall *balls, int n, const CuePersona *p,
                          uint32_t *rng);

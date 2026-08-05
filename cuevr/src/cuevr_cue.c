@@ -206,7 +206,7 @@ MoteVrV3 cuevr_table_dir_to_room(const CueVrPlacement *p, Vec3 v) {
 }
 
 /* A direction only — the same rotation, no translation. */
-static MoteVrV3 room_dir_to_table(const CueVrPlacement *p, MoteVrV3 v) {
+MoteVrV3 cuevr_room_dir_to_table(const CueVrPlacement *p, MoteVrV3 v) {
     float c = cosf(p->yaw), s = sinf(p->yaw);
     return mv3(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
 }
@@ -525,7 +525,7 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
             out->tip_side = c->tip_side;
             out->tip_vert = c->tip_vert;
             out->elev     = c->elev;
-            MoteVrV3 td = room_dir_to_table(p, c->aim_dir);
+            MoteVrV3 td = cuevr_room_dir_to_table(p, c->aim_dir);
             out->dir.x = td.x;
             out->dir.y = 0.0f;
             out->dir.z = td.z;

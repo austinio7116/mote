@@ -1209,6 +1209,51 @@ CueAIShot cue_ai_plan(const CueWorld *w, const CueTable *t, const CueRules *r,
  * roll the cue ball to the resting spot that leaves the OPPONENT the worst shot
  * on the ball-on. Search a fan of directions × powers, sim each with the real
  * engine, reject scratches, and minimise the opponent's best pot. */
+/* How many points are still on the table, for the snookers-needed test. */
+static int snk_left(const CueRules *r) {
+    if (r->reds_left > 0) return r->reds_left * 8 + 27;
+    int rem = 0;
+    for (int v = (r->seq < 2 ? 2 : r->seq); v <= 7; v++) rem += v;
+    return rem;
+}
+
+int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
+                  const CueBall *balls, int n, const CuePersona *p,
+                  uint32_t *rng) {
+    int off = r->dec_offender, me = 1 - off;
+    int can_restore = r->dec_can_restore, fb_avail = r->dec_free_ball;
+    int need_snookers = (r->score[off] - r->score[me]) > snk_left(r);
+
+    /* The cue ball is off the table, so there is no shot to weigh: put them back
+     * in if a miss allows it, otherwise take the ball in hand. */
+    if (r->dec_scratch)
+        return can_restore ? CUE_DEC_REPLAY : CUE_DEC_PLAY;
+
+    /* Plan as the DECIDER, not as whoever cue_rules left the turn sitting on. */
+    CueRules mine = *r; mine.turn = me;
+    CueAIShot pot = cue_ai_plan(w, t, &mine, balls, n, p, rng);
+    int hasPot = (!pot.safe && pot.valid);
+
+    int fbHasPot = 0; float fbS = 0.0f;
+    if (fb_avail) {
+        CueRules fbr = mine; fbr.free_ball = 1;   /* any ball is on, for the look */
+        CueAIShot f = cue_ai_plan(w, t, &fbr, balls, n, p, rng);
+        fbHasPot = (!f.safe && f.valid); fbS = f.score;
+    }
+
+    if (can_restore) {
+        /* A replay is usually the strongest answer — the striker left the table
+         * in trouble, so make them play it again — but not blindly: an excellent
+         * shot in hand beats handing the table back. */
+        if (need_snookers)
+            return (fb_avail && fbHasPot && fbS > 70.0f) ? CUE_DEC_FREEBALL : CUE_DEC_REPLAY;
+        if (fb_avail && fbHasPot && fbS > 75.0f) return CUE_DEC_FREEBALL;
+        if (hasPot && pot.score > 85.0f)         return CUE_DEC_PLAY;
+        return CUE_DEC_REPLAY;
+    }
+    return (fb_avail && fbHasPot) ? CUE_DEC_FREEBALL : CUE_DEC_PLAY;
+}
+
 CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r,
                          const CueBall *balls, int n, const CuePersona *p,
                          uint32_t *rng) {

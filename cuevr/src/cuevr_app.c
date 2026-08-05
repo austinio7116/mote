@@ -222,6 +222,11 @@ static struct {
     int       nom_manual;
     int       match_idx;      /* index into MATCH_LEN */
     int       over_latch;
+    /* Ball in hand just started: bring the table to the player so the ball
+     * is under their bridge hand instead of wherever the last shot left
+     * it — which on a 12 ft table can be three metres away, and you
+     * cannot walk there. Acted on where the tracking is to hand. */
+    int       recentre;
     int       sited;             /* the table has been put somewhere real */
     float     pref_height;      /* the height they set last time */
 
@@ -384,6 +389,7 @@ static int take_ball_in_hand(void) {
     }
     S.state = ST_PLACE;
     S.place_latch = 1;
+    S.recentre = 1;
     S.hud_dirty = 1;
     return 1;
 }
@@ -410,10 +416,8 @@ static void unpause(void) {
  * in the pause menu for the shot you mean to play off a cushion. */
 static int aimed_colour(void) {
     if (!S.rules.kind || S.rules.target != 1) return 0;
-    MoteVrV3 d = S.cue.aim_dir;
-    /* room -> table */
-    float cy = cosf(-S.setup.place.yaw), sy = sinf(-S.setup.place.yaw);
-    float dx = d.x * cy - d.z * sy, dz = d.x * sy + d.z * cy;
+    MoteVrV3 d = cuevr_room_dir_to_table(&S.setup.place, S.cue.aim_dir);
+    float dx = d.x, dz = d.z;
     float l = sqrtf(dx*dx + dz*dz);
     if (l < 1e-4f) return 0;
     dx /= l; dz /= l;
@@ -475,6 +479,25 @@ static void snap_take(void) {
     S.snap_rules = S.rules;
     S.have_snap = 1;
 }
+/* Put the BALLS back where they were before the shot, and nothing else.
+ *
+ * "Play it again" after a foul and a miss rewinds the TABLE, not the frame: the
+ * penalty stands, the score stands, the decision has been applied. snap_restore
+ * below takes the rules back with it, which would undo the foul itself — and
+ * the human's replay was applying the decision without restoring anything at
+ * all, so the striker was made to "play again" from wherever the balls had
+ * finished up. */
+static void snap_restore_balls(void) {
+    think_join();
+    if (!S.have_snap) return;
+    memcpy(S.balls, S.snap_balls, sizeof S.balls);
+    S.nballs = S.snap_n;
+    for (int i = 0; i < S.nballs; i++) {
+        S.balls[i].vel = v3(0, 0, 0);
+        S.balls[i].w   = v3(0, 0, 0);
+    }
+}
+
 static int snap_restore(void) {
     think_join();          /* undo rewrites the balls; see think_start */
     if (!S.have_snap) return 0;
@@ -1005,11 +1028,20 @@ static void resolve_shot(void) {
                 S.rules.pushout_offer = 0;
                 S.rules.pushout_avail = 0;
             } else {
-                /* The CPU is the fouled-against player here, always. A miss
-                 * gets handed straight back: the striker left the table in
-                 * trouble, so make them play it again. */
-                cue_rules_apply_decision(&S.rules,
-                    S.rules.dec_can_restore ? CUE_DEC_REPLAY : CUE_DEC_PLAY);
+                /* The CPU is the fouled-against player here, always. It weighs
+                 * the three answers against the table it is actually looking at
+                 * — cue_ai_decide is the same code the handheld uses. This was a
+                 * one-liner that took the replay whenever one was on offer, so
+                 * the table came straight back to you after every foul. */
+                int dec = cue_ai_decide(&S.world, &S.tab, &S.rules, S.balls,
+                                        S.nballs, &CUE_PERSONAS[S.persona], &S.rng);
+                if (dec == CUE_DEC_REPLAY) snap_restore_balls();
+                cue_rules_apply_decision(&S.rules, dec);
+                snprintf(S.msg, sizeof S.msg, "%s",
+                         dec == CUE_DEC_REPLAY   ? "PLAY IT AGAIN"
+                       : dec == CUE_DEC_FREEBALL ? "FREE BALL TAKEN"
+                                                 : "OPPONENT PLAYS ON");
+                S.msg_time = 3.0f;
             }
         } else {
             S.state = ST_DECIDE;
@@ -1029,6 +1061,7 @@ static void resolve_shot(void) {
         if (!(S.rules.cpu && S.rules.turn == 1)) {
             S.state = ST_PLACE;
             S.place_latch = 1;
+            S.recentre = 1;
             S.hud_dirty = 1;
             return;
         }
@@ -1737,23 +1770,42 @@ static void app_update(void *u, const MoteVrTracking *t) {
     }
 
     case ST_PLACE: {
+        /* Brought to you, once, the moment the ball goes in your hand. The table
+         * slides — it does not turn — so the shot you were looking at is still
+         * laid out the way you were looking at it, only now the cue ball is
+         * within reach. Translation only: rotating the room under someone in a
+         * headset to save them a step is how you make them ill. */
+        if (S.recentre) {
+            S.recentre = 0;
+            MoteVrV3 fwd = mq_rot(t->head.q, mv3(0, 0, -1));
+            fwd.y = 0.0f;
+            if (mv3_len(fwd) > 1e-3f) {
+                fwd = mv3_norm(fwd);
+                MoteVrV3 have = cue_ball_room();
+                /* A bridge hand's length in front of you, which is where the
+                 * ball has to be for the stance to work at all. */
+                const float REACH = 0.42f;
+                S.setup.place.pos.x += (t->head.p.x + fwd.x * REACH) - have.x;
+                S.setup.place.pos.z += (t->head.p.z + fwd.z * REACH) - have.z;
+                S.hud_dirty = 1;
+            }
+        }
         /* Walk the cue ball about with the left stick, in your own view frame,
          * clamped to wherever the rules allow it (the D, or behind the head
          * string) by cue_table_clamp_placement — so an illegal placement is not
          * possible rather than merely discouraged. */
         float sx = t->hand[MOTE_VR_LEFT].stick_x, sy = t->hand[MOTE_VR_LEFT].stick_y;
         if (fabsf(sx) > 0.18f || fabsf(sy) > 0.18f) {
-            float cyw = cosf(-S.setup.place.yaw), syw = sinf(-S.setup.place.yaw);
             MoteVrV3 fwd = mq_rot(t->head.q, mv3(0, 0, -1));
             fwd.y = 0.0f;
             fwd = mv3_len(fwd) > 1e-3f ? mv3_norm(fwd) : mv3(0, 0, -1);
             MoteVrV3 rgt = mv3_norm(mv3_cross(mv3(0, 1, 0), mv3_scale(fwd, -1.0f)));
-            MoteVrV3 d = mv3_add(mv3_scale(fwd, sy * 0.45f * dt),
-                                 mv3_scale(rgt, sx * 0.45f * dt));
-            /* room -> table */
+            MoteVrV3 d = cuevr_room_dir_to_table(&S.setup.place,
+                mv3_add(mv3_scale(fwd, sy * 0.45f * dt),
+                        mv3_scale(rgt, sx * 0.45f * dt)));
             Vec3 p = S.balls[0].pos;
-            p.x += d.x * cyw - d.z * syw;
-            p.z += d.x * syw + d.z * cyw;
+            p.x += d.x;
+            p.z += d.z;
             /* Clamped against the OTHER BALLS as well as the region, so the ball
              * slides round an obstruction instead of being parked inside it and
              * fired out again on the first tick of the shot. */
@@ -1802,6 +1854,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.rules.pushout_offer = 0;
             S.rules.pushout_avail = 0;
         } else if (b && S.rules.dec_can_restore) {
+            snap_restore_balls();          /* the table rewinds; the penalty does not */
             cue_rules_apply_decision(&S.rules, CUE_DEC_REPLAY);
         } else if (b && S.rules.dec_free_ball) {
             cue_rules_apply_decision(&S.rules, CUE_DEC_FREEBALL);
@@ -1814,6 +1867,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.rules.ball_in_hand = 0;
             S.state = ST_PLACE;
             S.place_latch = 1;
+            S.recentre = 1;
         } else {
             arm_shot();
             hand_over();
