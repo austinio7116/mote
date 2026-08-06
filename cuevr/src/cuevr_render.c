@@ -1121,15 +1121,25 @@ static const char *FS =
 "                        c = mix(c, pane, smoothstep(hs - aap, hs + aap, d));\n"
 "                        float lo = 1.0 - smoothstep(0.014, 0.014 + aap, abs(d - hs));\n"
 "                        if (hs > aap) c = mix(c, ink, lo);\n"
-"                        /* twin spikes climbing into the pearl at the waist */\n"
-"                        float ks = clamp((t - (Tm - 0.11)) / 0.11, 0.0, 1.0);\n"
-"                        float ws = 0.050 * ks;\n"
-"                        float dsp = abs(d - 0.30);\n"
-"                        if (ws > aap && d > hs) {\n"
-"                            c = mix(c, u_cbutt, smoothstep(ws + aap, ws - aap, dsp));\n"
-"                            float lo2 = 1.0 - smoothstep(0.010, 0.010 + aap, abs(dsp - ws));\n"
+"                        /* twin ARROWS climbing into the pearl at the waist.\n"
+"                         * A real Viking spike is barbed: the tip flares into\n"
+"                         * a pointed head, then the width STEPS back to a\n"
+"                         * narrow shaft — the step corners are the barbs. */\n"
+"                        float Ts   = Tm - 0.13;\n"
+"                        float tspk = t - Ts;\n"
+"                        float hl3  = 0.038;\n"
+"                        float wsp  = (tspk < hl3) ? 0.048 * max(tspk, 0.0) / hl3 : 0.017;\n"
+"                        float dsp  = abs(d - 0.30);\n"
+"                        if (tspk > 0.0 && wsp > aap && d > hs) {\n"
+"                            c = mix(c, u_cbutt, smoothstep(wsp + aap, wsp - aap, dsp));\n"
+"                            float lo2 = 1.0 - smoothstep(0.010, 0.010 + aap, abs(dsp - wsp));\n"
 "                            c = mix(c, ink, lo2);\n"
 "                        }\n"
+"                        /* the crown chevron between the arrows: a black line\n"
+"                         * rising to its point at the face centre */\n"
+"                        float tcr = Tm - 0.055 * (1.0 - clamp(d / 0.30, 0.0, 1.0));\n"
+"                        float cr  = 1.0 - smoothstep(0.006, 0.006 + aap, abs(t - tcr));\n"
+"                        if (d < 0.32 && d > hs) c = mix(c, ink, cr);\n"
 "                    } else {\n"
 "                        /* the pearl spear descending into the birdseye */\n"
 "                        float kd = clamp((t - Tm) / (T3 - Tm), 0.0, 1.0);\n"
@@ -2445,7 +2455,7 @@ static const CueVrCueDesign CUE_RACK[] = {
     .accent={0.05f,0.045f,0.045f}, .burr={0.82f,0.70f,0.48f}, .butt={0.80f,0.68f,0.46f},
     .veneer_w=0.0012f, .points=4, .point_len=4.0f,
     .shaft_fig=1, .butt_fig=2, .panel_flip=1, .panel_pearl=1,
-    .ringc={0.86f,0.87f,0.90f}, .diac={0.20f,0.42f,0.85f},
+    .ringc={0.86f,0.87f,0.90f}, .diac={0.14f,0.36f,0.90f},
     .vnr2={0.05f,0.045f,0.045f} },
   { .name="VIKING BLUE",.shaft={0.90f,0.83f,0.65f}, .splice={0.16f,0.28f,0.58f},
     /* blue-stained curly maple with pale machine points and a row of framed
