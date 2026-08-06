@@ -142,6 +142,14 @@ static const char *FS =
 "uniform float u_cv2on;\n"
 "uniform vec3  u_cdiac;\n"
 "uniform float u_cdia;\n"
+"uniform vec3  u_cvcol[6];\n"
+"uniform float u_cnvcol;\n"
+"uniform float u_csfig;\n"
+"uniform float u_cbfig;\n"
+"uniform float u_cishape;\n"
+"uniform float u_cipearl;\n"
+"uniform float u_cit;\n"
+"uniform float u_chand;\n"
 "uniform vec3  u_caccent;\n"
 "uniform vec3  u_cbutt;\n"
 "uniform vec3  u_cburr;\n"
@@ -176,6 +184,7 @@ static const char *FS =
 "    float c = hash12(i + vec2(0.0, 1.0)), d = hash12(i + vec2(1.0, 1.0));\n"
 "    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n"
 "}\n"
+"float fbm2(vec2 p) { return 0.60*vnoise(p) + 0.28*vnoise(p*2.63) + 0.12*vnoise(p*6.17); }\n"
 "vec4 emit(vec3 c, float a, float dither) {\n"
 "    // u_keyc is the light's colour, so it multiplies EVERYTHING the light\n"
 "    // reaches — a tungsten room does not warm the highlights and leave the\n"
@@ -860,11 +869,29 @@ static const char *FS =
 "            // along it. Varying it along the length instead — which is the\n"
 "            // obvious reading of \"grain along the shaft\" — draws rings, and a\n"
 "            // few hundred rings on a 13 mm shaft is a blur.\n"
+"            // ASH ARROWS. Growth rings are cones down the tree; a cylinder\n"
+"            // turned from it cuts them as nested chevrons pointing at the\n"
+"            // tip on the two flat-sawn faces, easing into long straight\n"
+"            // lines round the quarter faces — cos(ang) is exactly that\n"
+"            // phase. Bold, near-black on cream, per the reference; broken\n"
+"            // up along their run because real grain is.\n"
 "            float ang = a * 6.2831853;\n"
-"            float lines = sin(ang * 23.0 + sin(t * 7.0) * 0.9);\n"
-"            float fleck = sin(ang * 6.0 - t * 31.0);\n"
-"            float g = clamp(0.5 + 0.30 * lines + 0.14 * fleck, 0.0, 1.0);\n"
-"            c = mix(ash * 0.84, ash * 1.08, g);\n"
+"            float ph   = t * 95.0 + (2.6 * cue_r / 0.016) * cos(ang)\n"
+"                       + 1.6 * fbm2(vec2(t * 9.0, cos(ang) * 1.3));\n"
+"            float ring = fract(ph);\n"
+"            float dl   = min(ring, 1.0 - ring);\n"
+"            float lw   = 0.10 + 0.07 * fbm2(vec2(ang * 2.0, t * 40.0));\n"
+"            float line = 1.0 - smoothstep(lw * 0.4, lw, dl);\n"
+"            float mask = smoothstep(0.38, 0.66, fbm2(vec2(t * 22.0, ang * 1.2)));\n"
+"            vec3  dark = ash * vec3(0.36, 0.34, 0.32);\n"
+"            c = ash * (0.92 + 0.12 * fbm2(vec2(t * 6.0, ang * 0.6)));\n"
+"            c = mix(c, dark, line * mask * 0.85);\n"
+"            if (u_csfig > 0.5) {\n"
+"                // MAPLE: pale, close-grained, nearly plain — a faint curl\n"
+"                // across the shaft is all it shows.\n"
+"                float curl = 0.5 + 0.5 * sin(t * 160.0 + 3.0 * fbm2(vec2(t * 20.0, ang * 0.3)));\n"
+"                c = u_cshaft * (0.95 + 0.07 * curl);\n"
+"            }\n"
 "            // ---- the butt of a three-quarter jointed cue --------------- *\n"
 "            //\n"
 "            // Read off the reference rather than invented. From the joint down:\n"
@@ -896,10 +923,39 @@ static const char *FS =
 "            /* 1. the main splice: ebony rising into the ash */\n"
 "            float ms_base = 0.610, ms_tip = 0.610 - 0.140 * PL;\n"
 "            if (t > ms_tip && u_cpts > 0.5) {\n"
-"                float k = clamp((t - ms_tip) / (ms_base - ms_tip), 0.0, 1.0);\n"
-"                float hw = 0.42 * pow(k, 0.62);\n"
-"                float e = smoothstep(hw, hw * 0.80, d);\n"
-"                c = mix(c, ebony, e);\n"
+"                // HAND-SPLICED points are ROUNDED at the top and sit at\n"
+"                // slightly UNEVEN heights — four splices laid over the ash by\n"
+"                // hand, no two alike. MACHINE-spliced points are dead sharp\n"
+"                // and identical. That distinction, not the colour, is what\n"
+"                // says which kind of cue you are holding.\n"
+"                float pid  = floor(a * max(u_cpts, 1.0));\n"
+"                float unev = (u_chand > 0.5) ? (hash12(vec2(pid, 7.3)) - 0.5) * 0.030 : 0.0;\n"
+"                float k = clamp((t - (ms_tip + unev)) / (ms_base - ms_tip), 0.0, 1.0);\n"
+"                float pexp = (u_chand > 0.5) ? 0.45 : 1.05;\n"
+"                float hw = 0.42 * pow(k, pexp);\n"
+"                float e = smoothstep(hw, hw * ((u_chand > 0.5) ? 0.80 : 0.90), d);\n"
+"                vec3 mspane = ebony;\n"
+"                if (u_cnvcol > 0.5) {\n"
+"                    /* TAYLOR LAMINATE: the butt is TURNED PLYWOOD. Thin dyed\n"
+"                     * and black leaves, and the surface shows their edges as\n"
+"                     * festoon contours — nested arches down the faces,\n"
+"                     * tightening to stripes on the flanks, feathered where\n"
+"                     * the dye follows the grain. Full circumference: it is\n"
+"                     * the material, not a panel let into it. */\n"
+"                    float lay = cue_r * cos((a - 0.12) * 6.2831853) * 360.0\n"
+"                              + t * 55.0 + 2.5 * fbm2(vec2(t * 7.0, a * 3.0));\n"
+"                    float m2 = fract(lay * 0.5) * 2.0;\n"
+"                    float fe = 0.10 + 0.45 * fbm2(vec2(t * 220.0, a * 45.0));\n"
+"                    float bm = smoothstep(0.5 - fe, 0.5 + fe, abs(m2 - 1.0));\n"
+"                    /* fade the banding out as it drops under a pixel, or the\n"
+"                     * flank stripes alias into zebra hash */\n"
+"                    float lf = clamp(1.2 / max(fwidth(lay), 1e-3) - 0.15, 0.0, 1.0);\n"
+"                    bm = mix(0.55, bm, lf);\n"
+"                    int  li2 = int(mod(floor(lay * 0.5), max(u_cnvcol, 1.0)));\n"
+"                    vec3 lamc = u_cvcol[li2] * (0.80 + 0.35 * fbm2(vec2(t * 90.0, a * 16.0)));\n"
+"                    mspane = mix(vec3(0.05, 0.045, 0.045), lamc, bm);\n"
+"                }\n"
+"                c = mix(c, mspane, e);\n"
 "                if (u_cflash > 0.5) {\n"
 "                    // Same cut-sheet geometry as the butt splice below: the\n"
 "                    // veneer is a slip of constant thickness in the joint, so\n"
@@ -922,22 +978,51 @@ static const char *FS =
 "                    // is why they read as nested Vs of colour rather than as an\n"
 "                    // outline. Each sits one thickness outside the last and\n"
 "                    // they alternate, pale against coloured, as they are cut.\n"
+"                    // A stack of four or more is a LAMINATE, and laminate\n"
+"                    // bands are cut through figured wood — their edges wave.\n"
+"                    float wob = (u_cnvnr >= 4.0 && u_cnvcol < 0.5)\n"
+"                              ? (fbm2(vec2(a * 9.0, t * 55.0)) - 0.5) * 0.55 : 0.0;\n"
+"                    float stackon = (u_cnvcol > 0.5) ? 0.0 : 1.0;\n"
 "                    for (int vi = 1; vi < 8; vi++) {\n"
 "                        if (float(vi) >= u_cnvnr) break;\n"
-"                        float ei = abs(edge - wln * 2.0 * float(vi));\n"
+"                        float ei = abs(edge - wln * 2.0 * float(vi) * (1.0 + wob));\n"
 "                        float li = 1.0 - smoothstep(wdrw, wdrw + px, ei);\n"
-"                        vec3  vc = (mod(float(vi), 2.0) < 0.5) ? u_caccent : u_cvnr2;\n"
-"                        c = mix(c, vc, li * 0.92 * fade);\n"
+"                        int  ci = (vi - 1) - ((vi - 1) / 6) * 6;\n"
+"                        vec3 vc = (u_cnvcol > 0.5) ? u_cvcol[ci]\n"
+"                                : ((mod(float(vi), 2.0) < 0.5) ? u_caccent : u_cvnr2);\n"
+"                        c = mix(c, vc, li * 0.92 * fade * stackon);\n"
 "                    }\n"
 "                    c = mix(c, u_caccent, ln * 0.95 * fade);\n"
 "                }\n"
 "            }\n"
-"            if (t > ms_base) c = ebony;         /* the plain black section */\n"
+"            if (t > ms_base) {\n"
+"                c = ebony;\n"
+"                if (u_cnvcol > 0.5) {\n"
+"                    float lay = cue_r * cos((a - 0.12) * 6.2831853) * 360.0\n"
+"                              + t * 55.0 + 2.5 * fbm2(vec2(t * 7.0, a * 3.0));\n"
+"                    float m2 = fract(lay * 0.5) * 2.0;\n"
+"                    float fe = 0.10 + 0.45 * fbm2(vec2(t * 220.0, a * 45.0));\n"
+"                    float bm = smoothstep(0.5 - fe, 0.5 + fe, abs(m2 - 1.0));\n"
+"                    /* fade the banding out as it drops under a pixel, or the\n"
+"                     * flank stripes alias into zebra hash */\n"
+"                    float lf = clamp(1.2 / max(fwidth(lay), 1e-3) - 0.15, 0.0, 1.0);\n"
+"                    bm = mix(0.55, bm, lf);\n"
+"                    int  li2 = int(mod(floor(lay * 0.5), max(u_cnvcol, 1.0)));\n"
+"                    vec3 lamc = u_cvcol[li2] * (0.80 + 0.35 * fbm2(vec2(t * 90.0, a * 16.0)));\n"
+"                    c = mix(vec3(0.05, 0.045, 0.045), lamc, bm);\n"
+"                }\n"
+"            }\n"
 "\n"
 "            /* 2. the burr splice: figured wood rising into the black. Long and\n"
 "             *    slender — it runs a third of the whole cue. */\n"
 "            float bs_base = 0.945, bs_tip = 0.945 - 0.210 * PL;\n"
-"            if (t > bs_tip && u_cpts > 0.5) {\n"
+"            if (t > bs_tip && u_cpts > 0.5 && u_cnvcol < 0.5) {\n"
+"                /* THE BUTT PANEL IS SINGLE-SIDED. The four splice points up\n"
+"                 * the cue repeat every quarter turn; the decorative panel on\n"
+"                 * the butt does NOT — one set of inlays revealed on the top\n"
+"                 * face, badge flat at the back. db is scaled so the old\n"
+"                 * quarter-turn constants keep their meaning. */\n"
+"                float db = abs(fract(a + 0.375) - 0.5) * 4.0;\n"
 "                /* The burr itself: dark grey, strongly figured ACROSS the\n"
 "                 * grain, which is what distinguishes it from plain ebony. */\n"
 "                // Wood for a CUE BUTT, written for the job.\n"
@@ -1016,10 +1101,30 @@ static const char *FS =
 "                // ebony came straight back. A polished butt does carry a\n"
 "                // highlight, but a fraction of this one.\n"
 "                butt_varn = bvarn * 0.30 * (0.30 + 1.00 * gtone);\n"
-"                float k = clamp((t - bs_tip) / (bs_base - bs_tip), 0.0, 1.0);\n"
-"                float hw = 0.46 * pow(k, 0.55);\n"
-"                float e = smoothstep(hw, hw * 0.84, d);\n"
-"                c = mix(c, burr, e);\n"
+"                float pid  = floor(a * max(u_cpts, 1.0));\n"
+"                float unev = (u_chand > 0.5) ? (hash12(vec2(pid, 3.1)) - 0.5) * 0.040 : 0.0;\n"
+"                float k = clamp((t - (bs_tip + unev)) / (bs_base - bs_tip), 0.0, 1.0);\n"
+"                float pexp = (u_chand > 0.5) ? 0.45 : 1.00;\n"
+"                float hw = 0.46 * pow(k, pexp);\n"
+"                float e = smoothstep(hw, hw * 0.84, db);\n"
+"                vec3 pane = burr;\n"
+"                if (u_cnvcol > 0.5) {\n"
+"                    // A LAMINATE fills its panel: the bands run the panel's\n"
+"                    // whole width and widen toward the base exactly as cut\n"
+"                    // laminations do, separated by pale glue-line slivers,\n"
+"                    // their edges waving with the figure of the wood.\n"
+"                    float pp = clamp(db / max(hw, 1e-4), 0.0, 1.0);\n"
+"                    pp = clamp(pp + (fbm2(vec2(a * 9.0, t * 55.0)) - 0.5) * 0.20, 0.0, 0.999);\n"
+"                    float bandf = pp * max(u_cnvnr, 1.0);\n"
+"                    int   bi = int(bandf);\n"
+"                    int   ci = bi - (bi / 6) * 6;\n"
+"                    pane = u_cvcol[ci];\n"
+"                    float sep = min(fract(bandf), 1.0 - fract(bandf));\n"
+"                    float sl  = 1.0 - smoothstep(0.05, 0.13, sep);\n"
+"                    pane = mix(pane, vec3(0.93, 0.91, 0.84), sl * 0.9);\n"
+"                    pane *= 0.88 + 0.24 * fbm2(vec2(t * 60.0, a * 12.0));\n"
+"                }\n"
+"                c = mix(c, pane, e);\n"
 "                /* The veneer OUTLINE: a fine line following the whole edge of\n"
 "                 * every point, not a flash near it. This is the detail that\n"
 "                 * makes a spliced butt look made rather than painted. */\n"
@@ -1030,7 +1135,7 @@ static const char *FS =
 "                    // it read as a dotted line rather than as an inlay. Widening\n"
 "                    // it to at least the local derivative keeps it solid at any\n"
 "                    // distance without fattening it up close.\n"
-"                    float edge = abs(d - hw);\n"
+"                    float edge = abs(db - hw);\n"
 "                    // A real veneer is a sliver of dyed wood well under a\n"
 "                    // millimetre, and the width here has to say so. It used to\n"
 "                    // floor at 0.013 of the angular coordinate to stop the line\n"
@@ -1064,17 +1169,17 @@ static const char *FS =
 "                    //   flare out where the point turns and draw down to a\n"
 "                    //   thread as it runs away to its tip.\n"
 "                    //\n"
-"                    // Both are one expression: for f = d - hw(t), a sheet of\n"
+"                    // Both are one expression: for f = db - hw(t), a sheet of\n"
 "                    // thickness T shows a band of half-width T*|grad f|/2, with\n"
 "                    // the gradient taken in real surface units.\n"
-"                    float arc  = cue_r * 1.5707963;      // metres per unit d\n"
+"                    float arc  = cue_r * 1.5707963;      // metres per unit db\n"
 "                    float dhwx = 0.253 * pow(max(k, 0.02), -0.45)\n"
 "                               / ((bs_base - bs_tip) * 1.45);\n"
 "                    float gmag = sqrt(1.0/(arc*arc) + dhwx*dhwx);\n"
 "                    float wln  = 0.5 * u_cvw * gmag;\n"
 "                    // Still dim rather than fatten when it falls under a pixel,\n"
 "                    // or it breaks into dashes at the far end of the table.\n"
-"                    float px   = fwidth(d);\n"
+"                    float px   = fwidth(db);\n"
 "                    float wdrw = max(wln, px);\n"
 "                    float fade = wln / wdrw;\n"
 "                    float ln   = 1.0 - smoothstep(wdrw, wdrw + px, edge);\n"
@@ -1085,21 +1190,47 @@ static const char *FS =
 "                    // is why they read as nested Vs of colour rather than as an\n"
 "                    // outline. Each sits one thickness outside the last and\n"
 "                    // they alternate, pale against coloured, as they are cut.\n"
+"                    // A stack of four or more is a LAMINATE, and laminate\n"
+"                    // bands are cut through figured wood — their edges wave.\n"
+"                    float wob = (u_cnvnr >= 4.0 && u_cnvcol < 0.5)\n"
+"                              ? (fbm2(vec2(a * 9.0, t * 55.0)) - 0.5) * 0.55 : 0.0;\n"
+"                    float stackon = (u_cnvcol > 0.5) ? 0.0 : 1.0;\n"
 "                    for (int vi = 1; vi < 8; vi++) {\n"
 "                        if (float(vi) >= u_cnvnr) break;\n"
-"                        float ei = abs(edge - wln * 2.0 * float(vi));\n"
+"                        float ei = abs(edge - wln * 2.0 * float(vi) * (1.0 + wob));\n"
 "                        float li = 1.0 - smoothstep(wdrw, wdrw + px, ei);\n"
-"                        vec3  vc = (mod(float(vi), 2.0) < 0.5) ? u_caccent : u_cvnr2;\n"
-"                        c = mix(c, vc, li * 0.92 * fade);\n"
+"                        int  ci = (vi - 1) - ((vi - 1) / 6) * 6;\n"
+"                        vec3 vc = (u_cnvcol > 0.5) ? u_cvcol[ci]\n"
+"                                : ((mod(float(vi), 2.0) < 0.5) ? u_caccent : u_cvnr2);\n"
+"                        c = mix(c, vc, li * 0.92 * fade * stackon);\n"
 "                    }\n"
 "                    c = mix(c, u_caccent, ln * 0.95 * fade);\n"
 "                }\n"
-"                // Below the points the whole butt is burr — on a real cue the\n"
-"                // splice rises OUT of the butt wood, so the wood is what the\n"
-"                // butt is made of, not a panel let into black.\n"
-"                if (t > bs_base) c = burr;\n"
+"                /* No full-circle fill: the ebony IS the butt. The panel holds\n"
+"                 * its own width to the cap, on the top face alone. */\n"
 "            }\n"
 "\n"
+"            /* ---- the timber's FIGURE ---------------------------------- *\n"
+"             * What separates ebony from a photo of black: the butt woods\n"
+"             * carry their own figure. */\n"
+"            if (u_cbfig > 0.5 && t > ms_base) {\n"
+"                float fang = a * 6.2831853;\n"
+"                if (u_cbfig < 1.5) {          /* plain figure: ebony/rosewood */\n"
+"                    c *= 0.90 + 0.20 * fbm2(vec2(t * 50.0, fang * 1.5));\n"
+"                } else if (u_cbfig < 2.5) {   /* birdseye maple */\n"
+"                    float e1  = vnoise(vec2(t * 420.0, fang * 9.0));\n"
+"                    float eye = smoothstep(0.80, 0.92, e1);\n"
+"                    c *= 0.92 + 0.16 * fbm2(vec2(t * 40.0, fang));\n"
+"                    c = mix(c, c * 0.50, eye);\n"
+"                } else if (u_cbfig < 3.5) {   /* curly maple: bright cross-bands */\n"
+"                    float curl = 0.5 + 0.5 * sin(t * 220.0 + 4.0 * fbm2(vec2(t * 30.0, fang * 0.4)));\n"
+"                    c *= 0.84 + 0.30 * curl;\n"
+"                } else {                      /* wenge: straight dark stripes */\n"
+"                    float st = fract(fang * 4.77 + 0.8 * fbm2(vec2(t * 12.0, fang)));\n"
+"                    float sd = min(st, 1.0 - st);\n"
+"                    c = mix(c, c * 0.45, 1.0 - smoothstep(0.10, 0.22, sd));\n"
+"                }\n"
+"            }\n"
 "            /* ---- the AMERICAN structure ------------------------------- *\n"
 "             * A linen wrap where the hand goes, a separate butt sleeve\n"
 "             * finished with collar rings, and diamond inlays. These are\n"
@@ -1122,12 +1253,24 @@ static const char *FS =
 "             * coloured core, one per point position. On the sleeve when\n"
 "             * there is one, on the forearm when there is not. */\n"
 "            if (u_cdia > 0.5) {\n"
-"                float tc = (u_csleeve > 0.5) ? 0.895 : 0.545;\n"
-"                float md = abs(t - tc) / 0.028 + d / 0.15;\n"
-"                float pl = 1.0 - smoothstep(1.00, 1.10, md);\n"
-"                float co = 1.0 - smoothstep(0.68, 0.80, md);\n"
-"                c = mix(c, u_cvnr2, pl);\n"
-"                c = mix(c, u_cdiac, co);\n"
+"                float tc = (u_cit > 0.0) ? u_cit\n"
+"                         : ((u_csleeve > 0.5) ? 0.895 : 0.545);\n"
+"                float hl2 = (u_cishape > 2.5) ? 0.055 : 0.020;   /* spears run long */\n"
+"                float md = abs(t - tc) / hl2 + d / 0.13;\n"
+"                float pl = 1.0 - smoothstep(1.00, 1.08, md);\n"
+"                float co = 1.0 - smoothstep(0.66, 0.78, md);\n"
+"                vec3 icol = u_cdiac;\n"
+"                if (u_cipearl > 0.5) {\n"
+"                    /* pearl: iridescent sheet, banded, catching to white */\n"
+"                    float sh = fbm2(vec2(t * 160.0, a * 30.0));\n"
+"                    icol = mix(u_cdiac * 0.75, vec3(1.0), smoothstep(0.35, 0.85, sh));\n"
+"                }\n"
+"                c = mix(c, u_cvnr2, pl);              /* the let-in plate */\n"
+"                if (u_cishape > 1.5 && u_cishape < 2.5) {\n"
+"                    float fr = 1.0 - smoothstep(0.88, 0.98, md);   /* dark frame */\n"
+"                    c = mix(c, vec3(0.06, 0.05, 0.05), fr);\n"
+"                }\n"
+"                c = mix(c, icol, co);\n"
 "            }\n"
 "\n"
 "            /* 3. the badge: a round ivory plate on the very end, and the black\n"
@@ -1611,7 +1754,7 @@ static struct {
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
-           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_cdiac, u_cdia,
+           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_cdiac, u_cdia, u_cvcol, u_cnvcol, u_csfig, u_cbfig, u_cishape, u_cipearl, u_cit, u_chand,
            u_cwrapc, u_csleevec, u_cringc, u_cpts, u_cptlen, u_cnvnr, u_cwrap, u_csleeve, u_clam, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_lampN, u_lampI, u_nlamp, u_lampround, u_eye;
     GLint  u_keyc, u_fill, u_hudv, u_hudrect, u_shadow, u_clothlod, u_rawcol, u_varn;
@@ -2172,94 +2315,91 @@ static float fur_noise(float x, float y, int px, int py) {
  * coloured line flashed down each side of a splice point, which is the detail
  * that makes a cue look made rather than turned. */
 static const CueVrCueDesign CUE_RACK[] = {
-  /* DESIGNATED INITIALISERS, deliberately. The struct is too wide to list
-   * positionally — an earlier positional table swapped burr and butt, so every
-   * cue drew its splice black on black and it read as a shader bug.
-   *
-   * The range is built on STRUCTURE, because that is what actually separates
-   * the traditions. A Peradon Classic has no splice at all; a Crown's points
-   * are short and a Royal's run half the butt. A Taylor Made laminate lays
-   * eight slips in the joint where an ordinary hand splice lays one or two. An
-   * American cue is a different object again: a stained forearm, a linen wrap
-   * where the hand goes, a separate butt sleeve and collar rings. */
+  /* Three collections, authored against three references, cue by cue. Not
+   * fourteen colourways of one model: the struct is a small program — points,
+   * laminate palette, timber figure, wrap, sleeve, inlays — and each entry
+   * uses a different subset of it. */
 
-  /* ---- Peradon-style British hand splices ------------------------------- */
-  { .name="CLASSIC",   .shaft={0.87f,0.75f,0.55f}, .splice={0.30f,0.13f,0.08f},
-    .accent={0.30f,0.13f,0.08f}, .burr={0.42f,0.20f,0.11f}, .butt={0.30f,0.13f,0.08f},
-    .points=0, .veneer_w=0.0010f },                       /* no splice at all */
-
-  { .name="CROWN",     .shaft={0.87f,0.75f,0.55f}, .splice={0.24f,0.07f,0.06f},
-    .accent={0.74f,0.13f,0.15f}, .burr={0.40f,0.13f,0.09f}, .butt={0.24f,0.07f,0.06f},
+  /* ---- Peradon: the British hand splices -------------------------------- */
+  { .name="CLASSIC",   .shaft={0.87f,0.75f,0.55f}, .splice={0.38f,0.13f,0.08f},
+    .accent={0.38f,0.13f,0.08f}, .burr={0.44f,0.16f,0.09f}, .butt={0.38f,0.13f,0.08f},
+    .points=0, .veneer_w=0.0010f, .butt_fig=1 },
+  { .name="CROWN",     .shaft={0.87f,0.75f,0.55f}, .splice={0.22f,0.08f,0.06f},
+    .accent={0.72f,0.12f,0.14f}, .burr={0.30f,0.10f,0.07f}, .butt={0.22f,0.08f,0.06f},
     .flash=1, .vnr2={0.93f,0.90f,0.80f}, .flash2=1, .veneer_w=0.0011f,
-    .points=4, .point_len=0.55f, .veneers=2 },            /* short points */
-
-  { .name="EDWARDIAN", .shaft={0.87f,0.75f,0.55f}, .splice={0.26f,0.11f,0.07f},
-    .accent={0.90f,0.84f,0.70f}, .burr={0.46f,0.22f,0.13f}, .butt={0.26f,0.11f,0.07f},
-    .flash=1, .veneer_w=0.0012f, .points=4, .point_len=0.85f, .veneers=1 },
-
+    .points=4, .point_len=0.55f, .veneers=2, .butt_fig=1 },
+  { .name="EDWARDIAN", .shaft={0.87f,0.75f,0.55f}, .splice={0.075f,0.060f,0.052f},
+    .accent={0.075f,0.060f,0.052f}, .burr={0.10f,0.095f,0.090f}, .butt={0.075f,0.060f,0.052f},
+    .points=4, .point_len=0.85f, .veneer_w=0.0010f, .butt_fig=1 , .hand=1 },
   { .name="JOE DAVIS", .shaft={0.87f,0.75f,0.55f}, .splice={0.070f,0.058f,0.052f},
-    .accent={0.92f,0.87f,0.74f}, .burr={0.29f,0.28f,0.27f}, .butt={0.070f,0.058f,0.052f},
-    .flash=1, .vnr2={0.55f,0.42f,0.24f}, .flash2=1, .veneer_w=0.0012f,
-    .points=4, .point_len=1.15f, .veneers=3 },            /* long points */
-
+    .accent={0.92f,0.87f,0.74f}, .burr={0.13f,0.12f,0.11f}, .butt={0.070f,0.058f,0.052f},
+    .flash=1, .vnr2={0.50f,0.36f,0.20f}, .flash2=1, .veneer_w=0.0012f,
+    .points=4, .point_len=1.0f, .veneers=2, .butt_fig=1 , .hand=1 },
   { .name="CENTURY",   .shaft={0.86f,0.74f,0.54f}, .splice={0.070f,0.058f,0.052f},
-    .accent={0.13f,0.62f,0.60f}, .burr={0.26f,0.26f,0.26f}, .butt={0.070f,0.058f,0.052f},
+    .accent={0.10f,0.38f,0.88f}, .burr={0.12f,0.12f,0.13f}, .butt={0.070f,0.058f,0.052f},
     .flash=1, .vnr2={0.93f,0.90f,0.80f}, .flash2=1, .veneer_w=0.0011f,
-    .points=4, .point_len=1.0f, .veneers=3 },
-
-  { .name="ASCOT",     .shaft={0.87f,0.75f,0.55f}, .splice={0.36f,0.14f,0.09f},
-    .accent={0.94f,0.90f,0.78f}, .burr={0.58f,0.26f,0.12f}, .butt={0.36f,0.14f,0.09f},
-    .flash=1, .vnr2={0.20f,0.10f,0.06f}, .flash2=1, .veneer_w=0.0012f,
-    .points=6, .point_len=0.70f, .veneers=2 },            /* SIX points */
-
+    .points=4, .point_len=1.0f, .veneers=2, .butt_fig=1 , .hand=1 },
+  { .name="ASCOT",     .shaft={0.87f,0.75f,0.55f}, .splice={0.30f,0.11f,0.07f},
+    .accent={0.94f,0.90f,0.78f}, .burr={0.38f,0.14f,0.08f}, .butt={0.30f,0.11f,0.07f},
+    .flash=1, .vnr2={0.12f,0.08f,0.06f}, .flash2=1, .veneer_w=0.0012f,
+    .points=4, .point_len=0.90f, .veneers=2, .butt_fig=1 , .hand=1 },
   { .name="ROYAL",     .shaft={0.87f,0.75f,0.55f}, .splice={0.070f,0.058f,0.052f},
-    .accent={0.93f,0.90f,0.80f}, .burr={0.28f,0.27f,0.26f}, .butt={0.070f,0.058f,0.052f},
-    .flash=1, .veneer_w=0.0011f, .points=4, .point_len=1.35f, .veneers=1 },
+    .accent={0.93f,0.90f,0.80f}, .burr={0.11f,0.11f,0.11f}, .butt={0.070f,0.058f,0.052f},
+    .flash=1, .veneer_w=0.0010f, .points=4, .point_len=1.35f, .veneers=1, .butt_fig=1 , .hand=1 },
 
-  /* ---- Taylor Made laminates: eight slips in every joint ---------------- */
-  { .name="TURQUOISE", .shaft={0.86f,0.74f,0.54f}, .splice={0.065f,0.055f,0.050f},
-    .accent={0.10f,0.66f,0.62f}, .burr={0.22f,0.24f,0.25f}, .butt={0.065f,0.055f,0.050f},
-    .flash=1, .vnr2={0.95f,0.93f,0.86f}, .flash2=1, .veneer_w=0.00042f,
-    .points=4, .point_len=0.95f, .veneers=8, .laminated=1 },
+  /* ---- Taylor Made: laminated splices ----------------------------------- */
+  { .name="TM RAINBOW",.shaft={0.86f,0.74f,0.54f}, .splice={0.055f,0.050f,0.048f},
+    .accent={0.90f,0.20f,0.20f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
+    .flash=1, .vnr2={0.95f,0.93f,0.86f}, .flash2=1, .veneer_w=0.0022f,
+    .points=4, .point_len=1.15f, .veneers=7, .butt_fig=1, .hand=1, .nvcol=6,
+    .vcol={{0.85f,0.15f,0.15f},{0.95f,0.55f,0.10f},{0.90f,0.80f,0.20f},
+           {0.20f,0.65f,0.30f},{0.15f,0.35f,0.80f},{0.70f,0.25f,0.60f}} },
+  { .name="TM TEAL",   .shaft={0.86f,0.74f,0.54f}, .splice={0.055f,0.050f,0.048f},
+    .accent={0.12f,0.62f,0.58f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
+    .flash=1, .vnr2={0.95f,0.93f,0.86f}, .flash2=1, .veneer_w=0.0022f,
+    .points=4, .point_len=1.10f, .veneers=7, .butt_fig=1, .hand=1, .nvcol=3,
+    .vcol={{0.10f,0.58f,0.54f},{0.09f,0.50f,0.47f},{0.94f,0.92f,0.85f}} },
+  { .name="TM CORAL",  .shaft={0.86f,0.74f,0.54f}, .splice={0.055f,0.050f,0.048f},
+    .accent={0.95f,0.45f,0.38f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
+    .flash=1, .vnr2={0.10f,0.09f,0.09f}, .flash2=1, .veneer_w=0.0022f,
+    .points=4, .point_len=1.10f, .veneers=7, .butt_fig=1, .hand=1, .nvcol=3,
+    .vcol={{0.93f,0.42f,0.34f},{0.94f,0.92f,0.85f},{0.10f,0.09f,0.09f}} },
+  { .name="TM OCEAN",  .shaft={0.86f,0.74f,0.54f}, .splice={0.055f,0.050f,0.048f},
+    .accent={0.18f,0.42f,0.80f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
+    .flash=1, .vnr2={0.95f,0.93f,0.86f}, .flash2=1, .veneer_w=0.0022f,
+    .points=4, .point_len=1.10f, .veneers=7, .butt_fig=1, .hand=1, .nvcol=3,
+    .vcol={{0.15f,0.38f,0.78f},{0.13f,0.33f,0.70f},{0.94f,0.92f,0.85f}} },
 
-  { .name="CORAL",     .shaft={0.86f,0.74f,0.54f}, .splice={0.065f,0.055f,0.050f},
-    .accent={0.97f,0.44f,0.35f}, .burr={0.26f,0.22f,0.22f}, .butt={0.065f,0.055f,0.050f},
-    .flash=1, .vnr2={0.10f,0.09f,0.09f}, .flash2=1, .veneer_w=0.00042f,
-    .points=4, .point_len=0.95f, .veneers=8, .laminated=1 },
-
-  { .name="HARLEQUIN", .shaft={0.86f,0.74f,0.54f}, .splice={0.065f,0.055f,0.050f},
-    .accent={0.88f,0.20f,0.50f}, .burr={0.28f,0.24f,0.28f}, .butt={0.065f,0.055f,0.050f},
-    .flash=1, .vnr2={0.97f,0.62f,0.14f}, .flash2=1, .veneer_w=0.00042f,
-    .points=4, .point_len=1.00f, .veneers=8, .laminated=1 },
-
-  /* ---- American: stained forearm, linen wrap, sleeve, collar rings ------- */
-  { .name="SCARLET",   .shaft={0.90f,0.82f,0.62f}, .splice={0.60f,0.08f,0.09f},
-    .accent={0.96f,0.93f,0.86f}, .burr={0.78f,0.15f,0.13f}, .butt={0.60f,0.08f,0.09f},
-    .flash=1, .vnr2={0.14f,0.12f,0.11f}, .flash2=1, .veneer_w=0.0013f,
-    .points=4, .point_len=1.30f, .veneers=3,
-    .wrap=1, .wrapc={0.13f,0.13f,0.14f}, .sleeve=1, .sleevec={0.60f,0.08f,0.09f},
-    .ringc={0.82f,0.66f,0.26f} },
-
-  { .name="EMERALD",   .shaft={0.90f,0.82f,0.62f}, .splice={0.07f,0.32f,0.17f},
-    .accent={0.95f,0.92f,0.82f}, .burr={0.11f,0.50f,0.25f}, .butt={0.07f,0.32f,0.17f},
-    .flash=1, .vnr2={0.80f,0.66f,0.24f}, .flash2=1, .veneer_w=0.0013f,
-    .points=4, .point_len=1.30f, .veneers=3,
-    .wrap=1, .wrapc={0.13f,0.13f,0.14f}, .sleeve=1, .sleevec={0.07f,0.32f,0.17f},
-    .ringc={0.82f,0.66f,0.26f} },
-
-  { .name="SAPPHIRE",  .shaft={0.90f,0.82f,0.62f}, .splice={0.07f,0.16f,0.44f},
-    .accent={0.95f,0.92f,0.84f}, .burr={0.13f,0.27f,0.64f}, .butt={0.07f,0.16f,0.44f},
-    .flash=1, .vnr2={0.82f,0.68f,0.28f}, .flash2=1, .veneer_w=0.0013f,
-    .points=4, .point_len=1.30f, .veneers=3,
-    .wrap=1, .wrapc={0.13f,0.13f,0.14f}, .sleeve=1, .sleevec={0.07f,0.16f,0.44f},
-    .ringc={0.82f,0.66f,0.26f} },
-
-  { .name="PEARL",     .shaft={0.90f,0.82f,0.62f}, .splice={0.90f,0.87f,0.78f},
-    .accent={0.10f,0.24f,0.56f}, .burr={0.94f,0.92f,0.86f}, .butt={0.90f,0.87f,0.78f},
-    .flash=1, .vnr2={0.18f,0.17f,0.16f}, .flash2=1, .veneer_w=0.0013f,
-    .points=6, .point_len=1.10f, .veneers=3,
-    .wrap=1, .wrapc={0.11f,0.11f,0.12f}, .sleeve=1, .sleevec={0.10f,0.24f,0.56f},
-    .ringc={0.88f,0.86f,0.80f} },
+  /* ---- American ---------------------------------------------------------- */
+  { .name="PREDATOR",  .shaft={0.90f,0.83f,0.65f}, .splice={0.16f,0.10f,0.07f},
+    .accent={0.93f,0.88f,0.74f}, .burr={0.22f,0.13f,0.08f}, .butt={0.16f,0.10f,0.07f},
+    .flash=1, .vnr2={0.93f,0.88f,0.74f}, .veneer_w=0.0013f,
+    .points=4, .point_len=0.80f, .veneers=1, .shaft_fig=1, .butt_fig=4,
+    .diamonds=1, .diac={0.85f,0.45f,0.12f}, .inlay_shape=2, .inlay_t=0.55f },
+  { .name="GC RED",    .shaft={0.90f,0.82f,0.62f}, .splice={0.55f,0.09f,0.09f},
+    .accent={0.95f,0.92f,0.84f}, .burr={0.62f,0.11f,0.10f}, .butt={0.55f,0.09f,0.09f},
+    .flash=1, .vnr2={0.95f,0.92f,0.84f}, .flash2=1, .veneer_w=0.0013f,
+    .points=4, .point_len=1.20f, .veneers=2, .shaft_fig=1, .butt_fig=1,
+    .wrap=1, .wrapc={0.16f,0.16f,0.17f}, .sleeve=1, .sleevec={0.55f,0.09f,0.09f},
+    .ringc={0.82f,0.66f,0.26f}, .diamonds=1, .diac={0.95f,0.92f,0.84f} },
+  { .name="VIKING EYE",.shaft={0.90f,0.83f,0.65f}, .splice={0.72f,0.52f,0.28f},
+    .accent={0.94f,0.93f,0.90f}, .burr={0.74f,0.54f,0.30f}, .butt={0.72f,0.52f,0.28f},
+    .veneer_w=0.0012f, .points=0, .shaft_fig=1, .butt_fig=2,
+    .wrap=1, .wrapc={0.10f,0.10f,0.11f}, .sleeve=1, .sleevec={0.72f,0.52f,0.28f},
+    .ringc={0.86f,0.87f,0.90f},
+    .diamonds=1, .diac={0.70f,0.12f,0.14f}, .inlay_shape=2,
+    .vnr2={0.94f,0.93f,0.90f} },
+  { .name="VIKING PEARL",.shaft={0.90f,0.83f,0.65f}, .splice={0.80f,0.68f,0.46f},
+    .accent={0.94f,0.93f,0.90f}, .burr={0.82f,0.70f,0.48f}, .butt={0.80f,0.68f,0.46f},
+    .veneer_w=0.0012f, .points=0, .shaft_fig=1, .butt_fig=2,
+    .wrap=1, .wrapc={0.10f,0.10f,0.11f}, .sleeve=1, .sleevec={0.80f,0.68f,0.46f},
+    .ringc={0.86f,0.87f,0.90f},
+    .diamonds=1, .diac={0.25f,0.45f,0.85f}, .inlay_shape=3, .inlay_pearl=1,
+    .vnr2={0.10f,0.09f,0.09f} },
+  { .name="VIKING BLUE",.shaft={0.90f,0.83f,0.65f}, .splice={0.16f,0.28f,0.58f},
+    .accent={0.94f,0.93f,0.90f}, .burr={0.18f,0.30f,0.62f}, .butt={0.16f,0.28f,0.58f},
+    .veneer_w=0.0012f, .points=0, .shaft_fig=1, .butt_fig=3,
+    .diamonds=0 },
 };
 #define CUE_RACK_N ((int)(sizeof CUE_RACK / sizeof CUE_RACK[0]))
 static int s_cue_sel;
@@ -2910,6 +3050,14 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_cwrap      = glGetUniformLocation(G.prog, "u_cwrap");
     G.u_csleeve    = glGetUniformLocation(G.prog, "u_csleeve");
     G.u_cdia       = glGetUniformLocation(G.prog, "u_cdia");
+    G.u_cvcol      = glGetUniformLocation(G.prog, "u_cvcol");
+    G.u_cnvcol     = glGetUniformLocation(G.prog, "u_cnvcol");
+    G.u_csfig      = glGetUniformLocation(G.prog, "u_csfig");
+    G.u_cbfig      = glGetUniformLocation(G.prog, "u_cbfig");
+    G.u_cishape    = glGetUniformLocation(G.prog, "u_cishape");
+    G.u_cipearl    = glGetUniformLocation(G.prog, "u_cipearl");
+    G.u_cit        = glGetUniformLocation(G.prog, "u_cit");
+    G.u_chand      = glGetUniformLocation(G.prog, "u_chand");
     G.u_caccent    = glGetUniformLocation(G.prog, "u_caccent");
     G.u_cbutt      = glGetUniformLocation(G.prog, "u_cbutt");
     G.u_cburr      = glGetUniformLocation(G.prog, "u_cburr");
@@ -3635,6 +3783,17 @@ after_table: ;
             glUniform1f(G.u_cwrap,  (float)cd->wrap);
             glUniform1f(G.u_csleeve,(float)cd->sleeve);
             glUniform1f(G.u_cdia,   (float)cd->diamonds);
+            {   float vflat[18];
+                for (int vk = 0; vk < 6; vk++)
+                    for (int ck = 0; ck < 3; ck++) vflat[vk*3+ck] = cd->vcol[vk][ck];
+                glUniform3fv(G.u_cvcol, 6, vflat); }
+            glUniform1f(G.u_cnvcol,  (float)cd->nvcol);
+            glUniform1f(G.u_csfig,   (float)cd->shaft_fig);
+            glUniform1f(G.u_cbfig,   (float)cd->butt_fig);
+            glUniform1f(G.u_cishape, (float)cd->inlay_shape);
+            glUniform1f(G.u_cipearl, (float)cd->inlay_pearl);
+            glUniform1f(G.u_cit,     cd->inlay_t);
+            glUniform1f(G.u_chand,  (float)cd->hand);
             glUniform1f(G.u_cpts,   cd->points   ? (float)cd->points : 4.0f);
             glUniform1f(G.u_cptlen, cd->point_len > 0.01f ? cd->point_len : 1.0f);
             glUniform1f(G.u_cnvnr,  (float)(cd->veneers ? cd->veneers : (cd->flash ? 1 : 0)));

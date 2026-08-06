@@ -116,6 +116,22 @@ typedef struct {
      * one per point position — sleeve if there is one, forearm otherwise. */
     int   diamonds;
     float diac[3];
+    /* Laminate band colours, in order from the panel edge outward. When nvcol
+     * is zero the old two-colour alternation (accent/vnr2) applies; a Taylor
+     * rainbow sets six. */
+    float vcol[6][3];
+    int   nvcol;
+    int   shaft_fig;     /* 0 = ash (chevron grain), 1 = maple (plain) */
+    int   butt_fig;      /* 0 none, 1 ebony/rosewood figure, 2 birdseye,
+                          * 3 curly maple, 4 wenge stripes */
+    int   inlay_shape;   /* 0/1 diamond, 2 framed diamond, 3 spear */
+    int   inlay_pearl;   /* iridescent core */
+    float inlay_t;       /* centre along the cue; 0 = auto */
+    /* 1 = HAND-spliced: rounded point tops at slightly uneven heights, the
+     * mark of four splices laid over the ash by hand. 0 = machine/CNC: dead
+     * sharp, identical points. Researched, not guessed: the rounded-vs-sharp
+     * distinction is the tell the trade itself uses. */
+    int   hand;
 } CueVrCueDesign;
 
 int         cuevr_render_cue_count(void);
