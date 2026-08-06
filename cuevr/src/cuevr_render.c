@@ -1077,6 +1077,7 @@ static const char *FS =
 "                    pane = mix(u_cdiac * 0.50, vec3(1.0), smoothstep(0.28, 0.82, mp));\n"
 "                    gloss = 120.0; spec_k = 0.55; butt_varn *= 0.4;\n"
 "                }\n"
+"                if (u_cpflip < 0.5)\n"
 "                for (int arch = 0; arch < 2; arch++) {\n"
 "                    if (arch == 1 && u_cnarch < 1.5) break;\n"
 "                    float off = float(arch) * 0.34 * L;\n"
@@ -1098,6 +1099,47 @@ static const char *FS =
 "                        c = mix(c, u_caccent, smoothstep(hwo + aa2, hwo - aa2, db));\n"
 "                    if (hwi > aa2)\n"
 "                        c = mix(c, pane, smoothstep(hwi + aa2, hwi - aa2, db));\n"
+"                }\n""                if (u_cpflip > 0.5) {\n"
+"                    /* THE VIKING INTERLOCK, read off the reference top to\n"
+"                     * bottom: an upper PEARL FIELD with a birdseye spear\n"
+"                     * rising through it, a waist where twin timber spikes\n"
+"                     * climb into the pearl, then the pearl SPEAR descending\n"
+"                     * into the birdseye below — every boundary black-lined.\n"
+"                     * Two opposed spears sharing a waist, not one shape. */\n"
+"                    float T0 = bs_tip, T3 = bs_base;\n"
+"                    float Tm = mix(T0, T3, 0.44);\n"
+"                    float aap = fwidth(d) * 1.2;\n"
+"                    vec3 ink = vec3(0.05, 0.045, 0.045);\n"
+"                    if (t < Tm) {\n"
+"                        /* pearl field, timber spear rising: pearl OUTSIDE.\n"
+"                         * The field's own TOP closes as pearl spear-tips\n"
+"                         * rising into the timber — nothing here stops on a\n"
+"                         * straight line. */\n"
+"                        float T0d = T0 - 0.070 * (1.0 - clamp(d / 0.45, 0.0, 1.0));\n"
+"                        float ku = clamp((t - T0d) / (Tm - T0d), 0.0, 1.0);\n"
+"                        float hs = 0.60 * pow(ku, 0.75);\n"
+"                        c = mix(c, pane, smoothstep(hs - aap, hs + aap, d));\n"
+"                        float lo = 1.0 - smoothstep(0.014, 0.014 + aap, abs(d - hs));\n"
+"                        if (hs > aap) c = mix(c, ink, lo);\n"
+"                        /* twin spikes climbing into the pearl at the waist */\n"
+"                        float ks = clamp((t - (Tm - 0.11)) / 0.11, 0.0, 1.0);\n"
+"                        float ws = 0.050 * ks;\n"
+"                        float dsp = abs(d - 0.30);\n"
+"                        if (ws > aap && d > hs) {\n"
+"                            c = mix(c, u_cbutt, smoothstep(ws + aap, ws - aap, dsp));\n"
+"                            float lo2 = 1.0 - smoothstep(0.010, 0.010 + aap, abs(dsp - ws));\n"
+"                            c = mix(c, ink, lo2);\n"
+"                        }\n"
+"                    } else {\n"
+"                        /* the pearl spear descending into the birdseye */\n"
+"                        float kd = clamp((t - Tm) / (T3 - Tm), 0.0, 1.0);\n"
+"                        float hd = 0.30 * pow(1.0 - kd, 1.10);\n"
+"                        if (hd > aap) {\n"
+"                            c = mix(c, pane, smoothstep(hd + aap, hd - aap, d));\n"
+"                            float lo = 1.0 - smoothstep(0.014, 0.014 + aap, abs(d - hd));\n"
+"                            c = mix(c, ink, lo);\n"
+"                        }\n"
+"                    }\n"
 "                }\n"
 "            }\n"
 "\n"
@@ -1146,8 +1188,15 @@ static const char *FS =
 "            if (u_cdia > 0.5) {\n"
 "                float tc = (u_cit > 0.0) ? u_cit\n"
 "                         : ((u_csleeve > 0.5) ? 0.895 : 0.545);\n"
-"                float hl2 = (u_cishape > 2.5) ? 0.055 : 0.020;   /* spears run long */\n"
-"                float md = abs(t - tc) / hl2 + d / 0.13;\n"
+"                float hl2 = (u_cishape > 2.5) ? 0.055 : 0.030;   /* spears run long */\n"
+"                /* A framed diamond never travels alone: the references run\n"
+"                 * them in rows of three down the sleeve or forearm. */\n"
+"                float md = 1e9;\n"
+"                int nrow = (u_cishape > 1.5 && u_cishape < 2.5) ? 1 : 0;\n"
+"                for (int di2 = -nrow; di2 <= nrow; di2++) {\n"
+"                    float m1 = abs(t - tc - float(di2) * 0.068) / hl2 + d / 0.20;\n"
+"                    md = min(md, m1);\n"
+"                }\n"
 "                float pl = 1.0 - smoothstep(1.00, 1.08, md);\n"
 "                float co = 1.0 - smoothstep(0.66, 0.78, md);\n"
 "                vec3 icol = u_cdiac;\n"
@@ -2379,26 +2428,34 @@ static const CueVrCueDesign CUE_RACK[] = {
     .shaft_fig=1, .butt_fig=0, .hand=0,
     .wrap=1, .wrapc={0.16f,0.16f,0.17f}, .sleeve=1, .sleevec={0.88f,0.86f,0.82f},
     .ringc={0.10f,0.10f,0.11f}, .diamonds=1, .diac={0.13f,0.22f,0.62f} },
-  { .name="VIKING EYE",.shaft={0.90f,0.83f,0.65f}, .splice={0.72f,0.52f,0.28f},
+  { .name="VIKING EYE",.shaft={0.90f,0.83f,0.65f}, .splice={0.34f,0.16f,0.09f},
+    /* birdseye with a rosewood machine splice, framed red diamonds in a row
+     * down the forearm, silver rings — after the third-from-right reference */
     .accent={0.94f,0.93f,0.90f}, .burr={0.74f,0.54f,0.30f}, .butt={0.72f,0.52f,0.28f},
-    .veneer_w=0.0012f, .points=0, .shaft_fig=1, .butt_fig=2,
+    .flash=1, .veneer_w=0.0013f, .points=4, .point_len=0.85f, .veneers=1,
+    .shaft_fig=1, .butt_fig=2, .hand=0,
     .wrap=1, .wrapc={0.10f,0.10f,0.11f}, .sleeve=1, .sleevec={0.72f,0.52f,0.28f},
     .ringc={0.86f,0.87f,0.90f},
     .diamonds=1, .diac={0.70f,0.12f,0.14f}, .inlay_shape=2,
     .vnr2={0.94f,0.93f,0.90f} },
-  { .name="VIKING PEARL",.shaft={0.90f,0.83f,0.65f}, .splice={0.80f,0.68f,0.46f},
-    /* the spear: pearl pane, BLACK pinstripe outline, apex at the cap end,
-     * set into birdseye maple. The prongs are maple-on-maple: invisible, they
-     * exist so the panel machinery runs. */
-    .accent={0.07f,0.06f,0.06f}, .burr={0.82f,0.70f,0.48f}, .butt={0.80f,0.68f,0.46f},
-    .flash=1, .veneer_w=0.0016f, .points=4, .point_len=1.0f,
+  { .name="VIKING PEARL",.shaft={0.90f,0.83f,0.65f}, .splice={0.88f,0.81f,0.63f},
+    /* the Viking interlock: upper pearl field with a birdseye spear rising,
+     * twin spikes at the waist, pearl spear descending below. point_len only
+     * stretches the panel window; the prongs are shaft-on-shaft, invisible. */
+    .accent={0.05f,0.045f,0.045f}, .burr={0.82f,0.70f,0.48f}, .butt={0.80f,0.68f,0.46f},
+    .veneer_w=0.0012f, .points=4, .point_len=4.0f,
     .shaft_fig=1, .butt_fig=2, .panel_flip=1, .panel_pearl=1,
-    .ringc={0.86f,0.87f,0.90f}, .diac={0.30f,0.50f,0.88f},
-    .vnr2={0.10f,0.09f,0.09f} },
+    .ringc={0.86f,0.87f,0.90f}, .diac={0.20f,0.42f,0.85f},
+    .vnr2={0.05f,0.045f,0.045f} },
   { .name="VIKING BLUE",.shaft={0.90f,0.83f,0.65f}, .splice={0.16f,0.28f,0.58f},
-    .accent={0.94f,0.93f,0.90f}, .burr={0.18f,0.30f,0.62f}, .butt={0.16f,0.28f,0.58f},
-    .veneer_w=0.0012f, .points=0, .shaft_fig=1, .butt_fig=3,
-    .diamonds=0 },
+    /* blue-stained curly maple with pale machine points and a row of framed
+     * white-pearl diamonds on the sleeve */
+    .accent={0.93f,0.93f,0.95f}, .burr={0.18f,0.30f,0.62f}, .butt={0.16f,0.28f,0.58f},
+    .flash=1, .veneer_w=0.0012f, .points=4, .point_len=1.10f, .veneers=1,
+    .shaft_fig=1, .butt_fig=3, .hand=0,
+    .sleeve=1, .sleevec={0.14f,0.24f,0.52f}, .ringc={0.88f,0.89f,0.92f},
+    .diamonds=1, .diac={0.93f,0.94f,0.96f}, .inlay_shape=2, .inlay_pearl=1,
+    .vnr2={0.06f,0.06f,0.07f} },
 };
 #define CUE_RACK_N ((int)(sizeof CUE_RACK / sizeof CUE_RACK[0]))
 static int s_cue_sel;
