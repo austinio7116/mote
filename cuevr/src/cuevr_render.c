@@ -2306,32 +2306,36 @@ static const CueVrCueDesign CUE_RACK[] = {
    * laminate palette, timber figure, wrap, sleeve, inlays — and each entry
    * uses a different subset of it. */
 
-  /* ---- Peradon: the British hand splices -------------------------------- */
-  { .name="CLASSIC",   .shaft={0.87f,0.75f,0.55f}, .splice={0.38f,0.13f,0.08f},
-    .accent={0.38f,0.13f,0.08f}, .burr={0.44f,0.16f,0.09f}, .butt={0.38f,0.13f,0.08f},
-    .points=0, .veneer_w=0.0010f, .butt_fig=1 },
-  { .name="CROWN",     .shaft={0.87f,0.75f,0.55f}, .splice={0.22f,0.08f,0.06f},
-    .accent={0.72f,0.12f,0.14f}, .burr={0.30f,0.10f,0.07f}, .butt={0.22f,0.08f,0.06f},
-    .flash=1, .vnr2={0.93f,0.90f,0.80f}, .flash2=1, .veneer_w=0.0011f,
-    .points=4, .point_len=0.55f, .veneers=2, .butt_fig=1 },
+  /* ---- Peradon: studied cue by cue against the catalogue ----------------- *
+   * CLASSIC has a splice after all — a rounded mahogany arch, no veneer.
+   * CENTURY and ASCOT hold a ROSEWOOD panel inside the arch, not black.
+   * JOE DAVIS is the wide cream-bordered dome. Veneer widths vary by model. */
+  { .name="CLASSIC",   .shaft={0.87f,0.75f,0.55f}, .splice={0.42f,0.16f,0.09f},
+    .accent={0.42f,0.16f,0.09f}, .burr={0.44f,0.17f,0.10f}, .butt={0.42f,0.16f,0.09f},
+    .points=4, .point_len=0.80f, .veneer_w=0.0010f, .butt_fig=1, .hand=1 },
+  { .name="CROWN",     .shaft={0.87f,0.75f,0.55f}, .splice={0.24f,0.09f,0.07f},
+    .accent={0.80f,0.14f,0.16f}, .burr={0.30f,0.11f,0.08f}, .butt={0.24f,0.09f,0.07f},
+    .flash=1, .veneer_w=0.0012f,
+    .points=4, .point_len=0.70f, .veneers=1, .butt_fig=1, .hand=1 },
   { .name="EDWARDIAN", .shaft={0.87f,0.75f,0.55f}, .splice={0.075f,0.060f,0.052f},
-    .accent={0.075f,0.060f,0.052f}, .burr={0.10f,0.095f,0.090f}, .butt={0.075f,0.060f,0.052f},
-    .points=4, .point_len=0.85f, .veneer_w=0.0010f, .butt_fig=1 , .hand=1 },
+    .accent={0.075f,0.060f,0.052f}, .burr={0.095f,0.085f,0.080f}, .butt={0.075f,0.060f,0.052f},
+    .points=4, .point_len=0.75f, .veneer_w=0.0010f, .butt_fig=1, .hand=1 },
   { .name="JOE DAVIS", .shaft={0.87f,0.75f,0.55f}, .splice={0.070f,0.058f,0.052f},
-    .accent={0.92f,0.87f,0.74f}, .burr={0.13f,0.12f,0.11f}, .butt={0.070f,0.058f,0.052f},
-    .flash=1, .vnr2={0.50f,0.36f,0.20f}, .flash2=1, .veneer_w=0.0012f,
-    .points=4, .point_len=1.0f, .veneers=2, .butt_fig=1 , .hand=1 },
+    .accent={0.93f,0.89f,0.76f}, .burr={0.11f,0.10f,0.095f}, .butt={0.070f,0.058f,0.052f},
+    .flash=1, .veneer_w=0.0019f,
+    .points=4, .point_len=1.10f, .veneers=1, .butt_fig=1, .hand=1 },
   { .name="CENTURY",   .shaft={0.86f,0.74f,0.54f}, .splice={0.070f,0.058f,0.052f},
-    .accent={0.10f,0.38f,0.88f}, .burr={0.12f,0.12f,0.13f}, .butt={0.070f,0.058f,0.052f},
-    .flash=1, .vnr2={0.93f,0.90f,0.80f}, .flash2=1, .veneer_w=0.0011f,
-    .points=4, .point_len=1.0f, .veneers=2, .butt_fig=1 , .hand=1 },
-  { .name="ASCOT",     .shaft={0.87f,0.75f,0.55f}, .splice={0.30f,0.11f,0.07f},
-    .accent={0.94f,0.90f,0.78f}, .burr={0.38f,0.14f,0.08f}, .butt={0.30f,0.11f,0.07f},
-    .flash=1, .vnr2={0.12f,0.08f,0.06f}, .flash2=1, .veneer_w=0.0012f,
-    .points=4, .point_len=0.90f, .veneers=2, .butt_fig=1 , .hand=1 },
+    .accent={0.12f,0.62f,0.60f}, .burr={0.36f,0.14f,0.09f}, .butt={0.070f,0.058f,0.052f},
+    .flash=1, .vnr2={0.93f,0.90f,0.80f}, .flash2=1, .veneer_w=0.0013f,
+    .points=4, .point_len=1.05f, .veneers=2, .butt_fig=1, .hand=1 },
+  { .name="ASCOT",     .shaft={0.87f,0.75f,0.55f}, .splice={0.075f,0.060f,0.052f},
+    .accent={0.94f,0.90f,0.78f}, .burr={0.42f,0.17f,0.10f}, .butt={0.075f,0.060f,0.052f},
+    .flash=1, .veneer_w=0.0014f,
+    .points=4, .point_len=0.95f, .veneers=1, .butt_fig=1, .hand=1 },
   { .name="ROYAL",     .shaft={0.87f,0.75f,0.55f}, .splice={0.070f,0.058f,0.052f},
-    .accent={0.93f,0.90f,0.80f}, .burr={0.11f,0.11f,0.11f}, .butt={0.070f,0.058f,0.052f},
-    .flash=1, .veneer_w=0.0010f, .points=4, .point_len=1.35f, .veneers=1, .butt_fig=1 , .hand=1 },
+    .accent={0.93f,0.90f,0.80f}, .burr={0.10f,0.10f,0.10f}, .butt={0.070f,0.058f,0.052f},
+    .flash=1, .veneer_w=0.0009f, .points=4, .point_len=1.35f, .veneers=1,
+    .butt_fig=1, .hand=1 },
 
   /* ---- Taylor Made: laminated splices ----------------------------------- */
   { .name="TM RAINBOW",.shaft={0.86f,0.74f,0.54f}, .splice={0.055f,0.050f,0.048f},
