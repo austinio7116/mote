@@ -1271,7 +1271,12 @@ static const char *FS =
 "                     * its shoulders. The ornament flips colour with the wood:\n"
 "                     * maple let into the rosewood, rosewood into the birdseye.\n"
 "                     * Single-sided, like every butt ornament. */\n"
-"                    float dbc  = abs(fract(a + u_cface) - 0.5) * 4.0;\n"
+"                    /* THIS one wraps the cue: the chain repeats every quarter\n"
+"                     * like the splice does, four ornament lines around — the\n"
+"                     * reference is carved in the round, not printed on one\n"
+"                     * face. d is the quarter metric already in scope. */\n"
+"                    float dbc  = d;\n"
+
 "                    float aad2 = fwidth(dbc) * 1.2;\n"
 "                    float Tt   = 0.845;\n"
 "                    vec3  orn  = (t < Tt) ? u_cdiac : vec3(0.26, 0.11, 0.075);\n"
