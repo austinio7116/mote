@@ -132,6 +132,9 @@ typedef struct {
      * sharp, identical points. Researched, not guessed: the rounded-vs-sharp
      * distinction is the tell the trade itself uses. */
     int   hand;
+    /* Nested arch count on the butt panel: most Peradons carry at least two
+     * of the curved inlays at different depths. 0 means 1. */
+    int   arches;
 } CueVrCueDesign;
 
 int         cuevr_render_cue_count(void);

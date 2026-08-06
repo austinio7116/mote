@@ -150,6 +150,7 @@ static const char *FS =
 "uniform float u_cipearl;\n"
 "uniform float u_cit;\n"
 "uniform float u_chand;\n"
+"uniform float u_cnarch;\n"
 "uniform vec3  u_caccent;\n"
 "uniform vec3  u_cbutt;\n"
 "uniform vec3  u_cburr;\n"
@@ -876,16 +877,23 @@ static const char *FS =
 "            // phase. Bold, near-black on cream, per the reference; broken\n"
 "            // up along their run because real grain is.\n"
 "            float ang = a * 6.2831853;\n"
-"            float ph   = t * 95.0 + (2.6 * cue_r / 0.016) * cos(ang)\n"
-"                       + 1.6 * fbm2(vec2(t * 9.0, cos(ang) * 1.3));\n"
+"            float ph   = t * 120.0 + (2.6 * cue_r / 0.016) * cos(ang)\n"
+"                       + 0.9 * fbm2(vec2(t * 9.0, cos(ang) * 1.3));\n"
 "            float ring = fract(ph);\n"
 "            float dl   = min(ring, 1.0 - ring);\n"
-"            float lw   = 0.10 + 0.07 * fbm2(vec2(ang * 2.0, t * 40.0));\n"
+"            float lw   = 0.062 + 0.05 * fbm2(vec2(ang * 2.0, t * 40.0));\n"
 "            float line = 1.0 - smoothstep(lw * 0.4, lw, dl);\n"
-"            float mask = smoothstep(0.38, 0.66, fbm2(vec2(t * 22.0, ang * 1.2)));\n"
+"            /* Lines PERSIST and vary rather than fragmenting: real ash grain\n"
+"             * runs in long continuous chevrons, lighter and darker along its\n"
+"             * run, and the old mask was snapping it into blobs. */\n"
+"            float mask = 0.45 + 0.55 * smoothstep(0.30, 0.70, fbm2(vec2(t * 22.0, ang * 1.2)));\n"
 "            vec3  dark = ash * vec3(0.36, 0.34, 0.32);\n"
 "            c = ash * (0.92 + 0.12 * fbm2(vec2(t * 6.0, ang * 0.6)));\n"
-"            c = mix(c, dark, line * mask * 0.85);\n"
+"            /* Grain strength follows the stock: bold chevrons where the cue\n"
+"             * is wide, fading to fine near-straight lines toward the tip —\n"
+"             * full-contrast arcs on the thin half read as rings. */\n"
+"            float gs = clamp((cue_r - 0.0051) / 0.0109, 0.0, 1.0);\n"
+"            c = mix(c, dark, line * mask * (0.30 + 0.60 * gs));\n"
 "            if (u_csfig > 0.5) {\n"
 "                // MAPLE: pale, close-grained, nearly plain — a faint curl\n"
 "                // across the shaft is all it shows.\n"
@@ -932,10 +940,19 @@ static const char *FS =
 "                float unev = (u_chand > 0.5) ? (hash12(vec2(pid, 7.3)) - 0.5) * 0.030 : 0.0;\n"
 "                float k = clamp((t - (ms_tip + unev)) / (ms_base - ms_tip), 0.0, 1.0);\n"
 "                float pexp = (u_chand > 0.5) ? 0.45 : 1.05;\n"
-"                float hw = 0.42 * pow(k, pexp);\n"
+"                /* Adjacent splices MEET: hw runs past 0.5 so neighbouring\n"
+"                 * arches touch at the quarter boundaries and the veneers\n"
+"                 * pinch closed into scallops BEFORE the plain black starts —\n"
+"                 * a hard cut at ms_base truncated every arch mid-curve. */\n"
+"                float hw = 0.60 * pow(k, pexp);\n"
 "                float e = smoothstep(hw, hw * ((u_chand > 0.5) ? 0.80 : 0.90), d);\n"
 "                c = mix(c, ebony, e);\n"
-"                if (u_cflash > 0.5) {\n"
+"                if (u_cflash > 0.5 && k > 0.003) {\n"
+"                    /* The veneer is glued to the SPLICE — where there is no\n"
+"                     * panel yet there is no veneer. Without this gate hw is\n"
+"                     * zero above the apex and abs(d - hw) collapses to d,\n"
+"                     * which drew a colour spike up the centreline past the\n"
+"                     * curve and streaks up the ash before the splice. */\n"
 "                    // Same cut-sheet geometry as the butt splice below: the\n"
 "                    // veneer is a slip of constant thickness in the joint, so\n"
 "                    // its width on the surface goes as 1/r and broadens where\n"
@@ -1114,7 +1131,12 @@ static const char *FS =
 "                /* The veneer OUTLINE: a fine line following the whole edge of\n"
 "                 * every point, not a flash near it. This is the detail that\n"
 "                 * makes a spliced butt look made rather than painted. */\n"
-"                if (u_cflash > 0.5) {\n"
+"                if (u_cflash > 0.5 && k > 0.003) {\n"
+"                    /* The veneer is glued to the SPLICE — where there is no\n"
+"                     * panel yet there is no veneer. Without this gate hw is\n"
+"                     * zero above the apex and abs(d - hw) collapses to d,\n"
+"                     * which drew a colour spike up the centreline past the\n"
+"                     * curve and streaks up the ash before the splice. */\n"
 "                    // A CONTINUOUS line, width-matched to the pixel. A fixed\n"
 "                    // 0.004 in the angular coordinate is finer than a pixel at\n"
 "                    // most viewing distances, so the veneer broke into dashes —\n"
@@ -1191,6 +1213,24 @@ static const char *FS =
 "                        c = mix(c, vc, li * 0.92 * fade * stackon);\n"
 "                    }\n"
 "                    c = mix(c, u_caccent, ln * 0.95 * fade);\n"
+"                    /* THE SECOND ARCH. Most Peradons nest at least two of\n"
+"                     * these curves at different depths — Crown, Century — so\n"
+"                     * an inner veneer line follows the same dome profile,\n"
+"                     * started deeper and drawn slightly narrower. */\n"
+"                    if (u_cnarch > 1.5) {\n"
+"                        float k2 = clamp((t - (bs_tip + unev + 0.055)) / (bs_base - bs_tip), 0.0, 1.0);\n"
+"                        if (k2 > 0.003) {\n"
+"                            float hw2 = 0.52 * pow(k2, pexp) * 0.86;\n"
+"                            float ed2 = abs(db - hw2);\n"
+"                            float lnB = 1.0 - smoothstep(wdrw, wdrw + px, ed2);\n"
+"                            c = mix(c, u_caccent, lnB * 0.95 * fade);\n"
+"                            if (u_cv2on > 0.5) {\n"
+"                                float ed3 = abs(ed2 - wln * 2.0);\n"
+"                                float lnC = 1.0 - smoothstep(wdrw, wdrw + px, ed3);\n"
+"                                c = mix(c, u_cvnr2, lnC * 0.90 * fade);\n"
+"                            }\n"
+"                        }\n"
+"                    }\n"
 "                }\n"
 "                /* No full-circle fill: the ebony IS the butt. The panel holds\n"
 "                 * its own width to the cap, on the top face alone. */\n"
@@ -1740,7 +1780,7 @@ static struct {
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
-           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_cdiac, u_cdia, u_cvcol, u_cnvcol, u_csfig, u_cbfig, u_cishape, u_cipearl, u_cit, u_chand,
+           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_cdiac, u_cdia, u_cvcol, u_cnvcol, u_csfig, u_cbfig, u_cishape, u_cipearl, u_cit, u_chand, u_cnarch,
            u_cwrapc, u_csleevec, u_cringc, u_cpts, u_cptlen, u_cnvnr, u_cwrap, u_csleeve, u_clam, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_lampN, u_lampI, u_nlamp, u_lampround, u_eye;
     GLint  u_keyc, u_fill, u_hudv, u_hudrect, u_shadow, u_clothlod, u_rawcol, u_varn;
@@ -2316,22 +2356,22 @@ static const CueVrCueDesign CUE_RACK[] = {
   { .name="CROWN",     .shaft={0.87f,0.75f,0.55f}, .splice={0.24f,0.09f,0.07f},
     .accent={0.80f,0.14f,0.16f}, .burr={0.30f,0.11f,0.08f}, .butt={0.24f,0.09f,0.07f},
     .flash=1, .veneer_w=0.0012f,
-    .points=4, .point_len=0.70f, .veneers=1, .butt_fig=1, .hand=1 },
+    .points=4, .point_len=0.70f, .veneers=1, .butt_fig=1, .hand=1, .arches=2 },
   { .name="EDWARDIAN", .shaft={0.87f,0.75f,0.55f}, .splice={0.075f,0.060f,0.052f},
     .accent={0.075f,0.060f,0.052f}, .burr={0.095f,0.085f,0.080f}, .butt={0.075f,0.060f,0.052f},
     .points=4, .point_len=0.75f, .veneer_w=0.0010f, .butt_fig=1, .hand=1 },
   { .name="JOE DAVIS", .shaft={0.87f,0.75f,0.55f}, .splice={0.070f,0.058f,0.052f},
     .accent={0.93f,0.89f,0.76f}, .burr={0.11f,0.10f,0.095f}, .butt={0.070f,0.058f,0.052f},
     .flash=1, .veneer_w=0.0019f,
-    .points=4, .point_len=1.10f, .veneers=1, .butt_fig=1, .hand=1 },
+    .points=4, .point_len=1.10f, .veneers=1, .butt_fig=1, .hand=1, .arches=2 },
   { .name="CENTURY",   .shaft={0.86f,0.74f,0.54f}, .splice={0.070f,0.058f,0.052f},
     .accent={0.12f,0.62f,0.60f}, .burr={0.36f,0.14f,0.09f}, .butt={0.070f,0.058f,0.052f},
     .flash=1, .vnr2={0.93f,0.90f,0.80f}, .flash2=1, .veneer_w=0.0013f,
-    .points=4, .point_len=1.05f, .veneers=2, .butt_fig=1, .hand=1 },
+    .points=4, .point_len=1.05f, .veneers=2, .butt_fig=1, .hand=1, .arches=2 },
   { .name="ASCOT",     .shaft={0.87f,0.75f,0.55f}, .splice={0.075f,0.060f,0.052f},
     .accent={0.94f,0.90f,0.78f}, .burr={0.42f,0.17f,0.10f}, .butt={0.075f,0.060f,0.052f},
     .flash=1, .veneer_w=0.0014f,
-    .points=4, .point_len=0.95f, .veneers=1, .butt_fig=1, .hand=1 },
+    .points=4, .point_len=0.95f, .veneers=1, .butt_fig=1, .hand=1, .arches=2 },
   { .name="ROYAL",     .shaft={0.87f,0.75f,0.55f}, .splice={0.070f,0.058f,0.052f},
     .accent={0.93f,0.90f,0.80f}, .burr={0.10f,0.10f,0.10f}, .butt={0.070f,0.058f,0.052f},
     .flash=1, .veneer_w=0.0009f, .points=4, .point_len=1.35f, .veneers=1,
@@ -3048,6 +3088,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_cipearl    = glGetUniformLocation(G.prog, "u_cipearl");
     G.u_cit        = glGetUniformLocation(G.prog, "u_cit");
     G.u_chand      = glGetUniformLocation(G.prog, "u_chand");
+    G.u_cnarch     = glGetUniformLocation(G.prog, "u_cnarch");
     G.u_caccent    = glGetUniformLocation(G.prog, "u_caccent");
     G.u_cbutt      = glGetUniformLocation(G.prog, "u_cbutt");
     G.u_cburr      = glGetUniformLocation(G.prog, "u_cburr");
@@ -3784,6 +3825,7 @@ after_table: ;
             glUniform1f(G.u_cipearl, (float)cd->inlay_pearl);
             glUniform1f(G.u_cit,     cd->inlay_t);
             glUniform1f(G.u_chand,  (float)cd->hand);
+            glUniform1f(G.u_cnarch, (float)(cd->arches ? cd->arches : 1));
             glUniform1f(G.u_cpts,   cd->points   ? (float)cd->points : 4.0f);
             glUniform1f(G.u_cptlen, cd->point_len > 0.01f ? cd->point_len : 1.0f);
             glUniform1f(G.u_cnvnr,  (float)(cd->veneers ? cd->veneers : (cd->flash ? 1 : 0)));
