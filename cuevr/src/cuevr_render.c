@@ -151,6 +151,7 @@ static const char *FS =
 "uniform float u_cit;\n"
 "uniform float u_chand;\n"
 "uniform float u_cnarch;\n"
+"uniform float u_cface;\n"
 "uniform float u_cpflip;\n"
 "uniform float u_cppearl;\n"
 "uniform vec3  u_caccent;\n"
@@ -1068,7 +1069,7 @@ static const char *FS =
 "                 * THICK CRESCENT over the apex, tapering to thin lines down\n"
 "                 * the sides, which is exactly how the reference reads and\n"
 "                 * exactly what a constant-width outline can never do. */\n"
-"                float db  = abs(fract(a + 0.375) - 0.5) * 4.0;\n"
+"                float db  = abs(fract(a + u_cface) - 0.5) * 4.0;\n"
 "                float tt2 = (u_cpflip > 0.5) ? (bs_tip + bs_base - t) : t;\n"
 "                float L   = bs_base - bs_tip;\n"
 "                float aa2 = fwidth(db) * 1.2;\n"
@@ -1262,23 +1263,56 @@ static const char *FS =
 "                    icol = mix(u_cdiac * 0.75, vec3(1.0), smoothstep(0.35, 0.85, sh));\n"
 "                }\n"
 "                if (u_cishape > 3.5) {\n"
-"                    /* THE SCROLL CHAIN: the gothic ornament of the left-hand\n"
-"                     * Viking — a repeating cell down the face centreline,\n"
-"                     * diamond, paired dots, connecting stem — single-sided\n"
-"                     * like every butt ornament, in the contrast timber. */\n"
-"                    float dbc = abs(fract(a + 0.375) - 0.5) * 4.0;\n"
-"                    if (t > 0.615 && t < 0.935) {\n"
-"                        float cw = 0.052;\n"
-"                        float ct2 = fract((t - 0.615) / cw);\n"
-"                        float mch = 1e9;\n"
-"                        mch = min(mch, abs(ct2 - 0.50) * (cw / 0.016) * 1.45 + dbc / 0.115);\n"
-"                        mch = min(mch, length(vec2((ct2 - 0.13) * cw * 55.0, dbc * 9.0)));\n"
-"                        mch = min(mch, length(vec2((ct2 - 0.87) * cw * 55.0, dbc * 9.0)));\n"
-"                        float stem = max(dbc / 0.022, 0.0) + max(abs(ct2 - 0.5) - 0.42, 0.0) * 60.0;\n"
-"                        mch = min(mch, stem);\n"
-"                        float chn = 1.0 - smoothstep(0.92, 1.05, mch);\n"
-"                        c = mix(c, u_cdiac, chn * 0.95);\n"
+"                    /* THE GOTHIC CHAIN, built to be looked at. Down the face:\n"
+"                     * hollow elongated diamonds linked by a hairline stem with\n"
+"                     * quatrefoil dots between — and at the timber split, the\n"
+"                     * CROWN: a large hollow diamond with a solid core, barbed\n"
+"                     * spikes climbing and falling from it, and curl rings at\n"
+"                     * its shoulders. The ornament flips colour with the wood:\n"
+"                     * maple let into the rosewood, rosewood into the birdseye.\n"
+"                     * Single-sided, like every butt ornament. */\n"
+"                    float dbc  = abs(fract(a + u_cface) - 0.5) * 4.0;\n"
+"                    float aad2 = fwidth(dbc) * 1.2;\n"
+"                    float Tt   = 0.845;\n"
+"                    vec3  orn  = (t < Tt) ? u_cdiac : vec3(0.26, 0.11, 0.075);\n"
+"                    float cov  = 0.0;\n"
+"                    if (abs(t - Tt) > 0.062 && t > 0.615 && t < 0.940) {\n"
+"                        float cw  = 0.058;\n"
+"                        float tc2 = fract((t - 0.615) / cw) - 0.5;\n"
+"                        /* hollow elongated diamond */\n"
+"                        float mdd = abs(tc2) * 3.4 + dbc * 3.4;\n"
+"                        cov = max(cov, 1.0 - smoothstep(0.08, 0.08 + aad2 * 3.4,\n"
+"                                                        abs(mdd - 0.62)));\n"
+"                        /* quatrefoil dot at the link */\n"
+"                        float q1 = length(vec2((abs(tc2) - 0.5) * 3.4, dbc * 7.0));\n"
+"                        cov = max(cov, 1.0 - smoothstep(0.30, 0.30 + aad2 * 16.0, q1));\n"
+"                        /* the hairline stem */\n"
+"                        cov = max(cov, 1.0 - smoothstep(0.010, 0.010 + aad2, dbc));\n"
 "                    }\n"
+"                    /* THE CROWN, on the split */\n"
+"                    {\n"
+"                        float dt2 = t - Tt;\n"
+"                        float MD  = abs(dt2) * 22.0 + dbc * 3.4;\n"
+"                        cov = max(cov, 1.0 - smoothstep(0.10, 0.10 + aad2 * 8.0,\n"
+"                                                        abs(MD - 0.85)));      /* hollow */\n"
+"                        cov = max(cov, 1.0 - smoothstep(0.30, 0.36, MD));      /* core */\n"
+"                        /* barbed spikes rising and falling from the crown */\n"
+"                        for (int sd2 = 0; sd2 < 2; sd2++) {\n"
+"                            float tsp = (sd2 == 0 ? dt2 : -dt2) - 0.045;\n"
+"                            float wv  = (tsp > 0.0 && tsp < 0.020)\n"
+"                                      ? 0.13 * tsp / 0.020\n"
+"                                      : ((tsp >= 0.020 && tsp < 0.055) ? 0.045 : -1.0);\n"
+"                            if (wv > 0.0)\n"
+"                                cov = max(cov, 1.0 - smoothstep(wv, wv + aad2, dbc));\n"
+"                        }\n"
+"                        /* curl rings at the shoulders */\n"
+"                        float cc = length(vec2(dt2 * 18.0, (dbc - 0.34) * 4.5));\n"
+"                        cov = max(cov, 1.0 - smoothstep(0.055, 0.055 + aad2 * 9.0,\n"
+"                                                        abs(cc - 0.42)));\n"
+"                    }\n"
+"                    /* a whisper of ink around every pale motif keeps it crisp */\n"
+"                    c = mix(c, vec3(0.05, 0.04, 0.04), cov * 0.35);\n"
+"                    c = mix(c, orn, cov * 0.92);\n"
 "                }\n"
 "                else {\n"
 "                c = mix(c, u_cvnr2, pl);              /* the let-in plate */\n"
@@ -1789,7 +1823,7 @@ static struct {
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
-           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_cdiac, u_cdia, u_cvcol, u_cnvcol, u_csfig, u_cbfig, u_cishape, u_cipearl, u_cit, u_chand, u_cnarch, u_cpflip, u_cppearl,
+           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_cdiac, u_cdia, u_cvcol, u_cnvcol, u_csfig, u_cbfig, u_cishape, u_cipearl, u_cit, u_chand, u_cnarch, u_cpflip, u_cppearl, u_cface,
            u_cwrapc, u_csleevec, u_cringc, u_cpts, u_cptlen, u_cnvnr, u_cwrap, u_csleeve, u_clam, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_lampN, u_lampI, u_nlamp, u_lampround, u_eye;
     GLint  u_keyc, u_fill, u_hudv, u_hudrect, u_shadow, u_clothlod, u_rawcol, u_varn;
@@ -3206,6 +3240,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_chand      = glGetUniformLocation(G.prog, "u_chand");
     G.u_cnarch     = glGetUniformLocation(G.prog, "u_cnarch");
     G.u_cpflip     = glGetUniformLocation(G.prog, "u_cpflip");
+    G.u_cface      = glGetUniformLocation(G.prog, "u_cface");
     G.u_cppearl    = glGetUniformLocation(G.prog, "u_cppearl");
     G.u_caccent    = glGetUniformLocation(G.prog, "u_caccent");
     G.u_cbutt      = glGetUniformLocation(G.prog, "u_cbutt");
@@ -3944,6 +3979,9 @@ after_table: ;
             glUniform1f(G.u_cit,     cd->inlay_t);
             glUniform1f(G.u_chand,  (float)cd->hand);
             glUniform1f(G.u_cnarch, (float)(cd->arches ? cd->arches : 1));   /* -1 = no panel */
+            {   const char *fv = getenv("CUEVR_FACE");   /* capture aid: turn the
+                 * single-sided ornament toward the camera */
+                glUniform1f(G.u_cface, fv ? (float)atof(fv) : 0.375f); }
             glUniform1f(G.u_cpflip,  (float)cd->panel_flip);
             glUniform1f(G.u_cppearl, (float)cd->panel_pearl);
             glUniform1f(G.u_cpts,   cd->points   ? (float)cd->points : 4.0f);
