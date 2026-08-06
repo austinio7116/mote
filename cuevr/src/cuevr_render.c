@@ -1369,6 +1369,24 @@ static const char *FS =
 "            gloss = mix(gloss, 160.0, brass_lit);\n"
 "            spec_k = mix(spec_k, 0.85, brass_lit);\n"  // brass collar
 "        }\n"
+"        /* uv.y past 1.0 is the butt-end material channel: geometry says\n"
+"         * what it is made of. 1.02 = the brass socket ring, 1.05 = the dark\n"
+"         * threaded bore behind it, 1.08 = the badge disc on the flat. */\n"
+"        if (t > 1.065) {\n"
+"            c = (a > 0.90) ? vec3(0.22, 0.18, 0.15) : vec3(0.93, 0.90, 0.79);\n"
+"            butt_varn = 0.0; gloss = 70.0; spec_k = 0.45;\n"
+"        } else if (t > 1.035) {\n"
+"            c = vec3(0.055, 0.045, 0.035);\n"
+"            butt_varn = 0.0; gloss = 8.0; spec_k = 0.05;\n"
+"        } else if (t > 1.005) {\n"
+"            vec3 nn2 = normalize(v_nrm);\n"
+"            vec3 Vv2 = normalize(v_eyepos - v_world);\n"
+"            float up2 = clamp(reflect(-Vv2, nn2).y * 0.5 + 0.5, 0.0, 1.0);\n"
+"            float rim2 = pow(1.0 - abs(dot(nn2, Vv2)), 2.0);\n"
+"            c = vec3(0.72, 0.53, 0.19) * (0.45 + 1.1 * pow(up2, 2.0))\n"
+"              + vec3(0.95, 0.82, 0.52) * rim2 * 0.40;\n"
+"            butt_varn = 0.0; gloss = 160.0; spec_k = 0.85;\n"
+"        }\n"
 "        float d = diffuse(v_nrm, L);\n"
 "        float spec = pow(max(dot(v_nrm, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0), gloss);\n"
 "        o_col = emit(to_linear(c) * (0.34 + 0.70 * d) + vec3(spec) * spec_k\n"
@@ -2054,9 +2072,28 @@ static float cue_radius(float t) {
  * size it reads as a dent rather than as a facet, and with the badge gone it has
  * nothing to be there for. Kept as a function rather than deleted so the shape
  * is still described in one place if it is ever wanted back. */
+/* THE FLAT. The butt of a spliced cue is planed off down one side so the
+ * badge has a face to sit on. Geometrically: a plane at distance p from the
+ * axis, so within its angular span the radius is p / cos(dtheta) — a true
+ * chord, not a dent. Depth ramps in over the last 300 mm and reaches 22% of
+ * the radius at the cap; the flat faces AWAY from the decorative panel. */
+#define CUE_FLAT_ANG   (0.625f * 2.0f * PI)     /* opposite the panel at 0.125 */
+#define CUE_FLAT_DEPTH 0.22f
+static float cue_flat_depth(float t) {
+    float k = (t - (1.0f - 0.300f / CUE_LEN)) / (0.300f / CUE_LEN);
+    if (k < 0.0f) k = 0.0f; if (k > 1.0f) k = 1.0f;
+    return CUE_FLAT_DEPTH * k * k * (3.0f - 2.0f * k);
+}
 static float cue_flat_scale(float t, float ang) {
-    (void)t; (void)ang;
-    return 1.0f;
+    float dep = cue_flat_depth(t);
+    if (dep <= 0.0f) return 1.0f;
+    float p = 1.0f - dep;                        /* plane distance, in radii */
+    float d = ang - CUE_FLAT_ANG;
+    while (d >  PI) d -= 2.0f * PI;
+    while (d < -PI) d += 2.0f * PI;
+    float span = acosf(p);
+    if (fabsf(d) >= span) return 1.0f;
+    return p / cosf(d);
 }
 
 static void build_cue(Builder *b, int slices, int rings) {
@@ -2125,26 +2162,82 @@ static void build_cue(Builder *b, int slices, int rings) {
             int a = j * (slices + 1) + i, c = a + slices + 1;
             b_quad(b, a, c, c + 1, a + 1);
         }
-    /* CLOSE THE END. The lathe is a tube: the last ring has a radius, so the cue
-     * finished in an open hole you could see up if you looked at the butt end on.
-     * A fan of triangles across it caps the model, facing along the cue. */
+    /* CLOSE THE END — as the real thing is closed (image 34): the timber cap
+     * carries a BRASS EXTENSION SOCKET recessed into its centre, a bright ring
+     * with a dark threaded bore behind it. uv.y past 1.0 is the material
+     * channel: 1.02 brass, 1.05 bore, 1.08 badge — geometry says what it is
+     * made of, nothing is texture-mapped on. */
     {
         float rend = cue_radius(1.0f);
-        int centre = b_vert(b, 0.0f, CUE_LEN, 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f);
-        int base = rings * (slices + 1);
+        const float RB = 0.0092f;     /* brass ring outer radius */
+        const float RI = 0.0058f;     /* bore radius */
+        const float BD = 0.011f;      /* bore depth */
+        /* timber annulus rend -> RB */
         for (int i = 0; i < slices; i++) {
-            /* Re-emitted rather than reusing the last ring's vertices: those
-             * carry the SIDE's normal, and a cap sharing them would smear the
-             * end into the flank instead of reading as a cut-off end. */
             float u0 = (float)i / slices, u1 = (float)(i + 1) / slices;
             float t0 = u0 * 2.0f * PI, t1 = u1 * 2.0f * PI;
-            int v0 = b_vert(b, cosf(t0) * rend, CUE_LEN, sinf(t0) * rend,
-                            0.0f, 1.0f, 0.0f, u0, 1.0f);
-            int v1 = b_vert(b, cosf(t1) * rend, CUE_LEN, sinf(t1) * rend,
-                            0.0f, 1.0f, 0.0f, u1, 1.0f);
-            b_tri(b, centre, v1, v0);
+            float f0 = cue_flat_scale(1.0f, t0), f1 = cue_flat_scale(1.0f, t1);
+            int aa = b_vert(b, cosf(t0) * rend * f0, CUE_LEN, sinf(t0) * rend * f0, 0, 1, 0, u0, 0.999f);
+            int bb = b_vert(b, cosf(t1) * rend * f1, CUE_LEN, sinf(t1) * rend * f1, 0, 1, 0, u1, 0.999f);
+            int cc = b_vert(b, cosf(t1) * RB, CUE_LEN, sinf(t1) * RB, 0, 1, 0, u1, 0.999f);
+            int dd = b_vert(b, cosf(t0) * RB, CUE_LEN, sinf(t0) * RB, 0, 1, 0, u0, 0.999f);
+            b_quad(b, aa, dd, cc, bb);
         }
-        (void)base;
+        /* brass ring RB -> RI */
+        for (int i = 0; i < slices; i++) {
+            float u0 = (float)i / slices, u1 = (float)(i + 1) / slices;
+            float t0 = u0 * 2.0f * PI, t1 = u1 * 2.0f * PI;
+            int aa = b_vert(b, cosf(t0) * RB, CUE_LEN, sinf(t0) * RB, 0, 1, 0, u0, 1.02f);
+            int bb = b_vert(b, cosf(t1) * RB, CUE_LEN, sinf(t1) * RB, 0, 1, 0, u1, 1.02f);
+            int cc = b_vert(b, cosf(t1) * RI, CUE_LEN, sinf(t1) * RI, 0, 1, 0, u1, 1.02f);
+            int dd = b_vert(b, cosf(t0) * RI, CUE_LEN, sinf(t0) * RI, 0, 1, 0, u0, 1.02f);
+            b_quad(b, aa, dd, cc, bb);
+        }
+        /* bore wall + floor, recessed */
+        for (int i = 0; i < slices; i++) {
+            float u0 = (float)i / slices, u1 = (float)(i + 1) / slices;
+            float t0 = u0 * 2.0f * PI, t1 = u1 * 2.0f * PI;
+            int aa = b_vert(b, cosf(t0) * RI, CUE_LEN, sinf(t0) * RI, -cosf(t0), 0, -sinf(t0), u0, 1.05f);
+            int bb = b_vert(b, cosf(t1) * RI, CUE_LEN, sinf(t1) * RI, -cosf(t1), 0, -sinf(t1), u1, 1.05f);
+            int cc = b_vert(b, cosf(t1) * RI, CUE_LEN - BD, sinf(t1) * RI, -cosf(t1), 0, -sinf(t1), u1, 1.05f);
+            int dd = b_vert(b, cosf(t0) * RI, CUE_LEN - BD, sinf(t0) * RI, -cosf(t0), 0, -sinf(t0), u0, 1.05f);
+            b_quad(b, aa, bb, cc, dd);
+        }
+        {
+            int centre = b_vert(b, 0.0f, CUE_LEN - BD, 0.0f, 0, 1, 0, 0.0f, 1.05f);
+            for (int i = 0; i < slices; i++) {
+                float u0 = (float)i / slices, u1 = (float)(i + 1) / slices;
+                float t0 = u0 * 2.0f * PI, t1 = u1 * 2.0f * PI;
+                int v0 = b_vert(b, cosf(t0) * RI, CUE_LEN - BD, sinf(t0) * RI, 0, 1, 0, 0.9f, 1.05f);
+                int v1 = b_vert(b, cosf(t1) * RI, CUE_LEN - BD, sinf(t1) * RI, 0, 1, 0, 0.9f, 1.05f);
+                b_tri(b, centre, v1, v0);
+            }
+        }
+    }
+    /* THE BADGE: a separate disc STUCK ON the flat — real geometry, slightly
+     * proud, its own rim — not a picture mapped into the wood. uv.x carries
+     * the radial fraction so the shader can draw the rim ring. */
+    {
+        const float BR = 0.0105f;                    /* badge radius */
+        const float TB = 1.0f - 0.055f / CUE_LEN;    /* centre, 55 mm from the end */
+        float r0 = cue_radius(TB);
+        float p  = r0 * (1.0f - cue_flat_depth(TB)) + 0.0009f;   /* proud of the flat */
+        float nx = cosf(CUE_FLAT_ANG), nz = sinf(CUE_FLAT_ANG);
+        float cxp = nx * p, cy = TB * CUE_LEN, czp = nz * p;
+        float txx = -nz, tzz = nx;                   /* tangent across the flat */
+        int centre = b_vert(b, cxp, cy, czp, nx, 0, nz, 0.0f, 1.08f);
+        int ring0 = -1, prev = -1;
+        const int BN = 20;
+        for (int i = 0; i <= BN; i++) {
+            float th = (float)i / BN * 2.0f * PI;
+            float ox = cosf(th) * BR, oy = sinf(th) * BR;
+            int v = b_vert(b, cxp + txx * ox, cy + oy, czp + tzz * ox,
+                           nx, 0, nz, 1.0f, 1.08f);
+            if (i == 0) ring0 = v;
+            else b_tri(b, centre, prev, v);
+            prev = v;
+        }
+        (void)ring0;
     }
 }
 
