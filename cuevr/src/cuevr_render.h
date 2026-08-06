@@ -135,6 +135,10 @@ typedef struct {
     /* Nested arch count on the butt panel: most Peradons carry at least two
      * of the curved inlays at different depths. 0 means 1. */
     int   arches;
+    /* Viking spear panel: flipped (apex at the cap) and filled with marbled
+     * pearl instead of timber. */
+    int   panel_flip;
+    int   panel_pearl;
 } CueVrCueDesign;
 
 int         cuevr_render_cue_count(void);

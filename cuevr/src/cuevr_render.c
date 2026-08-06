@@ -151,6 +151,8 @@ static const char *FS =
 "uniform float u_cit;\n"
 "uniform float u_chand;\n"
 "uniform float u_cnarch;\n"
+"uniform float u_cpflip;\n"
+"uniform float u_cppearl;\n"
 "uniform vec3  u_caccent;\n"
 "uniform vec3  u_cbutt;\n"
 "uniform vec3  u_cburr;\n"
@@ -1000,6 +1002,7 @@ static const char *FS =
 "                    float wdrw = max(wln, px);\n"
 "                    float fade = wln / wdrw;\n"
 "                    float ln   = 1.0 - smoothstep(wdrw, wdrw + px, edge);\n"
+"                    ln *= step(px * 1.3, hw);   /* no veneer before the arch is a pixel wide */\n"
 "                    // THE STACK. A hand splice lays several slips in the one\n"
 "                    // joint and a Taylor Made laminate lays eight or ten, which\n"
 "                    // is why they read as nested Vs of colour rather than as an\n"
@@ -1028,7 +1031,7 @@ static const char *FS =
 "                 * the shaft, plain black through the brass line, then the\n"
 "                 * festoon blooms out of the black to the cap. */\n"
 "                if (u_cnvcol > 0.5 && t > 0.72) {\n"
-"                    float lay = cue_r * cos((a - 0.12) * 6.2831853) * 360.0\n"
+"                    float lay = cue_r * cos((a - 0.125) * 6.2831853) * 360.0\n"
 "                              + t * 55.0 + 2.5 * fbm2(vec2(t * 7.0, a * 3.0));\n"
 "                    float m2 = fract(lay * 0.5) * 2.0;\n"
 "                    float fe = 0.10 + 0.45 * fbm2(vec2(t * 220.0, a * 45.0));\n"
@@ -1139,13 +1142,23 @@ static const char *FS =
 "                 * jumped mid-arch here, because the single panel spans the\n"
 "                 * quarter boundaries — the hash switched partway round and\n"
 "                 * the whole edge stepped vertically: the \"abrupt stop\". */\n"
-"                float unev = 0.0;\n"
-"                float k = clamp((t - (bs_tip + unev)) / (bs_base - bs_tip), 0.0, 1.0);\n"
-"                float pexp = (u_chand > 0.5) ? 0.38 : 1.00;\n"
-"                float hw = 0.52 * pow(k, pexp);\n"
+"                float unev = 0.0;\n""                float tt2 = (u_cpflip > 0.5) ? (bs_tip + bs_base - t) : t;\n"
+"                float k = clamp((tt2 - (bs_tip + unev)) / (bs_base - bs_tip), 0.0, 1.0);\n"
+"                /* A BULLET, not a power dome. The real butt inlays round\n"
+"                 * quickly over a quarter-ellipse cap and then run with near\n"
+"                 * PARALLEL sides to the cap — a curve that keeps widening all\n"
+"                 * the way looks drawn by a child, and did. */\n"
+"                float ke = clamp(k / 0.30, 0.0, 1.0);\n"
+"                float hw = 0.42 * sqrt(1.0 - (1.0 - ke) * (1.0 - ke));\n"
 "                float aa2 = fwidth(db) * 1.2;\n"
 "                float e = (hw > aa2) ? smoothstep(hw + aa2, hw - aa2, db) : 0.0;\n"
 "                vec3 pane = burr;\n"
+"                if (u_cppearl > 0.5) {\n"
+"                    float mp = 0.5 * fbm2(vec2(t * 42.0, a * 7.0))\n"
+"                             + 0.5 * fbm2(vec2(t * 170.0, a * 30.0));\n"
+"                    pane = mix(u_cdiac * 0.50, vec3(1.0), smoothstep(0.28, 0.82, mp));\n"
+"                    gloss = 120.0; spec_k = 0.55; butt_varn *= 0.4;\n"
+"                }\n"
 "                if (u_cnvcol > 0.5) {\n"
 "                    // A LAMINATE fills its panel: the bands run the panel's\n"
 "                    // whole width and widen toward the base exactly as cut\n"
@@ -1226,6 +1239,7 @@ static const char *FS =
 "                    float wdrw = max(wln, px);\n"
 "                    float fade = wln / wdrw;\n"
 "                    float ln   = 1.0 - smoothstep(wdrw, wdrw + px, edge);\n"
+"                    ln *= step(px * 1.3, hw);   /* no veneer before the arch is a pixel wide */\n"
 "                    // The stack: a second sheet laid immediately outside the\n"
 "                    // first, sharing the same thickness and the same flare.\n"
 "                    // THE STACK. A hand splice lays several slips in the one\n"
@@ -1255,7 +1269,8 @@ static const char *FS =
 "                    if (u_cnarch > 1.5) {\n"
 "                        float k2 = clamp((t - (bs_tip + unev + 0.055)) / (bs_base - bs_tip), 0.0, 1.0);\n"
 "                        if (k2 > 0.003) {\n"
-"                            float hw2 = 0.52 * pow(k2, pexp) * 0.86;\n"
+"                            float k2e = clamp(k2 / 0.30, 0.0, 1.0);\n"
+"                            float hw2 = 0.42 * sqrt(1.0 - (1.0 - k2e) * (1.0 - k2e)) * 0.80;\n"
 "                            float ed2 = abs(db - hw2);\n"
 "                            float lnB = 1.0 - smoothstep(wdrw, wdrw + px, ed2);\n"
 "                            c = mix(c, u_caccent, lnB * 0.95 * fade);\n"
@@ -1833,7 +1848,7 @@ static struct {
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
-           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_cdiac, u_cdia, u_cvcol, u_cnvcol, u_csfig, u_cbfig, u_cishape, u_cipearl, u_cit, u_chand, u_cnarch,
+           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_cdiac, u_cdia, u_cvcol, u_cnvcol, u_csfig, u_cbfig, u_cishape, u_cipearl, u_cit, u_chand, u_cnarch, u_cpflip, u_cppearl,
            u_cwrapc, u_csleevec, u_cringc, u_cpts, u_cptlen, u_cnvnr, u_cwrap, u_csleeve, u_clam, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_lampN, u_lampI, u_nlamp, u_lampround, u_eye;
     GLint  u_keyc, u_fill, u_hudv, u_hudrect, u_shadow, u_clothlod, u_rawcol, u_varn;
@@ -2548,11 +2563,13 @@ static const CueVrCueDesign CUE_RACK[] = {
     .diamonds=1, .diac={0.70f,0.12f,0.14f}, .inlay_shape=2,
     .vnr2={0.94f,0.93f,0.90f} },
   { .name="VIKING PEARL",.shaft={0.90f,0.83f,0.65f}, .splice={0.80f,0.68f,0.46f},
-    .accent={0.94f,0.93f,0.90f}, .burr={0.82f,0.70f,0.48f}, .butt={0.80f,0.68f,0.46f},
-    .veneer_w=0.0012f, .points=0, .shaft_fig=1, .butt_fig=2,
-    .wrap=1, .wrapc={0.10f,0.10f,0.11f}, .sleeve=1, .sleevec={0.80f,0.68f,0.46f},
-    .ringc={0.86f,0.87f,0.90f},
-    .diamonds=1, .diac={0.25f,0.45f,0.85f}, .inlay_shape=3, .inlay_pearl=1,
+    /* the spear: pearl pane, BLACK pinstripe outline, apex at the cap end,
+     * set into birdseye maple. The prongs are maple-on-maple: invisible, they
+     * exist so the panel machinery runs. */
+    .accent={0.07f,0.06f,0.06f}, .burr={0.82f,0.70f,0.48f}, .butt={0.80f,0.68f,0.46f},
+    .flash=1, .veneer_w=0.0016f, .points=4, .point_len=1.0f,
+    .shaft_fig=1, .butt_fig=2, .panel_flip=1, .panel_pearl=1,
+    .ringc={0.86f,0.87f,0.90f}, .diac={0.30f,0.50f,0.88f},
     .vnr2={0.10f,0.09f,0.09f} },
   { .name="VIKING BLUE",.shaft={0.90f,0.83f,0.65f}, .splice={0.16f,0.28f,0.58f},
     .accent={0.94f,0.93f,0.90f}, .burr={0.18f,0.30f,0.62f}, .butt={0.16f,0.28f,0.58f},
@@ -3217,6 +3234,8 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_cit        = glGetUniformLocation(G.prog, "u_cit");
     G.u_chand      = glGetUniformLocation(G.prog, "u_chand");
     G.u_cnarch     = glGetUniformLocation(G.prog, "u_cnarch");
+    G.u_cpflip     = glGetUniformLocation(G.prog, "u_cpflip");
+    G.u_cppearl    = glGetUniformLocation(G.prog, "u_cppearl");
     G.u_caccent    = glGetUniformLocation(G.prog, "u_caccent");
     G.u_cbutt      = glGetUniformLocation(G.prog, "u_cbutt");
     G.u_cburr      = glGetUniformLocation(G.prog, "u_cburr");
@@ -3954,6 +3973,8 @@ after_table: ;
             glUniform1f(G.u_cit,     cd->inlay_t);
             glUniform1f(G.u_chand,  (float)cd->hand);
             glUniform1f(G.u_cnarch, (float)(cd->arches ? cd->arches : 1));
+            glUniform1f(G.u_cpflip,  (float)cd->panel_flip);
+            glUniform1f(G.u_cppearl, (float)cd->panel_pearl);
             glUniform1f(G.u_cpts,   cd->points   ? (float)cd->points : 4.0f);
             glUniform1f(G.u_cptlen, cd->point_len > 0.01f ? cd->point_len : 1.0f);
             glUniform1f(G.u_cnvnr,  (float)(cd->veneers ? cd->veneers : (cd->flash ? 1 : 0)));
