@@ -94,10 +94,24 @@ typedef struct {
      * just outside it. vnr2 is that second line; flash2 turns it on. */
     float vnr2[3];
     int   flash2;
-    /* Half-width of a veneer in the angular coordinate. A real one is a sliver
-     * of dyed wood well under a millimetre — this used to be floored at 0.013,
-     * which is a painted stripe once the butt is a handspan from your eye. */
+    /* Thickness of ONE veneer, in metres. A real slip of dyed wood is about a
+     * millimetre; what you see of it is set by where the turned surface cuts
+     * through the joint, not by a chosen line width. */
     float veneer_w;
+
+    /* ---- the STRUCTURE, which is what actually distinguishes a range ------
+     * Recolouring one model gives you one cue in fourteen colours. These are
+     * the things that differ between a Peradon Crown, a Taylor Made laminate
+     * and an American cue with a wrap — and none of them is a colour. */
+    int   points;        /* splice points around the cue: 4, 6, or 0 for none */
+    float point_len;     /* length of the points, 1.0 = the standard splice */
+    int   veneers;       /* laminations stacked in each joint, 0..6 */
+    int   wrap;          /* 1 = a linen grip wrap over the middle of the butt */
+    float wrapc[3];
+    int   sleeve;        /* 1 = a separate butt sleeve, banded at its collar */
+    float sleevec[3];
+    float ringc[3];      /* the collar rings at joint and sleeve */
+    int   laminated;     /* 1 = the butt is laminated coloured timber, striped */
 } CueVrCueDesign;
 
 int         cuevr_render_cue_count(void);

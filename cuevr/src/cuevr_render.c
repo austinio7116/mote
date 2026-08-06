@@ -129,6 +129,15 @@ static const char *FS =
 "uniform vec3  u_cshaft;\n"
 "uniform vec3  u_csplice;\n"
 "uniform vec3  u_cvnr2;\n"
+"uniform vec3  u_cwrapc;\n"
+"uniform vec3  u_csleevec;\n"
+"uniform vec3  u_cringc;\n"
+"uniform float u_cpts;\n"
+"uniform float u_cptlen;\n"
+"uniform float u_cnvnr;\n"
+"uniform float u_cwrap;\n"
+"uniform float u_csleeve;\n"
+"uniform float u_clam;\n"
 "uniform float u_cvw;\n"
 "uniform float u_cv2on;\n"
 "uniform vec3  u_caccent;\n"
@@ -875,12 +884,16 @@ static const char *FS =
 "            // cue, and pow() below 1 is what makes them SLENDER — a linear\n"
 "            // taper gives fat triangles, and a real splice is nearly a needle\n"
 "            // for the last third of its length.\n"
-"            float f = fract(a * 4.0);\n"
+"            // How many points, and how far they run. A Peradon Classic has no\n"
+"            // splice at all, a Crown is short and a Royal is long; that is the\n"
+"            // difference between them, not the colour.\n"
+"            float f = fract(a * max(u_cpts, 1.0));\n"
 "            float d = min(f, 1.0 - f);          /* distance to a point centre */\n"
+"            float PL = u_cptlen;\n"
 "\n"
 "            /* 1. the main splice: ebony rising into the ash */\n"
-"            const float ms_tip = 0.470, ms_base = 0.610;\n"
-"            if (t > ms_tip) {\n"
+"            float ms_base = 0.610, ms_tip = 0.610 - 0.140 * PL;\n"
+"            if (t > ms_tip && u_cpts > 0.5) {\n"
 "                float k = clamp((t - ms_tip) / (ms_base - ms_tip), 0.0, 1.0);\n"
 "                float hw = 0.42 * pow(k, 0.62);\n"
 "                float e = smoothstep(hw, hw * 0.80, d);\n"
@@ -902,9 +915,18 @@ static const char *FS =
 "                    float wdrw = max(wln, px);\n"
 "                    float fade = wln / wdrw;\n"
 "                    float ln   = 1.0 - smoothstep(wdrw, wdrw + px, edge);\n"
-"                    float e2   = abs(edge - wln * 2.0);\n"
-"                    float ln2  = 1.0 - smoothstep(wdrw, wdrw + px, e2);\n"
-"                    c = mix(c, u_cvnr2, ln2 * 0.90 * fade * u_cv2on);\n"
+"                    // THE STACK. A hand splice lays several slips in the one\n"
+"                    // joint and a Taylor Made laminate lays eight or ten, which\n"
+"                    // is why they read as nested Vs of colour rather than as an\n"
+"                    // outline. Each sits one thickness outside the last and\n"
+"                    // they alternate, pale against coloured, as they are cut.\n"
+"                    for (int vi = 1; vi < 8; vi++) {\n"
+"                        if (float(vi) >= u_cnvnr) break;\n"
+"                        float ei = abs(edge - wln * 2.0 * float(vi));\n"
+"                        float li = 1.0 - smoothstep(wdrw, wdrw + px, ei);\n"
+"                        vec3  vc = (mod(float(vi), 2.0) < 0.5) ? u_caccent : u_cvnr2;\n"
+"                        c = mix(c, vc, li * 0.92 * fade);\n"
+"                    }\n"
 "                    c = mix(c, u_caccent, ln * 0.95 * fade);\n"
 "                }\n"
 "            }\n"
@@ -912,8 +934,8 @@ static const char *FS =
 "\n"
 "            /* 2. the burr splice: figured wood rising into the black. Long and\n"
 "             *    slender — it runs a third of the whole cue. */\n"
-"            const float bs_tip = 0.735, bs_base = 0.945;\n"
-"            if (t > bs_tip) {\n"
+"            float bs_base = 0.945, bs_tip = 0.945 - 0.210 * PL;\n"
+"            if (t > bs_tip && u_cpts > 0.5) {\n"
 "                /* The burr itself: dark grey, strongly figured ACROSS the\n"
 "                 * grain, which is what distinguishes it from plain ebony. */\n"
 "                // Wood for a CUE BUTT, written for the job.\n"
@@ -1049,9 +1071,18 @@ static const char *FS =
 "                    float ln   = 1.0 - smoothstep(wdrw, wdrw + px, edge);\n"
 "                    // The stack: a second sheet laid immediately outside the\n"
 "                    // first, sharing the same thickness and the same flare.\n"
-"                    float e2   = abs(edge - wln * 2.0);\n"
-"                    float ln2  = 1.0 - smoothstep(wdrw, wdrw + px, e2);\n"
-"                    c = mix(c, u_cvnr2, ln2 * 0.90 * fade * u_cv2on);\n"
+"                    // THE STACK. A hand splice lays several slips in the one\n"
+"                    // joint and a Taylor Made laminate lays eight or ten, which\n"
+"                    // is why they read as nested Vs of colour rather than as an\n"
+"                    // outline. Each sits one thickness outside the last and\n"
+"                    // they alternate, pale against coloured, as they are cut.\n"
+"                    for (int vi = 1; vi < 8; vi++) {\n"
+"                        if (float(vi) >= u_cnvnr) break;\n"
+"                        float ei = abs(edge - wln * 2.0 * float(vi));\n"
+"                        float li = 1.0 - smoothstep(wdrw, wdrw + px, ei);\n"
+"                        vec3  vc = (mod(float(vi), 2.0) < 0.5) ? u_caccent : u_cvnr2;\n"
+"                        c = mix(c, vc, li * 0.92 * fade);\n"
+"                    }\n"
 "                    c = mix(c, u_caccent, ln * 0.95 * fade);\n"
 "                }\n"
 "                // Below the points the whole butt is burr — on a real cue the\n"
@@ -1541,7 +1572,8 @@ static struct {
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
-           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
+           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on,
+           u_cwrapc, u_csleevec, u_cringc, u_cpts, u_cptlen, u_cnvnr, u_cwrap, u_csleeve, u_clam, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_lampN, u_lampI, u_nlamp, u_lampround, u_eye;
     GLint  u_keyc, u_fill, u_hudv, u_hudrect, u_shadow, u_clothlod, u_rawcol, u_varn;
     int    minimal;            /* the real shader would not build; see FS_MIN */
@@ -2101,39 +2133,94 @@ static float fur_noise(float x, float y, int px, int py) {
  * coloured line flashed down each side of a splice point, which is the detail
  * that makes a cue look made rather than turned. */
 static const CueVrCueDesign CUE_RACK[] = {
-  /* FIELD ORDER: shaft, splice, accent(veneer), BURR, BUTT, flash,
-   *              vnr2(second veneer), flash2, veneer thickness (m).
-   * Burr before butt — listing them the other way round once gave every cue a
-   * near-black burr, so the splice points were drawn black on black.
+  /* DESIGNATED INITIALISERS, deliberately. The struct is too wide to list
+   * positionally — an earlier positional table swapped burr and butt, so every
+   * cue drew its splice black on black and it read as a shader bug.
    *
-   * Two families, because the references are two traditions.
-   *
-   * The BRITISH hand splice: an ash shaft, four long ebony points let into it,
-   * and the whole frame's character coming from the dyed veneers laid in the
-   * joint. Taylor Made and Peradon both work this way and it is why their cues
-   * read as made rather than painted.
-   *
-   * The AMERICAN cue: a pale maple shaft and a COLOURED forearm — stained
-   * timber rather than ebony — with pale points let into it the other way
-   * about, light into dark. A different look entirely from the same six
-   * numbers, which is the nice thing about shading it all from the profile.
-   *
-   *  name             shaft                 splice                  accent (veneer)         burr (splice wood)     butt                    fl  veneer 2                fl2 thick */
-  { "ASH & EBONY",  {0.86f,0.74f,0.54f}, {0.075f,0.060f,0.052f}, {0.075f,0.060f,0.052f}, {0.28f,0.27f,0.26f},  {0.075f,0.060f,0.052f}, 0, {0,0,0},                 0, 0.0010f },
-  { "CENTURY",      {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.13f,0.62f,0.60f},    {0.26f,0.26f,0.26f},  {0.070f,0.058f,0.052f}, 1, {0.93f,0.90f,0.80f},     1, 0.0011f },
-  { "CORAL",        {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.94f,0.42f,0.34f},    {0.27f,0.25f,0.25f},  {0.070f,0.058f,0.052f}, 1, {0.93f,0.90f,0.80f},     1, 0.0011f },
-  { "ROYAL",        {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.13f,0.34f,0.72f},    {0.26f,0.26f,0.27f},  {0.070f,0.058f,0.052f}, 1, {0.93f,0.90f,0.80f},     1, 0.0011f },
-  { "CROWN",        {0.86f,0.74f,0.54f}, {0.10f,0.055f,0.045f},  {0.72f,0.14f,0.16f},    {0.34f,0.14f,0.10f},  {0.10f,0.055f,0.045f},  1, {0.80f,0.64f,0.30f},     1, 0.0012f },
-  { "JOE DAVIS",    {0.87f,0.75f,0.55f}, {0.070f,0.058f,0.052f}, {0.92f,0.87f,0.74f},    {0.29f,0.28f,0.27f},  {0.070f,0.058f,0.052f}, 1, {0.55f,0.42f,0.24f},     1, 0.0012f },
-  { "EDWARDIAN",    {0.87f,0.75f,0.55f}, {0.26f,0.11f,0.07f},    {0.90f,0.84f,0.70f},    {0.46f,0.22f,0.13f},  {0.26f,0.11f,0.07f},    1, {0.14f,0.09f,0.07f},     1, 0.0012f },
-  { "ASCOT",        {0.87f,0.75f,0.55f}, {0.36f,0.14f,0.09f},    {0.94f,0.90f,0.78f},    {0.58f,0.26f,0.12f},  {0.36f,0.14f,0.09f},    1, {0.20f,0.10f,0.06f},     1, 0.0012f },
-  { "HARLEQUIN",    {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.85f,0.22f,0.52f},    {0.30f,0.26f,0.30f},  {0.070f,0.058f,0.052f}, 1, {0.95f,0.60f,0.16f},     1, 0.0013f },
-  { "BURR WALNUT",  {0.87f,0.75f,0.55f}, {0.20f,0.12f,0.07f},    {0.72f,0.56f,0.30f},    {0.46f,0.31f,0.17f},  {0.20f,0.12f,0.07f},    1, {0.93f,0.88f,0.76f},     1, 0.0011f },
-  /* --- American: pale maple shaft, stained forearm, pale points ------------ */
-  { "SCARLET",      {0.90f,0.82f,0.62f}, {0.62f,0.09f,0.10f},    {0.95f,0.92f,0.84f},    {0.80f,0.16f,0.14f},  {0.62f,0.09f,0.10f},    1, {0.16f,0.13f,0.12f},     1, 0.0013f },
-  { "EMERALD",      {0.90f,0.82f,0.62f}, {0.08f,0.34f,0.18f},    {0.94f,0.90f,0.78f},    {0.12f,0.52f,0.26f},  {0.08f,0.34f,0.18f},    1, {0.78f,0.64f,0.24f},     1, 0.0013f },
-  { "SAPPHIRE",     {0.90f,0.82f,0.62f}, {0.08f,0.18f,0.46f},    {0.94f,0.90f,0.80f},    {0.14f,0.28f,0.66f},  {0.08f,0.18f,0.46f},    1, {0.80f,0.66f,0.26f},     1, 0.0013f },
-  { "IVORY",        {0.90f,0.82f,0.62f}, {0.88f,0.84f,0.74f},    {0.12f,0.26f,0.58f},    {0.94f,0.92f,0.86f},  {0.88f,0.84f,0.74f},    1, {0.20f,0.18f,0.17f},     1, 0.0013f },
+   * The range is built on STRUCTURE, because that is what actually separates
+   * the traditions. A Peradon Classic has no splice at all; a Crown's points
+   * are short and a Royal's run half the butt. A Taylor Made laminate lays
+   * eight slips in the joint where an ordinary hand splice lays one or two. An
+   * American cue is a different object again: a stained forearm, a linen wrap
+   * where the hand goes, a separate butt sleeve and collar rings. */
+
+  /* ---- Peradon-style British hand splices ------------------------------- */
+  { .name="CLASSIC",   .shaft={0.87f,0.75f,0.55f}, .splice={0.30f,0.13f,0.08f},
+    .accent={0.30f,0.13f,0.08f}, .burr={0.42f,0.20f,0.11f}, .butt={0.30f,0.13f,0.08f},
+    .points=0, .veneer_w=0.0010f },                       /* no splice at all */
+
+  { .name="CROWN",     .shaft={0.87f,0.75f,0.55f}, .splice={0.24f,0.07f,0.06f},
+    .accent={0.74f,0.13f,0.15f}, .burr={0.40f,0.13f,0.09f}, .butt={0.24f,0.07f,0.06f},
+    .flash=1, .vnr2={0.93f,0.90f,0.80f}, .flash2=1, .veneer_w=0.0011f,
+    .points=4, .point_len=0.55f, .veneers=2 },            /* short points */
+
+  { .name="EDWARDIAN", .shaft={0.87f,0.75f,0.55f}, .splice={0.26f,0.11f,0.07f},
+    .accent={0.90f,0.84f,0.70f}, .burr={0.46f,0.22f,0.13f}, .butt={0.26f,0.11f,0.07f},
+    .flash=1, .veneer_w=0.0012f, .points=4, .point_len=0.85f, .veneers=1 },
+
+  { .name="JOE DAVIS", .shaft={0.87f,0.75f,0.55f}, .splice={0.070f,0.058f,0.052f},
+    .accent={0.92f,0.87f,0.74f}, .burr={0.29f,0.28f,0.27f}, .butt={0.070f,0.058f,0.052f},
+    .flash=1, .vnr2={0.55f,0.42f,0.24f}, .flash2=1, .veneer_w=0.0012f,
+    .points=4, .point_len=1.15f, .veneers=3 },            /* long points */
+
+  { .name="CENTURY",   .shaft={0.86f,0.74f,0.54f}, .splice={0.070f,0.058f,0.052f},
+    .accent={0.13f,0.62f,0.60f}, .burr={0.26f,0.26f,0.26f}, .butt={0.070f,0.058f,0.052f},
+    .flash=1, .vnr2={0.93f,0.90f,0.80f}, .flash2=1, .veneer_w=0.0011f,
+    .points=4, .point_len=1.0f, .veneers=3 },
+
+  { .name="ASCOT",     .shaft={0.87f,0.75f,0.55f}, .splice={0.36f,0.14f,0.09f},
+    .accent={0.94f,0.90f,0.78f}, .burr={0.58f,0.26f,0.12f}, .butt={0.36f,0.14f,0.09f},
+    .flash=1, .vnr2={0.20f,0.10f,0.06f}, .flash2=1, .veneer_w=0.0012f,
+    .points=6, .point_len=0.70f, .veneers=2 },            /* SIX points */
+
+  { .name="ROYAL",     .shaft={0.87f,0.75f,0.55f}, .splice={0.070f,0.058f,0.052f},
+    .accent={0.93f,0.90f,0.80f}, .burr={0.28f,0.27f,0.26f}, .butt={0.070f,0.058f,0.052f},
+    .flash=1, .veneer_w=0.0011f, .points=4, .point_len=1.35f, .veneers=1 },
+
+  /* ---- Taylor Made laminates: eight slips in every joint ---------------- */
+  { .name="TURQUOISE", .shaft={0.86f,0.74f,0.54f}, .splice={0.065f,0.055f,0.050f},
+    .accent={0.10f,0.66f,0.62f}, .burr={0.22f,0.24f,0.25f}, .butt={0.065f,0.055f,0.050f},
+    .flash=1, .vnr2={0.95f,0.93f,0.86f}, .flash2=1, .veneer_w=0.00042f,
+    .points=4, .point_len=0.95f, .veneers=8, .laminated=1 },
+
+  { .name="CORAL",     .shaft={0.86f,0.74f,0.54f}, .splice={0.065f,0.055f,0.050f},
+    .accent={0.97f,0.44f,0.35f}, .burr={0.26f,0.22f,0.22f}, .butt={0.065f,0.055f,0.050f},
+    .flash=1, .vnr2={0.10f,0.09f,0.09f}, .flash2=1, .veneer_w=0.00042f,
+    .points=4, .point_len=0.95f, .veneers=8, .laminated=1 },
+
+  { .name="HARLEQUIN", .shaft={0.86f,0.74f,0.54f}, .splice={0.065f,0.055f,0.050f},
+    .accent={0.88f,0.20f,0.50f}, .burr={0.28f,0.24f,0.28f}, .butt={0.065f,0.055f,0.050f},
+    .flash=1, .vnr2={0.97f,0.62f,0.14f}, .flash2=1, .veneer_w=0.00042f,
+    .points=4, .point_len=1.00f, .veneers=8, .laminated=1 },
+
+  /* ---- American: stained forearm, linen wrap, sleeve, collar rings ------- */
+  { .name="SCARLET",   .shaft={0.90f,0.82f,0.62f}, .splice={0.60f,0.08f,0.09f},
+    .accent={0.96f,0.93f,0.86f}, .burr={0.78f,0.15f,0.13f}, .butt={0.60f,0.08f,0.09f},
+    .flash=1, .vnr2={0.14f,0.12f,0.11f}, .flash2=1, .veneer_w=0.0013f,
+    .points=4, .point_len=1.30f, .veneers=3,
+    .wrap=1, .wrapc={0.13f,0.13f,0.14f}, .sleeve=1, .sleevec={0.60f,0.08f,0.09f},
+    .ringc={0.82f,0.66f,0.26f} },
+
+  { .name="EMERALD",   .shaft={0.90f,0.82f,0.62f}, .splice={0.07f,0.32f,0.17f},
+    .accent={0.95f,0.92f,0.82f}, .burr={0.11f,0.50f,0.25f}, .butt={0.07f,0.32f,0.17f},
+    .flash=1, .vnr2={0.80f,0.66f,0.24f}, .flash2=1, .veneer_w=0.0013f,
+    .points=4, .point_len=1.30f, .veneers=3,
+    .wrap=1, .wrapc={0.13f,0.13f,0.14f}, .sleeve=1, .sleevec={0.07f,0.32f,0.17f},
+    .ringc={0.82f,0.66f,0.26f} },
+
+  { .name="SAPPHIRE",  .shaft={0.90f,0.82f,0.62f}, .splice={0.07f,0.16f,0.44f},
+    .accent={0.95f,0.92f,0.84f}, .burr={0.13f,0.27f,0.64f}, .butt={0.07f,0.16f,0.44f},
+    .flash=1, .vnr2={0.82f,0.68f,0.28f}, .flash2=1, .veneer_w=0.0013f,
+    .points=4, .point_len=1.30f, .veneers=3,
+    .wrap=1, .wrapc={0.13f,0.13f,0.14f}, .sleeve=1, .sleevec={0.07f,0.16f,0.44f},
+    .ringc={0.82f,0.66f,0.26f} },
+
+  { .name="PEARL",     .shaft={0.90f,0.82f,0.62f}, .splice={0.90f,0.87f,0.78f},
+    .accent={0.10f,0.24f,0.56f}, .burr={0.94f,0.92f,0.86f}, .butt={0.90f,0.87f,0.78f},
+    .flash=1, .vnr2={0.18f,0.17f,0.16f}, .flash2=1, .veneer_w=0.0013f,
+    .points=6, .point_len=1.10f, .veneers=3,
+    .wrap=1, .wrapc={0.11f,0.11f,0.12f}, .sleeve=1, .sleevec={0.10f,0.24f,0.56f},
+    .ringc={0.88f,0.86f,0.80f} },
 };
 #define CUE_RACK_N ((int)(sizeof CUE_RACK / sizeof CUE_RACK[0]))
 static int s_cue_sel;
@@ -2771,6 +2858,15 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_cshaft     = glGetUniformLocation(G.prog, "u_cshaft");
     G.u_csplice    = glGetUniformLocation(G.prog, "u_csplice");
     G.u_cvnr2      = glGetUniformLocation(G.prog, "u_cvnr2");
+    G.u_cwrapc     = glGetUniformLocation(G.prog, "u_cwrapc");
+    G.u_csleevec   = glGetUniformLocation(G.prog, "u_csleevec");
+    G.u_cringc     = glGetUniformLocation(G.prog, "u_cringc");
+    G.u_cpts       = glGetUniformLocation(G.prog, "u_cpts");
+    G.u_cptlen     = glGetUniformLocation(G.prog, "u_cptlen");
+    G.u_cnvnr      = glGetUniformLocation(G.prog, "u_cnvnr");
+    G.u_cwrap      = glGetUniformLocation(G.prog, "u_cwrap");
+    G.u_csleeve    = glGetUniformLocation(G.prog, "u_csleeve");
+    G.u_clam       = glGetUniformLocation(G.prog, "u_clam");
     G.u_cvw        = glGetUniformLocation(G.prog, "u_cvw");
     G.u_cv2on      = glGetUniformLocation(G.prog, "u_cv2on");
     G.u_caccent    = glGetUniformLocation(G.prog, "u_caccent");
@@ -3491,6 +3587,15 @@ after_table: ;
             glUniform3fv(G.u_cvnr2, 1, cd->vnr2);
             glUniform1f(G.u_cv2on, (float)cd->flash2);
             glUniform1f(G.u_cvw, cd->veneer_w > 0.0f ? cd->veneer_w : 0.0010f);
+            glUniform3fv(G.u_cwrapc, 1, cd->wrapc);
+            glUniform3fv(G.u_csleevec, 1, cd->sleevec);
+            glUniform3fv(G.u_cringc, 1, cd->ringc);
+            glUniform1f(G.u_cpts,   cd->points   ? (float)cd->points : 4.0f);
+            glUniform1f(G.u_cptlen, cd->point_len > 0.01f ? cd->point_len : 1.0f);
+            glUniform1f(G.u_cnvnr,  (float)(cd->veneers ? cd->veneers : (cd->flash ? 1 : 0)));
+            glUniform1f(G.u_cwrap,  (float)cd->wrap);
+            glUniform1f(G.u_csleeve,(float)cd->sleeve);
+            glUniform1f(G.u_clam,   (float)cd->laminated);
         }
         glUniform1f(G.u_baulk, tb->baulk_x);
         glUniform1f(G.u_drad,  tb->d_radius);
