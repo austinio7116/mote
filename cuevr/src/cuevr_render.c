@@ -946,7 +946,11 @@ static const char *FS =
 "            float PL = u_cptlen;\n"
 "\n"
 "            /* 1. the main splice: ebony rising into the ash */\n"
-"            float ms_base = 0.610, ms_tip = 0.610 - 0.140 * PL;\n"
+"            /* An American cue packs its whole composition BUTT-SIDE of the\n"
+"             * brass joint: forearm points, then wrap, then sleeve, tight. The\n"
+"             * British 3/4 layout keeps the splice up the shaft. */\n"
+"            float ms_base = (u_cwrap > 0.5) ? 0.790 : 0.610;\n"
+"            float ms_tip  = ms_base - ((u_cwrap > 0.5) ? 0.115 : 0.140) * PL;\n"
 "            if (t > ms_tip && u_cpts > 0.5) {\n"
 "                // HAND-SPLICED points are ROUNDED at the top and sit at\n"
 "                // slightly UNEVEN heights — four splices laid over the ash by\n"
@@ -1053,7 +1057,7 @@ static const char *FS =
 "             * maybe 15 cm and most of the face. At 30 cm long even a rounded\n"
 "             * apex reads as a spike; the curve only shows at the right aspect. */\n"
 "            float bs_base = 0.945, bs_tip = 0.945 - (0.085 + 0.065 * PL);\n"
-"            if (t > bs_tip && u_cpts > 0.5 && u_cnvcol < 0.5) {\n"
+"            if (t > bs_tip && u_cpts > 0.5 && u_cnvcol < 0.5 && u_cnarch > 0.0) {\n"
 "                /* THE BUTT PANEL, as the real thing is cut (single-sided: one\n"
 "                 * set of inlays on the top face, badge flat at the back).\n"
 "                 *\n"
@@ -1107,9 +1111,15 @@ static const char *FS =
 "                     * into the birdseye below — every boundary black-lined.\n"
 "                     * Two opposed spears sharing a waist, not one shape. */\n"
 "                    float T0 = bs_tip, T3 = bs_base;\n"
-"                    float Tm = mix(T0, T3, 0.44);\n"
+"                    float Tm = mix(T0, T3, 0.38);\n"
 "                    float aap = fwidth(d) * 1.2;\n"
-"                    vec3 ink = vec3(0.05, 0.045, 0.045);\n"
+"                    vec3 ink = vec3(0.05, 0.045, 0.045);\n""                    /* longitudinal bands take the LONGITUDINAL pixel width:\n"
+"                     * fwidth(d) at grazing angles smeared these rings into a\n"
+"                     * black wash over the whole cap. */\n"
+"                    float aat = fwidth(t) * 1.2;\n"
+"                    float rg2 = min(min(abs(t - T0), abs(t - (T3 + 0.012))),\n"
+"                                    abs(t - (T3 + 0.030)));\n"
+"                    c = mix(c, ink, 1.0 - smoothstep(0.004, 0.004 + aat, rg2));\n"
 "                    if (t < Tm) {\n"
 "                        /* pearl field, timber spear rising: pearl OUTSIDE.\n"
 "                         * The field's own TOP closes as pearl spear-tips\n"
@@ -1117,7 +1127,7 @@ static const char *FS =
 "                         * straight line. */\n"
 "                        float T0d = T0 - 0.070 * (1.0 - clamp(d / 0.45, 0.0, 1.0));\n"
 "                        float ku = clamp((t - T0d) / (Tm - T0d), 0.0, 1.0);\n"
-"                        float hs = 0.60 * pow(ku, 0.75);\n"
+"                        float hs = 0.55 * pow(ku, 0.70);\n"
 "                        c = mix(c, pane, smoothstep(hs - aap, hs + aap, d));\n"
 "                        float lo = 1.0 - smoothstep(0.014, 0.014 + aap, abs(d - hs));\n"
 "                        if (hs > aap) c = mix(c, ink, lo);\n"
@@ -1127,8 +1137,8 @@ static const char *FS =
 "                         * narrow shaft — the step corners are the barbs. */\n"
 "                        float Ts   = Tm - 0.13;\n"
 "                        float tspk = t - Ts;\n"
-"                        float hl3  = 0.038;\n"
-"                        float wsp  = (tspk < hl3) ? 0.048 * max(tspk, 0.0) / hl3 : 0.017;\n"
+"                        float hl3  = 0.050;\n"
+"                        float wsp  = (tspk < hl3) ? 0.075 * max(tspk, 0.0) / hl3 : 0.026;\n"
 "                        float dsp  = abs(d - 0.30);\n"
 "                        if (tspk > 0.0 && wsp > aap && d > hs) {\n"
 "                            c = mix(c, u_cbutt, smoothstep(wsp + aap, wsp - aap, dsp));\n"
@@ -1138,12 +1148,12 @@ static const char *FS =
 "                        /* the crown chevron between the arrows: a black line\n"
 "                         * rising to its point at the face centre */\n"
 "                        float tcr = Tm - 0.055 * (1.0 - clamp(d / 0.30, 0.0, 1.0));\n"
-"                        float cr  = 1.0 - smoothstep(0.006, 0.006 + aap, abs(t - tcr));\n"
+"                        float cr  = 1.0 - smoothstep(0.009, 0.009 + fwidth(t) * 1.2, abs(t - tcr));\n"
 "                        if (d < 0.32 && d > hs) c = mix(c, ink, cr);\n"
 "                    } else {\n"
 "                        /* the pearl spear descending into the birdseye */\n"
 "                        float kd = clamp((t - Tm) / (T3 - Tm), 0.0, 1.0);\n"
-"                        float hd = 0.30 * pow(1.0 - kd, 1.10);\n"
+"                        float hd = 0.44 * pow(1.0 - kd, 1.05);\n"
 "                        if (hd > aap) {\n"
 "                            c = mix(c, pane, smoothstep(hd + aap, hd - aap, d));\n"
 "                            float lo = 1.0 - smoothstep(0.014, 0.014 + aap, abs(d - hd));\n"
@@ -1178,7 +1188,7 @@ static const char *FS =
 "             * A linen wrap where the hand goes, a separate butt sleeve\n"
 "             * finished with collar rings, and diamond inlays. These are\n"
 "             * top-level: they exist whether or not the cue has points. */\n"
-"            if (u_cwrap > 0.5 && t > 0.615 && t < 0.815) {\n"
+"            if (u_cwrap > 0.5 && t > 0.795 && t < 0.915) {\n"
 "                float wsp = fract(sin(dot(vec2(a * 260.0, t * 1400.0),\n"
 "                                          vec2(12.9898, 78.233))) * 43758.5453);\n"
 "                float wth = fract(a * 130.0 + t * 40.0);\n"
@@ -1187,26 +1197,44 @@ static const char *FS =
 "                butt_varn = 0.0;\n"
 "            }\n"
 "            if (u_csleeve > 0.5) {\n"
-"                if (t > 0.845) c = u_csleevec;\n"
-"                float rg =          1.0 - smoothstep(0.0, 0.0035, abs(t - 0.845));\n"
-"                rg = max(rg,        1.0 - smoothstep(0.0, 0.0035, abs(t - 0.612)));\n"
-"                c = mix(c, u_cringc, rg);\n"
+"                if (t > ((u_cwrap > 0.5) ? 0.920 : 0.845)) c = u_csleevec;\n"
+"                /* collar RINGS come in groups — a lone hairline reads as an\n"
+"                 * accident, the grouped pinstripes of the references read as\n"
+"                 * design. Ring + companion at both wrap ends and the cap. */\n"
+"                float rg = 1e9;\n"
+"                float W1 = (u_cwrap > 0.5) ? 0.918 : 0.845;\n"
+"                float W0 = (u_cwrap > 0.5) ? 0.782 : 0.612;\n"
+"                rg = min(rg, abs(t - W1)); rg = min(rg, abs(t - (W1 + 0.013)));\n"
+"                rg = min(rg, abs(t - W0)); rg = min(rg, abs(t - (W0 - 0.013)));\n"
+"                rg = min(rg, abs(t - 0.965));\n"
+"                /* a machined ring edge is CRISP — the fixed soft fade read as\n"
+"                 * blur. Full strength across the ring, one pixel of AA off it. */\n"
+"                float aar = fwidth(t) * 1.2;\n"
+"                c = mix(c, u_cringc, 1.0 - smoothstep(0.0026, 0.0026 + aar, rg));\n"
 "            }\n"
 "            /* Diamond inlays: a pale plate let into the timber with a\n"
 "             * coloured core, one per point position. On the sleeve when\n"
 "             * there is one, on the forearm when there is not. */\n"
 "            if (u_cdia > 0.5) {\n"
 "                float tc = (u_cit > 0.0) ? u_cit\n"
-"                         : ((u_csleeve > 0.5) ? 0.895 : 0.545);\n"
+"                         : ((u_csleeve > 0.5) ? ((u_cwrap > 0.5) ? 0.947 : 0.895) : 0.545);\n"
 "                float hl2 = (u_cishape > 2.5) ? 0.055 : 0.030;   /* spears run long */\n"
 "                /* A framed diamond never travels alone: the references run\n"
 "                 * them in rows of three down the sleeve or forearm. */\n"
 "                float md = 1e9;\n"
 "                int nrow = (u_cishape > 1.5 && u_cishape < 2.5) ? 1 : 0;\n"
+"                float mdm = 1e9;   /* the small companions between the majors */\n"
 "                for (int di2 = -nrow; di2 <= nrow; di2++) {\n"
-"                    float m1 = abs(t - tc - float(di2) * 0.068) / hl2 + d / 0.20;\n"
+"                    float pitch = (u_cwrap > 0.5) ? 0.040 : 0.068;\n"
+"                    float m1 = abs(t - tc - float(di2) * pitch) / hl2 + d / 0.20;\n"
 "                    md = min(md, m1);\n"
+"                    if (di2 < nrow) {\n"
+"                        float m2 = abs(t - tc - (float(di2) + 0.5) * pitch) / (hl2 * 0.45)\n"
+"                                 + d / 0.09;\n"
+"                        mdm = min(mdm, m2);\n"
+"                    }\n"
 "                }\n"
+"                md = min(md, mdm);\n"
 "                float pl = 1.0 - smoothstep(1.00, 1.08, md);\n"
 "                float co = 1.0 - smoothstep(0.66, 0.78, md);\n"
 "                vec3 icol = u_cdiac;\n"
@@ -1951,8 +1979,8 @@ static float cue_radius(float t) {
      * bigger bulb. A cue is a straight cone: it gets steadily thicker all the way
      * and then stops. The end is closed by a flat cap on the mesh, so nothing
      * here needs to round it over. */
-    if (x < 1.410f) {
-        float k = (x - 0.032f) / (1.410f - 0.032f);
+    if (x < 1.4440f) {
+        float k = (x - 0.032f) / (1.4440f - 0.032f);
         if (k < 0.0f) k = 0.0f;
         return 0.0051f + k * (0.0160f - 0.0051f);
     }
@@ -1962,9 +1990,16 @@ static float cue_radius(float t) {
      * round over from there. The max is where the cap BEGINS, not the very end
      * of the stick — running the linear taper all the way to 1.45 made the whole
      * cue a plain cone with a chopped-off end. */
-    float k = (x - 1.410f) / (CUE_LEN - 1.410f);
+    /* The reference butt end is nearly CYLINDRICAL: the taper runs to a few
+     * millimetres from the end and a small chamfer breaks the edge — not the
+     * bulbous dome this used to be. The end face carries the brass socket. */
+    if (x < 1.4440f) {
+        float k2 = (x - 0.032f) / (1.4440f - 0.032f);
+        return 0.0051f + k2 * (0.0160f - 0.0051f);
+    }
+    float k = (x - 1.4440f) / (CUE_LEN - 1.4440f);
     if (k > 1.0f) k = 1.0f;
-    return 0.0160f * sqrtf(1.0f - k * k * 0.55f);
+    return 0.0160f * sqrtf(1.0f - k * k * 0.16f);
 }
 
 /* A real cue is NOT a solid of revolution. The butt of a hand-spliced cue carries
@@ -1989,20 +2024,13 @@ static float cue_radius(float t) {
 #define CUE_FLAT_ANG   (0.625f * 2.0f * PI)     /* opposite the panel at 0.125 */
 #define CUE_FLAT_DEPTH 0.22f
 static float cue_flat_depth(float t) {
-    float k = (t - (1.0f - 0.300f / CUE_LEN)) / (0.300f / CUE_LEN);
-    if (k < 0.0f) k = 0.0f; if (k > 1.0f) k = 1.0f;
-    return CUE_FLAT_DEPTH * k * k * (3.0f - 2.0f * k);
+    /* REMOVED at the user's instruction: it never read on screen, so it was
+     * dead geometry complicating everything that sat on it. */
+    (void)t; return 0.0f;
 }
 static float cue_flat_scale(float t, float ang) {
-    float dep = cue_flat_depth(t);
-    if (dep <= 0.0f) return 1.0f;
-    float p = 1.0f - dep;                        /* plane distance, in radii */
-    float d = ang - CUE_FLAT_ANG;
-    while (d >  PI) d -= 2.0f * PI;
-    while (d < -PI) d += 2.0f * PI;
-    float span = acosf(p);
-    if (fabsf(d) >= span) return 1.0f;
-    return p / cosf(d);
+    (void)t; (void)ang;
+    return 1.0f;
 }
 
 static void build_cue(Builder *b, int slices, int rings) {
@@ -2127,10 +2155,10 @@ static void build_cue(Builder *b, int slices, int rings) {
      * proud, its own rim — not a picture mapped into the wood. uv.x carries
      * the radial fraction so the shader can draw the rim ring. */
     {
-        const float BR = 0.0105f;                    /* badge radius */
+        const float BR = 0.0078f;                    /* badge radius */
         const float TB = 1.0f - 0.055f / CUE_LEN;    /* centre, 55 mm from the end */
         float r0 = cue_radius(TB);
-        float p  = r0 * (1.0f - cue_flat_depth(TB)) + 0.0009f;   /* proud of the flat */
+        float p  = r0 + 0.0006f;      /* let in nearly flush on the round */
         float nx = cosf(CUE_FLAT_ANG), nz = sinf(CUE_FLAT_ANG);
         float cxp = nx * p, cy = TB * CUE_LEN, czp = nz * p;
         float txx = -nz, tzz = nx;                   /* tangent across the flat */
@@ -2437,17 +2465,17 @@ static const CueVrCueDesign CUE_RACK[] = {
     .flash=1, .veneer_w=0.0012f, .points=4, .point_len=1.30f, .veneers=1,
     .shaft_fig=1, .butt_fig=0, .hand=0,
     .wrap=1, .wrapc={0.16f,0.16f,0.17f}, .sleeve=1, .sleevec={0.88f,0.86f,0.82f},
-    .ringc={0.10f,0.10f,0.11f}, .diamonds=1, .diac={0.13f,0.22f,0.62f} },
-  { .name="VIKING EYE",.shaft={0.90f,0.83f,0.65f}, .splice={0.34f,0.16f,0.09f},
-    /* birdseye with a rosewood machine splice, framed red diamonds in a row
-     * down the forearm, silver rings — after the third-from-right reference */
-    .accent={0.94f,0.93f,0.90f}, .burr={0.74f,0.54f,0.30f}, .butt={0.72f,0.52f,0.28f},
-    .flash=1, .veneer_w=0.0013f, .points=4, .point_len=0.85f, .veneers=1,
-    .shaft_fig=1, .butt_fig=2, .hand=0,
-    .wrap=1, .wrapc={0.10f,0.10f,0.11f}, .sleeve=1, .sleevec={0.72f,0.52f,0.28f},
-    .ringc={0.86f,0.87f,0.90f},
-    .diamonds=1, .diac={0.70f,0.12f,0.14f}, .inlay_shape=2,
-    .vnr2={0.94f,0.93f,0.90f} },
+    .ringc={0.10f,0.10f,0.11f}, .diamonds=1, .diac={0.13f,0.22f,0.62f}, .arches=-1 },
+  { .name="VIKING EYE",.shaft={0.90f,0.83f,0.65f}, .splice={0.30f,0.12f,0.08f},
+    /* the two-timber Viking: dark rosewood upper butt giving way to birdseye
+     * through the big pale panel, cream facing, framed red diamonds riding
+     * the split, grouped pinstripe rings */
+    .accent={0.94f,0.93f,0.90f}, .burr={0.78f,0.58f,0.34f}, .butt={0.30f,0.12f,0.08f},
+    .flash=1, .veneer_w=0.0016f, .points=4, .point_len=2.2f, .veneers=1,
+    .shaft_fig=1, .butt_fig=2, .hand=0, .arches=-1,
+    .sleeve=1, .sleevec={0.78f,0.58f,0.34f}, .ringc={0.90f,0.91f,0.93f},
+    .diamonds=1, .diac={0.70f,0.12f,0.14f}, .inlay_shape=2, .inlay_t=0.90f,
+    .vnr2={0.06f,0.055f,0.05f} },
   { .name="VIKING PEARL",.shaft={0.90f,0.83f,0.65f}, .splice={0.88f,0.81f,0.63f},
     /* the Viking interlock: upper pearl field with a birdseye spear rising,
      * twin spikes at the waist, pearl spear descending below. point_len only
@@ -2457,15 +2485,15 @@ static const CueVrCueDesign CUE_RACK[] = {
     .shaft_fig=1, .butt_fig=2, .panel_flip=1, .panel_pearl=1,
     .ringc={0.86f,0.87f,0.90f}, .diac={0.14f,0.36f,0.90f},
     .vnr2={0.05f,0.045f,0.045f} },
-  { .name="VIKING BLUE",.shaft={0.90f,0.83f,0.65f}, .splice={0.16f,0.28f,0.58f},
+  { .name="VIKING BLUE",.shaft={0.90f,0.83f,0.65f}, .splice={0.13f,0.22f,0.50f},
     /* blue-stained curly maple with pale machine points and a row of framed
      * white-pearl diamonds on the sleeve */
-    .accent={0.93f,0.93f,0.95f}, .burr={0.18f,0.30f,0.62f}, .butt={0.16f,0.28f,0.58f},
+    .accent={0.93f,0.93f,0.95f}, .burr={0.15f,0.25f,0.55f}, .butt={0.13f,0.22f,0.50f},
     .flash=1, .veneer_w=0.0012f, .points=4, .point_len=1.10f, .veneers=1,
-    .shaft_fig=1, .butt_fig=3, .hand=0,
+    .shaft_fig=1, .butt_fig=1, .hand=0,
     .sleeve=1, .sleevec={0.14f,0.24f,0.52f}, .ringc={0.88f,0.89f,0.92f},
     .diamonds=1, .diac={0.93f,0.94f,0.96f}, .inlay_shape=2, .inlay_pearl=1,
-    .vnr2={0.06f,0.06f,0.07f} },
+    .vnr2={0.06f,0.06f,0.07f}, .arches=-1 },
 };
 #define CUE_RACK_N ((int)(sizeof CUE_RACK / sizeof CUE_RACK[0]))
 static int s_cue_sel;
@@ -3866,7 +3894,7 @@ after_table: ;
             glUniform1f(G.u_cipearl, (float)cd->inlay_pearl);
             glUniform1f(G.u_cit,     cd->inlay_t);
             glUniform1f(G.u_chand,  (float)cd->hand);
-            glUniform1f(G.u_cnarch, (float)(cd->arches ? cd->arches : 1));
+            glUniform1f(G.u_cnarch, (float)(cd->arches ? cd->arches : 1));   /* -1 = no panel */
             glUniform1f(G.u_cpflip,  (float)cd->panel_flip);
             glUniform1f(G.u_cppearl, (float)cd->panel_pearl);
             glUniform1f(G.u_cpts,   cd->points   ? (float)cd->points : 4.0f);
