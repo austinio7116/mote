@@ -140,6 +140,8 @@ static const char *FS =
 "uniform float u_clam;\n"
 "uniform float u_cvw;\n"
 "uniform float u_cv2on;\n"
+"uniform vec3  u_cdiac;\n"
+"uniform float u_cdia;\n"
 "uniform vec3  u_caccent;\n"
 "uniform vec3  u_cbutt;\n"
 "uniform vec3  u_cburr;\n"
@@ -1098,6 +1100,36 @@ static const char *FS =
 "                if (t > bs_base) c = burr;\n"
 "            }\n"
 "\n"
+"            /* ---- the AMERICAN structure ------------------------------- *\n"
+"             * A linen wrap where the hand goes, a separate butt sleeve\n"
+"             * finished with collar rings, and diamond inlays. These are\n"
+"             * top-level: they exist whether or not the cue has points. */\n"
+"            if (u_cwrap > 0.5 && t > 0.615 && t < 0.815) {\n"
+"                float wsp = fract(sin(dot(vec2(a * 260.0, t * 1400.0),\n"
+"                                          vec2(12.9898, 78.233))) * 43758.5453);\n"
+"                float wth = fract(a * 130.0 + t * 40.0);\n"
+"                c = u_cwrapc * (0.55 + 0.75 * wsp) * (0.85 + 0.30 * wth);\n"
+"                gloss = 10.0; spec_k = 0.05;   /* linen is matt, not lacquer */\n"
+"                butt_varn = 0.0;\n"
+"            }\n"
+"            if (u_csleeve > 0.5) {\n"
+"                if (t > 0.845) c = u_csleevec;\n"
+"                float rg =          1.0 - smoothstep(0.0, 0.0035, abs(t - 0.845));\n"
+"                rg = max(rg,        1.0 - smoothstep(0.0, 0.0035, abs(t - 0.612)));\n"
+"                c = mix(c, u_cringc, rg);\n"
+"            }\n"
+"            /* Diamond inlays: a pale plate let into the timber with a\n"
+"             * coloured core, one per point position. On the sleeve when\n"
+"             * there is one, on the forearm when there is not. */\n"
+"            if (u_cdia > 0.5) {\n"
+"                float tc = (u_csleeve > 0.5) ? 0.895 : 0.545;\n"
+"                float md = abs(t - tc) / 0.028 + d / 0.15;\n"
+"                float pl = 1.0 - smoothstep(1.00, 1.10, md);\n"
+"                float co = 1.0 - smoothstep(0.68, 0.80, md);\n"
+"                c = mix(c, u_cvnr2, pl);\n"
+"                c = mix(c, u_cdiac, co);\n"
+"            }\n"
+"\n"
 "            /* 3. the badge: a round ivory plate on the very end, and the black\n"
 "             *    band the cap is finished with. */\n"
 "            // NO BADGE. A maker's disc belongs on the flat oval of a butt cap,\n"
@@ -1579,7 +1611,7 @@ static struct {
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
-           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on,
+           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_cdiac, u_cdia,
            u_cwrapc, u_csleevec, u_cringc, u_cpts, u_cptlen, u_cnvnr, u_cwrap, u_csleeve, u_clam, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_lampN, u_lampI, u_nlamp, u_lampround, u_eye;
     GLint  u_keyc, u_fill, u_hudv, u_hudrect, u_shadow, u_clothlod, u_rawcol, u_varn;
@@ -2871,11 +2903,13 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_cpts       = glGetUniformLocation(G.prog, "u_cpts");
     G.u_cptlen     = glGetUniformLocation(G.prog, "u_cptlen");
     G.u_cnvnr      = glGetUniformLocation(G.prog, "u_cnvnr");
-    G.u_cwrap      = glGetUniformLocation(G.prog, "u_cwrap");
-    G.u_csleeve    = glGetUniformLocation(G.prog, "u_csleeve");
     G.u_clam       = glGetUniformLocation(G.prog, "u_clam");
     G.u_cvw        = glGetUniformLocation(G.prog, "u_cvw");
     G.u_cv2on      = glGetUniformLocation(G.prog, "u_cv2on");
+    G.u_cdiac      = glGetUniformLocation(G.prog, "u_cdiac");
+    G.u_cwrap      = glGetUniformLocation(G.prog, "u_cwrap");
+    G.u_csleeve    = glGetUniformLocation(G.prog, "u_csleeve");
+    G.u_cdia       = glGetUniformLocation(G.prog, "u_cdia");
     G.u_caccent    = glGetUniformLocation(G.prog, "u_caccent");
     G.u_cbutt      = glGetUniformLocation(G.prog, "u_cbutt");
     G.u_cburr      = glGetUniformLocation(G.prog, "u_cburr");
@@ -3597,11 +3631,13 @@ after_table: ;
             glUniform3fv(G.u_cwrapc, 1, cd->wrapc);
             glUniform3fv(G.u_csleevec, 1, cd->sleevec);
             glUniform3fv(G.u_cringc, 1, cd->ringc);
+            glUniform3fv(G.u_cdiac, 1, cd->diac);
+            glUniform1f(G.u_cwrap,  (float)cd->wrap);
+            glUniform1f(G.u_csleeve,(float)cd->sleeve);
+            glUniform1f(G.u_cdia,   (float)cd->diamonds);
             glUniform1f(G.u_cpts,   cd->points   ? (float)cd->points : 4.0f);
             glUniform1f(G.u_cptlen, cd->point_len > 0.01f ? cd->point_len : 1.0f);
             glUniform1f(G.u_cnvnr,  (float)(cd->veneers ? cd->veneers : (cd->flash ? 1 : 0)));
-            glUniform1f(G.u_cwrap,  (float)cd->wrap);
-            glUniform1f(G.u_csleeve,(float)cd->sleeve);
             glUniform1f(G.u_clam,   (float)cd->laminated);
         }
         glUniform1f(G.u_baulk, tb->baulk_x);

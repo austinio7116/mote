@@ -112,6 +112,10 @@ typedef struct {
     float sleevec[3];
     float ringc[3];      /* the collar rings at joint and sleeve */
     int   laminated;     /* 1 = the butt is laminated coloured timber, striped */
+    /* Diamond inlays: a pale plate let into the timber with a coloured core,
+     * one per point position — sleeve if there is one, forearm otherwise. */
+    int   diamonds;
+    float diac[3];
 } CueVrCueDesign;
 
 int         cuevr_render_cue_count(void);
