@@ -2303,4 +2303,14 @@ void cuevr_app_describe(MoteXrApp *out) {
     out->draw_eye    = app_draw_eye;
     out->draw_views  = app_draw_views;
     out->gl_shutdown = app_gl_shutdown;
+    /* The GPU is the wall on this app (measured on device), so trade the
+     * excess supersampling for frame time: 1.1x instead of the host default
+     * 1.25x is 28%% less fragment work, and LOW fixed foveation claws back
+     * more at the edges where a table scene holds nothing readable anyway.
+     * CUEVR_SCALE / CUEVR_FFR override for A/B on device. */
+    out->render_scale = 1.10f;
+    out->foveation    = 1;
+    {   const char *v;
+        if ((v = getenv("CUEVR_SCALE"))) out->render_scale = (float)atof(v);
+        if ((v = getenv("CUEVR_FFR")))   out->foveation    = atoi(v); }
 }

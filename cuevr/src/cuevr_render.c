@@ -1746,30 +1746,23 @@ static const char *FS =
 "        // u_colour2 = (butt height, tip height, half width margin, length).\n"
 "        float occ = 0.0;\n"
 "        if (u_colour.a > 0.0) {\n"
-"            vec3  Bw = u_colour.xyz;\n"
-"            float Rb = u_colour.a;\n"
-"            for (int i = 0; i < u_nlamp; i++) {\n"
-"                float hL = max(u_lampC[i].y - Bw.y, 0.30);\n"
-"                vec2  ctr = Bw.xz + (Bw.xz - u_lampC[i].xz) * (Rb / hL);\n"
-"                float lampHalf = length(u_lampX[i]);\n"
-"                float pen = Rb * 0.35 + lampHalf * Rb / hL;\n"
-"                float dd2 = length(v_world.xz - ctr);\n"
-"                occ += (1.0 - smoothstep(Rb * 0.85 - pen * 0.5, Rb * 0.85 + pen, dd2))\n"
-"                     / float(u_nlamp);\n"
-"            }\n"
-"            // the contact core: where ball meets cloth no light arrives at all\n"
-"            float dc2 = length(v_world.xz - u_colour.xz);\n"
-"            occ = max(occ, (1.0 - smoothstep(Rb * 0.30, Rb * 0.62, dc2)) * 1.25);\n"
+"            // The original compact blob — barely wider than the ball, dark\n"
+"            // middle, gone in millimetres — with ONE refinement: a tighter,\n"
+"            // darker contact core so the ball reads as resting, not floating.\n"
+"            float d = length(v_uv - vec2(0.5)) * 2.0;\n"
+"            float inner = 1.0 - u_shadow.x;\n"
+"            occ = 1.0 - smoothstep(inner, 1.0, d);\n"
+"            occ = max(occ, (1.0 - smoothstep(0.28, 0.52, d)) * 1.22);\n"
 "        } else {\n"
-"            // the cue: a capsule on the cloth under the shaft, wider and\n"
-"            // fainter as the cue rises, gone when it is lifted away\n"
+"            // the cue: a NARROW strip under the shaft, crisp near the cloth,\n"
+"            // quickly gone as it lifts\n"
 "            float u2 = clamp(v_uv.x, 0.0, 1.0);\n"
 "            float h  = mix(u_colour2.y, u_colour2.x, u2);\n"
-"            float w  = 0.011 + h * 0.30;\n"
-"            float pen2 = 0.006 + h * 0.35;\n"
+"            float w  = 0.010 + h * 0.10;\n"
+"            float pen2 = 0.004 + h * 0.10;\n"
 "            float across = abs(v_uv.y - 0.5) * 2.0 * u_colour2.z;\n"
-"            float fade = clamp(1.0 - h * 1.4, 0.0, 1.0);\n"
-"            occ = (1.0 - smoothstep(w - pen2 * 0.4, w + pen2, across)) * 0.75 * fade;\n"
+"            float fade = clamp(1.0 - h * 1.7, 0.0, 1.0);\n"
+"            occ = (1.0 - smoothstep(w - pen2 * 0.4, w + pen2, across)) * 0.6 * fade;\n"
 "        }\n"
 "        float a = u_shadow.y * clamp(occ, 0.0, 1.0);\n"
 "        o_col = emit(to_linear(u_clothsh) * 0.55, a, 0.0);\n"
@@ -4122,8 +4115,6 @@ after_table: ;
         glUniform2f(G.u_shadow, shsoft, shdark);
         float rad = G.tab.R * shrad;
         if (getenv("CUEVR_NOBLOB")) rad = 0.0f;
-        /* the projector needs the quad to cover the offset discs too */
-        rad *= 1.8f;
         for (int i = 0; i < s->nballs && rad > 0.0f; i++) {
             const CueBall *bl = &s->balls[i];
             if (!bl->on) continue;

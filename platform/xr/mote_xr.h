@@ -88,6 +88,15 @@ typedef struct {
 
     void (*gl_shutdown)(void *user);
     void *user;
+
+    /* GPU budget knobs, per app. render_scale multiplies the runtime's
+     * recommended eye resolution (0 = the long-standing default 1.25 — set
+     * for text crispness, and 1.56x the fragment work of 1.0). foveation asks
+     * for Quest fixed-foveated rendering when XR_FB_foveation is present:
+     * 0 = off, 1..3 = low/medium/high. Both are requests; absence of the
+     * extension or a zero field leaves behaviour exactly as it was. */
+    float render_scale;
+    int   foveation;
 } MoteXrApp;
 
 /* vm/activity are the JavaVM* and the activity's jobject: OpenXR on Android

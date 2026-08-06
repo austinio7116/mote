@@ -142,6 +142,7 @@ static struct {
     int         floor;
     XrTime      last_display;
     int msaa;      /* samples per pixel; 0 = off, -1 = not yet decided */
+    int has_foveation;
     int multiview; /* 1 = one array swapchain, both eyes in a single pass */
     PFN_glFramebufferTextureMultiviewOVR            p_fbmv;
     PFN_glFramebufferTextureMultisampleMultiviewOVR p_fbmvms;
@@ -232,6 +233,16 @@ static int make_instance(JavaVM *vm, jobject activity) {
     if (S.has_perf) want[nw++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
     S.has_refresh = have_ext(ext, n, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
     if (S.has_refresh) want[nw++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
+    /* Fixed foveated rendering: three extensions or nothing, requested only
+     * when the app asks and the runtime has them all. */
+    S.has_foveation = have_ext(ext, n, XR_FB_FOVEATION_EXTENSION_NAME)
+                   && have_ext(ext, n, XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME)
+                   && have_ext(ext, n, XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME);
+    if (S.has_foveation && S.app.foveation > 0) {
+        want[nw++] = XR_FB_FOVEATION_EXTENSION_NAME;
+        want[nw++] = XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME;
+        want[nw++] = XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME;
+    }
     for (uint32_t i = 0; i < nw; i++)
         if (!have_ext(ext, n, want[i])) {
             xrlog("[mote-xr] runtime lacks %s", want[i]);
@@ -381,7 +392,7 @@ static int make_swapchains(void) {
          *
          * Clamped to the runtime's own maximum: asking for more than
          * maxImageRect is not a request, it is an error. */
-        float scale = 1.25f;
+        float scale = (S.app.render_scale > 0.0f) ? S.app.render_scale : 1.25f;
         int32_t rw = (int32_t)S.vcfg[i].recommendedImageRectWidth;
         int32_t rh = (int32_t)S.vcfg[i].recommendedImageRectHeight;
         e->w = (int32_t)(rw * scale);
@@ -394,6 +405,8 @@ static int make_swapchains(void) {
             xrlog("[mote-xr] eye %dx%d (recommended %dx%d, max %ux%u)",
                   e->w, e->h, rw, rh,
                   S.vcfg[i].maxImageRectWidth, S.vcfg[i].maxImageRectHeight);
+        if (i == 0 && S.app.render_scale > 0.0f)
+            xrlog("[mote-xr] render scale %.2f (app request)", scale);
 
         XrSwapchainCreateInfo sc = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
         sc.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
@@ -409,6 +422,12 @@ static int make_swapchains(void) {
         sc.faceCount = 1;
         sc.arraySize = S.multiview ? 2 : 1;   /* one image, two layers */
         sc.mipCount = 1;
+        XrSwapchainCreateInfoFoveationFB fovci = { XR_TYPE_SWAPCHAIN_CREATE_INFO_FOVEATION_FB };
+        if (S.has_foveation && S.app.foveation > 0) {
+            fovci.flags = XR_SWAPCHAIN_CREATE_FOVEATION_SCALED_BIN_BIT_FB;
+            fovci.next = (void *)sc.next;
+            sc.next = &fovci;
+        }
         if (failed(xrCreateSwapchain(S.session, &sc, &e->handle), "xrCreateSwapchain"))
             return -1;
 
@@ -418,6 +437,45 @@ static int make_swapchains(void) {
             e->images[k].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
         xrEnumerateSwapchainImages(e->handle, e->n, &e->n,
                                    (XrSwapchainImageBaseHeader *)e->images);
+
+        /* Apply the foveation profile to this swapchain. Function pointers via
+         * xrGetInstanceProcAddr — FB extension entry points are not exported by
+         * the loader. Every failure path leaves rendering exactly as before. */
+        if (S.has_foveation && S.app.foveation > 0) {
+            PFN_xrCreateFoveationProfileFB pCreate = NULL;
+            PFN_xrDestroyFoveationProfileFB pDestroy = NULL;
+            PFN_xrUpdateSwapchainFB pUpdate = NULL;
+            xrGetInstanceProcAddr(S.instance, "xrCreateFoveationProfileFB",
+                                  (PFN_xrVoidFunction *)&pCreate);
+            xrGetInstanceProcAddr(S.instance, "xrDestroyFoveationProfileFB",
+                                  (PFN_xrVoidFunction *)&pDestroy);
+            xrGetInstanceProcAddr(S.instance, "xrUpdateSwapchainFB",
+                                  (PFN_xrVoidFunction *)&pUpdate);
+            if (pCreate && pDestroy && pUpdate) {
+                XrFoveationLevelProfileCreateInfoFB lvl =
+                    { XR_TYPE_FOVEATION_LEVEL_PROFILE_CREATE_INFO_FB };
+                lvl.level = (S.app.foveation >= 3) ? XR_FOVEATION_LEVEL_HIGH_FB
+                          : (S.app.foveation == 2) ? XR_FOVEATION_LEVEL_MEDIUM_FB
+                                                   : XR_FOVEATION_LEVEL_LOW_FB;
+                lvl.verticalOffset = 0.0f;
+                lvl.dynamic = XR_FOVEATION_DYNAMIC_DISABLED_FB;
+                XrFoveationProfileCreateInfoFB pci =
+                    { XR_TYPE_FOVEATION_PROFILE_CREATE_INFO_FB };
+                pci.next = &lvl;
+                XrFoveationProfileFB prof = XR_NULL_HANDLE;
+                if (pCreate(S.session, &pci, &prof) == XR_SUCCESS) {
+                    XrSwapchainStateFoveationFB st =
+                        { XR_TYPE_SWAPCHAIN_STATE_FOVEATION_FB };
+                    st.profile = prof;
+                    XrResult ur = pUpdate(e->handle, (XrSwapchainStateBaseHeaderFB *)&st);
+                    xrlog("[mote-xr] foveation level %d on eye %d: %s",
+                          S.app.foveation, i, ur == XR_SUCCESS ? "ok" : "REFUSED");
+                    pDestroy(prof);
+                }
+            } else {
+                xrlog("[mote-xr] foveation entry points missing — running without");
+            }
+        }
 
         /* MSAA, via GL_EXT_multisampled_render_to_texture.
          *
