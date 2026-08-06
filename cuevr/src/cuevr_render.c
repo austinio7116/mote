@@ -2501,7 +2501,10 @@ int cuevr_render_has_ctrl_model(int hand) {
  * reflections earn their cost, the frame body's timber does not — you never see
  * apron grain from playing distance and it was the single most expensive thing
  * drawn. The nap stays off; it is nearly free but was not missed. */
-static int s_fx[CUEVR_FX_N] = { 1, 1, 1, 0, 0 };
+/* Shadows OFF by default: the shadow-map pass costs more frame time on the
+ * Quest than it earns, and the menu can switch it on for machines with the
+ * headroom. */
+static int s_fx[CUEVR_FX_N] = { 0, 1, 1, 0, 0 };
 static const char *FX_NAME[CUEVR_FX_N] = {
     "SHADOWS", "VARNISH", "BALL REFLECT", "CLOTH NAP", "FRAME WOOD" };
 void cuevr_render_fx_set(int w, int on) { if (w >= 0 && w < CUEVR_FX_N) s_fx[w] = on ? 1 : 0; }
