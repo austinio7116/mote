@@ -1281,11 +1281,11 @@ static const char *FS =
 "                        float tc2 = fract((t - 0.615) / cw) - 0.5;\n"
 "                        /* hollow elongated diamond */\n"
 "                        float mdd = abs(tc2) * 3.4 + dbc * 3.4;\n"
-"                        cov = max(cov, 1.0 - smoothstep(0.08, 0.08 + aad2 * 3.4,\n"
+"                        cov = max(cov, 1.0 - smoothstep(0.06, 0.06 + aad2 * 3.4,\n"
 "                                                        abs(mdd - 0.62)));\n"
 "                        /* quatrefoil dot at the link */\n"
 "                        float q1 = length(vec2((abs(tc2) - 0.5) * 3.4, dbc * 7.0));\n"
-"                        cov = max(cov, 1.0 - smoothstep(0.30, 0.30 + aad2 * 16.0, q1));\n"
+"                        cov = max(cov, 1.0 - smoothstep(0.30, 0.30 + aad2 * 7.0, q1));\n"
 "                        /* the hairline stem */\n"
 "                        cov = max(cov, 1.0 - smoothstep(0.010, 0.010 + aad2, dbc));\n"
 "                    }\n"
@@ -1293,9 +1293,9 @@ static const char *FS =
 "                    {\n"
 "                        float dt2 = t - Tt;\n"
 "                        float MD  = abs(dt2) * 22.0 + dbc * 3.4;\n"
-"                        cov = max(cov, 1.0 - smoothstep(0.10, 0.10 + aad2 * 8.0,\n"
+"                        cov = max(cov, 1.0 - smoothstep(0.07, 0.07 + aad2 * 3.4,\n"
 "                                                        abs(MD - 0.85)));      /* hollow */\n"
-"                        cov = max(cov, 1.0 - smoothstep(0.30, 0.36, MD));      /* core */\n"
+"                        cov = max(cov, 1.0 - smoothstep(0.30, 0.30 + aad2 * 3.4, MD));  /* core */\n"
 "                        /* barbed spikes rising and falling from the crown */\n"
 "                        for (int sd2 = 0; sd2 < 2; sd2++) {\n"
 "                            float tsp = (sd2 == 0 ? dt2 : -dt2) - 0.045;\n"
@@ -1307,12 +1307,12 @@ static const char *FS =
 "                        }\n"
 "                        /* curl rings at the shoulders */\n"
 "                        float cc = length(vec2(dt2 * 18.0, (dbc - 0.34) * 4.5));\n"
-"                        cov = max(cov, 1.0 - smoothstep(0.055, 0.055 + aad2 * 9.0,\n"
+"                        cov = max(cov, 1.0 - smoothstep(0.045, 0.045 + aad2 * 4.5,\n"
 "                                                        abs(cc - 0.42)));\n"
 "                    }\n"
-"                    /* a whisper of ink around every pale motif keeps it crisp */\n"
-"                    c = mix(c, vec3(0.05, 0.04, 0.04), cov * 0.35);\n"
-"                    c = mix(c, orn, cov * 0.92);\n"
+"                    /* full-strength inlay, pixel-true edge — the soft ink\n"
+"                     * underlay read as blur, not as crispness */\n"
+"                    c = mix(c, orn, cov);\n"
 "                }\n"
 "                else {\n"
 "                c = mix(c, u_cvnr2, pl);              /* the let-in plate */\n"
@@ -2574,7 +2574,7 @@ static const CueVrCueDesign CUE_RACK[] = {
     .accent={0.86f,0.74f,0.52f}, .burr={0.34f,0.14f,0.09f}, .butt={0.30f,0.12f,0.08f},
     .veneer_w=0.0012f, .points=4, .point_len=0.85f, .veneers=1, .flash=1,
     .shaft_fig=1, .butt_fig=1, .hand=0, .arches=-1,
-    .sleeve=1, .sleevec={0.76f,0.56f,0.32f}, .ringc={0.88f,0.89f,0.92f},
+    .sleeve=1, .sleevec={0.76f,0.56f,0.32f}, .ringc={0.06f,0.05f,0.05f},
     .diamonds=1, .diac={0.85f,0.72f,0.48f}, .inlay_shape=4,
     .vnr2={0.06f,0.055f,0.05f} },
 };
