@@ -1735,21 +1735,43 @@ static const char *FS =
 "        if (u_furdbg > 0.5) { o_col = vec4(1.0, 0.4, 0.0, cov); return; }\n"
 "        o_col = emit(c, cov, 0.0);\n"
 "    } else if (u_mode == 6) {\n"
-
-
-"        // A ball's shadow on the cloth: a soft decal, as scene_add_shadow\n"
-"        // draws it. Without these the balls hover.\n"
-"        float d = length(v_uv - vec2(0.5)) * 2.0;\n"
-"        // u_colour.a is this blob's share: a rig with six lamps casts six\n"
-"        // shadows and each one has to be correspondingly faint.\n"
-"        //\n"
-"        // The EDGE comes from the rig. Every mode was using one very soft\n"
-"        // falloff — smoothstep from 0.10, so the blob faded across nine tenths\n"
-"        // of its own width — which made a bar of hard shades over a table look\n"
-"        // like an overcast afternoon. A small source close overhead throws an\n"
-"        // edge you could cut yourself on; only the window should be woolly.\n"
-"        float inner = 1.0 - u_shadow.x;\n"
-"        float a = u_shadow.y * u_colour.a * (1.0 - smoothstep(inner, 1.0, d));\n"
+"        // FAKE shadows that behave like the real ones, for the price of a\n"
+"        // decal. The shader knows every lamp, so instead of one symmetric\n"
+"        // blob dead-centred under the ball it PROJECTS: for each lamp the\n"
+"        // occlusion disc is offset along the ball-to-lamp direction and its\n"
+"        // penumbra grows with the lamp's size over its height, and the discs\n"
+"        // accumulate into the same overlapped union a bar of soft sources\n"
+"        // really throws. u_colour carries the ball (xyz world centre, w = R).\n"
+"        // u_colour.w < 0 flags the CUE capsule instead: u_colour = tip xyz,\n"
+"        // u_colour2 = (butt height, tip height, half width margin, length).\n"
+"        float occ = 0.0;\n"
+"        if (u_colour.a > 0.0) {\n"
+"            vec3  Bw = u_colour.xyz;\n"
+"            float Rb = u_colour.a;\n"
+"            for (int i = 0; i < u_nlamp; i++) {\n"
+"                float hL = max(u_lampC[i].y - Bw.y, 0.30);\n"
+"                vec2  ctr = Bw.xz + (Bw.xz - u_lampC[i].xz) * (Rb / hL);\n"
+"                float lampHalf = length(u_lampX[i]);\n"
+"                float pen = Rb * 0.35 + lampHalf * Rb / hL;\n"
+"                float dd2 = length(v_world.xz - ctr);\n"
+"                occ += (1.0 - smoothstep(Rb * 0.85 - pen * 0.5, Rb * 0.85 + pen, dd2))\n"
+"                     / float(u_nlamp);\n"
+"            }\n"
+"            // the contact core: where ball meets cloth no light arrives at all\n"
+"            float dc2 = length(v_world.xz - u_colour.xz);\n"
+"            occ = max(occ, (1.0 - smoothstep(Rb * 0.30, Rb * 0.62, dc2)) * 1.25);\n"
+"        } else {\n"
+"            // the cue: a capsule on the cloth under the shaft, wider and\n"
+"            // fainter as the cue rises, gone when it is lifted away\n"
+"            float u2 = clamp(v_uv.x, 0.0, 1.0);\n"
+"            float h  = mix(u_colour2.y, u_colour2.x, u2);\n"
+"            float w  = 0.011 + h * 0.30;\n"
+"            float pen2 = 0.006 + h * 0.35;\n"
+"            float across = abs(v_uv.y - 0.5) * 2.0 * u_colour2.z;\n"
+"            float fade = clamp(1.0 - h * 1.4, 0.0, 1.0);\n"
+"            occ = (1.0 - smoothstep(w - pen2 * 0.4, w + pen2, across)) * 0.75 * fade;\n"
+"        }\n"
+"        float a = u_shadow.y * clamp(occ, 0.0, 1.0);\n"
 "        o_col = emit(to_linear(u_clothsh) * 0.55, a, 0.0);\n"
 "    } else {\n"
 "        vec3 c = to_linear(u_colour.rgb);\n"
@@ -4100,6 +4122,8 @@ after_table: ;
         glUniform2f(G.u_shadow, shsoft, shdark);
         float rad = G.tab.R * shrad;
         if (getenv("CUEVR_NOBLOB")) rad = 0.0f;
+        /* the projector needs the quad to cover the offset discs too */
+        rad *= 1.8f;
         for (int i = 0; i < s->nballs && rad > 0.0f; i++) {
             const CueBall *bl = &s->balls[i];
             if (!bl->on) continue;
@@ -4111,9 +4135,50 @@ after_table: ;
             mm4_mul(local, rot, local);
             local[12] = bl->pos.x; local[13] = 0.0015f; local[14] = bl->pos.z;
             mm4_mul(model, T, local);
-            glUniform4f(G.u_colour, 0.0f, 0.0f, 0.0f, 1.0f);
+            /* the ball's WORLD position rides in u_colour for the projection */
+            {   float bw[3];
+                bw[0] = T[0]*bl->pos.x + T[4]*bl->pos.y + T[8]*bl->pos.z + T[12];
+                bw[1] = T[1]*bl->pos.x + T[5]*bl->pos.y + T[9]*bl->pos.z + T[13];
+                bw[2] = T[2]*bl->pos.x + T[6]*bl->pos.y + T[10]*bl->pos.z + T[14];
+                glUniform4f(G.u_colour, bw[0], bw[1], bw[2], G.tab.R); }
             set_model(model);
             draw(&G.quad);
+        }
+        /* THE CUE'S SHADOW — the one thing the decals famously could not do,
+         * and the biggest tell against the real map. A capsule under the
+         * shaft, wider and fainter as it rises, tracking every waggle. */
+        if (s->cue_visible && rad > 0.0f) {
+            float cy = T[13];                       /* cloth height in room */
+            float tx = s->cue_tip.x,  tz = s->cue_tip.z;
+            float bx = s->cue_butt.x, bz = s->cue_butt.z;
+            float th = s->cue_tip.y  - cy;
+            float bh = s->cue_butt.y - cy;
+            if (th < 0.60f || bh < 0.60f) {         /* out of reach = no shadow */
+                float dx = bx - tx, dz = bz - tz;
+                float len = sqrtf(dx*dx + dz*dz);
+                if (len > 0.05f) {
+                    float ux = dx/len, uz = dz/len;
+                    float margin = 0.16f;
+                    float local[16], model[16];
+                    /* unit quad -> strip along the segment: u along, v across */
+                    mm4_identity(local);
+                    local[0] = ux*len;  local[1] = 0.0f; local[2]  = uz*len;
+                    local[4] = -uz*2.0f*margin; local[5] = 0.0f; local[6] = ux*2.0f*margin;
+                    local[8] = 0.0f; local[9] = 1.0f; local[10] = 0.0f;
+                    local[12] = tx + uz*margin - 0.0f;  /* centre the v axis */
+                    local[13] = cy + 0.0018f;
+                    local[14] = tz - ux*margin;
+                    /* the quad's own uv runs 0..1 both ways; v centred by the
+                     * -margin offset above */
+                    mm4_identity(model);
+                    /* local already in ROOM space: model = local */
+                    memcpy(model, local, sizeof local);
+                    glUniform4f(G.u_colour, 0.0f, 0.0f, 0.0f, -1.0f);
+                    glUniform4f(G.u_colour2, bh, th, margin, len);
+                    set_model(model);
+                    draw(&G.quad);
+                }
+            }
         }
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);

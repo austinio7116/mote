@@ -1666,7 +1666,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
 
         CueVrShot shot;
         cuevr_cue_update(&S.cue, t, &S.setup.place, cue_ball_room(), S.tab.R, &shot);
-        S.hud_dirty = 1;             /* the tip readout moves every frame */
+        /* The tip readout moves every frame, but a full software raster and
+         * a ~400 KB texture upload at 72 Hz is a tax the Quest notices. The
+         * numbers on it are read by a human: 12 Hz is indistinguishable, and
+         * anything that matters (state, scores, menus) still dirties the HUD
+         * immediately from its own site. */
+        {   static int hud_tick;
+            if (++hud_tick >= 6) { hud_tick = 0; S.hud_dirty = 1; } }
 
         /* Nominate by aiming. Only while the cue is actually pointing at a
          * colour — swinging past one on the way to another must not un-nominate
