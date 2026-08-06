@@ -2370,6 +2370,15 @@ static const CueVrCueDesign CUE_RACK[] = {
     .points=4, .point_len=1.20f, .veneers=2, .shaft_fig=1, .butt_fig=1,
     .wrap=1, .wrapc={0.16f,0.16f,0.17f}, .sleeve=1, .sleevec={0.55f,0.09f,0.09f},
     .ringc={0.82f,0.66f,0.26f}, .diamonds=1, .diac={0.95f,0.92f,0.84f} },
+
+  { .name="GC BLUE",   .shaft={0.90f,0.82f,0.62f}, .splice={0.13f,0.22f,0.62f},
+    /* white-painted forearm, long machine-sharp blue spears outlined black,
+     * per the detail reference: apexes to the tip, speckled wrap below */
+    .accent={0.06f,0.06f,0.07f}, .burr={0.88f,0.86f,0.82f}, .butt={0.88f,0.86f,0.82f},
+    .flash=1, .veneer_w=0.0012f, .points=4, .point_len=1.30f, .veneers=1,
+    .shaft_fig=1, .butt_fig=0, .hand=0,
+    .wrap=1, .wrapc={0.16f,0.16f,0.17f}, .sleeve=1, .sleevec={0.88f,0.86f,0.82f},
+    .ringc={0.10f,0.10f,0.11f}, .diamonds=1, .diac={0.13f,0.22f,0.62f} },
   { .name="VIKING EYE",.shaft={0.90f,0.83f,0.65f}, .splice={0.72f,0.52f,0.28f},
     .accent={0.94f,0.93f,0.90f}, .burr={0.74f,0.54f,0.30f}, .butt={0.72f,0.52f,0.28f},
     .veneer_w=0.0012f, .points=0, .shaft_fig=1, .butt_fig=2,
