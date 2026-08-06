@@ -934,28 +934,7 @@ static const char *FS =
 "                float pexp = (u_chand > 0.5) ? 0.45 : 1.05;\n"
 "                float hw = 0.42 * pow(k, pexp);\n"
 "                float e = smoothstep(hw, hw * ((u_chand > 0.5) ? 0.80 : 0.90), d);\n"
-"                vec3 mspane = ebony;\n"
-"                if (u_cnvcol > 0.5) {\n"
-"                    /* TAYLOR LAMINATE: the butt is TURNED PLYWOOD. Thin dyed\n"
-"                     * and black leaves, and the surface shows their edges as\n"
-"                     * festoon contours — nested arches down the faces,\n"
-"                     * tightening to stripes on the flanks, feathered where\n"
-"                     * the dye follows the grain. Full circumference: it is\n"
-"                     * the material, not a panel let into it. */\n"
-"                    float lay = cue_r * cos((a - 0.12) * 6.2831853) * 360.0\n"
-"                              + t * 55.0 + 2.5 * fbm2(vec2(t * 7.0, a * 3.0));\n"
-"                    float m2 = fract(lay * 0.5) * 2.0;\n"
-"                    float fe = 0.10 + 0.45 * fbm2(vec2(t * 220.0, a * 45.0));\n"
-"                    float bm = smoothstep(0.5 - fe, 0.5 + fe, abs(m2 - 1.0));\n"
-"                    /* fade the banding out as it drops under a pixel, or the\n"
-"                     * flank stripes alias into zebra hash */\n"
-"                    float lf = clamp(1.2 / max(fwidth(lay), 1e-3) - 0.15, 0.0, 1.0);\n"
-"                    bm = mix(0.55, bm, lf);\n"
-"                    int  li2 = int(mod(floor(lay * 0.5), max(u_cnvcol, 1.0)));\n"
-"                    vec3 lamc = u_cvcol[li2] * (0.80 + 0.35 * fbm2(vec2(t * 90.0, a * 16.0)));\n"
-"                    mspane = mix(vec3(0.05, 0.045, 0.045), lamc, bm);\n"
-"                }\n"
-"                c = mix(c, mspane, e);\n"
+"                c = mix(c, ebony, e);\n"
 "                if (u_cflash > 0.5) {\n"
 "                    // Same cut-sheet geometry as the butt splice below: the\n"
 "                    // veneer is a slip of constant thickness in the joint, so\n"
@@ -982,7 +961,7 @@ static const char *FS =
 "                    // bands are cut through figured wood — their edges wave.\n"
 "                    float wob = (u_cnvnr >= 4.0 && u_cnvcol < 0.5)\n"
 "                              ? (fbm2(vec2(a * 9.0, t * 55.0)) - 0.5) * 0.55 : 0.0;\n"
-"                    float stackon = (u_cnvcol > 0.5) ? 0.0 : 1.0;\n"
+"                    float stackon = 1.0;\n"
 "                    for (int vi = 1; vi < 8; vi++) {\n"
 "                        if (float(vi) >= u_cnvnr) break;\n"
 "                        float ei = abs(edge - wln * 2.0 * float(vi) * (1.0 + wob));\n"
@@ -997,7 +976,10 @@ static const char *FS =
 "            }\n"
 "            if (t > ms_base) {\n"
 "                c = ebony;\n"
-"                if (u_cnvcol > 0.5) {\n"
+"                /* The laminate lives in the BUTT: standard dark splices at\n"
+"                 * the shaft, plain black through the brass line, then the\n"
+"                 * festoon blooms out of the black to the cap. */\n"
+"                if (u_cnvcol > 0.5 && t > 0.72) {\n"
 "                    float lay = cue_r * cos((a - 0.12) * 6.2831853) * 360.0\n"
 "                              + t * 55.0 + 2.5 * fbm2(vec2(t * 7.0, a * 3.0));\n"
 "                    float m2 = fract(lay * 0.5) * 2.0;\n"
@@ -1007,6 +989,7 @@ static const char *FS =
 "                     * flank stripes alias into zebra hash */\n"
 "                    float lf = clamp(1.2 / max(fwidth(lay), 1e-3) - 0.15, 0.0, 1.0);\n"
 "                    bm = mix(0.55, bm, lf);\n"
+"                    bm *= smoothstep(0.72, 0.84, t);\n"
 "                    int  li2 = int(mod(floor(lay * 0.5), max(u_cnvcol, 1.0)));\n"
 "                    vec3 lamc = u_cvcol[li2] * (0.80 + 0.35 * fbm2(vec2(t * 90.0, a * 16.0)));\n"
 "                    c = mix(vec3(0.05, 0.045, 0.045), lamc, bm);\n"
@@ -1015,7 +998,10 @@ static const char *FS =
 "\n"
 "            /* 2. the burr splice: figured wood rising into the black. Long and\n"
 "             *    slender — it runs a third of the whole cue. */\n"
-"            float bs_base = 0.945, bs_tip = 0.945 - 0.210 * PL;\n"
+"            /* The butt panel is a SHORT, WIDE arch — the reference domes span\n"
+"             * maybe 15 cm and most of the face. At 30 cm long even a rounded\n"
+"             * apex reads as a spike; the curve only shows at the right aspect. */\n"
+"            float bs_base = 0.945, bs_tip = 0.945 - (0.085 + 0.065 * PL);\n"
 "            if (t > bs_tip && u_cpts > 0.5 && u_cnvcol < 0.5) {\n"
 "                /* THE BUTT PANEL IS SINGLE-SIDED. The four splice points up\n"
 "                 * the cue repeat every quarter turn; the decorative panel on\n"
@@ -1104,8 +1090,8 @@ static const char *FS =
 "                float pid  = floor(a * max(u_cpts, 1.0));\n"
 "                float unev = (u_chand > 0.5) ? (hash12(vec2(pid, 3.1)) - 0.5) * 0.040 : 0.0;\n"
 "                float k = clamp((t - (bs_tip + unev)) / (bs_base - bs_tip), 0.0, 1.0);\n"
-"                float pexp = (u_chand > 0.5) ? 0.45 : 1.00;\n"
-"                float hw = 0.46 * pow(k, pexp);\n"
+"                float pexp = (u_chand > 0.5) ? 0.38 : 1.00;\n"
+"                float hw = 0.52 * pow(k, pexp);\n"
 "                float e = smoothstep(hw, hw * 0.84, db);\n"
 "                vec3 pane = burr;\n"
 "                if (u_cnvcol > 0.5) {\n"
@@ -1194,7 +1180,7 @@ static const char *FS =
 "                    // bands are cut through figured wood — their edges wave.\n"
 "                    float wob = (u_cnvnr >= 4.0 && u_cnvcol < 0.5)\n"
 "                              ? (fbm2(vec2(a * 9.0, t * 55.0)) - 0.5) * 0.55 : 0.0;\n"
-"                    float stackon = (u_cnvcol > 0.5) ? 0.0 : 1.0;\n"
+"                    float stackon = 1.0;\n"
 "                    for (int vi = 1; vi < 8; vi++) {\n"
 "                        if (float(vi) >= u_cnvnr) break;\n"
 "                        float ei = abs(edge - wln * 2.0 * float(vi) * (1.0 + wob));\n"
@@ -2349,25 +2335,25 @@ static const CueVrCueDesign CUE_RACK[] = {
 
   /* ---- Taylor Made: laminated splices ----------------------------------- */
   { .name="TM RAINBOW",.shaft={0.86f,0.74f,0.54f}, .splice={0.055f,0.050f,0.048f},
-    .accent={0.90f,0.20f,0.20f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
-    .flash=1, .vnr2={0.95f,0.93f,0.86f}, .flash2=1, .veneer_w=0.0022f,
-    .points=4, .point_len=1.15f, .veneers=7, .butt_fig=1, .hand=1, .nvcol=6,
+    .accent={0.94f,0.92f,0.85f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
+    .flash=1, .vnr2={0.85f,0.15f,0.15f}, .flash2=1, .veneer_w=0.0022f,
+    .points=4, .point_len=1.00f, .veneers=2, .butt_fig=1, .hand=1, .nvcol=6,
     .vcol={{0.85f,0.15f,0.15f},{0.95f,0.55f,0.10f},{0.90f,0.80f,0.20f},
            {0.20f,0.65f,0.30f},{0.15f,0.35f,0.80f},{0.70f,0.25f,0.60f}} },
   { .name="TM TEAL",   .shaft={0.86f,0.74f,0.54f}, .splice={0.055f,0.050f,0.048f},
-    .accent={0.12f,0.62f,0.58f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
-    .flash=1, .vnr2={0.95f,0.93f,0.86f}, .flash2=1, .veneer_w=0.0022f,
-    .points=4, .point_len=1.10f, .veneers=7, .butt_fig=1, .hand=1, .nvcol=3,
+    .accent={0.94f,0.92f,0.85f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
+    .flash=1, .vnr2={0.10f,0.58f,0.54f}, .flash2=1, .veneer_w=0.0022f,
+    .points=4, .point_len=1.00f, .veneers=2, .butt_fig=1, .hand=1, .nvcol=3,
     .vcol={{0.10f,0.58f,0.54f},{0.09f,0.50f,0.47f},{0.94f,0.92f,0.85f}} },
   { .name="TM CORAL",  .shaft={0.86f,0.74f,0.54f}, .splice={0.055f,0.050f,0.048f},
-    .accent={0.95f,0.45f,0.38f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
-    .flash=1, .vnr2={0.10f,0.09f,0.09f}, .flash2=1, .veneer_w=0.0022f,
-    .points=4, .point_len=1.10f, .veneers=7, .butt_fig=1, .hand=1, .nvcol=3,
+    .accent={0.94f,0.92f,0.85f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
+    .flash=1, .vnr2={0.93f,0.42f,0.34f}, .flash2=1, .veneer_w=0.0022f,
+    .points=4, .point_len=1.00f, .veneers=2, .butt_fig=1, .hand=1, .nvcol=3,
     .vcol={{0.93f,0.42f,0.34f},{0.94f,0.92f,0.85f},{0.10f,0.09f,0.09f}} },
   { .name="TM OCEAN",  .shaft={0.86f,0.74f,0.54f}, .splice={0.055f,0.050f,0.048f},
-    .accent={0.18f,0.42f,0.80f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
-    .flash=1, .vnr2={0.95f,0.93f,0.86f}, .flash2=1, .veneer_w=0.0022f,
-    .points=4, .point_len=1.10f, .veneers=7, .butt_fig=1, .hand=1, .nvcol=3,
+    .accent={0.94f,0.92f,0.85f}, .burr={0.06f,0.05f,0.05f}, .butt={0.055f,0.050f,0.048f},
+    .flash=1, .vnr2={0.15f,0.38f,0.78f}, .flash2=1, .veneer_w=0.0022f,
+    .points=4, .point_len=1.00f, .veneers=2, .butt_fig=1, .hand=1, .nvcol=3,
     .vcol={{0.15f,0.38f,0.78f},{0.13f,0.33f,0.70f},{0.94f,0.92f,0.85f}} },
 
   /* ---- American ---------------------------------------------------------- */
