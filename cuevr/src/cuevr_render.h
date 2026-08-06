@@ -90,6 +90,14 @@ typedef struct {
     float burr[3];       /* the figured panel inlaid in the butt */
     float butt[3];
     int   flash;         /* 1 = show the accent veneer */
+    /* A hand splice stacks veneers: a pale sliver against a coloured one, laid
+     * just outside it. vnr2 is that second line; flash2 turns it on. */
+    float vnr2[3];
+    int   flash2;
+    /* Half-width of a veneer in the angular coordinate. A real one is a sliver
+     * of dyed wood well under a millimetre — this used to be floored at 0.013,
+     * which is a painted stripe once the butt is a handspan from your eye. */
+    float veneer_w;
 } CueVrCueDesign;
 
 int         cuevr_render_cue_count(void);

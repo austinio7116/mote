@@ -128,6 +128,9 @@ static const char *FS =
 "uniform float u_furdbg;\n"
 "uniform vec3  u_cshaft;\n"
 "uniform vec3  u_csplice;\n"
+"uniform vec3  u_cvnr2;\n"
+"uniform float u_cvw;\n"
+"uniform float u_cv2on;\n"
 "uniform vec3  u_caccent;\n"
 "uniform vec3  u_cbutt;\n"
 "uniform vec3  u_cburr;\n"
@@ -804,6 +807,9 @@ static const char *FS =
 "        // shaft. No texture, and it stays sharp with the tip a hand's width\n"
 "        // from your eye.\n"
 "        float t = v_uv.y, a = v_uv.x;\n"
+"        // The turned profile, mirroring cue_radius() on the CPU: one linear\n"
+"        // taper from the ferrule to the butt. The veneer geometry needs it.\n"
+"        float cue_r = 0.0051 + clamp((t*1.45 - 0.032)/1.378, 0.0, 1.0) * 0.0109;\n"
 "        float butt_varn = 0.0;\n"
 "        vec3 ash   = u_cshaft;\n"
 "        vec3 ebony = u_csplice;\n"
@@ -880,9 +886,26 @@ static const char *FS =
 "                float e = smoothstep(hw, hw * 0.80, d);\n"
 "                c = mix(c, ebony, e);\n"
 "                if (u_cflash > 0.5) {\n"
+"                    // Same cut-sheet geometry as the butt splice below: the\n"
+"                    // veneer is a slip of constant thickness in the joint, so\n"
+"                    // its width on the surface goes as 1/r and broadens where\n"
+"                    // the joint runs oblique. This was a smoothstep from zero,\n"
+"                    // full strength only exactly on the edge, so up the shaft\n"
+"                    // it read as a row of blue dots rather than an inlay.\n"
 "                    float edge = abs(d - hw);\n"
-"                    float ln = 1.0 - smoothstep(0.0, 0.0045, edge);\n"
-"                    c = mix(c, u_caccent, ln * 0.9);\n"
+"                    float arc  = cue_r * 1.5707963;\n"
+"                    float dhwx = 0.42 * 0.62 * pow(max(k, 0.02), -0.38)\n"
+"                               / ((ms_base - ms_tip) * 1.45);\n"
+"                    float gmag = sqrt(1.0/(arc*arc) + dhwx*dhwx);\n"
+"                    float wln  = 0.5 * u_cvw * gmag;\n"
+"                    float px   = fwidth(d);\n"
+"                    float wdrw = max(wln, px);\n"
+"                    float fade = wln / wdrw;\n"
+"                    float ln   = 1.0 - smoothstep(wdrw, wdrw + px, edge);\n"
+"                    float e2   = abs(edge - wln * 2.0);\n"
+"                    float ln2  = 1.0 - smoothstep(wdrw, wdrw + px, e2);\n"
+"                    c = mix(c, u_cvnr2, ln2 * 0.90 * fade * u_cv2on);\n"
+"                    c = mix(c, u_caccent, ln * 0.95 * fade);\n"
 "                }\n"
 "            }\n"
 "            if (t > ms_base) c = ebony;         /* the plain black section */\n"
@@ -977,17 +1000,59 @@ static const char *FS =
 "                    // it to at least the local derivative keeps it solid at any\n"
 "                    // distance without fattening it up close.\n"
 "                    float edge = abs(d - hw);\n"
-"                    // Flat-topped: solid out to wln, then a short fade. A\n"
-"                    // smoothstep from zero is full strength only exactly on the\n"
-"                    // edge, so widening it just widened a blur with a thread\n"
-"                    // down the middle — which is why the line kept reading as\n"
-"                    // too thin however far the number was pushed. Nothing else\n"
-"                    // about the butt is touched: the burr figure and the point\n"
-"                    // shape are as they were.\n"
-"                    float px  = fwidth(d) * 1.2;\n"
-"                    float wln = max(0.013, px);\n"
-"                    float ln  = 1.0 - smoothstep(wln, wln + max(0.005, px), edge);\n"
-"                    c = mix(c, u_caccent, ln * 0.95);\n"
+"                    // A real veneer is a sliver of dyed wood well under a\n"
+"                    // millimetre, and the width here has to say so. It used to\n"
+"                    // floor at 0.013 of the angular coordinate to stop the line\n"
+"                    // breaking into dashes, which works at arm's length and is\n"
+"                    // a painted stripe on a headset, where the butt is a\n"
+"                    // handspan from your eye and covers hundreds of pixels.\n"
+"                    //\n"
+"                    // Sub-pixel lines need the OTHER trick: keep the true\n"
+"                    // width, widen only as far as a pixel when the true width\n"
+"                    // would fall below one, and DIM by however much you\n"
+"                    // widened. The eye integrates a dim wide line as a fine\n"
+"                    // sharp one, so it stays continuous at distance without\n"
+"                    // ever fattening up close.\n"
+"                    // A VENEER IS A SHEET, NOT A LINE.\n"
+"                    //\n"
+"                    // It is a slip of dyed wood of constant thickness laid in\n"
+"                    // the glue joint before the point is pressed in, and what\n"
+"                    // you see is wherever the turned surface happens to cut\n"
+"                    // through it. Two things follow, and both are visible on a\n"
+"                    // real cue:\n"
+"                    //\n"
+"                    //   the coordinate here is ANGULAR, and the cue swells from\n"
+"                    //   10 mm at the tip to 32 mm at the butt, so a fixed\n"
+"                    //   angular width is three times wider in millimetres down\n"
+"                    //   at the butt. A sheet is the other way about: constant\n"
+"                    //   in millimetres, so its angular width goes as 1/r;\n"
+"                    //\n"
+"                    //   and where the joint runs OBLIQUE to the axis the\n"
+"                    //   surface slices the sheet at a shallow angle, so the\n"
+"                    //   band genuinely broadens — which is why the laminations\n"
+"                    //   flare out where the point turns and draw down to a\n"
+"                    //   thread as it runs away to its tip.\n"
+"                    //\n"
+"                    // Both are one expression: for f = d - hw(t), a sheet of\n"
+"                    // thickness T shows a band of half-width T*|grad f|/2, with\n"
+"                    // the gradient taken in real surface units.\n"
+"                    float arc  = cue_r * 1.5707963;      // metres per unit d\n"
+"                    float dhwx = 0.253 * pow(max(k, 0.02), -0.45)\n"
+"                               / ((bs_base - bs_tip) * 1.45);\n"
+"                    float gmag = sqrt(1.0/(arc*arc) + dhwx*dhwx);\n"
+"                    float wln  = 0.5 * u_cvw * gmag;\n"
+"                    // Still dim rather than fatten when it falls under a pixel,\n"
+"                    // or it breaks into dashes at the far end of the table.\n"
+"                    float px   = fwidth(d);\n"
+"                    float wdrw = max(wln, px);\n"
+"                    float fade = wln / wdrw;\n"
+"                    float ln   = 1.0 - smoothstep(wdrw, wdrw + px, edge);\n"
+"                    // The stack: a second sheet laid immediately outside the\n"
+"                    // first, sharing the same thickness and the same flare.\n"
+"                    float e2   = abs(edge - wln * 2.0);\n"
+"                    float ln2  = 1.0 - smoothstep(wdrw, wdrw + px, e2);\n"
+"                    c = mix(c, u_cvnr2, ln2 * 0.90 * fade * u_cv2on);\n"
+"                    c = mix(c, u_caccent, ln * 0.95 * fade);\n"
 "                }\n"
 "                // Below the points the whole butt is burr — on a real cue the\n"
 "                // splice rises OUT of the butt wood, so the wood is what the\n"
@@ -1476,7 +1541,7 @@ static struct {
     GLint  u_mvp, u_model, u_tex, u_mode, u_encode, u_colour, u_colour2, u_light;
     GLint  u_ballslice, u_balls, u_clothsh;
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
-           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
+           u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
     GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_lampN, u_lampI, u_nlamp, u_lampround, u_eye;
     GLint  u_keyc, u_fill, u_hudv, u_hudrect, u_shadow, u_clothlod, u_rawcol, u_varn;
     int    minimal;            /* the real shader would not build; see FS_MIN */
@@ -2036,24 +2101,39 @@ static float fur_noise(float x, float y, int px, int py) {
  * coloured line flashed down each side of a splice point, which is the detail
  * that makes a cue look made rather than turned. */
 static const CueVrCueDesign CUE_RACK[] = {
-  /* Read off the reference set: every one is an ash shaft, an ebony butt and a
-   * GREY-BLACK BURR splice, and what distinguishes them is the colour of the
-   * veneer outlining the points.
+  /* FIELD ORDER: shaft, splice, accent(veneer), BURR, BUTT, flash,
+   *              vnr2(second veneer), flash2, veneer thickness (m).
+   * Burr before butt — listing them the other way round once gave every cue a
+   * near-black burr, so the splice points were drawn black on black.
    *
-   * FIELD ORDER IS shaft, splice, accent, BURR, BUTT — burr before butt. The
-   * first version of this table listed butt before burr, so every cue got the
-   * near-black butt colour as its burr: the splice points were being drawn, in
-   * black, onto black, and all that showed was the veneer outline as a dotted
-   * blue line. It looked like a shader bug and was a column swap.
+   * Two families, because the references are two traditions.
    *
-   *  name              shaft                 splice/ebony            accent (veneer)         burr (splice wood)    butt                    veneer? */
-  { "ASH & EBONY",  {0.86f,0.74f,0.54f}, {0.075f,0.060f,0.052f}, {0.075f,0.060f,0.052f}, {0.28f,0.27f,0.26f},  {0.075f,0.060f,0.052f}, 0 },
-  { "BLUE POINT",   {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.16f,0.52f,0.78f},    {0.30f,0.29f,0.28f},  {0.070f,0.058f,0.052f}, 1 },
-  { "GREEN POINT",  {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.36f,0.72f,0.42f},    {0.30f,0.29f,0.28f},  {0.070f,0.058f,0.052f}, 1 },
-  { "RED POINT",    {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.78f,0.16f,0.24f},    {0.31f,0.29f,0.28f},  {0.070f,0.058f,0.052f}, 1 },
-  { "IVORY POINT",  {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.90f,0.84f,0.68f},    {0.30f,0.29f,0.28f},  {0.070f,0.058f,0.052f}, 1 },
-  { "SKY POINT",    {0.87f,0.75f,0.55f}, {0.070f,0.058f,0.052f}, {0.34f,0.68f,0.86f},    {0.29f,0.28f,0.28f},  {0.070f,0.058f,0.052f}, 1 },
-  { "BURR WALNUT",  {0.87f,0.75f,0.55f}, {0.20f,0.12f,0.07f},    {0.72f,0.56f,0.30f},    {0.46f,0.31f,0.17f},  {0.20f,0.12f,0.07f},    1 },
+   * The BRITISH hand splice: an ash shaft, four long ebony points let into it,
+   * and the whole frame's character coming from the dyed veneers laid in the
+   * joint. Taylor Made and Peradon both work this way and it is why their cues
+   * read as made rather than painted.
+   *
+   * The AMERICAN cue: a pale maple shaft and a COLOURED forearm — stained
+   * timber rather than ebony — with pale points let into it the other way
+   * about, light into dark. A different look entirely from the same six
+   * numbers, which is the nice thing about shading it all from the profile.
+   *
+   *  name             shaft                 splice                  accent (veneer)         burr (splice wood)     butt                    fl  veneer 2                fl2 thick */
+  { "ASH & EBONY",  {0.86f,0.74f,0.54f}, {0.075f,0.060f,0.052f}, {0.075f,0.060f,0.052f}, {0.28f,0.27f,0.26f},  {0.075f,0.060f,0.052f}, 0, {0,0,0},                 0, 0.0010f },
+  { "CENTURY",      {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.13f,0.62f,0.60f},    {0.26f,0.26f,0.26f},  {0.070f,0.058f,0.052f}, 1, {0.93f,0.90f,0.80f},     1, 0.0011f },
+  { "CORAL",        {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.94f,0.42f,0.34f},    {0.27f,0.25f,0.25f},  {0.070f,0.058f,0.052f}, 1, {0.93f,0.90f,0.80f},     1, 0.0011f },
+  { "ROYAL",        {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.13f,0.34f,0.72f},    {0.26f,0.26f,0.27f},  {0.070f,0.058f,0.052f}, 1, {0.93f,0.90f,0.80f},     1, 0.0011f },
+  { "CROWN",        {0.86f,0.74f,0.54f}, {0.10f,0.055f,0.045f},  {0.72f,0.14f,0.16f},    {0.34f,0.14f,0.10f},  {0.10f,0.055f,0.045f},  1, {0.80f,0.64f,0.30f},     1, 0.0012f },
+  { "JOE DAVIS",    {0.87f,0.75f,0.55f}, {0.070f,0.058f,0.052f}, {0.92f,0.87f,0.74f},    {0.29f,0.28f,0.27f},  {0.070f,0.058f,0.052f}, 1, {0.55f,0.42f,0.24f},     1, 0.0012f },
+  { "EDWARDIAN",    {0.87f,0.75f,0.55f}, {0.26f,0.11f,0.07f},    {0.90f,0.84f,0.70f},    {0.46f,0.22f,0.13f},  {0.26f,0.11f,0.07f},    1, {0.14f,0.09f,0.07f},     1, 0.0012f },
+  { "ASCOT",        {0.87f,0.75f,0.55f}, {0.36f,0.14f,0.09f},    {0.94f,0.90f,0.78f},    {0.58f,0.26f,0.12f},  {0.36f,0.14f,0.09f},    1, {0.20f,0.10f,0.06f},     1, 0.0012f },
+  { "HARLEQUIN",    {0.86f,0.74f,0.54f}, {0.070f,0.058f,0.052f}, {0.85f,0.22f,0.52f},    {0.30f,0.26f,0.30f},  {0.070f,0.058f,0.052f}, 1, {0.95f,0.60f,0.16f},     1, 0.0013f },
+  { "BURR WALNUT",  {0.87f,0.75f,0.55f}, {0.20f,0.12f,0.07f},    {0.72f,0.56f,0.30f},    {0.46f,0.31f,0.17f},  {0.20f,0.12f,0.07f},    1, {0.93f,0.88f,0.76f},     1, 0.0011f },
+  /* --- American: pale maple shaft, stained forearm, pale points ------------ */
+  { "SCARLET",      {0.90f,0.82f,0.62f}, {0.62f,0.09f,0.10f},    {0.95f,0.92f,0.84f},    {0.80f,0.16f,0.14f},  {0.62f,0.09f,0.10f},    1, {0.16f,0.13f,0.12f},     1, 0.0013f },
+  { "EMERALD",      {0.90f,0.82f,0.62f}, {0.08f,0.34f,0.18f},    {0.94f,0.90f,0.78f},    {0.12f,0.52f,0.26f},  {0.08f,0.34f,0.18f},    1, {0.78f,0.64f,0.24f},     1, 0.0013f },
+  { "SAPPHIRE",     {0.90f,0.82f,0.62f}, {0.08f,0.18f,0.46f},    {0.94f,0.90f,0.80f},    {0.14f,0.28f,0.66f},  {0.08f,0.18f,0.46f},    1, {0.80f,0.66f,0.26f},     1, 0.0013f },
+  { "IVORY",        {0.90f,0.82f,0.62f}, {0.88f,0.84f,0.74f},    {0.12f,0.26f,0.58f},    {0.94f,0.92f,0.86f},  {0.88f,0.84f,0.74f},    1, {0.20f,0.18f,0.17f},     1, 0.0013f },
 };
 #define CUE_RACK_N ((int)(sizeof CUE_RACK / sizeof CUE_RACK[0]))
 static int s_cue_sel;
@@ -2690,6 +2770,9 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_furdbg     = glGetUniformLocation(G.prog, "u_furdbg");
     G.u_cshaft     = glGetUniformLocation(G.prog, "u_cshaft");
     G.u_csplice    = glGetUniformLocation(G.prog, "u_csplice");
+    G.u_cvnr2      = glGetUniformLocation(G.prog, "u_cvnr2");
+    G.u_cvw        = glGetUniformLocation(G.prog, "u_cvw");
+    G.u_cv2on      = glGetUniformLocation(G.prog, "u_cv2on");
     G.u_caccent    = glGetUniformLocation(G.prog, "u_caccent");
     G.u_cbutt      = glGetUniformLocation(G.prog, "u_cbutt");
     G.u_cburr      = glGetUniformLocation(G.prog, "u_cburr");
@@ -3405,6 +3488,9 @@ after_table: ;
             glUniform3fv(G.u_cbutt, 1, cd->butt);
             glUniform3fv(G.u_cburr, 1, cd->burr);
             glUniform1f(G.u_cflash, (float)cd->flash);
+            glUniform3fv(G.u_cvnr2, 1, cd->vnr2);
+            glUniform1f(G.u_cv2on, (float)cd->flash2);
+            glUniform1f(G.u_cvw, cd->veneer_w > 0.0f ? cd->veneer_w : 0.0010f);
         }
         glUniform1f(G.u_baulk, tb->baulk_x);
         glUniform1f(G.u_drad,  tb->d_radius);

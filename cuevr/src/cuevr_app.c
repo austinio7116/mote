@@ -2011,7 +2011,18 @@ static void app_update(void *u, const MoteVrTracking *t) {
     /* Visible whenever you are holding it, not only when it happens to be
      * lined up. cue_on_ball tells the renderer to mark the ferrule so you
      * can see when the line is actually live. */
-    if (S.state == ST_CPUCUE) {
+    if (getenv("CUEVR_CUESHOT")) {
+        /* Stage the cue for a design capture. Headless has no tracked hands, so
+         * the cue was simply never drawn and every cue design shipped on
+         * arithmetic and hope — three passes of the forced elevation reached a
+         * headset before anyone could look at it. Lay it along the table, level
+         * and above the cloth, where a whole cue is in frame. */
+        S.scene.cue_visible = 1;
+        S.scene.cue_on_ball = 0;
+        S.scene.cue_tip  = cuevr_table_to_room(&S.setup.place, v3(-1.45f, 0.16f, 0.0f));
+        S.scene.cue_butt = cuevr_table_to_room(&S.setup.place, v3( 0.00f, 0.16f, 0.0f));
+        S.scene.cue_roll = 0.0f;
+    } else if (S.state == ST_CPUCUE) {
         S.scene.cue_visible = 1;
         S.scene.cue_on_ball = 0;
         S.scene.cue_tip = S.cpu_tip;
