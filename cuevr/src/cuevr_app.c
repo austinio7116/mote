@@ -2305,12 +2305,14 @@ void cuevr_app_describe(MoteXrApp *out) {
     out->gl_shutdown = app_gl_shutdown;
     /* The GPU is the wall on this app (measured on device), so trade the
      * excess supersampling for frame time: 1.1x instead of the host default
-     * 1.25x is 28%% less fragment work, and LOW fixed foveation claws back
-     * more at the edges where a table scene holds nothing readable anyway.
-     * CUEVR_SCALE / CUEVR_FFR override for A/B on device. */
+     * 1.25x is 28% less fragment work. CUEVR_SCALE overrides for device A/B.
+     *
+     * NO foveated rendering, at the user's direction (twice): in cue sports
+     * you sight along the cue to balls at the edge of the view — the
+     * periphery is precisely where the eye goes, so FFR blurs the one thing
+     * that must stay sharp. The host plumbing exists but this app never asks. */
     out->render_scale = 1.10f;
-    out->foveation    = 1;
+    out->foveation    = 0;
     {   const char *v;
-        if ((v = getenv("CUEVR_SCALE"))) out->render_scale = (float)atof(v);
-        if ((v = getenv("CUEVR_FFR")))   out->foveation    = atoi(v); }
+        if ((v = getenv("CUEVR_SCALE"))) out->render_scale = (float)atof(v); }
 }
