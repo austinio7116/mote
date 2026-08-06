@@ -1166,16 +1166,34 @@ static const char *FS =
 "            /* ---- the timber's FIGURE ---------------------------------- *\n"
 "             * What separates ebony from a photo of black: the butt woods\n"
 "             * carry their own figure. */\n"
+"            /* Two-timber cues figure each timber its own way: with a sleeve\n"
+"             * present the EYES belong to the sleeve wood, and the section\n"
+"             * above it takes plain figure. */\n"
+"            float figsw = (u_csleeve > 0.5 && u_cbfig > 1.5 && u_cbfig < 2.5)\n"
+"                        ? ((u_cwrap > 0.5) ? 0.920 : 0.845) : ms_base;\n"
 "            if (u_cbfig > 0.5 && t > ms_base) {\n"
+"                float bfig = (t < figsw) ? 1.0 : u_cbfig;\n"
 "                float fang = a * 6.2831853;\n"
-"                if (u_cbfig < 1.5) {          /* plain figure: ebony/rosewood */\n"
+"                if (bfig < 1.5) {             /* plain figure: ebony/rosewood */\n"
 "                    c *= 0.90 + 0.20 * fbm2(vec2(t * 50.0, fang * 1.5));\n"
-"                } else if (u_cbfig < 2.5) {   /* birdseye maple */\n"
-"                    float e1  = vnoise(vec2(t * 420.0, fang * 9.0));\n"
-"                    float eye = smoothstep(0.80, 0.92, e1);\n"
-"                    c *= 0.92 + 0.16 * fbm2(vec2(t * 40.0, fang));\n"
-"                    c = mix(c, c * 0.50, eye);\n"
-"                } else if (u_cbfig < 3.5) {   /* curly maple: bright cross-bands */\n"
+"                } else if (bfig < 2.5) {      /* birdseye maple */\n"
+"                    /* Real birdseye is ROUND: small dark eyes with a lighter\n"
+"                     * halo, scattered — not thresholded noise, which gives\n"
+"                     * torn chips. Cellular spots, jittered, only some cells\n"
+"                     * occupied, measured in real millimetres both ways so the\n"
+"                     * eyes stay round on the curved surface. */\n"
+"                    vec2 pp   = vec2(t * 1.45 * 150.0, fang * cue_r * 150.0);\n"
+"                    vec2 cell = floor(pp);\n"
+"                    vec2 f2   = fract(pp);\n"
+"                    vec2 jit  = vec2(hash12(cell), hash12(cell + 7.7)) * 0.6 + 0.2;\n"
+"                    float rr   = length(f2 - jit);\n"
+"                    float here = step(0.42, hash12(cell + 3.3));\n"
+"                    float eye  = here * (1.0 - smoothstep(0.10, 0.26, rr));\n"
+"                    float halo = here * (1.0 - smoothstep(0.24, 0.50, rr)) * (1.0 - eye);\n"
+"                    c *= 0.94 + 0.12 * fbm2(vec2(t * 30.0, fang * 1.5));\n"
+"                    c *= 1.0 + 0.10 * halo;\n"
+"                    c = mix(c, c * 0.42, eye * 0.9);\n"
+"                } else if (bfig < 3.5) {      /* curly maple: bright cross-bands */\n"
 "                    float curl = 0.5 + 0.5 * sin(t * 220.0 + 4.0 * fbm2(vec2(t * 30.0, fang * 0.4)));\n"
 "                    c *= 0.84 + 0.30 * curl;\n"
 "                } else {                      /* wenge: straight dark stripes */\n"
@@ -1243,12 +1261,33 @@ static const char *FS =
 "                    float sh = fbm2(vec2(t * 160.0, a * 30.0));\n"
 "                    icol = mix(u_cdiac * 0.75, vec3(1.0), smoothstep(0.35, 0.85, sh));\n"
 "                }\n"
+"                if (u_cishape > 3.5) {\n"
+"                    /* THE SCROLL CHAIN: the gothic ornament of the left-hand\n"
+"                     * Viking — a repeating cell down the face centreline,\n"
+"                     * diamond, paired dots, connecting stem — single-sided\n"
+"                     * like every butt ornament, in the contrast timber. */\n"
+"                    float dbc = abs(fract(a + 0.375) - 0.5) * 4.0;\n"
+"                    if (t > 0.615 && t < 0.935) {\n"
+"                        float cw = 0.052;\n"
+"                        float ct2 = fract((t - 0.615) / cw);\n"
+"                        float mch = 1e9;\n"
+"                        mch = min(mch, abs(ct2 - 0.50) * (cw / 0.016) * 1.45 + dbc / 0.115);\n"
+"                        mch = min(mch, length(vec2((ct2 - 0.13) * cw * 55.0, dbc * 9.0)));\n"
+"                        mch = min(mch, length(vec2((ct2 - 0.87) * cw * 55.0, dbc * 9.0)));\n"
+"                        float stem = max(dbc / 0.022, 0.0) + max(abs(ct2 - 0.5) - 0.42, 0.0) * 60.0;\n"
+"                        mch = min(mch, stem);\n"
+"                        float chn = 1.0 - smoothstep(0.92, 1.05, mch);\n"
+"                        c = mix(c, u_cdiac, chn * 0.95);\n"
+"                    }\n"
+"                }\n"
+"                else {\n"
 "                c = mix(c, u_cvnr2, pl);              /* the let-in plate */\n"
 "                if (u_cishape > 1.5 && u_cishape < 2.5) {\n"
 "                    float fr = 1.0 - smoothstep(0.88, 0.98, md);   /* dark frame */\n"
 "                    c = mix(c, vec3(0.06, 0.05, 0.05), fr);\n"
 "                }\n"
 "                c = mix(c, icol, co);\n"
+"                }\n"
 "            }\n"
 "\n"
 "            /* 3. the badge: a round ivory plate on the very end, and the black\n"
@@ -2494,6 +2533,16 @@ static const CueVrCueDesign CUE_RACK[] = {
     .sleeve=1, .sleevec={0.14f,0.24f,0.52f}, .ringc={0.88f,0.89f,0.92f},
     .diamonds=1, .diac={0.93f,0.94f,0.96f}, .inlay_shape=2, .inlay_pearl=1,
     .vnr2={0.06f,0.06f,0.07f}, .arches=-1 },
+
+  { .name="VIKING SCROLL",.shaft={0.90f,0.83f,0.65f}, .splice={0.30f,0.12f,0.08f},
+    /* the gothic one: rosewood body carrying a pale maple ornament chain down
+     * the face, birdseye below, grouped rings — after the left-hand Viking */
+    .accent={0.86f,0.74f,0.52f}, .burr={0.34f,0.14f,0.09f}, .butt={0.30f,0.12f,0.08f},
+    .veneer_w=0.0012f, .points=4, .point_len=0.85f, .veneers=1, .flash=1,
+    .shaft_fig=1, .butt_fig=1, .hand=0, .arches=-1,
+    .sleeve=1, .sleevec={0.76f,0.56f,0.32f}, .ringc={0.88f,0.89f,0.92f},
+    .diamonds=1, .diac={0.85f,0.72f,0.48f}, .inlay_shape=4,
+    .vnr2={0.06f,0.055f,0.05f} },
 };
 #define CUE_RACK_N ((int)(sizeof CUE_RACK / sizeof CUE_RACK[0]))
 static int s_cue_sel;
