@@ -2703,10 +2703,9 @@ int cuevr_render_has_ctrl_model(int hand) {
 /* SHADOWS off (the map costs more Quest frame time than it earns), CLOTH NAP
  * off (judged worse-looking and slower). FRAME WOOD back ON: with it off the
  * frame's timber draws through mode 12, flat vertex colour with no grain and
- * no varnish, which is the "simpler wood" that appeared once the sampler fix
- * let those triangles draw at all — before it they were being rejected
- * outright. It is ~300 triangles; the grain is worth them. */
-static int s_fx[CUEVR_FX_N] = { 0, 1, 1, 0, 1 };
+ * no varnish. Left OFF, as it has always been: the simplified wood was the
+ * RAILS losing their grain field, not the frame changing mode. */
+static int s_fx[CUEVR_FX_N] = { 0, 1, 1, 0, 0 };
 static const char *FX_NAME[CUEVR_FX_N] = {
     "SHADOWS", "VARNISH", "BALL REFLECT", "CLOTH NAP", "FRAME WOOD" };
 void cuevr_render_fx_set(int w, int on) { if (w >= 0 && w < CUEVR_FX_N) s_fx[w] = on ? 1 : 0; }
@@ -3498,8 +3497,18 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
      * not the 15k-triangle fin patch that was uploaded and then never drawn.
      * Baking assets for a disabled feature costs startup time, two textures and
      * a vertex buffer on a device that is short of all three. */
+    /* THE NAP TEXTURE IS NOT JUST FOR THE NAP. timber() samples u_nap twice for
+     * every wooden pixel on the table — once low-frequency for the grain's
+     * turbulence, once high for the fine figure and pores — so the rails and
+     * the frame get their wood out of it. Skipping the bake because the CLOTH
+     * nap is off left every timber surface sampling a texture that was never
+     * created, which is precisely the "simplified" wood: flat colour where the
+     * grain should be. It is one 1024x1024 field and it always gets baked.
+     *
+     * The fur volume and the 15k-triangle fin patch ARE cloth-only, and those
+     * stay skipped. */
+    bake_nap();
     if (s_fx[CUEVR_FX_NAP]) {
-        bake_nap();
         bake_fur();
         {   /* One patch, built once, moved to follow the eye. */
             int n = (int)(FIN_HALF * 2.0f / FIN_SPACING);
@@ -3511,7 +3520,7 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
             b_free(&fb);
         }
     } else {
-        LOGI("[cuevr] nap off: no lean field, no fur volume, no fin patch");
+        LOGI("[cuevr] cloth nap off: no fur volume, no fin patch (wood keeps its grain field)");
     }
     bake_ball_atlas();
 
