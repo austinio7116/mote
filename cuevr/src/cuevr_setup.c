@@ -39,6 +39,9 @@
 #define HEIGHT_MIN     0.25f
 #define HEIGHT_MAX     1.35f
 
+static int s_lefty;
+void cuevr_setup_left_handed(int on) { s_lefty = on ? 1 : 0; }
+
 void cuevr_setup_init(CueVrSetup *s, float floor_y) {
     memset(s, 0, sizeof *s);
     s->place.yaw = 0.0f;
@@ -81,8 +84,11 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_ro
                         int allow_height) {
     float dt = t->dt > 0.0f && t->dt < 0.25f ? t->dt : 1.0f / 72.0f;
 
-    const MoteVrHand *L = &t->hand[MOTE_VR_LEFT];
-    const MoteVrHand *Rh = &t->hand[MOTE_VR_RIGHT];
+    /* Sliding is the OFF hand's stick and turning is the DOMINANT hand's, and
+     * for a left-hander both are the other controller — the whole layout is a
+     * mirror, not just the cue. Set from the same menu row. */
+    const MoteVrHand *L  = &t->hand[s_lefty ? MOTE_VR_RIGHT : MOTE_VR_LEFT];
+    const MoteVrHand *Rh = &t->hand[s_lefty ? MOTE_VR_LEFT  : MOTE_VR_RIGHT];
 
     /* ---- slide, in the player's own frame ------------------------------- *
      * Forward is where the head is looking, flattened onto the floor. Pushing
@@ -131,7 +137,7 @@ int cuevr_setup_update(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_roo
     cuevr_setup_adjust(s, t, ball_room, 1);
     /* Done: A only. The right trigger is the cue stroke now, so it cannot also
      * mean "yes" — confirming setup with it would immediately arm a shot. */
-    if (t->hand[MOTE_VR_RIGHT].btn_lower) {
+    if (t->hand[s_lefty ? MOTE_VR_LEFT : MOTE_VR_RIGHT].btn_lower) {
         s->active = 0;
         s->confirmed = 1;
         return 0;

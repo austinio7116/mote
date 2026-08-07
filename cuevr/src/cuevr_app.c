@@ -290,6 +290,18 @@ static struct {
     CueVrScene scene;
 } S;
 
+/* THE DOMINANT HAND is the one on the butt: it holds the cue, it carries the
+ * ball, it holds the laser, and every button and stick a menu reads belongs to
+ * it. For a left-hander that is the physical LEFT controller, so none of this
+ * can be written as MOTE_VR_RIGHT.
+ *
+ * Two things stay physical because they are about the hardware and not the
+ * player: the MENU button, which only the left controller has, and the hand
+ * poses handed to the renderer, which must stay what they are or the controller
+ * models swap sides. */
+#define DOMH (S.lefty ? MOTE_VR_LEFT  : MOTE_VR_RIGHT)
+#define OFFH (S.lefty ? MOTE_VR_RIGHT : MOTE_VR_LEFT)
+
 /* The rest the player has set. Only the scripted preview harness wants this:
  * its fake bridge hand has to sit rest_lift below the aim line to put the cue on
  * the ball, exactly as a real hand does without being told. Hardcoding the
@@ -715,7 +727,7 @@ static int ptr_zone(void) {
 /* A trigger pull, once. The trigger is the Quest select and this is the only
  * place that reads it as a button. */
 static int ptr_click(const MoteVrTracking *t) {
-    int down = t->hand[MOTE_VR_RIGHT].trigger > 0.55f;
+    int down = t->hand[DOMH].trigger > 0.55f;
     if (!down) { S.ptr_latch = 0; return 0; }
     if (S.ptr_latch) return 0;
     S.ptr_latch = 1;
@@ -1384,7 +1396,11 @@ static void menu_change(int d) {
             case MR_OPP:      S.opp = (S.opp + d + OPP_N) % OPP_N; break;
             case MR_FRAMES:   S.match_idx = (S.match_idx + d + MATCH_LEN_N) % MATCH_LEN_N; break;
             case MR_STRENGTH: S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS; break;
-            case MR_HAND:     S.lefty = !S.lefty; cuevr_cue_left_handed(S.lefty); break;
+            case MR_HAND:
+                S.lefty = !S.lefty;
+                cuevr_cue_left_handed(S.lefty);
+                cuevr_setup_left_handed(S.lefty);
+                break;
             /* Cloth, frame, table, lighting, balls and cue moved to the
              * APPEARANCE screen, which owns them for both entry points. */
             default: break;
@@ -1640,6 +1656,7 @@ static int app_gl_init(void *u) {
         S.stats = pr;                      /* the records ride in the same file */
         S.lefty = pr.lefty;
         cuevr_cue_left_handed(S.lefty);
+        cuevr_setup_left_handed(S.lefty);
         cuevr_render_set_cue(S.cue_idx);
         cuevr_render_set_light(S.light_idx);
         cuevr_render_set_body(S.body_idx);
@@ -1939,11 +1956,11 @@ static void app_update(void *u, const MoteVrTracking *t) {
         /* A still works, on whatever the pointer last picked out — a button is
          * a kinder thing to find than a ray when you are not looking at the
          * panel. */
-        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
+        if (t->hand[DOMH].btn_lower && !S.btn_latch) {
             S.btn_latch = 1;
             menu_activate();
         }
-        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+        if (!t->hand[DOMH].btn_lower) S.btn_latch = 0;
         break;
     }
 
@@ -1961,10 +1978,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
         }
         if (S.lb_screen == LB_BROWSE && cuevr_net_browse_done()) S.hud_dirty = 1;
 
-        float ly = t->hand[MOTE_VR_RIGHT].stick_y + t->hand[MOTE_VR_LEFT].stick_y;
-        float lx = t->hand[MOTE_VR_RIGHT].stick_x + t->hand[MOTE_VR_LEFT].stick_x;
-        int a = t->hand[MOTE_VR_RIGHT].btn_lower;
-        int bb = t->hand[MOTE_VR_RIGHT].btn_upper;
+        float ly = t->hand[DOMH].stick_y + t->hand[OFFH].stick_y;
+        float lx = t->hand[DOMH].stick_x + t->hand[OFFH].stick_x;
+        int a = t->hand[DOMH].btn_lower;
+        int bb = t->hand[DOMH].btn_upper;
 
         /* Edge-triggered, and it has to be written this way round. The first
          * version cleared the latch on a neutral frame and then immediately
@@ -2072,7 +2089,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         }
         /* The sticks belong to the table here too. */
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
-        int a = t->hand[MOTE_VR_RIGHT].btn_lower;
+        int a = t->hand[DOMH].btn_lower;
         if (!a && !S.pause_click) S.pause_latch = 0;
         else if (!S.pause_latch || S.pause_click) {
             S.pause_latch = 1;
@@ -2554,7 +2571,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         /* The TRIGGER drops it — the button your finger is already on while
          * you carry something. A stays out of this so it keeps meaning "yes"
          * on the panels. */
-        if (t->hand[MOTE_VR_RIGHT].trigger < 0.4f) S.place_latch = 0;
+        if (t->hand[DOMH].trigger < 0.4f) S.place_latch = 0;
         else if (!S.place_latch) {
             /* Let go: NOW the rules apply. Straight down onto the cloth from
              * wherever you were holding it, then clamped into the legal region
@@ -2628,14 +2645,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.hud_dirty = 1;
             }
         }
-        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
+        if (t->hand[DOMH].btn_lower && !S.btn_latch) {
             S.btn_latch = 1;
             S.state = S.appear_from;
             S.menu_row = (S.appear_from == ST_MENU) ? MR_APPEAR : 0;
             if (S.appear_from == ST_PAUSE) S.pause_sel = PS_APPEAR;
             S.hud_dirty = 1;
         }
-        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+        if (!t->hand[DOMH].btn_lower) S.btn_latch = 0;
         break;
     }
 
@@ -2655,14 +2672,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
             }
             S.hud_dirty = 1;
         }
-        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
+        if (t->hand[DOMH].btn_lower && !S.btn_latch) {
             S.btn_latch = 1;
             S.state = S.appear_from;
             S.menu_row = (S.appear_from == ST_MENU) ? MR_STATS : 0;
             if (S.appear_from == ST_PAUSE) S.pause_sel = PS_STATS;
             S.hud_dirty = 1;
         }
-        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+        if (!t->hand[DOMH].btn_lower) S.btn_latch = 0;
         break;
     }
 
@@ -2689,8 +2706,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
          */
         static const float STEP[6] = { 0.002f, 0.002f, 0.002f, 1.0f, 1.0f, 1.0f };
         enum { CAL_RESET = 6, CAL_ROWS = 7 };
-        float px = t->hand[MOTE_VR_RIGHT].stick_x;
-        float py = t->hand[MOTE_VR_RIGHT].stick_y;
+        float px = t->hand[DOMH].stick_x;
+        float py = t->hand[DOMH].stick_y;
 
         /* Channel select, one row per flick. */
         if (fabsf(py) > 0.55f) {
@@ -2729,7 +2746,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         }
 
         /* A zeroes this channel, B zeroes the lot. */
-        if (t->hand[MOTE_VR_RIGHT].btn_lower) {
+        if (t->hand[DOMH].btn_lower) {
             if (!S.cal_latch) {
                 if (S.cal_ch == CAL_RESET) {
                     /* Everything the player can get wrong, back to the shipped
@@ -2751,7 +2768,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 cuevr_render_set_ctrl_cal(S.cal_pos, S.cal_rot);
                 S.cal_latch = 1; S.hud_dirty = 1;
             }
-        } else if (t->hand[MOTE_VR_RIGHT].btn_upper) {
+        } else if (t->hand[DOMH].btn_upper) {
             if (!S.cal_latch) {
                 for (int i = 0; i < 3; i++) { S.cal_pos[i] = 0.0f; S.cal_rot[i] = 0.0f; }
                 cuevr_render_set_ctrl_cal(S.cal_pos, S.cal_rot);
@@ -2779,7 +2796,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
 
             int fire = 0;
             if (hov >= 0 && ptr_click(t)) fire = 1;
-            int a = t->hand[MOTE_VR_RIGHT].btn_lower;
+            int a = t->hand[DOMH].btn_lower;
             if (!a) S.dec_latch = 0;
             else if (!S.dec_latch) { S.dec_latch = 1; fire = 1; }
             if (!fire) break;
@@ -2813,7 +2830,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         /* A won frame in an unfinished match leads to the next frame, not back
          * to the main menu — otherwise "best of 7" is seven trips through the
          * table setup. A won MATCH goes back. */
-        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.over_latch = 0;
+        if (!t->hand[DOMH].btn_lower) S.over_latch = 0;
         else if (!S.over_latch) {
             S.over_latch = 1;
             if (S.rules.best_of > 1 && !S.rules.match_over) {
@@ -3018,7 +3035,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
 
     S.scene.hands_valid = t->hand[MOTE_VR_LEFT].tracked && t->hand[MOTE_VR_RIGHT].tracked;
     S.scene.hand[0] = t->hand[MOTE_VR_LEFT].pose;
-    S.scene.hand[1] = t->hand[MOTE_VR_RIGHT].pose;
+    S.scene.hand[1] = t->hand[DOMH].pose;
     S.scene.rest_visible = S.scene.cue_visible && S.state != ST_CPUCUE
                         && S.state != ST_MENU;
     S.scene.rest_pos = S.cue.bridge;

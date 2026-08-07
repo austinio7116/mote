@@ -79,6 +79,9 @@ typedef struct {
 
 void cuevr_setup_init(CueVrSetup *s, float floor_y);
 
+/* Mirror the setup controls for a left-hander — see cuevr_cue_left_handed. */
+void cuevr_setup_left_handed(int on);
+
 /* One frame of setup. `cue_ball_room` is where the cue ball currently is, in
  * room space, and is the pivot for everything. Returns 1 while setup should
  * continue, 0 once the player has confirmed. */
