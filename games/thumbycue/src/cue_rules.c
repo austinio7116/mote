@@ -50,8 +50,16 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
     if (r->kind) {
         r->target = 0; r->reds_left = t->reds ? t->reds : 15;
         /* colour spots by value 2..7 */
-        r->spot[2] = v3(t->baulk_x, t->R, -t->d_radius);   /* yellow = right of the D */
-        r->spot[3] = v3(t->baulk_x, t->R, +t->d_radius);   /* green  = left of the D */
+        /* SWAPPED. Standing behind the D looking up the table, the order
+         * reading left to right is green, brown, yellow — "God Bless You".
+         * These were the other way about: the comments said right and left and
+         * the coordinates said the opposite, and the render agreed with the
+         * coordinates. +Z is the player's RIGHT from baulk (facing +X with +Y
+         * up), so yellow is +d_radius. Checked against a render from behind
+         * the baulk cushion rather than against the handedness argument, which
+         * is exactly the sort of reasoning that put them here. */
+        r->spot[2] = v3(t->baulk_x, t->R, +t->d_radius);   /* yellow — right of the D */
+        r->spot[3] = v3(t->baulk_x, t->R, -t->d_radius);   /* green  — left of the D  */
         r->spot[4] = v3(t->baulk_x, t->R, 0.0f);           /* brown  */
         r->spot[5] = v3(t->blue_x,  t->R, 0.0f);           /* blue   */
         r->spot[6] = v3(t->pink_x,  t->R, 0.0f);           /* pink   */

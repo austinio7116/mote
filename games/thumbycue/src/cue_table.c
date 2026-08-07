@@ -483,8 +483,12 @@ static int rack_snooker(const CueTable *t, CueBall *b) {
     const float R = t->R;
     int n = 0;
     set_ball(&b[n++], CUE_ID_CUE, t->baulk_x, -t->d_radius * 0.4f, R);
-    set_ball(&b[n++], CUE_ID_YELLOW, t->baulk_x, -t->d_radius, R);   /* yellow = right of the D */
-    set_ball(&b[n++], CUE_ID_GREEN,  t->baulk_x, +t->d_radius, R);   /* green  = left of the D */
+    /* Green, brown, yellow reading LEFT TO RIGHT from behind the D — "God
+     * Bless You". +Z is the player's right facing up the table, so yellow is
+     * +d_radius. This and cue_rules.c's respot table were both mirrored, and
+     * both carried a comment saying the opposite of what the code did. */
+    set_ball(&b[n++], CUE_ID_YELLOW, t->baulk_x, +t->d_radius, R);   /* yellow — right of the D */
+    set_ball(&b[n++], CUE_ID_GREEN,  t->baulk_x, -t->d_radius, R);   /* green  — left of the D  */
     set_ball(&b[n++], CUE_ID_BROWN,  t->baulk_x, 0.0f, R);
     set_ball(&b[n++], CUE_ID_BLUE,   t->blue_x, 0.0f, R);
     set_ball(&b[n++], CUE_ID_PINK,   t->pink_x, 0.0f, R);
