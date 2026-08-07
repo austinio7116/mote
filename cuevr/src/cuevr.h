@@ -82,6 +82,10 @@ void cuevr_setup_init(CueVrSetup *s, float floor_y);
 /* Mirror the setup controls for a left-hander — see cuevr_cue_left_handed. */
 void cuevr_setup_left_handed(int on);
 
+/* Stick layout: which stick slides and which turns, and which way round each
+ * goes. Taste, so it is a setting and not a decision made here. */
+void cuevr_setup_sticks(int swap, int inv_slide, int inv_turn);
+
 /* One frame of setup. `cue_ball_room` is where the cue ball currently is, in
  * room space, and is the pivot for everything. Returns 1 while setup should
  * continue, 0 once the player has confirmed. */
@@ -231,7 +235,13 @@ typedef struct {
 #define CUEVR_REST_MAX   0.14f
 
 #define CUEVR_GRIP_MIN 0.06f
-#define CUEVR_GRIP_MAX 0.55f
+/* 0.97 m from the butt, which is two thirds up a 1.45 m cue.
+ *
+ * It was 0.55 — a shade under halfway — and half a cue is not far enough for
+ * the shots this exists for: reaching over a ball, cueing off the rail, playing
+ * from under a cushion. A player shortens right up for those, and the limit was
+ * stopping them at exactly the point the technique starts being useful. */
+#define CUEVR_GRIP_MAX 0.97f
 
 void cuevr_cue_init(CueVrCue *c);
 
@@ -294,6 +304,8 @@ typedef struct {
     int      frames_won[2];
     int      frames_played[2];
     int      lefty;          /* bridge with the right hand */
+    int      stick_swap;     /* turn on the left stick, slide on the right */
+    int      inv_slide, inv_turn;
 } CueVrPrefs;
 
 void cuevr_prefs_dir(const char *dir);

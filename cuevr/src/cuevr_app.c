@@ -90,7 +90,8 @@
 #define CUEVR_POWER_TRIM 0.70f
 
 enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_CPUCUE, ST_PLACE,
-       ST_DECIDE, ST_OVER, ST_PAUSE, ST_LOBBY, ST_ALIGN, ST_APPEAR, ST_STATS };
+       ST_DECIDE, ST_OVER, ST_PAUSE, ST_LOBBY, ST_ALIGN, ST_APPEAR, ST_STATS,
+       ST_CONTROLS };
 
 /* Who you are playing. PRACTICE is not "vs nobody" — it is its own mode: the
  * table never changes hands, so a missed pot leaves you to carry on, and undo is
@@ -105,8 +106,14 @@ static const char *OPP_NAME[OPP_N] = { "PRACTICE", "VS CPU", "ONLINE" };
  * that only decide how the table LOOKS now live on their own screen, reachable
  * from here and from the pause menu — so they can also be changed mid-frame,
  * which is when you actually notice you dislike the cloth. */
-enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_HAND, MR_APPEAR,
+enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_CONTROLS, MR_APPEAR,
        MR_STATS, MR_START, MR_N };
+
+/* The controls page. Handedness sits here rather than on the main menu because
+ * it is the same kind of thing as the rest of these: a preference about how you
+ * work the game, set once and forgotten, not a choice about the frame you are
+ * about to play. */
+enum { CR_HAND = 0, CR_STICKS, CR_INVSLIDE, CR_INVTURN, CR_BACK, CR_N };
 
 /* The appearance screen's own rows. */
 enum { AR_CLOTH = 0, AR_FRAME, AR_BODY, AR_LIGHT, AR_BALLS, AR_CUE, AR_BACK, AR_N };
@@ -131,10 +138,10 @@ enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE }
  * ever, against defaults that were chosen by measurement. cuevr_render_fx_set()
  * is still there for the preview harness to drive. */
 enum { PS_RESUME = 0, PS_UNDO, PS_PICKUP, PS_RERACK, PS_PLACE, PS_NOMINATE,
-       PS_CONCEDE, PS_APPEAR, PS_STATS, PS_ALIGN, PS_QUIT, PS_N };
+       PS_CONCEDE, PS_APPEAR, PS_CONTROLS, PS_STATS, PS_ALIGN, PS_QUIT, PS_N };
 static const char *PS_NAME[PS_N] = {
     "RESUME", "UNDO SHOT", "PICK UP BALL", "RE-RACK", "PLACE TABLE",
-    "NOMINATE", "CONCEDE FRAME", "APPEARANCE", "RECORDS",
+    "NOMINATE", "CONCEDE FRAME", "APPEARANCE", "CONTROLS", "RECORDS",
     "ALIGN CONTROLS", "BACK TO MENU" };
 static const char *COLOUR_NAME[8] = {
     "", "", "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
@@ -206,6 +213,7 @@ static struct {
     int dec_sel;           /* highlighted decision row */
     int can_repick;        /* the ball is down but the stroke is not played */
     int lefty;             /* bridges with the right hand */
+    int stick_swap, inv_slide, inv_turn;
     /* The pointer: where the right controller's ray meets the panel, in the
      * HUD's own layout coordinates (0..HW across, 0..rows down). */
     int   ptr_ok;
@@ -318,6 +326,8 @@ void cuevr_app_force_screen(const char *name) {
     if (!name) return;
     if (!strcmp(name, "appear")) {
         S.appear_from = ST_MENU; S.menu_row = AR_CLOTH; S.state = ST_APPEAR;
+    } else if (!strcmp(name, "controls")) {
+        S.appear_from = ST_MENU; S.menu_row = CR_HAND; S.state = ST_CONTROLS;
     } else if (!strcmp(name, "stats")) {
         S.appear_from = ST_MENU; S.state = ST_STATS;
     }
@@ -486,7 +496,8 @@ static void unpause(void) {
     if (S.rules.frame_over) back = ST_OVER;
     else if (back == ST_PAUSE || back == ST_MENU || back == ST_SETUP
              || back == ST_LOBBY || back == ST_ALIGN
-             || back == ST_APPEAR || back == ST_STATS) back = ST_AIM;
+             || back == ST_APPEAR || back == ST_STATS
+             || back == ST_CONTROLS) back = ST_AIM;
     /* and the press that resumed must not also put the ball down */
     if (back == ST_PLACE) S.place_latch = 1;
     S.state = back;
@@ -856,8 +867,7 @@ static void hud_paint(void) {
         /* Who you are about to play, with their face — the portraits have been
          * sitting in cue_faces.h all along. */
         if (S.opp == OPP_CPU) hud_face(HW - 9, 12 + MR_STRENGTH * 8 + 3, 9, S.persona);
-        hud_opt(MR_HAND, "CUE HAND", S.lefty ? "LEFT" : "RIGHT",
-                S.menu_row == MR_HAND, 1, TXT, DIM, HI);
+        hud_link(MR_CONTROLS, "CONTROLS", "OPEN", S.menu_row == MR_CONTROLS, DIM, HI, LIVE);
         hud_link(MR_APPEAR, "APPEARANCE", "OPEN", S.menu_row == MR_APPEAR, DIM, HI, LIVE);
         hud_link(MR_STATS,  "RECORDS",    "OPEN", S.menu_row == MR_STATS,  DIM, HI, LIVE);
 
@@ -1003,6 +1013,27 @@ static void hud_paint(void) {
         cue_render_set_preview_hs(HW - 9, 12 + AR_BALLS * 8 + 3, 2,
                                   S.ballset, S.tab.kind >= CUE_GAME_FIRST_SNK);
         hud_text("LEFT/RIGHT CHANGE   A BACK", 4, HH - 6, DIM);
+        return;
+    }
+
+    /* ---- controls ---- */
+    if (S.state == ST_CONTROLS) {
+        hud_height(CUEVR_HUD_LH);
+        hud_rect(0, 0, HW, 10, BAND);
+        hud_text_2x("CONTROLS", 4, 1, HI);
+        hud_rect(0, 10, HW, 1, LINE);
+        hud_opt(CR_HAND, "CUE HAND", S.lefty ? "LEFT" : "RIGHT",
+                S.menu_row == CR_HAND, 1, TXT, DIM, HI);
+        hud_opt(CR_STICKS, "STICKS",
+                S.stick_swap ? "L TURN  R SLIDE" : "L SLIDE  R TURN",
+                S.menu_row == CR_STICKS, 1, TXT, DIM, HI);
+        hud_opt(CR_INVSLIDE, "INVERT SLIDE", S.inv_slide ? "ON" : "OFF",
+                S.menu_row == CR_INVSLIDE, 1, TXT, DIM, HI);
+        hud_opt(CR_INVTURN, "INVERT TURN", S.inv_turn ? "ON" : "OFF",
+                S.menu_row == CR_INVTURN, 1, TXT, DIM, HI);
+        hud_link(CR_BACK, "BACK", "DONE", S.menu_row == CR_BACK, DIM, HI, LIVE);
+        hud_text("BUTTONS FOLLOW THE CUE HAND. STICKS DO NOT.", 4, HH - 12, DIM);
+        hud_text("POINT AND PULL THE TRIGGER", 4, HH - 6, DIM);
         return;
     }
 
@@ -1396,11 +1427,6 @@ static void menu_change(int d) {
             case MR_OPP:      S.opp = (S.opp + d + OPP_N) % OPP_N; break;
             case MR_FRAMES:   S.match_idx = (S.match_idx + d + MATCH_LEN_N) % MATCH_LEN_N; break;
             case MR_STRENGTH: S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS; break;
-            case MR_HAND:
-                S.lefty = !S.lefty;
-                cuevr_cue_left_handed(S.lefty);
-                cuevr_setup_left_handed(S.lefty);
-                break;
             /* Cloth, frame, table, lighting, balls and cue moved to the
              * APPEARANCE screen, which owns them for both entry points. */
             default: break;
@@ -1419,6 +1445,11 @@ static void menu_activate(void) {
     } else if (S.menu_row == MR_STATS) {
         S.appear_from = ST_MENU;
         S.state = ST_STATS;
+        S.hud_dirty = 1;
+    } else if (S.menu_row == MR_CONTROLS) {
+        S.appear_from = ST_MENU;
+        S.menu_row = CR_HAND;
+        S.state = ST_CONTROLS;
         S.hud_dirty = 1;
     } else if (S.menu_row == MR_START) {
         cue_render_set_ball_set(S.ballset);
@@ -1655,8 +1686,10 @@ static int app_gl_init(void *u) {
         cuevr_render_set_ctrl_cal(S.cal_pos, S.cal_rot);
         S.stats = pr;                      /* the records ride in the same file */
         S.lefty = pr.lefty;
+        S.stick_swap = pr.stick_swap; S.inv_slide = pr.inv_slide; S.inv_turn = pr.inv_turn;
         cuevr_cue_left_handed(S.lefty);
         cuevr_setup_left_handed(S.lefty);
+        cuevr_setup_sticks(S.stick_swap, S.inv_slide, S.inv_turn);
         cuevr_render_set_cue(S.cue_idx);
         cuevr_render_set_light(S.light_idx);
         cuevr_render_set_body(S.body_idx);
@@ -1846,7 +1879,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * pointer, it is a laser lying on the cloth. */
         int pointing = (S.state == ST_MENU || S.state == ST_PAUSE ||
                         S.state == ST_APPEAR || S.state == ST_STATS ||
-                        S.state == ST_LOBBY || S.state == ST_DECIDE);
+                        S.state == ST_LOBBY || S.state == ST_DECIDE ||
+                        S.state == ST_CONTROLS);
         /* The pointer lives in the hand that holds the BUTT, which is the left
          * one for a left-hander. Hard-coding the right would have put the laser
          * in their bridge hand — the one lying on the cloth. */
@@ -1903,7 +1937,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
     {
         int in_menu = (S.state == ST_MENU || S.state == ST_SETUP ||
                        S.state == ST_LOBBY || S.state == ST_ALIGN ||
-                       S.state == ST_STATS);
+                       S.state == ST_STATS || S.state == ST_CONTROLS);
         if (!in_menu) {
             /* How steeply the cue is FORCED to sit for this aim, worked out
              * BEFORE the cue is read because the cue is what consumes it. It is
@@ -1947,7 +1981,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             if (hov >= 0 && click) {
                 int z = ptr_zone();
                 if (z == 0 || S.menu_row == MR_APPEAR || S.menu_row == MR_STATS
-                           || S.menu_row == MR_START)
+                           || S.menu_row == MR_CONTROLS || S.menu_row == MR_START)
                     menu_activate();
                 else
                     menu_change(z);
@@ -2158,6 +2192,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     S.appear_from = ST_PAUSE;
                     S.menu_row = AR_CLOTH;
                     S.state = ST_APPEAR;
+                    break;
+                case PS_CONTROLS:
+                    S.btn_latch = 1;
+                    S.appear_from = ST_PAUSE;
+                    S.menu_row = CR_HAND;
+                    S.state = ST_CONTROLS;
                     break;
                 case PS_STATS:
                     S.btn_latch = 1;
@@ -2660,6 +2700,44 @@ static void app_update(void *u, const MoteVrTracking *t) {
     }
 
 
+    case ST_CONTROLS: {
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        {
+            int hov = ptr_row_at(12, 8, CR_N);
+            if (hov >= 0 && hov != S.menu_row) { S.menu_row = hov; S.hud_dirty = 1; }
+            if (hov >= 0 && ptr_click(t)) {
+                if (S.menu_row == CR_BACK) {
+                    S.state = S.appear_from;
+                    S.menu_row = (S.appear_from == ST_MENU) ? MR_CONTROLS : 0;
+                    if (S.appear_from == ST_PAUSE) S.pause_sel = PS_CONTROLS;
+                    S.btn_latch = 1;
+                    S.hud_dirty = 1;
+                    break;
+                }
+                switch (S.menu_row) {
+                case CR_HAND:     S.lefty = !S.lefty; break;
+                case CR_STICKS:   S.stick_swap = !S.stick_swap; break;
+                case CR_INVSLIDE: S.inv_slide = !S.inv_slide; break;
+                case CR_INVTURN:  S.inv_turn = !S.inv_turn; break;
+                default: break;
+                }
+                cuevr_cue_left_handed(S.lefty);
+                cuevr_setup_left_handed(S.lefty);
+                cuevr_setup_sticks(S.stick_swap, S.inv_slide, S.inv_turn);
+                S.hud_dirty = 1;
+            }
+        }
+        if (t->hand[DOMH].btn_lower && !S.btn_latch) {
+            S.btn_latch = 1;
+            S.state = S.appear_from;
+            S.menu_row = (S.appear_from == ST_MENU) ? MR_CONTROLS : 0;
+            if (S.appear_from == ST_PAUSE) S.pause_sel = PS_CONTROLS;
+            S.hud_dirty = 1;
+        }
+        if (!t->hand[DOMH].btn_lower) S.btn_latch = 0;
+        break;
+    }
+
     case ST_STATS: {
         /* Two things to point at: the page, and the way out. The whole panel is
          * the page toggle except the bottom two lines, which are the footer. */
@@ -2891,7 +2969,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         int in_menu = (S.state == ST_MENU || S.state == ST_SETUP ||
                        S.state == ST_LOBBY || S.state == ST_PAUSE ||
                        S.state == ST_ALIGN || S.state == ST_STATS ||
-                       S.state == ST_PLACE);
+                       S.state == ST_PLACE || S.state == ST_CONTROLS);
         /* NOT hidden on APPEARANCE: that screen is where you pick the cue, and
          * a cue chooser with no cue in it is a list of words. Hidden during
          * PLACE: you are holding the ball, and you cannot hold both. */
@@ -2921,7 +2999,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
                       S.state == ST_PLACE || S.state == ST_DECIDE ||
                       S.state == ST_OVER || S.state == ST_PAUSE ||
                       S.state == ST_LOBBY || S.state == ST_ALIGN ||
-                      S.state == ST_APPEAR || S.state == ST_STATS);
+                      S.state == ST_APPEAR || S.state == ST_STATS ||
+                      S.state == ST_CONTROLS);
         MoteVrV3 pos;
         if (asking) {
             /* BEHIND THE TABLE, not stuck to your face.
@@ -3119,6 +3198,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
             now.frames_played[b] = S.stats.frames_played[b];
         }
         now.lefty = S.lefty;
+        now.stick_swap = S.stick_swap;
+        now.inv_slide = S.inv_slide; now.inv_turn = S.inv_turn;
         /* Floats compared with a tolerance, not bit-for-bit: the table height is
          * being recomputed every frame while the player is levelling, and an
          * exact compare would rewrite the file once a second for ever on a value
@@ -3134,6 +3215,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
             now.frame != last.frame || now.opp != last.opp ||
             now.cue != last.cue || now.light != last.light ||
             now.body != last.body || now.lefty != last.lefty ||
+            now.stick_swap != last.stick_swap ||
+            now.inv_slide != last.inv_slide || now.inv_turn != last.inv_turn ||
             fabsf(now.ctrl_pos[0] - last.ctrl_pos[0]) > 0.0002f ||
             fabsf(now.ctrl_pos[1] - last.ctrl_pos[1]) > 0.0002f ||
             fabsf(now.ctrl_pos[2] - last.ctrl_pos[2]) > 0.0002f ||
@@ -3157,8 +3240,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
         if (S.state != last_state) {
             static const char *NM[] = { "MENU","SETUP","AIM","ROLL","THINK","CPUCUE",
                                         "PLACE","DECIDE","OVER","PAUSE","LOBBY",
-                                        "ALIGN","APPEAR","STATS" };
-            LOGI("[cuevr] f%d state -> %s", S.dbg_frame, (S.state >= 0 && S.state <= ST_STATS)
+                                        "ALIGN","APPEAR","STATS","CONTROLS" };
+            LOGI("[cuevr] f%d state -> %s", S.dbg_frame, (S.state >= 0 && S.state <= ST_CONTROLS)
                                         ? NM[S.state] : "?");
             last_state = S.state;
         }

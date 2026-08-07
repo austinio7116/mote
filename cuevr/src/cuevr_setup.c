@@ -42,6 +42,17 @@
 static int s_lefty;
 void cuevr_setup_left_handed(int on) { s_lefty = on ? 1 : 0; }
 
+/* How the two sticks are laid out and which way round they go. All taste, all
+ * remembered, none of it derivable — which is exactly the sort of thing that
+ * belongs on a controls page rather than being decided here once for everyone.
+ * `swap` puts turning on the left stick and sliding on the right. */
+static int s_swap, s_inv_slide, s_inv_turn;
+void cuevr_setup_sticks(int swap, int inv_slide, int inv_turn) {
+    s_swap = swap ? 1 : 0;
+    s_inv_slide = inv_slide ? 1 : 0;
+    s_inv_turn = inv_turn ? 1 : 0;
+}
+
 void cuevr_setup_init(CueVrSetup *s, float floor_y) {
     memset(s, 0, sizeof *s);
     s->place.yaw = 0.0f;
@@ -89,14 +100,16 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_ro
      * same job whichever way you play. Mirroring them changed the controls out
      * from under a left-hander for no benefit. Only the BUTTON follows the
      * dominant hand, because a button belongs to the hand doing the pointing. */
-    const MoteVrHand *L  = &t->hand[MOTE_VR_LEFT];
-    const MoteVrHand *Rh = &t->hand[MOTE_VR_RIGHT];
+    const MoteVrHand *L  = &t->hand[s_swap ? MOTE_VR_RIGHT : MOTE_VR_LEFT];
+    const MoteVrHand *Rh = &t->hand[s_swap ? MOTE_VR_LEFT  : MOTE_VR_RIGHT];
+    const float si = s_inv_slide ? -1.0f : 1.0f;
+    const float ti = s_inv_turn  ? -1.0f : 1.0f;
 
     /* ---- slide, in the player's own frame ------------------------------- *
      * Forward is where the head is looking, flattened onto the floor. Pushing
      * the stick away from you moves the table away from you whichever way you
      * happen to be facing, which is the only mapping that needs no thought. */
-    float sx = dead(L->stick_x), sy = dead(L->stick_y);
+    float sx = dead(L->stick_x) * si, sy = dead(L->stick_y) * si;
     if (sx != 0.0f || sy != 0.0f) {
         MoteVrV3 fwd = mq_rot(t->head.q, mv3(0, 0, -1));
         fwd.y = 0.0f;
@@ -114,7 +127,7 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_ro
      * the same angle and the ball stays exactly where it is, under your bridge
      * hand, while the table turns beneath it. */
     float rx = dead(Rh->stick_x);
-    if (rx != 0.0f) cuevr_setup_yaw_about(s, ball_room, rx * YAW_RATE * dt);
+    if (rx != 0.0f) cuevr_setup_yaw_about(s, ball_room, rx * ti * YAW_RATE * dt);
 
     /* ---- height ---------------------------------------------------------- *
      * Setup only. Leaving it on a live stick during play meant any thumb
