@@ -3679,7 +3679,12 @@ static const char *GPQ_NAME[GPQ_N] =
 
 static void gpq_probe(void) {
     GPQ.probed = 1; GPQ.on = 0;
-#ifdef __ANDROID__
+/* OFF unless deliberately built in. The timer is the one change of the last
+ * three that the host build cannot exercise at all — it is #ifdef __ANDROID__,
+ * so "verified on host" verified nothing about it — and the device stopped
+ * rendering with it in. Until it is proven innocent on hardware it stays out
+ * of the shipping path: build with -DCUEVR_GPU_TIMER to profile. */
+#if defined(__ANDROID__) && defined(CUEVR_GPU_TIMER)
     const char *ext = (const char *)glGetString(GL_EXTENSIONS);
     if (!ext || !strstr(ext, "GL_EXT_disjoint_timer_query")) {
         LOGI("[cuevr] gpu timer: extension absent");
