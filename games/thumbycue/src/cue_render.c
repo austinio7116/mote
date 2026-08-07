@@ -1033,13 +1033,25 @@ static uint16_t number_patch(uint8_t id, Vec3 nb, uint16_t base, int us) {
 }
 
 /* Sample the ball's surface colour for a ball-local unit normal. */
+/* The measles spots. On by default because they are the only thing that shows
+ * what the white is doing, and optional because not everybody wants a spotted
+ * ball on the table. */
+static int s_cue_spots = 1;
+void cue_render_set_cue_spots(int on) { s_cue_spots = on ? 1 : 0; }
+
 static uint16_t ball_sample(uint8_t id, Vec3 nb, uint16_t base) {
     /* Cue ball: a "measles" spotted ball — six small red dots, one centred on
      * each axis pole (±x, ±y, ±z), so spin reads clearly however it rolls. */
     if (id == CUE_ID_CUE) {
+        if (!s_cue_spots) return base;          /* a plain white, if that is wanted */
         float ax = fabsf(nb.x), ay = fabsf(nb.y), az = fabsf(nb.z);
         float m = ax > ay ? (ax > az ? ax : az) : (ay > az ? ay : az);
-        if (m > 0.965f) return RGB565C(198, 58, 46);  /* small red pole dots — vibrant but not garish */
+        /* 0.980, not 0.965. The threshold is a cosine, so the dot's angular
+         * radius is acos(m) — 15.2 degrees at 0.965 and 11.5 at 0.980, which
+         * is a quarter off the area. They are there to show spin, and they read
+         * as spin at a size a real measles ball actually has; bigger than that
+         * and the white starts looking like a different ball. */
+        if (m > 0.980f) return RGB565C(198, 58, 46);
         return base;
     }
     if (s_is_snooker) return base;              /* snooker balls are unmarked */

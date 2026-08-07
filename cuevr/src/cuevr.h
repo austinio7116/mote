@@ -304,6 +304,7 @@ typedef struct {
     int      frames_won[2];
     int      frames_played[2];
     int      lefty;          /* bridge with the right hand */
+    int      cue_spots;      /* the white's measles spots */
     int      stick_swap;     /* turn on the left stick, slide on the right */
     int      inv_slide, inv_turn;
 } CueVrPrefs;

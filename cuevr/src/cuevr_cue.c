@@ -115,6 +115,7 @@ void cuevr_prefs_defaults(CueVrPrefs *p) {
     p->grip  = 0.20f;
     p->opp   = 1;               /* vs CPU */
     p->body  = -1;              /* whichever suits the table */
+    p->cue_spots = 1;           /* the white shows what it is doing */
     /* Measured on a Quest 3 against the real controller in a real hand, which
      * is the only way this number can be arrived at. Zero was never right: the
      * baked fallback model is somebody else's measurement of somebody else's
@@ -169,6 +170,7 @@ static void prefs_put(CueVrPrefs *p, const char *k, double v) {
     else if (!strcmp(k, "fp0")) { if (v >= 0) p->frames_played[0] = i; }
     else if (!strcmp(k, "fp1")) { if (v >= 0) p->frames_played[1] = i; }
     else if (!strcmp(k, "lefty")) p->lefty = i ? 1 : 0;
+    else if (!strcmp(k, "spots"))   p->cue_spots  = i ? 1 : 0;
     else if (!strcmp(k, "swapstk")) p->stick_swap = i ? 1 : 0;
     else if (!strcmp(k, "invsld"))  p->inv_slide  = i ? 1 : 0;
     else if (!strcmp(k, "invturn")) p->inv_turn   = i ? 1 : 0;
@@ -258,8 +260,8 @@ void cuevr_prefs_save(const CueVrPrefs *p) {
     fprintf(f, "fw0 %d\nfw1 %d\nfp0 %d\nfp1 %d\n",
             p->frames_won[0], p->frames_won[1],
             p->frames_played[0], p->frames_played[1]);
-    fprintf(f, "lefty %d\nswapstk %d\ninvsld %d\ninvturn %d\n",
-            p->lefty, p->stick_swap, p->inv_slide, p->inv_turn);
+    fprintf(f, "lefty %d\nswapstk %d\ninvsld %d\ninvturn %d\nspots %d\n",
+            p->lefty, p->stick_swap, p->inv_slide, p->inv_turn, p->cue_spots);
     fclose(f);
 }
 

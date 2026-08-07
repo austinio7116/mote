@@ -116,7 +116,8 @@ enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_CONTROLS, MR_APPEAR,
 enum { CR_HAND = 0, CR_STICKS, CR_INVSLIDE, CR_INVTURN, CR_BACK, CR_N };
 
 /* The appearance screen's own rows. */
-enum { AR_CLOTH = 0, AR_FRAME, AR_BODY, AR_LIGHT, AR_BALLS, AR_CUE, AR_BACK, AR_N };
+enum { AR_CLOTH = 0, AR_FRAME, AR_BODY, AR_LIGHT, AR_BALLS, AR_SPOTS, AR_CUE,
+       AR_BACK, AR_N };
 /* Match lengths. Odd numbers only — a best-of-even can be drawn, and there is
  * nothing here to play off a draw with. */
 static const int MATCH_LEN[] = { 1, 3, 5, 7, 9, 11 };
@@ -214,6 +215,7 @@ static struct {
     int can_repick;        /* the ball is down but the stroke is not played */
     int lefty;             /* bridges with the right hand */
     int stick_swap, inv_slide, inv_turn;
+    int cue_spots;
     /* The pointer: where the right controller's ray meets the panel, in the
      * HUD's own layout coordinates (0..HW across, 0..rows down). */
     int   ptr_ok;
@@ -1006,6 +1008,8 @@ static void hud_paint(void) {
         hud_opt(AR_LIGHT, "LIGHTING", cuevr_render_light_name(S.light_idx),
                 S.menu_row == AR_LIGHT, 1, TXT, DIM, HI);
         hud_opt(AR_BALLS, "BALLS", k_ballset_name[S.ballset], S.menu_row == AR_BALLS, 1, TXT, DIM, HI);
+        hud_opt(AR_SPOTS, "CUE BALL SPOTS", S.cue_spots ? "ON" : "OFF",
+                S.menu_row == AR_SPOTS, 1, TXT, DIM, HI);
         hud_opt(AR_CUE, "CUE", cuevr_render_cue_name(S.cue_idx), S.menu_row == AR_CUE, 1, TXT, DIM, HI);
         /* An action, so it wears the action colour rather than the value one —
          * the same distinction the main menu now draws. */
@@ -1698,6 +1702,8 @@ static int app_gl_init(void *u) {
         for (int i = 0; i < MENU_N; i++)
             if ((int)MENU[i].kind == pr.table_kind) S.menu_sel = i;
         cue_render_set_ball_set(S.ballset);
+        S.cue_spots = pr.cue_spots;
+        cue_render_set_cue_spots(S.cue_spots);
         /* Build the table the player last chose, right now, before the
          * levelling screen shows it. The table used to be racked with whatever
          * cue_table_init leaves behind and only re-dressed when the main menu
@@ -2676,6 +2682,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     cue_render_set_ball_set(S.ballset);
                     break;
                 }
+                case AR_SPOTS:
+                    S.cue_spots = !S.cue_spots;
+                    cue_render_set_cue_spots(S.cue_spots);
+                    break;
                 case AR_CUE: {
                     int n = cuevr_render_cue_count();
                     S.cue_idx = (S.cue_idx + d + n) % n;
@@ -3198,6 +3208,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             now.frames_played[b] = S.stats.frames_played[b];
         }
         now.lefty = S.lefty;
+        now.cue_spots = S.cue_spots;
         now.stick_swap = S.stick_swap;
         now.inv_slide = S.inv_slide; now.inv_turn = S.inv_turn;
         /* Floats compared with a tolerance, not bit-for-bit: the table height is
@@ -3215,7 +3226,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             now.frame != last.frame || now.opp != last.opp ||
             now.cue != last.cue || now.light != last.light ||
             now.body != last.body || now.lefty != last.lefty ||
-            now.stick_swap != last.stick_swap ||
+            now.stick_swap != last.stick_swap || now.cue_spots != last.cue_spots ||
             now.inv_slide != last.inv_slide || now.inv_turn != last.inv_turn ||
             fabsf(now.ctrl_pos[0] - last.ctrl_pos[0]) > 0.0002f ||
             fabsf(now.ctrl_pos[1] - last.ctrl_pos[1]) > 0.0002f ||

@@ -91,6 +91,8 @@ void cue_render_set_cue_tip(float side, float vert, float elev);
 void cue_render_onball_icon(uint16_t *fb, int cx, int cy, int rad, int target, int seq);
 /* Ball set: 0 PRO, 1 UK yellow/blue, 2 UK yellow/red, 3 dyna, 4 pro-tournament. */
 void cue_render_set_ball_set(int s);
+/* The white's measles spots — the only readout of what it is doing. */
+void cue_render_set_cue_spots(int on);
 
 /* Draw a small example ball for the active set into the HUD (group hint):
  * group 1 = low/solids, group 2 = high/stripes. */
