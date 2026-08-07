@@ -642,10 +642,31 @@ float cue_table_min_elev(const CueTable *t, const CueBall *balls, int n,
         float along = dx*bx + dz*bz;
         if (along <= 0.0f || along > CUE_SHAFT_REACH) continue;
         float perp2 = (dx*dx + dz*dz) - along*along;
+        if (perp2 < 0.0f) perp2 = 0.0f;
         float room = R + cue_shaft_r(along);
         if (perp2 < room*room) {
-            float e = cue_elev_for(tip.y, along, 2.0f*R);
-            if (e > need) need = e;
+            /* A BALL IS A SPHERE. This asked for clearance over 2R — the very
+             * crown — for any shaft passing within a ball's width of the
+             * centre, so a cue skimming the far edge of a ball was lifted as
+             * high as one going straight over the middle of it. That is a
+             * cylinder, or near enough a cube, and it is why the planner
+             * thought whole classes of ordinary shot needed the butt in the air.
+             *
+             * The real condition is the obvious one: the shaft's axis must stay
+             * at least (R + shaft radius) away from the ball's centre in THREE
+             * dimensions. With the axis at horizontal offset `perp` and height
+             * y, that distance squared is perp^2 + (y - R)^2, so
+             *
+             *     y >= R + sqrt((R + r)^2 - perp^2)
+             *
+             * which gives 2R + r straight over the middle — the old answer, in
+             * the one case it was right for — and falls smoothly to R at the
+             * edge, where a cue alongside a ball needs no lift at all. */
+            float need_y = R + sqrtf(room*room - perp2);
+            if (need_y > tip.y) {
+                float e = atan2f(need_y - tip.y, along);
+                if (e > need) need = e;
+            }
         }
     }
 

@@ -139,7 +139,13 @@ void cuevr_light_build(int mode, const CueTable *t, CueVrLightRig *out) {
         /* 110 mm across, not 45. A domestic downlight has a wide diffuser and a
          * ball mirrors the SOURCE — at 45 mm the reflections were specks, which
          * is not what a lit room looks like in a polished ball. */
-        grid(out, 3, 2, L * 1.15f, W * 1.9f, 1.75f, 0.110f, 0.62f);
+        /* SPREAD WIDER AND LIT HARDER. Six downlights bunched over the table
+         * read as one soft box: the reflections sat close together on a ball
+         * and the cloth was lit almost evenly, which is the one thing a room
+         * with separate fittings never looks like. Pushed out to well past the
+         * table on both axes, as ceiling lights in a room actually are, so the
+         * six read as six and a ball picks up a different one as it rolls. */
+        grid(out, 3, 2, L * 1.55f, W * 2.6f, 1.75f, 0.110f, 0.74f);
         break;
 
     case CUEVR_LIGHT_WINDOW:

@@ -1971,7 +1971,37 @@ static void app_update(void *u, const MoteVrTracking *t) {
              * angle, so an elevated cue slid sideways through its own line
              * instead of stroking down it — which looks exactly as wrong as it
              * is. One direction for the shaft and the travel, always. */
-            S.cpu_tip  = mv3_sub(ball, mv3_scale(shaft, S.tab.R + CUEVR_TIP_R + travel));
+            /* THE TIP GOES WHERE IT IS ACTUALLY STRIKING, not through the
+             * middle of the ball.
+             *
+             * This put the tip on the line through the ball's CENTRE whatever
+             * the planner had chosen, and the planner's whole answer to a ball
+             * tight under a cushion is to strike HIGHER rather than raise the
+             * butt — ai_shot_elev walks the tip up the ball precisely so the
+             * cue can stay down. So on exactly those shots the elevation came
+             * back near zero, correctly, and the cue was then drawn flat
+             * through the centre of the ball: below the cushion top, straight
+             * through it. Sometimes it lifted, sometimes it went through, and
+             * the difference was whether the planner had solved the clearance
+             * with the butt or with the tip.
+             *
+             * Put the tip on the ball's surface where the shot says: back along
+             * the shot line, offset up by tip_vert and across by tip_side, on
+             * the sphere. Then the shaft runs back from THERE. */
+            MoteVrV3 upv = mv3(0.0f, 1.0f, 0.0f);
+            MoteVrV3 sidev = mv3_cross(upv, aim_r);
+            {   float sl = mv3_len(sidev);
+                sidev = sl > 1e-4f ? mv3_scale(sidev, 1.0f / sl) : mv3(0,0,1); }
+            float tv = S.cpu_shot.tip_vert, ts = S.cpu_shot.tip_side;
+            float ax = 1.0f - tv*tv - ts*ts;
+            ax = ax > 0.0f ? sqrtf(ax) : 0.0f;
+            MoteVrV3 nb = mv3_add(mv3_add(mv3_scale(aim_r, -ax),
+                                          mv3_scale(upv, tv)),
+                                  mv3_scale(sidev, ts));
+            {   float nl = mv3_len(nb);
+                nb = nl > 1e-4f ? mv3_scale(nb, 1.0f / nl) : mv3_scale(aim_r, -1.0f); }
+            S.cpu_tip  = mv3_sub(mv3_add(ball, mv3_scale(nb, S.tab.R + CUEVR_TIP_R)),
+                                 mv3_scale(shaft, travel));
             S.cpu_butt = mv3_sub(S.cpu_tip, mv3_scale(shaft, CUEVR_CUE_LEN));
         }
 
