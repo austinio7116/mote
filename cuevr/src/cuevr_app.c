@@ -2448,14 +2448,29 @@ static void app_update(void *u, const MoteVrTracking *t) {
              * let go and not before, which is what "in hand" means. */
             const MoteVrHand *rh = &t->hand[MOTE_VR_RIGHT];
             if (rh->tracked) {
-                /* Just above the hand, in the ROOM's up and not the grip
-                 * frame's. Grip +Y is up the handle, not up the room — the -50
-                 * degrees of pitch the controller model needed is the measure
-                 * of how different those are — so offsetting along it put the
-                 * ball off the side of the hand and moved it about whenever the
-                 * wrist turned. A ball resting in a palm sits above the palm
-                 * whichever way the wrist is held. */
-                MoteVrV3 held = mv3_add(rh->pose.p, mv3(0.0f, 0.05f, 0.0f));
+                /* OUT IN FRONT, along where the controller points.
+                 *
+                 * Above the hand put it inside the controller model, which both
+                 * looks wrong and hides the thing you are trying to place. Held
+                 * out ahead it is clear of the model, you can see it and the
+                 * cloth under it at the same time, and steering it is the same
+                 * motion as pointing — which is what makes it quick to put
+                 * somewhere exact.
+                 *
+                 * Along the AIM pose, because that is the runtime's own answer
+                 * to where the controller points; the grip pose's axes are not
+                 * it, and the fifty degrees of pitch the controller model needed
+                 * is the measure of how far out a guess would be. Grip is the
+                 * fallback for a runtime with no aim pose, where a hand's width
+                 * forward of the grip origin is at least in the right region. */
+                MoteVrV3 held;
+                if (rh->aim_tracked) {
+                    MoteVrV3 fwd = mq_rot(rh->aim.q, mv3(0.0f, 0.0f, -1.0f));
+                    held = mv3_add(rh->aim.p, mv3_scale(fwd, 0.13f));
+                } else {
+                    MoteVrV3 fwd = mq_rot(rh->pose.q, mv3(0.0f, 0.0f, -1.0f));
+                    held = mv3_add(rh->pose.p, mv3_scale(fwd, 0.13f));
+                }
                 MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, held);
                 S.balls[0].pos = v3(tp.x, tp.y, tp.z);
                 S.hud_dirty = 1;
