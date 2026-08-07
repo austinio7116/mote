@@ -3282,6 +3282,21 @@ static void app_gl_shutdown(void *u) { (void)u; cuevr_audio_close(); cuevr_rende
  * menu became a pointer, and a harness that silently photographs the menu
  * instead of a frame is worse than no harness. This does not go through the
  * menu at all, so it cannot drift with it. */
+/* CUEVR_NET=host|join, without the menu.
+ *
+ * The scripted stick-walk into the lobby stopped working the moment the menus
+ * became pointers — the same failure MR_START_STEPS had, for the same reason:
+ * a script that drives the UI drifts with the UI. Two ends that have never
+ * talked to each other is not networking, it is hope, so the test has to keep
+ * working. */
+void cuevr_app_force_net(int join) {
+    S.opp = OPP_ONLINE;
+    S.lb_screen = LB_WAIT;
+    S.state = ST_LOBBY;
+    if (join) cuevr_net_lan_join(); else cuevr_net_lan_host();
+    S.hud_dirty = 1;
+}
+
 void cuevr_app_force_start(int kind) {
     for (int i = 0; i < MENU_N; i++)
         if ((int)MENU[i].kind == kind) S.menu_sel = i;
