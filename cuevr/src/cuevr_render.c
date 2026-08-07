@@ -3640,6 +3640,19 @@ static void set_model(const float *m) {
     glUniformMatrix4fv(G.u_model, 1, GL_FALSE, m);
 }
 
+/* Report the first GL error seen at each tagged point, once per tag. A stray
+ * INVALID_OPERATION is invisible on a desktop driver and fatal on a tile-based
+ * one, so it should never be left lying around. */
+static void glchk(const char *tag) {
+    static unsigned seen;
+    unsigned e = glGetError(), n = 0;
+    while (e != GL_NO_ERROR) {
+        unsigned bit = 1u << (n < 31 ? n : 31);
+        if (!(seen & bit)) { seen |= bit; LOGI("[cuevr] GL 0x%x at %s", e, tag); }
+        n++; e = glGetError();
+    }
+}
+
 static void draw(const Mesh *m) {
     if (!m->n) return;
     glBindVertexArray(m->vao);
@@ -3903,20 +3916,60 @@ void cuevr_render_eye(const float *view, const float *proj,
         sh_ready = 1;
     }
 
+    glchk("after-shadowpass");
     glUseProgram(G.prog);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
+    /* THE SHADOW SAMPLER IS ALWAYS BOUND — and this is not housekeeping, it is
+     * the difference between the app drawing and not drawing at all.
+     *
+     * u_shmap is a sampler2DShadow. A shadow sampler pointed at a texture that
+     * is not a depth texture in COMPARE_REF_TO_TEXTURE mode makes the whole
+     * program non-dispatchable, and with nothing bound to unit 5 it points at
+     * default texture 0. Desktop GL shrugs and samples nothing; Adreno rejects
+     * every draw with INVALID_OPERATION, so the scene vanished and only the
+     * passthrough layer remained — one GL error per frame, no shader error, no
+     * link error, init and menus all working perfectly. It only appeared when
+     * shadows became off-by-default, because until then the pass ran and bound
+     * the texture on the way past.
+     *
+     * The texture exists whether or not the pass runs (it is created with the
+     * program, not with the fx flag), so binding it always costs nothing.
+     * u_shon still decides whether it is READ. */
+    /* EVERY SAMPLER GETS ITS UNIT BEFORE ANYTHING DRAWS.
+     *
+     * This program declares five samplers of three types — sampler2D u_tex and
+     * u_nap, sampler2DArray u_balls and u_fur, sampler2DShadow u_shmap — and a
+     * sampler that has never been assigned reads as unit 0. Two samplers of
+     * DIFFERENT types on one unit make the program non-dispatchable: every
+     * draw is rejected with INVALID_OPERATION. Desktop drivers shrug it off
+     * and render anyway, which is why this survived so long on the host; a
+     * Quest rejects the lot and leaves nothing but the passthrough layer.
+     *
+     * The assignments used to be scattered through the frame — u_balls just
+     * before the balls, u_fur and u_nap inside the cloth's nap branch, u_shmap
+     * only when the shadow pass had run — so every draw BEFORE them, and every
+     * draw at all once the nap and the shadow map were both off by default,
+     * was made with samplers still colliding on unit 0. It is state on the
+     * program, so it belongs here, once, unconditionally, before the first
+     * draw call of the frame. The textures themselves may be bound later or
+     * not at all; what matters is that no two types share a unit. */
+    glUniform1i(G.u_tex,   0);
+    glUniform1i(G.u_balls, 1);
+    glUniform1i(G.u_fur,   2);
+    glUniform1i(G.u_nap,   3);
+    glUniform1i(G.u_shmap, 5);
+    glActiveTexture(GL_TEXTURE5);
+    glBindTexture(GL_TEXTURE_2D, G.sh_tex);
+    glActiveTexture(GL_TEXTURE0);
+    glUniform1f(G.u_shtexel, (float)G.sh_size);
     if (sh_ready) {
-        glActiveTexture(GL_TEXTURE5);
-        glBindTexture(GL_TEXTURE_2D, G.sh_tex);
-        glActiveTexture(GL_TEXTURE0);
-        glUniform1i(G.u_shmap, 5);
         glUniformMatrix4fv(G.u_shmat, 1, GL_FALSE, SHMAT);
-        glUniform1f(G.u_shtexel, (float)G.sh_size);
         { const char *v = getenv("CUEVR_SHSOFT");
           glUniform1f(G.u_shsoft, v ? (float)atof(v) : 3.0f); }
     }
     glUniform1f(G.u_shon, sh_ready ? 1.0f : 0.0f);
+    glchk("A-after-shadowuniforms");
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
     glActiveTexture(GL_TEXTURE0);
@@ -4051,6 +4104,7 @@ void cuevr_render_eye(const float *view, const float *proj,
         mm4_from_pose(T, pose, 1.0f);
     }
 
+    glchk("B-before-room");
     if (draw_room) {
         glUniform1i(G.u_mode, 3);
         colour(0.35f, 0.42f, 0.55f, 1.0f);
@@ -4062,6 +4116,7 @@ void cuevr_render_eye(const float *view, const float *proj,
         glDisable(GL_CULL_FACE);
         set_model(F);
         draw(&G.floor);
+        glchk("F0-floor");
         glEnable(GL_CULL_FACE);
         glDisable(GL_BLEND);
     }
@@ -4073,10 +4128,12 @@ void cuevr_render_eye(const float *view, const float *proj,
         int fx_wood = s_fx[CUEVR_FX_FRAME];
         set_model(T);
         glBindVertexArray(G.frame.vao);
+        glchk("F1-frame-vao");
         if (G.frame_timber_n > 0) {
             glUniform1i(G.u_mode, fx_wood ? 7 : 12);   /* 12 = flat, no timber */
             glDrawElements(GL_TRIANGLES, G.frame_timber_n, GL_UNSIGNED_SHORT,
                            (void *)0);
+            glchk("F2-timber-draw");
         }
         if (G.frame.n > G.frame_timber_n) {
             glUniform1i(G.u_mode, 12);         /* brass, chrome, laminate, void */
@@ -4084,6 +4141,7 @@ void cuevr_render_eye(const float *view, const float *proj,
                            GL_UNSIGNED_SHORT,
                            (void *)(intptr_t)(G.frame_timber_n * 2));
         }
+        glchk("F3-other-draw");
         glBindVertexArray(0);
     }
 
@@ -4094,6 +4152,7 @@ void cuevr_render_eye(const float *view, const float *proj,
      * Depth sorts it correctly regardless. */
     glDisable(GL_CULL_FACE);
     gpq_mark(GPQ_RAILS);
+    glchk("before-table");
     glUniform1i(G.u_mode, 4);          /* vertex colours, as authored */
     if (getenv("CUEVR_NOTABLE")) goto after_table;
     set_model(T);
@@ -4208,6 +4267,7 @@ after_table: ;
         glUniform1i(G.u_nspot, ns);
         glUniform2fv(G.u_spots, ns, sp);
     gpq_mark(GPQ_CLOTH);
+    glchk("before-cloth");
         glUniform1i(G.u_mode, 8);
         glUniform1f(G.u_shell, 0.0f);
         set_model(T);
@@ -4249,6 +4309,7 @@ after_table: ;
         glDepthMask(GL_FALSE);
         glDisable(GL_CULL_FACE);
     gpq_mark(GPQ_DECAL);
+    glchk("before-decals");
         glUniform1i(G.u_mode, 6);
         /* Darken toward the cloth's own shadowed tone rather than toward black:
          * a ball on baize does not cast an inky disc. */
@@ -4342,6 +4403,7 @@ after_table: ;
 skip_shadows:
     /* ---- balls ---- */
     gpq_mark(GPQ_BALLS);
+    glchk("before-balls");
     glUniform1i(G.u_mode, 1);
     /* The ball array lives on unit 1 for the whole pass; u_tex keeps unit 0. */
     glActiveTexture(GL_TEXTURE1);
@@ -4371,6 +4433,7 @@ skip_shadows:
      * order, so a ball resting in a pocket covers the lip rather than the lip
      * drawing across it. */
     gpq_mark(GPQ_LIPS);
+    glchk("before-lips");
     if (G.lips.n) {
         glDepthMask(GL_FALSE);
         if (!getenv("CUEVR_NOLIPS")) {
@@ -4386,6 +4449,7 @@ skip_shadows:
     glEnable(GL_CULL_FACE);
 
     gpq_mark(GPQ_CUE);
+    glchk("before-cue");
     /* ---- the cue ---- */
     /* CUEVR_NOCUE: leave the cue out — a top-down capture wants the cloth
      * markings, and the cue lies straight across the D. */
@@ -4588,6 +4652,7 @@ skip_shadows:
         glUniform4f(G.u_hudrect, 0.0f, 0.0f, 1.0f, 1.0f);
     }
 
+    glchk("end-of-frame");
     gpq_flush();
 
     /* WHAT ACTUALLY LANDED IN THE BUFFER. The projection layer is composited
