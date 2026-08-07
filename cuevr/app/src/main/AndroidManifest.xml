@@ -42,6 +42,16 @@
 
         <meta-data android:name="com.samsung.android.vr.application.mode" android:value="vr_only" />
 
+        <!-- What Horizon OS and the third-party tools (QGO and friends) read to
+             decide this is a Quest title rather than an unknown sideload. The
+             android:label is set and resolves correctly, but a launcher that
+             does not recognise the app as a headset app never gets as far as
+             asking for its name. -->
+        <meta-data android:name="com.oculus.supportedDevices"
+            android:value="quest2|questpro|quest3|quest3s" />
+        <!-- The name and blurb the library shows. -->
+        <meta-data android:name="com.oculus.application.name" android:value="@string/app_name" />
+
         <activity
             android:name=".CueVrActivity"
             android:label="@string/app_name"
