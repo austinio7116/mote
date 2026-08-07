@@ -561,9 +561,24 @@ static float cue_table_surface(const CueTable *t, float x, float z) {
     float ox = px + t->rail_w, oz = pz + t->rail_w;        /* outer frame edge */
     float ax = fabsf(x), az = fabsf(z);
     if (ax <= px && az <= pz) return 0.0f;                 /* open cloth */
-    if (ax <= ox && az <= oz)                              /* cushion + plank */
-        return t->cushion_h * 1.30f + 0.085f * t->R;
-    return -1.0e9f;                                        /* past the frame */
+    if (ax > ox || az > oz) return -1.0e9f;                /* past the frame */
+
+    /* EXACTLY WHAT IS DRAWN, and nothing on top of it.
+     *
+     * cue_render.c builds the cushion top and the wood top level with each
+     * other at cushion_h * 1.30 — the rail cap is NOT a step above the cushion,
+     * they are one surface. (cushion_h itself is the ball-CONTACT line at 63.5%
+     * of ball height, which is a different thing again and easy to mistake for
+     * the top of the cushion.)
+     *
+     * What was wrong here was an extra 0.085R — 2.2 mm — added above that. It
+     * had the cue clearing a rail 2.2 mm taller than the one on screen, and on
+     * the one shot where every millimetre counts, the white frozen on the
+     * cushion with the shaft laid across it, 2.2 mm is most of the window. The
+     * cue is a cylinder resting on a surface: its centreline sits one shaft
+     * radius above, which cue_elev_for already adds, and there is nothing left
+     * to account for. */
+    return t->cushion_h * 1.30f;
 }
 
 /* Elevation needed for the shaft to sit above `surf` at distance `dd` back. */

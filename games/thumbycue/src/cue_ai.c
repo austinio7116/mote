@@ -74,6 +74,10 @@ typedef struct {
      * corrected without anyone having to fit a throw curve. */
     Vec3 hit_dir;
     int  have_hit_dir;
+    /* How steeply the cue had to sit to play this at all. Free to record — the
+     * sim already asks for it before every strike — and the planner had no way
+     * to prefer a shot it could play flat. */
+    float elev;
 } AiSim;
 
 /* ---- what "power01 = 1" means --------------------------------------------- *
@@ -173,6 +177,28 @@ static float K_BREAK = 0.0f;    /* per red freed by disturbing a pack */
  * from a good one. Judging safeties is one thing; choosing between them is
  * another, and only the second is turned off. */
 static int K_SAFERANK = 0;
+/* What a pot that the engine will not sink, played perfectly, costs it in the
+ * ranking. 0 restores the old behaviour exactly, for measurement. */
+static float K_POTVERIFY = 300.0f;
+/* WHAT A STEEP CUE COSTS, per 10 degrees of forced elevation.
+ *
+ * A raised cue is the shot nobody wants: less of the pace reaches the cloth,
+ * side swerves the path, and the margin for error collapses. A player will go a
+ * long way round to avoid one and the planner had no opinion at all — it would
+ * pick a 30-degree stab over a flat shot on the same ball if the leave scored a
+ * point better.
+ *
+ * Deliberately a PENALTY on angle rather than a bonus for flatness, so that
+ * when every candidate needs the cue up — the white tight under a cushion, a
+ * ball sat behind it — they are all penalised together and the ranking between
+ * them is untouched. It discourages the steep shot without ever refusing the
+ * one that has to be played. */
+static float K_ELEVPEN = 8.0f;
+/* Both default ON. Knobs so each can be measured against the behaviour it
+ * replaces rather than all three landing together and nobody knowing which
+ * one did what. */
+static int K_RESPOT  = 1;    /* model a potted colour returning to its spot */
+static int K_SAFESIM = 1;    /* judge a safety on the simulated table, not the old one */
 static int   K_OPPFILT  = 1;       /* 1 = judge their ball-on as THEY will see it */
 
 static void ai_knobs(void) {
@@ -190,6 +216,10 @@ static void ai_knobs(void) {
     { const char *v = getenv("AI_AGGR");     if (v) K_AGGR = (float)atof(v); }
     { const char *v = getenv("AI_NEARPATH"); if (v) K_NEARPATH = (float)atof(v); }
     { const char *v = getenv("AI_OPPFILT");  if (v) K_OPPFILT = atoi(v); }
+    { const char *v = getenv("AI_POTVERIFY"); if (v) K_POTVERIFY = (float)atof(v); }
+    { const char *v = getenv("AI_RESPOT");    if (v) K_RESPOT  = atoi(v); }
+    { const char *v = getenv("AI_ELEVPEN");   if (v) K_ELEVPEN = (float)atof(v); }
+    { const char *v = getenv("AI_SAFESIM");   if (v) K_SAFESIM = atoi(v); }
     { const char *v = getenv("AI_ANGLE");    if (v) K_ANGLE    = (float)atof(v); }
     { const char *v = getenv("AI_IDEAL");    if (v) K_IDEAL    = (float)atof(v); }
     { const char *v = getenv("AI_OPTS");     if (v) K_OPTS     = (float)atof(v); }
@@ -253,6 +283,11 @@ static float ai_shot_elev(const CueTable *t, const CueBall *balls, int n,
     return e;
 }
 
+/* The rules the current plan is being made under, for the one thing the raw
+ * physics cannot know: that a potted colour comes straight back. Set once per
+ * plan; NULL means "not snooker, or nothing to respot". */
+static const CueRules *s_sim_rules;
+
 static void ai_sim(const CueWorld *w, const CueTable *t,
                    const CueBall *balls, int n, int cue_idx,
                    float aim, float power01, float tip_side, float tip_vert,
@@ -277,6 +312,7 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
      * delicate roll-through that the tilt turned into a stun, and read a leave
      * off a trajectory the ball never took. */
     float elev = ai_shot_elev(t, s_sb, n, s_sb[cue_idx].pos, aim, &tip_vert);
+    out->elev = elev;
     cue_phys_strike_elev(&s_sw, &s_sb[cue_idx], dir, power01 * AI_SIM_SPEED,
                          tip_side, tip_vert, elev);
 
@@ -314,6 +350,32 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
         out->end_pos[i] = s_sb[i].pos;
         if (i != cue_idx && balls[i].on && !s_sb[i].on)
             out->potted[out->npotted++] = i;
+    }
+
+    /* A POTTED COLOUR COMES BACK. The physics has no idea — it drops the ball
+     * and that is the end of it — so every position plan made after potting a
+     * colour was made on a table missing that colour. In the reds-and-colours
+     * phase that is every second shot, and the black respots after every single
+     * red, so the ball most likely to be sitting in the way near the spots was
+     * exactly the one the planner could not see. It would happily choose a
+     * leave whose line to the next red runs straight through the pink.
+     *
+     * Mirrors respot_colour() in cue_rules.c: back on its own spot, still on
+     * the table. Occupancy is not checked there either, and modelling it more
+     * carefully here than the rules do would only disagree with them.
+     *
+     * Only while reds remain. In the clearance phase a colour potted in
+     * sequence stays down, which the plain sim result already gets right. */
+    if (K_RESPOT && s_sim_rules && s_sim_rules->reds_left > 0) {
+        for (int k = 0; k < out->npotted; k++) {
+            int i = out->potted[k];
+            int id = balls[i].id;
+            if (id < CUE_ID_YELLOW || id > CUE_ID_BLACK) continue;
+            int v = id - 18;                       /* 20..25 -> 2..7, as ai_value */
+            if (v < 2 || v > 7) continue;
+            out->on[i] = 1;
+            out->end_pos[i] = s_sim_rules->spot[v];
+        }
     }
 }
 
@@ -760,6 +822,8 @@ typedef struct {
     float brk;         /* breakout bonus folded into posScore (signed) */
     int   freed;       /* target balls the SIM says this shot frees (can be -ve) */
     float rawpot;      /* best RAW next-pot difficulty of the leave, no extras */
+    int   pot_fails;   /* simmed perfectly and the target still did not drop */
+    float elev;        /* forced cue elevation, radians */
     /* A SAFETY's own quality, from safety_score(): how little the opponent is
      * left with. It needs its own field because posScore means something else
      * — what WE could pot from the leave — and the two are on different scales,
@@ -1267,13 +1331,29 @@ static const float SAFE_SPIN[]     = {  0.0f };
 static Cand s_safe[SAFE_POOL];
 static int  s_nsafe;
 
+/* `sim_pos` / `sim_on` are the WHOLE table as the engine left it, or NULL during
+ * the cheap analytic sweep where only the cue ball and the object are known.
+ *
+ * With NULL this reconstructs the table from the pre-shot positions and moves
+ * exactly two balls. That was the only path there was, and it is wrong for the
+ * shot that matters most: a safety on a colour very often sends the object into
+ * the reds, or takes the cue ball through them, and then the opponent's threat
+ * was being judged against where the reds USED to be. Worse, a ball potted
+ * during the safety was still counted as one they could go on to play.
+ *
+ * The simulation had all of it. It was simply thrown away. */
 static float safety_score(const AiCtx *c, Vec3 cue_end, Vec3 target, int tidx,
-                          const TgtPath *tp, int hit_other_on_way, float urg)
+                          const TgtPath *tp, int hit_other_on_way, float urg,
+                          const Vec3 *sim_pos, const int *sim_on)
 {
     static Vec3 pos[CUE_MAX_BALLS]; static int on[CUE_MAX_BALLS];
-    for (int i = 0; i < c->n; i++) { pos[i] = c->b[i].pos; on[i] = c->b[i].on; }
+    if (sim_pos && sim_on) {
+        for (int i = 0; i < c->n; i++) { pos[i] = sim_pos[i]; on[i] = sim_on[i]; }
+    } else {
+        for (int i = 0; i < c->n; i++) { pos[i] = c->b[i].pos; on[i] = c->b[i].on; }
+        if (tidx > 0) pos[tidx] = tp->end;
+    }
     pos[0] = cue_end;
-    if (tidx > 0) pos[tidx] = tp->end;
 
     float worst; int visible; float nearest, total;
     opp_threat(c, pos, on, &worst, &visible, &nearest, &total);
@@ -1364,7 +1444,8 @@ static int find_safety(const AiCtx *c, Cand *out, uint32_t *rng) {
                     float jp = p01 * 46.0f;
                     Vec3 cue_end = predict_end_dir(c, cue, ghost, ca, cut, jp, spin);
                     TgtPath tp = target_path(c, target, ca, jp, cut, i);
-                    float sc = safety_score(c, cue_end, target, i, &tp, clip, urg);
+                    float sc = safety_score(c, cue_end, target, i, &tp, clip, urg,
+                                            NULL, NULL);   /* analytic sweep */
                     /* keep the best SAFE_POOL, replacing the weakest */
                     if (s_nsafe < SAFE_POOL) {
                         Cand *q = &s_safe[s_nsafe++];
@@ -1559,6 +1640,13 @@ static void plan_finalize(void) {
      * the pot. We want "good chance to pot AND good leave", never leave-at-any-cost. */
     float posAware = P.posAware; if (posAware > K_POSCAP) posAware = K_POSCAP;
 
+    /* A pot that a PERFECT strike does not sink is not a hard shot, it is the
+     * wrong shot — nearly always a soft one carrying draw, where the tip put
+     * the energy into rotation and the object ball stopped short. Heavy, but
+     * not as heavy as an in-off or a foul: there is always another power and
+     * another spin in the pool that pots the same ball, and this is what makes
+     * the planner go and find one. */
+
     /* final sort: blend pot/position by persona.position, soft-shot bonus, and
      * a HARD penalty for shots that scratch (in-off) or hit the wrong ball first
      * — those must never be chosen over a clean pot regardless of position
@@ -1571,6 +1659,10 @@ static void plan_finalize(void) {
             float bs = P.pool[j].potScore*(1-posAware) + (P.pool[j].posScore+bb)*posAware;
             if (P.pool[i].scratch || P.pool[i].bad_first) as -= 1000.0f;
             if (P.pool[j].scratch || P.pool[j].bad_first) bs -= 1000.0f;
+            if (P.pool[i].pot_fails) as -= K_POTVERIFY;
+            if (P.pool[j].pot_fails) bs -= K_POTVERIFY;
+            as -= K_ELEVPEN * (P.pool[i].elev * DEG) * 0.1f;
+            bs -= K_ELEVPEN * (P.pool[j].elev * DEG) * 0.1f;
             if (bs > as) { Cand tmp=P.pool[i]; P.pool[i]=P.pool[j]; P.pool[j]=tmp; }
         }
 
@@ -1588,6 +1680,8 @@ static void plan_finalize(void) {
             float ab = (1.0f - q->power01) * 10.0f * posAware;
             float sc = q->potScore*(1-posAware) + (q->posScore - q->brk + ab)*posAware;
             if (q->scratch || q->bad_first) sc -= 1000.0f;
+            if (q->pot_fails) sc -= K_POTVERIFY;
+            sc -= K_ELEVPEN * (q->elev * DEG) * 0.1f;
             if (sc > bw) { bw = sc; bi2 = i; }
         }
         brk_flip = (bi2 > 0);
@@ -1727,6 +1821,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     };
     ai_knobs();
     P.ctx = ctx; P.rng = rng; P.npool = 0; P.sim_i = 0;
+    s_sim_rules = t->is_snooker ? r : NULL;
     P.nsafe_pool = 0; P.safety_only = 0; P.miss_caution = 0;
     P.posAware = p->position; P.phase = PH_DONE;
     AiCtx *c = &P.ctx;
@@ -2023,7 +2118,7 @@ int cue_ai_plan_tick(void) {
         Cand *v = &P.pool[P.sim_i];
         AiSim sim;
         ai_sim(c->w, c->t, c->b, c->n, 0, v->aim, v->power01, v->tip_side, v->tip_vert, &sim);
-        v->simmed = 1; v->cue_end = sim.cue_end;
+        v->simmed = 1; v->cue_end = sim.cue_end; v->elev = sim.elev;
         v->scratch = sim.cue_potted;
         /* The sim's job is NOT to decide whether the pot drops — that's the
          * heuristic potScore (cut/distance). The sim exists to (1) avoid in-offs
@@ -2032,6 +2127,33 @@ int cue_ai_plan_tick(void) {
          * persona aim-error decide makes vs misses on execution. */
         v->bad_first = (sim.first_hit_idx < 0) ||
                        !cue_rules_ball_legal(c->r, c->b, c->n, c->b[sim.first_hit_idx].id);
+
+        /* DID THE BALL ACTUALLY GO IN, played perfectly?
+         *
+         * The note above is right that the sim must not decide makes vs misses:
+         * that is execution, and letting a perfect simulation adjudicate it
+         * makes the opponent superhuman. But there is a second thing the sim
+         * knows and this threw away — whether the shot AS CHOSEN can drop the
+         * ball at all, with a clean strike and no error whatsoever.
+         *
+         * Those are different failures. Missing by two degrees is a player
+         * missing. Choosing a soft draw shot whose object ball stops a foot
+         * short of the pocket is a PLANNER choosing a shot that cannot work,
+         * and it was invisible because potScore is a function of cut, distance
+         * and power with no spin term in it (see eval_pot), while calc_power
+         * has no spin term either. Strike below centre and the tip splits its
+         * energy into rotation instead of forward speed, so the same nominal
+         * power sends the object ball measurably less far. Nothing downstream
+         * noticed, because the one thing that measured it was discarded.
+         *
+         * So: not a verdict on the pot, a veto on the impossible. */
+        v->pot_fails = 0;
+        if (v->pk >= 0 && v->tidx > 0 && v->tidx < c->n) {
+            int dropped = 0;
+            for (int k = 0; k < sim.npotted; k++)
+                if (sim.potted[k] == v->tidx) { dropped = 1; break; }
+            v->pot_fails = !dropped;
+        }
         if (sim.cue_potted) v->posScore = 0;          /* in-off → worthless leave */
         else {
             /* SAFETIES KEEP THEIR OWN SCORE. They are built with
@@ -2074,7 +2196,9 @@ int cue_ai_plan_tick(void) {
                     }
                 }
                 v->safeq = safety_score(c, sim.cue_end, c->b[ti].pos, ti, &tp,
-                                        v->nearpath, snooker_urgency(c));
+                                        v->nearpath, snooker_urgency(c),
+                                        K_SAFESIM ? sim.end_pos : NULL,
+                                        K_SAFESIM ? sim.on : NULL);
             }
             /* Opening the pack is only good if WE are the one staying at the
              * table. Safeties share this pool (they carry pk < 0), and on a
