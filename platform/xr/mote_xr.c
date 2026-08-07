@@ -137,10 +137,10 @@ static struct {
 
     /* input */
     XrActionSet action_set;
-    XrAction    a_pose, a_stick, a_trigger, a_squeeze;
+    XrAction    a_pose, a_aim, a_stick, a_trigger, a_squeeze;
     XrAction    a_lower, a_upper, a_menu, a_haptic;
     XrPath      hand_path[2];
-    XrSpace     hand_space[2];
+    XrSpace     hand_space[2], aim_space[2];
 
     /* render models — the runtime's own picture of the hardware in your hands.
      * Absent on runtimes without XR_FB_render_model, and absent for a while even
@@ -646,6 +646,12 @@ static int make_actions(void) {
     S.hand_path[MOTE_VR_RIGHT] = path("/user/hand/right");
 
     S.a_pose    = mk_action(XR_ACTION_TYPE_POSE_INPUT,    "grip",    "Hold");
+    /* The AIM pose, which is what every Quest menu ray comes out of. It is the
+     * runtime's own answer to "which way is this controller pointing", and
+     * taking it removes the whole argument about which axis of the grip pose to
+     * use and how far to tilt it — an argument nobody wins by reasoning,
+     * because the answer differs per controller. */
+    S.a_aim     = mk_action(XR_ACTION_TYPE_POSE_INPUT,    "aim",     "Point");
     S.a_stick   = mk_action(XR_ACTION_TYPE_VECTOR2F_INPUT,"stick",   "D-pad");
     S.a_trigger = mk_action(XR_ACTION_TYPE_FLOAT_INPUT,   "trigger", "Shoulder");
     S.a_squeeze = mk_action(XR_ACTION_TYPE_FLOAT_INPUT,   "squeeze", "Resize");
@@ -660,6 +666,8 @@ static int make_actions(void) {
     XrActionSuggestedBinding tb[] = {
         { S.a_pose,    path("/user/hand/left/input/grip/pose") },
         { S.a_pose,    path("/user/hand/right/input/grip/pose") },
+        { S.a_aim,     path("/user/hand/left/input/aim/pose") },
+        { S.a_aim,     path("/user/hand/right/input/aim/pose") },
         { S.a_stick,   path("/user/hand/left/input/thumbstick") },
         { S.a_stick,   path("/user/hand/right/input/thumbstick") },
         { S.a_trigger, path("/user/hand/left/input/trigger/value") },
@@ -684,6 +692,8 @@ static int make_actions(void) {
     XrActionSuggestedBinding kb[] = {
         { S.a_pose,   path("/user/hand/left/input/grip/pose") },
         { S.a_pose,   path("/user/hand/right/input/grip/pose") },
+        { S.a_aim,    path("/user/hand/left/input/aim/pose") },
+        { S.a_aim,    path("/user/hand/right/input/aim/pose") },
         { S.a_lower,  path("/user/hand/left/input/select/click") },
         { S.a_lower,  path("/user/hand/right/input/select/click") },
         { S.a_menu,   path("/user/hand/left/input/menu/click") },
@@ -708,6 +718,11 @@ static int make_actions(void) {
         si.poseInActionSpace.orientation.w = 1.0f;
         if (failed(xrCreateActionSpace(S.session, &si, &S.hand_space[i]), "actionSpace"))
             return -1;
+        /* Not fatal if the aim space fails: a runtime without it still plays,
+         * it just has no pointer. */
+        si.action = S.a_aim;
+        if (!XR_SUCCEEDED(xrCreateActionSpace(S.session, &si, &S.aim_space[i])))
+            S.aim_space[i] = XR_NULL_HANDLE;
     }
     return 0;
 }
@@ -752,6 +767,16 @@ static void read_hand(int i, MoteVrHand *h, XrTime t) {
         memcpy(&h->pose.q, &loc.pose.orientation, sizeof h->pose.q);
         memcpy(&h->pose.p, &loc.pose.position, sizeof h->pose.p);
         h->tracked = 1;
+    }
+    if (S.aim_space[i]) {
+        XrSpaceLocation al = { XR_TYPE_SPACE_LOCATION };
+        if (XR_SUCCEEDED(xrLocateSpace(S.aim_space[i], S.space, t, &al)) &&
+            (al.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
+            (al.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
+            memcpy(&h->aim.q, &al.pose.orientation, sizeof h->aim.q);
+            memcpy(&h->aim.p, &al.pose.position, sizeof h->aim.p);
+            h->aim_tracked = 1;
+        }
     }
 }
 
@@ -1184,6 +1209,7 @@ void mote_xr_shutdown(void) {
     }
     if (S.passthrough && S.xrDestroyPassthroughFB_) S.xrDestroyPassthroughFB_(S.passthrough);
     for (int i = 0; i < 2; i++) if (S.hand_space[i]) xrDestroySpace(S.hand_space[i]);
+    for (int i = 0; i < 2; i++) if (S.aim_space[i]) xrDestroySpace(S.aim_space[i]);
     if (S.action_set) xrDestroyActionSet(S.action_set);
     if (S.space)    xrDestroySpace(S.space);
     if (S.session)  xrDestroySession(S.session);

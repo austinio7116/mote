@@ -112,6 +112,10 @@ static void fake_tracking(MoteVrTracking *t, float dt) {
     MoteVrV3 back = mv3_scale(fwd, -1.0f);
     MoteVrV3 right = mv3_norm(mv3_cross(mv3(0, 1, 0), back));
     t->head.q = mq_from_axes(right, mv3_cross(back, right), back);
+    /* The host has no runtime to ask for an aim pose, so the grip stands in.
+     * Good enough to exercise the pointer maths; the real ray comes from
+     * XR_ACTION aim on the headset. */
+    for (int i = 0; i < 2; i++) { t->hand[i].aim = t->hand[i].pose; t->hand[i].aim_tracked = 1; }
 
     t->hand[MOTE_VR_LEFT].tracked = t->hand[MOTE_VR_RIGHT].tracked = 1;
     t->hand[MOTE_VR_LEFT].squeeze = s_lsqueeze;

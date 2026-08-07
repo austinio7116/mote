@@ -31,6 +31,12 @@
 typedef struct {
     MoteVrPose pose;        /* grip pose: where the hand is */
     int        tracked;     /* pose is valid this frame */
+    /* AIM pose: where the controller POINTS, by the runtime's own definition —
+     * -Z along the ray, exactly as every Quest menu laser uses. Not derivable
+     * from the grip pose by any fixed rotation you can reason your way to; ask
+     * the runtime. aim_tracked is 0 where a runtime does not offer it. */
+    MoteVrPose aim;
+    int        aim_tracked;
     float      stick_x;     /* thumbstick, -1..1, +x right, +y up */
     float      stick_y;
     float      trigger;     /* index trigger, 0..1 */

@@ -1135,7 +1135,7 @@ static void hud_build(void) {
     /* The one big line. */
     if (S.state == ST_PLACE) {
         hud_text_2x("BALL IN HAND", 4, 58, HI);
-        hud_text("POINT THE CUE AT THE SPOT   A PLACE", 4, 70, DIM);
+        hud_text("CARRY IT WITH YOUR HAND   TRIGGER DROPS", 4, 70, DIM);
         return;
     }
     if (S.state == ST_DECIDE) {
@@ -2267,19 +2267,32 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * Clamped against the OTHER BALLS as well as the legal region, so the
          * ball slides round an obstruction instead of being parked inside one
          * and fired out again on the first tick of the shot. */
-        if (S.cue.tracked) {
-            MoteVrV3 o = S.cue.tip, d = S.cue.axis;
-            float bed = S.setup.place.height;          /* cloth, in room space */
-            if (d.y < -1.0e-3f) {                      /* pointing down at it */
-                float k = (bed - o.y) / d.y;
-                if (k > 0.0f && k < 4.0f) {
-                    MoteVrV3 hit = mv3_add(o, mv3_scale(d, k));
-                    MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, hit);
-                    Vec3 p = v3(tp.x, S.tab.R, tp.z);
-                    S.balls[0].pos = cue_table_clamp_placement_balls(
-                        &S.tab, p, S.balls, S.nballs, S.rules.break_shot);
-                    S.hud_dirty = 1;
-                }
+        /* THE BALL IS IN YOUR HAND, not on the end of a pointer. You are
+         * holding it: it follows the controller, and the trigger puts it down.
+         * The cue is not in your hand while it is — you cannot hold both, and a
+         * cue lying across the table you are trying to place on is in the way.
+         *
+         * Sticks are untouched by any of this, which is the point: they slide
+         * and turn the table here exactly as they do everywhere else.
+         *
+         * Where it will LAND is the legal position directly under your hand,
+         * clamped against the region and the other balls, so an illegal
+         * placement is impossible rather than merely discouraged — and the ball
+         * is drawn at your hand's height so you can see you are carrying it. */
+        {
+            const MoteVrHand *rh = &t->hand[MOTE_VR_RIGHT];
+            if (rh->tracked) {
+                MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, rh->pose.p);
+                Vec3 p = v3(tp.x, S.tab.R, tp.z);
+                p = cue_table_clamp_placement_balls(&S.tab, p, S.balls, S.nballs,
+                                                    S.rules.break_shot);
+                /* Carried at hand height until dropped, never below the cloth. */
+                float lift = tp.y;
+                if (lift < S.tab.R) lift = S.tab.R;
+                if (lift > S.tab.R + 0.45f) lift = S.tab.R + 0.45f;
+                p.y = lift;
+                S.balls[0].pos = p;
+                S.hud_dirty = 1;
             }
         }
 
@@ -2291,8 +2304,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * on walking the ball. */
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
 
-        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.place_latch = 0;
+        /* The TRIGGER drops it — the button your finger is already on while
+         * you carry something. A stays out of this so it keeps meaning "yes"
+         * on the panels. */
+        if (t->hand[MOTE_VR_RIGHT].trigger < 0.4f) S.place_latch = 0;
         else if (!S.place_latch) {
+            S.balls[0].pos.y = S.tab.R;          /* down on the cloth */
             arm_shot();
             S.state = ST_AIM;
             S.hud_dirty = 1;
@@ -2572,9 +2589,11 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * nobody. Everything else in play keeps it. */
         int in_menu = (S.state == ST_MENU || S.state == ST_SETUP ||
                        S.state == ST_LOBBY || S.state == ST_PAUSE ||
-                       S.state == ST_ALIGN || S.state == ST_STATS);
+                       S.state == ST_ALIGN || S.state == ST_STATS ||
+                       S.state == ST_PLACE);
         /* NOT hidden on APPEARANCE: that screen is where you pick the cue, and
-         * a cue chooser with no cue in it is a list of words. */
+         * a cue chooser with no cue in it is a list of words. Hidden during
+         * PLACE: you are holding the ball, and you cannot hold both. */
         S.scene.cue_visible = !in_menu && S.cue.tracked;
         S.scene.cue_butt = S.cue.butt;
         S.scene.cue_tip  = S.cue.tip;
