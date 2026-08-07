@@ -170,6 +170,18 @@ const char *cuevr_render_body_name(int i);
 
 int         cuevr_render_light_count(void);
 const char *cuevr_render_light_name(int i);
+
+/* ---- controller alignment ------------------------------------------------ *
+ * Where the drawn controller sits relative to the pose the runtime reports: a
+ * translation in the GRIP frame and an XYZ rotation in degrees, both zero by
+ * default. Applied to the runtime's own render model and to the baked fallback
+ * alike, because either can be the one that is off.
+ *
+ * `marker` draws a small cross at the raw reported pose while alignment is
+ * being done — without it you are matching a model against a thing you cannot
+ * see, which is guessing with extra steps. */
+void cuevr_render_set_ctrl_cal(const float pos[3], const float rot[3]);
+void cuevr_render_ctrl_marker(int on);
 void        cuevr_render_set_light(int i);
 int         cuevr_render_light(void);
 

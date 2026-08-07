@@ -104,6 +104,14 @@ static void prefs_put(CueVrPrefs *p, const char *k, double v) {
     else if (!strcmp(k, "cue"))     { if (i >= 0 && i < 32) p->cue = i; }
     else if (!strcmp(k, "light"))   { if (i >= 0 && i < 16) p->light = i; }
     else if (!strcmp(k, "body"))    { if (i >= -1 && i < 16) p->body = i; }
+    /* Bounded so a hand-edited file cannot put the controller across the room:
+     * a quarter of a metre is already far more than any real mismatch. */
+    else if (!strcmp(k, "cpx"))     { if (v > -0.25 && v < 0.25) p->ctrl_pos[0] = (float)v; }
+    else if (!strcmp(k, "cpy"))     { if (v > -0.25 && v < 0.25) p->ctrl_pos[1] = (float)v; }
+    else if (!strcmp(k, "cpz"))     { if (v > -0.25 && v < 0.25) p->ctrl_pos[2] = (float)v; }
+    else if (!strcmp(k, "crx"))     { if (v > -180.0 && v <= 180.0) p->ctrl_rot[0] = (float)v; }
+    else if (!strcmp(k, "cry"))     { if (v > -180.0 && v <= 180.0) p->ctrl_rot[1] = (float)v; }
+    else if (!strcmp(k, "crz"))     { if (v > -180.0 && v <= 180.0) p->ctrl_rot[2] = (float)v; }
     /* anything else: a field from a newer build, or a typo. Skip it. */
 }
 
@@ -164,11 +172,14 @@ void cuevr_prefs_save(const CueVrPrefs *p) {
     fprintf(f,
             "height %.4f\nrest_x %.4f\nrest_y %.4f\nrest_z %.4f\ngrip %.4f\n"
             "table %d\nballs %d\npersona %d\ncloth %d\nframe %d\nopp %d\n"
-            "cue %d\nlight %d\nbody %d\n",
+            "cue %d\nlight %d\nbody %d\n"
+            "cpx %.4f\ncpy %.4f\ncpz %.4f\ncrx %.2f\ncry %.2f\ncrz %.2f\n",
             (double)p->table_height, (double)p->rest.x, (double)p->rest.y,
             (double)p->rest.z, (double)p->grip,
             p->table_kind, p->ballset, p->persona, p->cloth, p->frame, p->opp,
-            p->cue, p->light, p->body);
+            p->cue, p->light, p->body,
+            (double)p->ctrl_pos[0], (double)p->ctrl_pos[1], (double)p->ctrl_pos[2],
+            (double)p->ctrl_rot[0], (double)p->ctrl_rot[1], (double)p->ctrl_rot[2]);
     fclose(f);
 }
 

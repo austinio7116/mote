@@ -13,6 +13,11 @@
 #include "cuevr_light.h"
 
 #include <math.h>
+
+/* Overridable so a sweep is one -D away rather than an edit per frame. */
+#ifndef ROOM_SPOT
+#define ROOM_SPOT 2.6f
+#endif
 #include <string.h>
 
 static const char *NAMES[CUEVR_LIGHT_N] = {
@@ -65,6 +70,7 @@ static void grid(CueVrLightRig *r, int cols, int rows, float spanx, float spanz,
 
 void cuevr_light_build(int mode, const CueTable *t, CueVrLightRig *out) {
     memset(out, 0, sizeof *out);
+    out->spot = 1.0f;               /* honest unless a rig says otherwise */
     float L = t->half_len * 2.0f;
     float W = t->half_wid * 2.0f;
 
@@ -123,6 +129,13 @@ void cuevr_light_build(int mode, const CueTable *t, CueVrLightRig *out) {
         set3(out->keyc, 1.0f, 0.945f, 0.86f);
         out->fill = 0.42f;
         out->round = 1;
+        /* The one rig that needs help. Six 110 mm discs at 1.75 m reflect as
+         * specks a couple of pixels across in a 26 mm ball — accurate, and it
+         * reads as dirt rather than as a lit room. Drawn half again over life
+         * they become six small round highlights you can count, which is what
+         * tells you where you are standing. Kept well short of the point where
+         * neighbours touch: they must stay six, not one. */
+        out->spot = ROOM_SPOT;
         /* 110 mm across, not 45. A domestic downlight has a wide diffuser and a
          * ball mirrors the SOURCE — at 45 mm the reflections were specks, which
          * is not what a lit room looks like in a polished ball. */

@@ -233,6 +233,18 @@ typedef struct {
     int      cue;
     int      light;      /* the lighting rig — see cuevr_light.h */
     int      body;       /* the frame MODEL; -1 = whichever suits the table */
+
+    /* Where the drawn controller sits relative to the pose the runtime reports,
+     * as a translation in the GRIP frame (metres) and an XYZ rotation (degrees).
+     * Zero means "exactly on the reported pose", which is what it should be and
+     * often is not: the baked fallback models come from somebody else's
+     * measurement of somebody else's controller, and even the runtime's own
+     * model can sit off if the pose being drawn at is not the one it was
+     * authored against. Nobody can derive this — it has to be looked at with a
+     * real controller in a real hand, so it is adjusted in the headset and kept
+     * here. */
+    float    ctrl_pos[3];
+    float    ctrl_rot[3];
 } CueVrPrefs;
 
 void cuevr_prefs_dir(const char *dir);

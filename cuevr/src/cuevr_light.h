@@ -64,6 +64,18 @@ typedef struct {
 
     int       nlamp;
     int       round;     /* fixtures are discs, not rectangles */
+
+    /* How much bigger than life the MIRRORED fixture is drawn on a ball, as a
+     * multiplier on its apparent radius. 1.0 is honest.
+     *
+     * Honest is not always legible, and how far from legible depends entirely
+     * on the rig. A ball is a 26 mm convex mirror: a 110 mm downlight 1.75 m up
+     * subtends almost nothing and reflects as a speck you cannot identify as a
+     * light at all, whereas a 300 mm match shade at 620 mm already reads fine.
+     * One shared fudge factor cannot serve both — widen enough for the
+     * downlights and the match shades merge into a single smear. So each rig
+     * carries its own, and the default is the truth. */
+    float     spot;
     CueVrLamp lamp[CUEVR_MAX_LAMPS];
 } CueVrLightRig;
 

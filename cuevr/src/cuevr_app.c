@@ -90,7 +90,7 @@
 #define CUEVR_POWER_TRIM 0.70f
 
 enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_CPUCUE, ST_PLACE,
-       ST_DECIDE, ST_OVER, ST_PAUSE, ST_LOBBY };
+       ST_DECIDE, ST_OVER, ST_PAUSE, ST_LOBBY, ST_ALIGN };
 
 /* Who you are playing. PRACTICE is not "vs nobody" — it is its own mode: the
  * table never changes hands, so a missed pot leaves you to carry on, and undo is
@@ -124,10 +124,10 @@ enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE }
  * ever, against defaults that were chosen by measurement. cuevr_render_fx_set()
  * is still there for the preview harness to drive. */
 enum { PS_RESUME = 0, PS_UNDO, PS_RERACK, PS_PLACE, PS_NOMINATE, PS_CONCEDE,
-       PS_QUIT, PS_N };
-static const char *PS_NAME[7] = {
+       PS_ALIGN, PS_QUIT, PS_N };
+static const char *PS_NAME[PS_N] = {
     "RESUME", "UNDO SHOT", "RE-RACK", "PLACE TABLE",
-    "NOMINATE", "CONCEDE FRAME", "BACK TO MENU" };
+    "NOMINATE", "CONCEDE FRAME", "ALIGN CONTROLS", "BACK TO MENU" };
 static const char *COLOUR_NAME[8] = {
     "", "", "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
 
@@ -176,6 +176,14 @@ static struct {
     int cue_idx;                 /* which cue off the rack */
     int levelled;                /* the table has been sited once this session */
     int pause_sel, pause_latch;
+
+    /* Controller alignment: six channels the player steps through, the values
+     * they are editing, and where they came from so CANCEL means something. */
+    float cal_pos[3], cal_rot[3];
+    float cal_pos0[3], cal_rot0[3];
+    int   cal_ch;                /* 0..5 = px py pz rx ry rz */
+    int   cal_latch;
+    float cal_rep;               /* autorepeat timer for a held stick */
     int net_me;                  /* our player index in an online match */
     int lb_screen, lb_sel, lb_tr, lb_act, lb_latch, lb_ud;
     int lb_cur;                  /* which code character is being edited */
@@ -399,7 +407,7 @@ static void unpause(void) {
     int back = S.pause_from;
     if (S.rules.frame_over) back = ST_OVER;
     else if (back == ST_PAUSE || back == ST_MENU || back == ST_SETUP
-             || back == ST_LOBBY) back = ST_AIM;
+             || back == ST_LOBBY || back == ST_ALIGN) back = ST_AIM;
     /* and the press that resumed must not also put the ball down */
     if (back == ST_PLACE) S.place_latch = 1;
     S.state = back;
@@ -796,6 +804,40 @@ static void hud_build(void) {
         return;
     }
 
+    /* ---- lining the controllers up ---- */
+    if (S.state == ST_ALIGN) {
+        /* Named for the direction the player will SEE the model move, not for
+         * the axis letter. "grip +x" is a fact about a coordinate system; the
+         * person adjusting it is looking at a controller in their hand. */
+        static const char *CH[6] = { "SIDEWAYS", "UP/DOWN", "IN/OUT",
+                                     "PITCH", "YAW", "ROLL" };
+        hud_height(CUEVR_HUD_LH);
+        hud_rect(0, 0, HW, 10, BAND);
+        hud_text_2x("ALIGN CONTROLS", 4, 1, HI);
+        hud_rect(0, 10, HW, 1, LINE);
+        hud_text("MOVE THE MODEL ONTO THE WHITE BEAD", 4, 13, DIM);
+        for (int i = 0; i < 6; i++) {
+            int y = 22 + i * 9;
+            int on = (i == S.cal_ch);
+            if (on) hud_rect(1, y - 1, HW - 2, 9, RGB565C(30, 46, 72));
+            char vb[24];
+            if (i < 3) snprintf(vb, sizeof vb, "%+.1fmm", (double)(S.cal_pos[i] * 1000.0f));
+            /* "deg", not a degree sign: the HUD font is ASCII 32..126 and a
+             * 0xb0 lands on nothing, so the unit silently vanished. */
+            else       snprintf(vb, sizeof vb, "%+.1fdeg", (double)S.cal_rot[i - 3]);
+            hud_text_2x(CH[i], 6, y - 1, on ? HI : DIM);
+            /* Right-aligned off the measured width. Formatted into the label at
+             * a fixed column, the longest row ran off the panel and lost its
+             * unit — a readout you cannot read is worse than none, because it
+             * looks like it is working. */
+            hud_text_2x(vb, HW - 6 - hud_text_w_2x(vb), y - 1, on ? HI : DIM);
+        }
+        hud_text("STICK  PICK / MOVE", 4, HH - 18, DIM);
+        hud_text("A ZERO ONE    B ZERO ALL", 4, HH - 12, DIM);
+        hud_text("MENU DONE", 4, HH - 6, HI);
+        return;
+    }
+
     /* ---- paused ---- */
     if (S.state == ST_PAUSE) {
         hud_height(CUEVR_HUD_LH);
@@ -1176,6 +1218,9 @@ static int app_gl_init(void *u) {
         pr.cloth = S.cloth_idx; pr.frame = S.frame_idx;
         pr.opp = S.opp; pr.cue = S.cue_idx;
         pr.light = S.light_idx; pr.body = S.body_idx;
+        for (int i = 0; i < 3; i++) {
+            pr.ctrl_pos[i] = S.cal_pos[i]; pr.ctrl_rot[i] = S.cal_rot[i];
+        }
         cuevr_prefs_load(&pr);
 
         S.cue.rest = pr.rest; S.cue.grip = pr.grip;
@@ -1183,6 +1228,11 @@ static int app_gl_init(void *u) {
         S.cloth_idx = pr.cloth; S.frame_idx = pr.frame;
         S.opp = pr.opp; S.cue_idx = pr.cue;
         S.light_idx = pr.light; S.body_idx = pr.body;
+        for (int i = 0; i < 3; i++) {
+            S.cal_pos[i] = pr.ctrl_pos[i];
+            S.cal_rot[i] = pr.ctrl_rot[i];
+        }
+        cuevr_render_set_ctrl_cal(S.cal_pos, S.cal_rot);
         cuevr_render_set_cue(S.cue_idx);
         cuevr_render_set_light(S.light_idx);
         cuevr_render_set_body(S.body_idx);
@@ -1303,7 +1353,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
     if (t->hand[MOTE_VR_LEFT].menu) {
         S.menu_hold += dt;
         if (S.menu_hold > 1.0f && S.state != ST_SETUP && S.state != ST_MENU
-            && S.state != ST_LOBBY) {
+            && S.state != ST_LOBBY && S.state != ST_ALIGN) {
             S.setup.active = 1;
             S.state = ST_SETUP;
             S.menu_hold = -2.0f;                    /* don't retrigger on release */
@@ -1312,7 +1362,27 @@ static void app_update(void *u, const MoteVrTracking *t) {
     } else {
         if (S.menu_hold > 0.02f && S.menu_hold <= 1.0f) {
             /* A tap. */
-            if (S.state == ST_PAUSE) {
+            if (S.state == ST_ALIGN) {
+                /* Done. The values are already live and the autosave picks
+                 * them up; the marker goes away because it is scaffolding.
+                 *
+                 * Logged as well as saved, because the two land in different
+                 * places on a headset: preferences go to internal storage,
+                 * which nothing outside the app can read, and the log goes to
+                 * the external data directory, which SideQuest can. Numbers
+                 * nobody can get at are numbers nobody can report. */
+                LOGI("[cuevr] ctrl align  sideways %+.1f mm  up/down %+.1f mm  "
+                     "in/out %+.1f mm  pitch %+.1f  yaw %+.1f  roll %+.1f",
+                     (double)(S.cal_pos[0] * 1000.0f),
+                     (double)(S.cal_pos[1] * 1000.0f),
+                     (double)(S.cal_pos[2] * 1000.0f),
+                     (double)S.cal_rot[0], (double)S.cal_rot[1],
+                     (double)S.cal_rot[2]);
+                cuevr_render_ctrl_marker(0);
+                S.state = ST_PAUSE;
+                S.pause_sel = PS_ALIGN;
+                S.hud_dirty = 1;
+            } else if (S.state == ST_PAUSE) {
                 unpause();
             } else if (S.state != ST_SETUP && S.state != ST_MENU && S.state != ST_LOBBY) {
                 S.pause_sel = PS_RESUME;
@@ -1593,6 +1663,20 @@ static void app_update(void *u, const MoteVrTracking *t) {
                         S.msg_time = 3.0f;
                         S.state = ST_OVER;
                     }
+                    break;
+                case PS_ALIGN:
+                    /* Remember what we came in with, so BACK can put it back.
+                     * An adjustment you cannot abandon is one people are
+                     * frightened to try. */
+                    for (int i = 0; i < 3; i++) {
+                        S.cal_pos0[i] = S.cal_pos[i];
+                        S.cal_rot0[i] = S.cal_rot[i];
+                    }
+                    S.cal_ch = 0;
+                    S.cal_latch = 1;      /* the A that got us here must not also nudge */
+                    S.cal_rep = 0.0f;
+                    cuevr_render_ctrl_marker(1);
+                    S.state = ST_ALIGN;
                     break;
                 case PS_QUIT:
                     if (S.opp == OPP_ONLINE) cuevr_net_stop();
@@ -1946,6 +2030,86 @@ static void app_update(void *u, const MoteVrTracking *t) {
         break;
     }
 
+    case ST_ALIGN: {
+        /* Lining the drawn controller up with the one in your hand.
+         *
+         * Nothing here can be derived. The baked fallback models are somebody
+         * else's measurement of somebody else's hardware, and even the
+         * runtime's own model only lands correctly if the pose it is drawn at
+         * is the pose it was authored against. So it is done the only way it
+         * can be: look at your hand, look at the model, and move one onto the
+         * other. The white bead and the three coloured sticks are the RAW
+         * reported pose, drawn uncorrected — that is the target.
+         *
+         * One channel at a time, with a live readout. Six sliders at once on a
+         * headset menu is a thing nobody can operate.
+         *
+         *   RIGHT STICK up/down   choose the channel
+         *   RIGHT STICK left/right  move it (hold to repeat, accelerating)
+         *   A                     zero the channel you are on
+         *   B                     zero everything
+         *   MENU                  done, and it saves
+         */
+        static const float STEP[6] = { 0.002f, 0.002f, 0.002f, 1.0f, 1.0f, 1.0f };
+        float px = t->hand[MOTE_VR_RIGHT].stick_x;
+        float py = t->hand[MOTE_VR_RIGHT].stick_y;
+
+        /* Channel select, one row per flick. */
+        if (fabsf(py) > 0.55f) {
+            if (!S.cal_latch) {
+                S.cal_ch = (S.cal_ch + (py < 0.0f ? 1 : 5)) % 6;
+                S.cal_latch = 1;
+                S.hud_dirty = 1;
+            }
+        } else if (fabsf(px) < 0.35f) {
+            S.cal_latch = 0;
+        }
+
+        /* Value nudge. Held, it repeats and accelerates — 2 mm a step is right
+         * for the last millimetre and hopeless for the first two centimetres. */
+        if (fabsf(px) > 0.35f) {
+            float want = (S.cal_rep == 0.0f) ? 1.0f : 0.0f;
+            S.cal_rep += dt;
+            if (S.cal_rep > 0.35f) { want = 1.0f; S.cal_rep = 0.30f; }
+            if (want) {
+                float d = STEP[S.cal_ch] * (px > 0.0f ? 1.0f : -1.0f)
+                        * (fabsf(px) > 0.85f ? 3.0f : 1.0f);
+                if (S.cal_ch < 3) {
+                    float v = S.cal_pos[S.cal_ch] + d;
+                    if (v < -0.20f) v = -0.20f; else if (v > 0.20f) v = 0.20f;
+                    S.cal_pos[S.cal_ch] = v;
+                } else {
+                    float v = S.cal_rot[S.cal_ch - 3] + d;
+                    if (v <= -180.0f) v += 360.0f; else if (v > 180.0f) v -= 360.0f;
+                    S.cal_rot[S.cal_ch - 3] = v;
+                }
+                cuevr_render_set_ctrl_cal(S.cal_pos, S.cal_rot);
+                S.hud_dirty = 1;
+            }
+        } else {
+            S.cal_rep = 0.0f;
+        }
+
+        /* A zeroes this channel, B zeroes the lot. */
+        if (t->hand[MOTE_VR_RIGHT].btn_lower) {
+            if (!S.cal_latch) {
+                if (S.cal_ch < 3) S.cal_pos[S.cal_ch] = 0.0f;
+                else              S.cal_rot[S.cal_ch - 3] = 0.0f;
+                cuevr_render_set_ctrl_cal(S.cal_pos, S.cal_rot);
+                S.cal_latch = 1; S.hud_dirty = 1;
+            }
+        } else if (t->hand[MOTE_VR_RIGHT].btn_upper) {
+            if (!S.cal_latch) {
+                for (int i = 0; i < 3; i++) { S.cal_pos[i] = 0.0f; S.cal_rot[i] = 0.0f; }
+                cuevr_render_set_ctrl_cal(S.cal_pos, S.cal_rot);
+                S.cal_latch = 1; S.hud_dirty = 1;
+            }
+        } else if (fabsf(px) < 0.35f && fabsf(py) < 0.55f) {
+            S.cal_latch = 0;
+        }
+        break;
+    }
+
     case ST_DECIDE: {
         /* A / B answer whatever the rules engine asked. */
         int a = t->hand[MOTE_VR_RIGHT].btn_lower, b = t->hand[MOTE_VR_RIGHT].btn_upper;
@@ -2052,7 +2216,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         int asking = (S.state == ST_MENU || S.state == ST_SETUP ||
                       S.state == ST_PLACE || S.state == ST_DECIDE ||
                       S.state == ST_OVER || S.state == ST_PAUSE ||
-                      S.state == ST_LOBBY);
+                      S.state == ST_LOBBY || S.state == ST_ALIGN);
         MoteVrV3 pos;
         if (asking) {
             /* HEADING only, not the full gaze. The panel used to be placed
@@ -2237,6 +2401,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
         now.cloth = S.cloth_idx; now.frame = S.frame_idx;
         now.opp = S.opp; now.cue = S.cue_idx;
         now.light = S.light_idx; now.body = S.body_idx;
+        for (int i = 0; i < 3; i++) {
+            now.ctrl_pos[i] = S.cal_pos[i]; now.ctrl_rot[i] = S.cal_rot[i];
+        }
         /* Floats compared with a tolerance, not bit-for-bit: the table height is
          * being recomputed every frame while the player is levelling, and an
          * exact compare would rewrite the file once a second for ever on a value
@@ -2251,7 +2418,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
             now.persona != last.persona || now.cloth != last.cloth ||
             now.frame != last.frame || now.opp != last.opp ||
             now.cue != last.cue || now.light != last.light ||
-            now.body != last.body;
+            now.body != last.body ||
+            fabsf(now.ctrl_pos[0] - last.ctrl_pos[0]) > 0.0002f ||
+            fabsf(now.ctrl_pos[1] - last.ctrl_pos[1]) > 0.0002f ||
+            fabsf(now.ctrl_pos[2] - last.ctrl_pos[2]) > 0.0002f ||
+            fabsf(now.ctrl_rot[0] - last.ctrl_rot[0]) > 0.02f ||
+            fabsf(now.ctrl_rot[1] - last.ctrl_rot[1]) > 0.02f ||
+            fabsf(now.ctrl_rot[2] - last.ctrl_rot[2]) > 0.02f;
         since += dt;
         if (changed && since > 1.0f) {
             cuevr_prefs_save(&now);
@@ -2266,8 +2439,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
         static int last_state = -1;
         if (S.state != last_state) {
             static const char *NM[] = { "MENU","SETUP","AIM","ROLL","THINK","CPUCUE",
-                                        "PLACE","DECIDE","OVER","PAUSE","LOBBY" };
-            LOGI("[cuevr] state -> %s", (S.state >= 0 && S.state <= ST_LOBBY)
+                                        "PLACE","DECIDE","OVER","PAUSE","LOBBY",
+                                        "ALIGN" };
+            LOGI("[cuevr] state -> %s", (S.state >= 0 && S.state <= ST_ALIGN)
                                         ? NM[S.state] : "?");
             last_state = S.state;
         }

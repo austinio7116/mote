@@ -26,6 +26,11 @@
 
 /* How many rows below GAME the START row sits. Must track the menu. */
 #define MR_START_STEPS 10
+/* ALIGN CONTROLS is PS_ALIGN rows below RESUME. Kept here rather than reaching
+ * into the app's private enum, and it will drift if a row is inserted — which
+ * is what the capture is for: a wrong number lands on a visibly wrong screen
+ * rather than silently testing nothing. */
+#define PS_ALIGN_STEPS 6
 MoteVrV3 cuevr_app_rest(void);
 int cuevr_app_aiming(void);
 MoteVrV3 cuevr_app_pocket_room(void);
@@ -222,6 +227,10 @@ int main(int argc, char **argv) {
     const char *auto_net = getenv("CUEVR_NET");
     int auto_pause = -1;
     { const char *v = getenv("CUEVR_PAUSE"); if (v) auto_pause = atoi(v); }
+    /* CUEVR_ALIGN=n: at frame n, pause, walk down to ALIGN CONTROLS and open it,
+     * so the alignment screen can be captured without a headset on. */
+    int auto_align = -1;
+    { const char *v = getenv("CUEVR_ALIGN"); if (v) auto_align = atoi(v); }
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -421,6 +430,17 @@ int main(int argc, char **argv) {
              * resolved and the table was stuck. */
             if (nframe == auto_pause + 40) s_menu = 1;
             if (nframe == auto_pause + 42) s_menu = 0;
+        }
+        if (auto_align >= 0) {
+            const int F = auto_align;
+            if (nframe == F)     s_menu = 1;          /* pause */
+            if (nframe == F + 2) s_menu = 0;
+            /* down to ALIGN CONTROLS: it is the second row from the bottom */
+            if (nframe >= F + 8 && nframe < F + 8 + PS_ALIGN_STEPS * 2)
+                s_stick_r[1] = (nframe & 1) ? -1.0f : 0.0f;
+            else if (nframe == F + 8 + PS_ALIGN_STEPS * 2) s_stick_r[1] = 0.0f;
+            if (nframe == F + 8 + PS_ALIGN_STEPS * 2 + 4) s_a = 1;
+            if (nframe == F + 8 + PS_ALIGN_STEPS * 2 + 6) s_a = 0;
         }
         if (auto_adjust) {
             if (nframe >= 90 && nframe < 120) {

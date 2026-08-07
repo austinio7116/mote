@@ -108,6 +108,7 @@ static const char *FS =
 "uniform vec2  u_lampI[8];\n"   // 1/|X|^2 and 1/|Z|^2   // how bright each one's reflection is
 "uniform int   u_nlamp;\n"
 "uniform float u_lampround;\n" // 1 = discs (downlights), 0 = rectangles (shades)
+"uniform float u_lampspot;\n"  // per-rig widening of the mirrored fixture
 "uniform vec3  u_keyc;\n"      // the light's own colour, multiplying everything
 "uniform float u_fill;\n"      // how much of the diffuse arrives from the room
 "uniform float u_hudv;\n"
@@ -822,14 +823,13 @@ static const char *FS =
 "                // square highlight is the giveaway that it was never modelled.\n"
 "                float e = mix(max(abs(a), abs(b)), length(vec2(a, b)),\n"
 "                              u_lampround);\n"
-"                // The shade reads BIGGER than its solid angle strictly gives.\n"
-"                // A ball is a 26 mm convex mirror, so an honest reflection of a\n"
-"                // lamp two metres up is a speck a couple of pixels across — the\n"
-"                // maths is right and it tells you nothing. Widening e brings the\n"
-"                // reflected shade up to something you can read as a lamp\n"
-"                // overhead, which is what the highlight is FOR.\n"
-"                e *= 0.45;\n"
-"                refl += (1.0 - smoothstep(0.80, 1.05, e)) * (1.0 - 0.25 * e)\n"
+"                // Drawn larger than life by however much THIS RIG needs, and\n"
+"                // by nothing at all for the rigs that need nothing. A global\n"
+"                // fudge here widened the match shades into one smeared band\n"
+"                // while it was busy making the room downlights visible; the\n"
+"                // amount belongs with the fixture, not with the shader.\n"
+"                e /= u_lampspot;\n"
+"                refl += (1.0 - smoothstep(0.88, 1.0, e)) * (1.0 - 0.25 * e)\n"
 "                      * u_lampG[i];\n"
 "            }\n"
 "        }\n"
@@ -1831,7 +1831,7 @@ static struct {
     GLint  u_cloth, u_fur, u_nap, u_feltspan, u_half, u_furslice, u_furslices, u_furdbg, u_shell,
            u_cshaft, u_csplice, u_caccent, u_cbutt, u_cburr, u_cflash, u_cvnr2, u_cvw, u_cv2on, u_cdiac, u_cdia, u_cvcol, u_cnvcol, u_csfig, u_cbfig, u_cishape, u_cipearl, u_cit, u_chand, u_cnarch, u_cpflip, u_cppearl, u_cface,
            u_cwrapc, u_csleevec, u_cringc, u_cpts, u_cptlen, u_cnvnr, u_cwrap, u_csleeve, u_clam, u_markc, u_baulk, u_drad, u_linew, u_spotr, u_nspot, u_spots;
-    GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_lampN, u_lampI, u_nlamp, u_lampround, u_eye;
+    GLint  u_lampC, u_lampX, u_lampZ, u_lampG, u_lampN, u_lampI, u_nlamp, u_lampround, u_lampspot, u_eye;
     GLint  u_keyc, u_fill, u_hudv, u_hudrect, u_shadow, u_clothlod, u_rawcol, u_varn;
     int    minimal;            /* the real shader would not build; see FS_MIN */
     /* The runtime's own controller models, when XR_FB_render_model gives them.
@@ -2677,6 +2677,34 @@ void cuevr_render_set_ctrl_model(int hand, const void *bytes, unsigned len) {
     cuevr_glb_free(&m);
 }
 
+/* ---- controller alignment ------------------------------------------------ */
+static float s_ctrl_cal_p[3] = { 0, 0, 0 };
+static float s_ctrl_cal_r[3] = { 0, 0, 0 };
+static int   s_ctrl_marker;
+
+void cuevr_render_set_ctrl_cal(const float pos[3], const float rot[3]) {
+    for (int i = 0; i < 3; i++) { s_ctrl_cal_p[i] = pos[i]; s_ctrl_cal_r[i] = rot[i]; }
+}
+void cuevr_render_ctrl_marker(int on) { s_ctrl_marker = on ? 1 : 0; }
+
+/* The calibration as a matrix, in the grip frame: rotate about X, then Y, then
+ * Z, then translate. Rotation before translation so the offset is read in the
+ * frame the player is looking at rather than in one that moves as they turn a
+ * dial — which is the difference between an adjustment that converges and one
+ * that chases itself. */
+static void ctrl_cal_matrix(float C[16]) {
+    const float D = 3.14159265f / 180.0f;
+    float cx = cosf(s_ctrl_cal_r[0]*D), sx = sinf(s_ctrl_cal_r[0]*D);
+    float cy = cosf(s_ctrl_cal_r[1]*D), sy = sinf(s_ctrl_cal_r[1]*D);
+    float cz = cosf(s_ctrl_cal_r[2]*D), sz = sinf(s_ctrl_cal_r[2]*D);
+    mm4_identity(C);
+    /* R = Rz * Ry * Rx, column-major */
+    C[0] =  cz*cy;              C[1] =  sz*cy;              C[2]  = -sy;
+    C[4] =  cz*sy*sx - sz*cx;   C[5] =  sz*sy*sx + cz*cx;   C[6]  =  cy*sx;
+    C[8] =  cz*sy*cx + sz*sx;   C[9] =  sz*sy*cx - cz*sx;   C[10] =  cy*cx;
+    C[12] = s_ctrl_cal_p[0]; C[13] = s_ctrl_cal_p[1]; C[14] = s_ctrl_cal_p[2];
+}
+
 int cuevr_render_has_ctrl_model(int hand) {
     return (hand >= 0 && hand <= 1) ? G.rm[hand].have : 0;
 }
@@ -3202,6 +3230,7 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     G.u_lampI      = glGetUniformLocation(G.prog, "u_lampI[0]");
     G.u_nlamp      = glGetUniformLocation(G.prog, "u_nlamp");
     G.u_lampround  = glGetUniformLocation(G.prog, "u_lampround");
+    G.u_lampspot   = glGetUniformLocation(G.prog, "u_lampspot");
     G.u_keyc       = glGetUniformLocation(G.prog, "u_keyc");
     G.u_fill       = glGetUniformLocation(G.prog, "u_fill");
     G.u_hudv       = glGetUniformLocation(G.prog, "u_hudv");
@@ -4016,6 +4045,7 @@ void cuevr_render_eye(const float *view, const float *proj,
         }
         glUniform1i(G.u_nlamp, nlamp);
         glUniform1f(G.u_lampround, rig->round ? 1.0f : 0.0f);
+        glUniform1f(G.u_lampspot, rig->spot > 0.0f ? rig->spot : 1.0f);
         glUniform1f(G.u_fill, rig->fill);
         glUniform3fv(G.u_keyc, 1, rig->keyc);
         glUniform2f(G.u_shadow, rig->soft, rig->dark);
@@ -4519,11 +4549,20 @@ skip_shadows:
                 R[4] = -sn; R[5] = c;
                 mm4_mul(K, R, A);
             }
+            /* The player's alignment, in the grip frame, ahead of whatever
+             * else each path does. Identity unless they have adjusted it. */
+            float C[16], PC[16];
+            ctrl_cal_matrix(C);
+            mm4_mul(PC, P, C);
+
             if (G.rm[i].have) {
                 /* The runtime's model needs NO model-to-grip matrix: it is
                  * authored in the grip frame, which is the reason for preferring
-                 * it over anything shipped in the APK. Straight at the pose. */
-                set_model(P);
+                 * it over anything shipped in the APK. Straight at the pose —
+                 * plus the player's own correction, because "authored in the
+                 * grip frame" is a promise about the model and says nothing
+                 * about which pose this app chose to draw it at. */
+                set_model(PC);
                 glUniform1i(G.u_mode, 11);
                 glActiveTexture(GL_TEXTURE0);
                 glBindVertexArray(G.rm[i].mesh.vao);
@@ -4542,9 +4581,39 @@ skip_shadows:
                 glUniform1i(G.u_mode, 0);
                 colour(0.16f, 0.17f, 0.19f, 1.0f);
             } else {
-                mm4_mul(M, P, K);
+                mm4_mul(M, PC, K);
                 set_model(M);
                 draw(G.ctrl[i].n ? &G.ctrl[i] : &G.grip);
+            }
+
+            /* While aligning: three small sticks along the RAW reported pose's
+             * own axes, uncorrected. This is the thing the model is being lined
+             * up against, and it is invisible otherwise — the first version of
+             * this adjustment had the player matching a model to a pose they
+             * could not see, which is guessing with extra steps.
+             * red = grip +x, green = +y, blue = +z (the handle). */
+            if (s_ctrl_marker) {
+                for (int ax = 0; ax < 3; ax++) {
+                    float Sm[16], M3[16];
+                    mm4_identity(Sm);
+                    Sm[0] = Sm[5] = Sm[10] = 0.007f;
+                    Sm[12 + ax] = 0.045f;
+                    mm4_mul(M3, P, Sm);
+                    colour(ax == 0 ? 1.0f : 0.04f, ax == 1 ? 1.0f : 0.04f,
+                           ax == 2 ? 1.0f : 0.04f, 1.0f);
+                    set_model(M3);
+                    draw(&G.ball);
+                }
+                /* and a white bead exactly on the reported origin */
+                float Sm[16], M3[16];
+                mm4_identity(Sm);
+                Sm[0] = Sm[5] = Sm[10] = 0.009f;
+                mm4_mul(M3, P, Sm);
+                colour(1.0f, 1.0f, 1.0f, 1.0f);
+                set_model(M3);
+                draw(&G.ball);
+                glUniform1i(G.u_mode, 0);
+                colour(0.16f, 0.17f, 0.19f, 1.0f);
             }
         }
         /* Where the cue is resting on the bridge: a small pale marker, so the
