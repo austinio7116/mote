@@ -43,7 +43,6 @@ typedef struct {
     int nballs;
 
     int      cue_visible;
-    int      cue_on_ball;   /* tips the ferrule when the line is live */
     MoteVrV3 cue_butt, cue_tip;
     /* Roll about the cue's own axis. Zero in play — as far as the shot is
      * concerned the cue is a lathe of revolution and nothing depends on which

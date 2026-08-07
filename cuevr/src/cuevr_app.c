@@ -2205,8 +2205,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
     S.scene.balls   = S.balls;
     S.scene.nballs  = S.nballs;
     /* Visible whenever you are holding it, not only when it happens to be
-     * lined up. cue_on_ball tells the renderer to mark the ferrule so you
-     * can see when the line is actually live. */
+     * lined up. */
     if (getenv("CUEVR_CUESHOT")) {
         /* Stage the cue for a design capture. Headless has no tracked hands, so
          * the cue was simply never drawn and every cue design shipped on
@@ -2214,7 +2213,6 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * headset before anyone could look at it. Lay it along the table, level
          * and above the cloth, where a whole cue is in frame. */
         S.scene.cue_visible = 1;
-        S.scene.cue_on_ball = 0;
         S.scene.cue_tip  = cuevr_table_to_room(&S.setup.place, v3(-1.45f, 0.16f, 0.0f));
         S.scene.cue_butt = cuevr_table_to_room(&S.setup.place, v3( 0.00f, 0.16f, 0.0f));
         S.scene.cue_roll = 0.0f;
@@ -2233,10 +2231,6 @@ static void app_update(void *u, const MoteVrTracking *t) {
                        S.state == ST_LOBBY || S.state == ST_PAUSE ||
                        S.state == ST_ALIGN);
         S.scene.cue_visible = !in_menu && S.cue.tracked;
-        /* The ferrule marker is aim feedback, so it only means anything while
-         * you are actually on a shot. Left live it would blink green at the
-         * balls as they rolled past your idle tip. */
-        S.scene.cue_on_ball = S.cue.on_ball && S.state == ST_AIM;
         S.scene.cue_butt = S.cue.butt;
         S.scene.cue_tip  = S.cue.tip;
         S.scene.cue_roll = 0.0f;
@@ -2374,7 +2368,6 @@ static void app_update(void *u, const MoteVrTracking *t) {
              * parts you are actually choosing between, nearest your eye. */
             Vec3 bt = { tx, LIE, z }, tp = { bx, LIE, z };
             S.scene.cue_visible = 1;
-            S.scene.cue_on_ball = 0;
             S.scene.cue_butt = cuevr_table_to_room(&S.setup.place, bt);
             S.scene.cue_tip  = cuevr_table_to_room(&S.setup.place, tp);
             S.menu_cue_roll += dt * 0.55f;

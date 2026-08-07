@@ -888,7 +888,7 @@ static const char *FS =
 "            float g = pow(max(dot(nn, normalize(L + Vv)), 0.0), 180.0);\n"
 "            c += vec3(g * 1.6);\n"
 "            gloss = 160.0; spec_k = 0.0;\n"
-"        }\n" // ferrule: green when the line is live
+"        }\n"
 "        else {\n"
 "            // Ash grain runs the LENGTH of the cue as fine lines, so it has\n"
 "            // to vary with the angle round the shaft and only drift slowly\n"
@@ -3807,16 +3807,12 @@ void cuevr_render_views(const float *view2, const float *proj2,
  * runs back past the hands and out behind the player, as a real one does. It is
  * NOT stretched between the controllers — a cue is a fixed length, and making
  * it rubbery is the fastest way to stop believing in it. */
-static void draw_cue(MoteVrV3 tip, MoteVrV3 butt, float roll, int on_ball) {
+static void draw_cue(MoteVrV3 tip, MoteVrV3 butt, float roll) {
     MoteVrV3 d = mv3_sub(butt, tip);
     float len = mv3_len(d);
     if (len <= 0.02f) return;
 
     glUniform1i(G.u_mode, 5);
-    /* The one piece of aim feedback there is: the ferrule goes green when the
-     * cue line actually meets the ball. No aim line, no ghost ball — but you
-     * should not have to guess whether you are even on it. */
-    glUniform4f(G.u_colour, 1, 1, 1, on_ball ? 1.0f : 0.0f);
 
     MoteVrV3 u = mv3_scale(d, 1.0f / len);
     MoteVrV3 up = mv3(0, 1, 0);
@@ -4489,9 +4485,9 @@ skip_shadows:
      * markings, and the cue lies straight across the D. */
     if (!getenv("CUEVR_NOCUE")) {
         if (s->cue_visible)
-            draw_cue(s->cue_tip, s->cue_butt, s->cue_roll, s->cue_on_ball);
+            draw_cue(s->cue_tip, s->cue_butt, s->cue_roll);
         if (s->ocue_visible)
-            draw_cue(s->ocue_tip, s->ocue_butt, 0.0f, 0);
+            draw_cue(s->ocue_tip, s->ocue_butt, 0.0f);
     }
 
     /* CUEVR_CTRLAXES: draw the LEFT controller at the table centre, unrotated, with
