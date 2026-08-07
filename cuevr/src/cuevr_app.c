@@ -1461,6 +1461,14 @@ static int app_gl_init(void *u) {
         for (int i = 0; i < MENU_N; i++)
             if ((int)MENU[i].kind == pr.table_kind) S.menu_sel = i;
         cue_render_set_ball_set(S.ballset);
+        /* Build the table the player last chose, right now, before the
+         * levelling screen shows it. The table used to be racked with whatever
+         * cue_table_init leaves behind and only re-dressed when the main menu
+         * opened, so the first thing anyone saw was a green pub table that
+         * changed colour, size and furniture the moment they confirmed the
+         * height. Nothing was wrong; it just looked as though something had
+         * been. Level the table you are going to play on. */
+        menu_preview();
     }
 
     S.hud_dirty = 1;
