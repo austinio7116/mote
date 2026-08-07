@@ -203,9 +203,14 @@ static struct {
     int stat_counted;          /* this frame's result already recorded */
     int stat_dirty;
     int stat_page;         /* 0 = vs CPU, 1 = online */
+    /* The pointer: where the right controller's ray meets the panel, in the
+     * HUD's own layout coordinates (0..HW across, 0..rows down). */
+    int   ptr_ok;
+    float ptr_x, ptr_y;
+    int   ptr_latch;
     int appear_from;       /* the state to return to */
     CueVrShot idle_shot;   /* this frame's cue update, wherever we are */
-    int pause_sel, pause_latch;
+    int pause_sel, pause_latch, pause_click;
 
     /* Controller alignment: six channels the player steps through, the values
      * they are editing, and where they came from so CANCEL means something. */
@@ -683,6 +688,37 @@ static void hud_text_r_xl(const char *t, int rx, int y, uint16_t c) {
 }
 
 /* One option row of the menu. */
+/* Which row the pointer is over, for a list drawn at y0 with `pitch` between
+ * rows. -1 for none. Rows are drawn from y0-1 to y0+pitch-1, so the test uses
+ * the same numbers hud_opt() draws with rather than a second set that can
+ * drift from them. */
+static int ptr_row_at(int y0, int pitch, int n) {
+    if (!S.ptr_ok) return -1;
+    float r = (S.ptr_y - (float)(y0 - 1)) / (float)pitch;
+    if (r < 0.0f) return -1;
+    int i = (int)r;
+    return (i >= 0 && i < n) ? i : -1;
+}
+
+/* Where across a row the pointer sits: -1 left third, +1 right third, 0 middle.
+ * The chevrons hud_opt draws are at 46 and HW-18, so those are the zones. */
+static int ptr_zone(void) {
+    if (!S.ptr_ok) return 0;
+    if (S.ptr_x < 46.0f + 8.0f)      return -1;
+    if (S.ptr_x > (float)HW - 26.0f) return +1;
+    return 0;
+}
+
+/* A trigger pull, once. The trigger is the Quest select and this is the only
+ * place that reads it as a button. */
+static int ptr_click(const MoteVrTracking *t) {
+    int down = t->hand[MOTE_VR_RIGHT].trigger > 0.55f;
+    if (!down) { S.ptr_latch = 0; return 0; }
+    if (S.ptr_latch) return 0;
+    S.ptr_latch = 1;
+    return 1;
+}
+
 static void hud_opt(int row, const char *label, const char *value, int sel,
                     int enabled, uint16_t TXT, uint16_t DIM, uint16_t HI) {
     int y = 12 + row * 8;
@@ -700,7 +736,34 @@ static void hud_opt(int row, const char *label, const char *value, int sel,
     }
 }
 
+/* Paint the screen, then put the pointer on top of it.
+ *
+ * hud_paint returns early from every screen it draws, so the cursor cannot go
+ * at its end — it would only ever appear on the last one. It goes in a wrapper.
+ *
+ * Drawn INTO the HUD bitmap rather than as geometry in the world: the panel is
+ * already a textured quad, so this costs a handful of pixels where a laser and
+ * a puck would be two more meshes and two more draws every frame. Seeing where
+ * you point is the whole job. */
+static void hud_paint(void);
+
 static void hud_build(void) {
+    hud_paint();
+    if (!S.ptr_ok) return;
+    int x = (int)(S.ptr_x + 0.5f), y = (int)(S.ptr_y + 0.5f);
+    const uint16_t C = RGB565C(250, 205, 60);
+    const uint16_t K = RGB565C(10, 10, 14);
+    /* A ring, not a dot: a dot vanishes on the row highlight it is sitting on.
+     * Dark outline first so it reads on light text and dark panel alike. */
+    for (int i = -3; i <= 3; i++) {
+        hud_rect(x + i, y - 3, 1, 1, K); hud_rect(x + i, y + 3, 1, 1, K);
+        hud_rect(x - 3, y + i, 1, 1, K); hud_rect(x + 3, y + i, 1, 1, K);
+    }
+    hud_rect(x - 2, y - 2, 5, 1, C); hud_rect(x - 2, y + 2, 5, 1, C);
+    hud_rect(x - 2, y - 1, 1, 3, C); hud_rect(x + 2, y - 1, 1, 3, C);
+}
+
+static void hud_paint(void) {
     const uint16_t BG   = RGB565C(8, 11, 18);
     const uint16_t BAND = RGB565C(14, 20, 32);
     const uint16_t LINE = RGB565C(52, 96, 160);
@@ -1241,6 +1304,62 @@ static void stat_after_shot(void) {
     S.stat_dirty = 1;
 }
 
+/* The two things a main-menu row can do, so the pointer and the button cannot
+ * end up doing different things on the same row. */
+static void menu_change(int d) {
+            switch (S.menu_row) {
+            case MR_GAME:
+                S.menu_sel = (S.menu_sel + d + MENU_N) % MENU_N;
+                /* A grouped two-colour set cannot be used for 9-ball, and
+                 * cue_theme knows which sets those are. */
+                if (!cue_ballset_ok((int)MENU[S.menu_sel].kind, S.ballset)) {
+                    for (int i = 0; i < CUE_NBALLSET; i++)
+                        if (cue_ballset_ok((int)MENU[S.menu_sel].kind, i)) { S.ballset = i; break; }
+                }
+                break;
+            case MR_OPP:      S.opp = (S.opp + d + OPP_N) % OPP_N; break;
+            case MR_FRAMES:   S.match_idx = (S.match_idx + d + MATCH_LEN_N) % MATCH_LEN_N; break;
+            case MR_STRENGTH: S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS; break;
+            /* Cloth, frame, table, lighting, balls and cue moved to the
+             * APPEARANCE screen, which owns them for both entry points. */
+            default: break;
+            }
+    /* Show it, do not just name it. */
+    if (S.menu_row == MR_GAME) menu_preview();
+    S.hud_dirty = 1;
+}
+
+static void menu_activate(void) {
+    if (S.menu_row == MR_APPEAR) {
+        S.appear_from = ST_MENU;
+        S.menu_row = AR_CLOTH;
+        S.state = ST_APPEAR;
+        S.hud_dirty = 1;
+    } else if (S.menu_row == MR_STATS) {
+        S.appear_from = ST_MENU;
+        S.state = ST_STATS;
+        S.hud_dirty = 1;
+    } else if (S.menu_row == MR_START) {
+        cue_render_set_ball_set(S.ballset);
+        if (S.opp == OPP_ONLINE) {
+            /* The lobby first — there is no frame to start until there
+             * is somebody to play. */
+            S.lb_screen = LB_TRANSPORT;
+            S.lb_sel = 0;
+            /* The press that opened the lobby must not also answer its
+             * first question — otherwise the transport screen flashes
+             * past and you are on a transport you never chose. */
+            S.lb_latch = 1;
+            S.state = ST_LOBBY;
+        } else {
+            start_frame(MENU[S.menu_sel].kind);
+            hand_over();
+        }
+        S.hud_dirty = 1;
+    }
+    S.hud_dirty = 1;
+}
+
 static void resolve_shot(void) {
     int potted[CUE_MAX_BALLS], np = 0, scratch = 0;
     for (int i = 0; i < S.nballs; i++) {
@@ -1624,6 +1743,44 @@ static void app_update(void *u, const MoteVrTracking *t) {
         if (S.menu_hold > -1.0f) S.menu_hold = 0.0f;
     }
 
+    /* ---- the pointer ---------------------------------------------------- *
+     * A ray out of the right controller onto the HUD panel, exactly as every
+     * Quest menu works. The AIM pose is the runtime's own answer to which way
+     * the controller points (-Z along the ray), so there is nothing to
+     * calibrate and nothing to argue about.
+     *
+     * The panel's pose is computed at the END of the frame, so this reads last
+     * frame's — one frame of lag on a thing a hand moves slowly, which nobody
+     * can see, and it avoids ordering the whole update around the HUD. */
+    {
+        S.ptr_ok = 0;
+        const MoteVrHand *rh = &t->hand[MOTE_VR_RIGHT];
+        if (rh->aim_tracked && S.scene.hud_visible && S.scene.hud_w > 0.01f) {
+            MoteVrV3 o = rh->aim.p;
+            MoteVrV3 d = mq_rot(rh->aim.q, mv3(0, 0, -1));
+            MoteVrV3 px = mq_rot(S.scene.hud_rot, mv3(1, 0, 0));
+            MoteVrV3 py = mq_rot(S.scene.hud_rot, mv3(0, 1, 0));
+            MoteVrV3 pn = mq_rot(S.scene.hud_rot, mv3(0, 0, 1));
+            float dn = mv3_dot(d, pn);
+            if (fabsf(dn) > 1.0e-4f) {
+                float k = mv3_dot(mv3_sub(S.scene.hud_pos, o), pn) / dn;
+                if (k > 0.02f && k < 8.0f) {
+                    MoteVrV3 hit = mv3_sub(mv3_add(o, mv3_scale(d, k)), S.scene.hud_pos);
+                    float hw_m = S.scene.hud_w;
+                    int rows = S.scene.hud_rows ? S.scene.hud_rows : CUEVR_HUD_LH;
+                    float hh_m = hw_m * (float)rows / (float)HW;
+                    float u = mv3_dot(hit, px) / hw_m + 0.5f;   /* 0..1 left→right */
+                    float v = 0.5f - mv3_dot(hit, py) / hh_m;   /* 0..1 top→bottom */
+                    if (u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f) {
+                        S.ptr_x = u * (float)HW;
+                        S.ptr_y = v * (float)rows;
+                        S.ptr_ok = 1;
+                    }
+                }
+            }
+        }
+    }
+
     /* THE CUE FOLLOWS YOUR HANDS, ALWAYS. It is a rigid object you are
      * holding, so its pose is a function of where your hands are and nothing
      * else — not of whose turn it is.
@@ -1670,71 +1827,33 @@ static void app_update(void *u, const MoteVrTracking *t) {
 
     switch (S.state) {
     case ST_MENU: {
-        /* Rows, not a list. Up/down picks the row, left/right changes it. */
-        float y = t->hand[MOTE_VR_RIGHT].stick_y + t->hand[MOTE_VR_LEFT].stick_y;
-        if (fabsf(y) < 0.4f) S.menu_updown = 0;
-        else if (!S.menu_updown) {
-            S.menu_updown = 1;
-            S.menu_row += (y < 0.0f) ? 1 : -1;
-            if (S.menu_row < 0) S.menu_row = MR_N - 1;
-            if (S.menu_row >= MR_N) S.menu_row = 0;
-            S.hud_dirty = 1;
-        }
-        float xx = t->hand[MOTE_VR_RIGHT].stick_x + t->hand[MOTE_VR_LEFT].stick_x;
-        if (fabsf(xx) < 0.4f) S.menu_latch = 0;
-        else if (!S.menu_latch) {
-            S.menu_latch = 1;
-            int d = xx > 0.0f ? 1 : -1;
-            switch (S.menu_row) {
-            case MR_GAME:
-                S.menu_sel = (S.menu_sel + d + MENU_N) % MENU_N;
-                /* A grouped two-colour set cannot be used for 9-ball, and
-                 * cue_theme knows which sets those are. */
-                if (!cue_ballset_ok((int)MENU[S.menu_sel].kind, S.ballset)) {
-                    for (int i = 0; i < CUE_NBALLSET; i++)
-                        if (cue_ballset_ok((int)MENU[S.menu_sel].kind, i)) { S.ballset = i; break; }
-                }
-                break;
-            case MR_OPP:      S.opp = (S.opp + d + OPP_N) % OPP_N; break;
-            case MR_FRAMES:   S.match_idx = (S.match_idx + d + MATCH_LEN_N) % MATCH_LEN_N; break;
-            case MR_STRENGTH: S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS; break;
-            /* Cloth, frame, table, lighting, balls and cue moved to the
-             * APPEARANCE screen, which owns them for both entry points. */
-            default: break;
+        /* POINTED AT, not scrolled to. The sticks belong to the table on every
+         * screen in this game, so a menu cannot borrow one: you point at a row
+         * and pull the trigger, the way everything else on the headset works.
+         *
+         * A row with a value has three zones — the two chevrons change it, the
+         * middle acts on it — which is why hud_opt draws those chevrons where
+         * it does and why ptr_zone reads the same numbers. */
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        {
+            int hov = ptr_row_at(12, 8, MR_N);
+            if (hov >= 0 && hov != S.menu_row) { S.menu_row = hov; S.hud_dirty = 1; }
+            int click = ptr_click(t);
+            if (hov >= 0 && click) {
+                int z = ptr_zone();
+                if (z == 0 || S.menu_row == MR_APPEAR || S.menu_row == MR_STATS
+                           || S.menu_row == MR_START)
+                    menu_activate();
+                else
+                    menu_change(z);
             }
-            /* Show it, do not just name it. */
-            if (S.menu_row == MR_GAME) menu_preview();
-            S.hud_dirty = 1;
         }
+        /* A still works, on whatever the pointer last picked out — a button is
+         * a kinder thing to find than a ray when you are not looking at the
+         * panel. */
         if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
             S.btn_latch = 1;
-            if (S.menu_row == MR_APPEAR) {
-                S.appear_from = ST_MENU;
-                S.menu_row = AR_CLOTH;
-                S.state = ST_APPEAR;
-                S.hud_dirty = 1;
-            } else if (S.menu_row == MR_STATS) {
-                S.appear_from = ST_MENU;
-                S.state = ST_STATS;
-                S.hud_dirty = 1;
-            } else if (S.menu_row == MR_START) {
-                cue_render_set_ball_set(S.ballset);
-                if (S.opp == OPP_ONLINE) {
-                    /* The lobby first — there is no frame to start until there
-                     * is somebody to play. */
-                    S.lb_screen = LB_TRANSPORT;
-                    S.lb_sel = 0;
-                    /* The press that opened the lobby must not also answer its
-                     * first question — otherwise the transport screen flashes
-                     * past and you are on a transport you never chose. */
-                    S.lb_latch = 1;
-                    S.state = ST_LOBBY;
-                } else {
-                    start_frame(MENU[S.menu_sel].kind);
-                    hand_over();
-                }
-                S.hud_dirty = 1;
-            }
+            menu_activate();
         }
         if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
         break;
@@ -1857,14 +1976,20 @@ static void app_update(void *u, const MoteVrTracking *t) {
     }
 
     case ST_PAUSE: {
-        float py = t->hand[MOTE_VR_RIGHT].stick_y + t->hand[MOTE_VR_LEFT].stick_y;
+        /* Pointed at, like the rest. The rows are drawn at 14 + i*9. */
+        {
+            int hov = ptr_row_at(14, 9, PS_N);
+            if (hov >= 0 && hov != S.pause_sel) { S.pause_sel = hov; S.hud_dirty = 1; }
+            if (hov >= 0 && ptr_click(t)) S.pause_click = 1;
+        }
+        /* The sticks belong to the table here too. */
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
         int a = t->hand[MOTE_VR_RIGHT].btn_lower;
-        if (fabsf(py) < 0.4f && !a) S.pause_latch = 0;
-        else if (!S.pause_latch) {
+        if (!a && !S.pause_click) S.pause_latch = 0;
+        else if (!S.pause_latch || S.pause_click) {
             S.pause_latch = 1;
-            if (fabsf(py) > 0.4f) {
-                S.pause_sel = (S.pause_sel + (py < 0.0f ? 1 : PS_N - 1)) % PS_N;
-            } else if (a) {
+            S.pause_click = 0;
+            {
                 switch (S.pause_sel) {
                 case PS_RESUME:
                     unpause();
@@ -2318,61 +2443,62 @@ static void app_update(void *u, const MoteVrTracking *t) {
     }
 
     case ST_APPEAR: {
-        /* Rows with up/down, values with left/right, A to leave — the same
-         * shape as the main menu it came out of, because it IS the main menu's
-         * rows. Every change applies immediately: this screen exists so you can
-         * see the table change while you choose. */
-        float y = t->hand[MOTE_VR_RIGHT].stick_y + t->hand[MOTE_VR_LEFT].stick_y;
-        if (fabsf(y) < 0.4f) S.menu_updown = 0;
-        else if (!S.menu_updown) {
-            S.menu_updown = 1;
-            S.menu_row += (y < 0.0f) ? 1 : -1;
-            if (S.menu_row < 0) S.menu_row = AR_N - 1;
-            if (S.menu_row >= AR_N) S.menu_row = 0;
-            S.hud_dirty = 1;
-        }
-        float xx = t->hand[MOTE_VR_RIGHT].stick_x + t->hand[MOTE_VR_LEFT].stick_x;
-        if (fabsf(xx) > 0.4f && !S.menu_latch) {
-            S.menu_latch = 1;
-            int d = xx > 0.0f ? 1 : -1;
-            switch (S.menu_row) {
-            case AR_CLOTH: S.cloth_idx = (S.cloth_idx + d + CUE_NCLOTH) % CUE_NCLOTH; break;
-            case AR_FRAME: S.frame_idx = (S.frame_idx + d + CUE_NFRAME) % CUE_NFRAME; break;
-            case AR_BODY: {
-                /* -1 is AUTO and sits before the first design, so the list runs
-                 * AUTO, REGENCY, CABINET, ... and wraps. */
-                int n = cuevr_render_body_count() + 1;
-                int i2 = S.body_idx + 1;
-                i2 = (i2 + d + n) % n;
-                S.body_idx = i2 - 1;
-                cuevr_render_set_body(S.body_idx);
-                break;
+        /* Same shape as the main menu: point, and the chevrons on the row you
+         * are over change the value. BACK has no value, so anywhere on it
+         * leaves. */
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        {
+            int hov = ptr_row_at(12, 8, AR_N);
+            if (hov >= 0 && hov != S.menu_row) { S.menu_row = hov; S.hud_dirty = 1; }
+            int click = ptr_click(t);
+            if (hov >= 0 && click) {
+                if (S.menu_row == AR_BACK) {
+                    S.state = S.appear_from;
+                    S.menu_row = (S.appear_from == ST_MENU) ? MR_APPEAR : 0;
+                    if (S.appear_from == ST_PAUSE) S.pause_sel = PS_APPEAR;
+                    S.btn_latch = 1;
+                    S.hud_dirty = 1;
+                    break;
+                }
+                int d = ptr_zone();
+                if (d == 0) d = 1;              /* the middle steps forward */
+                switch (S.menu_row) {
+                case AR_CLOTH: S.cloth_idx = (S.cloth_idx + d + CUE_NCLOTH) % CUE_NCLOTH; break;
+                case AR_FRAME: S.frame_idx = (S.frame_idx + d + CUE_NFRAME) % CUE_NFRAME; break;
+                case AR_BODY: {
+                    /* -1 is AUTO and sits before the first design, so the list runs
+                     * AUTO, REGENCY, CABINET, ... and wraps. */
+                    int n = cuevr_render_body_count() + 1;
+                    int i2 = S.body_idx + 1;
+                    i2 = (i2 + d + n) % n;
+                    S.body_idx = i2 - 1;
+                    cuevr_render_set_body(S.body_idx);
+                    break;
+                }
+                case AR_LIGHT:
+                    S.light_idx = (S.light_idx + d + cuevr_render_light_count())
+                                    % cuevr_render_light_count();
+                    cuevr_render_set_light(S.light_idx);
+                    break;
+                case AR_BALLS: {
+                    int b0 = S.ballset;
+                    do { b0 = (b0 + d + CUE_NBALLSET) % CUE_NBALLSET; }
+                    while (!cue_ballset_ok((int)S.tab.kind, b0) && b0 != S.ballset);
+                    S.ballset = b0;
+                    cue_render_set_ball_set(S.ballset);
+                    break;
+                }
+                case AR_CUE: {
+                    int n = cuevr_render_cue_count();
+                    S.cue_idx = (S.cue_idx + d + n) % n;
+                    cuevr_render_set_cue(S.cue_idx);
+                    break;
+                }
+                default: break;
+                }
+                restyle_table();
+                S.hud_dirty = 1;
             }
-            case AR_LIGHT:
-                S.light_idx = (S.light_idx + d + cuevr_render_light_count())
-                            % cuevr_render_light_count();
-                cuevr_render_set_light(S.light_idx);
-                break;
-            case AR_BALLS: {
-                int b0 = S.ballset;
-                do { b0 = (b0 + d + CUE_NBALLSET) % CUE_NBALLSET; }
-                while (!cue_ballset_ok((int)S.tab.kind, b0) && b0 != S.ballset);
-                S.ballset = b0;
-                cue_render_set_ball_set(S.ballset);
-                break;
-            }
-            case AR_CUE: {
-                int n = cuevr_render_cue_count();
-                S.cue_idx = (S.cue_idx + d + n) % n;
-                cuevr_render_set_cue(S.cue_idx);
-                break;
-            }
-            default: break;
-            }
-            /* Repaint the table itself, not just the row — and re-dress it
-             * rather than re-rack it, because this screen opens mid-frame. */
-            restyle_table();
-            S.hud_dirty = 1;
         }
         if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
             S.btn_latch = 1;
@@ -2382,14 +2508,24 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.hud_dirty = 1;
         }
         if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
-        if (fabsf(xx) < 0.4f) S.menu_latch = 0;
         break;
     }
 
+
     case ST_STATS: {
-        float xx = t->hand[MOTE_VR_RIGHT].stick_x + t->hand[MOTE_VR_LEFT].stick_x;
-        if (fabsf(xx) > 0.4f && !S.menu_latch) {
-            S.menu_latch = 1; S.stat_page ^= 1; S.hud_dirty = 1;
+        /* Two things to point at: the page, and the way out. The whole panel is
+         * the page toggle except the bottom two lines, which are the footer. */
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        if (S.ptr_ok && ptr_click(t)) {
+            if (S.ptr_y > (float)(HH - 14)) {
+                S.state = S.appear_from;
+                S.menu_row = (S.appear_from == ST_MENU) ? MR_STATS : 0;
+                if (S.appear_from == ST_PAUSE) S.pause_sel = PS_STATS;
+                S.btn_latch = 1;
+            } else {
+                S.stat_page ^= 1;
+            }
+            S.hud_dirty = 1;
         }
         if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
             S.btn_latch = 1;
@@ -2399,9 +2535,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.hud_dirty = 1;
         }
         if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
-        if (fabsf(xx) < 0.4f) S.menu_latch = 0;
         break;
     }
+
 
     case ST_ALIGN: {
         /* Lining the drawn controller up with the one in your hand.
@@ -2860,6 +2996,16 @@ static void app_update(void *u, const MoteVrTracking *t) {
         }
     }
 
+    /* The cursor moves every frame, so the panel has to be repainted every
+     * frame while it is on screen — a pointer that updates only when something
+     * else happens to dirty the HUD is a pointer that lags behind your hand and
+     * feels broken. Only while pointing: in play nothing here is true and the
+     * scoreboard keeps its cheap repaint. */
+    {
+        static int had_ptr;
+        if (S.ptr_ok || had_ptr) S.hud_dirty = 1;
+        had_ptr = S.ptr_ok;
+    }
     if (S.hud_dirty) { hud_build(); cuevr_render_hud(S.hud); S.hud_dirty = 0; }
 }
 
