@@ -84,11 +84,13 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_ro
                         int allow_height) {
     float dt = t->dt > 0.0f && t->dt < 0.25f ? t->dt : 1.0f / 72.0f;
 
-    /* Sliding is the OFF hand's stick and turning is the DOMINANT hand's, and
-     * for a left-hander both are the other controller — the whole layout is a
-     * mirror, not just the cue. Set from the same menu row. */
-    const MoteVrHand *L  = &t->hand[s_lefty ? MOTE_VR_RIGHT : MOTE_VR_LEFT];
-    const MoteVrHand *Rh = &t->hand[s_lefty ? MOTE_VR_LEFT  : MOTE_VR_RIGHT];
+    /* THE STICKS DO NOT MIRROR. Left slides, right turns, both hands, always —
+     * handedness is about which hand holds the cue, and moving the table is the
+     * same job whichever way you play. Mirroring them changed the controls out
+     * from under a left-hander for no benefit. Only the BUTTON follows the
+     * dominant hand, because a button belongs to the hand doing the pointing. */
+    const MoteVrHand *L  = &t->hand[MOTE_VR_LEFT];
+    const MoteVrHand *Rh = &t->hand[MOTE_VR_RIGHT];
 
     /* ---- slide, in the player's own frame ------------------------------- *
      * Forward is where the head is looking, flattened onto the floor. Pushing

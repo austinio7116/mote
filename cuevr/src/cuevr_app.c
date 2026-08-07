@@ -1978,8 +1978,11 @@ static void app_update(void *u, const MoteVrTracking *t) {
         }
         if (S.lb_screen == LB_BROWSE && cuevr_net_browse_done()) S.hud_dirty = 1;
 
-        float ly = t->hand[DOMH].stick_y + t->hand[OFFH].stick_y;
-        float lx = t->hand[DOMH].stick_x + t->hand[OFFH].stick_x;
+        /* Either stick, so it does not matter which hand — the sum is the same
+         * whichever way round the player is, and writing it handed would only
+         * suggest it mattered. */
+        float ly = t->hand[MOTE_VR_LEFT].stick_y + t->hand[MOTE_VR_RIGHT].stick_y;
+        float lx = t->hand[MOTE_VR_LEFT].stick_x + t->hand[MOTE_VR_RIGHT].stick_x;
         int a = t->hand[DOMH].btn_lower;
         int bb = t->hand[DOMH].btn_upper;
 
@@ -2706,8 +2709,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
          */
         static const float STEP[6] = { 0.002f, 0.002f, 0.002f, 1.0f, 1.0f, 1.0f };
         enum { CAL_RESET = 6, CAL_ROWS = 7 };
-        float px = t->hand[DOMH].stick_x;
-        float py = t->hand[DOMH].stick_y;
+        /* STICKS DO NOT SWAP. Handedness is about which hand holds the cue,
+         * and the sticks are not part of holding it — they move the table,
+         * which is the same job whichever way round you play. Swapping them
+         * only makes the controls change under a left-hander for no reason. */
+        float px = t->hand[MOTE_VR_RIGHT].stick_x;
+        float py = t->hand[MOTE_VR_RIGHT].stick_y;
 
         /* Channel select, one row per flick. */
         if (fabsf(py) > 0.55f) {
@@ -3035,7 +3042,11 @@ static void app_update(void *u, const MoteVrTracking *t) {
 
     S.scene.hands_valid = t->hand[MOTE_VR_LEFT].tracked && t->hand[MOTE_VR_RIGHT].tracked;
     S.scene.hand[0] = t->hand[MOTE_VR_LEFT].pose;
-    S.scene.hand[1] = t->hand[DOMH].pose;
+    /* PHYSICAL. This is where the controller MODELS are drawn, and a model has
+     * to appear on the controller it is a model of. Swept up with the input
+     * reads, it put both models on the dominant hand and a left-hander watched
+     * two controllers stack up in one hand. */
+    S.scene.hand[1] = t->hand[MOTE_VR_RIGHT].pose;
     S.scene.rest_visible = S.scene.cue_visible && S.state != ST_CPUCUE
                         && S.state != ST_MENU;
     S.scene.rest_pos = S.cue.bridge;
