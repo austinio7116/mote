@@ -175,6 +175,7 @@ static struct {
     int body_idx;                /* the frame model; -1 = the one that suits */
     int cue_idx;                 /* which cue off the rack */
     int levelled;                /* the table has been sited once this session */
+    int dbg_frame;
     int pause_sel, pause_latch;
 
     /* Controller alignment: six channels the player steps through, the values
@@ -1320,6 +1321,7 @@ MoteVrV3 cuevr_app_cue_ball_room(void) { return cue_ball_room(); }
 static void app_update(void *u, const MoteVrTracking *t) {
     (void)u;
     float dt = t->dt > 0.0f && t->dt < 0.25f ? t->dt : 1.0f / 72.0f;
+    S.dbg_frame++;
 
     /* Put the table somewhere real, the first time we know where the player is.
      *
@@ -2216,17 +2218,33 @@ static void app_update(void *u, const MoteVrTracking *t) {
         S.scene.cue_tip  = cuevr_table_to_room(&S.setup.place, v3(-1.45f, 0.16f, 0.0f));
         S.scene.cue_butt = cuevr_table_to_room(&S.setup.place, v3( 0.00f, 0.16f, 0.0f));
         S.scene.cue_roll = 0.0f;
-    } else if (S.state == ST_CPUCUE) {
-        S.scene.cue_visible = 1;
-        S.scene.cue_on_ball = 0;
-        S.scene.cue_tip = S.cpu_tip;
-        S.scene.cue_butt = S.cpu_butt;
+        S.scene.ocue_visible = 0;
     } else {
-        S.scene.cue_visible = (S.state == ST_AIM || S.state == ST_PLACE) && S.cue.tracked;
-        S.scene.cue_on_ball = S.cue.on_ball;
+        /* YOUR CUE IS ALWAYS IN YOUR HANDS. It used to appear for ST_AIM and
+         * ST_PLACE and vanish for everything else — so it blinked out the
+         * moment you struck, stayed gone while the balls ran, and was absent
+         * for the whole of the opponent's visit. Real cues do not do that. You
+         * are holding it: it is drawn.
+         *
+         * Menus are the exception, and only the ones that put a panel in your
+         * face: a cue through the middle of the list you are reading helps
+         * nobody. Everything else in play keeps it. */
+        int in_menu = (S.state == ST_MENU || S.state == ST_SETUP ||
+                       S.state == ST_LOBBY || S.state == ST_PAUSE ||
+                       S.state == ST_ALIGN);
+        S.scene.cue_visible = !in_menu && S.cue.tracked;
+        /* The ferrule marker is aim feedback, so it only means anything while
+         * you are actually on a shot. Left live it would blink green at the
+         * balls as they rolled past your idle tip. */
+        S.scene.cue_on_ball = S.cue.on_ball && S.state == ST_AIM;
         S.scene.cue_butt = S.cue.butt;
         S.scene.cue_tip  = S.cue.tip;
         S.scene.cue_roll = 0.0f;
+
+        /* And the opponent's, on its own slot, only while they are down. */
+        S.scene.ocue_visible = (S.state == ST_CPUCUE);
+        S.scene.ocue_tip  = S.cpu_tip;
+        S.scene.ocue_butt = S.cpu_butt;
     }
 
     /* Where the panel goes depends on what it is for.
@@ -2468,7 +2486,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             static const char *NM[] = { "MENU","SETUP","AIM","ROLL","THINK","CPUCUE",
                                         "PLACE","DECIDE","OVER","PAUSE","LOBBY",
                                         "ALIGN" };
-            LOGI("[cuevr] state -> %s", (S.state >= 0 && S.state <= ST_ALIGN)
+            LOGI("[cuevr] f%d state -> %s", S.dbg_frame, (S.state >= 0 && S.state <= ST_ALIGN)
                                         ? NM[S.state] : "?");
             last_state = S.state;
         }

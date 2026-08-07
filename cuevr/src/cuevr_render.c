@@ -901,7 +901,15 @@ static const char *FS =
 "            // lines round the quarter faces — cos(ang) is exactly that\n"
 "            // phase. Bold, near-black on cream, per the reference; broken\n"
 "            // up along their run because real grain is.\n"
-"            float ang = a * 6.2831853;\n"
+"            // MEASURED FROM THE DECORATED FACE, not from the mesh's angular\n"
+"            // zero. The chevron apex lands where cos(ang) is extremal, so an\n"
+"            // unshifted angle put the points of the grain 45 degrees off the\n"
+"            // butt's panel — the shaft and the butt were dressed to two\n"
+"            // different clocks. On a real cue the stock is oriented once and\n"
+"            // everything is cut from that: the arrows come up the top of the\n"
+"            // shaft, in line with the splice. PANEL_A must match CUE_PANEL_A.\n"
+"            const float PANEL_A = 0.125;\n"
+"            float ang = (a - PANEL_A) * 6.2831853;\n"
 "            /* IRREGULAR, like the tree was. Perfectly periodic rings read\n"
 "             * as machining: real ash varies its ring spacing, and every ring\n"
 "             * has its own weight — some bold, some faint, some almost gone.\n"
@@ -3792,6 +3800,67 @@ void cuevr_render_views(const float *view2, const float *proj2,
     VP_n = 1;
 }
 
+/* One cue, laid on the line from its tip to its butt.
+ *
+ * The mesh is a real cue: 1.45 m, with y = 0 at the tip and +Y running back up
+ * the shaft. So the tip goes where the cue line meets the ball and the shaft
+ * runs back past the hands and out behind the player, as a real one does. It is
+ * NOT stretched between the controllers — a cue is a fixed length, and making
+ * it rubbery is the fastest way to stop believing in it. */
+static void draw_cue(MoteVrV3 tip, MoteVrV3 butt, float roll, int on_ball) {
+    MoteVrV3 d = mv3_sub(butt, tip);
+    float len = mv3_len(d);
+    if (len <= 0.02f) return;
+
+    glUniform1i(G.u_mode, 5);
+    /* The one piece of aim feedback there is: the ferrule goes green when the
+     * cue line actually meets the ball. No aim line, no ghost ball — but you
+     * should not have to guess whether you are even on it. */
+    glUniform4f(G.u_colour, 1, 1, 1, on_ball ? 1.0f : 0.0f);
+
+    MoteVrV3 u = mv3_scale(d, 1.0f / len);
+    MoteVrV3 up = mv3(0, 1, 0);
+    MoteVrV3 ax = mv3_cross(up, u);
+    float s_ = mv3_len(ax), c_ = mv3_dot(up, u);
+    MoteVrQ q = (s_ < 1e-5f)
+        ? (c_ > 0.0f ? mq_ident() : mq_axis_angle(mv3(1, 0, 0), PI))
+        : mq_axis_angle(ax, atan2f(s_, c_));
+
+    /* THE DECORATED FACE GOES UP, and it has to be asked for.
+     *
+     * Nothing was setting the roll: it fell out of the swing, which takes +Y to
+     * the cue line by the shortest arc. Work that through and a mesh direction
+     * m ends up with a vertical component of exactly -(m . u) — so which way
+     * the butt's panel points depended on the AZIMUTH being aimed along. Face
+     * up at one end of the table, face down at the other, and nobody chose
+     * either. A hand-spliced butt is the whole reason these cues were built.
+     *
+     * So: find where the panel actually points, find world up projected across
+     * the cue, and roll by the signed angle between them. Works elevated as
+     * well as flat, because the target is the projection rather than up. */
+    {
+        const float A = CUE_PANEL_A * 2.0f * PI;
+        MoteVrV3 pan = mq_rot(q, mv3(cosf(A), 0.0f, sinf(A)));
+        MoteVrV3 want = mv3_sub(up, mv3_scale(u, mv3_dot(u, up)));
+        float wl = mv3_len(want);
+        if (wl > 1e-3f) {              /* a dead-vertical cue has no "up" across it */
+            want = mv3_scale(want, 1.0f / wl);
+            float psi = atan2f(mv3_dot(mv3_cross(pan, want), u), mv3_dot(pan, want));
+            q = mq_mul(q, mq_axis_angle(mv3(0, 1, 0), psi));
+        }
+    }
+    /* Roll about the mesh's own +Y, AFTER the swing in composition order so it
+     * spins the cue rather than tumbling it. Adds on top of the automatic roll
+     * above, which is what the menu's turntable wants. */
+    if (roll != 0.0f) q = mq_mul(q, mq_axis_angle(mv3(0, 1, 0), roll));
+
+    MoteVrPose cp; cp.p = tip; cp.q = q;
+    float M[16];
+    mm4_from_pose(M, cp, 1.0f);
+    set_model(M);
+    draw(&G.cue);
+}
+
 void cuevr_render_eye(const float *view, const float *proj,
                       const CueVrScene *s, int draw_room)
 {
@@ -4409,68 +4478,20 @@ skip_shadows:
 
     gpq_mark(GPQ_CUE);
     glchk("before-cue");
-    /* ---- the cue ---- */
-    /* CUEVR_NOCUE: leave the cue out — a top-down capture wants the cloth
+    /* ---- the cues ---- *
+     * TWO of them, because a real cue does not vanish when it is not your shot.
+     * Yours stays in your hands through the opponent's visit, through the balls
+     * rolling, through everything that is not a menu; the opponent's appears
+     * only while they are down on the shot. They were sharing one slot, so the
+     * CPU cueing took yours out of your hands and handed it back afterwards.
+     *
+     * CUEVR_NOCUE: leave them out — a top-down capture wants the cloth
      * markings, and the cue lies straight across the D. */
-    if (s->cue_visible && !getenv("CUEVR_NOCUE")) {
-        glUniform1i(G.u_mode, 5);
-        /* The one piece of aim feedback there is: the ferrule goes green when
-         * the cue line actually meets the ball. No aim line, no ghost ball —
-         * but you should not have to guess whether you are even on it. */
-        glUniform4f(G.u_colour, 1, 1, 1, s->cue_on_ball ? 1.0f : 0.0f);
-        /* The mesh is a real cue, 1.45 m with y=0 at the tip. So put the tip
-         * where the cue line meets the ball and run +Y back along the shaft —
-         * past your hands and out behind you, as a real cue does. It is NOT
-         * stretched between the controllers: a cue is a fixed length, and
-         * making it rubbery is the fastest way to stop believing in it. */
-        MoteVrV3 d = mv3_sub(s->cue_butt, s->cue_tip);
-        float len = mv3_len(d);
-        if (len > 0.02f) {
-            MoteVrV3 u = mv3_scale(d, 1.0f / len);
-            MoteVrV3 up = mv3(0, 1, 0);
-            MoteVrV3 ax = mv3_cross(up, u);
-            float s_ = mv3_len(ax), c_ = mv3_dot(up, u);
-            MoteVrQ q = (s_ < 1e-5f)
-                ? (c_ > 0.0f ? mq_ident() : mq_axis_angle(mv3(1,0,0), PI))
-                : mq_axis_angle(ax, atan2f(s_, c_));
-            /* THE DECORATED FACE GOES UP, and it has to be asked for.
-             *
-             * Nothing was setting the roll: it fell out of the swing, which
-             * takes +Y to the cue line by the shortest arc. Work that through
-             * and a mesh direction m ends up with a vertical component of
-             * exactly -(m . u) — so which way the butt's panel points depends
-             * on the AZIMUTH the player is aiming along. Face up at one end of
-             * the table, face down at the other, and nobody chose either. A
-             * hand-spliced butt is the whole reason these cues were built.
-             *
-             * So: find where the panel actually points, find world up projected
-             * across the cue, and roll by the signed angle between them. Works
-             * elevated as well as flat, because the target is the projection
-             * rather than up itself. */
-            {
-                const float A = CUE_PANEL_A * 2.0f * PI;
-                MoteVrV3 pan = mq_rot(q, mv3(cosf(A), 0.0f, sinf(A)));
-                MoteVrV3 want = mv3_sub(up, mv3_scale(u, mv3_dot(u, up)));
-                float wl = mv3_len(want);
-                if (wl > 1e-3f) {           /* a dead-vertical cue has no "up" across it */
-                    want = mv3_scale(want, 1.0f / wl);
-                    float psi = atan2f(mv3_dot(mv3_cross(pan, want), u),
-                                       mv3_dot(pan, want));
-                    q = mq_mul(q, mq_axis_angle(mv3(0, 1, 0), psi));
-                }
-            }
-            /* Roll about the mesh's own +Y axis, AFTER the swing in composition
-             * order so it spins the cue rather than tumbling it. Adds on top of
-             * the automatic roll above, which is what the menu's turntable
-             * wants. */
-            if (s->cue_roll != 0.0f)
-                q = mq_mul(q, mq_axis_angle(mv3(0, 1, 0), s->cue_roll));
-            MoteVrPose cp; cp.p = s->cue_tip; cp.q = q;
-            float M[16];
-            mm4_from_pose(M, cp, 1.0f);
-            set_model(M);
-            draw(&G.cue);
-        }
+    if (!getenv("CUEVR_NOCUE")) {
+        if (s->cue_visible)
+            draw_cue(s->cue_tip, s->cue_butt, s->cue_roll, s->cue_on_ball);
+        if (s->ocue_visible)
+            draw_cue(s->ocue_tip, s->ocue_butt, 0.0f, 0);
     }
 
     /* CUEVR_CTRLAXES: draw the LEFT controller at the table centre, unrotated, with

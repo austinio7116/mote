@@ -52,6 +52,12 @@ typedef struct {
      * is a cue you cannot choose. */
     float    cue_roll;
 
+    /* The OPPONENT's cue, drawn only while they are down on the shot. A second
+     * slot rather than a flag on the first, because both are on the table at
+     * once: yours never leaves your hands. */
+    int      ocue_visible;
+    MoteVrV3 ocue_butt, ocue_tip;
+
     /* Your hands. There is no Meta hand or controller MODEL here: the runtime
      * can hand one over through XR_FB_render_model, but it arrives as glTF and
      * parsing that is a project of its own. These are proxies — a grip block
