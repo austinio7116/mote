@@ -838,7 +838,12 @@ static void hud_paint(void) {
         if (!S.levelled) hud_text("REAL TABLE, DESK OR BED.", 4, 42, DIM);
         hud_text("L STICK SLIDE    R STICK X TURN", 4, 52, TXT);
         hud_text("R STICK Y HEIGHT   A DONE", 4, 58, HI);
-        hud_text("EVERYTHING TURNS ABOUT THE CUE BALL", 4, HH - 6, DIM);
+        /* Something you can act on, rather than a note about the pivot. The
+         * pivot is a fact about the maths; what a player needs here is how to
+         * know when the number is right, and the answer is to put a hand on the
+         * real thing and see whether the cloth agrees with it. */
+        hud_text("REST A HAND ON YOUR REAL SURFACE", 4, HH - 12, DIM);
+        hud_text("AND MATCH THE CLOTH TO IT.", 4, HH - 6, DIM);
         return;
     }
 
@@ -1762,8 +1767,16 @@ static void app_update(void *u, const MoteVrTracking *t) {
     {
         S.ptr_ok = 0;
         S.scene.ptr_visible = 0;
+        /* ONLY WHERE THERE IS SOMETHING TO POINT AT. The panel in play is the
+         * scoreboard: it is the same HUD quad, so the ray found it and drew a
+         * laser across the table at a board with nothing on it to press. A
+         * pointer that appears when there is nothing to point at is not a
+         * pointer, it is a laser lying on the cloth. */
+        int pointing = (S.state == ST_MENU || S.state == ST_PAUSE ||
+                        S.state == ST_APPEAR || S.state == ST_STATS ||
+                        S.state == ST_LOBBY);
         const MoteVrHand *rh = &t->hand[MOTE_VR_RIGHT];
-        if (rh->aim_tracked && S.scene.hud_visible && S.scene.hud_w > 0.01f) {
+        if (pointing && rh->aim_tracked && S.scene.hud_visible && S.scene.hud_w > 0.01f) {
             MoteVrV3 o = rh->aim.p;
             MoteVrV3 d = mq_rot(rh->aim.q, mv3(0, 0, -1));
             MoteVrV3 px = mq_rot(S.scene.hud_rot, mv3(1, 0, 0));
@@ -2435,10 +2448,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
              * let go and not before, which is what "in hand" means. */
             const MoteVrHand *rh = &t->hand[MOTE_VR_RIGHT];
             if (rh->tracked) {
-                /* A little proud of the model, in the controller's own frame,
-                 * so it sits above the hand however the wrist is turned. */
-                MoteVrV3 held = mv3_add(rh->pose.p,
-                                        mq_rot(rh->pose.q, mv3(0.0f, 0.045f, 0.0f)));
+                /* Just above the hand, in the ROOM's up and not the grip
+                 * frame's. Grip +Y is up the handle, not up the room — the -50
+                 * degrees of pitch the controller model needed is the measure
+                 * of how different those are — so offsetting along it put the
+                 * ball off the side of the hand and moved it about whenever the
+                 * wrist turned. A ball resting in a palm sits above the palm
+                 * whichever way the wrist is held. */
+                MoteVrV3 held = mv3_add(rh->pose.p, mv3(0.0f, 0.05f, 0.0f));
                 MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, held);
                 S.balls[0].pos = v3(tp.x, tp.y, tp.z);
                 S.hud_dirty = 1;
