@@ -233,6 +233,14 @@ void cuevr_cue_init(CueVrCue *c);
  * play with. Stored beside the app's own data; set the directory once at
  * start-up. A struct and a named-field file, because the positional argument
  * list this replaces had reached ten parameters of which seven were int. */
+/* Snooker table sizes and pool games that carry their own record. */
+#define CUEVR_STAT_SNK  3
+#define CUEVR_STAT_POOL 4
+int cuevr_stat_snk_slot(int kind);    /* CueGameKind -> 0..2, or -1 */
+int cuevr_stat_pool_slot(int kind);   /* CueGameKind -> 0..3, or -1 */
+const char *cuevr_stat_snk_name(int slot);
+const char *cuevr_stat_pool_name(int slot);
+
 typedef struct {
     float    table_height;
     MoteVrV3 rest;
@@ -258,6 +266,26 @@ typedef struct {
      * here. */
     float    ctrl_pos[3];
     float    ctrl_rot[3];
+
+    /* ---- what you have actually done ----------------------------------- *
+     * Kept beside the settings because they persist for the same reason and
+     * through the same file: a highest break nobody recorded is a highest
+     * break that did not happen.
+     *
+     * Indexed [table][mode]. Snooker holds the best break on each SIZE of
+     * table, because a 147 on a 7 ft bed and a 147 on a 12 ft are not the same
+     * thing and averaging them into one number tells you neither. Pool holds
+     * the count of frames won in a single visit from a full table — the run
+     * out — because pool has no break to speak of and clearing is the thing
+     * worth counting.
+     *
+     * mode: 0 = against the CPU, 1 = against another player. Practice is not
+     * recorded at all: a table you can rearrange is not a table you can set a
+     * record on. */
+    int      snk_best[CUEVR_STAT_SNK][2];    /* 6-red, 10-red, 12 ft */
+    int      pool_clear[CUEVR_STAT_POOL][2]; /* UK8, US8, 9-ball, Chinese 8 */
+    int      frames_won[2];
+    int      frames_played[2];
 } CueVrPrefs;
 
 void cuevr_prefs_dir(const char *dir);

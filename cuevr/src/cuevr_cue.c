@@ -77,6 +77,34 @@ void cuevr_prefs_dir(const char *dir) {
  * somebody matched to their real kitchen table would be a poor way to ship a
  * file format.
  */
+/* Which record a game belongs to. Kept here beside the file format so a new
+ * table cannot be added to the menu and silently share another one's record. */
+int cuevr_stat_snk_slot(int kind) {
+    switch (kind) {
+    case CUE_GAME_SNK6:  return 0;
+    case CUE_GAME_SNK10: return 1;
+    case CUE_GAME_SNK15: return 2;
+    default:             return -1;
+    }
+}
+int cuevr_stat_pool_slot(int kind) {
+    switch (kind) {
+    case CUE_GAME_UK8: return 0;
+    case CUE_GAME_US8: return 1;
+    case CUE_GAME_US9: return 2;
+    case CUE_GAME_CN8: return 3;
+    default:           return -1;
+    }
+}
+const char *cuevr_stat_snk_name(int slot) {
+    static const char *N[CUEVR_STAT_SNK] = { "SNOOKER 6-RED", "SNOOKER 10-RED", "SNOOKER 12FT" };
+    return (slot >= 0 && slot < CUEVR_STAT_SNK) ? N[slot] : "?";
+}
+const char *cuevr_stat_pool_name(int slot) {
+    static const char *N[CUEVR_STAT_POOL] = { "UK 8-BALL", "US 8-BALL", "9-BALL", "CHINESE 8" };
+    return (slot >= 0 && slot < CUEVR_STAT_POOL) ? N[slot] : "?";
+}
+
 void cuevr_prefs_defaults(CueVrPrefs *p) {
     memset(p, 0, sizeof *p);
     p->table_height = 0.85f;
@@ -119,6 +147,24 @@ static void prefs_put(CueVrPrefs *p, const char *k, double v) {
     else if (!strcmp(k, "crx"))     { if (v > -180.0 && v <= 180.0) p->ctrl_rot[0] = (float)v; }
     else if (!strcmp(k, "cry"))     { if (v > -180.0 && v <= 180.0) p->ctrl_rot[1] = (float)v; }
     else if (!strcmp(k, "crz"))     { if (v > -180.0 && v <= 180.0) p->ctrl_rot[2] = (float)v; }
+    /* Records. Keys are "sb<table><mode>" and "pc<game><mode>", built the same
+     * way on the way in and on the way out so a slot cannot be written under
+     * one name and read under another. Bounded because a hand-edited 147000
+     * would sit at the top of the table for ever. */
+    else if (k[0] == 's' && k[1] == 'b' && k[2] && k[3] && !k[4]) {
+        int a = k[2] - '0', b = k[3] - '0';
+        if (a >= 0 && a < CUEVR_STAT_SNK && (b == 0 || b == 1) && v >= 0 && v <= 200)
+            p->snk_best[a][b] = i;
+    }
+    else if (k[0] == 'p' && k[1] == 'c' && k[2] && k[3] && !k[4]) {
+        int a = k[2] - '0', b = k[3] - '0';
+        if (a >= 0 && a < CUEVR_STAT_POOL && (b == 0 || b == 1) && v >= 0 && v <= 1000000)
+            p->pool_clear[a][b] = i;
+    }
+    else if (!strcmp(k, "fw0")) { if (v >= 0) p->frames_won[0] = i; }
+    else if (!strcmp(k, "fw1")) { if (v >= 0) p->frames_won[1] = i; }
+    else if (!strcmp(k, "fp0")) { if (v >= 0) p->frames_played[0] = i; }
+    else if (!strcmp(k, "fp1")) { if (v >= 0) p->frames_played[1] = i; }
     /* anything else: a field from a newer build, or a typo. Skip it. */
 }
 
@@ -196,6 +242,15 @@ void cuevr_prefs_save(const CueVrPrefs *p) {
             p->cue, p->light, p->body,
             (double)p->ctrl_pos[0], (double)p->ctrl_pos[1], (double)p->ctrl_pos[2],
             (double)p->ctrl_rot[0], (double)p->ctrl_rot[1], (double)p->ctrl_rot[2]);
+    for (int a = 0; a < CUEVR_STAT_SNK; a++)
+        for (int b = 0; b < 2; b++)
+            fprintf(f, "sb%d%d %d\n", a, b, p->snk_best[a][b]);
+    for (int a = 0; a < CUEVR_STAT_POOL; a++)
+        for (int b = 0; b < 2; b++)
+            fprintf(f, "pc%d%d %d\n", a, b, p->pool_clear[a][b]);
+    fprintf(f, "fw0 %d\nfw1 %d\nfp0 %d\nfp1 %d\n",
+            p->frames_won[0], p->frames_won[1],
+            p->frames_played[0], p->frames_played[1]);
     fclose(f);
 }
 
