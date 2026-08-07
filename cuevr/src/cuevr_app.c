@@ -2068,7 +2068,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
              * slides round an obstruction instead of being parked inside it and
              * fired out again on the first tick of the shot. */
             S.balls[0].pos = cue_table_clamp_placement_balls(&S.tab, p,
-                                                             S.balls, S.nballs);
+                                                             S.balls, S.nballs, S.rules.break_shot);
             S.hud_dirty = 1;
         }
 

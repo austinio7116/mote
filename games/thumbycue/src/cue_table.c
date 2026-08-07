@@ -345,10 +345,10 @@ Vec3 cue_table_cue_home(const CueTable *t) {
 /* Clamp a desired cue-ball placement to the legal ball-in-hand region:
  * inside the D (snooker / UK8) or behind the head string (US pool). Returns the
  * clamped XZ (y left to the caller). */
-static Vec3 clamp_region(const CueTable *t, Vec3 p);
+static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking);
 
 Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p) {
-    return cue_table_clamp_placement_balls(t, p, NULL, 0);
+    return cue_table_clamp_placement_balls(t, p, NULL, 0, 0);
 }
 
 /* The legal region, and then out of anything already standing in it.
@@ -362,11 +362,11 @@ Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p) {
  * drive a stick into — a ball wedged against the baulk cushion between two
  * others — and if it somehow does not settle, the last legal position stands. */
 Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
-                                     const CueBall *balls, int n) {
+                                     const CueBall *balls, int n, int breaking) {
     const float R = t->R;
     const float sep = 2.0f * R + 0.0004f;      /* a whisker of daylight */
     for (int pass = 0; pass < 6; pass++) {
-        p = clamp_region(t, p);
+        p = clamp_region(t, p, breaking);
         int moved = 0;
         for (int i = 1; i < n; i++) {
             if (!balls[i].on) continue;
@@ -386,7 +386,7 @@ Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
     return p;
 }
 
-static Vec3 clamp_region(const CueTable *t, Vec3 p) {
+static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking) {
     float R = t->R;
     if (t->is_snooker || t->kind == CUE_GAME_UK8) {
         /* the D: a half-disc of radius d_radius centred on (baulk_x,0), bulging
@@ -399,10 +399,24 @@ static Vec3 clamp_region(const CueTable *t, Vec3 p) {
         if (d > rmax) { float s = rmax / d; p.x = t->baulk_x + dx*s; p.z = dz*s; }
         return p;
     }
-    /* US pool: behind the head string. baulk_x carries it now, so the number
-     * is not written down twice and cannot drift from the line that is drawn. */
-    float head = t->baulk_x;
+    /* US pool — 8-ball, 9-ball and Chinese 8: ball in hand is ANYWHERE ON THE
+     * TABLE. Behind the head string is the rule for the BREAK, and only for the
+     * break; this applied it to every foul as well, so a player fouled at the
+     * black end and was marched back to baulk to place. Chinese 8 is where it
+     * was noticed and all three were doing it.
+     *
+     * Snooker and UK 8-ball are different and are handled above: there the ball
+     * really does go back in the D every time. */
     float lim = t->half_wid - R;
+    float lenlim = t->half_len - R;
+    if (!breaking) {
+        if (p.x >  lenlim) p.x =  lenlim;
+        if (p.x < -lenlim) p.x = -lenlim;
+        if (p.z >  lim) p.z =  lim;
+        if (p.z < -lim) p.z = -lim;
+        return p;
+    }
+    float head = t->baulk_x;
     if (p.x > head - R) p.x = head - R;
     if (p.x < -(t->half_len - R)) p.x = -(t->half_len - R);
     if (p.z >  lim) p.z =  lim;

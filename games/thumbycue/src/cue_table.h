@@ -88,8 +88,11 @@ Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p);
  * this wherever the live balls are to hand: region-only clamping lets the
  * player park the cue ball inside another one, and the solver then fires the
  * pair apart on the first tick of the shot. */
+/* `breaking` = this is the placement for the OPENING BREAK, which is behind
+ * the head string on a US-style table. Ball in hand after a foul is anywhere on
+ * those tables; snooker and UK 8-ball use the D either way. */
 Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
-                                     const CueBall *balls, int n);
+                                     const CueBall *balls, int n, int breaking);
 
 /* Minimum cue elevation (radians, butt raised) at which the CUE — a tapered
  * solid running back from `tip` along `aim` for its full length — clears the

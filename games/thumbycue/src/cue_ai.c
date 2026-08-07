@@ -2401,7 +2401,7 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
     AiCtx *c = &ctx;
 
     Vec3 best_pos = cue_table_clamp_placement_balls(t, cue_table_cue_home(t),
-                                                    balls, n);
+                                                    balls, n, r->break_shot);
     float best = -1e9f;
 
     static CueBall pb[CUE_MAX_BALLS];
@@ -2416,7 +2416,7 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
         Vec3 cand = v3((rnd(rng) * 2.0f - 1.0f) * t->half_len,
                        t->R,
                        (rnd(rng) * 2.0f - 1.0f) * t->half_wid);
-        cand = cue_table_clamp_placement_balls(t, cand, balls, n);
+        cand = cue_table_clamp_placement_balls(t, cand, balls, n, r->break_shot);
 
         pb[0].pos = cand; pb[0].on = 1;
         float score = 0.0f;
