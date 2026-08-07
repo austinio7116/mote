@@ -206,7 +206,15 @@ typedef struct {
 /* The leather tip's radius: contact is its surface, not a line. */
 #define CUEVR_TIP_R    0.005f
 #define CUEVR_REST_LIFT_DEFAULT 0.030f  /* a knuckle's worth of bridge */
-#define CUEVR_REST_MAXLEN 0.30f         /* the cue stays within reach of the hand */
+/* How far the cue may sit from the bridge hand. 150 mm, not 300.
+ *
+ * A bridge offset is the gap between a controller's centre and where the shaft
+ * lies across your hand — a few centimetres, and never a hand-span. 300 mm was
+ * not a safety rail, it was a cliff: the bridge point is a LEVER, so with the
+ * hands ~500 mm apart and the tip 1250 mm beyond, a 300 mm offset throws the
+ * TIP about 700 mm out of place. The cue was not slightly off, it was in
+ * another part of the room. */
+#define CUEVR_REST_MAXLEN 0.15f
 #define CUEVR_REST_MIN  -0.02f
 #define CUEVR_REST_MAX   0.14f
 

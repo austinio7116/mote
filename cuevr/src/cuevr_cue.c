@@ -124,8 +124,17 @@ static void prefs_put(CueVrPrefs *p, const char *k, double v) {
 
 /* The rest offset is checked as a whole, not per-axis: it is a length. */
 static void prefs_fix_rest(CueVrPrefs *p) {
+    /* STRICTLY greater was the whole problem. The check rejected an offset
+     * LONGER than the leash, and the leash length is exactly what a saved
+     * offset settles at when something has gone wrong — a clamp writes the
+     * limit itself, not a value past it. So the one number this guard existed
+     * to catch was the one number it let through, and a cue stranded at the
+     * limit came back stranded every launch, surviving reinstalls because
+     * preferences live in internal storage. Reject anything AT the limit too,
+     * with a little margin for the rounding a %.4f round trip introduces. */
+    float lim = CUEVR_REST_MAXLEN * 0.98f;
     float l2 = p->rest.x*p->rest.x + p->rest.y*p->rest.y + p->rest.z*p->rest.z;
-    if (l2 > CUEVR_REST_MAXLEN * CUEVR_REST_MAXLEN)
+    if (l2 >= lim * lim)
         p->rest = mv3(0.0f, CUEVR_REST_LIFT_DEFAULT, 0.0f);
 }
 
