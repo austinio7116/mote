@@ -2706,12 +2706,10 @@ void cuevr_render_set_ctrl_model(int hand, const void *bytes, unsigned len) {
 /* ---- controller alignment ------------------------------------------------ */
 static float s_ctrl_cal_p[3] = { 0, 0, 0 };
 static float s_ctrl_cal_r[3] = { 0, 0, 0 };
-static int   s_ctrl_marker;
 
 void cuevr_render_set_ctrl_cal(const float pos[3], const float rot[3]) {
     for (int i = 0; i < 3; i++) { s_ctrl_cal_p[i] = pos[i]; s_ctrl_cal_r[i] = rot[i]; }
 }
-void cuevr_render_ctrl_marker(int on) { s_ctrl_marker = on ? 1 : 0; }
 
 /* The calibration as a matrix, in the grip frame: rotate about X, then Y, then
  * Z, then translate. Rotation before translation so the offset is read in the
@@ -4685,35 +4683,6 @@ skip_shadows:
                 draw(G.ctrl[i].n ? &G.ctrl[i] : &G.grip);
             }
 
-            /* While aligning: three small sticks along the RAW reported pose's
-             * own axes, uncorrected. This is the thing the model is being lined
-             * up against, and it is invisible otherwise — the first version of
-             * this adjustment had the player matching a model to a pose they
-             * could not see, which is guessing with extra steps.
-             * red = grip +x, green = +y, blue = +z (the handle). */
-            if (s_ctrl_marker) {
-                for (int ax = 0; ax < 3; ax++) {
-                    float Sm[16], M3[16];
-                    mm4_identity(Sm);
-                    Sm[0] = Sm[5] = Sm[10] = 0.007f;
-                    Sm[12 + ax] = 0.045f;
-                    mm4_mul(M3, P, Sm);
-                    colour(ax == 0 ? 1.0f : 0.04f, ax == 1 ? 1.0f : 0.04f,
-                           ax == 2 ? 1.0f : 0.04f, 1.0f);
-                    set_model(M3);
-                    draw(&G.ball);
-                }
-                /* and a white bead exactly on the reported origin */
-                float Sm[16], M3[16];
-                mm4_identity(Sm);
-                Sm[0] = Sm[5] = Sm[10] = 0.009f;
-                mm4_mul(M3, P, Sm);
-                colour(1.0f, 1.0f, 1.0f, 1.0f);
-                set_model(M3);
-                draw(&G.ball);
-                glUniform1i(G.u_mode, 0);
-                colour(0.16f, 0.17f, 0.19f, 1.0f);
-            }
         }
         /* Where the cue is resting on the bridge: a small pale marker, so the
          * rest adjustment has something to show for itself. */
