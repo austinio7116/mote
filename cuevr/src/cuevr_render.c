@@ -2253,7 +2253,17 @@ static void build_cue(Builder *b, int slices, int rings) {
             int bb = b_vert(b, cosf(t1) * RI, CUE_LEN, sinf(t1) * RI, -cosf(t1), 0, -sinf(t1), u1, 1.05f);
             int cc = b_vert(b, cosf(t1) * RI, CUE_LEN - BD, sinf(t1) * RI, -cosf(t1), 0, -sinf(t1), u1, 1.05f);
             int dd = b_vert(b, cosf(t0) * RI, CUE_LEN - BD, sinf(t0) * RI, -cosf(t0), 0, -sinf(t0), u0, 1.05f);
-            b_quad(b, aa, bb, cc, dd);
+            /* WOUND TO BE SEEN FROM INSIDE. Take t0 = 0: this order gives a
+             * face normal of +X, pointing AWAY from the bore's axis — so the
+             * only side that survives back-face culling is the one buried in
+             * the timber, and looking into the socket you saw straight through
+             * the cue and out the other side at the table. The vertex normals
+             * were right all along, which is what made it look modelled; the
+             * winding decides what is drawn, and it was inside out.
+             *
+             * Reversed, it matches the end ring above, whose (aa,dd,cc,bb)
+             * gives +Y and faces out of the butt as it should. */
+            b_quad(b, aa, dd, cc, bb);
         }
         {
             int centre = b_vert(b, 0.0f, CUE_LEN - BD, 0.0f, 0, 1, 0, 0.0f, 1.05f);

@@ -747,6 +747,24 @@ static void hud_opt(int row, const char *label, const char *value, int sel,
  * you point is the whole job. */
 static void hud_paint(void);
 
+/* A row that OPENS something, drawn so it cannot be mistaken for one that
+ * CHANGES something.
+ *
+ * hud_opt puts a chevron either side of the value on the selected row, which is
+ * the whole vocabulary of "left and right do things here". Giving a submenu a
+ * value and letting it inherit that told the player they could scroll through
+ * appearances, which they cannot. This has no chevrons, no value, a green
+ * highlight rather than blue — the same green the START row uses for the other
+ * thing on this screen that ACTS rather than adjusts — and the word OPEN where
+ * a value would sit. */
+static void hud_link(int row, const char *label, const char *act, int sel,
+                     uint16_t DIM, uint16_t HI, uint16_t LIVE) {
+    int y = 12 + row * 8;
+    if (sel) hud_rect(1, y - 1, HW - 2, 8, RGB565C(28, 58, 40));
+    hud_text(label, 4, y, sel ? HI : DIM);
+    hud_text_r(act, HW - 20, y, sel ? LIVE : DIM);
+}
+
 static void hud_build(void) {
     hud_paint();
     /* No cursor painted into the panel: the laser and its bead are real
@@ -791,10 +809,8 @@ static void hud_paint(void) {
         /* Who you are about to play, with their face — the portraits have been
          * sitting in cue_faces.h all along. */
         if (S.opp == OPP_CPU) hud_face(HW - 9, 12 + MR_STRENGTH * 8 + 3, 9, S.persona);
-        /* ">" and not an arrow glyph: the HUD font is ASCII 32..126, and a
-         * character outside it lands on nothing at all. */
-        hud_opt(MR_APPEAR, "APPEARANCE", ">", S.menu_row == MR_APPEAR, 1, TXT, DIM, HI);
-        hud_opt(MR_STATS,  "RECORDS",    ">", S.menu_row == MR_STATS,  1, TXT, DIM, HI);
+        hud_link(MR_APPEAR, "APPEARANCE", "OPEN", S.menu_row == MR_APPEAR, DIM, HI, LIVE);
+        hud_link(MR_STATS,  "RECORDS",    "OPEN", S.menu_row == MR_STATS,  DIM, HI, LIVE);
 
         {   int y = 12 + MR_START * 8;
             if (S.menu_row == MR_START) hud_rect(1, y - 1, HW - 2, 9, RGB565C(30, 60, 40));
@@ -927,10 +943,9 @@ static void hud_paint(void) {
                 S.menu_row == AR_LIGHT, 1, TXT, DIM, HI);
         hud_opt(AR_BALLS, "BALLS", k_ballset_name[S.ballset], S.menu_row == AR_BALLS, 1, TXT, DIM, HI);
         hud_opt(AR_CUE, "CUE", cuevr_render_cue_name(S.cue_idx), S.menu_row == AR_CUE, 1, TXT, DIM, HI);
-        {   int y = 12 + AR_BACK * 8;
-            if (S.menu_row == AR_BACK) hud_rect(1, y - 1, HW - 2, 9, RGB565C(30, 46, 72));
-            hud_text_2x("BACK", 4, y - 1, S.menu_row == AR_BACK ? HI : DIM);
-        }
+        /* An action, so it wears the action colour rather than the value one —
+         * the same distinction the main menu now draws. */
+        hud_link(AR_BACK, "BACK", "DONE", S.menu_row == AR_BACK, DIM, HI, LIVE);
         cue_render_set_preview_hs(HW - 9, 12 + AR_BALLS * 8 + 3, 2,
                                   S.ballset, S.tab.kind >= CUE_GAME_FIRST_SNK);
         hud_text("LEFT/RIGHT CHANGE   A BACK", 4, HH - 6, DIM);
@@ -3030,6 +3045,20 @@ static void app_draw_eye(void *u, const float *view, const float *proj, int draw
 }
 
 static void app_gl_shutdown(void *u) { (void)u; cuevr_audio_close(); cuevr_render_shutdown(); }
+
+/* CUEVR_START=<CueGameKind> — rack and play, straight away.
+ *
+ * The scripted stick-walk through the main menu stopped working the moment the
+ * menu became a pointer, and a harness that silently photographs the menu
+ * instead of a frame is worse than no harness. This does not go through the
+ * menu at all, so it cannot drift with it. */
+void cuevr_app_force_start(int kind) {
+    for (int i = 0; i < MENU_N; i++)
+        if ((int)MENU[i].kind == kind) S.menu_sel = i;
+    cue_render_set_ball_set(S.ballset);
+    start_frame((CueGameKind)kind);
+    hand_over();
+}
 
 void cuevr_app_describe(MoteXrApp *out) {
     memset(out, 0, sizeof *out);

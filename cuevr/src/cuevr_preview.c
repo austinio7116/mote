@@ -42,6 +42,7 @@ MoteVrV3 cuevr_app_table_room(float fx, float y, float fz);
 float cuevr_app_table_yaw(void);
 void cuevr_app_force_light(int i);
 void cuevr_app_force_screen(const char *name);
+void cuevr_app_force_start(int kind);
 void cuevr_app_force_body(int i);
 void cuevr_app_force_cue(int i);
 MoteVrV3 cuevr_app_cue_mid(void);
@@ -269,6 +270,7 @@ int main(int argc, char **argv) {
     if (app.gl_init(app.user) != 0) { fprintf(stderr, "cuevr: init failed\n"); return 1; }
     if (force_light >= 0) cuevr_app_force_light(force_light);
     { const char *sc = getenv("CUEVR_SCREEN"); if (sc) cuevr_app_force_screen(sc); }
+    { const char *st = getenv("CUEVR_START"); if (st) cuevr_app_force_start(atoi(st)); }
     if (force_body >= -1) cuevr_app_force_body(force_body);
     { const char *v = getenv("CUEVR_CUE"); if (v) cuevr_app_force_cue(atoi(v)); }
 
