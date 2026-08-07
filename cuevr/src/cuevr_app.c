@@ -176,6 +176,7 @@ static struct {
     int cue_idx;                 /* which cue off the rack */
     int levelled;                /* the table has been sited once this session */
     int dbg_frame;
+    CueVrShot idle_shot;   /* this frame's cue update, wherever we are */
     int pause_sel, pause_latch;
 
     /* Controller alignment: six channels the player steps through, the values
@@ -1407,6 +1408,49 @@ static void app_update(void *u, const MoteVrTracking *t) {
         if (S.menu_hold > -1.0f) S.menu_hold = 0.0f;
     }
 
+    /* THE CUE FOLLOWS YOUR HANDS, ALWAYS. It is a rigid object you are
+     * holding, so its pose is a function of where your hands are and nothing
+     * else — not of whose turn it is.
+     *
+     * This used to run only inside ST_AIM, which was invisible while the cue
+     * was only DRAWN in ST_AIM: the two wrongs cancelled. Drawing it the rest
+     * of the time exposed it immediately — the cue hung in the air wherever it
+     * had been when you struck, while your hands moved out from under it. The
+     * side triggers are part of the same call, so they were dead outside
+     * aiming too.
+     *
+     * The stroke it detects is only ACTED on in ST_AIM. You can pull the
+     * trigger and cue through while the balls are still running, and it does
+     * what it does on a real table: nothing at all. */
+    {
+        int in_menu = (S.state == ST_MENU || S.state == ST_SETUP ||
+                       S.state == ST_LOBBY || S.state == ST_ALIGN);
+        if (!in_menu) {
+            /* How steeply the cue is FORCED to sit for this aim, worked out
+             * BEFORE the cue is read because the cue is what consumes it. It is
+             * a table-space question (which cushion, which balls) and the cue
+             * works in room space, so it is answered here and handed down. The
+             * aim it uses is last frame's — the two are mutually dependent and
+             * one frame of lag at 72 Hz is invisible and self-correcting.
+             *
+             * It has to stay immediately before the update: moving the update
+             * out of ST_AIM and leaving this behind would have put a second
+             * frame of lag on it, silently. */
+            MoteVrV3 td = cuevr_room_dir_to_table(&S.setup.place, S.cue.aim_dir);
+            float aim_t = atan2f(td.z, td.x);
+            Vec3 cb = S.balls[0].pos; float Rr = S.tab.R;
+            Vec3 tp = v3(cb.x - cosf(aim_t)*Rr, Rr*(1.0f + S.cue.tip_vert),
+                         cb.z - sinf(aim_t)*Rr);
+            S.cue.min_elev = getenv("CUEVR_NOELEV") ? 0.0f
+                : cue_table_min_elev(&S.tab, S.balls, S.nballs, tp, aim_t);
+
+            cuevr_cue_update(&S.cue, t, &S.setup.place, cue_ball_room(),
+                             S.tab.R, &S.idle_shot);
+        }
+        else
+            memset(&S.idle_shot, 0, sizeof S.idle_shot);
+    }
+
     switch (S.state) {
     case ST_MENU: {
         /* Rows, not a list. Up/down picks the row, left/right changes it. */
@@ -1739,23 +1783,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * aiming still works, so you can line up while they are playing. */
         int mine = (S.opp != OPP_ONLINE) || (S.rules.turn == S.net_me);
 
-        /* How steeply the cue is FORCED to sit for this aim, before the cue is
-         * read. It is a table-space question (which cushion, which balls) and
-         * the cue works in room space, so it is answered here and handed down.
-         * The aim it uses is last frame's — the two are mutually dependent and
-         * one frame of lag at 72 Hz is invisible and self-correcting. */
-        {
-            MoteVrV3 td = cuevr_room_dir_to_table(&S.setup.place, S.cue.aim_dir);
-            float aim_t = atan2f(td.z, td.x);
-            Vec3 cb = S.balls[0].pos; float Rr = S.tab.R;
-            Vec3 tp = v3(cb.x - cosf(aim_t)*Rr, Rr*(1.0f + S.cue.tip_vert),
-                         cb.z - sinf(aim_t)*Rr);
-            S.cue.min_elev = getenv("CUEVR_NOELEV") ? 0.0f
-                : cue_table_min_elev(&S.tab, S.balls, S.nballs, tp, aim_t);
-        }
-
-        CueVrShot shot;
-        cuevr_cue_update(&S.cue, t, &S.setup.place, cue_ball_room(), S.tab.R, &shot);
+        CueVrShot shot = S.idle_shot;   /* already updated for this frame */
         /* The tip readout moves every frame, but a full software raster and
          * a ~400 KB texture upload at 72 Hz is a tax the Quest notices. The
          * numbers on it are read by a human: 12 Hz is indistinguishable, and

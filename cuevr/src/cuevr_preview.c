@@ -442,6 +442,14 @@ int main(int argc, char **argv) {
             if (nframe == F + 8 + PS_ALIGN_STEPS * 2 + 4) s_a = 1;
             if (nframe == F + 8 + PS_ALIGN_STEPS * 2 + 6) s_a = 0;
         }
+        /* CUEVR_HANDMOVE: walk BOTH hands sideways from frame 130, with no
+         * trigger held. The cue is a rigid thing in your hands, so it must go
+         * with them whatever the game is doing — and it did not, because the
+         * update that reads the hands lived inside ST_AIM. */
+        if (getenv("CUEVR_HANDMOVE") && nframe >= 130 && nframe < 200) {
+            s_bridge.z += 0.004f;
+            s_butt.z   += 0.004f;
+        }
         if (auto_adjust) {
             if (nframe >= 90 && nframe < 120) {
                 s_lsqueeze = 1.0f;
