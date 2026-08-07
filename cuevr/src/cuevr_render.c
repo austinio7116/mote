@@ -3615,6 +3615,14 @@ static void set_model(const float *m) {
  * INVALID_OPERATION is invisible on a desktop driver and fatal on a tile-based
  * one, so it should never be left lying around. */
 static void glchk(const char *tag) {
+#ifndef CUEVR_GLCHK
+    /* OFF. glGetError is a synchronisation point on a tiled GPU and this runs
+     * eight times a frame; it exists to be switched on when something is
+     * wrong. Build with -DCUEVR_GLCHK to bring it back — it is what found the
+     * sampler-unit collision that stopped the Quest drawing anything, so it
+     * stays in the source rather than being deleted. */
+    (void)tag; return;
+#else
     static unsigned seen;
     unsigned e = glGetError(), n = 0;
     while (e != GL_NO_ERROR) {
@@ -3622,6 +3630,7 @@ static void glchk(const char *tag) {
         if (!(seen & bit)) { seen |= bit; LOGI("[cuevr] GL 0x%x at %s", e, tag); }
         n++; e = glGetError();
     }
+#endif
 }
 
 static void draw(const Mesh *m) {
@@ -4626,32 +4635,7 @@ skip_shadows:
     glchk("end-of-frame");
     gpq_flush();
 
-    /* WHAT ACTUALLY LANDED IN THE BUFFER. The projection layer is composited
-     * over passthrough BY ITS ALPHA (see mote_xr's layerFlags), and the buffer
-     * is cleared to alpha 0 so the room shows through. So "passthrough and
-     * nothing else" has two very different causes — nothing drawn, or drawn
-     * with zero alpha — and one pixel distinguishes them. Read the centre a
-     * few times early on, then never again. */
-    {   static int rb_n;
-        if (rb_n < 3) {
-            /* Errors the FRAME produced, drained and counted separately from
-             * any the readback itself raises — glReadPixels on a multisampled
-             * framebuffer is INVALID_OPERATION, so conflating the two would
-             * blame the scene for the instrument. */
-            unsigned ge, last = 0, nerr = 0;
-            while ((ge = glGetError()) != GL_NO_ERROR && nerr < 64) { last = ge; nerr++; }
-            GLint vp[4];
-            glGetIntegerv(GL_VIEWPORT, vp);
-            unsigned char px[4] = { 0, 0, 0, 0 };
-            glReadPixels(vp[0] + vp[2] / 2, vp[1] + vp[3] / 2, 1, 1,
-                         GL_RGBA, GL_UNSIGNED_BYTE, px);
-            unsigned rberr = glGetError();
-            LOGI("[cuevr] frame GL errors %u (last 0x%x) | centre rgba %u %u %u %u"
-                 " | vp %d %d %d %d | readback err 0x%x",
-                 nerr, last, px[0], px[1], px[2], px[3],
-                 vp[0], vp[1], vp[2], vp[3], rberr);
-            rb_n++;
-        }
-    }
+
+
     glBindVertexArray(0);
 }
