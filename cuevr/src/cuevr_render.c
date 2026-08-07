@@ -35,6 +35,9 @@
 #include "craft_font.h"
 
 #include <GLES3/gl3.h>
+#ifdef __ANDROID__
+#include <EGL/egl.h>
+#endif
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -3627,6 +3630,130 @@ static void colour565(uint16_t c, float mul) {
 }
 
 /* Multiview entry point: the same renderer, told there are two views. */
+/* ---- the GPU pass timer --------------------------------------------------- *
+ * GL_EXT_disjoint_timer_query, wrapped around each scene pass and logged to
+ * logcat every couple of seconds, because host benching cannot rank costs on
+ * the Quest — this measures where the frame actually goes, on the hardware
+ * that matters. Queries are ASYNC: a 3-frame ring is written at the head and
+ * read two frames behind, never blocking, and any frame the GPU marks
+ * disjoint (clock changed mid-measure) is discarded. Costs a handful of query
+ * calls per frame; entirely absent when the extension is. */
+#define GPQ_PRE 0
+#define GPQ_FRAME 1
+#define GPQ_RAILS 2
+#define GPQ_CLOTH 3
+#define GPQ_DECAL 4
+#define GPQ_BALLS 5
+#define GPQ_LIPS 6
+#define GPQ_CUE 7
+#define GPQ_REST 8
+#define GPQ_N 9
+#define GPQ_RING 3
+#ifndef GL_TIME_ELAPSED_EXT
+#define GL_TIME_ELAPSED_EXT 0x88BF
+#endif
+#ifndef GL_GPU_DISJOINT_EXT
+#define GL_GPU_DISJOINT_EXT 0x8FBB
+#endif
+#ifndef GL_QUERY_RESULT_EXT
+#define GL_QUERY_RESULT_EXT 0x8866
+#endif
+#ifndef GL_QUERY_RESULT_AVAILABLE_EXT
+#define GL_QUERY_RESULT_AVAILABLE_EXT 0x8867
+#endif
+static struct {
+    int probed, on;
+    void (*genq)(GLsizei, GLuint *);
+    void (*beginq)(GLenum, GLuint);
+    void (*endq)(GLenum);
+    void (*getq64)(GLuint, GLenum, GLuint64 *);
+    void (*getqiv)(GLuint, GLenum, GLuint *);
+    GLuint q[GPQ_RING][GPQ_N];
+    int    used[GPQ_RING][GPQ_N];
+    int    ring, active;
+    double sum_ms[GPQ_N];
+    int    nsum, disjoint_n;
+} GPQ;
+static const char *GPQ_NAME[GPQ_N] =
+    { "pre", "frame", "rails", "cloth", "decal", "balls", "lips", "cue", "rest" };
+
+static void gpq_probe(void) {
+    GPQ.probed = 1; GPQ.on = 0;
+#ifdef __ANDROID__
+    const char *ext = (const char *)glGetString(GL_EXTENSIONS);
+    if (!ext || !strstr(ext, "GL_EXT_disjoint_timer_query")) {
+        LOGI("[cuevr] gpu timer: extension absent");
+        return;
+    }
+    GPQ.genq   = (void (*)(GLsizei, GLuint *))eglGetProcAddress("glGenQueriesEXT");
+    GPQ.beginq = (void (*)(GLenum, GLuint))eglGetProcAddress("glBeginQueryEXT");
+    GPQ.endq   = (void (*)(GLenum))eglGetProcAddress("glEndQueryEXT");
+    GPQ.getq64 = (void (*)(GLuint, GLenum, GLuint64 *))eglGetProcAddress("glGetQueryObjectui64vEXT");
+    GPQ.getqiv = (void (*)(GLuint, GLenum, GLuint *))eglGetProcAddress("glGetQueryObjectuivEXT");
+    if (!GPQ.genq || !GPQ.beginq || !GPQ.endq || !GPQ.getq64 || !GPQ.getqiv) {
+        LOGI("[cuevr] gpu timer: entry points missing");
+        return;
+    }
+    for (int r = 0; r < GPQ_RING; r++) GPQ.genq(GPQ_N, GPQ.q[r]);
+    GPQ.on = 1; GPQ.active = -1;
+    LOGI("[cuevr] gpu timer: on (logs every ~2 s)");
+#endif
+}
+
+/* End the running pass, start the named one. Only one TIME_ELAPSED query may
+ * be live at a time, so passes are timed back to back. */
+static void gpq_mark(int pass) {
+    if (!GPQ.on) return;
+    if (GPQ.active >= 0) GPQ.endq(GL_TIME_ELAPSED_EXT);
+    GPQ.beginq(GL_TIME_ELAPSED_EXT, GPQ.q[GPQ.ring][pass]);
+    GPQ.used[GPQ.ring][pass] = 1;
+    GPQ.active = pass;
+}
+
+/* Close the frame: end the last pass, harvest the oldest ring slot, log. */
+static void gpq_flush(void) {
+    if (!GPQ.on) return;
+    if (GPQ.active >= 0) { GPQ.endq(GL_TIME_ELAPSED_EXT); GPQ.active = -1; }
+    int old = (GPQ.ring + 1) % GPQ_RING;
+    int all = 1;
+    for (int i = 0; i < GPQ_N && all; i++) {
+        if (!GPQ.used[old][i]) continue;
+        GLuint av = 0;
+        GPQ.getqiv(GPQ.q[old][i], GL_QUERY_RESULT_AVAILABLE_EXT, &av);
+        if (!av) all = 0;
+    }
+    if (all) {
+        GLint dis = 0;
+        glGetIntegerv(GL_GPU_DISJOINT_EXT, &dis);
+        if (dis) GPQ.disjoint_n++;
+        else {
+            for (int i = 0; i < GPQ_N; i++) {
+                if (!GPQ.used[old][i]) continue;
+                GLuint64 ns = 0;
+                GPQ.getq64(GPQ.q[old][i], GL_QUERY_RESULT_EXT, &ns);
+                GPQ.sum_ms[i] += (double)ns * 1e-6;
+            }
+            GPQ.nsum++;
+        }
+        for (int i = 0; i < GPQ_N; i++) GPQ.used[old][i] = 0;
+    }
+    GPQ.ring = (GPQ.ring + 1) % GPQ_RING;
+    if (GPQ.nsum >= 144) {
+        double tot = 0.0;
+        char line[256]; int off = 0;
+        for (int i = 0; i < GPQ_N; i++) {
+            double m = GPQ.sum_ms[i] / GPQ.nsum;
+            tot += m;
+            off += snprintf(line + off, sizeof line - (size_t)off,
+                            "%s %.2f  ", GPQ_NAME[i], m);
+            GPQ.sum_ms[i] = 0.0;
+        }
+        LOGI("[cuevr] gpu ms: %stotal %.2f%s", line, tot,
+             GPQ.disjoint_n ? " (some frames disjoint)" : "");
+        GPQ.nsum = 0; GPQ.disjoint_n = 0;
+    }
+}
+
 void cuevr_render_views(const float *view2, const float *proj2,
                         const CueVrScene *s, int draw_room) {
     VP_n = 2;
@@ -3640,6 +3767,8 @@ void cuevr_render_eye(const float *view, const float *proj,
     if (!G.ready) return;
     /* The host owns the framebuffer and the viewport; the shadow pass borrows
      * both and must hand them back exactly as they were. */
+    if (!GPQ.probed) gpq_probe();
+    gpq_mark(GPQ_PRE);          /* shadow map (when on), room, eye setup */
     GLint fbo_before = 0, vp_before[4] = { 0, 0, 0, 0 };
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fbo_before);
     glGetIntegerv(GL_VIEWPORT, vp_before);
@@ -3907,6 +4036,7 @@ void cuevr_render_eye(const float *view, const float *proj,
         glDisable(GL_BLEND);
     }
 
+    gpq_mark(GPQ_FRAME);
     /* The frame first: it is underneath everything and honestly wound, so it
      * keeps backface culling. */
     if (G.frame.n && !getenv("CUEVR_NOFRAME")) {
@@ -3933,6 +4063,7 @@ void cuevr_render_eye(const float *view, const float *proj,
      * convention — so culling it silently drops the bed and half the rails.
      * Depth sorts it correctly regardless. */
     glDisable(GL_CULL_FACE);
+    gpq_mark(GPQ_RAILS);
     glUniform1i(G.u_mode, 4);          /* vertex colours, as authored */
     if (getenv("CUEVR_NOTABLE")) goto after_table;
     set_model(T);
@@ -4046,6 +4177,7 @@ after_table: ;
         glUniform1f(G.u_spotr, 0.0035f);      /* 7 mm across */
         glUniform1i(G.u_nspot, ns);
         glUniform2fv(G.u_spots, ns, sp);
+    gpq_mark(GPQ_CLOTH);
         glUniform1i(G.u_mode, 8);
         glUniform1f(G.u_shell, 0.0f);
         set_model(T);
@@ -4086,6 +4218,7 @@ after_table: ;
         glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
         glDepthMask(GL_FALSE);
         glDisable(GL_CULL_FACE);
+    gpq_mark(GPQ_DECAL);
         glUniform1i(G.u_mode, 6);
         /* Darken toward the cloth's own shadowed tone rather than toward black:
          * a ball on baize does not cast an inky disc. */
@@ -4178,6 +4311,7 @@ after_table: ;
 
 skip_shadows:
     /* ---- balls ---- */
+    gpq_mark(GPQ_BALLS);
     glUniform1i(G.u_mode, 1);
     /* The ball array lives on unit 1 for the whole pass; u_tex keeps unit 0. */
     glActiveTexture(GL_TEXTURE1);
@@ -4206,6 +4340,7 @@ skip_shadows:
     /* The pocket drop lips last, with depth writes off — the handheld's own
      * order, so a ball resting in a pocket covers the lip rather than the lip
      * drawing across it. */
+    gpq_mark(GPQ_LIPS);
     if (G.lips.n) {
         glDepthMask(GL_FALSE);
         if (!getenv("CUEVR_NOLIPS")) {
@@ -4220,6 +4355,7 @@ skip_shadows:
     }
     glEnable(GL_CULL_FACE);
 
+    gpq_mark(GPQ_CUE);
     /* ---- the cue ---- */
     /* CUEVR_NOCUE: leave the cue out — a top-down capture wants the cloth
      * markings, and the cue lies straight across the D. */
@@ -4262,6 +4398,7 @@ skip_shadows:
      * attempts at the model-to-grip matrix were spent guessing which model axis is
      * the handle and which way it points, from bounding-box numbers. This answers it
      * outright, and should have been the first thing built. */
+    gpq_mark(GPQ_REST);
     if (getenv("CUEVR_CTRLAXES") && G.ctrl[0].n) {
         float T2[16], Sm[16], M2[16];
         /* 40 cm in front of the eye, so it is always in shot whatever the camera
@@ -4421,5 +4558,6 @@ skip_shadows:
         glUniform4f(G.u_hudrect, 0.0f, 0.0f, 1.0f, 1.0f);
     }
 
+    gpq_flush();
     glBindVertexArray(0);
 }
