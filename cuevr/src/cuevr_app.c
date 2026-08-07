@@ -43,7 +43,9 @@
 
 #ifdef __ANDROID__
 #include <android/log.h>
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "cuevr", __VA_ARGS__)
+/* Through the host's logger so logcat and the SideQuest-readable file both get
+ * it, in one order. */
+#define LOGI(...) mote_xr_logv(__VA_ARGS__)
 #else
 #define LOGI(...) do { printf(__VA_ARGS__); printf("\n"); } while (0)
 #endif
@@ -2303,16 +2305,17 @@ void cuevr_app_describe(MoteXrApp *out) {
     out->draw_eye    = app_draw_eye;
     out->draw_views  = app_draw_views;
     out->gl_shutdown = app_gl_shutdown;
-    /* The GPU is the wall on this app (measured on device), so trade the
-     * excess supersampling for frame time: 1.1x instead of the host default
-     * 1.25x is 28% less fragment work. CUEVR_SCALE overrides for device A/B.
+    /* The GPU is the wall on this app (measured on device), and the eye render
+     * scale is the cheapest lever on it — see CUEVR_RENDER_SCALE in cuevr.h.
+     *
+     * NOT an env var: an Android app inherits its environment from zygote, so
+     * every CUEVR_* getenv in this codebase is host-preview only and reads as
+     * unset in the APK. Device knobs have to be constants or menu items.
      *
      * NO foveated rendering, at the user's direction (twice): in cue sports
      * you sight along the cue to balls at the edge of the view — the
      * periphery is precisely where the eye goes, so FFR blurs the one thing
      * that must stay sharp. The host plumbing exists but this app never asks. */
-    out->render_scale = 1.10f;
+    out->render_scale = CUEVR_RENDER_SCALE;
     out->foveation    = 0;
-    {   const char *v;
-        if ((v = getenv("CUEVR_SCALE"))) out->render_scale = (float)atof(v); }
 }

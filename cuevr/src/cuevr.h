@@ -189,6 +189,14 @@ typedef struct {
 
 /* A real cue is 1.45 m. Fixed — a cue that stretches between your hands is the
  * fastest way to stop believing in it. */
+/* EYE RENDER SCALE — multiplies the runtime's recommended eye resolution, so
+ * it multiplies fragment work by its square. 1.25 was the long-standing value
+ * (1.56x the fragments of 1.0), bought for text crispness; 1.10 is 1.21x and
+ * the cheapest real GPU saving available. Quest Games Optimizer can override
+ * this per app, so treat it as the app's own default rather than the last
+ * word. One number, one rebuild. */
+#define CUEVR_RENDER_SCALE 1.25f
+
 #define CUEVR_CUE_LEN  1.45f
 /* The leather tip's radius: contact is its surface, not a line. */
 #define CUEVR_TIP_R    0.005f

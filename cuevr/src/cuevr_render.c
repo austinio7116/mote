@@ -46,7 +46,9 @@
 
 #ifdef __ANDROID__
 #include <android/log.h>
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "cuevr", __VA_ARGS__)
+/* Through the host's logger so logcat and the SideQuest-readable file both get
+ * it, in one order. */
+#define LOGI(...) mote_xr_logv(__VA_ARGS__)
 #else
 #define LOGI(...) do { printf(__VA_ARGS__); printf("\n"); } while (0)
 #endif
@@ -3467,6 +3469,20 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
+    /* What the device actually allows, against what this shader asks for. The
+     * cue alone carries ~25 uniforms on top of eight lamps' worth of arrays,
+     * and Adreno's limits are the guaranteed minimums where a desktop driver's
+     * are generous — if a shader dies on hardware and lives on the host, this
+     * line is where it shows. */
+    {   GLint fu = 0, vu = 0, va = 0, ts = 0;
+        glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_VECTORS, &fu);
+        glGetIntegerv(GL_MAX_VERTEX_UNIFORM_VECTORS, &vu);
+        glGetIntegerv(GL_MAX_VARYING_VECTORS, &va);
+        glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &ts);
+        LOGI("[cuevr] GL limits: frag uniforms %d, vert uniforms %d, varyings %d, tex units %d",
+             fu, vu, va, ts);
+        LOGI("[cuevr] GL %s | %s", (const char *)glGetString(GL_VERSION),
+             (const char *)glGetString(GL_RENDERER)); }
     G.ready = 1;
     LOGI("[cuevr] table %.2f x %.2f m, %d cushion segs, %d pockets",
          t->half_len * 2, t->half_wid * 2, w->nseg, w->npocket);

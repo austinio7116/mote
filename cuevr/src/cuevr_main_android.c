@@ -30,6 +30,12 @@ void android_main(struct android_app *a) {
      * desk, and the bridge they make, are theirs — they persist here. */
     cuevr_prefs_dir(a->activity->internalDataPath);
 
+    /* The log goes to the EXTERNAL data directory — SideQuest can browse
+     * /sdcard/Android/data/<package>/files straight off the headset, so asking
+     * for a log costs nobody a cable and a shell. Opened before OpenXR init so
+     * a failure to start is in the file that gets sent. */
+    mote_xr_log_file(a->activity->externalDataPath);
+
     MoteXrApp app;
     cuevr_app_describe(&app);
     if (mote_xr_init(a->activity->vm, a->activity->clazz, &app) != 0) {

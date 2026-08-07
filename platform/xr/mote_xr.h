@@ -101,6 +101,14 @@ typedef struct {
 
 /* vm/activity are the JavaVM* and the activity's jobject: OpenXR on Android
  * needs both, for the loader and for the instance. */
+/* Mirror everything logged to a file in `dir` — pass the activity's EXTERNAL
+ * data path so it lands somewhere SideQuest can read without adb. Call before
+ * mote_xr_init to catch startup. Safe to skip entirely. */
+void mote_xr_log_file(const char *dir);
+/* Log a line to logcat and, if open, the file. Apps share this so one log has
+ * the whole story in order. */
+void mote_xr_logv(const char *fmt, ...);
+
 int  mote_xr_init(void *vm, void *activity, const MoteXrApp *app);
 
 /* One predicted frame: poll session events, and if the session is running,

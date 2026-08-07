@@ -40,6 +40,7 @@
 #include <openxr/openxr_platform.h>
 
 #include <stdarg.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,13 +49,47 @@
 #define MAX_VIEWS 2
 
 #include <android/log.h>
+/* ---- logging ------------------------------------------------------------- *
+ * Everything goes to logcat AND, once a directory is known, to a plain file in
+ * the app's EXTERNAL data directory — which SideQuest can browse straight off
+ * the headset. Getting a log should not require adb, a cable and a shell. */
+static FILE *s_logf;
+
+void mote_xr_log_file(const char *dir) {
+    char path[512];
+    if (!dir || !dir[0]) return;
+    mkdir(dir, 0777);                   /* Android usually makes it; not always */
+    snprintf(path, sizeof path, "%s/mote-log.txt", dir);
+    if (s_logf) fclose(s_logf);
+    s_logf = fopen(path, "w");          /* fresh each launch: the last run is
+                                         * the one being asked about */
+    if (s_logf) {
+        setvbuf(s_logf, NULL, _IOLBF, 0);   /* line buffered: a crash still
+                                             * leaves everything up to it */
+        fprintf(s_logf, "[mote] log file %s\n", path);
+        fflush(s_logf);
+    }
+    __android_log_print(ANDROID_LOG_INFO, "mote", "[mote] log file %s (%s)",
+                        path, s_logf ? "open" : "FAILED");
+}
+
+void mote_xr_logv(const char *fmt, ...) {
+    char b[512];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(b, sizeof b, fmt, ap);
+    va_end(ap);
+    __android_log_print(ANDROID_LOG_INFO, "mote", "%s", b);
+    if (s_logf) { fputs(b, s_logf); fputc('\n', s_logf); }
+}
+
 static void xrlog(const char *fmt, ...) {
     char b[256];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(b, sizeof b, fmt, ap);
     va_end(ap);
-    __android_log_print(ANDROID_LOG_INFO, "mote", "%s", b);
+    mote_xr_logv("%s", b);
 }
 
 /* ---- state -------------------------------------------------------------- */
@@ -395,8 +430,13 @@ static int make_swapchains(void) {
         float scale = (S.app.render_scale > 0.0f) ? S.app.render_scale : 1.25f;
         int32_t rw = (int32_t)S.vcfg[i].recommendedImageRectWidth;
         int32_t rh = (int32_t)S.vcfg[i].recommendedImageRectHeight;
-        e->w = (int32_t)(rw * scale);
-        e->h = (int32_t)(rh * scale);
+        /* Rounded DOWN to a multiple of 8. A tiled GPU bins in blocks and the
+         * multiview depth array, the MSAA renderbuffer and the swapchain all
+         * have to agree; an awkward width is the kind of thing that costs a
+         * silent reallocation at best. 1.25 x happened to land on multiples,
+         * which is exactly why an arbitrary scale needs this. */
+        e->w = ((int32_t)(rw * scale)) & ~7;
+        e->h = ((int32_t)(rh * scale)) & ~7;
         if ((uint32_t)e->w > S.vcfg[i].maxImageRectWidth)
             e->w = (int32_t)S.vcfg[i].maxImageRectWidth;
         if ((uint32_t)e->h > S.vcfg[i].maxImageRectHeight)
@@ -407,6 +447,7 @@ static int make_swapchains(void) {
                   S.vcfg[i].maxImageRectWidth, S.vcfg[i].maxImageRectHeight);
         if (i == 0 && S.app.render_scale > 0.0f)
             xrlog("[mote-xr] render scale %.2f (app request)", scale);
+        xrlog("[mote-xr] eye %u swapchain %dx%d", i, e->w, e->h);
 
         XrSwapchainCreateInfo sc = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
         sc.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
