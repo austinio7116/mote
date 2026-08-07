@@ -1714,16 +1714,6 @@ static const char *FS =
 "            float inner = 1.0 - u_shadow.x;\n"
 "            occ = 1.0 - smoothstep(inner, 1.0, d);\n"
 "            occ = max(occ, (1.0 - smoothstep(0.28, 0.52, d)) * 1.22);\n"
-"        } else {\n"
-"            // the cue: a NARROW strip under the shaft, crisp near the cloth,\n"
-"            // quickly gone as it lifts\n"
-"            float u2 = clamp(v_uv.x, 0.0, 1.0);\n"
-"            float h  = mix(u_colour2.y, u_colour2.x, u2);\n"
-"            float w  = 0.010 + h * 0.10;\n"
-"            float pen2 = 0.004 + h * 0.10;\n"
-"            float across = abs(v_uv.y - 0.5) * 2.0 * u_colour2.z;\n"
-"            float fade = clamp(1.0 - h * 1.7, 0.0, 1.0);\n"
-"            occ = (1.0 - smoothstep(w - pen2 * 0.4, w + pen2, across)) * 0.6 * fade;\n"
 "        }\n"
 "        float a = u_shadow.y * clamp(occ, 0.0, 1.0);\n"
 "        o_col = emit(to_linear(u_clothsh) * 0.55, a, 0.0);\n"
@@ -4339,42 +4329,12 @@ after_table: ;
             set_model(model);
             draw(&G.quad);
         }
-        /* THE CUE'S SHADOW — the one thing the decals famously could not do,
-         * and the biggest tell against the real map. A capsule under the
-         * shaft, wider and fainter as it rises, tracking every waggle. */
-        if (s->cue_visible && rad > 0.0f) {
-            float cy = T[13];                       /* cloth height in room */
-            float tx = s->cue_tip.x,  tz = s->cue_tip.z;
-            float bx = s->cue_butt.x, bz = s->cue_butt.z;
-            float th = s->cue_tip.y  - cy;
-            float bh = s->cue_butt.y - cy;
-            if (th < 0.60f || bh < 0.60f) {         /* out of reach = no shadow */
-                float dx = bx - tx, dz = bz - tz;
-                float len = sqrtf(dx*dx + dz*dz);
-                if (len > 0.05f) {
-                    float ux = dx/len, uz = dz/len;
-                    float margin = 0.16f;
-                    float local[16], model[16];
-                    /* unit quad -> strip along the segment: u along, v across */
-                    mm4_identity(local);
-                    local[0] = ux*len;  local[1] = 0.0f; local[2]  = uz*len;
-                    local[4] = -uz*2.0f*margin; local[5] = 0.0f; local[6] = ux*2.0f*margin;
-                    local[8] = 0.0f; local[9] = 1.0f; local[10] = 0.0f;
-                    local[12] = tx + uz*margin - 0.0f;  /* centre the v axis */
-                    local[13] = cy + 0.0018f;
-                    local[14] = tz - ux*margin;
-                    /* the quad's own uv runs 0..1 both ways; v centred by the
-                     * -margin offset above */
-                    mm4_identity(model);
-                    /* local already in ROOM space: model = local */
-                    memcpy(model, local, sizeof local);
-                    glUniform4f(G.u_colour, 0.0f, 0.0f, 0.0f, -1.0f);
-                    glUniform4f(G.u_colour2, bh, th, margin, len);
-                    set_model(model);
-                    draw(&G.quad);
-                }
-            }
-        }
+        /* NO CUE SHADOW. A capsule under the shaft was tried and removed: a
+         * cue is a thin round stick held at an angle, so the honest shadow is
+         * a narrow ellipse that swings and stretches with every waggle, and
+         * the approximation read as a painted stripe following the cue about.
+         * The balls keep their decals — a ball resting on cloth is a shape a
+         * disc genuinely fits. */
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
         glEnable(GL_CULL_FACE);
