@@ -588,20 +588,38 @@ static int next_targets(const AiCtx *c, int just_idx, int *out_idx) {
     if (c->snooker) {
         int potting_red = (jid < CUE_ID_YELLOW);
         if (potting_red) {                       /* red → a colour next */
-            for (int i = 0; i < c->n; i++)
+            for (int i = 1; i < c->n; i++)
                 if (c->b[i].on && i != just_idx && c->b[i].id >= CUE_ID_YELLOW)
                     out_idx[cnt++] = i;
         } else {                                 /* colour → reds (or sequence) */
+            /* FROM 1. This started at 0 and took every ball with an id below
+             * yellow — and the CUE BALL's id is 0. So the white was counted as
+             * a red, `reds` was never zero, and the planner spent the whole
+             * reds phase evaluating position on potting the cue ball. Worse,
+             * because reds could not reach zero, the clearance branch below was
+             * unreachable: at the end of a frame it kept aiming position at the
+             * white instead of at the yellow. */
             int reds = 0;
-            for (int i = 0; i < c->n; i++)
+            for (int i = 1; i < c->n; i++)
                 if (c->b[i].on && i != just_idx && c->b[i].id < CUE_ID_YELLOW)
                     out_idx[cnt++] = i, reds++;
-            if (reds == 0) {                     /* clearance: lowest colour left */
+            if (reds == 0) {
+                /* The clearance. The next ball on is the LOWEST colour left —
+                 * and that includes the one being potted right now if it is
+                 * going to come back: a colour potted while the target is still
+                 * "a colour" (the one taken after the final red) respots, and
+                 * the clearance then starts from yellow. Pot the yellow as that
+                 * colour and the yellow is what you are on next, not the green.
+                 * cue_rules.c respots on exactly this condition. */
+                int respots = (c->r->target != 2);
                 int best = -1, bestv = 999;
-                for (int i = 0; i < c->n; i++)
-                    if (c->b[i].on && i != just_idx && c->b[i].id >= CUE_ID_YELLOW
-                        && ai_value(c->b[i].id) < bestv)
+                for (int i = 1; i < c->n; i++) {
+                    if (!c->b[i].on) continue;
+                    if (i == just_idx && !respots) continue;
+                    if (c->b[i].id < CUE_ID_YELLOW) continue;
+                    if (ai_value(c->b[i].id) < bestv)
                         bestv = ai_value(c->b[i].id), best = i;
+                }
                 if (best >= 0) out_idx[cnt++] = best;
             }
         }
