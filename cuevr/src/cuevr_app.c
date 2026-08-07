@@ -749,18 +749,10 @@ static void hud_paint(void);
 
 static void hud_build(void) {
     hud_paint();
-    if (!S.ptr_ok) return;
-    int x = (int)(S.ptr_x + 0.5f), y = (int)(S.ptr_y + 0.5f);
-    const uint16_t C = RGB565C(250, 205, 60);
-    const uint16_t K = RGB565C(10, 10, 14);
-    /* A ring, not a dot: a dot vanishes on the row highlight it is sitting on.
-     * Dark outline first so it reads on light text and dark panel alike. */
-    for (int i = -3; i <= 3; i++) {
-        hud_rect(x + i, y - 3, 1, 1, K); hud_rect(x + i, y + 3, 1, 1, K);
-        hud_rect(x - 3, y + i, 1, 1, K); hud_rect(x + 3, y + i, 1, 1, K);
-    }
-    hud_rect(x - 2, y - 2, 5, 1, C); hud_rect(x - 2, y + 2, 5, 1, C);
-    hud_rect(x - 2, y - 1, 1, 3, C); hud_rect(x + 2, y - 1, 1, 3, C);
+    /* No cursor painted into the panel: the laser and its bead are real
+     * objects in the room now, which is what a pointer should be. A square
+     * target stamped into the texture read as part of the interface rather
+     * than as something you were holding. */
 }
 
 static void hud_paint(void) {
@@ -1754,6 +1746,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
      * can see, and it avoids ordering the whole update around the HUD. */
     {
         S.ptr_ok = 0;
+        S.scene.ptr_visible = 0;
         const MoteVrHand *rh = &t->hand[MOTE_VR_RIGHT];
         if (rh->aim_tracked && S.scene.hud_visible && S.scene.hud_w > 0.01f) {
             MoteVrV3 o = rh->aim.p;
@@ -1776,6 +1769,15 @@ static void app_update(void *u, const MoteVrTracking *t) {
                         S.ptr_y = v * (float)rows;
                         S.ptr_ok = 1;
                     }
+                    /* The beam is drawn from the SAME intersection, so what you
+                     * see and what the menu reads can never disagree. It stops
+                     * at the panel when it lands on it and runs on past when it
+                     * does not, which is how you find the panel again. */
+                    S.scene.ptr_visible = 1;
+                    S.scene.ptr_from = o;
+                    S.scene.ptr_hit = S.ptr_ok;
+                    S.scene.ptr_to = S.ptr_ok ? mv3_add(o, mv3_scale(d, k))
+                                              : mv3_add(o, mv3_scale(d, 2.5f));
                 }
             }
         }
@@ -2405,18 +2407,25 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * placement is impossible rather than merely discouraged — and the ball
          * is drawn at your hand's height so you can see you are carrying it. */
         {
+            /* THE BALL IS ON THE CONTROLLER, and on nothing else.
+             *
+             * It used to be clamped to the legal region while you carried it,
+             * with only its height free — so it hung in the air refusing to
+             * follow your hand until you brought it near the table, then
+             * snapped about inside the D. You were not holding it; you were
+             * dragging a thing that was still attached to the cloth.
+             *
+             * Now it sits just above the controller and goes exactly where the
+             * controller goes, in the room, unbounded. The rules apply when you
+             * let go and not before, which is what "in hand" means. */
             const MoteVrHand *rh = &t->hand[MOTE_VR_RIGHT];
             if (rh->tracked) {
-                MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, rh->pose.p);
-                Vec3 p = v3(tp.x, S.tab.R, tp.z);
-                p = cue_table_clamp_placement_balls(&S.tab, p, S.balls, S.nballs,
-                                                    S.rules.break_shot);
-                /* Carried at hand height until dropped, never below the cloth. */
-                float lift = tp.y;
-                if (lift < S.tab.R) lift = S.tab.R;
-                if (lift > S.tab.R + 0.45f) lift = S.tab.R + 0.45f;
-                p.y = lift;
-                S.balls[0].pos = p;
+                /* A little proud of the model, in the controller's own frame,
+                 * so it sits above the hand however the wrist is turned. */
+                MoteVrV3 held = mv3_add(rh->pose.p,
+                                        mq_rot(rh->pose.q, mv3(0.0f, 0.045f, 0.0f)));
+                MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, held);
+                S.balls[0].pos = v3(tp.x, tp.y, tp.z);
                 S.hud_dirty = 1;
             }
         }
@@ -2434,7 +2443,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * on the panels. */
         if (t->hand[MOTE_VR_RIGHT].trigger < 0.4f) S.place_latch = 0;
         else if (!S.place_latch) {
-            S.balls[0].pos.y = S.tab.R;          /* down on the cloth */
+            /* Let go: NOW the rules apply. Straight down onto the cloth from
+             * wherever you were holding it, then clamped into the legal region
+             * and out of anything already standing there. */
+            Vec3 p = v3(S.balls[0].pos.x, S.tab.R, S.balls[0].pos.z);
+            S.balls[0].pos = cue_table_clamp_placement_balls(
+                &S.tab, p, S.balls, S.nballs, S.rules.break_shot);
             arm_shot();
             S.state = ST_AIM;
             S.hud_dirty = 1;
@@ -2759,39 +2773,37 @@ static void app_update(void *u, const MoteVrTracking *t) {
                       S.state == ST_APPEAR || S.state == ST_STATS);
         MoteVrV3 pos;
         if (asking) {
-            /* HEADING only, not the full gaze. The panel used to be placed
-             * along wherever you were looking, and when you look down at the
-             * table — which is what you do — 75 cm along that line is UNDER the
-             * cloth. At the levelling camera the centre worked out at y = 0.827
-             * with the cloth at 0.85, so the bottom half of every list screen
-             * was inside the slate. Take the direction you are facing, keep the
-             * panel upright, and then hold it clear of the bed. */
-            MoteVrV3 fwd = mq_rot(t->head.q, mv3(0, 0, -1));
-            fwd.y = 0.0f;
-            if (mv3_len(fwd) < 1e-3f) {
-                /* Looking straight down: -Z is vertical and has no heading. The
-                 * head's own up vector still does. */
-                fwd = mq_rot(t->head.q, mv3(0, 1, 0));
-                fwd.y = 0.0f;
-                if (mv3_len(fwd) < 1e-3f) fwd = mv3(0, 0, -1);
-            }
-            pos = mv3_add(t->head.p, mv3_scale(mv3_norm(fwd), 0.80f));
-            /* 55 cm at 80 cm is about a 38 degree field — a laptop lid at arm's
-             * length. It was 42 cm, which is a postcard. */
-            S.scene.hud_w = 0.55f;
-            pos.y = t->head.p.y - 0.08f;      /* a shade below eye level */
-            /* And never lower than clear of the table, whatever you do with your
-             * head — the whole panel, not just its centre. */
+            /* BEHIND THE TABLE, not stuck to your face.
+             *
+             * It used to hang 80 cm along your heading, so it followed you
+             * everywhere: turn to look at something and the menu came too, and
+             * a panel you cannot look away from is a panel you cannot look at.
+             * It also meant the table you were choosing a cloth for was behind
+             * the thing describing it.
+             *
+             * The same rule the scoreboard uses: past whichever end is away
+             * from you, so it is never behind your head, and standing in the
+             * room rather than on your nose. You look at it, choose, and look
+             * back at the table — and the table is right there in front of it
+             * while you do. */
+            MoteVrV3 ht = cuevr_room_to_table(&S.setup.place, t->head.p);
+            float end = (ht.x < 0.0f) ? (S.tab.half_len + 0.42f)
+                                      : -(S.tab.half_len + 0.42f);
+            pos = cuevr_table_to_room(&S.setup.place, (Vec3){ end, 0.0f, 0.0f });
+            /* Head height, so it is read straight rather than looked down at,
+             * and never below the rail whatever the table's height. */
+            pos.y = t->head.p.y - 0.05f;
             {
-                float half = S.scene.hud_w * (float)CUEVR_HUD_LH
-                           / (float)CUEVR_HUD_LW * 0.5f;
-                /* The menu hangs the cue you are choosing below the panel, so
-                 * the thing being held clear of the bed is the pair of them —
-                 * clamping the panel alone just pushed the cue into the cloth
-                 * instead. */
-                float under = (S.state == ST_MENU) ? 0.22f : 0.0f;
-                float floor_of_it = S.setup.place.pos.y + 0.06f + half + under;
+                float floor_of_it = S.setup.place.pos.y + 0.34f;
                 if (pos.y < floor_of_it) pos.y = floor_of_it;
+            }
+            /* Subtends the same angle wherever you stand, exactly as the
+             * scoreboard does — from the far end of a 12 ft table a fixed
+             * width is unreadable. */
+            {
+                float d = mv3_len(mv3_sub(t->head.p, pos));
+                float w = d * 0.46f;
+                S.scene.hud_w = w < 0.50f ? 0.50f : (w > 1.6f ? 1.6f : w);
             }
         } else {
             /* High and well back. At 45 cm above the cloth just past the rail it
@@ -2996,16 +3008,11 @@ static void app_update(void *u, const MoteVrTracking *t) {
         }
     }
 
-    /* The cursor moves every frame, so the panel has to be repainted every
-     * frame while it is on screen — a pointer that updates only when something
-     * else happens to dirty the HUD is a pointer that lags behind your hand and
-     * feels broken. Only while pointing: in play nothing here is true and the
-     * scoreboard keeps its cheap repaint. */
-    {
-        static int had_ptr;
-        if (S.ptr_ok || had_ptr) S.hud_dirty = 1;
-        had_ptr = S.ptr_ok;
-    }
+    /* No per-frame repaint any more: the pointer is a beam in the room, drawn
+     * fresh every frame by the renderer, and the panel only changes when the
+     * highlighted row does — which dirties it from its own site. Repainting a
+     * 400 KB texture at 72 Hz to move a cursor was a tax on the one thing the
+     * Quest is short of. */
     if (S.hud_dirty) { hud_build(); cuevr_render_hud(S.hud); S.hud_dirty = 0; }
 }
 

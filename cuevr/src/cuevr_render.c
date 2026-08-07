@@ -4557,6 +4557,43 @@ skip_shadows:
         }
     }
 
+    /* ---- the menu laser ---- *
+     * A thin beam and a bead at the end, both from the ball mesh under a
+     * non-uniform scale: a sphere squashed to a needle IS a beam, and it costs
+     * two draws of a mesh already resident rather than a new one to author,
+     * upload and keep in step with everything else. */
+    if (s->ptr_visible) {
+        MoteVrV3 d = mv3_sub(s->ptr_to, s->ptr_from);
+        float len = mv3_len(d);
+        if (len > 0.02f) {
+            MoteVrV3 u = mv3_scale(d, 1.0f / len);
+            MoteVrV3 up = mv3(0, 1, 0);
+            MoteVrV3 ax = mv3_cross(up, u);
+            float sl = mv3_len(ax), cl = mv3_dot(up, u);
+            MoteVrQ q = (sl < 1e-5f)
+                ? (cl > 0.0f ? mq_ident() : mq_axis_angle(mv3(1,0,0), PI))
+                : mq_axis_angle(ax, atan2f(sl, cl));
+            MoteVrV3 mid = mv3_add(s->ptr_from, mv3_scale(u, len * 0.5f));
+            float M[16], Sm[16], P[16];
+            MoteVrPose bp; bp.p = mid; bp.q = q;
+            mm4_from_pose(P, bp, 1.0f);
+            mm4_identity(Sm);
+            Sm[0] = 0.0022f; Sm[5] = len * 0.5f; Sm[10] = 0.0022f;
+            mm4_mul(M, P, Sm);
+            glUniform1i(G.u_mode, 0);
+            colour(0.32f, 0.72f, 1.0f, 1.0f);
+            set_model(M);
+            draw(&G.ball);
+            /* the bead where it lands, brighter when it is actually on a row */
+            mm4_identity(Sm);
+            Sm[0] = Sm[5] = Sm[10] = s->ptr_hit ? 0.0075f : 0.0045f;
+            Sm[12] = s->ptr_to.x; Sm[13] = s->ptr_to.y; Sm[14] = s->ptr_to.z;
+            colour(s->ptr_hit ? 1.0f : 0.35f, s->ptr_hit ? 0.85f : 0.70f, 0.25f, 1.0f);
+            set_model(Sm);
+            draw(&G.ball);
+        }
+    }
+
     /* ---- your hands ---- */
     if (s->hands_valid) {
         glUniform1i(G.u_mode, 0);

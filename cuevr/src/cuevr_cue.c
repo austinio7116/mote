@@ -408,7 +408,13 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
          * that anchor every frame: the cue still stands still while the hand
          * moves under it, but nothing can drift. */
         if (!c->adj_have0) {
-            c->adj_bridge0 = mv3_add(Lh->pose.p, c->rest);
+            /* c->bridge, not hand + rest. `rest` lives in the CONTROLLER's
+             * frame now, so adding it straight to a world position treats a
+             * local vector as a world one and anchors the cue somewhere it
+             * never was — which is why taking hold of it made it jump instead
+             * of picking it up where it lay. c->bridge is that same offset
+             * already resolved, three lines above. */
+            c->adj_bridge0 = c->bridge;
             c->adj_have0 = 1;
         }
         MoteVrV3 off = mv3_sub(c->adj_bridge0, Lh->pose.p);

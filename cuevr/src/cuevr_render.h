@@ -68,6 +68,13 @@ typedef struct {
     MoteVrV3 rest_pos;      /* where the cue is sitting on the bridge */
     int      rest_visible;
 
+    /* The menu laser: where it starts, where it lands, and whether it hit the
+     * panel at all. A ray you can see is the whole difference between pointing
+     * and hoping. */
+    int      ptr_visible;
+    MoteVrV3 ptr_from, ptr_to;
+    int      ptr_hit;
+
     int      hud_visible;
     MoteVrV3 hud_pos;
     MoteVrQ  hud_rot;

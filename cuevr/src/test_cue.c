@@ -416,6 +416,24 @@ int main(void) {
         t.hand[MOTE_VR_LEFT].squeeze = 0.0f;
         cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
 
+        /* TAKING HOLD MUST NOT MOVE IT. The anchor is captured the frame the
+         * trigger goes down, and it was captured as hand + rest — with `rest`
+         * in the controller's own frame, which made it a world vector added to
+         * a world point and put the anchor somewhere the cue had never been.
+         * The cue jumped the instant you reached for it. */
+        {
+            t.hand[MOTE_VR_LEFT].squeeze = 0.0f;
+            for (int i = 0; i < 3; i++) cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+            MoteVrV3 before_grab = c.bridge;
+            t.hand[MOTE_VR_LEFT].squeeze = 1.0f;
+            cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+            cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+            checkf(mv3_len(mv3_sub(c.bridge, before_grab)), 0.0f, 1e-6f,
+                   "taking hold of the cue does not move it");
+            t.hand[MOTE_VR_LEFT].squeeze = 0.0f;
+            cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+        }
+
         /* A TRACKING DROPOUT MID-ADJUST. The bridge hand lives under the
          * player's body on the cloth, which is where the headset cannot see it,
          * so this happens all the time — and a hand wrapped round a controller
