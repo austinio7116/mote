@@ -166,7 +166,12 @@ void cuevr_net_lan_join(void) {
     s_code[0] = 0;
     begin("LOOKING ON THE LAN");
     link_net_relay_game(CUEVR_GAME_ID);
-    link_net_join(NULL);              /* NULL = discover, nothing to type */
+    /* An explicit address when one is given. Discovery is a UDP broadcast and
+     * a sandbox will not carry one, which left the two-instance test sitting in
+     * the lobby for ever with nothing wrong except the way it was looking. A
+     * direct connect needs none of that, and it exercises the same link. */
+    const char *ip = getenv("CUEVR_NET_IP");
+    link_net_join(ip && ip[0] ? ip : NULL);
 }
 void cuevr_net_quick(void) {
     s_code[0] = 0;
