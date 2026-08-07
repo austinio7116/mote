@@ -303,18 +303,61 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     const MoteVrHand *Rh = &t->hand[MOTE_VR_RIGHT];   /* grip on the butt */
     if (!Lh->tracked || !Rh->tracked) {
         c->tracked = c->on_ball = c->have_prev = c->have_hand = c->stroking = 0;
+        /* AND DROP THE REPOSITION ANCHOR. This did not, and that is how the
+         * bridge got "out of sync with the controller" out of nowhere.
+         *
+         * The bridge hand spends the whole game down on the cloth under the
+         * player's own body, which is precisely where a headset cannot see it,
+         * so the left controller drops tracking constantly. If the grip button
+         * happened to be held — and a hand wrapped round a controller rests on
+         * that button — the anchor survived the dropout while the hand did not.
+         * Tracking comes back somewhere else entirely, the offset is recomputed
+         * against an anchor from before, and the cue is suddenly a hand's width
+         * from where it belongs. Nothing the player did explains it, because
+         * nothing the player did caused it.
+         *
+         * Forgetting the anchor means the next tracked frame re-anchors where
+         * the hand actually is: the cue stays where it was, which is the whole
+         * point of the gesture, and nothing jumps. */
+        c->adj_have0 = 0;
+        c->adjusting = 0;
         return;
     }
 
-    /* The cue rests ABOVE your bridge hand, by however much you have set. */
-    c->bridge = mv3_add(Lh->pose.p, c->rest);
+    /* THE OFFSET IS IN THE LEFT CONTROLLER'S OWN FRAME, not the room's.
+     *
+     * It used to be a world-space vector added to the controller, which is
+     * right only while you stand where you were standing when you set it. Walk
+     * round to the other side of the table and "five centimetres that way"
+     * still means the same direction in the ROOM — so it now sits five
+     * centimetres the wrong side of your hand, and the cue points somewhere you
+     * did not put it. Nothing had gone wrong with the controller, which is
+     * exactly why it looked inexplicable.
+     *
+     * The controller's OWN frame and not the cue's, because the cue is derived
+     * from the bridge — taking the frame from the cue would define this in
+     * terms of the thing it determines. It is not the two hands either: the
+     * grip hand has no business moving the bridge, and a frame built from both
+     * lets it.
+     *
+     * So the offset is bolted to the left controller. It rotates with your
+     * wrist, which is what a cue lying across a hand actually does, and it is
+     * rigid: the bridge is wherever that controller is, plus a fixed few
+     * centimetres in the controller's own axes. Nothing else can move it. */
+    c->rest_world = mq_rot(Lh->pose.q, c->rest);
+    c->bridge = mv3_add(Lh->pose.p, c->rest_world);
 
     /* Aim: the line from your grip hand through your bridge hand. Once the
      * stroke is under way it is frozen — the bridge is a pivot during a
      * delivery, not a steering wheel. */
     MoteVrV3 along = mv3_sub(c->bridge, Rh->pose.p);
     if (mv3_len(along) < 0.10f && !c->stroking) {
+        /* Hands together: there is no cue line to speak of. Same reasoning as
+         * the tracking drop above — do not carry an anchor across a gap in
+         * which the hands were free to go anywhere. */
         c->tracked = c->on_ball = c->have_prev = 0;
+        c->adj_have0 = 0;
+        c->adjusting = 0;
         return;
     }
     c->tracked = 1;
@@ -388,7 +431,9 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
             off = mv3_scale(off, CUEVR_REST_MAXLEN / len);
             c->adj_bridge0 = mv3_add(Lh->pose.p, off);
         }
-        c->rest = off;
+        /* Back into the controller's own frame to store it. */
+        c->rest = mq_rot(mq_conj(Lh->pose.q), off);
+        c->rest_world = off;
         c->bridge = mv3_add(Lh->pose.p, off);
     }
     if (!adjusting) c->adj_have0 = 0;   /* re-anchor on the next hold */

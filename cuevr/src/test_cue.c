@@ -343,7 +343,9 @@ int main(void) {
     checkf(mv3_len(mv3_sub(c.rest, restSet)), 0.0f, 1e-6f,
            "the offset is still there after release");
     check(mv3_len(c.rest) > 0.02f, "it did not collapse to the controller centre");
-    checkf(mv3_len(mv3_sub(mv3_sub(c.bridge, t.hand[MOTE_VR_LEFT].pose.p), c.rest)),
+    /* rest is stored in the CUE's frame now; rest_world is that same offset
+     * resolved for this frame, and it is the one the bridge is built from. */
+    checkf(mv3_len(mv3_sub(mv3_sub(c.bridge, t.hand[MOTE_VR_LEFT].pose.p), c.rest_world)),
            0.0f, 1e-6f, "the cue passes through the offset point, not the hand centre");
 
     /* Ordinary hand movement carries the offset along rather than editing it. */
@@ -413,6 +415,39 @@ int main(void) {
 
         t.hand[MOTE_VR_LEFT].squeeze = 0.0f;
         cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+
+        /* A TRACKING DROPOUT MID-ADJUST. The bridge hand lives under the
+         * player's body on the cloth, which is where the headset cannot see it,
+         * so this happens all the time — and a hand wrapped round a controller
+         * is resting on the grip button while it does. If the anchor survives
+         * the gap, the offset is recomputed against where the hand USED to be
+         * and the cue leaps. Nothing the player did explains it. */
+        t.hand[MOTE_VR_LEFT].squeeze = 1.0f;
+        cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+        MoteVrV3 held = c.rest;
+
+        t.hand[MOTE_VR_LEFT].tracked = 0;                 /* lost */
+        for (int i = 0; i < 20; i++) {
+            t.hand[MOTE_VR_LEFT].pose.p =
+                mv3_add(t.hand[MOTE_VR_LEFT].pose.p, mv3(0.01f, 0.005f, 0));
+            cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+        }
+        t.hand[MOTE_VR_LEFT].tracked = 1;                 /* back, 22 cm away */
+        /* TWO frames, not one: have_hand is cleared by the dropout, so the
+         * adjustment does not resume until the frame after tracking returns —
+         * and it is that second frame, reading a stale anchor, that moves the
+         * cue. Checking only the first frame reports success on a build that
+         * still has the bug, which is what it did. */
+        cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+        cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+        /* Millimetres, not microns: the offset lives in the cue's frame, and
+         * moving one hand 22 cm turns that frame a little, so the same stored
+         * offset resolves a hair differently. That is the point of storing it
+         * that way. What must not happen is the 45 mm leap a stale anchor gave. */
+        checkf(mv3_len(mv3_sub(c.rest, held)), 0.0f, 3e-3f,
+               "a tracking dropout while adjusting does not move the bridge");
+        t.hand[MOTE_VR_LEFT].squeeze = 0.0f;
+        cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     }
     check(mv3_len(mv3_sub(c.axis, axis0)) > 0.01f,
           "and the bridge hand still steers the cue");
@@ -451,6 +486,46 @@ int main(void) {
         }
         checkf(worst, 0.0f, 1e-4f,
                "turning the table about the cue ball never moves the cue ball");
+    }
+
+    /* WALK ROUND THE TABLE. Set a bridge offset with a sideways component,
+     * then play from the other side. The offset is a property of how you hold
+     * the cue, so the cue must sit the same way relative to your hands wherever
+     * you stand. Stored in the room's axes it did not: "five centimetres that
+     * way" kept meaning the same direction in the ROOM, so from the far side it
+     * sat on the wrong side of the hand and the cue pointed somewhere nobody
+     * had put it. */
+    {
+        CueVrCue k; cuevr_cue_init(&k);
+        k.grip = 0.20f;
+        MoteVrTracking tt; memset(&tt, 0, sizeof tt);
+        tt.dt = 1.0f/72.0f;
+        tt.hand[0].tracked = tt.hand[1].tracked = 1;
+        tt.hand[0].pose.q = tt.hand[1].pose.q = mq_ident();
+        CueVrShot sh;
+        float worst = 0.0f;
+        MoteVrV3 ref = mv3(0,0,0);
+        for (int deg = 0; deg <= 360; deg += 45) {
+            float a2 = (float)deg * 3.14159265f / 180.0f;
+            MoteVrV3 fwd = mv3(cosf(a2), 0, sinf(a2));
+            /* bridge hand ahead of grip hand, both at the same height */
+            tt.hand[MOTE_VR_RIGHT].pose.p = mv3(0, 1.0f, 0);
+            tt.hand[MOTE_VR_LEFT].pose.p  = mv3_add(tt.hand[MOTE_VR_RIGHT].pose.p,
+                                                    mv3_scale(fwd, 0.50f));
+            /* and the hand turns with you, as a hand does */
+            tt.hand[MOTE_VR_LEFT].pose.q = mq_axis_angle(mv3(0,1,0), -a2);
+            k.rest = mv3(0.02f, 0.03f, 0.04f);      /* forward, up, across */
+            for (int i = 0; i < 3; i++)
+                cuevr_cue_update(&k, &tt, &PLACE, BALL, R, &sh);
+            /* the offset, expressed in the cue's own frame, must be identical */
+            MoteVrV3 o = mv3_sub(k.bridge, tt.hand[MOTE_VR_LEFT].pose.p);
+            MoteVrV3 inframe = mq_rot(mq_conj(tt.hand[MOTE_VR_LEFT].pose.q), o);
+            if (deg == 0) ref = inframe;
+            float d = mv3_len(mv3_sub(inframe, ref));
+            if (d > worst) worst = d;
+        }
+        checkf(worst, 0.0f, 1e-5f,
+               "the bridge sits the same way relative to the cue from every side");
     }
 
     printf(fail ? "\nFAILED\n" : "\nall good\n");

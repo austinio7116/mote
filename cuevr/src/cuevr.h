@@ -136,7 +136,11 @@ typedef struct {
      * the controller, every time, no matter how carefully it was aligned. It
      * also froze the drawn cue while the trigger was held, so none of it was
      * visible until you let go. Direct, and live, is what this wants to be. */
+    /* IN THE LEFT CONTROLLER'S OWN FRAME, not the room's — see cuevr_cue.c.
+     * Bolted to the controller, so the bridge is always that controller plus a
+     * fixed few centimetres and nothing else can move it. */
     MoteVrV3 rest;
+    MoteVrV3 rest_world;   /* the same offset in room axes, for this frame */
 
     /* The stroke. Pulling the right trigger locks the aim and hands the cue to
      * your grip hand: the bridge becomes a fixed pivot and the cue slides

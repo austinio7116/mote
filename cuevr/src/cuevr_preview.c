@@ -25,7 +25,11 @@
 #include "cuevr.h"
 
 /* How many rows below GAME the START row sits. Must track the menu. */
-#define MR_START_STEPS 10
+/* Rows from GAME down to START in the main menu. The appearance options moved
+ * to their own screen, so this went from 10 to 6 — and a stale number here does
+ * not fail, it just never starts the frame and every capture silently shows the
+ * menu instead. */
+#define MR_START_STEPS 6
 /* ALIGN CONTROLS is PS_ALIGN rows below RESUME. Kept here rather than reaching
  * into the app's private enum, and it will drift if a row is inserted — which
  * is what the capture is for: a wrong number lands on a visibly wrong screen

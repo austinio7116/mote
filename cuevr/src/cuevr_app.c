@@ -166,6 +166,14 @@ static const struct { CueGameKind kind; const char *name; } MENU[] = {
 static struct {
     int state;
     int menu_sel, menu_latch, menu_row;
+    /* The A button gets its OWN latch, separate from the stick's.
+     *
+     * They shared one, and the main menu clears it whenever the STICK is
+     * centred — so leaving a sub-screen with A still held cleared the latch on
+     * the very next frame and the still-held button opened the sub-screen
+     * again, immediately, for ever. A latch another control can clear is not a
+     * latch. */
+    int btn_latch;
     int menu_updown;             /* latch for row movement */
     int opp;                     /* OPP_* */
     int cloth_idx, frame_idx;    /* cue_theme.h palettes */
@@ -1013,7 +1021,37 @@ static void hud_build(void) {
          * that they are the one down on the white. */
         if (p == 1 && S.opp == OPP_CPU) hud_face(11, y + 9, 16, S.persona);
         else                            cue_render_ball_icon_hs(11, y + 9, 7, CUE_ID_CUE);
-        hud_text_2x(p == 0 ? me : them, 22, y + 3, striker ? TXT : DIM);
+        /* THE NAME FITS, OR IT SHRINKS, OR IT IS CUT. It was drawn at 2x from a
+         * fixed column with the frame tally and the score at fixed columns of
+         * their own, so a long one — "Professor Pete" — ran straight through
+         * both. A scoreboard whose name overlaps its numbers is unreadable
+         * exactly when you want to read it.
+         *
+         * The name column ends where the right-hand furniture begins, and that
+         * differs between snooker and pool, so it is computed rather than
+         * assumed. Big if it fits, small if it does not, cut if even that will
+         * not do — in that order, because the size is worth more than the last
+         * few letters. */
+        {
+            const char *nm = (p == 0) ? me : them;
+            int x0 = 22;
+            int right = S.tab.is_snooker
+                      ? (S.rules.best_of > 1 ? HW - 36 : HW - 20)
+                      : (S.rules.best_of > 1 ? HW - 46 : HW - 28);
+            int room = right - x0;
+            char cut[32];
+            if (hud_text_w_2x(nm) <= room) {
+                hud_text_2x(nm, x0, y + 3, striker ? TXT : DIM);
+            } else if (hud_text_w(nm) <= room) {
+                hud_text(nm, x0, y + 6, striker ? TXT : DIM);
+            } else {
+                size_t n2 = strlen(nm);
+                if (n2 > sizeof cut - 1) n2 = sizeof cut - 1;
+                memcpy(cut, nm, n2); cut[n2] = 0;
+                while (n2 > 1 && hud_text_w(cut) > room) cut[--n2] = 0;
+                hud_text(cut, x0, y + 6, striker ? TXT : DIM);
+            }
+        }
         if (S.tab.is_snooker) {
             snprintf(b, sizeof b, "%d", S.rules.score[p]);
             hud_text_r_xl(b, HW - 5, y + 1, striker ? TXT : DIM);
@@ -1594,7 +1632,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
     {
         int in_menu = (S.state == ST_MENU || S.state == ST_SETUP ||
                        S.state == ST_LOBBY || S.state == ST_ALIGN ||
-                       S.state == ST_APPEAR || S.state == ST_STATS);
+                       S.state == ST_STATS);
         if (!in_menu) {
             /* How steeply the cue is FORCED to sit for this aim, worked out
              * BEFORE the cue is read because the cue is what consumes it. It is
@@ -1659,8 +1697,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
             if (S.menu_row == MR_GAME) menu_preview();
             S.hud_dirty = 1;
         }
-        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.menu_latch) {
-            S.menu_latch = 1;
+        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
+            S.btn_latch = 1;
             if (S.menu_row == MR_APPEAR) {
                 S.appear_from = ST_MENU;
                 S.menu_row = AR_CLOTH;
@@ -1688,9 +1726,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 }
                 S.hud_dirty = 1;
             }
-        } else if (!t->hand[MOTE_VR_RIGHT].btn_lower && fabsf(xx) < 0.4f) {
-            S.menu_latch = 0;
         }
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
         break;
     }
 
@@ -1868,11 +1905,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     }
                     break;
                 case PS_APPEAR:
+                    S.btn_latch = 1;      /* the press that opened it is still down */
                     S.appear_from = ST_PAUSE;
                     S.menu_row = AR_CLOTH;
                     S.state = ST_APPEAR;
                     break;
                 case PS_STATS:
+                    S.btn_latch = 1;
                     S.appear_from = ST_PAUSE;
                     S.state = ST_STATS;
                     break;
@@ -2313,15 +2352,15 @@ static void app_update(void *u, const MoteVrTracking *t) {
             restyle_table();
             S.hud_dirty = 1;
         }
-        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.menu_latch) {
-            S.menu_latch = 1;
+        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
+            S.btn_latch = 1;
             S.state = S.appear_from;
             S.menu_row = (S.appear_from == ST_MENU) ? MR_APPEAR : 0;
             if (S.appear_from == ST_PAUSE) S.pause_sel = PS_APPEAR;
             S.hud_dirty = 1;
-        } else if (!t->hand[MOTE_VR_RIGHT].btn_lower && fabsf(xx) < 0.4f) {
-            S.menu_latch = 0;
         }
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+        if (fabsf(xx) < 0.4f) S.menu_latch = 0;
         break;
     }
 
@@ -2330,15 +2369,15 @@ static void app_update(void *u, const MoteVrTracking *t) {
         if (fabsf(xx) > 0.4f && !S.menu_latch) {
             S.menu_latch = 1; S.stat_page ^= 1; S.hud_dirty = 1;
         }
-        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.menu_latch) {
-            S.menu_latch = 1;
+        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
+            S.btn_latch = 1;
             S.state = S.appear_from;
             S.menu_row = (S.appear_from == ST_MENU) ? MR_STATS : 0;
             if (S.appear_from == ST_PAUSE) S.pause_sel = PS_STATS;
             S.hud_dirty = 1;
-        } else if (!t->hand[MOTE_VR_RIGHT].btn_lower && fabsf(xx) < 0.4f) {
-            S.menu_latch = 0;
         }
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+        if (fabsf(xx) < 0.4f) S.menu_latch = 0;
         break;
     }
 
@@ -2528,8 +2567,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * nobody. Everything else in play keeps it. */
         int in_menu = (S.state == ST_MENU || S.state == ST_SETUP ||
                        S.state == ST_LOBBY || S.state == ST_PAUSE ||
-                       S.state == ST_ALIGN || S.state == ST_APPEAR ||
-                       S.state == ST_STATS);
+                       S.state == ST_ALIGN || S.state == ST_STATS);
+        /* NOT hidden on APPEARANCE: that screen is where you pick the cue, and
+         * a cue chooser with no cue in it is a list of words. */
         S.scene.cue_visible = !in_menu && S.cue.tracked;
         S.scene.cue_butt = S.cue.butt;
         S.scene.cue_tip  = S.cue.tip;
