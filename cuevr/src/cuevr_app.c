@@ -1965,6 +1965,17 @@ static void app_update(void *u, const MoteVrTracking *t) {
             memset(&S.idle_shot, 0, sizeof S.idle_shot);
     }
 
+    /* Ours, out to them. Every fourth frame — about 18 Hz, which is plenty for
+     * a stick moving at human speed and a fraction of the bandwidth of every
+     * frame. Only while we are actually holding it. */
+    if (S.opp == OPP_ONLINE && cuevr_net_state() == CUEVR_NET_LIVE &&
+        S.cue.tracked && (S.dbg_frame & 3) == 0) {
+        MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, S.cue.tip);
+        MoteVrV3 bp = cuevr_room_to_table(&S.setup.place, S.cue.butt);
+        CueVrNetPose np = { tp.x, tp.y, tp.z, bp.x, bp.y, bp.z };
+        cuevr_net_send_pose(&np);
+    }
+
     /* A SHOT IN FLIGHT KEEPS RUNNING behind a menu. Opening one used to stop
      * the balls dead, because the stepping lived inside ST_ROLL and the state
      * machine was somewhere else — you came back to a shot that had been
@@ -2912,10 +2923,25 @@ static void app_update(void *u, const MoteVrTracking *t) {
         S.scene.cue_tip  = S.cue.tip;
         S.scene.cue_roll = 0.0f;
 
-        /* And the opponent's, on its own slot, only while they are down. */
+        /* And the opponent's, on its own slot. The CPU while it is down on the
+         * shot; a live opponent whenever their cue is arriving, so you can
+         * watch them walk round the table and line one up rather than seeing a
+         * stick appear for the stroke and vanish again. */
         S.scene.ocue_visible = (S.state == ST_CPUCUE);
         S.scene.ocue_tip  = S.cpu_tip;
         S.scene.ocue_butt = S.cpu_butt;
+        if (S.opp == OPP_ONLINE) {
+            CueVrNetPose pp;
+            if (cuevr_net_peer_pose(&pp)) {
+                /* Table space on the wire, so it lands right however each end
+                 * has put its own table down in its own room. */
+                S.scene.ocue_tip  = cuevr_table_to_room(&S.setup.place,
+                                        v3(pp.tipx, pp.tipy, pp.tipz));
+                S.scene.ocue_butt = cuevr_table_to_room(&S.setup.place,
+                                        v3(pp.bttx, pp.btty, pp.bttz));
+                S.scene.ocue_visible = 1;
+            }
+        }
     }
 
     /* Where the panel goes depends on what it is for.

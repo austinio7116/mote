@@ -40,13 +40,14 @@
  * differently and diverge on the first shot, and they would do it silently,
  * which is exactly what a room id exists to prevent. Failing to pair is the
  * better failure. */
-#define CUEVR_GAME_ID  0x43554533u   /* 'CUE3' — the shot record grew, and the
+#define CUEVR_GAME_ID  0x43554534u   /* 'CUE3' — the shot record grew, and the
                                       * hello with it */
 
 /* Wire framing. A magic byte per record so a half-read stream resynchronises
  * rather than reinterpreting float bytes as a shot. */
 #define PKT_SHOT  0xC5
 #define PKT_HELLO 0xC4
+#define PKT_POSE  0xC3
 
 static int   s_state;
 static int   s_me = -1;
@@ -56,6 +57,25 @@ static char  s_info[64] = "";
  * byte record over TCP may well be 9 bytes then 16. */
 static uint8_t s_in[256];
 static int     s_in_n;
+
+/* Their cue, and how long since it last moved. Counted in RECEIVE calls rather
+ * than seconds because that is what this layer has: the app polls every frame,
+ * so a couple of hundred is a couple of seconds. */
+static CueVrNetPose s_ppose;
+static int          s_pose_age = 1 << 20;
+
+void cuevr_net_send_pose(const CueVrNetPose *p) {
+    if (s_state != CUEVR_NET_LIVE || !p) return;
+    uint8_t b[1 + sizeof *p];
+    b[0] = PKT_POSE;
+    memcpy(b + 1, p, sizeof *p);
+    link_net_send(b, (int)sizeof b);
+}
+int cuevr_net_peer_pose(CueVrNetPose *out) {
+    if (s_pose_age > 200 || !out) return 0;
+    *out = s_ppose;
+    return 1;
+}
 
 /* Ours, and theirs once it lands. */
 static CueVrNetHello s_mine = { 0, 0, 0 };
@@ -151,6 +171,7 @@ void cuevr_net_stop(void) {
     s_me = -1;
     s_in_n = 0;
     s_have_peer = 0;      /* a stale peer from the last room is a wrong table */
+    s_pose_age = 1 << 20;
     s_info[0] = 0;
     s_code[0] = 0;
 }
@@ -265,6 +286,7 @@ void cuevr_net_send_shot(const CueVrNetShot *s) {
 
 int cuevr_net_recv_shot(CueVrNetShot *out) {
     if (s_state != CUEVR_NET_LIVE || !out) return 0;
+    if (s_pose_age < (1 << 20)) s_pose_age++;
 
     /* Top up the buffer, then consume whole records from the front. */
     if (s_in_n < (int)sizeof s_in) {
@@ -274,6 +296,7 @@ int cuevr_net_recv_shot(CueVrNetShot *out) {
     while (s_in_n > 0) {
         uint8_t tag = s_in[0];
         int need = (tag == PKT_SHOT) ? 1 + (int)sizeof *out
+                 : (tag == PKT_POSE)  ? 1 + (int)sizeof s_ppose
                  : (tag == PKT_HELLO) ? 1 + (int)sizeof s_peer
                  : -1;
         if (need < 0) {
@@ -285,6 +308,10 @@ int cuevr_net_recv_shot(CueVrNetShot *out) {
         if (s_in_n < need) return 0;             /* the rest is still in flight */
         int found = (tag == PKT_SHOT);
         if (found) memcpy(out, s_in + 1, sizeof *out);
+        else if (tag == PKT_POSE) {
+            memcpy(&s_ppose, s_in + 1, sizeof s_ppose);
+            s_pose_age = 0;
+        }
         else if (tag == PKT_HELLO) {
             memcpy(&s_peer, s_in + 1, sizeof s_peer);
             s_have_peer = 1;

@@ -68,6 +68,21 @@ typedef struct {
     int  cue_idx;          /* the cue they are holding, so it can be drawn */
 } CueVrNetHello;
 
+/* WHERE THEIR CUE IS, live. Not part of the lockstep — nothing here changes the
+ * simulation — purely so the other player is a person standing at the table
+ * holding a stick rather than a scoreboard entry that occasionally moves the
+ * balls. Table space, so it lands correctly however each end has placed and
+ * turned its own table in its own room. Sent at a fraction of frame rate and
+ * dropped if it stops arriving. */
+typedef struct {
+    float tipx, tipy, tipz;
+    float bttx, btty, bttz;
+} CueVrNetPose;
+
+void cuevr_net_send_pose(const CueVrNetPose *p);
+/* 1 if a pose has arrived recently enough to draw. */
+int  cuevr_net_peer_pose(CueVrNetPose *out);
+
 /* The last hello received, if any. Returns 1 when one has arrived. */
 int  cuevr_net_peer(CueVrNetHello *out);
 /* Ours, sent when the room goes live. */
