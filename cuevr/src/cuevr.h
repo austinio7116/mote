@@ -290,6 +290,7 @@ typedef struct {
     int      pool_clear[CUEVR_STAT_POOL][2]; /* UK8, US8, 9-ball, Chinese 8 */
     int      frames_won[2];
     int      frames_played[2];
+    int      lefty;          /* bridge with the right hand */
 } CueVrPrefs;
 
 void cuevr_prefs_dir(const char *dir);
@@ -307,6 +308,12 @@ typedef struct {
 
 /* Update the cue from the hands and decide whether it has just hit the ball.
  * `ball_room` is the cue ball centre in room space, R its radius. */
+/* LEFT-HANDED. A left-hander bridges with the RIGHT hand and grips with the
+ * left — the mirror image of everything below, and the only thing that has to
+ * change to get it. Set once from the menu; the cue then reads the hands the
+ * other way round and nothing else in the game knows or cares. */
+void cuevr_cue_left_handed(int on);
+
 void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
                       const CueVrPlacement *p, MoteVrV3 ball_room, float R,
                       CueVrShot *out);

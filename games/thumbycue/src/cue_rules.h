@@ -73,7 +73,14 @@ typedef struct {
 
 /* decision codes. CUE_DEC_PENDING is parked in r->decision after a snooker foul
  * that offers a choice; the host then passes a PLAY/REPLAY/FREEBALL back. */
-enum { CUE_DEC_NONE = 0, CUE_DEC_PENDING, CUE_DEC_PLAY, CUE_DEC_REPLAY, CUE_DEC_FREEBALL };
+/* PLAY     — I play the balls as they lie.
+ * AGAIN    — you play again, from where they lie. Available after ANY foul,
+ *            and the option that was missing: REPLAY restores the layout,
+ *            which is a different thing and only offered after a called miss.
+ * REPLAY   — put the balls back and play the stroke again. Miss only.
+ * FREEBALL — I play, and I am snookered, so I may nominate a free ball. */
+enum { CUE_DEC_NONE = 0, CUE_DEC_PENDING, CUE_DEC_PLAY, CUE_DEC_AGAIN,
+       CUE_DEC_REPLAY, CUE_DEC_FREEBALL };
 
 void cue_rules_init(CueRules *r, const CueTable *t, int cpu);
 /* Re-rack for the next frame of the same match: the frame state resets, the

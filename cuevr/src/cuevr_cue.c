@@ -22,6 +22,9 @@
 #include <stdio.h>
 #include <string.h>
 
+static int s_lefty;
+void cuevr_cue_left_handed(int on) { s_lefty = on ? 1 : 0; }
+
 void cuevr_cue_init(CueVrCue *c) {
     memset(c, 0, sizeof *c);
     /* A snooker player grips maybe 20 cm up from the butt end. With the bridge
@@ -165,6 +168,7 @@ static void prefs_put(CueVrPrefs *p, const char *k, double v) {
     else if (!strcmp(k, "fw1")) { if (v >= 0) p->frames_won[1] = i; }
     else if (!strcmp(k, "fp0")) { if (v >= 0) p->frames_played[0] = i; }
     else if (!strcmp(k, "fp1")) { if (v >= 0) p->frames_played[1] = i; }
+    else if (!strcmp(k, "lefty")) p->lefty = i ? 1 : 0;
     /* anything else: a field from a newer build, or a typo. Skip it. */
 }
 
@@ -251,6 +255,7 @@ void cuevr_prefs_save(const CueVrPrefs *p) {
     fprintf(f, "fw0 %d\nfw1 %d\nfp0 %d\nfp1 %d\n",
             p->frames_won[0], p->frames_won[1],
             p->frames_played[0], p->frames_played[1]);
+    fprintf(f, "lefty %d\n", p->lefty);
     fclose(f);
 }
 
@@ -299,8 +304,12 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
 {
     memset(out, 0, sizeof *out);
 
-    const MoteVrHand *Lh = &t->hand[MOTE_VR_LEFT];    /* bridge */
-    const MoteVrHand *Rh = &t->hand[MOTE_VR_RIGHT];   /* grip on the butt */
+    /* Which hand is which. A left-hander bridges with the right and grips with
+     * the left; swapping the two pointers here is the whole of it, because
+     * everything below is written in terms of "the bridge hand" and "the grip
+     * hand" rather than in terms of left and right. */
+    const MoteVrHand *Lh = &t->hand[s_lefty ? MOTE_VR_RIGHT : MOTE_VR_LEFT];
+    const MoteVrHand *Rh = &t->hand[s_lefty ? MOTE_VR_LEFT  : MOTE_VR_RIGHT];
     if (!Lh->tracked || !Rh->tracked) {
         c->tracked = c->on_ball = c->have_prev = c->have_hand = c->stroking = 0;
         /* AND DROP THE REPOSITION ANCHOR. This did not, and that is how the
@@ -444,6 +453,9 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     }
     if (!adjusting) c->adj_have0 = 0;   /* re-anchor on the next hold */
     c->adjusting = adjusting;
+    /* These two slots are BRIDGE and GRIP, not left and right — they are read
+     * back against Lh and Rh, which are already whichever way round the player
+     * is handed. The enum names are the storage, not the meaning. */
     c->prev_hand[MOTE_VR_LEFT]  = Lh->pose.p;
     c->prev_hand[MOTE_VR_RIGHT] = Rh->pose.p;
     c->have_hand = 1;

@@ -105,8 +105,8 @@ static const char *OPP_NAME[OPP_N] = { "PRACTICE", "VS CPU", "ONLINE" };
  * that only decide how the table LOOKS now live on their own screen, reachable
  * from here and from the pause menu — so they can also be changed mid-frame,
  * which is when you actually notice you dislike the cloth. */
-enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_APPEAR, MR_STATS,
-       MR_START, MR_N };
+enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_HAND, MR_APPEAR,
+       MR_STATS, MR_START, MR_N };
 
 /* The appearance screen's own rows. */
 enum { AR_CLOTH = 0, AR_FRAME, AR_BODY, AR_LIGHT, AR_BALLS, AR_CUE, AR_BACK, AR_N };
@@ -130,10 +130,10 @@ enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE }
  * made the pause menu overfull — and they are settings a player changes once if
  * ever, against defaults that were chosen by measurement. cuevr_render_fx_set()
  * is still there for the preview harness to drive. */
-enum { PS_RESUME = 0, PS_UNDO, PS_RERACK, PS_PLACE, PS_NOMINATE, PS_CONCEDE,
-       PS_APPEAR, PS_STATS, PS_ALIGN, PS_QUIT, PS_N };
+enum { PS_RESUME = 0, PS_UNDO, PS_PICKUP, PS_RERACK, PS_PLACE, PS_NOMINATE,
+       PS_CONCEDE, PS_APPEAR, PS_STATS, PS_ALIGN, PS_QUIT, PS_N };
 static const char *PS_NAME[PS_N] = {
-    "RESUME", "UNDO SHOT", "RE-RACK", "PLACE TABLE",
+    "RESUME", "UNDO SHOT", "PICK UP BALL", "RE-RACK", "PLACE TABLE",
     "NOMINATE", "CONCEDE FRAME", "APPEARANCE", "RECORDS",
     "ALIGN CONTROLS", "BACK TO MENU" };
 static const char *COLOUR_NAME[8] = {
@@ -203,6 +203,9 @@ static struct {
     int stat_counted;          /* this frame's result already recorded */
     int stat_dirty;
     int stat_page;         /* 0 = vs CPU, 1 = online */
+    int dec_sel;           /* highlighted decision row */
+    int can_repick;        /* the ball is down but the stroke is not played */
+    int lefty;             /* bridges with the right hand */
     /* The pointer: where the right controller's ray meets the panel, in the
      * HUD's own layout coordinates (0..HW across, 0..rows down). */
     int   ptr_ok;
@@ -757,6 +760,38 @@ static void hud_paint(void);
  * highlight rather than blue — the same green the START row uses for the other
  * thing on this screen that ACTS rather than adjusts — and the word OPEN where
  * a value would sit. */
+/* EVERY choice the rules actually offer at this decision point, in one list.
+ *
+ * The HUD used to name two of them on A and B and the input used to act on two
+ * of them, and which two depended on separate chains of if/else that had to
+ * agree by hand. They did not: "play again from where they lie" — the commonest
+ * answer to a foul — appeared in neither, and the B option after a miss restored
+ * the whole layout while being labelled REPLAY, which reads as "play it again"
+ * and does considerably more than that.
+ *
+ * Both the drawing and the acting walk THIS array. */
+typedef struct { int dec; const char *label; const char *note; } DecOpt;
+
+static int decision_options(DecOpt *o, int max) {
+    int n = 0;
+    if (S.rules.pushout_offer) {
+        if (n < max) o[n++] = (DecOpt){ CUE_DEC_PLAY,  "PUSH OUT",  "play a free stroke" };
+        if (n < max) o[n++] = (DecOpt){ CUE_DEC_AGAIN, "PLAY ON",   "take the shot" };
+        return n;
+    }
+    if (n < max) o[n++] = (DecOpt){ CUE_DEC_PLAY,  "PLAY ON",
+                                    "I play the balls as they lie" };
+    if (n < max) o[n++] = (DecOpt){ CUE_DEC_AGAIN, "PLAY AGAIN",
+                                    "you play, from where they lie" };
+    if (S.rules.dec_can_restore && n < max)
+        o[n++] = (DecOpt){ CUE_DEC_REPLAY, "REPLACE + AGAIN",
+                           "balls back, play the stroke again" };
+    if (S.rules.dec_free_ball && n < max)
+        o[n++] = (DecOpt){ CUE_DEC_FREEBALL, "FREE BALL",
+                           "I play, and nominate a free ball" };
+    return n;
+}
+
 static void hud_link(int row, const char *label, const char *act, int sel,
                      uint16_t DIM, uint16_t HI, uint16_t LIVE) {
     int y = 12 + row * 8;
@@ -809,6 +844,8 @@ static void hud_paint(void) {
         /* Who you are about to play, with their face — the portraits have been
          * sitting in cue_faces.h all along. */
         if (S.opp == OPP_CPU) hud_face(HW - 9, 12 + MR_STRENGTH * 8 + 3, 9, S.persona);
+        hud_opt(MR_HAND, "CUE HAND", S.lefty ? "LEFT" : "RIGHT",
+                S.menu_row == MR_HAND, 1, TXT, DIM, HI);
         hud_link(MR_APPEAR, "APPEARANCE", "OPEN", S.menu_row == MR_APPEAR, DIM, HI, LIVE);
         hud_link(MR_STATS,  "RECORDS",    "OPEN", S.menu_row == MR_STATS,  DIM, HI, LIVE);
 
@@ -1045,7 +1082,11 @@ static void hud_paint(void) {
             int on = (i == S.pause_sel);
             /* Undo only exists in practice, and only when there is a shot to
              * take back. Showing it greyed says so more clearly than hiding it. */
-            int enabled = (i != PS_UNDO) || (S.opp == OPP_PRACTICE && S.have_snap);
+            int enabled = 1;
+            if (i == PS_UNDO)   enabled = (S.opp == OPP_PRACTICE && S.have_snap);
+            /* Picking it back up is only a thing while it is still yours to
+             * place: after the ball is down and before the stroke. */
+            if (i == PS_PICKUP) enabled = S.can_repick;
             if (on) hud_rect(1, y - 1, HW - 2, 9, RGB565C(30, 46, 72));
             char lb[40];
             hud_text_2x(ps_label(i, lb, sizeof lb, S.rules.nominated), 6, y - 1,
@@ -1214,10 +1255,20 @@ static void hud_paint(void) {
         return;
     }
     if (S.state == ST_DECIDE) {
-        if (S.rules.pushout_offer)         hud_text_2x("PUSH OUT?  A YES  B NO", 4, 58, HI);
-        else if (S.rules.dec_can_restore)  hud_text_2x("MISS: A PLAY  B REPLAY", 4, 58, HI);
-        else if (S.rules.dec_free_ball)    hud_text_2x("FREE BALL: A NO  B YES", 4, 58, HI);
-        else                               hud_text_2x("YOUR CALL - A PLAY ON", 4, 58, HI);
+        DecOpt o[6];
+        int n = decision_options(o, 6);
+        hud_height(CUEVR_HUD_LH);
+        hud_rect(0, 0, HW, 10, BAND);
+        hud_text_2x(S.rules.pushout_offer ? "PUSH OUT?" : "THEIR FOUL - YOUR CALL", 4, 1, HI);
+        hud_rect(0, 10, HW, 1, LINE);
+        if (S.rules.dec_can_restore) hud_text("A MISS WAS CALLED", 4, 13, LIVE);
+        for (int i = 0; i < n; i++) {
+            int y = 22 + i * 14, sel = (S.dec_sel == i);
+            if (sel) hud_rect(1, y - 1, HW - 2, 13, RGB565C(28, 58, 40));
+            hud_text_2x(o[i].label, 6, y - 1, sel ? HI : DIM);
+            hud_text(o[i].note, 8, y + 8, DIM);
+        }
+        hud_text("POINT AND PULL THE TRIGGER", 4, HH - 6, DIM);
         return;
     }
     if (S.state == ST_OVER) {
@@ -1249,6 +1300,7 @@ static void arm_shot(void) {
 }
 
 static void begin_shot(void) {
+    S.can_repick = 0;      /* the stroke is away: the ball is no longer in hand */
     for (int i = 0; i < S.nballs; i++) S.was_on[i] = S.balls[i].on;
     S.world.first_hit = -1;
     S.world.first_hit_idx = -1;
@@ -1332,6 +1384,7 @@ static void menu_change(int d) {
             case MR_OPP:      S.opp = (S.opp + d + OPP_N) % OPP_N; break;
             case MR_FRAMES:   S.match_idx = (S.match_idx + d + MATCH_LEN_N) % MATCH_LEN_N; break;
             case MR_STRENGTH: S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS; break;
+            case MR_HAND:     S.lefty = !S.lefty; cuevr_cue_left_handed(S.lefty); break;
             /* Cloth, frame, table, lighting, balls and cue moved to the
              * APPEARANCE screen, which owns them for both entry points. */
             default: break;
@@ -1585,6 +1638,8 @@ static int app_gl_init(void *u) {
         }
         cuevr_render_set_ctrl_cal(S.cal_pos, S.cal_rot);
         S.stats = pr;                      /* the records ride in the same file */
+        S.lefty = pr.lefty;
+        cuevr_cue_left_handed(S.lefty);
         cuevr_render_set_cue(S.cue_idx);
         cuevr_render_set_light(S.light_idx);
         cuevr_render_set_body(S.body_idx);
@@ -1774,8 +1829,11 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * pointer, it is a laser lying on the cloth. */
         int pointing = (S.state == ST_MENU || S.state == ST_PAUSE ||
                         S.state == ST_APPEAR || S.state == ST_STATS ||
-                        S.state == ST_LOBBY);
-        const MoteVrHand *rh = &t->hand[MOTE_VR_RIGHT];
+                        S.state == ST_LOBBY || S.state == ST_DECIDE);
+        /* The pointer lives in the hand that holds the BUTT, which is the left
+         * one for a left-hander. Hard-coding the right would have put the laser
+         * in their bridge hand — the one lying on the cloth. */
+        const MoteVrHand *rh = &t->hand[S.lefty ? MOTE_VR_LEFT : MOTE_VR_RIGHT];
         if (pointing && rh->aim_tracked && S.scene.hud_visible && S.scene.hud_w > 0.01f) {
             MoteVrV3 o = rh->aim.p;
             MoteVrV3 d = mq_rot(rh->aim.q, mv3(0, 0, -1));
@@ -2066,6 +2124,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
                         snprintf(S.msg, sizeof S.msg, "FRAME CONCEDED");
                         S.msg_time = 3.0f;
                         S.state = ST_OVER;
+                    }
+                    break;
+                case PS_PICKUP:
+                    if (S.can_repick) {
+                        S.state = ST_PLACE;
+                        S.place_latch = 1;      /* the press that got here does not drop it */
+                        S.hud_dirty = 1;
                     }
                     break;
                 case PS_APPEAR:
@@ -2446,7 +2511,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
              * Now it sits just above the controller and goes exactly where the
              * controller goes, in the room, unbounded. The rules apply when you
              * let go and not before, which is what "in hand" means. */
-            const MoteVrHand *rh = &t->hand[MOTE_VR_RIGHT];
+            /* Carried in the cueing hand, whichever that is. */
+            const MoteVrHand *rh = &t->hand[S.lefty ? MOTE_VR_LEFT : MOTE_VR_RIGHT];
             if (rh->tracked) {
                 /* OUT IN FRONT, along where the controller points.
                  *
@@ -2496,6 +2562,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             Vec3 p = v3(S.balls[0].pos.x, S.tab.R, S.balls[0].pos.z);
             S.balls[0].pos = cue_table_clamp_placement_balls(
                 &S.tab, p, S.balls, S.nballs, S.rules.break_shot);
+            S.can_repick = 1;      /* until the stroke is played */
             arm_shot();
             S.state = ST_AIM;
             S.hud_dirty = 1;
@@ -2697,22 +2764,35 @@ static void app_update(void *u, const MoteVrTracking *t) {
     }
 
     case ST_DECIDE: {
-        /* A / B answer whatever the rules engine asked. */
-        int a = t->hand[MOTE_VR_RIGHT].btn_lower, b = t->hand[MOTE_VR_RIGHT].btn_upper;
-        if (!a && !b) { S.dec_latch = 0; break; }
-        if (S.dec_latch) break;
-        S.dec_latch = 1;
-        if (S.rules.pushout_offer) {
-            S.rules.is_pushout = a ? 1 : 0;
-            S.rules.pushout_offer = 0;
-            S.rules.pushout_avail = 0;
-        } else if (b && S.rules.dec_can_restore) {
-            snap_restore_balls();          /* the table rewinds; the penalty does not */
-            cue_rules_apply_decision(&S.rules, CUE_DEC_REPLAY);
-        } else if (b && S.rules.dec_free_ball) {
-            cue_rules_apply_decision(&S.rules, CUE_DEC_FREEBALL);
-        } else {
-            cue_rules_apply_decision(&S.rules, CUE_DEC_PLAY);
+        /* Sticks stay the table's here too. */
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        /* Pointed at, and driven off the SAME list the HUD draws — so every
+         * choice the rules offer is a choice you can make, and none of them can
+         * be named on screen without being wired up or wired up without being
+         * named. */
+        {
+            DecOpt o[6];
+            int n = decision_options(o, 6);
+            if (S.dec_sel >= n) S.dec_sel = 0;
+            int hov = ptr_row_at(22, 14, n);
+            if (hov >= 0 && hov != S.dec_sel) { S.dec_sel = hov; S.hud_dirty = 1; }
+
+            int fire = 0;
+            if (hov >= 0 && ptr_click(t)) fire = 1;
+            int a = t->hand[MOTE_VR_RIGHT].btn_lower;
+            if (!a) S.dec_latch = 0;
+            else if (!S.dec_latch) { S.dec_latch = 1; fire = 1; }
+            if (!fire) break;
+
+            int dec = o[S.dec_sel].dec;
+            if (S.rules.pushout_offer) {
+                S.rules.is_pushout = (dec == CUE_DEC_PLAY) ? 1 : 0;
+                S.rules.pushout_offer = 0;
+                S.rules.pushout_avail = 0;
+            } else {
+                if (dec == CUE_DEC_REPLAY) snap_restore_balls();
+                cue_rules_apply_decision(&S.rules, dec);
+            }
         }
         if (S.rules.ball_in_hand) {
             S.balls[0].pos = cue_table_cue_home(&S.tab);
@@ -3010,6 +3090,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             now.frames_won[b] = S.stats.frames_won[b];
             now.frames_played[b] = S.stats.frames_played[b];
         }
+        now.lefty = S.lefty;
         /* Floats compared with a tolerance, not bit-for-bit: the table height is
          * being recomputed every frame while the player is levelling, and an
          * exact compare would rewrite the file once a second for ever on a value
@@ -3024,7 +3105,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             now.persona != last.persona || now.cloth != last.cloth ||
             now.frame != last.frame || now.opp != last.opp ||
             now.cue != last.cue || now.light != last.light ||
-            now.body != last.body ||
+            now.body != last.body || now.lefty != last.lefty ||
             fabsf(now.ctrl_pos[0] - last.ctrl_pos[0]) > 0.0002f ||
             fabsf(now.ctrl_pos[1] - last.ctrl_pos[1]) > 0.0002f ||
             fabsf(now.ctrl_pos[2] - last.ctrl_pos[2]) > 0.0002f ||

@@ -581,6 +581,14 @@ int cue_rules_apply_decision(CueRules *r, int decision) {
     if (decision == CUE_DEC_REPLAY && can_restore) {
         r->turn = off;                        /* offender plays again from restored layout */
         r->ball_in_hand = 0; r->free_ball = 0;
+    } else if (decision == CUE_DEC_AGAIN) {
+        /* Play again from HERE. The commonest thing a player actually does with
+         * a foul — hand it straight back on the mess the offender has left —
+         * and it had no code at all: the only way to make them play again was
+         * REPLAY, which also puts every ball back where it was and so gives
+         * them the position they fouled out of. */
+        r->turn = off;
+        r->ball_in_hand = 0; r->free_ball = 0;
     } else {
         r->turn = opp;
         r->ball_in_hand = r->dec_scratch ? 1 : 0;
