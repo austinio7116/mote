@@ -84,6 +84,13 @@ void cuevr_prefs_defaults(CueVrPrefs *p) {
     p->grip  = 0.20f;
     p->opp   = 1;               /* vs CPU */
     p->body  = -1;              /* whichever suits the table */
+    /* Measured on a Quest 3 against the real controller in a real hand, which
+     * is the only way this number can be arrived at. Zero was never right: the
+     * baked fallback model is somebody else's measurement of somebody else's
+     * hardware, and it sat nose-down by about this much. A default that is
+     * right for the hardware everyone is holding beats a default that is
+     * merely tidy. */
+    p->ctrl_rot[0] = -50.0f;
 }
 
 /* Every field is range-checked on the way in: a corrupt or hand-edited file
@@ -297,11 +304,28 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
             c->adj_bridge0 = mv3_add(Lh->pose.p, c->rest);
             c->adj_have0 = 1;
         }
-        c->rest = mv3_sub(c->adj_bridge0, Lh->pose.p);
-        float len = mv3_len(c->rest);
-        if (len > CUEVR_REST_MAXLEN)
-            c->rest = mv3_scale(c->rest, CUEVR_REST_MAXLEN / len);
-        c->bridge = mv3_add(Lh->pose.p, c->rest);
+        MoteVrV3 off = mv3_sub(c->adj_bridge0, Lh->pose.p);
+        float len = mv3_len(off);
+        if (len > CUEVR_REST_MAXLEN) {
+            /* DRAG THE ANCHOR, do not merely shorten the offset.
+             *
+             * Shortening it alone left a dead zone the size of however far the
+             * hand had strayed: with the anchor fixed and the hand a metre out,
+             * the leash is taut, and the player could bring their hand back
+             * seventy centimetres before anything moved at all. That is what
+             * "virtually impossible to reposition" was — not a stiff control, a
+             * frozen one, and it froze exactly when someone had pushed it far
+             * enough to want it back.
+             *
+             * Pulling the anchor along keeps the response immediate at the
+             * limit while still refusing to accumulate: tracking jitter never
+             * makes the leash taut, so it never moves the anchor, which is the
+             * whole point of anchoring in the first place. */
+            off = mv3_scale(off, CUEVR_REST_MAXLEN / len);
+            c->adj_bridge0 = mv3_add(Lh->pose.p, off);
+        }
+        c->rest = off;
+        c->bridge = mv3_add(Lh->pose.p, off);
     }
     if (!adjusting) c->adj_have0 = 0;   /* re-anchor on the next hold */
     c->adjusting = adjusting;
@@ -309,8 +333,20 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
     c->prev_hand[MOTE_VR_RIGHT] = Rh->pose.p;
     c->have_hand = 1;
     if (adj_r && !adj_l) live_axis = c->adj_axis;   /* a grip slide does not steer */
-    if (adj_l) live_axis = mv3_len(mv3_sub(c->bridge, Rh->pose.p)) > 1e-4f
-                         ? mv3_norm(mv3_sub(c->bridge, Rh->pose.p)) : live_axis;
+    if (adj_l) {
+        /* Steer from the butt hand to the bridge — but ONLY while that still
+         * describes a cue. A 30 cm offset can put the bridge behind the grip
+         * hand, and the moment it crosses over, this vector reverses: the tip
+         * swings through ~180 degrees and the player is holding a cue pointing
+         * back at themselves, with no obvious way to undo it because the
+         * control that got them there now steers backwards too. Below a hand's
+         * width apart the direction is noise anyway, so keep the last good
+         * line rather than invent a new one. */
+        MoteVrV3 v = mv3_sub(c->bridge, Rh->pose.p);
+        float vl = mv3_len(v);
+        if (vl > 0.08f && mv3_dot(mv3_scale(v, 1.0f / vl), live_axis) > 0.0f)
+            live_axis = mv3_scale(v, 1.0f / vl);
+    }
 
     /* ---- the stroke ----------------------------------------------------- *
      * Hysteresis on the trigger, and a wide band of it: pull past 0.55 to take

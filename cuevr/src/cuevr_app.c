@@ -811,6 +811,7 @@ static void hud_build(void) {
          * person adjusting it is looking at a controller in their hand. */
         static const char *CH[6] = { "SIDEWAYS", "UP/DOWN", "IN/OUT",
                                      "PITCH", "YAW", "ROLL" };
+        enum { CAL_RESET = 6 };   /* the row after the six channels */
         hud_height(CUEVR_HUD_LH);
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("ALIGN CONTROLS", 4, 1, HI);
@@ -831,6 +832,13 @@ static void hud_build(void) {
              * unit — a readout you cannot read is worse than none, because it
              * looks like it is working. */
             hud_text_2x(vb, HW - 6 - hud_text_w_2x(vb), y - 1, on ? HI : DIM);
+        }
+        {   /* Back to a clean slate: the alignment AND the cue's bridge and
+             * grip, because when the cue has ended up somewhere impossible the
+             * thing a player wants is not six dials, it is the way out. */
+            int y = 22 + CAL_RESET * 9, on = (S.cal_ch == CAL_RESET);
+            if (on) hud_rect(1, y - 1, HW - 2, 9, RGB565C(72, 34, 30));
+            hud_text_2x("RESET ALL", 6, y - 1, on ? HI : DIM);
         }
         hud_text("STICK  PICK / MOVE", 4, HH - 18, DIM);
         hud_text("A ZERO ONE    B ZERO ALL", 4, HH - 12, DIM);
@@ -1218,9 +1226,12 @@ static int app_gl_init(void *u) {
         pr.cloth = S.cloth_idx; pr.frame = S.frame_idx;
         pr.opp = S.opp; pr.cue = S.cue_idx;
         pr.light = S.light_idx; pr.body = S.body_idx;
-        for (int i = 0; i < 3; i++) {
-            pr.ctrl_pos[i] = S.cal_pos[i]; pr.ctrl_rot[i] = S.cal_rot[i];
-        }
+        /* The alignment is NOT pre-seeded from S the way the rows above are.
+         * Those fields already hold something meaningful by this point; the
+         * calibration does not — S is zero-initialised — so copying it in here
+         * overwrote the shipped default with zero, and every fresh install got
+         * a flat pitch instead of the measured one. Let cuevr_prefs_defaults
+         * stand and let the file override it if there is one. */
         cuevr_prefs_load(&pr);
 
         S.cue.rest = pr.rest; S.cue.grip = pr.grip;
@@ -2051,13 +2062,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
          *   MENU                  done, and it saves
          */
         static const float STEP[6] = { 0.002f, 0.002f, 0.002f, 1.0f, 1.0f, 1.0f };
+        enum { CAL_RESET = 6, CAL_ROWS = 7 };
         float px = t->hand[MOTE_VR_RIGHT].stick_x;
         float py = t->hand[MOTE_VR_RIGHT].stick_y;
 
         /* Channel select, one row per flick. */
         if (fabsf(py) > 0.55f) {
             if (!S.cal_latch) {
-                S.cal_ch = (S.cal_ch + (py < 0.0f ? 1 : 5)) % 6;
+                S.cal_ch = (S.cal_ch + (py < 0.0f ? 1 : CAL_ROWS - 1)) % CAL_ROWS;
                 S.cal_latch = 1;
                 S.hud_dirty = 1;
             }
@@ -2067,7 +2079,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
 
         /* Value nudge. Held, it repeats and accelerates — 2 mm a step is right
          * for the last millimetre and hopeless for the first two centimetres. */
-        if (fabsf(px) > 0.35f) {
+        if (fabsf(px) > 0.35f && S.cal_ch < 6) {
             float want = (S.cal_rep == 0.0f) ? 1.0f : 0.0f;
             S.cal_rep += dt;
             if (S.cal_rep > 0.35f) { want = 1.0f; S.cal_rep = 0.30f; }
@@ -2093,8 +2105,23 @@ static void app_update(void *u, const MoteVrTracking *t) {
         /* A zeroes this channel, B zeroes the lot. */
         if (t->hand[MOTE_VR_RIGHT].btn_lower) {
             if (!S.cal_latch) {
-                if (S.cal_ch < 3) S.cal_pos[S.cal_ch] = 0.0f;
-                else              S.cal_rot[S.cal_ch - 3] = 0.0f;
+                if (S.cal_ch == CAL_RESET) {
+                    /* Everything the player can get wrong, back to the shipped
+                     * defaults at once — alignment, bridge offset and grip. The
+                     * cue can end up pointing back at you and the way it got
+                     * there is not always the way back out. */
+                    CueVrPrefs d; cuevr_prefs_defaults(&d);
+                    for (int i = 0; i < 3; i++) {
+                        S.cal_pos[i] = d.ctrl_pos[i];
+                        S.cal_rot[i] = d.ctrl_rot[i];
+                    }
+                    S.cue.rest = d.rest;
+                    S.cue.grip = d.grip;
+                    S.cue.adj_have0 = 0;
+                    snprintf(S.msg, sizeof S.msg, "RESET TO DEFAULTS");
+                    S.msg_time = 2.5f;
+                } else if (S.cal_ch < 3) S.cal_pos[S.cal_ch] = 0.0f;
+                else                     S.cal_rot[S.cal_ch - 3] = 0.0f;
                 cuevr_render_set_ctrl_cal(S.cal_pos, S.cal_rot);
                 S.cal_latch = 1; S.hud_dirty = 1;
             }

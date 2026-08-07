@@ -352,45 +352,27 @@ int main(void) {
     checkf(mv3_len(mv3_sub(c.rest, restSet)), 0.0f, 1e-6f,
            "ordinary hand movement does not change the offset");
 
-    /* THE DRIFT, and it is the CLAMP that does it. The offset used to be
-     * INTEGRATED — each frame subtracted that frame's hand delta from it — and
-     * on its own that tracks the bridge exactly. But `rest` is leashed to
-     * CUEVR_REST_MAXLEN so the cue cannot end up across the room from the hand
-     * holding it, and under an integrator that leash is DESTRUCTIVE: the
-     * shortened vector is written back and becomes the state. Reach away far
-     * enough to pull the leash tight — standing up, turning to look at the
-     * table, reaching for a shot down the far end — and the offset is
-     * permanently rewritten. Bring your hand back and the cue is somewhere
-     * else. Do it a few times a frame and it walks off entirely, which is
-     * exactly the "drifts to completely separate positions between games" the
-     * player reported.
+    /* The bridge offset has to satisfy two things that pull against each other,
+     * and getting one without the other is how both of its bugs happened.
      *
-     * Anchored absolutely, the clamp is only ever a display leash: `rest` is
-     * recomputed from the anchor every frame, so stretching it costs nothing
-     * and the bridge snaps back the moment the hand is back in range. */
+     * 1. WITHIN REACH IT MUST NOT DRIFT. It used to be integrated — each frame
+     *    subtracting that frame's hand delta — so the leash at
+     *    CUEVR_REST_MAXLEN was destructive: the shortened vector was written
+     *    back and became the state, and the bridge walked off across a session.
+     *
+     * 2. AT THE LEASH IT MUST STAY RESPONSIVE. Anchoring it absolutely fixed
+     *    the drift and introduced the opposite fault: with the anchor pinned
+     *    and the hand a metre out, the leash is taut and stays taut for the
+     *    first seventy centimetres of the journey back, so the control is
+     *    simply dead until the hand is nearly home.
+     *
+     * Both, or it is broken in one direction or the other. */
     {
         t.hand[MOTE_VR_LEFT].squeeze = 1.0f;
         cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
         MoteVrV3 anchor = c.bridge, base = t.hand[MOTE_VR_LEFT].pose.p;
 
-        for (int trip = 0; trip < 4; trip++) {
-            /* out well past the leash... */
-            for (int i = 1; i <= 40; i++) {
-                t.hand[MOTE_VR_LEFT].pose.p =
-                    mv3_add(base, mv3(0.9f * (float)i / 40.0f, 0, 0));
-                cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
-            }
-            /* ...and back to exactly where it started. */
-            for (int i = 39; i >= 0; i--) {
-                t.hand[MOTE_VR_LEFT].pose.p =
-                    mv3_add(base, mv3(0.9f * (float)i / 40.0f, 0, 0));
-                cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
-            }
-        }
-        checkf(mv3_len(mv3_sub(c.bridge, anchor)), 0.0f, 1e-5f,
-               "reaching away and back leaves the bridge exactly where it was");
-
-        /* And plain jitter, for a long time, moves nothing. */
+        /* (1) Jitter, well inside the leash, for a long time. Exactly still. */
         float worst = 0.0f;
         for (int i = 1; i <= 2000; i++) {
             float u = (float)i * 0.031f;
@@ -402,7 +384,33 @@ int main(void) {
             if (d > worst) worst = d;
         }
         checkf(worst, 0.0f, 1e-5f,
-               "2000 frames of hand movement do not drift the bridge one bit");
+               "2000 frames of hand jitter do not drift the bridge one bit");
+
+        /* (2) Reach right out past the leash... */
+        t.hand[MOTE_VR_LEFT].pose.p = base;
+        cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+        for (int i = 1; i <= 60; i++) {
+            t.hand[MOTE_VR_LEFT].pose.p = mv3_add(base, mv3(0.90f * (float)i / 60.0f, 0, 0));
+            cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+        }
+        check(mv3_len(mv3_sub(c.bridge, t.hand[MOTE_VR_LEFT].pose.p))
+                  <= CUEVR_REST_MAXLEN + 1e-4f,
+              "reaching away leaves the cue on its leash, not across the room");
+
+        /* ...and the FIRST step back must change the OFFSET, which is the
+         * thing being edited. The bridge itself is meant to hang still in the
+         * room while the hand slides under it — that is the control — so the
+         * dead zone never showed up in the bridge position at all. It showed up
+         * in `rest`: pinned at the leash length, unchanged, however far back
+         * the player brought their hand. Watching the wrong one of these two is
+         * how the frozen control passed a test that was supposed to catch it. */
+        MoteVrV3 before = c.rest;
+        t.hand[MOTE_VR_LEFT].pose.p =
+            mv3_add(t.hand[MOTE_VR_LEFT].pose.p, mv3(-0.02f, 0, 0));
+        cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+        check(mv3_len(mv3_sub(c.rest, before)) > 0.015f,
+              "coming back re-seats the cue at once, with no dead zone to cross");
+
         t.hand[MOTE_VR_LEFT].squeeze = 0.0f;
         cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     }
