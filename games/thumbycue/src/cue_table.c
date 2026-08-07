@@ -544,9 +544,14 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
 
 /* Half-thickness of the cue `dd` back from the tip. */
 static float cue_shaft_r(float dd) {
-    float f = dd / CUE_SHAFT_REACH;
-    if (f < 0.0f) f = 0.0f; else if (f > 1.0f) f = 1.0f;
-    return CUE_TIP_R + (CUE_BUTT_R - CUE_TIP_R) * f;
+    /* THE TIP RADIUS, ALL THE WAY BACK. Clearing the true taper is honest and
+     * plays badly: the fat end is a metre behind the ball and its half-inch of
+     * timber was forcing the cue up on shots a player would simply make. What
+     * a player actually judges is whether the BUSINESS END clears, and the
+     * rest of the cue is somewhere out over the rail past the point anyone
+     * cares. A deliberate compromise, in the direction of feeling right. */
+    (void)dd;
+    return CUE_TIP_R;
 }
 
 /* Height of whatever is solid under (x,z). Off the table entirely returns a

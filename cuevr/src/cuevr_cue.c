@@ -274,13 +274,25 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
          * tracking — which is what "it snaps back to the same place whatever I
          * do" actually was. A limit you can reach during normal use is not a
          * safety rail, it is a bug. */
-        MoteVrV3 m = mv3_sub(Lh->pose.p, c->prev_hand[MOTE_VR_LEFT]);
-        c->rest = mv3_sub(c->rest, m);
+        /* ABSOLUTE, not integrated. This accumulated the hand's per-frame
+         * delta into the offset — an integrator, so every frame of tracking
+         * jitter, every dropped or duplicated pose, was added permanently and
+         * never corrected. Over a session the bridge wandered to somewhere
+         * unrelated, and it looked like it had failed to save. Anchor the
+         * bridge once when the trigger goes down and derive the offset from
+         * that anchor every frame: the cue still stands still while the hand
+         * moves under it, but nothing can drift. */
+        if (!c->adj_have0) {
+            c->adj_bridge0 = mv3_add(Lh->pose.p, c->rest);
+            c->adj_have0 = 1;
+        }
+        c->rest = mv3_sub(c->adj_bridge0, Lh->pose.p);
         float len = mv3_len(c->rest);
         if (len > CUEVR_REST_MAXLEN)
             c->rest = mv3_scale(c->rest, CUEVR_REST_MAXLEN / len);
         c->bridge = mv3_add(Lh->pose.p, c->rest);
     }
+    if (!adjusting) c->adj_have0 = 0;   /* re-anchor on the next hold */
     c->adjusting = adjusting;
     c->prev_hand[MOTE_VR_LEFT]  = Lh->pose.p;
     c->prev_hand[MOTE_VR_RIGHT] = Rh->pose.p;

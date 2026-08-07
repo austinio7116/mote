@@ -927,8 +927,11 @@ void cuevr_frame_build(int which, CueVrFrameMesh *m, const CueTable *t,
  * they were built against. */
 int cuevr_frame_default(const CueTable *t) {
     switch (t->kind) {
-    case CUE_GAME_UK8:
-    case CUE_GAME_SNK6:   return 1;   /* CABINET   — 7 ft, coin-op body */
+    case CUE_GAME_UK8:    return 1;   /* CABINET   — 7 ft, coin-op body */
+    case CUE_GAME_SNK6:   return 0;   /* REGENCY   — snooker on a 7 ft bed is
+                                       * still snooker, and a coin-op cabinet
+                                       * under it looks like a pub table that
+                                       * has been dressed up */
     case CUE_GAME_US8:
     case CUE_GAME_US9:    return 3;   /* AMERICAN  — 9 ft, deep skirt, square legs */
     case CUE_GAME_SNK10:  return 2;   /* VICTORIAN — the small snooker table */

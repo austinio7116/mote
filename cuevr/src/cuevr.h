@@ -180,6 +180,11 @@ typedef struct {
      * hardware can be diagnosed instead of theorised about */
     int   m_frames;
     float m_dist, m_time;
+    /* Where the bridge WAS when the reposition began. The offset is derived
+     * from this absolutely each frame rather than integrated, so tracking
+     * noise cannot accumulate into it. */
+    MoteVrV3 adj_bridge0;
+    int      adj_have0;
     MoteVrV3 prev_hand[2];   /* for sliding a hand along the cue */
     int   have_hand;
     int   struck;            /* this stroke has already made contact */

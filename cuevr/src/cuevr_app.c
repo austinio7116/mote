@@ -119,16 +119,19 @@ enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE }
 /* The pause menu carries the render toggles: finding what is slow means turning
  * things off ONE AT A TIME while wearing the headset and watching the frame
  * rate, and an environment variable cannot be reached from in there. */
+/* Actions only. The five render toggles that used to hang off the end of this
+ * made the pause menu overfull — and they are settings a player changes once if
+ * ever, against defaults that were chosen by measurement. cuevr_render_fx_set()
+ * is still there for the preview harness to drive. */
 enum { PS_RESUME = 0, PS_UNDO, PS_RERACK, PS_PLACE, PS_NOMINATE, PS_CONCEDE,
-       PS_QUIT, PS_FX0, PS_N = PS_FX0 + CUEVR_FX_N };
+       PS_QUIT, PS_N };
 static const char *PS_NAME[7] = {
     "RESUME", "UNDO SHOT", "RE-RACK", "PLACE TABLE",
     "NOMINATE", "CONCEDE FRAME", "BACK TO MENU" };
 static const char *COLOUR_NAME[8] = {
     "", "", "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
 
-/* A pause row's label. The first five are actions; the rest are the render
- * toggles, drawn with their state so a row reads as a switch. */
+/* A pause row's label. */
 static const char *ps_label(int i, char *buf, int cap, int nominated) {
     /* NOMINATE carries the colour it will pick next, so the row is both the
      * control and the readout — you can see what you are about to name without
@@ -138,11 +141,7 @@ static const char *ps_label(int i, char *buf, int cap, int nominated) {
                  (nominated >= 2 && nominated <= 7) ? COLOUR_NAME[nominated] : "-");
         return buf;
     }
-    if (i < PS_FX0) return PS_NAME[i];
-    int fx = i - PS_FX0;
-    snprintf(buf, (size_t)cap, "%-13s %s", cuevr_render_fx_name(fx),
-             cuevr_render_fx(fx) ? "ON" : "OFF");
-    return buf;
+    return PS_NAME[i];
 }
 
 static const struct { CueGameKind kind; const char *name; } MENU[] = {
@@ -1601,15 +1600,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     S.menu_row = MR_GAME;
                     menu_preview();
                     break;
-                default:
-                    /* A render toggle: flip it and stay on the menu, so the
-                     * frame-rate chip can be watched while it changes. */
-                    if (S.pause_sel >= PS_FX0 && S.pause_sel < PS_N) {
-                        int fx = S.pause_sel - PS_FX0;
-                        cuevr_render_fx_set(fx, !cuevr_render_fx(fx));
-                        S.hud_dirty = 1;
-                    }
-                    break;
+                default: break;
                 }
             }
             S.hud_dirty = 1;
@@ -1890,9 +1881,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
             if (mv3_len(fwd) > 1e-3f) {
                 fwd = mv3_norm(fwd);
                 MoteVrV3 have = cue_ball_room();
-                /* A bridge hand's length in front of you, which is where the
-                 * ball has to be for the stance to work at all. */
-                const float REACH = 0.42f;
+                /* Out where the shot IS, not right under your chin. A bridge
+                 * hand's length put the ball 42 cm away, which is correct for a
+                 * player already down on the shot and wrong for one standing up
+                 * about to walk in — it arrived in your face with the table
+                 * behind it. Nearly a metre puts it where you would stand to
+                 * look at it, and you step in from there. */
+                const float REACH = 0.90f;
                 S.setup.place.pos.x += (t->head.p.x + fwd.x * REACH) - have.x;
                 S.setup.place.pos.z += (t->head.p.z + fwd.z * REACH) - have.z;
                 S.hud_dirty = 1;

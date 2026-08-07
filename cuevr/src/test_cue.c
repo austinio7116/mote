@@ -351,6 +351,61 @@ int main(void) {
     cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
     checkf(mv3_len(mv3_sub(c.rest, restSet)), 0.0f, 1e-6f,
            "ordinary hand movement does not change the offset");
+
+    /* THE DRIFT, and it is the CLAMP that does it. The offset used to be
+     * INTEGRATED — each frame subtracted that frame's hand delta from it — and
+     * on its own that tracks the bridge exactly. But `rest` is leashed to
+     * CUEVR_REST_MAXLEN so the cue cannot end up across the room from the hand
+     * holding it, and under an integrator that leash is DESTRUCTIVE: the
+     * shortened vector is written back and becomes the state. Reach away far
+     * enough to pull the leash tight — standing up, turning to look at the
+     * table, reaching for a shot down the far end — and the offset is
+     * permanently rewritten. Bring your hand back and the cue is somewhere
+     * else. Do it a few times a frame and it walks off entirely, which is
+     * exactly the "drifts to completely separate positions between games" the
+     * player reported.
+     *
+     * Anchored absolutely, the clamp is only ever a display leash: `rest` is
+     * recomputed from the anchor every frame, so stretching it costs nothing
+     * and the bridge snaps back the moment the hand is back in range. */
+    {
+        t.hand[MOTE_VR_LEFT].squeeze = 1.0f;
+        cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+        MoteVrV3 anchor = c.bridge, base = t.hand[MOTE_VR_LEFT].pose.p;
+
+        for (int trip = 0; trip < 4; trip++) {
+            /* out well past the leash... */
+            for (int i = 1; i <= 40; i++) {
+                t.hand[MOTE_VR_LEFT].pose.p =
+                    mv3_add(base, mv3(0.9f * (float)i / 40.0f, 0, 0));
+                cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+            }
+            /* ...and back to exactly where it started. */
+            for (int i = 39; i >= 0; i--) {
+                t.hand[MOTE_VR_LEFT].pose.p =
+                    mv3_add(base, mv3(0.9f * (float)i / 40.0f, 0, 0));
+                cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+            }
+        }
+        checkf(mv3_len(mv3_sub(c.bridge, anchor)), 0.0f, 1e-5f,
+               "reaching away and back leaves the bridge exactly where it was");
+
+        /* And plain jitter, for a long time, moves nothing. */
+        float worst = 0.0f;
+        for (int i = 1; i <= 2000; i++) {
+            float u = (float)i * 0.031f;
+            t.hand[MOTE_VR_LEFT].pose.p =
+                mv3_add(base, mv3(0.05f * sinf(u), 0.04f * sinf(u * 1.7f),
+                                  0.05f * sinf(u * 0.6f)));
+            cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+            float d = mv3_len(mv3_sub(c.bridge, anchor));
+            if (d > worst) worst = d;
+        }
+        checkf(worst, 0.0f, 1e-5f,
+               "2000 frames of hand movement do not drift the bridge one bit");
+        t.hand[MOTE_VR_LEFT].squeeze = 0.0f;
+        cuevr_cue_update(&c, &t, &PLACE, BALL, R, &shot);
+    }
     check(mv3_len(mv3_sub(c.axis, axis0)) > 0.01f,
           "and the bridge hand still steers the cue");
 
