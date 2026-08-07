@@ -89,6 +89,11 @@ int  cuevr_setup_update(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_bal
 void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 cue_ball_room,
                         int allow_height);
 
+/* Turn the table about a point that must stay put. Shared, because getting the
+ * sense of this rotation wrong leaves the "fixed" point orbiting instead — and
+ * that has happened once in each place that open-coded it. */
+void cuevr_setup_yaw_about(CueVrSetup *s, MoteVrV3 pivot_room, float dyaw);
+
 /* How many (position, time) samples of the delivery to keep. Power is measured
  * over the longest run of forward motion inside this window, up to ~110 ms at
  * 72 Hz, which is most of a real delivery. */

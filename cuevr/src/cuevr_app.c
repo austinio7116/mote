@@ -2020,15 +2020,15 @@ static void app_update(void *u, const MoteVrTracking *t) {
         {
             float rx = t->hand[MOTE_VR_RIGHT].stick_x;
             if (fabsf(rx) > 0.20f) {
-                MoteVrV3 pivot = cuevr_table_to_room(&S.setup.place, S.balls[0].pos);
-                float a = -rx * 1.2f * dt;
-                float ca = cosf(a), sa = sinf(a);
-                /* swing the table's centre about the pivot, and its facing with it */
-                float ox = S.setup.place.pos.x - pivot.x;
-                float oz = S.setup.place.pos.z - pivot.z;
-                S.setup.place.pos.x = pivot.x + ox * ca - oz * sa;
-                S.setup.place.pos.z = pivot.z + ox * sa + oz * ca;
-                S.setup.place.yaw  += a;
+                /* About the ball WHERE IT IS NOW, recomputed each frame, so
+                 * walking it with the left stick and turning with the right
+                 * compose the way they look like they should. This open-coded
+                 * its own rotation and open-coded it with the transpose, which
+                 * left the ball orbiting a point it had no business orbiting —
+                 * near enough to the pocket it came out of to look deliberate. */
+                cuevr_setup_yaw_about(&S.setup,
+                                      cuevr_table_to_room(&S.setup.place, S.balls[0].pos),
+                                      -rx * 1.2f * dt);
                 S.hud_dirty = 1;
             }
         }

@@ -1382,11 +1382,9 @@ static const char *FS =
 "        }\n"
 "        /* uv.y past 1.0 is the butt-end material channel: geometry says\n"
 "         * what it is made of. 1.02 = the brass socket ring, 1.05 = the dark\n"
-"         * threaded bore behind it, 1.08 = the badge disc on the flat. */\n"
-"        if (t > 1.065) {\n"
-"            c = (a > 0.90) ? vec3(0.22, 0.18, 0.15) : vec3(0.93, 0.90, 0.79);\n"
-"            butt_varn = 0.0; gloss = 70.0; spec_k = 0.45;\n"
-"        } else if (t > 1.035) {\n"
+"         * threaded bore behind it. (1.08 was the badge disc; both the disc\n"
+"         * and its branch are gone.) */\n"
+"        if (t > 1.035) {\n"
 "            c = vec3(0.055, 0.045, 0.035);\n"
 "            butt_varn = 0.0; gloss = 8.0; spec_k = 0.05;\n"
 "        } else if (t > 1.005) {\n"
@@ -2100,7 +2098,11 @@ static float cue_radius(float t) {
  * axis, so within its angular span the radius is p / cos(dtheta) — a true
  * chord, not a dent. Depth ramps in over the last 300 mm and reaches 22% of
  * the radius at the cap; the flat faces AWAY from the decorative panel. */
-#define CUE_FLAT_ANG   (0.625f * 2.0f * PI)     /* opposite the panel at 0.125 */
+/* Where the decorated face sits round the butt, as a fraction of a turn. The
+ * shader reads the same number as `a` (see the `(a - 0.125)` terms), and the
+ * renderer needs it to roll that face upward — one constant, so they agree. */
+#define CUE_PANEL_A    0.125f
+#define CUE_FLAT_ANG   ((CUE_PANEL_A + 0.5f) * 2.0f * PI)   /* the flat, opposite it */
 #define CUE_FLAT_DEPTH 0.22f
 static float cue_flat_depth(float t) {
     /* REMOVED at the user's instruction: it never read on screen, so it was
@@ -2230,31 +2232,11 @@ static void build_cue(Builder *b, int slices, int rings) {
             }
         }
     }
-    /* THE BADGE: a separate disc STUCK ON the flat — real geometry, slightly
-     * proud, its own rim — not a picture mapped into the wood. uv.x carries
-     * the radial fraction so the shader can draw the rim ring. */
-    {
-        const float BR = 0.0078f;                    /* badge radius */
-        const float TB = 1.0f - 0.055f / CUE_LEN;    /* centre, 55 mm from the end */
-        float r0 = cue_radius(TB);
-        float p  = r0 + 0.0006f;      /* let in nearly flush on the round */
-        float nx = cosf(CUE_FLAT_ANG), nz = sinf(CUE_FLAT_ANG);
-        float cxp = nx * p, cy = TB * CUE_LEN, czp = nz * p;
-        float txx = -nz, tzz = nx;                   /* tangent across the flat */
-        int centre = b_vert(b, cxp, cy, czp, nx, 0, nz, 0.0f, 1.08f);
-        int ring0 = -1, prev = -1;
-        const int BN = 20;
-        for (int i = 0; i <= BN; i++) {
-            float th = (float)i / BN * 2.0f * PI;
-            float ox = cosf(th) * BR, oy = sinf(th) * BR;
-            int v = b_vert(b, cxp + txx * ox, cy + oy, czp + tzz * ox,
-                           nx, 0, nz, 1.0f, 1.08f);
-            if (i == 0) ring0 = v;
-            else b_tri(b, centre, prev, v);
-            prev = v;
-        }
-        (void)ring0;
-    }
+    /* NO BADGE. A maker's disc was modelled here as a real proud disc on the
+     * flat, which is how one is actually made — and at the size a cue butt is
+     * seen from, in a headset, it read as a pale blob rather than as a maker's
+     * mark. A detail that cannot resolve is not a detail, it is a smudge.
+     * (The uv.y = 1.08 material channel it used is gone with it.) */
 }
 
 /* The table, exactly as the handheld builds it.
@@ -4451,9 +4433,36 @@ skip_shadows:
             MoteVrQ q = (s_ < 1e-5f)
                 ? (c_ > 0.0f ? mq_ident() : mq_axis_angle(mv3(1,0,0), PI))
                 : mq_axis_angle(ax, atan2f(s_, c_));
-            /* Roll first, about the mesh's own +Y axis, THEN swing that axis
-             * onto the cue line — the other order would roll about the world's
-             * vertical and tumble the cue instead of spinning it. */
+            /* THE DECORATED FACE GOES UP, and it has to be asked for.
+             *
+             * Nothing was setting the roll: it fell out of the swing, which
+             * takes +Y to the cue line by the shortest arc. Work that through
+             * and a mesh direction m ends up with a vertical component of
+             * exactly -(m . u) — so which way the butt's panel points depends
+             * on the AZIMUTH the player is aiming along. Face up at one end of
+             * the table, face down at the other, and nobody chose either. A
+             * hand-spliced butt is the whole reason these cues were built.
+             *
+             * So: find where the panel actually points, find world up projected
+             * across the cue, and roll by the signed angle between them. Works
+             * elevated as well as flat, because the target is the projection
+             * rather than up itself. */
+            {
+                const float A = CUE_PANEL_A * 2.0f * PI;
+                MoteVrV3 pan = mq_rot(q, mv3(cosf(A), 0.0f, sinf(A)));
+                MoteVrV3 want = mv3_sub(up, mv3_scale(u, mv3_dot(u, up)));
+                float wl = mv3_len(want);
+                if (wl > 1e-3f) {           /* a dead-vertical cue has no "up" across it */
+                    want = mv3_scale(want, 1.0f / wl);
+                    float psi = atan2f(mv3_dot(mv3_cross(pan, want), u),
+                                       mv3_dot(pan, want));
+                    q = mq_mul(q, mq_axis_angle(mv3(0, 1, 0), psi));
+                }
+            }
+            /* Roll about the mesh's own +Y axis, AFTER the swing in composition
+             * order so it spins the cue rather than tumbling it. Adds on top of
+             * the automatic roll above, which is what the menu's turntable
+             * wants. */
             if (s->cue_roll != 0.0f)
                 q = mq_mul(q, mq_axis_angle(mv3(0, 1, 0), s->cue_roll));
             MoteVrPose cp; cp.p = s->cue_tip; cp.q = q;

@@ -429,6 +429,30 @@ int main(void) {
     checkf(mv3_len(mv3_sub(c.axis, locked)), 0.0f, 1e-4f,
            "the aim is frozen once the stroke starts");
 
+    /* Turning the table about the cue ball must leave the cue ball EXACTLY
+     * where it was, at any table yaw. That is the entire point of the gesture,
+     * and it has been got wrong twice by open-coding the rotation with the
+     * transpose: the table's transform turns its CONTENTS by -yaw, so orbiting
+     * its origin by +dyaw applies the rotation twice in opposite senses and the
+     * ball swings away on a circle instead of staying under your bridge hand. */
+    {
+        CueVrSetup su;
+        cuevr_setup_init(&su, 0.0f);
+        float worst = 0.0f;
+        for (int i = 0; i < 8; i++) {
+            su.place.pos = mv3(0.30f, 0.85f, -0.40f);
+            su.place.yaw = (float)i * 0.7f - 2.0f;
+            Vec3 ball = { 0.35f, 0.026f, -0.22f };
+            MoteVrV3 was = cuevr_table_to_room(&su.place, ball);
+            for (int k = 0; k < 40; k++)
+                cuevr_setup_yaw_about(&su, cuevr_table_to_room(&su.place, ball), 0.05f);
+            float d = mv3_len(mv3_sub(cuevr_table_to_room(&su.place, ball), was));
+            if (d > worst) worst = d;
+        }
+        checkf(worst, 0.0f, 1e-4f,
+               "turning the table about the cue ball never moves the cue ball");
+    }
+
     printf(fail ? "\nFAILED\n" : "\nall good\n");
     return fail;
 }

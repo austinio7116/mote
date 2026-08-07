@@ -57,6 +57,26 @@ static float dead(float v) {
 /* The sticks, on their own. Called every frame of setup AND every frame you
  * are down on a shot, because bringing the table to you is not a thing you
  * only need once. */
+/* Turn the table about a point that must not move — the cue ball, always.
+ *
+ * This is a two-line rotation that has now been got wrong twice in two separate
+ * places, so it lives in one place. The trap is that the table's own transform
+ * rotates its CONTENTS by -yaw (cuevr_table_to_room: x' = x*cos + z*sin), so
+ * orbiting the table's origin by +dyaw while adding +dyaw to the yaw applies
+ * the rotation twice in opposite senses and the "fixed" point is not fixed at
+ * all: the ball swings away on a circle and the table appears to turn about
+ * somewhere else entirely — measured at 205 mm of travel for a quarter radian.
+ * The orbit has to use the SAME sense the yaw means. */
+void cuevr_setup_yaw_about(CueVrSetup *s, MoteVrV3 pivot_room, float dyaw) {
+    if (dyaw == 0.0f) return;
+    float cs = cosf(dyaw), sn = sinf(dyaw);
+    MoteVrV3 rel = mv3_sub(s->place.pos, pivot_room);
+    s->place.pos = mv3(pivot_room.x + rel.x * cs + rel.z * sn,
+                       s->place.pos.y,
+                       pivot_room.z - rel.x * sn + rel.z * cs);
+    s->place.yaw += dyaw;
+}
+
 void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_room,
                         int allow_height) {
     float dt = t->dt > 0.0f && t->dt < 0.25f ? t->dt : 1.0f / 72.0f;
@@ -86,20 +106,7 @@ void cuevr_setup_adjust(CueVrSetup *s, const MoteVrTracking *t, MoteVrV3 ball_ro
      * the same angle and the ball stays exactly where it is, under your bridge
      * hand, while the table turns beneath it. */
     float rx = dead(Rh->stick_x);
-    if (rx != 0.0f) {
-        float dyaw = rx * YAW_RATE * dt;
-        /* Orbit the table's origin about the ball by the SAME rotation the yaw
-         * itself means — the renderer's, x' = x·cos + z·sin. Using the transpose
-         * here (which is what it did) leaves the ball drifting across the cloth
-         * as the table turns, which is the one thing this gesture exists to
-         * prevent. */
-        float cs = cosf(dyaw), sn = sinf(dyaw);
-        MoteVrV3 rel = mv3_sub(s->place.pos, ball_room);
-        s->place.pos = mv3(ball_room.x + rel.x * cs + rel.z * sn,
-                           s->place.pos.y,
-                           ball_room.z - rel.x * sn + rel.z * cs);
-        s->place.yaw += dyaw;
-    }
+    if (rx != 0.0f) cuevr_setup_yaw_about(s, ball_room, rx * YAW_RATE * dt);
 
     /* ---- height ---------------------------------------------------------- *
      * Setup only. Leaving it on a live stick during play meant any thumb
