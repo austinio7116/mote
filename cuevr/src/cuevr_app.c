@@ -140,25 +140,9 @@ enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE }
  * is still there for the preview harness to drive. */
 enum { PS_RESUME = 0, PS_UNDO, PS_PICKUP, PS_RERACK, PS_PLACE, PS_NOMINATE,
        PS_CONCEDE, PS_APPEAR, PS_CONTROLS, PS_STATS, PS_QUIT, PS_N };
-static const char *PS_NAME[PS_N] = {
-    "RESUME", "UNDO SHOT", "PICK UP BALL", "RE-RACK", "PLACE TABLE",
-    "NOMINATE", "CONCEDE FRAME", "APPEARANCE", "CONTROLS", "RECORDS",
-    "BACK TO MENU" };
 static const char *COLOUR_NAME[8] = {
     "", "", "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
 
-/* A pause row's label. */
-static const char *ps_label(int i, char *buf, int cap, int nominated) {
-    /* NOMINATE carries the colour it will pick next, so the row is both the
-     * control and the readout — you can see what you are about to name without
-     * opening anything. */
-    if (i == PS_NOMINATE) {
-        snprintf(buf, (size_t)cap, "NOMINATE %s",
-                 (nominated >= 2 && nominated <= 7) ? COLOUR_NAME[nominated] : "-");
-        return buf;
-    }
-    return PS_NAME[i];
-}
 
 static const struct { CueGameKind kind; const char *name; } MENU[] = {
     { CUE_GAME_UK8,   "UK 8-BALL 7FT" },
@@ -798,6 +782,36 @@ static void hud_paint(void);
  * Both the drawing and the acting walk THIS array. */
 typedef struct { int dec; const char *label; const char *note; } DecOpt;
 
+/* THE PAUSE MENU, only as long as it needs to be.
+ *
+ * Eleven fixed rows at nine apart put the last one at 104 with the help text at
+ * 106 — the bottom of the list ran through the footer. Half of them do not
+ * apply at any given moment either: NOMINATE and CONCEDE are snooker, UNDO is
+ * practice, PICK UP is only live between placing the ball and playing. A menu
+ * that lists what you cannot do, and overflows doing it, is worse than a short
+ * one. Built from what actually applies, and both the drawing and the acting
+ * walk it. */
+typedef struct { int id; const char *label; } PsRow;
+
+static int pause_rows(PsRow *o, int max) {
+    int n = 0;
+    #define ADD(i,l) do { if (n < max) o[n++] = (PsRow){ (i), (l) }; } while (0)
+    ADD(PS_RESUME, "RESUME");
+    if (S.opp == OPP_PRACTICE && S.have_snap) ADD(PS_UNDO, "UNDO SHOT");
+    if (S.can_repick)                          ADD(PS_PICKUP, "PICK UP BALL");
+    if (S.rules.kind && !S.rules.frame_over && S.rules.target == 1)
+        ADD(PS_NOMINATE, "NOMINATE");
+    ADD(PS_RERACK, "RE-RACK");
+    ADD(PS_PLACE,  "PLACE TABLE");
+    ADD(PS_APPEAR, "APPEARANCE");
+    ADD(PS_CONTROLS, "CONTROLS");
+    ADD(PS_STATS,  "RECORDS");
+    if (S.rules.kind && !S.rules.frame_over) ADD(PS_CONCEDE, "CONCEDE FRAME");
+    ADD(PS_QUIT,   "BACK TO MENU");
+    #undef ADD
+    return n;
+}
+
 static int decision_options(DecOpt *o, int max) {
     int n = 0;
     if (S.rules.pushout_offer) {
@@ -1087,20 +1101,23 @@ static void hud_paint(void) {
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("PAUSED", 4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
-        for (int i = 0; i < PS_N; i++) {
-            int y = 14 + i * 9;
-            int on = (i == S.pause_sel);
-            /* Undo only exists in practice, and only when there is a shot to
-             * take back. Showing it greyed says so more clearly than hiding it. */
-            int enabled = 1;
-            if (i == PS_UNDO)   enabled = (S.opp == OPP_PRACTICE && S.have_snap);
-            /* Picking it back up is only a thing while it is still yours to
-             * place: after the ball is down and before the stroke. */
-            if (i == PS_PICKUP) enabled = S.can_repick;
-            if (on) hud_rect(1, y - 1, HW - 2, 9, RGB565C(30, 46, 72));
-            char lb[40];
-            hud_text_2x(ps_label(i, lb, sizeof lb, S.rules.nominated), 6, y - 1,
-                        !enabled ? RGB565C(70, 78, 92) : (on ? HI : DIM));
+        {
+            PsRow row[16];
+            int n = pause_rows(row, 16);
+            if (S.pause_sel >= n) S.pause_sel = 0;
+            for (int i = 0; i < n; i++) {
+                int y = 14 + i * 9, on = (i == S.pause_sel);
+                if (on) hud_rect(1, y - 1, HW - 2, 9, RGB565C(30, 46, 72));
+                char lb[40];
+                const char *txt = row[i].label;
+                if (row[i].id == PS_NOMINATE) {
+                    snprintf(lb, sizeof lb, "NOMINATE %s",
+                             (S.rules.nominated >= 2 && S.rules.nominated <= 7)
+                             ? COLOUR_NAME[S.rules.nominated] : "-");
+                    txt = lb;
+                }
+                hud_text_2x(txt, 6, y - 1, on ? HI : DIM);
+            }
         }
         hud_text("A SELECT    MENU RESUME", 4, HH - 6, DIM);
         return;
@@ -1437,6 +1454,41 @@ static void menu_activate(void) {
         S.hud_dirty = 1;
     }
     S.hud_dirty = 1;
+}
+
+/* One step of a shot in flight, with its sounds. Pulled out of ST_ROLL so a
+ * menu opened mid-shot does not STOP the shot.
+ *
+ * It used to live inside the ST_ROLL case, so opening appearance while the
+ * balls were running froze them mid-roll: the state machine was somewhere else
+ * and nobody was stepping the physics. Coming back resumed a shot that had been
+ * standing still for however long you were choosing a cloth, with the audio
+ * clock and the event bits from before still pending — which is what "goes
+ * weird" was.
+ *
+ * Now the balls run to a stop whatever screen is in front of you, and ST_ROLL's
+ * "settled, so resolve" fires the moment you come back to it. */
+static int roll_step(float dt) {
+    uint32_t ev = 0;
+    int moving = cue_phys_step(&S.world, S.balls, S.nballs, dt, &ev);
+    S.shot_events |= ev;
+    if (ev & CUE_EV_BALL_HIT) {
+        float i = cue_phys_cushion_impact() / (MAX_STRIKE_SPEED * 0.55f);
+        cue_audio_sfx(CUE_SFX_CLACK, i > 0.05f ? i : 0.5f);
+        mote_xr_haptic(0.18f, 25);
+    }
+    if (ev & CUE_EV_CUSHION) {
+        float i = cue_phys_cushion_impact() / (MAX_STRIKE_SPEED * 0.55f);
+        cue_audio_sfx(CUE_SFX_CUSHION, i);
+    }
+    if (ev & CUE_EV_JAW) cue_audio_sfx(CUE_SFX_CUSHION, 0.55f);
+    if (ev & CUE_EV_POCKET) {
+        float i = cue_phys_cushion_impact() / (MAX_STRIKE_SPEED * 0.55f);
+        cue_audio_sfx(CUE_SFX_POT, i > 0.1f ? i : 0.45f);
+        mote_xr_haptic(0.5f, 60);
+    }
+    cue_audio_tick(dt);
+    return moving;
 }
 
 static void resolve_shot(void) {
@@ -1913,6 +1965,16 @@ static void app_update(void *u, const MoteVrTracking *t) {
             memset(&S.idle_shot, 0, sizeof S.idle_shot);
     }
 
+    /* A SHOT IN FLIGHT KEEPS RUNNING behind a menu. Opening one used to stop
+     * the balls dead, because the stepping lived inside ST_ROLL and the state
+     * machine was somewhere else — you came back to a shot that had been
+     * standing still while you chose a cloth. The balls settle whether or not
+     * anybody is watching, and ST_ROLL resolves it the moment you return. */
+    if (S.pause_from == ST_ROLL &&
+        (S.state == ST_PAUSE || S.state == ST_APPEAR ||
+         S.state == ST_CONTROLS || S.state == ST_STATS))
+        roll_step(dt);
+
     switch (S.state) {
     case ST_MENU: {
         /* POINTED AT, not scrolled to. The sticks belong to the table on every
@@ -2069,7 +2131,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
     case ST_PAUSE: {
         /* Pointed at, like the rest. The rows are drawn at 14 + i*9. */
         {
-            int hov = ptr_row_at(14, 9, PS_N);
+            PsRow row[16];
+            int nrow = pause_rows(row, 16);
+            if (S.pause_sel >= nrow) S.pause_sel = 0;
+            int hov = ptr_row_at(14, 9, nrow);
             if (hov >= 0 && hov != S.pause_sel) { S.pause_sel = hov; S.hud_dirty = 1; }
             if (hov >= 0 && ptr_click(t)) S.pause_click = 1;
         }
@@ -2081,7 +2146,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.pause_latch = 1;
             S.pause_click = 0;
             {
-                switch (S.pause_sel) {
+                PsRow row2[16];
+                int n2 = pause_rows(row2, 16);
+                /* The ROW'S OWN id, not its index. The list is built from
+                 * what applies, so index 3 is a different action depending on
+                 * whether you are playing snooker, in practice, or holding the
+                 * ball. */
+                int sel = (S.pause_sel < n2) ? row2[S.pause_sel].id : PS_RESUME;
+                switch (sel) {
                 case PS_RESUME:
                     unpause();
                     break;
@@ -2275,30 +2347,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         /* Keep the sticks live: a shot takes several seconds to settle and that
          * is exactly when you want to be lining up the next one. */
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
-        uint32_t ev = 0;
-        int moving = cue_phys_step(&S.world, S.balls, S.nballs, dt, &ev);
-        S.shot_events |= ev;
-        /* Loudness from the actual impact, not a constant: cue_phys reports the
-         * loudest rail approach of the step, and the same figure scaled to the
-         * hardest possible shot serves for ball-on-ball. A clack that is always
-         * the same volume tells you nothing about how you hit it. */
-        if (ev & CUE_EV_BALL_HIT) {
-            float i = cue_phys_cushion_impact() / (MAX_STRIKE_SPEED * 0.55f);
-            cue_audio_sfx(CUE_SFX_CLACK, i > 0.05f ? i : 0.5f);
-            mote_xr_haptic(0.18f, 25);
-        }
-        if (ev & CUE_EV_CUSHION) {
-            float i = cue_phys_cushion_impact() / (MAX_STRIKE_SPEED * 0.55f);
-            cue_audio_sfx(CUE_SFX_CUSHION, i);
-        }
-        if (ev & CUE_EV_JAW) cue_audio_sfx(CUE_SFX_CUSHION, 0.55f);
-        if (ev & CUE_EV_POCKET) {
-            float i = cue_phys_cushion_impact() / (MAX_STRIKE_SPEED * 0.55f);
-            cue_audio_sfx(CUE_SFX_POT, i > 0.1f ? i : 0.45f);
-            mote_xr_haptic(0.5f, 60);
-        }
-        cue_audio_tick(dt);
-        if (!moving) resolve_shot();
+        if (!roll_step(dt)) resolve_shot();
         break;
     }
 
