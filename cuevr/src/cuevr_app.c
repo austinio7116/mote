@@ -332,7 +332,6 @@ static void start_frame(CueGameKind kind) {
     S.rules.best_of = MATCH_LEN[S.match_idx];
     S.rules.ball_in_hand = 1;              /* you break from the D / the string */
     cuevr_render_set_table(&S.tab, &S.world);
-    cue_audio_set_snooker(S.tab.is_snooker);
     /* Re-racking the balls does not re-make the player. The bridge height and
      * the grip are things a player HAS, not things a frame has — and wiping
      * them here was what made the rest snap back to default. */

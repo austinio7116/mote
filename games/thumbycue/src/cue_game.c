@@ -216,7 +216,6 @@ static void rack(void) {
     s_table.cloth = k_cloth[s_cloth_idx];          /* felt choice (all tables) */
     s_table.rail = k_frame_rail[s_frame_idx];      /* frame / rail wood choice */
     s_table.rail_top = k_frame_top[s_frame_idx];
-    cue_audio_set_snooker(s_table.is_snooker);   /* snooker vs pool pocket sound */
     cue_render_set_ball_set(s_ballset);
     cue_table_build_world(&s_table, &s_world);
     s_n = cue_table_rack(&s_table, s_balls);

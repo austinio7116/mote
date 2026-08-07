@@ -28,8 +28,6 @@
 #include "cue_cueshot_pcm.h"
 #include "cue_cushion_pcm.h"
 #include "cue_pot_pcm.h"
-#include "cue_softpot_pcm.h"
-#include "cue_hardpot_pcm.h"
 
 /* ThumbyCue and the engine now share Vec3/Mat3 via mote_vec.h (cue_physics.h includes
  * it), so this TU can include the real ThumbyCue headers directly — no forward-decl
@@ -50,15 +48,11 @@ static const MoteSound s_strike  = { cue_cueshot_pcm,  CUE_CUESHOT_PCM_LEN };
 static const MoteSound s_clack   = { cue_clack_pcm,    CUE_CLACK_LEN };
 static const MoteSound s_cushion = { cue_cushion_pcm,  CUE_CUSHION_PCM_LEN };
 static const MoteSound s_pot     = { cue_pot_pcm,      CUE_POT_LEN };
-static const MoteSound s_softpot = { cue_softpot_pcm,  CUE_SOFTPOT_LEN };
-static const MoteSound s_hardpot = { cue_hardpot_pcm,  CUE_HARDPOT_LEN };
-static int s_snooker_audio;
 
 void cue_audio_init(void) {}
 void cue_audio_set_volume(int v) {                       /* 0..20 -> engine master 0..1 */
     if (mote->audio_set_master) mote->audio_set_master((float)v / 20.0f);
 }
-void cue_audio_set_snooker(int on) { s_snooker_audio = on; }
 void cue_audio_tick(float dt) { (void)dt; }
 void cue_audio_render(int16_t *out, int n) { for (int i = 0; i < n; i++) out[i] = 0; }  /* unused */
 void cue_audio_sfx(int which, float intensity) {
@@ -67,8 +61,11 @@ void cue_audio_sfx(int which, float intensity) {
         case CUE_SFX_STRIKE:  mote->audio_play(&s_strike,  0.6f + 0.4f * g); break;
         case CUE_SFX_CLACK:   mote->audio_play(&s_clack,   0.3f + 0.7f * g); break;
         case CUE_SFX_CUSHION: mote->audio_play(&s_cushion, 0.3f + 0.7f * g); break;
-        case CUE_SFX_POT:     mote->audio_play(s_snooker_audio ? (g > 0.5f ? &s_hardpot : &s_softpot)
-                                                               : &s_pot, 0.7f + 0.3f * g); break;
+        /* One pot sound for every game. The hard/soft split was the sound of a
+         * STRING pocket taking the ball — the net gives, and how it gives
+         * depends on the pace. Every table here has a lined drop, which sounds
+         * the same whatever hits it. Pace still carries in the gain. */
+        case CUE_SFX_POT:     mote->audio_play(&s_pot, 0.7f + 0.3f * g); break;
         case CUE_SFX_UI:      mote->audio_note(660.0f, 0.15f); break;
     }
 }

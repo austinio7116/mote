@@ -4,8 +4,8 @@
  * The samples are the handheld's: real recordings baked into
  * games/thumbycue/src/cue_*_pcm.h as mono 22050 Hz s16, and the mapping from
  * event to sample is the one games/thumbycue/src/game.c already chose —
- * including snooker's split between a hard and a soft pot, which is the
- * difference between a ball rattling in and one dropping.
+ * One pot sample for every game: the tables here have lined drops, not string
+ * pockets, and a lined drop does not change its voice with pace.
  *
  * What is new is only the plumbing, because the handheld routes cue_audio_sfx()
  * into the Mote engine's mixer and there is no engine here. So this is that
@@ -36,8 +36,6 @@
 #include "cue_cushion_pcm.h"
 #include "cue_cueshot_pcm.h"
 #include "cue_pot_pcm.h"
-#include "cue_hardpot_pcm.h"
-#include "cue_softpot_pcm.h"
 
 #define RATE   22050
 #define VOICES 8
@@ -50,7 +48,6 @@ typedef struct {
 
 static Voice s_voice[VOICES];
 static float s_master = 0.85f;
-static int   s_snooker;
 
 /* Steal the quietest voice rather than the oldest: a break can start a dozen
  * clacks inside a few milliseconds, and dropping the newest would silence the
@@ -74,7 +71,6 @@ static void play(const int16_t *pcm, int len, float gain) {
 
 void cue_audio_init(void) { memset(s_voice, 0, sizeof s_voice); }
 void cue_audio_set_volume(int v) { s_master = (float)v / 20.0f; }
-void cue_audio_set_snooker(int on) { s_snooker = on ? 1 : 0; }
 void cue_audio_tick(float dt) { (void)dt; }
 
 static int s_count[5];
@@ -94,13 +90,16 @@ void cue_audio_sfx(int which, float intensity) {
         play(cue_cushion_pcm, CUE_CUSHION_PCM_LEN, 0.3f + 0.7f * g);
         break;
     case CUE_SFX_POT:
-        /* Snooker pockets take the ball differently depending on how hard it
-         * arrives; pool has the one sample. game.c's split, kept. */
-        if (s_snooker)
-            play(g > 0.5f ? cue_hardpot_pcm : cue_softpot_pcm,
-                 g > 0.5f ? CUE_HARDPOT_LEN : CUE_SOFTPOT_LEN, 0.7f + 0.3f * g);
-        else
-            play(cue_pot_pcm, CUE_POT_LEN, 0.7f + 0.3f * g);
+        /* ONE POT SOUND, EVERY GAME. Snooker used to split into a hard and a
+         * soft sample, which is the sound of a ball landing in a STRING pocket
+         * — the net gives and the ball is caught differently depending on how
+         * fast it arrives. Every table in here has a lined drop instead, and a
+         * lined drop sounds the same whatever hits it. The split was inherited
+         * from the handheld and describes furniture this game does not have.
+         *
+         * Pace still comes through in the gain, which is the part that was
+         * always real. */
+        play(cue_pot_pcm, CUE_POT_LEN, 0.7f + 0.3f * g);
         break;
     case CUE_SFX_UI:
     default:
