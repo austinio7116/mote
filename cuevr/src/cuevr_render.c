@@ -3531,16 +3531,25 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
         mesh_upload(&G.lips, &b);
         b_free(&b);
     }
-    bake_nap();
-    bake_fur();
-    {   /* One patch, built once, moved to follow the eye. */
-        int n = (int)(FIN_HALF * 2.0f / FIN_SPACING);
-        Builder fb;
-        b_init(&fb, n * n * 8 + 8, n * n * 12 + 8);
-        build_fins(&fb);
-        mesh_upload(&G.fins, &fb);
-        LOGI("[cuevr] fin patch: %d cards, %d tris", n * n * 2, fb.ni / 3);
-        b_free(&fb);
+    /* THE NAP IS OFF and has been since it was judged worse-looking and slower,
+     * so none of it gets built: not the lean field, not the 8-slice fur volume,
+     * not the 15k-triangle fin patch that was uploaded and then never drawn.
+     * Baking assets for a disabled feature costs startup time, two textures and
+     * a vertex buffer on a device that is short of all three. */
+    if (s_fx[CUEVR_FX_NAP]) {
+        bake_nap();
+        bake_fur();
+        {   /* One patch, built once, moved to follow the eye. */
+            int n = (int)(FIN_HALF * 2.0f / FIN_SPACING);
+            Builder fb;
+            b_init(&fb, n * n * 8 + 8, n * n * 12 + 8);
+            build_fins(&fb);
+            mesh_upload(&G.fins, &fb);
+            LOGI("[cuevr] fin patch: %d cards, %d tris", n * n * 2, fb.ni / 3);
+            b_free(&fb);
+        }
+    } else {
+        LOGI("[cuevr] nap off: no lean field, no fur volume, no fin patch");
     }
     bake_ball_atlas();
 
@@ -4580,5 +4589,33 @@ skip_shadows:
     }
 
     gpq_flush();
+
+    /* WHAT ACTUALLY LANDED IN THE BUFFER. The projection layer is composited
+     * over passthrough BY ITS ALPHA (see mote_xr's layerFlags), and the buffer
+     * is cleared to alpha 0 so the room shows through. So "passthrough and
+     * nothing else" has two very different causes — nothing drawn, or drawn
+     * with zero alpha — and one pixel distinguishes them. Read the centre a
+     * few times early on, then never again. */
+    {   static int rb_n;
+        if (rb_n < 3) {
+            /* Errors the FRAME produced, drained and counted separately from
+             * any the readback itself raises — glReadPixels on a multisampled
+             * framebuffer is INVALID_OPERATION, so conflating the two would
+             * blame the scene for the instrument. */
+            unsigned ge, last = 0, nerr = 0;
+            while ((ge = glGetError()) != GL_NO_ERROR && nerr < 64) { last = ge; nerr++; }
+            GLint vp[4];
+            glGetIntegerv(GL_VIEWPORT, vp);
+            unsigned char px[4] = { 0, 0, 0, 0 };
+            glReadPixels(vp[0] + vp[2] / 2, vp[1] + vp[3] / 2, 1, 1,
+                         GL_RGBA, GL_UNSIGNED_BYTE, px);
+            unsigned rberr = glGetError();
+            LOGI("[cuevr] frame GL errors %u (last 0x%x) | centre rgba %u %u %u %u"
+                 " | vp %d %d %d %d | readback err 0x%x",
+                 nerr, last, px[0], px[1], px[2], px[3],
+                 vp[0], vp[1], vp[2], vp[3], rberr);
+            rb_n++;
+        }
+    }
     glBindVertexArray(0);
 }
