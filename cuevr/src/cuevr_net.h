@@ -56,6 +56,14 @@ typedef struct {
      * was never pointed at. Sent with every shot, not just the placed ones,
      * because it costs eight bytes and removes the question. */
     float cuex, cuez;      /* cue ball, table space, at the moment of the strike */
+    /* WHAT THEY DECLARED. Snooker scores and fouls against the ball the striker
+     * NOMINATED, and nomination happens by aiming — a purely local act the far
+     * end never saw. Two ends judging the same shot against different nominated
+     * colours award different points and different fouls, and from there the
+     * scores drift apart while the balls still agree, which is the confusing
+     * kind of desync. Rides with the shot because it is part of the shot. */
+    int   nominated;       /* colour value 2..7, or 0 */
+    int   free_ball_id;    /* the ball named as a free ball, or 0 */
 } CueVrNetShot;
 
 /* What each end tells the other once, when the room goes live: which game the
@@ -78,6 +86,21 @@ typedef struct {
     float tipx, tipy, tipz;
     float bttx, btty, bttz;
 } CueVrNetPose;
+
+/* A CHOICE, rather than a stroke. After a foul the fouled-AGAINST player picks
+ * from the decision list, and that pick changes the rules state on both ends —
+ * so it has to cross the wire like a shot does. Without it the deciding player
+ * carried on and the other sat on a pending decision for ever. Also carries a
+ * concession, which is the other thing one player can do that the other has to
+ * be told about. */
+typedef struct {
+    int code;              /* CUE_DEC_*, or CUEVR_NET_CONCEDE */
+    int who;               /* the seat that made it */
+} CueVrNetCall;
+#define CUEVR_NET_CONCEDE 100
+
+void cuevr_net_send_call(const CueVrNetCall *c);
+int  cuevr_net_recv_call(CueVrNetCall *out);
 
 void cuevr_net_send_pose(const CueVrNetPose *p);
 /* 1 if a pose has arrived recently enough to draw. */

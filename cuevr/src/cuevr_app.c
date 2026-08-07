@@ -798,10 +798,13 @@ static int pause_rows(PsRow *o, int max) {
     #define ADD(i,l) do { if (n < max) o[n++] = (PsRow){ (i), (l) }; } while (0)
     ADD(PS_RESUME, "RESUME");
     if (S.opp == OPP_PRACTICE && S.have_snap) ADD(PS_UNDO, "UNDO SHOT");
+    /* RE-RACK is not offered online: it rebuilds this end's table and the far
+     * end would carry on with the old one. Undo is practice-only already, and
+     * for the same reason. */
     if (S.can_repick)                          ADD(PS_PICKUP, "PICK UP BALL");
     if (S.rules.kind && !S.rules.frame_over && S.rules.target == 1)
         ADD(PS_NOMINATE, "NOMINATE");
-    ADD(PS_RERACK, "RE-RACK");
+    if (S.opp != OPP_ONLINE) ADD(PS_RERACK, "RE-RACK");
     ADD(PS_PLACE,  "PLACE TABLE");
     ADD(PS_APPEAR, "APPEARANCE");
     ADD(PS_CONTROLS, "CONTROLS");
@@ -1965,6 +1968,30 @@ static void app_update(void *u, const MoteVrTracking *t) {
             memset(&S.idle_shot, 0, sizeof S.idle_shot);
     }
 
+    /* A choice from the far end: apply it exactly as if we had made it. */
+    if (S.opp == OPP_ONLINE) {
+        CueVrNetCall c;
+        while (cuevr_net_recv_call(&c)) {
+            if (c.code == CUEVR_NET_CONCEDE) {
+                think_join();
+                cue_rules_concede(&S.rules, c.who);
+                snprintf(S.msg, sizeof S.msg, "FRAME CONCEDED");
+                S.msg_time = 3.0f;
+                S.state = ST_OVER;
+            } else if (S.rules.pushout_offer) {
+                S.rules.is_pushout = (c.code == CUE_DEC_PLAY) ? 1 : 0;
+                S.rules.pushout_offer = 0;
+                S.rules.pushout_avail = 0;
+                arm_shot(); hand_over();
+            } else if (S.rules.decision == CUE_DEC_PENDING) {
+                if (c.code == CUE_DEC_REPLAY) snap_restore_balls();
+                cue_rules_apply_decision(&S.rules, c.code);
+                arm_shot(); hand_over();
+            }
+            S.hud_dirty = 1;
+        }
+    }
+
     /* Ours, out to them. Every fourth frame — about 18 Hz, which is plenty for
      * a stick moving at human speed and a fraction of the bandwidth of every
      * frame. Only while we are actually holding it. */
@@ -2223,6 +2250,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
                      * is what conceding is. The match tally moves with it. */
                     if (S.rules.kind && !S.rules.frame_over) {
                         think_join();
+                        if (S.opp == OPP_ONLINE) {
+                            CueVrNetCall c = { CUEVR_NET_CONCEDE, S.net_me };
+                            cuevr_net_send_call(&c);
+                        }
                         cue_rules_concede(&S.rules, S.opp == OPP_ONLINE ? S.net_me : 0);
                         snprintf(S.msg, sizeof S.msg, "FRAME CONCEDED");
                         S.msg_time = 3.0f;
@@ -2361,6 +2392,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 /* And where the white actually is. After ball in hand only this
                  * end knows. */
                 ns.cuex = S.balls[0].pos.x; ns.cuez = S.balls[0].pos.z;
+                /* And what we declared. Nomination happens by aiming, which the
+                 * far end cannot see. */
+                ns.nominated = S.rules.nominated;
+                ns.free_ball_id = S.rules.free_ball_id;
                 cuevr_net_send_shot(&ns);
             }
             cue_phys_strike_elev(&S.world, &S.balls[0], shot.dir, sp,
@@ -2402,6 +2437,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.balls[0].pos = v3(ns.cuex, S.tab.R, ns.cuez);
                 S.balls[0].vel = v3(0,0,0); S.balls[0].w = v3(0,0,0);
                 S.balls[0].on = 1;
+                /* Judge their shot against what THEY declared, or the scores
+                 * drift apart while the balls still agree. */
+                if (ns.nominated) cue_rules_nominate(&S.rules, ns.nominated);
+                if (ns.free_ball_id) cue_rules_nominate_free(&S.rules, ns.free_ball_id);
                 cue_audio_sfx(CUE_SFX_STRIKE, ns.speed / MAX_STRIKE_SPEED);
                 cue_phys_strike_elev(&S.world, &S.balls[0], dir, ns.speed,
                                      ns.side, ns.vert, ns.elev);
@@ -2832,6 +2871,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
             if (!fire) break;
 
             int dec = o[S.dec_sel].dec;
+            /* The far end is sitting on the same pending decision and cannot
+             * see which row we picked. */
+            if (S.opp == OPP_ONLINE) {
+                CueVrNetCall c = { dec, S.net_me };
+                cuevr_net_send_call(&c);
+            }
             if (S.rules.pushout_offer) {
                 S.rules.is_pushout = (dec == CUE_DEC_PLAY) ? 1 : 0;
                 S.rules.pushout_offer = 0;

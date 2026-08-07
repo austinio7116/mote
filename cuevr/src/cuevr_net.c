@@ -40,7 +40,7 @@
  * differently and diverge on the first shot, and they would do it silently,
  * which is exactly what a room id exists to prevent. Failing to pair is the
  * better failure. */
-#define CUEVR_GAME_ID  0x43554534u   /* 'CUE3' — the shot record grew, and the
+#define CUEVR_GAME_ID  0x43554535u   /* 'CUE3' — the shot record grew, and the
                                       * hello with it */
 
 /* Wire framing. A magic byte per record so a half-read stream resynchronises
@@ -48,6 +48,7 @@
 #define PKT_SHOT  0xC5
 #define PKT_HELLO 0xC4
 #define PKT_POSE  0xC3
+#define PKT_CALL  0xC2
 
 static int   s_state;
 static int   s_me = -1;
@@ -61,6 +62,24 @@ static int     s_in_n;
 /* Their cue, and how long since it last moved. Counted in RECEIVE calls rather
  * than seconds because that is what this layer has: the app polls every frame,
  * so a couple of hundred is a couple of seconds. */
+/* A choice, waiting to be handed to the app once. */
+static CueVrNetCall s_call;
+static int          s_have_call;
+
+void cuevr_net_send_call(const CueVrNetCall *c) {
+    if (s_state != CUEVR_NET_LIVE || !c) return;
+    uint8_t b[1 + sizeof *c];
+    b[0] = PKT_CALL;
+    memcpy(b + 1, c, sizeof *c);
+    link_net_send(b, (int)sizeof b);
+}
+int cuevr_net_recv_call(CueVrNetCall *out) {
+    if (!s_have_call || !out) return 0;
+    *out = s_call;
+    s_have_call = 0;
+    return 1;
+}
+
 static CueVrNetPose s_ppose;
 static int          s_pose_age = 1 << 20;
 
@@ -172,6 +191,7 @@ void cuevr_net_stop(void) {
     s_in_n = 0;
     s_have_peer = 0;      /* a stale peer from the last room is a wrong table */
     s_pose_age = 1 << 20;
+    s_have_call = 0;
     s_info[0] = 0;
     s_code[0] = 0;
 }
@@ -296,6 +316,7 @@ int cuevr_net_recv_shot(CueVrNetShot *out) {
     while (s_in_n > 0) {
         uint8_t tag = s_in[0];
         int need = (tag == PKT_SHOT) ? 1 + (int)sizeof *out
+                 : (tag == PKT_CALL)  ? 1 + (int)sizeof s_call
                  : (tag == PKT_POSE)  ? 1 + (int)sizeof s_ppose
                  : (tag == PKT_HELLO) ? 1 + (int)sizeof s_peer
                  : -1;
@@ -311,6 +332,10 @@ int cuevr_net_recv_shot(CueVrNetShot *out) {
         else if (tag == PKT_POSE) {
             memcpy(&s_ppose, s_in + 1, sizeof s_ppose);
             s_pose_age = 0;
+        }
+        else if (tag == PKT_CALL) {
+            memcpy(&s_call, s_in + 1, sizeof s_call);
+            s_have_call = 1;
         }
         else if (tag == PKT_HELLO) {
             memcpy(&s_peer, s_in + 1, sizeof s_peer);
