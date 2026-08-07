@@ -2619,6 +2619,12 @@ const char *cuevr_render_cue_name(int i) {
 }
 void cuevr_render_set_cue(int i) { s_cue_sel = (i < 0 || i >= CUE_RACK_N) ? 0 : i; }
 
+/* The OPPONENT's cue. Theirs is a choice they made and it is the one thing of
+ * theirs you can actually see across the table, so it is drawn as the cue they
+ * picked rather than as a copy of yours. */
+static int s_ocue_sel;
+void cuevr_render_set_opp_cue(int i) { s_ocue_sel = (i < 0 || i >= CUE_RACK_N) ? 0 : i; }
+
 /* ---- the runtime's controller models -------------------------------------- *
  *
  * XR_FB_render_model gives the actual hardware in the player's hands, authored
@@ -3841,6 +3847,51 @@ void cuevr_render_views(const float *view2, const float *proj2,
  * runs back past the hands and out behind the player, as a real one does. It is
  * NOT stretched between the controllers — a cue is a fixed length, and making
  * it rubbery is the fastest way to stop believing in it. */
+/* The cue's colours and inlay switches, as uniforms. Uploaded once a frame for
+ * the player's cue — and again, around the opponent's draw, for theirs: the
+ * design is a per-frame upload rather than per-draw, so two cues of different
+ * designs in one frame means setting it twice. */
+static void upload_cue_design(int sel) {
+    const CueVrCueDesign *cd = &CUE_RACK[(sel < 0 || sel >= CUE_RACK_N) ? 0 : sel];
+        glUniform3fv(G.u_cshaft, 1, cd->shaft);
+        glUniform3fv(G.u_csplice, 1, cd->splice);
+        glUniform3fv(G.u_caccent, 1, cd->accent);
+        glUniform3fv(G.u_cbutt, 1, cd->butt);
+        glUniform3fv(G.u_cburr, 1, cd->burr);
+        glUniform1f(G.u_cflash, (float)cd->flash);
+        glUniform3fv(G.u_cvnr2, 1, cd->vnr2);
+        glUniform1f(G.u_cv2on, (float)cd->flash2);
+        glUniform1f(G.u_cvw, cd->veneer_w > 0.0f ? cd->veneer_w : 0.0010f);
+        glUniform3fv(G.u_cwrapc, 1, cd->wrapc);
+        glUniform3fv(G.u_csleevec, 1, cd->sleevec);
+        glUniform3fv(G.u_cringc, 1, cd->ringc);
+        glUniform3fv(G.u_cdiac, 1, cd->diac);
+        glUniform1f(G.u_cwrap,  (float)cd->wrap);
+        glUniform1f(G.u_csleeve,(float)cd->sleeve);
+        glUniform1f(G.u_cdia,   (float)cd->diamonds);
+        {   float vflat[18];
+            for (int vk = 0; vk < 6; vk++)
+                for (int ck = 0; ck < 3; ck++) vflat[vk*3+ck] = cd->vcol[vk][ck];
+            glUniform3fv(G.u_cvcol, 6, vflat); }
+        glUniform1f(G.u_cnvcol,  (float)cd->nvcol);
+        glUniform1f(G.u_csfig,   (float)cd->shaft_fig);
+        glUniform1f(G.u_cbfig,   (float)cd->butt_fig);
+        glUniform1f(G.u_cishape, (float)cd->inlay_shape);
+        glUniform1f(G.u_cipearl, (float)cd->inlay_pearl);
+        glUniform1f(G.u_cit,     cd->inlay_t);
+        glUniform1f(G.u_chand,  (float)cd->hand);
+        glUniform1f(G.u_cnarch, (float)(cd->arches ? cd->arches : 1));   /* -1 = no panel */
+        {   const char *fv = getenv("CUEVR_FACE");   /* capture aid: turn the
+             * single-sided ornament toward the camera */
+            glUniform1f(G.u_cface, fv ? (float)atof(fv) : 0.375f); }
+        glUniform1f(G.u_cpflip,  (float)cd->panel_flip);
+        glUniform1f(G.u_cppearl, (float)cd->panel_pearl);
+        glUniform1f(G.u_cpts,   cd->points   ? (float)cd->points : 4.0f);
+        glUniform1f(G.u_cptlen, cd->point_len > 0.01f ? cd->point_len : 1.0f);
+        glUniform1f(G.u_cnvnr,  (float)(cd->veneers ? cd->veneers : (cd->flash ? 1 : 0)));
+        glUniform1f(G.u_clam,   (float)cd->laminated);
+    }
+
 static void draw_cue(MoteVrV3 tip, MoteVrV3 butt, float roll) {
     MoteVrV3 d = mv3_sub(butt, tip);
     float len = mv3_len(d);
@@ -4306,45 +4357,7 @@ after_table: ;
         glUniform1f(G.u_furslices, (float)FUR_SLICES);
         glUniform2f(G.u_half, G.tab.half_len, G.tab.half_wid);
         glUniform1f(G.u_furdbg, getenv("CUEVR_FURDBG") ? 1.0f : 0.0f);
-        {   const CueVrCueDesign *cd = &CUE_RACK[s_cue_sel];
-            glUniform3fv(G.u_cshaft, 1, cd->shaft);
-            glUniform3fv(G.u_csplice, 1, cd->splice);
-            glUniform3fv(G.u_caccent, 1, cd->accent);
-            glUniform3fv(G.u_cbutt, 1, cd->butt);
-            glUniform3fv(G.u_cburr, 1, cd->burr);
-            glUniform1f(G.u_cflash, (float)cd->flash);
-            glUniform3fv(G.u_cvnr2, 1, cd->vnr2);
-            glUniform1f(G.u_cv2on, (float)cd->flash2);
-            glUniform1f(G.u_cvw, cd->veneer_w > 0.0f ? cd->veneer_w : 0.0010f);
-            glUniform3fv(G.u_cwrapc, 1, cd->wrapc);
-            glUniform3fv(G.u_csleevec, 1, cd->sleevec);
-            glUniform3fv(G.u_cringc, 1, cd->ringc);
-            glUniform3fv(G.u_cdiac, 1, cd->diac);
-            glUniform1f(G.u_cwrap,  (float)cd->wrap);
-            glUniform1f(G.u_csleeve,(float)cd->sleeve);
-            glUniform1f(G.u_cdia,   (float)cd->diamonds);
-            {   float vflat[18];
-                for (int vk = 0; vk < 6; vk++)
-                    for (int ck = 0; ck < 3; ck++) vflat[vk*3+ck] = cd->vcol[vk][ck];
-                glUniform3fv(G.u_cvcol, 6, vflat); }
-            glUniform1f(G.u_cnvcol,  (float)cd->nvcol);
-            glUniform1f(G.u_csfig,   (float)cd->shaft_fig);
-            glUniform1f(G.u_cbfig,   (float)cd->butt_fig);
-            glUniform1f(G.u_cishape, (float)cd->inlay_shape);
-            glUniform1f(G.u_cipearl, (float)cd->inlay_pearl);
-            glUniform1f(G.u_cit,     cd->inlay_t);
-            glUniform1f(G.u_chand,  (float)cd->hand);
-            glUniform1f(G.u_cnarch, (float)(cd->arches ? cd->arches : 1));   /* -1 = no panel */
-            {   const char *fv = getenv("CUEVR_FACE");   /* capture aid: turn the
-                 * single-sided ornament toward the camera */
-                glUniform1f(G.u_cface, fv ? (float)atof(fv) : 0.375f); }
-            glUniform1f(G.u_cpflip,  (float)cd->panel_flip);
-            glUniform1f(G.u_cppearl, (float)cd->panel_pearl);
-            glUniform1f(G.u_cpts,   cd->points   ? (float)cd->points : 4.0f);
-            glUniform1f(G.u_cptlen, cd->point_len > 0.01f ? cd->point_len : 1.0f);
-            glUniform1f(G.u_cnvnr,  (float)(cd->veneers ? cd->veneers : (cd->flash ? 1 : 0)));
-            glUniform1f(G.u_clam,   (float)cd->laminated);
-        }
+        upload_cue_design(s_cue_sel);
         glUniform1f(G.u_baulk, tb->baulk_x);
         glUniform1f(G.u_drad,  tb->d_radius);
         /* HALF-widths, both of them — which the old comments did not say, so the
@@ -4520,8 +4533,11 @@ skip_shadows:
     if (!getenv("CUEVR_NOCUE")) {
         if (s->cue_visible)
             draw_cue(s->cue_tip, s->cue_butt, s->cue_roll);
-        if (s->ocue_visible)
+        if (s->ocue_visible) {
+            upload_cue_design(s_ocue_sel);   /* their design, for their cue */
             draw_cue(s->ocue_tip, s->ocue_butt, 0.0f);
+            upload_cue_design(s_cue_sel);    /* and back to yours */
+        }
     }
 
     /* CUEVR_CTRLAXES: draw the LEFT controller at the table centre, unrotated, with

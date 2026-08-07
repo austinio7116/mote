@@ -156,6 +156,8 @@ typedef struct {
 int         cuevr_render_cue_count(void);
 const char *cuevr_render_cue_name(int i);
 void        cuevr_render_set_cue(int i);
+/* The opponent's cue, drawn as the one THEY chose. */
+void        cuevr_render_set_opp_cue(int i);
 int         cuevr_render_cue(void);
 
 /* ---- the lighting rig ---------------------------------------------------- *

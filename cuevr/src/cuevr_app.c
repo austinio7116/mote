@@ -2015,7 +2015,24 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * when you happen to touch a stick. */
         if (S.lb_screen == LB_WAIT && cuevr_net_state() == CUEVR_NET_LIVE) {
             S.net_me = cuevr_net_me();
-            start_frame(MENU[S.menu_sel].kind);
+            /* Tell them what we are holding and, if we are the host, what we
+             * are playing. */
+            cuevr_net_set_hello((int)MENU[S.menu_sel].kind, S.cue_idx);
+            /* THE HOST'S GAME IS THE GAME. Both ends used to call start_frame()
+             * on their OWN menu selection, so two players who had not happened
+             * to pick the same one racked different tables and every shot after
+             * that was nonsense. Wait for their hello before racking; the host
+             * needs nobody's permission and racks at once. */
+            if (S.net_me == 0) {
+                start_frame(MENU[S.menu_sel].kind);
+            } else {
+                CueVrNetHello ph;
+                if (!cuevr_net_peer(&ph)) break;   /* not yet — ask again next frame */
+                for (int i = 0; i < MENU_N; i++)
+                    if ((int)MENU[i].kind == ph.kind) S.menu_sel = i;
+                cuevr_render_set_opp_cue(ph.cue_idx);
+                start_frame((CueGameKind)ph.kind);
+            }
             snprintf(S.msg, sizeof S.msg, S.net_me == 0 ? "YOU BREAK" : "THEY BREAK");
             S.msg_time = 3.0f;
             hand_over();
@@ -2330,6 +2347,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 ns.dirx = shot.dir.x; ns.dirz = shot.dir.z;
                 ns.speed = sp; ns.side = shot.tip_side; ns.vert = shot.tip_vert;
                 ns.elev = shot.elev;
+                /* And where the white actually is. After ball in hand only this
+                 * end knows. */
+                ns.cuex = S.balls[0].pos.x; ns.cuez = S.balls[0].pos.z;
                 cuevr_net_send_shot(&ns);
             }
             cue_phys_strike_elev(&S.world, &S.balls[0], shot.dir, sp,
@@ -2356,10 +2376,21 @@ static void app_update(void *u, const MoteVrTracking *t) {
         if (S.opp == OPP_ONLINE) {
             /* Their shot arrives as six numbers and we play it ourselves. */
             CueVrNetShot ns;
+            /* Their cue design may arrive after the rack — the host sends its
+             * hello the same instant it starts — so keep taking it. */
+            {   CueVrNetHello ph;
+                if (cuevr_net_peer(&ph)) cuevr_render_set_opp_cue(ph.cue_idx); }
             if (cuevr_net_recv_shot(&ns)) {
                 Vec3 dir = v3(ns.dirx, 0.0f, ns.dirz);
                 float l = v3_len(dir);
                 if (l > 1e-4f) dir = v3_scale(dir, 1.0f / l);
+                /* Put the white where THEY had it before striking. Ball in hand
+                 * is a position only the striker knows, and starting the same
+                 * shot from a different spot is how the far end watched every
+                 * break sail past the pack. */
+                S.balls[0].pos = v3(ns.cuex, S.tab.R, ns.cuez);
+                S.balls[0].vel = v3(0,0,0); S.balls[0].w = v3(0,0,0);
+                S.balls[0].on = 1;
                 cue_audio_sfx(CUE_SFX_STRIKE, ns.speed / MAX_STRIKE_SPEED);
                 cue_phys_strike_elev(&S.world, &S.balls[0], dir, ns.speed,
                                      ns.side, ns.vert, ns.elev);

@@ -48,7 +48,30 @@ typedef struct {
     float speed;
     float side, vert;      /* tip offsets in ball radii */
     float elev;            /* cue elevation, radians */
+    /* WHERE THE WHITE WAS. Lockstep only works from the same starting position,
+     * and ball in hand is a position only ONE side knows: the striker walks the
+     * cue ball wherever they like and the other end never hears about it. So
+     * every break — every frame begins with one — was played from two different
+     * spots, and the far end watched the same aim and speed sail past a pack it
+     * was never pointed at. Sent with every shot, not just the placed ones,
+     * because it costs eight bytes and removes the question. */
+    float cuex, cuez;      /* cue ball, table space, at the moment of the strike */
 } CueVrNetShot;
+
+/* What each end tells the other once, when the room goes live: which game the
+ * HOST is playing and which cue each is holding. Neither was exchanged at all —
+ * both ends called start_frame() on their own menu selection, so two players who
+ * had not happened to pick the same game were racking different tables. */
+typedef struct {
+    int  seat;             /* 0 = host */
+    int  kind;             /* CueGameKind — the host's is the one that counts */
+    int  cue_idx;          /* the cue they are holding, so it can be drawn */
+} CueVrNetHello;
+
+/* The last hello received, if any. Returns 1 when one has arrived. */
+int  cuevr_net_peer(CueVrNetHello *out);
+/* Ours, sent when the room goes live. */
+void cuevr_net_set_hello(int kind, int cue_idx);
 
 /* ---- starting a session ------------------------------------------------- */
 void cuevr_net_lan_host(void);

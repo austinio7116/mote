@@ -40,7 +40,8 @@
  * differently and diverge on the first shot, and they would do it silently,
  * which is exactly what a room id exists to prevent. Failing to pair is the
  * better failure. */
-#define CUEVR_GAME_ID  0x43554532u   /* 'CUE2' */
+#define CUEVR_GAME_ID  0x43554533u   /* 'CUE3' — the shot record grew, and the
+                                      * hello with it */
 
 /* Wire framing. A magic byte per record so a half-read stream resynchronises
  * rather than reinterpreting float bytes as a shot. */
@@ -55,6 +56,20 @@ static char  s_info[64] = "";
  * byte record over TCP may well be 9 bytes then 16. */
 static uint8_t s_in[256];
 static int     s_in_n;
+
+/* Ours, and theirs once it lands. */
+static CueVrNetHello s_mine = { 0, 0, 0 };
+static CueVrNetHello s_peer;
+static int           s_have_peer;
+
+void cuevr_net_set_hello(int kind, int cue_idx) {
+    s_mine.kind = kind; s_mine.cue_idx = cue_idx;
+}
+int cuevr_net_peer(CueVrNetHello *out) {
+    if (!s_have_peer || !out) return 0;
+    *out = s_peer;
+    return 1;
+}
 
 static void relay_config_once(void) {
     static int done;
@@ -135,6 +150,7 @@ void cuevr_net_stop(void) {
     s_state = CUEVR_NET_OFF;
     s_me = -1;
     s_in_n = 0;
+    s_have_peer = 0;      /* a stale peer from the last room is a wrong table */
     s_info[0] = 0;
     s_code[0] = 0;
 }
@@ -225,8 +241,11 @@ void cuevr_net_task(void) {
         snprintf(s_info, sizeof s_info, s_me == 0 ? "CONNECTED - YOU BREAK"
                                                   : "CONNECTED - THEY BREAK");
         NETLOG("[cuevr] net: live, local player %d", s_me);
-        uint8_t hello[2] = { PKT_HELLO, (uint8_t)s_me };
-        link_net_send(hello, 2);
+        s_mine.seat = s_me;
+        uint8_t hello[1 + sizeof s_mine];
+        hello[0] = PKT_HELLO;
+        memcpy(hello + 1, &s_mine, sizeof s_mine);
+        link_net_send(hello, (int)sizeof hello);
         return;
     }
     if (s_state == CUEVR_NET_LIVE && st != LINK_NET_CONNECTED) {
@@ -255,7 +274,7 @@ int cuevr_net_recv_shot(CueVrNetShot *out) {
     while (s_in_n > 0) {
         uint8_t tag = s_in[0];
         int need = (tag == PKT_SHOT) ? 1 + (int)sizeof *out
-                 : (tag == PKT_HELLO) ? 2
+                 : (tag == PKT_HELLO) ? 1 + (int)sizeof s_peer
                  : -1;
         if (need < 0) {
             /* Not a record boundary. Drop one byte and try again rather than
@@ -266,6 +285,10 @@ int cuevr_net_recv_shot(CueVrNetShot *out) {
         if (s_in_n < need) return 0;             /* the rest is still in flight */
         int found = (tag == PKT_SHOT);
         if (found) memcpy(out, s_in + 1, sizeof *out);
+        else if (tag == PKT_HELLO) {
+            memcpy(&s_peer, s_in + 1, sizeof s_peer);
+            s_have_peer = 1;
+        }
         s_in_n -= need;
         memmove(s_in, s_in + need, (size_t)s_in_n);
         if (found) return 1;
