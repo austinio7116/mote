@@ -24,11 +24,23 @@
 #endif
 
 /* Room gating. link_net only pairs peers with the same game id, so a CueVR
- * player can never be handed a Wormote opponent. Bump this if the shot packet
- * ever changes shape: an old client and a new one must not pair, because
- * lockstep with mismatched packets desyncs silently, which is far worse than
- * failing to connect. */
-#define CUEVR_GAME_ID  0x43554531u   /* 'CUE1' */
+ * player can never be handed a Wormote opponent.
+ *
+ * IT IS ALSO THE PROTOCOL VERSION, and the rule is wider than the packet.
+ * These two builds play in LOCKSTEP: six numbers cross the wire and each side
+ * runs the shot itself, so anything that changes what a shot DOES has to match
+ * at both ends — the physics, the table geometry, the rack, the rules. A packet
+ * that still fits is no comfort at all if the two tables disagree about where
+ * the balls started.
+ *
+ * CUE2, from CUE1, because a day's work moved all of those: the yellow and
+ * green spots swapped ends, the D lets a ball's centre reach the line, pool
+ * ball-in-hand became the whole table, the cue's cushion clearance changed, and
+ * the foul decision grew an option. A CUE1 client and a CUE2 client would rack
+ * differently and diverge on the first shot, and they would do it silently,
+ * which is exactly what a room id exists to prevent. Failing to pair is the
+ * better failure. */
+#define CUEVR_GAME_ID  0x43554532u   /* 'CUE2' */
 
 /* Wire framing. A magic byte per record so a half-read stream resynchronises
  * rather than reinterpreting float bytes as a shot. */
