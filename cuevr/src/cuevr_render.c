@@ -1006,56 +1006,12 @@ static const char *FS =
 "                float aa = min(pxp, hw * 0.45);\n"
 "                float e = smoothstep(hw + aa, hw - aa, d) * clamp(hw / pxp, 0.0, 1.0);\n"
 "                c = mix(c, ebony, e);\n"
-"                if (u_cflash > 0.5 && k > 0.003) {\n"
-"                    /* The veneer is glued to the SPLICE — where there is no\n"
-"                     * panel yet there is no veneer. Without this gate hw is\n"
-"                     * zero above the apex and abs(d - hw) collapses to d,\n"
-"                     * which drew a colour spike up the centreline past the\n"
-"                     * curve and streaks up the ash before the splice. */\n"
-"                    // Same cut-sheet geometry as the butt splice below: the\n"
-"                    // veneer is a slip of constant thickness in the joint, so\n"
-"                    // its width on the surface goes as 1/r and broadens where\n"
-"                    // the joint runs oblique. This was a smoothstep from zero,\n"
-"                    // full strength only exactly on the edge, so up the shaft\n"
-"                    // it read as a row of blue dots rather than an inlay.\n"
-"                    float edge = abs(d - hw);\n"
-"                    float arc  = cue_r * 1.5707963;\n"
-"                    float dhwx = 0.42 * 0.62 * pow(max(k, 0.02), -0.38)\n"
-"                               / ((ms_base - ms_tip) * 1.45);\n"
-"                    float gmag = sqrt(1.0/(arc*arc) + dhwx*dhwx);\n"
-"                    float wln  = 0.5 * u_cvw * gmag;\n"
-"                    float px   = fw_d;\n"
-"                    float wdrw = max(wln, px);\n"
-"                    float fade = wln / wdrw;\n"
-"                    float ln   = 1.0 - smoothstep(wdrw, wdrw + px, edge);\n"
-"                    ln *= step(px * 1.3, hw);   /* no veneer before the arch is a pixel wide */\n"
-"                    /* ...and none AFTER the prongs swallow it: the pinch is a\n"
-"                     * geometric event at hw = 0.5, but the pixel-widened line\n"
-"                     * kept matching the frozen gap at grazing angles and\n"
-"                     * dashed along the black forever. True width decides. */\n"
-"                    ln *= 1.0 - step(wln + 0.012, hw - 0.5);\n"
-"                    // THE STACK. A hand splice lays several slips in the one\n"
-"                    // joint and a Taylor Made laminate lays eight or ten, which\n"
-"                    // is why they read as nested Vs of colour rather than as an\n"
-"                    // outline. Each sits one thickness outside the last and\n"
-"                    // they alternate, pale against coloured, as they are cut.\n"
-"                    // A stack of four or more is a LAMINATE, and laminate\n"
-"                    // bands are cut through figured wood — their edges wave.\n"
-"                    float wob = (u_cnvnr >= 4.0 && u_cnvcol < 0.5)\n"
-"                              ? (fbm2(vec2(a * 9.0, t * 55.0)) - 0.5) * 0.55 : 0.0;\n"
-"                    float stackon = 1.0;\n"
-"                    for (int vi = 1; vi < 8; vi++) {\n"
-"                        if (float(vi) >= u_cnvnr) break;\n"
-"                        float ei = abs(edge - wln * 2.0 * float(vi) * (1.0 + wob));\n"
-"                        float li = 1.0 - smoothstep(wdrw, wdrw + px, ei);\n"
-"                        int  ci = (vi - 1) - ((vi - 1) / 6) * 6;\n"
-"                        vec3 vc = (u_cnvcol > 0.5) ? u_cvcol[ci]\n"
-"                                : ((mod(float(vi), 2.0) < 0.5) ? u_caccent : u_cvnr2);\n"
-"                        float alive2 = 1.0 - step(wln * 2.0 * float(vi) + 0.012, hw - 0.5);\n"
-"                        c = mix(c, vc, li * 0.92 * fade * stackon * alive2 * step(px * 1.3, hw));\n"
-"                    }\n"
-"                    c = mix(c, u_caccent, ln * 0.95 * fade);\n"
-"                }\n"
+"                /* NO VENEER ON THE SHAFT SPLICE. A coloured line following the\n"
+"                 * ebony up into the ash reads as a painted edge where the\n"
+"                 * points run out — ugly exactly at the tips, which is where\n"
+"                 * the eye goes. These are clean splices: timber against\n"
+"                 * timber, and the colour saved for the butt panel where a\n"
+"                 * real cue puts it. */\n"
 "            }\n"
 "            if (t > ms_base) {\n"
 "                /* No hard fill: with points present the prongs have already\n"
@@ -2744,7 +2700,13 @@ int cuevr_render_has_ctrl_model(int hand) {
 /* Shadows OFF by default: the shadow-map pass costs more frame time on the
  * Quest than it earns, and the menu can switch it on for machines with the
  * headroom. */
-static int s_fx[CUEVR_FX_N] = { 0, 1, 1, 0, 0 };
+/* SHADOWS off (the map costs more Quest frame time than it earns), CLOTH NAP
+ * off (judged worse-looking and slower). FRAME WOOD back ON: with it off the
+ * frame's timber draws through mode 12, flat vertex colour with no grain and
+ * no varnish, which is the "simpler wood" that appeared once the sampler fix
+ * let those triangles draw at all — before it they were being rejected
+ * outright. It is ~300 triangles; the grain is worth them. */
+static int s_fx[CUEVR_FX_N] = { 0, 1, 1, 0, 1 };
 static const char *FX_NAME[CUEVR_FX_N] = {
     "SHADOWS", "VARNISH", "BALL REFLECT", "CLOTH NAP", "FRAME WOOD" };
 void cuevr_render_fx_set(int w, int on) { if (w >= 0 && w < CUEVR_FX_N) s_fx[w] = on ? 1 : 0; }

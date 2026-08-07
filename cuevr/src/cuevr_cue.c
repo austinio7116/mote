@@ -314,6 +314,30 @@ void cuevr_cue_update(CueVrCue *c, const MoteVrTracking *t,
          * ball. One angle, decided when you commit to the shot, held. */
         c->lock_elev = c->min_elev;
         c->lock_axis = live_axis;
+        /* THE DELIVERY RUNS ALONG THE CUE, INCLUDING ITS ELEVATION.
+         *
+         * The lock axis is the line the tip travels down for the whole stroke.
+         * Taking it from the hands alone meant that whenever the cue was forced
+         * up to clear a cushion, the shaft was DRAWN elevated while the tip
+         * still slid along the flat hand line — the cue skated forward at an
+         * angle instead of striking down through it, which is the same fault
+         * the CPU's cue had before its travel was put on the shaft direction.
+         *
+         * So if the forced angle is steeper than the one the hands are making,
+         * the locked line takes the forced angle: elevation is part of the
+         * stroke, not a pose applied to it. */
+        {   float lay = c->lock_axis.y < -1.0f ? -1.0f
+                      : (c->lock_axis.y > 1.0f ? 1.0f : c->lock_axis.y);
+            float e_hand = asinf(-lay);
+            if (c->lock_elev > e_hand) {
+                MoteVrV3 fl = mv3(c->lock_axis.x, 0.0f, c->lock_axis.z);
+                if (mv3_len(fl) > 1e-4f) {
+                    fl = mv3_norm(fl);
+                    float ce = cosf(c->lock_elev), se = sinf(c->lock_elev);
+                    c->lock_axis = mv3(fl.x * ce, -se, fl.z * ce);
+                }
+            }
+        }
         c->lock_bridge = c->bridge;
         c->lock_butt0 = Rh->pose.p;
         c->lock_tip0 = mv3_add(Rh->pose.p,
