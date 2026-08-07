@@ -389,10 +389,16 @@ Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
 static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking) {
     float R = t->R;
     if (t->is_snooker || t->kind == CUE_GAME_UK8) {
-        /* the D: a half-disc of radius d_radius centred on (baulk_x,0), bulging
-         * toward the baulk cushion (−x). Keep the ball wholly inside it. */
-        float rmax = t->d_radius - R;
-        if (rmax < 0.0f) rmax = 0.0f;
+        /* The D: a half-disc of radius d_radius centred on (baulk_x, 0), bulging
+         * toward the baulk cushion (−x).
+         *
+         * The CENTRE goes up to the line, not the ball's edge. A ball played
+         * from hand is in the D if its centre is within the D or on the lines
+         * bounding it — half of it may hang outside, and on a tight angle from
+         * the D that half is the difference between having the shot and not.
+         * This kept the whole ball inside, which quietly shrank the D by a ball
+         * radius all the way round. */
+        float rmax = t->d_radius;
         if (p.x > t->baulk_x) p.x = t->baulk_x;        /* not past the baulk line */
         float dx = p.x - t->baulk_x, dz = p.z;
         float d = sqrtf(dx*dx + dz*dz);

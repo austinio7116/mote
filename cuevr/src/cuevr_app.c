@@ -1135,6 +1135,7 @@ static void hud_build(void) {
     /* The one big line. */
     if (S.state == ST_PLACE) {
         hud_text_2x("BALL IN HAND", 4, 58, HI);
+        hud_text("POINT THE CUE AT THE SPOT   A PLACE", 4, 70, DIM);
         return;
     }
     if (S.state == ST_DECIDE) {
@@ -2250,50 +2251,46 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.hud_dirty = 1;
             }
         }
-        /* Walk the cue ball about with the left stick, in your own view frame,
-         * clamped to wherever the rules allow it (the D, or behind the head
-         * string) by cue_table_clamp_placement — so an illegal placement is not
-         * possible rather than merely discouraged. */
-        float sx = t->hand[MOTE_VR_LEFT].stick_x, sy = t->hand[MOTE_VR_LEFT].stick_y;
-        if (fabsf(sx) > 0.18f || fabsf(sy) > 0.18f) {
-            MoteVrV3 fwd = mq_rot(t->head.q, mv3(0, 0, -1));
-            fwd.y = 0.0f;
-            fwd = mv3_len(fwd) > 1e-3f ? mv3_norm(fwd) : mv3(0, 0, -1);
-            MoteVrV3 rgt = mv3_norm(mv3_cross(mv3(0, 1, 0), mv3_scale(fwd, -1.0f)));
-            MoteVrV3 d = cuevr_room_dir_to_table(&S.setup.place,
-                mv3_add(mv3_scale(fwd, sy * 0.45f * dt),
-                        mv3_scale(rgt, sx * 0.45f * dt)));
-            Vec3 p = S.balls[0].pos;
-            p.x += d.x;
-            p.z += d.z;
-            /* Clamped against the OTHER BALLS as well as the region, so the ball
-             * slides round an obstruction instead of being parked inside it and
-             * fired out again on the first tick of the shot. */
-            S.balls[0].pos = cue_table_clamp_placement_balls(&S.tab, p,
-                                                             S.balls, S.nballs, S.rules.break_shot);
-            S.hud_dirty = 1;
-        }
-
-        /* The right stick ORBITS you about the ball you are placing: the table
-         * turns under your feet, keeping the cue ball where it is in the room.
-         * Placement is the one time you genuinely need to see a spot from the
-         * other side, and in a room the size anyone plays this in you cannot
-         * simply walk round to it. */
-        {
-            float rx = t->hand[MOTE_VR_RIGHT].stick_x;
-            if (fabsf(rx) > 0.20f) {
-                /* About the ball WHERE IT IS NOW, recomputed each frame, so
-                 * walking it with the left stick and turning with the right
-                 * compose the way they look like they should. This open-coded
-                 * its own rotation and open-coded it with the transpose, which
-                 * left the ball orbiting a point it had no business orbiting —
-                 * near enough to the pocket it came out of to look deliberate. */
-                cuevr_setup_yaw_about(&S.setup,
-                                      cuevr_table_to_room(&S.setup.place, S.balls[0].pos),
-                                      -rx * 1.2f * dt);
-                S.hud_dirty = 1;
+        /* POINT AT THE SPOT WITH THE CUE. Both sticks belong to the table —
+         * slide and turn, the same everywhere in the game — so placing the ball
+         * cannot have one of them. It used to walk the ball with the left
+         * stick, which meant that during ball in hand the one control you use
+         * constantly did something else.
+         *
+         * The pointer is the CUE, not a laser out of the controller. The cue's
+         * line is already computed, already trusted, and already visible in
+         * your hands: extend it past the tip to where it crosses the cloth and
+         * put the ball there. Nothing new has to be calibrated, and there is no
+         * question about which way a controller "points", because you can see
+         * exactly where the stick is aimed.
+         *
+         * Clamped against the OTHER BALLS as well as the legal region, so the
+         * ball slides round an obstruction instead of being parked inside one
+         * and fired out again on the first tick of the shot. */
+        if (S.cue.tracked) {
+            MoteVrV3 o = S.cue.tip, d = S.cue.axis;
+            float bed = S.setup.place.height;          /* cloth, in room space */
+            if (d.y < -1.0e-3f) {                      /* pointing down at it */
+                float k = (bed - o.y) / d.y;
+                if (k > 0.0f && k < 4.0f) {
+                    MoteVrV3 hit = mv3_add(o, mv3_scale(d, k));
+                    MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, hit);
+                    Vec3 p = v3(tp.x, S.tab.R, tp.z);
+                    S.balls[0].pos = cue_table_clamp_placement_balls(
+                        &S.tab, p, S.balls, S.nballs, S.rules.break_shot);
+                    S.hud_dirty = 1;
+                }
             }
         }
+
+        /* Both sticks do what they do everywhere else: slide the table and
+         * turn it about the cue ball. Placement is the one time you genuinely
+         * need to see a spot from the other side, and in a room the size anyone
+         * plays this in you cannot simply walk round to it — so the turn matters
+         * here more than anywhere, which is another reason not to spend a stick
+         * on walking the ball. */
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+
         if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.place_latch = 0;
         else if (!S.place_latch) {
             arm_shot();
