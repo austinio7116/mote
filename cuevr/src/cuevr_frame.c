@@ -1297,10 +1297,20 @@ static void american(CueVrFrameMesh *m, const CueTable *t) {
  * the renderer can draw them unlit.
  */
 
+/* The scoreboard's height above the arena floor: high enough to clear a
+ * standing player and everything on the table, low enough to read. */
+#define CUEVR_ARENA_BOARD_Y 3.05f
+
 static uint32_t arena_h(uint32_t x) {          /* tiny hash, stable per seat */
     x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16;
     return x;
 }
+
+/* Where the scoreboard hangs in the arena, in ARENA-LOCAL space. The app puts
+ * the real HUD panel on this face so the board in the room IS the scoreboard,
+ * rather than a prop with a second panel floating near it. */
+float cuevr_arena_board_y(void)   { return CUEVR_ARENA_BOARD_Y; }
+float cuevr_arena_board_half(void){ return 0.34f * 0.5f; }
 
 void cuevr_arena_capacity(int *max_verts, int *max_indices) {
     if (max_verts)   *max_verts   = 42000;
@@ -1395,29 +1405,104 @@ void cuevr_arena_build(CueVrFrameMesh *m) {
                   float q2[3]=P(r1,r1*TAN22,y0,0), q3[3]=P(r1,-r1*TAN22,y0,0);
                   float n[3] = { 0, 1, 0 };
                   quad(m, q0,q1,q2,q3, n, t1-t0, run, STEP); }
-                /* the seats: a row of upright backs, hash-varied so the bank
-                 * reads as hundreds of objects rather than one striped slab */
+                /* The step's NOSING, pale. In both references it is the
+                 * brightest thing in the bank — a lit line running the whole
+                 * width of every row — and without it the tiers read as one
+                 * dark mass with seats floating on it. */
+                { static const float NOSE[3] = { 0.62f, 0.60f, 0.57f };
+                  float rn = r0 + 0.10f;
+                  float q0[3]=P(r0,t0,y0+0.004f,0),  q1[3]=P(r0,t1,y0+0.004f,0);
+                  float q2[3]=P(rn,t1,y0+0.004f,0),  q3[3]=P(rn,t0,y0+0.004f,0);
+                  float n[3] = { 0, 1, 0 };
+                  quad(m, q0,q1,q2,q3, n, t1-t0, 0.10f, NOSE); }
+                /* THE SEATS. Three shapes to pick between — CUEVR_SEAT
+                 * chooses — because a bank of seats is most of what this room
+                 * looks like, and which one is right is taste rather than
+                 * measurement. Hash-varied per seat either way, so a bank reads
+                 * as hundreds of objects and not one striped slab. */
+                /* TIP-UP, with the side rests. */
+                int style = 1;
+                { const char *e = getenv("CUEVR_SEAT"); if (e) style = atoi(e); }
                 float span = r0 * TAN22 * 2.0f - 0.5f;
                 int   nst  = (int)(span / 0.56f);
                 if (nst < 1) nst = 1;
                 float pitch = span / (float)nst;
+
+                if (style == 3) {
+                    /* BENCH — one continuous padded run per row with a back
+                     * rail, no individual seats. A distant bank reads as a
+                     * stripe of colour anyway, and this is a fraction of the
+                     * triangles of the other two. */
+                    uint32_t h = arena_h((uint32_t)(k * 131 + rr * 17));
+                    float v = 0.86f + 0.24f * ((float)(h & 255) / 255.0f);
+                    float col[3] = { 0.52f*v, 0.20f*v, 0.055f*v };
+                    float rs = r0 + 0.36f, hs = y0, t1 = span * 0.5f;
+                    { float p0[3]=P(rs,-t1,hs,0),       p1[3]=P(rs,t1,hs,0);
+                      float p2[3]=P(rs,t1,hs+0.42f,0),  p3[3]=P(rs,-t1,hs+0.42f,0);
+                      float n[3] = { -ca, 0, -sa };
+                      quad(m, p0,p1,p2,p3, n, t1*2, 0.42f, col); }
+                    { float p0[3]=P(rs-0.32f,-t1,hs+0.16f,0), p1[3]=P(rs-0.32f,t1,hs+0.16f,0);
+                      float p2[3]=P(rs,t1,hs+0.20f,0),        p3[3]=P(rs,-t1,hs+0.20f,0);
+                      float n[3] = { 0, 1, 0 };
+                      quad(m, p0,p1,p2,p3, n, t1*2, 0.32f, col); }
+                } else
                 for (int sfi = 0; sfi < nst; sfi++) {
                     float tm = -span * 0.5f + pitch * ((float)sfi + 0.5f);
                     uint32_t h = arena_h((uint32_t)(k * 131 + rr * 17 + sfi));
                     float v = 0.82f + 0.36f * ((float)(h & 255) / 255.0f);
                     float col[3] = { 0.52f * v, 0.20f * v, 0.055f * v };
-                    /* a seat: back + squab, two boxes worth, chord-aligned —
-                     * built from quads directly since box() is axis-aligned */
+                    float dk[3]  = { col[0]*0.45f, col[1]*0.45f, col[2]*0.45f };
                     float rs = r0 + 0.36f, hs = y0, w = pitch * 0.44f;
-                    float bk = 0.40f;
-                    { float p0[3]=P(rs,tm-w,hs,0),      p1[3]=P(rs,tm+w,hs,0);
-                      float p2[3]=P(rs,tm+w,hs+bk,0),   p3[3]=P(rs,tm-w,hs+bk,0);
-                      float n[3] = { -ca, 0, -sa };
-                      quad(m, p0,p1,p2,p3, n, w*2, bk, col); }
-                    { float p0[3]=P(rs-0.30f,tm-w,hs+0.16f,0), p1[3]=P(rs-0.30f,tm+w,hs+0.16f,0);
-                      float p2[3]=P(rs,tm+w,hs+0.20f,0),       p3[3]=P(rs,tm-w,hs+0.20f,0);
-                      float n[3] = { 0, 1, 0 };
-                      quad(m, p0,p1,p2,p3, n, w*2, 0.3f, col); }
+
+                    if (style == 2) {
+                        /* BUCKET — a back in three facets with the outer two
+                         * turned forward, so each seat takes the light a little
+                         * differently across its width and the row stops
+                         * reading as a flat painted band. */
+                        float bk = 0.44f, wl = w * 0.42f;
+                        float n[3] = { -ca, 0, -sa };
+                        { float p0[3]=P(rs,tm-wl,hs,0),     p1[3]=P(rs,tm+wl,hs,0);
+                          float p2[3]=P(rs,tm+wl,hs+bk,0),  p3[3]=P(rs,tm-wl,hs+bk,0);
+                          quad(m, p0,p1,p2,p3, n, wl*2, bk, col); }
+                        for (int wsg = -1; wsg <= 1; wsg += 2) {
+                            float a1 = tm + wsg*wl, a2 = tm + wsg*w;
+                            float p0[3]=P(rs,a1,hs,0),          p1[3]=P(rs-0.10f,a2,hs,0);
+                            float p2[3]=P(rs-0.10f,a2,hs+bk,0), p3[3]=P(rs,a1,hs+bk,0);
+                            slope_face(m, p0,p1,p2,p3, -ca, -sa, w*0.6f, bk, col);
+                        }
+                        { float p0[3]=P(rs-0.32f,tm-w*0.9f,hs+0.16f,0), p1[3]=P(rs-0.32f,tm+w*0.9f,hs+0.16f,0);
+                          float p2[3]=P(rs,tm+w*0.9f,hs+0.20f,0),       p3[3]=P(rs,tm-w*0.9f,hs+0.20f,0);
+                          float nn[3] = { 0, 1, 0 };
+                          quad(m, p0,p1,p2,p3, nn, w*1.8f, 0.32f, col); }
+                    } else {
+                        /* TIP-UP — the theatre seat as photographed: a scooped
+                         * back leaning away, its outer thirds turned forward so
+                         * the velvet catches the light unevenly across a row; a
+                         * squab; and a dark divider standing proud between each
+                         * pair, which is what separates one seat from the next
+                         * once you are more than a few rows back. */
+                        float bk = 0.42f, wl = w * 0.55f;
+                        { float p0[3]=P(rs,tm-wl,hs,0),           p1[3]=P(rs,tm+wl,hs,0);
+                          float p2[3]=P(rs+0.07f,tm+wl,hs+bk,0),  p3[3]=P(rs+0.07f,tm-wl,hs+bk,0);
+                          slope_face(m, p0,p1,p2,p3, -ca, -sa, wl*2, bk, col); }
+                        for (int wsg = -1; wsg <= 1; wsg += 2) {
+                            float a1 = tm + wsg*wl, a2 = tm + wsg*w;
+                            float p0[3]=P(rs,a1,hs,0),               p1[3]=P(rs-0.08f,a2,hs,0);
+                            float p2[3]=P(rs-0.02f,a2,hs+bk*0.92f,0), p3[3]=P(rs+0.07f,a1,hs+bk,0);
+                            slope_face(m, p0,p1,p2,p3, -ca, -sa, w*0.5f, bk, col);
+                        }
+                        { float p0[3]=P(rs-0.32f,tm-w,hs+0.15f,0), p1[3]=P(rs-0.32f,tm+w,hs+0.15f,0);
+                          float p2[3]=P(rs,tm+w,hs+0.21f,0),       p3[3]=P(rs,tm-w,hs+0.21f,0);
+                          float nn[3] = { 0, 1, 0 };
+                          quad(m, p0,p1,p2,p3, nn, w*2, 0.32f, col); }
+                        for (int dsg = -1; dsg <= 1; dsg += 2) {
+                            float a1 = tm + dsg * w;
+                            float p0[3]=P(rs-0.30f,a1,hs+0.20f,0), p1[3]=P(rs,a1,hs+0.20f,0);
+                            float p2[3]=P(rs,a1,hs+0.34f,0),       p3[3]=P(rs-0.30f,a1,hs+0.30f,0);
+                            float nn[3] = { 0, 1, 0 };
+                            quad(m, p0,p1,p2,p3, nn, 0.30f, 0.14f, dk);
+                        }
+                    }
                 }
             }
         }
@@ -1447,22 +1532,87 @@ void cuevr_arena_build(CueVrFrameMesh *m) {
     /* The ceiling plate. */
     box(m, -14.0f, CEIL_H, -14.0f, 14.0f, CEIL_H + 0.05f, 14.0f, 0, CEIL);
 
-    /* Two gantry rings under it. */
-    for (int g = 0; g < 2; g++) {
-        float rg = g ? 7.6f : 5.0f;
-        float yg = CEIL_H - (g ? 1.7f : 0.9f);
-        for (int k = 0; k < 8; k++) {
-            float a = (float)k * 0.7853982f;
-            float ca = cosf(a), sa = sinf(a);
-            float t1 = rg * 0.4142136f;
-            /* a rail: a slim horizontal box along the chord, done as its two
-             * long faces — enough at this distance */
-            float p0[3]={rg*ca + t1*sa, yg, rg*sa - t1*ca};
-            float p1[3]={rg*ca - t1*sa, yg, rg*sa + t1*ca};
-            float p2[3]={rg*ca - t1*sa, yg+0.16f, rg*sa + t1*ca};
-            float p3[3]={rg*ca + t1*sa, yg+0.16f, rg*sa - t1*ca};
-            float n[3] = { -ca, 0, -sa };
-            quad(m, p0,p1,p2,p3, n, t1*2, 0.16f, GANTRY);
+    /* THE GANTRY. Three to choose between — CUEVR_GANTRY picks one — and the
+     * third is the one that carries the scoreboard, so the panel hangs over the
+     * table where a televised match puts it instead of floating past the end of
+     * the room. cuevr_arena_board() reports where its screen face is so the app
+     * can mount the real HUD there. */
+    {
+        /* THE TRUSS, and nothing hanging off it. The scoreboard block is still
+         * here behind gs 3 if it is ever wanted, but the room reads better with
+         * the lattice alone and the board where it already was. */
+        int gs = 2;
+        { const char *e = getenv("CUEVR_GANTRY"); if (e) gs = atoi(e); }
+
+        if (gs == 1) {
+            /* PLAIN RINGS — two slim rails, the original. */
+            for (int g = 0; g < 2; g++) {
+                float rg = g ? 7.6f : 5.0f;
+                float yg = CEIL_H - (g ? 1.7f : 0.9f);
+                for (int k = 0; k < 8; k++) {
+                    float a = (float)k * 0.7853982f;
+                    float ca = cosf(a), sa = sinf(a);
+                    float t1 = rg * 0.4142136f;
+                    float p0[3]={rg*ca + t1*sa, yg, rg*sa - t1*ca};
+                    float p1[3]={rg*ca - t1*sa, yg, rg*sa + t1*ca};
+                    float p2[3]={rg*ca - t1*sa, yg+0.16f, rg*sa + t1*ca};
+                    float p3[3]={rg*ca + t1*sa, yg+0.16f, rg*sa - t1*ca};
+                    float n[3] = { -ca, 0, -sa };
+                    quad(m, p0,p1,p2,p3, n, t1*2, 0.16f, GANTRY);
+                }
+            }
+        } else {
+            /* TRUSS — a lattice ring: two chords with diagonals zig-zagging
+             * between them, which is what a real lighting truss is and what
+             * makes it read as engineering rather than as a hoop. */
+            for (int g = 0; g < 2; g++) {
+                float rg = g ? 7.6f : 5.0f;
+                float yg = CEIL_H - (g ? 1.8f : 1.0f);
+                const float dp = 0.34f;                 /* truss depth */
+                for (int k = 0; k < 8; k++) {
+                    float a = (float)k * 0.7853982f;
+                    float ca = cosf(a), sa = sinf(a);
+                    float t1 = rg * 0.4142136f;
+                    #define TP(tt, yy) { rg*ca - (tt)*sa, (yy), rg*sa + (tt)*ca }
+                    for (int ch = 0; ch < 2; ch++) {
+                        float yy = yg + (ch ? dp : 0.0f);
+                        float p0[3]=TP(-t1,yy),        p1[3]=TP(t1,yy);
+                        float p2[3]=TP(t1,yy+0.09f),   p3[3]=TP(-t1,yy+0.09f);
+                        float n[3] = { -ca, 0, -sa };
+                        quad(m, p0,p1,p2,p3, n, t1*2, 0.09f, GANTRY);
+                    }
+                    int nd = 6;
+                    for (int dd = 0; dd < nd; dd++) {
+                        float u0 = -t1 + 2*t1*dd/nd, u1 = -t1 + 2*t1*(dd+1)/nd;
+                        float lo = (dd & 1) ? yg + dp : yg, hi = (dd & 1) ? yg : yg + dp;
+                        float p0[3]=TP(u0,lo),        p1[3]=TP(u1,hi);
+                        float p2[3]=TP(u1,hi+0.05f),  p3[3]=TP(u0,lo+0.05f);
+                        float n[3] = { -ca, 0, -sa };
+                        quad(m, p0,p1,p2,p3, n, 0.4f, 0.05f, GANTRY);
+                    }
+                    #undef TP
+                }
+            }
+        }
+
+        if (gs >= 3) {
+            /* ...and the SCOREBOARD, hung over the middle of the table on a
+             * cross beam. Four faces: the two long ones carry the screen, the
+             * ends are blank casing. The screen face is left to the app to
+             * fill — see cuevr_arena_board(). */
+            const float bw = 1.30f, bh = 0.78f, bd = 0.34f;
+            const float by = CUEVR_ARENA_BOARD_Y;
+            static const float CASE[3] = { 0.052f, 0.054f, 0.060f };
+            /* the two hangers up to the ceiling */
+            for (int sg = -1; sg <= 1; sg += 2) {
+                float x = sg * bw * 0.55f;
+                box(m, x - 0.035f, by + bh*0.5f, -0.035f,
+                       x + 0.035f, CEIL_H,        0.035f, 1, GANTRY);
+            }
+            /* the casing: ends and top and bottom, the long faces left for the
+             * screen quads the app draws over them */
+            box(m, -bw*0.5f, by - bh*0.5f, -bd*0.5f,
+                    bw*0.5f, by + bh*0.5f,  bd*0.5f, 0, CASE);
         }
     }
 

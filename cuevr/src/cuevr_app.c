@@ -135,8 +135,21 @@ enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_CONTROLS, MR_APPEAR,
 enum { CR_HAND = 0, CR_STICKS, CR_INVSLIDE, CR_INVTURN, CR_RESET, CR_BACK, CR_N };
 
 /* The appearance screen's own rows. */
+/* THE POCKET SHAPE IS SETTLED, so its tuner is not in the game. It was there to
+ * find four numbers with a ball rolling at a pocket; the numbers were found,
+ * they are in cue_render.c, and they are the same for everybody. Build with
+ * -DCUEVR_TUNE_POCKETS=1 to put the row and its screen back if they ever need
+ * revisiting — nothing was deleted, only switched off. */
+#ifndef CUEVR_TUNE_POCKETS
+#define CUEVR_TUNE_POCKETS 0
+#endif
+
 enum { AR_CLOTH = 0, AR_FRAME, AR_BODY, AR_LIGHT, AR_BALLS, AR_SPOTS, AR_CUE,
-       AR_SURROUND, AR_POCKETS, AR_BACK, AR_N };
+       AR_SURROUND,
+#if CUEVR_TUNE_POCKETS
+       AR_POCKETS,
+#endif
+       AR_BACK, AR_N };
 /* Where you play. PASSTHROUGH is the app as shipped — the table in your own
  * room. The other two paint a world over the cameras: the plain dark room the
  * screenshots have always shown, or the snooker-theatre arena. */
@@ -423,8 +436,10 @@ static int coin_toss(void) {
 
 static void stat_frame_reset(void);
 static void restyle_table(void);
+#if CUEVR_TUNE_POCKETS
 static void pockets_write(void);
 static void pockets_log(void);
+#endif
 enum { TOAST_RECORD = 0, TOAST_ACH };
 static void toast_push(int kind, const char *title, const char *body);
 static void rerack(void);
@@ -509,9 +524,11 @@ void cuevr_app_force_screen(const char *name) {
         S.rules.free_ball = 1;
         S.rules.free_ball_id = CUE_ID_BROWN;
         S.rules.target = 0;
+#if CUEVR_TUNE_POCKETS
     } else if (!strcmp(name, "pockets")) {
         S.appear_from = ST_MENU; S.state = ST_POCKETS; S.menu_row = 0;
         pockets_write();          /* so the harness can check the file it writes */
+#endif
     } else if (!strcmp(name, "board")) {
         /* The in-play scoreboard, with a frame's worth of score on it. The
          * ahead/behind figure only exists once somebody has scored, and no
@@ -1030,6 +1047,7 @@ static const char *cue_ball_short_name(int id) {
 
 /* ---- career ------------------------------------------------------------- */
 
+#if CUEVR_TUNE_POCKETS
 /* WRITE THE POCKET NUMBERS OUT, so they can be got off the headset and into
  * the source. Next to the preferences — internalDataPath on Android — and the
  * exact lines the code wants, not a report about them: the point is that they
@@ -1067,6 +1085,8 @@ static void pockets_log(void) {
          (double)(S.cut_cr/100.0f), (double)(S.cut_cs/1000.0f),
          (double)(S.cut_mr/100.0f), (double)(S.cut_ms/1000.0f));
 }
+
+#endif
 
 static void career_save(void) {
     if (S.career.active && S.car_path[0]) cuevr_career_save(&S.career, S.car_path);
@@ -1740,8 +1760,10 @@ static void hud_paint(void) {
         hud_opt(AR_CUE, "CUE", cuevr_render_cue_name(S.cue_idx), S.menu_row == AR_CUE, 1, TXT, DIM, HI);
         hud_opt(AR_SURROUND, "SURROUNDINGS", SURROUND_NAME[S.surround],
                 S.menu_row == AR_SURROUND, 1, TXT, DIM, HI);
+#if CUEVR_TUNE_POCKETS
         hud_link(AR_POCKETS, "POCKET SHAPE", "TUNE",
                  S.menu_row == AR_POCKETS, DIM, HI, LIVE);
+#endif
         /* An action, so it wears the action colour rather than the value one —
          * the same distinction the main menu now draws. */
         hud_link(AR_BACK, "BACK", "DONE", S.menu_row == AR_BACK, DIM, HI, LIVE);
@@ -2068,6 +2090,7 @@ static void hud_paint(void) {
         return;
     }
 
+#if CUEVR_TUNE_POCKETS
     /* ---- the pocket cut, with a ball on the table ------------------------- */
     if (S.state == ST_POCKETS) {
         char v[40];
@@ -2089,6 +2112,8 @@ static void hud_paint(void) {
         hud_text("A OR B LEAVES   SAVES TO CUEVR_POCKETS.TXT", 4, HH - 6, LIVE);
         return;
     }
+
+#endif
 
     /* ---- career: choosing the season's tables ----------------------------- */
     if (S.state == ST_CARSETUP) {
@@ -3229,10 +3254,16 @@ static int app_gl_init(void *u) {
         S.cue_spots = pr.cue_spots;
         S.prac_respot = pr.prac_respot;
         S.surround = pr.surround;
+#if CUEVR_TUNE_POCKETS
         S.cut_cr = pr.cut_cr; S.cut_cs = pr.cut_cs;
         S.cut_mr = pr.cut_mr; S.cut_ms = pr.cut_ms;
         cue_render_set_pocket_cut(S.cut_cr/100.0f, S.cut_cs/1000.0f,
                                   S.cut_mr/100.0f, S.cut_ms/1000.0f);
+#else
+        /* The shipped shape wins. A saved file from a tuning build must not
+         * quietly give one player a different pocket from everybody else. */
+        cue_render_get_pocket_cut(NULL, NULL, NULL, NULL);
+#endif
         memcpy(S.mini_best, pr.mini_best, sizeof S.mini_best);
         /* The career lives beside the preferences, in its own file: it is a
          * different size and shape of thing and a hundred fixture lines have no
@@ -4383,6 +4414,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     S.hud_dirty = 1;
                     break;
                 }
+#if CUEVR_TUNE_POCKETS
                 if (S.menu_row == AR_POCKETS) {
                     S.state = ST_POCKETS;
                     S.menu_row = 0;
@@ -4390,6 +4422,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     S.hud_dirty = 1;
                     break;
                 }
+#endif
                 int d = ptr_zone();
                 if (d == 0) d = 1;              /* the middle steps forward */
                 switch (S.menu_row) {
@@ -4428,7 +4461,6 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     cuevr_render_set_cue(S.cue_idx);
                     break;
                 }
-                case AR_POCKETS: break;   /* opened by activate, not by < > */
                 case AR_SURROUND:
                     S.surround = (S.surround + d + 3) % 3;
                     cuevr_render_set_surround(S.surround);
@@ -4507,6 +4539,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         break;
     }
 
+#if CUEVR_TUNE_POCKETS
     case ST_POCKETS: {
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
         int hov = ptr_row_at(12, 8, 5);
@@ -4549,6 +4582,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.btn_latch = 0;
         break;
     }
+
+#endif
 
     case ST_CARSETUP: {
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);

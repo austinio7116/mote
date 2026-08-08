@@ -77,6 +77,10 @@ void cuevr_frame_capacity(int *max_verts, int *max_indices);
  * not lit by other lamps). */
 void cuevr_arena_build(CueVrFrameMesh *m);
 void cuevr_arena_capacity(int *max_verts, int *max_indices);
+/* Where the arena's scoreboard hangs, arena-local, so the HUD can be mounted
+ * in it rather than floating past the end of the room. */
+float cuevr_arena_board_y(void);
+float cuevr_arena_board_half(void);
 
 /* How far below the cloth the frame reaches — the renderer wants it to know
  * where the floor is relative to the table. Always the table's own height. */
