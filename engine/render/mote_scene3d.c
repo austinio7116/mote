@@ -126,6 +126,18 @@ int mote_scene_configure(MoteArena *arena, int max_tris, int max_spheres,
  * shading instead of silently emitting nothing. */
 int mote_scene_textri_cap(void) { return s_textris ? s_max_textris : 0; }
 
+/* Depth buffer is cleared to 0, which the depth test treats as "nothing
+ * here" — every depth-tested draw must therefore encode to >= 1 or it can
+ * never beat (or even tie) an empty pixel and silently fails to draw. K/z
+ * underflows to 0 once z passes roughly K (deep space, multi-km scenes),
+ * so floor the encode instead of letting it truncate away. Ceiling stays
+ * implicit: K/near == 65535 exactly, and z is already clamped >= near by
+ * every caller. */
+static inline uint16_t mote_depth_encode(float k, float z) {
+    float d = k / z;
+    return d < 1.0f ? (uint16_t)1u : (uint16_t)d;
+}
+
 static inline uint16_t shade565(uint16_t c, float sh) {
     int r = (int)(((c >> 11) & 0x1F) * sh);
     int g = (int)(((c >> 5) & 0x3F) * sh);
@@ -334,7 +346,7 @@ int mote_scene_add_tri(Vec3 a, Vec3 b, Vec3 c, uint16_t color, uint32_t flags) {
         float inv = 1.0f / out[i].z;
         sx[i] = (MOTE_FB_W * 0.5f) + focal * out[i].x * inv;
         sy[i] = (MOTE_FB_H * 0.5f) - focal * out[i].y * inv;
-        sd[i] = (uint16_t)(mote_pipe_depth_k() / out[i].z);
+        sd[i] = mote_depth_encode(mote_pipe_depth_k(), out[i].z);
     }
     uint8_t save = s_emit_flags; s_emit_flags = (uint8_t)flags;
     int n = 0;
@@ -361,7 +373,7 @@ int mote_scene_add_point(Vec3 p, uint16_t color, int size) {
     ScreenPoint *q = &s_points[s_npoints++];
     q->x = (MOTE_FB_W * 0.5f) + focal * v.x * inv;
     q->y = (MOTE_FB_H * 0.5f) - focal * v.y * inv;
-    q->d = (uint16_t)(mote_pipe_depth_k() / v.z);
+    q->d = mote_depth_encode(mote_pipe_depth_k(), v.z);
     q->color = color;
     q->size = (uint8_t)(size < 1 ? 1 : (size > 255 ? 255 : size));
     return 1;
@@ -376,7 +388,7 @@ int mote_scene_add_disc(Vec3 p, float radius, uint16_t color) {
     q->cx = (MOTE_FB_W * 0.5f) + focal * v.x * inv;
     q->cy = (MOTE_FB_H * 0.5f) - focal * v.y * inv;
     q->r  = focal * radius * inv;
-    q->d  = (uint16_t)(mote_pipe_depth_k() / v.z);
+    q->d  = mote_depth_encode(mote_pipe_depth_k(), v.z);
     q->color = color;
     return 1;
 }
@@ -390,7 +402,7 @@ int mote_scene_add_ring(Vec3 p, float radius, uint16_t color) {
     q->cx = (MOTE_FB_W * 0.5f) + focal * v.x * inv;
     q->cy = (MOTE_FB_H * 0.5f) - focal * v.y * inv;
     q->r  = focal * radius * inv;
-    q->d  = (uint16_t)(mote_pipe_depth_k() / v.z);
+    q->d  = mote_depth_encode(mote_pipe_depth_k(), v.z);
     q->color = color;
     return 1;
 }
@@ -413,7 +425,7 @@ int mote_scene_add_billboard(Vec3 cam_rel_pos, const MoteImage *img,
     q->cy = (MOTE_FB_H * 0.5f) - focal * v.y * inv;
     q->hh = focal * (world_h * 0.5f) * inv;
     q->hw = q->hh * ((float)fw / (float)fh);   /* preserve the image's aspect */
-    q->d  = (uint16_t)(mote_pipe_depth_k() / v.z);
+    q->d  = mote_depth_encode(mote_pipe_depth_k(), v.z);
     q->img = img;
     q->fx = (uint16_t)fx; q->fy = (uint16_t)fy;
     q->fw = (uint16_t)fw; q->fh = (uint16_t)fh;
@@ -431,10 +443,10 @@ int mote_scene_add_line(Vec3 a, Vec3 b, uint16_t color) {
     ScreenLine *q = &s_lines[s_nlines++];
     q->x0 = (MOTE_FB_W * 0.5f) + focal * va.x * ia;
     q->y0 = (MOTE_FB_H * 0.5f) - focal * va.y * ia;
-    q->d0 = (uint16_t)(mote_pipe_depth_k() / va.z);
+    q->d0 = mote_depth_encode(mote_pipe_depth_k(), va.z);
     q->x1 = (MOTE_FB_W * 0.5f) + focal * vb.x * ib;
     q->y1 = (MOTE_FB_H * 0.5f) - focal * vb.y * ib;
-    q->d1 = (uint16_t)(mote_pipe_depth_k() / vb.z);
+    q->d1 = mote_depth_encode(mote_pipe_depth_k(), vb.z);
     q->color = color;
     return 1;
 }
@@ -657,7 +669,7 @@ void mote_scene_raster(uint16_t *fb, int y0, int y1) {
                     float sh = 0.22f + (ndotl > 0.0f ? 0.78f * ndotl : 0.0f);
                     float zf = s->vz - s->radius * nz;
                     if (zf < nearz) zf = nearz;
-                    uint16_t d = (uint16_t)(dk / zf);
+                    uint16_t d = mote_depth_encode(dk, zf);
                     int idx = x;
                     if (d > drow[idx]) { drow[idx] = d; frow[idx] = shade565(s->color, sh); }
                 }
@@ -692,7 +704,7 @@ void mote_scene_raster(uint16_t *fb, int y0, int y1) {
                     if (rr > 1.0f) continue;
                     float nz = sqrtf(1.0f - rr);
                     float zf = s->vz - s->radius * nz; if (zf < nearz) zf = nearz;
-                    uint16_t d = (uint16_t)(dk / zf);
+                    uint16_t d = mote_depth_encode(dk, zf);
                     if (d <= drow[x]) continue;
                     Vec3 Nv = v3(ndx, -ndy, -nz);            /* view-space normal */
                     Vec3 Nw = m3_mul_v3(cam, Nv);            /* view -> world */
