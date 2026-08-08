@@ -727,6 +727,13 @@ static void start_frame(CueGameKind kind) {
     S.stat_visit_full = 0;
     stat_frame_reset();
     stat_match_reset();      /* a new game, not the next frame of this one */
+    /* AND IT IS NOT THE CHALLENGE. Leaving a clearance through the pause menu
+     * set the state back to the main menu but left S.mini standing, so the
+     * challenge scoreboard — clock, balls left and all — stayed up over the
+     * next frame of snooker. Every new frame ends the challenge; there is no
+     * path where a rack and a running clearance are both true. */
+    S.mini = S.mini_done = S.mini_beat = 0;
+    S.mini_t = 0.0f;
     cue_table_init(&S.tab, kind);
     /* The player's two table colours, from the authored palettes in cue_theme.h
      * — the same values the handheld offers, not a second set invented here. */
@@ -3821,6 +3828,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     break;
                 case PS_QUIT:
                     if (S.opp == OPP_ONLINE) cuevr_net_stop();
+                    /* Belt and braces with start_frame: the board must go back
+                     * to normal the moment you leave, not on the next rack. */
+                    S.mini = S.mini_done = S.mini_beat = 0;
+                    S.in_career = 0;
                     S.state = ST_MENU;
                     S.menu_row = MR_GAME;
                     menu_preview();
