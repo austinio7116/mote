@@ -1301,6 +1301,17 @@ static void american(CueVrFrameMesh *m, const CueTable *t) {
  * standing player and everything on the table, low enough to read. */
 #define CUEVR_ARENA_BOARD_Y 3.05f
 
+/* THE SCREEN ON THE WALL. The players' entrance side has no seating — it is a
+ * flat dark face from the floor to the ceiling — and that is where a televised
+ * match hangs its board. Arena-local: the wall is the plane x = 4.05, so the
+ * screen sits just in front of it, facing back down the room at the table. */
+/* The panel's own plane, a hair in FRONT of the casing — smaller x is toward
+ * the table. Put at the casing's centre it is buried inside the box and draws
+ * nothing at all, which is what happened first time. */
+#define CUEVR_ARENA_SCR_X  3.975f
+#define CUEVR_ARENA_SCR_Y  2.35f
+#define CUEVR_ARENA_SCR_W  2.20f
+
 static uint32_t arena_h(uint32_t x) {          /* tiny hash, stable per seat */
     x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16;
     return x;
@@ -1311,6 +1322,11 @@ static uint32_t arena_h(uint32_t x) {          /* tiny hash, stable per seat */
  * rather than a prop with a second panel floating near it. */
 float cuevr_arena_board_y(void)   { return CUEVR_ARENA_BOARD_Y; }
 float cuevr_arena_board_half(void){ return 0.34f * 0.5f; }
+void cuevr_arena_screen(float *x, float *y, float *w) {
+    if (x) *x = CUEVR_ARENA_SCR_X;
+    if (y) *y = CUEVR_ARENA_SCR_Y;
+    if (w) *w = CUEVR_ARENA_SCR_W;
+}
 
 void cuevr_arena_capacity(int *max_verts, int *max_indices) {
     if (max_verts)   *max_verts   = 42000;
@@ -1506,8 +1522,25 @@ void cuevr_arena_build(CueVrFrameMesh *m) {
                 }
             }
         }
-        /* The players' entrance side has no seats and no barrier: its face is
-         * the back wall below, with a darker portal let into it. */
+        /* ...and the SCREEN, a real one bolted to that wall: a bezel standing
+         * proud of the face with a recess for the panel the app draws into it.
+         * A scoreboard in a room like this is a piece of hardware on a wall,
+         * not a rectangle hanging in the air near one. */
+        if (entrance) {
+            const float sw = CUEVR_ARENA_SCR_W * 0.5f;
+            const float sh = CUEVR_ARENA_SCR_W * 0.5f * (84.0f / 128.0f);
+            const float bz = 0.075f;                 /* bezel */
+            /* The bezel has to be LIGHTER than the wall or it is invisible:
+             * the wall is 0.038 and the first casing was 0.045, which is the
+             * same black by eye. A screen on a dark wall reads by its frame. */
+            static const float CASE[3]  = { 0.115f, 0.118f, 0.130f };
+            static const float RECESS[3]= { 0.010f, 0.010f, 0.013f };
+            float x0 = CUEVR_ARENA_SCR_X + 0.010f;   /* behind the panel */
+            float yc = CUEVR_ARENA_SCR_Y;
+            /* the casing face, with the middle left dark for the panel */
+            box(m, x0, yc - sh - bz, -sw - bz, x0 + 0.10f, yc + sh + bz, sw + bz, 1, CASE);
+            box(m, x0 + 0.005f, yc - sh, -sw, x0 + 0.11f, yc + sh, sw, 1, RECESS);
+        }
         if (entrance) {
             const float rw = 4.03f;
             float p0[3]=P(rw,-1.1f,0.0f,0), p1[3]=P(rw,1.1f,0.0f,0);

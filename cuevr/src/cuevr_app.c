@@ -4974,6 +4974,38 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 float rail = S.setup.place.pos.y + S.tab.cushion_h * 1.30f;
                 pos.y = rail + 0.04f + ph * 0.5f;
             }
+        } else if (S.surround == 2) {
+            /* IN THE ARENA, THE BOARD IS ON THE WALL.
+             *
+             * The entrance end is a flat dark face from floor to ceiling and it
+             * carries a screen — a real one, with a casing, built into the room
+             * — so the scoreboard goes ON it rather than hovering in the air
+             * somewhere near the table. It does not follow you and it does not
+             * turn to face you: it is bolted to a wall, and you look at it.
+             *
+             * Arena space is the table's, rotated by the table's yaw and
+             * standing on the room's floor, so the same transform the arena
+             * mesh is drawn with places the panel. */
+            float sx, sy, sw;
+            cuevr_arena_screen(&sx, &sy, &sw);
+            pos = cuevr_table_to_room(&S.setup.place, (Vec3){ sx, 0.0f, 0.0f });
+            pos.y = (S.setup.place.pos.y - S.setup.place.height) + sy;
+            S.scene.hud_w = sw;
+            /* Facing back down the room: the wall's own normal, turned with the
+             * table, and level — a screen on a wall is not tilted at you. */
+            {
+                MoteVrV3 n = mq_rot(mq_axis_angle(mv3(0,1,0), S.setup.place.yaw),
+                                    mv3(-1, 0, 0));
+                n.y = 0.0f;
+                n = mv3_len(n) > 1e-4f ? mv3_norm(n) : mv3(-1, 0, 0);
+                MoteVrV3 x = mv3_norm(mv3_cross(mv3(0, 1, 0), n));
+                S.scene.hud_rot = mq_from_axes(x, mv3_cross(n, x), n);
+                S.scene.hud_pos = pos;
+                S.scene.hud_visible = 1;
+                /* the shared tail below re-derives rot from the head, so this
+                 * branch finishes the job itself */
+                goto hud_done;
+            }
         } else {
             /* High and well back. At 45 cm above the cloth just past the rail it
              * sat in the line of any shot played up the table — you were cueing
@@ -5008,6 +5040,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         x = mv3_norm(x);
         S.scene.hud_rot = mq_from_axes(x, mv3_cross(z, x), z);
         S.scene.hud_visible = 1;
+        hud_done: ;
 
 
         /* The cue you are choosing, LYING ON THE TABLE.

@@ -81,6 +81,9 @@ void cuevr_arena_capacity(int *max_verts, int *max_indices);
  * in it rather than floating past the end of the room. */
 float cuevr_arena_board_y(void);
 float cuevr_arena_board_half(void);
+/* The screen on the arena's entrance wall, arena-local: its centre and width.
+ * The app hangs the real HUD panel on it. */
+void cuevr_arena_screen(float *x, float *y, float *w);
 
 /* How far below the cloth the frame reaches — the renderer wants it to know
  * where the floor is relative to the table. Always the table's own height. */
