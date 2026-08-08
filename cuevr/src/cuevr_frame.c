@@ -51,6 +51,12 @@
 static float PAL_WOOD[3]  = { 0.286f, 0.129f, 0.086f };
 static float PAL_LIT[3]   = { 0.353f, 0.169f, 0.106f };
 static float PAL_DARK[3]  = { 0.086f, 0.055f, 0.047f };
+/* A fourth tone: a CONTRASTING inlay timber. The American's maple band was
+ * PAL_LIT — 18% toward white — which is a subtlety for a moulding to catch
+ * light with and invisible as an inlay: the band simply did not read, and the
+ * whole skirt photographed as one brown box. An inlay is a different wood on
+ * purpose, so it leans well toward maple whatever the body timber is. */
+static float PAL_INLAY[3] = { 0.55f, 0.42f, 0.24f };
 
 void cuevr_frame_set_timber(const float rgb[3]) {
     for (int i = 0; i < 3; i++) {
@@ -62,6 +68,10 @@ void cuevr_frame_set_timber(const float rgb[3]) {
         PAL_LIT[i]  = c + (1.0f - c) * 0.18f;
         /* And the dark course is the same timber in shadow. */
         PAL_DARK[i] = c * 0.34f;
+        /* The inlay keeps a little of the body's cast so the two woods look
+         * finished together, but most of it is its own pale maple. */
+        static const float MAPLE[3] = { 0.60f, 0.47f, 0.28f };
+        PAL_INLAY[i] = c * 0.35f + MAPLE[i] * 0.65f;
     }
 }
 
@@ -86,7 +96,8 @@ static int s_pass;      /* 0 = emitting timber, 1 = emitting the rest */
 static const CueWorld *WRLD;
 
 static int is_timber(const float *col) {
-    return col == PAL_WOOD || col == PAL_LIT || col == PAL_DARK;
+    return col == PAL_WOOD || col == PAL_LIT || col == PAL_DARK
+        || col == PAL_INLAY;
 }
 /* The top face of the frame is what you see when you look down a pocket, so
  * it is black: a pocket has no floor to show you, and anything lighter reads
@@ -174,6 +185,63 @@ static void slope_face(CueVrFrameMesh *m, const float *p0, const float *p1,
                        const float *p2, const float *p3,
                        float outx, float outz,
                        float glen, float gwid, const float *col);
+static void frustum_band(CueVrFrameMesh *m, float y0, float y1,
+                         float ax0, float az0, float ax1, float az1,
+                         const float *col);
+
+/* A moulding PROFILE, swept right round the body: stations of (proud, y),
+ * where `proud` is how far the surface stands off the face at (ox, oz) — it
+ * may go negative for a quirk, the little recessed slot a moulding is struck
+ * with. Consecutive stations become frustum rings, so the corners mitre
+ * themselves.
+ *
+ * This is the difference between a moulding and a coloured stripe. Every trim
+ * course here used to be a stack of boxes in a lighter or darker paint, and at
+ * any distance that is exactly what it looked like. The body is lit — mode 7
+ * is N.L wood with a varnish lobe — so a profile that actually curves catches
+ * the lamps along its top and shades along its throat with no paint at all,
+ * which is what a moulding IS. */
+static void moulding(CueVrFrameMesh *m, float ox, float oz,
+                     const float st[][2], int n, const float *col) {
+    for (int i = 0; i + 1 < n; i++)
+        frustum_band(m, st[i][1], st[i + 1][1],
+                     ox + st[i][0],     oz + st[i][0],
+                     ox + st[i + 1][0], oz + st[i + 1][0], col);
+}
+
+/* A raised-and-fielded panel on a vertical face: a bevel ring rising from the
+ * face to a flat field standing `proud` off it. The bevel's four slopes take
+ * four different normals, so the top edge catches the lamps and the bottom
+ * shades itself — the panel reads by light, not by outline.
+ * axis 0: the face looks along Z (a long side, extent a0..a1 in X);
+ * axis 1: the face looks along X (an end, extent a0..a1 in Z).
+ * sg is which of the two faces, face the |coordinate| of its plane. */
+static void fielded_panel(CueVrFrameMesh *m, int axis, float sg, float face,
+                          float a0, float a1, float y0, float y1,
+                          float bevel, float proud, const float *col) {
+    if (a1 - a0 < bevel * 3.0f || y1 - y0 < bevel * 3.0f) return;
+    float f0 = face, f1 = face + proud;
+    float i0 = a0 + bevel, i1 = a1 - bevel;
+    float j0 = y0 + bevel, j1 = y1 - bevel;
+    /* the four bevel slopes, then the field */
+    #define P(A,Y,F) { axis ? (float)sg*(F) : (A), (Y), axis ? (A) : (float)sg*(F) }
+    { float p0[4][3] = { P(a0,y0,f0), P(a1,y0,f0), P(i1,j0,f1), P(i0,j0,f1) };
+      slope_face(m, p0[0],p0[1],p0[2],p0[3], axis?(float)sg:0.0f, axis?0.0f:(float)sg,
+                 a1-a0, bevel, col); }
+    { float p0[4][3] = { P(a0,y1,f0), P(a1,y1,f0), P(i1,j1,f1), P(i0,j1,f1) };
+      slope_face(m, p0[0],p0[1],p0[2],p0[3], axis?(float)sg:0.0f, axis?0.0f:(float)sg,
+                 a1-a0, bevel, col); }
+    { float p0[4][3] = { P(a0,y0,f0), P(a0,y1,f0), P(i0,j1,f1), P(i0,j0,f1) };
+      slope_face(m, p0[0],p0[1],p0[2],p0[3], axis?(float)sg:0.0f, axis?0.0f:(float)sg,
+                 y1-y0, bevel, col); }
+    { float p0[4][3] = { P(a1,y0,f0), P(a1,y1,f0), P(i1,j1,f1), P(i1,j0,f1) };
+      slope_face(m, p0[0],p0[1],p0[2],p0[3], axis?(float)sg:0.0f, axis?0.0f:(float)sg,
+                 y1-y0, bevel, col); }
+    { float p0[4][3] = { P(i0,j0,f1), P(i1,j0,f1), P(i1,j1,f1), P(i0,j1,f1) };
+      slope_face(m, p0[0],p0[1],p0[2],p0[3], axis?(float)sg:0.0f, axis?0.0f:(float)sg,
+                 i1-i0, j1-j0, col); }
+    #undef P
+}
 
 /* The ledge between the body and the rail above it, closed as an undercut: a
  * band leaning outward from the top of the body up to the rail's own face at the
@@ -460,35 +528,59 @@ static void regency(CueVrFrameMesh *m, const CueTable *t) {
      * so the moulding is the widest thing and lands flush with the rail. */
     float ox, oz; body_box(t, 0.010f, &ox, &oz);
 
-    /* Apron. Deep enough to read as a cabinet, with a moulded top course that
-     * oversails slightly and a bead line struck along it — the two details that
-     * stop a band of timber looking like a cardboard box. */
+    /* Apron. Deep enough to read as a cabinet, under a proper crown. */
     const float ap_top   = -0.004f;                  /* just under the bed */
     const float ap_h     = 0.180f;
     const float ap_bot   = ap_top - ap_h;
-    const float oversail = 0.010f;                   /* the moulding's overhang */
-    const float bead_y   = ap_top - 0.040f;
-    const float bead_d   = 0.006f;
+    const float oversail = 0.016f;                   /* the crown's overhang */
 
-    /* The top course, in two: a black plate at the very top and the moulding
-     * below it. The plate is all you see looking down through a pocket, and
-     * black is the only right answer — there is nothing down a pocket. The
-     * moulding is what you see from the side, so it keeps its timber. */
-    top_course(m, -ox - oversail, ap_top - 0.026f, -oz - oversail,
-                   ox + oversail, ap_top - 0.007f,  oz + oversail, PAL_LIT);
-    rail_undercut(m, ox + oversail, oz + oversail, ap_top - 0.007f, PAL_LIT);
+    /* The crown: fascia, then a quarter-round ovolo easing back to the apron,
+     * struck with a quirk — the recessed slot that draws a shadow line under
+     * every real moulding. It replaces an oversailing BOX, which read as
+     * exactly that. The fascia keeps top_course for its under-slate closure. */
+    top_course(m, -ox - oversail, ap_top - 0.012f, -oz - oversail,
+                   ox + oversail, ap_top - 0.004f,  oz + oversail, PAL_LIT);
+    rail_undercut(m, ox + oversail, oz + oversail, ap_top - 0.004f, PAL_LIT);
+    {
+        const float crown[][2] = {
+            { oversail,          ap_top - 0.012f },
+            { oversail,          ap_top - 0.019f },   /* fascia, flat */
+            { oversail * 0.92f,  ap_top - 0.0245f },  /* the ovolo, four cuts */
+            { oversail * 0.71f,  ap_top - 0.0295f },
+            { oversail * 0.38f,  ap_top - 0.0330f },
+            { 0.000f,            ap_top - 0.0345f },
+            { -0.0025f,          ap_top - 0.0345f },  /* quirk in */
+            { -0.0025f,          ap_top - 0.0395f },  /* the shadow slot */
+            { 0.000f,            ap_top - 0.0415f },  /* ease back to the face */
+        };
+        moulding(m, ox, oz, crown, 9, PAL_WOOD);
+    }
+
     /* The apron proper, in four runs so the grain follows each length. The inner
      * faces are pulled out to clear the tray where the two would have met — on a
      * wide-railed table they never do and the apron keeps its drawn thickness. */
-    const float ap_y = ap_top - 0.026f;                  /* the apron's own top */
+    const float ap_y = ap_top - 0.0415f;                 /* the apron's own top */
     const float iz_a = clear_z(oz - 0.026f, ap_y);
     const float ix_a = clear_x(ox - 0.026f, ap_y);
     box(m, -ox, ap_bot, -oz, ox, ap_y, -iz_a, 0, PAL_WOOD);
     box(m, -ox, ap_bot,  iz_a, ox, ap_y, oz, 0, PAL_WOOD);
     box(m, -ox, ap_bot, -iz_a, -ix_a, ap_y, iz_a, 2, PAL_WOOD);
     box(m,  ix_a, ap_bot, -iz_a, ox, ap_y, iz_a, 2, PAL_WOOD);
-    /* bead: a thin darker line struck along the apron, catching a shadow */
-    band(m, ox + 0.002f, oz + 0.002f, bead_y - bead_d, bead_y, 0.030f, 0, PAL_DARK);
+    /* and a struck bead as its bottom edge: a half-round that catches the light
+     * along its crown, in place of the dark painted stripe that was here */
+    {
+        const float by = ap_bot + 0.016f;
+        const float bead[][2] = {
+            { 0.000f,  by + 0.006f },
+            { -0.002f, by + 0.005f },                  /* quirk above */
+            { 0.004f,  by + 0.002f },                  /* the round */
+            { 0.005f,  by - 0.001f },
+            { 0.004f,  by - 0.004f },
+            { -0.002f, by - 0.007f },                  /* quirk below */
+            { 0.000f,  by - 0.008f },
+        };
+        moulding(m, ox, oz, bead, 7, PAL_WOOD);
+    }
 
     /* Cabinet: beams under the slate, seen when you stoop for a shot. Two
      * runners the length of the table and cross members between the legs. */
@@ -518,20 +610,32 @@ static void regency(CueVrFrameMesh *m, const CueTable *t) {
     const float cap_h   = 0.062f;
     const float plinth_h = 0.055f;
 
+    float legx[4];
     for (int p = 0; p < pairs; p++) {
         float fx = (pairs == 1) ? 0.0f
                  : (-1.0f + 2.0f * (float)p / (float)(pairs - 1));
         float cx = fx * (ox - inset - lw_top * 0.5f);
+        legx[p] = cx;
         for (int sz = -1; sz <= 1; sz += 2) {
             float cz = (float)sz * (oz - inset - lw_top * 0.5f);
-            /* capital: a squarer, wider block where the leg meets the apron */
+            /* capital: a squarer, wider block where the leg meets the apron,
+             * with a collar struck beneath it — the necking every real leg has
+             * where the square work meets the shaft. */
             box(m, cx - lw_top*0.5f - 0.011f, leg_top - cap_h, cz - lw_top*0.5f - 0.011f,
                    cx + lw_top*0.5f + 0.011f, leg_top,          cz + lw_top*0.5f + 0.011f,
                    1, PAL_LIT);
-            /* the shaft */
-            post(m, cx, cz, leg_top - cap_h, floor_y + plinth_h,
-                 lw_top, lw_bot, 0.034f, PAL_DARK);
-            /* plinth foot, with a brass shoe */
+            post(m, cx, cz, leg_top - cap_h, leg_top - cap_h - 0.012f,
+                 lw_top + 0.018f, lw_top + 0.004f, 0.036f, PAL_LIT);
+            /* The shaft — in the BODY'S OWN TIMBER. It was PAL_DARK, and a
+             * near-black leg under a warm apron read as two different pieces
+             * of furniture; worse, the dark hid the octagon completely, so the
+             * one shaped thing on the table photographed as a plain box. The
+             * facets shade themselves now that they can be seen. */
+            post(m, cx, cz, leg_top - cap_h - 0.012f, floor_y + plinth_h,
+                 lw_top, lw_bot, 0.034f, PAL_WOOD);
+            /* an eased ankle into the plinth, then the foot and its brass shoe */
+            post(m, cx, cz, floor_y + plinth_h + 0.016f, floor_y + plinth_h,
+                 lw_bot + 0.002f, lw_bot + 0.016f, 0.030f, PAL_WOOD);
             box(m, cx - lw_bot*0.5f - 0.010f, floor_y + 0.012f, cz - lw_bot*0.5f - 0.010f,
                    cx + lw_bot*0.5f + 0.010f, floor_y + plinth_h, cz + lw_bot*0.5f + 0.010f,
                    1, PAL_WOOD);
@@ -539,6 +643,29 @@ static void regency(CueVrFrameMesh *m, const CueTable *t) {
                    cx + lw_bot*0.5f + 0.012f, floor_y + 0.012f, cz + lw_bot*0.5f + 0.012f,
                    1, BRASS);
         }
+    }
+
+    /* Fielded panels along the apron, one to each bay between the legs and one
+     * to each end — the joinery that says CABINET MAKER rather than box. The
+     * field stands seven millimetres proud behind a bevel; the bevel's top edge
+     * takes the lamps and its bottom shades itself, so the panel reads by light
+     * alone, at any distance, in the body's own timber. */
+    {
+        const float caphw = lw_top * 0.5f + 0.013f;
+        const float pm    = 0.055f;                    /* margin from the capitals */
+        const float py0   = ap_bot + 0.034f;
+        const float py1   = ap_y - 0.020f;
+        for (int p = 0; p + 1 < pairs; p++) {
+            float a0 = legx[p] + caphw + pm, a1 = legx[p + 1] - caphw - pm;
+            for (int sg = -1; sg <= 1; sg += 2) {
+                fielded_panel(m, 0, (float)sg, oz, a0, a1, py0, py1,
+                              0.018f, 0.007f, PAL_WOOD);
+            }
+        }
+        float ez = oz - inset - lw_top * 0.5f;
+        for (int sg = -1; sg <= 1; sg += 2)
+            fielded_panel(m, 1, (float)sg, ox, -(ez - caphw - pm), ez - caphw - pm,
+                          py0, py1, 0.018f, 0.007f, PAL_WOOD);
     }
 }
 
@@ -643,19 +770,26 @@ static void cabinet(CueVrFrameMesh *m, const CueTable *t) {
 
     /* Chamfered corner posts with a bright quirk down them. On the real table
      * the corner is a casting rather than a mitre, and the break of light down
-     * that chamfer is what stops the body reading as a plain black box. */
+     * that chamfer is what stops the body reading as a plain black box. The
+     * casting is collared in chrome at the head AND the foot — a casting is
+     * fixed at both ends, and the matching foot collar is what ties the bright
+     * line along the plinth into the corners instead of dying at them. */
     for (int sx = -1; sx <= 1; sx += 2)
         for (int sz = -1; sz <= 1; sz += 2) {
             float cx = (float)sx * (ox - 0.052f), cz = (float)sz * (oz - 0.052f);
             post(m, cx, cz, y_a, body_bot,
                  0.150f, 0.150f - TAPER * 2.0f, 0.062f, CAB_PANEL);
             post(m, cx, cz, y_a - 0.002f, y_b, 0.152f, 0.152f, 0.063f, CAB_CHROME);
+            post(m, cx, cz, y_c, body_bot + 0.002f,
+                 0.150f - TAPER * 1.6f, 0.150f - TAPER * 2.0f, 0.062f, CAB_CHROME);
         }
 
     /* Coin mech at the foot end — a recessed plate with a chromed surround,
-     * which is the one piece of clutter a pub table always has. */
+     * which is the one piece of clutter a pub table always has. The bezel now
+     * goes right round: it had a top and a bottom strip and open sides, which
+     * is not how anything is riveted to anything. */
     {
-        float ymid = (y_b + y_c) * 0.5f;
+        float ymid = (y_b + y_c) * 0.5f + 0.045f;
         float xf = ox - CAB_IN(ymid);
         box(m, xf - 0.004f, ymid - 0.055f, -hw * 0.16f,
                xf + 0.008f, ymid + 0.055f,  hw * 0.16f, 2, CAB_PANEL);
@@ -663,6 +797,32 @@ static void cabinet(CueVrFrameMesh *m, const CueTable *t) {
                xf + 0.010f, ymid - 0.055f,  hw * 0.18f, 2, CAB_CHROME);
         box(m, xf - 0.002f, ymid + 0.055f, -hw * 0.18f,
                xf + 0.010f, ymid + 0.062f,  hw * 0.18f, 2, CAB_CHROME);
+        box(m, xf - 0.002f, ymid - 0.062f, -hw * 0.18f - 0.007f,
+               xf + 0.010f, ymid + 0.062f, -hw * 0.18f, 2, CAB_CHROME);
+        box(m, xf - 0.002f, ymid - 0.062f,  hw * 0.18f,
+               xf + 0.010f, ymid + 0.062f,  hw * 0.18f + 0.007f, 2, CAB_CHROME);
+        /* and the slot itself: the one detail everyone who has fed one of
+         * these tables looks for */
+        box(m, xf + 0.008f, ymid - 0.030f, -0.012f,
+               xf + 0.0105f, ymid + 0.030f, 0.012f, 1, CAB_CHROME);
+
+        /* The ball-return hatch, LOW and central under the coin door: a wide
+         * recessed tray mouth with a chrome sill. This is where the game gives
+         * the balls back, it is the biggest single feature of the real body,
+         * and the table did not have one — a coin slot that never pays out. */
+        float hy1 = y_c + 0.085f;
+        float hx  = ox - CAB_IN((y_c + hy1) * 0.5f);
+        box(m, hx - 0.010f, y_c + 0.006f, -hw * 0.26f,
+               hx + 0.004f, hy1,           hw * 0.26f, 2, SHADOW);
+        box(m, hx - 0.002f, y_c + 0.006f, -hw * 0.26f - 0.007f,
+               hx + 0.008f, hy1 + 0.007f, -hw * 0.26f, 2, CAB_CHROME);
+        box(m, hx - 0.002f, y_c + 0.006f,  hw * 0.26f,
+               hx + 0.008f, hy1 + 0.007f,  hw * 0.26f + 0.007f, 2, CAB_CHROME);
+        box(m, hx - 0.002f, hy1, -hw * 0.26f - 0.007f,
+               hx + 0.008f, hy1 + 0.007f, hw * 0.26f + 0.007f, 2, CAB_CHROME);
+        /* the sill the balls roll onto */
+        box(m, hx - 0.002f, y_c, -hw * 0.26f - 0.007f,
+               hx + 0.014f, y_c + 0.006f, hw * 0.26f + 0.007f, 2, CAB_CHROME);
     }
 
     /* Legs. RAKED: square in section, set well in from the corners at the top
@@ -711,7 +871,10 @@ typedef float (*Profile)(float f);
 
 static void turned(CueVrFrameMesh *m, float cx, float cz, float y_top,
                    float y_bot, Profile r, int steps, const float *col) {
-    const int SIDES = 10;
+    /* Twelve. At ten the vase read as a polygon before it read as a vase —
+     * the swelling is the widest, best-lit thing on the leg, which makes it
+     * exactly where the facets are most visible. */
+    const int SIDES = 12;
     const float len = fabsf(y_top - y_bot);
     for (int i = 0; i < steps; i++) {
         float f0 = (float)i / (float)steps, f1 = (float)(i + 1) / (float)steps;
@@ -744,26 +907,58 @@ static void turned(CueVrFrameMesh *m, float cx, float cz, float y_top,
     }
 }
 
-/* The baluster. Written as one expression per feature so the shape can be read:
- * pad, cove, vase, bead run, taper, foot. `f` is 0 at the apron, 1 at the floor. */
+/* The baluster, rewritten against how turned work is actually cut.
+ *
+ * The old profile had three hidden jumps — the vase ended at 0.070 where the
+ * beads began at 0.058, the beads ended where the taper began 4 mm wider, and
+ * the sampling smeared each jump across one station into a mush that read as
+ * nothing. On a lathe those steps are FILLETS: deliberate flat collars a tool
+ * is squared into, and they are half of what makes turning look like turning —
+ * every curve lands on a crisp flat before the next one starts.
+ *
+ * So this one is built of features that MEET: a collar under the pad, an
+ * astragal (a full round bead) riding on it, the vase swelling wide and
+ * sweeping in to a narrow neck, three crisp beads separated by real flats, a
+ * long taper with a touch of entasis (dead-straight tapers look hollow at
+ * distance — every column ever cut bows a hair for exactly this reason), an
+ * ankle collar, and a bun foot. `f` is 0 at the apron, 1 at the floor. */
 static float baluster(float f) {
-    float r = 0.086f;
-    if (f < 0.08f) return 0.100f;                       /* square-ish pad */
-    if (f < 0.13f) return 0.100f - 0.030f * (f - 0.08f) / 0.05f;   /* cove in */
-    if (f < 0.34f) {                                     /* the vase */
-        float u = (f - 0.13f) / 0.21f;
-        return 0.070f + 0.044f * sinf(u * 3.14159265f);
+    /* a smooth 0..1 ease, for the sweeps */
+    #define EASE(u) (0.5f - 0.5f * cosf((u) * 3.14159265f))
+    if (f < 0.030f) return 0.098f;                        /* collar under the pad */
+    if (f < 0.075f) {                                     /* astragal: full round */
+        float u = (f - 0.030f) / 0.045f;
+        return 0.098f + 0.014f * sinf(u * 3.14159265f);
     }
-    if (f < 0.42f) {                                     /* three beads */
-        float u = (f - 0.34f) / 0.08f;
-        return 0.058f + 0.016f * fabsf(sinf(u * 3.0f * 3.14159265f));
+    if (f < 0.100f) return 0.096f;                        /* fillet into the vase */
+    if (f < 0.175f) {                                     /* the vase swells... */
+        float u = (f - 0.100f) / 0.075f;
+        return 0.096f + 0.018f * EASE(u);
     }
-    if (f < 0.90f) {                                     /* the long taper */
-        float u = (f - 0.42f) / 0.48f;
-        return 0.062f - 0.020f * u;
+    if (f < 0.360f) {                                     /* ...and sweeps to the neck */
+        float u = (f - 0.175f) / 0.185f;
+        return 0.114f - 0.056f * EASE(u);
     }
-    r = 0.042f + 0.024f * sinf((f - 0.90f) / 0.10f * 3.14159265f);  /* turned foot */
-    return r;
+    if (f < 0.385f) return 0.058f;                        /* neck fillet */
+    if (f < 0.475f) {                                     /* three beads, real flats */
+        float u = (f - 0.385f) / 0.090f;
+        float b = fmodf(u * 3.0f, 1.0f);
+        /* each bead: flat 15%, round 70%, flat 15% */
+        if (b < 0.15f || b > 0.85f) return 0.058f;
+        return 0.058f + 0.013f * sinf((b - 0.15f) / 0.70f * 3.14159265f);
+    }
+    if (f < 0.500f) return 0.058f;                        /* fillet out of the beads */
+    if (f < 0.870f) {                                     /* the taper, with entasis */
+        float u = (f - 0.500f) / 0.370f;
+        return 0.056f - 0.018f * u + 0.004f * sinf(u * 3.14159265f);
+    }
+    if (f < 0.895f) return 0.038f;                        /* ankle collar */
+    if (f < 0.975f) {                                     /* the bun foot */
+        float u = (f - 0.895f) / 0.080f;
+        return 0.040f + 0.022f * sinf(u * 3.14159265f * 0.82f);
+    }
+    return 0.044f;                                        /* the shoe */
+    #undef EASE
 }
 
 static void victorian(CueVrFrameMesh *m, const CueTable *t) {
@@ -776,24 +971,60 @@ static void victorian(CueVrFrameMesh *m, const CueTable *t) {
     const float ap_bot = ap_top - ap_h;
     const float floor_y = -cuevr_frame_depth(t);
 
-    /* An ovolo top course that oversails properly — this is a heavier table
-     * than the Regency and the mouldings are correspondingly bolder. */
-    top_course(m, -ox - 0.016f, ap_top - 0.034f, -oz - 0.016f,
-                   ox + 0.016f, ap_top - 0.008f,  oz + 0.016f, PAL_LIT);
-    rail_undercut(m, ox + 0.016f, oz + 0.016f, ap_top - 0.008f, PAL_LIT);
-    top_course(m, -ox - 0.006f, ap_top - 0.046f, -oz - 0.006f,
-                   ox + 0.006f, ap_top - 0.034f,  oz + 0.006f, PAL_DARK);
+    /* An ogee crown that oversails properly — this is a heavier table than the
+     * Regency and the mouldings are correspondingly bolder. The S-curve is the
+     * whole Victorian signature: it catches the lamps along its swell and
+     * shades its own throat, where the old stacked boxes just changed paint. */
+    top_course(m, -ox - 0.018f, ap_top - 0.014f, -oz - 0.018f,
+                   ox + 0.018f, ap_top - 0.006f,  oz + 0.018f, PAL_LIT);
+    rail_undercut(m, ox + 0.018f, oz + 0.018f, ap_top - 0.006f, PAL_LIT);
+    {
+        const float ogee[][2] = {
+            { 0.018f,  ap_top - 0.014f },
+            { 0.018f,  ap_top - 0.020f },              /* fascia */
+            { 0.0155f, ap_top - 0.027f },              /* the swell out... */
+            { 0.0105f, ap_top - 0.032f },
+            { 0.0045f, ap_top - 0.036f },              /* ...through the waist... */
+            { 0.0035f, ap_top - 0.041f },
+            { 0.0075f, ap_top - 0.0455f },             /* ...into the cove */
+            { 0.009f,  ap_top - 0.049f },
+            { -0.0025f, ap_top - 0.050f },             /* quirk */
+            { 0.000f,  ap_top - 0.054f },
+        };
+        moulding(m, ox, oz, ogee, 10, PAL_WOOD);
+    }
 
-    const float ap_y = ap_top - 0.046f;
+    const float ap_y = ap_top - 0.054f;
     const float iz_a = clear_z(oz - 0.028f, ap_y);
     const float ix_a = clear_x(ox - 0.028f, ap_y);
     box(m, -ox, ap_bot, -oz, ox, ap_y, -iz_a, 0, PAL_WOOD);
     box(m, -ox, ap_bot,  iz_a, ox, ap_y, oz, 0, PAL_WOOD);
     box(m, -ox, ap_bot, -iz_a, -ix_a, ap_y, iz_a, 2, PAL_WOOD);
     box(m,  ix_a, ap_bot, -iz_a, ox, ap_y, iz_a, 2, PAL_WOOD);
-    /* a carved bead low on the apron, and a beaded bottom edge */
-    band(m, ox + 0.004f, oz + 0.004f, ap_bot + 0.030f, ap_bot + 0.040f, 0.030f, 0, PAL_DARK);
-    band(m, ox + 0.008f, oz + 0.008f, ap_bot, ap_bot + 0.014f, 0.030f, 0, PAL_LIT);
+    /* a struck half-round low on the apron where the carved bead sat as a dark
+     * stripe, and a bolder torus as the bottom edge */
+    {
+        const float by = ap_bot + 0.036f;
+        const float bead[][2] = {
+            { 0.000f,  by + 0.007f },
+            { -0.002f, by + 0.006f },
+            { 0.005f,  by + 0.002f },
+            { 0.006f,  by - 0.002f },
+            { 0.005f,  by - 0.005f },
+            { -0.002f, by - 0.008f },
+            { 0.000f,  by - 0.009f },
+        };
+        moulding(m, ox, oz, bead, 7, PAL_WOOD);
+        const float torus[][2] = {
+            { 0.000f,  ap_bot + 0.017f },
+            { 0.006f,  ap_bot + 0.014f },
+            { 0.009f,  ap_bot + 0.009f },
+            { 0.009f,  ap_bot + 0.004f },
+            { 0.006f,  ap_bot + 0.001f },
+            { 0.000f,  ap_bot },
+        };
+        moulding(m, ox, oz, torus, 6, PAL_WOOD);
+    }
 
     /* Legs. A small snooker table is short enough for four; a 10 ft one wants
      * six or the slate sags at the middle pockets, same rule as the Regency. */
@@ -809,7 +1040,11 @@ static void victorian(CueVrFrameMesh *m, const CueTable *t) {
             /* the square pad the turning starts from */
             box(m, cx - 0.098f, leg_top - 0.052f, cz - 0.098f,
                    cx + 0.098f, leg_top,          cz + 0.098f, 1, PAL_LIT);
-            turned(m, cx, cz, leg_top - 0.052f, floor_y + 0.010f, baluster, 40, PAL_WOOD);
+            /* 96 stations, not 40. A bead is 18 mm of a 600 mm leg; at 40
+             * uniform stations that is barely one sample, and the whole bead
+             * run melted into the shaft — twice, because the first profile was
+             * blamed before the sampling was. */
+            turned(m, cx, cz, leg_top - 0.052f, floor_y + 0.010f, baluster, 96, PAL_WOOD);
             box(m, cx - 0.052f, floor_y, cz - 0.052f,
                    cx + 0.052f, floor_y + 0.010f, cz + 0.052f, 1, BRASS);
         }
@@ -838,34 +1073,63 @@ static void american(CueVrFrameMesh *m, const CueTable *t) {
     const float skirt_bot = top - skirt_h;
     const float inlay_y  = top - 0.118f;
 
-    /* a flat oversailing cap, square-edged, no ovolo */
+    /* a flat oversailing cap, square-edged, no ovolo — but with a struck
+     * shadow reveal beneath it, so the cap reads as a separate slab riding on
+     * the skirt rather than a step in one extrusion */
     top_course(m, -ox - 0.016f, top - 0.030f, -oz - 0.016f,
                    ox + 0.016f, top - 0.009f,  oz + 0.016f, PAL_LIT);
     rail_undercut(m, ox + 0.016f, oz + 0.016f, top - 0.009f, PAL_LIT);
+    {
+        const float reveal[][2] = {
+            { 0.016f,  top - 0.030f },
+            { 0.000f,  top - 0.033f },                /* the cap's underside, in */
+            { -0.004f, top - 0.034f },                /* the shadow slot */
+            { -0.004f, top - 0.040f },
+            { 0.000f,  top - 0.042f },
+        };
+        moulding(m, ox, oz, reveal, 5, PAL_DARK);
+    }
 
-    /* The skirt, in four runs, split above and below the inlay so each band is
-     * its own timber and the grain follows each side. */
-    const float bands[3][2] = { { inlay_y + 0.013f, top - 0.030f },
-                                { inlay_y,          inlay_y + 0.013f },
-                                { skirt_bot,        inlay_y } };
-    const float *bcol[3] = { PAL_WOOD, PAL_LIT, PAL_WOOD };
-    for (int b = 0; b < 3; b++) {
+    /* The skirt, split at the inlay. The inlay itself is now what an inlay IS:
+     * a band of a CONTRASTING wood let in between two ebonised pinstripes, all
+     * of it standing five millimetres proud. The old one was the body's own
+     * timber lifted 18% toward white, and from any distance at all the whole
+     * skirt photographed as one plain brown box — the single detail this
+     * design hangs on, invisible. */
+    const float in_hi = inlay_y + 0.026f;         /* the full inlay assembly */
+    const float bands[2][2] = { { in_hi,     top - 0.042f },
+                                { skirt_bot, inlay_y } };
+    for (int b = 0; b < 2; b++) {
         float y0 = bands[b][0], y1 = bands[b][1];
-        const float *c = bcol[b];
-        float pr = (b == 1) ? 0.005f : 0.0f;     /* the inlay stands slightly proud */
         const float iz_s = clear_z(oz - 0.032f, y1);
         const float ix_s = clear_x(ox - 0.032f, y1);
-        box(m, -ox, y0, -oz - pr, ox, y1, -iz_s, 0, c);
-        box(m, -ox, y0,  iz_s, ox, y1, oz + pr, 0, c);
-        box(m, -ox - pr, y0, -iz_s, -ix_s, y1, iz_s, 2, c);
-        box(m,  ix_s, y0, -iz_s, ox + pr, y1, iz_s, 2, c);
+        box(m, -ox, y0, -oz, ox, y1, -iz_s, 0, PAL_WOOD);
+        box(m, -ox, y0,  iz_s, ox, y1, oz, 0, PAL_WOOD);
+        box(m, -ox, y0, -iz_s, -ix_s, y1, iz_s, 2, PAL_WOOD);
+        box(m,  ix_s, y0, -iz_s, ox, y1, iz_s, 2, PAL_WOOD);
     }
-    /* a plain chamfered bottom edge */
-    band(m, ox - 0.006f, oz - 0.006f, skirt_bot - 0.016f, skirt_bot, 0.034f, 0, PAL_LIT);
+    band(m, ox + 0.005f, oz + 0.005f, inlay_y + 0.0215f, in_hi,           0.012f, 0, PAL_DARK);
+    band(m, ox + 0.006f, oz + 0.006f, inlay_y + 0.0045f, inlay_y + 0.0215f, 0.014f, 0, PAL_INLAY);
+    band(m, ox + 0.005f, oz + 0.005f, inlay_y,           inlay_y + 0.0045f, 0.012f, 0, PAL_DARK);
 
-    /* Legs: square, tapered on all four faces, at the corners. `post` with no
-     * chamfer to speak of gives a square section, which is what this wants —
-     * an octagon here would look English. */
+    /* a plain chamfered bottom edge, eased back in so the skirt sits on a
+     * shadow rather than on the floor of its own face */
+    {
+        const float lip[][2] = {
+            { 0.000f,  skirt_bot + 0.004f },
+            { 0.006f,  skirt_bot - 0.004f },
+            { 0.006f,  skirt_bot - 0.012f },
+            { -0.002f, skirt_bot - 0.016f },
+        };
+        moulding(m, ox, oz, lip, 4, PAL_LIT);
+    }
+
+    /* Legs: square, tapered on all four faces, at the corners — and each one
+     * housed in a PILASTER, a full-height post standing proud of the skirt.
+     * This is how the real tournament tables carry a leg: the corner is built
+     * up, the skirt runs between the corners, and the leg continues the
+     * pilaster to the floor. Without them the legs began where the skirt
+     * stopped and the whole corner read as one unbroken extrusion. */
     int pairs = (hl * 2.0f > 2.9f) ? 3 : 2;
     const float lw_top = 0.215f, lw_bot = 0.160f;
     const float leg_top = skirt_bot - 0.010f;
@@ -873,9 +1137,19 @@ static void american(CueVrFrameMesh *m, const CueTable *t) {
         float fx = (pairs == 1) ? 0.0f
                  : (-1.0f + 2.0f * (float)p / (float)(pairs - 1));
         float cx = fx * (ox - 0.014f - lw_top * 0.5f);
+        int corner = (pairs == 1) || p == 0 || p == pairs - 1;
         for (int sz = -1; sz <= 1; sz += 2) {
             float cz = (float)sz * (oz - 0.014f - lw_top * 0.5f);
-            post(m, cx, cz, leg_top, floor_y + 0.022f, lw_top, lw_bot, 0.012f,
+            /* the pilaster: skirt-height, 10 mm proud on its outward faces —
+             * the middle legs of a 10-footer stay flush, only corners build up */
+            if (corner) {
+                float px0 = cx - lw_top*0.5f - (p == 0 ? 0.010f : 0.0f);
+                float px1 = cx + lw_top*0.5f + (p == pairs - 1 ? 0.010f : 0.0f);
+                box(m, px0, skirt_bot - 0.002f, cz - lw_top*0.5f - ((float)sz < 0 ? 0.010f : 0.0f),
+                       px1, top - 0.033f,        cz + lw_top*0.5f + ((float)sz > 0 ? 0.010f : 0.0f),
+                       1, PAL_WOOD);
+            }
+            post(m, cx, cz, leg_top, floor_y + 0.022f, lw_top, lw_bot, 0.020f,
                  PAL_WOOD);
             /* a levelling foot, which every 9-footer has and none of them hides */
             box(m, cx - lw_bot*0.5f, floor_y + 0.010f, cz - lw_bot*0.5f,
@@ -948,8 +1222,10 @@ void cuevr_frame_capacity(int *max_verts, int *max_indices) {
     /* The Victorian's turned legs dominate, and the pocket cut-outs in the
      * horizontal faces add a few thousand more. Indices are 16-bit, so the vertex
      * ceiling is the real constraint; this is one malloc at start-up. */
-    if (max_verts)   *max_verts   = 40000;
-    if (max_indices) *max_indices = 60000;
+    /* The Victorian at 96 stations x 12 sides is ~4600 verts and ~6900 indices
+     * a leg, six legs on a 10 ft table. */
+    if (max_verts)   *max_verts   = 52000;
+    if (max_indices) *max_indices = 96000;
 }
 
 float cuevr_frame_depth(const CueTable *t) {
