@@ -1080,20 +1080,20 @@ static int pause_rows(PsRow *o, int max) {
 static int decision_options(DecOpt *o, int max) {
     int n = 0;
     if (S.rules.pushout_offer) {
-        if (n < max) o[n++] = (DecOpt){ CUE_DEC_PLAY,  "PUSH OUT",  "play a free stroke" };
-        if (n < max) o[n++] = (DecOpt){ CUE_DEC_AGAIN, "PLAY ON",   "take the shot" };
+        if (n < max) o[n++] = (DecOpt){ CUE_DEC_PLAY,  "PUSH OUT",  "play a free shot" };
+        if (n < max) o[n++] = (DecOpt){ CUE_DEC_AGAIN, "PLAY ON",   "play it normally" };
         return n;
     }
-    if (n < max) o[n++] = (DecOpt){ CUE_DEC_PLAY,  "PLAY ON",
-                                    "I play the balls as they lie" };
-    if (n < max) o[n++] = (DecOpt){ CUE_DEC_AGAIN, "PLAY AGAIN",
-                                    "you play, from where they lie" };
+    if (n < max) o[n++] = (DecOpt){ CUE_DEC_PLAY,  "TAKE THE SHOT",
+                                    "you play the balls where they lie" };
+    if (n < max) o[n++] = (DecOpt){ CUE_DEC_AGAIN, "MAKE THEM PLAY",
+                                    "they shoot again from here" };
     if (S.rules.dec_can_restore && n < max)
-        o[n++] = (DecOpt){ CUE_DEC_REPLAY, "REPLACE + AGAIN",
-                           "balls back, play the stroke again" };
+        o[n++] = (DecOpt){ CUE_DEC_REPLAY, "PUT THE BALLS BACK",
+                           "they replay the same shot" };
     if (S.rules.dec_free_ball && n < max)
         o[n++] = (DecOpt){ CUE_DEC_FREEBALL, "FREE BALL",
-                           "I play, and nominate a free ball" };
+                           "you play, and name any ball" };
     return n;
 }
 
@@ -1250,7 +1250,7 @@ static void hud_paint(void) {
         cue_render_set_preview_hs(-1, -1, 0, 0, 0);   /* the balls preview lives on APPEARANCE now */
         /* The footer said "STICK" long after the menu became a pointer — the
          * same wrong-instruction-in-the-corner the records page had. */
-        hud_text("POINT AND CLICK   < > CHANGE   A SELECT", 4, HH - 6, DIM);
+        hud_text("TRIGGER SELECT   < > CHANGE", 4, HH - 6, DIM);
         return;
     }
 
@@ -1264,18 +1264,18 @@ static void hud_paint(void) {
         int cm = (int)(S.setup.place.height * 100.0f + 0.5f);
         snprintf(b, sizeof b, "%d CM", cm);
         hud_text_xl(b, 4, 16, TXT);
-        hud_text(S.levelled ? "MATCH IT TO THE SURFACE YOU ARE AT."
-                            : "SET THE CLOTH TO THE HEIGHT OF YOUR",
+        hud_text(S.levelled ? "MATCH THE HEIGHT TO YOUR REAL TABLE."
+                            : "SET THE TABLE TO THE HEIGHT OF YOUR",
                  4, 36, DIM);
         if (!S.levelled) hud_text("REAL TABLE, DESK OR BED.", 4, 42, DIM);
-        hud_text("L STICK SLIDE    R STICK X TURN", 4, 52, TXT);
-        hud_text("R STICK Y HEIGHT   A DONE", 4, 58, HI);
+        hud_text("LEFT STICK MOVE    RIGHT STICK TURN", 4, 52, TXT);
+        hud_text("RIGHT STICK UP/DOWN HEIGHT    A DONE", 4, 58, HI);
         /* Something you can act on, rather than a note about the pivot. The
          * pivot is a fact about the maths; what a player needs here is how to
          * know when the number is right, and the answer is to put a hand on the
          * real thing and see whether the cloth agrees with it. */
-        hud_text("REST A HAND ON YOUR REAL SURFACE", 4, HH - 12, DIM);
-        hud_text("AND MATCH THE CLOTH TO IT.", 4, HH - 6, DIM);
+        hud_text("PUT A HAND ON YOUR REAL TABLE AND", 4, HH - 12, DIM);
+        hud_text("LINE THE CLOTH UP WITH IT.", 4, HH - 6, DIM);
         return;
     }
 
@@ -1320,7 +1320,7 @@ static void hud_paint(void) {
                 hud_text_xl(c, cx - hud_text_w_xl(c) / 2, 26,
                             i == S.lb_cur ? TXT : DIM);
             }
-            hud_text("STICK L/R PICK   UP/DOWN CHANGE", 4, 50, DIM);
+            hud_text("STICK LEFT/RIGHT PICK   UP/DOWN CHANGE", 4, 50, DIM);
             hud_text("POINT AND CLICK      B BACK", 4, HH - 6, HI);
             return;
         }
@@ -1389,7 +1389,7 @@ static void hud_paint(void) {
         hud_link(AR_BACK, "BACK", "DONE", S.menu_row == AR_BACK, DIM, HI, LIVE);
         cue_render_set_preview_hs(HW - 9, 12 + AR_BALLS * 8 + 3, 2,
                                   S.ballset, S.tab.kind >= CUE_GAME_FIRST_SNK);
-        hud_text("LEFT/RIGHT CHANGE   A BACK", 4, HH - 6, DIM);
+        hud_text("< > CHANGE   A BACK", 4, HH - 6, DIM);
         return;
     }
 
@@ -1402,7 +1402,8 @@ static void hud_paint(void) {
         hud_opt(CR_HAND, "CUE HAND", S.lefty ? "LEFT" : "RIGHT",
                 S.menu_row == CR_HAND, 1, TXT, DIM, HI);
         hud_opt(CR_STICKS, "STICKS",
-                S.stick_swap ? "L TURN  R SLIDE" : "L SLIDE  R TURN",
+                S.stick_swap ? "LEFT TURNS  RIGHT MOVES"
+                             : "LEFT MOVES  RIGHT TURNS",
                 S.menu_row == CR_STICKS, 1, TXT, DIM, HI);
         hud_opt(CR_INVSLIDE, "INVERT SLIDE", S.inv_slide ? "ON" : "OFF",
                 S.menu_row == CR_INVSLIDE, 1, TXT, DIM, HI);
@@ -1413,8 +1414,8 @@ static void hud_paint(void) {
          * should not go with it. */
         hud_link(CR_RESET, "RESET CUE", "RESET", S.menu_row == CR_RESET, DIM, HI, LIVE);
         hud_link(CR_BACK, "BACK", "DONE", S.menu_row == CR_BACK, DIM, HI, LIVE);
-        hud_text("BUTTONS FOLLOW THE CUE HAND. STICKS DO NOT.", 4, HH - 12, DIM);
-        hud_text("POINT AND PULL THE TRIGGER", 4, HH - 6, DIM);
+        hud_text("A AND B STAY ON THE RIGHT CONTROLLER", 4, HH - 12, DIM);
+        hud_text("TRIGGER SELECT", 4, HH - 6, DIM);
         return;
     }
 
@@ -1494,7 +1495,7 @@ static void hud_paint(void) {
                 hud_text_2x(txt, 6, y - 1, on ? HI : DIM);
             }
         }
-        hud_text("POINT AND CLICK   A SELECT   MENU RESUME", 4, HH - 6, DIM);
+        hud_text("TRIGGER SELECT   MENU RESUME", 4, HH - 6, DIM);
         return;
     }
 
@@ -1652,7 +1653,7 @@ static void hud_paint(void) {
             hud_text_2x(o[i].label, 6, y - 1, sel ? HI : DIM);
             hud_text(o[i].note, 8, y + 8, DIM);
         }
-        hud_text("POINT AND PULL THE TRIGGER", 4, HH - 6, DIM);
+        hud_text("TRIGGER SELECT", 4, HH - 6, DIM);
         return;
     }
 
@@ -1897,7 +1898,8 @@ static void hud_paint(void) {
     /* The one big line. */
     if (S.state == ST_PLACE) {
         hud_text_2x("BALL IN HAND", 4, 55, HI);
-        hud_text("CARRY IT WITH YOUR HAND   TRIGGER DROPS", 4, 67, DIM);
+        hud_text("MOVE YOUR HAND TO POSITION IT", 4, 63, DIM);
+        hud_text("TRIGGER TO PLACE", 4, 69, HI);
         return;
     }
     if (S.msg_time > 0.0f) { hud_text_2x(S.msg, 4, 57, HI); return; }
@@ -1908,17 +1910,17 @@ static void hud_paint(void) {
     else if (S.state == ST_AIM) {
         /* No "cue is off the ball" prompt: you can see whether you are on it,
          * and a panel telling you so is noise. */
-        if (S.cue.stroking)       hud_text_2x("STROKE - PUSH THROUGH", 4, 57, HI);
-        else if (S.cue.adjusting) hud_text_2x("SETTING YOUR BRIDGE", 4, 57, HI);
+        if (S.cue.stroking)       hud_text_2x("PUSH THROUGH THE BALL", 4, 57, HI);
+        else if (S.cue.adjusting) hud_text_2x("MOVING YOUR BRIDGE HAND", 4, 57, HI);
         else if (S.opp == OPP_PRACTICE && S.have_snap && S.undo_hold > 0.0f) {
-            hud_text_2x("HOLD B TO PLAY IT AGAIN", 4, 57, HI);
+            hud_text_2x("HOLD B TO RETRY THE SHOT", 4, 57, HI);
             int w = (int)((float)(HW - 8) * (S.undo_hold / CUEVR_UNDO_HOLD));
             if (w > HW - 8) w = HW - 8;
             hud_rect(4, 67, w, 2, LIVE);
         }
         else if (S.opp == OPP_PRACTICE && S.have_snap)
-            hud_text("R TRIG CUE   HOLD B REPLAY   MENU OPTIONS", 4, 60, DIM);
-        else hud_text("R TRIG CUE   SIDE TRIG HAND   MENU OPTIONS", 4, 60, DIM);
+            hud_text("TRIGGER AIM   HOLD B RETRY   MENU OPTIONS", 4, 60, DIM);
+        else hud_text("TRIGGER AIM   GRIP MOVE HAND   MENU OPTIONS", 4, 60, DIM);
     }
 }
 
@@ -2283,8 +2285,8 @@ static void resolve_shot(void) {
                 if (dec == CUE_DEC_REPLAY) snap_restore_balls();
                 cue_rules_apply_decision(&S.rules, dec);
                 snprintf(S.msg, sizeof S.msg, "%s",
-                         dec == CUE_DEC_REPLAY   ? "PLAY IT AGAIN"
-                       : dec == CUE_DEC_FREEBALL ? "FREE BALL TAKEN"
+                         dec == CUE_DEC_REPLAY   ? "PLAY THE SHOT AGAIN"
+                       : dec == CUE_DEC_FREEBALL ? "FREE BALL"
                                                  : "OPPONENT PLAYS ON");
                 S.msg_time = 3.0f;
             }
@@ -3110,7 +3112,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.undo_hold += dt;
                 if (was < CUEVR_UNDO_HOLD && S.undo_hold >= CUEVR_UNDO_HOLD) {
                     if (snap_restore()) {
-                        snprintf(S.msg, sizeof S.msg, "PLAY IT AGAIN");
+                        snprintf(S.msg, sizeof S.msg, "SHOT UNDONE");
                         S.msg_time = 2.0f;
                         mote_xr_haptic(0.5f, 60);
                     }
