@@ -48,7 +48,13 @@
 #include <android/log.h>
 /* Through the host's logger so logcat and the SideQuest-readable file both get
  * it, in one order. */
+/* Off in a normal build — see MOTE_LOG in platform/xr/mote_xr.c. The sink
+ * returns immediately anyway; this stops the arguments being assembled too. */
+#if defined(MOTE_LOG) && MOTE_LOG
 #define LOGI(...) mote_xr_logv(__VA_ARGS__)
+#else
+#define LOGI(...) ((void)0)
+#endif
 #else
 #define LOGI(...) do { printf(__VA_ARGS__); printf("\n"); } while (0)
 #endif

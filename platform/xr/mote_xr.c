@@ -55,8 +55,21 @@
  * the headset. Getting a log should not require adb, a cable and a shell. */
 static FILE *s_logf;
 
+/* LOGGING IS OFF unless somebody asks for it.
+ *
+ * It cost more than it looked: every line was a vsnprintf into half a kilobyte
+ * of stack, a call into logcat, and a write to a LINE-BUFFERED file — a syscall
+ * per line, on the device, while a frame is running. None of it is read in
+ * normal use. Build with -DMOTE_LOG=1 to get it all back when something needs
+ * diagnosing; nothing else changes, and the call sites stay where they are so
+ * turning it on is a rebuild rather than an archaeology exercise. */
+#ifndef MOTE_LOG
+#define MOTE_LOG 0
+#endif
+
 void mote_xr_log_file(const char *dir) {
     char path[512];
+    if (!MOTE_LOG) return;              /* no file, not even opened */
     if (!dir || !dir[0]) return;
     mkdir(dir, 0777);                   /* Android usually makes it; not always */
     snprintf(path, sizeof path, "%s/mote-log.txt", dir);
@@ -76,6 +89,7 @@ void mote_xr_log_file(const char *dir) {
 void mote_xr_logv(const char *fmt, ...) {
     char b[512];
     va_list ap;
+    if (!MOTE_LOG) return;
     va_start(ap, fmt);
     vsnprintf(b, sizeof b, fmt, ap);
     va_end(ap);

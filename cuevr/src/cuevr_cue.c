@@ -66,6 +66,16 @@ void cuevr_prefs_dir(const char *dir) {
     CUEVR_PREFS_LOG("[cuevr] preferences: %s", s_prefs_path);
 }
 
+/* Where the preferences actually live. Anything else the app wants to write
+ * beside them must ask, not guess: CUEVR_PREFS_DIR is a HOST-only convenience
+ * and reads as unset inside an APK, so deriving a path from it on the headset
+ * produced "./something" — and an Android process starts at "/", which is
+ * read-only. Files written that way fail silently and are simply never there. */
+const char *cuevr_prefs_path(void) {
+    if (!s_prefs_path[0]) cuevr_prefs_dir(NULL);
+    return s_prefs_path;
+}
+
 /* Loading and saving.
  *
  * KEY VALUE, one per line, because the positional format this replaces had got

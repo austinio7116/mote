@@ -343,6 +343,7 @@ typedef struct {
 } CueVrPrefs;
 
 void cuevr_prefs_dir(const char *dir);
+const char *cuevr_prefs_path(void);
 void cuevr_prefs_defaults(CueVrPrefs *p);
 void cuevr_prefs_load(CueVrPrefs *p);      /* leaves untouched what the file omits */
 void cuevr_prefs_save(const CueVrPrefs *p);

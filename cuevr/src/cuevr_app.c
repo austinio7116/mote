@@ -47,7 +47,13 @@
 #include <android/log.h>
 /* Through the host's logger so logcat and the SideQuest-readable file both get
  * it, in one order. */
+/* Off in a normal build — see MOTE_LOG in platform/xr/mote_xr.c. The sink
+ * returns immediately anyway; this stops the arguments being assembled too. */
+#if defined(MOTE_LOG) && MOTE_LOG
 #define LOGI(...) mote_xr_logv(__VA_ARGS__)
+#else
+#define LOGI(...) ((void)0)
+#endif
 #else
 #define LOGI(...) do { printf(__VA_ARGS__); printf("\n"); } while (0)
 #endif
@@ -418,6 +424,7 @@ static int coin_toss(void) {
 static void stat_frame_reset(void);
 static void restyle_table(void);
 static void pockets_write(void);
+static void pockets_log(void);
 enum { TOAST_RECORD = 0, TOAST_ACH };
 static void toast_push(int kind, const char *title, const char *body);
 static void rerack(void);
@@ -1048,6 +1055,17 @@ static void pockets_write(void) {
     fprintf(f, "#define CUE_MID_SETBACK %.4ff\n", S.cut_ms / 1000.0f);
     fclose(f);
     LOGI("[cuevr] pocket numbers written to %s", path);
+}
+
+/* And into the log, every time they change. The log is the thing that gets sent
+ * back; a file on the headset is one more step for somebody to take. */
+static void pockets_log(void) {
+    LOGI("[cuevr] POCKET CUT  corner %d%% set back %d mm   middle %d%% set back %d mm"
+         "   (CUE_CUT_CORNER %.3ff CUE_COR_SETBACK %.4ff"
+         " CUE_CUT_MIDDLE %.3ff CUE_MID_SETBACK %.4ff)",
+         S.cut_cr, S.cut_cs, S.cut_mr, S.cut_ms,
+         (double)(S.cut_cr/100.0f), (double)(S.cut_cs/1000.0f),
+         (double)(S.cut_mr/100.0f), (double)(S.cut_ms/1000.0f));
 }
 
 static void career_save(void) {
@@ -3220,9 +3238,17 @@ static int app_gl_init(void *u) {
          * different size and shape of thing and a hundred fixture lines have no
          * business in a settings file. */
         {
-            const char *d = getenv("CUEVR_PREFS_DIR");
-            snprintf(S.car_path, sizeof S.car_path, "%s/cuevr_career.txt",
-                     d ? d : ".");
+            /* Beside the preferences, wherever those really are. This used to
+             * derive from CUEVR_PREFS_DIR, which is a host-only convenience and
+             * unset inside an APK — so on the headset the career was being
+             * written to "./cuevr_career.txt" against a read-only working
+             * directory and never saved at all. */
+            snprintf(S.car_path, sizeof S.car_path, "%s", cuevr_prefs_path());
+            char *sl = strrchr(S.car_path, '/');
+            if (sl) sl[1] = 0; else S.car_path[0] = 0;
+            strncat(S.car_path, "cuevr_career.txt",
+                    sizeof S.car_path - strlen(S.car_path) - 1);
+            LOGI("[cuevr] career file: %s", S.car_path);
             cuevr_career_load(&S.career, S.car_path);
         }
         cuevr_render_set_surround(S.surround);
@@ -4504,6 +4530,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     cue_render_set_pocket_cut(S.cut_cr/100.0f, S.cut_cs/1000.0f,
                                               S.cut_mr/100.0f, S.cut_ms/1000.0f);
                     cuevr_render_set_table(&S.tab, &S.world);
+                    pockets_log();
                     S.stat_dirty = 1;
                 }
             }
@@ -5122,8 +5149,11 @@ static void app_update(void *u, const MoteVrTracking *t) {
         if (S.state != last_state) {
             static const char *NM[] = { "MENU","SETUP","AIM","ROLL","THINK","CPUCUE",
                                         "PLACE","DECIDE","OVER","PAUSE","LOBBY",
-                                        "APPEAR","STATS","CONTROLS" };
-            LOGI("[cuevr] f%d state -> %s", S.dbg_frame, (S.state >= 0 && S.state <= ST_CONTROLS)
+                                        "APPEAR","STATS","CONTROLS",
+                                        "CARSETUP","CAREER","CARTABLE","CARACH",
+                                        "POCKETS" };
+            LOGI("[cuevr] f%d state -> %s", S.dbg_frame,
+                 (S.state >= 0 && S.state < (int)(sizeof NM / sizeof NM[0]))
                                         ? NM[S.state] : "?");
             last_state = S.state;
         }
