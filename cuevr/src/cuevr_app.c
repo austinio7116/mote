@@ -1145,11 +1145,15 @@ static void hud_break_row(int y, const char *who, int brk, const uint8_t *tal,
 {
     char b[16];
     (void)TXT; (void)HI;
-    hud_text(who, 4, y + 4, DIM);
-    if (!brk) { hud_text("-", 26, y + 4, DIM); return; }
+    hud_text(who, 4, y + 2, DIM);
+    if (!brk) { hud_text("-", 26, y + 2, DIM); return; }
 
-    const int rr = 6, step = 15, cy = y + 6;
-    int x = 30;
+    /* Smaller, and NO white rims. The rims were meant to lift the snooker
+     * black off the dark panel and instead put a thick white ring around every
+     * ball on the board — black on dark reads better than that. The count
+     * inside drops to the small face to fit the smaller disc. */
+    const int rr = 4, step = 11, cy = y + 4;
+    int x = 28;
     const int xmax = HW - rr - 2;
     if (S.tab.is_snooker) {
         /* All fifteen reds are one entry: to a break they are one ball, and the
@@ -1160,21 +1164,9 @@ static void hud_break_row(int y, const char *who, int brk, const uint8_t *tal,
             int id = (v == 1) ? 1 : CUE_ID_YELLOW + (v - 2);
             int n  = (v == 1) ? reds : tal[id];
             if (!n) continue;
-            /* A rim on every ball. Snooker's black is within a shade of the
-             * panel's own background — without one it is a number floating in a
-             * hole, which is exactly what it looked like. Drawn as a white ball
-             * one pixel wider and then covered, so the outline is a real sphere
-             * edge and not a ring somebody drew. */
-            cue_render_ball_icon_hs(x, cy, rr + 1, CUE_ID_CUE);
             cue_render_ball_icon_hs(x, cy, rr, id);
             snprintf(b, sizeof b, "%d", n);
-            /* As big as the ball will carry. A single figure gets the large
-             * face — this is the thing you are meant to read across the room —
-             * and only a two-digit count (eight reds and up) drops to the small
-             * one, because two large digits are wider than the ball. */
-            uint16_t ink = hud_ball_ink(id);
-            if (n < 10) hud_text_2x(b, x - hud_text_w_2x(b) / 2, cy - 4, ink);
-            else        hud_text(b, x - hud_text_w(b) / 2, cy - 3, ink);
+            hud_text(b, x - hud_text_w(b) / 2, cy - 2, hud_ball_ink(id));
             x += step;
         }
     } else {
@@ -1182,7 +1174,6 @@ static void hud_break_row(int y, const char *who, int brk, const uint8_t *tal,
          * them once — so there is nothing to count, only which ones went. */
         for (int id = 1; id < CUEVR_TALLY_N && x <= xmax; id++) {
             if (!tal[id]) continue;
-            cue_render_ball_icon_hs(x, cy, rr + 1, CUE_ID_CUE);
             cue_render_ball_icon_hs(x, cy, rr, id);
             x += step;
         }
@@ -1597,7 +1588,7 @@ static void hud_paint(void) {
                          hud_text(b, 4, 67, LIVE); }
             else       hud_text(t2, 4, 67, LIVE);
         }
-        hud_break_row(75, "YOU", sp[me].best_break, sp[me].best_tally, TXT, DIM, HI);
+        hud_break_row(77, "YOU", sp[me].best_break, sp[me].best_tally, TXT, DIM, HI);
         if (two) {
             /* Its own, shorter fit: the break rows give a name 24 columns
              * before the balls start, where the stats columns gave it 32 —
@@ -1606,7 +1597,7 @@ static void hud_paint(void) {
             const char *t2 = hud_fit_name(n2, sizeof n2,
                                           (S.opp == OPP_ONLINE) ? "THEM"
                                           : CUE_PERSONAS[S.persona].name, 24);
-            hud_break_row(90, t2, sp[1 - me].best_break, sp[1 - me].best_tally,
+            hud_break_row(89, t2, sp[1 - me].best_break, sp[1 - me].best_tally,
                           TXT, DIM, HI);
         }
 
@@ -1616,6 +1607,29 @@ static void hud_paint(void) {
             hud_text(done ? "A    BACK TO THE MENU" : "A    NEXT FRAME",
                      4, HH - 7, hov ? HI : TXT);
         }
+        return;
+    }
+
+    /* ---- a foul decision ---------------------------------------------------
+     * Its own screen, BEFORE the scoreboard paints. It used to live after it,
+     * drawing a band and rows over a board that was already there — two screens
+     * through each other, unreadable exactly when the game was asking you a
+     * question. Early-return screens do not share a canvas. */
+    if (S.state == ST_DECIDE) {
+        DecOpt o[6];
+        int n = decision_options(o, 6);
+        hud_height(CUEVR_HUD_LH);
+        hud_rect(0, 0, HW, 10, BAND);
+        hud_text_2x(S.rules.pushout_offer ? "PUSH OUT?" : "THEIR FOUL - YOUR CALL", 4, 1, HI);
+        hud_rect(0, 10, HW, 1, LINE);
+        if (S.rules.dec_can_restore) hud_text("A MISS WAS CALLED", 4, 13, LIVE);
+        for (int i = 0; i < n; i++) {
+            int y = 22 + i * 14, sel = (S.dec_sel == i);
+            if (sel) hud_rect(1, y - 1, HW - 2, 13, RGB565C(28, 58, 40));
+            hud_text_2x(o[i].label, 6, y - 1, sel ? HI : DIM);
+            hud_text(o[i].note, 8, y + 8, DIM);
+        }
+        hud_text("POINT AND PULL THE TRIGGER", 4, HH - 6, DIM);
         return;
     }
 
@@ -1791,30 +1805,31 @@ static void hud_paint(void) {
          * them and half off the right edge. It is a ball; it belongs with the
          * balls, and it belongs FIRST, because "what am I on" is the question
          * you ask before "what is left". */
-        const int ry = 75, rr = 4, step = 9, x0 = 32, xmax = HW - 8;
+        /* Small. The balls are a reference strip, not the news — at radius 4
+         * with white rims they dominated the whole board, and the rims read as
+         * thick white rings around everything. Black on dark is better than a
+         * ring: the coloured disc carries all the information there is. */
+        const int ry = 75, rr = 3, step = 8, x0 = 28, xmax = HW - 8;
         int x = x0;
         hud_rect(0, 69, HW, 1, RGB565C(26, 40, 62));
         if (S.tab.is_snooker) {
             /* A nominated colour draws as THAT ball, not as the multicolour
              * "any colour" disc — the disc is only right before a nomination
              * exists. Reuse the clearance path by handing it the value. */
-            cue_render_ball_icon_hs(13, ry, 7, CUE_ID_CUE);
             if (S.rules.target == 1 && S.rules.nominated)
-                cue_render_onball_icon_hs(13, ry, 6, 2, S.rules.nominated);
+                cue_render_onball_icon_hs(13, ry, 5, 2, S.rules.nominated);
             else
-                cue_render_onball_icon_hs(13, ry, 6, S.rules.target, S.rules.seq);
-            hud_rect(24, 70, 1, 11, RGB565C(40, 60, 92));
+                cue_render_onball_icon_hs(13, ry, 5, S.rules.target, S.rules.seq);
+            hud_rect(24, 71, 1, 9, RGB565C(40, 60, 92));
         } else if (S.tab.kind == CUE_GAME_US9) {
-            cue_render_ball_icon_hs(13, ry, 7, CUE_ID_CUE);
-            cue_render_ball_icon_hs(13, ry, 6, S.rules.seq > 0 ? S.rules.seq : 1);
-            hud_rect(24, 70, 1, 11, RGB565C(40, 60, 92));
+            cue_render_ball_icon_hs(13, ry, 5, S.rules.seq > 0 ? S.rules.seq : 1);
+            hud_rect(24, 71, 1, 9, RGB565C(40, 60, 92));
         } else x = 6;
         if (S.tab.is_snooker) {
             int reds = 0;
             for (int i = 1; i < S.nballs; i++)
                 if (S.balls[i].on && S.balls[i].id >= 1 && S.balls[i].id <= 15) reds++;
             if (reds > 0) {
-                cue_render_ball_icon_hs(x, ry, rr + 1, CUE_ID_CUE);
                 cue_render_ball_icon_hs(x, ry, rr, 1);
                 char rb[8]; snprintf(rb, sizeof rb, "x%d", reds);
                 hud_text(rb, x + rr + 2, ry - 2, DIM);
@@ -1825,7 +1840,6 @@ static void hud_paint(void) {
                 for (int i = 1; i < S.nballs; i++)
                     if (S.balls[i].on && S.balls[i].id == id) { on = 1; break; }
                 if (!on) continue;
-                cue_render_ball_icon_hs(x, ry, rr + 1, CUE_ID_CUE);
                 cue_render_ball_icon_hs(x, ry, rr, id);
                 x += step;
             }
@@ -1840,7 +1854,6 @@ static void hud_paint(void) {
                     if (grp && g != grp && id != 8) continue;
                     if (!grp && id == 8) continue;      /* open table: not yours yet */
                 }
-                cue_render_ball_icon_hs(x, ry, rr + 1, CUE_ID_CUE);
                 cue_render_ball_icon_hs(x, ry, rr, id);
                 x += step;
             }
@@ -1858,27 +1871,6 @@ static void hud_paint(void) {
     if (S.state == ST_PLACE) {
         hud_text_2x("BALL IN HAND", 4, 58, HI);
         hud_text("CARRY IT WITH YOUR HAND   TRIGGER DROPS", 4, 70, DIM);
-        return;
-    }
-    if (S.state == ST_DECIDE) {
-        DecOpt o[6];
-        int n = decision_options(o, 6);
-        hud_height(CUEVR_HUD_LH);
-        hud_rect(0, 0, HW, 10, BAND);
-        hud_text_2x(S.rules.pushout_offer ? "PUSH OUT?" : "THEIR FOUL - YOUR CALL", 4, 1, HI);
-        hud_rect(0, 10, HW, 1, LINE);
-        if (S.rules.dec_can_restore) hud_text("A MISS WAS CALLED", 4, 13, LIVE);
-        for (int i = 0; i < n; i++) {
-            int y = 22 + i * 14, sel = (S.dec_sel == i);
-            if (sel) hud_rect(1, y - 1, HW - 2, 13, RGB565C(28, 58, 40));
-            hud_text_2x(o[i].label, 6, y - 1, sel ? HI : DIM);
-            hud_text(o[i].note, 8, y + 8, DIM);
-        }
-        hud_text("POINT AND PULL THE TRIGGER", 4, HH - 6, DIM);
-        return;
-    }
-    if (S.state == ST_OVER) {
-        hud_text_2x(S.rules.winner == 0 ? "YOU WIN" : "FRAME LOST", 4, 58, HI);
         return;
     }
     if (S.msg_time > 0.0f) { hud_text_2x(S.msg, 4, 58, HI); return; }
@@ -3717,6 +3709,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 hand_over();
             } else {
                 S.state = ST_MENU;
+                /* THE PRESS THAT LEFT THIS SCREEN IS SPENT. The menu keeps its
+                 * row from last time — usually START GAME — and A was still
+                 * down when it arrived, so the same physical press started a
+                 * whole new game before the menu was even seen. Both latches,
+                 * because the click that got here may have been the trigger. */
+                S.btn_latch = 1;
+                S.ptr_latch = 1;
+                S.menu_row = MR_GAME;
             }
             S.hud_dirty = 1;
         }
