@@ -96,7 +96,10 @@ enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_CPUCUE, ST_PLACE,
        ST_CONTROLS,
        /* Career: choosing the season's tables, the hub you come back to
         * between matches, a league table, and what you have won. */
-       ST_CARSETUP, ST_CAREER, ST_CARTABLE, ST_CARACH };
+       ST_CARSETUP, ST_CAREER, ST_CARTABLE, ST_CARACH,
+       /* Tuning the pocket cut with a ball on the table, which is the only
+        * place it can honestly be judged. */
+       ST_POCKETS };
 
 /* Who you are playing. PRACTICE is not "vs nobody" — it is its own mode: the
  * table never changes hands, so a missed pot leaves you to carry on, and undo is
@@ -127,7 +130,7 @@ enum { CR_HAND = 0, CR_STICKS, CR_INVSLIDE, CR_INVTURN, CR_RESET, CR_BACK, CR_N 
 
 /* The appearance screen's own rows. */
 enum { AR_CLOTH = 0, AR_FRAME, AR_BODY, AR_LIGHT, AR_BALLS, AR_SPOTS, AR_CUE,
-       AR_SURROUND, AR_BACK, AR_N };
+       AR_SURROUND, AR_POCKETS, AR_BACK, AR_N };
 /* Where you play. PASSTHROUGH is the app as shipped — the table in your own
  * room. The other two paint a world over the cameras: the plain dark room the
  * screenshots have always shown, or the snooker-theatre arena. */
@@ -252,6 +255,7 @@ static struct {
     int lefty;             /* bridges with the right hand */
     int stick_swap, inv_slide, inv_turn;
     int cue_spots;
+    int cut_cr, cut_cs, cut_mr, cut_ms;   /* the pocket cut, tuned in the headset */
     int surround;                /* 0 passthrough, 1 dark room, 2 arena */
     /* The six-ball clearance challenge. `mini` is on; `mini_t` is the clock,
      * which starts on the first strike and stops on the last ball; `mini_done`
@@ -413,6 +417,7 @@ static int coin_toss(void) {
 
 static void stat_frame_reset(void);
 static void restyle_table(void);
+static void pockets_write(void);
 enum { TOAST_RECORD = 0, TOAST_ACH };
 static void toast_push(int kind, const char *title, const char *body);
 static void rerack(void);
@@ -497,6 +502,9 @@ void cuevr_app_force_screen(const char *name) {
         S.rules.free_ball = 1;
         S.rules.free_ball_id = CUE_ID_BROWN;
         S.rules.target = 0;
+    } else if (!strcmp(name, "pockets")) {
+        S.appear_from = ST_MENU; S.state = ST_POCKETS; S.menu_row = 0;
+        pockets_write();          /* so the harness can check the file it writes */
     } else if (!strcmp(name, "board")) {
         /* The in-play scoreboard, with a frame's worth of score on it. The
          * ahead/behind figure only exists once somebody has scored, and no
@@ -1008,6 +1016,33 @@ static const char *cue_ball_short_name(int id) {
 }
 
 /* ---- career ------------------------------------------------------------- */
+
+/* WRITE THE POCKET NUMBERS OUT, so they can be got off the headset and into
+ * the source. Next to the preferences — internalDataPath on Android — and the
+ * exact lines the code wants, not a report about them: the point is that they
+ * can be pasted straight in without anybody transcribing a decimal. */
+static void pockets_write(void) {
+    if (!S.car_path[0]) return;
+    char path[560];
+    snprintf(path, sizeof path, "%s", S.car_path);
+    char *slash = strrchr(path, '/');
+    if (slash) slash[1] = 0; else path[0] = 0;
+    strncat(path, "cuevr_pockets.txt", sizeof path - strlen(path) - 1);
+    FILE *f = fopen(path, "w");
+    if (!f) return;
+    fprintf(f, "CueVR pocket cut, tuned in the headset\n\n");
+    fprintf(f, "corner size     %d%%\n", S.cut_cr);
+    fprintf(f, "corner set back %d mm\n", S.cut_cs);
+    fprintf(f, "middle size     %d%%\n", S.cut_mr);
+    fprintf(f, "middle set back %d mm\n\n", S.cut_ms);
+    fprintf(f, "-- paste into games/thumbycue/src/cue_render.c --\n");
+    fprintf(f, "#define CUE_CUT_CORNER  %.3ff\n", S.cut_cr / 100.0f);
+    fprintf(f, "#define CUE_CUT_MIDDLE  %.3ff\n", S.cut_mr / 100.0f);
+    fprintf(f, "#define CUE_COR_SETBACK %.4ff\n", S.cut_cs / 1000.0f);
+    fprintf(f, "#define CUE_MID_SETBACK %.4ff\n", S.cut_ms / 1000.0f);
+    fclose(f);
+    LOGI("[cuevr] pocket numbers written to %s", path);
+}
 
 static void career_save(void) {
     if (S.career.active && S.car_path[0]) cuevr_career_save(&S.career, S.car_path);
@@ -1681,6 +1716,8 @@ static void hud_paint(void) {
         hud_opt(AR_CUE, "CUE", cuevr_render_cue_name(S.cue_idx), S.menu_row == AR_CUE, 1, TXT, DIM, HI);
         hud_opt(AR_SURROUND, "SURROUNDINGS", SURROUND_NAME[S.surround],
                 S.menu_row == AR_SURROUND, 1, TXT, DIM, HI);
+        hud_link(AR_POCKETS, "POCKET SHAPE", "TUNE",
+                 S.menu_row == AR_POCKETS, DIM, HI, LIVE);
         /* An action, so it wears the action colour rather than the value one —
          * the same distinction the main menu now draws. */
         hud_link(AR_BACK, "BACK", "DONE", S.menu_row == AR_BACK, DIM, HI, LIVE);
@@ -2004,6 +2041,28 @@ static void hud_paint(void) {
             hud_text(o[i].note, 8, y + 8, DIM);
         }
         hud_text("TRIGGER SELECT", 4, HH - 6, DIM);
+        return;
+    }
+
+    /* ---- the pocket cut, with a ball on the table ------------------------- */
+    if (S.state == ST_POCKETS) {
+        char v[40];
+        hud_height(12 + 5 * 9 + 30);
+        hud_rect(0, 0, HW, 10, BAND);
+        hud_text_2x("POCKET SHAPE", 4, 1, HI);
+        hud_rect(0, 10, HW, 1, LINE);
+        static const char *L[4] = { "CORNER SIZE", "CORNER SET BACK",
+                                    "MIDDLE SIZE", "MIDDLE SET BACK" };
+        int val[4] = { S.cut_cr, S.cut_cs, S.cut_mr, S.cut_ms };
+        for (int i = 0; i < 4; i++) {
+            if (i & 1) snprintf(v, sizeof v, "%d MM", val[i]);
+            else       snprintf(v, sizeof v, "%d%%", val[i]);
+            hud_opt(i, L[i], v, S.menu_row == i, 1, TXT, DIM, HI);
+        }
+        hud_link(4, "BACK", "DONE", S.menu_row == 4, DIM, HI, LIVE);
+        hud_text("ROLL A BALL IN AND WATCH WHERE IT DROPS", 4, HH - 18, DIM);
+        hud_text("< > CHANGE   THE TABLE REDRAWS AS YOU GO", 4, HH - 12, DIM);
+        hud_text("BACK SAVES THEM TO CUEVR_POCKETS.TXT", 4, HH - 6, LIVE);
         return;
     }
 
@@ -3146,6 +3205,10 @@ static int app_gl_init(void *u) {
         S.cue_spots = pr.cue_spots;
         S.prac_respot = pr.prac_respot;
         S.surround = pr.surround;
+        S.cut_cr = pr.cut_cr; S.cut_cs = pr.cut_cs;
+        S.cut_mr = pr.cut_mr; S.cut_ms = pr.cut_ms;
+        cue_render_set_pocket_cut(S.cut_cr/100.0f, S.cut_cs/1000.0f,
+                                  S.cut_mr/100.0f, S.cut_ms/1000.0f);
         memcpy(S.mini_best, pr.mini_best, sizeof S.mini_best);
         /* The career lives beside the preferences, in its own file: it is a
          * different size and shape of thing and a hundred fixture lines have no
@@ -4287,6 +4350,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     S.hud_dirty = 1;
                     break;
                 }
+                if (S.menu_row == AR_POCKETS) {
+                    S.state = ST_POCKETS;
+                    S.menu_row = 0;
+                    S.ptr_latch = 1;
+                    S.hud_dirty = 1;
+                    break;
+                }
                 int d = ptr_zone();
                 if (d == 0) d = 1;              /* the middle steps forward */
                 switch (S.menu_row) {
@@ -4325,6 +4395,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     cuevr_render_set_cue(S.cue_idx);
                     break;
                 }
+                case AR_POCKETS: break;   /* opened by activate, not by < > */
                 case AR_SURROUND:
                     S.surround = (S.surround + d + 3) % 3;
                     cuevr_render_set_surround(S.surround);
@@ -4397,6 +4468,43 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.state = S.appear_from;
             S.menu_row = (S.appear_from == ST_MENU) ? MR_CONTROLS : 0;
             if (S.appear_from == ST_PAUSE) S.pause_sel = PS_CONTROLS;
+            S.hud_dirty = 1;
+        }
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+        break;
+    }
+
+    case ST_POCKETS: {
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        int hov = ptr_row_at(12, 8, 5);
+        if (hov >= 0 && hov != S.menu_row) { S.menu_row = hov; S.hud_dirty = 1; }
+        if (hov >= 0 && ptr_click(t)) {
+            if (hov == 4) {
+                pockets_write();
+                S.state = ST_APPEAR; S.menu_row = AR_POCKETS;
+            } else {
+                int z = ptr_zone();
+                if (z) {
+                    int *p2 = (hov == 0) ? &S.cut_cr : (hov == 1) ? &S.cut_cs
+                            : (hov == 2) ? &S.cut_mr : &S.cut_ms;
+                    int lo = (hov & 1) ? -30 : 40, hi = (hov & 1) ? 80 : 320;
+                    int st = (hov & 1) ? 1 : 3;
+                    *p2 += z * st;
+                    if (*p2 < lo) *p2 = lo;
+                    if (*p2 > hi) *p2 = hi;
+                    /* Redraw the table right now — the whole point is to watch
+                     * it change with a ball sitting next to the pocket. */
+                    cue_render_set_pocket_cut(S.cut_cr/100.0f, S.cut_cs/1000.0f,
+                                              S.cut_mr/100.0f, S.cut_ms/1000.0f);
+                    cuevr_render_set_table(&S.tab, &S.world);
+                    S.stat_dirty = 1;
+                }
+            }
+            S.hud_dirty = 1;
+        }
+        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
+            S.btn_latch = 1; pockets_write();
+            S.state = ST_APPEAR; S.menu_row = AR_POCKETS;
             S.hud_dirty = 1;
         }
         if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
@@ -4957,6 +5065,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
         now.cue_spots = S.cue_spots;
         now.prac_respot = S.prac_respot;
         now.surround = S.surround;
+        now.cut_cr = S.cut_cr; now.cut_cs = S.cut_cs;
+        now.cut_mr = S.cut_mr; now.cut_ms = S.cut_ms;
         memcpy(now.mini_best, S.mini_best, sizeof now.mini_best);
         now.stick_swap = S.stick_swap;
         now.inv_slide = S.inv_slide; now.inv_turn = S.inv_turn;

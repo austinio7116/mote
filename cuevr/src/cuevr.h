@@ -335,6 +335,9 @@ typedef struct {
      * different player from somebody who made one lucky one, and a highest
      * break alone cannot tell them apart. */
     int      brk_tier[CUEVR_BRK_TIERS][2];
+    /* The pocket cut, as tuned in the headset. Radii in percent of the ball's
+     * drop circle; setbacks in millimetres into the frame. */
+    int      cut_cr, cut_cs, cut_mr, cut_ms;
     int      stick_swap;     /* turn on the left stick, slide on the right */
     int      inv_slide, inv_turn;
 } CueVrPrefs;

@@ -131,6 +131,8 @@ void cuevr_prefs_defaults(CueVrPrefs *p) {
      * whose default was walnut. */
     p->frame = 4;
     p->prac_respot = 1;         /* practice keeps the colours on the table */
+    p->cut_cr = 167; p->cut_cs = 0;      /* the bench numbers, as shipped */
+    p->cut_mr = 159; p->cut_ms = 10;
     /* Measured on a Quest 3 against the real controller in a real hand, which
      * is the only way this number can be arrived at. Zero was never right: the
      * baked fallback model is somebody else's measurement of somebody else's
@@ -188,6 +190,10 @@ static void prefs_put(CueVrPrefs *p, const char *k, double v) {
     else if (!strcmp(k, "spots"))   p->cue_spots  = i ? 1 : 0;
     else if (!strcmp(k, "prespot")) p->prac_respot = i ? 1 : 0;
     else if (!strcmp(k, "surround")) { if (i >= 0 && i <= 2) p->surround = i; }
+    else if (!strcmp(k, "cutcr")) { if (i >= 40 && i <= 320) p->cut_cr = i; }
+    else if (!strcmp(k, "cutcs")) { if (i >= -30 && i <= 80) p->cut_cs = i; }
+    else if (!strcmp(k, "cutmr")) { if (i >= 40 && i <= 320) p->cut_mr = i; }
+    else if (!strcmp(k, "cutms")) { if (i >= -30 && i <= 80) p->cut_ms = i; }
     else if (!strncmp(k, "bt", 2) && k[2] && k[3] && !k[4]) {
         int a2 = k[2] - '0', b2 = k[3] - '0';
         if (a2 >= 0 && a2 < CUEVR_BRK_TIERS && b2 >= 0 && b2 < 2 && i >= 0)
@@ -290,6 +296,8 @@ void cuevr_prefs_save(const CueVrPrefs *p) {
             p->lefty, p->stick_swap, p->inv_slide, p->inv_turn, p->cue_spots);
     fprintf(f, "prespot %d\n", p->prac_respot);
     fprintf(f, "surround %d\n", p->surround);
+    fprintf(f, "cutcr %d\ncutcs %d\ncutmr %d\ncutms %d\n",
+            p->cut_cr, p->cut_cs, p->cut_mr, p->cut_ms);
     for (int a2 = 0; a2 < CUE_GAME_COUNT; a2++)
         if (p->mini_best[a2] > 0) fprintf(f, "mb%d %d\n", a2, p->mini_best[a2]);
     for (int a2 = 0; a2 < CUEVR_BRK_TIERS; a2++)
