@@ -41,6 +41,10 @@ enum { CUEVR_NET_OFF = 0, CUEVR_NET_SEARCHING, CUEVR_NET_LIVE, CUEVR_NET_LOST };
 #define CUEVR_CODE_ALPHABET "23456789BCDFGHJKLMNPQRSTVWXYZ"
 #define CUEVR_CODE_LEN 4
 
+/* Matches CUE_MAX_BALLS; kept here so the wire format does not include a game
+ * header just to learn its own size. */
+#define CUEVR_NET_MAXBALLS 22
+
 /* One shot, as it goes over the wire. Fixed width; both ends are IEEE-754 and
  * the same endianness, so this needs no serialiser. */
 typedef struct {
@@ -101,6 +105,35 @@ typedef struct {
 
 void cuevr_net_send_call(const CueVrNetCall *c);
 int  cuevr_net_recv_call(CueVrNetCall *out);
+
+/* THE TABLE, AS THE HOST HAS IT, after every shot.
+ *
+ * Lockstep assumes both machines compute the same answer from the same numbers,
+ * and floating point across two different chips, drivers and compilers does not
+ * promise that. The physics runs at 2 kHz with dozens of contacts a shot, so a
+ * single last-place bit in one collision compounds into a different table — and
+ * it would do it SILENTLY and permanently, which is the failure nobody notices
+ * until the frame makes no sense.
+ *
+ * So the host says where everything is at the end of every shot and the other
+ * end takes it. Not a checksum and a repair request: the full layout is about
+ * two hundred bytes once a shot, which is nothing over this link, and it cannot
+ * fail to converge the way a request-and-wait can. Cheap enough to do always,
+ * so it never needs deciding whether this is the moment to bother.
+ *
+ * The scores ride with it because a divergence in the balls becomes a
+ * divergence in the score the instant one end thinks a ball went in. */
+typedef struct {
+    uint8_t n;                       /* balls in play */
+    uint8_t on[CUEVR_NET_MAXBALLS];
+    float   x[CUEVR_NET_MAXBALLS];
+    float   z[CUEVR_NET_MAXBALLS];
+    int     score[2];
+    int     turn, target, seq, reds_left, nominated;
+} CueVrNetState;
+
+void cuevr_net_send_state(const CueVrNetState *st);
+int  cuevr_net_recv_state(CueVrNetState *out);
 
 void cuevr_net_send_pose(const CueVrNetPose *p);
 /* 1 if a pose has arrived recently enough to draw. */

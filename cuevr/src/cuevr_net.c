@@ -40,7 +40,7 @@
  * differently and diverge on the first shot, and they would do it silently,
  * which is exactly what a room id exists to prevent. Failing to pair is the
  * better failure. */
-#define CUEVR_GAME_ID  0x43554535u   /* 'CUE3' — the shot record grew, and the
+#define CUEVR_GAME_ID  0x43554536u   /* 'CUE3' — the shot record grew, and the
                                       * hello with it */
 
 /* Wire framing. A magic byte per record so a half-read stream resynchronises
@@ -49,6 +49,7 @@
 #define PKT_HELLO 0xC4
 #define PKT_POSE  0xC3
 #define PKT_CALL  0xC2
+#define PKT_STATE 0xC1
 
 static int   s_state;
 static int   s_me = -1;
@@ -56,7 +57,10 @@ static char  s_info[64] = "";
 
 /* Inbound assembly. link_net_recv gives whatever has arrived, which for a 25
  * byte record over TCP may well be 9 bytes then 16. */
-static uint8_t s_in[256];
+/* Big enough for the largest record with room to resynchronise around one: the
+ * table state is 229 bytes on the wire and a buffer that cannot hold one would
+ * stall the stream for ever rather than fail loudly. */
+static uint8_t s_in[512];
 static int     s_in_n;
 
 /* Their cue, and how long since it last moved. Counted in RECEIVE calls rather
@@ -83,9 +87,25 @@ int cuevr_net_recv_call(CueVrNetCall *out) {
 static CueVrNetShot s_shot;
 static int          s_have_shot;
 static void         pump(void);
+static CueVrNetState s_pstate;
+static int           s_have_state;
 
 static CueVrNetPose s_ppose;
 static int          s_pose_age = 1 << 20;
+
+void cuevr_net_send_state(const CueVrNetState *st) {
+    if (s_state != CUEVR_NET_LIVE || !st) return;
+    uint8_t b[1 + sizeof *st];
+    b[0] = PKT_STATE;
+    memcpy(b + 1, st, sizeof *st);
+    link_net_send(b, (int)sizeof b);
+}
+int cuevr_net_recv_state(CueVrNetState *out) {
+    if (!s_have_state || !out) return 0;
+    *out = s_pstate;
+    s_have_state = 0;
+    return 1;
+}
 
 void cuevr_net_send_pose(const CueVrNetPose *p) {
     if (s_state != CUEVR_NET_LIVE || !p) return;
@@ -202,6 +222,7 @@ void cuevr_net_stop(void) {
     s_pose_age = 1 << 20;
     s_have_call = 0;
     s_have_shot = 0;
+    s_have_state = 0;
     s_info[0] = 0;
     s_code[0] = 0;
 }
@@ -333,6 +354,7 @@ static void pump(void) {
     while (s_in_n > 0) {
         uint8_t tag = s_in[0];
         int need = (tag == PKT_SHOT)  ? 1 + (int)sizeof s_shot
+                 : (tag == PKT_STATE) ? 1 + (int)sizeof s_pstate
                  : (tag == PKT_CALL)  ? 1 + (int)sizeof s_call
                  : (tag == PKT_POSE)  ? 1 + (int)sizeof s_ppose
                  : (tag == PKT_HELLO) ? 1 + (int)sizeof s_peer
@@ -344,6 +366,7 @@ static void pump(void) {
         if (s_in_n < need) return;               /* the rest is still in flight */
         if      (tag == PKT_SHOT)  { memcpy(&s_shot,  s_in + 1, sizeof s_shot);  s_have_shot = 1; }
         else if (tag == PKT_CALL)  { memcpy(&s_call,  s_in + 1, sizeof s_call);  s_have_call = 1; }
+        else if (tag == PKT_STATE) { memcpy(&s_pstate, s_in + 1, sizeof s_pstate); s_have_state = 1; }
         else if (tag == PKT_POSE)  { memcpy(&s_ppose, s_in + 1, sizeof s_ppose); s_pose_age = 0; }
         else if (tag == PKT_HELLO) { memcpy(&s_peer,  s_in + 1, sizeof s_peer);  s_have_peer = 1; }
         s_in_n -= need;

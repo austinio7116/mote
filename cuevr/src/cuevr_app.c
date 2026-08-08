@@ -1537,6 +1537,27 @@ static void resolve_shot(void) {
     S.msg_time = 2.5f;
     S.hud_dirty = 1;
 
+    /* THE HOST SAYS WHERE EVERYTHING IS, every shot. Lockstep assumes both
+     * machines get the same answer from the same numbers, and floating point
+     * across two chips does not promise that — a single last-place bit in one
+     * of a shot's dozens of contacts compounds into a different table, silently
+     * and for good. Two hundred bytes once a shot removes the whole class of
+     * problem, and removes it before anyone can notice it happening. */
+    if (S.opp == OPP_ONLINE && S.net_me == 0) {
+        CueVrNetState st;
+        memset(&st, 0, sizeof st);
+        st.n = (uint8_t)(S.nballs > CUEVR_NET_MAXBALLS ? CUEVR_NET_MAXBALLS : S.nballs);
+        for (int i = 0; i < st.n; i++) {
+            st.on[i] = (uint8_t)S.balls[i].on;
+            st.x[i]  = S.balls[i].pos.x;
+            st.z[i]  = S.balls[i].pos.z;
+        }
+        st.score[0] = S.rules.score[0]; st.score[1] = S.rules.score[1];
+        st.turn = S.rules.turn; st.target = S.rules.target; st.seq = S.rules.seq;
+        st.reds_left = S.rules.reds_left; st.nominated = S.rules.nominated;
+        cuevr_net_send_state(&st);
+    }
+
     /* Records, before the turn is routed: r->brk is this visit's break and it
      * is about to be reset if the table changes hands. */
     stat_after_shot();
@@ -1977,6 +1998,28 @@ static void app_update(void *u, const MoteVrTracking *t) {
             memset(&S.idle_shot, 0, sizeof S.idle_shot);
     }
 
+    /* THE HOST'S TABLE WINS. Taken only when nothing is moving: applied
+     * mid-roll it would teleport balls out from under a shot that is still
+     * being simulated, which is a worse desync than the one it is here to
+     * mend. The host never applies its own. */
+    if (S.opp == OPP_ONLINE && S.net_me != 0 && S.state != ST_ROLL) {
+        CueVrNetState st;
+        if (cuevr_net_recv_state(&st)) {
+            int n = st.n < S.nballs ? st.n : S.nballs;
+            for (int i = 0; i < n; i++) {
+                S.balls[i].on  = st.on[i];
+                S.balls[i].pos = v3(st.x[i], S.tab.R, st.z[i]);
+                S.balls[i].vel = v3(0,0,0);
+                S.balls[i].w   = v3(0,0,0);
+            }
+            S.rules.score[0] = st.score[0]; S.rules.score[1] = st.score[1];
+            S.rules.turn = st.turn; S.rules.target = st.target;
+            S.rules.seq = st.seq; S.rules.reds_left = st.reds_left;
+            S.rules.nominated = st.nominated;
+            S.hud_dirty = 1;
+        }
+    }
+
     /* A choice from the far end: apply it exactly as if we had made it. */
     if (S.opp == OPP_ONLINE) {
         CueVrNetCall c;
@@ -2077,6 +2120,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 cuevr_render_set_opp_cue(ph.cue_idx);
                 start_frame((CueGameKind)ph.kind);
             }
+            LOGI("[cuevr] online: seat %d playing %s", S.net_me,
+                 MENU[S.menu_sel].name);
             snprintf(S.msg, sizeof S.msg, S.net_me == 0 ? "YOU BREAK" : "THEY BREAK");
             S.msg_time = 3.0f;
             hand_over();
