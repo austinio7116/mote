@@ -255,13 +255,18 @@ static Vec3 walk_pt(float ex, float ez, float tt) {
  * One pair of numbers for the whole set — every table's drop radius already
  * carries its own size, so the ratio is what transfers and the millimetres
  * follow. */
-#define CUE_CUT_CORNER  1.665f    /* 1.11 x 1.50, chosen at the bench */
-#define CUE_CUT_MIDDLE  1.590f    /* 1.06 x 1.50 */
+/* Set in the headset, with a ball rolling at the pocket — which is the only
+ * place these could honestly be judged, and where they finally were. */
+#define CUE_CUT_CORNER  1.34f
+#define CUE_CUT_MIDDLE  1.59f
+/* How far each arc's centre sits INTO THE FRAME, away from the table. */
+#define CUE_COR_SETBACK 0.005f
+#define CUE_MID_SETBACK 0.010f
 /* ...and live, because the only place these can honestly be judged is in the
  * headset with a ball rolling at the pocket. Set from the game's own tuning
  * screen; the defaults above are what they start at. */
 static float s_cut_cr = CUE_CUT_CORNER, s_cut_mr = CUE_CUT_MIDDLE;
-static float s_cut_cs = 0.000f,         s_cut_ms = 0.010f;
+static float s_cut_cs = CUE_COR_SETBACK, s_cut_ms = CUE_MID_SETBACK;
 void cue_render_set_pocket_cut(float cr, float cs, float mr, float ms) {
     s_cut_cr = cr; s_cut_cs = cs; s_cut_mr = mr; s_cut_ms = ms;
 }
@@ -272,8 +277,6 @@ void cue_render_get_pocket_cut(float *cr, float *cs, float *mr, float *ms) {
 /* How far each arc's centre sits INTO THE FRAME, away from the table. Positive
  * is deeper into the frame — the same direction and sign the bench uses, so a
  * number read off it goes straight in here. */
-#define CUE_COR_SETBACK 0.000f
-#define CUE_MID_SETBACK 0.010f
 #define CUE_SLATE_RAIL  0.98f
 
 #define CUE_BND_MAX 1400

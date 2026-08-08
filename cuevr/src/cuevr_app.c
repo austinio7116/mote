@@ -5029,8 +5029,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
      * reads, it put both models on the dominant hand and a left-hander watched
      * two controllers stack up in one hand. */
     S.scene.hand[1] = t->hand[MOTE_VR_RIGHT].pose;
-    S.scene.rest_visible = S.scene.cue_visible && S.state != ST_CPUCUE
-                        && S.state != ST_MENU && S.state != ST_APPEAR;
+    /* NO BRIDGE MARKER. It was a small pale quad sitting at the point the cue
+     * rests on the bridge hand, put there so the rest adjustment had something
+     * to show for itself. In the headset it reads as a square of nothing
+     * floating past the controller while you cue, and the cue lying in your
+     * hands already shows you where the bridge is. */
+    S.scene.rest_visible = 0;
     S.scene.rest_pos = S.cue.bridge;
 
     /* Frame timing. Accumulated here rather than in the renderer because this is

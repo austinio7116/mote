@@ -141,7 +141,8 @@ void cuevr_prefs_defaults(CueVrPrefs *p) {
      * whose default was walnut. */
     p->frame = 4;
     p->prac_respot = 1;         /* practice keeps the colours on the table */
-    p->cut_cr = 167; p->cut_cs = 0;      /* the bench numbers, as shipped */
+    /* Set in the headset against a rolling ball, and the same on every table. */
+    p->cut_cr = 134; p->cut_cs = 5;
     p->cut_mr = 159; p->cut_ms = 10;
     /* Measured on a Quest 3 against the real controller in a real hand, which
      * is the only way this number can be arrived at. Zero was never right: the
