@@ -62,7 +62,10 @@ static inline void project(Vec3 v, float *sx, float *sy, uint16_t *sd) {
     *sx = (MOTE_FB_W * 0.5f) + s_focal * v.x * inv_z;
     *sy = (MOTE_FB_H * 0.5f) - s_focal * v.y * inv_z;
     float d = s_depth_k * inv_z;
-    *sd = (d >= 65535.0f) ? 65535u : (uint16_t)d;
+    /* Depth 0 means "empty" to the depth test, so a distant vertex must
+     * floor to 1 rather than underflow away and silently fail to draw
+     * (mirrors mote_depth_encode in mote_scene3d.c). */
+    *sd = (d >= 65535.0f) ? 65535u : (d < 1.0f ? 1u : (uint16_t)d);
 }
 
 /* Scale an RGB565 colour by shade in [0,1]. */
