@@ -35,7 +35,7 @@
  * frames, and the only way anyone can answer "are we on the same build?" is if
  * the build says so where they can both see it. Keep in step with versionName
  * in cuevr/app/build.gradle. */
-#define CUEVR_VERSION "0.2"
+#define CUEVR_VERSION "0.3"
 
 /* How long B is held to take a practice shot back. Long enough that a knuckle
  * brushing it cannot rewind the table, short enough that it is not a chore

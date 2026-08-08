@@ -1,5 +1,22 @@
 apply plugin: 'com.android.application'
 
+/* Commits on HEAD. Monotonic, needs nobody to remember it, and falls back to a
+ * clock-derived number if this is ever built outside a checkout — never to a
+ * constant, which is the failure being fixed. */
+def gitCount() {
+    try {
+        def out = new ByteArrayOutputStream()
+        exec {
+            commandLine 'git', 'rev-list', '--count', 'HEAD'
+            standardOutput = out
+            errorOutput = new ByteArrayOutputStream()
+        }
+        return out.toString().trim().toInteger()
+    } catch (ignored) {
+        return (int)(System.currentTimeMillis() / 60000L % 2000000000L)
+    }
+}
+
 // CueVR — ThumbyCue on a headset. A separate app from Mote VR: its own
 // applicationId, its own icon, its own APK. The two share source, not identity.
 android {
@@ -11,12 +28,19 @@ android {
         applicationId 'us.thumby.cuevr'
         minSdk 29
         targetSdk 35
-        // Bumped with the end-of-frame and end-of-match stats, the pointed-at
-        // lobby, and the multiplayer sync fixes. The name is what CUEVR_VERSION
-        // prints on the menu — keep the two in step, because "which build are
-        // you on?" is the first question when two headsets disagree.
-        versionCode 2
-        versionName '0.2'
+        // THE VERSION CODE COMES FROM GIT, and it has to.
+        //
+        // It sat at 2 through fifteen builds in a day, and a store or a sideload
+        // manager that keys on versionCode — QGO does — sees the same number and
+        // serves whatever it already has. The install looks like it worked and
+        // the build is yesterday's. Nobody remembers to bump a constant fifteen
+        // times, so it is counted rather than typed: one per commit, monotonic
+        // by construction, and it cannot go backwards.
+        versionCode gitCount()
+        // The name stays human, and is what CUEVR_VERSION prints on the menu —
+        // keep the two in step, because "which build are you on?" is the first
+        // question when two headsets disagree.
+        versionName '0.3'
         externalNativeBuild {
             ndkBuild {
                 arguments 'APP_PLATFORM=android-29'
