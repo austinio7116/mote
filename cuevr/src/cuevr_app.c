@@ -849,10 +849,16 @@ static int take_ball_in_hand(void) {
 static void unpause(void) {
     int back = S.pause_from;
     if (S.rules.frame_over) back = ST_OVER;
+    /* RESUME PUTS YOU AT THE TABLE, never back on a screen. Every menu belongs
+     * in this list, and the ones added since did not get into it — so pausing
+     * from the pocket tuner and resuming returned you straight to the pocket
+     * tuner, round and round, with no way back to a game. */
     else if (back == ST_PAUSE || back == ST_MENU || back == ST_SETUP
              || back == ST_LOBBY
              || back == ST_APPEAR || back == ST_STATS
-             || back == ST_CONTROLS) back = ST_AIM;
+             || back == ST_CONTROLS || back == ST_POCKETS
+             || back == ST_CARSETUP || back == ST_CAREER
+             || back == ST_CARTABLE || back == ST_CARACH) back = ST_AIM;
     /* and the press that resumed must not also put the ball down */
     if (back == ST_PLACE) S.place_latch = 1;
     S.state = back;
@@ -2062,7 +2068,7 @@ static void hud_paint(void) {
         hud_link(4, "BACK", "DONE", S.menu_row == 4, DIM, HI, LIVE);
         hud_text("ROLL A BALL IN AND WATCH WHERE IT DROPS", 4, HH - 18, DIM);
         hud_text("< > CHANGE   THE TABLE REDRAWS AS YOU GO", 4, HH - 12, DIM);
-        hud_text("BACK SAVES THEM TO CUEVR_POCKETS.TXT", 4, HH - 6, LIVE);
+        hud_text("A OR B LEAVES   SAVES TO CUEVR_POCKETS.TXT", 4, HH - 6, LIVE);
         return;
     }
 
@@ -4503,12 +4509,17 @@ static void app_update(void *u, const MoteVrTracking *t) {
             }
             S.hud_dirty = 1;
         }
-        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
+        /* A or B both leave, and the MENU button pauses out of it — three ways
+         * out, because a tuning screen you cannot leave costs somebody their
+         * frame. */
+        if ((t->hand[MOTE_VR_RIGHT].btn_lower || t->hand[MOTE_VR_RIGHT].btn_upper)
+            && !S.btn_latch) {
             S.btn_latch = 1; pockets_write();
             S.state = ST_APPEAR; S.menu_row = AR_POCKETS;
             S.hud_dirty = 1;
         }
-        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower && !t->hand[MOTE_VR_RIGHT].btn_upper)
+            S.btn_latch = 0;
         break;
     }
 
