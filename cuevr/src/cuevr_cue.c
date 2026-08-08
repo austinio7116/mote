@@ -116,6 +116,11 @@ void cuevr_prefs_defaults(CueVrPrefs *p) {
     p->opp   = 1;               /* vs CPU */
     p->body  = -1;              /* whichever suits the table */
     p->cue_spots = 1;           /* the white shows what it is doing */
+    /* Ebony, until somebody chooses otherwise — the user's pick for the
+     * out-of-box look. Only a FRESH install sees this: any existing prefs
+     * file carries a `frame` key, including one written back by a build
+     * whose default was walnut. */
+    p->frame = 4;
     p->prac_respot = 1;         /* practice keeps the colours on the table */
     /* Measured on a Quest 3 against the real controller in a real hand, which
      * is the only way this number can be arrived at. Zero was never right: the

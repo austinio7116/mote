@@ -1064,21 +1064,33 @@ static void victorian(CueVrFrameMesh *m, const CueTable *t) {
 
 /* ---- American: the 9 ft tournament table -------------------------------- *
  *
- * Modelled on the modern competition table — the Dominator/Metro shape — at the
- * user's direction, from their reference photograph: a deep slab of a skirt in
- * the player's own timber, smooth BLACK castings wrapping each corner, slab
- * pedestal legs flowing down out of those corners onto round black adjustable
- * feet, and the ball-return louvres across the head end. Nothing turned,
- * nothing beaded, no inlay: the whole design is masses and shadow gaps.
+ * Built against the user's reference photograph (a Dominator-pattern
+ * competition table), read feature by feature this time rather than from
+ * memory of it — the first attempt hung black wedges off the skirt corners
+ * and was rightly rejected:
  *
- * The previous design here — pilasters, maple pinstripes, a moulded cap — was
- * judged simply ugly, and it was: it split the difference between an English
- * apron and an American slab and got neither.
- */
+ *   - a TALL dark fascia under the cloth line, leaning outward as it drops,
+ *     which is the band that makes the rail look a hand deep;
+ *   - smooth BLACK POCKET CASTINGS riding on that fascia at all six pockets —
+ *     they are the black you see at every corner of the photo, and they are
+ *     rail furniture, not legs;
+ *   - a skirt in the body timber filling only the UPPER half of the drop;
+ *   - big near-vertical columns set well inboard of the ends, open air all
+ *     around them, on round black adjustable feet;
+ *   - the ball-return slot across the head end, full width, with the shorter
+ *     stepped tray under it.
+ *
+ * The corner castings are built as an L of two boxes, one lying along each
+ * rail face, each strictly OUTSIDE its own face's tray rim — the cabinet's
+ * pocket-sliver lesson, applied at design time: any solid crossing inside the
+ * rim rectangle above the tray floor shows through the bore, and no partial
+ * height fixes it. An L never crosses in both axes at once, so it can never
+ * appear down the pocket it is wrapped around. */
 
-/* Matte black, but NOT void-black: mode 12 shades it with N.L, and these
- * castings read by their shading — SHADOW-level black would swallow it. */
-static const float INK[3] = { 0.058f, 0.058f, 0.064f };
+/* Matte black that still shades (mode 12 is N.L — void-black would swallow
+ * the castings' own form), and the fascia's gunmetal a shade above it. */
+static const float INK[3]    = { 0.055f, 0.058f, 0.064f };
+static const float GUNML[3]  = { 0.085f, 0.089f, 0.098f };
 
 /* The adjustable foot: a fat black disc under a short ankle, the one piece of
  * hardware every competition table shows off rather than hides. */
@@ -1092,81 +1104,115 @@ static float foot_disc(float f) {
 static void american(CueVrFrameMesh *m, const CueTable *t) {
     const float hl = t->half_len, hw = t->half_wid;
     (void)hw;
-    float ox, oz; body_box(t, 0.010f, &ox, &oz);
-    const float top = -0.004f;
-    const float floor_y = -cuevr_frame_depth(t);
-    const float skirt_h  = 0.300f;               /* a slab. this is the look */
-    const float skirt_bot = top - skirt_h;
+    float ox, oz; body_box(t, 0.0f, &ox, &oz);
+    const float top      = -0.004f;
+    const float floor_y  = -cuevr_frame_depth(t);
+    const float fas_h    = 0.105f;               /* the fascia's drop */
+    const float fas_out  = 0.020f;               /* how far it leans out */
+    const float fas_bot  = top - fas_h;
+    const float skirt_bot = top - 0.295f;        /* the wood stops here; open below */
 
-    /* A black cap band under the rail, square-edged, barely oversailing — the
-     * dark line that separates timber from cloth in the reference. */
-    top_course(m, -ox - 0.010f, top - 0.040f, -oz - 0.010f,
-                   ox + 0.010f, top - 0.006f,  oz + 0.010f, INK);
-    rail_undercut(m, ox + 0.010f, oz + 0.010f, top - 0.006f, INK);
+    /* The fascia: one tall band leaning outward as it drops. */
+    rail_undercut(m, ox, oz, top, GUNML);
+    frustum_band(m, top, fas_bot, ox, oz, ox + fas_out, oz + fas_out, GUNML);
 
-    /* The skirt, one deep run of the player's timber per side. */
+    /* The skirt: the player's timber, upper half of the drop only, tucked
+     * back under the fascia's bottom edge. */
     {
-        const float y0 = skirt_bot, y1 = top - 0.040f;
-        const float iz_s = clear_z(oz - 0.034f, y1);
-        const float ix_s = clear_x(ox - 0.034f, y1);
-        box(m, -ox, y0, -oz, ox, y1, -iz_s, 0, PAL_WOOD);
-        box(m, -ox, y0,  iz_s, ox, y1, oz, 0, PAL_WOOD);
-        box(m, -ox, y0, -iz_s, -ix_s, y1, iz_s, 2, PAL_WOOD);
-        box(m,  ix_s, y0, -iz_s, ox, y1, iz_s, 2, PAL_WOOD);
-        /* and its underside, so stooping for a shot shows a shadow, not a void */
-        box(m, -(ox - 0.02f), y0 - 0.012f, -(oz - 0.02f),
-               ox - 0.02f, y0, oz - 0.02f, 0, SHADOW);
+        const float in = 0.012f;                 /* set back from the fascia lip */
+        const float sx = ox + fas_out - in, sz = oz + fas_out - in;
+        const float iz_s = clear_z(sz - 0.030f, fas_bot);
+        const float ix_s = clear_x(sx - 0.030f, fas_bot);
+        box(m, -sx, skirt_bot, -sz, sx, fas_bot, -iz_s, 0, PAL_WOOD);
+        box(m, -sx, skirt_bot,  iz_s, sx, fas_bot, sz, 0, PAL_WOOD);
+        box(m, -sx, skirt_bot, -iz_s, -ix_s, fas_bot, iz_s, 2, PAL_WOOD);
+        box(m,  ix_s, skirt_bot, -iz_s, sx, fas_bot, iz_s, 2, PAL_WOOD);
+        /* its underside, so stooping for a shot shows a shadow, not a void */
+        box(m, -(sx - 0.02f), skirt_bot - 0.012f, -(sz - 0.02f),
+               sx - 0.02f, skirt_bot, sz - 0.02f, 0, SHADOW);
     }
 
-    /* Corner castings: big black chamfered posts wrapping each corner, proud of
-     * the skirt. BELOW THE TRAY'S FLOOR at the top — the cabinet's corner
-     * castings taught that lesson through a pocket bore. */
-    const float cast_top = TRAY_BOT - 0.002f;
-    for (int sx = -1; sx <= 1; sx += 2)
-        for (int sz = -1; sz <= 1; sz += 2) {
-            float cx = (float)sx * (ox - 0.060f), cz = (float)sz * (oz - 0.060f);
-            post(m, cx, cz, cast_top, skirt_bot - 0.006f,
-                 0.170f, 0.170f, 0.070f, INK);
+    /* The pocket castings.
+     *
+     * Corners: an L wrapping each corner, proud of the fascia, running from
+     * just under the rail down past the fascia onto the skirt. Each arm keeps
+     * outside ITS face's tray rim, so nothing can show down the bore. */
+    {
+        const float c_top = -0.002f, c_bot = fas_bot - 0.030f;
+        const float arm   = 0.150f;              /* how far along each face */
+        const float pr    = fas_out + 0.014f;    /* proud of the fascia lip */
+        /* Each arm's INNER face sits on the tray's own rim, read straight off
+         * TRAY_RX/RZ rather than derived from the body and hoped about. The
+         * end arm is outside the rim in x everywhere, the side arm in z, and
+         * a point is only visible down a bore when it is inside BOTH. */
+        const float ixn = TRAY_RX + 0.003f;
+        const float izn = TRAY_RZ + 0.003f;
+        for (int cs = 0; cs < 4; cs++) {
+            float X = (cs & 1) ? -1.0f : 1.0f;
+            float Z = (cs & 2) ? -1.0f : 1.0f;
+            /* the arm along the END face: thin in x, running `arm` along z */
+            {
+                float x0 = ixn,      x1 = ox + pr;
+                float z0 = oz - arm, z1 = oz + pr;
+                box(m, X > 0 ? x0 : -x1, c_bot, Z > 0 ? z0 : -z1,
+                       X > 0 ? x1 : -x0, c_top, Z > 0 ? z1 : -z0, 1, INK);
+            }
+            /* the arm along the SIDE face: thin in z, running `arm` along x */
+            {
+                float x0 = ox - arm, x1 = ox + pr;
+                float z0 = izn,      z1 = oz + pr;
+                box(m, X > 0 ? x0 : -x1, c_bot, Z > 0 ? z0 : -z1,
+                       X > 0 ? x1 : -x0, c_top, Z > 0 ? z1 : -z0, 0, INK);
+            }
         }
+    }
 
-    /* The legs: slab pedestals flowing down out of the corners, raking inward
-     * so the stance narrows at the floor, on round black adjustable feet. The
-     * rake is most of the reference's silhouette — vertical posts under a slab
-     * this deep read as a crate. */
+    /* Middles: a small black cap on each long face at the pocket. */
+    if (WRLD) for (int k = 4; k < WRLD->npocket; k++) {
+        float px = WRLD->pocket[k].x;
+        float sgz = WRLD->pocket[k].z > 0.0f ? 1.0f : -1.0f;
+        float c_top = -0.002f, c_bot = fas_bot + 0.012f;
+        float z0 = TRAY_RZ + 0.003f, z1 = oz + fas_out + 0.014f;
+        box(m, px - 0.105f, c_bot, sgz > 0 ? z0 : -z1,
+               px + 0.105f, c_top, sgz > 0 ? z1 : -z0, 0, INK);
+    }
+
+    /* The legs: near-vertical columns set well INBOARD of the ends — the
+     * photo's whole stance is the open air around them — square in section
+     * with the gentlest inward cant, on the black disc feet. */
     int pairs = (hl * 2.0f > 2.9f) ? 3 : 2;
-    const float lw_top = 0.240f, lw_bot = 0.150f;
+    const float lw = 0.235f;
     for (int p = 0; p < pairs; p++) {
         float fx = (pairs == 1) ? 0.0f
                  : (-1.0f + 2.0f * (float)p / (float)(pairs - 1));
-        float cx = fx * (ox - 0.060f - lw_top * 0.15f);
-        int end = (pairs == 1) || p == 0 || p == pairs - 1;
+        float cx = fx * (ox - 0.310f);
         for (int sz = -1; sz <= 1; sz += 2) {
-            float cz = (float)sz * (oz - 0.060f - lw_top * 0.15f);
-            /* the foot lands inward of the head; middle legs only pull in
-             * across the width, or they would lean along the table */
-            float fx2 = cx - (end ? fx * 0.075f : 0.0f);
-            float fz2 = cz - (float)sz * 0.085f;
-            raked_post(m, cx, cz, fx2, fz2, skirt_bot + 0.020f, floor_y + 0.058f,
-                       lw_top, lw_bot, 0.036f, PAL_WOOD);
-            turned(m, fx2, fz2, floor_y + 0.060f, floor_y, foot_disc, 10, INK);
+            float cz = (float)sz * (oz - 0.135f);
+            raked_post(m, cx, cz, cx - fx * 0.020f, cz - (float)sz * 0.022f,
+                       skirt_bot + 0.020f, floor_y + 0.058f,
+                       lw, lw * 0.84f, 0.030f, PAL_WOOD);
+            turned(m, cx - fx * 0.020f, cz - (float)sz * 0.022f,
+                   floor_y + 0.060f, floor_y, foot_disc, 10, INK);
         }
     }
 
-    /* The ball return, across the head end: a recessed black mouth under a
-     * black lip, and a shorter drawer below it — the two horizontal shadow
-     * lines that say COIN-FREE TOURNAMENT TABLE in the reference photo. */
+    /* The ball return, across the head end: the full-width slot just under
+     * the fascia, and the shorter stepped tray below it, exactly the two
+     * black horizontals of the reference. */
     {
-        const float zr = oz * 0.52f;
-        /* the mouth */
-        box(m, ox - 0.006f, top - 0.115f, -zr, ox + 0.004f, top - 0.085f, zr, 2, SHADOW);
-        box(m, ox + 0.002f, top - 0.085f, -zr - 0.014f,
-               ox + 0.016f, top - 0.072f,  zr + 0.014f, 2, INK);      /* top lip */
-        box(m, ox + 0.002f, top - 0.130f, -zr - 0.014f,
-               ox + 0.016f, top - 0.115f,  zr + 0.014f, 2, INK);      /* the sill */
-        /* the drawer, offset low and shorter */
-        box(m, ox - 0.004f, top - 0.185f, -zr, ox + 0.003f, top - 0.150f, zr * 0.30f, 2, SHADOW);
-        box(m, ox + 0.001f, top - 0.150f, -zr - 0.010f,
-               ox + 0.012f, top - 0.140f,  zr * 0.30f + 0.010f, 2, INK);
+        const float sx = ox + fas_out - 0.012f;  /* the skirt's face */
+        const float zr = oz - 0.190f;            /* between the corner castings */
+        box(m, sx - 0.006f, fas_bot - 0.040f, -zr, sx + 0.006f, fas_bot - 0.010f, zr, 2, SHADOW);
+        box(m, sx + 0.002f, fas_bot - 0.010f, -zr - 0.012f,
+               sx + 0.018f, fas_bot,           zr + 0.012f, 2, INK);   /* top lip */
+        box(m, sx + 0.002f, fas_bot - 0.052f, -zr - 0.012f,
+               sx + 0.018f, fas_bot - 0.040f,  zr + 0.012f, 2, INK);   /* the sill */
+        /* the tray: lower, shorter, one side, stepped out a little further */
+        box(m, sx - 0.004f, fas_bot - 0.118f, -zr, sx + 0.010f, fas_bot - 0.072f, 0.0f, 2, SHADOW);
+        box(m, sx + 0.006f, fas_bot - 0.072f, -zr - 0.010f,
+               sx + 0.026f, fas_bot - 0.058f,  0.010f, 2, INK);
+        box(m, sx + 0.006f, fas_bot - 0.130f, -zr - 0.010f,
+               sx + 0.026f, fas_bot - 0.118f,  0.010f, 2, INK);
     }
 }
 
