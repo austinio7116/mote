@@ -107,8 +107,8 @@ static const char *OPP_NAME[OPP_N] = { "PRACTICE", "VS CPU", "ONLINE" };
  * that only decide how the table LOOKS now live on their own screen, reachable
  * from here and from the pause menu — so they can also be changed mid-frame,
  * which is when you actually notice you dislike the cloth. */
-enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_RESPOT, MR_CONTROLS,
-       MR_APPEAR, MR_STATS, MR_START, MR_N };
+enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_CONTROLS, MR_APPEAR,
+       MR_STATS, MR_START, MR_N };
 
 /* The controls page. Handedness sits here rather than on the main menu because
  * it is the same kind of thing as the rest of these: a preference about how you
@@ -140,7 +140,7 @@ enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE }
  * ever, against defaults that were chosen by measurement. cuevr_render_fx_set()
  * is still there for the preview harness to drive. */
 enum { PS_RESUME = 0, PS_UNDO, PS_PICKUP, PS_RERACK, PS_PLACE, PS_NOMINATE,
-       PS_CONCEDE, PS_APPEAR, PS_CONTROLS, PS_STATS, PS_QUIT, PS_N };
+       PS_RESPOT, PS_CONCEDE, PS_APPEAR, PS_CONTROLS, PS_STATS, PS_QUIT, PS_N };
 static const char *COLOUR_NAME[8] = {
     "", "", "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
 
@@ -356,10 +356,6 @@ int cuevr_app_aiming(void) { return S.state == ST_AIM; }
  * The scripted stick-walk cannot reach them reliably (it is frame-timed and the
  * row counts change), and a screen nobody can photograph is a screen nobody
  * checks. */
-/* Is the menu about to start a practice frame of snooker? The AUTO RESPOT row
- * only means anything there. */
-static int menu_practice_snooker(void);
-
 /* A coin toss that is not the same coin toss every launch.
  *
  * S.rng is seeded to a constant so the CPU's shot selection is reproducible
@@ -389,13 +385,16 @@ void cuevr_app_force_screen(const char *name) {
     } else if (!strcmp(name, "stats")) {
         S.appear_from = ST_MENU; S.state = ST_STATS;
     } else if (!strcmp(name, "menu")) {
-        /* The main menu as a practice snooker setup, which is the only place
-         * AUTO RESPOT is live. */
         S.state = ST_MENU;
+        S.menu_row = MR_GAME;
+    } else if (!strcmp(name, "pause")) {
+        /* The pause menu mid-practice-frame, which is where the longest list
+         * lives and the only place AUTO RESPOT appears. */
         S.opp = OPP_PRACTICE;
-        for (int i = 0; i < MENU_N; i++)
-            if (MENU[i].kind == CUE_GAME_SNK15) S.menu_sel = i;
-        S.menu_row = MR_RESPOT;
+        S.pause_from = ST_AIM;
+        S.pause_sel = 0;
+        S.have_snap = 1;              /* so UNDO SHOT is on the list too */
+        S.state = ST_PAUSE;
     } else if (!strcmp(name, "board")) {
         /* The in-play scoreboard, with a frame's worth of score on it. The
          * ahead/behind figure only exists once somebody has scored, and no
@@ -605,12 +604,6 @@ static void enter_over(void) {
 
 static void think_start(void);
 static void think_join(void);
-
-static int menu_practice_snooker(void) {
-    CueGameKind k = MENU[S.menu_sel].kind;
-    return S.opp == OPP_PRACTICE &&
-           (k == CUE_GAME_SNK6 || k == CUE_GAME_SNK10 || k == CUE_GAME_SNK15);
-}
 
 static void start_frame(CueGameKind kind) {
     /* A re-rack while the opponent is mid-plan would move every ball out from
@@ -1049,12 +1042,19 @@ static int pause_rows(PsRow *o, int max) {
     if (S.can_repick)                          ADD(PS_PICKUP, "PICK UP BALL");
     if (S.rules.kind && !S.rules.frame_over && S.rules.target == 1)
         ADD(PS_NOMINATE, "NOMINATE");
+    /* PRACTICE SNOOKER ONLY, and here rather than on the main menu: it is not a
+     * choice about the frame you are setting up, it is a thing you turn on when
+     * the table in front of you has stripped down to four reds. */
+    if (S.opp == OPP_PRACTICE && S.rules.kind) ADD(PS_RESPOT, "AUTO RESPOT");
     if (S.opp != OPP_ONLINE) ADD(PS_RERACK, "RE-RACK");
     ADD(PS_PLACE,  "PLACE TABLE");
     ADD(PS_APPEAR, "APPEARANCE");
     ADD(PS_CONTROLS, "CONTROLS");
     ADD(PS_STATS,  "RECORDS");
-    if (S.rules.kind && !S.rules.frame_over) ADD(PS_CONCEDE, "CONCEDE FRAME");
+    /* NOT in practice: there is nobody to concede to, and it dumped you on a
+     * frame-over screen for a frame nobody was contesting. */
+    if (S.rules.kind && !S.rules.frame_over && S.opp != OPP_PRACTICE)
+        ADD(PS_CONCEDE, "CONCEDE FRAME");
     ADD(PS_QUIT,   "BACK TO MENU");
     #undef ADD
     return n;
@@ -1230,11 +1230,6 @@ static void hud_paint(void) {
         /* Who you are about to play, with their face — the portraits have been
          * sitting in cue_faces.h all along. */
         if (S.opp == OPP_CPU) hud_face(HW - 9, 12 + MR_STRENGTH * 8 + 3, 9, S.persona);
-        /* Practice snooker only: a table you are practising on should not strip
-         * itself to four reds and nothing to take after them. Greyed out rather
-         * than hidden, so the row above and below never move. */
-        hud_opt(MR_RESPOT, "AUTO RESPOT", S.prac_respot ? "ON" : "OFF",
-                S.menu_row == MR_RESPOT, menu_practice_snooker(), TXT, DIM, HI);
         hud_link(MR_CONTROLS, "CONTROLS", "OPEN", S.menu_row == MR_CONTROLS, DIM, HI, LIVE);
         hud_link(MR_APPEAR, "APPEARANCE", "OPEN", S.menu_row == MR_APPEAR, DIM, HI, LIVE);
         hud_link(MR_STATS,  "RECORDS",    "OPEN", S.menu_row == MR_STATS,  DIM, HI, LIVE);
@@ -1481,11 +1476,15 @@ static void hud_paint(void) {
                              (S.rules.nominated >= 2 && S.rules.nominated <= 7)
                              ? COLOUR_NAME[S.rules.nominated] : "-");
                     txt = lb;
+                } else if (row[i].id == PS_RESPOT) {
+                    snprintf(lb, sizeof lb, "AUTO RESPOT %s",
+                             S.prac_respot ? "ON" : "OFF");
+                    txt = lb;
                 }
                 hud_text_2x(txt, 6, y - 1, on ? HI : DIM);
             }
         }
-        hud_text("A SELECT    MENU RESUME", 4, HH - 6, DIM);
+        hud_text("POINT AND CLICK   A SELECT   MENU RESUME", 4, HH - 6, DIM);
         return;
     }
 
@@ -2040,7 +2039,6 @@ static void menu_change(int d) {
             case MR_OPP:      S.opp = (S.opp + d + OPP_N) % OPP_N; break;
             case MR_FRAMES:   S.match_idx = (S.match_idx + d + MATCH_LEN_N) % MATCH_LEN_N; break;
             case MR_STRENGTH: S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS; break;
-            case MR_RESPOT:   if (menu_practice_snooker()) S.prac_respot = !S.prac_respot; break;
             /* Cloth, frame, table, lighting, balls and cue moved to the
              * APPEARANCE screen, which owns them for both entry points. */
             default: break;
@@ -2962,6 +2960,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
                         S.msg_time = 2.0f;
                         S.state = ST_AIM;
                     }
+                    break;
+                case PS_RESPOT:
+                    /* Toggles in place — you are looking at the table it acts
+                     * on, so closing the menu to see the effect is backwards. */
+                    S.prac_respot = !S.prac_respot;
+                    S.hud_dirty = 1;
                     break;
                 case PS_RERACK:
                     rerack();
