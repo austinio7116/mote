@@ -118,7 +118,11 @@ enum { CR_HAND = 0, CR_STICKS, CR_INVSLIDE, CR_INVTURN, CR_RESET, CR_BACK, CR_N 
 
 /* The appearance screen's own rows. */
 enum { AR_CLOTH = 0, AR_FRAME, AR_BODY, AR_LIGHT, AR_BALLS, AR_SPOTS, AR_CUE,
-       AR_BACK, AR_N };
+       AR_SURROUND, AR_BACK, AR_N };
+/* Where you play. PASSTHROUGH is the app as shipped — the table in your own
+ * room. The other two paint a world over the cameras: the plain dark room the
+ * screenshots have always shown, or the snooker-theatre arena. */
+static const char *SURROUND_NAME[3] = { "PASSTHROUGH", "DARK ROOM", "ARENA" };
 /* Match lengths. Odd numbers only — a best-of-even can be drawn, and there is
  * nothing here to play off a draw with. */
 static const int MATCH_LEN[] = { 1, 3, 5, 7, 9, 11 };
@@ -236,6 +240,7 @@ static struct {
     int lefty;             /* bridges with the right hand */
     int stick_swap, inv_slide, inv_turn;
     int cue_spots;
+    int surround;                /* 0 passthrough, 1 dark room, 2 arena */
     int prac_respot;             /* practice snooker: colours go back on */
     int break_first;             /* who breaks this frame (rules player index) */
     float undo_hold;             /* B held down, seconds — practice take-back */
@@ -564,6 +569,10 @@ void cuevr_app_force_body(int i) {
 }
 /* And the timber, by palette index — the harness's only way to photograph the
  * bodies in ebony without walking the appearance menu. */
+void cuevr_app_force_surround(int i) {
+    S.surround = (i >= 0 && i <= 2) ? i : 0;
+    cuevr_render_set_surround(S.surround);
+}
 void cuevr_app_force_framecol(int i) {
     if (i < 0 || i >= CUE_NFRAME) return;
     S.frame_idx = i;
@@ -1373,6 +1382,8 @@ static void hud_paint(void) {
         hud_opt(AR_SPOTS, "CUE BALL SPOTS", S.cue_spots ? "ON" : "OFF",
                 S.menu_row == AR_SPOTS, 1, TXT, DIM, HI);
         hud_opt(AR_CUE, "CUE", cuevr_render_cue_name(S.cue_idx), S.menu_row == AR_CUE, 1, TXT, DIM, HI);
+        hud_opt(AR_SURROUND, "SURROUNDINGS", SURROUND_NAME[S.surround],
+                S.menu_row == AR_SURROUND, 1, TXT, DIM, HI);
         /* An action, so it wears the action colour rather than the value one —
          * the same distinction the main menu now draws. */
         hud_link(AR_BACK, "BACK", "DONE", S.menu_row == AR_BACK, DIM, HI, LIVE);
@@ -2413,6 +2424,9 @@ static int app_gl_init(void *u) {
         cue_render_set_ball_set(S.ballset);
         S.cue_spots = pr.cue_spots;
         S.prac_respot = pr.prac_respot;
+        S.surround = pr.surround;
+        cuevr_render_set_surround(S.surround);
+        mote_xr_show_passthrough(S.surround == 0);
         cue_render_set_cue_spots(S.cue_spots);
         /* Build the table the player last chose, right now, before the
          * levelling screen shows it. The table used to be racked with whatever
@@ -3531,6 +3545,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     cuevr_render_set_cue(S.cue_idx);
                     break;
                 }
+                case AR_SURROUND:
+                    S.surround = (S.surround + d + 3) % 3;
+                    cuevr_render_set_surround(S.surround);
+                    /* No point compositing a camera feed the environment is
+                     * about to paint over. */
+                    mote_xr_show_passthrough(S.surround == 0);
+                    break;
                 default: break;
                 }
                 restyle_table();
@@ -4043,6 +4064,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         now.lefty = S.lefty;
         now.cue_spots = S.cue_spots;
         now.prac_respot = S.prac_respot;
+        now.surround = S.surround;
         now.stick_swap = S.stick_swap;
         now.inv_slide = S.inv_slide; now.inv_turn = S.inv_turn;
         /* Floats compared with a tolerance, not bit-for-bit: the table height is

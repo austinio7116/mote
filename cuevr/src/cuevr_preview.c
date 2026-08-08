@@ -48,6 +48,7 @@ void cuevr_app_force_start(int kind);
 void cuevr_app_force_net(int join);
 void cuevr_app_force_body(int i);
 void cuevr_app_force_framecol(int i);
+void cuevr_app_force_surround(int i);
 void cuevr_app_force_cue(int i);
 MoteVrV3 cuevr_app_cue_mid(void);
 float cuevr_app_grip(void);
@@ -95,6 +96,7 @@ void *mote_xr_render_model_take(int hand, uint32_t *out_len) {
     return b;
 }
 void mote_xr_haptic(float i, int ms) { (void)i; (void)ms; }
+void mote_xr_show_passthrough(int on) { (void)on; }   /* no cameras here */
 
 /* ---- the fake head and hands -------------------------------------------- */
 static float s_yaw = 0.35f, s_pitch = 0.55f, s_dist = 1.6f;  /* eye above the cloth, as a player stands */
@@ -292,6 +294,7 @@ int main(int argc, char **argv) {
     if (force_body >= -1) cuevr_app_force_body(force_body);
     { const char *v = getenv("CUEVR_CUE"); if (v) cuevr_app_force_cue(atoi(v)); }
     { const char *v = getenv("CUEVR_FRAMECOL"); if (v) cuevr_app_force_framecol(atoi(v)); }
+    { const char *v = getenv("CUEVR_SURROUND"); if (v) cuevr_app_force_surround(atoi(v)); }
 
     int running = 1, dragging = 0, hands_placed = 0;
     uint64_t prev = SDL_GetPerformanceCounter();

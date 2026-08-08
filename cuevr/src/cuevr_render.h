@@ -92,6 +92,8 @@ void cuevr_render_set_multiview(int on);
 
 int  cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb);
 void cuevr_render_set_table(const CueTable *t, const CueWorld *w);
+/* 0 = passthrough (draw no world), 1 = the dark room, 2 = the arena. */
+void cuevr_render_set_surround(int s);
 /* ---- the cue rack -------------------------------------------------------- *
  * A cue is a handful of colours and a splice style, which is very nearly what a
  * real one is: a shaft wood, the timber of the four-point hand splice, an accent

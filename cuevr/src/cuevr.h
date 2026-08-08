@@ -322,6 +322,7 @@ typedef struct {
      * while reds remain, so a practice table never strips itself down to a few
      * reds and nothing to follow them with. */
     int      prac_respot;
+    int      surround;       /* 0 passthrough, 1 dark room, 2 arena */
     int      stick_swap;     /* turn on the left stick, slide on the right */
     int      inv_slide, inv_turn;
 } CueVrPrefs;

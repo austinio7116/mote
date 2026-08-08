@@ -1281,6 +1281,216 @@ static void american(CueVrFrameMesh *m, const CueTable *t) {
     }
 }
 
+/* ---- the arena ------------------------------------------------------------ *
+ *
+ * The Crucible, near enough: the theatre snooker is played in is an intimate
+ * octagonal bowl — a dark carpeted floor, a waist-high barrier with a red rail
+ * a few strides from the table, banks of close-set seats rising steeply on
+ * every side but the players' entrance, and above it all a black ceiling
+ * carrying hundreds of small lamps, which is the single most recognisable
+ * thing about the room: a night sky indoors.
+ *
+ * Built from the user's two reference photographs of the house. ARENA-LOCAL
+ * space, floor at y = 0, +X toward the players' entrance (the baulk end, where
+ * the table's own panel already hangs). Everything is mode-12 flat colour
+ * except the lamps, which are emitted LAST and marked off by n_timber_idx so
+ * the renderer can draw them unlit.
+ */
+
+static uint32_t arena_h(uint32_t x) {          /* tiny hash, stable per seat */
+    x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16;
+    return x;
+}
+
+void cuevr_arena_capacity(int *max_verts, int *max_indices) {
+    if (max_verts)   *max_verts   = 42000;
+    if (max_indices) *max_indices = 64000;
+}
+
+void cuevr_arena_build(CueVrFrameMesh *m) {
+    m->nv = m->ni = 0;
+    m->overflow = 0;
+    s_pass = 1;                     /* nothing here is timber; emit everything */
+
+    static const float CARPET[3]  = { 0.055f, 0.050f, 0.058f };
+    static const float WALLDK[3]  = { 0.038f, 0.038f, 0.044f };
+    static const float BARRIER[3] = { 0.070f, 0.070f, 0.080f };
+    static const float RAILRED[3] = { 0.380f, 0.045f, 0.060f };
+    static const float PANELRD[3] = { 0.240f, 0.035f, 0.048f };
+    static const float STEP[3]    = { 0.058f, 0.056f, 0.062f };
+    static const float CEIL[3]    = { 0.024f, 0.024f, 0.030f };
+    static const float GANTRY[3]  = { 0.046f, 0.048f, 0.054f };
+    static const float LAMP[3]    = { 0.95f,  0.90f,  0.78f  };
+
+    const float TAN22 = 0.4142136f;            /* tan(22.5): octagon half-side */
+    const float CEIL_H = 8.6f;
+
+    /* The carpet, one big plate. */
+    box(m, -13.0f, -0.012f, -13.0f, 13.0f, 0.0f, 13.0f, 0, CARPET);
+
+    /* The bank's geometry, shared by the seats and the wall behind them. */
+    const int   ROWS   = 13;
+    const float r_seat = 4.05f;
+    const float rise   = 0.42f, run = 0.82f;
+    const float y_base = 0.55f;
+
+    /* Sides of the octagon. k = 0 faces +X — the players' entrance. */
+    for (int k = 0; k < 8; k++) {
+        float a  = (float)k * 0.7853982f;
+        float ca = cosf(a), sa = sinf(a);
+        int entrance = (k == 0);
+
+        /* One ring segment: a band from radius r0..r1, heights y0..y1, as a
+         * single outward-leaning quad pair is overkill — everything here is
+         * flat quads placed along the side's chord. Chord frame: at inscribed
+         * radius r the side runs from -r*TAN22 to +r*TAN22 across, `across`
+         * being the direction perpendicular to the outward normal (ca,sa). */
+        #define P(R, T, Y, out) { (R)*ca - (T)*sa + (out)*ca*0.0f, (Y), (R)*sa + (T)*ca }
+
+        /* The barrier, with its red rail and red facing panel. */
+        if (!entrance) {
+            const float rb = 3.1f;
+            float t0 = -rb * TAN22, t1 = rb * TAN22;
+            { float p0[3]=P(rb,t0,0.0f,0), p1[3]=P(rb,t1,0.0f,0);
+              float p2[3]=P(rb,t1,0.86f,0), p3[3]=P(rb,t0,0.86f,0);
+              float n[3] = { -ca, 0, -sa };
+              quad(m, p0,p1,p2,p3, n, t1-t0, 0.86f, BARRIER); }
+            /* ...and its back, because a player leans over this rail to reach
+             * a shot and a one-sided wall vanishes the moment they do. */
+            { float bo = rb + 0.055f;
+              float u0 = -bo * TAN22, u1 = bo * TAN22;
+              float p0[3]=P(bo,u0,0.0f,0), p1[3]=P(bo,u1,0.0f,0);
+              float p2[3]=P(bo,u1,0.86f,0), p3[3]=P(bo,u0,0.86f,0);
+              float n[3] = { ca, 0, sa };
+              quad(m, p0,p1,p2,p3, n, u1-u0, 0.86f, BARRIER); }
+            { float p0[3]=P(rb-0.02f,t0,0.30f,0), p1[3]=P(rb-0.02f,t1,0.30f,0);
+              float p2[3]=P(rb-0.02f,t1,0.80f,0), p3[3]=P(rb-0.02f,t0,0.80f,0);
+              float n[3] = { -ca, 0, -sa };
+              quad(m, p0,p1,p2,p3, n, t1-t0, 0.5f, PANELRD); }
+            /* The rail's chord is measured at its OUTER radius, so adjacent
+             * sides meet at the octagon's vertices — measured at the wall's
+             * it fell short and every corner had a gap in the red. */
+            { float ro = rb + 0.055f;
+              float u0 = -ro * TAN22, u1 = ro * TAN22;
+              float p0[3]=P(rb-0.03f,u0,0.86f,0), p1[3]=P(rb-0.03f,u1,0.86f,0);
+              float p2[3]=P(ro,u1,0.86f,0), p3[3]=P(ro,u0,0.86f,0);
+              float n[3] = { 0, 1, 0 };
+              quad(m, p0,p1,p2,p3, n, u1-u0, 0.09f, RAILRED); }
+        }
+
+        /* The seating bank: thirteen rows, rising steeply. */
+        if (!entrance) {
+            for (int rr = 0; rr < ROWS; rr++) {
+                float r0 = r_seat + run * (float)rr;
+                float r1 = r0 + run;
+                float y0 = y_base + rise * (float)rr;
+                float y1 = y0 + rise;
+                float t0 = -r0 * TAN22, t1 = r0 * TAN22;
+                /* riser then tread */
+                { float p0[3]=P(r0,t0,y0-rise,0), p1[3]=P(r0,t1,y0-rise,0);
+                  float p2[3]=P(r0,t1,y0,0),      p3[3]=P(r0,t0,y0,0);
+                  float n[3] = { -ca, 0, -sa };
+                  quad(m, p0,p1,p2,p3, n, t1-t0, rise, STEP); }
+                { float q0[3]=P(r0,t0,y0,0), q1[3]=P(r0,t1,y0,0);
+                  float q2[3]=P(r1,r1*TAN22,y0,0), q3[3]=P(r1,-r1*TAN22,y0,0);
+                  float n[3] = { 0, 1, 0 };
+                  quad(m, q0,q1,q2,q3, n, t1-t0, run, STEP); }
+                /* the seats: a row of upright backs, hash-varied so the bank
+                 * reads as hundreds of objects rather than one striped slab */
+                float span = r0 * TAN22 * 2.0f - 0.5f;
+                int   nst  = (int)(span / 0.56f);
+                if (nst < 1) nst = 1;
+                float pitch = span / (float)nst;
+                for (int sfi = 0; sfi < nst; sfi++) {
+                    float tm = -span * 0.5f + pitch * ((float)sfi + 0.5f);
+                    uint32_t h = arena_h((uint32_t)(k * 131 + rr * 17 + sfi));
+                    float v = 0.82f + 0.36f * ((float)(h & 255) / 255.0f);
+                    float col[3] = { 0.52f * v, 0.20f * v, 0.055f * v };
+                    /* a seat: back + squab, two boxes worth, chord-aligned —
+                     * built from quads directly since box() is axis-aligned */
+                    float rs = r0 + 0.36f, hs = y0, w = pitch * 0.44f;
+                    float bk = 0.40f;
+                    { float p0[3]=P(rs,tm-w,hs,0),      p1[3]=P(rs,tm+w,hs,0);
+                      float p2[3]=P(rs,tm+w,hs+bk,0),   p3[3]=P(rs,tm-w,hs+bk,0);
+                      float n[3] = { -ca, 0, -sa };
+                      quad(m, p0,p1,p2,p3, n, w*2, bk, col); }
+                    { float p0[3]=P(rs-0.30f,tm-w,hs+0.16f,0), p1[3]=P(rs-0.30f,tm+w,hs+0.16f,0);
+                      float p2[3]=P(rs,tm+w,hs+0.20f,0),       p3[3]=P(rs,tm-w,hs+0.20f,0);
+                      float n[3] = { 0, 1, 0 };
+                      quad(m, p0,p1,p2,p3, n, w*2, 0.3f, col); }
+                }
+            }
+        }
+        /* The players' entrance side has no seats and no barrier: its face is
+         * the back wall below, with a darker portal let into it. */
+        if (entrance) {
+            const float rw = 4.03f;
+            float p0[3]=P(rw,-1.1f,0.0f,0), p1[3]=P(rw,1.1f,0.0f,0);
+            float p2[3]=P(rw,1.1f,2.6f,0),  p3[3]=P(rw,-1.1f,2.6f,0);
+            float n[3] = { -ca, 0, -sa };
+            quad(m, p0,p1,p2,p3, n, 2.2f, 2.6f, SHADOW);
+        }
+
+        /* The back wall, tier top to ceiling. */
+        {
+            float rw = (k == 0) ? 4.05f : r_seat + run * (float)ROWS;
+            float yw = (k == 0) ? 0.0f  : y_base + rise * (float)ROWS;
+            float t1 = rw * TAN22;
+            float p0[3]=P(rw,-t1,yw,0), p1[3]=P(rw,t1,yw,0);
+            float p2[3]=P(rw,t1,CEIL_H,0), p3[3]=P(rw,-t1,CEIL_H,0);
+            float n[3] = { -ca, 0, -sa };
+            quad(m, p0,p1,p2,p3, n, t1*2, CEIL_H-yw, WALLDK);
+        }
+        #undef P
+    }
+
+    /* The ceiling plate. */
+    box(m, -14.0f, CEIL_H, -14.0f, 14.0f, CEIL_H + 0.05f, 14.0f, 0, CEIL);
+
+    /* Two gantry rings under it. */
+    for (int g = 0; g < 2; g++) {
+        float rg = g ? 7.6f : 5.0f;
+        float yg = CEIL_H - (g ? 1.7f : 0.9f);
+        for (int k = 0; k < 8; k++) {
+            float a = (float)k * 0.7853982f;
+            float ca = cosf(a), sa = sinf(a);
+            float t1 = rg * 0.4142136f;
+            /* a rail: a slim horizontal box along the chord, done as its two
+             * long faces — enough at this distance */
+            float p0[3]={rg*ca + t1*sa, yg, rg*sa - t1*ca};
+            float p1[3]={rg*ca - t1*sa, yg, rg*sa + t1*ca};
+            float p2[3]={rg*ca - t1*sa, yg+0.16f, rg*sa + t1*ca};
+            float p3[3]={rg*ca + t1*sa, yg+0.16f, rg*sa - t1*ca};
+            float n[3] = { -ca, 0, -sa };
+            quad(m, p0,p1,p2,p3, n, t1*2, 0.16f, GANTRY);
+        }
+    }
+
+    /* THE LAMPS, last, beyond the boundary: the night sky. Rings of small
+     * downward quads with hashed jitter, denser toward the rim, exactly the
+     * look of the reference — hundreds of point sources on a black field. */
+    m->n_timber_idx = m->ni;
+    {
+        static const float ring_r[6] = { 2.2f, 3.6f, 5.0f, 6.4f, 7.8f, 9.2f };
+        static const int   ring_n[6] = { 14,   24,   36,   46,   58,   70   };
+        for (int q = 0; q < 6; q++)
+            for (int i = 0; i < ring_n[q]; i++) {
+                uint32_t h = arena_h((uint32_t)(q * 977 + i));
+                float a = 6.2831853f * ((float)i + 0.5f * ((float)(h & 63) / 63.0f))
+                        / (float)ring_n[q];
+                float r = ring_r[q] * (0.92f + 0.16f * ((float)((h >> 8) & 63) / 63.0f));
+                float x = r * cosf(a), z = r * sinf(a);
+                float y = CEIL_H - 0.06f - 0.4f * ((float)((h >> 16) & 3) / 3.0f);
+                float sz2 = 0.055f;
+                float p0[3]={x-sz2,y,z-sz2}, p1[3]={x+sz2,y,z-sz2};
+                float p2[3]={x+sz2,y,z+sz2}, p3[3]={x-sz2,y,z+sz2};
+                float n[3] = { 0, -1, 0 };
+                quad(m, p0,p1,p2,p3, n, 0.1f, 0.1f, LAMP);
+            }
+    }
+    s_pass = 0;
+}
+
 /* ---- the registry ------------------------------------------------------- */
 
 const CueVrFrameDesign CUEVR_FRAMES[] = {

@@ -68,6 +68,16 @@ void cuevr_frame_build(int which, CueVrFrameMesh *m, const CueTable *t,
 int  cuevr_frame_default(const CueTable *t);
 void cuevr_frame_capacity(int *max_verts, int *max_indices);
 
+/* The ARENA: a snooker-theatre bowl to stand the whole table in — tiered
+ * seating in an octagon, a barrier round the playing floor, a black ceiling
+ * full of small lights. Built in ARENA-LOCAL space with the FLOOR at y = 0, so
+ * the caller places it on the room's real floor whatever height the table is
+ * set to. m->n_timber_idx marks the boundary between the LIT run (drawn like
+ * the frame's non-timber pieces) and the LIGHTS run (drawn unlit — a lamp is
+ * not lit by other lamps). */
+void cuevr_arena_build(CueVrFrameMesh *m);
+void cuevr_arena_capacity(int *max_verts, int *max_indices);
+
 /* How far below the cloth the frame reaches — the renderer wants it to know
  * where the floor is relative to the table. Always the table's own height. */
 float cuevr_frame_depth(const CueTable *t);

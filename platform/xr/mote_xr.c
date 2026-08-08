@@ -164,6 +164,7 @@ static struct {
     PFN_xrPassthroughStartFB        xrPassthroughStartFB_;
     PFN_xrCreatePassthroughLayerFB  xrCreatePassthroughLayerFB_;
     PFN_xrPassthroughLayerResumeFB  xrPassthroughLayerResumeFB_;
+    PFN_xrPassthroughLayerPauseFB   xrPassthroughLayerPauseFB_;
 
     /* EGL — ours, not a window system's: OpenXR renders into its own swapchain
      * images, so the only surface needed is a 16x16 pbuffer to make current. */
@@ -798,6 +799,14 @@ static void haptic(float intensity, int ms) {
 
 /* ---- passthrough --------------------------------------------------------- */
 
+/* Whether the camera feed should be composited at all. The app turns it off
+ * when it is drawing a full environment: the projection layer would cover the
+ * feed anyway, so leaving it running is compositor work spent on pixels nobody
+ * can see — and Meta bills passthrough at a fixed GPU cost whether or not it
+ * shows. Defaults on, which is the app's existing behaviour. */
+static int s_pt_show = 1;
+void mote_xr_show_passthrough(int on) { s_pt_show = on ? 1 : 0; }
+
 static void passthrough_up(void) {
     if (!S.has_passthrough) return;
 #define GET(fn) xrGetInstanceProcAddr(S.instance, #fn, (PFN_xrVoidFunction *)&S.fn##_)
@@ -806,6 +815,7 @@ static void passthrough_up(void) {
     GET(xrPassthroughStartFB);
     GET(xrCreatePassthroughLayerFB);
     GET(xrPassthroughLayerResumeFB);
+    GET(xrPassthroughLayerPauseFB);
 #undef GET
     if (!S.xrCreatePassthroughFB_ || !S.xrCreatePassthroughLayerFB_) {
         S.has_passthrough = 0;
@@ -975,7 +985,16 @@ static void draw_frame(void) {
             pv[i].subImage.imageRect.extent.height = e->h;
         }
 
+        /* Pause/resume follows the app's ask, edge-triggered. */
         if (S.has_passthrough) {
+            static int was = 1;
+            if (s_pt_show != was) {
+                was = s_pt_show;
+                if (s_pt_show) { if (S.xrPassthroughLayerResumeFB_) S.xrPassthroughLayerResumeFB_(S.pt_layer); }
+                else           { if (S.xrPassthroughLayerPauseFB_)  S.xrPassthroughLayerPauseFB_(S.pt_layer); }
+            }
+        }
+        if (S.has_passthrough && s_pt_show) {
             ptl.layerHandle = S.pt_layer;
             ptl.flags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
             ptl.space = XR_NULL_HANDLE;

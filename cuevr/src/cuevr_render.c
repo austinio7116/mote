@@ -1442,6 +1442,10 @@ static const char *FS =
 "        // wood shader with everything else.\n"
 "        float d = diffuse(normalize(v_nrm), L);\n"
 "        o_col = emit(to_linear(v_col) * (0.34 + 0.70 * d), 1.0, 1.0);\n"
+"    } else if (u_mode == 13) {\n"
+"        // Arena lamps: emissive, full stop. A lamp is not lit by other\n"
+"        // lamps, and running these through N.L left the night sky grey.\n"
+"        o_col = emit(to_linear(v_col), 1.0, 1.0);\n"
 "    } else if (u_mode == 11) {\n"
 "        // A runtime-supplied controller model: a base-colour texture times a\n"
 "        // factor, and one light. Deliberately plain — this is Meta's picture of\n"
@@ -1883,6 +1887,9 @@ static struct {
     MoteVrV3 key_room;
     Mesh   ctrl[2];
     Mesh   fins, bed, table, lips, frame, ball, cue, quad, floor, grip;
+    Mesh   arena;              /* the theatre bowl, when the surround wants it */
+    int    arena_lit_n;        /* indices before the lamps; lamps draw unlit */
+    int    surround;           /* 0 passthrough, 1 dark room, 2 arena */
     int    frame_sel;          /* -1 = whichever design suits the table */
     int    frame_timber_n;
     GLuint sh_fbo, sh_tex, sh_prog;
@@ -3506,6 +3513,8 @@ int cuevr_render_init(const CueTable *t, const CueWorld *w, int target_is_srgb) 
     return 0;
 }
 
+void cuevr_render_set_surround(int s) { G.surround = s; }
+
 void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
     G.tab = *t;
     mesh_free(&G.table); mesh_free(&G.lips);
@@ -3619,6 +3628,30 @@ void cuevr_render_set_table(const CueTable *t, const CueWorld *w) {
                  fm.n_timber_idx / 3, (fm.ni - fm.n_timber_idx) / 3);
         }
         free(fm.v); free(fm.idx);
+    }
+
+    /* The arena, once — it does not depend on the table, only on the floor,
+     * and it is drawn with its own transform. */
+    if (!G.arena.n) {
+        int cv, ci;
+        cuevr_arena_capacity(&cv, &ci);
+        CueVrFrameMesh am;
+        memset(&am, 0, sizeof am);
+        am.v = malloc(sizeof(CueVrFrameVtx) * (size_t)cv);
+        am.idx = malloc(sizeof(uint16_t) * (size_t)ci);
+        am.cap_v = cv; am.cap_i = ci;
+        if (am.v && am.idx) {
+            cuevr_arena_build(&am);
+            if (am.overflow) LOGI("[cuevr] arena ran out of room");
+            Builder ab;
+            ab.v = (Vtx *)am.v; ab.i = am.idx;
+            ab.nv = am.nv; ab.ni = am.ni; ab.cap_v = cv; ab.cap_i = ci;
+            mesh_upload(&G.arena, &ab);
+            G.arena_lit_n = am.n_timber_idx;
+            LOGI("[cuevr] arena: %d tris (%d lit, %d lamps)", am.ni / 3,
+                 am.n_timber_idx / 3, (am.ni - am.n_timber_idx) / 3);
+        }
+        free(am.v); free(am.idx);
     }
 
     LOGI("[cuevr] table mesh %d tris (%d bed, %d lip), balls re-baked (%s)",
@@ -4244,20 +4277,56 @@ void cuevr_render_eye(const float *view, const float *proj,
     }
 
     glchk("B-before-room");
-    if (draw_room) {
-        glUniform1i(G.u_mode, 3);
-        colour(0.35f, 0.42f, 0.55f, 1.0f);
-        float F[16];
-        mm4_identity(F);
-        F[13] = s->place->pos.y - s->place->height;   /* the room's floor */
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDisable(GL_CULL_FACE);
-        set_model(F);
-        draw(&G.floor);
-        glchk("F0-floor");
-        glEnable(GL_CULL_FACE);
-        glDisable(GL_BLEND);
+    /* WHAT STANDS AROUND THE TABLE. The runtime's hint (draw_room: it has no
+     * passthrough, so somebody must paint the world) is a floor, never a
+     * ceiling: the player's own choice of surround can only ADD to it. When a
+     * surround is on, the frame is re-cleared OPAQUE first — the host cleared
+     * it transparent for the camera feed, and an environment with alpha holes
+     * shows the room through its own walls. */
+    {
+        int room = draw_room || G.surround != 0;
+        if (room) {
+            glClearColor(0.016f, 0.018f, 0.026f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
+        if (room && G.surround == 2 && G.arena.n) {
+            /* The theatre. Its own transform: the table's yaw about the
+             * table's spot, standing on the ROOM'S floor — the arena mesh has
+             * its floor at y = 0 so the bowl is right whatever height the
+             * player set the table to. */
+            float A[16];
+            MoteVrPose ap;
+            ap.p = s->place->pos;
+            ap.p.y = s->place->pos.y - s->place->height;
+            ap.q = mq_axis_angle(mv3(0, 1, 0), s->place->yaw);
+            mm4_from_pose(A, ap, 1.0f);
+            set_model(A);
+            glBindVertexArray(G.arena.vao);
+            glUniform1i(G.u_mode, 12);
+            glDrawElements(GL_TRIANGLES, G.arena_lit_n, GL_UNSIGNED_SHORT, (void *)0);
+            if (G.arena.n > G.arena_lit_n) {
+                glUniform1i(G.u_mode, 13);
+                glDrawElements(GL_TRIANGLES, G.arena.n - G.arena_lit_n,
+                               GL_UNSIGNED_SHORT,
+                               (void *)(intptr_t)(G.arena_lit_n * 2));
+            }
+            glBindVertexArray(0);
+            glchk("F0-arena");
+        } else if (room) {
+            glUniform1i(G.u_mode, 3);
+            colour(0.35f, 0.42f, 0.55f, 1.0f);
+            float F[16];
+            mm4_identity(F);
+            F[13] = s->place->pos.y - s->place->height;   /* the room's floor */
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDisable(GL_CULL_FACE);
+            set_model(F);
+            draw(&G.floor);
+            glchk("F0-floor");
+            glEnable(GL_CULL_FACE);
+            glDisable(GL_BLEND);
+        }
     }
 
     gpq_mark(GPQ_FRAME);
