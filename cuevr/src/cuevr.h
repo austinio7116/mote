@@ -264,12 +264,15 @@ void cuevr_cue_init(CueVrCue *c);
  * start-up. A struct and a named-field file, because the positional argument
  * list this replaces had reached ten parameters of which seven were int. */
 /* Snooker table sizes and pool games that carry their own record. */
+/* 20+, 30+, 50+, 100+ */
+#define CUEVR_BRK_TIERS 4
 #define CUEVR_STAT_SNK  3
 #define CUEVR_STAT_POOL 4
 int cuevr_stat_snk_slot(int kind);    /* CueGameKind -> 0..2, or -1 */
 int cuevr_stat_pool_slot(int kind);   /* CueGameKind -> 0..3, or -1 */
 const char *cuevr_stat_snk_name(int slot);
 const char *cuevr_stat_pool_name(int slot);
+const char *cuevr_stat_table_name(int kind);
 
 typedef struct {
     float    table_height;
@@ -327,6 +330,11 @@ typedef struct {
      * 0 = never done. Per table because a 12 ft snooker table and a 7 ft pub
      * table are not the same challenge and one record for both is meaningless. */
     int      mini_best[CUE_GAME_COUNT];
+    /* How many breaks of 20, 30, 50 and 100 you have made (vs CPU / online).
+     * The COUNT, not the best — somebody who has made forty fifties is a
+     * different player from somebody who made one lucky one, and a highest
+     * break alone cannot tell them apart. */
+    int      brk_tier[CUEVR_BRK_TIERS][2];
     int      stick_swap;     /* turn on the left stick, slide on the right */
     int      inv_slide, inv_turn;
 } CueVrPrefs;

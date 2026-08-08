@@ -228,8 +228,10 @@ static struct {
     int stat_visit_owner;
     int stat_visit_full;
     int stat_counted;          /* this frame's result already recorded */
+    int stat_prev_brk;         /* the break before this shot, for tier crossings */
     int stat_dirty;
     int stat_page;         /* 0 = vs CPU, 1 = online */
+    int stat_scroll, stat_len;   /* the records list is taller than the panel */
     /* This frame's play, and the match's. Not saved: they describe the game you
      * are in, and the game you are in is over by the time a save would matter. */
     CueVrPlayStat fstat[2], mstat[2];
@@ -400,7 +402,9 @@ void cuevr_app_force_screen(const char *name) {
     } else if (!strcmp(name, "controls")) {
         S.appear_from = ST_MENU; S.menu_row = CR_HAND; S.state = ST_CONTROLS;
     } else if (!strcmp(name, "stats")) {
-        S.appear_from = ST_MENU; S.state = ST_STATS;
+        S.appear_from = ST_MENU; S.state = ST_STATS; S.stat_scroll = 0;
+    } else if (!strcmp(name, "stats2")) {
+        S.appear_from = ST_MENU; S.state = ST_STATS; S.stat_scroll = 68;
     } else if (!strcmp(name, "menu")) {
         S.state = ST_MENU;
         S.menu_row = MR_GAME;
@@ -1506,26 +1510,74 @@ static void hud_paint(void) {
             hud_text_r(S.stat_page ? "ONLINE" : "VS CPU", HW - 6, 14, LIVE);
         }
 
-        int md = S.stat_page ? 1 : 0, y = 24;
-        hud_text("HIGHEST BREAK", 4, y, LIVE); y += 7;
+        int md = S.stat_page ? 1 : 0;
+        /* MORE THAN FITS. The page grew a breaks section and there is no taller
+         * panel to put it on, so it scrolls: everything is drawn at an offset
+         * and clipped to the window between the SHOWING row and the footer,
+         * with one clickable row at the bottom that pages up and down. */
+        const int Y0 = 24, Y1 = HH - 22;
+        int y = Y0 - S.stat_scroll;
+        #define ROW(lbl, val, lit) do {                                        \
+                if (y >= Y0 && y <= Y1) {                                      \
+                    hud_text((lbl), 8, y, TXT);                                \
+                    hud_text_r((val), HW - 6, y, (lit) ? HI : DIM);            \
+                }                                                              \
+                y += 7;                                                        \
+            } while (0)
+        #define HEAD(lbl) do {                                                 \
+                if (y >= Y0 && y <= Y1) hud_text((lbl), 4, y, LIVE);           \
+                y += 7;                                                        \
+            } while (0)
+
+        HEAD("HIGHEST BREAK");
         for (int a = 0; a < CUEVR_STAT_SNK; a++) {
             snprintf(v, sizeof v, "%d", S.stats.snk_best[a][md]);
-            hud_text(cuevr_stat_snk_name(a), 8, y, TXT);
-            hud_text(v, HW - 6 - hud_text_w(v), y, S.stats.snk_best[a][md] ? HI : DIM);
-            y += 7;
+            ROW(cuevr_stat_snk_name(a), v, S.stats.snk_best[a][md]);
         }
         y += 3;
-        hud_text("CLEARANCES", 4, y, LIVE); y += 7;
+        HEAD("BREAKS MADE");
+        {
+            static const char *TN[CUEVR_BRK_TIERS] = { "20+", "30+", "50+", "100+" };
+            for (int a = 0; a < CUEVR_BRK_TIERS; a++) {
+                snprintf(v, sizeof v, "%d", S.stats.brk_tier[a][md]);
+                ROW(TN[a], v, S.stats.brk_tier[a][md]);
+            }
+        }
+        y += 3;
+        HEAD("CLEARANCES");
         for (int a = 0; a < CUEVR_STAT_POOL; a++) {
             snprintf(v, sizeof v, "%d", S.stats.pool_clear[a][md]);
-            hud_text(cuevr_stat_pool_name(a), 8, y, TXT);
-            hud_text(v, HW - 6 - hud_text_w(v), y, S.stats.pool_clear[a][md] ? HI : DIM);
-            y += 7;
+            ROW(cuevr_stat_pool_name(a), v, S.stats.pool_clear[a][md]);
+        }
+        y += 3;
+        HEAD("SIX BALL CLEARANCE");
+        for (int a = 0; a < CUE_GAME_COUNT; a++) {
+            int best = S.mini_best[a];
+            if (!best) continue;
+            snprintf(v, sizeof v, "%d.%02d", best / 100, best % 100);
+            ROW(cuevr_stat_table_name(a), v, 1);
         }
         y += 3;
         snprintf(v, sizeof v, "%d of %d", S.stats.frames_won[md], S.stats.frames_played[md]);
-        hud_text("FRAMES WON", 4, y, TXT);
-        hud_text(v, HW - 6 - hud_text_w(v), y, TXT);
+        ROW("FRAMES WON", v, 1);
+        #undef ROW
+        #undef HEAD
+
+        /* How far the list actually runs, so the scroll cannot go past its end
+         * and the arrow only appears when there is something below. */
+        S.stat_len = (y + S.stat_scroll) - Y0;
+        int page = Y1 - Y0;
+        int maxs = S.stat_len - page;
+        if (maxs < 0) maxs = 0;
+        if (S.stat_scroll > maxs) S.stat_scroll = maxs;
+
+        if (maxs > 0) {
+            int on = (S.menu_row == 2);
+            if (on) hud_rect(1, HH - 20, HW - 2, 9, RGB565C(28, 58, 40));
+            hud_text(S.stat_scroll < maxs ? "MORE" : "BACK TO THE TOP",
+                     4, HH - 18, on ? HI : DIM);
+            hud_text_r(S.stat_scroll < maxs ? "DOWN" : "UP", HW - 6, HH - 18, LIVE);
+        }
 
         {
             int on = (S.menu_row == 1);
@@ -2166,7 +2218,19 @@ static void stat_after_shot(void) {
             S.stats.snk_best[slot][md] = S.rules.brk;
             S.stat_dirty = 1;
         }
+        /* Tier counts, on the CROSSING. A break only ever grows within a visit,
+         * so a 57 passes 20, 30 and 50 exactly once each and counts once for
+         * each — which is what "how many fifties have you made" means. Reading
+         * the final figure at the end of a visit would have needed a visit-end
+         * hook that does not exist; watching it go past does not. */
+        static const int TIER[CUEVR_BRK_TIERS] = { 20, 30, 50, 100 };
+        for (int a2 = 0; a2 < CUEVR_BRK_TIERS; a2++)
+            if (S.stat_prev_brk < TIER[a2] && S.rules.brk >= TIER[a2]) {
+                S.stats.brk_tier[a2][md]++;
+                S.stat_dirty = 1;
+            }
     }
+    S.stat_prev_brk = (S.rules.turn == me) ? S.rules.brk : 0;
     if (!S.rules.frame_over) return;
     S.stat_counted = 1;
     S.stats.frames_played[md]++;
@@ -2213,6 +2277,7 @@ static void menu_activate(void) {
         S.state = ST_APPEAR;
         S.hud_dirty = 1;
     } else if (S.menu_row == MR_STATS) {
+        S.stat_scroll = 0;
         S.appear_from = ST_MENU;
         S.state = ST_STATS;
         S.hud_dirty = 1;
@@ -3820,10 +3885,22 @@ static void app_update(void *u, const MoteVrTracking *t) {
             if (S.ptr_ok) {
                 if (S.ptr_y >= 12.0f && S.ptr_y < 21.0f)          hov = 0;
                 else if (S.ptr_y >= (float)(HH - 11))              hov = 1;
+                else if (S.ptr_y >= (float)(HH - 20) &&
+                         S.ptr_y <  (float)(HH - 11))              hov = 2;
             }
             if (hov >= 0 && hov != S.menu_row) { S.menu_row = hov; S.hud_dirty = 1; }
             if (hov >= 0 && ptr_click(t)) {
-                if (hov == 0) S.stat_page ^= 1;
+                if (hov == 0) { S.stat_page ^= 1; S.stat_scroll = 0; }
+                else if (hov == 2) {
+                    /* One page at a time, and round to the top at the bottom —
+                     * a scroll with no way back up is a trap. */
+                    int page = (HH - 22) - 24;
+                    int maxs = S.stat_len - page;
+                    if (maxs < 0) maxs = 0;
+                    S.stat_scroll = (S.stat_scroll < maxs)
+                                  ? (S.stat_scroll + page > maxs ? maxs : S.stat_scroll + page)
+                                  : 0;
+                }
                 else {
                     S.state = S.appear_from;
                     S.menu_row = (S.appear_from == ST_MENU) ? MR_STATS : 0;

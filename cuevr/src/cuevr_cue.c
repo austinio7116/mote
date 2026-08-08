@@ -103,6 +103,15 @@ const char *cuevr_stat_snk_name(int slot) {
     static const char *N[CUEVR_STAT_SNK] = { "SNOOKER 6-RED", "SNOOKER 10-RED", "SNOOKER 12FT" };
     return (slot >= 0 && slot < CUEVR_STAT_SNK) ? N[slot] : "?";
 }
+/* A table kind's own name, indexed by CueGameKind — the six-ball records are
+ * kept per table, and the two slot-name helpers above are indexed by their own
+ * compacted slots, not by kind. */
+const char *cuevr_stat_table_name(int kind) {
+    static const char *N[CUE_GAME_COUNT] = {
+        "UK 8-BALL 7FT", "US 8-BALL 9FT", "9-BALL 9FT", "CHINESE 8 10FT",
+        "SNOOKER 12FT", "SNOOKER 10-RED", "SNOOKER 6-RED" };
+    return (kind >= 0 && kind < CUE_GAME_COUNT) ? N[kind] : "?";
+}
 const char *cuevr_stat_pool_name(int slot) {
     static const char *N[CUEVR_STAT_POOL] = { "UK 8-BALL", "US 8-BALL", "9-BALL", "CHINESE 8" };
     return (slot >= 0 && slot < CUEVR_STAT_POOL) ? N[slot] : "?";
@@ -179,6 +188,11 @@ static void prefs_put(CueVrPrefs *p, const char *k, double v) {
     else if (!strcmp(k, "spots"))   p->cue_spots  = i ? 1 : 0;
     else if (!strcmp(k, "prespot")) p->prac_respot = i ? 1 : 0;
     else if (!strcmp(k, "surround")) { if (i >= 0 && i <= 2) p->surround = i; }
+    else if (!strncmp(k, "bt", 2) && k[2] && k[3] && !k[4]) {
+        int a2 = k[2] - '0', b2 = k[3] - '0';
+        if (a2 >= 0 && a2 < CUEVR_BRK_TIERS && b2 >= 0 && b2 < 2 && i >= 0)
+            p->brk_tier[a2][b2] = i;
+    }
     else if (!strncmp(k, "mb", 2) && k[2] && !k[3]) {
         int a2 = k[2] - '0';
         if (a2 >= 0 && a2 < CUE_GAME_COUNT && i >= 0) p->mini_best[a2] = i;
@@ -278,6 +292,10 @@ void cuevr_prefs_save(const CueVrPrefs *p) {
     fprintf(f, "surround %d\n", p->surround);
     for (int a2 = 0; a2 < CUE_GAME_COUNT; a2++)
         if (p->mini_best[a2] > 0) fprintf(f, "mb%d %d\n", a2, p->mini_best[a2]);
+    for (int a2 = 0; a2 < CUEVR_BRK_TIERS; a2++)
+        for (int b2 = 0; b2 < 2; b2++)
+            if (p->brk_tier[a2][b2] > 0)
+                fprintf(f, "bt%d%d %d\n", a2, b2, p->brk_tier[a2][b2]);
     fclose(f);
 }
 
