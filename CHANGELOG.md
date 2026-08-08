@@ -20,7 +20,7 @@ device.
   rather than not at all.
 - Only Indemnity Run was affected, because only Indemnity Run puts anything that far away:
   its planets and star are drawn at true distance, millions of kilometres out. Every other
-  game keeps its whole scene within a few kilometres and never came near the limit — 19 of
+  game keeps its whole scene within a few kilometres and never came near the limit — 18 of
   them were captured before and after the change and came out identical to the pixel.
 
 ## 0.21-alpha — Mote on your phone
