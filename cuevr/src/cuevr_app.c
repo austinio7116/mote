@@ -196,6 +196,7 @@ static struct {
     int stat_dirty;
     int stat_page;         /* 0 = vs CPU, 1 = online */
     int dec_sel;           /* highlighted decision row */
+    int lb_click;          /* the laser clicked a lobby row */
     int can_repick;        /* the ball is down but the stroke is not played */
     int lefty;             /* bridges with the right hand */
     int stick_swap, inv_slide, inv_turn;
@@ -294,6 +295,13 @@ static struct {
  * player: the MENU button, which only the left controller has, and the hand
  * poses handed to the renderer, which must stay what they are or the controller
  * models swap sides. */
+/* A AND B DO NOT MOVE. They are letters printed on the right controller, and
+ * every prompt in the game says "A". Swapping them for a left-hander meant the
+ * screen asked for A while the button that answered was X — the label and the
+ * key disagreeing is worse than reaching across.
+ *
+ * What DOES follow the cue hand is the pointing: the laser and its trigger, and
+ * the trigger that drops the ball. Those are held, not read off a legend. */
 #define DOMH (S.lefty ? MOTE_VR_LEFT  : MOTE_VR_RIGHT)
 #define OFFH (S.lefty ? MOTE_VR_RIGHT : MOTE_VR_LEFT)
 
@@ -940,7 +948,7 @@ static void hud_paint(void) {
                 if (i == S.lb_sel) hud_rect(1, y - 1, HW - 2, 11, RGB565C(30, 46, 72));
                 hud_text_2x(TR_NAME[i], 8, y, i == S.lb_sel ? HI : DIM);
             }
-            hud_text("A CHOOSE     B BACK", 4, HH - 6, DIM);
+            hud_text("POINT AND CLICK      B BACK", 4, HH - 6, DIM);
             return;
         }
         if (S.lb_screen == LB_ACTION) {
@@ -955,7 +963,7 @@ static void hud_paint(void) {
                 hud_text_2x(S.lb_tr == TR_LAN ? LAN_A[i] : NET_A[i], 8, y,
                             i == S.lb_sel ? HI : DIM);
             }
-            hud_text("A CHOOSE     B BACK", 4, HH - 6, DIM);
+            hud_text("POINT AND CLICK      B BACK", 4, HH - 6, DIM);
             return;
         }
         if (S.lb_screen == LB_CODE) {
@@ -968,7 +976,7 @@ static void hud_paint(void) {
                             i == S.lb_cur ? TXT : DIM);
             }
             hud_text("STICK L/R PICK   UP/DOWN CHANGE", 4, 50, DIM);
-            hud_text("A JOIN       B BACK", 4, HH - 6, HI);
+            hud_text("POINT AND CLICK      B BACK", 4, HH - 6, HI);
             return;
         }
         if (S.lb_screen == LB_BROWSE) {
@@ -986,7 +994,7 @@ static void hud_paint(void) {
                     hud_text(cuevr_net_browse_label(i), 40, y, i == S.lb_sel ? TXT : DIM);
                 }
             }
-            hud_text("A JOIN       B BACK", 4, HH - 6, HI);
+            hud_text("POINT AND CLICK      B BACK", 4, HH - 6, HI);
             return;
         }
         /* LB_WAIT */
@@ -1070,9 +1078,18 @@ static void hud_paint(void) {
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("RECORDS", 4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
-        hud_text(S.stat_page ? "ONLINE" : "VS CPU", HW - 34, 3, LIVE);
+        /* A ROW YOU CAN SEE AND CLICK, not a word in the corner. The footer
+         * said left/right while the only thing that worked was clicking that
+         * word — two different instructions, neither of them signposted. Both
+         * of these are rows now, and both are hit-tested where they are drawn. */
+        {
+            int on = (S.menu_row == 0);
+            if (on) hud_rect(1, 12, HW - 2, 9, RGB565C(28, 58, 40));
+            hud_text("SHOWING", 4, 14, on ? HI : DIM);
+            hud_text_r(S.stat_page ? "ONLINE" : "VS CPU", HW - 6, 14, LIVE);
+        }
 
-        int md = S.stat_page ? 1 : 0, y = 14;
+        int md = S.stat_page ? 1 : 0, y = 24;
         hud_text("HIGHEST BREAK", 4, y, LIVE); y += 7;
         for (int a = 0; a < CUEVR_STAT_SNK; a++) {
             snprintf(v, sizeof v, "%d", S.stats.snk_best[a][md]);
@@ -1093,8 +1110,12 @@ static void hud_paint(void) {
         hud_text("FRAMES WON", 4, y, TXT);
         hud_text(v, HW - 6 - hud_text_w(v), y, TXT);
 
-        hud_text("LEFT/RIGHT  CPU / ONLINE", 4, HH - 12, DIM);
-        hud_text("A BACK", 4, HH - 6, HI);
+        {
+            int on = (S.menu_row == 1);
+            if (on) hud_rect(1, HH - 11, HW - 2, 9, RGB565C(28, 58, 40));
+            hud_text("BACK", 4, HH - 9, on ? HI : DIM);
+            hud_text_r("DONE", HW - 6, HH - 9, on ? LIVE : DIM);
+        }
         return;
     }
 
@@ -1270,6 +1291,52 @@ static void hud_paint(void) {
             cue_render_onball_icon_hs(HW - 14, 55, 8, S.rules.target, S.rules.seq);
     } else if (S.tab.kind == CUE_GAME_US9) {
         cue_render_ball_icon_hs(HW - 14, 55, 8, S.rules.seq > 0 ? S.rules.seq : 1);
+    }
+
+    /* WHAT IS LEFT, as balls rather than as a number. "REM 43" is a fact you
+     * have to decode; a row of the actual balls is the same fact read at a
+     * glance, and it is what every real board and the 2D game show. Small, low,
+     * and clear of the spin indicator's corner.
+     *
+     * Snooker: one red with a count, because fifteen identical discs is a smear,
+     * then each colour still on in value order. Pool: the striker's own group,
+     * one disc each, which is exactly the thing you are counting down. */
+    {
+        const int ry = 63, rr = 3, step = 7, x0 = 6, xmax = HW - 44;
+        int x = x0;
+        if (S.tab.is_snooker) {
+            int reds = 0;
+            for (int i = 1; i < S.nballs; i++)
+                if (S.balls[i].on && S.balls[i].id >= 1 && S.balls[i].id <= 15) reds++;
+            if (reds > 0) {
+                cue_render_ball_icon_hs(x, ry, rr, 1);
+                char rb[8]; snprintf(rb, sizeof rb, "x%d", reds);
+                hud_text(rb, x + rr + 2, ry - 2, DIM);
+                x += step + 8;
+            }
+            for (int v = 2; v <= 7 && x < xmax; v++) {
+                int id = CUE_ID_YELLOW + (v - 2), on = 0;
+                for (int i = 1; i < S.nballs; i++)
+                    if (S.balls[i].on && S.balls[i].id == id) { on = 1; break; }
+                if (!on) continue;
+                cue_render_ball_icon_hs(x, ry, rr, id);
+                x += step;
+            }
+        } else {
+            int me = (S.opp == OPP_ONLINE) ? S.net_me : 0;
+            int grp = S.rules.group[me];
+            for (int i = 1; i < S.nballs && x < xmax; i++) {
+                if (!S.balls[i].on) continue;
+                int id = S.balls[i].id;
+                if (S.tab.kind != CUE_GAME_US9) {
+                    int g = (id >= 1 && id <= 7) ? 1 : (id >= 9 && id <= 15) ? 2 : 0;
+                    if (grp && g != grp && id != 8) continue;
+                    if (!grp && id == 8) continue;      /* open table: not yours yet */
+                }
+                cue_render_ball_icon_hs(x, ry, rr, id);
+                x += step;
+            }
+        }
     }
 
     /* The spin indicator. In VR this matters MORE than on the handheld: with no
@@ -2091,11 +2158,11 @@ static void app_update(void *u, const MoteVrTracking *t) {
         /* A still works, on whatever the pointer last picked out — a button is
          * a kinder thing to find than a ray when you are not looking at the
          * panel. */
-        if (t->hand[DOMH].btn_lower && !S.btn_latch) {
+        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
             S.btn_latch = 1;
             menu_activate();
         }
-        if (!t->hand[DOMH].btn_lower) S.btn_latch = 0;
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
         break;
     }
 
@@ -2132,10 +2199,32 @@ static void app_update(void *u, const MoteVrTracking *t) {
         /* Either stick, so it does not matter which hand — the sum is the same
          * whichever way round the player is, and writing it handed would only
          * suggest it mattered. */
-        float ly = t->hand[MOTE_VR_LEFT].stick_y + t->hand[MOTE_VR_RIGHT].stick_y;
-        float lx = t->hand[MOTE_VR_LEFT].stick_x + t->hand[MOTE_VR_RIGHT].stick_x;
-        int a = t->hand[DOMH].btn_lower;
-        int bb = t->hand[DOMH].btn_upper;
+        {
+            /* POINTED AT, like every other list. This was the one screen still
+             * driven by a stick — exactly the inconsistency that makes an
+             * interface feel improvised: you point at everything else, arrive
+             * here, and nothing moves. The rows the pointer tests are the rows
+             * each screen draws, at the same coordinates, so they cannot drift.
+             * LB_CODE keeps its stick: spinning a letter is a dial, not a list,
+             * and there is nothing on screen to point at. */
+            int hov = -1;
+            if (S.lb_screen == LB_TRANSPORT)   hov = ptr_row_at(24, 11, TR_N);
+            else if (S.lb_screen == LB_ACTION) hov = ptr_row_at(21, 10,
+                                                    (S.lb_tr == TR_LAN) ? 2 : 4);
+            else if (S.lb_screen == LB_BROWSE && cuevr_net_browse_done()) {
+                int nb = cuevr_net_browse_count();
+                hov = ptr_row_at(13, 9, nb < 5 ? nb : 5);
+            }
+            if (hov >= 0 && hov != S.lb_sel) { S.lb_sel = hov; S.hud_dirty = 1; }
+            if (hov >= 0 && ptr_click(t)) S.lb_click = 1;
+        }
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        float ly = (S.lb_screen == LB_CODE)
+                 ? t->hand[MOTE_VR_LEFT].stick_y + t->hand[MOTE_VR_RIGHT].stick_y : 0.0f;
+        float lx = (S.lb_screen == LB_CODE)
+                 ? t->hand[MOTE_VR_LEFT].stick_x + t->hand[MOTE_VR_RIGHT].stick_x : 0.0f;
+        int a = t->hand[MOTE_VR_RIGHT].btn_lower || S.lb_click;
+        int bb = t->hand[MOTE_VR_RIGHT].btn_upper;
 
         /* Edge-triggered, and it has to be written this way round. The first
          * version cleared the latch on a neutral frame and then immediately
@@ -2143,9 +2232,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * the latch was already held and every press was swallowed. Two peers sat
          * in the lobby forever and nothing was logged, because nothing ran. */
         int any = (fabsf(ly) > 0.4f) || (fabsf(lx) > 0.4f) || a || bb;
-        if (!any)        { S.lb_latch = 0; break; }
-        if (S.lb_latch)  break;
+        if (!any)                      { S.lb_latch = 0; break; }
+        if (S.lb_latch && !S.lb_click) break;
         S.lb_latch = 1;
+        S.lb_click = 0;                /* a click is one event, not a held state */
 
         if (bb) {
             /* Back, one screen at a time; out of the lobby means out of online. */
@@ -2246,7 +2336,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         }
         /* The sticks belong to the table here too. */
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
-        int a = t->hand[DOMH].btn_lower;
+        int a = t->hand[MOTE_VR_RIGHT].btn_lower;
         if (!a && !S.pause_click) S.pause_latch = 0;
         else if (!S.pause_latch || S.pause_click) {
             S.pause_latch = 1;
@@ -2808,14 +2898,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.hud_dirty = 1;
             }
         }
-        if (t->hand[DOMH].btn_lower && !S.btn_latch) {
+        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
             S.btn_latch = 1;
             S.state = S.appear_from;
             S.menu_row = (S.appear_from == ST_MENU) ? MR_APPEAR : 0;
             if (S.appear_from == ST_PAUSE) S.pause_sel = PS_APPEAR;
             S.hud_dirty = 1;
         }
-        if (!t->hand[DOMH].btn_lower) S.btn_latch = 0;
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
         break;
     }
 
@@ -2862,40 +2952,47 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.hud_dirty = 1;
             }
         }
-        if (t->hand[DOMH].btn_lower && !S.btn_latch) {
+        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
             S.btn_latch = 1;
             S.state = S.appear_from;
             S.menu_row = (S.appear_from == ST_MENU) ? MR_CONTROLS : 0;
             if (S.appear_from == ST_PAUSE) S.pause_sel = PS_CONTROLS;
             S.hud_dirty = 1;
         }
-        if (!t->hand[DOMH].btn_lower) S.btn_latch = 0;
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
         break;
     }
 
     case ST_STATS: {
-        /* Two things to point at: the page, and the way out. The whole panel is
-         * the page toggle except the bottom two lines, which are the footer. */
+        /* Two rows, both drawn, both hit-tested where they are drawn: the page
+         * at the top and the way out at the bottom. */
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
-        if (S.ptr_ok && ptr_click(t)) {
-            if (S.ptr_y > (float)(HH - 14)) {
-                S.state = S.appear_from;
-                S.menu_row = (S.appear_from == ST_MENU) ? MR_STATS : 0;
-                if (S.appear_from == ST_PAUSE) S.pause_sel = PS_STATS;
-                S.btn_latch = 1;
-            } else {
-                S.stat_page ^= 1;
+        {
+            int hov = -1;
+            if (S.ptr_ok) {
+                if (S.ptr_y >= 12.0f && S.ptr_y < 21.0f)          hov = 0;
+                else if (S.ptr_y >= (float)(HH - 11))              hov = 1;
             }
-            S.hud_dirty = 1;
+            if (hov >= 0 && hov != S.menu_row) { S.menu_row = hov; S.hud_dirty = 1; }
+            if (hov >= 0 && ptr_click(t)) {
+                if (hov == 0) S.stat_page ^= 1;
+                else {
+                    S.state = S.appear_from;
+                    S.menu_row = (S.appear_from == ST_MENU) ? MR_STATS : 0;
+                    if (S.appear_from == ST_PAUSE) S.pause_sel = PS_STATS;
+                    S.btn_latch = 1;
+                }
+                S.hud_dirty = 1;
+            }
         }
-        if (t->hand[DOMH].btn_lower && !S.btn_latch) {
+        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
             S.btn_latch = 1;
             S.state = S.appear_from;
             S.menu_row = (S.appear_from == ST_MENU) ? MR_STATS : 0;
             if (S.appear_from == ST_PAUSE) S.pause_sel = PS_STATS;
             S.hud_dirty = 1;
         }
-        if (!t->hand[DOMH].btn_lower) S.btn_latch = 0;
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
         break;
     }
 
@@ -2916,7 +3013,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
 
             int fire = 0;
             if (hov >= 0 && ptr_click(t)) fire = 1;
-            int a = t->hand[DOMH].btn_lower;
+            int a = t->hand[MOTE_VR_RIGHT].btn_lower;
             if (!a) S.dec_latch = 0;
             else if (!S.dec_latch) { S.dec_latch = 1; fire = 1; }
             if (!fire) break;
@@ -2956,7 +3053,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         /* A won frame in an unfinished match leads to the next frame, not back
          * to the main menu — otherwise "best of 7" is seven trips through the
          * table setup. A won MATCH goes back. */
-        if (!t->hand[DOMH].btn_lower) S.over_latch = 0;
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.over_latch = 0;
         else if (!S.over_latch) {
             S.over_latch = 1;
             if (S.rules.best_of > 1 && !S.rules.match_over) {
