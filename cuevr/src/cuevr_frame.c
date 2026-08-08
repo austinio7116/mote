@@ -1177,22 +1177,87 @@ static void american(CueVrFrameMesh *m, const CueTable *t) {
                px + 0.105f, c_top, sgz > 0 ? z1 : -z0, 0, INK);
     }
 
-    /* The legs: near-vertical columns set well INBOARD of the ends — the
-     * photo's whole stance is the open air around them — square in section
-     * with the gentlest inward cant, on the black disc feet. */
+    /* The legs — read off the photograph properly at the third asking: the
+     * table does NOT stand on four columns. Each end has ONE pedestal, a
+     * slab spanning most of the width with a tall ARCH cut out of its
+     * middle, leaving two limbs that curve down onto round black feet. Four
+     * feet, two legs. The arch is the silhouette: the open air UNDER the
+     * middle of each pedestal is what makes the stance.
+     *
+     * Built as vertical strips across the width whose bottom edges follow
+     * the arch curve — twenty-two strips read as a curve at any distance a
+     * table is seen from, and the strip bottoms give the arch its stepped
+     * soffit, which the real pressed panel has too. */
     int pairs = (hl * 2.0f > 2.9f) ? 3 : 2;
-    const float lw = 0.235f;
-    for (int p = 0; p < pairs; p++) {
-        float fx = (pairs == 1) ? 0.0f
-                 : (-1.0f + 2.0f * (float)p / (float)(pairs - 1));
-        float cx = fx * (ox - 0.310f);
-        for (int sz = -1; sz <= 1; sz += 2) {
-            float cz = (float)sz * (oz - 0.135f);
-            raked_post(m, cx, cz, cx - fx * 0.020f, cz - (float)sz * 0.022f,
-                       skirt_bot + 0.020f, floor_y + 0.058f,
-                       lw, lw * 0.84f, 0.030f, PAL_WOOD);
-            turned(m, cx - fx * 0.020f, cz - (float)sz * 0.022f,
-                   floor_y + 0.060f, floor_y, foot_disc, 10, INK);
+    {
+        /* The arch is CUT, not stacked. The first version built it of vertical
+         * strips whose box bottoms stepped along the curve, and the verdict
+         * was exact: a child's lego, on a premium table. A pressed pedestal
+         * has three surfaces and all of them are smooth — the two faces, cut
+         * to the curve; and the soffit, a band sweeping under the arch whose
+         * normals turn with it and catch the light the way the real pressing
+         * does. So that is what is built: face quads whose lower edge IS the
+         * curve, and a swept soffit, at forty segments. */
+        const float thk  = 0.135f;               /* the slab, through the length */
+        const float W    = oz - 0.100f;          /* pedestal half-width */
+        const float A    = W * 0.76f;            /* the arch's half-span */
+        const float foot_h = 0.058f;
+        const float ped_bot = floor_y + foot_h;
+        const float ped_top = skirt_bot + 0.020f;
+        const float arch_top = floor_y + 0.50f;
+        const int   NSEG = 40;
+        for (int p = 0; p < pairs; p++) {
+            float fx = (pairs == 1) ? 0.0f
+                     : (-1.0f + 2.0f * (float)p / (float)(pairs - 1));
+            float cx = fx * (ox - 0.270f);
+            float xf = cx + thk * 0.5f, xb = cx - thk * 0.5f;
+
+            /* the lower boundary across the whole width */
+            float zs[NSEG + 1], ys[NSEG + 1];
+            for (int k = 0; k <= NSEG; k++) {
+                float z = -W + 2.0f * W * (float)k / NSEG;
+                float y = ped_bot;
+                if (fabsf(z) < A) {
+                    float u = z / A;
+                    y = ped_bot + (arch_top - ped_bot) * sqrtf(1.0f - u * u);
+                }
+                zs[k] = z; ys[k] = y;
+            }
+            for (int k = 0; k < NSEG; k++) {
+                /* front and back faces: top edge straight, bottom edge on the
+                 * curve — a quad may be a trapezoid, and these are */
+                { float n[3] = { 1, 0, 0 };
+                  float a0[3]={xf,ys[k],zs[k]},   b0[3]={xf,ys[k+1],zs[k+1]};
+                  float c0[3]={xf,ped_top,zs[k+1]}, d0[3]={xf,ped_top,zs[k]};
+                  quad(m, a0,b0,c0,d0, n, zs[k+1]-zs[k], ped_top-ys[k], PAL_WOOD); }
+                { float n[3] = { -1, 0, 0 };
+                  float a0[3]={xb,ys[k],zs[k]},   b0[3]={xb,ys[k+1],zs[k+1]};
+                  float c0[3]={xb,ped_top,zs[k+1]}, d0[3]={xb,ped_top,zs[k]};
+                  quad(m, a0,b0,c0,d0, n, zs[k+1]-zs[k], ped_top-ys[k], PAL_WOOD); }
+                /* the soffit: a band under the curve, normal turning with it */
+                {
+                  float dz = zs[k+1]-zs[k], dy = ys[k+1]-ys[k];
+                  float l = sqrtf(dz*dz + dy*dy);
+                  if (l > 1e-6f) {
+                    float n[3] = { 0, -dz / l, dy / l };
+                    float a0[3]={xf,ys[k],zs[k]},   b0[3]={xf,ys[k+1],zs[k+1]};
+                    float c0[3]={xb,ys[k+1],zs[k+1]}, d0[3]={xb,ys[k],zs[k]};
+                    quad(m, a0,b0,c0,d0, n, l, thk, PAL_WOOD);
+                  }
+                }
+            }
+            /* the outer side faces */
+            for (int sgz = -1; sgz <= 1; sgz += 2) {
+                float z = (float)sgz * W;
+                float n[3] = { 0, 0, (float)sgz };
+                float a0[3]={xb,ped_bot,z}, b0[3]={xf,ped_bot,z};
+                float c0[3]={xf,ped_top,z}, d0[3]={xb,ped_top,z};
+                quad(m, a0,b0,c0,d0, n, ped_top-ped_bot, thk, PAL_WOOD);
+            }
+            /* the two feet, under the limbs */
+            float zf = (A + W) * 0.5f;
+            turned(m, cx,  zf, floor_y + foot_h + 0.002f, floor_y, foot_disc, 10, INK);
+            turned(m, cx, -zf, floor_y + foot_h + 0.002f, floor_y, foot_disc, 10, INK);
         }
     }
 
