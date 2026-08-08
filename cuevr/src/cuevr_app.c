@@ -353,6 +353,8 @@ int cuevr_app_aiming(void) { return S.state == ST_AIM; }
  * row counts change), and a screen nobody can photograph is a screen nobody
  * checks. */
 static void stat_frame_reset(void);
+static void stat_match_reset(void);
+static void stat_frame_into_match(void);
 
 void cuevr_app_force_screen(const char *name) {
     if (!name) return;
@@ -374,15 +376,26 @@ void cuevr_app_force_screen(const char *name) {
         S.rules.target = 0;
         for (int i = 1; i < S.nballs; i++)
             if (S.balls[i].id >= 1 && S.balls[i].id <= 6) S.balls[i].on = 0;
-    } else if (!strcmp(name, "over")) {
-        /* The end-of-frame screen, with a frame's worth of play invented for it.
-         * It is only reachable by playing a whole frame out, which no capture
-         * can do — and a screen nobody can photograph is a screen nobody
-         * checks. The FIGURES are made up; the layout is the real one. */
+    } else if (!strcmp(name, "over") || !strcmp(name, "match")) {
+        /* The end-of-frame and end-of-match screens, with the play invented for
+         * them. Both are only reachable by playing a frame — or five — right
+         * out, which no capture can do, and a screen nobody can photograph is a
+         * screen nobody checks. The FIGURES are made up; the layout is real.
+         *
+         * "match" is the same screen with match_over set: match totals instead
+         * of the frame's, the frames tally in the band, and the break titled as
+         * the best of the match. */
+        int mt = !strcmp(name, "match");
         S.state = ST_OVER;
         S.rules.frame_over = 1;
         S.rules.winner = 0;
         stat_frame_reset();
+        stat_match_reset();
+        if (mt) {
+            S.rules.best_of = 5;
+            S.rules.frames[0] = 3; S.rules.frames[1] = 1;
+            S.rules.match_over = 1; S.rules.match_winner = 0;
+        }
         for (int p = 0; p < 2; p++) {
             CueVrPlayStat *st = &S.fstat[p];
             st->shots = p ? 19 : 24;
@@ -410,6 +423,28 @@ void cuevr_app_force_screen(const char *name) {
                 for (int i = 0; i < st->best_break; i++)
                     st->best_tally[(p ? 9 : 1) + i] = 1;
             }
+        }
+        /* Four frames of it, folded the way the real thing folds: the counts
+         * sum and the best break is a maximum, not a total. */
+        if (mt) {
+            for (int f = 0; f < 4; f++) stat_frame_into_match();
+            for (int p = 0; p < 2; p++) {
+                CueVrPlayStat *m = &S.mstat[p];
+                if (S.tab.is_snooker) {
+                    memset(m->best_tally, 0, sizeof m->best_tally);
+                    if (p) { m->best_tally[1] = 4; m->best_tally[CUE_ID_BLACK] = 2;
+                             m->best_tally[CUE_ID_PINK] = 1;
+                             m->best_tally[CUE_ID_BLUE] = 1; }
+                    else   { m->best_tally[1] = 9; m->best_tally[CUE_ID_BLACK] = 8;
+                             m->best_tally[CUE_ID_PINK] = 1; }
+                    int v = 0;
+                    for (int i = 1; i <= 15; i++) v += m->best_tally[i];
+                    for (int c = CUE_ID_YELLOW; c <= CUE_ID_BLACK; c++)
+                        v += m->best_tally[c] * (c - 18);
+                    m->best_break = v;
+                }
+            }
+            S.stat_folded = 1;         /* already counted; do not fold again */
         }
     }
     S.hud_dirty = 1;
