@@ -65,8 +65,18 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->R = 0.028575f; t->mass = 0.170f;
         t->cushion_h = 1.27f * t->R; t->rail_w = 0.080f;
         t->pocket_round = 0;                 /* straight mitred facings */
-        t->pr_corner  = 2.75f * t->R; t->pr_side  = 2.35f * t->R;
-        t->gap_corner = 3.20f * t->R; t->gap_side = 2.95f * t->R;   /* corners opened a touch */
+        /* TIGHTENED 20%, at the user's call: these were far and away the most
+         * open pockets in the set — 2.75 R at the corner against snooker's 1.98
+         * and the UK pub table's 2.15 — and they looked it next to the others.
+         * Both numbers move together: `pr` is the mouth you see and `gap` is
+         * where the jaw tips actually sit, so tightening one without the other
+         * would draw a smaller pocket than the ball is allowed through.
+         *     corner  2.75 -> 2.20 R      side  2.35 -> 1.88 R
+         *     gap     3.20 -> 2.56 R      gap   2.95 -> 2.36 R
+         * Still the widest mouths on any table here, which is right for an
+         * American table; they are no longer in a class of their own. */
+        t->pr_corner  = 2.20f * t->R; t->pr_side  = 1.88f * t->R;
+        t->gap_corner = 2.56f * t->R; t->gap_side = 2.36f * t->R;
         t->facing_len = 1.55f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         t->off_corner = 1.30f * t->R; t->off_side = 1.20f * t->R;  /* corners set back into the pocket */
