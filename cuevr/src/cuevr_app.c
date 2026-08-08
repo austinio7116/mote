@@ -1443,6 +1443,15 @@ static void menu_activate(void) {
         if (S.opp == OPP_ONLINE) {
             /* The lobby first — there is no frame to start until there
              * is somebody to play. */
+            /* WHAT WE ARE, BEFORE THE LINK CAN GO LIVE.
+             *
+             * The hello is sent from inside cuevr_net_task the instant the two
+             * ends connect, and that runs before any of the lobby's own code
+             * gets a look in. Filling it in when the match STARTS meant the
+             * packet had already gone out carrying kind 0 — so the joiner
+             * dutifully adopted "game zero" and racked pool against a host
+             * playing snooker. Set it here, where the choice is made. */
+            cuevr_net_set_hello((int)MENU[S.menu_sel].kind, S.cue_idx);
             S.lb_screen = LB_TRANSPORT;
             S.lb_sel = 0;
             /* The press that opened the lobby must not also answer its
@@ -2053,9 +2062,6 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * when you happen to touch a stick. */
         if (S.lb_screen == LB_WAIT && cuevr_net_state() == CUEVR_NET_LIVE) {
             S.net_me = cuevr_net_me();
-            /* Tell them what we are holding and, if we are the host, what we
-             * are playing. */
-            cuevr_net_set_hello((int)MENU[S.menu_sel].kind, S.cue_idx);
             /* THE HOST'S GAME IS THE GAME. Both ends used to call start_frame()
              * on their OWN menu selection, so two players who had not happened
              * to pick the same one racked different tables and every shot after
@@ -3291,6 +3297,7 @@ static void app_gl_shutdown(void *u) { (void)u; cuevr_audio_close(); cuevr_rende
  * working. */
 void cuevr_app_force_net(int join) {
     S.opp = OPP_ONLINE;
+    cuevr_net_set_hello((int)MENU[S.menu_sel].kind, S.cue_idx);
     S.lb_screen = LB_WAIT;
     S.state = ST_LOBBY;
     if (join) cuevr_net_lan_join(); else cuevr_net_lan_host();

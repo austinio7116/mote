@@ -80,6 +80,10 @@ int cuevr_net_recv_call(CueVrNetCall *out) {
     return 1;
 }
 
+static CueVrNetShot s_shot;
+static int          s_have_shot;
+static void         pump(void);
+
 static CueVrNetPose s_ppose;
 static int          s_pose_age = 1 << 20;
 
@@ -197,6 +201,7 @@ void cuevr_net_stop(void) {
     s_have_peer = 0;      /* a stale peer from the last room is a wrong table */
     s_pose_age = 1 << 20;
     s_have_call = 0;
+    s_have_shot = 0;
     s_info[0] = 0;
     s_code[0] = 0;
 }
@@ -276,6 +281,7 @@ const char *cuevr_net_browse_label(int i) {
 void cuevr_net_task(void) {
     if (s_state == CUEVR_NET_OFF) return;
     link_net_task();
+    pump();
 
     int st = link_net_status();
     if (s_state == CUEVR_NET_SEARCHING && st == LINK_NET_CONNECTED) {
@@ -309,46 +315,45 @@ void cuevr_net_send_shot(const CueVrNetShot *s) {
     link_net_send(p, (int)sizeof p);
 }
 
-int cuevr_net_recv_shot(CueVrNetShot *out) {
-    if (s_state != CUEVR_NET_LIVE || !out) return 0;
+/* Drain whatever has arrived and file it by type.
+ *
+ * This lived inside cuevr_net_recv_shot, which the app only calls while it is
+ * waiting for the opponent to play. So in the LOBBY nobody read the stream at
+ * all: the host's hello sat unparsed in the socket and the joiner waited for a
+ * game it had already been told about. Two paired instances, a hello away from
+ * racking, looking exactly like a dead connection. Pumped from the task, which
+ * runs every frame in every state. */
+static void pump(void) {
+    if (s_state != CUEVR_NET_LIVE) return;
     if (s_pose_age < (1 << 20)) s_pose_age++;
-
-    /* Top up the buffer, then consume whole records from the front. */
     if (s_in_n < (int)sizeof s_in) {
         int got = link_net_recv(s_in + s_in_n, (int)sizeof s_in - s_in_n);
         if (got > 0) s_in_n += got;
     }
     while (s_in_n > 0) {
         uint8_t tag = s_in[0];
-        int need = (tag == PKT_SHOT) ? 1 + (int)sizeof *out
+        int need = (tag == PKT_SHOT)  ? 1 + (int)sizeof s_shot
                  : (tag == PKT_CALL)  ? 1 + (int)sizeof s_call
                  : (tag == PKT_POSE)  ? 1 + (int)sizeof s_ppose
                  : (tag == PKT_HELLO) ? 1 + (int)sizeof s_peer
                  : -1;
-        if (need < 0) {
-            /* Not a record boundary. Drop one byte and try again rather than
-             * trusting the rest of the buffer. */
+        if (need < 0) {          /* not a boundary: drop a byte and resynchronise */
             memmove(s_in, s_in + 1, (size_t)--s_in_n);
             continue;
         }
-        if (s_in_n < need) return 0;             /* the rest is still in flight */
-        int found = (tag == PKT_SHOT);
-        if (found) memcpy(out, s_in + 1, sizeof *out);
-        else if (tag == PKT_POSE) {
-            memcpy(&s_ppose, s_in + 1, sizeof s_ppose);
-            s_pose_age = 0;
-        }
-        else if (tag == PKT_CALL) {
-            memcpy(&s_call, s_in + 1, sizeof s_call);
-            s_have_call = 1;
-        }
-        else if (tag == PKT_HELLO) {
-            memcpy(&s_peer, s_in + 1, sizeof s_peer);
-            s_have_peer = 1;
-        }
+        if (s_in_n < need) return;               /* the rest is still in flight */
+        if      (tag == PKT_SHOT)  { memcpy(&s_shot,  s_in + 1, sizeof s_shot);  s_have_shot = 1; }
+        else if (tag == PKT_CALL)  { memcpy(&s_call,  s_in + 1, sizeof s_call);  s_have_call = 1; }
+        else if (tag == PKT_POSE)  { memcpy(&s_ppose, s_in + 1, sizeof s_ppose); s_pose_age = 0; }
+        else if (tag == PKT_HELLO) { memcpy(&s_peer,  s_in + 1, sizeof s_peer);  s_have_peer = 1; }
         s_in_n -= need;
         memmove(s_in, s_in + need, (size_t)s_in_n);
-        if (found) return 1;
     }
-    return 0;
+}
+
+int cuevr_net_recv_shot(CueVrNetShot *out) {
+    if (!s_have_shot || !out) return 0;
+    *out = s_shot;
+    s_have_shot = 0;
+    return 1;
 }
