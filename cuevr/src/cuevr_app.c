@@ -373,6 +373,7 @@ static int coin_toss(void) {
 }
 
 static void stat_frame_reset(void);
+static void restyle_table(void);
 static void stat_match_reset(void);
 static void stat_frame_into_match(void);
 
@@ -560,6 +561,13 @@ void cuevr_app_force_body(int i) {
     S.body_idx = i;
     cuevr_render_set_body(i);
     cuevr_render_set_table(&S.tab, &S.world);
+}
+/* And the timber, by palette index — the harness's only way to photograph the
+ * bodies in ebony without walking the appearance menu. */
+void cuevr_app_force_framecol(int i) {
+    if (i < 0 || i >= CUE_NFRAME) return;
+    S.frame_idx = i;
+    restyle_table();
 }
 float cuevr_app_grip(void)      { return S.cue.grip; }
 
@@ -1580,7 +1588,11 @@ static void hud_paint(void) {
             }
         }
 
-        /* And that best visit, drawn out ball by ball. */
+        /* And that best visit, drawn out ball by ball — on a slightly bluer
+         * ground than the panel's near-black, so the dark balls read against
+         * it. The snooker black on the bare background was a number floating
+         * in nothing. */
+        hud_rect(0, 66, HW, HH - 66 - 11, RGB565C(22, 32, 52));
         hud_rect(0, 65, HW, 1, LINE);
         {
             const char *t2 = S.tab.is_snooker ? "BEST BREAK" : "LONGEST RUN";
@@ -1809,21 +1821,25 @@ static void hud_paint(void) {
          * with white rims they dominated the whole board, and the rims read as
          * thick white rings around everything. Black on dark is better than a
          * ring: the coloured disc carries all the information there is. */
-        const int ry = 75, rr = 3, step = 8, x0 = 28, xmax = HW - 8;
+        /* Bottom band, BELOW the message zone. The strip sat at row 75 with
+         * the help line at 70, and "CARRY IT WITH YOUR HAND" printed straight
+         * through the rack it was standing over. Rows 51-73 belong to text,
+         * 75 down belongs to the balls, and the divider is the fence. */
+        const int ry = 79, rr = 3, step = 8, x0 = 28, xmax = HW - 8;
         int x = x0;
-        hud_rect(0, 69, HW, 1, RGB565C(26, 40, 62));
+        hud_rect(0, 74, HW, 1, RGB565C(26, 40, 62));
         if (S.tab.is_snooker) {
             /* A nominated colour draws as THAT ball, not as the multicolour
              * "any colour" disc — the disc is only right before a nomination
              * exists. Reuse the clearance path by handing it the value. */
             if (S.rules.target == 1 && S.rules.nominated)
-                cue_render_onball_icon_hs(13, ry, 5, 2, S.rules.nominated);
+                cue_render_onball_icon_hs(13, ry, 4, 2, S.rules.nominated);
             else
-                cue_render_onball_icon_hs(13, ry, 5, S.rules.target, S.rules.seq);
-            hud_rect(24, 71, 1, 9, RGB565C(40, 60, 92));
+                cue_render_onball_icon_hs(13, ry, 4, S.rules.target, S.rules.seq);
+            hud_rect(24, 76, 1, 7, RGB565C(40, 60, 92));
         } else if (S.tab.kind == CUE_GAME_US9) {
-            cue_render_ball_icon_hs(13, ry, 5, S.rules.seq > 0 ? S.rules.seq : 1);
-            hud_rect(24, 71, 1, 9, RGB565C(40, 60, 92));
+            cue_render_ball_icon_hs(13, ry, 4, S.rules.seq > 0 ? S.rules.seq : 1);
+            hud_rect(24, 76, 1, 7, RGB565C(40, 60, 92));
         } else x = 6;
         if (S.tab.is_snooker) {
             int reds = 0;
@@ -1869,22 +1885,22 @@ static void hud_paint(void) {
 
     /* The one big line. */
     if (S.state == ST_PLACE) {
-        hud_text_2x("BALL IN HAND", 4, 58, HI);
-        hud_text("CARRY IT WITH YOUR HAND   TRIGGER DROPS", 4, 70, DIM);
+        hud_text_2x("BALL IN HAND", 4, 55, HI);
+        hud_text("CARRY IT WITH YOUR HAND   TRIGGER DROPS", 4, 67, DIM);
         return;
     }
-    if (S.msg_time > 0.0f) { hud_text_2x(S.msg, 4, 58, HI); return; }
+    if (S.msg_time > 0.0f) { hud_text_2x(S.msg, 4, 57, HI); return; }
 
-    if (S.state == ST_THINK)       hud_text_2x("OPPONENT THINKING...", 4, 58, DIM);
-    else if (S.state == ST_CPUCUE) hud_text_2x("OPPONENT CUEING...", 4, 58, HI);
-    else if (S.state == ST_ROLL)   hud_text_2x("...", 4, 58, DIM);
+    if (S.state == ST_THINK)       hud_text_2x("OPPONENT THINKING...", 4, 57, DIM);
+    else if (S.state == ST_CPUCUE) hud_text_2x("OPPONENT CUEING...", 4, 57, HI);
+    else if (S.state == ST_ROLL)   hud_text_2x("...", 4, 57, DIM);
     else if (S.state == ST_AIM) {
         /* No "cue is off the ball" prompt: you can see whether you are on it,
          * and a panel telling you so is noise. */
-        if (S.cue.stroking)       hud_text_2x("STROKE - PUSH THROUGH", 4, 58, HI);
-        else if (S.cue.adjusting) hud_text_2x("SETTING YOUR BRIDGE", 4, 58, HI);
+        if (S.cue.stroking)       hud_text_2x("STROKE - PUSH THROUGH", 4, 57, HI);
+        else if (S.cue.adjusting) hud_text_2x("SETTING YOUR BRIDGE", 4, 57, HI);
         else if (S.opp == OPP_PRACTICE && S.have_snap && S.undo_hold > 0.0f) {
-            hud_text_2x("HOLD B TO PLAY IT AGAIN", 4, 58, HI);
+            hud_text_2x("HOLD B TO PLAY IT AGAIN", 4, 57, HI);
             int w = (int)((float)(HW - 8) * (S.undo_hold / CUEVR_UNDO_HOLD));
             if (w > HW - 8) w = HW - 8;
             hud_rect(4, 67, w, 2, LIVE);

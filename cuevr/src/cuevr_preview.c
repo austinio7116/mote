@@ -47,6 +47,7 @@ void cuevr_app_lock_hud_end(int sign);
 void cuevr_app_force_start(int kind);
 void cuevr_app_force_net(int join);
 void cuevr_app_force_body(int i);
+void cuevr_app_force_framecol(int i);
 void cuevr_app_force_cue(int i);
 MoteVrV3 cuevr_app_cue_mid(void);
 float cuevr_app_grip(void);
@@ -290,6 +291,7 @@ int main(int argc, char **argv) {
     if (auto_net) cuevr_app_force_net(!strcmp(auto_net, "join"));
     if (force_body >= -1) cuevr_app_force_body(force_body);
     { const char *v = getenv("CUEVR_CUE"); if (v) cuevr_app_force_cue(atoi(v)); }
+    { const char *v = getenv("CUEVR_FRAMECOL"); if (v) cuevr_app_force_framecol(atoi(v)); }
 
     int running = 1, dragging = 0, hands_placed = 0;
     uint64_t prev = SDL_GetPerformanceCounter();

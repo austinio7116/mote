@@ -774,12 +774,23 @@ static void cabinet(CueVrFrameMesh *m, const CueTable *t) {
      * casting is collared in chrome at the head AND the foot — a casting is
      * fixed at both ends, and the matching foot collar is what ties the bright
      * line along the plinth into the corners instead of dying at them. */
+    /* The castings start BELOW THE TRAY'S FLOOR, full stop. The first fix
+     * dropped them to where the funnel wall crossed their chamfer — measured
+     * through the bore with CUEVR_TRAYVIS — and the sliver survived it,
+     * because a corner post is not one facet: it is a block standing 127 mm
+     * inside the rim rectangle, and everything inside the rim above the
+     * tray's floor is inside the visible cone of some sight-line down the
+     * bore. There is no partial height that works. Below TRAY_BOT the floor
+     * is opaque and hides everything; outside, the casting reads as applied
+     * to the corner under the body bands, which is how the real one is
+     * fixed to the box anyway. */
     for (int sx = -1; sx <= 1; sx += 2)
         for (int sz = -1; sz <= 1; sz += 2) {
             float cx = (float)sx * (ox - 0.052f), cz = (float)sz * (oz - 0.052f);
-            post(m, cx, cz, y_a, body_bot,
+            float ctop = TRAY_BOT - 0.002f;
+            post(m, cx, cz, ctop, body_bot,
                  0.150f, 0.150f - TAPER * 2.0f, 0.062f, CAB_PANEL);
-            post(m, cx, cz, y_a - 0.002f, y_b, 0.152f, 0.152f, 0.063f, CAB_CHROME);
+            post(m, cx, cz, ctop, ctop - 0.020f, 0.152f, 0.152f, 0.063f, CAB_CHROME);
             post(m, cx, cz, y_c, body_bot + 0.002f,
                  0.150f - TAPER * 1.6f, 0.150f - TAPER * 2.0f, 0.062f, CAB_CHROME);
         }
@@ -1053,110 +1064,109 @@ static void victorian(CueVrFrameMesh *m, const CueTable *t) {
 
 /* ---- American: the 9 ft tournament table -------------------------------- *
  *
- * Where the English tables are about mouldings, an American 9-footer is about
- * mass: a very deep skirt with a contrasting inlaid band running its whole
- * length, and enormous square legs, tapered on all four faces, set right at the
- * corners with almost no inset. The look is architectural rather than furniture
- * — it should read as a plinth carrying a slab, and nothing on it should be
- * turned or beaded.
+ * Modelled on the modern competition table — the Dominator/Metro shape — at the
+ * user's direction, from their reference photograph: a deep slab of a skirt in
+ * the player's own timber, smooth BLACK castings wrapping each corner, slab
+ * pedestal legs flowing down out of those corners onto round black adjustable
+ * feet, and the ball-return louvres across the head end. Nothing turned,
+ * nothing beaded, no inlay: the whole design is masses and shadow gaps.
+ *
+ * The previous design here — pilasters, maple pinstripes, a moulded cap — was
+ * judged simply ugly, and it was: it split the difference between an English
+ * apron and an American slab and got neither.
  */
+
+/* Matte black, but NOT void-black: mode 12 shades it with N.L, and these
+ * castings read by their shading — SHADOW-level black would swallow it. */
+static const float INK[3] = { 0.058f, 0.058f, 0.064f };
+
+/* The adjustable foot: a fat black disc under a short ankle, the one piece of
+ * hardware every competition table shows off rather than hides. */
+static float foot_disc(float f) {
+    if (f < 0.34f) return 0.050f;                       /* the ankle */
+    if (f < 0.52f) return 0.050f + 0.042f * (f - 0.34f) / 0.18f;
+    if (f < 0.90f) return 0.092f;                       /* the disc */
+    return 0.080f;                                      /* under-bevel */
+}
 
 static void american(CueVrFrameMesh *m, const CueTable *t) {
     const float hl = t->half_len, hw = t->half_wid;
     (void)hw;
-    /* less the 16 mm the cap oversails */
-    float ox, oz; body_box(t, 0.016f, &ox, &oz);
+    float ox, oz; body_box(t, 0.010f, &ox, &oz);
     const float top = -0.004f;
     const float floor_y = -cuevr_frame_depth(t);
-
-    const float skirt_h  = 0.255f;               /* deep. this is the whole look */
+    const float skirt_h  = 0.300f;               /* a slab. this is the look */
     const float skirt_bot = top - skirt_h;
-    const float inlay_y  = top - 0.118f;
 
-    /* a flat oversailing cap, square-edged, no ovolo — but with a struck
-     * shadow reveal beneath it, so the cap reads as a separate slab riding on
-     * the skirt rather than a step in one extrusion */
-    top_course(m, -ox - 0.016f, top - 0.030f, -oz - 0.016f,
-                   ox + 0.016f, top - 0.009f,  oz + 0.016f, PAL_LIT);
-    rail_undercut(m, ox + 0.016f, oz + 0.016f, top - 0.009f, PAL_LIT);
+    /* A black cap band under the rail, square-edged, barely oversailing — the
+     * dark line that separates timber from cloth in the reference. */
+    top_course(m, -ox - 0.010f, top - 0.040f, -oz - 0.010f,
+                   ox + 0.010f, top - 0.006f,  oz + 0.010f, INK);
+    rail_undercut(m, ox + 0.010f, oz + 0.010f, top - 0.006f, INK);
+
+    /* The skirt, one deep run of the player's timber per side. */
     {
-        const float reveal[][2] = {
-            { 0.016f,  top - 0.030f },
-            { 0.000f,  top - 0.033f },                /* the cap's underside, in */
-            { -0.004f, top - 0.034f },                /* the shadow slot */
-            { -0.004f, top - 0.040f },
-            { 0.000f,  top - 0.042f },
-        };
-        moulding(m, ox, oz, reveal, 5, PAL_DARK);
-    }
-
-    /* The skirt, split at the inlay. The inlay itself is now what an inlay IS:
-     * a band of a CONTRASTING wood let in between two ebonised pinstripes, all
-     * of it standing five millimetres proud. The old one was the body's own
-     * timber lifted 18% toward white, and from any distance at all the whole
-     * skirt photographed as one plain brown box — the single detail this
-     * design hangs on, invisible. */
-    const float in_hi = inlay_y + 0.026f;         /* the full inlay assembly */
-    const float bands[2][2] = { { in_hi,     top - 0.042f },
-                                { skirt_bot, inlay_y } };
-    for (int b = 0; b < 2; b++) {
-        float y0 = bands[b][0], y1 = bands[b][1];
-        const float iz_s = clear_z(oz - 0.032f, y1);
-        const float ix_s = clear_x(ox - 0.032f, y1);
+        const float y0 = skirt_bot, y1 = top - 0.040f;
+        const float iz_s = clear_z(oz - 0.034f, y1);
+        const float ix_s = clear_x(ox - 0.034f, y1);
         box(m, -ox, y0, -oz, ox, y1, -iz_s, 0, PAL_WOOD);
         box(m, -ox, y0,  iz_s, ox, y1, oz, 0, PAL_WOOD);
         box(m, -ox, y0, -iz_s, -ix_s, y1, iz_s, 2, PAL_WOOD);
         box(m,  ix_s, y0, -iz_s, ox, y1, iz_s, 2, PAL_WOOD);
-    }
-    band(m, ox + 0.005f, oz + 0.005f, inlay_y + 0.0215f, in_hi,           0.012f, 0, PAL_DARK);
-    band(m, ox + 0.006f, oz + 0.006f, inlay_y + 0.0045f, inlay_y + 0.0215f, 0.014f, 0, PAL_INLAY);
-    band(m, ox + 0.005f, oz + 0.005f, inlay_y,           inlay_y + 0.0045f, 0.012f, 0, PAL_DARK);
-
-    /* a plain chamfered bottom edge, eased back in so the skirt sits on a
-     * shadow rather than on the floor of its own face */
-    {
-        const float lip[][2] = {
-            { 0.000f,  skirt_bot + 0.004f },
-            { 0.006f,  skirt_bot - 0.004f },
-            { 0.006f,  skirt_bot - 0.012f },
-            { -0.002f, skirt_bot - 0.016f },
-        };
-        moulding(m, ox, oz, lip, 4, PAL_LIT);
+        /* and its underside, so stooping for a shot shows a shadow, not a void */
+        box(m, -(ox - 0.02f), y0 - 0.012f, -(oz - 0.02f),
+               ox - 0.02f, y0, oz - 0.02f, 0, SHADOW);
     }
 
-    /* Legs: square, tapered on all four faces, at the corners — and each one
-     * housed in a PILASTER, a full-height post standing proud of the skirt.
-     * This is how the real tournament tables carry a leg: the corner is built
-     * up, the skirt runs between the corners, and the leg continues the
-     * pilaster to the floor. Without them the legs began where the skirt
-     * stopped and the whole corner read as one unbroken extrusion. */
+    /* Corner castings: big black chamfered posts wrapping each corner, proud of
+     * the skirt. BELOW THE TRAY'S FLOOR at the top — the cabinet's corner
+     * castings taught that lesson through a pocket bore. */
+    const float cast_top = TRAY_BOT - 0.002f;
+    for (int sx = -1; sx <= 1; sx += 2)
+        for (int sz = -1; sz <= 1; sz += 2) {
+            float cx = (float)sx * (ox - 0.060f), cz = (float)sz * (oz - 0.060f);
+            post(m, cx, cz, cast_top, skirt_bot - 0.006f,
+                 0.170f, 0.170f, 0.070f, INK);
+        }
+
+    /* The legs: slab pedestals flowing down out of the corners, raking inward
+     * so the stance narrows at the floor, on round black adjustable feet. The
+     * rake is most of the reference's silhouette — vertical posts under a slab
+     * this deep read as a crate. */
     int pairs = (hl * 2.0f > 2.9f) ? 3 : 2;
-    const float lw_top = 0.215f, lw_bot = 0.160f;
-    const float leg_top = skirt_bot - 0.010f;
+    const float lw_top = 0.240f, lw_bot = 0.150f;
     for (int p = 0; p < pairs; p++) {
         float fx = (pairs == 1) ? 0.0f
                  : (-1.0f + 2.0f * (float)p / (float)(pairs - 1));
-        float cx = fx * (ox - 0.014f - lw_top * 0.5f);
-        int corner = (pairs == 1) || p == 0 || p == pairs - 1;
+        float cx = fx * (ox - 0.060f - lw_top * 0.15f);
+        int end = (pairs == 1) || p == 0 || p == pairs - 1;
         for (int sz = -1; sz <= 1; sz += 2) {
-            float cz = (float)sz * (oz - 0.014f - lw_top * 0.5f);
-            /* the pilaster: skirt-height, 10 mm proud on its outward faces —
-             * the middle legs of a 10-footer stay flush, only corners build up */
-            if (corner) {
-                float px0 = cx - lw_top*0.5f - (p == 0 ? 0.010f : 0.0f);
-                float px1 = cx + lw_top*0.5f + (p == pairs - 1 ? 0.010f : 0.0f);
-                box(m, px0, skirt_bot - 0.002f, cz - lw_top*0.5f - ((float)sz < 0 ? 0.010f : 0.0f),
-                       px1, top - 0.033f,        cz + lw_top*0.5f + ((float)sz > 0 ? 0.010f : 0.0f),
-                       1, PAL_WOOD);
-            }
-            post(m, cx, cz, leg_top, floor_y + 0.022f, lw_top, lw_bot, 0.020f,
-                 PAL_WOOD);
-            /* a levelling foot, which every 9-footer has and none of them hides */
-            box(m, cx - lw_bot*0.5f, floor_y + 0.010f, cz - lw_bot*0.5f,
-                   cx + lw_bot*0.5f, floor_y + 0.022f, cz + lw_bot*0.5f, 1, PAL_LIT);
-            box(m, cx - 0.052f, floor_y, cz - 0.052f,
-                   cx + 0.052f, floor_y + 0.010f, cz + 0.052f, 1, BRASS);
+            float cz = (float)sz * (oz - 0.060f - lw_top * 0.15f);
+            /* the foot lands inward of the head; middle legs only pull in
+             * across the width, or they would lean along the table */
+            float fx2 = cx - (end ? fx * 0.075f : 0.0f);
+            float fz2 = cz - (float)sz * 0.085f;
+            raked_post(m, cx, cz, fx2, fz2, skirt_bot + 0.020f, floor_y + 0.058f,
+                       lw_top, lw_bot, 0.036f, PAL_WOOD);
+            turned(m, fx2, fz2, floor_y + 0.060f, floor_y, foot_disc, 10, INK);
         }
+    }
+
+    /* The ball return, across the head end: a recessed black mouth under a
+     * black lip, and a shorter drawer below it — the two horizontal shadow
+     * lines that say COIN-FREE TOURNAMENT TABLE in the reference photo. */
+    {
+        const float zr = oz * 0.52f;
+        /* the mouth */
+        box(m, ox - 0.006f, top - 0.115f, -zr, ox + 0.004f, top - 0.085f, zr, 2, SHADOW);
+        box(m, ox + 0.002f, top - 0.085f, -zr - 0.014f,
+               ox + 0.016f, top - 0.072f,  zr + 0.014f, 2, INK);      /* top lip */
+        box(m, ox + 0.002f, top - 0.130f, -zr - 0.014f,
+               ox + 0.016f, top - 0.115f,  zr + 0.014f, 2, INK);      /* the sill */
+        /* the drawer, offset low and shorter */
+        box(m, ox - 0.004f, top - 0.185f, -zr, ox + 0.003f, top - 0.150f, zr * 0.30f, 2, SHADOW);
+        box(m, ox + 0.001f, top - 0.150f, -zr - 0.010f,
+               ox + 0.012f, top - 0.140f,  zr * 0.30f + 0.010f, 2, INK);
     }
 }
 
