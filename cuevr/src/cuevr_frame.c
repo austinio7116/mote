@@ -1421,16 +1421,6 @@ void cuevr_arena_build(CueVrFrameMesh *m) {
                   float q2[3]=P(r1,r1*TAN22,y0,0), q3[3]=P(r1,-r1*TAN22,y0,0);
                   float n[3] = { 0, 1, 0 };
                   quad(m, q0,q1,q2,q3, n, t1-t0, run, STEP); }
-                /* The step's NOSING, pale. In both references it is the
-                 * brightest thing in the bank — a lit line running the whole
-                 * width of every row — and without it the tiers read as one
-                 * dark mass with seats floating on it. */
-                { static const float NOSE[3] = { 0.62f, 0.60f, 0.57f };
-                  float rn = r0 + 0.10f;
-                  float q0[3]=P(r0,t0,y0+0.004f,0),  q1[3]=P(r0,t1,y0+0.004f,0);
-                  float q2[3]=P(rn,t1,y0+0.004f,0),  q3[3]=P(rn,t0,y0+0.004f,0);
-                  float n[3] = { 0, 1, 0 };
-                  quad(m, q0,q1,q2,q3, n, t1-t0, 0.10f, NOSE); }
                 /* THE SEATS. Three shapes to pick between — CUEVR_SEAT
                  * chooses — because a bank of seats is most of what this room
                  * looks like, and which one is right is taste rather than
@@ -1560,6 +1550,48 @@ void cuevr_arena_build(CueVrFrameMesh *m) {
             quad(m, p0,p1,p2,p3, n, t1*2, CEIL_H-yw, WALLDK);
         }
         #undef P
+    }
+
+    /* THE STAIRS, and the lights on them.
+     *
+     * The pale strips in the reference photographs are not edging on every row
+     * — they are there to light the way UP THE STAIRS, so they belong in the
+     * gangways between the blocks of seating and nowhere else. Putting them on
+     * every tread turned the whole bank into a set of glowing contour lines.
+     *
+     * The gangways fall out of the shape: each side's seats span that side's
+     * own chord, so a wedge is left at every vertex of the octagon. That wedge
+     * is the staircase. */
+    {
+        static const float TREAD[3] = { 0.070f, 0.068f, 0.072f };
+        static const float LIT[3]   = { 0.72f,  0.70f,  0.66f  };
+        for (int v = 0; v < 8; v++) {
+            float a = ((float)v + 0.5f) * 0.7853982f;    /* between two sides */
+            float ca = cosf(a), sa = sinf(a);
+            for (int rr = 0; rr < ROWS; rr++) {
+                float r0 = r_seat + run * (float)rr;
+                float y0 = y_base + rise * (float)rr;
+                float half = 0.42f;                       /* gangway half-width */
+                #define G(R, T, Y) { (R)*ca - (T)*sa, (Y), (R)*sa + (T)*ca }
+                /* the tread */
+                { float p0[3]=G(r0,-half,y0),      p1[3]=G(r0,half,y0);
+                  float p2[3]=G(r0+run,half,y0),   p3[3]=G(r0+run,-half,y0);
+                  float n[3] = { 0, 1, 0 };
+                  quad(m, p0,p1,p2,p3, n, half*2, run, TREAD); }
+                /* the riser */
+                { float p0[3]=G(r0,-half,y0-rise), p1[3]=G(r0,half,y0-rise);
+                  float p2[3]=G(r0,half,y0),       p3[3]=G(r0,-half,y0);
+                  float n[3] = { -ca, 0, -sa };
+                  quad(m, p0,p1,p2,p3, n, half*2, rise, TREAD); }
+                /* and the light let into its nose */
+                { float rn = r0 + 0.085f;
+                  float p0[3]=G(r0+0.012f,-half,y0+0.004f), p1[3]=G(r0+0.012f,half,y0+0.004f);
+                  float p2[3]=G(rn,half,y0+0.004f),         p3[3]=G(rn,-half,y0+0.004f);
+                  float n[3] = { 0, 1, 0 };
+                  quad(m, p0,p1,p2,p3, n, half*2, 0.07f, LIT); }
+                #undef G
+            }
+        }
     }
 
     /* The ceiling plate. */
