@@ -42,6 +42,8 @@ MoteVrV3 cuevr_app_table_room(float fx, float y, float fz);
 float cuevr_app_table_yaw(void);
 void cuevr_app_force_light(int i);
 void cuevr_app_force_screen(const char *name);
+MoteVrV3 cuevr_app_hud_room(void);
+void cuevr_app_lock_hud_end(int sign);
 void cuevr_app_force_start(int kind);
 void cuevr_app_force_net(int join);
 void cuevr_app_force_body(int i);
@@ -196,6 +198,12 @@ int main(int argc, char **argv) {
        * wherever the table put it. Guessing table-space fractions for this
        * missed three times running. */
       else if (v && !strcmp(v, "cue")) focus_pocket = 4;
+      /* MOTE_VR_FOCUS=hud: square on the panel, wherever the app has hung it.
+       * Menu screens were framed by guessing table-space fractions, and the
+       * panel moves — it sits past whichever end of the table you are NOT at,
+       * so the guess is wrong half the time and wrong by a different amount on
+       * every table size. Ask the app where it put it. */
+      else if (v && !strcmp(v, "hud")) focus_pocket = 5;
       else if (v && !strncmp(v, "t:", 2)) {
           float a, b, c;
           if (sscanf(v + 2, "%f,%f,%f", &a, &b, &c) == 3) {
@@ -270,8 +278,15 @@ int main(int argc, char **argv) {
     cuevr_app_describe(&app);
     if (app.gl_init(app.user) != 0) { fprintf(stderr, "cuevr: init failed\n"); return 1; }
     if (force_light >= 0) cuevr_app_force_light(force_light);
-    { const char *sc = getenv("CUEVR_SCREEN"); if (sc) cuevr_app_force_screen(sc); }
+    /* Pin the panel to one end before anything looks at it, or the camera and
+     * the panel chase each other round the table (see cuevr_app_lock_hud_end). */
+    if (focus_pocket == 5) cuevr_app_lock_hud_end(1);
+    /* START first, SCREEN second. They were the other way round, which meant
+     * CUEVR_START=6 CUEVR_SCREEN=over racked a snooker table and then threw the
+     * screen away — a screen that needs a game under it could not be reached at
+     * all. Racking then jumping is the order that composes. */
     { const char *st = getenv("CUEVR_START"); if (st) cuevr_app_force_start(atoi(st)); }
+    { const char *sc = getenv("CUEVR_SCREEN"); if (sc) cuevr_app_force_screen(sc); }
     if (auto_net) cuevr_app_force_net(!strcmp(auto_net, "join"));
     if (force_body >= -1) cuevr_app_force_body(force_body);
     { const char *v = getenv("CUEVR_CUE"); if (v) cuevr_app_force_cue(atoi(v)); }
@@ -399,6 +414,7 @@ int main(int argc, char **argv) {
         if (focus_pocket == 1) s_focus = cuevr_app_pocket_room();
         else if (focus_pocket == 2) s_focus = s_butt;   /* the cue's butt hand */
         else if (focus_pocket == 4) s_focus = cuevr_app_cue_mid();
+        else if (focus_pocket == 5) s_focus = cuevr_app_hud_room();
         else if (focus_pocket == 3) {
             /* Table-space focus, as fractions of the half-extents. Yaw follows
              * the table too, so "look along the side rail" is one number and not

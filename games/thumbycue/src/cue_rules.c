@@ -128,6 +128,7 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
         } else if (first_hit == 8)        { foul = 1; why = "HIT 8 FIRST"; }
     }
     (void)cushion;
+    r->last_foul = foul;
 
     /* the 8 */
     if (eight) {
@@ -341,6 +342,7 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
     }
     int foul = 0;
     if (scratch || first_hit < 0 || (!fb && !snk_on(r, first_hit)) || illegal_pot) foul = 1;
+    r->last_foul = foul;
 
     /* respot every potted colour unless it was legally cleared in sequence
      * (a free-ball colour ALWAYS respots, even in the clearance phase) */
@@ -508,6 +510,7 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
         for (int k = 0; k < np; k++) if (potted[k] == 9) respot_nine(r, b, n);
         r->seq = nine_lowest(b, n);
         if (scratch) {                              /* the one push-out foul */
+            r->last_foul = 1;
             r->cfoul[r->turn]++;
             r->turn = 1 - r->turn; r->ball_in_hand = 1;
             snprintf(r->msg, sizeof r->msg, "PUSH-OUT FOUL");
@@ -532,6 +535,7 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
     else if (first_hit < 0)           { foul = 1; why = "NO BALL"; }
     else if (first_hit != lowest)     { foul = 1; why = "WRONG BALL"; }   /* must hit lowest first */
     else if (np == 0 && !cushion)     { foul = 1; why = "NO RAIL"; }      /* table scratch */
+    r->last_foul = foul;
 
     /* the 9: potted legally wins (incl. on the break); on a foul it respots */
     if (nine_potted) {
@@ -564,6 +568,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
                        const int *potted, int np) {
     (void)w;
     r->ball_in_hand = 0;
+    r->last_foul = 0;
     if (r->kind)                       resolve_snooker(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_US9)  resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else                               resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);

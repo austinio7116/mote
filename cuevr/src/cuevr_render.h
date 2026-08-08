@@ -33,7 +33,11 @@
 #define CUEVR_HUD_SS 4
 #define CUEVR_HUD_LW 128
 #define CUEVR_HUD_LH 112
-#define CUEVR_HUD_BOARD_LH 72   /* what the TV-style scoreboard uses */
+/* 72 was a 16:9 letterbox with no room left in it: the balls-still-on strip and
+ * the one big message line landed on top of each other, so whenever the game had
+ * anything to say it said it through the middle of the rack. Twelve more rows is
+ * a band of its own for the balls, and the board is still wider than it is tall. */
+#define CUEVR_HUD_BOARD_LH 84   /* what the TV-style scoreboard uses */
 #define CUEVR_HUD_W (CUEVR_HUD_LW * CUEVR_HUD_SS)
 #define CUEVR_HUD_H (CUEVR_HUD_LH * CUEVR_HUD_SS)
 

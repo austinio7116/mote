@@ -1367,6 +1367,12 @@ static void draw_ball_icon(uint16_t *fb, int cx, int cy, int rad, uint8_t id, in
     }
 }
 
+/* The flat colour of a ball, so a HUD can write a NUMBER in it. A break broken
+ * down as "5 reds, 4 blacks" wants the counts themselves coloured — that is the
+ * whole reading of it at a glance — and only this file knows what colour a ball
+ * is under the live set. */
+uint16_t cue_render_ball_colour(int id) { return ball_base((uint8_t)id); }
+
 /* HUD group hint. Pick boldly-distinct reps so the two sides never read the same:
  * low/solids = a red SOLID (3), high/stripes = a blue STRIPE (10). Avoids the
  * yellow solid-vs-stripe pair (1 / 9) which was hard to tell apart at icon size.

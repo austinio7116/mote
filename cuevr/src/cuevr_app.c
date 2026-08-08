@@ -144,6 +144,35 @@ static const char *COLOUR_NAME[8] = {
     "", "", "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
 
 
+/* What a frame looked like, per player.
+ *
+ * The RECORDS screen keeps career bests; this is the other half — what just
+ * happened, while it is still worth reading. A frame used to end with two words
+ * over the scoreboard, and two words tell you nothing about how it went:
+ * whether you missed everything and won on a fluke, or made a fifty and lost on
+ * the black.
+ *
+ * `tally` counts the visit in progress by ball id; `best_tally` is the visit
+ * that made `best_break`, kept so the screen can SHOW the break instead of
+ * naming it. "56" is a number you have to take on trust; five reds, four blacks
+ * and a pink is the break itself. */
+#define CUEVR_TALLY_N 26          /* ball ids 0..25: reds 1..15, colours 20..25 */
+typedef struct {
+    int   shots;        /* strokes played */
+    int   pot_shots;    /* strokes that potted something legally */
+    int   potted;       /* object balls legally potted */
+    int   fouls;
+    float time;         /* seconds spent at the table, addressing shots */
+    /* ONE figure, not two. Snooker calls a visit's haul a break and counts it
+     * in points; pool calls it a run and counts it in balls. They are the same
+     * statistic — balls potted without giving the table up — so showing both
+     * put "BEST BREAK 56" next to "LONGEST RUN 9" and invited exactly the
+     * question of how one frame produced both. */
+    int   best_break;   /* points (snooker) or balls (pool) in one visit */
+    int   brk;          /* the visit in progress */
+    uint8_t tally[CUEVR_TALLY_N], best_tally[CUEVR_TALLY_N];
+} CueVrPlayStat;
+
 static const struct { CueGameKind kind; const char *name; } MENU[] = {
     { CUE_GAME_UK8,   "UK 8-BALL 7FT" },
     { CUE_GAME_US8,   "US 8-BALL 9FT" },
@@ -195,6 +224,11 @@ static struct {
     int stat_counted;          /* this frame's result already recorded */
     int stat_dirty;
     int stat_page;         /* 0 = vs CPU, 1 = online */
+    /* This frame's play, and the match's. Not saved: they describe the game you
+     * are in, and the game you are in is over by the time a save would matter. */
+    CueVrPlayStat fstat[2], mstat[2];
+    float shot_clock;      /* how long the striker has been at the table */
+    int   stat_folded;     /* this frame is already summed into the match */
     int dec_sel;           /* highlighted decision row */
     int lb_click;          /* the laser clicked a lobby row */
     int can_repick;        /* the ball is down but the stroke is not played */
@@ -265,6 +299,7 @@ static struct {
     int       nom_manual;
     int       match_idx;      /* index into MATCH_LEN */
     int       over_latch;
+    int       over_hov;          /* the pointer is on the CONTINUE row */
     /* Ball in hand just started: bring the table to the player so the ball
      * is under their bridge hand instead of wherever the last shot left
      * it — which on a 12 ft table can be three metres away, and you
@@ -317,6 +352,8 @@ int cuevr_app_aiming(void) { return S.state == ST_AIM; }
  * The scripted stick-walk cannot reach them reliably (it is frame-timed and the
  * row counts change), and a screen nobody can photograph is a screen nobody
  * checks. */
+static void stat_frame_reset(void);
+
 void cuevr_app_force_screen(const char *name) {
     if (!name) return;
     if (!strcmp(name, "appear")) {
@@ -325,6 +362,55 @@ void cuevr_app_force_screen(const char *name) {
         S.appear_from = ST_MENU; S.menu_row = CR_HAND; S.state = ST_CONTROLS;
     } else if (!strcmp(name, "stats")) {
         S.appear_from = ST_MENU; S.state = ST_STATS;
+    } else if (!strcmp(name, "board")) {
+        /* The in-play scoreboard, with a frame's worth of score on it. The
+         * ahead/behind figure only exists once somebody has scored, and no
+         * script can drive a headset game far enough into a frame to produce
+         * one — so the numbers are put there and the LAYOUT is what is being
+         * looked at. */
+        S.state = ST_AIM;
+        S.rules.score[0] = 47; S.rules.score[1] = 31;
+        S.rules.brk = 12;
+        S.rules.target = 0;
+        for (int i = 1; i < S.nballs; i++)
+            if (S.balls[i].id >= 1 && S.balls[i].id <= 6) S.balls[i].on = 0;
+    } else if (!strcmp(name, "over")) {
+        /* The end-of-frame screen, with a frame's worth of play invented for it.
+         * It is only reachable by playing a whole frame out, which no capture
+         * can do — and a screen nobody can photograph is a screen nobody
+         * checks. The FIGURES are made up; the layout is the real one. */
+        S.state = ST_OVER;
+        S.rules.frame_over = 1;
+        S.rules.winner = 0;
+        stat_frame_reset();
+        for (int p = 0; p < 2; p++) {
+            CueVrPlayStat *st = &S.fstat[p];
+            st->shots = p ? 19 : 24;
+            st->pot_shots = p ? 9 : 16;
+            st->potted = p ? 11 : 23;
+            st->fouls = p ? 4 : 1;
+            st->time = (float)st->shots * (p ? 9.4f : 12.6f);
+            if (S.tab.is_snooker) {
+                /* The BREAK IS ADDED UP FROM THE BALLS, not typed in beside
+                 * them. A hand-written 56 next to five reds and four blacks is
+                 * a screen that contradicts itself in the one place it is
+                 * asking to be believed. */
+                if (p) { st->best_tally[1] = 3; st->best_tally[CUE_ID_BLUE] = 2;
+                         st->best_tally[CUE_ID_PINK] = 1; }
+                else   { st->best_tally[1] = 7; st->best_tally[CUE_ID_BLACK] = 5;
+                         st->best_tally[CUE_ID_PINK] = 1;
+                         st->best_tally[CUE_ID_BLUE] = 1; }
+                int v = 0;
+                for (int i = 1; i <= 15; i++) v += st->best_tally[i];        /* a red is 1 */
+                for (int c = CUE_ID_YELLOW; c <= CUE_ID_BLACK; c++)
+                    v += st->best_tally[c] * (c - 18);
+                st->best_break = v;
+            } else {
+                st->best_break = p ? 3 : 5;
+                for (int i = 0; i < st->best_break; i++)
+                    st->best_tally[(p ? 9 : 1) + i] = 1;
+            }
+        }
     }
     S.hud_dirty = 1;
 }
@@ -346,6 +432,33 @@ MoteVrV3 cuevr_app_table_room(float fx, float y, float fz) {
     return cuevr_table_to_room(&S.setup.place, t);
 }
 float cuevr_app_table_yaw(void) { return S.setup.place.yaw; }
+/* Where the panel is, in room space. Menu captures were framed by guessing
+ * table-space fractions at it, and it MOVES — it hangs past whichever end of the
+ * table the player is not standing at. */
+MoteVrV3 cuevr_app_hud_room(void) { return S.scene.hud_pos; }
+
+/* Which end of the table the panel hangs past, as a multiplier on the length.
+ *
+ * "Whichever end is away from you" flipped the moment the head crossed the
+ * middle of the table — and the middle of a table is exactly where a player
+ * stands. Shifting your weight threw the board from one end of the room to the
+ * other. It stays where it is until you are plainly in the other half.
+ *
+ * The lock is for the harness: a preview camera that flies to the panel pushes
+ * the panel to the far end, which moves the camera, which moves the panel, and
+ * the two chase each other round the table for ever — so a capture of any menu
+ * screen photographs a postage stamp 4 m away. */
+static int s_hud_end_lock;
+void cuevr_app_lock_hud_end(int sign) { s_hud_end_lock = sign; }
+
+static float hud_end_sign(float head_x) {
+    static int side;                       /* +1 = the head is at the +x end */
+    if (s_hud_end_lock) return (float)s_hud_end_lock;
+    if      (head_x >  0.25f) side =  1;
+    else if (head_x < -0.25f) side = -1;
+    else if (!side)           side = (head_x >= 0.0f) ? 1 : -1;
+    return side > 0 ? -1.0f : 1.0f;        /* the panel goes to the OTHER end */
+}
 
 /* Forcing a rig or a body from the harness. After the preferences load, because
  * otherwise the saved value would immediately win and the capture would be of
@@ -375,6 +488,43 @@ void cuevr_app_force_body(int i) {
 }
 float cuevr_app_grip(void)      { return S.cue.grip; }
 
+/* ---- what just happened -------------------------------------------------- */
+
+static void stat_frame_reset(void) {
+    memset(S.fstat, 0, sizeof S.fstat);
+    S.shot_clock = 0.0f;
+    S.stat_folded = 0;
+}
+static void stat_match_reset(void) { memset(S.mstat, 0, sizeof S.mstat); }
+
+/* Fold the frame into the match. Everything sums except the two bests, which
+ * are maxima: a match's best break is the best break in it, not the total of
+ * each frame's. */
+static void stat_frame_into_match(void) {
+    for (int p = 0; p < 2; p++) {
+        const CueVrPlayStat *f = &S.fstat[p];
+        CueVrPlayStat *m = &S.mstat[p];
+        m->shots     += f->shots;
+        m->pot_shots += f->pot_shots;
+        m->potted    += f->potted;
+        m->fouls     += f->fouls;
+        m->time      += f->time;
+        if (f->best_break > m->best_break) {
+            m->best_break = f->best_break;
+            memcpy(m->best_tally, f->best_tally, sizeof m->best_tally);
+        }
+    }
+}
+
+/* The frame is over, however it ended — potted out, conceded, three misses,
+ * lost on the black. Every one of those used to set the state by hand, and the
+ * match totals only ever saw the ones that went through resolve_shot. */
+static void enter_over(void) {
+    if (!S.stat_folded) { S.stat_folded = 1; stat_frame_into_match(); }
+    S.state = ST_OVER;
+    S.hud_dirty = 1;
+}
+
 /* ---- table setup -------------------------------------------------------- */
 
 static void think_start(void);
@@ -387,6 +537,8 @@ static void start_frame(CueGameKind kind) {
     S.stat_counted = 0;
     S.stat_visit_owner = -1;
     S.stat_visit_full = 0;
+    stat_frame_reset();
+    stat_match_reset();      /* a new game, not the next frame of this one */
     cue_table_init(&S.tab, kind);
     /* The player's two table colours, from the authored palettes in cue_theme.h
      * — the same values the handheld offers, not a second set invented here. */
@@ -538,7 +690,7 @@ static int aimed_colour(void) {
 
 static void hand_over(void) {
     if (!S.rules.nominated) S.nom_manual = 0;
-    if (S.rules.frame_over) { S.state = ST_OVER; S.hud_dirty = 1; return; }
+    if (S.rules.frame_over) { enter_over(); return; }
     /* Before whose-turn routing: nobody can aim until the ball is down. */
     if (S.rules.ball_in_hand && take_ball_in_hand()) return;
     if (S.opp == OPP_PRACTICE) {
@@ -558,8 +710,7 @@ static void hand_over(void) {
             cue_rules_concede(&S.rules, 1);
             snprintf(S.msg, sizeof S.msg, "OPPONENT CONCEDES");
             S.msg_time = 4.0f;
-            S.state = ST_OVER;
-            S.hud_dirty = 1;
+            enter_over();
             return;
         }
         S.state = ST_THINK;
@@ -617,6 +768,7 @@ static void rerack(void) {
     S.rules.ball_in_hand = 1;
     S.have_snap = 0;
     S.shot_events = 0;
+    stat_frame_reset();
     snprintf(S.msg, sizeof S.msg, "RE-RACKED");
     S.msg_time = 2.0f;
     S.hud_dirty = 1;
@@ -666,8 +818,6 @@ static void hud_face(int cx, int cy, int size, int persona)
     { cue_render_face(S.hud, cx*HS, cy*HS, size*HS, persona); }
 static void cue_render_set_preview_hs(int cx, int cy, int r, int a, int b)
     { cue_render_set_preview(S.hud, cx*HS, cy*HS, r*HS, a, b); }
-static void cue_render_spin_ball_hs(int cx, int cy, int r, float sd, float vt)
-    { cue_render_spin_ball(S.hud, cx*HS, cy*HS, r*HS, sd, vt); }
 
 static void hud_clear(uint16_t c) {
     for (int i = 0; i < CUEVR_HUD_W * CUEVR_HUD_H; i++) S.hud[i] = c;
@@ -859,6 +1009,99 @@ static void hud_build(void) {
      * than as something you were holding. */
 }
 
+/* A name that fits the room it has been given.
+ *
+ * The stats screen has two number columns and the opponent's is only as wide as
+ * the widest figure in it; "Professor Pete" ran straight through "YOU" in the
+ * next column along. Every persona is a two-word name, and the second word is
+ * the one people use — Pete, Hank, Nina — so a name that will not fit whole
+ * falls back to that before it falls back to being chopped mid-word. */
+static const char *hud_fit_name(char *dst, size_t n, const char *name, int room) {
+    if (hud_text_w(name) <= room) return name;
+    const char *last = strrchr(name, ' ');
+    if (last && hud_text_w(last + 1) <= room) return last + 1;
+    const char *src = last ? last + 1 : name;
+    size_t k = strlen(src);
+    if (k > n - 1) k = n - 1;
+    memcpy(dst, src, k); dst[k] = 0;
+    while (k > 1 && hud_text_w(dst) > room) dst[--k] = 0;
+    return dst;
+}
+
+/* A break drawn as the balls that made it.
+ *
+ * This is how the 2D game showed one and it is how a player thinks about one:
+ * "56" is a number you take on trust; five reds, four blacks and a pink IS the
+ * break — you can read its shape, whether it was the black off the spot over
+ * and over or a scramble round the colours.
+ *
+ * The COUNT is what is written, and it is written in the ball's own colour, so
+ * the row reads without a legend. Snooker's fifteen reds are one entry: they
+ * are one ball as far as a break is concerned. Pool has no repeats to count, so
+ * it draws the balls themselves, which is the same information.
+ *
+ * Snooker's black is very nearly the panel's own background, so dark balls are
+ * lifted until they can be read — a legend nobody can see is not a legend. */
+/* The number goes INSIDE the ball, the way a pool ball carries its own. So the
+ * ink has to be whatever reads on that ball — white on a red or a black, dark
+ * on a yellow — which is a decision about the ball's brightness, not a palette.
+ */
+static uint16_t hud_ball_ink(int id) {
+    uint16_t c = cue_render_ball_colour(id);
+    int r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+    int lum = (r * 4 + g * 5 + b * 2) / 11;          /* 0..63 */
+    return lum > 34 ? RGB565C(16, 16, 20) : RGB565C(250, 250, 250);
+}
+
+static void hud_break_row(int y, const char *who, int brk, const uint8_t *tal,
+                          uint16_t TXT, uint16_t DIM, uint16_t HI)
+{
+    char b[16];
+    (void)TXT; (void)HI;
+    hud_text(who, 4, y + 4, DIM);
+    if (!brk) { hud_text("-", 26, y + 4, DIM); return; }
+
+    const int rr = 6, step = 15, cy = y + 6;
+    int x = 30;
+    const int xmax = HW - rr - 2;
+    if (S.tab.is_snooker) {
+        /* All fifteen reds are one entry: to a break they are one ball, and the
+         * count is the whole of what you want to know about them. */
+        int reds = 0;
+        for (int i = 1; i <= 15; i++) reds += tal[i];
+        for (int v = 1; v <= 7 && x <= xmax; v++) {
+            int id = (v == 1) ? 1 : CUE_ID_YELLOW + (v - 2);
+            int n  = (v == 1) ? reds : tal[id];
+            if (!n) continue;
+            /* A rim on every ball. Snooker's black is within a shade of the
+             * panel's own background — without one it is a number floating in a
+             * hole, which is exactly what it looked like. Drawn as a white ball
+             * one pixel wider and then covered, so the outline is a real sphere
+             * edge and not a ring somebody drew. */
+            cue_render_ball_icon_hs(x, cy, rr + 1, CUE_ID_CUE);
+            cue_render_ball_icon_hs(x, cy, rr, id);
+            snprintf(b, sizeof b, "%d", n);
+            /* As big as the ball will carry. A single figure gets the large
+             * face — this is the thing you are meant to read across the room —
+             * and only a two-digit count (eight reds and up) drops to the small
+             * one, because two large digits are wider than the ball. */
+            uint16_t ink = hud_ball_ink(id);
+            if (n < 10) hud_text_2x(b, x - hud_text_w_2x(b) / 2, cy - 4, ink);
+            else        hud_text(b, x - hud_text_w(b) / 2, cy - 3, ink);
+            x += step;
+        }
+    } else {
+        /* Pool balls carry their own numbers already, and a run pots each of
+         * them once — so there is nothing to count, only which ones went. */
+        for (int id = 1; id < CUEVR_TALLY_N && x <= xmax; id++) {
+            if (!tal[id]) continue;
+            cue_render_ball_icon_hs(x, cy, rr + 1, CUE_ID_CUE);
+            cue_render_ball_icon_hs(x, cy, rr, id);
+            x += step;
+        }
+    }
+}
+
 static void hud_paint(void) {
     const uint16_t BG   = RGB565C(8, 11, 18);
     const uint16_t BAND = RGB565C(14, 20, 32);
@@ -879,6 +1122,8 @@ static void hud_paint(void) {
         hud_height(CUEVR_HUD_LH);
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("CUEVR", 4, 1, HI);
+        /* The build, where both players can read it off each other's menu. */
+        hud_text_r("v" CUEVR_VERSION, HW - 4, 3, DIM);
         hud_rect(0, 10, HW, 1, LINE);
 
         char v[40];
@@ -1147,6 +1392,122 @@ static void hud_paint(void) {
         return;
     }
 
+    /* ---- the frame is over ----------------------------------------------- *
+     * The scoreboard said "YOU WIN" over the top of itself and that was the
+     * whole of it. Who won is the one thing you already know — you were there.
+     * What you cannot see from the table is how it went: whether the eighty you
+     * lost by was one visit or forty of them, whether you were potting and
+     * fouling or neither.
+     *
+     * A frame gets the frame's figures. The last frame of a match gets the
+     * match's, because by then the individual rack matters less than the hour
+     * of play it finished. */
+    if (S.state == ST_OVER) {
+        int match = (S.rules.match_over && S.rules.best_of > 1);
+        int done  = (S.rules.best_of == 1 || S.rules.match_over);
+        const CueVrPlayStat *sp = match ? S.mstat : S.fstat;
+        int me = (S.opp == OPP_ONLINE) ? S.net_me : 0;
+        int two = (S.opp != OPP_PRACTICE);
+        char nm[24], b[48];
+        /* Two number columns, right-aligned on their own edges so a 3 and a 147
+         * line up. Only one of them when there is nobody in the other chair. The
+         * labels need 40 and the figures never pass four characters, so the
+         * columns are as wide as they can be without crowding either. */
+        const int c0 = two ? 86 : HW - 6, c1 = HW - 6;
+        const char *them = hud_fit_name(nm, sizeof nm,
+                                        (S.opp == OPP_ONLINE) ? "OPPONENT"
+                                        : CUE_PERSONAS[S.persona].name,
+                                        c1 - c0 - 4);
+
+        /* ONE headline, not two. "FRAME OVER" on the band with "FRAME WON"
+         * underneath it said the same thing twice and cost ten rows the balls
+         * needed — and a result belongs at the top of a results screen. */
+        hud_height(CUEVR_HUD_LH);
+        hud_rect(0, 0, HW, 11, BAND);
+        {
+            const char *v;
+            int won = (S.rules.winner == me) || S.opp == OPP_PRACTICE;
+            if (S.opp == OPP_PRACTICE)     v = "TABLE CLEARED";
+            else if (S.rules.winner == me) v = match ? "MATCH WON" : "FRAME WON";
+            else                           v = match ? "MATCH LOST" : "FRAME LOST";
+            hud_text_2x(v, 4, 1, won ? LIVE : RGB565C(230, 80, 60));
+            if (two && S.rules.best_of > 1) {
+                snprintf(b, sizeof b, "%d - %d", S.rules.frames[me],
+                         S.rules.frames[1 - me]);
+                hud_text_2x(b, HW - 6 - hud_text_w_2x(b), 1, TXT);
+            } else if (S.rules.conceded) {
+                hud_text_r("CONCEDED", HW - 6, 4, DIM);
+            }
+        }
+        hud_rect(0, 11, HW, 1, LINE);
+
+        /* Column heads. */
+        hud_text_r("YOU", c0, 15, HI);
+        if (two) hud_text_r(them, c1, 15, TXT);
+        hud_rect(0, 22, HW, 1, LINE);
+
+        /* Five figures, in the order you would ask for them: what you made, what
+         * your best visit was worth, how often the ball went in, what it cost
+         * you, and how long you took over it.
+         *
+         * The visit figure has ONE name, and which name depends on the game:
+         * snooker counts a visit in points and calls it a break, pool counts it
+         * in balls and calls it a run. */
+        {
+            const char *LBL[5];
+            LBL[0] = "POTTED";
+            LBL[1] = S.tab.is_snooker ? "BEST BREAK" : "LONGEST RUN";
+            LBL[2] = "POT %"; LBL[3] = "FOULS"; LBL[4] = "AVG SHOT";
+            for (int i = 0; i < 5; i++) {
+                int y = 25 + i * 8;
+                hud_text(LBL[i], 4, y, DIM);
+                for (int col = 0; col < (two ? 2 : 1); col++) {
+                    const CueVrPlayStat *st = &sp[col == 0 ? me : 1 - me];
+                    switch (i) {
+                    case 0: snprintf(b, sizeof b, "%d", st->potted); break;
+                    case 1: snprintf(b, sizeof b, "%d", st->best_break); break;
+                    /* Pots per stroke. Rounded, not truncated: 19 pots from 20
+                     * shots is 95%, and a floor would call it 94. */
+                    case 2: if (st->shots)
+                                snprintf(b, sizeof b, "%d%%",
+                                         (st->pot_shots * 200 + st->shots) / (st->shots * 2));
+                            else snprintf(b, sizeof b, "-");
+                            break;
+                    case 3: snprintf(b, sizeof b, "%d", st->fouls); break;
+                    case 4: if (st->shots)
+                                snprintf(b, sizeof b, "%.1fs",
+                                         (double)(st->time / (float)st->shots));
+                            else snprintf(b, sizeof b, "-");
+                            break;
+                    default: b[0] = 0;
+                    }
+                    hud_text_r(b, col == 0 ? c0 : c1, y, col == 0 ? HI : TXT);
+                }
+            }
+        }
+
+        /* And that best visit, drawn out ball by ball. */
+        hud_rect(0, 65, HW, 1, LINE);
+        {
+            const char *t2 = S.tab.is_snooker ? "BEST BREAK" : "LONGEST RUN";
+            if (match) { snprintf(b, sizeof b, "%s OF THE MATCH", t2);
+                         hud_text(b, 4, 67, LIVE); }
+            else       hud_text(t2, 4, 67, LIVE);
+        }
+        hud_break_row(75, "YOU", sp[me].best_break, sp[me].best_tally, TXT, DIM, HI);
+        if (two)
+            hud_break_row(90, them, sp[1 - me].best_break, sp[1 - me].best_tally,
+                          TXT, DIM, HI);
+
+        {
+            int hov = (S.ptr_ok && S.ptr_y >= (float)(HH - 9));
+            if (hov) hud_rect(1, HH - 9, HW - 2, 9, RGB565C(28, 58, 40));
+            hud_text(done ? "A    BACK TO THE MENU" : "A    NEXT FRAME",
+                     4, HH - 7, hov ? HI : TXT);
+        }
+        return;
+    }
+
     /* ---- in play: the scoreboard ----------------------------------------- *
      * Laid out like a television board rather than a handheld screen: a title
      * strip, then one wide row per player with the name on the left and the
@@ -1273,24 +1634,31 @@ static void hud_paint(void) {
             else if (id >= CUE_ID_YELLOW && id <= CUE_ID_BLACK) colours += id - 18;
         }
         int rem = reds * 8 + colours;
+        /* The other number a snooker board always carries: how far in front you
+         * are. It is the figure that decides what shot to play — thirty ahead
+         * with forty left is a safety game, thirty behind with twenty left is
+         * over — and the board made you do the subtraction yourself, off two
+         * scores at opposite ends of it. Green in front, red behind, from YOUR
+         * side of the table. */
+        int mine = (S.opp == OPP_ONLINE) ? S.net_me : 0;
+        int diff = S.rules.score[mine] - S.rules.score[1 - mine];
+        char d[16];
+        snprintf(d, sizeof d, "%+d", diff);
+        /* Nothing to say before anybody has scored: at the break it would read
+         * "+0", which is not information, it is furniture. */
+        int dw = (S.opp == OPP_PRACTICE ||
+                  (S.rules.score[0] == 0 && S.rules.score[1] == 0))
+               ? 0 : hud_text_w(d) + 5;
+        if (dw)
+            hud_text_r(d, HW - 42, 51,
+                       diff > 0 ? LIVE : diff < 0 ? RGB565C(230, 80, 60) : DIM);
         snprintf(b, sizeof b, "REM %d", rem);
         /* Clear of the SPIN indicator, which lives at x 89..107 on this line and
          * was being drawn straight over this readout — the ball-on disc at
          * HW-22 was measured against, but the spin ball sits further left again
          * and is only there while you are down on the shot, which is exactly
          * when you are looking at the board. */
-        hud_text_r(b, HW - 42, 51, DIM);
-        /* A nominated colour draws as THAT ball, not as the multicolour "any
-         * colour" disc — the disc is now only right before a nomination
-         * exists. Reuse the clearance path by handing it the nominated value. */
-        /* HW-14, not HW-11: an 8-radius ball centred at HW-11 reaches HW-3 and
-         * sat half off the edge of the panel. */
-        if (S.rules.target == 1 && S.rules.nominated)
-            cue_render_onball_icon_hs(HW - 14, 55, 8, 2, S.rules.nominated);
-        else
-            cue_render_onball_icon_hs(HW - 14, 55, 8, S.rules.target, S.rules.seq);
-    } else if (S.tab.kind == CUE_GAME_US9) {
-        cue_render_ball_icon_hs(HW - 14, 55, 8, S.rules.seq > 0 ? S.rules.seq : 1);
+        hud_text_r(b, HW - 42 - dw, 51, DIM);
     }
 
     /* WHAT IS LEFT, as balls rather than as a number. "REM 43" is a fact you
@@ -1302,13 +1670,40 @@ static void hud_paint(void) {
      * then each colour still on in value order. Pool: the striker's own group,
      * one disc each, which is exactly the thing you are counting down. */
     {
-        const int ry = 63, rr = 3, step = 7, x0 = 6, xmax = HW - 44;
+        /* Its own band under everything else. It used to sit at row 63, which
+         * is inside the one big message line — so "BALL IN HAND" was printed
+         * straight through the balls it was talking about. */
+        /* WHAT YOU ARE ON, THEN WHAT IS LEFT — one band, read left to right.
+         *
+         * The ball-on used to hang at (HW-14, 55), which is neither on the
+         * status line nor in the balls band but straddling the rule between
+         * them and half off the right edge. It is a ball; it belongs with the
+         * balls, and it belongs FIRST, because "what am I on" is the question
+         * you ask before "what is left". */
+        const int ry = 75, rr = 4, step = 9, x0 = 32, xmax = HW - 8;
         int x = x0;
+        hud_rect(0, 69, HW, 1, RGB565C(26, 40, 62));
+        if (S.tab.is_snooker) {
+            /* A nominated colour draws as THAT ball, not as the multicolour
+             * "any colour" disc — the disc is only right before a nomination
+             * exists. Reuse the clearance path by handing it the value. */
+            cue_render_ball_icon_hs(13, ry, 7, CUE_ID_CUE);
+            if (S.rules.target == 1 && S.rules.nominated)
+                cue_render_onball_icon_hs(13, ry, 6, 2, S.rules.nominated);
+            else
+                cue_render_onball_icon_hs(13, ry, 6, S.rules.target, S.rules.seq);
+            hud_rect(24, 70, 1, 11, RGB565C(40, 60, 92));
+        } else if (S.tab.kind == CUE_GAME_US9) {
+            cue_render_ball_icon_hs(13, ry, 7, CUE_ID_CUE);
+            cue_render_ball_icon_hs(13, ry, 6, S.rules.seq > 0 ? S.rules.seq : 1);
+            hud_rect(24, 70, 1, 11, RGB565C(40, 60, 92));
+        } else x = 6;
         if (S.tab.is_snooker) {
             int reds = 0;
             for (int i = 1; i < S.nballs; i++)
                 if (S.balls[i].on && S.balls[i].id >= 1 && S.balls[i].id <= 15) reds++;
             if (reds > 0) {
+                cue_render_ball_icon_hs(x, ry, rr + 1, CUE_ID_CUE);
                 cue_render_ball_icon_hs(x, ry, rr, 1);
                 char rb[8]; snprintf(rb, sizeof rb, "x%d", reds);
                 hud_text(rb, x + rr + 2, ry - 2, DIM);
@@ -1319,6 +1714,7 @@ static void hud_paint(void) {
                 for (int i = 1; i < S.nballs; i++)
                     if (S.balls[i].on && S.balls[i].id == id) { on = 1; break; }
                 if (!on) continue;
+                cue_render_ball_icon_hs(x, ry, rr + 1, CUE_ID_CUE);
                 cue_render_ball_icon_hs(x, ry, rr, id);
                 x += step;
             }
@@ -1333,17 +1729,19 @@ static void hud_paint(void) {
                     if (grp && g != grp && id != 8) continue;
                     if (!grp && id == 8) continue;      /* open table: not yours yet */
                 }
+                cue_render_ball_icon_hs(x, ry, rr + 1, CUE_ID_CUE);
                 cue_render_ball_icon_hs(x, ry, rr, id);
                 x += step;
             }
         }
     }
 
-    /* The spin indicator. In VR this matters MORE than on the handheld: with no
-     * power bar and no aim line it is the only readout of what you are about to
-     * do to the ball. */
-    if (S.state == ST_AIM && S.cue.on_ball)
-        cue_render_spin_ball_hs(HW - 30, 60, 9, S.cue.tip_side, S.cue.tip_vert);
+    /* NO SPIN READOUT. On the handheld it was the only way to know where the tip
+     * was going to land, because there was no tip — you set a number. Here you
+     * are holding the cue and looking down it at the ball: the contact point is
+     * the thing in front of your eyes, drawn at full size on the actual ball.
+     * A second, smaller, mirror-imaged copy of it on a board at the far end of
+     * the room is not a readout, it is a distraction that disagrees. */
 
     /* The one big line. */
     if (S.state == ST_PLACE) {
@@ -1436,6 +1834,47 @@ static void stat_visit_begins(int who) {
     int full = (S.rules.mode == CUE_GAME_US9) ? 9
              : 8;                                   /* seven of a group plus the 8 */
     S.stat_visit_full = (stat_my_balls_left() >= full);
+}
+
+/* One stroke, recorded — for the frame screen, not the career records.
+ *
+ * Takes the shot's own facts rather than reading them back off the rules,
+ * because by the time this runs the table may already have changed hands and
+ * `turn` is somebody else. */
+static void stat_shot(int p, const int *potted, int np) {
+    if (p < 0 || p > 1) return;
+    CueVrPlayStat *st = &S.fstat[p];
+    int foul   = S.rules.last_foul;
+    int scored = (!foul && np > 0);
+
+    st->shots++;
+    st->time += S.shot_clock;
+    S.shot_clock = 0.0f;
+    if (foul) st->fouls++;
+
+    if (scored) {
+        st->pot_shots++;
+        st->potted += np;
+        for (int k = 0; k < np; k++) {
+            int id = potted[k];
+            if (id > 0 && id < CUEVR_TALLY_N && st->tally[id] < 250) st->tally[id]++;
+        }
+    }
+
+    /* The break. Snooker counts points and cue_rules already keeps that number
+     * — including zeroing it on a foul or a miss — so take theirs rather than
+     * keep a second one that can disagree with the scoreboard. Pool has no
+     * running score, so a break there is what a pool player means by one: balls
+     * in a row without giving the table up. */
+    if (S.rules.kind) st->brk = S.rules.brk;
+    else if (scored)  st->brk += np;
+    else              st->brk = 0;
+
+    if (st->brk > st->best_break) {
+        st->best_break = st->brk;
+        memcpy(st->best_tally, st->tally, sizeof st->best_tally);
+    }
+    if (st->brk == 0) memset(st->tally, 0, sizeof st->tally);
 }
 
 /* Called after every shot resolves, and once more when the frame ends. */
@@ -1627,10 +2066,11 @@ static void resolve_shot(void) {
 
     /* Records, before the turn is routed: r->brk is this visit's break and it
      * is about to be reset if the table changes hands. */
+    stat_shot(was_turn, potted, np);
     stat_after_shot();
     if (S.rules.turn != was_turn) stat_visit_begins(S.rules.turn);
 
-    if (S.rules.frame_over) { S.state = ST_OVER; return; }
+    if (S.rules.frame_over) { enter_over(); return; }
 
     /* A pending decision is the rules engine asking a question — after a
      * snooker foul (play on / make them play again / free ball) or before the
@@ -1930,6 +2370,15 @@ static void app_update(void *u, const MoteVrTracking *t) {
     }
     if (S.msg_time > 0.0f) { S.msg_time -= dt; if (S.msg_time <= 0.0f) S.hud_dirty = 1; }
 
+    /* The shot clock. It runs while the striker is at the table — thinking,
+     * walking round it, lining up, answering a foul — and stops the instant the
+     * cue makes contact, because balls rolling is not time anybody spent on the
+     * shot. Paused, and in the menus, it does not run at all: choosing a cloth
+     * mid-frame should not read as a four-minute deliberation. */
+    if (S.state == ST_AIM || S.state == ST_PLACE || S.state == ST_THINK ||
+        S.state == ST_CPUCUE || S.state == ST_DECIDE)
+        S.shot_clock += dt;
+
     /* Online runs whether or not anyone is looking at the lobby. */
     if (S.opp == OPP_ONLINE) cuevr_net_task();
 
@@ -1981,7 +2430,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         int pointing = (S.state == ST_MENU || S.state == ST_PAUSE ||
                         S.state == ST_APPEAR || S.state == ST_STATS ||
                         S.state == ST_LOBBY || S.state == ST_DECIDE ||
-                        S.state == ST_CONTROLS);
+                        S.state == ST_CONTROLS || S.state == ST_OVER);
         /* The pointer lives in the hand that holds the BUTT, which is the left
          * one for a left-hander. Hard-coding the right would have put the laser
          * in their bridge hand — the one lying on the cloth. */
@@ -2096,7 +2545,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 cue_rules_concede(&S.rules, c.who);
                 snprintf(S.msg, sizeof S.msg, "FRAME CONCEDED");
                 S.msg_time = 3.0f;
-                S.state = ST_OVER;
+                enter_over();
             } else if (S.rules.pushout_offer) {
                 S.rules.is_pushout = (c.code == CUE_DEC_PLAY) ? 1 : 0;
                 S.rules.pushout_offer = 0;
@@ -2398,7 +2847,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                         cue_rules_concede(&S.rules, S.opp == OPP_ONLINE ? S.net_me : 0);
                         snprintf(S.msg, sizeof S.msg, "FRAME CONCEDED");
                         S.msg_time = 3.0f;
-                        S.state = ST_OVER;
+                        enter_over();
                     }
                     break;
                 case PS_PICKUP:
@@ -2590,9 +3039,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
             if (cuevr_net_state() == CUEVR_NET_LOST) {
                 snprintf(S.msg, sizeof S.msg, "OPPONENT LEFT");
                 S.msg_time = 4.0f;
-                S.state = ST_OVER;
                 S.rules.winner = S.net_me;
-                S.hud_dirty = 1;
+                enter_over();
             }
             break;
         }
@@ -3049,13 +3497,20 @@ static void app_update(void *u, const MoteVrTracking *t) {
         break;
     }
 
-    case ST_OVER:
+    case ST_OVER: {
         /* A won frame in an unfinished match leads to the next frame, not back
          * to the main menu — otherwise "best of 7" is seven trips through the
          * table setup. A won MATCH goes back. */
+        int go = 0;
         if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.over_latch = 0;
-        else if (!S.over_latch) {
-            S.over_latch = 1;
+        else if (!S.over_latch) { S.over_latch = 1; go = 1; }
+        /* And by pointing at it, because every other screen is pointed at. The
+         * prompt still says A: A is what is printed on the button, and this is
+         * the one place the game asks for a button by name. */
+        int hov = (S.ptr_ok && S.ptr_y >= (float)(CUEVR_HUD_LH - 9));
+        if (hov != S.over_hov) { S.over_hov = hov; S.hud_dirty = 1; }
+        if (hov && ptr_click(t)) go = 1;
+        if (go) {
             if (S.rules.best_of > 1 && !S.rules.match_over) {
                 think_join();
                 cue_rules_next_frame(&S.rules, &S.tab);
@@ -3064,6 +3519,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.have_snap = 0;
                 S.shot_events = 0;
                 S.nom_manual = 0;
+                /* A NEW FRAME IS A NEW FRAME. Neither of these was cleared, so
+                 * from the second frame of a match on, `stat_counted` was still
+                 * set from the first — and every frame after it went unrecorded
+                 * in the career figures. */
+                S.stat_counted = 0;
+                S.stat_visit_owner = -1;
+                S.stat_visit_full = 0;
+                stat_frame_reset();
                 snprintf(S.msg, sizeof S.msg, "FRAME %d",
                          S.rules.frames[0] + S.rules.frames[1] + 1);
                 S.msg_time = 3.0f;
@@ -3075,6 +3538,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.hud_dirty = 1;
         }
         break;
+    }
     }
 
     /* ---- describe the scene ---- */
@@ -3106,11 +3570,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * nobody. Everything else in play keeps it. */
         int in_menu = (S.state == ST_MENU || S.state == ST_SETUP ||
                        S.state == ST_LOBBY || S.state == ST_PAUSE ||
-                       S.state == ST_STATS ||
+                       S.state == ST_STATS || S.state == ST_OVER ||
+                       S.state == ST_APPEAR ||
                        S.state == ST_PLACE || S.state == ST_CONTROLS);
-        /* NOT hidden on APPEARANCE: that screen is where you pick the cue, and
-         * a cue chooser with no cue in it is a list of words. Hidden during
-         * PLACE: you are holding the ball, and you cannot hold both. */
+        /* APPEARANCE hides the HELD cue and lays the display one on the cloth
+         * instead, the way the main menu does. That screen is where you pick a
+         * cue, and a cue you are gripping is pointing wherever you are pointing
+         * the laser — swinging about at arm's length, mostly end-on, with the
+         * butt in your face. On the table it lies still, side on, whole. */
         S.scene.cue_visible = !in_menu && S.cue.tracked;
         S.scene.cue_butt = S.cue.butt;
         S.scene.cue_tip  = S.cue.tip;
@@ -3170,23 +3637,48 @@ static void app_update(void *u, const MoteVrTracking *t) {
              * back at the table — and the table is right there in front of it
              * while you do. */
             MoteVrV3 ht = cuevr_room_to_table(&S.setup.place, t->head.p);
-            float end = (ht.x < 0.0f) ? (S.tab.half_len + 0.42f)
-                                      : -(S.tab.half_len + 0.42f);
+            float end = hud_end_sign(ht.x) * (S.tab.half_len + 0.42f);
             pos = cuevr_table_to_room(&S.setup.place, (Vec3){ end, 0.0f, 0.0f });
-            /* Head height, so it is read straight rather than looked down at,
-             * and never below the rail whatever the table's height. */
-            pos.y = t->head.p.y - 0.05f;
+            /* Size it FIRST, because how tall it is decides how high it has to
+             * hang. Measured along the floor, so raising the panel cannot feed
+             * back into its own width. It subtends the same angle wherever you
+             * stand, exactly as the scoreboard does — from the far end of a 12
+             * ft table a fixed width is unreadable. */
+            int rows = S.scene.hud_rows ? S.scene.hud_rows : CUEVR_HUD_LH;
+            float d;
             {
-                float floor_of_it = S.setup.place.pos.y + 0.34f;
-                if (pos.y < floor_of_it) pos.y = floor_of_it;
-            }
-            /* Subtends the same angle wherever you stand, exactly as the
-             * scoreboard does — from the far end of a 12 ft table a fixed
-             * width is unreadable. */
-            {
-                float d = mv3_len(mv3_sub(t->head.p, pos));
+                MoteVrV3 flat = mv3_sub(t->head.p, pos);
+                flat.y = 0.0f;
+                d = mv3_len(flat);
                 float w = d * 0.46f;
-                S.scene.hud_w = w < 0.50f ? 0.50f : (w > 1.6f ? 1.6f : w);
+                /* A LIST IS TALL. 112 rows at 1.6 m wide is a 1.4 m billboard
+                 * you have to crane at; the cap is on the HEIGHT, so the wide
+                 * 72-row scoreboard is untouched and only the list screens are
+                 * held in. */
+                float wmax = 0.95f * (float)HW / (float)rows;
+                if (w > wmax) w = wmax;
+                S.scene.hud_w = w < 0.50f ? 0.50f : w;
+            }
+            float ph = S.scene.hud_w * (float)rows / (float)HW;
+
+            /* HIGH ENOUGH THAT THE TABLE CANNOT CUT IT.
+             *
+             * The panel hangs PAST the end of the table, so from where you
+             * stand the table is in front of it. Centred on eye level, half of
+             * it fell below the rail and the bottom of every list was simply
+             * not there.
+             *
+             * The rule is the one that cannot go wrong: the whole panel lives
+             * ABOVE THE PLANE OF THE RAIL. A player's eye is always above the
+             * rail — you are standing at a table — so a sightline from the eye
+             * to any part of the panel passes over the rail and nothing on the
+             * table can be in front of it, from any position, on any table
+             * size. (The alternative, projecting the eye-over-rail line out to
+             * the panel, is exact and also depends on eye height, which moves
+             * every time the player does.) */
+            {
+                float rail = S.setup.place.pos.y + S.tab.cushion_h * 1.30f;
+                pos.y = rail + 0.04f + ph * 0.5f;
             }
         } else {
             /* High and well back. At 45 cm above the cloth just past the rail it
@@ -3200,8 +3692,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
              * far end and the board moves to the end you are now looking at, the
              * way you would turn a real one round. */
             MoteVrV3 ht = cuevr_room_to_table(&S.setup.place, t->head.p);
-            float end = (ht.x < 0.0f) ? (S.tab.half_len + 0.55f)
-                                      : -(S.tab.half_len + 0.55f);
+            float end = hud_end_sign(ht.x) * (S.tab.half_len + 0.55f);
             pos = cuevr_table_to_room(&S.setup.place, (Vec3){ end, 0.0f, 0.0f });
             pos.y += 0.95f;
             /* Sized by how far away it is, so it subtends the same angle from
@@ -3243,7 +3734,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
          *
          * Placed in TABLE space and carried out to the room, so it lies with the
          * table wherever the table has been put. */
-        if (S.state == ST_MENU) {
+        if (S.state == ST_MENU || S.state == ST_APPEAR) {
             float hl = S.tab.half_len, hw = S.tab.half_wid;
             /* Clear of the baulk cushion by a comfortable hand's width, and off
              * to one side so it is not lying across the D and the spots. */
@@ -3280,7 +3771,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
      * two controllers stack up in one hand. */
     S.scene.hand[1] = t->hand[MOTE_VR_RIGHT].pose;
     S.scene.rest_visible = S.scene.cue_visible && S.state != ST_CPUCUE
-                        && S.state != ST_MENU;
+                        && S.state != ST_MENU && S.state != ST_APPEAR;
     S.scene.rest_pos = S.cue.bridge;
 
     /* Frame timing. Accumulated here rather than in the renderer because this is

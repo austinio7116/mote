@@ -18,6 +18,11 @@ typedef struct {
     int frame_over, winner;
     int ball_in_hand;    /* set on resolve; consumed by cue_game */
     float R;             /* ball radius (m) — for line-of-sight / snooker tests */
+    /* Was the shot that just resolved a foul? Every code path already knows —
+     * each resolver computes it and prices it — but none of them said so, and
+     * "the opponent's score went up" is only a foul signal in snooker. A host
+     * keeping records has no other way to count them. */
+    int last_foul;
     char msg[24];
 
     /* 8-ball */

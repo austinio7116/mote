@@ -104,6 +104,7 @@ void cue_render_set_preview(uint16_t *fb, int cx, int cy, int rad,
 
 /* Draw a single ball id (number facing out) with the live set — 9-ball next ball. */
 void cue_render_ball_icon(uint16_t *fb, int cx, int cy, int rad, int id);
+uint16_t cue_render_ball_colour(int id);
 
 /* Where the icon helpers above are drawing. The handheld never calls this — its
  * HUD IS the framebuffer — but the VR panel is 512x288, and without it every icon

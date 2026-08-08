@@ -29,6 +29,14 @@
  *   cuevr_app.c     the four callbacks platform/xr calls, and the game flow.
  */
 #ifndef CUEVR_H
+/* What build this is, printed on the menu.
+ *
+ * Two headsets that disagree about the rules or the physics play two different
+ * frames, and the only way anyone can answer "are we on the same build?" is if
+ * the build says so where they can both see it. Keep in step with versionName
+ * in cuevr/app/build.gradle. */
+#define CUEVR_VERSION "0.2"
+
 #define CUEVR_H
 
 #include "mote_xr.h"

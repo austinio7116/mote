@@ -11,8 +11,12 @@ android {
         applicationId 'us.thumby.cuevr'
         minSdk 29
         targetSdk 35
-        versionCode 1
-        versionName '0.1-alpha'
+        // Bumped with the end-of-frame and end-of-match stats, the pointed-at
+        // lobby, and the multiplayer sync fixes. The name is what CUEVR_VERSION
+        // prints on the menu — keep the two in step, because "which build are
+        // you on?" is the first question when two headsets disagree.
+        versionCode 2
+        versionName '0.2'
         externalNativeBuild {
             ndkBuild {
                 arguments 'APP_PLATFORM=android-29'
