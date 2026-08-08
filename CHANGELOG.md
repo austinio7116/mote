@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.21.1-alpha — the planets are back
+
+**Indemnity Run lost its planets and its sun.** The title screen was an empty starfield
+with the menu floating over it, and out in the galaxy the worlds you were flying towards
+weren't there. This release fixes it, and nothing else changes: every other game in the
+library renders pixel-for-pixel as it did before, the engine ABI is unchanged (**v47**),
+and no game needs rebuilding. Reflash **ThumbyOne 1.36.1**, or update Mote Studio or the
+Android app, and the planets come back — including on the `.mote` files already on your
+device.
+
+### The fix
+- Anything further than about **33 km** from the camera stopped drawing. The engine gives
+  every pixel a 16-bit distance that shrinks the further away a thing is; past that range
+  it reached zero, and zero is what the engine uses to mean "nothing has been drawn here".
+  So a distant object lost its own depth test on every one of its pixels and vanished —
+  while still being on screen, the right size and the right colour. Distances that far out
+  now stop at the smallest non-zero value instead, which draws them behind everything else
+  rather than not at all.
+- Only Indemnity Run was affected, because only Indemnity Run puts anything that far away:
+  its planets and star are drawn at true distance, millions of kilometres out. Every other
+  game keeps its whole scene within a few kilometres and never came near the limit — 19 of
+  them were captured before and after the change and came out identical to the pixel.
+
 ## 0.21-alpha — Mote on your phone
 
 **Mote runs on Android.** There is now a sideloadable app that turns a phone into a
