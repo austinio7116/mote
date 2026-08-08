@@ -820,6 +820,8 @@ static void hand_over(void) {
 
 /* Everything a shot changes, saved the instant before it happens. */
 static void snap_take(void) {
+    if (getenv("CUEVR_SNAPLOG"))
+        LOGI("[cuevr] snapshot taken for player %d's shot", S.rules.turn);
     memcpy(S.snap_balls, S.balls, sizeof S.balls);
     S.snap_n = S.nballs;
     S.snap_rules = S.rules;
@@ -1935,6 +1937,20 @@ static void arm_shot(void) {
 }
 
 static void begin_shot(void) {
+    /* THE TABLE AS THE STRIKER FOUND IT — whoever the striker is.
+     *
+     * This snapshot was taken in the human's strike path only, so after the
+     * OPPONENT fouled, "PUT THE BALLS BACK" restored the last position the
+     * HUMAN had played from — the shot before the one that laid the snooker.
+     * The offender was sent back to a table two shots stale, and the snooker
+     * the foul was committed against simply vanished. Reported, and I argued
+     * with it instead of reading this function: every path — human, CPU and
+     * the far end of a link — reaches begin_shot(), and none of the other two
+     * ever took a snapshot at all.
+     *
+     * Safe here rather than before the strike: cue_phys_strike_elev writes
+     * vel and w and never pos, and snap_restore_balls zeroes both. */
+    snap_take();
     S.can_repick = 0;      /* the stroke is away: the ball is no longer in hand */
     for (int i = 0; i < S.nballs; i++) S.was_on[i] = S.balls[i].on;
     S.world.first_hit = -1;
@@ -3175,9 +3191,6 @@ static void app_update(void *u, const MoteVrTracking *t) {
                  (double)(S.cue.m_time * 1000.0f), (double)shot.tip_side, (double)shot.tip_vert,
                  (double)(shot.elev * 180.0f / 3.14159265f),
                  "");
-            /* Undo wants the table as it was an instant ago, so the snapshot is
-             * taken here — after the shot is decided, before it is applied. */
-            snap_take();
             /* Online: send the strike, not the outcome. Both machines integrate
              * the same 2 kHz physics from the same state, so the same six numbers
              * produce the same table on both sides. */
@@ -4166,7 +4179,11 @@ void cuevr_app_force_start(int kind) {
     for (int i = 0; i < MENU_N; i++)
         if ((int)MENU[i].kind == kind) S.menu_sel = i;
     cue_render_set_ball_set(S.ballset);
-    S.break_first = 0;              /* a capture wants the same frame every time */
+    /* A capture wants the same frame every time, so the toss is fixed — and
+     * CUEVR_BREAK=1 hands it to the CPU, which is the only way from a script
+     * to watch the opponent play a shot. */
+    S.break_first = 0;
+    { const char *v = getenv("CUEVR_BREAK"); if (v) S.break_first = atoi(v) ? 1 : 0; }
     start_frame((CueGameKind)kind);
     hand_over();
 }
