@@ -3405,7 +3405,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
                         S.state == ST_LOBBY || S.state == ST_DECIDE ||
                         S.state == ST_CONTROLS || S.state == ST_OVER ||
                         S.state == ST_CARSETUP || S.state == ST_CAREER ||
-                        S.state == ST_CARTABLE || S.state == ST_CARACH);
+                        S.state == ST_CARTABLE || S.state == ST_CARACH ||
+                        S.state == ST_POCKETS);
         /* The pointer lives in the hand that holds the BUTT, which is the left
          * one for a left-hander. Hard-coding the right would have put the laser
          * in their bridge hand — the one lying on the cloth. */
@@ -4789,7 +4790,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                        S.state == ST_STATS || S.state == ST_OVER ||
                        S.state == ST_APPEAR || S.state == ST_CARSETUP ||
                        S.state == ST_CAREER || S.state == ST_CARTABLE ||
-                       S.state == ST_CARACH ||
+                       S.state == ST_CARACH || S.state == ST_POCKETS ||
                        S.state == ST_PLACE || S.state == ST_CONTROLS);
         /* APPEARANCE hides the HELD cue and lays the display one on the cloth
          * instead, the way the main menu does. That screen is where you pick a
@@ -4840,7 +4841,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                       S.state == ST_APPEAR || S.state == ST_STATS ||
                       S.state == ST_CONTROLS || S.state == ST_CARSETUP ||
                       S.state == ST_CAREER || S.state == ST_CARTABLE ||
-                      S.state == ST_CARACH);
+                      S.state == ST_CARACH || S.state == ST_POCKETS);
         MoteVrV3 pos;
         if (asking) {
             /* BEHIND THE TABLE, not stuck to your face.
