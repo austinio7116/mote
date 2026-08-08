@@ -153,8 +153,8 @@ enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE }
  * ever, against defaults that were chosen by measurement. cuevr_render_fx_set()
  * is still there for the preview harness to drive. */
 enum { PS_RESUME = 0, PS_UNDO, PS_PICKUP, PS_RERACK, PS_PLACE, PS_NOMINATE,
-       PS_RESPOT, PS_MINI, PS_CONCEDE, PS_APPEAR, PS_CONTROLS, PS_STATS,
-       PS_QUIT, PS_N };
+       PS_FREEBALL, PS_RESPOT, PS_MINI, PS_CONCEDE, PS_APPEAR, PS_CONTROLS,
+       PS_STATS, PS_QUIT, PS_N };
 static const char *COLOUR_NAME[8] = {
     "", "", "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
 
@@ -465,6 +465,15 @@ void cuevr_app_force_screen(const char *name) {
         if (S.state == ST_CARSETUP) {
             for (int i = 0; i < CUE_GAME_COUNT; i++) S.car_pick[i] = (i == 0 || i == 4);
         }
+    } else if (!strcmp(name, "freeball")) {
+        /* On a red with a free ball awarded, the case the user hit: the pause
+         * menu has to offer a COLOUR to stand in for it. */
+        S.state = ST_PAUSE;
+        S.pause_from = ST_AIM;
+        S.pause_sel = 0;
+        S.rules.free_ball = 1;
+        S.rules.free_ball_id = CUE_ID_BROWN;
+        S.rules.target = 0;
     } else if (!strcmp(name, "board")) {
         /* The in-play scoreboard, with a frame's worth of score on it. The
          * ahead/behind figure only exists once somebody has scored, and no
@@ -850,7 +859,7 @@ static int aimed_colour(void) {
 }
 
 static void hand_over(void) {
-    if (!S.rules.nominated) S.nom_manual = 0;
+    if (!S.rules.nominated && !S.rules.free_ball_id) S.nom_manual = 0;
     if (S.rules.frame_over) { enter_over(); return; }
     /* Before whose-turn routing: nobody can aim until the ball is down. */
     if (S.rules.ball_in_hand && take_ball_in_hand()) return;
@@ -924,6 +933,22 @@ static int snap_restore(void) {
     return 1;
 }
 
+/* A ball's name in a few characters, for a menu row that has to say WHICH ball
+ * without room for a sentence. */
+static const char *cue_ball_short_name(int id) {
+    static const char *C[6] = { "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
+    static char num[8];
+    if (id >= CUE_ID_YELLOW && id <= CUE_ID_BLACK) return C[id - CUE_ID_YELLOW];
+    if (id >= 1 && id <= 15) {
+        /* On a snooker table 1..15 are all reds; on a pool one they are
+         * numbered balls and the number is the name. */
+        if (S.tab.is_snooker) return "RED";
+        snprintf(num, sizeof num, "%d", id);
+        return num;
+    }
+    return "-";
+}
+
 /* ---- career ------------------------------------------------------------- */
 
 static void career_save(void) {
@@ -986,7 +1011,13 @@ static void mini_start(void) {
     S.nballs = cue_table_rack_six(&S.tab, S.balls);
     cue_rules_init(&S.rules, &S.tab, 0);
     S.rules.turn = 0;
-    S.rules.ball_in_hand = 1;
+    /* Place the white ONCE, to break with — and clear the flag here rather than
+     * leaving it set, which is what put the ball back in your hand after every
+     * single shot of a run. You get it back only if you pot it. */
+    S.rules.ball_in_hand = 0;
+    S.balls[0].pos = cue_table_cue_home(&S.tab);
+    S.balls[0].vel = v3(0,0,0); S.balls[0].w = v3(0,0,0);
+    S.balls[0].on = 1;
     S.mini = 1;
     S.mini_done = 0;
     S.mini_beat = 0;
@@ -996,6 +1027,9 @@ static void mini_start(void) {
     stat_frame_reset();
     snprintf(S.msg, sizeof S.msg, "CLEAR SIX - GO");
     S.msg_time = 2.5f;
+    S.state = ST_PLACE;
+    S.place_latch = 1;
+    S.recentre = 1;
     S.hud_dirty = 1;
 }
 
@@ -1214,6 +1248,13 @@ static int pause_rows(PsRow *o, int max) {
     if (S.can_repick)                          ADD(PS_PICKUP, "PICK UP BALL");
     if (S.rules.kind && !S.rules.frame_over && S.rules.target == 1)
         ADD(PS_NOMINATE, "NOMINATE");
+    /* A FREE BALL IS NOMINATED TOO, and the row above cannot do it: that one is
+     * gated on being on a COLOUR, and a free ball is usually awarded while you
+     * are on a RED — so after taking one there was no way to name the ball from
+     * this menu at all. Aiming at it always worked, but a mechanism nothing on
+     * screen mentions is not a mechanism the player has. */
+    if (S.rules.kind && !S.rules.frame_over && S.rules.free_ball)
+        ADD(PS_FREEBALL, "FREE BALL");
     /* PRACTICE SNOOKER ONLY, and here rather than on the main menu: it is not a
      * choice about the frame you are setting up, it is a thing you turn on when
      * the table in front of you has stripped down to four reds. */
@@ -1695,6 +1736,11 @@ static void hud_paint(void) {
                     snprintf(lb, sizeof lb, "NOMINATE %s",
                              (S.rules.nominated >= 2 && S.rules.nominated <= 7)
                              ? COLOUR_NAME[S.rules.nominated] : "-");
+                    txt = lb;
+                } else if (row[i].id == PS_FREEBALL) {
+                    snprintf(lb, sizeof lb, "FREE BALL %s",
+                             S.rules.free_ball_id
+                             ? cue_ball_short_name(S.rules.free_ball_id) : "-");
                     txt = lb;
                 } else if (row[i].id == PS_RESPOT) {
                     snprintf(lb, sizeof lb, "AUTO RESPOT %s",
@@ -2346,6 +2392,18 @@ static void hud_paint(void) {
     }
     if (S.msg_time > 0.0f) { hud_text_2x(S.msg, 4, 57, HI); return; }
 
+    /* A FREE BALL IS A THING YOU HAVE BEEN GIVEN, and the board never said so:
+     * you took one from the foul menu and the game went quiet about it. It says
+     * which ball is named and that aiming names another. */
+    if (S.rules.free_ball && (S.state == ST_AIM || S.state == ST_PLACE)) {
+        char fb[40];
+        snprintf(fb, sizeof fb, "FREE BALL: %s",
+                 S.rules.free_ball_id ? cue_ball_short_name(S.rules.free_ball_id)
+                                      : "AIM TO NAME ONE");
+        hud_text_2x(fb, 4, 57, LIVE);
+        hud_text("AIM AT A BALL TO NAME IT   MENU TO PICK", 4, 68, DIM);
+        return;
+    }
     if (S.state == ST_THINK)       hud_text_2x("OPPONENT THINKING...", 4, 57, DIM);
     else if (S.state == ST_CPUCUE) hud_text_2x("OPPONENT CUEING...", 4, 57, HI);
     else if (S.state == ST_ROLL)   hud_text_2x("...", 4, 57, DIM);
@@ -3561,6 +3619,37 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     S.nom_manual = 1;
                     break;
                 }
+                case PS_FREEBALL: {
+                    /* WHICH COLOUR STANDS IN FOR THE BALL ON. That is the
+                     * choice a free ball actually is, and the first version
+                     * stepped through every ball on the table in id order —
+                     * which on a snooker table means fourteen reds before you
+                     * reach a colour. The candidates are the colours, plus a
+                     * red when you are on a colour and a red is what you would
+                     * nominate, and never the ball that is already on. */
+                    if (!S.rules.free_ball) break;
+                    int cand[8], nc = 0;
+                    int on_col = (S.rules.target == 1) ? S.rules.nominated
+                               : (S.rules.target == 2) ? S.rules.seq : 0;
+                    for (int v = 2; v <= 7; v++) {
+                        if (v == on_col) continue;          /* that one IS the ball on */
+                        int id = CUE_ID_YELLOW + (v - 2);
+                        for (int i = 1; i < S.nballs; i++)
+                            if (S.balls[i].on && S.balls[i].id == id) { cand[nc++] = id; break; }
+                    }
+                    if (S.rules.target != 0)                /* on a colour: a red will do */
+                        for (int i = 1; i < S.nballs; i++)
+                            if (S.balls[i].on && S.balls[i].id >= 1 && S.balls[i].id <= 15) {
+                                cand[nc++] = S.balls[i].id; break;
+                            }
+                    if (!nc) break;
+                    int at = -1;
+                    for (int i = 0; i < nc; i++) if (cand[i] == S.rules.free_ball_id) at = i;
+                    cue_rules_nominate_free(&S.rules, cand[(at + 1) % nc]);
+                    S.nom_manual = 1;
+                    S.hud_dirty = 1;
+                    break;
+                }
                 case PS_CONCEDE:
                     /* Snooker only, and it ends the frame there and then — that
                      * is what conceding is. The match tally moves with it. */
@@ -3694,8 +3783,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.hud_dirty = 1;
             }
         }
-        /* And the free ball, if one was awarded — same act, same ray. */
-        if (mine && S.rules.free_ball) {
+        /* And the free ball, if one was awarded — same act, same ray, unless
+         * you named one from the menu. */
+        if (mine && S.rules.free_ball && !S.nom_manual) {
             int id = aimed_ball();
             if (id > 0 && id != S.rules.free_ball_id) {
                 cue_rules_nominate_free(&S.rules, id);

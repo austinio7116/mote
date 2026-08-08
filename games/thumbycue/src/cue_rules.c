@@ -235,8 +235,13 @@ int cue_rules_should_concede(const CueRules *r, int player) {
     int remaining;
     if (r->reds_left > 0) remaining = r->reds_left * 8 + 27;
     else { remaining = 0; for (int v = (r->seq < 2 ? 2 : r->seq); v <= 7; v++) remaining += v; }
-    int threshold = r->reds_left > 0 ? 15 : 12;
-    return (deficit - remaining) >= threshold;
+    /* MORE THAN TWELVE POINTS OF SNOOKERS. Once the deficit is past what is
+     * left on the table, the difference is what has to come from snookers, and
+     * at four points each twelve is three of them — past that no player carries
+     * on, they shake hands. The threshold used to be 15 with reds still up and
+     * 12 on the colours; one number is right for both, because the arithmetic
+     * that makes it hopeless is the same arithmetic. */
+    return (deficit - remaining) > 12;
 }
 
 /* A finished frame, booked into the match. Called from every place a frame can
