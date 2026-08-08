@@ -78,6 +78,11 @@ typedef struct {
     int  seat;             /* 0 = host */
     int  kind;             /* CueGameKind — the host's is the one that counts */
     int  cue_idx;          /* the cue they are holding, so it can be drawn */
+    /* WHO BREAKS. It is drawn at random now rather than always being seat 0, so
+     * both ends have to be told the same answer before either racks — it decides
+     * the whole frame and there is no later packet that could correct it. The
+     * host's is the one that counts, like the kind. */
+    int  first;
 } CueVrNetHello;
 
 /* WHERE THEIR CUE IS, live. Not part of the lockstep — nothing here changes the
@@ -142,7 +147,7 @@ int  cuevr_net_peer_pose(CueVrNetPose *out);
 /* The last hello received, if any. Returns 1 when one has arrived. */
 int  cuevr_net_peer(CueVrNetHello *out);
 /* Ours, sent when the room goes live. */
-void cuevr_net_set_hello(int kind, int cue_idx);
+void cuevr_net_set_hello(int kind, int cue_idx, int first);
 
 /* ---- starting a session ------------------------------------------------- */
 void cuevr_net_lan_host(void);

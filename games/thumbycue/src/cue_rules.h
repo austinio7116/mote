@@ -71,6 +71,7 @@ typedef struct {
      * A frame is one rack; a match is the best of N of them. Everything above
      * resets per frame, everything here carries. */
     int frames[2];       /* frames won */
+    int break_first;     /* who broke the FIRST frame — the alternation starts here */
     int best_of;         /* 1 = a single frame, else an odd number */
     int match_over, match_winner;
     int conceded;        /* the frame was given up rather than played out */
@@ -103,6 +104,16 @@ int  cue_rules_should_concede(const CueRules *r, int player);
 
 /* Nominate the colour `value` (2..7) as the ball on. Ignored unless the striker
  * is on a colour in the reds phase. */
+/* Who breaks the first frame. The break used to be player 0's, always — the
+ * human's against the CPU, the host's online, every frame of every match. Set
+ * this after cue_rules_init and the per-frame alternation follows from it. */
+void cue_rules_set_break(CueRules *r, int who);
+
+/* Put a potted colour back on, by the respot rule. Public because a practice
+ * table wants the colours kept on it whatever the sequence says, and the host
+ * has no other way to ask for the same placement logic. */
+void cue_rules_respot(CueRules *r, CueBall *b, int n, int id);
+
 void cue_rules_nominate(CueRules *r, int value);
 /* Name the ball being taken as the free ball. Ignored unless one is awarded. */
 void cue_rules_nominate_free(CueRules *r, int id);

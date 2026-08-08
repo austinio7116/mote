@@ -92,13 +92,47 @@ static void respot_eight(CueRules *r, CueBall *b, int n) {
     q->pos = r->spot[0];           /* foot spot (occupancy not checked) */
     q->orient = m3_identity();
 }
+/* Is any OTHER ball sitting on this point? */
+static int spot_taken(const CueBall *b, int n, Vec3 p, int self_id, float R) {
+    for (int i = 0; i < n; i++) {
+        if (!b[i].on || b[i].id == self_id) continue;
+        float dx = b[i].pos.x - p.x, dz = b[i].pos.z - p.z;
+        if (dx*dx + dz*dz < (2.0f*R)*(2.0f*R)) return 1;
+    }
+    return 0;
+}
+
+/* Respot a colour, WPBSA rule 3.6: its own spot; if that is occupied, the
+ * highest-value spot that is free; if every spot is occupied, as near as
+ * possible to its own spot on the centre line, above it, without touching.
+ *
+ * The old version dropped the ball on its own spot and said so in a comment —
+ * "occupancy not checked, good enough". It is not: two balls in the same place
+ * is a physics explosion the moment either is touched, and with practice mode
+ * respotting a colour after every pot it would happen constantly. */
 static void respot_colour(CueRules *r, CueBall *b, int n, int id) {
     CueBall *q = find_ball(b, n, id);
     if (!q) return;
     int v = snk_value(id);
     q->on = 1; q->vel = v3(0,0,0); q->w = v3(0,0,0);
-    q->pos = r->spot[v];           /* (occupancy not checked — good enough) */
     q->orient = m3_identity();
+
+    Vec3 p = r->spot[v];
+    if (spot_taken(b, n, p, id, r->R)) {
+        int found = 0;
+        for (int k = 7; k >= 2 && !found; k--) {          /* highest free spot */
+            if (!spot_taken(b, n, r->spot[k], id, r->R)) { p = r->spot[k]; found = 1; }
+        }
+        if (!found) {
+            /* Up the centre line from its own spot, toward the top cushion. */
+            p = r->spot[v];
+            for (int step = 1; step <= 60; step++) {
+                Vec3 t = p; t.x += (float)step * r->R * 0.5f;
+                if (!spot_taken(b, n, t, id, r->R)) { p = t; break; }
+            }
+        }
+    }
+    q->pos = p;
 }
 
 /* ---- 8-ball ---------------------------------------------------------- */
@@ -228,12 +262,26 @@ void cue_rules_concede(CueRules *r, int player) {
 void cue_rules_next_frame(CueRules *r, const CueTable *t) {
     int f0 = r->frames[0], f1 = r->frames[1], bo = r->best_of, cpu = r->cpu;
     int mo = r->match_over, mw = r->match_winner;
-    /* Alternate the break, as a match does. */
-    int first = (f0 + f1) & 1;
+    /* Alternate the break, as a match does — FROM WHOEVER BROKE THE FIRST ONE.
+     * This counted frames alone, so with a random first break the second frame
+     * could hand it back to the same player. */
+    int bf = r->break_first;
+    int first = (bf + f0 + f1) & 1;
     cue_rules_init(r, t, cpu);
     r->frames[0] = f0; r->frames[1] = f1; r->best_of = bo;
     r->match_over = mo; r->match_winner = mw;
+    r->break_first = bf;
     r->turn = first;
+}
+
+void cue_rules_respot(CueRules *r, CueBall *b, int n, int id) {
+    if (!r->kind || !is_colour(id)) return;
+    respot_colour(r, b, n, id);
+}
+
+void cue_rules_set_break(CueRules *r, int who) {
+    r->break_first = who ? 1 : 0;
+    r->turn = r->break_first;
 }
 
 void cue_rules_nominate(CueRules *r, int value) {

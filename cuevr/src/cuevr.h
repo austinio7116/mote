@@ -37,6 +37,11 @@
  * in cuevr/app/build.gradle. */
 #define CUEVR_VERSION "0.2"
 
+/* How long B is held to take a practice shot back. Long enough that a knuckle
+ * brushing it cannot rewind the table, short enough that it is not a chore
+ * when you are playing the same shot for the tenth time. */
+#define CUEVR_UNDO_HOLD 0.6f
+
 #define CUEVR_H
 
 #include "mote_xr.h"
@@ -313,6 +318,10 @@ typedef struct {
     int      frames_played[2];
     int      lefty;          /* bridge with the right hand */
     int      cue_spots;      /* the white's measles spots */
+    /* PRACTICE, SNOOKER: put every potted colour straight back on its spot
+     * while reds remain, so a practice table never strips itself down to a few
+     * reds and nothing to follow them with. */
+    int      prac_respot;
     int      stick_swap;     /* turn on the left stick, slide on the right */
     int      inv_slide, inv_turn;
 } CueVrPrefs;

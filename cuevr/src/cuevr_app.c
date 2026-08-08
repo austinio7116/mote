@@ -40,6 +40,7 @@
 #include <stdio.h>
 #include <stdlib.h>   /* getenv, free — the render-model poll */
 #include <string.h>
+#include <time.h>
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -106,8 +107,8 @@ static const char *OPP_NAME[OPP_N] = { "PRACTICE", "VS CPU", "ONLINE" };
  * that only decide how the table LOOKS now live on their own screen, reachable
  * from here and from the pause menu — so they can also be changed mid-frame,
  * which is when you actually notice you dislike the cloth. */
-enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_CONTROLS, MR_APPEAR,
-       MR_STATS, MR_START, MR_N };
+enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_RESPOT, MR_CONTROLS,
+       MR_APPEAR, MR_STATS, MR_START, MR_N };
 
 /* The controls page. Handedness sits here rather than on the main menu because
  * it is the same kind of thing as the rest of these: a preference about how you
@@ -235,6 +236,9 @@ static struct {
     int lefty;             /* bridges with the right hand */
     int stick_swap, inv_slide, inv_turn;
     int cue_spots;
+    int prac_respot;             /* practice snooker: colours go back on */
+    int break_first;             /* who breaks this frame (rules player index) */
+    float undo_hold;             /* B held down, seconds — practice take-back */
     /* The pointer: where the right controller's ray meets the panel, in the
      * HUD's own layout coordinates (0..HW across, 0..rows down). */
     int   ptr_ok;
@@ -352,6 +356,26 @@ int cuevr_app_aiming(void) { return S.state == ST_AIM; }
  * The scripted stick-walk cannot reach them reliably (it is frame-timed and the
  * row counts change), and a screen nobody can photograph is a screen nobody
  * checks. */
+/* Is the menu about to start a practice frame of snooker? The AUTO RESPOT row
+ * only means anything there. */
+static int menu_practice_snooker(void);
+
+/* A coin toss that is not the same coin toss every launch.
+ *
+ * S.rng is seeded to a constant so the CPU's shot selection is reproducible
+ * across runs, which is what the AI measurements need — and that is exactly the
+ * wrong property for deciding who breaks. This one is seeded from the clock and
+ * used for nothing else. */
+static uint32_t s_toss = 0;
+static int coin_toss(void) {
+    if (!s_toss) {
+        s_toss = (uint32_t)time(NULL) * 2654435761u + 0x9E3779B9u;
+        if (!s_toss) s_toss = 0xA5A5A5A5u;
+    }
+    s_toss ^= s_toss << 13; s_toss ^= s_toss >> 17; s_toss ^= s_toss << 5;
+    return (int)((s_toss >> 16) & 1u);
+}
+
 static void stat_frame_reset(void);
 static void stat_match_reset(void);
 static void stat_frame_into_match(void);
@@ -364,6 +388,14 @@ void cuevr_app_force_screen(const char *name) {
         S.appear_from = ST_MENU; S.menu_row = CR_HAND; S.state = ST_CONTROLS;
     } else if (!strcmp(name, "stats")) {
         S.appear_from = ST_MENU; S.state = ST_STATS;
+    } else if (!strcmp(name, "menu")) {
+        /* The main menu as a practice snooker setup, which is the only place
+         * AUTO RESPOT is live. */
+        S.state = ST_MENU;
+        S.opp = OPP_PRACTICE;
+        for (int i = 0; i < MENU_N; i++)
+            if (MENU[i].kind == CUE_GAME_SNK15) S.menu_sel = i;
+        S.menu_row = MR_RESPOT;
     } else if (!strcmp(name, "board")) {
         /* The in-play scoreboard, with a frame's worth of score on it. The
          * ahead/behind figure only exists once somebody has scored, and no
@@ -395,7 +427,15 @@ void cuevr_app_force_screen(const char *name) {
             S.rules.best_of = 5;
             S.rules.frames[0] = 3; S.rules.frames[1] = 1;
             S.rules.match_over = 1; S.rules.match_winner = 0;
+        } else {
+            /* A single frame IS the match, and book_frame sets match_over when
+             * it ends — so the capture has to as well or it photographs a state
+             * the game never reaches. */
+            S.rules.best_of = 1;
+            S.rules.frames[0] = 1;
+            S.rules.match_over = 1; S.rules.match_winner = 0;
         }
+        int fold_after = !mt;   /* the single frame IS the match: fold it once */
         for (int p = 0; p < 2; p++) {
             CueVrPlayStat *st = &S.fstat[p];
             st->shots = p ? 19 : 24;
@@ -426,6 +466,7 @@ void cuevr_app_force_screen(const char *name) {
         }
         /* Four frames of it, folded the way the real thing folds: the counts
          * sum and the best break is a maximum, not a total. */
+        if (fold_after) { stat_frame_into_match(); S.stat_folded = 1; }
         if (mt) {
             for (int f = 0; f < 4; f++) stat_frame_into_match();
             for (int p = 0; p < 2; p++) {
@@ -565,6 +606,12 @@ static void enter_over(void) {
 static void think_start(void);
 static void think_join(void);
 
+static int menu_practice_snooker(void) {
+    CueGameKind k = MENU[S.menu_sel].kind;
+    return S.opp == OPP_PRACTICE &&
+           (k == CUE_GAME_SNK6 || k == CUE_GAME_SNK10 || k == CUE_GAME_SNK15);
+}
+
 static void start_frame(CueGameKind kind) {
     /* A re-rack while the opponent is mid-plan would move every ball out from
      * under the thread reading them. */
@@ -587,6 +634,11 @@ static void start_frame(CueGameKind kind) {
      * and in practice that person is also you. */
     cue_rules_init(&S.rules, &S.tab, S.opp == OPP_CPU);
     S.rules.best_of = MATCH_LEN[S.match_idx];
+    /* WHO BREAKS IS DRAWN, not assumed. It was player 0 every time — you against
+     * the CPU, the host online, and in a single-frame match that is the whole
+     * game decided before a ball is struck. Practice is the exception: there is
+     * nobody to lose the toss to. */
+    cue_rules_set_break(&S.rules, S.opp == OPP_PRACTICE ? 0 : S.break_first);
     S.rules.ball_in_hand = 1;              /* you break from the D / the string */
     cuevr_render_set_table(&S.tab, &S.world);
     /* Re-racking the balls does not re-make the player. The bridge height and
@@ -1154,7 +1206,10 @@ static void hud_paint(void) {
 
     /* ---- the menu ---- */
     if (S.state == ST_MENU) {
-        hud_height(CUEVR_HUD_LH);
+        /* AS TALL AS IT NEEDS. Every list screen asked for the full 112 rows,
+         * so a nine-row menu hung as a half-empty board with the help line
+         * marooned at the bottom of it. */
+        hud_height(12 + MR_N * 8 + 20);
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("CUEVR", 4, 1, HI);
         /* The build, where both players can read it off each other's menu. */
@@ -1175,6 +1230,11 @@ static void hud_paint(void) {
         /* Who you are about to play, with their face — the portraits have been
          * sitting in cue_faces.h all along. */
         if (S.opp == OPP_CPU) hud_face(HW - 9, 12 + MR_STRENGTH * 8 + 3, 9, S.persona);
+        /* Practice snooker only: a table you are practising on should not strip
+         * itself to four reds and nothing to take after them. Greyed out rather
+         * than hidden, so the row above and below never move. */
+        hud_opt(MR_RESPOT, "AUTO RESPOT", S.prac_respot ? "ON" : "OFF",
+                S.menu_row == MR_RESPOT, menu_practice_snooker(), TXT, DIM, HI);
         hud_link(MR_CONTROLS, "CONTROLS", "OPEN", S.menu_row == MR_CONTROLS, DIM, HI, LIVE);
         hud_link(MR_APPEAR, "APPEARANCE", "OPEN", S.menu_row == MR_APPEAR, DIM, HI, LIVE);
         hud_link(MR_STATS,  "RECORDS",    "OPEN", S.menu_row == MR_STATS,  DIM, HI, LIVE);
@@ -1185,13 +1245,15 @@ static void hud_paint(void) {
                         4, y - 1, S.menu_row == MR_START ? LIVE : DIM);
         }
         cue_render_set_preview_hs(-1, -1, 0, 0, 0);   /* the balls preview lives on APPEARANCE now */
-        hud_text("STICK: UP/DOWN ROW  L/R CHANGE   A SELECT", 4, HH - 6, DIM);
+        /* The footer said "STICK" long after the menu became a pointer — the
+         * same wrong-instruction-in-the-corner the records page had. */
+        hud_text("POINT AND CLICK   < > CHANGE   A SELECT", 4, HH - 6, DIM);
         return;
     }
 
     /* ---- placing the table ---- */
     if (S.state == ST_SETUP) {
-        hud_height(CUEVR_HUD_LH);
+        hud_height(76);
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x(S.levelled ? "PLACE TABLE" : "LEVEL THE TABLE", 4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
@@ -1299,7 +1361,7 @@ static void hud_paint(void) {
      * handling rather than two that drift. */
     if (S.state == ST_APPEAR) {
         char v[48];
-        hud_height(CUEVR_HUD_LH);
+        hud_height(12 + AR_N * 8 + 14);
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("APPEARANCE", 4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
@@ -1328,7 +1390,7 @@ static void hud_paint(void) {
 
     /* ---- controls ---- */
     if (S.state == ST_CONTROLS) {
-        hud_height(CUEVR_HUD_LH);
+        hud_height(12 + CR_N * 8 + 20);
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("CONTROLS", 4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
@@ -1438,7 +1500,14 @@ static void hud_paint(void) {
      * match's, because by then the individual rack matters less than the hour
      * of play it finished. */
     if (S.state == ST_OVER) {
-        int match = (S.rules.match_over && S.rules.best_of > 1);
+        /* A ONE-FRAME GAME IS A MATCH TOO. It ended on the frame screen and
+         * never showed this one at all, which meant the commonest way to play
+         * — one rack, see how it went — was the one that got the lesser
+         * summary. `multi` is what separates the wording that only makes sense
+         * across several frames (the tally, "of the match") from the totals,
+         * which are the same numbers either way. */
+        int match = S.rules.match_over;
+        int multi = (S.rules.best_of > 1);
         int done  = (S.rules.best_of == 1 || S.rules.match_over);
         const CueVrPlayStat *sp = match ? S.mstat : S.fstat;
         int me = (S.opp == OPP_ONLINE) ? S.net_me : 0;
@@ -1466,7 +1535,7 @@ static void hud_paint(void) {
             else if (S.rules.winner == me) v = match ? "MATCH WON" : "FRAME WON";
             else                           v = match ? "MATCH LOST" : "FRAME LOST";
             hud_text_2x(v, 4, 1, won ? LIVE : RGB565C(230, 80, 60));
-            if (two && S.rules.best_of > 1) {
+            if (two && multi) {
                 snprintf(b, sizeof b, "%d - %d", S.rules.frames[me],
                          S.rules.frames[1 - me]);
                 hud_text_2x(b, HW - 6 - hud_text_w_2x(b), 1, TXT);
@@ -1530,9 +1599,17 @@ static void hud_paint(void) {
             else       hud_text(t2, 4, 67, LIVE);
         }
         hud_break_row(75, "YOU", sp[me].best_break, sp[me].best_tally, TXT, DIM, HI);
-        if (two)
-            hud_break_row(90, them, sp[1 - me].best_break, sp[1 - me].best_tally,
+        if (two) {
+            /* Its own, shorter fit: the break rows give a name 24 columns
+             * before the balls start, where the stats columns gave it 32 —
+             * "OPPONENT" cleared one and ran under the other. */
+            char n2[24];
+            const char *t2 = hud_fit_name(n2, sizeof n2,
+                                          (S.opp == OPP_ONLINE) ? "THEM"
+                                          : CUE_PERSONAS[S.persona].name, 24);
+            hud_break_row(90, t2, sp[1 - me].best_break, sp[1 - me].best_tally,
                           TXT, DIM, HI);
+        }
 
         {
             int hov = (S.ptr_ok && S.ptr_y >= (float)(HH - 9));
@@ -1815,6 +1892,14 @@ static void hud_paint(void) {
          * and a panel telling you so is noise. */
         if (S.cue.stroking)       hud_text_2x("STROKE - PUSH THROUGH", 4, 58, HI);
         else if (S.cue.adjusting) hud_text_2x("SETTING YOUR BRIDGE", 4, 58, HI);
+        else if (S.opp == OPP_PRACTICE && S.have_snap && S.undo_hold > 0.0f) {
+            hud_text_2x("HOLD B TO PLAY IT AGAIN", 4, 58, HI);
+            int w = (int)((float)(HW - 8) * (S.undo_hold / CUEVR_UNDO_HOLD));
+            if (w > HW - 8) w = HW - 8;
+            hud_rect(4, 67, w, 2, LIVE);
+        }
+        else if (S.opp == OPP_PRACTICE && S.have_snap)
+            hud_text("R TRIG CUE   HOLD B REPLAY   MENU OPTIONS", 4, 60, DIM);
         else hud_text("R TRIG CUE   SIDE TRIG HAND   MENU OPTIONS", 4, 60, DIM);
     }
 }
@@ -1955,6 +2040,7 @@ static void menu_change(int d) {
             case MR_OPP:      S.opp = (S.opp + d + OPP_N) % OPP_N; break;
             case MR_FRAMES:   S.match_idx = (S.match_idx + d + MATCH_LEN_N) % MATCH_LEN_N; break;
             case MR_STRENGTH: S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS; break;
+            case MR_RESPOT:   if (menu_practice_snooker()) S.prac_respot = !S.prac_respot; break;
             /* Cloth, frame, table, lighting, balls and cue moved to the
              * APPEARANCE screen, which owns them for both entry points. */
             default: break;
@@ -1992,7 +2078,12 @@ static void menu_activate(void) {
              * packet had already gone out carrying kind 0 — so the joiner
              * dutifully adopted "game zero" and racked pool against a host
              * playing snooker. Set it here, where the choice is made. */
-            cuevr_net_set_hello((int)MENU[S.menu_sel].kind, S.cue_idx);
+            /* Draw for the break here, and tell the other end. Whoever turns
+             * out to be the host, their answer is the one both sides rack to —
+             * there is no later packet that could correct it. */
+            S.break_first = coin_toss();
+            cuevr_net_set_hello((int)MENU[S.menu_sel].kind, S.cue_idx,
+                                S.break_first);
             S.lb_screen = LB_TRANSPORT;
             S.lb_sel = 0;
             /* The press that opened the lobby must not also answer its
@@ -2001,6 +2092,7 @@ static void menu_activate(void) {
             S.lb_latch = 1;
             S.state = ST_LOBBY;
         } else {
+            S.break_first = coin_toss();
             start_frame(MENU[S.menu_sel].kind);
             hand_over();
         }
@@ -2097,6 +2189,27 @@ static void resolve_shot(void) {
         st.turn = S.rules.turn; st.target = S.rules.target; st.seq = S.rules.seq;
         st.reds_left = S.rules.reds_left; st.nominated = S.rules.nominated;
         cuevr_net_send_state(&st);
+    }
+
+    /* PRACTICE, SNOOKER: keep the colours on the table.
+     *
+     * The rules respot a colour whenever the shot was a foul or the striker was
+     * not in the clearance sequence, which is right for a frame — but a practice
+     * table is not being played out, it is being practised on, and there is no
+     * reason for it to strip down to a handful of reds with nothing to take
+     * after them. With this on, every colour goes straight back while reds
+     * remain, whatever the sequence said. Off, practice follows the frame rules.
+     *
+     * After cue_rules_resolve, so it is the last word — and only in practice, so
+     * nothing here can touch a match or a lockstep frame. */
+    if (S.opp == OPP_PRACTICE && S.rules.kind && S.prac_respot &&
+        S.rules.reds_left > 0) {
+        for (int i = 1; i < S.nballs; i++) {
+            int id = S.balls[i].id;
+            if (S.balls[i].on) continue;
+            if (id < CUE_ID_YELLOW || id > CUE_ID_BLACK) continue;
+            cue_rules_respot(&S.rules, S.balls, S.nballs, id);
+        }
     }
 
     /* Records, before the turn is routed: r->brk is this visit's break and it
@@ -2293,6 +2406,7 @@ static int app_gl_init(void *u) {
             if ((int)MENU[i].kind == pr.table_kind) S.menu_sel = i;
         cue_render_set_ball_set(S.ballset);
         S.cue_spots = pr.cue_spots;
+        S.prac_respot = pr.prac_respot;
         cue_render_set_cue_spots(S.cue_spots);
         /* Build the table the player last chose, right now, before the
          * levelling screen shows it. The table used to be racked with whatever
@@ -2669,11 +2783,15 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 for (int i = 0; i < MENU_N; i++)
                     if ((int)MENU[i].kind == ph.kind) S.menu_sel = i;
                 cuevr_render_set_opp_cue(ph.cue_idx);
+                /* THEIR toss, not ours. Both ends drew one; only the host's
+                 * counts, exactly as with the game kind. */
+                S.break_first = ph.first ? 1 : 0;
                 start_frame((CueGameKind)ph.kind);
             }
-            LOGI("[cuevr] online: seat %d playing %s", S.net_me,
-                 MENU[S.menu_sel].name);
-            snprintf(S.msg, sizeof S.msg, S.net_me == 0 ? "YOU BREAK" : "THEY BREAK");
+            LOGI("[cuevr] online: seat %d playing %s, %s breaks", S.net_me,
+                 MENU[S.menu_sel].name, S.break_first ? "joiner" : "host");
+            snprintf(S.msg, sizeof S.msg,
+                     S.rules.turn == S.net_me ? "YOU BREAK" : "THEY BREAK");
             S.msg_time = 3.0f;
             hand_over();
             break;
@@ -2952,6 +3070,32 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * during setup — the shot you want has to be brought to you on every
          * visit. Nothing else in aiming uses them. */
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+
+        /* HOLD B TO PLAY IT AGAIN. Practice is for playing the same shot over
+         * until it goes, and the take-back was three presses down a pause menu
+         * — by which time you have lost the picture of what you just did.
+         *
+         * Held, not tapped: B is a hair from the trigger hand's grip and a
+         * stray press must not silently rewind the table. The bar on the panel
+         * says how long is left. */
+        if (S.opp == OPP_PRACTICE && S.have_snap) {
+            if (t->hand[MOTE_VR_RIGHT].btn_upper) {
+                float was = S.undo_hold;
+                S.undo_hold += dt;
+                if (was < CUEVR_UNDO_HOLD && S.undo_hold >= CUEVR_UNDO_HOLD) {
+                    if (snap_restore()) {
+                        snprintf(S.msg, sizeof S.msg, "PLAY IT AGAIN");
+                        S.msg_time = 2.0f;
+                        mote_xr_haptic(0.5f, 60);
+                    }
+                    S.undo_hold = 0.0f;
+                }
+                S.hud_dirty = 1;
+            } else if (S.undo_hold > 0.0f) {
+                S.undo_hold = 0.0f;
+                S.hud_dirty = 1;
+            }
+        } else S.undo_hold = 0.0f;
 
         /* Online: you may only strike on your own turn. Everything else about
          * aiming still works, so you can line up while they are playing. */
@@ -3878,6 +4022,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         }
         now.lefty = S.lefty;
         now.cue_spots = S.cue_spots;
+        now.prac_respot = S.prac_respot;
         now.stick_swap = S.stick_swap;
         now.inv_slide = S.inv_slide; now.inv_turn = S.inv_turn;
         /* Floats compared with a tolerance, not bit-for-bit: the table height is
@@ -3965,7 +4110,8 @@ static void app_gl_shutdown(void *u) { (void)u; cuevr_audio_close(); cuevr_rende
  * working. */
 void cuevr_app_force_net(int join) {
     S.opp = OPP_ONLINE;
-    cuevr_net_set_hello((int)MENU[S.menu_sel].kind, S.cue_idx);
+    S.break_first = coin_toss();
+    cuevr_net_set_hello((int)MENU[S.menu_sel].kind, S.cue_idx, S.break_first);
     S.lb_screen = LB_WAIT;
     S.state = ST_LOBBY;
     if (join) cuevr_net_lan_join(); else cuevr_net_lan_host();
@@ -3976,6 +4122,7 @@ void cuevr_app_force_start(int kind) {
     for (int i = 0; i < MENU_N; i++)
         if ((int)MENU[i].kind == kind) S.menu_sel = i;
     cue_render_set_ball_set(S.ballset);
+    S.break_first = 0;              /* a capture wants the same frame every time */
     start_frame((CueGameKind)kind);
     hand_over();
 }

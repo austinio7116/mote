@@ -40,8 +40,11 @@
  * differently and diverge on the first shot, and they would do it silently,
  * which is exactly what a room id exists to prevent. Failing to pair is the
  * better failure. */
-#define CUEVR_GAME_ID  0x43554536u   /* 'CUE3' — the shot record grew, and the
-                                      * hello with it */
+#define CUEVR_GAME_ID  0x43554537u   /* 'CUE7' — the hello carries who breaks, and
+                                      * a client that does not read it would rack
+                                      * the same table and hand it to the wrong
+                                      * player, which is the loudest divergence
+                                      * there is */
 
 /* Wire framing. A magic byte per record so a half-read stream resynchronises
  * rather than reinterpreting float bytes as a shot. */
@@ -125,8 +128,8 @@ static CueVrNetHello s_mine = { 0, 0, 0 };
 static CueVrNetHello s_peer;
 static int           s_have_peer;
 
-void cuevr_net_set_hello(int kind, int cue_idx) {
-    s_mine.kind = kind; s_mine.cue_idx = cue_idx;
+void cuevr_net_set_hello(int kind, int cue_idx, int first) {
+    s_mine.kind = kind; s_mine.cue_idx = cue_idx; s_mine.first = first;
 }
 int cuevr_net_peer(CueVrNetHello *out) {
     if (!s_have_peer || !out) return 0;
