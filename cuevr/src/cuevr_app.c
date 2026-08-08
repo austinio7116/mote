@@ -23,6 +23,7 @@
 #include "cuevr.h"
 #include "cuevr_render.h"
 #include "cuevr_frame.h"
+#include "cuevr_career.h"
 #include "cuevr_text.h"
 #include "cuevr_font_md.h"
 #include "cuevr_font_lg.h"
@@ -92,13 +93,21 @@
 
 enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_CPUCUE, ST_PLACE,
        ST_DECIDE, ST_OVER, ST_PAUSE, ST_LOBBY, ST_APPEAR, ST_STATS,
-       ST_CONTROLS };
+       ST_CONTROLS,
+       /* Career: choosing the season's tables, the hub you come back to
+        * between matches, a league table, and what you have won. */
+       ST_CARSETUP, ST_CAREER, ST_CARTABLE, ST_CARACH };
 
 /* Who you are playing. PRACTICE is not "vs nobody" — it is its own mode: the
  * table never changes hands, so a missed pot leaves you to carry on, and undo is
  * available because the whole point is to play the same shot again. */
-enum { OPP_PRACTICE = 0, OPP_CPU, OPP_ONLINE, OPP_N };
-static const char *OPP_NAME[OPP_N] = { "PRACTICE", "VS CPU", "ONLINE" };
+/* CAREER is a way of ARRANGING matches, not a kind of opponent: a career match
+ * is played against the CPU like any other, so it sets S.opp to OPP_CPU and
+ * remembers where the result has to go. Keeping it out of this enum keeps every
+ * `S.opp == OPP_CPU` test in the file correct for career play — records,
+ * concede, undo, the lot — instead of needing a second case each. */
+enum { OPP_PRACTICE = 0, OPP_CPU, OPP_ONLINE, OPP_CAREER, OPP_N };
+static const char *OPP_NAME[OPP_N] = { "PRACTICE", "VS CPU", "ONLINE", "CAREER" };
 
 /* The menu is rows of options rather than a list of games, because there are now
  * six things to choose and a list only chooses one. Up/down picks the row,
@@ -250,6 +259,13 @@ static struct {
     int   mini, mini_done, mini_beat;
     float mini_t;
     int   mini_best[CUE_GAME_COUNT];
+
+    /* The career. `in_career` is set for the duration of a career MATCH, so
+     * the result knows where to go when the last frame ends. */
+    CueVrCareer career;
+    int   in_career, car_league, car_row, car_view, car_scroll;
+    int   car_pick[CUE_GAME_COUNT];
+    char  car_path[512];
     int prac_respot;             /* practice snooker: colours go back on */
     int break_first;             /* who breaks this frame (rules player index) */
     float undo_hold;             /* B held down, seconds — practice take-back */
@@ -390,6 +406,8 @@ static void stat_frame_reset(void);
 static void restyle_table(void);
 static void rerack(void);
 static void hand_over(void);
+static void start_frame(CueGameKind kind);
+static int coin_toss(void);
 static void mini_start(void);
 static void mini_stop(void);
 static void stat_match_reset(void);
@@ -426,6 +444,27 @@ void cuevr_app_force_screen(const char *name) {
         S.mini_best[(int)S.tab.kind] = 3162;
         for (int i = 1; i < S.nballs && i <= 2; i++) S.balls[i].on = 0;
         S.state = ST_AIM;
+    } else if (!strncmp(name, "career", 6)) {
+        /* A career several matches in, so the hub, the table and the
+         * achievements can all be photographed — none of them is reachable
+         * from a script otherwise, and a season is forty matches long. */
+        int kinds[3] = { CUE_GAME_UK8, CUE_GAME_SNK15, CUE_GAME_US9 };
+        cuevr_career_new(&S.career, kinds, 3);
+        for (int i = 0; i < 5; i++) {
+            const CueVrCarFixture *fx;
+            int l = cuevr_career_next(&S.career, &fx);
+            if (l < 0) break;
+            cuevr_career_record(&S.career, l, (i != 2), (i != 2) ? 2 : 1,
+                                (i != 2) ? 1 : 2, i == 1 ? 57 : 24);
+        }
+        S.opp = OPP_CAREER;
+        S.car_row = 0; S.car_view = 0; S.car_scroll = 0;
+        S.state = !strcmp(name, "careertab") ? ST_CARTABLE
+                : !strcmp(name, "careerach") ? ST_CARACH
+                : !strcmp(name, "careernew") ? ST_CARSETUP : ST_CAREER;
+        if (S.state == ST_CARSETUP) {
+            for (int i = 0; i < CUE_GAME_COUNT; i++) S.car_pick[i] = (i == 0 || i == 4);
+        }
     } else if (!strcmp(name, "board")) {
         /* The in-play scoreboard, with a frame's worth of score on it. The
          * ahead/behind figure only exists once somebody has scored, and no
@@ -885,6 +924,52 @@ static int snap_restore(void) {
     return 1;
 }
 
+/* ---- career ------------------------------------------------------------- */
+
+static void career_save(void) {
+    if (S.career.active && S.car_path[0]) cuevr_career_save(&S.career, S.car_path);
+}
+
+/* Begin the fixture that is next in the queue: the league's table, the CPU at
+ * the persona you are drawn against, the division's match length. */
+static void career_play(void) {
+    const CueVrCarFixture *fx;
+    int l = cuevr_career_next(&S.career, &fx);
+    if (l < 0 || !fx) return;
+    int opp = cuevr_career_opponent(fx);
+    int bo  = cuevr_career_bestof(&S.career, l);
+
+    S.opp = OPP_CPU;                    /* it IS a match against the CPU */
+    S.persona = (opp >= 0 && opp < CUE_NUM_PERSONAS) ? opp : 0;
+    for (int i = 0; i < MATCH_LEN_N; i++) if (MATCH_LEN[i] == bo) S.match_idx = i;
+    for (int i = 0; i < MENU_N; i++)
+        if ((int)MENU[i].kind == S.career.league[l].kind) S.menu_sel = i;
+    S.in_career = 1;
+    S.car_league = l;
+    S.break_first = coin_toss();
+    cue_render_set_ball_set(S.ballset);
+    start_frame(MENU[S.menu_sel].kind);
+    hand_over();
+}
+
+/* The match is over and the ledger wants it. */
+static void career_finish(void) {
+    if (!S.in_career) return;
+    S.in_career = 0;
+    int me = 0;
+    int mine = S.rules.frames[me], theirs = S.rules.frames[1 - me];
+    int won  = mine > theirs;
+    /* Only snooker has a break worth recording; a pool "break" is a ball count
+     * and would sit in the same column meaning something else. */
+    int hb = S.tab.is_snooker ? S.mstat[me].best_break : 0;
+    cuevr_career_record(&S.career, S.car_league, won, mine, theirs, hb);
+    career_save();
+    S.opp = OPP_CAREER;
+    S.state = ST_CAREER;
+    S.car_row = 0;
+    S.hud_dirty = 1;
+}
+
 /* ---- the six-ball clearance --------------------------------------------- *
  *
  * Practice with a scoreboard on it: six balls in a small triangle, a clock that
@@ -1317,7 +1402,10 @@ static void hud_paint(void) {
 
         {   int y = 12 + MR_START * 8;
             if (S.menu_row == MR_START) hud_rect(1, y - 1, HW - 2, 9, RGB565C(30, 60, 40));
-            hud_text_2x(S.opp == OPP_ONLINE ? "FIND A MATCH" : "BREAK OFF",
+            hud_text_2x(S.opp == OPP_ONLINE ? "FIND A MATCH"
+                        : S.opp == OPP_CAREER ? (S.career.active ? "CONTINUE CAREER"
+                                                                 : "START A CAREER")
+                        : "BREAK OFF",
                         4, y - 1, S.menu_row == MR_START ? LIVE : DIM);
         }
         cue_render_set_preview_hs(-1, -1, 0, 0, 0);   /* the balls preview lives on APPEARANCE now */
@@ -1775,6 +1863,185 @@ static void hud_paint(void) {
             hud_text(o[i].note, 8, y + 8, DIM);
         }
         hud_text("TRIGGER SELECT", 4, HH - 6, DIM);
+        return;
+    }
+
+    /* ---- career: choosing the season's tables ----------------------------- */
+    if (S.state == ST_CARSETUP) {
+        hud_height(12 + (CUE_GAME_COUNT + 2) * 8 + 20);
+        hud_rect(0, 0, HW, 10, BAND);
+        hud_text_2x("NEW CAREER", 4, 1, HI);
+        hud_rect(0, 10, HW, 1, LINE);
+        int n = 0;
+        for (int i = 0; i < CUE_GAME_COUNT; i++) {
+            hud_opt(i, cuevr_stat_table_name(i), S.car_pick[i] ? "IN" : "-",
+                    S.car_row == i, 1, TXT, DIM, HI);
+            if (S.car_pick[i]) n++;
+        }
+        {
+            char v[32];
+            snprintf(v, sizeof v, n == 1 ? "%d LEAGUE" : "%d LEAGUES", n);
+            hud_link(CUE_GAME_COUNT, "START CAREER", n ? v : "PICK ONE",
+                     S.car_row == CUE_GAME_COUNT, DIM, HI, n ? LIVE : DIM);
+        }
+        hud_link(CUE_GAME_COUNT + 1, "BACK", "CANCEL",
+                 S.car_row == CUE_GAME_COUNT + 1, DIM, HI, LIVE);
+        hud_text("ONE LEAGUE PER TABLE, EVERY SEASON", 4, HH - 12, DIM);
+        hud_text("TRIGGER SELECT", 4, HH - 6, DIM);
+        return;
+    }
+
+    /* ---- career: the hub -------------------------------------------------- */
+    if (S.state == ST_CAREER) {
+        char v[48];
+        const CueVrCareer *C = &S.career;
+        hud_height(CUEVR_HUD_LH);
+        hud_rect(0, 0, HW, 11, BAND);
+        snprintf(v, sizeof v, "SEASON %d", C->season);
+        hud_text_2x(v, 4, 1, HI);
+        snprintf(v, sizeof v, "%d", C->elo);
+        hud_text_2x(v, HW - 6 - hud_text_w_2x(v), 1, TXT);
+        hud_rect(0, 11, HW, 1, LINE);
+
+        snprintf(v, sizeof v, "WON %d   LOST %d", C->wins, C->losses);
+        hud_text(v, 4, 14, DIM);
+        if (C->best_break > 0) {
+            snprintf(v, sizeof v, "BEST BREAK %d", C->best_break);
+            hud_text_r(v, HW - 6, 14, DIM);
+        }
+        hud_rect(0, 21, HW, 1, RGB565C(26, 40, 62));
+
+        /* The next fixture, which is the whole point of the screen. */
+        const CueVrCarFixture *fx = NULL;
+        int l = cuevr_career_next(C, &fx);
+        if (l >= 0 && fx) {
+            const CueVrCarLeague *L = &C->league[l];
+            hud_text("NEXT MATCH", 4, 24, LIVE);
+            hud_text_2x(cuevr_stat_table_name(L->kind), 4, 31, TXT);
+            int opp = cuevr_career_opponent(fx);
+            snprintf(v, sizeof v, "%s  %d", CUE_PERSONAS[opp].name, C->ai_elo[opp]);
+            hud_text_2x(v, 4, 42, HI);
+            snprintf(v, sizeof v, "%s DIVISION   BEST OF %d",
+                     L->division ? "PRO" : "AMATEUR", cuevr_career_bestof(C, l));
+            hud_text(v, 4, 54, DIM);
+            hud_face(HW - 12, 40, 18, opp);
+        } else {
+            hud_text_2x("SEASON COMPLETE", 4, 34, LIVE);
+        }
+        hud_rect(0, 61, HW, 1, RGB565C(26, 40, 62));
+
+        {
+            static const char *ROWS[4] = { "PLAY THE MATCH", "LEAGUE TABLES",
+                                           "ACHIEVEMENTS", "BACK TO THE MENU" };
+            for (int i = 0; i < 4; i++) {
+                int y = 65 + i * 10, on = (S.car_row == i);
+                if (on) hud_rect(1, y - 1, HW - 2, 10, RGB565C(28, 58, 40));
+                int live = (i != 0) || (l >= 0);
+                hud_text_2x(ROWS[i], 6, y, on ? HI : (live ? DIM : RGB565C(70,78,92)));
+            }
+        }
+        hud_text("TRIGGER SELECT", 4, HH - 6, DIM);
+        return;
+    }
+
+    /* ---- career: a league table ------------------------------------------ */
+    if (S.state == ST_CARTABLE) {
+        char v[48];
+        CueVrCareer *C = &S.career;
+        int l = (S.car_view >= 0 && S.car_view < C->nleague) ? S.car_view : 0;
+        const CueVrCarLeague *L = &C->league[l];
+        hud_height(CUEVR_HUD_LH);
+        hud_rect(0, 0, HW, 10, BAND);
+        hud_text_2x("LEAGUE", 4, 1, HI);
+        hud_text_r(L->division ? "PRO" : "AMATEUR", HW - 6, 3, LIVE);
+        hud_rect(0, 10, HW, 1, LINE);
+
+        {   /* the league picker, when there is more than one */
+            int on = (S.car_row == 0);
+            if (on) hud_rect(1, 12, HW - 2, 9, RGB565C(28, 58, 40));
+            hud_text("TABLE", 4, 14, on ? HI : DIM);
+            hud_text_r(cuevr_stat_table_name(L->kind), HW - 6, 14,
+                       C->nleague > 1 ? LIVE : DIM);
+        }
+
+        hud_text("P", 74, 24, DIM);
+        hud_text("W", 88, 24, DIM);
+        hud_text("F", 102, 24, DIM);
+        hud_text("PTS", HW - 6 - hud_text_w("PTS"), 24, DIM);
+        hud_rect(0, 31, HW, 1, RGB565C(26, 40, 62));
+        for (int i = 0; i < CUEVR_CAR_INLEAGUE; i++) {
+            const CueVrCarStand *st = &L->tab[i];
+            int y = 34 + i * 10;
+            int you = (st->id == CUEVR_CAR_PLAYER);
+            if (you) hud_rect(0, y - 2, HW, 10, RGB565C(20, 34, 54));
+            snprintf(v, sizeof v, "%d", i + 1);
+            hud_text(v, 4, y, DIM);
+            {   char nm[24];
+                const char *who = you ? "YOU" : CUE_PERSONAS[st->id].name;
+                hud_text(hud_fit_name(nm, sizeof nm, who, 58), 12, y,
+                         you ? HI : TXT);
+            }
+            snprintf(v, sizeof v, "%d", st->played); hud_text(v, 74, y, DIM);
+            snprintf(v, sizeof v, "%d", st->won);    hud_text(v, 88, y, DIM);
+            snprintf(v, sizeof v, "%d", st->ff - st->fa);
+            hud_text(v, 102, y, DIM);
+            snprintf(v, sizeof v, "%d", st->points);
+            hud_text_r(v, HW - 6, y, you ? HI : TXT);
+        }
+        if (L->complete) hud_text("SEASON FINISHED", 4, 88, LIVE);
+        {
+            int on = (S.car_row == 1);
+            if (on) hud_rect(1, HH - 11, HW - 2, 9, RGB565C(28, 58, 40));
+            hud_text("BACK", 4, HH - 9, on ? HI : DIM);
+            hud_text_r("DONE", HW - 6, HH - 9, on ? LIVE : DIM);
+        }
+        return;
+    }
+
+    /* ---- career: what you have won --------------------------------------- */
+    if (S.state == ST_CARACH) {
+        const CueVrCareer *C = &S.career;
+        hud_height(CUEVR_HUD_LH);
+        hud_rect(0, 0, HW, 10, BAND);
+        hud_text_2x("ACHIEVEMENTS", 4, 1, HI);
+        {
+            char v[24]; int got = 0;
+            for (int i = 0; i < CAR_ACH_N; i++) if (C->ach & (1u << i)) got++;
+            snprintf(v, sizeof v, "%d/%d", got, CAR_ACH_N);
+            hud_text_r(v, HW - 6, 3, LIVE);
+        }
+        hud_rect(0, 10, HW, 1, LINE);
+        const int Y0 = 14, Y1 = HH - 22;
+        int y = Y0 - S.car_scroll;
+        for (int i = 0; i < CAR_ACH_N; i++) {
+            int got = (C->ach & (1u << i)) != 0;
+            /* +12, not +6: an entry is TWO lines and the second one is what
+             * was running under the MORE row. */
+            if (y >= Y0 && y + 12 <= Y1) {
+                hud_text(cuevr_car_ach_name(i), 4, y, got ? HI : DIM);
+                hud_text(got ? "WON" : cuevr_car_ach_how(i), 4, y + 6,
+                         got ? LIVE : RGB565C(70, 78, 92));
+            }
+            y += 14;
+        }
+        {
+            int total = CAR_ACH_N * 14, page = Y1 - Y0;
+            int maxs = total - page; if (maxs < 0) maxs = 0;
+            if (S.car_scroll > maxs) S.car_scroll = maxs;
+            if (maxs > 0) {
+                int on = (S.car_row == 1);
+                if (on) hud_rect(1, HH - 20, HW - 2, 9, RGB565C(28, 58, 40));
+                hud_text(S.car_scroll < maxs ? "MORE" : "BACK TO THE TOP",
+                         4, HH - 18, on ? HI : DIM);
+                hud_text_r(S.car_scroll < maxs ? "DOWN" : "UP", HW - 6, HH - 18, LIVE);
+            }
+        }
+        {
+            int on = (S.car_row == 0);
+            if (on) hud_rect(1, HH - 11, HW - 2, 9, RGB565C(28, 58, 40));
+            hud_text("BACK", 4, HH - 9, on ? HI : DIM);
+            hud_text_r("DONE", HW - 6, HH - 9, on ? LIVE : DIM);
+        }
         return;
     }
 
@@ -2271,6 +2538,19 @@ static void menu_change(int d) {
 }
 
 static void menu_activate(void) {
+    /* CAREER is not an opponent you rack against — it is the fixture list. */
+    if (S.menu_row == MR_START && S.opp == OPP_CAREER) {
+        if (S.career.active) { S.state = ST_CAREER; S.car_row = 0; }
+        else {
+            for (int i = 0; i < CUE_GAME_COUNT; i++) S.car_pick[i] = 0;
+            S.car_pick[CUE_GAME_UK8] = 1;
+            S.car_pick[CUE_GAME_SNK15] = 1;
+            S.car_row = 0;
+            S.state = ST_CARSETUP;
+        }
+        S.hud_dirty = 1;
+        return;
+    }
     if (S.menu_row == MR_APPEAR) {
         S.appear_from = ST_MENU;
         S.menu_row = AR_CLOTH;
@@ -2669,6 +2949,15 @@ static int app_gl_init(void *u) {
         S.prac_respot = pr.prac_respot;
         S.surround = pr.surround;
         memcpy(S.mini_best, pr.mini_best, sizeof S.mini_best);
+        /* The career lives beside the preferences, in its own file: it is a
+         * different size and shape of thing and a hundred fixture lines have no
+         * business in a settings file. */
+        {
+            const char *d = getenv("CUEVR_PREFS_DIR");
+            snprintf(S.car_path, sizeof S.car_path, "%s/cuevr_career.txt",
+                     d ? d : ".");
+            cuevr_career_load(&S.career, S.car_path);
+        }
         cuevr_render_set_surround(S.surround);
         mote_xr_show_passthrough(S.surround == 0);
         cue_render_set_cue_spots(S.cue_spots);
@@ -2851,7 +3140,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
         int pointing = (S.state == ST_MENU || S.state == ST_PAUSE ||
                         S.state == ST_APPEAR || S.state == ST_STATS ||
                         S.state == ST_LOBBY || S.state == ST_DECIDE ||
-                        S.state == ST_CONTROLS || S.state == ST_OVER);
+                        S.state == ST_CONTROLS || S.state == ST_OVER ||
+                        S.state == ST_CARSETUP || S.state == ST_CAREER ||
+                        S.state == ST_CARTABLE || S.state == ST_CARACH);
         /* The pointer lives in the hand that holds the BUTT, which is the left
          * one for a left-hander. Hard-coding the right would have put the laser
          * in their bridge hand — the one lying on the cloth. */
@@ -3876,6 +4167,98 @@ static void app_update(void *u, const MoteVrTracking *t) {
         break;
     }
 
+    case ST_CARSETUP: {
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        int n = CUE_GAME_COUNT + 2;
+        int hov = ptr_row_at(12, 8, n);
+        if (hov >= 0 && hov != S.car_row) { S.car_row = hov; S.hud_dirty = 1; }
+        if (hov >= 0 && ptr_click(t)) {
+            if (hov < CUE_GAME_COUNT) S.car_pick[hov] = !S.car_pick[hov];
+            else if (hov == CUE_GAME_COUNT) {
+                int kinds[CUE_GAME_COUNT], k = 0;
+                for (int i = 0; i < CUE_GAME_COUNT; i++)
+                    if (S.car_pick[i]) kinds[k++] = i;
+                if (k && cuevr_career_new(&S.career, kinds, k)) {
+                    career_save();
+                    S.state = ST_CAREER;
+                    S.car_row = 0;
+                }
+            } else { S.state = ST_MENU; S.menu_row = MR_START; }
+            S.hud_dirty = 1;
+        }
+        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
+            S.btn_latch = 1; S.state = ST_MENU; S.menu_row = MR_START; S.hud_dirty = 1;
+        }
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+        break;
+    }
+
+    case ST_CAREER: {
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        int hov = ptr_row_at(65, 10, 4);
+        if (hov >= 0 && hov != S.car_row) { S.car_row = hov; S.hud_dirty = 1; }
+        if (hov >= 0 && ptr_click(t)) {
+            if (hov == 0) {
+                if (cuevr_career_next(&S.career, NULL) >= 0) career_play();
+            } else if (hov == 1) {
+                S.car_view = 0; S.car_row = 0; S.state = ST_CARTABLE;
+            } else if (hov == 2) {
+                S.car_scroll = 0; S.car_row = 0; S.state = ST_CARACH;
+            } else {
+                S.opp = OPP_CAREER; S.state = ST_MENU; S.menu_row = MR_START;
+            }
+            S.hud_dirty = 1;
+        }
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+        break;
+    }
+
+    case ST_CARTABLE: {
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        int hov = -1;
+        if (S.ptr_ok) {
+            if (S.ptr_y >= 12.0f && S.ptr_y < 21.0f)  hov = 0;
+            else if (S.ptr_y >= (float)(HH - 11))      hov = 1;
+        }
+        if (hov >= 0 && hov != S.car_row) { S.car_row = hov; S.hud_dirty = 1; }
+        if (hov >= 0 && ptr_click(t)) {
+            if (hov == 0 && S.career.nleague > 1)
+                S.car_view = (S.car_view + 1) % S.career.nleague;
+            else if (hov == 1) { S.state = ST_CAREER; S.car_row = 1; }
+            S.hud_dirty = 1;
+        }
+        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
+            S.btn_latch = 1; S.state = ST_CAREER; S.car_row = 1; S.hud_dirty = 1;
+        }
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+        break;
+    }
+
+    case ST_CARACH: {
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        int hov = -1;
+        if (S.ptr_ok) {
+            if (S.ptr_y >= (float)(HH - 11))            hov = 0;
+            else if (S.ptr_y >= (float)(HH - 20))       hov = 1;
+        }
+        if (hov >= 0 && hov != S.car_row) { S.car_row = hov; S.hud_dirty = 1; }
+        if (hov >= 0 && ptr_click(t)) {
+            if (hov == 1) {
+                int page = (HH - 22) - 14, total = CAR_ACH_N * 14;
+                int maxs = total - page; if (maxs < 0) maxs = 0;
+                S.car_scroll = (S.car_scroll < maxs)
+                             ? (S.car_scroll + page > maxs ? maxs : S.car_scroll + page)
+                             : 0;
+            } else { S.state = ST_CAREER; S.car_row = 2; }
+            S.hud_dirty = 1;
+        }
+        if (t->hand[MOTE_VR_RIGHT].btn_lower && !S.btn_latch) {
+            S.btn_latch = 1; S.state = ST_CAREER; S.car_row = 2; S.hud_dirty = 1;
+        }
+        if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+        break;
+    }
+
     case ST_STATS: {
         /* Two rows, both drawn, both hit-tested where they are drawn: the page
          * at the top and the way out at the bottom. */
@@ -4009,6 +4392,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.msg_time = 3.0f;
                 S.rules.ball_in_hand = 1;
                 hand_over();
+            } else if (S.in_career) {
+                career_finish();
+                S.btn_latch = 1;
+                S.ptr_latch = 1;
             } else {
                 S.state = ST_MENU;
                 /* THE PRESS THAT LEFT THIS SCREEN IS SPENT. The menu keeps its
@@ -4056,7 +4443,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
         int in_menu = (S.state == ST_MENU || S.state == ST_SETUP ||
                        S.state == ST_LOBBY || S.state == ST_PAUSE ||
                        S.state == ST_STATS || S.state == ST_OVER ||
-                       S.state == ST_APPEAR ||
+                       S.state == ST_APPEAR || S.state == ST_CARSETUP ||
+                       S.state == ST_CAREER || S.state == ST_CARTABLE ||
+                       S.state == ST_CARACH ||
                        S.state == ST_PLACE || S.state == ST_CONTROLS);
         /* APPEARANCE hides the HELD cue and lays the display one on the cloth
          * instead, the way the main menu does. That screen is where you pick a
@@ -4105,7 +4494,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
                       S.state == ST_OVER || S.state == ST_PAUSE ||
                       S.state == ST_LOBBY ||
                       S.state == ST_APPEAR || S.state == ST_STATS ||
-                      S.state == ST_CONTROLS);
+                      S.state == ST_CONTROLS || S.state == ST_CARSETUP ||
+                      S.state == ST_CAREER || S.state == ST_CARTABLE ||
+                      S.state == ST_CARACH);
         MoteVrV3 pos;
         if (asking) {
             /* BEHIND THE TABLE, not stuck to your face.
