@@ -4569,13 +4569,20 @@ skip_shadows:
         draw(&G.ball);
     }
 
-    /* The pocket drop lips last, with depth writes off — the handheld's own
-     * order, so a ball resting in a pocket covers the lip rather than the lip
-     * drawing across it. */
+    /* The pocket drop lips last.
+     *
+     * WITH DEPTH WRITES ON. They used to be drawn with the mask off — the
+     * handheld's own order, on the reasoning that a ball resting in a pocket
+     * should cover the lip rather than the lip drawing across it. But the depth
+     * TEST already does that: the balls are drawn first, so the lip is rejected
+     * wherever a ball is nearer. All the mask did was stop the lip occluding
+     * ITSELF, and the roll is emitted from its top edge down, so the darkest,
+     * deepest ring was painted last and drew straight over the green above it.
+     * From any angle down into a pocket the inside of the lip appeared to sit
+     * on top of the cloth. */
     gpq_mark(GPQ_LIPS);
     glchk("before-lips");
     if (G.lips.n) {
-        glDepthMask(GL_FALSE);
         if (!getenv("CUEVR_NOLIPS")) {
             /* The drop lip is a moulded edge, not a plank: giving it the rails'
              * grain put wood figure on the one part of the pocket that is meant
@@ -4584,7 +4591,6 @@ skip_shadows:
             set_model(T);
             draw(&G.lips);
         }
-        glDepthMask(GL_TRUE);
     }
     glEnable(GL_CULL_FACE);
 

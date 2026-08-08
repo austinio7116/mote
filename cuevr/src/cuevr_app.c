@@ -2215,7 +2215,6 @@ static void hud_paint(void) {
         }
 
         hud_rect(0, 45, HW, 1, LINE);
-        if (hud_toast(TXT, DIM)) return;
         if (S.mini_done) {
             hud_text_2x(S.mini_beat ? "NEW RECORD" : "CLEARED", 4, 48, HI);
             hud_text("MENU FOR ANOTHER GO", 4, 62, DIM);
@@ -2238,6 +2237,12 @@ static void hud_paint(void) {
                 x += step;
             }
         }
+        /* AFTER the balls, not before. Taking the early return at the top of
+         * this board meant a record toast hid the two things you are actually
+         * watching during a run — how many are left, and which — at the very
+         * moment you pot the last one. It takes the message line, like it does
+         * on the scoreboard, and nothing else. */
+        hud_toast(TXT, DIM);
         return;
     }
 

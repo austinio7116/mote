@@ -257,7 +257,11 @@ static Vec3 walk_pt(float ex, float ez, float tt) {
  * follow. */
 #define CUE_CUT_CORNER  1.665f    /* 1.11 x 1.50, chosen at the bench */
 #define CUE_CUT_MIDDLE  1.590f    /* 1.06 x 1.50 */
-#define CUE_MID_SETBACK 0.010f    /* the middle arc sits 10 mm into the frame */
+/* How far each arc's centre sits INTO THE FRAME, away from the table. Positive
+ * is deeper into the frame — the same direction and sign the bench uses, so a
+ * number read off it goes straight in here. */
+#define CUE_COR_SETBACK 0.000f
+#define CUE_MID_SETBACK 0.010f
 #define CUE_SLATE_RAIL  0.98f
 
 #define CUE_BND_MAX 1400
@@ -301,7 +305,12 @@ static void pt_into(CueBnd *B, float x, float z, int pk) {
  * CUE_SCOF nudges it inward from the pocket, in millimetres. */
 static Vec3 scallop_centre(const CueWorld *w, int p) {
     Vec3 C = w->pocket[p];
-    if (p < 4) return C;                       /* corners sit on the pocket */
+    if (p < 4) {
+        /* A corner sets back along its own diagonal, into the corner. */
+        float sx = (C.x < 0) ? -1.0f : 1.0f, sz = (C.z < 0) ? -1.0f : 1.0f;
+        const float k = 0.70710678f;
+        return v3(C.x + sx*CUE_COR_SETBACK*k, 0, C.z + sz*CUE_COR_SETBACK*k);
+    }
     /* A MIDDLE POCKET'S ARC SITS DEEPER. Its centre on the pocket puts the
      * curve too far into the table; set back toward the frame it reads as a
      * mouth cut into the rail instead of a bite out of the bed.
