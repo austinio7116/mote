@@ -1487,16 +1487,15 @@ void cuevr_arena_build(CueVrFrameMesh *m) {
                          * squab; and a dark divider standing proud between each
                          * pair, which is what separates one seat from the next
                          * once you are more than a few rows back. */
-                        float bk = 0.42f, wl = w * 0.55f;
-                        { float p0[3]=P(rs,tm-wl,hs,0),           p1[3]=P(rs,tm+wl,hs,0);
-                          float p2[3]=P(rs+0.07f,tm+wl,hs+bk,0),  p3[3]=P(rs+0.07f,tm-wl,hs+bk,0);
-                          slope_face(m, p0,p1,p2,p3, -ca, -sa, wl*2, bk, col); }
-                        for (int wsg = -1; wsg <= 1; wsg += 2) {
-                            float a1 = tm + wsg*wl, a2 = tm + wsg*w;
-                            float p0[3]=P(rs,a1,hs,0),               p1[3]=P(rs-0.08f,a2,hs,0);
-                            float p2[3]=P(rs-0.02f,a2,hs+bk*0.92f,0), p3[3]=P(rs+0.07f,a1,hs+bk,0);
-                            slope_face(m, p0,p1,p2,p3, -ca, -sa, w*0.5f, bk, col);
-                        }
+                        /* ONE PANEL FOR THE BACK. It was three — a centre and
+                         * two wings turned forward — which is truer to the seat
+                         * and cost two extra quads on every one of nine hundred
+                         * of them. The side rests either side already break the
+                         * row up, and they do it at a fraction of the price. */
+                        float bk = 0.42f;
+                        { float p0[3]=P(rs,tm-w,hs,0),           p1[3]=P(rs,tm+w,hs,0);
+                          float p2[3]=P(rs+0.07f,tm+w,hs+bk,0),  p3[3]=P(rs+0.07f,tm-w,hs+bk,0);
+                          slope_face(m, p0,p1,p2,p3, -ca, -sa, w*2, bk, col); }
                         { float p0[3]=P(rs-0.32f,tm-w,hs+0.15f,0), p1[3]=P(rs-0.32f,tm+w,hs+0.15f,0);
                           float p2[3]=P(rs,tm+w,hs+0.21f,0),       p3[3]=P(rs,tm-w,hs+0.21f,0);
                           float nn[3] = { 0, 1, 0 };
