@@ -81,6 +81,10 @@ int cue_table_rack(const CueTable *t, CueBall *balls);
 /* Cue-ball home (centre of the D / behind the head string) for placement. */
 Vec3 cue_table_cue_home(const CueTable *t);
 
+/* A six-ball triangle on the foot spot plus the white at home, for the
+ * practice challenges. Returns the ball count (7). */
+int cue_table_rack_six(const CueTable *t, CueBall *balls);
+
 /* Clamp a desired placement to the legal ball-in-hand region (the D for
  * snooker/UK8, behind the head string for US pool). */
 Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p);

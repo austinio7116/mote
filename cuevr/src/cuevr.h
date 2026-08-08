@@ -323,6 +323,10 @@ typedef struct {
      * reds and nothing to follow them with. */
     int      prac_respot;
     int      surround;       /* 0 passthrough, 1 dark room, 2 arena */
+    /* Best six-ball clearance, in hundredths of a second, per table kind.
+     * 0 = never done. Per table because a 12 ft snooker table and a 7 ft pub
+     * table are not the same challenge and one record for both is meaningless. */
+    int      mini_best[CUE_GAME_COUNT];
     int      stick_swap;     /* turn on the left stick, slide on the right */
     int      inv_slide, inv_turn;
 } CueVrPrefs;

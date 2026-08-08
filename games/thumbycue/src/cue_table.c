@@ -528,6 +528,27 @@ static int rack_snooker(const CueTable *t, CueBall *b) {
     return n;
 }
 
+/* A SIX-BALL RACK for the practice challenges: a small triangle on the foot
+ * spot and the white at home. Ids 1..6, which are reds on a snooker table and
+ * the low solids on a pool one — so the rack is always made of balls the table
+ * you are on actually uses, without the caller having to know which. */
+int cue_table_rack_six(const CueTable *t, CueBall *balls) {
+    memset(balls, 0, sizeof(CueBall) * CUE_MAX_BALLS);
+    const float R = t->R;
+    const float footx = t->half_len * 0.5f;
+    const float dx = R * 1.7320508f;
+    int n = 1, id = 1;
+    for (int row = 0; row < 3; row++) {
+        float x = footx + row * dx;
+        for (int k = 0; k <= row; k++) {
+            float z = (-(row) * R) + k * 2.0f * R;
+            set_ball(&balls[n++], id++, x, z, R);
+        }
+    }
+    { Vec3 h = cue_table_cue_home(t); set_ball(&balls[0], CUE_ID_CUE, h.x, h.z, R); }
+    return n;
+}
+
 int cue_table_rack(const CueTable *t, CueBall *balls) {
     memset(balls, 0, sizeof(CueBall) * CUE_MAX_BALLS);
     if (t->is_snooker)            return rack_snooker(t, balls);

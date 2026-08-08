@@ -144,7 +144,8 @@ enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE }
  * ever, against defaults that were chosen by measurement. cuevr_render_fx_set()
  * is still there for the preview harness to drive. */
 enum { PS_RESUME = 0, PS_UNDO, PS_PICKUP, PS_RERACK, PS_PLACE, PS_NOMINATE,
-       PS_RESPOT, PS_CONCEDE, PS_APPEAR, PS_CONTROLS, PS_STATS, PS_QUIT, PS_N };
+       PS_RESPOT, PS_MINI, PS_CONCEDE, PS_APPEAR, PS_CONTROLS, PS_STATS,
+       PS_QUIT, PS_N };
 static const char *COLOUR_NAME[8] = {
     "", "", "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
 
@@ -241,6 +242,12 @@ static struct {
     int stick_swap, inv_slide, inv_turn;
     int cue_spots;
     int surround;                /* 0 passthrough, 1 dark room, 2 arena */
+    /* The six-ball clearance challenge. `mini` is on; `mini_t` is the clock,
+     * which starts on the first strike and stops on the last ball; `mini_done`
+     * freezes it so the final time stays on the board. */
+    int   mini, mini_done, mini_beat;
+    float mini_t;
+    int   mini_best[CUE_GAME_COUNT];
     int prac_respot;             /* practice snooker: colours go back on */
     int break_first;             /* who breaks this frame (rules player index) */
     float undo_hold;             /* B held down, seconds — practice take-back */
@@ -379,6 +386,10 @@ static int coin_toss(void) {
 
 static void stat_frame_reset(void);
 static void restyle_table(void);
+static void rerack(void);
+static void hand_over(void);
+static void mini_start(void);
+static void mini_stop(void);
 static void stat_match_reset(void);
 static void stat_frame_into_match(void);
 
@@ -401,6 +412,16 @@ void cuevr_app_force_screen(const char *name) {
         S.pause_sel = 0;
         S.have_snap = 1;              /* so UNDO SHOT is on the list too */
         S.state = ST_PAUSE;
+    } else if (!strcmp(name, "mini")) {
+        /* The clearance challenge mid-run, so its board can be photographed —
+         * it cannot be reached from a script any other way. */
+        S.opp = OPP_PRACTICE;
+        mini_start();
+        S.have_snap = 1;                 /* i.e. the clock is running */
+        S.mini_t = 27.44f;
+        S.mini_best[(int)S.tab.kind] = 3162;
+        for (int i = 1; i < S.nballs && i <= 2; i++) S.balls[i].on = 0;
+        S.state = ST_AIM;
     } else if (!strcmp(name, "board")) {
         /* The in-play scoreboard, with a frame's worth of score on it. The
          * ahead/behind figure only exists once somebody has scored, and no
@@ -860,6 +881,49 @@ static int snap_restore(void) {
     return 1;
 }
 
+/* ---- the six-ball clearance --------------------------------------------- *
+ *
+ * Practice with a scoreboard on it: six balls in a small triangle, a clock that
+ * starts on your first strike and stops on the last ball down, and the best
+ * time you have ever set on THIS table sitting next to it to be beaten.
+ *
+ * The rules engine is stepped aside for the duration (see resolve_shot): six
+ * reds and no colours is not a position snooker has an opinion about, and a
+ * challenge that called half your pots fouls would be a worse game than no
+ * challenge at all. Any ball down counts; the white comes back if you lose it.
+ */
+static void mini_start(void) {
+    think_join();
+    S.nballs = cue_table_rack_six(&S.tab, S.balls);
+    cue_rules_init(&S.rules, &S.tab, 0);
+    S.rules.turn = 0;
+    S.rules.ball_in_hand = 1;
+    S.mini = 1;
+    S.mini_done = 0;
+    S.mini_beat = 0;
+    S.mini_t = 0.0f;
+    S.have_snap = 0;
+    S.shot_events = 0;
+    stat_frame_reset();
+    snprintf(S.msg, sizeof S.msg, "CLEAR SIX - GO");
+    S.msg_time = 2.5f;
+    S.hud_dirty = 1;
+}
+
+static void mini_stop(void) {
+    S.mini = 0;
+    S.mini_done = 0;
+    rerack();
+    hand_over();
+}
+
+/* How many of the six are still up. */
+static int mini_left(void) {
+    int n = 0;
+    for (int i = 1; i < S.nballs; i++) if (S.balls[i].on) n++;
+    return n;
+}
+
 /* Re-rack without moving the table: the frame starts again, the room does not. */
 static void rerack(void) {
     S.nballs = cue_table_rack(&S.tab, S.balls);
@@ -1065,6 +1129,9 @@ static int pause_rows(PsRow *o, int max) {
      * choice about the frame you are setting up, it is a thing you turn on when
      * the table in front of you has stripped down to four reds. */
     if (S.opp == OPP_PRACTICE && S.rules.kind) ADD(PS_RESPOT, "AUTO RESPOT");
+    /* The challenges live in practice, where there is nobody waiting. */
+    if (S.opp == OPP_PRACTICE) ADD(PS_MINI, S.mini ? "END CHALLENGE"
+                                                   : "TIMED CLEARANCE");
     if (S.opp != OPP_ONLINE) ADD(PS_RERACK, "RE-RACK");
     ADD(PS_PLACE,  "PLACE TABLE");
     ADD(PS_APPEAR, "APPEARANCE");
@@ -1659,6 +1726,60 @@ static void hud_paint(void) {
         return;
     }
 
+    /* ---- the six-ball clearance ------------------------------------------ *
+     * Its own board, because none of a frame's furniture applies: there is no
+     * opponent, no score and no ball on — there is a clock, six balls, and the
+     * time to beat. */
+    if (S.mini) {
+        char b2[40];
+        hud_height(CUEVR_HUD_BOARD_LH);
+        hud_rect(0, 0, HW, 9, BAND);
+        hud_text("SIX BALL CLEARANCE", 4, 2, HI);
+        hud_text_r(MENU[S.menu_sel].name, HW - 4, 2, DIM);
+        hud_rect(0, 9, HW, 1, LINE);
+
+        /* The clock, big, and green the moment it is a record. */
+        int cs = (int)(S.mini_t * 100.0f + 0.5f);
+        snprintf(b2, sizeof b2, "%d.%02d", cs / 100, cs % 100);
+        hud_text_xl(b2, 4, 14, S.mini_done ? (S.mini_beat ? LIVE : TXT) : TXT);
+        hud_text("SECONDS", 4, 36, DIM);
+
+        /* The record for THIS table. */
+        {
+            int k = (int)S.tab.kind;
+            int best = (k >= 0 && k < CUE_GAME_COUNT) ? S.mini_best[k] : 0;
+            hud_text_r("BEST", HW - 6, 14, DIM);
+            if (best > 0) snprintf(b2, sizeof b2, "%d.%02d", best / 100, best % 100);
+            else          snprintf(b2, sizeof b2, "-");
+            hud_text_r(b2, HW - 6, 22, best ? HI : DIM);
+        }
+
+        hud_rect(0, 45, HW, 1, LINE);
+        if (S.mini_done) {
+            hud_text_2x(S.mini_beat ? "NEW RECORD" : "CLEARED", 4, 48, HI);
+            hud_text("MENU FOR ANOTHER GO", 4, 62, DIM);
+        } else if (!S.have_snap) {
+            hud_text_2x("BREAK TO START THE CLOCK", 4, 48, HI);
+        } else {
+            int left = mini_left();
+            snprintf(b2, sizeof b2, left == 1 ? "%d BALL LEFT" : "%d BALLS LEFT", left);
+            hud_text_2x(b2, 4, 48, TXT);
+        }
+
+        /* The balls themselves, so the count is a glance and not a number. */
+        {
+            const int ry = 75, rr = 4, step = 10;
+            int x = 8;
+            hud_rect(0, 69, HW, 1, RGB565C(26, 40, 62));
+            for (int i = 1; i < S.nballs; i++) {
+                if (!S.balls[i].on) continue;
+                cue_render_ball_icon_hs(x, ry, rr, S.balls[i].id);
+                x += step;
+            }
+        }
+        return;
+    }
+
     /* ---- in play: the scoreboard ----------------------------------------- *
      * Laid out like a television board rather than a handheld screen: a title
      * strip, then one wide row per player with the name on the left and the
@@ -2181,6 +2302,45 @@ static void resolve_shot(void) {
     }
     LOGI("[cuevr] settle: cue at %.2f,%.2f  first_hit %d  potted %d  scratch %d",
          (double)S.balls[0].pos.x, (double)S.balls[0].pos.z, S.world.first_hit, np, scratch);
+    /* THE CHALLENGE IS NOT A FRAME. Six reds with no colours is not a position
+     * the snooker rules have an opinion about, and running them here would call
+     * half the pots fouls. Count what went down, put the white back if it went
+     * with them, and stop the clock on the last one. */
+    if (S.mini) {
+        if (scratch) {
+            S.balls[0].pos = cue_table_cue_home(&S.tab);
+            S.balls[0].vel = v3(0,0,0); S.balls[0].w = v3(0,0,0);
+            S.balls[0].on  = 1;
+            S.rules.ball_in_hand = 1;
+        }
+        int left = mini_left();
+        if (np > 0) {
+            snprintf(S.msg, sizeof S.msg, left ? "%d TO GO" : "CLEARED", left);
+            S.msg_time = 1.5f;
+        }
+        if (left == 0 && !S.mini_done) {
+            S.mini_done = 1;
+            int cs = (int)(S.mini_t * 100.0f + 0.5f);
+            int k = (int)S.tab.kind;
+            if (k >= 0 && k < CUE_GAME_COUNT &&
+                (S.mini_best[k] == 0 || cs < S.mini_best[k])) {
+                S.mini_best[k] = cs;
+                S.mini_beat = 1;
+                S.stat_dirty = 1;
+            }
+            snprintf(S.msg, sizeof S.msg, S.mini_beat ? "NEW RECORD" : "CLEARED");
+            S.msg_time = 4.0f;
+        }
+        S.hud_dirty = 1;
+        if (S.rules.ball_in_hand) {
+            S.rules.ball_in_hand = 0;
+            if (!S.mini_done) { S.state = ST_PLACE; S.place_latch = 1; S.recentre = 1; return; }
+        }
+        arm_shot();
+        S.state = ST_AIM;
+        return;
+    }
+
     int cushion = (S.shot_events & CUE_EV_CUSHION) != 0;
     int was_turn = S.rules.turn;
     int cpu_played = (S.rules.cpu && was_turn == 1);
@@ -2443,6 +2603,7 @@ static int app_gl_init(void *u) {
         S.cue_spots = pr.cue_spots;
         S.prac_respot = pr.prac_respot;
         S.surround = pr.surround;
+        memcpy(S.mini_best, pr.mini_best, sizeof S.mini_best);
         cuevr_render_set_surround(S.surround);
         mote_xr_show_passthrough(S.surround == 0);
         cue_render_set_cue_spots(S.cue_spots);
@@ -2565,6 +2726,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
     if (S.state == ST_AIM || S.state == ST_PLACE || S.state == ST_THINK ||
         S.state == ST_CPUCUE || S.state == ST_DECIDE)
         S.shot_clock += dt;
+
+    /* The challenge clock. It runs from the first strike to the last ball —
+     * including while the balls are rolling, because the time a shot takes to
+     * settle is part of the shot you chose. It does not run while paused or in
+     * a menu: the challenge is your cueing, not your reading speed. */
+    if (S.mini && !S.mini_done && S.have_snap &&
+        (S.state == ST_AIM || S.state == ST_ROLL || S.state == ST_PLACE))
+        S.mini_t += dt;
 
     /* Online runs whether or not anyone is looking at the lobby. */
     if (S.opp == OPP_ONLINE) cuevr_net_task();
@@ -3000,6 +3169,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
                         S.msg_time = 2.0f;
                         S.state = ST_AIM;
                     }
+                    break;
+                case PS_MINI:
+                    if (S.mini) mini_stop();
+                    else        mini_start();
                     break;
                 case PS_RESPOT:
                     /* Toggles in place — you are looking at the table it acts
@@ -4080,6 +4253,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         now.cue_spots = S.cue_spots;
         now.prac_respot = S.prac_respot;
         now.surround = S.surround;
+        memcpy(now.mini_best, S.mini_best, sizeof now.mini_best);
         now.stick_swap = S.stick_swap;
         now.inv_slide = S.inv_slide; now.inv_turn = S.inv_turn;
         /* Floats compared with a tolerance, not bit-for-bit: the table height is

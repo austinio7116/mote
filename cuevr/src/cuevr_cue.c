@@ -179,6 +179,10 @@ static void prefs_put(CueVrPrefs *p, const char *k, double v) {
     else if (!strcmp(k, "spots"))   p->cue_spots  = i ? 1 : 0;
     else if (!strcmp(k, "prespot")) p->prac_respot = i ? 1 : 0;
     else if (!strcmp(k, "surround")) { if (i >= 0 && i <= 2) p->surround = i; }
+    else if (!strncmp(k, "mb", 2) && k[2] && !k[3]) {
+        int a2 = k[2] - '0';
+        if (a2 >= 0 && a2 < CUE_GAME_COUNT && i >= 0) p->mini_best[a2] = i;
+    }
     else if (!strcmp(k, "swapstk")) p->stick_swap = i ? 1 : 0;
     else if (!strcmp(k, "invsld"))  p->inv_slide  = i ? 1 : 0;
     else if (!strcmp(k, "invturn")) p->inv_turn   = i ? 1 : 0;
@@ -272,6 +276,8 @@ void cuevr_prefs_save(const CueVrPrefs *p) {
             p->lefty, p->stick_swap, p->inv_slide, p->inv_turn, p->cue_spots);
     fprintf(f, "prespot %d\n", p->prac_respot);
     fprintf(f, "surround %d\n", p->surround);
+    for (int a2 = 0; a2 < CUE_GAME_COUNT; a2++)
+        if (p->mini_best[a2] > 0) fprintf(f, "mb%d %d\n", a2, p->mini_best[a2]);
     fclose(f);
 }
 
