@@ -192,6 +192,7 @@ if(MOTE_TARGET STREQUAL "host")
         studio/link_net.c
         cuevr/src/cuevr_net.c
         cuevr/src/cuevr_setup.c
+        cuevr/src/cuevr_career.c
         cuevr/src/cuevr_audio.c
         cuevr/src/cuevr_frame.c
         cuevr/src/cuevr_light.c
