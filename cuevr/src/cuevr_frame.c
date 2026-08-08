@@ -1496,16 +1496,21 @@ void cuevr_arena_build(CueVrFrameMesh *m) {
                         { float p0[3]=P(rs,tm-w,hs,0),           p1[3]=P(rs,tm+w,hs,0);
                           float p2[3]=P(rs+0.07f,tm+w,hs+bk,0),  p3[3]=P(rs+0.07f,tm-w,hs+bk,0);
                           slope_face(m, p0,p1,p2,p3, -ca, -sa, w*2, bk, col); }
-                        { float p0[3]=P(rs-0.32f,tm-w,hs+0.15f,0), p1[3]=P(rs-0.32f,tm+w,hs+0.15f,0);
-                          float p2[3]=P(rs,tm+w,hs+0.21f,0),       p3[3]=P(rs,tm-w,hs+0.21f,0);
+                        /* THE ARM RESTS COME TO HALF THE BACK'S HEIGHT, and the
+                         * seat sits just under them — which is where they are on
+                         * a chair, and it stops the rests reading as tall fins
+                         * standing above the upholstery. */
+                        const float arm = bk * 0.5f;              /* 0.21 */
+                        { float p0[3]=P(rs-0.32f,tm-w,hs+0.115f,0), p1[3]=P(rs-0.32f,tm+w,hs+0.115f,0);
+                          float p2[3]=P(rs,tm+w,hs+0.175f,0),       p3[3]=P(rs,tm-w,hs+0.175f,0);
                           float nn[3] = { 0, 1, 0 };
                           quad(m, p0,p1,p2,p3, nn, w*2, 0.32f, col); }
                         for (int dsg = -1; dsg <= 1; dsg += 2) {
                             float a1 = tm + dsg * w;
-                            float p0[3]=P(rs-0.30f,a1,hs+0.20f,0), p1[3]=P(rs,a1,hs+0.20f,0);
-                            float p2[3]=P(rs,a1,hs+0.34f,0),       p3[3]=P(rs-0.30f,a1,hs+0.30f,0);
+                            float p0[3]=P(rs-0.30f,a1,hs+0.055f,0), p1[3]=P(rs,a1,hs+0.055f,0);
+                            float p2[3]=P(rs,a1,hs+arm,0),          p3[3]=P(rs-0.30f,a1,hs+arm-0.03f,0);
                             float nn[3] = { 0, 1, 0 };
-                            quad(m, p0,p1,p2,p3, nn, 0.30f, 0.14f, dk);
+                            quad(m, p0,p1,p2,p3, nn, 0.30f, arm, dk);
                         }
                     }
                 }
