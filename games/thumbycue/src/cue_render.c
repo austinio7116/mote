@@ -2,6 +2,8 @@
  * ThumbyCue — scene renderer. See cue_render.h.
  */
 #include "cue_render.h"
+#include <stdlib.h>
+#include <stdio.h>
 #include "cue_faces.h"
 #include "cue_types.h"
 #include "r3d_raster.h"
@@ -34,7 +36,8 @@ static int      s_lip_ntab;   /* s_tab[s_lip_ntab..s_ntab) are the pocket drop l
 static uint16_t s_cloth, s_bg_top, s_bg_bot;
 static uint16_t s_cloth_shadow;  /* dark cloth tint for ball shadow-side bounce */
 static float    s_ballR = 0.0286f;
-static int      s_is_snooker;   /* ids 1..15 mean reds, not solids/stripes */
+static int      s_is_snooker;
+/* ids 1..15 mean reds, not solids/stripes */
 static int      s_lip_mode = 1;  /* 0=none 1=tight 2=wide 3=deep (CUE_LIP env) */
 static int      s_ball_set = 0;  /* 0 PRO, 1 UK Y/B, 2 UK Y/R, 3 dyna */
 
@@ -201,66 +204,292 @@ static void pocket_circ_arc(Vec3 pc, float r, Vec3 a, Vec3 b, Vec3 *arc, int N) 
     }
 }
 
+
+/* A point at distance `tt` counter-clockwise round the rectangle, starting at
+ * (+ex,-ez). One place that knows the perimeter's shape. */
+static Vec3 walk_pt(float ex, float ez, float tt) {
+    float per = 4.0f * (ex + ez);
+    while (tt < 0.0f) tt += per;
+    while (tt >= per) tt -= per;
+    float w2 = 2.0f * ex, h2 = 2.0f * ez;
+    if (tt < h2)            return v3( ex, 0, -ez + tt);
+    tt -= h2;
+    if (tt < w2)            return v3( ex - tt, 0,  ez);
+    tt -= w2;
+    if (tt < h2)            return v3(-ex, 0,  ez - tt);
+    tt -= h2;
+    return v3(-ex + tt, 0, -ez);
+}
+
+/* ---- the cloth boundary --------------------------------------------------- *
+ *
+ * A table is a rectangle of slate that runs OUT UNDER THE CUSHIONS, with a
+ * scallop cut into its edge at each pocket. Look down on a stripped table, or a
+ * dressed one from above: the baize reaches the wood all the way round, and at
+ * each pocket it sweeps away in a single curve.
+ *
+ * The bed used to stop dead at the cushion NOSE, so there was no slate under
+ * the rails at all — at a corner you looked past the frame and out of the
+ * bottom of the table, and at a middle the same hole showed as two crescents
+ * either side of the drop.
+ *
+ * WHERE THE SLATE EDGE GOES. On the pocket-centre line, and that is derived
+ * rather than dialled in: put it there and the pocket circle is exactly HALF
+ * outside the slate at a middle and exactly a QUARTER at a corner, so the
+ * scallop comes out at 180 and 90 degrees on its own, on every table in the
+ * set, with nothing at all behind the pocket. Which is what a real one does.
+ *
+ * The boundary is a real polygon — straight runs along the slate edges and
+ * uniform arc vertices around each scallop. Not a grid of cells clipped against
+ * a circle: that gives stair-steps, and stair-steps are what a pocket must not
+ * have. */
+
+/* THE POCKET CUT, as measured on the bench against the real drop, bore and
+ * cushion geometry of all seven tables, and signed off:
+ *
+ *   corner arc = 1.11 x the ball's drop circle
+ *   middle arc = 1.06 x
+ *   arc centre = the pocket itself
+ *   cloth      = out to 98% of the rail's width, under the cushions
+ *
+ * One pair of numbers for the whole set — every table's drop radius already
+ * carries its own size, so the ratio is what transfers and the millimetres
+ * follow. */
+#define CUE_CUT_CORNER  1.665f    /* 1.11 x 1.50, chosen at the bench */
+#define CUE_CUT_MIDDLE  1.590f    /* 1.06 x 1.50 */
+#define CUE_MID_SETBACK 0.010f    /* the middle arc sits 10 mm into the frame */
+#define CUE_SLATE_RAIL  0.98f
+
+#define CUE_BND_MAX 1400
+
+typedef struct {
+    Vec3 p[CUE_BND_MAX];
+    int  pk[CUE_BND_MAX];      /* which pocket this point sits on, or -1 */
+    int  n;
+} CueBnd;
+static CueBnd s_bnd;           /* shared by the bed cut and the lip */
+
+/* THE CLOTH GOES TO THE WOOD. All the way out under the cushions to the frame's
+ * inner face — that is what you see looking down on a real table, baize right up
+ * to the timber the whole way round. Stopping it at the pocket-centre line left
+ * a strip of daylight between the cloth and the frame. */
+static void slate_extent(const CueTable *t, const CueWorld *w, float *ex, float *ez) {
+    (void)w;
+    *ex = t->half_len + t->rail_w * CUE_SLATE_RAIL;
+    *ez = t->half_wid + t->rail_w * CUE_SLATE_RAIL;
+}
+
+static void arc_into(CueBnd *B, Vec3 c, float R, float th0, float th1, int pk, int N) {
+    for (int k = 0; k <= N && B->n < CUE_BND_MAX; k++) {
+        float th = th0 + (th1 - th0) * (float)k / N;
+        B->p[B->n] = v3(c.x + R*cosf(th), 0, c.z + R*sinf(th));
+        B->pk[B->n] = pk; B->n++;
+    }
+}
+static void pt_into(CueBnd *B, float x, float z, int pk) {
+    if (B->n >= CUE_BND_MAX) return;
+    B->p[B->n] = v3(x, 0, z); B->pk[B->n] = pk; B->n++;
+}
+
+/* WHERE THE ARC IS CENTRED — its own point, tied to nothing else.
+ *
+ * Not the slate's corner, not the slate's edge, not the cushion line. Those
+ * were all tried and each one dragged the opening's shape around with the
+ * slab's dimensions. It sits near the pocket and it is a free parameter, so it
+ * can be set by eye against a photograph and then written down.
+ *
+ * CUE_SCOF nudges it inward from the pocket, in millimetres. */
+static Vec3 scallop_centre(const CueWorld *w, int p) {
+    Vec3 C = w->pocket[p];
+    if (p < 4) return C;                       /* corners sit on the pocket */
+    /* A MIDDLE POCKET'S ARC SITS DEEPER. Its centre on the pocket puts the
+     * curve too far into the table; set back toward the frame it reads as a
+     * mouth cut into the rail instead of a bite out of the bed.
+     * CUE_MOFF is that setback, in millimetres. */
+    float sz = (C.z < 0) ? -1.0f : 1.0f;
+    return v3(C.x, 0, C.z + sz * CUE_MID_SETBACK);
+}
+
+/* THE SCALLOP: an arc with straight legs, not a circle.
+ *
+ * A slate cutter does not drill a hole. The cut is an ARC around the pocket —
+ * a quarter of one at a corner, a half at a middle — and from each end of that
+ * arc a STRAIGHT LINE runs out to the edge of the slab. The lines are tangent
+ * to the arc, so the two meet without a corner, and the arc's centre has
+ * nothing to do with where the slate's edge or the cushions are: it sits on the
+ * pocket, and its radius is its own.
+ *
+ * Cutting a whole circle instead is what produced a shape bounded by two curves
+ * meeting at a cusp, and made the opening depend on the slab's corner.
+ *
+ * CUE_SCAL sets the radius as a percentage of the ball's drop circle. */
+static float scallop_rad(const CueWorld *w, int p) {
+    return w->pocket_r[p] * ((p < 4) ? CUE_CUT_CORNER : CUE_CUT_MIDDLE);
+}
+
+/* One pocket's cut, in boundary order: leg in, arc, leg out. `sx`,`sz` are the
+ * quadrant it sits in; a middle pocket has no x side, so it gets the half arc
+ * and two parallel legs to the one edge it is cut into. */
+static void scallop_into(CueBnd *B, const CueTable *t, const CueWorld *w, int p,
+                         float ex, float ez, int reverse) {
+    Vec3 C = scallop_centre(w, p);
+    float R = scallop_rad(w, p);
+    float sz = (C.z < 0) ? -1.0f : 1.0f;
+    const float PI = 3.14159265f;
+    const int NA = 40;
+    Vec3 e1, e2, l1, l2;
+    float a1, a2;
+    if (p < 4) {                                  /* a corner: a quarter arc */
+        float sx = (C.x < 0) ? -1.0f : 1.0f;
+        e1 = v3(C.x - sx*R, 0, C.z);              /* leg drops to the z edge */
+        e2 = v3(C.x, 0, C.z - sz*R);              /* leg runs to the x edge */
+        l1 = v3(e1.x, 0, sz*ez);
+        l2 = v3(sx*ex, 0, e2.z);
+        a1 = (sx < 0) ? 0.0f : PI;
+        a2 = (sz < 0) ? 0.5f*PI : -0.5f*PI;
+        /* sweep through the inward diagonal */
+        float ai = atan2f(-sz, -sx);
+        float d = a2 - a1;
+        while (d >  PI) d -= 2.0f*PI;
+        while (d < -PI) d += 2.0f*PI;
+        float di = ai - a1;
+        while (di >  PI) di -= 2.0f*PI;
+        while (di < -PI) di += 2.0f*PI;
+        if ((d > 0.0f) != (di > 0.0f)) d += (d > 0.0f) ? -2.0f*PI : 2.0f*PI;
+        a2 = a1 + d;
+    } else {                                      /* a middle: a half arc */
+        e1 = v3(C.x - R, 0, C.z);
+        e2 = v3(C.x + R, 0, C.z);
+        l1 = v3(e1.x, 0, sz*ez);
+        l2 = v3(e2.x, 0, sz*ez);
+        a1 = PI; a2 = 0.0f;
+        if (sz > 0.0f) { a1 = 0.0f; a2 = -PI; e1 = v3(C.x + R,0,C.z); e2 = v3(C.x - R,0,C.z);
+                         l1 = v3(e1.x,0,sz*ez); l2 = v3(e2.x,0,sz*ez); }
+    }
+    if (reverse) { Vec3 t1=l1; l1=l2; l2=t1; t1=e1; e1=e2; e2=t1;
+                   float f=a1; a1=a2; a2=f; }
+    /* THE LEGS BELONG TO THE CUT. They carry the same rolled edge as the arc —
+     * a straight run of slate edge is still a slate edge. Left flat they showed
+     * as square tabs sticking out of the pocket, which is exactly what a
+     * turn-down that stops at the arc looks like. Sampled, not just their two
+     * ends, so the roll has vertices to follow along them. */
+    const int NL = 3;      /* a leg is straight; it needs ends, not samples */
+    for (int k = 0; k <= NL; k++) {
+        float u = (float)k / NL;
+        pt_into(B, l1.x + (e1.x - l1.x) * u, l1.z + (e1.z - l1.z) * u, p);
+    }
+    arc_into(B, C, R, a1, a2, p, (p < 4) ? NA/2 : NA);
+    for (int k = 0; k <= NL; k++) {
+        float u = (float)k / NL;
+        pt_into(B, e2.x + (l2.x - e2.x) * u, e2.z + (l2.z - e2.z) * u, p);
+    }
+    (void)t;
+}
+
+/* The whole cloth boundary: six cuts, joined by the slate's straight edges.
+ * Each cut supplies its own two leg ends, so the "edges" are simply the lines
+ * between one cut's exit and the next one's entry, and there is nothing to
+ * clip or detect. */
+static void build_bed_boundary(const CueTable *t, const CueWorld *w, CueBnd *B) {
+    float ex, ez; slate_extent(t, w, &ex, &ez);
+    B->n = 0;
+    int BL=-1,BR=-1,TR=-1,TL=-1,MB=-1,MT=-1;
+    for (int p = 0; p < w->npocket; p++) {
+        Vec3 q = w->pocket[p];
+        if (p < 4) {
+            if (q.x < 0 && q.z < 0) BL = p; else if (q.x > 0 && q.z < 0) BR = p;
+            else if (q.x > 0 && q.z > 0) TR = p; else TL = p;
+        } else { if (q.z < 0) MB = p; else MT = p; }
+    }
+    /* counter-clockwise: bottom edge, right, top, left */
+    if (BL >= 0) scallop_into(B, t, w, BL, ex, ez, 1);
+    if (MB >= 0) scallop_into(B, t, w, MB, ex, ez, 0);
+    if (BR >= 0) scallop_into(B, t, w, BR, ex, ez, 0);
+    if (TR >= 0) scallop_into(B, t, w, TR, ex, ez, 1);
+    if (MT >= 0) scallop_into(B, t, w, MT, ex, ez, 0);
+    if (TL >= 0) scallop_into(B, t, w, TL, ex, ez, 0);
+}
+
 /* Baize lip (the drop): rolls the cloth down into each pocket throat. Emitted
  * AFTER the pocket voids so depth-test layers it OVER the void (no rim cutting
  * across it) while the raised cushions still occlude its sides. */
 static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
     if (!s_lip_mode) return;
-    int nb = w->njaw;
-    for (int i = 0; i < nb; i++) {
-        if (!(i & 1)) continue;                 /* only pocket-mouth edges */
-        /* same corner-only push as the bed so the lip's outer edge meets the
-         * felt and covers the new corner baize */
-        float cw = t->rail_w * 0.63f;
-        Vec3 a = jaw_pushed(w, t->pr_corner, cw, w->jaw[i]);
-        Vec3 b = jaw_pushed(w, t->pr_corner, cw, w->jaw[(i + 1) % nb]);
-        Vec3 m = v3((a.x + b.x) * 0.5f, 0, (a.z + b.z) * 0.5f);
-        int pidx = 0; float bestp = 1e9f;
-        for (int q = 0; q < w->npocket; q++) {
-            float dx = w->pocket[q].x - m.x, dz = w->pocket[q].z - m.z;
-            float dd = dx*dx + dz*dz;
-            if (dd < bestp) { bestp = dd; pidx = q; }
-        }
-        Vec3 pc = w->pocket[pidx];
-        float pr = (pidx < 4) ? t->pr_corner : t->pr_side;
-        float fd = w->pocket_r[pidx];            /* the FUNCTIONAL drop circle (= void) */
-        /* The bed-edge circle around the drop, and it MUST match the bed cut
-         * exactly — the lip's outer ring and the bed's inner ring are the same
-         * boundary, so the two arcs have to be generated with the same segment
-         * count or the seam opens into gaps. That is what happened when the bed's
-         * arc became tunable and this stayed at a hard-coded 6. The comment said
-         * "matches the bed cut"; it now actually does. */
-        const int N = CUE_ARC_SEGS;
-        Vec3 arc[N + 1];
-        pocket_circ_arc(pc, fd * 1.35f, a, b, arc, N);
-        int M; float ld;
-        switch (s_lip_mode) {
-            case 2:  M = 6; ld = 0.55f*pr; break;
-            case 3:  M = 7; ld = 0.80f*pr; break;
-            default: M = 5; ld = 0.45f*pr; break;
-        }
-        /* The bed already runs in close to the drop (mouth_cloth_ctrl), so the lip
-         * just rolls smoothly from that edge down to the functional drop circle —
-         * a short, multi-ring (smooth) curved roll that ends ON the red line. */
-        Vec3 ring0[N + 1]; for (int k = 0; k <= N; k++) ring0[k] = arc[k];
-        for (int s = 1; s <= M; s++) {
-            float phi = (float)s / M * 1.5707963f;
-            float tn = sinf(phi), yy = -ld * (1.0f - cosf(phi));
-            uint16_t col = shade565(t->cloth, 1.0f - 0.92f*(1.0f - cosf(phi)));
-            Vec3 ring1[N + 1];
-            for (int k = 0; k <= N; k++) {
-                float dx = arc[k].x - pc.x, dz = arc[k].z - pc.z;
-                float Rk = sqrtf(dx*dx + dz*dz) + 1e-6f;
-                float r_full = Rk + (fd - Rk) * tn;     /* arc edge → drop */
-                float taper = sinf(3.14159265f * (float)k / N) * 2.2f;
-                if (taper > 1.0f) taper = 1.0f;
-                float r = Rk + (r_full - Rk) * taper;
-                ring1[k] = v3(pc.x + dx/Rk*r, yy*taper, pc.z + dz/Rk*r);
+    /* Roll the cloth over the edge of the cut and down into the pocket.
+     *
+     * Along the WHOLE cut — leg, arc, leg — as one continuous edge, because
+     * that is what it is. The roll direction is the boundary's own outward
+     * normal rather than a radius from the arc centre: a radius is only the
+     * right answer on the arc, and on the legs it points somewhere useless.
+     *
+     * The drop and its profile are the tuned ones: a quarter-cosine fall of
+     * 0.45 of the pocket radius, darkening as the cloth turns under. */
+    int M; float ldf;
+    switch (s_lip_mode) {
+        case 2:  M = 9;  ldf = 0.55f; break;
+        case 3:  M = 11; ldf = 0.80f; break;
+        default: M = 8;  ldf = 0.45f; break;
+    }
+    /* Which way is out of the cloth? Take it from the polygon's own winding so
+     * it cannot be got backwards by hand. */
+    float area = 0.0f;
+    for (int i = 0; i < s_bnd.n; i++) {
+        Vec3 a = s_bnd.p[i], b = s_bnd.p[(i + 1) % s_bnd.n];
+        area += a.x * b.z - b.x * a.z;
+    }
+    float wind = (area > 0.0f) ? 1.0f : -1.0f;
+
+    int i = 0;
+    while (i < s_bnd.n) {
+        int p = s_bnd.pk[i];
+        if (p < 0) { i++; continue; }
+        int j = i;
+        while (j < s_bnd.n && s_bnd.pk[j] == p) j++;
+        int cnt = j - i;
+        if (cnt >= 2) {
+            float pr = (p < 4) ? t->pr_corner : t->pr_side;
+            float ld  = ldf * pr;
+            float din = ld;
+            Vec3 ring0[CUE_BND_MAX], nrm[CUE_BND_MAX];
+            for (int k = 0; k < cnt; k++) {
+                /* the outward normal, averaged from the two segments meeting here */
+                Vec3 a = s_bnd.p[i + (k > 0 ? k - 1 : 0)];
+                Vec3 b = s_bnd.p[i + (k + 1 < cnt ? k + 1 : cnt - 1)];
+                float dx = b.x - a.x, dz = b.z - a.z;
+                float l = sqrtf(dx*dx + dz*dz) + 1e-9f;
+                nrm[k] = v3(wind * dz / l, 0, -wind * dx / l);
+                ring0[k] = s_bnd.p[i + k];
             }
-            for (int k = 0; k < N; k++)
-                quad(ring0[k], ring0[k+1], ring1[k+1], ring1[k], col);
-            for (int k = 0; k <= N; k++) ring0[k] = ring1[k];
+            for (int sring = 1; sring <= M; sring++) {
+                float phi = (float)sring / M * 1.5707963f;
+                float tn = sinf(phi), yy = -ld * (1.0f - cosf(phi));
+                uint16_t col = shade565(t->cloth, 1.0f - 0.92f*(1.0f - cosf(phi)));
+                Vec3 ring1[CUE_BND_MAX];
+                for (int k = 0; k < cnt; k++)
+                    ring1[k] = v3(s_bnd.p[i+k].x + nrm[k].x * din * tn, yy,
+                                  s_bnd.p[i+k].z + nrm[k].z * din * tn);
+                for (int k = 0; k + 1 < cnt; k++)
+                    quad(ring0[k], ring0[k+1], ring1[k+1], ring1[k], col);
+                for (int k = 0; k < cnt; k++) ring0[k] = ring1[k];
+            }
+            /* The inside of the pocket below the roll: a WALL dropped straight
+             * down from the rolled edge.
+             *
+             * It used to be a fan from a single point on the pocket floor, and
+             * a fan converging on a point is a spray of long thin triangles —
+             * visible across the mouth of every pocket as spokes, which is
+             * exactly what it was. A skirt has no apex to converge on. Below it
+             * the frame's tray closes the table off, so it needs no floor. */
+            {
+                uint16_t dark = s_is_snooker ? RGB565C(34, 30, 20) : RGB565C(3, 4, 4);
+                float fy = s_is_snooker ? -0.105f : -0.055f;
+                for (int k = 0; k + 1 < cnt; k++)
+                    quad(ring0[k], ring0[k+1],
+                         v3(ring0[k+1].x, fy, ring0[k+1].z),
+                         v3(ring0[k].x,   fy, ring0[k].z), dark);
+            }
         }
+        i = j;
     }
 }
 
@@ -458,38 +687,19 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     const float rail_h = flat_h;             /* flat cushion top & wood top, level at flat_h */
     uint16_t wood = t->rail, woodt = t->rail_top;
 
-    /* Cloth bed — fanned from the centre over the knuckle boundary (w->jaw is
-     * stored in boundary order), so the felt edge follows the cushion noses
-     * and the pocket MOUTHS are real gaps (the angled jaws stay visible). */
-    int nb = w->njaw;
-    for (int i = 0; i < nb; i++) {
-        /* Run the felt boundary out under the cushions near the corner pockets
-         * (jaw_pushed fades to zero elsewhere) so the corners get felt framing them. */
-        Vec3 a = jaw_pushed(w, t->pr_corner, cw, w->jaw[i]);
-        Vec3 b = jaw_pushed(w, t->pr_corner, cw, w->jaw[(i + 1) % nb]);
-        /* Edges within a chain (i even) are the straight nose; edges ACROSS a
-         * pocket (i odd) are the mouth — cut it as a CURVED arc bulging toward
-         * the table so the pocket drop is rounded, not a straight chord. */
-        if (i & 1) {
-            /* Mouth edge: the felt is cut on a CIRCLE around the FUNCTIONAL drop
-             * (so it accounts for the pocket setback, not the jaw position) — the
-             * bed runs in close to the drop and the lip finishes from there. */
-            Vec3 m = v3((a.x + b.x) * 0.5f, 0, (a.z + b.z) * 0.5f);
-            int pidx = 0; float best = 1e9f;
-            for (int q = 0; q < w->npocket; q++) {
-                float dx = w->pocket[q].x - m.x, dz = w->pocket[q].z - m.z, dd = dx*dx + dz*dz;
-                if (dd < best) { best = dd; pidx = q; }
-            }
-            const int N = CUE_ARC_SEGS;
-            Vec3 arc[N + 1];
-            pocket_circ_arc(w->pocket[pidx], w->pocket_r[pidx] * 1.35f, a, b, arc, N);
-            for (int k = 1; k <= N; k++)
-                tri(v3(0, 0, 0), arc[k-1], arc[k], t->cloth);
-            /* the baize lip (drop) is emitted AFTER the pocket voids — see
-             * emit_pocket_lips() below — so the void can't draw its rim across it */
-        } else {
-            tri(v3(0, 0, 0), a, b, t->cloth);
-        }
+    /* Cloth bed — the slate polygon (see build_bed_boundary): out under the
+     * cushions to the pocket-centre line, with a scallop at each pocket. Fanned
+     * from the centre, which is safe because the shape is star-shaped about it:
+     * every scallop bites inward but none of them reaches the middle. */
+    build_bed_boundary(t, w, &s_bnd);
+    { const char *e = getenv("CUE_BNDDUMP");
+      if (e) { FILE *f = fopen(e, "w");
+        if (f) { for (int i = 0; i < s_bnd.n; i++)
+                   fprintf(f, "%.6f %.6f %d\n", s_bnd.p[i].x, s_bnd.p[i].z, s_bnd.pk[i]);
+                 fclose(f); } } }
+    for (int i = 0; i < s_bnd.n; i++) {
+        Vec3 a = s_bnd.p[i], b = s_bnd.p[(i + 1) % s_bnd.n];
+        tri(v3(0, 0, 0), a, b, t->cloth);
     }
     emit_table_markings(t);   /* baulk line / D / spots — part of the bed layer */
     s_bed_ntab = s_ntab;   /* everything after here is raised (cushions/frame/voids) */
@@ -511,6 +721,9 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * share an endpoint, so adjacent cushion tops share their back vertices
          * — a continuous strip with no V-gaps (the "holes in the top"). */
         Vec3 pa = sg->a, pb = sg->b, na = sg->n, nb = sg->n;
+        /* Where a FREE tip's back lands on the wood, worked out below. */
+        Vec3 fba = v3(0,0,0), fbb = v3(0,0,0);
+        int haveFba = 0, haveFbb = 0;
         int sharedA = 0, sharedB = 0;
         if (s > 0) {
             const CueSeg *pr = &w->seg[s-1];
@@ -529,23 +742,51 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
             Vec3 kn = afree ? sg->b : sg->a;     /* shared knuckle (toward the rail) */
             Vec3 tp = afree ? sg->a : sg->b;     /* free tip (at the pocket mouth) */
             Vec3 M = v3_norm(v3_sub(tp, kn));    /* the facing's own direction */
-            float t = 0.0f;
-            if (hw - fabsf(kn.z) < hl - fabsf(kn.x)) {   /* knuckle on a z-rail */
-                float target = (kn.z > 0 ? hw + cw : -(hw + cw));
-                if (fabsf(M.z) > 1e-4f) t = (target - tp.z) / M.z;
-            } else {                                     /* knuckle on an x-rail */
-                float target = (kn.x > 0 ? hl + cw : -(hl + cw));
-                if (fabsf(M.x) > 1e-4f) t = (target - tp.x) / M.x;
+            /* RUN IT OUT UNTIL ITS BACK MEETS THE WOOD, not its nose.
+             *
+             * The nose was being extended to the rail line and the back then
+             * collapsed to zero depth, so a facing ended as a spike lying along
+             * the rail with no thickness — and between that spike and the
+             * timber sat a wedge of nothing. That is the misalignment at the
+             * back of the cushion, on the curved and the mitred jaws alike:
+             * the two ends of the same piece were being taken to two different
+             * lines. The back is the one that has to land on the wood, because
+             * the back is what the wood butts against. */
+            /* NOSE AND BACK RUN OUT INDEPENDENTLY.
+             *
+             * A facing is angled, so its nose and its back do not reach the
+             * timber at the same distance along it. Solving one extension for
+             * both is what went wrong twice: take the nose to the wood and the
+             * back collapses to a spike with a wedge of nothing behind it; take
+             * the back to the wood and a steeply mitred facing is dragged back
+             * off the pocket altogether. Extend each to the wood line on its
+             * own and the piece ends flush, with a slanted end and full depth —
+             * which is how a facing is actually cut. */
+            const Vec3 nn = sg->n;
+            int zrail = (hw - fabsf(kn.z) < hl - fabsf(kn.x));
+            float target = zrail ? (kn.z > 0 ? hw + cw : -(hw + cw))
+                                 : (kn.x > 0 ? hl + cw : -(hl + cw));
+            float md = zrail ? M.z : M.x;
+            if (fabsf(md) > 1e-4f) {
+                float tn2 = (target - (zrail ? tp.z : tp.x)) / md;
+                Vec3 bp = v3(tp.x - nn.x*cw, 0, tp.z - nn.z*cw);
+                float tb = (target - (zrail ? bp.z : bp.x)) / md;
+                if (tn2 > 0.0f) { Vec3 e = v3_add(tp, v3_scale(M, tn2));
+                                  if (afree) pa = e; else pb = e; }
+                if (tb > 0.0f) { Vec3 e = v3_add(bp, v3_scale(M, tb));
+                                 if (afree) { fba = e; haveFba = 1; }
+                                 else       { fbb = e; haveFbb = 1; } }
             }
-            if (t > 0.0f) { Vec3 e = v3_add(tp, v3_scale(M, t)); if (afree) pa = e; else pb = e; }
         }
         float uba = sharedA ? ub : 0.0f, ubb = sharedB ? ub : 0.0f;
         /* Back-vertex depth. Shared ends reach the full depth cw; a FREE tip
          * collapses to 0 because the nose was already extended along its tangent
          * to the rail plane above — the facing continues at the same angle and
          * comes to a clean point there (US mitre and curved jaws alike). */
-        float cwa = sharedA ? cw : 0.0f;
-        float cwb = sharedB ? cw : 0.0f;
+        /* FULL DEPTH AT BOTH ENDS. A free tip used to collapse to zero, which
+         * is what made the facing a spike; it is a piece of cushion and it has
+         * a back all the way along. */
+        float cwa = cw, cwb = cw;
         Vec3 ba = v3(pa.x - na.x*uba, 0, pa.z - na.z*uba);
         Vec3 bb = v3(pb.x - nb.x*ubb, 0, pb.z - nb.z*ubb);
         Vec3 an = v3(pa.x, nose_h, pa.z), bn = v3(pb.x, nose_h, pb.z);
@@ -555,8 +796,10 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * exactly. Facings keep the averaged normal for top continuity. */
         Vec3 bka = (sg->kind == 0) ? sg->n : na;
         Vec3 bkb = (sg->kind == 0) ? sg->n : nb;
-        Vec3 ar = v3(pa.x - bka.x*cwa, rail_h, pa.z - bka.z*cwa);
-        Vec3 br = v3(pb.x - bkb.x*cwb, rail_h, pb.z - bkb.z*cwb);
+        Vec3 ar = haveFba ? v3(fba.x, rail_h, fba.z)
+                          : v3(pa.x - bka.x*cwa, rail_h, pa.z - bka.z*cwa);
+        Vec3 br = haveFbb ? v3(fbb.x, rail_h, fbb.z)
+                          : v3(pb.x - bkb.x*cwb, rail_h, pb.z - bkb.z*cwb);
         ribbon(ba, bb, bn, an, fdark);      /* undercut face (leans to nose) */
         quad(an, bn, bf, af, face);            /* small flat (planar) */
         ribbon(af, bf, br, ar, ctop);       /* cloth top → rail */
@@ -606,7 +849,12 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * (mouth) half is left open so nothing floats above the playing surface. */
     /* Snooker: a deeper, dark-olive "net bag" pouch the potted ball drops into.
      * Pool: a shallow near-black void. */
-  if (s_voids) {
+  /* NO SEPARATE VOID CIRCLE. The pocket opening is the scallop, and this used
+   * to punch a second cone on the physics drop centre — a different centre and
+   * a different radius — so every pocket rendered as two overlapping circles.
+   * The throat under the lip (emit_pocket_lips) is built from the scallop's own
+   * boundary, so there is one opening and one edge. */
+  if (0) {
     uint16_t pk_floor = s_is_snooker ? RGB565C(34, 30, 20) : RGB565C(3, 4, 4);
     uint16_t pk_net   = s_is_snooker ? RGB565C(22, 20, 13) : RGB565C(6, 7, 7);
     const float floor_y = s_is_snooker ? -0.105f : -0.055f;
@@ -636,6 +884,24 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
   }
     s_lip_ntab = s_ntab;      /* lips drawn last + depth-write OFF so balls cover them */
     emit_pocket_lips(t, w);   /* drop lip last → layers over the voids cleanly */
+    /* CUE_SHOWDROP: a bright ring exactly on the functional pocket — where the
+     * ball is actually captured. Purely a measuring aid: the cut is being lined
+     * up against it by eye and a number nobody can see cannot be lined up. */
+    if (getenv("CUE_SHOWDROP")) {
+        const uint16_t mg = RGB565C(255, 0, 255);
+        for (int p = 0; p < w->npocket; p++) {
+            Vec3 c = w->pocket[p];
+            float r = w->pocket_r[p], t2 = r * 0.035f, y = 0.0016f;
+            const int N = 96;
+            for (int k = 0; k < N; k++) {
+                float a0 = 6.2831853f*k/N, a1 = 6.2831853f*(k+1)/N;
+                quad(v3(c.x+(r-t2)*cosf(a0), y, c.z+(r-t2)*sinf(a0)),
+                     v3(c.x+(r-t2)*cosf(a1), y, c.z+(r-t2)*sinf(a1)),
+                     v3(c.x+(r+t2)*cosf(a1), y, c.z+(r+t2)*sinf(a1)),
+                     v3(c.x+(r+t2)*cosf(a0), y, c.z+(r+t2)*sinf(a0)), mg);
+            }
+        }
+    }
 }
 
 int cue_render_table_tris(const CueTri **out, int *bed, int *lip) {
