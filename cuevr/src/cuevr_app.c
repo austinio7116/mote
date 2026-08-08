@@ -260,6 +260,15 @@ static struct {
     float mini_t;
     int   mini_best[CUE_GAME_COUNT];
 
+    /* TOASTS. Records and achievements used to happen in silence and turn up
+     * later in a menu, which is no way to be told you have just made your best
+     * break. A short queue, because two can land on the same shot — a 50 break
+     * that is also a new personal best — and they must not overwrite each
+     * other. Drawn in the message zone, where the game already speaks. */
+    struct { char title[28], body[34]; int kind; } toast[4];
+    int   toast_n;
+    float toast_t;
+
     /* The career. `in_career` is set for the duration of a career MATCH, so
      * the result knows where to go when the last frame ends. */
     CueVrCareer career;
@@ -404,6 +413,8 @@ static int coin_toss(void) {
 
 static void stat_frame_reset(void);
 static void restyle_table(void);
+enum { TOAST_RECORD = 0, TOAST_ACH };
+static void toast_push(int kind, const char *title, const char *body);
 static void rerack(void);
 static void hand_over(void);
 static void start_frame(CueGameKind kind);
@@ -464,6 +475,18 @@ void cuevr_app_force_screen(const char *name) {
                 : !strcmp(name, "careernew") ? ST_CARSETUP : ST_CAREER;
         if (S.state == ST_CARSETUP) {
             for (int i = 0; i < CUE_GAME_COUNT; i++) S.car_pick[i] = (i == 0 || i == 4);
+        }
+    } else if (!strncmp(name, "toast", 5)) {
+        /* Both kinds, queued, so the band and the "+1" can be photographed —
+         * a record only happens when it happens. */
+        S.state = ST_AIM;
+        S.rules.score[0] = 63; S.rules.score[1] = 41; S.rules.brk = 57;
+        if (name[5] == 'a')
+            toast_push(TOAST_ACH, cuevr_car_ach_name(CAR_ACH_BRK50),
+                       cuevr_car_ach_how(CAR_ACH_BRK50));
+        else {
+            toast_push(TOAST_RECORD, "BREAK OF 57", "your best on this table");
+            toast_push(TOAST_RECORD, "50 BREAK", "3 made");
         }
     } else if (!strcmp(name, "freeball")) {
         /* On a red with a free ball awarded, the case the user hit: the pause
@@ -933,6 +956,34 @@ static int snap_restore(void) {
     return 1;
 }
 
+/* ---- toasts -------------------------------------------------------------- */
+
+static void toast_push(int kind, const char *title, const char *body) {
+    if (S.toast_n >= (int)(sizeof S.toast / sizeof S.toast[0])) return;
+    int i = S.toast_n++;
+    snprintf(S.toast[i].title, sizeof S.toast[i].title, "%s", title);
+    snprintf(S.toast[i].body,  sizeof S.toast[i].body,  "%s", body ? body : "");
+    S.toast[i].kind = kind;
+    if (S.toast_n == 1) S.toast_t = 0.0f;
+    /* Felt as well as seen: you may be looking at the table, not the board. */
+    mote_xr_haptic(0.55f, 90);
+    cue_audio_sfx(CUE_SFX_POT, 0.7f);
+    S.hud_dirty = 1;
+}
+
+/* How long each one stays up, and how they retire. */
+#define CUEVR_TOAST_SECS 4.0f
+static void toast_tick(float dt) {
+    if (!S.toast_n) return;
+    S.toast_t += dt;
+    if (S.toast_t >= CUEVR_TOAST_SECS) {
+        S.toast_n--;
+        for (int i = 0; i < S.toast_n; i++) S.toast[i] = S.toast[i + 1];
+        S.toast_t = 0.0f;
+    }
+    S.hud_dirty = 1;
+}
+
 /* A ball's name in a few characters, for a menu row that has to say WHICH ball
  * without room for a sentence. */
 static const char *cue_ball_short_name(int id) {
@@ -987,7 +1038,13 @@ static void career_finish(void) {
     /* Only snooker has a break worth recording; a pool "break" is a ball count
      * and would sit in the same column meaning something else. */
     int hb = S.tab.is_snooker ? S.mstat[me].best_break : 0;
+    uint32_t before = S.career.ach;
     cuevr_career_record(&S.career, S.car_league, won, mine, theirs, hb);
+    /* Whatever lit up during that, said out loud. Diffing the mask beats
+     * threading a callback through the ledger, and it cannot miss one. */
+    for (int i = 0; i < CAR_ACH_N; i++)
+        if (!(before & (1u << i)) && (S.career.ach & (1u << i)))
+            toast_push(TOAST_ACH, cuevr_car_ach_name(i), cuevr_car_ach_how(i));
     career_save();
     S.opp = OPP_CAREER;
     S.state = ST_CAREER;
@@ -1394,6 +1451,37 @@ static void hud_break_row(int y, const char *who, int brk, const uint8_t *tal,
             x += step;
         }
     }
+}
+
+/* A toast, painted across the message zone.
+ *
+ * It goes THERE and not in a corner: that band is where the game already
+ * speaks, so a player's eye is trained on it, and giving a record its own
+ * quiet corner would repeat the mistake of hiding it. It takes priority over
+ * an ordinary message for its four seconds — "FOUL: WRONG BALL" will still be
+ * true afterwards, a hundred break happens once. */
+static int hud_toast(uint16_t TXT, uint16_t DIM) {
+    if (!S.toast_n) return 0;
+    int ach = (S.toast[0].kind == TOAST_ACH);
+    uint16_t band = ach ? RGB565C(38, 30, 62) : RGB565C(24, 46, 34);
+    uint16_t edge = ach ? RGB565C(150, 120, 250) : RGB565C(40, 190, 90);
+    /* Fading out at the end, so it leaves rather than blinks off. */
+    float k = (CUEVR_TOAST_SECS - S.toast_t) / 0.6f;
+    if (k > 1.0f) k = 1.0f;
+    if (k < 0.0f) k = 0.0f;
+    hud_rect(0, 50, HW, 24, band);
+    hud_rect(0, 50, HW, 1, edge);
+    hud_rect(0, 73, HW, 1, edge);
+    hud_text(ach ? "ACHIEVEMENT" : "NEW RECORD", 4, 52, k > 0.5f ? edge : DIM);
+    hud_text_2x(S.toast[0].title, 4, 58, TXT);
+    hud_text(S.toast[0].body, 4, 68, DIM);
+    /* More waiting behind it. */
+    if (S.toast_n > 1) {
+        char q[8];
+        snprintf(q, sizeof q, "+%d", S.toast_n - 1);
+        hud_text_r(q, HW - 4, 52, DIM);
+    }
+    return 1;
 }
 
 static void hud_paint(void) {
@@ -2120,6 +2208,7 @@ static void hud_paint(void) {
         }
 
         hud_rect(0, 45, HW, 1, LINE);
+        if (hud_toast(TXT, DIM)) return;
         if (S.mini_done) {
             hud_text_2x(S.mini_beat ? "NEW RECORD" : "CLEARED", 4, 48, HI);
             hud_text("MENU FOR ANOTHER GO", 4, 62, DIM);
@@ -2390,6 +2479,13 @@ static void hud_paint(void) {
         hud_text("TRIGGER TO PLACE", 4, 69, HI);
         return;
     }
+    /* BEFORE the ordinary message, not after. A toast was losing to whatever
+     * the game happened to be saying — "SNOOKER 12FT" beat a new personal
+     * best, which is precisely the hiding-it-away this was built to stop.
+     * FOUL: WRONG BALL will still be true in four seconds; a hundred break
+     * happens once. */
+    if (hud_toast(TXT, DIM)) return;
+
     if (S.msg_time > 0.0f) { hud_text_2x(S.msg, 4, 57, HI); return; }
 
     /* A FREE BALL IS A THING YOU HAVE BEEN GIVEN, and the board never said so:
@@ -2540,8 +2636,17 @@ static void stat_after_shot(void) {
     if (S.rules.kind && S.rules.turn == me) {
         int slot = cuevr_stat_snk_slot((int)S.tab.kind);
         if (slot >= 0 && S.rules.brk > S.stats.snk_best[slot][md]) {
+            /* Only once the break is worth remarking on. Every frame starts by
+             * beating a stored zero, and a toast for a break of 3 devalues the
+             * one for a 70. */
+            int was = S.stats.snk_best[slot][md];
             S.stats.snk_best[slot][md] = S.rules.brk;
             S.stat_dirty = 1;
+            if (S.rules.brk >= 20 && was > 0) {
+                char t[28];
+                snprintf(t, sizeof t, "BREAK OF %d", S.rules.brk);
+                toast_push(TOAST_RECORD, t, "your best on this table");
+            }
         }
         /* Tier counts, on the CROSSING. A break only ever grows within a visit,
          * so a 57 passes 20, 30 and 50 exactly once each and counts once for
@@ -2553,6 +2658,15 @@ static void stat_after_shot(void) {
             if (S.stat_prev_brk < TIER[a2] && S.rules.brk >= TIER[a2]) {
                 S.stats.brk_tier[a2][md]++;
                 S.stat_dirty = 1;
+                /* The fifty and the century are the ones worth announcing. A
+                 * twenty is a good visit, not an event. */
+                if (TIER[a2] >= 50) {
+                    char t[28], b3[34];
+                    snprintf(t, sizeof t, "%d BREAK", TIER[a2]);
+                    snprintf(b3, sizeof b3, "%d made",
+                             S.stats.brk_tier[a2][md]);
+                    toast_push(TOAST_RECORD, t, b3);
+                }
             }
     }
     S.stat_prev_brk = (S.rules.turn == me) ? S.rules.brk : 0;
@@ -2564,7 +2678,13 @@ static void stat_after_shot(void) {
         /* POOL: a frame won in one visit from a full table. */
         if (!S.rules.kind && S.stat_visit_owner == me && S.stat_visit_full) {
             int slot = cuevr_stat_pool_slot((int)S.tab.kind);
-            if (slot >= 0) S.stats.pool_clear[slot][md]++;
+            if (slot >= 0) {
+                char b3[34];
+                S.stats.pool_clear[slot][md]++;
+                snprintf(b3, sizeof b3, "%d on this table",
+                         S.stats.pool_clear[slot][md]);
+                toast_push(TOAST_RECORD, "CLEARANCE", b3);
+            }
         }
     }
     S.stat_dirty = 1;
@@ -2727,9 +2847,17 @@ static void resolve_shot(void) {
             int k = (int)S.tab.kind;
             if (k >= 0 && k < CUE_GAME_COUNT &&
                 (S.mini_best[k] == 0 || cs < S.mini_best[k])) {
+                int was = S.mini_best[k];
                 S.mini_best[k] = cs;
                 S.mini_beat = 1;
                 S.stat_dirty = 1;
+                {
+                    char t[28], b3[34];
+                    snprintf(t, sizeof t, "%d.%02d SECONDS", cs / 100, cs % 100);
+                    if (was) snprintf(b3, sizeof b3, "beat %d.%02d", was / 100, was % 100);
+                    else     snprintf(b3, sizeof b3, "first time on this table");
+                    toast_push(TOAST_RECORD, t, b3);
+                }
             }
             snprintf(S.msg, sizeof S.msg, S.mini_beat ? "NEW RECORD" : "CLEARED");
             S.msg_time = 4.0f;
@@ -3138,6 +3266,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
     if (S.state == ST_AIM || S.state == ST_PLACE || S.state == ST_THINK ||
         S.state == ST_CPUCUE || S.state == ST_DECIDE)
         S.shot_clock += dt;
+
+    toast_tick(dt);
 
     /* The challenge clock. It runs from the first strike to the last ball —
      * including while the balls are rolling, because the time a shot takes to
