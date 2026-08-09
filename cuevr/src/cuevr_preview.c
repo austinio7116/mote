@@ -761,6 +761,13 @@ int main(int argc, char **argv) {
             fflush(stdout);
         }
 
+        /* CUEVR_PRESS_A=<frame>: press A once, at that frame. The smallest
+         * possible way to test that a menu row DOES something. */
+        { const char *v = getenv("CUEVR_PRESS_A");
+          if (v) { long f = atol(v);
+                   if (nframe == f) s_a = 1;
+                   if (nframe == f + 3) s_a = 0; } }
+
         /* One line whenever anything a test cares about moves, on both ends, so
          * the transcripts can be laid side by side. */
         if (autoplay > 0 || auto_net) {

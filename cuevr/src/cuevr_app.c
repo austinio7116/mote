@@ -464,10 +464,17 @@ int cuevr_app_aiming(void) { return S.state == ST_AIM; }
  * thinks it is, and what each end has on the table. Two ends that disagree
  * about any of them have desynced, whatever the screen looks like. */
 const char *cuevr_app_state_name(void) {
+    /* IN THE ENUM'S ORDER, and it has to be kept that way — a screen added to
+     * the enum without a name here does not break anything visibly, it just
+     * makes every trace of it read as the WRONG state, which is worse. Three
+     * screens were added and this was not, so a challenge list logged itself as
+     * the pocket tuner. */
     static const char *N[] = {
         "MENU","SETUP","AIM","ROLL","THINK","CPUCUE","PLACE","DECIDE","OVER",
         "PAUSE","LOBBY","APPEAR","STATS","CONTROLS","CARSETUP","CAREER",
-        "CARTABLE","CARACH","POCKETS" };
+        "CARTABLE","CARACH","CLOTH","DRILLS","LAYOUT","DRILLSET","POCKETS" };
+    _Static_assert(sizeof N / sizeof N[0] == ST_POCKETS + 1,
+                   "a state was added without a name");
     return (S.state >= 0 && S.state < (int)(sizeof N / sizeof N[0]))
          ? N[S.state] : "?";
 }
@@ -626,6 +633,14 @@ void cuevr_app_force_screen(const char *name) {
         S.drills.slot[0].goal = CUEVR_GOAL_CLEAR;
         S.drill_path[0] = 0;          /* a test must not write over real drills */
         drill_start(0);
+    } else if (!strcmp(name, "chalstart")) {
+        /* THE REAL ROUTE: sit on the main menu in CHALLENGES with START under
+         * the pointer, so the test presses the same button a player does. The
+         * screen hooks that jump straight to a state cannot catch a START that
+         * does nothing, which is exactly what shipped. */
+        S.opp = OPP_CHALLENGE;
+        S.state = ST_MENU;
+        S.menu_row = MR_START;
     } else if (!strcmp(name, "dset")) {
         S.opp = OPP_CHALLENGE;
         drill_capture(&S.drills.slot[0]);
@@ -2676,14 +2691,7 @@ static void hud_paint(void) {
         /* Online it is one player's call, and the other one's screen must say so
          * rather than offering a menu that does nothing when pressed. */
         int theirs = 0;
-        if (S.opp == OPP_CHALLENGE) {
-            /* A challenge is CHOSEN, not started. There is no frame to rack
-             * until you have said which one, so START opens the list. */
-            S.state = ST_DRILLS;
-            S.drill_row = 0; S.drill_scroll = 0;
-            S.ptr_latch = 1;
-            S.hud_dirty = 1;
-        } else if (S.opp == OPP_ONLINE) {
+        if (S.opp == OPP_ONLINE) {
             int decider = S.rules.pushout_offer ? S.rules.turn
                                                 : 1 - S.rules.dec_offender;
             theirs = (decider != S.net_me);
@@ -3639,7 +3647,14 @@ static void menu_activate(void) {
         S.hud_dirty = 1;
     } else if (S.menu_row == MR_START) {
         cue_render_set_ball_set(S.ballset);
-        if (S.opp == OPP_ONLINE) {
+        if (S.opp == OPP_CHALLENGE) {
+            /* A challenge is CHOSEN, not started. There is no frame to rack
+             * until you have said which one, so START opens the list. */
+            S.state = ST_DRILLS;
+            S.drill_row = 0; S.drill_scroll = 0;
+            S.ptr_latch = 1;
+            S.hud_dirty = 1;
+        } else if (S.opp == OPP_ONLINE) {
             /* The lobby first — there is no frame to start until there
              * is somebody to play. */
             /* WHAT WE ARE, BEFORE THE LINK CAN GO LIVE.
