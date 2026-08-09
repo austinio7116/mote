@@ -16,11 +16,16 @@
 
 /* ---- cloth ------------------------------------------------------------- *
  *
- * The real card. These are the twenty-three cloths a table actually gets
+ * The real card. Twenty-three of these are the cloths a table actually gets
  * recovered in, measured off a photograph of the manufacturer's swatch card
  * rather than invented — so ROYAL NAVY and FRENCH NAVY are genuinely almost the
- * same near-black, because on the card they are, and OLIVE is the only green in
- * the range. The old ten were guesses at names somebody liked.
+ * same near-black, because on the card they are. The old ten were guesses at
+ * names somebody liked.
+ *
+ * The twenty-fourth is CHAMPIONSHIP, the green every version of the game before
+ * this one was played on. It is not on the card and it is brighter than
+ * anything the manufacturer makes, and it stays anyway: being faithful to a
+ * swatch card is not worth taking somebody's table away from them.
  *
  * IN THE CARD'S OWN ORDER, reading across, because they are chosen from a grid
  * of swatches now and a player looking for GOLD should find it where the card
@@ -30,7 +35,7 @@
  * darker than a colour picker's idea of "red": cloth is a nap, it is
  * photographed under a light, and these are the values that put the right
  * colour on a table rather than the right colour on a screen. */
-#define CUE_NCLOTH 23
+#define CUE_NCLOTH 24
 static const uint16_t k_cloth[CUE_NCLOTH] = {
     RGB565C(18,14,13),    /* BLACK */
     RGB565C(82,82,85),    /* SILVER */
@@ -41,6 +46,12 @@ static const uint16_t k_cloth[CUE_NCLOTH] = {
     RGB565C(35,17,13),    /* NUTMEG */
     RGB565C(6,24,13),     /* RANGER GREEN */
     RGB565C(29,70,8),     /* OLIVE */
+    /* The green CueVR shipped with, kept beside the card's own green. It is
+     * not on the manufacturer's card — it is a brighter championship green
+     * than anything they make — but it is what the table looked like for every
+     * version up to this one, and taking somebody's table away from them to
+     * be faithful to a swatch card is the wrong trade. */
+    RGB565C(4,135,21),    /* CHAMPIONSHIP */
     RGB565C(134,130,102), /* SAGE */
     RGB565C(85,108,122),  /* POWDER BLUE */
     RGB565C(42,56,77),    /* SLATE */
@@ -58,12 +69,12 @@ static const uint16_t k_cloth[CUE_NCLOTH] = {
 };
 static const char *k_cloth_name[CUE_NCLOTH] = {
     "BLACK","SILVER","TAUPE","TAN","GOLD","PAPRIKA","NUTMEG","RANGER GREEN",
-    "OLIVE","SAGE","POWDER BLUE","SLATE","NAVY","ROYAL BLUE","FRENCH NAVY",
-    "ROYAL NAVY","PURPLE","MAROON","CHERRY","WINDSOR RED","RED","ORANGE",
-    "PINK" };
-/* The one a table arrives in. There is no championship green in this range, so
- * it is OLIVE — the only green there is, and the one a cue table reads as. */
-#define CUE_CLOTH_DEFAULT 8
+    "OLIVE","CHAMPIONSHIP","SAGE","POWDER BLUE","SLATE","NAVY","ROYAL BLUE",
+    "FRENCH NAVY","ROYAL NAVY","PURPLE","MAROON","CHERRY","WINDSOR RED","RED",
+    "ORANGE","PINK" };
+/* The one a table arrives in — the green it has always arrived on. OLIVE was
+ * the default only for as long as it was the only green in the set. */
+#define CUE_CLOTH_DEFAULT 9
 
 /* ---- frame / rail wood — browns through blacks & greys ------------------ *
  * Each entry is the side (shadowed) rail colour plus the lit top edge. */

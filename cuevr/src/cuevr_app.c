@@ -1323,9 +1323,24 @@ static void rerack(void) {
 #define CLOTH_COLS 4
 #define CLOTH_ROWS ((CUE_NCLOTH + CLOTH_COLS - 1) / CLOTH_COLS)
 #define CLOTH_X0   6
-#define CLOTH_Y0   16
+#define CLOTH_Y0   12
 #define CLOTH_CW   30
-#define CLOTH_CH   14
+#define CLOTH_CH   12
+/* The name line, then the way out. A grid with no way off it is a grid you
+ * leave by guessing at a button — B works and always did, but a screen that
+ * only answers to a button nothing on it mentions is a screen people get stuck
+ * on. Below the swatches, where you already are once you have picked one.
+ *
+ * The whole thing has to land inside CUEVR_HUD_LH, which is 112 rows: the first
+ * version of this laid out to 129, hud_height clamped it, and the BACK row was
+ * simply off the bottom of the panel — present, pressable by pointer, and
+ * invisible. Twenty-four swatches, a name and a way out fit in 112 with these
+ * numbers and not with much bigger ones. */
+#define CLOTH_NAME_Y (CLOTH_Y0 + CLOTH_ROWS * CLOTH_CH + 3)
+/* The back row's own "index", so one hover variable covers the whole
+ * screen and there is no second piece of state to get out of step. */
+#define CLOTH_BACK   (-2)
+#define CLOTH_BACK_Y (CLOTH_NAME_Y + 13)
 /* How many rows the screen being drawn is using. It is NOT a constant: the
  * scoreboard is 16:9 and the list screens are taller (see CUEVR_HUD_LH). This
  * was hard-coded at 128 while the texture was only 72 rows deep, so every
@@ -1875,7 +1890,7 @@ static void hud_paint(void) {
      * to agree about where a swatch is; they were two sets of numbers on the
      * decision screen and they drifted. */
     if (S.state == ST_CLOTH) {
-        hud_height(CLOTH_Y0 + CLOTH_ROWS * CLOTH_CH + 18);
+        hud_height(CLOTH_BACK_Y + 12);
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("CLOTH", 4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
@@ -1895,14 +1910,18 @@ static void hud_paint(void) {
          * is nowhere: a grid of colours with no names is a grid you cannot ask
          * anybody else for. */
         {   int nameof = (S.cloth_hov >= 0) ? S.cloth_hov : S.cloth_idx;
-            int y = CLOTH_Y0 + CLOTH_ROWS * CLOTH_CH + 2;
-            hud_rect(0, y - 2, HW, 1, LINE);
+            hud_rect(0, CLOTH_NAME_Y - 3, HW, 1, LINE);
             /* The hint sits BESIDE the name, not under it: hud_text_2x is
              * eleven rows tall and a small line nine below it lands inside the
              * capitals. */
-            hud_text_2x(k_cloth_name[nameof], 4, y, HI);
+            hud_text_2x(k_cloth_name[nameof], 4, CLOTH_NAME_Y, HI);
             hud_text_r(nameof == S.cloth_idx ? "ON THE TABLE" : "TRIGGER TO FIT",
-                       HW - 4, y + 3, DIM);
+                       HW - 4, CLOTH_NAME_Y + 3, DIM);
+        }
+        {   int on = (S.cloth_hov == CLOTH_BACK);
+            if (on) hud_rect(1, CLOTH_BACK_Y - 1, HW - 2, 12, RGB565C(30, 60, 40));
+            hud_text_2x("BACK", 6, CLOTH_BACK_Y, on ? HI : DIM);
+            hud_text_r("DONE", HW - 4, CLOTH_BACK_Y + 3, on ? LIVE : DIM);
         }
         return;
     }
@@ -4736,9 +4755,18 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     int i = cy * CLOTH_COLS + cx;
                     if (i < CUE_NCLOTH) hov = i;
                 }
+                if (S.ptr_y >= (float)(CLOTH_BACK_Y - 2) &&
+                    S.ptr_y <  (float)(CLOTH_BACK_Y + 11)) hov = CLOTH_BACK;
             }
             if (hov != S.cloth_hov) { S.cloth_hov = hov; S.hud_dirty = 1; }
 
+            if (hov == CLOTH_BACK && ptr_click(t)) {
+                S.state = ST_APPEAR;
+                S.menu_row = AR_CLOTH;
+                S.btn_latch = 1;
+                S.hud_dirty = 1;
+                break;
+            }
             if (hov >= 0 && ptr_click(t)) {
                 S.cloth_idx = hov;
                 /* On the table at once, not on the way out: the whole point of
