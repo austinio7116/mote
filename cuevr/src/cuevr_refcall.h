@@ -45,7 +45,8 @@ enum {
     CUEVR_SAY_FOUL_MISS = 155,   /* "Foul and a miss." */
     CUEVR_SAY_FREE_BALL = 156,   /* "Free ball." */
     CUEVR_SAY_TWO_FOULS = 157,   /* "Two consecutive fouls. A third loses the frame." */
-    CUEVR_SAY_FRAME     = 158    /* "Frame." */
+    CUEVR_SAY_FRAME     = 158,   /* "Frame." */
+    CUEVR_SAY_RECORD    = 159    /* "New record." */
 };
 
 /* Android hands us its asset manager; the host build reads from a directory

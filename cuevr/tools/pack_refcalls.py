@@ -31,7 +31,7 @@ OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
     os.path.dirname(__file__), "..", "app", "src", "main", "assets")
 RATE, NUMBERS = 22050, 153
 # Must match PHRASES in explainer/refcalls/gen_phrases.py, in order.
-PHRASES = ["foul", "foulmiss", "freeball", "twofouls", "frame"]
+PHRASES = ["foul", "foulmiss", "freeball", "twofouls", "frame", "record"]
 
 def pack(sub, psub, name):
     pcm, index = bytearray(), []

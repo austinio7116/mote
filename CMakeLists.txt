@@ -201,6 +201,19 @@ if(MOTE_TARGET STREQUAL "host")
 
     # Practice drills: the save/restore round trip, which is the whole promise
     # of a saved position and the one part that needs no headset.
+    # Ball in hand: the D is a rule, and the clamp used to return a position
+    # outside it whenever a baulk colour was in the way.
+    add_executable(cue_test_place
+        games/thumbycue/src/test_place.c
+        games/thumbycue/src/cue_table.c
+        games/thumbycue/src/cue_physics.c)
+    target_include_directories(cue_test_place PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
+    target_compile_definitions(cue_test_place PRIVATE MOTE_HOST=1)
+    target_compile_options(cue_test_place PRIVATE -O2 -Wall -Wextra -Wno-unused-parameter)
+    target_link_libraries(cue_test_place PRIVATE m)
+
     add_executable(cue_test_drill
         cuevr/src/test_drill.c
         cuevr/src/cuevr_drill.c

@@ -47,7 +47,17 @@ typedef struct {
     uint8_t used;
     uint8_t kind;        /* CueGameKind the layout was built on */
     uint8_t goal;        /* CUEVR_GOAL_* */
-    uint8_t ball;        /* CUEVR_GOAL_POT: which ball id has to go down */
+    uint8_t ball;        /* legacy: the single ball a POT drill wanted */
+    /* WHICH BALLS A POT DRILL WANTS, as a set rather than one of them.
+     * "Pot the black" is a drill; so is "pot the last three reds" and "clear
+     * the colours", and a single id cannot say either. A bit per ball id, so
+     * ids 0..31 — which covers pool's 1..15 and snooker's reds plus the six
+     * colours at 20..25 with room to spare.
+     *
+     * `ball` stays for files written before this existed: a drill loaded with a
+     * ball and no mask gets a mask of just that ball, so nobody's saved drill
+     * changes meaning. */
+    uint32_t need;
     int16_t target;      /* CUEVR_GOAL_SCORE: how many points */
     uint8_t n;
     uint8_t id[CUEVR_DRILL_MAXBALLS];
@@ -66,6 +76,11 @@ typedef struct { CueVrDrill slot[CUEVR_DRILL_SLOTS]; } CueVrDrills;
  * whatever anyone would have the patience to spell out. Returns "EMPTY" for an
  * unused slot. `out` should be 24 bytes. */
 void cuevr_drill_name(const CueVrDrill *d, char *out, int cap);
+
+/* Every ball id a POT drill could ask for on this table, in the order they
+ * should be offered: reds first if the game has them, then the colours or the
+ * numbers. Returns how many were written. */
+int cuevr_drill_ball_choices(int kind, uint8_t *out, int cap);
 
 void cuevr_drills_load(CueVrDrills *d, const char *path);
 int  cuevr_drills_save(const CueVrDrills *d, const char *path);

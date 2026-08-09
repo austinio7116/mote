@@ -2426,14 +2426,40 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
     for (int i = 0; i < n; i++) pb[i] = balls[i];
     ctx.b = pb;
 
-    for (int s = 0; s < 48; s++) {
-        /* Sampled over the whole bed and then CLAMPED into whatever the rules
-         * allow — the D, or behind the head string. Sampling the region directly
-         * needed this function to know which region it was, which is the mistake
-         * that caused the bug. */
-        Vec3 cand = v3((rnd(rng) * 2.0f - 1.0f) * t->half_len,
-                       t->R,
-                       (rnd(rng) * 2.0f - 1.0f) * t->half_wid);
+    /* A SWEEP AS WELL AS A SCATTER.
+     *
+     * Forty-eight random points over the whole bed, clamped into a region as
+     * small as the D, is a lot of samples landing in much the same place and no
+     * guarantee that the one spot with a clear ball-on was among them. Placing
+     * yourself behind a ball when a shot existed a few centimetres away is the
+     * worst thing this function can do, and it was down to luck.
+     *
+     * So the random scatter keeps its spread and a grid guarantees the cover.
+     * Both go through the same clamp, so every candidate scored is the position
+     * that would actually be played — the clamp can no longer hand back a spot
+     * outside the region, which is what used to make the scoring a fiction.
+     *
+     * A hundred-odd path tests on a once-a-frame call is nothing. */
+    const int GRID = 8, TRIES = 48 + GRID * GRID;
+    for (int s = 0; s < TRIES; s++) {
+        Vec3 cand;
+        if (s < 48) {
+            cand = v3((rnd(rng) * 2.0f - 1.0f) * t->half_len,
+                      t->R,
+                      (rnd(rng) * 2.0f - 1.0f) * t->half_wid);
+        } else {
+            /* Over the region's own bounding box rather than the whole bed, so
+             * the grid lands INSIDE the D instead of being clamped onto its rim
+             * from every direction at once. */
+            int g = s - 48, gx = g % GRID, gz = g / GRID;
+            float fx = (gx + 0.5f) / (float)GRID, fz = (gz + 0.5f) / (float)GRID;
+            if (t->is_snooker || t->kind == CUE_GAME_UK8)
+                cand = v3(t->baulk_x - fx * t->d_radius, t->R,
+                          (fz * 2.0f - 1.0f) * t->d_radius);
+            else
+                cand = v3(-t->half_len + fx * (t->half_len + t->baulk_x), t->R,
+                          (fz * 2.0f - 1.0f) * t->half_wid);
+        }
         cand = cue_table_clamp_placement_balls(t, cand, balls, n, r->break_shot);
 
         pb[0].pos = cand; pb[0].on = 1;

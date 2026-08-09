@@ -183,7 +183,8 @@ enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE }
  * ever, against defaults that were chosen by measurement. cuevr_render_fx_set()
  * is still there for the preview harness to drive. */
 enum { PS_RESUME = 0, PS_UNDO, PS_PICKUP, PS_RERACK, PS_PLACE, PS_NOMINATE,
-       PS_FREEBALL, PS_RESPOT, PS_MINI, PS_DRILLS, PS_CONCEDE, PS_APPEAR, PS_CONTROLS,
+       PS_FREEBALL, PS_RESPOT, PS_MINI, PS_DRILLS, PS_PRACTICE,
+       PS_CONCEDE, PS_APPEAR, PS_CONTROLS,
        PS_STATS, PS_QUIT, PS_N };
 static const char *COLOUR_NAME[8] = {
     "", "", "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
@@ -1189,6 +1190,26 @@ static int snap_restore(void) {
 /* ---- toasts -------------------------------------------------------------- */
 
 static void toast_push(int kind, const char *title, const char *body) {
+    /* "New record." — said HERE, once, rather than beside each of the six
+     * things that can set one. Every record in the game already funnels through
+     * this call to get its banner — the break best, the tier counts, the pool
+     * clearance, a drill, the six-ball challenge — so hooking the banner is
+     * what makes "whenever a record is broken in anything" true by
+     * construction instead of true until somebody adds a seventh.
+     *
+     * QUEUED, not spoken over the top: a record break in snooker has just had
+     * its total called, and interrupting "fifty seven" to say "new record"
+     * loses the number that made it one. Behind it, they are a sentence. */
+    if (kind == TOAST_RECORD) {
+        /* Once per shot, however many records it set. Beating your best break
+         * AND passing a tier is two records off one pot, and a referee does not
+         * say "new record, new record" — the banners already show both. */
+        static int said_frame = -1;
+        if (said_frame != S.dbg_frame) {
+            said_frame = S.dbg_frame;
+            cuevr_refcall_say_after(CUEVR_SAY_RECORD);
+        }
+    }
     if (S.toast_n >= (int)(sizeof S.toast / sizeof S.toast[0])) return;
     int i = S.toast_n++;
     snprintf(S.toast[i].title, sizeof S.toast[i].title, "%s", title);
@@ -1694,7 +1715,11 @@ static int pause_rows(PsRow *o, int max) {
     int n = 0;
     #define ADD(i,l) do { if (n < max) o[n++] = (PsRow){ (i), (l) }; } while (0)
     ADD(PS_RESUME, "RESUME");
-    if (S.opp == OPP_PRACTICE && S.have_snap) ADD(PS_UNDO, "UNDO SHOT");
+    /* THE PRACTICE TOOLS LIVE ON THEIR OWN SCREEN. Undo, auto respot, the
+     * timed clearance and the drills were four rows here, on a menu that fits
+     * ten — adding the drills row pushed practice snooker to fourteen and the
+     * last four rows were drawn straight through the help line. They belong
+     * together anyway: they are the tools of a mode, not actions of a pause. */
     /* RE-RACK is not offered online: it rebuilds this end's table and the far
      * end would carry on with the old one. Undo is practice-only already, and
      * for the same reason. */
@@ -1713,17 +1738,7 @@ static int pause_rows(PsRow *o, int max) {
      * screen mentions is not a mechanism the player has. */
     if (S.rules.kind && !S.rules.frame_over && S.rules.free_ball && at_table)
         ADD(PS_FREEBALL, "FREE BALL");
-    /* PRACTICE SNOOKER ONLY, and here rather than on the main menu: it is not a
-     * choice about the frame you are setting up, it is a thing you turn on when
-     * the table in front of you has stripped down to four reds. */
-    if (S.opp == OPP_PRACTICE && S.rules.kind) ADD(PS_RESPOT, "AUTO RESPOT");
-    /* The challenges live in practice, where there is nobody waiting. */
-    if (S.opp == OPP_PRACTICE) ADD(PS_MINI, S.mini ? "END CHALLENGE"
-                                                   : "TIMED CLEARANCE");
-    /* The drills, and the editor behind them — practice only, because a saved
-     * position is a thing you set up, and you cannot set the balls out in the
-     * middle of somebody else's frame. */
-    if (S.opp == OPP_PRACTICE) ADD(PS_DRILLS, S.drill >= 0 ? "END DRILL" : "DRILLS");
+    if (S.opp == OPP_PRACTICE) ADD(PS_PRACTICE, "PRACTICE");
     if (S.opp != OPP_ONLINE) ADD(PS_RERACK, "RE-RACK");
     ADD(PS_PLACE,  "PLACE TABLE");
     ADD(PS_APPEAR, "APPEARANCE");
@@ -2310,7 +2325,7 @@ static void hud_paint(void) {
             int n = pause_rows(row, 16);
             if (S.pause_sel >= n) S.pause_sel = 0;
             for (int i = 0; i < n; i++) {
-                int y = 14 + i * 9, on = (i == S.pause_sel);
+                int y = 12 + i * 9, on = (i == S.pause_sel);
                 if (on) hud_rect(1, y - 1, HW - 2, 9, RGB565C(30, 46, 72));
                 char lb[40];
                 const char *txt = row[i].label;
@@ -2332,7 +2347,12 @@ static void hud_paint(void) {
                 hud_text_2x(txt, 6, y - 1, on ? HI : DIM);
             }
         }
-        hud_text("TRIGGER SELECT   MENU RESUME", 4, HH - 6, DIM);
+        /* The help line only when there is room for it. A menu that runs its
+         * last rows through the footer is worse than one with no footer, and
+         * which rows are offered depends on the mode and the moment. */
+        {   PsRow row[16]; int n = pause_rows(row, 16);
+            if (12 + n * 9 <= HH - 8)
+                hud_text("TRIGGER SELECT   MENU RESUME", 4, HH - 6, DIM); }
         return;
     }
 
@@ -3145,7 +3165,13 @@ static void hud_paint(void) {
  * the ball's equator and lifting it, which is a different thing entirely and
  * not something an elevated stroke into the face can do. */
 #define CUEVR_JUMP_MIN_VY 0.50f   /* m/s of bed rebound before it is a jump */
-#define CUEVR_JUMP_BED_E  0.50f   /* how much of the down-stroke the bed returns */
+/* How much of the down-stroke the bed gives back. Raised from 0.50: a real
+ * jump shot takes a firm stroke and a steep cue, but not as much of either as
+ * this was asking for, and the shot was landing outside what a player can
+ * comfortably swing in a headset. Thirty percent more return, which also drops
+ * the force needed to cross the threshold at all by about a quarter — the two
+ * are the same number and it was the launch that felt wrong, not the deadband. */
+#define CUEVR_JUMP_BED_E  0.65f
 
 static float jump_launch(float speed, float elev, float min_elev) {
     float deliberate = elev - min_elev;
@@ -3494,7 +3520,13 @@ static int roll_step(float dt) {
     if (ev & CUE_EV_JAW) cue_audio_sfx(CUE_SFX_CUSHION, 0.55f);
     /* A jumped ball coming down on the slate. Nearer a clack than a cushion —
      * it is a hard thing landing on a hard thing through a thin cloth. */
-    if (ev & CUE_EV_BED) cue_audio_sfx(CUE_SFX_CLACK, 0.35f);
+    /* A ball coming down on the slate is NOT two balls meeting. The clack is
+     * the most recognisable sound in the game and hearing it while the white is
+     * still in the air reads as a phantom contact — reported as "a ball
+     * clacking sound as it flies through the air". The cushion sample is the
+     * nearest honest thing there is: a ball against something solid and damped
+     * rather than against another ball. */
+    if (ev & CUE_EV_BED) cue_audio_sfx(CUE_SFX_CUSHION, 0.4f);
     if (ev & CUE_EV_POCKET) {
         float i = cue_phys_cushion_impact() / (MAX_STRIKE_SPEED * 0.55f);
         cue_audio_sfx(CUE_SFX_POT, i > 0.1f ? i : 0.45f);
@@ -5342,9 +5374,42 @@ static void app_update(void *u, const MoteVrTracking *t) {
                         S.msg_time = 1.2f;
                     }
                 } else {
-                    Vec3 p = v3(tp.x, S.tab.R, tp.z);
-                    b->pos = cue_table_clamp_placement_balls(&S.tab, p, S.balls,
-                                                             S.nballs, 0);
+                    /* ANYWHERE ON THE CLOTH. The placement clamp is the RULES'
+                     * idea of where a cue ball may go — the D, or behind the
+                     * head string — and setting a position out is not playing a
+                     * shot. A drill whose white can only start in the D cannot
+                     * be most of the positions worth practising, and the object
+                     * balls were never subject to it in the first place.
+                     *
+                     * Still off the other balls and inside the cushions, because
+                     * those are physical rather than legal. */
+                    float lx = S.tab.half_len - S.tab.R;
+                    float lz = S.tab.half_wid - S.tab.R;
+                    Vec3 p = v3(tp.x >  lx ?  lx : tp.x < -lx ? -lx : tp.x,
+                                S.tab.R,
+                                tp.z >  lz ?  lz : tp.z < -lz ? -lz : tp.z);
+                    const float sep = 2.0f * S.tab.R + 0.0004f;
+                    for (int pass = 0; pass < 6; pass++) {
+                        int moved = 0;
+                        for (int i = 0; i < S.nballs; i++) {
+                            if (i == S.edit_ball || !S.balls[i].on) continue;
+                            float dx = p.x - S.balls[i].pos.x;
+                            float dz = p.z - S.balls[i].pos.z;
+                            float d2 = dx*dx + dz*dz;
+                            if (d2 >= sep*sep) continue;
+                            float d = sqrtf(d2);
+                            if (d < 1e-5f) { dx = 1.0f; dz = 0.0f; d = 1.0f; }
+                            p.x = S.balls[i].pos.x + dx / d * sep;
+                            p.z = S.balls[i].pos.z + dz / d * sep;
+                            moved = 1;
+                        }
+                        if (p.x >  lx) p.x =  lx;
+                        if (p.x < -lx) p.x = -lx;
+                        if (p.z >  lz) p.z =  lz;
+                        if (p.z < -lz) p.z = -lz;
+                        if (!moved) break;
+                    }
+                    b->pos = p;
                     b->on = 1;
                 }
                 b->vel = v3(0,0,0); b->w = v3(0,0,0);

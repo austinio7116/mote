@@ -376,6 +376,17 @@ Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p) {
  * two settle within a few passes. Six is enough for the worst case anyone can
  * drive a stick into — a ball wedged against the baulk cushion between two
  * others — and if it somehow does not settle, the last legal position stands. */
+/* True if p is clear of every ball on the table. */
+static int placement_clear(const CueTable *t, Vec3 p, const CueBall *balls, int n) {
+    const float sep = 2.0f * t->R + 0.0004f;
+    for (int i = 1; i < n; i++) {
+        if (!balls[i].on) continue;
+        float dx = p.x - balls[i].pos.x, dz = p.z - balls[i].pos.z;
+        if (dx * dx + dz * dz < sep * sep) return 0;
+    }
+    return 1;
+}
+
 Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
                                      const CueBall *balls, int n, int breaking) {
     const float R = t->R;
@@ -397,6 +408,37 @@ Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
             moved = 1;
         }
         if (!moved) break;
+    }
+
+    /* THE REGION IS A RULE; THE SEPARATION IS A COURTESY, and the loop above had
+     * that the wrong way round. Its last act is a PUSH, not a clamp, so a ball
+     * placed against one of the baulk colours was shoved clear of the colour and
+     * returned there — outside the D, in front of the line, which is not a legal
+     * position in any of these games. Reported as the cue ball ending up forward
+     * of the D whenever something was in the way, and it happened to the CPU as
+     * well because cue_ai_place asks this same function.
+     *
+     * So the region wins. Clamp, and if that lands on top of something, look
+     * for the nearest spot that is BOTH legal and clear rather than accepting
+     * one that is neither: rings of candidates outward from where the player
+     * asked, each one clamped back into the region before it is judged. Half a
+     * ball at a time, out to a couple of ball widths, is more than enough room
+     * for the worst case there is — the cue ball wanted where the brown sits
+     * with the green and yellow either side. */
+    p = clamp_region(t, p, breaking);
+    if (n > 0 && !placement_clear(t, p, balls, n)) {
+        const Vec3 want = p;
+        for (int ring = 1; ring <= 6; ring++) {
+            float rad = (float)ring * R;
+            for (int a = 0; a < 16; a++) {
+                float th = (float)a * (6.2831853f / 16.0f);
+                Vec3 c = { want.x + cosf(th) * rad, want.y, want.z + sinf(th) * rad };
+                c = clamp_region(t, c, breaking);
+                if (placement_clear(t, c, balls, n)) return c;
+            }
+        }
+        /* Nowhere legal and clear — a table so full there is no room in the D.
+         * The legal spot stands: overlapping is recoverable, illegal is not. */
     }
     return p;
 }
