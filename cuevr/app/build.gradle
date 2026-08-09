@@ -55,11 +55,50 @@ android {
 
     packaging { jniLibs { useLegacyPackaging = true } }
 
+    /* THE RELEASE KEY, if this machine has it.
+     *
+     * A store will not take a debug-signed APK — "APK files must be signed with
+     * a release key" — and the debug key was deliberate while this was only ever
+     * sideloaded. So: sign with the real key when keystore.properties is there,
+     * and fall back to debug when it is not, which keeps a fresh clone building
+     * a sideloadable APK for anybody who has no key and does not need one.
+     *
+     * The file is gitignored and the keystore lives outside the repo. Neither
+     * can go into git: this key IS the app's identity on the store, and an app
+     * that has been published cannot be updated with a different one — so it is
+     * lost forever exactly once. */
+    signingConfigs {
+        release {
+            def props = new Properties()
+            def f = rootProject.file('keystore.properties')
+            if (f.exists()) {
+                f.withInputStream { props.load(it) }
+                storeFile file(props['storeFile'])
+                storePassword props['storePassword']
+                keyAlias props['keyAlias']
+                keyPassword props['keyPassword']
+            }
+            /* ALL THREE SCHEMES. v2 alone satisfies every Android since 7, and
+             * is what this signed with by default — but a store's validator is
+             * not Android, it is somebody's checker, and the cheapest way to
+             * find out which one it wants is to not make it choose. v1 costs a
+             * few manifest entries; v3 is the modern one and carries rotation
+             * if this key ever has to be replaced. */
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+        }
+    }
+
     buildTypes {
         release {
-            // Sideloaded, not a store upload: the debug key keeps a keystore
-            // out of the build.
-            signingConfig signingConfigs.debug
+            /* Say WHICH, in the build log. A release that quietly falls back to
+             * the debug key looks identical until a store rejects it, and the
+             * upload is where you find out. */
+            def signed = rootProject.file('keystore.properties').exists()
+            signingConfig signed ? signingConfigs.release : signingConfigs.debug
+            println signed ? "[cuevr] release signing: keystore.properties"
+                           : "[cuevr] release signing: DEBUG KEY — not fit for a store upload"
             minifyEnabled false
         }
     }

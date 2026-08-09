@@ -2,3 +2,8 @@ app/build/
 build/
 .gradle/
 local.properties
+
+# The release signing credentials. The keystore lives outside the repo and
+# neither it nor this file may ever be committed: the key IS the app’s identity
+# on the store, and a published app can never be updated with a different one.
+keystore.properties

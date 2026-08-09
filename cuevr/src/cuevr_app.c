@@ -149,7 +149,7 @@ enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_REFVOICE,
 enum { CR_HAND = 0, CR_STICKS, CR_INVSLIDE, CR_INVTURN, CR_RESET, CR_BACK, CR_N };
 
 /* The appearance screen's own rows. */
-/* THE POCKET SHAPE IS BEING TUNED AGAIN, so its screen is back on.
+/* THE POCKET SHAPE IS SETTLED AGAIN, so its screen is off.
  *
  * It was switched off once the four numbers were found, on the grounds that
  * they were settled and the same for everybody. Then the 7 ft mouths were
@@ -162,9 +162,10 @@ enum { CR_HAND = 0, CR_STICKS, CR_INVSLIDE, CR_INVTURN, CR_RESET, CR_BACK, CR_N 
  * lines ready to paste into cue_render.c, so a session's tuning does not have
  * to be transcribed by hand or remembered.
  *
- * Build with -DCUEVR_TUNE_POCKETS=0 to take it back out when they settle. */
+ * Build with -DCUEVR_TUNE_POCKETS=1 to bring it back — nothing is deleted, only
+ * switched off, and the four numbers it produces live in cue_render.c. */
 #ifndef CUEVR_TUNE_POCKETS
-#define CUEVR_TUNE_POCKETS 1
+#define CUEVR_TUNE_POCKETS 0
 #endif
 
 enum { AR_CLOTH = 0, AR_FRAME, AR_BODY, AR_LIGHT, AR_BALLS, AR_SPOTS, AR_CUE,
