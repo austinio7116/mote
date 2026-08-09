@@ -175,7 +175,7 @@ static void prefs_put(CueVrPrefs *p, const char *k, double v) {
     else if (!strcmp(k, "persona")) { if (i >= 0 && i < 32) p->persona = i; }
     else if (!strcmp(k, "cloth"))   { if (i >= 0 && i < CUE_NCLOTH) p->cloth = i; }
     else if (!strcmp(k, "frame"))   { if (i >= 0 && i < CUE_NFRAME) p->frame = i; }
-    else if (!strcmp(k, "opp"))     { if (i >= 0 && i < 3)  p->opp = i; }
+    else if (!strcmp(k, "opp"))     { if (i >= 0 && i < 5)  p->opp = i; }
     else if (!strcmp(k, "cue"))     { if (i >= 0 && i < 32) p->cue = i; }
     else if (!strcmp(k, "light"))   { if (i >= 0 && i < 16) p->light = i; }
     else if (!strcmp(k, "body"))    { if (i >= -1 && i < 16) p->body = i; }

@@ -110,7 +110,7 @@ enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_CPUCUE, ST_PLACE,
        ST_CLOTH,
        /* Practice: the list of saved drills, and the editor where you set the
         * balls out by hand. */
-       ST_DRILLS, ST_LAYOUT,
+       ST_DRILLS, ST_LAYOUT, ST_DRILLSET,
        /* Tuning the pocket cut with a ball on the table, which is the only
         * place it can honestly be judged. */
        ST_POCKETS };
@@ -123,8 +123,14 @@ enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_CPUCUE, ST_PLACE,
  * remembers where the result has to go. Keeping it out of this enum keeps every
  * `S.opp == OPP_CPU` test in the file correct for career play — records,
  * concede, undo, the lot — instead of needing a second case each. */
-enum { OPP_PRACTICE = 0, OPP_CPU, OPP_ONLINE, OPP_CAREER, OPP_N };
-static const char *OPP_NAME[OPP_N] = { "PRACTICE", "VS CPU", "ONLINE", "CAREER" };
+/* CHALLENGES IS A MODE, NOT A CORNER OF PRACTICE. A saved position with
+ * something to do on it is a different activity from knocking balls about:
+ * one keeps records and applies the rules, the other deliberately does
+ * neither. Appended rather than inserted so an existing preferences file
+ * still means what it said. */
+enum { OPP_PRACTICE = 0, OPP_CPU, OPP_ONLINE, OPP_CAREER, OPP_CHALLENGE, OPP_N };
+static const char *OPP_NAME[OPP_N] = { "FREE PRACTICE", "VS CPU", "ONLINE",
+                                       "CAREER", "CHALLENGES" };
 
 /* The menu is rows of options rather than a list of games, because there are now
  * six things to choose and a list only chooses one. Up/down picks the row,
@@ -325,6 +331,10 @@ static struct {
     int   edit_ball;             /* the ball being carried in the editor, or -1 */
     int   edit_latch;
     int   drill_row;             /* the slot the drills screen is on */
+    int   drill_scroll;          /* first row shown — the list outgrows a panel */
+    int   edit_new;              /* the editor is building a NEW challenge */
+    int   edit_slot;             /* which slot it will be saved into, -1 = first free */
+    int   dset_row, dset_ball;   /* the challenge-setup screen */
     int break_first;             /* who breaks this frame (rules player index) */
     float undo_hold;             /* B held down, seconds — practice take-back */
     /* The pointer: where the right controller's ray meets the panel, in the
@@ -616,6 +626,15 @@ void cuevr_app_force_screen(const char *name) {
         S.drills.slot[0].goal = CUEVR_GOAL_CLEAR;
         S.drill_path[0] = 0;          /* a test must not write over real drills */
         drill_start(0);
+    } else if (!strcmp(name, "dset")) {
+        S.opp = OPP_CHALLENGE;
+        drill_capture(&S.drills.slot[0]);
+        S.drills.slot[0].goal = CUEVR_GOAL_POT;
+        S.drills.slot[0].need = (1u << CUE_ID_BLACK) | (1u << CUE_ID_BLUE) | 2u;
+        S.drills.slot[0].ball = CUE_ID_BLACK;
+        S.drill_path[0] = 0;
+        S.edit_slot = 0; S.dset_row = 0; S.dset_ball = -1;
+        S.state = ST_DRILLSET;
     } else if (!strcmp(name, "drills")) {
         /* With a couple of slots filled, so the screen shows what it looks like
          * in use rather than eight rows of EMPTY. */
@@ -631,7 +650,8 @@ void cuevr_app_force_screen(const char *name) {
         S.drills.slot[2].target = 40;
         drill_capture(&S.drills.slot[3]);
         S.drills.slot[3].goal = CUEVR_GOAL_SETUP;
-        S.drill_row = 0;
+        S.drill_row = 0; S.drill_scroll = 0;
+        S.opp = OPP_CHALLENGE;
         S.state = ST_DRILLS;
     } else if (!strcmp(name, "cloth")) {
         S.appear_from = ST_MENU; S.state = ST_CLOTH; S.cloth_hov = -1;
@@ -1066,7 +1086,7 @@ static void unpause(void) {
     else if (back == ST_PAUSE || back == ST_MENU || back == ST_SETUP
              || back == ST_LOBBY
              || back == ST_APPEAR || back == ST_STATS || back == ST_CLOTH
-             || back == ST_DRILLS || back == ST_LAYOUT
+             || back == ST_DRILLS || back == ST_LAYOUT || back == ST_DRILLSET
              || back == ST_CONTROLS || back == ST_POCKETS
              || back == ST_CARSETUP || back == ST_CAREER
              || back == ST_CARTABLE || back == ST_CARACH) back = ST_AIM;
@@ -1582,6 +1602,37 @@ static void rerack(void) {
 /* The back row's own "index", so one hover variable covers the whole
  * screen and there is no second piece of state to get out of step. */
 #define CLOTH_BACK   (-2)
+
+/* THE CHALLENGE LIST. One built-in at the top, the saved slots, and the way to
+ * make a new one at the bottom — and it scrolls, because the saved ones only
+ * ever accumulate and a list that silently stops at the panel's edge is a list
+ * that loses your work. */
+#define DRILL_VIS        9      /* rows on screen at once */
+#define DRILL_ROW_TIMED  0
+#define DRILL_ROW_SLOT0  1
+/* The setup screen's rows, and the grid of balls under them. */
+enum { DSET_GOAL = 0, DSET_TARGET, DSET_PLAY, DSET_EDIT, DSET_DEL, DSET_BACK, DSET_N };
+#define DSET_BX     12
+#define DSET_BW     14
+#define DSET_BH     14
+#define DSET_BCOLS  8
+/* Only the ones that EXIST, plus the built-in and the way to make another.
+ * Padding the list out to eight EMPTY rows advertises a limit nobody asked
+ * about and buries the one row that does something. */
+static int drill_slot_at(int row);
+static int drill_rows(void) {
+    int n = DRILL_ROW_SLOT0;
+    for (int i = 0; i < CUEVR_DRILL_SLOTS; i++) if (S.drills.slot[i].used) n++;
+    return n + 1;                                  /* ...and MAKE A CHALLENGE */
+}
+/* Which slot a list row is showing, or -1 for the built-in and the maker. */
+static int drill_slot_at(int row) {
+    if (row < DRILL_ROW_SLOT0) return -1;
+    int k = row - DRILL_ROW_SLOT0;
+    for (int i = 0; i < CUEVR_DRILL_SLOTS; i++)
+        if (S.drills.slot[i].used && k-- == 0) return i;
+    return -1;
+}
 #define CLOTH_BACK_Y (CLOTH_NAME_Y + 13)
 /* How many rows the screen being drawn is using. It is NOT a constant: the
  * scoreboard is 16:9 and the list screens are taller (see CUEVR_HUD_LH). This
@@ -1669,6 +1720,18 @@ static void hud_text_r_xl(const char *t, int rx, int y, uint16_t c) {
  * rows. -1 for none. Rows are drawn from y0-1 to y0+pitch-1, so the test uses
  * the same numbers hud_opt() draws with rather than a second set that can
  * drift from them. */
+/* One step of a list per flick of a stick, either hand. Edge-triggered on the
+ * way out of the dead zone, so a held stick moves one row and waits — a list
+ * that scrolls at frame rate under your thumb is a list you cannot land on. */
+static int stick_step(const MoteVrTracking *t) {
+    static int held;
+    float y = t->hand[MOTE_VR_LEFT].stick_y + t->hand[MOTE_VR_RIGHT].stick_y;
+    if (y > 0.5f)  { if (held == 1) return 0; held = 1; return -1; }
+    if (y < -0.5f) { if (held == 2) return 0; held = 2; return +1; }
+    held = 0;
+    return 0;
+}
+
 static int ptr_row_at(int y0, int pitch, int n) {
     if (!S.ptr_ok) return -1;
     float r = (S.ptr_y - (float)(y0 - 1)) / (float)pitch;
@@ -2125,28 +2188,93 @@ static void hud_paint(void) {
      * where you keep challenges, because they are the same object with the goal
      * left off. Chevrons on a row change what that drill ASKS; the middle of
      * the row plays it. */
+    /* ---- what a challenge ASKS ---------------------------------------------
+     *
+     * The goal on its own is not enough for a pot: "pot a ball" has to say
+     * WHICH, and often which ones — the last three reds is a drill, so is the
+     * colours. So the balls are a set you tick, drawn as the balls themselves
+     * rather than named, because a row of ball glyphs is read at a glance and a
+     * list of words is not. Reds are one entry: a drill that wants a red wants
+     * any of them, and fifteen identical buttons would be a worse screen. */
+    if (S.state == ST_DRILLSET) {
+        int slot = S.edit_slot;
+        if (slot < 0 || slot >= CUEVR_DRILL_SLOTS) slot = 0;
+        CueVrDrill *d = &S.drills.slot[slot];
+        char v[40], nm[24];
+        cuevr_drill_name(d, nm, sizeof nm);
+        int show_balls = (d->goal == CUEVR_GOAL_POT);
+        hud_height(12 + DSET_N * 9 + (show_balls ? 26 : 0) + 14);
+        hud_rect(0, 0, HW, 10, BAND);
+        hud_text_2x("THE CHALLENGE", 4, 1, HI);
+        hud_rect(0, 10, HW, 1, LINE);
+        hud_opt(DSET_GOAL, "GOAL", cuevr_goal_name(d->goal),
+                S.dset_row == DSET_GOAL, 1, TXT, DIM, HI);
+        if (d->goal == CUEVR_GOAL_SCORE) snprintf(v, sizeof v, "%d POINTS", (int)d->target);
+        else                             snprintf(v, sizeof v, "-");
+        hud_opt(DSET_TARGET, "TARGET", v, S.dset_row == DSET_TARGET,
+                d->goal == CUEVR_GOAL_SCORE, TXT, DIM, HI);
+        hud_link(DSET_PLAY, "PLAY IT", "GO", S.dset_row == DSET_PLAY, DIM, HI, LIVE);
+        hud_link(DSET_EDIT, "MOVE THE BALLS", "EDIT", S.dset_row == DSET_EDIT, DIM, HI, LIVE);
+        hud_link(DSET_DEL,  "DELETE", "REMOVE", S.dset_row == DSET_DEL, DIM, HI, LIVE);
+        hud_link(DSET_BACK, "BACK", "DONE", S.dset_row == DSET_BACK, DIM, HI, LIVE);
+        if (show_balls) {
+            uint8_t ids[24];
+            int nb = cuevr_drill_ball_choices((int)d->kind, ids, 24);
+            int y = 12 + DSET_N * 9 + 4;
+            hud_rect(0, y - 3, HW, 1, LINE);
+            hud_text("WHICH BALLS", 4, y - 1, DIM);
+            for (int i = 0; i < nb; i++) {
+                int cx = DSET_BX + (i % DSET_BCOLS) * DSET_BW;
+                int cy = y + 8 + (i / DSET_BCOLS) * DSET_BH;
+                int on = (d->need >> ids[i]) & 1u;
+                if (S.dset_ball == i) hud_rect(cx - 6, cy - 6, 12, 12, HI);
+                if (on) hud_rect(cx - 5, cy - 5, 10, 10, LIVE);
+                cue_render_ball_icon_hs(cx, cy, 4, ids[i]);
+            }
+        }
+        hud_text(nm, 4, HH - 6, DIM);
+        return;
+    }
+
     if (S.state == ST_DRILLS) {
         char v[40], nm[24];
-        hud_height(12 + (CUEVR_DRILL_SLOTS + 3) * 8 + 14);
+        const int VIS = DRILL_VIS;
+        int n = drill_rows();
+        int rows = n < VIS ? n : VIS;
+        hud_height(12 + rows * 8 + 16);
         hud_rect(0, 0, HW, 10, BAND);
-        hud_text_2x("PRACTICE DRILLS", 4, 1, HI);
-        hud_rect(0, 10, HW, 1, LINE);
-        for (int i = 0; i < CUEVR_DRILL_SLOTS; i++) {
-            const CueVrDrill *d = &S.drills.slot[i];
-            cuevr_drill_name(d, nm, sizeof nm);
-            if (!d->used) snprintf(v, sizeof v, "SAVE HERE");
-            else if (d->best) snprintf(v, sizeof v, "%s  %d.%02d", cuevr_goal_name(d->goal),
-                                       d->best / 100, d->best % 100);
-            else snprintf(v, sizeof v, "%s", cuevr_goal_name(d->goal));
-            hud_opt(i, nm, v, S.drill_row == i, d->used, TXT, DIM, HI);
+        hud_text_2x("CHALLENGES", 4, 1, HI);
+        if (n > VIS) {
+            snprintf(v, sizeof v, "%d/%d", S.drill_row + 1, n);
+            hud_text_r(v, HW - 4, 3, DIM);
         }
-        hud_link(CUEVR_DRILL_SLOTS + 0, "SET THE BALLS OUT", "EDIT",
-                 S.drill_row == CUEVR_DRILL_SLOTS + 0, DIM, HI, LIVE);
-        hud_link(CUEVR_DRILL_SLOTS + 1, "SAVE THIS TABLE", "SAVE",
-                 S.drill_row == CUEVR_DRILL_SLOTS + 1, DIM, HI, LIVE);
-        hud_link(CUEVR_DRILL_SLOTS + 2, "BACK", "DONE",
-                 S.drill_row == CUEVR_DRILL_SLOTS + 2, DIM, HI, LIVE);
-        hud_text("CHEVRONS CHANGE THE GOAL", 4, HH - 6, DIM);
+        hud_rect(0, 10, HW, 1, LINE);
+        for (int k = 0; k < VIS; k++) {
+            int i = S.drill_scroll + k;
+            if (i >= n) break;
+            const char *label; const char *val;
+            char lb[32], vb[40];
+            if (i == DRILL_ROW_TIMED) {
+                label = "TIMED CLEARANCE";
+                int b = S.mini_best[(int)S.tab.kind];
+                if (b) snprintf(vb, sizeof vb, "SIX BALLS  %d.%02d", b / 100, b % 100);
+                else   snprintf(vb, sizeof vb, "SIX BALLS");
+                val = vb;
+            } else if (i == n - 1) {
+                label = "MAKE A CHALLENGE"; val = "SET UP";
+            } else {
+                const CueVrDrill *d = &S.drills.slot[drill_slot_at(i)];
+                cuevr_drill_name(d, nm, sizeof nm);
+                snprintf(lb, sizeof lb, "%s", nm);
+                label = lb;
+                if (d->best) { snprintf(vb, sizeof vb, "%s  %d.%02d",
+                                        cuevr_goal_name(d->goal),
+                                        d->best / 100, d->best % 100); val = vb; }
+                else { snprintf(vb, sizeof vb, "%s", cuevr_goal_name(d->goal)); val = vb; }
+            }
+            hud_opt(k, label, val, S.drill_row == i, 1, TXT, DIM, HI);
+        }
+        hud_text("TAP PLAYS   CHEVRONS SET IT UP", 4, HH - 6, DIM);
         return;
     }
 
@@ -2548,7 +2676,14 @@ static void hud_paint(void) {
         /* Online it is one player's call, and the other one's screen must say so
          * rather than offering a menu that does nothing when pressed. */
         int theirs = 0;
-        if (S.opp == OPP_ONLINE) {
+        if (S.opp == OPP_CHALLENGE) {
+            /* A challenge is CHOSEN, not started. There is no frame to rack
+             * until you have said which one, so START opens the list. */
+            S.state = ST_DRILLS;
+            S.drill_row = 0; S.drill_scroll = 0;
+            S.ptr_latch = 1;
+            S.hud_dirty = 1;
+        } else if (S.opp == OPP_ONLINE) {
             int decider = S.rules.pushout_offer ? S.rules.turn
                                                 : 1 - S.rules.dec_offender;
             theirs = (decider != S.net_me);
@@ -3768,6 +3903,58 @@ static void resolve_shot(void) {
         return;
     }
 
+    /* FREE PRACTICE HAS NO RULES.
+     *
+     * A practice table is not a frame. Running the rules on one meant a knock
+     * about was scored, penalised and had the table taken off you for missing —
+     * on a table with nobody at the other end of it. You would be told you had
+     * fouled for not hitting a red, on a table where you had put four balls out
+     * to practise a cut.
+     *
+     * So the rules only run when there is something being judged: a drill with
+     * an actual goal, or the timed clearance. A drill that is "just the
+     * position" is a place to play from, which is free play with the balls
+     * arranged — the user's own distinction, and the right one.
+     *
+     * Everything that is left is the physical part: colours go back if that is
+     * switched on, the white comes back if it went down, and it stays your
+     * shot because there is nobody to hand it to. */
+    int judged = (S.drill >= 0 && S.drills.slot[S.drill].goal != CUEVR_GOAL_SETUP)
+              || S.mini;
+    if (S.opp == OPP_PRACTICE && !judged) {
+        if (S.rules.kind && S.prac_respot) {
+            for (int i = 1; i < S.nballs; i++) {
+                int id = S.balls[i].id;
+                if (S.balls[i].on) continue;
+                if (id < CUE_ID_YELLOW || id > CUE_ID_BLACK) continue;
+                cue_rules_respot(&S.rules, S.balls, S.nballs, id);
+            }
+        }
+        S.rules.turn = 0;
+        S.rules.last_foul = 0;
+        S.rules.last_miss = 0;
+        S.rules.decision = CUE_DEC_NONE;
+        S.rules.free_ball = 0;
+        S.rules.brk = 0;
+        S.rules.n_off = 0; S.rules.jumped = 0;
+        if (np > 0) {
+            snprintf(S.msg, sizeof S.msg, np == 1 ? "POTTED" : "%d DOWN", np);
+            S.msg_time = 1.2f;
+        }
+        S.hud_dirty = 1;
+        net_push_state();
+        if (scratch || n_off) {
+            S.balls[0].pos = cue_table_cue_home(&S.tab);
+            S.balls[0].vel = v3(0,0,0); S.balls[0].w = v3(0,0,0);
+            S.balls[0].on = 1;
+            S.state = ST_PLACE; S.place_latch = 1; S.recentre = 1;
+            return;
+        }
+        arm_shot();
+        S.state = ST_AIM;
+        return;
+    }
+
     int cushion = (S.shot_events & CUE_EV_CUSHION) != 0;
     int was_turn = S.rules.turn;
     int cpu_played = (S.rules.cpu && was_turn == 1);
@@ -4311,7 +4498,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * pointer, it is a laser lying on the cloth. */
         int pointing = (S.state == ST_MENU || S.state == ST_PAUSE ||
                         S.state == ST_APPEAR || S.state == ST_STATS ||
-                        S.state == ST_CLOTH || S.state == ST_DRILLS || S.state == ST_DRILLS ||
+                        S.state == ST_CLOTH || S.state == ST_DRILLS || S.state == ST_DRILLSET || S.state == ST_DRILLS ||
                         S.state == ST_LOBBY || S.state == ST_DECIDE ||
                         S.state == ST_CONTROLS || S.state == ST_OVER ||
                         S.state == ST_CARSETUP || S.state == ST_CAREER ||
@@ -5331,51 +5518,164 @@ static void app_update(void *u, const MoteVrTracking *t) {
     case ST_DRILLS: {
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
         {
-            const int NROW = CUEVR_DRILL_SLOTS + 3;
-            int hov = ptr_row_at(12, 8, NROW);
-            if (hov >= 0 && hov != S.drill_row) { S.drill_row = hov; S.hud_dirty = 1; }
-            if (hov < 0 || !ptr_click(t)) break;
-            int r = S.drill_row;
-            if (r == CUEVR_DRILL_SLOTS + 2) {           /* BACK */
-                arm_shot(); S.state = ST_AIM; S.btn_latch = 1; S.hud_dirty = 1; break;
+            const int VIS = DRILL_VIS;
+            int n = drill_rows();
+            /* Pointing selects the visible row; the stick moves through the
+             * whole list and drags the window with it. */
+            int hov = ptr_row_at(12, 8, VIS);
+            if (hov >= 0 && S.drill_scroll + hov < n &&
+                S.drill_scroll + hov != S.drill_row) {
+                S.drill_row = S.drill_scroll + hov; S.hud_dirty = 1;
             }
-            if (r == CUEVR_DRILL_SLOTS + 0) {           /* EDIT */
+            int ud = stick_step(t);
+            if (ud) {
+                S.drill_row = (S.drill_row + ud + n) % n;
+                S.hud_dirty = 1;
+            }
+            if (S.drill_row < S.drill_scroll) S.drill_scroll = S.drill_row;
+            if (S.drill_row >= S.drill_scroll + VIS) S.drill_scroll = S.drill_row - VIS + 1;
+            if (S.drill_scroll > n - VIS) S.drill_scroll = n - VIS;
+            if (S.drill_scroll < 0) S.drill_scroll = 0;
+
+            int fire = (hov >= 0 && ptr_click(t));
+            if (!t->hand[MOTE_VR_RIGHT].btn_lower) S.btn_latch = 0;
+            else if (!S.btn_latch) { S.btn_latch = 1; fire = 1; }
+            /* B leaves, back to the menu that sent you here. */
+            if (!t->hand[MOTE_VR_RIGHT].btn_upper) S.dec_latch = 0;
+            else if (!S.dec_latch) {
+                S.dec_latch = 1;
+                S.state = ST_MENU; S.menu_row = MR_START;
+                S.btn_latch = 1; S.ptr_latch = 1; S.hud_dirty = 1;
+                break;
+            }
+            if (!fire) break;
+
+            if (S.drill_row == DRILL_ROW_TIMED) {
+                /* The six-ball clearance, which is a challenge like any other —
+                 * it just builds its own layout each time instead of loading
+                 * one, which is the whole of what makes it a different sort. */
+                mini_start();
+                break;
+            }
+            if (S.drill_row == n - 1) {
+                /* MAKE ONE. The table you have chosen, racked, with the balls
+                 * in your hands: setting a position out is the act, and it
+                 * starts from a full table because taking balls off is quicker
+                 * than putting them on. */
+                S.edit_new = 1;
+                S.nballs = cue_table_rack(&S.tab, S.balls);
+                cue_rules_init(&S.rules, &S.tab, 0);
+                S.rules.turn = 0; S.rules.ball_in_hand = 0;
+                S.drill = -1;
                 S.edit_ball = -1; S.edit_latch = 1;
-                S.state = ST_LAYOUT; S.btn_latch = 1; S.hud_dirty = 1; break;
-            }
-            if (r == CUEVR_DRILL_SLOTS + 1) {           /* SAVE THIS TABLE */
-                int slot = -1;
-                for (int i = 0; i < CUEVR_DRILL_SLOTS; i++)
-                    if (!S.drills.slot[i].used) { slot = i; break; }
-                if (slot < 0) slot = S.drill_row < CUEVR_DRILL_SLOTS ? S.drill_row : 0;
-                drill_capture(&S.drills.slot[slot]);
-                if (S.drill_path[0]) cuevr_drills_save(&S.drills, S.drill_path);
-                S.drill_row = slot;
-                snprintf(S.msg, sizeof S.msg, "SAVED");
-                S.msg_time = 2.0f;
+                S.state = ST_LAYOUT;
                 S.hud_dirty = 1;
+                snprintf(S.msg, sizeof S.msg, "SET THE BALLS OUT");
+                S.msg_time = 3.0f;
                 break;
             }
-            /* A slot. The chevrons change what it asks; the middle plays it. */
-            CueVrDrill *d = &S.drills.slot[r];
-            int zone = ptr_zone();
-            if (!d->used) {
-                drill_capture(d);
-                if (S.drill_path[0]) cuevr_drills_save(&S.drills, S.drill_path);
-                snprintf(S.msg, sizeof S.msg, "SAVED");
-                S.msg_time = 2.0f;
-                S.hud_dirty = 1;
-                break;
+            int slot = drill_slot_at(S.drill_row);
+            if (slot >= 0) {
+                /* Tap plays it; the chevrons open what it asks, because tuning
+                 * a challenge and playing it are different intentions and the
+                 * middle of the row should be the common one. */
+                if (ptr_zone() != 0) {
+                    S.edit_slot = slot; S.dset_row = 0; S.dset_ball = -1;
+                    S.state = ST_DRILLSET; S.ptr_latch = 1;
+                } else drill_start(slot);
             }
-            if (zone != 0) {
-                d->goal = (uint8_t)((d->goal + zone + CUEVR_GOAL_N) % CUEVR_GOAL_N);
-                if (S.drill_path[0]) cuevr_drills_save(&S.drills, S.drill_path);
-                S.hud_dirty = 1;
-                break;
-            }
-            drill_start(r);
             break;
         }
+    }
+
+    case ST_DRILLSET: {
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        {
+            int slot = S.edit_slot;
+            if (slot < 0 || slot >= CUEVR_DRILL_SLOTS) slot = 0;
+            CueVrDrill *d = &S.drills.slot[slot];
+            uint8_t ids[24];
+            int nb = (d->goal == CUEVR_GOAL_POT)
+                   ? cuevr_drill_ball_choices((int)d->kind, ids, 24) : 0;
+
+            int hov = ptr_row_at(12, 9, DSET_N);
+            if (hov >= 0 && hov != S.dset_row) { S.dset_row = hov; S.hud_dirty = 1; }
+            /* A ball under the pointer, if the grid is showing. */
+            int bhov = -1;
+            if (nb && S.ptr_ok) {
+                int y0 = 12 + DSET_N * 9 + 12;
+                float fx = (S.ptr_x - (DSET_BX - 6)) / (float)DSET_BW;
+                float fy = (S.ptr_y - (y0 - 6)) / (float)DSET_BH;
+                int cxi = (int)fx, cyi = (int)fy;
+                if (fx >= 0 && fy >= 0 && cxi < DSET_BCOLS) {
+                    int i = cyi * DSET_BCOLS + cxi;
+                    if (i >= 0 && i < nb) bhov = i;
+                }
+            }
+            if (bhov != S.dset_ball) { S.dset_ball = bhov; S.hud_dirty = 1; }
+
+            int click = ptr_click(t);
+            if (bhov >= 0 && click) {
+                d->need ^= 1u << ids[bhov];
+                /* Keep the legacy single id pointing at something sensible so a
+                 * name still reads right. */
+                for (int i = 0; i < nb; i++)
+                    if ((d->need >> ids[i]) & 1u) { d->ball = ids[i]; break; }
+                if (S.drill_path[0]) cuevr_drills_save(&S.drills, S.drill_path);
+                S.hud_dirty = 1;
+                break;
+            }
+            int zone = ptr_zone();
+            if (hov >= 0 && click) {
+                switch (S.dset_row) {
+                case DSET_GOAL:
+                    d->goal = (uint8_t)((d->goal + (zone ? zone : 1) + CUEVR_GOAL_N)
+                                        % CUEVR_GOAL_N);
+                    if (d->goal == CUEVR_GOAL_POT && d->need == 0) {
+                        /* Something ticked to start with, or the drill asks for
+                         * nothing and can never be finished. */
+                        int best = 0;
+                        for (int i = 1; i < S.nballs; i++)
+                            if (S.balls[i].on && S.balls[i].id > best) best = S.balls[i].id;
+                        if (best) { d->need = 1u << best; d->ball = (uint8_t)best; }
+                    }
+                    break;
+                case DSET_TARGET:
+                    if (d->goal == CUEVR_GOAL_SCORE) {
+                        int step = (zone < 0) ? -5 : 5;
+                        int tv = d->target + step;
+                        if (tv < 5) tv = 5;
+                        if (tv > 147) tv = 147;
+                        d->target = (int16_t)tv;
+                    }
+                    break;
+                case DSET_PLAY:   drill_start(slot); S.btn_latch = 1; break;
+                case DSET_EDIT:
+                    S.edit_new = 0;
+                    drill_restore(d);
+                    S.edit_ball = -1; S.edit_latch = 1;
+                    S.state = ST_LAYOUT; S.btn_latch = 1;
+                    break;
+                case DSET_DEL:
+                    memset(d, 0, sizeof *d);
+                    if (S.drill_path[0]) cuevr_drills_save(&S.drills, S.drill_path);
+                    S.state = ST_DRILLS; S.btn_latch = 1;
+                    break;
+                default:
+                    S.state = ST_DRILLS; S.btn_latch = 1;
+                    break;
+                }
+                if (S.drill_path[0]) cuevr_drills_save(&S.drills, S.drill_path);
+                S.hud_dirty = 1;
+                break;
+            }
+            if (!t->hand[MOTE_VR_RIGHT].btn_upper) S.dec_latch = 0;
+            else if (!S.dec_latch) {
+                S.dec_latch = 1;
+                S.state = ST_DRILLS; S.ptr_latch = 1; S.hud_dirty = 1;
+            }
+        }
+        break;
     }
 
     case ST_LAYOUT: {
@@ -5490,13 +5790,42 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.hud_dirty = 1;
         }
 
-        /* B leaves; the balls stay where you put them. */
+        /* B is done. Setting a position out and then having to find a separate
+         * SAVE somewhere else is how a position gets lost — the act of finishing
+         * IS the save when you came here to make one. */
         if (!t->hand[MOTE_VR_RIGHT].btn_upper) S.btn_latch = 0;
         else if (!S.btn_latch) {
             S.btn_latch = 1;
             if (S.edit_ball >= 0) {
                 S.balls[S.edit_ball].pos.y = S.tab.R;
                 S.edit_ball = -1;
+            }
+            if (S.edit_new) {
+                int slot = S.edit_slot;
+                if (slot < 0 || slot >= CUEVR_DRILL_SLOTS ||
+                    S.drills.slot[slot].used) {
+                    slot = -1;
+                    for (int i = 0; i < CUEVR_DRILL_SLOTS; i++)
+                        if (!S.drills.slot[i].used) { slot = i; break; }
+                }
+                if (slot < 0) {
+                    snprintf(S.msg, sizeof S.msg, "NO FREE SLOTS");
+                    S.msg_time = 3.0f;
+                    S.state = ST_DRILLS;
+                } else {
+                    drill_capture(&S.drills.slot[slot]);
+                    if (S.drill_path[0]) cuevr_drills_save(&S.drills, S.drill_path);
+                    S.edit_slot = slot;
+                    S.drill_row = DRILL_ROW_SLOT0 + slot;
+                    /* Straight on to what it ASKS. A saved position with no goal
+                     * is half a challenge, and the moment you have just finished
+                     * setting it out is the moment you know what it is for. */
+                    S.state = ST_DRILLSET;
+                }
+                S.edit_new = 0;
+                S.ptr_latch = 1;
+                S.hud_dirty = 1;
+                break;
             }
             arm_shot();
             S.state = ST_AIM;
@@ -6056,7 +6385,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                        S.state == ST_LOBBY || S.state == ST_PAUSE ||
                        S.state == ST_STATS || S.state == ST_OVER ||
                        S.state == ST_APPEAR || S.state == ST_CLOTH ||
-                       S.state == ST_DRILLS || S.state == ST_LAYOUT ||
+                       S.state == ST_DRILLS || S.state == ST_LAYOUT || S.state == ST_DRILLSET ||
                        S.state == ST_CARSETUP ||
                        S.state == ST_CAREER || S.state == ST_CARTABLE ||
                        S.state == ST_CARACH || S.state == ST_POCKETS ||
