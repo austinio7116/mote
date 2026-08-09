@@ -46,6 +46,21 @@ MoteVrV3 cuevr_app_hud_room(void);
 void cuevr_app_lock_hud_end(int sign);
 void cuevr_app_force_start(int kind);
 void cuevr_app_force_net(int join);
+const char *cuevr_app_state_name(void);
+void cuevr_app_cue_probe(int *tracked, int *stroking, int *on_ball,
+                         float *gap, float *speed, int *n);
+void cuevr_app_cue_line(MoteVrV3 *tip, MoteVrV3 *axis);
+int cuevr_app_net_turn(void);
+int cuevr_app_net_seat(void);
+int cuevr_app_score(int i);
+int cuevr_app_frames(int i);
+int cuevr_app_best_of(void);
+int cuevr_app_balls_on(void);
+unsigned cuevr_app_table_hash(void);
+unsigned cuevr_app_object_hash(void);
+unsigned cuevr_app_rules_hash(void);
+float cuevr_app_cue_x(void);
+float cuevr_app_cue_z(void);
 void cuevr_app_force_body(int i);
 void cuevr_app_force_framecol(int i);
 void cuevr_app_force_surround(int i);
@@ -230,6 +245,17 @@ int main(int argc, char **argv) {
     int auto_table = -1;
     { const char *v = getenv("CUEVR_TABLE"); if (v) auto_table = atoi(v); }
     int auto_stroke = getenv("CUEVR_STROKE") != NULL;
+    /* CUEVR_AUTOPLAY=n: play n shots, one per visit to the table. CUEVR_TAG
+     * labels this instance's trace so two of them can be told apart. */
+    int autoplay = 0, ap_phase = 0, ap_shots = 0, ap_addressed = 0, ap_place = 0, ap_retry = 0, ap_fired = 0, ap_dec = 0;
+    MoteVrV3 ap_dir = mv3(1, 0, 0);   /* the line this shot is being played on */
+    { const char *v = getenv("CUEVR_AUTOPLAY"); if (v) autoplay = atoi(v); }
+    int quit_on_frame = getenv("CUEVR_QUIT_ON_FRAME") != NULL;
+    int quit_shots = 0;
+    { const char *v = getenv("CUEVR_QUIT_AFTER_SHOTS"); if (v) quit_shots = atoi(v); }
+    long qof_at = -1;
+    const char *tag = getenv("CUEVR_TAG");
+    if (!tag) tag = "cuevr";
     /* CUEVR_LIGHT / CUEVR_BODY: force a rig and a frame design without walking
      * the menu, so each one can be photographed from a script. Applied after the
      * app has loaded its preferences, or the saved value would win. */
@@ -522,6 +548,242 @@ int main(int argc, char **argv) {
             if (play_f == 10) s_butt.x += 0.12f;
         }
 
+        /* CUEVR_AUTOPLAY=n — play n shots, one whenever this end is at the
+         * table, re-addressing the ball each time.
+         *
+         * This is the test the online code never had. CUEVR_STROKE plays exactly
+         * ONE stroke and then stops, so the two-instance test could only ever
+         * see a break — which is precisely the one shot that worked while the
+         * shot after it was going nowhere. Whoever's turn it is plays; the other
+         * end simply runs, which is the point: it has to receive.
+         *
+         * Deliberately not clever about aim. A shot into the pack from wherever
+         * the white is scatters balls, ends turns and produces fouls, which is
+         * more of the rules than an aimed pot would exercise. */
+        if (autoplay > 0) {
+            int aiming = cuevr_app_aiming();
+            /* PUT THE BALL DOWN FIRST. Every frame begins with the break in
+             * hand, so an autoplayer that only knows how to stroke sits in
+             * PLACE for ever holding a ball — which is what the first run of
+             * this did, and it looks exactly like a network stall. The trigger
+             * drops it wherever the hand is; the rack is legal by construction
+             * so anywhere will do. */
+            /* ANSWER A FOUL DECISION. Snooker parks BOTH ends on this screen —
+             * they each hold a frame that cannot go on until it is answered —
+             * and only the fouled-against player may answer. Pressing A at both
+             * ends is the right test: one of them is ignored, and if that gate
+             * were missing the two ends would apply different decisions to the
+             * same frame. Without this the snooker run stopped on the first
+             * foul, one shot in.
+             *
+             * Down then up: the state arms a latch on entry, like placing. */
+            /* AND START THE NEXT FRAME. In a best-of-N a won frame parks both
+             * ends on the frame-over screen until somebody presses A, and each
+             * end presses its own — they rack independently, from a break
+             * alternation both compute. Worth driving, because it is the one
+             * moment in a match where the two ends act without a packet
+             * between them. */
+            if (!strcmp(cuevr_app_state_name(), "OVER")) {
+                ap_dec++;
+                s_a = (ap_dec > 20 && ap_dec < 26) ? 1 : 0;
+                ap_addressed = 0; ap_phase = 0; s_trig = 0;
+            } else if (!strcmp(cuevr_app_state_name(), "DECIDE")) {
+                ap_dec++;
+                s_a = (ap_dec > 10 && ap_dec < 16) ? 1 : 0;
+                ap_addressed = 0; ap_phase = 0; s_trig = 0;
+            } else { ap_dec = 0; if (!auto_net || nframe > 80) s_a = 0; }
+            if (!strcmp(cuevr_app_state_name(), "PLACE")) {
+                ap_place++;
+                /* Down, then up: the state arms a latch on entry, so the
+                 * trigger has to be seen released before a pull counts. */
+                s_trig = (ap_place > 10 && ap_place < 16) ? 1 : 0;
+                ap_addressed = 0; ap_phase = 0;
+            } else {
+                ap_place = 0;
+                /* Count a shot when the table leaves AIM having been struck.
+                 * Counting it at the last frame of the delivery never fired: the
+                 * tip crosses the ball part way through, so the state is already
+                 * ROLL by then and the counter never moved — CUEVR_AUTOPLAY=14
+                 * played a hundred and twenty. */
+                if (!aiming) {
+                    if (ap_fired) { ap_shots++; ap_fired = 0; }
+                    ap_phase = 0; ap_addressed = 0; s_trig = 0;
+                }
+                else if (ap_shots < autoplay) {
+                if (!ap_addressed) {
+                    /* Address the ball where it is NOW: it has moved, and a
+                     * stroke played from where the last one started goes
+                     * nowhere near it.
+                     *
+                     * Straight down the +x line, exactly as the manual placement
+                     * below does, because that line is known to reach the ball.
+                     * The first version of this swung the whole stance round by
+                     * up to 25 degrees to vary the shot and simply missed —
+                     * which from the outside looks identical to a network stall,
+                     * and cost a run to tell apart. Variety comes from hitting
+                     * the ball off centre instead, which is what a player does
+                     * anyway: well inside the ball's radius, so it always
+                     * connects, and enough to send it somewhere different. */
+                    /* AIM DOWN THE TABLE, not along the room's x axis.
+                     *
+                     * The table is dropped wherever the player is standing and
+                     * turned to suit, so "+x in the room" is a different line
+                     * every session — in the two-instance run it pointed across
+                     * the width, and ten shots in a row rolled into a cushion
+                     * without touching an object ball. Every one of them was a
+                     * legitimate foul, the turn changed hands correctly, and the
+                     * test proved nothing about a rack it never reached. Aiming
+                     * at a point in TABLE space works whatever the room does. */
+                    MoteVrV3 b = cuevr_app_cue_ball_room();
+                    int v = (ap_shots + ap_retry) % 5;
+                    MoteVrV3 tgt = cuevr_app_table_room(
+                        (ap_retry & 1) ? -0.45f : 0.45f, 0.0f,
+                        0.30f * (float)(v - 2));
+                    MoteVrV3 d = mv3_sub(tgt, b);
+                    d.y = 0.0f;
+                    d = (mv3_len(d) > 1e-4f) ? mv3_norm(d) : mv3(1, 0, 0);
+                    ap_dir = d;
+                    float reach = CUEVR_CUE_LEN - cuevr_app_grip();
+                    MoteVrV3 rst = cuevr_app_rest();
+                    float back = reach + 0.10f;
+                    s_butt   = mv3(b.x - d.x * back, b.y, b.z - d.z * back);
+                    s_bridge = mv3_sub(mv3(b.x - d.x * (back - 0.90f), b.y,
+                                           b.z - d.z * (back - 0.90f)), rst);
+                    s_focus  = b;
+                    ap_addressed = 1;
+                    ap_phase = 0;
+                    s_trig = 0;
+                }
+                ap_phase++;
+                /* THEN CORRECT ONTO THE BALL, from the cue's own reported line.
+                 *
+                 * Placing the hands by arithmetic is not enough and never was:
+                 * the bridge sits a rest-height above the hand, the hand carries
+                 * an orientation, and the cue takes a minimum elevation from the
+                 * cushions — so the axis this produces is close to the ball and
+                 * not through it, and `on_ball` stays 0 while the tip sails past
+                 * within a centimetre. That is what the first two runs of this
+                 * were: a stroke played every time, connecting with nothing.
+                 * Translating both hands by the perpendicular miss puts the axis
+                 * through the centre in one step, whatever the geometry is
+                 * doing, and a deliberate few millimetres off centre after that
+                 * varies the shot without ever missing. */
+                if (ap_phase < 8) {
+                    MoteVrV3 tip, ax, b = cuevr_app_cue_ball_room();
+                    cuevr_app_cue_line(&tip, &ax);
+                    MoteVrV3 to_b = mv3_sub(b, tip);
+                    MoteVrV3 perp = mv3_sub(to_b, mv3_scale(ax, mv3_dot(to_b, ax)));
+                    /* and a few mm off centre, across the cue, for variety */
+                    MoteVrV3 side = mv3_cross(mv3(0, 1, 0), ax);
+                    if (mv3_len(side) > 1e-4f) {
+                        side = mv3_norm(side);
+                        perp = mv3_add(perp, mv3_scale(side,
+                                   0.004f * (float)((ap_shots % 3) - 1)));
+                    }
+                    s_butt   = mv3_add(s_butt, perp);
+                    s_bridge = mv3_add(s_bridge, perp);
+                }
+                if (ap_phase >= 8)  s_trig = 1;         /* take hold */
+                /* Delivered over four frames rather than teleported in one: a
+                 * single-frame jab reads as 22 m/s at the tip, which is every
+                 * shot played at the clamp and no variety at all. */
+                if (ap_phase >= 14 && ap_phase <= 17) {
+                    float step = 0.030f + 0.006f * (float)(ap_shots % 4);
+                    s_butt.x += step * ap_dir.x;
+                    s_butt.z += step * ap_dir.z;
+                    ap_fired = 1;
+                }
+                /* IF THAT DID NOT LAND, TRY A DIFFERENT LINE.
+                 *
+                 * A shot fires at phase 17 and the state leaves AIM, so still
+                 * being here at 40 means the tip never connected — the white
+                 * finishes in a corner often enough, and from there one fixed
+                 * aim line can be blocked by the cushion the ball is against.
+                 * Without this the run simply stopped, which reads exactly like
+                 * the network bug this test exists to catch. */
+                if (ap_phase > 40) { ap_addressed = 0; ap_retry++; }
+                }
+            }
+        }
+
+        /* CUEVR_QUIT_ON_FRAME=1 — stop once a frame has been won, plus a grace
+         * period for the last state correction to land.
+         *
+         * A two-instance comparison has to end at the same LOGICAL point on both
+         * ends or the tails are meaningless: cut at a fixed frame number, one
+         * end is mid-shot and the other is not, and the traces differ for a
+         * reason that has nothing to do with the network. A frame ending is a
+         * point both ends reach. */
+        if (quit_on_frame) {
+            int fr = cuevr_app_frames(0) + cuevr_app_frames(1);
+            if (fr > 0 && qof_at < 0) qof_at = nframe;
+        }
+        /* CUEVR_QUIT_AFTER_SHOTS=n — or after n shots have been SEEN, counting
+         * the opponent's as well as our own. A snooker frame played by a random
+         * autoplayer may never end, and both ends see the same shots, so this
+         * is a logical stopping point too. */
+        if (quit_shots > 0) {
+            static int seen; static int was_roll;
+            int roll = !strcmp(cuevr_app_state_name(), "ROLL");
+            if (roll && !was_roll) seen++;
+            was_roll = roll;
+            if (seen >= quit_shots && !roll && qof_at < 0) qof_at = nframe;
+        }
+        if (qof_at >= 0 && nframe > qof_at + 250) running = 0;
+
+        if (getenv("CUEVR_APDBG") && autoplay > 0) {
+            int tr, st2, ob, sn; float gap, sp;
+            cuevr_app_cue_probe(&tr, &st2, &ob, &gap, &sp, &sn);
+            printf("[%s] f%-5ld %-6s ph=%-3d trig=%d tracked=%d strok=%d onball=%d "
+                   "gap=%+.4f speed=%.2f n=%d butt=%.3f,%.3f bridge=%.3f,%.3f\n",
+                   tag, nframe, cuevr_app_state_name(), ap_phase, s_trig,
+                   tr, st2, ob, (double)gap, (double)sp, sn,
+                   (double)s_butt.x, (double)s_butt.z,
+                   (double)s_bridge.x, (double)s_bridge.z);
+            fflush(stdout);
+        }
+
+        /* One line whenever anything a test cares about moves, on both ends, so
+         * the transcripts can be laid side by side. */
+        if (autoplay > 0 || auto_net) {
+            static char last[200];
+            char now[160];
+            /* Keyed on what a TEST cares about, not on the table hash: the hash
+             * changes every frame of a rolling shot, and a trace with a line per
+             * frame of roll is a trace nobody can diff. The hash is printed —
+             * it is the thing the two ends have to agree on — but it does not
+             * trigger a line on its own, so what lands in the log is one line
+             * per settled table. */
+            const char *sn = cuevr_app_state_name();
+            int rolling = !strcmp(sn, "ROLL");
+            snprintf(now, sizeof now, "%-8s turn=%d me=%d bo=%d score=%d/%d "
+                     "frames=%d/%d on=%d",
+                     sn, cuevr_app_net_turn(),
+                     cuevr_app_net_seat(), cuevr_app_best_of(),
+                     cuevr_app_score(0), cuevr_app_score(1),
+                     cuevr_app_frames(0), cuevr_app_frames(1),
+                     cuevr_app_balls_on());
+            /* The settled table IS part of what changed — a late state
+             * correction moves the balls without moving anything else, and
+             * leaving it out of the key hid exactly that: both ends finished a
+             * frame identically and the log showed them differing, because the
+             * joiner's correcting line was never printed. Not while rolling,
+             * or there is a line a frame. */
+            char key[200];
+            snprintf(key, sizeof key, "%s|%08x|%08x", now,
+                     rolling ? 0u : cuevr_app_object_hash(),
+                     rolling ? 0u : cuevr_app_rules_hash());
+            if (strcmp(key, last)) {
+                snprintf(last, sizeof last, "%s", key);
+                printf("[%s] f%-6ld %s hash=%08x obj=%08x rules=%08x "
+                       "cue=%+.5f,%+.5f\n", tag, nframe, now,
+                       cuevr_app_table_hash(), cuevr_app_object_hash(),
+                       cuevr_app_rules_hash(),
+                       (double)cuevr_app_cue_x(), (double)cuevr_app_cue_z());
+                fflush(stdout);
+            }
+        }
+
         /* Park the fake hands behind the cue ball the first time the table is
          * placed, so the cue starts pointing at something. After that WASD and
          * the arrows move them, as your real hands would. */
@@ -529,6 +791,10 @@ int main(int argc, char **argv) {
          * aiming — at frame 24 the cue ball is still wherever the default
          * placement put it, so the hands were lined up on a table that then
          * moved. Another consequence of levelling moving to the front. */
+        /* The autoplayer owns the hands: it re-addresses the ball before every
+         * shot, and this one-shot placement running in the same frame would
+         * overwrite the address it had just made. */
+        if (!hands_placed && autoplay > 0 && cuevr_app_aiming()) hands_placed = 1;
         if (!hands_placed && cuevr_app_aiming()) {
             MoteVrV3 b = cuevr_app_cue_ball_room();
             /* The tip is (CUE_LEN - grip) in front of the GRIP hand now, so

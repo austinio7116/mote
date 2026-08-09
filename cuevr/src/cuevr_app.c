@@ -319,6 +319,10 @@ static struct {
      * somebody set by hand. */
     float cal_pos[3], cal_rot[3];
     int net_me;                  /* our player index in an online match */
+    /* The opponent's cue, smoothed. Their poses arrive unevenly however fast
+     * they are sent, and a cue drawn on the raw arrivals stutters. */
+    Vec3 ocue_tip, ocue_butt;
+    int  ocue_have;
     int lb_screen, lb_sel, lb_tr, lb_act, lb_latch, lb_ud;
     int lb_cur;                  /* which code character is being edited */
     char lb_code[CUEVR_CODE_LEN + 1];
@@ -413,6 +417,103 @@ static struct {
  * loaded — a stroke that never lands looks identical to a test that passes. */
 MoteVrV3 cuevr_app_rest(void) { return S.cue.rest; }
 int cuevr_app_aiming(void) { return S.state == ST_AIM; }
+
+/* ---- what a two-instance test has to be able to see ----------------------
+ *
+ * The old online test drove two instances into a room together and checked they
+ * agreed on the game and who broke. They did, every time — and the shot AFTER
+ * the break was dead in the water for want of turn routing, for as long as the
+ * test existed. Pairing is not playing. These are the numbers a back-and-forth
+ * test asserts on: which state each end is sitting in, whose turn each end
+ * thinks it is, and what each end has on the table. Two ends that disagree
+ * about any of them have desynced, whatever the screen looks like. */
+const char *cuevr_app_state_name(void) {
+    static const char *N[] = {
+        "MENU","SETUP","AIM","ROLL","THINK","CPUCUE","PLACE","DECIDE","OVER",
+        "PAUSE","LOBBY","APPEAR","STATS","CONTROLS","CARSETUP","CAREER",
+        "CARTABLE","CARACH","POCKETS" };
+    return (S.state >= 0 && S.state < (int)(sizeof N / sizeof N[0]))
+         ? N[S.state] : "?";
+}
+/* Why a scripted stroke did or did not land. A harness that cannot see inside
+ * the cue can only report "nothing happened", which is the same thing a dead
+ * network link reports. */
+void cuevr_app_cue_probe(int *tracked, int *stroking, int *on_ball,
+                         float *gap, float *speed, int *n) {
+    if (tracked)  *tracked  = S.cue.tracked;
+    if (stroking) *stroking = S.cue.stroking;
+    if (on_ball)  *on_ball  = S.cue.on_ball;
+    if (gap)      *gap      = S.cue.gap;
+    if (speed)    *speed    = S.cue.speed;
+    if (n)        *n        = S.cue.speed_n;
+}
+/* The cue's real line, so a scripted stroke can be corrected ONTO the ball
+ * rather than aimed at it by arithmetic that has to reproduce the bridge rest,
+ * the hand orientation and the elevation clamp — three things that move. The
+ * harness translates both hands by the perpendicular miss and is on the ball
+ * next frame, whatever the geometry does. */
+void cuevr_app_cue_line(MoteVrV3 *tip, MoteVrV3 *axis) {
+    if (tip)  *tip  = S.cue.tip;
+    if (axis) *axis = S.cue.axis;
+}
+int cuevr_app_net_turn(void) { return S.rules.turn; }
+int cuevr_app_net_seat(void) { return S.net_me; }
+int cuevr_app_score(int i)   { return S.rules.score[i & 1]; }
+int cuevr_app_frames(int i)  { return S.rules.frames[i & 1]; }
+int cuevr_app_best_of(void)  { return S.rules.best_of; }
+int cuevr_app_balls_on(void) {
+    int n = 0;
+    for (int i = 0; i < S.nballs; i++) if (S.balls[i].on) n++;
+    return n;
+}
+/* A cheap fingerprint of the whole table, so two ends can be compared in one
+ * number rather than by eye. Quantised to a tenth of a millimetre because
+ * lockstep is not expected to be bit-identical — the host's correction is what
+ * makes it agree, and this is here to prove that it does. */
+unsigned cuevr_app_table_hash(void) {
+    unsigned h = 2166136261u;
+    #define MIX(v) do { unsigned _v = (unsigned)(v); h ^= _v; h *= 16777619u; } while (0)
+    for (int i = 0; i < S.nballs; i++) {
+        MIX(S.balls[i].on);
+        MIX((int)(S.balls[i].pos.x * 10000.0f));
+        MIX((int)(S.balls[i].pos.z * 10000.0f));
+    }
+    MIX(S.rules.turn); MIX(S.rules.score[0]); MIX(S.rules.score[1]);
+    MIX(S.rules.target); MIX(S.rules.seq); MIX(S.rules.reds_left);
+    MIX(S.rules.group[0]); MIX(S.rules.group[1]); MIX(S.rules.open);
+    MIX(S.rules.frames[0]); MIX(S.rules.frames[1]); MIX(S.rules.frame_over);
+    #undef MIX
+    return h;
+}
+/* The same, split, so a mismatch says WHICH half moved. One combined number
+ * tells you there is a desync and nothing about where to look. Balls only,
+ * excluding the cue ball — the striker holds that one and the far end does not
+ * hear where until the shot goes. */
+unsigned cuevr_app_object_hash(void) {
+    unsigned h = 2166136261u;
+    #define MIX(v) do { unsigned _v = (unsigned)(v); h ^= _v; h *= 16777619u; } while (0)
+    for (int i = 1; i < S.nballs; i++) {
+        MIX(S.balls[i].on);
+        MIX((int)(S.balls[i].pos.x * 10000.0f));
+        MIX((int)(S.balls[i].pos.z * 10000.0f));
+    }
+    #undef MIX
+    return h;
+}
+unsigned cuevr_app_rules_hash(void) {
+    unsigned h = 2166136261u;
+    #define MIX(v) do { unsigned _v = (unsigned)(v); h ^= _v; h *= 16777619u; } while (0)
+    MIX(S.rules.turn); MIX(S.rules.score[0]); MIX(S.rules.score[1]);
+    MIX(S.rules.target); MIX(S.rules.seq); MIX(S.rules.reds_left);
+    MIX(S.rules.group[0]); MIX(S.rules.group[1]); MIX(S.rules.open);
+    MIX(S.rules.frames[0]); MIX(S.rules.frames[1]); MIX(S.rules.frame_over);
+    MIX(S.rules.shots_remaining); MIX(S.rules.two_shot); MIX(S.rules.free_ball);
+    MIX(S.rules.cfoul[0]); MIX(S.rules.cfoul[1]); MIX(S.rules.break_shot);
+    #undef MIX
+    return h;
+}
+float cuevr_app_cue_x(void) { return S.balls[0].pos.x; }
+float cuevr_app_cue_z(void) { return S.balls[0].pos.z; }
 
 /* CUEVR_SCREEN=appear|stats — jump straight to a menu screen for a capture.
  * The scripted stick-walk cannot reach them reliably (it is frame-timed and the
@@ -1389,14 +1490,19 @@ static int pause_rows(PsRow *o, int max) {
      * end would carry on with the old one. Undo is practice-only already, and
      * for the same reason. */
     if (S.can_repick)                          ADD(PS_PICKUP, "PICK UP BALL");
-    if (S.rules.kind && !S.rules.frame_over && S.rules.target == 1)
+    /* Nominating is the STRIKER's act. Online both ends have target == 1 at the
+     * same moment, so this was offered to the player who was not at the table —
+     * and taking it set a colour in their copy of the rules that the striker had
+     * never named. */
+    int at_table = (S.opp != OPP_ONLINE) || (S.rules.turn == S.net_me);
+    if (S.rules.kind && !S.rules.frame_over && S.rules.target == 1 && at_table)
         ADD(PS_NOMINATE, "NOMINATE");
     /* A FREE BALL IS NOMINATED TOO, and the row above cannot do it: that one is
      * gated on being on a COLOUR, and a free ball is usually awarded while you
      * are on a RED — so after taking one there was no way to name the ball from
      * this menu at all. Aiming at it always worked, but a mechanism nothing on
      * screen mentions is not a mechanism the player has. */
-    if (S.rules.kind && !S.rules.frame_over && S.rules.free_ball)
+    if (S.rules.kind && !S.rules.frame_over && S.rules.free_ball && at_table)
         ADD(PS_FREEBALL, "FREE BALL");
     /* PRACTICE SNOOKER ONLY, and here rather than on the main menu: it is not a
      * choice about the frame you are setting up, it is a thing you turn on when
@@ -2075,18 +2181,28 @@ static void hud_paint(void) {
     if (S.state == ST_DECIDE) {
         DecOpt o[6];
         int n = decision_options(o, 6);
+        /* Online it is one player's call, and the other one's screen must say so
+         * rather than offering a menu that does nothing when pressed. */
+        int theirs = 0;
+        if (S.opp == OPP_ONLINE) {
+            int decider = S.rules.pushout_offer ? S.rules.turn
+                                                : 1 - S.rules.dec_offender;
+            theirs = (decider != S.net_me);
+        }
         hud_height(CUEVR_HUD_LH);
         hud_rect(0, 0, HW, 10, BAND);
-        hud_text_2x(S.rules.pushout_offer ? "PUSH OUT?" : "THEIR FOUL - YOUR CALL", 4, 1, HI);
+        hud_text_2x(theirs ? (S.rules.pushout_offer ? "THEIR PUSH OUT" : "YOUR FOUL - THEIR CALL")
+                           : (S.rules.pushout_offer ? "PUSH OUT?" : "THEIR FOUL - YOUR CALL"),
+                    4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
         if (S.rules.dec_can_restore) hud_text("A MISS WAS CALLED", 4, 13, LIVE);
         for (int i = 0; i < n; i++) {
-            int y = 22 + i * 14, sel = (S.dec_sel == i);
+            int y = 22 + i * 14, sel = (!theirs && S.dec_sel == i);
             if (sel) hud_rect(1, y - 1, HW - 2, 13, RGB565C(28, 58, 40));
             hud_text_2x(o[i].label, 6, y - 1, sel ? HI : DIM);
             hud_text(o[i].note, 8, y + 8, DIM);
         }
-        hud_text("TRIGGER SELECT", 4, HH - 6, DIM);
+        hud_text(theirs ? "WAITING FOR THEM TO CHOOSE" : "TRIGGER SELECT", 4, HH - 6, DIM);
         return;
     }
 
@@ -2882,7 +2998,7 @@ static void menu_activate(void) {
              * there is no later packet that could correct it. */
             S.break_first = coin_toss();
             cuevr_net_set_hello((int)MENU[S.menu_sel].kind, S.cue_idx,
-                                S.break_first);
+                                S.break_first, MATCH_LEN[S.match_idx]);
             S.lb_screen = LB_TRANSPORT;
             S.lb_sel = 0;
             /* The press that opened the lobby must not also answer its
@@ -2933,6 +3049,42 @@ static int roll_step(float dt) {
     }
     cue_audio_tick(dt);
     return moving;
+}
+
+/* THE HOST SAYS WHERE EVERYTHING IS — the balls AND the rules, whole.
+ *
+ * Lockstep assumes both machines get the same answer from the same numbers, and
+ * floating point across two chips does not promise that. But the worse problem
+ * was never the floats: it was that this used to send nine hand-picked rule
+ * fields, and every field NOT picked was a desync nobody had thought of yet —
+ * the 8-ball groups, the open table, the UK two-shot carry, the 9-ball foul
+ * count, the free ball, the called-miss tallies, the frames won, the match. So
+ * the whole struct goes. Three hundred bytes, once a shot, and no field left to
+ * forget.
+ *
+ * Sent from every point that CHANGES the table without a shot as well —
+ * decisions, concessions, a new rack — because those are exactly the moments a
+ * missing field used to bite. */
+_Static_assert(sizeof(CueRules) <= CUEVR_NET_RULES_MAX,
+               "CueRules outgrew the state packet — raise CUEVR_NET_RULES_MAX");
+
+static void net_push_state(void) {
+    if (S.opp != OPP_ONLINE || S.net_me != 0) return;
+    if (cuevr_net_state() != CUEVR_NET_LIVE) return;
+    CueVrNetState st;
+    memset(&st, 0, sizeof st);
+    st.n = (uint8_t)(S.nballs > CUEVR_NET_MAXBALLS ? CUEVR_NET_MAXBALLS : S.nballs);
+    for (int i = 0; i < st.n; i++) {
+        st.on[i] = (uint8_t)S.balls[i].on;
+        st.x[i]  = S.balls[i].pos.x;
+        st.z[i]  = S.balls[i].pos.z;
+    }
+    st.rules_len = (uint16_t)sizeof(CueRules);
+    memcpy(st.rules, &S.rules, sizeof(CueRules));
+    if (getenv("CUEVR_NETDBG"))
+        fprintf(stderr, "[netdbg] f%d SEND state turn=%d on0=%d state=%s\n",
+                S.dbg_frame, S.rules.turn, S.balls[0].on, cuevr_app_state_name());
+    cuevr_net_send_state(&st);
 }
 
 static void resolve_shot(void) {
@@ -3016,27 +3168,6 @@ static void resolve_shot(void) {
     S.msg_time = 2.5f;
     S.hud_dirty = 1;
 
-    /* THE HOST SAYS WHERE EVERYTHING IS, every shot. Lockstep assumes both
-     * machines get the same answer from the same numbers, and floating point
-     * across two chips does not promise that — a single last-place bit in one
-     * of a shot's dozens of contacts compounds into a different table, silently
-     * and for good. Two hundred bytes once a shot removes the whole class of
-     * problem, and removes it before anyone can notice it happening. */
-    if (S.opp == OPP_ONLINE && S.net_me == 0) {
-        CueVrNetState st;
-        memset(&st, 0, sizeof st);
-        st.n = (uint8_t)(S.nballs > CUEVR_NET_MAXBALLS ? CUEVR_NET_MAXBALLS : S.nballs);
-        for (int i = 0; i < st.n; i++) {
-            st.on[i] = (uint8_t)S.balls[i].on;
-            st.x[i]  = S.balls[i].pos.x;
-            st.z[i]  = S.balls[i].pos.z;
-        }
-        st.score[0] = S.rules.score[0]; st.score[1] = S.rules.score[1];
-        st.turn = S.rules.turn; st.target = S.rules.target; st.seq = S.rules.seq;
-        st.reds_left = S.rules.reds_left; st.nominated = S.rules.nominated;
-        cuevr_net_send_state(&st);
-    }
-
     /* PRACTICE, SNOOKER: keep the colours on the table.
      *
      * The rules respot a colour whenever the shot was a foul or the striker was
@@ -3064,7 +3195,18 @@ static void resolve_shot(void) {
     stat_after_shot();
     if (S.rules.turn != was_turn) stat_visit_begins(S.rules.turn);
 
-    if (S.rules.frame_over) { enter_over(); return; }
+    /* THE STATE GOES OUT WHEN THE TABLE IS FINISHED WITH, at every one of this
+     * function's exits — not straight after cue_rules_resolve, which is where it
+     * was and which is a table nobody ever plays from.
+     *
+     * A scratch is the case that showed it. resolve() leaves the white potted
+     * and sets ball_in_hand; the block further down is what puts it back on the
+     * cloth. Sending between the two told the far end the cue ball was off the
+     * table — arriving just after the striker there had already picked it up, so
+     * they aimed and played a shot with the white flagged as potted. The balls
+     * agreed, the scores agreed, and the one number that did not was the one
+     * that decides whether the cue ball gets drawn at all. */
+    if (S.rules.frame_over) { net_push_state(); enter_over(); return; }
 
     /* A pending decision is the rules engine asking a question — after a
      * snooker foul (play on / make them play again / free ball) or before the
@@ -3120,9 +3262,28 @@ static void resolve_shot(void) {
         } else {
             S.state = ST_DECIDE;
             S.hud_dirty = 1;
+            net_push_state();
             return;
         }
     }
+
+    /* WHOSE TABLE IT IS NOW.
+     *
+     * Online this routing is the whole match, and it was not being done here at
+     * all. `cpu` is 0 in an online frame, so the tail below always took its else
+     * branch and put BOTH ends into ST_AIM after every shot. ST_THINK is the
+     * only state that reads an incoming shot, so the next stroke — whichever end
+     * played it — arrived at a socket nobody was listening to: it latched, was
+     * never consumed, no balls moved, no resolve ran, and so the host never sent
+     * the state that would have corrected anything. The frame stopped dead and
+     * stayed stopped. What you saw from the far end was their cue swinging
+     * through the white, because the non-striker's `mine` test in ST_AIM throws
+     * the strike away.
+     *
+     * The BREAK worked because a rack routes through hand_over(), which is the
+     * one place that asked whose seat it is. Every shot after it came through
+     * here. */
+    int mine = (S.opp != OPP_ONLINE) || (S.rules.turn == S.net_me);
 
     if (S.rules.ball_in_hand) {
         /* Ball in hand. Start it on its home spot, legal by construction, and
@@ -3132,27 +3293,34 @@ static void resolve_shot(void) {
         S.balls[0].w   = (Vec3){0, 0, 0};
         S.balls[0].on  = 1;
         S.rules.ball_in_hand = 0;
-        if (!(S.rules.cpu && S.rules.turn == 1)) {
+        if (!mine) {
+            /* Theirs to place, and only they know where. It waits on the home
+             * spot until their shot arrives carrying the spot they chose. */
+        } else if (!(S.rules.cpu && S.rules.turn == 1)) {
             S.state = ST_PLACE;
             S.place_latch = 1;
             S.recentre = 1;
             S.hud_dirty = 1;
+            net_push_state();
             return;
+        } else {
+            /* The CPU places for itself. */
+            S.balls[0].pos = cue_ai_place(&S.world, &S.tab, &S.rules, S.balls,
+                                          S.nballs, &CUE_PERSONAS[S.persona],
+                                          &S.rng);
         }
-        /* The CPU places for itself. */
-        S.balls[0].pos = cue_ai_place(&S.world, &S.tab, &S.rules, S.balls,
-                                      S.nballs, &CUE_PERSONAS[S.persona],
-                                      &S.rng);
     }
 
-    if (S.rules.cpu && S.rules.turn == 1) {
-        arm_shot();
+    arm_shot();
+    if (S.opp == OPP_ONLINE) {
+        S.state = mine ? ST_AIM : ST_THINK;
+    } else if (S.rules.cpu && S.rules.turn == 1) {
         S.state = ST_THINK;
         think_start();
     } else {
-        arm_shot();
         S.state = ST_AIM;
     }
+    net_push_state();
 }
 
 /* ---- the callbacks ------------------------------------------------------ */
@@ -3553,6 +3721,25 @@ static void app_update(void *u, const MoteVrTracking *t) {
             memset(&S.idle_shot, 0, sizeof S.idle_shot);
     }
 
+    /* THEY LEFT — from wherever we happen to be standing.
+     *
+     * This lived inside ST_THINK, so it only ever fired if the link dropped
+     * while you were WAITING for them. Lose it on your own turn — the far more
+     * likely moment, since that is when the other player is the one with
+     * nothing to do — and nothing said a word: you aimed and played into a dead
+     * socket, for ever. Anywhere the frame is live counts. */
+    if (S.opp == OPP_ONLINE && cuevr_net_state() == CUEVR_NET_LOST &&
+        !S.rules.frame_over &&
+        (S.state == ST_AIM || S.state == ST_ROLL || S.state == ST_THINK ||
+         S.state == ST_PLACE || S.state == ST_DECIDE || S.state == ST_PAUSE)) {
+        think_join();
+        snprintf(S.msg, sizeof S.msg, "OPPONENT LEFT");
+        S.msg_time = 4.0f;
+        S.rules.frame_over = 1;
+        S.rules.winner = S.net_me;
+        enter_over();
+    }
+
     /* THE HOST'S TABLE WINS. Taken only when nothing is moving: applied
      * mid-roll it would teleport balls out from under a shot that is still
      * being simulated, which is a worse desync than the one it is here to
@@ -3567,16 +3754,43 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.balls[i].vel = v3(0,0,0);
                 S.balls[i].w   = v3(0,0,0);
             }
-            S.rules.score[0] = st.score[0]; S.rules.score[1] = st.score[1];
-            S.rules.turn = st.turn; S.rules.target = st.target;
-            S.rules.seq = st.seq; S.rules.reds_left = st.reds_left;
-            S.rules.nominated = st.nominated;
+            /* The rules entire, not a chosen few fields. `cpu` is 0 at both
+             * ends of an online frame and the table geometry in here is built
+             * from the same kind, so there is nothing in the struct that is
+             * legitimately local — which is exactly why it can be taken whole
+             * and why doing so is safer than a list somebody has to maintain. */
+            if (st.rules_len == (uint16_t)sizeof(CueRules))
+                memcpy(&S.rules, st.rules, sizeof(CueRules));
+            if (getenv("CUEVR_NETDBG"))
+                fprintf(stderr, "[netdbg] f%d TAKE state turn=%d on0=%d len=%d "
+                        "was %s\n", S.dbg_frame, S.rules.turn, st.on[0],
+                        (int)st.rules_len, cuevr_app_state_name());
+            /* AND THE STATE MACHINE MOVES WITH THE TURN. Taking st.turn as a
+             * number and leaving S.state where it was is how a corrected turn
+             * becomes a dead frame: ST_THINK is the only state that reads an
+             * incoming shot, so an end left thinking while the table is its own
+             * waits for a shot nobody will play, and an end left aiming while
+             * the table is theirs is deaf to the shot they do play. Only from a
+             * settled state — mid-roll, placing or deciding are all mid-flow and
+             * have their own routing at the end of them. */
+            if (S.rules.frame_over) enter_over();
+            else if (S.state == ST_AIM || S.state == ST_THINK) {
+                int want = (S.rules.turn == S.net_me) ? ST_AIM : ST_THINK;
+                if (S.state != want) { arm_shot(); S.state = want; }
+            }
             S.hud_dirty = 1;
         }
     }
 
-    /* A choice from the far end: apply it exactly as if we had made it. */
-    if (S.opp == OPP_ONLINE) {
+    /* A choice from the far end: apply it exactly as if we had made it.
+     *
+     * NOT while our own copy of the shot is still rolling. Every branch below is
+     * conditional on the rules state the shot is about to produce — a pending
+     * decision, a push-out offer — and none of those exist yet mid-roll, so a
+     * call that overtook the local simulation fell through every branch and was
+     * thrown away. The far end then waited for a player who had silently never
+     * been asked. It stays latched until there is something for it to answer. */
+    if (S.opp == OPP_ONLINE && S.state != ST_ROLL) {
         CueVrNetCall c;
         while (cuevr_net_recv_call(&c)) {
             if (c.code == CUEVR_NET_CONCEDE) {
@@ -3595,15 +3809,24 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 cue_rules_apply_decision(&S.rules, c.code);
                 arm_shot(); hand_over();
             }
+            /* A decision moves the balls (a replay puts them all back) and moves
+             * the turn, so the host says where everything is afterwards — the
+             * same guarantee a shot gets. */
+            net_push_state();
             S.hud_dirty = 1;
         }
     }
 
-    /* Ours, out to them. Every fourth frame — about 18 Hz, which is plenty for
-     * a stick moving at human speed and a fraction of the bandwidth of every
-     * frame. Only while we are actually holding it. */
+    /* Ours, out to them, EVERY frame.
+     *
+     * This went at every fourth — nominally 18 Hz — on the reasoning that a
+     * stick moves at human speed. It does, but a cue tip travels the length of
+     * a stroke in about a tenth of a second, and four frames of hold at 72 Hz is
+     * a visible step every time: the opponent's cue arrived in jerks. 25 bytes a
+     * frame is 1.8 KB/s, which is less than a hundredth of what the state packet
+     * costs over a frame of snooker. Only while we are actually holding it. */
     if (S.opp == OPP_ONLINE && cuevr_net_state() == CUEVR_NET_LIVE &&
-        S.cue.tracked && (S.dbg_frame & 3) == 0) {
+        S.cue.tracked) {
         MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, S.cue.tip);
         MoteVrV3 bp = cuevr_room_to_table(&S.setup.place, S.cue.butt);
         CueVrNetPose np = { tp.x, tp.y, tp.z, bp.x, bp.y, bp.z };
@@ -3677,6 +3900,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
                  * counts, exactly as with the game kind. */
                 S.break_first = ph.first ? 1 : 0;
                 start_frame((CueGameKind)ph.kind);
+                /* AND THEIR MATCH LENGTH. start_frame() takes it from OUR menu,
+                 * so a host on best of 5 and a joiner on best of 1 played the
+                 * same frames and disagreed about when it was over: one went
+                 * back to the menu, the other racked and waited for a shot from
+                 * somebody who had left. After start_frame, which sets it. */
+                if (ph.best_of > 0) S.rules.best_of = ph.best_of;
             }
             LOGI("[cuevr] online: seat %d playing %s, %s breaks", S.net_me,
                  MENU[S.menu_sel].name, S.break_first ? "joiner" : "host");
@@ -3932,6 +4161,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                         snprintf(S.msg, sizeof S.msg, "FRAME CONCEDED");
                         S.msg_time = 3.0f;
                         enter_over();
+                        net_push_state();
                     }
                     break;
                 case PS_PICKUP:
@@ -4147,12 +4377,6 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 cue_phys_strike_elev(&S.world, &S.balls[0], dir, ns.speed,
                                      ns.side, ns.vert, ns.elev);
                 begin_shot();
-            }
-            if (cuevr_net_state() == CUEVR_NET_LOST) {
-                snprintf(S.msg, sizeof S.msg, "OPPONENT LEFT");
-                S.msg_time = 4.0f;
-                S.rules.winner = S.net_me;
-                enter_over();
             }
             break;
         }
@@ -4726,6 +4950,20 @@ static void app_update(void *u, const MoteVrTracking *t) {
     case ST_DECIDE: {
         /* Sticks stay the table's here too. */
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        /* ONLINE, THE CHOICE BELONGS TO ONE OF US. Both ends reach this state —
+         * they have to, because both are holding a frame that cannot go on
+         * until it is answered — but only the fouled-AGAINST player may answer.
+         * Without this both players got a live menu after every foul and the
+         * offender could answer their own, whichever end pressed first, and the
+         * two ends then applied different decisions to the same frame. We wait
+         * and take theirs off the wire. A push-out belongs to the player at the
+         * table, a foul decision to the one who was fouled against — the same
+         * split the CPU path makes. */
+        if (S.opp == OPP_ONLINE) {
+            int decider = S.rules.pushout_offer ? S.rules.turn
+                                                : 1 - S.rules.dec_offender;
+            if (decider != S.net_me) break;
+        }
         /* Pointed at, and driven off the SAME list the HUD draws — so every
          * choice the rules offer is a choice you can make, and none of them can
          * be named on screen without being wired up or wired up without being
@@ -4760,17 +4998,16 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 cue_rules_apply_decision(&S.rules, dec);
             }
         }
-        if (S.rules.ball_in_hand) {
-            S.balls[0].pos = cue_table_cue_home(&S.tab);
-            S.balls[0].on = 1;
-            S.rules.ball_in_hand = 0;
-            S.state = ST_PLACE;
-            S.place_latch = 1;
-            S.recentre = 1;
-        } else {
-            arm_shot();
-            hand_over();
-        }
+        /* Through hand_over() whether or not the ball is in hand, because the
+         * FAR end applies this same decision through hand_over() and the two
+         * have to land in the same place. Placing inline here instead put the
+         * decider in ST_PLACE by a route that never asked whose seat it was —
+         * the same omission that froze the frame after the break. hand_over()
+         * puts the white on its home spot for the player who owns it and sends
+         * everyone else to wait. */
+        arm_shot();
+        hand_over();
+        net_push_state();
         S.hud_dirty = 1;
         break;
     }
@@ -4810,6 +5047,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 S.msg_time = 3.0f;
                 S.rules.ball_in_hand = 1;
                 hand_over();
+                /* A NEW RACK IS A NEW TABLE, and each end reaches this on its
+                 * own press of A rather than together, so the host says what
+                 * the new frame looks like as soon as it has one. The rack and
+                 * the break alternation are both deterministic, so this is a
+                 * belt to the braces — but it is the cheap half of the pair. */
+                net_push_state();
             } else if (S.in_career) {
                 career_finish();
                 S.btn_latch = 1;
@@ -4887,12 +5130,30 @@ static void app_update(void *u, const MoteVrTracking *t) {
             if (cuevr_net_peer_pose(&pp)) {
                 /* Table space on the wire, so it lands right however each end
                  * has put its own table down in its own room. */
-                S.scene.ocue_tip  = cuevr_table_to_room(&S.setup.place,
-                                        v3(pp.tipx, pp.tipy, pp.tipz));
-                S.scene.ocue_butt = cuevr_table_to_room(&S.setup.place,
-                                        v3(pp.bttx, pp.btty, pp.bttz));
+                Vec3 tip  = v3(pp.tipx, pp.tipy, pp.tipz);
+                Vec3 butt = v3(pp.bttx, pp.btty, pp.bttz);
+                /* SMOOTHED TOWARDS, not snapped to.
+                 *
+                 * Sending at 72 Hz instead of 18 fixes the sender's share of the
+                 * judder, but the packets do not ARRIVE evenly — a relay across
+                 * the Internet delivers three in a burst and then nothing for
+                 * two frames, and a cue drawn exactly where the last packet said
+                 * shows every bit of that as a stutter. Chasing the target at a
+                 * fixed rate per frame turns arrival jitter into a cue that
+                 * always moves smoothly and is at most a few milliseconds
+                 * behind, which no one can see and everyone can see the
+                 * alternative to. */
+                if (!S.ocue_have) { S.ocue_tip = tip; S.ocue_butt = butt; S.ocue_have = 1; }
+                else {
+                    float k = dt * 30.0f;             /* ~1/3 of the gap a frame at 72 Hz */
+                    if (k > 1.0f) k = 1.0f;
+                    S.ocue_tip  = v3_add(S.ocue_tip,  v3_scale(v3_sub(tip,  S.ocue_tip),  k));
+                    S.ocue_butt = v3_add(S.ocue_butt, v3_scale(v3_sub(butt, S.ocue_butt), k));
+                }
+                S.scene.ocue_tip  = cuevr_table_to_room(&S.setup.place, S.ocue_tip);
+                S.scene.ocue_butt = cuevr_table_to_room(&S.setup.place, S.ocue_butt);
                 S.scene.ocue_visible = 1;
-            }
+            } else S.ocue_have = 0;
         }
     }
 
@@ -5270,7 +5531,26 @@ static void app_gl_shutdown(void *u) { (void)u; cuevr_audio_close(); cuevr_rende
 void cuevr_app_force_net(int join) {
     S.opp = OPP_ONLINE;
     S.break_first = coin_toss();
-    cuevr_net_set_hello((int)MENU[S.menu_sel].kind, S.cue_idx, S.break_first);
+    /* CUEVR_BREAK=0|1 pins the toss, so a two-instance test can run BOTH ways
+     * round rather than whichever way the coin happened to land. The host's is
+     * the one that counts, so setting it on the host is enough — but a test that
+     * sets it on both is testing what it thinks it is. */
+    { const char *v = getenv("CUEVR_BREAK"); if (v) S.break_first = atoi(v) ? 1 : 0; }
+    /* CUEVR_GAME=<CueGameKind> picks the table for an online test. The host's
+     * choice is the one both ends rack, so a test that sets it on the JOINER as
+     * well is checking that too. Snooker matters here because it is the only
+     * game with nomination, free balls and a foul decision — three things that
+     * cross the wire and nothing else exercises. */
+    { const char *v = getenv("CUEVR_GAME");
+      if (v) { int k = atoi(v); for (int i = 0; i < MENU_N; i++)
+                   if ((int)MENU[i].kind == k) S.menu_sel = i; } }
+    /* CUEVR_MATCH=n forces this end's match length, so a mismatched pair proves
+     * the host's number is the one both play to. */
+    { const char *v = getenv("CUEVR_MATCH");
+      if (v) { int m = atoi(v); for (int i = 0; i < (int)(sizeof MATCH_LEN / sizeof MATCH_LEN[0]); i++)
+                   if (MATCH_LEN[i] == m) S.match_idx = i; } }
+    cuevr_net_set_hello((int)MENU[S.menu_sel].kind, S.cue_idx, S.break_first,
+                        MATCH_LEN[S.match_idx]);
     S.lb_screen = LB_WAIT;
     S.state = ST_LOBBY;
     if (join) cuevr_net_lan_join(); else cuevr_net_lan_host();

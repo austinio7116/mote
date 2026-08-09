@@ -40,11 +40,12 @@
  * differently and diverge on the first shot, and they would do it silently,
  * which is exactly what a room id exists to prevent. Failing to pair is the
  * better failure. */
-#define CUEVR_GAME_ID  0x43554537u   /* 'CUE7' — the hello carries who breaks, and
-                                      * a client that does not read it would rack
-                                      * the same table and hand it to the wrong
-                                      * player, which is the loudest divergence
-                                      * there is */
+/* CUE8, from CUE7: the hello grew the match length and the state packet now
+ * carries the whole rules struct rather than nine chosen fields. A CUE7 client
+ * would read the blob as the old field list and take garbage for a score. */
+#define CUEVR_GAME_ID  0x43554538u   /* 'CUE8' — the hello carries who breaks and
+                                      * how long the match is, and the state
+                                      * packet carries the rules entire */
 
 /* Wire framing. A magic byte per record so a half-read stream resynchronises
  * rather than reinterpreting float bytes as a shot. */
@@ -61,9 +62,11 @@ static char  s_info[64] = "";
 /* Inbound assembly. link_net_recv gives whatever has arrived, which for a 25
  * byte record over TCP may well be 9 bytes then 16. */
 /* Big enough for the largest record with room to resynchronise around one: the
- * table state is 229 bytes on the wire and a buffer that cannot hold one would
- * stall the stream for ever rather than fail loudly. */
-static uint8_t s_in[512];
+ * table state now carries the whole rules struct and runs to about 750 bytes on
+ * the wire, and a buffer that cannot hold one would stall the stream for ever
+ * rather than fail loudly. Sized well clear of it so the same mistake cannot be
+ * made again by adding a field. */
+static uint8_t s_in[4096];
 static int     s_in_n;
 
 /* Their cue, and how long since it last moved. Counted in RECEIVE calls rather
@@ -124,12 +127,13 @@ int cuevr_net_peer_pose(CueVrNetPose *out) {
 }
 
 /* Ours, and theirs once it lands. */
-static CueVrNetHello s_mine = { 0, 0, 0 };
+static CueVrNetHello s_mine;
 static CueVrNetHello s_peer;
 static int           s_have_peer;
 
-void cuevr_net_set_hello(int kind, int cue_idx, int first) {
+void cuevr_net_set_hello(int kind, int cue_idx, int first, int best_of) {
     s_mine.kind = kind; s_mine.cue_idx = cue_idx; s_mine.first = first;
+    s_mine.best_of = best_of;
 }
 int cuevr_net_peer(CueVrNetHello *out) {
     if (!s_have_peer || !out) return 0;
@@ -369,7 +373,24 @@ static void pump(void) {
         if (s_in_n < need) return;               /* the rest is still in flight */
         if      (tag == PKT_SHOT)  { memcpy(&s_shot,  s_in + 1, sizeof s_shot);  s_have_shot = 1; }
         else if (tag == PKT_CALL)  { memcpy(&s_call,  s_in + 1, sizeof s_call);  s_have_call = 1; }
-        else if (tag == PKT_STATE) { memcpy(&s_pstate, s_in + 1, sizeof s_pstate); s_have_state = 1; }
+        else if (tag == PKT_STATE) {
+            memcpy(&s_pstate, s_in + 1, sizeof s_pstate); s_have_state = 1;
+            /* AND ANY SHOT STILL WAITING IS NOW HISTORY.
+             *
+             * The host sends its table AFTER the shot that produced it, so a
+             * shot sitting unread when one arrives has already been accounted
+             * for in it. Left latched, it gets played the next time this end
+             * looks for a shot — which is the OPPONENT'S NEXT TURN, so the far
+             * end's last stroke was replayed from a table it never belonged to.
+             *
+             * It needs no sequence numbers because this loop parses in wire
+             * order: a shot read before this point is older than the state, and
+             * one read after it is newer and is left alone. Reproduced by
+             * starting the two ends two seconds apart — the joiner was still
+             * baking its table while the host broke, so both records were
+             * waiting by the time it looked. */
+            s_have_shot = 0;
+        }
         else if (tag == PKT_POSE)  { memcpy(&s_ppose, s_in + 1, sizeof s_ppose); s_pose_age = 0; }
         else if (tag == PKT_HELLO) { memcpy(&s_peer,  s_in + 1, sizeof s_peer);  s_have_peer = 1; }
         s_in_n -= need;

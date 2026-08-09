@@ -77,6 +77,10 @@ static int   s_state;          /* LINK_NET_* */
 static int   s_is_host;        /* role chosen at host()/join() time */
 static int   s_joining;        /* join mode (vs host mode) while searching */
 static nsock s_conn = NBAD;    /* the connected pipe */
+/* Outbound backlog: whatever a non-blocking send would not take. See
+ * link_net_send for why a short write used to tear a record in half. */
+static unsigned char s_ob[16384];
+static int           s_ob_n;
 static nsock s_listen = NBAD;  /* host: TCP listener */
 static nsock s_udp = NBAD;     /* host: discovery responder · join: prober */
 static struct sockaddr_in s_join_to;  /* join: explicit / discovered target */
@@ -105,7 +109,28 @@ static void drop_all_locked(void) {
     if (s_udp    != NBAD) { ncl(s_udp);    s_udp    = NBAD; }
     s_state = LINK_NET_OFF; s_is_host = 0; s_joining = 0; s_have_target = 0;
     s_relay = 0; s_rly = 0; s_rly_len = 0;
+    s_ob_n = 0;                 /* a dead link's backlog is not the next link's */
     set_info("off");
+}
+
+/* One attempt at the outbound backlog (see link_net_send). Caller holds the
+ * lock. Up here rather than beside its writer because the task tick flushes it
+ * before anything else it does. */
+static void ob_flush_locked(void) {
+    while (s_ob_n > 0 && s_state == LINK_NET_CONNECTED) {
+        int w = (int)send(s_conn, (const char *)s_ob, s_ob_n, LN_SEND_FLAGS);
+        if (w <= 0) {
+            if (w < 0 && !nerr_wouldblock()) {
+                char b[48]; snprintf(b, sizeof b, "peer lost (send err %d)", nerr_code());
+                if (s_relay) { drop_all_locked(); set_info(b); }
+                else { ncl(s_conn); s_conn = NBAD; s_state = LINK_NET_SEARCHING; set_info(b); }
+                s_ob_n = 0;
+            }
+            return;                       /* would block: try again next tick */
+        }
+        s_ob_n -= w;
+        if (s_ob_n > 0) memmove(s_ob, s_ob + w, (size_t)s_ob_n);
+    }
 }
 
 void link_net_stop(void) { lk(); drop_all_locked(); unl(); }
@@ -246,6 +271,9 @@ static int try_connect_locked(void) {
 void link_net_task(void) {
     lk();
     if (s_state == LINK_NET_OFF) { unl(); return; }
+    /* Anything the socket would not take last time goes first, so a record that
+     * was split by a full send buffer is completed before the next one starts. */
+    ob_flush_locked();
 
     /* --- relay handshake state machine (bypasses the LAN logic below) --- */
     if (s_relay) {
@@ -346,21 +374,53 @@ void link_net_task(void) {
 int link_net_status(void)  { lk(); int s = s_state; unl(); return s; }
 int link_net_is_host(void) { lk(); int h = (s_state == LINK_NET_CONNECTED) ? s_is_host : 0; unl(); return h; }
 
+/* WHAT THE SOCKET WOULD NOT TAKE THIS TIME.
+ *
+ * send() on a non-blocking socket is allowed to write PART of a buffer and
+ * report how much, and this used to return that number and forget the rest.
+ * Every caller treats a send as all-or-nothing, so a short write silently tore a
+ * record in half: the far end then read a fragment, fell into the tag-resync
+ * loop, and threw bytes away until something looked like a boundary — which, in
+ * a stream of floats, it eventually does. A corrupted shot that still parses is
+ * the worst failure this layer has.
+ *
+ * It was survivable while the biggest record was 25 bytes, because a kernel
+ * send buffer with room for one packet has room for twenty-five. CueVR's table
+ * state is now around 750 bytes and goes out at every change, so the odds are no
+ * longer academic. Whatever the socket declines is queued here and pushed on the
+ * next task tick, in order, ahead of anything newer. */
 int link_net_send(const void *data, int len) {
     lk();
     if (s_state != LINK_NET_CONNECTED || len <= 0) { unl(); return 0; }
-    int w = (int)send(s_conn, (const char *)data, len,
-#ifdef _WIN32
-                      0
-#else
-                      MSG_NOSIGNAL
-#endif
-    );
-    if (w < 0) { w = 0; if (!nerr_wouldblock()) {
-        char b[48]; snprintf(b, sizeof b, "peer lost (send err %d)", nerr_code());
-        if (s_relay) { drop_all_locked(); set_info(b); }
-        else { ncl(s_conn); s_conn = NBAD; s_state = LINK_NET_SEARCHING; set_info(b); } } }
-    unl(); return w;
+    ob_flush_locked();                    /* order matters: backlog first */
+    if (s_state != LINK_NET_CONNECTED) { unl(); return 0; }
+    int w = 0;
+    if (s_ob_n == 0) {                    /* nothing queued: try the socket */
+        w = (int)send(s_conn, (const char *)data, len, LN_SEND_FLAGS);
+        if (w < 0) { w = 0; if (!nerr_wouldblock()) {
+            char b[48]; snprintf(b, sizeof b, "peer lost (send err %d)", nerr_code());
+            if (s_relay) { drop_all_locked(); set_info(b); }
+            else { ncl(s_conn); s_conn = NBAD; s_state = LINK_NET_SEARCHING; set_info(b); }
+            unl(); return 0; } }
+    }
+    if (w < len) {                        /* the remainder waits its turn */
+        int rest = len - w;
+        if (s_ob_n + rest <= (int)sizeof s_ob) {
+            memcpy(s_ob + s_ob_n, (const unsigned char *)data + w, (size_t)rest);
+            s_ob_n += rest;
+        } else {
+            /* Sixteen kilobytes behind is not congestion, it is a peer that has
+             * stopped reading. Dropping the record would tear the stream, so
+             * drop the LINK — loudly — which is the failure the caller can
+             * actually handle. */
+            char b[48]; snprintf(b, sizeof b, "peer lost (send backlog)");
+            if (s_relay) { drop_all_locked(); set_info(b); }
+            else { ncl(s_conn); s_conn = NBAD; s_state = LINK_NET_SEARCHING; set_info(b); }
+            s_ob_n = 0;
+            unl(); return 0;
+        }
+    }
+    unl(); return len;
 }
 
 int link_net_recv(void *buf, int max) {

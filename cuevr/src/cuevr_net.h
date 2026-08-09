@@ -83,6 +83,11 @@ typedef struct {
      * the whole frame and there is no later packet that could correct it. The
      * host's is the one that counts, like the kind. */
     int  first;
+    /* HOW LONG THE MATCH IS. Each end was setting this from its OWN menu, so a
+     * host on best of 5 and a joiner on best of 1 played the same frames and
+     * disagreed about whether the match had ended — one went back to the menu
+     * while the other racked. The host's number, like everything else here. */
+    int  best_of;
 } CueVrNetHello;
 
 /* WHERE THEIR CUE IS, live. Not part of the lockstep — nothing here changes the
@@ -127,14 +132,31 @@ int  cuevr_net_recv_call(CueVrNetCall *out);
  * so it never needs deciding whether this is the moment to bother.
  *
  * The scores ride with it because a divergence in the balls becomes a
- * divergence in the score the instant one end thinks a ball went in. */
+ * divergence in the score the instant one end thinks a ball went in.
+ *
+ * AND THE RULES GO WHOLE, not field by field. This carried nine hand-picked
+ * numbers — score, turn, target, seq, reds left, nomination — and every one of
+ * the ones NOT on that list was a silent desync waiting to be found: which
+ * player is on lows and which on highs, whether the group is still open, the UK
+ * two-shot carry, the 9-ball consecutive-foul count, the free-ball award, the
+ * called-miss tallies, the frames won, whether the match is over. Picking
+ * fields by hand means picking wrongly at some point, and the failure is
+ * invisible until the frame stops making sense.
+ *
+ * So the whole CueRules crosses as an opaque blob. It costs about three hundred
+ * bytes once a shot, which is nothing over this link, and there is no longer
+ * any field that CAN be forgotten. It is opaque because this header is compiled
+ * into the Mote shell, which does not have the game's headers on its include
+ * path; the app memcpys its own struct in and out and static-asserts that it
+ * fits. */
+#define CUEVR_NET_RULES_MAX 512
 typedef struct {
-    uint8_t n;                       /* balls in play */
-    uint8_t on[CUEVR_NET_MAXBALLS];
-    float   x[CUEVR_NET_MAXBALLS];
-    float   z[CUEVR_NET_MAXBALLS];
-    int     score[2];
-    int     turn, target, seq, reds_left, nominated;
+    uint8_t  n;                      /* balls in play */
+    uint8_t  on[CUEVR_NET_MAXBALLS];
+    float    x[CUEVR_NET_MAXBALLS];
+    float    z[CUEVR_NET_MAXBALLS];
+    uint16_t rules_len;              /* 0 if the sender had none to give */
+    uint8_t  rules[CUEVR_NET_RULES_MAX];
 } CueVrNetState;
 
 void cuevr_net_send_state(const CueVrNetState *st);
@@ -147,7 +169,7 @@ int  cuevr_net_peer_pose(CueVrNetPose *out);
 /* The last hello received, if any. Returns 1 when one has arrived. */
 int  cuevr_net_peer(CueVrNetHello *out);
 /* Ours, sent when the room goes live. */
-void cuevr_net_set_hello(int kind, int cue_idx, int first);
+void cuevr_net_set_hello(int kind, int cue_idx, int first, int best_of);
 
 /* ---- starting a session ------------------------------------------------- */
 void cuevr_net_lan_host(void);
