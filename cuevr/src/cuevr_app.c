@@ -103,6 +103,10 @@ enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_CPUCUE, ST_PLACE,
        /* Career: choosing the season's tables, the hub you come back to
         * between matches, a league table, and what you have won. */
        ST_CARSETUP, ST_CAREER, ST_CARTABLE, ST_CARACH,
+       /* Choosing the cloth off a grid of swatches, which is how a
+        * cloth is chosen: twenty-three names cycled one at a time is
+        * a list you have to remember rather than a card you look at. */
+       ST_CLOTH,
        /* Tuning the pocket cut with a ball on the table, which is the only
         * place it can honestly be judged. */
        ST_POCKETS };
@@ -125,8 +129,8 @@ static const char *OPP_NAME[OPP_N] = { "PRACTICE", "VS CPU", "ONLINE", "CAREER" 
  * that only decide how the table LOOKS now live on their own screen, reachable
  * from here and from the pause menu — so they can also be changed mid-frame,
  * which is when you actually notice you dislike the cloth. */
-enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_CONTROLS, MR_APPEAR,
-       MR_STATS, MR_START, MR_N };
+enum { MR_GAME = 0, MR_OPP, MR_FRAMES, MR_STRENGTH, MR_REFVOICE,
+       MR_CONTROLS, MR_APPEAR, MR_STATS, MR_START, MR_N };
 
 /* The controls page. Handedness sits here rather than on the main menu because
  * it is the same kind of thing as the rest of these: a preference about how you
@@ -235,6 +239,8 @@ static struct {
     int menu_updown;             /* latch for row movement */
     int opp;                     /* OPP_* */
     int cloth_idx, frame_idx;    /* cue_theme.h palettes */
+    int ref_voice;               /* CUEVR_REF_* — the referee's break calls */
+    int cloth_hov;               /* the swatch under the pointer, or -1 */
     int light_idx;               /* the lighting rig, cuevr_light.h */
     float menu_cue_roll;         /* the display cue turning in the menu */
     /* Frame timing, on screen. "It hitches sometimes" cannot be acted on; a
@@ -556,6 +562,8 @@ void cuevr_app_force_screen(const char *name) {
     if (!name) return;
     if (!strcmp(name, "appear")) {
         S.appear_from = ST_MENU; S.menu_row = AR_CLOTH; S.state = ST_APPEAR;
+    } else if (!strcmp(name, "cloth")) {
+        S.appear_from = ST_MENU; S.state = ST_CLOTH; S.cloth_hov = -1;
     } else if (!strcmp(name, "controls")) {
         S.appear_from = ST_MENU; S.menu_row = CR_HAND; S.state = ST_CONTROLS;
     } else if (!strcmp(name, "stats")) {
@@ -980,7 +988,7 @@ static void unpause(void) {
      * tuner, round and round, with no way back to a game. */
     else if (back == ST_PAUSE || back == ST_MENU || back == ST_SETUP
              || back == ST_LOBBY
-             || back == ST_APPEAR || back == ST_STATS
+             || back == ST_APPEAR || back == ST_STATS || back == ST_CLOTH
              || back == ST_CONTROLS || back == ST_POCKETS
              || back == ST_CARSETUP || back == ST_CAREER
              || back == ST_CARTABLE || back == ST_CARACH) back = ST_AIM;
@@ -1307,6 +1315,17 @@ static void rerack(void) {
 /* ---- the HUD ------------------------------------------------------------ */
 
 #define HW 128   /* layout space — NOT CUEVR_HUD_W, which is 4x this */
+
+/* THE CLOTH CARD. One set of numbers, used by the drawing and by the pointer
+ * hit test, because two sets drift and a swatch you cannot press is worse than
+ * no grid at all. Twenty-three swatches, six to a row of four, in the card's
+ * own order. */
+#define CLOTH_COLS 4
+#define CLOTH_ROWS ((CUE_NCLOTH + CLOTH_COLS - 1) / CLOTH_COLS)
+#define CLOTH_X0   6
+#define CLOTH_Y0   16
+#define CLOTH_CW   30
+#define CLOTH_CH   14
 /* How many rows the screen being drawn is using. It is NOT a constant: the
  * scoreboard is 16:9 and the list screens are taller (see CUEVR_HUD_LH). This
  * was hard-coded at 128 while the texture was only 72 rows deep, so every
@@ -1717,6 +1736,10 @@ static void hud_paint(void) {
         /* Who you are about to play, with their face — the portraits have been
          * sitting in cue_faces.h all along. */
         if (S.opp == OPP_CPU) hud_face(HW - 9, 12 + MR_STRENGTH * 8 + 3, 9, S.persona);
+        /* The referee. Only he speaks, and only in snooker, so the row says
+         * which voice rather than pretending to be a general volume. */
+        hud_opt(MR_REFVOICE, "REF VOICE", cuevr_refcall_voice_name(S.ref_voice),
+                S.menu_row == MR_REFVOICE, 1, TXT, DIM, HI);
         hud_link(MR_CONTROLS, "CONTROLS", "OPEN", S.menu_row == MR_CONTROLS, DIM, HI, LIVE);
         hud_link(MR_APPEAR, "APPEARANCE", "OPEN", S.menu_row == MR_APPEAR, DIM, HI, LIVE);
         hud_link(MR_STATS,  "RECORDS",    "OPEN", S.menu_row == MR_STATS,  DIM, HI, LIVE);
@@ -1840,6 +1863,50 @@ static void hud_paint(void) {
         return;
     }
 
+    /* ---- the cloth, as a card of swatches ---------------------------------
+     *
+     * Twenty-three cloths cannot be chosen by stepping a value one at a time:
+     * you would have to remember what OLIVE looked like six presses ago. This
+     * is the manufacturer's card — the colour itself, at a size you can judge,
+     * in the order it is printed — so picking a cloth is looking at cloth
+     * rather than reading a list of words.
+     *
+     * The layout lives in one place because the drawing and the pointer have
+     * to agree about where a swatch is; they were two sets of numbers on the
+     * decision screen and they drifted. */
+    if (S.state == ST_CLOTH) {
+        hud_height(CLOTH_Y0 + CLOTH_ROWS * CLOTH_CH + 18);
+        hud_rect(0, 0, HW, 10, BAND);
+        hud_text_2x("CLOTH", 4, 1, HI);
+        hud_rect(0, 10, HW, 1, LINE);
+        for (int i = 0; i < CUE_NCLOTH; i++) {
+            int cx = CLOTH_X0 + (i % CLOTH_COLS) * CLOTH_CW;
+            int cy = CLOTH_Y0 + (i / CLOTH_COLS) * CLOTH_CH;
+            int sel = (i == S.cloth_idx), hov = (i == S.cloth_hov);
+            /* The swatch, and a surround that says which one is yours and
+             * which one you are over — two different things, because the one
+             * under the pointer is not chosen until it is pressed. */
+            if (sel)      hud_rect(cx - 2, cy - 2, CLOTH_CW - 2, CLOTH_CH - 2, HI);
+            else if (hov) hud_rect(cx - 2, cy - 2, CLOTH_CW - 2, CLOTH_CH - 2, LINE);
+            hud_rect(cx - 1, cy - 1, CLOTH_CW - 4, CLOTH_CH - 4, RGB565C(10,10,12));
+            hud_rect(cx, cy, CLOTH_CW - 6, CLOTH_CH - 6, k_cloth[i]);
+        }
+        /* The name of whichever one is under the pointer, or of yours when it
+         * is nowhere: a grid of colours with no names is a grid you cannot ask
+         * anybody else for. */
+        {   int nameof = (S.cloth_hov >= 0) ? S.cloth_hov : S.cloth_idx;
+            int y = CLOTH_Y0 + CLOTH_ROWS * CLOTH_CH + 2;
+            hud_rect(0, y - 2, HW, 1, LINE);
+            /* The hint sits BESIDE the name, not under it: hud_text_2x is
+             * eleven rows tall and a small line nine below it lands inside the
+             * capitals. */
+            hud_text_2x(k_cloth_name[nameof], 4, y, HI);
+            hud_text_r(nameof == S.cloth_idx ? "ON THE TABLE" : "TRIGGER TO FIT",
+                       HW - 4, y + 3, DIM);
+        }
+        return;
+    }
+
     /* ---- appearance ---- *
      * The same six controls whether you opened them from the main menu or from
      * the middle of a frame, so there is one screen and one piece of input
@@ -1850,7 +1917,8 @@ static void hud_paint(void) {
         hud_rect(0, 0, HW, 10, BAND);
         hud_text_2x("APPEARANCE", 4, 1, HI);
         hud_rect(0, 10, HW, 1, LINE);
-        hud_opt(AR_CLOTH, "CLOTH", k_cloth_name[S.cloth_idx], S.menu_row == AR_CLOTH, 1, TXT, DIM, HI);
+        hud_link(AR_CLOTH, "CLOTH", k_cloth_name[S.cloth_idx],
+                 S.menu_row == AR_CLOTH, DIM, HI, LIVE);
         hud_opt(AR_FRAME, "FRAME", k_frame_name[S.frame_idx], S.menu_row == AR_FRAME, 1, TXT, DIM, HI);
         if (S.body_idx < 0)
             snprintf(v, sizeof v, "AUTO (%s)",
@@ -2942,6 +3010,16 @@ static void menu_change(int d) {
             case MR_OPP:      S.opp = (S.opp + d + OPP_N) % OPP_N; break;
             case MR_FRAMES:   S.match_idx = (S.match_idx + d + MATCH_LEN_N) % MATCH_LEN_N; break;
             case MR_STRENGTH: S.persona = (S.persona + d + CUE_NUM_PERSONAS) % CUE_NUM_PERSONAS; break;
+            case MR_REFVOICE:
+                S.ref_voice = (S.ref_voice + d + CUEVR_REF_N) % CUEVR_REF_N;
+                /* Load it now, not at the next pot: six megabytes arriving in
+                 * the middle of a frame is a dropped frame in a headset, and
+                 * choosing a voice you cannot hear until you pot something is
+                 * not choosing a voice. Say a number so the choice is audible
+                 * from the menu. */
+                cuevr_refcall_set_voice(S.ref_voice);
+                if (S.ref_voice != CUEVR_REF_OFF) cuevr_refcall_say(147);
+                break;
             /* Cloth, frame, table, lighting, balls and cue moved to the
              * APPEARANCE screen, which owns them for both entry points. */
             default: break;
@@ -3189,6 +3267,18 @@ static void resolve_shot(void) {
         }
     }
 
+    /* THE REFEREE CALLS THE BREAK, which is most of what a snooker frame
+     * sounds like. After every pot, before the turn is routed — r->brk is the
+     * break the striker has just added to and it is about to be reset if the
+     * table changes hands.
+     *
+     * Only on a legal pot: a referee calls a foul, he does not call a total
+     * that has just stopped counting, and the fouls have their own line on the
+     * panel. Snooker only, because a break total is a snooker idea — potting
+     * five reds in eight-ball is not a break of five of anything. */
+    if (S.rules.kind && np > 0 && !S.rules.last_foul && S.rules.brk > 0)
+        cuevr_refcall_say(S.rules.brk);
+
     /* Records, before the turn is routed: r->brk is this visit's break and it
      * is about to be reset if the table changes hands. */
     stat_shot(was_turn, potted, np);
@@ -3384,15 +3474,20 @@ static int app_gl_init(void *u) {
         pr.grip = S.cue.grip;
         pr.table_kind = (int)S.tab.kind;
         pr.ballset = S.ballset; pr.persona = S.persona;
-        pr.cloth = S.cloth_idx; pr.frame = S.frame_idx;
         pr.opp = S.opp; pr.cue = S.cue_idx;
         pr.light = S.light_idx; pr.body = S.body_idx;
-        /* The alignment is NOT pre-seeded from S the way the rows above are.
-         * Those fields already hold something meaningful by this point; the
-         * calibration does not — S is zero-initialised — so copying it in here
-         * overwrote the shipped default with zero, and every fresh install got
-         * a flat pitch instead of the measured one. Let cuevr_prefs_defaults
-         * stand and let the file override it if there is one. */
+        /* CLOTH, FRAME AND REF VOICE ARE NOT PRE-SEEDED FROM S, for the same
+         * reason the calibration below is not — and they were, which quietly
+         * broke every one of their defaults.
+         *
+         * The rows above hold something meaningful by now (S.opp is set a few
+         * lines up, the cue and light are zero and mean it). These three do
+         * not: S is zero-initialised, so copying it in here overwrote the
+         * shipped default with zero every time. The EBONY frame that was asked
+         * for arrived as walnut on a fresh install, the cloth default could
+         * never be anything but the first swatch, and the referee shipped
+         * silent. Let cuevr_prefs_defaults stand and let the file override it
+         * if there is one — which is the whole point of having defaults. */
         cuevr_prefs_load(&pr);
 
         S.cue.rest = pr.rest; S.cue.grip = pr.grip;
@@ -3400,6 +3495,8 @@ static int app_gl_init(void *u) {
         S.cloth_idx = pr.cloth; S.frame_idx = pr.frame;
         S.opp = pr.opp; S.cue_idx = pr.cue;
         S.light_idx = pr.light; S.body_idx = pr.body;
+        S.ref_voice = pr.refvoice;
+        cuevr_refcall_set_voice(S.ref_voice);
         for (int i = 0; i < 3; i++) {
             S.cal_pos[i] = pr.ctrl_pos[i];
             S.cal_rot[i] = pr.ctrl_rot[i];
@@ -3633,6 +3730,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * pointer, it is a laser lying on the cloth. */
         int pointing = (S.state == ST_MENU || S.state == ST_PAUSE ||
                         S.state == ST_APPEAR || S.state == ST_STATS ||
+                        S.state == ST_CLOTH ||
                         S.state == ST_LOBBY || S.state == ST_DECIDE ||
                         S.state == ST_CONTROLS || S.state == ST_OVER ||
                         S.state == ST_CARSETUP || S.state == ST_CAREER ||
@@ -3840,6 +3938,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
      * anybody is watching, and ST_ROLL resolves it the moment you return. */
     if (S.pause_from == ST_ROLL &&
         (S.state == ST_PAUSE || S.state == ST_APPEAR ||
+         S.state == ST_CLOTH ||
          S.state == ST_CONTROLS || S.state == ST_STATS))
         roll_step(dt);
 
@@ -4620,6 +4719,53 @@ static void app_update(void *u, const MoteVrTracking *t) {
         break;
     }
 
+    case ST_CLOTH: {
+        /* The sticks still belong to the table, here as everywhere. */
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        {
+            /* Which swatch the pointer is over, from the SAME numbers the
+             * drawing uses. The gaps between swatches count as no swatch
+             * rather than as the nearest one: a colour you did not mean to
+             * pick is worse than a press that does nothing. */
+            int hov = -1;
+            if (S.ptr_ok) {
+                float fx = (S.ptr_x - (float)CLOTH_X0) / (float)CLOTH_CW;
+                float fy = (S.ptr_y - (float)CLOTH_Y0) / (float)CLOTH_CH;
+                int cx = (int)fx, cy = (int)fy;
+                if (fx >= 0.0f && fy >= 0.0f && cx < CLOTH_COLS && cy < CLOTH_ROWS) {
+                    int i = cy * CLOTH_COLS + cx;
+                    if (i < CUE_NCLOTH) hov = i;
+                }
+            }
+            if (hov != S.cloth_hov) { S.cloth_hov = hov; S.hud_dirty = 1; }
+
+            if (hov >= 0 && ptr_click(t)) {
+                S.cloth_idx = hov;
+                /* On the table at once, not on the way out: the whole point of
+                 * a card is seeing the cloth on your own table before you
+                 * commit to it. */
+                S.tab.cloth = k_cloth[S.cloth_idx];
+                cuevr_render_set_table(&S.tab, &S.world);
+                cue_audio_sfx(CUE_SFX_UI, 0.4f);
+                S.hud_dirty = 1;
+                break;
+            }
+            /* B, or A anywhere off the grid, goes back — a grid with a BACK row
+             * under it puts the row where a swatch should be. */
+            int a = t->hand[MOTE_VR_RIGHT].btn_lower;
+            int b = t->hand[MOTE_VR_RIGHT].btn_upper;
+            if (!a && !b) S.btn_latch = 0;
+            else if (!S.btn_latch) {
+                S.btn_latch = 1;
+                S.state = ST_APPEAR;
+                S.menu_row = AR_CLOTH;
+                S.ptr_latch = 1;
+                S.hud_dirty = 1;
+            }
+        }
+        break;
+    }
+
     case ST_APPEAR: {
         /* Same shape as the main menu: point, and the chevrons on the row you
          * are over change the value. BACK has no value, so anywhere on it
@@ -4638,6 +4784,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     S.hud_dirty = 1;
                     break;
                 }
+                if (S.menu_row == AR_CLOTH) {
+                    S.state = ST_CLOTH;
+                    S.cloth_hov = -1;
+                    S.ptr_latch = 1;
+                    S.hud_dirty = 1;
+                    break;
+                }
 #if CUEVR_TUNE_POCKETS
                 if (S.menu_row == AR_POCKETS) {
                     S.state = ST_POCKETS;
@@ -4650,7 +4803,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 int d = ptr_zone();
                 if (d == 0) d = 1;              /* the middle steps forward */
                 switch (S.menu_row) {
-                case AR_CLOTH: S.cloth_idx = (S.cloth_idx + d + CUE_NCLOTH) % CUE_NCLOTH; break;
+                case AR_CLOTH: break;   /* handled above: it opens the card */
                 case AR_FRAME: S.frame_idx = (S.frame_idx + d + CUE_NFRAME) % CUE_NFRAME; break;
                 case AR_BODY: {
                     /* -1 is AUTO and sits before the first design, so the list runs
@@ -5104,7 +5257,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
         int in_menu = (S.state == ST_MENU || S.state == ST_SETUP ||
                        S.state == ST_LOBBY || S.state == ST_PAUSE ||
                        S.state == ST_STATS || S.state == ST_OVER ||
-                       S.state == ST_APPEAR || S.state == ST_CARSETUP ||
+                       S.state == ST_APPEAR || S.state == ST_CLOTH ||
+                       S.state == ST_CARSETUP ||
                        S.state == ST_CAREER || S.state == ST_CARTABLE ||
                        S.state == ST_CARACH || S.state == ST_POCKETS ||
                        S.state == ST_PLACE || S.state == ST_CONTROLS);
@@ -5173,6 +5327,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                       S.state == ST_OVER || S.state == ST_PAUSE ||
                       S.state == ST_LOBBY ||
                       S.state == ST_APPEAR || S.state == ST_STATS ||
+                      S.state == ST_CLOTH ||
                       S.state == ST_CONTROLS || S.state == ST_CARSETUP ||
                       S.state == ST_CAREER || S.state == ST_CARTABLE ||
                       S.state == ST_CARACH || S.state == ST_POCKETS);
@@ -5322,7 +5477,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
          *
          * Placed in TABLE space and carried out to the room, so it lies with the
          * table wherever the table has been put. */
-        if (S.state == ST_MENU || S.state == ST_APPEAR) {
+        if (S.state == ST_MENU || S.state == ST_APPEAR || S.state == ST_CLOTH) {
             float hl = S.tab.half_len, hw = S.tab.half_wid;
             /* Clear of the baulk cushion by a comfortable hand's width, and off
              * to one side so it is not lying across the D and the spots. */
@@ -5420,6 +5575,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
         now.table_kind = (int)S.tab.kind;
         now.ballset = S.ballset; now.persona = S.persona;
         now.cloth = S.cloth_idx; now.frame = S.frame_idx;
+        now.refvoice = S.ref_voice;
         now.opp = S.opp; now.cue = S.cue_idx;
         now.light = S.light_idx; now.body = S.body_idx;
         for (int i = 0; i < 3; i++) {

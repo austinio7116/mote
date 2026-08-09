@@ -9,6 +9,7 @@
  */
 #include "cuevr.h"
 #include "cuevr_app.h"
+#include "cuevr_refcall.h"
 
 #include <android/log.h>
 #include <android_native_app_glue.h>
@@ -29,6 +30,11 @@ void android_main(struct android_app *a) {
     /* Where preferences live. The table height a player matched to their real
      * desk, and the bridge they make, are theirs — they persist here. */
     cuevr_prefs_dir(a->activity->internalDataPath);
+
+    /* The referee's voice is an APK asset — twelve megabytes of recorded break
+     * calls that have no business in .rodata — so hand the loader the asset
+     * manager before the app reads its preferences and picks a voice. */
+    cuevr_refcall_assets((struct AAssetManager *)a->activity->assetManager);
 
     /* The log goes to the EXTERNAL data directory — SideQuest can browse
      * /sdcard/Android/data/<package>/files straight off the headset, so asking

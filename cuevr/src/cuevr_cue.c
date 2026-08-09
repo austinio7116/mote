@@ -140,6 +140,14 @@ void cuevr_prefs_defaults(CueVrPrefs *p) {
      * file carries a `frame` key, including one written back by a build
      * whose default was walnut. */
     p->frame = 4;
+    /* Green cloth, because a cue table is green. There is no championship green
+     * in the manufacturer's range, so it is OLIVE — the only one there is. */
+    p->cloth = CUE_CLOTH_DEFAULT;
+    /* The referee speaks, in the narrator's voice, until somebody turns him
+     * off. A snooker frame without the break being called is missing most of
+     * what one sounds like, and a feature nobody discovers is a feature nobody
+     * has — so it is on out of the box and there is a row to silence it. */
+    p->refvoice = CUEVR_REF_MALE;
     p->prac_respot = 1;         /* practice keeps the colours on the table */
     /* Set in the headset against a rolling ball, and the same on every table. */
     p->cut_cr = 134; p->cut_cs = 5;
@@ -171,6 +179,7 @@ static void prefs_put(CueVrPrefs *p, const char *k, double v) {
     else if (!strcmp(k, "cue"))     { if (i >= 0 && i < 32) p->cue = i; }
     else if (!strcmp(k, "light"))   { if (i >= 0 && i < 16) p->light = i; }
     else if (!strcmp(k, "body"))    { if (i >= -1 && i < 16) p->body = i; }
+    else if (!strcmp(k, "refvoice")) { if (i >= 0 && i < CUEVR_REF_N) p->refvoice = i; }
     /* Bounded so a hand-edited file cannot put the controller across the room:
      * a quarter of a metre is already far more than any real mismatch. */
     else if (!strcmp(k, "cpx"))     { if (v > -0.25 && v < 0.25) p->ctrl_pos[0] = (float)v; }
@@ -286,12 +295,12 @@ void cuevr_prefs_save(const CueVrPrefs *p) {
     fprintf(f,
             "height %.4f\nrest_x %.4f\nrest_y %.4f\nrest_z %.4f\ngrip %.4f\n"
             "table %d\nballs %d\npersona %d\ncloth %d\nframe %d\nopp %d\n"
-            "cue %d\nlight %d\nbody %d\n"
+            "cue %d\nlight %d\nbody %d\nrefvoice %d\n"
             "cpx %.4f\ncpy %.4f\ncpz %.4f\ncrx %.2f\ncry %.2f\ncrz %.2f\n",
             (double)p->table_height, (double)p->rest.x, (double)p->rest.y,
             (double)p->rest.z, (double)p->grip,
             p->table_kind, p->ballset, p->persona, p->cloth, p->frame, p->opp,
-            p->cue, p->light, p->body,
+            p->cue, p->light, p->body, p->refvoice,
             (double)p->ctrl_pos[0], (double)p->ctrl_pos[1], (double)p->ctrl_pos[2],
             (double)p->ctrl_rot[0], (double)p->ctrl_rot[1], (double)p->ctrl_rot[2]);
     for (int a = 0; a < CUEVR_STAT_SNK; a++)

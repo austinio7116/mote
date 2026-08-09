@@ -48,6 +48,15 @@ typedef struct {
 
 static Voice s_voice[VOICES];
 static float s_master = 0.85f;
+/* THE REFEREE, OUTSIDE THE POOL.
+ *
+ * play() steals the quietest of the eight, which is right for contact sounds
+ * and exactly wrong for speech: a break call runs well over a second and the
+ * shot that follows it is a dozen loud clacks, so on the pool's own rule the
+ * referee is cut off mid-number every time. One slot of its own, which the
+ * clacks cannot reach and which a new call replaces — a referee interrupts
+ * himself to give the new total, he does not say both at once. */
+static Voice s_speech;
 
 /* Steal the quietest voice rather than the oldest: a break can start a dozen
  * clacks inside a few milliseconds, and dropping the newest would silence the
@@ -69,7 +78,15 @@ static void play(const int16_t *pcm, int len, float gain) {
 
 /* ---- the handheld's own event mapping ----------------------------------- */
 
-void cue_audio_init(void) { memset(s_voice, 0, sizeof s_voice); }
+void cue_audio_speak(const int16_t *pcm, int len, float gain) {
+    s_speech.pcm = pcm; s_speech.len = len; s_speech.pos = 0; s_speech.gain = gain;
+}
+void cue_audio_speak_stop(void) { s_speech.pos = s_speech.len = 0; }
+
+void cue_audio_init(void) {
+    memset(s_voice, 0, sizeof s_voice);
+    memset(&s_speech, 0, sizeof s_speech);
+}
 void cue_audio_set_volume(int v) { s_master = (float)v / 20.0f; }
 void cue_audio_tick(float dt) { (void)dt; }
 
@@ -118,6 +135,8 @@ void cue_audio_render(int16_t *out, int n) {
             if (o->pos >= o->len) continue;
             acc += (int32_t)(o->pcm[o->pos++] * o->gain);
         }
+        if (s_speech.pos < s_speech.len)
+            acc += (int32_t)(s_speech.pcm[s_speech.pos++] * s_speech.gain);
         acc = (int32_t)(acc * s_master);
         out[i] = (int16_t)(acc > 32767 ? 32767 : acc < -32768 ? -32768 : acc);
     }

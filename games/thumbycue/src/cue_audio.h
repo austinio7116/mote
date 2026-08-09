@@ -13,6 +13,14 @@ void cue_audio_init(void);
 void cue_audio_set_volume(int vol_0_20);
 void cue_audio_sfx(int which, float intensity);   /* intensity 0..1 */
 void cue_audio_tick(float dt);                     /* per-frame housekeeping */
+
+/* SPEECH, on a slot the effects cannot steal. The referee's break calls run
+ * over a second each and the shot after one is a dozen loud clacks, so sharing
+ * the effects pool means being cut off mid-number every time. The caller owns
+ * the samples and must keep them alive until the call finishes or is replaced.
+ * Defined by the VR mixer; the handheld has no speech and needs no stub. */
+void cue_audio_speak(const int16_t *pcm, int len, float gain);
+void cue_audio_speak_stop(void);
 void cue_audio_render(int16_t *out, int nsamples); /* fill mono buffer */
 
 #endif

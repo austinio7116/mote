@@ -14,22 +14,56 @@
 
 #include "cue_types.h"
 
-/* ---- cloth ------------------------------------------------------------- */
-#define CUE_NCLOTH 10
+/* ---- cloth ------------------------------------------------------------- *
+ *
+ * The real card. These are the twenty-three cloths a table actually gets
+ * recovered in, measured off a photograph of the manufacturer's swatch card
+ * rather than invented — so ROYAL NAVY and FRENCH NAVY are genuinely almost the
+ * same near-black, because on the card they are, and OLIVE is the only green in
+ * the range. The old ten were guesses at names somebody liked.
+ *
+ * IN THE CARD'S OWN ORDER, reading across, because they are chosen from a grid
+ * of swatches now and a player looking for GOLD should find it where the card
+ * puts it.
+ *
+ * Measured off a blurred sample of each patch centre, which is why they read
+ * darker than a colour picker's idea of "red": cloth is a nap, it is
+ * photographed under a light, and these are the values that put the right
+ * colour on a table rather than the right colour on a screen. */
+#define CUE_NCLOTH 23
 static const uint16_t k_cloth[CUE_NCLOTH] = {
-    RGB565C(4,135,21),    /* GREEN  — classic championship green */
-    RGB565C(18,72,140),   /* BLUE   — tournament blue */
-    RGB565C(20,110,92),   /* TEAL */
-    RGB565C(150,24,30),   /* RED */
-    RGB565C(120,30,50),   /* CLARET */
-    RGB565C(82,42,132),   /* PURPLE */
-    RGB565C(112,120,132), /* SLATE — lighter slate-grey (was too dark) */
-    RGB565C(150,112,58),  /* TAN */
-    RGB565C(22,30,92),    /* NAVY */
-    RGB565C(26,26,30),    /* BLACK */
+    RGB565C(18,14,13),    /* BLACK */
+    RGB565C(82,82,85),    /* SILVER */
+    RGB565C(77,65,39),    /* TAUPE */
+    RGB565C(94,67,12),    /* TAN */
+    RGB565C(180,116,5),   /* GOLD */
+    RGB565C(107,29,5),    /* PAPRIKA */
+    RGB565C(35,17,13),    /* NUTMEG */
+    RGB565C(6,24,13),     /* RANGER GREEN */
+    RGB565C(29,70,8),     /* OLIVE */
+    RGB565C(134,130,102), /* SAGE */
+    RGB565C(85,108,122),  /* POWDER BLUE */
+    RGB565C(42,56,77),    /* SLATE */
+    RGB565C(38,43,59),    /* NAVY */
+    RGB565C(28,47,106),   /* ROYAL BLUE */
+    RGB565C(15,18,33),    /* FRENCH NAVY */
+    RGB565C(13,14,19),    /* ROYAL NAVY */
+    RGB565C(27,14,40),    /* PURPLE */
+    RGB565C(55,11,16),    /* MAROON */
+    RGB565C(67,10,10),    /* CHERRY */
+    RGB565C(84,20,8),     /* WINDSOR RED */
+    RGB565C(140,31,1),    /* RED */
+    RGB565C(201,57,1),    /* ORANGE */
+    RGB565C(164,104,140), /* PINK */
 };
 static const char *k_cloth_name[CUE_NCLOTH] = {
-    "GREEN","BLUE","TEAL","RED","CLARET","PURPLE","SLATE","TAN","NAVY","BLACK" };
+    "BLACK","SILVER","TAUPE","TAN","GOLD","PAPRIKA","NUTMEG","RANGER GREEN",
+    "OLIVE","SAGE","POWDER BLUE","SLATE","NAVY","ROYAL BLUE","FRENCH NAVY",
+    "ROYAL NAVY","PURPLE","MAROON","CHERRY","WINDSOR RED","RED","ORANGE",
+    "PINK" };
+/* The one a table arrives in. There is no championship green in this range, so
+ * it is OLIVE — the only green there is, and the one a cue table reads as. */
+#define CUE_CLOTH_DEFAULT 8
 
 /* ---- frame / rail wood — browns through blacks & greys ------------------ *
  * Each entry is the side (shadowed) rail colour plus the lit top edge. */

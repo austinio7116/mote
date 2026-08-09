@@ -48,6 +48,7 @@
 #include "cue_physics.h"
 #include "cue_table.h"
 #include "cue_rules.h"
+#include "cuevr_refcall.h"
 
 /* The physics works in table space: metres, X along the length, Z across, Y up
  * from the cloth at Y=0. The table then sits in the room under a pose. Keeping
@@ -287,6 +288,7 @@ typedef struct {
     int      cue;
     int      light;      /* the lighting rig — see cuevr_light.h */
     int      body;       /* the frame MODEL; -1 = whichever suits the table */
+    int      refvoice;   /* the referee's break calls: CUEVR_REF_* */
 
     /* Where the drawn controller sits relative to the pose the runtime reports,
      * as a translation in the GRIP frame (metres) and an XYZ rotation (degrees).
