@@ -48,6 +48,17 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
      * modest so top/back spin still bends the rebound a little, but the roll→side
      * coupling that built up running english off the rail is much smaller. */
     w->cush_tilt = asinf(0.15f);
+    /* The bed. Cloth over slate returns very little: a jumped ball takes two or
+     * three quick diminishing hops and is down. v_land is set so the last hop
+     * is under a millimetre — below that it settles flat rather than chatter,
+     * because every bounce suspends cloth friction and a ball that never quite
+     * lands never develops roll. */
+    w->e_bed = 0.40f;
+    w->v_land = 0.14f;        /* ~1 mm of rise */
+    /* Overwritten by cue_table with the real nose; a sane value until then so a
+     * world built by hand does not let balls fly out over zero-height rails. */
+    w->cushion_nose = 1.27f * R;
+    w->bound_x = w->bound_z = 1.0e9f;   /* until cue_table says where the rail ends */
     w->first_hit = -1;
     w->first_hit_idx = -1;
     w->_acc = 0.0f;
@@ -58,8 +69,8 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
  * reads as character rather than as the aim being unreliable. */
 #define CUE_SQUIRT_RAD 0.025f
 
-void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
-                          float tip_side, float tip_vert, float elev) {
+void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
+                          float tip_side, float tip_vert, float elev, float vy) {
     dir.y = 0.0f;
     dir = v3_norm(dir);
     Vec3 fwd = dir;
@@ -93,7 +104,11 @@ void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
     float cq = cosf(squirt), sq = sinf(squirt);
     Vec3 aim = v3_norm(v3_add(v3_scale(fwd, cq), v3_scale(right, sq)));
     b->vel = v3_scale(aim, speed * ce);
-    b->vel.y = 0.0f;
+    /* THE ONE PLACE THE BALL LEAVES THE CLOTH. The downward part of the cue's
+     * impulse squeezes the ball against the slate and the bed throws it back;
+     * how much survives is the caller's number, for the reasons in the header.
+     * Zero here is the planar game exactly as it was. */
+    b->vel.y = vy > 0.0f ? vy : 0.0f;
 
     Vec3 r = v3_add(v3_scale(right, tip_side * w->R),
                     v3_scale(up,    tip_vert * w->R));
@@ -102,14 +117,29 @@ void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
     b->w = v3_scale(v3_cross(r, J), 1.0f / I);
 }
 
+void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
+                          float tip_side, float tip_vert, float elev) {
+    cue_phys_strike_jump(w, b, dir, speed, tip_side, tip_vert, elev, 0.0f);
+}
+
 void cue_phys_strike(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                      float tip_side, float tip_vert) {
-    cue_phys_strike_elev(w, b, dir, speed, tip_side, tip_vert, 0.0f);
+    cue_phys_strike_jump(w, b, dir, speed, tip_side, tip_vert, 0.0f, 0.0f);
+}
+
+/* Off the bed by enough to matter. The epsilon is a tenth of a millimetre: a
+ * ball resting on the cloth must never test airborne, or it stops feeling
+ * friction and rolls for ever. */
+int cue_phys_airborne(const CueWorld *w, const CueBall *b) {
+    return b->pos.y > w->R + 1.0e-4f;
 }
 
 /* loudest cushion-approach (normal) speed seen during the current cue_phys_step,
  * so the cushion SFX scales with the actual rail impact, not the whole table. */
 static float s_cush_vn;
+/* Set when a ball met the bed during the current step, so the caller can make
+ * the noise a jumped ball makes when it comes down. */
+static int s_bed_land;
 
 /* ---- per-ball cloth-contact evolution for one substep ------------------ */
 static CUE_HOT void ball_cloth(const CueWorld *w, CueBall *b, float h) {
@@ -177,8 +207,24 @@ static CUE_HOT void ball_spin_orient(CueBall *b, float h) {
 
 /* ---- ball–ball impulse (restitution + Coulomb throw) ------------------- */
 static CUE_HOT int collide_ball_ball(const CueWorld *w, CueBall *bi, CueBall *bj) {
+    /* HEIGHT COUNTS, but only when one of them is off the bed.
+     *
+     * The separation test was flat, which is right for a planar game and wrong
+     * the moment anything jumps: a ball sailing a clear inch over another would
+     * still smash into it. Two balls both on the cloth have identical y, so
+     * this is the same test it always was for every shot that does not leave
+     * the bed — including the arithmetic, which is why nothing that used to
+     * work moves by a bit. */
+    float dy = bj->pos.y - bi->pos.y;
+    if (dy > 2.0f * w->R || dy < -2.0f * w->R) return 0;
     Vec3 d = v3_sub(bj->pos, bi->pos);
     d.y = 0.0f;
+    if (dy != 0.0f) {
+        /* One is airborne: the flat gap has to shrink by the height between
+         * them or they pass through each other's shadow. */
+        float flat2 = d.x * d.x + d.z * d.z;
+        if (flat2 + dy * dy >= (2.0f * w->R) * (2.0f * w->R)) return 0;
+    }
     float dist = sqrtf(d.x * d.x + d.z * d.z);
     float mind = 2.0f * w->R;
     if (dist >= mind || dist < 1e-6f) return 0;
@@ -301,6 +347,11 @@ static CUE_HOT Vec3 seg_closest(Vec3 a, Vec3 b, Vec3 p) {
 
 static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev) {
     int hit = 0;
+    /* OVER THE CUSHION. A ball whose underside has cleared the nose is past the
+     * rail, not bouncing off it — that is what a jump shot out of a snooker is.
+     * Everything on the cloth fails this test by a mile, so the planar game is
+     * untouched. */
+    if (b->pos.y - w->R > w->cushion_nose) return 0;
     /* Tilt the rail normal up by cush_tilt so top/back spin couples into the
      * rebound; then re-normalise. */
     float ct = cosf(w->cush_tilt), st = sinf(w->cush_tilt);
@@ -344,6 +395,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
         float dist = sqrtf(d.x * d.x + d.z * d.z);
         float mind = w->R + w->jaw_r;
         if (dist < mind && dist > 1e-6f) {
+            if (b->pos.y - w->R > w->cushion_nose) continue;   /* flying over it */
             Vec3 N = v3_scale(d, 1.0f / dist);
             b->pos = v3_add(b->pos, v3_scale(N, (mind - dist)));
             if (collide_surface(w, b, N, w->e_cush, w->mu_cush)) {
@@ -356,6 +408,9 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
 }
 
 static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
+    /* A ball in the air over a pocket has not gone down it. It falls in on the
+     * way past, or it does not. */
+    if (cue_phys_airborne(w, b)) return 0;
     for (int p = 0; p < w->npocket; p++) {
         Vec3 d = v3_sub(b->pos, w->pocket[p]); d.y = 0.0f;
         float dist = sqrtf(d.x * d.x + d.z * d.z);
@@ -399,6 +454,47 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             b->drop -= h;
             if (b->drop <= 0.0f || b->pos.y < -0.11f) { b->on = 0; b->drop = 0.0f; }
             ball_spin_orient(b, h);                  /* keep spinning as it drops */
+            continue;
+        }
+        /* IN THE AIR: gravity, and NOTHING ELSE. No cloth contact, because
+         * there is no cloth contact — which is the whole character of a jumped
+         * ball. Its spin is preserved through the flight instead of being
+         * turned into roll, so it lands still sliding and skids on, and that is
+         * why a jump shot behaves nothing like the same stroke played flat.
+         *
+         * It is also why this must not happen by accident: a ball that hops
+         * unintentionally stops developing roll, and every draw and follow shot
+         * quietly stops meaning what it meant. The deadband that prevents that
+         * lives at the strike, not here. */
+        if (b->pos.y > w->R || b->vel.y > 0.0f) {
+            b->vel.y -= w->g * h;
+            b->pos = v3_add(b->pos, v3_scale(b->vel, h));
+            if (b->pos.y <= w->R) {
+                /* Landed. Cloth over slate is a poor trampoline. */
+                b->pos.y = w->R;
+                if (b->vel.y < -w->v_land) {
+                    b->vel.y = -b->vel.y * w->e_bed;
+                } else {
+                    /* Settle FLAT rather than bounce for ever. Below this the
+                     * hop is a fraction of a millimetre and all it would do is
+                     * keep suspending friction. */
+                    b->vel.y = 0.0f;
+                }
+                s_bed_land = 1;
+            }
+            /* OFF THE TABLE. Past the outer face of the rail there is a floor,
+             * not a slate, and nothing here models a floor — so the ball is out
+             * of play, exactly as it is in the room. The game sees a ball that
+             * was on and now is not, which is the same thing it sees when one
+             * is potted, and prices it the same way: the cue ball is a foul
+             * with ball in hand, and an object ball has left the table. */
+            if (b->pos.x >  w->bound_x || b->pos.x < -w->bound_x ||
+                b->pos.z >  w->bound_z || b->pos.z < -w->bound_z) {
+                b->on = 0; b->drop = 0.0f;
+                b->vel = v3(0, 0, 0); b->w = v3(0, 0, 0);
+                continue;
+            }
+            ball_spin_orient(b, h);
             continue;
         }
         /* Asleep ball: at rest with no live spin → skip cloth/integrate entirely.
@@ -471,6 +567,7 @@ float cue_phys_cushion_impact(void) { return s_cush_vn; }
 CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events) {
     if (events) *events = 0;
     s_cush_vn = 0.0f;                  /* reset the cushion-impact meter for this step */
+    s_bed_land = 0;
     float h = g_sub_h;
     w->_acc += dt;
     int iters = 0;
@@ -480,6 +577,7 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
         iters++;
     }
     if (iters >= CUE_MAX_SUB) w->_acc = 0.0f;   /* shed backlog */
+    if (s_bed_land && events) *events |= CUE_EV_BED;
 
     /* Hard stop once everything has settled so we don't creep forever. */
     if (!cue_phys_moving(w, balls, n)) {

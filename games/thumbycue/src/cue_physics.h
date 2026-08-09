@@ -70,6 +70,23 @@ typedef struct {
                        * ball. <1 means the cushion imparts less spin while the bounce-angle
                        * effect of incoming spin is preserved (asymmetric). */
     float cush_tilt;  /* contact-normal tilt from horizontal (rad), from nose height */
+    /* Bed. Only a jumped ball ever touches these. Cloth over slate is a poor
+     * trampoline: a jumped ball takes two or three diminishing hops and stops,
+     * and the settle speed is what stops it micro-bouncing for hundreds of
+     * substeps — every bounce suspends cloth friction, so a ball that never
+     * quite lands never develops roll and its draw and follow stop meaning
+     * anything. */
+    float e_bed;      /* bed restitution (~0.4) */
+    float v_land;     /* below this downward speed a landing settles flat */
+    float cushion_nose; /* nose height above the cloth: a ball whose underside
+                         * is above this has cleared the rail (filled by
+                         * cue_table from CueTable.cushion_h) */
+    /* THE EDGE OF THE WORLD, at the outer face of the rail. Only a jumped ball
+     * can ever reach it: everything on the cloth is held by the cushions. It
+     * exists because a ball that clears a cushion has nothing beyond it to stop
+     * it, and a ball rolling to infinity is a shot that never settles. Past
+     * this it is simply off the table, which is what it would be in the room. */
+    float bound_x, bound_z;
 
     /* Geometry (filled by cue_table). */
     CueSeg seg[CUE_MAX_SEG]; int nseg;
@@ -105,6 +122,30 @@ void cue_phys_strike(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
 void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev);
 
+/* As above, and the ball LEAVES THE BED at `vy` metres per second.
+ *
+ * The caller computes vy, not this function, and that is deliberate twice over.
+ *
+ * First, the table forces the cue up. cue_table_min_elev raises the shaft to
+ * clear the rail, and near a cushion that is thirty degrees with no intent from
+ * anybody — so a jump measured off ABSOLUTE elevation launches the ball on
+ * every shot played off a cushion. It has to be measured off the elevation the
+ * player added BEYOND what the table demands, and only the caller knows that.
+ *
+ * Second, lockstep. Two machines that each derive vy from their own
+ * reconstruction of min_elev can disagree about whether the ball left the bed
+ * at all, which is not a divergence any amount of position correction repairs.
+ * One number crosses the wire and both ends jump or neither does.
+ *
+ * vy = 0 is exactly cue_phys_strike_elev, bit for bit. That matters: it is what
+ * keeps every shot anyone has already learned unchanged. */
+void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
+                          float tip_side, float tip_vert, float elev, float vy);
+
+/* Is this ball off the bed right now? Rules ask, to price a ball that has left
+ * the table, and the renderer asks nothing — it just draws pos.y. */
+int cue_phys_airborne(const CueWorld *w, const CueBall *b);
+
 /* Advance the simulation by dt seconds. Returns 1 while any ball is still
  * moving, 0 once the table has settled. `events` (optional) receives a
  * bitwise OR of CUE_EV_* for sound/feedback this call. */
@@ -113,6 +154,7 @@ enum {
     CUE_EV_CUSHION   = 1 << 1,   /* ball–cushion contact */
     CUE_EV_POCKET    = 1 << 2,   /* a ball was potted */
     CUE_EV_JAW       = 1 << 3,   /* ball rattled a jaw */
+    CUE_EV_BED       = 1 << 4,   /* a jumped ball came down on the slate */
 };
 int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events);
 float cue_phys_cushion_impact(void);   /* loudest rail-approach speed from last step */

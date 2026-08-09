@@ -236,6 +236,11 @@ static void add_curved_chain(CueWorld *w, Vec3 tipIn, Vec3 kIn, Vec3 kMid,
 void cue_table_build_world(const CueTable *t, CueWorld *w) {
     cue_world_defaults(w, t->R, t->mass);
     w->cush_tilt = asinf((t->cushion_h - t->R) / t->R);
+    /* The height a ball has to be above the cloth to be over the rail rather
+     * than bouncing off it. The table knows it; the physics only needed telling. */
+    w->cushion_nose = t->cushion_h;
+    w->bound_x = t->half_len + t->rail_w;
+    w->bound_z = t->half_wid + t->rail_w;
     w->jaw_r = t->jaw_r;
     w->drop_back = t->drop_back;
     w->drop_back_side = t->drop_back_side;

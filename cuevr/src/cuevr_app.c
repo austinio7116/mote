@@ -2849,6 +2849,38 @@ static void hud_paint(void) {
  * decided whether they were snookered BEFORE it, because foul-and-a-miss turns
  * on it: a miss is only a miss if there was a ball on to be hit. cue_game does
  * this and I had not, which quietly disabled the whole rule. */
+/* HOW FAST THE BALL LEAVES THE BED, or zero.
+ *
+ * A jump is not "the cue was elevated". The table FORCES the cue up — near a
+ * cushion cue_table_min_elev asks for around thirty degrees so the shaft clears
+ * the rail — so a jump measured off absolute elevation launches the white on
+ * every shot played off a cushion, with no intent from anybody. What counts is
+ * the elevation the player ADDED beyond what the table demanded.
+ *
+ * And it is a deadband, not a scale. Below the threshold this returns exactly
+ * zero, so the shot is bit-for-bit the planar one it has always been: a hop of
+ * a fraction of a millimetre would still suspend cloth friction for its whole
+ * flight, and cloth friction is where draw, follow and stun come from. Losing
+ * that intermittently, on an elevation difference nobody can see, would make
+ * every shot in the game feel unreliable.
+ *
+ * Subtracting the threshold rather than testing against it keeps it continuous:
+ * at the boundary the ball leaves the bed at nothing, and grows from there.
+ * There is no angle at which one more degree turns nothing into a leap.
+ *
+ * A jump is struck ABOVE centre. Tip under the ball with an elevated cue is a
+ * scoop, which is a foul everywhere and not a shot this should reward. */
+#define CUEVR_JUMP_MIN_VY 0.50f   /* m/s of bed rebound before it is a jump */
+#define CUEVR_JUMP_BED_E  0.50f   /* how much of the down-stroke the bed returns */
+
+static float jump_launch(float speed, float elev, float min_elev, float tip_vert) {
+    if (tip_vert < 0.0f) return 0.0f;          /* scooping is not jumping */
+    float deliberate = elev - min_elev;
+    if (deliberate <= 0.0f) return 0.0f;       /* the table's angle, not yours */
+    float raw = speed * sinf(deliberate) * CUEVR_JUMP_BED_E;
+    return raw > CUEVR_JUMP_MIN_VY ? raw - CUEVR_JUMP_MIN_VY : 0.0f;
+}
+
 static void arm_shot(void) {
     S.rules.was_snookered = cue_rules_is_snookered(&S.rules, S.balls, S.nballs);
 }
@@ -3139,6 +3171,9 @@ static int roll_step(float dt) {
         cue_audio_sfx(CUE_SFX_CUSHION, i);
     }
     if (ev & CUE_EV_JAW) cue_audio_sfx(CUE_SFX_CUSHION, 0.55f);
+    /* A jumped ball coming down on the slate. Nearer a clack than a cushion —
+     * it is a hard thing landing on a hard thing through a thin cloth. */
+    if (ev & CUE_EV_BED) cue_audio_sfx(CUE_SFX_CLACK, 0.35f);
     if (ev & CUE_EV_POCKET) {
         float i = cue_phys_cushion_impact() / (MAX_STRIKE_SPEED * 0.55f);
         cue_audio_sfx(CUE_SFX_POT, i > 0.1f ? i : 0.45f);
@@ -4431,6 +4466,17 @@ static void app_update(void *u, const MoteVrTracking *t) {
                  (double)(S.cue.m_time * 1000.0f), (double)shot.tip_side, (double)shot.tip_vert,
                  (double)(shot.elev * 180.0f / 3.14159265f),
                  "");
+            /* Did it leave the bed? Measured against the elevation the TABLE
+             * forced on us, so being made to raise the cue by a cushion never
+             * jumps the ball.
+             *
+             * Against lock_elev, not min_elev: the lock is the figure frozen at
+             * trigger-down and played down for the whole delivery, while
+             * min_elev is recomputed every frame from a tip that is travelling.
+             * They are nearly the same and "nearly" is the wrong word for the
+             * number that decides whether the ball leaves the table. */
+            float vy = jump_launch(sp, shot.elev, S.cue.lock_elev, shot.tip_vert);
+
             /* Online: send the strike, not the outcome. Both machines integrate
              * the same 2 kHz physics from the same state, so the same six numbers
              * produce the same table on both sides. */
@@ -4446,10 +4492,18 @@ static void app_update(void *u, const MoteVrTracking *t) {
                  * far end cannot see. */
                 ns.nominated = S.rules.nominated;
                 ns.free_ball_id = S.rules.free_ball_id;
+                /* WHETHER THE BALL LEFT THE BED, decided here and sent, not
+                 * re-derived there. The far end would have to reconstruct
+                 * min_elev from our tip and our aim to get the same answer, and
+                 * an end that reconstructs it a hair differently does not jump
+                 * when we did — which is a divergence no amount of position
+                 * correction repairs, because the two tables are then playing
+                 * different shots. */
+                ns.vy = vy;
                 cuevr_net_send_shot(&ns);
             }
-            cue_phys_strike_elev(&S.world, &S.balls[0], shot.dir, sp,
-                                 shot.tip_side, shot.tip_vert, shot.elev);
+            cue_phys_strike_jump(&S.world, &S.balls[0], shot.dir, sp,
+                                 shot.tip_side, shot.tip_vert, shot.elev, vy);
             /* Power relative to the hardest shot there is, so a delicate safety
              * whispers and a break cracks. */
             cue_audio_sfx(CUE_SFX_STRIKE, sp / MAX_STRIKE_SPEED);
@@ -4492,8 +4546,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 if (ns.nominated) cue_rules_nominate(&S.rules, ns.nominated);
                 if (ns.free_ball_id) cue_rules_nominate_free(&S.rules, ns.free_ball_id);
                 cue_audio_sfx(CUE_SFX_STRIKE, ns.speed / MAX_STRIKE_SPEED);
-                cue_phys_strike_elev(&S.world, &S.balls[0], dir, ns.speed,
-                                     ns.side, ns.vert, ns.elev);
+                cue_phys_strike_jump(&S.world, &S.balls[0], dir, ns.speed,
+                                     ns.side, ns.vert, ns.elev, ns.vy);
                 begin_shot();
             }
             break;

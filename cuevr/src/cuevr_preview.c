@@ -247,7 +247,7 @@ int main(int argc, char **argv) {
     int auto_stroke = getenv("CUEVR_STROKE") != NULL;
     /* CUEVR_AUTOPLAY=n: play n shots, one per visit to the table. CUEVR_TAG
      * labels this instance's trace so two of them can be told apart. */
-    int autoplay = 0, ap_phase = 0, ap_shots = 0, ap_addressed = 0, ap_place = 0, ap_retry = 0, ap_fired = 0, ap_dec = 0;
+    int autoplay = 0, ap_phase = 0, ap_shots = 0, ap_addressed = 0, ap_place = 0, ap_retry = 0, ap_fired = 0, ap_dec = 0, ap_overs = 0;
     MoteVrV3 ap_dir = mv3(1, 0, 0);   /* the line this shot is being played on */
     { const char *v = getenv("CUEVR_AUTOPLAY"); if (v) autoplay = atoi(v); }
     int quit_on_frame = getenv("CUEVR_QUIT_ON_FRAME") != NULL;
@@ -584,8 +584,16 @@ int main(int argc, char **argv) {
              * moment in a match where the two ends act without a packet
              * between them. */
             if (!strcmp(cuevr_app_state_name(), "OVER")) {
-                ap_dec++;
-                s_a = (ap_dec > 20 && ap_dec < 26) ? 1 : 0;
+                /* Bounded. When the other end quits, ITS departure puts this one
+                 * on the frame-over screen for good — and an autoplayer that
+                 * presses A there for ever racks a new frame every twenty
+                 * frames, which buried the real transcript under three hundred
+                 * spurious tables. Three frames is more than any test needs. */
+                if (ap_overs < 3) {
+                    ap_dec++;
+                    if (ap_dec == 21) ap_overs++;
+                    s_a = (ap_dec > 20 && ap_dec < 26) ? 1 : 0;
+                } else s_a = 0;
                 ap_addressed = 0; ap_phase = 0; s_trig = 0;
             } else if (!strcmp(cuevr_app_state_name(), "DECIDE")) {
                 ap_dec++;

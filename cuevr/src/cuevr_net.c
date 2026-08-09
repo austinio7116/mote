@@ -40,12 +40,10 @@
  * differently and diverge on the first shot, and they would do it silently,
  * which is exactly what a room id exists to prevent. Failing to pair is the
  * better failure. */
-/* CUE8, from CUE7: the hello grew the match length and the state packet now
- * carries the whole rules struct rather than nine chosen fields. A CUE7 client
- * would read the blob as the old field list and take garbage for a score. */
-#define CUEVR_GAME_ID  0x43554538u   /* 'CUE8' — the hello carries who breaks and
-                                      * how long the match is, and the state
-                                      * packet carries the rules entire */
+/* CUE9, from CUE8: the shot carries whether the cue ball left the bed. A CUE8
+ * client would read the field list short and play a different shot — and a jump
+ * that only happens at one end is a table the other end can never agree with. */
+#define CUEVR_GAME_ID  0x43554539u   /* 'CUE9' — shots can jump */
 
 /* Wire framing. A magic byte per record so a half-read stream resynchronises
  * rather than reinterpreting float bytes as a shot. */

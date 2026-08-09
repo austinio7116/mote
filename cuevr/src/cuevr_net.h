@@ -68,6 +68,13 @@ typedef struct {
      * kind of desync. Rides with the shot because it is part of the shot. */
     int   nominated;       /* colour value 2..7, or 0 */
     int   free_ball_id;    /* the ball named as a free ball, or 0 */
+    /* WHETHER THE BALL LEFT THE BED, and how fast. Not derived at the far end:
+     * a jump is measured against the elevation the TABLE forced on the striker
+     * (a cushion asks for thirty degrees on its own), and reconstructing that
+     * over there from our aim and our tip is a calculation that only has to
+     * come out a hair different once for one end to jump while the other
+     * plays a rolling shot. Zero for every ordinary stroke. */
+    float vy;
 } CueVrNetShot;
 
 /* What each end tells the other once, when the room goes live: which game the

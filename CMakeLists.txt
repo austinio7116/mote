@@ -183,6 +183,21 @@ if(MOTE_TARGET STREQUAL "host")
     # physics, same cue geometry, same shaders — with mouse-driven hands, so the
     # thing can be screenshotted without a headset. See cuevr/src.
     if(NOT WIN32 AND GLESV2_LIB)
+    # The jump shot, against the physics with no game or renderer around it.
+    # Two claims worth a target of its own: that a jump clears a ball, and that
+    # a shot which does NOT jump is bit-for-bit the planar game it always was.
+    add_executable(cue_test_jump
+        games/thumbycue/src/test_jump.c
+        games/thumbycue/src/cue_physics.c
+        games/thumbycue/src/cue_table.c)
+    target_include_directories(cue_test_jump PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
+    target_compile_definitions(cue_test_jump PRIVATE MOTE_HOST=1)
+    target_compile_options(cue_test_jump PRIVATE -O2 -Wall -Wextra
+        -Wno-unused-parameter)
+    target_link_libraries(cue_test_jump PRIVATE m)
+
     add_executable(cuevr_preview
         cuevr/src/cuevr_preview.c
         cuevr/src/cuevr_app.c
