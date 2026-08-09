@@ -337,6 +337,12 @@ typedef struct {
      * different player from somebody who made one lucky one, and a highest
      * break alone cannot tell them apart. */
     int      brk_tier[CUEVR_BRK_TIERS][2];
+    /* Which generation of the records this file holds. It exists for one
+     * reason: everything written before version 1 has GARBAGE break counts in
+     * it, because the save built its struct field by field and never assigned
+     * brk_tier. A fix that leaves the wrong numbers on the screen has not
+     * fixed anything anybody can see, so those counts are cleared once. */
+    int      statver;
     /* The pocket cut, as tuned in the headset. Radii in percent of the ball's
      * drop circle; setbacks in millimetres into the frame. */
     int      cut_cr, cut_cs, cut_mr, cut_ms;

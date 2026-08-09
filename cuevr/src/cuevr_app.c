@@ -481,6 +481,7 @@ void cuevr_app_cue_line(MoteVrV3 *tip, MoteVrV3 *axis) {
     if (tip)  *tip  = S.cue.tip;
     if (axis) *axis = S.cue.axis;
 }
+int cuevr_app_table_kind(void) { return (int)S.tab.kind; }
 int cuevr_app_net_turn(void) { return S.rules.turn; }
 int cuevr_app_net_seat(void) { return S.net_me; }
 int cuevr_app_score(int i)   { return S.rules.score[i & 1]; }
@@ -584,6 +585,26 @@ void cuevr_app_force_screen(const char *name) {
     if (!name) return;
     if (!strcmp(name, "appear")) {
         S.appear_from = ST_MENU; S.menu_row = AR_CLOTH; S.state = ST_APPEAR;
+    } else if (!strcmp(name, "drillswitch")) {
+        /* THE TABLE A DRILL WAS MADE ON. Capture a position on THIS table,
+         * then move the game to a different one, then start the drill — which
+         * must bring the right table back with it. Doing that by hand needs two
+         * menus and a good memory; doing it here is one line and it is checked
+         * every build. */
+        S.opp = OPP_PRACTICE;
+        drill_capture(&S.drills.slot[0]);
+        S.drills.slot[0].goal = CUEVR_GOAL_SETUP;
+        S.drill_path[0] = 0;
+        fprintf(stderr, "[drillswitch] saved on kind %d\n", (int)S.drills.slot[0].kind);
+        {   /* somewhere else entirely: the first table that is not this one */
+            int other = ((int)S.tab.kind == CUE_GAME_UK8) ? CUE_GAME_SNK15 : CUE_GAME_UK8;
+            for (int i = 0; i < MENU_N; i++)
+                if ((int)MENU[i].kind == other) S.menu_sel = i;
+            start_frame((CueGameKind)other);
+            fprintf(stderr, "[drillswitch] moved to kind %d\n", (int)S.tab.kind);
+        }
+        drill_start(0);
+        fprintf(stderr, "[drillswitch] playing on kind %d\n", (int)S.tab.kind);
     } else if (!strcmp(name, "drill")) {
         /* Straight into a playable one: a clearance of what is on the table,
          * which is the goal a scripted stroke can actually make progress
@@ -3232,6 +3253,44 @@ static void stat_shot(int p, const int *potted, int np) {
     if (st->brk == 0) memset(st->tally, 0, sizeof st->tally);
 }
 
+static void stat_after_shot(void);
+
+/* CUEVR_BRKTEST=1 — drive the REAL tier counter through a scripted frame and
+ * print what it made of it. A break of 57 built over six shots, then the
+ * opponent's 45, is the whole question: three crossings for me and none for
+ * them. Reading the loop was not settling it, and a counter that is wrong on
+ * a real table is wrong here too. */
+void cuevr_app_break_selftest(void) {
+    static const struct { int brk, turn; const char *what; } SEQ[] = {
+        {  1, 0, "red" },      {  8, 0, "black" },   { 15, 0, "red+black" },
+        { 22, 0, "past 20" },  { 35, 0, "past 30" }, { 57, 0, "past 50" },
+        {  0, 1, "I miss, table over" },
+        { 10, 1, "them" },     { 25, 1, "them past 20" },
+        { 45, 1, "them past 40" },
+        {  0, 0, "they miss, back to me" },
+        { 12, 0, "me again" }, { 21, 0, "past 20 again" },
+    };
+    S.opp = OPP_CPU;
+    S.rules.kind = 1;
+    S.stat_counted = 0;
+    S.stat_prev_brk = 0;
+    memset(S.stats.brk_tier, 0, sizeof S.stats.brk_tier);
+    memset(S.stats.snk_best, 0, sizeof S.stats.snk_best);
+    for (unsigned i = 0; i < sizeof SEQ / sizeof SEQ[0]; i++) {
+        S.rules.brk = SEQ[i].brk;
+        S.rules.turn = SEQ[i].turn;
+        int b20 = S.stats.brk_tier[0][0];
+        stat_after_shot();
+        fprintf(stderr, "[brktest] brk=%-3d turn=%d  %-22s  20+=%d 30+=%d 50+=%d 100+=%d%s\n",
+                SEQ[i].brk, SEQ[i].turn, SEQ[i].what,
+                S.stats.brk_tier[0][0], S.stats.brk_tier[1][0],
+                S.stats.brk_tier[2][0], S.stats.brk_tier[3][0],
+                S.stats.brk_tier[0][0] != b20 ? "   <- counted" : "");
+    }
+    fprintf(stderr, "[brktest] expected 20+=2 30+=1 50+=1 100+=0 "
+                    "(my 57, my 21; their 45 must not count)\n");
+}
+
 /* Called after every shot resolves, and once more when the frame ends. */
 static void stat_after_shot(void) {
     if (!stat_active() || S.stat_counted) return;
@@ -3262,6 +3321,12 @@ static void stat_after_shot(void) {
         for (int a2 = 0; a2 < CUEVR_BRK_TIERS; a2++)
             if (S.stat_prev_brk < TIER[a2] && S.rules.brk >= TIER[a2]) {
                 S.stats.brk_tier[a2][md]++;
+                if (getenv("CUEVR_BRKDBG"))
+                    fprintf(stderr, "[brk] tier %d++ -> %d   brk=%d prev=%d "
+                            "turn=%d me=%d md=%d score=%d/%d\n",
+                            TIER[a2], S.stats.brk_tier[a2][md], S.rules.brk,
+                            S.stat_prev_brk, S.rules.turn, me, md,
+                            S.rules.score[0], S.rules.score[1]);
                 S.stat_dirty = 1;
                 /* The fifty and the century are the ones worth announcing. A
                  * twenty is a good visit, not an event. */
@@ -6161,7 +6226,20 @@ static void app_update(void *u, const MoteVrTracking *t) {
      * player rather than of the frame, so none of it should have to be redone. */
     {
         static CueVrPrefs last; static float since;
-        CueVrPrefs now;
+        /* FROM THE RECORDS, not from an uninitialised local.
+         *
+         * This was a bare `CueVrPrefs now;` filled in field by field, and it
+         * missed one: brk_tier was never assigned, so every save wrote whatever
+         * was on the stack as the player's 20/30/50/100 break counts. They were
+         * not summed or double-counted — they were never counts at all, which
+         * is why they looked absurd.
+         *
+         * S.stats IS the loaded record set, so starting from it carries every
+         * statistic across by construction and the settings below overwrite the
+         * few fields that are settings. A field added to CueVrPrefs from now on
+         * is saved whether or not anybody remembers to add a line here, which
+         * is the actual bug: a list you have to maintain by hand. */
+        CueVrPrefs now = S.stats;
         now.table_height = S.setup.place.height;
         now.rest = S.cue.rest;
         now.grip = S.cue.grip;

@@ -59,7 +59,7 @@ wait $H; wait $J
 python3 - "$OUT" <<'PY'
 import re, sys
 out = sys.argv[1]
-PAT = (r'\[(\w+)\] f(\d+)\s+(\S+)\s+turn=(\d+) me=(\d+) bo=(\d+) '
+PAT = (r'\[(\w+)\] f(\d+)\s+(\S+)\s+kind=\d+ turn=(\d+) me=(\d+) bo=(\d+) '
        r'score=(\d+)/(\d+) frames=(\d+)/(\d+) on=(\d+) hash=(\w+) '
        r'obj=(\w+) rules=(\w+) cue=(\S+),(\S+)')
 def rows(p, tag):

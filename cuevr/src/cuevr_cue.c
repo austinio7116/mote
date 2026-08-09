@@ -223,6 +223,7 @@ static void prefs_put(CueVrPrefs *p, const char *k, double v) {
         int a2 = k[2] - '0';
         if (a2 >= 0 && a2 < CUE_GAME_COUNT && i >= 0) p->mini_best[a2] = i;
     }
+    else if (!strcmp(k, "statver")) { if (i >= 0 && i < 100) p->statver = i; }
     else if (!strcmp(k, "swapstk")) p->stick_swap = i ? 1 : 0;
     else if (!strcmp(k, "invsld"))  p->inv_slide  = i ? 1 : 0;
     else if (!strcmp(k, "invturn")) p->inv_turn   = i ? 1 : 0;
@@ -285,6 +286,15 @@ void cuevr_prefs_load(CueVrPrefs *p) {
         if (sscanf(line, "%31s %lf", key, &val) == 2) prefs_put(p, key, val);
     } while (fgets(line, sizeof line, f));
     prefs_fix_rest(p);
+    /* ONE-TIME REPAIR. Files written before version 1 carry stack garbage where
+     * the break counts should be — the save never assigned that field — so the
+     * numbers on the records screen were nonsense rather than merely wrong.
+     * They cannot be recovered, so they start again from nothing, once. */
+    if (p->statver < 1) {
+        memset(p->brk_tier, 0, sizeof p->brk_tier);
+        p->statver = 1;
+        CUEVR_PREFS_LOG("[cuevr] break counts reset: the old file's were never counts");
+    }
     fclose(f);
 }
 
@@ -295,12 +305,12 @@ void cuevr_prefs_save(const CueVrPrefs *p) {
     fprintf(f,
             "height %.4f\nrest_x %.4f\nrest_y %.4f\nrest_z %.4f\ngrip %.4f\n"
             "table %d\nballs %d\npersona %d\ncloth %d\nframe %d\nopp %d\n"
-            "cue %d\nlight %d\nbody %d\nrefvoice %d\n"
+            "cue %d\nlight %d\nbody %d\nrefvoice %d\nstatver %d\n"
             "cpx %.4f\ncpy %.4f\ncpz %.4f\ncrx %.2f\ncry %.2f\ncrz %.2f\n",
             (double)p->table_height, (double)p->rest.x, (double)p->rest.y,
             (double)p->rest.z, (double)p->grip,
             p->table_kind, p->ballset, p->persona, p->cloth, p->frame, p->opp,
-            p->cue, p->light, p->body, p->refvoice,
+            p->cue, p->light, p->body, p->refvoice, p->statver,
             (double)p->ctrl_pos[0], (double)p->ctrl_pos[1], (double)p->ctrl_pos[2],
             (double)p->ctrl_rot[0], (double)p->ctrl_rot[1], (double)p->ctrl_rot[2]);
     for (int a = 0; a < CUEVR_STAT_SNK; a++)
