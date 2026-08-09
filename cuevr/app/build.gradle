@@ -26,8 +26,18 @@ android {
 
     defaultConfig {
         applicationId 'us.thumby.cuevr'
-        minSdk 29
-        targetSdk 35
+        /* 32 DROPS QUEST 1, which the store no longer accepts a title for.
+         * com.oculus.supportedDevices already omits it, but that tag is what a
+         * launcher reads rather than something the installer enforces — this is
+         * the line that makes it true. Quest 1 never went past Android 10 (API
+         * 29); Quest 2, Pro, 3 and 3S are all on Android 12L (API 32) or later,
+         * so nothing that IS supported is shut out. */
+        minSdk 32
+        /* 34, NOT 35. The Horizon Store rejects anything above 34 — "Android
+         * Target SDK version is 35, but should be 34 or lower". compileSdk
+         * stays at 35: what is compiled against and what behaviour is opted
+         * into are different questions, and only the latter is checked. */
+        targetSdk 34
         // THE VERSION CODE COMES FROM GIT, and it has to.
         //
         // It sat at 2 through fifteen builds in a day, and a store or a sideload
