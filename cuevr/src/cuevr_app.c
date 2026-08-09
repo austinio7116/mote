@@ -24,6 +24,7 @@
 #include "cuevr_render.h"
 #include "cuevr_frame.h"
 #include "cuevr_career.h"
+#include "cuevr_drill.h"
 #include "cuevr_text.h"
 #include "cuevr_font_md.h"
 #include "cuevr_font_lg.h"
@@ -107,6 +108,9 @@ enum { ST_MENU = 0, ST_SETUP, ST_AIM, ST_ROLL, ST_THINK, ST_CPUCUE, ST_PLACE,
         * cloth is chosen: twenty-three names cycled one at a time is
         * a list you have to remember rather than a card you look at. */
        ST_CLOTH,
+       /* Practice: the list of saved drills, and the editor where you set the
+        * balls out by hand. */
+       ST_DRILLS, ST_LAYOUT,
        /* Tuning the pocket cut with a ball on the table, which is the only
         * place it can honestly be judged. */
        ST_POCKETS };
@@ -179,7 +183,7 @@ enum { ACT_LANHOST = 0, ACT_LANJOIN, ACT_QUICK, ACT_HOST, ACT_JOIN, ACT_BROWSE }
  * ever, against defaults that were chosen by measurement. cuevr_render_fx_set()
  * is still there for the preview harness to drive. */
 enum { PS_RESUME = 0, PS_UNDO, PS_PICKUP, PS_RERACK, PS_PLACE, PS_NOMINATE,
-       PS_FREEBALL, PS_RESPOT, PS_MINI, PS_CONCEDE, PS_APPEAR, PS_CONTROLS,
+       PS_FREEBALL, PS_RESPOT, PS_MINI, PS_DRILLS, PS_CONCEDE, PS_APPEAR, PS_CONTROLS,
        PS_STATS, PS_QUIT, PS_N };
 static const char *COLOUR_NAME[8] = {
     "", "", "YELLOW", "GREEN", "BROWN", "BLUE", "PINK", "BLACK" };
@@ -305,6 +309,21 @@ static struct {
     int   car_pick[CUE_GAME_COUNT];
     char  car_path[512];
     int prac_respot;             /* practice snooker: colours go back on */
+
+    /* ---- practice drills: a table you set up, and something to do on it ----
+     * See cuevr_drill.h. `drill` is the slot being played, -1 for none; the
+     * clock runs from the first strike; score and pots are the VISIT, because
+     * every goal is judged over one. `edit` is the ball currently in your hand
+     * in the layout editor, -1 for none. */
+    CueVrDrills drills;
+    char  drill_path[512];
+    int   drill;                 /* slot being played, or -1 */
+    int   drill_done, drill_won, drill_beat;
+    float drill_t;
+    int   drill_score, drill_pots;
+    int   edit_ball;             /* the ball being carried in the editor, or -1 */
+    int   edit_latch;
+    int   drill_row;             /* the slot the drills screen is on */
     int break_first;             /* who breaks this frame (rules player index) */
     float undo_hold;             /* B held down, seconds — practice take-back */
     /* The pointer: where the right controller's ray meets the panel, in the
@@ -549,6 +568,9 @@ static void pockets_log(void);
 #endif
 enum { TOAST_RECORD = 0, TOAST_ACH };
 static void toast_push(int kind, const char *title, const char *body);
+static void arm_shot(void);
+static void drill_capture(CueVrDrill *d);
+static void drill_start(int slot);
 static void rerack(void);
 static void hand_over(void);
 static void start_frame(CueGameKind kind);
@@ -562,6 +584,32 @@ void cuevr_app_force_screen(const char *name) {
     if (!name) return;
     if (!strcmp(name, "appear")) {
         S.appear_from = ST_MENU; S.menu_row = AR_CLOTH; S.state = ST_APPEAR;
+    } else if (!strcmp(name, "drill")) {
+        /* Straight into a playable one: a clearance of what is on the table,
+         * which is the goal a scripted stroke can actually make progress
+         * against. CUEVR_SCREEN=drill. */
+        S.opp = OPP_PRACTICE;
+        drill_capture(&S.drills.slot[0]);
+        S.drills.slot[0].goal = CUEVR_GOAL_CLEAR;
+        S.drill_path[0] = 0;          /* a test must not write over real drills */
+        drill_start(0);
+    } else if (!strcmp(name, "drills")) {
+        /* With a couple of slots filled, so the screen shows what it looks like
+         * in use rather than eight rows of EMPTY. */
+        S.opp = OPP_PRACTICE;
+        drill_capture(&S.drills.slot[0]);
+        S.drills.slot[0].goal = CUEVR_GOAL_POT;
+        S.drills.slot[0].ball = CUE_ID_BLACK;
+        S.drills.slot[0].best = 842;
+        drill_capture(&S.drills.slot[1]);
+        S.drills.slot[1].goal = CUEVR_GOAL_CLEAR;
+        drill_capture(&S.drills.slot[2]);
+        S.drills.slot[2].goal = CUEVR_GOAL_SCORE;
+        S.drills.slot[2].target = 40;
+        drill_capture(&S.drills.slot[3]);
+        S.drills.slot[3].goal = CUEVR_GOAL_SETUP;
+        S.drill_row = 0;
+        S.state = ST_DRILLS;
     } else if (!strcmp(name, "cloth")) {
         S.appear_from = ST_MENU; S.state = ST_CLOTH; S.cloth_hov = -1;
     } else if (!strcmp(name, "controls")) {
@@ -989,6 +1037,7 @@ static void unpause(void) {
     else if (back == ST_PAUSE || back == ST_MENU || back == ST_SETUP
              || back == ST_LOBBY
              || back == ST_APPEAR || back == ST_STATS || back == ST_CLOTH
+             || back == ST_DRILLS || back == ST_LAYOUT
              || back == ST_CONTROLS || back == ST_POCKETS
              || back == ST_CARSETUP || back == ST_CAREER
              || back == ST_CARTABLE || back == ST_CARACH) back = ST_AIM;
@@ -1292,6 +1341,105 @@ static void mini_stop(void) {
     hand_over();
 }
 
+/* ---- practice drills ---------------------------------------------------- */
+
+/* What a ball is worth. Snooker prices its colours; in pool every ball is one
+ * ball, and a drill that says SCORE 5 on a pool table means five of them. */
+static int drill_value(int id) {
+    if (!S.rules.kind) return 1;
+    if (id >= CUE_ID_YELLOW && id <= CUE_ID_BLACK) return id - CUE_ID_YELLOW + 2;
+    return (id >= 1 && id <= 15) ? 1 : 0;
+}
+
+/* The table as it stands, into a slot. Table space, so it survives the table
+ * being moved or turned or set up in another room. */
+static void drill_capture(CueVrDrill *d) {
+    memset(d, 0, sizeof *d);
+    d->used = 1;
+    d->kind = (uint8_t)S.tab.kind;
+    d->n = (uint8_t)(S.nballs > CUEVR_DRILL_MAXBALLS ? CUEVR_DRILL_MAXBALLS : S.nballs);
+    for (int i = 0; i < d->n; i++) {
+        d->id[i] = (uint8_t)S.balls[i].id;
+        d->on[i] = (uint8_t)S.balls[i].on;
+        d->x[i]  = S.balls[i].pos.x;
+        d->z[i]  = S.balls[i].pos.z;
+    }
+    d->goal = CUEVR_GOAL_SETUP;
+    d->target = 20;
+    /* A sensible ball to nominate if the goal is later set to POT: the dearest
+     * one still on the table, which is the one anybody would pick. */
+    int best = 0;
+    for (int i = 1; i < d->n; i++)
+        if (d->on[i] && d->id[i] > best) best = d->id[i];
+    d->ball = (uint8_t)best;
+}
+
+/* And back onto the cloth. The rack is rebuilt first so the ball ARRAY is the
+ * right shape for the table — a saved 22-ball snooker layout dropped onto a
+ * 16-ball pool table would otherwise index past the end of it. */
+static void drill_restore(const CueVrDrill *d) {
+    S.nballs = cue_table_rack(&S.tab, S.balls);
+    int n = d->n < S.nballs ? d->n : S.nballs;
+    for (int i = 0; i < n; i++) {
+        S.balls[i].on  = d->on[i];
+        S.balls[i].pos = v3(d->x[i], S.tab.R, d->z[i]);
+        S.balls[i].vel = v3(0,0,0);
+        S.balls[i].w   = v3(0,0,0);
+    }
+    /* Anything the layout did not mention is off: a saved position is the WHOLE
+     * table, not a patch on top of a fresh rack. */
+    for (int i = n; i < S.nballs; i++) S.balls[i].on = 0;
+    S.balls[0].on = 1;
+}
+
+/* Start a drill: the layout back as it was, the clock at zero, the visit
+ * empty. A drill you have to reset by hand is a drill you play once. */
+static void drill_start(int slot) {
+    if (slot < 0 || slot >= CUEVR_DRILL_SLOTS || !S.drills.slot[slot].used) return;
+    const CueVrDrill *d = &S.drills.slot[slot];
+    think_join();
+    /* The right table first — a snooker position means nothing on a pub table,
+     * and it is a kindness to switch rather than refuse. */
+    if ((int)S.tab.kind != (int)d->kind) {
+        for (int i = 0; i < MENU_N; i++)
+            if ((int)MENU[i].kind == (int)d->kind) S.menu_sel = i;
+        start_frame((CueGameKind)d->kind);
+    }
+    cue_rules_init(&S.rules, &S.tab, 0);
+    S.rules.turn = 0;
+    S.rules.ball_in_hand = 0;
+    drill_restore(d);
+    S.mini = 0; S.mini_done = 0;
+    S.drill = slot;
+    S.drill_done = S.drill_won = S.drill_beat = 0;
+    S.drill_t = 0.0f;
+    S.drill_score = S.drill_pots = 0;
+    S.have_snap = 0;
+    S.shot_events = 0;
+    stat_frame_reset();
+    {   char nm[24]; cuevr_drill_name(d, nm, sizeof nm);
+        snprintf(S.msg, sizeof S.msg, "%s", nm); }
+    S.msg_time = 2.5f;
+    arm_shot();
+    S.state = ST_AIM;
+    S.hud_dirty = 1;
+}
+
+/* Put it back for another go, which is what practice is. */
+static void drill_again(void) {
+    if (S.drill < 0) return;
+    int slot = S.drill;
+    S.drill = -1;
+    drill_start(slot);
+}
+
+static void drill_stop(void) {
+    S.drill = -1;
+    S.drill_done = 0;
+    rerack();
+    hand_over();
+}
+
 /* How many of the six are still up. */
 static int mini_left(void) {
     int n = 0;
@@ -1545,6 +1693,10 @@ static int pause_rows(PsRow *o, int max) {
     /* The challenges live in practice, where there is nobody waiting. */
     if (S.opp == OPP_PRACTICE) ADD(PS_MINI, S.mini ? "END CHALLENGE"
                                                    : "TIMED CLEARANCE");
+    /* The drills, and the editor behind them — practice only, because a saved
+     * position is a thing you set up, and you cannot set the balls out in the
+     * middle of somebody else's frame. */
+    if (S.opp == OPP_PRACTICE) ADD(PS_DRILLS, S.drill >= 0 ? "END DRILL" : "DRILLS");
     if (S.opp != OPP_ONLINE) ADD(PS_RERACK, "RE-RACK");
     ADD(PS_PLACE,  "PLACE TABLE");
     ADD(PS_APPEAR, "APPEARANCE");
@@ -1875,6 +2027,38 @@ static void hud_paint(void) {
             hud_text(cuevr_net_info(), 4, 50, DIM);
             hud_text("B CANCEL", 4, HH - 6, HI);
         }
+        return;
+    }
+
+    /* ---- practice drills --------------------------------------------------
+     *
+     * Eight slots. A slot holds a table and, if you want one, something to do
+     * on it — so the same screen is where you keep positions to play from and
+     * where you keep challenges, because they are the same object with the goal
+     * left off. Chevrons on a row change what that drill ASKS; the middle of
+     * the row plays it. */
+    if (S.state == ST_DRILLS) {
+        char v[40], nm[24];
+        hud_height(12 + (CUEVR_DRILL_SLOTS + 3) * 8 + 14);
+        hud_rect(0, 0, HW, 10, BAND);
+        hud_text_2x("PRACTICE DRILLS", 4, 1, HI);
+        hud_rect(0, 10, HW, 1, LINE);
+        for (int i = 0; i < CUEVR_DRILL_SLOTS; i++) {
+            const CueVrDrill *d = &S.drills.slot[i];
+            cuevr_drill_name(d, nm, sizeof nm);
+            if (!d->used) snprintf(v, sizeof v, "SAVE HERE");
+            else if (d->best) snprintf(v, sizeof v, "%s  %d.%02d", cuevr_goal_name(d->goal),
+                                       d->best / 100, d->best % 100);
+            else snprintf(v, sizeof v, "%s", cuevr_goal_name(d->goal));
+            hud_opt(i, nm, v, S.drill_row == i, d->used, TXT, DIM, HI);
+        }
+        hud_link(CUEVR_DRILL_SLOTS + 0, "SET THE BALLS OUT", "EDIT",
+                 S.drill_row == CUEVR_DRILL_SLOTS + 0, DIM, HI, LIVE);
+        hud_link(CUEVR_DRILL_SLOTS + 1, "SAVE THIS TABLE", "SAVE",
+                 S.drill_row == CUEVR_DRILL_SLOTS + 1, DIM, HI, LIVE);
+        hud_link(CUEVR_DRILL_SLOTS + 2, "BACK", "DONE",
+                 S.drill_row == CUEVR_DRILL_SLOTS + 2, DIM, HI, LIVE);
+        hud_text("CHEVRONS CHANGE THE GOAL", 4, HH - 6, DIM);
         return;
     }
 
@@ -2501,6 +2685,61 @@ static void hud_paint(void) {
      * Its own board, because none of a frame's furniture applies: there is no
      * opponent, no score and no ball on — there is a clock, six balls, and the
      * time to beat. */
+    /* A DRILL IN PLAY. The same board as the clearance challenge, because it is
+     * the same question: what am I chasing, how am I doing, and what is the best
+     * I have done. A goalless position gets no clock and no target — it is a
+     * place to play from, and saying "0.00 SECONDS" over it would be inventing
+     * a competition nobody entered. */
+    if (S.drill >= 0) {
+        const CueVrDrill *d = &S.drills.slot[S.drill];
+        char b2[48], nm[24];
+        cuevr_drill_name(d, nm, sizeof nm);
+        hud_height(CUEVR_HUD_BOARD_LH);
+        hud_rect(0, 0, HW, 9, BAND);
+        hud_text(nm, 4, 2, HI);
+        hud_text_r(MENU[S.menu_sel].name, HW - 4, 2, DIM);
+        hud_rect(0, 9, HW, 1, LINE);
+
+        if (d->goal == CUEVR_GOAL_SETUP) {
+            hud_text_2x("PLAY ON FROM HERE", 4, 16, TXT);
+            hud_text("MENU TO PUT IT BACK", 4, 30, DIM);
+        } else {
+            int cs = (int)(S.drill_t * 100.0f + 0.5f);
+            snprintf(b2, sizeof b2, "%d.%02d", cs / 100, cs % 100);
+            hud_text_xl(b2, 4, 14, S.drill_done ? (S.drill_beat ? LIVE : TXT) : TXT);
+            hud_text("SECONDS", 4, 36, DIM);
+            hud_text_r("BEST", HW - 6, 14, DIM);
+            if (d->best > 0) snprintf(b2, sizeof b2, "%d.%02d", d->best / 100, d->best % 100);
+            else             snprintf(b2, sizeof b2, "-");
+            hud_text_r(b2, HW - 6, 22, d->best ? HI : DIM);
+
+            hud_rect(0, 45, HW, 1, LINE);
+            if (S.drill_done && S.drill_won) {
+                hud_text_2x(S.drill_beat ? "NEW RECORD" : "DONE", 4, 48, HI);
+                hud_text("MENU FOR ANOTHER GO", 4, 62, DIM);
+            } else if (!S.have_snap) {
+                hud_text_2x("PLAY TO START THE CLOCK", 4, 48, HI);
+                hud_text(cuevr_goal_how(d->goal), 4, 62, DIM);
+            } else {
+                switch (d->goal) {
+                case CUEVR_GOAL_SCORE:
+                    snprintf(b2, sizeof b2, "%d OF %d", S.drill_score, (int)d->target);
+                    break;
+                case CUEVR_GOAL_CLEAR: {
+                    int left = 0;
+                    for (int i = 1; i < S.nballs; i++) if (S.balls[i].on) left++;
+                    snprintf(b2, sizeof b2, left == 1 ? "%d BALL LEFT" : "%d BALLS LEFT", left);
+                    break;
+                }
+                default: snprintf(b2, sizeof b2, "%s", "POT IT"); break;
+                }
+                hud_text_2x(b2, 4, 48, TXT);
+                hud_text(cuevr_goal_how(d->goal), 4, 62, DIM);
+            }
+        }
+        return;
+    }
+
     if (S.mini) {
         char b2[40];
         hud_height(CUEVR_HUD_BOARD_LH);
@@ -3256,6 +3495,83 @@ static void resolve_shot(void) {
     S.rules.jumped = S.world.jump_over;
     LOGI("[cuevr] settle: cue at %.2f,%.2f  first_hit %d  potted %d  scratch %d",
          (double)S.balls[0].pos.x, (double)S.balls[0].pos.z, S.world.first_hit, np, scratch);
+    /* A DRILL IS NOT A FRAME EITHER, and for the same reason: a saved position
+     * is whatever you set out, and the rules of the game have no opinion about
+     * a table with three balls on it in the wrong places. Every goal is judged
+     * over ONE VISIT — the attempt ends when the table would have changed hands
+     * — because that is what makes it practice and not a frame you can grind.
+     *
+     * A failed attempt puts the balls straight back. A drill you have to reset
+     * by hand is a drill nobody plays twice. */
+    if (S.drill >= 0 && !S.drill_done) {
+        CueVrDrill *d = &S.drills.slot[S.drill];
+        int pot_value = 0, got_it = 0, cleared = 1;
+        for (int k = 0; k < np; k++) {
+            pot_value += drill_value(potted[k]);
+            if (potted[k] == d->ball) got_it = 1;
+        }
+        for (int i = 1; i < S.nballs; i++) if (S.balls[i].on) cleared = 0;
+        S.drill_score += pot_value;
+        S.drill_pots  += np;
+
+        int won = 0, lost = 0;
+        switch (d->goal) {
+        case CUEVR_GOAL_POT:   won = got_it; break;
+        case CUEVR_GOAL_SCORE: won = (S.drill_score >= d->target); break;
+        case CUEVR_GOAL_CLEAR: won = cleared; break;
+        default: break;
+        }
+        /* The visit is over the moment nothing goes down, or the white does.
+         * Off the table counts as nothing going down, which it is. */
+        if (!won && d->goal != CUEVR_GOAL_SETUP && (np == 0 || scratch || n_off))
+            lost = 1;
+
+        if (won || lost) {
+            S.drill_done = 1;
+            S.drill_won = won;
+            d->tries++;
+            if (won) {
+                d->wins++;
+                int cs = (int)(S.drill_t * 100.0f + 0.5f);
+                if (d->best == 0 || cs < d->best) {
+                    int was = d->best;
+                    d->best = cs;
+                    S.drill_beat = 1;
+                    char t2[28], b3[36];
+                    snprintf(t2, sizeof t2, "%d.%02d SECONDS", cs / 100, cs % 100);
+                    if (was) snprintf(b3, sizeof b3, "beat %d.%02d", was / 100, was % 100);
+                    else     snprintf(b3, sizeof b3, "first time");
+                    toast_push(TOAST_RECORD, t2, b3);
+                }
+                snprintf(S.msg, sizeof S.msg, S.drill_beat ? "NEW RECORD" : "DONE");
+            } else {
+                snprintf(S.msg, sizeof S.msg, scratch ? "IN OFF - AGAIN"
+                                            : n_off   ? "OFF THE TABLE - AGAIN"
+                                                      : "MISSED - AGAIN");
+            }
+            S.msg_time = 3.0f;
+            if (S.drill_path[0]) cuevr_drills_save(&S.drills, S.drill_path);
+            S.hud_dirty = 1;
+            /* Straight back to the position, win or lose. The record screen is
+             * where results are looked at; the table is where you practise. */
+            if (!won) { drill_again(); return; }
+        }
+        /* Still in the visit — or a goalless position, which just plays on. */
+        if (scratch) {
+            S.balls[0].pos = cue_table_cue_home(&S.tab);
+            S.balls[0].vel = v3(0,0,0); S.balls[0].w = v3(0,0,0);
+            S.balls[0].on = 1;
+        }
+        if (S.rules.ball_in_hand) {
+            S.rules.ball_in_hand = 0;
+            if (!S.drill_done) { S.state = ST_PLACE; S.place_latch = 1; S.recentre = 1; return; }
+        }
+        arm_shot();
+        S.state = ST_AIM;
+        S.hud_dirty = 1;
+        return;
+    }
+
     /* THE CHALLENGE IS NOT A FRAME. Six reds with no colours is not a position
      * the snooker rules have an opinion about, and running them here would call
      * half the pots fouls. Count what went down, put the white back if it went
@@ -3627,6 +3943,16 @@ static int app_gl_init(void *u) {
                     sizeof S.car_path - strlen(S.car_path) - 1);
             LOGI("[cuevr] career file: %s", S.car_path);
             cuevr_career_load(&S.career, S.car_path);
+
+            /* And the drills, in the same place and for the same reason. */
+            snprintf(S.drill_path, sizeof S.drill_path, "%s", cuevr_prefs_path());
+            char *ds = strrchr(S.drill_path, '/');
+            if (ds) ds[1] = 0; else S.drill_path[0] = 0;
+            strncat(S.drill_path, "cuevr_drills.txt",
+                    sizeof S.drill_path - strlen(S.drill_path) - 1);
+            cuevr_drills_load(&S.drills, S.drill_path);
+            S.drill = -1;
+            S.edit_ball = -1;
         }
         cuevr_render_set_surround(S.surround);
         mote_xr_show_passthrough(S.surround == 0);
@@ -3760,6 +4086,11 @@ static void app_update(void *u, const MoteVrTracking *t) {
     if (S.mini && !S.mini_done && S.have_snap &&
         (S.state == ST_AIM || S.state == ST_ROLL || S.state == ST_PLACE))
         S.mini_t += dt;
+    /* A drill's clock runs on the same terms: from the first strike, through
+     * the roll-out, and not while a menu is open. */
+    if (S.drill >= 0 && !S.drill_done && S.have_snap &&
+        (S.state == ST_AIM || S.state == ST_ROLL || S.state == ST_PLACE))
+        S.drill_t += dt;
 
     /* Online runs whether or not anyone is looking at the lobby. */
     if (S.opp == OPP_ONLINE) cuevr_net_task();
@@ -3811,7 +4142,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * pointer, it is a laser lying on the cloth. */
         int pointing = (S.state == ST_MENU || S.state == ST_PAUSE ||
                         S.state == ST_APPEAR || S.state == ST_STATS ||
-                        S.state == ST_CLOTH ||
+                        S.state == ST_CLOTH || S.state == ST_DRILLS || S.state == ST_DRILLS ||
                         S.state == ST_LOBBY || S.state == ST_DECIDE ||
                         S.state == ST_CONTROLS || S.state == ST_OVER ||
                         S.state == ST_CARSETUP || S.state == ST_CAREER ||
@@ -4265,6 +4596,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 case PS_MINI:
                     if (S.mini) mini_stop();
                     else        mini_start();
+                    break;
+                case PS_DRILLS:
+                    if (S.drill >= 0) drill_stop();
+                    else {
+                        S.state = ST_DRILLS;
+                        S.ptr_latch = 1;
+                        S.hud_dirty = 1;
+                    }
                     break;
                 case PS_RESPOT:
                     /* Toggles in place — you are looking at the table it acts
@@ -4812,6 +5151,150 @@ static void app_update(void *u, const MoteVrTracking *t) {
             S.balls[0].pos = cue_table_clamp_placement_balls(
                 &S.tab, p, S.balls, S.nballs, S.rules.break_shot);
             S.can_repick = 1;      /* until the stroke is played */
+            arm_shot();
+            S.state = ST_AIM;
+            S.hud_dirty = 1;
+        }
+        break;
+    }
+
+    case ST_DRILLS: {
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        {
+            const int NROW = CUEVR_DRILL_SLOTS + 3;
+            int hov = ptr_row_at(12, 8, NROW);
+            if (hov >= 0 && hov != S.drill_row) { S.drill_row = hov; S.hud_dirty = 1; }
+            if (hov < 0 || !ptr_click(t)) break;
+            int r = S.drill_row;
+            if (r == CUEVR_DRILL_SLOTS + 2) {           /* BACK */
+                arm_shot(); S.state = ST_AIM; S.btn_latch = 1; S.hud_dirty = 1; break;
+            }
+            if (r == CUEVR_DRILL_SLOTS + 0) {           /* EDIT */
+                S.edit_ball = -1; S.edit_latch = 1;
+                S.state = ST_LAYOUT; S.btn_latch = 1; S.hud_dirty = 1; break;
+            }
+            if (r == CUEVR_DRILL_SLOTS + 1) {           /* SAVE THIS TABLE */
+                int slot = -1;
+                for (int i = 0; i < CUEVR_DRILL_SLOTS; i++)
+                    if (!S.drills.slot[i].used) { slot = i; break; }
+                if (slot < 0) slot = S.drill_row < CUEVR_DRILL_SLOTS ? S.drill_row : 0;
+                drill_capture(&S.drills.slot[slot]);
+                if (S.drill_path[0]) cuevr_drills_save(&S.drills, S.drill_path);
+                S.drill_row = slot;
+                snprintf(S.msg, sizeof S.msg, "SAVED");
+                S.msg_time = 2.0f;
+                S.hud_dirty = 1;
+                break;
+            }
+            /* A slot. The chevrons change what it asks; the middle plays it. */
+            CueVrDrill *d = &S.drills.slot[r];
+            int zone = ptr_zone();
+            if (!d->used) {
+                drill_capture(d);
+                if (S.drill_path[0]) cuevr_drills_save(&S.drills, S.drill_path);
+                snprintf(S.msg, sizeof S.msg, "SAVED");
+                S.msg_time = 2.0f;
+                S.hud_dirty = 1;
+                break;
+            }
+            if (zone != 0) {
+                d->goal = (uint8_t)((d->goal + zone + CUEVR_GOAL_N) % CUEVR_GOAL_N);
+                if (S.drill_path[0]) cuevr_drills_save(&S.drills, S.drill_path);
+                S.hud_dirty = 1;
+                break;
+            }
+            drill_start(r);
+            break;
+        }
+    }
+
+    case ST_LAYOUT: {
+        /* SET THE BALLS OUT BY HAND.
+         *
+         * The same act as placing the cue ball, which the game already does
+         * well: the ball sits out ahead of the controller where you can see it
+         * and the cloth under it at once, and the trigger puts it down. The only
+         * new thing is choosing WHICH ball, and that is done by reaching for it
+         * — the nearest one to your hand, which is how you would pick a ball off
+         * a table.
+         *
+         * A ball let go beyond the cushions is off the table, so taking balls
+         * away needs no button of its own: you put it down where a ball cannot
+         * be, which is exactly what you would do with your hand. */
+        cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
+        const MoteVrHand *rh = &t->hand[S.lefty ? MOTE_VR_LEFT : MOTE_VR_RIGHT];
+        MoteVrV3 held = rh->pose.p;
+        if (rh->tracked) {
+            MoteVrV3 fwd = rh->aim_tracked ? mq_rot(rh->aim.q, mv3(0,0,-1))
+                                           : mq_rot(rh->pose.q, mv3(0,0,-1));
+            held = mv3_add(rh->aim_tracked ? rh->aim.p : rh->pose.p,
+                           mv3_scale(fwd, 0.13f));
+        }
+        MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, held);
+
+        int down = (t->hand[DOMH].trigger > 0.55f);
+        if (!down) {
+            if (S.edit_ball >= 0) {
+                /* PUT IT DOWN. On the cloth if it can go there, off the table
+                 * if you have carried it past the cushions. */
+                CueBall *b = &S.balls[S.edit_ball];
+                if (tp.x >  S.tab.half_len || tp.x < -S.tab.half_len ||
+                    tp.z >  S.tab.half_wid || tp.z < -S.tab.half_wid) {
+                    if (S.edit_ball == 0) {
+                        /* except the white, which has to be somewhere */
+                        b->pos = cue_table_cue_home(&S.tab);
+                        b->on = 1;
+                    } else {
+                        b->on = 0;
+                        snprintf(S.msg, sizeof S.msg, "TAKEN OFF");
+                        S.msg_time = 1.2f;
+                    }
+                } else {
+                    Vec3 p = v3(tp.x, S.tab.R, tp.z);
+                    b->pos = cue_table_clamp_placement_balls(&S.tab, p, S.balls,
+                                                             S.nballs, 0);
+                    b->on = 1;
+                }
+                b->vel = v3(0,0,0); b->w = v3(0,0,0);
+                S.edit_ball = -1;
+                S.hud_dirty = 1;
+            }
+            S.edit_latch = 0;
+        } else if (!S.edit_latch) {
+            S.edit_latch = 1;
+            /* REACH FOR ONE. The nearest ball to the hand within a hand's
+             * width; balls that are off the table count, so anything you have
+             * taken away can be brought back by reaching where it went. */
+            int best = -1; float bd = 0.18f * 0.18f;
+            for (int i = 0; i < S.nballs; i++) {
+                float dx = S.balls[i].pos.x - tp.x, dz = S.balls[i].pos.z - tp.z;
+                float d2 = dx*dx + dz*dz;
+                if (S.balls[i].on && d2 < bd) { bd = d2; best = i; }
+            }
+            if (best < 0) {
+                /* Nothing there: bring back the first ball that is off. That
+                 * is how a ball comes home — reach into empty cloth and one
+                 * arrives, rather than hunting a menu for it. */
+                for (int i = 1; i < S.nballs; i++)
+                    if (!S.balls[i].on) { best = i; break; }
+                if (best >= 0) { S.balls[best].on = 1; }
+            }
+            S.edit_ball = best;
+            S.hud_dirty = 1;
+        }
+        if (S.edit_ball >= 0 && rh->tracked) {
+            S.balls[S.edit_ball].pos = v3(tp.x, tp.y, tp.z);
+            S.hud_dirty = 1;
+        }
+
+        /* B leaves; the balls stay where you put them. */
+        if (!t->hand[MOTE_VR_RIGHT].btn_upper) S.btn_latch = 0;
+        else if (!S.btn_latch) {
+            S.btn_latch = 1;
+            if (S.edit_ball >= 0) {
+                S.balls[S.edit_ball].pos.y = S.tab.R;
+                S.edit_ball = -1;
+            }
             arm_shot();
             S.state = ST_AIM;
             S.hud_dirty = 1;
@@ -5367,6 +5850,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                        S.state == ST_LOBBY || S.state == ST_PAUSE ||
                        S.state == ST_STATS || S.state == ST_OVER ||
                        S.state == ST_APPEAR || S.state == ST_CLOTH ||
+                       S.state == ST_DRILLS || S.state == ST_LAYOUT ||
                        S.state == ST_CARSETUP ||
                        S.state == ST_CAREER || S.state == ST_CARTABLE ||
                        S.state == ST_CARACH || S.state == ST_POCKETS ||

@@ -199,6 +199,22 @@ if(MOTE_TARGET STREQUAL "host")
         -Wno-unused-parameter)
     target_link_libraries(cue_test_jump PRIVATE m)
 
+    # Practice drills: the save/restore round trip, which is the whole promise
+    # of a saved position and the one part that needs no headset.
+    add_executable(cue_test_drill
+        cuevr/src/test_drill.c
+        cuevr/src/cuevr_drill.c
+        games/thumbycue/src/cue_table.c
+        games/thumbycue/src/cue_physics.c)
+    target_include_directories(cue_test_drill PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/cuevr/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
+    target_compile_definitions(cue_test_drill PRIVATE MOTE_HOST=1)
+    target_compile_options(cue_test_drill PRIVATE -O2 -Wall -Wextra
+        -Wno-unused-parameter)
+    target_link_libraries(cue_test_drill PRIVATE m)
+
     add_executable(cuevr_preview
         cuevr/src/cuevr_preview.c
         cuevr/src/cuevr_app.c
@@ -210,6 +226,7 @@ if(MOTE_TARGET STREQUAL "host")
         cuevr/src/cuevr_setup.c
         cuevr/src/cuevr_career.c
         cuevr/src/cuevr_refcall.c
+        cuevr/src/cuevr_drill.c
         cuevr/src/cuevr_audio.c
         cuevr/src/cuevr_frame.c
         cuevr/src/cuevr_light.c

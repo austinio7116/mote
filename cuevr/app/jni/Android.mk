@@ -55,6 +55,7 @@ LOCAL_SRC_FILES := \
     $(MOTE_ROOT)/cuevr/src/cuevr_setup.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_career.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_refcall.c \
+    $(MOTE_ROOT)/cuevr/src/cuevr_drill.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_audio.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_frame.c \
     $(MOTE_ROOT)/cuevr/src/cuevr_light.c \
