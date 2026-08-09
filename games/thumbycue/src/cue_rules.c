@@ -386,20 +386,37 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
      * shot, ANY ball may be struck/potted as the ball-on, scoring the ball-on's
      * value. Consumed whether the shot is legal or a foul. */
     int fb = r->free_ball; r->free_ball = 0;
-    int fb_id = r->free_ball_id; r->free_ball_id = 0; (void)fb_id;
+    int fb_id = r->free_ball_id; r->free_ball_id = 0;
+    /* THE NOMINATION IS THE WHOLE OF A FREE BALL. WPBSA Section 3 Rule 12: the
+     * striker names a ball and for that stroke the NAMED ball is the ball on.
+     * Any other is not, and hitting or potting one is an ordinary foul.
+     *
+     * This id was read and voided, so "a free ball is in play" meant "every
+     * ball that is not the ball on is in play": you could nominate the brown,
+     * pot the blue, score for it, and watch the frame move on to the next ball
+     * while the brown you named stood there untouched. Which is exactly how it
+     * was reported.
+     *
+     * Nothing nominated stays permissive, deliberately. A free ball with no
+     * name attached is a state the rules do not produce, and refusing every
+     * ball would leave the striker unable to play at all — much worse than the
+     * laxity it would be fixing. */
+    #define FB_OK(id) (fb && (fb_id == 0 || (id) == fb_id))
     int nominated_before = r->nominated;
     int bon_val = (target_before == 2) ? r->seq : 1;   /* value of the red/clearance ball-on */
     int legal_pots = 0, illegal_pot = 0, maxpot = 0, reds_potted = 0;
     for (int k = 0; k < np; k++) {
         int on = snk_on(r, potted[k]);
-        if (on)       legal_pots += snk_value(potted[k]);
-        else if (fb)  legal_pots += bon_val;           /* free-ball pot scores the ball-on */
-        else          illegal_pot = 1;
-        if (on ? is_red(potted[k]) : (fb && target_before == 0)) reds_potted++;
+        int as_fb = !on && FB_OK(potted[k]);
+        if (on)          legal_pots += snk_value(potted[k]);
+        else if (as_fb)  legal_pots += bon_val;        /* free-ball pot scores the ball-on */
+        else             illegal_pot = 1;
+        if (on ? is_red(potted[k]) : (as_fb && target_before == 0)) reds_potted++;
         if (snk_value(potted[k]) > maxpot) maxpot = snk_value(potted[k]);
     }
     int foul = 0;
-    if (scratch || first_hit < 0 || (!fb && !snk_on(r, first_hit)) || illegal_pot) foul = 1;
+    if (scratch || first_hit < 0 || illegal_pot ||
+        (!snk_on(r, first_hit) && !FB_OK(first_hit))) foul = 1;
     /* A JUMP SHOT IS A FOUL — WPBSA Section 3, Rule 11(a)(x), "playing a jump
      * shot", at the value of the ball on. Whether the shot WAS one is Section 2,
      * Definition 20, and it is not "the cue ball left the bed": it is passing

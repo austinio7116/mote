@@ -570,6 +570,7 @@ static void pockets_log(void);
 #endif
 enum { TOAST_RECORD = 0, TOAST_ACH };
 static void toast_push(int kind, const char *title, const char *body);
+static uint16_t cloth_colour(int i);
 static void arm_shot(void);
 static void drill_capture(CueVrDrill *d);
 static void drill_start(int slot);
@@ -954,7 +955,7 @@ static void start_frame(CueGameKind kind) {
     cue_table_init(&S.tab, kind);
     /* The player's two table colours, from the authored palettes in cue_theme.h
      * — the same values the handheld offers, not a second set invented here. */
-    S.tab.cloth    = k_cloth[S.cloth_idx];
+    S.tab.cloth    = cloth_colour(S.cloth_idx);
     S.tab.rail     = k_frame_rail[S.frame_idx];
     S.tab.rail_top = k_frame_top[S.frame_idx];
 
@@ -998,7 +999,7 @@ static void start_frame(CueGameKind kind) {
  * appearance screen can be opened mid-break, and changing the cloth must not
  * put the balls back. Colours and the render's copy of the table only. */
 static void restyle_table(void) {
-    S.tab.cloth    = k_cloth[S.cloth_idx];
+    S.tab.cloth    = cloth_colour(S.cloth_idx);
     S.tab.rail     = k_frame_rail[S.frame_idx];
     S.tab.rail_top = k_frame_top[S.frame_idx];
     cuevr_render_set_table(&S.tab, &S.world);
@@ -1007,7 +1008,7 @@ static void restyle_table(void) {
 
 static void menu_preview(void) {
     cue_table_init(&S.tab, MENU[S.menu_sel].kind);
-    S.tab.cloth    = k_cloth[S.cloth_idx];
+    S.tab.cloth    = cloth_colour(S.cloth_idx);
     S.tab.rail     = k_frame_rail[S.frame_idx];
     S.tab.rail_top = k_frame_top[S.frame_idx];
     cue_table_build_world(&S.tab, &S.world);
@@ -1387,6 +1388,51 @@ static void mini_stop(void) {
     S.mini_done = 0;
     rerack();
     hand_over();
+}
+
+/* THE CLOTH, LIFTED.
+ *
+ * The palette is measured off a photograph of the manufacturer's swatch card,
+ * which is honest and comes out dull: cloth is a nap, photographed under a
+ * light, and the numbers that describe a patch of it on paper are not the
+ * numbers that make a table look like that cloth. Saturation up and a gamma
+ * lift on the value — gamma rather than a multiply so the dark ones move most
+ * and the bright ones barely at all, which is where the dullness actually is.
+ *
+ * CUEVR_CLOTHLIFT=sat,gamma overrides it so the strengths can be rendered and
+ * compared rather than argued about. CHAMPIONSHIP is left alone: it was not
+ * measured off the card and it already reads right. */
+#ifndef CUEVR_CLOTH_SAT
+#define CUEVR_CLOTH_SAT   1.25f
+#endif
+#ifndef CUEVR_CLOTH_GAMMA
+#define CUEVR_CLOTH_GAMMA 0.82f
+#endif
+
+static uint16_t cloth_colour(int i) {
+    if (i < 0 || i >= CUE_NCLOTH) i = 0;
+    uint16_t c = k_cloth[i];
+    if (i == 9) return c;                       /* CHAMPIONSHIP, as authored */
+    float sat = CUEVR_CLOTH_SAT, gam = CUEVR_CLOTH_GAMMA;
+    { const char *v = getenv("CUEVR_CLOTHLIFT");
+      if (v) { float a, b; if (sscanf(v, "%f,%f", &a, &b) == 2) { sat = a; gam = b; } } }
+    if (sat == 1.0f && gam == 1.0f) return c;
+    float r = (float)((c >> 11) & 31) / 31.0f;
+    float g = (float)((c >>  5) & 63) / 63.0f;
+    float b = (float)( c        & 31) / 31.0f;
+    float mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    float mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    float v2 = powf(mx, gam);
+    /* Saturation about the maximum channel, which is the same as an HSV
+     * saturate without the round trip through hue. */
+    float s2 = (mx > 1e-5f) ? (mx - mn) / mx * sat : 0.0f;
+    if (s2 > 1.0f) s2 = 1.0f;
+    float lo = v2 * (1.0f - s2);
+    float sc = (mx - mn > 1e-5f) ? (v2 - lo) / (mx - mn) : 0.0f;
+    r = lo + (r - mn) * sc; g = lo + (g - mn) * sc; b = lo + (b - mn) * sc;
+    #define Q(x, n) ((uint16_t)((x) < 0 ? 0 : (x) > 1 ? (n) : (int)((x) * (n) + 0.5f)))
+    return (uint16_t)((Q(r,31) << 11) | (Q(g,63) << 5) | Q(b,31));
+    #undef Q
 }
 
 /* ---- practice drills ---------------------------------------------------- */
@@ -2130,7 +2176,7 @@ static void hud_paint(void) {
             if (sel)      hud_rect(cx - 2, cy - 2, CLOTH_CW - 2, CLOTH_CH - 2, HI);
             else if (hov) hud_rect(cx - 2, cy - 2, CLOTH_CW - 2, CLOTH_CH - 2, LINE);
             hud_rect(cx - 1, cy - 1, CLOTH_CW - 4, CLOTH_CH - 4, RGB565C(10,10,12));
-            hud_rect(cx, cy, CLOTH_CW - 6, CLOTH_CH - 6, k_cloth[i]);
+            hud_rect(cx, cy, CLOTH_CW - 6, CLOTH_CH - 6, cloth_colour(i));
         }
         /* The name of whichever one is under the pointer, or of yours when it
          * is nowhere: a grid of colours with no names is a grid you cannot ask
@@ -5493,7 +5539,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 /* On the table at once, not on the way out: the whole point of
                  * a card is seeing the cloth on your own table before you
                  * commit to it. */
-                S.tab.cloth = k_cloth[S.cloth_idx];
+                S.tab.cloth = cloth_colour(S.cloth_idx);
                 cuevr_render_set_table(&S.tab, &S.world);
                 cue_audio_sfx(CUE_SFX_UI, 0.4f);
                 S.hud_dirty = 1;
