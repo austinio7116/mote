@@ -25,6 +25,12 @@ void link_net_task(void);            /* pump accept/discovery/reconnect; call ev
 int  link_net_status(void);          /* LINK_NET_* */
 int  link_net_is_host(void);         /* 1 on the listening side while connected */
 int  link_net_send(const void *data, int len);
+/* BEST EFFORT, for data only worth sending NOW. A live cue pose that could not
+ * go this frame is stale by the next one, so queueing it behind a backlog is
+ * worse than dropping it: it delays the records that DO matter, and at a few
+ * hundred frames a second it is the only thing capable of filling the queue at
+ * all — and a full queue takes the link down. Returns 0 if it was dropped. */
+int  link_net_send_now(const void *data, int len);
 int  link_net_recv(void *buf, int max);
 const char *link_net_info(void);     /* short human status line for the UI */
 
