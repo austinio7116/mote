@@ -279,6 +279,73 @@ int main(void) {
         ok(Q.n_off == 0, "and does not foul the next shot too", NULL);
     }
 
+    /* ---- 10. WPBSA Definition 20, and its three exceptions ---------------
+     *
+     * "A jump shot is made when the cue-ball passes over any part of an object
+     * ball, whether hitting it in the process or not, except (a)...(c)."
+     *
+     * The offence is passing over a ball, NOT leaving the bed — which is what
+     * this used to test for, and which fouled every one of the exceptions plus
+     * a hop over empty cloth. */
+    {
+        /* A jump over EMPTY CLOTH is not a jump shot at all. */
+        rack2(&t, b, 2.00f);           /* the other ball miles away */
+        w.first_hit = -1; w.first_hit_idx = -1;
+        w.jump_over = 0; w.jmp_pending = 0; w.jmp_idx = -1;
+        w.jmp_hit_it = 0; w.jmp_bounced = 0;
+        cue_phys_strike_jump(&w, &b[0], dir, 3.0f, 0.0f, 0.30f, 0.79f, 1.00f);
+        fly(&w, b, 2);
+        ok(!w.jump_over, "a hop over open cloth is not a jump shot",
+           w.jump_over ? "fouled anyway" : NULL);
+
+        /* Over a ball, having touched nothing first: the offence itself. */
+        rack2(&t, b, 0.30f);
+        w.first_hit = -1; w.first_hit_idx = -1;
+        w.jump_over = 0; w.jmp_pending = 0; w.jmp_idx = -1;
+        w.jmp_hit_it = 0; w.jmp_bounced = 0;
+        cue_phys_strike_jump(&w, &b[0], dir, 4.0f, 0.0f, 0.30f, 0.79f, 1.10f);
+        fly(&w, b, 2);
+        ok(w.jump_over, "over a ball before touching anything IS a jump shot",
+           w.jump_over ? NULL : "not detected");
+
+        /* Exception (b): jumps, hits the ball, lands NOT beyond it. A short
+         * launch straight into the ball rather than over it. */
+        rack2(&t, b, 0.16f);
+        w.first_hit = -1; w.first_hit_idx = -1;
+        w.jump_over = 0; w.jmp_pending = 0; w.jmp_idx = -1;
+        w.jmp_hit_it = 0; w.jmp_bounced = 0;
+        cue_phys_strike_jump(&w, &b[0], dir, 2.0f, 0.0f, 0.20f, 0.60f, 0.55f);
+        Run rb = fly(&w, b, 2);
+        char d[110];
+        snprintf(d, sizeof d, "landed x = %.3f, ball at x = %.3f, over=%d",
+                 (double)rb.land_x, (double)b[1].pos.x, w.jump_over);
+        ok(!w.jump_over, "exception (b): into the ball, not past it — legal", d);
+    }
+
+    /* ---- 11. exception (a): hit one ball, then jump over another ---------- */
+    {
+        CueBall c3[3];
+        memset(c3, 0, sizeof c3);
+        for (int i = 0; i < 3; i++) {
+            c3[i].on = 1; c3[i].id = (uint8_t)i;
+            c3[i].orient = m3_identity(); c3[i].pos.y = t.R;
+        }
+        c3[0].pos.x = -0.60f;                      /* white */
+        c3[1].pos.x = -0.60f + 0.10f;              /* struck first, close in */
+        c3[2].pos.x = -0.60f + 0.42f;              /* jumped over, further on */
+        w.first_hit = -1; w.first_hit_idx = -1;
+        w.jump_over = 0; w.jmp_pending = 0; w.jmp_idx = -1;
+        w.jmp_hit_it = 0; w.jmp_bounced = 0;
+        /* Launched, but it meets ball 1 almost at once and is over ball 2 after. */
+        cue_phys_strike_jump(&w, &c3[0], dir, 4.0f, 0.0f, 0.30f, 0.79f, 1.10f);
+        Run r = fly(&w, c3, 3);
+        char d[110];
+        snprintf(d, sizeof d, "first_hit=%d, over=%d (id %d), rose %.1f mm",
+                 w.first_hit, w.jump_over, w.jump_over_id, (double)r.peak * 1000.0);
+        ok(w.first_hit == 1, "it struck the near ball first", d);
+        ok(!w.jump_over, "exception (a): over ANOTHER ball after a contact — legal", d);
+    }
+
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);
     return s_fail ? 1 : 0;
 }

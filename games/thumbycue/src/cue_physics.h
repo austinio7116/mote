@@ -108,6 +108,31 @@ typedef struct {
     int first_hit;
     int first_hit_idx;
 
+    /* ---- jump shots, as snooker actually defines one ----------------------
+     *
+     * WPBSA Section 2, Definition 20: a jump shot is made when the cue-ball
+     * PASSES OVER ANY PART of an object ball, whether hitting it in the process
+     * or not — except (a) when it first hits one object ball and then jumps
+     * over another; (b) when it jumps and hits an object ball and, at the
+     * moment of landing, is not on the far side of that ball; or (c) when,
+     * after legally hitting an object ball, it jumps over that ball after
+     * hitting a cushion or another ball.
+     *
+     * So the offence is passing over a ball, not leaving the bed — a hop over
+     * open cloth is not a jump shot at all, and three quite ordinary things
+     * that DO pass over a ball are legal. It is an ordering question, which is
+     * why it is answered here rather than in the rules: only the integrator
+     * sees what happened between the strike and the settle.
+     *
+     * `jump_over` is the verdict. Reset it with first_hit at the start of each
+     * shot; the rest is working state. */
+    int jump_over;        /* an unexcused pass-over happened: this was a jump shot */
+    int jump_over_id;     /* the ball it went over, for the referee's line */
+    int jmp_pending;      /* mid-flight pass-over, waiting on the landing test for (b) */
+    int jmp_idx;          /* which ball that pass-over is of */
+    int jmp_hit_it;       /* and whether the cue ball has since contacted it */
+    int jmp_bounced;      /* a cushion or another ball since first_hit, for (c) */
+
     /* Integrator accumulator (do not touch). */
     float _acc;
 } CueWorld;

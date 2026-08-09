@@ -60,7 +60,7 @@ typedef struct {
     /* ---- what the HOST saw, set before cue_rules_resolve and cleared by it ----
      * Same contract as was_snookered above: the rules cannot see these for
      * themselves because they happen outside the settle. */
-    int jumped;          /* the cue ball was deliberately launched off the bed.
+    int jumped;          /* the stroke was a JUMP SHOT by WPBSA Definition 20 —
                           * A foul in snooker — you may not jump a ball — and
                           * perfectly legal in pool, which is why it is a flag
                           * here rather than a decision the physics makes. */

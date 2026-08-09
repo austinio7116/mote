@@ -61,6 +61,8 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
     w->bound_x = w->bound_z = 1.0e9f;   /* until cue_table says where the rail ends */
     w->first_hit = -1;
     w->first_hit_idx = -1;
+    w->jump_over = 0; w->jump_over_id = 0;
+    w->jmp_pending = 0; w->jmp_idx = -1; w->jmp_hit_it = 0; w->jmp_bounced = 0;
     w->_acc = 0.0f;
 }
 
@@ -427,6 +429,73 @@ static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
     return 0;
 }
 
+/* DID THE CUE BALL PASS OVER A BALL, and was it allowed to?
+ *
+ * Called every substep while the white is off the bed. "Passes over any part
+ * of an object ball" is a footprint test: the two circles overlap in plan while
+ * one of them is in the air. Whether that is a FOUL depends entirely on when it
+ * happened relative to the first contact, which is why this has to be watched
+ * as it happens rather than reconstructed at the settle.
+ *
+ *   before any contact  → provisionally a jump shot, unless exception (b)
+ *                         rescues it at the landing
+ *   after the contact,
+ *     over another ball → exception (a), legal
+ *     over that ball,
+ *       after a cushion
+ *       or another ball → exception (c), legal
+ *       otherwise       → a jump shot
+ */
+static CUE_HOT void jump_watch(CueWorld *w, CueBall *balls, int n) {
+    const CueBall *cue = &balls[0];
+    const float reach = 2.0f * w->R;
+    for (int j = 1; j < n; j++) {
+        if (!balls[j].on || balls[j].drop > 0.0f) continue;
+        float dx = cue->pos.x - balls[j].pos.x;
+        float dz = cue->pos.z - balls[j].pos.z;
+        if (dx > reach || dx < -reach || dz > reach || dz < -reach) continue;
+        if (dx * dx + dz * dz >= reach * reach) continue;   /* no overlap in plan */
+
+        if (w->first_hit_idx >= 0) {
+            if (j != w->first_hit_idx) continue;            /* (a) — over another ball */
+            if (w->jmp_bounced) continue;                   /* (c) — off a cushion or ball */
+            w->jump_over = 1; w->jump_over_id = balls[j].id;
+            return;
+        }
+        /* Nothing struck yet. Hold it: (b) can still excuse this one, but only
+         * the landing knows. */
+        if (!w->jmp_pending) { w->jmp_pending = 1; w->jmp_idx = j; w->jmp_hit_it = 0; }
+    }
+}
+
+/* The landing settles a pass-over that began before any contact.
+ *
+ * (b) excuses it when the cue ball jumped, hit that ball, and came down NOT on
+ * the far side of it — you went into the ball, not past it. Anything else that
+ * passed over a ball before touching one is a jump shot. */
+static void jump_land(CueWorld *w, CueBall *balls, int n) {
+    if (!w->jmp_pending) return;
+    int j = w->jmp_idx;
+    int excused = 0;
+    if (w->jmp_hit_it && j >= 0 && j < n) {
+        /* "not on the far side of the CURRENT position of that object ball",
+         * measured along the way the cue ball was going. */
+        float tx = balls[0].vel.x, tz = balls[0].vel.z;
+        float l = sqrtf(tx * tx + tz * tz);
+        if (l > 1e-5f) {
+            tx /= l; tz /= l;
+            float ox = balls[0].pos.x - balls[j].pos.x;
+            float oz = balls[0].pos.z - balls[j].pos.z;
+            if (ox * tx + oz * tz <= 0.0f) excused = 1;
+        } else excused = 1;      /* stopped dead on it: certainly not past it */
+    }
+    if (!excused) {
+        w->jump_over = 1;
+        if (j >= 0 && j < n) w->jump_over_id = balls[j].id;
+    }
+    w->jmp_pending = 0; w->jmp_idx = -1; w->jmp_hit_it = 0;
+}
+
 static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_t *ev) {
     /* 1. cloth friction + integrate. Balls mid-drop instead fall into the
      * pocket (pulled to the centre + accelerating downward) and are removed
@@ -481,6 +550,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                     b->vel.y = 0.0f;
                 }
                 s_bed_land = 1;
+                if (i == 0) jump_land(w, balls, n);
             }
             /* OFF THE TABLE. Past the outer face of the rail there is a floor,
              * not a slate, and nothing here models a floor — so the ball is out
@@ -512,6 +582,12 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
         b->pos.y = w->R;
         ball_spin_orient(b, h);
     }
+    /* 1b. the jump-shot watch, while the white is off the bed. Before the
+     * collisions, so a pass-over is seen at the position it happened at rather
+     * than after the contact has moved everything. */
+    if (n > 0 && balls[0].on && cue_phys_airborne(w, &balls[0]))
+        jump_watch(w, balls, n);
+
     /* 2. ball–ball (skip droppers). Record the CUE ball's (index 0) first
      * object-ball contact for the rules. A cheap per-axis broad-phase reject
      * (exactly equivalent to the dist>=2R early-out, but no sqrt) skips the far
@@ -527,6 +603,11 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             if (collide_ball_ball(w, &balls[i], &balls[j])) {
                 if (ev) *ev |= CUE_EV_BALL_HIT;
                 if (w->first_hit < 0 && i == 0) { w->first_hit = balls[j].id; w->first_hit_idx = j; }
+                else if (w->first_hit >= 0 && i == 0) w->jmp_bounced = 1;  /* (c) */
+                /* Did it hit the ball it is in the act of passing over? That is
+                 * the whole of exception (b), decided at the landing. */
+                if (i == 0 && w->jmp_pending && j == w->jmp_idx) w->jmp_hit_it = 1;
+                if (i == 0 && w->jmp_pending && j != w->jmp_idx) w->jmp_hit_it = 0;
             }
         }
     }
@@ -538,7 +619,8 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
         if (!b->on || b->drop > 0.0f) continue;
         float v2 = b->vel.x*b->vel.x + b->vel.z*b->vel.z;
         if (v2 < V_STOP*V_STOP) continue;
-        collide_cushions(w, b, ev);
+        if (collide_cushions(w, b, ev) && i == 0 && w->first_hit >= 0)
+            w->jmp_bounced = 1;                                       /* (c) */
         if (check_pockets(w, b) && ev) *ev |= CUE_EV_POCKET;
     }
 }

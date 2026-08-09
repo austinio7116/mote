@@ -400,9 +400,16 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
     }
     int foul = 0;
     if (scratch || first_hit < 0 || (!fb && !snk_on(r, first_hit)) || illegal_pot) foul = 1;
-    /* A JUMP IS A FOUL IN SNOOKER. The cue ball may not be made to jump over any
-     * ball — it is one of the few things the rules forbid outright rather than
-     * price — so it does not matter here what the shot went on to do. */
+    /* A JUMP SHOT IS A FOUL — WPBSA Section 3, Rule 11(a)(x), "playing a jump
+     * shot", at the value of the ball on. Whether the shot WAS one is Section 2,
+     * Definition 20, and it is not "the cue ball left the bed": it is passing
+     * over part of an object ball, with three exceptions for doing so after a
+     * contact. Only the integrator can see that, so it arrives as a verdict
+     * (CueWorld.jump_over) rather than being decided here.
+     *
+     * The fv calculation below already prices it correctly: for a jump whose
+     * first contact was legal, max(4, ball-on, first-hit, potted) reduces to
+     * the value of the ball on, minimum four. */
     if (r->jumped) foul = 1;
     /* And so is putting a ball off the table, in every game there is. */
     if (r->n_off) foul = 1;

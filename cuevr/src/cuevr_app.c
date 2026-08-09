@@ -241,7 +241,6 @@ static struct {
     int cloth_idx, frame_idx;    /* cue_theme.h palettes */
     int ref_voice;               /* CUEVR_REF_* — the referee's break calls */
     int cloth_hov;               /* the swatch under the pointer, or -1 */
-    int shot_jumped;             /* the white was launched this shot */
     int light_idx;               /* the lighting rig, cuevr_light.h */
     float menu_cue_roll;         /* the display cue turning in the menu */
     /* Frame timing, on screen. "It hitches sometimes" cannot be acted on; a
@@ -2912,6 +2911,10 @@ static void begin_shot(void) {
     for (int i = 0; i < S.nballs; i++) S.was_on[i] = S.balls[i].on;
     S.world.first_hit = -1;
     S.world.first_hit_idx = -1;
+    S.world.jump_over = 0; S.world.jump_over_id = 0;
+    S.world.jmp_pending = 0; S.world.jmp_idx = -1;
+    S.world.jmp_hit_it = 0; S.world.jmp_bounced = 0;
+    S.world.first_hit_idx = -1;
     S.shot_events = 0;
     S.state = ST_ROLL;
 }
@@ -3243,10 +3246,14 @@ static void resolve_shot(void) {
         }
     }
     S.rules.n_off = n_off;
-    /* And whether the white was launched, which snooker forbids outright. Set
-     * at the strike — by then the flight is over and the physics has forgotten. */
-    S.rules.jumped = S.shot_jumped;
-    S.shot_jumped = 0;
+    /* AND WHETHER IT WAS A JUMP SHOT, as snooker defines one — which is not
+     * "did the white leave the bed". WPBSA Definition 20 is about passing over
+     * a ball, and it excepts three quite ordinary ways of doing that, so only
+     * the integrator can answer it: it is a question about the order things
+     * happened in between the strike and the settle. This flag used to be set
+     * at the strike from vy alone, which fouled a hop over open cloth and
+     * fouled all three exceptions. */
+    S.rules.jumped = S.world.jump_over;
     LOGI("[cuevr] settle: cue at %.2f,%.2f  first_hit %d  potted %d  scratch %d",
          (double)S.balls[0].pos.x, (double)S.balls[0].pos.z, S.world.first_hit, np, scratch);
     /* THE CHALLENGE IS NOT A FRAME. Six reds with no colours is not a position
@@ -4522,7 +4529,6 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 ns.vy = vy;
                 cuevr_net_send_shot(&ns);
             }
-            S.shot_jumped = (vy > 0.0f);
             cue_phys_strike_jump(&S.world, &S.balls[0], shot.dir, sp,
                                  shot.tip_side, shot.tip_vert, shot.elev, vy);
             /* Power relative to the hardest shot there is, so a delicate safety
@@ -4567,7 +4573,6 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 if (ns.nominated) cue_rules_nominate(&S.rules, ns.nominated);
                 if (ns.free_ball_id) cue_rules_nominate_free(&S.rules, ns.free_ball_id);
                 cue_audio_sfx(CUE_SFX_STRIKE, ns.speed / MAX_STRIKE_SPEED);
-                S.shot_jumped = (ns.vy > 0.0f);
                 cue_phys_strike_jump(&S.world, &S.balls[0], dir, ns.speed,
                                      ns.side, ns.vert, ns.elev, ns.vy);
                 begin_shot();
