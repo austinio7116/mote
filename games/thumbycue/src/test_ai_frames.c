@@ -36,11 +36,24 @@
 #include <string.h>
 #include <time.h>
 
-/* What the front-end multiplies the AI's power01 by. The handheld uses 8.5;
- * CueVR uses 12.0. cue_ai.c's own simulation hard-codes 8.5, so on CueVR every
- * shot the AI plans is played 41% harder than it simulated — which is the whole
- * reason this is a variable here. */
-static float MAX_STRIKE_SPEED = 8.5f;
+/* What the front-end multiplies the AI's power01 by. CueVR uses 12.0 and the
+ * handheld 8.5, and CUEVR IS THE DEFAULT HERE — measuring the AI on the game
+ * nobody is playing is a way to be confidently wrong, and a default that has to
+ * be overridden to be right is a trap. AI_MAXSPEED=8.5 gets the handheld.
+ *
+ * It is NOT a mismatch. cue_ai.c simulates everything against AI_SIM_SPEED
+ * (8.5), which is what its distance and power constants were tuned to, and
+ * cue_ai_set_max_speed makes to_caller_power rescale each plan by
+ * AI_SIM_SPEED/max so the ball leaves at the pace the AI actually simulated.
+ * An older comment here claimed shots were played 41% harder than planned; that
+ * was true before the setter existed and has been wrong ever since.
+ *
+ * What it DOES mean is a ceiling: a plan of power01 = 1.0 comes back as 0.708,
+ * so the AI's hardest possible shot on CueVR is 8.5 m/s while the player can
+ * swing at 12.0. The AI cannot play a full-blooded shot. That is a real
+ * limitation rather than a bug, and it is worth knowing when reading the
+ * safety and escape numbers below. */
+static float MAX_STRIKE_SPEED = 12.0f;
 
 static CueTable  T;
 static CueWorld  W;
@@ -385,9 +398,14 @@ int main(void) {
            no_elev ? ", forced cue elevation DISABLED"
                    : elev_blind ? ", cue elevation forced but PLANNER BLIND to it"
                                 : "");
+    /* Say what the rescale MEANS rather than flagging it as a discrepancy: the
+     * old line read as a warning that the AI was being played harder than it
+     * planned, which stopped being true when cue_ai_set_max_speed arrived. What
+     * is still worth printing is the ceiling it implies. */
     printf("  strike    power01 x %.1f m/s%s\n", MAX_STRIKE_SPEED,
            fabsf(MAX_STRIKE_SPEED - 8.5f) > 0.01f
-             ? "   <-- the AI SIMULATES at 8.5" : "");
+             ? "   (plans rescaled to the AI's own sim; its hardest shot is 8.5)"
+             : "");
     printf("  frames    %d\n\n", frames);
     fflush(stdout);
 
