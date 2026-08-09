@@ -323,8 +323,17 @@ static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
         prev_brk = R.brk;
     }
     if (prev_brk > 0) {
+        /* THE LAST VISIT OF THE FRAME, which is usually the best one — it is
+         * the clearance that ended it. This block bucketed it and counted it
+         * as a century, and then did not credit it to the PLAYER, so the
+         * per-player best and mean quietly excluded every frame-winning break.
+         * It showed as a global HIGHEST BREAK of 113 over a P0 best of 78,
+         * which is two numbers that cannot both be true. */
         int b = prev_brk / 10; if (b > 15) b = 15;
         ST.brk_hist[b]++; ST.breaks_started++;
+        if (prev_brk > ST.best_p[prev_turn & 1]) ST.best_p[prev_turn & 1] = prev_brk;
+        ST.brk_sum_p[prev_turn & 1] += prev_brk;
+        ST.brk_n_p[prev_turn & 1]++;
         if (prev_brk >= 100) ST.century++;
         else if (prev_brk >= 50) ST.fifty++;
         else if (prev_brk >= 30) ST.thirty++;
