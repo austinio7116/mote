@@ -48,6 +48,12 @@ typedef struct {
     uint8_t kind;        /* CueGameKind the layout was built on */
     uint8_t goal;        /* CUEVR_GOAL_* */
     uint8_t ball;        /* legacy: the single ball a POT drill wanted */
+    /* AGAINST THE CLOCK, OR NOT. Timing is a property of the challenge, not of
+     * challenges: "clear these six as fast as you can" wants a clock, "pot the
+     * black off its spot" wants to know whether you did it. Every challenge
+     * ran a clock and showed one, which turned a pot into a race nobody had
+     * entered, and left a stopwatch on screen afterwards. Off unless asked. */
+    uint8_t timed;
     /* WHICH BALLS A POT DRILL WANTS, as a set rather than one of them.
      * "Pot the black" is a drill; so is "pot the last three reds" and "clear
      * the colours", and a single id cannot say either. A bit per ball id, so

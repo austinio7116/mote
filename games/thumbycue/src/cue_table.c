@@ -32,7 +32,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->R = 0.028575f; t->mass = 0.170f;
         t->cushion_h = 1.27f * t->R; t->rail_w = 0.075f;
         t->pocket_round = 1;
-        t->pr_corner  = 2.15f * t->R; t->pr_side  = 1.95f * t->R;
+        /* TIGHTER BY A FIFTH, and this is the size a 7 ft table's pockets
+         * actually are. These are radii in ball-radii, so the mouth was 4.30
+         * ball-radii across for a 2 in ball — 123 mm, where a real pub table
+         * cuts about 89 mm. At 1.72 the mouth is 3.44 R ≈ 98 mm, which is in
+         * the right country and still a pub pocket rather than a snooker one.
+         * Both games on this bed get it: it is one table with two rule sets. */
+        t->pr_corner  = 1.72f * t->R; t->pr_side  = 1.56f * t->R;
         t->gap_corner = 2.667f * t->R; t->gap_side = 2.50f * t->R;
         t->facing_len = 1.667f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;

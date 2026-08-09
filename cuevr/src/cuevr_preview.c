@@ -49,6 +49,7 @@ void cuevr_app_force_net(int join);
 const char *cuevr_app_state_name(void);
 int cuevr_app_table_kind(void);
 void cuevr_app_break_selftest(void);
+void cuevr_app_concede_selftest(void);
 void cuevr_app_cue_probe(int *tracked, int *stroking, int *on_ball,
                          float *gap, float *speed, int *n);
 void cuevr_app_cue_line(MoteVrV3 *tip, MoteVrV3 *axis);
@@ -319,6 +320,7 @@ int main(int argc, char **argv) {
     { const char *st = getenv("CUEVR_START"); if (st) cuevr_app_force_start(atoi(st)); }
     { const char *sc = getenv("CUEVR_SCREEN"); if (sc) cuevr_app_force_screen(sc); }
     if (getenv("CUEVR_BRKTEST")) { cuevr_app_break_selftest(); return 0; }
+    if (getenv("CUEVR_CONCEDETEST")) { cuevr_app_concede_selftest(); return 0; }
     if (auto_net) cuevr_app_force_net(!strcmp(auto_net, "join"));
     if (force_body >= -1) cuevr_app_force_body(force_body);
     { const char *v = getenv("CUEVR_CUE"); if (v) cuevr_app_force_cue(atoi(v)); }

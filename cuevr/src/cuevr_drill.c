@@ -120,6 +120,7 @@ void cuevr_drills_load(CueVrDrills *d, const char *path) {
         if      (sscanf(line, "kind %d", &a) == 1)   s->kind = (uint8_t)(a >= 0 && a < CUE_GAME_COUNT ? a : 0);
         else if (sscanf(line, "goal %d", &a) == 1)   s->goal = (uint8_t)(a >= 0 && a < CUEVR_GOAL_N ? a : 0);
         else if (sscanf(line, "ball %d", &a) == 1)   s->ball = (uint8_t)a;
+        else if (sscanf(line, "timed %d", &a) == 1)  s->timed = (uint8_t)(a ? 1 : 0);
         else if (sscanf(line, "need %d", &a) == 1)   s->need = (uint32_t)a;
         else if (sscanf(line, "target %d", &a) == 1) s->target = (int16_t)a;
         else if (sscanf(line, "best %d", &a) == 1)   s->best = a;
@@ -154,9 +155,9 @@ int cuevr_drills_save(const CueVrDrills *d, const char *path) {
         const CueVrDrill *s = &d->slot[i];
         if (!s->used) continue;
         fprintf(f, "slot %d\nkind %d\ngoal %d\nball %d\nneed %d\ntarget %d\n"
-                   "best %d\ntries %d\nwins %d\n",
+                   "timed %d\nbest %d\ntries %d\nwins %d\n",
                 i, (int)s->kind, (int)s->goal, (int)s->ball, (int)s->need,
-                (int)s->target,
+                (int)s->target, (int)s->timed,
                 (int)s->best, (int)s->tries, (int)s->wins);
         for (int b = 0; b < s->n; b++)
             fprintf(f, "b %d %d %d %.5f %.5f\n",

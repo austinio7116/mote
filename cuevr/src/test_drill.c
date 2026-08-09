@@ -55,7 +55,12 @@ int main(void) {
     capture(&d, &t, b, n);
     d.goal = CUEVR_GOAL_POT;
     d.ball = CUE_ID_BLACK;
+    d.need = 1u << CUE_ID_BLACK;
+    d.timed = 1;
+    d.target = 35;
     d.best = 0;
+    d.wins = 4;
+    d.tries = 9;
 
     /* ---- 1. through a file and back, to the last bit ---------------------- */
     {
@@ -72,6 +77,17 @@ int main(void) {
                  r->used, r->kind, r->n, r->goal, r->ball);
         ok(r->used && r->kind == d.kind && r->n == d.n &&
            r->goal == d.goal && r->ball == d.ball, "and comes back the same drill", det);
+
+        /* EVERY FIELD, not the ones that were interesting the day this was
+         * written. `timed` was added and the round trip did not check it, so
+         * losing it in the file would have looked exactly like a pass — and a
+         * challenge that quietly stops being against the clock is a record
+         * nobody can beat and a stopwatch that never appears again. */
+        snprintf(det, sizeof det, "timed=%d need=%u target=%d wins=%d tries=%d",
+                 r->timed, (unsigned)r->need, (int)r->target, r->wins, r->tries);
+        ok(r->timed == d.timed && r->need == d.need && r->target == d.target &&
+           r->wins == d.wins && r->tries == d.tries,
+           "with the goal, the clock and the tally intact", det);
 
         int same = 1;
         float worst = 0.0f;

@@ -349,11 +349,20 @@ static CUE_HOT Vec3 seg_closest(Vec3 a, Vec3 b, Vec3 p) {
 
 static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev) {
     int hit = 0;
-    /* OVER THE CUSHION. A ball whose underside has cleared the nose is past the
-     * rail, not bouncing off it — that is what a jump shot out of a snooker is.
-     * Everything on the cloth fails this test by a mile, so the planar game is
-     * untouched. */
-    if (b->pos.y - w->R > w->cushion_nose) return 0;
+    /* OVER THE CUSHION. A ball whose underside has cleared the TOP of the
+     * cushion is past the rail, not bouncing off it — that is what a jump shot
+     * out of a snooker is. Everything on the cloth fails this test by a mile,
+     * so the planar game is untouched.
+     *
+     * The top, which is rail_top. `cushion_nose` is a different height and an
+     * easy one to reach for by name: it is the ball-CONTACT line, 63.5% of a
+     * ball up the front face, where a rolling ball touches. The cushion carries
+     * on above it to the flat top the frame is level with (cue_render: nose_h,
+     * then flat_h = nose_h * 1.30, and rail_h = flat_h). Judging "cleared it"
+     * at the contact line let a ball pass through 10 mm of solid drawn cushion,
+     * which is the reported ball-through-the-rail, and it also opened a band
+     * with no wall and no floor in it. */
+    if (b->pos.y - w->R > w->rail_top) return 0;
     /* Tilt the rail normal up by cush_tilt so top/back spin couples into the
      * rebound; then re-normalise. */
     float ct = cosf(w->cush_tilt), st = sinf(w->cush_tilt);
@@ -397,7 +406,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
         float dist = sqrtf(d.x * d.x + d.z * d.z);
         float mind = w->R + w->jaw_r;
         if (dist < mind && dist > 1e-6f) {
-            if (b->pos.y - w->R > w->cushion_nose) continue;   /* flying over it */
+            if (b->pos.y - w->R > w->rail_top) continue;       /* flying over it */
             Vec3 N = v3_scale(d, 1.0f / dist);
             b->pos = v3_add(b->pos, v3_scale(N, (mind - dist)));
             if (collide_surface(w, b, N, w->e_cush, w->mu_cush)) {
@@ -429,13 +438,16 @@ static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
     return 0;
 }
 
-/* WHAT IS UNDER A BALL AT (x, z): the cloth, the rail cap, or nothing.
+/* WHAT IS UNDER A BALL AT (x, z): the cloth, the top of the frame, or nothing.
  *
- * Three regions and a hole. Inside the cushion line is the bed. Between the
- * cushion line and the outer frame is the rail, which a jumped ball can land
- * on and run along. Past the frame there is a floor this does not model, so
- * the ball has left. And over a pocket MOUTH there is no rail at all — which
- * is how a ball rattling along the top can drop in, and it does happen. */
+ * Three regions and a hole, and this is deliberately the same answer that
+ * cue_table_surface gives the cue, because it is the same surface. Inside the
+ * cushion line is the bed. Outside it, cushion top and wood top are ONE FLAT
+ * LEVEL at rail_top — that is how cue_render builds them (rail_h = flat_h), so
+ * anything else here would be a floor that is not where the table is drawn.
+ * Past the frame there is a floor this does not model, so the ball has left.
+ * And over a pocket MOUTH there is no top at all — which is how a ball
+ * rattling along the frame can drop in, and it does happen. */
 #define CUE_NO_SURFACE (-1.0e9f)
 static CUE_HOT float surface_at(const CueWorld *w, float x, float z) {
     float ax = x < 0 ? -x : x, az = z < 0 ? -z : z;
@@ -561,6 +573,19 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
          * surface drops away and it falls to the cloth; roll off the outside,
          * or over a pocket mouth, and there is nothing under it at all. */
         float surf = surface_at(w, b->pos.x, b->pos.z);
+        /* THE RAIL ONLY HOLDS A BALL THAT IS ALREADY ON TOP OF IT.
+         *
+         * A ball at cloth height whose centre has crossed the cushion line is
+         * not on the rail — it is IN the cushion, mid-bounce, and the cushion
+         * push-out is about to put it back. Every hard shot does this: the ball
+         * penetrates the rail by a millimetre or two before the collision
+         * resolves. Treating that as "over the rail region, so it must be on
+         * the rail" teleported it up onto the frame, from where it rolled
+         * gently off the table and was deleted — a ball lost out of the jaws
+         * on hard shots, which is exactly what was reported.
+         *
+         * Below the cap, the answer is the bed, and the cushion does the rest. */
+        if (surf > 0.0f && b->pos.y < surf + w->R - 1.0e-4f) surf = 0.0f;
         float rest_y = (surf > CUE_NO_SURFACE * 0.5f) ? surf + w->R : -1.0e9f;
         if (b->pos.y > rest_y + 1.0e-5f || b->vel.y > 0.0f) {
             b->vel.y -= w->g * h;
@@ -611,7 +636,21 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             ball_spin_orient(b, h);
             continue;
         }
-        b->astray = 0.0f;
+        /* ON THE CLOTH clears the stuck timer; anywhere else runs it, including
+         * the millisecond a ball spends inside a cushion mid-bounce — which is
+         * nowhere near ten seconds, so a bounce costs nothing and a ball wedged
+         * where it cannot be played still leaves. */
+        if (b->pos.x <= w->play_x && b->pos.x >= -w->play_x &&
+            b->pos.z <= w->play_z && b->pos.z >= -w->play_z) b->astray = 0.0f;
+        else {
+            b->astray += h;
+            if (b->astray > 10.0f) {
+                b->on = 0; b->drop = 0.0f;
+                b->pocket = CUE_OFF_TABLE;
+                b->vel = v3(0, 0, 0); b->w = v3(0, 0, 0);
+                continue;
+            }
+        }
         /* Asleep ball: at rest with no live spin → skip cloth/integrate entirely.
          * A collision in step 2 wakes it (sets velocity). This is exact (a still
          * ball doesn't move) and is the big win on this low-drag cloth, where a

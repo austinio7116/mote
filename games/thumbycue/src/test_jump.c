@@ -201,14 +201,41 @@ int main(void) {
         }
         b[0].pos.x = t.half_len - 0.10f;   /* right against the top cushion */
         b[1].pos.x = -0.5f;                /* out of the way */
-        /* Straight at the rail, steeply, hard: over the cushion and gone. */
-        cue_phys_strike_jump(&w, &b[0], dir, 5.0f, 0.0f, 0.35f, 0.90f, 2.0f);
+        /* Straight at the rail, steeply, hard: over the cushion and gone.
+         *
+         * IT HAS TO CLEAR THE TOP OF THE CUSHION, and the top is rail_top, not
+         * cushion_nose — the nose is the contact line 63.5% of a ball up the
+         * front face, and there is another 10 mm of cushion above it before the
+         * flat the wood is level with. It also has to be up there BEFORE it
+         * arrives, because the ball meets the cushion a radius short of the
+         * line, so the clearance is wanted a whole ball early. 3 m/s of lift
+         * over that distance is comfortably enough; 2 was not, and the ball
+         * bounced back onto the table, which is the correct answer to a stroke
+         * that does not clear a cushion. */
+        cue_phys_strike_jump(&w, &b[0], dir, 5.0f, 0.0f, 0.35f, 0.90f, 3.0f);
         Run r = settle(&w, b, 2);
         char d[80];
         snprintf(d, sizeof d, "%d steps, finished at x = %.2f",
                  r.steps, (double)b[0].pos.x);
         ok(r.steps < 20000, "a ball flung off the table still settles", d);
         ok(!b[0].on, "and is out of play rather than rolling for ever", d);
+
+        /* AND THE OTHER HALF OF IT: not enough lift means it comes back. A
+         * cushion that can be jumped is a cushion that can be jumped BY
+         * MISTAKE unless failing to clear it is a bounce. */
+        memset(b, 0, sizeof b);
+        for (int i = 0; i < 2; i++) {
+            b[i].on = 1; b[i].id = (uint8_t)i;
+            b[i].orient = m3_identity(); b[i].pos.y = t.R;
+        }
+        b[0].pos.x = t.half_len - 0.10f;
+        b[1].pos.x = -0.5f;
+        cue_phys_strike_jump(&w, &b[0], dir, 5.0f, 0.0f, 0.35f, 0.90f, 1.0f);
+        settle(&w, b, 2);
+        snprintf(d, sizeof d, "finished at x = %.3f, cushion at %.3f",
+                 (double)b[0].pos.x, (double)t.half_len);
+        ok(b[0].on && b[0].pos.x < t.half_len,
+           "a shot that does NOT clear the cushion bounces off it", d);
     }
 
     /* ---- 7. a jump with SCREW on it ------------------------------------
