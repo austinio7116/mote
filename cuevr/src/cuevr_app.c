@@ -4599,6 +4599,11 @@ static void app_update(void *u, const MoteVrTracking *t) {
         (S.state == ST_AIM || S.state == ST_ROLL || S.state == ST_THINK ||
          S.state == ST_PLACE || S.state == ST_DECIDE || S.state == ST_PAUSE)) {
         think_join();
+        /* WHY it went, not just that it did. link_net knows — peer closed the
+         * pipe, a send error, a backlog — and without it a dropped match is a
+         * mystery every single time. */
+        LOGI("[cuevr] link lost: %s", cuevr_net_info());
+        fprintf(stderr, "[cuevr] link lost: %s\n", cuevr_net_info());
         snprintf(S.msg, sizeof S.msg, "OPPONENT LEFT");
         S.msg_time = 4.0f;
         S.rules.frame_over = 1;

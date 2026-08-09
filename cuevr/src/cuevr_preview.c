@@ -740,7 +740,14 @@ int main(int argc, char **argv) {
             was_roll = roll;
             if (seen >= quit_shots && !roll && qof_at < 0) qof_at = nframe;
         }
-        if (qof_at >= 0 && nframe > qof_at + 250) running = 0;
+        /* AND STOP AT REST. Marking the moment and granting a grace period is
+         * not enough on its own: the next shot starts inside the grace, so both
+         * ends were cut off MID-ROLL at different points of the same shot and
+         * their tables compared as different when they were perfectly in step.
+         * The grace is for the last correction to land; the stop still has to
+         * happen with nothing moving. */
+        if (qof_at >= 0 && nframe > qof_at + 250 &&
+            strcmp(cuevr_app_state_name(), "ROLL") != 0) running = 0;
 
         if (getenv("CUEVR_APDBG") && autoplay > 0) {
             int tr, st2, ob, sn; float gap, sp;

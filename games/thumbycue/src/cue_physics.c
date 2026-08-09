@@ -429,6 +429,25 @@ static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
     return 0;
 }
 
+/* WHAT IS UNDER A BALL AT (x, z): the cloth, the rail cap, or nothing.
+ *
+ * Three regions and a hole. Inside the cushion line is the bed. Between the
+ * cushion line and the outer frame is the rail, which a jumped ball can land
+ * on and run along. Past the frame there is a floor this does not model, so
+ * the ball has left. And over a pocket MOUTH there is no rail at all — which
+ * is how a ball rattling along the top can drop in, and it does happen. */
+#define CUE_NO_SURFACE (-1.0e9f)
+static CUE_HOT float surface_at(const CueWorld *w, float x, float z) {
+    float ax = x < 0 ? -x : x, az = z < 0 ? -z : z;
+    if (ax <= w->play_x && az <= w->play_z) return 0.0f;
+    if (ax > w->bound_x || az > w->bound_z) return CUE_NO_SURFACE;
+    for (int p = 0; p < w->npocket; p++) {
+        float dx = x - w->pocket[p].x, dz = z - w->pocket[p].z;
+        if (dx * dx + dz * dz < w->pocket_r[p] * w->pocket_r[p]) return CUE_NO_SURFACE;
+    }
+    return w->rail_top;
+}
+
 /* DID THE CUE BALL PASS OVER A BALL, and was it allowed to?
  *
  * Called every substep while the white is off the bed. "Passes over any part
@@ -535,31 +554,35 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
          * unintentionally stops developing roll, and every draw and follow shot
          * quietly stops meaning what it meant. The deadband that prevents that
          * lives at the strike, not here. */
-        if (b->pos.y > w->R || b->vel.y > 0.0f) {
+        /* OFF THE BED: in the air, or running along the rail.
+         *
+         * The surface under it decides which. A ball over the rail falls to the
+         * rail and rolls on it; roll back inside the cushion line and the
+         * surface drops away and it falls to the cloth; roll off the outside,
+         * or over a pocket mouth, and there is nothing under it at all. */
+        float surf = surface_at(w, b->pos.x, b->pos.z);
+        float rest_y = (surf > CUE_NO_SURFACE * 0.5f) ? surf + w->R : -1.0e9f;
+        if (b->pos.y > rest_y + 1.0e-5f || b->vel.y > 0.0f) {
             b->vel.y -= w->g * h;
             b->pos = v3_add(b->pos, v3_scale(b->vel, h));
-            if (b->pos.y <= w->R) {
-                /* Landed. Cloth over slate is a poor trampoline. */
-                b->pos.y = w->R;
-                if (b->vel.y < -w->v_land) {
-                    b->vel.y = -b->vel.y * w->e_bed;
-                } else {
-                    /* Settle FLAT rather than bounce for ever. Below this the
-                     * hop is a fraction of a millimetre and all it would do is
-                     * keep suspending friction. */
-                    b->vel.y = 0.0f;
-                }
+            /* AIR RESISTANCE IS NOT THE POINT — a ball skidding along a rail is.
+             * While it is off the cloth it still meets whatever it is over, so
+             * the horizontal motion is left to the surface below. */
+            if (b->pos.y <= rest_y) {
+                b->pos.y = rest_y;
+                if (b->vel.y < -w->v_land) b->vel.y = -b->vel.y * w->e_bed;
+                else                       b->vel.y = 0.0f;
                 s_bed_land = 1;
-                if (i == 0) jump_land(w, balls, n);
+                if (i == 0 && surf == 0.0f) jump_land(w, balls, n);
             }
-            /* OFF THE TABLE. Past the outer face of the rail there is a floor,
-             * not a slate, and nothing here models a floor — so the ball is out
-             * of play, exactly as it is in the room. The game sees a ball that
-             * was on and now is not, which is the same thing it sees when one
-             * is potted, and prices it the same way: the cue ball is a foul
-             * with ball in hand, and an object ball has left the table. */
+            /* GONE means past the frame, or below the floor of the world after
+             * falling through a pocket mouth from the rail — not merely past
+             * the cushion. Deleting it at the cushion line, which is what this
+             * did, removes a shot that is still happening: a ball is allowed to
+             * land on the rail, run along it, and come back down. */
             if (b->pos.x >  w->bound_x || b->pos.x < -w->bound_x ||
-                b->pos.z >  w->bound_z || b->pos.z < -w->bound_z) {
+                b->pos.z >  w->bound_z || b->pos.z < -w->bound_z ||
+                b->pos.y < -0.12f) {
                 b->on = 0; b->drop = 0.0f;
                 b->pocket = CUE_OFF_TABLE;
                 b->vel = v3(0, 0, 0); b->w = v3(0, 0, 0);
@@ -568,6 +591,27 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             ball_spin_orient(b, h);
             continue;
         }
+        if (surf > 0.0f) {
+            /* RESTING ON THE RAIL. It rolls up here exactly as it would on the
+             * cloth — same friction, same spin — and the height is held so it
+             * does not sink through. A ball that has genuinely stopped up here
+             * is not coming back, and a frame cannot wait on it: ten seconds
+             * and it has left the table, which is what a referee would say. */
+            b->pos.y = rest_y;
+            b->astray += h;
+            if (b->astray > 10.0f) {
+                b->on = 0; b->drop = 0.0f;
+                b->pocket = CUE_OFF_TABLE;
+                b->vel = v3(0, 0, 0); b->w = v3(0, 0, 0);
+                continue;
+            }
+            ball_cloth(w, b, h);
+            b->pos = v3_add(b->pos, v3_scale(b->vel, h));
+            b->pos.y = rest_y;
+            ball_spin_orient(b, h);
+            continue;
+        }
+        b->astray = 0.0f;
         /* Asleep ball: at rest with no live spin → skip cloth/integrate entirely.
          * A collision in step 2 wakes it (sets velocity). This is exact (a still
          * ball doesn't move) and is the big win on this low-drag cloth, where a

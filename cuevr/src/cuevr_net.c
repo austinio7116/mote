@@ -116,7 +116,13 @@ void cuevr_net_send_pose(const CueVrNetPose *p) {
     uint8_t b[1 + sizeof *p];
     b[0] = PKT_POSE;
     memcpy(b + 1, p, sizeof *p);
-    link_net_send(b, (int)sizeof b);
+    /* DROPPED RATHER THAN QUEUED. Where the opponent's cue is right now is only
+     * worth anything right now — a pose held back behind a backlog arrives
+     * describing somewhere the stick no longer is. It also goes out every
+     * frame, which makes it the only thing here capable of filling a queue, and
+     * a queue that fills takes the whole link down with it. The shot, the
+     * state, the call and the hello are queued; this is not. */
+    link_net_send_now(b, (int)sizeof b);
 }
 int cuevr_net_peer_pose(CueVrNetPose *out) {
     if (s_pose_age > 200 || !out) return 0;

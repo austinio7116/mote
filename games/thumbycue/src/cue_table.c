@@ -241,6 +241,11 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     w->cushion_nose = t->cushion_h;
     w->bound_x = t->half_len + t->rail_w;
     w->bound_z = t->half_wid + t->rail_w;
+    w->play_x  = t->half_len;
+    w->play_z  = t->half_wid;
+    /* The same height cue_table_surface reports and cue_render draws: the
+     * cushion top and the wood cap are one surface, not a step. */
+    w->rail_top = t->cushion_h * 1.30f;
     w->jaw_r = t->jaw_r;
     w->drop_back = t->drop_back;
     w->drop_back_side = t->drop_back_side;

@@ -389,6 +389,20 @@ int link_net_is_host(void) { lk(); int h = (s_state == LINK_NET_CONNECTED) ? s_i
  * state is now around 750 bytes and goes out at every change, so the odds are no
  * longer academic. Whatever the socket declines is queued here and pushed on the
  * next task tick, in order, ahead of anything newer. */
+/* Droppable. Never queues, never drops the LINK for being behind: if the
+ * socket will not take it this instant it simply did not happen. */
+int link_net_send_now(const void *data, int len) {
+    lk();
+    if (s_state != LINK_NET_CONNECTED || len <= 0 || s_ob_n > 0) { unl(); return 0; }
+    int w = (int)send(s_conn, (const char *)data, len, LN_SEND_FLAGS);
+    if (w < 0) { w = 0; if (!nerr_wouldblock()) {
+        char b[48]; snprintf(b, sizeof b, "peer lost (send err %d)", nerr_code());
+        if (s_relay) { drop_all_locked(); set_info(b); }
+        else { ncl(s_conn); s_conn = NBAD; s_state = LINK_NET_SEARCHING; set_info(b); } } }
+    unl();
+    return w == len ? len : 0;
+}
+
 int link_net_send(const void *data, int len) {
     lk();
     if (s_state != LINK_NET_CONNECTED || len <= 0) { unl(); return 0; }

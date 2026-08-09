@@ -50,6 +50,10 @@ typedef struct {
     uint8_t _pad;
     float drop;      /* >0 while falling into the pocket (seconds remaining);
                       * still renders (sinking) but is out of play */
+    /* How long it has been off the cloth. A ball can legitimately spend a
+     * moment on the rail; one that has come to rest up there is not coming
+     * back, and a frame cannot wait on it for ever. */
+    float astray;
 } CueBall;
 
 /* A cushion nose segment in the X–Z plane with an inward unit normal
@@ -93,6 +97,16 @@ typedef struct {
      * it, and a ball rolling to infinity is a shot that never settles. Past
      * this it is simply off the table, which is what it would be in the room. */
     float bound_x, bound_z;
+    /* AND WHAT IT LANDS ON BETWEEN THE TWO. A ball that clears a cushion is
+     * over the rail, and the rail is a surface: it can come down on it, run
+     * along it, drop back onto the cloth or fall off the outside. Removing it
+     * the instant it passed the cushion line — which is what the first version
+     * did — deletes a shot that is still happening.
+     *
+     * play_* is the cushion nose line, rail_top the height of the cushion and
+     * wood cap, which cue_render builds level with each other as one surface. */
+    float play_x, play_z;
+    float rail_top;
 
     /* Geometry (filled by cue_table). */
     CueSeg seg[CUE_MAX_SEG]; int nseg;

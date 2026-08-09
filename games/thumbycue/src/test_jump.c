@@ -346,6 +346,75 @@ int main(void) {
         ok(!w.jump_over, "exception (a): over ANOTHER ball after a contact — legal", d);
     }
 
+    /* ---- 12. the rail is a surface, not a cliff -------------------------
+     *
+     * A ball that clears a cushion used to be deleted the moment it passed the
+     * line, which removes a shot that is still happening. It can land on the
+     * rail, run along it, and come back down — or sit up there, in which case
+     * ten seconds is the referee's patience. */
+    {
+        /* Lobbed at the side cushion with enough to clear it but not enough to
+         * carry the whole rail. */
+        memset(b, 0, sizeof b);
+        for (int i = 0; i < 2; i++) {
+            b[i].on = 1; b[i].id = (uint8_t)i;
+            b[i].orient = m3_identity(); b[i].pos.y = t.R;
+        }
+        b[0].pos.x = 0.0f; b[0].pos.z = t.half_wid - 0.12f;
+        b[1].pos.x = -0.8f; b[1].pos.z = 0.0f;          /* out of the way */
+        Vec3 side = { 0.0f, 0.0f, 1.0f };
+        cue_phys_strike_jump(&w, &b[0], side, 2.2f, 0.0f, 0.30f, 0.75f, 0.95f);
+
+        int on_rail = 0, back_on_cloth = 0, gone = 0;
+        for (int i = 0; i < 40000; i++) {
+            cue_phys_step(&w, b, 2, 1.0f / 480.0f, NULL);
+            if (!b[0].on) { gone = 1; break; }
+            float az = b[0].pos.z < 0 ? -b[0].pos.z : b[0].pos.z;
+            if (az > w.play_z && b[0].pos.y > w.R + 1e-4f) on_rail = 1;
+            else if (on_rail && az <= w.play_z) { back_on_cloth = 1; break; }
+            if (!cue_phys_moving(&w, b, 2) && on_rail) break;
+        }
+        char d[128];
+        snprintf(d, sizeof d, "on the rail %d, back on the cloth %d, gone %d, "
+                 "finished (%.3f,%.3f,%.3f)", on_rail, back_on_cloth, gone,
+                 (double)b[0].pos.x, (double)b[0].pos.y, (double)b[0].pos.z);
+        ok(on_rail, "a ball can get up onto the rail at all", d);
+        /* Leaving is fine — it can run the width of the rail and off the far
+         * side, which is what this one does. What must NOT happen is being
+         * deleted AT the cushion line, and having been up on the rail at all
+         * is the proof it was not. */
+        {
+            float az = b[0].pos.z < 0 ? -b[0].pos.z : b[0].pos.z;
+            ok(on_rail && (!gone || az > w.play_z),
+               "and is not deleted the moment it clears the cushion", d);
+        }
+    }
+
+    /* ---- 13. but not for ever ------------------------------------------- */
+    {
+        memset(b, 0, sizeof b);
+        for (int i = 0; i < 2; i++) {
+            b[i].on = 1; b[i].id = (uint8_t)i;
+            b[i].orient = m3_identity(); b[i].pos.y = t.R;
+        }
+        /* Parked ON the rail, at rest, which is the case that must time out. */
+        b[0].pos.z = t.half_wid + 0.02f;
+        b[0].pos.y = w.rail_top + t.R;
+        b[1].pos.x = -0.8f;
+        float secs = 0.0f;
+        for (int i = 0; i < 40000 && b[0].on; i++) {
+            cue_phys_step(&w, b, 2, 1.0f / 240.0f, NULL);
+            secs += 1.0f / 240.0f;
+        }
+        char d[80];
+        snprintf(d, sizeof d, "removed after %.1f s", (double)secs);
+        /* Ten seconds of SIMULATED time; this loop's own tally of wall dt is a
+         * different clock and runs a little ahead of it. The number is a
+         * referee's patience, not a tolerance. */
+        ok(!b[0].on && secs > 6.0f && secs < 14.0f,
+           "a ball stuck on the rail leaves after about ten seconds", d);
+    }
+
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);
     return s_fail ? 1 : 0;
 }
