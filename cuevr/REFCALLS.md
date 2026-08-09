@@ -1,9 +1,23 @@
-# Spoken break calls — ready to wire in
+# Spoken break calls — WIRED IN
 
 A referee's voice saying every break total from **1 to 153**, in two voices, both
-of which are going in the game. Generated and verified; nothing is wired up yet.
-This note is the handover — the audio work happened in a separate thread and
-there is nothing to build or fetch, only to plumb.
+of which are in the game. Chosen from REF VOICE on the main menu (OFF / MALE /
+FEMALE) and called after every legal pot in snooker.
+
+The three questions this note left open were answered as follows.
+
+**Where the bytes live.** APK assets, one packed file per voice, built by
+`cuevr/tools/pack_refcalls.py` into `cuevr/app/src/main/assets/`. Only the
+chosen voice is resident (~6 MB). Rerun the packer if the wavs are
+regenerated — the APK carries the packed files, not the wav directories.
+
+**Voice-stealing.** Speech has its own mixer slot outside the pool of eight
+(`cue_audio_speak`), so the clacks cannot reach it, at 0.55 gain against the
+−1 dBFS the calls were normalised to.
+
+**When it fires.** Every legal pot, snooker only, announcing the running break —
+`resolve_shot` in `cuevr_app.c`, before the turn is routed, because `r->brk` is
+about to be reset if the table changes hands.
 
 ## Where they are
 
