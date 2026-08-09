@@ -32,6 +32,11 @@
 #endif
 #define CUE_MAX_JAW     24   /* bed-boundary knuckle points */
 #define CUE_MAX_POCKET   6
+/* In CueBall.pocket: this ball did not go down, it went OFF. The two look
+ * identical to everything downstream — a ball that was on and now is not — and
+ * they are not remotely the same thing to the rules, so they have to be told
+ * apart at the only point that knows. */
+#define CUE_OFF_TABLE  0xFFu
 
 typedef struct {
     Vec3 pos;        /* world metres (y = R) */
@@ -40,7 +45,8 @@ typedef struct {
     Mat3 orient;     /* render orientation, integrated from w */
     uint8_t on;      /* 1 = on the table (incl. mid-drop), 0 = gone */
     uint8_t id;      /* ball number / colour code (game-defined) */
-    uint8_t pocket;  /* if potted: which pocket index it fell in */
+    uint8_t pocket;  /* if potted: which pocket index it fell in, or
+                      * CUE_OFF_TABLE if it left over a cushion instead */
     uint8_t _pad;
     float drop;      /* >0 while falling into the pocket (seconds remaining);
                       * still renders (sinking) but is out of play */

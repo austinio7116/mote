@@ -491,6 +491,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             if (b->pos.x >  w->bound_x || b->pos.x < -w->bound_x ||
                 b->pos.z >  w->bound_z || b->pos.z < -w->bound_z) {
                 b->on = 0; b->drop = 0.0f;
+                b->pocket = CUE_OFF_TABLE;
                 b->vel = v3(0, 0, 0); b->w = v3(0, 0, 0);
                 continue;
             }

@@ -19,6 +19,7 @@
  */
 #include "cue_physics.h"
 #include "cue_table.h"
+#include "cue_rules.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -208,6 +209,74 @@ int main(void) {
                  r.steps, (double)b[0].pos.x);
         ok(r.steps < 20000, "a ball flung off the table still settles", d);
         ok(!b[0].on, "and is out of play rather than rolling for ever", d);
+    }
+
+    /* ---- 7. a jump with SCREW on it ------------------------------------
+     * Whether the ball leaves the bed is vertical momentum and nothing else.
+     * Where on the face the tip lands decides the spin it carries, not whether
+     * it flies — so cueing down steeply on the LOWER half is a jump with
+     * backspin, which is a real shot. An earlier version refused to jump at
+     * all unless the tip was above centre, which is wrong about the physics. */
+    {
+        rack2(&t, b, 0.30f);
+        cue_phys_strike_jump(&w, &b[0], dir, 4.0f, 0.0f, -0.30f, 0.79f, 1.10f);
+        Run r = fly(&w, b, 2);
+        char d[96];
+        snprintf(d, sizeof d, "rose %.1f mm, w.z = %+.1f rad/s",
+                 (double)r.peak * 1000.0, (double)b[0].w.z);
+        ok(r.peak > 2.0f * w.R, "a jump struck below centre still flies", d);
+        /* Backspin about the axis across the travel: the ball is turning
+         * backwards relative to a rolling one. */
+        ok(b[0].w.z > 0.0f, "and carries screw off the tip", d);
+    }
+
+    /* ---- 8. the rules: snooker forbids a jump, pool does not -------------- */
+    {
+        CueTable st; CueWorld sw; CueRules R;
+        cue_table_init(&st, CUE_GAME_SNK15);
+        cue_table_build_world(&st, &sw);
+        CueBall sb[22];
+        int sn = cue_table_rack(&st, sb);
+        cue_rules_init(&R, &st, 0);
+        int before = R.score[1];
+        R.jumped = 1;
+        cue_rules_resolve(&R, sb, sn, &sw, 1 /* a red */, 0, 1, NULL, 0);
+        char d[96];
+        snprintf(d, sizeof d, "opponent %d -> %d, \"%s\"", before, R.score[1], R.msg);
+        ok(R.last_foul && R.score[1] > before, "snooker: a jump is a foul", d);
+        ok(R.jumped == 0, "and the flag does not foul the next shot too", NULL);
+
+        CueRules P;
+        cue_rules_init(&P, &t, 0);
+        P.jumped = 1;
+        CueBall pb[16];
+        int pn = cue_table_rack(&t, pb);
+        cue_rules_resolve(&P, pb, pn, &w, 1, 0, 1, NULL, 0);
+        ok(!P.last_foul, "pool: a jump is perfectly legal",
+           P.last_foul ? P.msg : NULL);
+    }
+
+    /* ---- 9. a ball driven off the table is a foul, not a pot ------------- */
+    {
+        CueRules P;
+        cue_rules_init(&P, &t, 0);
+        CueBall pb[16];
+        int pn = cue_table_rack(&t, pb);
+        int one = 1;
+        /* Same shot twice: the ball POTTED, then the ball OFF THE TABLE. */
+        cue_rules_resolve(&P, pb, pn, &w, 1, 0, 1, &one, 1);
+        int pot_foul = P.last_foul;
+
+        CueRules Q;
+        cue_rules_init(&Q, &t, 0);
+        pn = cue_table_rack(&t, pb);
+        Q.n_off = 1;
+        cue_rules_resolve(&Q, pb, pn, &w, 1, 0, 1, &one, 1);
+        char d[96];
+        snprintf(d, sizeof d, "potted: foul=%d; off the table: foul=%d \"%s\"",
+                 pot_foul, Q.last_foul, Q.msg);
+        ok(!pot_foul && Q.last_foul, "off the table fouls where potting did not", d);
+        ok(Q.n_off == 0, "and does not foul the next shot too", NULL);
     }
 
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);

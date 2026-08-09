@@ -241,6 +241,7 @@ static struct {
     int cloth_idx, frame_idx;    /* cue_theme.h palettes */
     int ref_voice;               /* CUEVR_REF_* — the referee's break calls */
     int cloth_hov;               /* the swatch under the pointer, or -1 */
+    int shot_jumped;             /* the white was launched this shot */
     int light_idx;               /* the lighting rig, cuevr_light.h */
     float menu_cue_roll;         /* the display cue turning in the menu */
     /* Frame timing, on screen. "It hitches sometimes" cannot be acted on; a
@@ -2868,13 +2869,20 @@ static void hud_paint(void) {
  * at the boundary the ball leaves the bed at nothing, and grows from there.
  * There is no angle at which one more degree turns nothing into a leap.
  *
- * A jump is struck ABOVE centre. Tip under the ball with an elevated cue is a
- * scoop, which is a foul everywhere and not a shot this should reward. */
+ * IT DEPENDS ON THE VERTICAL MOMENTUM AND ON NOTHING ELSE. An earlier version
+ * also demanded the tip be above centre, on the reasoning that a jump is a high
+ * shot and anything under the ball is a scoop. That is wrong about the physics
+ * and wrong about the shot. The ball is squeezed between the descending tip and
+ * the slate, and how hard it is driven into the bed is speed x sin(elevation) —
+ * where on the FACE the tip lands decides the spin it leaves with, not whether
+ * it leaves at all. Cue down steeply on the lower half and you get a jump with
+ * screw on it, which is a real and useful shot. A scoop is the tip going under
+ * the ball's equator and lifting it, which is a different thing entirely and
+ * not something an elevated stroke into the face can do. */
 #define CUEVR_JUMP_MIN_VY 0.50f   /* m/s of bed rebound before it is a jump */
 #define CUEVR_JUMP_BED_E  0.50f   /* how much of the down-stroke the bed returns */
 
-static float jump_launch(float speed, float elev, float min_elev, float tip_vert) {
-    if (tip_vert < 0.0f) return 0.0f;          /* scooping is not jumping */
+static float jump_launch(float speed, float elev, float min_elev) {
     float deliberate = elev - min_elev;
     if (deliberate <= 0.0f) return 0.0f;       /* the table's angle, not yours */
     float raw = speed * sinf(deliberate) * CUEVR_JUMP_BED_E;
@@ -3220,13 +3228,25 @@ static void net_push_state(void) {
 }
 
 static void resolve_shot(void) {
-    int potted[CUE_MAX_BALLS], np = 0, scratch = 0;
+    int potted[CUE_MAX_BALLS], np = 0, scratch = 0, n_off = 0;
     for (int i = 0; i < S.nballs; i++) {
         if (S.was_on[i] && !S.balls[i].on) {
+            /* DOWN A POCKET OR OFF THE TABLE — not the same thing, and they
+             * arrive here looking identical. A ball driven off the table is a
+             * foul in every game; a potted one very often is not. The ids still
+             * go through the potted list because every OTHER consequence is the
+             * same (a colour respots, the black is a lost frame, the 9 is
+             * spotted); n_off is what adds the foul on top. */
+            int off = (S.balls[i].pocket == CUE_OFF_TABLE);
             if (S.balls[i].id == CUE_ID_CUE) scratch = 1;
-            else potted[np++] = S.balls[i].id;
+            else { potted[np++] = S.balls[i].id; if (off) n_off++; }
         }
     }
+    S.rules.n_off = n_off;
+    /* And whether the white was launched, which snooker forbids outright. Set
+     * at the strike — by then the flight is over and the physics has forgotten. */
+    S.rules.jumped = S.shot_jumped;
+    S.shot_jumped = 0;
     LOGI("[cuevr] settle: cue at %.2f,%.2f  first_hit %d  potted %d  scratch %d",
          (double)S.balls[0].pos.x, (double)S.balls[0].pos.z, S.world.first_hit, np, scratch);
     /* THE CHALLENGE IS NOT A FRAME. Six reds with no colours is not a position
@@ -4475,7 +4495,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
              * min_elev is recomputed every frame from a tip that is travelling.
              * They are nearly the same and "nearly" is the wrong word for the
              * number that decides whether the ball leaves the table. */
-            float vy = jump_launch(sp, shot.elev, S.cue.lock_elev, shot.tip_vert);
+            float vy = jump_launch(sp, shot.elev, S.cue.lock_elev);
 
             /* Online: send the strike, not the outcome. Both machines integrate
              * the same 2 kHz physics from the same state, so the same six numbers
@@ -4502,6 +4522,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 ns.vy = vy;
                 cuevr_net_send_shot(&ns);
             }
+            S.shot_jumped = (vy > 0.0f);
             cue_phys_strike_jump(&S.world, &S.balls[0], shot.dir, sp,
                                  shot.tip_side, shot.tip_vert, shot.elev, vy);
             /* Power relative to the hardest shot there is, so a delicate safety
@@ -4546,6 +4567,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 if (ns.nominated) cue_rules_nominate(&S.rules, ns.nominated);
                 if (ns.free_ball_id) cue_rules_nominate_free(&S.rules, ns.free_ball_id);
                 cue_audio_sfx(CUE_SFX_STRIKE, ns.speed / MAX_STRIKE_SPEED);
+                S.shot_jumped = (ns.vy > 0.0f);
                 cue_phys_strike_jump(&S.world, &S.balls[0], dir, ns.speed,
                                      ns.side, ns.vert, ns.elev, ns.vy);
                 begin_shot();

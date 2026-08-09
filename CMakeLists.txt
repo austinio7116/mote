@@ -189,7 +189,8 @@ if(MOTE_TARGET STREQUAL "host")
     add_executable(cue_test_jump
         games/thumbycue/src/test_jump.c
         games/thumbycue/src/cue_physics.c
-        games/thumbycue/src/cue_table.c)
+        games/thumbycue/src/cue_table.c
+        games/thumbycue/src/cue_rules.c)
     target_include_directories(cue_test_jump PRIVATE
         ${MOTE_INCLUDE_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)

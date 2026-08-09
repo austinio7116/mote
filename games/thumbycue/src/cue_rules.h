@@ -57,6 +57,21 @@ typedef struct {
 
     /* snooker foul-and-a-miss + free ball (WPBSA) */
     int was_snookered;   /* striker had NO clear ball-on before the shot (set by cue_game) */
+    /* ---- what the HOST saw, set before cue_rules_resolve and cleared by it ----
+     * Same contract as was_snookered above: the rules cannot see these for
+     * themselves because they happen outside the settle. */
+    int jumped;          /* the cue ball was deliberately launched off the bed.
+                          * A foul in snooker — you may not jump a ball — and
+                          * perfectly legal in pool, which is why it is a flag
+                          * here rather than a decision the physics makes. */
+    int n_off;           /* how many of the ids in `potted` were driven OFF THE
+                          * TABLE rather than pocketed. They come through the
+                          * potted list on purpose, so every consequence of that
+                          * ball leaving still fires — a colour respots, the
+                          * black off the table loses the frame, the 9 is
+                          * spotted — and this only adds the one thing potting
+                          * does not carry and going off the table always does,
+                          * which is the foul. */
     int free_ball;       /* this shot is played under a free-ball award */
     int free_ball_id;    /* WHICH ball was nominated as it, or 0 for any */
     int cmiss[2];        /* consecutive misses per player (3 = frame forfeit) */

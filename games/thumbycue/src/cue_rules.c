@@ -136,6 +136,7 @@ static void respot_colour(CueRules *r, CueBall *b, int n, int id) {
 }
 
 /* ---- 8-ball ---------------------------------------------------------- */
+/* Off the table is a foul in pool too — jumping is not. */
 static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
                          int scratch, int cushion, const int *potted, int np) {
     int grp = r->group[r->turn];
@@ -161,6 +162,10 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
             else if (fg != grp) { foul = 1; why = "WRONG BALL"; }   /* incl. hitting the 8 early */
         } else if (first_hit == 8)        { foul = 1; why = "HIT 8 FIRST"; }
     }
+    /* OFF THE TABLE. Last, so it names the foul when nothing worse did: a ball
+     * driven off is a foul however good the contact was, and jumping is legal
+     * here, so this is the only thing a clean jump shot can go wrong by. */
+    if (r->n_off && !foul) { foul = 1; why = "OFF THE TABLE"; }
     (void)cushion;
     r->last_foul = foul;
 
@@ -395,6 +400,12 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
     }
     int foul = 0;
     if (scratch || first_hit < 0 || (!fb && !snk_on(r, first_hit)) || illegal_pot) foul = 1;
+    /* A JUMP IS A FOUL IN SNOOKER. The cue ball may not be made to jump over any
+     * ball — it is one of the few things the rules forbid outright rather than
+     * price — so it does not matter here what the shot went on to do. */
+    if (r->jumped) foul = 1;
+    /* And so is putting a ball off the table, in every game there is. */
+    if (r->n_off) foul = 1;
     r->last_foul = foul;
 
     /* respot every potted colour unless it was legally cleared in sequence
@@ -476,14 +487,20 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
         r->dec_can_restore = miss_called || (scratch && r->was_snookered);
         r->dec_free_ball = opp_snk;
 
+        /* Name the two the striker cannot possibly work out from the score.
+         * Every other snooker foul is legible from the table; "you may not do
+         * that at all" is not, and a penalty with no stated reason reads as the
+         * game being broken. */
+        const char *why = r->jumped ? "JUMP " : r->n_off ? "OFF TABLE " : "";
         if (miss_called || opp_snk) {
             /* a real choice exists → park for the opponent's decision */
             r->decision = CUE_DEC_PENDING;
-            snprintf(r->msg, sizeof r->msg, miss_called ? "FOUL & MISS +%d" : "FOUL +%d", fv);
+            snprintf(r->msg, sizeof r->msg, miss_called ? "%sFOUL & MISS +%d"
+                                                        : "%sFOUL +%d", why, fv);
         } else {
             r->turn = opp;
             if (scratch) r->ball_in_hand = 1;
-            snprintf(r->msg, sizeof r->msg, "FOUL +%d", fv);
+            snprintf(r->msg, sizeof r->msg, "%sFOUL +%d", why, fv);
         }
         return;
     }
@@ -588,6 +605,7 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
     else if (first_hit < 0)           { foul = 1; why = "NO BALL"; }
     else if (first_hit != lowest)     { foul = 1; why = "WRONG BALL"; }   /* must hit lowest first */
     else if (np == 0 && !cushion)     { foul = 1; why = "NO RAIL"; }      /* table scratch */
+    if (r->n_off && !foul)            { foul = 1; why = "OFF THE TABLE"; }
     r->last_foul = foul;
 
     /* the 9: potted legally wins (incl. on the break); on a foul it respots */
@@ -625,6 +643,10 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     if (r->kind)                       resolve_snooker(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_US9)  resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else                               resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);
+    /* The host's observations are about the shot just resolved and nothing
+     * else. Left set they would foul the NEXT one too. */
+    r->jumped = 0;
+    r->n_off = 0;
 }
 
 /* Apply the opponent's choice after a snooker foul that offered one (decision
