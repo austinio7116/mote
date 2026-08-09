@@ -40,7 +40,7 @@ android {
         // The name stays human, and is what CUEVR_VERSION prints on the menu —
         // keep the two in step, because "which build are you on?" is the first
         // question when two headsets disagree.
-        versionName '0.4'
+        versionName '0.5'
         externalNativeBuild {
             ndkBuild {
                 arguments 'APP_PLATFORM=android-29'
