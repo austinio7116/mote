@@ -405,10 +405,14 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
     int nominated_before = r->nominated;
     int bon_val = (target_before == 2) ? r->seq : 1;   /* value of the red/clearance ball-on */
     int legal_pots = 0, illegal_pot = 0, maxpot = 0, reds_potted = 0;
+    /* Did the ball ON itself go down, as opposed to a free ball standing in for
+     * it? In the clearance the difference is the whole frame: a free ball
+     * SCORES the ball-on's value but the ball on is still sitting there. */
+    int on_potted = 0;
     for (int k = 0; k < np; k++) {
         int on = snk_on(r, potted[k]);
         int as_fb = !on && FB_OK(potted[k]);
-        if (on)          legal_pots += snk_value(potted[k]);
+        if (on)        { legal_pots += snk_value(potted[k]); on_potted = 1; }
         else if (as_fb)  legal_pots += bon_val;        /* free-ball pot scores the ball-on */
         else             illegal_pot = 1;
         if (on ? is_red(potted[k]) : (as_fb && target_before == 0)) reds_potted++;
@@ -432,10 +436,17 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
     if (r->n_off) foul = 1;
     r->last_foul = foul;
 
-    /* respot every potted colour unless it was legally cleared in sequence
-     * (a free-ball colour ALWAYS respots, even in the clearance phase) */
+    /* Respot every potted colour unless it was legally cleared IN SEQUENCE — a
+     * free-ball colour always comes back, even in the clearance phase.
+     *
+     * "Was it the ball on" rather than "was a free ball in play": with a free
+     * ball up, `fb` is true for the whole stroke, so a shot that potted the
+     * free ball AND the actual ball on put the ball on back on its spot too,
+     * and the clearance could not be finished. snk_on still reads the PRE-shot
+     * target here, which is the question being asked. */
     for (int k = 0; k < np; k++)
-        if (is_colour(potted[k]) && (foul || fb || target_before != 2))
+        if (is_colour(potted[k]) &&
+            (foul || target_before != 2 || !snk_on(r, potted[k])))
             respot_colour(r, b, n, potted[k]);
 
     if (foul) {
@@ -541,7 +552,17 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
         if (r->reds_left > 0) r->target = 0;
         else { r->target = 2; r->seq = 2; }   /* clearance from yellow */
     } else {                                  /* clearance */
-        if (legal_pots > 0) {
+        /* THE SEQUENCE MOVES ON WHEN THE BALL ON IS POTTED, and not merely when
+         * something scored. WPBSA Section 3 Rule 12: a free ball is potted, it
+         * is SPOTTED, and the value of the ball on is scored — the ball on has
+         * not been potted and is still the ball on.
+         *
+         * This advanced on `legal_pots > 0`, so taking a free ball in the
+         * clearance skipped a colour permanently. Reported exactly: on the blue
+         * with the pink as a free ball, the pink went down, the pink came back,
+         * and the frame moved on to the pink and the black with the blue still
+         * standing on its spot and no way ever to be on it again. */
+        if (on_potted) {
             r->seq++;
             if (r->seq > 7) {
                 /* Level after the black is not a win for whoever the array puts

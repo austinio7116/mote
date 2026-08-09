@@ -131,6 +131,61 @@ int main(void) {
            "with nothing nominated, any free ball still plays", d);
     }
 
+    /* ---- 6. THE CLEARANCE. A free ball must not skip a colour ------------ *
+     *
+     * Reported after the nomination fix, which was a different bug in the same
+     * rule: "the AI chose free ball, potted the pink nominated as the blue, the
+     * pink returned, and it went on to pot pink and black without potting the
+     * blue". The blue was never potted and could never be potted again.
+     *
+     * WPBSA Section 3 Rule 12: the free ball is SPOTTED and the value of the
+     * ball on is scored. The ball on has NOT been potted. The sequence stands
+     * still — which the earlier tests could not see, because every one of them
+     * was played while there were still reds on the table. */
+    {
+        CueRules r; setup(&r, CUE_ID_PINK);
+        r.reds_left = 0;
+        r.target = 2;                  /* the clearance */
+        r.seq = CUE_ID_BLUE - CUE_ID_YELLOW + 2;   /* on the blue */
+        int before = r.score[0];
+        int potted[1] = { CUE_ID_PINK };
+        take_off(CUE_ID_PINK);
+        cue_rules_resolve(&r, B, N, &W, CUE_ID_PINK, 0, 1, potted, 1);
+        char d[160];
+        snprintf(d, sizeof d, "score %d -> %d, seq %d (blue is %d), "
+                 "blue up %d, pink back %d, foul %d",
+                 before, r.score[0], r.seq, CUE_ID_BLUE - CUE_ID_YELLOW + 2,
+                 ball_on_table(CUE_ID_BLUE), ball_on_table(CUE_ID_PINK), r.last_foul);
+        ok(!r.last_foul, "the pink as a free ball on the blue is legal", d);
+        ok(r.score[0] == before + 5, "and scores FIVE, the blue's value", d);
+        ok(r.seq == CUE_ID_BLUE - CUE_ID_YELLOW + 2,
+           "and you are STILL on the blue — the sequence does not move", d);
+        ok(ball_on_table(CUE_ID_PINK), "and the pink goes back on its spot", d);
+        ok(ball_on_table(CUE_ID_BLUE), "and the blue is still there to be potted", d);
+    }
+
+    /* ...and the ball on itself still advances it, which is the other half:
+     * a fix that stopped the sequence moving at all would pass the test above
+     * and lose every frame. */
+    {
+        CueRules r; setup(&r, CUE_ID_PINK);
+        r.reds_left = 0;
+        r.target = 2;
+        r.seq = CUE_ID_BLUE - CUE_ID_YELLOW + 2;
+        int before = r.score[0];
+        int potted[1] = { CUE_ID_BLUE };
+        take_off(CUE_ID_BLUE);
+        cue_rules_resolve(&r, B, N, &W, CUE_ID_BLUE, 0, 1, potted, 1);
+        char d[128];
+        snprintf(d, sizeof d, "score %d -> %d, seq %d, blue up %d",
+                 before, r.score[0], r.seq, ball_on_table(CUE_ID_BLUE));
+        ok(!r.last_foul && r.score[0] == before + 5,
+           "potting the BLUE itself scores five", d);
+        ok(r.seq == CUE_ID_PINK - CUE_ID_YELLOW + 2,
+           "and moves the sequence on to the pink", d);
+        ok(!ball_on_table(CUE_ID_BLUE), "and the blue stays down", d);
+    }
+
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);
     return s_fail ? 1 : 0;
 }

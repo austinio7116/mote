@@ -175,6 +175,45 @@ int main(void) {
                "(worst %+.4f m)\n", KN[k], tried, lifted, (double)most);
     }
 
+    /* ---- 4. the frame is somewhere a ball can BE -------------------------- *
+     * Reported: "the ball still vanishes as soon as it bounces on the rail".
+     * It did, and it was not the bounce — it was that the surface it landed on
+     * was rail_w wide, 75 mm against a 52 mm ball, so one roll took it off the
+     * outer edge. The woodwork carries on past the cap (CUE_FRAME_OUT), so the
+     * strip is now wide enough to be a place rather than an edge.
+     *
+     * Drop a ball onto the middle of the frame with a little speed along it and
+     * require it to still be there a good fraction of a second later. */
+    printf("\n");
+    for (unsigned k = 0; k < sizeof KINDS / sizeof KINDS[0]; k++) {
+        CueTable t; CueWorld w;
+        cue_table_init(&t, KINDS[k]);
+        cue_table_build_world(&t, &w);
+
+        float strip = w.bound_x - w.play_x;
+        /* Land it on the middle of the long rail, away from the pockets, aimed
+         * ALONG the rail as a ball coming off a cushion would be. */
+        CueBall b;
+        memset(&b, 0, sizeof b);
+        b.on = 1; b.orient = m3_identity();
+        b.pos = v3(t.half_len * 0.35f, w.rail_top + w.R + 0.02f,
+                   w.play_z + strip * 0.5f);
+        b.vel = v3(1.2f, 0.0f, 0.0f);
+        uint32_t ev = 0;
+        int alive_at = 0;
+        for (int it = 0; it < 240; it++) {          /* two seconds at 120 Hz */
+            cue_phys_step(&w, &b, 1, 1.0f / 120.0f, &ev);
+            if (!b.on) break;
+            alive_at = it + 1;
+        }
+        int ok_rail = (alive_at >= 60);             /* half a second, at least */
+        if (!ok_rail) s_fail++;
+        printf("  %-8s frame strip %.0f mm (ball %.0f mm): a ball put on it "
+               "lasts %.2f s  %s\n", KN[k], (double)strip * 1000.0,
+               (double)(2.0f * w.R) * 1000.0, alive_at / 120.0,
+               ok_rail ? "" : " <-- FAIL, it should stay up there");
+    }
+
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);
     return s_fail ? 1 : 0;
 }

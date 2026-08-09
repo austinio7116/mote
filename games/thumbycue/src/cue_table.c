@@ -32,13 +32,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->R = 0.028575f; t->mass = 0.170f;
         t->cushion_h = 1.27f * t->R; t->rail_w = 0.075f;
         t->pocket_round = 1;
-        /* TIGHTER BY A FIFTH, and this is the size a 7 ft table's pockets
+        /* TIGHTER THAN THEY WERE, and about the size a 7 ft table's pockets
          * actually are. These are radii in ball-radii, so the mouth was 4.30
          * ball-radii across for a 2 in ball — 123 mm, where a real pub table
-         * cuts about 89 mm. At 1.72 the mouth is 3.44 R ≈ 98 mm, which is in
-         * the right country and still a pub pocket rather than a snooker one.
-         * Both games on this bed get it: it is one table with two rule sets. */
-        t->pr_corner  = 1.72f * t->R; t->pr_side  = 1.56f * t->R;
+         * cuts about 89 mm. 1.72 took it to 98 mm and played a shade mean, so
+         * it sits at 1.80 (103 mm) — still a pub pocket rather than the barn
+         * door it was. Both games on this bed get it: one table, two rule sets. */
+        t->pr_corner  = 1.80f * t->R; t->pr_side  = 1.63f * t->R;
         t->gap_corner = 2.667f * t->R; t->gap_side = 2.50f * t->R;
         t->facing_len = 1.667f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
@@ -245,8 +245,20 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     /* The height a ball has to be above the cloth to be over the rail rather
      * than bouncing off it. The table knows it; the physics only needed telling. */
     w->cushion_nose = t->cushion_h;
-    w->bound_x = t->half_len + t->rail_w;
-    w->bound_z = t->half_wid + t->rail_w;
+    /* THE FRAME IS A SURFACE, AND IT IS WIDER THAN THE RAIL CAP.
+     *
+     * rail_w alone is 75-85 mm and a ball is 52-57 mm across, so a ball that
+     * cleared a cushion landed on the cap, rolled about one ball's width and
+     * fell off the outer edge — reported as vanishing the moment it bounced.
+     * The woodwork does not stop there: cuevr_frame builds the body's outer
+     * face at rail_w + 55 mm (SURR_X/SURR_Z) and the apron runs out to it, so
+     * there is another 55 mm of table to land on and it should behave like it.
+     *
+     * That roughly doubles the width a jumped ball has to run along, which is
+     * the difference between "it fell off immediately" and a ball that rattles
+     * along the top and may still drop into a pocket. */
+    w->bound_x = t->half_len + t->rail_w + CUE_FRAME_OUT;
+    w->bound_z = t->half_wid + t->rail_w + CUE_FRAME_OUT;
     w->play_x  = t->half_len;
     w->play_z  = t->half_wid;
     /* The same height cue_table_surface reports and cue_render draws: the

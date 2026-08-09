@@ -38,6 +38,14 @@ enum {
     CUE_ID_BLUE, CUE_ID_PINK, CUE_ID_BLACK,
 };
 
+/* How far the woodwork carries on past the rail cap. cuevr_frame.c builds the
+ * body's outer face at rail_w + this (SURR_X/SURR_Z) and the apron runs out to
+ * meet it, so it is real table that a ball can be on top of — and without it
+ * the landing strip for a jumped ball is barely one ball wide. Kept here rather
+ * than in the physics because it is a fact about the table, and both the
+ * boundary and the frame builder should read it from the same place. */
+#define CUE_FRAME_OUT 0.055f
+
 typedef struct {
     CueGameKind kind;
     int   is_snooker;           /* snooker ball set / rules vs pool */
