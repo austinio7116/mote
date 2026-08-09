@@ -23,6 +23,11 @@ typedef struct {
      * "the opponent's score went up" is only a foul signal in snooker. A host
      * keeping records has no other way to count them. */
     int last_foul;
+    /* And whether a MISS was called with it, which is a different call from the
+     * referee and a different thing in the rules — a foul off a correct first
+     * contact is not a miss. The host has no other way to know: the penalty is
+     * the same number either way. */
+    int last_miss;
     char msg[24];
 
     /* 8-ball */

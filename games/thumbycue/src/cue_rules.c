@@ -460,6 +460,7 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
          * meant the opponent was never once offered the replay. Only the
          * snookers-needed exemption suppresses it, per WPBSA. */
         int miss_called = is_miss && !needs_snookers;
+        r->last_miss = miss_called;
 
         /* 3-consecutive-miss forfeit (genuine, non-snookered misses only) */
         if (is_miss && !r->was_snookered) {
@@ -647,6 +648,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     (void)w;
     r->ball_in_hand = 0;
     r->last_foul = 0;
+    r->last_miss = 0;
     if (r->kind)                       resolve_snooker(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_US9)  resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else                               resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);

@@ -20,6 +20,10 @@ void cue_audio_tick(float dt);                     /* per-frame housekeeping */
  * the samples and must keep them alive until the call finishes or is replaced.
  * Defined by the VR mixer; the handheld has no speech and needs no stub. */
 void cue_audio_speak(const int16_t *pcm, int len, float gain);
+/* Queued behind whatever is speaking, so the referee can call the foul and then
+ * the warning without cutting himself off. Falls back to speaking immediately
+ * if nothing is. */
+void cue_audio_speak_after(const int16_t *pcm, int len, float gain);
 void cue_audio_speak_stop(void);
 void cue_audio_render(int16_t *out, int nsamples); /* fill mono buffer */
 

@@ -57,6 +57,16 @@ static float s_master = 0.85f;
  * clacks cannot reach and which a new call replaces — a referee interrupts
  * himself to give the new total, he does not say both at once. */
 static Voice s_speech;
+/* AND WHAT HE SAYS NEXT.
+ *
+ * A referee calls the foul and then the warning — "Foul and a miss. Two
+ * consecutive fouls, a third loses the frame." With one slot the second call
+ * cuts the first off mid-word, which sounds like a bug rather than an official.
+ * Two deep is enough for everything the game says in one breath; a third would
+ * be a referee who will not stop talking. */
+#define SPEECH_Q 2
+static Voice s_sq[SPEECH_Q];
+static int   s_sq_n;
 
 /* Steal the quietest voice rather than the oldest: a break can start a dozen
  * clacks inside a few milliseconds, and dropping the newest would silence the
@@ -79,13 +89,27 @@ static void play(const int16_t *pcm, int len, float gain) {
 /* ---- the handheld's own event mapping ----------------------------------- */
 
 void cue_audio_speak(const int16_t *pcm, int len, float gain) {
+    /* Interrupts. A new break total supersedes the old one — he does not read
+     * out both — and anything queued behind the old one is no longer true. */
+    s_sq_n = 0;
     s_speech.pcm = pcm; s_speech.len = len; s_speech.pos = 0; s_speech.gain = gain;
 }
-void cue_audio_speak_stop(void) { s_speech.pos = s_speech.len = 0; }
+
+void cue_audio_speak_after(const int16_t *pcm, int len, float gain) {
+    if (s_speech.pos >= s_speech.len) { cue_audio_speak(pcm, len, gain); return; }
+    if (s_sq_n >= SPEECH_Q) return;
+    s_sq[s_sq_n].pcm = pcm; s_sq[s_sq_n].len = len;
+    s_sq[s_sq_n].pos = 0;   s_sq[s_sq_n].gain = gain;
+    s_sq_n++;
+}
+
+void cue_audio_speak_stop(void) { s_speech.pos = s_speech.len = 0; s_sq_n = 0; }
 
 void cue_audio_init(void) {
     memset(s_voice, 0, sizeof s_voice);
     memset(&s_speech, 0, sizeof s_speech);
+    memset(s_sq, 0, sizeof s_sq);
+    s_sq_n = 0;
 }
 void cue_audio_set_volume(int v) { s_master = (float)v / 20.0f; }
 void cue_audio_tick(float dt) { (void)dt; }
@@ -135,7 +159,16 @@ void cue_audio_render(int16_t *out, int n) {
             if (o->pos >= o->len) continue;
             acc += (int32_t)(o->pcm[o->pos++] * o->gain);
         }
-        if (s_speech.pos < s_speech.len)
+        if (s_speech.pos >= s_speech.len && s_sq_n > 0) {
+            /* The last line finished: start the one behind it, with a short
+             * breath rather than butting them together. */
+            s_speech = s_sq[0];
+            for (int q = 1; q < s_sq_n; q++) s_sq[q - 1] = s_sq[q];
+            s_sq_n--;
+            s_speech.pos = -(int)(RATE / 5);          /* 0.2 s of air */
+        }
+        if (s_speech.pos < 0) s_speech.pos++;
+        else if (s_speech.pos < s_speech.len)
             acc += (int32_t)(s_speech.pcm[s_speech.pos++] * s_speech.gain);
         acc = (int32_t)(acc * s_master);
         out[i] = (int16_t)(acc > 32767 ? 32767 : acc < -32768 ? -32768 : acc);

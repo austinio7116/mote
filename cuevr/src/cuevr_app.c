@@ -918,6 +918,12 @@ static void stat_frame_into_match(void) {
  * lost on the black. Every one of those used to set the state by hand, and the
  * match totals only ever saw the ones that went through resolve_shot. */
 static void enter_over(void) {
+    /* "Frame." — the referee's call, and it belongs HERE rather than beside any
+     * one of the ways a frame can end: potted out, conceded, forfeited on three
+     * misses, the opponent leaving. Every one of them arrives through this
+     * function, and a call wired to only the tidy ending would be missing from
+     * exactly the endings that need explaining. */
+    if (S.rules.kind && !S.stat_folded) cuevr_refcall_say(CUEVR_SAY_FRAME);
     if (!S.stat_folded) { S.stat_folded = 1; stat_frame_into_match(); }
     S.state = ST_OVER;
     S.hud_dirty = 1;
@@ -3741,6 +3747,25 @@ static void resolve_shot(void) {
     if (S.rules.kind && np > 0 && !S.rules.last_foul && S.rules.brk > 0)
         cuevr_refcall_say(S.rules.brk);
 
+    /* AND THE CALLS THAT ARE NOT NUMBERS. A frame does not sound officiated
+     * because the totals are read out — it sounds officiated because the fouls
+     * are called. Snooker only, like the totals: the other games have no
+     * referee and no misses.
+     *
+     * The warning goes BEHIND the foul call rather than instead of it, which is
+     * what the queue in the mixer is for: "Foul and a miss. Two consecutive
+     * fouls, a third loses the frame." is one breath from an official and two
+     * separate recordings here. */
+    if (S.rules.kind && S.rules.last_foul) {
+        int off = S.rules.dec_offender;
+        cuevr_refcall_say(S.rules.last_miss ? CUEVR_SAY_FOUL_MISS
+                                            : CUEVR_SAY_FOUL);
+        /* Two on the board and a third ends it. Said once, as it happens —
+         * announcing it every shot afterwards would be nagging. */
+        if (off >= 0 && off < 2 && S.rules.cmiss[off] == 2)
+            cuevr_refcall_say_after(CUEVR_SAY_TWO_FOULS);
+    }
+
     /* Records, before the turn is routed: r->brk is this visit's break and it
      * is about to be reset if the table changes hands. */
     stat_shot(was_turn, potted, np);
@@ -3805,6 +3830,7 @@ static void resolve_shot(void) {
                                         S.nballs, &CUE_PERSONAS[S.persona], &S.rng);
                 if (dec == CUE_DEC_REPLAY) snap_restore_balls();
                 cue_rules_apply_decision(&S.rules, dec);
+                if (S.rules.free_ball) cuevr_refcall_say(CUEVR_SAY_FREE_BALL);
                 snprintf(S.msg, sizeof S.msg, "%s",
                          dec == CUE_DEC_REPLAY   ? "PLAY THE SHOT AGAIN"
                        : dec == CUE_DEC_FREEBALL ? "FREE BALL"
@@ -4382,6 +4408,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             } else if (S.rules.decision == CUE_DEC_PENDING) {
                 if (c.code == CUE_DEC_REPLAY) snap_restore_balls();
                 cue_rules_apply_decision(&S.rules, c.code);
+                if (S.rules.free_ball) cuevr_refcall_say(CUEVR_SAY_FREE_BALL);
                 arm_shot(); hand_over();
             }
             /* A decision moves the balls (a replay puts them all back) and moves
@@ -5806,6 +5833,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
             } else {
                 if (dec == CUE_DEC_REPLAY) snap_restore_balls();
                 cue_rules_apply_decision(&S.rules, dec);
+                /* "Free ball." Only when one is actually awarded — the option
+                 * being on the list is not the call. */
+                if (S.rules.free_ball) cuevr_refcall_say(CUEVR_SAY_FREE_BALL);
             }
         }
         /* Through hand_over() whether or not the ball is in hand, because the

@@ -28,6 +28,25 @@ int  cuevr_refcall_voice(void);
  * to load, or there is no recording of that number — a missing call must not
  * be able to stop a frame. */
 void cuevr_refcall_say(int n);
+/* The same, but behind whatever he is already saying — the foul call and then
+ * the warning that follows it. */
+void cuevr_refcall_say_after(int n);
+
+/* THE THINGS A REFEREE SAYS THAT ARE NOT NUMBERS.
+ *
+ * A frame does not sound officiated because the totals are read out; it sounds
+ * officiated because the fouls are called. These sit after the 153 numbers in
+ * the packed set, in the order gen_phrases.py lists them, so the indices ARE
+ * the wire format — append only, never reorder.
+ *
+ * cuevr_refcall_say takes them like any other index. */
+enum {
+    CUEVR_SAY_FOUL      = 154,   /* "Foul." */
+    CUEVR_SAY_FOUL_MISS = 155,   /* "Foul and a miss." */
+    CUEVR_SAY_FREE_BALL = 156,   /* "Free ball." */
+    CUEVR_SAY_TWO_FOULS = 157,   /* "Two consecutive fouls. A third loses the frame." */
+    CUEVR_SAY_FRAME     = 158    /* "Frame." */
+};
 
 /* Android hands us its asset manager; the host build reads from a directory
  * and needs neither. Called once, before any voice is selected. */

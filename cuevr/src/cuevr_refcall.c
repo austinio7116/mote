@@ -116,6 +116,28 @@ void cuevr_refcall_set_voice(int v) {
     RLOG("[cuevr] refcalls: %s, %d calls, %ld KB", name, s_count, n >> 10);
 }
 
+/* One place decides which clip index n is and whether it exists; both the
+ * interrupting and the queued forms go through it. */
+static const int16_t *clip(int n, int *out_len) {
+    if (!s_blob || n < 1 || n > s_count) return NULL;
+    uint32_t off, len;
+    memcpy(&off, &s_index[(n - 1) * 2 + 0], 4);
+    memcpy(&len, &s_index[(n - 1) * 2 + 1], 4);
+    long base = 8 + 4 + 4 + (long)s_count * 8;
+    if ((long)off + (long)len * 2 > s_blob_len - base) return NULL;
+    *out_len = (int)len;
+    return s_pcm + off / 2;
+}
+
+void cuevr_refcall_say_after(int n) {
+    int len;
+    const int16_t *p = clip(n, &len);
+    if (!p) return;
+    if (getenv("CUEVR_REFDBG"))
+        RLOG("[refcall] queued \"%d\" (%.2f s)", n, (double)len / (double)REF_RATE);
+    cue_audio_speak_after(p, len, 0.55f);
+}
+
 void cuevr_refcall_say(int n) {
     if (!s_blob || n < 1 || n > s_count) return;
     uint32_t off, len;
