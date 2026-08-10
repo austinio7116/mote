@@ -4947,6 +4947,65 @@ static MoteVrV3 cue_ball_room(void) {
 
 MoteVrV3 cuevr_app_cue_ball_room(void) { return cue_ball_room(); }
 
+/* THEIR SHOT, TAKEN FROM WHEREVER WE ARE STANDING.
+ *
+ * This lived inside case ST_THINK, so it was only ever collected by an end that
+ * was sitting watching. Open a menu on your own time and the opponent plays —
+ * which is the normal shape of a turn, since waiting is exactly when there is
+ * time to change a cloth — and nothing collected it. The frame stopped.
+ *
+ * Worse than stopping: cuevr_net_recv_shot holds ONE shot. A second arriving
+ * before the first is read overwrites it, so a menu open across two of their
+ * strokes did not delay a shot, it LOST one — and a lost shot is a table the
+ * two ends can never agree about again, which is the rules-vs-balls divergence
+ * this was hunting. The state packet repairs the balls; nothing replays a
+ * stroke that was never simulated.
+ *
+ * So it is collected every frame, in every state, and the only thing that waits
+ * is our own roll-out — stepping a second strike into a table that is still
+ * moving would be simulating two shots at once. */
+static void net_take_shot(void) {
+    if (S.opp != OPP_ONLINE || S.state == ST_ROLL) return;
+    /* Their cue design may arrive after the rack — the host sends its hello the
+     * same instant it starts — so keep taking it. */
+    {   CueVrNetHello ph;
+        if (cuevr_net_peer(&ph)) cuevr_render_set_opp_cue(ph.cue_idx); }
+    CueVrNetShot ns;
+    if (!cuevr_net_recv_shot(&ns)) return;
+    think_join();
+    Vec3 dir = v3(ns.dirx, 0.0f, ns.dirz);
+    float l = v3_len(dir);
+    if (l > 1e-4f) dir = v3_scale(dir, 1.0f / l);
+    /* Put the white where THEY had it before striking. Ball in hand is a
+     * position only the striker knows, and starting the same shot from a
+     * different spot is how the far end watched every break sail past the
+     * pack. */
+    S.balls[0].pos = v3(ns.cuex, S.tab.R, ns.cuez);
+    S.balls[0].vel = v3(0,0,0); S.balls[0].w = v3(0,0,0);
+    S.balls[0].on = 1;
+    /* Judge their shot against what THEY declared, or the scores drift apart
+     * while the balls still agree. */
+    if (ns.nominated) cue_rules_nominate(&S.rules, ns.nominated);
+    if (ns.free_ball_id) cue_rules_nominate_free(&S.rules, ns.free_ball_id);
+    cue_audio_sfx(CUE_SFX_STRIKE, ns.speed / MAX_STRIKE_SPEED);
+    cue_phys_strike_jump(&S.world, &S.balls[0], dir, ns.speed,
+                         ns.side, ns.vert, ns.elev, ns.vy);
+    /* begin_shot() sets ST_ROLL. In a menu that is the RETURN address moving,
+     * not the player: the roll-out already runs behind an open menu, and the
+     * player comes back to a table that has played on exactly as it would have
+     * if they had been watching it. */
+    int in_menu = (S.state == ST_PAUSE) || (S.state == ST_APPEAR) ||
+                  (S.state == ST_CLOTH) || (S.state == ST_CONTROLS) ||
+                  (S.state == ST_STATS) || (S.state == ST_POCKETS);
+    int keep = S.state;
+    begin_shot();
+    if (in_menu) {
+        if (S.state == ST_PAUSE) S.pause_from = ST_ROLL;
+        else                     S.appear_from = ST_ROLL;
+        S.state = keep;
+    }
+}
+
 /* WHERE THE FRAME SAYS THIS END SHOULD BE.
  *
  * The rules struct crosses the wire whole, so after taking it the two ends
@@ -5286,6 +5345,10 @@ static void app_update(void *u, const MoteVrTracking *t) {
         }
     }
 
+    /* Their stroke, from wherever we are standing — before the decision
+     * channel, because a shot that has arrived is the older event. */
+    net_take_shot();
+
     /* A choice from the far end: apply it exactly as if we had made it.
      *
      * NOT while our own copy of the shot is still rolling. Every branch below is
@@ -5427,6 +5490,20 @@ static void app_update(void *u, const MoteVrTracking *t) {
                      S.rules.turn == S.net_me ? "YOU BREAK" : "THEY BREAK");
             S.msg_time = 3.0f;
             hand_over();
+            /* THE RULEBOOK, STATED, not merely computed the same way twice.
+             *
+             * Both ends rack from the host's kind and the host's toss and then
+             * build their own CueRules from it, which is right up to the point
+             * where anything is set AFTER the build — best_of is patched onto
+             * the joiner's rules from the hello, the break alternation is
+             * applied separately — and a field that differs at the first stroke
+             * is a divergence no later packet is looking for, because the
+             * post-shot state repairs the BALLS and everything downstream of a
+             * wrong rule still agrees about where they are.
+             *
+             * The host already owns the struct after every shot. Saying it once
+             * more at the start costs one packet and removes the whole class. */
+            net_push_state();
             break;
         }
         if (S.lb_screen == LB_BROWSE && cuevr_net_browse_done()) S.hud_dirty = 1;
@@ -5913,35 +5990,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
 
     case ST_THINK: {
         cuevr_setup_adjust(&S.setup, t, cue_ball_room(), 0);
-        if (S.opp == OPP_ONLINE) {
-            /* Their shot arrives as six numbers and we play it ourselves. */
-            CueVrNetShot ns;
-            /* Their cue design may arrive after the rack — the host sends its
-             * hello the same instant it starts — so keep taking it. */
-            {   CueVrNetHello ph;
-                if (cuevr_net_peer(&ph)) cuevr_render_set_opp_cue(ph.cue_idx); }
-            if (cuevr_net_recv_shot(&ns)) {
-                Vec3 dir = v3(ns.dirx, 0.0f, ns.dirz);
-                float l = v3_len(dir);
-                if (l > 1e-4f) dir = v3_scale(dir, 1.0f / l);
-                /* Put the white where THEY had it before striking. Ball in hand
-                 * is a position only the striker knows, and starting the same
-                 * shot from a different spot is how the far end watched every
-                 * break sail past the pack. */
-                S.balls[0].pos = v3(ns.cuex, S.tab.R, ns.cuez);
-                S.balls[0].vel = v3(0,0,0); S.balls[0].w = v3(0,0,0);
-                S.balls[0].on = 1;
-                /* Judge their shot against what THEY declared, or the scores
-                 * drift apart while the balls still agree. */
-                if (ns.nominated) cue_rules_nominate(&S.rules, ns.nominated);
-                if (ns.free_ball_id) cue_rules_nominate_free(&S.rules, ns.free_ball_id);
-                cue_audio_sfx(CUE_SFX_STRIKE, ns.speed / MAX_STRIKE_SPEED);
-                cue_phys_strike_jump(&S.world, &S.balls[0], dir, ns.speed,
-                                     ns.side, ns.vert, ns.elev, ns.vy);
-                begin_shot();
-            }
-            break;
-        }
+        /* THEIR SHOT IS TAKEN BEFORE THE SWITCH, from wherever we are standing.
+         * See net_take_shot(). */
+        if (S.opp == OPP_ONLINE) break;
         if (S.ai_done) {
             think_join();
             S.cpu_shot = cue_ai_plan_result();

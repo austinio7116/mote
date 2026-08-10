@@ -26,7 +26,18 @@
 #                             prove the host's is the one both play to.
 set -u
 SHOTS=${1:-8}
-FRAMES=${2:-20000}
+# ENOUGH FOR A FRAME TO FINISH, which is what the comparison below assumes: both
+# ends stop when a FRAME is won and the count is only a backstop. Cut short and
+# one end is mid-shot while the other is not, so the tails differ for reasons
+# that have nothing to do with the link — and the run reports FAIL while proving
+# nothing. Every check below can be green in substance and still fail on that.
+#
+# 20000 was enough until the 7 ft pockets were tightened by a sixth; fewer pots
+# per shot means a longer frame, and runs began exhausting the budget at 19940
+# with the balls still rolling. If this starts failing with "frames=0/0" and
+# a BENCH line near the limit in both logs, that is this again — raise it, do
+# not go looking for a desync.
+FRAMES=${2:-60000}
 BIN=$(cd "$(dirname "$0")/../.." && pwd)/build_host/cuevr_preview
 OUT=${OUT:-/tmp/cuevr-net}
 rm -rf "$OUT"; mkdir -p "$OUT/host" "$OUT/join"
