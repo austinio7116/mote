@@ -175,6 +175,19 @@ int  cuevr_net_recv_call(CueVrNetCall *out);
  * fits. */
 #define CUEVR_NET_RULES_MAX 512
 typedef struct {
+    /* WHICH ONE THIS IS. The host pushes at every point that changes the table
+     * without a shot, and two of those land either side of a decision: it says
+     * "the balls are settled, a decision is pending" and then, once the answer
+     * is in, "the decision is applied". Nothing made the second overtake the
+     * first — but nothing STOPPED the first arriving after the far end had
+     * already answered, either, and taking it re-opens a decision that has been
+     * made. The far end asks again, the host has moved on, and the frame is
+     * finished as a contest.
+     *
+     * A counter is the whole fix and it fixes the class rather than the case:
+     * any state packet older than one already taken is a description of a table
+     * that no longer exists, whatever produced it. */
+    uint32_t seq;
     uint8_t  n;                      /* balls in play */
     uint8_t  on[CUEVR_NET_MAXBALLS];
     float    x[CUEVR_NET_MAXBALLS];

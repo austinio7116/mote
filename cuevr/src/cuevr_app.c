@@ -4181,6 +4181,10 @@ static void net_push_state(void) {
         st.x[i]  = S.balls[i].pos.x;
         st.z[i]  = S.balls[i].pos.z;
     }
+    /* Every push gets the next number, so the far end can tell a correction
+     * from a description of a table two events ago. */
+    static uint32_t s_state_seq;
+    st.seq = ++s_state_seq;
     st.rules_len = (uint16_t)sizeof(CueRules);
     memcpy(st.rules, &S.rules, sizeof(CueRules));
     if (getenv("CUEVR_NETDBG"))
@@ -5320,6 +5324,20 @@ static void app_update(void *u, const MoteVrTracking *t) {
     if (S.opp == OPP_ONLINE && S.net_me != 0 && S.state != ST_ROLL) {
         CueVrNetState st;
         if (cuevr_net_recv_state(&st)) {
+            /* STALE STATE IS WORSE THAN NO STATE. See CueVrNetState.seq: the
+             * host pushes on either side of a decision, and the earlier packet
+             * — the one that says a decision is still pending — arriving after
+             * this end has answered puts the question back and deadlocks the
+             * frame. Anything not newer than what we have already taken is
+             * describing a table that no longer exists. */
+            static uint32_t s_seen_seq;
+            if (st.seq && st.seq <= s_seen_seq) {
+                if (getenv("CUEVR_NETDBG"))
+                    fprintf(stderr, "[netdbg] f%d DROP stale state seq=%u have=%u\n",
+                            S.dbg_frame, st.seq, s_seen_seq);
+                goto state_done;
+            }
+            if (st.seq) s_seen_seq = st.seq;
             int n = st.n < S.nballs ? st.n : S.nballs;
             for (int i = 0; i < n; i++) {
                 S.balls[i].on  = st.on[i];
@@ -5343,6 +5361,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
             net_route();
             S.hud_dirty = 1;
         }
+        state_done: ;
     }
 
     /* Their stroke, from wherever we are standing — before the decision
@@ -5413,12 +5432,25 @@ static void app_update(void *u, const MoteVrTracking *t) {
      * the balls dead, because the stepping lived inside ST_ROLL and the state
      * machine was somewhere else — you came back to a shot that had been
      * standing still while you chose a cloth. The balls settle whether or not
-     * anybody is watching, and ST_ROLL resolves it the moment you return. */
-    if (S.pause_from == ST_ROLL &&
-        (S.state == ST_PAUSE || S.state == ST_APPEAR ||
-         S.state == ST_CLOTH ||
-         S.state == ST_CONTROLS || S.state == ST_STATS))
-        roll_step(dt);
+     * anybody is watching, and ST_ROLL resolves it the moment you return.
+     *
+     * IT READ pause_from, so it only kept rolling for a menu opened FROM the
+     * roll — and the balls are far more often set going while somebody is
+     * already in one, either by the opponent's stroke arriving or by their own
+     * shot being taken as they open it. Then the table stopped dead in the
+     * middle of the shot, which in a match is a desync and on your own is a
+     * pause nobody asked for: a struck ball rolls whether or not anyone is
+     * looking at it, and there is no moment in this game worth freezing. What
+     * decides it is whether a shot is IN FLIGHT, which is what pause_from was
+     * standing in for and doing badly. */
+    {
+        int in_menu = (S.state == ST_PAUSE || S.state == ST_APPEAR ||
+                       S.state == ST_CLOTH || S.state == ST_CONTROLS ||
+                       S.state == ST_STATS || S.state == ST_POCKETS ||
+                       S.state == ST_DRILLS || S.state == ST_DRILLSET);
+        int rolling = (S.pause_from == ST_ROLL) || (S.appear_from == ST_ROLL);
+        if (in_menu && rolling) roll_step(dt);
+    }
 
     switch (S.state) {
     case ST_MENU: {

@@ -50,7 +50,10 @@
  * kind of mismatch, so the id moves. Physics and rules are unchanged between
  * the two, but the id is one number for the whole conversation and the rule is
  * that it moves whenever ANY of it does. */
-#define CUEVR_GAME_ID  0x43554541u   /* 'CUEA' — the white travels with the pose */
+/* CUEB, from CUEA: the state packet carries a sequence number, so a stale one
+ * cannot re-open a decision the far end has already answered. A CUEA peer would
+ * read the balls one field late and put the whole table somewhere else. */
+#define CUEVR_GAME_ID  0x43554542u   /* 'CUEB' — state packets are numbered */
 
 /* Wire framing. A magic byte per record so a half-read stream resynchronises
  * rather than reinterpreting float bytes as a shot. */
