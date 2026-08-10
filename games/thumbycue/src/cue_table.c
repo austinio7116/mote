@@ -250,7 +250,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * rail_w alone is 75-85 mm and a ball is 52-57 mm across, so a ball that
      * cleared a cushion landed on the cap, rolled about one ball's width and
      * fell off the outer edge — reported as vanishing the moment it bounced.
-     * The woodwork does not stop there: cuevr_frame builds the body's outer
+     * The woodwork does not stop there: CueVR's frame builds the body's outer
      * face at rail_w + 55 mm (SURR_X/SURR_Z) and the apron runs out to it, so
      * there is another 55 mm of table to land on and it should behave like it.
      *

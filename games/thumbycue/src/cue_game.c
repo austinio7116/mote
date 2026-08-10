@@ -591,7 +591,7 @@ static void ingame_tick(const CraftRawButtons *b, float dt) {
          * — handled by the rules flag below. */
         if (s_place_restrict)
             s_balls[0].pos = cue_table_clamp_placement_balls(
-                &s_table, s_balls[0].pos, s_balls, s_nballs, s_rules.break_shot);
+                &s_table, s_balls[0].pos, s_balls, s_n, s_rules.break_shot);
         else {
             float lim = s_table.half_wid - s_table.R, lx = s_table.half_len - s_table.R;
             if (s_balls[0].pos.z >  lim) s_balls[0].pos.z =  lim;

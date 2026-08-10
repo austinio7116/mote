@@ -69,7 +69,11 @@ def game_sources(d):
     src = os.path.join(d, "src")
     if not os.path.isdir(src):
         sys.exit("mote: %s has no src/ directory" % d)
-    cs = sorted(os.path.join(src, f) for f in os.listdir(src) if f.endswith(".c"))
+    # test_*.c are standalone checks, each with its own main(), built by CMake
+    # as their own executables. Sweeping them into the module used to link a
+    # pile of competing mains — the more a game is tested, the harder it broke.
+    cs = sorted(os.path.join(src, f) for f in os.listdir(src)
+                if f.endswith(".c") and not f.startswith("test_"))
     if not cs:
         sys.exit("mote: no .c files in %s/src" % d)
     return cs, src

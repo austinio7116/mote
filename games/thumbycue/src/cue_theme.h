@@ -13,6 +13,10 @@
 #define CUE_THEME_H
 
 #include "cue_types.h"
+/* cue_ballset_ok tests a GAME MODE, and the modes are the table's enum. The VR
+ * build always had cue_table.h in ahead of this header and so never noticed the
+ * dependency; the handheld includes cue_theme.h on its own and did. */
+#include "cue_table.h"
 
 /* ---- cloth ------------------------------------------------------------- *
  *

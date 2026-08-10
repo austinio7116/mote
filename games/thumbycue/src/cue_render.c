@@ -281,6 +281,18 @@ void cue_render_get_pocket_cut(float *cr, float *cs, float *mr, float *ms) {
 
 #define CUE_BND_MAX 1400
 
+/* ONE POCKET's slice of that boundary, which is all the lip ever walks at a
+ * time. scallop_into emits (NL+1) leg points, then an arc of NA/2+1 (corner) or
+ * NA+1 (side), then (NL+1) more: 4 + 41 + 4 = 49 at the widest. 64 is that with
+ * room to spare.
+ *
+ * The lip's working rings used to be CUE_BND_MAX long — the whole table's
+ * boundary, for a run that can only ever be one pocket's worth. Three of them
+ * on the stack came to 50 KB, against a device that has 134 KB of RAM for the
+ * entire game, so the handheld could not have drawn a pocket without going
+ * through the bottom of its own stack. */
+#define CUE_LIP_MAX 64
+
 typedef struct {
     Vec3 p[CUE_BND_MAX];
     int  pk[CUE_BND_MAX];      /* which pocket this point sits on, or -1 */
@@ -470,11 +482,12 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
         int j = i;
         while (j < s_bnd.n && s_bnd.pk[j] == p) j++;
         int cnt = j - i;
+        if (cnt > CUE_LIP_MAX) cnt = CUE_LIP_MAX;   /* cannot happen; see above */
         if (cnt >= 2) {
             float pr = (p < 4) ? t->pr_corner : t->pr_side;
             float ld  = ldf * pr;
             float din = ld;
-            Vec3 ring0[CUE_BND_MAX], nrm[CUE_BND_MAX];
+            Vec3 ring0[CUE_LIP_MAX], nrm[CUE_LIP_MAX];
             for (int k = 0; k < cnt; k++) {
                 /* the outward normal, averaged from the two segments meeting here */
                 Vec3 a = s_bnd.p[i + (k > 0 ? k - 1 : 0)];
@@ -488,7 +501,7 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
                 float phi = (float)sring / M * 1.5707963f;
                 float tn = sinf(phi), yy = -ld * (1.0f - cosf(phi));
                 uint16_t col = shade565(t->cloth, 1.0f - 0.92f*(1.0f - cosf(phi)));
-                Vec3 ring1[CUE_BND_MAX];
+                Vec3 ring1[CUE_LIP_MAX];
                 for (int k = 0; k < cnt; k++)
                     ring1[k] = v3(s_bnd.p[i+k].x + nrm[k].x * din * tn, yy,
                                   s_bnd.p[i+k].z + nrm[k].z * din * tn);
@@ -716,11 +729,17 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * from the centre, which is safe because the shape is star-shaped about it:
      * every scallop bites inward but none of them reaches the middle. */
     build_bed_boundary(t, w, &s_bnd);
+#ifdef MOTE_HOST
+    /* Host only, and not merely because there is nowhere to write on a Thumby
+     * Color: naming fopen at all drags newlib's whole file layer into the link,
+     * and that layer wants a _open the device does not have. A debugging
+     * convenience must not decide whether the game builds for hardware. */
     { const char *e = getenv("CUE_BNDDUMP");
       if (e) { FILE *f = fopen(e, "w");
         if (f) { for (int i = 0; i < s_bnd.n; i++)
                    fprintf(f, "%.6f %.6f %d\n", s_bnd.p[i].x, s_bnd.p[i].z, s_bnd.pk[i]);
                  fclose(f); } } }
+#endif
     for (int i = 0; i < s_bnd.n; i++) {
         Vec3 a = s_bnd.p[i], b = s_bnd.p[(i + 1) % s_bnd.n];
         tri(v3(0, 0, 0), a, b, t->cloth);

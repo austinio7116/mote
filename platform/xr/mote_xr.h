@@ -7,9 +7,10 @@
  * app supplies four callbacks and never sees an Xr type.
  *
  * That split exists because there are two apps — the Mote console you hold
- * (platform/vr) and the cue-sports game (cuevr/src) — and the second one
- * needing its own copy of seven hundred lines of session management is how you
- * end up with two of them that drift.
+ * (platform/vr) and CueVR, the cue-sports game, which lives in its own
+ * repository and builds against this header from there. The second one needing
+ * its own copy of seven hundred lines of session management is how you end up
+ * with two of them that drift.
  *
  * What the host owns:
  *   · the session state machine, so an app never sees READY/STOPPING

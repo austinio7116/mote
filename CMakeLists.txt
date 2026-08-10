@@ -100,7 +100,6 @@ if(MOTE_TARGET STREQUAL "host")
         platform/android/mote_plat_android.c
         platform/android/mote_link_android.c
         studio/link_net.c
-        cuevr/src/cuevr_net.c
         platform/android/mote_mn1.c
         os/android/mote_android_os.c
         os/android/mote_android_gallery.c
@@ -179,10 +178,10 @@ if(MOTE_TARGET STREQUAL "host")
     endif()
     endif()  # NOT WIN32 (VR preview)
 
-    # CueVR preview: the cue-sports headset game minus OpenXR. Same table, same
-    # physics, same cue geometry, same shaders — with mouse-driven hands, so the
-    # thing can be screenshotted without a headset. See cuevr/src.
-    if(NOT WIN32 AND GLESV2_LIB)
+    # The cue-sports simulation, checked without a game or a renderer around it.
+    # These are ThumbyCue's own tests: the physics, the table and the rules are
+    # this repository's, and stay here whoever else builds on them.
+    if(NOT WIN32)
     # The jump shot, against the physics with no game or renderer around it.
     # Two claims worth a target of its own: that a jump clears a ball, and that
     # a shot which does NOT jump is bit-for-bit the planar game it always was.
@@ -227,63 +226,17 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_options(cue_test_place PRIVATE -O2 -Wall -Wextra -Wno-unused-parameter)
     target_link_libraries(cue_test_place PRIVATE m)
 
-    add_executable(cue_test_drill
-        cuevr/src/test_drill.c
-        cuevr/src/cuevr_drill.c
-        games/thumbycue/src/cue_table.c
-        games/thumbycue/src/cue_physics.c)
-    target_include_directories(cue_test_drill PRIVATE
-        ${MOTE_INCLUDE_DIRS}
-        ${CMAKE_CURRENT_SOURCE_DIR}/cuevr/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
-    target_compile_definitions(cue_test_drill PRIVATE MOTE_HOST=1)
-    target_compile_options(cue_test_drill PRIVATE -O2 -Wall -Wextra
-        -Wno-unused-parameter)
-    target_link_libraries(cue_test_drill PRIVATE m)
+    endif()  # NOT WIN32 (cue-sports simulation tests)
 
-    add_executable(cuevr_preview
-        cuevr/src/cuevr_preview.c
-        cuevr/src/cuevr_app.c
-        cuevr/src/cuevr_render.c
-        cuevr/src/cuevr_cue.c
-        cuevr/src/cuevr_text.c
-        studio/link_net.c
-        cuevr/src/cuevr_net.c
-        cuevr/src/cuevr_setup.c
-        cuevr/src/cuevr_career.c
-        cuevr/src/cuevr_refcall.c
-        cuevr/src/cuevr_drill.c
-        cuevr/src/cuevr_audio.c
-        cuevr/src/cuevr_frame.c
-        cuevr/src/cuevr_light.c
-        cuevr/src/cuevr_glb.c
-        games/thumbycue/src/cue_physics.c
-        games/thumbycue/src/cue_table.c
-        games/thumbycue/src/cue_rules.c
-        games/thumbycue/src/cue_ai.c
-        games/thumbycue/src/cue_render.c
-        games/thumbycue/src/r3d_raster.c
-        games/thumbycue/src/craft_font.c)
-    target_include_directories(cuevr_preview PRIVATE
-        ${MOTE_INCLUDE_DIRS}
-        ${CMAKE_CURRENT_SOURCE_DIR}/cuevr/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/platform/xr
-        ${CMAKE_CURRENT_SOURCE_DIR}/platform/vr
-        ${CMAKE_CURRENT_SOURCE_DIR}/studio
-        ${CMAKE_CURRENT_SOURCE_DIR}/studio/third_party)
-    target_compile_definitions(cuevr_preview PRIVATE MOTE_HOST=1
-        CUE_JAW_SEGS=10 CUE_ARC_SEGS=20 CUE_MAX_SEG=256 MAX_TABLE_TRI=24000 SIM_CAP=160 SIMS_PER_TICK=10)
-    target_compile_options(cuevr_preview PRIVATE -O2 -ffast-math -Wall -Wextra
-        -Wno-unused-parameter)
-    target_link_libraries(cuevr_preview PRIVATE ${GLESV2_LIB} m)
-    if(TARGET SDL2::SDL2)
-        target_link_libraries(cuevr_preview PRIVATE SDL2::SDL2)
-    else()
-        target_include_directories(cuevr_preview PRIVATE ${SDL2_INCLUDE_DIRS})
-        target_link_libraries(cuevr_preview PRIVATE ${SDL2_LIBRARIES})
-    endif()
-    endif()  # CueVR preview
+    # CueVR — the mixed-reality cue-sports game — lives in its own repository:
+    #   https://github.com/austinio7116/CueVR   (private)
+    #
+    # It still compiles the simulation from HERE, unchanged: cue_physics,
+    # cue_table, cue_rules, cue_ai and cue_render belong to the handheld game
+    # and stay open source with it. What left is the headset app built on top,
+    # and its preview target left with it — a CMakeLists still naming
+    # cuevr/src would fail for everyone cloning Mote, over a target they have
+    # no sources for.
 
     # Mote Studio: the bespoke IDE — embeds the engine via the studio platform
     # backend (offscreen present + Studio-fed buttons) and draws it in a device shell.
