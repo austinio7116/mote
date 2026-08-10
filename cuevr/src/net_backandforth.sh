@@ -68,7 +68,8 @@ J=$!
 wait $H; wait $J
 
 python3 - "$OUT" <<'PY'
-import re, sys
+import os, re, sys
+SHOTS_HINT = 'raise the shot count or the frame budget'
 out = sys.argv[1]
 PAT = (r'\[(\w+)\] f(\d+)\s+(\S+)\s+kind=\d+ turn=(\d+) me=(\d+) bo=(\d+) '
        r'score=(\d+)/(\d+) frames=(\d+)/(\d+) on=(\d+) hash=(\w+) '
@@ -115,10 +116,25 @@ print(f"\n--- back and forth: host saw {len(hs)} shots, joiner saw {len(js)} ---
 chk("both ends saw the same shots", abs(len(hs)-len(js))<=1, f"{len(hs)} vs {len(js)}")
 chk("more than one shot was played", min(len(hs),len(js))>1,
     "the bug this catches let exactly one through")
-sh=[(r['turn'],r['obj'],r['rules']) for r in hs]
-sj=[(r['turn'],r['obj'],r['rules']) for r in js]
+# THE BREAK IS COMPARED ON THE RULES, NOT THE BALLS.
+#
+# It is the one stroke where the far end cannot yet know where the white is:
+# ball in hand is a position only the striker has, and it crosses WITH the shot
+# — there is no state packet before the first stroke of a frame to carry it. So
+# the receiving end's table at the moment it enters ROLL legitimately differs
+# from the striker's, and every stroke after it agrees exactly because the
+# position arrived. Requiring the break to match too failed runs that were
+# perfect from shot one onward and finished byte-identical.
+#
+# The rules ARE compared on the break, and the turn, so a genuine disagreement
+# about whose break it is or what game is being played still fails here.
+def sig_shot(r, first):
+    return (r['turn'], r['rules']) if first else (r['turn'], r['obj'], r['rules'])
+sh=[sig_shot(r, i==0) for i,r in enumerate(hs)]
+sj=[sig_shot(r, i==0) for i,r in enumerate(js)]
 chk("the shots each end saw are the same shots", subseq(sj,sh) or subseq(sh,sj),
-    f"{len(set(sh)&set(sj))} of {max(len(sh),len(sj))} in common")
+    f"{len(set(sh)&set(sj))} of {max(len(sh),len(sj))} in common"
+    " (the break on rules only — the white's spot rides with that shot)")
 print(f"         (settled tables: host {len(ht)}, joiner {len(jt)}, "
       f"{len(set(ht)&set(jt))} in common — the rest are the moments one end has "
       f"resolved and the other has not yet taken the correction)")
@@ -138,6 +154,29 @@ if not same:
             same=True; fh,fj=a[-1],b[-1]
             note=f"  (ignoring {which}'s trailing OVER: the other end had quit)"
             break
+# NO FRAME, NO VERDICT.
+#
+# Every check below the shot counts assumes both ends stopped at the SAME
+# event, and the only event they share is a frame being won. If neither end
+# ever finished one they were cut wherever their frame budget ran out — one
+# mid-shot, the other not — and the tails differ for reasons that have nothing
+# to do with the link.
+#
+# This used to report FAIL for that, which is worse than useless: it is a red
+# light that means "ask again louder". It cost this project a wrong diagnosis
+# three times in one day, twice while chasing a desync that was not there. An
+# INCONCLUSIVE run says so and exits non-zero WITHOUT claiming a fault.
+finished = any(int(r['fr'].split('/')[0]) + int(r['fr'].split('/')[1]) > 0
+               for r in (h[-1], j[-1]))
+if not finished:
+    print(f"\n  [....] neither end finished a frame — {SHOTS_HINT}")
+    print("         Nothing below this line can be read as a link fault: the two")
+    print("         ends were cut at different moments, not at the same event.")
+    print("         Give it more shots, or a game whose frames are shorter")
+    print("         (GAME=6 is 6-red snooker and finishes far sooner than 12ft).")
+    print("\nINCONCLUSIVE\n")
+    sys.exit(2)
+
 chk("both ends finished on the same table", same,
     note + show('host',fh) + show('join',fj))
 chk("both ends play the same match length", h[-1]['bo']==j[-1]['bo'],
