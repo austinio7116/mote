@@ -28,6 +28,12 @@ typedef struct {
      * contact is not a miss. The host has no other way to know: the penalty is
      * the same number either way. */
     int last_miss;
+    /* And what it cost, in snooker, where a foul has a price: 4 to 7 depending
+     * on the ball on and what was hit or potted. The referee reads it out after
+     * the call — "Foul. Five." — and there was no way to know the number from
+     * outside, because the same foul flag covers a four and a seven. Zero in
+     * the games where a foul is paid for in ball-in-hand rather than points. */
+    int last_foul_pts;
     char msg[24];
 
     /* 8-ball */

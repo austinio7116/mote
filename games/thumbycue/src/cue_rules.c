@@ -470,6 +470,7 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
         if (first_hit >= 0 && snk_value(first_hit) > fv) fv = snk_value(first_hit);
         if (maxpot > fv) fv = maxpot;
         r->score[opp] += fv;
+        r->last_foul_pts = fv;   /* what the referee reads out after the call */
         r->brk = 0;
 
         int target_after = (r->reds_left > 0) ? 0 : 2;
@@ -687,6 +688,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     r->ball_in_hand = 0;
     r->last_foul = 0;
     r->last_miss = 0;
+    r->last_foul_pts = 0;
     if (r->kind)                       resolve_snooker(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_US9)  resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else                               resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);
