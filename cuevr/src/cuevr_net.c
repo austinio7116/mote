@@ -53,7 +53,12 @@
 /* CUEB, from CUEA: the state packet carries a sequence number, so a stale one
  * cannot re-open a decision the far end has already answered. A CUEA peer would
  * read the balls one field late and put the whole table somewhere else. */
-#define CUEVR_GAME_ID  0x43554542u   /* 'CUEB' — state packets are numbered */
+/* CUEC, from CUEB: authority follows the actor. The striker states the table
+ * its own shot produced and the decider states its own answer — instead of the
+ * host pronouncing on both — and a decision now says WHICH question it answers
+ * rather than leaving the receiver to guess from its own rules. A CUEB peer
+ * would keep re-judging strokes it did not play. */
+#define CUEVR_GAME_ID  0x43554543u   /* 'CUEC' — the actor owns the outcome */
 
 /* Wire framing. A magic byte per record so a half-read stream resynchronises
  * rather than reinterpreting float bytes as a shot. */

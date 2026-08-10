@@ -134,7 +134,16 @@ typedef struct {
 typedef struct {
     int code;              /* CUE_DEC_*, or CUEVR_NET_CONCEDE */
     int who;               /* the seat that made it */
+    /* WHICH QUESTION THIS ANSWERS. A push-out and a foul decision use the same
+     * CUE_DEC_ codes, so the receiver used to tell them apart by asking its OWN
+     * rules which question was outstanding — and when it disagreed, the answer
+     * was applied to the wrong question or dropped on the floor. The decider
+     * knows what it was asked; it says so. */
+    int kind;              /* CUEVR_CALL_* */
 } CueVrNetCall;
+#define CUEVR_CALL_FOUL    0   /* play on / make them play again / free ball */
+#define CUEVR_CALL_PUSHOUT 1   /* 9-ball: push out, or play it normally */
+#define CUEVR_CALL_CONCEDE 2
 #define CUEVR_NET_CONCEDE 100
 
 void cuevr_net_send_call(const CueVrNetCall *c);

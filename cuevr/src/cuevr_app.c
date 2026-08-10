@@ -374,7 +374,6 @@ static struct {
      * So a client does not act on its own answer to a question the host has
      * also been asked. It waits for the host's rules, which are already on
      * their way, and answers from those. */
-    int   net_need_state;
     int   edit_ball;             /* the ball being carried in the editor, or -1 */
     int   edit_latch;
     int   drill_row;             /* the slot the drills screen is on */
@@ -4185,8 +4184,34 @@ static int roll_step(float dt) {
 _Static_assert(sizeof(CueRules) <= CUEVR_NET_RULES_MAX,
                "CueRules outgrew the state packet — raise CUEVR_NET_RULES_MAX");
 
+/* AUTHORITY FOLLOWS THE ACTOR, not the seat.
+ *
+ * This used to be the HOST's alone — `if (S.net_me != 0) return;` — so the host
+ * pronounced on shots it had not played and decisions that were not its to
+ * make, and the joiner's own stroke came back re-judged by the other headset.
+ * Two ends judging the same event independently is the whole disease: the
+ * score and the balls survive it, a yes/no question about geometry does not.
+ *
+ * So the end that DID the thing says what it did. The striker owns the shot it
+ * played; the decider owns the answer it gave. Nobody computes anything twice.
+ *
+ * The sequence counter is shared rather than per-sender: it is bumped past the
+ * highest either end has issued, so two senders still produce one order and the
+ * stale-packet test keeps working. Events cannot overlap — you cannot strike
+ * while the other is deciding — so there is nothing to race over. */
+/* The order of events on the table, agreed by both ends. Bumped past whatever
+ * either has issued, so it stays monotonic with two senders. */
+static uint32_t s_net_seq;
+
+/* Does this end own what is about to be described? Set where an event is
+ * CAUSED — the striker resolving its own shot, the decider applying its own
+ * answer, the host racking — and cleared where it is merely being told. Without
+ * it, dropping the host-only gate would have BOTH ends describing every event
+ * and each overwriting the other. */
+static int s_own_event;
+
 static void net_push_state(void) {
-    if (S.opp != OPP_ONLINE || S.net_me != 0) return;
+    if (S.opp != OPP_ONLINE || !s_own_event) return;
     if (cuevr_net_state() != CUEVR_NET_LIVE) return;
     CueVrNetState st;
     memset(&st, 0, sizeof st);
@@ -4198,8 +4223,7 @@ static void net_push_state(void) {
     }
     /* Every push gets the next number, so the far end can tell a correction
      * from a description of a table two events ago. */
-    static uint32_t s_state_seq;
-    st.seq = ++s_state_seq;
+    st.seq = ++s_net_seq;
     st.rules_len = (uint16_t)sizeof(CueRules);
     memcpy(st.rules, &S.rules, sizeof(CueRules));
     if (getenv("CUEVR_NETDBG"))
@@ -4209,6 +4233,9 @@ static void net_push_state(void) {
 }
 
 static void resolve_shot(void) {
+    /* WHOSE STROKE THIS WAS, read before the rules move the turn. The striker
+     * owns the outcome of its own shot — see net_push_state. */
+    const int striker_seat = S.rules.turn;
     int potted[CUE_MAX_BALLS], np = 0, scratch = 0, n_off = 0;
     for (int i = 0; i < S.nballs; i++) {
         if (S.was_on[i] && !S.balls[i].on) {
@@ -4232,10 +4259,11 @@ static void resolve_shot(void) {
      * at the strike from vy alone, which fouled a hop over open cloth and
      * fouled all three exceptions. */
     S.rules.jumped = S.world.jump_over;
-    /* A client has just judged this shot from its own copy of the table. The
-     * host is judging the same shot and its answer is the one that counts, so
-     * anything that has to be DECIDED waits for it — see net_need_state. */
-    if (S.opp == OPP_ONLINE && S.net_me != 0) S.net_need_state = 1;
+    /* THE STRIKER SAYS WHAT ITS SHOT DID. Both ends simulate — that is what
+     * lockstep is — but only one of them PLAYED it, and where the two
+     * simulations differ the player's is the one that happened. The other end
+     * takes it and stops judging a stroke it did not make. */
+    s_own_event = (striker_seat == S.net_me);
     LOGI("[cuevr] settle: cue at %.2f,%.2f  first_hit %d  potted %d  scratch %d",
          (double)S.balls[0].pos.x, (double)S.balls[0].pos.z, S.world.first_hit, np, scratch);
     /* A DRILL IS NOT A FRAME EITHER, and for the same reason: a saved position
@@ -5354,7 +5382,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
      * mid-roll it would teleport balls out from under a shot that is still
      * being simulated, which is a worse desync than the one it is here to
      * mend. The host never applies its own. */
-    if (S.opp == OPP_ONLINE && S.net_me != 0 && S.state != ST_ROLL) {
+    if (S.opp == OPP_ONLINE && S.state != ST_ROLL) {
         CueVrNetState st;
         if (cuevr_net_recv_state(&st)) {
             /* STALE STATE IS WORSE THAN NO STATE. See CueVrNetState.seq: the
@@ -5363,14 +5391,14 @@ static void app_update(void *u, const MoteVrTracking *t) {
              * this end has answered puts the question back and deadlocks the
              * frame. Anything not newer than what we have already taken is
              * describing a table that no longer exists. */
-            static uint32_t s_seen_seq;
+            uint32_t s_seen_seq = s_net_seq;
             if (st.seq && st.seq <= s_seen_seq) {
                 if (getenv("CUEVR_NETDBG"))
                     fprintf(stderr, "[netdbg] f%d DROP stale state seq=%u have=%u\n",
                             S.dbg_frame, st.seq, s_seen_seq);
                 goto state_done;
             }
-            if (st.seq) s_seen_seq = st.seq;
+            if (st.seq) s_net_seq = st.seq;   /* ours advances past theirs */
             int n = st.n < S.nballs ? st.n : S.nballs;
             for (int i = 0; i < n; i++) {
                 S.balls[i].on  = st.on[i];
@@ -5391,7 +5419,6 @@ static void app_update(void *u, const MoteVrTracking *t) {
                         (int)st.rules_len, cuevr_app_state_name());
             /* AND THE STATE MACHINE MOVES WITH THE RULES — all of the rules,
              * not just the turn. See net_route(). */
-            S.net_need_state = 0;      /* the host has spoken on this shot */
             net_route();
             S.hud_dirty = 1;
         }
@@ -5413,27 +5440,41 @@ static void app_update(void *u, const MoteVrTracking *t) {
     if (S.opp == OPP_ONLINE && S.state != ST_ROLL) {
         CueVrNetCall c;
         while (cuevr_net_recv_call(&c)) {
-            if (c.code == CUEVR_NET_CONCEDE) {
+            if (c.kind == CUEVR_CALL_CONCEDE || c.code == CUEVR_NET_CONCEDE) {
                 think_join();
                 cue_rules_concede(&S.rules, c.who);
                 snprintf(S.msg, sizeof S.msg, "FRAME CONCEDED");
                 S.msg_time = 3.0f;
                 enter_over();
-            } else if (S.rules.pushout_offer) {
+            } else if (c.kind == CUEVR_CALL_PUSHOUT) {
                 S.rules.is_pushout = (c.code == CUE_DEC_PLAY) ? 1 : 0;
                 S.rules.pushout_offer = 0;
                 S.rules.pushout_avail = 0;
                 arm_shot(); hand_over();
-            } else if (S.rules.decision == CUE_DEC_PENDING) {
+            } else {
+                /* APPLIED, NOT CONSIDERED.
+                 *
+                 * This was gated on `S.rules.decision == CUE_DEC_PENDING` — on
+                 * THIS end having independently concluded that a decision was
+                 * owed. When it had not, the answer matched no branch and was
+                 * dropped without a word: the decider carried on under it and
+                 * this end carried on without it, every single time the two
+                 * disagreed about whether there was a question.
+                 *
+                 * The decider owns the answer. Our own opinion about whether
+                 * one was needed is not a veto over it, so the field is forced
+                 * and the answer applied. The state that follows comes from the
+                 * decider too, so anything this leaves inconsistent is
+                 * overwritten a moment later by the end that knows. */
+                S.rules.decision = CUE_DEC_PENDING;
                 if (c.code == CUE_DEC_REPLAY) snap_restore_balls();
                 cue_rules_apply_decision(&S.rules, c.code);
                 if (S.rules.free_ball) cuevr_refcall_say(CUEVR_SAY_FREE_BALL);
                 arm_shot(); hand_over();
             }
-            /* A decision moves the balls (a replay puts them all back) and moves
-             * the turn, so the host says where everything is afterwards — the
-             * same guarantee a shot gets. */
-            net_push_state();
+            /* THEY decided, so THEY describe what it did — we do not push a
+             * competing account of somebody else's choice. */
+            s_own_event = 0;
             S.hud_dirty = 1;
         }
     }
@@ -5569,6 +5610,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
              *
              * The host already owns the struct after every shot. Saying it once
              * more at the start costs one packet and removes the whole class. */
+            s_own_event = (S.net_me == 0);   /* the host racked it */
             net_push_state();
             break;
         }
@@ -5831,7 +5873,8 @@ static void app_update(void *u, const MoteVrTracking *t) {
                     if (S.rules.kind && !S.rules.frame_over) {
                         think_join();
                         if (S.opp == OPP_ONLINE) {
-                            CueVrNetCall c = { CUEVR_NET_CONCEDE, S.net_me };
+                            CueVrNetCall c = { CUEVR_NET_CONCEDE, S.net_me,
+                                               CUEVR_CALL_CONCEDE };
                             cuevr_net_send_call(&c);
                         }
                         cue_rules_concede(&S.rules, S.opp == OPP_ONLINE ? S.net_me : 0);
@@ -7150,13 +7193,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * table, a foul decision to the one who was fouled against — the same
          * split the CPU path makes. */
         if (S.opp == OPP_ONLINE) {
-            /* NOT UNTIL THE HOST HAS SPOKEN ON THIS SHOT. The options on this
-             * screen are built from dec_free_ball and dec_can_restore, and this
-             * end worked those out from its own settled table — which is the
-             * one thing about a shot the two ends do NOT reliably agree on.
-             * Answering from the local list is how the two applied different
-             * decisions to the same foul. */
-            if (S.net_need_state) break;
+            /* The decider does NOT wait on anybody. An earlier attempt at this
+             * had it wait for the host's rules before it could answer its own
+             * decision, which is the wrong owner twice over — it is this
+             * player's choice, and the host has no more claim on it than on
+             * their stroke. What the far end must do is APPLY what it is told
+             * rather than re-derive whether a question existed; see the call
+             * handler. */
             int decider = S.rules.pushout_offer ? S.rules.turn
                                                 : 1 - S.rules.dec_offender;
             if (decider != S.net_me) break;
@@ -7183,9 +7226,12 @@ static void app_update(void *u, const MoteVrTracking *t) {
             /* The far end is sitting on the same pending decision and cannot
              * see which row we picked. */
             if (S.opp == OPP_ONLINE) {
-                CueVrNetCall c = { dec, S.net_me };
+                CueVrNetCall c = { dec, S.net_me,
+                                   S.rules.pushout_offer ? CUEVR_CALL_PUSHOUT
+                                                         : CUEVR_CALL_FOUL };
                 cuevr_net_send_call(&c);
             }
+            s_own_event = 1;         /* our answer, so we say what it did */
             if (S.rules.pushout_offer) {
                 S.rules.is_pushout = (dec == CUE_DEC_PLAY) ? 1 : 0;
                 S.rules.pushout_offer = 0;
