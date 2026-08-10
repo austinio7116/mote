@@ -226,6 +226,74 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_options(cue_test_place PRIVATE -O2 -Wall -Wextra -Wno-unused-parameter)
     target_link_libraries(cue_test_place PRIVATE m)
 
+
+    # The edge of the table, which is where the bugs were: a ball must never
+    # pass THROUGH a cushion, must never be lifted onto the frame by standing
+    # where it stands, and must fall in a pocket rather than through the jaw.
+    add_executable(cue_test_edge
+        games/thumbycue/src/test_edge.c
+        games/thumbycue/src/cue_physics.c
+        games/thumbycue/src/cue_table.c)
+    target_include_directories(cue_test_edge PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
+    target_compile_definitions(cue_test_edge PRIVATE MOTE_HOST=1)
+    target_compile_options(cue_test_edge PRIVATE -O2 -Wall -Wextra -Wno-unused-parameter)
+    target_link_libraries(cue_test_edge PRIVATE m)
+
+    # Colours go back on their own spots, and on the next free one when taken.
+    add_executable(cue_test_respot
+        games/thumbycue/src/test_respot.c
+        games/thumbycue/src/cue_rules.c
+        games/thumbycue/src/cue_table.c
+        games/thumbycue/src/cue_physics.c)
+    target_include_directories(cue_test_respot PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
+    target_compile_definitions(cue_test_respot PRIVATE MOTE_HOST=1)
+    target_compile_options(cue_test_respot PRIVATE -O2 -Wall -Wextra -Wno-unused-parameter)
+    target_link_libraries(cue_test_respot PRIVATE m)
+
+    # Collision-induced throw: cut shots do not send the object ball down the
+    # geometric line, and the cue ball keeps the difference.
+    add_executable(cue_test_throw
+        games/thumbycue/src/test_throw.c
+        games/thumbycue/src/cue_table.c
+        games/thumbycue/src/cue_physics.c)
+    target_include_directories(cue_test_throw PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
+    target_compile_definitions(cue_test_throw PRIVATE MOTE_HOST=1)
+    target_compile_options(cue_test_throw PRIVATE -O2 -Wall -Wextra -Wno-unused-parameter)
+    target_link_libraries(cue_test_throw PRIVATE m)
+
+    # A frame that cannot be won is conceded — the AI used to play it out.
+    add_executable(cue_test_concede
+        games/thumbycue/src/test_concede.c
+        games/thumbycue/src/cue_rules.c
+        games/thumbycue/src/cue_table.c
+        games/thumbycue/src/cue_physics.c)
+    target_include_directories(cue_test_concede PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
+    target_compile_definitions(cue_test_concede PRIVATE MOTE_HOST=1)
+    target_compile_options(cue_test_concede PRIVATE -O2 -Wall -Wextra -Wno-unused-parameter)
+    target_link_libraries(cue_test_concede PRIVATE m)
+
+    # Whole frames played by the AI against itself: they must finish, and
+    # finish legally, rather than reach a position neither side can leave.
+    add_executable(cue_test_ai_frames
+        games/thumbycue/src/test_ai_frames.c
+        games/thumbycue/src/cue_ai.c
+        games/thumbycue/src/cue_physics.c
+        games/thumbycue/src/cue_rules.c
+        games/thumbycue/src/cue_table.c)
+    target_include_directories(cue_test_ai_frames PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
+    target_compile_definitions(cue_test_ai_frames PRIVATE MOTE_HOST=1)
+    target_compile_options(cue_test_ai_frames PRIVATE -O2 -Wall -Wextra -Wno-unused-parameter)
+    target_link_libraries(cue_test_ai_frames PRIVATE m)
     endif()  # NOT WIN32 (cue-sports simulation tests)
 
     # CueVR — the mixed-reality cue-sports game — lives in its own repository:
