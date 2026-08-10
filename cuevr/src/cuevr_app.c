@@ -4970,6 +4970,20 @@ MoteVrV3 cuevr_app_cue_ball_room(void) { return cue_ball_room(); }
  * moving would be simulating two shots at once. */
 static void net_take_shot(void) {
     if (S.opp != OPP_ONLINE || S.state == ST_ROLL) return;
+    /* AND ONLY ONCE THERE IS A FRAME TO PLAY IT ON.
+     *
+     * "Every state" was too literal: ST_LOBBY is a state, and an end still in
+     * it has racked but not yet finished starting — so the host's break arrived
+     * and was applied to a table that was not ready, putting the joiner into
+     * ST_ROLL straight out of the lobby with the two ends thereafter at
+     * different points in the same frame. The 9-ball run showed it as zero of
+     * five shots in common, which reads exactly like a decision desync and was
+     * nothing of the kind. Wait, and the shot keeps: it is queued, not dropped.
+     *
+     * The menus ARE included, deliberately — that is the whole point of moving
+     * this out of ST_THINK. */
+    if (S.state == ST_LOBBY || S.state == ST_MENU || S.state == ST_SETUP ||
+        S.state == ST_OVER) return;
     /* Their cue design may arrive after the rack — the host sends its hello the
      * same instant it starts — so keep taking it. */
     {   CueVrNetHello ph;
