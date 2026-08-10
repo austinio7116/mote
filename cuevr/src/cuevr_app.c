@@ -1045,6 +1045,18 @@ static void enter_over(void) {
      * gated on rules.kind for no better reason than that it was written beside
      * the break totals, which really are snooker's alone. */
     if (!S.stat_folded) cuevr_refcall_say(CUEVR_SAY_FRAME);
+    /* WHAT THIS END IS ABOUT TO PUT ON THE SCREEN, in the words the player will
+     * read. Reported: "a winning opponent sees frame lost". The code that picks
+     * those words reads correctly, which is why three passes over it found
+     * nothing — so it says what it decided and the two transcripts settle it. */
+    if (getenv("CUEVR_NETDBG")) {
+        int seat = (S.opp == OPP_ONLINE) ? S.net_me : 0;
+        fprintf(stderr, "[over] seat=%d winner=%d frames=%d/%d score=%d/%d "
+                "conceded=%d -> \"%s\"\n",
+                seat, S.rules.winner, S.rules.frames[0], S.rules.frames[1],
+                S.rules.score[0], S.rules.score[1], S.rules.conceded,
+                (S.rules.winner == seat) ? "FRAME WON" : "FRAME LOST");
+    }
     if (!S.stat_folded) { S.stat_folded = 1; stat_frame_into_match(); }
     S.state = ST_OVER;
     S.hud_dirty = 1;

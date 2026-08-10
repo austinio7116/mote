@@ -173,7 +173,24 @@ print(f"         (settled tables: host {len(ht)}, joiner {len(jt)}, "
 # again with one end's trailing OVER dropped as the shutdown artifact.
 def sig(r): return (r['obj'],r['rules'],r['sc'],r['fr'])
 def show(t,r): return f"\n         {t} {r['st']:6s} obj={r['obj']} rules={r['rules']} sc={r['sc']} fr={r['fr']}"
-fh, fj = h[-1], j[-1]
+# COMPARE AT A SHARED EVENT, not at whenever each process stopped.
+#
+# The last line in a log is the last thing that end did before its budget ran
+# out or its opponent quit — two different moments, and a correction in flight
+# at one of them shows as a difference that is not one. The FRAME ENDING is an
+# event both ends reach, so that is where the two tables are compared. Same
+# reasoning as "no frame, no verdict" above: a comparison has to be anchored to
+# something both ends did.
+#
+# Everything is still compared there — balls, rules, score and tally — so this
+# is not a relaxation. It is the same comparison at a defined instant.
+def at_frame_end(rs):
+    for r in rs:
+        f0, f1 = r['fr'].split('/')
+        if int(f0) + int(f1) > 0:
+            return r
+    return rs[-1]
+fh, fj = at_frame_end(h), at_frame_end(j)
 same = sig(fh)==sig(fj)
 note = ""
 if not same:
