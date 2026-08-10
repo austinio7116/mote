@@ -360,6 +360,21 @@ static struct {
      * challenge set to "the black" through the ball grid was judged against
      * whatever `ball` happened to hold, and potting the black did nothing. */
     uint32_t drill_got;
+    /* THE FAR END HAS RESOLVED A SHOT AND NOT YET HEARD THE HOST ON IT.
+     *
+     * Both ends run cue_rules_resolve on their own copy of the settled table,
+     * and the tables are only settled to within whatever the two simulations
+     * drifted apart by. Nearly everything survives that — the score, the pots,
+     * whose foul it was. What does not is the SNOOKERED TEST: dec_free_ball is
+     * a geometric question about whether a ball can be hit, and a millimetre
+     * decides it. One end offered a free ball and the other did not, so the two
+     * decision menus were different, different answers were applied, and the
+     * turn came out different with the balls and the score still agreeing.
+     *
+     * So a client does not act on its own answer to a question the host has
+     * also been asked. It waits for the host's rules, which are already on
+     * their way, and answers from those. */
+    int   net_need_state;
     int   edit_ball;             /* the ball being carried in the editor, or -1 */
     int   edit_latch;
     int   drill_row;             /* the slot the drills screen is on */
@@ -4217,6 +4232,10 @@ static void resolve_shot(void) {
      * at the strike from vy alone, which fouled a hop over open cloth and
      * fouled all three exceptions. */
     S.rules.jumped = S.world.jump_over;
+    /* A client has just judged this shot from its own copy of the table. The
+     * host is judging the same shot and its answer is the one that counts, so
+     * anything that has to be DECIDED waits for it — see net_need_state. */
+    if (S.opp == OPP_ONLINE && S.net_me != 0) S.net_need_state = 1;
     LOGI("[cuevr] settle: cue at %.2f,%.2f  first_hit %d  potted %d  scratch %d",
          (double)S.balls[0].pos.x, (double)S.balls[0].pos.z, S.world.first_hit, np, scratch);
     /* A DRILL IS NOT A FRAME EITHER, and for the same reason: a saved position
@@ -5372,6 +5391,7 @@ static void app_update(void *u, const MoteVrTracking *t) {
                         (int)st.rules_len, cuevr_app_state_name());
             /* AND THE STATE MACHINE MOVES WITH THE RULES — all of the rules,
              * not just the turn. See net_route(). */
+            S.net_need_state = 0;      /* the host has spoken on this shot */
             net_route();
             S.hud_dirty = 1;
         }
@@ -7130,6 +7150,13 @@ static void app_update(void *u, const MoteVrTracking *t) {
          * table, a foul decision to the one who was fouled against — the same
          * split the CPU path makes. */
         if (S.opp == OPP_ONLINE) {
+            /* NOT UNTIL THE HOST HAS SPOKEN ON THIS SHOT. The options on this
+             * screen are built from dec_free_ball and dec_can_restore, and this
+             * end worked those out from its own settled table — which is the
+             * one thing about a shot the two ends do NOT reliably agree on.
+             * Answering from the local list is how the two applied different
+             * decisions to the same foul. */
+            if (S.net_need_state) break;
             int decider = S.rules.pushout_offer ? S.rules.turn
                                                 : 1 - S.rules.dec_offender;
             if (decider != S.net_me) break;
