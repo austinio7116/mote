@@ -106,6 +106,23 @@ typedef struct {
 typedef struct {
     float tipx, tipy, tipz;
     float bttx, btty, bttz;
+    /* AND THE WHITE, WHILE IT IS IN THEIR HAND.
+     *
+     * Ball positions otherwise cross only in the post-shot state packet, which
+     * is right for a shot and useless for a placement: the player carrying the
+     * cue ball round the D moved it on their machine alone, so the far end
+     * watched them address a white that was still sitting where it had been
+     * left — cueing at nothing, until the shot resolved and the state packet
+     * finally put it where it had always been. It rides here rather than in a
+     * state push because it changes at hand speed and matters not at all if a
+     * packet is dropped: the next one is 14 ms behind, and the authoritative
+     * position still arrives with the shot.
+     *
+     * `holding` is the seat carrying it, or -1. The receiver applies it only
+     * when the sender is the one entitled to move it, so this can never fight
+     * the host's state. */
+    int   holding;
+    float cbx, cbz;
 } CueVrNetPose;
 
 /* A CHOICE, rather than a stroke. After a foul the fouled-AGAINST player picks

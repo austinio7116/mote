@@ -1024,8 +1024,13 @@ static void enter_over(void) {
      * one of the ways a frame can end: potted out, conceded, forfeited on three
      * misses, the opponent leaving. Every one of them arrives through this
      * function, and a call wired to only the tidy ending would be missing from
-     * exactly the endings that need explaining. */
-    if (S.rules.kind && !S.stat_folded) cuevr_refcall_say(CUEVR_SAY_FRAME);
+     * exactly the endings that need explaining.
+     *
+     * ANY GAME, not just snooker. "Frame." is what an official says when one
+     * ends, and a frame of eight-ball ends just as definitely — the call was
+     * gated on rules.kind for no better reason than that it was written beside
+     * the break totals, which really are snooker's alone. */
+    if (!S.stat_folded) cuevr_refcall_say(CUEVR_SAY_FRAME);
     if (!S.stat_folded) { S.stat_folded = 1; stat_frame_into_match(); }
     S.state = ST_OVER;
     S.hud_dirty = 1;
@@ -2079,6 +2084,11 @@ static const char *hud_fit_name(char *dst, size_t n, const char *name, int room)
  * that draws a ball can stand it on the same ground instead of one screen
  * having the fix and the rest not. */
 #define HUD_BALLBG RGB565C(22, 32, 52)
+
+/* WHICH SEAT THIS HEADSET IS SITTING IN. Zero everywhere except online, where
+ * the joiner is player 1 — and every "is this me?" question on screen has to
+ * ask it rather than assume the local player is player 0. */
+static int net_seat(void) { return (S.opp == OPP_ONLINE) ? S.net_me : 0; }
 
 static uint16_t hud_ball_ink(int id) {
     uint16_t c = cue_render_ball_colour(id);
@@ -3440,7 +3450,13 @@ static void hud_paint(void) {
          * not do — in that order, because the size is worth more than the last
          * few letters. */
         {
-            const char *nm = (p == 0) ? me : them;
+            /* WHICH SEAT IS YOURS, not "seat 0 is always yours". Online the
+             * joiner is player 1, so a board that labels row 0 YOU told the
+             * joiner they were the opponent — in their own headset, with their
+             * own score under somebody else's name. The ROWS stay in rules
+             * order so the scores line up with the indices everything else
+             * uses; only the label moves. */
+            const char *nm = (p == net_seat()) ? me : them;
             int x0 = 22;
             int right = S.tab.is_snooker
                       ? (S.rules.best_of > 1 ? HW - 36 : HW - 20)
@@ -4446,14 +4462,20 @@ static void resolve_shot(void) {
 
     /* AND THE CALLS THAT ARE NOT NUMBERS. A frame does not sound officiated
      * because the totals are read out — it sounds officiated because the fouls
-     * are called. Snooker only, like the totals: the other games have no
-     * referee and no misses.
+     * are called.
+     *
+     * EVERY GAME, unlike the totals. A break total is a snooker idea and
+     * potting five in eight-ball is not a break of five of anything, so that
+     * one stays gated. A FOUL is a foul on any table in the world, and a pub
+     * game with nobody calling them was the quieter game for no reason. The
+     * miss and the two-foul warning are snooker's own wording and only ever
+     * fire from snooker's own flags, so they gate themselves.
      *
      * The warning goes BEHIND the foul call rather than instead of it, which is
      * what the queue in the mixer is for: "Foul and a miss. Two consecutive
      * fouls, a third loses the frame." is one breath from an official and two
      * separate recordings here. */
-    if (S.rules.kind && S.rules.last_foul) {
+    if (S.rules.last_foul) {
         int off = S.rules.dec_offender;
         cuevr_refcall_say(S.rules.last_miss ? CUEVR_SAY_FOUL_MISS
                                             : CUEVR_SAY_FOUL);
@@ -4925,6 +4947,77 @@ static MoteVrV3 cue_ball_room(void) {
 
 MoteVrV3 cuevr_app_cue_ball_room(void) { return cue_ball_room(); }
 
+/* WHERE THE FRAME SAYS THIS END SHOULD BE.
+ *
+ * The rules struct crosses the wire whole, so after taking it the two ends
+ * agree about the frame completely — and then disagree about the SCREEN, which
+ * is just as fatal and much harder to see. The old routing read one field, the
+ * turn, and picked between AIM and THINK. Everything else the rules can be
+ * asking for had no answer here:
+ *
+ *   a PENDING DECISION — after a foul and a miss, or a push-out offer. The
+ *   host went to ST_DECIDE; the far end took the rules, saw a turn, and sat in
+ *   AIM or THINK. If the far end was the one entitled to answer, nobody ever
+ *   could: the frame stopped there and never recovered. This is the reported
+ *   "it never sends that state change and the game is lost after that".
+ *
+ *   BALL IN HAND — the owner belongs in ST_PLACE, not aiming at a white that
+ *   is still on its old spot.
+ *
+ * And it only looked at ends that were in AIM or THINK, so an end that had
+ * opened a menu was never re-routed at all: it came back to whatever it had
+ * been doing before, which by then was wrong. Hence "sync stops when a player
+ * enters a menu". A menu is not pulled out from under the player — what moves
+ * is the state the menu will RETURN to. */
+static int net_want_state(void) {
+    if (S.rules.frame_over) return ST_OVER;
+    if (S.rules.pushout_offer || S.rules.decision == CUE_DEC_PENDING) return ST_DECIDE;
+    /* BALL IN HAND IS NOT ROUTED HERE. hand_over() already owns it and reaches
+     * it from every path that awards it; forcing ST_PLACE from a state packet
+     * as well put an end into placement at a moment its own flow had not, and
+     * the two ends then stalled waiting on each other. The far end seeing the
+     * white move while it is carried is a PICTURE, not a state — it comes over
+     * the pose channel, and the position that matters rides with the shot. */
+    return (S.rules.turn == S.net_me) ? ST_AIM : ST_THINK;
+}
+
+/* Is this a state the frame owns, as opposed to a menu or a screen? */
+static int net_is_frame_state(int s) {
+    return s == ST_AIM || s == ST_THINK || s == ST_DECIDE;
+}
+
+static void net_route(void) {
+    int want = net_want_state();
+    if (want == ST_OVER) { enter_over(); return; }
+
+    /* IN A MENU: move the way back, not the player. Yanking somebody out of the
+     * appearance screen mid-choice to put them in ST_THINK is worse than the
+     * desync it fixes — but leaving the return address stale is what made the
+     * frame unrecoverable after a menu. */
+    int *back = NULL;
+    if (S.state == ST_PAUSE) back = &S.pause_from;
+    else if (S.state == ST_APPEAR || S.state == ST_CLOTH || S.state == ST_CONTROLS ||
+             S.state == ST_STATS  || S.state == ST_POCKETS) back = &S.appear_from;
+    if (back) {
+        if (net_is_frame_state(*back)) *back = want;
+        return;
+    }
+
+    if (!net_is_frame_state(S.state) || S.state == want) return;
+
+    switch (want) {
+    case ST_DECIDE:
+        S.dec_sel = 0; S.dec_latch = 1; S.ptr_latch = 1;
+        S.state = ST_DECIDE;
+        break;
+    default:
+        arm_shot();
+        S.state = want;
+        break;
+    }
+    S.hud_dirty = 1;
+}
+
 static void app_update(void *u, const MoteVrTracking *t) {
     (void)u;
     float dt = t->dt > 0.0f && t->dt < 0.25f ? t->dt : 1.0f / 72.0f;
@@ -5186,19 +5279,9 @@ static void app_update(void *u, const MoteVrTracking *t) {
                 fprintf(stderr, "[netdbg] f%d TAKE state turn=%d on0=%d len=%d "
                         "was %s\n", S.dbg_frame, S.rules.turn, st.on[0],
                         (int)st.rules_len, cuevr_app_state_name());
-            /* AND THE STATE MACHINE MOVES WITH THE TURN. Taking st.turn as a
-             * number and leaving S.state where it was is how a corrected turn
-             * becomes a dead frame: ST_THINK is the only state that reads an
-             * incoming shot, so an end left thinking while the table is its own
-             * waits for a shot nobody will play, and an end left aiming while
-             * the table is theirs is deaf to the shot they do play. Only from a
-             * settled state — mid-roll, placing or deciding are all mid-flow and
-             * have their own routing at the end of them. */
-            if (S.rules.frame_over) enter_over();
-            else if (S.state == ST_AIM || S.state == ST_THINK) {
-                int want = (S.rules.turn == S.net_me) ? ST_AIM : ST_THINK;
-                if (S.state != want) { arm_shot(); S.state = want; }
-            }
+            /* AND THE STATE MACHINE MOVES WITH THE RULES — all of the rules,
+             * not just the turn. See net_route(). */
+            net_route();
             S.hud_dirty = 1;
         }
     }
@@ -5251,7 +5334,15 @@ static void app_update(void *u, const MoteVrTracking *t) {
         S.cue.tracked) {
         MoteVrV3 tp = cuevr_room_to_table(&S.setup.place, S.cue.tip);
         MoteVrV3 bp = cuevr_room_to_table(&S.setup.place, S.cue.butt);
-        CueVrNetPose np = { tp.x, tp.y, tp.z, bp.x, bp.y, bp.z };
+        CueVrNetPose np = { tp.x, tp.y, tp.z, bp.x, bp.y, bp.z, -1, 0.0f, 0.0f };
+        /* THE WHITE TRAVELS WITH THE CUE while we are the one carrying it. Only
+         * then: claiming to hold a ball we are not entitled to move is how one
+         * end would start dragging the other's cue ball about. */
+        if (S.state == ST_PLACE && S.rules.turn == S.net_me) {
+            np.holding = S.net_me;
+            np.cbx = S.balls[0].pos.x;
+            np.cbz = S.balls[0].pos.z;
+        }
         cuevr_net_send_pose(&np);
     }
 
@@ -7115,6 +7206,19 @@ static void app_update(void *u, const MoteVrTracking *t) {
         if (S.opp == OPP_ONLINE) {
             CueVrNetPose pp;
             if (cuevr_net_peer_pose(&pp)) {
+                /* THEIR WHITE, WHILE THEY ARE CARRYING IT. Applied only when
+                 * the sender is the striker and it is not our own ball to move
+                 * — so this can never argue with the host's state packet, and
+                 * can never move a ball on the machine whose player is holding
+                 * it. Position only: the ball is not moving, it is being
+                 * carried, so there is nothing to integrate. */
+                if (pp.holding >= 0 && pp.holding != S.net_me &&
+                    S.rules.turn == pp.holding && S.state != ST_ROLL &&
+                    S.balls[0].on) {
+                    S.balls[0].pos = v3(pp.cbx, S.tab.R, pp.cbz);
+                    S.balls[0].vel = v3(0,0,0);
+                    S.balls[0].w   = v3(0,0,0);
+                }
                 /* Table space on the wire, so it lands right however each end
                  * has put its own table down in its own room. */
                 Vec3 tip  = v3(pp.tipx, pp.tipy, pp.tipz);

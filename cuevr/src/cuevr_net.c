@@ -43,7 +43,14 @@
 /* CUE9, from CUE8: the shot carries whether the cue ball left the bed. A CUE8
  * client would read the field list short and play a different shot — and a jump
  * that only happens at one end is a table the other end can never agree with. */
-#define CUEVR_GAME_ID  0x43554539u   /* 'CUE9' — shots can jump */
+/* CUEA, from CUE9: the pose packet grew the cue ball's position while it is in
+ * somebody's hand. A CUE9 peer would read the pose short, take the seat index
+ * and two coordinates as part of the butt, and draw the opponent's cue through
+ * the floor — a packet that still parses and means something else is the worst
+ * kind of mismatch, so the id moves. Physics and rules are unchanged between
+ * the two, but the id is one number for the whole conversation and the rule is
+ * that it moves whenever ANY of it does. */
+#define CUEVR_GAME_ID  0x43554541u   /* 'CUEA' — the white travels with the pose */
 
 /* Wire framing. A magic byte per record so a half-read stream resynchronises
  * rather than reinterpreting float bytes as a shot. */
@@ -335,7 +342,16 @@ void cuevr_net_task(void) {
     if (s_state == CUEVR_NET_LIVE && st != LINK_NET_CONNECTED) {
         s_state = CUEVR_NET_LOST;
         snprintf(s_info, sizeof s_info, "OPPONENT LEFT");
-        NETLOG("[cuevr] net: link lost");
+        /* WHY, not just THAT. This said "link lost" and nothing else, which is
+         * the same amount of information as the frame freezing — and a match
+         * that drops is exactly the moment there is no second chance to ask.
+         * link_net knows the reason (peer closed, send error, backlog full, a
+         * short read) and the transport state is a number worth having beside
+         * it, because "went to SEARCHING" and "went to IDLE" are different
+         * faults. An intermittent drop went uninvestigated for weeks for want
+         * of this one line. */
+        NETLOG("[cuevr] net: link lost — %s (transport state %d, seat %d)",
+               link_net_info(), st, s_me);
     }
 }
 
