@@ -137,6 +137,15 @@ static float K_NEARPATH = 15.0f;   /* penalty per ball crowding the cue path */
  * swing off and nothing but draw or follow along a single line. These three
  * ask the other questions a break-builder asks. */
 static float K_ANGLE = 12.0f;   /* weight on leaving a WORKABLE angle, not a straight one */
+/* The snooker break's cueing. Swept in test_break.c rather than guessed: see
+ * the note in the break branch for what each one is doing. */
+#ifndef CUE_BRK_SNK_TOP
+#define CUE_BRK_SNK_TOP  0.15f
+#endif
+#ifndef CUE_BRK_SNK_SIDE
+#define CUE_BRK_SNK_SIDE 0.0f
+#endif
+
 static float K_IDEAL = 22.0f;   /* the cut angle (deg) a break-builder wants on the next ball */
 static float K_OPTS  = 4.0f;    /* per extra ball that is also on from the same leave */
 /* OFF by default, pending the other half of the model. Measured over 180
@@ -1922,6 +1931,33 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                  * cue back toward baulk. Too hard (≈0.6+) overruns into the far
                  * corner (in-off); ~0.50 returns the cue to the baulk cushion. */
                 out.power01 = clampf(0.44f * (1.0f + (rnd(rng)-0.5f)*2.0f*p->power_acc), 0.40f, 0.58f);
+                /* HOW IT IS CUED, which is most of what makes this shot a
+                 * safety rather than a smash. A snooker break is played with a
+                 * touch of TOP — enough to keep the cue ball rolling off the
+                 * pack rather than stunning into it — and SIDE, which is what
+                 * turns the return off the far cushion back down the table
+                 * toward baulk instead of leaving the cue ball in the open.
+                 * Plain ball leaves it stranded mid-table, which is what the
+                 * measurements showed: behind the baulk line on two breaks in
+                 * three, and two-thirds of a metre off the cushion when it got
+                 * there. */
+                out.tip_vert = CUE_BRK_SNK_TOP;
+                out.tip_side = side * CUE_BRK_SNK_SIDE;
+                /* AND AIM OFF FOR IT. The cue ball leaves squirted by
+                 * -tip_side * CUE_SQUIRT_RAD, so the aim has to go the other
+                 * way by the same amount or the shot arrives somewhere it was
+                 * never pointed. Measured without this, side of 0.2 fouled a
+                 * quarter of all breaks at 12ft and 51% at 6-red — not because
+                 * side is wrong for the shot, but because a centimetre of
+                 * uncorrected deflection is enough to miss a clip this thin. */
+                out.aim += out.tip_side * CUE_SQUIRT_RAD;
+                /* AND THE PLAYER'S OWN ACCURACY. Every other shot in the
+                 * game gets the persona's aiming error applied at the end of
+                 * planning; the break returns before that, so Rookie Rick was
+                 * breaking with exactly the same aim as The Machine and the two
+                 * differed only in how hard they hit it. A weak player should
+                 * miss the break for the reason they miss everything else. */
+                out.aim += (rnd(rng) - 0.5f) * 2.0f * p->line_acc * RAD;
                 out.valid = 1; P.result = out; return;
             }
         }
@@ -1956,12 +1992,41 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             float dd = d2(cen, balls[i].pos);   /* d2 IS the distance, not its square */
             if (dd > spread) spread = dd;
         }
+        /* THE TOP BALL OF THE TRIANGLE, not the middle of it. Aiming at the
+         * centroid drives the cue ball into the MIDDLE of a rack it cannot
+         * reach: the front ball is in the way, so the contact is whatever
+         * happens to be on the line rather than the full hit the break wants.
+         * A pool break is played at the apex — the ball nearest the cue ball —
+         * and the energy goes through the rack from there. */
+        int apex = -1; float apexd = 1e30f;
+        for (int i = 1; i < n; i++) {
+            if (!balls[i].on) continue;
+            float dd = d2(cue, balls[i].pos);
+            if (dd < apexd) { apexd = dd; apex = i; }
+        }
+        if (apex >= 0) cen = balls[apex].pos;
+
         Vec3 d = sub2(cen, cue);
         float dist = sqrtf(d.x*d.x + d.z*d.z);
-        float lateral = (0.25f + rnd(rng) * 0.35f) * (spread + c->t->R * 0.35f)
+        /* Plain ball on the apex, but NOT dead full. Measured over 250 breaks
+         * per setting, hitting it square is the worst of the lot — the cue ball
+         * stalls into the front of the rack and the energy never reaches the
+         * back of it. UK 8-ball potted 11.6% of breaks dead full and 35.6% off
+         * this contact; 9-ball 55% against 76%. Too thin is worse again: the
+         * pack barely moves and the cue ball runs loose, fouling a fifth of the
+         * time. This is a slight angle on a near-full hit, which is what a
+         * break off the top ball actually looks like. */
+        float lateral = (0.60f + rnd(rng) * 0.35f) * c->t->R
                       * (rnd(rng) < 0.5f ? -1.0f : 1.0f);
         float off = (dist > 1e-3f) ? asinf(clampf(lateral / dist, -0.5f, 0.5f)) : 0.0f;
         out.aim = atan2f(d.z, d.x) + off;
+        /* AND THE PLAYER'S OWN ACCURACY. Every other shot in the
+         * game gets the persona's aiming error applied at the end of
+         * planning; the break returns before that, so Rookie Rick was
+         * breaking with exactly the same aim as The Machine and the two
+         * differed only in how hard they hit it. A weak player should
+         * miss the break for the reason they miss everything else. */
+        out.aim += (rnd(rng) - 0.5f) * 2.0f * p->line_acc * RAD;
         /* A LONE TARGET IS NOT A PACK, and is not broken at the same pace.
          *
          * When only one ball is legal — 9-ball, where the lowest must be struck
@@ -1975,6 +2040,9 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
          * Against a pack, pace is the whole point: the foul rate barely moves
          * with it and the number of balls potted falls away, so the eight-ball
          * games keep the smash. */
+        /* Plain ball on the break: no side, no screw. The pack does the work
+         * and spin on the cue ball only makes it harder to keep on the table. */
+        out.tip_side = 0.0f; out.tip_vert = 0.0f;
         int lone = (spread < c->t->R);
         out.power01 = clampf((lone ? 0.80f : 0.95f)
                              * (1.0f + (rnd(rng)-0.5f)*2.0f*p->power_acc),

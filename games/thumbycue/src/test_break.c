@@ -53,6 +53,12 @@ typedef struct {
     int n, fouls, scratch, no_ball, wrong_ball, no_rail, off_table;
     int potted_any, potted_sum, to_cushion_sum, first_hit_ok;
     double power_sum;
+    /* What a GOOD break looks like, which is a different question per game.
+     * Snooker: the cue ball comes back behind the baulk line and tight to the
+     * cushion, the reds barely move, and the opponent is left with nothing.
+     * Pool: the pack spreads and something drops. */
+    int in_baulk, reds_moved_sum, opp_has_pot, opp_forced_safe;
+    double baulk_gap_sum, opp_bestpot_sum;
 } Res;
 
 static uint32_t rng_state;
@@ -67,6 +73,8 @@ static int lowest_id(void) {
         if (B[i].on && (lo == 0 || B[i].id < lo)) lo = B[i].id;
     return lo;
 }
+
+static int want_reply = 0;   /* BRK_REPLY=1: plan the opponent's answer (slow) */
 
 static void one_break(int game, const CuePersona *p, Res *res, int trace)
 {
@@ -103,7 +111,8 @@ static void one_break(int game, const CuePersona *p, Res *res, int trace)
     W._acc = 0.0f; W.first_hit = -1; W.first_hit_idx = -1;
 
     int was_on[CUE_MAX_BALLS], hit_rail[CUE_MAX_BALLS] = {0};
-    for (int i = 0; i < N; i++) was_on[i] = B[i].on;
+    Vec3 start_pos[CUE_MAX_BALLS];
+    for (int i = 0; i < N; i++) { was_on[i] = B[i].on; start_pos[i] = B[i].pos; }
 
     int cushion_seen = 0;
     for (int it = 0; it < 6000; it++) {
@@ -127,7 +136,35 @@ static void one_break(int game, const CuePersona *p, Res *res, int trace)
     for (int i = 1; i < N; i++) rails += hit_rail[i];
 
     int first = W.first_hit;
+
+    /* Break QUALITY, measured before the rules touch anything. */
+    int moved = 0;
+    for (int i = 1; i < N; i++) {
+        if (!was_on[i]) continue;
+        float dx = B[i].pos.x - start_pos[i].x, dz = B[i].pos.z - start_pos[i].z;
+        if (dx*dx + dz*dz > (2.0f*T.R)*(2.0f*T.R)) moved++;   /* a ball's width */
+    }
+    res->reds_moved_sum += moved;
+    if (B[0].on) {
+        if (B[0].pos.x < T.baulk_x) res->in_baulk++;
+        float gap = B[0].pos.x - (-T.half_len + T.R);        /* to the baulk cushion */
+        res->baulk_gap_sum += gap < 0 ? 0 : gap;
+    }
+
     cue_rules_resolve(&R, B, N, &W, W.first_hit, scratch, cushion_seen, potted, np);
+    /* WAS THE OPPONENT LEFT SAFE? Counting balls with a clear line to a pocket
+     * says "yes there is something on" after every break ever played, which is
+     * not the question. The question is what the next player can actually DO,
+     * so ask the thing that would be doing it: plan their reply. If the planner
+     * chooses a safety, it could not find a pot worth taking. */
+    if (want_reply && B[0].on && !R.frame_over) {
+        CueAIShot reply = cue_ai_plan(&W, &T, &R, B, N, p, &rng_state);
+        if (reply.valid) {
+            if (reply.safe) res->opp_forced_safe++;
+            else            res->opp_has_pot++;
+            res->opp_bestpot_sum += reply.best_pot > 0 ? reply.best_pot : 0.0f;
+        }
+    }
 
     res->n++;
     res->power_sum += s.power01;
@@ -159,14 +196,16 @@ int main(void)
     int  game  = getenv("BRK_GAME")  ? atoi(getenv("BRK_GAME"))  : -1;
     int  trace = getenv("BRK_TRACE") ? 1 : 0;
     int  persona = getenv("BRK_PERSONA") ? atoi(getenv("BRK_PERSONA")) : 7;
+    want_reply = getenv("BRK_REPLY") ? 1 : 0;
     rng_state  = getenv("BRK_SEED")  ? (uint32_t)atoi(getenv("BRK_SEED")) : 1u;
 
     cue_ai_set_max_speed(MAX_STRIKE_SPEED);
 
     printf("ThumbyCue break shot — %d breaks per game\n\n", nb);
-    printf("%-16s  foul%%   in-off%%  wrong/none  no-rail  potted%%  balls to rail  power\n",
-           "game");
-    printf("%-16s  -----   -------  ----------  -------  -------  -------------  -----\n", "");
+    printf("%-16s  foul%%  in-off%%  potted%%  to rail   | SNOOKER: in baulk%%  gap to cushion  "
+           "balls moved  opp has pot%%\n", "game");
+    printf("%-16s  -----  -------  -------  -------   | %s\n", "",
+           "-----------  --------------  -----------  ------------  -------------");
 
     int worst_foul = 0; const char *worst = "";
     for (int g = 0; g < CUE_GAME_COUNT; g++) {
@@ -176,11 +215,15 @@ int main(void)
         for (int k = 0; k < nb; k++) one_break(g, &CUE_PERSONAS[persona], &res, trace);
         if (!res.n) continue;
         double pc = 100.0 / res.n;
-        printf("%-16s  %5.1f   %7.1f  %10.1f  %7.1f  %7.1f  %13.1f  %5.2f\n",
+        printf("%-16s  %5.1f  %7.1f  %7.1f  %7.1f   | %11.1f  %14.3f  %11.1f  %12.1f  %13.1f\n",
                GAME_NAME[g], res.fouls * pc, res.scratch * pc,
-               (res.no_ball + res.wrong_ball) * pc, res.no_rail * pc,
                res.potted_any * pc, (double)res.to_cushion_sum / res.n,
-               res.power_sum / res.n);
+               res.in_baulk * pc,
+               res.n ? res.baulk_gap_sum / res.n : 0.0,
+               (double)res.reds_moved_sum / res.n,
+               res.opp_has_pot * pc,
+               (res.opp_has_pot + res.opp_forced_safe)
+                 ? res.opp_bestpot_sum / (res.opp_has_pot + res.opp_forced_safe) : 0.0);
         if (res.fouls * pc > worst_foul) { worst_foul = (int)(res.fouls * pc); worst = GAME_NAME[g]; }
     }
     printf("\nworst: %s at %d%% fouls\n", worst, worst_foul);

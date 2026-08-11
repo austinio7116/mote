@@ -184,6 +184,18 @@ void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
  *
  * vy = 0 is exactly cue_phys_strike_elev, bit for bit. That matters: it is what
  * keeps every shot anyone has already learned unchanged. */
+/* Cue-ball deflection (squirt) at full side, radians. ~1.4 degrees: low-deflection
+ * territory, which is where a decent modern shaft sits, and low enough that it
+ * reads as character rather than as the aim being unreliable.
+ *
+ * IT IS PART OF THE SHOT, NOT AN ERROR. Anything that applies side and wants to
+ * arrive where it aimed must aim off by tip_side * this, in the opposite
+ * direction — a player does it without thinking and the AI has to do it on
+ * purpose. Cueing side without allowing for it puts the cue ball a centimetre
+ * wide over the length of a table, which is the difference between clipping the
+ * outside of the pack and missing it. */
+#define CUE_SQUIRT_RAD 0.025f
+
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy);
 

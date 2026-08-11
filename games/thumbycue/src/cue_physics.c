@@ -66,10 +66,8 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
     w->_acc = 0.0f;
 }
 
-/* Cue-ball deflection (squirt) at full side, radians. ~1.4 degrees: low-deflection
- * territory, which is where a decent modern shaft sits, and low enough that it
- * reads as character rather than as the aim being unreliable. */
-#define CUE_SQUIRT_RAD 0.025f
+/* Cue-ball deflection (squirt) at full side — declared in cue_physics.h so a
+ * player who MEANS to use side can aim off for it, the way a real one does. */
 
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy) {
