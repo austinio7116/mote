@@ -294,6 +294,24 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_definitions(cue_test_ai_frames PRIVATE MOTE_HOST=1)
     target_compile_options(cue_test_ai_frames PRIVATE -O2 -Wall -Wextra -Wno-unused-parameter)
     target_link_libraries(cue_test_ai_frames PRIVATE m)
+
+    # The opening break, on every table. It is the one shot played from a known
+    # position, the first thing a player sees the opponent do, and it was
+    # fouling two breaks in three at 9-ball with nobody able to say so from
+    # watching.
+    add_executable(cue_test_break
+        games/thumbycue/src/test_break.c
+        games/thumbycue/src/cue_ai.c
+        games/thumbycue/src/cue_physics.c
+        games/thumbycue/src/cue_rules.c
+        games/thumbycue/src/cue_table.c)
+    target_include_directories(cue_test_break PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
+    target_compile_definitions(cue_test_break PRIVATE MOTE_HOST=1)
+    target_compile_options(cue_test_break PRIVATE -O2 -Wall -Wextra -Wno-unused-parameter)
+    target_link_libraries(cue_test_break PRIVATE m)
+
     endif()  # NOT WIN32 (cue-sports simulation tests)
 
     # CueVR — the mixed-reality cue-sports game — lives in its own repository:
