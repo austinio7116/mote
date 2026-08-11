@@ -197,6 +197,9 @@ static void one_break(int game, const CuePersona *p, Res *res, int trace)
         else if (strstr(R.msg, "NO RAIL"))   res->no_rail++;
         else if (strstr(R.msg, "OFF THE"))   res->off_table++;
     }
+    if (getenv("BRK_VAR"))
+        printf("VAR %+.4f %+.4f %+.5f %.4f %+.3f %+.3f %d\n",
+               cue_at.x, cue_at.z, s.aim, s.power01, s.tip_side, s.tip_vert, np);
     if (trace)
         printf("    cue(%+.3f,%+.3f) of (%.3f,%.3f)  aim %+7.2f  power %.2f  "
                "first %2d(want %2d)  potted %d  rails %2d  %s\n",
