@@ -58,7 +58,7 @@ typedef struct {
      * cushion, the reds barely move, and the opponent is left with nothing.
      * Pool: the pack spreads and something drops. */
     int in_baulk, reds_moved_sum, opp_has_pot, opp_forced_safe;
-    double baulk_gap_sum, opp_bestpot_sum;
+    double baulk_gap_sum, opp_bestpot_sum, pred_err_sum; int pred_n;
 } Res;
 
 static uint32_t rng_state;
@@ -105,9 +105,19 @@ static void one_break(int game, const CuePersona *p, Res *res, int trace)
     CueAIShot s = cue_ai_plan(&W, &T, &R, B, N, p, &rng_state);
     if (!s.valid) return;
 
+    /* THE SAME ELEVATION THE GAME WILL FORCE. The cue is a stick: it has to
+     * come up when a ball or a cushion is behind the white, and the AI's own
+     * sims strike with that elevation. Playing the shot level here measured a
+     * shot the game never plays, and made the planner's predictions look wrong
+     * when it was the harness that was. */
+    Vec3 cb = B[0].pos;
+    Vec3 tip = v3(cb.x - cosf(s.aim)*T.R, T.R*(1.0f + s.tip_vert),
+                  cb.z - sinf(s.aim)*T.R);
+    float elev = cue_table_min_elev(&T, B, N, tip, s.aim);
+
     Vec3 dir = v3(cosf(s.aim), 0, sinf(s.aim));
     cue_phys_strike_elev(&W, &B[0], dir, s.power01 * MAX_STRIKE_SPEED,
-                         s.tip_side, s.tip_vert, 0.0f);
+                         s.tip_side, s.tip_vert, elev);
     W._acc = 0.0f; W.first_hit = -1; W.first_hit_idx = -1;
 
     int was_on[CUE_MAX_BALLS], hit_rail[CUE_MAX_BALLS] = {0};
@@ -145,6 +155,11 @@ static void one_break(int game, const CuePersona *p, Res *res, int trace)
         if (dx*dx + dz*dz > (2.0f*T.R)*(2.0f*T.R)) moved++;   /* a ball's width */
     }
     res->reds_moved_sum += moved;
+    { extern Vec3 s_brk_pred; extern int s_brk_pred_ok;
+      if (s_brk_pred_ok && B[0].on) {
+          float dx = B[0].pos.x - s_brk_pred.x, dz = B[0].pos.z - s_brk_pred.z;
+          res->pred_err_sum += sqrtf(dx*dx + dz*dz); res->pred_n++;
+      } }
     if (B[0].on) {
         if (B[0].pos.x < T.baulk_x) res->in_baulk++;
         float gap = B[0].pos.x - (-T.half_len + T.R);        /* to the baulk cushion */
@@ -222,8 +237,7 @@ int main(void)
                res.n ? res.baulk_gap_sum / res.n : 0.0,
                (double)res.reds_moved_sum / res.n,
                res.opp_has_pot * pc,
-               (res.opp_has_pot + res.opp_forced_safe)
-                 ? res.opp_bestpot_sum / (res.opp_has_pot + res.opp_forced_safe) : 0.0);
+               res.pred_n ? res.pred_err_sum / res.pred_n : 0.0);
         if (res.fouls * pc > worst_foul) { worst_foul = (int)(res.fouls * pc); worst = GAME_NAME[g]; }
     }
     printf("\nworst: %s at %d%% fouls\n", worst, worst_foul);

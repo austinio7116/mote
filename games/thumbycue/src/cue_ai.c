@@ -1591,7 +1591,15 @@ static int find_kick(const AiCtx *c, Cand *out) {
 #ifndef SIMS_PER_TICK
 #define SIMS_PER_TICK 1   /* one sim/frame keeps the thinking-orbit smooth */
 #endif
-enum { PH_IDLE = 0, PH_SIM, PH_DONE };
+/* Where the winning break candidate was PREDICTED to leave the cue ball, so a
+ * test can ask whether the simulation the search trusts matches the shot that
+ * gets played. */
+Vec3 s_brk_pred; int s_brk_pred_ok;
+
+/* One candidate break: where to aim, how hard, and how it is cued. */
+typedef struct { float aim, power, side, vert; } BrkCand;
+
+enum { PH_IDLE = 0, PH_SIM, PH_BREAK, PH_DONE };
 
 /* Room for the pot variants AND the reserved safety slots after them. */
 /* How many safeties get the real engine. The device verifies fewer, but it does
@@ -1614,6 +1622,12 @@ static struct {
     int safety_only;     /* no pot existed: the whole pool is safeties */
     int ti;
     float posAware;
+    /* The break's own search, spread over ticks like every other sim. A break
+     * candidate is a full-settle simulation of fifteen balls and costs about
+     * as much as any other, so doing them all in one go would stall exactly the
+     * frame the player is watching the opponent get down on the shot. */
+    BrkCand brk[40]; int brk_n, brk_i, brk_best_i; float brk_best;
+    int brk_want_first;
 } P;
 
 /* The best SIMULATED safety in the pool, or -1. Safeties carry pk < 0. */
@@ -1838,6 +1852,108 @@ static void plan_finalize(void) {
     P.result = out;
 }
 
+
+/* ---- THE BREAK, PLANNED RATHER THAN PRESCRIBED --------------------------- *
+ *
+ * Every constant in the old break — how thin to clip, how hard, whether to use
+ * side — was a number somebody chose and then defended with a foul rate. That
+ * is backwards on the one shot in the game whose starting position is known
+ * exactly and which is played once a frame: there is time to try it and see.
+ *
+ * So the break now generates candidates, runs each one through the SAME engine
+ * the shot will be played on, and keeps whichever came out best by the
+ * standard that game's break is judged by. Side stops being a constant to
+ * argue about and becomes one more thing the search can accept or reject on
+ * the evidence — the reason it kept failing before is that nothing was
+ * planning where the cue ball would END, so spin was noise. Now it is scored.
+ *
+ * The two standards are different, and deliberately so:
+ *
+ *   SNOOKER is a safety. The cue ball must come back behind the baulk line and
+ *   sit near the cushion, the pack should not be scattered, and a foul is a
+ *   catastrophe because it hands over four points and the table.
+ *
+ *   POOL is an attempt on the rack. Spreading it and potting something is the
+ *   whole job, and a scratch, while bad, is worth risking for a ball — so it
+ *   is priced as a setback rather than a disaster.
+ */
+static float break_score(const AiCtx *c, const CueRules *r, const CueBall *balls,
+                         int n, const AiSim *sim, int want_first, int snooker)
+{
+    /* Legality first: nothing a break achieves is worth giving the table away
+     * before it starts. want_first < 0 means "any legal ball" (snooker: they
+     * are all reds off the rack). */
+    int hit = sim->first_hit_idx;
+    if (hit < 0) return -1.0e6f;
+    if (want_first >= 0 && balls[hit].id != want_first) return -1.0e6f;
+    if (snooker && balls[hit].id >= CUE_ID_YELLOW) return -1.0e6f;
+
+    int potted = 0, moved = 0, to_rail = 0;
+    for (int i = 1; i < n; i++) {
+        if (!balls[i].on) continue;
+        if (!sim->on[i]) { potted++; continue; }
+        float dx = sim->end_pos[i].x - balls[i].pos.x;
+        float dz = sim->end_pos[i].z - balls[i].pos.z;
+        float d  = sqrtf(dx*dx + dz*dz);
+        if (d > 2.0f * c->t->R) moved++;
+        float ax = fabsf(sim->end_pos[i].x), az = fabsf(sim->end_pos[i].z);
+        if (ax > c->t->half_len - c->t->R * 2.0f ||
+            az > c->t->half_wid - c->t->R * 2.0f) to_rail++;
+    }
+
+    if (snooker) {
+        if (sim->cue_potted) return -1.0e5f;
+        float sc = 0.0f;
+        /* Behind the baulk line, and the closer to the cushion the better —
+         * a cue ball tight to baulk is a safety, one loitering a foot off it
+         * is a half-chance for the other player. */
+        if (sim->cue_end.x < c->t->baulk_x) sc += 60.0f;
+        float gap = sim->cue_end.x - (-c->t->half_len + c->t->R);
+        if (gap < 0.0f) gap = 0.0f;
+        sc -= 40.0f * (gap / (2.0f * c->t->half_len));
+        /* And do not smash the pack about. A soft cost, not a rule: the break
+         * has to move SOME reds to be a break at all, it just should not spray
+         * them up the table. */
+        sc -= 1.5f * (float)moved;
+        sc -= 25.0f * (float)potted;      /* a red down off the break is a gift */
+        return sc;
+    }
+
+    /* Pool: pot something, spread the rest. A scratch costs about one ball,
+     * which is the trade a player makes breaking hard on purpose. */
+    return 100.0f * (float)potted + 6.0f * (float)to_rail + 1.5f * (float)moved
+         - 120.0f * (float)sim->cue_potted;
+}
+
+/* Fill `out` with break candidates aimed at ball index `tgt`, clipping its edge
+ * by each of `clips` radii either side. Aim is the ghost line to that offset
+ * point, with squirt taken out — side deflects the cue ball and a break that
+ * does not allow for it arrives somewhere it never aimed. */
+static int break_cands(const AiCtx *c, const CueBall *balls, Vec3 cue, int tgt,
+                       const float *clips, int nclip, const float *pows, int npow,
+                       const float *sides, int nside, float vert,
+                       BrkCand *out, int cap, int nout)
+{
+    Vec3 tp = balls[tgt].pos;
+    Vec3 ad = nrm2(sub2(tp, cue));
+    Vec3 perp = v3(-ad.z, 0, ad.x);
+    for (int ci = 0; ci < nclip; ci++)
+        for (int pi = 0; pi < npow; pi++)
+            for (int si = 0; si < nside; si++) {
+                if (nout >= cap) return nout;
+                float off = c->t->R * clips[ci];
+                Vec3 ap = v3(tp.x + perp.x * off, 0, tp.z + perp.z * off);
+                BrkCand k;
+                k.aim   = atan2f(ap.z - cue.z, ap.x - cue.x);
+                k.power = pows[pi];
+                k.side  = sides[si];
+                k.vert  = vert;
+                k.aim  += k.side * CUE_SQUIRT_RAD;   /* aim off for the deflection */
+                out[nout++] = k;
+            }
+    return nout;
+}
+
 void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                        const CueBall *balls, int n, const CuePersona *p,
                        uint32_t *rng) {
@@ -1884,170 +2000,124 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     P.miss_caution = (c->snooker && r->cmiss[r->turn] == 1 &&
                       !cue_rules_is_snookered(r, balls, n)) ? 1 : 0;
 
-    /* 0. Break shot. */
+    /* 0. Break shot — chosen by simulation. See break_score above for what
+     * "best" means, which is a different thing per game. */
     if (r->break_shot) {
         Vec3 cue = balls[0].pos;
+        BrkCand cand[40];
+        int ncand = 0, want_first = -1;
+
+        /* How many sims this platform can spare.
+         *
+         * A break sim is the dearest kind there is — fifteen balls, all moving,
+         * settling for several seconds of game time — and measured here it runs
+         * about 26 ms against the few milliseconds an ordinary shot's sim takes.
+         * Forty of them is a second of compute, and a second of compute inside
+         * one think is a stutter in a headset, which is the one place a stutter
+         * is not merely ugly. So the ceiling is low and the tick loop below
+         * takes them ONE at a time: sixteen candidates is about a fifth of a
+         * second of thinking, which is inside the pause the persona already
+         * takes before it plays. */
+        int cap = SIM_CAP / 4; if (cap > 16) cap = 16; if (cap < 6) cap = 6;
+
         if (c->snooker) {
-            /* Snooker break (2dpool playBreakShot): the reds sit behind the pink
-             * with the blue on the centre spot, so a straight pack-centre break
-             * runs the cue THROUGH the blue (foul). Instead clip the THIN outer
-             * edge of a BACK red ON THE CUE'S SIDE — the cue travels up that side,
-             * grazes the pack, and returns to baulk, never crossing the centre. */
-            float side = (cue.z >= 0.0f) ? 1.0f : -1.0f;
-            int best = -1; float bestd = -1.0f;
-            for (int i = 1; i < n; i++) {           /* furthest red on the cue's side */
+            /* The pack is behind the pink; the cue ball goes up ITS OWN SIDE,
+             * clips the outside of a back red and comes back. Which red is a
+             * choice the search makes, not a rule: the two furthest on the
+             * cue ball's side both get tried. */
+            float side_sign = (cue.z >= 0.0f) ? 1.0f : -1.0f;
+            int t1 = -1, t2 = -1; float d1 = -1.0f, d2v = -1.0f;
+            for (int i = 1; i < n; i++) {
                 if (!balls[i].on || balls[i].id >= CUE_ID_YELLOW) continue;
-                if (balls[i].pos.z * side <= 0.0f) continue;     /* must be cue's side */
+                if (balls[i].pos.z * side_sign <= 0.0f) continue;
                 float dd = d2(cue, balls[i].pos);
-                if (dd > bestd) { bestd = dd; best = i; }
+                if (dd > d1) { d2v = d1; t2 = t1; d1 = dd; t1 = i; }
+                else if (dd > d2v) { d2v = dd; t2 = i; }
             }
-            if (best < 0) for (int i = 1; i < n; i++)            /* fallback: any furthest red */
+            if (t1 < 0) for (int i = 1; i < n; i++)
                 if (balls[i].on && balls[i].id < CUE_ID_YELLOW) {
-                    float dd = d2(cue, balls[i].pos); if (dd > bestd) { bestd = dd; best = i; }
+                    float dd = d2(cue, balls[i].pos);
+                    if (dd > d1) { d1 = dd; t1 = i; }
                 }
-            if (best >= 0) {
-                Vec3 tgt = balls[best].pos;
-                Vec3 ad = nrm2(sub2(tgt, cue));
-                Vec3 perp = v3(-ad.z, 0, ad.x);
-                if (perp.z * side < 0.0f) { perp.x = -perp.x; perp.z = -perp.z; }  /* toward outer edge */
-                /* HOW THIN THE CLIP IS, and it has to be a clip that lands.
-                 * At 1.8R the aim line passes 1.8 radii from the target's
-                 * centre, and contact needs under 2 — a sliver of 0.05 to 0.35
-                 * radii of overlap. That is a knife edge: a centimetre of cue
-                 * ball, well inside where a hand would place it, tipped the
-                 * shot between a thin clip and a clean miss, and the miss is a
-                 * foul. Measured over 300 breaks it fouled 12% of the time on
-                 * the 12ft table and 4.7% on the 6-red.
-                 *
-                 * 1.45 leaves 0.4 to 0.7 radii of overlap: still a clip, still
-                 * off the outside of the pack, but one that cannot be missed by
-                 * a placement this side of a mis-cue. It fouls 0% on 12ft and
-                 * 10-red and 2.7% on 6-red, and it leaves the pack TIGHTER,
-                 * which is what a snooker break is for. */
-                float off = c->t->R * (1.45f + (rnd(rng)-0.5f)*0.3f);
-                Vec3 ap = v3(tgt.x + perp.x*off, 0, tgt.z + perp.z*off);
-                out.aim = atan2f(ap.z - cue.z, ap.x - cue.x);
-                /* Controlled pace, NOT a smash: clip the pack thin and bring the
-                 * cue back toward baulk. Too hard (≈0.6+) overruns into the far
-                 * corner (in-off); ~0.50 returns the cue to the baulk cushion. */
-                out.power01 = clampf(0.44f * (1.0f + (rnd(rng)-0.5f)*2.0f*p->power_acc), 0.40f, 0.58f);
-                /* HOW IT IS CUED, which is most of what makes this shot a
-                 * safety rather than a smash. A snooker break is played with a
-                 * touch of TOP — enough to keep the cue ball rolling off the
-                 * pack rather than stunning into it — and SIDE, which is what
-                 * turns the return off the far cushion back down the table
-                 * toward baulk instead of leaving the cue ball in the open.
-                 * Plain ball leaves it stranded mid-table, which is what the
-                 * measurements showed: behind the baulk line on two breaks in
-                 * three, and two-thirds of a metre off the cushion when it got
-                 * there. */
-                out.tip_vert = CUE_BRK_SNK_TOP;
-                out.tip_side = side * CUE_BRK_SNK_SIDE;
-                /* AND AIM OFF FOR IT. The cue ball leaves squirted by
-                 * -tip_side * CUE_SQUIRT_RAD, so the aim has to go the other
-                 * way by the same amount or the shot arrives somewhere it was
-                 * never pointed. Measured without this, side of 0.2 fouled a
-                 * quarter of all breaks at 12ft and 51% at 6-red — not because
-                 * side is wrong for the shot, but because a centimetre of
-                 * uncorrected deflection is enough to miss a clip this thin. */
-                out.aim += out.tip_side * CUE_SQUIRT_RAD;
-                /* AND THE PLAYER'S OWN ACCURACY. Every other shot in the
-                 * game gets the persona's aiming error applied at the end of
-                 * planning; the break returns before that, so Rookie Rick was
-                 * breaking with exactly the same aim as The Machine and the two
-                 * differed only in how hard they hit it. A weak player should
-                 * miss the break for the reason they miss everything else. */
-                out.aim += (rnd(rng) - 0.5f) * 2.0f * p->line_acc * RAD;
-                out.valid = 1; P.result = out; return;
+            /* Clips are signed by the cue ball's side so "outside" means
+             * outside whichever half of the table it is on. */
+            float clips[3] = { 1.25f * side_sign, 1.45f * side_sign, 1.65f * side_sign };
+            float pows[2]  = { 0.42f, 0.50f };
+            float sides[3] = { -0.30f, 0.0f, 0.30f };
+            if (t1 >= 0) ncand = break_cands(c, balls, cue, t1, clips, 3, pows, 2,
+                                             sides, 3, 0.15f, cand, cap, ncand);
+            if (t2 >= 0) ncand = break_cands(c, balls, cue, t2, clips, 3, pows, 2,
+                                             sides, 3, 0.15f, cand, cap, ncand);
+        } else {
+            /* Pool: the top ball of the rack, near enough full, hard. */
+            int apex = -1; float apexd = 1e30f;
+            for (int i = 1; i < n; i++) {
+                if (!balls[i].on) continue;
+                float dd = d2(cue, balls[i].pos);
+                if (dd < apexd) { apexd = dd; apex = i; }
+            }
+            if (r->mode == CUE_GAME_US9 && apex >= 0) want_first = balls[apex].id;
+
+            float clips[4] = { -0.90f, -0.45f, 0.45f, 0.90f };
+            float pows[2]  = { 0.80f, 0.95f };
+            float zero[1]  = { 0.0f };
+            if (apex >= 0)
+                ncand = break_cands(c, balls, cue, apex, clips, 4, pows, 2,
+                                    zero, 1, 0.0f, cand, cap, ncand);
+
+            /* THE SECOND-BALL BREAK, for the eight-ball games: come at the
+             * rack from a wide angle, take the ball behind the apex and drag
+             * the cue ball back out with heavy screw. It is a different shot
+             * from a square smash and sometimes a better one, so it is offered
+             * to the search rather than argued about. Not for 9-ball, where
+             * the lowest ball must be struck first and the apex IS it. */
+            if (want_first < 0 && apex >= 0) {
+                int sec = -1; float secd = 1e30f;
+                for (int i = 1; i < n; i++) {
+                    if (!balls[i].on || i == apex) continue;
+                    float dd = d2(cue, balls[i].pos);
+                    if (dd < secd) { secd = dd; sec = i; }
+                }
+                float wclips[2] = { -0.70f, 0.70f };
+                float wpows[1]  = { 0.95f };
+                float draw[1]   = { 0.0f };
+                if (sec >= 0)
+                    ncand = break_cands(c, balls, cue, sec, wclips, 2, wpows, 1,
+                                        draw, 1, -0.55f, cand, cap, ncand);
             }
         }
-        /* Pool break: drive the pack centre, clipped slightly off so a
-         * dead-straight smash does not stall.
-         *
-         * THE CLIP IS A DISTANCE, NOT AN ANGLE. It was 2.5 to 4.5 degrees,
-         * which is a sensible spread across the face of a fifteen-ball pack and
-         * a disaster in 9-ball: there the only LEGAL ball is the lowest, so the
-         * centroid is the 1 on its own, and 4.5 degrees over the length of a
-         * break puts the cue ball ten centimetres wide of a target that must be
-         * struck within 5.7 to be touched at all. Measured over 200 breaks it
-         * missed the 1 completely on two in three — "wrong ball" or "no ball",
-         * a foul before the frame had started.
-         *
-         * So size the clip to what is being aimed AT: measure how far the legal
-         * balls actually spread from their own centroid and clip by a fraction
-         * of that, plus a little of the ball so a lone target still varies. A
-         * pack is still struck anywhere across its face; a lone 1 is struck
-         * very nearly full. */
-        Vec3 cen = v3(0,0,0); int m = 0;
-        for (int i = 1; i < n; i++)
-            if (balls[i].on && cue_rules_ball_legal(r, balls, n, balls[i].id))
-                { cen = v3(cen.x+balls[i].pos.x, 0, cen.z+balls[i].pos.z); m++; }
-        if (m == 0) for (int i = 1; i < n; i++) if (balls[i].on)
-                { cen = v3(cen.x+balls[i].pos.x, 0, cen.z+balls[i].pos.z); m++; }
-        if (m > 0) cen = v3(cen.x/m, 0, cen.z/m);
 
-        float spread = 0.0f;
-        for (int i = 1; i < n; i++) {
-            if (!balls[i].on || !cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
-            float dd = d2(cen, balls[i].pos);   /* d2 IS the distance, not its square */
-            if (dd > spread) spread = dd;
-        }
-        /* THE TOP BALL OF THE TRIANGLE, not the middle of it. Aiming at the
-         * centroid drives the cue ball into the MIDDLE of a rack it cannot
-         * reach: the front ball is in the way, so the contact is whatever
-         * happens to be on the line rather than the full hit the break wants.
-         * A pool break is played at the apex — the ball nearest the cue ball —
-         * and the energy goes through the rack from there. */
-        int apex = -1; float apexd = 1e30f;
-        for (int i = 1; i < n; i++) {
-            if (!balls[i].on) continue;
-            float dd = d2(cue, balls[i].pos);
-            if (dd < apexd) { apexd = dd; apex = i; }
-        }
-        if (apex >= 0) cen = balls[apex].pos;
+        /* HOW MANY OF THEM THIS PLAYER GETS TO TRY, which is what positional
+         * skill IS on a break: a good player stands there and works out what
+         * the cue ball will do off each option, a weak one tries a couple and
+         * plays the better. So the search budget scales with p->position, and
+         * the candidates are shuffled first — a short list has to be a random
+         * sample of the options, not the first few in the order this code
+         * happened to generate them, or "less skilled" would just mean "always
+         * clips it thin".
+         *
+         * It compounds with the accuracy the persona already has: a weak player
+         * picks from a worse shortlist AND then misses the line they picked. */
+        if (ncand > 0) {
+            for (int k = ncand - 1; k > 0; k--) {         /* Fisher-Yates */
+                int j = (int)(rnd(rng) * (float)(k + 1));
+                if (j > k) j = k;
+                BrkCand tmp = cand[k]; cand[k] = cand[j]; cand[j] = tmp;
+            }
+            int tries = (int)((float)ncand * (0.18f + 0.82f * p->position) + 0.5f);
+            if (tries < 3) tries = 3;
+            if (tries > ncand) tries = ncand;
+            ncand = tries;
 
-        Vec3 d = sub2(cen, cue);
-        float dist = sqrtf(d.x*d.x + d.z*d.z);
-        /* Plain ball on the apex, but NOT dead full. Measured over 250 breaks
-         * per setting, hitting it square is the worst of the lot — the cue ball
-         * stalls into the front of the rack and the energy never reaches the
-         * back of it. UK 8-ball potted 11.6% of breaks dead full and 35.6% off
-         * this contact; 9-ball 55% against 76%. Too thin is worse again: the
-         * pack barely moves and the cue ball runs loose, fouling a fifth of the
-         * time. This is a slight angle on a near-full hit, which is what a
-         * break off the top ball actually looks like. */
-        float lateral = (0.60f + rnd(rng) * 0.35f) * c->t->R
-                      * (rnd(rng) < 0.5f ? -1.0f : 1.0f);
-        float off = (dist > 1e-3f) ? asinf(clampf(lateral / dist, -0.5f, 0.5f)) : 0.0f;
-        out.aim = atan2f(d.z, d.x) + off;
-        /* AND THE PLAYER'S OWN ACCURACY. Every other shot in the
-         * game gets the persona's aiming error applied at the end of
-         * planning; the break returns before that, so Rookie Rick was
-         * breaking with exactly the same aim as The Machine and the two
-         * differed only in how hard they hit it. A weak player should
-         * miss the break for the reason they miss everything else. */
-        out.aim += (rnd(rng) - 0.5f) * 2.0f * p->line_acc * RAD;
-        /* A LONE TARGET IS NOT A PACK, and is not broken at the same pace.
-         *
-         * When only one ball is legal — 9-ball, where the lowest must be struck
-         * first — everything that happens to the rack is transmitted THROUGH
-         * that ball, and the only thing extra pace on the cue ball buys is a
-         * cue ball flying around the table afterwards. Measured over 300 breaks
-         * it scratched 13% of the time at full pace and 1% at 0.80, and potted
-         * MORE at the lower pace because the cue ball stopped following the
-         * object balls into the pockets.
-         *
-         * Against a pack, pace is the whole point: the foul rate barely moves
-         * with it and the number of balls potted falls away, so the eight-ball
-         * games keep the smash. */
-        /* Plain ball on the break: no side, no screw. The pack does the work
-         * and spin on the cue ball only makes it harder to keep on the table. */
-        out.tip_side = 0.0f; out.tip_vert = 0.0f;
-        int lone = (spread < c->t->R);
-        out.power01 = clampf((lone ? 0.80f : 0.95f)
-                             * (1.0f + (rnd(rng)-0.5f)*2.0f*p->power_acc),
-                             lone ? 0.45f : 0.5f, 1.0f);
-        out.valid = 1; P.result = out; return;
+            for (int k = 0; k < ncand; k++) P.brk[k] = cand[k];
+            P.brk_n = ncand; P.brk_i = 0;
+            P.brk_best = -1.0e30f; P.brk_best_i = -1;
+            P.brk_want_first = want_first;
+            P.phase = PH_BREAK;
+            return;
+        }
+        /* Nothing to try at all: fall through to ordinary planning rather than
+         * play something arbitrary. */
     }
 
     /* 1. enumerate (legal target × pocket) group scores */
@@ -2252,6 +2322,39 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
 }
 
 int cue_ai_plan_tick(void) {
+    if (P.phase == PH_BREAK) {
+        AiCtx *c = &P.ctx;
+        /* ONE per tick, not SIMS_PER_TICK. See the note on cost where the
+         * candidates are built: these are the expensive sims, and the whole
+         * point of spreading them is that no single frame wears the bill. */
+        for (int k = 0; k < 1 && P.brk_i < P.brk_n; k++, P.brk_i++) {
+            const BrkCand *b = &P.brk[P.brk_i];
+            AiSim sim;
+            ai_sim(c->w, c->t, c->b, c->n, 0, b->aim, b->power, b->side, b->vert, &sim);
+            float sc = break_score(c, c->r, c->b, c->n, &sim,
+                                   P.brk_want_first, c->snooker);
+            if (sc > P.brk_best) { P.brk_best = sc; P.brk_best_i = P.brk_i;
+                                   s_brk_pred = sim.cue_end; s_brk_pred_ok = 1; }
+        }
+        if (P.brk_i < P.brk_n) return 0;
+
+        CueAIShot out; memset(&out, 0, sizeof out);
+        if (P.brk_best_i >= 0) {
+            const BrkCand *b = &P.brk[P.brk_best_i];
+            out.aim = b->aim; out.power01 = b->power;
+            out.tip_side = b->side; out.tip_vert = b->vert;
+            /* The player's own accuracy, last, exactly as every other shot gets
+             * it: the search finds the shot, the persona plays it. */
+            out.aim += (rnd(P.rng) - 0.5f) * 2.0f * c->p->line_acc * RAD;
+            out.power01 = clampf(out.power01 *
+                                 (1.0f + (rnd(P.rng)-0.5f)*2.0f*c->p->power_acc),
+                                 0.05f, 1.0f);
+            out.valid = 1;
+        }
+        P.result = out; P.phase = PH_DONE;
+        return 1;
+    }
+
     if (P.phase != PH_SIM) return 1;
     AiCtx *c = &P.ctx;
     /* several engine sims per tick (cheap coarse-step sims keep the frame live) */
