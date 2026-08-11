@@ -1919,10 +1919,56 @@ static float break_score(const AiCtx *c, const CueRules *r, const CueBall *balls
         return sc;
     }
 
-    /* Pool: pot something, spread the rest. A scratch costs about one ball,
-     * which is the trade a player makes breaking hard on purpose. */
-    return 100.0f * (float)potted + 6.0f * (float)to_rail + 1.5f * (float)moved
-         - 120.0f * (float)sim->cue_potted;
+    /* POOL: BREAK THE RACK UP. NOT "POT SOMETHING".
+     *
+     * Scoring pots was the mistake. On a deterministic engine, "maximise balls
+     * potted" is a question with an exact answer, so the search found the break
+     * that was GUARANTEED to drop one and a player with no aiming error played
+     * it every frame: The Machine potted 100% of nine-ball breaks. Nothing
+     * about that is a break. It is the solver reading the table's mind.
+     *
+     * A ball dropping off the break is mostly luck, and a player cannot aim for
+     * it. What they CAN aim for is the thing that makes a rack playable: get
+     * the pack moving, get balls out to the cushions and away from each other,
+     * and do not leave a cluster sitting where it was. So that is what is
+     * scored — and whether anything drops is left to fall out of it, which is
+     * where it falls out in a real game too.
+     *
+     * Potted balls are neither rewarded nor punished. They leave the table, so
+     * they simply stop contributing to the spread. */
+    /* HOW MANY BALLS CROSSED THE TABLE. The rack sits at one end and the cue
+     * ball comes from the other, so a ball that finishes past halfway has been
+     * sent the length of the table — which is the plainest measure there is of
+     * a rack that has been properly broken up, and the one a player uses
+     * watching it happen. Simpler than measuring dispersion about a centroid
+     * and it says more: balls can be spread out and still all sitting at the
+     * bottom end. */
+    int crossed = 0;
+    float far_side = (balls[0].pos.x < 0.0f) ? -1.0f : 1.0f;   /* the cue's end */
+    for (int i = 1; i < n; i++) {
+        if (!balls[i].on || !sim->on[i]) continue;
+        if (sim->end_pos[i].x * far_side > 0.0f) crossed++;
+    }
+
+    /* And how much of the rack is still a rack: balls left sitting within a
+     * ball's width of another are the clusters that make the next three shots
+     * awkward, which is the thing a good break is FOR. */
+    int frozen = 0;
+    for (int i = 1; i < n; i++) {
+        if (!balls[i].on || !sim->on[i]) continue;
+        for (int j = i + 1; j < n; j++) {
+            if (!balls[j].on || !sim->on[j]) continue;
+            float dx = sim->end_pos[i].x - sim->end_pos[j].x;
+            float dz = sim->end_pos[i].z - sim->end_pos[j].z;
+            if (dx*dx + dz*dz < (2.6f*c->t->R)*(2.6f*c->t->R)) frozen++;
+        }
+    }
+
+    return 12.0f * (float)crossed                /* how many crossed the middle */
+         +  6.0f * (float)to_rail                 /* how many reached a cushion  */
+         +  1.5f * (float)moved                   /* how much of the rack woke up */
+         -  3.0f * (float)frozen                  /* what is still stuck together */
+         - 120.0f * (float)sim->cue_potted;       /* a scratch is still a scratch */
 }
 
 /* Fill `out` with break candidates aimed at ball index `tgt`, clipping its edge
@@ -2041,12 +2087,16 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                 }
             /* Clips are signed by the cue ball's side so "outside" means
              * outside whichever half of the table it is on. */
-            float clips[3] = { 1.25f * side_sign, 1.45f * side_sign, 1.65f * side_sign };
+            /* Fuller contacts are on the menu now. A 1.65 clip is a sliver and
+             * only survives a perfect strike; with the error in the scoring the
+             * search can see that and take a fuller one when it is worth more. */
+            float clips[4] = { 0.95f * side_sign, 1.20f * side_sign,
+                               1.45f * side_sign, 1.70f * side_sign };
             float pows[2]  = { 0.42f, 0.50f };
             float sides[3] = { -0.30f, 0.0f, 0.30f };
-            if (t1 >= 0) ncand = break_cands(c, balls, cue, t1, clips, 3, pows, 2,
+            if (t1 >= 0) ncand = break_cands(c, balls, cue, t1, clips, 4, pows, 2,
                                              sides, 3, 0.15f, cand, cap, ncand);
-            if (t2 >= 0) ncand = break_cands(c, balls, cue, t2, clips, 3, pows, 2,
+            if (t2 >= 0) ncand = break_cands(c, balls, cue, t2, clips, 4, pows, 2,
                                              sides, 3, 0.15f, cand, cap, ncand);
         } else {
             /* Pool: the top ball of the rack, near enough full, hard. */
@@ -2330,7 +2380,15 @@ int cue_ai_plan_tick(void) {
         for (int k = 0; k < 1 && P.brk_i < P.brk_n; k++, P.brk_i++) {
             const BrkCand *b = &P.brk[P.brk_i];
             AiSim sim;
-            ai_sim(c->w, c->t, c->b, c->n, 0, b->aim, b->power, b->side, b->vert, &sim);
+            /* Judged as this player will deliver it, not as a machine would:
+             * the aiming error the persona has on every other shot is applied
+             * here too, so a candidate that only works struck perfectly scores
+             * as what it is. The draw is thrown away afterwards — the shot is
+             * played with its own fresh error, so nothing aims at its own
+             * mistake. */
+            float jitter = (rnd(P.rng) - 0.5f) * 2.0f * c->p->line_acc * RAD;
+            ai_sim(c->w, c->t, c->b, c->n, 0, b->aim + jitter, b->power,
+                   b->side, b->vert, &sim);
             float sc = break_score(c, c->r, c->b, c->n, &sim,
                                    P.brk_want_first, c->snooker);
             if (sc > P.brk_best) { P.brk_best = sc; P.brk_best_i = P.brk_i;
@@ -2346,9 +2404,7 @@ int cue_ai_plan_tick(void) {
             /* The player's own accuracy, last, exactly as every other shot gets
              * it: the search finds the shot, the persona plays it. */
             out.aim += (rnd(P.rng) - 0.5f) * 2.0f * c->p->line_acc * RAD;
-            out.power01 = clampf(out.power01 *
-                                 (1.0f + (rnd(P.rng)-0.5f)*2.0f*c->p->power_acc),
-                                 0.05f, 1.0f);
+
             out.valid = 1;
         }
         P.result = out; P.phase = PH_DONE;
