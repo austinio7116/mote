@@ -369,6 +369,34 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     add_pocket(w, -hl - oc*d,  hw + oc*d, capc);
     add_pocket(w, 0.0f, -hw - os, caps);
     add_pocket(w, 0.0f,  hw + os, caps);
+
+    /* ---- each pocket's mouth, from the two jaw tips beside it ------------ */
+    for (int p = 0; p < w->npocket; p++) {
+        int j1 = -1, j2 = -1; float d1 = 1e30f, d2 = 1e30f;
+        for (int j = 0; j < w->njaw; j++) {
+            float dx = w->jaw[j].x - w->pocket[p].x;
+            float dz = w->jaw[j].z - w->pocket[p].z;
+            float dd = dx*dx + dz*dz;
+            if (dd < d1) { d2 = d1; j2 = j1; d1 = dd; j1 = j; }
+            else if (dd < d2) { d2 = dd; j2 = j; }
+        }
+        if (j1 < 0 || j2 < 0) {                 /* no jaws: fall back to radial */
+            float l = sqrtf(w->pocket[p].x*w->pocket[p].x + w->pocket[p].z*w->pocket[p].z);
+            if (l < 1e-6f) l = 1.0f;
+            w->pmnorm[p] = v3(w->pocket[p].x/l, 0, w->pocket[p].z/l);
+            w->pmouth[p] = w->pocket[p];
+            continue;
+        }
+        Vec3 a = w->jaw[j1], b2 = w->jaw[j2];
+        w->pmouth[p] = v3((a.x + b2.x) * 0.5f, 0, (a.z + b2.z) * 0.5f);
+        /* Normal of the jaw-to-jaw line, pointing away from the table centre. */
+        float ex = b2.x - a.x, ez = b2.z - a.z;
+        float el = sqrtf(ex*ex + ez*ez); if (el < 1e-6f) el = 1.0f;
+        Vec3 nrm = v3(-ez/el, 0, ex/el);
+        if (nrm.x * w->pocket[p].x + nrm.z * w->pocket[p].z < 0.0f)
+            nrm = v3(-nrm.x, 0, -nrm.z);
+        w->pmnorm[p] = nrm;
+    }
 }
 
 Vec3 cue_table_cue_home(const CueTable *t) {

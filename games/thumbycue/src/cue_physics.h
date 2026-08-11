@@ -112,6 +112,15 @@ typedef struct {
     CueSeg seg[CUE_MAX_SEG]; int nseg;
     Vec3   jaw[CUE_MAX_SEG]; int njaw; float jaw_r;   /* immovable jaw-tip circles */
     Vec3   pocket[CUE_MAX_POCKET]; float pocket_r[CUE_MAX_POCKET]; int npocket;
+    /* THE MOUTH OF EACH POCKET: the midpoint of the line between its two jaw
+     * tips, and the unit normal of that line pointing INTO the pocket. Past
+     * that line the ball is in the throat and the only way back is out through
+     * the mouth again — which is what the jaws and the back actually are. A
+     * radius cannot express this: the opening is bounded by two points, and
+     * everything else around it is solid. Filled in by cue_table_build_world
+     * once the jaws are placed. */
+    Vec3   pmouth[CUE_MAX_POCKET];
+    Vec3   pmnorm[CUE_MAX_POCKET];
     float  drop_back;       /* CORNER drop pulled this far further INTO the pocket (m) */
     float  drop_back_side;  /* MIDDLE drop pulled straight back into the pocket (m) */
 

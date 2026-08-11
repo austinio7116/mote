@@ -636,22 +636,55 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
     return hit;
 }
 
+/* THE POCKET: A MOUTH BETWEEN THE JAWS, AND A BACK BEHIND IT.
+ *
+ * It used to be a radius test — cross the line and the ball was captured on the
+ * spot, its velocity discarded and an animation played. Two things followed.
+ * A ball had to be ON THE CLOTH to be potted, because an airborne one had
+ * nowhere to go, so a tenth of a millimetre of hop was enough for a pocket to
+ * refuse a ball rolling straight into it. And nothing about the shot survived
+ * the crossing: pace, angle and spin stopped mattering at the line.
+ *
+ * A pocket is not a circle that swallows. It is an OPENING BOUNDED BY THE TWO
+ * JAWS, with solid material everywhere else, and its back is shaped to do a
+ * job: gather the ball in and take the pace off it. So the question is which
+ * side of the jaw-to-jaw line the ball is on, not how far it is from a centre.
+ * Past that line it is in the throat, and the only way out is back through the
+ * mouth — which is exactly what a rattle is.
+ *
+ * A radius could not express that. Behind the mouth the cut is wider than any
+ * circle centred on the pocket, which is how a ball at 8 m/s crossed the
+ * opening, left outside the radius and ended up rolling down the outside of the
+ * table: the containment stopped where the circle did.
+ *
+ * In the throat the back does what a real one does — pace off, ball gathered
+ * toward the middle — and then it falls, because there is no slate under it.
+ * Nothing is scripted, and nothing has to ask whether the ball is in the air.
+ */
+#define CUE_POCKET_FLOOR (-0.10f)   /* the floor of the recess (m) */
+
 static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
-    /* A ball in the air over a pocket has not gone down it. It falls in on the
-     * way past, or it does not. */
-    if (cue_phys_airborne(w, b)) return 0;
+    if (b->pos.y - w->R > w->rail_top) return 0;         /* flying clean over */
     for (int p = 0; p < w->npocket; p++) {
         Vec3 d = v3_sub(b->pos, w->pocket[p]); d.y = 0.0f;
-        float dist = sqrtf(d.x * d.x + d.z * d.z);
-        if (dist < w->pocket_r[p]) {
-            /* begin the drop animation: the ball stays rendered (on=1) and
-             * falls into the pocket over ~0.4 s before it's removed. */
+        float reach = w->pocket_r[p] + w->R * 3.0f;      /* the cut is wider than the mouth */
+        if (d.x*d.x + d.z*d.z > reach * reach) continue;
+
+        float px = b->pos.x - w->pmouth[p].x, pz = b->pos.z - w->pmouth[p].z;
+        if (px * w->pmnorm[p].x + pz * w->pmnorm[p].z <= 0.0f) continue;  /* still on the table */
+
+        /* In the throat: the back gathers and dampens. */
+        b->vel.x *= 0.55f;
+        b->vel.z *= 0.55f;
+        b->vel.x += (w->pocket[p].x - b->pos.x) * 3.0f;
+        b->vel.z += (w->pocket[p].z - b->pos.z) * 3.0f;
+
+        if (b->drop <= 0.0f) {
             b->pocket = (uint8_t)p;
-            b->vel = v3(0, 0, 0);
-            b->w = v3(0, 0, 0);
-            b->drop = 0.40f;
+            b->drop = 1.0f;
             return 1;
         }
+        return 0;
     }
     return 0;
 }
@@ -753,6 +786,22 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
         CueBall *b = &balls[i];
         if (!b->on) continue;
         if (b->drop > 0.0f) {
+            /* IN THE POCKET, FALLING. Gravity does it; the gentle pull to the
+             * centre is the taper of the recess. Removed at the floor. */
+            b->vel.y -= w->g * h;
+            b->pos.y += b->vel.y * h;
+            b->pos.x += b->vel.x * h;
+            b->pos.z += b->vel.z * h;
+            b->vel.x *= 0.94f; b->vel.z *= 0.94f;
+            {   Vec3 pc2 = w->pocket[b->pocket];
+                float k2 = h * 5.0f; if (k2 > 1.0f) k2 = 1.0f;
+                b->pos.x += (pc2.x - b->pos.x) * k2;
+                b->pos.z += (pc2.z - b->pos.z) * k2; }
+            ball_spin_orient(b, h);
+            if (b->pos.y < CUE_POCKET_FLOOR) { b->on = 0; b->drop = 0.0f; }
+            continue;
+        }
+        if (0) {
             Vec3 pc = w->pocket[b->pocket];
             /* Pull the sinking ball further back INTO the pocket (past the mouth).
              * The pocket centre sits radially outward from the table centre, so
