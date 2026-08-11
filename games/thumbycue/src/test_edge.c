@@ -126,12 +126,29 @@ int main(void) {
                     shots++;
                     if (!b.on && b.pocket == CUE_OFF_TABLE) { lost++; s_fail++; }
                     if (b.on) {
-                        /* Where it came to rest, in the region it is allowed. */
+                        /* Where it came to rest, in the region it is allowed.
+                         *
+                         * A POCKET MOUTH IS NOT OUTSIDE THE TABLE. The cut for
+                         * a pocket goes past the cushion line by design, and a
+                         * ball that rattles and stays in the jaws is resting
+                         * exactly where a real one does — it is not a ball that
+                         * has gone through the rubber, which is what this
+                         * check exists to catch. Balls sitting in a mouth were
+                         * being counted as failures. */
+                        int in_mouth = 0;
+                        for (int pk = 0; pk < w.npocket; pk++) {
+                            float dx2 = b.pos.x - w.pocket[pk].x;
+                            float dz2 = b.pos.z - w.pocket[pk].z;
+                            float pr  = w.pocket_r[pk] + w.R;
+                            if (dx2*dx2 + dz2*dz2 <= pr*pr) { in_mouth = 1; break; }
+                        }
                         float ox = fabsf(b.pos.x) - w.play_x;
                         float oz = fabsf(b.pos.z) - w.play_z;
                         float o = ox > oz ? ox : oz;
-                        if (o > worst) worst = o;
-                        if (o > 0.0f) { outside++; s_fail++; }
+                        if (!in_mouth) {
+                            if (o > worst) worst = o;
+                            if (o > 0.0f) { outside++; s_fail++; }
+                        }
                     }
                 }
             }

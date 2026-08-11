@@ -193,7 +193,14 @@ static CUE_HOT void ball_cloth(const CueWorld *w, CueBall *b, float h) {
     else if (b->w.y < -W_STOP) b->w.y += w->spin_decel * h;
     else                       b->w.y = 0.0f;
 
-    b->vel.y = 0.0f;
+    /* A BALL ON THE CLOTH HAS NO VERTICAL MOTION — unless something has just
+     * given it some. This flattened it unconditionally, which is correct for
+     * the ordinary case and is also why a ball could never leave the cushion:
+     * the impact handed it an upward velocity and the next substep of cloth
+     * contact threw it away before the airborne test upstairs ever saw it.
+     * Rising is now left alone; anything falling is still put flat on the
+     * bed, which is what stops a ball jittering on the cloth. */
+    if (b->vel.y < 0.0f) b->vel.y = 0.0f;
 }
 
 /* Integrate the render orientation from the angular velocity. */
@@ -335,6 +342,199 @@ static CUE_HOT int collide_surface(const CueWorld *w, CueBall *b, Vec3 N,
     return 1;
 }
 
+/* ---- ball vs CUSHION: the impact integrated over its own impulse ---------
+ *
+ * The cushion used to be handled by collide_surface above: one instantaneous
+ * Coulomb impulse against a tilted wall. That model is in a class which
+ * provably cannot do what a real cushion does. Biber, Champneys & Szalai
+ * (arXiv:2208.11685) show that a rigid contact with a Poisson or energetic
+ * restitution "cannot capture slip reversal during the contact phase" — the
+ * slip direction is frozen at the instant of contact — and that the fix is to
+ * let the impact take TIME, during which the slip direction rotates.
+ *
+ * So this integrates the impact over its own accumulated normal impulse, which
+ * is the scheme in Mathavan, Jackson & Parkin, "A theoretical analysis of
+ * billiard ball dynamics under cushion impacts" (Proc IMechE Part C, 224:1863,
+ * 2010), equations 14a-14f. Their measurements were taken on a Riley
+ * Renaissance — the World Snooker table — with snooker balls, so the constants
+ * below are this game's own sport rather than a generic sphere:
+ *
+ *     e_e = 0.98      ball-cushion restitution (energetic, Stronge)
+ *     mu_w = 0.14     ball-cushion friction
+ *     mu_s = 0.212    ball-cloth friction, which acts DURING the impact
+ *     h = 7R/5        contact height, so sin(theta) = 2/5
+ *
+ * Two contacts act at once — the cushion at I and the cloth at C — and that
+ * second one is why the old model could not be fixed by tuning: it was not
+ * there at all.
+ *
+ * AND THE BALL CAN LEAVE THE CLOTH. Their equation 8 gives the cloth's normal
+ * impulse as (sin@ + mu_w sin(phi) cos@) per unit of cushion impulse. A cloth
+ * cannot pull downwards, so when that goes negative the table has lost the
+ * ball and the vertical velocity is free — the ball lifts. That is the real
+ * trigger, not a special case bolted on: hit hard enough into the nose above
+ * centre and it hops, which is what the cushion's slope exists to limit. The
+ * paper notes the same thing about its own rigid assumption at speed.
+ */
+#ifndef CUE_CUSH_STEPS
+#define CUE_CUSH_STEPS 96      /* impulse increments; 96 lands within 0.1% of 512 */
+#endif
+/* Where the rigid-cushion assumption stops being true, from the paper. */
+#ifndef CUE_CUSH_RIGID_V
+#define CUE_CUSH_RIGID_V 2.5f
+#endif
+/* How briskly the ball climbs the deforming nose past that. Not measured —
+ * see the note where it is used. 0.10 gives about 7 mm of hop at 5 m/s. */
+#ifndef CUE_CUSH_LIFT
+#define CUE_CUSH_LIFT 0.10f
+#endif
+/* Ceiling on the hop, as a fraction of the nose height above ball centre. */
+#ifndef CUE_CUSH_HOP
+#define CUE_CUSH_HOP 0.55f
+#endif
+
+static CUE_HOT int cushion_impact(const CueWorld *w, CueBall *b, Vec3 n_face,
+                                  float sin_th)
+{
+    /* The paper's frame: X along the cushion, Y into it, Z up. */
+    Vec3 up = v3(0,1,0);
+    Vec3 yh = v3(-n_face.x, 0.0f, -n_face.z);
+    float yl = sqrtf(yh.x*yh.x + yh.z*yh.z);
+    if (yl < 1e-6f) return 0;
+    yh = v3_scale(yh, 1.0f/yl);
+    Vec3 xh = v3_norm(v3_cross(yh, up));            /* right-handed with up */
+
+    float vx = b->vel.x*xh.x + b->vel.y*xh.y + b->vel.z*xh.z;
+    float vy = b->vel.x*yh.x + b->vel.y*yh.y + b->vel.z*yh.z;
+    float vz = b->vel.y;
+    if (vy <= 0.0f) return 0;                        /* not approaching */
+
+    float wx = b->w.x*xh.x + b->w.y*xh.y + b->w.z*xh.z;
+    float wy = b->w.x*yh.x + b->w.y*yh.y + b->w.z*yh.z;
+    float wz = b->w.y;
+
+    const float M = w->mass, R = w->R;
+    const float S = sin_th, C = sqrtf(1.0f - S*S);
+    const float e2 = w->e_cush * w->e_cush;
+    const float muw = w->mu_cush, mus = w->mu_s;
+    /* On the cloth the ball is held; in the air there is no second contact. */
+    const int on_cloth = (b->pos.y <= R * 1.02f);
+
+    /* A BALL LEANING ON THE CUSHION IS NOT AN IMPACT. Below a crawl there is
+     * no impact to integrate — the ball is resting against the rubber or
+     * creeping along it, and running the full scheme there lets it settle a
+     * few millimetres the wrong side of the cushion line in a mitred pocket
+     * corner, where the segment normals fight each other. The old single
+     * impulse had the same guard for the same reason; it just reflects. */
+    float zeta_in = vy*C + vz*S;
+    if (zeta_in < 0.025f) {
+        vy = -vy * w->e_cush;
+        b->vel = v3(vx*xh.x + vy*yh.x, 0.0f, vx*xh.z + vy*yh.z);
+        return 1;
+    }
+
+    /* Total impulse is about (1+e)Mv_normal; take it in equal slices. */
+    float Ptot = (1.0f + w->e_cush) * M * zeta_in;
+    if (Ptot <= 0.0f) return 0;
+    float dP = Ptot / (float)CUE_CUSH_STEPS;
+
+    float W = 0.0f, Wc = 0.0f;
+    int compressing = 1;
+    float zeta = vy*C + vz*S;                        /* closing speed along Z' */
+    const float zeta0 = zeta, wx0 = wx, vy0 = vy;    /* as it arrived */
+
+    for (int n = 0; n < CUE_CUSH_STEPS * 6; n++) {
+        /* Slip at the cushion (I) and at the cloth (C). atan2 so the direction
+         * is a real angle and free to swing round during the contact — which is
+         * the whole point of integrating rather than resolving in one go. */
+        float sI_n = -vy*S + vz*C + wx*R;
+        float sI_d =  vx + wy*R*S - wz*R*C;
+        float phi  = atan2f(sI_n, sI_d);
+        float sC_n =  vy + wx*R;
+        float sC_d =  vx - wy*R;
+        float phiC = atan2f(sC_n, sC_d);
+        int   slipI = (sI_n*sI_n + sI_d*sI_d) > 1e-8f;
+        int   slipC = on_cloth && (sC_n*sC_n + sC_d*sC_d) > 1e-8f;
+
+        float cph = slipI ? cosf(phi)  : 0.0f, sph = slipI ? sinf(phi)  : 0.0f;
+        float cpc = slipC ? cosf(phiC) : 0.0f, spc = slipC ? sinf(phiC) : 0.0f;
+        float mw  = slipI ? muw : 0.0f;
+        float ms  = slipC ? mus : 0.0f;
+
+        /* The cloth's share of the impulse (their eq. 8). Negative means the
+         * cloth would have to PULL the ball down to keep it there. */
+        float kC = S + mw*sph*C;
+        float kCu = on_cloth ? (kC > 0.0f ? kC : 0.0f) : 0.0f;
+
+        float dvx = -(dP/M) * (mw*cph + ms*cpc*kCu);
+        float dvy = -(dP/M) * (C - mw*S*sph + ms*spc*kCu);
+        float dvz =  (dP/M) * (kCu - kC);            /* zero while the cloth holds */
+        float g   = 5.0f*dP/(2.0f*M*R);
+        float dwx = -g * (mw*sph + ms*spc*kCu);
+        float dwy = -g * (mw*cph*S - ms*cpc*kCu);
+        float dwz =  g * (mw*cph*C);
+
+        vx += dvx; vy += dvy; vz += dvz;
+        wx += dwx; wy += dwy; wz += dwz;
+
+        float z2 = vy*C + vz*S;
+        W += dP * 0.5f * (zeta + z2);
+        zeta = z2;
+        if (compressing && zeta <= 0.0f) { compressing = 0; Wc = W; }
+        if (!compressing && W <= (1.0f - e2) * Wc) break;
+        if (!compressing && zeta < 0.0f && W <= 0.0f) break;
+    }
+
+    /* ---- AND OFF THE CLOTH, WHEN IT IS HIT HARD ENOUGH --------------------
+     *
+     * Everything above is inside the rigid-cushion assumption, and inside it
+     * the ball can never leave the table: the cloth's share of the impulse is
+     * sin(theta) + mu_w sin(phi) cos(theta), which cannot go negative for any
+     * slip angle at this geometry, so there is nothing to lift it.
+     *
+     * That assumption has a stated limit. Mathavan et al. put it at 2.5 m/s of
+     * NORMAL velocity, and say why: past it the cushion stops behaving like a
+     * rigid body, the nose is driven back and up, and "the normal ball velocity
+     * at I ... will try to lift up the tip of the cushion". Their own words for
+     * the cushion's slope are that it exists "in order to prevent the ball from
+     * leaping up in the air after impact" — a precaution against something that
+     * evidently happens.
+     *
+     * So above that speed the ball climbs. This is EXTRAPOLATION, not
+     * measurement: nobody has published outgoing vertical velocities off a
+     * cushion, and this is a plain ramp in the excess over the rigid limit,
+     * scaled by how much the ball is rolling INTO the nose, which is the
+     * direction of climb. It is deliberately small — a hard shot hops a few
+     * millimetres and lands, which is what it looks like across a table. The
+     * engine already handles a ball in flight properly (it keeps its spin,
+     * which is measured behaviour), so the landing takes care of itself. */
+    float over = zeta0 - CUE_CUSH_RIGID_V;
+    if (over > 0.0f) {
+        float roll_in = -(wx0 * R) / (fabsf(vy0) + 1e-3f);   /* + is into the nose */
+        if (roll_in < 0.0f) roll_in = 0.0f;
+        if (roll_in > 2.0f) roll_in = 2.0f;
+        float lift = CUE_CUSH_LIFT * over * (0.5f + 0.5f * roll_in);
+        /* AND NOT OVER THE NOSE. The slope of a cushion exists to stop the
+         * ball climbing it, so a hop that carries the ball above the contact
+         * line is not a hop, it is the ball getting on top of the rail — and
+         * from up there it rolls off the outside of the table, which is a lost
+         * ball rather than a lively cushion. Cap the climb at a fraction of
+         * the nose's height above ball centre: the ball leaves the cloth, and
+         * lands again in front of the cushion where it belongs. Measured: at
+         * the uncapped value, four shots in a thousand ended up resting the
+         * wrong side of the cushion line. */
+        float nose = R * S;                       /* nose height above centre */
+        float vmax = sqrtf(2.0f * w->g * CUE_CUSH_HOP * (nose > 0.0f ? nose : 0.0f));
+        if (lift > vmax) lift = vmax;
+        vz += lift;
+    }
+
+    b->vel = v3(vx*xh.x + vy*yh.x, vz, vx*xh.z + vy*yh.z);
+    b->w   = v3(wx*xh.x + wy*yh.x, wz, wx*xh.z + wy*yh.z);
+    if (b->vel.y < 0.0f) b->vel.y = 0.0f;            /* never driven downward */
+    return 1;
+}
+
 /* Closest point on segment [a,b] to point p (X–Z plane). */
 static CUE_HOT Vec3 seg_closest(Vec3 a, Vec3 b, Vec3 p) {
     Vec3 ab = v3_sub(b, a); ab.y = 0;
@@ -392,7 +592,27 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
         b->pos = v3_add(b->pos, v3_scale(best_sep, best_pen));   /* push out along separation */
         Vec3 N = v3_norm(v3(best_n.x * ct, st, best_n.z * ct));  /* bounce off smooth normal */
         float vn = -(b->vel.x * N.x + b->vel.z * N.z);           /* approach speed into rail */
-        if (collide_surface(w, b, N, w->e_cush, w->mu_cush)) {
+        /* WHERE ON THE BALL THE CUSHION ACTUALLY TOUCHES, which depends on how
+         * high the ball is — not on a constant taken from the table's spec.
+         *
+         * The nose sits at a fixed height above the cloth. A ball at rest meets
+         * it above its own centre, which is the whole point of the design: the
+         * impulse has a downward component and the ball is held on the table.
+         * A ball that is ALREADY IN THE AIR meets it lower down, and once the
+         * contact is below the centre the same impulse points UP — which is a
+         * ball climbing the cushion, and is how a jumped ball gets over a rail
+         * rather than rebounding off it.
+         *
+         * It also settles what a hard topspin shot can do from the cloth: it
+         * cannot climb, because the impact reverses the horizontal motion
+         * first, so whatever lift it gets happens while it is already leaving.
+         * That falls out of the geometry rather than needing a rule. */
+        float nose_y = w->R * st;                     /* nose above cloth-rest centre */
+        float rise   = b->pos.y - w->R;               /* how high the ball is */
+        float sn     = (nose_y - rise) / w->R;        /* + above centre, - below */
+        if (sn >  0.95f) sn =  0.95f;
+        if (sn < -0.95f) sn = -0.95f;
+        if (cushion_impact(w, b, best_n, sn)) {
             hit = 1;
             if (ev) *ev |= CUE_EV_CUSHION;
             if (vn > s_cush_vn) s_cush_vn = vn;                  /* loudest rail impact this step */
