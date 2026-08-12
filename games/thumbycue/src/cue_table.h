@@ -69,6 +69,9 @@ typedef struct {
     float ang_corner, ang_side; /* facing splay from the rail line (deg) */
     float off_corner, off_side; /* pocket-centre offset beyond the boundary (m) */
     float jaw_r;                /* small knuckle rounding radius (m) */
+    /* The rail: restitution at a crawl, how fast it falls with pace, and the
+     * floor. See cue_table_rails for where the numbers come from. */
+    float e_cush, cush_efall, e_cush_min;
     /* HOW MUCH SMALLER THE DROP CIRCLE IS THAN THE HOLE, per pocket type (m).
      * Taken off pr to get the radius a ball's centre must be inside before it
      * is down. It was a literal in build_world — 0.3 R, and 0.15 R for a UK

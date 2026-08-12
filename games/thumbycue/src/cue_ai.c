@@ -202,6 +202,21 @@ static int   K_REFINE  = 5;
  * wrong at the rail is multiplied by everything after it. The persona's line
  * accuracy is a POTTING number, so an escape gets it scaled up. */
 static float K_KICK_ERR = 2.4f;
+/* THE SHOT AFTER NEXT. position_quality is one ply: it asks what can be potted
+ * from the leave and never what THAT pot would leave, so the planner takes the
+ * accessible balls in whatever order looks best a single shot at a time and
+ * walks into dead ends. Over 40 frames, 22 of the longest breaks died with
+ * nothing on the table — not a miss, not a foul, no shot left.
+ *
+ * K_OPTS is the cheap proxy for this and raising it measured WORSE (mean best
+ * break 86.5 -> 55.8, two centuries -> none): crediting a leave for having
+ * SEVERAL continuations buys breadth where the shortfall is depth, and the AI
+ * turns timid, taking three mediocre balls over the one frame ball.
+ *
+ * So: for the finalists only — the handful already being re-simulated on the
+ * corrected aim — play the best next pot too and score what IT leaves. One
+ * extra sim each, on a thread that has nothing else to do. */
+static float K_PLY2 = 0.0f;     /* weight on the leave AFTER the next pot */
 static float K_CROWD  = 4.0f;   /* how close counts as crowding, in ball radii */
 /* Which number picks the safety, once a safety is being played. 0 = posScore
  * (position_quality); 1 = safeq (safety_score, re-scored on the sim).
@@ -286,6 +301,7 @@ static void ai_knobs(void) {
     { const char *v = getenv("AI_BRKRES");  if (v) K_BRKRES  = atoi(v); }
     { const char *v = getenv("AI_REFINE");  if (v) K_REFINE  = atoi(v); }
     { const char *v = getenv("AI_KICKERR"); if (v) K_KICK_ERR = (float)atof(v); }
+    { const char *v = getenv("AI_PLY2");    if (v) K_PLY2     = (float)atof(v); }
 }
 
 void cue_ai_set_max_speed(float mps) {
@@ -831,6 +847,33 @@ static float breakout_bonus(const AiCtx *c, const Vec3 *pos, const int *on,
     if (v >  45.0f) v =  45.0f;
     if (v < -45.0f) v = -45.0f;
     return v;
+}
+
+/* WHICH ball and pocket the leave's best pot actually is. position_quality
+ * scores that pot but never says which one it was, and the second ply has to
+ * play it. Same test, same order, so the two cannot disagree about what the
+ * best next shot is. */
+static int best_next_shot(const AiCtx *c, Vec3 cue_pos, int just_idx,
+                          const Vec3 *pos_balls, const int *on,
+                          int *out_ti, int *out_pk) {
+    int idx[CUE_MAX_BALLS];
+    int cnt = next_targets(c, just_idx, idx);
+    float best = 0.0f; int found = 0;
+    for (int k = 0; k < cnt; k++) {
+        int ti = idx[k];
+        if (on && !on[ti]) continue;
+        Vec3 tpos = pos_balls ? pos_balls[ti] : c->b[ti].pos;
+        if (!path_clear_at(c, cue_pos, tpos, ti, pos_balls, on)) continue;
+        for (int pk = 0; pk < c->w->npocket; pk++) {
+            Vec3 ap = pocket_aim_t(c, pk, tpos);
+            if (!path_clear_at(c, tpos, ap, ti, pos_balls, on)) continue;
+            float diff = potting_difficulty(c, cue_pos, tpos, pk);
+            if (diff < 20.0f) continue;
+            if (diff > best) { best = diff; found = 1;
+                               if (out_ti) *out_ti = ti; if (out_pk) *out_pk = pk; }
+        }
+    }
+    return found;
 }
 
 static float position_quality(const AiCtx *c, Vec3 cue_pos, int just_idx,

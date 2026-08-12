@@ -74,7 +74,14 @@ typedef struct {
     float e_bb;       /* restitution */
     float mu_bb;      /* friction (throw) */
     /* Cushion. */
-    float e_cush;     /* restitution */
+    /* Cushion restitution at a CRAWL, and how fast it falls off with the
+     * approach speed — see cushion_impact. Real rails are livelier the more
+     * gently they are touched: 0.91 at nothing, about 0.82 across normal play,
+     * and down near 0.55 on a firm one. A single number could not express that
+     * and made every rail play the same at any pace. */
+    float e_cush;     /* restitution at zero approach speed */
+    float cush_efall; /* how much it drops per m/s of approach */
+    float e_cush_min; /* and where it stops falling */
     float mu_cush;    /* rail friction (deflects the bounce; incoming english still bends it) */
     float cush_spin;  /* 0..1: how much of the rail friction impulse becomes NEW spin on the
                        * ball. <1 means the cushion imparts less spin while the bounce-angle

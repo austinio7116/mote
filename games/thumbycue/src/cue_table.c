@@ -20,6 +20,49 @@
 
 #define DEG (3.14159265f / 180.0f)
 
+
+/* ---- THE RAIL, PER TABLE -------------------------------------------------
+ *
+ * Restitution at a crawl, and how fast it falls with pace. Set against the only
+ * measurements there are: Mathavan's high-speed imaging of a SNOOKER table gives
+ * 0.910 for a ball barely moving and a 0.818 best fit across 0.28-3.5 m/s, so
+ * snooker is the one table here with a source behind its rail and the others are
+ * placed relative to it.
+ *
+ * Nobody publishes restitution by table type, so the spread is judgement and is
+ * deliberately small. What IS documented is the profile and the cloth: American
+ * tables run the pointed K-66 on napless worsted and are described everywhere as
+ * the faster, livelier game; English and snooker use the flat L-shaped section
+ * on napped wool. Published rubber-resilience figures differ by about three
+ * points between profiles (Artemis K-66 ~72%, Klematch P59 ~75%), which is the
+ * order of difference used here — not the chasm between a match table and a
+ * tired coin-op, because these are all CHAMPIONSHIP tables. A worn pub cushion
+ * would be a different and much deader thing, and is not what this is.
+ *
+ * Nose height, which is the variable that dominates all of this, is already
+ * right and identical on every table: cushion_h = 1.27 R is 63.5% of the ball,
+ * which is the WPA specification.
+ *
+ * These are the numbers going IN. What comes out is lower, because the friction
+ * impulse at a contact above centre has to reverse the roll as well as the
+ * travel — about six points at a crawl and more with pace. So they were tuned
+ * against the MEASURED rebound, not set to the published figure and hoped for:
+ * snooker lands on 83% at 2 m/s, 76% at 3.5 and 61% at 7, against Mathavan's
+ * 0.818 across normal play and Marlow's 0.55 for a hard one. */
+static void cue_table_rails(CueTable *t, CueGameKind kind) {
+    switch (kind) {
+    case CUE_GAME_US8: case CUE_GAME_US9:      /* K-66, worsted: the lively one */
+        t->e_cush = 0.985f; t->cush_efall = 0.046f; break;
+    case CUE_GAME_UK8:                          /* championship English, Northern rubber */
+        t->e_cush = 0.965f; t->cush_efall = 0.052f; break;
+    case CUE_GAME_CN8:                          /* built to English patterns */
+        t->e_cush = 0.968f; t->cush_efall = 0.050f; break;
+    default:                                    /* snooker, and 6-red on the English bed */
+        t->e_cush = 0.970f; t->cush_efall = 0.050f; break;
+    }
+    t->e_cush_min = 0.55f;                      /* Marlow's rails, as the floor */
+}
+
 void cue_table_init(CueTable *t, CueGameKind kind) {
     memset(t, 0, sizeof(*t));
     t->kind = kind;
@@ -168,6 +211,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 || kind == CUE_GAME_CN8)
         t->baulk_x = -t->half_len * 0.5f;
 
+    cue_table_rails(t, kind);
+
     /* How far past the pocket the DROP is centred. Zero is concentric with the
      * hole, which is where it has always been; positive pushes it deeper, so a
      * ball has to get further in before it is down. Per pocket type because a
@@ -280,6 +325,9 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * cushion top and the wood cap are one surface, not a step. */
     w->rail_top = t->cushion_h * 1.30f;
     w->jaw_r = t->jaw_r;
+    w->e_cush     = t->e_cush;
+    w->cush_efall = t->cush_efall;
+    w->e_cush_min = t->e_cush_min;
     w->drop_back = t->drop_back;
     w->drop_back_side = t->drop_back_side;
 

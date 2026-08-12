@@ -41,7 +41,9 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
     w->spin_decel = 5.0f * 0.022f * w->g / (2.0f * R);
     w->e_bb = 0.96f;
     w->mu_bb = 0.06f;         /* ball–ball throw friction */
-    w->e_cush = 0.96f;     /* livelier cushions: absorb less energy */
+    w->e_cush = 0.96f;     /* at a crawl; cue_table sets the real per-table set */
+    w->cush_efall = 0.050f;
+    w->e_cush_min = 0.55f;
     w->mu_cush = 0.12f;    /* rail friction — full on the roll axis (proper damping + bend) */
     w->cush_spin = 0.30f;  /* but only 30% on the VERTICAL axis → far less side-spin pickup */
     /* Contact point ~0.15 R above centre ⇒ normal tilts up by asin(0.15). Kept
@@ -415,7 +417,25 @@ static CUE_HOT int cushion_impact(const CueWorld *w, CueBall *b, Vec3 n_face,
 
     const float M = w->mass, R = w->R;
     const float S = sin_th, C = sqrtf(1.0f - S*S);
-    const float e2 = w->e_cush * w->e_cush;
+
+    /* RESTITUTION FALLS WITH PACE, because the rubber deforms further the
+     * harder it is struck and gets less of that back.
+     *
+     * A constant was measurably the wrong SHAPE, not merely the wrong number:
+     * square into the rail this model returned 89-90% of the speed at 2 m/s and
+     * the same 89-90% at 7, so a firm shot lost nothing extra and every angle
+     * off the rail played the same however hard it was hit. Mathavan's
+     * high-speed imaging of a snooker table has the rebound ratio at 0.910 for
+     * a ball barely moving and a 0.818 best fit across 0.28-3.5 m/s, i.e.
+     * sliding down through normal play, and Marlow's rails come in near 0.55 —
+     * which is where a really firm one ends up.
+     *
+     * Linear in the approach speed, anchored on those two, floored so it cannot
+     * go absurd on a break. e_cush is now the LOW-SPEED figure. */
+    float e_v = w->e_cush - w->cush_efall * (vy*sqrtf(1.0f - sin_th*sin_th) + vz*sin_th);
+    if (e_v < w->e_cush_min) e_v = w->e_cush_min;
+    if (e_v > w->e_cush)     e_v = w->e_cush;
+    const float e2 = e_v * e_v;
     const float muw = w->mu_cush, mus = w->mu_s;
     /* On the cloth the ball is held; in the air there is no second contact. */
     const int on_cloth = (b->pos.y <= R * 1.02f);
@@ -428,13 +448,13 @@ static CUE_HOT int cushion_impact(const CueWorld *w, CueBall *b, Vec3 n_face,
      * impulse had the same guard for the same reason; it just reflects. */
     float zeta_in = vy*C + vz*S;
     if (zeta_in < 0.025f) {
-        vy = -vy * w->e_cush;
+        vy = -vy * e_v;
         b->vel = v3(vx*xh.x + vy*yh.x, 0.0f, vx*xh.z + vy*yh.z);
         return 1;
     }
 
     /* Total impulse is about (1+e)Mv_normal; take it in equal slices. */
-    float Ptot = (1.0f + w->e_cush) * M * zeta_in;
+    float Ptot = (1.0f + e_v) * M * zeta_in;
     if (Ptot <= 0.0f) return 0;
     float dP = Ptot / (float)CUE_CUSH_STEPS;
 
