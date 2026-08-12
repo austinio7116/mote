@@ -397,6 +397,45 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
             nrm = v3(-nrm.x, 0, -nrm.z);
         w->pmnorm[p] = nrm;
     }
+
+    cue_table_derive_cut(w);
+}
+
+/* ---- the cloth cut, which both the renderer and the physics obey ---------- *
+ *
+ * These are set in the headset, with a ball rolling at the pocket, which is the
+ * only place they could honestly be judged. The radii are multiples of the
+ * ball's drop circle, so one pair of numbers carries across the whole set of
+ * tables and the millimetres follow from each table's own pocket size. The
+ * setbacks push each arc's centre away from the table, into the frame. */
+static float s_cut_cr = CUE_CUT_CORNER, s_cut_cs = CUE_COR_SETBACK;
+static float s_cut_mr = CUE_CUT_MIDDLE, s_cut_ms = CUE_MID_SETBACK;
+
+void cue_table_derive_cut(CueWorld *w) {
+    for (int p = 0; p < w->npocket; p++) {
+        Vec3 C = w->pocket[p];
+        if (p < 4) {                    /* a corner sets back along its diagonal */
+            float sx = (C.x < 0) ? -1.0f : 1.0f, sz = (C.z < 0) ? -1.0f : 1.0f;
+            const float k = 0.70710678f;
+            w->cut_c[p] = v3(C.x + sx*s_cut_cs*k, 0, C.z + sz*s_cut_cs*k);
+            w->cut_r[p] = w->pocket_r[p] * s_cut_cr;
+        } else {                        /* a middle sets straight back into the rail */
+            float sz = (C.z < 0) ? -1.0f : 1.0f;
+            w->cut_c[p] = v3(C.x, 0, C.z + sz * s_cut_ms);
+            w->cut_r[p] = w->pocket_r[p] * s_cut_mr;
+        }
+        w->lip_d[p] = CUE_LIP_ROLL * w->pocket_r[p];
+    }
+}
+
+void cue_table_set_pocket_cut(CueWorld *w, float cr, float cs, float mr, float ms) {
+    s_cut_cr = cr; s_cut_cs = cs; s_cut_mr = mr; s_cut_ms = ms;
+    if (w) cue_table_derive_cut(w);
+}
+
+void cue_table_get_pocket_cut(float *cr, float *cs, float *mr, float *ms) {
+    if (cr) *cr = s_cut_cr; if (cs) *cs = s_cut_cs;
+    if (mr) *mr = s_cut_mr; if (ms) *ms = s_cut_ms;
 }
 
 Vec3 cue_table_cue_home(const CueTable *t) {

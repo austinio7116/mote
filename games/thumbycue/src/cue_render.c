@@ -255,28 +255,10 @@ static Vec3 walk_pt(float ex, float ez, float tt) {
  * One pair of numbers for the whole set — every table's drop radius already
  * carries its own size, so the ratio is what transfers and the millimetres
  * follow. */
-/* Set in the headset, with a ball rolling at the pocket — which is the only
- * place these could honestly be judged, and where they finally were. */
-#define CUE_CUT_CORNER  1.34f
-#define CUE_CUT_MIDDLE  1.59f
-/* How far each arc's centre sits INTO THE FRAME, away from the table. */
-#define CUE_COR_SETBACK 0.005f
-#define CUE_MID_SETBACK 0.010f
-/* ...and live, because the only place these can honestly be judged is in the
- * headset with a ball rolling at the pocket. Set from the game's own tuning
- * screen; the defaults above are what they start at. */
-static float s_cut_cr = CUE_CUT_CORNER, s_cut_mr = CUE_CUT_MIDDLE;
-static float s_cut_cs = CUE_COR_SETBACK, s_cut_ms = CUE_MID_SETBACK;
-void cue_render_set_pocket_cut(float cr, float cs, float mr, float ms) {
-    s_cut_cr = cr; s_cut_cs = cs; s_cut_mr = mr; s_cut_ms = ms;
-}
-void cue_render_get_pocket_cut(float *cr, float *cs, float *mr, float *ms) {
-    if (cr) *cr = s_cut_cr; if (cs) *cs = s_cut_cs;
-    if (mr) *mr = s_cut_mr; if (ms) *ms = s_cut_ms;
-}
-/* How far each arc's centre sits INTO THE FRAME, away from the table. Positive
- * is deeper into the frame — the same direction and sign the bench uses, so a
- * number read off it goes straight in here. */
+/* The numbers themselves, and the live tuning of them, belong to the table
+ * (CUE_CUT_* in cue_table.h): the edge of this cut is where the ball tips over,
+ * so the physics needs the identical curve and there can only be one of it. The
+ * renderer reads the derived arc straight out of the world. */
 #define CUE_SLATE_RAIL  0.98f
 
 #define CUE_BND_MAX 1400
@@ -331,19 +313,12 @@ static void pt_into(CueBnd *B, float x, float z, int pk) {
  *
  * CUE_SCOF nudges it inward from the pocket, in millimetres. */
 static Vec3 scallop_centre(const CueWorld *w, int p) {
-    Vec3 C = w->pocket[p];
-    if (p < 4) {
-        /* A corner sets back along its own diagonal, into the corner. */
-        float sx = (C.x < 0) ? -1.0f : 1.0f, sz = (C.z < 0) ? -1.0f : 1.0f;
-        const float k = 0.70710678f;
-        return v3(C.x + sx*s_cut_cs*k, 0, C.z + sz*s_cut_cs*k);
-    }
-    /* A MIDDLE POCKET'S ARC SITS DEEPER. Its centre on the pocket puts the
-     * curve too far into the table; set back toward the frame it reads as a
-     * mouth cut into the rail instead of a bite out of the bed.
-     * CUE_MOFF is that setback, in millimetres. */
-    float sz = (C.z < 0) ? -1.0f : 1.0f;
-    return v3(C.x, 0, C.z + sz * s_cut_ms);
+    /* A corner sets back along its own diagonal, into the corner; a MIDDLE
+     * POCKET'S ARC SITS DEEPER, straight back toward the frame — its centre on
+     * the pocket puts the curve too far into the table, and set back it reads
+     * as a mouth cut into the rail instead of a bite out of the bed. Both are
+     * worked out once, by the table. */
+    return w->cut_c[p];
 }
 
 /* THE SCALLOP: an arc with straight legs, not a circle.
@@ -360,7 +335,7 @@ static Vec3 scallop_centre(const CueWorld *w, int p) {
  *
  * CUE_SCAL sets the radius as a percentage of the ball's drop circle. */
 static float scallop_rad(const CueWorld *w, int p) {
-    return w->pocket_r[p] * ((p < 4) ? s_cut_cr : s_cut_mr);
+    return w->cut_r[p];
 }
 
 /* One pocket's cut, in boundary order: leg in, arc, leg out. `sx`,`sz` are the
@@ -460,11 +435,11 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
      *
      * The drop and its profile are the tuned ones: a quarter-cosine fall of
      * 0.45 of the pocket radius, darkening as the cloth turns under. */
-    int M; float ldf;
+    int M; float lscale;
     switch (s_lip_mode) {
-        case 2:  M = 9;  ldf = 0.55f; break;
-        case 3:  M = 11; ldf = 0.80f; break;
-        default: M = 8;  ldf = 0.45f; break;
+        case 2:  M = 9;  lscale = 0.55f / CUE_LIP_ROLL; break;
+        case 3:  M = 11; lscale = 0.80f / CUE_LIP_ROLL; break;
+        default: M = 8;  lscale = 1.0f; break;
     }
     /* Which way is out of the cloth? Take it from the polygon's own winding so
      * it cannot be got backwards by hand. */
@@ -484,8 +459,7 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
         int cnt = j - i;
         if (cnt > CUE_LIP_MAX) cnt = CUE_LIP_MAX;   /* cannot happen; see above */
         if (cnt >= 2) {
-            float pr = (p < 4) ? t->pr_corner : t->pr_side;
-            float ld  = ldf * pr;
+            float ld  = w->lip_d[p] * lscale;
             float din = ld;
             Vec3 ring0[CUE_LIP_MAX], nrm[CUE_LIP_MAX];
             for (int k = 0; k < cnt; k++) {

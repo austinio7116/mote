@@ -106,11 +106,9 @@ void cue_render_set_preview(uint16_t *fb, int cx, int cy, int rad,
 void cue_render_ball_icon(uint16_t *fb, int cx, int cy, int rad, int id);
 uint16_t cue_render_ball_colour(int id);
 
-/* The pocket cut, live: arc radius as a multiple of the ball's drop circle, and
- * how far the arc's centre sets back into the frame (metres). Tuned in-game,
- * because a pocket can only honestly be judged with a ball rolling at it. */
-void cue_render_set_pocket_cut(float cr, float cs, float mr, float ms);
-void cue_render_get_pocket_cut(float *cr, float *cs, float *mr, float *ms);
+/* The pocket cut, live, is cue_table_set_pocket_cut() — the edge of that cut is
+ * where the ball tips over the slate, so the shape belongs to the table and the
+ * renderer reads the arc it derives. */
 
 /* Where the icon helpers above are drawing. The handheld never calls this — its
  * HUD IS the framebuffer — but the VR panel is 512x288, and without it every icon

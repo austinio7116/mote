@@ -83,6 +83,30 @@ void cue_table_init(CueTable *t, CueGameKind kind);
 /* Fill a physics world with this table's constants + collision geometry. */
 void cue_table_build_world(const CueTable *t, CueWorld *w);
 
+/* ---- THE POCKET CUT ------------------------------------------------------- *
+ *
+ * The shape the cloth is cut away in around each pocket: an arc around the
+ * pocket with a straight tangent leg out to each slate edge — a quarter of a
+ * circle at a corner, a half at a middle, which is what a slate cutter leaves.
+ * The radii are multiples of the ball's drop circle; the setbacks push the arc
+ * centre away from the table, into the frame.
+ *
+ * ONE definition, because the edge of the cut is where the ball tips over. If
+ * the renderer and the physics each kept their own the ball would fall through
+ * cloth at one pocket and hang in mid air at another, which is exactly what
+ * they did while they did. */
+#define CUE_CUT_CORNER  1.34f
+#define CUE_CUT_MIDDLE  1.59f
+#define CUE_COR_SETBACK 0.005f
+#define CUE_MID_SETBACK 0.010f
+/* How far the cloth rolls over the edge of the cut before it turns vertical: a
+ * quarter circle of this many pocket radii, out and down. */
+#define CUE_LIP_ROLL    0.45f
+
+void cue_table_derive_cut(CueWorld *w);
+void cue_table_set_pocket_cut(CueWorld *w, float cr, float cs, float mr, float ms);
+void cue_table_get_pocket_cut(float *cr, float *cs, float *mr, float *ms);
+
 /* Lay out the opening rack / spots. Returns the number of balls placed.
  * balls[0] is always the cue ball. orient set to identity. */
 int cue_table_rack(const CueTable *t, CueBall *balls);

@@ -662,22 +662,55 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
  * Nothing is scripted, and nothing has to ask whether the ball is in the air.
  */
 #define CUE_POCKET_FLOOR (-0.10f)   /* the floor of the recess (m) */
+/* How hard the lip gathers a falling ball toward the pocket's axis, per second
+ * squared per metre off it. Sized so a ball crossing at the rim is drawn to the
+ * middle within the time it takes to fall — which is what the roll of the cloth
+ * does to it on a real table. */
+#ifndef CUE_LIP_GATHER
+#define CUE_LIP_GATHER 250.0f
+#endif
+
+/* HOW FAR PAST THE EDGE OF THE SLATE a point is, at pocket p. Negative is still
+ * on cloth, zero is the edge, positive is out over the drop.
+ *
+ * The cut is an arc around `cut_c` with a straight tangent leg out to each slate
+ * edge — a quarter circle at a corner, a half at a middle. That makes the
+ * distance to it exact and cheap: which of the three pieces is nearest falls out
+ * of the sign of the point's two local coordinates, so there is no search. The
+ * renderer walks the identical curve. */
+static CUE_HOT float cut_out(const CueWorld *w, int p, float x, float z) {
+    Vec3  C = w->cut_c[p];
+    float R = w->cut_r[p];
+    float sz = (C.z < 0.0f) ? -1.0f : 1.0f;
+    float v  = sz * (z - C.z);
+    if (p >= 4) {                                   /* a middle: half arc, two legs */
+        float u = x - C.x;
+        if (v > 0.0f) return R - (u < 0.0f ? -u : u);        /* between the legs */
+        return R - sqrtf(u*u + v*v);                         /* on the arc */
+    }
+    float sx = (C.x < 0.0f) ? -1.0f : 1.0f;         /* a corner: quarter arc, two legs */
+    float u  = sx * (x - C.x);
+    if (u <= 0.0f && v <= 0.0f) return R - sqrtf(u*u + v*v); /* facing the arc */
+    if (v > 0.0f && u > 0.0f)                                /* deep in the cut */
+        return (u < v ? u : v) + R;
+    return (v > 0.0f ? u : v) + R;                           /* against one leg */
+}
 
 static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
     if (b->pos.y - w->R > w->rail_top) return 0;         /* flying clean over */
     for (int p = 0; p < w->npocket; p++) {
         Vec3 d = v3_sub(b->pos, w->pocket[p]); d.y = 0.0f;
-        float reach = w->pocket_r[p] + w->R * 3.0f;      /* the cut is wider than the mouth */
+        /* near enough to be this pocket's business at all */
+        float reach = w->cut_r[p] + w->R * 3.0f;
         if (d.x*d.x + d.z*d.z > reach * reach) continue;
 
-        float px = b->pos.x - w->pmouth[p].x, pz = b->pos.z - w->pmouth[p].z;
-        if (px * w->pmnorm[p].x + pz * w->pmnorm[p].z <= 0.0f) continue;  /* still on the table */
-
-        /* In the throat: the back gathers and dampens. */
-        b->vel.x *= 0.55f;
-        b->vel.z *= 0.55f;
-        b->vel.x += (w->pocket[p].x - b->pos.x) * 3.0f;
-        b->vel.z += (w->pocket[p].z - b->pos.z) * 3.0f;
+        /* THE TIPPING POINT IS THE EDGE OF THE SLATE, not the jaw line. Past it
+         * the ball's centre is over the cut and there is nothing holding it up,
+         * which at a middle pocket happens a good 40 mm before the jaws and at
+         * a corner a centimetre or so after them. Using the jaws for this is
+         * what had balls sailing out flat over the drop at the middles and
+         * sinking through cloth at the corners. */
+        if (cut_out(w, p, b->pos.x, b->pos.z) <= 0.0f) continue;
 
         if (b->drop <= 0.0f) {
             b->pocket = (uint8_t)p;
@@ -786,17 +819,64 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
         CueBall *b = &balls[i];
         if (!b->on) continue;
         if (b->drop > 0.0f) {
-            /* IN THE POCKET, FALLING. Gravity does it; the gentle pull to the
-             * centre is the taper of the recess. Removed at the floor. */
+            /* IN THE POCKET, FALLING — AND THE LIP STEERS IT IN.
+             *
+             * The cloth rolls over the edge of the cut, and by the time a ball
+             * is above that roll it is already falling: its centre is past the
+             * slate and nothing is holding it up. So the lip is not something
+             * to stand on. What it does is DIRECT — it gathers the ball toward
+             * the middle of the pocket on the way down, which is why a ball
+             * that catches the near edge still drops instead of hanging.
+             *
+             * That steer was missing. The sideways motion was multiplied by
+             * 0.94 EVERY SUBSTEP, which at two thousand a second is gone
+             * inside a millisecond, so the ball stopped dead and sank
+             * vertically from wherever it crossed — straight down through the
+             * cloth that is drawn rolling underneath it. On a firm pot nobody
+             * sees it; on a ball dying into the pocket it is the whole
+             * picture.
+             *
+             * Now it keeps its pace and is pulled to the pocket's axis as it
+             * falls, so it goes in the way it goes in on a table: leaning into
+             * the middle, not dropping through the felt. */
+            int   pk = b->pocket;
+            float ld = w->lip_d[pk], rr = ld + w->R;
+            float o0 = cut_out(w, pk, b->pos.x, b->pos.z);
+
+            Vec3 pc2 = w->pocket[pk];
+            b->vel.x += (pc2.x - b->pos.x) * CUE_LIP_GATHER * h;
+            b->vel.z += (pc2.z - b->pos.z) * CUE_LIP_GATHER * h;
+            {   float d = 1.0f - 3.0f * h;      /* a little drag, not a wall */
+                b->vel.x *= d; b->vel.z *= d; }
             b->vel.y -= w->g * h;
-            b->pos.y += b->vel.y * h;
             b->pos.x += b->vel.x * h;
+            b->pos.y += b->vel.y * h;
             b->pos.z += b->vel.z * h;
-            b->vel.x *= 0.94f; b->vel.z *= 0.94f;
-            {   Vec3 pc2 = w->pocket[b->pocket];
-                float k2 = h * 5.0f; if (k2 > 1.0f) k2 = 1.0f;
-                b->pos.x += (pc2.x - b->pos.x) * k2;
-                b->pos.z += (pc2.z - b->pos.z) * k2; }
+
+            /* AND THE LIP IS STILL UNDER IT. The cloth rolls over the edge in a
+             * quarter circle of radius `ld`, so a ball on that roll has its
+             * centre on an arc of radius ld+R about the same point: it keeps
+             * its pace across, and it goes down at the rate the cloth falls
+             * away from it, not at the rate gravity would take it. Only once
+             * its centre is past the roll — a distance ld+R out — is there
+             * nothing left underneath and it drops properly.
+             *
+             * Which is also why a firm pot looks different from a dying one.
+             * The roll only holds a ball that is slower than sqrt(g(ld+R)),
+             * about 0.7 m/s; anything above that leaves the edge and flies, and
+             * that falls out of the same two lines rather than being asked for. */
+            {
+                float o1 = cut_out(w, pk, b->pos.x, b->pos.z);
+                if (o1 > 0.0f && o1 < rr * 0.999f) {
+                    float lip_y = sqrtf(rr*rr - o1*o1) - ld;
+                    if (b->pos.y < lip_y) {
+                        b->pos.y = lip_y;
+                        float slope = -o1 / sqrtf(rr*rr - o1*o1);   /* dy/do, <= 0 */
+                        float rate  = slope * (o1 - o0) / h;
+                        b->vel.y = (rate < 0.0f) ? rate : 0.0f;     /* it never lifts it */
+                    }
+                }
+            }
             ball_spin_orient(b, h);
             if (b->pos.y < CUE_POCKET_FLOOR) { b->on = 0; b->drop = 0.0f; }
             continue;
@@ -1024,3 +1104,9 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
     }
     return 1;
 }
+
+/* The edge of the slate, for the harnesses that check the drawn pocket and the
+ * played one still agree. Compiled out of the game. */
+#ifdef CUE_DBG_CUT
+float cue_dbg_cut_out(const CueWorld *w, int p, float x, float z) { return cut_out(w, p, x, z); }
+#endif

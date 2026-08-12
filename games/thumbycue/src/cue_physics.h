@@ -121,6 +121,18 @@ typedef struct {
      * once the jaws are placed. */
     Vec3   pmouth[CUE_MAX_POCKET];
     Vec3   pmnorm[CUE_MAX_POCKET];
+    /* WHERE THE SLATE ENDS, which is where the ball starts to fall.
+     *
+     * Not the jaw line. The cloth is cut away around each pocket in an arc with
+     * two straight tangent legs, and the ball tips over the edge of THAT — at a
+     * middle it happens well before the jaws, at a corner slightly after them.
+     * The renderer draws this same curve, so one set of numbers decides both
+     * what you see and where the ball goes. `lip_d` is how far the cloth rolls
+     * over that edge before it turns vertical: a quarter circle of that radius,
+     * out and down. Filled in by cue_table_build_world. */
+    Vec3   cut_c[CUE_MAX_POCKET];   /* arc centre (the pocket, set back a little) */
+    float  cut_r[CUE_MAX_POCKET];   /* arc radius */
+    float  lip_d[CUE_MAX_POCKET];   /* the roll over the edge */
     float  drop_back;       /* CORNER drop pulled this far further INTO the pocket (m) */
     float  drop_back_side;  /* MIDDLE drop pulled straight back into the pocket (m) */
 
