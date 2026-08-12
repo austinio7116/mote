@@ -350,14 +350,22 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
     }
     cue_phys_set_substep(0.0f);                /* restore the live 2 kHz step */
 
+    /* A BALL IN THE THROAT OF A POCKET IS POTTED, even though it is still
+     * flagged on: the pocket keeps it that way so the renderer can draw it
+     * falling. The planner reads these flags to decide what a shot did, and if
+     * a ball caught mid-drop reads as "still on the table" then the shot that
+     * potted it looks like the shot that missed it. That is not a rendering
+     * detail — it is the difference between a break the AI knows fouled and one
+     * it thinks was clean. */
+    #define AI_SIM_GONE(bb) (!(bb).on || (bb).drop > 0.0f)
     out->cue_end = s_sb[cue_idx].pos;
-    out->cue_potted = !s_sb[cue_idx].on;
+    out->cue_potted = AI_SIM_GONE(s_sb[cue_idx]);
     out->npotted = 0;
     out->first_hit_idx = s_sw.first_hit_idx;
     for (int i = 0; i < n; i++) {
-        out->on[i] = s_sb[i].on;
+        out->on[i] = !AI_SIM_GONE(s_sb[i]);
         out->end_pos[i] = s_sb[i].pos;
-        if (i != cue_idx && balls[i].on && !s_sb[i].on)
+        if (i != cue_idx && balls[i].on && AI_SIM_GONE(s_sb[i]))
             out->potted[out->npotted++] = i;
     }
 
@@ -1915,7 +1923,20 @@ static float break_score(const AiCtx *c, const CueRules *r, const CueBall *balls
          * has to move SOME reds to be a break at all, it just should not spray
          * them up the table. */
         sc -= 1.5f * (float)moved;
-        sc -= 25.0f * (float)potted;      /* a red down off the break is a gift */
+        /* POTTING A RED IS A GIFT; POTTING A COLOUR IS A FOUL. They were priced
+         * the same, which is how the break came to give away four points and the
+         * table one time in eight: the colours sit on their spots right by the
+         * pack, a break that clips one can drop it, and the search had no reason
+         * to prefer the candidate that did not. A red down is a few points to
+         * the other player. A colour down is a foul, the table, and a ball back
+         * on its spot in front of them. */
+        int pot_red = 0, pot_col = 0;
+        for (int i = 1; i < n; i++) {
+            if (!balls[i].on || sim->on[i]) continue;
+            if (balls[i].id >= CUE_ID_YELLOW) pot_col++; else pot_red++;
+        }
+        sc -= 25.0f  * (float)pot_red;
+        sc -= 400.0f * (float)pot_col;
         return sc;
     }
 
@@ -2108,8 +2129,23 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             }
             if (r->mode == CUE_GAME_US9 && apex >= 0) want_first = balls[apex].id;
 
+            /* AS HARD AS THE PLAYER COULD. The planner simulates at
+             * AI_SIM_SPEED and to_caller_power divides its answer by the front
+             * end's maximum, so a power of 1.0 here means 8.5 m/s however hard
+             * the player's own arm can swing — about 19 mph, against the 25 to
+             * 30 a real break is struck at. On every other shot that ceiling is
+             * a fair handicap; on the BREAK it is the one stroke where a player
+             * genuinely swings at maximum, and holding the AI to two thirds of
+             * it makes its break look feeble for no reason anyone would want.
+             *
+             * So the break may ask for the whole of whatever the front end
+             * allows. It is expressed in sim units, which is what keeps this
+             * honest: the candidate is SIMULATED at that speed too, so the
+             * search still plans the shot it is going to play. */
+            float ceil_p = s_max_speed / AI_SIM_SPEED;
+            if (ceil_p < 1.0f) ceil_p = 1.0f;             /* handheld: 8.5 both ways */
             float clips[4] = { -0.90f, -0.45f, 0.45f, 0.90f };
-            float pows[2]  = { 0.80f, 0.95f };
+            float pows[2]  = { 0.80f * ceil_p, 0.99f * ceil_p };
             float zero[1]  = { 0.0f };
             if (apex >= 0)
                 ncand = break_cands(c, balls, cue, apex, clips, 4, pows, 2,
@@ -2129,7 +2165,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                     if (dd < secd) { secd = dd; sec = i; }
                 }
                 float wclips[2] = { -0.70f, 0.70f };
-                float wpows[1]  = { 0.95f };
+                float wpows[1]  = { 0.99f * ceil_p };
                 float draw[1]   = { 0.0f };
                 if (sec >= 0)
                     ncand = break_cands(c, balls, cue, sec, wclips, 2, wpows, 1,
