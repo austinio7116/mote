@@ -686,8 +686,13 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
  * squared per metre off it. Sized so a ball crossing at the rim is drawn to the
  * middle within the time it takes to fall — which is what the roll of the cloth
  * does to it on a real table. */
+/* Softened from 250. That was sized to drag a ball crossing at the rim into the
+ * middle within the time it takes to fall, which it did — and at a middle
+ * pocket, where the catch sits deeper, it was picking the ball up and throwing
+ * it at the far wall. It only has to STEER the ball, not fling it: the ball is
+ * already falling, and the lip below still carries it down. */
 #ifndef CUE_LIP_GATHER
-#define CUE_LIP_GATHER 250.0f
+#define CUE_LIP_GATHER 90.0f
 #endif
 
 /* HOW FAR PAST THE EDGE OF THE SLATE a point is, at pocket p. Negative is still
@@ -933,10 +938,26 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             float o0 = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
 
             Vec3 pc2 = w->drop_c[pk];
-            b->vel.x += (pc2.x - b->pos.x) * CUE_LIP_GATHER * h;
-            b->vel.z += (pc2.z - b->pos.z) * CUE_LIP_GATHER * h;
-            {   float d = 1.0f - 3.0f * h;      /* a little drag, not a wall */
-                b->vel.x *= d; b->vel.z *= d; }
+            /* GATHERED, NOT SPRUNG.
+             *
+             * The pull toward the pocket's axis is a spring, and a spring with
+             * no damping in it does what springs do: the ball was thrown across
+             * the throat, came back, and crossed again all the way down. At
+             * CUE_LIP_GATHER = 90 the natural frequency is sqrt(90) = 9.5 rad/s
+             * and the drag here was 3/s, where not oscillating at all needs
+             * 2*sqrt(90) = 19/s — so it was a long way underdamped, and it
+             * showed: measured over 180 pots per table, a ball reversed
+             * direction inside a snooker middle 107 TIMES and took 582 ms to
+             * sink. Dropping the back wall's restitution helped that barely at
+             * all, because the wall was never what was throwing it about.
+             *
+             * A pocket does not play the ball back at you. It takes what the
+             * ball has and lets it fall, so the gather is damped just past
+             * critical: it steers to the middle and stays there. */
+            {   const float kk = CUE_LIP_GATHER;
+                const float cd = 2.2f * sqrtf(kk);       /* 1.1x critical */
+                b->vel.x += ((pc2.x - b->pos.x) * kk - b->vel.x * cd) * h;
+                b->vel.z += ((pc2.z - b->pos.z) * kk - b->vel.z * cd) * h; }
             b->vel.y -= w->g * h;
             b->pos.x += b->vel.x * h;
             b->pos.y += b->vel.y * h;
@@ -992,7 +1013,14 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                     b->pos.z = pc2.z + nz * rmax;
                     float vn = b->vel.x * nx + b->vel.z * nz;
                     if (vn > 0.0f) {              /* only what is heading out */
-                        const float e = 0.25f;    /* leather, not rubber */
+                        /* A pocket back is leather over a shaped casting and
+                         * gives back almost nothing — which is the point of it.
+                         * At 0.25 a ball caught off-centre was thrown across the
+                         * throat by the gather, bounced, and rattled visibly on
+                         * the way down: two contacts and 445 ms at a middle,
+                         * where the throat is narrower and the catch sits deeper.
+                         * A real one deadens the ball, it does not play it. */
+                        const float e = 0.06f;
                         b->vel.x -= (1.0f + e) * vn * nx;
                         b->vel.z -= (1.0f + e) * vn * nz;
                     }
