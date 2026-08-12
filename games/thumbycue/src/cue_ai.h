@@ -76,6 +76,13 @@ typedef struct {
     int   freed_sim;
     int   brk_decided;
     float next_pot;
+    /* WHERE THE PLANNER BELIEVES THE WHITE WILL STOP, from the sim it chose
+     * this shot on. The caller can compare it with where the ball actually
+     * finished: if the two disagree, every positional judgement behind the
+     * choice was made about a table that never happened, and no amount of
+     * scoring will fix that. Zero if the shot was not simulated. */
+    Vec3  cue_end_sim;
+    int   sim_verified;   /* 0 = this shot was never put through the engine */
 } CueAIShot;
 
 /* What the CALLER's full power is, in m/s — whatever it multiplies the

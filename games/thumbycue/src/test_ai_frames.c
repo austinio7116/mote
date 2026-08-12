@@ -89,6 +89,7 @@ typedef struct {
     /* BREAKBUILDING. A bonus that is always applied and never changes the shot
      * is doing nothing, so what matters is how often it DECIDES, and whether
      * the break it promised actually happened on the table. */
+    long pred_n, pred_tot, pred_unsim; double pred_sum; float pred_max;
     long brk_att;       /* pot attempts carrying a positive breakout bonus */
     long brk_decided;   /* ...where removing it would have picked another shot */
     long brk_sim_sum;   /* target balls the sim promised to free */
@@ -213,6 +214,7 @@ static int play_shot(const CuePersona *p) {
     }
 
     Vec3 dir = v3(cosf(s.aim), 0, sinf(s.aim));
+
     cue_phys_strike_elev(&W, &B[0], dir, s.power01 * MAX_STRIKE_SPEED,
                          s.tip_side, s.tip_vert, elev);
     W._acc = 0.0f;
@@ -231,6 +233,17 @@ static int play_shot(const CuePersona *p) {
         int moving = cue_phys_step(&W, B, N, 1.0f/60.0f, &ev);
         if (ev & CUE_EV_CUSHION) cushion_seen = 1;
         if (!moving) break;
+    }
+
+    /* WHAT THE PLANNER THOUGHT WOULD HAPPEN, against what did. Every positional
+     * judgement behind this shot was made about s.cue_end_sim; if the white did
+     * not go there, the judgement was about a table that never existed. */
+    if (!s.safe && s.valid) { ST.pred_tot++; if (!s.sim_verified) ST.pred_unsim++; }
+    if (!s.safe && s.valid && s.sim_verified && B[0].on) {
+        float dx = B[0].pos.x - s.cue_end_sim.x, dz = B[0].pos.z - s.cue_end_sim.z;
+        float e = sqrtf(dx*dx + dz*dz);
+        ST.pred_n++; ST.pred_sum += e;
+        if (e > ST.pred_max) ST.pred_max = e;
     }
 
     int potted[CUE_MAX_BALLS], np = 0, scratch = !B[0].on;
@@ -314,6 +327,14 @@ static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
     cue_table_build_world(&T, &W);
     N = cue_table_rack(&T, B);
     cue_rules_init(&R, &T, 1);
+    /* BALL IN HAND FOR THE BREAK, which is what the game gives the striker and
+     * what cue_ai_place is for. Without it the cue ball simply stays where the
+     * rack left it, the planner never picks a break spot, and a persona with no
+     * error then plays the IDENTICAL frame every time — every statistic here
+     * scaled exactly with the frame count and the seed changed nothing, which
+     * is a sample of one wearing a sample of twenty's clothes. The break
+     * harness sets this for the same reason. */
+    R.ball_in_hand = 1;
 
     int best = 0, prev_brk = 0, prev_turn = 0;
     long guard = 0;
@@ -507,6 +528,21 @@ int main(void) {
     printf("  50+ breaks     %ld\n", ST.fifty + ST.century);
     printf("  centuries      %ld\n", ST.century);
     printf("  HIGHEST BREAK  %ld\n", ST.best_break);
+    /* THE LEAVE THE PLANNER PROMISED, AGAINST THE ONE IT GOT. A regression
+     * guard, not a curiosity: the aim is corrected for throw AFTER a candidate
+     * is simulated, and while that correction went unreflected in the leave,
+     * every positional choice was made about a table that never happened — 91
+     * mm out on a shot with no cushion and 587 mm off three of them. It should
+     * read zero. Anything else means the shot being scored has drifted from the
+     * shot being played again. */
+    printf("\n  planner's predicted leave vs the real one: mean %.0f mm, worst %.0f mm,"
+           " over %ld pots\n",
+           ST.pred_n ? ST.pred_sum*1000.0/ST.pred_n : 0.0,
+           (double)ST.pred_max*1000.0, ST.pred_n);
+    if (ST.pred_unsim)
+        printf("    (%ld of %ld pot shots were never simulated)\n",
+               ST.pred_unsim, ST.pred_tot);
+
     printf("\n  per player:\n");
     for (int q = 0; q < 2; q++)
         printf("    P%d  best %3ld   mean visit %4.1f  over %ld scoring visits\n", q,
