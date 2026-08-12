@@ -146,7 +146,7 @@ static float K_ANGLE = 12.0f;   /* weight on leaving a WORKABLE angle, not a str
 #define CUE_BRK_SNK_SIDE 0.0f
 #endif
 
-static float K_IDEAL = 22.0f;   /* the cut angle (deg) a break-builder wants on the next ball */
+static float K_IDEAL = 15.0f;   /* the cut angle (deg) a break-builder wants on the next ball */
 static float K_OPTS  = 4.0f;    /* per extra ball that is also on from the same leave */
 /* OFF by default, pending the other half of the model. Measured over 180
  * frames this term alone more than doubled the fouls (1486 -> 3204) and cost
@@ -192,7 +192,8 @@ static int   K_BRKGATE = 1;     /* 1 = only split when a RED is what we next nee
  * the pack is disturbed — so firm variants have to be SIMULATED rather than
  * sorted out of the budget by an estimate that cannot see a pack. */
 static int   K_BRKNEED = 2;     /* open reds at or below which a split is critical */
-static int   K_BRKRES  = 6;     /* sim slots reserved for firm variants when it is */
+static int   K_BRKRES  = 10;     /* sim slots reserved for firm variants when it is */
+static float K_SPLIT   = 9.0f;  /* per ball-width the pack is actually MOVED */
 /* How many of the leading candidates get their aim corrected for throw and
  * their leave re-simulated BEFORE the choice is made. Three sims each. */
 static int   K_REFINE  = 5;
@@ -299,6 +300,7 @@ static void ai_knobs(void) {
     { const char *v = getenv("AI_BRKGATE"); if (v) K_BRKGATE = atoi(v); }
     { const char *v = getenv("AI_BRKNEED"); if (v) K_BRKNEED = atoi(v); }
     { const char *v = getenv("AI_BRKRES");  if (v) K_BRKRES  = atoi(v); }
+    { const char *v = getenv("AI_SPLIT");   if (v) K_SPLIT   = (float)atof(v); }
     { const char *v = getenv("AI_REFINE");  if (v) K_REFINE  = atoi(v); }
     { const char *v = getenv("AI_KICKERR"); if (v) K_KICK_ERR = (float)atof(v); }
     { const char *v = getenv("AI_PLY2");    if (v) K_PLY2     = (float)atof(v); }
@@ -837,13 +839,49 @@ static float breakout_bonus(const AiCtx *c, const Vec3 *pos, const int *on,
     int after  = open_targets(c, pos,  on);
     int freed  = after - before;
     if (out_freed) *out_freed = freed;
-    if (freed == 0) return 0.0f;
+
+    /* HOW FAR THE PACK ACTUALLY MOVED, which is the part that can be relied on.
+     *
+     * Scoring a break-out purely on the reds it frees looked right and was not,
+     * because a full-power shot into a cluster is chaotic: measured on the
+     * reproduction of the position the user hit twice, the winning variant
+     * freed FOUR reds, and re-simulated after the refine pass moved its aim by
+     * five hundredths of one degree it freed NONE. Same shot, same pack, a
+     * different bounce. So the count is a lottery ticket, and a planner that
+     * demands a specific count will keep drawing a losing ticket and conclude
+     * there is no break-out to play.
+     *
+     * What does survive that perturbation is coarser and is what a player
+     * actually commits to: the white reaches the pack and the pack moves. Where
+     * exactly the reds finish is not knowable at the table either — the shot is
+     * played because SOMETHING will come free, not because a particular red
+     * will. So the disturbance is scored as the reliable part and the freed
+     * count as the bonus on top, which means a shot that splits the cluster
+     * still earns its place when this sim happens to leave them awkward. */
+    float moved = 0.0f;
+    int nmoved = 0;
+    for (int i = 1; i < c->n; i++) {
+        if (!c->b[i].on || (on && !on[i])) continue;
+        if (c->b[i].id == CUE_ID_CUE) continue;
+        int mine = c->snooker ? (c->b[i].id < CUE_ID_YELLOW)
+                              : cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id);
+        if (!mine) continue;
+        float d = d2(pos[i], c->b[i].pos);
+        if (d < c->t->R * 0.75f) continue;      /* nudged, not split */
+        nmoved++;
+        moved += d / (c->t->R * 8.0f);          /* a ball-width or two is plenty */
+        if (moved > 3.0f) { moved = 3.0f; break; }
+    }
+    if (freed == 0 && nmoved == 0) return 0.0f;
+
     /* Worth most when there is least on: freeing the eleventh available red is
      * housekeeping, freeing the first is the difference between a break and a
      * safety exchange. Balls that get buried are penalised on the same scale,
      * because rolling up behind the pack is its own kind of mistake. */
     float scarcity = 1.0f / (1.0f + 0.35f * (float)(before < 0 ? 0 : before));
-    float v = (float)freed * K_BREAK * p->freeing * (0.35f + scarcity);
+    float v = (float)freed * K_BREAK * (0.35f + scarcity);
+    if (freed >= 0) v += K_SPLIT * moved;       /* never softens burying them */
+    v *= p->freeing;
     if (v >  45.0f) v =  45.0f;
     if (v < -45.0f) v = -45.0f;
     return v;
@@ -1011,6 +1049,7 @@ typedef struct {
     int   freed;       /* target balls the SIM says this shot frees (can be -ve) */
     float rawpot;      /* best RAW next-pot difficulty of the leave, no extras */
     int   pot_fails;   /* simmed perfectly and the target still did not drop */
+    Vec3  pend;        /* analytic predicted cue-ball end, before any sim */
     float elev;        /* forced cue elevation, radians */
     /* A SAFETY's own quality, from safety_score(): how little the opponent is
      * left with. It needs its own field because posScore means something else
@@ -1875,6 +1914,67 @@ static int best_safety_idx(void) {
     return bi;
 }
 
+/* THROW CORRECTION, APPLIED BEFORE THE SHOT IS SCORED.
+ *
+ * The ghost-ball aim assumes the object ball leaves along the line of centres
+ * and it does not — contact friction throws it, by up to 3.4 degrees plain and
+ * ten with side. This runs the shot, measures which way the object ACTUALLY
+ * left, and walks the aim onto the line that sends it where it was meant to go.
+ *
+ * It has to happen HERE, before the candidate is scored, not to the winner
+ * afterwards. Scoring an uncorrected aim and then correcting it means every
+ * candidate was judged on a leave nobody was going to play, and on a shot into
+ * a pack that is not a small error: measured, a break-out variant scored on its
+ * uncorrected aim freed four reds, and the same variant re-simulated after a
+ * correction of five HUNDREDTHS of a degree freed none. Chaotic outcomes cannot
+ * be scored on one aim and played on another.
+ *
+ * Returns 1 when *out already holds a simulation of the final aim, so the
+ * caller can score straight from it instead of paying for another. */
+static int throw_correct(const AiCtx *c, Cand *q, AiSim *out) {
+    if (q->pk < 0 || q->tidx <= 0 || q->tidx >= c->n) return 0;
+    Vec3 want = nrm2(sub2(pocket_aim_t(c, q->pk, c->b[q->tidx].pos),
+                          c->b[q->tidx].pos));
+    float gear = 2.0f * c->t->R / fmaxf(q->dg, 4.0f * c->t->R);
+    for (int pass = 0; pass < 2; pass++) {
+        AiSim sm;
+        ai_sim(c->w, c->t, c->b, c->n, 0, q->aim, q->power01,
+               q->tip_side, q->tip_vert, &sm);
+        if (!sm.have_hit_dir || sm.first_hit_idx != q->tidx) { *out = sm; return 1; }
+        float err = wrapPI(atan2f(sm.hit_dir.z, sm.hit_dir.x)
+                         - atan2f(want.z, want.x));
+        if (fabsf(err) < 0.0005f) { *out = sm; return 1; }
+        q->aim += clampf(err * gear, -0.03f, 0.03f);
+    }
+    return 0;                    /* aim moved last pass — caller must re-sim */
+}
+
+/* THE BONUS LIVES INSIDE posScore, so every re-score has to fold it in again.
+ *
+ * This is what made the break-out unreachable even once the shot existed. The
+ * sim pass scored a variant that frees four reds at +45 and it duly climbed to
+ * the top of the pool — and then the refine pass, whose job is to re-sim the
+ * favourites on a throw-corrected aim, rebuilt posScore from position_quality
+ * alone and wiped it. The one shot that answered the position was thrown out by
+ * the pass meant to sharpen it, every time, so the planner played the soft pot
+ * and the pack never moved. One definition, called from all three places that
+ * re-score a leave, so it cannot drift apart again. */
+static void fold_breakout(const AiCtx *c, Cand *q, const Vec3 *end_pos, const int *on) {
+    /* Opening the pack is only good if WE are the one staying at the table:
+     * rewarded on a pot, penalised on a safety (pk < 0), where spreading a
+     * frame's worth of reds hands the opponent the table. And only when a RED
+     * is what we next need — after a red the ball on is a colour, which is on
+     * its spot and does not care what the pack is doing. */
+    int want_red = 1;
+    if (K_BRKGATE && c->snooker) {
+        int bi = (q->tidx > 0 && q->tidx < c->n) ? q->tidx : P.ti;
+        want_red = (bi > 0 && bi < c->n && c->b[bi].id >= CUE_ID_YELLOW);
+    }
+    float br = want_red ? breakout_bonus(c, end_pos, on, c->p, &q->freed) : 0.0f;
+    q->brk = (q->pk < 0) ? -br : br;
+    q->posScore += q->brk;
+}
+
 static void plan_finalize(void) {
     AiCtx *c = &P.ctx;
     const CuePersona *p = c->p;
@@ -1983,32 +2083,29 @@ static void plan_finalize(void) {
     for (int i = 0; i < refine; i++) {
         Cand *q = &P.pool[i];
         if (!q->simmed || q->pk < 0 || q->tidx <= 0 || q->tidx >= c->n) continue;
-        Vec3 want = nrm2(sub2(pocket_aim_t(c, q->pk, c->b[q->tidx].pos),
-                              c->b[q->tidx].pos));
-        float gear = 2.0f * c->t->R / fmaxf(q->dg, 4.0f * c->t->R);
-        for (int pass = 0; pass < 2; pass++) {
-            AiSim sm;
-            ai_sim(c->w, c->t, c->b, c->n, 0, q->aim, q->power01,
-                   q->tip_side, q->tip_vert, &sm);
-            if (!sm.have_hit_dir || sm.first_hit_idx != q->tidx) break;
-            float err = wrapPI(atan2f(sm.hit_dir.z, sm.hit_dir.x)
-                             - atan2f(want.z, want.x));
-            if (fabsf(err) < 0.0005f) break;
-            q->aim += clampf(err * gear, -0.03f, 0.03f);
-        }
+        /* The aim was corrected before this candidate was scored, so this is a
+         * second look that normally changes nothing — it converges on the first
+         * pass and re-scores the identical simulation. It stays because the
+         * correction is capped per pass and a big throw can need the extra
+         * walk, and a candidate whose aim DOES still move has to be re-scored on
+         * where it really goes rather than kept at the score that won it a
+         * place here. */
         AiSim fin;
-        ai_sim(c->w, c->t, c->b, c->n, 0, q->aim, q->power01,
-               q->tip_side, q->tip_vert, &fin);
+        if (!throw_correct(c, q, &fin))
+            ai_sim(c->w, c->t, c->b, c->n, 0, q->aim, q->power01,
+                   q->tip_side, q->tip_vert, &fin);
         q->cue_end = fin.cue_end;
         q->scratch = fin.cue_potted;
         { int dropped = 0;
           for (int k = 0; k < fin.npotted; k++)
             if (fin.potted[k] == q->tidx) { dropped = 1; break; }
           q->pot_fails = !dropped; }
-        if (!fin.cue_potted)
+        if (!fin.cue_potted) {
             q->posScore = position_quality(c, fin.cue_end, q->tidx, fin.end_pos,
                                            &q->rawpot);
-        else q->posScore = 0.0f;
+            fold_breakout(c, q, fin.end_pos, fin.on);
+        }
+        else { q->posScore = 0.0f; q->brk = 0.0f; q->freed = 0; }
     }
     /* re-rank the corrected few on the same key */
     for (int i = 0; i < refine; i++)
@@ -2136,26 +2233,12 @@ static void plan_finalize(void) {
      * 31%. On a long pot 2R/dg is a very small number, which is both why the
      * uncorrected throw matters so much and why the correction is so touchy —
      * hence the tight clamp as well. */
-    {
-        Vec3 want = nrm2(sub2(pocket_aim_t(c, best.pk, c->b[best.tidx].pos),
-                              c->b[best.tidx].pos));
-        float gear = 2.0f * c->t->R / fmaxf(best.dg, 4.0f * c->t->R);
-        for (int pass = 0; pass < 2; pass++) {
-            AiSim sim;
-            ai_sim(c->w, c->t, c->b, c->n, 0, best.aim, best.power01,
-                   best.tip_side, best.tip_vert, &sim);
-            if (!sim.have_hit_dir || sim.first_hit_idx != best.tidx) break;
-            float err = wrapPI(atan2f(sim.hit_dir.z, sim.hit_dir.x)
-                             - atan2f(want.z, want.x));
-            if (fabsf(err) < 0.0005f) break;              /* 0.03 degrees */
-            /* Clamped: a wild reading (a double kiss, a ball nudged on the way)
-             * must not send the aim somewhere the planner never evaluated. */
-            float d = clampf(err * gear, -0.03f, 0.03f);
-            best.aim += d;
-        }
-    }
+    /* The winner's aim was corrected before it was scored — throw_correct runs
+     * in the sim pass and again in the refine — so this is a convergence check,
+     * not a second correction. It used to BE the correction, applied here to
+     * the shot that had already won on a different line. */
+    { AiSim chk; throw_correct(c, &best, &chk); }
 
-    best.aim += foul_avoid_angle(c, c->b[0].pos, best.aim);
 
     /* ---- AND THE LEAVE BELONGS TO THE AIM WE ARE ACTUALLY GOING TO PLAY ----
      *
@@ -2177,9 +2260,11 @@ static void plan_finalize(void) {
         ai_sim(c->w, c->t, c->b, c->n, 0, best.aim, best.power01,
                best.tip_side, best.tip_vert, &fin);
         best.cue_end = fin.cue_end;
-        if (!fin.cue_potted)
+        if (!fin.cue_potted) {
             best.posScore = position_quality(c, fin.cue_end, best.tidx,
                                              fin.end_pos, &best.rawpot);
+            fold_breakout(c, &best, fin.end_pos, fin.on);
+        }
     }
 
     float aimErr = (rnd(P.rng) - 0.5f) * 2.0f * p->line_acc * RAD;
@@ -2427,22 +2512,33 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
 
         if (c->snooker) {
             /* The pack is behind the pink; the cue ball goes up ITS OWN SIDE,
-             * clips the outside of a back red and comes back. Which red is a
-             * choice the search makes, not a rule: the two furthest on the
-             * cue ball's side both get tried. */
+             * clips the OUTSIDE red of the pack and comes back to baulk. Which
+             * of the two outermost it takes is a choice the search makes.
+             *
+             * OUTERMOST, not furthest away. This used to pick the two reds at
+             * the greatest DISTANCE from the cue ball, which sounds like the
+             * same thing and is not: the cue ball breaks off from wide in the D
+             * at z = -0.117, which is FURTHER out than the corner red at
+             * z = -0.105, so the corner red is laterally nearer than its
+             * neighbour and came second. Measured on the rack, it lost by one
+             * millimetre — 2.1761 m against 2.1771 m — and the AI spent every
+             * break-off clipping the second red in from the corner, which is
+             * not the shot anybody plays. The outside red of the pack is the
+             * one with the largest lateral offset on the cue ball's side, and
+             * that is what this asks for now. */
             float side_sign = (cue.z >= 0.0f) ? 1.0f : -1.0f;
-            int t1 = -1, t2 = -1; float d1 = -1.0f, d2v = -1.0f;
+            int t1 = -1, t2 = -1; float z1 = -1e9f, z2 = -1e9f;
             for (int i = 1; i < n; i++) {
                 if (!balls[i].on || balls[i].id >= CUE_ID_YELLOW) continue;
-                if (balls[i].pos.z * side_sign <= 0.0f) continue;
-                float dd = d2(cue, balls[i].pos);
-                if (dd > d1) { d2v = d1; t2 = t1; d1 = dd; t1 = i; }
-                else if (dd > d2v) { d2v = dd; t2 = i; }
+                float zz = balls[i].pos.z * side_sign;
+                if (zz <= 0.0f) continue;
+                if (zz > z1) { z2 = z1; t2 = t1; z1 = zz; t1 = i; }
+                else if (zz > z2) { z2 = zz; t2 = i; }
             }
             if (t1 < 0) for (int i = 1; i < n; i++)
                 if (balls[i].on && balls[i].id < CUE_ID_YELLOW) {
                     float dd = d2(cue, balls[i].pos);
-                    if (dd > d1) { d1 = dd; t1 = i; }
+                    if (dd > z1) { z1 = dd; t1 = i; }
                 }
             /* Clips are signed by the cue ball's side so "outside" means
              * outside whichever half of the table it is on. */
@@ -2453,10 +2549,17 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                                1.45f * side_sign, 1.70f * side_sign };
             float pows[2]  = { 0.42f, 0.50f };
             float sides[3] = { -0.30f, 0.0f, 0.30f };
+            /* GENERATE THE WHOLE GRID, then let the shuffle below take the
+             * sample. The generation cap used to be the SIM budget, so the grid
+             * was truncated where it happened to be written rather than sampled:
+             * the first target's 24 variants overran a cap of 16, which meant
+             * the thinnest clip was never generated at all and the second target
+             * — the other outside red — never got one candidate in its life. */
+            int gcap = (int)(sizeof cand / sizeof cand[0]);
             if (t1 >= 0) ncand = break_cands(c, balls, cue, t1, clips, 4, pows, 2,
-                                             sides, 3, 0.15f, cand, cap, ncand);
-            if (t2 >= 0) ncand = break_cands(c, balls, cue, t2, clips, 4, pows, 2,
-                                             sides, 3, 0.15f, cand, cap, ncand);
+                                             sides, 3, 0.15f, cand, gcap, ncand);
+            if (t2 >= 0) ncand = break_cands(c, balls, cue, t2, clips, 2, pows, 2,
+                                             sides, 3, 0.15f, cand, gcap, ncand);
         } else {
             /* Pool: the top ball of the rack, near enough full, hard. */
             int apex = -1; float apexd = 1e30f;
@@ -2531,6 +2634,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             int tries = (int)((float)ncand * (0.18f + 0.82f * p->position) + 0.5f);
             if (tries < 3) tries = 3;
             if (tries > ncand) tries = ncand;
+            if (tries > cap) tries = cap;      /* the sim budget lives here now */
             ncand = tries;
 
             for (int k = 0; k < ncand; k++) P.brk[k] = cand[k];
@@ -2751,14 +2855,32 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             /* tight (snooker / rounded) pockets reject pace — a ball hit too hard
              * rattles the jaws and stays out, so heavier pace lowers pot-chance. */
             if (c->t->pocket_round && eff > 22.0f) potScore -= (eff - 22.0f) * 0.7f;
-            if (potScore < bestPot - 15.0f) continue;
+            /* THE CULL THAT MADE THE BREAK-OUT IMPOSSIBLE.
+             *
+             * Every variant more than 15 points below the best pot is dropped
+             * here, before it exists — and a variant that carries the white
+             * into a cluster is ALWAYS well below, because potScore charges for
+             * pace and, on a round pocket, charges again. Measured: nothing
+             * above eff~30 survived on a snooker table. So the reserve below,
+             * which set aside slots for break-out variants, was choosing from a
+             * pool that contained none, and the bonus for freeing balls had
+             * nothing to reward.
+             *
+             * The test to survive the cull is not pace. It is whether the cue
+             * ball's own predicted path finishes among the balls we need — a
+             * shot that rolls gently in and nudges the pack open is a better
+             * break-out than a smash that scatters them to the cushions, and
+             * the whole grid of powers gets to offer one. */
+            Vec3 pend = predict_end(c,ghost,target,pk,cut,eff,spinY);
+            if (potScore < bestPot - 15.0f && !s_need_brk) continue;
             Cand v; memset(&v,0,sizeof v);
             v.tidx = ti; v.pk = pk; v.ghost = ghost; v.aim = aim; v.cut = cut;
             v.dg = dg; v.dpk = dpk; v.js_power = eff; v.spinY = spinY;
             v.power01 = power01_of(eff);
             v.tip_vert = clampf(-spinY*0.5f, -0.45f, 0.45f);
             v.potScore = potScore;
-            v.posScore = position_quality(c, predict_end(c,ghost,target,pk,cut,eff,spinY), ti, NULL, NULL);
+            v.pend = pend;
+            v.posScore = position_quality(c, pend, ti, NULL, NULL);
             for (int di = 0; di < NSIDE; di++) {
                 Cand vs = v;
                 vs.tip_side = SIDE_LEVELS[di];
@@ -2807,23 +2929,41 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * same pot are simulated on merit. Only then — and it is a narrow window:
      * a split is critical precisely when the break ends without one. */
     if (s_need_brk && K_BRKRES > 0 && npool > 0) {
-        {
-            int cap0 = 10 + (int)(p->position * 22.0f + 0.5f);
-            if (cap0 > SIM_CAP) cap0 = SIM_CAP;
-            if (cap0 > npool) cap0 = npool;
-            int reserve = K_BRKRES < cap0 / 2 ? K_BRKRES : cap0 / 2;
-            float bestpot = P.pool[0].potScore;
-            for (int r = 0; r < reserve; r++) {
-                int slot = cap0 - 1 - r, pick = -1; float bestpow = -1.0f;
-                for (int j = cap0; j < npool; j++) {
-                    /* still a pot worth playing — a split that misses the ball
-                     * on is a foul, not a breakout */
-                    if (P.pool[j].potScore < bestpot - 20.0f) continue;
-                    if (P.pool[j].power01 > bestpow) { bestpow = P.pool[j].power01; pick = j; }
-                }
-                if (pick < 0 || bestpow < 0.30f) break;
-                Cand tmp = P.pool[slot]; P.pool[slot] = P.pool[pick]; P.pool[pick] = tmp;
+        int cap0 = 10 + (int)(p->position * 22.0f + 0.5f);
+        if (cap0 > SIM_CAP) cap0 = SIM_CAP;
+        if (cap0 > npool) cap0 = npool;
+        int reserve = K_BRKRES < cap0 / 2 ? K_BRKRES : cap0 / 2;
+        /* SAMPLE THE GRID AND LET THE ENGINE ANSWER.
+         *
+         * There is no cheap test for "this shot reaches the pack". The analytic
+         * path predict_end cannot see other balls at all — measured on the
+         * position this was built for, its closest predicted cue path passed
+         * 2.07 m from a cluster that the real engine reaches and splits. So any
+         * proxy picked here is guesswork; the only thing that knows is the sim.
+         *
+         * What the reserve owes the search, then, is COVERAGE. The pool's own
+         * order fills the whole budget with soft variants of one shot, so the
+         * slots are spent on a spread — gentle through firm, screw through
+         * follow — and the engine says which of them arrives among the balls.
+         * Pace is not the axis: a slow ball that trickles in and separates two
+         * reds is a better break-out than a smash that scatters them onto
+         * cushions, so the lattice starts soft and the bonus judges outcomes. */
+        static const float BRK_POW[]  = {0.35f,0.35f,0.55f,0.55f,0.75f,0.75f,1.00f,1.00f,1.00f,0.55f};
+        static const float BRK_SPIN[] = {0.9f,-0.9f, 0.9f,-0.9f, 0.5f,-0.5f, 0.9f,-0.9f, 0.0f, 0.0f};
+        int nl = (int)(sizeof BRK_POW / sizeof BRK_POW[0]);
+        int taken = 0;
+        for (int li = 0; li < nl && taken < reserve; li++) {
+            int pick = -1; float bestd = 1e9f;
+            for (int j = cap0 - taken; j < npool; j++) {
+                if (fabsf(P.pool[j].tip_side) > 0.001f) continue;   /* side only throws it */
+                float dd = fabsf(P.pool[j].power01 - BRK_POW[li]) * 2.0f
+                         + fabsf(P.pool[j].spinY   - BRK_SPIN[li]);
+                if (dd < bestd) { bestd = dd; pick = j; }
             }
+            if (pick < 0) break;
+            int slot = cap0 - 1 - taken;
+            Cand tmp = P.pool[slot]; P.pool[slot] = P.pool[pick]; P.pool[pick] = tmp;
+            taken++;
         }
     }
 
@@ -2908,7 +3048,18 @@ int cue_ai_plan_tick(void) {
     for (int s = 0; s < SIMS_PER_TICK && P.sim_i < P.sim_cap; s++) {
         Cand *v = &P.pool[P.sim_i];
         AiSim sim;
-        ai_sim(c->w, c->t, c->b, c->n, 0, v->aim, v->power01, v->tip_side, v->tip_vert, &sim);
+        /* STEER OFF A REPEATED FOUL FIRST, so the shot is scored as it will be
+         * played. This ran on the WINNER instead, after every candidate had
+         * been simulated — and it turns the aim by up to 0.10 rad, which is
+         * 5.7 degrees. So the leave was chosen on one line and the ball sent
+         * down another, and worse, bad_first — the check that decides whether a
+         * candidate fouls at all — had already been made against the aim the
+         * avoidance was about to move. The one correction meant to stop a
+         * repeated foul was applied after the foul test. */
+        v->aim += foul_avoid_angle(c, c->b[0].pos, v->aim);
+        if (!throw_correct(c, v, &sim))
+            ai_sim(c->w, c->t, c->b, c->n, 0, v->aim, v->power01,
+                   v->tip_side, v->tip_vert, &sim);
         v->simmed = 1; v->cue_end = sim.cue_end; v->elev = sim.elev;
         v->scratch = sim.cue_potted;
         /* The sim's job is NOT to decide whether the pot drops — that's the
@@ -3015,15 +3166,7 @@ int cue_ai_plan_tick(void) {
              *
              * Pool has no such alternation — the pack is your own group and you
              * want it free on every shot — so the gate is snooker's only. */
-            int want_red = 1;
-            if (K_BRKGATE && c->snooker) {
-                int bi = (v->tidx > 0 && v->tidx < c->n) ? v->tidx : P.ti;
-                want_red = (bi > 0 && bi < c->n && c->b[bi].id >= CUE_ID_YELLOW);
-            }
-            float br = want_red ? breakout_bonus(c, sim.end_pos, sim.on, c->p, &v->freed)
-                                : 0.0f;
-            v->brk = (v->pk < 0) ? -br : br;
-            v->posScore += v->brk;
+            fold_breakout(c, v, sim.end_pos, sim.on);
 
             /* WHERE THE WHITE FINISHED, which the breakout score cannot see.
              * Charged on a pot only: a safety that leaves the cue ball tight
