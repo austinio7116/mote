@@ -120,6 +120,12 @@ typedef struct {
     long leave[5];                   /* same buckets, after a pot */
     long leave_safety;               /* pot, then nothing worth attacking */
     long end_miss, end_foul, end_safety, end_nolegal, end_framedone;
+    /* Why the visit that just ended, ended — and the state of the reds when it
+     * did, so "it ran out of shots" can be told from "it missed one". */
+    int  last_end, last_open, last_reds; float last_bestpot;
+    /* per frame: the best break and why THAT one stopped */
+    int  fr_best[64], fr_why[64], fr_open[64], fr_reds[64]; float fr_bestpot[64];
+    int  fr_n, tracking_best;
 } Stats;
 static Stats ST;
 
@@ -280,10 +286,14 @@ static int play_shot(const CuePersona *p) {
 
     /* How did this visit end, and if it did not, what were we left with? */
     if (R.turn != turn_before || R.frame_over) {
-        if (R.frame_over)  ST.end_framedone++;
-        else if (fouled)   ST.end_foul++;
-        else if (s.safe)   ST.end_safety++;
-        else               ST.end_miss++;
+        if (R.frame_over)  { ST.end_framedone++; ST.last_end = 3; }
+        else if (fouled)   { ST.end_foul++;      ST.last_end = 1; }
+        else if (s.safe)   { ST.end_safety++;    ST.last_end = 2;
+                             ST.last_bestpot = s.best_pot; }
+        else               { ST.end_miss++;      ST.last_end = 0; }
+        /* what the table looked like when the visit died */
+        ST.last_open = cue_ai_open_targets(&W, &T, &R, B, N);
+        ST.last_reds = R.reds_left;
     } else if (scored) {
         /* Still at the table after a pot: plan the next shot WITHOUT consuming
          * the rng, so measuring the leave cannot change the game being measured.
@@ -340,9 +350,16 @@ static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
     long guard = 0;
     while (!R.frame_over && guard++ < 500) {
         if (!play_shot(R.turn ? p1 : p0)) break;
-        if (R.brk > best) best = R.brk;
+        if (R.brk > best) { best = R.brk; ST.tracking_best = 1; }
         if (R.brk > 0) prev_turn = R.turn;
         if (R.brk == 0 && prev_brk > 0) {
+            if (ST.tracking_best && prev_brk == best && ST.fr_n < 64) {
+                ST.fr_why[ST.fr_n]     = ST.last_end;
+                ST.fr_open[ST.fr_n]    = ST.last_open;
+                ST.fr_reds[ST.fr_n]    = ST.last_reds;
+                ST.fr_bestpot[ST.fr_n] = ST.last_bestpot;
+                ST.tracking_best = 0;
+            }
             /* a visit ended: bucket what it made */
             int b = prev_brk / 10; if (b > 15) b = 15;
             ST.brk_hist[b]++;
@@ -355,6 +372,17 @@ static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
             else if (prev_brk >= 30) ST.thirty++;
         }
         prev_brk = R.brk;
+    }
+    if (ST.fr_n < 64) {
+        if (ST.tracking_best) {          /* the best break was the last one */
+            ST.fr_why[ST.fr_n]     = ST.last_end;
+            ST.fr_open[ST.fr_n]    = ST.last_open;
+            ST.fr_reds[ST.fr_n]    = ST.last_reds;
+            ST.fr_bestpot[ST.fr_n] = ST.last_bestpot;
+        }
+        ST.fr_best[ST.fr_n] = best;
+        ST.fr_n++;
+        ST.tracking_best = 0;
     }
     if (prev_brk > 0) {
         /* THE LAST VISIT OF THE FRAME, which is usually the best one — it is
@@ -542,6 +570,21 @@ int main(void) {
     if (ST.pred_unsim)
         printf("    (%ld of %ld pot shots were never simulated)\n",
                ST.pred_unsim, ST.pred_tot);
+
+    printf("\n  the longest break of each frame, and why it ended:\n");
+    { const char *W2[4] = {"missed a pot", "FOULED", "played safe", "frame over"};
+      long tally[4] = {0,0,0,0}, noshot = 0;
+      for (int i = 0; i < ST.fr_n; i++) {
+          int w = ST.fr_why[i]; if (w < 0 || w > 3) w = 0;
+          tally[w]++;
+          if (w == 2 && ST.fr_bestpot[i] < 0.0f) noshot++;
+          printf("    frame %2d  best %3d  %-13s  reds left %2d, of which reachable %d%s\n",
+                 i+1, ST.fr_best[i], W2[w], ST.fr_reds[i], ST.fr_open[i],
+                 (w == 2 && ST.fr_bestpot[i] < 0.0f) ? "   <- nothing was on" : "");
+      }
+      printf("\n    of %d frames: %ld ended on a miss, %ld on a foul, %ld on a safety"
+             " (%ld of those with NOTHING on), %ld on the frame finishing\n",
+             ST.fr_n, tally[0], tally[1], tally[2], noshot, tally[3]); }
 
     printf("\n  per player:\n");
     for (int q = 0; q < 2; q++)

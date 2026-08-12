@@ -157,7 +157,13 @@ static float K_OPTS  = 4.0f;    /* per extra ball that is also on from the same 
  * attempt against 1.79 promised, deciding the shot 43% of the time it applies
  * — so this waits for a cue-ball-in-cluster penalty rather than being deleted.
  * Set AI_BREAK to enable it for measurement. */
-static float K_BREAK = 0.0f;    /* per red freed by disturbing a pack */
+/* ON, but only in the one position it is for — see P.need_brk. It was parked
+ * because, applied to every shot, it doubled the fouls and cost five points of
+ * pot success: it scores the pack OPENING and not where the cue ball finished,
+ * so the planner would bury the white in the reds for the balls it freed. That
+ * is a real objection to breaking out when you did not have to. It is not an
+ * objection to breaking out when the alternative is having no shot at all. */
+static float K_BREAK = 18.0f;   /* per red freed by disturbing a pack */
 /* THE OTHER HALF OF THE MODEL, which is why the term above was parked.
  *
  * Opening the pack was scored on the pack alone and not on where the WHITE
@@ -190,6 +196,12 @@ static int   K_BRKRES  = 6;     /* sim slots reserved for firm variants when it 
 /* How many of the leading candidates get their aim corrected for throw and
  * their leave re-simulated BEFORE the choice is made. Three sims each. */
 static int   K_REFINE  = 5;
+/* JUDGING AN ANGLE OFF A CUSHION IS NOT JUDGING A BALL. A direct shot is aimed
+ * at a contact point you can see; a kick is aimed at a spot on a rail, off
+ * which the ball has to leave at the angle you guessed, and whatever you got
+ * wrong at the rail is multiplied by everything after it. The persona's line
+ * accuracy is a POTTING number, so an escape gets it scaled up. */
+static float K_KICK_ERR = 2.4f;
 static float K_CROWD  = 4.0f;   /* how close counts as crowding, in ball radii */
 /* Which number picks the safety, once a safety is being played. 0 = posScore
  * (position_quality); 1 = safeq (safety_score, re-scored on the sim).
@@ -273,6 +285,7 @@ static void ai_knobs(void) {
     { const char *v = getenv("AI_BRKNEED"); if (v) K_BRKNEED = atoi(v); }
     { const char *v = getenv("AI_BRKRES");  if (v) K_BRKRES  = atoi(v); }
     { const char *v = getenv("AI_REFINE");  if (v) K_REFINE  = atoi(v); }
+    { const char *v = getenv("AI_KICKERR"); if (v) K_KICK_ERR = (float)atof(v); }
 }
 
 void cue_ai_set_max_speed(float mps) {
@@ -792,11 +805,17 @@ static int cue_crowd(const AiCtx *c, Vec3 cue_end, const Vec3 *pos, const int *o
     return cnt;
 }
 
+/* THE ONE CONDITION A BREAK-OUT IS FOR: this shot leaves us needing a RED and
+ * there is not a pottable one on the table. Set once per plan, read here and by
+ * the sim-budget reserve. */
+static int s_need_brk;
+
 /* Both counts are taken over the SURVIVORS of the shot, so potting a red does
  * not read as having buried one. */
 static float breakout_bonus(const AiCtx *c, const Vec3 *pos, const int *on,
                             const CuePersona *p, int *out_freed) {
     if (out_freed) *out_freed = 0;
+    if (!s_need_brk) return 0.0f;          /* the only position it is for */
     if (K_BREAK <= 0.0f || p->freeing <= 0.0f) return 0.0f;
     int before = open_targets(c, NULL, on);
     int after  = open_targets(c, pos,  on);
@@ -1627,10 +1646,14 @@ static int first_hit_along(const AiCtx *c, Vec3 start, Vec3 dir, float maxd) {
  * when the on-ball(s) are hooked (no direct shot or safety). Uses the mirror
  * trick + two-segment ray casts — purely analytic, no sims. Returns 0 if no
  * legal kick is found. */
-static int find_kick(const AiCtx *c, Cand *out) {
+#define KICK_MAX 24
+static int find_kick(const AiCtx *c, uint32_t *rng, Cand *out) {
     Vec3 cue = c->b[0].pos;
     float hl = c->t->half_len - c->t->R, hw = c->t->half_wid - c->t->R;
-    float best = -1e9f; int found = 0; Cand bc; memset(&bc,0,sizeof bc);
+    int found = 0; Cand bc; memset(&bc,0,sizeof bc);
+    Cand  kick[KICK_MAX]; float kscore[KICK_MAX]; int nk = 0;
+    memset(kick, 0, sizeof kick);
+    int skip = s_nfoul;                  /* one fouled escape, try the next one */
     for (int i = 1; i < c->n; i++) {
         if (!c->b[i].on || !cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
         Vec3 tp = c->b[i].pos;
@@ -1658,14 +1681,81 @@ static int find_kick(const AiCtx *c, Cand *out) {
             if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[fb].id)) continue;  /* would foul */
             float dHT = d2(H, c->b[fb].pos);
             float score = (fb == i ? 25.0f : 0.0f) - d1 - dHT;   /* prefer the on-ball, short path */
-            if (score > best) {
-                best = score; found = 1; memset(&bc,0,sizeof bc);
-                bc.aim = atan2f(aimd.z, aimd.x);
-                bc.power01 = power01_of(calc_power(c, d1 + dHT, 0.0f, 0.0f));
-                if (bc.power01 < 0.4f) bc.power01 = 0.4f;     /* enough to bounce + reach */
-                if (bc.power01 > 0.85f) bc.power01 = 0.85f;
+            if (nk < KICK_MAX) {
+                kick[nk].aim = atan2f(aimd.z, aimd.x);
+                kick[nk].power01 = power01_of(calc_power(c, d1 + dHT, 0.0f, 0.0f));
+                if (kick[nk].power01 < 0.4f) kick[nk].power01 = 0.4f;  /* bounce + reach */
+                if (kick[nk].power01 > 0.85f) kick[nk].power01 = 0.85f;
+                kscore[nk] = score; nk++;
             }
         }
+    }
+
+    /* ---- AND NOW ASK THE ENGINE, because the geometry above is a MIRROR ----
+     *
+     * Everything to this point reflects the target across the rail and walks a
+     * straight line to it. That was a fair model of a cushion once. It is not
+     * one now: the rail is an impact integrated over its own impulse, and the
+     * rebound turns with the spin the ball arrives carrying, so the mirror line
+     * and the ball's real path part company — by more than a ball, at the pace a
+     * kick needs.
+     *
+     * So the shot went out unverified, and it was the only shot in the planner
+     * that did. Over 120 two-red endgames it fouled 28 times: 6 m/s into the
+     * blue, or into nothing at all, having been promised a red. Simulated in
+     * best-first order and taken as soon as one of them really does make legal
+     * contact. */
+    /* HOW MANY OF THEM THIS PLAYER EVEN LOOKS AT.
+     *
+     * Simulating them best-first and taking the first that works hands every
+     * persona the same escape and leaves only the aim wobble to tell them
+     * apart — a rookie got out of 92% of snookers, which is a break-builder's
+     * figure. Finding the shot IS the skill here: a good player sees the
+     * three-cushion route round the back of the pack, and a poor one sees the
+     * obvious one off the side rail and nothing else.
+     *
+     * So the pool is shuffled and each persona gets a slice of it, the same
+     * 0.18 + 0.82 x position the break search uses. A weak player genuinely
+     * never considers most of the escapes, and misses the good ones by not
+     * having looked rather than by aiming badly. */
+    {
+        for (int i = nk - 1; i > 0; i--) {
+            int j = (int)(rnd(rng) * (float)(i + 1));
+            if (j < 0) j = 0; if (j > i) j = i;
+            Cand tc = kick[i]; kick[i] = kick[j]; kick[j] = tc;
+            float ts = kscore[i]; kscore[i] = kscore[j]; kscore[j] = ts;
+        }
+        int tries = (int)((float)nk * (0.18f + 0.82f * c->p->position) + 0.5f);
+        if (tries < 1) tries = 1;
+        for (int k = tries; k < nk; k++) kscore[k] = -1e9f;   /* never looked at */
+    }
+
+    for (int pass = 0; pass < nk; pass++) {
+        int bi = -1;
+        for (int k = 0; k < nk; k++)
+            if (kscore[k] > -1e8f && (bi < 0 || kscore[k] > kscore[bi])) bi = k;
+        if (bi < 0) break;
+        kscore[bi] = -1e9f;                       /* taken */
+        AiSim sm;
+        ai_sim(c->w, c->t, c->b, c->n, 0, kick[bi].aim, kick[bi].power01,
+               0.0f, 0.0f, &sm);
+        if (sm.cue_potted) continue;
+        if (sm.first_hit_idx <= 0) continue;
+        if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[sm.first_hit_idx].id)) continue;
+        bc = kick[bi];
+        bc.simmed = 1; bc.cue_end = sm.cue_end; bc.bad_first = 0;
+        bc.tidx = sm.first_hit_idx;      /* the ball it really reaches */
+        /* AND NOT THE ONE THAT JUST FAILED. The anti-repeat memory could never
+         * see a kick: it is consulted in plan_finalize and a kick returns
+         * straight out of plan_start, it keys on a target index a kick never
+         * set, and the game recorded the foul against target 0 because the kick
+         * exit never filled that in either. So the CPU replayed the identical
+         * escape after every foul — put back, same position, same shot, for as
+         * long as anyone watched. Skip as many verified escapes as there have
+         * been fouls, so being put back finds a different one. */
+        if (skip > 0) { skip--; continue; }
+        found = 1;
+        break;
     }
     if (found) { *out = bc; return 1; }
     return 0;
@@ -1750,7 +1840,33 @@ static void plan_finalize(void) {
     if (P.safety_only) {
         CueAIShot o; memset(&o, 0, sizeof o);
         int bi = best_safety_idx();
-        if (bi < 0) {                      /* every one scratched or fouled */
+        if (bi < 0) {
+            /* EVERY SAFETY IN THE POOL FOULS, and this used to simply play one
+             * of them — chosen by posScore, which for a safety is the wrong
+             * question (it scores what WE could pot from the leave, not what the
+             * opponent is left with) and says nothing at all about whether the
+             * shot reaches a legal ball. In a tied-up endgame the whole sampled
+             * pool can be illegal, and the result was the CPU firing 6 m/s into
+             * the blue and conceding four away. Measured over 120 two-red
+             * endgames: 28 of them fouled, 23%.
+             *
+             * A ball that cannot be reached cleanly along a straight line can
+             * usually be reached off a cushion, and find_kick is exactly that
+             * search — it was only ever asked when the white was snookered
+             * outright, though being unable to get there cleanly is the same
+             * problem whether the line is blocked or merely bad. Ask it here
+             * too, and only settle for a foul when the cushions cannot help
+             * either. */
+            Cand kc;
+            if (find_kick(c, P.rng, &kc)) {
+                o.aim = kc.aim; o.power01 = kc.power01;
+                o.safe = 1; o.valid = 1; o.best_pot = -1.0f;
+                o.target_id = (kc.tidx > 0 && kc.tidx < c->n) ? c->b[kc.tidx].id : -1;
+                o.sim_verified = kc.simmed; o.cue_end_sim = kc.cue_end;
+                o.target_id = -1;
+                P.result = o; P.phase = PH_DONE;
+                return;
+            }
             for (int k = 0; k < P.sim_cap; k++)
                 if (P.pool[k].simmed && (bi < 0 || P.pool[k].posScore > P.pool[bi].posScore)) bi = k;
         }
@@ -1761,6 +1877,7 @@ static void plan_finalize(void) {
               ai_shot_elev(c->t, c->b, c->n, c->b[0].pos, P.pool[bi].aim, &tv);
               o.tip_vert = tv; }
             o.safe = 1; o.valid = 1;
+            o.cue_end_sim = P.pool[bi].cue_end; o.sim_verified = P.pool[bi].simmed;
             o.best_pot = -1.0f;            /* no pot existed to turn down */
             o.score = P.pool[bi].safeq;    /* the SAFETY's own quality */
             o.target_id = (P.pool[bi].tidx > 0 && P.pool[bi].tidx < c->n)
@@ -1934,13 +2051,13 @@ static void plan_finalize(void) {
                   ai_shot_elev(c->t, c->b, c->n, c->b[0].pos, sc->aim, &tv);
                   out.tip_vert = tv; }
                 out.safe = 1; out.valid = 1;
+                out.cue_end_sim = sc->cue_end; out.sim_verified = sc->simmed;
                 out.best_pot = best.potScore;
     out.breakout = best.brk; out.freed_sim = best.freed;
     out.cue_end_sim = best.simmed ? best.cue_end : v3(0,0,0);
     out.sim_verified = best.simmed;
     out.next_pot = best.rawpot; out.brk_decided = brk_flip;   /* what it turned down */
-                out.target_id = (sc->tidx > 0 && sc->tidx < c->n) ? c->b[sc->tidx].id : -1;
-                P.result = out; return;
+                out.target_id = (sc->tidx > 0 && sc->tidx < c->n) ? c->b[sc->tidx].id : -1; P.result = out; return;
             }
         }
     }
@@ -2036,8 +2153,7 @@ static void plan_finalize(void) {
     out.cue_end_sim = best.simmed ? best.cue_end : v3(0,0,0);
     out.sim_verified = best.simmed;
     out.next_pot = best.rawpot; out.brk_decided = brk_flip;
-    out.target_id = (best.tidx > 0 && best.tidx < c->n) ? c->b[best.tidx].id : -1;
-    P.result = out;
+    out.target_id = (best.tidx > 0 && best.tidx < c->n) ? c->b[best.tidx].id : -1; P.result = out;
 }
 
 
@@ -2237,8 +2353,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             /* enough to reach it and no more — a firm shot into a thin contact
              * is how the third miss happens */
             out.power01 = clampf(0.22f + bd * 0.10f, 0.22f, 0.55f);
-            out.safe = 1; out.valid = 1; out.target_id = balls[bi].id;
-            P.result = out; P.phase = PH_DONE; return;
+            out.safe = 1; out.valid = 1; out.target_id = balls[bi].id; P.result = out; P.phase = PH_DONE; return;
         }
     }
 
@@ -2441,8 +2556,16 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             return;
         }
         /* hooked (no direct contact at all): escape off a cushion */
-        if (find_kick(c, &sc)) {
+        if (find_kick(c, rng, &sc)) {
             out.aim = sc.aim; out.power01 = sc.power01; out.safe = 1; out.valid = 1;
+            out.target_id = (sc.tidx > 0 && sc.tidx < n) ? balls[sc.tidx].id : -1;
+            out.sim_verified = sc.simmed; out.cue_end_sim = sc.cue_end;
+            /* THE PLAYER'S OWN ACCURACY, exactly as a pot gets it. An escape
+             * is a shot somebody plays, and this path handed it over untouched
+             * — so a rookie got out of a snooker with the same precision as The
+             * Machine, and escape difficulty did not scale with the opponent at
+             * all. */
+            out.aim += (rnd(rng) - 0.5f) * 2.0f * p->line_acc * K_KICK_ERR * RAD;
             P.result = out; return;
         }
         /* last resort: tap the nearest legal ball that has a CLEAR path (so we
@@ -2461,12 +2584,65 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                     if (dd < bestd) { bestd = dd; bestn = i; }
                 }
         if (bestn >= 0) {
+            /* ---- LOOK BEFORE FIRING ------------------------------------------
+             *
+             * This used to aim dead at the nearest legal ball at a fixed 0.32
+             * and play it unseen — the one shot in the planner that never went
+             * through the engine. When the line is blocked (and it is blocked,
+             * or the search would not be down here) that is a guaranteed foul
+             * driven at six metres a second into whatever is in the way. Over
+             * 120 two-red endgames it gave away 24 fouls, into the blue, the
+             * black, or nothing at all.
+             *
+             * Nothing is on and no safety exists, so the shot to look for is
+             * simply one that REACHES a legal ball — round a cushion, through a
+             * gap, off the pack, anything. That is also the moment a break-out
+             * is free: the alternative is a certain four away, so disturbing
+             * the reds costs nothing and may leave something on. Swept and
+             * simulated, best legal contact wins, and the tie-break prefers the
+             * shot that frees a ball.
+             *
+             * Only if the table really cannot be reached does it concede a
+             * foul — and then SOFTLY, because a foul that also spreads the
+             * balls in front of the opponent is two mistakes. */
+            const float PW[3] = { 0.30f, 0.55f, 0.80f };
+            float bestsc = -1e9f; int got = 0;
+            Cand pickc; memset(&pickc, 0, sizeof pickc);
+            for (int ai_ = 0; ai_ < 48; ai_++) {
+                float aim = (float)ai_ * (6.2831853f / 48.0f);
+                for (int pi = 0; pi < 3; pi++) {
+                    AiSim sm;
+                    ai_sim(c->w, c->t, c->b, c->n, 0, aim, PW[pi], 0.0f, 0.0f, &sm);
+                    if (sm.cue_potted) continue;
+                    if (sm.first_hit_idx <= 0) continue;
+                    if (!cue_rules_ball_legal(r, balls, n, balls[sm.first_hit_idx].id)) continue;
+                    /* it reaches. prefer the one that also does something. */
+                    int freed = 0;
+                    float sc2 = 100.0f - PW[pi] * 20.0f;
+                    (void)freed;
+                    if (sc2 > bestsc) {
+                        bestsc = sc2; got = 1;
+                        memset(&pickc, 0, sizeof pickc);
+                        pickc.aim = aim; pickc.power01 = PW[pi];
+                        pickc.simmed = 1; pickc.cue_end = sm.cue_end;
+                    }
+                }
+            }
+            if (got) {
+                out.aim = pickc.aim; out.power01 = pickc.power01;
+                out.safe = 1; out.valid = 1; out.target_id = -1;
+                out.sim_verified = 1; out.cue_end_sim = pickc.cue_end;
+                out.aim += (rnd(rng) - 0.5f) * 2.0f * p->line_acc * K_KICK_ERR * RAD;
+                P.result = out; return;
+            }
             Vec3 d = sub2(balls[bestn].pos, balls[0].pos);
-            out.aim = atan2f(d.z, d.x); out.power01 = 0.32f; out.safe = 1; out.valid = 1;
+            out.aim = atan2f(d.z, d.x);
+            out.power01 = 0.12f;              /* concede it, do not also spread the table */
+            out.safe = 1; out.valid = 1;
             out.target_id = balls[bestn].id;
+            out.aim += (rnd(rng) - 0.5f) * 2.0f * p->line_acc * RAD;
             P.result = out; return;
-        }
-        out.valid = 0; P.result = out; return;
+        } out.valid = 0; P.result = out; return;
     }
 
     /* 2. choose group */
@@ -2481,6 +2657,25 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
 
     /* 3. build the viable variant pool for the chosen pot */
     int ti = gti[chosen], pk = gpk[chosen];
+
+    /* ---- WILL WE NEED A RED, AND WILL THERE BE ONE? ------------------------
+     *
+     * Potting a red puts us on a colour, which is on its spot and does not care
+     * what the pack is doing. Potting a COLOUR puts us on a red, and if none of
+     * the reds can be reached — open_targets asks whether a cue ball can sit
+     * where it would have to sit, not merely whether the red can see a pocket —
+     * then the break ends on this shot unless this shot does something about
+     * it. That is the whole of it: on a colour, play position on a red if one
+     * is available, and make one if it is not.
+     *
+     * Deliberately narrow. A break-out is a good shot in exactly this position
+     * and a bad one everywhere else, which is why the term was measured as
+     * doubling the fouls when it applied to every shot. */
+    s_need_brk = 0;
+    if (c->snooker && r->reds_left > 0 &&
+        ti > 0 && ti < n && balls[ti].id >= CUE_ID_YELLOW) {
+        s_need_brk = (open_targets(c, NULL, NULL) == 0);
+    }
     float R = t->R;
     Vec3 cue = balls[0].pos, target = balls[ti].pos, ap = pocket_aim_t(c, pk, target);
     Vec3 pdir = nrm2(sub2(ap, target));
@@ -2568,12 +2763,8 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * is set aside for a few slots and the firmest credible variants of the
      * same pot are simulated on merit. Only then — and it is a narrow window:
      * a split is critical precisely when the break ends without one. */
-    if (c->snooker && K_BRKRES > 0 && npool > 0) {
-        int reds_on = 0;
-        for (int i = 1; i < c->n; i++)
-            if (c->b[i].on && c->b[i].id < CUE_ID_YELLOW) reds_on++;
-        int open_now = open_targets(c, NULL, NULL);
-        if (reds_on > open_now && open_now <= K_BRKNEED) {
+    if (s_need_brk && K_BRKRES > 0 && npool > 0) {
+        {
             int cap0 = 10 + (int)(p->position * 22.0f + 0.5f);
             if (cap0 > SIM_CAP) cap0 = SIM_CAP;
             if (cap0 > npool) cap0 = npool;
@@ -2664,8 +2855,7 @@ int cue_ai_plan_tick(void) {
             out.aim += (rnd(P.rng) - 0.5f) * 2.0f * c->p->line_acc * RAD;
 
             out.valid = 1;
-        }
-        P.result = out; P.phase = PH_DONE;
+        } P.result = out; P.phase = PH_DONE;
         return 1;
     }
 
