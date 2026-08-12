@@ -171,7 +171,15 @@ static float K_BREAK = 0.0f;    /* per red freed by disturbing a pack */
  * So: count what is crowding the cue ball where it stops, and charge for it.
  * Any ball counts, not just targets — a colour parked against the white blocks
  * the cue as well as a red does. */
-static float K_INPACK = 9.0f;   /* penalty per ball crowding the LEAVE's cue ball */
+/* OFF, pending a reason to want it. It was written as the other half of the
+ * breakout model — that term scores the pack OPENING and not where the white
+ * finished, and burying the cue ball among the reds is how the next shot fouls
+ * — but the breakout bonus above is itself off, so this was left charging every
+ * pot for its leave with nothing on the other side of the ledger. It also never
+ * had an honest measurement: every reading taken of it came from a harness that
+ * was replaying one identical frame. Set AI_INPACK to bring it back when the
+ * breakout term has something to do. */
+static float K_INPACK = 0.0f;   /* penalty per ball crowding the LEAVE's cue ball */
 static int   K_BRKGATE = 1;     /* 1 = only split when a RED is what we next need */
 /* WHEN A BREAKOUT IS THE WHOLE SHOT. At or below this many reds with a clear
  * line to a pocket, and with reds still on the table, the break is over unless
