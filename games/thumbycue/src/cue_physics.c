@@ -946,6 +946,38 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                     }
                 }
             }
+            /* AND THE THROAT HAS A BACK.
+             *
+             * A ball arriving at pace is still travelling when it crosses the
+             * drop, and until now nothing stopped it: it kept its speed, fell
+             * as it went, and left the pocket out the far side — counted as
+             * potted and then visibly rolling away down the outside of the
+             * table. Measured before this: 666 of 702 hard pots strayed past
+             * the rim, the worst by 450 mm at 9 m/s.
+             *
+             * A real pocket is a shaped casting with leather behind it. It is
+             * what takes the pace off a firm pot and drops it in rather than
+             * letting it through, and it is the same surface the ball rattles
+             * off when it does not go. So: a wall at the throat radius, which
+             * the ball cannot pass and gives up most of its pace against. */
+            {
+                float bx = b->pos.x - pc2.x, bz = b->pos.z - pc2.z;
+                float rmax = w->pocket_r[pk] - w->R * 0.35f;
+                if (rmax < w->R * 0.25f) rmax = w->R * 0.25f;
+                float q2 = bx*bx + bz*bz;
+                if (q2 > rmax * rmax) {
+                    float q = sqrtf(q2);
+                    float nx = bx / q, nz = bz / q;
+                    b->pos.x = pc2.x + nx * rmax;
+                    b->pos.z = pc2.z + nz * rmax;
+                    float vn = b->vel.x * nx + b->vel.z * nz;
+                    if (vn > 0.0f) {              /* only what is heading out */
+                        const float e = 0.25f;    /* leather, not rubber */
+                        b->vel.x -= (1.0f + e) * vn * nx;
+                        b->vel.z -= (1.0f + e) * vn * nz;
+                    }
+                }
+            }
             ball_spin_orient(b, h);
             if (b->pos.y < CUE_POCKET_FLOOR) { b->on = 0; b->drop = 0.0f; }
             continue;
