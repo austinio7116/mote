@@ -69,8 +69,16 @@ typedef struct {
     float ang_corner, ang_side; /* facing splay from the rail line (deg) */
     float off_corner, off_side; /* pocket-centre offset beyond the boundary (m) */
     float jaw_r;                /* small knuckle rounding radius (m) */
-    float drop_back;            /* CORNER drop pulled this far further INTO the pocket (m) */
-    float drop_back_side;       /* MIDDLE drop pulled straight back into the pocket (m, shallower) */
+    /* HOW MUCH SMALLER THE DROP CIRCLE IS THAN THE HOLE, per pocket type (m).
+     * Taken off pr to get the radius a ball's centre must be inside before it
+     * is down. It was a literal in build_world — 0.3 R, and 0.15 R for a UK
+     * middle — which meant it could not be set per table at all. */
+    float cap_corner, cap_side;
+    /* ...and HOW MUCH DEEPER THAN THE POCKET that circle is centred (m). Zero
+     * is concentric with the hole. The two together are the whole of what a
+     * pocket takes: how big the catch is, and how far in it sits. */
+    float drop_back;            /* CORNER drop pushed this far deeper (m) */
+    float drop_back_side;       /* MIDDLE drop pushed this far deeper (m) */
 
     /* Snooker layout (ignored for pool). */
     float baulk_x, d_radius, blue_x, pink_x, black_x;
@@ -95,17 +103,28 @@ void cue_table_build_world(const CueTable *t, CueWorld *w);
  * the renderer and the physics each kept their own the ball would fall through
  * cloth at one pocket and hang in mid air at another, which is exactly what
  * they did while they did. */
-#define CUE_CUT_CORNER  1.34f
-#define CUE_CUT_MIDDLE  1.59f
-#define CUE_COR_SETBACK 0.005f
-#define CUE_MID_SETBACK 0.010f
-/* How far the cloth rolls over the edge of the cut before it turns vertical: a
- * quarter circle of this many pocket radii, out and down. */
-#define CUE_LIP_ROLL    0.45f
+/* FOUR NUMBERS PER POCKET TYPE PER TABLE, and nothing else decides the shape:
+ *
+ *   set   how far the arc's centre sits back from the pocket, along the line
+ *         out through the mouth. Metres. This is what slides the whole cut in
+ *         and out, so it is what puts the cloth edge on the drop line.
+ *   rad   the arc's radius, as a multiple of the pocket's drop radius. This is
+ *         how WIDE the opening is.
+ *   roll  the lip: how far the cloth rolls over the edge before it turns
+ *         vertical, same units. Its thickness.
+ *   arc   how much of the cut is arc rather than straight leg, in degrees. 90
+ *         at a corner and 180 at a middle is the shape a slate cutter leaves;
+ *         less arc means longer straight runs into the same opening.
+ *
+ * Corner and middle are separate, and each table size has its own pair. UK8
+ * shares with 6-red (same bed) and US8 with 9-ball (same bed). */
+typedef struct { float set, rad, roll, arc; } CueCut;
+
+void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out);
+void cue_table_set_cut(CueWorld *w, int middle, CueCut c);
+void cue_table_get_cut(const CueWorld *w, int middle, CueCut *out);
 
 void cue_table_derive_cut(CueWorld *w);
-void cue_table_set_pocket_cut(CueWorld *w, float cr, float cs, float mr, float ms);
-void cue_table_get_pocket_cut(float *cr, float *cs, float *mr, float *ms);
 
 /* Lay out the opening rack / spots. Returns the number of balls placed.
  * balls[0] is always the cue ball. orient set to identity. */

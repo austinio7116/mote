@@ -39,12 +39,16 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * it sits at 1.80 (103 mm) — still a pub pocket rather than the barn
          * door it was. Both games on this bed get it: one table, two rule sets. */
         t->pr_corner  = 1.80f * t->R; t->pr_side  = 1.63f * t->R;
-        t->gap_corner = 2.667f * t->R; t->gap_side = 2.50f * t->R;
+        /* knuckles: what pr_corner + 0.833R / + 1.083R used to give */
+        t->gap_corner = 2.633f * t->R; t->gap_side = 2.883f * t->R;
         t->facing_len = 1.667f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         /* Throat set back into the wood so the bore circle clears the (deepened)
          * cushion back and a proper wood ring is cut — see reach math in PLAN. */
         t->off_corner = 0.60f * t->R; t->off_side = 1.25f * t->R;
+        /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
+        t->cap_corner = 0.0f;         t->cap_side = 0.0f;
+        t->drop_back  = 0.30f * t->R; t->drop_back_side = 0.16f * t->R;
         t->jaw_r = 0.004f;
         t->cloth = RGB565C(22, 120, 70);
         t->rail = RGB565C(96, 54, 26); t->rail_top = RGB565C(128, 78, 38);
@@ -86,6 +90,9 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->facing_len = 1.55f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         t->off_corner = 1.30f * t->R; t->off_side = 1.20f * t->R;  /* corners set back into the pocket */
+        /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
+        t->cap_corner = 0.0f;         t->cap_side = 0.0f;
+        t->drop_back  = 0.28f * t->R; t->drop_back_side = 0.30f * t->R;
         t->jaw_r = 0.004f;
         t->cloth = RGB565C(18, 110, 120);    /* US tables often tournament blue-green */
         t->rail = RGB565C(70, 46, 30); t->rail_top = RGB565C(100, 66, 42);
@@ -101,11 +108,14 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->R = 0.028575f; t->mass = 0.170f;
         t->cushion_h = 1.27f * t->R; t->rail_w = 0.080f;
         t->pocket_round = 1;                 /* rounded jaws, tight */
-        t->pr_corner  = 2.05f * t->R; t->pr_side  = 1.88f * t->R;   /* tighter than UK pub */
-        t->gap_corner = 2.55f * t->R; t->gap_side = 2.42f * t->R;
+        /* Tighter again on the bench — they were too loose next to the others. */
+        t->pr_corner  = 2.03f * t->R; t->pr_side  = 1.88f * t->R;
+        t->gap_corner = 2.675f * t->R; t->gap_side = 3.133f * t->R;
         t->facing_len = 1.667f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         t->off_corner = 0.60f * t->R; t->off_side = 1.25f * t->R;
+        t->cap_corner = 0.0f;         t->cap_side = 0.0f;
+        t->drop_back  = 0.31f * t->R; t->drop_back_side = 0.50f * t->R;
         t->jaw_r = 0.005f;
         t->cloth = RGB565C(22, 44, 155);     /* Chinese-8 royal blue cloth */
         t->rail = RGB565C(78, 48, 28); t->rail_top = RGB565C(112, 70, 36);
@@ -123,7 +133,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->cushion_h = 1.27f * t->R; t->rail_w = 0.085f;
         t->pocket_round = 1;
         t->pr_corner  = 1.98f * t->R; t->pr_side  = 1.82f * t->R;
-        t->gap_corner = 2.45f * t->R; t->gap_side = 2.18f * t->R;
+        t->gap_corner = 2.813f * t->R; t->gap_side = 3.063f * t->R;
         t->facing_len = 1.25f * t->R;
         t->ang_corner = 60.0f; t->ang_side = 80.0f;
         /* Throat set well back into the wood: the small snooker pocket radius is
@@ -131,6 +141,9 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * reaches the wood and no cutaway is cut (the fall is realistically set
          * back behind the mouth anyway). */
         t->off_corner = 1.30f * t->R; t->off_side = 1.00f * t->R;  /* corners back, but not too far */
+        /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
+        t->cap_corner = 0.0f;         t->cap_side = 0.0f;
+        t->drop_back  = 0.29f * t->R; t->drop_back_side = 0.63f * t->R;
         t->jaw_r = 0.012f;
         t->baulk_x = -t->half_len + 0.737f * sc;
         t->d_radius = 0.292f * sc;
@@ -155,8 +168,10 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 || kind == CUE_GAME_CN8)
         t->baulk_x = -t->half_len * 0.5f;
 
-    t->drop_back      = 0.60f * t->pr_corner;
-    t->drop_back_side = 0.30f * t->pr_side;
+    /* How far past the pocket the DROP is centred. Zero is concentric with the
+     * hole, which is where it has always been; positive pushes it deeper, so a
+     * ball has to get further in before it is down. Per pocket type because a
+     * middle is a shallower thing than a corner. */
 }
 
 /* Inward unit normal of segment a→b. The cushion boundary is built as one
@@ -290,8 +305,20 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     } else {
         /* Snooker/UK: bezier-curved jaws bulging into the pocket (rounded
          * knuckles), matching the 2D game's createCurvedRailChains. */
-        const float bg = t->pr_corner + 0.5f*R;
-        const float cgap = bg + 0.333f*R, mgap = bg + 0.583f*R;
+        /* WHERE THE KNUCKLES SIT, and it is its own number now.
+         *
+         * These used to be derived from pr_corner — bg = pr_corner + 0.5R, and
+         * both gaps off that — which meant one field placed every jaw on the
+         * table: widening a corner walked the middles out with it, and there
+         * was no way at all to size a middle pocket on a rounded table. It also
+         * left gap_corner/gap_side sitting in CueTable read by nothing but the
+         * straight-mitre branch, so a bench slider on them moved nothing.
+         *
+         * Now they are what their names say, and the shipped values below are
+         * exactly what the old derivation produced, so no table changed shape
+         * when this went in. */
+        const float cgap = t->gap_corner, mgap = t->gap_side;
+        const float bg = mgap - 0.583f*R;   /* the middle jaw's far control point */
         const float cl = 2.0f*R, ml = 1.6f*R, e3 = 0.25f*R;
         /* Bezier steps per jaw. Three is right for a 128x128 screen and reads as
          * blocky knuckles when the pocket is 30 cm from your eye, so the VR build
@@ -359,10 +386,11 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     /* Pocket circles: centre offset just beyond the boundary; drop-capture
      * when the ball centre is within (radius − 0.3R), matching the 2D game. */
     const float d = 0.70710678f, oc = t->off_corner, os = t->off_side;
-    /* Drop-capture radius (independent of the visible mouth/pr_side). UK8 pub
-     * tables have notoriously tight side pockets, so shrink their side capture. */
-    float side_m = (t->kind == CUE_GAME_UK8) ? 0.15f : 0.30f;  /* UK middle drop ~ corner size */
-    float capc = t->pr_corner - 0.3f * t->R, caps = t->pr_side - side_m * t->R;
+    /* Drop-capture radius (independent of the visible mouth/pr_side), and PER
+     * TABLE — see cap_corner / cap_side. It used to be one literal here, 0.3 R
+     * with 0.15 R for a UK middle, which is why no table could be given a drop
+     * of its own without moving every other table's with it. */
+    float capc = t->pr_corner - t->cap_corner, caps = t->pr_side - t->cap_side;
     add_pocket(w, -hl - oc*d, -hw - oc*d, capc);
     add_pocket(w,  hl + oc*d, -hw - oc*d, capc);
     add_pocket(w,  hl + oc*d,  hw + oc*d, capc);
@@ -398,44 +426,91 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         w->pmnorm[p] = nrm;
     }
 
+    for (int p = 0; p < w->npocket; p++) {
+        float back = (p < 4) ? w->drop_back : w->drop_back_side;
+        w->drop_c[p] = v3(w->pocket[p].x + w->pmnorm[p].x * back, 0,
+                          w->pocket[p].z + w->pmnorm[p].z * back);
+    }
+
+    w->cut_ref[0] = t->pr_corner; w->cut_ref[1] = t->pr_side;
+    for (int m = 0; m < 2; m++) {
+        CueCut c; cue_table_default_cut(t->kind, m, &c);
+        w->cut_set[m] = c.set; w->cut_rad[m] = c.rad;
+        w->cut_roll[m] = c.roll; w->cut_arc[m] = c.arc;
+    }
     cue_table_derive_cut(w);
 }
 
 /* ---- the cloth cut, which both the renderer and the physics obey ---------- *
  *
- * These are set in the headset, with a ball rolling at the pocket, which is the
- * only place they could honestly be judged. The radii are multiples of the
- * ball's drop circle, so one pair of numbers carries across the whole set of
- * tables and the millimetres follow from each table's own pocket size. The
- * setbacks push each arc's centre away from the table, into the frame. */
-static float s_cut_cr = CUE_CUT_CORNER, s_cut_cs = CUE_COR_SETBACK;
-static float s_cut_mr = CUE_CUT_MIDDLE, s_cut_ms = CUE_MID_SETBACK;
+ * Four numbers per pocket type per table; see CueCut in cue_table.h for what
+ * each one moves. These are the shipped shape. They were set in the headset
+ * with a ball rolling at the pocket, which is the only place a pocket can
+ * honestly be judged, and they are per table size because a 12 ft snooker
+ * pocket and a 9 ft American one are not the same cut scaled. */
+void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
+    /*                       set(m)   rad(x pr)  roll(x pr)  arc(deg)
+     *
+     * `rad` used to be a multiple of the DROP circle, which meant the cut could
+     * not be held still while the drop was moved — shrink the drop and the cut
+     * shrank with it and the pocket only ever looked the same. Both are off the
+     * mouth now, so they are independent, and the numbers below are what the
+     * old ratios worked out to on each table. */
+    static const CueCut corner[] = {
+        /* UK8   */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
+        /* US8   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
+        /* US9   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
+        /* CN8   */ { 0.0170f, 1.1450f, 0.2200f,  90.0f },
+        /* SNK15 */ { 0.0145f, 1.1350f, 0.2150f,  90.0f },
+        /* SNK10 */ { 0.0145f, 1.1350f, 0.2150f,  90.0f },
+        /* SNK6  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
+    };
+    static const CueCut mid[] = {
+        /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
+        /* US8   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
+        /* US9   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
+        /* CN8   */ { 0.0285f, 1.2650f, 0.2250f, 180.0f },
+        /* SNK15 */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
+        /* SNK10 */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
+        /* SNK6  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
+    };
+    int i = (int)kind; if (i < 0 || i >= CUE_GAME_COUNT) i = 0;
+    *out = middle ? mid[i] : corner[i];
+}
 
+void cue_table_set_cut(CueWorld *w, int middle, CueCut c) {
+    int i = middle ? 1 : 0;
+    w->cut_set[i] = c.set; w->cut_rad[i] = c.rad;
+    w->cut_roll[i] = c.roll; w->cut_arc[i] = c.arc;
+    cue_table_derive_cut(w);
+}
+
+void cue_table_get_cut(const CueWorld *w, int middle, CueCut *out) {
+    int i = middle ? 1 : 0;
+    out->set = w->cut_set[i]; out->rad = w->cut_rad[i];
+    out->roll = w->cut_roll[i]; out->arc = w->cut_arc[i];
+}
+
+/* The derived shape: where each pocket's arc sits, how big it is, and how far
+ * the lip rolls. The setback runs OUT THROUGH THE MOUTH — along the line the
+ * ball leaves on — so winding `set` up slides the whole cut straight out over
+ * the drop and down again, which is the one motion that puts the cloth edge on
+ * the line the ball is taken at. */
 void cue_table_derive_cut(CueWorld *w) {
     for (int p = 0; p < w->npocket; p++) {
+        int i = (p < 4) ? 0 : 1;
         Vec3 C = w->pocket[p];
-        if (p < 4) {                    /* a corner sets back along its diagonal */
-            float sx = (C.x < 0) ? -1.0f : 1.0f, sz = (C.z < 0) ? -1.0f : 1.0f;
+        float sz = (C.z < 0.0f) ? -1.0f : 1.0f;
+        if (p < 4) {           /* a corner sets back along its own diagonal */
+            float sx = (C.x < 0.0f) ? -1.0f : 1.0f;
             const float k = 0.70710678f;
-            w->cut_c[p] = v3(C.x + sx*s_cut_cs*k, 0, C.z + sz*s_cut_cs*k);
-            w->cut_r[p] = w->pocket_r[p] * s_cut_cr;
-        } else {                        /* a middle sets straight back into the rail */
-            float sz = (C.z < 0) ? -1.0f : 1.0f;
-            w->cut_c[p] = v3(C.x, 0, C.z + sz * s_cut_ms);
-            w->cut_r[p] = w->pocket_r[p] * s_cut_mr;
+            w->cut_c[p] = v3(C.x + sx*w->cut_set[i]*k, 0, C.z + sz*w->cut_set[i]*k);
+        } else {               /* a middle sets straight back into the rail */
+            w->cut_c[p] = v3(C.x, 0, C.z + sz*w->cut_set[i]);
         }
-        w->lip_d[p] = CUE_LIP_ROLL * w->pocket_r[p];
+        w->cut_r[p] = w->cut_ref[i]  * w->cut_rad[i];
+        w->lip_d[p] = w->cut_ref[i]  * w->cut_roll[i];
     }
-}
-
-void cue_table_set_pocket_cut(CueWorld *w, float cr, float cs, float mr, float ms) {
-    s_cut_cr = cr; s_cut_cs = cs; s_cut_mr = mr; s_cut_ms = ms;
-    if (w) cue_table_derive_cut(w);
-}
-
-void cue_table_get_pocket_cut(float *cr, float *cs, float *mr, float *ms) {
-    if (cr) *cr = s_cut_cr; if (cs) *cs = s_cut_cs;
-    if (mr) *mr = s_cut_mr; if (ms) *ms = s_cut_ms;
 }
 
 Vec3 cue_table_cue_home(const CueTable *t) {

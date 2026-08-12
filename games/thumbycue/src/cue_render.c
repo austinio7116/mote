@@ -435,10 +435,12 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
      *
      * The drop and its profile are the tuned ones: a quarter-cosine fall of
      * 0.45 of the pocket radius, darkening as the cloth turns under. */
+    /* CUE_LIP is a coarse debug override; the shipped roll is the table's own
+     * `roll` number, per pocket type. */
     int M; float lscale;
     switch (s_lip_mode) {
-        case 2:  M = 9;  lscale = 0.55f / CUE_LIP_ROLL; break;
-        case 3:  M = 11; lscale = 0.80f / CUE_LIP_ROLL; break;
+        case 2:  M = 9;  lscale = 1.25f; break;
+        case 3:  M = 11; lscale = 1.80f; break;
         default: M = 8;  lscale = 1.0f; break;
     }
     /* Which way is out of the cloth? Take it from the polygon's own winding so

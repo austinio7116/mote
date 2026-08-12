@@ -678,7 +678,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
  * distance to it exact and cheap: which of the three pieces is nearest falls out
  * of the sign of the point's two local coordinates, so there is no search. The
  * renderer walks the identical curve. */
-static CUE_HOT float cut_out(const CueWorld *w, int p, float x, float z) {
+CUE_HOT float cue_phys_cut_out(const CueWorld *w, int p, float x, float z) {
     Vec3  C = w->cut_c[p];
     float R = w->cut_r[p];
     float sz = (C.z < 0.0f) ? -1.0f : 1.0f;
@@ -699,18 +699,51 @@ static CUE_HOT float cut_out(const CueWorld *w, int p, float x, float z) {
 static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
     if (b->pos.y - w->R > w->rail_top) return 0;         /* flying clean over */
     for (int p = 0; p < w->npocket; p++) {
-        Vec3 d = v3_sub(b->pos, w->pocket[p]); d.y = 0.0f;
-        /* near enough to be this pocket's business at all */
+        Vec3 d = v3_sub(b->pos, w->drop_c[p]); d.y = 0.0f;
+        float q = d.x*d.x + d.z*d.z;
         float reach = w->cut_r[p] + w->R * 3.0f;
-        if (d.x*d.x + d.z*d.z > reach * reach) continue;
+        if (q > reach * reach) continue;
 
-        /* THE TIPPING POINT IS THE EDGE OF THE SLATE, not the jaw line. Past it
-         * the ball's centre is over the cut and there is nothing holding it up,
-         * which at a middle pocket happens a good 40 mm before the jaws and at
-         * a corner a centimetre or so after them. Using the jaws for this is
-         * what had balls sailing out flat over the drop at the middles and
-         * sinking through cloth at the corners. */
-        if (cut_out(w, p, b->pos.x, b->pos.z) <= 0.0f) continue;
+        /* THE DROP IS THE POCKET CIRCLE. The ball's centre inside it and the
+         * ball is down — which is a circle about the pocket, so the cut drawn
+         * round the pocket can be fitted to it exactly, and what you watch drop
+         * is what the physics did. */
+        int in = (q <= w->pocket_r[p] * w->pocket_r[p]);
+
+        /* AND NOTHING ELSE. There was a second test — which side of the line
+         * between the two jaw tips the ball was on — put there because a circle
+         * alone once leaked: behind the mouth the opening is wider than any
+         * circle centred on the pocket, so a ball arriving hard could cross the
+         * throat outside the radius the whole way and come out the far side
+         * still travelling, with correctly no slate back there to stop it.
+         * Twelve balls per thousand on the 9 ft table.
+         *
+         * But a straight line has no ends. Combined with the proximity test it
+         * captured a HALF DISC, and at a corner a ball hugging the rail crosses
+         * that line well to the side of the mouth — pot area in FRONT of the
+         * pocket, which is the one place there must be none.
+         *
+         * It is also no longer earning it. The leak does not reproduce: 1044
+         * shots per table at every pocket, speed and angle, and 16,632 more
+         * fired hard from twenty angles, all lose nothing with the circle
+         * alone. The balls that used to escape now rattle off the jaws and come
+         * back out, which is what a jaw is for. Whatever closed it — the
+         * cushion model, the frame surface, both — the circle is sound on its
+         * own, and a circle is the one shape the cut drawn round the pocket can
+         * be fitted to exactly.
+         *
+         * AND ONE WAS FOUND AGAIN, the moment the drop was tuned: pushing the
+         * US table's catch 0.28 R deeper put it behind where a hard ball
+         * crosses the throat, and four went off the back of it. So the second
+         * test is the one this comment already said it should be — A BALL WITH
+         * NO CLOTH UNDER IT IS POTTED. That region is the cut in the slate and
+         * nothing else: it cannot reach onto the table, because on the table
+         * there is cloth. It only ever fires for a ball the circle missed,
+         * which is a ball already through the opening, and now that the cut and
+         * the drop have been tuned onto each other it is a fraction of a
+         * millimetre of daylight rather than a rule of its own. */
+        if (!in && cue_phys_cut_out(w, p, b->pos.x, b->pos.z) > 0.0f) in = 1;
+        if (!in) continue;
 
         if (b->drop <= 0.0f) {
             b->pocket = (uint8_t)p;
@@ -724,24 +757,60 @@ static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
 
 /* WHAT IS UNDER A BALL AT (x, z): the cloth, the top of the frame, or nothing.
  *
- * Three regions and a hole, and this is deliberately the same answer that
- * cue_table_surface gives the cue, because it is the same surface. Inside the
- * cushion line is the bed. Outside it, cushion top and wood top are ONE FLAT
- * LEVEL at rail_top — that is how cue_render builds them (rail_h = flat_h), so
- * anything else here would be a floor that is not where the table is drawn.
- * Past the frame there is a floor this does not model, so the ball has left.
- * And over a pocket MOUTH there is no top at all — which is how a ball
- * rattling along the frame can drop in, and it does happen. */
+ * Three regions and a hole. Inside the cushion line is the bed, MINUS the bite
+ * each pocket takes out of it. Outside it, cushion top and wood top are ONE
+ * FLAT LEVEL at rail_top — that is how cue_render builds them (rail_h =
+ * flat_h), so anything else here would be a floor that is not where the table
+ * is drawn. Past the frame there is a floor this does not model, so the ball
+ * has left. And over a pocket there is no top at all — which is how a ball
+ * rattling along the frame can drop in, and it does happen.
+ *
+ * NOT quite the answer cue_table_surface gives the cue, and that is on purpose.
+ * That one is asked how high the butt must be to clear the table, and near a
+ * pocket it still reports solid cloth: erring toward a surface that is MORE
+ * solid than the real one can only ask the player to lift the cue a fraction
+ * more, which is safe, where erring the other way drops the shaft through the
+ * slate. This one decides whether a ball is held up, and there the truth
+ * matters in both directions. */
 #define CUE_NO_SURFACE (-1.0e9f)
 static CUE_HOT float surface_at(const CueWorld *w, float x, float z) {
     float ax = x < 0 ? -x : x, az = z < 0 ? -z : z;
-    if (ax <= w->play_x && az <= w->play_z) return 0.0f;
     if (ax > w->bound_x || az > w->bound_z) return CUE_NO_SURFACE;
+    int on_bed = (ax <= w->play_x && az <= w->play_z);
+
     for (int p = 0; p < w->npocket; p++) {
-        float dx = x - w->pocket[p].x, dz = z - w->pocket[p].z;
+        /* THE HOLE IS THE CATCH. Same centre, same radius, deliberately —
+         * these two are the only things that can disagree about whether a ball
+         * is still on the table, and when they do it falls through the world.
+         * They were a circle apart the moment the drop was allowed to sit
+         * deeper than the pocket: the hole stayed on w->pocket while the catch
+         * moved back to drop_c, leaving a crescent with no floor and nothing to
+         * take the ball. Four per thousand on the 9 ft table went through it. */
+        float dx = x - w->drop_c[p].x, dz = z - w->drop_c[p].z;
         if (dx * dx + dz * dz < w->pocket_r[p] * w->pocket_r[p]) return CUE_NO_SURFACE;
+
+        /* AND THE BED STOPS WHERE THE CLOTH IS CUT, not at the cushion line.
+         *
+         * The playing area is a RECTANGLE and the cloth is not: each pocket
+         * takes a scalloped bite out of it. This used to return "bed, height
+         * zero" for the whole rectangle, so inside that bite a ball rolled on —
+         * and came to rest on — felt the renderer had already drawn rolling
+         * away. It also meant the hole below was unreachable from anywhere on
+         * the table, because the rectangle answered first.
+         *
+         * Inside the rectangle the piece of the cut facing the table is always
+         * the ARC, so this is one circle test rather than the whole boundary. A
+         * ball that finds no bed here is over the mouth, and check_pockets pots
+         * it on the same test — no cloth under it means potted. */
+        if (on_bed) {
+            float cx = x - w->cut_c[p].x, cz = z - w->cut_c[p].z;
+            if (cx * cx + cz * cz < w->cut_r[p] * w->cut_r[p]) return CUE_NO_SURFACE;
+        }
     }
-    return w->rail_top;
+    /* Outside the rectangle, cushion top and wood top are ONE FLAT LEVEL at
+     * rail_top — that is how cue_render builds them (rail_h = flat_h), and a
+     * ball running the frame on a jump shot lands on it. */
+    return on_bed ? 0.0f : w->rail_top;
 }
 
 /* DID THE CUE BALL PASS OVER A BALL, and was it allowed to?
@@ -841,9 +910,9 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * the middle, not dropping through the felt. */
             int   pk = b->pocket;
             float ld = w->lip_d[pk], rr = ld + w->R;
-            float o0 = cut_out(w, pk, b->pos.x, b->pos.z);
+            float o0 = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
 
-            Vec3 pc2 = w->pocket[pk];
+            Vec3 pc2 = w->drop_c[pk];
             b->vel.x += (pc2.x - b->pos.x) * CUE_LIP_GATHER * h;
             b->vel.z += (pc2.z - b->pos.z) * CUE_LIP_GATHER * h;
             {   float d = 1.0f - 3.0f * h;      /* a little drag, not a wall */
@@ -866,7 +935,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * about 0.7 m/s; anything above that leaves the edge and flies, and
              * that falls out of the same two lines rather than being asked for. */
             {
-                float o1 = cut_out(w, pk, b->pos.x, b->pos.z);
+                float o1 = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
                 if (o1 > 0.0f && o1 < rr * 0.999f) {
                     float lip_y = sqrtf(rr*rr - o1*o1) - ld;
                     if (b->pos.y < lip_y) {
@@ -1105,8 +1174,3 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
     return 1;
 }
 
-/* The edge of the slate, for the harnesses that check the drawn pocket and the
- * played one still agree. Compiled out of the game. */
-#ifdef CUE_DBG_CUT
-float cue_dbg_cut_out(const CueWorld *w, int p, float x, float z) { return cut_out(w, p, x, z); }
-#endif

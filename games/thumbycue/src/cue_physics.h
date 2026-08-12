@@ -133,8 +133,28 @@ typedef struct {
     Vec3   cut_c[CUE_MAX_POCKET];   /* arc centre (the pocket, set back a little) */
     float  cut_r[CUE_MAX_POCKET];   /* arc radius */
     float  lip_d[CUE_MAX_POCKET];   /* the roll over the edge */
-    float  drop_back;       /* CORNER drop pulled this far further INTO the pocket (m) */
-    float  drop_back_side;  /* MIDDLE drop pulled straight back into the pocket (m) */
+    /* The four tunables behind those, [0] = corners, [1] = middles. See CueCut
+     * in cue_table.h, which is the shape of them and the only thing that should
+     * be writing them. */
+    float  cut_set[2], cut_rad[2], cut_roll[2], cut_arc[2];
+    /* What `rad` and `roll` are multiples of: the VISIBLE mouth (pr_corner /
+     * pr_side), not pocket_r — those are different radii and the drop circle is
+     * the smaller of them. [0] corners, [1] middles. */
+    float  cut_ref[2];
+    /* ...and how far past that edge a point is: negative on cloth, zero at the
+     * edge, positive out over the drop. The tuning screen asks this to stand a
+     * ball exactly on the brink. */
+    /* WHERE THE DROP CIRCLE IS CENTRED, which is not where the pocket is drawn.
+     *
+     * A real pocket takes the ball when it is far enough IN, and how far in is
+     * not the same as how big the opening is — the two want moving separately
+     * or the drop can only ever be a circle concentric with the hole. So the
+     * centre of the drop is the pocket pushed this far further along the line
+     * out through its own mouth. Zero puts it back on the pocket, which is
+     * where it has always been. */
+    float  drop_back;       /* CORNER drop pushed this far deeper (m) */
+    float  drop_back_side;  /* MIDDLE drop pushed this far deeper (m) */
+    Vec3   drop_c[CUE_MAX_POCKET];   /* derived: pocket + pmnorm * drop_back */
 
     /* First object ball the CUE ball contacts after a strike; -1 = none.
      * Reset to -1 before each shot; read at settle for rules.
@@ -223,6 +243,12 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
 /* Is this ball off the bed right now? Rules ask, to price a ball that has left
  * the table, and the renderer asks nothing — it just draws pos.y. */
 int cue_phys_airborne(const CueWorld *w, const CueBall *b);
+
+/* How far past the edge of the cut cloth a point is at pocket p: negative still
+ * on slate, zero at the edge, positive out over the drop. This is the line the
+ * ball tips over, so it is also the line to stand a ball on when judging the
+ * drawn pocket against the played one. */
+float cue_phys_cut_out(const CueWorld *w, int p, float x, float z);
 
 /* Advance the simulation by dt seconds. Returns 1 while any ball is still
  * moving, 0 once the table has settled. `events` (optional) receives a
