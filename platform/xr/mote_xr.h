@@ -130,6 +130,10 @@ void mote_xr_shutdown(void);
 /* Buzz both controllers. The thing being felt belongs to the scene, not to one
  * hand, and a buzz in only one hand for a shared event reads as a fault. */
 void mote_xr_haptic(float intensity, int ms);
+/* One controller only: MOTE_VR_LEFT or MOTE_VR_RIGHT, or -1 for both. What the
+ * world does belongs in both hands; what a held object does belongs in the hand
+ * holding it. */
+void mote_xr_haptic_hand(int hand, float intensity, int ms);
 /* Composite the camera feed or not. The app turns it off while it draws a full
  * VR environment; a no-op where the runtime has no passthrough. */
 void mote_xr_show_passthrough(int on);

@@ -843,6 +843,25 @@ static void read_hand(int i, MoteVrHand *h, XrTime t) {
 
 /* Rumble goes to both hands: the console is between them, and a buzz in one
  * hand for an event that belongs to the object as a whole reads as a fault. */
+/* hand < 0 buzzes both, which is what everything asking for feedback about the
+ * WORLD wants. A single hand is for feedback about a thing one hand is holding:
+ * a cue clamped to one controller should shake that controller and not the
+ * empty hand on the other side of the room. */
+static void haptic_hand(float intensity, int ms, int hand) {
+    if (!S.session || intensity <= 0.0f || ms <= 0) return;
+    XrHapticVibration v = { XR_TYPE_HAPTIC_VIBRATION };
+    v.amplitude = intensity > 1.0f ? 1.0f : intensity;
+    v.duration = (XrDuration)ms * 1000000LL;
+    v.frequency = XR_FREQUENCY_UNSPECIFIED;
+    for (int i = 0; i < 2; i++) {
+        if (hand >= 0 && i != hand) continue;
+        XrHapticActionInfo hi = { XR_TYPE_HAPTIC_ACTION_INFO };
+        hi.action = S.a_haptic;
+        hi.subactionPath = S.hand_path[i];
+        xrApplyHapticFeedback(S.session, &hi, (const XrHapticBaseHeader *)&v);
+    }
+}
+
 static void haptic(float intensity, int ms) {
     if (!S.session || intensity <= 0.0f || ms <= 0) return;
     XrHapticVibration v = { XR_TYPE_HAPTIC_VIBRATION };
@@ -1271,6 +1290,7 @@ void *mote_xr_render_model_take(int hand, uint32_t *out_len) {
     return bytes;
 }
 void mote_xr_haptic(float i, int ms) { haptic(i, ms); }
+void mote_xr_haptic_hand(int hand, float i, int ms) { haptic_hand(i, ms, hand); }
 
 void mote_xr_frame(void) {
     pump_events();
