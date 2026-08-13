@@ -162,6 +162,7 @@ static struct {
      * seen, so this is asked for repeatedly rather than once. */
     int   has_render_model;
     int   has_perf;
+    int   has_stylus;
     int   has_refresh;
     PFN_xrEnumerateRenderModelPathsFB xrEnumerateRenderModelPathsFB_;
     PFN_xrGetRenderModelPropertiesFB  xrGetRenderModelPropertiesFB_;
@@ -266,7 +267,7 @@ static int make_instance(JavaVM *vm, jobject activity) {
     for (uint32_t i = 0; i < n; i++) ext[i].type = XR_TYPE_EXTENSION_PROPERTIES;
     xrEnumerateInstanceExtensionProperties(NULL, n, &n, ext);
 
-    const char *want[8];
+    const char *want[12];   /* room for every optional extension, and one spare */
     uint32_t nw = 0;
     want[nw++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
     want[nw++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
@@ -279,6 +280,14 @@ static int make_instance(JavaVM *vm, jobject activity) {
     /* Performance levels. Without this the runtime clocks the SoC for a MENU —
      * it has no way to know it is running a game — and that is the cheapest
      * frame time available anywhere, because it costs no pixels at all. */
+    /* THE STYLUS. Logitech's MX Ink reports through its own interaction
+     * profile, and a runtime that has never heard of it will not report the
+     * device at all — so the extension is asked for where it exists and the
+     * bindings suggested where it was granted. Nothing else changes: the stylus
+     * fills the same MoteVrHand as a Touch controller, which is what lets an
+     * app clamp one to a cue and not care which it is holding. */
+    S.has_stylus = have_ext(ext, n, "XR_LOGITECH_mx_ink_stylus_interaction");
+    if (S.has_stylus) want[nw++] = "XR_LOGITECH_mx_ink_stylus_interaction";
     S.has_perf = have_ext(ext, n, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
     if (S.has_perf) want[nw++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
     S.has_refresh = have_ext(ext, n, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
@@ -719,6 +728,43 @@ static int make_actions(void) {
     sb.suggestedBindings = kb;
     sb.countSuggestedBindings = sizeof kb / sizeof kb[0];
     xrSuggestInteractionProfileBindings(S.instance, &sb);
+
+    /* The stylus, where the runtime has it. Its grip pose is the barrel, which
+     * is exactly what a clamp on a cue wants; the tip cluster and the two
+     * pressure inputs are not bound, because a cue does not need them and an
+     * unbound action costs nothing.
+     *
+     * Suggested only when the extension was granted: the paths do not resolve
+     * without it and the whole suggestion is then rejected, taking nothing with
+     * it but a log line. */
+    if (S.has_stylus) {
+        XrActionSuggestedBinding pb[] = {
+            { S.a_pose,    path("/user/hand/left/input/grip/pose") },
+            { S.a_pose,    path("/user/hand/right/input/grip/pose") },
+            { S.a_aim,     path("/user/hand/left/input/aim/pose") },
+            { S.a_aim,     path("/user/hand/right/input/aim/pose") },
+            /* The barrel's front button reads as the trigger, the rear as the
+             * grip: that is where a hand's finger and thumb already are. */
+            { S.a_trigger, path("/user/hand/left/input/front/value") },
+            { S.a_trigger, path("/user/hand/right/input/front/value") },
+            { S.a_squeeze, path("/user/hand/left/input/rear/value") },
+            { S.a_squeeze, path("/user/hand/right/input/rear/value") },
+            { S.a_lower,   path("/user/hand/left/input/cluster_front/click") },
+            { S.a_lower,   path("/user/hand/right/input/cluster_front/click") },
+            { S.a_upper,   path("/user/hand/left/input/cluster_back/click") },
+            { S.a_upper,   path("/user/hand/right/input/cluster_back/click") },
+            { S.a_haptic,  path("/user/hand/left/output/haptic") },
+            { S.a_haptic,  path("/user/hand/right/output/haptic") },
+        };
+        sb.interactionProfile =
+            path("/interaction_profiles/logitech/mx_ink_stylus_logitech");
+        sb.suggestedBindings = pb;
+        sb.countSuggestedBindings = sizeof pb / sizeof pb[0];
+        if (!XR_SUCCEEDED(xrSuggestInteractionProfileBindings(S.instance, &sb)))
+            xrlog("[mote-xr] stylus bindings rejected");
+        else
+            xrlog("[mote-xr] stylus profile bound");
+    }
 
     XrSessionActionSetsAttachInfo at = { XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
     at.countActionSets = 1;
