@@ -103,6 +103,19 @@
   .rack .row img{border-radius:4px}
   @media(max-width:640px){.rack .row{grid-template-columns:1fr}.rack .row .nm{text-align:left}}
 
+  details.maths{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:0 18px;margin:26px 0}
+  details.maths[open]{padding-bottom:14px}
+  details.maths summary{cursor:pointer;padding:14px 0;color:var(--gold);font-size:1.1rem;
+    font-weight:600;list-style:none;display:flex;align-items:center;gap:10px}
+  details.maths summary::-webkit-details-marker{display:none}
+  details.maths summary::before{content:"▸";color:var(--grnl);transition:transform .15s}
+  details.maths[open] summary::before{transform:rotate(90deg)}
+  details.maths summary span{color:var(--dim);font-weight:400;font-size:.9rem}
+  .eq{background:#0c110b;border:1px solid var(--line);border-left:3px solid var(--grnl);
+      border-radius:0 6px 6px 0;padding:10px 16px;margin:12px 0;overflow-x:auto;
+      font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92rem;color:#dfe9db}
+  .eq .c{color:var(--dim)}
   footer{padding:36px 0 64px;color:var(--dim);font-size:.92rem}
 </style>
 </head>
@@ -131,7 +144,6 @@
   <a href="#controls">Controls</a>
   <a href="#stroke">Playing a shot</a>
   <a href="#games">The games</a>
-  <a href="#balls">Ball sets</a>
   <a href="#rules">Rules and the referee</a>
   <a href="#opponents">Opponents</a>
   <a href="#career">Career</a>
@@ -140,7 +152,6 @@
   <a href="#look">Table and room</a>
   <a href="#cues">Cues</a>
   <a href="#physics">Physics</a>
-  <a href="#trouble">Troubleshooting</a>
 </div></nav>
 
 <div class="wrap">
@@ -183,7 +194,8 @@
     <tr><th>Control</th><th>What it does</th></tr>
     <tr><td>Left stick</td><td>Slides the table around the room.</td></tr>
     <tr><td>Right stick, left and right</td><td>Turns the table.</td></tr>
-    <tr><td>Right stick, up and down</td><td>Raises and lowers the table.</td></tr>
+    <tr><td>Right stick, up and down</td><td>Raises and lowers the table. This is the only thing
+      that needs this screen — sliding and turning work anywhere.</td></tr>
     <tr><td><kbd>A</kbd></td><td>Finished. Saves the position.</td></tr>
   </table>
 
@@ -196,11 +208,13 @@
 
   <p>A real snooker table has its bed about 85 cm off the floor, which is where the screen starts.
   You do not need a room big enough for the whole table. If space is tight, bring the part of the
-  table you need into the space you have: turn the table with the right stick and slide it with the
-  left, then play. You can do this as often as you like, including in the middle of a frame.</p>
+  table you need into the space you have — the left stick slides it and the right stick turns it,
+  at any time, and you can keep doing that as the frame goes on.</p>
 
-  <p>The table stays where you put it. To move it later, press the <kbd>MENU</kbd> button and choose
-  <b>PLACE TABLE</b>.</p>
+  <p>The table stays where you put it between sessions. You do not have to come back to this screen
+  to move it, though: the sticks slide and turn the table whenever you are at it, including in the
+  middle of a frame. The one thing only this screen can change is the <b>height</b> — to get back to
+  it, press <kbd>MENU</kbd> and choose <b>PLACE TABLE</b>.</p>
 
   <figure>
     <img src="img/cuevr/pause-menu.jpg" alt="The pause menu">
@@ -214,17 +228,18 @@
   <p class="lede">Both controllers hold the cue. The buttons do a small number of jobs, and the two
   side triggers are the ones worth learning.</p>
 
-  <p>One hand is your <b>bridge hand</b>, the one the cue rests on at the front. The other is your
-  <b>butt hand</b>, the one you hold the end with and stroke with. Which physical controller is
-  which depends on the handedness setting, so everything below is written in terms of the two
-  hands, not left and right.</p>
+  <p>The cue lies between your two controllers, so both hands aim it together: the line of the shot
+  is the line between them. One hand is your <b>bridge hand</b>, where the front of the cue rests.
+  The other is your <b>butt hand</b>, which holds the end and plays the stroke. Which physical
+  controller is which depends on the handedness setting, so everything below is written in terms of
+  the two hands rather than left and right.</p>
 
   <table>
     <tr><th>Control</th><th>What it does</th></tr>
     <tr><td><b>Bridge hand</b></td>
-        <td>Carries the front of the cue. The cue pivots on it, so this hand is what aims.</td></tr>
+        <td>Sets your bridge position — where the front of the cue rests.</td></tr>
     <tr><td><b>Butt hand</b></td>
-        <td>Holds the end of the cue. Moving it forward is the stroke.</td></tr>
+        <td>Holds the butt of the cue. Moving it forward is the stroke.</td></tr>
     <tr><td><b>Butt hand trigger</b></td>
         <td><b>Takes the shot.</b> Pull it to commit — that locks the line the cue will travel
         along, so your aim cannot drift while you deliver. Keep it held and move the hand forward
@@ -239,6 +254,12 @@
     <tr><td><b>Bridge hand side trigger</b> (double tap)</td>
         <td>Puts that offset back to the default. <b>RESET CUE</b> on the controls screen does the
         same thing.</td></tr>
+    <tr><td><b>Left stick</b></td>
+        <td>Slides the table around the room. Works at any time, including mid-frame, on either
+        hand.</td></tr>
+    <tr><td><b>Right stick</b></td>
+        <td>Turns the table. Also at any time. Between the two sticks you can bring any shot in
+        front of you without walking.</td></tr>
     <tr><td><b>Trigger</b> (in menus)</td><td>Selects the row or item you are pointing at.</td></tr>
     <tr><td><kbd>A</kbd> and <kbd>B</kbd></td><td>Confirm and go back.</td></tr>
     <tr><td><kbd>MENU</kbd></td><td>Pauses the game.</td></tr>
@@ -264,8 +285,9 @@
 
 <section id="stroke">
   <h2>Playing a shot</h2>
-  <p class="lede">The cue is a real object between your two hands. Where you point it is where the
-  ball goes, and how fast you move it is how hard the ball is hit.</p>
+  <p class="lede">The cue is a real object lying between your two controllers. The line between
+  your hands is the line of the shot, and how fast you move the butt hand is how hard the ball is
+  hit.</p>
 
   <figure>
     <img src="img/cuevr/stroke.jpg" alt="Looking down the cue at the cue ball">
@@ -288,26 +310,44 @@
   </ol>
 
   <h3>Shots you cannot reach</h3>
-  <p>You do not have to walk to the far end. Open the pause menu, choose <b>PLACE TABLE</b>, and
-  turn and slide the table until the shot is in front of you. For a shot tight against a cushion,
-  hold the butt hand's side trigger and pull that hand back to shorten the cue.</p>
+  <p>Bring the shot to you. The sticks move the table at any time, in the middle of a frame
+  included: the left stick slides it, the right stick turns it. Nothing needs to be opened first
+  and nothing is interrupted. For a shot tight against a cushion, hold the butt hand's side trigger
+  and pull that hand back to shorten the cue.</p>
 </section>
 
 <section id="games">
   <h2>The games</h2>
-  <p class="lede">Seven games, each on the table it is really played on, with its own rules, rack
-  and pocket shape.</p>
+  <p class="lede">Seven games, each on the table it is really played on. The rules below are the
+  rules the game enforces — the referee applies all of them, so you never have to.</p>
 
   <div class="mode">
     <div>
       <h3>Snooker</h3>
       <div class="spec">12FT TABLE · 15 REDS · 6 COLOURS</div>
-      <p>The full game. Pot a red, then a colour, then another red, until the reds are gone. The
-      colours are put back on their spots each time until the last red has been potted, and then
-      you clear them in order from yellow to black.</p>
-      <p>Reds are worth one point. Yellow is two, green three, brown four, blue five, pink six and
-      black seven. The table is big, the pockets have rounded jaws, and a long pot is a genuine
-      test.</p>
+      <p>Pot a red, then a colour, then another red, and so on. Each red you pot stays down; each
+      colour goes back on its spot until the reds are finished. When the last red and the colour
+      after it are gone, you clear the colours in order from yellow to black.</p>
+      <p><b>Values.</b> Red 1, yellow 2, green 3, brown 4, blue 5, pink 6, black 7.</p>
+      <p><b>Nominating.</b> When you are on a colour you have to say which one, and the game takes
+      the colour you aim at.</p>
+      <p><b>Fouls</b> are hitting nothing, hitting the wrong ball first, potting the cue ball,
+      jumping the cue ball over a ball, and driving any ball off the table. The penalty is four
+      points, or the value of the ball you were on, the ball you hit first, or the highest ball you
+      potted — whichever of those is greatest. The points go to your opponent.</p>
+      <p><b>After a foul</b> your opponent plays from where the balls are, or from in hand if the
+      cue ball was potted. If the foul leaves them unable to hit the ball on, they get a
+      <b>free ball</b>: they may nominate any ball as the one they are on, and it scores what the
+      real ball on is worth.</p>
+      <p><b>Miss.</b> If you fail to hit the ball on, a miss is called and your opponent may make
+      you play the shot again from exactly where it was. Failing to escape a snooker counts — that
+      is the most common miss there is. The only time a miss is not called is when your opponent
+      needs snookers to win the frame anyway.</p>
+      <p>Three misses in a row lose the frame, but only genuine ones: a miss played from a snooker
+      does not count towards it.</p>
+      <p><b>The end.</b> Once the black is potted the frame is over. If the scores are level, the
+      black is respotted, the player who did not pot it plays first from in hand, and the next
+      score wins.</p>
     </div>
     <figure><img src="img/cuevr/table4.jpg" alt="A 12ft snooker table"></figure>
   </div>
@@ -317,9 +357,10 @@
     <div>
       <h3>10-red snooker</h3>
       <div class="spec">10FT TABLE · 10 REDS · 6 COLOURS</div>
-      <p>Snooker with the same rules and fewer reds, on a smaller table. A frame takes roughly half
-      as long, and a clearance is within reach much sooner.</p>
-      <p>A good choice if you want proper snooker but do not want to commit to a full frame.</p>
+      <p>Exactly the rules above — reds and colours, the same values, the same fouls, free balls,
+      misses and respotted black — with ten reds instead of fifteen, on a ten-foot table.</p>
+      <p>A frame takes about half as long, and a total clearance is a realistic thing to try for
+      rather than a fantasy.</p>
     </div>
   </div>
 
@@ -327,10 +368,9 @@
     <div>
       <h3>6-red snooker</h3>
       <div class="spec">7FT TABLE · 6 REDS · 6 COLOURS</div>
-      <p>The quickest snooker there is. Six reds on a seven-foot table, so everything is reachable
-      and frames are short.</p>
-      <p>This is the easiest way into snooker if you have never played it, and the best one for a
-      small room.</p>
+      <p>Snooker again, unchanged in every rule, with six reds on a seven-foot table.</p>
+      <p>Everything is within reach and frames are short, so this is the easiest way in if you have
+      never played snooker, and the one to choose in a small room.</p>
     </div>
     <figure><img src="img/cuevr/table6.jpg" alt="A 6-red snooker table"></figure>
   </div>
@@ -340,9 +380,17 @@
     <div>
       <h3>UK 8-ball</h3>
       <div class="spec">7FT TABLE · REDS AND YELLOWS · BLACK</div>
-      <p>The pub game. Take reds or yellows, clear your seven, then pot the black to win. The
-      pockets are small and rounded, so pace matters more than it looks.</p>
-      <p>Fouls give your opponent two shots, which carry until they pot a ball.</p>
+      <p>The pub game. The table is open until somebody pots a colour, and that colour becomes
+      theirs; the other player takes the rest. Clear your seven, then pot the black to win.</p>
+      <p><b>Fouls</b> are potting the cue ball, hitting nothing, hitting the other player's colour
+      first, hitting the black before you are on it, and driving a ball off the table. Jumping the
+      cue ball is not a foul in pool.</p>
+      <p><b>Two shots.</b> A foul gives your opponent <b>two visits</b> rather than ball in hand.
+      The cue ball stays where it finished unless it was potted, in which case they play from in
+      hand behind the baulk line. The first of those two shots is free: they may hit any ball. Once
+      they pot one of their own, the second shot is gone.</p>
+      <p><b>The black.</b> Potting it before your colours are gone loses the frame, as does fouling
+      while potting it. If it goes in on the break it is put back and the break stands.</p>
     </div>
   </div>
 
@@ -350,10 +398,15 @@
     <div>
       <h3>US 8-ball</h3>
       <div class="spec">9FT TABLE · SOLIDS AND STRIPES · 8 BALL</div>
-      <p>Solids or stripes, then the 8 ball. The table is nine feet with wide, straight-cut pockets
-      that accept a ball more easily than a snooker pocket does.</p>
-      <p>The bigger table means longer shots and more room to move the cue ball around, so position
-      play matters.</p>
+      <p>WPA rules. The table is open after the break — whatever you pot first decides whether you
+      are solids or stripes — and once your group is clear you are on the 8.</p>
+      <p><b>Fouls</b> are potting the cue ball, hitting nothing, hitting the other group first,
+      hitting the 8 first while the table is open or before your group is clear, hitting anything
+      other than the 8 once you are on it, and driving a ball off the table.</p>
+      <p><b>Ball in hand.</b> Any foul gives your opponent the cue ball <b>anywhere on the
+      table</b> — not just behind a line. It is a heavy penalty and it is meant to be.</p>
+      <p><b>The 8.</b> Pot it after your group is clear and you win. Pot it early, or foul on the
+      shot that pots it, and you lose. On the break it is simply put back.</p>
     </div>
     <figure><img src="img/cuevr/table1.jpg" alt="A US 8-ball table"></figure>
   </div>
@@ -363,10 +416,19 @@
     <div>
       <h3>9-ball</h3>
       <div class="spec">9FT TABLE · 9 BALLS · DIAMOND RACK</div>
-      <p>Always hit the lowest ball on the table first. Pot the 9 and you win, so a lucky
-      combination can end a frame at any moment.</p>
-      <p>The player after the break may play a push-out: one shot with the usual rules suspended,
-      after which their opponent chooses who plays next.</p>
+      <p>You must always hit the <b>lowest numbered ball</b> on the table first, but any ball may
+      then go in. Pot the 9 legally and you win at once — including straight off the break, and
+      including off a combination, which is what makes the game what it is.</p>
+      <p><b>Fouls</b> are potting the cue ball, hitting nothing, hitting anything other than the
+      lowest ball first, failing to pot a ball or send any ball to a cushion after the contact, and
+      driving a ball off the table.</p>
+      <p><b>Ball in hand</b> anywhere on the table for the opponent, as at US 8-ball. If the 9 was
+      potted on a foul it goes back on its spot. <b>Three fouls in a row loses the frame.</b></p>
+      <p><b>The push-out.</b> The player who takes the first shot after the break may declare a
+      push-out: they may hit the cue ball anywhere they like, with no need to hit the lowest ball
+      or reach a cushion, and the only foul is potting the cue ball. A 9 potted on a push-out goes
+      back. Afterwards their opponent decides whether to play the resulting position or hand it
+      straight back.</p>
     </div>
   </div>
 
@@ -374,45 +436,18 @@
     <div>
       <h3>Chinese 8-ball</h3>
       <div class="spec">10FT TABLE · SOLIDS AND STRIPES · ROUNDED POCKETS</div>
-      <p>Pool balls and pool rules on a table built like a snooker table: ten feet long, with tight
-      rounded pockets that punish a ball hit too hard.</p>
-      <p>It is the hardest of the seven to pot on, and the most satisfying when you do.</p>
+      <p>Pool balls and WPA 8-ball rules — identical to US 8-ball above, including ball in hand
+      anywhere for any foul — played on a ten-foot table built like a snooker table, with tight
+      rounded pockets.</p>
+      <p>Those pockets are the whole difference. They reject a ball hit too hard and punish an
+      approach that is even slightly off, so it plays as the hardest of the seven.</p>
     </div>
     <figure><img src="img/cuevr/table3.jpg" alt="A Chinese 8-ball table"></figure>
   </div>
 
   <p>Match length is set on the main menu: one frame, or best of 3, 5, 7, 9 or 11. The break
-  alternates between players and the score carries through the match.</p>
-</section>
-
-<section id="balls">
-  <h2>Ball sets</h2>
-  <p class="lede">Eight sets. Choose the one you can read most easily from the far end of the
-  table.</p>
-
-  <div class="grid g4">
-    <figure><img src="img/cuevr/balls0.jpg" alt="The PRO ball set">
-      <figcaption><span class="cap-t">PRO</span> — standard numbered balls.</figcaption></figure>
-    <figure><img src="img/cuevr/balls1.jpg" alt="The UK yellow and blue set">
-      <figcaption><span class="cap-t">UK Y/B</span> — pub yellows and blues.</figcaption></figure>
-    <figure><img src="img/cuevr/balls2.jpg" alt="The UK yellow and red set">
-      <figcaption><span class="cap-t">UK Y/R</span> — pub yellows and reds.</figcaption></figure>
-    <figure><img src="img/cuevr/balls3.jpg" alt="The DYNA ball set">
-      <figcaption><span class="cap-t">DYNA</span> — two colours, bolder.</figcaption></figure>
-    <figure><img src="img/cuevr/balls4.jpg" alt="The PRO TOUR ball set">
-      <figcaption><span class="cap-t">PRO TOUR</span> — numbered, tournament colours.</figcaption></figure>
-    <figure><img src="img/cuevr/balls5.jpg" alt="The HOT PINK ball set">
-      <figcaption><span class="cap-t">HOT PINK</span> — pink and black.</figcaption></figure>
-    <figure><img src="img/cuevr/balls6.jpg" alt="The SPACE ball set">
-      <figcaption><span class="cap-t">SPACE</span> — numbered, darker colours.</figcaption></figure>
-    <figure><img src="img/cuevr/balls7.jpg" alt="The VINTAGE ball set">
-      <figcaption><span class="cap-t">VINTAGE</span> — aged ivory and muted colours.</figcaption></figure>
-  </div>
-
-  <div class="note">
-    <b>9-ball needs numbered balls.</b> You have to tell every ball apart to play the sequence, so
-    the two-colour sets are not offered for it. Use PRO, PRO TOUR, SPACE or VINTAGE.
-  </div>
+  alternates between players and the score carries through the match. A player who cannot catch up
+  will concede rather than play it out.</p>
 </section>
 
 <section id="rules">
@@ -580,18 +615,16 @@
 
   </div>
 
+  <p><b>RECORDS</b> on the main menu keeps your results against each player, and your best breaks.</p>
+
   <div class="note">
     <b>What the bars mean.</b> <b>Aiming</b> is how close to the intended line they hit the ball.
     <b>Power control</b> is how accurately they judge the weight of a shot. <b>Position</b> is how
     much they play for the next ball rather than just the current one. <b>Spin</b> is how much
-    screw and top they are willing to use. <b>Aggression</b> is how likely they are to take a pot on
+    backspin and topspin they are willing to use. <b>Aggression</b> is how likely they are to take a pot on
     instead of playing safe.
   </div>
 
-  <figure>
-    <img src="img/cuevr/standings.jpg" alt="The records screen">
-    <figcaption><b>RECORDS</b> keeps your results against each player, and your best breaks.</figcaption>
-  </figure>
 </section>
 
 <section id="career">
@@ -676,9 +709,24 @@
   what surrounds you. None of it changes how the game plays.</p>
 
   <figure>
-    <img src="img/cuevr/appearance.jpg" alt="The appearance screen">
-    <figcaption>Everything is on one screen.</figcaption>
+    <img src="img/cuevr/appear-menu.jpg" alt="The appearance menu">
+    <figcaption>The appearance menu, reached from <b>APPEARANCE</b> on the main menu or from the
+    pause menu during a frame. Each row opens its own picker; the change happens straight away on
+    the table in front of you, so you can see it before you commit.</figcaption>
   </figure>
+
+  <table>
+    <tr><th>Row</th><th>What it changes</th></tr>
+    <tr><td><b>CLOTH</b></td><td>The colour of the cloth. Twenty-four to choose from.</td></tr>
+    <tr><td><b>FRAME</b></td><td>The timber of the frame and rails — seven finishes.</td></tr>
+    <tr><td><b>TABLE</b></td><td>The build of the table itself: legs, cabinet and proportions.</td></tr>
+    <tr><td><b>LIGHTING</b></td><td>The light rig over the table.</td></tr>
+    <tr><td><b>BALLS</b></td><td>Which set of balls is racked.</td></tr>
+    <tr><td><b>CUE BALL SPOTS</b></td><td>Whether the cue ball carries spots. With them on you can
+      see what the white is doing — how much it is spinning and which way.</td></tr>
+    <tr><td><b>CUE</b></td><td>Your cue, from a rack of eighteen.</td></tr>
+    <tr><td><b>SURROUNDINGS</b></td><td>Your own room, a dark hall, or an arena.</td></tr>
+  </table>
 
   <h3>Table designs</h3>
   <div class="grid g4">
@@ -688,6 +736,32 @@
     <figure><img src="img/cuevr/body3.jpg" alt="American table"><figcaption><span class="cap-t">AMERICAN</span></figcaption></figure>
   </div>
 
+  <h3>Balls</h3>
+  <p>Eight sets. Choose the one you can read most easily from the far end of the table.</p>
+
+  <div class="grid g4">
+    <figure><img src="img/cuevr/balls0.jpg" alt="The PRO ball set">
+      <figcaption><span class="cap-t">PRO</span> — standard numbered balls.</figcaption></figure>
+    <figure><img src="img/cuevr/balls1.jpg" alt="The UK yellow and blue set">
+      <figcaption><span class="cap-t">UK Y/B</span> — pub yellows and blues.</figcaption></figure>
+    <figure><img src="img/cuevr/balls2.jpg" alt="The UK yellow and red set">
+      <figcaption><span class="cap-t">UK Y/R</span> — pub yellows and reds.</figcaption></figure>
+    <figure><img src="img/cuevr/balls3.jpg" alt="The DYNA ball set">
+      <figcaption><span class="cap-t">DYNA</span> — two colours, bolder.</figcaption></figure>
+    <figure><img src="img/cuevr/balls4.jpg" alt="The PRO TOUR ball set">
+      <figcaption><span class="cap-t">PRO TOUR</span> — numbered, tournament colours.</figcaption></figure>
+    <figure><img src="img/cuevr/balls5.jpg" alt="The HOT PINK ball set">
+      <figcaption><span class="cap-t">HOT PINK</span> — pink and black.</figcaption></figure>
+    <figure><img src="img/cuevr/balls6.jpg" alt="The SPACE ball set">
+      <figcaption><span class="cap-t">SPACE</span> — numbered, darker colours.</figcaption></figure>
+    <figure><img src="img/cuevr/balls7.jpg" alt="The VINTAGE ball set">
+      <figcaption><span class="cap-t">VINTAGE</span> — aged ivory and muted colours.</figcaption></figure>
+  </div>
+
+  <div class="note">
+    <b>9-ball needs numbered balls.</b> You have to tell every ball apart to play the sequence, so
+    the two-colour sets are not offered for it. Use PRO, PRO TOUR, SPACE or VINTAGE.
+  </div>
   <h3>Woodwork</h3>
   <div class="grid g4">
     <figure><img src="img/cuevr/wood0.jpg" alt="Walnut"><figcaption><span class="cap-t">WALNUT</span></figcaption></figure>
@@ -700,6 +774,11 @@
   </div>
 
   <h3>Cloth</h3>
+  <figure>
+    <img src="img/cuevr/cloth-picker.jpg" alt="The cloth picker">
+    <figcaption>The cloth picker. The one on the table is outlined; point at any other to see its
+    name, and pull the trigger to fit it.</figcaption>
+  </figure>
   <p>Twenty-four colours. Here are eight of them:</p>
   <div class="grid g4">
     <figure><img src="img/cuevr/cloth0.jpg" alt="Black cloth"><figcaption><span class="cap-t">BLACK</span></figcaption></figure>
@@ -717,7 +796,7 @@
   <div class="grid g2">
     <figure><img src="img/cuevr/light0.jpg" alt="Match lighting"><figcaption><span class="cap-t">MATCH</span> — one hard light over the table, as used for television. Bright cloth, dark surroundings, hard-edged shadows under the balls.</figcaption></figure>
     <figure><img src="img/cuevr/light1.jpg" alt="Six shade lighting"><figcaption><span class="cap-t">SIX SHADE</span> — six shades in a row down the length, as a club table has. Even light along the table and softer shadows. This is the default.</figcaption></figure>
-    <figure><img src="img/cuevr/light2.jpg" alt="Room lighting"><figcaption><span class="cap-t">ROOM</span> — no fixtures at all, just even light from above. Flat, with the least shadow.</figcaption></figure>
+    <figure><img src="img/cuevr/light2.jpg" alt="Room lighting"><figcaption><span class="cap-t">ROOM</span> — six spotlights, lighting the room rather than only the table.</figcaption></figure>
     <figure><img src="img/cuevr/light3.jpg" alt="Window lighting"><figcaption><span class="cap-t">WINDOW</span> — daylight from one side, so one long rail is lit and the other falls away.</figcaption></figure>
   </div>
 
@@ -755,66 +834,162 @@
     <div class="row"><div class="nm">VIKING SCROLL</div><img src="img/cuevr/cue17.jpg" alt="Viking Scroll cue"></div>
   </div>
 
-  <figure>
-    <img src="img/cuevr/cue-on-table.jpg" alt="A cue on the table">
-    <figcaption>Every cue is a full-length object with its own butt, splice and tip.</figcaption>
-  </figure>
 </section>
 
 <section id="physics">
   <h2>Physics</h2>
-  <p class="lede">The table is built to behave like a real one. The numbers in the physics engine
-  come from published measurements of real equipment rather than from guesswork.</p>
+  <p class="lede">Nothing in CueVR is scripted. Every pot, safety, swerve and rattle comes out of a
+  simulation of real balls on real cloth, so the things you know from a real table work here, and
+  the things you have to allow for on a real table you have to allow for here too.</p>
+
+  <h3>Where you hit the cue ball</h3>
+  <p>There is no spin control. What the cue ball does after it hits another ball is decided by two
+  things only: where on the ball your tip lands, and how hard you hit it. (Players call these
+  topspin "follow", backspin "screw" or "draw", and sidespin "side" or "english".)</p>
+  <ul>
+    <li><b>Middle of the ball.</b> The ball slides at first, picks up forward roll from the cloth as
+    it travels, and carries on forward after it hits something.</li>
+    <li><b>Above the middle — topspin.</b> The ball is already rolling forward when it arrives, so
+    it keeps going through the ball it hits.</li>
+    <li><b>Below the middle — backspin.</b> The ball arrives spinning backwards and comes back
+    towards you after the contact. The cloth rubs backspin off as the ball travels, so it needs pace
+    and it will not survive the length of the table: over a long distance the ball goes into normal
+    forward roll before it ever arrives.</li>
+    <li><b>Middle, hit firmly — the stop shot.</b> If the ball is still sliding rather than rolling
+    when it arrives, it stops dead on a full contact instead of following through.</li>
+    <li><b>Left or right of the middle — sidespin.</b> The ball spins like a top as it travels. This
+    barely changes where the ball you hit goes, but it changes what your ball does off a cushion,
+    and it lasts a couple of seconds before the cloth wears it off.</li>
+  </ul>
+
+  <h3>Sidespin pushes your ball off the line you aimed</h3>
+  <p>Hit away from the middle of the ball and it does not set off down the line of the cue. It is
+  pushed the opposite way to the sidespin you put on — right-hand sidespin sends it slightly left —
+  and the harder you hit, the more it goes. This happens with a real cue too, and you have to aim
+  off to allow for it. If you keep missing to one side when using sidespin, this is why.</p>
+
+  <h3>Sidespin plus a raised cue makes the ball curve</h3>
+  <p>Lift the back of the cue and some of the hit goes downwards into the cloth instead of along
+  the table. With sidespin on, the ball sets off on one line and then bends away from it while the
+  spin grips the cloth. A small lift gives a gentle curve you can use to get round a ball in the
+  way; a big lift gives an obvious hook.</p>
+
+  <h3>Cue angle</h3>
+  <p>You cannot always hold the cue flat. When your ball is tight against a cushion the back of the
+  cue has to come up to clear it, and the game does that for you rather than letting the cue pass
+  through the cushion. A raised cue puts some of the hit downwards into the cloth, so expect less
+  length and more curve than the same shot played flat.</p>
+
+  <h3>Jump shots</h3>
+  <p>Raise the cue far enough and the cue ball leaves the bed. It comes down, bounces two or three
+  times — cloth over slate gives very little back — and settles into a normal roll. Snooker has its own rules
+  about when a jump is allowed and when it is a foul, and the referee applies them.</p>
+
+  <h3>Throw: the ball you hit does not go quite where you aimed</h3>
+  <p>When two balls meet they grip each other for the instant they are touching, and that grip
+  pushes the ball you hit slightly off the line. Two things cause it:</p>
+  <ul>
+    <li><b>The angle.</b> On anything other than a dead-straight contact the two balls rub across
+    each other as they part, which drags the ball you hit a little fuller than the pure angle
+    suggests.</li>
+    <li><b>Sidespin.</b> A spinning cue ball rubs sideways against the ball it touches and pushes
+    it that way — the same reason a spinning football bends. So a shot played with sidespin can
+    miss even when the line was right, and the more sidespin you use the more you have to allow.</li>
+  </ul>
+  <p>Both are small. On a short pot you will not notice; on a long one it is the difference between
+  the middle of the pocket and the jaw.</p>
 
   <h3>Cushions</h3>
-  <p>A cushion returns less of the ball's speed the harder it is hit, so a firm shot comes off the
-  rail relatively slower than a gentle one. Each table has its own rubber: a snooker cushion, a UK
-  championship cushion and an American pool cushion all respond differently.</p>
+  <p>A cushion is rubber, not a wall, and it does three things you can use:</p>
+  <ul>
+    <li><b>It takes more off a hard shot than a soft one.</b> Restitution falls as the ball arrives
+    faster, so a firm ball comes off proportionally slower than a gentle one. You cannot judge a
+    two-cushion position from a one-cushion one just by hitting it harder.</li>
+    <li><b>Each table's rubber is different.</b> An American pool cushion is the liveliest, a UK
+    championship cushion the deadest, with snooker and Chinese 8-ball between them.</li>
+    <li><b>Sidespin changes the angle.</b> The cushion has friction along it, so sidespin that is
+    turning the same way the ball is travelling opens the angle out, and sidespin against it
+    tightens the angle.</li>
+  </ul>
+  <p>The cushion nose sits above the middle of the ball, as it does on a real table, so a ball is
+  pressed down into the cloth as it goes in and lifted slightly as it comes out.</p>
 
   <h3>Pockets</h3>
-  <p>Every pocket is cut to the shape of the table it belongs to, and what you see drawn on the
-  cloth is exactly what will catch the ball. The jaws take the pace off a firm pot rather than
-  throwing it back out, and a ball hit too hard into a rounded pocket can rattle and stay out.</p>
+  <p>The pocket you see cut into the cloth is exactly the pocket that catches the ball. The jaws
+  take the pace off a firm pot instead of spitting it out, but a ball hit hard into a rounded
+  snooker or Chinese pocket can rattle between the jaws and stay out. Speed is not free.</p>
 
-  <h3>Contact and spin</h3>
-  <p>When the cue ball strikes an object ball, friction throws the object ball very slightly off
-  the line you aimed at. It is small, but it is why a thin cut does not go exactly where the
-  geometry suggests. Screw needs pace behind it to survive the journey up the table, side pushes
-  the object ball and also deflects the cue ball away from your aim, and a ball struck above centre
-  runs on after the contact.</p>
+  <details class="maths">
+    <summary>The numbers behind it <span>— the model, the constants and the formulae</span></summary>
 
-  <figure>
-    <img src="img/cuevr/table4.jpg" alt="A snooker table">
-    <figcaption>Your opponent plays through exactly the same physics you do.</figcaption>
-  </figure>
-</section>
+    <p>Every ball is a rigid sphere with a position, a velocity and an angular velocity, stepped at
+    a fixed 2000 Hz. Snooker balls are 52.5 mm across and 142 g; pool balls are 57.15 mm and 170 g.
+    Gravity is 9.806 m/s². For a uniform sphere:</p>
+    <div class="eq">I = (2/5) · m · R²</div>
 
-<section id="trouble">
-  <h2>Troubleshooting</h2>
+    <h3>Ball on cloth</h3>
+    <p>The ball touches the cloth at one point beneath its centre,
+    <b>r</b><sub>c</sub> = (0, −R, 0). The velocity of that point is how much the ball is slipping
+    rather than rolling:</p>
+    <div class="eq">u = v + ω × r<sub>c</sub>   <span class="c">(horizontal part)</span></div>
+    <p>While it slips, kinetic friction acts against the slip. For a uniform sphere the linear and
+    angular effects combine so the slip itself decays at</p>
+    <div class="eq">d|u|/dt = −(7/2) · μ<sub>s</sub> · g      <span class="c">μ<sub>s</sub> = 0.20</span></div>
+    <p>The same force acts on the centre of mass, and through <b>τ</b> = <b>r</b><sub>c</sub> ×
+    <b>F</b> on the spin — which is how backspin and topspin turn into a change of direction. Once the
+    slip reaches zero the ball rolls, the spin is tied to the velocity, and only rolling resistance
+    remains:</p>
+    <div class="eq">ω<sub>x</sub> = v<sub>z</sub>/R,  ω<sub>z</sub> = −v<sub>x</sub>/R
+    <br>dv/dt = −μ<sub>r</sub> · g      <span class="c">μ<sub>r</sub> = 0.010</span></div>
+    <p>Side is about the vertical axis and is tied to nothing, so it decays on its own:</p>
+    <div class="eq">dω<sub>y</sub>/dt = −(5 · μ<sub>sp</sub> · g) / (2R)   <span class="c">μ<sub>sp</sub> = 0.022</span></div>
 
-  <h3>The table feels like the wrong height</h3>
-  <p>Press <kbd>MENU</kbd>, choose <b>PLACE TABLE</b>, and set the height to match a real surface in
-  your room.</p>
+    <h3>Ball on ball</h3>
+    <p>An impulse along the line of centres, with a reduced mass of m/2 for equal balls:</p>
+    <div class="eq">J<sub>n</sub> = −(1 + e) · v<sub>n</sub> / (2/m)     <span class="c">e = 0.96</span></div>
+    <p>and a tangential impulse limited by friction between the surfaces (μ = 0.06). That second
+    impulse is the throw described above, and it also transfers spin between the balls.</p>
 
-  <h3>I cannot reach a shot</h3>
-  <p>Rotate and move the table rather than walking to the shot. Press <kbd>MENU</kbd>, choose
-  <b>PLACE TABLE</b>, turn the table with the right stick and slide it with the left until the ball
-  you want is in front of you, then carry on. For a shot tight to a cushion, hold the butt hand's
-  side trigger and pull that hand back to shorten the cue.</p>
+    <h3>Cushions</h3>
+    <p>The nose is set by the WPA specification at 63.5% of a ball's diameter:</p>
+    <div class="eq">h = 1.27 · R</div>
+    <p>so contact is above the equator. The rebound follows the impact model of Mathavan, Jackson
+    and Parkin: the contact is integrated over accumulated normal impulse rather than resolved in
+    one step, using energetic restitution. Restitution falls linearly with approach speed and is
+    clamped at a floor:</p>
+    <div class="eq">e(v) = e₀ − k · v      <span class="c">clamped to [0.55, e₀]</span></div>
+    <table>
+      <tr><th>Table</th><th>e₀ (at a crawl)</th><th>k (per m/s)</th></tr>
+      <tr><td>Snooker</td><td>0.970</td><td>0.050</td></tr>
+      <tr><td>UK 8-ball</td><td>0.965</td><td>0.052</td></tr>
+      <tr><td>Chinese 8-ball</td><td>0.968</td><td>0.050</td></tr>
+      <tr><td>US pool</td><td>0.985</td><td>0.046</td></tr>
+    </table>
+    <p>Those come from published measurements of real cushions — the low-speed gradient from
+    Mathavan's work on a Riley Renaissance table, the 0.55 floor from Marlow. Rail friction is
+    μ = 0.12 along the cushion, of which 30% couples into the vertical spin axis; at full coupling
+    a ball built up unrealistic side over several rails.</p>
 
-  <h3>The cue has ended up somewhere strange</h3>
-  <p>Open <b>CONTROLS</b> and choose <b>RESET CUE</b>.</p>
+    <h3>Leaving the bed</h3>
+    <p>A ball off the cloth is under gravity, bounces with a restitution of 0.40, and settles once a
+    hop would be under about a millimetre.</p>
 
-  <h3>My friend and I are seeing different tables</h3>
-  <p>Each end corrects itself from whoever played the last shot, so a small difference should fix
-  itself within a shot or two. If a frame gets stuck, either player can re-rack from the pause
-  menu.</p>
+    <h3>Pockets</h3>
+    <p>Each pocket is an arc cut into the cloth with straight jaw legs, a rounded lip and a throat
+    behind it. A ball is potted when its centre crosses into the drop circle — the circle you can
+    see on the cloth. The lip is a quarter-circle roll, so a ball slower than</p>
+    <div class="eq">v &lt; √( g · (l + R) )    <span class="c">l = lip radius</span></div>
+    <p>stays in contact and is steered down by it, while anything faster leaves the edge and flies.</p>
 
-  <h3>The referee talks too much</h3>
-  <p>Change <b>REF VOICE</b> on the main menu to the other voice, or turn it off.</p>
-
-  <h3>I want to start again</h3>
-  <p><b>RE-RACK</b> on the pause menu sets the table back up without leaving the frame.</p>
+    <h3>The strike</h3>
+    <p>One impulse along the cue's direction, applied where the tip touches. With the tip offset by
+    (s, t) in units of the ball's radius:</p>
+    <div class="eq">r = right · (s · R) + up · (t · R)
+    <br>J = cue_direction · (speed · m)
+    <br>ω = (r × J) / I</div>
+    <p>Deflection is applied to the cue ball's direction as a function of the side used, and cue
+    elevation tilts the impulse downwards, which is where swerve and jumps come from.</p>
+  </details>
 </section>
 
 <footer><div class="wrap">
