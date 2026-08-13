@@ -937,12 +937,81 @@ static float cue_shaft_r(float dd) {
 
 /* Height of whatever is solid under (x,z). Off the table entirely returns a
  * large negative, meaning "nothing below you here". */
+/* WHERE THE POCKETS ARE, from the table alone — the six centres, the hole bored
+ * through the timber at each, the cloth cut around it, and which way the mouth
+ * faces. The cue asks this with no world in its hand, so it is worked out from
+ * the table's own numbers; the cut can be tuned per world on the pocket screen
+ * and this uses the defaults, which is what every table has unless somebody has
+ * been in there moving it. */
+typedef struct { Vec3 c, cut_c, out; float bore, cut_r; } CuePocketGap;
+static int cue_table_pocket_gaps(const CueTable *t, CuePocketGap *g) {
+    const float k = 0.70710678f;
+    const float hl = t->half_len, hw = t->half_wid;
+    CueCut cc, cm;
+    cue_table_default_cut(t->kind, 0, &cc);
+    cue_table_default_cut(t->kind, 1, &cm);
+    const float cx = hl + t->off_corner*k, cz = hw + t->off_corner*k;
+    const float sx[4] = { -1.0f, 1.0f, 1.0f, -1.0f };
+    const float sz[4] = { -1.0f, -1.0f, 1.0f, 1.0f };
+    for (int p = 0; p < 4; p++) {
+        g[p].c     = v3(sx[p]*cx, 0, sz[p]*cz);
+        g[p].cut_c = v3(g[p].c.x + sx[p]*cc.set*k, 0, g[p].c.z + sz[p]*cc.set*k);
+        g[p].out   = v3(sx[p]*k, 0, sz[p]*k);
+        g[p].bore  = t->pr_corner;
+        g[p].cut_r = t->pr_corner * cc.rad;
+    }
+    for (int p = 0; p < 2; p++) {
+        float s = p ? 1.0f : -1.0f;
+        g[4+p].c     = v3(0, 0, s*(hw + t->off_side));
+        g[4+p].cut_c = v3(0, 0, g[4+p].c.z + s*cm.set);
+        g[4+p].out   = v3(0, 0, s);
+        g[4+p].bore  = t->pr_side;
+        g[4+p].cut_r = t->pr_side * cm.rad;
+    }
+    return 6;
+}
+
 static float cue_table_surface(const CueTable *t, float x, float z) {
     float px = t->half_len, pz = t->half_wid;              /* cushion nose */
     float ox = px + t->rail_w, oz = pz + t->rail_w;        /* outer frame edge */
     float ax = fabsf(x), az = fabsf(z);
     if (ax <= px && az <= pz) return 0.0f;                 /* open cloth */
     if (ax > ox || az > oz) return -1.0e9f;                /* past the frame */
+
+    /* THE RAIL HAS SIX HOLES IN IT — AND ONLY SIX HOLES.
+     *
+     * Everything outside the cushion nose used to be rail at full height, all
+     * the way round, which puts timber across every pocket mouth and builds an
+     * imaginary square corner out of two rails that in fact stop short of each
+     * other with a pocket between them. A cue laid into a corner was lifted
+     * over a cushion that is not there, on exactly the shots where it is most
+     * often ON the rail: the white in the jaws, cueing out through the mouth.
+     *
+     * The hole is the one the wood actually has. cue_render bores the rail with
+     * a circle of pr_corner / pr_side on the pocket CENTRE and fills the ring
+     * around it — so that circle, and nothing wider, is where the timber is
+     * missing. The curved back of the pocket and the frame behind it are real
+     * and still turn the cue up.
+     *
+     * The cloth cut is a second, larger circle set further out, and it counts
+     * only on the playing side of the pocket: that is the mouth between the
+     * jaws, where the ball falls and there is no timber either. Past the pocket
+     * it is just the shape the slate was cut to, with wood under it.
+     *
+     * Both are taken in by a tip radius, so the shaft is not asked to thread
+     * the eye of a hole it only just fits through. */
+    {   CuePocketGap g[6];
+        int np = cue_table_pocket_gaps(t, g);
+        for (int p = 0; p < np; p++) {
+            float dx = x - g[p].c.x, dz = z - g[p].c.z;
+            float rb = g[p].bore - CUE_TIP_R;
+            if (rb > 0.0f && dx*dx + dz*dz < rb*rb) return -1.0e9f;
+            if (dx * g[p].out.x + dz * g[p].out.z >= 0.0f) continue;  /* past it */
+            float cx2 = x - g[p].cut_c.x, cz2 = z - g[p].cut_c.z;
+            float rc = g[p].cut_r - CUE_TIP_R;
+            if (rc > 0.0f && cx2*cx2 + cz2*cz2 < rc*rc) return -1.0e9f;
+        }
+    }
 
     /* EXACTLY WHAT IS DRAWN, and nothing on top of it.
      *
