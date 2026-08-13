@@ -276,4 +276,17 @@ void cue_phys_set_substep(float h);
 
 int cue_phys_moving(const CueWorld *w, const CueBall *balls, int n);
 
+/* THE MISCUE LIMIT: how far off centre a tip can strike, as a fraction of the
+ * ball's radius, and with it the most spin anybody can put on a ball.
+ *
+ * Half a ball (0.50) is the accepted figure and gives omega*R/v = 1.25.
+ * Alciatore measured 0.55 as reachable "with some effort", which is where this
+ * sits — the ceiling a good player can actually get to rather than the textbook
+ * one, worth 1.375. Note that his chalk comparison found NO measurable
+ * difference in the miscue limit between chalk brands, so this is about the
+ * player, not the equipment. */
+#ifndef CUE_TIP_MAX
+#define CUE_TIP_MAX 0.55f
+#endif
+
 #endif

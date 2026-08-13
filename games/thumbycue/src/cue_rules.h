@@ -43,6 +43,16 @@ typedef struct {
     int shots_remaining; /* UK two-shot rule: shots left in this visit (1 or 2) */
     int two_shot;        /* opponent is on the two-shot carry from a foul */
     int free_shot;       /* first of the two shots — informational */
+    /* WHICH UK 8-BALL IS BEING PLAYED. 0 = the pub game (WEPF world rules): a
+     * foul gives the opponent TWO shots and the cue ball stays where it lies,
+     * and there is no obligation to reach a cushion. 1 = international
+     * (blackball): a foul gives ball in hand anywhere, and a shot that pots
+     * nothing must send some ball to a cushion.
+     *
+     * It lives in CueRules rather than CueTable because it is a rule, not a
+     * table — the same 7 ft bed plays both — and because the whole struct
+     * crosses the wire in a match, so putting it here syncs it for free. */
+    int uk_intl;
 
     /* snooker */
     int target;          /* 0 = red, 1 = a colour, 2 = clearance sequence */
@@ -115,6 +125,10 @@ enum { CUE_DEC_NONE = 0, CUE_DEC_PENDING, CUE_DEC_PLAY, CUE_DEC_AGAIN,
        CUE_DEC_REPLAY, CUE_DEC_FREEBALL };
 
 void cue_rules_init(CueRules *r, const CueTable *t, int cpu);
+/* Pick which UK 8-ball is being played, before the break. 0 = pub (two shots
+ * on a foul, no cushion requirement), 1 = international (ball in hand, and a
+ * shot that pots nothing must reach a cushion). Ignored by every other game. */
+void cue_rules_set_uk(CueRules *r, int international);
 /* Re-rack for the next frame of the same match: the frame state resets, the
  * frame tally and the match length do not. */
 void cue_rules_next_frame(CueRules *r, const CueTable *t);

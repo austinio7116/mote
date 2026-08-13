@@ -45,6 +45,9 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
     r->cpu = cpu;
     r->turn = 0; r->winner = -1; r->open = 1; r->break_shot = 1;
     r->shots_remaining = 1; r->two_shot = 0; r->free_shot = 0;
+    /* Pub rules unless the caller says otherwise: it is the game most people
+     * mean by UK 8-ball, and cue_rules_set_uk() switches it before the break. */
+    r->uk_intl = 0;
     r->baulk_x = t->baulk_x; r->d_radius = t->d_radius;
     r->best_of = 1;
     if (r->kind) {
@@ -162,11 +165,17 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
             else if (fg != grp) { foul = 1; why = "WRONG BALL"; }   /* incl. hitting the 8 early */
         } else if (first_hit == 8)        { foul = 1; why = "HIT 8 FIRST"; }
     }
+    /* THE CUSHION RULE, where the rule set has one. US and Chinese 8-ball are
+     * played under WPA, which requires a ball to be pocketed or some ball to
+     * reach a cushion after the contact; the pub game does not, and a soft
+     * nudge that touches nothing is legal there. UK international takes the
+     * WPA requirement with the rest of it. */
+    if (!foul && np == 0 && !cushion && first_hit >= 0 &&
+        (r->mode != CUE_GAME_UK8 || r->uk_intl)) { foul = 1; why = "NO RAIL"; }
     /* OFF THE TABLE. Last, so it names the foul when nothing worse did: a ball
      * driven off is a foul however good the contact was, and jumping is legal
      * here, so this is the only thing a clean jump shot can go wrong by. */
     if (r->n_off && !foul) { foul = 1; why = "OFF THE TABLE"; }
-    (void)cushion;
     r->last_foul = foul;
 
     /* the 8 */
@@ -189,8 +198,9 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
     }
 
     if (foul) {
-        if (r->mode != CUE_GAME_UK8) {
-            /* US / Chinese 8-ball (WPA): any foul → opponent ball-in-hand. */
+        if (r->mode != CUE_GAME_UK8 || r->uk_intl) {
+            /* WPA — US, Chinese, and UK international: any foul gives the
+             * opponent ball in hand anywhere on the table. */
             r->turn = 1 - r->turn; r->ball_in_hand = 1;
             r->two_shot = 0; r->shots_remaining = 1; r->free_shot = 0;
             snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
@@ -282,6 +292,10 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t) {
     r->match_over = mo; r->match_winner = mw;
     r->break_first = bf;
     r->turn = first;
+}
+
+void cue_rules_set_uk(CueRules *r, int international) {
+    if (r) r->uk_intl = international ? 1 : 0;
 }
 
 void cue_rules_respot(CueRules *r, CueBall *b, int n, int id) {

@@ -72,7 +72,19 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         /* 7 ft UK pub 8-ball: 1.98 × 0.99 m, tight ROUNDED (curved) pockets. */
         t->half_len = 1.98f * 0.5f;
         t->half_wid = 0.99f * 0.5f;
-        t->R = 0.028575f; t->mass = 0.170f;
+        /* ENGLISH BALLS ON AN ENGLISH TABLE. This bed was carrying American
+         * 2 1/4 in balls (57.15 mm, 170 g), which is the wrong ball for both
+         * games played on it. English pool is 2.000 in ± 0.005 (50.8 mm) at
+         * 4.5-5.0 oz under WEPF rules, and a 7 ft snooker set is the same size.
+         *
+         * Everything around it is written in BALL-RADII, so the pockets would
+         * have followed the ball down. They are rescaled below to keep the cut
+         * exactly the size it was: the ball changes, the table does not.
+         *
+         * Mass barely matters here and is set for completeness: equal masses
+         * cancel out of the collision impulse, and the strike gives
+         * omega = (r x J)/I with both J and I proportional to m. */
+        t->R = 0.0254f; t->mass = 0.130f;
         t->cushion_h = 1.27f * t->R; t->rail_w = 0.075f;
         t->pocket_round = 1;
         /* TIGHTER THAN THEY WERE, and about the size a 7 ft table's pockets
@@ -81,17 +93,28 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * cuts about 89 mm. 1.72 took it to 98 mm and played a shade mean, so
          * it sits at 1.80 (103 mm) — still a pub pocket rather than the barn
          * door it was. Both games on this bed get it: one table, two rule sets. */
-        t->pr_corner  = 1.80f * t->R; t->pr_side  = 1.63f * t->R;
+        /* THE POCKETS DO NOT MOVE. Every dimension here is written in ball-radii,
+         * so shrinking the ball from 2 1/4 in to a proper 2 in English ball
+         * would have shrunk the cut with it — 103 mm of corner mouth down to
+         * 91 mm — and these were tuned by eye on the bench at the size they
+         * are. The coefficients are therefore multiplied by 1.125, the ratio of
+         * the old ball to the new one, so the hole a player sees is exactly the
+         * hole that was there before and only the ball has changed size.
+         *
+         * That makes the pockets MORE generous relative to the ball, which is
+         * what the bench tuning chose; the numbers are a description of that
+         * table, not of the WEPF book. */
+        t->pr_corner  = 2.025f * t->R; t->pr_side  = 1.8337f * t->R;
         /* knuckles: what pr_corner + 0.833R / + 1.083R used to give */
-        t->gap_corner = 2.633f * t->R; t->gap_side = 2.883f * t->R;
-        t->facing_len = 1.667f * t->R;
+        t->gap_corner = 2.9621f * t->R; t->gap_side = 3.2434f * t->R;
+        t->facing_len = 1.8754f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         /* Throat set back into the wood so the bore circle clears the (deepened)
          * cushion back and a proper wood ring is cut — see reach math in PLAN. */
-        t->off_corner = 0.60f * t->R; t->off_side = 1.25f * t->R;
+        t->off_corner = 0.675f * t->R; t->off_side = 1.4062f * t->R;
         /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
-        t->drop_back  = 0.30f * t->R; t->drop_back_side = 0.16f * t->R;
+        t->drop_back  = 0.3375f * t->R; t->drop_back_side = 0.18f * t->R;
         t->jaw_r = 0.004f;
         t->cloth = RGB565C(22, 120, 70);
         t->rail = RGB565C(96, 54, 26); t->rail_top = RGB565C(128, 78, 38);

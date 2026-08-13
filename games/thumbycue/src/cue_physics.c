@@ -112,8 +112,35 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
      * Zero here is the planar game exactly as it was. */
     b->vel.y = vy > 0.0f ? vy : 0.0f;
 
-    Vec3 r = v3_add(v3_scale(right, tip_side * w->R),
-                    v3_scale(up,    tip_vert * w->R));
+    /* WHERE THE TIP TOUCHES, IN THE CUE'S OWN FRAME.
+     *
+     * tip_side and tip_vert are measured perpendicular to the CUE — that is how
+     * the contact is found, a sphere against a sphere along the cue's axis — so
+     * the lever arm has to be built the same way. It was built from the world's
+     * up instead, which is only perpendicular to the cue while the cue is flat.
+     * Raise the butt and that vector swings towards the cue's own direction,
+     * where it contributes nothing to r × J: at 75 degrees a half-ball of
+     * backspin produced 26% of the spin it produces flat, and the steeper the
+     * cue the less it did. Massé and jump shots were the shots that suffered,
+     * which is exactly where a player expects the most spin, not the least.
+     *
+     * `right` was always correct — it is horizontal and square to the cue at
+     * any elevation — so only the vertical axis changes. */
+    Vec3 vert = v3_norm(v3_cross(cdir, right));
+    /* AND THE TIP CANNOT REACH PAST HALF A BALL.
+     *
+     * A cue tip on a sphere slips once the contact is much beyond half the
+     * radius — the miscue limit, and it is geometry and friction, not a
+     * question of chalk. The contact test here is sphere against sphere, so the
+     * game happily allowed a strike out at the very edge, where the arithmetic
+     * gives omega*R/v = 2.5: exactly double what any cue can do, and reported
+     * as balls zipping round the table and spinning like tops. Capped at the
+     * limit, so full offset gives 1.25, which is the real maximum. */
+    float ts = tip_side, tv = tip_vert;
+    {   float m = sqrtf(ts*ts + tv*tv);
+        if (m > CUE_TIP_MAX) { float k = CUE_TIP_MAX / m; ts *= k; tv *= k; } }
+    Vec3 r = v3_add(v3_scale(right, ts * w->R),
+                    v3_scale(vert,  tv * w->R));
     Vec3 J = v3_scale(cdir, speed * w->mass);        /* impulse along the cue */
     float I = 0.4f * w->mass * w->R * w->R;
     b->w = v3_scale(v3_cross(r, J), 1.0f / I);

@@ -78,6 +78,13 @@ typedef struct {
      * sim already asks for it before every strike — and the planner had no way
      * to prefer a shot it could play flat. */
     float elev;
+    /* DID ANY BALL REACH A CUSHION. Under WPA rules a shot that pots nothing
+     * must send something to a rail, and the planner had no idea whether its
+     * shot did — so a soft safety that touched nothing was a foul it could not
+     * see coming. 9-ball has always had the rule and UK international now does
+     * too. The event is already on the wire from the physics; it was simply
+     * being thrown away. */
+    int cushion;
 } AiSim;
 
 /* ---- what "power01 = 1" means --------------------------------------------- *
@@ -401,9 +408,11 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
      * Run until everything actually stops (natural break), with a safe ceiling. */
     out->have_hit_dir = 0;
     out->hit_dir = v3(0,0,0);
+    out->cushion = 0;
     for (int it = 0; it < 220; it++) {
         uint32_t ev = 0;
         cue_phys_step(&s_sw, s_sb, n, 0.05f, &ev);
+        if (ev & CUE_EV_CUSHION) out->cushion = 1;
         /* The first object ball's heading, read on the first step after contact
          * — before a cushion or another ball can answer for it. */
         if (!out->have_hit_dir && s_sw.first_hit_idx > 0
@@ -853,6 +862,15 @@ static int cue_crowd(const AiCtx *c, Vec3 cue_end, const Vec3 *pos, const int *o
         if (dx*dx + dz*dz < r2) cnt++;
     }
     return cnt;
+}
+
+/* Does a shot that pots nothing have to reach a cushion? WPA says yes, which
+ * covers 9-ball, US and Chinese 8-ball, and UK 8-ball under international
+ * rules. The pub game says no. */
+static int rail_required(const AiCtx *c) {
+    if (c->snooker) return 0;
+    if (c->r->mode == CUE_GAME_UK8) return c->r->uk_intl;
+    return 1;
 }
 
 /* THE ONE CONDITION A BREAK-OUT IS FOR: this shot leaves us needing a RED and
@@ -3111,6 +3129,12 @@ int cue_ai_plan_tick(void) {
          * persona aim-error decide makes vs misses on execution. */
         v->bad_first = (sim.first_hit_idx < 0) ||
                        !cue_rules_ball_legal(c->r, c->b, c->n, c->b[sim.first_hit_idx].id);
+        /* Nothing potted and nothing off a rail is a foul wherever the rule
+         * applies, and it is the safety player's foul: a soft roll-up that
+         * stops short of a cushion. Treated exactly like a bad first contact so
+         * the same 1000-point veto keeps it out of the chosen shot. */
+        if (!v->bad_first && rail_required(c) && sim.npotted == 0 && !sim.cushion)
+            v->bad_first = 1;
 
         /* DID THE BALL ACTUALLY GO IN, played perfectly?
          *
