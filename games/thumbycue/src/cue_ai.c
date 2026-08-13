@@ -787,6 +787,20 @@ static int ghost_fits(const AiCtx *c, Vec3 tp, int pk, int self,
     return 1;
 }
 
+/* Can this ball be potted AT ALL from somewhere: it sees a pocket, the line is
+ * clear, and a cue ball can physically sit where it would have to sit. Nothing
+ * about where the white is now — this is the question "is it tied up". */
+static int ball_is_open(const AiCtx *c, int i, const Vec3 *pos, const int *on) {
+    if (on ? !on[i] : !c->b[i].on) return 0;
+    Vec3 tp = pos ? pos[i] : c->b[i].pos;
+    for (int pk = 0; pk < c->w->npocket; pk++) {
+        if (!pocket_approach_ok(c, tp, pk)) continue;
+        if (!ghost_fits(c, tp, pk, i, pos, on)) continue;
+        if (path_clear_at(c, tp, pocket_aim_t(c, pk, tp), i, pos, on)) return 1;
+    }
+    return 0;
+}
+
 static int open_targets(const AiCtx *c, const Vec3 *pos, const int *on) {
     int cnt = 0;
     for (int i = 0; i < c->n; i++) {
@@ -796,14 +810,32 @@ static int open_targets(const AiCtx *c, const Vec3 *pos, const int *on) {
         int mine = c->snooker ? (c->b[i].id < CUE_ID_YELLOW)
                               : cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id);
         if (!mine) continue;
-        Vec3 tp = pos ? pos[i] : c->b[i].pos;
-        for (int pk = 0; pk < c->w->npocket; pk++) {
-            if (!pocket_approach_ok(c, tp, pk)) continue;
-            if (!ghost_fits(c, tp, pk, i, pos, on)) continue;
-            if (path_clear_at(c, tp, pocket_aim_t(c, pk, tp), i, pos, on)) { cnt++; break; }
-        }
+        if (ball_is_open(c, i, pos, on)) cnt++;
     }
     return cnt;
+}
+
+/* HOW MANY OF THE BALLS WE WILL NEED NEXT CAN BE POTTED.
+ *
+ * The break-out question is never "is anything pottable", it is "once I have
+ * played this, is there another one" — and next_targets already answers which
+ * balls those are, per game: a red leads to the colours, a colour back to the
+ * reds, an 8-ball group ball to the rest of the group, the 5 to the 6.
+ *
+ * Asking it this way is what lets the same rule serve every game instead of
+ * snooker alone. It also removes the special case that used to state it: at
+ * snooker after a RED the next balls are the colours, which are on their spots
+ * and always available, so the gate closes by itself without anyone writing
+ * "only when potting a colour". */
+static int next_open(const AiCtx *c, int just_idx, const Vec3 *pos, const int *on) {
+    int idx[CUE_MAX_BALLS];
+    int cnt = next_targets(c, just_idx, idx), open = 0;
+    for (int k = 0; k < cnt; k++) {
+        int i = idx[k];
+        if (i == just_idx) continue;
+        if (ball_is_open(c, i, pos, on)) open++;
+    }
+    return open;
 }
 
 /* How many balls the cue ball has ended up among. A ball two diameters away is
@@ -830,13 +862,13 @@ static int s_need_brk;
 
 /* Both counts are taken over the SURVIVORS of the shot, so potting a red does
  * not read as having buried one. */
-static float breakout_bonus(const AiCtx *c, const Vec3 *pos, const int *on,
-                            const CuePersona *p, int *out_freed) {
+static float breakout_bonus(const AiCtx *c, int ti, const Vec3 *pos,
+                            const int *on, const CuePersona *p, int *out_freed) {
     if (out_freed) *out_freed = 0;
     if (!s_need_brk) return 0.0f;          /* the only position it is for */
     if (K_BREAK <= 0.0f || p->freeing <= 0.0f) return 0.0f;
-    int before = open_targets(c, NULL, on);
-    int after  = open_targets(c, pos,  on);
+    int before = next_open(c, ti, NULL, on);
+    int after  = next_open(c, ti, pos,  on);
     int freed  = after - before;
     if (out_freed) *out_freed = freed;
 
@@ -860,12 +892,12 @@ static float breakout_bonus(const AiCtx *c, const Vec3 *pos, const int *on,
      * still earns its place when this sim happens to leave them awkward. */
     float moved = 0.0f;
     int nmoved = 0;
-    for (int i = 1; i < c->n; i++) {
+    int nidx[CUE_MAX_BALLS];
+    int ncnt = next_targets(c, ti, nidx);
+    for (int k = 0; k < ncnt; k++) {
+        int i = nidx[k];
+        if (i == ti) continue;
         if (!c->b[i].on || (on && !on[i])) continue;
-        if (c->b[i].id == CUE_ID_CUE) continue;
-        int mine = c->snooker ? (c->b[i].id < CUE_ID_YELLOW)
-                              : cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id);
-        if (!mine) continue;
         float d = d2(pos[i], c->b[i].pos);
         if (d < c->t->R * 0.75f) continue;      /* nudged, not split */
         nmoved++;
@@ -1049,6 +1081,7 @@ typedef struct {
     int   freed;       /* target balls the SIM says this shot frees (can be -ve) */
     float rawpot;      /* best RAW next-pot difficulty of the leave, no extras */
     int   pot_fails;   /* simmed perfectly and the target still did not drop */
+    int   aim_fixed;   /* the throw correction converged: this aim will not move */
     Vec3  pend;        /* analytic predicted cue-ball end, before any sim */
     float elev;        /* forced cue elevation, radians */
     /* A SAFETY's own quality, from safety_score(): how little the opponent is
@@ -1961,16 +1994,12 @@ static int throw_correct(const AiCtx *c, Cand *q, AiSim *out) {
  * re-score a leave, so it cannot drift apart again. */
 static void fold_breakout(const AiCtx *c, Cand *q, const Vec3 *end_pos, const int *on) {
     /* Opening the pack is only good if WE are the one staying at the table:
-     * rewarded on a pot, penalised on a safety (pk < 0), where spreading a
-     * frame's worth of reds hands the opponent the table. And only when a RED
-     * is what we next need — after a red the ball on is a colour, which is on
-     * its spot and does not care what the pack is doing. */
-    int want_red = 1;
-    if (K_BRKGATE && c->snooker) {
-        int bi = (q->tidx > 0 && q->tidx < c->n) ? q->tidx : P.ti;
-        want_red = (bi > 0 && bi < c->n && c->b[bi].id >= CUE_ID_YELLOW);
-    }
-    float br = want_red ? breakout_bonus(c, end_pos, on, c->p, &q->freed) : 0.0f;
+     * rewarded on a pot, penalised on a safety (pk < 0), where spreading the
+     * balls hands the opponent the table. WHICH balls matter is decided by
+     * next_open, in the terms of whichever game this is, so nothing here has to
+     * know that snooker alternates and pool does not. */
+    int ti = (q->tidx > 0 && q->tidx < c->n) ? q->tidx : P.ti;
+    float br = breakout_bonus(c, ti, end_pos, on, c->p, &q->freed);
     q->brk = (q->pk < 0) ? -br : br;
     q->posScore += q->brk;
 }
@@ -2083,6 +2112,12 @@ static void plan_finalize(void) {
     for (int i = 0; i < refine; i++) {
         Cand *q = &P.pool[i];
         if (!q->simmed || q->pk < 0 || q->tidx <= 0 || q->tidx >= c->n) continue;
+        /* ALREADY SETTLED: nothing here can change it, so do not pay for it.
+         * The correction converged during the sim pass, which means this would
+         * re-run the same walk, get the same sub-0.03-degree error, and
+         * re-score an identical simulation. Pure duplicated work, and it is a
+         * simulation each time. */
+        if (q->aim_fixed) continue;
         /* The aim was corrected before this candidate was scored, so this is a
          * second look that normally changes nothing — it converges on the first
          * pass and re-scores the identical simulation. It stays because the
@@ -2237,7 +2272,7 @@ static void plan_finalize(void) {
      * in the sim pass and again in the refine — so this is a convergence check,
      * not a second correction. It used to BE the correction, applied here to
      * the shot that had already won on a different line. */
-    { AiSim chk; throw_correct(c, &best, &chk); }
+    if (!best.aim_fixed) { AiSim chk; throw_correct(c, &best, &chk); }
 
 
     /* ---- AND THE LEAVE BELONGS TO THE AIM WE ARE ACTUALLY GOING TO PLAY ----
@@ -2255,7 +2290,7 @@ static void plan_finalize(void) {
      * One more sim, on the shot as it will be struck. It cannot change what was
      * chosen — that is decided — but everything downstream that reads the leave
      * now reads the real one. */
-    if (best.simmed) {
+    if (best.simmed && !best.aim_fixed) {
         AiSim fin;
         ai_sim(c->w, c->t, c->b, c->n, 0, best.aim, best.power01,
                best.tip_side, best.tip_vert, &fin);
@@ -2819,9 +2854,10 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * and a bad one everywhere else, which is why the term was measured as
      * doubling the fouls when it applied to every shot. */
     s_need_brk = 0;
-    if (c->snooker && r->reds_left > 0 &&
-        ti > 0 && ti < n && balls[ti].id >= CUE_ID_YELLOW) {
-        s_need_brk = (open_targets(c, NULL, NULL) == 0);
+    if (K_BRKGATE && ti > 0 && ti < n) {
+        int idx[CUE_MAX_BALLS];
+        if (next_targets(c, ti, idx) > 0)
+            s_need_brk = (next_open(c, ti, NULL, NULL) == 0);
     }
     float R = t->R;
     Vec3 cue = balls[0].pos, target = balls[ti].pos, ap = pocket_aim_t(c, pk, target);
@@ -3057,7 +3093,13 @@ int cue_ai_plan_tick(void) {
          * avoidance was about to move. The one correction meant to stop a
          * repeated foul was applied after the foul test. */
         v->aim += foul_avoid_angle(c, c->b[0].pos, v->aim);
-        if (!throw_correct(c, v, &sim))
+        /* Converged here means TWO things, and the second is what the passes
+         * below spend their simulations discovering for themselves: the aim is
+         * final, and `sim` is a simulation of that exact aim. Everything scored
+         * from it is therefore already the truth about the shot as it will be
+         * played, so re-simulating it later can only reproduce it. */
+        v->aim_fixed = throw_correct(c, v, &sim);
+        if (!v->aim_fixed)
             ai_sim(c->w, c->t, c->b, c->n, 0, v->aim, v->power01,
                    v->tip_side, v->tip_vert, &sim);
         v->simmed = 1; v->cue_end = sim.cue_end; v->elev = sim.elev;

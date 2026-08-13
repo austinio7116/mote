@@ -276,7 +276,26 @@ static int play_shot(const CuePersona *p) {
     int turn_before = R.turn;
     cue_rules_resolve(&R, B, N, &W, W.first_hit, scratch, cushion_seen, potted, np);
 
-    int scored = R.brk > brk_before && R.turn == turn_before;
+    /* DID THE SHOT DO WHAT IT SET OUT TO DO?
+     *
+     * "The break went up and the table stayed mine" is the snooker test, and it
+     * was applied to every game. At 8-ball and 9-ball a pot scores no points at
+     * all — only winning the frame does — so R.brk never moved, every pot was
+     * filed as a MISS, and the harness reported the machine potting 0 of 72
+     * attempts in 9-ball while quietly completing all ten frames. A pot rate of
+     * zero alongside ten finished frames should never have been printable.
+     *
+     * So: at snooker, points. Elsewhere, the ball the AI named actually went
+     * in — which is the same question asked in the terms of the game. */
+    int scored;
+    if (T.is_snooker) scored = R.brk > brk_before && R.turn == turn_before;
+    else {
+        scored = 0;
+        for (int i = 0; i < np; i++)
+            if (s.target_id > 0 ? potted[i] == s.target_id
+                                : potted[i] != CUE_ID_CUE) { scored = 1; break; }
+        if (scratch) scored = 0;
+    }
     int fouled = R.msg[0] && strstr(R.msg, "FOUL") != NULL;
     if (!s.safe) {
         if (np > 0 && scored) { ST.pots++; ST.conf_pot[conf_bucket(s.score)]++; }
