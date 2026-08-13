@@ -53,6 +53,13 @@ typedef struct {
     int   reds;                 /* snooker: number of reds (10 or 15) */
     float half_len, half_wid;   /* to cushion nose (m) */
     float R, mass;
+    /* THE CUE BALL, WHERE IT IS NOT ONE OF THE SET.
+     *
+     * English pool is played with a cue ball smaller and lighter than the
+     * object balls — 47.6 mm and 94 g against 50.8 mm and 116 g — because
+     * coin-op tables have to separate it to return it. Zero means "the same as
+     * the rest", which is every other game here. */
+    float cue_R, cue_mass;
     float cushion_h;            /* nose height above cloth (m) */
     float rail_w;               /* rail/frame width, render only (m) */
 
@@ -132,6 +139,19 @@ void cue_table_derive_cut(CueWorld *w);
 /* Lay out the opening rack / spots. Returns the number of balls placed.
  * balls[0] is always the cue ball. orient set to identity. */
 int cue_table_rack(const CueTable *t, CueBall *balls);
+/* Give this ball the cue ball's own size and weight for this table (a no-op
+ * where the set is matched). Racking does it; anything that re-creates the
+ * white — a respot, ball in hand — should too. */
+void cue_table_set_cue_ball(const CueTable *t, CueBall *cue);
+
+/* Ball-in-hand placement. The _balls form keeps the old behaviour (the D on
+ * snooker and the English table, the whole cloth elsewhere); _any takes the
+ * region explicitly; the caller asks the RULES which it
+ * is — see cue_rules_in_hand_anywhere — because the English table places in the
+ * D under pub rules and anywhere under International and Ultimate Pool. */
+Vec3 cue_table_clamp_placement_any(const CueTable *t, Vec3 p,
+                                   const CueBall *balls, int n, int breaking,
+                                   int anywhere);
 
 /* Cue-ball home (centre of the D / behind the head string) for placement. */
 Vec3 cue_table_cue_home(const CueTable *t);

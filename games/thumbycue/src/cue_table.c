@@ -84,7 +84,18 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * Mass barely matters here and is set for completeness: equal masses
          * cancel out of the collision impulse, and the strike gives
          * omega = (r x J)/I with both J and I proportional to m. */
-        t->R = 0.0254f; t->mass = 0.130f;
+        t->R = 0.0254f; t->mass = 0.116f;
+        /* AND THE WHITE IS SMALLER, which is the thing about an English table.
+         * 47.6 mm and 94 g against the object balls' 50.8 and 116 — the
+         * convention comes from coin-op ball returns needing to tell the cue
+         * ball from the rest, and it is what a pub table has in it.
+         *
+         * It is not a cosmetic difference. A lighter cue ball comes back off a
+         * contact faster and carries less through it, and a smaller one sits
+         * lower against the cushion nose. Both fall out of the physics now that
+         * a ball carries its own size and weight rather than borrowing the
+         * set's. */
+        t->cue_R = 0.0238f; t->cue_mass = 0.094f;
         t->cushion_h = 1.27f * t->R; t->rail_w = 0.075f;
         t->pocket_round = 1;
         /* TIGHTER THAN THEY WERE, and about the size a 7 ft table's pockets
@@ -126,6 +137,11 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
              * size as UK pool, but snooker balls/rules and snooker spots scaled
              * onto the small bed. */
             t->reds = 6;
+            /* AND A MATCHED WHITE. The small cue ball is a POOL convention —
+             * coin-op tables need to tell it from the object balls to return
+             * it — and a snooker set has no such thing whatever bed it is
+             * played on. It shares this table's geometry, not its ball box. */
+            t->cue_R = 0.0f; t->cue_mass = 0.0f;
             t->cloth = RGB565C(4, 135, 21);            /* snooker green */
             t->spot = RGB565C(200, 200, 200);
             t->blue_x  = 0.0f;                          /* centre spot */
@@ -585,50 +601,50 @@ void cue_table_derive_cut(CueWorld *w) {
 }
 
 Vec3 cue_table_cue_home(const CueTable *t) {
+    const float CUE_Y = (t->cue_R > 0.0f) ? t->cue_R : t->R;
     /* All games start OFF the centre line so a break naturally strikes the pack
      * at an angle (a dead-straight break into the apex splits poorly). Snooker &
      * UK8 break from one side of the D; US pool from the side of the kitchen. */
-    if (t->is_snooker)            return v3(t->baulk_x, t->R, -t->d_radius * 0.55f);
-    if (t->kind == CUE_GAME_UK8)  return v3(t->baulk_x, t->R, -t->d_radius * 0.55f);
-    return v3(-t->half_len * 0.5f, t->R, t->half_wid * 0.40f);
+    if (t->is_snooker)            return v3(t->baulk_x, CUE_Y, -t->d_radius * 0.55f);
+    if (t->kind == CUE_GAME_UK8)  return v3(t->baulk_x, CUE_Y, -t->d_radius * 0.55f);
+    return v3(-t->half_len * 0.5f, CUE_Y, t->half_wid * 0.40f);
+    /* On its own radius: the English white is smaller than the set. */
+
 }
 
 /* Clamp a desired cue-ball placement to the legal ball-in-hand region:
  * inside the D (snooker / UK8) or behind the head string (US pool). Returns the
  * clamped XZ (y left to the caller). */
-static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking);
+static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere);
 
-Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p) {
-    return cue_table_clamp_placement_balls(t, p, NULL, 0, 0);
-}
-
-/* The legal region, and then out of anything already standing in it.
- *
- * Region-only clamping let the player park the cue ball inside another ball,
- * which the solver then resolved by firing both of them apart on the first
- * tick. Pushing out and re-clamping alternately is what makes the ball SLIDE
- * around an obstruction instead of stopping dead at it or passing through: each
- * pass moves it clear of the nearest ball, then back inside the region, and the
- * two settle within a few passes. Six is enough for the worst case anyone can
- * drive a stick into — a ball wedged against the baulk cushion between two
- * others — and if it somehow does not settle, the last legal position stands. */
-/* True if p is clear of every ball on the table. */
+/* Is this spot clear of every ball already on the table? */
 static int placement_clear(const CueTable *t, Vec3 p, const CueBall *balls, int n) {
-    const float sep = 2.0f * t->R + 0.0004f;
+    const float sep = ((t->cue_R > 0.0f) ? (t->cue_R + t->R) : (2.0f * t->R)) + 0.0004f;
     for (int i = 1; i < n; i++) {
         if (!balls[i].on) continue;
         float dx = p.x - balls[i].pos.x, dz = p.z - balls[i].pos.z;
-        if (dx * dx + dz * dz < sep * sep) return 0;
+        if (dx*dx + dz*dz < sep*sep) return 0;
     }
     return 1;
 }
 
+Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p) {
+    return cue_table_clamp_placement_balls(t, p, NULL, 0, 0);
+}
 Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
                                      const CueBall *balls, int n, int breaking) {
+    return cue_table_clamp_placement_any(t, p, balls, n, breaking, 0);
+}
+Vec3 cue_table_clamp_placement_any(const CueTable *t, Vec3 p,
+                                   const CueBall *balls, int n, int breaking,
+                                   int anywhere) {
     const float R = t->R;
-    const float sep = 2.0f * R + 0.0004f;      /* a whisker of daylight */
+    /* The ball being placed is the CUE ball, which on an English table is the
+     * small one — so the gap it needs from an object ball is the two radii, not
+     * twice the set's. */
+    const float sep = ((t->cue_R > 0.0f) ? (t->cue_R + R) : (2.0f * R)) + 0.0004f;
     for (int pass = 0; pass < 6; pass++) {
-        p = clamp_region(t, p, breaking);
+        p = clamp_region(t, p, breaking, anywhere);
         int moved = 0;
         for (int i = 1; i < n; i++) {
             if (!balls[i].on) continue;
@@ -661,7 +677,7 @@ Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
      * ball at a time, out to a couple of ball widths, is more than enough room
      * for the worst case there is — the cue ball wanted where the brown sits
      * with the green and yellow either side. */
-    p = clamp_region(t, p, breaking);
+    p = clamp_region(t, p, breaking, anywhere);
     if (n > 0 && !placement_clear(t, p, balls, n)) {
         const Vec3 want = p;
         for (int ring = 1; ring <= 6; ring++) {
@@ -669,7 +685,7 @@ Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
             for (int a = 0; a < 16; a++) {
                 float th = (float)a * (6.2831853f / 16.0f);
                 Vec3 c = { want.x + cosf(th) * rad, want.y, want.z + sinf(th) * rad };
-                c = clamp_region(t, c, breaking);
+                c = clamp_region(t, c, breaking, anywhere);
                 if (placement_clear(t, c, balls, n)) return c;
             }
         }
@@ -679,8 +695,21 @@ Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
     return p;
 }
 
-static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking) {
+static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) {
     float R = t->R;
+    /* BALL IN HAND MEANS THE WHOLE TABLE, where the rules say so. The English
+     * table is the D under pub rules and the whole cloth under International
+     * and Ultimate Pool, so the region cannot be decided by the table alone —
+     * the caller passes what the rules of the frame allow. Snooker is always
+     * the D. */
+    if (anywhere && !t->is_snooker) {
+        float lim = t->half_wid - R, lenlim = t->half_len - R;
+        if (p.x >  lenlim) p.x =  lenlim;
+        if (p.x < -lenlim) p.x = -lenlim;
+        if (p.z >  lim) p.z =  lim;
+        if (p.z < -lim) p.z = -lim;
+        return p;
+    }
     if (t->is_snooker || t->kind == CUE_GAME_UK8) {
         /* The D: a half-disc of radius d_radius centred on (baulk_x, 0), bulging
          * toward the baulk cushion (−x).
@@ -844,9 +873,23 @@ int cue_table_rack_six(const CueTable *t, CueBall *balls) {
 
 int cue_table_rack(const CueTable *t, CueBall *balls) {
     memset(balls, 0, sizeof(CueBall) * CUE_MAX_BALLS);
-    if (t->is_snooker)            return rack_snooker(t, balls);
-    if (t->kind == CUE_GAME_US9)  return rack_9ball(t, balls);
-    return rack_pool(t, balls);   /* UK8 + US8 */
+    int n;
+    if (t->is_snooker)           n = rack_snooker(t, balls);
+    else if (t->kind == CUE_GAME_US9) n = rack_9ball(t, balls);
+    else                         n = rack_pool(t, balls);   /* UK8 + US8 */
+    /* ONE PLACE STAMPS THE CUE BALL. Every rack builds balls[0] as the white,
+     * and every game but English pool wants it the same size as the rest — so
+     * the exception is applied here rather than in three racks, and it sits at
+     * the height its own radius asks for. */
+    cue_table_set_cue_ball(t, &balls[0]);
+    return n;
+}
+
+void cue_table_set_cue_ball(const CueTable *t, CueBall *cue) {
+    if (!cue) return;
+    cue->r = (t->cue_R > 0.0f)    ? t->cue_R    : 0.0f;
+    cue->m = (t->cue_mass > 0.0f) ? t->cue_mass : 0.0f;
+    if (cue->r > 0.0f) cue->pos.y = cue->r;
 }
 
 /* ---- forced cue elevation --------------------------------------------- *

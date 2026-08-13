@@ -139,10 +139,11 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
     float ts = tip_side, tv = tip_vert;
     {   float m = sqrtf(ts*ts + tv*tv);
         if (m > CUE_TIP_MAX) { float k = CUE_TIP_MAX / m; ts *= k; tv *= k; } }
-    Vec3 r = v3_add(v3_scale(right, ts * w->R),
-                    v3_scale(vert,  tv * w->R));
-    Vec3 J = v3_scale(cdir, speed * w->mass);        /* impulse along the cue */
-    float I = 0.4f * w->mass * w->R * w->R;
+    const float BR = cue_ball_r(w, b), BM = cue_ball_m(w, b);
+    Vec3 r = v3_add(v3_scale(right, ts * BR),
+                    v3_scale(vert,  tv * BR));
+    Vec3 J = v3_scale(cdir, speed * BM);             /* impulse along the cue */
+    float I = 0.4f * BM * BR * BR;
     b->w = v3_scale(v3_cross(r, J), 1.0f / I);
 }
 
@@ -160,7 +161,7 @@ void cue_phys_strike(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
  * ball resting on the cloth must never test airborne, or it stops feeling
  * friction and rolls for ever. */
 int cue_phys_airborne(const CueWorld *w, const CueBall *b) {
-    return b->pos.y > w->R + 1.0e-4f;
+    return b->pos.y > cue_ball_r(w, b) + 1.0e-4f;
 }
 
 /* loudest cushion-approach (normal) speed seen during the current cue_phys_step,
@@ -172,7 +173,7 @@ static int s_bed_land;
 
 /* ---- per-ball cloth-contact evolution for one substep ------------------ */
 static CUE_HOT void ball_cloth(const CueWorld *w, CueBall *b, float h) {
-    const float R = w->R, g = w->g;
+    const float R = cue_ball_r(w, b), g = w->g;
     Vec3 rc = v3(0, -R, 0);                    /* centre -> contact point */
     /* Contact-point velocity (slip of the ball on the cloth). */
     Vec3 u = v3_add(b->vel, v3_cross(b->w, rc));
@@ -183,14 +184,15 @@ static CUE_HOT void ball_cloth(const CueWorld *w, CueBall *b, float h) {
      * (the combined linear + angular effect for a uniform sphere). One substep
      * can therefore kill up to du_full of slip. */
     float du_full = 3.5f * w->mu_s * g * h;
-    float I = 0.4f * w->mass * R * R;
+    float bm = cue_ball_m(w, b);
+    float I = 0.4f * bm * R * R;
 
     if (uh > du_full) {
         /* SLIDING: full kinetic friction opposing the slip. */
         Vec3 uhat = v3_scale(u, 1.0f / uh);
         Vec3 a = v3_scale(uhat, -w->mu_s * g);
         b->vel = v3_add(b->vel, v3_scale(a, h));
-        Vec3 F = v3_scale(a, w->mass);                    /* tau = rc × F */
+        Vec3 F = v3_scale(a, bm);                    /* tau = rc × F */
         b->w = v3_add(b->w, v3_scale(v3_cross(rc, F), h / I));
     } else {
         /* Reaching rolling THIS step: apply exactly enough friction to zero
@@ -200,7 +202,7 @@ static CUE_HOT void ball_cloth(const CueWorld *w, CueBall *b, float h) {
             float f = uh / du_full;                       /* < 1: scaled */
             Vec3 a = v3_scale(uhat, -w->mu_s * g * f);
             b->vel = v3_add(b->vel, v3_scale(a, h));
-            Vec3 F = v3_scale(a, w->mass);
+            Vec3 F = v3_scale(a, bm);
             b->w = v3_add(b->w, v3_scale(v3_cross(rc, F), h / I));
         }
         /* ROLLING: light resistance; w tracks the (now decreasing) velocity so
@@ -251,22 +253,26 @@ static CUE_HOT int collide_ball_ball(const CueWorld *w, CueBall *bi, CueBall *bj
      * this is the same test it always was for every shot that does not leave
      * the bed — including the arithmetic, which is why nothing that used to
      * work moves by a bit. */
+    const float ri_r = cue_ball_r(w, bi), rj_r = cue_ball_r(w, bj);
+    const float sumr = ri_r + rj_r;
     float dy = bj->pos.y - bi->pos.y;
-    if (dy > 2.0f * w->R || dy < -2.0f * w->R) return 0;
+    if (dy > sumr || dy < -sumr) return 0;
     Vec3 d = v3_sub(bj->pos, bi->pos);
     d.y = 0.0f;
     if (dy != 0.0f) {
         /* One is airborne: the flat gap has to shrink by the height between
          * them or they pass through each other's shadow. */
         float flat2 = d.x * d.x + d.z * d.z;
-        if (flat2 + dy * dy >= (2.0f * w->R) * (2.0f * w->R)) return 0;
+        if (flat2 + dy * dy >= sumr * sumr) return 0;
     }
     float dist = sqrtf(d.x * d.x + d.z * d.z);
-    float mind = 2.0f * w->R;
+    float mind = sumr;
     if (dist >= mind || dist < 1e-6f) return 0;
 
     Vec3 n = v3_scale(d, 1.0f / dist);         /* i -> j */
-    /* Separate the overlap so they never stick. */
+    /* Separate the overlap so they never stick. Split by SIZE, so a small cue
+     * ball is pushed further than the object ball it met, as the lighter and
+     * smaller of the two should be. */
     float overlap = mind - dist;
     Vec3 push = v3_scale(n, overlap * 0.5f);
     bi->pos = v3_sub(bi->pos, push);
@@ -276,17 +282,19 @@ static CUE_HOT int collide_ball_ball(const CueWorld *w, CueBall *bi, CueBall *bj
     float vn = v3_dot(dv, n);
     if (vn >= 0.0f) return 0;                  /* separating already */
 
-    float m = w->mass;
-    /* Normal impulse (equal masses, reduced mass m/2). */
-    float Jn = -(1.0f + w->e_bb) * vn / (2.0f / m);
+    /* Normal impulse. Written with both masses because English pool's cue ball
+     * is lighter than the balls it strikes — 94 g against 116 — and with equal
+     * masses this is exactly the old m/2 reduced mass. */
+    const float mi = cue_ball_m(w, bi), mj = cue_ball_m(w, bj);
+    float Jn = -(1.0f + w->e_bb) * vn / (1.0f / mi + 1.0f / mj);
     Vec3 Jn_v = v3_scale(n, Jn);
-    bi->vel = v3_sub(bi->vel, v3_scale(Jn_v, 1.0f / m));
-    bj->vel = v3_add(bj->vel, v3_scale(Jn_v, 1.0f / m));
+    bi->vel = v3_sub(bi->vel, v3_scale(Jn_v, 1.0f / mi));
+    bj->vel = v3_add(bj->vel, v3_scale(Jn_v, 1.0f / mj));
 
     /* Tangential friction → throw / spin transfer. Relative surface velocity
      * at the contact point (midway): contact offset is +R*n on i, −R*n on j. */
-    Vec3 ri = v3_scale(n,  w->R);
-    Vec3 rj = v3_scale(n, -w->R);
+    Vec3 ri = v3_scale(n,  ri_r);
+    Vec3 rj = v3_scale(n, -rj_r);
     Vec3 si = v3_add(bi->vel, v3_cross(bi->w, ri));
     Vec3 sj = v3_add(bj->vel, v3_cross(bj->w, rj));
     Vec3 s = v3_sub(sj, si);
@@ -294,13 +302,16 @@ static CUE_HOT int collide_ball_ball(const CueWorld *w, CueBall *bi, CueBall *bj
     float stl = v3_len(st);
     if (stl > 1e-5f) {
         Vec3 that = v3_scale(st, 1.0f / stl);
-        /* Tangential effective inverse-mass for two equal spheres at contact:
-         * each ball 1/m + R^2/I = 7/(2m); two balls ⇒ 7/m. */
-        float Jt_stop = stl / (7.0f / m);
+        /* Tangential effective inverse-mass at the contact. For one sphere it
+         * is 1/m + r^2/I = 7/(2m), whatever its radius, so the pair gives
+         * 7/(2mi) + 7/(2mj) — and with equal masses that is the old 7/m. */
+        float Ii = 0.4f * mi * ri_r * ri_r;
+        float Ij = 0.4f * mj * rj_r * rj_r;
+        float inv_t = 3.5f / mi + 3.5f / mj;
+        float Jt_stop = stl / inv_t;
         float Jt_max = w->mu_bb * fabsf(Jn);
         float Jt = (Jt_stop < Jt_max) ? Jt_stop : Jt_max;
         Vec3 Jt_v = v3_scale(that, Jt);
-        float I = 0.4f * m * w->R * w->R;
         /* `that` is the direction j's surface is sliding RELATIVE TO i's, so
          * friction on j is along MINUS it, and i takes the reaction. The four
          * lines here used to be the other way round — the comment above them
@@ -315,10 +326,10 @@ static CUE_HOT int collide_ball_ball(const CueWorld *w, CueBall *bi, CueBall *bj
          * "the engine pots cleanly, so the ghost-ball aim is the true aim" while
          * the planner quietly missed cuts it rated highly. It also made side
          * unusable: turn it on and every sided shot missed by the throw. */
-        bj->vel = v3_sub(bj->vel, v3_scale(Jt_v, 1.0f / m));
-        bi->vel = v3_add(bi->vel, v3_scale(Jt_v, 1.0f / m));
-        bj->w = v3_sub(bj->w, v3_scale(v3_cross(rj, Jt_v), 1.0f / I));
-        bi->w = v3_add(bi->w, v3_scale(v3_cross(ri, Jt_v), 1.0f / I));
+        bj->vel = v3_sub(bj->vel, v3_scale(Jt_v, 1.0f / mj));
+        bi->vel = v3_add(bi->vel, v3_scale(Jt_v, 1.0f / mi));
+        bj->w = v3_sub(bj->w, v3_scale(v3_cross(rj, Jt_v), 1.0f / Ij));
+        bi->w = v3_add(bi->w, v3_scale(v3_cross(ri, Jt_v), 1.0f / Ii));
     }
     bi->vel.y = bj->vel.y = 0.0f;
     return 1;
@@ -331,12 +342,12 @@ static CUE_HOT int collide_surface(const CueWorld *w, CueBall *b, Vec3 N,
                            float e, float mu) {
     /* Contact point on the ball is opposite N: r = −R N. The normal impulse
      * is therefore central (no torque); english/throw come from friction. */
-    Vec3 r = v3_scale(N, -w->R);
+    Vec3 r = v3_scale(N, -cue_ball_r(w, b));
     Vec3 vc = v3_add(b->vel, v3_cross(b->w, r));
     float vn = v3_dot(vc, N);
     if (vn >= 0.0f) return 0;                  /* moving away from the surface */
 
-    float m = w->mass, I = 0.4f * m * w->R * w->R;
+    float m = cue_ball_m(w, b), I = 0.4f * m * cue_ball_r(w, b) * cue_ball_r(w, b);
     float Jn = -(1.0f + e) * vn * m;           /* central: inverse mass = 1/m */
     Vec3 Jn_v = v3_scale(N, Jn);
     b->vel = v3_add(b->vel, v3_scale(Jn_v, 1.0f / m));
@@ -442,7 +453,7 @@ static CUE_HOT int cushion_impact(const CueWorld *w, CueBall *b, Vec3 n_face,
     float wy = b->w.x*yh.x + b->w.y*yh.y + b->w.z*yh.z;
     float wz = b->w.y;
 
-    const float M = w->mass, R = w->R;
+    const float M = cue_ball_m(w, b), R = cue_ball_r(w, b);
     const float S = sin_th, C = sqrtf(1.0f - S*S);
 
     /* RESTITUTION FALLS WITH PACE, because the rubber deforms further the
@@ -607,7 +618,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
      * at the contact line let a ball pass through 10 mm of solid drawn cushion,
      * which is the reported ball-through-the-rail, and it also opened a band
      * with no wall and no floor in it. */
-    if (b->pos.y - w->R > w->rail_top) return 0;
+    if (b->pos.y - cue_ball_r(w, b) > w->rail_top) return 0;
     /* Tilt the rail normal up by cush_tilt so top/back spin couples into the
      * rebound; then re-normalise. */
     float ct = cosf(w->cush_tilt), st = sinf(w->cush_tilt);
@@ -627,12 +638,12 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
         Vec3 cp = v3(seg->a.x + ab.x*t, b->pos.y, seg->a.z + ab.z*t);
         Vec3 d = v3_sub(b->pos, cp); d.y = 0.0f;
         float dist = sqrtf(d.x*d.x + d.z*d.z);
-        if (dist >= w->R || dist < 1e-6f) continue;
+        if (dist >= cue_ball_r(w, b) || dist < 1e-6f) continue;
         Vec3 nd = v3_scale(d, 1.0f / dist);
         if (nd.x*seg->n.x + nd.z*seg->n.z < 0.0f) continue;       /* behind face */
         /* smooth surface normal interpolated between the segment's vertex normals */
         Vec3 sn = v3_norm(v3_add(v3_scale(seg->na, 1.0f - t), v3_scale(seg->nb, t)));
-        float pen = w->R - dist;
+        float pen = cue_ball_r(w, b) - dist;
         if (pen > best_pen) { best_pen = pen; best = s; best_n = sn; best_sep = nd; }
     }
     if (best >= 0) {
@@ -654,9 +665,9 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
          * cannot climb, because the impact reverses the horizontal motion
          * first, so whatever lift it gets happens while it is already leaving.
          * That falls out of the geometry rather than needing a rule. */
-        float nose_y = w->R * st;                     /* nose above cloth-rest centre */
-        float rise   = b->pos.y - w->R;               /* how high the ball is */
-        float sn     = (nose_y - rise) / w->R;        /* + above centre, - below */
+        float nose_y = cue_ball_r(w, b) * st;                     /* nose above cloth-rest centre */
+        float rise   = b->pos.y - cue_ball_r(w, b);               /* how high the ball is */
+        float sn     = (nose_y - rise) / cue_ball_r(w, b);        /* + above centre, - below */
         if (sn >  0.95f) sn =  0.95f;
         if (sn < -0.95f) sn = -0.95f;
         if (cushion_impact(w, b, best_n, sn)) {
@@ -669,9 +680,9 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
     for (int j = 0; j < w->njaw; j++) {
         Vec3 d = v3_sub(b->pos, w->jaw[j]); d.y = 0.0f;
         float dist = sqrtf(d.x * d.x + d.z * d.z);
-        float mind = w->R + w->jaw_r;
+        float mind = cue_ball_r(w, b) + w->jaw_r;
         if (dist < mind && dist > 1e-6f) {
-            if (b->pos.y - w->R > w->rail_top) continue;       /* flying over it */
+            if (b->pos.y - cue_ball_r(w, b) > w->rail_top) continue;       /* flying over it */
             Vec3 N = v3_scale(d, 1.0f / dist);
             b->pos = v3_add(b->pos, v3_scale(N, (mind - dist)));
             if (collide_surface(w, b, N, w->e_cush, w->mu_cush)) {
@@ -749,11 +760,11 @@ CUE_HOT float cue_phys_cut_out(const CueWorld *w, int p, float x, float z) {
 }
 
 static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
-    if (b->pos.y - w->R > w->rail_top) return 0;         /* flying clean over */
+    if (b->pos.y - cue_ball_r(w, b) > w->rail_top) return 0;         /* flying clean over */
     for (int p = 0; p < w->npocket; p++) {
         Vec3 d = v3_sub(b->pos, w->drop_c[p]); d.y = 0.0f;
         float q = d.x*d.x + d.z*d.z;
-        float reach = w->cut_r[p] + w->R * 3.0f;
+        float reach = w->cut_r[p] + cue_ball_r(w, b) * 3.0f;
         if (q > reach * reach) continue;
 
         /* THE DROP IS THE POCKET CIRCLE. The ball's centre inside it and the
@@ -884,9 +895,10 @@ static CUE_HOT float surface_at(const CueWorld *w, float x, float z) {
  */
 static CUE_HOT void jump_watch(CueWorld *w, CueBall *balls, int n) {
     const CueBall *cue = &balls[0];
-    const float reach = 2.0f * w->R;
+    const float cue_r = cue_ball_r(w, cue);
     for (int j = 1; j < n; j++) {
         if (!balls[j].on || balls[j].drop > 0.0f) continue;
+        float reach = cue_r + cue_ball_r(w, &balls[j]);
         float dx = cue->pos.x - balls[j].pos.x;
         float dz = cue->pos.z - balls[j].pos.z;
         if (dx > reach || dx < -reach || dz > reach || dz < -reach) continue;
@@ -961,7 +973,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * falls, so it goes in the way it goes in on a table: leaning into
              * the middle, not dropping through the felt. */
             int   pk = b->pocket;
-            float ld = w->lip_d[pk], rr = ld + w->R;
+            float ld = w->lip_d[pk], rr = ld + cue_ball_r(w, b);
             float o0 = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
 
             Vec3 pc2 = w->drop_c[pk];
@@ -1030,8 +1042,8 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * the ball cannot pass and gives up most of its pace against. */
             {
                 float bx = b->pos.x - pc2.x, bz = b->pos.z - pc2.z;
-                float rmax = w->pocket_r[pk] - w->R * 0.35f;
-                if (rmax < w->R * 0.25f) rmax = w->R * 0.25f;
+                float rmax = w->pocket_r[pk] - cue_ball_r(w, b) * 0.35f;
+                if (rmax < cue_ball_r(w, b) * 0.25f) rmax = cue_ball_r(w, b) * 0.25f;
                 float q2 = bx*bx + bz*bz;
                 if (q2 > rmax * rmax) {
                     float q = sqrtf(q2);
@@ -1108,8 +1120,8 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
          * on hard shots, which is exactly what was reported.
          *
          * Below the cap, the answer is the bed, and the cushion does the rest. */
-        if (surf > 0.0f && b->pos.y < surf + w->R - 1.0e-4f) surf = 0.0f;
-        float rest_y = (surf > CUE_NO_SURFACE * 0.5f) ? surf + w->R : -1.0e9f;
+        if (surf > 0.0f && b->pos.y < surf + cue_ball_r(w, b) - 1.0e-4f) surf = 0.0f;
+        float rest_y = (surf > CUE_NO_SURFACE * 0.5f) ? surf + cue_ball_r(w, b) : -1.0e9f;
         if (b->pos.y > rest_y + 1.0e-5f || b->vel.y > 0.0f) {
             b->vel.y -= w->g * h;
             b->pos = v3_add(b->pos, v3_scale(b->vel, h));
@@ -1185,7 +1197,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             b->w.z > -0.05f && b->w.z < 0.05f) continue;
         ball_cloth(w, b, h);
         b->pos = v3_add(b->pos, v3_scale(b->vel, h));
-        b->pos.y = w->R;
+        b->pos.y = cue_ball_r(w, b);
         ball_spin_orient(b, h);
     }
     /* 1b. the jump-shot watch, while the white is off the bed. Before the
@@ -1198,6 +1210,9 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
      * object-ball contact for the rules. A cheap per-axis broad-phase reject
      * (exactly equivalent to the dist>=2R early-out, but no sqrt) skips the far
      * pairs — a big win on snooker's 22 balls (O(n^2) pairs per substep). */
+    /* The reject has to be at least the biggest pair on the table, or it would
+     * skip a real contact. With a smaller cue ball every pair is 2R or less, so
+     * the set's own diameter is still the safe bound. */
     const float bb_min = 2.0f * w->R;
     for (int i = 0; i < n; i++) {
         if (!balls[i].on || balls[i].drop > 0.0f) continue;

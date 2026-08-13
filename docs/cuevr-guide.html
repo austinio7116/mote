@@ -254,6 +254,9 @@
     <tr><td><b>Bridge hand side trigger</b> (double tap)</td>
         <td>Puts that offset back to the default. <b>RESET CUE</b> on the controls screen does the
         same thing.</td></tr>
+    <tr><td><b>RULES</b> (main menu)</td>
+        <td>Which rule book the frame is played to. Every game but UK 8-ball has one, and shows
+        STANDARD; UK 8-ball offers PUB (2 SHOTS), INTERNATIONAL and ULTIMATE POOL.</td></tr>
     <tr><td><b>Left stick</b></td>
         <td>Slides the table around the room. Works at any time, including mid-frame, on either
         hand.</td></tr>
@@ -379,19 +382,47 @@
     <figure><img src="img/cuevr/table0.jpg" alt="A UK 8-ball table"></figure>
     <div>
       <h3>UK 8-ball</h3>
-      <div class="spec">7FT TABLE · REDS AND YELLOWS · BLACK</div>
+      <div class="spec">7FT TABLE · REDS AND YELLOWS · BLACK · THREE RULE SETS</div>
       <p>The pub game. The table is open until somebody pots a colour, and that colour becomes
       theirs; the other player takes the rest. Clear your seven, then pot the black to win.</p>
-      <p><b>Fouls</b> are potting the cue ball, hitting nothing, hitting the other player's colour
-      first, hitting the black before you are on it, and driving a ball off the table. Jumping the
-      cue ball is not a foul in pool.</p>
-      <p><b>Two shots.</b> A foul gives your opponent <b>two visits</b> rather than ball in hand.
-      The cue ball stays where it finished unless it was potted, in which case they play from in
-      hand behind the baulk line. The first of those two shots is free: they may hit any ball. Once
-      they pot one of their own, the second shot is gone.</p>
-      <p><b>The black.</b> Potting it before your colours are gone loses the frame, as does fouling
-      while potting it. If it goes in on the break it is put back and the break stands.</p>
+      <p><b>Fouls, in every rule set:</b> potting the cue ball, hitting nothing at all, hitting the
+      other player's colour first, hitting the black before you are on it, and driving any ball off
+      the table. Jumping the cue ball is <em>not</em> a foul in pool.</p>
+      <p><b>The black:</b> potting it before your own colours are gone loses the frame, as does
+      fouling on the shot that pots it.</p>
+      <p>What differs between the three sets is what a foul costs you, whether a shot has to reach
+      a cushion, and what happens if the black goes in off the break. Choose on the <b>RULES</b>
+      row of the main menu.</p>
     </div>
+    <figure><img src="img/cuevr/table0.jpg" alt="A UK 8-ball table"></figure>
+  </div>
+
+  <table>
+    <tr><th></th><th>PUB (2 SHOTS)</th><th>INTERNATIONAL</th><th>ULTIMATE POOL</th></tr>
+    <tr><td><b>After a foul</b></td>
+        <td>Your opponent gets <b>two visits</b>. The cue ball stays where it finished.</td>
+        <td colspan="2"><b>One visit, ball in hand anywhere on the table.</b></td></tr>
+    <tr><td><b>If the cue ball was potted</b></td>
+        <td>They play from in hand, behind the baulk line, inside the D.</td>
+        <td colspan="2">Anywhere on the table, like any other foul.</td></tr>
+    <tr><td><b>The first of the two shots</b></td>
+        <td>Free — they may hit any ball. Potting one of their own cancels the second shot.</td>
+        <td colspan="2">Not applicable: there is only one visit.</td></tr>
+    <tr><td><b>Must a shot reach a cushion?</b></td>
+        <td>No. A shot that pots nothing and touches no cushion is legal.</td>
+        <td colspan="2"><b>Yes.</b> Pot a ball, or send some ball to a cushion after the contact,
+        or it is a foul.</td></tr>
+    <tr><td><b>Black off the break</b></td>
+        <td>Put back on its spot, break stands.</td>
+        <td>Put back on its spot, break stands.</td>
+        <td><b>Golden break — you win the frame.</b> With the cue ball as well, or with any other
+        foul, you lose it: the golden duck.</td></tr>
+  </table>
+
+  <div class="note">
+    <b>Which is which.</b> PUB is the game in most pubs — the two-shot carry. INTERNATIONAL is the
+    International 8-Ball ruleset, now used by the WEPF and the EPA. ULTIMATE POOL is that same
+    ruleset as played by the Ultimate Pool Group, whose tournaments add the golden break.
   </div>
 
   <div class="mode">
@@ -402,7 +433,8 @@
       are solids or stripes — and once your group is clear you are on the 8.</p>
       <p><b>Fouls</b> are potting the cue ball, hitting nothing, hitting the other group first,
       hitting the 8 first while the table is open or before your group is clear, hitting anything
-      other than the 8 once you are on it, and driving a ball off the table.</p>
+      other than the 8 once you are on it, driving a ball off the table, and — as WPA rules
+      require — playing a shot that neither pots a ball nor sends any ball to a cushion.</p>
       <p><b>Ball in hand.</b> Any foul gives your opponent the cue ball <b>anywhere on the
       table</b> — not just behind a line. It is a heavy penalty and it is meant to be.</p>
       <p><b>The 8.</b> Pot it after your group is clear and you win. Pot it early, or foul on the
@@ -444,6 +476,28 @@
     </div>
     <figure><img src="img/cuevr/table3.jpg" alt="A Chinese 8-ball table"></figure>
   </div>
+
+  <h3>The balls each game is played with</h3>
+  <p>Every game uses the balls it is really played with, at the official size and weight. English
+  pool is the odd one out: its cue ball is <b>smaller and lighter</b> than the object balls, a
+  convention that comes from coin-operated tables needing to tell the white apart to return it.
+  You will feel it — a light cue ball checks back off a full contact instead of stunning dead, and
+  it throws the object ball further when you use sidespin.</p>
+
+  <table>
+    <tr><th>Game</th><th>Object balls</th><th>Cue ball</th><th>Specification</th></tr>
+    <tr><td>Snooker, 12ft and 10-red</td><td>52.5 mm · 142 g</td><td>52.5 mm · 142 g</td>
+        <td>WPBSA</td></tr>
+    <tr><td>Snooker, 6-red (7ft)</td><td>50.8 mm · 116 g</td><td>50.8 mm · 116 g</td>
+        <td>A compact set to suit the small table. 6-red is played full-size in competition, so
+        there is no official spec for it on a 7ft bed.</td></tr>
+    <tr><td><b>UK 8-ball</b></td><td>50.8 mm · 116 g</td><td><b>47.6 mm · 94 g</b></td>
+        <td>WEPF: 2.000″ ±0.005″, 116 g ±2 g, with the traditional 1⅞″ cue ball</td></tr>
+    <tr><td>US 8-ball and 9-ball</td><td>57.15 mm · 170 g</td><td>57.15 mm · 170 g</td>
+        <td>WPA: 2¼″ ±0.005″, 160–170 g</td></tr>
+    <tr><td>Chinese 8-ball</td><td>57.15 mm · 170 g</td><td>57.15 mm · 170 g</td>
+        <td>WPA balls on a 10ft snooker-built table</td></tr>
+  </table>
 
   <p>Match length is set on the main menu: one frame, or best of 3, 5, 7, 9 or 11. The break
   alternates between players and the score carries through the match. A player who cannot catch up
@@ -648,6 +702,14 @@
 
   <p><b>Free practice</b> gives you the table on your own with no rules and no scoring. Put the
   balls wherever you like and hit them.</p>
+
+  <div class="note">
+    <b>Breaks are still counted at snooker.</b> Practice has no rules, but it does keep your break:
+    pot legal balls and the total climbs on the scoreboard and the referee calls it as he would in
+    a frame. Miss, or go in-off, and he reads out what you made and it starts again from zero.
+    Nothing is judged and nothing is penalised — it is there so you can practise a break and know
+    what you built.
+  </div>
 
   <p><b>Challenges</b> set you a goal on a fixed layout — clear the table, or reach a score. Each
   one is judged over a single visit, so a miss ends the attempt and you start again.</p>
@@ -861,6 +923,10 @@
     barely changes where the ball you hit goes, but it changes what your ball does off a cushion,
     and it lasts a couple of seconds before the cloth wears it off.</li>
   </ul>
+  <p>There is a limit to how far off centre you can hit, and the game applies it: past about
+  <b>0.55 of the ball's radius</b> a real tip slips off the ball — the miscue limit — so that is as
+  much spin as anybody can put on. Aiming further out simply gives you the maximum rather than
+  something impossible.</p>
 
   <h3>Sidespin pushes your ball off the line you aimed</h3>
   <p>Hit away from the middle of the ball and it does not set off down the line of the cue. It is
@@ -982,8 +1048,12 @@
     <p>stays in contact and is steered down by it, while anything faster leaves the edge and flies.</p>
 
     <h3>The strike</h3>
-    <p>One impulse along the cue's direction, applied where the tip touches. With the tip offset by
-    (s, t) in units of the ball's radius:</p>
+    <p>One impulse along the cue's direction, applied where the tip touches. The offset is capped
+    at 0.55 R, the miscue limit — Alciatore measured that as reachable with some effort against the
+    textbook half-ball, and found no measurable difference between chalk brands. It puts the
+    maximum spin at</p>
+    <div class="eq">ω·R / v = (5/2) · (b/R) = 1.37      <span class="c">b = 0.55 R</span></div>
+    <p>With the tip offset by (s, t) in units of the ball's radius:</p>
     <div class="eq">r = right · (s · R) + up · (t · R)
     <br>J = cue_direction · (speed · m)
     <br>ω = (r × J) / I</div>

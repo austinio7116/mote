@@ -54,7 +54,18 @@ typedef struct {
      * moment on the rail; one that has come to rest up there is not coming
      * back, and a frame cannot wait on it for ever. */
     float astray;
+    /* THIS BALL'S OWN SIZE AND WEIGHT, where it differs from the set.
+     *
+     * English pool is played with a cue ball smaller than the object balls —
+     * 47.6 mm against 50.8 — a convention that comes from coin-op ball returns
+     * and is still what a pub table has in it. Everything else in these games
+     * uses one size, so ZERO MEANS "the same as the rest": every ball that is
+     * memset and handed to the engine keeps working untouched, and only the
+     * odd one out has to say so. */
+    float r;         /* radius, metres. 0 = the world's R */
+    float m;         /* mass, kg.       0 = the world's mass */
 } CueBall;
+
 
 /* A cushion nose segment in the X–Z plane with an inward unit normal
  * (pointing into the playable area). Rails and pocket facings are both built
@@ -198,6 +209,13 @@ typedef struct {
     /* Integrator accumulator (do not touch). */
     float _acc;
 } CueWorld;
+
+static inline float cue_ball_r(const CueWorld *w, const CueBall *b) {
+    return (b->r > 0.0f) ? b->r : w->R;
+}
+static inline float cue_ball_m(const CueWorld *w, const CueBall *b) {
+    return (b->m > 0.0f) ? b->m : w->mass;
+}
 
 /* Sensible default constants for the given ball radius/mass. cue_table then
  * fills the geometry arrays. */

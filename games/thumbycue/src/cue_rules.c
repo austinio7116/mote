@@ -180,6 +180,18 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
 
     /* the 8 */
     if (eight) {
+        if (r->break_shot && r->mode == CUE_GAME_UK8 &&
+            r->uk_intl == CUE_UK_ULTIMATE) {
+            /* THE GOLDEN BREAK, which the Ultimate Pool Group play and nobody
+             * else does: the black off the break wins the frame outright, and
+             * the black WITH the cue ball — or with any other foul — loses it.
+             * The golden duck. */
+            r->frame_over = 1;
+            r->winner = foul ? (1 - r->turn) : r->turn;
+            book_frame(r, r->winner);
+            snprintf(r->msg, sizeof r->msg, "%s", foul ? "GOLDEN DUCK" : "GOLDEN BREAK");
+            return;
+        }
         if (r->break_shot) {                       /* re-spot, no result */
             respot_eight(r, b, n);
         } else {
@@ -294,8 +306,10 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t) {
     r->turn = first;
 }
 
-void cue_rules_set_uk(CueRules *r, int international) {
-    if (r) r->uk_intl = international ? 1 : 0;
+void cue_rules_set_uk(CueRules *r, int ruleset) {
+    if (!r) return;
+    if (ruleset < CUE_UK_PUB || ruleset > CUE_UK_ULTIMATE) ruleset = CUE_UK_PUB;
+    r->uk_intl = ruleset;
 }
 
 void cue_rules_respot(CueRules *r, CueBall *b, int n, int id) {

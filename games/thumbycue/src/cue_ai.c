@@ -484,6 +484,11 @@ typedef struct {
     float S;            /* px per metre = 12/R */
     float maxdist_m;    /* table max dimension in metres */
     int   snooker;
+    /* CENTRE TO CENTRE AT CONTACT. Two balls of the set touch at 2R, but an
+     * English cue ball is 47.6 mm against the object balls' 50.8, so the ghost
+     * ball sits 49.2 mm from the object rather than 50.8 — and every aim taken
+     * at 2R was 1.6 mm thick. It is small and it is on EVERY shot. */
+    float contact;
 } AiCtx;
 
 #define PXm(ctx, px) ((px) * (ctx)->t->R / 12.0f)   /* px constant → metres */
@@ -494,10 +499,12 @@ static int ai_value(int id) {
 }
 static int is_corner(const AiCtx *c, int pk) { (void)c; return pk < 4; }
 
-/* Ghost-ball centre: where the cue centre must be at contact. */
-static Vec3 ghost_ball(Vec3 target, Vec3 aim_pt, float R) {
+/* Ghost-ball centre: where the cue centre must be at contact. `contact` is the
+ * centre-to-centre distance, which is the two radii and not twice one of them —
+ * see AiCtx.contact. */
+static Vec3 ghost_ball(Vec3 target, Vec3 aim_pt, float contact) {
     Vec3 dir = nrm2(sub2(aim_pt, target));
-    return v3(target.x - dir.x*2*R, 0, target.z - dir.z*2*R);
+    return v3(target.x - dir.x*contact, 0, target.z - dir.z*contact);
 }
 
 /* Functional pocket aim point — the drop centre (already set back). */
@@ -568,7 +575,7 @@ static int path_clear_at(const AiCtx *c, Vec3 start, Vec3 end, int exclude,
     float dist = len2(dir);
     if (dist < PXm(c, 1)) return 1;
     Vec3 nd = v3(dir.x/dist, 0, dir.z/dist);
-    float clr = 2.0f * c->t->R;
+    float clr = c->contact;
     for (int i = 0; i < c->n; i++) {
         int alive = on ? on[i] : c->b[i].on;
         if (i == exclude || !alive || c->b[i].id == CUE_ID_CUE) continue;
@@ -606,7 +613,7 @@ static float potting_difficulty(const AiCtx *c, Vec3 cue, Vec3 target, int pk) {
     float R = c->t->R;
     Vec3 ppos = c->w->pocket[pk];
     Vec3 pdir = nrm2(sub2(ppos, target));
-    Vec3 ghost = v3(target.x - pdir.x*2*R, 0, target.z - pdir.z*2*R);
+    Vec3 ghost = v3(target.x - pdir.x*c->contact, 0, target.z - pdir.z*c->contact);
     Vec3 aim = nrm2(sub2(ghost, cue));
     float cut = acosf(clampf(dot2(aim, pdir), -1, 1)) * DEG;
     if (cut > 80.0f) return 0.0f;
@@ -782,11 +789,11 @@ static int ghost_fits(const AiCtx *c, Vec3 tp, int pk, int self,
     float l = len2(d);
     if (l < 1e-6f) return 0;
     d = v3(d.x / l, 0, d.z / l);
-    Vec3 g = v3(tp.x + d.x * 2.0f * c->t->R, 0, tp.z + d.z * 2.0f * c->t->R);
+    Vec3 g = v3(tp.x + d.x * c->contact, 0, tp.z + d.z * c->contact);
     /* it has to be ON the table — a ghost point out over the cushion is a shot
      * nobody can play */
     if (fabsf(g.x) > c->w->play_x || fabsf(g.z) > c->w->play_z) return 0;
-    float clr = 2.0f * c->t->R;
+    float clr = c->contact;
     for (int i = 0; i < c->n; i++) {
         int alive = on ? on[i] : c->b[i].on;
         if (i == self || !alive || c->b[i].id == CUE_ID_CUE) continue;
@@ -1172,7 +1179,7 @@ static int eval_pot(const AiCtx *c, int tidx, int pk,
     if (!pocket_approach_ok(c, target, pk)) return 0;
 
     Vec3 pdir = nrm2(sub2(ap, target));
-    Vec3 ghost = v3(target.x - pdir.x*2*R, 0, target.z - pdir.z*2*R);
+    Vec3 ghost = v3(target.x - pdir.x*c->contact, 0, target.z - pdir.z*c->contact);
     Vec3 aimv = nrm2(sub2(ghost, cue));
     float cut = acosf(clampf(dot2(aimv, pdir), -1, 1)) * DEG;
     float dpk = d2(target, ap);
@@ -1420,7 +1427,7 @@ static int find_banks(const AiCtx *c, Cand *out, int cap) {
 
                 Vec3 gdir = nrm2(sub2(mir, target));
                 if (len2(gdir) < 1e-6f) continue;
-                Vec3 ghost = v3(target.x - gdir.x*2*R, 0, target.z - gdir.z*2*R);
+                Vec3 ghost = v3(target.x - gdir.x*c->contact, 0, target.z - gdir.z*c->contact);
                 if (!path_clear(c, cue, ghost, i)) continue;
 
                 /* where the object meets the rail, and is that leg in front of it */
@@ -1698,7 +1705,7 @@ static int find_safety(const AiCtx *c, Cand *out, uint32_t *rng) {
                 /* the object departs along ca; the ghost sits behind it */
                 Vec3 ca = v3(base.x*cosf(a) - base.z*sinf(a), 0,
                              base.x*sinf(a) + base.z*cosf(a));
-                Vec3 ghost = v3(target.x - ca.x*2*R, 0, target.z - ca.z*2*R);
+                Vec3 ghost = v3(target.x - ca.x*c->contact, 0, target.z - ca.z*c->contact);
                 if (!path_clear(c, cue, ghost, i)) continue;   /* legal first contact */
                 Vec3 aimv = nrm2(sub2(ghost, cue));
                 float cut = acosf(clampf(dot2(aimv, ca), -1, 1)) * DEG;
@@ -1759,7 +1766,7 @@ static int find_safety(const AiCtx *c, Cand *out, uint32_t *rng) {
 /* First object ball a ray from `start` along unit `dir` would contact, within
  * `maxd` metres (cue-ball radius accounted). -1 if none. */
 static int first_hit_along(const AiCtx *c, Vec3 start, Vec3 dir, float maxd) {
-    int best = -1; float bestd = maxd; float R2 = 2.0f * c->t->R;
+    int best = -1; float bestd = maxd; float R2 = c->contact;
     for (int i = 1; i < c->n; i++) {
         if (!c->b[i].on) continue;
         Vec3 tb = sub2(c->b[i].pos, start);
@@ -1986,7 +1993,12 @@ static int throw_correct(const AiCtx *c, Cand *q, AiSim *out) {
     if (q->pk < 0 || q->tidx <= 0 || q->tidx >= c->n) return 0;
     Vec3 want = nrm2(sub2(pocket_aim_t(c, q->pk, c->b[q->tidx].pos),
                           c->b[q->tidx].pos));
-    float gear = 2.0f * c->t->R / fmaxf(q->dg, 4.0f * c->t->R);
+    /* Rotating the aim by d moves the cue ball's contact point by about dg*d,
+     * which swings the line of centres — and so the object ball — by
+     * dg*d/contact. `contact` is the two radii, which is 2R on a matched set
+     * and 49.2 mm rather than 50.8 with an English cue ball, so this was 3% hot
+     * on that table for the same reason the ghost ball was 1.6 mm thick. */
+    float gear = c->contact / fmaxf(q->dg, 2.0f * c->contact);
     for (int pass = 0; pass < 2; pass++) {
         AiSim sm;
         ai_sim(c->w, c->t, c->b, c->n, 0, q->aim, q->power01,
@@ -2505,6 +2517,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         .w = w, .t = t, .r = r, .b = balls, .n = n, .p = p,
         .S = 12.0f / t->R, .maxdist_m = fmaxf(t->half_len, t->half_wid) * 2.0f,
         .snooker = t->is_snooker,
+        .contact = (t->cue_R > 0.0f) ? (t->cue_R + t->R) : (2.0f * t->R),
     };
     ai_knobs();
     P.ctx = ctx; P.rng = rng; P.npool = 0; P.sim_i = 0;
@@ -2880,7 +2893,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     float R = t->R;
     Vec3 cue = balls[0].pos, target = balls[ti].pos, ap = pocket_aim_t(c, pk, target);
     Vec3 pdir = nrm2(sub2(ap, target));
-    Vec3 ghost = v3(target.x - pdir.x*2*R, 0, target.z - pdir.z*2*R);
+    Vec3 ghost = v3(target.x - pdir.x*c->contact, 0, target.z - pdir.z*c->contact);
     float cut = acosf(clampf(dot2(nrm2(sub2(ghost,cue)), pdir), -1, 1)) * DEG;
     float aim = atan2f(ghost.z - cue.z, ghost.x - cue.x);
     float dg = d2(cue, ghost), dpk = d2(target, ap);
@@ -3426,8 +3439,10 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
     };
     AiCtx *c = &ctx;
 
-    Vec3 best_pos = cue_table_clamp_placement_balls(t, cue_table_cue_home(t),
-                                                    balls, n, r->break_shot);
+    const int in_hand_any = cue_rules_in_hand_anywhere(r);
+    Vec3 best_pos = cue_table_clamp_placement_any(t, cue_table_cue_home(t),
+                                                  balls, n, r->break_shot,
+                                                  in_hand_any);
     float best = -1e9f;
 
     static CueBall pb[CUE_MAX_BALLS];
@@ -3519,7 +3534,7 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
                 cand = v3(-t->half_len + fx * (t->half_len + t->baulk_x), t->R,
                           (fz * 2.0f - 1.0f) * t->half_wid);
         }
-        cand = cue_table_clamp_placement_balls(t, cand, balls, n, r->break_shot);
+        cand = cue_table_clamp_placement_any(t, cand, balls, n, r->break_shot, in_hand_any);
 
         pb[0].pos = cand; pb[0].on = 1;
         float score = 0.0f;

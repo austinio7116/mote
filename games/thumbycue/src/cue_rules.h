@@ -52,7 +52,8 @@ typedef struct {
      * It lives in CueRules rather than CueTable because it is a rule, not a
      * table — the same 7 ft bed plays both — and because the whole struct
      * crosses the wire in a match, so putting it here syncs it for free. */
-    int uk_intl;
+    int uk_intl;         /* CUE_UK_* — see below. Kept as a plain int so the
+                          * struct still crosses the wire unchanged. */
 
     /* snooker */
     int target;          /* 0 = red, 1 = a colour, 2 = clearance sequence */
@@ -125,10 +126,37 @@ enum { CUE_DEC_NONE = 0, CUE_DEC_PENDING, CUE_DEC_PLAY, CUE_DEC_AGAIN,
        CUE_DEC_REPLAY, CUE_DEC_FREEBALL };
 
 void cue_rules_init(CueRules *r, const CueTable *t, int cpu);
+/* The three UK 8-ball rule sets.
+ *
+ * PUB is the pub game: a foul hands over two visits and the cue ball stays
+ * where it lies, and a shot need not reach a cushion.
+ *
+ * INTERNATIONAL is the International 8-Ball ruleset — one visit with ball in
+ * hand anywhere, and a shot that pots nothing must reach a cushion. It is what
+ * the WEPF and the EPA have both adopted.
+ *
+ * ULTIMATE is that same ruleset as the Ultimate Pool Group play it, plus their
+ * tournament addition: the GOLDEN BREAK. Pot the black off the break and the
+ * frame is won there and then; pot the black and the cue ball, or foul while
+ * doing it, and it is lost — the golden duck. Everything else is identical to
+ * International, which is why it is a flag on top of it rather than a third
+ * body of rules. */
+enum { CUE_UK_PUB = 0, CUE_UK_INTL = 1, CUE_UK_ULTIMATE = 2 };
+
 /* Pick which UK 8-ball is being played, before the break. 0 = pub (two shots
  * on a foul, no cushion requirement), 1 = international (ball in hand, and a
  * shot that pots nothing must reach a cushion). Ignored by every other game. */
-void cue_rules_set_uk(CueRules *r, int international);
+void cue_rules_set_uk(CueRules *r, int ruleset);   /* CUE_UK_* */
+
+/* May the cue ball be placed anywhere on the table, or only in the D?
+ * Snooker is always the D. The English table follows its rule set: the D under
+ * pub rules, the whole cloth under International and Ultimate Pool. Every other
+ * pool game is the whole cloth. */
+static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
+    if (!r || r->kind) return 0;                    /* snooker: the D */
+    if (r->mode == CUE_GAME_UK8) return r->uk_intl != CUE_UK_PUB;
+    return 1;
+}
 /* Re-rack for the next frame of the same match: the frame state resets, the
  * frame tally and the match length do not. */
 void cue_rules_next_frame(CueRules *r, const CueTable *t);
