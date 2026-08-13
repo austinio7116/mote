@@ -148,7 +148,7 @@
 <section id="start">
   <h2>Getting started</h2>
   <p class="lede">CueVR puts a full-size table in the room you are standing in. There is no shot
-  meter and no aiming line. You hold a cue in both hands, get down over it, and play the shot.</p>
+  meter and no aiming line: you hold a cue in both hands and play the shot.</p>
 
   <p>You need a Quest 3 or 3S. You also need enough clear floor to walk along one side of a table.
   The game runs in passthrough, so you will see your own room around the table and can walk around
@@ -171,8 +171,7 @@
 
 <section id="table">
   <h2>Setting up the table</h2>
-  <p class="lede">Take your time over this. Everything else in the game depends on the table being
-  somewhere you can comfortably lean on.</p>
+  <p class="lede">Where the table sits and how high it stands is the first thing to set.</p>
 
   <figure>
     <img src="img/cuevr/place-table.jpg" alt="The table placement screen showing a height of 85 cm">
@@ -196,8 +195,9 @@
   </div>
 
   <p>A real snooker table has its bed about 85 cm off the floor, which is where the screen starts.
-  You do not need space for the whole table. Most players set it so they can reach the near end and
-  walk round when they need the far end.</p>
+  You do not need a room big enough for the whole table. If space is tight, bring the part of the
+  table you need into the space you have: turn the table with the right stick and slide it with the
+  left, then play. You can do this as often as you like, including in the middle of a frame.</p>
 
   <p>The table stays where you put it. To move it later, press the <kbd>MENU</kbd> button and choose
   <b>PLACE TABLE</b>.</p>
@@ -214,26 +214,40 @@
   <p class="lede">Both controllers hold the cue. The buttons do a small number of jobs, and the two
   side triggers are the ones worth learning.</p>
 
+  <p>One hand is your <b>bridge hand</b>, the one the cue rests on at the front. The other is your
+  <b>butt hand</b>, the one you hold the end with and stroke with. Which physical controller is
+  which depends on the handedness setting, so everything below is written in terms of the two
+  hands, not left and right.</p>
+
   <table>
     <tr><th>Control</th><th>What it does</th></tr>
-    <tr><td><b>Left controller</b></td><td>Your bridge hand. The cue rests on it and pivots there.</td></tr>
-    <tr><td><b>Right controller</b></td><td>Your grip hand. Move it forward to play the shot.</td></tr>
-    <tr><td><b>Right side trigger</b> (hold)</td>
+    <tr><td><b>Bridge hand</b></td>
+        <td>Carries the front of the cue. The cue pivots on it, so this hand is what aims.</td></tr>
+    <tr><td><b>Butt hand</b></td>
+        <td>Holds the end of the cue. Moving it forward is the stroke.</td></tr>
+    <tr><td><b>Butt hand trigger</b></td>
+        <td><b>Takes the shot.</b> Pull it to commit — that locks the line the cue will travel
+        along, so your aim cannot drift while you deliver. Keep it held and move the hand forward
+        through the ball. Release when the shot is played.</td></tr>
+    <tr><td><b>Butt hand side trigger</b> (hold)</td>
         <td>Slides the cue through your bridge, so more or less of it sticks out in front. This is
-        how you shorten up for a shot against a cushion. Your aim does not move while you hold it.</td></tr>
-    <tr><td><b>Left side trigger</b> (hold)</td>
-        <td>Moves your bridge hand along the cue without steering it. Normally the bridge hand
-        <em>is</em> the aim, so this is the only way to reposition it without swinging the cue.</td></tr>
-    <tr><td><b>Left side trigger</b> (double tap)</td><td>Puts the bridge back where it started.</td></tr>
-    <tr><td><b>Index trigger</b></td><td>Selects things: menu rows, challenges, placing the ball.</td></tr>
-    <tr><td><kbd>A</kbd> and <kbd>B</kbd></td><td>Confirm and go back. Both are on the right controller.</td></tr>
+        how you shorten up for a shot against a cushion. Your aim stays where it is.</td></tr>
+    <tr><td><b>Bridge hand side trigger</b> (hold)</td>
+        <td>Sets where the cue sits relative to your controller, so the bridge falls in a position
+        that is comfortable for you. Hold it and move the hand; the cue stays put and the offset
+        changes.</td></tr>
+    <tr><td><b>Bridge hand side trigger</b> (double tap)</td>
+        <td>Puts that offset back to the default. <b>RESET CUE</b> on the controls screen does the
+        same thing.</td></tr>
+    <tr><td><b>Trigger</b> (in menus)</td><td>Selects the row or item you are pointing at.</td></tr>
+    <tr><td><kbd>A</kbd> and <kbd>B</kbd></td><td>Confirm and go back.</td></tr>
     <tr><td><kbd>MENU</kbd></td><td>Pauses the game.</td></tr>
   </table>
 
   <div class="note">
-    <b>Why the side triggers pin your aim.</b> Sliding your hand along a real cue does not move the
-    cue. Holding either side trigger tells the game you are adjusting your hands, not aiming, so
-    only the hand travels and the line you have set stays put.
+    <b>Why the side triggers do not move your aim.</b> Sliding your hand along a real cue does not
+    move the cue. Holding either side trigger tells the game you are adjusting your hands rather
+    than aiming, so the hand travels and the line you have set stays where it is.
   </div>
 
   <figure>
@@ -254,31 +268,29 @@
   ball goes, and how fast you move it is how hard the ball is hit.</p>
 
   <figure>
-    <img src="img/cuevr/stroke.jpg" alt="A cue lying across the table">
-    <figcaption>The cue as you hold it. The left hand carries the front, the right hand the butt.</figcaption>
+    <img src="img/cuevr/stroke.jpg" alt="Looking down the cue at the cue ball">
+    <figcaption>Down on a shot: your view along the cue at the cue ball, with the board above the
+    table showing what is on.</figcaption>
   </figure>
 
   <h3>Step by step</h3>
   <ol>
-    <li><b>Get down on the shot.</b> Bring your head near the cue, as you would at a real table.
-    This is the single biggest thing you can do to aim better.</li>
     <li><b>Put the tip on the ball.</b> Bring the tip up to the cue ball and line it up with where
     you want to hit.</li>
     <li><b>Choose your spot on the ball.</b> Raise the tip to hit above centre, lower it to hit
     below. Move it left or right for side. There is no menu for this: it is simply where the tip is.</li>
-    <li><b>Stroke through.</b> Move your grip hand forward through the ball. A slow push rolls the
-    ball gently; a break shot needs a real swing.</li>
+    <li><b>Commit.</b> Pull the trigger on your butt hand. This locks the line the cue will travel
+    along, so the shot goes where you aimed it and not where your hands wander to during the
+    delivery.</li>
+    <li><b>Stroke through.</b> With the trigger still held, move your butt hand forward through the
+    ball. How fast you move it is how hard the ball is hit: a slow push rolls it gently, a break
+    shot needs a real swing. Release the trigger afterwards.</li>
   </ol>
 
-  <div class="note warn">
-    <b>Stand up and you will miss.</b> The most common mistake on a first frame is staying upright
-    and stabbing down at the ball. Get your eye down over the cue and the shot becomes much easier
-    to judge.
-  </div>
-
   <h3>Shots you cannot reach</h3>
-  <p>Walk round the table. It is full size and you are meant to move around it. For a shot tight
-  against a cushion, hold the right side trigger and pull your grip hand back to shorten the cue.</p>
+  <p>You do not have to walk to the far end. Open the pause menu, choose <b>PLACE TABLE</b>, and
+  turn and slide the table until the shot is in front of you. For a shot tight against a cushion,
+  hold the butt hand's side trigger and pull that hand back to shorten the cue.</p>
 </section>
 
 <section id="games">
@@ -297,7 +309,7 @@
       black seven. The table is big, the pockets have rounded jaws, and a long pot is a genuine
       test.</p>
     </div>
-    <figure><img src="img/cuevr/table6.jpg" alt="A 12ft snooker table"></figure>
+    <figure><img src="img/cuevr/table4.jpg" alt="A 12ft snooker table"></figure>
   </div>
 
   <div class="mode rev">
@@ -320,7 +332,7 @@
       <p>This is the easiest way into snooker if you have never played it, and the best one for a
       small room.</p>
     </div>
-    <figure><img src="img/cuevr/table4.jpg" alt="A 6-red snooker table"></figure>
+    <figure><img src="img/cuevr/table6.jpg" alt="A 6-red snooker table"></figure>
   </div>
 
   <div class="mode rev">
@@ -702,11 +714,11 @@
   <p>The rest: <span class="tag">SILVER</span><span class="tag">TAUPE</span><span class="tag">GOLD</span><span class="tag">NUTMEG</span><span class="tag">RANGER GREEN</span><span class="tag">OLIVE</span><span class="tag">CHAMPIONSHIP</span><span class="tag">SAGE</span><span class="tag">POWDER BLUE</span><span class="tag">NAVY</span><span class="tag">FRENCH NAVY</span><span class="tag">ROYAL NAVY</span><span class="tag">MAROON</span><span class="tag">CHERRY</span><span class="tag">RED</span><span class="tag">ORANGE</span></p>
 
   <h3>Lighting</h3>
-  <div class="grid g4">
-    <figure><img src="img/cuevr/light0.jpg" alt="Match lighting"><figcaption><span class="cap-t">MATCH</span> — a single hard light, as used on television.</figcaption></figure>
-    <figure><img src="img/cuevr/light1.jpg" alt="Six shade lighting"><figcaption><span class="cap-t">SIX SHADE</span> — six shades down the table, like a club. This is the default.</figcaption></figure>
-    <figure><img src="img/cuevr/light2.jpg" alt="Room lighting"><figcaption><span class="cap-t">ROOM</span> — even light with no fixtures.</figcaption></figure>
-    <figure><img src="img/cuevr/light3.jpg" alt="Window lighting"><figcaption><span class="cap-t">WINDOW</span> — daylight from one side.</figcaption></figure>
+  <div class="grid g2">
+    <figure><img src="img/cuevr/light0.jpg" alt="Match lighting"><figcaption><span class="cap-t">MATCH</span> — one hard light over the table, as used for television. Bright cloth, dark surroundings, hard-edged shadows under the balls.</figcaption></figure>
+    <figure><img src="img/cuevr/light1.jpg" alt="Six shade lighting"><figcaption><span class="cap-t">SIX SHADE</span> — six shades in a row down the length, as a club table has. Even light along the table and softer shadows. This is the default.</figcaption></figure>
+    <figure><img src="img/cuevr/light2.jpg" alt="Room lighting"><figcaption><span class="cap-t">ROOM</span> — no fixtures at all, just even light from above. Flat, with the least shadow.</figcaption></figure>
+    <figure><img src="img/cuevr/light3.jpg" alt="Window lighting"><figcaption><span class="cap-t">WINDOW</span> — daylight from one side, so one long rail is lit and the other falls away.</figcaption></figure>
   </div>
 
   <h3>Surroundings</h3>
@@ -772,7 +784,7 @@
   runs on after the contact.</p>
 
   <figure>
-    <img src="img/cuevr/table6.jpg" alt="A snooker table">
+    <img src="img/cuevr/table4.jpg" alt="A snooker table">
     <figcaption>Your opponent plays through exactly the same physics you do.</figcaption>
   </figure>
 </section>
@@ -782,12 +794,13 @@
 
   <h3>The table feels like the wrong height</h3>
   <p>Press <kbd>MENU</kbd>, choose <b>PLACE TABLE</b>, and set the height to match a real surface in
-  your room. This solves most complaints about the cue feeling strange.</p>
+  your room.</p>
 
   <h3>I cannot reach a shot</h3>
-  <p>Walk round the table. If your space is small, move the table nearer a wall and play from the
-  side you can reach. For a shot tight to a cushion, hold the right side trigger and pull your grip
-  hand back to shorten the cue.</p>
+  <p>Rotate and move the table rather than walking to the shot. Press <kbd>MENU</kbd>, choose
+  <b>PLACE TABLE</b>, turn the table with the right stick and slide it with the left until the ball
+  you want is in front of you, then carry on. For a shot tight to a cushion, hold the butt hand's
+  side trigger and pull that hand back to shorten the cue.</p>
 
   <h3>The cue has ended up somewhere strange</h3>
   <p>Open <b>CONTROLS</b> and choose <b>RESET CUE</b>.</p>
