@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CueVR — The Player’s Guide</title>
+<style>
+  :root{
+    --bg:#0a0c0a; --panel:#111710; --panel2:#161d15; --ink:#e2e7de;
+    --dim:#8d9a88; --grn:#2f7d3f; --grnl:#5cc06f; --gold:#e8c45a;
+    --line:#243024; --grid:#1a221a;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  img{max-width:100%;display:block;border-radius:6px;background:#000}
+  a{color:var(--gold);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+
+  header.hero{position:relative;border-bottom:2px solid var(--grn);overflow:hidden}
+  header.hero .shot{width:100%;display:block}
+  header.hero .veil{position:absolute;inset:0;
+    background:linear-gradient(180deg,rgba(10,12,10,.88) 0%,rgba(10,12,10,.22) 40%,rgba(10,12,10,.94) 100%)}
+  header.hero .htext{position:absolute;inset:auto 0 0 0;padding:0 0 26px}
+  .htext h1{margin:0;font-size:3.4rem;letter-spacing:.10em;color:#fff;font-weight:800;
+    text-shadow:0 3px 18px rgba(0,0,0,.9)}
+  .htext .sub{color:var(--ink);font-size:1.2rem;margin-top:4px;text-shadow:0 2px 10px #000}
+  .htext .by{color:var(--dim);font-size:.9rem;margin-top:10px;letter-spacing:.04em}
+  .badges{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+  .badge{background:rgba(22,29,21,.85);border:1px solid var(--line);color:var(--gold);
+    font-size:.78rem;padding:4px 11px;border-radius:20px;letter-spacing:.04em}
+
+  nav.toc{position:sticky;top:0;z-index:5;background:rgba(10,12,10,.95);
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+  nav.toc .wrap{display:flex;gap:4px;flex-wrap:wrap;padding:8px 20px}
+  nav.toc a{color:var(--dim);font-size:.82rem;padding:5px 10px;border-radius:6px}
+  nav.toc a:hover{color:var(--ink);background:var(--panel);text-decoration:none}
+
+  section{padding:40px 0 12px;border-bottom:1px solid var(--grid)}
+  h2{font-size:1.65rem;color:var(--gold);margin:0 0 6px;letter-spacing:.03em;
+    display:flex;align-items:baseline;gap:10px}
+  h2::before{content:"▸";color:var(--grnl);font-size:1rem}
+  .lede{color:var(--dim);margin:0 0 22px;max-width:74ch;font-size:1.02rem}
+  h3{color:var(--grnl);margin:28px 0 8px;font-size:1.1rem;letter-spacing:.02em}
+  p,ul,ol{max-width:76ch}
+  li{margin:5px 0}
+  b,strong{color:#fff}
+  code,kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;font-size:.88em;color:var(--gold);font-family:ui-monospace,Menlo,Consolas,monospace}
+  kbd{color:var(--grnl)}
+
+  figure{margin:20px 0}
+  figcaption{color:var(--dim);font-size:.86rem;margin-top:7px;max-width:76ch}
+  .grid{display:grid;gap:16px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:860px){.g3,.g4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:620px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  .grid figure{margin:0}
+  .grid figcaption{font-size:.8rem;margin-top:5px}
+  .cap-t{color:var(--ink);font-weight:600}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}
+  .card h4{margin:0 0 6px;color:var(--gold);font-size:1rem;letter-spacing:.03em}
+  .card p{margin:0;color:var(--dim);font-size:.92rem}
+
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:.93rem}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--gold);font-weight:600;letter-spacing:.03em}
+  td b{color:#fff}
+  .tag{display:inline-block;background:var(--panel2);border:1px solid var(--line);
+    color:var(--grnl);border-radius:4px;padding:1px 7px;margin:2px 3px 2px 0;font-size:.84rem}
+
+  .note{background:var(--panel);border-left:3px solid var(--grnl);
+    padding:12px 16px;margin:18px 0;border-radius:0 6px 6px 0}
+  .note b{color:var(--grnl)}
+  .warn{border-left-color:var(--gold)} .warn b{color:var(--gold)}
+
+  footer{padding:34px 0 60px;color:var(--dim);font-size:.9rem}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <img class="shot" src="img/cuevr/hero.jpg" alt="A snooker table in an arena, seen from the baulk end">
+  <div class="veil"></div>
+  <div class="htext"><div class="wrap">
+    <h1>CueVR</h1>
+    <div class="sub">Snooker and pool, on a real-size table, in your own room.</div>
+    <div class="by">A player’s guide · by austinio7116</div>
+    <div class="badges">
+      <span class="badge">MIXED REALITY</span>
+      <span class="badge">7 GAMES</span>
+      <span class="badge">8 OPPONENTS</span>
+      <span class="badge">18 CUES</span>
+      <span class="badge">TWO-HEADSET MULTIPLAYER</span>
+      <span class="badge">MEASURED PHYSICS</span>
+    </div>
+  </div></div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#start">Getting started</a>
+  <a href="#table">Siting the table</a>
+  <a href="#stroke">The stroke</a>
+  <a href="#games">The games</a>
+  <a href="#balls">Ball sets</a>
+  <a href="#referee">The referee</a>
+  <a href="#opponents">Opponents</a>
+  <a href="#career">Career</a>
+  <a href="#challenges">Challenges</a>
+  <a href="#online">Two headsets</a>
+  <a href="#look">Making it yours</a>
+  <a href="#cues">The cue rack</a>
+  <a href="#physics">Why it plays right</a>
+  <a href="#trouble">Troubleshooting</a>
+</div></nav>
+
+<div class="wrap">
+
+<section id="start">
+  <h2>Getting started</h2>
+  <p class="lede">CueVR puts a full-size table in the room you are standing in. There is no shot
+  meter, no aiming line to drag and no power slider: you hold a cue, you get down on the shot, and
+  you play it.</p>
+
+  <p>You need a Quest 3 or 3S and enough clear floor to walk down one side of a table. The game runs
+  in passthrough, so the table lands in your real room — you will be walking around your own
+  furniture, not a virtual hall, unless you choose otherwise.</p>
+
+  <h3>The very short version</h3>
+  <ol>
+    <li>Put the table where you want it and set it to a height you can lean on.</li>
+    <li>Pick a game, an opponent and a match length on the main menu.</li>
+    <li>Point at <b>BREAK OFF</b> and pull the trigger.</li>
+    <li>Hold the cue in both hands, get your eye down over it, and stroke through the white.</li>
+  </ol>
+
+  <figure>
+    <img src="img/cuevr/main-menu.jpg" alt="The main menu floating above the table">
+    <figcaption>The main menu hangs above the far end of the table. Every row changes with the stick
+    or a trigger pull: the game, who you are playing, how long the match is, which opponent, and
+    whether the referee speaks. <b>BREAK OFF</b> starts the frame.</figcaption>
+  </figure>
+</section>
+
+<section id="table">
+  <h2>Siting the table</h2>
+  <p class="lede">The one setup step worth taking slowly, because everything else rests on it. You
+  are deciding where a real-size table sits in your real room, and how high its bed is.</p>
+
+  <figure>
+    <img src="img/cuevr/place-table.jpg" alt="The table placement screen showing a height in centimetres">
+    <figcaption>Left stick moves the table, right stick turns it, right stick up and down sets the
+    height — in centimetres, so you can match something real. <b>A</b> when you are happy.</figcaption>
+  </figure>
+
+  <div class="note">
+    <b>Put a hand on something real.</b> The most comfortable setting is one where the cloth lines
+    up with a surface you actually have: a dining table, a desk, the arm of a sofa, the end of a bed.
+    Then when you lean on the table to play, your hand meets something. A table floating at a height
+    nothing in your room shares is the single biggest cause of an awkward stroke.
+  </div>
+
+  <p>A championship snooker table has a bed about 85 cm off the floor, which is where the placement
+  screen starts. You do not need room for the whole table to be walkable — most players site it so
+  the baulk end is reachable and walk round when a shot calls for it.</p>
+
+  <p>It stays where you put it between sessions. If you move rooms, open the pause menu with the
+  <kbd>MENU</kbd> button and choose <b>PLACE TABLE</b>.</p>
+
+  <figure>
+    <img src="img/cuevr/pause-menu.jpg" alt="The pause menu">
+    <figcaption>The pause menu: re-rack, re-place the table, change how it looks, check the controls
+    or the records, concede the frame, or go back to the menu.</figcaption>
+  </figure>
+</section>
+
+<section id="stroke">
+  <h2>The stroke</h2>
+  <p class="lede">Two hands on a cue, exactly as you would hold one. The left controller is your
+  bridge, the right is your grip.</p>
+
+  <figure>
+    <img src="img/cuevr/aim_close.jpg" alt="A cue addressing the white on the baulk line">
+    <figcaption>The cue is a real object between your hands. Where you point it is where the white
+    goes; how fast you move it is how hard the ball is struck.</figcaption>
+  </figure>
+
+  <ul>
+    <li><b>Address the ball.</b> Bring the tip to the white. The cue rests on your bridge hand and
+    pivots there, the same as a real one.</li>
+    <li><b>Choose where on the ball to hit.</b> Raise or drop the tip and it strikes higher or lower
+    — top, centre, screw. Move it left or right for side. This is not a menu; it is where the tip
+    is.</li>
+    <li><b>Stroke through.</b> Move the grip hand forward. The speed of the stroke is the speed of
+    the ball: a gentle roll is a gentle roll, and a break shot needs a real swing.</li>
+  </ul>
+
+  <div class="note warn">
+    <b>Cue up first, look second.</b> The mistake almost everybody makes on their first frame is
+    standing upright and stabbing at the ball. Get your head down near the cue as you would at a real
+    table — the shot becomes far easier to judge, and you will find you can aim.
+  </div>
+
+  <figure>
+    <img src="img/cuevr/controls.jpg" alt="The controls screen">
+    <figcaption>Which stick moves and which turns is yours to set, and either can be inverted.
+    <b>RESET CUE</b> puts the cue back in your hands if it ever ends up somewhere silly.</figcaption>
+  </figure>
+</section>
+
+<section id="games">
+  <h2>The games</h2>
+  <p class="lede">Seven, each on the table it is really played on, with that game’s rules, its own
+  rack and its own pocket cut. They are not one table with different balls on it.</p>
+
+  <div class="grid g2">
+    <figure><img src="img/cuevr/table6.jpg" alt="Snooker on a 12ft table">
+      <figcaption><span class="cap-t">Snooker, 12ft.</span> Fifteen reds, six colours, the full
+      game — shown here on Windsor red cloth.</figcaption></figure>
+    <figure><img src="img/cuevr/table5.jpg" alt="10-red snooker">
+      <figcaption><span class="cap-t">Snooker, 10-red.</span> The shorter frame on a 10ft table,
+      on sage.</figcaption></figure>
+    <figure><img src="img/cuevr/table4.jpg" alt="6-red snooker">
+      <figcaption><span class="cap-t">Snooker, 6-red.</span> Quick frames on a 7ft table.</figcaption></figure>
+    <figure><img src="img/cuevr/table0.jpg" alt="UK 8-ball on a 7ft table">
+      <figcaption><span class="cap-t">UK 8-ball, 7ft.</span> Pub rules, curved pockets, reds and
+      yellows on royal blue.</figcaption></figure>
+    <figure><img src="img/cuevr/table1.jpg" alt="US 8-ball on a 9ft table">
+      <figcaption><span class="cap-t">US 8-ball, 9ft.</span> Solids and stripes on a nine-footer,
+      on slate.</figcaption></figure>
+    <figure><img src="img/cuevr/table2.jpg" alt="9-ball on a 9ft table">
+      <figcaption><span class="cap-t">9-ball, 9ft.</span> Lowest ball first, diamond rack, push-out
+      on offer.</figcaption></figure>
+  </div>
+
+  <figure>
+    <img src="img/cuevr/table3.jpg" alt="Chinese 8-ball on a 10ft table">
+    <figcaption><span class="cap-t">Chinese 8-ball, 10ft.</span> The big table with tight rounded
+    pockets — snooker geometry, pool balls, and by some distance the hardest of the seven to pot
+    on.</figcaption>
+  </figure>
+
+  <p>Match length is set on the main menu: a single frame, or best of 3, 5, 7, 9 or 11. The break
+  alternates and the score carries across the match.</p>
+</section>
+
+<section id="balls">
+  <h2>Ball sets</h2>
+  <p class="lede">Eight, and they change how easy the table is to read as much as how it looks.
+  Pick the one you can call at a glance from the far end.</p>
+
+  <div class="grid g4">
+    <figure><img src="img/cuevr/balls0.jpg" alt="The PRO ball set">
+      <figcaption><span class="cap-t">PRO</span> — the standard numbered set.</figcaption></figure>
+    <figure><img src="img/cuevr/balls1.jpg" alt="The UK yellow and blue set">
+      <figcaption><span class="cap-t">UK Y/B</span> — pub yellows and blues.</figcaption></figure>
+    <figure><img src="img/cuevr/balls2.jpg" alt="The UK yellow and red set">
+      <figcaption><span class="cap-t">UK Y/R</span> — pub yellows and reds.</figcaption></figure>
+    <figure><img src="img/cuevr/balls3.jpg" alt="The DYNA ball set">
+      <figcaption><span class="cap-t">DYNA</span> — two-colour, bolder.</figcaption></figure>
+    <figure><img src="img/cuevr/balls4.jpg" alt="The PRO TOUR ball set">
+      <figcaption><span class="cap-t">PRO TOUR</span> — numbered, tournament colours.</figcaption></figure>
+    <figure><img src="img/cuevr/balls5.jpg" alt="The HOT PINK ball set">
+      <figcaption><span class="cap-t">HOT PINK</span> — pink and black.</figcaption></figure>
+    <figure><img src="img/cuevr/balls6.jpg" alt="The SPACE ball set">
+      <figcaption><span class="cap-t">SPACE</span> — numbered, darker.</figcaption></figure>
+    <figure><img src="img/cuevr/balls7.jpg" alt="The VINTAGE ball set">
+      <figcaption><span class="cap-t">VINTAGE</span> — aged ivory and muted colours.</figcaption></figure>
+  </div>
+
+  <div class="note">
+    <b>9-ball needs numbers.</b> Every ball has to be told apart to play the sequence, so the
+    two-colour sets — UK Y/B, UK Y/R, DYNA and HOT PINK — sit that game out. PRO, PRO TOUR, SPACE
+    and VINTAGE are offered.
+  </div>
+</section>
+
+<section id="referee">
+  <h2>The referee</h2>
+  <p class="lede">The rules are enforced properly, and spoken: fouls, free balls, the score as it
+  goes, and your break total at the end of a frame.</p>
+
+  <figure>
+    <img src="img/cuevr/scoreboard.jpg" alt="The scoreboard above the table">
+    <figcaption>The board shows the score, whose turn it is, what is on and which balls are left —
+    so you never have to work out the state of the frame yourself.</figcaption>
+  </figure>
+
+  <p>At snooker that means the whole apparatus: reds then colours, colours respotted while reds
+  remain, a free ball after a snooker foul, a called miss with the option to make the offender play
+  again, and the endgame in colour order. At the pool games it is the group you are on, the two-shot
+  carry at UK 8-ball, and the push-out at 9-ball.</p>
+
+  <h3>After a foul</h3>
+  <p>When your opponent fouls you are asked what to do about it — play on from where the balls lie,
+  or make them play the shot again. Where a miss has been called and the table can be put back, that
+  is offered too. The referee announces the outcome.</p>
+
+  <p>The voice can be female, male, or off entirely: the <b>REF VOICE</b> row on the main menu. With
+  it off you still get the scoreboard.</p>
+</section>
+
+<section id="opponents">
+  <h2>Opponents</h2>
+  <p class="lede">Eight, and they are not one engine with a wobble bolted on. They differ in how
+  straight they hit it, how hard they think about position, how willing they are to play safe, and
+  how much they will risk.</p>
+
+  <table>
+    <tr><th>Player</th><th>Rating</th><th>What they are like</th></tr>
+    <tr><td><b>Rookie Rick</b></td><td>1278</td><td>Misses a lot, takes on anything, no idea where the white is going.</td></tr>
+    <tr><td><b>Steady Sue</b></td><td>1382</td><td>Cautious and tidy. Will not take on a shot she does not fancy.</td></tr>
+    <tr><td><b>Professor Pete</b></td><td>1428</td><td>Thinks about position properly, but is not the straightest.</td></tr>
+    <tr><td><b>Hustler Hank</b></td><td>1447</td><td>Fast and aggressive, plays with pace and takes them on.</td></tr>
+    <tr><td><b>Clara CueQueen</b></td><td>1501</td><td>Accurate and balanced — the first genuinely difficult one.</td></tr>
+    <tr><td><b>Deadshot Dave</b></td><td>1633</td><td>Pots almost everything. Position is not his priority.</td></tr>
+    <tr><td><b>Iron Nina</b></td><td>1715</td><td>Very straight and very positional. Will punish a loose safety.</td></tr>
+    <tr><td><b>The Machine</b></td><td>1616</td><td>No aiming error at all, maximum thinking. It makes centuries.</td></tr>
+  </table>
+
+  <div class="note">
+    <b>They build breaks.</b> A strong opponent plays position on the next ball, splits a cluster
+    when the break depends on it, and plays a proper safety when there is nothing on. Left an
+    opening at snooker, The Machine is capable of clearing up — its best break in testing is
+    <b>134</b>, and over forty frames it made nine centuries.
+  </div>
+
+  <figure>
+    <img src="img/cuevr/standings.jpg" alt="The records screen showing results">
+    <figcaption><b>RECORDS</b> keeps your results: frames won and lost against each player, and your
+    best breaks.</figcaption>
+  </figure>
+</section>
+
+<section id="career">
+  <h2>Career</h2>
+  <p class="lede">A season against the field rather than a single frame against whoever you fancied.</p>
+
+  <div class="grid g2">
+    <figure><img src="img/cuevr/career_new.jpg" alt="Starting a career season">
+      <figcaption>Start a season and choose the tables it will be played on.</figcaption></figure>
+    <figure><img src="img/cuevr/career_tab.jpg" alt="The career league table">
+      <figcaption>The league table: played, won, frames and points, with your row picked out.</figcaption></figure>
+  </div>
+
+  <p>You climb by winning matches against progressively better opponents, and the standings persist
+  between sessions — so a season is something you come back to rather than something you finish in
+  one sitting.</p>
+</section>
+
+<section id="challenges">
+  <h2>Challenges and practice</h2>
+  <p class="lede">Not everything has to be a frame.</p>
+
+  <div class="grid g2">
+    <div class="card"><h4>FREE PRACTICE</h4><p>The table to yourself, no rules and no opponent. Put
+      the balls where you like and hit them. Nothing is scored and nothing is punished.</p></div>
+    <div class="card"><h4>CHALLENGES</h4><p>A set goal on a set layout — clear the table, or reach a
+      score. Judged over a single visit, so it stays practice rather than something to grind.</p></div>
+  </div>
+
+  <figure>
+    <img src="img/cuevr/challenges.jpg" alt="The challenges screen with two challenges">
+    <figcaption>Each challenge shows its goal and your progress. Point and pull the trigger to open
+    one.</figcaption>
+  </figure>
+
+  <h3>Making your own</h3>
+  <figure>
+    <img src="img/cuevr/chal_set.jpg" alt="The challenge setup screen">
+    <figcaption>Set the goal — pot a ball, clear the table, reach a score — and whether it is against
+    the clock.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="img/cuevr/layout-editor.jpg" alt="The layout editor">
+    <figcaption>Place the balls where you want them, rack, clear or save from the <kbd>MENU</kbd>
+    button. A shot you keep getting wrong becomes something you can practise on demand, on the table
+    you set it up on.</figcaption>
+  </figure>
+</section>
+
+<section id="online">
+  <h2>Two headsets</h2>
+  <p class="lede">Play a real person on the same table, either across the room on your own Wi-Fi or
+  across the internet.</p>
+
+  <div class="grid g2">
+    <figure><img src="img/cuevr/lobby.jpg" alt="Hosting a room, showing a code">
+      <figcaption>Hosting: the room shows a code for your opponent to type in.</figcaption></figure>
+    <figure><img src="img/cuevr/net_join.jpg" alt="Joining a room">
+      <figcaption>Joining: enter their code, or browse the open rooms.</figcaption></figure>
+  </div>
+
+  <ul>
+    <li><b>LAN (Wi-Fi)</b> — both headsets on the same network. One hosts, the other joins; no code
+    needed, it finds the game itself.</li>
+    <li><b>INTERNET</b> — <b>HOST</b> gives you a code to share and <b>JOIN</b> takes one.
+    <b>QUICK</b> pairs you with whoever else is waiting, and <b>BROWSE</b> lists open rooms.</li>
+  </ul>
+
+  <p>Both players see the same table, the same balls and the same score. You will see your
+  opponent’s cue move as they play, and the cue they are holding is the one they chose from the
+  rack. The referee calls fouls at both ends, and the player who was fouled against gets the
+  decision.</p>
+
+  <div class="note">
+    <b>You can look around freely.</b> The other player being mid-shot does not freeze you: walk
+    round the table, change the cloth, open a menu. The frame carries on behind you and the table
+    will be waiting.
+  </div>
+</section>
+
+<section id="look">
+  <h2>Making it yours</h2>
+  <p class="lede">The table, the cloth, the timber, the balls, the cue, the light and the room are
+  all yours to choose. None of it changes how the game plays — it changes what you are standing at.</p>
+
+  <figure>
+    <img src="img/cuevr/appearance.jpg" alt="The appearance screen">
+    <figcaption>Everything on one screen: table style, lighting, balls, cue ball spots, cue and
+    surroundings.</figcaption>
+  </figure>
+
+  <h3>The table itself</h3>
+  <div class="grid g4">
+    <figure><img src="img/cuevr/body0.jpg" alt="The Regency table"><figcaption><span class="cap-t">REGENCY</span></figcaption></figure>
+    <figure><img src="img/cuevr/body1.jpg" alt="The Cabinet table"><figcaption><span class="cap-t">CABINET</span></figcaption></figure>
+    <figure><img src="img/cuevr/body2.jpg" alt="The Victorian table"><figcaption><span class="cap-t">VICTORIAN</span> — the turned baluster legs everybody pictures.</figcaption></figure>
+    <figure><img src="img/cuevr/body3.jpg" alt="The American table"><figcaption><span class="cap-t">AMERICAN</span></figcaption></figure>
+  </div>
+
+  <h3>Timber</h3>
+  <p>Seven finishes on the frame and rails, from pale oak to black ebony:</p>
+  <div class="grid g4">
+    <figure><img src="img/cuevr/wood0.jpg" alt="Walnut rails"><figcaption><span class="cap-t">WALNUT</span></figcaption></figure>
+    <figure><img src="img/cuevr/wood1.jpg" alt="Oak rails"><figcaption><span class="cap-t">OAK</span></figcaption></figure>
+    <figure><img src="img/cuevr/wood2.jpg" alt="Mahogany rails"><figcaption><span class="cap-t">MAHOGANY</span></figcaption></figure>
+    <figure><img src="img/cuevr/wood3.jpg" alt="Wenge rails"><figcaption><span class="cap-t">WENGE</span></figcaption></figure>
+    <figure><img src="img/cuevr/wood4.jpg" alt="Ebony rails"><figcaption><span class="cap-t">EBONY</span></figcaption></figure>
+    <figure><img src="img/cuevr/wood5.jpg" alt="Charcoal rails"><figcaption><span class="cap-t">CHARCOAL</span></figcaption></figure>
+    <figure><img src="img/cuevr/wood6.jpg" alt="Silver rails"><figcaption><span class="cap-t">SILVER</span></figcaption></figure>
+  </div>
+
+  <h3>Cloth</h3>
+  <p>Twenty-four colours. A sample of what they do to the room:</p>
+  <div class="grid g4">
+    <figure><img src="img/cuevr/cloth0.jpg" alt="Black cloth"><figcaption><span class="cap-t">BLACK</span></figcaption></figure>
+    <figure><img src="img/cuevr/cloth3.jpg" alt="Tan cloth"><figcaption><span class="cap-t">TAN</span></figcaption></figure>
+    <figure><img src="img/cuevr/cloth5.jpg" alt="Paprika cloth"><figcaption><span class="cap-t">PAPRIKA</span></figcaption></figure>
+    <figure><img src="img/cuevr/cloth12.jpg" alt="Slate cloth"><figcaption><span class="cap-t">SLATE</span></figcaption></figure>
+    <figure><img src="img/cuevr/cloth14.jpg" alt="Royal blue cloth"><figcaption><span class="cap-t">ROYAL BLUE</span></figcaption></figure>
+    <figure><img src="img/cuevr/cloth17.jpg" alt="Purple cloth"><figcaption><span class="cap-t">PURPLE</span></figcaption></figure>
+    <figure><img src="img/cuevr/cloth20.jpg" alt="Windsor red cloth"><figcaption><span class="cap-t">WINDSOR RED</span></figcaption></figure>
+    <figure><img src="img/cuevr/cloth23.jpg" alt="Pink cloth"><figcaption><span class="cap-t">PINK</span></figcaption></figure>
+  </div>
+  <p>The full range: <span class="tag">BLACK</span><span class="tag">SILVER</span><span class="tag">TAUPE</span><span class="tag">TAN</span><span class="tag">GOLD</span><span class="tag">PAPRIKA</span><span class="tag">NUTMEG</span><span class="tag">RANGER GREEN</span><span class="tag">OLIVE</span><span class="tag">CHAMPIONSHIP</span><span class="tag">SAGE</span><span class="tag">POWDER BLUE</span><span class="tag">SLATE</span><span class="tag">NAVY</span><span class="tag">ROYAL BLUE</span><span class="tag">FRENCH NAVY</span><span class="tag">ROYAL NAVY</span><span class="tag">PURPLE</span><span class="tag">MAROON</span><span class="tag">CHERRY</span><span class="tag">WINDSOR RED</span><span class="tag">RED</span><span class="tag">ORANGE</span><span class="tag">PINK</span></p>
+
+  <h3>Lighting</h3>
+  <div class="grid g4">
+    <figure><img src="img/cuevr/light0.jpg" alt="Match lighting"><figcaption><span class="cap-t">MATCH</span> — the television rig, hard and flat.</figcaption></figure>
+    <figure><img src="img/cuevr/light1.jpg" alt="Six shade lighting"><figcaption><span class="cap-t">SIX SHADE</span> — six shades down the length, as a club room has. The default.</figcaption></figure>
+    <figure><img src="img/cuevr/light2.jpg" alt="Room lighting"><figcaption><span class="cap-t">ROOM</span> — ambient, no fixtures.</figcaption></figure>
+    <figure><img src="img/cuevr/light3.jpg" alt="Window lighting"><figcaption><span class="cap-t">WINDOW</span> — daylight from one side.</figcaption></figure>
+  </div>
+
+  <h3>Where you play</h3>
+  <div class="grid g3">
+    <figure><img src="img/cuevr/surround0.jpg" alt="Passthrough"><figcaption><span class="cap-t">PASSTHROUGH</span> — your own room. The game as intended.</figcaption></figure>
+    <figure><img src="img/cuevr/surround1.jpg" alt="Dark room"><figcaption><span class="cap-t">DARK ROOM</span> — a quiet dark hall painted over the cameras.</figcaption></figure>
+    <figure><img src="img/cuevr/surround2.jpg" alt="Arena"><figcaption><span class="cap-t">ARENA</span> — a snooker theatre with banked seating.</figcaption></figure>
+  </div>
+</section>
+
+<section id="cues">
+  <h2>The cue rack</h2>
+  <p class="lede">Eighteen cues, authored one at a time against real catalogues rather than
+  recoloured from a single model — spliced butts, veneered points, wrapped handles, inlays.</p>
+
+  <h3>The English tradition</h3>
+  <div class="grid g4">
+    <figure><img src="img/cuevr/cue0.jpg" alt="The Classic cue"><figcaption><span class="cap-t">CLASSIC</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue1.jpg" alt="The Crown cue"><figcaption><span class="cap-t">CROWN</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue2.jpg" alt="The Edwardian cue"><figcaption><span class="cap-t">EDWARDIAN</span> — ash and ebony. The default.</figcaption></figure>
+    <figure><img src="img/cuevr/cue3.jpg" alt="The Joe Davis cue"><figcaption><span class="cap-t">JOE DAVIS</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue4.jpg" alt="The Century cue"><figcaption><span class="cap-t">CENTURY</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue5.jpg" alt="The Ascot cue"><figcaption><span class="cap-t">ASCOT</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue6.jpg" alt="The Royal cue"><figcaption><span class="cap-t">ROYAL</span></figcaption></figure>
+  </div>
+
+  <h3>Modern</h3>
+  <div class="grid g4">
+    <figure><img src="img/cuevr/cue7.jpg" alt="The TM Rainbow cue"><figcaption><span class="cap-t">TM RAINBOW</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue8.jpg" alt="The TM Teal cue"><figcaption><span class="cap-t">TM TEAL</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue9.jpg" alt="The TM Coral cue"><figcaption><span class="cap-t">TM CORAL</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue10.jpg" alt="The TM Ocean cue"><figcaption><span class="cap-t">TM OCEAN</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue11.jpg" alt="The Predator cue"><figcaption><span class="cap-t">PREDATOR</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue12.jpg" alt="The GC Red cue"><figcaption><span class="cap-t">GC RED</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue13.jpg" alt="The GC Blue cue"><figcaption><span class="cap-t">GC BLUE</span></figcaption></figure>
+  </div>
+
+  <h3>Viking</h3>
+  <div class="grid g4">
+    <figure><img src="img/cuevr/cue14.jpg" alt="The Viking Eye cue"><figcaption><span class="cap-t">VIKING EYE</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue15.jpg" alt="The Viking Pearl cue"><figcaption><span class="cap-t">VIKING PEARL</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue16.jpg" alt="The Viking Blue cue"><figcaption><span class="cap-t">VIKING BLUE</span></figcaption></figure>
+    <figure><img src="img/cuevr/cue17.jpg" alt="The Viking Scroll cue"><figcaption><span class="cap-t">VIKING SCROLL</span></figcaption></figure>
+  </div>
+
+  <p>Your choice travels with you: in an online match, the cue your opponent sees in your hands is
+  the one you picked.</p>
+</section>
+
+<section id="physics">
+  <h2>Why it plays right</h2>
+  <p class="lede">A shot feels like a shot because most of the numbers underneath were measured
+  rather than dialled in until they looked plausible.</p>
+
+  <div class="grid g3">
+    <div class="card"><h4>The cushions</h4><p>Rubber gives back less the harder it is hit, and each
+      table has its own. A snooker cushion, a UK championship cushion and an American pool cushion
+      do not answer a ball the same way, and here they don’t either.</p></div>
+    <div class="card"><h4>The pockets</h4><p>Cut per table and per pocket, so what you see on the
+      cloth is exactly what catches the ball. The jaws take pace off a hard pot instead of spitting
+      it out — and a ball can rattle.</p></div>
+    <div class="card"><h4>The contact</h4><p>Object balls are thrown slightly off the line of
+      centres by friction, as real ones are. It is why a thin cut does not go quite where the
+      geometry says it should.</p></div>
+  </div>
+
+  <p>Spin follows from the same place: screw needs pace to survive the trip up the table, side
+  throws the object ball and deflects the white off your aim, and a ball struck above centre runs on
+  through the contact.</p>
+
+  <figure>
+    <img src="img/cuevr/aim.jpg" alt="A snooker table mid-frame">
+    <figcaption>Everything the opponent does is played through the same physics you are. It has no
+    private version of the table.</figcaption>
+  </figure>
+</section>
+
+<section id="trouble">
+  <h2>Troubleshooting</h2>
+
+  <h3>The table is at an awkward height</h3>
+  <p>Pause → <b>PLACE TABLE</b>, and set the height against something real in your room. This fixes
+  more complaints about the cue feeling wrong than anything else.</p>
+
+  <h3>I can’t reach a shot</h3>
+  <p>Walk round. It is a full-size table and you are meant to move. If your play space is small,
+  site the table nearer one wall and use the long side you can reach.</p>
+
+  <h3>The cue has ended up somewhere strange</h3>
+  <p><b>CONTROLS</b> → <b>RESET CUE</b>.</p>
+
+  <h3>My opponent and I disagree about the table</h3>
+  <p>Each end re-syncs from whichever player owns the event, so a difference should heal within a
+  shot. If a frame genuinely gets stuck, either player can re-rack from the pause menu.</p>
+
+  <h3>The referee talks too much</h3>
+  <p><b>REF VOICE</b> on the main menu — female, male, or off.</p>
+</section>
+
+<footer><div class="wrap">
+  CueVR is by <b>austinio7116</b>, and is free to play. The table, the rules and the opponent are
+  shared with <a href="games.html">ThumbyCue</a>, the handheld game built on the same simulation.
+  <br><br>
+  <a href="cuevr-privacy.html">Privacy policy</a> · <a href="index.html">Back to Mote</a>
+</div></footer>
+
+</div>
+</body>
+</html>
