@@ -250,12 +250,51 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 || kind == CUE_GAME_CN8)
         t->baulk_x = -t->half_len * 0.5f;
 
-    /* The timber's bore starts as the mouth radius — what the renderer assumed
-     * before it was a field — and is dialled per table from there. */
-    t->bore_corner = t->pr_corner;
+    /* THE HOLE IN THE TIMBER, dialled per table in tools/pocketbench.
+     *
+     * It began as the mouth radius, concentric with it, because it had never
+     * been anything else — and where it does not reach the end of the cushion
+     * there is a slot between the two that you can see straight out of the
+     * table through. Every table wanted a different answer, and not all in the
+     * same direction: the American mitres and the Chinese jaws want a SMALLER
+     * hole (from outside, less hole is less to see through), the rounded jaws a
+     * BIGGER one (the bore wall is full height, so widening it carries that
+     * wall out to meet the cushion). The setback moves the same hole away from
+     * the cloth instead of resizing it.
+     *
+     * Dialled on the bench, one table at a time, against the two views the
+     * faults show in — outside on the corner diagonal, and inside over the
+     * cloth at a middle pocket. */
+    t->bore_corner = t->pr_corner;     /* the fallback, if a kind is added */
     t->bore_side   = t->pr_side;
     t->bore_set_corner = 0.0f;
     t->bore_set_side   = 0.0f;
+    switch (kind) {
+    case CUE_GAME_US8: case CUE_GAME_US9:
+        t->bore_corner = 1.8900f * t->R; t->bore_side = 1.7600f * t->R;
+        t->bore_set_corner = 0.0000f * t->R; t->bore_set_side = 0.0000f * t->R;
+        break;
+    case CUE_GAME_CN8:
+        t->bore_corner = 1.8700f * t->R; t->bore_side = 1.7800f * t->R;
+        t->bore_set_corner = 0.5400f * t->R; t->bore_set_side = 0.4500f * t->R;
+        break;
+    case CUE_GAME_UK8: case CUE_GAME_SNK6:
+        t->bore_corner = 2.0700f * t->R; t->bore_side = 1.8900f * t->R;
+        t->bore_set_corner = 0.0000f * t->R; t->bore_set_side = 0.1800f * t->R;
+        break;
+    case CUE_GAME_SNK10:
+        t->bore_corner = 2.1300f * t->R; t->bore_side = 1.7100f * t->R;
+        t->bore_set_corner = 0.2700f * t->R; t->bore_set_side = 0.5300f * t->R;
+        break;
+    case CUE_GAME_SNK15:
+        /* The two snooker tables share every other pocket number and NOT these:
+         * the 12 ft was dialled on its own and came out wanting a deeper set
+         * back and a tighter middle. */
+        t->bore_corner = 2.1100f * t->R; t->bore_side = 1.6500f * t->R;
+        t->bore_set_corner = 0.2900f * t->R; t->bore_set_side = 0.8100f * t->R;
+        break;
+    default: break;
+    }
 
     cue_table_rails(t, kind);
 
