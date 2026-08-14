@@ -138,6 +138,16 @@ static inline uint16_t mote_depth_encode(float k, float z) {
     return d < 1.0f ? (uint16_t)1u : (uint16_t)d;
 }
 
+/* Same encode for callers that already hold 1/z. Every scene_add_* below needs
+ * the reciprocal anyway to project x and y, so taking z and dividing again
+ * costs a second vdiv.f32 — ~14 cycles, and blocking, on a Cortex-M33.
+ * mote_pipe.c's project() already works this way; this brings the immediate-
+ * mode paths into line with it. */
+static inline uint16_t mote_depth_encode_inv(float k, float inv_z) {
+    float d = k * inv_z;
+    return d < 1.0f ? (uint16_t)1u : (uint16_t)d;
+}
+
 static inline uint16_t shade565(uint16_t c, float sh) {
     int r = (int)(((c >> 11) & 0x1F) * sh);
     int g = (int)(((c >> 5) & 0x3F) * sh);
@@ -331,22 +341,33 @@ static inline Vec3 scene_v3lerp(Vec3 a, Vec3 b, float t) {
  * For dynamic / procedural geometry that isn't a baked int8 Mesh (e.g. a
  * generated table, voxel faces). Returns triangles emitted (0/1/2 after clip). */
 int mote_scene_add_tri(Vec3 a, Vec3 b, Vec3 c, uint16_t color, uint32_t flags) {
-    Vec3 in[3] = { scene_to_view(a), scene_to_view(b), scene_to_view(c) };
+    /* Hoisted: these live in mote_pipe.c, so without LTO every reference is a
+     * real call/return rather than a load. mote_pipe_near() alone was evaluated
+     * twice per clip-loop iteration, and mote_pipe_cam_pos() returns a Vec3 by
+     * value once per vertex. */
+    const Mat3 *cam   = mote_pipe_camera();
+    const Vec3  cpos  = mote_pipe_cam_pos();
+    const float near_ = mote_pipe_near();
+    const float focal = mote_pipe_focal();
+    const float dk    = mote_pipe_depth_k();
+
+    Vec3 in[3] = { m3_mul_v3_t(cam, v3_sub(a, cpos)),
+                   m3_mul_v3_t(cam, v3_sub(b, cpos)),
+                   m3_mul_v3_t(cam, v3_sub(c, cpos)) };
     Vec3 out[4]; int nout = 0;
     for (int i = 0; i < 3; i++) {           /* near-clip (Sutherland-Hodgman) */
         Vec3 p = in[i], q = in[(i + 1) % 3];
-        int pin = p.z >= mote_pipe_near(), qin = q.z >= mote_pipe_near();
+        int pin = p.z >= near_, qin = q.z >= near_;
         if (pin) out[nout++] = p;
-        if (pin != qin) out[nout++] = scene_v3lerp(p, q, (mote_pipe_near() - p.z) / (q.z - p.z));
+        if (pin != qin) out[nout++] = scene_v3lerp(p, q, (near_ - p.z) / (q.z - p.z));
     }
     if (nout < 3) return 0;
-    float focal = mote_pipe_focal();
     float sx[4], sy[4]; uint16_t sd[4];
     for (int i = 0; i < nout; i++) {
         float inv = 1.0f / out[i].z;
         sx[i] = (MOTE_FB_W * 0.5f) + focal * out[i].x * inv;
         sy[i] = (MOTE_FB_H * 0.5f) - focal * out[i].y * inv;
-        sd[i] = mote_depth_encode(mote_pipe_depth_k(), out[i].z);
+        sd[i] = mote_depth_encode_inv(dk, inv);
     }
     uint8_t save = s_emit_flags; s_emit_flags = (uint8_t)flags;
     int n = 0;
@@ -373,7 +394,7 @@ int mote_scene_add_point(Vec3 p, uint16_t color, int size) {
     ScreenPoint *q = &s_points[s_npoints++];
     q->x = (MOTE_FB_W * 0.5f) + focal * v.x * inv;
     q->y = (MOTE_FB_H * 0.5f) - focal * v.y * inv;
-    q->d = mote_depth_encode(mote_pipe_depth_k(), v.z);
+    q->d = mote_depth_encode_inv(mote_pipe_depth_k(), inv);
     q->color = color;
     q->size = (uint8_t)(size < 1 ? 1 : (size > 255 ? 255 : size));
     return 1;
@@ -388,7 +409,7 @@ int mote_scene_add_disc(Vec3 p, float radius, uint16_t color) {
     q->cx = (MOTE_FB_W * 0.5f) + focal * v.x * inv;
     q->cy = (MOTE_FB_H * 0.5f) - focal * v.y * inv;
     q->r  = focal * radius * inv;
-    q->d  = mote_depth_encode(mote_pipe_depth_k(), v.z);
+    q->d  = mote_depth_encode_inv(mote_pipe_depth_k(), inv);
     q->color = color;
     return 1;
 }
@@ -402,7 +423,7 @@ int mote_scene_add_ring(Vec3 p, float radius, uint16_t color) {
     q->cx = (MOTE_FB_W * 0.5f) + focal * v.x * inv;
     q->cy = (MOTE_FB_H * 0.5f) - focal * v.y * inv;
     q->r  = focal * radius * inv;
-    q->d  = mote_depth_encode(mote_pipe_depth_k(), v.z);
+    q->d  = mote_depth_encode_inv(mote_pipe_depth_k(), inv);
     q->color = color;
     return 1;
 }
@@ -425,7 +446,7 @@ int mote_scene_add_billboard(Vec3 cam_rel_pos, const MoteImage *img,
     q->cy = (MOTE_FB_H * 0.5f) - focal * v.y * inv;
     q->hh = focal * (world_h * 0.5f) * inv;
     q->hw = q->hh * ((float)fw / (float)fh);   /* preserve the image's aspect */
-    q->d  = mote_depth_encode(mote_pipe_depth_k(), v.z);
+    q->d  = mote_depth_encode_inv(mote_pipe_depth_k(), inv);
     q->img = img;
     q->fx = (uint16_t)fx; q->fy = (uint16_t)fy;
     q->fw = (uint16_t)fw; q->fh = (uint16_t)fh;
@@ -443,10 +464,10 @@ int mote_scene_add_line(Vec3 a, Vec3 b, uint16_t color) {
     ScreenLine *q = &s_lines[s_nlines++];
     q->x0 = (MOTE_FB_W * 0.5f) + focal * va.x * ia;
     q->y0 = (MOTE_FB_H * 0.5f) - focal * va.y * ia;
-    q->d0 = mote_depth_encode(mote_pipe_depth_k(), va.z);
+    q->d0 = mote_depth_encode_inv(mote_pipe_depth_k(), ia);
     q->x1 = (MOTE_FB_W * 0.5f) + focal * vb.x * ib;
     q->y1 = (MOTE_FB_H * 0.5f) - focal * vb.y * ib;
-    q->d1 = mote_depth_encode(mote_pipe_depth_k(), vb.z);
+    q->d1 = mote_depth_encode_inv(mote_pipe_depth_k(), ib);
     q->color = color;
     return 1;
 }
