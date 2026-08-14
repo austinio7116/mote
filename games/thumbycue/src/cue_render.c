@@ -840,8 +840,14 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     const float plank_y = rail_h + frame_lift;
     float hx[CUE_MAX_POCKET], hz[CUE_MAX_POCKET], hr[CUE_MAX_POCKET];
     for (int p = 0; p < w->npocket; p++) {
-        hx[p] = w->pocket[p].x; hz[p] = w->pocket[p].z;
-        hr[p] = (p < 4) ? t->pr_corner : t->pr_side;
+        /* The TIMBER's bore: its own radius and its own setback along the
+         * pocket's outward normal — see CueTable.bore_corner. Both default to
+         * "the mouth, concentric", which is what this was before they were
+         * fields. */
+        float bs = (p < 4) ? t->bore_set_corner : t->bore_set_side;
+        hx[p] = w->pocket[p].x + w->pmnorm[p].x * bs;
+        hz[p] = w->pocket[p].z + w->pmnorm[p].z * bs;
+        hr[p] = (p < 4) ? t->bore_corner : t->bore_side;
     }
     int nh = w->npocket;
     uint16_t wbore = shade565(woodt, 0.42f);   /* internal bore wall (in shadow) */

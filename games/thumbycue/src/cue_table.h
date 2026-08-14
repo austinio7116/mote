@@ -71,6 +71,21 @@ typedef struct {
      *   pocket_round = 1 → snooker/UK (tighter, more rounded). */
     int   pocket_round;
     float pr_corner, pr_side;   /* pocket hole radius (m) */
+    /* THE HOLE CUT IN THE TIMBER, which is not the same measurement as the
+     * mouth the ball goes through even though it started life equal to it. The
+     * rail's inner face only exists where the timber does, so where the bore is
+     * too small to reach the end of the cushion there is a slot between the two
+     * that you can see out of the table through — reported at the middle
+     * pockets of the 7 ft table and behind the mitred jaws of the American and
+     * Chinese ones. Dial it with tools/pocketbench. Defaults to pr_*, which is
+     * exactly what the code did when the radius was not a field. */
+    float bore_corner, bore_side;
+    /* And how far OUT from the pocket centre that hole is cut, along the
+     * pocket's own outward normal. Positive pushes the timber's hole away from
+     * the cloth, which is the other way of closing the same slot: shrink the
+     * hole, or set it back. Zero is concentric, which is what the code did
+     * before either was a field. */
+    float bore_set_corner, bore_set_side;
     float gap_corner, gap_side; /* knuckle setback from corner / from centre (m) */
     float facing_len;           /* facing length (m) */
     float ang_corner, ang_side; /* facing splay from the rail line (deg) */

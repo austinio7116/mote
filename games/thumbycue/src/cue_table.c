@@ -250,6 +250,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 || kind == CUE_GAME_CN8)
         t->baulk_x = -t->half_len * 0.5f;
 
+    /* The timber's bore starts as the mouth radius — what the renderer assumed
+     * before it was a field — and is dialled per table from there. */
+    t->bore_corner = t->pr_corner;
+    t->bore_side   = t->pr_side;
+    t->bore_set_corner = 0.0f;
+    t->bore_set_side   = 0.0f;
+
     cue_table_rails(t, kind);
 
     /* How far past the pocket the DROP is centred. Zero is concentric with the

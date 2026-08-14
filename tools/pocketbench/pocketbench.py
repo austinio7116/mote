@@ -45,7 +45,7 @@ SAVE = os.path.join(HERE, "pockets.json")
 BIN  = os.path.join(MOTE, "build_host", "cuepocket")
 PORT = int(os.environ.get("POCKETBENCH_PORT", "8765"))
 
-KEYS = ["pr", "gap", "off", "capm", "back", "set", "rad", "roll"]
+KEYS = ["pr", "gap", "off", "capm", "back", "set", "rad", "roll", "bore", "bset"]
 
 TMP = tempfile.mkdtemp(prefix="pocketbench-")
 
@@ -75,10 +75,15 @@ def defaults():
 
 
 def render(q):
-    out = os.path.join(TMP, "pb_%s_%s.ppm" % (q.get("table", "x"), q.get("type", "x")))
+    out = os.path.join(TMP, "pb_%s_%s_%s.ppm" % (q.get("table", "x"), q.get("type", "x"),
+                                                 q.get("view", "top")))
     cmd = [BIN, "--table", q.get("table", "snooker12"),
            "--type", q.get("type", "corner"), "--out", out,
-           "--size", "700", "--zoom", q.get("zoom", "5")]
+           "--size", "700", "--zoom", q.get("zoom", "5"),
+           "--view", q.get("view", "top")]
+    for cam in ("yaw", "pitch", "dist"):
+        if q.get(cam, "") != "":
+            cmd += ["--" + cam, q[cam]]
     for k in KEYS:
         if k in q:
             cmd += ["--" + k, q[k]]
@@ -102,6 +107,8 @@ def source_block(name, d, v):
         "    t->gap_corner = %.4ff * t->R; t->gap_side = %.4ff * t->R;" % (c["gap"], m["gap"]),
         "    t->off_corner = %.4ff * t->R; t->off_side = %.4ff * t->R;" % (c["off"], m["off"]),
         "    t->drop_back  = %.4ff * t->R; t->drop_back_side = %.4ff * t->R;" % (c["back"], m["back"]),
+        "    t->bore_corner = %.4ff * t->R; t->bore_side = %.4ff * t->R;" % (c["bore"], m["bore"]),
+        "    t->bore_set_corner = %.4ff * t->R; t->bore_set_side = %.4ff * t->R;" % (c["bset"], m["bset"]),
         "",
         "/* cue_table.c build_world() — the drop circle */",
         "    float capc = t->pr_corner - %.4ff * t->R," % c["capm"],
@@ -161,6 +168,23 @@ PAGE = r"""<!doctype html><meta charset=utf-8>
   <select id=table></select>
   <label class=key>zoom <input id=zoom type=range min=2.5 max=9 step=.25 value=5
         style="vertical-align:middle;width:100px;accent-color:var(--acc)"></label>
+  <span class=key>view
+    <select id=view>
+      <option value=top>from above (the mouth)</option>
+      <option value=out>outside, looking in and down (the jaw)</option>
+      <option value=in>inside, over the cloth (the back of the pocket)</option>
+    </select>
+    <label id=camwrap style="display:none">
+      yaw <input id=yaw type=range min=-180 max=180 step=1 value=45
+           style="vertical-align:middle;width:90px;accent-color:var(--acc)">
+      pitch <input id=pitch type=range min=-5 max=88 step=1 value=45
+           style="vertical-align:middle;width:80px;accent-color:var(--acc)">
+      dist <input id=dist type=range min=0.06 max=0.60 step=0.01 value=0.20
+           style="vertical-align:middle;width:80px;accent-color:var(--acc)">
+      <span id=camtxt class=key></span>
+    </label>
+    <br><b style="color:#ff5cff">magenta = you are seeing through the table</b> — that is
+    the gap, and the timber hole is what closes it.</span>
   <span class=key><b class=r>red</b> drop &nbsp;<b class=w>white</b> a ball on it
     &nbsp;<b class=c>cyan</b> lip outer edge &nbsp;<b class=d>dashed</b> bottom of the roll<br>
     <b style="color:var(--play)">amber = changes how it PLAYS</b>; the rest is the cut and the lip.
@@ -180,18 +204,20 @@ PAGE = r"""<!doctype html><meta charset=utf-8>
   <pre id=out></pre>
 </footer>
 <script>
-const KEYS=['gap','pr','off','capm','back','set','rad','roll'];
+const KEYS=['gap','pr','off','capm','back','set','rad','roll','bore','bset'];
 const NAME ={gap:'mouth width', pr:'hole size', off:'pocket depth',
              capm:'drop size', back:'drop depth', set:'cut setback', rad:'lip outer edge',
-             roll:'lip thickness'};
+             roll:'lip thickness', bore:'timber hole', bset:'timber hole setback'};
 const FIELD={gap:'gap_corner / gap_side', pr:'pr_corner / pr_side',
              off:'off_corner / off_side', capm:'capc / caps margin',
-             set:'CueCut.set', rad:'CueCut.rad', roll:'CueCut.roll'};
+             set:'CueCut.set', rad:'CueCut.rad', roll:'CueCut.roll',
+             bore:'bore_corner / bore_side', bset:'bore_set_corner / bore_set_side'};
 const RANGE={pr:[1.0,3.2,.01], gap:[1.2,3.8,.005], off:[0,2.6,.01],
              capm:[0,1.0,.01], back:[-0.5,2.0,.01], set:[-0.02,0.06,.0005],
-             rad:[0.5,2.6,.005], roll:[0,1.0,.005]};
+             rad:[0.5,2.6,.005], roll:[0,1.0,.005],
+             bore:[1.0,3.2,.01], bset:[-1.0,1.0,.01]};
 const UNIT ={pr:'×R', gap:'×R', off:'×R', capm:'×R', back:'×R',
-             set:'m', rad:'×pr', roll:'×pr'};
+             set:'m', rad:'×pr', roll:'×pr', bore:'×R', bset:'×R'};
 const TIP  ={gap:'How far apart the knuckles sit — the opening the ball goes through. THE CUSHIONS MOVE WITH IT. t->gap_corner / t->gap_side in cue_table_init.',
              pr:'The size of the hole itself: the drawn bore, and what the drop and the lip are measured from. t->pr_corner / t->pr_side.',
              off:'How far the pocket centre sits back beyond the cushion line. t->off_corner / t->off_side.',
@@ -199,9 +225,11 @@ const TIP  ={gap:'How far apart the knuckles sit — the opening the ball goes t
              back:'How much DEEPER than the pocket the drop circle is centred — pushes it back into the pocket without resizing it or moving the hole. t->drop_back / t->drop_back_side.',
              set:'How far the cut arc’s centre sits back from the pocket — slides the whole cut in and out. CueCut.set.',
              rad:'Where flat cloth stops and the roll begins. A multiple of the hole size, not of the drop, so the two move apart. CueCut.rad.',
-             roll:'How wide the roll is, from that edge inwards and down. CueCut.roll.'};
+             roll:'How wide the roll is, from that edge inwards and down. CueCut.roll.',
+             bore:'The hole cut in the TIMBER, which started life equal to the mouth and does not have to be. Too big and there is a slot between the end of the cushion and the frame that you can see out of the table through — the magenta in the OUTSIDE and INSIDE views. t->bore_corner / t->bore_side.',
+             bset:'How far out from the pocket centre that hole is cut, along the pocket\u2019s own outward normal. The other way to close the same slot: shrink the hole, or set it back. t->bore_set_corner / t->bore_set_side.'};
 const PLAY=['gap','pr','off','capm','back'];
-const DIG ={set:4, gap:3, rad:3, roll:3};
+const DIG ={set:4, gap:3, rad:3, roll:3, bore:3, bset:3};
 let DEF={}, CUR={}, TABLE=null, T={};
 
 function fx(k,v){ return (+v).toFixed(DIG[k]||2); }
@@ -233,8 +261,14 @@ function draw(kind){
   clearTimeout(T[kind]);
   T[kind]=setTimeout(()=>{
     const k=CUR[TABLE][kind];
+    const view=document.getElementById('view').value;
     const q=new URLSearchParams({table:TABLE,type:kind,
-        zoom:document.getElementById('zoom').value});
+        zoom:document.getElementById('zoom').value, view:view});
+    if(view!=='top'){
+      q.set('yaw',  document.getElementById('yaw').value);
+      q.set('pitch',document.getElementById('pitch').value);
+      q.set('dist', document.getElementById('dist').value);
+    }
     for(const key of KEYS) q.set(key,k[key]);
     fetch('/render?'+q).then(async r=>{
       const info=JSON.parse(r.headers.get('X-Readout')||'{}');
@@ -266,6 +300,32 @@ fetch('/state').then(r=>r.json()).then(s=>{
     o.value=k; o.textContent=DEF[k].label; sel.appendChild(o); }
   sel.onchange=e=>show(e.target.value);
   document.getElementById('zoom').oninput=()=>{draw('corner');draw('middle');};
+  /* The view, and the eye when it is not straight down. The defaults are the
+     angles the two faults were actually seen from — outside on the diagonal for
+     a mitred jaw, inside over the cloth for a middle pocket — and the sliders
+     move off there. */
+  const camwrap=document.getElementById('camwrap');
+  const camtxt=document.getElementById('camtxt');
+  function camshow(){
+    const v=document.getElementById('view').value;
+    camwrap.style.display = (v==='top') ? 'none' : 'inline';
+    if(v==='in'){ document.getElementById('yaw').value=180;
+                  document.getElementById('pitch').value=8;
+                  document.getElementById('dist').value=0.26; }
+    if(v==='out'){ document.getElementById('yaw').value=45;
+                   document.getElementById('pitch').value=45;
+                   document.getElementById('dist').value=0.20; }
+    camtext();
+  }
+  function camtext(){
+    camtxt.textContent = 'yaw '+document.getElementById('yaw').value
+      +'\u00b0  pitch '+document.getElementById('pitch').value
+      +'\u00b0  '+(+document.getElementById('dist').value).toFixed(2)+' m';
+  }
+  document.getElementById('view').onchange=()=>{camshow();draw('corner');draw('middle');};
+  for(const id of ['yaw','pitch','dist'])
+    document.getElementById(id).oninput=()=>{camtext();draw('corner');draw('middle');};
+  camshow();
   document.getElementById('reset').onclick=()=>{
     CUR[TABLE]={corner:{...DEF[TABLE].corner},middle:{...DEF[TABLE].middle}};
     show(TABLE); };
