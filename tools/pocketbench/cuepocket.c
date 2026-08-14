@@ -244,14 +244,21 @@ int main(int argc, char **argv) {
                 CueCut c; cue_table_get_cut(&W, m, &c);
                 printf(", \"%s\": {\"pr\": %.4f, \"gap\": %.4f, \"off\": %.4f, "
                        "\"capm\": %.4f, \"back\": %.4f, "
-                       "\"set\": %.5f, \"rad\": %.4f, \"roll\": %.4f}",
+                       "\"set\": %.5f, \"rad\": %.4f, \"roll\": %.4f, "
+                       "\"bore\": %.4f, \"bset\": %.4f}",
                     m?"middle":"corner",
                     (double)((m ? T.pr_side  : T.pr_corner ) / T.R),
                     (double)((m ? T.gap_side : T.gap_corner) / T.R),
                     (double)((m ? T.off_side : T.off_corner) / T.R),
                     (double)((m ? T.cap_side : T.cap_corner) / T.R),
                     (double)((m ? T.drop_back_side : T.drop_back) / T.R),
-                    (double)c.set, (double)c.rad, (double)c.roll);
+                    (double)c.set, (double)c.rad, (double)c.roll,
+                    /* A knob the page does not receive is a knob the page
+                     * cannot draw — and the paste-back block asks for every
+                     * key by name, so a missing one takes the whole page
+                     * down. */
+                    (double)((m ? T.bore_side : T.bore_corner) / T.R),
+                    (double)((m ? T.bore_set_side : T.bore_set_corner) / T.R));
             }
             printf("}%s\n", i+1<NT ? "," : "");
         }
