@@ -14,6 +14,22 @@
 #   cmake -S os/device -B build_os -DPICO_SDK_PATH=$HOME/mp-thumby/lib/pico-sdk
 #   cmake --build build_os -j8 ; cp build_os/mote_os.uf2 ../firmware_mote_os.uf2
 #
+# Pico SDK requirements — both of these fail in ways that are hard to diagnose,
+# because neither stops the build:
+#
+#   * SDK 2.1.0 or newer. Building against 2.0.0 produces a firmware that
+#     compiles and links cleanly, boots, enumerates over USB and answers
+#     `mote ping` — but never brings up the LCD, so the device looks frozen.
+#     Verified working on 2.1.1. (2.0.0 is what TinyCircuits' micropython fork
+#     pins, so it is an easy one to reach for by accident.)
+#
+#   * The SDK's TinyUSB submodule must be initialised:
+#         git -C $PICO_SDK_PATH submodule update --init lib/tinyusb
+#     Without it CMake only prints "TinyUSB submodule has not been
+#     initialized; USB support will be unavailable" as a WARNING and carries
+#     on, yielding a firmware with no USB at all — no `mote push`, no logs.
+#     Look for "TinyUSB available at ..." in the configure output to confirm.
+#
 cmake_minimum_required(VERSION 3.16)
 
 if (NOT THUMBYONE_SLOT_MODE)
