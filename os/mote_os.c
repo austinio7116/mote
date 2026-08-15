@@ -32,8 +32,13 @@ static bool           s_exit_req;
  * the host is unconstrained) — gives ThumbyCraft the ~5 KB of arena spare its save
  * thumbnail capture needs on top of the 272 KB world+zbuf. The SRAM-tight standalone
  * OS keeps 272 KB. */
+/* 268 KB, not 272, on the standalone OS: mote_launcher.c's MoteCatalog had to
+ * move from the stack to BSS (it is 5124 B against a 4096 B stack and was
+ * overflowing into core1's stack — see the comment there), and the OS BSS
+ * budget had no room for it. The 4 KB comes out of the arena, which still
+ * clears the ~254 KB worst case noted above. */
 #if defined(MOTE_DEVICE) && !defined(THUMBYONE_SLOT_MODE)
-#define MOTE_ARENA_SIZE (272 * 1024)
+#define MOTE_ARENA_SIZE (268 * 1024)
 #else
 #define MOTE_ARENA_SIZE (277 * 1024)
 #endif
