@@ -18,6 +18,7 @@
 #include "mote_audio_pwm.h"
 
 #include "pico/stdlib.h"
+#include "hardware/vreg.h"
 #include "pico/multicore.h"
 #include "hardware/clocks.h"
 #include "hardware/sync.h"
@@ -141,6 +142,20 @@ void mote_plat_render2(uint16_t *fb, MoteBandFn band,
 
 int mote_plat_init(const char *title) {
     (void)title;
+    /* 280 MHz below is an ~1.9x overclock: RP2350 is specified to 150 MHz at
+     * the default 1.10 V core, and nothing here ever raised the regulator, so
+     * the part ran out of spec. That is not a clean failure mode — a marginal
+     * core does not report anything, it occasionally just stops. On hardware
+     * this showed up as random total lockups during gameplay, at intervals of
+     * minutes, in unrelated games, with one core halting mid-spin-loop and no
+     * fault recorded. Rumble (PWM motor on GP5) and a 110 mAh LiPo put current
+     * transients on top of an already marginal core.
+     *
+     * Confirmed on device: raising VREG to 1.20 V fixes it, with no other
+     * change. Give the regulator margin, and time to settle, before raising
+     * the clock. */
+    vreg_set_voltage(VREG_VOLTAGE_1_20);
+    sleep_ms(10);
     set_sys_clock_khz(280000, true);
     /* Run the peripheral clock at full clk_sys so the LCD SPI actually reaches
      * 80 MHz. The SDK default clk_peri is 48 MHz, which caps spi_init(80MHz) to

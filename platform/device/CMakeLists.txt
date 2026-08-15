@@ -70,7 +70,7 @@ target_compile_options(hello_mesh PRIVATE
 
 target_link_libraries(hello_mesh
     pico_stdlib pico_multicore
-    hardware_spi hardware_dma hardware_clocks hardware_gpio
+    hardware_spi hardware_dma hardware_clocks hardware_gpio hardware_vreg
 )
 
 pico_enable_stdio_usb(hello_mesh 0)

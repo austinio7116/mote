@@ -137,7 +137,7 @@ target_compile_options(${MOTE_TGT} PRIVATE
 
 set(MOTE_LIBS pico_stdlib pico_multicore pico_unique_id
     hardware_spi hardware_dma hardware_clocks hardware_gpio
-    hardware_flash hardware_sync hardware_pwm hardware_irq
+    hardware_flash hardware_sync hardware_pwm hardware_irq hardware_vreg
     tinyusb_device tinyusb_board)
 if (NOT (THUMBYONE_SLOT_MODE AND MOTE_SLOT_ROLE STREQUAL "lobby"))
     list(APPEND MOTE_LIBS tinyusb_host)     # 2P link: host role for the peer unit
