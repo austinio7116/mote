@@ -17,6 +17,8 @@
 #include "cue_types.h"
 #include <string.h>
 #include <math.h>
+#include <stddef.h>
+#include <stdio.h>
 
 #define DEG (3.14159265f / 180.0f)
 
@@ -302,6 +304,246 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
      * hole, which is where it has always been; positive pushes it deeper, so a
      * ball has to get further in before it is down. Per pocket type because a
      * middle is a shallower thing than a corner. */
+}
+
+/* ---- THE TABLE AS A VALUE ------------------------------------------------ *
+ * See cue_table.h. ONE description of the fields; pack, unpack, hash and
+ * validate all read it, so a field added to CueTable is added here once and all
+ * four learn about it together. */
+
+enum { TF_F32, TF_I32, TF_U16 };
+enum {
+    TF_LOOK = 0,   /* colour only: packed and range-checked, never hashed */
+    TF_SIM  = 1    /* moves a cushion, a pocket or a ball: goes in the hash */
+};
+
+typedef struct {
+    const char *name;
+    unsigned short off;
+    unsigned char  type, sim;
+    float lo, hi;              /* the sensible range, in the field's own units */
+} CueTabField;
+
+#define TF(f, ty, s, lo, hi) { #f, (unsigned short)offsetof(CueTable, f), ty, s, lo, hi }
+
+static const CueTabField TAB_FIELDS[] = {
+    TF(kind,            TF_I32, TF_SIM,  0.0f, (float)CUE_GAME_COUNT - 1.0f),
+    TF(is_snooker,      TF_I32, TF_SIM,  0.0f, 1.0f),
+    TF(reds,            TF_I32, TF_SIM,  0.0f, 15.0f),
+    /* The bed. At least a metre of play, at most a 12 ft snooker table with a
+     * little room to grow. */
+    TF(half_len,        TF_F32, TF_SIM,  0.40f, 2.00f),
+    TF(half_wid,        TF_F32, TF_SIM,  0.20f, 1.10f),
+    /* The set. 34 mm is a Russian pyramid ball, 24 mm a small snooker one. */
+    TF(R,               TF_F32, TF_SIM,  0.018f, 0.040f),
+    TF(mass,            TF_F32, TF_SIM,  0.050f, 0.400f),
+    /* Zero is legal and means "the same as the rest" — see CueTable. */
+    TF(cue_R,           TF_F32, TF_SIM,  0.000f, 0.040f),
+    TF(cue_mass,        TF_F32, TF_SIM,  0.000f, 0.400f),
+    TF(cushion_h,       TF_F32, TF_SIM,  0.010f, 0.060f),
+    TF(rail_w,          TF_F32, TF_SIM,  0.020f, 0.200f),
+    TF(pocket_round,    TF_I32, TF_SIM,  0.0f, 1.0f),
+    TF(pr_corner,       TF_F32, TF_SIM,  0.020f, 0.150f),
+    TF(pr_side,         TF_F32, TF_SIM,  0.020f, 0.150f),
+    TF(bore_corner,     TF_F32, TF_SIM,  0.020f, 0.200f),
+    TF(bore_side,       TF_F32, TF_SIM,  0.020f, 0.200f),
+    TF(bore_set_corner, TF_F32, TF_SIM, -0.050f, 0.100f),
+    TF(bore_set_side,   TF_F32, TF_SIM, -0.050f, 0.100f),
+    TF(gap_corner,      TF_F32, TF_SIM,  0.000f, 0.200f),
+    TF(gap_side,        TF_F32, TF_SIM,  0.000f, 0.200f),
+    TF(facing_len,      TF_F32, TF_SIM,  0.000f, 0.200f),
+    TF(ang_corner,      TF_F32, TF_SIM,  0.0f, 90.0f),
+    TF(ang_side,        TF_F32, TF_SIM,  0.0f, 90.0f),
+    TF(off_corner,      TF_F32, TF_SIM,  0.000f, 0.150f),
+    TF(off_side,        TF_F32, TF_SIM,  0.000f, 0.150f),
+    TF(jaw_r,           TF_F32, TF_SIM,  0.000f, 0.050f),
+    /* The rail. Livelier than 0.98 at a crawl is a trampoline; one that never
+     * falls below 0.20 under pace is a dead cushion. The US tables ship at
+     * 0.985, so the ceiling is above that: a range that excludes a table the
+     * game already ships is the range being wrong, not the table. */
+    TF(e_cush,          TF_F32, TF_SIM,  0.20f, 0.99f),
+    TF(cush_efall,      TF_F32, TF_SIM,  0.00f, 0.50f),
+    TF(e_cush_min,      TF_F32, TF_SIM,  0.10f, 0.99f),
+    TF(cap_corner,      TF_F32, TF_SIM,  0.000f, 0.060f),
+    TF(cap_side,        TF_F32, TF_SIM,  0.000f, 0.060f),
+    TF(drop_back,       TF_F32, TF_SIM,  0.000f, 0.100f),
+    TF(drop_back_side,  TF_F32, TF_SIM,  0.000f, 0.100f),
+    /* Snooker layout. Ignored for pool, but still part of the table. */
+    TF(baulk_x,         TF_F32, TF_SIM, -2.00f, 2.00f),
+    TF(d_radius,        TF_F32, TF_SIM,  0.000f, 0.600f),
+    TF(blue_x,          TF_F32, TF_SIM, -2.00f, 2.00f),
+    TF(pink_x,          TF_F32, TF_SIM, -2.00f, 2.00f),
+    TF(black_x,         TF_F32, TF_SIM, -2.00f, 2.00f),
+    /* Cosmetics: packed, so a shared table arrives looking like itself; never
+     * hashed, so two people who disagree about cloth colour can still play. */
+    TF(cloth,           TF_U16, TF_LOOK, 0.0f, 65535.0f),
+    TF(rail,            TF_U16, TF_LOOK, 0.0f, 65535.0f),
+    TF(rail_top,        TF_U16, TF_LOOK, 0.0f, 65535.0f),
+    TF(spot,            TF_U16, TF_LOOK, 0.0f, 65535.0f),
+    TF(nballs,          TF_I32, TF_SIM,  2.0f, (float)CUE_MAX_BALLS),
+};
+#define TAB_NFIELD ((int)(sizeof TAB_FIELDS / sizeof TAB_FIELDS[0]))
+
+int         cue_table_field_count(void) { return TAB_NFIELD; }
+const char *cue_table_field_name(int i) {
+    return (i >= 0 && i < TAB_NFIELD) ? TAB_FIELDS[i].name : "";
+}
+
+/* Read a field as a float whatever it is stored as, so the range check and the
+ * hash do not each need a type switch of their own. */
+static float tf_get(const CueTable *t, const CueTabField *f) {
+    const unsigned char *p = (const unsigned char *)t + f->off;
+    if (f->type == TF_F32) { float v; memcpy(&v, p, 4); return v; }
+    if (f->type == TF_I32) { int   v; memcpy(&v, p, 4); return (float)v; }
+    { unsigned short v; memcpy(&v, p, 2); return (float)v; }
+}
+
+static int tab_bytes(void) {
+    int n = 4;
+    for (int i = 0; i < TAB_NFIELD; i++)
+        n += (TAB_FIELDS[i].type == TF_U16) ? 2 : 4;
+    return n;
+}
+
+int cue_table_pack(const CueTable *t, unsigned char *out, int cap) {
+    int need = tab_bytes();
+    if (!t || !out || cap < need) return 0;
+    out[0] = CUE_TABLE_SPEC_VERSION;
+    out[1] = (unsigned char)TAB_NFIELD;   /* so a reader can refuse a short block */
+    out[2] = out[3] = 0;
+    int at = 4;
+    for (int i = 0; i < TAB_NFIELD; i++) {
+        const unsigned char *p = (const unsigned char *)t + TAB_FIELDS[i].off;
+        if (TAB_FIELDS[i].type == TF_U16) {
+            unsigned short v; memcpy(&v, p, 2);
+            out[at++] = (unsigned char)v;
+            out[at++] = (unsigned char)(v >> 8);
+        } else {
+            unsigned int v; memcpy(&v, p, 4);   /* float bits or int, verbatim */
+            out[at++] = (unsigned char)v;
+            out[at++] = (unsigned char)(v >> 8);
+            out[at++] = (unsigned char)(v >> 16);
+            out[at++] = (unsigned char)(v >> 24);
+        }
+    }
+    return at;
+}
+
+int cue_table_unpack(CueTable *t, const unsigned char *in, int len) {
+    if (!t || !in || len < 4) return 0;
+    if (in[0] != CUE_TABLE_SPEC_VERSION) return 0;
+    if (in[1] != (unsigned char)TAB_NFIELD) return 0;
+    if (len < tab_bytes()) return 0;
+
+    CueTable tmp;
+    memset(&tmp, 0, sizeof tmp);
+    int at = 4;
+    for (int i = 0; i < TAB_NFIELD; i++) {
+        unsigned char *p = (unsigned char *)&tmp + TAB_FIELDS[i].off;
+        if (TAB_FIELDS[i].type == TF_U16) {
+            unsigned short v = (unsigned short)(in[at] | (in[at+1] << 8));
+            at += 2; memcpy(p, &v, 2);
+        } else {
+            unsigned int v = (unsigned int)in[at] | ((unsigned int)in[at+1] << 8)
+                           | ((unsigned int)in[at+2] << 16) | ((unsigned int)in[at+3] << 24);
+            at += 4; memcpy(p, &v, 4);
+        }
+    }
+    /* The boundary is where refusal belongs: a spec that cannot be played must
+     * not become the table and fail somewhere further in, where the reason for
+     * it is no longer to hand. */
+    if (!cue_table_validate(&tmp, 0, 0)) return 0;
+    *t = tmp;
+    return 1;
+}
+
+uint32_t cue_table_hash(const CueTable *t) {
+    unsigned int h = 2166136261u;             /* FNV-1a */
+    if (!t) return 0;
+    for (int i = 0; i < TAB_NFIELD; i++) {
+        if (!TAB_FIELDS[i].sim) continue;     /* a colour moves no ball */
+        const unsigned char *p = (const unsigned char *)t + TAB_FIELDS[i].off;
+        int n = (TAB_FIELDS[i].type == TF_U16) ? 2 : 4;
+        for (int b = 0; b < n; b++) { h ^= p[b]; h *= 16777619u; }
+    }
+    return (uint32_t)h;
+}
+
+static int tab_fail(char *msg, int cap, const char *why) {
+    if (msg && cap > 0) {
+        int i = 0;
+        while (why[i] && i < cap - 1) { msg[i] = why[i]; i++; }
+        msg[i] = 0;
+    }
+    return 0;
+}
+
+int cue_table_validate(const CueTable *t, char *msg, int msgcap) {
+    if (!t) return tab_fail(msg, msgcap, "there is no table");
+    if (msg && msgcap > 0) msg[0] = 0;
+
+    /* Every field inside its own range. A NaN fails both comparisons, which is
+     * exactly right: a NaN anywhere in the geometry is an unplayable table. */
+    for (int i = 0; i < TAB_NFIELD; i++) {
+        float v = tf_get(t, &TAB_FIELDS[i]);
+        if (!(v >= TAB_FIELDS[i].lo && v <= TAB_FIELDS[i].hi)) {
+            char buf[96];
+            snprintf(buf, sizeof buf, "%s is %.4f, outside %.3f..%.3f",
+                     TAB_FIELDS[i].name, (double)v,
+                     (double)TAB_FIELDS[i].lo, (double)TAB_FIELDS[i].hi);
+            return tab_fail(msg, msgcap, buf);
+        }
+    }
+
+    /* ...and then the combinations: pairs of individually sensible numbers that
+     * together make a table nobody can play. */
+    float R  = t->R;
+    float cR = (t->cue_R > 0.0f) ? t->cue_R : R;
+    float big = (cR > R) ? cR : R;            /* the widest ball on the cloth */
+
+    if (t->half_wid > t->half_len)
+        return tab_fail(msg, msgcap, "the table is wider than it is long");
+    if (t->half_wid < big * 4.0f)
+        return tab_fail(msg, msgcap, "the bed is too narrow for the balls on it");
+
+    /* A pocket has to admit a ball, and so does the DROP — they are different
+     * radii and the drop is the smaller. This is the check the workshop exists
+     * for: one thumbstick movement can express a pocket a ball will not fit. */
+    if (t->pr_corner <= big) return tab_fail(msg, msgcap, "the corner pocket is narrower than the ball");
+    if (t->pr_side   <= big) return tab_fail(msg, msgcap, "the middle pocket is narrower than the ball");
+    if (t->pr_corner - t->cap_corner <= big)
+        return tab_fail(msg, msgcap, "the corner drop is too small to take the ball");
+    if (t->pr_side - t->cap_side <= big)
+        return tab_fail(msg, msgcap, "the middle drop is too small to take the ball");
+
+    /* The bore is the hole cut in the timber. Too small for the mouth it serves
+     * and there is a slot beside the cushion you can see out of the table
+     * through — which is the fault the bore was made dialable to close. */
+    if (t->bore_corner < t->pr_corner * 0.70f)
+        return tab_fail(msg, msgcap, "the corner bore is too small for the mouth it serves");
+    if (t->bore_side < t->pr_side * 0.70f)
+        return tab_fail(msg, msgcap, "the middle bore is too small for the mouth it serves");
+
+    /* A real rail is livelier the more gently it is touched. Inverting that
+     * gives a cushion that gains energy the harder it is hit. */
+    if (t->e_cush_min > t->e_cush)
+        return tab_fail(msg, msgcap, "the cushion gets livelier the harder it is hit");
+
+    /* The nose is a fraction of a ball up the front face. At the ball's centre
+     * or above it cannot be struck properly; at the cloth there is no cushion. */
+    if (t->cushion_h >= big * 2.0f || t->cushion_h <= big * 0.2f)
+        return tab_fail(msg, msgcap, "the cushion is the wrong height for the ball");
+
+    /* Snooker spots have to be on the table, and in their order down it. */
+    if (t->is_snooker) {
+        if (t->baulk_x < -t->half_len || t->black_x > t->half_len)
+            return tab_fail(msg, msgcap, "a spot is off the end of the table");
+        if (!(t->baulk_x < t->blue_x && t->blue_x < t->pink_x && t->pink_x < t->black_x))
+            return tab_fail(msg, msgcap, "the spots are out of order down the table");
+        if (t->d_radius > t->half_wid)
+            return tab_fail(msg, msgcap, "the D is wider than the table");
+    }
+    return 1;
 }
 
 /* Inward unit normal of segment a→b. The cushion boundary is built as one

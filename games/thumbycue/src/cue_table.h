@@ -29,6 +29,22 @@ typedef enum {
 /* first snooker variant in enum order — everything >= this is snooker */
 #define CUE_GAME_FIRST_SNK CUE_GAME_SNK15
 
+/* WHERE THE HANDHELD STOPS READING.
+ *
+ * The kinds are an enum, and CUE_GAME_COUNT sizes arrays that the DEVICE build
+ * compiles too — cue_game.c's k_mode_name among them — while its own mode picker
+ * cycles modulo that count. So a kind added for VR does not merely go unused on
+ * the handheld: it appears in the handheld's menu and can be selected.
+ *
+ * Everything below this line plays on both. Everything at or above it is VR
+ * only, and the device's picker stops here. The two are equal today because
+ * nothing is VR-only yet — the point of pinning it NOW is that the first such
+ * kind is appended after SNK6 and is excluded by construction, rather than
+ * needing five kinds' worth of indices audited later. */
+#define CUE_GAME_VR_FIRST 7
+/* ...and a static check that the pin has not drifted past the end. */
+typedef char cue_vr_first_in_range[(CUE_GAME_VR_FIRST <= CUE_GAME_COUNT) ? 1 : -1];
+
 /* Ball id conventions (shared by physics, render, rules).
  * Pool:    0 = cue, 1..7 solids, 8 = black, 9..15 stripes.
  * Snooker: 0 = cue, 1..15 reds, then the six colours below. */
@@ -112,6 +128,61 @@ typedef struct {
 } CueTable;
 
 void cue_table_init(CueTable *t, CueGameKind kind);
+
+/* ---- THE TABLE AS A VALUE ------------------------------------------------ *
+ *
+ * A CueTable has always been a fine parameter block — it is why the pocket bench
+ * can dial a bore. What it has never been is ADDRESSABLE: every table in the
+ * game arrives through cue_table_init() with an enum, and the numbers are
+ * literals inside a switch. Nothing can save one, send one, or say whether one
+ * is playable.
+ *
+ * Four operations fix that, and they all read ONE description of the fields
+ * (cue_table_fields in the .c). That is deliberate. cuevr_net.h records what
+ * happens when a struct crosses a boundary field by hand-picked field: "picking
+ * fields by hand means picking wrongly at some point, and the failure is
+ * invisible until the frame stops making sense." A field added to the struct and
+ * forgotten in the packer is exactly that bug. Here there is one list, and
+ * adding a row to it teaches all four at once. */
+
+#define CUE_TABLE_SPEC_VERSION 1
+#define CUE_TABLE_SPEC_MAX 256      /* a packed table is comfortably under this */
+
+/* Pack into `out`, returning the bytes written, or 0 if it would not fit.
+ * Version-stamped and explicitly little-endian, so a spec written by one build
+ * is readable by another. */
+int cue_table_pack(const CueTable *t, unsigned char *out, int cap);
+
+/* And back. Returns 1 on success, 0 on a bad length, an unknown version, or a
+ * block that does not validate. A spec that fails here must not be played:
+ * unpacking is the boundary, so it is where refusal belongs. */
+int cue_table_unpack(CueTable *t, const unsigned char *in, int len);
+
+/* A stable 32-bit hash of the table's PLAYING numbers, for the room handshake:
+ * hash in the hello, the spec on request, refuse if the two cannot agree.
+ *
+ * COSMETICS ARE NOT IN IT, and that is the whole point of having a hash rather
+ * than comparing structs. Cloth colour, rail colour and the spot colour change
+ * nothing about where a ball goes, so two players whose tables differ only in
+ * how they look must still be able to play each other. Anything that moves a
+ * cushion, a pocket or a ball is in. */
+uint32_t cue_table_hash(const CueTable *t);
+
+/* Is this a table anybody can play on? Returns 1 if so. Otherwise 0, and `msg`
+ * (if given) receives a one-line reason in the player's terms — "the pocket is
+ * narrower than the ball", not "pr_corner out of range".
+ *
+ * This is the product, not paperwork. Every number below is reachable from the
+ * table workshop, and a pocket dialled narrower than a ball is expressible in
+ * one thumbstick movement. Per-field ranges catch the wild values; the
+ * cross-field checks after them catch the combinations that are individually
+ * sensible and together unplayable. */
+int cue_table_validate(const CueTable *t, char *msg, int msgcap);
+
+/* How many fields the description carries, and the name of one — so a tuning
+ * screen can walk the table without a second list of its own. */
+int         cue_table_field_count(void);
+const char *cue_table_field_name(int i);
 
 /* Fill a physics world with this table's constants + collision geometry. */
 void cue_table_build_world(const CueTable *t, CueWorld *w);
