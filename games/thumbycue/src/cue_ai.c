@@ -380,7 +380,7 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
                    AiSim *out) {
     s_sw = *w;
     s_sw._acc = 0.0f;
-    s_sw.first_hit = -1; s_sw.first_hit_idx = -1;
+    cue_phys_shot_begin(&s_sw);
     for (int i = 0; i < n; i++) {
         s_sb[i] = balls[i];
         s_sb[i].vel = v3(0,0,0);

@@ -298,11 +298,10 @@ static void begin_shot(void) {
     cue_phys_strike_elev(&s_world, &s_balls[0], dir, s_power * MAX_STRIKE_SPEED,
                          s_tip_side, s_tip_vert, ev);
     s_world._acc = 0.0f;
-    s_world.first_hit = -1;            /* physics records the cue's real first contact */
+    cue_phys_shot_begin(&s_world);     /* physics records the cue's real shot */
     s_orbit_c = cue_pos();
     s_freeview = 0;                    /* follow the cue ball by default */
     s_follow_idx = 0;                  /* until the cue ball strikes an object ball */
-    s_world.first_hit_idx = -1;
     s_first_hit = -1; s_cushion_seen = 0;
     for (int i = 0; i < s_n; i++) s_was_on[i] = s_balls[i].on;
     cue_audio_sfx(CUE_SFX_STRIKE, s_power);

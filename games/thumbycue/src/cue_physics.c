@@ -61,11 +61,66 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
      * world built by hand does not let balls fly out over zero-height rails. */
     w->cushion_nose = 1.27f * R;
     w->bound_x = w->bound_z = 1.0e9f;   /* until cue_table says where the rail ends */
+    cue_phys_shot_begin(w);
+    w->_acc = 0.0f;
+}
+
+/* ---- the shot's own record ------------------------------------------------ */
+
+void cue_phys_shot_begin(CueWorld *w) {
+    if (!w) return;
     w->first_hit = -1;
     w->first_hit_idx = -1;
     w->jump_over = 0; w->jump_over_id = 0;
     w->jmp_pending = 0; w->jmp_idx = -1; w->jmp_hit_it = 0; w->jmp_bounced = 0;
-    w->_acc = 0.0f;
+    w->ntouch = 0; w->touch_over = 0;
+}
+
+/* Append to the cue ball's account. Only ever called for ball 0. */
+static void touch_add(CueWorld *w, uint8_t what, uint8_t id, uint8_t idx) {
+    if (w->ntouch >= CUE_MAX_TOUCH) { w->touch_over = 1; return; }
+    CueTouch *t = &w->touch[w->ntouch++];
+    t->what = what; t->id = id; t->idx = idx; t->_pad = 0;
+}
+
+int cue_touch_count(const CueWorld *w) { return w ? w->ntouch : 0; }
+
+int cue_touch_get(const CueWorld *w, int i, CueTouch *out) {
+    if (!w || !out || i < 0 || i >= w->ntouch) return 0;
+    *out = w->touch[i];
+    return 1;
+}
+
+int cue_touch_cushions(const CueWorld *w) {
+    int n = 0;
+    if (!w) return 0;
+    for (int i = 0; i < w->ntouch; i++)
+        if (w->touch[i].what == CUE_TOUCH_CUSHION) n++;
+    return n;
+}
+
+int cue_touch_cannon(const CueWorld *w, int id_a, int id_b) {
+    int a = 0, b = 0;
+    if (!w) return 0;
+    for (int i = 0; i < w->ntouch; i++) {
+        if (w->touch[i].what != CUE_TOUCH_BALL) continue;
+        if (w->touch[i].id == (uint8_t)id_a) a = 1;
+        if (w->touch[i].id == (uint8_t)id_b) b = 1;
+    }
+    return a && b;
+}
+
+int cue_touch_cushions_before_second_ball(const CueWorld *w) {
+    int first = -1, cush = 0;
+    if (!w) return -1;
+    for (int i = 0; i < w->ntouch; i++) {
+        if (w->touch[i].what == CUE_TOUCH_CUSHION) { cush++; continue; }
+        if (first < 0) { first = w->touch[i].id; continue; }
+        /* A second contact with the SAME ball is not the second ball. The cue
+         * ball can come back onto the first one and often does. */
+        if (w->touch[i].id != (uint8_t)first) return cush;
+    }
+    return -1;   /* it never reached a second ball: not zero, and not the same */
 }
 
 /* Cue-ball deflection (squirt) at full side — declared in cue_physics.h so a
@@ -1223,6 +1278,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             if (dx > bb_min || dx < -bb_min || dz > bb_min || dz < -bb_min) continue;
             if (collide_ball_ball(w, &balls[i], &balls[j])) {
                 if (ev) *ev |= CUE_EV_BALL_HIT;
+                if (i == 0) touch_add(w, CUE_TOUCH_BALL, balls[j].id, (uint8_t)j);
                 if (w->first_hit < 0 && i == 0) { w->first_hit = balls[j].id; w->first_hit_idx = j; }
                 else if (w->first_hit >= 0 && i == 0) w->jmp_bounced = 1;  /* (c) */
                 /* Did it hit the ball it is in the act of passing over? That is
@@ -1240,8 +1296,13 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
         if (!b->on || b->drop > 0.0f) continue;
         float v2 = b->vel.x*b->vel.x + b->vel.z*b->vel.z;
         if (v2 < V_STOP*V_STOP) continue;
-        if (collide_cushions(w, b, ev) && i == 0 && w->first_hit >= 0)
-            w->jmp_bounced = 1;                                       /* (c) */
+        if (collide_cushions(w, b, ev)) {
+            /* The cue ball's own account. Recorded whether or not it has hit a
+             * ball yet: a carom counts every cushion from the start of the
+             * shot, not only the ones after first contact. */
+            if (i == 0) touch_add(w, CUE_TOUCH_CUSHION, 0, 0);
+            if (i == 0 && w->first_hit >= 0) w->jmp_bounced = 1;      /* (c) */
+        }
         if (check_pockets(w, b) && ev) *ev |= CUE_EV_POCKET;
     }
 }

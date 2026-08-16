@@ -67,6 +67,16 @@ typedef struct {
 } CueBall;
 
 
+/* One thing the cue ball touched, in the order it touched it. See CueWorld. */
+enum { CUE_TOUCH_BALL = 0, CUE_TOUCH_CUSHION };
+#define CUE_MAX_TOUCH 24
+typedef struct {
+    uint8_t what;   /* CUE_TOUCH_* */
+    uint8_t id;     /* the ball's id, for CUE_TOUCH_BALL */
+    uint8_t idx;    /* ...and its index, since snooker reds share an id */
+    uint8_t _pad;
+} CueTouch;
+
 /* A cushion nose segment in the X–Z plane with an inward unit normal
  * (pointing into the playable area). Rails and pocket facings are both built
  * from these. kind: 0 = straight rail nose, 1 = pocket facing/jaw.
@@ -175,11 +185,34 @@ typedef struct {
     Vec3   drop_c[CUE_MAX_POCKET];   /* derived: pocket + pmnorm * drop_back */
 
     /* First object ball the CUE ball contacts after a strike; -1 = none.
-     * Reset to -1 before each shot; read at settle for rules.
+     * Reset by cue_phys_shot_begin(); read at settle for rules.
      * first_hit = ball id (for rules); first_hit_idx = ball index (for the
      * follow-camera, since snooker reds share an id). */
     int first_hit;
     int first_hit_idx;
+
+    /* ---- WHAT THE CUE BALL TOUCHED, IN ORDER ---------------------------- *
+     *
+     * first_hit answers "what did it hit first", which is every question the
+     * games shipped so far need to ask. No billiards game can be scored from
+     * it. A cannon is "the cue ball contacted BOTH object balls"; a three-
+     * cushion carom is that "with three or more cushions before the second
+     * one". Those are questions about a SEQUENCE, and only the integrator ever
+     * sees it — by settle the balls have stopped and the order is gone.
+     *
+     * So the cue ball keeps an account of its own shot. ONLY the cue ball's
+     * contacts: the object balls' collisions with each other are numerous and
+     * no rule in any of these games asks about them. That keeps this small
+     * enough to be a fixed array, which it has to be — the match is lockstep,
+     * so this must fill identically on both machines with no allocation.
+     *
+     * `touch_over` is set if a shot had more contacts than fitted. It should
+     * not happen on a real stroke (the cue ball is not a break pack), but a
+     * count taken from a truncated list is a wrong count, and a caller is
+     * entitled to know that rather than be handed a plausible number. */
+    CueTouch touch[CUE_MAX_TOUCH];
+    int ntouch;
+    int touch_over;
 
     /* ---- jump shots, as snooker actually defines one ----------------------
      *
@@ -293,6 +326,39 @@ float cue_phys_cushion_impact(void);   /* loudest rail-approach speed from last 
 void cue_phys_set_substep(float h);
 
 int cue_phys_moving(const CueWorld *w, const CueBall *balls, int n);
+
+/* ---- one shot begins ------------------------------------------------------
+ *
+ * Clears everything the LAST shot recorded: the first contact, the jump
+ * verdict, and the cue ball's touch log.
+ *
+ * It exists because that reset was written out by hand at seven call sites —
+ * the game loop, the AI's ranking sims, the VR app and four tests — each
+ * setting the fields it happened to know about. Every field added to the
+ * per-shot state since has had to be added to all seven, and the failure when
+ * one is missed is a stale reading attributed to the current shot, which looks
+ * like a rules bug and is not one. One call, and a field added here is cleared
+ * everywhere at once. */
+void cue_phys_shot_begin(CueWorld *w);
+
+/* ---- reading the cue ball's account of the shot ---------------------------
+ * All are safe to call at any time; they describe the shot so far. */
+int cue_touch_count(const CueWorld *w);
+int cue_touch_get(const CueWorld *w, int i, CueTouch *out);
+
+/* How many cushions the cue ball struck, over the whole shot. */
+int cue_touch_cushions(const CueWorld *w);
+
+/* Did the cue ball contact both of these balls, in either order? That is a
+ * CANNON, and it is what English billiards scores two for. Ids, not indices,
+ * so it reads the way the rule does. */
+int cue_touch_cannon(const CueWorld *w, int id_a, int id_b);
+
+/* How many cushions the cue ball struck BEFORE it reached the second distinct
+ * object ball — the whole of the three-cushion carom rule. Returns -1 if it
+ * never reached a second ball at all, which is a different answer from zero
+ * and must not be confused with it. */
+int cue_touch_cushions_before_second_ball(const CueWorld *w);
 
 /* THE MISCUE LIMIT: how far off centre a tip can strike, as a fraction of the
  * ball's radius, and with it the most spin anybody can put on a ball.
