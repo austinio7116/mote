@@ -354,31 +354,140 @@ static void add_chain(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4) {
     add_jaw_recessed(w, P3, nin);
 }
 
-/* Append nseg facing segments along a quadratic-bezier curve from s to e with
- * a perpendicular bulge (matches the 2D game's generateCurvePoints). */
-static void seg_curve(CueWorld *w, Vec3 s, Vec3 e, float dir, int nseg) {
+/* Sample nseg+1 points along a quadratic-bezier curve from s to e with a
+ * perpendicular bulge (matches the 2D game's generateCurvePoints), inclusive of
+ * both ends. Returns the point count. */
+static int curve_pts(Vec3 s, Vec3 e, float dir, int nseg, Vec3 *out) {
     float dx = e.x - s.x, dz = e.z - s.z;
     float len = sqrtf(dx*dx + dz*dz);
-    if (len < 1e-6f) return;
+    out[0] = s;
+    if (len < 1e-6f || nseg < 1) return 1;
     float px = -dz/len, pz = dx/len, depth = len * 0.4f * dir;
     float cx = (s.x+e.x)*0.5f + px*depth, cz = (s.z+e.z)*0.5f + pz*depth;
-    Vec3 prev = s;
     for (int i = 1; i <= nseg; i++) {
         float t = (float)i/nseg, o = 1.0f - t;
-        Vec3 p = v3(o*o*s.x + 2*o*t*cx + t*t*e.x, 0,
+        out[i] = v3(o*o*s.x + 2*o*t*cx + t*t*e.x, 0,
                     o*o*s.z + 2*o*t*cz + t*t*e.z);
+    }
+    return nseg + 1;
+}
+
+/* Append a polyline as facing segments. */
+static void add_poly(CueWorld *w, const Vec3 *p, int n, uint8_t kind) {
+    for (int i = 1; i < n; i++) add_seg(w, p[i-1], p[i], kind);
+}
+
+/* ---- THE JAW-TO-RAIL BLEND ----------------------------------------------- *
+ *
+ * WHERE THE CURVE MEETS THE STRAIGHT, and why it needed saying at all.
+ *
+ * The chain is bezier jaw → straight nose → bezier jaw, and at each junction the
+ * curve's tangent and the rail's direction are simply different. That is a
+ * corner. The normal field papers over it — the vertex-averaging below gives a
+ * continuous normal along the jaw run — but a normal is not a silhouette: in a
+ * headset you are looking down the rail at a lit edge, and the geometry creases
+ * however smoothly it is shaded.
+ *
+ * So the corner is rounded in the GEOMETRY, over a length measured in ball
+ * radii rather than in segments. Two things follow from doing it that way:
+ *
+ *   It is cheaper the longer it gets. The blend CONSUMES the curve points it
+ *   spans, so a longer blend replaces more vertices than it inserts. Rounding
+ *   over a segment or two — which is what trimming by a fraction of the
+ *   neighbouring segment amounts to — crams all the curvature into a couple of
+ *   millimetres and still reads as a corner, because it IS one, just a smaller
+ *   one.
+ *
+ *   It stays kind=1, and so changes no physics. A quadratic through
+ *   P → (control at the old corner) → Q leaves P along the chord into the corner
+ *   and arrives at Q ALONG THE RAIL. Tangent-continuous at both ends: the normal
+ *   step across the junction is now a fraction of a degree, so the rail keeps
+ *   its own crisp normal (the run-kind rule below is untouched, and with it the
+ *   protection against a facing tilting the rail's normal into the throat) and
+ *   gets a smooth silhouette anyway.
+ *
+ * And because the blend is applied HERE, to the collision chain, the drawn
+ * cushion and the played cushion are one line by construction — cue_render
+ * builds its mesh from w->seg. There is no second copy to drift. */
+#ifndef CUE_JAW_BLEND
+#define CUE_JAW_BLEND 0.30f      /* blend half-length, in ball radii */
+#endif
+#ifndef CUE_JAW_BLEND_PTS
+#define CUE_JAW_BLEND_PTS 2      /* interior vertices inserted across it */
+#endif
+
+/* Walk `n` points from index `from` toward index `to` until `len` of arc has
+ * been used. Returns the index landed on, and writes the exact cut point. */
+static int walk_back(const Vec3 *p, int from, int to, float len, Vec3 *cut) {
+    int step = (to > from) ? 1 : -1;
+    float used = 0.0f;
+    int i = from;
+    while (i != to) {
+        int j = i + step;
+        float d = sqrtf((p[j].x-p[i].x)*(p[j].x-p[i].x) + (p[j].z-p[i].z)*(p[j].z-p[i].z));
+        if (used + d >= len) {
+            float f = (len - used) / (d > 1e-9f ? d : 1.0f);
+            *cut = v3(p[i].x + (p[j].x-p[i].x)*f, 0, p[i].z + (p[j].z-p[i].z)*f);
+            return j;   /* p[j] and everything past it toward `to` is consumed */
+        }
+        used += d; i = j;
+    }
+    *cut = p[to];
+    return to;
+}
+
+/* The blend arc itself: P → corner → Q as a quadratic, interior points only. */
+static void blend_arc(CueWorld *w, Vec3 P, Vec3 corner, Vec3 Q) {
+    Vec3 prev = P;
+    for (int i = 1; i <= CUE_JAW_BLEND_PTS + 1; i++) {
+        float t = (float)i / (CUE_JAW_BLEND_PTS + 1), o = 1.0f - t;
+        Vec3 p = v3(o*o*P.x + 2*o*t*corner.x + t*t*Q.x, 0,
+                    o*o*P.z + 2*o*t*corner.z + t*t*Q.z);
         add_seg(w, prev, p, 1);
         prev = p;
     }
 }
 
 /* Curved cushion chain (snooker/UK): bezier jaw → straight nose → bezier jaw.
- * The curves bulge into the pocket, giving rounded knuckles. */
+ * The curves bulge into the pocket, giving rounded knuckles, and each junction
+ * with the nose is rounded off per the note above. */
 static void add_curved_chain(CueWorld *w, Vec3 tipIn, Vec3 kIn, Vec3 kMid,
                              Vec3 tipMid, float aIn, float aOut, int nIn, int nOut) {
-    seg_curve(w, tipIn, kIn, aIn, nIn);
-    add_seg(w, kIn, kMid, 0);
-    seg_curve(w, kMid, tipMid, aOut, nOut);
+    /* Sized for the jaw itself, not for CUE_MAX_SEG: these are stack arrays and
+     * the device has very little of it. CUE_JAW_SEGS is 3 there and 10 in VR. */
+    #define CUE_JAW_MAXPTS 34
+    Vec3 in[CUE_JAW_MAXPTS], out[CUE_JAW_MAXPTS];
+    if (nIn  > CUE_JAW_MAXPTS - 2) nIn  = CUE_JAW_MAXPTS - 2;
+    if (nOut > CUE_JAW_MAXPTS - 2) nOut = CUE_JAW_MAXPTS - 2;
+    int ni = curve_pts(tipIn, kIn,   aIn,  nIn,  in);    /* ends   at kIn  */
+    int no = curve_pts(kMid,  tipMid, aOut, nOut, out);  /* starts at kMid */
+
+    float railLen = sqrtf((kMid.x-kIn.x)*(kMid.x-kIn.x) + (kMid.z-kIn.z)*(kMid.z-kIn.z));
+    float L = CUE_JAW_BLEND * w->R;
+    /* Never eat more than the rail can spare, nor a whole jaw curve. */
+    if (L > railLen * 0.45f) L = railLen * 0.45f;
+
+    if (L > 1e-5f && ni > 1 && no > 1) {
+        Vec3 rd = v3_norm(v3_sub(kMid, kIn));
+        Vec3 P1, P2;
+        int c1 = walk_back(in,  ni - 1, 0,      L, &P1);  /* back along the incoming curve */
+        int c2 = walk_back(out, 0,      no - 1, L, &P2);  /* on along the outgoing curve  */
+        Vec3 Q1 = v3(kIn.x  + rd.x * L, 0, kIn.z  + rd.z * L);
+        Vec3 Q2 = v3(kMid.x - rd.x * L, 0, kMid.z - rd.z * L);
+
+        add_poly(w, in, c1 + 1, 1);             /* curve, up to the last kept point */
+        add_seg(w, in[c1], P1, 1);              /* ...then the part-segment to the cut */
+        blend_arc(w, P1, kIn, Q1);              /* rounded junction */
+        add_seg(w, Q1, Q2, 0);                  /* the rail nose, shortened */
+        blend_arc(w, Q2, kMid, P2);             /* rounded junction */
+        add_seg(w, P2, out[c2], 1);
+        add_poly(w, out + c2, no - c2, 1);      /* curve, on to the tip */
+    } else {                                    /* degenerate: the old chain */
+        add_poly(w, in, ni, 1);
+        add_seg(w, kIn, kMid, 0);
+        add_poly(w, out, no, 1);
+    }
+
     Vec3 nin = inward_n(kIn.x, kIn.z, kMid.x, kMid.z);   /* nose inward normal */
     add_jaw_recessed(w, kIn, nin);
     add_jaw_recessed(w, kMid, nin);
