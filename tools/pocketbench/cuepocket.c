@@ -312,7 +312,7 @@ int main(int argc, char **argv) {
      * one shows. --yaw/--pitch/--dist take over from there. */
     const char *vw="top"; float cyaw=0, cpit=0, cdst=0; int have_cam=0;
     const char *lay=NULL;
-    int whole=0, rack=0;
+    int whole=0, rack=0, bset=-1;
     /* EVERY knob starts unset. A field added to Knobs without a -1 here reads
      * as ZERO, which for the bore meant a rail with no hole cut in it — the
      * plank closed straight over the pocket and the bore wall vanished. */
@@ -338,6 +338,7 @@ int main(int argc, char **argv) {
         else if(!strcmp(argv[i],"--layer")) lay=argv[++i];
         else if(!strcmp(argv[i],"--whole")) whole=1;
         else if(!strcmp(argv[i],"--rack"))  rack=1;
+        else if(!strcmp(argv[i],"--ballset")&&i+1<argc) bset=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--yaw"))  { cyaw=(float)atof(argv[++i]); have_cam=1; }
         else if(!strcmp(argv[i],"--pitch")){ cpit=(float)atof(argv[++i]); have_cam=1; }
         else if(!strcmp(argv[i],"--dist")) { cdst=(float)atof(argv[++i]); have_cam=1; }
@@ -448,6 +449,7 @@ int main(int argc, char **argv) {
     if (rack) {
         CueBall bl[CUE_MAX_BALLS];
         int nb = cue_table_rack(&T, bl);
+        if (bset >= 0) cue_render_set_ball_set(bset);
         for (int i = 0; i < nb; i++) draw_ball(&bl[i], T.R);
     }
     Vec3 pc=W.drop_c[p], cc=W.cut_c[p], n=W.pmnorm[p];
