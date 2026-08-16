@@ -232,6 +232,44 @@ static void draw_tri(const CueTri *q) {
         }
 }
 
+/* A BALL, as the game would wear it.
+ *
+ * Tessellated here rather than taken from cue_render, because the handheld
+ * draws balls as textured spheres through the engine's scene layer and this
+ * tool has no engine. The SURFACE is the real one though: cue_render_ball_texel
+ * is the same function the device shades every ball with, asked per facet, so
+ * the stripes, the spots and the blacks are the authored ones and not an
+ * approximation of them. */
+static void draw_ball(const CueBall *b, float R) {
+    const int SL = 22, ST = 12;
+    if (!b->on) return;
+    float br = (b->r > 0.0f) ? b->r : R;
+    for (int i = 0; i < ST; i++) {
+        float t0 = 3.14159265f * i / ST, t1 = 3.14159265f * (i + 1) / ST;
+        for (int j = 0; j < SL; j++) {
+            float p0 = 6.2831853f * j / SL, p1 = 6.2831853f * (j + 1) / SL;
+            Vec3 n[4] = {
+                v3(sinf(t0)*cosf(p0), cosf(t0), sinf(t0)*sinf(p0)),
+                v3(sinf(t0)*cosf(p1), cosf(t0), sinf(t0)*sinf(p1)),
+                v3(sinf(t1)*cosf(p1), cosf(t1), sinf(t1)*sinf(p1)),
+                v3(sinf(t1)*cosf(p0), cosf(t1), sinf(t1)*sinf(p0)),
+            };
+            Vec3 v[4];
+            for (int k = 0; k < 4; k++)
+                v[k] = v3(b->pos.x + n[k].x*br, b->pos.y + n[k].y*br, b->pos.z + n[k].z*br);
+            /* The facet's own outward direction, in BALL space, is what the
+             * surface function is asked about — so a ball that has rolled shows
+             * its markings where they actually ended up. */
+            Vec3 c = v3n(v3(n[0].x+n[2].x, n[0].y+n[2].y, n[0].z+n[2].z));
+            Vec3 lb = v3(v3d(c, b->orient.r[0]), v3d(c, b->orient.r[1]), v3d(c, b->orient.r[2]));
+            uint16_t col = cue_render_ball_texel(b->id, lb);
+            CueTri q0 = { { v[0], v[1], v[2] }, c, col, CUE_MAT_WOOD };
+            CueTri q1 = { { v[0], v[2], v[3] }, c, col, CUE_MAT_WOOD };
+            draw_tri(&q0); draw_tri(&q1);
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--defaults")) {
         printf("{\n");
@@ -274,6 +312,7 @@ int main(int argc, char **argv) {
      * one shows. --yaw/--pitch/--dist take over from there. */
     const char *vw="top"; float cyaw=0, cpit=0, cdst=0; int have_cam=0;
     const char *lay=NULL;
+    int whole=0, rack=0;
     /* EVERY knob starts unset. A field added to Knobs without a -1 here reads
      * as ZERO, which for the bore meant a rail with no hole cut in it — the
      * plank closed straight over the pocket and the bore wall vanished. */
@@ -297,11 +336,22 @@ int main(int argc, char **argv) {
         else if(!strcmp(argv[i],"--bset")) k.bset=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--view")) vw=argv[++i];
         else if(!strcmp(argv[i],"--layer")) lay=argv[++i];
+        else if(!strcmp(argv[i],"--whole")) whole=1;
+        else if(!strcmp(argv[i],"--rack"))  rack=1;
         else if(!strcmp(argv[i],"--yaw"))  { cyaw=(float)atof(argv[++i]); have_cam=1; }
         else if(!strcmp(argv[i],"--pitch")){ cpit=(float)atof(argv[++i]); have_cam=1; }
         else if(!strcmp(argv[i],"--dist")) { cdst=(float)atof(argv[++i]); have_cam=1; }
     }
-    int ti=0; for(int i=0;i<NT;i++) if(!strcmp(tbl,TB[i].name)) ti=i;
+    /* An unknown name used to fall back to table 0 and render it without
+     * comment, which hands back a plausible picture of the WRONG table — the
+     * one thing a tool for looking at geometry must never do. */
+    int ti=-1; for(int i=0;i<NT;i++) if(!strcmp(tbl,TB[i].name)) ti=i;
+    if (ti < 0) {
+        fprintf(stderr, "unknown --table \"%s\". known:", tbl);
+        for(int i=0;i<NT;i++) fprintf(stderr, " %s", TB[i].name);
+        fprintf(stderr, "\n");
+        return 2;
+    }
     int mid = (ty[0]=='m');
     /* anything not given falls back to what the game ships */
     {   CueTable t0; cue_table_init(&t0, TB[ti].k);
@@ -343,6 +393,23 @@ int main(int argc, char **argv) {
         float dst = have_cam ? cdst : (!strcmp(vw,"in") ? T.R*9.0f : T.R*12.0f);
         cam_look(v3(W.pocket[p].x, T.R*0.35f, W.pocket[p].z), yaw, pit, dst, 55.0f);
     }
+    /* THE WHOLE TABLE, rather than one pocket. Same camera, framed on the
+     * cloth's centre and far enough back to hold the long rail — so a change to
+     * the bed can be looked at as a table instead of inferred from a corner. */
+    if (whole) {
+        ox = oz = 0.0f;
+        spm = IW / (T.half_len * 2.35f);
+        if (strcmp(vw, "top")) {
+            /* Per-parameter defaults, NOT all-or-nothing. have_cam is set by any
+             * one of --yaw/--pitch/--dist, so gating the distance on it puts the
+             * camera at the origin — inside the table, looking at nothing —
+             * whenever an angle is given without one. */
+            float yaw = have_cam ? cyaw : 208.0f;
+            float pit = have_cam ? cpit : 30.0f;
+            float dst = (cdst > 0.0f) ? cdst : T.half_len * 2.1f;
+            cam_look(v3(0.0f, 0.0f, 0.0f), yaw, pit, dst, 55.0f);
+        }
+    }
     /* MAGENTA in the oblique views, everywhere the table is not: a hole in the
      * mesh is the whole point of them, and a dark hole in a dark corner is
      * invisible. The view from above keeps its dark ground — it is read against
@@ -377,6 +444,12 @@ int main(int argc, char **argv) {
         for (int i=0;i<2;i++) draw_tri(&fl[i]);
     }
     for(int t=t_lo;t<t_hi;t++) draw_tri(&tri[t]);
+    /* ...and the balls on top of it, if asked. */
+    if (rack) {
+        CueBall bl[CUE_MAX_BALLS];
+        int nb = cue_table_rack(&T, bl);
+        for (int i = 0; i < nb; i++) draw_ball(&bl[i], T.R);
+    }
     Vec3 pc=W.drop_c[p], cc=W.cut_c[p], n=W.pmnorm[p];
     if (!s_persp) {
     circ_m(cc.x,cc.z,W.cut_r[p],            80,200,255,0,0);
