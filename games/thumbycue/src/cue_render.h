@@ -91,6 +91,10 @@ void cue_render_set_cue_tip(float side, float vert, float elev);
 void cue_render_onball_icon(uint16_t *fb, int cx, int cy, int rad, int target, int seq);
 /* Ball set: 0 PRO, 1 UK yellow/blue, 2 UK yellow/red, 3 dyna, 4 pro-tournament. */
 void cue_render_set_ball_set(int s);
+/* The authored sets, as data — so a picker can list them without keeping a
+ * second copy of the names, and so a designer can start from one. */
+int         cue_render_ballset_count(void);
+const char *cue_render_ballset_name(int i);
 /* The white's measles spots — the only readout of what it is doing. */
 void cue_render_set_cue_spots(int on);
 

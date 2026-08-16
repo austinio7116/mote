@@ -1211,35 +1211,65 @@ static const uint16_t k_vintagehue[8] = {
     0, RGB565C(184,135,0),  RGB565C(0,0,205),   RGB565C(255,0,0),
     RGB565C(75,0,130),      RGB565C(255,115,0), RGB565C(0,100,0),
     RGB565C(128,0,0) };
-/* per-set "pole"/stripe-background colour for striped balls 9..15. */
 #define BALL_GREY  RGB565C(148,143,143)   /* SPACE poles */
 #define BALL_CREAM RGB565C(255,233,153)   /* VINTAGE poles */
 #define BALL_PINK  RGB565C(255,0,221)     /* HOT PINK group2 */
 #define BALL_INK   RGB565C(19,16,16)      /* HOT PINK group1 */
-static uint16_t stripe_bg(void) {
-    switch (s_ball_set) {
-        case 4: return BALL_BLACK;   /* pro tournament — black poles */
-        case 6: return BALL_GREY;    /* space */
-        case 7: return BALL_CREAM;   /* vintage */
-        default: return BALL_WHITE;  /* PRO / dyna */
-    }
+
+/* ---- A BALL SET, AS DATA -------------------------------------------------
+ *
+ * These eight were seven separate switch statements on s_ball_set, in five
+ * different functions: the pole colour, whether the set is striped, whether it
+ * is numbered, the per-number hue, the body colour, the spoke count and the
+ * band width. Adding a ninth set meant finding all seven, and a set that nobody
+ * happened to look at could quietly disagree with itself -- carry a stripe and
+ * no number, or a number circle with the wrong spokes.
+ *
+ * One row per set instead. The colour fields use ZERO to mean "take it from the
+ * palette", which is safe because no authored ball colour is pure black: the
+ * blackest thing here is BALL_BLACK at (20,20,22).
+ *
+ *   hue    per-number palette for ids 1..7; stripes reuse their +8 solid's hue
+ *   lo/hi  a flat body colour for low/high balls, where the set has one
+ *          instead of a per-number palette (the UK and hot-pink sets)
+ *   pole   what a striped ball's body is, behind the band
+ *   eight  the black -- its own field because one set makes it grey
+ *   band   a flat stripe colour, where the stripe is not the ball's own hue
+ *   half   the band's half-width as a fraction of the ball */
+typedef struct {
+    const char *name;
+    const uint16_t *hue;
+    uint16_t lo, hi, pole, eight, band;
+    unsigned char striped, numbered, spokes;
+    float half;
+} CueBallSet;
+
+static const CueBallSet k_ballsets[8] = {
+  /* 0 */ { "PRO",        k_prohue,     0, 0, BALL_WHITE, BALL_BLACK, 0,
+            1, 1, 0, 0.42f },
+  /* 1 */ { "UK YELLOW/BLUE", k_prohue, BALL_YELLOW, BALL_BLUE, 0, BALL_BLACK, 0,
+            0, 0, 0, 0.42f },
+  /* 2 */ { "UK YELLOW/RED",  k_prohue, BALL_YELLOW, BALL_RED,  0, BALL_BLACK, 0,
+            0, 0, 0, 0.42f },
+  /* 3 */ { "PRO LEAGUE", k_prohue,     BALL_GOLD, 0, BALL_WHITE, BALL_BLACK,
+            BALL_MAROON, 1, 1, 3, 0.42f },
+  /* 4 */ { "PRO TOUR",   k_ptourhue,   0, 0, BALL_BLACK, BALL_BLACK, 0,
+            1, 1, 2, 0.55f },
+  /* 5 */ { "HOT PINK",   k_prohue,     BALL_INK, BALL_PINK, 0,
+            RGB565C(158,158,158), 0, 0, 0, 0, 0.42f },
+  /* 6 */ { "SPACE",      k_spacehue,   0, 0, BALL_GREY,  BALL_BLACK, 0,
+            1, 1, 0, 0.42f },
+  /* 7 */ { "VINTAGE",    k_vintagehue, 0, 0, BALL_CREAM, BALL_BLACK, 0,
+            1, 1, 0, 0.42f },
+};
+
+static const CueBallSet *bset(void) {
+    int i = (s_ball_set < 0 || s_ball_set > 7) ? 0 : s_ball_set;
+    return &k_ballsets[i];
 }
-/* striped, numbered sets: 0 PRO, 3 dyna, 4 pro-tour, 6 space, 7 vintage. */
-static int set_striped(void) {
-    return s_ball_set==0||s_ball_set==3||s_ball_set==4||s_ball_set==6||s_ball_set==7;
-}
-/* numbered sets (show the number circle / digit). */
-static int set_numbered(void) {
-    return s_ball_set==0||s_ball_set==3||s_ball_set==4||s_ball_set==6||s_ball_set==7;
-}
-/* hue for the current set's ball id 1..7 (used by solids and stripes). */
-static uint16_t set_hue(uint8_t i) {
-    switch (s_ball_set) {
-        case 4: return k_ptourhue[i];
-        case 6: return k_spacehue[i];
-        case 7: return k_vintagehue[i];
-        default: return k_prohue[i];
-    }
+int         cue_render_ballset_count(void) { return 8; }
+const char *cue_render_ballset_name(int i) {
+    return (i >= 0 && i < 8) ? k_ballsets[i].name : "";
 }
 
 /* ---- ball texture ------------------------------------------------------ */
@@ -1254,15 +1284,10 @@ static uint16_t ball_base(uint8_t id) {
         case CUE_ID_BLACK:  return RGB565C(20, 20, 22);
     }
     if (s_is_snooker) return RGB565C(190, 30, 30);          /* reds 1..15 */
-    if (id == 8) return (s_ball_set == 5) ? RGB565C(158,158,158) : BALL_BLACK;
-    switch (s_ball_set) {
-        case 1: return (id <= 7) ? BALL_YELLOW : BALL_BLUE;    /* UK yellow/blue */
-        case 2: return (id <= 7) ? BALL_YELLOW : BALL_RED;     /* UK yellow/red  */
-        case 5: return (id <= 7) ? BALL_INK    : BALL_PINK;    /* hot pink: ink solids / pink */
-        case 3: return (id <= 7) ? BALL_GOLD   : stripe_bg();  /* pro league: gold / maroon-on-white */
-        default:                                               /* PRO / tour / space / vintage */
-            return (id <= 7) ? set_hue(id) : stripe_bg();      /* per-num solids / striped poles */
-    }
+    const CueBallSet *bs = bset();
+    if (id == 8) return bs->eight;
+    if (id <= 7) return bs->lo ? bs->lo : bs->hue[id];      /* flat lows, or per-number */
+    return bs->hi ? bs->hi : bs->pole;                      /* flat highs, or the band's ground */
 }
 /* 3x5 digit glyphs, packed top row first, 3 bits/row (MSB = left column). */
 static const uint16_t k_digit3x5[10] = {
@@ -1290,7 +1315,7 @@ static uint16_t number_patch(uint8_t id, Vec3 nb, uint16_t base, int us) {
     const uint16_t INK = RGB565C(15, 15, 18);
     /* dynasphere-style number circle: black ring + N spoke radii.
      * set 3 (pro league) = 3 spokes; set 4 (pro tournament) = 2 spokes. */
-    int nspoke = (s_ball_set == 3) ? 3 : (s_ball_set == 4) ? 2 : 0;
+    int nspoke = bset()->spokes;
     if (nspoke) {
         if (r2 > 0.78f) return INK;        /* outer black ring */
         if (r2 > 0.30f) {                  /* spoke radii, evenly spaced */
@@ -1346,15 +1371,13 @@ static uint16_t ball_sample(uint8_t id, Vec3 nb, uint16_t base) {
         return base;
     }
     if (s_is_snooker) return base;              /* snooker balls are unmarked */
-    int us = set_numbered();
+    const CueBallSet *bs = bset();
+    int us = bs->numbered;
     if (id >= 9 && id <= 15) {
-        float half = (s_ball_set == 4) ? 0.55f : 0.42f;   /* pro-tour wider band */
-        if (set_striped() && fabsf(nb.y) < half) {
+        if (bs->striped && fabsf(nb.y) < bs->half) {
             /* don't paint the stripe over the number circle */
-            if (!(us && nb.x > 0.90f)) {
-                if (s_ball_set == 3) return BALL_MAROON;
-                return set_hue(id - 8);            /* PRO / pro-tour: per-number band */
-            }
+            if (!(us && nb.x > 0.90f))
+                return bs->band ? bs->band : bs->hue[id - 8];
         }
         return number_patch(id, nb, base, us);  /* UK: solid body, no stripe */
     }
