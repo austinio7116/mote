@@ -457,7 +457,14 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * bench against the 9 ft American's corner, which is the mitred pocket
          * this one is a small copy of. */
         t->bore_set_corner = 0.85f * t->R;
-        t->bore_set_side   = 0.55f * t->R;
+        /* THE MIDDLE SITS FURTHER BACK IN THE TIMBER than the corner does. The
+         * setback runs toward the CLOTH, and at 0.55 R the middle's hole hung
+         * out over the bed with the cushion line running across it, so the
+         * pocket read as a hole cut in the cloth rather than an opening in the
+         * rail. A Russian middle is a narrow slot between two nearly parallel
+         * cushion ends with the drop behind it, and that is what it looks like
+         * once the bore is pulled back level with the timber. */
+        t->bore_set_side   = 0.30f * t->R;
         break;
     case CUE_GAME_SNK15:
         /* The two snooker tables share every other pocket number and NOT these:
