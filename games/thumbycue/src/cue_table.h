@@ -170,6 +170,20 @@ typedef struct {
 
     /* Snooker layout (ignored for pool). */
     float baulk_x, d_radius, blue_x, pink_x, black_x;
+    /* WHAT SHAPE THE REGION BEHIND THE BAULK LINE IS.
+     *
+     * 0: a D — the half-disc of radius d_radius that snooker and UK 8-ball
+     *    play from, and the shape everything here assumed there was only one
+     *    of. 1: a HOUSE — Russian pyramid's дом, which is the WHOLE width of
+     *    the table behind the line and not an arc at all.
+     *
+     * Pyramid arrived carrying its house in baulk_x + d_radius on the grounds
+     * that a house is a D as far as a clamp is concerned. It is not: it left a
+     * semicircle chalked on a Russian table and confined the cue ball to it,
+     * which is a third of the area the rules give you. d_radius still means
+     * something under a house — it is where yellow and green would sit, and it
+     * is the only sensible width for the AI to spread its break-off over. */
+    int house;
     uint16_t cloth, rail, rail_top, spot;
     int nballs;
 } CueTable;

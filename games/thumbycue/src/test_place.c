@@ -113,6 +113,68 @@ int main(void) {
            "a legal spot on an empty D is left exactly alone", d);
     }
 
+    /* ---- THE HOUSE IS NOT A D ------------------------------------------
+     *
+     * Russian pyramid plays from the дом: everything behind the line, the
+     * whole width of the table. It arrived carrying that as a D of radius
+     * d_radius on the grounds that a house is a D as far as a clamp is
+     * concerned — which confined the cue ball to a semicircle a third of the
+     * area, and chalked one on the cloth to match. */
+    for (int k = 0; k < 2; k++) {
+        CueTable h;
+        cue_table_init(&h, k ? CUE_GAME_PYRAMID7 : CUE_GAME_PYRAMID);
+        CueBall none[1]; memset(none, 0, sizeof none);
+        const char *who = k ? "pyramid 7ft" : "pyramid 12ft";
+        char d[128];
+
+        ok(h.house, "the pyramid table says it has a house", who);
+
+        /* Hard against the side cushion, right on the baulk line: inside a
+         * house, a long way outside any D. */
+        {   Vec3 want = { h.baulk_x - 0.01f, h.R, h.half_wid - h.R };
+            Vec3 got = cue_table_clamp_placement_balls(&h, want, none, 1, 0);
+            snprintf(d, sizeof d, "%s: (%.3f,%.3f) -> (%.3f,%.3f)", who,
+                     (double)want.x, (double)want.z, (double)got.x, (double)got.z);
+            ok(fabsf(got.x - want.x) < 1e-3f && fabsf(got.z - want.z) < 1e-3f,
+               "against the cushion behind the line is left alone", d); }
+
+        /* ...and the corner of the house, hard back on the baulk cushion. */
+        {   Vec3 want = { -h.half_len + h.R, h.R, -(h.half_wid - h.R) };
+            Vec3 got = cue_table_clamp_placement_balls(&h, want, none, 1, 0);
+            snprintf(d, sizeof d, "%s: (%.3f,%.3f) -> (%.3f,%.3f)", who,
+                     (double)want.x, (double)want.z, (double)got.x, (double)got.z);
+            ok(fabsf(got.x - want.x) < 1e-3f && fabsf(got.z - want.z) < 1e-3f,
+               "the back corner of the house is left alone", d); }
+
+        /* Past the line is still past the line. */
+        {   Vec3 want = { h.baulk_x + 0.30f, h.R, 0.0f };
+            Vec3 got = cue_table_clamp_placement_balls(&h, want, none, 1, 0);
+            snprintf(d, sizeof d, "%s: x %.3f -> %.3f (line %.3f)", who,
+                     (double)want.x, (double)got.x, (double)h.baulk_x);
+            ok(got.x <= h.baulk_x + 1e-3f,
+               "up the table is brought back behind the line", d); }
+
+        /* ...and so is through a cushion. */
+        {   Vec3 want = { h.baulk_x - 0.05f, h.R, h.half_wid + 0.30f };
+            Vec3 got = cue_table_clamp_placement_balls(&h, want, none, 1, 0);
+            snprintf(d, sizeof d, "%s: z %.3f -> %.3f (half %.3f)", who,
+                     (double)want.z, (double)got.z, (double)h.half_wid);
+            ok(got.z <= h.half_wid - h.R + 1e-3f,
+               "through the side cushion is brought back onto the cloth", d); }
+    }
+
+    /* And a snooker table still has a D, which is the whole point of the
+     * flag: the shape is a property of the table, not of the clamp. */
+    {   CueTable sn; cue_table_init(&sn, CUE_GAME_SNK15);
+        CueBall none[1]; memset(none, 0, sizeof none);
+        ok(!sn.house, "snooker has no house", "");
+        Vec3 want = { sn.baulk_x - 0.01f, sn.R, sn.half_wid - sn.R };
+        Vec3 got = cue_table_clamp_placement_balls(&sn, want, none, 1, 0);
+        char d[96];
+        snprintf(d, sizeof d, "z %.3f -> %.3f (D radius %.3f)",
+                 (double)want.z, (double)got.z, (double)sn.d_radius);
+        ok(in_the_d(&sn, got), "against the cushion is pulled into the D", d); }
+
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);
     return s_fail ? 1 : 0;
 }

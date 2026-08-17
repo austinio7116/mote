@@ -826,9 +826,10 @@ static void emit_table_markings(const CueTable *t) {
     uint16_t sc = RGB565C(220, 220, 205);        /* spot — off-white */
     float hw = t->half_wid, hl = t->half_len, R = t->R;
     float lw = R * 0.22f, sr = R * 0.42f;
-    if (t->is_snooker || t->kind == CUE_GAME_UK8) {
+    if (t->is_snooker || t->kind == CUE_GAME_UK8 || t->house) {
         float bx = t->baulk_x, dr = t->d_radius;
         lay_line(t, bx, hw - R*0.5f, lw, lc);                       /* baulk line */
+        if (t->house) goto no_arc;   /* a house is the line and nothing else */
         /* The D, swept in the baulk line's own frame: a half-circle of points
          * on the baulk side. Drawn as a fan of short chords rather than by
          * cloth_arc, because on an L the frame is rotated and cloth_arc only
@@ -843,6 +844,7 @@ static void emit_table_markings(const CueTable *t) {
                 cloth_line(prev.x, prev.z, q.x, q.z, lw, lc);
                 prev = q;
             } }
+    no_arc: ;
     }
     if (t->is_snooker) {
         lay_spot(t, t->baulk_x,  t->d_radius, sr, sc);   /* yellow */

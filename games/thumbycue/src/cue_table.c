@@ -336,6 +336,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * concerned — a region behind a line that the cue ball starts in. */
         t->baulk_x  = -t->half_len + (home ? 0.407f : 0.730f);
         t->d_radius =  home ? 0.162f : 0.290f;
+        t->house    = 1;                      /* the whole width behind it */
         t->cloth = RGB565C(20, 105, 60);
         t->rail = RGB565C(70, 42, 24); t->rail_top = RGB565C(100, 60, 32);
         t->spot = RGB565C(200, 200, 200);
@@ -556,6 +557,7 @@ static const CueTabField TAB_FIELDS[] = {
     /* Snooker layout. Ignored for pool, but still part of the table. */
     TF(baulk_x,         TF_F32, TF_SIM, -2.00f, 2.00f),
     TF(d_radius,        TF_F32, TF_SIM,  0.000f, 0.600f),
+    TF(house,           TF_I32, TF_SIM,  0,      1),
     TF(blue_x,          TF_F32, TF_SIM, -2.00f, 2.00f),
     TF(pink_x,          TF_F32, TF_SIM, -2.00f, 2.00f),
     TF(black_x,         TF_F32, TF_SIM, -2.00f, 2.00f),
@@ -2026,12 +2028,22 @@ static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) 
          * expressed in world x and z would be sideways on. */
         Vec3 up; Vec3 c = cue_table_lay(t, t->baulk_x, 0.0f, &up);
         Vec3 side = v3(-up.z, 0.0f, up.x);
-        float rmax = t->d_radius;
         float along = (p.x - c.x) * up.x + (p.z - c.z) * up.z;
         float off   = (p.x - c.x) * side.x + (p.z - c.z) * side.z;
         if (along > 0.0f) along = 0.0f;                /* not past the baulk line */
-        float d = sqrtf(along*along + off*off);
-        if (d > rmax && d > 1e-6f) { float k = rmax / d; along *= k; off *= k; }
+        if (t->house) {
+            /* THE HOUSE IS THE WHOLE WIDTH. Across, only the cushions stop it;
+             * back, only the baulk cushion. No arc, so no radius. */
+            float lim = t->half_wid - R;
+            if (off >  lim) off =  lim;
+            if (off < -lim) off = -lim;
+            float back = -(t->baulk_x + t->half_len) + R;
+            if (along < back) along = back;
+        } else {
+            float rmax = t->d_radius;
+            float d = sqrtf(along*along + off*off);
+            if (d > rmax && d > 1e-6f) { float k = rmax / d; along *= k; off *= k; }
+        }
         p.x = c.x + up.x * along + side.x * off;
         p.z = c.z + up.z * along + side.z * off;
         return p;

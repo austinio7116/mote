@@ -837,8 +837,11 @@ static void resolve_pyramid(CueRules *r, CueBall *b, int n, int first_hit,
     r->cfoul[me]++;
     r->turn = you;
     /* Ball in hand from the house, which is where a pyramid foul puts it —
-     * behind the line, not anywhere on the table. clamp_region already treats
-     * baulk_x + d_radius as a D, and a house is a D as far as it is concerned. */
+     * behind the line, not anywhere on the table. clamp_region knows the house
+     * from the D: the table carries `house`, and the region behind the line is
+     * the WHOLE width rather than an arc of d_radius. It did treat the two as
+     * the same thing, which chalked a snooker D on a Russian table and then
+     * confined the ball to a third of the area the rules give it. */
     r->ball_in_hand = 1;
     snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
 }
