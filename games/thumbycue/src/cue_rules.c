@@ -39,7 +39,11 @@ static int colour_id_for_value(int v) {
 
 void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
     memset(r, 0, sizeof(*r));
-    r->kind = t->is_snooker;
+    /* THE TABLE IS A SNOOKER TABLE; THE GAME MIGHT NOT BE. `kind` here means
+     * "score this as snooker", and English billiards is played on the same bed
+     * with the same balls and is not snooker by any reading — three balls, no
+     * colours to nominate, and scoring by cannons and in-offs. */
+    r->kind = t->is_snooker && t->kind != CUE_GAME_BILLIARDS;
     r->mode = t->kind;
     r->R = t->R;
     r->cpu = cpu;
@@ -50,7 +54,23 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
     r->uk_intl = 0;
     r->baulk_x = t->baulk_x; r->d_radius = t->d_radius;
     r->best_of = 1;
-    if (r->kind) {
+    if (t->kind == CUE_GAME_BILLIARDS) {
+        /* The four marks of the standard table, in the same slots snooker uses
+         * for its colours, so a host that already asks r->spot[] for a place to
+         * put a ball needs no second table. Only three of them are used. */
+        #define BSPOT(i_, x_) do { Vec3 q_ = cue_table_lay(t, (x_), 0.0f, NULL); \
+                                   q_.y = t->R; r->spot[i_] = q_; } while (0)
+        BSPOT(CUE_BIL_SPOT_SPOT,    t->black_x);   /* the Spot */
+        BSPOT(CUE_BIL_SPOT_CENTRE,  t->blue_x);    /* the Centre Spot */
+        BSPOT(CUE_BIL_SPOT_PYRAMID, t->pink_x);    /* the Pyramid Spot */
+        #undef BSPOT
+        { Vec3 up; cue_table_lay(t, t->black_x, 0.0f, &up); r->spot_up = up; }
+        /* Rule 5(d): a game is to an agreed number of points. 100 is a short
+         * one and a VR frame wants to end inside a session; the tournament
+         * numbers are hundreds more and cue_rules_set_target sets them. */
+        r->target_score = 100;
+        r->ball_in_hand = 1;      /* Rule 2(b): the first player is in hand */
+    } else if (r->kind) {
         r->target = 0; r->reds_left = t->reds ? t->reds : 15;
         /* colour spots by value 2..7 */
         /* SWAPPED. Standing behind the D looking up the table, the order
@@ -846,6 +866,231 @@ static void resolve_pyramid(CueRules *r, CueBall *b, int n, int first_hit,
     snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
 }
 
+/* ---- G5: ENGLISH BILLIARDS ----------------------------------------------
+ *
+ * Three balls, two of them cue balls, and the whole game is in Section 3 Rules
+ * 4, 8, 9, 10, 14 and 15 of the WPBSA book. Scoring:
+ *
+ *   cannon (the cue ball contacts BOTH object balls)          2
+ *   pot the object white / in-off the object white            2
+ *   pot the red / in-off the red                              3
+ *
+ * and Rule 4(c): if more than one hazard, or a combination of hazards and a
+ * cannon, are made in the same stroke, ALL are scored. Rule 4(d) prices the
+ * in-off by which ball was struck FIRST, not by which one it went in off — so
+ * an in-off combined with a cannon is three if the red was contacted first and
+ * two if the white was.
+ *
+ * This is the first game here that cannot be scored from `first_hit`. A cannon
+ * is a question about the whole stroke, and the answer is in the cue ball's
+ * own account of what it touched (CueWorld.touch), which exists for exactly
+ * this and has said so in its comment since it was written.
+ *
+ * The break continues while the striker scores; it ends on a stroke that
+ * scores nothing, and a foul both ends it and gives the opponent two.
+ */
+static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                              int first_hit, int scratch, const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    r->break_shot = 0;
+    r->bil_respot_red = CUE_BIL_SPOT_NONE;
+    r->bil_respot_white = 0;
+
+    /* WHAT THE CUE BALL TOUCHED, and in what order. Only the two object balls
+     * matter; a cushion between them changes nothing in billiards (it is
+     * three-cushion that cares, and that is not this game). */
+    int hit_red = 0, hit_white = 0, first = 0;   /* first: the id struck first */
+    if (w) {
+        for (int i = 0; i < w->ntouch; i++) {
+            if (w->touch[i].what != CUE_TOUCH_BALL) continue;
+            int id = w->touch[i].id;
+            if (id == CUE_ID_BIL_RED) { if (!first) first = id; hit_red = 1; }
+            else                      { if (!first) first = id; hit_white = 1; }
+        }
+    }
+    /* A world that kept no account still has first_hit, which is enough for
+     * everything but the cannon — better a game that scores the hazards than
+     * one that refuses to run. */
+    if (!first && first_hit >= 0) {
+        first = first_hit;
+        if (first_hit == CUE_ID_BIL_RED) hit_red = 1; else hit_white = 1;
+    }
+
+    int pot_red = 0, pot_white = 0;
+    for (int k = 0; k < np; k++) {
+        if (potted[k] == CUE_ID_BIL_RED) pot_red = 1;
+        else if (potted[k] != CUE_ID_CUE) pot_white = 1;
+    }
+    /* The cue ball is index 0 whatever colour it is wearing, so an in-off is
+     * `scratch` — but only a scratch AFTER a contact is an in-off. Section 2
+     * Definition 17: the striker in hand who pockets his cue ball having hit
+     * nothing is running a coup, and that is a foul (Rule 14(r)). */
+    const int in_off = scratch && first;
+    const int cannon = hit_red && hit_white;
+
+    /* ---- the fouls ---- */
+    int foul = 0; const char *why = "";
+    if (!first)                       { foul = 1; why = scratch ? "COUP" : "MISS"; }
+    else if (scratch && !first)       { foul = 1; why = "COUP"; }
+    if (r->n_off)                     { foul = 1; why = "OFF THE TABLE"; }
+    /* Rules 9 and 10, checked on the stroke that would exceed them. A cannon
+     * counts toward the cannon limit only when the stroke has no hazard in it,
+     * and a hazard toward the hazard limit only with no cannon — which is what
+     * "not in conjunction with" means, and why each resets the other. */
+    const int hazard = (pot_red || pot_white || in_off);
+    if (!foul) {
+        if (cannon && !hazard && r->bil_cannons + 1 > CUE_BIL_MAX_CANNONS)
+            { foul = 1; why = "75 CANNONS"; }
+        if (hazard && !cannon && r->bil_hazards + 1 > CUE_BIL_MAX_HAZARDS)
+            { foul = 1; why = "15 HAZARDS"; }
+    }
+    r->last_foul = foul;
+
+    if (foul) {
+        /* Rule 15(b): points already made in the break stand, but the stroke
+         * called foul scores nothing. (c): two to the opponent, and never more
+         * than two however many ways the stroke was foul. */
+        r->score[you] += CUE_BIL_FOUL;
+        r->last_foul_pts = CUE_BIL_FOUL;
+        r->cfoul[me]++;
+        r->brk = 0;
+        r->bil_cannons = r->bil_hazards = r->bil_spot_pots = 0;
+        /* The red always comes back; the white waits for its owner. */
+        if (pot_red) r->bil_respot_red = CUE_BIL_SPOT_SPOT;
+        r->turn = you;
+        r->bil_yellow = !r->bil_yellow;
+        if (scratch) r->ball_in_hand = 1;
+        snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        return;
+    }
+
+    /* ---- the score ---- */
+    int pts = 0;
+    if (cannon)    pts += CUE_BIL_CANNON;
+    if (pot_red)   pts += CUE_BIL_RED;
+    if (pot_white) pts += CUE_BIL_WHITE;
+    /* Rule 4(d): the in-off is priced by the ball struck FIRST. */
+    if (in_off)    pts += (first == CUE_ID_BIL_RED) ? CUE_BIL_RED : CUE_BIL_WHITE;
+
+    if (pts == 0) {
+        /* A legal stroke that scored nothing. The turn passes and the table is
+         * played as it lies. */
+        r->brk = 0;
+        r->bil_cannons = r->bil_hazards = r->bil_spot_pots = 0;
+        r->turn = you;
+        r->bil_yellow = !r->bil_yellow;
+        r->msg[0] = 0;
+        return;
+    }
+
+    r->score[me] += pts;
+    r->brk += pts;
+
+    /* The two sequences, each counted only while the other kind is absent. */
+    if (cannon && !hazard) r->bil_cannons++; else r->bil_cannons = 0;
+    if (hazard && !cannon) r->bil_hazards++; else r->bil_hazards = 0;
+
+    /* Rule 8(b) and (c): the red goes back on the Spot twice and the Centre
+     * Spot once, in sequence, for CONTINUED pots of the red not in conjunction
+     * with another score. Anything else in the stroke resets the count. */
+    if (pot_red) {
+        int alone = !cannon && !pot_white && !in_off;
+        if (alone) {
+            r->bil_spot_pots++;
+            r->bil_respot_red = (r->bil_spot_pots >= 3) ? CUE_BIL_SPOT_CENTRE
+                                                        : CUE_BIL_SPOT_SPOT;
+            if (r->bil_spot_pots >= 3) r->bil_spot_pots = 0;
+        } else {
+            r->bil_spot_pots = 0;
+            r->bil_respot_red = CUE_BIL_SPOT_SPOT;
+        }
+    }
+    /* An in-off leaves the striker in hand, and he plays on. Rule 3: the break
+     * continues "from the position left or, after an in-off, from in-hand". */
+    if (in_off) r->ball_in_hand = 1;
+
+    if (r->target_score > 0 && r->score[me] >= r->target_score) {
+        r->frame_over = 1; r->winner = me; book_frame(r, me);
+        snprintf(r->msg, sizeof r->msg, "GAME");
+        return;
+    }
+    snprintf(r->msg, sizeof r->msg, "%d", pts);
+    (void)b; (void)n;
+}
+
+/* Rule 8(a): the Spot, then the Pyramid Spot, then the Centre Spot. Rule
+ * 8(b): where the sequence sends it to the Centre Spot, the fallbacks are the
+ * Pyramid Spot and then the Spot. Two orders, and which one applies depends on
+ * which mark was asked for — so the order is written out rather than derived. */
+int cue_rules_billiards_respot(CueRules *r, const struct CueTable *t,
+                               CueBall *b, int n)
+{
+    if (!r || !t || !b) return 0;
+    const int want = r->bil_respot_red;
+    r->bil_respot_red = CUE_BIL_SPOT_NONE;
+    if (want == CUE_BIL_SPOT_NONE) return 0;
+
+    /* Which ball is the red, and is it actually off? */
+    int idx = -1;
+    for (int i = 0; i < n; i++) if (b[i].id == CUE_ID_BIL_RED) { idx = i; break; }
+    if (idx < 0 || b[idx].on) return 0;
+
+    static const int from_spot[3]   = { CUE_BIL_SPOT_SPOT, CUE_BIL_SPOT_PYRAMID,
+                                        CUE_BIL_SPOT_CENTRE };
+    static const int from_centre[3] = { CUE_BIL_SPOT_CENTRE, CUE_BIL_SPOT_PYRAMID,
+                                        CUE_BIL_SPOT_SPOT };
+    const int *order = (want == CUE_BIL_SPOT_CENTRE) ? from_centre : from_spot;
+
+    const float R = r->R > 0.0f ? r->R : 0.02625f;
+    for (int k = 0; k < 3; k++) {
+        Vec3 p = r->spot[order[k]];
+        p.y = R;
+        int clash = 0;
+        for (int j = 0; j < n && !clash; j++) {
+            if (j == idx || !b[j].on) continue;
+            float dx = b[j].pos.x - p.x, dz = b[j].pos.z - p.z;
+            /* Section 2 Definition 19: occupied means a ball cannot be placed
+             * there without touching another. */
+            if (dx*dx + dz*dz < (2.0f*R)*(2.0f*R) * 0.999f) clash = 1;
+        }
+        if (clash) continue;
+        b[idx].pos = p; b[idx].vel = v3(0,0,0); b[idx].w = v3(0,0,0);
+        b[idx].on = 1; b[idx].pocket = 0; b[idx].drop = 0.0f;
+        return 1;
+    }
+    /* All three occupied. Walk up the table from the Spot, as every other
+     * spotted ball in this engine does when its mark is taken. */
+    {   Vec3 up = r->spot_up;
+        if (up.x == 0.0f && up.z == 0.0f) up = v3(1,0,0);
+        Vec3 base = r->spot[CUE_BIL_SPOT_SPOT];
+        for (int step = 1; step < 60; step++) {
+            Vec3 p = v3(base.x + up.x * (float)step * 2.05f * R, R,
+                        base.z + up.z * (float)step * 2.05f * R);
+            if (!cue_table_on_bed(t, p.x, p.z)) continue;
+            int clash = 0;
+            for (int j = 0; j < n && !clash; j++) {
+                if (j == idx || !b[j].on) continue;
+                float dx = b[j].pos.x - p.x, dz = b[j].pos.z - p.z;
+                if (dx*dx + dz*dz < (2.0f*R)*(2.0f*R) * 0.98f) clash = 1;
+            }
+            if (clash) continue;
+            b[idx].pos = p; b[idx].vel = v3(0,0,0); b[idx].w = v3(0,0,0);
+            b[idx].on = 1; b[idx].pocket = 0; b[idx].drop = 0.0f;
+            return 1;
+        } }
+    return 0;
+}
+
+void cue_rules_billiards_swap(CueBall *b, int n) {
+    if (!b || n < 3) return;
+    int other = -1;
+    for (int i = 1; i < n; i++)
+        if (b[i].id == CUE_ID_BIL_WHITE || b[i].id == CUE_ID_BIL_YELLOW) { other = i; break; }
+    if (other < 0) return;
+    CueBall tmp = b[0]; b[0] = b[other]; b[other] = tmp;
+}
+
 static void resolve_straight(CueRules *r, CueBall *b, int n, int first_hit,
                              int scratch, int cushion, const int *potted, int np) {
     const int was_break = r->break_shot;
@@ -986,7 +1231,6 @@ void cue_rules_set_target(CueRules *r, int points) {
 void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
                        int first_hit, int scratch, int cushion,
                        const int *potted, int np) {
-    (void)w;
     r->ball_in_hand = 0;
     r->last_foul = 0;
     r->last_miss = 0;
@@ -996,6 +1240,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (r->mode == CUE_GAME_US9)       resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
+    else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else                                    resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);
     /* The host's observations are about the shot just resolved and nothing
      * else. Left set they would foul the NEXT one too. */
@@ -1047,6 +1292,9 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
      * is to SAY which one, not to choose from a list — see cue_rules_call_shot. */
     if (r->mode == CUE_GAME_STRAIGHT) return id >= 1 && id <= 15;
     /* Pyramid: every one of the fifteen is on, always. */
+    /* Billiards has no ball ON: Rule 16 makes it a miss only if the cue ball
+     * fails to contact EITHER object ball, so both are legal to strike. */
+    if (r->mode == CUE_GAME_BILLIARDS) return id != CUE_ID_CUE;
     if (CUE_GAME_IS_PYRAMID(r->mode))  return id >= 1 && id <= 15;
     if (r->open) return id != 8;                 /* open table: anything but the 8 */
     /* the 8 is legal ONLY once your own group is fully cleared */
@@ -1075,6 +1323,11 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
                      r->target_score, r->nominated);
         else
             snprintf(buf, cap, "%d/%d  SAFETY", r->score[r->turn], r->target_score);
+    } else if (r->mode == CUE_GAME_BILLIARDS) {
+        /* Points, a target, and which ball the striker is on — the last of
+         * which is half of knowing whose turn it is at a billiards table. */
+        snprintf(buf, cap, "%d - %d   (%d)   %s", r->score[0], r->score[1],
+                 r->target_score, r->bil_yellow ? "YELLOW" : "WHITE");
     } else if (CUE_GAME_IS_PYRAMID(r->mode)) {
         /* Balls, not points, and eight of them takes it. */
         snprintf(buf, cap, "%d - %d   (8 WINS)", r->score[0], r->score[1]);

@@ -224,6 +224,7 @@ static const struct { int kind; const char *name;
     { CUE_GAME_STRAIGHT, "straight pool",   -1, -1, 0 },
     { CUE_GAME_PYRAMID,  "pyramid 12ft",   5.0f, 14.5f, 1.0f },
     { CUE_GAME_PYRAMID7, "pyramid 7ft",    5.0f, 14.5f, 1.0f },
+    { CUE_GAME_BILLIARDS,"English billiards",-1, -1, 0 },
 };
 
 /* A ball has to fit through with SOME room or the pocket is decorative. Three

@@ -117,6 +117,37 @@ typedef struct {
      * the wire. 0 is CLASSIC, the game shipped first. */
     int respot;          /* put this many of the striker's potted balls back */
     int pyr_free;        /* CUE_PYR_* — see below */
+
+    /* ---- G5: ENGLISH BILLIARDS ------------------------------------------ *
+     *
+     * Scored in points and played with three balls, two of which are cue
+     * balls. Index 0 of the ball array is whichever of them is being struck;
+     * `bil_yellow` says which side that is, so the host can exchange the two
+     * balls at a change of turn and a scoreboard can say who is on.
+     *
+     * The two counters are the official limits, and they are limits on a
+     * SEQUENCE rather than on a total, which is why they are state:
+     * Section 3 Rule 9 caps consecutive cannons at seventy-five, Rule 10 caps
+     * consecutive hazards at fifteen strokes, and exceeding either is a foul
+     * (Rule 14(j) and (k)). Both reset the moment a stroke scores the other
+     * kind, because the rules count each "not in conjunction with" the other.
+     *
+     * `bil_spot_pots` is Rule 8(b)/(c): the red goes back on the Spot twice,
+     * then the Centre Spot once, for CONTINUED pots of the red not in
+     * conjunction with another score. It counts pots of the red in the current
+     * break and nothing else resets it but a stroke that scores otherwise. */
+    int bil_yellow;      /* the striker is playing with the yellow */
+    int bil_cannons;     /* consecutive cannons, not with a hazard */
+    int bil_hazards;     /* consecutive hazard strokes, not with a cannon */
+    int bil_spot_pots;   /* consecutive pots of the red off a spot */
+    /* Set on resolve and consumed by the host, exactly as ball_in_hand is: the
+     * rules cannot place a ball because they hold no table. 0 = nothing to do.
+     * CUE_BIL_SPOT_* says WHICH mark the red goes back on, because the rules
+     * know the sequence and only the table knows where the marks are. */
+    int bil_respot_red;
+    /* ...and the same for the object white, which after a foul is placed on
+     * the Centre Spot if the next player takes that option (Rule 15(c)(ii)). */
+    int bil_respot_white;
     /* 9-ball push-out (WPA) */
     int pushout_avail;   /* the next shot (first after the break) may be a push-out */
     int pushout_offer;   /* pending: ask the player at the table whether to push out */
@@ -167,6 +198,39 @@ typedef struct {
  * an assumption balls[0] carries through the rules, the AI and the wire — so it
  * is named here and not yet implemented, rather than pretended about. */
 enum { CUE_PYR_CLASSIC = 0, CUE_PYR_COMBAT = 1, CUE_PYR_FREE = 2 };
+
+/* Where a potted red goes back. The order is Section 3 Rule 8: the Spot, and
+ * if that is occupied the Pyramid Spot, and if both are occupied the Centre
+ * Spot — except under the continued-pots sequence of 8(b), where the third
+ * one in a row goes on the Centre Spot instead. The rules name the mark; the
+ * host asks the table where it is and applies the occupied walk. */
+enum { CUE_BIL_SPOT_NONE = 0, CUE_BIL_SPOT_SPOT, CUE_BIL_SPOT_CENTRE,
+       CUE_BIL_SPOT_PYRAMID };
+
+struct CueTable;
+/* Put the red back where the rules just said, following Rule 8's sequence when
+ * that mark is occupied, and clear the request. The rules name the mark and
+ * hold its position; only this knows whether a ball is standing on it. Returns
+ * 1 if a ball was placed. */
+int cue_rules_billiards_respot(CueRules *r, const struct CueTable *t,
+                               CueBall *b, int n);
+/* THE STRIKER'S BALL IS ALWAYS INDEX 0. In billiards the two sides play with
+ * different balls, so at a change of turn the two whites exchange places in
+ * the array — contents, ids and all — and everything downstream that knows
+ * index 0 is the cue ball goes on being right. Call it when `turn` changes. */
+void cue_rules_billiards_swap(CueBall *b, int n);
+
+/* THE SCORES, from Section 3 Rule 4. A cannon, a pot white and an in-off
+ * white are two each; a pot red and an in-off red are three. */
+#define CUE_BIL_CANNON 2
+#define CUE_BIL_WHITE  2
+#define CUE_BIL_RED    3
+/* Section 3 Rule 15(c): every foul is two, and never more than two in one
+ * stroke however many rules the stroke broke. */
+#define CUE_BIL_FOUL   2
+/* Section 3 Rules 9 and 10. */
+#define CUE_BIL_MAX_CANNONS 75
+#define CUE_BIL_MAX_HAZARDS 15
 
 /* decision codes. CUE_DEC_PENDING is parked in r->decision after a snooker foul
  * that offers a choice; the host then passes a PLAY/REPLAY/FREEBALL back. */

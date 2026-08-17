@@ -35,6 +35,12 @@ typedef enum {
      * room it is in, so this table keeps the tournament's 5 mm at the corner
      * and 14.5 in the middle around a smaller ball. */
     CUE_GAME_PYRAMID7,
+    /* G5: ENGLISH BILLIARDS. Three balls on a full-size snooker table — two
+     * cue balls and a red — scored by cannons, pots and in-offs. It is the
+     * oldest game in the building and the only one here whose scoring asks
+     * what the cue ball touched in ORDER rather than merely what it hit
+     * first, which is what the shot-contact log exists for. */
+    CUE_GAME_BILLIARDS,
     CUE_GAME_COUNT
 } CueGameKind;
 /* Both pyramid beds, wherever the game rather than the size is what matters. */
@@ -70,6 +76,20 @@ enum {
     CUE_ID_YELLOW = 20, CUE_ID_GREEN, CUE_ID_BROWN,
     CUE_ID_BLUE, CUE_ID_PINK, CUE_ID_BLACK,
 };
+
+/* ENGLISH BILLIARDS' THREE BALLS, in the ids the rest of the engine already
+ * has. The red is a snooker red (id 1) because that is what it is and it
+ * renders as one; the two cue balls are the white and the yellow.
+ *
+ * Index 0 of the ball array is THE CUE BALL as far as the physics and the
+ * camera are concerned, and in billiards the two sides play with different
+ * balls — so at a change of turn the contents of index 0 and the other white
+ * are exchanged, ids and all. Index 0 therefore carries whichever of the two
+ * is being struck, and it draws in that ball's own colour without anything
+ * downstream needing to know that the striker changed. */
+#define CUE_ID_BIL_RED    1
+#define CUE_ID_BIL_WHITE  CUE_ID_CUE
+#define CUE_ID_BIL_YELLOW CUE_ID_YELLOW
 
 /* How far the woodwork carries on past the rail cap. CueVR's frame builder
  * (its own repository) makes the

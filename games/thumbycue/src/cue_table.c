@@ -69,7 +69,14 @@ static void cue_table_rails(CueTable *t, CueGameKind kind) {
 void cue_table_init(CueTable *t, CueGameKind kind) {
     memset(t, 0, sizeof(*t));
     t->kind = kind;
-    t->is_snooker = (kind == CUE_GAME_SNK10 || kind == CUE_GAME_SNK15 || kind == CUE_GAME_SNK6);
+    /* ENGLISH BILLIARDS IS PLAYED ON A SNOOKER TABLE, and this flag is about
+     * the TABLE — the bed, the pockets, the D, the four spots and the ball
+     * size. It is not about the rules: cue_rules_init asks the kind as well,
+     * because billiards scores cannons and in-offs and resolve_snooker would
+     * make nonsense of it. One table, two quite different games, exactly as
+     * UK 8-ball and 6-red snooker already share a bed. */
+    t->is_snooker = (kind == CUE_GAME_SNK10 || kind == CUE_GAME_SNK15 ||
+                     kind == CUE_GAME_SNK6  || kind == CUE_GAME_BILLIARDS);
 
     if (kind == CUE_GAME_UK8 || kind == CUE_GAME_SNK6) {
         /* 7 ft UK pub 8-ball: 1.98 × 0.99 m, tight ROUNDED (curved) pockets. */
@@ -354,7 +361,10 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     } else {
         /* Snooker — SNK10 (10 ft, 10 reds) or SNK15 (12 ft, 15 reds). Curved
          * jaws. Layout offsets scale with table length off the 12 ft master. */
-        t->reds = (kind == CUE_GAME_SNK10) ? 10 : 15;
+        /* Billiards has no reds in the snooker sense — it has ONE red, and it
+         * is an object ball rather than one of a pack. */
+        t->reds = (kind == CUE_GAME_BILLIARDS) ? 0
+                : (kind == CUE_GAME_SNK10) ? 10 : 15;
         float master = 3.569f * 0.5f;        /* 12 ft half-length */
         if (kind == CUE_GAME_SNK10) { t->half_len = 2.972f * 0.5f; t->half_wid = 1.483f * 0.5f; }
         else                        { t->half_len = 3.569f * 0.5f; t->half_wid = 1.778f * 0.5f; }
@@ -383,7 +393,14 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->cloth = RGB565C(4, 135, 21);
         t->rail = RGB565C(74, 44, 22); t->rail_top = RGB565C(104, 62, 30);
         t->spot = RGB565C(200, 200, 200);
-        t->nballs = (t->reds == 10) ? 17 : 22;
+        /* THE STANDARD TABLE'S OWN FIGURES, and billiards uses every one of
+         * them: the baulk-line 737 mm from the bottom cushion, a D of 292 mm,
+         * the Spot 324 mm below the top cushion, the Centre Spot midway and the
+         * Pyramid Spot midway between those two. They are already here because
+         * snooker needs the same four marks — blue_x is the Centre Spot,
+         * pink_x the Pyramid Spot and black_x the Spot. */
+        t->nballs = (kind == CUE_GAME_BILLIARDS) ? 3
+                  : (t->reds == 10) ? 17 : 22;
     }
     /* Drop-zone setback — how far the potted ball sinks BACK into the pocket
      * (past the cushion mouth) before it disappears. Scaled off each table's
@@ -466,6 +483,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * once the bore is pulled back level with the timber. */
         t->bore_set_side   = 0.30f * t->R;
         break;
+    case CUE_GAME_BILLIARDS:
+        /* The standard table, so the 12 ft snooker numbers to the digit. */
     case CUE_GAME_SNK15:
         /* The two snooker tables share every other pocket number and NOT these:
          * the 12 ft was dialled on its own and came out wanting a deeper set
@@ -1584,6 +1603,8 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* PYRA  */ { 0.0189f, 1.3900f, 0.2200f,  90.0f },
         /* PYRA7 — the same cut with the setback scaled to the smaller mouth */
         /* PYRA7 */ { 0.0168f, 1.3900f, 0.2200f,  90.0f },
+        /* BILL — the standard table, so the 12 ft snooker cut exactly */
+        /* BILL  */ { 0.0145f, 1.1350f, 0.2150f,  90.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -1596,6 +1617,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* STRT  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* PYRA  */ { 0.0234f, 1.4100f, 0.2200f, 180.0f },   /* ...and the middle */
         /* PYRA7 */ { 0.0211f, 1.4100f, 0.2200f, 180.0f },
+        /* BILL  */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -2204,6 +2226,30 @@ static int rack_9ball(const CueTable *t, CueBall *b) {
     return 10;
 }
 
+/* ENGLISH BILLIARDS: the red on the Spot, and both cue balls in hand.
+ *
+ * Section 3 Rule 2(b): "The red is placed on the Spot and the first player
+ * plays from in-hand." Both whites start in hand — the non-striker's ball is
+ * not on the table until he plays it — so only the red is placed.
+ *
+ * Index 0 is the ball being struck and carries its owner's colour; index 2 is
+ * the other side's, off the table until its turn. The rules exchange the two
+ * at a change of turn, which is why they are laid out as a pair here. */
+static int rack_billiards(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    int n = 0;
+    /* In hand, and placed in the D so a host that never asks for a placement
+     * still has a legal opening shot. */
+    { Vec3 q = cue_table_lay(t, t->baulk_x, -t->d_radius * 0.4f, NULL);
+      set_ball(&b[n++], CUE_ID_BIL_WHITE, q.x, q.z, R); }
+    { Vec3 q = cue_table_lay(t, t->black_x, 0.0f, NULL);
+      set_ball(&b[n++], CUE_ID_BIL_RED, q.x, q.z, R); }
+    /* The other side's ball: on the table only when it is that side's turn. */
+    { Vec3 q = cue_table_lay(t, t->baulk_x, +t->d_radius * 0.4f, NULL);
+      set_ball(&b[n], CUE_ID_BIL_YELLOW, q.x, q.z, R); b[n].on = 0; n++; }
+    return n;
+}
+
 static int rack_snooker(const CueTable *t, CueBall *b) {
     const float R = t->R;
     int n = 0;
@@ -2418,7 +2464,8 @@ int cue_table_respot_one(const CueTable *t, CueBall *b, int n) {
 int cue_table_rack(const CueTable *t, CueBall *balls) {
     memset(balls, 0, sizeof(CueBall) * CUE_MAX_BALLS);
     int n;
-    if (t->is_snooker)           n = rack_snooker(t, balls);
+    if (t->kind == CUE_GAME_BILLIARDS) n = rack_billiards(t, balls);
+    else if (t->is_snooker)      n = rack_snooker(t, balls);
     else if (t->kind == CUE_GAME_US9) n = rack_9ball(t, balls);
     else if (CUE_GAME_IS_PYRAMID(t->kind)) n = rack_pyramid(t, balls);
     else                         n = rack_pool(t, balls);   /* UK8 + US8 */
