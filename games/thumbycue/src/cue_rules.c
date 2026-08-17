@@ -69,7 +69,10 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
          * one and a VR frame wants to end inside a session; the tournament
          * numbers are hundreds more and cue_rules_set_target sets them. */
         r->target_score = 100;
-        r->ball_in_hand = 1;      /* Rule 2(b): the first player is in hand */
+        /* Rule 2(b) has the first player in hand, and rack_billiards has
+         * already put his ball in the D — exactly as snooker's rack does with
+         * the same rule. Setting the flag as well would send the host into a
+         * placement it does not need and leave the table looking empty. */
     } else if (r->kind) {
         r->target = 0; r->reds_left = t->reds ? t->reds : 15;
         /* colour spots by value 2..7 */
