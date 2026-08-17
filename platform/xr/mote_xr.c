@@ -193,6 +193,8 @@ static struct {
     int         floor;
     XrTime      last_display;
     int msaa;      /* samples per pixel; 0 = off, -1 = not yet decided */
+    PFN_xrPerfSettingsSetPerformanceLevelEXT p_setlvl;
+    int reconf, reconf_eye_w, reconf_eye_h, reconf_msaa;
     int has_foveation;
     int multiview; /* 1 = one array swapchain, both eyes in a single pass */
     PFN_glFramebufferTextureMultiviewOVR            p_fbmv;
@@ -388,6 +390,8 @@ static int make_session(void) {
     return 0;
 }
 
+static void destroy_swapchains(void);
+
 static int make_swapchains(void) {
     uint32_t n = 0;
     xrEnumerateViewConfigurationViews(S.instance, S.system,
@@ -454,6 +458,16 @@ static int make_swapchains(void) {
         float scale = (S.app.render_scale > 0.0f) ? S.app.render_scale : 1.25f;
         int32_t rw = (int32_t)S.vcfg[i].recommendedImageRectWidth;
         int32_t rh = (int32_t)S.vcfg[i].recommendedImageRectHeight;
+        /* An absolute width wins outright: keep the runtime's aspect, take its
+         * recommendation only as the shape, not as the size. */
+        if ((S.app.eye_w > 0 || S.app.eye_h > 0) && rw > 0 && rh > 0) {
+            /* Cover BOTH dimensions: the larger of the two scales wins, so a
+             * panel whose aspect differs from the runtime's is filled rather
+             * than letterboxed. */
+            float sw = S.app.eye_w > 0 ? (float)S.app.eye_w / (float)rw : 0.0f;
+            float sh = S.app.eye_h > 0 ? (float)S.app.eye_h / (float)rh : 0.0f;
+            scale = sw > sh ? sw : sh;
+        }
         /* Rounded DOWN to a multiple of 8. A tiled GPU bins in blocks and the
          * multiview depth array, the MSAA renderbuffer and the swapchain all
          * have to agree; an awkward width is the kind of thing that costs a
@@ -465,6 +479,9 @@ static int make_swapchains(void) {
             e->w = (int32_t)S.vcfg[i].maxImageRectWidth;
         if ((uint32_t)e->h > S.vcfg[i].maxImageRectHeight)
             e->h = (int32_t)S.vcfg[i].maxImageRectHeight;
+        if (i == 0 && (S.app.eye_w > 0 || S.app.eye_h > 0))
+            xrlog("[mote-xr] panel asked for %dx%d (recommendation %dx%d ignored)",
+                  S.app.eye_w, S.app.eye_h, rw, rh);
         if (i == 0)
             xrlog("[mote-xr] eye %dx%d (recommended %dx%d, max %ux%u)",
                   e->w, e->h, rw, rh,
@@ -567,13 +584,19 @@ static int make_swapchains(void) {
             if (S.p_tex2dms && S.p_rbms) {
                 GLint max_s = 0;
                 glGetIntegerv(GL_MAX_SAMPLES, &max_s);
-                /* 2x, paired with the resolution increase above. */
-                S.msaa = max_s >= 2 ? 2 : 0;
+                /* The app's request, clamped to what the driver offers. A zero
+                 * request is honoured as OFF rather than treated as unset — at
+                 * a high render scale that is a real choice and the commonest
+                 * way to buy back a millisecond. */
+                int want = (S.app.msaa >= 0) ? S.app.msaa : 2;
+                if (want > max_s) want = max_s;
+                if (want < 2) want = 0;
+                S.msaa = want;
             } else {
                 S.msaa = 0;
             }
-            xrlog("[mote-xr] MSAA %dx%s", S.msaa ? S.msaa : 1,
-                  S.msaa ? "" : " (extension unavailable)");
+            xrlog("[mote-xr] MSAA %s", S.msaa ? (S.msaa == 2 ? "2x" : "4x")
+                  : (S.app.msaa == 0 ? "off (asked for)" : "off (unavailable)"));
         }
 
         if (S.multiview) {
@@ -1188,12 +1211,19 @@ int mote_xr_init(void *vm, void *activity, const MoteXrApp *app) {
         xrGetInstanceProcAddr(S.instance, "xrPerfSettingsSetPerformanceLevelEXT",
                               (PFN_xrVoidFunction *)&setlvl);
         if (setlvl) {
+            int c = S.app.cpu_level ? S.app.cpu_level
+                                    : XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT;
+            int g = S.app.gpu_level ? S.app.gpu_level
+                                    : XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT;
             setlvl(S.session, XR_PERF_SETTINGS_DOMAIN_CPU_EXT,
-                   XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT);
+                   (XrPerfSettingsLevelEXT)c);
             setlvl(S.session, XR_PERF_SETTINGS_DOMAIN_GPU_EXT,
-                   XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT);
-            xrlog("[mote-xr] performance level: sustained high, CPU and GPU");
+                   (XrPerfSettingsLevelEXT)g);
+            xrlog("[mote-xr] performance level: CPU %d, GPU %d "
+                  "(0 pwr-save, 25 sus-low, 50 sus-high, 75 boost)", c, g);
         }
+        /* Settable later too, so a menu can change it without a restart. */
+        S.p_setlvl = setlvl;
     }
     if (make_actions() != 0) return -1;
     passthrough_up();
@@ -1207,6 +1237,18 @@ int  mote_xr_has_passthrough(void) { return S.has_passthrough; }
 int  mote_xr_target_is_srgb(void)  { return S.srgb; }
 int  mote_xr_floor_relative(void)  { return S.floor; }
 int  mote_xr_multiview(void)       { return S.multiview; }
+
+void mote_xr_set_perf_levels(int cpu, int gpu) {
+    if (!S.p_setlvl || !S.has_perf) return;
+    S.p_setlvl(S.session, XR_PERF_SETTINGS_DOMAIN_CPU_EXT, (XrPerfSettingsLevelEXT)cpu);
+    S.p_setlvl(S.session, XR_PERF_SETTINGS_DOMAIN_GPU_EXT, (XrPerfSettingsLevelEXT)gpu);
+    S.app.cpu_level = cpu; S.app.gpu_level = gpu;
+}
+void mote_xr_eye_size(int *w, int *h) {
+    if (w) *w = S.eye[0].w;
+    if (h) *h = S.eye[0].h;
+}
+int  mote_xr_msaa(void) { return S.msaa; }
 
 /* ---- render models ------------------------------------------------------- *
  *
@@ -1293,19 +1335,63 @@ void mote_xr_haptic(float i, int ms) { haptic(i, ms); }
 void mote_xr_haptic_hand(int hand, float i, int ms) { haptic_hand(i, ms, hand); }
 
 void mote_xr_frame(void) {
+    /* A REBUILD HAPPENS BETWEEN FRAMES, never inside one.
+     *
+     * The resolution and the sample count are properties of the swapchain, so
+     * changing them means destroying the images the runtime is holding and
+     * making new ones — which cannot be done from inside a frame the runtime
+     * has already handed us. The menu therefore asks, and the ask is honoured
+     * here, before anything is acquired.
+     *
+     * Without this a graphics menu can only ever offer settings that take
+     * effect next launch, which is a setting nobody can evaluate: you change
+     * it, you quit, you come back, and by then you have forgotten what the
+     * other one looked like. */
+    if (S.reconf) {
+        S.reconf = 0;
+        S.app.eye_w = S.reconf_eye_w;
+        S.app.eye_h = S.reconf_eye_h;
+        S.app.msaa  = S.reconf_msaa;
+        S.msaa = -1;                    /* re-probe against the new request */
+        destroy_swapchains();
+        if (make_swapchains() != 0)
+            xrlog("[mote-xr] could not rebuild the swapchains; the session is over");
+        else
+            xrlog("[mote-xr] rebuilt: eye %dx%d, MSAA %s", S.eye[0].w, S.eye[0].h,
+                  S.msaa ? (S.msaa == 2 ? "2x" : "4x") : "off");
+    }
     pump_events();
     if (S.running) draw_frame();
 }
 
-void mote_xr_shutdown(void) {
-    if (S.app.gl_shutdown) S.app.gl_shutdown(S.app.user);
+int mote_xr_reconfigure(int eye_w, int msaa) {
+    return mote_xr_reconfigure_wh(eye_w, 0, msaa);
+}
+int mote_xr_reconfigure_wh(int eye_w, int eye_h, int msaa) {
+    if (!S.session) return -1;
+    S.reconf_eye_w = eye_w;
+    S.reconf_eye_h = eye_h;
+    S.reconf_msaa  = msaa;
+    S.reconf = 1;
+    return 0;
+}
+
+/* Everything make_swapchains built, undone. Factored out of shutdown because a
+ * graphics menu has to be able to rebuild them without ending the session. */
+static void destroy_swapchains(void) {
     for (uint32_t i = 0; i < S.nview; i++) {
         Eye *e = &S.eye[i];
         if (e->fbo) { glDeleteFramebuffers((GLsizei)e->n, e->fbo); free(e->fbo); }
         if (e->depth) glDeleteRenderbuffers(1, &e->depth);
         free(e->images);
         if (e->handle) xrDestroySwapchain(e->handle);
+        e->fbo = NULL; e->images = NULL; e->depth = 0; e->handle = 0; e->n = 0;
     }
+}
+
+void mote_xr_shutdown(void) {
+    if (S.app.gl_shutdown) S.app.gl_shutdown(S.app.user);
+    destroy_swapchains();
     if (S.passthrough && S.xrDestroyPassthroughFB_) S.xrDestroyPassthroughFB_(S.passthrough);
     for (int i = 0; i < 2; i++) if (S.hand_space[i]) xrDestroySpace(S.hand_space[i]);
     for (int i = 0; i < 2; i++) if (S.aim_space[i]) xrDestroySpace(S.aim_space[i]);

@@ -55,6 +55,13 @@ typedef struct { Vec3 pos; Mat3 basis; float fov_deg; } CueView;
  * (so render and physics share one geometry source). Call once per table. */
 void cue_render_build_table(const CueTable *t, const CueWorld *w);
 
+/* THE CHALK AS GEOMETRY, on or off. On by default, because the handheld has no
+ * shader and flat quads on the bed are the only way it can have a baulk line at
+ * all. A host that paints the markings into its cloth instead must turn this
+ * off: with both, the line is drawn twice — one following the cloth under the
+ * cushion nose and one standing proud of it. */
+void cue_render_set_markings(int on);
+
 /* Mote engine port: hand the renderer the engine jump table (call once before
  * cue_render_build), and the per-band background gradient the OS calls. */
 struct MoteApi;
@@ -93,8 +100,41 @@ void cue_render_onball_icon(uint16_t *fb, int cx, int cy, int rad, int target, i
 void cue_render_set_ball_set(int s);
 /* The authored sets, as data — so a picker can list them without keeping a
  * second copy of the names, and so a designer can start from one. */
+/* Which set is selected, or -1 for a custom one. For a host that caches the
+ * ball surface and has to notice when it has gone stale. */
+int         cue_render_ball_set(void);
 int         cue_render_ballset_count(void);
 const char *cue_render_ballset_name(int i);
+
+/* A BALL SET, AS DATA. Public because the designer builds one and hands it
+ * back; the authoring notes are with k_ballsets in cue_render.c.
+ *
+ *   hue    per-number palette for ids 1..7 (8 entries; [0] unused). Stripes
+ *          reuse their +8 solid's hue.
+ *   lo/hi  a flat body colour for low/high balls, where the set has one
+ *          instead of a per-number palette. ZERO means "use the palette".
+ *   pole   what a striped ball's body is, behind the band
+ *   eight  the black — its own field because one set makes it grey
+ *   band   a flat stripe colour, where the stripe is not the ball's own hue
+ *   half   the band's half-width as a fraction of the ball */
+typedef struct {
+    const char *name;
+    const uint16_t *hue;
+    uint16_t lo, hi, pole, eight, band;
+    unsigned char striped, numbered, spokes;
+    float half;
+} CueBallSet;
+
+/* Read an authored set out, to start a design from a real one rather than from
+ * a dozen blank numbers — which is the same reason the cue rack is readable.
+ * Returns 0 if `i` names no set. */
+int  cue_render_ballset_get(int i, CueBallSet *out);
+/* Install a set the player built, and draw with it. The struct is COPIED, the
+ * hue palette included, so the caller may keep its own on the stack and change
+ * it freely afterwards — without that this would be a dangling pointer the
+ * moment a designer screen returned. NULL goes back to the authored selection. */
+void cue_render_set_ballset_custom(const CueBallSet *bs);
+int  cue_render_ballset_is_custom(void);
 /* The white's measles spots — the only readout of what it is doing. */
 void cue_render_set_cue_spots(int on);
 

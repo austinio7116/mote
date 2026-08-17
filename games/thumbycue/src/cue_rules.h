@@ -71,6 +71,44 @@ typedef struct {
                                * from every position in it, so the rules need
                                * its geometry as well as the renderer. */
 
+    /* ---- straight pool, 14.1 continuous ----
+     * `nominated` carries the CALLED BALL here — its id, 1..15 — rather than a
+     * snooker colour value, which is why the field is reused rather than a
+     * second one added: it is the same act, naming what you are going for. Zero
+     * means nothing was called, and in 14.1 that is not an oversight but a
+     * DECLARED SAFETY: play on, score nothing, hand the table over. */
+    int called_pocket;   /* pocket index called with the ball, or -1 for none */
+    int target_score;    /* points that take the frame. 50 here, because a VR
+                          * frame wants to end inside a session; 100 and 150 are
+                          * the tournament numbers and cue_rules_set_target sets
+                          * them. */
+    int racks;           /* reracks so far this frame — the HUD says "RACK 3" */
+    /* Set on resolve, consumed by the host, exactly as ball_in_hand is: the
+     * rules can see that only one object ball is left but cannot lay a triangle
+     * out, because they hold no CueTable. 1 = rack the fourteen and leave the
+     * apex empty, 2 = rack all fifteen (the table was cleared outright, or a
+     * third consecutive foul). */
+    int rerack;
+
+    /* ---- G2: RUSSIAN PYRAMID -------------------------------------------- *
+     *
+     * Scored in BALLS rather than points, and the count is the whole game: any
+     * of the fifteen may be potted, in any order, and the first player to eight
+     * has more than half of them and cannot be caught. `score` carries it, so a
+     * host that already draws two numbers draws these.
+     *
+     * The penalty is what makes it a different game from pool with no groups: a
+     * foul RETURNS ONE OF THE OFFENDER'S OWN POTTED BALLS to the table, so a
+     * frame can go backwards and a careless player hands his opponent a ball to
+     * shoot at. `respot` is set on resolve and consumed by the host, exactly as
+     * ball_in_hand and rerack are — the rules cannot place a ball because they
+     * hold no table.
+     *
+     * `pyr_free` is the variant flag, and it is here for the same reason
+     * uk_intl is: it is a rule rather than a table, and the whole struct crosses
+     * the wire. 0 is CLASSIC, the game shipped first. */
+    int respot;          /* put this many of the striker's potted balls back */
+    int pyr_free;        /* CUE_PYR_* — see below */
     /* 9-ball push-out (WPA) */
     int pushout_avail;   /* the next shot (first after the break) may be a push-out */
     int pushout_offer;   /* pending: ask the player at the table whether to push out */
@@ -113,6 +151,14 @@ typedef struct {
     int match_over, match_winner;
     int conceded;        /* the frame was given up rather than played out */
 } CueRules;
+
+/* Which pyramid. CLASSIC is the white-cue-ball game: pot the objects, eight
+ * wins, and the cue ball down a pocket is a foul. COMBAT also scores a cue ball
+ * potted OFF an object ball (a "свой"), which is the shot the game is famous
+ * for. FREE lets any ball on the table be played as the cue ball, which breaks
+ * an assumption balls[0] carries through the rules, the AI and the wire — so it
+ * is named here and not yet implemented, rather than pretended about. */
+enum { CUE_PYR_CLASSIC = 0, CUE_PYR_COMBAT = 1, CUE_PYR_FREE = 2 };
 
 /* decision codes. CUE_DEC_PENDING is parked in r->decision after a snooker foul
  * that offers a choice; the host then passes a PLAY/REPLAY/FREEBALL back. */
@@ -183,6 +229,24 @@ void cue_rules_set_break(CueRules *r, int who);
 void cue_rules_respot(CueRules *r, CueBall *b, int n, int id);
 
 void cue_rules_nominate(CueRules *r, int value);
+
+/* ---- straight pool ---------------------------------------------------- *
+ * CALL THE SHOT: the ball you are going for and the pocket you are putting it
+ * in. Both are required for a scoring stroke — pot the called ball in the
+ * called pocket and every ball that went down on that stroke counts, one point
+ * each, and you stay at the table.
+ *
+ * Calling nothing (ball_id 0) is a DECLARED SAFETY and a legal, ordinary thing
+ * to do: the stroke must still reach a cushion or pocket a ball, nothing scores,
+ * anything potted is spotted, and the table passes. It is not a foul, and it is
+ * how most of a real 14.1 frame is played.
+ *
+ * The call lasts one stroke and is cleared by the resolve, whatever happened. */
+void cue_rules_call_shot(CueRules *r, int ball_id, int pocket);
+
+/* Points that win the frame. 14.1 is played to a target across as many racks as
+ * it takes — 150 in a world championship, 100 commonly, 50 here by default. */
+void cue_rules_set_target(CueRules *r, int points);
 /* Name the ball being taken as the free ball. Ignored unless one is awarded. */
 void cue_rules_nominate_free(CueRules *r, int id);
 

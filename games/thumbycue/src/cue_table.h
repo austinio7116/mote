@@ -21,6 +21,13 @@ typedef enum {
     CUE_GAME_SNK15,     /* 12ft, curved pockets, full snooker */
     CUE_GAME_SNK10,     /* 10ft, curved pockets, 10-red snooker */
     CUE_GAME_SNK6,      /* 7ft UK pool table, curved pockets, 6-red snooker */
+    /* ---- VR only from here down (see CUE_GAME_VR_FIRST) ---- */
+    CUE_GAME_STRAIGHT,  /* 9ft, angled pockets, straight pool (14.1 continuous) */
+    /* G2: RUSSIAN PYRAMID. A 12 ft bed with 68 mm balls and pockets barely
+     * wider than they are — the game the table workshop's bore, setback and
+     * drop-cap numbers exist for, because on this table whether a pot is
+     * possible at all is decided by a couple of millimetres. */
+    CUE_GAME_PYRAMID,
     CUE_GAME_COUNT
 } CueGameKind;
 /* legacy coarse aliases (kept so existing call sites read cleanly) */
@@ -63,10 +70,40 @@ enum {
  * boundary and the frame builder should read it from the same place. */
 #define CUE_FRAME_OUT 0.055f
 
+/* THE SHAPE OF THE BED (F2).
+ *
+ * RECT is every table ever shipped and stays the default, so a table built by
+ * anything that predates this is a rectangle without saying so.
+ *
+ * L is that rectangle with a bite taken out of the +x/+z corner, `notch_x` long
+ * and `notch_z` deep. One number each, and it is enough: an L-shaped table is a
+ * rectangle with a corner missing, and describing it as two overlapping
+ * rectangles rather than as six vertices is what keeps every boundary test two
+ * compares wide. */
+enum { CUE_BED_RECT = 0, CUE_BED_L = 1 };
+enum { CUE_HAND_RIGHT = 0, CUE_HAND_LEFT = 1 };
+
 typedef struct {
     CueGameKind kind;
     int   is_snooker;           /* snooker ball set / rules vs pool */
     int   reds;                 /* snooker: number of reds (10 or 15) */
+    /* F2: the bed's shape, and the corner an L is missing. Zero everywhere for
+     * a rectangle, which is what memset in cue_table_init already gives. */
+    int   bed_shape;            /* CUE_BED_* */
+    float notch_x, notch_z;     /* the bite, measured in from +x and the hand's z */
+    /* WHICH WAY THE L TURNS. An L has a handedness and only ever had one of
+     * them: the bite came out of the +x/+z corner, so every L-shaped table in
+     * the game was the same table. RIGHT keeps that; LEFT mirrors it in z, so
+     * the short arm comes off the other side and the shot round the corner is
+     * the other way about.
+     *
+     * A FIELD rather than a signed notch_z. The sign would have cost nothing on
+     * the wire and it is exactly the kind of cleverness this shape has already
+     * punished five times: every L-shaped bug so far has been a fact hidden in
+     * a coordinate sign, and hiding one more there deliberately is asking for
+     * the sixth. Zero is RIGHT, so a table built before this is unchanged and a
+     * memset one is too. */
+    int   bed_hand;             /* CUE_HAND_* */
     float half_len, half_wid;   /* to cushion nose (m) */
     float R, mass;
     /* THE CUE BALL, WHERE IT IS NOT ONE OF THE SET.
@@ -126,6 +163,14 @@ typedef struct {
     uint16_t cloth, rail, rail_top, spot;
     int nballs;
 } CueTable;
+
+/* +1 for a right-handed L and -1 for a left-handed one: the factor every piece
+ * of shape arithmetic multiplies its z by. ONE place says what the hand means
+ * and every builder reads it from here, rather than each deciding for itself —
+ * which is how a shape fact ends up written six different ways. */
+static inline float cue_table_hand(const CueTable *t) {
+    return (t && t->bed_hand == CUE_HAND_LEFT) ? -1.0f : 1.0f;
+}
 
 void cue_table_init(CueTable *t, CueGameKind kind);
 
@@ -242,9 +287,96 @@ Vec3 cue_table_clamp_placement_any(const CueTable *t, Vec3 p,
 /* Cue-ball home (centre of the D / behind the head string) for placement. */
 Vec3 cue_table_cue_home(const CueTable *t);
 
+/* THE BED AS RECTANGLES (F2). Writes the union that describes this table's
+ * cloth — one rectangle for a plain table, two for an L — and returns how many.
+ *
+ * `grow` widens every OUTSIDE edge by that much, which is how one description
+ * serves both the cloth and the frame edge a jumped ball is deleted at. It is
+ * not a per-rectangle grow: the two rectangles of an L share an internal edge,
+ * and growing that would push phantom cloth out into the notch. The
+ * decomposition here is chosen so that growing each piece is right — a full
+ * width band below the notch, and a full height column beside it. */
+int cue_table_bed_rects(const CueTable *t, float grow, CueRect *out, int cap);
+
+/* THE SAME BED, CUT INTO PIECES THAT DO NOT OVERLAP. One for a rectangle, two
+ * for an L, swept along z so that between two levels the run in x is constant.
+ *
+ * cue_table_bed_rects OVERLAPS on purpose: a point inside either piece is on the
+ * cloth, and the overlap costs a containment test nothing. Anything that DIVIDES
+ * the bed up rather than testing against it needs the pieces not to double —
+ * hanging a lamp over each run, flooring the underside, counting area. Sharing
+ * the overlapping version for that puts two lamps in the same place and two
+ * coplanar faces where one belongs. */
+int cue_table_bed_strips(const CueTable *t, CueRect *out, int cap);
+
+/* Is this point on the cloth? The shape-aware form of "inside the half-extents",
+ * and the question the placement clamp and the AI's sampler both need. */
+int cue_table_on_bed(const CueTable *t, float x, float z);
+
+/* ---- THE SPINE: the line a table is laid out ALONG -----------------------
+ *
+ * Where a game is SET OUT — the baulk line, the D, the six snooker spots, the
+ * foot spot, the rack, the head string — used to be an x coordinate on the
+ * centre line, with the rack growing in +x. That is the table's long axis
+ * written into every one of them, and on an L it is nonsense: the long axis runs
+ * down one arm, through the notch, and out into the corner that is not there.
+ *
+ * The spine is that line made shape-aware. On a rectangle it is the straight
+ * centre line and NOTHING CHANGES — a position given as an x coordinate comes
+ * back as that coordinate, untouched. On an L it turns the corner: the baulk end
+ * and the D are at the free end of one arm, the rack is at the free end of the
+ * other, ninety degrees round, and the middle of the spine — where a snooker
+ * table puts its blue — is the middle of the bend.
+ *
+ * That is what makes every game possible on any L. It also makes the break a
+ * shot round a corner, which is the entire point of a table this shape.
+ *
+ *   `x`      the position as a rectangle would express it, which is what the
+ *            table already stores and what every ruleset already means
+ *   `across` the offset to the side of the spine; +across is ninety degrees to
+ *            the LEFT of the direction of travel, which on a rectangle is +z
+ *   `dir`    out: which way is "up the table" there, so a rack can be laid out
+ *            in the local frame rather than in world x */
+Vec3  cue_table_lay(const CueTable *t, float x, float across, Vec3 *dir);
+float cue_table_spine_len(const CueTable *t);
+
+/* WHERE THE PACK GOES, and which way it grows from there. On a rectangle that is
+ * a quarter of the way down the centre line, growing toward the top cushion; on
+ * an L it is a quarter of the way along the spine FROM THE FAR END, which puts
+ * it on the arm the baulk is not on.
+ *
+ * A custom table will be able to override this outright; this is what it does
+ * when nobody has said otherwise. */
+Vec3 cue_table_foot_spot_dir(const CueTable *t, Vec3 *dir);
+Vec3 cue_table_foot_spot(const CueTable *t);
+
+/* CAN THIS GAME BE RACKED ON THIS TABLE?
+ *
+ * A custom bed can be any size and any of the two shapes, and most games do not
+ * care — pool wants a foot spot and a head string and both move with the table.
+ * Snooker does care, and it cares a lot: six colours on six named spots and a D
+ * struck from the baulk line, none of which is a proportion of the bed. On an
+ * L-shaped bed the pink and the black land in the missing corner, and the game
+ * cannot be racked at all — so it is refused rather than racked into thin air.
+ *
+ * `laid_out` says the caller has a hand-placed position for every ball, which is
+ * the one thing that makes any game playable on any shape: the spots are only
+ * needed because nobody said where the balls go. Pass 1 and this only checks
+ * that the cue ball has somewhere legal to be.
+ *
+ * Returns 1 if it can, 0 with a reason in `msg` if it cannot. */
+int cue_table_game_ok(const CueTable *t, CueGameKind kind, int laid_out,
+                      char *msg, int msgcap);
+
 /* A six-ball triangle on the foot spot plus the white at home, for the
  * practice challenges. Returns the ball count (7). */
 int cue_table_rack_six(const CueTable *t, CueBall *balls);
+
+/* THE STRAIGHT-POOL RERACK: put every off-table object ball back as a triangle
+ * with the apex space EMPTY, leaving whatever is still on the table — the break
+ * ball and the cue ball — exactly where it lies. Returns how many were placed
+ * (14 in the normal case). Does nothing to a table where nothing is potted. */
+int cue_table_rack_14(const CueTable *t, CueBall *balls, int n);
 
 /* Clamp a desired placement to the legal ball-in-hand region (the D for
  * snooker/UK8, behind the head string for US pool). */
@@ -256,6 +388,18 @@ Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p);
 /* `breaking` = this is the placement for the OPENING BREAK, which is behind
  * the head string on a US-style table. Ball in hand after a foul is anywhere on
  * those tables; snooker and UK 8-ball use the D either way. */
+/* PUT ONE BALL BACK ON THE TABLE, at the foot spot or as near behind it as is
+ * clear. Russian pyramid's foul penalty returns one of the offender's own potted
+ * balls, and the rules cannot do it themselves — they hold no table, which is
+ * the same reason `rerack` and `ball_in_hand` are flags a host consumes.
+ *
+ * Returns the id it put back, or 0 if the striker had nothing to give back or
+ * there was nowhere to put it. Takes the ball with the LOWEST id that is off, so
+ * two hosts replaying the same frame put back the same ball — this crosses the
+ * wire as a state packet, and "whichever one the loop happened to reach first"
+ * is not a rule. */
+int cue_table_respot_one(const CueTable *t, CueBall *b, int n);
+
 Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
                                      const CueBall *balls, int n, int breaking);
 

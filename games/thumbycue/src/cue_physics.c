@@ -61,6 +61,7 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
      * world built by hand does not let balls fly out over zero-height rails. */
     w->cushion_nose = 1.27f * R;
     w->bound_x = w->bound_z = 1.0e9f;   /* until cue_table says where the rail ends */
+    w->nplay = w->nbound = 0;           /* ...and what shape it is */
     cue_phys_shot_begin(w);
     w->_acc = 0.0f;
 }
@@ -893,8 +894,14 @@ static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
 #define CUE_NO_SURFACE (-1.0e9f)
 static CUE_HOT float surface_at(const CueWorld *w, float x, float z) {
     float ax = x < 0 ? -x : x, az = z < 0 ? -z : z;
+    /* The bounding box first, because it rejects almost everything and costs
+     * two compares; then the shape, which for a rectangular table is the same
+     * question asked once more and for an L is the only one that is right. */
     if (ax > w->bound_x || az > w->bound_z) return CUE_NO_SURFACE;
-    int on_bed = (ax <= w->play_x && az <= w->play_z);
+    if (w->nbound && !cue_rects_contain(w->bound_r, w->nbound, x, z))
+        return CUE_NO_SURFACE;
+    int on_bed = w->nplay ? cue_rects_contain(w->play_r, w->nplay, x, z)
+                          : (ax <= w->play_x && az <= w->play_z);
 
     for (int p = 0; p < w->npocket; p++) {
         /* THE HOLE IS THE CATCH. Same centre, same radius, deliberately —
@@ -1197,6 +1204,8 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * land on the rail, run along it, and come back down. */
             if (b->pos.x >  w->bound_x || b->pos.x < -w->bound_x ||
                 b->pos.z >  w->bound_z || b->pos.z < -w->bound_z ||
+                (w->nbound && !cue_rects_contain(w->bound_r, w->nbound,
+                                                 b->pos.x, b->pos.z)) ||
                 b->pos.y < -0.12f) {
                 b->on = 0; b->drop = 0.0f;
                 b->pocket = CUE_OFF_TABLE;
@@ -1230,8 +1239,10 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
          * the millisecond a ball spends inside a cushion mid-bounce — which is
          * nowhere near ten seconds, so a bounce costs nothing and a ball wedged
          * where it cannot be played still leaves. */
-        if (b->pos.x <= w->play_x && b->pos.x >= -w->play_x &&
-            b->pos.z <= w->play_z && b->pos.z >= -w->play_z) b->astray = 0.0f;
+        if (w->nplay ? cue_rects_contain(w->play_r, w->nplay, b->pos.x, b->pos.z)
+                     : (b->pos.x <= w->play_x && b->pos.x >= -w->play_x &&
+                        b->pos.z <= w->play_z && b->pos.z >= -w->play_z))
+            b->astray = 0.0f;
         else {
             b->astray += h;
             if (b->astray > 10.0f) {

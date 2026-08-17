@@ -93,14 +93,21 @@ static const char *k_frame_name[CUE_NFRAME] = {
     "WALNUT","OAK","MAHOGANY","WENGE","EBONY","CHARCOAL","SILVER" };
 
 /* ---- ball sets --------------------------------------------------------- */
-#define CUE_NBALLSET 8
+#define CUE_NBALLSET 9
 static const char *k_ballset_name[CUE_NBALLSET] = {
-    "PRO", "UK Y/B", "UK Y/R", "DYNA", "PRO TOUR", "HOT PINK", "SPACE", "VINTAGE" };
+    "PRO", "UK Y/B", "UK Y/R", "DYNA", "PRO TOUR", "HOT PINK", "SPACE", "VINTAGE",
+    "PYRAMID" };
 
 /* 9-ball needs every ball distinguishable, so only fully per-number sets are
  * valid: PRO (0), PRO TOUR (4), SPACE (6), VINTAGE (7). The grouped 2-colour
- * sets (UK Y/B, UK Y/R, DYNA, HOT PINK) are excluded for US9. */
+ * sets (UK Y/B, UK Y/R, DYNA, HOT PINK) are excluded for US9.
+ *
+ * PYRAMID (8) is fifteen identical ivories, so it is excluded from every game
+ * that has to tell one ball from another — which is all of them except pyramid
+ * itself, where interchangeable balls are the point. */
 static inline int cue_ballset_ok(int mode, int set) {
+    if (set == 8) return mode == CUE_GAME_PYRAMID;
+    if (mode == CUE_GAME_PYRAMID) return set == 8;
     if (mode == CUE_GAME_US9) return set == 0 || set == 4 || set == 6 || set == 7;
     return 1;
 }

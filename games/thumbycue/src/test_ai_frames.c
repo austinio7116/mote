@@ -351,9 +351,46 @@ static int play_shot(const CuePersona *p) {
  * and the breaks fall for reasons that have nothing to do with potting. Put a
  * strong player in against a weak one and the strong one gets the chances a
  * real opponent would give it. */
-static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
+/* THE TABLE THESE FRAMES ARE PLAYED ON, which may not be a shipped one.
+ *
+ * A custom bed is a supported thing now, and an L-shaped one is the shape most
+ * likely to find a planner that assumes a rectangle: the candidate sampler
+ * picks positions inside the half-extents, so on an L a share of everything it
+ * proposes is in the missing corner. That does not produce illegal shots —
+ * every candidate is priced by the real engine before it is played — but it is
+ * exactly the case worth playing hundreds of frames of.
+ *
+ *   AI_BED="1.05,1.00"     half-extents, metres
+ *   AI_NOTCH="1.0,0.85"    the bite, as fractions of those
+ *   AI_RULES=n             play kind n's RULES on it (default: the table's own) */
+static int  L_rules = -1;
+static void ai_build_table(int kind) {
     cue_table_init(&T, (CueGameKind)kind);
+    { const char *v = getenv("AI_BED");
+      if (v) { float a=0,b=0; if (sscanf(v, "%f,%f", &a, &b) == 2 && a>0 && b>0) {
+                   /* ...AND THE SPOTS WITH IT. A snooker table's baulk, pink
+                    * and black are absolute positions, so a resized bed left
+                    * them off the end and the table failed to validate — which
+                    * looked like the L being refused rather than the override
+                    * being incomplete. */
+                   float k = (T.half_len > 1e-4f) ? a / T.half_len : 1.0f;
+                   T.half_len = a; T.half_wid = b;
+                   if (T.is_snooker) {
+                       T.baulk_x *= k; T.blue_x *= k; T.pink_x *= k; T.black_x *= k;
+                       T.d_radius = T.half_wid * 0.35f;
+                   } else if (T.baulk_x != 0.0f) T.baulk_x = -T.half_len * 0.5f;
+               } } }
+    { const char *v = getenv("AI_NOTCH");
+      if (v) { float a=0,b=0; if (sscanf(v, "%f,%f", &a, &b) == 2 && a>0 && b>0) {
+                   T.bed_shape = CUE_BED_L;
+                   T.notch_x = T.half_len * a;
+                   T.notch_z = T.half_wid * b; } } }
+    if (L_rules >= 0 && L_rules < CUE_GAME_COUNT) T.kind = (CueGameKind)L_rules;
     cue_table_build_world(&T, &W);
+}
+
+static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
+    ai_build_table(kind);
     N = cue_table_rack(&T, B);
     cue_rules_init(&R, &T, 1);
     /* BALL IN HAND FOR THE BREAK, which is what the game gives the striker and
@@ -437,6 +474,7 @@ int main(void) {
     int pi2 = -1;
     { const char *v = getenv("AI_PERSONA2"); if (v) pi2 = atoi(v); }
     { const char *v = getenv("AI_GAME");    if (v) kind = atoi(v); }
+    { const char *v = getenv("AI_RULES");   if (v) L_rules = atoi(v); }
     { const char *v = getenv("AI_SEED");    if (v) RNG = (uint32_t)atoi(v); }
     trace   = getenv("AI_TRACE") != NULL;
     { const char *v = getenv("AI_MAXSPEED"); if (v) MAX_STRIKE_SPEED = (float)atof(v); }
@@ -453,7 +491,7 @@ int main(void) {
 
     const CuePersona *p = &CUE_PERSONAS[pi];
     const CuePersona *p2 = &CUE_PERSONAS[(pi2 >= 0 && pi2 < CUE_NUM_PERSONAS) ? pi2 : pi];
-    cue_table_init(&T, (CueGameKind)kind);
+    ai_build_table(kind);   /* ...which may be a custom bed; see AI_BED / AI_NOTCH */
 
     printf("ThumbyCue AI self-play\n");
     printf("  persona   %s (elo %d, line_acc %.2f deg, power_acc %.2f, "
@@ -461,7 +499,8 @@ int main(void) {
            p->name, p->elo, p->line_acc, p->power_acc, p->position,
            p->spin_ability, p->shot_select);
     printf("  P0 %s  vs  P1 %s\n", p->name, p2->name);
-    printf("  table     %.2f x %.2f m, %s%s\n", T.half_len*2, T.half_wid*2,
+    printf("  table     %.2f x %.2f m, %s%s%s\n", T.half_len*2, T.half_wid*2,
+           T.bed_shape == CUE_BED_L ? "L-SHAPED, " : "",
            T.is_snooker ? "snooker" : "pool",
            no_elev ? ", forced cue elevation DISABLED"
                    : elev_blind ? ", cue elevation forced but PLANNER BLIND to it"

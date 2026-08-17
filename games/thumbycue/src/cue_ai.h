@@ -59,6 +59,13 @@ typedef struct {
      * planner is the only thing that knows which one it picked. Without it the
      * CPU was the one player at the table exempt from nominating. */
     int   target_id;
+    /* ...and WHICH POCKET it meant to put it in, as a pocket index, or -1 for
+     * a safety, an escape, or anything else that is not a pot. The planner has
+     * always known — every pot candidate is scored against a specific pocket —
+     * and never said, which was fine until a game asked the striker to call the
+     * pocket as well as the ball. Straight pool does; without this the CPU
+     * could not call a shot and so could not score. */
+    int   target_pocket;
     /* The best POT confidence that was on the table when this shot was chosen,
      * or -1 if the planner could not find a pot at all. Independent of what it
      * actually played, which is the point: on a safety, `score` is 0 and tells

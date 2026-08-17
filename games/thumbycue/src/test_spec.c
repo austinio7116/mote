@@ -98,7 +98,12 @@ int main(void) {
          * and this test has not been told which side of the line it belongs on —
          * which is precisely the mistake the single description exists to
          * prevent, so it should fail loudly here rather than pass quietly. */
-        ck(cue_table_field_count() == 43,
+        /* 43 before F2; the three the bed's shape added — bed_shape, notch_x
+         * and notch_z — are all SIM, because the outline of the cloth is the
+         * wall a ball bounces off and two ends that disagree about it are
+         * playing different tables. bed_hand, which way the L turns, is the
+         * fourth and is SIM for exactly the same reason. */
+        ck(cue_table_field_count() == 47,
            "field count unchanged (add a field -> decide if it is SIM, then update this)");
 
         /* And the playing numbers, one per kind of thing a table can be: its

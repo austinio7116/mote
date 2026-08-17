@@ -39,6 +39,7 @@ static float    s_ballR = 0.0286f;
 static int      s_is_snooker;
 /* ids 1..15 mean reds, not solids/stripes */
 static int      s_lip_mode = 1;  /* 0=none 1=tight 2=wide 3=deep (CUE_LIP env) */
+static int      s_markings = 1;  /* emit the chalk as quads — see cue_render_set_markings */
 static int      s_ball_set = 0;  /* 0 PRO, 1 UK Y/B, 2 UK Y/R, 3 dyna */
 
 /* ---- per-frame projected lists ---------------------------------------- */
@@ -397,6 +398,148 @@ static void scallop_into(CueBnd *B, const CueTable *t, const CueWorld *w, int p,
     (void)t;
 }
 
+/* ---- the same cut, described by the rails instead of by the quadrant ------
+ *
+ * scallop_into above works out everything from the SIGN of the pocket's
+ * coordinates: which quadrant it is in, which way its legs run, whether it is a
+ * corner at all (`p < 4`). Every one of those is true of a rectangle centred on
+ * the origin and none of them survives an L, whose pockets sit in quadrants
+ * that say nothing about which rails meet there — the corner under the notch is
+ * at +x,+z and its cloth is to −x,−z of it.
+ *
+ * So this one is told, rather than guessing: the outward normal of the rail
+ * arriving at the pocket and of the rail leaving it, and how far out the slate
+ * edge lies along each. The arc runs on the CLOTH side between the two, and
+ * each leg runs from an arc end out to its own rail's slate line. For a middle
+ * both rails are the same rail, so the arc is a half circle and the two legs
+ * are parallel — which is exactly what the rectangle version special-cases.
+ *
+ * `sa`/`sb` are signed slate coordinates: the x of a ±x rail, the z of a ±z one.
+ */
+static void scallop_rails(CueBnd *B, const CueWorld *w, int p,
+                          Vec3 n_a, float sa, Vec3 n_b, float sb, Vec3 along) {
+    const Vec3 C = scallop_centre(w, p);
+    const float R = scallop_rad(w, p);
+    const float PI = 3.14159265f;
+    const int NL = 3;
+    Vec3 e_a, e_b;
+    int mid = (n_a.x * n_b.x + n_a.z * n_b.z) > 0.9f;   /* the same rail twice */
+
+    if (mid) {
+        /* half a circle, entered against the walk and left with it */
+        e_a = v3(C.x - along.x * R, 0, C.z - along.z * R);
+        e_b = v3(C.x + along.x * R, 0, C.z + along.z * R);
+    } else {
+        /* THE ENDS ARE CROSSED, and this is the whole of the corner cut.
+         *
+         * The arc end reached FIRST is displaced along the rail being LEFT by,
+         * and runs out to the slate line of the rail being ARRIVED on; the last
+         * end is the other way about. Pairing each end with its own rail — the
+         * obvious reading, and the one I wrote — sends each leg out along the
+         * line it already lies on, so it folds back on itself and the lip rolls
+         * a strip of cloth over at right angles to where it belongs. That is
+         * the twisted patch beside the pocket. */
+        e_a = v3(C.x - n_b.x * R, 0, C.z - n_b.z * R);
+        e_b = v3(C.x - n_a.x * R, 0, C.z - n_a.z * R);
+    }
+    /* first leg out to the ARRIVING rail's slate line, last to the LEAVING
+     * one's — and for a middle both of those are the same rail anyway. */
+    Vec3 l_a = (n_a.x != 0.0f) ? v3(sa, 0, e_a.z) : v3(e_a.x, 0, sa);
+    Vec3 l_b = (n_b.x != 0.0f) ? v3(sb, 0, e_b.z) : v3(e_b.x, 0, sb);
+
+    /* the arc, the short way round, through the cloth side */
+    float a1 = atan2f(e_a.z - C.z, e_a.x - C.x);
+    float a2 = atan2f(e_b.z - C.z, e_b.x - C.x);
+    float d = a2 - a1;
+    while (d >  PI) d -= 2.0f*PI;
+    while (d < -PI) d += 2.0f*PI;
+    if (mid) {
+        /* a half circle is exactly PI and the short way is ambiguous, so it is
+         * chosen: through the point furthest from the rail, which is the cloth
+         * side. Left to the wrap above it can sweep the frame side and the cut
+         * appears as a bite out of the timber instead of out of the bed. */
+        Vec3 inw = v3(-n_a.x, 0, -n_a.z);
+        float ai = atan2f(inw.z, inw.x), di = ai - a1;
+        while (di >  PI) di -= 2.0f*PI;
+        while (di < -PI) di += 2.0f*PI;
+        d = (di > 0.0f) ? PI : -PI;
+    }
+
+    for (int k = 0; k <= NL; k++) {
+        float u = (float)k / NL;
+        pt_into(B, l_a.x + (e_a.x - l_a.x) * u, l_a.z + (e_a.z - l_a.z) * u, p);
+    }
+    arc_into(B, C, R, a1, a1 + d, p, mid ? 40 : 20);
+    for (int k = 0; k <= NL; k++) {
+        float u = (float)k / NL;
+        pt_into(B, e_b.x + (l_b.x - e_b.x) * u, e_b.z + (l_b.z - e_b.z) * u, p);
+    }
+}
+
+/* THE L's CLOTH: the same walk, round six rails and seven pockets.
+ *
+ * Pocket order is the outline order build_L adds them in — V0, the bottom
+ * middle, V1, V2, V4, the top middle, V5 — and the elbow between V2 and V4 is
+ * not a pocket at all, so the boundary simply turns the corner there. */
+static void build_bed_boundary_L(const CueTable *t, const CueWorld *w,
+                                 CueBnd *B, float ex, float ez) {
+    if (w->npocket < 7) return;
+    const float m  = t->rail_w * CUE_SLATE_RAIL;
+    const float hl = t->half_len, hw = t->half_wid;
+    const float nx = t->notch_x,  nz = t->notch_z;
+    /* A LEFT-HANDED L IS THE MIRROR OF A RIGHT-HANDED ONE, and this walk is
+     * written for the right-handed one. So the mirror is applied to what goes
+     * IN — every z, every z-normal, and the pocket indices, which the world
+     * reversed when it mirrored itself — and then to what comes OUT: mirroring
+     * reverses the winding, and the bed is fanned off this boundary in order, so
+     * the points are reversed at the end to put it back.
+     *
+     * Same transformation as the cushion chain and the frame's outline, applied
+     * the same way for the same reason. Written once, three times over. */
+    const float h = cue_table_hand(t);
+    const int   np = w->npocket;
+    #define PK(i)   (h < 0.0f ? (np - 1 - (i)) : (i))
+    #define ZN(v)   v3((v).x, 0, (v).z * h)
+    #define ZS(v)   ((v) * h)
+    const int start = B->n;
+    /* each rail's outward normal and the slate line it runs out to */
+    const Vec3 NZ0 = ZN(v3(0,0,-1)), NX1 = v3(1,0,0);
+    const Vec3 NZ1 = ZN(v3(0,0,1)),  NX0 = v3(-1,0,0);
+    const float S_BOT = ZS(-ez);             /* z of the bottom slate edge */
+    const float S_RIGHT =  ex;               /* x of the right slate edge  */
+    const float S_NOTCH_Z = ZS((hw - nz) + m); /* z of the notch's underside */
+    const float S_NOTCH_X = (hl - nx) + m;   /* x of the notch's inner side */
+    const float S_TOP = ZS(ez);
+    const float S_LEFT = -ex;
+    const Vec3 PX = v3(1,0,0), MX = v3(-1,0,0);
+    const Vec3 MZ = ZN(v3(0,0,-1));
+    /* V0: in off the short arm's outer rail, out along the long arm's */
+    scallop_rails(B, w, PK(0), NX0, S_LEFT,    NZ0, S_BOT,      PX);
+    /* the long arm's middle, walking +x */
+    scallop_rails(B, w, PK(1), NZ0, S_BOT,     NZ0, S_BOT,      PX);
+    /* V1: in off that rail, out up the far end */
+    scallop_rails(B, w, PK(2), NZ0, S_BOT,     NX1, S_RIGHT,    PX);
+    /* V2: in off the far end, out along the underside of the notch */
+    scallop_rails(B, w, PK(3), NX1, S_RIGHT,   NZ1, S_NOTCH_Z,  MX);
+    /* ...the elbow, which is timber and not a pocket: the slate just turns */
+    pt_into(B, S_NOTCH_X, S_NOTCH_Z, -1);
+    /* V4: in off the notch's inner rail, out along the short arm's top */
+    scallop_rails(B, w, PK(4), NX1, S_NOTCH_X, NZ1, S_TOP,      MX);
+    /* V5: in off the top, out down the short arm's outer rail */
+    scallop_rails(B, w, PK(5), NZ1, S_TOP,     NX0, S_LEFT,     MZ);
+    /* ...and that rail's middle, walking -z */
+    scallop_rails(B, w, PK(6), NX0, S_LEFT,    NX0, S_LEFT,     MZ);
+    if (h < 0.0f) {
+        for (int i = start, j = B->n - 1; i < j; i++, j--) {
+            Vec3 p = B->p[i]; B->p[i] = B->p[j]; B->p[j] = p;
+            int  k = B->pk[i]; B->pk[i] = B->pk[j]; B->pk[j] = k;
+        }
+    }
+    #undef PK
+    #undef ZN
+    #undef ZS
+}
+
 /* The whole cloth boundary: six cuts, joined by the slate's straight edges.
  * Each cut supplies its own two leg ends, so the "edges" are simply the lines
  * between one cut's exit and the next one's entry, and there is nothing to
@@ -404,6 +547,26 @@ static void scallop_into(CueBnd *B, const CueTable *t, const CueWorld *w, int p,
 static void build_bed_boundary(const CueTable *t, const CueWorld *w, CueBnd *B) {
     float ex, ez; slate_extent(t, w, &ex, &ez);
     B->n = 0;
+
+    /* ---- S1: AN L IS ITS OWN OUTLINE ------------------------------------
+     *
+     * Everything below this assumes a rectangle, in four separate ways: six
+     * named pockets found BY THE SIGN of x and z, `p < 4` meaning corner, each
+     * scallop's legs running out to ±ex/±ez, and the whole thing emitted as
+     * bottom-right-top-left. None of those survives a shape with five corners,
+     * seven pockets and a vertex that turns inward.
+     *
+     * So an L gets its outline drawn plainly: the six vertices, out at the
+     * slate edge, and no scalloped pocket cut-aways. The SHAPE is right, which
+     * is what decides whether the cloth you see is the cloth the balls bounce
+     * off — and being right about that matters far more than the arcs, which
+     * are a detail of how the cloth is cut around each hole.
+     *
+     * Generalising the scallops to an arbitrary outline is real work and it is
+     * S2's, not this item's. Said plainly so nobody reads a square-cornered
+     * pocket as a bug. */
+    if (t->bed_shape == CUE_BED_L) { build_bed_boundary_L(t, w, B, ex, ez); return; }
+
     int BL=-1,BR=-1,TR=-1,TL=-1,MB=-1,MT=-1;
     for (int p = 0; p < w->npocket; p++) {
         Vec3 q = w->pocket[p];
@@ -644,6 +807,20 @@ static void cloth_arc(float cx, float cz, float r, float a0, float a1, float w, 
 }
 /* Baulk line + D (snooker & UK8), the six colour spots (snooker), or the foot
  * spot (US pool). Drawn in the bed layer so balls/cushions/shadows occlude them. */
+/* A spot, and a line across the table, both placed along the SPINE — so on an
+ * L the baulk line lies across the arm it belongs to and the D bulges back down
+ * it, instead of both being drawn across the bounding box and running off the
+ * cloth into the missing corner. On a rectangle cue_table_lay returns exactly
+ * what it is given and these are the calls that were here. */
+static void lay_spot(const CueTable *t, float x, float across, float sr, uint16_t c) {
+    Vec3 p = cue_table_lay(t, x, across, NULL);
+    cloth_disc(p.x, p.z, sr, c);
+}
+static void lay_line(const CueTable *t, float x, float half, float lw, uint16_t c) {
+    Vec3 a = cue_table_lay(t, x, -half, NULL);
+    Vec3 b = cue_table_lay(t, x,  half, NULL);
+    cloth_line(a.x, a.z, b.x, b.z, lw, c);
+}
 static void emit_table_markings(const CueTable *t) {
     uint16_t lc = shade565(t->cloth, 1.65f);     /* lighter cloth line */
     uint16_t sc = RGB565C(220, 220, 205);        /* spot — off-white */
@@ -651,26 +828,38 @@ static void emit_table_markings(const CueTable *t) {
     float lw = R * 0.22f, sr = R * 0.42f;
     if (t->is_snooker || t->kind == CUE_GAME_UK8) {
         float bx = t->baulk_x, dr = t->d_radius;
-        cloth_line(bx, -(hw-R*0.5f), bx, hw-R*0.5f, lw, lc);        /* baulk line */
-        cloth_arc(bx, 0.0f, dr, 1.5707963f, 4.7123890f, lw, lc);   /* the D (bulges to baulk) */
+        lay_line(t, bx, hw - R*0.5f, lw, lc);                       /* baulk line */
+        /* The D, swept in the baulk line's own frame: a half-circle of points
+         * on the baulk side. Drawn as a fan of short chords rather than by
+         * cloth_arc, because on an L the frame is rotated and cloth_arc only
+         * knows about world x and z. */
+        {   const int N = 22;
+            Vec3 prev = cue_table_lay(t, bx, -dr, NULL);
+            for (int i = 1; i <= N; i++) {
+                float a = 3.14159265f * (float)i / (float)N;   /* -dr -> +dr */
+                /* along the spine is NEGATIVE on the baulk side */
+                Vec3 q = cue_table_lay(t, bx - dr * sinf(a),
+                                          -dr * cosf(a), NULL);
+                cloth_line(prev.x, prev.z, q.x, q.z, lw, lc);
+                prev = q;
+            } }
     }
     if (t->is_snooker) {
-        cloth_disc(t->baulk_x,  t->d_radius, sr, sc);   /* yellow */
-        cloth_disc(t->baulk_x, -t->d_radius, sr, sc);   /* green  */
-        cloth_disc(t->baulk_x,  0.0f,        sr, sc);   /* brown  */
-        cloth_disc(t->blue_x,   0.0f,        sr, sc);   /* blue   */
-        cloth_disc(t->pink_x,   0.0f,        sr, sc);   /* pink   */
-        cloth_disc(t->black_x,  0.0f,        sr, sc);   /* black  */
+        lay_spot(t, t->baulk_x,  t->d_radius, sr, sc);   /* yellow */
+        lay_spot(t, t->baulk_x, -t->d_radius, sr, sc);   /* green  */
+        lay_spot(t, t->baulk_x,  0.0f,        sr, sc);   /* brown  */
+        lay_spot(t, t->blue_x,   0.0f,        sr, sc);   /* blue   */
+        lay_spot(t, t->pink_x,   0.0f,        sr, sc);   /* pink   */
+        lay_spot(t, t->black_x,  0.0f,        sr, sc);   /* black  */
     } else {
-        cloth_disc(hl * 0.5f, 0.0f, sr, sc);            /* foot spot (rack apex) */
+        lay_spot(t, hl * 0.5f, 0.0f, sr, sc);            /* foot spot (rack apex) */
         /* US-style tables (US 8/9-ball, Chinese 8-ball) break from behind the
          * head string ("kitchen line") — a line across the bed at -hl/2 with a
          * head spot. UK8 uses the baulk line + D drawn above instead. */
         if (t->kind == CUE_GAME_US8 || t->kind == CUE_GAME_US9 ||
             t->kind == CUE_GAME_CN8) {
-            float hx = -hl * 0.5f;
-            cloth_line(hx, -(hw-R*0.5f), hx, hw-R*0.5f, lw, lc);   /* head string */
-            cloth_disc(hx, 0.0f, sr, sc);                          /* head spot */
+            lay_line(t, -hl * 0.5f, hw - R*0.5f, lw, lc);   /* head string */
+            lay_spot(t, -hl * 0.5f, 0.0f, sr, sc);          /* head spot */
         }
     }
 }
@@ -720,7 +909,13 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         Vec3 a = s_bnd.p[i], b = s_bnd.p[(i + 1) % s_bnd.n];
         tri(v3(0, 0, 0), a, b, t->cloth);
     }
-    emit_table_markings(t);   /* baulk line / D / spots — part of the bed layer */
+    /* The baulk line, the D and the spots, as GEOMETRY — flat quads laid on the
+     * bed. That is the only way the handheld can have them: it has no shader to
+     * paint with. A host that DOES paint them has to turn this off, or the two
+     * are drawn one over the other — which is exactly what CueVR looked like: a
+     * baulk line twice, the painted one tucking under the cushion nose with the
+     * cloth and the quad standing proud of it and stretching in the distance. */
+    if (s_markings) emit_table_markings(t);
     s_bed_ntab = s_ntab;   /* everything after here is raised (cushions/frame/voids) */
 
     /* Cushions from the chain segments: steep cloth playing face up to the
@@ -782,9 +977,40 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
              * own and the piece ends flush, with a slanted end and full depth —
              * which is how a facing is actually cut. */
             const Vec3 nn = sg->n;
-            int zrail = (hw - fabsf(kn.z) < hl - fabsf(kn.x));
-            float target = zrail ? (kn.z > 0 ? hw + cw : -(hw + cw))
-                                 : (kn.x > 0 ? hl + cw : -(hl + cw));
+            /* WHICH LINE THE FACING RUNS OUT TO, taken from the rail it is
+             * attached to rather than from the table's outside dimensions.
+             *
+             * This asked which of hl/hw the knuckle was nearest and then aimed
+             * at that one — which is the same answer on a rectangle, where
+             * every rail IS at ±hl or ±hw, and wrong on any rail that is not.
+             * On an L the two rails around the notch sit at hl−notch_x and
+             * hw−notch_z, so their facings were run out to the bounding rail
+             * instead: a spike of cushion projecting into the empty air past
+             * the end of the table, which is exactly how it drew.
+             *
+             * The knuckle sits ON the nose line, and the nose's inward normal
+             * says which way is out of the table, so the wood inner edge is one
+             * cushion-depth from the knuckle along −normal. No table dimension
+             * involved, and identical to the old answer on every rectangle. */
+            /* ...and the rail's normal is the FIRST STRAIGHT NOSE along the
+             * chain from the shared end, not the immediate neighbour.
+             *
+             * On a mitred table the neighbour IS the nose and the two are the
+             * same thing. On a rounded one the jaw is a run of bezier segments,
+             * all of them facings, so the immediate neighbour is a curve step
+             * whose normal is tilted a few degrees into the pocket — and a
+             * target computed off that lands short of the timber, leaving a
+             * sliver of daylight between the back of the cushion and the wood
+             * at every rounded pocket. Which is exactly what it did. */
+            Vec3 nose_n = sg->n;
+            {   int step = afree ? +1 : -1;
+                for (int k = s + step, hops = 0;
+                     k >= 0 && k < w->nseg && hops < 32; k += step, hops++)
+                    if (w->seg[k].kind == 0) { nose_n = w->seg[k].n; break; }
+            }
+            int zrail = fabsf(nose_n.z) > fabsf(nose_n.x);
+            float target = zrail ? (kn.z - nose_n.z * cw)
+                                 : (kn.x - nose_n.x * cw);
             float md = zrail ? M.z : M.x;
             if (fabsf(md) > 1e-4f) {
                 float tn2 = (target - (zrail ? tp.z : tp.x)) / md;
@@ -833,6 +1059,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * touch inside that (0.78·cw) — the wood reaches the cushion (no gap), the
      * cushion (drawn after, at rail_h) cleanly covers the tiny overlap. */
     const float ibx = hl + cw, ibz = hw + cw;   /* wood inner edge EXACTLY at the cushion back */
+    const float nx = t->notch_x, nz = t->notch_z;   /* zero unless the bed is an L */
     /* Raise the wood top a hair above the flat cushion so the frame OVERLAPS and
      * hides the cushion back that now tucks under it (jaw_back runs the cushion
      * past the inner edge). A short inner riser closes the step down to rail_h. */
@@ -844,10 +1071,13 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * pocket's outward normal — see CueTable.bore_corner. Both default to
          * "the mouth, concentric", which is what this was before they were
          * fields. */
-        float bs = (p < 4) ? t->bore_set_corner : t->bore_set_side;
+        /* pocket_mid, not `p < 4`: on an L the fifth pocket is still a corner,
+         * and boring it as a middle cuts the wrong hole in the timber. */
+        int is_mid = w->pocket_mid[p];
+        float bs = is_mid ? t->bore_set_side : t->bore_set_corner;
         hx[p] = w->pocket[p].x + w->pmnorm[p].x * bs;
         hz[p] = w->pocket[p].z + w->pmnorm[p].z * bs;
-        hr[p] = (p < 4) ? t->bore_corner : t->bore_side;
+        hr[p] = is_mid ? t->bore_side : t->bore_corner;
     }
     int nh = w->npocket;
     uint16_t wbore = shade565(woodt, 0.42f);   /* internal bore wall (in shadow) */
@@ -858,6 +1088,47 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * pockets). rail_h is passed as the riser bottom. */
     uint16_t wlip = shade565(woodt, 0.80f);
     s_mat = CUE_MAT_WOOD;          /* everything from here down is timber */
+    if (t->bed_shape == CUE_BED_L) {
+        /* SIX PLANKS AND A SIX-SIDED SKIRT, because the woodwork is the shape
+         * of the table and not the shape of its bounding box.
+         *
+         * With four planks the frame ran on past the notch — timber floating
+         * out where there is no table — and there was none at all behind the
+         * notch's own two rails, so those cushions backed onto nothing and the
+         * missing corner read as a hole punched in a rectangular table rather
+         * than as a table with a corner that is simply not there.
+         *
+         * The notch's rails face +x and +z, so their timber sits at LARGER x
+         * and z than the cushion — inside the notch, between the cloth and the
+         * empty air. */
+        /* ...and it is the shape of THIS table, which may turn either way. Every
+         * z below is multiplied by the hand, so the six planks and the six-sided
+         * skirt mirror with the cloth they back onto. A plank whose two z bounds
+         * come out the wrong way round is empty rather than inside out, so they
+         * are ordered as well as mirrored. */
+        const float h = cue_table_hand(t);
+        #define ZH(v) ((v) * h)
+        #define ZLO(a,b) (ZH(a) < ZH(b) ? ZH(a) : ZH(b))
+        #define ZHI(a,b) (ZH(a) < ZH(b) ? ZH(b) : ZH(a))
+        const float nxi = (hl - nx) + cw, nxo = (hl - nx) + fw;  /* notch's inner rail */
+        const float nzi = (hw - nz) + cw, nzo = (hw - nz) + fw;  /* notch's underside */
+        wood_plank_bored(-ox,  ox, ZLO(-oz,-ibz), ZHI(-oz,-ibz), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 0, rail_h, wlip); /* bottom */
+        wood_plank_bored( ibx, ox, ZLO(-oz, nzo), ZHI(-oz, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, rail_h, wlip); /* right, up to the notch */
+        wood_plank_bored( nxi, ox, ZLO(nzi, nzo), ZHI(nzi, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, rail_h, wlip); /* under the notch */
+        wood_plank_bored( nxi, nxo, ZLO(nzi, oz), ZHI(nzi, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, rail_h, wlip); /* beside the notch */
+        wood_plank_bored(-ox,  nxo, ZLO(ibz, oz), ZHI(ibz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, rail_h, wlip); /* top, short leg */
+        wood_plank_bored(-ox, -ibx, ZLO(-oz, oz), ZHI(-oz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 0, rail_h, wlip); /* left */
+        /* the skirt, round the same six sides */
+        quad(v3( ox,plank_y,ZH(-oz)), v3(-ox,plank_y,ZH(-oz)), v3(-ox,0,ZH(-oz)), v3( ox,0,ZH(-oz)), wood);
+        quad(v3( ox,plank_y,ZH(nzo)), v3( ox,plank_y,ZH(-oz)), v3( ox,0,ZH(-oz)), v3( ox,0,ZH(nzo)), wood);
+        quad(v3(nxo,plank_y,ZH(nzo)), v3( ox,plank_y,ZH(nzo)), v3( ox,0,ZH(nzo)), v3(nxo,0,ZH(nzo)), wood);
+        quad(v3(nxo,plank_y,ZH( oz)), v3(nxo,plank_y,ZH(nzo)), v3(nxo,0,ZH(nzo)), v3(nxo,0,ZH( oz)), wood);
+        quad(v3(-ox,plank_y,ZH( oz)), v3(nxo,plank_y,ZH( oz)), v3(nxo,0,ZH( oz)), v3(-ox,0,ZH( oz)), wood);
+        quad(v3(-ox,plank_y,ZH(-oz)), v3(-ox,plank_y,ZH( oz)), v3(-ox,0,ZH( oz)), v3(-ox,0,ZH(-oz)), wood);
+        #undef ZH
+        #undef ZLO
+        #undef ZHI
+    } else {
     wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, rail_h, wlip); /* +z */
     wood_plank_bored(-ox, ox, -oz, -ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 0, rail_h, wlip); /* -z */
     wood_plank_bored(ibx, ox, -ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, rail_h, wlip); /* +x */
@@ -866,6 +1137,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     quad(v3(ox,plank_y,-oz), v3(-ox,plank_y,-oz), v3(-ox,0,-oz), v3(ox,0,-oz), wood);
     quad(v3(ox,plank_y,oz), v3(ox,plank_y,-oz), v3(ox,0,-oz), v3(ox,0,oz), wood);
     quad(v3(-ox,plank_y,-oz), v3(-ox,plank_y,oz), v3(-ox,0,oz), v3(-ox,0,-oz), wood);
+    }
 
     /* Pockets = circular VOIDS you look down into. The bed is already cut at
      * the mouth, so a downward cone gives the recess. The OUTWARD half of each
@@ -928,6 +1200,8 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         }
     }
 }
+
+void cue_render_set_markings(int on) { s_markings = on ? 1 : 0; }
 
 int cue_render_table_tris(const CueTri **out, int *bed, int *lip) {
     if (out) *out = s_tab;
@@ -1181,7 +1455,16 @@ void cue_render_build(const CueView *v, const CueBall *balls, int n,
 /* ---- ball sets --------------------------------------------------------- */
 /* 0 = PRO (per-number coloured solids/stripes), 1 = UK yellow/blue solids,
  * 2 = UK yellow/red solids, 3 = US "dyna" (yellow solids / maroon stripes). */
-void cue_render_set_ball_set(int s) { s_ball_set = (s < 0 || s > 7) ? 0 : s; }
+void cue_render_set_ball_set(int s) {
+    /* Against the COUNT, not a literal. This was `> 7` and stayed `> 7` when a
+     * ninth set was added, so selecting it silently gave you the first one —
+     * the menu said PYRAMID and the balls stayed numbered pool balls. */
+    s_ball_set = (s < 0 || s >= cue_render_ballset_count()) ? 0 : s;
+    /* Picking an authored set puts a built one away. Without this the picker
+     * would appear to do nothing at all once a custom set was installed — the
+     * name in the menu would change and every ball on the table would not. */
+    cue_render_set_ballset_custom(NULL);
+}
 
 /* the standard pro per-number hues for ids 1..7 (9..15 reuse 1..7's hue) */
 static const uint16_t k_prohue[8] = {
@@ -1236,15 +1519,22 @@ static const uint16_t k_vintagehue[8] = {
  *   eight  the black -- its own field because one set makes it grey
  *   band   a flat stripe colour, where the stripe is not the ball's own hue
  *   half   the band's half-width as a fraction of the ball */
-typedef struct {
-    const char *name;
-    const uint16_t *hue;
-    uint16_t lo, hi, pole, eight, band;
-    unsigned char striped, numbered, spokes;
-    float half;
-} CueBallSet;
+/* CueBallSet itself now lives in cue_render.h — a designer has to be able to
+ * hold one, and it cannot do that if the type is private to this file. */
 
-static const CueBallSet k_ballsets[8] = {
+/* Russian pyramid's set: fifteen PLAIN IVORY balls and a coloured cue ball. No
+ * numbers, no stripes, no black — the balls are interchangeable, which is why
+ * the rack lays them out in id order and nothing ever reads an id. It is here as
+ * an authored set rather than a special case in the shader because that is what
+ * a ball set IS since F3, and because a player who wants to break UK 8-ball off
+ * with ivories should be able to. */
+static const uint16_t k_ivoryhue[8] = {
+    0, RGB565C(238,232,214), RGB565C(238,232,214), RGB565C(238,232,214),
+       RGB565C(238,232,214), RGB565C(238,232,214), RGB565C(238,232,214),
+       RGB565C(238,232,214),
+};
+
+static const CueBallSet k_ballsets[9] = {
   /* 0 */ { "PRO",        k_prohue,     0, 0, BALL_WHITE, BALL_BLACK, 0,
             1, 1, 0, 0.42f },
   /* 1 */ { "UK YELLOW/BLUE", k_prohue, BALL_YELLOW, BALL_BLUE, 0, BALL_BLACK, 0,
@@ -1261,16 +1551,56 @@ static const CueBallSet k_ballsets[8] = {
             1, 1, 0, 0.42f },
   /* 7 */ { "VINTAGE",    k_vintagehue, 0, 0, BALL_CREAM, BALL_BLACK, 0,
             1, 1, 0, 0.42f },
+  /* 8 */ { "PYRAMID",    k_ivoryhue,   RGB565C(238,232,214), RGB565C(238,232,214),
+            0, RGB565C(238,232,214), 0, 0, 0, 0, 0.42f },
 };
 
+/* THE SET THE PLAYER BUILT, if there is one. Held by value, and the palette
+ * and the name held by value beside it: the caller's CueBallSet is a stack
+ * struct pointing at the caller's own array, and both are gone the moment the
+ * designer screen returns. Copying is the whole of what makes this safe. */
+static CueBallSet s_cust;
+static uint16_t   s_cust_hue[8];
+static char       s_cust_name[24];
+static int        s_cust_on;
+
 static const CueBallSet *bset(void) {
-    int i = (s_ball_set < 0 || s_ball_set > 7) ? 0 : s_ball_set;
+    if (s_cust_on) return &s_cust;
+    int i = (s_ball_set < 0 || s_ball_set > 8) ? 0 : s_ball_set;
     return &k_ballsets[i];
 }
-int         cue_render_ballset_count(void) { return 8; }
+int cue_render_ballset_count(void);   /* below; used by the setter's clamp */
+
+/* WHICH SET IS SELECTED, for a host that CACHES the ball surface. CueVR bakes
+ * ball_sample() into an atlas once per table, so it has to know when the answer
+ * has changed under it — and "the app told mote, so the app knows" is not true
+ * when the app is also told by a menu, a preference load and a game kind. */
+int cue_render_ball_set(void) { return s_cust_on ? -1 : s_ball_set; }
+
+int         cue_render_ballset_count(void) { return 9; }
 const char *cue_render_ballset_name(int i) {
-    return (i >= 0 && i < 8) ? k_ballsets[i].name : "";
+    return (i >= 0 && i < 9) ? k_ballsets[i].name : "";
 }
+
+int cue_render_ballset_get(int i, CueBallSet *out) {
+    if (!out || i < 0 || i >= 9) return 0;
+    *out = k_ballsets[i];
+    return 1;
+}
+
+void cue_render_set_ballset_custom(const CueBallSet *bs) {
+    if (!bs) { s_cust_on = 0; return; }
+    s_cust = *bs;
+    if (bs->hue) for (int k = 0; k < 8; k++) s_cust_hue[k] = bs->hue[k];
+    else         for (int k = 0; k < 8; k++) s_cust_hue[k] = k_prohue[k];
+    s_cust.hue = s_cust_hue;
+    if (bs->name) { size_t n = 0; while (n + 1 < sizeof s_cust_name && bs->name[n]) { s_cust_name[n] = bs->name[n]; n++; } s_cust_name[n] = 0; }
+    else s_cust_name[0] = 0;
+    s_cust.name = s_cust_name;
+    s_cust_on = 1;
+}
+
+int cue_render_ballset_is_custom(void) { return s_cust_on; }
 
 /* ---- ball texture ------------------------------------------------------ */
 static uint16_t ball_base(uint8_t id) {
@@ -1766,7 +2096,7 @@ void cue_render_spin_ball(uint16_t *fb, int cx, int cy, int rad,
 void cue_render_set_preview(uint16_t *fb, int cx, int cy, int rad,
                             int ballset, int snooker) {
     int sb = s_ball_set, ss = s_is_snooker;
-    s_ball_set = (ballset < 0 || ballset > 7) ? 0 : ballset;
+    s_ball_set = (ballset < 0 || ballset >= cue_render_ballset_count()) ? 0 : ballset;
     s_is_snooker = snooker;
     /* A small 6-ball triangle rack (rows of 1/2/3). Mixed solids + stripes so
      * each set reads clearly, with the BLACK (8) in the centre of the base row

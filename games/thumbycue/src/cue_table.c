@@ -53,7 +53,8 @@
  * 0.818 across normal play and Marlow's 0.55 for a hard one. */
 static void cue_table_rails(CueTable *t, CueGameKind kind) {
     switch (kind) {
-    case CUE_GAME_US8: case CUE_GAME_US9:      /* K-66, worsted: the lively one */
+    case CUE_GAME_US8: case CUE_GAME_US9:
+    case CUE_GAME_STRAIGHT:                    /* K-66, worsted: the lively one */
         t->e_cush = 0.985f; t->cush_efall = 0.046f; break;
     case CUE_GAME_UK8:                          /* championship English, Northern rubber */
         t->e_cush = 0.965f; t->cush_efall = 0.052f; break;
@@ -151,9 +152,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
             t->black_x = t->half_len - 0.135f;          /* ~scaled from full table */
             t->nballs  = 13;                            /* cue + 6 reds + 6 colours */
         }
-    } else if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9) {
+    } else if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 ||
+               kind == CUE_GAME_STRAIGHT) {
         /* 9 ft US table: 2.54 × 1.27 m, 2.25" balls, ANGLED straight-mitre
-         * pockets (sharp points, more open than UK). */
+         * pockets (sharp points, more open than UK). Straight pool is played on
+         * this same bed with the same fifteen balls — 14.1 is a rules game, not
+         * a table game, which is why it costs a rack function and a resolver
+         * and no geometry at all. */
         t->half_len = 2.54f * 0.5f;
         t->half_wid = 1.27f * 0.5f;
         t->R = 0.028575f; t->mass = 0.170f;
@@ -205,6 +210,62 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->rail = RGB565C(78, 48, 28); t->rail_top = RGB565C(112, 70, 36);
         t->spot = RGB565C(180, 180, 180);
         t->nballs = 16;
+    } else if (kind == CUE_GAME_PYRAMID) {
+        /* G2 — RUSSIAN PYRAMID. A 12 ft bed and 68 mm balls, into pockets barely
+         * wider than the ball: the official corner opening is 72-74 mm against a
+         * 68 mm ball, so a pot has about two millimetres to spare on each side.
+         * That is the whole character of the game, and it is why this is mostly
+         * a table-parameters exercise rather than a rules one — the numbers the
+         * workshop's bore, setback and drop-cap rows exist for are the numbers
+         * that decide whether a pot is possible at all here.
+         *
+         * The bed is the 12 ft snooker bed, because it is: 3.55 x 1.78 m. What
+         * differs is the ball, the mouths and the cloth. */
+        t->half_len = 3.550f * 0.5f;
+        t->half_wid = 1.775f * 0.5f;
+        t->R = 0.0340f; t->mass = 0.285f;     /* 68 mm, and heavy with it */
+        t->cushion_h = 1.20f * t->R; t->rail_w = 0.085f;
+        /* MITRED, not rounded. The federation's specification gives the openings
+         * to the millimetre and says nothing about the jaw profile, but every
+         * description of a Russian table calls the губки — the lips — SHARP,
+         * and sharp is what a straight-cut facing is and what a snooker table's
+         * rounded knuckle is precisely not. It is a workshop row either way, so
+         * a player who disagrees can have the other one in two presses.
+         *
+         * Sources: ru.wikipedia "Пирамида (бильярд)" for the dimensions, which
+         * are quoted in the numbers below. */
+        t->pocket_round = 0;
+        /* 72-73 mm at the corner and 82-83 mm in the middle, on a 68 mm ball —
+         * so the corner has THREE MILLIMETRES of slack in total. Every other
+         * table here is between 1.8 and 2.0 R at the mouth; this one is 1.07,
+         * and it is the reason cue_table_validate checks a mouth against the
+         * ball at all.
+         *
+         * The middle is WIDER than the corner, which is the other way round
+         * from every other table in the file and was got backwards first time:
+         * on a pool or snooker table the middle is the tighter of the two
+         * because a ball arrives at it square. */
+        t->pr_corner  = 0.03650f; t->pr_side  = 0.04125f;   /* 73 and 82.5 mm */
+        t->gap_corner = 2.20f * t->R;  t->gap_side = 2.60f * t->R;
+        t->facing_len = 1.30f * t->R;
+        /* A narrow splay is what makes the throat unforgiving: the facings run
+         * close to the rail line rather than opening out into a funnel. */
+        t->ang_corner = 40.0f; t->ang_side = 65.0f;
+        t->off_corner = 0.85f * t->R; t->off_side = 0.70f * t->R;
+        t->cap_corner = 0.0f;         t->cap_side = 0.0f;
+        t->drop_back  = 0.30f * t->R; t->drop_back_side = 0.45f * t->R;
+        t->jaw_r = 0.010f;
+        /* THE HOUSE, which is what a pyramid table has instead of a D: a line
+         * across the baulk end with the cue ball played from behind it. Carried
+         * in baulk_x + d_radius because that is the pair every renderer and the
+         * placement clamp already read, and a house IS a D as far as both are
+         * concerned — a region behind a line that the cue ball starts in. */
+        t->baulk_x  = -t->half_len + 0.730f;
+        t->d_radius =  0.290f;
+        t->cloth = RGB565C(20, 105, 60);
+        t->rail = RGB565C(70, 42, 24); t->rail_top = RGB565C(100, 60, 32);
+        t->spot = RGB565C(200, 200, 200);
+        t->nballs = 16;                       /* the white and fifteen */
     } else {
         /* Snooker — SNK10 (10 ft, 10 reds) or SNK15 (12 ft, 15 reds). Curved
          * jaws. Layout offsets scale with table length off the 12 ft master. */
@@ -249,7 +310,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
      * for the cross-bed line — leave it zero and the line is drawn down the
      * middle of the table, which is exactly what CueVR was doing. d_radius stays
      * zero: an American table has a head string and no D. */
-    if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 || kind == CUE_GAME_CN8)
+    if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 || kind == CUE_GAME_CN8 ||
+        kind == CUE_GAME_STRAIGHT)
         t->baulk_x = -t->half_len * 0.5f;
 
     /* THE HOLE IN THE TIMBER, dialled per table in tools/pocketbench.
@@ -272,7 +334,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     t->bore_set_corner = 0.0f;
     t->bore_set_side   = 0.0f;
     switch (kind) {
-    case CUE_GAME_US8: case CUE_GAME_US9:
+    case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_STRAIGHT:
         t->bore_corner = 1.8900f * t->R; t->bore_side = 1.7600f * t->R;
         t->bore_set_corner = 0.0000f * t->R; t->bore_set_side = 0.0000f * t->R;
         break;
@@ -331,15 +393,33 @@ static const CueTabField TAB_FIELDS[] = {
     TF(is_snooker,      TF_I32, TF_SIM,  0.0f, 1.0f),
     TF(reds,            TF_I32, TF_SIM,  0.0f, 15.0f),
     /* The bed. At least a metre of play, at most a 12 ft snooker table with a
-     * little room to grow. */
+     * little room to grow — and the WIDTH now reaches as far as the length,
+     * because a square bed is the shape an L-shaped table wants and the old
+     * ceiling of 1.10 m refused it outright on anything bigger than a 9 ft.
+     * Nothing here says a table has to be longer than it is wide; that was a
+     * range picked from the tables that existed. */
     TF(half_len,        TF_F32, TF_SIM,  0.40f, 2.00f),
-    TF(half_wid,        TF_F32, TF_SIM,  0.20f, 1.10f),
-    /* The set. 34 mm is a Russian pyramid ball, 24 mm a small snooker one. */
-    TF(R,               TF_F32, TF_SIM,  0.018f, 0.040f),
-    TF(mass,            TF_F32, TF_SIM,  0.050f, 0.400f),
+    TF(half_wid,        TF_F32, TF_SIM,  0.20f, 2.00f),
+    /* F2: the bed's shape. SIM, obviously — it is the wall a ball bounces off.
+     * The notch is bounded by the bed itself and validated against it below,
+     * because a bite deeper than the table is not a shape. */
+    TF(bed_shape,       TF_I32, TF_SIM,  0.0f, 1.0f),
+    /* SIM: which way the L turns is the wall a ball bounces off. */
+    TF(bed_hand,        TF_I32, TF_SIM,  0.0f, 1.0f),
+    TF(notch_x,         TF_F32, TF_SIM,  0.0f, 3.20f),
+    TF(notch_z,         TF_F32, TF_SIM,  0.0f, 3.20f),
+    /* The set. 34 mm is a Russian pyramid ball and 24 mm a small snooker one,
+     * and those were the whole range — every ball anybody actually plays with
+     * and nothing else. The workshop exists for the table nobody plays on, so
+     * this reaches from 20 mm to 160 mm across. It stays honest because the
+     * checks below are the real constraint: a ball that will not pass the
+     * pockets, or that leaves no room to rack, is refused with a reason
+     * whatever this range allows. */
+    TF(R,               TF_F32, TF_SIM,  0.010f, 0.080f),
+    TF(mass,            TF_F32, TF_SIM,  0.010f, 2.000f),
     /* Zero is legal and means "the same as the rest" — see CueTable. */
-    TF(cue_R,           TF_F32, TF_SIM,  0.000f, 0.040f),
-    TF(cue_mass,        TF_F32, TF_SIM,  0.000f, 0.400f),
+    TF(cue_R,           TF_F32, TF_SIM,  0.000f, 0.080f),
+    TF(cue_mass,        TF_F32, TF_SIM,  0.000f, 2.000f),
     TF(cushion_h,       TF_F32, TF_SIM,  0.010f, 0.060f),
     TF(rail_w,          TF_F32, TF_SIM,  0.020f, 0.200f),
     TF(pocket_round,    TF_I32, TF_SIM,  0.0f, 1.0f),
@@ -506,6 +586,34 @@ int cue_table_validate(const CueTable *t, char *msg, int msgcap) {
     if (t->half_wid < big * 4.0f)
         return tab_fail(msg, msgcap, "the bed is too narrow for the balls on it");
 
+    /* F2: AND THE SHAPE HAS TO BE A SHAPE.
+     *
+     * The notch is two individually sensible numbers that together make
+     * nonsense far more easily than any pocket dimension does — a bite as deep
+     * as the table leaves no table, and one a ball's width from an edge leaves
+     * a channel nothing can be played down. Both look perfectly reasonable in
+     * their own row, which is exactly the class of fault this section is for. */
+    if (t->bed_shape == CUE_BED_L) {
+        if (t->notch_x <= 0.0f || t->notch_z <= 0.0f)
+            return tab_fail(msg, msgcap, "an L-shaped bed needs a notch with two sides");
+        /* What is left of the short leg, and of the arm beside it. Four balls
+         * wide is the same floor the whole bed is held to above — a leg
+         * narrower than that is not a leg, it is a gutter. */
+        float leg_x = 2.0f * t->half_len - t->notch_x;   /* the band below */
+        float leg_z = 2.0f * t->half_wid - t->notch_z;   /* the column beside */
+        if (leg_z < big * 8.0f)
+            return tab_fail(msg, msgcap, "the notch is so deep the long arm is a gutter");
+        if (leg_x < big * 8.0f)
+            return tab_fail(msg, msgcap, "the notch is so wide the short arm is a gutter");
+        /* And the notch has to take a bite worth having. A sliver is a
+         * rectangle with a defect in it, and it puts two cushions and a reflex
+         * corner within a ball of each other. */
+        if (t->notch_x < big * 4.0f || t->notch_z < big * 4.0f)
+            return tab_fail(msg, msgcap, "the notch is too small to be a corner");
+    } else if (t->notch_x != 0.0f || t->notch_z != 0.0f) {
+        return tab_fail(msg, msgcap, "a rectangular bed cannot have a notch");
+    }
+
     /* A pocket has to admit a ball, and so does the DROP — they are different
      * radii and the drop is the smaller. This is the check the workshop exists
      * for: one thumbstick movement can express a pocket a ball will not fit. */
@@ -569,11 +677,12 @@ static void add_jaw(CueWorld *w, Vec3 k) {
     if (w->njaw >= CUE_MAX_SEG) return;
     w->jaw[w->njaw++] = v3(k.x, w->R, k.z);
 }
-static void add_pocket(CueWorld *w, float x, float z, float cap) {
+static void add_pocket(CueWorld *w, float x, float z, float cap, int mid) {
     if (w->npocket >= CUE_MAX_POCKET) return;
     int i = w->npocket++;
     w->pocket[i] = v3(x, 0, z);
     w->pocket_r[i] = cap;
+    w->pocket_mid[i] = (unsigned char)(mid ? 1 : 0);
 }
 
 /* Straight cushion chain (US pool): facing-tip → knuckle → knuckle →
@@ -594,6 +703,312 @@ static void add_chain(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4) {
     Vec3 nin = inward_n(P2.x, P2.z, P3.x, P3.z);   /* nose inward normal */
     add_jaw_recessed(w, P2, nin);
     add_jaw_recessed(w, P3, nin);
+}
+
+/* THE REFLEX CORNER AS A RADIUS RATHER THAN A POINT.
+ *
+ * The elbow was two cushions meeting at a right angle with a rattle circle
+ * dropped on the vertex to stop a ball squeezing through the join. That circle
+ * does the physics and nothing else: the DRAWN corner is still a knife edge, and
+ * a knife edge is not a thing a table can have — every real inside corner is a
+ * radius, because that is what a cushion rubber will bend to and what the timber
+ * behind it is cut to.
+ *
+ * So the corner is rounded in the geometry, like the jaw-to-rail junctions above
+ * and for the same reason: a normal is not a silhouette, and in a headset you
+ * are looking straight down the rail at a lit edge.
+ *
+ * The arc is tangent to both faces, which fixes its centre completely — one
+ * radius along each face's outward normal from the vertex, the only point a
+ * circle of radius r can sit and touch both. Nothing here knows which corner of
+ * which shape it is; it is given two normals and it turns between them, so the
+ * next shape's reflex corners need no new code.
+ *
+ * It gives a sliver of cloth BACK at the elbow, about 0.4 r deep at the deepest,
+ * which cue_table_bed_rects still calls off-bed. That is fine and deliberately
+ * not chased: 0.4 r is smaller than a ball's radius, so no ball's CENTRE can
+ * ever be in the sliver, and the centre is what the containment test is asked
+ * about. */
+static void add_elbow(CueWorld *w, Vec3 v, Vec3 na, Vec3 nb, float r) {
+    if (r <= 1e-5f) { add_jaw(w, v); return; }
+    const Vec3 c  = v3(v.x + (na.x + nb.x) * r, 0, v.z + (na.z + nb.z) * r);
+    const Vec3 a0 = v3(c.x - na.x * r, 0, c.z - na.z * r);
+    const Vec3 a1 = v3(c.x - nb.x * r, 0, c.z - nb.z * r);
+    float s0 = atan2f(a0.z - c.z, a0.x - c.x);
+    float s1 = atan2f(a1.z - c.z, a1.x - c.x);
+    float d  = s1 - s0;                          /* the short way round */
+    while (d >  3.14159265f) d -= 6.28318531f;
+    while (d < -3.14159265f) d += 6.28318531f;
+    int n = CUE_JAW_SEGS;
+    if (n < 3) n = 3;
+    Vec3 prev = a0;
+    for (int i = 1; i <= n; i++) {
+        float a = s0 + d * (float)i / (float)n;
+        Vec3 p = v3(c.x + r * cosf(a), 0, c.z + r * sinf(a));
+        /* kind 1, so the vertex smoothing averages ALONG the arc and leaves the
+         * junctions with the two straight noses crisp — the same rule the bezier
+         * jaws are built under. */
+        add_seg(w, prev, p, 1);
+        prev = p;
+    }
+}
+
+/* The rounded jaw, built below with the rest of the bezier machinery. The L
+ * needs it and is written above it, because the L's own commentary belongs
+ * beside add_run. */
+static void add_curved_chain_e(CueWorld *w, Vec3 tipIn, Vec3 kIn, Vec3 kMid,
+                               Vec3 tipMid, float aIn, float aOut,
+                               int nIn, int nOut, int jawIn, int jawMid);
+static void jaw_tip(const CueWorld *w, Vec3 k, Vec3 u, Vec3 out, int mid,
+                    Vec3 *tip, float *arc);
+
+/* ---- S1: THE L-SHAPED BED ------------------------------------------------
+ *
+ * An L is six vertices: five that turn the way every cushion here has ever
+ * turned, and ONE THAT TURNS THE OTHER WAY — the reflex corner, pointing into
+ * the playing area. That vertex is the whole difficulty of the shape.
+ *
+ * Two things go wrong there and both are handled below rather than hoped about.
+ *
+ * The vertex-averaged normals that keep the chain smooth are meaningless across
+ * a 270 degree turn: averaging the two faces gives a normal pointing into the
+ * timber, and a ball arriving on it is pushed the wrong side of the wall. The
+ * existing smoothing already refuses to average across a sharp corner — the
+ * SMOOTH_COS test — and the reflex corner is a right angle, so it is refused by
+ * the same rule that refuses a US mitre. It is worth saying explicitly because
+ * it is the one place where that guard is load-bearing rather than tidy.
+ *
+ * And a knife-edge corner is not a thing a table can have. A real one is a
+ * rounded nose, and the engine already has exactly that in the jaw circle — an
+ * immovable circle a ball rebounds from. One at the reflex vertex gives the
+ * corner a radius, stops a ball squeezing through the join between the two
+ * segments, and is what the woodwork would actually look like.
+ *
+ * The pockets are cut the way the TABLE'S OWN pocket_round says — a mitre on an
+ * American bed, a bezier knuckle on a UK or snooker one. These were mitred
+ * either way at first, on the reasoning that an L is a novelty and the mitre is
+ * the simpler jaw. That is a difference you can SEE, because cue_render cuts the
+ * timber behind a pocket to the jaw it is given: a straight facing leaving the
+ * knuckle at ang_side does not arrive where a rounded pocket back is, so there
+ * is a slot beside the cushion at every pocket on a UK L — which is exactly what
+ * it was reported as. The reflex corner needs none of that machinery: it has no
+ * pocket, so it has no jaw and no rattle circle, and add_curved_chain_e takes
+ * that as an end treatment rather than having it worked around. */
+
+/* One straight rail, from `a` to `b`, with an end treatment at each end.
+ * `out` is the outward unit normal — away from the cloth. */
+enum { LEND_CORNER = 0, LEND_MIDDLE = 1, LEND_REFLEX = 2 };
+
+static void add_run(CueWorld *w, const CueTable *t, Vec3 a, Vec3 b, Vec3 out,
+                    int end_a, int end_b) {
+    float dx = b.x - a.x, dz = b.z - a.z;
+    float len = sqrtf(dx*dx + dz*dz);
+    if (len < 1e-5f) return;
+    Vec3 d = v3(dx/len, 0, dz/len);
+    const float sl = t->facing_len;
+    const float ga = (end_a == LEND_REFLEX) ? 0.0f
+                   : (end_a == LEND_MIDDLE) ? t->gap_side : t->gap_corner;
+    const float gb = (end_b == LEND_REFLEX) ? 0.0f
+                   : (end_b == LEND_MIDDLE) ? t->gap_side : t->gap_corner;
+    /* A gap at each end has to leave a nose between them. Two pockets closer
+     * together than their own mouths is a rail that does not exist, and it
+     * would be emitted as a segment pointing backwards — an inward normal
+     * facing out, and a cushion that sucks balls through it. */
+    if (ga + gb >= len - 1e-4f) return;
+
+    Vec3 P2 = v3(a.x + d.x*ga, 0, a.z + d.z*ga);
+    Vec3 P3 = v3(b.x - d.x*gb, 0, b.z - d.z*gb);
+    Vec3 nin = inward_n(P2.x, P2.z, P3.x, P3.z);
+
+    /* A ROUNDED TABLE GETS ROUNDED JAWS HERE TOO.
+     *
+     * This used to mitre the L's pockets straight whatever pocket_round said,
+     * which was written down as a deliberate simplification and is the reported
+     * fault: on a UK table — the one the L is actually played on — every other
+     * pocket on every other table is a bezier knuckle, and cue_render cuts the
+     * timber behind a pocket to match the jaw it is given. A straight facing
+     * leaving the knuckle at ang_side does not arrive where a rounded pocket
+     * back is, so there is a slot beside the cushion. Same jaw, same numbers,
+     * same code path as the six rails a rectangle is built from. */
+    if (t->pocket_round) {
+        Vec3 T1 = P2, T4 = P3;
+        float aIn = 0.6f, aOut = 0.6f;
+        int nIn = 0, nOut = 0;
+        if (end_a != LEND_REFLEX) {
+            /* `d` runs a → b, so into the rail from this end */
+            jaw_tip(w, P2, d, out, end_a == LEND_MIDDLE, &T1, &aIn);
+            nIn = CUE_JAW_SEGS;
+        }
+        if (end_b != LEND_REFLEX) {
+            jaw_tip(w, P3, v3(-d.x, 0, -d.z), out, end_b == LEND_MIDDLE, &T4, &aOut);
+            nOut = CUE_JAW_SEGS;
+        }
+        add_curved_chain_e(w, T1, P2, P3, T4, aIn, aOut, nIn, nOut,
+                           end_a != LEND_REFLEX, end_b != LEND_REFLEX);
+        return;
+    }
+
+    /* IN BOUNDARY ORDER — facing, nose, facing — and it has to be.
+     *
+     * The renderer works out which cushion pieces are joined by testing whether
+     * one segment's b is the next segment's a, walking the array in order. It
+     * is not a search: it looks at s-1 and s+1 and nothing else. Emitting the
+     * nose first and then its two facings, which is the order that reads
+     * naturally here, leaves every facing looking FREE AT BOTH ENDS — so each
+     * one was run out to the rail on an assumption about which end was the
+     * knuckle that was simply wrong, and none of them shared vertices with the
+     * nose it belongs to. That is the wedge of cushion hanging below the timber
+     * at each pocket. add_chain has always emitted in this order; this is the
+     * same contract, and it is a contract rather than a preference. */
+    if (end_a != LEND_REFLEX) {
+        float ang = (end_a == LEND_MIDDLE) ? t->ang_side : t->ang_corner;
+        float c = cosf(ang*DEG), s = sinf(ang*DEG);
+        Vec3 P1 = v3(P2.x - d.x*(c*sl) + out.x*(s*sl), 0,
+                     P2.z - d.z*(c*sl) + out.z*(s*sl));
+        add_seg(w, P1, P2, 1);
+    }
+    add_seg(w, P2, P3, 0);                       /* the nose */
+    if (end_b != LEND_REFLEX) {
+        float ang = (end_b == LEND_MIDDLE) ? t->ang_side : t->ang_corner;
+        float c = cosf(ang*DEG), s = sinf(ang*DEG);
+        Vec3 P4 = v3(P3.x + d.x*(c*sl) + out.x*(s*sl), 0,
+                     P3.z + d.z*(c*sl) + out.z*(s*sl));
+        add_seg(w, P3, P4, 1);
+    }
+    /* the jaw circles after, so they do not interleave with the chain */
+    if (end_a != LEND_REFLEX) add_jaw_recessed(w, P2, nin);
+    if (end_b != LEND_REFLEX) add_jaw_recessed(w, P3, nin);
+}
+
+/* The whole L: six vertices, seven pockets, and a jaw circle on the reflex. */
+/* A LEFT-HANDED L IS THE MIRROR IMAGE OF A RIGHT-HANDED ONE, so it is built as
+ * one and reflected, rather than written out a second time with the signs
+ * changed. Every L-shaped bug in this file has been a fact about the shape
+ * hidden in a coordinate sign; a second copy of the outline would be eleven more
+ * places for the sixth one to hide.
+ *
+ * Mirroring z REVERSES the winding, and the winding is what makes every inward
+ * normal point at the cloth — so the chain is walked backwards as well, which
+ * puts it back. Each segment therefore swaps its own two ends, and the array is
+ * reversed so that seg[s-1].b is still seg[s].a: the renderer finds its
+ * neighbours by walking the array in order and nothing else. The pockets are
+ * reversed for the same reason — build_bed_boundary_L takes them in the order
+ * the boundary meets them.
+ *
+ * The jaw circles need only their z: a circle has no winding. */
+static void mirror_world_z(CueWorld *w) {
+    for (int i = 0, j = w->nseg - 1; i < j; i++, j--) {
+        CueSeg s = w->seg[i]; w->seg[i] = w->seg[j]; w->seg[j] = s;
+    }
+    for (int i = 0; i < w->nseg; i++) {
+        Vec3 a = w->seg[i].a, b = w->seg[i].b;
+        w->seg[i].a = v3(b.x, b.y, -b.z);
+        w->seg[i].b = v3(a.x, a.y, -a.z);
+        w->seg[i].n = inward_n(w->seg[i].a.x, w->seg[i].a.z,
+                               w->seg[i].b.x, w->seg[i].b.z);
+    }
+    for (int i = 0; i < w->njaw; i++) w->jaw[i].z = -w->jaw[i].z;
+    for (int i = 0, j = w->npocket - 1; i < j; i++, j--) {
+        Vec3 p = w->pocket[i];            w->pocket[i] = w->pocket[j];         w->pocket[j] = p;
+        float r = w->pocket_r[i];         w->pocket_r[i] = w->pocket_r[j];     w->pocket_r[j] = r;
+        unsigned char m = w->pocket_mid[i];
+        w->pocket_mid[i] = w->pocket_mid[j]; w->pocket_mid[j] = m;
+    }
+    for (int i = 0; i < w->npocket; i++) w->pocket[i].z = -w->pocket[i].z;
+}
+
+static void build_L(CueWorld *w, const CueTable *t) {
+    const float hl = t->half_len, hw = t->half_wid;
+    const float nx = t->notch_x, nz = t->notch_z;
+
+    const Vec3 V0 = v3(-hl,      0, -hw);
+    const Vec3 V1 = v3( hl,      0, -hw);
+    const Vec3 V2 = v3( hl,      0,  hw - nz);
+    const Vec3 V3 = v3( hl - nx, 0,  hw - nz);      /* the reflex corner */
+    const Vec3 V4 = v3( hl - nx, 0,  hw);
+    const Vec3 V5 = v3(-hl,      0,  hw);
+    /* THE MIDDLES GO ON THE TWO OUTER RAILS, and only those.
+     *
+     * On a rectangle the long rails are the two of length 2*half_len and it is
+     * obvious which they are. On an L the two rails that run the WHOLE way are
+     * the outside of the two arms — here the one at z = -half_wid and the one
+     * at x = -half_len — and the other four are all shortened by the notch. A
+     * middle on a shortened rail is a pocket halfway along an arm that is not
+     * long enough to want one, sitting a few inches from a corner pocket, which
+     * is what putting one on the short leg's top rail produced. */
+    const Vec3 M0 = v3(0.0f, 0, -hw);    /* the long arm's outer rail */
+    const Vec3 M1 = v3(-hl,  0,  0.0f);  /* the short arm's outer rail */
+
+    const Vec3 OUT_Z0 = v3(0,0,-1), OUT_Z1 = v3(0,0,1);
+    const Vec3 OUT_X1 = v3(1,0,0),  OUT_X0 = v3(-1,0,0);
+
+    /* Round the outline, in the order that makes every inward normal point at
+     * the cloth: V0 -> V1 -> V2 -> V3 -> V4 -> V5 -> V0. */
+    add_run(w, t, V0, M0, OUT_Z0, LEND_CORNER, LEND_MIDDLE);   /* outer rail, half */
+    add_run(w, t, M0, V1, OUT_Z0, LEND_MIDDLE, LEND_CORNER);   /* ...and the rest */
+    add_run(w, t, V1, V2, OUT_X1, LEND_CORNER, LEND_CORNER);   /* the far end */
+    /* OUT_Z1, not OUT_Z0: the rail under the notch has the cloth below it and
+     * the missing corner above, so its outside is +z. Facing it the other way
+     * splays this rail's pocket facings back INTO the playing area — a wedge of
+     * cushion standing on the cloth beside the pocket, which is what it drew.
+     * The nose is unaffected either way, because add_seg takes the inward
+     * normal from the chain's own direction; only the facings read this. */
+    /* THE ELBOW'S RADIUS. Both runs stop short of the vertex by it and the arc
+     * joins them, so the chain is continuous and the corner is a curve rather
+     * than a point. A ball and a half across is what a cushion bends to; it is
+     * clamped so a shallow notch cannot ask for a radius longer than the runs
+     * it has to be taken out of. */
+    float er = 1.5f * t->R;
+    {   float lim = 0.35f * (nx < nz ? nx : nz);
+        if (er > lim) er = lim;
+        if (er < 0.0f) er = 0.0f; }
+    add_run(w, t, V2, v3(V3.x + er, 0, V3.z), OUT_Z1,
+            LEND_CORNER, LEND_REFLEX);                         /* under the notch */
+    add_elbow(w, V3, OUT_Z1, OUT_X1, er);                      /* ...round the corner */
+    add_run(w, t, v3(V3.x, 0, V3.z + er), V4, OUT_X1,
+            LEND_REFLEX, LEND_CORNER);                         /* beside the notch */
+    add_run(w, t, V4, V5, OUT_Z1, LEND_CORNER, LEND_CORNER);   /* the short arm's top */
+    add_run(w, t, V5, M1, OUT_X0, LEND_CORNER, LEND_MIDDLE);   /* the other outer rail */
+    add_run(w, t, M1, V0, OUT_X0, LEND_MIDDLE, LEND_CORNER);
+
+    /* The elbow needed a rattle circle dropped on the vertex, because two
+     * cushions meeting at a knife edge leave a join a ball can squeeze through.
+     * add_elbow above turns the corner into a real arc of shared-endpoint
+     * segments instead, so there is no join left to squeeze through and no
+     * circle needed — it keeps one only when the radius has been clamped away to
+     * nothing, which a notch a few millimetres deep would do. */
+
+    const float dg = 0.70710678f, oc = t->off_corner, os = t->off_side;
+    const float capc = t->pr_corner - t->cap_corner;
+    const float caps = t->pr_side   - t->cap_side;
+    /* THE FIVE OUTER CORNERS, each pushed out along the bisector of its own two
+     * outward normals — which is NOT always away from the table centre.
+     *
+     * V2 is the corner where the right rail meets the underside of the notch.
+     * The cloth there lies to -x and -z of it, so the pocket belongs pushed
+     * +x AND +z, out into the notch. Reading the direction off the sign of the
+     * coordinate instead — which is what every rectangle here can get away with
+     * — put it at +x,-z, back INSIDE the playing area, where it drew a facing
+     * jutting into the cloth and offered a pocket in the middle of the table.
+     *
+     * There is deliberately NO pocket at the elbow: on a real L the inside
+     * corner is solid timber, and the two cushions meet there.
+     *
+     * IN OUTLINE ORDER, not corners-then-middles. The cloth boundary is a walk
+     * round the table and it wants the pockets in the order it meets them; a
+     * rectangle can sort six pockets back into order from their coordinates,
+     * and an L cannot. See build_bed_boundary_L, which relies on this. */
+    add_pocket(w, V0.x - oc*dg, V0.z - oc*dg, capc, 0);   /* 0 */
+    add_pocket(w, M0.x,         M0.z - os,    caps, 1);   /* 1 */
+    add_pocket(w, V1.x + oc*dg, V1.z - oc*dg, capc, 0);   /* 2 */
+    add_pocket(w, V2.x + oc*dg, V2.z + oc*dg, capc, 0);   /* 3 */
+    add_pocket(w, V4.x + oc*dg, V4.z + oc*dg, capc, 0);   /* 4 */
+    add_pocket(w, V5.x - oc*dg, V5.z + oc*dg, capc, 0);   /* 5 */
+    add_pocket(w, M1.x - os,    M1.z,         caps, 1);   /* 6 */
+
+    /* ...and if this table turns the other way, that was the right-handed L and
+     * this is its reflection. */
+    if (cue_table_hand(t) < 0.0f) mirror_world_z(w);
 }
 
 /* Sample nseg+1 points along a quadratic-bezier curve from s to e with a
@@ -693,46 +1108,104 @@ static void blend_arc(CueWorld *w, Vec3 P, Vec3 corner, Vec3 Q) {
 /* Curved cushion chain (snooker/UK): bezier jaw → straight nose → bezier jaw.
  * The curves bulge into the pocket, giving rounded knuckles, and each junction
  * with the nose is rounded off per the note above. */
-static void add_curved_chain(CueWorld *w, Vec3 tipIn, Vec3 kIn, Vec3 kMid,
-                             Vec3 tipMid, float aIn, float aOut, int nIn, int nOut) {
+/* `nIn`/`nOut` of 0 means THAT END HAS NO JAW — the rail simply begins at the
+ * knuckle point. A rectangle never needs it: both ends of all six rails run into
+ * a pocket. An L's reflex elbow is the case that does, and `jawIn`/`jawMid` go
+ * with it, because a rattle circle belongs to a pocket and the elbow has none.
+ *
+ * The two ends were also blended as a pair — either both junctions were rounded
+ * or neither was — which is the same answer whenever both ends carry a jaw, and
+ * every rectangular rail does, so no shipped table moves by a micron. Per-end is
+ * what a rail with a jaw at one end only needs. */
+static void add_curved_chain_e(CueWorld *w, Vec3 tipIn, Vec3 kIn, Vec3 kMid,
+                               Vec3 tipMid, float aIn, float aOut,
+                               int nIn, int nOut, int jawIn, int jawMid) {
     /* Sized for the jaw itself, not for CUE_MAX_SEG: these are stack arrays and
      * the device has very little of it. CUE_JAW_SEGS is 3 there and 10 in VR. */
     #define CUE_JAW_MAXPTS 34
     Vec3 in[CUE_JAW_MAXPTS], out[CUE_JAW_MAXPTS];
     if (nIn  > CUE_JAW_MAXPTS - 2) nIn  = CUE_JAW_MAXPTS - 2;
     if (nOut > CUE_JAW_MAXPTS - 2) nOut = CUE_JAW_MAXPTS - 2;
-    int ni = curve_pts(tipIn, kIn,   aIn,  nIn,  in);    /* ends   at kIn  */
-    int no = curve_pts(kMid,  tipMid, aOut, nOut, out);  /* starts at kMid */
+    int ni = nIn  > 0 ? curve_pts(tipIn, kIn,    aIn,  nIn,  in)  : 0;
+    int no = nOut > 0 ? curve_pts(kMid,  tipMid, aOut, nOut, out) : 0;
 
     float railLen = sqrtf((kMid.x-kIn.x)*(kMid.x-kIn.x) + (kMid.z-kIn.z)*(kMid.z-kIn.z));
     float L = CUE_JAW_BLEND * w->R;
     /* Never eat more than the rail can spare, nor a whole jaw curve. */
     if (L > railLen * 0.45f) L = railLen * 0.45f;
+    if (railLen < 1e-5f) return;
+    Vec3 rd = v3_norm(v3_sub(kMid, kIn));
+    /* BOTH ends of the nose are settled before ANY of it is emitted. Working
+     * them out as the chain is written looks equivalent and is not: the far
+     * knuckle's blend starts where the nose STOPS, so a nose emitted before its
+     * far end is known runs all the way to the knuckle and the blend after it
+     * collapses to a point. That is a jaw with no curve on its outgoing side —
+     * invisible in a picture of the table and worth 500 balls a run lost through
+     * the cushions in test_edge, which is how it was caught. */
+    const int blend_in  = (L > 1e-5f && ni > 1);
+    const int blend_out = (L > 1e-5f && no > 1);
+    Vec3 Q1 = blend_in  ? v3(kIn.x  + rd.x * L, 0, kIn.z  + rd.z * L) : kIn;
+    Vec3 Q2 = blend_out ? v3(kMid.x - rd.x * L, 0, kMid.z - rd.z * L) : kMid;
 
-    if (L > 1e-5f && ni > 1 && no > 1) {
-        Vec3 rd = v3_norm(v3_sub(kMid, kIn));
-        Vec3 P1, P2;
-        int c1 = walk_back(in,  ni - 1, 0,      L, &P1);  /* back along the incoming curve */
-        int c2 = walk_back(out, 0,      no - 1, L, &P2);  /* on along the outgoing curve  */
-        Vec3 Q1 = v3(kIn.x  + rd.x * L, 0, kIn.z  + rd.z * L);
-        Vec3 Q2 = v3(kMid.x - rd.x * L, 0, kMid.z - rd.z * L);
-
+    if (blend_in) {
+        Vec3 P1;
+        int c1 = walk_back(in, ni - 1, 0, L, &P1);   /* back along the incoming curve */
         add_poly(w, in, c1 + 1, 1);             /* curve, up to the last kept point */
         add_seg(w, in[c1], P1, 1);              /* ...then the part-segment to the cut */
         blend_arc(w, P1, kIn, Q1);              /* rounded junction */
-        add_seg(w, Q1, Q2, 0);                  /* the rail nose, shortened */
-        blend_arc(w, Q2, kMid, P2);             /* rounded junction */
+    } else if (ni > 1) {
+        add_poly(w, in, ni, 1);
+    }
+    add_seg(w, Q1, Q2, 0);                      /* the rail nose */
+    if (blend_out) {
+        Vec3 P2;
+        int c2 = walk_back(out, 0, no - 1, L, &P2);  /* on along the outgoing curve */
+        blend_arc(w, Q2, kMid, P2);
         add_seg(w, P2, out[c2], 1);
         add_poly(w, out + c2, no - c2, 1);      /* curve, on to the tip */
-    } else {                                    /* degenerate: the old chain */
-        add_poly(w, in, ni, 1);
-        add_seg(w, kIn, kMid, 0);
+    } else if (no > 1) {
         add_poly(w, out, no, 1);
     }
 
     Vec3 nin = inward_n(kIn.x, kIn.z, kMid.x, kMid.z);   /* nose inward normal */
-    add_jaw_recessed(w, kIn, nin);
-    add_jaw_recessed(w, kMid, nin);
+    if (jawIn)  add_jaw_recessed(w, kIn, nin);
+    if (jawMid) add_jaw_recessed(w, kMid, nin);
+}
+
+/* Curved cushion chain (snooker/UK): bezier jaw → straight nose → bezier jaw. */
+static void add_curved_chain(CueWorld *w, Vec3 tipIn, Vec3 kIn, Vec3 kMid,
+                             Vec3 tipMid, float aIn, float aOut, int nIn, int nOut) {
+    add_curved_chain_e(w, tipIn, kIn, kMid, tipMid, aIn, aOut, nIn, nOut, 1, 1);
+}
+
+/* THE JAW A POCKET END IS CUT WITH, in the rail's own frame.
+ *
+ * The six rectangular rails above spell each of their twelve jaw tips out as a
+ * literal coordinate pair, and reading the shape back out of them is the whole
+ * of what follows. Every tip is the same two steps from its knuckle: BACK along
+ * the rail away from the nose, and OUT past the rail line — so a jaw is two
+ * lengths and an arc parameter, and nothing about which rail or which sign.
+ *
+ * That is what the L needs. It was straight-mitred whatever the table's
+ * pocket_round said — written down as a deliberate simplification and reported,
+ * correctly, as the pockets not looking like the pockets: a UK L had mitred jaws
+ * where every other UK table has curved ones, and a straight facing leaving the
+ * knuckle at ang_side does not meet the rounded pocket back that cue_render cuts
+ * for a rounded table. That is the gap in the rail.
+ *
+ * `mid` picks the middle pocket's jaw over a corner's. The numbers are the
+ * rectangle's own, recovered from those literals: a corner tip stands 0.7 of a
+ * jaw length out and 0.7 plus a hair back; a middle's stands a full jaw length
+ * out and is pulled forward by 0.583 R, which is what made `bg` a separate
+ * control point from the knuckle gap. */
+static void jaw_tip(const CueWorld *w, Vec3 k, Vec3 u, Vec3 out, int mid,
+                    Vec3 *tip, float *arc) {
+    const float R = w->R;
+    const float cl = 2.0f*R, ml = 1.6f*R, e3 = 0.25f*R;
+    const float back = mid ? (0.583f*R + 0.3f*ml + e3) : (cl*0.7f + e3);
+    const float rise = mid ? ml : cl*0.7f;
+    *tip = v3(k.x - u.x*back + out.x*rise, 0, k.z - u.z*back + out.z*rise);
+    *arc = mid ? 0.7f : 0.6f;
 }
 
 void cue_table_build_world(const CueTable *t, CueWorld *w) {
@@ -757,6 +1230,12 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     w->bound_z = t->half_wid + t->rail_w + CUE_FRAME_OUT;
     w->play_x  = t->half_len;
     w->play_z  = t->half_wid;
+    /* ...and the shape itself, which for every rectangular table says exactly
+     * what the four half-extents above already said. The half-extents remain
+     * the BOUNDING box, so they stay a valid first reject for any shape. */
+    w->nplay  = cue_table_bed_rects(t, 0.0f, w->play_r, CUE_MAX_RECT);
+    w->nbound = cue_table_bed_rects(t, t->rail_w + CUE_FRAME_OUT,
+                                    w->bound_r, CUE_MAX_RECT);
     /* The same height cue_table_surface reports and cue_render draws: the
      * cushion top and the wood cap are one surface, not a step. */
     w->rail_top = t->cushion_h * 1.30f;
@@ -769,7 +1248,11 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
 
     const float hl = t->half_len, hw = t->half_wid, R = t->R;
 
-    if (!t->pocket_round) {
+    if (t->bed_shape == CUE_BED_L) {
+        /* The L brings its own chain AND its own pockets, so it skips both the
+         * rectangle's rail construction and the six-pocket block below. */
+        build_L(w, t);
+    } else if (!t->pocket_round) {
         /* US pool: straight mitred facings. */
         const float g = t->gap_corner, sg = t->gap_side, sl = t->facing_len;
         const float cc = cosf(t->ang_corner*DEG), sc = sinf(t->ang_corner*DEG);
@@ -875,12 +1358,14 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * with 0.15 R for a UK middle, which is why no table could be given a drop
      * of its own without moving every other table's with it. */
     float capc = t->pr_corner - t->cap_corner, caps = t->pr_side - t->cap_side;
-    add_pocket(w, -hl - oc*d, -hw - oc*d, capc);
-    add_pocket(w,  hl + oc*d, -hw - oc*d, capc);
-    add_pocket(w,  hl + oc*d,  hw + oc*d, capc);
-    add_pocket(w, -hl - oc*d,  hw + oc*d, capc);
-    add_pocket(w, 0.0f, -hw - os, caps);
-    add_pocket(w, 0.0f,  hw + os, caps);
+    if (t->bed_shape != CUE_BED_L) {
+        add_pocket(w, -hl - oc*d, -hw - oc*d, capc, 0);
+        add_pocket(w,  hl + oc*d, -hw - oc*d, capc, 0);
+        add_pocket(w,  hl + oc*d,  hw + oc*d, capc, 0);
+        add_pocket(w, -hl - oc*d,  hw + oc*d, capc, 0);
+        add_pocket(w, 0.0f, -hw - os, caps, 1);
+        add_pocket(w, 0.0f,  hw + os, caps, 1);
+    }
 
     /* ---- each pocket's mouth, from the two jaw tips beside it ------------ */
     for (int p = 0; p < w->npocket; p++) {
@@ -911,7 +1396,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     }
 
     for (int p = 0; p < w->npocket; p++) {
-        float back = (p < 4) ? w->drop_back : w->drop_back_side;
+        float back = w->pocket_mid[p] ? w->drop_back_side : w->drop_back;
         w->drop_c[p] = v3(w->pocket[p].x + w->pmnorm[p].x * back, 0,
                           w->pocket[p].z + w->pmnorm[p].z * back);
     }
@@ -948,6 +1433,8 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* SNK15 */ { 0.0145f, 1.1350f, 0.2150f,  90.0f },
         /* SNK10 */ { 0.0145f, 1.1350f, 0.2150f,  90.0f },
         /* SNK6  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
+        /* STRT  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
+        /* PYRA  */ { 0.0150f, 1.1200f, 0.2100f,  90.0f },   /* tighter than snooker */
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -957,7 +1444,15 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* SNK15 */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
         /* SNK10 */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
         /* SNK6  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
+        /* STRT  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
+        /* PYRA  */ { 0.0260f, 1.2000f, 0.2050f, 180.0f },   /* tight, and shallow */
     };
+    /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
+     * sized by their initialisers, so adding a kind without adding a row here
+     * reads off the end of the array — silently, and only for the new kind. */
+    typedef char cut_rows_match_kinds[
+        ((int)(sizeof corner / sizeof corner[0]) == CUE_GAME_COUNT &&
+         (int)(sizeof mid    / sizeof mid[0])    == CUE_GAME_COUNT) ? 1 : -1];
     int i = (int)kind; if (i < 0 || i >= CUE_GAME_COUNT) i = 0;
     *out = middle ? mid[i] : corner[i];
 }
@@ -982,31 +1477,160 @@ void cue_table_get_cut(const CueWorld *w, int middle, CueCut *out) {
  * the line the ball is taken at. */
 void cue_table_derive_cut(CueWorld *w) {
     for (int p = 0; p < w->npocket; p++) {
-        int i = (p < 4) ? 0 : 1;
-        Vec3 C = w->pocket[p];
-        float sz = (C.z < 0.0f) ? -1.0f : 1.0f;
-        if (p < 4) {           /* a corner sets back along its own diagonal */
-            float sx = (C.x < 0.0f) ? -1.0f : 1.0f;
-            const float k = 0.70710678f;
-            w->cut_c[p] = v3(C.x + sx*w->cut_set[i]*k, 0, C.z + sz*w->cut_set[i]*k);
-        } else {               /* a middle sets straight back into the rail */
-            w->cut_c[p] = v3(C.x, 0, C.z + sz*w->cut_set[i]);
-        }
+        /* ALONG THE POCKET'S OWN NORMAL, and its own kind — not its index and
+         * not the sign of its coordinates.
+         *
+         * This read `p < 4` for "is it a corner" and took the setback direction
+         * from whether x and z were negative. Both are true of a rectangle
+         * centred on the origin and neither survives an L: its pocket 1 is a
+         * middle that the index calls a corner, its pocket 4 is a corner the
+         * index calls a middle, and the two beside the notch sit at coordinates
+         * whose signs say nothing about which way is out of the table.
+         *
+         * The drop circle was already set back along pmnorm — the normal worked
+         * out from the pocket's own two jaw tips — so the cut and the drop were
+         * being pushed in DIFFERENT directions, and the two circles came off
+         * the line they are both supposed to lie on. That is visible on an L
+         * and invisible on a rectangle, where the two happen to agree.
+         *
+         * Identical on every rectangle: at a corner the old diagonal was the
+         * unit diagonal times `set`, which is what pmnorm times `set` is, and
+         * at a middle both are straight out along the rail. */
+        int i = w->pocket_mid[p] ? 1 : 0;
+        Vec3 C = w->pocket[p], n = w->pmnorm[p];
+        w->cut_c[p] = v3(C.x + n.x * w->cut_set[i], 0, C.z + n.z * w->cut_set[i]);
         w->cut_r[p] = w->cut_ref[i]  * w->cut_rad[i];
         w->lip_d[p] = w->cut_ref[i]  * w->cut_roll[i];
     }
+}
+
+/* ---- THE SPINE: the line a table is laid out ALONG -----------------------
+ *
+ * Everything about where a game is SET OUT — the baulk line, the D, the six
+ * snooker spots, the foot spot, the rack, the head string — was an x coordinate
+ * on the centre line, with the rack growing in +x and the balls spread in z.
+ * That is the table's long axis written into every one of them, and on an L it
+ * is nonsense: the long axis runs down one arm, straight through the notch, and
+ * out into the corner that is not there. It is why snooker was refused on any L
+ * with a real bite in it — the pink, the black and half the reds landed in the
+ * missing quadrant — and why the pack sat awkwardly on the long arm with the
+ * short one empty.
+ *
+ * So the layout is expressed along a SPINE: a line down the middle of the table
+ * from the baulk end to the far end, which on a rectangle is straight and on an
+ * L TURNS THE CORNER. The baulk and the D are at one end of it, on one arm; the
+ * rack is at the other end, on the other arm, ninety degrees round; and the
+ * middle of the spine — where a snooker table puts its blue — is the middle of
+ * the bend. The break is then a shot round a corner, which is the whole point of
+ * playing on a table this shape.
+ *
+ * A position is given as the x coordinate it would have on a rectangle, because
+ * that is what the table already stores and what every ruleset already means by
+ * it. On a rectangle it IS that coordinate, untouched, so nothing about the
+ * seven shipped tables moves by a float. On an L it is read as the same fraction
+ * of the way along the spine, and the spine is walked to find out where that
+ * actually is.
+ *
+ * The two legs of an L's spine are the centre lines of its two arms:
+ *   arm A, the full-length band below the notch, centred at z = -notch_z/2
+ *   arm B, the full-width column beside it,     centred at x = -notch_x/2
+ * They cross at the bend. The free end of A is +x and the free end of B is +z —
+ * the shared corner of the two arms is at (-half_len, -half_wid), so neither of
+ * those is the free end of anything. Baulk goes on A's free end and the rack on
+ * B's, which is what puts them at right angles. */
+typedef struct { float ax, az, bx, bz, len; } CueLeg;
+
+static int spine_legs(const CueTable *t, CueLeg *g) {
+    const float hl = t->half_len, hw = t->half_wid;
+    if (t->bed_shape != CUE_BED_L || t->notch_x <= 0.0f || t->notch_z <= 0.0f) {
+        g[0].ax = -hl; g[0].az = 0.0f; g[0].bx = hl; g[0].bz = 0.0f;
+        g[0].len = 2.0f * hl;
+        return 1;
+    }
+    const float h  = cue_table_hand(t);
+    const float cA = -t->notch_z * 0.5f * h;  /* arm A's centre line, in z */
+    const float cB = -t->notch_x * 0.5f;      /* arm B's centre line, in x */
+    g[0].ax = hl; g[0].az = cA; g[0].bx = cB; g[0].bz = cA;   /* baulk end -> bend */
+    g[0].len = hl - cB;
+    g[1].ax = cB; g[1].az = cA; g[1].bx = cB; g[1].bz = hw * h; /* bend -> far end */
+    g[1].len = hw - cA * h;
+    return 2;
+}
+
+float cue_table_spine_len(const CueTable *t) {
+    if (!t) return 0.0f;
+    CueLeg g[2];
+    int n = spine_legs(t, g);
+    float s = 0.0f;
+    for (int i = 0; i < n; i++) s += g[i].len;
+    return s;
+}
+
+Vec3 cue_table_lay(const CueTable *t, float x, float across, Vec3 *dir) {
+    if (!t) { if (dir) *dir = v3(1,0,0); return v3(0,0,0); }
+    /* A RECTANGLE IS ALREADY EXPRESSED IN ITS OWN AXIS. Returned untouched
+     * rather than round-tripped through a fraction: the seven shipped tables
+     * must not move by so much as a float's worth, and "it would come back the
+     * same to six places" is not the same promise. */
+    if (t->bed_shape != CUE_BED_L || t->notch_x <= 0.0f || t->notch_z <= 0.0f) {
+        if (dir) *dir = v3(1, 0, 0);
+        return v3(x, 0.0f, across);
+    }
+    CueLeg g[2];
+    int n = spine_legs(t, g);
+    float total = 0.0f;
+    for (int i = 0; i < n; i++) total += g[i].len;
+    /* WHERE THE MIDDLE OF THE TABLE GOES: the BEND.
+     *
+     * Stretching the rectangle's whole length evenly over the spine is the
+     * obvious mapping and it is not the right one — the two legs of an L are
+     * rarely the same length, so the centre spot lands somewhere up one of them
+     * and the blue, which is the ball a snooker table puts on its centre, sits
+     * on a straight run of cushion instead of in the crook of the shape. The
+     * middle of the table IS the bend; a table's layout is really "how far from
+     * baulk" and "how far from the top", and the bend is the join. So the two
+     * halves are mapped to the two legs, each stretched to fit its own.
+     *
+     * On a rectangle the bend is the centre of a straight line and both halves
+     * are the same scale, so this is the identity — which is why a rectangle
+     * takes the early return above and never gets here at all. */
+    const float hl = t->half_len;
+    const float bend = (n > 1) ? g[0].len : total * 0.5f;
+    float s;
+    if (hl <= 1e-4f)   s = bend;
+    else if (x <= 0.0f) s = (x + hl) / hl * bend;
+    else                s = bend + (x / hl) * (total - bend);
+    if (s < 0.0f) s = 0.0f;
+    if (s > total) s = total;
+    for (int i = 0; i < n; i++) {
+        if (s > g[i].len && i + 1 < n) { s -= g[i].len; continue; }
+        float dx = (g[i].bx - g[i].ax) / g[i].len;
+        float dz = (g[i].bz - g[i].az) / g[i].len;
+        if (dir) *dir = v3(dx, 0.0f, dz);
+        /* +across is ninety degrees to the LEFT of the direction of travel,
+         * which on a rectangle is +z — so yellow stays on the right of the D
+         * and nothing about a shipped table's layout is mirrored. */
+        return v3(g[i].ax + dx * s - dz * across, 0.0f,
+                  g[i].az + dz * s + dx * across);
+    }
+    if (dir) *dir = v3(1, 0, 0);
+    return v3(x, 0.0f, across);
 }
 
 Vec3 cue_table_cue_home(const CueTable *t) {
     const float CUE_Y = (t->cue_R > 0.0f) ? t->cue_R : t->R;
     /* All games start OFF the centre line so a break naturally strikes the pack
      * at an angle (a dead-straight break into the apex splits poorly). Snooker &
-     * UK8 break from one side of the D; US pool from the side of the kitchen. */
-    if (t->is_snooker)            return v3(t->baulk_x, CUE_Y, -t->d_radius * 0.55f);
-    if (t->kind == CUE_GAME_UK8)  return v3(t->baulk_x, CUE_Y, -t->d_radius * 0.55f);
-    return v3(-t->half_len * 0.5f, CUE_Y, t->half_wid * 0.40f);
+     * UK8 break from one side of the D; US pool from the side of the kitchen.
+     * Laid out along the spine, so on an L it is on the baulk arm and the pack
+     * is round the corner from it. */
+    Vec3 p;
+    if (t->is_snooker || t->kind == CUE_GAME_UK8 || t->kind == CUE_GAME_PYRAMID)
+        p = cue_table_lay(t, t->baulk_x, -t->d_radius * 0.55f, NULL);
+    else
+        p = cue_table_lay(t, -t->half_len * 0.5f, t->half_wid * 0.40f, NULL);
     /* On its own radius: the English white is smaller than the set. */
-
+    return v3(p.x, CUE_Y, p.z);
 }
 
 /* Clamp a desired cue-ball placement to the legal ball-in-hand region:
@@ -1023,6 +1647,155 @@ static int placement_clear(const CueTable *t, Vec3 p, const CueBall *balls, int 
         if (dx*dx + dz*dz < sep*sep) return 0;
     }
     return 1;
+}
+
+/* ---- F2: the bed as a union of rectangles -------------------------------- */
+int cue_table_bed_rects(const CueTable *t, float g, CueRect *out, int cap) {
+    if (!t || !out || cap < 1) return 0;
+    const float hl = t->half_len, hw = t->half_wid;
+    if (t->bed_shape != CUE_BED_L || cap < 2 ||
+        t->notch_x <= 0.0f || t->notch_z <= 0.0f) {
+        out[0].x0 = -hl - g; out[0].x1 = hl + g;
+        out[0].z0 = -hw - g; out[0].z1 = hw + g;
+        return 1;
+    }
+    /* An L, as a band and a column rather than as two pieces meeting at a
+     * corner. Both of these have four OUTSIDE edges, so growing them is the
+     * same operation as growing a rectangle — which is the whole reason to cut
+     * it up this way rather than the obvious way. Their overlap is the bottom
+     * left, and overlap costs nothing: a point inside both is inside. */
+    float nx = t->notch_x, nz = t->notch_z;
+    if (nx > 2.0f * hl) nx = 2.0f * hl;
+    if (nz > 2.0f * hw) nz = 2.0f * hw;
+    /* the full-width band below the notch, and the full-height column beside
+     * it — written for a RIGHT-handed L and mirrored in z for a left-handed
+     * one, which is the whole of what the hand costs anywhere. */
+    const float h = cue_table_hand(t);
+    out[0].x0 = -hl - g;      out[0].x1 = hl + g;
+    out[0].z0 = -hw - g;      out[0].z1 = hw - nz + g;
+    out[1].x0 = -hl - g;      out[1].x1 = hl - nx + g;
+    out[1].z0 = -hw - g;      out[1].z1 = hw + g;
+    if (h < 0.0f) for (int i = 0; i < 2; i++) {
+        float z0 = -out[i].z1, z1 = -out[i].z0;
+        out[i].z0 = z0; out[i].z1 = z1;
+    }
+    return 2;
+}
+
+int cue_table_bed_strips(const CueTable *t, CueRect *out, int cap) {
+    if (!t || !out || cap < 1) return 0;
+    const float hl = t->half_len, hw = t->half_wid;
+    if (t->bed_shape != CUE_BED_L || cap < 2 ||
+        t->notch_x <= 0.0f || t->notch_z <= 0.0f) {
+        out[0].x0 = -hl; out[0].x1 = hl;
+        out[0].z0 = -hw; out[0].z1 = hw;
+        return 1;
+    }
+    float nx = t->notch_x, nz = t->notch_z;
+    if (nx > 2.0f * hl) nx = 2.0f * hl;
+    if (nz > 2.0f * hw) nz = 2.0f * hw;
+    /* below the notch line the bed runs the whole length; above it, only as far
+     * as the notch — the same two pieces the union describes, cut where they
+     * would otherwise have overlapped */
+    const float h = cue_table_hand(t);
+    out[0].x0 = -hl;  out[0].x1 = hl;
+    out[0].z0 = -hw;  out[0].z1 = hw - nz;
+    out[1].x0 = -hl;  out[1].x1 = hl - nx;
+    out[1].z0 = hw - nz;  out[1].z1 = hw;
+    if (h < 0.0f) for (int i = 0; i < 2; i++) {
+        float z0 = -out[i].z1, z1 = -out[i].z0;
+        out[i].z0 = z0; out[i].z1 = z1;
+    }
+    return 2;
+}
+
+int cue_table_game_ok(const CueTable *t, CueGameKind kind, int laid_out,
+                      char *msg, int msgcap) {
+    if (msg && msgcap > 0) msg[0] = 0;
+    if (!t) return tab_fail(msg, msgcap, "there is no table");
+
+    /* The cue ball has to have somewhere to be, whatever the game. */
+    Vec3 home = cue_table_cue_home(t);
+    if (!cue_table_on_bed(t, home.x, home.z))
+        return tab_fail(msg, msgcap, "the cue ball's home is off the cloth");
+    if (laid_out) return 1;      /* every ball placed by hand: nothing else to ask */
+
+    const int snooker = (kind == CUE_GAME_SNK15 || kind == CUE_GAME_SNK10 ||
+                         kind == CUE_GAME_SNK6);
+    if (snooker) {
+        /* SNOOKER NEEDS ITS SPOTS, and they are places on a table rather than
+         * fractions of one: the three baulk colours on the D, the blue on the
+         * centre, the pink and the black up the top. Every one of them has to
+         * be on cloth, and on an L the top two are exactly where the corner is
+         * missing. */
+        const float sx[6] = { t->baulk_x, t->baulk_x, t->baulk_x,
+                              t->blue_x,  t->pink_x,  t->black_x };
+        const float sz[6] = { +t->d_radius, -t->d_radius, 0.0f, 0.0f, 0.0f, 0.0f };
+        static const char *SN[6] = { "yellow", "green", "brown", "blue", "pink", "black" };
+        for (int i = 0; i < 6; i++) {
+            /* WHERE THE SPOT ACTUALLY IS, which on an L is not (x, z): the
+             * layout runs along the spine and turns the corner with it. Asked
+             * of the same function that puts the ball there, so the validator
+             * and the rack can never disagree about whether a game fits. */
+            Vec3 q = cue_table_lay(t, sx[i], sz[i], NULL);
+            if (cue_table_on_bed(t, q.x, q.z)) continue;
+            char buf[96];
+            snprintf(buf, sizeof buf, "the %s spot is off the cloth", SN[i]);
+            return tab_fail(msg, msgcap, buf);
+        }
+        /* ...and the triangle of reds behind the pink, whose back row is the
+         * furthest thing up the table — in the pink's own frame, because that
+         * is the frame it is racked in. */
+        int rows = (t->reds <= 6) ? 3 : (t->reds <= 10) ? 4 : 5;
+        float apexx = t->pink_x + 2.0f * t->R + 0.002f;
+        float along = (float)(rows - 1) * t->R * 1.7320508f;
+        float half  = (float)(rows - 1) * t->R;
+        Vec3 up; Vec3 apex = cue_table_lay(t, apexx, 0.0f, &up);
+        Vec3 side = v3(-up.z, 0.0f, up.x);
+        for (int k = -1; k <= 1; k++) {
+            float off = (float)k * half;
+            float bx = apex.x + up.x * along + side.x * off;
+            float bz = apex.z + up.z * along + side.z * off;
+            if (!cue_table_on_bed(t, bx, bz))
+                return tab_fail(msg, msgcap, "the reds do not fit behind the pink");
+        }
+        return 1;
+    }
+
+    /* The pool games rack on the foot spot, which does move with the bed — but
+     * an L can still take the bite out of exactly where the pack goes. */
+    {
+        Vec3 up; Vec3 foot = cue_table_foot_spot_dir(t, &up);
+        Vec3 side = v3(-up.z, 0.0f, up.x);
+        int rows = 5;
+        float along = (float)(rows - 1) * t->R * 1.7320508f;
+        float half  = (float)(rows - 1) * t->R;
+        if (!cue_table_on_bed(t, foot.x, foot.z))
+            return tab_fail(msg, msgcap, "the rack does not fit on this bed");
+        for (int k = -1; k <= 1; k++) {
+            float off = (float)k * half;
+            float bx = foot.x + up.x * along + side.x * off;
+            float bz = foot.z + up.z * along + side.z * off;
+            if (!cue_table_on_bed(t, bx, bz))
+                return tab_fail(msg, msgcap, "the rack does not fit on this bed");
+        }
+    }
+    return 1;
+}
+
+Vec3 cue_table_foot_spot_dir(const CueTable *t, Vec3 *dir) {
+    if (!t) { if (dir) *dir = v3(1,0,0); return v3(0,0,0); }
+    Vec3 p = cue_table_lay(t, t->half_len * 0.5f, 0.0f, dir);
+    return v3(p.x, t->R, p.z);
+}
+Vec3 cue_table_foot_spot(const CueTable *t) {
+    return cue_table_foot_spot_dir(t, NULL);
+}
+
+int cue_table_on_bed(const CueTable *t, float x, float z) {
+    CueRect r[CUE_MAX_RECT];
+    int n = cue_table_bed_rects(t, 0.0f, r, CUE_MAX_RECT);
+    return cue_rects_contain(r, n, x, z);
 }
 
 Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p) {
@@ -1100,15 +1873,35 @@ static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) 
      * the caller passes what the rules of the frame allow. Snooker is always
      * the D. */
     if (anywhere && !t->is_snooker) {
-        float lim = t->half_wid - R, lenlim = t->half_len - R;
-        if (p.x >  lenlim) p.x =  lenlim;
-        if (p.x < -lenlim) p.x = -lenlim;
-        if (p.z >  lim) p.z =  lim;
-        if (p.z < -lim) p.z = -lim;
-        return p;
+        /* Ball in hand anywhere on the cloth — which is a SHAPE, not two
+         * numbers. Clamping to the bounding half-extents put the ball in the
+         * missing corner of an L: a legal-looking placement outside the table,
+         * from which the first stroke sends it through the wall.
+         *
+         * Clamped into each rectangle in turn, keeping whichever answer moved
+         * least. For one rectangle that is the same arithmetic as before; for
+         * two it lands on the nearest real cloth, which is what a player
+         * reaching for the far side of an L means. */
+        CueRect r[CUE_MAX_RECT];
+        int nr = cue_table_bed_rects(t, 0.0f, r, CUE_MAX_RECT);
+        Vec3 best = p; float bd = -1.0f;
+        for (int i = 0; i < nr; i++) {
+            float x0 = r[i].x0 + R, x1 = r[i].x1 - R;
+            float z0 = r[i].z0 + R, z1 = r[i].z1 - R;
+            if (x1 < x0 || z1 < z0) continue;      /* a rail wider than the piece */
+            Vec3 q = p;
+            if (q.x < x0) q.x = x0; else if (q.x > x1) q.x = x1;
+            if (q.z < z0) q.z = z0; else if (q.z > z1) q.z = z1;
+            float dx = q.x - p.x, dz = q.z - p.z;
+            float d = dx*dx + dz*dz;
+            if (bd < 0.0f || d < bd) { bd = d; best = q; }
+        }
+        return (bd < 0.0f) ? p : best;
     }
-    if (t->is_snooker || t->kind == CUE_GAME_UK8) {
-        /* The D: a half-disc of radius d_radius centred on (baulk_x, 0), bulging
+    if (t->is_snooker || t->kind == CUE_GAME_UK8 || t->kind == CUE_GAME_PYRAMID) {
+        /* The D — and the pyramid's HOUSE, which is the same thing as far as
+         * this is concerned: a region behind a line that the cue ball is played
+         * from. A half-disc of radius d_radius centred on (baulk_x, 0), bulging
          * toward the baulk cushion (−x).
          *
          * The CENTRE goes up to the line, not the ball's edge. A ball played
@@ -1117,11 +1910,20 @@ static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) 
          * the D that half is the difference between having the shot and not.
          * This kept the whole ball inside, which quietly shrank the D by a ball
          * radius all the way round. */
+        /* IN THE BAULK LINE'S OWN FRAME. On a rectangle `up` is +x and this is
+         * the same clamp it has always been, to the float; on an L the baulk
+         * line lies across one arm and the D bulges back down it, so a D
+         * expressed in world x and z would be sideways on. */
+        Vec3 up; Vec3 c = cue_table_lay(t, t->baulk_x, 0.0f, &up);
+        Vec3 side = v3(-up.z, 0.0f, up.x);
         float rmax = t->d_radius;
-        if (p.x > t->baulk_x) p.x = t->baulk_x;        /* not past the baulk line */
-        float dx = p.x - t->baulk_x, dz = p.z;
-        float d = sqrtf(dx*dx + dz*dz);
-        if (d > rmax) { float s = rmax / d; p.x = t->baulk_x + dx*s; p.z = dz*s; }
+        float along = (p.x - c.x) * up.x + (p.z - c.z) * up.z;
+        float off   = (p.x - c.x) * side.x + (p.z - c.z) * side.z;
+        if (along > 0.0f) along = 0.0f;                /* not past the baulk line */
+        float d = sqrtf(along*along + off*off);
+        if (d > rmax && d > 1e-6f) { float k = rmax / d; along *= k; off *= k; }
+        p.x = c.x + up.x * along + side.x * off;
+        p.z = c.z + up.z * along + side.z * off;
         return p;
     }
     /* US pool — 8-ball, 9-ball and Chinese 8: ball in hand is ANYWHERE ON THE
@@ -1141,9 +1943,21 @@ static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) 
         if (p.z < -lim) p.z = -lim;
         return p;
     }
-    float head = t->baulk_x;
-    if (p.x > head - R) p.x = head - R;
-    if (p.x < -(t->half_len - R)) p.x = -(t->half_len - R);
+    /* BEHIND THE HEAD STRING, and "behind" is along the spine. On a rectangle
+     * that is x < baulk_x and the two clamps below are the ones that were here;
+     * on an L the head string runs across the baulk arm, and everything behind
+     * it is the stub of that arm rather than a slab of the bounding box. */
+    {   Vec3 up; Vec3 c = cue_table_lay(t, t->baulk_x, 0.0f, &up);
+        Vec3 side = v3(-up.z, 0.0f, up.x);
+        float along = (p.x - c.x) * up.x + (p.z - c.z) * up.z;
+        float off   = (p.x - c.x) * side.x + (p.z - c.z) * side.z;
+        if (along > -R) along = -R;
+        float back = cue_table_spine_len(t) * 0.5f;    /* far enough to matter */
+        if (along < -back) along = -back;
+        p.x = c.x + up.x * along + side.x * off;
+        p.z = c.z + up.z * along + side.z * off; }
+    if (p.x >  lenlim) p.x =  lenlim;
+    if (p.x < -lenlim) p.x = -lenlim;
     if (p.z >  lim) p.z =  lim;
     if (p.z < -lim) p.z = -lim;
     return p;
@@ -1176,8 +1990,16 @@ static void set_ball(CueBall *b, int id, float x, float z, float R) {
 
 static int rack_pool(const CueTable *t, CueBall *b) {
     const float R = t->R;
-    float footx = t->half_len * 0.5f;
+    /* IN THE FOOT SPOT'S OWN FRAME, not in world x and z. On a rectangle `up` is
+     * +x and `side` is +z and this is the rack it always was; on an L the spine
+     * has turned the corner by here, so the triangle turns with it and points
+     * back down the arm the cue ball is on. */
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const Vec3 side = v3(-up.z, 0.0f, up.x);
+    float footx = foot.x, footz = foot.z;
     float dx = R * 1.7320508f;
+    #define RACK_AT(r_, o_) (footx + up.x*(r_) + side.x*(o_)), \
+                            (footz + up.z*(r_) + side.z*(o_))
     /* Fixed arrangement matching 2dpool (RackPatterns.eightBall): 8 in the centre
      * of row 3, one solid + one stripe in the two back corners. */
     static const int rows[5][5] = {
@@ -1185,11 +2007,9 @@ static int rack_pool(const CueTable *t, CueBall *b) {
     };
     int n = 1;
     for (int row = 0; row < 5; row++) {
-        float x = footx + row * dx;
-        for (int k = 0; k <= row; k++) {
-            float z = (-(row) * R) + k * 2.0f * R;
-            set_ball(&b[n++], rows[row][k], x, z, R);
-        }
+        for (int k = 0; k <= row; k++)
+            set_ball(&b[n++], rows[row][k],
+                     RACK_AT(row * dx, -(row) * R + k * 2.0f * R), R);
     }
     /* From cue_table_cue_home(), not from a repeat of the head-string number:
      * a UK table breaks from inside the D, and hard-coding -hl/2 here put the
@@ -1197,51 +2017,74 @@ static int rack_pool(const CueTable *t, CueBall *b) {
      * break, on the centre line, on the one table whose rules this file
      * already knew. */
     { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
+    #undef RACK_AT
     return n;
 }
 
 /* US 9-ball: diamond rack — 1 at the apex (foot spot), 9 in the centre. */
 static int rack_9ball(const CueTable *t, CueBall *b) {
     const float R = t->R;
-    float footx = t->half_len * 0.5f;
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const Vec3 side = v3(-up.z, 0.0f, up.x);
+    const float footx = foot.x, fz = foot.z;
     float dx = R * 1.7320508f;
-    set_ball(&b[1], 1, footx,          0.0f,  R);
-    set_ball(&b[2], 2, footx + dx,    -R,     R);
-    set_ball(&b[3], 3, footx + dx,    +R,     R);
-    set_ball(&b[4], 4, footx + 2*dx,  -2*R,   R);
-    set_ball(&b[5], 9, footx + 2*dx,   0.0f,  R);   /* 9 in the middle */
-    set_ball(&b[6], 5, footx + 2*dx,  +2*R,   R);
-    set_ball(&b[7], 6, footx + 3*dx,  -R,     R);
-    set_ball(&b[8], 7, footx + 3*dx,  +R,     R);
-    set_ball(&b[9], 8, footx + 4*dx,   0.0f,  R);
+    #define RACK_AT(r_, o_) (footx + up.x*(r_) + side.x*(o_)), \
+                            (fz    + up.z*(r_) + side.z*(o_))
+    set_ball(&b[1], 1, RACK_AT(0.0f,     0.0f),   R);
+    set_ball(&b[2], 2, RACK_AT(dx,      -R),      R);
+    set_ball(&b[3], 3, RACK_AT(dx,       R),      R);
+    set_ball(&b[4], 4, RACK_AT(2*dx,    -2*R),    R);
+    set_ball(&b[5], 9, RACK_AT(2*dx,     0.0f),   R);   /* 9 in the middle */
+    set_ball(&b[6], 5, RACK_AT(2*dx,     2*R),    R);
+    set_ball(&b[7], 6, RACK_AT(3*dx,    -R),      R);
+    set_ball(&b[8], 7, RACK_AT(3*dx,     R),      R);
+    set_ball(&b[9], 8, RACK_AT(4*dx,     0.0f),   R);
     { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
+    #undef RACK_AT
     return 10;
 }
 
 static int rack_snooker(const CueTable *t, CueBall *b) {
     const float R = t->R;
     int n = 0;
-    set_ball(&b[n++], CUE_ID_CUE, t->baulk_x, -t->d_radius * 0.4f, R);
+    /* Every spot along the SPINE. On a rectangle these are the x coordinates
+     * they have always been; on an L the baulk colours are on one arm, the blue
+     * is on the bend and the pink, the black and the reds are round the corner
+     * on the other — which is the layout that makes snooker possible on the
+     * shape at all, and makes the break a shot off a cushion. */
+    { Vec3 q = cue_table_lay(t, t->baulk_x, -t->d_radius * 0.4f, NULL);
+      set_ball(&b[n++], CUE_ID_CUE, q.x, q.z, R); }
     /* Green, brown, yellow reading LEFT TO RIGHT from behind the D — "God
      * Bless You". +Z is the player's right facing up the table, so yellow is
      * +d_radius. This and cue_rules.c's respot table were both mirrored, and
      * both carried a comment saying the opposite of what the code did. */
-    set_ball(&b[n++], CUE_ID_YELLOW, t->baulk_x, +t->d_radius, R);   /* yellow — right of the D */
-    set_ball(&b[n++], CUE_ID_GREEN,  t->baulk_x, -t->d_radius, R);   /* green  — left of the D  */
-    set_ball(&b[n++], CUE_ID_BROWN,  t->baulk_x, 0.0f, R);
-    set_ball(&b[n++], CUE_ID_BLUE,   t->blue_x, 0.0f, R);
-    set_ball(&b[n++], CUE_ID_PINK,   t->pink_x, 0.0f, R);
-    set_ball(&b[n++], CUE_ID_BLACK,  t->black_x, 0.0f, R);
-    /* reds triangle: 3 rows (6), 4 rows (10) or 5 rows (15), apex behind pink. */
+    { Vec3 q = cue_table_lay(t, t->baulk_x, +t->d_radius, NULL);   /* yellow — right of the D */
+      set_ball(&b[n++], CUE_ID_YELLOW, q.x, q.z, R); }
+    { Vec3 q = cue_table_lay(t, t->baulk_x, -t->d_radius, NULL);   /* green  — left of the D  */
+      set_ball(&b[n++], CUE_ID_GREEN,  q.x, q.z, R); }
+    { Vec3 q = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
+      set_ball(&b[n++], CUE_ID_BROWN,  q.x, q.z, R); }
+    { Vec3 q = cue_table_lay(t, t->blue_x,  0.0f, NULL);
+      set_ball(&b[n++], CUE_ID_BLUE,   q.x, q.z, R); }
+    { Vec3 q = cue_table_lay(t, t->pink_x,  0.0f, NULL);
+      set_ball(&b[n++], CUE_ID_PINK,   q.x, q.z, R); }
+    { Vec3 q = cue_table_lay(t, t->black_x, 0.0f, NULL);
+      set_ball(&b[n++], CUE_ID_BLACK,  q.x, q.z, R); }
+    /* reds triangle: 3 rows (6), 4 rows (10) or 5 rows (15), apex behind pink,
+     * and laid out in the PINK'S own frame so that on an L it grows up the arm
+     * the pink is on rather than off the side of it. */
     int rows = (t->reds <= 6) ? 3 : (t->reds <= 10) ? 4 : 5;
     float apexx = t->pink_x + 2.0f * R + 0.002f;
     float dx = R * 1.7320508f;
+    Vec3 up; Vec3 apex = cue_table_lay(t, apexx, 0.0f, &up);
+    Vec3 side = v3(-up.z, 0.0f, up.x);
     int red_id = 1;
     for (int row = 0; row < rows; row++) {
-        float x = apexx + row * dx;
         for (int k = 0; k <= row; k++) {
-            float z = (-(row) * R) + k * 2.0f * R;
-            set_ball(&b[n++], red_id++, x, z, R);
+            float along = (float)row * dx, off = -(float)row * R + (float)k * 2.0f * R;
+            set_ball(&b[n++], red_id++,
+                     apex.x + up.x * along + side.x * off,
+                     apex.z + up.z * along + side.z * off, R);
         }
     }
     return n;
@@ -1268,11 +2111,156 @@ int cue_table_rack_six(const CueTable *t, CueBall *balls) {
     return n;
 }
 
+/* THE 14.1 RERACK. Straight pool is played to a target score across as many
+ * racks as it takes: when one object ball is left, the other fourteen come back
+ * as a triangle with THE APEX SPACE EMPTY, and the fifteenth — the break ball —
+ * stays exactly where it lies, as does the cue ball. The break ball and the
+ * apex gap are the whole point: the incoming player breaks the new rack open
+ * off a ball that is already in a usable position, which is why a 14.1 run
+ * continues across racks instead of restarting.
+ *
+ * Only balls that are currently OFF the table are placed. Anything still on it
+ * is left untouched, so the caller does not have to identify the break ball —
+ * whatever survived is it.
+ *
+ * WHAT THIS DOES NOT DO: the interference cases. If the break ball or the cue
+ * ball is standing inside the rack area, the real rules move specified balls to
+ * specified spots (WPA 4.14). Here they simply stay, which can leave a ball
+ * touching the back of the rack. Rare, legal-looking, and worth fixing when the
+ * rest of 14.1 has been played enough to say how often it comes up. */
+int cue_table_rack_14(const CueTable *t, CueBall *b, int n) {
+    if (!t || !b || n <= 0) return 0;
+    const float R = t->R;
+    const float footx = t->half_len * 0.5f;
+    const float dx = R * 1.7320508f;
+
+    /* the fifteen triangle slots, apex first — the same geometry rack_pool
+     * lays out, so a reracked pack sits exactly where the opening one did */
+    Vec3 slot[15];
+    int ns = 0;
+    for (int row = 0; row < 5; row++) {
+        float x = footx + row * dx;
+        for (int k = 0; k <= row; k++)
+            slot[ns++] = v3(x, R, (-(row) * R) + k * 2.0f * R);
+    }
+
+    /* A SLOT A BALL IS ALREADY STANDING IN IS NOT A FREE SLOT. The break ball
+     * stays where it lies, and where it lies can be inside the rack area — the
+     * commonest case being a ball that never moved from the pack. Placing on top
+     * of it is a physics explosion the moment either is touched, so occupied
+     * slots are skipped and the overflow goes up the long string behind the
+     * rack, the same place a spotted ball goes. */
+    int free_slot[15]; int nfree = 0;
+    for (int s = 1; s < 15; s++) {                   /* slot 0 is the empty apex */
+        int taken = 0;
+        for (int i = 1; i < n && !taken; i++) {
+            if (!b[i].on) continue;
+            float dx = b[i].pos.x - slot[s].x, dz = b[i].pos.z - slot[s].z;
+            if (dx*dx + dz*dz < (2.0f*R)*(2.0f*R) * 0.98f) taken = 1;
+        }
+        if (!taken) free_slot[nfree++] = s;
+    }
+
+    int placed = 0, overflow = 0;
+    for (int i = 1; i < n && placed < 14; i++) {
+        if (b[i].on) continue;                       /* still up — the break ball */
+        if (b[i].id < 1 || b[i].id > 15) continue;   /* object balls only */
+        Vec3 p;
+        if (placed < nfree) {
+            p = slot[free_slot[placed]];
+        } else {
+            /* Behind the back row, on the centre line, stepping back until the
+             * spot is clear of everything already down. */
+            do {
+                overflow++;
+                p = v3(slot[14].x + (float)overflow * 2.05f * R, R, 0.0f);
+                int clash = 0;
+                for (int j = 1; j < n && !clash; j++) {
+                    if (!b[j].on) continue;
+                    float dx = b[j].pos.x - p.x, dz = b[j].pos.z - p.z;
+                    if (dx*dx + dz*dz < (2.0f*R)*(2.0f*R) * 0.98f) clash = 1;
+                }
+                if (!clash) break;
+            } while (overflow < 40);
+        }
+        b[i].pos = p;
+        b[i].vel = v3(0, 0, 0);
+        b[i].w   = v3(0, 0, 0);
+        b[i].drop = 0.0f;
+        b[i].pocket = 0;
+        b[i].on = 1;
+        b[i].orient = rand_orient();
+        placed++;
+    }
+    return placed;
+}
+
+/* THE PYRAMID: fifteen balls in a triangle with the apex on the foot spot,
+ * pointing back down the table at the house. Geometrically that is the pool
+ * rack — apex nearest baulk, base toward the top cushion — so it is the same
+ * triangle with the ids simply in order, because a pyramid's balls are
+ * unnumbered and interchangeable and nothing reads them. */
+static int rack_pyramid(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const Vec3 side = v3(-up.z, 0.0f, up.x);
+    const float dx = R * 1.7320508f;
+    int n = 1, id = 1;
+    for (int row = 0; row < 5; row++)
+        for (int k = 0; k <= row; k++) {
+            float along = (float)row * dx;
+            float off   = -(float)row * R + (float)k * 2.0f * R;
+            set_ball(&b[n++], id++,
+                     foot.x + up.x * along + side.x * off,
+                     foot.z + up.z * along + side.z * off, R);
+        }
+    { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
+    return n;
+}
+
+int cue_table_respot_one(const CueTable *t, CueBall *b, int n) {
+    if (!t || !b || n <= 0) return 0;
+    /* the lowest id that is off the table — deterministic, because both ends of
+     * a match run this and have to agree */
+    int pick = -1;
+    for (int i = 1; i < n; i++)
+        if (!b[i].on && b[i].id >= 1 && b[i].id <= 15 &&
+            (pick < 0 || b[i].id < b[pick].id)) pick = i;
+    if (pick < 0) return 0;
+
+    /* the foot spot, then straight back up the table until it is clear. The
+     * same rule a spotted ball follows everywhere else in this file. */
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const float R = t->R;
+    for (int step = 0; step < 60; step++) {
+        Vec3 p = v3(foot.x + up.x * (float)step * 2.05f * R, R,
+                    foot.z + up.z * (float)step * 2.05f * R);
+        if (!cue_table_on_bed(t, p.x, p.z)) continue;
+        int clash = 0;
+        for (int j = 0; j < n && !clash; j++) {
+            if (j == pick || !b[j].on) continue;
+            float dx = b[j].pos.x - p.x, dz = b[j].pos.z - p.z;
+            if (dx*dx + dz*dz < (2.0f*R)*(2.0f*R) * 0.98f) clash = 1;
+        }
+        if (clash) continue;
+        b[pick].pos = p;
+        b[pick].vel = v3(0,0,0);
+        b[pick].w   = v3(0,0,0);
+        b[pick].drop = 0.0f;
+        b[pick].pocket = 0;
+        b[pick].on = 1;
+        b[pick].orient = rand_orient();
+        return b[pick].id;
+    }
+    return 0;
+}
+
 int cue_table_rack(const CueTable *t, CueBall *balls) {
     memset(balls, 0, sizeof(CueBall) * CUE_MAX_BALLS);
     int n;
     if (t->is_snooker)           n = rack_snooker(t, balls);
     else if (t->kind == CUE_GAME_US9) n = rack_9ball(t, balls);
+    else if (t->kind == CUE_GAME_PYRAMID) n = rack_pyramid(t, balls);
     else                         n = rack_pool(t, balls);   /* UK8 + US8 */
     /* ONE PLACE STAMPS THE CUE BALL. Every rack builds balls[0] as the white,
      * and every game but English pool wants it the same size as the rest — so

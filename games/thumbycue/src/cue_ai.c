@@ -2040,7 +2040,7 @@ static void plan_finalize(void) {
 
     /* No pot existed: the pool is all safeties, every one of them verified. */
     if (P.safety_only) {
-        CueAIShot o; memset(&o, 0, sizeof o);
+        CueAIShot o; memset(&o, 0, sizeof o); o.target_pocket = -1;
         int bi = best_safety_idx();
         if (bi < 0) {
             /* EVERY SAFETY IN THE POOL FOULS, and this used to simply play one
@@ -2226,7 +2226,7 @@ static void plan_finalize(void) {
      * exists (pool is sorted clean-first, so index 0 is the best clean one) */
     if (P.pool[sel].scratch || P.pool[sel].bad_first) sel = 0;
     Cand best = P.pool[sel];
-    CueAIShot out; memset(&out, 0, sizeof out);
+    CueAIShot out; memset(&out, 0, sizeof out); out.target_pocket = -1;
 
     /* if even the best available shot scratches/fouls, prefer a safety instead */
     int best_unsafe = best.scratch || best.bad_first;
@@ -2262,7 +2262,9 @@ static void plan_finalize(void) {
     out.cue_end_sim = best.simmed ? best.cue_end : v3(0,0,0);
     out.sim_verified = best.simmed;
     out.next_pot = best.rawpot; out.brk_decided = brk_flip;   /* what it turned down */
-                out.target_id = (sc->tidx > 0 && sc->tidx < c->n) ? c->b[sc->tidx].id : -1; P.result = out; return;
+                out.target_id = (sc->tidx > 0 && sc->tidx < c->n) ? c->b[sc->tidx].id : -1;
+                out.target_pocket = sc->pk;   /* the pocket it is calling */
+                P.result = out; return;
             }
         }
     }
@@ -2346,7 +2348,9 @@ static void plan_finalize(void) {
     out.cue_end_sim = best.simmed ? best.cue_end : v3(0,0,0);
     out.sim_verified = best.simmed;
     out.next_pot = best.rawpot; out.brk_decided = brk_flip;
-    out.target_id = (best.tidx > 0 && best.tidx < c->n) ? c->b[best.tidx].id : -1; P.result = out;
+    out.target_id = (best.tidx > 0 && best.tidx < c->n) ? c->b[best.tidx].id : -1;
+    out.target_pocket = best.pk;      /* the pocket it is calling */
+    P.result = out;
 }
 
 
@@ -2525,7 +2529,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     P.nsafe_pool = 0; P.safety_only = 0; P.miss_caution = 0;
     P.posAware = p->position; P.phase = PH_DONE;
     AiCtx *c = &P.ctx;
-    CueAIShot out; memset(&out, 0, sizeof out);
+    CueAIShot out; memset(&out, 0, sizeof out); out.target_pocket = -1;
 
     /* 0a. Two misses already. A third forfeits the frame, so nothing else
      * matters: find the nearest ball-on with a clear path and hit it in the
@@ -3095,7 +3099,7 @@ int cue_ai_plan_tick(void) {
         }
         if (P.brk_i < P.brk_n) return 0;
 
-        CueAIShot out; memset(&out, 0, sizeof out);
+        CueAIShot out; memset(&out, 0, sizeof out); out.target_pocket = -1;
         if (P.brk_best_i >= 0) {
             const BrkCand *b = &P.brk[P.brk_best_i];
             out.aim = b->aim; out.power01 = b->power;
@@ -3356,7 +3360,7 @@ CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r
     AiCtx c = { .w = w, .t = t, .r = r, .b = balls, .n = n, .p = p,
                 .S = 12.0f / t->R, .maxdist_m = fmaxf(t->half_len, t->half_wid) * 2.0f,
                 .snooker = t->is_snooker };
-    CueAIShot out; memset(&out, 0, sizeof out);
+    CueAIShot out; memset(&out, 0, sizeof out); out.target_pocket = -1;
     out.safe = 1; out.valid = 1; out.power01 = 0.22f;
 
     /* DECLINE the push-out when there is already a shot worth taking. The caller

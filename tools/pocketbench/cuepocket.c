@@ -43,8 +43,17 @@ static struct { CueGameKind k; const char *name; const char *label; const char *
     {CUE_GAME_UK8,  "uk7",      "UK8 7ft (+ 6-red)", "UK8 + SNK6 (one block)"},
     {CUE_GAME_US8,  "us9",      "US8 9ft (+ 9-ball)","US8 + US9 (one block)"},
     {CUE_GAME_CN8,  "chinese10","Chinese 8 10ft",    "CN8"},
+    /* SNK6 and US9 share a pocket block with uk7/us9 above, so the bench never
+     * needed them — but they are their own kinds with their own beds and racks,
+     * and a sweep of "every table" that silently omits two is not one. */
+    {CUE_GAME_SNK6, "snk6",     "6-red snooker 7ft", "UK8 + SNK6 (one block)"},
+    {CUE_GAME_US9,  "us9ball",  "9-ball 9ft",        "US8 + US9 (one block)"},
+    /* Same bed and same pocket block as US8 — 14.1 is a rules game, not a table
+     * game — but it racks fifteen and reracks fourteen, which is the only thing
+     * about it there is to look at. */
+    {CUE_GAME_STRAIGHT,"straight","straight pool 9ft","US8 + US9 (one block)"},
 };
-#define NT 5
+#define NT 8
 
 
 static CueTable T; static CueWorld W;
@@ -305,6 +314,7 @@ int main(int argc, char **argv) {
     }
 
     const char *tbl="snooker12", *ty="corner", *out="/tmp/pk.ppm";
+    int pocket_idx = -1;
     /* WHERE THE EYE GOES. "top" is the old straight-down view; "out" stands
      * outside the pocket looking in and down at it, which is where a slot
      * behind a mitred jaw shows; "in" stands inside the table just over the
@@ -313,6 +323,7 @@ int main(int argc, char **argv) {
     const char *vw="top"; float cyaw=0, cpit=0, cdst=0; int have_cam=0;
     const char *lay=NULL;
     int whole=0, rack=0, bset=-1;
+    float notch_x=0.0f, notch_z=0.0f, bed_l=0.0f, bed_w=0.0f;
     /* EVERY knob starts unset. A field added to Knobs without a -1 here reads
      * as ZERO, which for the bore meant a rail with no hole cut in it — the
      * plank closed straight over the pocket and the bore wall vanished. */
@@ -321,6 +332,7 @@ int main(int argc, char **argv) {
     for (int i=1;i<argc-1;i++){
         if(!strcmp(argv[i],"--table")) tbl=argv[++i];
         else if(!strcmp(argv[i],"--type")) ty=argv[++i];
+        else if(!strcmp(argv[i],"--pocket")) pocket_idx=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--out"))  out=argv[++i];
         else if(!strcmp(argv[i],"--pr"))   k.pr  =(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--gap"))  k.gap =(float)atof(argv[++i]);
@@ -338,6 +350,15 @@ int main(int argc, char **argv) {
         else if(!strcmp(argv[i],"--layer")) lay=argv[++i];
         else if(!strcmp(argv[i],"--whole")) whole=1;
         else if(!strcmp(argv[i],"--rack"))  rack=1;
+        else if(!strcmp(argv[i],"--rerack")) rack=2;   /* 14.1: the apex left empty */
+        /* THE L IS A SHAPE, NOT A TABLE. Applied to whichever table is being
+         * drawn, the same way a custom table will carry it — so the bench can
+         * look at an L-shaped snooker table or an L-shaped 7 ft without either
+         * having to become a game mode. */
+        else if(!strcmp(argv[i],"--notch")) { notch_x=atof(argv[++i]); notch_z=atof(argv[++i]); }
+        /* An L wants a squarish bed under it — see the note in cuevr_app.c's
+         * apply_bed_shape. Half-extents, in metres. */
+        else if(!strcmp(argv[i],"--bed")) { bed_l=atof(argv[++i]); bed_w=atof(argv[++i]); }
         else if(!strcmp(argv[i],"--ballset")&&i+1<argc) bset=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--yaw"))  { cyaw=(float)atof(argv[++i]); have_cam=1; }
         else if(!strcmp(argv[i],"--pitch")){ cpit=(float)atof(argv[++i]); have_cam=1; }
@@ -373,13 +394,38 @@ int main(int argc, char **argv) {
         if(k.bset<-90.0f) k.bset= (mid?t0.bore_set_side:t0.bore_set_corner)/t0.R;
     }
     build_tuned(ti, mid, &k, &T, &W);
+    if (bed_l > 0.0f && bed_w > 0.0f) {
+        T.half_len = bed_l; T.half_wid = bed_w;
+        cue_table_build_world(&T, &W);
+    }
+    if (notch_x > 0.0f && notch_z > 0.0f) {
+        /* Applied to the finished table and the world rebuilt from it — the
+         * same order a custom table takes, so what the bench draws is what the
+         * game would build. */
+        T.bed_shape = CUE_BED_L;
+        T.notch_x = notch_x * T.half_len;
+        T.notch_z = notch_z * T.half_wid;
+        cue_table_build_world(&T, &W);
+    }
 
     img=malloc((size_t)IW*IH*3); zb=malloc(sizeof(float)*(size_t)IW*IH);
     cue_render_set_buffers(malloc(cue_render_tab_bytes()), malloc(cue_render_stri_bytes()));
     cue_render_build_table(&T,&W);
     const CueTri *tri; int bd=0,lp=0; int ntri=cue_render_table_tris(&tri,&bd,&lp);
 
-    int p = mid ? 5 : 2;
+    /* WHICH POCKET. On a rectangle the two named types are enough — every
+     * corner is the same corner and every middle the same middle — so the
+     * bench picked 2 and 5 and never needed to say which.
+     *
+     * An L breaks that. Its seven are not interchangeable: the two beside the
+     * notch have the missing corner as their outside, the reflex has no pocket
+     * at all, and the two middles sit on rails of different lengths. Dialling
+     * them means being able to LOOK at each one, so the index is selectable and
+     * the type is only the fallback. */
+    int p = (pocket_idx >= 0 && pocket_idx < W.npocket) ? pocket_idx
+          : (mid ? 5 : 2);
+    if (p >= W.npocket) p = 0;
+    mid = W.pocket_mid[p];        /* the chosen pocket's own kind, not the flag */
     ox=W.pocket[p].x; oz=W.pocket[p].z;
     float span = zoom*T.pr_corner; spm = IW/span;
     ox -= W.pmnorm[p].x*span*0.16f; oz -= W.pmnorm[p].z*span*0.16f;
@@ -449,8 +495,19 @@ int main(int argc, char **argv) {
     if (rack) {
         CueBall bl[CUE_MAX_BALLS];
         int nb = cue_table_rack(&T, bl);
+        if (rack == 2) {
+            /* THE 14.1 RERACK. Take fourteen off, leave one out on the table as
+             * the break ball, and ask for the triangle back: the apex gap is
+             * the whole point of the picture. */
+            for (int i = 1; i < nb; i++)
+                if (bl[i].id >= 1 && bl[i].id <= 14) bl[i].on = 0;
+            for (int i = 1; i < nb; i++)
+                if (bl[i].id == 15) bl[i].pos = v3(T.baulk_x + T.half_len * 0.35f,
+                                                   T.R, T.half_wid * 0.45f);
+            cue_table_rack_14(&T, bl, nb);
+        }
         if (bset >= 0) cue_render_set_ball_set(bset);
-        for (int i = 0; i < nb; i++) draw_ball(&bl[i], T.R);
+        for (int i = 0; i < nb; i++) if (bl[i].on) draw_ball(&bl[i], T.R);
     }
     Vec3 pc=W.drop_c[p], cc=W.cut_c[p], n=W.pmnorm[p];
     if (!s_persp) {
@@ -461,6 +518,15 @@ int main(int argc, char **argv) {
     float q0,q1; m2px(pc.x,pc.z,&q0,&q1); dot(q0,q1,3,255,45,45);
     m2px(cc.x,cc.z,&q0,&q1); dot(q0,q1,3,80,200,255);
     }
+    /* Every pocket on this table, so a front end can list them by name and
+     * show where each one actually is rather than assuming six in a ring. */
+    {   fprintf(stderr, "{\"npocket\": %d, \"shown\": %d, \"pockets\": [", W.npocket, p);
+        for (int q = 0; q < W.npocket; q++)
+            fprintf(stderr, "%s{\"i\": %d, \"mid\": %d, \"x\": %.4f, \"z\": %.4f}",
+                    q ? ", " : "", q, (int)W.pocket_mid[q],
+                    (double)W.pocket[q].x, (double)W.pocket[q].z);
+        fprintf(stderr, "]}\n"); }
+
     FILE *o=fopen(out,"wb"); fprintf(o,"P6\n%d %d\n255\n",IW,IH);
     fwrite(img,1,(size_t)IW*IH*3,o); fclose(o);
 

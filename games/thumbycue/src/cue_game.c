@@ -55,7 +55,11 @@ static int s_frame_idx;
 static int s_kind;            /* CueGameKind: 0 UK8, 1 US8, 2 US9, 3 CN8, 4 SNK10... */
 static const char *k_mode_name[CUE_GAME_COUNT] = {
     "UK 8-BALL", "US 8-BALL", "US 9-BALL", "CHINESE 8",
-    "SNOOKER 15", "SNOOKER 10", "SNOOKER 6" };
+    "SNOOKER 15", "SNOOKER 10", "SNOOKER 6",
+    /* VR only — the handheld's picker stops at CUE_GAME_VR_FIRST and never
+     * shows this one, but the array is sized by the kind count on both. */
+    "STRAIGHT POOL", "PYRAMID",
+};
 static int s_opp_mode = 1;    /* 0 = 2 PLAYER, 1 = VS CPU, 2 = CPU vs CPU, 3 = 2P LINK */
 
 /* LINK: 2P-over-USB session state. s_link_me is the local player's index (the

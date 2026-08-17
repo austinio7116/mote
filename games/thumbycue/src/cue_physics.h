@@ -28,10 +28,33 @@
 
 #define CUE_MAX_BALLS   22   /* snooker: cue + 15 reds + 6 colours */
 #ifndef CUE_MAX_SEG
-#define CUE_MAX_SEG     96   /* cushion nose segments (snooker uses curved jaws) */
+#define CUE_MAX_SEG     128  /* cushion nose segments (snooker uses curved jaws).
+                              * RAISED FROM 96 FOR F2: an L has six vertices and
+                              * eight pockets against a rectangle's four and six,
+                              * so its chain is half as long again. 96 fitted
+                              * every rectangle with room to spare and fits no L
+                              * at all — and the overflow is silent, because
+                              * add_seg simply stops adding when it is full,
+                              * which draws a table with a wall missing. */
 #endif
 #define CUE_MAX_JAW     24   /* bed-boundary knuckle points */
-#define CUE_MAX_POCKET   6
+#define CUE_MAX_POCKET   8   /* six on a rectangle; an L has five convex corners
+                              * plus middles on its long runs */
+/* How many rectangles a bed may be made of. One is every table shipped, two an
+ * L, and four leaves room for a T or a cross without another edit. */
+#define CUE_MAX_RECT     4
+
+/* An axis-aligned box in table space, x0<x1 and z0<z1. See CueWorld.play_r. */
+typedef struct { float x0, x1, z0, z1; } CueRect;
+
+/* Is (x,z) inside any of them? The whole of F2's boundary question, and the
+ * reason the shortcut is worth taking: for the one-rectangle case this is four
+ * compares, which is what the half-extent test was. */
+static inline int cue_rects_contain(const CueRect *r, int n, float x, float z) {
+    for (int i = 0; i < n; i++)
+        if (x >= r[i].x0 && x <= r[i].x1 && z >= r[i].z0 && z <= r[i].z1) return 1;
+    return 0;
+}
 /* In CueBall.pocket: this ball did not go down, it went OFF. The two look
  * identical to everything downstream — a ball that was on and now is not — and
  * they are not remotely the same thing to the rules, so they have to be told
@@ -125,6 +148,28 @@ typedef struct {
      * it, and a ball rolling to infinity is a shot that never settles. Past
      * this it is simply off the table, which is what it would be in the room. */
     float bound_x, bound_z;
+    /* ---- F2: THE BED AS A SHAPE, NOT AS TWO NUMBERS ----------------------
+     *
+     * bound_* and play_* above are half-extents, and a half-extent can only
+     * describe a rectangle centred on the origin. Collision never needed them
+     * — cue_phys_step does not reference half_len or half_wid at all, because
+     * the cushions are a generic chain — but four things outside it did, and
+     * every one of them would let a ball through the wall of any other shape:
+     * the world edge a jumped ball is deleted at, the rail-top surface it can
+     * land on, the stuck-ball test, and the placement clamp.
+     *
+     * A UNION OF AXIS-ALIGNED RECTANGLES answers all four cheaply, and it is
+     * exactly what an L is. General convex polygons are S2's problem and cost
+     * roughly double; this buys the L and leaves the fast paths fast, because
+     * one rectangle is still one compare in each axis.
+     *
+     * The half-extents stay, and stay correct: they are the BOUNDING box of the
+     * union now rather than the shape itself, which keeps them useful as a
+     * first reject and keeps every existing reader honest — a bounding box is
+     * never smaller than the shape, so nothing that used them to ask "could
+     * this possibly be on the table" gets a wrong answer. */
+    CueRect play_r[CUE_MAX_RECT];  int nplay;    /* the cloth */
+    CueRect bound_r[CUE_MAX_RECT]; int nbound;   /* out to the frame edge */
     /* AND WHAT IT LANDS ON BETWEEN THE TWO. A ball that clears a cushion is
      * over the rail, and the rail is a surface: it can come down on it, run
      * along it, drop back onto the cloth or fall off the outside. Removing it
@@ -140,6 +185,12 @@ typedef struct {
     CueSeg seg[CUE_MAX_SEG]; int nseg;
     Vec3   jaw[CUE_MAX_SEG]; int njaw; float jaw_r;   /* immovable jaw-tip circles */
     Vec3   pocket[CUE_MAX_POCKET]; float pocket_r[CUE_MAX_POCKET]; int npocket;
+    /* IS THIS A MIDDLE POCKET? Carried rather than inferred from the index.
+     * "p < 4 is a corner" was true of every rectangle and is written into the
+     * drop-back choice, the AI's difficulty model and the HUD's pocket names —
+     * and an L has FIVE corners, so all three would have called its fifth
+     * corner a middle and priced it as one. */
+    unsigned char pocket_mid[CUE_MAX_POCKET];
     /* THE MOUTH OF EACH POCKET: the midpoint of the line between its two jaw
      * tips, and the unit normal of that line pointing INTO the pocket. Past
      * that line the ball is in the throat and the only way back is out through

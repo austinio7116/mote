@@ -68,9 +68,15 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
         r->spot[6] = v3(t->pink_x,  t->R, 0.0f);           /* pink   */
         r->spot[7] = v3(t->black_x, t->R, 0.0f);           /* black  */
     } else {
-        /* foot spot — respot for the 9 (US9) or an illegally broken-in 8 */
+        /* foot spot — respot for the 9 (US9), an illegally broken-in 8, or any
+         * ball spotted in straight pool, which does far more of it than either */
         r->spot[0] = v3(t->half_len * 0.5f, t->R, 0.0f);
         if (t->kind == CUE_GAME_US9) r->seq = 1;           /* lowest ball on (HUD) */
+        if (t->kind == CUE_GAME_STRAIGHT) {
+            r->called_pocket = -1;
+            r->target_score = 50;
+            r->racks = 0;
+        }
     }
 }
 
@@ -298,8 +304,12 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t) {
      * This counted frames alone, so with a random first break the second frame
      * could hand it back to the same player. */
     int bf = r->break_first;
+    /* The target is a property of the MATCH, like best_of — a 100-up frame is
+     * followed by another 100-up frame, not by the default. */
+    int tgt = r->target_score;
     int first = (bf + f0 + f1) & 1;
     cue_rules_init(r, t, cpu);
+    if (tgt > 0) r->target_score = tgt;
     r->frames[0] = f0; r->frames[1] = f1; r->best_of = bo;
     r->match_over = mo; r->match_winner = mw;
     r->break_first = bf;
@@ -709,6 +719,247 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
     if (was_break && !r->frame_over) { r->pushout_avail = 1; r->pushout_offer = 1; }
 }
 
+/* ---- straight pool (14.1 continuous) --------------------------------- *
+ *
+ * The scoring game, and the one whose shape is unlike everything else here:
+ * there is no ball you must hit, no group, no order. Every ball is fair game and
+ * worth exactly one point, and the whole of the skill is in saying beforehand
+ * which one is going where. A frame runs across as many racks as the target
+ * takes — fourteen balls go back on the table each time one is left, and the
+ * fifteenth stays where it lies to be broken off.
+ *
+ * WPA 4.14 straight pool, with the interference cases left out — see
+ * cue_table_rack_14 for what that means and why. */
+
+static int straight_left(const CueBall *b, int n) {   /* object balls still up */
+    int c = 0;
+    for (int i = 1; i < n; i++)
+        if (b[i].on && b[i].id >= 1 && b[i].id <= 15) c++;
+    return c;
+}
+
+/* Spot a ball on the foot spot, or as near behind it as it will go — the long
+ * string runs from the foot spot toward the foot cushion, which is +x. Every
+ * illegally potted ball in 14.1 comes back this way, and there are a lot of
+ * them: an uncalled pot, anything that went down on a foul, anything potted on
+ * a safety. */
+static void spot_straight(CueRules *r, CueBall *b, int n, int id) {
+    CueBall *q = find_ball(b, n, id);
+    if (!q) return;
+    q->on = 1; q->vel = v3(0,0,0); q->w = v3(0,0,0); q->drop = 0.0f;
+    q->pocket = 0; q->orient = m3_identity();
+    Vec3 p = r->spot[0];
+    if (spot_taken(b, n, p, id, r->R)) {
+        for (int step = 1; step <= 80; step++) {
+            Vec3 c = p; c.x += (float)step * r->R * 0.5f;
+            if (!spot_taken(b, n, c, id, r->R)) { p = c; break; }
+        }
+    }
+    q->pos = p;
+}
+
+/* ---- G2: RUSSIAN PYRAMID ------------------------------------------------ *
+ *
+ * The simplest scoring in the file and the hardest table in it. Any of the
+ * fifteen is a legal ball, in any order, and eight of them takes the frame —
+ * more than half, so it cannot be caught. What makes it a game rather than pool
+ * with the groups switched off is the pockets, which are 73 mm to a 68 mm ball,
+ * and the penalty: a foul PUTS ONE OF YOUR OWN BALLS BACK, so a frame can go
+ * backwards and a careless visit hands your opponent something to shoot at.
+ *
+ * CLASSIC first, which is the white-cue-ball game. COMBAT scores the cue ball
+ * potted off an object ball as well — the "свой" the game is known for — and is
+ * a two-line difference from here. FREE, where any ball on the table may be
+ * played as the cue ball, is not a variant of this function: balls[0] is the
+ * white throughout the rules, the AI and the wire, and that is a real assumption
+ * to break rather than a flag to add. */
+static void resolve_pyramid(CueRules *r, CueBall *b, int n, int first_hit,
+                            int scratch, int cushion, const int *potted, int np) {
+    (void)b; (void)n;
+    const int me = r->turn, you = 1 - r->turn;
+    r->break_shot = 0;
+    r->respot = 0;
+
+    /* A "свой": the cue ball potted AFTER a legal contact. A foul in Classic and
+     * a scored ball in Combat, and the same event either way. */
+    const int svoy = scratch && first_hit >= 0;
+
+    int scored = 0;
+    for (int k = 0; k < np; k++) if (potted[k] >= 1 && potted[k] <= 15) scored++;
+    if (svoy && r->pyr_free == CUE_PYR_COMBAT) scored++;
+
+    int foul = 0; const char *why = "";
+    if (first_hit < 0)                    { foul = 1; why = "NO BALL"; }
+    else if (scratch && !(r->pyr_free == CUE_PYR_COMBAT))
+                                          { foul = 1; why = "SCRATCH"; }
+    else if (scored == 0 && !cushion)     { foul = 1; why = "NO RAIL"; }
+    if (r->n_off)                         { foul = 1; why = "OFF THE TABLE"; }
+    r->last_foul = foul;
+
+    if (!foul) {
+        r->score[me] += scored;
+        if (r->score[me] >= 8) {
+            r->frame_over = 1; r->winner = me; book_frame(r, me);
+            snprintf(r->msg, sizeof r->msg, "PYRAMID!");
+            return;
+        }
+        if (scored) { snprintf(r->msg, sizeof r->msg, "%d BALL%s", scored,
+                               scored == 1 ? "" : "S"); return; }
+        r->turn = you; r->msg[0] = 0;
+        return;
+    }
+
+    /* The penalty. One ball back for the offender — and only if he has one to
+     * give, because a player who has potted nothing cannot pay. Anything potted
+     * on the foul shot itself does NOT count first: it is scored and then given
+     * back, which nets to nothing and is the same answer by a shorter road. */
+    if (r->score[me] > 0) { r->score[me]--; r->respot = 1; }
+    r->cfoul[me]++;
+    r->turn = you;
+    /* Ball in hand from the house, which is where a pyramid foul puts it —
+     * behind the line, not anywhere on the table. clamp_region already treats
+     * baulk_x + d_radius as a D, and a house is a D as far as it is concerned. */
+    r->ball_in_hand = 1;
+    snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+}
+
+static void resolve_straight(CueRules *r, CueBall *b, int n, int first_hit,
+                             int scratch, int cushion, const int *potted, int np) {
+    const int was_break = r->break_shot;
+    /* The call belongs to this stroke and no other, whatever becomes of it. */
+    const int called_id  = r->nominated;
+    const int called_pkt = r->called_pocket;
+    r->nominated = 0; r->called_pocket = -1;
+    r->break_shot = 0;
+
+    /* Did the called ball go down the called pocket? CueBall.pocket carries the
+     * pocket it fell in, which is what makes calling a pocket enforceable rather
+     * than an honour system. */
+    int made_call = 0;
+    for (int k = 0; k < np && called_id; k++) {
+        if (potted[k] != called_id) continue;
+        const CueBall *q = find_ball(b, n, potted[k]);
+        if (!q || q->pocket == CUE_OFF_TABLE) continue;   /* driven off, not potted */
+        if (called_pkt < 0 || (int)q->pocket == called_pkt) made_call = 1;
+    }
+
+    /* THE OPENING BREAK has its own requirement and its own price: two object
+     * balls to a cushion, or a called ball down, and any failure costs TWO
+     * points rather than one. It is the only stroke in the game that costs more.
+     *
+     * `cushion` is "some ball reached a cushion", not a count of them, so the
+     * two-ball part of the rule is enforced as one. The honest reading is that a
+     * bad break is under-punished, never over-punished: every break this passes
+     * did send a ball to a rail. Counting them wants the contact log F6 added,
+     * and is worth doing when the AI plays this game.
+     *
+     * The break check cannot be a separate test after the ordinary ones — the
+     * generic no-rail rule fires on exactly the same conditions and claimed the
+     * foul first, so the break price never applied. It is the same foul at a
+     * different price, so it is the same branch with a different name. */
+    int foul = 0; const char *why = "";
+    if (scratch)                        { foul = 1; why = "SCRATCH"; }
+    else if (first_hit < 0)             { foul = 1; why = was_break ? "BREAK" : "NO BALL"; }
+    else if (np == 0 && !cushion)       { foul = 1; why = was_break ? "BREAK" : "NO RAIL"; }
+    if (r->n_off && !foul)              { foul = 1; why = "OFF THE TABLE"; }
+    const int break_foul = (was_break && foul);
+    r->last_foul = foul;
+
+    /* SCORING. The called ball in the called pocket scores, and so does
+     * everything else that went down with it — the accidental extra is a real
+     * part of the game and always has been. Nothing scores otherwise. */
+    int scored = 0;
+    if (!foul && made_call) {
+        for (int k = 0; k < np; k++) {
+            const CueBall *q = find_ball(b, n, potted[k]);
+            if (q && q->pocket != CUE_OFF_TABLE) scored++;
+        }
+    }
+
+    /* Everything potted that did not score comes back on the long string. On a
+     * scoring stroke that is nothing; on a foul, a safety or an uncalled pot it
+     * is every ball that went down. */
+    if (!scored) {
+        for (int k = 0; k < np; k++) {
+            if (potted[k] == CUE_ID_CUE) continue;        /* the white is replaced, not spotted */
+            spot_straight(r, b, n, potted[k]);
+        }
+    }
+
+    if (foul) {
+        r->score[r->turn] -= break_foul ? 2 : 1;
+        r->cfoul[r->turn]++;
+        r->last_foul_pts = break_foul ? 2 : 1;
+        if (r->cfoul[r->turn] >= 3) {
+            /* THREE IN A ROW: fifteen more off the score and the whole table
+             * comes back, with the offender breaking it. The heaviest penalty in
+             * any game here, and it exists because without it a losing player
+             * would simply foul safe forever. */
+            r->score[r->turn] -= 15;
+            r->cfoul[r->turn] = 0;
+            r->rerack = 2; r->racks++;
+            r->break_shot = 1;
+            r->ball_in_hand = 1;
+            snprintf(r->msg, sizeof r->msg, "3 FOULS -15");
+            return;                       /* offender breaks the new rack */
+        }
+        r->turn = 1 - r->turn;
+        r->ball_in_hand = scratch ? 1 : 0;
+        snprintf(r->msg, sizeof r->msg, "FOUL: %s -%d", why, break_foul ? 2 : 1);
+    } else {
+        r->cfoul[r->turn] = 0;
+        if (scored) {
+            r->score[r->turn] += scored;
+            r->brk += scored;
+            snprintf(r->msg, sizeof r->msg, "BREAK %d", r->brk);
+        } else {
+            /* A safety, or a called shot that missed. Either way the table goes
+             * over and the run ends. */
+            r->brk = 0;
+            r->turn = 1 - r->turn;
+            snprintf(r->msg, sizeof r->msg, "%s", called_id ? "MISSED CALL" : "SAFETY");
+        }
+    }
+
+    /* THE RERACK, after the score is settled: one ball left and the fourteen go
+     * back with the apex empty; none left and the whole fifteen do. Asked after
+     * the spotting above, so a ball that came back off a foul is counted. */
+    int left = straight_left(b, n);
+    if (left <= 1 && !r->frame_over) {
+        r->rerack = (left == 1) ? 1 : 2;
+        r->racks++;
+        /* Clearing the table outright is a fresh start, not a continuation:
+         * all fifteen go back and the striker breaks them, from in hand behind
+         * the head string, exactly as at the beginning of the frame. With one
+         * ball left there is a break ball on the table and none of that applies
+         * — the run simply carries on. */
+        if (left == 0) { r->break_shot = 1; r->ball_in_hand = 1; }
+    }
+
+    /* THE TARGET, asked of both players rather than of whoever is at the table:
+     * the turn has already changed hands by this point on a miss or a foul, so
+     * "did the striker reach it" is a question about the wrong player half the
+     * time. Nobody can reach it on a foul — a foul only ever subtracts. */
+    for (int p = 0; p < 2 && !r->frame_over; p++) {
+        if (r->score[p] < r->target_score) continue;
+        r->frame_over = 1; r->winner = p;
+        r->rerack = 0;                     /* the frame is over; do not lay a rack */
+        book_frame(r, r->winner);
+        snprintf(r->msg, sizeof r->msg, "FRAME WON!");
+    }
+}
+
+void cue_rules_call_shot(CueRules *r, int ball_id, int pocket) {
+    if (!r || r->mode != CUE_GAME_STRAIGHT) return;
+    r->nominated = (ball_id >= 1 && ball_id <= 15) ? ball_id : 0;
+    r->called_pocket = r->nominated ? pocket : -1;
+}
+
+void cue_rules_set_target(CueRules *r, int points) {
+    if (!r || points < 1) return;
+    r->target_score = points;
+}
+
 void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
                        int first_hit, int scratch, int cushion,
                        const int *potted, int np) {
@@ -717,9 +968,12 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     r->last_foul = 0;
     r->last_miss = 0;
     r->last_foul_pts = 0;
-    if (r->kind)                       resolve_snooker(r, b, n, first_hit, scratch, potted, np);
-    else if (r->mode == CUE_GAME_US9)  resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
-    else                               resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);
+    r->rerack = 0;                     /* the host consumed the last one */
+    if (r->kind)                            resolve_snooker(r, b, n, first_hit, scratch, potted, np);
+    else if (r->mode == CUE_GAME_US9)       resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
+    else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);
+    else if (r->mode == CUE_GAME_PYRAMID)   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
+    else                                    resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);
     /* The host's observations are about the shot just resolved and nothing
      * else. Left set they would foul the NEXT one too. */
     r->jumped = 0;
@@ -766,6 +1020,11 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
         return snk_on(r, id);
     }
     if (r->mode == CUE_GAME_US9) return id == nine_lowest(b, n);  /* must hit lowest */
+    /* Straight pool: every object ball is legal to hit, always. The obligation
+     * is to SAY which one, not to choose from a list — see cue_rules_call_shot. */
+    if (r->mode == CUE_GAME_STRAIGHT) return id >= 1 && id <= 15;
+    /* Pyramid: every one of the fifteen is on, always. */
+    if (r->mode == CUE_GAME_PYRAMID)  return id >= 1 && id <= 15;
     if (r->open) return id != 8;                 /* open table: anything but the 8 */
     /* the 8 is legal ONLY once your own group is fully cleared */
     if (id == 8) return group_cleared(b, n, r->group[r->turn]);
@@ -785,6 +1044,17 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
         snprintf(buf, cap, "ON %s", on);
     } else if (r->mode == CUE_GAME_US9) {
         snprintf(buf, cap, "ON %d", r->seq ? r->seq : 1);
+    } else if (r->mode == CUE_GAME_STRAIGHT) {
+        /* The score IS the state in 14.1 — there is no ball on to report, so the
+         * board carries the target and what has been called instead. */
+        if (r->nominated)
+            snprintf(buf, cap, "%d/%d  CALL %d", r->score[r->turn],
+                     r->target_score, r->nominated);
+        else
+            snprintf(buf, cap, "%d/%d  SAFETY", r->score[r->turn], r->target_score);
+    } else if (r->mode == CUE_GAME_PYRAMID) {
+        /* Balls, not points, and eight of them takes it. */
+        snprintf(buf, cap, "%d - %d   (8 WINS)", r->score[0], r->score[1]);
     } else {
         int g = r->group[r->turn];
         const char *grp = r->open ? "OPEN" : g == 1 ? "SOLIDS" : "STRIPES";

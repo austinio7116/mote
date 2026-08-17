@@ -26,6 +26,19 @@ through, the drop circle, the lip's outer edge and its thickness.
 
 Save writes pockets.json beside this script and prints the source lines to
 paste back, so a tuning session survives and can be picked up again.
+
+L-SHAPED BEDS. Tick "L-shaped" and the bench builds a custom table instead of a
+shipped one: bed half-extents, the notch, and a picker for WHICH of its seven
+pockets to look at. That last part is the point — a rectangle has two kinds of
+pocket and any one of each will do, while an L has seven that are not
+interchangeable. The two beside the notch have the missing corner as their
+outside, and the two middles sit on rails of different lengths. None of them
+has ever been dialled: they inherit the rectangle's numbers, which is a guess.
+
+The knobs are still the global corner/middle fields, so dialling the notch
+corners moves every corner with them. If they turn out to want numbers of their
+own, that is a new pair of fields on CueTable — and therefore a protocol bump —
+worth doing once somebody knows what the numbers should be.
 """
 import http.server
 import io
@@ -75,12 +88,23 @@ def defaults():
 
 
 def render(q):
-    out = os.path.join(TMP, "pb_%s_%s_%s.ppm" % (q.get("table", "x"), q.get("type", "x"),
-                                                 q.get("view", "top")))
+    out = os.path.join(TMP, "pb_%s_%s_%s_%s.ppm" % (
+        q.get("table", "x"), q.get("type", "x"), q.get("view", "top"),
+        q.get("pocket", "d")))
     cmd = [BIN, "--table", q.get("table", "snooker12"),
            "--type", q.get("type", "corner"), "--out", out,
            "--size", "700", "--zoom", q.get("zoom", "5"),
            "--view", q.get("view", "top")]
+    # THE SHAPE, AND WHICH POCKET. A rectangle has two kinds of pocket and any
+    # one of each will do; an L has seven that are not interchangeable, so the
+    # bench has to be able to say which. Both are optional, so a session that
+    # only ever looks at the shipped tables behaves exactly as it did.
+    if q.get("bedl", "") not in ("", "0") and q.get("bedw", "") not in ("", "0"):
+        cmd += ["--bed", q["bedl"], q["bedw"]]
+    if q.get("notchx", "") not in ("", "0") and q.get("notchz", "") not in ("", "0"):
+        cmd += ["--notch", q["notchx"], q["notchz"]]
+    if q.get("pocket", "") not in ("", "-1"):
+        cmd += ["--pocket", q["pocket"]]
     for cam in ("yaw", "pitch", "dist"):
         if q.get(cam, "") != "":
             cmd += ["--" + cam, q[cam]]
@@ -88,10 +112,16 @@ def render(q):
         if k in q:
             cmd += ["--" + k, q[k]]
     r = subprocess.run(cmd, capture_output=True, text=True)
-    try:
-        info = json.loads(r.stderr.strip().splitlines()[-1])
-    except Exception:
-        info = {}
+    info = {}
+    # The last line is the pocket's own numbers; a line before it, if present,
+    # is the whole table's pocket list, which is what lets the front end offer
+    # them by name instead of by guesswork.
+    for ln in r.stderr.strip().splitlines():
+        try:
+            d = json.loads(ln)
+        except Exception:
+            continue
+        info.update(d)
     from PIL import Image
     buf = io.BytesIO()
     Image.open(out).save(buf, "PNG")
@@ -166,6 +196,17 @@ PAGE = r"""<!doctype html><meta charset=utf-8>
 <header>
   <h1>ThumbyCue pocket bench</h1>
   <select id=table></select>
+  <!-- THE SHAPE. An L is not a table kind — it is a bed a custom table can
+       have — so it is a switch here rather than an entry in the list above,
+       which is exactly how the game offers it. -->
+  <label class=key><input id=lshape type=checkbox> L-shaped</label>
+  <span class=key id=lwrap style="display:none">
+    bed <input id=bedl type=number step=0.025 value=1.05 style="width:62px">
+        x <input id=bedw type=number step=0.025 value=1.00 style="width:62px">
+    notch <input id=notchx type=number step=0.05 value=1.0 style="width:56px">
+          x <input id=notchz type=number step=0.05 value=0.85 style="width:56px">
+    pocket <select id=pocket></select>
+  </span>
   <label class=key>zoom <input id=zoom type=range min=2.5 max=9 step=.25 value=5
         style="vertical-align:middle;width:100px;accent-color:var(--acc)"></label>
   <span class=key>view
@@ -264,6 +305,14 @@ function draw(kind){
     const view=document.getElementById('view').value;
     const q=new URLSearchParams({table:TABLE,type:kind,
         zoom:document.getElementById('zoom').value, view:view});
+    if(document.getElementById('lshape').checked){
+      q.set('bedl',  document.getElementById('bedl').value);
+      q.set('bedw',  document.getElementById('bedw').value);
+      q.set('notchx',document.getElementById('notchx').value);
+      q.set('notchz',document.getElementById('notchz').value);
+      const ps=document.getElementById('pocket').value;
+      if(ps!=='') q.set('pocket', ps);
+    }
     if(view!=='top'){
       q.set('yaw',  document.getElementById('yaw').value);
       q.set('pitch',document.getElementById('pitch').value);
@@ -273,6 +322,10 @@ function draw(kind){
     fetch('/render?'+q).then(async r=>{
       const info=JSON.parse(r.headers.get('X-Readout')||'{}');
       document.getElementById('img_'+kind).src=URL.createObjectURL(await r.blob());
+      /* The table tells us how many pockets it has and where each one is, so
+         the list is filled from the geometry rather than from an assumption
+         about six in a ring. */
+      if(info.pockets) fillPockets(info.pockets);
       const g=info.gap_to_drop;
       document.getElementById('mm_'+kind).innerHTML =
         `mouth <b>${info.mouth?.toFixed(1)}</b> mm`+
@@ -300,6 +353,39 @@ fetch('/state').then(r=>r.json()).then(s=>{
     o.value=k; o.textContent=DEF[k].label; sel.appendChild(o); }
   sel.onchange=e=>show(e.target.value);
   document.getElementById('zoom').oninput=()=>{draw('corner');draw('middle');};
+  /* NAMED BY WHERE THEY ARE. An index is not a thing anybody can point at, so
+     each is described by its corner of the table and whether it is a middle —
+     which is the only way to say "the one beside the notch" out loud. */
+  function pocketName(p, all){
+    const far = p.x > 0.001, near = p.x < -0.001;
+    const right = p.z > 0.001, left = p.z < -0.001;
+    if(p.mid) return 'middle, ' + (right ? 'right rail' : left ? 'left rail'
+                                   : (far ? 'far' : 'near') + ' rail');
+    return (far ? 'far ' : near ? 'near ' : 'mid ') +
+           (right ? 'right' : left ? 'left' : 'centre');
+  }
+  let POCKETS=[];
+  function fillPockets(list){
+    if(JSON.stringify(list)===JSON.stringify(POCKETS)) return;
+    POCKETS=list;
+    const sel=document.getElementById('pocket'), had=sel.value;
+    sel.innerHTML='';
+    for(const p of list){
+      const o=document.createElement('option');
+      o.value=p.i; o.textContent=p.i+'  '+pocketName(p,list);
+      sel.appendChild(o);
+    }
+    if(had!=='' && had<list.length) sel.value=had;
+  }
+  document.getElementById('lshape').onchange=()=>{
+    document.getElementById('lwrap').style.display =
+      document.getElementById('lshape').checked ? '' : 'none';
+    draw('corner'); draw('middle');
+  };
+  for(const id of ['bedl','bedw','notchx','notchz'])
+    document.getElementById(id).onchange=()=>{draw('corner');draw('middle');};
+  document.getElementById('pocket').onchange=()=>{draw('corner');draw('middle');};
+
   /* The view, and the eye when it is not straight down. The defaults are the
      angles the two faults were actually seen from — outside on the diagonal for
      a mitred jaw, inside over the cloth for a middle pocket — and the sliders

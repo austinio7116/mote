@@ -103,7 +103,44 @@ typedef struct {
      * 0 = off, 1..3 = low/medium/high. Both are requests; absence of the
      * extension or a zero field leaves behaviour exactly as it was. */
     float render_scale;
+    /* ...or say it OUTRIGHT. Non-zero asks for this many pixels across per eye
+     * and ignores render_scale entirely; the height follows the runtime's own
+     * aspect so the field of view is untouched.
+     *
+     * WHY AN ABSOLUTE NUMBER IS THE HONEST ONE. The runtime's recommendation is
+     * a conservative default chosen for a fleet of apps, not for this one, and
+     * scaling it means the resolution moves whenever the system's idea of
+     * "recommended" moves — under a system update, or under a tool the player
+     * has installed to raise it. Two multipliers then stack and nobody can say
+     * what the eye buffer actually is. Ask for the pixels you want.
+     *
+     * Clamped to maxImageRect and rounded down to a multiple of 8. */
+    int   eye_w;
+    /* ...and the height it must also cover. A panel is not square and its
+     * aspect is not the runtime's: a Quest 3 eye is 2064x2208 while the
+     * recommendation is 1680x1760, which is a different shape. Asking for the
+     * panel's WIDTH alone therefore lands short of its HEIGHT — 2064x2160
+     * against a 2208 panel — and quietly throws away the top and bottom of the
+     * display. Both are given, and the scale that covers BOTH is the one used,
+     * so "native" means native rather than native in one axis. */
+    int   eye_h;
     int   foveation;
+    /* MSAA samples per pixel: 0 = off, 2 or 4 = that many, -1 = the old
+     * behaviour (2x where the extension allows it). It is a REQUEST — a
+     * runtime without GL_EXT_multisampled_render_to_texture gets 0 whatever is
+     * asked, and more samples than GL_MAX_SAMPLES is clamped down.
+     *
+     * Worth knowing which way to trade: on a tiler MSAA costs tile memory and
+     * resolve bandwidth and only helps at edges, while resolution costs
+     * fragments and helps everywhere. At a high render_scale the extra samples
+     * buy very little, so scale-up-and-MSAA-off is usually both cheaper and
+     * sharper than scale-down-and-MSAA-on. */
+    int   msaa;
+    /* Performance levels, per domain: 0 = the app's default (sustained high),
+     * or an XrPerfSettingsLevelEXT value. These ask the runtime for clocks; it
+     * is free to ignore them, and it will throttle regardless once the headset
+     * is hot, so a level is a ceiling rather than a promise. */
+    int   cpu_level, gpu_level;
 } MoteXrApp;
 
 /* vm/activity are the JavaVM* and the activity's jobject: OpenXR on Android
@@ -159,6 +196,26 @@ int  mote_xr_floor_relative(void);
  * Answerable from the moment the swapchains exist, which is before the app's
  * gl_init is called, precisely so that it can be asked there. */
 int  mote_xr_multiview(void);
+/* Change the clocks without a restart — a graphics menu wants this live. */
+/* ...and the levels themselves. OpenXR names four — 0 power saving, 25
+ * sustained low, 50 sustained high, 75 boost — and Meta's runtime accepts a
+ * fifth that the spec does not name: 100, PERFORMANCE_MAX, which is the only
+ * way to reach the hardware's top clock step from OpenXR. Boost is documented
+ * as equivalent to sustained high on Quest, so 100 is the real maximum and 75
+ * is not worth offering on its own. */
+#define MOTE_XR_PERF_MAX 100
+void mote_xr_set_perf_levels(int cpu, int gpu);
+/* Change the eye buffer's size and sample count. Takes effect at the START of
+ * the next frame — the swapchain images belong to the runtime and cannot be
+ * torn down inside a frame it has already given us. Returns 0 if the request
+ * was accepted, which is not the same as it having happened yet. */
+int  mote_xr_reconfigure(int eye_w, int msaa);
+int  mote_xr_reconfigure_wh(int eye_w, int eye_h, int msaa);
+/* What the eye buffer actually came out as, and how many samples: a settings
+ * screen that says "1.25x" and nothing else is asking the player to do the
+ * arithmetic the runtime already did. */
+void mote_xr_eye_size(int *w, int *h);
+int  mote_xr_msaa(void);
 
 /* The runtime's own model of the controller in `hand` (0 = left), as glTF
  * binary. NULL until the runtime has one, which on a headset whose controllers
