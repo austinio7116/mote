@@ -244,6 +244,24 @@ int main(int argc, char **argv) {
         int bad = 0;
         if (c < MIN_ROOM) bad = 1;
         if (m < MIN_ROOM) bad = 1;
+
+        /* AND THE HOLE IN THE TIMBER. Getting through the cushions is only half
+         * of being potted: the bore is what the ball then falls through, and it
+         * is written as a ratio of the mouth on every table. On the one table
+         * whose mouth is barely wider than its ball that ratio bored a hole
+         * SMALLER than the ball, so a pot squeezed the jaws and then stopped
+         * dead on the wood — which reads exactly like the jaws still being
+         * tight, and outlived them being fixed. */
+        {   CueTable bt; cue_table_init(&bt, (CueGameKind)EXPECT[i].kind);
+            float bc = (bt.bore_corner - bt.R) * 2000.0f;
+            float bs = (bt.bore_side   - bt.R) * 2000.0f;
+            if (bc < MIN_ROOM || bs < MIN_ROOM) {
+                printf("%-16s BORE corner %+.1f  middle %+.1f mm wider than the "
+                       "ball — the ball cannot fall through it\n",
+                       EXPECT[i].name, bc, bs);
+                bad = 1;
+            } }
+
         if (EXPECT[i].want_c > 0 && fabsf(c - EXPECT[i].want_c) > EXPECT[i].tol) bad = 1;
         if (EXPECT[i].want_m > 0 && fabsf(m - EXPECT[i].want_m) > EXPECT[i].tol) bad = 1;
         printf("%-16s corner %+6.1f  middle %+6.1f mm wider than the ball   %s\n",

@@ -226,15 +226,25 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * pairing the federation lists. Everything below is written off R and
          * the mouths, so the two sizes share the whole rest of this block. */
         const int home = (kind == CUE_GAME_PYRAMID7);
+        /* THE BALL IS THE BOTTOM OF ITS RANGE, on both beds.
+         *
+         * The federation lists 67 mm at 255 g as the tournament ball and 63,
+         * 60 and 57.15 as the smaller sets for smaller tables; 68 mm is the
+         * OLD tournament size, which is what this shipped with. These balls
+         * are enormous next to a snooker ball however you cut it — that is the
+         * game — so where there is a choice it is made downwards. */
         if (home) {
             t->half_len = 1.980f * 0.5f;
             t->half_wid = 0.990f * 0.5f;
-            t->R = 0.0300f; t->mass = 0.196f;  /* 60 mm of the same phenolic */
+            /* 2 1/4 inch, the smallest set the federation lists, on the
+             * smallest bed it lists. Same phenolic, so the mass follows the
+             * cube of the diameter from the tournament ball's 255 g. */
+            t->R = 0.0285750f; t->mass = 0.158f;
             t->rail_w = 0.070f;
         } else {
             t->half_len = 3.550f * 0.5f;
             t->half_wid = 1.775f * 0.5f;
-            t->R = 0.0340f; t->mass = 0.285f;  /* 68 mm, and heavy with it */
+            t->R = 0.0335f; t->mass = 0.255f;   /* 67 mm, and heavy with it */
             t->rail_w = 0.085f;
         }
         t->cushion_h = 1.20f * t->R;
@@ -273,8 +283,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * two allowances, which lands it at 65 and 74.5 — inside the 4-5 and
          * 14-18 mm the smaller tables are quoted at. Written this way round so
          * a bigger or smaller ball cannot silently stop fitting. */
-        t->pr_corner = t->R + 0.00250f;      /* 73.0 mm / 65.0 mm across */
-        t->pr_side   = t->R + 0.00725f;      /* 82.5 mm / 74.5 mm across */
+        t->pr_corner = t->R + 0.00250f;      /* 72.0 mm / 62.2 mm across */
+        t->pr_side   = t->R + 0.00725f;      /* 81.5 mm / 71.7 mm across */
         /* THE KNUCKLE GAP IS THE POCKET, and pr_corner is not.
          *
          * pr_corner/pr_side drive the bore, the cut and the drop — how big the
@@ -432,6 +442,11 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * guess of 1.35 R made it wider, which bores the timber out past the
          * cloth cut and leaves cloth lying over the hole. */
         t->bore_corner = 0.86f * t->pr_corner; t->bore_side = 0.94f * t->pr_side;
+        /* ...EXCEPT THAT 0.86 OF THIS MOUTH IS SMALLER THAN THE BALL. See the
+         * floor applied below: those ratios were tuned where the mouth is about
+         * 2.2 R, and on a table whose mouth is 1.07 R they bore a 63 mm hole
+         * under a 68 mm ball. The ball got through the cushions and sat on the
+         * timber, which is what "it stops on the lip" looks like from above. */
         /* THE SETBACK IS NOT MOUTH-RELATIVE, and this is the one number where
          * that matters. The bore is a hole in the TIMBER, and the timber is
          * 85 mm of rail whatever size the mouth is — so a bore concentric with
@@ -453,6 +468,22 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         break;
     default: break;
     }
+
+    /* A BORE IS A HOLE A BALL FALLS THROUGH, whatever ratio it is written at.
+     *
+     * Every ratio above was chosen on a table whose mouth is about 2.2 R, where
+     * 0.86 of the mouth is still comfortably wider than a ball and the question
+     * never came up. Russian pyramid's mouth is 1.07 R. The same ratio bored a
+     * 63 mm hole under a 68 mm ball: the ball squeezed past the cushions,
+     * reached the pocket, and stopped on the timber — indistinguishable from
+     * the jaws being too tight, and it survived the jaws being fixed.
+     *
+     * So there is a floor, and it is expressed against the BALL because that is
+     * what has to fit. It cannot fire on any table whose bore is near 1.9 R,
+     * which is all of them but this one. */
+    {   float bmin = t->R + 0.0035f;       /* the ball, and room to fall */
+        if (t->bore_corner < bmin) t->bore_corner = bmin;
+        if (t->bore_side   < bmin) t->bore_side   = bmin; }
 
     cue_table_rails(t, kind);
 

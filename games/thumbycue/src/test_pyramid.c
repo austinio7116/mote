@@ -71,15 +71,18 @@ int main(void) {
                (double)(t.pr_corner/t.R));
         ok(t.pr_corner > t.R,             "the mouth admits the ball");
         ok(t.pr_corner < 1.3f * t.R,      "...and only just, which is the game");
-        /* THE FEDERATION'S NUMBERS, to the millimetre: 72-73 mm at the corner
-         * and 82-83 in the middle, on a 68 mm ball. And the middle is the WIDER
-         * of the two, which is the other way round from every other table here
-         * and was got backwards first time. */
-        ok(fabsf(t.R * 2000.0f - 68.0f) < 0.6f,     "the ball is 68 mm");
-        ok(fabsf(t.pr_corner * 2000.0f - 72.5f) < 1.0f,
-                                          "...the corner opening 72-73 mm");
-        ok(fabsf(t.pr_side * 2000.0f - 82.5f) < 1.0f,
-                                          "...and the middle 82-83 mm");
+        /* THE FEDERATION'S NUMBERS, to the millimetre. The tournament ball is
+         * 67 mm at 255 g — 68 was the OLD one, and is what this shipped with —
+         * with the corner about five millimetres wider than the ball and the
+         * middle about fifteen. And the middle is the WIDER of the two, which
+         * is the other way round from every other table here and was got
+         * backwards first time. */
+        ok(fabsf(t.R * 2000.0f - 67.0f) < 0.6f,     "the ball is 67 mm");
+        ok(fabsf(t.mass - 0.255f) < 0.010f,         "...and 255 g");
+        ok(fabsf(t.pr_corner * 2000.0f - (t.R * 2000.0f + 5.0f)) < 1.0f,
+                                          "...the corner five millimetres wider");
+        ok(fabsf(t.pr_side * 2000.0f - (t.R * 2000.0f + 14.5f)) < 1.0f,
+                                          "...and the middle about fifteen");
         ok(t.pr_side > t.pr_corner,       "...so the middle is the wider of the two");
         ok(t.pocket_round == 0,           "the jaws are cut sharp, not rounded");
         printf("     middle mouth %.0f mm, %s jaws\n",
