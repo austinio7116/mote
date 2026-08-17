@@ -567,6 +567,26 @@ static void build_bed_boundary(const CueTable *t, const CueWorld *w, CueBnd *B) 
      * pocket as a bug. */
     if (t->bed_shape == CUE_BED_L) { build_bed_boundary_L(t, w, B, ex, ez); return; }
 
+    /* ---- G6: BAR BILLIARDS' CLOTH IS A PLAIN RECTANGLE ------------------
+     *
+     * Everything below finds six pockets by the sign of their coordinates and
+     * cuts a scallop into the boundary at each. Bar billiards has none on its
+     * boundary at all — its nine holes are bored through the MIDDLE of the bed,
+     * which a single closed outline cannot express however it is walked.
+     *
+     * So the cloth is the rectangle, and the holes are cut as discs on top of
+     * it (see the bar-billiards block in the table build). That is also what
+     * the table looks like: a flat green bed with nine small round holes in
+     * it, not a cloth scalloped round its edge. */
+    if (t->kind == CUE_GAME_BARBILLIARDS) {
+        B->n = 0;
+        #define BB_V(x_, z_) do { B->p[B->n] = v3((x_), 0.0f, (z_)); \
+                                  B->pk[B->n] = -1; B->n++; } while (0)
+        BB_V(-ex, -ez); BB_V( ex, -ez); BB_V( ex,  ez); BB_V(-ex,  ez);
+        #undef BB_V
+        return;
+    }
+
     int BL=-1,BR=-1,TR=-1,TL=-1,MB=-1,MT=-1;
     for (int p = 0; p < w->npocket; p++) {
         Vec3 q = w->pocket[p];
@@ -1090,6 +1110,62 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * pockets). rail_h is passed as the riser bottom. */
     uint16_t wlip = shade565(woodt, 0.80f);
     s_mat = CUE_MAT_WOOD;          /* everything from here down is timber */
+
+    /* ---- G6: THE NINE HOLES AND THE THREE SKITTLES ----------------------
+     *
+     * Bar billiards' scoring is bored through the middle of the bed, so there
+     * is nothing on the boundary to scallop and nothing for the pocket-void
+     * cones to hang off. Each hole is a ring of cloth falling to a dark shaft;
+     * each skittle is the little wooden peg that costs you your break or your
+     * whole score, and it stands ON the bed where a ball can reach it.
+     *
+     * Drawn here, with the rest of the table, so the host uploads them with
+     * everything else and does not need to know this game exists. */
+    if (t->kind == CUE_GAME_BARBILLIARDS) {
+        const int NSEG = 16;
+        const uint16_t dark = RGB565C(8, 9, 12);
+        const uint16_t rim  = shade565(t->cloth, 0.55f);
+        for (int p = 0; p < w->npocket; p++) {
+            const float cx = w->pocket[p].x, cz = w->pocket[p].z;
+            const float hr = w->pocket_r[p];
+            const float deep = 0.055f;
+            for (int i = 0; i < NSEG; i++) {
+                float a0 = 6.2831853f * (float)i / NSEG;
+                float a1 = 6.2831853f * (float)(i + 1) / NSEG;
+                Vec3 o0 = v3(cx + hr * cosf(a0), 0.0006f, cz + hr * sinf(a0));
+                Vec3 o1 = v3(cx + hr * cosf(a1), 0.0006f, cz + hr * sinf(a1));
+                Vec3 d0 = v3(o0.x, -deep, o0.z), d1 = v3(o1.x, -deep, o1.z);
+                /* the shaft, seen through the hole from above */
+                quad(o0, o1, d1, d0, dark);
+                /* and its floor, so it is a hole rather than a tube to nowhere */
+                tri(d0, d1, v3(cx, -deep, cz), dark);
+                /* a thin lip of darker cloth where the bed is cut */
+                Vec3 r0 = v3(cx + (hr + 0.004f) * cosf(a0), 0.0004f,
+                             cz + (hr + 0.004f) * sinf(a0));
+                Vec3 r1 = v3(cx + (hr + 0.004f) * cosf(a1), 0.0004f,
+                             cz + (hr + 0.004f) * sinf(a1));
+                quad(r0, r1, o1, o0, rim);
+            }
+        }
+        /* Rule 74: cylindrical to at least 51 mm, 15 to 18 mm across, 114 mm
+         * tall. Two white and one black, and the black is the fatal one. */
+        for (int k = 0; k < w->nskittle; k++) {
+            const float sx = w->skittle[k].x, sz = w->skittle[k].z;
+            const float sr = w->skittle_r, sh = 0.114f;
+            const uint16_t body = w->skittle_black[k] ? RGB565C(24, 22, 26)
+                                                      : RGB565C(238, 234, 222);
+            const uint16_t top  = shade565(body, 1.25f);
+            for (int i = 0; i < NSEG; i++) {
+                float a0 = 6.2831853f * (float)i / NSEG;
+                float a1 = 6.2831853f * (float)(i + 1) / NSEG;
+                Vec3 b0 = v3(sx + sr * cosf(a0), 0.0f, sz + sr * sinf(a0));
+                Vec3 b1 = v3(sx + sr * cosf(a1), 0.0f, sz + sr * sinf(a1));
+                Vec3 t0 = v3(b0.x, sh, b0.z), t1 = v3(b1.x, sh, b1.z);
+                quad(b0, b1, t1, t0, body);
+                tri(t0, t1, v3(sx, sh, sz), top);
+            }
+        }
+    }
     if (t->bed_shape == CUE_BED_L) {
         /* SIX PLANKS AND A SIX-SIDED SKIRT, because the woodwork is the shape
          * of the table and not the shape of its bounding box.
@@ -1538,7 +1614,17 @@ static const uint16_t k_ivoryhue[8] = {
        RGB565C(238,232,214),
 };
 
-static const CueBallSet k_ballsets[9] = {
+/* Bar billiards: seven plain whites and one red, and no marking on any of
+ * them. The "cue ball" is whichever white you are striking — they are
+ * interchangeable, exactly as the ivories are in pyramid — so the set gives
+ * ball 1 (the red) its own colour and leaves everything else white. */
+static const uint16_t k_bbhue[8] = {
+    0, RGB565C(196, 42, 34), RGB565C(238,238,232), RGB565C(238,238,232),
+       RGB565C(238,238,232), RGB565C(238,238,232), RGB565C(238,238,232),
+       RGB565C(238,238,232),
+};
+
+static const CueBallSet k_ballsets[10] = {
   /* 0 */ { "PRO",        k_prohue,     0, 0, BALL_WHITE, BALL_BLACK, 0, 0,
             1, 1, 0, 0.42f },
   /* 1 */ { "UK YELLOW/BLUE", k_prohue, BALL_YELLOW, BALL_BLUE, 0, BALL_BLACK, 0, 0,
@@ -1563,6 +1649,11 @@ static const CueBallSet k_ballsets[9] = {
             RGB565C(190, 46, 40),
             /* Not striped; numbered in the BARE style (2) — see number_patch. */
             0, 2, 0, 0.42f },
+  /* 9 */ { "BAR BILLIARDS", k_bbhue, 0, RGB565C(238,238,232),
+            0, RGB565C(238,238,232), 0,
+            /* No coloured cue ball: every white on the table is one. */
+            0,
+            0, 0, 0, 0.42f },
 };
 
 /* THE SET THE PLAYER BUILT, if there is one. Held by value, and the palette
@@ -1576,7 +1667,14 @@ static int        s_cust_on;
 
 static const CueBallSet *bset(void) {
     if (s_cust_on) return &s_cust;
-    int i = (s_ball_set < 0 || s_ball_set > 8) ? 0 : s_ball_set;
+    /* AGAINST THE ARRAY, not a literal — the third place in this file to have
+     * carried a hand-written count of the ball sets, and the third to fall
+     * behind when one was added. The setter said 7 when there were 8; the
+     * count said 9 when there were 10; and this said 8, so a tenth set was
+     * SELECTED, was NAMED correctly by the menu, and still drew as the first
+     * one. There is now one number and the array owns it. */
+    const int n = (int)(sizeof k_ballsets / sizeof k_ballsets[0]);
+    int i = (s_ball_set < 0 || s_ball_set >= n) ? 0 : s_ball_set;
     return &k_ballsets[i];
 }
 int cue_render_ballset_count(void);   /* below; used by the setter's clamp */
@@ -1587,9 +1685,16 @@ int cue_render_ballset_count(void);   /* below; used by the setter's clamp */
  * when the app is also told by a menu, a preference load and a game kind. */
 int cue_render_ball_set(void) { return s_cust_on ? -1 : s_ball_set; }
 
-int         cue_render_ballset_count(void) { return 9; }
+/* FROM THE TABLE, not from a literal — which is the whole point of the clamp
+ * that reads it. This said 9, and the setter's own comment two hundred lines
+ * up explains that it used to say 7 and stayed 7 when an eighth set arrived,
+ * so the new set silently gave you the first one. A tenth set arrived and it
+ * said 9. The array knows how long it is; nothing else should claim to. */
+int         cue_render_ballset_count(void) {
+    return (int)(sizeof k_ballsets / sizeof k_ballsets[0]);
+}
 const char *cue_render_ballset_name(int i) {
-    return (i >= 0 && i < 9) ? k_ballsets[i].name : "";
+    return (i >= 0 && i < cue_render_ballset_count()) ? k_ballsets[i].name : "";
 }
 
 int cue_render_ballset_get(int i, CueBallSet *out) {

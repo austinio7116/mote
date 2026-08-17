@@ -41,6 +41,12 @@ typedef enum {
      * what the cue ball touched in ORDER rather than merely what it hit
      * first, which is what the shot-contact log exists for. */
     CUE_GAME_BILLIARDS,
+    /* G6: BAR BILLIARDS. The odd one out in every way: no pockets on the
+     * rails at all, nine holes in the BED scoring from ten to two hundred,
+     * three wooden skittles standing among them that cost you your break or
+     * your whole score, play from one end only, and a clock that ends the
+     * game rather than a rack that runs out. */
+    CUE_GAME_BARBILLIARDS,
     CUE_GAME_COUNT
 } CueGameKind;
 /* Both pyramid beds, wherever the game rather than the size is what matters. */
@@ -188,7 +194,17 @@ typedef struct {
     float drop_back;            /* CORNER drop pushed this far deeper (m) */
     float drop_back_side;       /* MIDDLE drop pushed this far deeper (m) */
 
-    /* Snooker layout (ignored for pool). */
+    /* THE BAULK ARC, which only bar billiards has.
+ *
+ * AEBBA Rule 77: the baulk lines are "drawn on the table radiating from the
+ * centre of the base of the playing area to the side cushions so as to form an
+ * arc of not less than 150 degrees and not more than 160". It is a circle
+ * about the break spot, and Rule 110(c) makes any ball coming to rest on or
+ * inside it a foul — the ball is returned to the rack and the break is lost.
+ * Zero on every other table, which has no such thing. */
+    float baulk_arc;
+
+/* Snooker layout (ignored for pool). */
     float baulk_x, d_radius, blue_x, pink_x, black_x;
     /* WHAT SHAPE THE REGION BEHIND THE BAULK LINE IS.
      *

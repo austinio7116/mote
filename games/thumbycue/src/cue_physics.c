@@ -75,6 +75,12 @@ void cue_phys_shot_begin(CueWorld *w) {
     w->jump_over = 0; w->jump_over_id = 0;
     w->jmp_pending = 0; w->jmp_idx = -1; w->jmp_hit_it = 0; w->jmp_bounced = 0;
     w->ntouch = 0; w->touch_over = 0;
+    /* The skittles stand up again for each stroke: whether one went over is a
+     * fact about THIS shot, and the host puts them back (Rule 103). */
+    for (int k = 0; k < CUE_MAX_SKITTLE; k++) {
+        w->skittle_down[k] = 0; w->skittle_order[k] = 0;
+    }
+    w->skittle_fell = 0;
 }
 
 /* Append to the cue ball's account. Only ever called for ball 0. */
@@ -815,6 +821,34 @@ CUE_HOT float cue_phys_cut_out(const CueWorld *w, int p, float x, float z) {
     return (v > 0.0f ? u : v) + R;                           /* against one leg */
 }
 
+/* THE SKITTLES GO OVER, they do not bounce a ball back.
+ *
+ * A bar billiards skittle is eleven centimetres of light wood standing on a
+ * fifteen-millimetre base. A ball that reaches one knocks it flat and carries
+ * on; modelling it as a post to rebound from would be a worse lie about the
+ * table than ignoring the deflection is. So this only records the fall — and
+ * records the ORDER, because Rule 112 prices a white and a black differently
+ * depending on which of them went first.
+ *
+ * A ball in the air over a skittle does not touch it: they are 11 cm tall and
+ * a jumped ball can clear one. Returns 1 the moment a skittle goes down. */
+static CUE_HOT int check_skittles(CueWorld *w, CueBall *b) {
+    if (!w->nskittle) return 0;
+    const float R = cue_ball_r(w, b);
+    if (b->pos.y - R > 0.114f) return 0;         /* over the top of it */
+    int fell = 0;
+    for (int k = 0; k < w->nskittle; k++) {
+        if (w->skittle_down[k]) continue;
+        float dx = b->pos.x - w->skittle[k].x, dz = b->pos.z - w->skittle[k].z;
+        float reach = R + w->skittle_r;
+        if (dx*dx + dz*dz > reach*reach) continue;
+        w->skittle_down[k] = 1;
+        w->skittle_order[k] = (uint8_t)(++w->skittle_fell);
+        fell = 1;
+    }
+    return fell;
+}
+
 static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
     if (b->pos.y - cue_ball_r(w, b) > w->rail_top) return 0;         /* flying clean over */
     for (int p = 0; p < w->npocket; p++) {
@@ -1315,6 +1349,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             if (i == 0 && w->first_hit >= 0) w->jmp_bounced = 1;      /* (c) */
         }
         if (check_pockets(w, b) && ev) *ev |= CUE_EV_POCKET;
+        if (check_skittles(w, b) && ev) *ev |= CUE_EV_SKITTLE;
     }
 }
 

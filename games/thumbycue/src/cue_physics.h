@@ -38,10 +38,9 @@
                               * which draws a table with a wall missing. */
 #endif
 #define CUE_MAX_JAW     24   /* bed-boundary knuckle points */
-#define CUE_MAX_POCKET   8   /* six on a rectangle; an L has five convex corners
-                              * plus middles on its long runs */
-/* How many rectangles a bed may be made of. One is every table shipped, two an
- * L, and four leaves room for a T or a cross without another edit. */
+#define CUE_MAX_POCKET  12   /* six on a rectangle; an L has five convex corners
+                              * and two middles, which is eight; and bar
+                              * billiards has NINE, none of them on a rail. */
 #define CUE_MAX_RECT     4
 
 /* An axis-aligned box in table space, x0<x1 and z0<z1. See CueWorld.play_r. */
@@ -93,6 +92,8 @@ typedef struct {
 /* One thing the cue ball touched, in the order it touched it. See CueWorld. */
 enum { CUE_TOUCH_BALL = 0, CUE_TOUCH_CUSHION };
 #define CUE_MAX_TOUCH 24
+/* Three on a bar billiards table, and nothing else has any. */
+#define CUE_MAX_SKITTLE 4
 typedef struct {
     uint8_t what;   /* CUE_TOUCH_* */
     uint8_t id;     /* the ball's id, for CUE_TOUCH_BALL */
@@ -185,6 +186,11 @@ typedef struct {
     CueSeg seg[CUE_MAX_SEG]; int nseg;
     Vec3   jaw[CUE_MAX_SEG]; int njaw; float jaw_r;   /* immovable jaw-tip circles */
     Vec3   pocket[CUE_MAX_POCKET]; float pocket_r[CUE_MAX_POCKET]; int npocket;
+    /* WHAT A HOLE IS WORTH. Zero on every table where a pocket is a pocket;
+     * bar billiards is the one game whose holes are not interchangeable — nine
+     * of them scoring from ten to two hundred, and which one a ball went down
+     * IS the score. Filled in by cue_table_build_world beside the pocket. */
+    int16_t pocket_score[CUE_MAX_POCKET];
     /* IS THIS A MIDDLE POCKET? Carried rather than inferred from the index.
      * "p < 4 is a corner" was true of every rectangle and is written into the
      * drop-back choice, the AI's difficulty model and the HUD's pocket names —
@@ -264,6 +270,30 @@ typedef struct {
     CueTouch touch[CUE_MAX_TOUCH];
     int ntouch;
     int touch_over;
+
+    /* ---- THE SKITTLES ---------------------------------------------------
+     *
+     * Bar billiards stands three wooden pegs on the bed: two white either side
+     * of the 100 hole and one black in front of the 200. Knocking a white over
+     * costs the break; knocking the black over costs the whole score. They are
+     * the entire risk of the game and nothing else here has anything like them.
+     *
+     * Modelled as circles that a ball KNOCKS DOWN rather than bounces off. A
+     * real skittle is 11 cm of light wood on a 15 mm base: a ball that reaches
+     * one topples it and carries on, and pretending it is a post to rebound
+     * from would be a worse lie than ignoring the deflection. `down` is per
+     * shot — the host stands them up again — and it is what the rules read.
+     *
+     * ORDER MATTERS. Rule 112: if a white falls first the penalty is the
+     * break, if the black falls first it is the whole score. So the sequence
+     * is recorded, not just the fact. */
+    Vec3   skittle[CUE_MAX_SKITTLE];
+    uint8_t skittle_black[CUE_MAX_SKITTLE];  /* the fatal one */
+    uint8_t skittle_down[CUE_MAX_SKITTLE];   /* knocked over this shot */
+    uint8_t skittle_order[CUE_MAX_SKITTLE];  /* 1, 2, 3... in the order they fell */
+    int    nskittle;
+    float  skittle_r;
+    int    skittle_fell;                     /* how many went over this shot */
 
     /* ---- jump shots, as snooker actually defines one ----------------------
      *
@@ -368,6 +398,7 @@ enum {
     CUE_EV_POCKET    = 1 << 2,   /* a ball was potted */
     CUE_EV_JAW       = 1 << 3,   /* ball rattled a jaw */
     CUE_EV_BED       = 1 << 4,   /* a jumped ball came down on the slate */
+    CUE_EV_SKITTLE   = 1 << 5,   /* a bar billiards skittle went over */
 };
 int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events);
 float cue_phys_cushion_impact(void);   /* loudest rail-approach speed from last step */

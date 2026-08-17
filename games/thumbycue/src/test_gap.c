@@ -225,6 +225,10 @@ static const struct { int kind; const char *name;
     { CUE_GAME_PYRAMID,  "pyramid 12ft",   5.0f, 14.5f, 1.0f },
     { CUE_GAME_PYRAMID7, "pyramid 7ft",    5.0f, 14.5f, 1.0f },
     { CUE_GAME_BILLIARDS,"English billiards",-1, -1, 0 },
+    /* Bar billiards has no rail pockets at all — its holes are in the bed and
+     * this test is about the passage between two cushion jaws. Nothing to
+     * measure, and a zero here would read as a failure rather than as N/A. */
+    { CUE_GAME_BARBILLIARDS, "bar billiards", -1, -1, 0 },
 };
 
 /* A ball has to fit through with SOME room or the pocket is decorative. Three
@@ -241,6 +245,10 @@ int main(int argc, char **argv) {
     int fails = 0;
     for (int i = 0; i < (int)(sizeof EXPECT / sizeof EXPECT[0]); i++) {
         float c = 0, m = 0;
+        if (EXPECT[i].kind == CUE_GAME_BARBILLIARDS) {
+            printf("%-16s no rail pockets: its holes are in the bed\n", EXPECT[i].name);
+            continue;
+        }
         run(EXPECT[i].kind, 0, &c, &m);
         int bad = 0;
         if (c < MIN_ROOM) bad = 1;

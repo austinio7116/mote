@@ -54,7 +54,15 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
     r->uk_intl = 0;
     r->baulk_x = t->baulk_x; r->d_radius = t->d_radius;
     r->best_of = 1;
-    if (t->kind == CUE_GAME_BILLIARDS) {
+    if (t->kind == CUE_GAME_BARBILLIARDS) {
+        /* Rule 92: the game opens from the break position, and Rule 94 sends
+         * it back there whenever the table empties. A coin buys about
+         * seventeen minutes (Rule 71's tables are coin-operated). */
+        r->bb_time = CUE_BB_TIME;
+        r->bb_from_break = 1;
+        r->target_score = 0;          /* the clock ends it, not a number */
+        for (int i = 0; i < 8; i++) r->bb_hole[i] = -1;
+    } else if (t->kind == CUE_GAME_BILLIARDS) {
         /* The four marks of the standard table, in the same slots snooker uses
          * for its colours, so a host that already asks r->spot[] for a place to
          * put a ball needs no second table. Only three of them are used. */
@@ -869,6 +877,125 @@ static void resolve_pyramid(CueRules *r, CueBall *b, int n, int first_hit,
     snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
 }
 
+/* ---- G6: BAR BILLIARDS --------------------------------------------------
+ *
+ * Nine holes in the bed worth ten to two hundred, three skittles standing
+ * among them, and a clock. The scoring is trivial — the value of the hole, and
+ * double for the red (AEBBA Rule 97) — and the game is entirely in the
+ * penalties, which do not take points off you but take your BREAK off you:
+ *
+ *   Rule 110  loss of the break score, for failing to hit a ball, for a ball
+ *             coming to rest over the baulk line or in the D, for a ball
+ *             leaving the table, for knocking a WHITE skittle over, and for a
+ *             cue ball that neither reaches the black peg's line nor hits
+ *             anything
+ *   Rule 111  loss of the ENTIRE score, for knocking the BLACK skittle over
+ *   Rule 112  and where both went over, whichever fell FIRST decides which
+ *
+ * That last one is why the physics records the order the skittles fell in
+ * rather than merely that they did.
+ *
+ * A break runs until the striker fails to pot or fouls (Rule 98). There is no
+ * opponent to hand over to in the sense the other games mean it — the players
+ * take turns at a table that keeps its own score — so the turn passes at the
+ * end of a break exactly as it does everywhere else here.
+ */
+static void resolve_barbilliards(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                                 int first_hit, const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    r->break_shot = 0;
+    r->bb_return = 0;
+
+    /* ---- what the skittles did (Rules 110(f), 111(a), 112) ---- */
+    int white_down = 0, black_down = 0, white_first = 0;
+    if (w) {
+        int wo = 0, bo = 0;
+        for (int k = 0; k < w->nskittle; k++) {
+            if (!w->skittle_down[k]) continue;
+            if (w->skittle_black[k]) { black_down = 1; bo = w->skittle_order[k]; }
+            else                     { white_down = 1; if (!wo || w->skittle_order[k] < wo)
+                                                           wo = w->skittle_order[k]; }
+        }
+        /* Rule 112: whichever fell first decides the penalty. */
+        white_first = (white_down && (!black_down || (wo && bo && wo < bo)));
+    }
+
+    /* ---- what went down ---- */
+    int pts = 0, potted_any = 0, red_potted = 0;
+    for (int k = 0; k < np; k++) {
+        int hole = (k < 8) ? r->bb_hole[k] : -1;
+        int val = (hole >= 0 && w && hole < w->npocket) ? w->pocket_score[hole] : 0;
+        /* Rule 97: the red doubles the value of its hole. */
+        if (potted[k] == CUE_ID_BIL_RED) { val *= 2; red_potted = 1; }
+        pts += val;
+        potted_any = 1;
+    }
+
+    /* ---- the fouls ---- */
+    int foul = 0, fatal = 0; const char *why = "";
+    if (black_down && !white_first)   { fatal = 1; why = "THE BLACK"; }
+    else if (white_down)              { foul = 1; why = "A WHITE SKITTLE"; }
+    if (!foul && !fatal) {
+        if (first_hit < 0)            { foul = 1; why = "HIT NOTHING"; }   /* 110(b) */
+        else if (r->n_off)            { foul = 1; why = "OFF THE TABLE"; } /* 110(e) */
+        else if (r->bb_in_baulk)      { foul = 1; why = "BACK OVER THE LINE"; } /* 110(c),(d) */
+        else if (r->bb_short)         { foul = 1; why = "SHORT OF THE BLACK"; }  /* 110(o) */
+        else if (r->bb_from_break && potted_any && np >= 2 &&
+                 r->bb_both_potted + 1 > CUE_BB_MAX_BOTH)
+                                      { foul = 1; why = "BOTH, FOUR TIMES"; }    /* 110(a) */
+    }
+    r->last_foul = foul || fatal;
+
+    if (fatal) {
+        /* Rule 111: the whole score, not merely the break. */
+        r->score[me] = 0;
+        r->bb_break = 0;
+        r->brk = 0;
+        r->cfoul[me]++;
+        r->turn = you;
+        r->bb_from_break = 1;
+        snprintf(r->msg, sizeof r->msg, "FOUL: %s - SCORE LOST", why);
+        return;
+    }
+    if (foul) {
+        /* Rule 110: the break comes off, and only the break. */
+        r->score[me] -= r->bb_break;
+        if (r->score[me] < 0) r->score[me] = 0;
+        r->bb_break = 0;
+        r->brk = 0;
+        r->cfoul[me]++;
+        r->turn = you;
+        r->bb_from_break = 1;
+        snprintf(r->msg, sizeof r->msg, "FOUL: %s - BREAK LOST", why);
+        return;
+    }
+
+    /* ---- the score ---- */
+    if (!potted_any) {
+        /* Rule 98: a break runs until the striker fails to pot. */
+        r->bb_break = 0;
+        r->brk = 0;
+        r->turn = you;
+        r->bb_from_break = 1;
+        r->msg[0] = 0;
+        return;
+    }
+    r->score[me] += pts;
+    r->bb_break += pts;
+    r->brk = r->bb_break;
+    /* Rule 110(a): potting both from the break position, counted so the fourth
+     * consecutive one is a foul. Anything else resets it. */
+    if (r->bb_from_break && np >= 2) r->bb_both_potted++;
+    else                             r->bb_both_potted = 0;
+    /* Rule 94: an empty table sends play back to the break position; and until
+     * the bar drops, a potted ball comes back out of the trough (Rule 115's
+     * premise). The host counts what is on the table and feeds them. */
+    r->bb_return = r->bb_barred ? 0 : np;
+    (void)red_potted; (void)b; (void)n;
+    snprintf(r->msg, sizeof r->msg, "%d", pts);
+}
+
 /* ---- G5: ENGLISH BILLIARDS ----------------------------------------------
  *
  * Three balls, two of them cue balls, and the whole game is in Section 3 Rules
@@ -1022,11 +1149,42 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
     (void)b; (void)n;
 }
 
+int cue_rules_bb_in_baulk(const CueRules *r, const CueTable *t,
+                          const CueBall *b, int n)
+{
+    if (!t || !b) return 0;
+    const float ax = t->baulk_x;             /* the break spot, on the centre line */
+    const float arc = t->baulk_arc;
+    for (int i = 0; i < n; i++) {
+        if (!b[i].on) continue;
+        float dx = b[i].pos.x - ax, dz = b[i].pos.z;
+        float d = sqrtf(dx*dx + dz*dz);
+        /* "Obstructing" the line, not merely behind it: a ball that obscures
+         * any part of it counts (Rule 110(c)), so the ball's own radius is in. */
+        if (arc > 0.0f && d <= arc + (r ? r->R : 0.0f)) return 1;
+    }
+    return 0;
+}
+
+int cue_rules_bb_short(const CueTable *t, float furthest_x, int hit_something)
+{
+    if (!t || hit_something) return 0;
+    /* The line through the black peg, parallel with the top cushion. The peg
+     * stands just in front of the 200, which is black_x. */
+    return furthest_x < t->black_x - 0.045f;
+}
+
+void cue_rules_bb_tick(CueRules *r, float dt) {
+    if (!r || r->bb_barred) return;
+    r->bb_time -= dt;
+    if (r->bb_time <= 0.0f) { r->bb_time = 0.0f; r->bb_barred = 1; }
+}
+
 /* Rule 8(a): the Spot, then the Pyramid Spot, then the Centre Spot. Rule
  * 8(b): where the sequence sends it to the Centre Spot, the fallbacks are the
  * Pyramid Spot and then the Spot. Two orders, and which one applies depends on
  * which mark was asked for — so the order is written out rather than derived. */
-int cue_rules_billiards_respot(CueRules *r, const struct CueTable *t,
+int cue_rules_billiards_respot(CueRules *r, const CueTable *t,
                                CueBall *b, int n)
 {
     if (!r || !t || !b) return 0;
@@ -1244,11 +1402,15 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
+    else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
     else                                    resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);
     /* The host's observations are about the shot just resolved and nothing
      * else. Left set they would foul the NEXT one too. */
     r->jumped = 0;
     r->n_off = 0;
+    r->bb_in_baulk = 0;
+    r->bb_short = 0;
+    for (int i = 0; i < 8; i++) r->bb_hole[i] = -1;
 }
 
 /* Apply the opponent's choice after a snooker foul that offered one (decision
@@ -1326,6 +1488,13 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
                      r->target_score, r->nominated);
         else
             snprintf(buf, cap, "%d/%d  SAFETY", r->score[r->turn], r->target_score);
+    } else if (r->mode == CUE_GAME_BARBILLIARDS) {
+        /* The break is the number that matters at a bar billiards table: it is
+         * what you are about to lose. */
+        int m = (int)(r->bb_time / 60.0f), sec = (int)r->bb_time % 60;
+        snprintf(buf, cap, "%d - %d   BREAK %d   %d:%02d%s",
+                 r->score[0], r->score[1], r->bb_break, m, sec,
+                 r->bb_barred ? "  BAR DOWN" : "");
     } else if (r->mode == CUE_GAME_BILLIARDS) {
         /* Points, a target, and which ball the striker is on — the last of
          * which is half of knowing whose turn it is at a billiards table. */

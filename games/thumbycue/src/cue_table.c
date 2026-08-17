@@ -217,6 +217,49 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->rail = RGB565C(78, 48, 28); t->rail_top = RGB565C(112, 70, 36);
         t->spot = RGB565C(180, 180, 180);
         t->nballs = 16;
+    } else if (kind == CUE_GAME_BARBILLIARDS) {
+        /* G6 — BAR BILLIARDS, and almost nothing above applies to it.
+         *
+         * AEBBA Rule 71: the playing area is 138.4 to 143.5 cm long and at
+         * least 78.7 cm wide, inside the cushions. There are NO pockets on the
+         * rails — the rails are four plain cushions all the way round — and the
+         * scoring is nine holes bored through the bed, which cue_table_build_world
+         * lays out because their arrangement is a constant of the game rather
+         * than anything a player would dial.
+         *
+         * Rule 91: every shot is played with the cue ball in the D at the near
+         * end. Rule 79: one red and seven white balls. */
+        t->half_len = 1.420f * 0.5f;
+        t->half_wid = 0.790f * 0.5f;
+        t->R = 0.0238f; t->mass = 0.120f;      /* 1 7/8 in, and light with it */
+        t->cushion_h = 1.20f * t->R; t->rail_w = 0.055f;
+        /* There are no pocket jaws to shape, but the fields are read all over
+         * and a zero mouth would fail validation. They describe a hole that is
+         * never cut on a rail: the pockets this table has are in the bed. */
+        t->pocket_round = 1;
+        t->pr_corner = t->pr_side = 1.30f * t->R;
+        t->gap_corner = t->gap_side = 2.60f * t->R;
+        t->facing_len = 1.00f * t->R;
+        t->ang_corner = 45.0f; t->ang_side = 80.0f;
+        t->off_corner = t->off_side = 1.00f * t->R;
+        t->cap_corner = t->cap_side = 0.0f;
+        t->drop_back  = t->drop_back_side = 0.0f;
+        t->jaw_r = 0.006f;
+        /* Rule 75: a "D" of about 4 cm radius at the centre of the base, its
+         * centre the break spot. Rule 76: the red spot 17.1 to 17.9 cm up the
+         * table from it. Rule 77: the baulk arc out to the side cushions. */
+        t->baulk_x  = -t->half_len + 0.060f;   /* the break spot */
+        t->d_radius = 0.040f;
+        t->baulk_arc = 0.405f;
+        /* The red spot rides in blue_x, which is the field every renderer and
+         * every rack already asks for a mark on the centre line. */
+        t->blue_x  = t->baulk_x + 0.175f;
+        t->pink_x  = 0.0f;
+        t->black_x = t->half_len - 0.070f;     /* the 200 hole */
+        t->cloth = RGB565C(24, 96, 52);
+        t->rail = RGB565C(64, 40, 24); t->rail_top = RGB565C(92, 58, 30);
+        t->spot = RGB565C(215, 215, 200);
+        t->nballs = 8;                         /* Rule 79: a red and seven whites */
     } else if (CUE_GAME_IS_PYRAMID(kind)) {
         /* G2 — RUSSIAN PYRAMID. A 12 ft bed and 68 mm balls, into pockets barely
          * wider than the ball: the official corner opening is 72-74 mm against a
@@ -615,6 +658,7 @@ static const CueTabField TAB_FIELDS[] = {
     TF(baulk_x,         TF_F32, TF_SIM, -2.00f, 2.00f),
     TF(d_radius,        TF_F32, TF_SIM,  0.000f, 0.600f),
     TF(house,           TF_I32, TF_SIM,  0,      1),
+    TF(baulk_arc,       TF_F32, TF_SIM,  0.000f, 1.200f),
     TF(blue_x,          TF_F32, TF_SIM, -2.00f, 2.00f),
     TF(pink_x,          TF_F32, TF_SIM, -2.00f, 2.00f),
     TF(black_x,         TF_F32, TF_SIM, -2.00f, 2.00f),
@@ -1412,7 +1456,59 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
 
     const float hl = t->half_len, hw = t->half_wid, R = t->R;
 
-    if (t->bed_shape == CUE_BED_L) {
+    if (t->kind == CUE_GAME_BARBILLIARDS) {
+        /* ---- BAR BILLIARDS: four plain cushions and nine holes in the bed --
+         *
+         * There are no pockets on the rails, so the rails are four unbroken
+         * runs and there is nothing to shape. Everything that scores is bored
+         * through the cloth, and the arrangement of those holes is a constant
+         * of the game — a player no more dials it than he dials where the
+         * black goes on a snooker table — so it is written out here rather
+         * than carried as twenty fields nobody would ever turn.
+         *
+         * Laid out from the AEBBA measurements that do exist (Rule 74: the
+         * black skittle 6 mm in front of the 200 hole, the whites level with
+         * and 178 mm either side of the 100) and the standard arrangement:
+         * the 100 in the middle guarded by the two whites, two 50s out by the
+         * side cushions, a row of five across in front of the top cushion
+         * reading 30, 20, 10, 20, 30, and the 200 behind all of it with the
+         * black peg in the way. The hole coordinates themselves are not given
+         * in the rules; these are chosen to play the way the table does. */
+        add_seg(w, v3(-hl, 0, -hw), v3( hl, 0, -hw), 0);
+        add_seg(w, v3( hl, 0, -hw), v3( hl, 0,  hw), 0);
+        add_seg(w, v3( hl, 0,  hw), v3(-hl, 0,  hw), 0);
+        add_seg(w, v3(-hl, 0,  hw), v3(-hl, 0, -hw), 0);
+
+        /* A hole is barely wider than a ball, which is what makes a 200 worth
+         * two hundred. The capture radius is the ball's centre reaching it. */
+        const float hr = 1.26f * R;
+        static const struct { float x, z; int v; } HOLE[] = {
+            { 0.050f,  0.000f, 100 },
+            { 0.260f, -0.290f,  50 }, { 0.260f,  0.290f,  50 },
+            { 0.470f, -0.290f,  30 }, { 0.470f,  0.290f,  30 },
+            { 0.470f, -0.145f,  20 }, { 0.470f,  0.145f,  20 },
+            { 0.470f,  0.000f,  10 },
+            { 0.640f,  0.000f, 200 },
+        };
+        for (int i = 0; i < (int)(sizeof HOLE / sizeof HOLE[0]); i++) {
+            add_pocket(w, HOLE[i].x, HOLE[i].z, hr, 0);
+            w->pocket_score[w->npocket - 1] = (int16_t)HOLE[i].v;
+        }
+
+        /* Rule 74. The skittles are 15 to 18 mm across; the black stands 6 mm
+         * clear of the front edge of the 200 hole, the two whites level with
+         * the 100 and 178 mm either side of it. */
+        w->skittle_r = 0.0085f;
+        w->nskittle = 0;
+        #define SKITTLE(x_, z_, black_) do { \
+            int i_ = w->nskittle++; \
+            w->skittle[i_] = v3((x_), 0.0f, (z_)); \
+            w->skittle_black[i_] = (black_); } while (0)
+        SKITTLE(0.050f, -0.178f, 0);
+        SKITTLE(0.050f,  0.178f, 0);
+        SKITTLE(0.640f - hr - 0.006f - w->skittle_r, 0.0f, 1);
+        #undef SKITTLE
+    } else if (t->bed_shape == CUE_BED_L) {
         /* The L brings its own chain AND its own pockets, so it skips both the
          * rectangle's rail construction and the six-pocket block below. */
         build_L(w, t);
@@ -1522,7 +1618,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * with 0.15 R for a UK middle, which is why no table could be given a drop
      * of its own without moving every other table's with it. */
     float capc = t->pr_corner - t->cap_corner, caps = t->pr_side - t->cap_side;
-    if (t->bed_shape != CUE_BED_L) {
+    if (t->bed_shape != CUE_BED_L && t->kind != CUE_GAME_BARBILLIARDS) {
         add_pocket(w, -hl - oc*d, -hw - oc*d, capc, 0);
         add_pocket(w,  hl + oc*d, -hw - oc*d, capc, 0);
         add_pocket(w,  hl + oc*d,  hw + oc*d, capc, 0);
@@ -1605,6 +1701,9 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* PYRA7 */ { 0.0168f, 1.3900f, 0.2200f,  90.0f },
         /* BILL — the standard table, so the 12 ft snooker cut exactly */
         /* BILL  */ { 0.0145f, 1.1350f, 0.2150f,  90.0f },
+        /* BARB — the holes are in the bed and cut their own cloth; these are
+         * only here so the row count matches the kind count. */
+        /* BARB  */ { 0.0000f, 1.0000f, 0.1000f, 360.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -1618,6 +1717,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* PYRA  */ { 0.0234f, 1.4100f, 0.2200f, 180.0f },   /* ...and the middle */
         /* PYRA7 */ { 0.0211f, 1.4100f, 0.2200f, 180.0f },
         /* BILL  */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
+        /* BARB  */ { 0.0000f, 1.0000f, 0.1000f, 360.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -2250,6 +2350,31 @@ static int rack_billiards(const CueTable *t, CueBall *b) {
     return n;
 }
 
+/* BAR BILLIARDS: the break position, and the rest of the balls in the rack.
+ *
+ * AEBBA Rule 92: "The red ball shall be placed by the hand on the red spot and
+ * a white ball placed on the break spot." That is the whole opening — two
+ * balls on the table and the other six waiting in the trough. Rule 94 sends
+ * play back to it whenever the table empties.
+ *
+ * The waiting balls are OFF, and the host feeds them out one at a time as the
+ * player calls for them. Index 0 is the ball being struck, as everywhere. */
+static int rack_barbilliards(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    int n = 0;
+    /* The white on the break spot — the centre of the D at the base. */
+    set_ball(&b[n++], CUE_ID_CUE, t->baulk_x, 0.0f, R);
+    /* The red on the red spot, 175 mm up the table from it (Rule 76). */
+    set_ball(&b[n], CUE_ID_BIL_RED, t->blue_x, 0.0f, R); b[n].id = CUE_ID_BIL_RED; n++;
+    /* Six more whites, in the trough. Rule 79: eight balls in all. */
+    for (int i = 0; i < 6; i++) {
+        set_ball(&b[n], CUE_ID_CUE, t->baulk_x, 0.0f, R);
+        b[n].on = 0;
+        n++;
+    }
+    return n;
+}
+
 static int rack_snooker(const CueTable *t, CueBall *b) {
     const float R = t->R;
     int n = 0;
@@ -2464,7 +2589,8 @@ int cue_table_respot_one(const CueTable *t, CueBall *b, int n) {
 int cue_table_rack(const CueTable *t, CueBall *balls) {
     memset(balls, 0, sizeof(CueBall) * CUE_MAX_BALLS);
     int n;
-    if (t->kind == CUE_GAME_BILLIARDS) n = rack_billiards(t, balls);
+    if (t->kind == CUE_GAME_BARBILLIARDS) n = rack_barbilliards(t, balls);
+    else if (t->kind == CUE_GAME_BILLIARDS) n = rack_billiards(t, balls);
     else if (t->is_snooker)      n = rack_snooker(t, balls);
     else if (t->kind == CUE_GAME_US9) n = rack_9ball(t, balls);
     else if (CUE_GAME_IS_PYRAMID(t->kind)) n = rack_pyramid(t, balls);

@@ -93,10 +93,10 @@ static const char *k_frame_name[CUE_NFRAME] = {
     "WALNUT","OAK","MAHOGANY","WENGE","EBONY","CHARCOAL","SILVER" };
 
 /* ---- ball sets --------------------------------------------------------- */
-#define CUE_NBALLSET 9
+#define CUE_NBALLSET 10
 static const char *k_ballset_name[CUE_NBALLSET] = {
     "PRO", "UK Y/B", "UK Y/R", "DYNA", "PRO TOUR", "HOT PINK", "SPACE", "VINTAGE",
-    "PYRAMID" };
+    "PYRAMID", "BAR BILL" };
 
 /* 9-ball needs every ball distinguishable, so only fully per-number sets are
  * valid: PRO (0), PRO TOUR (4), SPACE (6), VINTAGE (7). The grouped 2-colour
@@ -108,6 +108,11 @@ static const char *k_ballset_name[CUE_NBALLSET] = {
  * nominated-ball rule) can name one. It is excluded from every other game
  * because a white ball with a small black 7 on it is not a pool ball. */
 static inline int cue_ballset_ok(int mode, int set) {
+    /* BAR BILL (9) is seven plain whites and a red, which is a bar billiards
+     * set and nothing else: on any other table the "red" is a numbered object
+     * ball and six of the whites would be indistinguishable cue balls. */
+    if (set == 9) return mode == CUE_GAME_BARBILLIARDS;
+    if (mode == CUE_GAME_BARBILLIARDS) return set == 9;
     if (set == 8) return CUE_GAME_IS_PYRAMID(mode);
     if (CUE_GAME_IS_PYRAMID(mode)) return set == 8;
     if (mode == CUE_GAME_US9) return set == 0 || set == 4 || set == 6 || set == 7;

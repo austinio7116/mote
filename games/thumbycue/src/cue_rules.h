@@ -6,6 +6,9 @@
 #define CUE_RULES_H
 
 #include "cue_physics.h"
+/* CueTable, for the two games whose rules have to ask the table a question:
+ * billiards for its four marks, bar billiards for its baulk arc. */
+#include "cue_table.h"
 #include "cue_table.h"
 
 typedef struct {
@@ -148,6 +151,47 @@ typedef struct {
     /* ...and the same for the object white, which after a foul is placed on
      * the Centre Spot if the next player takes that option (Rule 15(c)(ii)). */
     int bil_respot_white;
+
+    /* ---- G6: BAR BILLIARDS ---------------------------------------------- *
+     *
+     * Scored in points off nine holes and played against a clock rather than
+     * to a target. What makes it its own game is the PENALTY structure: almost
+     * every foul costs the break rather than a couple of points, and one of
+     * them costs everything you have.
+     *
+     *   AEBBA Rule 110  loss of the break score: failing to hit a ball, a
+     *                   ball coming back over the baulk line or into the D, a
+     *                   ball leaving the table, knocking a WHITE skittle over,
+     *                   and a cue ball that neither reaches the black peg's
+     *                   line nor strikes anything
+     *   AEBBA Rule 111  loss of the ENTIRE score: knocking the BLACK skittle
+     *                   over
+     *   AEBBA Rule 112  and if both go over, whichever fell FIRST decides
+     *
+     * `bb_break` is the score made since the break started; a foul under 110
+     * takes it back off, which is why the running score and the break are kept
+     * apart. `bb_time` is what is left on the clock and `bb_barred` is the bar
+     * having dropped — after which potted balls do not come back and the game
+     * plays itself out. */
+    int bb_break;        /* points made in the break in progress */
+    float bb_time;       /* seconds left before the bar drops */
+    int bb_barred;       /* the bar has dropped: no more balls return */
+    int bb_from_break;   /* the next shot is played from the break position */
+    int bb_both_potted;  /* consecutive strokes potting both from the break */
+    int bb_last_ball;    /* one ball left: the last-ball shot (Rule 108) */
+    /* Set on resolve and consumed by the host: how many balls to feed back out
+     * of the trough, and whether the red is among them. */
+    int bb_return;
+    /* ---- what the HOST saw, set before cue_rules_resolve and cleared by it.
+     * Same contract as was_snookered: the rules cannot see these for
+     * themselves. `bb_hole` is which hole each entry of `potted` went down, in
+     * the same order — the scoring IS which hole, and a list of ball ids
+     * cannot say, least of all here where seven of the eight balls are
+     * identical whites. */
+    int bb_hole[8];
+    int bb_in_baulk;     /* a ball came to rest on or inside the baulk arc */
+    int bb_short;        /* the cue ball struck nothing and never reached the
+                          * line through the black peg (Rule 110(o)) */
     /* 9-ball push-out (WPA) */
     int pushout_avail;   /* the next shot (first after the break) may be a push-out */
     int pushout_offer;   /* pending: ask the player at the table whether to push out */
@@ -207,12 +251,30 @@ enum { CUE_PYR_CLASSIC = 0, CUE_PYR_COMBAT = 1, CUE_PYR_FREE = 2 };
 enum { CUE_BIL_SPOT_NONE = 0, CUE_BIL_SPOT_SPOT, CUE_BIL_SPOT_CENTRE,
        CUE_BIL_SPOT_PYRAMID };
 
-struct CueTable;
+/* ---- BAR BILLIARDS, the things only a host with a table can answer -------
+ *
+ * The rules judge the stroke; these look at where the balls stopped and what
+ * the cue ball managed, which is a question about geometry. Call them after
+ * the table settles and BEFORE cue_rules_resolve, exactly as the snooker host
+ * sets was_snookered.
+ *
+ * A ball is in baulk when its centre is on or inside the arc struck about the
+ * break spot (Rule 77), or anywhere in the D — Rule 110(c) and (d) make either
+ * a foul and send the ball back to the rack. */
+int  cue_rules_bb_in_baulk(const CueRules *r, const CueTable *t,
+                           const CueBall *b, int n);
+/* Rule 110(o): the cue ball must either strike something or reach the line
+ * through the black peg. `reached` is how far up the table it got. */
+int  cue_rules_bb_short(const CueTable *t, float furthest_x, int hit_something);
+/* Run the clock down. When it reaches zero the bar drops and potted balls stop
+ * coming back (Rule 108's premise); the game is over when the balls run out. */
+void cue_rules_bb_tick(CueRules *r, float dt);
+
 /* Put the red back where the rules just said, following Rule 8's sequence when
  * that mark is occupied, and clear the request. The rules name the mark and
  * hold its position; only this knows whether a ball is standing on it. Returns
  * 1 if a ball was placed. */
-int cue_rules_billiards_respot(CueRules *r, const struct CueTable *t,
+int cue_rules_billiards_respot(CueRules *r, const CueTable *t,
                                CueBall *b, int n);
 /* THE STRIKER'S BALL IS ALWAYS INDEX 0. In billiards the two sides play with
  * different balls, so at a change of turn the two whites exchange places in
@@ -231,6 +293,14 @@ void cue_rules_billiards_swap(CueBall *b, int n);
 /* Section 3 Rules 9 and 10. */
 #define CUE_BIL_MAX_CANNONS 75
 #define CUE_BIL_MAX_HAZARDS 15
+
+/* ---- bar billiards ------------------------------------------------------
+ * Rule 97: a white scores the value of its hole and the red scores double.
+ * A coin buys between fifteen and twenty minutes; seventeen is the usual. */
+#define CUE_BB_TIME 1020.0f
+/* Rule 110(a): potting both balls from the break position four consecutive
+ * times is a foul — the player is warned after three and must leave one up. */
+#define CUE_BB_MAX_BOTH 3
 
 /* decision codes. CUE_DEC_PENDING is parked in r->decision after a snooker foul
  * that offers a choice; the host then passes a PLAY/REPLAY/FREEBALL back. */
