@@ -28,8 +28,18 @@ typedef enum {
      * drop-cap numbers exist for, because on this table whether a pot is
      * possible at all is decided by a couple of millimetres. */
     CUE_GAME_PYRAMID,
+    /* The same game on the size of table people actually own. The federation
+     * lists four beds — 7, 8, 9 and 12 ft — and the ball shrinks with them:
+     * 68 mm on the 9 and 12, 60 mm on the 7 and 8. The CLEARANCE does not
+     * shrink, because that is about a ball fitting a hole and not about the
+     * room it is in, so this table keeps the tournament's 5 mm at the corner
+     * and 14.5 in the middle around a smaller ball. */
+    CUE_GAME_PYRAMID7,
     CUE_GAME_COUNT
 } CueGameKind;
+/* Both pyramid beds, wherever the game rather than the size is what matters. */
+#define CUE_GAME_IS_PYRAMID(k) \
+    ((k) == CUE_GAME_PYRAMID || (k) == CUE_GAME_PYRAMID7)
 /* legacy coarse aliases (kept so existing call sites read cleanly) */
 #define CUE_GAME_POOL    CUE_GAME_UK8
 #define CUE_GAME_SNOOKER CUE_GAME_SNK15

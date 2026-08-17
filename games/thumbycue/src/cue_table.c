@@ -210,7 +210,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->rail = RGB565C(78, 48, 28); t->rail_top = RGB565C(112, 70, 36);
         t->spot = RGB565C(180, 180, 180);
         t->nballs = 16;
-    } else if (kind == CUE_GAME_PYRAMID) {
+    } else if (CUE_GAME_IS_PYRAMID(kind)) {
         /* G2 — RUSSIAN PYRAMID. A 12 ft bed and 68 mm balls, into pockets barely
          * wider than the ball: the official corner opening is 72-74 mm against a
          * 68 mm ball, so a pot has about two millimetres to spare on each side.
@@ -221,10 +221,23 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          *
          * The bed is the 12 ft snooker bed, because it is: 3.55 x 1.78 m. What
          * differs is the ball, the mouths and the cloth. */
-        t->half_len = 3.550f * 0.5f;
-        t->half_wid = 1.775f * 0.5f;
-        t->R = 0.0340f; t->mass = 0.285f;     /* 68 mm, and heavy with it */
-        t->cushion_h = 1.20f * t->R; t->rail_w = 0.085f;
+        /* ...on the tournament bed. The 7 ft is the same game on the bed a
+         * house can hold: 198 x 99 cm with a 60 mm ball, which is the smallest
+         * pairing the federation lists. Everything below is written off R and
+         * the mouths, so the two sizes share the whole rest of this block. */
+        const int home = (kind == CUE_GAME_PYRAMID7);
+        if (home) {
+            t->half_len = 1.980f * 0.5f;
+            t->half_wid = 0.990f * 0.5f;
+            t->R = 0.0300f; t->mass = 0.196f;  /* 60 mm of the same phenolic */
+            t->rail_w = 0.070f;
+        } else {
+            t->half_len = 3.550f * 0.5f;
+            t->half_wid = 1.775f * 0.5f;
+            t->R = 0.0340f; t->mass = 0.285f;  /* 68 mm, and heavy with it */
+            t->rail_w = 0.085f;
+        }
+        t->cushion_h = 1.20f * t->R;
         /* MITRED, not rounded. The federation's specification gives the openings
          * to the millimetre and says nothing about the jaw profile, but every
          * description of a Russian table calls the губки — the lips — SHARP,
@@ -236,32 +249,93 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * are quoted in the numbers below. */
         t->pocket_round = 0;
         /* 72-73 mm at the corner and 82-83 mm in the middle, on a 68 mm ball —
-         * so the corner has THREE MILLIMETRES of slack in total. Every other
-         * table here is between 1.8 and 2.0 R at the mouth; this one is 1.07,
-         * and it is the reason cue_table_validate checks a mouth against the
-         * ball at all.
+         * three millimetres of total slack at a corner. The middle is the WIDER
+         * of the two, which is the other way round from every other table here.
          *
-         * The middle is WIDER than the corner, which is the other way round
-         * from every other table in the file and was got backwards first time:
-         * on a pool or snooker table the middle is the tighter of the two
-         * because a ball arrives at it square. */
-        t->pr_corner  = 0.03650f; t->pr_side  = 0.04125f;   /* 73 and 82.5 mm */
-        t->gap_corner = 2.20f * t->R;  t->gap_side = 2.60f * t->R;
-        t->facing_len = 1.30f * t->R;
-        /* A narrow splay is what makes the throat unforgiving: the facings run
-         * close to the rail line rather than opening out into a funnel. */
-        t->ang_corner = 40.0f; t->ang_side = 65.0f;
-        t->off_corner = 0.85f * t->R; t->off_side = 0.70f * t->R;
-        t->cap_corner = 0.0f;         t->cap_side = 0.0f;
-        t->drop_back  = 0.30f * t->R; t->drop_back_side = 0.45f * t->R;
-        t->jaw_r = 0.010f;
+         * AND THAT ONE NUMBER IS THE WHOLE PROBLEM WITH THE REST OF THEM. Every
+         * pocket parameter on the mitred tables is written as a multiple of the
+         * BALL — gap 2.56 R, facing 1.55 R, offset 1.30 R — and that works
+         * because their mouth is always about 2.2 R, so "a multiple of the ball"
+         * and "a multiple of the mouth" are the same statement. Here the mouth
+         * is 1.07 R. Copying the ball-relative numbers made every one of them
+         * roughly twice the size of the hole they were shaping: the cushion
+         * ended 60 mm from a 73 mm pocket, the facings ran past the mouth
+         * entirely, and the bore was wider than the hole it was boring.
+         *
+         * So they are written against the MOUTH, at the ratios the 9 ft
+         * American — the mitred table this one is actually like — happens to
+         * have. Those are: knuckle 1.16 and 1.26 of the mouth, facing 0.7-0.8,
+         * offset 0.59 and 0.64, bore 0.86 and 0.94, cut 1.39 and 1.41 with a
+         * setback of 0.52 and 0.57. */
+        /* THE CLEARANCE, NOT THE OPENING, IS THE CONSTANT. 73 and 82.5 mm are
+         * what the tournament ball's 68 comes to once you add the federation's
+         * 5 mm at a corner and 14.5 in a middle; the 60 mm ball gets the same
+         * two allowances, which lands it at 65 and 74.5 — inside the 4-5 and
+         * 14-18 mm the smaller tables are quoted at. Written this way round so
+         * a bigger or smaller ball cannot silently stop fitting. */
+        t->pr_corner = t->R + 0.00250f;      /* 73.0 mm / 65.0 mm across */
+        t->pr_side   = t->R + 0.00725f;      /* 82.5 mm / 74.5 mm across */
+        /* THE KNUCKLE GAP IS THE POCKET, and pr_corner is not.
+         *
+         * pr_corner/pr_side drive the bore, the cut and the drop — how big the
+         * hole in the slate is and how far in a ball must get. What a ball has
+         * to physically SQUEEZE THROUGH is the distance between the two facing
+         * TIPS, and that is gap_corner/gap_side. On a pool table the two are
+         * within a few millimetres of each other and nobody could tell; here
+         * the entire clearance is five millimetres, so getting them confused
+         * built a 65 mm hole for a 68 mm ball. Balls did not stick on the lip
+         * because the physics was wrong — they stuck because they did not fit,
+         * and only ever went down when the capture radius reached out and took
+         * them off the bed.
+         *
+         * These two are therefore set by MEASUREMENT, not by ratio: swept in
+         * tools/probe_gap until the narrowest passage came out at the FBS
+         * numbers of 73 mm at the corner and 82.5 mm at the middle, against a
+         * 68 mm ball, and test_gap holds them there for both beds.
+         *
+         * The corner's squeeze is the two facing TIPS and scales with the
+         * mouth; the middle's is the two jaw circles, and those sit a recess of
+         * jaw_r + 0.15 R behind their tips, so that one goes off the BALL. Get
+         * those the wrong way round and the size that was tuned comes out right
+         * while the other is a millimetre out — which is a whole third of the
+         * slack this game has. */
+        t->gap_corner = 1.415f * t->pr_corner;   /* -> 73.0 / 65.0 across */
+        t->gap_side   = t->R + 0.01136f;         /* -> 82.5 / 74.5 across */
+        /* Against the CORNER's mouth, because the corner is where two facings
+         * come at each other and a long one makes them meet before the pocket
+         * does. One field serves both pockets, and this table is the first
+         * where the two mouths differ enough for that to matter — its middle is
+         * WIDER than its corner, where every other table is the other way
+         * about. Sized for the tighter of the two; a facing that is short of a
+         * middle pocket simply stops short, which is harmless. */
+        t->facing_len = 0.705f * t->pr_corner;
+        /* THE MIDDLE'S FACINGS RUN ALMOST PARALLEL. A pool middle splays at 70
+         * degrees off the rail and the mouth tapers in like a funnel; the
+         * photographs of a Russian table show the two cushion ends facing each
+         * other across a slot, which is a splay of very nearly ninety. Left a
+         * couple of degrees short of parallel because a cushion end always has
+         * a little relief on it, and dead parallel reads as a machined slot. */
+        t->ang_corner = 45.0f; t->ang_side = 88.0f;
+        t->off_corner = 0.591f * t->pr_corner;
+        t->off_side   = 0.638f * t->pr_side;
+        /* THE CATCH IS THE ONE THING THAT SCALES WITH THE BALL, not the mouth:
+         * it is about how far a BALL has to travel past the cushion line before
+         * it has gone, and a 68 mm ball needs the same fraction of itself
+         * whatever size the hole is. The American gets 0.90 and 0.68 of a ball
+         * radius; at cap = 0 this table would get 0.44 of one, which is a ball
+         * sitting on the lip. A negative cap makes the catch larger than the
+         * mouth — see the note beside cap_corner in TAB_FIELDS. */
+        t->cap_corner = t->pr_corner - t->off_corner - 0.90f * t->R;
+        t->cap_side   = t->pr_side   - t->off_side   - 0.68f * t->R;
+        t->drop_back  = 0.28f * t->R; t->drop_back_side = 0.30f * t->R;
+        t->jaw_r = 0.004f;
         /* THE HOUSE, which is what a pyramid table has instead of a D: a line
          * across the baulk end with the cue ball played from behind it. Carried
          * in baulk_x + d_radius because that is the pair every renderer and the
          * placement clamp already read, and a house IS a D as far as both are
          * concerned — a region behind a line that the cue ball starts in. */
-        t->baulk_x  = -t->half_len + 0.730f;
-        t->d_radius =  0.290f;
+        t->baulk_x  = -t->half_len + (home ? 0.407f : 0.730f);
+        t->d_radius =  home ? 0.162f : 0.290f;
         t->cloth = RGB565C(20, 105, 60);
         t->rail = RGB565C(70, 42, 24); t->rail_top = RGB565C(100, 60, 32);
         t->spot = RGB565C(200, 200, 200);
@@ -349,6 +423,25 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     case CUE_GAME_SNK10:
         t->bore_corner = 2.1300f * t->R; t->bore_side = 1.7100f * t->R;
         t->bore_set_corner = 0.2700f * t->R; t->bore_set_side = 0.5300f * t->R;
+        break;
+    case CUE_GAME_PYRAMID: case CUE_GAME_PYRAMID7:
+        /* Against the MOUTH, at the 9 ft American's ratios — the bore is a
+         * little SMALLER than the hole it serves on every mitred table, and
+         * concentric with it. The fallback makes it equal to the mouth, and a
+         * guess of 1.35 R made it wider, which bores the timber out past the
+         * cloth cut and leaves cloth lying over the hole. */
+        t->bore_corner = 0.86f * t->pr_corner; t->bore_side = 0.94f * t->pr_side;
+        /* THE SETBACK IS NOT MOUTH-RELATIVE, and this is the one number where
+         * that matters. The bore is a hole in the TIMBER, and the timber is
+         * 85 mm of rail whatever size the mouth is — so a bore concentric with
+         * a pocket that sits only 22 mm outside the cushion line never reaches
+         * the wood, and the rail runs past the corner unbroken. The American's
+         * pocket sits 37 mm out and its bore is concentric because it is
+         * already in the wood; this one has to be pushed there. Dialled on the
+         * bench against the 9 ft American's corner, which is the mitred pocket
+         * this one is a small copy of. */
+        t->bore_set_corner = 0.85f * t->R;
+        t->bore_set_side   = 0.55f * t->R;
         break;
     case CUE_GAME_SNK15:
         /* The two snooker tables share every other pocket number and NOT these:
@@ -444,8 +537,20 @@ static const CueTabField TAB_FIELDS[] = {
     TF(e_cush,          TF_F32, TF_SIM,  0.20f, 0.99f),
     TF(cush_efall,      TF_F32, TF_SIM,  0.00f, 0.50f),
     TF(e_cush_min,      TF_F32, TF_SIM,  0.10f, 0.99f),
-    TF(cap_corner,      TF_F32, TF_SIM,  0.000f, 0.060f),
-    TF(cap_side,        TF_F32, TF_SIM,  0.000f, 0.060f),
+    /* NEGATIVE IS LEGAL, and it has to be. The drop radius is (pr - cap), so a
+     * positive cap makes the catch SMALLER than the mouth — right for a pocket
+     * whose mouth is nearly twice the ball. Russian pyramid's mouth is 73 mm to
+     * a 68 mm ball: a catch of at most 36.5 mm, centred outside the cushion
+     * line, is one a ball cannot reach without being most of the way down the
+     * throat, so balls sat on the lip and stayed up and no frame ever finished.
+     *
+     * The mouth and the catch are two different things: the mouth is what the
+     * ball has to thread, and the catch is when it has gone. Tying the second
+     * to be no bigger than the first was an assumption, not a rule. Widening a
+     * range is backward-compatible on the wire — every value that used to pack
+     * still validates. */
+    TF(cap_corner,      TF_F32, TF_SIM, -0.060f, 0.060f),
+    TF(cap_side,        TF_F32, TF_SIM, -0.060f, 0.060f),
     TF(drop_back,       TF_F32, TF_SIM,  0.000f, 0.100f),
     TF(drop_back_side,  TF_F32, TF_SIM,  0.000f, 0.100f),
     /* Snooker layout. Ignored for pool, but still part of the table. */
@@ -1434,7 +1539,11 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* SNK10 */ { 0.0145f, 1.1350f, 0.2150f,  90.0f },
         /* SNK6  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
         /* STRT  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
-        /* PYRA  */ { 0.0150f, 1.1200f, 0.2100f,  90.0f },   /* tighter than snooker */
+        /* PYRA — the American's cut, with the SETBACK scaled to this mouth
+         * (0.517 of it) rather than copied in millimetres. */
+        /* PYRA  */ { 0.0189f, 1.3900f, 0.2200f,  90.0f },
+        /* PYRA7 — the same cut with the setback scaled to the smaller mouth */
+        /* PYRA7 */ { 0.0168f, 1.3900f, 0.2200f,  90.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -1445,7 +1554,8 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* SNK10 */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
         /* SNK6  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
         /* STRT  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
-        /* PYRA  */ { 0.0260f, 1.2000f, 0.2050f, 180.0f },   /* tight, and shallow */
+        /* PYRA  */ { 0.0234f, 1.4100f, 0.2200f, 180.0f },   /* ...and the middle */
+        /* PYRA7 */ { 0.0211f, 1.4100f, 0.2200f, 180.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -1625,7 +1735,7 @@ Vec3 cue_table_cue_home(const CueTable *t) {
      * Laid out along the spine, so on an L it is on the baulk arm and the pack
      * is round the corner from it. */
     Vec3 p;
-    if (t->is_snooker || t->kind == CUE_GAME_UK8 || t->kind == CUE_GAME_PYRAMID)
+    if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind))
         p = cue_table_lay(t, t->baulk_x, -t->d_radius * 0.55f, NULL);
     else
         p = cue_table_lay(t, -t->half_len * 0.5f, t->half_wid * 0.40f, NULL);
@@ -1898,7 +2008,7 @@ static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) 
         }
         return (bd < 0.0f) ? p : best;
     }
-    if (t->is_snooker || t->kind == CUE_GAME_UK8 || t->kind == CUE_GAME_PYRAMID) {
+    if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind)) {
         /* The D — and the pyramid's HOUSE, which is the same thing as far as
          * this is concerned: a region behind a line that the cue ball is played
          * from. A half-disc of radius d_radius centred on (baulk_x, 0), bulging
@@ -2260,7 +2370,7 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
     int n;
     if (t->is_snooker)           n = rack_snooker(t, balls);
     else if (t->kind == CUE_GAME_US9) n = rack_9ball(t, balls);
-    else if (t->kind == CUE_GAME_PYRAMID) n = rack_pyramid(t, balls);
+    else if (CUE_GAME_IS_PYRAMID(t->kind)) n = rack_pyramid(t, balls);
     else                         n = rack_pool(t, balls);   /* UK8 + US8 */
     /* ONE PLACE STAMPS THE CUE BALL. Every rack builds balls[0] as the white,
      * and every game but English pool wants it the same size as the rest — so

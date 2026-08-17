@@ -102,12 +102,14 @@ static const char *k_ballset_name[CUE_NBALLSET] = {
  * valid: PRO (0), PRO TOUR (4), SPACE (6), VINTAGE (7). The grouped 2-colour
  * sets (UK Y/B, UK Y/R, DYNA, HOT PINK) are excluded for US9.
  *
- * PYRAMID (8) is fifteen identical ivories, so it is excluded from every game
- * that has to tell one ball from another — which is all of them except pyramid
- * itself, where interchangeable balls are the point. */
+ * PYRAMID (8) is fifteen plain ivories carrying a small black number and a red
+ * cue ball — the Russian set, where the balls are interchangeable in play but
+ * numbered so the variants that care (Combat's own-ball scoring, and any
+ * nominated-ball rule) can name one. It is excluded from every other game
+ * because a white ball with a small black 7 on it is not a pool ball. */
 static inline int cue_ballset_ok(int mode, int set) {
-    if (set == 8) return mode == CUE_GAME_PYRAMID;
-    if (mode == CUE_GAME_PYRAMID) return set == 8;
+    if (set == 8) return CUE_GAME_IS_PYRAMID(mode);
+    if (CUE_GAME_IS_PYRAMID(mode)) return set == 8;
     if (mode == CUE_GAME_US9) return set == 0 || set == 4 || set == 6 || set == 7;
     return 1;
 }

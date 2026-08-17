@@ -1523,8 +1523,10 @@ static const uint16_t k_vintagehue[8] = {
  * hold one, and it cannot do that if the type is private to this file. */
 
 /* Russian pyramid's set: fifteen PLAIN IVORY balls and a coloured cue ball. No
- * numbers, no stripes, no black — the balls are interchangeable, which is why
- * the rack lays them out in id order and nothing ever reads an id. It is here as
+ * stripes and no black — the balls are interchangeable in play, which is why
+ * the rack lays them out in id order and the base rules never read an id. They
+ * do carry a small black numeral, because the variants that are not the base
+ * rules have to be able to name one. It is here as
  * an authored set rather than a special case in the shader because that is what
  * a ball set IS since F3, and because a player who wants to break UK 8-ball off
  * with ivories should be able to. */
@@ -1535,24 +1537,30 @@ static const uint16_t k_ivoryhue[8] = {
 };
 
 static const CueBallSet k_ballsets[9] = {
-  /* 0 */ { "PRO",        k_prohue,     0, 0, BALL_WHITE, BALL_BLACK, 0,
+  /* 0 */ { "PRO",        k_prohue,     0, 0, BALL_WHITE, BALL_BLACK, 0, 0,
             1, 1, 0, 0.42f },
-  /* 1 */ { "UK YELLOW/BLUE", k_prohue, BALL_YELLOW, BALL_BLUE, 0, BALL_BLACK, 0,
+  /* 1 */ { "UK YELLOW/BLUE", k_prohue, BALL_YELLOW, BALL_BLUE, 0, BALL_BLACK, 0, 0,
             0, 0, 0, 0.42f },
-  /* 2 */ { "UK YELLOW/RED",  k_prohue, BALL_YELLOW, BALL_RED,  0, BALL_BLACK, 0,
+  /* 2 */ { "UK YELLOW/RED",  k_prohue, BALL_YELLOW, BALL_RED,  0, BALL_BLACK, 0, 0,
             0, 0, 0, 0.42f },
   /* 3 */ { "PRO LEAGUE", k_prohue,     BALL_GOLD, 0, BALL_WHITE, BALL_BLACK,
-            BALL_MAROON, 1, 1, 3, 0.42f },
-  /* 4 */ { "PRO TOUR",   k_ptourhue,   0, 0, BALL_BLACK, BALL_BLACK, 0,
+            BALL_MAROON, 0, 1, 1, 3, 0.42f },
+  /* 4 */ { "PRO TOUR",   k_ptourhue,   0, 0, BALL_BLACK, BALL_BLACK, 0, 0,
             1, 1, 2, 0.55f },
   /* 5 */ { "HOT PINK",   k_prohue,     BALL_INK, BALL_PINK, 0,
-            RGB565C(158,158,158), 0, 0, 0, 0, 0.42f },
-  /* 6 */ { "SPACE",      k_spacehue,   0, 0, BALL_GREY,  BALL_BLACK, 0,
+            RGB565C(158,158,158), 0, 0, 0, 0, 0, 0.42f },
+  /* 6 */ { "SPACE",      k_spacehue,   0, 0, BALL_GREY,  BALL_BLACK, 0, 0,
             1, 1, 0, 0.42f },
-  /* 7 */ { "VINTAGE",    k_vintagehue, 0, 0, BALL_CREAM, BALL_BLACK, 0,
+  /* 7 */ { "VINTAGE",    k_vintagehue, 0, 0, BALL_CREAM, BALL_BLACK, 0, 0,
             1, 1, 0, 0.42f },
   /* 8 */ { "PYRAMID",    k_ivoryhue,   RGB565C(238,232,214), RGB565C(238,232,214),
-            0, RGB565C(238,232,214), 0, 0, 0, 0, 0.42f },
+            0, RGB565C(238,232,214), 0,
+            /* ...and a COLOURED cue ball, because the other fifteen are
+             * identical and its colour is the only thing that says which one
+             * you are striking. */
+            RGB565C(190, 46, 40),
+            /* Not striped; numbered in the BARE style (2) — see number_patch. */
+            0, 2, 0, 0.42f },
 };
 
 /* THE SET THE PLAYER BUILT, if there is one. Held by value, and the palette
@@ -1603,9 +1611,16 @@ void cue_render_set_ballset_custom(const CueBallSet *bs) {
 int cue_render_ballset_is_custom(void) { return s_cust_on; }
 
 /* ---- ball texture ------------------------------------------------------ */
+static const CueBallSet *bset(void);
+
 static uint16_t ball_base(uint8_t id) {
     switch (id) {
-        case CUE_ID_CUE:    return RGB565C(245, 245, 235);
+        case CUE_ID_CUE: {
+            /* THE SET'S OWN CUE BALL, where it has one. Zero means the near-
+             * white every game but pyramid is played with. */
+            uint16_t c = bset()->cue;
+            return c ? c : RGB565C(245, 245, 235);
+        }
         case CUE_ID_YELLOW: return RGB565C(235, 200, 40);
         case CUE_ID_GREEN:  return RGB565C(20, 130, 50);
         case CUE_ID_BROWN:  return RGB565C(120, 70, 35);
@@ -1635,13 +1650,28 @@ static const uint16_t k_digit3x5[10] = {
 
 /* Render the white number circle (and, for the dyna set, the dynasphere black
  * ring + three spoke radii) onto the +x pole cap. `us` selects numbered sets. */
+/* numbered == 2: A BARE NUMBER, no disc under it.
+ *
+ * A Russian ball is a plain ivory with a small black numeral printed straight
+ * onto it — there is no white patch, because the ball is already white, and the
+ * numeral is a good deal smaller than a pool ball's because it is a label
+ * rather than the ball's identity. The fifteen play interchangeably; the number
+ * is only there so a variant that has to name a ball can. Printed on BOTH poles
+ * the way a real one is, which also means one is nearly always facing you. */
 static uint16_t number_patch(uint8_t id, Vec3 nb, uint16_t base, int us) {
-    if (!us || nb.x <= 0.90f) return base;
-    /* Map the pole cap to a unit disc (py,pz); edge of the patch -> r2 ~ 1. */
-    float py = nb.y * 2.30f, pz = nb.z * 2.30f;
+    const int bare = (us == 2);
+    float ax = bare ? fabsf(nb.x) : nb.x;
+    if (!us || ax <= 0.90f) return base;
+    /* Map the pole cap to a unit disc (py,pz); edge of the patch -> r2 ~ 1.
+     * The bare number sits in a tighter cap, which is what makes it small. */
+    float scale = bare ? 3.70f : 2.30f;
+    float py = nb.y * scale, pz = nb.z * scale;
+    /* On the far pole the cap is seen from behind, so the glyph would read
+     * mirrored. Flip it back. */
+    if (bare && nb.x < 0.0f) pz = -pz;
     float r2 = py * py + pz * pz;
     if (r2 > 1.0f) return base;
-    const uint16_t WHT = RGB565C(245, 245, 245);
+    const uint16_t WHT = bare ? base : RGB565C(245, 245, 245);
     const uint16_t INK = RGB565C(15, 15, 18);
     /* dynasphere-style number circle: black ring + N spoke radii.
      * set 3 (pro league) = 3 spokes; set 4 (pro tournament) = 2 spokes. */
@@ -1697,7 +1727,10 @@ static uint16_t ball_sample(uint8_t id, Vec3 nb, uint16_t base) {
          * is a quarter off the area. They are there to show spin, and they read
          * as spin at a size a real measles ball actually has; bigger than that
          * and the white starts looking like a different ball. */
-        if (m > 0.980f) return RGB565C(198, 58, 46);
+        /* Red on white, and near-white on anything else: the spots exist to
+         * show spin, and a red spot on a red cue ball shows nothing. */
+        if (m > 0.980f)
+            return bset()->cue ? RGB565C(242, 238, 228) : RGB565C(198, 58, 46);
         return base;
     }
     if (s_is_snooker) return base;              /* snooker balls are unmarked */

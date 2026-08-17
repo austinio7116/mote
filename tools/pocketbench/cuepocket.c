@@ -52,6 +52,12 @@ static struct { CueGameKind k; const char *name; const char *label; const char *
      * game — but it racks fifteen and reracks fourteen, which is the only thing
      * about it there is to look at. */
     {CUE_GAME_STRAIGHT,"straight","straight pool 9ft","US8 + US9 (one block)"},
+    /* THE ONE THE BENCH IS FOR. Its mouth is 1.07 ball radii where every other
+     * table here is between 1.8 and 2.2, so every pocket number written as a
+     * multiple of the BALL comes out roughly twice the size of the hole it is
+     * shaping — and the corner is where that shows, because two facings come at
+     * each other there and a long one makes them meet before the pocket does. */
+    {CUE_GAME_PYRAMID, "pyramid", "russian pyramid 12ft", "PYRA"},
 };
 #define NT 8
 
@@ -73,7 +79,8 @@ static float jaw_sep(const CueWorld *w, int p) {
     return s > 0.0f ? s : 0.0f;
 }
 
-typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset; } Knobs;
+typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset,
+                       flen, ang; } Knobs;
 
 /* Built exactly the way the game builds it, with these numbers in place of the
  * shipped ones. Nothing here is a bench-only derivation: pr/gap/off go into
@@ -81,12 +88,22 @@ typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset; } K
  * set/rad/roll go through cue_table_derive_cut. */
 static void build_tuned(int ti, int mid, const Knobs *k, CueTable *ot, CueWorld *ow) {
     CueTable t; cue_table_init(&t, TB[ti].k);
+    /* FACING LENGTH AND SPLAY, which the bench did not have and which are the
+     * two that shape a MITRED jaw. On a rounded table the jaw is a bezier and
+     * neither is read, so they were never missed; on a mitred one they decide
+     * where the facing's tip lands, and a tip past the pocket circle is a
+     * cushion standing proud of its own hole. facing_len is ONE field for both
+     * pockets — the game has no separate corner and middle length — so the
+     * slider moves both whichever type is being looked at. */
+    t.facing_len = k->flen*t.R;
     if (mid) { t.pr_side   = k->pr*t.R;  t.gap_side   = k->gap*t.R;  t.off_side   = k->off*t.R;
                t.drop_back_side = k->back*t.R; t.cap_side = k->capm*t.R;
-               t.bore_side  = k->bore*t.R; t.bore_set_side = k->bset*t.R; }
+               t.bore_side  = k->bore*t.R; t.bore_set_side = k->bset*t.R;
+               t.ang_side = k->ang; }
     else     { t.pr_corner = k->pr*t.R;  t.gap_corner = k->gap*t.R;  t.off_corner = k->off*t.R;
                t.drop_back      = k->back*t.R; t.cap_corner = k->capm*t.R;
-               t.bore_corner = k->bore*t.R; t.bore_set_corner = k->bset*t.R; }
+               t.bore_corner = k->bore*t.R; t.bore_set_corner = k->bset*t.R;
+               t.ang_corner = k->ang; }
     cue_table_build_world(&t, ow);
     int i = mid ? 1 : 0;
     ow->cut_set[i] = k->set; ow->cut_rad[i] = k->rad; ow->cut_roll[i] = k->roll;
@@ -292,7 +309,8 @@ int main(int argc, char **argv) {
                 printf(", \"%s\": {\"pr\": %.4f, \"gap\": %.4f, \"off\": %.4f, "
                        "\"capm\": %.4f, \"back\": %.4f, "
                        "\"set\": %.5f, \"rad\": %.4f, \"roll\": %.4f, "
-                       "\"bore\": %.4f, \"bset\": %.4f}",
+                       "\"bore\": %.4f, \"bset\": %.4f, "
+                       "\"flen\": %.4f, \"ang\": %.2f}",
                     m?"middle":"corner",
                     (double)((m ? T.pr_side  : T.pr_corner ) / T.R),
                     (double)((m ? T.gap_side : T.gap_corner) / T.R),
@@ -305,7 +323,9 @@ int main(int argc, char **argv) {
                      * key by name, so a missing one takes the whole page
                      * down. */
                     (double)((m ? T.bore_side : T.bore_corner) / T.R),
-                    (double)((m ? T.bore_set_side : T.bore_set_corner) / T.R));
+                    (double)((m ? T.bore_set_side : T.bore_set_corner) / T.R),
+                    (double)(T.facing_len / T.R),
+                    (double)(m ? T.ang_side : T.ang_corner));
             }
             printf("}%s\n", i+1<NT ? "," : "");
         }
@@ -346,6 +366,8 @@ int main(int argc, char **argv) {
         else if(!strcmp(argv[i],"--size")) { IW=IH=atoi(argv[++i]); }
         else if(!strcmp(argv[i],"--bore")) k.bore=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--bset")) k.bset=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--flen")) k.flen=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--ang"))  k.ang =(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--view")) vw=argv[++i];
         else if(!strcmp(argv[i],"--layer")) lay=argv[++i];
         else if(!strcmp(argv[i],"--whole")) whole=1;
@@ -388,6 +410,8 @@ int main(int argc, char **argv) {
         if(k.rad <0) k.rad = c0.rad;
         if(k.roll<0) k.roll= c0.roll;
         if(k.bore<0) k.bore= (mid?t0.bore_side:t0.bore_corner)/t0.R;
+        if(k.flen<0) k.flen= t0.facing_len/t0.R;
+        if(k.ang <0) k.ang = (mid?t0.ang_side:t0.ang_corner);
         /* Setback CAN be negative — pulling the hole in toward the cloth is a
          * legitimate direction — so it is flagged unset with a sentinel that a
          * real value could never be rather than by its sign. */

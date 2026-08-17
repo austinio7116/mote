@@ -61,16 +61,31 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
          * up), so yellow is +d_radius. Checked against a render from behind
          * the baulk cushion rather than against the handedness argument, which
          * is exactly the sort of reasoning that put them here. */
-        r->spot[2] = v3(t->baulk_x, t->R, +t->d_radius);   /* yellow — right of the D */
-        r->spot[3] = v3(t->baulk_x, t->R, -t->d_radius);   /* green  — left of the D  */
-        r->spot[4] = v3(t->baulk_x, t->R, 0.0f);           /* brown  */
-        r->spot[5] = v3(t->blue_x,  t->R, 0.0f);           /* blue   */
-        r->spot[6] = v3(t->pink_x,  t->R, 0.0f);           /* pink   */
-        r->spot[7] = v3(t->black_x, t->R, 0.0f);           /* black  */
+        /* LAID ALONG THE SPINE, exactly as the rack is. These were raw x and z,
+         * which is the table's long axis written into the respot — and on an L
+         * the long axis runs through the notch, so a potted colour came back
+         * inside a cushion or off the cloth. cue_table_lay is the same function
+         * that puts them there at the start of the frame, so the spot a colour
+         * is respotted on is the spot it was racked on. */
+        #define SPOT_AT(x_, a_) do { Vec3 q_ = cue_table_lay(t, (x_), (a_), NULL); \
+                                     q_.y = t->R; r->spot[SPOT_I] = q_; } while (0)
+        { const int SPOT_I = 2; SPOT_AT(t->baulk_x, +t->d_radius); }  /* yellow */
+        { const int SPOT_I = 3; SPOT_AT(t->baulk_x, -t->d_radius); }  /* green  */
+        { const int SPOT_I = 4; SPOT_AT(t->baulk_x, 0.0f); }          /* brown  */
+        { const int SPOT_I = 5; SPOT_AT(t->blue_x,  0.0f); }          /* blue   */
+        { const int SPOT_I = 6; SPOT_AT(t->pink_x,  0.0f); }          /* pink   */
+        { const int SPOT_I = 7; SPOT_AT(t->black_x, 0.0f); }          /* black  */
+        #undef SPOT_AT
+        /* and which way is "up the table" where the top colours live */
+        { Vec3 up; cue_table_lay(t, t->black_x, 0.0f, &up); r->spot_up = up; }
     } else {
         /* foot spot — respot for the 9 (US9), an illegally broken-in 8, or any
          * ball spotted in straight pool, which does far more of it than either */
-        r->spot[0] = v3(t->half_len * 0.5f, t->R, 0.0f);
+        /* the foot spot, laid along the spine like everything else — and the
+         * direction the long string runs from it, for anything spotted up */
+        {   Vec3 up; Vec3 f = cue_table_foot_spot_dir(t, &up);
+            r->spot[0] = v3(f.x, t->R, f.z);
+            r->spot_up = up; }
         if (t->kind == CUE_GAME_US9) r->seq = 1;           /* lowest ball on (HUD) */
         if (t->kind == CUE_GAME_STRAIGHT) {
             r->called_pocket = -1;
@@ -133,10 +148,13 @@ static void respot_colour(CueRules *r, CueBall *b, int n, int id) {
             if (!spot_taken(b, n, r->spot[k], id, r->R)) { p = r->spot[k]; found = 1; }
         }
         if (!found) {
-            /* Up the centre line from its own spot, toward the top cushion. */
+            /* Up the table from its own spot, toward the top cushion — ALONG
+             * THE SPINE, which on an L is not +x. */
             p = r->spot[v];
             for (int step = 1; step <= 60; step++) {
-                Vec3 t = p; t.x += (float)step * r->R * 0.5f;
+                float d = (float)step * r->R * 0.5f;
+                Vec3 t = p;
+                t.x += r->spot_up.x * d; t.z += r->spot_up.z * d;
                 if (!spot_taken(b, n, t, id, r->R)) { p = t; break; }
             }
         }
@@ -739,10 +757,10 @@ static int straight_left(const CueBall *b, int n) {   /* object balls still up *
 }
 
 /* Spot a ball on the foot spot, or as near behind it as it will go — the long
- * string runs from the foot spot toward the foot cushion, which is +x. Every
- * illegally potted ball in 14.1 comes back this way, and there are a lot of
- * them: an uncalled pot, anything that went down on a foul, anything potted on
- * a safety. */
+ * string runs from the foot spot toward the foot cushion, which on a rectangle
+ * is +x and on an L is wherever the spine points there. Every illegally potted
+ * ball in 14.1 comes back this way, and there are a lot of them: an uncalled
+ * pot, anything that went down on a foul, anything potted on a safety. */
 static void spot_straight(CueRules *r, CueBall *b, int n, int id) {
     CueBall *q = find_ball(b, n, id);
     if (!q) return;
@@ -751,7 +769,9 @@ static void spot_straight(CueRules *r, CueBall *b, int n, int id) {
     Vec3 p = r->spot[0];
     if (spot_taken(b, n, p, id, r->R)) {
         for (int step = 1; step <= 80; step++) {
-            Vec3 c = p; c.x += (float)step * r->R * 0.5f;
+            float d = (float)step * r->R * 0.5f;
+            Vec3 c = p;
+            c.x += r->spot_up.x * d; c.z += r->spot_up.z * d;
             if (!spot_taken(b, n, c, id, r->R)) { p = c; break; }
         }
     }
@@ -972,7 +992,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     if (r->kind)                            resolve_snooker(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_US9)       resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);
-    else if (r->mode == CUE_GAME_PYRAMID)   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
+    else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
     else                                    resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);
     /* The host's observations are about the shot just resolved and nothing
      * else. Left set they would foul the NEXT one too. */
@@ -1024,7 +1044,7 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
      * is to SAY which one, not to choose from a list — see cue_rules_call_shot. */
     if (r->mode == CUE_GAME_STRAIGHT) return id >= 1 && id <= 15;
     /* Pyramid: every one of the fifteen is on, always. */
-    if (r->mode == CUE_GAME_PYRAMID)  return id >= 1 && id <= 15;
+    if (CUE_GAME_IS_PYRAMID(r->mode))  return id >= 1 && id <= 15;
     if (r->open) return id != 8;                 /* open table: anything but the 8 */
     /* the 8 is legal ONLY once your own group is fully cleared */
     if (id == 8) return group_cleared(b, n, r->group[r->turn]);
@@ -1052,7 +1072,7 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
                      r->target_score, r->nominated);
         else
             snprintf(buf, cap, "%d/%d  SAFETY", r->score[r->turn], r->target_score);
-    } else if (r->mode == CUE_GAME_PYRAMID) {
+    } else if (CUE_GAME_IS_PYRAMID(r->mode)) {
         /* Balls, not points, and eight of them takes it. */
         snprintf(buf, cap, "%d - %d   (8 WINS)", r->score[0], r->score[1]);
     } else {

@@ -67,6 +67,14 @@ typedef struct {
     int reds_left;
     int brk;             /* current break points */
     Vec3 spot[8];        /* colour spots indexed by value 2..7 */
+    /* WHICH WAY IS UP THE TABLE at the top spots, so a spot that is occupied
+     * can be walked away from along the table rather than along world +x. On a
+     * rectangle those are the same direction and this is (1,0,0); on an L the
+     * layout turns the corner, and +x from the black's spot walks into the
+     * missing quadrant — which is a respotted colour placed inside the cushion,
+     * or off the cloth entirely. Set from the table at init, because the rules
+     * hold no table afterwards. */
+    Vec3 spot_up;
     float baulk_x, d_radius;  /* the D — a free ball after a scratch is judged
                                * from every position in it, so the rules need
                                * its geometry as well as the renderer. */

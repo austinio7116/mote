@@ -14,6 +14,7 @@
  */
 #include "cue_physics.h"
 #include "cue_table.h"
+#include "cue_rules.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -168,6 +169,50 @@ int main(void) {
         }
         ok(broken == 0, "...and the chain round it is unbroken");
     }
+
+    /* ---- A RESPOTTED COLOUR LANDS ON CLOTH ------------------------------- *
+     *
+     * The six snooker spots were raw x and z — the bounding box's long axis
+     * written into the respot — so on an L a potted colour came back inside a
+     * cushion or off the cloth entirely. And when its own spot was occupied the
+     * fallback walked +x from it, straight into the missing quadrant.
+     *
+     * Both are asked here: every spot on cloth, and every spot still on cloth
+     * with the table crowded so the fallback has to run. */
+    {   CueTable ts; cue_table_init(&ts, CUE_GAME_SNK15);
+        ts.bed_shape = CUE_BED_L;
+        ts.notch_x = ts.half_len * 0.55f;
+        ts.notch_z = ts.half_wid * 0.50f;
+        char why[96];
+        if (cue_table_validate(&ts, why, sizeof why)) {
+            CueWorld ws; cue_table_build_world(&ts, &ws);
+            CueRules rs; cue_rules_init(&rs, &ts, 0);
+            int off = 0;
+            for (int v = 2; v <= 7; v++)
+                if (!cue_table_on_bed(&ts, rs.spot[v].x, rs.spot[v].z)) off++;
+            ok(off == 0, "every snooker spot on an L is on the cloth");
+            /* ...and the walk away from an occupied spot goes UP THE TABLE */
+            ok(fabsf(rs.spot_up.x) + fabsf(rs.spot_up.z) > 0.9f,
+                                  "...and the long string has a direction");
+            {   CueBall bb[CUE_MAX_BALLS];
+                int nb = cue_table_rack(&ts, bb);
+                /* park a ball on every spot so the fallback must run */
+                for (int v = 2; v <= 7 && v - 2 + 1 < nb; v++) {
+                    bb[v - 1].on = 1; bb[v - 1].pos = rs.spot[v];
+                }
+                int bad = 0;
+                for (int v = 2; v <= 7; v++) {
+                    Vec3 p = rs.spot[v];
+                    for (int step = 1; step <= 60; step++) {
+                        float d = (float)step * rs.R * 0.5f;
+                        Vec3 q = p;
+                        q.x += rs.spot_up.x * d; q.z += rs.spot_up.z * d;
+                        if (cue_table_on_bed(&ts, q.x, q.z)) { p = q; break; }
+                    }
+                    if (!cue_table_on_bed(&ts, p.x, p.z)) bad++;
+                }
+                ok(bad == 0,      "...that stays on the cloth all the way up"); }
+        } }
 
     /* ---- can a ball leave anywhere but a pocket? ------------------------- *
      * Swept over the whole cloth and the whole compass, at every pace a player

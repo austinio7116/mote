@@ -116,11 +116,18 @@ const char *cue_render_ballset_name(int i);
  *   pole   what a striped ball's body is, behind the band
  *   eight  the black — its own field because one set makes it grey
  *   band   a flat stripe colour, where the stripe is not the ball's own hue
- *   half   the band's half-width as a fraction of the ball */
+ *   half   the band's half-width as a fraction of the ball
+ *   cue    THE CUE BALL'S OWN COLOUR, or zero for the usual near-white. It was
+ *          hard-coded, which is right for every game played with a white — and
+ *          Russian pyramid is not one: its cue ball is a coloured ball, and it
+ *          has to be, because the other fifteen are identical ivories and the
+ *          only thing telling you which one you are striking is its colour. The
+ *          measles spots stay on whatever colour it is: they are there to show
+ *          spin, and spin needs showing more on a 68 mm ball than on any other. */
 typedef struct {
     const char *name;
     const uint16_t *hue;
-    uint16_t lo, hi, pole, eight, band;
+    uint16_t lo, hi, pole, eight, band, cue;
     unsigned char striped, numbered, spokes;
     float half;
 } CueBallSet;
