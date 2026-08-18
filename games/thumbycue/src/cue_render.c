@@ -604,6 +604,51 @@ static void build_bed_boundary(const CueTable *t, const CueWorld *w, CueBnd *B) 
     if (TL >= 0) scallop_into(B, t, w, TL, ex, ez, 0);
 }
 
+/* THE ROLL ITSELF, given a run of cut-edge points and their outward normals.
+ *
+ * One piece of cloth doing one thing: over the edge on a quarter-cosine, in M
+ * rings, darkening as it turns under, and then a wall dropped straight down
+ * from the rolled edge. A rail pocket walks a scalloped ARC of the bed's
+ * outline through it; a hole bored through the middle of the bed walks a full
+ * CIRCLE, which is the same roll closed up — `closed` wraps the last quad back
+ * to the first so there is no seam where the ring meets itself.
+ *
+ * The wall has no apex to converge on, deliberately: it used to be a fan from a
+ * point on the pocket floor, and a fan converging on a point is a spray of long
+ * thin triangles, visible across the mouth of every pocket as spokes. Below it
+ * the frame's tray closes the table off, so it needs no floor. */
+static void emit_lip_run(const CueTable *t, Vec3 *ring0, const Vec3 *nrm,
+                         int cnt, float ld, int M, int closed)
+{
+    if (cnt < 2 || ld <= 0.0f) return;
+    Vec3 base[CUE_LIP_MAX];
+    for (int k = 0; k < cnt; k++) base[k] = ring0[k];
+    const int last = closed ? cnt : cnt - 1;
+    for (int sring = 1; sring <= M; sring++) {
+        float phi = (float)sring / M * 1.5707963f;
+        float tn = sinf(phi), yy = -ld * (1.0f - cosf(phi));
+        uint16_t col = shade565(t->cloth, 1.0f - 0.92f * (1.0f - cosf(phi)));
+        Vec3 ring1[CUE_LIP_MAX];
+        for (int k = 0; k < cnt; k++)
+            ring1[k] = v3(base[k].x + nrm[k].x * ld * tn, yy,
+                          base[k].z + nrm[k].z * ld * tn);
+        for (int k = 0; k < last; k++) {
+            int k2 = (k + 1) % cnt;
+            quad(ring0[k], ring0[k2], ring1[k2], ring1[k], col);
+        }
+        for (int k = 0; k < cnt; k++) ring0[k] = ring1[k];
+    }
+    {   uint16_t dark = s_is_snooker ? RGB565C(34, 30, 20) : RGB565C(3, 4, 4);
+        float fy = s_is_snooker ? -0.105f : -0.055f;
+        for (int k = 0; k < last; k++) {
+            int k2 = (k + 1) % cnt;
+            quad(ring0[k], ring0[k2],
+                 v3(ring0[k2].x, fy, ring0[k2].z),
+                 v3(ring0[k].x,  fy, ring0[k].z), dark);
+        }
+    }
+}
+
 /* Baize lip (the drop): rolls the cloth down into each pocket throat. Emitted
  * AFTER the pocket voids so depth-test layers it OVER the void (no rim cutting
  * across it) while the raised cushions still occlude its sides. */
@@ -644,8 +689,6 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
         int cnt = j - i;
         if (cnt > CUE_LIP_MAX) cnt = CUE_LIP_MAX;   /* cannot happen; see above */
         if (cnt >= 2) {
-            float ld  = w->lip_d[p] * lscale;
-            float din = ld;
             Vec3 ring0[CUE_LIP_MAX], nrm[CUE_LIP_MAX];
             for (int k = 0; k < cnt; k++) {
                 /* the outward normal, averaged from the two segments meeting here */
@@ -656,34 +699,7 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
                 nrm[k] = v3(wind * dz / l, 0, -wind * dx / l);
                 ring0[k] = s_bnd.p[i + k];
             }
-            for (int sring = 1; sring <= M; sring++) {
-                float phi = (float)sring / M * 1.5707963f;
-                float tn = sinf(phi), yy = -ld * (1.0f - cosf(phi));
-                uint16_t col = shade565(t->cloth, 1.0f - 0.92f*(1.0f - cosf(phi)));
-                Vec3 ring1[CUE_LIP_MAX];
-                for (int k = 0; k < cnt; k++)
-                    ring1[k] = v3(s_bnd.p[i+k].x + nrm[k].x * din * tn, yy,
-                                  s_bnd.p[i+k].z + nrm[k].z * din * tn);
-                for (int k = 0; k + 1 < cnt; k++)
-                    quad(ring0[k], ring0[k+1], ring1[k+1], ring1[k], col);
-                for (int k = 0; k < cnt; k++) ring0[k] = ring1[k];
-            }
-            /* The inside of the pocket below the roll: a WALL dropped straight
-             * down from the rolled edge.
-             *
-             * It used to be a fan from a single point on the pocket floor, and
-             * a fan converging on a point is a spray of long thin triangles —
-             * visible across the mouth of every pocket as spokes, which is
-             * exactly what it was. A skirt has no apex to converge on. Below it
-             * the frame's tray closes the table off, so it needs no floor. */
-            {
-                uint16_t dark = s_is_snooker ? RGB565C(34, 30, 20) : RGB565C(3, 4, 4);
-                float fy = s_is_snooker ? -0.105f : -0.055f;
-                for (int k = 0; k + 1 < cnt; k++)
-                    quad(ring0[k], ring0[k+1],
-                         v3(ring0[k+1].x, fy, ring0[k+1].z),
-                         v3(ring0[k].x,   fy, ring0[k].z), dark);
-            }
+            emit_lip_run(t, ring0, nrm, cnt, w->lip_d[p] * lscale, M, 0);
         }
         i = j;
     }
@@ -946,8 +962,11 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         const int NX = (int)(2.0f * ex2 / cell) + 1;
         const int NZ = (int)(2.0f * ez2 / cell) + 1;
         const float dx2 = 2.0f * ex2 / NX, dz2 = 2.0f * ez2 / NZ;
-        /* The radius the grid stops at — the outer edge of the turnover. */
-        const float roll = 0.011f;
+        /* WHERE THE GRID STOPS is exactly where the lip's cloth is cut: one
+         * roll outside the capture radius, so the two meet with no seam and
+         * changing the roll moves both together. */
+        const float roll = w->npocket ? (w->lip_d[0] > 0.0f ? w->lip_d[0] : 0.010f)
+                                      : 0.010f;
         for (int iz = 0; iz < NZ; iz++) {
             for (int ix = 0; ix < NX; ix++) {
                 float x0 = -ex2 + dx2 * ix,  x1 = x0 + dx2;
@@ -1183,52 +1202,38 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * Drawn here, with the rest of the table, so the host uploads them with
      * everything else and does not need to know this game exists. */
     if (t->kind == CUE_GAME_BARBILLIARDS) {
-        const int NSEG = 20, NROLL = 4;
-        const float deep = 0.090f;             /* far enough down to be dark */
-        const uint16_t shaft = RGB565C(9, 10, 13);
-        const uint16_t floorc = RGB565C(4, 4, 6);
+        const int NSEG = 24;
         const uint8_t keep_mat = s_mat;
         s_mat = CUE_MAT_CLOTH;                 /* the lip is cloth, not timber */
+        /* THE SAME LIP THE RAIL POCKETS GET, swept the whole way round.
+         *
+         * A hole in the bed is a pocket whose cut happens to be a complete
+         * circle, so it wants the cloth rolling over its edge exactly as a
+         * scalloped one does: the same quarter-cosine fall, the same darkening
+         * as it turns under, the same wall dropped from the rolled edge. Hand-
+         * rolling a second version of it produced something that looked like
+         * neither, which is what a second implementation of a thing usually
+         * does.
+         *
+         * The cut sits one roll OUTSIDE the capture radius, so that once the
+         * cloth has turned under, the throat lands on the radius the ball is
+         * actually taken at. */
         for (int p = 0; p < w->npocket; p++) {
-            const float cx = w->pocket[p].x, cz = w->pocket[p].z;
-            const float hr = w->pocket_r[p];
-            /* The roll: a quarter-circle of cloth from the bed down to the
-             * hole's edge, in NROLL steps so it shades round rather than
-             * stepping. Outside it the bed is flat; inside it the shaft. */
-            const float roll = 0.011f;         /* how wide the turnover is */
-            for (int i = 0; i < NSEG; i++) {
-                float a0 = 6.2831853f * (float)i / NSEG;
-                float a1 = 6.2831853f * (float)(i + 1) / NSEG;
-                float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
-                for (int k = 0; k < NROLL; k++) {
-                    /* Along the quarter-circle: t = 0 at the bed, 1 at the lip.
-                     * The outer edge sits exactly where the grid stopped, so
-                     * the two meet with no seam to see. */
-                    float t0 = (float)k / NROLL, t1 = (float)(k + 1) / NROLL;
-                    float r0 = hr + roll * cosf(t0 * 1.5707963f);
-                    float r1 = hr + roll * cosf(t1 * 1.5707963f);
-                    float y0 = -roll * sinf(t0 * 1.5707963f);
-                    float y1 = -roll * sinf(t1 * 1.5707963f);
-                    /* Darker as it turns under: the shading IS the shape. */
-                    uint16_t k0 = shade565(t->cloth, 0.98f - 0.62f * t0);
-                    quad(v3(cx + r0*c0, y0, cz + r0*s0),
-                         v3(cx + r0*c1, y0, cz + r0*s1),
-                         v3(cx + r1*c1, y1, cz + r1*s1),
-                         v3(cx + r1*c0, y1, cz + r1*s0), k0);
-                }
-                /* the shaft, straight down from the lip */
-                float ytop = -roll;
-                quad(v3(cx + hr*c0, ytop, cz + hr*s0),
-                     v3(cx + hr*c1, ytop, cz + hr*s1),
-                     v3(cx + hr*c1, -deep, cz + hr*s1),
-                     v3(cx + hr*c0, -deep, cz + hr*s0), shaft);
-                /* ...and its floor, so it is a hole and not a tube to nowhere */
-                tri(v3(cx + hr*c0, -deep, cz + hr*s0),
-                    v3(cx + hr*c1, -deep, cz + hr*s1),
-                    v3(cx, -deep, cz), floorc);
+            const float ld = w->lip_d[p] > 0.0f ? w->lip_d[p] : 0.010f;
+            const float rc = w->pocket_r[p] + ld;    /* where the cloth is cut */
+            Vec3 ring[CUE_LIP_MAX], nrm[CUE_LIP_MAX];
+            int cnt = NSEG < CUE_LIP_MAX ? NSEG : CUE_LIP_MAX;
+            for (int k = 0; k < cnt; k++) {
+                float a0 = 6.2831853f * (float)k / (float)cnt;
+                float cx = cosf(a0), sz = sinf(a0);
+                ring[k] = v3(w->pocket[p].x + rc * cx, 0.0f,
+                             w->pocket[p].z + rc * sz);
+                /* "Outward" from the cloth is INWARD to the hole: that is the
+                 * direction the cloth disappears in. */
+                nrm[k] = v3(-cx, 0.0f, -sz);
             }
+            emit_lip_run(t, ring, nrm, cnt, ld, 8, 1);
         }
-
         /* ---- AND THE FOUR CORNERS OF THE CUSHION -----------------------
          *
          * This is the first table here whose cushions turn a corner. Every
