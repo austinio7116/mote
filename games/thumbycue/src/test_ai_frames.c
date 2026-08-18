@@ -438,6 +438,26 @@ static void ai_build_table(int kind) {
                        T.d_radius = T.half_wid * 0.35f;
                    } else if (T.baulk_x != 0.0f) T.baulk_x = -T.half_len * 0.5f;
                } } }
+    /* AI_NGON="6" for a regular bed, AI_NGON="60,10" for a round one. The
+     * planner has never seen a bed with no rectangle in it at all: its
+     * candidate sampler works off the half-extents, and on a hexagon a share
+     * of every position it proposes is outside the cushions. Nothing illegal
+     * comes out — every candidate is priced by the real engine before it is
+     * played — but it is budget spent on shots that cannot exist, and this is
+     * how many frames it costs. */
+    { const char *v = getenv("AI_NGON");
+      if (v) { int a = 0, b = 1;
+               int got = sscanf(v, "%d,%d", &a, &b);
+               if (got >= 1 && a >= 3) {
+                   float ca = cosf(3.14159265f / (float)a);
+                   float k = (T.half_len > 1e-4f) ? ca : 1.0f;
+                   T.bed_shape = CUE_BED_NGON;
+                   T.bed_sides = a;
+                   T.bed_pocket_every = (got >= 2 && b > 0) ? b : 1;
+                   T.half_wid = T.half_len;
+                   T.baulk_x *= k; T.blue_x *= k;
+                   T.pink_x  *= k; T.black_x *= k; T.d_radius *= k;
+               } } }
     { const char *v = getenv("AI_NOTCH");
       if (v) { float a=0,b=0; if (sscanf(v, "%f,%f", &a, &b) == 2 && a>0 && b>0) {
                    T.bed_shape = CUE_BED_L;
