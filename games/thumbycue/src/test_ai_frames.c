@@ -152,7 +152,7 @@ static int conf_bucket(float s) {
 /* Returns 0 if the frame should be abandoned (no legal shot / stuck). */
 static int play_shot(const CuePersona *p) {
     for (int i = 0; i < N; i++) PRE[i] = B[i];
-    R.was_snookered = cue_rules_is_snookered(&R, B, N);
+    R.was_snookered = cue_rules_is_snookered(&R, B, N, &W);
 
     /* Bar billiards is played from the D every stroke, and a potted ball comes
      * back out of the trough until the bar drops — without which the table is

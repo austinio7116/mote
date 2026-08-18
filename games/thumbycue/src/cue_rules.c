@@ -392,11 +392,51 @@ void cue_rules_nominate_free(CueRules *r, int id) {
     r->free_ball_id = id;
 }
 
+/* Does the line a->b cross the line c->d, in the XZ plane? Ends excluded, so a
+ * ray that merely touches a segment's endpoint is not a crossing. */
+static int xz_cross(float ax, float az, float bx, float bz,
+                    float cx, float cz, float dx, float dz) {
+    float rx = bx - ax, rz = bz - az;
+    float sx = dx - cx, sz = dz - cz;
+    float den = rx * sz - rz * sx;
+    if (den > -1e-9f && den < 1e-9f) return 0;              /* parallel */
+    float qx = cx - ax, qz = cz - az;
+    float t = (qx * sz - qz * sx) / den;
+    float u = (qx * rz - qz * rx) / den;
+    return t > 0.0f && t < 1.0f && u > 0.0f && u < 1.0f;
+}
+
 /* Full-ball line of sight from `from` to a target ball at `to` (XZ plane): both
  * extreme edges of the target must be reachable without a blocker in the way.
- * Ported from 2dpool hasClearPath(). rad = ball radius (all equal in snooker). */
+ * Ported from 2dpool hasClearPath(). rad = ball radius (all equal in snooker).
+ *
+ * AND THE CUSHIONS, WHICH THE RULE BOOK DOES NOT MENTION.
+ *
+ * Section 2 defines snookered as obstructed "by a ball or balls not On". Balls.
+ * Only balls — and that is not an oversight, it is a fact that never had to be
+ * written down: on a rectangular table the bed is CONVEX, so the straight line
+ * between two balls resting on it cannot leave it, and no cushion can ever come
+ * between them. The rule did not exclude cushions; it never had to consider
+ * them.
+ *
+ * Custom beds break the assumption underneath the sentence. An L-shaped table's
+ * inner corner cuts straight across the line between two balls that can see
+ * each other on no rectangular table in the world, and the game noticed in the
+ * worst way: an opponent laid a genuine snooker behind the elbow, the sight
+ * test said "not snookered" because no BALL was in the way, three honest
+ * failures to escape were counted as three misses, and the frame was forfeited.
+ *
+ * So the definition is extended, not corrected: obstructed by anything the cue
+ * ball could not pass through. On a rectangular table that is the same sentence
+ * — provably, by convexity, and test_sight asserts it table by table — and on
+ * every other shape it is the one the rule would have written if it had had to.
+ *
+ * A pocket mouth is not a wall: there is no segment across it, so a ray through
+ * one crosses nothing. The facings beside it ARE segments and do count, which
+ * is right — they are timber, and a ball sent along that line would hit them. */
 static int clear_path(Vec3 from, Vec3 to, float rad,
-                      const CueBall *b, int n, int target_idx) {
+                      const CueBall *b, int n, int target_idx,
+                      const CueWorld *w) {
     float dx = to.x - from.x, dz = to.z - from.z;
     float dist = sqrtf(dx*dx + dz*dz);
     if (dist < 1e-4f) return 1;
@@ -418,17 +458,40 @@ static int clear_path(Vec3 from, Vec3 to, float rad,
             float ddx = b[i].pos.x - cxp, ddz = b[i].pos.z - czp;
             if (sqrtf(ddx*ddx + ddz*ddz) < clr) return 0;          /* blocked */
         }
+        if (!w) continue;
+        /* The same ray against the cushion chain. Pulled in a quarter of a ball
+         * at each end, because both ends of it sit on a ball that may be frozen
+         * to a cushion — and a cushion a ball is already touching is not
+         * something standing between it and anywhere. */
+        {   float k = rad * 0.25f;
+            float px0 = from.x + enx * k,        pz0 = from.z + enz * k;
+            float px1 = from.x + enx * (ed - k), pz1 = from.z + enz * (ed - k);
+            float rlox = px0 < px1 ? px0 : px1, rhix = px0 < px1 ? px1 : px0;
+            float rloz = pz0 < pz1 ? pz0 : pz1, rhiz = pz0 < pz1 ? pz1 : pz0;
+            for (int sg = 0; sg < w->nseg; sg++) {
+                const CueSeg *g = &w->seg[sg];
+                float slox = g->a.x < g->b.x ? g->a.x : g->b.x;
+                float shix = g->a.x < g->b.x ? g->b.x : g->a.x;
+                float sloz = g->a.z < g->b.z ? g->a.z : g->b.z;
+                float shiz = g->a.z < g->b.z ? g->b.z : g->a.z;
+                if (slox > rhix || shix < rlox) continue;   /* nowhere near */
+                if (sloz > rhiz || shiz < rloz) continue;
+                if (xz_cross(px0, pz0, px1, pz1,
+                             g->a.x, g->a.z, g->b.x, g->b.z)) return 0;
+            }
+        }
     }
     return 1;
 }
 
-int cue_rules_is_snookered(const CueRules *r, const CueBall *b, int n) {
+int cue_rules_is_snookered(const CueRules *r, const CueBall *b, int n,
+                           const CueWorld *w) {
     if (!r->kind || !b[0].on) return 0;       /* snooker only; cue must be on */
     int any_target = 0;
     for (int i = 1; i < n; i++) {
         if (!b[i].on || !snk_on(r, b[i].id)) continue;
         any_target = 1;
-        if (clear_path(b[0].pos, b[i].pos, r->R, b, n, i)) return 0;  /* one is visible */
+        if (clear_path(b[0].pos, b[i].pos, r->R, b, n, i, w)) return 0; /* one is visible */
     }
     return any_target;                        /* all targets blocked → snookered */
 }
@@ -437,7 +500,8 @@ int cue_rules_is_snookered(const CueRules *r, const CueBall *b, int n) {
  * Sampled rather than solved: the D is a half-disc and the answer only has to be
  * as good as a referee's eye. A ring of positions round the arc plus the middle
  * covers it — if any one of them can see a ball on, there is no free ball. */
-static int snookered_from_whole_d(CueRules *r, CueBall *b, int n) {
+static int snookered_from_whole_d(CueRules *r, CueBall *b, int n,
+                                  const CueWorld *w) {
     if (r->d_radius <= 0.0f) return 0;
     Vec3 keep = b[0].pos; int keep_on = b[0].on;
     b[0].on = 1;
@@ -448,18 +512,19 @@ static int snookered_from_whole_d(CueRules *r, CueBall *b, int n) {
         for (int k = 0; k < ARC && snookered; k++) {
             float a = 1.5707963f + 3.14159265f * ((float)k / (ARC - 1));
             b[0].pos = v3(r->baulk_x + rr * cosf(a), keep.y, rr * sinf(a));
-            if (!cue_rules_is_snookered(r, b, n)) snookered = 0;
+            if (!cue_rules_is_snookered(r, b, n, w)) snookered = 0;
         }
     }
     if (snookered) {                       /* and the centre of the D */
         b[0].pos = v3(r->baulk_x, keep.y, 0.0f);
-        if (!cue_rules_is_snookered(r, b, n)) snookered = 0;
+        if (!cue_rules_is_snookered(r, b, n, w)) snookered = 0;
     }
     b[0].pos = keep; b[0].on = keep_on;
     return snookered;
 }
 
-static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
+static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                            int first_hit,
                             int scratch, const int *potted, int np) {
     r->break_shot = 0;            /* the opening break is over once it's resolved */
     int target_before = r->target;
@@ -599,8 +664,8 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, int first_hit,
              * so they are only snookered if they are snookered from EVERY spot
              * in it. This case was skipped entirely, so a free ball that was due
              * after a scratch was never awarded. */
-            opp_snk = scratch ? snookered_from_whole_d(r, b, n)
-                              : cue_rules_is_snookered(r, b, n);
+            opp_snk = scratch ? snookered_from_whole_d(r, b, n, w)
+                              : cue_rules_is_snookered(r, b, n, w);
             r->target = sv_t; r->seq = sv_s; r->nominated = sv_n;
         }
 
@@ -1456,15 +1521,38 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     r->last_miss = 0;
     r->last_foul_pts = 0;
     r->rerack = 0;                     /* the host consumed the last one */
-    if (r->kind)                            resolve_snooker(r, b, n, first_hit, scratch, potted, np);
+
+    /* C2b: THE TIP FOUND THE WRONG BALL.
+     *
+     * Not a new penalty and deliberately not one. If the tip never reached the
+     * striker's own cue ball, then that ball struck nothing — which is the
+     * oldest foul there is, and one every game below already prices in its own
+     * currency: four away at snooker, two at billiards, ball in hand at pool,
+     * a ball back at pyramid, the break lost at bar billiards. Saying it once,
+     * here, as the fact it is, gets all six right and keeps them right.
+     *
+     * What is NOT touched is anything that actually happened. Balls the wrong
+     * ball knocked in are still potted and still go through each game's foul
+     * path, because they are on the floor of the pocket either way and a rule
+     * that pretended otherwise would leave the table disagreeing with itself.
+     * Only the message is taken over afterwards, so the player is told what
+     * they did rather than being told they missed. */
+    const int wrong_ball = r->cued_id && b[0].on && r->cued_id != b[0].id;
+    if (wrong_ball) first_hit = -1;
+
+    if (r->kind)                            resolve_snooker(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_US9)       resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
     else                                    resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);
+    if (wrong_ball && r->last_foul && !r->frame_over)
+        snprintf(r->msg, sizeof r->msg, "FOUL: WRONG BALL CUED");
+
     /* The host's observations are about the shot just resolved and nothing
      * else. Left set they would foul the NEXT one too. */
+    r->cued_id = 0;
     r->jumped = 0;
     r->n_off = 0;
     r->bb_in_baulk = 0;

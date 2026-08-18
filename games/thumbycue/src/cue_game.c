@@ -295,7 +295,7 @@ static void begin_shot(void) {
      * foul-and-a-miss rule (replay from the original position; miss exemption). */
     for (int i = 0; i < s_n; i++) s_pre_balls[i] = s_balls[i];
     s_pre_target = s_rules.target; s_pre_seq = s_rules.seq; s_pre_reds = s_rules.reds_left;
-    s_rules.was_snookered = cue_rules_is_snookered(&s_rules, s_balls, s_n);
+    s_rules.was_snookered = cue_rules_is_snookered(&s_rules, s_balls, s_n, &s_world);
     Vec3 dir = v3(cosf(s_aim), 0, sinf(s_aim));
     if (!s_balls[0].on) { s_balls[0].pos = cue_table_cue_home(&s_table); s_balls[0].on = 1; }
     float ev = fmaxf(s_elev, min_cue_elev(s_aim));   /* forced up to clear obstacles */

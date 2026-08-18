@@ -208,6 +208,20 @@ typedef struct {
     /* ---- what the HOST saw, set before cue_rules_resolve and cleared by it ----
      * Same contract as was_snookered above: the rules cannot see these for
      * themselves because they happen outside the settle. */
+    /* C2b: WHICH BALL THE TIP ACTUALLY HIT, by id.
+     *
+     * The cue is not steered onto the cue ball any more. It goes down the line
+     * the player is holding, and if another ball stands on that line the tip
+     * reaches that one first — so THAT is the ball that gets struck, which is
+     * what really happens when you cue through a ball you had not noticed.
+     *
+     * 0 for the ordinary case, and for free practice, where it is simply a
+     * shot on another ball and nobody is keeping score. Otherwise the id of
+     * whatever the tip found, and cue_rules_resolve turns it into that game's
+     * own foul: the striker's cue ball was never struck, so no ball can have
+     * been struck BY it, and every game already knows what that costs. */
+    int cued_id;
+
     int jumped;          /* the stroke was a JUMP SHOT by WPBSA Definition 20 —
                           * A foul in snooker — you may not jump a ball — and
                           * perfectly legal in pool, which is why it is a flag
@@ -411,7 +425,15 @@ void cue_rules_nominate_free(CueRules *r, int id);
 
 /* True if the player to strike has NO full-ball clear path to any ball-on
  * (used pre-shot to flag snookers for the miss / free-ball rules). */
-int  cue_rules_is_snookered(const CueRules *r, const CueBall *b, int n);
+/* Is the striker snookered — no ball On visible at both its extreme edges?
+ *
+ * `w` carries the cushions, and they count: the rule book says "obstructed by a
+ * ball or balls not On" because on a rectangular table no cushion CAN obstruct
+ * (the bed is convex), not because a cushion should be ignored. Pass the world
+ * the shot is being played on and custom beds answer correctly; pass NULL for
+ * the letter of the rule book and balls only. See clear_path in cue_rules.c. */
+int  cue_rules_is_snookered(const CueRules *r, const CueBall *b, int n,
+                            const CueWorld *w);
 
 /* Apply the opponent's choice after a snooker foul (CUE_DEC_*). On CUE_DEC_REPLAY
  * the caller must restore the pre-shot ball layout first. Returns the next

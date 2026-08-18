@@ -2586,7 +2586,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * when snookered, because then a miss is not a "miss" and the escape has to
      * be played properly. */
     if (c->snooker && r->cmiss[r->turn] >= 2 &&
-        !cue_rules_is_snookered(r, balls, n)) {
+        !cue_rules_is_snookered(r, balls, n, w)) {
         int bi = -1; float bd = 1e9f;
         for (int i = 1; i < n; i++) {
             if (!balls[i].on || !cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
@@ -2607,7 +2607,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     /* 0b. One miss. Not desperate, but not the moment for a thin cut either —
      * the confidence gate is raised so only a solid pot is taken. */
     P.miss_caution = (c->snooker && r->cmiss[r->turn] == 1 &&
-                      !cue_rules_is_snookered(r, balls, n)) ? 1 : 0;
+                      !cue_rules_is_snookered(r, balls, n, w)) ? 1 : 0;
 
     /* 0. Break shot — chosen by simulation. See break_score above for what
      * "best" means, which is a different thing per game. */
