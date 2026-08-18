@@ -59,7 +59,10 @@ static struct { CueGameKind k; const char *name; const char *label; const char *
      * each other there and a long one makes them meet before the pocket does. */
     {CUE_GAME_PYRAMID, "pyramid", "russian pyramid 12ft", "PYRA"},
 };
-#define NT 8
+/* COUNTED, NOT WRITTEN DOWN. This was a literal 8 against a list of nine, so
+ * the last table in it — russian pyramid, the one the bench was extended FOR —
+ * could not be selected and did not appear in the "known:" list either. */
+#define NT ((int)(sizeof TB / sizeof TB[0]))
 
 
 static CueTable T; static CueWorld W;
@@ -80,7 +83,16 @@ static float jaw_sep(const CueWorld *w, int p) {
 }
 
 typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset,
-                       flen, ang; } Knobs;
+                       flen, ang,
+                       /* THE THINGS THAT ARE NOT THE POCKET but decide what it
+                        * meets. A pocket is where the cushion, the timber and
+                        * the cloth arrive at the same place, and three of the
+                        * four numbers that put them there were not on the
+                        * bench at all — so a gap could be dialled away in the
+                        * pocket's own terms while the thing actually causing it
+                        * sat off-screen. */
+                       jaw, rail, cush, ball;
+                       int round_; } Knobs;
 
 /* Built exactly the way the game builds it, with these numbers in place of the
  * shipped ones. Nothing here is a bench-only derivation: pr/gap/off go into
@@ -88,6 +100,13 @@ typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset,
  * set/rad/roll go through cue_table_derive_cut. */
 static void build_tuned(int ti, int mid, const Knobs *k, CueTable *ot, CueWorld *ow) {
     CueTable t; cue_table_init(&t, TB[ti].k);
+    /* THE BALL AND THE POCKET STYLE FIRST, because everything below is a
+     * multiple of R and the jaw construction is chosen by pocket_round. */
+    if (k->ball  > 0.0f) t.R = k->ball;
+    if (k->round_ >= 0)  t.pocket_round = k->round_;
+    if (k->jaw  >= 0.0f) t.jaw_r     = k->jaw * t.R;
+    if (k->rail >  0.0f) t.rail_w    = k->rail;
+    if (k->cush >  0.0f) t.cushion_h = k->cush * t.R;
     /* FACING LENGTH AND SPLAY, which the bench did not have and which are the
      * two that shape a MITRED jaw. On a rounded table the jaw is a bezier and
      * neither is read, so they were never missed; on a mitred one they decide
@@ -310,7 +329,9 @@ int main(int argc, char **argv) {
                        "\"capm\": %.4f, \"back\": %.4f, "
                        "\"set\": %.5f, \"rad\": %.4f, \"roll\": %.4f, "
                        "\"bore\": %.4f, \"bset\": %.4f, "
-                       "\"flen\": %.4f, \"ang\": %.2f}",
+                       "\"flen\": %.4f, \"ang\": %.2f, "
+                       "\"jaw\": %.4f, \"rail\": %.4f, \"cush\": %.4f, "
+                       "\"ball\": %.4f, \"round\": %d}",
                     m?"middle":"corner",
                     (double)((m ? T.pr_side  : T.pr_corner ) / T.R),
                     (double)((m ? T.gap_side : T.gap_corner) / T.R),
@@ -325,7 +346,10 @@ int main(int argc, char **argv) {
                     (double)((m ? T.bore_side : T.bore_corner) / T.R),
                     (double)((m ? T.bore_set_side : T.bore_set_corner) / T.R),
                     (double)(T.facing_len / T.R),
-                    (double)(m ? T.ang_side : T.ang_corner));
+                    (double)(m ? T.ang_side : T.ang_corner),
+                    (double)(T.jaw_r / T.R), (double)T.rail_w,
+                    (double)(T.cushion_h / T.R), (double)T.R,
+                    T.pocket_round);
             }
             printf("}%s\n", i+1<NT ? "," : "");
         }
@@ -344,10 +368,14 @@ int main(int argc, char **argv) {
     const char *lay=NULL;
     int whole=0, rack=0, bset=-1;
     float notch_x=0.0f, notch_z=0.0f, bed_l=0.0f, bed_w=0.0f;
+    int   ngon_n=0, ngon_e=1;
     /* EVERY knob starts unset. A field added to Knobs without a -1 here reads
      * as ZERO, which for the bore meant a rail with no hole cut in it — the
      * plank closed straight over the pocket and the bore wall vanished. */
-    Knobs k = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-99};
+    /* Every knob unset. bset alone uses -99 because a real setback may legally
+     * be negative; the rest cannot be, so -1 says "not given". round_ is an
+     * int and takes -1 for the same reason. */
+    Knobs k = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-99, -1,-1, -1,-1,-1,-1, -1};
     float zoom=5.0f;
     for (int i=1;i<argc-1;i++){
         if(!strcmp(argv[i],"--table")) tbl=argv[++i];
@@ -368,6 +396,11 @@ int main(int argc, char **argv) {
         else if(!strcmp(argv[i],"--bset")) k.bset=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--flen")) k.flen=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--ang"))  k.ang =(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--jaw"))  k.jaw =(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--rail")) k.rail=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--cush")) k.cush=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--ball")) k.ball=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--round")) k.round_=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--view")) vw=argv[++i];
         else if(!strcmp(argv[i],"--layer")) lay=argv[++i];
         else if(!strcmp(argv[i],"--whole")) whole=1;
@@ -381,6 +414,14 @@ int main(int argc, char **argv) {
         /* An L wants a squarish bed under it — see the note in cuevr_app.c's
          * apply_bed_shape. Half-extents, in metres. */
         else if(!strcmp(argv[i],"--bed")) { bed_l=atof(argv[++i]); bed_w=atof(argv[++i]); }
+        /* S2: A REGULAR BED IS A SHAPE TOO. --ngon 6 for a hexagon, --ngon 60 10
+         * for a round one. Applied the same way the notch is, to whichever
+         * table is being drawn: the pocket numbers under test belong to the
+         * GAME, and what this asks is how they behave on a bed with no
+         * rectangle in it. */
+        else if(!strcmp(argv[i],"--ngon")) { ngon_n=atoi(argv[++i]);
+                                             ngon_e=(i+1<argc && argv[i+1][0]!='-')
+                                                    ? atoi(argv[++i]) : 1; }
         else if(!strcmp(argv[i],"--ballset")&&i+1<argc) bset=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--yaw"))  { cyaw=(float)atof(argv[++i]); have_cam=1; }
         else if(!strcmp(argv[i],"--pitch")){ cpit=(float)atof(argv[++i]); have_cam=1; }
@@ -411,6 +452,11 @@ int main(int argc, char **argv) {
         if(k.roll<0) k.roll= c0.roll;
         if(k.bore<0) k.bore= (mid?t0.bore_side:t0.bore_corner)/t0.R;
         if(k.flen<0) k.flen= t0.facing_len/t0.R;
+        if(k.jaw <0) k.jaw = t0.jaw_r/t0.R;
+        if(k.rail<0) k.rail= t0.rail_w;
+        if(k.cush<0) k.cush= t0.cushion_h/t0.R;
+        if(k.ball<0) k.ball= t0.R;
+        if(k.round_<0) k.round_= t0.pocket_round;
         if(k.ang <0) k.ang = (mid?t0.ang_side:t0.ang_corner);
         /* Setback CAN be negative — pulling the hole in toward the cloth is a
          * legitimate direction — so it is flagged unset with a sentinel that a
@@ -420,6 +466,21 @@ int main(int argc, char **argv) {
     build_tuned(ti, mid, &k, &T, &W);
     if (bed_l > 0.0f && bed_w > 0.0f) {
         T.half_len = bed_l; T.half_wid = bed_w;
+        cue_table_build_world(&T, &W);
+    }
+    if (ngon_n >= 3) {
+        /* Applied to the finished table and the world rebuilt from it, exactly
+         * as the notch is below and as a custom table does. The markings go
+         * onto the APOTHEM — a regular bed's corners are pockets, so the
+         * half-length that means anything is the distance to a cushion. */
+        float ca = cosf(3.14159265f / (float)ngon_n);
+        T.bed_shape = CUE_BED_NGON;
+        T.bed_sides = ngon_n;
+        T.bed_pocket_every = ngon_e > 0 ? ngon_e : 1;
+        T.half_wid = T.half_len;
+        T.notch_x = T.notch_z = 0.0f;
+        T.baulk_x *= ca; T.blue_x *= ca; T.pink_x *= ca; T.black_x *= ca;
+        T.d_radius *= ca;
         cue_table_build_world(&T, &W);
     }
     if (notch_x > 0.0f && notch_z > 0.0f) {

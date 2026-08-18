@@ -58,7 +58,13 @@ SAVE = os.path.join(HERE, "pockets.json")
 BIN  = os.path.join(MOTE, "build_host", "cuepocket")
 PORT = int(os.environ.get("POCKETBENCH_PORT", "8765"))
 
-KEYS = ["pr", "gap", "off", "capm", "back", "set", "rad", "roll", "bore", "bset"]
+KEYS = ["pr", "gap", "off", "capm", "back", "set", "rad", "roll", "bore", "bset",
+        # THE THINGS THAT ARE NOT THE POCKET but decide what it meets. A pocket
+        # is where the cushion, the timber and the cloth arrive at the same
+        # place, and four of the numbers that put them there were not on the
+        # bench at all — so a gap could be dialled away in the pocket's own
+        # terms while the thing causing it sat off-screen.
+        "flen", "ang", "jaw", "rail", "cush", "ball", "round"]
 
 TMP = tempfile.mkdtemp(prefix="pocketbench-")
 
@@ -103,6 +109,10 @@ def render(q):
         cmd += ["--bed", q["bedl"], q["bedw"]]
     if q.get("notchx", "") not in ("", "0") and q.get("notchz", "") not in ("", "0"):
         cmd += ["--notch", q["notchx"], q["notchz"]]
+    # S2: a regular bed. Sides, and a pocket every so many corners — one for the
+    # polygons, ten of sixty for a round one.
+    if q.get("ngon", "") not in ("", "0"):
+        cmd += ["--ngon", q["ngon"], q.get("ngone", "1")]
     if q.get("pocket", "") not in ("", "-1"):
         cmd += ["--pocket", q["pocket"]]
     for cam in ("yaw", "pitch", "dist"):
@@ -199,6 +209,21 @@ PAGE = r"""<!doctype html><meta charset=utf-8>
   <!-- THE SHAPE. An L is not a table kind — it is a bed a custom table can
        have — so it is a switch here rather than an entry in the list above,
        which is exactly how the game offers it. -->
+  <!-- THE BED'S SHAPE, which is not one of the tables above: the pocket numbers
+       belong to the GAME and the shape is applied to whichever one is chosen,
+       exactly as the workshop does it. A regular bed brings no second dimension
+       with it, so it needs no boxes — just how many sides. -->
+  <label class=key>shape
+    <select id=shape>
+      <option value="">rectangle</option>
+      <option value="3">triangle</option>
+      <option value="4">square</option>
+      <option value="5">pentagon</option>
+      <option value="6">hexagon</option>
+      <option value="7">heptagon</option>
+      <option value="8">octagon</option>
+      <option value="60">round</option>
+    </select></label>
   <label class=key><input id=lshape type=checkbox> L-shaped</label>
   <span class=key id=lwrap style="display:none">
     bed <input id=bedl type=number step=0.025 value=1.05 style="width:62px">
@@ -245,20 +270,31 @@ PAGE = r"""<!doctype html><meta charset=utf-8>
   <pre id=out></pre>
 </footer>
 <script>
-const KEYS=['gap','pr','off','capm','back','set','rad','roll','bore','bset'];
+const KEYS=['gap','pr','off','capm','back','set','rad','roll','bore','bset',
+            'flen','ang','jaw','rail','cush','ball','round'];
 const NAME ={gap:'mouth width', pr:'hole size', off:'pocket depth',
              capm:'drop size', back:'drop depth', set:'cut setback', rad:'lip outer edge',
-             roll:'lip thickness', bore:'timber hole', bset:'timber hole setback'};
+             roll:'lip thickness', bore:'timber hole', bset:'timber hole setback',
+             flen:'facing length', ang:'facing splay', jaw:'knuckle radius',
+             rail:'rail width', cush:'cushion height', ball:'ball size',
+             round:'jaw style'};
 const FIELD={gap:'gap_corner / gap_side', pr:'pr_corner / pr_side',
              off:'off_corner / off_side', capm:'capc / caps margin',
              set:'CueCut.set', rad:'CueCut.rad', roll:'CueCut.roll',
-             bore:'bore_corner / bore_side', bset:'bore_set_corner / bore_set_side'};
+             bore:'bore_corner / bore_side', bset:'bore_set_corner / bore_set_side',
+             flen:'facing_len', ang:'ang_corner / ang_side', jaw:'jaw_r',
+             rail:'rail_w', cush:'cushion_h', ball:'R', round:'pocket_round'};
 const RANGE={pr:[1.0,3.2,.01], gap:[1.2,3.8,.005], off:[0,2.6,.01],
              capm:[0,1.0,.01], back:[-0.5,2.0,.01], set:[-0.02,0.06,.0005],
              rad:[0.5,2.6,.005], roll:[0,1.0,.005],
-             bore:[1.0,3.2,.01], bset:[-1.0,1.0,.01]};
+             bore:[1.0,3.2,.01], bset:[-1.0,1.0,.01],
+             flen:[0,4.0,.01], ang:[0,90,.5], jaw:[0,1.2,.005],
+             rail:[0.02,0.20,.001], cush:[0.6,2.0,.01],
+             ball:[0.010,0.080,.0005], round:[0,1,1]};
 const UNIT ={pr:'×R', gap:'×R', off:'×R', capm:'×R', back:'×R',
-             set:'m', rad:'×pr', roll:'×pr', bore:'×R', bset:'×R'};
+             set:'m', rad:'×pr', roll:'×pr', bore:'×R', bset:'×R',
+             flen:'×R', ang:'deg', jaw:'×R', rail:'m', cush:'×R', ball:'m',
+             round:'0=mitred 1=rounded'};
 const TIP  ={gap:'How far apart the knuckles sit — the opening the ball goes through. THE CUSHIONS MOVE WITH IT. t->gap_corner / t->gap_side in cue_table_init.',
              pr:'The size of the hole itself: the drawn bore, and what the drop and the lip are measured from. t->pr_corner / t->pr_side.',
              off:'How far the pocket centre sits back beyond the cushion line. t->off_corner / t->off_side.',
@@ -268,7 +304,14 @@ const TIP  ={gap:'How far apart the knuckles sit — the opening the ball goes t
              rad:'Where flat cloth stops and the roll begins. A multiple of the hole size, not of the drop, so the two move apart. CueCut.rad.',
              roll:'How wide the roll is, from that edge inwards and down. CueCut.roll.',
              bore:'The hole cut in the TIMBER, which started life equal to the mouth and does not have to be. Too big and there is a slot between the end of the cushion and the frame that you can see out of the table through — the magenta in the OUTSIDE and INSIDE views. t->bore_corner / t->bore_side.',
-             bset:'How far out from the pocket centre that hole is cut, along the pocket\u2019s own outward normal. The other way to close the same slot: shrink the hole, or set it back. t->bore_set_corner / t->bore_set_side.'};
+             bset:'How far out from the pocket centre that hole is cut, along the pocket\u2019s own outward normal. The other way to close the same slot: shrink the hole, or set it back. t->bore_set_corner / t->bore_set_side.',
+             flen:'How long the facing is — the angled piece running from the knuckle back to the timber. Read only by a MITRED jaw; a rounded one is a bezier and ignores it. t->facing_len.',
+             ang:'How far the facing splays outward from the rail. Mitred jaws only. t->ang_corner / t->ang_side.',
+             jaw:'The radius of the knuckle circle the ball rattles off. Subtracted twice from the knuckle centres to give the mouth, so it changes the opening without moving a cushion. t->jaw_r.',
+             rail:'How wide the timber is. The frame, the slate overhang and the cloth cut are all measured off it, so it moves everything outside the cushion at once. t->rail_w.',
+             cush:'How tall the cushion is. Decides where the nose sits and how far a ball has to be off the bed to pass over it. t->cushion_h.',
+             ball:'The ball itself. Everything above is a multiple of it, so this rescales the whole pocket — which is the point: a pocket that only works at one ball size is not a pocket, it is a coincidence. t->R.',
+             round:'Which jaw the table is built with: 0 mitred (American, straight facings) or 1 rounded (English, bezier knuckles). They are different constructions, not a setting on one. t->pocket_round.'};
 const PLAY=['gap','pr','off','capm','back'];
 const DIG ={set:4, gap:3, rad:3, roll:3, bore:3, bset:3};
 let DEF={}, CUR={}, TABLE=null, T={};
@@ -305,6 +348,13 @@ function draw(kind){
     const view=document.getElementById('view').value;
     const q=new URLSearchParams({table:TABLE,type:kind,
         zoom:document.getElementById('zoom').value, view:view});
+    const sh=document.getElementById('shape').value;
+    if(sh!==''){
+      q.set('ngon', sh);
+      q.set('ngone', sh==='60' ? '10' : '1');
+      const ps=document.getElementById('pocket').value;
+      if(ps!=='') q.set('pocket', ps);
+    }
     if(document.getElementById('lshape').checked){
       q.set('bedl',  document.getElementById('bedl').value);
       q.set('bedw',  document.getElementById('bedw').value);
@@ -377,6 +427,7 @@ fetch('/state').then(r=>r.json()).then(s=>{
     }
     if(had!=='' && had<list.length) sel.value=had;
   }
+  document.getElementById('shape').onchange=()=>{draw('corner');draw('middle');};
   document.getElementById('lshape').onchange=()=>{
     document.getElementById('lwrap').style.display =
       document.getElementById('lshape').checked ? '' : 'none';
