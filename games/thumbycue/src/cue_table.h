@@ -482,6 +482,17 @@ Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
  * must use it too — an elevated cue delivers cos(elev) of its pace and, with
  * side on, swerves, so a planner assuming a level cue picks shots that cannot
  * be played. At address, pass the contact point on the white. */
+/* HOW HIGH THE TABLE IS AT A POINT, as the CUE sees it: cloth at zero, the
+ * cushion top and rail cap above that, the six bores through the timber and
+ * the cloth cut at the mouths counting as no surface at all, and anything past
+ * the frame likewise. CUE_TABLE_NO_SURFACE means "nothing here".
+ *
+ * Exported because the host asks it too: a stroke may not begin with the tip
+ * buried in the table (C2a), and "is the tip inside something" is this
+ * question with the tip's own height compared against the answer. */
+#define CUE_TABLE_NO_SURFACE (-1.0e9f)
+float cue_table_surface(const CueTable *t, float x, float z);
+
 float cue_table_min_elev(const CueTable *t, const CueBall *balls, int n,
                          Vec3 tip, float aim);
 

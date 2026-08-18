@@ -1778,6 +1778,40 @@ void cue_table_derive_cut(CueWorld *w) {
         w->cut_c[p] = v3(C.x + n.x * w->cut_set[i], 0, C.z + n.z * w->cut_set[i]);
         w->cut_r[p] = w->cut_ref[i]  * w->cut_rad[i];
         w->lip_d[p] = w->cut_ref[i]  * w->cut_roll[i];
+
+        /* THE ROLL CANNOT BE DEEPER THAN THE POCKET IS WIDE.
+         *
+         * The cloth turns over the edge of the slate in a quarter circle of
+         * radius lip_d, so a ball riding that turn has its centre on an arc of
+         * radius lip_d + R — and it is only released, with nothing under it at
+         * last, once it is that far out over the cut. On a pool or snooker
+         * pocket there is room to spare. On a Russian pyramid corner there is
+         * not: the mouth is 72 mm for a 67 mm ball, and the deepest a ball can
+         * ever get is the middle of the pocket, where it was 0.9 MILLIMETRES
+         * short of the release. So it sat there. Dead centre in the pocket, at
+         * cloth height, held up by a roll it could not reach the end of, with
+         * the shot never settling and the frame unable to continue.
+         *
+         * 42 shots in 1890 on the 12 ft and 37 on the 7 ft, and not one on any
+         * other table — because no other table's ball fills its pocket like
+         * that. Pyramid's ball is 0.65 of the pocket radius where snooker's is
+         * 0.50, and the roll was a fraction of the pocket that never had to
+         * answer to the ball.
+         *
+         * So it answers to it here: whatever the roll would like to be, it is
+         * no deeper than lets a ball clear it before it reaches the deepest
+         * point it can physically get to. `cut_out` at the drop centre is that
+         * deepest point, exactly, and it is the same function the drop reads —
+         * so the two cannot drift apart. Tables with room to spare are not
+         * touched at all; this only ever bites where the arithmetic had already
+         * become impossible. */
+        {   float avail = cue_phys_cut_out(w, p, w->drop_c[p].x, w->drop_c[p].z);
+            /* Clear it with something in hand, so the ball is falling freely
+             * before it arrives rather than being let go at the last instant. */
+            float cap = avail - w->R - 0.15f * w->R;
+            if (cap < 0.001f) cap = 0.001f;
+            if (w->lip_d[p] > cap) w->lip_d[p] = cap;
+        }
     }
 }
 
@@ -2703,7 +2737,7 @@ static int cue_table_pocket_gaps(const CueTable *t, CuePocketGap *g) {
     return 6;
 }
 
-static float cue_table_surface(const CueTable *t, float x, float z) {
+float cue_table_surface(const CueTable *t, float x, float z) {
     float px = t->half_len, pz = t->half_wid;              /* cushion nose */
     float ox = px + t->rail_w, oz = pz + t->rail_w;        /* outer frame edge */
     float ax = fabsf(x), az = fabsf(z);

@@ -1112,7 +1112,21 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * that falls out of the same two lines rather than being asked for. */
             {
                 float o1 = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
-                if (o1 > 0.0f && o1 < rr * 0.999f) {
+                /* ...WHERE THERE IS A RIM UNDER IT TO BE HELD BY.
+                 *
+                 * The arc above describes cloth turning over the EDGE of the
+                 * cut. Once the whole ball is inside the throat wall there is
+                 * no edge below it — it is over open pocket, and the only
+                 * honest thing beneath it is air. Saying so costs one compare
+                 * and makes "a ball parked on top of a pocket" a shape the
+                 * physics cannot express, rather than one it merely happens
+                 * not to reach. cue_table_derive_cut is the actual fix (it
+                 * caps the roll against the pocket's own size); this is why
+                 * that fix cannot fail quietly. */
+                float gx = b->pos.x - pc2.x, gz = b->pos.z - pc2.z;
+                float clear = w->pocket_r[pk] - cue_ball_r(w, b) * 1.35f;
+                int over_open = clear > 0.0f && (gx*gx + gz*gz) < clear * clear;
+                if (!over_open && o1 > 0.0f && o1 < rr * 0.999f) {
                     float lip_y = sqrtf(rr*rr - o1*o1) - ld;
                     if (b->pos.y < lip_y) {
                         b->pos.y = lip_y;
