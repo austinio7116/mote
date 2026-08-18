@@ -42,6 +42,9 @@
                               * and two middles, which is eight; and bar
                               * billiards has NINE, none of them on a rail. */
 #define CUE_MAX_RECT     4
+/* Corners a regular bed may have. Eight is the largest the shapes list asks
+ * for; the rest is headroom for a round bed's approximating polygon. */
+#define CUE_MAX_BEDV    64
 
 /* An axis-aligned box in table space, x0<x1 and z0<z1. See CueWorld.play_r. */
 typedef struct { float x0, x1, z0, z1; } CueRect;
@@ -169,6 +172,14 @@ typedef struct {
      * first reject and keeps every existing reader honest — a bounding box is
      * never smaller than the shape, so nothing that used them to ask "could
      * this possibly be on the table" gets a wrong answer. */
+    /* THE CLOTH, AS RECTANGLES OR AS A CONVEX OUTLINE.
+     *
+     * Rectangles answer a rectangle and an L in two compares, which is why they
+     * are here. A regular bed is not a union of rectangles at all, so it brings
+     * its own outline instead and `nbedv` says which of the two to believe.
+     * Convex, always: every regular polygon is, so "inside" is "inside all N
+     * edges" and there is no winding rule to get wrong. */
+    float  bedv_x[CUE_MAX_BEDV], bedv_z[CUE_MAX_BEDV]; int nbedv;
     CueRect play_r[CUE_MAX_RECT];  int nplay;    /* the cloth */
     CueRect bound_r[CUE_MAX_RECT]; int nbound;   /* out to the frame edge */
     /* AND WHAT IT LANDS ON BETWEEN THE TWO. A ball that clears a cushion is
@@ -400,6 +411,10 @@ enum {
     CUE_EV_BED       = 1 << 4,   /* a jumped ball came down on the slate */
     CUE_EV_SKITTLE   = 1 << 5,   /* a bar billiards skittle went over */
 };
+/* Is (x, z) on the cloth? Reads the outline when the world carries one and the
+ * rectangles otherwise, so callers need not know which kind of bed it is. */
+int cue_world_on_bed(const CueWorld *w, float x, float z);
+
 int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events);
 float cue_phys_cushion_impact(void);   /* loudest rail-approach speed from last step */
 

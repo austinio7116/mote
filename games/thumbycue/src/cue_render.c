@@ -544,6 +544,97 @@ static void build_bed_boundary_L(const CueTable *t, const CueWorld *w,
  * Each cut supplies its own two leg ends, so the "edges" are simply the lines
  * between one cut's exit and the next one's entry, and there is nothing to
  * clip or detect. */
+/* ---- S2: A REGULAR BED'S OUTLINE ----------------------------------------- *
+ *
+ * The rectangle's walk below finds six pockets by the SIGN of their
+ * coordinates, calls anything under index four a corner, and runs each
+ * scallop's legs out to +-ex/+-ez. None of that means anything on a pentagon.
+ *
+ * But a regular bed is far kinder than the L was, because it is REGULAR: every
+ * corner is the same corner, so the outline is one construction repeated. The
+ * slate is the bed polygon pushed out by the rail overhang — which for a
+ * regular polygon is another regular polygon, apothem plus the overhang — and
+ * at each pocket the cloth is bitten by an arc about the cut centre.
+ *
+ * The arc's ends are put exactly ON the two slate lines it sits between, so
+ * there are no legs to draw: the boundary is arc, straight run, arc, straight
+ * run, all the way round. The rectangle needs legs because its arc endpoints
+ * stop short of the slate edge; placing them on it is simply the tidier
+ * construction and it is available here because the geometry is uniform.
+ *
+ * Corners with no pocket (which is how a round bed is asked for — a pocket
+ * every so many corners) contribute their own outset vertex and nothing else. */
+static void build_bed_boundary_ngon(const CueTable *t, const CueWorld *w,
+                                    CueBnd *B) {
+    const int n = cue_table_ngon_sides(t);
+    int every = t->bed_pocket_every < 1 ? 1 : t->bed_pocket_every;
+    if (every > n) every = n;
+    const float PI = 3.14159265f;
+    const float rr = t->half_len;                     /* bed circumradius */
+    const float ap = rr * cosf(PI / (float)n);        /* ...and its apothem */
+    const float over = t->rail_w * CUE_SLATE_RAIL;    /* how far the slate runs on */
+    const float sr = (ap + over) / (ap > 1e-5f ? ap : 1.0f) * rr;  /* slate radius */
+    B->n = 0;
+
+    for (int i = 0; i < n && B->n < CUE_BND_MAX; i++) {
+        const Vec3 V  = cue_table_ngon_vert(t, i);
+        const Vec3 Vn = cue_table_ngon_vert(t, (i + 1) % n);
+        const Vec3 Vp = cue_table_ngon_vert(t, (i + n - 1) % n);
+        const float vl = sqrtf(V.x*V.x + V.z*V.z);
+        if (vl < 1e-5f) continue;
+
+        if (i % every) {                       /* no pocket here: just the corner */
+            B->p[B->n] = v3(V.x / vl * sr, 0.0f, V.z / vl * sr);
+            B->pk[B->n] = -1; B->n++;
+            continue;
+        }
+        const int pk = i / every;
+        if (pk >= w->npocket) continue;
+        const Vec3  C = w->cut_c[pk];
+        const float R = w->cut_r[pk];
+
+        /* The two edges meeting here, as unit directions leaving the vertex,
+         * and the outward normal of each. */
+        float ix = Vp.x - V.x, iz = Vp.z - V.z;         /* back along the last edge */
+        float ox = Vn.x - V.x, oz = Vn.z - V.z;         /* on along the next */
+        float il = sqrtf(ix*ix + iz*iz), ol = sqrtf(ox*ox + oz*oz);
+        if (il < 1e-5f || ol < 1e-5f) continue;
+        ix /= il; iz /= il; ox /= ol; oz /= ol;
+        /* Outward normals: the bed is convex about the origin, so the normal
+         * is whichever perpendicular points away from the middle. */
+        float inx = -iz, inz =  ix;
+        if (inx * V.x + inz * V.z < 0.0f) { inx = -inx; inz = -inz; }
+        float onx =  oz, onz = -ox;
+        if (onx * V.x + onz * V.z < 0.0f) { onx = -onx; onz = -onz; }
+
+        /* Where the cut circle crosses each slate line. The line is
+         * dot(X, n) = ap + over; the foot of the perpendicular from C is
+         * h along n, and the chord reaches sqrt(R^2 - h^2) either side. */
+        float ain = 0.0f, aout = 0.0f;
+        {   float h = (ap + over) - (C.x * inx + C.z * inz);
+            float k = R*R - h*h; k = k > 0.0f ? sqrtf(k) : 0.0f;
+            float fx = C.x + inx * h, fz = C.z + inz * h;
+            ain = atan2f(fz + iz * k - C.z, fx + ix * k - C.x);
+        }
+        {   float h = (ap + over) - (C.x * onx + C.z * onz);
+            float k = R*R - h*h; k = k > 0.0f ? sqrtf(k) : 0.0f;
+            float fx = C.x + onx * h, fz = C.z + onz * h;
+            aout = atan2f(fz + oz * k - C.z, fx + ox * k - C.x);
+        }
+        /* Sweep the short way round, through the side facing the table — the
+         * bite is out of the CLOTH, so the arc bulges inward, not outward. */
+        float d = aout - ain;
+        while (d >  PI) d -= 2.0f * PI;
+        while (d < -PI) d += 2.0f * PI;
+        {   float amid = ain + d * 0.5f;
+            float mx = cosf(amid), mz = sinf(amid);
+            if (mx * V.x + mz * V.z > 0.0f)         /* bulging outward: go the other way */
+                d += (d > 0.0f) ? -2.0f * PI : 2.0f * PI;
+        }
+        arc_into(B, C, R, ain, ain + d, pk, 20);
+    }
+}
+
 static void build_bed_boundary(const CueTable *t, const CueWorld *w, CueBnd *B) {
     float ex, ez; slate_extent(t, w, &ex, &ez);
     B->n = 0;
@@ -565,6 +656,7 @@ static void build_bed_boundary(const CueTable *t, const CueWorld *w, CueBnd *B) 
      * Generalising the scallops to an arbitrary outline is real work and it is
      * S2's, not this item's. Said plainly so nobody reads a square-cornered
      * pocket as a bug. */
+    if (t->bed_shape == CUE_BED_NGON) { build_bed_boundary_ngon(t, w, B); return; }
     if (t->bed_shape == CUE_BED_L) { build_bed_boundary_L(t, w, B, ex, ez); return; }
 
     /* ---- G6: BAR BILLIARDS' CLOTH IS A PLAIN RECTANGLE ------------------
@@ -752,6 +844,143 @@ static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0,
 /* A wood rail plank [xa,xb]×[za,zb] with a clean round bore at each pocket: cut a
  * rectangular notch (the pocket's clipped bounding box) from the plank top, then
  * fill it with bore_fill so the visible cut edge is the smooth circle curve. */
+/* ---- S2: THE TIMBER ROUND A REGULAR BED ---------------------------------- *
+ *
+ * wood_plank_bored takes an axis-aligned rectangle, which is the whole of what
+ * a rectangle and an L are made of. A hexagon's faces are diagonal, so its
+ * timber is a RING rather than a set of planks, and it is built by sweeping.
+ *
+ * Along each edge, the wood is the band between two offsets of the bed — the
+ * inner one at the cushion's back, the outer one at the frame's face — and the
+ * pocket bores eat into it at both ends. So walk the edge, and at each step
+ * take the cross-section from the inner ring to the outer one and ask which
+ * part of it the bores have swallowed. What is left is at most two pieces: a
+ * strip against the cushion and a strip against the outside. Emitting those two
+ * between consecutive steps draws the whole ring, bore-edges included, with the
+ * curve of each bore falling out of the arithmetic rather than being drawn.
+ *
+ * The bore edge is EXACT at every step — it is the true intersection of the
+ * circle with that cross-section, not a cell kept or dropped — so it reads as a
+ * circle rather than as a staircase. That is the same lesson as bar billiards'
+ * cloth, applied to timber.
+ *
+ * The wall down each bore is emitted only where there is wood above it to hang
+ * from: on the cloth side of a pocket there is no timber, and a full cylinder
+ * would draw a rim standing in the mouth. */
+static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
+                           float rin, float rout, float ytop, float ybot,
+                           uint16_t top, uint16_t wall,
+                           const float *hx, const float *hz, const float *hr, int nh)
+{
+    const int n = cue_table_ngon_sides(t);
+    /* STEPS BUNCHED AT THE ENDS, because that is the only place anything
+     * happens. A bore reaches about its own radius along the edge — a hundred
+     * millimetres of an edge that may be nearly a metre long — so spacing the
+     * samples evenly spends them all in the middle where the band is a plain
+     * rectangle, and gives the bore three of them. Three samples of a circle is
+     * a notch, and that is exactly how it drew.
+     *
+     * A cosine spacing puts the first step a millimetre or two from the corner
+     * and lets them stretch out along the straight, so the arc is smooth where
+     * there is an arc and nothing is wasted where there is not. */
+    const int M = 48;
+    for (int i = 0; i < n; i++) {
+        const Vec3 A = cue_table_ngon_vert(t, i);
+        const Vec3 B = cue_table_ngon_vert(t, (i + 1) % n);
+        const float al = sqrtf(A.x*A.x + A.z*A.z), bl = sqrtf(B.x*B.x + B.z*B.z);
+        if (al < 1e-5f || bl < 1e-5f) continue;
+        const Vec3 Ai = v3(A.x/al*rin,  0, A.z/al*rin),  Bi = v3(B.x/bl*rin,  0, B.z/bl*rin);
+        const Vec3 Ao = v3(A.x/al*rout, 0, A.z/al*rout), Bo = v3(B.x/bl*rout, 0, B.z/bl*rout);
+
+        Vec3 qi = v3(0,0,0), qo = v3(0,0,0);
+        float qlo = 1.0f, qhi = 1.0f; int have = 0;
+        for (int k = 0; k <= M; k++) {
+            const float sp = 0.5f - 0.5f * cosf(3.14159265f * (float)k / (float)M);
+            const Vec3 Pi = v3(Ai.x + (Bi.x - Ai.x)*sp, ytop, Ai.z + (Bi.z - Ai.z)*sp);
+            const Vec3 Po = v3(Ao.x + (Bo.x - Ao.x)*sp, ytop, Ao.z + (Bo.z - Ao.z)*sp);
+            const float dxs = Po.x - Pi.x, dzs = Po.z - Pi.z;
+            const float aq = dxs*dxs + dzs*dzs;
+            /* WHAT THE BORES HAVE SWALLOWED, as one interval.
+             *
+             * `cut` has to be tracked rather than inferred from the values,
+             * because "nothing was cut" and "everything was cut" both want to
+             * be expressible and the ends of the range are not free to mean
+             * one of them. Seeding thi at 1 and then taking a maximum can
+             * never bring it back down, which is exactly what it did: every
+             * cross-section reported the bore as covering the whole band, and
+             * not one corner of any table got its timber. */
+            float tlo = 1.0f, thi = 1.0f; int cut = 0;
+            if (aq > 1e-9f) for (int h = 0; h < nh; h++) {
+                const float fx = Pi.x - hx[h], fz = Pi.z - hz[h];
+                const float bq = 2.0f * (fx*dxs + fz*dzs);
+                const float cq = fx*fx + fz*fz - hr[h]*hr[h];
+                const float disc = bq*bq - 4.0f*aq*cq;
+                if (disc <= 0.0f) continue;
+                const float sq = sqrtf(disc);
+                float t0 = (-bq - sq) / (2.0f*aq), t1 = (-bq + sq) / (2.0f*aq);
+                if (t1 <= 0.0f || t0 >= 1.0f) continue;
+                if (t0 < 0.0f) t0 = 0.0f;
+                if (t1 > 1.0f) t1 = 1.0f;
+                if (!cut) { tlo = t0; thi = t1; cut = 1; }
+                else { if (t0 < tlo) tlo = t0; if (t1 > thi) thi = t1; }
+            }
+            #define AT(P, Q, u) v3((P).x + ((Q).x - (P).x)*(u), ytop, \
+                                   (P).z + ((Q).z - (P).z)*(u))
+            if (have) {
+                /* EITHER end, not both. Where the bore stops cutting, one end
+                 * of the step has a strip and the other has none — and asking
+                 * for both left that step empty, so a black slot opened in the
+                 * timber exactly where the arc runs out. A strip that closes to
+                 * nothing at one end is a triangle, which is a quad with two
+                 * corners in the same place, and drawing it is correct. */
+                if (qlo > 1e-4f || tlo > 1e-4f)          /* the strip on the cushion side */
+                    quad(qi, Pi, AT(Pi, Po, tlo), AT(qi, qo, qlo), top);
+                if (qhi < 1.0f - 1e-4f || thi < 1.0f - 1e-4f)   /* ...and on the outside */
+                    quad(AT(qi, qo, qhi), AT(Pi, Po, thi), Po, qo, top);
+            }
+            #undef AT
+            qi = Pi; qo = Po; qlo = tlo; qhi = thi; have = 1;
+        }
+    }
+
+    /* THE WALL DOWN EACH BORE, ONLY WHERE THERE IS TIMBER ABOVE IT TO HANG FROM.
+     *
+     * "Not over the cloth" is not the same question and getting them confused
+     * cost the pockets their mouths: the bed polygon stops at the cushion NOSE,
+     * so everything from the nose outward — the whole pocket opening included —
+     * read as "not cloth", and a wall was drawn straight across every mouth.
+     * The scalloped opening and the cloth rolling into it were behind it.
+     *
+     * The timber is the band between the two ring faces, so that is the test.
+     * For a regular polygon a point's distance from the nearest FACE is its
+     * projection onto the nearest face normal, and the normals sit at even
+     * steps of 2*pi/n starting at +x — so the nearest one is found by rounding
+     * rather than by searching. */
+    const float ca_n = cosf(3.14159265f / (float)n);
+    const float ap_in = rin * ca_n, ap_out = rout * ca_n;
+    for (int h = 0; h < nh; h++) {
+        const int NA = 28;
+        for (int k = 0; k < NA; k++) {
+            const float a0 = 6.2831853f * (float)k / NA;
+            const float a1 = 6.2831853f * (float)(k + 1) / NA;
+            const float m  = 0.5f * (a0 + a1);
+            const float mx = hx[h] + hr[h]*cosf(m), mz = hz[h] + hr[h]*sinf(m);
+            {   const float rr2 = sqrtf(mx*mx + mz*mz);
+                if (rr2 < 1e-5f) continue;
+                float th = atan2f(mz, mx);
+                float step = 6.2831853f / (float)n;
+                float phi = step * floorf(th / step + 0.5f);
+                float proj = rr2 * cosf(th - phi);
+                if (proj < ap_in || proj > ap_out) continue;   /* no wood here */
+            }
+            const float x0 = hx[h] + hr[h]*cosf(a0), z0 = hz[h] + hr[h]*sinf(a0);
+            const float x1 = hx[h] + hr[h]*cosf(a1), z1 = hz[h] + hr[h]*sinf(a1);
+            quad(v3(x0, ytop, z0), v3(x1, ytop, z1),
+                 v3(x1, ybot, z1), v3(x0, ybot, z0), wall);
+        }
+    }
+}
+
 static void wood_plank_bored(float xa, float xb, float za, float zb,
                              float ytop, float ybot, uint16_t top, uint16_t wall,
                              const float *hx, const float *hz, const float *hr, int nh,
@@ -1402,7 +1631,28 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         s_mat = keep_mat;
     }
 
-    if (t->bed_shape == CUE_BED_L) {
+    if (t->bed_shape == CUE_BED_NGON) {
+        /* A RING AND A MATCHING SKIRT. The offsets are the bed's own polygon
+         * pushed out along its faces — which for a regular one is the same
+         * polygon at a larger radius, apothem plus the offset, so both rings
+         * come off a single scale of the circumradius. */
+        const int nn = cue_table_ngon_sides(t);
+        const float ca = cosf(3.14159265f / (float)nn);
+        const float rin  = t->half_len + cw / ca;    /* the cushion's back */
+        const float rout = t->half_len + fw / ca;    /* the frame's outer face */
+        wood_ring_ngon(t, w, rin, rout, plank_y, bore_bot, woodt, wbore,
+                       hx, hz, hr, nh);
+        for (int i = 0; i < nn; i++) {               /* the skirt, one face each */
+            Vec3 A = cue_table_ngon_vert(t, i);
+            Vec3 B = cue_table_ngon_vert(t, (i + 1) % nn);
+            float al = sqrtf(A.x*A.x + A.z*A.z), bl = sqrtf(B.x*B.x + B.z*B.z);
+            if (al < 1e-5f || bl < 1e-5f) continue;
+            Vec3 P = v3(A.x/al*rout, 0, A.z/al*rout);
+            Vec3 Q = v3(B.x/bl*rout, 0, B.z/bl*rout);
+            quad(v3(Q.x, plank_y, Q.z), v3(P.x, plank_y, P.z),
+                 v3(P.x, 0.0f,    P.z), v3(Q.x, 0.0f,    Q.z), wood);
+        }
+    } else if (t->bed_shape == CUE_BED_L) {
         /* SIX PLANKS AND A SIX-SIDED SKIRT, because the woodwork is the shape
          * of the table and not the shape of its bounding box.
          *

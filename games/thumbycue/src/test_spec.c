@@ -103,7 +103,7 @@ int main(void) {
          * wall a ball bounces off and two ends that disagree about it are
          * playing different tables. bed_hand, which way the L turns, is the
          * fourth and is SIM for exactly the same reason. */
-        ck(cue_table_field_count() == 49,
+        ck(cue_table_field_count() == 51,
            "field count unchanged (add a field -> decide if it is SIM, then update this)");
 
         /* And the playing numbers, one per kind of thing a table can be: its

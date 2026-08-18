@@ -597,11 +597,17 @@ static const CueTabField TAB_FIELDS[] = {
     /* F2: the bed's shape. SIM, obviously — it is the wall a ball bounces off.
      * The notch is bounded by the bed itself and validated against it below,
      * because a bite deeper than the table is not a shape. */
-    TF(bed_shape,       TF_I32, TF_SIM,  0.0f, 1.0f),
+    TF(bed_shape,       TF_I32, TF_SIM,  0.0f, 2.0f),
     /* SIM: which way the L turns is the wall a ball bounces off. */
     TF(bed_hand,        TF_I32, TF_SIM,  0.0f, 1.0f),
     TF(notch_x,         TF_F32, TF_SIM,  0.0f, 3.20f),
     TF(notch_z,         TF_F32, TF_SIM,  0.0f, 3.20f),
+    /* SIM, obviously: how many cushions there are is the shape of the table.
+     * Three is the fewest bed anyone can play on; the upper bound is headroom
+     * for a round one, which is this same construction with enough sides to
+     * read as a curve. */
+    TF(bed_sides,       TF_I32, TF_SIM,  0.0f, 64.0f),
+    TF(bed_pocket_every,TF_I32, TF_SIM,  0.0f, 64.0f),
     /* The set. 34 mm is a Russian pyramid ball and 24 mm a small snooker one,
      * and those were the whole range — every ball anybody actually plays with
      * and nothing else. The workshop exists for the table nobody plays on, so
@@ -1125,6 +1131,87 @@ static void mirror_world_z(CueWorld *w) {
     for (int i = 0; i < w->npocket; i++) w->pocket[i].z = -w->pocket[i].z;
 }
 
+/* ---- S2: THE REGULAR BEDS ------------------------------------------------ *
+ *
+ * Triangle, square, pentagon, hexagon, heptagon, octagon — and a round table,
+ * which is the same construction with enough sides to read as a curve.
+ *
+ * All of them are ONE object: N corners on a circumcircle with a pocket every
+ * so many of them. That is why this costs a fraction of what an arbitrary
+ * polygon would: every one is convex, so there is no reflex corner, none of the
+ * elbow machinery is needed, and "on the bed" is "inside all N edges".
+ *
+ * THE EDGE THAT MATTERS IS THE ONE THE PACK FACES. Vertices are placed so an
+ * edge is centred on +x, which is where the rack goes: break into a flat
+ * cushion, never into a pocket. On an even-sided bed that puts a flat edge at
+ * BOTH ends, so the baulk gets one too and nothing is given up. On an odd one
+ * it cannot — three, five and seven corners cannot face flat both ways — and
+ * the pack end wins, leaving a corner pocket at the baulk end. That is the
+ * right way round: a pack sitting in the jaws of a pocket is a broken table,
+ * where a D beside a corner is merely a different table.
+ *
+ * A SQUARE HERE IS NOT A RECTANGLE WITH EQUAL SIDES. It has four pockets, one
+ * per corner, where a rectangle has six. Different table, not a differently
+ * proportioned one. */
+int cue_table_ngon_sides(const CueTable *t) {
+    int n = t ? t->bed_sides : 0;
+    if (n < 3) n = 3;
+    if (n > CUE_MAX_BEDV) n = CUE_MAX_BEDV;
+    return n;
+}
+
+Vec3 cue_table_ngon_vert(const CueTable *t, int i) {
+    const int n = cue_table_ngon_sides(t);
+    const float r = t->half_len;
+    const float a = 3.14159265f / (float)n + 6.2831853f * (float)i / (float)n;
+    return v3(r * cosf(a), 0.0f, r * sinf(a));
+}
+
+static void build_ngon(CueWorld *w, const CueTable *t) {
+    const int n = cue_table_ngon_sides(t);
+    int every = t->bed_pocket_every < 1 ? 1 : t->bed_pocket_every;
+    if (every > n) every = n;
+
+    /* THE CUSHION RUNS. One per edge, and the outward normal falls out of the
+     * winding — (dz, -dx) for the order these vertices come in — so there is no
+     * table of hand-written normals to get wrong the way the L had.
+     *
+     * A corner that carries no pocket is not an end at all: the runs either
+     * side of it want to meet, not to grow a pair of facings pointing at
+     * nothing. That is what LEND_REFLEX already means to add_run — no gap, no
+     * facing, no jaw — so a round bed's plain corners borrow it. */
+    for (int i = 0; i < n; i++) {
+        const Vec3 a = cue_table_ngon_vert(t, i);
+        const Vec3 b = cue_table_ngon_vert(t, (i + 1) % n);
+        const float dx = b.x - a.x, dz = b.z - a.z;
+        const float l = sqrtf(dx*dx + dz*dz);
+        if (l < 1e-5f) continue;
+        const Vec3 out = v3(dz / l, 0.0f, -dx / l);
+        add_run(w, t, a, b, out,
+                (i % every)             ? LEND_REFLEX : LEND_CORNER,
+                ((i + 1) % n) % every   ? LEND_REFLEX : LEND_CORNER);
+    }
+
+    /* THE POCKETS, in outline order, each pushed out along its own bisector —
+     * which for a regular polygon is simply the radial direction, by symmetry. */
+    const float oc = t->off_corner;
+    const float capc = t->pr_corner - t->cap_corner;
+    for (int i = 0; i < n; i++) {
+        if (i % every) continue;
+        const Vec3 v = cue_table_ngon_vert(t, i);
+        const float l = sqrtf(v.x*v.x + v.z*v.z);
+        if (l < 1e-5f) continue;
+        add_pocket(w, v.x + v.x / l * oc, v.z + v.z / l * oc, capc, 0);
+    }
+
+    /* ...and the outline itself, so the physics can say what is cloth. */
+    w->nbedv = n;
+    for (int i = 0; i < n; i++) {
+        const Vec3 v = cue_table_ngon_vert(t, i);
+        w->bedv_x[i] = v.x; w->bedv_z[i] = v.z;
+    }
+}
+
 static void build_L(CueWorld *w, const CueTable *t) {
     const float hl = t->half_len, hw = t->half_wid;
     const float nx = t->notch_x, nz = t->notch_z;
@@ -1508,6 +1595,10 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         SKITTLE(0.050f,  0.178f, 0);
         SKITTLE(0.640f - hr - 0.006f - w->skittle_r, 0.0f, 1);
         #undef SKITTLE
+    } else if (t->bed_shape == CUE_BED_NGON) {
+        /* A regular bed brings its own chain, its own pockets and its own
+         * outline, so it skips the rectangle's rail construction entirely. */
+        build_ngon(w, t);
     } else if (t->bed_shape == CUE_BED_L) {
         /* The L brings its own chain AND its own pockets, so it skips both the
          * rectangle's rail construction and the six-pocket block below. */
@@ -1618,7 +1709,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * with 0.15 R for a UK middle, which is why no table could be given a drop
      * of its own without moving every other table's with it. */
     float capc = t->pr_corner - t->cap_corner, caps = t->pr_side - t->cap_side;
-    if (t->bed_shape != CUE_BED_L && t->kind != CUE_GAME_BARBILLIARDS) {
+    if (t->bed_shape == CUE_BED_RECT && t->kind != CUE_GAME_BARBILLIARDS) {
         add_pocket(w, -hl - oc*d, -hw - oc*d, capc, 0);
         add_pocket(w,  hl + oc*d, -hw - oc*d, capc, 0);
         add_pocket(w,  hl + oc*d,  hw + oc*d, capc, 0);
@@ -1962,7 +2053,18 @@ static int placement_clear(const CueTable *t, Vec3 p, const CueBall *balls, int 
 
 /* ---- F2: the bed as a union of rectangles -------------------------------- */
 int cue_table_bed_rects(const CueTable *t, float g, CueRect *out, int cap) {
+    /* A REGULAR BED IS NOT A UNION OF RECTANGLES, so this can only bound it.
+     * That is right for the callers that want a bound — the timber has to cover
+     * the cloth, the lamps have to light it — and wrong for anything asking
+     * "is this point ON the cloth", which must use cue_world_on_bed instead.
+     * The physics does; nothing else asks. */
     if (!t || !out || cap < 1) return 0;
+    if (t->bed_shape == CUE_BED_NGON) {
+        float r = t->half_len;
+        out[0].x0 = -r - g; out[0].x1 = r + g;
+        out[0].z0 = -r - g; out[0].z1 = r + g;
+        return 1;
+    }
     const float hl = t->half_len, hw = t->half_wid;
     if (t->bed_shape != CUE_BED_L || cap < 2 ||
         t->notch_x <= 0.0f || t->notch_z <= 0.0f) {
@@ -1994,7 +2096,18 @@ int cue_table_bed_rects(const CueTable *t, float g, CueRect *out, int cap) {
 }
 
 int cue_table_bed_strips(const CueTable *t, CueRect *out, int cap) {
+    /* A REGULAR BED IS NOT A UNION OF RECTANGLES, so this can only bound it.
+     * That is right for the callers that want a bound — the timber has to cover
+     * the cloth, the lamps have to light it — and wrong for anything asking
+     * "is this point ON the cloth", which must use cue_world_on_bed instead.
+     * The physics does; nothing else asks. */
     if (!t || !out || cap < 1) return 0;
+    if (t->bed_shape == CUE_BED_NGON) {
+        float r = t->half_len;
+        out[0].x0 = -r; out[0].x1 = r;
+        out[0].z0 = -r; out[0].z1 = r;
+        return 1;
+    }
     const float hl = t->half_len, hw = t->half_wid;
     if (t->bed_shape != CUE_BED_L || cap < 2 ||
         t->notch_x <= 0.0f || t->notch_z <= 0.0f) {

@@ -908,6 +908,29 @@ static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
     return 0;
 }
 
+/* IS (x, z) ON THE CLOTH?
+ *
+ * A rectangle and an L are a union of rectangles and answer in two compares. A
+ * regular bed is not a union of rectangles at all, so it carries its own
+ * outline and is answered by half-planes — which is exact, and cheap, because
+ * every shape in that family is convex.
+ *
+ * One function so that no caller has to know which kind of table it is on. */
+int cue_world_on_bed(const CueWorld *w, float x, float z) {
+    if (w->nbedv >= 3) {
+        for (int i = 0; i < w->nbedv; i++) {
+            int j = (i + 1 == w->nbedv) ? 0 : i + 1;
+            float ex = w->bedv_x[j] - w->bedv_x[i];
+            float ez = w->bedv_z[j] - w->bedv_z[i];
+            /* the outward normal of a run is (ez, -ex); inside is behind it */
+            if ((x - w->bedv_x[i]) * ez - (z - w->bedv_z[i]) * ex > 0.0f)
+                return 0;
+        }
+        return 1;
+    }
+    return w->nplay ? cue_rects_contain(w->play_r, w->nplay, x, z) : 1;
+}
+
 /* WHAT IS UNDER A BALL AT (x, z): the cloth, the top of the frame, or nothing.
  *
  * Three regions and a hole. Inside the cushion line is the bed, MINUS the bite
@@ -934,7 +957,7 @@ static CUE_HOT float surface_at(const CueWorld *w, float x, float z) {
     if (ax > w->bound_x || az > w->bound_z) return CUE_NO_SURFACE;
     if (w->nbound && !cue_rects_contain(w->bound_r, w->nbound, x, z))
         return CUE_NO_SURFACE;
-    int on_bed = w->nplay ? cue_rects_contain(w->play_r, w->nplay, x, z)
+    int on_bed = w->nplay || w->nbedv ? cue_world_on_bed(w, x, z)
                           : (ax <= w->play_x && az <= w->play_z);
 
     for (int p = 0; p < w->npocket; p++) {
@@ -1287,7 +1310,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
          * the millisecond a ball spends inside a cushion mid-bounce — which is
          * nowhere near ten seconds, so a bounce costs nothing and a ball wedged
          * where it cannot be played still leaves. */
-        if (w->nplay ? cue_rects_contain(w->play_r, w->nplay, b->pos.x, b->pos.z)
+        if (w->nplay || w->nbedv ? cue_world_on_bed(w, b->pos.x, b->pos.z)
                      : (b->pos.x <= w->play_x && b->pos.x >= -w->play_x &&
                         b->pos.z <= w->play_z && b->pos.z >= -w->play_z))
             b->astray = 0.0f;

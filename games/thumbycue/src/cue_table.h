@@ -116,7 +116,20 @@ enum {
  * rectangle with a corner missing, and describing it as two overlapping
  * rectangles rather than as six vertices is what keeps every boundary test two
  * compares wide. */
-enum { CUE_BED_RECT = 0, CUE_BED_L = 1 };
+/* And N-GON is the regular family: an equilateral bed with a pocket at every
+ * corner. Triangle, square, pentagon, hexagon, heptagon, octagon — and a round
+ * table is the same object with enough sides to read as a curve and a pocket
+ * only every so many of them.
+ *
+ * A SQUARE HERE IS NOT A RECTANGLE WITH EQUAL SIDES. A rectangle carries six
+ * pockets, four at the corners and two halfway down the long rails; a square
+ * bed carries four, one per corner, and that is a different table to play on
+ * rather than a differently-proportioned one.
+ *
+ * Every one of them is CONVEX, which is why this costs so much less than the L
+ * did: there is no reflex corner anywhere, so none of the elbow machinery is
+ * needed and every boundary test is "inside all N edges". */
+enum { CUE_BED_RECT = 0, CUE_BED_L = 1, CUE_BED_NGON = 2 };
 enum { CUE_HAND_RIGHT = 0, CUE_HAND_LEFT = 1 };
 
 typedef struct {
@@ -127,6 +140,13 @@ typedef struct {
      * a rectangle, which is what memset in cue_table_init already gives. */
     int   bed_shape;            /* CUE_BED_* */
     float notch_x, notch_z;     /* the bite, measured in from +x and the hand's z */
+    /* S2: the regular bed. `bed_sides` is how many, `bed_pocket_every` says a
+     * pocket sits at every Nth corner — one for the polygons, and six-sides'-
+     * worth for a round table so it gets six pockets rather than sixty. The
+     * bed's size is half_len used as the CIRCUMRADIUS; half_wid follows it, so
+     * everything that wants a bounding box still gets a true one. */
+    int   bed_sides;
+    int   bed_pocket_every;
     /* WHICH WAY THE L TURNS. An L has a handedness and only ever had one of
      * them: the bite came out of the +x/+z corner, so every L-shaped table in
      * the game was the same table. RIGHT keeps that; LEFT mirrors it in z, so
@@ -364,6 +384,13 @@ Vec3 cue_table_cue_home(const CueTable *t);
  * and growing that would push phantom cloth out into the notch. The
  * decomposition here is chosen so that growing each piece is right — a full
  * width band below the notch, and a full height column beside it. */
+/* The i-th corner of a regular bed, in table space. Vertex 0 is placed so that
+ * an EDGE is centred on -x: the baulk end of every one of these is a flat
+ * cushion to lay a D against, rather than a pocket in the middle of it. */
+Vec3 cue_table_ngon_vert(const CueTable *t, int i);
+/* How many corners it actually has, clamped to what the world can hold. */
+int  cue_table_ngon_sides(const CueTable *t);
+
 int cue_table_bed_rects(const CueTable *t, float grow, CueRect *out, int cap);
 
 /* THE SAME BED, CUT INTO PIECES THAT DO NOT OVERLAP. One for a rectangle, two
