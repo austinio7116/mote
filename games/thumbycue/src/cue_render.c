@@ -883,7 +883,7 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
      * A cosine spacing puts the first step a millimetre or two from the corner
      * and lets them stretch out along the straight, so the arc is smooth where
      * there is an arc and nothing is wasted where there is not. */
-    const int M = 48;
+    const int MFINE = 48, MPLAIN = 1;
     for (int i = 0; i < n; i++) {
         const Vec3 A = cue_table_ngon_vert(t, i);
         const Vec3 B = cue_table_ngon_vert(t, (i + 1) % n);
@@ -892,6 +892,19 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
         const Vec3 Ai = v3(A.x/al*rin,  0, A.z/al*rin),  Bi = v3(B.x/bl*rin,  0, B.z/bl*rin);
         const Vec3 Ao = v3(A.x/al*rout, 0, A.z/al*rout), Bo = v3(B.x/bl*rout, 0, B.z/bl*rout);
 
+        /* ONLY THE EDGES WITH A POCKET ON THEM NEED THE FINE STEPS. A round
+         * bed is sixty edges of which six carry a bore; spending the same
+         * forty-eight samples on the other fifty-four draws eleven thousand
+         * triangles of plain rectangle. An edge no bore reaches IS a plain
+         * rectangle, and one quad says so. */
+        int M = MPLAIN;
+        for (int h = 0; h < nh; h++) {
+            const float ax2 = hx[h] - Ai.x, az2 = hz[h] - Ai.z;
+            const float bx3 = hx[h] - Bi.x, bz3 = hz[h] - Bi.z;
+            const float reach = hr[h] + (rout - rin);
+            if (ax2*ax2 + az2*az2 < reach*reach ||
+                bx3*bx3 + bz3*bz3 < reach*reach) { M = MFINE; break; }
+        }
         Vec3 qi = v3(0,0,0), qo = v3(0,0,0);
         float qlo = 1.0f, qhi = 1.0f; int have = 0;
         for (int k = 0; k <= M; k++) {
