@@ -1153,6 +1153,33 @@ static void mirror_world_z(CueWorld *w) {
  * A SQUARE HERE IS NOT A RECTANGLE WITH EQUAL SIDES. It has four pockets, one
  * per corner, where a rectangle has six. Different table, not a differently
  * proportioned one. */
+/* THE HALF-LENGTH ALONG THE SPINE — the distance from the middle of the table
+ * to the cushion the rack sits in front of.
+ *
+ * On a rectangle and an L that is half_len, and every marking on a table is
+ * already written as a fraction of it: the baulk line at six tenths, the foot
+ * spot at a half, the pink halfway to the top cushion. On a REGULAR bed
+ * half_len is the circumradius, which reaches the CORNERS — and there is a
+ * pocket at every corner, so it is the one distance no marking should ever be
+ * measured against. The cushion in front of the rack is at the apothem.
+ *
+ * Feeding the apothem through the same fractions is the whole of "mapped
+ * traditional": the table keeps each game's own proportions and simply stops
+ * measuring them to a place where there is no cushion. */
+float cue_table_axis(const CueTable *t) {
+    if (!t) return 0.0f;
+    if (t->bed_shape != CUE_BED_NGON) return t->half_len;
+    return t->half_len * cosf(3.14159265f / (float)cue_table_ngon_sides(t));
+}
+
+/* ...and across it. A regular bed is as wide as it is long, and its narrowest
+ * half-width is the same apothem, so anything laid out across the spine uses
+ * that rather than half_wid — which on these beds is the circumradius again. */
+float cue_table_across(const CueTable *t) {
+    if (!t) return 0.0f;
+    return (t->bed_shape == CUE_BED_NGON) ? cue_table_axis(t) : t->half_wid;
+}
+
 int cue_table_ngon_sides(const CueTable *t) {
     int n = t ? t->bed_sides : 0;
     if (n < 3) n = 3;
@@ -2030,7 +2057,8 @@ Vec3 cue_table_cue_home(const CueTable *t) {
     if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind))
         p = cue_table_lay(t, t->baulk_x, -t->d_radius * 0.55f, NULL);
     else
-        p = cue_table_lay(t, -t->half_len * 0.5f, t->half_wid * 0.40f, NULL);
+        p = cue_table_lay(t, -cue_table_axis(t) * 0.5f,
+                             cue_table_across(t) * 0.40f, NULL);
     /* On its own radius: the English white is smaller than the set. */
     return v3(p.x, CUE_Y, p.z);
 }
@@ -2209,7 +2237,7 @@ int cue_table_game_ok(const CueTable *t, CueGameKind kind, int laid_out,
 
 Vec3 cue_table_foot_spot_dir(const CueTable *t, Vec3 *dir) {
     if (!t) { if (dir) *dir = v3(1,0,0); return v3(0,0,0); }
-    Vec3 p = cue_table_lay(t, t->half_len * 0.5f, 0.0f, dir);
+    Vec3 p = cue_table_lay(t, cue_table_axis(t) * 0.5f, 0.0f, dir);
     return v3(p.x, t->R, p.z);
 }
 Vec3 cue_table_foot_spot(const CueTable *t) {
@@ -2589,7 +2617,7 @@ static int rack_snooker(const CueTable *t, CueBall *b) {
 int cue_table_rack_six(const CueTable *t, CueBall *balls) {
     memset(balls, 0, sizeof(CueBall) * CUE_MAX_BALLS);
     const float R = t->R;
-    const float footx = t->half_len * 0.5f;
+    const float footx = cue_table_axis(t) * 0.5f;
     const float dx = R * 1.7320508f;
     int n = 1, id = 1;
     for (int row = 0; row < 3; row++) {
@@ -2623,7 +2651,7 @@ int cue_table_rack_six(const CueTable *t, CueBall *balls) {
 int cue_table_rack_14(const CueTable *t, CueBall *b, int n) {
     if (!t || !b || n <= 0) return 0;
     const float R = t->R;
-    const float footx = t->half_len * 0.5f;
+    const float footx = cue_table_axis(t) * 0.5f;
     const float dx = R * 1.7320508f;
 
     /* the fifteen triangle slots, apex first — the same geometry rack_pool

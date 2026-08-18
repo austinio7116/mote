@@ -387,6 +387,14 @@ Vec3 cue_table_cue_home(const CueTable *t);
 /* The i-th corner of a regular bed, in table space. Vertex 0 is placed so that
  * an EDGE is centred on -x: the baulk end of every one of these is a flat
  * cushion to lay a D against, rather than a pocket in the middle of it. */
+/* The half-length along the table's SPINE, and across it: half_len/half_wid on
+ * a rectangle and an L, and the APOTHEM on a regular bed, where half_len is the
+ * circumradius and reaches the corners — which is where the pockets are, and so
+ * the one distance no marking may be measured against. Every layout fraction on
+ * a table goes through these. */
+float cue_table_axis(const CueTable *t);
+float cue_table_across(const CueTable *t);
+
 Vec3 cue_table_ngon_vert(const CueTable *t, int i);
 /* How many corners it actually has, clamped to what the world can hold. */
 int  cue_table_ngon_sides(const CueTable *t);
