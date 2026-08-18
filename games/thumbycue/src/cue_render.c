@@ -944,65 +944,175 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                  fclose(f); } } }
 #endif
     if (t->kind == CUE_GAME_BARBILLIARDS) {
-        /* ---- G6: A BED WITH HOLES IN IT ---------------------------------
+        /* ---- G6: A BED WITH HOLES THROUGH THE MIDDLE OF IT ---------------
          *
          * Every other table's cloth is one polygon fanned from the middle,
          * because every other table's holes are bites out of its EDGE. Bar
          * billiards has nine of them through the middle, and a fan cannot
          * express a hole — whatever way it is wound, the triangles cover the
-         * one thing they are supposed to leave out. Drawn as a grid instead,
-         * with the cells that fall inside a hole simply not emitted: the ring
-         * of cloth that rolls over each edge is drawn afterwards and covers
-         * the raggedness where the grid stops.
+         * one thing they are meant to leave out.
          *
-         * A grid is more triangles than a fan and this is the only table that
-         * needs one, which is why it is here and not the general answer. */
+         * The first answer was a fine grid with the cells that landed in a
+         * hole dropped, and a flat ring drawn afterwards to hide where the
+         * grid stopped. That is an approximation with no error bound: a cell
+         * is kept or dropped whole, so the edge of the hole is a staircase
+         * whose steps are as big as the cells, and the ring covered them on
+         * some holes and not on others. Square corners of cloth stood out into
+         * the bore. Reported, and correctly.
+         *
+         * THE HOLE EDGE IS A CIRCLE, SO DRAW A CIRCLE. Put the grid lines
+         * where the holes are instead of on a fixed pitch, so that every hole
+         * owns one cell outright; fill that cell with an ANNULUS running from
+         * the bore's own radius out to the cell's four sides; fill every other
+         * cell with a plain quad. The inner edge is then exactly the circle
+         * the lip turns over at — not near it — and there is nothing left for
+         * a covering ring to cover, so there is no covering ring.
+         *
+         * This is the general answer for a pocket that is INSIDE a table
+         * rather than on its edge, and it holds for any arrangement of them:
+         * the only thing it asks is that each hole gets a cell wider than its
+         * own bore, which is checked below. */
         const float ex2 = t->half_len, ez2 = t->half_wid;
-        const float cell = 0.020f;
-        const int NX = (int)(2.0f * ex2 / cell) + 1;
-        const int NZ = (int)(2.0f * ez2 / cell) + 1;
-        const float dx2 = 2.0f * ex2 / NX, dz2 = 2.0f * ez2 / NZ;
-        /* WHERE THE GRID STOPS is exactly where the lip's cloth is cut: one
+        /* WHERE THE CLOTH STOPS is exactly where the lip's cloth is cut: one
          * roll outside the capture radius, so the two meet with no seam and
          * changing the roll moves both together. */
         const float roll = w->npocket ? (w->lip_d[0] > 0.0f ? w->lip_d[0] : 0.010f)
                                       : 0.010f;
-        for (int iz = 0; iz < NZ; iz++) {
-            for (int ix = 0; ix < NX; ix++) {
-                float x0 = -ex2 + dx2 * ix,  x1 = x0 + dx2;
-                float z0 = -ez2 + dz2 * iz,  z1 = z0 + dz2;
-                /* Cut on the cell's CENTRE, so the hole the grid leaves is a
-                 * disc of about the right size with a stepped edge, rather
-                 * than a square a cell bigger all round — which is what
-                 * testing the corners gave, and it showed as a black box
-                 * behind every lip. The step is covered by a flat ring below. */
-                int cut = 0;
-                float mx = (x0 + x1) * 0.5f, mz = (z0 + z1) * 0.5f;
-                for (int p = 0; p < w->npocket && !cut; p++) {
-                    float rr = w->pocket_r[p] + roll;
-                    float ddx = mx - w->pocket[p].x, ddz = mz - w->pocket[p].z;
-                    if (ddx*ddx + ddz*ddz < rr*rr) cut = 1;
-                }
-                if (cut) continue;
-                quad(v3(x0, 0, z0), v3(x1, 0, z0), v3(x1, 0, z1), v3(x0, 0, z1), t->cloth);
+
+        /* Each hole's patch reaches halfway to its nearest neighbour on that
+         * axis, and no further than the bed. Halfway, so two patches meet on a
+         * shared line and never overlap — an overlap would put one hole's
+         * annulus across another's cell and draw cloth over a bore again. */
+        float px0[CUE_MAX_POCKET], px1[CUE_MAX_POCKET];
+        float pz0[CUE_MAX_POCKET], pz1[CUE_MAX_POCKET];
+        for (int p = 0; p < w->npocket; p++) {
+            float hx = ex2, hz = ez2;
+            for (int q = 0; q < w->npocket; q++) {
+                if (q == p) continue;
+                float dxs = fabsf(w->pocket[q].x - w->pocket[p].x);
+                float dzs = fabsf(w->pocket[q].z - w->pocket[p].z);
+                if (dxs > 1e-5f && dxs * 0.5f < hx) hx = dxs * 0.5f;
+                if (dzs > 1e-5f && dzs * 0.5f < hz) hz = dzs * 0.5f;
+            }
+            px0[p] = w->pocket[p].x - hx; px1[p] = w->pocket[p].x + hx;
+            pz0[p] = w->pocket[p].z - hz; pz1[p] = w->pocket[p].z + hz;
+            if (px0[p] < -ex2) px0[p] = -ex2;   if (px1[p] > ex2) px1[p] = ex2;
+            if (pz0[p] < -ez2) pz0[p] = -ez2;   if (pz1[p] > ez2) pz1[p] = ez2;
+        }
+
+        /* The grid lines: the bed's edges, plus both sides of every patch,
+         * sorted and with duplicates dropped. Every cell that comes out of
+         * this is either exactly one hole's patch or contains no hole at all —
+         * which is the whole trick, and it is why the cells are not square. */
+        float xs[2 + 2 * CUE_MAX_POCKET], zs[2 + 2 * CUE_MAX_POCKET];
+        int nxs = 0, nzs = 0;
+        {   float raw_x[2 + 2 * CUE_MAX_POCKET], raw_z[2 + 2 * CUE_MAX_POCKET];
+            int nrx = 0, nrz = 0;
+            raw_x[nrx++] = -ex2; raw_x[nrx++] = ex2;
+            raw_z[nrz++] = -ez2; raw_z[nrz++] = ez2;
+            for (int p = 0; p < w->npocket; p++) {
+                raw_x[nrx++] = px0[p]; raw_x[nrx++] = px1[p];
+                raw_z[nrz++] = pz0[p]; raw_z[nrz++] = pz1[p];
+            }
+            /* insertion sort, unique — a few dozen values at most */
+            for (int i = 0; i < nrx; i++) {
+                float v = raw_x[i]; int dup = 0;
+                for (int k = 0; k < nxs; k++) if (fabsf(xs[k] - v) < 1e-5f) dup = 1;
+                if (dup) continue;
+                int k = nxs++;
+                while (k > 0 && xs[k-1] > v) { xs[k] = xs[k-1]; k--; }
+                xs[k] = v;
+            }
+            for (int i = 0; i < nrz; i++) {
+                float v = raw_z[i]; int dup = 0;
+                for (int k = 0; k < nzs; k++) if (fabsf(zs[k] - v) < 1e-5f) dup = 1;
+                if (dup) continue;
+                int k = nzs++;
+                while (k > 0 && zs[k-1] > v) { zs[k] = zs[k-1]; k--; }
+                zs[k] = v;
             }
         }
-        /* ...and a flat ring of cloth round each hole, covering the stepped
-         * edge the grid leaves. Its inner edge is exactly where the turnover
-         * begins, so the two meet without a seam. */
-        {   const float step = 0.75f * (dx2 > dz2 ? dx2 : dz2);
-            for (int p = 0; p < w->npocket; p++) {
-                float r0 = w->pocket_r[p] + roll, r1 = r0 + step;
-                for (int i = 0; i < 24; i++) {
-                    float a0 = 6.2831853f * (float)i / 24.0f;
-                    float a1 = 6.2831853f * (float)(i + 1) / 24.0f;
-                    quad(v3(w->pocket[p].x + r0*cosf(a0), 0, w->pocket[p].z + r0*sinf(a0)),
-                         v3(w->pocket[p].x + r0*cosf(a1), 0, w->pocket[p].z + r0*sinf(a1)),
-                         v3(w->pocket[p].x + r1*cosf(a1), 0, w->pocket[p].z + r1*sinf(a1)),
-                         v3(w->pocket[p].x + r1*cosf(a0), 0, w->pocket[p].z + r1*sinf(a0)),
-                         t->cloth);
+
+        for (int iz = 0; iz + 1 < nzs; iz++) {
+            for (int ix = 0; ix + 1 < nxs; ix++) {
+                float x0 = xs[ix], x1 = xs[ix+1];
+                float z0 = zs[iz], z1 = zs[iz+1];
+                int hole = -1;
+                for (int p = 0; p < w->npocket; p++) {
+                    if (w->pocket[p].x <= x0 || w->pocket[p].x >= x1) continue;
+                    if (w->pocket[p].z <= z0 || w->pocket[p].z >= z1) continue;
+                    hole = p; break;
                 }
-            } }
+                if (hole < 0) {
+                    quad(v3(x0, 0, z0), v3(x1, 0, z0),
+                         v3(x1, 0, z1), v3(x0, 0, z1), t->cloth);
+                    continue;
+                }
+                /* THE ANNULUS. Inner ring on the circle the lip turns over at;
+                 * outer ring where a ray from the hole's centre leaves this
+                 * cell, which for a rectangle is whichever side it reaches
+                 * first. The cell is not centred on the hole where the bed's
+                 * edge has clipped it, and this does not care.
+                 *
+                 * THE CELL'S FOUR CORNERS ARE RAYS TOO. Twenty-four even
+                 * angles alone leave a triangle of bare bed at each corner,
+                 * because the straight edge between two outer points either
+                 * side of a corner cuts the corner off — four black wedges per
+                 * hole, which is what the first attempt at this drew. Adding
+                 * the corner directions means every pair of neighbouring outer
+                 * points lies on ONE side of the rectangle, so the quads
+                 * between them tile it exactly. */
+                {   float cx = w->pocket[hole].x, cz = w->pocket[hole].z;
+                    float r0 = w->pocket_r[hole] + roll;
+                    /* Never wider than the cell it has to live in, or the
+                     * annulus would turn inside out and draw cloth over the
+                     * neighbouring cells. */
+                    float room = x1 - cx;
+                    if (cx - x0 < room) room = cx - x0;
+                    if (z1 - cz < room) room = z1 - cz;
+                    if (cz - z0 < room) room = cz - z0;
+                    if (r0 > room * 0.9f) r0 = room * 0.9f;
+
+                    enum { NA = 24 };
+                    float ang[NA + 4]; int na = 0;
+                    for (int i = 0; i < NA; i++)
+                        ang[na++] = 6.2831853f * (float)i / (float)NA;
+                    ang[na++] = atan2f(z1 - cz, x1 - cx);
+                    ang[na++] = atan2f(z1 - cz, x0 - cx);
+                    ang[na++] = atan2f(z0 - cz, x0 - cx);
+                    ang[na++] = atan2f(z0 - cz, x1 - cx);
+                    for (int i = 0; i < na; i++) {          /* into [0, 2pi) */
+                        while (ang[i] <  0.0f)       ang[i] += 6.2831853f;
+                        while (ang[i] >= 6.2831853f) ang[i] -= 6.2831853f;
+                    }
+                    for (int i = 1; i < na; i++) {          /* insertion sort */
+                        float v = ang[i]; int k = i;
+                        while (k > 0 && ang[k-1] > v) { ang[k] = ang[k-1]; k--; }
+                        ang[k] = v;
+                    }
+                    for (int i = 0; i < na; i++) {
+                        float a0 = ang[i], a1 = ang[(i + 1) % na];
+                        if (i + 1 == na) a1 += 6.2831853f;
+                        if (a1 - a0 < 1e-5f) continue;      /* a duplicate ray */
+                        float c0 = cosf(a0), s0 = sinf(a0);
+                        float c1 = cosf(a1), s1 = sinf(a1);
+                        float t0 = 1e9f, t1 = 1e9f;
+                        if (c0 >  1e-6f) { float u = (x1 - cx) / c0; if (u < t0) t0 = u; }
+                        if (c0 < -1e-6f) { float u = (x0 - cx) / c0; if (u < t0) t0 = u; }
+                        if (s0 >  1e-6f) { float u = (z1 - cz) / s0; if (u < t0) t0 = u; }
+                        if (s0 < -1e-6f) { float u = (z0 - cz) / s0; if (u < t0) t0 = u; }
+                        if (c1 >  1e-6f) { float u = (x1 - cx) / c1; if (u < t1) t1 = u; }
+                        if (c1 < -1e-6f) { float u = (x0 - cx) / c1; if (u < t1) t1 = u; }
+                        if (s1 >  1e-6f) { float u = (z1 - cz) / s1; if (u < t1) t1 = u; }
+                        if (s1 < -1e-6f) { float u = (z0 - cz) / s1; if (u < t1) t1 = u; }
+                        quad(v3(cx + r0*c0, 0, cz + r0*s0),
+                             v3(cx + r0*c1, 0, cz + r0*s1),
+                             v3(cx + t1*c1, 0, cz + t1*s1),
+                             v3(cx + t0*c0, 0, cz + t0*s0), t->cloth);
+                    }
+                }
+            }
+        }
     } else {
     for (int i = 0; i < s_bnd.n; i++) {
         Vec3 a = s_bnd.p[i], b = s_bnd.p[(i + 1) % s_bnd.n];
