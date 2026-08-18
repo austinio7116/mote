@@ -182,6 +182,11 @@ typedef struct {
     /* Set on resolve and consumed by the host: how many balls to feed back out
      * of the trough, and whether the red is among them. */
     int bb_return;
+    /* HOW MANY BALLS ARE STILL IN THE GAME. Eight at the start. While the bar
+     * is up a potted ball drops into the trough and comes back out; once it
+     * has dropped they are swallowed, and the game ends when the last one is
+     * (Rule 108's premise, and what "the bar drops" is FOR). */
+    int bb_left;
     /* ---- what the HOST saw, set before cue_rules_resolve and cleared by it.
      * Same contract as was_snookered: the rules cannot see these for
      * themselves. `bb_hole` is which hole each entry of `potted` went down, in
@@ -269,6 +274,18 @@ int  cue_rules_bb_short(const CueTable *t, float furthest_x, int hit_something);
 /* Run the clock down. When it reaches zero the bar drops and potted balls stop
  * coming back (Rule 108's premise); the game is over when the balls run out. */
 void cue_rules_bb_tick(CueRules *r, float dt);
+/* Set the table up for the next stroke.
+ *
+ * Rule 91: every shot is played from the D, so there is always a white to
+ * place. Rule 92 and 94: with no object ball on the table the stroke is played
+ * from the BREAK POSITION — a white on the break spot and the red on the red
+ * spot — and play returns there whenever the table empties. While the bar is
+ * up a potted ball comes back out of the trough; once it has dropped they stay
+ * down and the game plays itself out.
+ *
+ * Returns 1 if it placed anything. Call before each stroke; the rules cannot,
+ * because they hold no table. */
+int  cue_rules_bb_setup(CueRules *r, const CueTable *t, CueBall *b, int n);
 
 /* Put the red back where the rules just said, following Rule 8's sequence when
  * that mark is occupied, and clear the request. The rules name the mark and

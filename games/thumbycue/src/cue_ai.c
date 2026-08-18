@@ -85,6 +85,13 @@ typedef struct {
      * too. The event is already on the wire from the physics; it was simply
      * being thrown away. */
     int cushion;
+    /* WHICH OBJECT BALLS THE CUE BALL TOUCHED, by index. first_hit_idx says
+     * what it reached FIRST, which is every question the other games ask.
+     * English billiards asks a different one — a cannon is contact with BOTH
+     * object balls, in any order, at any point in the stroke — and only the
+     * cue ball's own account of the shot can answer it. */
+    uint8_t touched[CUE_MAX_BALLS];
+    int ntouched;
 } AiSim;
 
 /* ---- what "power01 = 1" means --------------------------------------------- *
@@ -441,6 +448,15 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
     out->cue_potted = AI_SIM_GONE(s_sb[cue_idx]);
     out->npotted = 0;
     out->first_hit_idx = s_sw.first_hit_idx;
+    /* ...and everything it touched, from its own account of the stroke. */
+    memset(out->touched, 0, sizeof out->touched);
+    out->ntouched = 0;
+    for (int k = 0; k < s_sw.ntouch; k++) {
+        if (s_sw.touch[k].what != CUE_TOUCH_BALL) continue;
+        int bi = s_sw.touch[k].idx;
+        if (bi <= 0 || bi >= n || out->touched[bi]) continue;
+        out->touched[bi] = 1; out->ntouched++;
+    }
     for (int i = 0; i < n; i++) {
         out->on[i] = !AI_SIM_GONE(s_sb[i]);
         out->end_pos[i] = s_sb[i].pos;
@@ -498,6 +514,24 @@ static int ai_value(int id) {
     return 1;                                                       /* red / pool */
 }
 static int is_corner(const AiCtx *c, int pk) { (void)c; return pk < 4; }
+
+/* A HOLE IN THE MIDDLE OF THE BED, which only bar billiards has.
+ *
+ * Everything below about pockets assumes one at the RAIL: that there is an
+ * ideal approach direction (out of the table, along the corner's diagonal or
+ * square to the cushion), that coming at it from the wrong side is impossible,
+ * and that two knuckles narrow the mouth. None of that is true of a hole bored
+ * through the cloth — a ball drops into one from any direction at all, which is
+ * what makes bar billiards a game of nine equally reachable targets rather than
+ * six pockets you have to work an angle on.
+ *
+ * Asked of the geometry rather than of the game, so it needs no flag and stays
+ * true of any table that ever grows one. */
+static int is_bed_hole(const AiCtx *c, int pk) {
+    Vec3 p = c->w->pocket[pk];
+    return fabsf(p.x) < c->t->half_len - c->t->R &&
+           fabsf(p.z) < c->t->half_wid - c->t->R;
+}
 
 /* Ghost-ball centre: where the cue centre must be at contact. `contact` is the
  * centre-to-centre distance, which is the two radii and not twice one of them —
@@ -595,6 +629,8 @@ static int path_clear(const AiCtx *c, Vec3 start, Vec3 end, int exclude) {
 
 /* Approach angle gate (ai.js checkPocketApproach + calculatePocketApproachAngle). */
 static int pocket_approach_ok(const AiCtx *c, Vec3 target, int pk) {
+    /* Any direction will do into a hole in the bed — see is_bed_hole. */
+    if (is_bed_hole(c, pk)) { (void)target; return 1; }
     Vec3 ppos = c->w->pocket[pk];
     Vec3 shotdir = nrm2(sub2(ppos, target));
     float ang;
@@ -634,7 +670,11 @@ static float potting_difficulty(const AiCtx *c, Vec3 cue, Vec3 target, int pk) {
     else if (dt_pk > PXm(c, 200))
         score -= powf((dt_pk - PXm(c,200)) / PXm(c,250), 1.4f) * 25.0f;
 
-    if (!is_corner(c, pk)) {
+    if (is_bed_hole(c, pk)) {
+        /* No approach penalty at all: there is no rail to come in past and no
+         * knuckle to clip. What is left is the cut angle and the distance,
+         * which the lines above have already priced. */
+    } else if (!is_corner(c, pk)) {
         float from_rail = asinf(clampf(fabsf(pdir.z), 0, 1)) * DEG;
         if (from_rail < 40.0f)
             score -= powf(45.0f - from_rail, 1.7f) * 0.8f;
@@ -1117,6 +1157,14 @@ typedef struct {
      * playing safe compares posScore with potScore directly and the bigger
      * number simply won. Separate fields, separate questions. */
     float safeq;
+    /* A CANNON IS NOT A SAFETY, though it carries no pocket.
+     *
+     * The planner tells a scoring shot from a defensive one by whether it
+     * names a pocket, which is true of every game but billiards: there a
+     * cannon pockets nothing at all and is worth two points. Without this
+     * flag every cannon in the pool was filed as a safety, re-scored on how
+     * badly it left the OPPONENT, and counted against the safety budget. */
+    int   cannon;
 } Cand;
 
 /* JS variant sweep arrays. */
@@ -1990,7 +2038,7 @@ static int best_safety_idx(void) {
  * Returns 1 when *out already holds a simulation of the final aim, so the
  * caller can score straight from it instead of paying for another. */
 static int throw_correct(const AiCtx *c, Cand *q, AiSim *out) {
-    if (q->pk < 0 || q->tidx <= 0 || q->tidx >= c->n) return 0;
+    if ((q->pk < 0 && !q->cannon) || q->tidx <= 0 || q->tidx >= c->n) return 0;
     Vec3 want = nrm2(sub2(pocket_aim_t(c, q->pk, c->b[q->tidx].pos),
                           c->b[q->tidx].pos));
     /* Rotating the aim by d moves the cue ball's contact point by about dg*d,
@@ -2030,7 +2078,7 @@ static void fold_breakout(const AiCtx *c, Cand *q, const Vec3 *end_pos, const in
      * know that snooker alternates and pool does not. */
     int ti = (q->tidx > 0 && q->tidx < c->n) ? q->tidx : P.ti;
     float br = breakout_bonus(c, ti, end_pos, on, c->p, &q->freed);
-    q->brk = (q->pk < 0) ? -br : br;
+    q->brk = (q->pk < 0 && !q->cannon) ? -br : br;
     q->posScore += q->brk;
 }
 
@@ -2141,7 +2189,8 @@ static void plan_finalize(void) {
     int refine = K_REFINE < npool ? K_REFINE : npool;
     for (int i = 0; i < refine; i++) {
         Cand *q = &P.pool[i];
-        if (!q->simmed || q->pk < 0 || q->tidx <= 0 || q->tidx >= c->n) continue;
+        if (!q->simmed || (q->pk < 0 && !q->cannon) ||
+            q->tidx <= 0 || q->tidx >= c->n) continue;
         /* ALREADY SETTLED: nothing here can change it, so do not pay for it.
          * The correction converged during the sim pass, which means this would
          * re-run the same walk, get the same sub-0.03-degree error, and
@@ -2968,6 +3017,76 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             }
         }
     }
+    /* ---- ENGLISH BILLIARDS: THE CANNON --------------------------------
+     *
+     * Everything above builds candidates that send an object ball at a POCKET,
+     * because that is what scoring means in every other game here. The
+     * commonest scoring stroke in billiards pockets nothing at all: the cue
+     * ball touches one object ball and goes on to touch the other, and it is
+     * worth two whether or not anything drops.
+     *
+     * A pot planner cannot express that, and there is no need to teach it to:
+     * the ghost-ball geometry that aims at a pocket aims just as well at the
+     * OTHER OBJECT BALL. So for each ordered pair, aim as though potting the
+     * first ball into the second one's position, then fan either side of that
+     * line — a cannon rarely wants the full ball, and the fan is what finds the
+     * thin contact that sends the cue ball on. The engine decides which of them
+     * actually cannon; the scoring above pays them for it. */
+    if (c->r->mode == CUE_GAME_BILLIARDS) {
+        /* A NARROW FAN. The first one swept the whole face of the ball at
+         * three powers, which is a hundred and sixty candidates of which most
+         * miss everything — and a candidate that hits nothing is a foul, so
+         * the planner spent its budget discovering fouls and then playing
+         * some. Kept to the contacts a cannon is actually made off. */
+        static const float FAN[] = { -0.55f, -0.3f, 0.0f, 0.3f, 0.55f };
+        static const float PWR[] = { 0.26f, 0.40f };
+        Vec3 cue = c->b[0].pos;
+        for (int a2 = 1; a2 < c->n && npool < MAXPOOL - 8; a2++) {
+            if (!c->b[a2].on) continue;
+            for (int b2 = 1; b2 < c->n && npool < MAXPOOL - 8; b2++) {
+                if (b2 == a2 || !c->b[b2].on) continue;
+                Vec3 A = c->b[a2].pos, Bp = c->b[b2].pos;
+                /* Where the cue ball must be at contact to send A's line at B,
+                 * which is the same ghost the potting code builds. */
+                Vec3 toB = nrm2(sub2(Bp, A));
+                Vec3 ghost = v3(A.x - toB.x * c->contact, 0, A.z - toB.z * c->contact);
+                Vec3 line = sub2(ghost, cue);
+                float dg = len2(line);
+                if (dg < 1e-3f) continue;
+                float base = atan2f(line.z, line.x);
+                /* The fan is in units of "how far across the object ball", so a
+                 * ball's width at this distance is the angle to sweep. */
+                float span = asinf(clampf(c->contact / (dg > c->contact ? dg : c->contact),
+                                          0.0f, 1.0f));
+                for (int f = 0; f < (int)(sizeof FAN / sizeof FAN[0]); f++) {
+                    for (int q = 0; q < (int)(sizeof PWR / sizeof PWR[0]); q++) {
+                        if (npool >= MAXPOOL) break;
+                        Cand v; memset(&v, 0, sizeof v);
+                        v.tidx = a2;
+                        v.pk = -1;              /* no pocket: this is a cannon */
+                        v.ghost = ghost;
+                        v.aim = base + FAN[f] * span;
+                        v.cut = 0.0f; v.dg = dg; v.dpk = d2(A, Bp);
+                        v.power01 = PWR[q];
+                        v.js_power = PWR[q] * AI_SIM_SPEED;
+                        v.tip_side = 0.0f; v.tip_vert = 0.0f;
+                        /* Ranked by the engine, not by a guess: a cannon either
+                         * happens or it does not, and only the sim knows. This
+                         * is just enough to get it INTO the pool ahead of the
+                         * weakest pots. */
+                        v.cannon = 1;
+                        /* Below a decent pot, above a poor one: a cannon is
+                         * worth two and a pot of the red is worth three, and
+                         * the sim re-scores every one of these anyway. */
+                        v.potScore = 38.0f;
+                        v.posScore = 40.0f;
+                        P.pool[npool++] = v;
+                    }
+                }
+            }
+        }
+    }
+
     /* Sort by ANALYTIC COMPOSITE (pot + predicted position), not pot alone, so
      * the limited sim budget lands on the variants whose power/spin actually
      * give a good LEAVE — this is what makes position play work. A small bonus
@@ -3179,7 +3298,46 @@ int cue_ai_plan_tick(void) {
                 if (sim.potted[k] == v->tidx) { dropped = 1; break; }
             v->pot_fails = !dropped;
         }
-        if (sim.cue_potted) v->posScore = 0;          /* in-off → worthless leave */
+        /* ---- ENGLISH BILLIARDS IS SCORED, NOT POTTED --------------------
+         *
+         * Every other game here asks "did the ball I named go in". Billiards
+         * asks what the STROKE was worth, and the answer includes two things a
+         * pot planner cannot express: a cannon, which pockets nothing at all
+         * and is the commonest scoring shot in the game, and an in-off, which
+         * is the cue ball going down and is a FOUL everywhere else.
+         *
+         * So the sim is the scorer. It already knows what the cue ball touched
+         * and what went down; the value of the stroke follows straight from
+         * Section 3 Rule 4, and a candidate's pot score becomes what it is
+         * actually worth. Nothing else in the planner has to change: the
+         * position machinery still runs, and between two strokes worth the same
+         * it still picks the one that leaves you better placed. */
+        if (c->r->mode == CUE_GAME_BILLIARDS) {
+            int hit_red = 0, hit_white = 0, first_id = -1;
+            for (int i = 1; i < c->n; i++) {
+                if (!sim.touched[i]) continue;
+                if (c->b[i].id == CUE_ID_BIL_RED) hit_red = 1; else hit_white = 1;
+            }
+            if (sim.first_hit_idx > 0 && sim.first_hit_idx < c->n)
+                first_id = c->b[sim.first_hit_idx].id;
+            int pts = 0;
+            if (hit_red && hit_white) pts += CUE_BIL_CANNON;
+            for (int k = 0; k < sim.npotted; k++) {
+                int bi = sim.potted[k];
+                if (bi <= 0 || bi >= c->n) continue;
+                pts += (c->b[bi].id == CUE_ID_BIL_RED) ? CUE_BIL_RED : CUE_BIL_WHITE;
+            }
+            /* Rule 4(d): the in-off is priced by the ball struck FIRST. */
+            if (sim.cue_potted && first_id >= 0)
+                pts += (first_id == CUE_ID_BIL_RED) ? CUE_BIL_RED : CUE_BIL_WHITE;
+            /* Hitting nothing is a foul and worth less than nothing. */
+            v->bad_first = (first_id < 0);
+            v->pot_fails = (pts == 0);
+            v->potScore = v->bad_first ? 0.0f
+                        : clampf(28.0f + 9.0f * (float)pts, 0.0f, 100.0f);
+        }
+        if (sim.cue_potted && c->r->mode != CUE_GAME_BILLIARDS)
+            v->posScore = 0;                          /* in-off → worthless leave */
         else {
             /* SAFETIES KEEP THEIR OWN SCORE. They are built with
              * safety_score() — opponent threat from the resulting leave, which
@@ -3200,7 +3358,7 @@ int cue_ai_plan_tick(void) {
              * held the wrong question asked of the real one, and the real one
              * kept winning. Asked of sim.cue_end it is the right question about
              * the right position. */
-            if (v->pk < 0 && v->tidx > 0 && v->tidx < c->n) {
+            if (v->pk < 0 && !v->cannon && v->tidx > 0 && v->tidx < c->n) {
                 int ti = v->tidx;
                 TgtPath tp;
                 tp.end = sim.end_pos[ti];

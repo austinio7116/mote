@@ -250,7 +250,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * table from it. Rule 77: the baulk arc out to the side cushions. */
         t->baulk_x  = -t->half_len + 0.060f;   /* the break spot */
         t->d_radius = 0.040f;
-        t->baulk_arc = 0.405f;
+        t->baulk_arc = 155.0f;      /* degrees between the two baulk lines */
         /* The red spot rides in blue_x, which is the field every renderer and
          * every rack already asks for a mark on the centre line. */
         t->blue_x  = t->baulk_x + 0.175f;
@@ -658,7 +658,7 @@ static const CueTabField TAB_FIELDS[] = {
     TF(baulk_x,         TF_F32, TF_SIM, -2.00f, 2.00f),
     TF(d_radius,        TF_F32, TF_SIM,  0.000f, 0.600f),
     TF(house,           TF_I32, TF_SIM,  0,      1),
-    TF(baulk_arc,       TF_F32, TF_SIM,  0.000f, 1.200f),
+    TF(baulk_arc,       TF_F32, TF_SIM,  0.000f, 180.0f),
     TF(blue_x,          TF_F32, TF_SIM, -2.00f, 2.00f),
     TF(pink_x,          TF_F32, TF_SIM, -2.00f, 2.00f),
     TF(black_x,         TF_F32, TF_SIM, -2.00f, 2.00f),
@@ -2362,13 +2362,22 @@ static int rack_billiards(const CueTable *t, CueBall *b) {
 static int rack_barbilliards(const CueTable *t, CueBall *b) {
     const float R = t->R;
     int n = 0;
-    /* The white on the break spot — the centre of the D at the base. */
+    /* THE SEVEN WHITES CARRY SEVEN IDS, even though they are interchangeable.
+     *
+     * The engine tells balls apart by id — the renderer colours by it, the
+     * rules read it, and the planner skips the CUE BALL by it. Give every
+     * white the cue ball's id and the planner can see no object ball at all
+     * except the red; the easiest "pot" on the table becomes rolling the ball
+     * in its hand straight down a hole, which is a foul, and it played five
+     * hundred of them in a row. So index 0 is the ball in hand and keeps id 0,
+     * and the rest are 2..7 — all drawn the same white by the set, because on
+     * the table they ARE the same. */
     set_ball(&b[n++], CUE_ID_CUE, t->baulk_x, 0.0f, R);
-    /* The red on the red spot, 175 mm up the table from it (Rule 76). */
-    set_ball(&b[n], CUE_ID_BIL_RED, t->blue_x, 0.0f, R); b[n].id = CUE_ID_BIL_RED; n++;
+    /* The red on the red spot, 175 mm up the table (Rule 76). */
+    set_ball(&b[n++], CUE_ID_BIL_RED, t->blue_x, 0.0f, R);
     /* Six more whites, in the trough. Rule 79: eight balls in all. */
     for (int i = 0; i < 6; i++) {
-        set_ball(&b[n], CUE_ID_CUE, t->baulk_x, 0.0f, R);
+        set_ball(&b[n], (uint8_t)(2 + i), t->baulk_x, 0.0f, R);
         b[n].on = 0;
         n++;
     }

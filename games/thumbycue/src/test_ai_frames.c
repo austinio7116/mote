@@ -154,6 +154,38 @@ static int play_shot(const CuePersona *p) {
     for (int i = 0; i < N; i++) PRE[i] = B[i];
     R.was_snookered = cue_rules_is_snookered(&R, B, N);
 
+    /* Bar billiards is played from the D every stroke, and a potted ball comes
+     * back out of the trough until the bar drops — without which the table is
+     * empty after one shot and there is no game to measure. */
+    /* English billiards: the red back on its mark, and the two whites swapped
+     * when the turn passes so index 0 is always the ball being struck. The
+     * real host does both; without them the red never comes back and there is
+     * nothing left to play at after two shots. */
+    if (T.kind == CUE_GAME_BILLIARDS) {
+        cue_rules_billiards_respot(&R, &T, B, N);
+        int want_yellow = R.bil_yellow;
+        int have_yellow = (B[0].id == CUE_ID_BIL_YELLOW);
+        if (want_yellow != have_yellow) {
+            cue_rules_billiards_swap(B, N);
+            if (!B[0].on) {
+                B[0].on = 1; B[0].pocket = 0; B[0].drop = 0.0f;
+                B[0].vel = v3(0,0,0); B[0].w = v3(0,0,0);
+                R.ball_in_hand = 1;
+            }
+        }
+        if (!B[0].on) {
+            B[0].on = 1; B[0].pocket = 0; B[0].drop = 0.0f;
+            B[0].vel = v3(0,0,0); B[0].w = v3(0,0,0);
+            R.ball_in_hand = 1;
+        }
+    }
+    if (T.kind == CUE_GAME_BARBILLIARDS) {
+        /* The clock is what ends a bar billiards game, and a harness that never
+         * runs it plays for ever. Twenty seconds a stroke is about the pace of
+         * a real one, so a coin buys the fifty-odd shots it buys in a pub. */
+        cue_rules_bb_tick(&R, 20.0f);
+        cue_rules_bb_setup(&R, &T, B, N);
+    }
     if (R.ball_in_hand) {
         Vec3 pos = cue_ai_place(&W, &T, &R, B, N, p, &RNG);
         B[0].pos = pos; B[0].on = 1;
@@ -221,6 +253,16 @@ static int play_shot(const CuePersona *p) {
 
     Vec3 dir = v3(cosf(s.aim), 0, sinf(s.aim));
 
+    /* THE SHOT'S OWN RECORD, RESET BEFORE THE SHOT.
+     *
+     * This was never called here, only once when the world was built — so
+     * first_hit was whatever the FIRST stroke of the frame contacted and never
+     * moved again, and every shot after it was judged on that. Harmless enough
+     * in the games whose rules read the potted list, and fatal in bar
+     * billiards, where the skittles are per-shot state: one white went over
+     * legitimately and then stayed over, so all five hundred strokes fouled.
+     * The real hosts have always called it; the harness had not. */
+    cue_phys_shot_begin(&W);
     cue_phys_strike_elev(&W, &B[0], dir, s.power01 * MAX_STRIKE_SPEED,
                          s.tip_side, s.tip_vert, elev);
     W._acc = 0.0f;
@@ -253,6 +295,17 @@ static int play_shot(const CuePersona *p) {
     }
 
     int potted[CUE_MAX_BALLS], np = 0, scratch = !B[0].on;
+    if (T.kind == CUE_GAME_BARBILLIARDS) {
+        /* No cue ball to scratch: every white is one, so a white down a hole
+         * is a score. The hole it went down IS the score, so it goes with it. */
+        for (int i = 0; i < N; i++)
+            if (was_on[i] && !B[i].on) {
+                if (np < 8) R.bb_hole[np] = B[i].pocket;
+                potted[np++] = B[i].id;
+            }
+        scratch = 0;
+        R.bb_in_baulk = cue_rules_bb_in_baulk(&R, &T, B, N);
+    } else
     for (int i = 1; i < N; i++)
         if (was_on[i] && !B[i].on) potted[np++] = B[i].id;
 
@@ -297,6 +350,11 @@ static int play_shot(const CuePersona *p) {
         if (scratch) scored = 0;
     }
     int fouled = R.msg[0] && strstr(R.msg, "FOUL") != NULL;
+    { extern char *getenv(const char*); static int dbg = -1;
+      if (dbg < 0) dbg = getenv("AI_WHY") ? 1 : 0;
+      if (dbg && ST.shots < 12)
+        printf("    [why] np %d first %d inbaulk %d short %d msg '%s'\n",
+               np, W.first_hit, R.bb_in_baulk, R.bb_short, R.msg); }
     if (!s.safe) {
         if (np > 0 && scored) { ST.pots++; ST.conf_pot[conf_bucket(s.score)]++; }
         else ST.misses++;

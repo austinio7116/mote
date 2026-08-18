@@ -194,14 +194,22 @@ typedef struct {
     float drop_back;            /* CORNER drop pushed this far deeper (m) */
     float drop_back_side;       /* MIDDLE drop pushed this far deeper (m) */
 
-    /* THE BAULK ARC, which only bar billiards has.
+    /* THE BAULK LINES, which only bar billiards has.
  *
- * AEBBA Rule 77: the baulk lines are "drawn on the table radiating from the
- * centre of the base of the playing area to the side cushions so as to form an
- * arc of not less than 150 degrees and not more than 160". It is a circle
- * about the break spot, and Rule 110(c) makes any ball coming to rest on or
- * inside it a foul — the ball is returned to the rack and the break is lost.
- * Zero on every other table, which has no such thing. */
+ * AEBBA Rule 77: they are "drawn on the table RADIATING from the centre of the
+ * base of the playing area TO THE SIDE CUSHIONS so as to form an arc of not
+ * less than 150 degrees and not more than 160". Two straight lines out of the
+ * break spot, then, with that angle BETWEEN them — a shallow V a little short
+ * of square across the table — and the baulk is the wedge behind them.
+ *
+ * Read first as a circle about the break spot, which put the whole near third
+ * of the table in baulk and the RED SPOT with it: the red is placed 175 mm up
+ * the table and an arc that reaches the side cushions is 405 mm across, so
+ * every stroke fouled under Rule 110(c) before it was played. Two lines at
+ * 155 degrees leave it comfortably clear, which is the point of them.
+ *
+ * Held as the angle between the two lines, in degrees. Zero on every other
+ * table, which has no such thing. */
     float baulk_arc;
 
 /* Snooker layout (ignored for pool). */

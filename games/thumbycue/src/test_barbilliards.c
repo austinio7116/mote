@@ -394,16 +394,39 @@ int main(void) {
            "and the rules call it short of the black peg (Rule 110(o))", NULL);
     }
 
-    /* Rule 110(c): a ball at rest inside the baulk arc. */
+    /* ---- Rule 110(c) and (d): what "in baulk" actually is ----------------
+     *
+     * The lines RADIATE from the break spot to the side cushions with 150 to
+     * 160 degrees between them (Rule 77) — a shallow V a little short of
+     * square across the table — so the baulk is the wedge behind them, out at
+     * the sides near the base. Read once as a circle about the break spot,
+     * which swallowed the red spot 175 mm up the table and made every stroke a
+     * foul before it was played. */
     {   CueRules r; fresh(&r);
         int n = cue_table_rack(&T, B);
         for (int i = 0; i < n; i++) B[i].on = 0;
-        B[0].on = 1; B[0].pos = v3(T.baulk_x + 0.10f, T.R, 0.0f);
+        B[0].on = 1;
+
+        B[0].pos = v3(T.baulk_x + 0.02f, T.R, 0.30f);
         ok(cue_rules_bb_in_baulk(&r, &T, B, n),
-           "a ball resting inside the baulk arc is in baulk", NULL);
+           "out at the side by the base is in baulk", NULL);
+
+        B[0].pos = v3(T.baulk_x + 0.01f, T.R, 0.0f);
+        ok(cue_rules_bb_in_baulk(&r, &T, B, n),
+           "...and so is anything on the D (Rule 110(d))", NULL);
+
         B[0].pos = v3(T.baulk_x + 0.60f, T.R, 0.0f);
         ok(!cue_rules_bb_in_baulk(&r, &T, B, n),
-           "...and one well up the table is not", NULL);
+           "a ball well up the table is not", NULL);
+
+        /* THE ONE THAT MATTERS: the red spot has to be clear of it, or the
+         * break position itself is a foul. */
+        B[0].pos = v3(T.blue_x, T.R, 0.0f);
+        char d[80];
+        snprintf(d, sizeof d, "the red spot is %.0f mm up the table",
+                 (T.blue_x - T.baulk_x) * 1000.0f);
+        ok(!cue_rules_bb_in_baulk(&r, &T, B, n),
+           "...and neither is the red on its spot", d);
     }
 
     /* The clock runs down and drops the bar. */

@@ -60,6 +60,7 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
          * seventeen minutes (Rule 71's tables are coin-operated). */
         r->bb_time = CUE_BB_TIME;
         r->bb_from_break = 1;
+        r->bb_left = t->nballs ? t->nballs : 8;
         r->target_score = 0;          /* the clock ends it, not a number */
         for (int i = 0; i < 8; i++) r->bb_hole[i] = -1;
     } else if (t->kind == CUE_GAME_BILLIARDS) {
@@ -992,6 +993,8 @@ static void resolve_barbilliards(CueRules *r, CueBall *b, int n, const CueWorld 
      * the bar drops, a potted ball comes back out of the trough (Rule 115's
      * premise). The host counts what is on the table and feeds them. */
     r->bb_return = r->bb_barred ? 0 : np;
+    /* Once the bar is down they do not come back. */
+    if (r->bb_barred) { r->bb_left -= np; if (r->bb_left < 0) r->bb_left = 0; }
     (void)red_potted; (void)b; (void)n;
     snprintf(r->msg, sizeof r->msg, "%d", pts);
 }
@@ -1152,16 +1155,21 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
 int cue_rules_bb_in_baulk(const CueRules *r, const CueTable *t,
                           const CueBall *b, int n)
 {
-    if (!t || !b) return 0;
-    const float ax = t->baulk_x;             /* the break spot, on the centre line */
-    const float arc = t->baulk_arc;
+    if (!t || !b || t->baulk_arc <= 0.0f) return 0;
+    const float R = r ? r->R : t->R;
+    /* Half the angle between the lines, measured from the up-table axis. */
+    const float th = t->baulk_arc * 0.5f * 3.14159265f / 180.0f;
+    const float st = sinf(th), ct = cosf(th);
     for (int i = 0; i < n; i++) {
         if (!b[i].on) continue;
-        float dx = b[i].pos.x - ax, dz = b[i].pos.z;
-        float d = sqrtf(dx*dx + dz*dz);
-        /* "Obstructing" the line, not merely behind it: a ball that obscures
-         * any part of it counts (Rule 110(c)), so the ball's own radius is in. */
-        if (arc > 0.0f && d <= arc + (r ? r->R : 0.0f)) return 1;
+        float u = b[i].pos.x - t->baulk_x;      /* up the table from the break spot */
+        float v = b[i].pos.z;
+        /* Behind the V, and "obstructing" it counts as behind (Rule 110(c)):
+         * a ball obscuring any part of the line is in, so its own radius is
+         * allowed for. */
+        if (u * st - fabsf(v) * ct <= R) return 1;
+        /* Rule 110(d): and anything on the D itself. */
+        if (u*u + v*v <= (t->d_radius + R) * (t->d_radius + R)) return 1;
     }
     return 0;
 }
@@ -1172,6 +1180,57 @@ int cue_rules_bb_short(const CueTable *t, float furthest_x, int hit_something)
     /* The line through the black peg, parallel with the top cushion. The peg
      * stands just in front of the 200, which is black_x. */
     return furthest_x < t->black_x - 0.045f;
+}
+
+int cue_rules_bb_setup(CueRules *r, const CueTable *t, CueBall *b, int n) {
+    if (!r || !t || !b || n <= 0) return 0;
+    const float R = t->R;
+    /* Which balls are up, and which of the ones that are not are still in the
+     * game at all. Once the bar has dropped, a potted ball is swallowed. */
+    int up = 0, red_up = -1;
+    for (int i = 0; i < n; i++) if (b[i].on) { up++; if (b[i].id == CUE_ID_BIL_RED) red_up = i; }
+    int in_play = r->bb_barred ? r->bb_left : n;
+    if (in_play > n) in_play = n;
+
+    int placed = 0;
+    /* A ball to play with, always: Rule 91 puts every stroke in the D. The
+     * whites are interchangeable, so the one that comes out of the trough is
+     * simply index 0 back again — no need to choose which. */
+    if (!b[0].on && up < in_play) {
+        b[0].on = 1; b[0].pocket = 0; b[0].drop = 0.0f;
+        b[0].vel = v3(0,0,0); b[0].w = v3(0,0,0);
+        b[0].pos = v3(t->baulk_x, R, 0.0f);
+        up++; placed = 1;
+    }
+    /* The break position: no object ball on the table, so the red goes back on
+     * the red spot and the white on the break spot (Rules 92, 94, 95). */
+    int objects = up - (b[0].on ? 1 : 0);
+    r->bb_from_break = (objects <= 0);
+    if (r->bb_from_break) {
+        if (red_up < 0 && !r->bb_barred) {
+            for (int i = 1; i < n; i++)
+                if (!b[i].on && b[i].id == CUE_ID_BIL_RED) {
+                    b[i].on = 1; b[i].pocket = 0; b[i].drop = 0.0f;
+                    b[i].vel = v3(0,0,0); b[i].w = v3(0,0,0);
+                    b[i].pos = v3(t->blue_x, R, 0.0f);   /* the red spot */
+                    placed = 1; break;
+                }
+        }
+        if (b[0].on) b[0].pos = v3(t->baulk_x, R, 0.0f);  /* the break spot */
+    }
+    /* Rule 108: with one ball left it is the last-ball shot, into the 100 or
+     * the 200 off a side cushion. Flagged for the host and the scorer; the
+     * shot itself is the player's problem. */
+    r->bb_last_ball = (r->bb_barred && r->bb_left <= 1);
+    /* And the game is over when the last ball has been swallowed. */
+    if (r->bb_barred && r->bb_left <= 0 && !r->frame_over) {
+        r->frame_over = 1;
+        r->winner = (r->score[0] == r->score[1]) ? -1
+                  : (r->score[0] > r->score[1]) ? 0 : 1;
+        if (r->winner >= 0) book_frame(r, r->winner);
+        snprintf(r->msg, sizeof r->msg, "TIME");
+    }
+    return placed;
 }
 
 void cue_rules_bb_tick(CueRules *r, float dt) {
@@ -1459,6 +1518,9 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
     /* Pyramid: every one of the fifteen is on, always. */
     /* Billiards has no ball ON: Rule 16 makes it a miss only if the cue ball
      * fails to contact EITHER object ball, so both are legal to strike. */
+    /* Bar billiards: every ball on the table is an object ball, and the one in
+     * your hand is whichever white you picked up. */
+    if (r->mode == CUE_GAME_BARBILLIARDS) return id != CUE_ID_CUE;
     if (r->mode == CUE_GAME_BILLIARDS) return id != CUE_ID_CUE;
     if (CUE_GAME_IS_PYRAMID(r->mode))  return id >= 1 && id <= 15;
     if (r->open) return id != 8;                 /* open table: anything but the 8 */
