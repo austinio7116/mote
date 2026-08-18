@@ -291,6 +291,61 @@ int main(void) {
                                           "an L whose bite clears the pack is allowed");
     }
 
+    /* ---- WHAT THE CUE CAN SEE ------------------------------------------- *
+     *
+     * cue_table_surface is what C2 asks whether the cue is inside the table,
+     * and it used to test the BOUNDING BOX: |x| <= half_len && |z| <= half_wid
+     * is the right question for a rectangle and a lie about everything else. On
+     * a regular bed both are the circumradius, so the whole bounding square
+     * answered "open cloth" and the cue went straight through the cushions —
+     * reported from play on a triangle, which is only where the hole is
+     * biggest. An L had it too, through the notch.
+     *
+     * Asserted against cue_world_on_bed, which is what the BALLS are judged by:
+     * if the cue thinks there is cloth where a ball would be off the table,
+     * those two disagree about where the table is, and the cue is the one that
+     * is wrong. Sampled over the whole bounding square rather than at chosen
+     * points, because a hole big enough to matter is one you find by area. */
+    {   struct { const char *nm; int sides, every; float nx, nz; } SH[] = {
+            { "rectangle", 0, 0, 0.0f, 0.0f },
+            { "L-shape",   0, 0, 1.0f, 1.0f },
+            { "triangle",  3, 1, 0.0f, 0.0f },
+            { "square",    4, 1, 0.0f, 0.0f },
+            { "hexagon",   6, 1, 0.0f, 0.0f },
+            { "octagon",   8, 1, 0.0f, 0.0f },
+            { "round",    60,10, 0.0f, 0.0f },
+        };
+        for (int k = 0; k < (int)(sizeof SH / sizeof SH[0]); k++) {
+            CueTable tt; cue_table_init(&tt, CUE_GAME_UK8);
+            if (SH[k].sides) {
+                tt.bed_shape = CUE_BED_NGON;
+                tt.bed_sides = SH[k].sides;
+                tt.bed_pocket_every = SH[k].every;
+                tt.half_wid = tt.half_len;
+            } else if (SH[k].nx > 0.0f) {
+                tt.half_len = 1.05f; tt.half_wid = 1.00f;
+                tt.bed_shape = CUE_BED_L;
+                tt.notch_x = tt.half_len * SH[k].nx;
+                tt.notch_z = tt.half_wid * SH[k].nz;
+            }
+            static CueWorld ww; cue_table_build_world(&tt, &ww);
+            const int N = 160;
+            const float ex = tt.half_len * 1.25f, ez = tt.half_wid * 1.25f;
+            int bad = 0, tot = 0;
+            for (int i = 0; i < N; i++) for (int j = 0; j < N; j++) {
+                float x = -ex + 2.0f*ex*i/(N-1), z = -ez + 2.0f*ez*j/(N-1);
+                tot++;
+                if (cue_table_surface(&tt, x, z) == 0.0f &&
+                    !cue_world_on_bed(&ww, x, z)) bad++;
+            }
+            char m[96];
+            snprintf(m, sizeof m,
+                     "%s: the cue is never told there is cloth off the bed (%.2f%%)",
+                     SH[k].nm, 100.0 * bad / tot);
+            ok(bad == 0, m);
+        }
+    }
+
     printf("\n%s\n", fails ? "FAILURES" : "all good");
     return fails ? 1 : 0;
 }

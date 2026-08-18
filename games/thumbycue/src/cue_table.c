@@ -1199,6 +1199,38 @@ static void build_ngon(CueWorld *w, const CueTable *t) {
     int every = t->bed_pocket_every < 1 ? 1 : t->bed_pocket_every;
     if (every > n) every = n;
 
+    /* THE GAP IS A PULL-BACK, AND A PULL-BACK IS NOT A MOUTH.
+     *
+     * gap_corner says how far each run stops short of the vertex. The OPENING
+     * that leaves is the distance between the two stopped ends, which for an
+     * interior angle A is 2*g*sin(A/2) — so the same number means a different
+     * mouth at every angle. Tuned on a rectangle's 90 degrees, it gave:
+     *
+     *     triangle 80.8   square 109.5   hexagon 130.1   round 143.1 mm
+     *
+     * for one 50.8 mm ball. A triangle you could not get a ball into beside a
+     * round table you could not miss.
+     *
+     * Scaling the pull-back by sin(45)/sin(A/2) puts the mouth back where the
+     * rectangle has it, and the factor is exactly 1 at 90 degrees — so a square
+     * bed is untouched to the last bit, and so is the L, whose corners are all
+     * right angles and whose elbow takes no gap at all. Measured after: 111.9,
+     * 109.5, 106.2, 99.2. The residue is the bezier knuckle's own shape, which
+     * does not sit exactly on the pull-back point and drifts as the corner
+     * opens; closing that as well means solving for the mouth rather than
+     * scaling toward it, and is worth doing only if the eye can see it.
+     *
+     * Applied by copying the table rather than by teaching add_run about
+     * angles: a run knows its own two ends and nothing about the shape they
+     * belong to, and it should stay that way. */
+    CueTable tt = *t;
+    {   const float A = 3.14159265f * (float)(n - 2) / (float)n;   /* interior */
+        const float k = sinf(0.7853982f) / sinf(A * 0.5f);
+        tt.gap_corner *= k;
+        tt.gap_side   *= k;
+    }
+    t = &tt;
+
     /* THE CUSHION RUNS. One per edge, and the outward normal falls out of the
      * winding — (dz, -dx) for the order these vertices come in — so there is no
      * table of hand-written normals to get wrong the way the L had.
@@ -2878,12 +2910,50 @@ static int cue_table_pocket_gaps(const CueTable *t, CuePocketGap *g) {
     return 6;
 }
 
+/* IS (x, z) ON THE BED, grown outward by `g`? The one place that knows every
+ * shape a bed can be, kept on the TABLE because the cue asks this before there
+ * is a world to ask.
+ *
+ * A regular bed is convex and centred, so a point is inside it exactly when its
+ * projection onto the NEAREST face normal is within the apothem — the nearest
+ * normal is the one that maximises that projection, so checking it is checking
+ * all of them. The normals sit at even steps of 2*pi/n starting at +x, so the
+ * nearest is found by rounding rather than by searching.
+ *
+ * Everything else is a union of rectangles and cue_table_bed_rects already
+ * grows one correctly. */
+static int bed_contains(const CueTable *t, float x, float z, float g) {
+    if (t->bed_shape == CUE_BED_NGON) {
+        const int n = cue_table_ngon_sides(t);
+        const float ap = t->half_len * cosf(3.14159265f / (float)n) + g;
+        const float r = sqrtf(x*x + z*z);
+        if (r < 1e-6f) return 1;
+        const float th = atan2f(z, x);
+        const float step = 6.2831853f / (float)n;
+        const float phi = step * floorf(th / step + 0.5f);
+        return r * cosf(th - phi) <= ap;
+    }
+    CueRect rr[CUE_MAX_RECT];
+    int nr = cue_table_bed_rects(t, g, rr, CUE_MAX_RECT);
+    return cue_rects_contain(rr, nr, x, z);
+}
+
 float cue_table_surface(const CueTable *t, float x, float z) {
-    float px = t->half_len, pz = t->half_wid;              /* cushion nose */
-    float ox = px + t->rail_w, oz = pz + t->rail_w;        /* outer frame edge */
-    float ax = fabsf(x), az = fabsf(z);
-    if (ax <= px && az <= pz) return 0.0f;                 /* open cloth */
-    if (ax > ox || az > oz) return -1.0e9f;                /* past the frame */
+    /* THE BED'S OWN SHAPE, not its bounding box.
+     *
+     * This asked |x| <= half_len && |z| <= half_wid, which is the right question
+     * for a rectangle and a lie about everything else. On a regular bed
+     * half_len and half_wid are both the CIRCUMRADIUS, so the whole bounding
+     * square answered "open cloth" — two thirds of a triangle table, a third of
+     * a hexagon — and the cue passed straight through the cushions and the
+     * timber because as far as this function was concerned there was nothing
+     * there. An L had it too: its missing quadrant sits inside the bounding
+     * rectangle, so the cue went through the notch.
+     *
+     * Reported from play on a triangle, which is simply where the hole is
+     * biggest. */
+    if (bed_contains(t, x, z, 0.0f)) return 0.0f;              /* open cloth */
+    if (!bed_contains(t, x, z, t->rail_w)) return -1.0e9f;     /* past the frame */
 
     /* THE RAIL HAS SIX HOLES IN IT — AND ONLY SIX HOLES.
      *
