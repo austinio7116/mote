@@ -1702,9 +1702,13 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* BILL — the standard table, so the 12 ft snooker cut exactly */
         /* BILL  */ { 0.0145f, 1.1350f, 0.2150f,  90.0f },
         /* BARB — the holes are in the bed and cut their own cloth. `roll` is
-         * the one number that matters: it is how far the cloth turns over the
-         * edge, and a bar billiards hole has a generous lip. */
-        /* BARB  */ { 0.0000f, 1.0000f, 0.3500f, 360.0f },
+         * how far the cloth turns over the edge, and it is NOT only a drawing
+         * number: cue_physics reads lip_d to decide how a dropping ball is
+         * gathered to the pocket's axis. Wound up to 0.35 for looks, the ball
+         * stopped being taken at all — five of the nine holes simply refused
+         * it. 0.22 is the roll a pool pocket has and the most this one will
+         * take. */
+        /* BARB  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -1718,7 +1722,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* PYRA  */ { 0.0234f, 1.4100f, 0.2200f, 180.0f },   /* ...and the middle */
         /* PYRA7 */ { 0.0211f, 1.4100f, 0.2200f, 180.0f },
         /* BILL  */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
-        /* BARB  */ { 0.0000f, 1.0000f, 0.3500f, 360.0f },
+        /* BARB  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
