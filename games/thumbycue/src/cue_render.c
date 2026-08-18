@@ -927,9 +927,68 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                    fprintf(f, "%.6f %.6f %d\n", s_bnd.p[i].x, s_bnd.p[i].z, s_bnd.pk[i]);
                  fclose(f); } } }
 #endif
+    if (t->kind == CUE_GAME_BARBILLIARDS) {
+        /* ---- G6: A BED WITH HOLES IN IT ---------------------------------
+         *
+         * Every other table's cloth is one polygon fanned from the middle,
+         * because every other table's holes are bites out of its EDGE. Bar
+         * billiards has nine of them through the middle, and a fan cannot
+         * express a hole — whatever way it is wound, the triangles cover the
+         * one thing they are supposed to leave out. Drawn as a grid instead,
+         * with the cells that fall inside a hole simply not emitted: the ring
+         * of cloth that rolls over each edge is drawn afterwards and covers
+         * the raggedness where the grid stops.
+         *
+         * A grid is more triangles than a fan and this is the only table that
+         * needs one, which is why it is here and not the general answer. */
+        const float ex2 = t->half_len, ez2 = t->half_wid;
+        const float cell = 0.020f;
+        const int NX = (int)(2.0f * ex2 / cell) + 1;
+        const int NZ = (int)(2.0f * ez2 / cell) + 1;
+        const float dx2 = 2.0f * ex2 / NX, dz2 = 2.0f * ez2 / NZ;
+        /* The radius the grid stops at — the outer edge of the turnover. */
+        const float roll = 0.011f;
+        for (int iz = 0; iz < NZ; iz++) {
+            for (int ix = 0; ix < NX; ix++) {
+                float x0 = -ex2 + dx2 * ix,  x1 = x0 + dx2;
+                float z0 = -ez2 + dz2 * iz,  z1 = z0 + dz2;
+                /* Cut on the cell's CENTRE, so the hole the grid leaves is a
+                 * disc of about the right size with a stepped edge, rather
+                 * than a square a cell bigger all round — which is what
+                 * testing the corners gave, and it showed as a black box
+                 * behind every lip. The step is covered by a flat ring below. */
+                int cut = 0;
+                float mx = (x0 + x1) * 0.5f, mz = (z0 + z1) * 0.5f;
+                for (int p = 0; p < w->npocket && !cut; p++) {
+                    float rr = w->pocket_r[p] + roll;
+                    float ddx = mx - w->pocket[p].x, ddz = mz - w->pocket[p].z;
+                    if (ddx*ddx + ddz*ddz < rr*rr) cut = 1;
+                }
+                if (cut) continue;
+                quad(v3(x0, 0, z0), v3(x1, 0, z0), v3(x1, 0, z1), v3(x0, 0, z1), t->cloth);
+            }
+        }
+        /* ...and a flat ring of cloth round each hole, covering the stepped
+         * edge the grid leaves. Its inner edge is exactly where the turnover
+         * begins, so the two meet without a seam. */
+        {   const float step = 0.75f * (dx2 > dz2 ? dx2 : dz2);
+            for (int p = 0; p < w->npocket; p++) {
+                float r0 = w->pocket_r[p] + roll, r1 = r0 + step;
+                for (int i = 0; i < 24; i++) {
+                    float a0 = 6.2831853f * (float)i / 24.0f;
+                    float a1 = 6.2831853f * (float)(i + 1) / 24.0f;
+                    quad(v3(w->pocket[p].x + r0*cosf(a0), 0, w->pocket[p].z + r0*sinf(a0)),
+                         v3(w->pocket[p].x + r0*cosf(a1), 0, w->pocket[p].z + r0*sinf(a1)),
+                         v3(w->pocket[p].x + r1*cosf(a1), 0, w->pocket[p].z + r1*sinf(a1)),
+                         v3(w->pocket[p].x + r1*cosf(a0), 0, w->pocket[p].z + r1*sinf(a0)),
+                         t->cloth);
+                }
+            } }
+    } else {
     for (int i = 0; i < s_bnd.n; i++) {
         Vec3 a = s_bnd.p[i], b = s_bnd.p[(i + 1) % s_bnd.n];
         tri(v3(0, 0, 0), a, b, t->cloth);
+    }
     }
     /* The baulk line, the D and the spots, as GEOMETRY — flat quads laid on the
      * bed. That is the only way the handheld can have them: it has no shader to
@@ -1111,42 +1170,102 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     uint16_t wlip = shade565(woodt, 0.80f);
     s_mat = CUE_MAT_WOOD;          /* everything from here down is timber */
 
-    /* ---- G6: THE NINE HOLES AND THE THREE SKITTLES ----------------------
+    /* ---- G6: THE NINE HOLES, THE THREE SKITTLES, AND FOUR CORNERS -------
      *
      * Bar billiards' scoring is bored through the middle of the bed, so there
      * is nothing on the boundary to scallop and nothing for the pocket-void
-     * cones to hang off. Each hole is a ring of cloth falling to a dark shaft;
-     * each skittle is the little wooden peg that costs you your break or your
-     * whole score, and it stands ON the bed where a ball can reach it.
+     * cones to hang off. Each hole gets what a real one has and a ring drawn on
+     * the cloth does not: a LIP where the cloth rolls over the edge, a shaft
+     * you can see down, and a floor a long way below it. The lip is what makes
+     * it read as a hole rather than as a circle painted on a flat table — the
+     * eye reads the shading round the roll, not the outline.
      *
      * Drawn here, with the rest of the table, so the host uploads them with
      * everything else and does not need to know this game exists. */
     if (t->kind == CUE_GAME_BARBILLIARDS) {
-        const int NSEG = 16;
-        const uint16_t dark = RGB565C(8, 9, 12);
-        const uint16_t rim  = shade565(t->cloth, 0.55f);
+        const int NSEG = 20, NROLL = 4;
+        const float deep = 0.090f;             /* far enough down to be dark */
+        const uint16_t shaft = RGB565C(9, 10, 13);
+        const uint16_t floorc = RGB565C(4, 4, 6);
+        const uint8_t keep_mat = s_mat;
+        s_mat = CUE_MAT_CLOTH;                 /* the lip is cloth, not timber */
         for (int p = 0; p < w->npocket; p++) {
             const float cx = w->pocket[p].x, cz = w->pocket[p].z;
             const float hr = w->pocket_r[p];
-            const float deep = 0.055f;
+            /* The roll: a quarter-circle of cloth from the bed down to the
+             * hole's edge, in NROLL steps so it shades round rather than
+             * stepping. Outside it the bed is flat; inside it the shaft. */
+            const float roll = 0.011f;         /* how wide the turnover is */
             for (int i = 0; i < NSEG; i++) {
                 float a0 = 6.2831853f * (float)i / NSEG;
                 float a1 = 6.2831853f * (float)(i + 1) / NSEG;
-                Vec3 o0 = v3(cx + hr * cosf(a0), 0.0006f, cz + hr * sinf(a0));
-                Vec3 o1 = v3(cx + hr * cosf(a1), 0.0006f, cz + hr * sinf(a1));
-                Vec3 d0 = v3(o0.x, -deep, o0.z), d1 = v3(o1.x, -deep, o1.z);
-                /* the shaft, seen through the hole from above */
-                quad(o0, o1, d1, d0, dark);
-                /* and its floor, so it is a hole rather than a tube to nowhere */
-                tri(d0, d1, v3(cx, -deep, cz), dark);
-                /* a thin lip of darker cloth where the bed is cut */
-                Vec3 r0 = v3(cx + (hr + 0.004f) * cosf(a0), 0.0004f,
-                             cz + (hr + 0.004f) * sinf(a0));
-                Vec3 r1 = v3(cx + (hr + 0.004f) * cosf(a1), 0.0004f,
-                             cz + (hr + 0.004f) * sinf(a1));
-                quad(r0, r1, o1, o0, rim);
+                float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
+                for (int k = 0; k < NROLL; k++) {
+                    /* Along the quarter-circle: t = 0 at the bed, 1 at the lip.
+                     * The outer edge sits exactly where the grid stopped, so
+                     * the two meet with no seam to see. */
+                    float t0 = (float)k / NROLL, t1 = (float)(k + 1) / NROLL;
+                    float r0 = hr + roll * cosf(t0 * 1.5707963f);
+                    float r1 = hr + roll * cosf(t1 * 1.5707963f);
+                    float y0 = -roll * sinf(t0 * 1.5707963f);
+                    float y1 = -roll * sinf(t1 * 1.5707963f);
+                    /* Darker as it turns under: the shading IS the shape. */
+                    uint16_t k0 = shade565(t->cloth, 0.98f - 0.62f * t0);
+                    quad(v3(cx + r0*c0, y0, cz + r0*s0),
+                         v3(cx + r0*c1, y0, cz + r0*s1),
+                         v3(cx + r1*c1, y1, cz + r1*s1),
+                         v3(cx + r1*c0, y1, cz + r1*s0), k0);
+                }
+                /* the shaft, straight down from the lip */
+                float ytop = -roll;
+                quad(v3(cx + hr*c0, ytop, cz + hr*s0),
+                     v3(cx + hr*c1, ytop, cz + hr*s1),
+                     v3(cx + hr*c1, -deep, cz + hr*s1),
+                     v3(cx + hr*c0, -deep, cz + hr*s0), shaft);
+                /* ...and its floor, so it is a hole and not a tube to nowhere */
+                tri(v3(cx + hr*c0, -deep, cz + hr*s0),
+                    v3(cx + hr*c1, -deep, cz + hr*s1),
+                    v3(cx, -deep, cz), floorc);
             }
         }
+
+        /* ---- AND THE FOUR CORNERS OF THE CUSHION -----------------------
+         *
+         * This is the first table here whose cushions turn a corner. Every
+         * other one has a POCKET at each corner, so two runs never meet: the
+         * facings run out into the timber either side of a hole and the
+         * question does not arise. Here they do meet, at ninety degrees, and
+         * the corner-smoothing deliberately keeps a sharp join crisp — so each
+         * run ends flush at the corner point and the square of cushion behind
+         * it, between the two backs and the wood, was simply not there.
+         *
+         * It is filled with the piece that belongs there: the top at rail
+         * height over that square, and the two inner faces that carry the
+         * cushion's own profile round the turn. */
+        {   const float bx = hl + cw, bz = hw + cw;
+            for (int c = 0; c < 4; c++) {
+                float sx = (c & 1) ? 1.0f : -1.0f;
+                float sz = (c & 2) ? 1.0f : -1.0f;
+                Vec3 N = v3(sx * hl, 0.0f, sz * hw);          /* the nose corner */
+                Vec3 B1 = v3(sx * hl, 0.0f, sz * bz);         /* back of the z rail */
+                Vec3 B2 = v3(sx * bx, 0.0f, sz * hw);         /* back of the x rail */
+                Vec3 W  = v3(sx * bx, 0.0f, sz * bz);         /* the wood corner */
+                /* the cloth top, level with the rest of the cushion top */
+                quad(v3(N.x, rail_h, N.z), v3(B1.x, rail_h, B1.z),
+                     v3(W.x,  rail_h, W.z), v3(B2.x, rail_h, B2.z), ctop);
+                /* the two faces that look back at the table, carrying the
+                 * cushion's undercut and its little vertical flat round the
+                 * corner so the profile does not change at the join */
+                ribbon(v3(N.x, 0.0f, N.z),      v3(B1.x, 0.0f, B1.z),
+                       v3(B1.x, nose_h, B1.z),  v3(N.x, nose_h, N.z), fdark);
+                quad(v3(N.x, nose_h, N.z),      v3(B1.x, nose_h, B1.z),
+                     v3(B1.x, flat_h, B1.z),    v3(N.x, flat_h, N.z), face);
+                ribbon(v3(N.x, 0.0f, N.z),      v3(B2.x, 0.0f, B2.z),
+                       v3(B2.x, nose_h, B2.z),  v3(N.x, nose_h, N.z), fdark);
+                quad(v3(N.x, nose_h, N.z),      v3(B2.x, nose_h, B2.z),
+                     v3(B2.x, flat_h, B2.z),    v3(N.x, flat_h, N.z), face);
+            } }
+
         /* Rule 74: cylindrical to at least 51 mm, 15 to 18 mm across, 114 mm
          * tall. Two white and one black, and the black is the fatal one. */
         for (int k = 0; k < w->nskittle; k++) {
@@ -1165,7 +1284,9 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                 tri(t0, t1, v3(sx, sh, sz), top);
             }
         }
+        s_mat = keep_mat;
     }
+
     if (t->bed_shape == CUE_BED_L) {
         /* SIX PLANKS AND A SIX-SIDED SKIRT, because the woodwork is the shape
          * of the table and not the shape of its bounding box.
