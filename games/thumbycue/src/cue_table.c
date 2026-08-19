@@ -1653,8 +1653,101 @@ static int link_edge_x(const CueWorld *w, int p, float br, float bset,
     return 1;
 }
 
+/* THE SAME IDEA ON A BED THAT IS NOT A RECTANGLE.
+ *
+ * An L or an n-gon builds its runs through add_run, whose rails point in any
+ * direction, so the rectangle's closed forms — written in x and z — do not
+ * apply. The argument does, though, and in a form that needs no axes:
+ *
+ *   - the jaw tip now lies on the frame's inner edge by construction, because
+ *     both jaw styles are built out by cush_depth;
+ *   - `gap` slides the whole end treatment along its rail, one for one, so the
+ *     tip moves along u and nothing else changes;
+ *   - so asking for |tip + u*d - C| = bore is a quadratic in d with a closed
+ *     root, exactly as it was on a rectangle.
+ *
+ * The tip is found structurally rather than by position: in add_run the facing
+ * is emitted as (tip, knuckle) and the nose as (knuckle, ...), so the tip is
+ * the kind-1 endpoint that no kind-0 segment shares. That holds for a mitre
+ * and a bezier alike and does not care which way the rail runs. */
+static float link_delta_generic(const CueWorld *w, int p, float br, float bset,
+                                int *ok) {
+    *ok = 0;
+    const float cx = w->pocket[p].x + w->pmnorm[p].x*bset;
+    const float cz = w->pocket[p].z + w->pmnorm[p].z*bset;
+    float sum = 0.0f; int n = 0;
+    for (int i = 0; i < w->nseg; i++) {
+        if (w->seg[i].kind != 1) continue;
+        const Vec3 e[2] = { w->seg[i].a, w->seg[i].b };
+        for (int q = 0; q < 2; q++) {
+            const float dx = e[q].x - w->pocket[p].x, dz = e[q].z - w->pocket[p].z;
+            if (dx*dx + dz*dz > 0.35f*0.35f) continue;
+            /* the free end: no nose segment touches it */
+            int shared = 0;
+            for (int j = 0; j < w->nseg && !shared; j++) {
+                if (w->seg[j].kind != 0) continue;
+                const Vec3 f[2] = { w->seg[j].a, w->seg[j].b };
+                for (int r = 0; r < 2; r++) {
+                    const float ax = f[r].x - e[q].x, az = f[r].z - e[q].z;
+                    if (ax*ax + az*az < 1e-8f) { shared = 1; break; }
+                }
+            }
+            if (shared) continue;
+            /* the rail it slides along, pointing AWAY from the pocket */
+            float ux = 0, uz = 0, best = 1e30f;
+            for (int j = 0; j < w->nseg; j++) {
+                if (w->seg[j].kind != 0) continue;
+                const float mx = 0.5f*(w->seg[j].a.x + w->seg[j].b.x) - e[q].x;
+                const float mz = 0.5f*(w->seg[j].a.z + w->seg[j].b.z) - e[q].z;
+                const float dd = mx*mx + mz*mz;
+                if (dd >= best) continue;
+                const float gx = w->seg[j].b.x - w->seg[j].a.x;
+                const float gz = w->seg[j].b.z - w->seg[j].a.z;
+                const float gl = sqrtf(gx*gx + gz*gz);
+                if (gl < 1e-6f) continue;
+                best = dd; ux = gx/gl; uz = gz/gl;
+            }
+            if (best > 1e29f) continue;
+            if ((e[q].x - w->pocket[p].x)*ux + (e[q].z - w->pocket[p].z)*uz < 0.0f)
+                { ux = -ux; uz = -uz; }
+            const float qx = e[q].x - cx, qz = e[q].z - cz;
+            const float qu = qx*ux + qz*uz;
+            const float perp2 = (qx*qx + qz*qz) - qu*qu;
+            const float disc = br*br - perp2;
+            if (disc < 0.0f) continue;      /* the bore never reaches this edge */
+            const float rt = sqrtf(disc);
+            const float d1 = -qu + rt, d2 = -qu - rt;
+            sum += (fabsf(d1) < fabsf(d2)) ? d1 : d2;
+            n++;
+        }
+    }
+    if (!n) return 0.0f;
+    *ok = 1;
+    return sum / (float)n;
+}
+
 void cue_table_link_gap(CueTable *t, const CueWorld *w) {
-    if (t->notch_x > 0.0f || t->notch_z > 0.0f) return;     /* not an L */
+    /* AN L OR AN N-GON takes the general route: same argument, no axes. */
+    if (t->notch_x > 0.0f || t->notch_z > 0.0f || t->bed_shape != CUE_BED_RECT) {
+        float acc[2] = { 0.0f, 0.0f }; int cnt[2] = { 0, 0 };
+        for (int p = 0; p < w->npocket; p++) {
+            const int m = w->pocket_mid[p] ? 1 : 0;
+            int ok = 0;
+            const float d = link_delta_generic(w, p,
+                                m ? t->bore_side : t->bore_corner,
+                                m ? t->bore_set_side : t->bore_set_corner, &ok);
+            if (!ok) continue;
+            acc[m] += d; cnt[m]++;
+        }
+        /* One gap per KIND, so ends that disagree get their mean — exact where
+         * they are alike by symmetry, and the honest compromise where an L's
+         * seven pockets are not. */
+        if (cnt[0]) { float g = t->gap_corner + acc[0]/(float)cnt[0];
+                      if (g > 0.005f && g < 0.30f) t->gap_corner = g; }
+        if (cnt[1]) { float g = t->gap_side   + acc[1]/(float)cnt[1];
+                      if (g > 0.005f && g < 0.30f) t->gap_side   = g; }
+        return;
+    }
     const float R = t->R;
     const float cl = 2.0f*R, ml = 1.6f*R, e3 = 0.25f*R;
     const float cw = t->rail_w * 0.63f;

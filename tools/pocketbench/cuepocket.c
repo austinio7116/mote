@@ -379,6 +379,19 @@ typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset,
  * shipped ones. Nothing here is a bench-only derivation: pr/gap/off go into
  * CueTable before build_world, capm reproduces build_world's own margin, and
  * set/rad/roll go through cue_table_derive_cut. */
+/* THE CLOTH CUT, RE-APPLIED. cue_table_build_world re-derives the cut from the
+ * TABLE'S own defaults, so every rebuild after build_tuned — reshaping the bed,
+ * cutting a notch, going n-gon, or linking the gap — silently threw the bench's
+ * rad/set/roll away and drew the shipped cut instead. That is why an L and an
+ * n-gon ignored the cut knobs entirely and read the same numbers whatever was
+ * dialled. Anything that rebuilds the world calls this afterwards. */
+static void apply_cut(int mid, const Knobs *k, const CueTable *t, CueWorld *ow) {
+    const int i = mid ? 1 : 0;
+    ow->cut_set[i] = k->set; ow->cut_rad[i] = k->rad; ow->cut_roll[i] = k->roll;
+    ow->cut_ref[i] = mid ? t->pr_side : t->pr_corner;
+    cue_table_derive_cut(ow);
+}
+
 static void build_tuned(int ti, int mid, const Knobs *k, CueTable *ot, CueWorld *ow) {
     CueTable t; cue_table_init(&t, TB[ti].k);
     /* THE BALL AND THE POCKET STYLE FIRST, because everything below is a
@@ -405,10 +418,7 @@ static void build_tuned(int ti, int mid, const Knobs *k, CueTable *ot, CueWorld 
                t.bore_corner = k->bore*t.R; t.bore_set_corner = k->bset*t.R;
                t.ang_corner = k->ang; }
     cue_table_build_world(&t, ow);
-    int i = mid ? 1 : 0;
-    ow->cut_set[i] = k->set; ow->cut_rad[i] = k->rad; ow->cut_roll[i] = k->roll;
-    ow->cut_ref[i] = mid ? t.pr_side : t.pr_corner;
-    cue_table_derive_cut(ow);
+    apply_cut(mid, k, &t, ow);
     *ot = t;
 }
 
@@ -847,20 +857,11 @@ int main(int argc, char **argv) {
      * world already built from the table to read the jaw tips and the rail
      * directions off, and the relationship it inverts is exact, so a second
      * build is the whole of it — not the ninety a search was costing. */
-    if (kiss) {
-        (void)karc;
-        cue_table_link_gap(&T, &W);
-        /* Rebuild through build_tuned, NOT cue_table_build_world: the latter
-         * re-derives the cloth cut from the table's own defaults and threw the
-         * bench's rad/set/roll away, so the cut silently ignored every knob
-         * while the gap moved. */
-        k.gap = (mid ? T.gap_side : T.gap_corner) / T.R;
-        gap_solved = k.gap;
-        build_tuned(ti, mid, &k, &T, &W);
-    }
+
     if (bed_l > 0.0f && bed_w > 0.0f) {
         T.half_len = bed_l; T.half_wid = bed_w;
         cue_table_build_world(&T, &W);
+        apply_cut(mid, &k, &T, &W);
     }
     if (ngon_n >= 3) {
         /* Applied to the finished table and the world rebuilt from it, exactly
@@ -876,6 +877,7 @@ int main(int argc, char **argv) {
         T.baulk_x *= ca; T.blue_x *= ca; T.pink_x *= ca; T.black_x *= ca;
         T.d_radius *= ca;
         cue_table_build_world(&T, &W);
+        apply_cut(mid, &k, &T, &W);
     }
     if (notch_x > 0.0f && notch_z > 0.0f) {
         /* Applied to the finished table and the world rebuilt from it — the
@@ -885,8 +887,19 @@ int main(int argc, char **argv) {
         T.notch_x = notch_x * T.half_len;
         T.notch_z = notch_z * T.half_wid;
         cue_table_build_world(&T, &W);
+        apply_cut(mid, &k, &T, &W);
     }
 
+    /* THE LINK GOES LAST, after the bed shape is final. It ran before the
+     * reshaping at first, so an L was linked as the rectangle it started as
+     * and then had its bed changed underneath the answer. */
+    if (kiss) {
+        (void)karc;
+        cue_table_link_gap(&T, &W);
+        gap_solved = (mid ? T.gap_side : T.gap_corner) / T.R;
+        cue_table_build_world(&T, &W);
+        apply_cut(mid, &k, &T, &W);
+    }
     img=malloc((size_t)IW*IH*3); zb=malloc(sizeof(float)*(size_t)IW*IH);
     cue_render_build_table(&T,&W);
     const CueTri *tri; int bd=0,lp=0; int ntri=cue_render_table_tris(&tri,&bd,&lp);
