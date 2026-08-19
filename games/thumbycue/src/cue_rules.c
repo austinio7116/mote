@@ -60,12 +60,13 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
          * starts empty and a zero on it means "not played yet", which is why
          * nothing here has to say how many holes are still to come. */
         r->target_score = 0;
-        r->golf_hole = 0;
+        r->golf_hole = cue_golf_first(r->golf_round);
         r->golf_strokes = 0;
         r->golf_done = 0;
+        r->golf_honour = r->turn;
         for (int p = 0; p < 2; p++)
             for (int h = 0; h < CUE_GOLF_HOLES; h++) r->golf_card[p][h] = 0;
-        cue_table_golf_set_hole(0);
+        cue_table_golf_set_hole(r->golf_hole);
     } else if (t->kind == CUE_GAME_BARBILLIARDS) {
         /* Rule 92: the game opens from the break position, and Rule 94 sends
          * it back there whenever the table empties. A coin buys about
@@ -392,6 +393,18 @@ void cue_rules_respot(CueRules *r, CueBall *b, int n, int id) {
 void cue_rules_set_break(CueRules *r, int who) {
     r->break_first = who ? 1 : 0;
     r->turn = r->break_first;
+    /* ...and at golf that same draw is the first hole's honour. Every hole
+     * after it is earned; the first one has nothing to earn it with. */
+    r->golf_honour = r->break_first;
+}
+
+void cue_rules_set_golf_round(CueRules *r, int round) {
+    if (!r) return;
+    if (round < 0 || round >= CUE_GOLF_ROUNDS) round = CUE_GOLF_18;
+    r->golf_round = round;
+    r->golf_hole = cue_golf_first(round);
+    r->golf_strokes = 0;
+    cue_table_golf_set_hole(r->golf_hole);
 }
 
 void cue_rules_nominate(CueRules *r, int value) {
@@ -1349,12 +1362,22 @@ static void resolve_golf(CueRules *r, CueBall *b, int n, int scratch)
         return;
     }
 
-    /* Both have played it. On to the next, or the round is over. */
+    /* Both have played it. THE HONOUR GOES TO THE LOWER SCORE — and a tie
+     * leaves it where it was, which is why it has to be remembered rather than
+     * read off the card. */
     r->golf_done = 1;
-    if (r->golf_hole + 1 >= CUE_GOLF_HOLES) {
+    if (!solo) {
+        const int lo = r->golf_card[0][r->golf_hole];
+        const int hi = r->golf_card[1][r->golf_hole];
+        if (lo < hi)      r->golf_honour = 0;
+        else if (hi < lo) r->golf_honour = 1;
+    }
+    const int first = cue_golf_first(r->golf_round);
+    const int last  = cue_golf_last(r->golf_round);
+    if (r->golf_hole >= last) {
         r->frame_over = 1;
-        int a = cue_rules_golf_total(r, 0, 0, CUE_GOLF_HOLES - 1);
-        int c = cue_rules_golf_total(r, 1, 0, CUE_GOLF_HOLES - 1);
+        int a = cue_rules_golf_total(r, 0, first, last);
+        int c = cue_rules_golf_total(r, 1, first, last);
         r->winner = solo ? 0 : (a == c ? -1 : (a < c ? 0 : 1));   /* LOW wins */
         if (r->winner >= 0 && !solo) book_frame(r, r->winner);
         snprintf(r->msg, sizeof r->msg, "ROUND OVER");
@@ -1362,7 +1385,7 @@ static void resolve_golf(CueRules *r, CueBall *b, int n, int scratch)
     }
     r->golf_hole++;
     r->golf_rack = 1;
-    if (!solo) r->turn = you;                /* they lead off the next hole */
+    if (!solo) r->turn = r->golf_honour;     /* the honour leads off */
 }
 
 int cue_rules_golf_total(const CueRules *r, int who, int from_hole, int to_hole) {

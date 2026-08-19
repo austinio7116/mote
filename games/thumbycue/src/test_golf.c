@@ -180,6 +180,68 @@ int main(void) {
         ok(diff == 0, "a hole racks identically every time it is set out", NULL);
     }
 
+    /* ---- the honour ----
+     * Golf's turn order is not "whoever did not just play": the lower score on
+     * the last hole leads the next, and a tie leaves the honour where it was.
+     * That is a thing the round remembers. */
+    {   CueRules r; cue_rules_init(&r, &T, 0);
+        cue_rules_set_break(&r, 0);              /* the draw: player 0 leads */
+        ok(r.golf_honour == 0 && r.turn == 0,
+           "the break draw is the first hole's honour", NULL);
+        cue_table_golf_set_hole(0); cue_table_rack(&T, B);
+        stroke(&r, 3, 0);                        /* 0 clears hole 1 in one */
+        cue_table_rack(&T, B);
+        stroke(&r, 1, 0); stroke(&r, 1, 0); stroke(&r, 1, 0);   /* 1 takes three */
+        char d[56];
+        snprintf(d, sizeof d, "%d against %d, honour to %d",
+                 r.golf_card[0][0], r.golf_card[1][0], r.golf_honour);
+        ok(r.golf_honour == 0 && r.turn == 0, "the lower score leads the next hole", d);
+
+        /* ...and a tied hole leaves it alone */
+        cue_table_golf_set_hole(1); cue_table_rack(&T, B);
+        stroke(&r, 2, 0);                        /* 0 clears hole 2 in one */
+        cue_table_rack(&T, B);
+        stroke(&r, 2, 0);                        /* 1 does the same */
+        snprintf(d, sizeof d, "%d against %d, honour still %d",
+                 r.golf_card[0][1], r.golf_card[1][1], r.golf_honour);
+        ok(r.golf_card[0][1] == r.golf_card[1][1] && r.golf_honour == 0,
+           "a tied hole leaves the honour where it was", d);
+
+        /* ...and losing a hole hands it over */
+        cue_table_golf_set_hole(2); cue_table_rack(&T, B);
+        stroke(&r, 1, 0); stroke(&r, 1, 0); stroke(&r, 1, 0); stroke(&r, 1, 0);
+        cue_table_rack(&T, B);
+        stroke(&r, 4, 0);                        /* 1 clears it in one */
+        snprintf(d, sizeof d, "%d against %d, honour to %d",
+                 r.golf_card[0][2], r.golf_card[1][2], r.golf_honour);
+        ok(r.golf_honour == 1 && r.turn == 1, "...and the honour changes hands", d);
+    }
+
+    /* ---- nine-hole rounds ---- */
+    {   CueRules r; cue_rules_init(&r, &T, 0);
+        r.golf_solo = 1;
+        cue_rules_set_golf_round(&r, CUE_GOLF_BACK9);
+        char d[56];
+        snprintf(d, sizeof d, "starts on hole %d", r.golf_hole + 1);
+        ok(r.golf_hole == 9, "the back nine starts at the tenth", d);
+        ok(cue_golf_par(cue_golf_first(CUE_GOLF_BACK9),
+                        cue_golf_last(CUE_GOLF_BACK9)) == 35,
+           "...and its par is the board's 35", NULL);
+        ok(cue_golf_par(cue_golf_first(CUE_GOLF_FRONT9),
+                        cue_golf_last(CUE_GOLF_FRONT9)) == 38,
+           "the front nine's is 38", NULL);
+        /* nine holes and it is over, not eighteen */
+        for (int h = 0; h < 9 && !r.frame_over; h++) {
+            cue_table_golf_set_hole(r.golf_hole);
+            cue_table_rack(&T, B);
+            stroke(&r, CUE_GOLF_COURSE[r.golf_hole].n, 0);
+        }
+        snprintf(d, sizeof d, "over after hole %d", r.golf_hole + 1);
+        ok(r.frame_over, "a back nine is nine holes, not eighteen", d);
+        ok(r.golf_card[0][0] == 0 && r.golf_card[0][9] != 0,
+           "...and only the back nine is written on the card", NULL);
+    }
+
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);
     return s_fail ? 1 : 0;
 }

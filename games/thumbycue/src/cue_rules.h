@@ -227,6 +227,16 @@ typedef struct {
      * here that has one — every other mode always has a second seat even if a
      * person is sitting in both. Set by the host before the first stroke. */
     int golf_solo;
+    /* THE HONOUR. In golf the player who took fewest on the last hole plays
+     * first on the next, and a tie leaves it where it was — so it is a thing
+     * the round REMEMBERS, not something derivable from the card. On the first
+     * hole it is drawn, exactly as the break is in every other game here. */
+    int golf_honour;
+    /* WHICH HOLES THIS ROUND IS: all eighteen, the front nine or the back
+     * nine. Nine holes is a real round of golf and a much shorter sitting,
+     * which on a table where a hole takes four shots matters more than it does
+     * on grass. */
+    int golf_round;              /* CUE_GOLF_* below */
 
     /* 9-ball push-out (WPA) */
     int pushout_avail;   /* the next shot (first after the break) may be a push-out */
@@ -326,6 +336,10 @@ int  cue_rules_bb_baulk_return(const CueRules *r, const CueTable *t,
 int  cue_rules_golf_total(const CueRules *r, int who, int from_hole, int to_hole);
 /* How the round stands: -1 nobody yet, 0/1 the leader, 2 level. */
 int  cue_rules_golf_leader(const CueRules *r);
+/* Which holes this round covers — CUE_GOLF_18 / _FRONT9 / _BACK9. Sets the
+ * starting hole with it, so nothing else has to know the back nine starts at
+ * ten. Call after cue_rules_init, as cue_rules_set_uk is called. */
+void cue_rules_set_golf_round(CueRules *r, int round);
 /* Run the clock down. When it reaches zero the bar drops and potted balls stop
  * coming back (Rule 108's premise); the game is over when the balls run out. */
 void cue_rules_bb_tick(CueRules *r, float dt);

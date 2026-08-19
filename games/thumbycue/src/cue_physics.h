@@ -23,7 +23,8 @@
 #ifndef CUE_PHYSICS_H
 #define CUE_PHYSICS_H
 
-#include "mote_vec.h"   /* engine's Vec3/Mat3 + helpers (identical to ThumbyElite's vec.h) */
+#include "mote_vec.h"
+#include "mote_phys.h"        /* the skittles are rigid bodies; see sk[] below */   /* engine's Vec3/Mat3 + helpers (identical to ThumbyElite's vec.h) */
 #include <stdint.h>
 
 #define CUE_MAX_BALLS   22   /* snooker: cue + 15 reds + 6 colours */
@@ -102,6 +103,29 @@ enum { CUE_TOUCH_BALL = 0, CUE_TOUCH_CUSHION };
 #define CUE_MAX_TOUCH 24
 /* Three on a bar billiards table, and nothing else has any. */
 #define CUE_MAX_SKITTLE 4
+/* HOW THE RIGID-BODY STEP IS REACHED. On the handheld the engine owns the
+ * solver and a game calls it through the ABI (MoteApi::phys_step); CueVR and
+ * the tests link mote_phys.c and pass mote_phys_step itself. So the physics
+ * takes a pointer rather than a dependency, and a front-end that sets none
+ * simply gets skittles that stand still. */
+/* HOW BIG THE SOLVER'S POOLS MUST BE. The pins are not the only bodies: the
+ * bed and the four cushions are static planes in the same array, and mote
+ * indexes its per-body scratch by body number — so a caller that sized the
+ * pools by the skittle count alone was writing past them, and the symptom was
+ * a pin that took a hit and then declined to move. Sized here, once, so no
+ * caller has to know how many planes there are. */
+#define CUE_SKITTLE_PLANES   5
+#define CUE_SKITTLE_BODIES   (CUE_MAX_SKITTLE + CUE_SKITTLE_PLANES)
+/* Every hull vertex against every plane it is touching, with room to spare. */
+#define CUE_SKITTLE_CONTACTS 192
+/* ...and the arena those pools come out of. mote sizes a warm-start cache at
+ * the next power of two above twice the contact count, so this is not the
+ * small number the body count suggests — it is worth stating rather than
+ * leaving each caller to guess and get "the pools did not fit". */
+#define CUE_SKITTLE_ARENA   (96 * 1024)
+
+typedef uint32_t (*CuePhysRigidFn)(MoteWorld *w, MoteBody *b, int n, float dt);
+void cue_phys_set_rigid(CuePhysRigidFn fn);
 /* How hard a bar billiards skittle topples, in 1/s^2: m g d / I about the foot,
  * for 12 g with its centre of gravity 76.5 mm up (a 7 g mushroom head at 99 mm
  * on a 5 g stem). A uniform rod of the same length would be 3g/2L = 129.0; the
@@ -334,37 +358,44 @@ typedef struct {
      * before the next shot. So a touch too gentle to topple one is recorded
      * separately from one that does. */
     uint8_t skittle_nudged[CUE_MAX_SKITTLE];
-    /* HOW FAR OVER IT HAS GONE, and which way.
+    /* A SKITTLE IS A RIGID BODY, and mote already has one.
      *
-     * A skittle knocked at the base is a rod pivoting about its foot, which is
-     * one degree of freedom: theta measured from upright, falling under
-     * theta'' = (3g/2L) sin theta. That is the real motion of a toppling pin
-     * and it integrates alongside the balls on the same clock, so it needs
-     * neither an animation timer above nor a rigid-body engine below — which
-     * matters, because this file is the handheld's physics and every test's.
+     * It was a rod hinged at its foot: theta from upright, falling under
+     * (3g/2L) sin theta. That is the right motion for a pin toppling gently
+     * and nothing like the right one for a pin struck at pace, which is
+     * knocked off its foot, tumbles, slides and comes to rest somewhere else.
      *
-     * `lean` is radians from upright, stopping at a right angle when it is flat
-     * on the cloth; `fx`,`fz` is the way it goes, taken from the ball. */
-    float  skittle_lean[CUE_MAX_SKITTLE];
-    float  skittle_rate[CUE_MAX_SKITTLE];     /* rad/s */
-    float  skittle_fx[CUE_MAX_SKITTLE], skittle_fz[CUE_MAX_SKITTLE];
-    /* THE FOOT IS NOT A HINGE. A struck skittle is knocked OFF its spot and
-     * slides while it goes over — Rule 103 exists precisely because a skittle
-     * moves without falling. The foot carries its own velocity and is dragged
-     * down by cloth friction; `skittle_spot` is where it belongs, so it can be
-     * put back between strokes. */
-    float  skittle_vx[CUE_MAX_SKITTLE], skittle_vz[CUE_MAX_SKITTLE];
+     * The case made earlier for NOT using the engine — that a fallen pin can
+     * never reach another pin or a hole — was arithmetic about a HINGE. It
+     * assumed the answer. A pin that tumbles crosses the table, so the
+     * argument evaporates along with the hinge, and hand-rolling a second
+     * rigid-body solver next to the engine's would have been the worst of
+     * both.
+     *
+     * So each pin is a mote capsule: `sk[k]` is the body — centre of mass in
+     * `pos`, `orient` turning body space into world with body +Y along the
+     * pin — and `sk_world` is the little world it lives in, whose walls are
+     * the bed and the cushions. `skittle[k]` stays what it always was: the
+     * SPOT the pin belongs on, so it can be stood back up between strokes. */
+    /* The pins first, then the five STATIC PLANES they fall about: the bed
+     * and the four cushions. Planes rather than mote's own bounding-box
+     * walls, because those test a hull as a box of its `half` extent — which
+     * a hull does not set, so the box is a point at the centre of mass and a
+     * pin sinks to its own middle before anything stops it. gen_vs_plane
+     * tests a hull vertex by vertex, which is the shape actually being
+     * asked about. */
+    MoteBody sk[CUE_SKITTLE_BODIES];
+    MoteWorld sk_world;
+    int      sk_n;                           /* pins + planes */
+    int      sk_on;                          /* the bodies are set up */
     Vec3   skittle_spot[CUE_MAX_SKITTLE];
     uint8_t skittle_order[CUE_MAX_SKITTLE];  /* 1, 2, 3... in the order they fell */
     int    nskittle;
     float  skittle_r;
-    /* WHAT A SKITTLE TAKES OFF THE BALL. A pin is fifteen grams of light wood
-     * against a ball of ninety-odd and it topples rather than being driven, so
-     * it removes far less of the ball's pace than its mass alone would suggest.
-     * The fraction of the approach speed the ball loses across the contact. */
-    float  skittle_take;
-    /* ...and how slowly a ball may meet one and leave it standing (m/s). */
-    float  skittle_topple;
+    /* The pin's own numbers: how long it is, how heavy, and where its centre of
+     * mass sits above the foot. A mushroom is top-heavy and that is most of how
+     * it falls, so it is not a uniform rod and must not be integrated as one. */
+    float  skittle_len, skittle_mass;        /* 114 mm and 12 g of light wood */
     int    skittle_fell;                     /* how many went over this shot */
     /* A side cushion was struck this shot (normal across the table, not along
      * it). AEBBA Rule 108: the last-ball shot must go OFF ONE SIDE CUSHION
@@ -505,6 +536,15 @@ int cue_phys_moving(const CueWorld *w, const CueBall *balls, int n);
  * like a rules bug and is not one. One call, and a field added here is cleared
  * everywhere at once. */
 void cue_phys_shot_begin(CueWorld *w);
+/* Stand the skittles up as rigid bodies and give them the little world they
+ * fall about in: the bed is its floor, the cushions its walls. Called by
+ * cue_table_build_world once the pins and the bed are known. */
+void cue_phys_skittles_init(CueWorld *w, float half_len, float half_wid);
+/* Stand the skittles back on their spots and forget what this stroke did to
+ * them. Called by the host AFTER cue_rules_resolve — the rules have to see the
+ * fallen pins to price the stroke, and standing them up any earlier is why
+ * they used to right themselves as the next shot was struck. */
+void cue_phys_skittles_respot(CueWorld *w);
 
 /* ---- reading the cue ball's account of the shot ---------------------------
  * All are safe to call at any time; they describe the shot so far. */

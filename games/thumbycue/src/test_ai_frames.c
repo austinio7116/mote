@@ -180,6 +180,9 @@ static int play_shot(const CuePersona *p) {
         }
     }
     if (T.kind == CUE_GAME_BARBILLIARDS) {
+        /* Stand the pins back up now the stroke has been judged — the host's
+         * job, and the harness is the host here. */
+        cue_phys_skittles_respot(&W);
         /* The clock is what ends a bar billiards game, and a harness that never
          * runs it plays for ever. Twenty seconds a stroke is about the pace of
          * a real one, so a coin buys the fifty-odd shots it buys in a pub. */

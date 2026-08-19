@@ -37,6 +37,44 @@ static uint16_t s_cloth, s_bg_top, s_bg_bot;
 static uint16_t s_cloth_shadow;  /* dark cloth tint for ball shadow-side bounce */
 static float    s_ballR = 0.0286f;
 static int      s_is_snooker;
+/* WHETHER THE BAKED TABLE CARRIES THE SKITTLES.
+ *
+ * The handheld rasterises the whole table every frame, so a skittle built into
+ * it animates for free. CueVR uploads the table ONCE as a GPU mesh — so a
+ * skittle baked into it can never move, which is exactly what was reported: the
+ * ball was deflected, the pin was booked over, and nothing on the table so much
+ * as leant. CueVR turns them off here and draws its own, transformed per frame.
+ */
+static int      s_skittles = 1;
+void cue_render_set_skittles(int on) { s_skittles = on ? 1 : 0; }
+
+/* The turned profile: height above the foot, and radius as a multiple of the
+ * stem's. Shared so that a front-end building its own mesh cannot end up
+ * drawing a different skittle from the one the rules describe. */
+static const float CUE_SKITTLE_PROF[][2] = {
+        { 0.000f, 1.62f },   /* the flared foot it stands on */
+        { 0.005f, 1.34f },
+        { 0.011f, 1.00f },
+        { 0.018f, 1.14f },   /* a turned ring, as the real ones have */
+        { 0.026f, 1.00f },
+        { 0.051f, 1.00f },   /* the rule's cylinder — all a ball reaches */
+        { 0.082f, 1.00f },   /* the stem stays SLIM right to the cap:
+                              * thickening it early is what read as a
+                              * spear of asparagus */
+        { 0.090f, 1.20f },
+        { 0.094f, 2.90f },   /* the underside of the brim, flaring hard */
+        { 0.097f, 3.40f },   /* the rim — over three stems wide */
+        { 0.104f, 3.26f },   /* a LOW dome: barely rising... */
+        { 0.110f, 2.60f },
+        { 0.1132f, 1.55f },  /* ...and rounding off to a broad top */
+        { 0.114f, 0.00f },
+    };
+
+int cue_render_skittle_profile(const float (**pts)[2]) {
+    if (pts) *pts = CUE_SKITTLE_PROF;
+    return (int)(sizeof CUE_SKITTLE_PROF / sizeof CUE_SKITTLE_PROF[0]);
+}
+
 /* ids 1..15 mean reds, not solids/stripes */
 static int      s_lip_mode = 1;  /* 0=none 1=tight 2=wide 3=deep (CUE_LIP env) */
 static int      s_markings = 1;  /* emit the chalk as quads — see cue_render_set_markings */
@@ -1722,16 +1760,17 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * profile is rotated by that angle about the base point rather than
          * being swapped for a lying model. At rest upright the rotation is the
          * identity and this draws exactly what it always drew. */
-        for (int k = 0; k < w->nskittle; k++) {
-            const float sx = w->skittle[k].x, sz = w->skittle[k].z;
+        for (int k = 0; s_skittles && k < w->nskittle; k++) {
             const float sr = w->skittle_r;
             const uint16_t body = w->skittle_black[k] ? RGB565C(24, 22, 26)
                                                       : RGB565C(238, 234, 222);
             const uint16_t top  = shade565(body, 1.25f);
 
-            /* height above the base, radius as a multiple of the stem.
-             *
-             * A bar billiards skittle is a MUSHROOM: a wide shallow cap that
+            /* the shape lives at file scope now — see CUE_SKITTLE_PROF —
+             * because CueVR turns its own mesh from it. */
+            const float (*PROF)[2]; const int NP = cue_render_skittle_profile(&PROF);
+            (void)0;
+            /* A bar billiards skittle is a MUSHROOM: a wide shallow cap that
              * overhangs, on a slim turned stem with a flared foot. What was
              * here was a spear — a gentle swell tapering to a point, which read
              * as asparagus rather than as a skittle. The cap is the thing you
@@ -1742,37 +1781,31 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
              * cylindrical, 15 to 18 mm across, up to at least 51 mm. Everything
              * above that is above every ball, so the cap can be as wide as a
              * skittle's cap really is without changing a single shot. */
-            static const float PROF[][2] = {
-                { 0.000f, 1.62f },   /* the flared foot it stands on */
-                { 0.005f, 1.34f },
-                { 0.011f, 1.00f },
-                { 0.018f, 1.14f },   /* a turned ring, as the real ones have */
-                { 0.026f, 1.00f },
-                { 0.051f, 1.00f },   /* the rule's cylinder — all a ball reaches */
-                { 0.082f, 1.00f },   /* the stem stays SLIM right to the cap:
-                                      * thickening it early is what read as a
-                                      * spear of asparagus */
-                { 0.090f, 1.20f },
-                { 0.094f, 2.90f },   /* the underside of the brim, flaring hard */
-                { 0.097f, 3.40f },   /* the rim — over three stems wide */
-                { 0.104f, 3.26f },   /* a LOW dome: barely rising... */
-                { 0.110f, 2.60f },
-                { 0.1132f, 1.55f },  /* ...and rounding off to a broad top */
-                { 0.114f, 0.00f },
-            };
-            const int NP = (int)(sizeof PROF / sizeof PROF[0]);
 
-            /* the topple: about the foot, in the direction the ball drove it */
-            const float th = w->skittle_lean[k];
-            const float ct = cosf(th), st = sinf(th);
-            float fx = w->skittle_fx[k], fz = w->skittle_fz[k];
-            {   float fl = sqrtf(fx*fx + fz*fz);
-                if (fl < 1e-4f) { fx = 1.0f; fz = 0.0f; } else { fx /= fl; fz /= fl; } }
-            /* A point (r, y) on the profile, at angle a round the pin, once the
-             * pin has leant th toward (fx, fz): the axis tips into the fall
-             * direction and the radius spreads about it. */
-            #define PIN(rr, yy, aa) pin_at(sx, sz, (rr)*sr, (yy), (aa), fx, fz, ct, st)
+            /* WHEREVER THE BODY HAS PUT IT. The pin is a rigid body now, so
+             * its place and its attitude come off the body rather than out of
+             * an angle: the profile is turned in body space and carried into
+             * the world by the body's own orientation, which is the same
+             * transform whether it is standing, tumbling or lying still. */
+            const MoteBody *sb = &w->sk[k];
+            const Vec3 bo = sb->pos;
+            const Vec3 bx = sb->orient.r[0], by = sb->orient.r[1], bz = sb->orient.r[2];
+            const float half_len = w->skittle_len * 0.5f;
+            #define PIN(rr, yy, aa) v3( \
+                bo.x + bx.x*((rr)*sr*cosf(aa)) + by.x*((yy)-half_len) + bz.x*((rr)*sr*sinf(aa)), \
+                bo.y + bx.y*((rr)*sr*cosf(aa)) + by.y*((yy)-half_len) + bz.y*((rr)*sr*sinf(aa)), \
+                bo.z + bx.z*((rr)*sr*cosf(aa)) + by.z*((yy)-half_len) + bz.z*((rr)*sr*sinf(aa)))
 
+            /* THE FOOT IS CLOSED. The profile starts at the rim of the flare,
+             * so the turned surface alone leaves the underside open — invisible
+             * while the pin stands and glaring the moment it is knocked over. */
+            for (int i = 0; i < NSEG; i++) {
+                const float a0 = 6.2831853f * (float)i / NSEG;
+                const float a1 = 6.2831853f * (float)(i + 1) / NSEG;
+                tri(PIN(PROF[0][1], PROF[0][0], a0),
+                    PIN(PROF[0][1], PROF[0][0], a1),
+                    PIN(0.0f,       PROF[0][0], a0), shade565(body, 0.62f));
+            }
             for (int i = 0; i < NSEG; i++) {
                 const float a0 = 6.2831853f * (float)i / NSEG;
                 const float a1 = 6.2831853f * (float)(i + 1) / NSEG;

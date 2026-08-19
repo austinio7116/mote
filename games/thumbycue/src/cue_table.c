@@ -1712,6 +1712,17 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         SKITTLE(0.050f,  0.178f, 0);
         SKITTLE(0.640f - hr - 0.006f - w->skittle_r, 0.0f, 1);
         #undef SKITTLE
+        /* Rule 74's pin: 114 mm tall and about twelve grams of light wood.
+         * Stood up as rigid bodies in a world whose floor is the bed and whose
+         * walls are the cushions. */
+        w->skittle_len  = 0.114f;
+        /* THE MASS IS THE TIMBER, not a guess. Rule 74 gives the size and says
+         * nothing about the weight, so it comes from the shape: the turned
+         * profile sweeps 66.7 cm3, and a skittle is turned hardwood — beech at
+         * about 720 kg/m3. That is 48 g. The 12 g it had before is balsa, and
+         * it showed: a pin that light barely troubled a ball. */
+        w->skittle_mass = 0.048f;
+        cue_phys_skittles_init(w, hl, hw);
     } else if (t->bed_shape == CUE_BED_NGON) {
         /* A regular bed brings its own chain, its own pockets and its own
          * outline, so it skips the rectangle's rail construction entirely. */
@@ -2911,6 +2922,10 @@ const CueGolfHole CUE_GOLF_COURSE[CUE_GOLF_HOLES] = {
                      { 0.0000f, 1.0000f, 1.0000f, 0.0f } },   /* apex + two on the base */
     /* 18 */ { 5, 4, { 0.5000f, 0.5000f, 0.5000f, 0.5000f },
                      { 0.0000f, 0.2887f, 0.5774f, 0.8660f } },   /* a column of four */
+};
+
+const char *const CUE_GOLF_ROUND_NAME[CUE_GOLF_ROUNDS] = {
+    "18 HOLES", "FRONT NINE", "BACK NINE",
 };
 
 int cue_golf_par(int from_hole, int to_hole) {

@@ -36,8 +36,7 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
      * would suggest: about a third of the approach speed, which is a clip and a
      * change of line rather than a bounce. Below a crawl it rocks without going
      * over — AEBBA rule 103, which scores and re-spots rather than fouling. */
-    w->skittle_take   = 0.35f;
-    w->skittle_topple = 0.12f;
+
     w->R = R;
     w->mass = mass;
     w->g = 9.806f;
@@ -80,6 +79,182 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
 
 /* ---- the shot's own record ------------------------------------------------ */
 
+/* THE STEP THE ENGINE OWNS. Set by the front end — the handheld hands over the
+ * ABI's, CueVR and the tests hand over mote_phys_step. Unset, the pins stand
+ * still, which is honest and is what a front end that never set it deserves. */
+static CuePhysRigidFn s_rigid;
+void cue_phys_set_rigid(CuePhysRigidFn fn) { s_rigid = fn; }
+
+/* ---- THE PIN'S COLLISION SHAPE ------------------------------------------
+ *
+ * A capsule at the stem's radius is the shape a BALL meets — Rule 74 keeps
+ * every ball on the plain cylinder — but it is not the shape the CLOTH meets.
+ * A mushroom lying down rests on the rim of its cap and the flare of its foot,
+ * and a stem-width capsule has neither: the pin lay down with its head buried
+ * in the bed, which is exactly what it looked like.
+ *
+ * So the body is a convex hull: the pin's own silhouette turned about its axis
+ * — bottom centre, foot rim, cap rim, top — which fills the waist under the
+ * brim. That is the right simplification, because the waist is the one part of
+ * a mushroom that never touches anything: it rests on the two rims, which is
+ * what the hull's own edge does. The ball is unaffected either way, since
+ * check_skittles measures against the stem itself and not against this.
+ */
+#define SK_HULL_SEG 12
+static Vec3    s_hull_v[2 * SK_HULL_SEG + 2];
+static Vec3    s_hull_n[3 * SK_HULL_SEG];
+static uint8_t s_hull_off[3 * SK_HULL_SEG + 1];
+static uint8_t s_hull_fv[SK_HULL_SEG * 10];
+static uint8_t s_hull_e[2 * 5 * SK_HULL_SEG];
+static MoteHull s_hull;
+static int      s_hull_ok;
+
+static void skittle_hull_build(float sr, float len) {
+    const int N = SK_HULL_SEG;
+    /* the silhouette, as radii of the stem and heights above the foot, taken
+     * from the turned profile: the foot's flare, the cap's rim, the top. */
+    const float r1 = 1.62f * sr, y1 = 0.000f;
+    const float r2 = 3.40f * sr, y2 = 0.097f;
+    const float y0 = 0.000f,     y3 = len;
+    const float c  = len * 0.5f;            /* the body's origin: the centre */
+    int nv = 0;
+    s_hull_v[nv++] = v3(0, y0 - c, 0);                       /* 0: the foot   */
+    for (int i = 0; i < N; i++) {
+        const float a = 6.2831853f * (float)i / N;
+        s_hull_v[nv++] = v3(r1 * cosf(a), y1 - c, r1 * sinf(a));
+    }
+    for (int i = 0; i < N; i++) {
+        const float a = 6.2831853f * (float)i / N;
+        s_hull_v[nv++] = v3(r2 * cosf(a), y2 - c, r2 * sinf(a));
+    }
+    const int TOP = nv;
+    s_hull_v[nv++] = v3(0, y3 - c, 0);                       /* the cap's top */
+
+    int nf = 0, fo = 0;
+    #define FACE_BEGIN() (s_hull_off[nf] = (uint8_t)fo)
+    #define FACE_END()   do {         /* outward, judged against the body's own centre */         const uint8_t *fv = &s_hull_fv[s_hull_off[nf]];         Vec3 A = s_hull_v[fv[0]], B = s_hull_v[fv[1]], C = s_hull_v[fv[2]];         Vec3 n = v3_cross(v3_sub(B, A), v3_sub(C, A));         float l = sqrtf(n.x*n.x + n.y*n.y + n.z*n.z); if (l < 1e-9f) l = 1.0f;         n = v3_scale(n, 1.0f / l);         if (n.x*A.x + n.y*A.y + n.z*A.z < 0.0f) n = v3_scale(n, -1.0f);         s_hull_n[nf] = n; nf++;     } while (0)
+    for (int i = 0; i < N; i++) {          /* the foot, a fan */
+        const int a = 1 + i, b = 1 + (i + 1) % N;
+        FACE_BEGIN();
+        s_hull_fv[fo++] = 0; s_hull_fv[fo++] = (uint8_t)a; s_hull_fv[fo++] = (uint8_t)b;
+        FACE_END();
+    }
+    for (int i = 0; i < N; i++) {          /* the flank, foot rim to cap rim */
+        const int a = 1 + i, b = 1 + (i + 1) % N;
+        const int c2 = 1 + N + i, d2 = 1 + N + (i + 1) % N;
+        FACE_BEGIN();
+        s_hull_fv[fo++] = (uint8_t)a; s_hull_fv[fo++] = (uint8_t)b;
+        s_hull_fv[fo++] = (uint8_t)d2; s_hull_fv[fo++] = (uint8_t)c2;
+        FACE_END();
+    }
+    for (int i = 0; i < N; i++) {          /* the dome, a fan to the top */
+        const int a = 1 + N + i, b = 1 + N + (i + 1) % N;
+        FACE_BEGIN();
+        s_hull_fv[fo++] = (uint8_t)a; s_hull_fv[fo++] = (uint8_t)b;
+        s_hull_fv[fo++] = (uint8_t)TOP;
+        FACE_END();
+    }
+    s_hull_off[nf] = (uint8_t)fo;
+    #undef FACE_BEGIN
+    #undef FACE_END
+
+    int ne = 0;
+    for (int i = 0; i < N; i++) {
+        const int a = 1 + i, b = 1 + (i + 1) % N;
+        const int c2 = 1 + N + i, d2 = 1 + N + (i + 1) % N;
+        s_hull_e[ne*2+0] = 0;            s_hull_e[ne*2+1] = (uint8_t)a;  ne++;
+        s_hull_e[ne*2+0] = (uint8_t)a;   s_hull_e[ne*2+1] = (uint8_t)b;  ne++;
+        s_hull_e[ne*2+0] = (uint8_t)a;   s_hull_e[ne*2+1] = (uint8_t)c2; ne++;
+        s_hull_e[ne*2+0] = (uint8_t)c2;  s_hull_e[ne*2+1] = (uint8_t)d2; ne++;
+        s_hull_e[ne*2+0] = (uint8_t)c2;  s_hull_e[ne*2+1] = (uint8_t)TOP; ne++;
+    }
+
+    float br = 0.0f;
+    for (int i = 0; i < nv; i++) {
+        const float d = sqrtf(s_hull_v[i].x*s_hull_v[i].x +
+                              s_hull_v[i].y*s_hull_v[i].y +
+                              s_hull_v[i].z*s_hull_v[i].z);
+        if (d > br) br = d;
+    }
+    s_hull.verts = s_hull_v;   s_hull.nverts = nv;
+    s_hull.fnorm = s_hull_n;   s_hull.nfaces = nf;
+    s_hull.faceoff = s_hull_off; s_hull.facev = s_hull_fv;
+    s_hull.edges = s_hull_e;   s_hull.nedges = ne;
+    s_hull.bound_r = br;
+    s_hull_ok = 1;
+}
+
+/* Stand pin k up on its spot, at rest. The body's origin is its CENTRE OF
+ * MASS, so a pin standing on the cloth has its centre half its length up. */
+static void skittle_stand(CueWorld *w, int k) {
+    MoteBody *b = &w->sk[k];
+    memset(b, 0, sizeof *b);
+    const float L = w->skittle_len, R = w->skittle_r;
+    if (s_hull_ok) {
+        b->shape      = MOTE_SHAPE_HULL;
+        b->shape_data = &s_hull;
+        b->radius     = s_hull.bound_r;
+    } else {                                  /* no hull: the bare stem */
+        b->shape  = MOTE_SHAPE_CAPSULE;
+        b->radius = R;
+        b->half   = v3(0.0f, (L * 0.5f > R) ? (L * 0.5f - R) : 0.0f, 0.0f);
+    }
+    b->inv_mass = (w->skittle_mass > 0.0f) ? 1.0f / w->skittle_mass : 0.0f;
+    b->pos      = v3(w->skittle[k].x, L * 0.5f, w->skittle[k].z);
+    b->vel      = v3(0,0,0);
+    b->w        = v3(0,0,0);
+    b->orient   = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
+    /* Wood on cloth: it stops quickly and does not bounce much. */
+    b->friction    = 0.62f;
+    b->restitution = 0.12f;
+}
+
+/* The world the pins fall about in: the bed is its floor and the cushions are
+ * its walls, which for bar billiards — the one table with skittles, and a
+ * rectangle — is exactly what mote's bounding box already is. */
+void cue_phys_skittles_init(CueWorld *w, float half_len, float half_wid) {
+    if (!w) return;
+    mote_phys_world_defaults(&w->sk_world);
+    w->sk_world.gravity = v3(0.0f, -w->g, 0.0f);
+    w->sk_world.walls   = 0;                 /* real planes, see below */
+    w->sk_world.bmin    = v3(-half_len, 0.0f, -half_wid);
+    w->sk_world.bmax    = v3( half_len, 0.60f, half_wid);
+    w->sk_world.restitution = 0.12f;
+    w->sk_world.friction    = 0.62f;
+    /* The same clock the balls keep, so a pin and a ball cannot disagree about
+     * when a contact happened, and enough substeps that the cap never bites. */
+    w->sk_world.substep      = CUE_H;
+    w->sk_world.max_substeps = CUE_MAX_SUB;
+    w->sk_world.linear_damp  = 0.20f;
+    w->sk_world.angular_damp = 0.35f;
+    skittle_hull_build(w->skittle_r, w->skittle_len);
+    for (int k = 0; k < w->nskittle; k++) skittle_stand(w, k);
+    /* THE BED AND THE FOUR CUSHIONS, as static planes: normal along r[1] and
+     * a point on the surface. */
+    {   int n = w->nskittle;
+        const struct { Vec3 nrm, at; } pl[5] = {
+            { v3(0, 1, 0), v3(0, 0, 0) },                       /* the bed */
+            { v3(-1, 0, 0), v3( half_len, 0, 0) },              /* the rails */
+            { v3( 1, 0, 0), v3(-half_len, 0, 0) },
+            { v3(0, 0,-1), v3(0, 0,  half_wid) },
+            { v3(0, 0, 1), v3(0, 0, -half_wid) },
+        };
+        for (int i = 0; i < CUE_SKITTLE_PLANES && n < CUE_SKITTLE_BODIES; i++, n++) {
+            MoteBody *b = &w->sk[n];
+            memset(b, 0, sizeof *b);
+            b->shape    = MOTE_SHAPE_PLANE;
+            b->inv_mass = 0.0f;               /* a plane is always immovable */
+            b->pos      = pl[i].at;
+            b->orient   = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
+            b->orient.r[1] = pl[i].nrm;       /* the normal, solid below it */
+            b->friction    = 0.62f;
+            b->restitution = 0.12f;
+        }
+        w->sk_n = n;
+    }
+    w->sk_on = 1;
+}
+
 void cue_phys_shot_begin(CueWorld *w) {
     if (!w) return;
     w->first_hit = -1;
@@ -88,19 +263,34 @@ void cue_phys_shot_begin(CueWorld *w) {
     w->jmp_pending = 0; w->jmp_idx = -1; w->jmp_hit_it = 0; w->jmp_bounced = 0;
     w->ntouch = 0; w->touch_over = 0;
     w->side_cushion = 0;
-    /* The skittles stand up again for each stroke: whether one went over is a
-     * fact about THIS shot, and the host puts them back (Rule 103). */
+    /* WHAT THIS STROKE DID TO THE PINS is a fact about this stroke, so the
+     * bookkeeping is cleared here. WHETHER A PIN IS LYING DOWN is not — it is
+     * the state of a body on the cloth, and it stays true until somebody
+     * stands it up. See cue_phys_skittles_respot, which the host calls once
+     * the stroke has been judged. */
     for (int k = 0; k < CUE_MAX_SKITTLE; k++) {
-        w->skittle_down[k] = 0; w->skittle_order[k] = 0;
-        /* ...and one merely rocked off its spot has been put back too. */
+        w->skittle_order[k] = 0;
         w->skittle_nudged[k] = 0;
-        w->skittle_lean[k] = 0.0f; w->skittle_rate[k] = 0.0f;
-        /* ...and it goes back ON ITS SPOT (Rules 103, 114): a skittle that
-         * was knocked off it, with or without going over, is replaced before
-         * the next stroke, so the spot is what the world remembers and the
-         * position is only where this shot left it. */
-        w->skittle_vx[k] = w->skittle_vz[k] = 0.0f;
-        if (k < w->nskittle) w->skittle[k] = w->skittle_spot[k];
+    }
+    w->skittle_fell = 0;
+}
+
+/* STAND THEM BACK UP, once the stroke has been judged.
+ *
+ * This used to happen at the START of the next stroke, which is why the pins
+ * appeared to right themselves at the moment the cue struck rather than when
+ * the shot was over — the reported oddity. The rules must SEE the fallen pins
+ * to price the stroke (Rules 110(f), 111(a), 112), so this cannot run before
+ * cue_rules_resolve; the host calls it straight afterwards, which is also when
+ * a marker would reach across and do it. */
+void cue_phys_skittles_respot(CueWorld *w) {
+    if (!w) return;
+    for (int k = 0; k < w->nskittle; k++) {
+        w->skittle[k] = w->skittle_spot[k];
+        if (w->sk_on) skittle_stand(w, k);
+        w->skittle_down[k] = 0;
+        w->skittle_nudged[k] = 0;
+        w->skittle_order[k] = 0;
     }
     w->skittle_fell = 0;
 }
@@ -874,97 +1064,82 @@ static CUE_HOT int check_skittles(CueWorld *w, CueBall *b) {
     if (b->pos.y - R > 0.114f) return 0;
     int fell = 0;
     for (int k = 0; k < w->nskittle; k++) {
-        /* A FALLEN SKITTLE IS NOT AN OBSTACLE. It is lying on the cloth and the
-         * ball rolls over it; it is stood back up between shots, not during
-         * one. */
-        if (w->skittle_down[k]) continue;
-        float dx = b->pos.x - w->skittle[k].x, dz = b->pos.z - w->skittle[k].z;
+        /* A FALLEN SKITTLE IS STILL AN OBJECT. It used to be skipped once it
+         * was down — the ball rolled straight over a pin lying on the cloth,
+         * which was defensible when "down" meant an animation had finished and
+         * is nonsense now that it means a body is lying there. It is hit like
+         * anything else; the capsule test below runs along the pin's axis and
+         * so works lying down exactly as it does standing up. */
+        MoteBody *sb = &w->sk[k];
+
+        /* THE NEAREST POINT ON THE PIN, which is what a capsule is: the ball
+         * meets the STEM (Rule 74 keeps every ball below 51 mm and a ball's
+         * highest point is under that), and where on the stem decides whether
+         * the pin is knocked over or spun on its foot. A pin lying down is
+         * met along its length, which is why this is a segment and not a
+         * point. */
+        const Vec3 ax = sb->orient.r[1];                 /* the pin's own axis */
+        /* THE STEM, from the pin's own dimensions — NOT from the body's half
+         * extent. The body is a hull (so that the cap rests on the cloth) and
+         * a hull has no half.y, so reading it gave zero: the contact point
+         * collapsed onto the centre of mass, the lever arm vanished, and a
+         * struck pin was shoved across the table without turning a degree. */
+        float hl2 = 0.5f * w->skittle_len - w->skittle_r;
+        if (hl2 < 0.0f) hl2 = 0.0f;
+        Vec3 d0 = v3_sub(b->pos, sb->pos);
+        float t = d0.x*ax.x + d0.y*ax.y + d0.z*ax.z;
+        if (t >  hl2) t =  hl2;
+        if (t < -hl2) t = -hl2;
+        const Vec3 cp = v3_add(sb->pos, v3_scale(ax, t));   /* on the axis */
+        Vec3 dv = v3_sub(b->pos, cp);
         const float reach = R + w->skittle_r;
-        const float q = dx*dx + dz*dz;
+        float q = dv.x*dv.x + dv.y*dv.y + dv.z*dv.z;
         if (q > reach * reach) continue;
 
-        /* THE BALL IS DEFLECTED, WHICH IS THE WHOLE GAME.
-         *
-         * This used to record that a skittle had gone over and do nothing else,
-         * on the argument that modelling a pin as something to rebound off
-         * would be a worse lie than ignoring the deflection. That was wrong,
-         * and wrong about the one thing bar billiards is: the ball passed
-         * straight through the pins, so the shot you had to play around them
-         * did not exist and neither did the game.
-         *
-         * A pin is fifteen grams of light wood on a fifteen-millimetre base and
-         * it TOPPLES rather than being driven along, so it takes far less off
-         * the ball than a free body of its mass would: the ball clips it, loses
-         * a little pace and a little line, and carries on. That is one impulse
-         * along the contact normal, scaled well below a rigid collision.
-         *
-         * The ball is NOT pushed out of the overlap. The pin is falling away
-         * from this instant on, so there is nothing left to be inside of, and
-         * shoving the ball clear would send it off on a line the pin no longer
-         * justifies. */
         float d = sqrtf(q);
-        float nx, nz;
-        if (d > 1e-6f) { nx = dx / d; nz = dz / d; }
-        else           { nx = 1.0f;   nz = 0.0f;   }   /* dead centre: pick one */
+        Vec3 n;
+        if (d > 1e-6f) n = v3_scale(dv, 1.0f / d);
+        else           n = v3(1,0,0);                    /* dead centre: pick one */
 
-        const float vn = b->vel.x * nx + b->vel.z * nz;   /* < 0 closing */
+        /* THE COLLISION, BOTH WAYS. The ball is a moving sphere and the pin is
+         * a rigid body, so this is the ordinary impulse between the two — and
+         * because the contact is well below the pin's centre of mass, the same
+         * impulse that slows the ball also spins the pin, which is what makes
+         * it topple rather than slide away. Nothing here has to decide that it
+         * falls: the arithmetic does. */
+        const Vec3 rc = v3_sub(cp, sb->pos);             /* body arm */
+        const Vec3 vp = v3_add(sb->vel, v3_cross(sb->w, rc));
+        const Vec3 rel = v3_sub(b->vel, vp);
+        const float vn = rel.x*n.x + rel.y*n.y + rel.z*n.z;
         const float speed = sqrtf(b->vel.x*b->vel.x + b->vel.z*b->vel.z);
 
-        /* RULE 103: OFF ITS SPOT BUT STILL STANDING. A ball that arrives at a
-         * crawl rocks a pin without felling it — the score counts, and it is
-         * put back before the next shot. Only a real contact puts one down. */
-        if (speed < w->skittle_topple) {
-            /* RULE 103 IS A MOVEMENT, NOT A FLAG. A ball that arrives at a
-             * crawl rocks the skittle off its spot without felling it: the
-             * score counts and it is replaced before the next stroke. It has
-             * to actually MOVE, or there is nothing to replace and nothing to
-             * see. It cannot slide far — the ball that shifted it had almost
-             * no pace to give. */
-            w->skittle_nudged[k] = 1;
-            w->skittle_vx[k] -= nx * speed * 0.5f;
-            w->skittle_vz[k] -= nz * speed * 0.5f;
-            continue;
-        }
+        (void)speed;
+        if (vn >= 0.0f) continue;                        /* already separating */
 
-        if (vn < 0.0f) {
-            /* The ball keeps (1 - take) of its approach speed along the normal,
-             * so it turns away from the pin and slows a little, rather than
-             * bouncing off it. take = 1 would graze along the surface; above 1
-             * would rebound, which fifteen grams of falling wood cannot do. */
-            b->vel.x -= w->skittle_take * vn * nx;
-            b->vel.z -= w->skittle_take * vn * nz;
-        }
-        w->skittle_down[k] = 1;
-        w->skittle_order[k] = (uint8_t)(++w->skittle_fell);
-        /* IT FALLS BACK OVER THE BALL, and the foot is what goes away.
-         *
-         * This had it toppling away from the contact like a domino, and that
-         * is wrong for every strike a ball is capable of. Rule 74 keeps the
-         * whole cylinder below 51 mm and a ball's centre is at 24 mm, so the
-         * contact is ALWAYS about 53 mm below the centre of gravity that the
-         * mushroom head puts at 76.5 mm. Give a free body a horizontal impulse
-         * that far below its COG and, per unit impulse:
-         *
-         *      the foot  +423   forward, away from the ball
-         *      the COG    +83   forward
-         *      the head   -83   BACK, over the ball
-         *
-         * The base is knocked out from under it and the heavy head comes back
-         * over the top of the ball — which is what a struck skittle does, and
-         * what it could never do while the fall direction was -n.
-         *
-         * A little starting rate rather than a nudge to the angle, so it
-         * leaves upright smoothly instead of appearing already tilted. */
-        w->skittle_fx[k] = nx; w->skittle_fz[k] = nz;
-        w->skittle_lean[k] = 0.0f;
-        w->skittle_rate[k] = 2.0f + (vn < 0.0f ? -vn : 0.0f) * 1.5f;
-        /* ...and the foot goes the OTHER way, out from under it — the +423
-         * against the head's -83. That is the same impulse seen at the two
-         * ends of the same pin, not two separate effects. */
-        {   const float clos = (vn < 0.0f) ? -vn : 0.0f;
-            w->skittle_vx[k] -= nx * clos * 0.45f;
-            w->skittle_vz[k] -= nz * clos * 0.45f; }
-        fell = 1;
+        /* THE SAME INERTIA THE SOLVER USES. mote models a hull's as a sphere of
+         * its bounding radius, and a contact resolved here against a different
+         * tensor from the one that integrates it afterwards is two solvers
+         * disagreeing about the same pin. One number, taken from mote's own
+         * rule, so they cannot. */
+        const float m = (sb->inv_mass > 0.0f) ? 1.0f / sb->inv_mass : 0.012f;
+        float br = sb->radius;
+        if (sb->shape == MOTE_SHAPE_HULL && sb->shape_data)
+            br = ((const MoteHull *)sb->shape_data)->bound_r;
+        const float Ieff = (br > 1e-6f) ? (m * br * br / 2.5f) : (m * 1e-4f);
+        const Vec3 rn = v3_cross(rc, n);
+        const float ang = (rn.x*rn.x + rn.y*rn.y + rn.z*rn.z) / Ieff;
+        const float mb  = cue_ball_m(w, b);
+        const float denom = 1.0f/mb + sb->inv_mass + ang;
+        if (denom < 1e-9f) continue;
+        const float e = 0.15f;                           /* wood takes little back */
+        const float j = -(1.0f + e) * vn / denom;
+
+        b->vel = v3_add(b->vel, v3_scale(n, j / mb));
+        sb->vel = v3_sub(sb->vel, v3_scale(n, j * sb->inv_mass));
+        /* dw = (r x -j n) / I — isotropic, so no change of basis is needed. */
+        sb->w = v3_add(sb->w, v3_scale(v3_cross(rc, v3_scale(n, -j)), 1.0f / Ieff));
+        sb->_reserved[0] = 0;                            /* wake it */
+        fell = 1;                                        /* something was struck */
     }
     return fell;
 }
@@ -1283,47 +1458,37 @@ static void jump_land(CueWorld *w, CueBall *balls, int n) {
 }
 
 static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_t *ev) {
-    /* 0. THE SKITTLES GO OVER. A rod pivoting about its foot: theta'' =
-     * (3g/2L) sin theta, stopping flat on the cloth. Real motion, one degree of
-     * freedom, on the same substep clock as everything else. */
-    for (int k = 0; k < w->nskittle; k++) {
-        if (!w->skittle_down[k]) continue;
-        const float HALF_PI = 1.5707963f;
-        if (w->skittle_lean[k] >= HALF_PI) continue;
-        /* A TOP-HEAVY BODY, NOT A UNIFORM ROD.
-         *
-         * A skittle is a heavy mushroom head on a light stem: 12 g with its
-         * centre of gravity 76.5 mm up. Toppling about the foot it is a
-         * physical pendulum, theta'' = (m g d / I) sin theta with d the height
-         * of the COG and I the moment about the FOOT — which for this mass
-         * distribution is 109.6, not the 129.0 that a uniform rod of the same
-         * length gives. The head makes it fall SLOWER than a domino, and that
-         * is what it looks like: a slow, heavy topple rather than a snap. */
-        w->skittle_rate[k] += CUE_SKITTLE_FALL * sinf(w->skittle_lean[k]) * h;
-        w->skittle_lean[k] += w->skittle_rate[k] * h;
-        if (w->skittle_lean[k] > HALF_PI) {
-            w->skittle_lean[k] = HALF_PI;             /* it is on the cloth */
-            w->skittle_rate[k] = 0.0f;
-        }
-        /* AND THE FOOT TRAVELS. A ball does not hinge a skittle about a pin in
-         * the cloth, it knocks it off its spot; the foot slides away from the
-         * contact and cloth friction pulls it up over the same fifth of a
-         * second the pin takes to go over. Without this a skittle struck at
-         * pace pivoted on the spot, which reads as a hinge rather than as
-         * something knocked flying. */
-        {   float vx = w->skittle_vx[k], vz = w->skittle_vz[k];
-            float sp = sqrtf(vx*vx + vz*vz);
-            if (sp > 1e-5f) {
-                w->skittle[k].x += vx * h;
-                w->skittle[k].z += vz * h;
-                /* Wood on cloth: it stops fast, but not instantly — a hard
-                 * contact should send it a few inches, not shuffle it a
-                 * millimetre. */
-                float drag = 2.2f * w->g * h;
-                float ns = sp - drag; if (ns < 0.0f) ns = 0.0f;
-                w->skittle_vx[k] = vx / sp * ns;
-                w->skittle_vz[k] = vz / sp * ns;
-            } else { w->skittle_vx[k] = w->skittle_vz[k] = 0.0f; }
+    /* 0. THE SKITTLES, WHICH ARE RIGID BODIES AND NOT AN ANIMATION.
+     *
+     * mote's solver does the work — gravity, the bed, the cushions, one pin
+     * against another — and all this has to do is run it on the same clock as
+     * the balls and then read what happened. A pin is DOWN when its own axis
+     * has left upright far enough that it cannot come back, which is the same
+     * test the engine's own domino example uses, and the rules care about the
+     * ORDER they went in (Rule 112), so that is booked the moment each one
+     * goes rather than counted up at the end. */
+    if (w->sk_on && s_rigid && w->nskittle > 0) {
+        s_rigid(&w->sk_world, w->sk, w->sk_n, h);
+        for (int k = 0; k < w->nskittle; k++) {
+            /* the pin's axis against the vertical: 0.7 is about 45 degrees */
+            if (!w->skittle_down[k] && w->sk[k].orient.r[1].y < 0.70f) {
+                w->skittle_down[k] = 1;
+                w->skittle_order[k] = (uint8_t)(++w->skittle_fell);
+            }
+            /* RULE 103 IS DECIDED BY WHERE IT ENDS UP, not by how hard it was
+             * hit. A pin that has been moved off its spot and is still on its
+             * feet is a nudge: the score counts and it is replaced before the
+             * next stroke. That used to be a speed threshold at the moment of
+             * contact, which was a guess standing in for an outcome; now the
+             * body has an outcome and it can simply be read. */
+            if (!w->skittle_down[k]) {
+                const float dx = w->sk[k].pos.x - w->skittle_spot[k].x;
+                const float dz = w->sk[k].pos.z - w->skittle_spot[k].z;
+                if (dx*dx + dz*dz > 0.0015f * 0.0015f) w->skittle_nudged[k] = 1;
+            }
+            /* ...and where it is now, for the drawing and for the respot. */
+            w->skittle[k].x = w->sk[k].pos.x;
+            w->skittle[k].z = w->sk[k].pos.z;
         }
     }
 

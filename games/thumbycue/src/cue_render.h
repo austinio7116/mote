@@ -61,6 +61,14 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w);
  * off: with both, the line is drawn twice — one following the cloth under the
  * cushion nose and one standing proud of it. */
 void cue_render_set_markings(int on);
+/* Bar billiards' skittles: whether the BAKED table mesh carries them. A
+ * front-end that uploads the table once must turn them off and draw its own —
+ * a skittle inside a static mesh cannot fall over. Default on. */
+void cue_render_set_skittles(int on);
+/* The turned profile, so that front-end is drawing the same skittle: pairs of
+ * (height above the foot in metres, radius as a multiple of the stem's).
+ * Returns the point count. */
+int  cue_render_skittle_profile(const float (**pts)[2]);
 
 /* Mote engine port: hand the renderer the engine jump table (call once before
  * cue_render_build), and the per-band background gradient the OS calls. */

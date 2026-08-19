@@ -188,6 +188,7 @@ if(MOTE_TARGET STREQUAL "host")
     add_executable(cue_test_jump
         games/thumbycue/src/test_jump.c
         games/thumbycue/src/cue_physics.c
+        engine/physics/mote_phys.c engine/core/mote_arena.c
         games/thumbycue/src/cue_table.c
         games/thumbycue/src/cue_rules.c)
     target_include_directories(cue_test_jump PRIVATE
@@ -207,7 +208,8 @@ if(MOTE_TARGET STREQUAL "host")
         games/thumbycue/src/test_freeball.c
         games/thumbycue/src/cue_rules.c
         games/thumbycue/src/cue_table.c
-        games/thumbycue/src/cue_physics.c)
+        games/thumbycue/src/cue_physics.c
+        engine/physics/mote_phys.c engine/core/mote_arena.c)
     target_include_directories(cue_test_freeball PRIVATE
         ${MOTE_INCLUDE_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
@@ -218,7 +220,8 @@ if(MOTE_TARGET STREQUAL "host")
     add_executable(cue_test_place
         games/thumbycue/src/test_place.c
         games/thumbycue/src/cue_table.c
-        games/thumbycue/src/cue_physics.c)
+        games/thumbycue/src/cue_physics.c
+        engine/physics/mote_phys.c engine/core/mote_arena.c)
     target_include_directories(cue_test_place PRIVATE
         ${MOTE_INCLUDE_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
@@ -233,6 +236,7 @@ if(MOTE_TARGET STREQUAL "host")
     add_executable(cue_test_edge
         games/thumbycue/src/test_edge.c
         games/thumbycue/src/cue_physics.c
+        engine/physics/mote_phys.c engine/core/mote_arena.c
         games/thumbycue/src/cue_table.c)
     target_include_directories(cue_test_edge PRIVATE
         ${MOTE_INCLUDE_DIRS}
@@ -246,7 +250,8 @@ if(MOTE_TARGET STREQUAL "host")
         games/thumbycue/src/test_respot.c
         games/thumbycue/src/cue_rules.c
         games/thumbycue/src/cue_table.c
-        games/thumbycue/src/cue_physics.c)
+        games/thumbycue/src/cue_physics.c
+        engine/physics/mote_phys.c engine/core/mote_arena.c)
     target_include_directories(cue_test_respot PRIVATE
         ${MOTE_INCLUDE_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
@@ -259,7 +264,8 @@ if(MOTE_TARGET STREQUAL "host")
     add_executable(cue_test_throw
         games/thumbycue/src/test_throw.c
         games/thumbycue/src/cue_table.c
-        games/thumbycue/src/cue_physics.c)
+        games/thumbycue/src/cue_physics.c
+        engine/physics/mote_phys.c engine/core/mote_arena.c)
     target_include_directories(cue_test_throw PRIVATE
         ${MOTE_INCLUDE_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
@@ -272,7 +278,8 @@ if(MOTE_TARGET STREQUAL "host")
         games/thumbycue/src/test_concede.c
         games/thumbycue/src/cue_rules.c
         games/thumbycue/src/cue_table.c
-        games/thumbycue/src/cue_physics.c)
+        games/thumbycue/src/cue_physics.c
+        engine/physics/mote_phys.c engine/core/mote_arena.c)
     target_include_directories(cue_test_concede PRIVATE
         ${MOTE_INCLUDE_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR}/games/thumbycue/src)
@@ -286,6 +293,7 @@ if(MOTE_TARGET STREQUAL "host")
         games/thumbycue/src/test_ai_frames.c
         games/thumbycue/src/cue_ai.c
         games/thumbycue/src/cue_physics.c
+        engine/physics/mote_phys.c engine/core/mote_arena.c
         games/thumbycue/src/cue_rules.c
         games/thumbycue/src/cue_table.c)
     target_include_directories(cue_test_ai_frames PRIVATE
@@ -303,6 +311,7 @@ if(MOTE_TARGET STREQUAL "host")
         games/thumbycue/src/test_break.c
         games/thumbycue/src/cue_ai.c
         games/thumbycue/src/cue_physics.c
+        engine/physics/mote_phys.c engine/core/mote_arena.c
         games/thumbycue/src/cue_rules.c
         games/thumbycue/src/cue_table.c)
     target_include_directories(cue_test_break PRIVATE

@@ -122,6 +122,10 @@ enum {
  *   a PAIR CENTRED on the back row, straddling the centre line and so
  *     between two standard positions (hole 10).
  */
+/* WHICH HOLES A ROUND COVERS. Nine is a real round of golf and half the
+ * sitting, which matters more on a table — where a hole is a handful of shots
+ * and a full eighteen is a long session — than it does on grass. */
+enum { CUE_GOLF_18 = 0, CUE_GOLF_FRONT9, CUE_GOLF_BACK9, CUE_GOLF_ROUNDS };
 #define CUE_GOLF_HOLES 18
 #define CUE_GOLF_MAX_BALLS 4
 #define CUE_GOLF_MAX_STROKES 8      /* Rule 3: "limit 8" */
@@ -134,6 +138,11 @@ typedef struct {
 extern const CueGolfHole CUE_GOLF_COURSE[CUE_GOLF_HOLES];
 /* Par for the front nine, the back nine and the round. */
 int cue_golf_par(int from_hole, int to_hole);
+/* The first and last hole of a round — one place, so nothing has to remember
+ * that the back nine starts at ten. */
+static inline int cue_golf_first(int round) { return round == CUE_GOLF_BACK9 ? 9 : 0; }
+static inline int cue_golf_last(int round)  { return round == CUE_GOLF_FRONT9 ? 8 : 17; }
+extern const char *const CUE_GOLF_ROUND_NAME[CUE_GOLF_ROUNDS];
 /* Which hole the next cue_table_rack() sets out. The rack takes no argument
  * for it and every caller already goes through that one function. */
 void cue_table_golf_set_hole(int hole);
