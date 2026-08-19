@@ -117,8 +117,10 @@ def defaults():
 #                 it, and the cushions close over it as it goes.
 #   cut x         the cloth cut as a multiple of the pocket size — larger than
 #                 1, because the cloth is cut wider than the hole.
-#   cut offset    in mm, how much further out than the drop that circle is
-#                 centred, so the ring of bare slate is not concentric.
+#   cut offset    x the pocket size, how much further out than the drop that
+#                 circle is centred, so the ring of bare slate is not
+#                 concentric. Proportional, or it comes apart from the cut
+#                 radius at the ends of the size range.
 #
 # The bore is made EQUAL to the pocket size and CONCENTRIC with the drop, so
 # the hole in the timber and the hole the ball falls into are the same hole.
@@ -153,7 +155,7 @@ def link_keys(q):
     psize  = float(q.get("psize",  "46.0"))      # mm, THE POCKET
     depth  = float(q.get("depth",  "8.0"))       # mm, along the normal
     lipk   = float(q.get("lipk",   "1.30"))      # x the pocket
-    lipoff = float(q.get("lipoff", "0.0"))       # mm, beyond the drop
+    lipoff = float(q.get("lipoff", "0.35"))      # x pocket, beyond the drop
     lip    = float(q.get("lip",    "11.0"))      # mm, how far the lip rolls
     pr   = (psize / 1000.0) / R
     back = (depth / 1000.0) / R
@@ -163,7 +165,13 @@ def link_keys(q):
     q["bore"] = "%.6f" % pr
     q["bset"] = "%.6f" % back
     q["rad"]  = "%.6f" % lipk
-    q["set"]  = "%.6f" % ((depth + lipoff) / 1000.0)
+    # X POCKET, NOT MILLIMETRES. As an absolute the cut radius scaled with the
+    # pocket while its centre did not, so the two came apart at the ends of the
+    # range: on UK7's corner the cloth went from hanging 7.3mm OVER the hole at
+    # a 30mm pocket to standing 10.5mm clear of it at 80mm, and the lip
+    # disappeared at the small end because there was no cloth left to roll.
+    # Proportional, the same sweep holds between +0.19 and +0.51mm.
+    q["set"]  = "%.6f" % ((depth + lipoff * psize) / 1000.0)
     # NO SOLVE. Four attempts at solving `gap` onto the frame-face meeting
     # point all failed, the last by driving the cushions clean across the hole:
     # the objective was "nearest cushion vertex to the meeting point", which
@@ -495,10 +503,10 @@ function sync(kind){
 const LKEYS=['psize','depth','lipk','lipoff','lip'];
 const LNAME={psize:'pocket size',depth:'pocket depth',lipk:'cut x pocket',
              lipoff:'cut offset',lip:'lip roll'};
-const LUNIT={psize:'mm radius',depth:'mm',lipk:'x pocket',lipoff:'mm',lip:'mm'};
+const LUNIT={psize:'mm radius',depth:'mm',lipk:'x pocket',lipoff:'x pocket',lip:'mm'};
 const LRANGE={psize:[10,90,.1],depth:[0,40,.1],lipk:[1.0,2.2,.005],
-              lipoff:[-15,25,.1],lip:[0,30,.1]};
-const LSTEP={psize:1,depth:1,lipk:3,lipoff:1,lip:1};
+              lipoff:[-0.3,0.9,.005],lip:[0,30,.1]};
+const LSTEP={psize:1,depth:1,lipk:3,lipoff:3,lip:1};
 const LTIP={
   psize:'THE POCKET. The radius in millimetres of the circle a ball is caught '+
         'by — the gameplay, and the one size a table author sets. The bore in '+
@@ -513,9 +521,12 @@ const LTIP={
   lipk:'The cloth cut, as a multiple of the pocket size. 1.0 cuts the cloth '+
        'exactly at the bore; wider leaves a ring of bare slate around the '+
        'hole, which is what a real table has and what the shipped ones do.',
-  lipoff:'How much further out than the drop that circle is centred, in mm, '+
-         'so the ring is pushed toward the timber instead of being even all '+
-         'the way round.',
+  lipoff:'How much further out than the drop that circle is centred, as a '+
+         'multiple of the pocket, so the ring is pushed toward the timber '+
+         'instead of being even all the way round. Proportional and not mm: '+
+         'the cut RADIUS scales with the pocket, so if its centre does not, '+
+         'the two come apart and the cloth ends up over the hole at small '+
+         'sizes and miles clear of it at large ones.',
   lip:'How far the cloth edge rolls down into the pocket, in mm — the curved '+
       'drop depth. Kept as its own number rather than derived, because '+
       'whether it wants to vary per table is not yet known.'};
@@ -566,7 +577,7 @@ function lseed(kind){
     psize : drop * R * 1000.0,
     depth : k.back * R * 1000.0,
     lipk  : k.rad * ratio,
-    lipoff: (k.set - k.back*R) * 1000.0,
+    lipoff: (k.set - k.back*R) / (drop * R),   /* x pocket */
   };
   lsync(kind);
 }

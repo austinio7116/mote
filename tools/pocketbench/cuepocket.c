@@ -263,6 +263,93 @@ static float frame_meet_err(const CueWorld *w, int p, float br, float bset,
     }
 }
 
+/* THE TWO POINTS THAT HAVE TO COINCIDE, and the arc between them.
+ *
+ * Both live on the bore circle. One is where the CUSHION comes to the hole —
+ * the nearest point of the facing chain, pulled onto the circle. The other is
+ * where the WOOD's bore arc ENDS — the timber's inner face cutting across the
+ * hole, found from the wood alone by sorting the rim by angle and taking the
+ * edge of the largest gap.
+ *
+ * When they coincide the cushion face runs straight into the bore with no
+ * sliver of frame between them and nothing overhanging. On the shipped UK7
+ * corner they are about 3mm apart, which is why the shipped pockets look
+ * right; nothing holds them together when the pocket size moves, which is why
+ * a resized one does not.
+ *
+ * Signed, along the circle, so it has ONE zero and a solver can find it.
+ * Previous attempts measured a distance, which is zero both when the cushion
+ * arrives and when it has swept past and buried the point. */
+static float touch_vs_frame(const CueWorld *w, int p, float br, float bset,
+                            const CueTri *tri, int ntri, int bed, int lip) {
+    const float bx = w->pocket[p].x + w->pmnorm[p].x*bset;
+    const float bz = w->pocket[p].z + w->pmnorm[p].z*bset;
+    const float REACH = 0.35f;
+    /* the cushion's touch, as an angle about the bore centre */
+    float nx = 0, nz = 0, nd = 1e30f;
+    for (int si = 0; si < w->nseg; si++) {
+        if (w->seg[si].kind != 1) continue;
+        const Vec3 sa = w->seg[si].a, sb = w->seg[si].b;
+        const float mx = 0.5f*(sa.x+sb.x) - w->pocket[p].x;
+        const float mz = 0.5f*(sa.z+sb.z) - w->pocket[p].z;
+        if (mx*mx + mz*mz > REACH*REACH) continue;
+        for (int q = 0; q <= 16; q++) {
+            const float tt = (float)q/16.0f;
+            const float ex = sa.x + (sb.x-sa.x)*tt, ez = sa.z + (sb.z-sa.z)*tt;
+            const float dd = sqrtf((ex-bx)*(ex-bx) + (ez-bz)*(ez-bz));
+            if (dd < nd) { nd = dd; nx = ex; nz = ez; }
+        }
+    }
+    if (nd > 1e29f) return NAN;
+    const float ac = atan2f(nz - bz, nx - bx);
+    /* the wood's arc ends */
+    float ywood = -1e30f;
+    for (int t = bed; t < lip && t < ntri; t++) {
+        if (tri[t].mat != CUE_MAT_WOOD) continue;
+        for (int i = 0; i < 3; i++) {
+            const float dx = tri[t].v[i].x - w->pocket[p].x;
+            const float dz = tri[t].v[i].z - w->pocket[p].z;
+            if (dx*dx + dz*dz > REACH*REACH) continue;
+            if (tri[t].v[i].y > ywood) ywood = tri[t].v[i].y;
+        }
+    }
+    if (ywood < -1e29f) return NAN;
+    enum { MAXA = 4096 };
+    static float ang[MAXA]; int na = 0;
+    for (int t = bed; t < lip && t < ntri && na < MAXA; t++) {
+        if (tri[t].mat != CUE_MAT_WOOD) continue;
+        for (int i = 0; i < 3 && na < MAXA; i++) {
+            if (tri[t].v[i].y < ywood - 0.0015f) continue;
+            const float px = tri[t].v[i].x - w->pocket[p].x;
+            const float pz = tri[t].v[i].z - w->pocket[p].z;
+            if (px*px + pz*pz > REACH*REACH) continue;
+            const float dx = tri[t].v[i].x - bx, dz = tri[t].v[i].z - bz;
+            if (fabsf(sqrtf(dx*dx + dz*dz) - br) > 0.0025f) continue;
+            ang[na++] = atan2f(dz, dx);
+        }
+    }
+    if (na < 4) return NAN;
+    for (int i = 1; i < na; i++) {
+        const float v = ang[i]; int j = i - 1;
+        while (j >= 0 && ang[j] > v) { ang[j+1] = ang[j]; j--; }
+        ang[j+1] = v;
+    }
+    float gapmax = -1.0f; int gi = 0;
+    for (int i = 0; i < na; i++) {
+        const float a0 = ang[i], a1 = (i+1 < na) ? ang[i+1] : ang[0] + 6.2831853f;
+        if (a1 - a0 > gapmax) { gapmax = a1 - a0; gi = i; }
+    }
+    const float e0 = ang[gi], e1 = (gi+1 < na) ? ang[gi+1] : ang[0] + 6.2831853f;
+    /* whichever arc end this cushion answers to, signed along the circle */
+    float d0 = ac - e0, d1 = ac - e1;
+    while (d0 >  3.14159265f) d0 -= 6.2831853f;
+    while (d0 < -3.14159265f) d0 += 6.2831853f;
+    while (d1 >  3.14159265f) d1 -= 6.2831853f;
+    while (d1 < -3.14159265f) d1 += 6.2831853f;
+    const float d = (fabsf(d0) < fabsf(d1)) ? d0 : d1;
+    return d * br;                      /* radians -> metres along the rim */
+}
+
 typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset,
                        flen, ang,
                        /* THE THINGS THAT ARE NOT THE POCKET but decide what it
@@ -731,8 +818,12 @@ int main(int argc, char **argv) {
      * the world is built, so what is drawn and what is measured are the same
      * table — the alternative is building it twice and reporting the first. */
     float gap_solved = -1.0f;
-    if (kiss) { gap_solved = solve_gap(ti, mid, &k, pocket_idx); k.gap = gap_solved; }
     build_tuned(ti, mid, &k, &T, &W);
+    /* P1: one closed-form pass, then build again. cue_table_link_gap needs a
+     * world already built from the table to read the jaw tips and the rail
+     * directions off, and the relationship it inverts is exact, so a second
+     * build is the whole of it — not the ninety a search was costing. */
+    (void)kiss;
     if (bed_l > 0.0f && bed_w > 0.0f) {
         T.half_len = bed_l; T.half_wid = bed_w;
         cue_table_build_world(&T, &W);
@@ -782,6 +873,9 @@ int main(int argc, char **argv) {
     /* Measured here, where the mesh and the chosen pocket both exist, so the
      * target point can be DRAWN as well as reported. */
     float tgx = 0.0f, tgz = 0.0f, tfx = 0.0f, tfz = 0.0f;
+    const float arcmm = touch_vs_frame(&W, p, mid ? T.bore_side : T.bore_corner,
+                                       mid ? T.bore_set_side : T.bore_set_corner,
+                                       tri, ntri, bd, lp) * 1000.0f;
     const float topmm = frame_meet_err(&W, p, mid ? T.bore_side : T.bore_corner,
                                        mid ? T.bore_set_side : T.bore_set_corner,
                                        tri, ntri, bd, lp, &tgx, &tgz, &tfx, &tfz) * 1000.0f;
@@ -888,6 +982,34 @@ int main(int argc, char **argv) {
     circ_m(pc.x-n.x*W.pocket_r[p], pc.z-n.z*W.pocket_r[p], W.R, 255,255,255,0,0);
     /* THE POINT THE CUSHION HAS TO ARRIVE AT, drawn rather than asserted:
      * where the bore circle crosses the inner face of the frame. */
+    /* WHERE THE CUSHION TOUCHES THE BORE — the nearest point of the whole
+     * facing chain to the bore centre, pulled onto the circle. Drawn beside
+     * the wood's own arc ends so the two can be compared directly. */
+    {   const float bcx = W.pocket[p].x + W.pmnorm[p].x*(mid?T.bore_set_side:T.bore_set_corner);
+        const float bcz = W.pocket[p].z + W.pmnorm[p].z*(mid?T.bore_set_side:T.bore_set_corner);
+        const float brr = mid ? T.bore_side : T.bore_corner;
+        float nx=0, nz=0, nd=1e30f;
+        for (int si = 0; si < W.nseg; si++) {
+            if (W.seg[si].kind != 1) continue;
+            const Vec3 sa = W.seg[si].a, sb = W.seg[si].b;
+            const float mx = 0.5f*(sa.x+sb.x) - W.pocket[p].x;
+            const float mz = 0.5f*(sa.z+sb.z) - W.pocket[p].z;
+            if (mx*mx + mz*mz > 0.1225f) continue;
+            for (int q = 0; q <= 8; q++) {
+                const float tt = (float)q/8.0f;
+                const float ex = sa.x + (sb.x-sa.x)*tt, ez = sa.z + (sb.z-sa.z)*tt;
+                const float dd = sqrtf((ex-bcx)*(ex-bcx) + (ez-bcz)*(ez-bcz));
+                if (dd < nd) { nd = dd; nx = ex; nz = ez; }
+            }
+        }
+        if (nd < 1e29f) {
+            const float ul2 = sqrtf((nx-bcx)*(nx-bcx) + (nz-bcz)*(nz-bcz));
+            if (ul2 > 1e-6f) {
+                float g0,g1; m2px(bcx + (nx-bcx)/ul2*brr, bcz + (nz-bcz)/ul2*brr, &g0,&g1);
+                dot(g0,g1,5,60,255,120);        /* GREEN: the cushion's touch point */
+            }
+        }
+    }
     if (tfx != 0.0f || tfz != 0.0f) {          /* the frame edge sample, cyan */
         float f0,f1; m2px(tfx,tfz,&f0,&f1); dot(f0,f1,4,90,230,255);
     }
@@ -943,13 +1065,14 @@ int main(int argc, char **argv) {
                                        mid ? T.bore_set_side : T.bore_set_corner) * 1000.0f;
     fprintf(stderr, "{\"mouth\": %.2f, \"drop\": %.2f, \"edge\": %.2f, "
                     "\"thick\": %.2f, \"ball\": %.2f, \"bore\": %.2f, "
-                    "\"tip\": %.2f, \"top\": %.2f, \"solved_gap\": %.4f, \"gap_to_drop\": %.2f}\n",
+                    "\"tip\": %.2f, \"top\": %.2f, \"arc\": %.2f, \"solved_gap\": %.4f, \"gap_to_drop\": %.2f}\n",
         (double)(jaw_sep(&W,p)*1000.0f), (double)(W.pocket_r[p]*1000.0f),
         (double)(W.cut_r[p]*1000.0f), (double)(W.lip_d[p]*1000.0f),
         (double)(W.R*2000.0f),
         (double)((mid ? T.bore_side : T.bore_corner) * 1000.0f),
         (double)(tipmm == tipmm ? tipmm : 9999.0f),
         (double)(topmm == topmm ? topmm : 9999.0f),
+        (double)((arcmm == arcmm) ? arcmm : 9999.0f),
         (double)gap_solved,
         (double)(( (W.cut_r[p] - sqrtf((W.cut_c[p].x-W.drop_c[p].x)*(W.cut_c[p].x-W.drop_c[p].x)
                                      + (W.cut_c[p].z-W.drop_c[p].z)*(W.cut_c[p].z-W.drop_c[p].z)))
