@@ -950,11 +950,24 @@ int main(int argc, char **argv) {
          * the diagonal at a corner and straight out at a middle. The defaults
          * are the angle the fault was actually seen from; the sliders move off
          * it. */
-        float yaw = have_cam ? cyaw : (!strcmp(vw,"in") ? (mid ? 180.0f : 225.0f)
-                                                        : (mid ?   0.0f :  45.0f));
-        float pit = have_cam ? cpit : (!strcmp(vw,"in") ? 8.0f : 35.0f);
-        float dst = have_cam ? cdst : (!strcmp(vw,"in") ? T.R*9.0f : T.R*12.0f);
-        cam_look(v3(W.pocket[p].x, T.R*0.35f, W.pocket[p].z), yaw, pit, dst, 55.0f);
+        /* "face" is the PLAYER'S view of the mouth: stood on the cloth in
+         * front of the pocket at ball height, looking straight in along the
+         * pocket's own normal. "out" and "in" are both oblique and both look
+         * at the pocket from behind or above it, so neither shows the front —
+         * the jaws and the opening between them as a ball arrives at it. */
+        const int face = !strcmp(vw,"face");
+        float yaw = have_cam ? cyaw : (face ? (mid ? 180.0f : 225.0f)
+                                     : (!strcmp(vw,"in") ? (mid ? 180.0f : 225.0f)
+                                                         : (mid ?   0.0f :  45.0f)));
+        /* Low and a little back: at 3 degrees and eleven radii the eye is
+         * inside the throat looking at its wall, which is not the front of
+         * anything. Twenty degrees and seventeen radii puts both jaws and the
+         * opening between them in frame with the timber behind. */
+        float pit = have_cam ? cpit : (face ? 20.0f : (!strcmp(vw,"in") ? 8.0f : 35.0f));
+        float dst = have_cam ? cdst : (face ? T.R*17.5f
+                                     : (!strcmp(vw,"in") ? T.R*9.0f : T.R*12.0f));
+        cam_look(v3(W.pocket[p].x, face ? T.R*0.9f : T.R*0.35f, W.pocket[p].z),
+                 yaw, pit, dst, 55.0f);
     }
     /* THE WHOLE TABLE, rather than one pocket. Same camera, framed on the
      * cloth's centre and far enough back to hold the long rail — so a change to
