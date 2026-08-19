@@ -363,6 +363,84 @@ static float touch_vs_frame(const CueWorld *w, int p, float br, float bset,
     return d * br;                      /* radians -> metres along the rim */
 }
 
+/* THE POINT AND THE TIP, FOR ANY BED SHAPE.
+ *
+ * frame_edge_point above is written in x and z off half_len/half_wid, so it
+ * says nothing about a polygon. This is the same construction the linker uses
+ * — the free end of a jaw chain, the rail it slides along, and where the bore
+ * crosses the line through it — which needs no axes and so works on a
+ * rectangle, an L and an n-gon alike. On a rectangle the two agree, which is
+ * the check that neither is lying.
+ *
+ * Returns the tip (where the jaw ends now) and the target (where it should).
+ * They coincide when the pocket is linked. */
+static int generic_point(const CueTable *t, const CueWorld *w, int p,
+                         float *tipx, float *tipz, float *tgx, float *tgz) {
+    const int m = w->pocket_mid[p] ? 1 : 0;
+    const float br   = m ? t->bore_side : t->bore_corner;
+    const float bset = m ? t->bore_set_side : t->bore_set_corner;
+    const float cx = w->pocket[p].x + w->pmnorm[p].x*bset;
+    const float cz = w->pocket[p].z + w->pmnorm[p].z*bset;
+    /* the pocket's own tangent, so one side is reported consistently */
+    const float tx = w->pmnorm[p].z, tz = -w->pmnorm[p].x;
+    float bx = 0, bz = 0, bd = 1e30f; int got = 0;
+    for (int i = 0; i < w->nseg; i++) {
+        if (w->seg[i].kind != 1) continue;
+        const Vec3 e[2] = { w->seg[i].a, w->seg[i].b };
+        for (int q = 0; q < 2; q++) {
+            int shared = 0;
+            for (int j = 0; j < w->nseg && !shared; j++) {
+                if (j == i) continue;
+                const Vec3 f[2] = { w->seg[j].a, w->seg[j].b };
+                for (int r = 0; r < 2; r++) {
+                    const float ax = f[r].x - e[q].x, az = f[r].z - e[q].z;
+                    if (ax*ax + az*az < 1e-8f) { shared = 1; break; }
+                }
+            }
+            if (shared) continue;
+            /* only ends that answer to THIS pocket, and only one side of it */
+            int np = -1; float nd = 1e30f;
+            for (int k = 0; k < w->npocket; k++) {
+                const float dx = w->pocket[k].x - e[q].x;
+                const float dz = w->pocket[k].z - e[q].z;
+                const float dd = dx*dx + dz*dz;
+                if (dd < nd) { nd = dd; np = k; }
+            }
+            if (np != p) continue;
+            if (((e[q].x - cx)*tx + (e[q].z - cz)*tz) <= 0.0f) continue;
+            if (nd < bd) { bd = nd; bx = e[q].x; bz = e[q].z; got = 1; }
+        }
+    }
+    if (!got) return 0;
+    *tipx = bx; *tipz = bz;
+    /* the rail it slides along, away from the pocket */
+    float ux = 0, uz = 0, best = 1e30f;
+    for (int j = 0; j < w->nseg; j++) {
+        if (w->seg[j].kind != 0) continue;
+        const float mx = 0.5f*(w->seg[j].a.x + w->seg[j].b.x) - bx;
+        const float mz = 0.5f*(w->seg[j].a.z + w->seg[j].b.z) - bz;
+        const float dd = mx*mx + mz*mz;
+        if (dd >= best) continue;
+        const float gx = w->seg[j].b.x - w->seg[j].a.x;
+        const float gz = w->seg[j].b.z - w->seg[j].a.z;
+        const float gl = sqrtf(gx*gx + gz*gz);
+        if (gl < 1e-6f) continue;
+        best = dd; ux = gx/gl; uz = gz/gl;
+    }
+    if (best > 1e29f) return 0;
+    if ((bx - w->pocket[p].x)*ux + (bz - w->pocket[p].z)*uz < 0.0f) { ux=-ux; uz=-uz; }
+    const float qx = bx - cx, qz = bz - cz;
+    const float qu = qx*ux + qz*uz;
+    const float perp2 = (qx*qx + qz*qz) - qu*qu;
+    const float disc = br*br - perp2;
+    if (disc < 0.0f) return 0;
+    const float rt = sqrtf(disc);
+    const float d1 = -qu + rt, d2 = -qu - rt;
+    const float d = (fabsf(d1) < fabsf(d2)) ? d1 : d2;
+    *tgx = bx + ux*d; *tgz = bz + uz*d;
+    return 1;
+}
+
 typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset,
                        flen, ang,
                        /* THE THINGS THAT ARE NOT THE POCKET but decide what it
@@ -897,9 +975,17 @@ int main(int argc, char **argv) {
      * and then had its bed changed underneath the answer. */
     if (kiss) {
         (void)karc;
-        cue_table_link_gap(&T, &W);
+        /* THREE PASSES, because the target moves a little when the jaws do.
+         * pmnorm is worked out from the pocket's own two jaw tips, so sliding
+         * the jaws turns the pocket's normal, which moves the bore centre,
+         * which moves the crossing the jaws were being sent to. The step is
+         * exact in `gap` but the aim shifts under it; a second pass takes out
+         * almost all of what the first leaves and a third settles it. */
+        for (int it = 0; it < 3; it++) {
+            cue_table_link_gap(&T, &W);
+            cue_table_build_world(&T, &W);
+        }
         gap_solved = (mid ? T.gap_side : T.gap_corner) / T.R;
-        cue_table_build_world(&T, &W);
         apply_cut(mid, &k, &T, &W);
     }
     img=malloc((size_t)IW*IH*3); zb=malloc(sizeof(float)*(size_t)IW*IH);
@@ -1012,10 +1098,13 @@ int main(int argc, char **argv) {
      * laid under it, down a pocket is DARK and the only magenta left is a line
      * of sight that really does leave the table sideways: the slot between a
      * cushion and the frame, which is the thing being hunted. */
-    /* ...and with --pink the view from above needs it too, or the drop itself
-     * floods pink and every pocket reads as a hole clean through the table —
-     * which is exactly the fault the colour is there to find. */
-    if (s_persp || pinkbg) {
+    /* NO FLOOR IN THE VIEW FROM ABOVE. It was added for --pink so the drop
+     * would not flood magenta, and that made the colour useless there: with a
+     * floor behind it, looking straight down can NEVER see through anything,
+     * so every top-down frame came back clean whether it was or not. Straight
+     * down, a hole in the bed IS a hole — the drop reads magenta and so does
+     * any gap that should not be there, and they are told apart by shape. */
+    if (s_persp) {
         const float fy = -0.09f, e = 3.0f;
         Vec3 fa = v3(-e,fy,-e), fb = v3(e,fy,-e), fc = v3(e,fy,e), fd = v3(-e,fy,e);
         CueTri fl[2];
