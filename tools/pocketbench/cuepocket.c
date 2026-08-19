@@ -267,25 +267,29 @@ static float frame_meet_err(const CueWorld *w, int p, float br, float bset,
  *
  * Both live on the bore circle. One is where the CUSHION comes to the hole —
  * the nearest point of the facing chain, pulled onto the circle. The other is
- * where the WOOD's bore arc ENDS — the timber's inner face cutting across the
- * hole, found from the wood alone by sorting the rim by angle and taking the
- * edge of the largest gap.
+ * where the WOOD's bore arc ENDS, found from the wood alone: sort the rim by
+ * angle about the bore centre and take the edges of the largest gap, which is
+ * the pocket opening.
  *
- * When they coincide the cushion face runs straight into the bore with no
- * sliver of frame between them and nothing overhanging. On the shipped UK7
- * corner they are about 3mm apart, which is why the shipped pockets look
- * right; nothing holds them together when the pocket size moves, which is why
- * a resized one does not.
+ * MATCHED BY SIDE, not by which is nearer. A pocket has two cushions and two
+ * arc ends, one of each per side, and pairing them by distance lets the pair
+ * swap over as the geometry moves — reported as the marker flipping from one
+ * side of the pocket to the other when the pocket size is dialled. The side is
+ * the sign against the pocket's own tangent, which cannot swap.
  *
- * Signed, along the circle, so it has ONE zero and a solver can find it.
- * Previous attempts measured a distance, which is zero both when the cushion
- * arrives and when it has swept past and buried the point. */
+ * Signed along the circle, so there is ONE zero for a solver to find rather
+ * than the two that a plain distance has. */
 static float touch_vs_frame(const CueWorld *w, int p, float br, float bset,
-                            const CueTri *tri, int ntri, int bed, int lip) {
+                            const CueTri *tri, int ntri, int bed, int lip,
+                            int side, float *out_cx, float *out_cz,
+                            float *out_fx, float *out_fz) {
     const float bx = w->pocket[p].x + w->pmnorm[p].x*bset;
     const float bz = w->pocket[p].z + w->pmnorm[p].z*bset;
+    /* the pocket's own tangent: which side of the mouth a thing is on */
+    const float tx = w->pmnorm[p].z, tz = -w->pmnorm[p].x;
     const float REACH = 0.35f;
-    /* the cushion's touch, as an angle about the bore centre */
+
+    /* THE CUSHION'S TOUCH, on this side only. */
     float nx = 0, nz = 0, nd = 1e30f;
     for (int si = 0; si < w->nseg; si++) {
         if (w->seg[si].kind != 1) continue;
@@ -296,13 +300,18 @@ static float touch_vs_frame(const CueWorld *w, int p, float br, float bset,
         for (int q = 0; q <= 16; q++) {
             const float tt = (float)q/16.0f;
             const float ex = sa.x + (sb.x-sa.x)*tt, ez = sa.z + (sb.z-sa.z)*tt;
+            if (((ex-bx)*tx + (ez-bz)*tz) * (float)side <= 0.0f) continue;
             const float dd = sqrtf((ex-bx)*(ex-bx) + (ez-bz)*(ez-bz));
             if (dd < nd) { nd = dd; nx = ex; nz = ez; }
         }
     }
     if (nd > 1e29f) return NAN;
+    {   const float ul = sqrtf((nx-bx)*(nx-bx) + (nz-bz)*(nz-bz));
+        if (ul > 1e-6f && out_cx) { *out_cx = bx + (nx-bx)/ul*br;
+                                    *out_cz = bz + (nz-bz)/ul*br; } }
     const float ac = atan2f(nz - bz, nx - bx);
-    /* the wood's arc ends */
+
+    /* THE WOOD'S ARC END, on the same side. */
     float ywood = -1e30f;
     for (int t = bed; t < lip && t < ntri; t++) {
         if (tri[t].mat != CUE_MAT_WOOD) continue;
@@ -339,14 +348,18 @@ static float touch_vs_frame(const CueWorld *w, int p, float br, float bset,
         const float a0 = ang[i], a1 = (i+1 < na) ? ang[i+1] : ang[0] + 6.2831853f;
         if (a1 - a0 > gapmax) { gapmax = a1 - a0; gi = i; }
     }
-    const float e0 = ang[gi], e1 = (gi+1 < na) ? ang[gi+1] : ang[0] + 6.2831853f;
-    /* whichever arc end this cushion answers to, signed along the circle */
-    float d0 = ac - e0, d1 = ac - e1;
-    while (d0 >  3.14159265f) d0 -= 6.2831853f;
-    while (d0 < -3.14159265f) d0 += 6.2831853f;
-    while (d1 >  3.14159265f) d1 -= 6.2831853f;
-    while (d1 < -3.14159265f) d1 += 6.2831853f;
-    const float d = (fabsf(d0) < fabsf(d1)) ? d0 : d1;
+    const float ends[2] = { ang[gi], (gi+1 < na) ? ang[gi+1] : ang[0] + 6.2831853f };
+    float af = 0.0f; int got = 0;
+    for (int i = 0; i < 2; i++) {
+        const float ex = bx + cosf(ends[i])*br, ez = bz + sinf(ends[i])*br;
+        if (((ex-bx)*tx + (ez-bz)*tz) * (float)side <= 0.0f) continue;
+        af = ends[i]; got = 1;
+        if (out_fx) { *out_fx = ex; *out_fz = ez; }
+    }
+    if (!got) return NAN;
+    float d = ac - af;
+    while (d >  3.14159265f) d -= 6.2831853f;
+    while (d < -3.14159265f) d += 6.2831853f;
     return d * br;                      /* radians -> metres along the rim */
 }
 
@@ -420,61 +433,72 @@ static void build_tuned(int ti, int mid, const Knobs *k, CueTable *ot, CueWorld 
  * on the one crossing. If the bracket does not contain one, the authored gap
  * is returned untouched and the readout goes on reporting the error, because
  * quietly clamping to an end of the range would look like a solution. */
-/* The top-edge error for a table that has just been built, mesh and all. */
-static float top_of_build(const CueTable *t, const CueWorld *w, int pidx, int mid) {
+/* The arc error for a table that has just been built, mesh and all. */
+static float arc_of_build(const CueTable *t, const CueWorld *w, int pidx, int mid) {
     const CueTri *tri; int bd = 0, lp = 0;
     const int ntri = cue_render_table_tris(&tri, &bd, &lp);
     const int p = (pidx >= 0 && pidx < w->npocket) ? pidx : (mid ? 5 : 2);
     if (p >= w->npocket) return NAN;
     const int m = w->pocket_mid[p];
-    return frame_meet_err(w, p, m ? t->bore_side : t->bore_corner,
+    return touch_vs_frame(w, p, m ? t->bore_side : t->bore_corner,
                           m ? t->bore_set_side : t->bore_set_corner,
-                          tri, ntri, bd, lp, NULL, NULL, NULL, NULL);
+                          tri, ntri, bd, lp, +1, NULL, NULL, NULL, NULL);
 }
 
-static float solve_gap(int ti, int mid, const Knobs *k0, int pidx) {
+/* SOLVE `gap` SO THE CUSHION SITS AT A GIVEN ARC FROM THE WOOD'S ARC END.
+ *
+ * Target zero and the cushion face runs straight into the bore — but on UK7's
+ * corner that costs 53mm of mouth to buy 13mm of arc, because the bore is
+ * nearly tangent to the rail there and the touch point crawls round the circle
+ * while the cushion travels a long way. So zero is offered, not imposed: the
+ * bench seeds the target from what the table already HAS, which holds the
+ * shipped pocket exactly while making the cushions follow the hole when the
+ * pocket size is dialled. That is the linkage; where the target should
+ * eventually sit is a judgement about how the pocket should look, and it is a
+ * knob rather than a constant.
+ *
+ * NOT monotonic, which cost a run to find out. The arc rises with `gap` up to
+ * about one ball radius and falls away after it, so any reachable target has
+ * TWO roots — and walking up from the bottom finds the left one, which on UK7
+ * meant holding the arc exactly right at a 20.6mm mouth. Every root is
+ * bracketed and the one NEAREST THE AUTHORED GAP is taken, so linking a table
+ * to its own arc gives that table back rather than a different pocket that
+ * happens to score the same.
+ *
+ * Builds with nothing to measure return NaN and are stepped over rather than
+ * read as a legitimate zero, which is the trap the earlier solvers fell into. */
+static float solve_gap(int ti, int mid, const Knobs *k0, int pidx, float target) {
     Knobs k = *k0;
-    /* STATIC, not stack. A CueWorld is a big structure and the renderer's own
-     * frame goes on top of it; two of them plus cue_render_build_table's
-     * locals overflowed the stack, which crashed inside the render build while
-     * the identical build from main — where the table and world are file-scope
-     * — was fine. Nothing about the geometry, everything about where it lived. */
+    /* STATIC, not stack: two of these plus the renderer's own frame overflowed
+     * the stack when they were locals. */
     static CueTable t; static CueWorld w;
-    /* SOLVED ON THE TOP EDGE, because that is the edge you look at. The first
-     * cut of this solved the physics nose line and put it exactly on the hole
-     * while leaving the top short of it — which is why it read as not solving
-     * at all. Rebuilding the render mesh per step is the cost of measuring the
-     * visible thing instead of the cheap one; it is ~90 builds and a few ms. */
-    #define TOP_AT(G) (k.gap = (G), build_tuned(ti, mid, &k, &t, &w), \
-        cue_render_build_table(&t, &w), top_of_build(&t, &w, pidx, mid))
-    /* WALK IT, then bisect. A fixed bracket is not safe: past a certain
-     * setback the pocket stops being a pocket and there is nothing left to
-     * measure, and an endpoint in that region tells the solver nothing. So
-     * step the range, skip any build with nothing there, and bisect the FIRST
-     * sign change among the ones that have something. */
+    #define ARC_AT(G) (k.gap = (G), build_tuned(ti, mid, &k, &t, &w), \
+        cue_render_build_table(&t, &w), arc_of_build(&t, &w, pidx, mid) * 1000.0f)
     const int N = 48;
-    const float g0 = 0.05f, g1 = 8.0f;
+    const float g0 = 0.30f, g1 = 8.0f;
+    float best = k0->gap, bestd = 1e30f; int found = 0;
     float plo = 0.0f, pc = 0.0f; int have = 0;
     for (int i = 0; i <= N; i++) {
         const float g = g0 + (g1 - g0) * (float)i / (float)N;
-        const float c = TOP_AT(g);
+        const float c = ARC_AT(g) - target;
         if (c != c) { have = 0; continue; }
         if (have && ((pc > 0.0f) != (c > 0.0f))) {
             float lo = plo, hi = g, clo = pc;
-            for (int j = 0; j < 34; j++) {
-                const float m = 0.5f*(lo + hi), cm = TOP_AT(m);
+            for (int j = 0; j < 30; j++) {
+                const float m = 0.5f*(lo + hi), cm = ARC_AT(m) - target;
                 if (cm != cm) { hi = m; continue; }
                 if ((cm > 0.0f) == (clo > 0.0f)) { lo = m; clo = cm; } else hi = m;
             }
-            #undef TOP_AT
-            return 0.5f*(lo + hi);
+            const float root = 0.5f*(lo + hi);
+            const float d = fabsf(root - k0->gap);
+            if (d < bestd) { bestd = d; best = root; found = 1; }
         }
         plo = g; pc = c; have = 1;
     }
-    #undef TOP_AT
-    return k0->gap;        /* no crossing: leave it alone and let the readout say so */
+    #undef ARC_AT
+    (void)found;
+    return best;           /* no crossing: the authored gap, and the readout says */
 }
-
 
 static int IW = 700, IH = 700;
 static unsigned char *img;
@@ -704,7 +728,7 @@ int main(int argc, char **argv) {
 
     const char *tbl="snooker12", *ty="corner", *out="/tmp/pk.ppm";
     int pocket_idx = -1;
-    int kiss = 0;   /* solve `gap` so the cushions land on the bore */
+    int kiss = 0; float karc = 0.0f;   /* link `gap` to the hole; target arc in mm */
     /* WHERE THE EYE GOES. "top" is the old straight-down view; "out" stands
      * outside the pocket looking in and down at it, which is where a slot
      * behind a mitred jaw shows; "in" stands inside the table just over the
@@ -738,7 +762,7 @@ int main(int argc, char **argv) {
         else if(!strcmp(argv[i],"--roll")) k.roll=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--zoom")) zoom=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--size")) { IW=IH=atoi(argv[++i]); }
-        else if(!strcmp(argv[i],"--kiss")) kiss=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--kiss")) { kiss=1; karc=(float)atof(argv[++i]); }
         else if(!strcmp(argv[i],"--bore")) k.bore=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--bset")) k.bset=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--flen")) k.flen=(float)atof(argv[++i]);
@@ -823,7 +847,11 @@ int main(int argc, char **argv) {
      * world already built from the table to read the jaw tips and the rail
      * directions off, and the relationship it inverts is exact, so a second
      * build is the whole of it — not the ninety a search was costing. */
-    (void)kiss;
+    if (kiss) {
+        gap_solved = solve_gap(ti, mid, &k, pocket_idx, karc);
+        k.gap = gap_solved;
+        build_tuned(ti, mid, &k, &T, &W);
+    }
     if (bed_l > 0.0f && bed_w > 0.0f) {
         T.half_len = bed_l; T.half_wid = bed_w;
         cue_table_build_world(&T, &W);
@@ -873,9 +901,11 @@ int main(int argc, char **argv) {
     /* Measured here, where the mesh and the chosen pocket both exist, so the
      * target point can be DRAWN as well as reported. */
     float tgx = 0.0f, tgz = 0.0f, tfx = 0.0f, tfz = 0.0f;
+    float ctx=0, ctz=0, cfx=0, cfz=0;
     const float arcmm = touch_vs_frame(&W, p, mid ? T.bore_side : T.bore_corner,
                                        mid ? T.bore_set_side : T.bore_set_corner,
-                                       tri, ntri, bd, lp) * 1000.0f;
+                                       tri, ntri, bd, lp, +1,
+                                       &ctx, &ctz, &cfx, &cfz) * 1000.0f;
     const float topmm = frame_meet_err(&W, p, mid ? T.bore_side : T.bore_corner,
                                        mid ? T.bore_set_side : T.bore_set_corner,
                                        tri, ntri, bd, lp, &tgx, &tgz, &tfx, &tfz) * 1000.0f;
@@ -982,39 +1012,15 @@ int main(int argc, char **argv) {
     circ_m(pc.x-n.x*W.pocket_r[p], pc.z-n.z*W.pocket_r[p], W.R, 255,255,255,0,0);
     /* THE POINT THE CUSHION HAS TO ARRIVE AT, drawn rather than asserted:
      * where the bore circle crosses the inner face of the frame. */
-    /* WHERE THE CUSHION TOUCHES THE BORE — the nearest point of the whole
-     * facing chain to the bore centre, pulled onto the circle. Drawn beside
-     * the wood's own arc ends so the two can be compared directly. */
-    {   const float bcx = W.pocket[p].x + W.pmnorm[p].x*(mid?T.bore_set_side:T.bore_set_corner);
-        const float bcz = W.pocket[p].z + W.pmnorm[p].z*(mid?T.bore_set_side:T.bore_set_corner);
-        const float brr = mid ? T.bore_side : T.bore_corner;
-        float nx=0, nz=0, nd=1e30f;
-        for (int si = 0; si < W.nseg; si++) {
-            if (W.seg[si].kind != 1) continue;
-            const Vec3 sa = W.seg[si].a, sb = W.seg[si].b;
-            const float mx = 0.5f*(sa.x+sb.x) - W.pocket[p].x;
-            const float mz = 0.5f*(sa.z+sb.z) - W.pocket[p].z;
-            if (mx*mx + mz*mz > 0.1225f) continue;
-            for (int q = 0; q <= 8; q++) {
-                const float tt = (float)q/8.0f;
-                const float ex = sa.x + (sb.x-sa.x)*tt, ez = sa.z + (sb.z-sa.z)*tt;
-                const float dd = sqrtf((ex-bcx)*(ex-bcx) + (ez-bcz)*(ez-bcz));
-                if (dd < nd) { nd = dd; nx = ex; nz = ez; }
-            }
-        }
-        if (nd < 1e29f) {
-            const float ul2 = sqrtf((nx-bcx)*(nx-bcx) + (nz-bcz)*(nz-bcz));
-            if (ul2 > 1e-6f) {
-                float g0,g1; m2px(bcx + (nx-bcx)/ul2*brr, bcz + (nz-bcz)/ul2*brr, &g0,&g1);
-                dot(g0,g1,5,60,255,120);        /* GREEN: the cushion's touch point */
-            }
-        }
+    /* THE MATCHED PAIR, one side of the pocket, so they cannot swap over:
+     * GREEN is where the cushion comes to the hole, YELLOW is where the wood's
+     * bore arc ends. They coincide or they do not, and the gap between them is
+     * the "arc" figure in the readout. */
+    if (ctx != 0.0f || ctz != 0.0f) {
+        float g0,g1; m2px(ctx,ctz,&g0,&g1); dot(g0,g1,5,60,255,120);
     }
-    if (tfx != 0.0f || tfz != 0.0f) {          /* the frame edge sample, cyan */
-        float f0,f1; m2px(tfx,tfz,&f0,&f1); dot(f0,f1,4,90,230,255);
-    }
-    if (tgx != 0.0f || tgz != 0.0f) {          /* where the cushion must stop */
-        float t0,t1; m2px(tgx,tgz,&t0,&t1); dot(t0,t1,5,255,235,60);
+    if (cfx != 0.0f || cfz != 0.0f) {
+        float f0,f1; m2px(cfx,cfz,&f0,&f1); dot(f0,f1,5,255,235,60);
     }
     /* WHAT IS INSIDE THE HOLE. Every cushion vertex near this pocket, by how
      * far it sits inside the bore circle and at what height, so "the cushion

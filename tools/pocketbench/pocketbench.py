@@ -143,7 +143,7 @@ def defaults():
 # closed form worth pretending to trust. Zero is the target in BOTH directions
 # — a slot you can see through and rubber overhanging an unsupported edge are
 # both faults, not one fault and one acceptable margin.
-LINKED = ["psize", "depth", "lipk", "lipoff", "lip"]
+LINKED = ["psize", "depth", "lipk", "lipoff", "lip", "arc"]
 
 
 def link_keys(q):
@@ -172,7 +172,13 @@ def link_keys(q):
     # disappeared at the small end because there was no cloth left to roll.
     # Proportional, the same sweep holds between +0.19 and +0.51mm.
     q["set"]  = "%.6f" % ((depth + lipoff * psize) / 1000.0)
-    # NO SOLVE. Four attempts at solving `gap` onto the frame-face meeting
+    # THE CUSHIONS FOLLOW THE HOLE. `gap` is solved so the cushion sits at
+    # `arc` millimetres from the wood's arc end — seeded from the table's own,
+    # so a shipped pocket reproduces itself and a resized one keeps the same
+    # relationship instead of standing still while the hole moves.
+    q["kiss"] = "%.4f" % float(q.get("arc", "0"))
+    # (the note below is kept because it is why this is a target and not zero)
+    # Four attempts at solving `gap` onto the frame-face meeting
     # point all failed, the last by driving the cushions clean across the hole:
     # the objective was "nearest cushion vertex to the meeting point", which
     # reads zero both when the cushion arrives there and when it has buried the
@@ -188,6 +194,31 @@ def link_keys(q):
     # which the ball-radius version did.
     q["roll"] = "%.6f" % (lip / psize if psize > 1e-6 else 0.0)
     return q
+
+
+# EACH SHIPPED POCKET'S OWN ARC, measured once and handed to the page as the
+# link target. Zero — the cushion face running straight into the bore — costs
+# 53mm of mouth to buy 13mm of arc on UK7's corner, because the bore is nearly
+# tangent to the rail there. So the default is what the table already has: the
+# shipped pocket comes back exactly, and the cushions follow the hole when the
+# pocket size is dialled. Winding the knob to zero is then a choice that can be
+# looked at rather than a constant baked in behind the author's back.
+_ARCS = {}
+
+
+def seed_arcs():
+    if _ARCS:
+        return
+    for tb in DEF:
+        for kind in ("corner", "middle"):
+            try:
+                _, info = render({"table": tb, "type": kind, "zoom": "5",
+                                  "view": "top"})
+                a = info.get("arc")
+                DEF[tb][kind]["arc"] = round(a, 3) if a is not None and abs(a) < 900 else 0.0
+            except Exception:
+                DEF[tb][kind]["arc"] = 0.0
+    _ARCS["done"] = True
 
 
 def render(q):
@@ -221,8 +252,8 @@ def render(q):
             cmd += ["--" + k, q[k]]
     # Derived, not authored: solve the knuckle setback so the cushions land on
     # the bore. Only in linked mode — unlinked, `gap` is the author's own.
-    if q.get("kiss", "0") not in ("", "0"):
-        cmd += ["--kiss", "1"]
+    if "kiss" in q:
+        cmd += ["--kiss", q["kiss"]]
     r = subprocess.run(cmd, capture_output=True, text=True)
     info = {}
     # The last line is the pocket's own numbers; a line before it, if present,
@@ -500,13 +531,13 @@ function sync(kind){
    certain size, not a certain number of balls — and everything else is derived
    from them: the bore is made equal to the pocket and concentric with the
    drop, and the cloth cut is a wider circle around the outside of it. */
-const LKEYS=['psize','depth','lipk','lipoff','lip'];
+const LKEYS=['psize','depth','lipk','lipoff','lip','arc'];
 const LNAME={psize:'pocket size',depth:'pocket depth',lipk:'cut x pocket',
-             lipoff:'cut offset',lip:'lip roll'};
-const LUNIT={psize:'mm radius',depth:'mm',lipk:'x pocket',lipoff:'x pocket',lip:'mm'};
+             lipoff:'cut offset',lip:'lip roll',arc:'cushion arc'};
+const LUNIT={psize:'mm radius',depth:'mm',lipk:'x pocket',lipoff:'x pocket',lip:'mm',arc:'mm'};
 const LRANGE={psize:[10,90,.1],depth:[0,40,.1],lipk:[1.0,2.2,.005],
-              lipoff:[-0.3,0.9,.005],lip:[0,30,.1]};
-const LSTEP={psize:1,depth:1,lipk:3,lipoff:3,lip:1};
+              lipoff:[-0.3,0.9,.005],lip:[0,30,.1],arc:[-30,15,.1]};
+const LSTEP={psize:1,depth:1,lipk:3,lipoff:3,lip:1,arc:1};
 const LTIP={
   psize:'THE POCKET. The radius in millimetres of the circle a ball is caught '+
         'by — the gameplay, and the one size a table author sets. The bore in '+
@@ -574,6 +605,7 @@ function lseed(kind){
   const ratio = drop>1e-6 ? k.pr/drop : 1.0;   /* the cut is x pr, and pr moves */
   LCUR[kind]={
     lip   : k.roll * k.pr * R * 1000.0,   /* cut_ref is pr, so lip_d = pr*roll */
+    arc   : (DEF[TABLE]?.[kind]?.arc ?? 0),   /* what this table already has */
     psize : drop * R * 1000.0,
     depth : k.back * R * 1000.0,
     lipk  : k.rad * ratio,
@@ -769,6 +801,7 @@ class H(http.server.BaseHTTPRequestHandler):
         if u.path == "/":
             return self._send(200, "text/html; charset=utf-8", PAGE.encode())
         if u.path == "/state":
+            seed_arcs()
             return self._send(200, "application/json",
                               json.dumps({"defaults": DEF, "current": CUR}).encode())
         if u.path == "/render":
