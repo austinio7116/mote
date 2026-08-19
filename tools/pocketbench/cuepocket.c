@@ -124,6 +124,64 @@ static float bore_clearance(const CueWorld *w, int p, float br, float bset) {
 }
 
 
+/* THE CUSHION'S TOP EDGE AGAINST THE BORE — measured off the mesh the game
+ * actually draws, not off the physics nose line.
+ *
+ * These are different edges and the difference is the whole question. The nose
+ * is the rubber's contact line, low down and overhanging; the TOP is the edge
+ * you see from above, and from above the cushion face has to run continuously
+ * into the bore. Solving the NOSE onto the hole puts the nose exactly on it
+ * and still leaves the top 4.7-5.5mm short across a size sweep, which is the
+ * gap that is actually visible.
+ *
+ * Tangency alone would not be enough either: nearest-point-to-a-circle leaves
+ * the end free to sit anywhere around the ring. What pins the place is that
+ * the cushion end already lies against the frame's inner face, so the point on
+ * the bore in that same direction IS the crossing of circle and frame edge —
+ * reported through out_t so it can be drawn and checked rather than trusted.
+ *
+ * Cloth-material triangles in the raised band [bed, lip) are the rubber and
+ * its cloth. Positive is short of the hole, negative is overhanging it; zero
+ * in both directions is the target. */
+static float frame_meet_err(const CueWorld *w, int p, float br, float bset,
+                            const CueTri *tri, int ntri, int bed, int lip,
+                            float *out_tx, float *out_tz) {
+    const float bx = w->pocket[p].x + w->pmnorm[p].x*bset;
+    const float bz = w->pocket[p].z + w->pmnorm[p].z*bset;
+    const float REACH = 0.35f;
+    float ytop = -1e30f;                      /* the cushion top, found not assumed */
+    for (int t = bed; t < lip && t < ntri; t++) {
+        if (tri[t].mat != CUE_MAT_CLOTH) continue;
+        for (int i = 0; i < 3; i++) {
+            const float dx = tri[t].v[i].x - w->pocket[p].x;
+            const float dz = tri[t].v[i].z - w->pocket[p].z;
+            if (dx*dx + dz*dz > REACH*REACH) continue;
+            if (tri[t].v[i].y > ytop) ytop = tri[t].v[i].y;
+        }
+    }
+    if (ytop < -1e29f) return NAN;
+    float ex = 0.0f, ez = 0.0f, near = 1e30f;
+    for (int t = bed; t < lip && t < ntri; t++) {
+        if (tri[t].mat != CUE_MAT_CLOTH) continue;
+        for (int i = 0; i < 3; i++) {
+            if (tri[t].v[i].y < ytop - 0.0015f) continue;    /* within 1.5mm of the top */
+            const float px = tri[t].v[i].x - w->pocket[p].x;
+            const float pz = tri[t].v[i].z - w->pocket[p].z;
+            if (px*px + pz*pz > REACH*REACH) continue;
+            const float dx = tri[t].v[i].x - bx, dz = tri[t].v[i].z - bz;
+            const float d = sqrtf(dx*dx + dz*dz);
+            if (d < near) { near = d; ex = tri[t].v[i].x; ez = tri[t].v[i].z; }
+        }
+    }
+    if (near > 1e29f) return NAN;
+    const float ux = ex - bx, uz = ez - bz, ul = sqrtf(ux*ux + uz*uz);
+    if (ul < 1e-6f) return NAN;
+    if (out_tx) *out_tx = bx + ux/ul*br;
+    if (out_tz) *out_tz = bz + uz/ul*br;
+    return near - br;
+}
+
+
 typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset,
                        flen, ang,
                        /* THE THINGS THAT ARE NOT THE POCKET but decide what it
@@ -194,38 +252,58 @@ static void build_tuned(int ti, int mid, const Knobs *k, CueTable *ot, CueWorld 
  * on the one crossing. If the bracket does not contain one, the authored gap
  * is returned untouched and the readout goes on reporting the error, because
  * quietly clamping to an end of the range would look like a solution. */
+/* The top-edge error for a table that has just been built, mesh and all. */
+static float top_of_build(const CueTable *t, const CueWorld *w, int pidx, int mid) {
+    const CueTri *tri; int bd = 0, lp = 0;
+    const int ntri = cue_render_table_tris(&tri, &bd, &lp);
+    const int p = (pidx >= 0 && pidx < w->npocket) ? pidx : (mid ? 5 : 2);
+    if (p >= w->npocket) return NAN;
+    const int m = w->pocket_mid[p];
+    return frame_meet_err(w, p, m ? t->bore_side : t->bore_corner,
+                          m ? t->bore_set_side : t->bore_set_corner,
+                          tri, ntri, bd, lp, NULL, NULL);
+}
+
 static float solve_gap(int ti, int mid, const Knobs *k0, int pidx) {
     Knobs k = *k0;
-    CueTable t; CueWorld w;
-    #define CLEAR_AT(G) (k.gap = (G), build_tuned(ti, mid, &k, &t, &w), \
-        bore_clearance(&w, (pidx >= 0 && pidx < w.npocket) ? pidx : (mid ? 5 : 2), \
-                       mid ? t.bore_side : t.bore_corner, \
-                       mid ? t.bore_set_side : t.bore_set_corner))
+    /* STATIC, not stack. A CueWorld is a big structure and the renderer's own
+     * frame goes on top of it; two of them plus cue_render_build_table's
+     * locals overflowed the stack, which crashed inside the render build while
+     * the identical build from main — where the table and world are file-scope
+     * — was fine. Nothing about the geometry, everything about where it lived. */
+    static CueTable t; static CueWorld w;
+    /* SOLVED ON THE TOP EDGE, because that is the edge you look at. The first
+     * cut of this solved the physics nose line and put it exactly on the hole
+     * while leaving the top short of it — which is why it read as not solving
+     * at all. Rebuilding the render mesh per step is the cost of measuring the
+     * visible thing instead of the cheap one; it is ~90 builds and a few ms. */
+    #define TOP_AT(G) (k.gap = (G), build_tuned(ti, mid, &k, &t, &w), \
+        cue_render_build_table(&t, &w), top_of_build(&t, &w, pidx, mid))
     /* WALK IT, then bisect. A fixed bracket is not safe: past a certain
-     * setback the pocket stops being a pocket and the facings disappear
-     * entirely, and an endpoint in that region tells the solver nothing. So
-     * step along the range, ignore any build that has no facings to measure,
-     * and bisect the FIRST sign change found among the ones that do. */
+     * setback the pocket stops being a pocket and there is nothing left to
+     * measure, and an endpoint in that region tells the solver nothing. So
+     * step the range, skip any build with nothing there, and bisect the FIRST
+     * sign change among the ones that have something. */
     const int N = 48;
     const float g0 = 0.05f, g1 = 8.0f;
     float plo = 0.0f, pc = 0.0f; int have = 0;
     for (int i = 0; i <= N; i++) {
         const float g = g0 + (g1 - g0) * (float)i / (float)N;
-        const float c = CLEAR_AT(g);
-        if (c != c) { have = 0; continue; }              /* NaN: nothing there */
+        const float c = TOP_AT(g);
+        if (c != c) { have = 0; continue; }
         if (have && ((pc > 0.0f) != (c > 0.0f))) {
             float lo = plo, hi = g, clo = pc;
-            for (int j = 0; j < 40; j++) {
-                const float m = 0.5f*(lo + hi), cm = CLEAR_AT(m);
+            for (int j = 0; j < 34; j++) {
+                const float m = 0.5f*(lo + hi), cm = TOP_AT(m);
                 if (cm != cm) { hi = m; continue; }
                 if ((cm > 0.0f) == (clo > 0.0f)) { lo = m; clo = cm; } else hi = m;
             }
-            #undef CLEAR_AT
+            #undef TOP_AT
             return 0.5f*(lo + hi);
         }
         plo = g; pc = c; have = 1;
     }
-    #undef CLEAR_AT
+    #undef TOP_AT
     return k0->gap;        /* no crossing: leave it alone and let the readout say so */
 }
 
@@ -564,6 +642,10 @@ int main(int argc, char **argv) {
          * real value could never be rather than by its sign. */
         if(k.bset<-90.0f) k.bset= (mid?t0.bore_set_side:t0.bore_set_corner)/t0.R;
     }
+    /* The renderer's buffers, BEFORE the solve rather than after it: the solve
+     * builds the mesh ~90 times to measure the top edge, and building into
+     * buffers that have not been handed over yet is a null write. */
+    cue_render_set_buffers(malloc(cue_render_tab_bytes()), malloc(cue_render_stri_bytes()));
     /* THE CUSHIONS FOLLOW THE HOLE, not the other way round. Solved before
      * the world is built, so what is drawn and what is measured are the same
      * table — the alternative is building it twice and reporting the first. */
@@ -600,7 +682,6 @@ int main(int argc, char **argv) {
     }
 
     img=malloc((size_t)IW*IH*3); zb=malloc(sizeof(float)*(size_t)IW*IH);
-    cue_render_set_buffers(malloc(cue_render_tab_bytes()), malloc(cue_render_stri_bytes()));
     cue_render_build_table(&T,&W);
     const CueTri *tri; int bd=0,lp=0; int ntri=cue_render_table_tris(&tri,&bd,&lp);
 
@@ -617,6 +698,12 @@ int main(int argc, char **argv) {
           : (mid ? 5 : 2);
     if (p >= W.npocket) p = 0;
     mid = W.pocket_mid[p];        /* the chosen pocket's own kind, not the flag */
+    /* Measured here, where the mesh and the chosen pocket both exist, so the
+     * target point can be DRAWN as well as reported. */
+    float tgx = 0.0f, tgz = 0.0f;
+    const float topmm = frame_meet_err(&W, p, mid ? T.bore_side : T.bore_corner,
+                                       mid ? T.bore_set_side : T.bore_set_corner,
+                                       tri, ntri, bd, lp, &tgx, &tgz) * 1000.0f;
     ox=W.pocket[p].x; oz=W.pocket[p].z;
     /* A FIXED WORLD SCALE. This was zoom*T.pr_corner — the view span tied to
      * the pocket radius — so the camera zoomed out at exactly the rate the
@@ -718,6 +805,11 @@ int main(int argc, char **argv) {
     circ_m(cc.x,cc.z,W.cut_r[p]-W.lip_d[p], 30,120,210,0,1);
     circ_m(pc.x,pc.z,W.pocket_r[p],        255, 45, 45,1,0);
     circ_m(pc.x-n.x*W.pocket_r[p], pc.z-n.z*W.pocket_r[p], W.R, 255,255,255,0,0);
+    /* THE POINT THE CUSHION HAS TO ARRIVE AT, drawn rather than asserted:
+     * where the bore circle crosses the inner face of the frame. */
+    if (tgx != 0.0f || tgz != 0.0f) {
+        float t0,t1; m2px(tgx,tgz,&t0,&t1); dot(t0,t1,5,255,235,60);
+    }
     float q0,q1; m2px(pc.x,pc.z,&q0,&q1); dot(q0,q1,3,255,45,45);
     m2px(cc.x,cc.z,&q0,&q1); dot(q0,q1,3,80,200,255);
     }
@@ -738,12 +830,13 @@ int main(int argc, char **argv) {
                                        mid ? T.bore_set_side : T.bore_set_corner) * 1000.0f;
     fprintf(stderr, "{\"mouth\": %.2f, \"drop\": %.2f, \"edge\": %.2f, "
                     "\"thick\": %.2f, \"ball\": %.2f, \"bore\": %.2f, "
-                    "\"tip\": %.2f, \"solved_gap\": %.4f, \"gap_to_drop\": %.2f}\n",
+                    "\"tip\": %.2f, \"top\": %.2f, \"solved_gap\": %.4f, \"gap_to_drop\": %.2f}\n",
         (double)(jaw_sep(&W,p)*1000.0f), (double)(W.pocket_r[p]*1000.0f),
         (double)(W.cut_r[p]*1000.0f), (double)(W.lip_d[p]*1000.0f),
         (double)(W.R*2000.0f),
         (double)((mid ? T.bore_side : T.bore_corner) * 1000.0f),
         (double)(tipmm == tipmm ? tipmm : 9999.0f),
+        (double)(topmm == topmm ? topmm : 9999.0f),
         (double)gap_solved,
         (double)(( (W.cut_r[p] - sqrtf((W.cut_c[p].x-W.drop_c[p].x)*(W.cut_c[p].x-W.drop_c[p].x)
                                      + (W.cut_c[p].z-W.drop_c[p].z)*(W.cut_c[p].z-W.drop_c[p].z)))
