@@ -81,7 +81,10 @@ def build():
            "games/thumbycue/src/cue_render.c",
            "games/thumbycue/src/cue_table.c",
            "games/thumbycue/src/cue_physics.c",
-           "games/thumbycue/src/r3d_raster.c", "-lm"]
+           "games/thumbycue/src/r3d_raster.c",
+           # the skittles are rigid bodies now, so the physics wants the
+           # engine's solver wherever it is compiled
+           "engine/physics/mote_phys.c", "engine/core/mote_arena.c", "-lm"]
     r = subprocess.run(cmd, cwd=MOTE, capture_output=True, text=True)
     if r.returncode:
         sys.stderr.write(r.stderr)
@@ -93,7 +96,52 @@ def defaults():
                                      capture_output=True, text=True).stdout)
 
 
+# THE LINKED SCHEME, worked out here before it is worked into the engine.
+#
+# The chain the author asked for: the DROP is the gameplay and everything else
+# follows it. The bore is moved onto the drop rather than the other way round;
+# the cushion ends are brought out to meet the bore so there is no slot between
+# the end of the rubber and the timber; and the cloth cut is a ring around the
+# outside of the bore — wider than it, by a factor, and set back from it.
+#
+# Written as a translation into the fields the bench already drives, so the
+# engine is untouched and what you are looking at is the real renderer:
+#
+#   cap   = 0            the drop IS the pocket radius; nothing subtracted
+#   bore  = drop         same radius...
+#   bset  = shelf        ...and the same centre, so they are concentric
+#   rad   = cut/drop     the cut is a multiple of the drop, which is the bore
+#   set   = (shelf + cutback) * R
+#
+# `gap` is left alone: where the cushion ENDS is what the mouth is, and it is
+# the one number here that decides how the game plays.
+LINKED = ["drop", "shelf", "cutk", "cutback"]
+
+
+def link_keys(q):
+    """Turn the linked knobs into the fields the bench already sends."""
+    if q.get("linked", "0") in ("", "0"):
+        return q
+    q = dict(q)
+    drop    = float(q.get("drop",    "1.30"))   # x ball radius
+    shelf   = float(q.get("shelf",   "0.34"))   # x ball radius, along the normal
+    cutk    = float(q.get("cutk",    "1.30"))   # x the drop's own radius
+    cutback = float(q.get("cutback", "0.00"))   # x ball radius, beyond the drop
+    q["pr"]   = "%.5f" % drop
+    q["capm"] = "0"
+    q["back"] = "%.5f" % shelf
+    q["bore"] = "%.5f" % drop
+    q["bset"] = "%.5f" % shelf
+    q["rad"]  = "%.5f" % cutk
+    # `set` is in metres and the rest are in ball radii, so it needs R. The
+    # bench knows it from --defaults; the caller passes it in.
+    R = float(q.get("ballR", "0.0254"))
+    q["set"]  = "%.6f" % ((shelf + cutback) * R)
+    return q
+
+
 def render(q):
+    q = link_keys(q)
     out = os.path.join(TMP, "pb_%s_%s_%s_%s.ppm" % (
         q.get("table", "x"), q.get("type", "x"), q.get("view", "top"),
         q.get("pocket", "d")))
@@ -132,9 +180,45 @@ def render(q):
         except Exception:
             continue
         info.update(d)
-    from PIL import Image
+    from PIL import Image, ImageChops
+    live = Image.open(out).convert("RGB")
+
+    # ---- THE GHOST -------------------------------------------------------
+    #
+    # The gameplay is good and the point of this exercise is to reproduce it,
+    # not to improve on it — so the shipped table is rendered too, from the
+    # same camera with none of the tuning applied, and the two are laid over
+    # each other. Magenta is where the new numbers have moved something.
+    #
+    # It is the same binary and the same renderer, so a difference on screen is
+    # a difference in the table and not in how it was drawn.
+    if q.get("ghost", "0") not in ("", "0"):
+        gcmd = [c for c in cmd]
+        # strip every tuning override: what is left is the shipped table
+        drop = set("--" + k for k in KEYS)
+        gc, i = [], 0
+        while i < len(gcmd):
+            if gcmd[i] in drop: i += 2; continue
+            gc.append(gcmd[i]); i += 1
+        gout = out.replace(".ppm", "_ghost.ppm")
+        gc[gc.index("--out") + 1] = gout
+        subprocess.run(gc, capture_output=True, text=True)
+        try:
+            ghost = Image.open(gout).convert("RGB")
+            if ghost.size == live.size:
+                if q.get("ghostonly", "0") not in ("", "0"):
+                    live = ghost
+                else:
+                    d = ImageChops.difference(live, ghost).convert("L")
+                    mask = d.point(lambda v: 255 if v > 14 else 0)
+                    tint = Image.new("RGB", live.size, (255, 0, 190))
+                    live = Image.composite(
+                        Image.blend(live, tint, 0.55), live, mask)
+        except Exception:
+            pass
+
     buf = io.BytesIO()
-    Image.open(out).save(buf, "PNG")
+    live.save(buf, "PNG")
     return buf.getvalue(), info
 
 
@@ -234,6 +318,19 @@ PAGE = r"""<!doctype html><meta charset=utf-8>
   </span>
   <label class=key>zoom <input id=zoom type=range min=2.5 max=9 step=.25 value=5
         style="vertical-align:middle;width:100px;accent-color:var(--acc)"></label>
+  <!-- THE GHOST. The shipped table, drawn from the same camera with none of
+       the tuning applied. Magenta is what has moved. The gameplay is good and
+       the job is to reproduce it, so the thing worth seeing is the difference,
+       not the new picture on its own. -->
+  <label class=key title="Overlay the SHIPPED table. Magenta marks anything the tuning has moved.">
+    <input id=ghost type=checkbox checked> ghost</label>
+  <label class=key title="Show the shipped table by itself, for an A/B against the tuned one.">
+    <input id=ghostonly type=checkbox> ghost only</label>
+  <!-- THE LINKED SCHEME: the drop is the gameplay, and the bore, the cushion
+       ends and the cloth cut all follow it. Off, the bench drives the game's
+       own fields exactly as it always has. -->
+  <label class=key title="Drive bore/cut FROM the drop instead of dialling them separately.">
+    <input id=linked type=checkbox> linked</label>
   <span class=key>view
     <select id=view>
       <option value=top>from above (the mouth)</option>
@@ -261,9 +358,13 @@ PAGE = r"""<!doctype html><meta charset=utf-8>
 </header>
 <main>
   <div class=pane><h2>corner</h2><img id=img_corner>
-    <div class=mm id=mm_corner></div><div class=knobs id=k_corner></div></div>
+    <div class=mm id=mm_corner></div>
+    <div class=knobs id=l_corner style="display:none"></div>
+    <div class=knobs id=k_corner></div></div>
   <div class=pane><h2>middle</h2><img id=img_middle>
-    <div class=mm id=mm_middle></div><div class=knobs id=k_middle></div></div>
+    <div class=mm id=mm_middle></div>
+    <div class=knobs id=l_middle style="display:none"></div>
+    <div class=knobs id=k_middle></div></div>
 </main>
 <footer>
   <div class=note>Paste back into the source:</div>
@@ -341,6 +442,68 @@ function sync(kind){
     rg.value=v; nm.value=fx(k,v);
   }
 }
+/* THE LINKED KNOBS. Four numbers, and everything else is derived from them:
+   the drop (which is the gameplay), how far it sits past the mouth, and the
+   cloth cut as a ring around the outside of the bore. */
+const LKEYS=['drop','shelf','cutk','cutback'];
+const LNAME={drop:'drop',shelf:'shelf',cutk:'cut / drop',cutback:'cut setback'};
+const LUNIT={drop:'x ball R',shelf:'x ball R',cutk:'x drop',cutback:'x ball R'};
+const LRANGE={drop:[1.0,3.2,.01],shelf:[0,1.2,.005],cutk:[1.0,2.2,.005],
+              cutback:[-0.4,0.6,.005]};
+const LTIP={
+  drop:'The catch: the circle a ball is taken by, and the ONE number here that '+
+       'decides how the game plays. The bore is made equal to it, so this is '+
+       'the size of the hole in the timber as well.',
+  shelf:'How far the drop sits past the mouth, along the pocket\'s own normal. '+
+        'This is the difficulty knob: it does not change how wide the pocket '+
+        'is, only how far a ball has to travel before it is gone.',
+  cutk:'The cloth cut, as a multiple of the drop. 1.0 is a cut exactly the '+
+       'size of the bore; wider leaves a ring of bare slate around it, which '+
+       'is what the shipped tables actually do.',
+  cutback:'How much further out than the drop the cut sits, so the ring is not '+
+          'concentric but pushed toward the timber.'};
+let LCUR={};
+function lmk(kind){
+  const box=document.getElementById('l_'+kind); if(!box) return;
+  box.innerHTML='';
+  for(const key of LKEYS){
+    const [lo,hi,st]=LRANGE[key];
+    const row=document.createElement('div'); row.className='k play';
+    row.innerHTML=`<label title="${LTIP[key]}"><b>${LNAME[key]}</b><i>derived</i></label>
+      <input type=range min=${lo} max=${hi} step=${st}>
+      <input type=number min=${lo} max=${hi} step=${st}>
+      <span class=u>${LUNIT[key]}</span>`;
+    const [rg,nm]=row.querySelectorAll('input');
+    const set=v=>{ LCUR[kind][key]=+v; lsync(kind); draw(kind); };
+    rg.oninput=e=>set(e.target.value);
+    nm.onchange=e=>set(e.target.value);
+    row.dataset.key=key; box.appendChild(row);
+  }
+  lsync(kind);
+}
+function lsync(kind){
+  const box=document.getElementById('l_'+kind); if(!box) return;
+  for(const row of box.children){
+    const k=row.dataset.key, v=LCUR[kind][k];
+    const [rg,nm]=row.querySelectorAll('input');
+    rg.value=v; nm.value=(+v).toFixed(3);
+  }
+}
+/* Start the linked knobs from what the table already IS, so switching the
+   checkbox on does not jump the picture: the drop and the shelf come off the
+   shipped fields and the cut follows from them. */
+function lseed(kind){
+  const k=CUR[TABLE][kind];
+  /* `set` is the one field in metres while the rest are in ball radii, so the
+     setback has to be converted before it means the same thing. Seeded this
+     way the four knobs reproduce the shipped pocket EXACTLY — checked against
+     the ghost, which goes to zero magenta. */
+  const R=(DEF[TABLE]?.ball ?? 25.4)/1000.0;
+  LCUR[kind]={drop:(k.pr-(k.capm||0)), shelf:k.back, cutk:k.rad,
+              cutback:(k.set/R - k.back)};
+  lsync(kind);
+}
+
 function draw(kind){
   clearTimeout(T[kind]);
   T[kind]=setTimeout(()=>{
@@ -369,6 +532,13 @@ function draw(kind){
       q.set('dist', document.getElementById('dist').value);
     }
     for(const key of KEYS) q.set(key,k[key]);
+    if(document.getElementById('ghost').checked) q.set('ghost','1');
+    if(document.getElementById('ghostonly').checked) q.set('ghostonly','1');
+    if(document.getElementById('linked').checked){
+      q.set('linked','1');
+      for(const key of LKEYS) q.set(key, LCUR[kind]?.[key] ?? 0);
+      q.set('ballR', ((DEF[TABLE]?.ball ?? 25.4)/1000.0));   /* mm -> m */
+    }
     fetch('/render?'+q).then(async r=>{
       const info=JSON.parse(r.headers.get('X-Readout')||'{}');
       document.getElementById('img_'+kind).src=URL.createObjectURL(await r.blob());
@@ -427,6 +597,19 @@ fetch('/state').then(r=>r.json()).then(s=>{
     }
     if(had!=='' && had<list.length) sel.value=had;
   }
+  for(const id of ['ghost','ghostonly'])
+    document.getElementById(id).onchange=()=>{draw('corner');draw('middle');};
+  document.getElementById('linked').onchange=()=>{
+    const on=document.getElementById('linked').checked;
+    for(const kind of ['corner','middle']){
+      document.getElementById('l_'+kind).style.display = on ? '' : 'none';
+      /* the game's own fields stay visible when linked, greyed, so you can see
+         what the four knobs are actually doing to them */
+      document.getElementById('k_'+kind).style.opacity = on ? 0.45 : 1;
+      if(on){ lseed(kind); lmk(kind); }
+    }
+    draw('corner'); draw('middle');
+  };
   document.getElementById('shape').onchange=()=>{draw('corner');draw('middle');};
   document.getElementById('lshape').onchange=()=>{
     document.getElementById('lwrap').style.display =
