@@ -226,6 +226,14 @@ typedef struct {
      * wood cap, which cue_render builds level with each other as one surface. */
     float play_x, play_z;
     float rail_top;
+    /* HOW DEEP THE CUSHION IS, nose to back — and therefore where the frame's
+     * inner edge is, since cue_render puts the timber exactly at the cushion
+     * back. The jaw needs it: its outward reach was struck off the BALL radius
+     * (1.4R at a corner, 1.6R at a middle) while the frame edge is struck off
+     * the RAIL width, so the two were unrelated numbers and the jaw curve
+     * stopped 11.7mm short of the timber at a UK corner and 6.6mm short at a
+     * middle. That shortfall is the gap beside every pocket. */
+    float cush_depth;
 
     /* Geometry (filled by cue_table). */
     CueSeg seg[CUE_MAX_SEG]; int nseg;

@@ -10,6 +10,8 @@
  * from this one description, so they can never disagree.
  */
 #include "cue_table.h"
+#include <stdlib.h>
+#include <stdio.h>
 
 #ifndef CUE_JAW_SEGS
 #define CUE_JAW_SEGS 3
@@ -1612,9 +1614,70 @@ static void jaw_tip(const CueWorld *w, Vec3 k, Vec3 u, Vec3 out, int mid,
     const float R = w->R;
     const float cl = 2.0f*R, ml = 1.6f*R, e3 = 0.25f*R;
     const float back = mid ? (0.583f*R + 0.3f*ml + e3) : (cl*0.7f + e3);
-    const float rise = mid ? ml : cl*0.7f;
+    /* OUT TO THE FRAME'S INNER EDGE, not to a multiple of the ball. This read
+     * `mid ? ml : cl*0.7f` — 1.6R and 1.4R — while the timber starts at
+     * rail_w*0.63, so the jaw curve ended short of the wood by whatever the
+     * difference happened to be: 11.7mm at a UK corner, 6.6mm at a middle,
+     * both confirmed by measuring the built mesh. The cushion has to arrive AT
+     * the frame, so it is built out to it. */
+    const float rise = (w->cush_depth > 1e-6f) ? w->cush_depth
+                                               : (mid ? ml : cl*0.7f);
     *tip = v3(k.x - u.x*back + out.x*rise, 0, k.z - u.z*back + out.z*rise);
     *arc = mid ? 0.7f : 0.6f;
+}
+
+/* ---- P1: the cushions meet the frame at the bore -------------------------
+ * See cue_table.h. Rectangles only: the jaw tip expressions below are the six
+ * add_curved_chain calls in build_world, and an L or an n-gon builds its runs
+ * through add_run instead. Those are left alone rather than approximated. */
+static int link_edge_x(const CueWorld *w, int p, float br, float bset,
+                       float line_z, int want_pos, float *out_x) {
+    const float cx = w->pocket[p].x + w->pmnorm[p].x*bset;
+    const float cz = w->pocket[p].z + w->pmnorm[p].z*bset;
+    const float perp = line_z - cz;
+    const float disc = br*br - perp*perp;
+    if (disc < 0.0f) return 0;              /* the bore never reaches the edge */
+    const float rt = sqrtf(disc);
+    *out_x = want_pos ? (cx + rt) : (cx - rt);
+    return 1;
+}
+
+void cue_table_link_gap(CueTable *t, const CueWorld *w) {
+    if (!t->pocket_round) return;           /* mitred jaws are a different shape */
+    if (t->notch_x > 0.0f || t->notch_z > 0.0f) return;     /* not an L */
+    const float R = t->R;
+    const float cl = 2.0f*R, ml = 1.6f*R, e3 = 0.25f*R;
+    const float cw = t->rail_w * 0.63f;
+    const float hw = t->half_wid, hl = t->half_len;
+    const float line_z = hw + cw;           /* the +z rail's frame inner edge */
+
+    /* THE CORNER. Its jaw comes along the +z rail from -x, so it answers to
+     * the crossing on the far side of the bore centre from the table middle —
+     * the smaller x of the two. */
+    for (int p = 0; p < w->npocket; p++) {
+        if (w->pocket_mid[p]) continue;
+        if (w->pocket[p].x <= 0.0f || w->pocket[p].z <= 0.0f) continue;
+        float yx;
+        if (!link_edge_x(w, p, t->bore_corner, t->bore_set_corner, line_z, 0, &yx))
+            break;
+        /* tip.x = hl - cgap + cl*0.7f + e3  ==  yx */
+        float g = hl + cl*0.7f + e3 - yx;
+        if (g > 0.02f && g < 0.30f) t->gap_corner = g;
+        break;
+    }
+    /* THE MIDDLE, on the same rail and the same edge line, approached from +x:
+     * tip.x = (gap_side - 0.583R) - ml*0.3f - e3. */
+    for (int p = 0; p < w->npocket; p++) {
+        if (!w->pocket_mid[p]) continue;
+        if (w->pocket[p].z <= 0.0f) continue;
+        float yx;
+        if (!link_edge_x(w, p, t->bore_side, t->bore_set_side, line_z, 1, &yx))
+            break;
+        float g = yx + 0.583f*R + ml*0.3f + e3;
+        if (g > 0.02f && g < 0.30f) t->gap_side = g;
+        break;
+    }
+    (void)hl;
 }
 
 void cue_table_build_world(const CueTable *t, CueWorld *w) {
@@ -1648,6 +1711,8 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     /* The same height cue_table_surface reports and cue_render draws: the
      * cushion top and the wood cap are one surface, not a step. */
     w->rail_top = t->cushion_h * 1.30f;
+    /* the same number cue_render uses for the timber's inner edge (rw * 0.63) */
+    w->cush_depth = t->rail_w * 0.63f;
     w->jaw_r = t->jaw_r;
     w->e_cush     = t->e_cush;
     w->cush_efall = t->cush_efall;
@@ -1773,24 +1838,40 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
          * is a compile-time knob so the handheld's physics stays bit-identical. */
         const float ca = 0.6f, ma = 0.7f;
         const int nc = CUE_JAW_SEGS, nm = CUE_JAW_SEGS;
+        /* HOW FAR THE JAW REACHES OUT — to the frame's inner edge, not to a
+         * multiple of the ball.
+         *
+         * These were cl*0.7f at a corner and ml at a middle: 1.4R and 1.6R,
+         * struck off the BALL. cue_render puts the timber's inner edge at the
+         * cushion back, rail_w * 0.63, struck off the RAIL. Two unrelated
+         * numbers, so the jaw curve ended short of the wood by whatever the
+         * difference happened to be — 11.7mm at a UK corner, 6.6mm at a middle
+         * — and that shortfall is the gap beside every pocket. Measured on the
+         * built mesh at 10.5 and 6.6mm, which is how it was found.
+         *
+         * A cushion has to arrive AT the frame it sits against, so it is built
+         * out to it. Falls back to the old reach if the depth is unset, so a
+         * world built without one is unchanged. */
+        const float co = (w->cush_depth > 1e-6f) ? w->cush_depth : cl*0.7f;
+        const float mo = (w->cush_depth > 1e-6f) ? w->cush_depth : ml;
         /* C1 top-left */
-        add_curved_chain(w, v3(-hl+cgap - cl*0.7f - e3,0,-hw - cl*0.7f), v3(-hl+cgap,0,-hw),
-                            v3(-mgap,0,-hw), v3(-bg + ml*0.3f + e3,0,-hw - ml), ca, ma, nc, nm);
+        add_curved_chain(w, v3(-hl+cgap - cl*0.7f - e3,0,-hw - co), v3(-hl+cgap,0,-hw),
+                            v3(-mgap,0,-hw), v3(-bg + ml*0.3f + e3,0,-hw - mo), ca, ma, nc, nm);
         /* C2 top-right */
-        add_curved_chain(w, v3(bg - ml*0.3f - e3,0,-hw - ml), v3(mgap,0,-hw),
-                            v3(hl-cgap,0,-hw), v3(hl-cgap + cl*0.7f + e3,0,-hw - cl*0.7f), ma, ca, nm, nc);
+        add_curved_chain(w, v3(bg - ml*0.3f - e3,0,-hw - mo), v3(mgap,0,-hw),
+                            v3(hl-cgap,0,-hw), v3(hl-cgap + cl*0.7f + e3,0,-hw - co), ma, ca, nm, nc);
         /* C3 right */
-        add_curved_chain(w, v3(hl + cl*0.7f,0,-hw+cgap - cl*0.7f - e3), v3(hl,0,-hw+cgap),
-                            v3(hl,0,hw-cgap), v3(hl + cl*0.7f,0,hw-cgap + cl*0.7f + e3), ca, ca, nc, nc);
+        add_curved_chain(w, v3(hl + co,0,-hw+cgap - cl*0.7f - e3), v3(hl,0,-hw+cgap),
+                            v3(hl,0,hw-cgap), v3(hl + co,0,hw-cgap + cl*0.7f + e3), ca, ca, nc, nc);
         /* C4 bottom-right */
-        add_curved_chain(w, v3(hl-cgap + cl*0.7f + e3,0,hw + cl*0.7f), v3(hl-cgap,0,hw),
-                            v3(mgap,0,hw), v3(bg - ml*0.3f - e3,0,hw + ml), ca, ma, nc, nm);
+        add_curved_chain(w, v3(hl-cgap + cl*0.7f + e3,0,hw + co), v3(hl-cgap,0,hw),
+                            v3(mgap,0,hw), v3(bg - ml*0.3f - e3,0,hw + mo), ca, ma, nc, nm);
         /* C5 bottom-left */
-        add_curved_chain(w, v3(-bg + ml*0.3f + e3,0,hw + ml), v3(-mgap,0,hw),
-                            v3(-hl+cgap,0,hw), v3(-hl+cgap - cl*0.7f - e3,0,hw + cl*0.7f), ma, ca, nm, nc);
+        add_curved_chain(w, v3(-bg + ml*0.3f + e3,0,hw + mo), v3(-mgap,0,hw),
+                            v3(-hl+cgap,0,hw), v3(-hl+cgap - cl*0.7f - e3,0,hw + co), ma, ca, nm, nc);
         /* C6 left */
-        add_curved_chain(w, v3(-hl - cl*0.7f,0,hw-cgap + cl*0.7f + e3), v3(-hl,0,hw-cgap),
-                            v3(-hl,0,-hw+cgap), v3(-hl - cl*0.7f,0,-hw+cgap - cl*0.7f - e3), ca, ca, nc, nc);
+        add_curved_chain(w, v3(-hl - co,0,hw-cgap + cl*0.7f + e3), v3(-hl,0,hw-cgap),
+                            v3(-hl,0,-hw+cgap), v3(-hl - co,0,-hw+cgap - cl*0.7f - e3), ca, ca, nc, nc);
     }
 
     /* Smooth vertex normals: at each endpoint shared with a neighbouring

@@ -848,9 +848,10 @@ int main(int argc, char **argv) {
      * directions off, and the relationship it inverts is exact, so a second
      * build is the whole of it — not the ninety a search was costing. */
     if (kiss) {
-        gap_solved = solve_gap(ti, mid, &k, pocket_idx, karc);
-        k.gap = gap_solved;
-        build_tuned(ti, mid, &k, &T, &W);
+        (void)karc;
+        cue_table_link_gap(&T, &W);
+        gap_solved = (mid ? T.gap_side : T.gap_corner) / T.R;
+        cue_table_build_world(&T, &W);
     }
     if (bed_l > 0.0f && bed_w > 0.0f) {
         T.half_len = bed_l; T.half_wid = bed_w;
@@ -1066,12 +1067,36 @@ int main(int argc, char **argv) {
     FILE *o=fopen(out,"wb"); fprintf(o,"P6\n%d %d\n255\n",IW,IH);
     fwrite(img,1,(size_t)IW*IH*3,o); fclose(o);
 
+    /* HOW FAR THE JAW TIP IS FROM THE POINT, in mm — the number this whole
+     * exercise is about, so it can be read rather than taken on trust. */
+    float missmm = 9999.0f;
+    {   const float cwd = T.rail_w * 0.63f;
+        const float lz  = (W.pocket[p].z > 0.0f) ? (T.half_wid + cwd) : -(T.half_wid + cwd);
+        const float brr = mid ? T.bore_side : T.bore_corner;
+        const float bsx = mid ? T.bore_set_side : T.bore_set_corner;
+        const float cx = W.pocket[p].x + W.pmnorm[p].x*bsx;
+        const float cz = W.pocket[p].z + W.pmnorm[p].z*bsx;
+        const float perp = lz - cz, disc = brr*brr - perp*perp;
+        if (disc >= 0.0f) {
+            const float rt = sqrtf(disc);
+            /* the jaw tip nearest that line, off the world's own jaw list */
+            float bestd = 1e30f;
+            for (int j = 0; j < W.njaw; j++) {
+                const float d = fabsf(W.jaw[j].z - lz);
+                if (d > 0.004f) continue;
+                const float y0 = cx - rt, y1 = cx + rt;
+                const float e = fminf(fabsf(W.jaw[j].x - y0), fabsf(W.jaw[j].x - y1));
+                if (e < bestd) bestd = e;
+            }
+            if (bestd < 1e29f) missmm = bestd * 1000.0f;
+        }
+    }
     /* the millimetres the page shows beside the sliders — derived, never dialled */
     const float tipmm = bore_clearance(&W, p, mid ? T.bore_side : T.bore_corner,
                                        mid ? T.bore_set_side : T.bore_set_corner) * 1000.0f;
     fprintf(stderr, "{\"mouth\": %.2f, \"drop\": %.2f, \"edge\": %.2f, "
                     "\"thick\": %.2f, \"ball\": %.2f, \"bore\": %.2f, "
-                    "\"tip\": %.2f, \"top\": %.2f, \"arc\": %.2f, \"solved_gap\": %.4f, \"gap_to_drop\": %.2f}\n",
+                    "\"tip\": %.2f, \"top\": %.2f, \"arc\": %.2f, \"miss\": %.2f, \"solved_gap\": %.4f, \"gap_to_drop\": %.2f}\n",
         (double)(jaw_sep(&W,p)*1000.0f), (double)(W.pocket_r[p]*1000.0f),
         (double)(W.cut_r[p]*1000.0f), (double)(W.lip_d[p]*1000.0f),
         (double)(W.R*2000.0f),
@@ -1079,6 +1104,7 @@ int main(int argc, char **argv) {
         (double)(tipmm == tipmm ? tipmm : 9999.0f),
         (double)(topmm == topmm ? topmm : 9999.0f),
         (double)((arcmm == arcmm) ? arcmm : 9999.0f),
+        (double)missmm,
         (double)gap_solved,
         (double)(( (W.cut_r[p] - sqrtf((W.cut_c[p].x-W.drop_c[p].x)*(W.cut_c[p].x-W.drop_c[p].x)
                                      + (W.cut_c[p].z-W.drop_c[p].z)*(W.cut_c[p].z-W.drop_c[p].z)))
