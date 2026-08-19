@@ -1682,10 +1682,17 @@ static float link_delta_generic(const CueWorld *w, int p, float br, float bset,
         for (int q = 0; q < 2; q++) {
             const float dx = e[q].x - w->pocket[p].x, dz = e[q].z - w->pocket[p].z;
             if (dx*dx + dz*dz > 0.35f*0.35f) continue;
-            /* the free end: no nose segment touches it */
+            /* THE FREE END: no OTHER segment touches it, of any kind.
+             *
+             * Testing only against the nose was the bug. A bezier jaw is a
+             * chain of many short kind-1 segments, so every interior vertex of
+             * the curve has no nose on it and passed as a tip — dozens of
+             * bogus deltas averaged in, which dragged the gap down until the
+             * mouth collapsed to half a ball wide. Only the two true ends of
+             * the whole chain are free. */
             int shared = 0;
             for (int j = 0; j < w->nseg && !shared; j++) {
-                if (w->seg[j].kind != 0) continue;
+                if (j == i) continue;
                 const Vec3 f[2] = { w->seg[j].a, w->seg[j].b };
                 for (int r = 0; r < 2; r++) {
                     const float ax = f[r].x - e[q].x, az = f[r].z - e[q].z;
