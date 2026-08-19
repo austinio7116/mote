@@ -850,8 +850,13 @@ int main(int argc, char **argv) {
     if (kiss) {
         (void)karc;
         cue_table_link_gap(&T, &W);
-        gap_solved = (mid ? T.gap_side : T.gap_corner) / T.R;
-        cue_table_build_world(&T, &W);
+        /* Rebuild through build_tuned, NOT cue_table_build_world: the latter
+         * re-derives the cloth cut from the table's own defaults and threw the
+         * bench's rad/set/roll away, so the cut silently ignored every knob
+         * while the gap moved. */
+        k.gap = (mid ? T.gap_side : T.gap_corner) / T.R;
+        gap_solved = k.gap;
+        build_tuned(ti, mid, &k, &T, &W);
     }
     if (bed_l > 0.0f && bed_w > 0.0f) {
         T.half_len = bed_l; T.half_wid = bed_w;

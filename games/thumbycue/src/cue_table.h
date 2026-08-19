@@ -425,6 +425,20 @@ void cue_table_get_cut(const CueWorld *w, int middle, CueCut *out);
 
 void cue_table_derive_cut(CueWorld *w);
 
+/* THE CUSHIONS MEET THE FRAME AT THE BORE.
+ *
+ * Rewrites t->gap_corner and t->gap_side so each jaw ENDS exactly where the
+ * bore crosses the inner face of the wooden frame. Call it with a world built
+ * from `t`, then build the world again; the second build is the linked one.
+ *
+ * ALGEBRA, not search. The jaw tip is a known expression in the gap — for the
+ * +x/+z corner it is (hl - cgap + 1.4R + e3, hw + cw) — and the frame's inner
+ * edge is the line z = hw + cw, which the tip now lies on because the jaw is
+ * built out to it. So the crossing of bore and edge is one square root and the
+ * gap that puts the tip on it is one subtraction. Nothing is measured off the
+ * mesh and there is no root to choose. */
+void cue_table_link_gap(CueTable *t, const CueWorld *w);
+
 /* Lay out the opening rack / spots. Returns the number of balls placed.
  * balls[0] is always the cue ball. orient set to identity. */
 int cue_table_rack(const CueTable *t, CueBall *balls);

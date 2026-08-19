@@ -117,10 +117,11 @@ def defaults():
 #                 it, and the cushions close over it as it goes.
 #   cut x         the cloth cut as a multiple of the pocket size — larger than
 #                 1, because the cloth is cut wider than the hole.
-#   cut offset    x the pocket size, how much further out than the drop that
-#                 circle is centred, so the ring of bare slate is not
-#                 concentric. Proportional, or it comes apart from the cut
-#                 radius at the ends of the size range.
+#   cloth over    in mm, how far the cloth is allowed to overhang the drop.
+#                 ZERO is the cut circle exactly touching the drop circle —
+#                 the blue and red circles on the bench — which is the physics
+#                 and the picture agreeing about where a ball leaves cloth. The
+#                 setback that achieves it is derived, not dialled.
 #
 # The bore is made EQUAL to the pocket size and CONCENTRIC with the drop, so
 # the hole in the timber and the hole the ball falls into are the same hole.
@@ -155,7 +156,7 @@ def link_keys(q):
     psize  = float(q.get("psize",  "46.0"))      # mm, THE POCKET
     depth  = float(q.get("depth",  "8.0"))       # mm, along the normal
     lipk   = float(q.get("lipk",   "1.30"))      # x the pocket
-    lipoff = float(q.get("lipoff", "0.35"))      # x pocket, beyond the drop
+    lipoff = float(q.get("lipoff", "0.0"))       # mm the cloth OVERHANGS the drop
     lip    = float(q.get("lip",    "11.0"))      # mm, how far the lip rolls
     pr   = (psize / 1000.0) / R
     back = (depth / 1000.0) / R
@@ -165,13 +166,22 @@ def link_keys(q):
     q["bore"] = "%.6f" % pr
     q["bset"] = "%.6f" % back
     q["rad"]  = "%.6f" % lipk
-    # X POCKET, NOT MILLIMETRES. As an absolute the cut radius scaled with the
-    # pocket while its centre did not, so the two came apart at the ends of the
-    # range: on UK7's corner the cloth went from hanging 7.3mm OVER the hole at
-    # a 30mm pocket to standing 10.5mm clear of it at 80mm, and the lip
-    # disappeared at the small end because there was no cloth left to roll.
-    # Proportional, the same sweep holds between +0.19 and +0.51mm.
-    q["set"]  = "%.6f" % ((depth + lipoff * psize) / 1000.0)
+    # THE BLUE CIRCLE TOUCHES THE RED ONE, BY CONSTRUCTION.
+    #
+    # The cloth cut is where the physics stops finding cloth and the drop is
+    # where it takes the ball, so if the two circles do not meet, the picture
+    # and the play disagree — a ball is over bare slate before it is caught, or
+    # caught while still on cloth. Their clearance works out as
+    #
+    #     cut_r - |cut_c - drop_c| - pr  =  (lipk - lipoff - 1) * psize
+    #
+    # so tangency is lipk = 1 + lipoff and has nothing to do with the pocket
+    # size at all. Authoring both left it to luck: UK7's corner carried 1.135
+    # against 1 + 0.133 = 1.133, and that 0.002 is the +0.19 to +0.51mm drift
+    # measured across a 30-80mm sweep. So the offset is DERIVED from the cut
+    # and the knob becomes what it should have been — how far the cloth is
+    # allowed to overhang the hole, in mm, zero being exactly touching.
+    q["set"]  = "%.6f" % ((depth + (lipk - 1.0) * psize - lipoff) / 1000.0)
     # THE CUSHIONS FOLLOW THE HOLE. `gap` is solved so the cushion sits at
     # `arc` millimetres from the wood's arc end — seeded from the table's own,
     # so a shipped pocket reproduces itself and a resized one keeps the same
@@ -533,11 +543,11 @@ function sync(kind){
    drop, and the cloth cut is a wider circle around the outside of it. */
 const LKEYS=['psize','depth','lipk','lipoff','lip','arc'];
 const LNAME={psize:'pocket size',depth:'pocket depth',lipk:'cut x pocket',
-             lipoff:'cut offset',lip:'lip roll',arc:'cushion arc'};
-const LUNIT={psize:'mm radius',depth:'mm',lipk:'x pocket',lipoff:'x pocket',lip:'mm',arc:'mm'};
+             lipoff:'cloth over drop',lip:'lip roll',arc:'cushion arc'};
+const LUNIT={psize:'mm radius',depth:'mm',lipk:'x pocket',lipoff:'mm',lip:'mm',arc:'mm'};
 const LRANGE={psize:[10,90,.1],depth:[0,40,.1],lipk:[1.0,2.2,.005],
-              lipoff:[-0.3,0.9,.005],lip:[0,30,.1],arc:[-30,15,.1]};
-const LSTEP={psize:1,depth:1,lipk:3,lipoff:3,lip:1,arc:1};
+              lipoff:[-6,6,.05],lip:[0,30,.1],arc:[-30,15,.1]};
+const LSTEP={psize:1,depth:1,lipk:3,lipoff:2,lip:1,arc:1};
 const LTIP={
   psize:'THE POCKET. The radius in millimetres of the circle a ball is caught '+
         'by — the gameplay, and the one size a table author sets. The bore in '+
@@ -552,12 +562,13 @@ const LTIP={
   lipk:'The cloth cut, as a multiple of the pocket size. 1.0 cuts the cloth '+
        'exactly at the bore; wider leaves a ring of bare slate around the '+
        'hole, which is what a real table has and what the shipped ones do.',
-  lipoff:'How much further out than the drop that circle is centred, as a '+
-         'multiple of the pocket, so the ring is pushed toward the timber '+
-         'instead of being even all the way round. Proportional and not mm: '+
-         'the cut RADIUS scales with the pocket, so if its centre does not, '+
-         'the two come apart and the cloth ends up over the hole at small '+
-         'sizes and miles clear of it at large ones.',
+  lipoff:'How far the cloth is allowed to OVERHANG the drop, in mm. ZERO is '+
+         'the blue circle touching the red one exactly — the cut edge meeting '+
+         'the catch circle — so the physics and the picture agree about where '+
+         'a ball leaves cloth. The setback that achieves it is derived from '+
+         'the cut, at every pocket size: the clearance works out as '+
+         '(cut - offset - 1) x pocket, so tangency is a relation between the '+
+         'two multipliers and nothing to do with size.',
   lip:'How far the cloth edge rolls down into the pocket, in mm — the curved '+
       'drop depth. Kept as its own number rather than derived, because '+
       'whether it wants to vary per table is not yet known.'};
@@ -609,7 +620,9 @@ function lseed(kind){
     psize : drop * R * 1000.0,
     depth : k.back * R * 1000.0,
     lipk  : k.rad * ratio,
-    lipoff: (k.set - k.back*R) / (drop * R),   /* x pocket */
+    /* mm of overhang, from the same relation, so a shipped table seeds as
+       whatever it actually has rather than as zero */
+    lipoff: ((k.rad * ratio - 1.0) * (drop*R) - (k.set - k.back*R)) * 1000.0,
   };
   lsync(kind);
 }

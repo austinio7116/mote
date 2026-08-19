@@ -1643,7 +1643,6 @@ static int link_edge_x(const CueWorld *w, int p, float br, float bset,
 }
 
 void cue_table_link_gap(CueTable *t, const CueWorld *w) {
-    if (!t->pocket_round) return;           /* mitred jaws are a different shape */
     if (t->notch_x > 0.0f || t->notch_z > 0.0f) return;     /* not an L */
     const float R = t->R;
     const float cl = 2.0f*R, ml = 1.6f*R, e3 = 0.25f*R;
@@ -1660,8 +1659,16 @@ void cue_table_link_gap(CueTable *t, const CueWorld *w) {
         float yx;
         if (!link_edge_x(w, p, t->bore_corner, t->bore_set_corner, line_z, 0, &yx))
             break;
-        /* tip.x = hl - cgap + cl*0.7f + e3  ==  yx */
-        float g = hl + cl*0.7f + e3 - yx;
+        /* Rounded:  tip.x = hl - cgap + cl*0.7f + e3
+         * Mitred:    tip.x = hl - cgap + cw/tan(ang_corner)
+         * A mitre's run from the corner to the edge depends on its own facing
+         * angle, so the two styles need their own arithmetic; sharing one was
+         * the reason the mitred tables were left out. */
+        const float sc2 = sinf(t->ang_corner*DEG);
+        const float reach_c = t->pocket_round
+            ? (cl*0.7f + e3)
+            : ((sc2 > 1e-4f) ? (cw * cosf(t->ang_corner*DEG) / sc2) : 0.0f);
+        float g = hl + reach_c - yx;
         if (g > 0.02f && g < 0.30f) t->gap_corner = g;
         break;
     }
@@ -1673,7 +1680,13 @@ void cue_table_link_gap(CueTable *t, const CueWorld *w) {
         float yx;
         if (!link_edge_x(w, p, t->bore_side, t->bore_set_side, line_z, 1, &yx))
             break;
-        float g = yx + 0.583f*R + ml*0.3f + e3;
+        /* Rounded:  tip.x = gap_side - 0.583R - ml*0.3f - e3
+         * Mitred:    tip.x = gap_side - cw/tan(ang_side) */
+        const float ss2 = sinf(t->ang_side*DEG);
+        const float reach_m = t->pocket_round
+            ? (0.583f*R + ml*0.3f + e3)
+            : ((ss2 > 1e-4f) ? (cw * cosf(t->ang_side*DEG) / ss2) : 0.0f);
+        float g = yx + reach_m;
         if (g > 0.02f && g < 0.30f) t->gap_side = g;
         break;
     }
@@ -1801,18 +1814,29 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         const float g = t->gap_corner, sg = t->gap_side, sl = t->facing_len;
         const float cc = cosf(t->ang_corner*DEG), sc = sinf(t->ang_corner*DEG);
         const float cs = cosf(t->ang_side*DEG),   ss = sinf(t->ang_side*DEG);
-        add_chain(w, v3(-hl+g - cc*sl, 0, -hw - sc*sl), v3(-hl+g, 0, -hw),
-                     v3(-sg, 0, -hw),                   v3(-sg + cs*sl, 0, -hw - ss*sl));
-        add_chain(w, v3(sg - cs*sl, 0, -hw - ss*sl),    v3(sg, 0, -hw),
-                     v3(hl-g, 0, -hw),                  v3(hl-g + cc*sl, 0, -hw - sc*sl));
-        add_chain(w, v3(hl + sc*sl, 0, -hw+g - cc*sl),  v3(hl, 0, -hw+g),
-                     v3(hl, 0, hw-g),                   v3(hl + sc*sl, 0, hw-g + cc*sl));
-        add_chain(w, v3(hl-g + cc*sl, 0, hw + sc*sl),   v3(hl-g, 0, hw),
-                     v3(sg, 0, hw),                     v3(sg - cs*sl, 0, hw + ss*sl));
-        add_chain(w, v3(-sg + cs*sl, 0, hw + ss*sl),    v3(-sg, 0, hw),
-                     v3(-hl+g, 0, hw),                  v3(-hl+g - cc*sl, 0, hw + sc*sl));
-        add_chain(w, v3(-hl - sc*sl, 0, hw-g + cc*sl),  v3(-hl, 0, hw-g),
-                     v3(-hl, 0, -hw+g),                 v3(-hl - sc*sl, 0, -hw+g - cc*sl));
+        /* OUT TO THE FRAME, the mitre's way. A rounded jaw reaches out by a
+         * multiple of the ball; a mitre reaches out by facing_len * sin(ang),
+         * so the length needed to arrive at the timber is cw / sin(ang) and
+         * the corner-to-edge run along the rail is cw / tan(ang) — a different
+         * distance for every facing angle, which is why one constant could
+         * never have served both jaw styles. Falls back to the authored facing
+         * where no depth is known. */
+        const float slc = (w->cush_depth > 1e-6f && sc > 1e-4f)
+                        ? (w->cush_depth / sc) : sl;
+        const float sls = (w->cush_depth > 1e-6f && ss > 1e-4f)
+                        ? (w->cush_depth / ss) : sl;
+        add_chain(w, v3(-hl+g - cc*slc, 0, -hw - sc*slc), v3(-hl+g, 0, -hw),
+                     v3(-sg, 0, -hw),                   v3(-sg + cs*sls, 0, -hw - ss*sls));
+        add_chain(w, v3(sg - cs*sls, 0, -hw - ss*sls),    v3(sg, 0, -hw),
+                     v3(hl-g, 0, -hw),                  v3(hl-g + cc*slc, 0, -hw - sc*slc));
+        add_chain(w, v3(hl + sc*slc, 0, -hw+g - cc*slc),  v3(hl, 0, -hw+g),
+                     v3(hl, 0, hw-g),                   v3(hl + sc*slc, 0, hw-g + cc*slc));
+        add_chain(w, v3(hl-g + cc*slc, 0, hw + sc*slc),   v3(hl-g, 0, hw),
+                     v3(sg, 0, hw),                     v3(sg - cs*sls, 0, hw + ss*sls));
+        add_chain(w, v3(-sg + cs*sls, 0, hw + ss*sls),    v3(-sg, 0, hw),
+                     v3(-hl+g, 0, hw),                  v3(-hl+g - cc*slc, 0, hw + sc*slc));
+        add_chain(w, v3(-hl - sc*slc, 0, hw-g + cc*slc),  v3(-hl, 0, hw-g),
+                     v3(-hl, 0, -hw+g),                 v3(-hl - sc*slc, 0, -hw+g - cc*slc));
     } else {
         /* Snooker/UK: bezier-curved jaws bulging into the pocket (rounded
          * knuckles), matching the 2D game's createCurvedRailChains. */
