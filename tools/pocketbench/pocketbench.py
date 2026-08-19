@@ -366,8 +366,8 @@ PAGE = r"""<!doctype html><meta charset=utf-8>
   <!-- THE LINKED SCHEME: the drop is the gameplay, and the bore, the cushion
        ends and the cloth cut all follow it. Off, the bench drives the game's
        own fields exactly as it always has. -->
-  <label class=key title="Drive bore/cut FROM the drop instead of dialling them separately.">
-    <input id=linked type=checkbox> linked</label>
+  <label class=key title="ON: two authored numbers — pocket size and pocket depth — and the bore, the cloth cut and the CUSHION ENDS are all solved from them. OFF: the game's own fields, dialled one at a time, exactly as this bench always worked.">
+    <input id=linked type=checkbox checked> linked</label>
   <span class=key>view
     <select id=view>
       <option value=top>from above (the mouth)</option>
@@ -720,6 +720,10 @@ fetch('/state').then(r=>r.json()).then(s=>{
     fetch('/save',{method:'POST',body:JSON.stringify(CUR)})
       .then(r=>r.text()).then(t=>{document.getElementById('out').textContent=t;});
   show(Object.keys(DEF)[0]);
+  /* The linked panel is built by the checkbox's handler, so a box that starts
+     ticked has to fire it — otherwise the page loads looking linked while the
+     old sliders are still what is driving the render. */
+  document.getElementById('linked').onchange();
 });
 </script>
 """
