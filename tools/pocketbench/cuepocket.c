@@ -82,6 +82,42 @@ static float jaw_sep(const CueWorld *w, int p) {
     return s > 0.0f ? s : 0.0f;
 }
 
+/* THE CLEARANCE BETWEEN THE EDGE OF THE BORE AND THE NEAREST RUBBER — the
+ * number behind "the cushions should be laid out to touch the bore".
+ *
+ * The whole facing is measured, not its endpoints: the nearest point of every
+ * kind-1 segment (pocket facing / jaw) belonging to this pocket, against the
+ * bore circle. On a UK corner that nearest point turns out to be the knuckle
+ * and it sits about 31mm outside the hole — which is what the pocket is, cloth
+ * then lip then bore, and NOT a fault on its own.
+ *
+ * What the number is for is watching it while the pocket size is dialled:
+ * ZERO is the cushions arriving exactly on the hole, and NEGATIVE is the bore
+ * eaten in past the end of the rubber, which is the slot you can see out of
+ * the table through in the OUTSIDE and INSIDE views. */
+static float bore_clearance(const CueWorld *w, int p, float br, float bset) {
+    const float bx = w->pocket[p].x + w->pmnorm[p].x*bset;
+    const float bz = w->pocket[p].z + w->pmnorm[p].z*bset;
+    float near = 1e30f;
+    for (int i = 0; i < w->nseg; i++) {
+        if (w->seg[i].kind != 1) continue;
+        /* Facings belong to the pocket they are nearest — no index arithmetic,
+         * which an L-shaped table would break anyway. */
+        const Vec3 a = w->seg[i].a, b = w->seg[i].b;
+        const float mx = 0.5f*(a.x+b.x) - w->pocket[p].x;
+        const float mz = 0.5f*(a.z+b.z) - w->pocket[p].z;
+        if (mx*mx + mz*mz > 0.35f*0.35f) continue;
+        for (int q = 0; q <= 8; q++) {          /* along it, not just its ends */
+            const float t = (float)q / 8.0f;
+            const float ex = a.x + (b.x-a.x)*t - bx, ez = a.z + (b.z-a.z)*t - bz;
+            const float d = sqrtf(ex*ex + ez*ez);
+            if (d < near) near = d;
+        }
+    }
+    if (near > 1e29f) return 0.0f;
+    return near - w->jaw_r - br;      /* the rubber's surface, not its centreline */
+}
+
 typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset,
                        flen, ang,
                        /* THE THINGS THAT ARE NOT THE POCKET but decide what it
@@ -617,10 +653,14 @@ int main(int argc, char **argv) {
 
     /* the millimetres the page shows beside the sliders — derived, never dialled */
     fprintf(stderr, "{\"mouth\": %.2f, \"drop\": %.2f, \"edge\": %.2f, "
-                    "\"thick\": %.2f, \"ball\": %.2f, \"gap_to_drop\": %.2f}\n",
+                    "\"thick\": %.2f, \"ball\": %.2f, \"bore\": %.2f, "
+                    "\"tip\": %.2f, \"gap_to_drop\": %.2f}\n",
         (double)(jaw_sep(&W,p)*1000.0f), (double)(W.pocket_r[p]*1000.0f),
         (double)(W.cut_r[p]*1000.0f), (double)(W.lip_d[p]*1000.0f),
         (double)(W.R*2000.0f),
+        (double)((mid ? T.bore_side : T.bore_corner) * 1000.0f),
+        (double)(bore_clearance(&W, p, mid ? T.bore_side : T.bore_corner,
+                             mid ? T.bore_set_side : T.bore_set_corner) * 1000.0f),
         (double)(( (W.cut_r[p] - sqrtf((W.cut_c[p].x-W.drop_c[p].x)*(W.cut_c[p].x-W.drop_c[p].x)
                                      + (W.cut_c[p].z-W.drop_c[p].z)*(W.cut_c[p].z-W.drop_c[p].z)))
                    - W.pocket_r[p]) * 1000.0f));

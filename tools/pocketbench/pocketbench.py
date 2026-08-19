@@ -98,45 +98,72 @@ def defaults():
 
 # THE LINKED SCHEME, worked out here before it is worked into the engine.
 #
-# The chain the author asked for: the DROP is the gameplay and everything else
-# follows it. The bore is moved onto the drop rather than the other way round;
-# the cushion ends are brought out to meet the bore so there is no slot between
-# the end of the rubber and the timber; and the cloth cut is a ring around the
-# outside of the bore — wider than it, by a factor, and set back from it.
+# FOUR NUMBERS, AND NOT ONE OF THEM IS A BALL RADIUS. The game's own fields are
+# all written as multiples of R, which is exactly the thing being got rid of: a
+# pocket is a hole of a certain size in millimetres and the ball either fits
+# through it or does not. So the knobs here are millimetres, and the ÷R is done
+# on the way into the engine and nowhere else — it is a unit conversion for a
+# field that has not been changed yet, not part of the scheme.
 #
-# Written as a translation into the fields the bench already drives, so the
-# engine is untouched and what you are looking at is the real renderer:
+#   pocket size   THE DROP RADIUS, in mm, direct. The catch circle, which is
+#                 the gameplay, and the only size number a table author sets.
+#   shelf         in mm, how much DEEPER than the mouth the drop is centred.
+#                 The difficulty knob; it does not touch the size of the hole.
+#   cut x         the cloth cut as a multiple of the pocket size — larger than
+#                 1, because the cloth is cut wider than the hole.
+#   cut offset    in mm, how much further out than the drop that circle is
+#                 centred, so the ring of bare slate is not concentric.
 #
-#   cap   = 0            the drop IS the pocket radius; nothing subtracted
-#   bore  = drop         same radius...
-#   bset  = shelf        ...and the same centre, so they are concentric
-#   rad   = cut/drop     the cut is a multiple of the drop, which is the bore
-#   set   = (shelf + cutback) * R
+# The bore is made EQUAL to the pocket size and CONCENTRIC with the drop, so
+# the hole in the timber and the hole the ball falls into are the same hole.
 #
-# `gap` is left alone: where the cushion ENDS is what the mouth is, and it is
-# the one number here that decides how the game plays.
-LINKED = ["drop", "shelf", "cutk", "cutback"]
+# The translation into the fields the bench already drives, so the engine is
+# untouched and what is on the screen is the real renderer:
+#
+#   pr   = pocket / R        capm = 0        (the drop IS the pocket radius)
+#   bore = pr                bset = back     (timber hole = drop, concentric)
+#   back = shelf / R
+#   rad  = cut x                             (already a multiple of pr)
+#   set  = shelf + cut offset                (metres, along the normal)
+#
+# `gap` is NOT derived yet. Bringing the cushion ends out to touch the bore is
+# the next piece and it cannot be faked from here: the jaw curve is built in
+# ball radii inside the engine, so where a cushion ENDS cannot be put on an
+# arbitrary circle by moving `gap` alone. The bench now measures the error
+# instead — the "cushion" figure in the readout is how far the end of the
+# rubber stops short of the edge of the bore — so the size of the job is
+# visible while it is still being dialled by hand.
+LINKED = ["psize", "shelf", "lipk", "lipoff"]
 
 
 def link_keys(q):
-    """Turn the linked knobs into the fields the bench already sends."""
+    """Turn the four millimetre knobs into the fields the bench already sends."""
     if q.get("linked", "0") in ("", "0"):
         return q
     q = dict(q)
-    drop    = float(q.get("drop",    "1.30"))   # x ball radius
-    shelf   = float(q.get("shelf",   "0.34"))   # x ball radius, along the normal
-    cutk    = float(q.get("cutk",    "1.30"))   # x the drop's own radius
-    cutback = float(q.get("cutback", "0.00"))   # x ball radius, beyond the drop
-    q["pr"]   = "%.5f" % drop
+    R = float(q.get("ballR", "0.0254"))          # metres, for the ÷R only
+    psize  = float(q.get("psize",  "46.0"))      # mm, THE POCKET
+    shelf  = float(q.get("shelf",  "8.0"))       # mm, along the normal
+    lipk   = float(q.get("lipk",   "1.30"))      # x the pocket
+    lipoff = float(q.get("lipoff", "0.0"))       # mm, beyond the drop
+    pr   = (psize / 1000.0) / R
+    back = (shelf / 1000.0) / R
+    q["pr"]   = "%.6f" % pr
     q["capm"] = "0"
-    q["back"] = "%.5f" % shelf
-    q["bore"] = "%.5f" % drop
-    q["bset"] = "%.5f" % shelf
-    q["rad"]  = "%.5f" % cutk
-    # `set` is in metres and the rest are in ball radii, so it needs R. The
-    # bench knows it from --defaults; the caller passes it in.
-    R = float(q.get("ballR", "0.0254"))
-    q["set"]  = "%.6f" % ((shelf + cutback) * R)
+    q["back"] = "%.6f" % back
+    q["bore"] = "%.6f" % pr
+    q["bset"] = "%.6f" % back
+    q["rad"]  = "%.6f" % lipk
+    q["set"]  = "%.6f" % ((shelf + lipoff) / 1000.0)
+    # `roll` is a multiple of `pr` as well, so when the cap margin folds into
+    # the pocket and `pr` moves, the lip would silently thicken or thin with
+    # it. The page works out the ratio at seed time and sends it, so the lip
+    # stays the thickness it shipped at while the pocket is dialled.
+    try:
+        q["roll"] = "%.6f" % (float(q.get("roll", "0.22"))
+                              * float(q.get("rollx", "1")))
+    except ValueError:
+        pass
     return q
 
 
@@ -442,26 +469,32 @@ function sync(kind){
     rg.value=v; nm.value=fx(k,v);
   }
 }
-/* THE LINKED KNOBS. Four numbers, and everything else is derived from them:
-   the drop (which is the gameplay), how far it sits past the mouth, and the
-   cloth cut as a ring around the outside of the bore. */
-const LKEYS=['drop','shelf','cutk','cutback'];
-const LNAME={drop:'drop',shelf:'shelf',cutk:'cut / drop',cutback:'cut setback'};
-const LUNIT={drop:'x ball R',shelf:'x ball R',cutk:'x drop',cutback:'x ball R'};
-const LRANGE={drop:[1.0,3.2,.01],shelf:[0,1.2,.005],cutk:[1.0,2.2,.005],
-              cutback:[-0.4,0.6,.005]};
+/* THE LINKED KNOBS. Four numbers, in MILLIMETRES — the pocket is a hole of a
+   certain size, not a certain number of balls — and everything else is derived
+   from them: the bore is made equal to the pocket and concentric with the
+   drop, and the cloth cut is a wider circle around the outside of it. */
+const LKEYS=['psize','shelf','lipk','lipoff'];
+const LNAME={psize:'pocket size',shelf:'shelf',lipk:'cut x pocket',
+             lipoff:'cut offset'};
+const LUNIT={psize:'mm radius',shelf:'mm',lipk:'x pocket',lipoff:'mm'};
+const LRANGE={psize:[10,90,.1],shelf:[0,40,.1],lipk:[1.0,2.2,.005],
+              lipoff:[-15,25,.1]};
+const LSTEP={psize:1,shelf:1,lipk:3,lipoff:1};
 const LTIP={
-  drop:'The catch: the circle a ball is taken by, and the ONE number here that '+
-       'decides how the game plays. The bore is made equal to it, so this is '+
-       'the size of the hole in the timber as well.',
-  shelf:'How far the drop sits past the mouth, along the pocket\'s own normal. '+
-        'This is the difficulty knob: it does not change how wide the pocket '+
-        'is, only how far a ball has to travel before it is gone.',
-  cutk:'The cloth cut, as a multiple of the drop. 1.0 is a cut exactly the '+
-       'size of the bore; wider leaves a ring of bare slate around it, which '+
-       'is what the shipped tables actually do.',
-  cutback:'How much further out than the drop the cut sits, so the ring is not '+
-          'concentric but pushed toward the timber.'};
+  psize:'THE POCKET. The radius in millimetres of the circle a ball is caught '+
+        'by — the gameplay, and the one size a table author sets. The bore in '+
+        'the timber is made equal to it, so this is the hole in the frame too. '+
+        'Nothing here is relative to the ball; the ball either fits or it does '+
+        'not, and the readout says which.',
+  shelf:'How much deeper than the mouth the pocket is centred, in mm. This is '+
+        'the difficulty knob: it does not change how WIDE the hole is, only '+
+        'how far a ball has to get before it is gone.',
+  lipk:'The cloth cut, as a multiple of the pocket size. 1.0 cuts the cloth '+
+       'exactly at the bore; wider leaves a ring of bare slate around the '+
+       'hole, which is what a real table has and what the shipped ones do.',
+  lipoff:'How much further out than the drop that circle is centred, in mm, '+
+         'so the ring is pushed toward the timber instead of being even all '+
+         'the way round.'};
 let LCUR={};
 function lmk(kind){
   const box=document.getElementById('l_'+kind); if(!box) return;
@@ -486,21 +519,31 @@ function lsync(kind){
   for(const row of box.children){
     const k=row.dataset.key, v=LCUR[kind][k];
     const [rg,nm]=row.querySelectorAll('input');
-    rg.value=v; nm.value=(+v).toFixed(3);
+    rg.value=v; nm.value=(+v).toFixed(LSTEP[k] ?? 3);
   }
 }
 /* Start the linked knobs from what the table already IS, so switching the
-   checkbox on does not jump the picture: the drop and the shelf come off the
-   shipped fields and the cut follows from them. */
+   checkbox on does not jump the picture. This is the check the whole scheme
+   has to pass: seeded from a table's own numbers the four knobs must put the
+   ghost to zero magenta, or the reparameterisation is not faithful and no
+   amount of tuning on top of it means anything. */
 function lseed(kind){
   const k=CUR[TABLE][kind];
-  /* `set` is the one field in metres while the rest are in ball radii, so the
-     setback has to be converted before it means the same thing. Seeded this
-     way the four knobs reproduce the shipped pocket EXACTLY — checked against
-     the ghost, which goes to zero magenta. */
-  const R=(DEF[TABLE]?.ball ?? 25.4)/1000.0;
-  LCUR[kind]={drop:(k.pr-(k.capm||0)), shelf:k.back, cutk:k.rad,
-              cutback:(k.set/R - k.back)};
+  const R=(DEF[TABLE]?.ball ?? 25.4)/1000.0;      /* metres, for the xR only */
+  /* The drop is the pocket field LESS the cap margin the engine takes off it.
+     Linked, the cap goes to zero and `pr` becomes the drop itself — so the
+     cut, which is a multiple of `pr`, has to be scaled by the same ratio or
+     it would quietly shrink with it. That factor is the whole reason the
+     first cut of this seeded wrong. */
+  const drop = k.pr - (k.capm||0);
+  const ratio = drop>1e-6 ? k.pr/drop : 1.0;
+  LCUR[kind]={
+    rollx : ratio,          /* derived, not a knob — see link_keys */
+    psize : drop * R * 1000.0,
+    shelf : k.back * R * 1000.0,
+    lipk  : k.rad * ratio,
+    lipoff: (k.set - k.back*R) * 1000.0,
+  };
   lsync(kind);
 }
 
@@ -537,6 +580,7 @@ function draw(kind){
     if(document.getElementById('linked').checked){
       q.set('linked','1');
       for(const key of LKEYS) q.set(key, LCUR[kind]?.[key] ?? 0);
+      q.set('rollx', LCUR[kind]?.rollx ?? 1);
       q.set('ballR', ((DEF[TABLE]?.ball ?? 25.4)/1000.0));   /* mm -> m */
     }
     fetch('/render?'+q).then(async r=>{
@@ -546,15 +590,24 @@ function draw(kind){
          the list is filled from the geometry rather than from an assumption
          about six in a ring. */
       if(info.pockets) fillPockets(info.pockets);
-      const g=info.gap_to_drop;
+      const g=info.gap_to_drop, tp=info.tip, bo=info.bore;
+      /* THE BORE AND THE DROP ARE THE SAME HOLE, or they are not. Said plainly
+         rather than as two numbers to subtract in your head. */
+      const db=(bo??0)-(info.drop??0);
+      const okc=v=>Math.abs(v)<0.5?'#7fe08a':(Math.abs(v)<2?'#ffd479':'#ff9a6b');
       document.getElementById('mm_'+kind).innerHTML =
         `mouth <b>${info.mouth?.toFixed(1)}</b> mm`+
         ` &nbsp;(<b>${(info.mouth/info.ball).toFixed(2)}</b> balls wide)`+
-        ` &nbsp; drop radius <b>${info.drop?.toFixed(1)}</b>`+
-        ` &nbsp; lip edge <b>${info.edge?.toFixed(1)}</b>`+
-        ` &nbsp; lip thickness <b>${info.thick?.toFixed(1)}</b>`+
-        ` &nbsp; the ball floats <b style="color:${Math.abs(g)<1?'#7fe08a':'#ff9a6b'}">`+
-        `${g>0?'+':''}${g?.toFixed(1)}</b> mm past the cloth before it drops`;
+        ` &nbsp; pocket <b>${info.drop?.toFixed(1)}</b>`+
+        ` &nbsp; bore <b style="color:${okc(db)}">${bo?.toFixed(1)}</b>`+
+        `<span style="color:#8b93a4"> (${db>0?'+':''}${db.toFixed(1)} vs pocket)</span>`+
+        ` &nbsp; cut edge <b>${info.edge?.toFixed(1)}</b>`+
+        ` &nbsp; lip <b>${info.thick?.toFixed(1)}</b>`+
+        /* how far the end of the rubber stops short of the edge of the hole */
+        ` &nbsp; cushion <b style="color:${okc(tp)}">${tp>0?'+':''}${tp?.toFixed(1)}</b>`+
+        `<span style="color:#8b93a4"> mm ${tp>0?'short of':'over'} the bore</span>`+
+        ` &nbsp; ball floats <b style="color:${Math.abs(g)<1?'#7fe08a':'#ff9a6b'}">`+
+        `${g>0?'+':''}${g?.toFixed(1)}</b> mm past the cloth`;
     });
   },70);
 }
