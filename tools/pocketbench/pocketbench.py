@@ -353,7 +353,7 @@ PAGE = r"""<!doctype html><meta charset=utf-8>
           x <input id=notchz type=number step=0.05 value=0.85 style="width:56px">
     pocket <select id=pocket></select>
   </span>
-  <label class=key>zoom <input id=zoom type=range min=2.5 max=9 step=.25 value=5
+  <label class=key title="Millimetres across the frame, x50. FIXED — it does not follow the pocket, so a bigger hole draws bigger.">zoom <input id=zoom type=range min=2.5 max=9 step=.25 value=5
         style="vertical-align:middle;width:100px;accent-color:var(--acc)"></label>
   <!-- THE GHOST. The shipped table, drawn from the same camera with none of
        the tuning applied. Magenta is what has moved. The gameplay is good and

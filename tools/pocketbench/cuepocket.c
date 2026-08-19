@@ -618,7 +618,19 @@ int main(int argc, char **argv) {
     if (p >= W.npocket) p = 0;
     mid = W.pocket_mid[p];        /* the chosen pocket's own kind, not the flag */
     ox=W.pocket[p].x; oz=W.pocket[p].z;
-    float span = zoom*T.pr_corner; spm = IW/span;
+    /* A FIXED WORLD SCALE. This was zoom*T.pr_corner — the view span tied to
+     * the pocket radius — so the camera zoomed out at exactly the rate the
+     * hole grew and the hole appeared not to change size at all. Everything
+     * else in the frame shrank onto it instead, which reads as the cushions
+     * growing and closing over a pocket that is standing still: the precise
+     * opposite of what the geometry is doing. A ruler that rescales itself
+     * with the thing being measured is not a ruler.
+     *
+     * `zoom` is now millimetres across the frame per unit, so 5 is a 250mm
+     * span on every table and every pocket size, and the drop circle grows on
+     * screen when the drop grows. It has to be independent of the pocket for
+     * the same reason it has to be independent of the ball. */
+    float span = zoom*0.050f; spm = IW/span;
     ox -= W.pmnorm[p].x*span*0.16f; oz -= W.pmnorm[p].z*span*0.16f;
     if (strcmp(vw, "top")) {
         /* Pocket 2 is the +x/+z corner and pocket 5 the +z middle, so "out" is
