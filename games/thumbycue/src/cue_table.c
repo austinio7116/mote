@@ -1030,7 +1030,14 @@ static void add_run(CueWorld *w, const CueTable *t, Vec3 a, Vec3 b, Vec3 out,
     float len = sqrtf(dx*dx + dz*dz);
     if (len < 1e-5f) return;
     Vec3 d = v3(dx/len, 0, dz/len);
-    const float sl = t->facing_len;
+    /* THE FACING'S LENGTH IS NOT A BALL PROPERTY. facing_len is authored as a
+     * multiple of the ball (or of the pocket), but what a mitre has to do is
+     * reach the timber: it goes out by sin(ang) per unit length, so arriving
+     * at a frame edge cw deep takes cw / sin(ang) and nothing else comes into
+     * it. The authored value stays as the fallback for a world built without a
+     * cushion depth. Same unlinking as the rectangle mitres, which is where it
+     * was done first; this is the L and n-gon path. */
+    const float sl_auth = t->facing_len;
     const float ga = (end_a == LEND_REFLEX) ? 0.0f
                    : (end_a == LEND_MIDDLE) ? t->gap_side : t->gap_corner;
     const float gb = (end_b == LEND_REFLEX) ? 0.0f
@@ -1088,6 +1095,8 @@ static void add_run(CueWorld *w, const CueTable *t, Vec3 a, Vec3 b, Vec3 out,
     if (end_a != LEND_REFLEX) {
         float ang = (end_a == LEND_MIDDLE) ? t->ang_side : t->ang_corner;
         float c = cosf(ang*DEG), s = sinf(ang*DEG);
+        const float sl = (w->cush_depth > 1e-6f && s > 1e-4f)
+                       ? (w->cush_depth / s) : sl_auth;
         Vec3 P1 = v3(P2.x - d.x*(c*sl) + out.x*(s*sl), 0,
                      P2.z - d.z*(c*sl) + out.z*(s*sl));
         add_seg(w, P1, P2, 1);
@@ -1096,6 +1105,8 @@ static void add_run(CueWorld *w, const CueTable *t, Vec3 a, Vec3 b, Vec3 out,
     if (end_b != LEND_REFLEX) {
         float ang = (end_b == LEND_MIDDLE) ? t->ang_side : t->ang_corner;
         float c = cosf(ang*DEG), s = sinf(ang*DEG);
+        const float sl = (w->cush_depth > 1e-6f && s > 1e-4f)
+                       ? (w->cush_depth / s) : sl_auth;
         Vec3 P4 = v3(P3.x + d.x*(c*sl) + out.x*(s*sl), 0,
                      P3.z + d.z*(c*sl) + out.z*(s*sl));
         add_seg(w, P3, P4, 1);
