@@ -967,54 +967,51 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
             if (ax2*ax2 + az2*az2 < reach*reach ||
                 bx3*bx3 + bz3*bz3 < reach*reach) { M = MFINE; break; }
         }
-        Vec3 qi = v3(0,0,0), qo = v3(0,0,0);
-        float qlo = 1.0f, qhi = 1.0f; int have = 0;
-        for (int k = 0; k <= M; k++) {
-            const float sp = 0.5f - 0.5f * cosf(3.14159265f * (float)k / (float)M);
-            const Vec3 Pi = v3(Ai.x + (Bi.x - Ai.x)*sp, ytop, Ai.z + (Bi.z - Ai.z)*sp);
-            const Vec3 Po = v3(Ao.x + (Bo.x - Ao.x)*sp, ytop, Ao.z + (Bo.z - Ao.z)*sp);
-            const float dxs = Po.x - Pi.x, dzs = Po.z - Pi.z;
-            const float aq = dxs*dxs + dzs*dzs;
-            /* WHAT THE BORES HAVE SWALLOWED, as one interval.
-             *
-             * `cut` has to be tracked rather than inferred from the values,
-             * because "nothing was cut" and "everything was cut" both want to
-             * be expressible and the ends of the range are not free to mean
-             * one of them. Seeding thi at 1 and then taking a maximum can
-             * never bring it back down, which is exactly what it did: every
-             * cross-section reported the bore as covering the whole band, and
-             * not one corner of any table got its timber. */
-            float tlo = 1.0f, thi = 1.0f; int cut = 0;
-            if (aq > 1e-9f) for (int h = 0; h < nh; h++) {
-                const float fx = Pi.x - hx[h], fz = Pi.z - hz[h];
-                const float bq = 2.0f * (fx*dxs + fz*dzs);
-                const float cq = fx*fx + fz*fz - hr[h]*hr[h];
-                const float disc = bq*bq - 4.0f*aq*cq;
-                if (disc <= 0.0f) continue;
-                const float sq = sqrtf(disc);
-                float t0 = (-bq - sq) / (2.0f*aq), t1 = (-bq + sq) / (2.0f*aq);
-                if (t1 <= 0.0f || t0 >= 1.0f) continue;
-                if (t0 < 0.0f) t0 = 0.0f;
-                if (t1 > 1.0f) t1 = 1.0f;
-                if (!cut) { tlo = t0; thi = t1; cut = 1; }
-                else { if (t0 < tlo) tlo = t0; if (t1 > thi) thi = t1; }
+        /* A GRID OF CELLS, AND ANY CORNER INSIDE A BORE PULLED ONTO IT.
+         *
+         * The band was cut cross-section by cross-section, removing ONE
+         * interval per section. That is why the timber tore into slivers at a
+         * vertex: there a section is no longer square to the bore, and one
+         * interval cannot describe what a circle takes out of it — so the two
+         * ends of a step disagreed about where the arc was and the strip
+         * between them was emitted wrong or not at all.
+         *
+         * Simpler, and it cannot tear. Cover the band in small quads, drop the
+         * ones a bore has entirely, and where a bore takes only part of a quad
+         * pull that quad's inside corners OUT onto the circle. Nothing is
+         * subtracted, so nothing can be subtracted twice or leave a gap
+         * between two subtractions, and the bore's edge comes out as the curve
+         * itself instead of as a chord across a section. */
+        const int NV = 3;
+        for (int k = 0; k < M; k++) {
+            const float s0 = 0.5f - 0.5f*cosf(3.14159265f*(float)k/(float)M);
+            const float s1 = 0.5f - 0.5f*cosf(3.14159265f*(float)(k+1)/(float)M);
+            for (int v = 0; v < NV; v++) {
+                const float v0 = (float)v/(float)NV, v1 = (float)(v+1)/(float)NV;
+                const float ss[4] = { s0, s1, s1, s0 };
+                const float vv[4] = { v0, v0, v1, v1 };
+                Vec3 c[4]; int inside = 0;
+                for (int q = 0; q < 4; q++) {
+                    const float ix  = Ai.x + (Bi.x-Ai.x)*ss[q];
+                    const float iz  = Ai.z + (Bi.z-Ai.z)*ss[q];
+                    const float ox2 = Ao.x + (Bo.x-Ao.x)*ss[q];
+                    const float oz2 = Ao.z + (Bo.z-Ao.z)*ss[q];
+                    float px = ix + (ox2-ix)*vv[q], pz = iz + (oz2-iz)*vv[q];
+                    for (int h = 0; h < nh; h++) {
+                        const float dx2 = px-hx[h], dz2 = pz-hz[h];
+                        const float dd2 = dx2*dx2 + dz2*dz2;
+                        if (dd2 >= hr[h]*hr[h]) continue;
+                        const float dl = sqrtf(dd2);
+                        if (dl > 1e-6f) { px = hx[h] + dx2/dl*hr[h];
+                                          pz = hz[h] + dz2/dl*hr[h]; }
+                        inside++;
+                        break;
+                    }
+                    c[q] = v3(px, ytop, pz);
+                }
+                if (inside == 4) continue;          /* the bore has all of it */
+                quad(c[0], c[1], c[2], c[3], top);
             }
-            #define AT(P, Q, u) v3((P).x + ((Q).x - (P).x)*(u), ytop, \
-                                   (P).z + ((Q).z - (P).z)*(u))
-            if (have) {
-                /* EITHER end, not both. Where the bore stops cutting, one end
-                 * of the step has a strip and the other has none — and asking
-                 * for both left that step empty, so a black slot opened in the
-                 * timber exactly where the arc runs out. A strip that closes to
-                 * nothing at one end is a triangle, which is a quad with two
-                 * corners in the same place, and drawing it is correct. */
-                if (qlo > 1e-4f || tlo > 1e-4f)          /* the strip on the cushion side */
-                    quad(qi, Pi, AT(Pi, Po, tlo), AT(qi, qo, qlo), top);
-                if (qhi < 1.0f - 1e-4f || thi < 1.0f - 1e-4f)   /* ...and on the outside */
-                    quad(AT(qi, qo, qhi), AT(Pi, Po, thi), Po, qo, top);
-            }
-            #undef AT
-            qi = Pi; qo = Po; qlo = tlo; qhi = thi; have = 1;
         }
     }
 
