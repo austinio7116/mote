@@ -237,6 +237,18 @@ typedef struct {
 
     /* Geometry (filled by cue_table). */
     CueSeg seg[CUE_MAX_SEG]; int nseg;
+    /* HOW MANY SEGMENTS EACH JAW MAY SPEND. A rectangle has six runs and can
+     * afford the full CUE_JAW_SEGS; a sixty-sided bed has sixty and cannot —
+     * at 2*JAW+1 per run it wants 1260 segments against an array of 256, and
+     * what actually happened is that the array filled and the LAST edges got
+     * no cushion at all. A twelve-gon was already on the edge of it: 252
+     * needed, 256 available, and two of its twelve rails came out bare.
+     *
+     * Spending the budget instead of overrunning it: the jaw gets coarser as
+     * the bed gains sides, and every rail keeps its cushion. Coarse knuckles
+     * on a thirty-gon are a shape nobody will look at closely; a missing
+     * cushion is a wall a ball goes through. */
+    int jaw_segs;
     Vec3   jaw[CUE_MAX_SEG]; int njaw; float jaw_r;   /* immovable jaw-tip circles */
     Vec3   pocket[CUE_MAX_POCKET]; float pocket_r[CUE_MAX_POCKET]; int npocket;
     /* WHAT A HOLE IS WORTH. Zero on every table where a pocket is a pocket;

@@ -1069,11 +1069,11 @@ static void add_run(CueWorld *w, const CueTable *t, Vec3 a, Vec3 b, Vec3 out,
         if (end_a != LEND_REFLEX) {
             /* `d` runs a → b, so into the rail from this end */
             jaw_tip(w, P2, d, out, end_a == LEND_MIDDLE, &T1, &aIn);
-            nIn = CUE_JAW_SEGS;
+            nIn = w->jaw_segs;
         }
         if (end_b != LEND_REFLEX) {
             jaw_tip(w, P3, v3(-d.x, 0, -d.z), out, end_b == LEND_MIDDLE, &T4, &aOut);
-            nOut = CUE_JAW_SEGS;
+            nOut = w->jaw_segs;
         }
         add_curved_chain_e(w, T1, P2, P3, T4, aIn, aOut, nIn, nOut,
                            end_a != LEND_REFLEX, end_b != LEND_REFLEX);
@@ -1261,6 +1261,37 @@ static void build_ngon(CueWorld *w, const CueTable *t) {
      * side of it want to meet, not to grow a pair of facings pointing at
      * nothing. That is what LEND_REFLEX already means to add_run — no gap, no
      * facing, no jaw — so a round bed's plain corners borrow it. */
+    /* THE SEGMENT BUDGET, SHARED OUT BEFORE ANYTHING IS BUILT. Each run costs
+     * two jaws and a nose, so n runs want n*(2*JAW+1); when that exceeds the
+     * array the tail of the loop silently gets nothing. Trim the jaw instead,
+     * and keep at least one segment so a knuckle is still a knuckle. */
+    {   /* MEASURED, not assumed: a jaw of js steps emits js+2 segments, and
+         * only the corners that CARRY a pocket grow one — a bed with a pocket
+         * every `every` corners has n/every of them, each with two. So
+         *
+         *     n + 2 * npocket * (js + 2)  <=  the array
+         *
+         * A first cut at this counted js per jaw and n runs with jaws on both
+         * ends, which over-spent on a twelve-gon (still two rails bare) and
+         * under-spent on a round bed, where fifty-four of the sixty corners
+         * are plain and cost one segment each. */
+        int npk = 0;
+        for (int i = 0; i < n; i++) if (!(i % every)) npk++;
+        int js = CUE_JAW_SEGS;
+        if (npk > 0) {
+            /* Three quarters of the array, not all of it. The cost of a jaw
+             * is js+2 by measurement, but only roughly — the chain adds and
+             * drops segments at its ends depending on what it meets — and
+             * budgeting to the last segment left a sixteen-gon one rail short
+             * and a thirty-gon two. Headroom is cheaper than an exact model of
+             * something that does not need to be exact, and what it buys is
+             * that no rail can ever come out bare. */
+            js = (((CUE_MAX_SEG * 3) / 4 - n) / (2 * npk)) - 2;
+            if (js > CUE_JAW_SEGS) js = CUE_JAW_SEGS;
+            if (js < 1) js = 1;
+        }
+        w->jaw_segs = js;
+    }
     for (int i = 0; i < n; i++) {
         const Vec3 a = cue_table_ngon_vert(t, i);
         const Vec3 b = cue_table_ngon_vert(t, (i + 1) % n);
@@ -1838,6 +1869,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     w->rail_top = t->cushion_h * 1.30f;
     /* the same number cue_render uses for the timber's inner edge (rw * 0.63) */
     w->cush_depth = t->rail_w * 0.63f;
+    w->jaw_segs   = CUE_JAW_SEGS;   /* build_ngon trims it for a many-sided bed */
     w->jaw_r = t->jaw_r;
     w->e_cush     = t->e_cush;
     w->cush_efall = t->cush_efall;
