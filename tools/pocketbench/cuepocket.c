@@ -738,6 +738,7 @@ int main(int argc, char **argv) {
 
     const char *tbl="snooker12", *ty="corner", *out="/tmp/pk.ppm";
     int pocket_idx = -1;
+    int pinkbg = 0;
     int kiss = 0; float karc = 0.0f;   /* link `gap` to the hole; target arc in mm */
     /* WHERE THE EYE GOES. "top" is the old straight-down view; "out" stands
      * outside the pocket looking in and down at it, which is where a slot
@@ -772,6 +773,7 @@ int main(int argc, char **argv) {
         else if(!strcmp(argv[i],"--roll")) k.roll=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--zoom")) zoom=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--size")) { IW=IH=atoi(argv[++i]); }
+        else if(!strcmp(argv[i],"--pink")) pinkbg=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--kiss")) { kiss=1; karc=(float)atof(argv[++i]); }
         else if(!strcmp(argv[i],"--bore")) k.bore=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--bset")) k.bset=(float)atof(argv[++i]);
@@ -975,7 +977,9 @@ int main(int argc, char **argv) {
      * mesh is the whole point of them, and a dark hole in a dark corner is
      * invisible. The view from above keeps its dark ground — it is read against
      * the overlay circles, and a magenta disc in the mouth fights them. */
-    if (s_persp) { for (size_t i = 0; i < (size_t)IW*IH; i++)
+    /* --pink forces it in the view from above as well, for a contact sheet
+     * where every frame should read the same way. */
+    if (s_persp || pinkbg) { for (size_t i = 0; i < (size_t)IW*IH; i++)
                        { img[i*3]=255; img[i*3+1]=0; img[i*3+2]=255; } }
     else memset(img,12,(size_t)IW*IH*3);
     for(size_t i=0;i<(size_t)IW*IH;i++) zb[i]=-1e9f;
@@ -995,7 +999,10 @@ int main(int argc, char **argv) {
      * laid under it, down a pocket is DARK and the only magenta left is a line
      * of sight that really does leave the table sideways: the slot between a
      * cushion and the frame, which is the thing being hunted. */
-    if (s_persp) {
+    /* ...and with --pink the view from above needs it too, or the drop itself
+     * floods pink and every pocket reads as a hole clean through the table —
+     * which is exactly the fault the colour is there to find. */
+    if (s_persp || pinkbg) {
         const float fy = -0.09f, e = 3.0f;
         Vec3 fa = v3(-e,fy,-e), fb = v3(e,fy,-e), fc = v3(e,fy,e), fd = v3(-e,fy,e);
         CueTri fl[2];
