@@ -298,6 +298,25 @@ typedef struct {
  * of shape arithmetic multiplies its z by. ONE place says what the hand means
  * and every builder reads it from here, rather than each deciding for itself —
  * which is how a shape fact ends up written six different ways. */
+/* THE L'S OUTLINE, in the order the cloth boundary walks it, for EITHER hand.
+ *
+ * There is one shape here and it turns two ways, and for a long time that cost
+ * six separate mirrorings — the world reversed segment and pocket arrays and
+ * recomputed every normal, the renderer's boundary walk undid that with an
+ * index macro and redid it with a coordinate one, and the frame planks did
+ * their own. Six places multiplying z by the hand, each an opportunity to get
+ * it wrong, and one of them was.
+ *
+ * A left-handed L is not a right-handed one drawn backwards: mirroring z
+ * reverses the winding, which moves the inside corner from the fourth vertex
+ * to the third. So the vertices are laid out for the hand asked for, once, and
+ * everything downstream reads them and needs to know nothing about hands at
+ * all. Six vertices, always counter-clockwise so an edge's outward normal
+ * falls out of its own direction; `reflex` is the inside corner.
+ *
+ * Returns 6, or 0 if this is not an L. */
+int cue_table_L_outline(const CueTable *t, Vec3 *v6, int *reflex);
+
 static inline float cue_table_hand(const CueTable *t) {
     return (t && t->bed_hand == CUE_HAND_LEFT) ? -1.0f : 1.0f;
 }

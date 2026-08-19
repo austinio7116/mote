@@ -1280,98 +1280,144 @@ static void build_ngon(CueWorld *w, const CueTable *t) {
     }
 }
 
+int cue_table_L_outline(const CueTable *t, Vec3 *v, int *reflex) {
+    if (!t || !v || t->bed_shape != CUE_BED_L) return 0;
+    const float hl = t->half_len, hw = t->half_wid;
+    const float nx = t->notch_x,  nz = t->notch_z;
+    if (cue_table_hand(t) >= 0.0f) {
+        /* the bite out of the +x,+z corner */
+        v[0] = v3(-hl,      0, -hw);
+        v[1] = v3( hl,      0, -hw);
+        v[2] = v3( hl,      0,  hw - nz);
+        v[3] = v3( hl - nx, 0,  hw - nz);            /* the reflex corner */
+        v[4] = v3( hl - nx, 0,  hw);
+        v[5] = v3(-hl,      0,  hw);
+        if (reflex) *reflex = 3;
+    } else {
+        /* ...and out of the +x,-z one. Walked the same way round, so the
+         * winding — and every normal that falls out of it — still holds; the
+         * inside corner simply arrives a vertex earlier. */
+        v[0] = v3(-hl,      0, -hw);
+        v[1] = v3( hl - nx, 0, -hw);
+        v[2] = v3( hl - nx, 0, -hw + nz);            /* the reflex corner */
+        v[3] = v3( hl,      0, -hw + nz);
+        v[4] = v3( hl,      0,  hw);
+        v[5] = v3(-hl,      0,  hw);
+        if (reflex) *reflex = 2;
+    }
+    return 6;
+}
+
 static void build_L(CueWorld *w, const CueTable *t) {
+    Vec3 V[6]; int rf = 3;
+    if (!cue_table_L_outline(t, V, &rf)) return;
     const float hl = t->half_len, hw = t->half_wid;
     const float nx = t->notch_x, nz = t->notch_z;
 
-    const Vec3 V0 = v3(-hl,      0, -hw);
-    const Vec3 V1 = v3( hl,      0, -hw);
-    const Vec3 V2 = v3( hl,      0,  hw - nz);
-    const Vec3 V3 = v3( hl - nx, 0,  hw - nz);      /* the reflex corner */
-    const Vec3 V4 = v3( hl - nx, 0,  hw);
-    const Vec3 V5 = v3(-hl,      0,  hw);
-    /* THE MIDDLES GO ON THE TWO OUTER RAILS, and only those.
+    /* WHICH TWO RAILS GET A MIDDLE POCKET: the two that run the WHOLE way.
      *
-     * On a rectangle the long rails are the two of length 2*half_len and it is
-     * obvious which they are. On an L the two rails that run the WHOLE way are
-     * the outside of the two arms — here the one at z = -half_wid and the one
-     * at x = -half_len — and the other four are all shortened by the notch. A
-     * middle on a shortened rail is a pocket halfway along an arm that is not
-     * long enough to want one, sitting a few inches from a corner pocket, which
-     * is what putting one on the short leg's top rail produced. */
-    const Vec3 M0 = v3(0.0f, 0, -hw);    /* the long arm's outer rail */
-    const Vec3 M1 = v3(-hl,  0,  0.0f);  /* the short arm's outer rail */
+     * On a rectangle the long rails are obvious. On an L four of the six are
+     * shortened by the notch, and a middle on a shortened rail is a pocket
+     * halfway along an arm too short to want one, sitting a few inches from a
+     * corner. The two full ones are simply the two longest, which is true
+     * whichever way the table turns and needs no table of indices. */
+    float len[6]; int lo0 = 0, lo1 = 1;
+    for (int i = 0; i < 6; i++) {
+        Vec3 a = V[i], b = V[(i + 1) % 6];
+        len[i] = sqrtf((b.x-a.x)*(b.x-a.x) + (b.z-a.z)*(b.z-a.z));
+    }
+    for (int i = 0; i < 6; i++) {
+        if (len[i] > len[lo0]) { lo1 = lo0; lo0 = i; }
+        else if (i != lo0 && len[i] > len[lo1]) lo1 = i;
+    }
 
-    const Vec3 OUT_Z0 = v3(0,0,-1), OUT_Z1 = v3(0,0,1);
-    const Vec3 OUT_X1 = v3(1,0,0),  OUT_X0 = v3(-1,0,0);
-
-    /* Round the outline, in the order that makes every inward normal point at
-     * the cloth: V0 -> V1 -> V2 -> V3 -> V4 -> V5 -> V0. */
-    add_run(w, t, V0, M0, OUT_Z0, LEND_CORNER, LEND_MIDDLE);   /* outer rail, half */
-    add_run(w, t, M0, V1, OUT_Z0, LEND_MIDDLE, LEND_CORNER);   /* ...and the rest */
-    add_run(w, t, V1, V2, OUT_X1, LEND_CORNER, LEND_CORNER);   /* the far end */
-    /* OUT_Z1, not OUT_Z0: the rail under the notch has the cloth below it and
-     * the missing corner above, so its outside is +z. Facing it the other way
-     * splays this rail's pocket facings back INTO the playing area — a wedge of
-     * cushion standing on the cloth beside the pocket, which is what it drew.
-     * The nose is unaffected either way, because add_seg takes the inward
-     * normal from the chain's own direction; only the facings read this. */
-    /* THE ELBOW'S RADIUS. Both runs stop short of the vertex by it and the arc
-     * joins them, so the chain is continuous and the corner is a curve rather
-     * than a point. A ball and a half across is what a cushion bends to; it is
-     * clamped so a shallow notch cannot ask for a radius longer than the runs
-     * it has to be taken out of. */
+    /* THE ELBOW'S RADIUS. Both runs into the inside corner stop short of it by
+     * this and an arc joins them, so the chain is continuous and the corner is
+     * a curve rather than a knife edge a ball could squeeze through. A ball and
+     * a half is what a cushion bends to, clamped so a shallow notch cannot ask
+     * for more than the runs it comes out of. */
     float er = 1.5f * t->R;
     {   float lim = 0.35f * (nx < nz ? nx : nz);
         if (er > lim) er = lim;
         if (er < 0.0f) er = 0.0f; }
-    add_run(w, t, V2, v3(V3.x + er, 0, V3.z), OUT_Z1,
-            LEND_CORNER, LEND_REFLEX);                         /* under the notch */
-    add_elbow(w, V3, OUT_Z1, OUT_X1, er);                      /* ...round the corner */
-    add_run(w, t, v3(V3.x, 0, V3.z + er), V4, OUT_X1,
-            LEND_REFLEX, LEND_CORNER);                         /* beside the notch */
-    add_run(w, t, V4, V5, OUT_Z1, LEND_CORNER, LEND_CORNER);   /* the short arm's top */
-    add_run(w, t, V5, M1, OUT_X0, LEND_CORNER, LEND_MIDDLE);   /* the other outer rail */
-    add_run(w, t, M1, V0, OUT_X0, LEND_MIDDLE, LEND_CORNER);
 
-    /* The elbow needed a rattle circle dropped on the vertex, because two
-     * cushions meeting at a knife edge leave a join a ball can squeeze through.
-     * add_elbow above turns the corner into a real arc of shared-endpoint
-     * segments instead, so there is no join left to squeeze through and no
-     * circle needed — it keeps one only when the radius has been clamped away to
-     * nothing, which a notch a few millimetres deep would do. */
+    /* ROUND THE OUTLINE. The outward normal of an edge falls out of the
+     * winding — (dz, -dx) for a counter-clockwise walk — exactly as a regular
+     * bed's does, so there is no table of hand-written normals to get wrong and
+     * nothing here asks which way the table turns. */
+    for (int i = 0; i < 6; i++) {
+        const int ia = i, ib = (i + 1) % 6;
+        Vec3 a = V[ia], b = V[ib];
+        const float dx = b.x - a.x, dz = b.z - a.z;
+        const float l = len[i];
+        if (l < 1e-5f) continue;
+        const Vec3 out = v3(dz / l, 0.0f, -dx / l);
+        const int enda = (ia == rf) ? LEND_REFLEX : LEND_CORNER;
+        const int endb = (ib == rf) ? LEND_REFLEX : LEND_CORNER;
+        if (i == lo0 || i == lo1) {
+            /* split at the middle, and put a pocket there */
+            Vec3 m = v3((a.x + b.x) * 0.5f, 0, (a.z + b.z) * 0.5f);
+            add_run(w, t, a, m, out, enda,        LEND_MIDDLE);
+            add_run(w, t, m, b, out, LEND_MIDDLE, endb);
+        } else if (ib == rf && er > 0.0f) {
+            /* stop short of the inside corner; the arc below turns it */
+            add_run(w, t, a, v3(b.x - dx/l*er, 0, b.z - dz/l*er), out,
+                    enda, LEND_REFLEX);
+        } else if (ia == rf && er > 0.0f) {
+            add_run(w, t, v3(a.x + dx/l*er, 0, a.z + dz/l*er), b, out,
+                    LEND_REFLEX, endb);
+        } else {
+            add_run(w, t, a, b, out, enda, endb);
+        }
+        if (ib == rf && er > 0.0f) {
+            /* the arc itself, between this edge's normal and the next one's */
+            Vec3 c = V[(ib + 1) % 6];
+            float ex2 = c.x - b.x, ez2 = c.z - b.z;
+            float l2 = sqrtf(ex2*ex2 + ez2*ez2);
+            if (l2 > 1e-5f)
+                add_elbow(w, b, out, v3(ez2/l2, 0.0f, -ex2/l2), er);
+        }
+    }
 
-    const float dg = 0.70710678f, oc = t->off_corner, os = t->off_side;
-    const float capc = t->pr_corner - t->cap_corner;
-    const float caps = t->pr_side   - t->cap_side;
-    /* THE FIVE OUTER CORNERS, each pushed out along the bisector of its own two
-     * outward normals — which is NOT always away from the table centre.
-     *
-     * V2 is the corner where the right rail meets the underside of the notch.
-     * The cloth there lies to -x and -z of it, so the pocket belongs pushed
-     * +x AND +z, out into the notch. Reading the direction off the sign of the
-     * coordinate instead — which is what every rectangle here can get away with
-     * — put it at +x,-z, back INSIDE the playing area, where it drew a facing
-     * jutting into the cloth and offered a pocket in the middle of the table.
+    /* THE POCKETS, in the order the boundary meets them — five outer corners
+     * and the two middles — each pushed out along the bisector of its own two
+     * outward normals, which is NOT always away from the table centre. The
+     * corner where the far rail meets the underside of the notch has cloth to
+     * -x and -z of it, so it belongs pushed out INTO the notch; reading the
+     * direction off the sign of the coordinate, which every rectangle here can
+     * get away with, put it back inside the playing area.
      *
      * There is deliberately NO pocket at the elbow: on a real L the inside
-     * corner is solid timber, and the two cushions meet there.
+     * corner is solid timber and the two cushions meet there.
      *
-     * IN OUTLINE ORDER, not corners-then-middles. The cloth boundary is a walk
-     * round the table and it wants the pockets in the order it meets them; a
-     * rectangle can sort six pockets back into order from their coordinates,
-     * and an L cannot. See build_bed_boundary_L, which relies on this. */
-    add_pocket(w, V0.x - oc*dg, V0.z - oc*dg, capc, 0);   /* 0 */
-    add_pocket(w, M0.x,         M0.z - os,    caps, 1);   /* 1 */
-    add_pocket(w, V1.x + oc*dg, V1.z - oc*dg, capc, 0);   /* 2 */
-    add_pocket(w, V2.x + oc*dg, V2.z + oc*dg, capc, 0);   /* 3 */
-    add_pocket(w, V4.x + oc*dg, V4.z + oc*dg, capc, 0);   /* 4 */
-    add_pocket(w, V5.x - oc*dg, V5.z + oc*dg, capc, 0);   /* 5 */
-    add_pocket(w, M1.x - os,    M1.z,         caps, 1);   /* 6 */
-
-    /* ...and if this table turns the other way, that was the right-handed L and
-     * this is its reflection. */
-    if (cue_table_hand(t) < 0.0f) mirror_world_z(w);
+     * IN OUTLINE ORDER, not corners-then-middles: the cloth boundary is a walk
+     * round the table and wants them in the order it meets them. A rectangle
+     * can sort six pockets back into order from their coordinates; an L
+     * cannot. See build_bed_boundary_L, which relies on this. */
+    const float oc = t->off_corner, os = t->off_side;
+    const float capc = t->pr_corner - t->cap_corner;
+    const float caps = t->pr_side   - t->cap_side;
+    for (int i = 0; i < 6; i++) {
+        const int ia = i, ib = (i + 1) % 6, ip = (i + 5) % 6;
+        Vec3 a = V[ia], b = V[ib], pv = V[ip];
+        /* THE CORNER AT THIS EDGE'S START comes before this edge's middle, so
+         * the array runs in the order the boundary walks it. */
+        if (ia != rf && len[ip] > 1e-5f && len[i] > 1e-5f) {
+            float p1x = (a.x - pv.x) / len[ip], p1z = (a.z - pv.z) / len[ip];
+            float p2x = (b.x - a.x) / len[i],   p2z = (b.z - a.z) / len[i];
+            /* the bisector of the two edges' outward normals */
+            float bx = p1z + p2z, bz = -p1x - p2x;
+            float bl = sqrtf(bx*bx + bz*bz);
+            if (bl > 1e-6f)
+                add_pocket(w, a.x + bx/bl * oc, a.z + bz/bl * oc, capc, 0);
+        }
+        if ((i == lo0 || i == lo1) && len[i] > 1e-5f) {
+            const float dx = b.x - a.x, dz = b.z - a.z;
+            const Vec3 out = v3(dz / len[i], 0.0f, -dx / len[i]);
+            add_pocket(w, (a.x + b.x) * 0.5f + out.x * os,
+                          (a.z + b.z) * 0.5f + out.z * os, caps, 1);
+        }
+    }
 }
 
 /* Sample nseg+1 points along a quadratic-bezier curve from s to e with a

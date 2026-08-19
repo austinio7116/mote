@@ -483,61 +483,66 @@ static void scallop_rails(CueBnd *B, const CueWorld *w, int p,
  * not a pocket at all, so the boundary simply turns the corner there. */
 static void build_bed_boundary_L(const CueTable *t, const CueWorld *w,
                                  CueBnd *B, float ex, float ez) {
+    (void)ex; (void)ez;
     if (w->npocket < 7) return;
-    const float m  = t->rail_w * CUE_SLATE_RAIL;
-    const float hl = t->half_len, hw = t->half_wid;
-    const float nx = t->notch_x,  nz = t->notch_z;
-    /* A LEFT-HANDED L IS THE MIRROR OF A RIGHT-HANDED ONE, and this walk is
-     * written for the right-handed one. So the mirror is applied to what goes
-     * IN — every z, every z-normal, and the pocket indices, which the world
-     * reversed when it mirrored itself — and then to what comes OUT: mirroring
-     * reverses the winding, and the bed is fanned off this boundary in order, so
-     * the points are reversed at the end to put it back.
+    Vec3 V[6]; int rf = 3;
+    if (!cue_table_L_outline(t, V, &rf)) return;
+    const float m = t->rail_w * CUE_SLATE_RAIL;
+
+    /* THE WALK ROUND THE OUTLINE, and nothing here knows which way the table
+     * turns. It used to: this was written for a right-handed L and undid the
+     * world's mirror with an index macro, redid it with a coordinate one, and
+     * reversed the result — one of six places doing the same mirror, and the
+     * one that got it wrong. cue_table_L_outline now hands back the vertices
+     * for whichever hand this table is, already in the order the boundary meets
+     * them, and the pockets come out of build_L in the same order. So this is
+     * simply a walk.
      *
-     * Same transformation as the cushion chain and the frame's outline, applied
-     * the same way for the same reason. Written once, three times over. */
-    const float h = cue_table_hand(t);
-    const int   np = w->npocket;
-    #define PK(i)   (h < 0.0f ? (np - 1 - (i)) : (i))
-    #define ZN(v)   v3((v).x, 0, (v).z * h)
-    #define ZS(v)   ((v) * h)
-    const int start = B->n;
-    /* each rail's outward normal and the slate line it runs out to */
-    const Vec3 NZ0 = ZN(v3(0,0,-1)), NX1 = v3(1,0,0);
-    const Vec3 NZ1 = ZN(v3(0,0,1)),  NX0 = v3(-1,0,0);
-    const float S_BOT = ZS(-ez);             /* z of the bottom slate edge */
-    const float S_RIGHT =  ex;               /* x of the right slate edge  */
-    const float S_NOTCH_Z = ZS((hw - nz) + m); /* z of the notch's underside */
-    const float S_NOTCH_X = (hl - nx) + m;   /* x of the notch's inner side */
-    const float S_TOP = ZS(ez);
-    const float S_LEFT = -ex;
-    const Vec3 PX = v3(1,0,0), MX = v3(-1,0,0);
-    const Vec3 MZ = ZN(v3(0,0,-1));
-    /* V0: in off the short arm's outer rail, out along the long arm's */
-    scallop_rails(B, w, PK(0), NX0, S_LEFT,    NZ0, S_BOT,      PX);
-    /* the long arm's middle, walking +x */
-    scallop_rails(B, w, PK(1), NZ0, S_BOT,     NZ0, S_BOT,      PX);
-    /* V1: in off that rail, out up the far end */
-    scallop_rails(B, w, PK(2), NZ0, S_BOT,     NX1, S_RIGHT,    PX);
-    /* V2: in off the far end, out along the underside of the notch */
-    scallop_rails(B, w, PK(3), NX1, S_RIGHT,   NZ1, S_NOTCH_Z,  MX);
-    /* ...the elbow, which is timber and not a pocket: the slate just turns */
-    pt_into(B, S_NOTCH_X, S_NOTCH_Z, -1);
-    /* V4: in off the notch's inner rail, out along the short arm's top */
-    scallop_rails(B, w, PK(4), NX1, S_NOTCH_X, NZ1, S_TOP,      MX);
-    /* V5: in off the top, out down the short arm's outer rail */
-    scallop_rails(B, w, PK(5), NZ1, S_TOP,     NX0, S_LEFT,     MZ);
-    /* ...and that rail's middle, walking -z */
-    scallop_rails(B, w, PK(6), NX0, S_LEFT,    NX0, S_LEFT,     MZ);
-    if (h < 0.0f) {
-        for (int i = start, j = B->n - 1; i < j; i++, j--) {
-            Vec3 p = B->p[i]; B->p[i] = B->p[j]; B->p[j] = p;
-            int  k = B->pk[i]; B->pk[i] = B->pk[j]; B->pk[j] = k;
+     * Each edge has an outward normal from the winding and a slate line one
+     * margin beyond it. At a corner the cloth is scalloped between the rail
+     * being left and the rail being arrived on; at the elbow — which is timber,
+     * not a pocket — the slate just turns. */
+    float len[6]; Vec3 out[6], slate[6];
+    for (int i = 0; i < 6; i++) {
+        Vec3 a = V[i], b = V[(i + 1) % 6];
+        float dx = b.x - a.x, dz = b.z - a.z;
+        len[i] = sqrtf(dx*dx + dz*dz);
+        if (len[i] < 1e-5f) { out[i] = v3(0,0,0); slate[i] = v3(0,0,0); continue; }
+        out[i] = v3(dz / len[i], 0.0f, -dx / len[i]);
+        /* THE LINE THIS RAIL RUNS OUT TO: the edge pushed out by the margin,
+         * and nothing else. An earlier version snapped any outward-facing rail
+         * to the slate's extent, which is right for the four outer rails and
+         * WRONG for the notch's underside — that faces +z as well, and is
+         * interior. It does not need snapping anyway: the margin IS the
+         * difference between half_wid and the slate extent, so an outer rail
+         * lands on it exactly. */
+        slate[i] = v3(a.x + out[i].x * m, 0, a.z + out[i].z * m);
+    }
+    /* Which pocket sits at each vertex, and which edge carries a middle. The
+     * pockets are in walk order, so counting them off as we go is enough. */
+    int pk = 0;
+    for (int i = 0; i < 6; i++) {
+        const int ia = i, ip = (i + 5) % 6;
+        if (ia == rf) {
+            /* the elbow: solid timber, so the slate turns without a scallop */
+            pt_into(B, (out[ip].x > 0.5f || out[ip].x < -0.5f) ? slate[ip].x : slate[i].x,
+                       (out[ip].z > 0.5f || out[ip].z < -0.5f) ? slate[ip].z : slate[i].z, -1);
+            continue;
+        }
+        /* the corner at V[ia]: in off the previous rail, out along this one */
+        float la_v = (out[ip].x >  0.9f) ? slate[ip].x : (out[ip].x < -0.9f) ? slate[ip].x
+                   : (out[ip].z >  0.9f) ? slate[ip].z : slate[ip].z;
+        float lb_v = (out[i].x  >  0.9f) ? slate[i].x  : (out[i].x  < -0.9f) ? slate[i].x
+                   : (out[i].z  >  0.9f) ? slate[i].z  : slate[i].z;
+        Vec3 along = v3((V[(i+1)%6].x - V[ia].x) / (len[i] > 1e-5f ? len[i] : 1.0f), 0,
+                        (V[(i+1)%6].z - V[ia].z) / (len[i] > 1e-5f ? len[i] : 1.0f));
+        scallop_rails(B, w, pk++, out[ip], la_v, out[i], lb_v, along);
+        if (w->pocket_mid[pk % w->npocket] && pk < w->npocket) {
+            /* this rail's middle, walking on along it */
+            scallop_rails(B, w, pk, out[i], lb_v, out[i], lb_v, along);
+            pk++;
         }
     }
-    #undef PK
-    #undef ZN
-    #undef ZS
 }
 
 /* The whole cloth boundary: six cuts, joined by the slate's straight edges.
@@ -1831,13 +1836,25 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         #define ZH(v) ((v) * h)
         #define ZLO(a,b) (ZH(a) < ZH(b) ? ZH(a) : ZH(b))
         #define ZHI(a,b) (ZH(a) < ZH(b) ? ZH(b) : ZH(a))
+        /* AND THE MOUTH SIDE MIRRORS WITH THEM.
+         *
+         * `rail_hi` says which edge of a plank is its INNER one — the edge the
+         * cushion butts against and the bore breaks out of. The z bounds above
+         * are mirrored for a left-handed table and this flag was not, so on
+         * every rail that runs across the table the timber was built with its
+         * mouth on the outside: the wood closed over the cushion and left a
+         * square of void beside the pocket where the jaw should be. That is
+         * the reported mess on the mirrored L, and it is only ever the rails
+         * whose bounds moved — an x-plank's mouth is an x edge and x does not
+         * mirror. */
+        #define RHI(v) ((h < 0.0f) ? !(v) : (v))
         const float nxi = (hl - nx) + cw, nxo = (hl - nx) + fw;  /* notch's inner rail */
         const float nzi = (hw - nz) + cw, nzo = (hw - nz) + fw;  /* notch's underside */
-        wood_plank_bored(-ox,  ox, ZLO(-oz,-ibz), ZHI(-oz,-ibz), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 0, rail_h, wlip); /* bottom */
+        wood_plank_bored(-ox,  ox, ZLO(-oz,-ibz), ZHI(-oz,-ibz), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(0), rail_h, wlip); /* bottom */
         wood_plank_bored( ibx, ox, ZLO(-oz, nzo), ZHI(-oz, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, rail_h, wlip); /* right, up to the notch */
-        wood_plank_bored( nxi, ox, ZLO(nzi, nzo), ZHI(nzi, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, rail_h, wlip); /* under the notch */
+        wood_plank_bored( nxi, ox, ZLO(nzi, nzo), ZHI(nzi, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(1), rail_h, wlip); /* under the notch */
         wood_plank_bored( nxi, nxo, ZLO(nzi, oz), ZHI(nzi, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, rail_h, wlip); /* beside the notch */
-        wood_plank_bored(-ox,  nxo, ZLO(ibz, oz), ZHI(ibz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, rail_h, wlip); /* top, short leg */
+        wood_plank_bored(-ox,  nxo, ZLO(ibz, oz), ZHI(ibz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(1), rail_h, wlip); /* top, short leg */
         wood_plank_bored(-ox, -ibx, ZLO(-oz, oz), ZHI(-oz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 0, rail_h, wlip); /* left */
         /* the skirt, round the same six sides */
         quad(v3( ox,plank_y,ZH(-oz)), v3(-ox,plank_y,ZH(-oz)), v3(-ox,0,ZH(-oz)), v3( ox,0,ZH(-oz)), wood);
@@ -1849,6 +1866,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         #undef ZH
         #undef ZLO
         #undef ZHI
+        #undef RHI
     } else {
     wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, rail_h, wlip); /* +z */
     wood_plank_bored(-ox, ox, -oz, -ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 0, rail_h, wlip); /* -z */
