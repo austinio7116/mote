@@ -1480,7 +1480,20 @@ int cue_rules_bb_setup(CueRules *r, const CueTable *t, CueBall *b, int n) {
      * empty, the ball furthest from the top cushion, nearest the centre line
      * on a tie (Rule 105). The swap keeps the struck ball at index 0, which
      * is what the physics, the camera and the cue all assume. */
-    if (b[0].on) {
+    /* ...EXCEPT WHEN THE BALL AT INDEX 0 IS THE ONE ALREADY IN HAND, which is
+     * how the break position is set out: Rule 92 puts a white ON THE BREAK
+     * SPOT and that white is the striker's ball, not one stranded on the
+     * cloth. Read as stranded, the rack handed him a second ball and stood it
+     * on top of the first — two balls at the same point, which is a table the
+     * physics cannot answer for and the planner cannot see a line through.
+     *
+     * A ball genuinely left at rest there is not a case: the break spot is the
+     * centre of the D, and Rule 110(d) returns anything resting on the D to
+     * the rack before this ever runs. */
+    int in_hand = b[0].on &&
+                  fabsf(b[0].pos.x - t->baulk_x) < R * 0.25f &&
+                  fabsf(b[0].pos.z) < R * 0.25f;
+    if (b[0].on && !in_hand) {
         int pick = -1;
         if (up < in_play) {
             for (int i = 1; i < n; i++)
@@ -1536,6 +1549,17 @@ int cue_rules_bb_setup(CueRules *r, const CueTable *t, CueBall *b, int n) {
                 }
         }
         if (b[0].on) b[0].pos = v3(t->baulk_x, R, 0.0f);  /* the break spot */
+    }
+    /* ONCE THE BAR IS DOWN, WHAT IS LEFT IN THE GAME IS WHAT IS ON THE CLOTH.
+     * A ball in the trough does not come back out of it (which is what the bar
+     * dropping IS), and bb_left cannot tell a ball in the trough from one that
+     * was never dealt — so the table is asked instead. Without it a game whose
+     * objects were all swallowed sat with a ball in hand, nothing to play at,
+     * and a count insisting six balls were still in play. */
+    if (r->bb_barred) {
+        int left = 0;
+        for (int i = 0; i < n; i++) if (b[i].on) left++;
+        r->bb_left = left;
     }
     /* Rule 108: with one ball left it is the last-ball shot, into the 100 or
      * the 200 off a side cushion. Flagged for the host and the scorer; the

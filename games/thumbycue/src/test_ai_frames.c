@@ -24,6 +24,9 @@
  *   AI_SEED     rng seed                         (default 1)
  *   AI_NOELEV   ignore the forced cue elevation, to measure what it costs
  *   AI_TRACE    print every shot
+ *   AI_BBALT    bar billiards on a DIFFERENT layout: seven holes, other
+ *               values, two pins — the test that the planner reads the
+ *               table rather than knowing it
  */
 #include "cue_ai.h"
 #include "cue_physics.h"
@@ -117,6 +120,21 @@ typedef struct {
      * running out of position. So after every successful pot, record what the
      * AI's confidence is in the shot it is left with — that IS the quality of
      * the leave, measured by the same judgement that will have to play it. */
+    /* ---- BAR BILLIARDS -------------------------------------------------
+     *
+     * The one game here that cannot be judged on pots. A stroke scores by the
+     * HOLE it finds and an in-off scores exactly as much as a pot, so "did the
+     * ball I named go in" answers nothing; and the entire risk of the game is
+     * three pieces of wood, one of which costs the whole score.
+     *
+     * The headline is the split between a stroke the planner believes SCORES
+     * and one it plays because it can find nothing — measured at 120 of 133
+     * against the pool planner, which is a planner that has given up. */
+    long bb_shots, bb_attempt, bb_safe, bb_scored, bb_visits;
+    long bb_points, bb_gross, bb_lost;
+    long bb_black, bb_white, bb_baulk, bb_nothing, bb_fouls;
+    long bb_best_visit, bb_cur_visit;
+    long bb_hole[CUE_MAX_POCKET];    /* which holes it actually found */
     long leave[5];                   /* same buckets, after a pot */
     long leave_safety;               /* pot, then nothing worth attacking */
     long end_miss, end_foul, end_safety, end_nolegal, end_framedone;
@@ -232,7 +250,10 @@ static int play_shot(const CuePersona *p) {
     { double e = nowsec() - t0;
       s_plan_total += e; s_plans++;
       if (e > s_plan_worst) s_plan_worst = e; }
-    if (!s.valid) return 0;
+    if (!s.valid) { if (getenv("AI_WHYSTOP")) { int on=0; for(int i=0;i<N;i++) on+=B[i].on;
+        fprintf(stderr,"[stop] shots %ld on %d barred %d left %d last %d frombreak %d\n",
+            ST.shots, on, R.bb_barred, R.bb_left, R.bb_last_ball, R.bb_from_break); }
+        return 0; }
 
     ST.shots++;
     if (s.safe) {
@@ -346,7 +367,47 @@ static int play_shot(const CuePersona *p) {
 
     int brk_before = R.brk;
     int turn_before = R.turn;
+    int score_before = R.score[R.turn], bb_won = 0;
+    /* The resolve clears bb_hole on its way out, so the record of WHICH holes
+     * this stroke found has to be taken first. */
+    int hole_snap[8], baulk_snap = R.bb_in_baulk;
+    for (int k = 0; k < 8; k++) hole_snap[k] = R.bb_hole[k];
     cue_rules_resolve(&R, B, N, &W, W.first_hit, scratch, cushion_seen, potted, np);
+
+    /* ---- what the stroke did, in bar billiards' own terms ---------------
+     * Read here and not from the pot counters: the resolve has just priced
+     * the stroke by the rules — the hole, the red's double, and whatever
+     * Rule 110 or 111 took back off — and the skittles are still lying where
+     * this stroke left them (the respot is the next stroke's first act). */
+    if (T.kind == CUE_GAME_BARBILLIARDS) {
+        int gained = R.score[turn_before] - score_before;
+        ST.bb_shots++;
+        if (s.safe) ST.bb_safe++; else ST.bb_attempt++;
+        if (gained > 0) { ST.bb_scored++; ST.bb_points += gained; }
+        if (gained < 0) ST.bb_lost += -gained;
+        ST.bb_cur_visit += gained;
+        for (int k = 0; k < W.nskittle; k++) {
+            if (!W.skittle_down[k]) continue;
+            if (W.skittle_black[k]) ST.bb_black++; else ST.bb_white++;
+        }
+        if (gained > 0)
+            for (int k = 0; k < np && k < 8; k++)
+                if (hole_snap[k] >= 0 && hole_snap[k] < W.npocket) ST.bb_hole[hole_snap[k]]++;
+        if (baulk_snap) ST.bb_baulk++;
+        /* Rules 110(c),(d) do not stop at the foul: the ball that came back
+         * over the line goes to the rack. The rules say so and cannot do it;
+         * without it the offending ball sat in baulk for the rest of the frame
+         * and fouled the next stroke, and the one after that. */
+        cue_rules_bb_baulk_return(&R, &T, B, N);
+        if (W.first_hit < 0) ST.bb_nothing++;
+        if (R.msg[0] && strstr(R.msg, "FOUL")) ST.bb_fouls++;
+        bb_won = gained > 0;            /* an in-off scores; a named ball does not */
+        if (R.turn != turn_before || R.frame_over) {
+            ST.bb_visits++;
+            if (ST.bb_cur_visit > ST.bb_best_visit) ST.bb_best_visit = ST.bb_cur_visit;
+            ST.bb_cur_visit = 0;
+        }
+    }
 
     /* DID THE SHOT DO WHAT IT SET OUT TO DO?
      *
@@ -368,6 +429,8 @@ static int play_shot(const CuePersona *p) {
                                 : potted[i] != CUE_ID_CUE) { scored = 1; break; }
         if (scratch) scored = 0;
     }
+    /* ...and at bar billiards neither question is the one. See above. */
+    if (T.kind == CUE_GAME_BARBILLIARDS) scored = bb_won;
     int fouled = R.msg[0] && strstr(R.msg, "FOUL") != NULL;
     { extern char *getenv(const char*); static int dbg = -1;
       if (dbg < 0) dbg = getenv("AI_WHY") ? 1 : 0;
@@ -484,6 +547,50 @@ static void ai_build_table(int kind) {
                    T.notch_z = T.half_wid * b; } } }
     if (L_rules >= 0 && L_rules < CUE_GAME_COUNT) T.kind = (CueGameKind)L_rules;
     cue_table_build_world(&T, &W);
+
+    /* ---- A DIFFERENT BAR BILLIARDS TABLE ALTOGETHER (AI_BBALT) ----------
+     *
+     * The planner is supposed to READ the layout rather than know it: how
+     * many holes there are, where they are, what each is worth and where the
+     * pins stand. This is how that claim gets tested instead of asserted —
+     * seven holes instead of nine, values nothing like the standard ones, the
+     * big one out at the side rather than on the centre line, and two pins
+     * instead of three. Not a table anybody would build; a table nothing in
+     * cue_ai.c has ever seen.
+     *
+     * The holes are MOVED rather than made, so everything the physics derives
+     * from a hole — its cut circle and its drop centre — moves with it and
+     * keeps whatever offset the builder gave it. */
+    if (T.kind == CUE_GAME_BARBILLIARDS && getenv("AI_BBALT")) {
+        static const struct { float x, z; int v; } H[] = {
+            { -0.100f,  0.000f, 150 },
+            {  0.150f, -0.250f,  40 }, {  0.150f,  0.250f,  40 },
+            {  0.400f, -0.120f,  15 }, {  0.400f,  0.120f,  15 },
+            {  0.550f,  0.000f,   5 },
+            {  0.660f, -0.300f, 250 },
+        };
+        int nh = (int)(sizeof H / sizeof H[0]);
+        if (nh > W.npocket) nh = W.npocket;
+        for (int i = 0; i < nh; i++) {
+            Vec3 want = v3(H[i].x, 0.0f, H[i].z);
+            Vec3 d = v3(want.x - W.pocket[i].x, 0.0f, want.z - W.pocket[i].z);
+            W.pocket[i] = want;
+            W.cut_c[i].x += d.x;  W.cut_c[i].z += d.z;
+            W.drop_c[i].x += d.x; W.drop_c[i].z += d.z;
+            W.pocket_score[i] = (int16_t)H[i].v;
+            W.pocket_bed[i] = 1;
+        }
+        W.npocket = nh;
+        W.skittle[0] = v3(-0.100f, 0.0f, 0.100f);           /* guarding the 150 */
+        W.skittle_black[0] = 0;
+        W.skittle[1] = v3(0.660f - W.pocket_r[nh-1] - 0.015f, 0.0f, -0.300f);
+        W.skittle_black[1] = 1;                             /* ...and the 250 */
+        for (int k = 0; k < 2; k++) W.skittle_spot[k] = W.skittle[k];
+        W.nskittle = 2;
+        cue_phys_skittles_init(&W, T.half_len, T.half_wid);
+        { static int said; if (!said++)
+            printf("  LAYOUT    %d holes, %d pins (AI_BBALT)\n", W.npocket, W.nskittle); }
+    }
 }
 
 static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
@@ -623,6 +730,44 @@ int main(void) {
     printf("  misses         %ld\n", ST.misses);
     printf("  safeties       %ld  (%.1f%% of shots)\n", ST.safeties,
            ST.shots ? 100.0 * ST.safeties / ST.shots : 0.0);
+    if (ST.bb_shots) {
+        /* ---- BAR BILLIARDS, in its own terms ----------------------------
+         * The headline is the first line: how many of the strokes were a
+         * stroke the planner believed would SCORE, and how many were played
+         * because it could find nothing better. A planner that has given up
+         * shows here and nowhere else. */
+        long v = ST.bb_visits ? ST.bb_visits : 1;
+        printf("\nBAR BILLIARDS\n");
+        printf("  strokes                %6ld\n", ST.bb_shots);
+        printf("    scoring attempts     %6ld  %5.1f%%\n", ST.bb_attempt,
+               100.0 * ST.bb_attempt / ST.bb_shots);
+        printf("    fallback safeties    %6ld  %5.1f%%   <- the number to move\n",
+               ST.bb_safe, 100.0 * ST.bb_safe / ST.bb_shots);
+        printf("    strokes that scored  %6ld  %5.1f%% of strokes\n", ST.bb_scored,
+               100.0 * ST.bb_scored / ST.bb_shots);
+        printf("  points scored          %6ld  (%.1f per stroke)\n",
+               ST.bb_points, (double)ST.bb_points / ST.bb_shots);
+        printf("  points taken back      %6ld  by Rules 110 and 111\n", ST.bb_lost);
+        printf("  visits                 %6ld  (%.1f points per visit, best %ld)\n",
+               ST.bb_visits, (double)(ST.bb_points - ST.bb_lost) / v, ST.bb_best_visit);
+        printf("  fouls                  %6ld  %5.1f%% of strokes\n", ST.bb_fouls,
+               100.0 * ST.bb_fouls / ST.bb_shots);
+        printf("    white skittle        %6ld   (Rule 110(f): the break)\n", ST.bb_white);
+        printf("    BLACK skittle        %6ld   (Rule 111(a): the WHOLE SCORE)\n",
+               ST.bb_black);
+        printf("    back over the line   %6ld   (Rules 110(c),(d))\n", ST.bb_baulk);
+        printf("    hit nothing          %6ld   (Rule 110(b))\n", ST.bb_nothing);
+        /* WHICH HOLES IT WENT FOR, by what they are worth. An AI that only
+         * ever finds the near ones is not playing the game; nor is one that
+         * only ever goes for the big one. */
+        printf("  holes found (by value):\n");
+        for (int v = 1000; v > 0; v--) {
+            long got = 0;
+            for (int k = 0; k < W.npocket; k++)
+                if (W.pocket_score[k] == v) got += ST.bb_hole[k];
+            if (got) printf("    %4d %8ld\n", v, got);
+        }
+    }
     if (ST.sq_n) {
         printf("\nsafety quality (safety_score of the safety actually played):\n");
         printf("    n %ld   min %.1f   mean %.1f   max %.1f\n",

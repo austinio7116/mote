@@ -89,6 +89,14 @@ typedef struct {
      * ball to scratch — every white on the table is one — so its own ball
      * going down is a SCORE, and the planner needs the hole to price it. */
     int  cue_hole;
+    /* A SIDE CUSHION, AND A PIN SO MUCH AS NUDGED. Rule 108's last-ball shot
+     * has to come off one side cushion into one of the two best holes without
+     * disturbing a white pin, and neither half of that could be read off the
+     * sim's account of the stroke. `skittle_touch` is a WHITE touched at all —
+     * knocked over or merely rocked (Rule 103) — because 108 does not care
+     * which. */
+    int  side_cushion;
+    int  skittle_touch;
     /* Which hole each potted ball went down, alongside `potted`. On this table
      * the hole IS the score, and every white looks the same. */
     int  hole[CUE_MAX_BALLS];
@@ -486,11 +494,15 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
     }
     /* ...and the skittles, which no other game has and this one is decided by. */
     out->skittle_white = out->skittle_black = 0;
+    out->skittle_touch = 0;
     for (int k = 0; k < s_sw.nskittle; k++) {
+        if (!s_sw.skittle_black[k] &&
+            (s_sw.skittle_down[k] || s_sw.skittle_nudged[k])) out->skittle_touch = 1;
         if (!s_sw.skittle_down[k]) continue;
         if (s_sw.skittle_black[k]) out->skittle_black = 1;
         else                       out->skittle_white = 1;
     }
+    out->side_cushion = s_sw.side_cushion;
 
     /* A POTTED COLOUR COMES BACK. The physics has no idea — it drops the ball
      * and that is the end of it — so every position plan made after potting a
@@ -2008,7 +2020,25 @@ Vec3 s_brk_pred; int s_brk_pred_ok;
 /* One candidate break: where to aim, how hard, and how it is cued. */
 typedef struct { float aim, power, side, vert; } BrkCand;
 
-enum { PH_IDLE = 0, PH_SIM, PH_BREAK, PH_DONE };
+enum { PH_IDLE = 0, PH_SIM, PH_BREAK, PH_BB, PH_DONE };
+
+/* ---- BAR BILLIARDS: one candidate stroke --------------------------------
+ *
+ * Separate from Cand because almost nothing in Cand means anything here. There
+ * is no pocket to call and no leave to build: the striker plays from the D
+ * every time, so what a stroke is worth is what it SCORES and what it risks,
+ * and both come straight out of the simulation. */
+enum { BB_POT = 0, BB_INOFF, BB_PLANT, BB_SWEEP, BB_LAST };
+typedef struct {
+    float aim, power01, tip_vert;
+    int   kind;          /* BB_* */
+    int   tidx, pk;      /* the ball it plays at and the hole it means, or -1 */
+    float pre;           /* analytic rank, before anything is simulated */
+    float ev;            /* what the engine says it is worth */
+    int   pts, foul, fatal, simmed;
+    Vec3  cue_end;
+} BbCand;
+#define BB_MAX 56
 
 /* Room for the pot variants AND the reserved safety slots after them. */
 /* How many safeties get the real engine. The device verifies fewer, but it does
@@ -2037,6 +2067,10 @@ static struct {
      * frame the player is watching the opponent get down on the shot. */
     BrkCand brk[40]; int brk_n, brk_i, brk_best_i; float brk_best;
     int brk_want_first;
+    /* Bar billiards runs its own search over its own candidates, spread over
+     * ticks exactly as the break's is. `bb_probe` is the second pass: the few
+     * leaders re-simulated off the true line, to see what a miss would cost. */
+    BbCand bb[BB_MAX]; int bb_n, bb_i, bb_cap, bb_probe;
 } P;
 
 /* The best SIMULATED safety in the pool, or -1. Safeties carry pk < 0. */
@@ -2606,6 +2640,781 @@ static int break_cands(const AiCtx *c, const CueBall *balls, Vec3 cue, int tgt,
     return nout;
 }
 
+/* ======================================================================== *
+ *  G6: BAR BILLIARDS, WHICH NEEDS A PLANNER OF ITS OWN
+ *
+ *  Everything above this line is a pocket-billiards planner, and the reason
+ *  it does not fit here is not tuning. It assumes six pockets cut in the
+ *  boundary that are all worth the same, an opponent who inherits the table
+ *  you leave, a cue ball that must never go down, and a striker who plays
+ *  from where the white finished. Bar billiards has none of that: the holes
+ *  are bored through the middle of the bed and are worth ten to two hundred,
+ *  every ball is a cue ball and a ball of your own down a hole IS the score
+ *  (Rule 97), there are pins standing among the holes that cost you your
+ *  break or your whole game, and every single stroke is played from the D
+ *  (Rule 91). Measured against the pool planner, 92% of its strokes came out
+ *  as a fallback safety and 58% of them fouled.
+ *
+ *  So the search is rebuilt around what the game actually is:
+ *
+ *    · the scoring holes come from the TABLE — how many, where, and what each
+ *      is worth — and so do the pins and the baulk lines. Nothing below knows
+ *      that this layout has nine holes, three pins or a 200 at the top, so a
+ *      layout with seven holes somewhere else needs no code;
+ *    · the candidates are the shots the game is played with: the direct pot,
+ *      the in-off (the striker's own ball down a hole off an object, which is
+ *      a foul in every other game here and the commonest score in this one),
+ *      the plant, and Rule 108's last-ball stroke off a side cushion;
+ *    · they are ranked in POINTS, because the rules are already denominated
+ *      in them — what the stroke scores, less the break that Rule 110 takes
+ *      off a foul and the entire score that Rule 111 takes off the black;
+ *    · and the leaders are re-simulated off the line this player will really
+ *      strike, so a shot that only works struck perfectly is priced as what
+ *      it is. That is where the pins are really priced: a stroke that fells
+ *      the black on a plausible miss is thrown out, not merely marked down.
+ * ======================================================================== */
+
+/* ---- the cloth, both ways round -----------------------------------------
+ *
+ * A ball must be ROLLED into a hole in the bed, not driven at it: it is
+ * unsupported for the chord its centre cuts and only drops if it has fallen
+ * far enough by the far lip (cue_phys's bed_hole). So the planner has to know
+ * how fast a ball will be going when it arrives somewhere, and how hard to
+ * strike it to arrive at a crawl — and it has a closed form, so it does not
+ * need a simulation to answer.
+ *
+ * A ball struck cleanly slides until it rolls at five sevenths of its speed
+ * (mu_s), then rolls off very slowly (mu_r). Both numbers are the world's. */
+static float bb_slide_k(const AiCtx *c) {   /* slide distance per v0^2 */
+    return (1.0f - 25.0f / 49.0f) / (2.0f * c->w->mu_s * c->w->g);
+}
+static float bb_arrive(const AiCtx *c, float v0, float d) {
+    const float g = c->w->g, e = bb_slide_k(c);
+    float v2;
+    if (d <= e * v0 * v0) v2 = v0*v0 - 2.0f * c->w->mu_s * g * d;
+    else v2 = (25.0f/49.0f + 2.0f * c->w->mu_r * g * e) * v0*v0
+            - 2.0f * c->w->mu_r * g * d;
+    return v2 > 0.0f ? sqrtf(v2) : 0.0f;
+}
+static float bb_launch(const AiCtx *c, float d, float vend) {
+    const float g = c->w->g, e = bb_slide_k(c);
+    float A = 25.0f/49.0f + 2.0f * c->w->mu_r * g * e;
+    float v0 = sqrtf((vend*vend + 2.0f * c->w->mu_r * g * d) / A);
+    if (d <= e * v0 * v0)                       /* it never got as far as rolling */
+        v0 = sqrtf(vend*vend + 2.0f * c->w->mu_s * g * d);
+    return v0;
+}
+
+/* HOW SLOWLY A BALL MUST ARRIVE TO GO DOWN. bed_hole catches it when it has
+ * fallen hole_catch·R in the time it takes to cross the chord; straight
+ * through the middle is the most forgiving line there is, and every other one
+ * is slower still. */
+static float bb_drop_v(const AiCtx *c, int pk) {
+    float span = 2.0f * c->w->pocket_r[pk];
+    return span * sqrtf(c->w->g / (2.0f * c->w->hole_catch * c->t->R));
+}
+
+/* WOULD IT GO DOWN ON THE WAY THERE?
+ *
+ * The one question a table with its holes in the MIDDLE of the bed asks and no
+ * other table can. The run up to the object ball crosses them, and a ball that
+ * drops before it has hit anything has hit nothing: Rule 110(b), the break
+ * gone, and the hole it found does not count for a thing. It is the single
+ * biggest way to lose a break on this table and it was the AI's commonest
+ * foul by a distance.
+ *
+ * bed_hole's own arithmetic, run along the path at the speed the ball will
+ * really be doing when it gets there — and with a margin, because the aim is
+ * not perfect and a line that passes a lip by less than half a ball is a line
+ * that may not pass it at all. */
+static float bb_margin = 0.5f;      /* in ball radii; 0 when nothing else is on */
+/* AND WHETHER THE WHITE PINS COUNT AS BLOCKING AT ALL. They do, until the
+ * table says otherwise: a ball screened by one from every angle and off every
+ * cushion leaves nothing legal to play at all, and then going through the pin
+ * is simply the cheapest foul available — Rule 110(f) takes the break, and
+ * with no break in progress it takes nothing. The BLACK is never in this:
+ * Rule 111 takes the whole score and there is no state of the game in which
+ * that is the cheapest thing to do. */
+static int bb_ignore_white;
+
+static int bb_would_drop(const AiCtx *c, Vec3 from, Vec3 to, float v0) {
+    Vec3 d = sub2(to, from);
+    float L = len2(d);
+    if (L < 1e-4f) return 0;
+    Vec3 u = v3(d.x / L, 0, d.z / L);
+    for (int pk = 0; pk < c->w->npocket; pk++) {
+        if (c->w->pocket_score[pk] <= 0) continue;
+        Vec3 rel = sub2(c->w->pocket[pk], from);
+        float along = dot2(rel, u);
+        if (along <= 0.0f || along >= L) continue;
+        float a = c->w->pocket_r[pk];
+        float perp = fabsf(cross2(rel, u)) - c->t->R * bb_margin;
+        if (perp < 0.0f) perp = 0.0f;
+        if (perp >= a) continue;
+        float v = bb_arrive(c, v0, along);
+        if (v < 1e-3f) return 1;                /* it stops over the hole */
+        float t = 2.0f * sqrtf(a*a - perp*perp) / v;
+        if (0.5f * c->w->g * t * t >= c->w->hole_catch * c->t->R) return 1;
+    }
+    return 0;
+}
+
+/* ---- geometry ----------------------------------------------------------- */
+static float bb_seg_dist(Vec3 a, Vec3 b, Vec3 p) {
+    Vec3 ab = sub2(b, a);
+    float l2 = ab.x*ab.x + ab.z*ab.z;
+    float t = (l2 > 1e-9f) ? (dot2(sub2(p, a), ab) / l2) : 0.0f;
+    t = clampf(t, 0.0f, 1.0f);
+    return d2(p, v3(a.x + ab.x*t, 0, a.z + ab.z*t));
+}
+
+/* Is the run a->b clear of the balls AND of the pins?
+ *
+ * Two things the shared path_clear cannot be asked. It skips whatever carries
+ * CUE_ID_CUE, and on this table the ball that was in hand last stroke is
+ * sitting out on the cloth still carrying it (the rules swap the ball in hand
+ * into index 0, ids and all, under Rule 105) — so the one ball it ignores is
+ * an ordinary object here. And it has never heard of a pin, which is not
+ * something a ball bounces off but something it goes THROUGH, which is
+ * exactly the disaster. The black gets a wider berth than the whites because
+ * it costs the whole score rather than the break. */
+static int bb_clear(const AiCtx *c, Vec3 a, Vec3 b, int ex0, int ex1, float pad) {
+    for (int i = 0; i < c->n; i++) {
+        if (i == ex0 || i == ex1 || !c->b[i].on) continue;
+        if (bb_seg_dist(a, b, c->b[i].pos) < c->contact) return 0;
+    }
+    for (int k = 0; k < c->w->nskittle; k++) {
+        if (bb_ignore_white && !c->w->skittle_black[k]) continue;
+        float clr = c->t->R + c->w->skittle_r + pad
+                  + (c->w->skittle_black[k] ? c->t->R * 0.8f : 0.0f);
+        if (bb_seg_dist(a, b, c->w->skittle[k]) < clr) return 0;
+    }
+    return 1;
+}
+static int bb_on_bed(const AiCtx *c, Vec3 p) {
+    return fabsf(p.x) <= c->w->play_x && fabsf(p.z) <= c->w->play_z;
+}
+
+/* Rules 110(c) and (d), asked of a table that has not happened yet: a ball at
+ * rest on or behind the baulk lines, or anywhere on the D, costs the break
+ * and goes back to the rack. The same geometry cue_rules_bb_in_baulk uses,
+ * which cannot be called here because the balls are still a simulation. */
+static int bb_back_in_baulk(const AiCtx *c, const Vec3 *pos, const int *on) {
+    if (c->t->baulk_arc <= 0.0f) return 0;
+    const float R = c->t->R;
+    const float th = c->t->baulk_arc * 0.5f * RAD;
+    const float st = sinf(th), ct = cosf(th), dr = c->t->d_radius + R;
+    for (int i = 0; i < c->n; i++) {
+        if (!on[i]) continue;
+        float u = pos[i].x - c->t->baulk_x, v = pos[i].z;
+        if (u * st - fabsf(v) * ct <= R) return 1;
+        if (u*u + v*v <= dr*dr) return 1;
+    }
+    return 0;
+}
+
+/* What a hole on THIS table is worth on average, which is the only honest
+ * scale for "the visit I keep by potting" and "the visit I give away by not".
+ * Read off the layout so it means the same thing on a table with other holes
+ * on it. */
+static float bb_mean_hole(const AiCtx *c) {
+    int sum = 0, cnt = 0;
+    for (int pk = 0; pk < c->w->npocket; pk++)
+        if (c->w->pocket_score[pk] > 0) { sum += c->w->pocket_score[pk]; cnt++; }
+    return cnt ? (float)sum / (float)cnt : 10.0f;
+}
+
+/* The two best holes, whatever they are worth and however many there are.
+ * Rule 108 names the 100 and the 200 because those are the two on a standard
+ * bed; asking the layout instead means the rule still means something on a
+ * table that has neither. */
+static void bb_top_holes(const AiCtx *c, int *a, int *b) {
+    int h1 = -1, h2 = -1;
+    for (int pk = 0; pk < c->w->npocket; pk++) {
+        int v = c->w->pocket_score[pk];
+        if (v <= 0) continue;
+        if (h1 < 0 || v > c->w->pocket_score[h1]) { h2 = h1; h1 = pk; }
+        else if (h2 < 0 || v > c->w->pocket_score[h2]) h2 = pk;
+    }
+    *a = h1; *b = h2;
+}
+
+/* ---- what a stroke is worth, in points ---------------------------------- *
+ *
+ * The rules are already denominated in points, so nothing here has to be
+ * invented. Rule 97 scores the hole and doubles the red. Rule 110 takes the
+ * BREAK back off for a white pin, a ball back over the baulk line, a ball off
+ * the table, hitting nothing at all, or a fourth both-pot from the break
+ * position. Rule 111 takes the ENTIRE SCORE for the black. Rule 98 ends the
+ * break — and so the visit — on any stroke that fails to pot.
+ *
+ * `pts` comes out as the points the stroke scores; the return is that with
+ * the penalties and the visit priced in. */
+static float bb_ev(const AiCtx *c, const AiSim *sim, int *out_pts,
+                   int *out_foul, int *out_fatal)
+{
+    const CueRules *r = c->r;
+    int pts = 0, off = 0, npot = 0;
+    for (int k = 0; k < sim->npotted; k++) {
+        int bi = sim->potted[k], hk = sim->hole[k];
+        if (bi <= 0 || bi >= c->n) continue;
+        npot++;
+        if (hk < 0 || hk >= c->w->npocket) { off = 1; continue; }  /* left the table */
+        int val = c->w->pocket_score[hk];
+        if (c->b[bi].id == CUE_ID_BIL_RED) val *= 2;               /* Rule 97 */
+        pts += val;
+    }
+    /* AND THE BALL IT STRUCK WITH. There is no cue ball to scratch here: the
+     * striker takes a ball out of the D by hand and it scores like any other
+     * (Rule 97), which is why half the shots in the game are in-offs. */
+    if (sim->cue_potted) {
+        npot++;
+        if (sim->cue_hole >= 0 && sim->cue_hole < c->w->npocket) {
+            int val = c->w->pocket_score[sim->cue_hole];
+            if (c->b[0].id == CUE_ID_BIL_RED) val *= 2;
+            pts += val;
+        } else off = 1;
+    }
+
+    /* ---- Rule 108 plays by its own book -------------------------------
+     *
+     * One ball left, from the centre of the D, and the score counts only off
+     * ONE SIDE CUSHION into the 100 or the 200 with the white pins left
+     * standing. 110(b) and 110(o) are explicitly disapplied, and the ball goes
+     * back to the D either way, so there is no break to lose and no foul to
+     * price — only the black, which ends everything wherever it falls.
+     *
+     * The two holes are read off the layout rather than named: on a standard
+     * bed they ARE the 100 and the 200, and on any other they are still the
+     * two the rule is about. */
+    if (r->bb_last_ball) {
+        int h1, h2; bb_top_holes(c, &h1, &h2);
+        int legal = sim->cue_potted && !sim->skittle_black && sim->side_cushion &&
+                    !sim->skittle_touch &&
+                    (sim->cue_hole == h1 || sim->cue_hole == h2);
+        *out_fatal = sim->skittle_black;
+        *out_foul = 0;
+        *out_pts = legal ? pts : 0;
+        if (sim->skittle_black) return -(float)r->score[r->turn] - 500.0f;
+        if (legal) return (float)pts;
+        /* Down the wrong hole ends the game with nothing; short of it merely
+         * hands the next attempt over, which is much the smaller loss. */
+        return sim->cue_potted ? -40.0f : 0.0f;
+    }
+
+    int fatal = sim->skittle_black;                                /* Rule 111(a) */
+    int foul  = !fatal && (sim->skittle_white                      /* 110(f) */
+                        || off                                     /* 110(e) */
+                        || sim->first_hit_idx < 0                  /* 110(b), (o) */
+                        || bb_back_in_baulk(c, sim->end_pos, sim->on)); /* 110(c),(d) */
+    /* Rule 110(a), Rule 116(e)'s warning having been given: from the break
+     * position, both balls down for the fourth stroke running is a foul. */
+    if (!fatal && !foul && r->bb_from_break && npot >= 2 &&
+        r->bb_both_potted + 1 > CUE_BB_MAX_BOTH) foul = 1;
+
+    /* A FOUL SCORES NOTHING. Not "scores and then pays a penalty" — the stroke
+     * is void, the hole it found does not count, and Rule 110 takes the break
+     * off on top. Priced the other way round, a ball that ran down the 100
+     * without touching anything looked like a hundred points with a small
+     * charge attached, and with no break in progress there was nothing to
+     * charge: the planner played that stroke over and over. */
+    const float visit = bb_mean_hole(c);
+    float ev = 0.0f;
+    if (!foul && !fatal) {
+        ev = (float)pts;
+        if (pts > 0) ev += visit * 0.6f;    /* Rule 98: the table stays mine */
+    } else if (foul) {
+        ev = -(float)r->bb_break - visit * 0.5f;
+    } else {
+        ev = -(float)(r->score[r->turn] + r->bb_break) - visit * 3.0f;
+    }
+    *out_pts = fatal || foul ? 0 : pts;
+    *out_foul = foul; *out_fatal = fatal;
+    return ev;
+}
+
+/* ---- the candidate pool ------------------------------------------------- */
+static void bb_add(float aim, float power01, float tip_vert,
+                   int kind, int tidx, int pk, float pre)
+{
+    if (!(pre > -1e29f)) return;      /* nothing, and NaN, are both "no" */
+    int at = P.bb_n;
+    if (at >= BB_MAX) {
+        /* Full, so the weakest goes — except that a handful of the plain
+         * contact shots are held back whatever else turns up. They are what
+         * stops the planner having nothing legal left to play. */
+        int nsweep = 0;
+        for (int i = 0; i < BB_MAX; i++) if (P.bb[i].kind == BB_SWEEP) nsweep++;
+        int wk = -1;
+        for (int i = 0; i < BB_MAX; i++) {
+            if (kind != BB_SWEEP && P.bb[i].kind == BB_SWEEP && nsweep <= 8) continue;
+            if (wk < 0 || P.bb[i].pre < P.bb[wk].pre) wk = i;
+        }
+        if (wk < 0 || P.bb[wk].pre >= pre) return;
+        at = wk;
+    } else P.bb_n++;
+    BbCand *q = &P.bb[at];
+    memset(q, 0, sizeof *q);
+    q->aim = aim;
+    q->power01 = clampf(power01, 0.03f, 1.0f);
+    q->tip_vert = tip_vert;
+    q->kind = kind; q->tidx = tidx; q->pk = pk; q->pre = pre;
+}
+
+/* How promising a line looks before anything is simulated: what it is worth,
+ * discounted for the cut it needs and the distance it has to travel. */
+static float bb_pre(const AiCtx *c, float val, float cut_deg, float dist) {
+    float f = cosf(clampf(cut_deg, 0.0f, 85.0f) * RAD);
+    return val * f * (1.0f - 0.30f * clampf(dist / (2.0f * c->maxdist_m), 0.0f, 1.0f));
+}
+
+/* Rule 108: one ball left, from the centre of the D into one of the two best
+ * holes OFF ONE SIDE CUSHION, and a stroke that so much as rocks a white pin
+ * scores nothing. The exact one-cushion line is the aim at the hole MIRRORED
+ * in the side cushion, so there are four of them — two walls by two holes —
+ * and the engine sorts out which survive the pins. */
+static void bb_gen_last(const AiCtx *c) {
+    int h[2]; bb_top_holes(c, &h[0], &h[1]);
+    const Vec3 cue = c->b[0].pos;
+    for (int k = 0; k < 2; k++) {
+        if (h[k] < 0) continue;
+        float val = (float)c->w->pocket_score[h[k]];
+        for (int side = -1; side <= 1; side += 2) {
+            float zw = (float)side * (c->w->play_z - c->t->R);
+            Vec3 mirror = v3(c->w->pocket[h[k]].x, 0.0f,
+                             2.0f * zw - c->w->pocket[h[k]].z);
+            Vec3 d = sub2(mirror, cue);
+            float base = atan2f(d.z, d.x);
+            float run = len2(d);
+            for (int a = -1; a <= 1; a++) {
+                float aim = base + (float)a * 1.5f * RAD;
+                /* The cushion takes a bite out of the pace, so the ball has to
+                 * leave harder than the plain roll-out says. */
+                float v0 = bb_launch(c, run, 0.55f * bb_drop_v(c, h[k])) * 1.18f;
+                for (int pw = 0; pw < 3; pw++) {
+                    float f = 0.85f + 0.15f * (float)pw;
+                    bb_add(aim, v0 * f / AI_SIM_SPEED, 0.0f, BB_LAST, -1, h[k],
+                           val - fabsf((float)a));
+                }
+            }
+        }
+    }
+}
+
+/* Everything the striker can play at, from where the ball in hand is standing.
+ * The layout does all the talking: the holes and what they are worth, the
+ * pins, and the balls that happen to be up. */
+static void bb_gen(const AiCtx *c) {
+    const CueWorld *w = c->w;
+    const Vec3 cue = c->b[0].pos;
+    const float R = c->t->R;
+    P.bb_n = 0;
+    if (c->r->bb_last_ball) { bb_gen_last(c); return; }
+
+    /* ---- FIRST, SOMETHING LEGAL TO PLAY. A plain contact on each ball at a
+     * spread of thicknesses and a pace that leaves it up the table: no score
+     * in it, but it hits a ball (Rule 110(b)), fells nothing and leaves
+     * nothing behind the line, which is three of the five ways to lose a
+     * break. Generated first so the pool always holds a few. */
+    for (int j = 0; j < c->n; j++) {
+        if (j == 0 || !c->b[j].on) continue;
+        Vec3 O = c->b[j].pos;
+        Vec3 n0 = nrm2(sub2(O, cue));
+        if (len2(sub2(O, cue)) < c->contact) continue;
+        Vec3 perp = v3(-n0.z, 0, n0.x);
+        for (int k = -2; k <= 2; k++) {
+            float ph = (float)k * 20.0f * RAD;
+            Vec3 g = v3(O.x - c->contact * (cosf(ph)*n0.x + sinf(ph)*perp.x), 0,
+                        O.z - c->contact * (cosf(ph)*n0.z + sinf(ph)*perp.z));
+            if (!bb_on_bed(c, g)) continue;
+            if (!bb_clear(c, cue, g, j, 0, R * 0.15f)) continue;
+            Vec3 aimv = nrm2(sub2(g, cue));
+            float dg = d2(cue, g);
+            /* FOUR PACES, NOT ONE. A soft contact is the shot a player wants
+             * — it leaves the balls where they are — but on this bed the run
+             * up to the ball crosses the holes, and a ball rolling slowly
+             * across one goes down it having hit nothing. Firm enough and it
+             * skips straight over, which is the other half of how the game is
+             * played. */
+            static const float PACE[4] = { 0.8f, 1.6f, 2.6f, 4.0f };
+            for (int pw = 0; pw < 4; pw++) {
+                float v0 = bb_launch(c, dg, PACE[pw]);
+                if (bb_would_drop(c, cue, g, v0)) continue;
+                bb_add(atan2f(aimv.z, aimv.x), v0 / AI_SIM_SPEED, 0.0f,
+                       BB_SWEEP, j, -1,
+                       1.0f - 0.1f * fabsf((float)k) - 0.05f * (float)pw);
+            }
+        }
+    }
+
+    /* ---- AND THE WAY ROUND A PIN ---------------------------------------
+     *
+     * A ball screened by a skittle cannot be reached in a straight line at
+     * all, and on this table that is an ordinary position rather than a rare
+     * one: the pins stand out among the holes in the middle of the bed, not
+     * against a rail. Left with only straight lines the planner had nothing
+     * legal to play and fired its ball down the nearest hole having touched
+     * nothing — Rule 110(b), over and over, because with no break in progress
+     * the foul costs almost nothing and the position repeats exactly.
+     *
+     * The one-cushion line needs no search: aim at the ball MIRRORED in the
+     * cushion and the rail does the rest. Four per ball. */
+    for (int j = 0; j < c->n; j++) {
+        if (j == 0 || !c->b[j].on) continue;
+        Vec3 O = c->b[j].pos;
+        for (int wall = 0; wall < 4; wall++) {
+            float lim = (wall < 2) ? (w->play_z - R) : (w->play_x - R);
+            float wp = ((wall & 1) ? -1.0f : 1.0f) * lim;
+            Vec3 M = (wall < 2) ? v3(O.x, 0.0f, 2.0f*wp - O.z)
+                                : v3(2.0f*wp - O.x, 0.0f, O.z);
+            Vec3 d = sub2(M, cue);
+            if (len2(d) < R * 4.0f) continue;
+            float t = (wall < 2) ? ((fabsf(d.z) < 1e-5f) ? -1.0f : (wp - cue.z) / d.z)
+                                 : ((fabsf(d.x) < 1e-5f) ? -1.0f : (wp - cue.x) / d.x);
+            if (t <= 0.02f || t >= 0.995f) continue;
+            Vec3 hit = v3(cue.x + d.x*t, 0.0f, cue.z + d.z*t);
+            if (!bb_clear(c, cue, hit, j, 0, R * 0.15f)) continue;
+            if (!bb_clear(c, hit, O, j, 0, R * 0.15f)) continue;
+            float leg1 = d2(cue, hit), run = leg1 + d2(hit, O);
+            float aim = atan2f(d.z, d.x);
+            /* The rail takes a bite out of the pace, so it has to leave harder
+             * than the plain roll-out over the same distance says — and the
+             * same four paces, for the same reason as the straight contact. */
+            static const float CPACE[4] = { 0.8f, 1.6f, 2.6f, 4.0f };
+            for (int pw = 0; pw < 4; pw++) {
+                float v0 = bb_launch(c, run, CPACE[pw]) * 1.20f;
+                if (bb_would_drop(c, cue, hit, v0)) continue;
+                if (bb_would_drop(c, hit, O, bb_arrive(c, v0, leg1) * 0.9f)) continue;
+                bb_add(aim, v0 / AI_SIM_SPEED, 0.0f, BB_SWEEP, j, -1,
+                       0.55f - 0.05f * (float)pw);
+            }
+        }
+    }
+
+    for (int j = 0; j < c->n; j++) {
+        if (j == 0 || !c->b[j].on) continue;
+        Vec3 O = c->b[j].pos;
+        for (int pk = 0; pk < w->npocket; pk++) {
+            if (w->pocket_score[pk] <= 0) continue;
+            Vec3 H = w->pocket[pk];
+            float val = (float)w->pocket_score[pk];
+            if (c->b[j].id == CUE_ID_BIL_RED) val *= 2.0f;      /* Rule 97 */
+            float dpk = d2(O, H);
+            if (dpk < R) continue;
+            float vd = bb_drop_v(c, pk);
+
+            /* ---- the direct pot ---- */
+            {   Vec3 pdir = nrm2(sub2(H, O));
+                Vec3 g = v3(O.x - pdir.x * c->contact, 0, O.z - pdir.z * c->contact);
+                Vec3 aimv = nrm2(sub2(g, cue));
+                float cut = acosf(clampf(dot2(aimv, pdir), -1, 1)) * DEG;
+                float dg = d2(cue, g);
+                if (cut <= 68.0f && dg > R && bb_on_bed(c, g) &&
+                    bb_clear(c, O, H, j, 0, R * 0.10f) &&
+                    bb_clear(c, cue, g, j, 0, R * 0.15f)) {
+                    static const float ARR[3] = { 0.30f, 0.52f, 0.76f };
+                    for (int a = 0; a < 3; a++) {
+                        float vo = bb_launch(c, dpk, ARR[a] * vd);
+                        float vc = vo / fmaxf(0.30f, cosf(cut * RAD));
+                        float v0 = bb_launch(c, dg, vc);
+                        if (bb_would_drop(c, cue, g, v0)) continue;
+                        bb_add(atan2f(aimv.z, aimv.x), v0 / AI_SIM_SPEED, 0.0f,
+                               BB_POT, j, pk, bb_pre(c, val, cut, dg + dpk));
+                    }
+                }
+            }
+
+            /* ---- THE IN-OFF, which is a foul in every other game here and
+             * the commonest score in this one. The striker's ball leaves the
+             * contact square to the line of centres, so the ghost point that
+             * sends it at the hole is one of the two places on the contact
+             * circle that see the object and the hole at a right angle. */
+            if (dpk > c->contact * 1.15f) {
+                Vec3 hh = nrm2(sub2(H, O));
+                float ca = c->contact / dpk, sa = sqrtf(1.0f - ca*ca);
+                for (int sgn = -1; sgn <= 1; sgn += 2) {
+                    Vec3 g = v3(O.x + c->contact * (hh.x*ca - (float)sgn*hh.z*sa), 0,
+                                O.z + c->contact * (hh.z*ca + (float)sgn*hh.x*sa));
+                    if (!bb_on_bed(c, g)) continue;
+                    Vec3 nrmv = nrm2(sub2(O, g));      /* line of centres */
+                    Vec3 u    = nrm2(sub2(H, g));      /* the way we want to go */
+                    Vec3 aimv = nrm2(sub2(g, cue));
+                    float dg = d2(cue, g), run = d2(g, H);
+                    if (dg < R || run < R) continue;
+                    if (dot2(aimv, nrmv) <= 0.15f) continue;   /* it has to reach it */
+                    float beta = acosf(clampf(dot2(aimv, u), -1, 1)) * DEG;
+                    if (beta > 62.0f) continue;
+                    if (!bb_clear(c, cue, g, j, 0, R * 0.15f)) continue;
+                    if (!bb_clear(c, g, H, j, 0, R * 0.10f)) continue;
+                    static const float ARR[2] = { 0.38f, 0.66f };
+                    for (int a = 0; a < 2; a++) {
+                        float vend = bb_launch(c, run, ARR[a] * vd);
+                        float vc = vend / fmaxf(0.30f, cosf(beta * RAD));
+                        float v0 = bb_launch(c, dg, vc);
+                        if (bb_would_drop(c, cue, g, v0)) continue;
+                        /* Plain, and again with draw: a rolling ball comes off
+                         * the contact forward of the tangent and a touch of
+                         * screw puts it back on it. */
+                        bb_add(atan2f(aimv.z, aimv.x), v0 / AI_SIM_SPEED, 0.0f,
+                               BB_INOFF, j, pk, bb_pre(c, val, beta, dg + run) * 0.9f);
+                        bb_add(atan2f(aimv.z, aimv.x), v0 / AI_SIM_SPEED, -0.35f,
+                               BB_INOFF, j, pk, bb_pre(c, val, beta, dg + run) * 0.88f);
+                    }
+                }
+            }
+
+            /* ---- THE PLANT. One object onto another and that one down the
+             * hole. On a table this empty it is often the only line onto the
+             * far holes, and it costs nothing to enumerate. */
+            for (int m = 1; m < c->n; m++) {
+                if (m == j || m == 0 || !c->b[m].on) continue;
+                Vec3 K = c->b[m].pos;
+                float dkh = d2(K, H);
+                if (dkh < R) continue;
+                Vec3 kd = nrm2(sub2(H, K));
+                Vec3 gk = v3(K.x - kd.x * c->contact, 0, K.z - kd.z * c->contact);
+                if (!bb_on_bed(c, gk)) continue;
+                if (!bb_clear(c, K, H, m, j, R * 0.10f)) continue;
+                Vec3 jd = nrm2(sub2(gk, O));
+                float cut2 = acosf(clampf(dot2(jd, kd), -1, 1)) * DEG;
+                if (cut2 > 55.0f) continue;
+                Vec3 g = v3(O.x - jd.x * c->contact, 0, O.z - jd.z * c->contact);
+                if (!bb_on_bed(c, g)) continue;
+                if (!bb_clear(c, O, gk, j, m, R * 0.10f)) continue;
+                if (!bb_clear(c, cue, g, j, 0, R * 0.15f)) continue;
+                Vec3 aimv = nrm2(sub2(g, cue));
+                float cut1 = acosf(clampf(dot2(aimv, jd), -1, 1)) * DEG;
+                if (cut1 > 55.0f) continue;
+                float djk = d2(O, gk), dg = d2(cue, g);
+                float vk = bb_launch(c, dkh, 0.5f * vd);
+                float vj = bb_launch(c, djk, vk / fmaxf(0.30f, cosf(cut2 * RAD)));
+                float v0 = bb_launch(c, dg, vj / fmaxf(0.30f, cosf(cut1 * RAD)));
+                if (bb_would_drop(c, cue, g, v0)) continue;
+                float pval = (float)w->pocket_score[pk];
+                if (c->b[m].id == CUE_ID_BIL_RED) pval *= 2.0f;
+                bb_add(atan2f(aimv.z, aimv.x), v0 / AI_SIM_SPEED, 0.0f,
+                       BB_PLANT, j, pk,
+                       bb_pre(c, pval, cut1 + cut2, dg + djk + dkh) * 0.55f);
+            }
+        }
+    }
+}
+
+/* Best first, over the whole pool. A short list has to be the best of what
+ * was generated, not the front of the order it happened to come out in. */
+static void bb_sort(int n, int by_ev) {
+    for (int i = 0; i < n; i++)
+        for (int j = i + 1; j < n; j++) {
+            float a = by_ev ? P.bb[i].ev : P.bb[i].pre;
+            float b = by_ev ? P.bb[j].ev : P.bb[j].pre;
+            if (b > a) { BbCand t = P.bb[i]; P.bb[i] = P.bb[j]; P.bb[j] = t; }
+        }
+}
+
+/* How many of the pool this player gets to simulate, and how many of the
+ * leaders get looked at twice. */
+#define BB_LEAD  3
+#define BB_PROBE 2
+
+/* The choice, once every candidate has been through the engine. */
+static void bb_finish(void) {
+    AiCtx *c = &P.ctx;
+    const CuePersona *p = c->p;
+    CueAIShot o; memset(&o, 0, sizeof o);
+    o.target_pocket = -1; o.best_pot = -1.0f;
+
+    int best = -1, bestpts = 0;
+    for (int i = 0; i < P.bb_cap; i++) {
+        BbCand *q = &P.bb[i];
+        if (!q->simmed) continue;
+        if (best < 0 || q->ev > P.bb[best].ev) best = i;
+        if (q->pts > bestpts) bestpts = q->pts;
+    }
+    if (best < 0) { P.result = o; return; }
+    BbCand *q = &P.bb[best];
+    o.aim = q->aim + (rnd(P.rng) - 0.5f) * 2.0f * p->line_acc * RAD;
+    o.power01 = clampf(q->power01 * (1.0f + (rnd(P.rng) - 0.5f) * 2.0f * p->power_acc),
+                       0.03f, 1.0f);
+    o.tip_vert = q->tip_vert;
+    { float tv = o.tip_vert;      /* the same walk-up the sim used */
+      ai_shot_elev(c->t, c->b, c->n, c->b[0].pos, q->aim, &tv);
+      o.tip_vert = tv; }
+    o.valid = 1;
+    o.sim_verified = 1; o.cue_end_sim = q->cue_end;
+    o.target_id = (q->tidx > 0 && q->tidx < c->n) ? c->b[q->tidx].id : -1;
+    o.target_pocket = q->pk;
+    /* A SCORING ATTEMPT IS ONE THE ENGINE SAYS SCORES, and nothing else is.
+     * Everything else is a safety, which here means what it means anywhere:
+     * hit a ball, leave the pins standing, leave nothing behind the line. */
+    o.safe = (q->pts <= 0);
+    o.score = o.safe ? q->ev
+                     : clampf(28.0f + 0.36f * (float)q->pts, 0.0f, 100.0f);
+    o.best_pot = bestpts > 0 ? clampf(28.0f + 0.36f * (float)bestpts, 0.0f, 100.0f)
+                             : -1.0f;
+    o.next_pot = (o.best_pot > 0.0f) ? o.best_pot : 0.0f;
+    P.result = o;
+}
+
+/* One simulation per tick, exactly as the break's search takes them: first
+ * every candidate on its nominal line, then the leaders again either side of
+ * it. Returns 1 when the plan is made. */
+static int bb_tick(void) {
+    AiCtx *c = &P.ctx;
+    if (P.bb_i < P.bb_cap) {
+        BbCand *q = &P.bb[P.bb_i++];
+        AiSim sim;
+        ai_sim(c->w, c->t, c->b, c->n, 0, q->aim, q->power01, 0.0f, q->tip_vert, &sim);
+        q->ev = bb_ev(c, &sim, &q->pts, &q->foul, &q->fatal);
+        q->simmed = 1; q->cue_end = sim.cue_end;
+        return 0;
+    }
+    /* ---- AND NOW AS THIS PLAYER WILL REALLY PLAY THEM ---------------------
+     *
+     * The pins are not a weighting on this table, they are the game: a stroke
+     * that fells the black on a plausible miss is not a slightly worse stroke,
+     * it is the whole score. So the leaders are struck again a realistic error
+     * either side of the line and what the miss would cost is folded in.
+     *
+     * The probe angle has a FLOOR, which is the point of it. A persona with no
+     * error at all still has to be told that a line threading past the black
+     * by a millimetre is not the same shot as one with a ball's width to
+     * spare — the table is chaotic enough that a clean strike is not a
+     * guarantee of a clean result. */
+    if (P.bb_probe < BB_LEAD * BB_PROBE) {
+        if (P.bb_probe == 0) {
+            bb_sort(P.bb_cap, 1);
+            for (int i = 0; i < BB_LEAD && i < P.bb_cap; i++) P.bb[i].ev *= 0.5f;
+        }
+        int lead = P.bb_probe / BB_PROBE;
+        int side = (P.bb_probe % BB_PROBE) ? 1 : -1;
+        if (lead < P.bb_cap) {
+            BbCand *q = &P.bb[lead];
+            float jit = fmaxf(c->p->line_acc, 0.35f) * 2.0f * RAD * (float)side;
+            AiSim sim;
+            ai_sim(c->w, c->t, c->b, c->n, 0, q->aim + jit, q->power01, 0.0f,
+                   q->tip_vert, &sim);
+            int pts, foul, fatal;
+            float ev = bb_ev(c, &sim, &pts, &foul, &fatal);
+            q->ev += ev * (0.5f / (float)BB_PROBE);
+            if (fatal) q->ev -= 200.0f;    /* Rule 111 is a veto, not a weight */
+            (void)pts; (void)foul;
+        }
+        P.bb_probe++;
+        return 0;
+    }
+    bb_finish();
+    P.phase = PH_DONE;
+    return 1;
+}
+
+/* The search, set going. */
+static void bb_plan_start(void) {
+    AiCtx *c = &P.ctx;
+    bb_margin = 0.5f; bb_ignore_white = 0;
+    bb_gen(c);
+    if (P.bb_n == 0) {
+        /* Every line on the table runs over a hole. Ask again without the
+         * margin: a shot that only just clears a lip is a poor shot and a far
+         * better one than no shot at all. */
+        bb_margin = 0.0f;
+        bb_gen(c);
+    }
+    if (P.bb_n == 0) {
+        /* Still nothing: the ball is screened by a white pin from every angle
+         * and off every cushion. Then the pin is what the stroke goes through
+         * — see bb_ignore_white. The black stays untouchable. */
+        bb_ignore_white = 1;
+        bb_gen(c);
+        bb_ignore_white = 0;
+    }
+    bb_sort(P.bb_n, 0);
+    /* How much thinking this player does, on the same scale every other search
+     * here uses: the budget is the persona's positional skill. */
+    int cap = 12 + (int)(20.0f * c->p->position + 0.5f);
+    if (cap > P.bb_n) cap = P.bb_n;
+    /* Two of the plain contact shots go through the engine wherever they came
+     * in the order. They are the only candidates that are legal by
+     * construction, and a search that simulates none of them can find itself
+     * choosing between a dozen fouls. */
+    if (cap > 2 && cap < P.bb_n) {
+        int have = 0, dst = cap - 1;
+        for (int i = 0; i < cap; i++) if (P.bb[i].kind == BB_SWEEP) have++;
+        for (int i = cap; i < P.bb_n && have < 2; i++) {
+            if (P.bb[i].kind != BB_SWEEP) continue;
+            BbCand t = P.bb[dst]; P.bb[dst] = P.bb[i]; P.bb[i] = t;
+            dst--; have++;
+        }
+    }
+    P.bb_cap = cap; P.bb_i = 0; P.bb_probe = 0;
+    if (cap > 0) { P.phase = PH_BB; return; }
+    /* LAST RESORT: every line blocked, or nothing generated at all. Roll at
+     * the nearest ball at a pace that reaches it and no more. It hits
+     * something (Rule 110(b)) and gets past the black peg's line (110(o)),
+     * which is the least a stroke has to do; anything cleverer than that has
+     * already been tried above. */
+    CueAIShot o; memset(&o, 0, sizeof o);
+    o.target_pocket = -1; o.best_pot = -1.0f;
+    int near = -1; float nd = 1e30f;
+    for (int i = 1; i < c->n; i++) {
+        if (!c->b[i].on) continue;
+        float dd = d2(c->b[0].pos, c->b[i].pos);
+        if (dd < nd) { nd = dd; near = i; }
+    }
+    if (near > 0) {
+        Vec3 d = sub2(c->b[near].pos, c->b[0].pos);
+        o.aim = atan2f(d.z, d.x);
+        o.power01 = clampf(bb_launch(c, nd, 0.6f) / AI_SIM_SPEED, 0.05f, 1.0f);
+        o.safe = 1; o.valid = 1;
+        o.target_id = c->b[near].id;
+    }
+    P.result = o; P.phase = PH_DONE;
+}
+
+/* Rule 96: the ball is taken by hand and played FROM THE D, so where in the D
+ * is a real choice — the only one the striker gets besides the stroke itself,
+ * and on a four-centimetre D it still swings the angle onto a ball a foot away
+ * by ten degrees. Scored by what the best line out of each spot is worth,
+ * which is bb_gen's own ranking asked of each in turn: no simulation, so it
+ * costs nothing, and the planner solves the stroke properly from wherever this
+ * puts the ball.
+ *
+ * It leaves the candidate pool full of the last spot's shots. That is safe
+ * because placing and planning are separate acts of the host — the ball is put
+ * down, and THEN the stroke is worked out from where it stands — but it means
+ * this must never be called part-way through a plan. */
+static Vec3 bb_place(const AiCtx *c) {
+    static CueBall pb[CUE_MAX_BALLS];
+    AiCtx q = *c; q.b = pb;
+    for (int i = 0; i < c->n; i++) pb[i] = c->b[i];
+    Vec3 home = v3(c->t->baulk_x, c->t->R, 0.0f);
+    /* The break position and the last-ball stroke are played from the spot
+     * itself (Rules 92 and 108); there is nothing to choose. */
+    if (c->r->bb_from_break || c->r->bb_last_ball) return home;
+    Vec3 best = home; float bestsc = -1e30f;
+    for (int ring = 0; ring < 3; ring++) {
+        float rr = c->t->d_radius * (float)ring * 0.45f;
+        int na = ring ? 8 : 1;
+        for (int a = 0; a < na; a++) {
+            float th = (float)a * (6.2831853f / (float)na);
+            Vec3 pos = v3(c->t->baulk_x + cosf(th) * rr, c->t->R, sinf(th) * rr);
+            int clash = 0;
+            for (int i = 1; i < c->n; i++)
+                if (c->b[i].on && d2(pos, c->b[i].pos) < c->contact + 0.001f) clash = 1;
+            if (clash) continue;
+            pb[0].pos = pos; pb[0].on = 1;
+            bb_gen(&q);
+            float sc = -1e30f;
+            for (int i = 0; i < P.bb_n; i++)
+                if (P.bb[i].kind != BB_SWEEP && P.bb[i].pre > sc) sc = P.bb[i].pre;
+            /* Nothing scoring on from here: at least stand where the most
+             * balls can be reached at all. */
+            if (sc <= -1e29f) sc = -1000.0f + (float)P.bb_n;
+            if (sc > bestsc) { bestsc = sc; best = pos; }
+        }
+    }
+    return best;
+}
+
 void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                        const CueBall *balls, int n, const CuePersona *p,
                        uint32_t *rng) {
@@ -2622,6 +3431,11 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     P.posAware = p->position; P.phase = PH_DONE;
     AiCtx *c = &P.ctx;
     CueAIShot out; memset(&out, 0, sizeof out); out.target_pocket = -1;
+
+    /* BAR BILLIARDS PLAYS ITS OWN GAME AND SEARCHES ITS OWN WAY. Nothing
+     * below fits it — see the block above bb_gen for what it assumes and why
+     * none of it is true here. */
+    if (r->mode == CUE_GAME_BARBILLIARDS) { bb_plan_start(); return; }
 
     /* 0a. Two misses already. A third forfeits the frame, so nothing else
      * matters: find the nearest ball-on with a clear path and hit it in the
@@ -3266,6 +4080,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
 }
 
 int cue_ai_plan_tick(void) {
+    if (P.phase == PH_BB) return bb_tick();
     if (P.phase == PH_BREAK) {
         AiCtx *c = &P.ctx;
         /* ONE per tick, not SIMS_PER_TICK. See the note on cost where the
@@ -3754,6 +4569,14 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
         .snooker = t->is_snooker,
     };
     AiCtx *c = &ctx;
+
+    /* Rule 91: every stroke of bar billiards is played from the D, so this is
+     * asked on every visit rather than after a foul — and the region is the D
+     * itself, not the clamp the other games share. */
+    if (r->mode == CUE_GAME_BARBILLIARDS) {
+        ctx.contact = (t->cue_R > 0.0f) ? (t->cue_R + t->R) : (2.0f * t->R);
+        return bb_place(c);
+    }
 
     const int in_hand_any = cue_rules_in_hand_anywhere(r);
     Vec3 best_pos = cue_table_clamp_placement_any(t, cue_table_cue_home(t),
