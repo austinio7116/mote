@@ -114,9 +114,15 @@ static float bore_clearance(const CueWorld *w, int p, float br, float bset) {
             if (d < near) near = d;
         }
     }
-    if (near > 1e29f) return 0.0f;
+    /* NOT zero when there is nothing to measure. Zero is the ANSWER here —
+     * the cushions landing exactly on the hole — so returning it for "this
+     * build has no facings" makes a degenerate pocket read as a solved one,
+     * which is how the first cut of the solver quietly gave up on four of the
+     * eighteen and reported the authored gap as if it had converged. */
+    if (near > 1e29f) return NAN;
     return near - w->jaw_r - br;      /* the rubber's surface, not its centreline */
 }
+
 
 typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset,
                        flen, ang,
@@ -166,6 +172,63 @@ static void build_tuned(int ti, int mid, const Knobs *k, CueTable *ot, CueWorld 
     cue_table_derive_cut(ow);
     *ot = t;
 }
+
+/* WHERE THE CUSHIONS HAVE TO END SO THEY KISS THE BORE.
+ *
+ * The pocket size is the drop radius and the bore is the same circle, and the
+ * cushions are not free to sit wherever they were authored: they have to
+ * arrive exactly on that circle. A slot between the rubber and the hole is a
+ * fault you can see out of the table through, and rubber overhanging the hole
+ * is a fault too — it is unsupported, there is no timber under it. The target
+ * is neither. It is ZERO.
+ *
+ * `gap` is the knuckle setback and it is what moves the end of a cushion, so
+ * this solves for it rather than asking an author to dial it. Bisection, not
+ * a formula: the jaw is a bezier whose control points are struck off the ball
+ * radius and the clearance is the nearest point along the whole facing, so
+ * there is no closed form to write down and pretend to trust. Rebuilding the
+ * world is the only honest evaluation of it, and forty of them is nothing.
+ *
+ * Monotonic in `gap` over any range worth solving on — pulling the knuckles
+ * back can only move the rubber away from the hole — so bisection converges
+ * on the one crossing. If the bracket does not contain one, the authored gap
+ * is returned untouched and the readout goes on reporting the error, because
+ * quietly clamping to an end of the range would look like a solution. */
+static float solve_gap(int ti, int mid, const Knobs *k0, int pidx) {
+    Knobs k = *k0;
+    CueTable t; CueWorld w;
+    #define CLEAR_AT(G) (k.gap = (G), build_tuned(ti, mid, &k, &t, &w), \
+        bore_clearance(&w, (pidx >= 0 && pidx < w.npocket) ? pidx : (mid ? 5 : 2), \
+                       mid ? t.bore_side : t.bore_corner, \
+                       mid ? t.bore_set_side : t.bore_set_corner))
+    /* WALK IT, then bisect. A fixed bracket is not safe: past a certain
+     * setback the pocket stops being a pocket and the facings disappear
+     * entirely, and an endpoint in that region tells the solver nothing. So
+     * step along the range, ignore any build that has no facings to measure,
+     * and bisect the FIRST sign change found among the ones that do. */
+    const int N = 48;
+    const float g0 = 0.05f, g1 = 8.0f;
+    float plo = 0.0f, pc = 0.0f; int have = 0;
+    for (int i = 0; i <= N; i++) {
+        const float g = g0 + (g1 - g0) * (float)i / (float)N;
+        const float c = CLEAR_AT(g);
+        if (c != c) { have = 0; continue; }              /* NaN: nothing there */
+        if (have && ((pc > 0.0f) != (c > 0.0f))) {
+            float lo = plo, hi = g, clo = pc;
+            for (int j = 0; j < 40; j++) {
+                const float m = 0.5f*(lo + hi), cm = CLEAR_AT(m);
+                if (cm != cm) { hi = m; continue; }
+                if ((cm > 0.0f) == (clo > 0.0f)) { lo = m; clo = cm; } else hi = m;
+            }
+            #undef CLEAR_AT
+            return 0.5f*(lo + hi);
+        }
+        plo = g; pc = c; have = 1;
+    }
+    #undef CLEAR_AT
+    return k0->gap;        /* no crossing: leave it alone and let the readout say so */
+}
+
 
 static int IW = 700, IH = 700;
 static unsigned char *img;
@@ -395,6 +458,7 @@ int main(int argc, char **argv) {
 
     const char *tbl="snooker12", *ty="corner", *out="/tmp/pk.ppm";
     int pocket_idx = -1;
+    int kiss = 0;   /* solve `gap` so the cushions land on the bore */
     /* WHERE THE EYE GOES. "top" is the old straight-down view; "out" stands
      * outside the pocket looking in and down at it, which is where a slot
      * behind a mitred jaw shows; "in" stands inside the table just over the
@@ -428,6 +492,7 @@ int main(int argc, char **argv) {
         else if(!strcmp(argv[i],"--roll")) k.roll=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--zoom")) zoom=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--size")) { IW=IH=atoi(argv[++i]); }
+        else if(!strcmp(argv[i],"--kiss")) kiss=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--bore")) k.bore=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--bset")) k.bset=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--flen")) k.flen=(float)atof(argv[++i]);
@@ -499,6 +564,11 @@ int main(int argc, char **argv) {
          * real value could never be rather than by its sign. */
         if(k.bset<-90.0f) k.bset= (mid?t0.bore_set_side:t0.bore_set_corner)/t0.R;
     }
+    /* THE CUSHIONS FOLLOW THE HOLE, not the other way round. Solved before
+     * the world is built, so what is drawn and what is measured are the same
+     * table — the alternative is building it twice and reporting the first. */
+    float gap_solved = -1.0f;
+    if (kiss) { gap_solved = solve_gap(ti, mid, &k, pocket_idx); k.gap = gap_solved; }
     build_tuned(ti, mid, &k, &T, &W);
     if (bed_l > 0.0f && bed_w > 0.0f) {
         T.half_len = bed_l; T.half_wid = bed_w;
@@ -652,15 +722,17 @@ int main(int argc, char **argv) {
     fwrite(img,1,(size_t)IW*IH*3,o); fclose(o);
 
     /* the millimetres the page shows beside the sliders — derived, never dialled */
+    const float tipmm = bore_clearance(&W, p, mid ? T.bore_side : T.bore_corner,
+                                       mid ? T.bore_set_side : T.bore_set_corner) * 1000.0f;
     fprintf(stderr, "{\"mouth\": %.2f, \"drop\": %.2f, \"edge\": %.2f, "
                     "\"thick\": %.2f, \"ball\": %.2f, \"bore\": %.2f, "
-                    "\"tip\": %.2f, \"gap_to_drop\": %.2f}\n",
+                    "\"tip\": %.2f, \"solved_gap\": %.4f, \"gap_to_drop\": %.2f}\n",
         (double)(jaw_sep(&W,p)*1000.0f), (double)(W.pocket_r[p]*1000.0f),
         (double)(W.cut_r[p]*1000.0f), (double)(W.lip_d[p]*1000.0f),
         (double)(W.R*2000.0f),
         (double)((mid ? T.bore_side : T.bore_corner) * 1000.0f),
-        (double)(bore_clearance(&W, p, mid ? T.bore_side : T.bore_corner,
-                             mid ? T.bore_set_side : T.bore_set_corner) * 1000.0f),
+        (double)(tipmm == tipmm ? tipmm : 9999.0f),
+        (double)gap_solved,
         (double)(( (W.cut_r[p] - sqrtf((W.cut_c[p].x-W.drop_c[p].x)*(W.cut_c[p].x-W.drop_c[p].x)
                                      + (W.cut_c[p].z-W.drop_c[p].z)*(W.cut_c[p].z-W.drop_c[p].z)))
                    - W.pocket_r[p]) * 1000.0f));

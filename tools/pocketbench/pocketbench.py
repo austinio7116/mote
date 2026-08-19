@@ -105,10 +105,16 @@ def defaults():
 # on the way into the engine and nowhere else — it is a unit conversion for a
 # field that has not been changed yet, not part of the scheme.
 #
-#   pocket size   THE DROP RADIUS, in mm, direct. The catch circle, which is
-#                 the gameplay, and the only size number a table author sets.
-#   shelf         in mm, how much DEEPER than the mouth the drop is centred.
-#                 The difficulty knob; it does not touch the size of the hole.
+# TWO AUTHORED NUMBERS, not one. A pocket needs a size and it needs a depth,
+# and they are independent: the size is how big the hole is and the depth is
+# how far back it sits, and moving the same hole in or out is what makes it
+# play harder or easier. Everything else on this page is derived from them.
+#
+#   pocket size   THE DROP RADIUS, in mm, direct — and the BORE radius, which
+#                 is the same circle. The one size a table author sets.
+#   pocket depth  in mm, how far back along the pocket's own normal that circle
+#                 is centred. It does not touch the size of the hole; it moves
+#                 it, and the cushions close over it as it goes.
 #   cut x         the cloth cut as a multiple of the pocket size — larger than
 #                 1, because the cloth is cut wider than the hole.
 #   cut offset    in mm, how much further out than the drop that circle is
@@ -122,18 +128,20 @@ def defaults():
 #
 #   pr   = pocket / R        capm = 0        (the drop IS the pocket radius)
 #   bore = pr                bset = back     (timber hole = drop, concentric)
-#   back = shelf / R
+#   back = depth / R
 #   rad  = cut x                             (already a multiple of pr)
-#   set  = shelf + cut offset                (metres, along the normal)
+#   set  = depth + cut offset                (metres, along the normal)
+#   roll = lip / pocket                      (a multiple of pr, which
+#                                             the pocket size now IS)
 #
-# `gap` is NOT derived yet. Bringing the cushion ends out to touch the bore is
-# the next piece and it cannot be faked from here: the jaw curve is built in
-# ball radii inside the engine, so where a cushion ENDS cannot be put on an
-# arbitrary circle by moving `gap` alone. The bench now measures the error
-# instead — the "cushion" figure in the readout is how far the end of the
-# rubber stops short of the edge of the bore — so the size of the job is
-# visible while it is still being dialled by hand.
-LINKED = ["psize", "shelf", "lipk", "lipoff"]
+# `gap` IS DERIVED, and it is the whole point. The cushions are not free to sit
+# where they were authored: they follow the hole. cuepocket --kiss solves the
+# knuckle setback so the nearest rubber lands exactly on the bore circle, by
+# bisection over rebuilt worlds, because the jaw is a bezier and there is no
+# closed form worth pretending to trust. Zero is the target in BOTH directions
+# — a slot you can see through and rubber overhanging an unsupported edge are
+# both faults, not one fault and one acceptable margin.
+LINKED = ["psize", "depth", "lipk", "lipoff", "lip"]
 
 
 def link_keys(q):
@@ -143,27 +151,25 @@ def link_keys(q):
     q = dict(q)
     R = float(q.get("ballR", "0.0254"))          # metres, for the ÷R only
     psize  = float(q.get("psize",  "46.0"))      # mm, THE POCKET
-    shelf  = float(q.get("shelf",  "8.0"))       # mm, along the normal
+    depth  = float(q.get("depth",  "8.0"))       # mm, along the normal
     lipk   = float(q.get("lipk",   "1.30"))      # x the pocket
     lipoff = float(q.get("lipoff", "0.0"))       # mm, beyond the drop
+    lip    = float(q.get("lip",    "11.0"))      # mm, how far the lip rolls
     pr   = (psize / 1000.0) / R
-    back = (shelf / 1000.0) / R
+    back = (depth / 1000.0) / R
     q["pr"]   = "%.6f" % pr
     q["capm"] = "0"
     q["back"] = "%.6f" % back
     q["bore"] = "%.6f" % pr
     q["bset"] = "%.6f" % back
     q["rad"]  = "%.6f" % lipk
-    q["set"]  = "%.6f" % ((shelf + lipoff) / 1000.0)
-    # `roll` is a multiple of `pr` as well, so when the cap margin folds into
-    # the pocket and `pr` moves, the lip would silently thicken or thin with
-    # it. The page works out the ratio at seed time and sends it, so the lip
-    # stays the thickness it shipped at while the pocket is dialled.
-    try:
-        q["roll"] = "%.6f" % (float(q.get("roll", "0.22"))
-                              * float(q.get("rollx", "1")))
-    except ValueError:
-        pass
+    q["set"]  = "%.6f" % ((depth + lipoff) / 1000.0)
+    q["kiss"] = "1"        # the cushions follow the hole; see solve_gap
+    # THE CURVED DROP DEPTH, in mm like the rest. `roll` is a multiple of the
+    # cut reference, which the pocket size now IS, so this is a plain divide —
+    # and being absolute it needs no compensating when the pocket is dialled,
+    # which the ball-radius version did.
+    q["roll"] = "%.6f" % (lip / psize if psize > 1e-6 else 0.0)
     return q
 
 
@@ -196,6 +202,10 @@ def render(q):
     for k in KEYS:
         if k in q:
             cmd += ["--" + k, q[k]]
+    # Derived, not authored: solve the knuckle setback so the cushions land on
+    # the bore. Only in linked mode — unlinked, `gap` is the author's own.
+    if q.get("kiss", "0") not in ("", "0"):
+        cmd += ["--kiss", "1"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     info = {}
     # The last line is the pocket's own numbers; a line before it, if present,
@@ -473,28 +483,33 @@ function sync(kind){
    certain size, not a certain number of balls — and everything else is derived
    from them: the bore is made equal to the pocket and concentric with the
    drop, and the cloth cut is a wider circle around the outside of it. */
-const LKEYS=['psize','shelf','lipk','lipoff'];
-const LNAME={psize:'pocket size',shelf:'shelf',lipk:'cut x pocket',
-             lipoff:'cut offset'};
-const LUNIT={psize:'mm radius',shelf:'mm',lipk:'x pocket',lipoff:'mm'};
-const LRANGE={psize:[10,90,.1],shelf:[0,40,.1],lipk:[1.0,2.2,.005],
-              lipoff:[-15,25,.1]};
-const LSTEP={psize:1,shelf:1,lipk:3,lipoff:1};
+const LKEYS=['psize','depth','lipk','lipoff','lip'];
+const LNAME={psize:'pocket size',depth:'pocket depth',lipk:'cut x pocket',
+             lipoff:'cut offset',lip:'lip roll'};
+const LUNIT={psize:'mm radius',depth:'mm',lipk:'x pocket',lipoff:'mm',lip:'mm'};
+const LRANGE={psize:[10,90,.1],depth:[0,40,.1],lipk:[1.0,2.2,.005],
+              lipoff:[-15,25,.1],lip:[0,30,.1]};
+const LSTEP={psize:1,depth:1,lipk:3,lipoff:1,lip:1};
 const LTIP={
   psize:'THE POCKET. The radius in millimetres of the circle a ball is caught '+
         'by — the gameplay, and the one size a table author sets. The bore in '+
         'the timber is made equal to it, so this is the hole in the frame too. '+
         'Nothing here is relative to the ball; the ball either fits or it does '+
         'not, and the readout says which.',
-  shelf:'How much deeper than the mouth the pocket is centred, in mm. This is '+
-        'the difficulty knob: it does not change how WIDE the hole is, only '+
-        'how far a ball has to get before it is gone.',
+  depth:'How far back the pocket circle is centred, in mm — the SECOND of the '+
+        'two authored numbers. It does not change how big the hole is. It '+
+        'moves it, and because the cushions are solved onto the hole they '+
+        'close over it as it goes back, so the same size pocket plays '+
+        'tighter. That is the difficulty knob.',
   lipk:'The cloth cut, as a multiple of the pocket size. 1.0 cuts the cloth '+
        'exactly at the bore; wider leaves a ring of bare slate around the '+
        'hole, which is what a real table has and what the shipped ones do.',
   lipoff:'How much further out than the drop that circle is centred, in mm, '+
          'so the ring is pushed toward the timber instead of being even all '+
-         'the way round.'};
+         'the way round.',
+  lip:'How far the cloth edge rolls down into the pocket, in mm — the curved '+
+      'drop depth. Kept as its own number rather than derived, because '+
+      'whether it wants to vary per table is not yet known.'};
 let LCUR={};
 function lmk(kind){
   const box=document.getElementById('l_'+kind); if(!box) return;
@@ -536,11 +551,11 @@ function lseed(kind){
      it would quietly shrink with it. That factor is the whole reason the
      first cut of this seeded wrong. */
   const drop = k.pr - (k.capm||0);
-  const ratio = drop>1e-6 ? k.pr/drop : 1.0;
+  const ratio = drop>1e-6 ? k.pr/drop : 1.0;   /* the cut is x pr, and pr moves */
   LCUR[kind]={
-    rollx : ratio,          /* derived, not a knob — see link_keys */
+    lip   : k.roll * k.pr * R * 1000.0,   /* cut_ref is pr, so lip_d = pr*roll */
     psize : drop * R * 1000.0,
-    shelf : k.back * R * 1000.0,
+    depth : k.back * R * 1000.0,
     lipk  : k.rad * ratio,
     lipoff: (k.set - k.back*R) * 1000.0,
   };
@@ -580,7 +595,6 @@ function draw(kind){
     if(document.getElementById('linked').checked){
       q.set('linked','1');
       for(const key of LKEYS) q.set(key, LCUR[kind]?.[key] ?? 0);
-      q.set('rollx', LCUR[kind]?.rollx ?? 1);
       q.set('ballR', ((DEF[TABLE]?.ball ?? 25.4)/1000.0));   /* mm -> m */
     }
     fetch('/render?'+q).then(async r=>{
