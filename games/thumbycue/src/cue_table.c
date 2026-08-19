@@ -1670,26 +1670,24 @@ static int link_edge_x(const CueWorld *w, int p, float br, float bset,
  * is emitted as (tip, knuckle) and the nose as (knuckle, ...), so the tip is
  * the kind-1 endpoint that no kind-0 segment shares. That holds for a mitre
  * and a bezier alike and does not care which way the rail runs. */
-static float link_delta_generic(const CueWorld *w, int p, float br, float bset,
-                                int *ok) {
-    *ok = 0;
-    const float cx = w->pocket[p].x + w->pmnorm[p].x*bset;
-    const float cz = w->pocket[p].z + w->pmnorm[p].z*bset;
-    float sum = 0.0f; int n = 0;
+/* EVERY FREE JAW END, EACH ANSWERING TO THE POCKET IT IS NEAREST.
+ *
+ * This was written per pocket, gathering the tips within a fixed 350mm. That
+ * radius is an assumption about how far apart pockets are, and it fails from
+ * both ends: on a 16-gon one pocket found a single tip, and on an 18-gon each
+ * found FOUR — its own two plus its neighbours' — so the mean was taken over
+ * tips that wanted different answers and the link either skewed or gave up.
+ *
+ * A tip belongs to the pocket it is closest to. That is true at any size, on
+ * any polygon, with pockets as close together as the shape allows, and it
+ * needs no radius to be chosen. */
+static void link_accumulate(const CueTable *t, const CueWorld *w,
+                            float *acc, int *cnt) {
     for (int i = 0; i < w->nseg; i++) {
         if (w->seg[i].kind != 1) continue;
         const Vec3 e[2] = { w->seg[i].a, w->seg[i].b };
         for (int q = 0; q < 2; q++) {
-            const float dx = e[q].x - w->pocket[p].x, dz = e[q].z - w->pocket[p].z;
-            if (dx*dx + dz*dz > 0.35f*0.35f) continue;
-            /* THE FREE END: no OTHER segment touches it, of any kind.
-             *
-             * Testing only against the nose was the bug. A bezier jaw is a
-             * chain of many short kind-1 segments, so every interior vertex of
-             * the curve has no nose on it and passed as a tip — dozens of
-             * bogus deltas averaged in, which dragged the gap down until the
-             * mouth collapsed to half a ball wide. Only the two true ends of
-             * the whole chain are free. */
+            /* free: the end of the CHAIN, shared with no other segment */
             int shared = 0;
             for (int j = 0; j < w->nseg && !shared; j++) {
                 if (j == i) continue;
@@ -1700,6 +1698,20 @@ static float link_delta_generic(const CueWorld *w, int p, float br, float bset,
                 }
             }
             if (shared) continue;
+            /* the pocket it is nearest — no radius, no assumption */
+            int p = -1; float pd = 1e30f;
+            for (int k = 0; k < w->npocket; k++) {
+                const float dx = w->pocket[k].x - e[q].x;
+                const float dz = w->pocket[k].z - e[q].z;
+                const float dd = dx*dx + dz*dz;
+                if (dd < pd) { pd = dd; p = k; }
+            }
+            if (p < 0) continue;
+            const int m = w->pocket_mid[p] ? 1 : 0;
+            const float br   = m ? t->bore_side : t->bore_corner;
+            const float bset = m ? t->bore_set_side : t->bore_set_corner;
+            const float cx = w->pocket[p].x + w->pmnorm[p].x*bset;
+            const float cz = w->pocket[p].z + w->pmnorm[p].z*bset;
             /* the rail it slides along, pointing AWAY from the pocket */
             float ux = 0, uz = 0, best = 1e30f;
             for (int j = 0; j < w->nseg; j++) {
@@ -1721,31 +1733,20 @@ static float link_delta_generic(const CueWorld *w, int p, float br, float bset,
             const float qu = qx*ux + qz*uz;
             const float perp2 = (qx*qx + qz*qz) - qu*qu;
             const float disc = br*br - perp2;
-            if (disc < 0.0f) continue;      /* the bore never reaches this edge */
+            if (disc < 0.0f) continue;    /* the bore never reaches this edge */
             const float rt = sqrtf(disc);
             const float d1 = -qu + rt, d2 = -qu - rt;
-            sum += (fabsf(d1) < fabsf(d2)) ? d1 : d2;
-            n++;
+            acc[m] += (fabsf(d1) < fabsf(d2)) ? d1 : d2;
+            cnt[m] += 1;
         }
     }
-    if (!n) return 0.0f;
-    *ok = 1;
-    return sum / (float)n;
 }
 
 void cue_table_link_gap(CueTable *t, const CueWorld *w) {
     /* AN L OR AN N-GON takes the general route: same argument, no axes. */
     if (t->notch_x > 0.0f || t->notch_z > 0.0f || t->bed_shape != CUE_BED_RECT) {
         float acc[2] = { 0.0f, 0.0f }; int cnt[2] = { 0, 0 };
-        for (int p = 0; p < w->npocket; p++) {
-            const int m = w->pocket_mid[p] ? 1 : 0;
-            int ok = 0;
-            const float d = link_delta_generic(w, p,
-                                m ? t->bore_side : t->bore_corner,
-                                m ? t->bore_set_side : t->bore_set_corner, &ok);
-            if (!ok) continue;
-            acc[m] += d; cnt[m]++;
-        }
+        link_accumulate(t, w, acc, cnt);
         /* One gap per KIND, so ends that disagree get their mean — exact where
          * they are alike by symmetry, and the honest compromise where an L's
          * seven pockets are not. */
