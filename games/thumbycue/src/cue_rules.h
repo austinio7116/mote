@@ -197,6 +197,37 @@ typedef struct {
     int bb_in_baulk;     /* a ball came to rest on or inside the baulk arc */
     int bb_short;        /* the cue ball struck nothing and never reached the
                           * line through the black peg (Rule 110(o)) */
+    /* ---- BILLIARDS GOLF -------------------------------------------------
+     *
+     * Not a frame. There is no opponent to take the table from you and no
+     * scoring shot: you play the hole until the reds are gone, the STROKES are
+     * the score, and low wins. Each player plays the same hole out in turn —
+     * that is what a golf card is a record of — and only then does the course
+     * move on.
+     *
+     *   Rule 2  the cue ball down a hole costs a stroke and goes back to the
+     *           starting point. It is a penalty, not a foul: nothing changes
+     *           hands, because nothing can.
+     *   Rule 3  eight strokes is the most a hole can cost. A player who has
+     *           not cleared it by then takes an 8 and the other plays.
+     *   Rule 4  lowest total over eighteen wins.
+     */
+    int golf_hole;               /* 0..17, the hole being played */
+    int golf_strokes;            /* strokes on it so far, by the player up */
+    /* A hole cannot cost more than eight (Rule 3), so a byte holds it and the
+     * whole card is 36 of them. It rides inside CueRules over the wire, and
+     * four bytes apiece for a number that never exceeds eight is most of a
+     * packet spent on nothing. */
+    uint8_t golf_card[2][CUE_GOLF_HOLES];  /* 0 = not played yet */
+    int golf_done;               /* both have played this hole: move on */
+    int golf_rack;               /* set on resolve, consumed by the host: set
+                                  * the hole out again for the next player */
+    int golf_reset_cue;          /* ...and put the cue ball back on its spot */
+    /* A ROUND ON YOUR OWN is a real way to play a course, and the only game
+     * here that has one — every other mode always has a second seat even if a
+     * person is sitting in both. Set by the host before the first stroke. */
+    int golf_solo;
+
     /* 9-ball push-out (WPA) */
     int pushout_avail;   /* the next shot (first after the break) may be a push-out */
     int pushout_offer;   /* pending: ask the player at the table whether to push out */
@@ -285,6 +316,16 @@ int  cue_rules_bb_in_baulk(const CueRules *r, const CueTable *t,
 /* Rule 110(o): the cue ball must either strike something or reach the line
  * through the black peg. `reached` is how far up the table it got. */
 int  cue_rules_bb_short(const CueTable *t, float furthest_x, int hit_something);
+/* Rules 110(c),(d): balls over the baulk line or on the D go back to the rack.
+ * Called by the host AFTER resolve has read bb_in_baulk. Returns how many. */
+int  cue_rules_bb_baulk_return(const CueRules *r, const CueTable *t,
+                               CueBall *b, int n);
+
+/* ---- billiards golf ----------------------------------------------------- */
+/* A player's total so far, over holes [from..to]; 0 for holes not yet played. */
+int  cue_rules_golf_total(const CueRules *r, int who, int from_hole, int to_hole);
+/* How the round stands: -1 nobody yet, 0/1 the leader, 2 level. */
+int  cue_rules_golf_leader(const CueRules *r);
 /* Run the clock down. When it reaches zero the bar drops and potted balls stop
  * coming back (Rule 108's premise); the game is over when the balls run out. */
 void cue_rules_bb_tick(CueRules *r, float dt);
@@ -373,6 +414,7 @@ void cue_rules_set_uk(CueRules *r, int ruleset);   /* CUE_UK_* */
  * pool game is the whole cloth. */
 static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
     if (!r || r->kind) return 0;                    /* snooker: the D */
+    if (r->mode == CUE_GAME_BARBILLIARDS) return 0; /* Rule 91: the D, always */
     if (r->mode == CUE_GAME_UK8) return r->uk_intl != CUE_UK_PUB;
     return 1;
 }

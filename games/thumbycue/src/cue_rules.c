@@ -54,7 +54,19 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
     r->uk_intl = 0;
     r->baulk_x = t->baulk_x; r->d_radius = t->d_radius;
     r->best_of = 1;
-    if (t->kind == CUE_GAME_BARBILLIARDS) {
+    if (t->kind == CUE_GAME_GOLF) {
+        /* A ROUND, NOT A FRAME. There is no target score and nothing to run
+         * out: the course ends it after eighteen holes, and low wins. The card
+         * starts empty and a zero on it means "not played yet", which is why
+         * nothing here has to say how many holes are still to come. */
+        r->target_score = 0;
+        r->golf_hole = 0;
+        r->golf_strokes = 0;
+        r->golf_done = 0;
+        for (int p = 0; p < 2; p++)
+            for (int h = 0; h < CUE_GOLF_HOLES; h++) r->golf_card[p][h] = 0;
+        cue_table_golf_set_hole(0);
+    } else if (t->kind == CUE_GAME_BARBILLIARDS) {
         /* Rule 92: the game opens from the break position, and Rule 94 sends
          * it back there whenever the table empties. A coin buys about
          * seventeen minutes (Rule 71's tables are coin-operated). */
@@ -998,6 +1010,56 @@ static void resolve_barbilliards(CueRules *r, CueBall *b, int n, const CueWorld 
         potted_any = 1;
     }
 
+    /* ---- Rule 108: the last-ball shot plays by its own book ----------------
+     *
+     * One ball left in the game, played from the centre of the D into the 100
+     * or the 200 OFF ONE SIDE CUSHION, with the white skittles standing in the
+     * 50 holes. Strike a skittle and the score does not count. The players
+     * alternate until the ball is potted or the black peg goes down — so the
+     * only ways out of here are GAME, or the turn passing with the ball back
+     * on the centre spot. Rules 110(b) and 110(o) explicitly do not apply. */
+    if (r->bb_last_ball) {
+        int white_touched = 0;
+        if (w) for (int k = 0; k < w->nskittle; k++)
+            if (!w->skittle_black[k] &&
+                (w->skittle_down[k] || w->skittle_nudged[k])) white_touched = 1;
+        if (black_down && !white_first) {
+            /* Rule 111 still stands, and 108 says the black falling ENDS it. */
+            r->score[me] = 0; r->bb_break = 0; r->brk = 0;
+            r->frame_over = 1;
+            r->winner = (r->score[0] == r->score[1]) ? -1
+                      : (r->score[0] > r->score[1]) ? 0 : 1;
+            if (r->winner >= 0) book_frame(r, r->winner);
+            snprintf(r->msg, sizeof r->msg, "THE BLACK - SCORE LOST - GAME");
+            return;
+        }
+        if (np > 0 && r->bb_hole[0] >= 0) {
+            /* Down a hole: the game is over either way. It scores only if the
+             * hole was the 100 or the 200, a side cushion came first, and no
+             * skittle in a 50 hole was touched on the way. */
+            int val = (w && r->bb_hole[0] < w->npocket)
+                    ? w->pocket_score[r->bb_hole[0]] : 0;
+            int legal = (val == 100 || val == 200) &&
+                        (w && w->side_cushion) && !white_touched;
+            if (legal) {
+                if (potted[0] == CUE_ID_BIL_RED) val *= 2;
+                r->score[me] += val;
+                snprintf(r->msg, sizeof r->msg, "%d - GAME", val);
+            } else snprintf(r->msg, sizeof r->msg, "NO SCORE - GAME");
+            r->bb_left = 0;
+            r->frame_over = 1;
+            r->winner = (r->score[0] == r->score[1]) ? -1
+                      : (r->score[0] > r->score[1]) ? 0 : 1;
+            if (r->winner >= 0) book_frame(r, r->winner);
+            return;
+        }
+        /* Not potted — off the table included, Rule 110(e)'s return being how
+         * the ball gets back to the D. The other player has the next attempt. */
+        r->turn = you;
+        snprintf(r->msg, sizeof r->msg, "LAST BALL");
+        return;
+    }
+
     /* ---- the fouls ---- */
     int foul = 0, fatal = 0; const char *why = "";
     if (black_down && !white_first)   { fatal = 1; why = "THE BLACK"; }
@@ -1061,7 +1123,14 @@ static void resolve_barbilliards(CueRules *r, CueBall *b, int n, const CueWorld 
     /* Once the bar is down they do not come back. */
     if (r->bb_barred) { r->bb_left -= np; if (r->bb_left < 0) r->bb_left = 0; }
     (void)red_potted; (void)b; (void)n;
-    snprintf(r->msg, sizeof r->msg, "%d", pts);
+    /* Rule 116(e): after the THIRD consecutive both-pot from the break the
+     * scorer must clearly warn the player to leave one ball up — without the
+     * warning the fourth could not be penalised, so the warning is part of
+     * the rule, not a courtesy. */
+    if (r->bb_from_break && r->bb_both_potted >= CUE_BB_MAX_BOTH)
+        snprintf(r->msg, sizeof r->msg, "%d - LEAVE ONE UP", pts);
+    else
+        snprintf(r->msg, sizeof r->msg, "%d", pts);
 }
 
 /* ---- G5: ENGLISH BILLIARDS ----------------------------------------------
@@ -1217,6 +1286,101 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
     (void)b; (void)n;
 }
 
+/* ---- G7: BILLIARDS GOLF -------------------------------------------------
+ *
+ * The simplest resolver in the building, because the game has almost no rules:
+ * every stroke costs one, the cue ball down a hole costs one more and goes
+ * back, and the hole ends when the reds are gone or eight have been played.
+ * What it does NOT have is what everything else here is made of — there is no
+ * foul, no turn to lose, no break to keep. The other player is not waiting for
+ * you to miss; they are waiting for you to finish, and then they play the same
+ * hole. That is what a golf card records.
+ */
+static void resolve_golf(CueRules *r, CueBall *b, int n, int scratch)
+{
+    const int me = r->turn;
+    r->break_shot = 0;
+    r->golf_rack = 0;
+    r->golf_reset_cue = 0;
+    r->last_foul = 0;
+
+    r->golf_strokes++;                       /* the stroke itself */
+    /* Rule 2: it is a PENALTY, not a foul. Nothing changes hands — there is
+     * nothing to hand over — so the ball goes back and the player plays on. */
+    if (scratch) {
+        r->golf_strokes++;
+        r->golf_reset_cue = 1;
+    }
+
+    int left = 0;
+    for (int i = 1; i < n; i++) if (b[i].on) left++;
+
+    const int cleared = (left == 0);
+    const int maxed   = (r->golf_strokes >= CUE_GOLF_MAX_STROKES);
+    if (!cleared && !maxed) {
+        /* Still on the hole. The score IS the stroke count, so that is the
+         * only thing worth saying. */
+        snprintf(r->msg, sizeof r->msg, "%d", r->golf_strokes);
+        return;
+    }
+
+    /* The hole is done, one way or the other. Rule 3 caps it at eight. */
+    int score = r->golf_strokes;
+    if (score > CUE_GOLF_MAX_STROKES) score = CUE_GOLF_MAX_STROKES;
+    r->golf_card[me][r->golf_hole] = (uint8_t)score;
+    r->golf_strokes = 0;
+
+    const int par = CUE_GOLF_COURSE[r->golf_hole].par;
+    if (!cleared)              snprintf(r->msg, sizeof r->msg, "%d - LIMIT", score);
+    else if (score == 1)       snprintf(r->msg, sizeof r->msg, "HOLE IN ONE");
+    else if (score <= par - 2) snprintf(r->msg, sizeof r->msg, "%d - EAGLE", score);
+    else if (score == par - 1) snprintf(r->msg, sizeof r->msg, "%d - BIRDIE", score);
+    else if (score == par)     snprintf(r->msg, sizeof r->msg, "%d - PAR", score);
+    else if (score == par + 1) snprintf(r->msg, sizeof r->msg, "%d - BOGEY", score);
+    else                       snprintf(r->msg, sizeof r->msg, "%d", score);
+
+    /* Has the other player still to play this hole? Two-handed only: against
+     * nobody, the course simply moves on. */
+    const int you = 1 - me;
+    const int solo = r->golf_solo;
+    if (!solo && r->golf_card[you][r->golf_hole] == 0) {
+        r->turn = you;                       /* their turn at the same hole */
+        r->golf_rack = 1;                    /* ...set out fresh for them */
+        return;
+    }
+
+    /* Both have played it. On to the next, or the round is over. */
+    r->golf_done = 1;
+    if (r->golf_hole + 1 >= CUE_GOLF_HOLES) {
+        r->frame_over = 1;
+        int a = cue_rules_golf_total(r, 0, 0, CUE_GOLF_HOLES - 1);
+        int c = cue_rules_golf_total(r, 1, 0, CUE_GOLF_HOLES - 1);
+        r->winner = solo ? 0 : (a == c ? -1 : (a < c ? 0 : 1));   /* LOW wins */
+        if (r->winner >= 0 && !solo) book_frame(r, r->winner);
+        snprintf(r->msg, sizeof r->msg, "ROUND OVER");
+        return;
+    }
+    r->golf_hole++;
+    r->golf_rack = 1;
+    if (!solo) r->turn = you;                /* they lead off the next hole */
+}
+
+int cue_rules_golf_total(const CueRules *r, int who, int from_hole, int to_hole) {
+    if (!r || who < 0 || who > 1) return 0;
+    int t = 0;
+    for (int h = from_hole; h <= to_hole && h < CUE_GOLF_HOLES; h++)
+        if (h >= 0) t += r->golf_card[who][h];
+    return t;
+}
+
+int cue_rules_golf_leader(const CueRules *r) {
+    if (!r) return -1;
+    int a = cue_rules_golf_total(r, 0, 0, CUE_GOLF_HOLES - 1);
+    int c = cue_rules_golf_total(r, 1, 0, CUE_GOLF_HOLES - 1);
+    if (!a && !c) return -1;
+    return (a == c) ? 2 : (a < c ? 0 : 1);
+}
+
 int cue_rules_bb_in_baulk(const CueRules *r, const CueTable *t,
                           const CueBall *b, int n)
 {
@@ -1247,8 +1411,34 @@ int cue_rules_bb_short(const CueTable *t, float furthest_x, int hit_something)
     return furthest_x < t->black_x - 0.045f;
 }
 
+/* Rules 110(c) and (d) do not stop at calling the foul: the ball that came
+ * back over the baulk line, or stopped on the D, "should be returned to the
+ * rack". Same geometry as cue_rules_bb_in_baulk, acted on instead of merely
+ * reported; the host calls it after the resolve has read the flag. */
+int cue_rules_bb_baulk_return(const CueRules *r, const CueTable *t,
+                              CueBall *b, int n)
+{
+    if (!t || !b || t->baulk_arc <= 0.0f) return 0;
+    const float R = r ? r->R : t->R;
+    const float th = t->baulk_arc * 0.5f * 3.14159265f / 180.0f;
+    const float st = sinf(th), ct = cosf(th);
+    int m = 0;
+    for (int i = 0; i < n; i++) {
+        if (!b[i].on) continue;
+        float u = b[i].pos.x - t->baulk_x, v = b[i].pos.z;
+        if (u * st - fabsf(v) * ct <= R ||
+            u*u + v*v <= (t->d_radius + R) * (t->d_radius + R)) {
+            b[i].on = 0; b[i].pocket = 0; b[i].drop = 0.0f;
+            b[i].vel = v3(0,0,0); b[i].w = v3(0,0,0);
+            m++;
+        }
+    }
+    return m;
+}
+
 int cue_rules_bb_setup(CueRules *r, const CueTable *t, CueBall *b, int n) {
     if (!r || !t || !b || n <= 0) return 0;
+    if (r->frame_over) return 0;
     const float R = t->R;
     /* Which balls are up, and which of the ones that are not are still in the
      * game at all. Once the bar has dropped, a potted ball is swallowed. */
@@ -1258,14 +1448,55 @@ int cue_rules_bb_setup(CueRules *r, const CueTable *t, CueBall *b, int n) {
     if (in_play > n) in_play = n;
 
     int placed = 0;
-    /* A ball to play with, always: Rule 91 puts every stroke in the D. The
-     * whites are interchangeable, so the one that comes out of the trough is
-     * simply index 0 back again — no need to choose which. */
+    /* EVERY STROKE IS PLAYED FROM THE D (Rule 91), with a ball taken by hand
+     * (Rule 96) — so index 0, the ball the engine strikes, must be one the
+     * striker is entitled to lift. If the last shot left it out on the cloth
+     * it STAYS there as an object ball and the striker takes another: a white
+     * from the rack while the rack holds one (the red is optional as a cue
+     * ball, Rule 95, so it is never forced on you), and when the rack is
+     * empty, the ball furthest from the top cushion, nearest the centre line
+     * on a tie (Rule 105). The swap keeps the struck ball at index 0, which
+     * is what the physics, the camera and the cue all assume. */
+    if (b[0].on) {
+        int pick = -1;
+        if (up < in_play) {
+            for (int i = 1; i < n; i++)
+                if (!b[i].on && b[i].id != CUE_ID_BIL_RED) { pick = i; break; }
+            if (pick < 0)
+                for (int i = 1; i < n; i++)
+                    if (!b[i].on) { pick = i; break; }
+        }
+        if (pick < 0) {
+            /* Rule 105 — over every ball ON the table, index 0 included, so
+             * if the one already in hand is the furthest back it simply
+             * stays. The top cushion is +x; furthest from it is least x. */
+            float bx = 1e9f, bz = 1e9f; int best = 0;
+            for (int i = 0; i < n; i++) {
+                if (!b[i].on) continue;
+                float az = fabsf(b[i].pos.z);
+                if (b[i].pos.x < bx - 1e-6f ||
+                    (b[i].pos.x < bx + 1e-6f && az < bz)) {
+                    best = i; bx = b[i].pos.x; bz = az;
+                }
+            }
+            if (best != 0) pick = best;
+        }
+        if (pick > 0) { CueBall tmp = b[0]; b[0] = b[pick]; b[pick] = tmp; }
+    }
     if (!b[0].on && up < in_play) {
         b[0].on = 1; b[0].pocket = 0; b[0].drop = 0.0f;
         b[0].vel = v3(0,0,0); b[0].w = v3(0,0,0);
-        b[0].pos = v3(t->baulk_x, R, 0.0f);
         up++; placed = 1;
+    }
+    /* Lifted, so it starts from the break spot — the centre of the D — and
+     * the host lets the striker walk it about the D from there (Rule 96),
+     * except on the two shots the rules pin down exactly: the break plays
+     * from the spot itself (Rule 92) and the last ball from the centre of
+     * the D (Rule 108). */
+    if (b[0].on) {
+        b[0].pos = v3(t->baulk_x, R, 0.0f);
+        b[0].vel = v3(0,0,0); b[0].w = v3(0,0,0);
+        placed = 1;
     }
     /* The break position: no object ball on the table, so the red goes back on
      * the red spot and the white on the break spot (Rules 92, 94, 95). */
@@ -1286,7 +1517,11 @@ int cue_rules_bb_setup(CueRules *r, const CueTable *t, CueBall *b, int n) {
     /* Rule 108: with one ball left it is the last-ball shot, into the 100 or
      * the 200 off a side cushion. Flagged for the host and the scorer; the
      * shot itself is the player's problem. */
-    r->bb_last_ball = (r->bb_barred && r->bb_left <= 1);
+    r->bb_last_ball = (r->bb_barred && r->bb_left <= 1 && b[0].on);
+    /* Rule 108: the break score is recorded BEFORE the last-ball shot is
+     * played — nothing that happens from here can take it back off. */
+    if (r->bb_last_ball) { r->bb_break = 0; r->brk = 0; }
+    r->ball_in_hand = (!r->bb_from_break && !r->bb_last_ball && b[0].on);
     /* And the game is over when the last ball has been swallowed. */
     if (r->bb_barred && r->bb_left <= 0 && !r->frame_over) {
         r->frame_over = 1;
@@ -1546,6 +1781,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
+    else if (r->mode == CUE_GAME_GOLF) resolve_golf(r, b, n, scratch);
     else                                    resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);
     if (wrong_ball && r->last_foul && !r->frame_over)
         snprintf(r->msg, sizeof r->msg, "FOUL: WRONG BALL CUED");
@@ -1609,6 +1845,9 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
     /* Bar billiards: every ball on the table is an object ball, and the one in
      * your hand is whichever white you picked up. */
     if (r->mode == CUE_GAME_BARBILLIARDS) return id != CUE_ID_CUE;
+    /* GOLF: clear the reds. There is no order and no nominated ball — the only
+     * thing you may not strike first is your own cue ball. */
+    if (r->mode == CUE_GAME_GOLF) return id != CUE_ID_CUE;
     if (r->mode == CUE_GAME_BILLIARDS) return id != CUE_ID_CUE;
     if (CUE_GAME_IS_PYRAMID(r->mode))  return id >= 1 && id <= 15;
     if (r->open) return id != 8;                 /* open table: anything but the 8 */
@@ -1638,6 +1877,27 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
                      r->target_score, r->nominated);
         else
             snprintf(buf, cap, "%d/%d  SAFETY", r->score[r->turn], r->target_score);
+    } else if (r->mode == CUE_GAME_GOLF) {
+        /* WHAT IS STILL BEING PLAYED FOR ON THIS HOLE.
+         *
+         * Which hole it is, its par, and where the round stands are all things
+         * a board can show standing still, so a one-line status that repeats
+         * them says nothing. What changes with every stroke — and what a
+         * player actually decides the next shot on — is what this stroke is
+         * worth. Said the way a golfer says it: "3 FOR PAR", then "THIS FOR
+         * PAR", then "THIS FOR BOGEY". */
+        const int par = CUE_GOLF_COURSE[r->golf_hole].par;
+        const int spare = par - r->golf_strokes;   /* strokes left for par */
+        if (spare > 1)       snprintf(buf, cap, "HOLE %d   %d FOR PAR",
+                                      r->golf_hole + 1, spare);
+        else if (spare == 1) snprintf(buf, cap, "HOLE %d   THIS FOR PAR",
+                                      r->golf_hole + 1);
+        else if (spare == 0) snprintf(buf, cap, "HOLE %d   THIS FOR BOGEY",
+                                      r->golf_hole + 1);
+        else if (spare == -1) snprintf(buf, cap, "HOLE %d   THIS FOR DOUBLE",
+                                      r->golf_hole + 1);
+        else                 snprintf(buf, cap, "HOLE %d   %d OVER",
+                                      r->golf_hole + 1, -spare);
     } else if (r->mode == CUE_GAME_BARBILLIARDS) {
         /* The break is the number that matters at a bar billiards table: it is
          * what you are about to lose. */

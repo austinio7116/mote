@@ -186,6 +186,22 @@ static int play_shot(const CuePersona *p) {
         cue_rules_bb_tick(&R, 20.0f);
         cue_rules_bb_setup(&R, &T, B, N);
     }
+    /* GOLF: the rules ask for the hole to be set out again, or for the cue
+     * ball back on its spot after Rule 2 — neither of which the rules can do
+     * for themselves. Same contract the app honours. */
+    if (T.kind == CUE_GAME_GOLF) {
+        if (R.golf_rack) {
+            cue_table_golf_set_hole(R.golf_hole);
+            N = cue_table_rack(&T, B);
+            R.golf_rack = 0;
+        } else if (R.golf_reset_cue) {
+            B[0].pos = cue_table_lay(&T, T.baulk_x, 0.0f, NULL);
+            B[0].pos.y = T.R;
+            B[0].on = 1; B[0].pocket = 0; B[0].drop = 0.0f;
+            B[0].vel = v3(0,0,0); B[0].w = v3(0,0,0);
+            R.golf_reset_cue = 0;
+        }
+    }
     if (R.ball_in_hand) {
         Vec3 pos = cue_ai_place(&W, &T, &R, B, N, p, &RNG);
         B[0].pos = pos; B[0].on = 1;

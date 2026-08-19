@@ -867,6 +867,25 @@ static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0,
  * The wall down each bore is emitted only where there is wood above it to hang
  * from: on the cloth side of a pocket there is no timber, and a full cylinder
  * would draw a rim standing in the mouth. */
+/* A point on a turned skittle: radius `r` at height `y`, `a` radians round it,
+ * with the pin leant by (ct, st) toward (fx, fz) about its own foot at (sx, sz).
+ *
+ * Upright (ct = 1, st = 0) this is the plain lathe: the axis is +Y and the
+ * radius lies in the bed. Leaning tips the axis toward the fall direction and
+ * carries the radius with it, so the pin stays a solid of revolution about a
+ * tilted line rather than shearing. */
+static Vec3 pin_at(float sx, float sz, float r, float y, float a,
+                   float fx, float fz, float ct, float st) {
+    /* the pin's own frame: axis U (tipped), and two radial directions */
+    const float ux = fx * st,  uy = ct,   uz = fz * st;      /* the axis */
+    const float px = fx * ct,  py = -st,  pz = fz * ct;      /* toward the fall */
+    const float qx = -fz,      qz = fx;                      /* across it */
+    const float ca = cosf(a), sa = sinf(a);
+    return v3(sx + ux * y + (px * ca + qx * sa) * r,
+                   uy * y + (py * ca            ) * r,
+              sz + uz * y + (pz * ca + qz * sa) * r);
+}
+
 static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
                            float rin, float rout, float ytop, float ybot,
                            uint16_t top, uint16_t wall,
@@ -1157,7 +1176,11 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                               * switches to timber when the woodwork starts */
     s_cloth = t->cloth;
     s_ballR = t->R;
-    s_is_snooker = t->is_snooker;
+    /* BILLIARDS GOLF'S OBJECT BALLS ARE REDS, and this flag is what says ids
+     * 1..15 are drawn as reds rather than as pool solids. It is NOT set on the
+     * table, because `is_snooker` also decides the D, the four spots and where
+     * a ball in hand may go — golf borrows the ball, not the game. */
+    s_is_snooker = t->is_snooker || t->kind == CUE_GAME_GOLF;
     s_cloth_shadow = shade565(t->cloth, 0.42f);   /* cloth bounce tint */
     s_bg_top = RGB565C(24, 26, 36);
     s_bg_bot = RGB565C(6, 7, 12);
@@ -1214,7 +1237,14 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * rather than on its edge, and it holds for any arrangement of them:
          * the only thing it asks is that each hole gets a cell wider than its
          * own bore, which is checked below. */
-        const float ex2 = t->half_len, ez2 = t->half_wid;
+        /* OUT TO THE TIMBER, not to the cushion nose.
+         *
+         * The grid this replaced ran to the SLATE EXTENT — under the cushions
+         * and on to the frame — and rebuilding it round the holes I took the
+         * nose instead, which stops the cloth dead at the cushion and leaves a
+         * band of daylight all the way round the table. Every other bed reaches
+         * the wood; so does this one. */
+        float ex2, ez2; slate_extent(t, w, &ex2, &ez2);
         /* WHERE THE CLOTH STOPS is exactly where the lip's cloth is cut: one
          * roll outside the capture radius, so the two meet with no seam and
          * changing the roll moves both together. */
@@ -1391,13 +1421,35 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         Vec3 fba = v3(0,0,0), fbb = v3(0,0,0);
         int haveFba = 0, haveFbb = 0;
         int sharedA = 0, sharedB = 0;
-        if (s > 0) {
-            const CueSeg *pr = &w->seg[s-1];
-            if (v3_len2(v3_sub(pr->b, sg->a)) < 1e-8f) { na = v3_norm(v3_add(sg->n, pr->n)); sharedA = 1; }
-        }
-        if (s < w->nseg - 1) {
-            const CueSeg *nx = &w->seg[s+1];
-            if (v3_len2(v3_sub(sg->b, nx->a)) < 1e-8f) { nb = v3_norm(v3_add(sg->n, nx->n)); sharedB = 1; }
+        /* A MITRED CORNER: two straight noses meeting with no pocket between
+         * them. Only bar billiards has one today — every other table puts a
+         * pocket in every corner — and the perpendicular-back rule below left
+         * an uncovered cw-by-cw square of void behind each meeting, which is
+         * the black square in the corner. A mitred back instead runs along
+         * the AVERAGED normal, scaled out so it lands on the wood's inner
+         * corner. The neighbour test wraps around the chain, because a closed
+         * loop's first and last segments share a corner too. */
+        int mitreA = 0, mitreB = 0;
+        float mscaleA = 1.0f, mscaleB = 1.0f;
+        if (w->nseg > 1) {
+            const CueSeg *pr = &w->seg[(s + w->nseg - 1) % w->nseg];
+            if (v3_len2(v3_sub(pr->b, sg->a)) < 1e-8f) {
+                na = v3_norm(v3_add(sg->n, pr->n)); sharedA = 1;
+                if (sg->kind == 0 && pr->kind == 0) {
+                    mitreA = 1;
+                    float c = na.x*sg->n.x + na.z*sg->n.z;
+                    mscaleA = 1.0f / (c > 0.35f ? c : 0.35f);
+                }
+            }
+            const CueSeg *nx = &w->seg[(s + 1) % w->nseg];
+            if (v3_len2(v3_sub(sg->b, nx->a)) < 1e-8f) {
+                nb = v3_norm(v3_add(sg->n, nx->n)); sharedB = 1;
+                if (sg->kind == 0 && nx->kind == 0) {
+                    mitreB = 1;
+                    float c = nb.x*sg->n.x + nb.z*sg->n.z;
+                    mscaleB = 1.0f / (c > 0.35f ? c : 0.35f);
+                }
+            }
         }
         /* Pocket facing: extend the free-tip NOSE along its own (mitre/tangent)
          * direction — CONTINUING THE SAME ANGLE — to STOP exactly at the frame
@@ -1491,12 +1543,36 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         /* straight rail nose (kind 0): clean perpendicular back at depth cw (a
          * straight edge at ±(hw|hl)+cw) so the wood inner edge can touch it
          * exactly. Facings keep the averaged normal for top continuity. */
-        Vec3 bka = (sg->kind == 0) ? sg->n : na;
-        Vec3 bkb = (sg->kind == 0) ? sg->n : nb;
+        /* WHERE A NOSE MEETS A FACING, THE NOSE'S LINE WINS.
+         *
+         * A straight rail keeps a perpendicular back at depth cw — a straight
+         * edge the wood's inner face butts against — and that is deliberate
+         * (see above). A facing takes the AVERAGED normal so its top runs
+         * continuously into its neighbour. At the joint between the two, those
+         * are different lines, and the two ends of one joint landed in
+         * different places: measured across every table, 1.7 mm on the 7 ft,
+         * 1.9 mm on the snooker and THIRTY MILLIMETRES on the US 9 ft, whose
+         * facings leave the nose at the steepest angle. That is the sliver of
+         * daylight at the back of every pocket mouth.
+         *
+         * The nose cannot move without lifting the cushion off the timber, so
+         * the facing adopts the nose's back at the end they share. Both ends
+         * land on one point, the strip closes, and the straight edge the wood
+         * needs is untouched. */
+        Vec3 bka = (sg->kind == 0 && !mitreA) ? sg->n : na;
+        Vec3 bkb = (sg->kind == 0 && !mitreB) ? sg->n : nb;
+        if (w->nseg > 1) {
+            const CueSeg *pr = &w->seg[(s + w->nseg - 1) % w->nseg];
+            const CueSeg *nx = &w->seg[(s + 1) % w->nseg];
+            if (sharedA && sg->kind == 1 && pr->kind == 0) bka = pr->n;
+            if (sharedB && sg->kind == 1 && nx->kind == 0) bkb = nx->n;
+        }
         Vec3 ar = haveFba ? v3(fba.x, rail_h, fba.z)
-                          : v3(pa.x - bka.x*cwa, rail_h, pa.z - bka.z*cwa);
+                          : v3(pa.x - bka.x*cwa*mscaleA, rail_h,
+                               pa.z - bka.z*cwa*mscaleA);
         Vec3 br = haveFbb ? v3(fbb.x, rail_h, fbb.z)
-                          : v3(pb.x - bkb.x*cwb, rail_h, pb.z - bkb.z*cwb);
+                          : v3(pb.x - bkb.x*cwb*mscaleB, rail_h,
+                               pb.z - bkb.z*cwb*mscaleB);
         ribbon(ba, bb, bn, an, fdark);      /* undercut face (leans to nose) */
         quad(an, bn, bf, af, face);            /* small flat (planar) */
         ribbon(af, bf, br, ar, ctop);       /* cloth top → rail */
@@ -1623,23 +1699,91 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                      v3(B2.x, flat_h, B2.z),    v3(N.x, flat_h, N.z), face);
             } }
 
-        /* Rule 74: cylindrical to at least 51 mm, 15 to 18 mm across, 114 mm
-         * tall. Two white and one black, and the black is the fatal one. */
+        /* THE SKITTLES, AS MUSHROOMS THAT FALL OVER.
+         *
+         * Rule 74 gives the shape and the constraint together: cylindrical to
+         * at least 51 mm above the base, 15 to 18 mm across, 114 mm tall. A
+         * ball is 47.6 mm across, so its highest point is below 51 mm and it
+         * ALWAYS strikes the plain stem — which is why one radius is the whole
+         * collider, and why the flare above can be whatever a skittle looks
+         * like without changing how the game plays.
+         *
+         * Turned as a profile rather than built as a cylinder: a lathe of
+         * (height, radius) pairs, swept round. The bulb is what makes it read
+         * as a skittle across a room instead of as a peg.
+         *
+         * AND IT LIES DOWN WHEN IT GOES. The physics topples it about its foot
+         * — theta from upright, in a direction the ball chose — so the whole
+         * profile is rotated by that angle about the base point rather than
+         * being swapped for a lying model. At rest upright the rotation is the
+         * identity and this draws exactly what it always drew. */
         for (int k = 0; k < w->nskittle; k++) {
             const float sx = w->skittle[k].x, sz = w->skittle[k].z;
-            const float sr = w->skittle_r, sh = 0.114f;
+            const float sr = w->skittle_r;
             const uint16_t body = w->skittle_black[k] ? RGB565C(24, 22, 26)
                                                       : RGB565C(238, 234, 222);
             const uint16_t top  = shade565(body, 1.25f);
+
+            /* height above the base, radius as a multiple of the stem.
+             *
+             * A bar billiards skittle is a MUSHROOM: a wide shallow cap that
+             * overhangs, on a slim turned stem with a flared foot. What was
+             * here was a spear — a gentle swell tapering to a point, which read
+             * as asparagus rather than as a skittle. The cap is the thing you
+             * recognise it by, and it has to be much wider than the stem and
+             * domed rather than pointed.
+             *
+             * Rule 74 still governs the only part that matters to the game:
+             * cylindrical, 15 to 18 mm across, up to at least 51 mm. Everything
+             * above that is above every ball, so the cap can be as wide as a
+             * skittle's cap really is without changing a single shot. */
+            static const float PROF[][2] = {
+                { 0.000f, 1.62f },   /* the flared foot it stands on */
+                { 0.005f, 1.34f },
+                { 0.011f, 1.00f },
+                { 0.018f, 1.14f },   /* a turned ring, as the real ones have */
+                { 0.026f, 1.00f },
+                { 0.051f, 1.00f },   /* the rule's cylinder — all a ball reaches */
+                { 0.082f, 1.00f },   /* the stem stays SLIM right to the cap:
+                                      * thickening it early is what read as a
+                                      * spear of asparagus */
+                { 0.090f, 1.20f },
+                { 0.094f, 2.90f },   /* the underside of the brim, flaring hard */
+                { 0.097f, 3.40f },   /* the rim — over three stems wide */
+                { 0.104f, 3.26f },   /* a LOW dome: barely rising... */
+                { 0.110f, 2.60f },
+                { 0.1132f, 1.55f },  /* ...and rounding off to a broad top */
+                { 0.114f, 0.00f },
+            };
+            const int NP = (int)(sizeof PROF / sizeof PROF[0]);
+
+            /* the topple: about the foot, in the direction the ball drove it */
+            const float th = w->skittle_lean[k];
+            const float ct = cosf(th), st = sinf(th);
+            float fx = w->skittle_fx[k], fz = w->skittle_fz[k];
+            {   float fl = sqrtf(fx*fx + fz*fz);
+                if (fl < 1e-4f) { fx = 1.0f; fz = 0.0f; } else { fx /= fl; fz /= fl; } }
+            /* A point (r, y) on the profile, at angle a round the pin, once the
+             * pin has leant th toward (fx, fz): the axis tips into the fall
+             * direction and the radius spreads about it. */
+            #define PIN(rr, yy, aa) pin_at(sx, sz, (rr)*sr, (yy), (aa), fx, fz, ct, st)
+
             for (int i = 0; i < NSEG; i++) {
-                float a0 = 6.2831853f * (float)i / NSEG;
-                float a1 = 6.2831853f * (float)(i + 1) / NSEG;
-                Vec3 b0 = v3(sx + sr * cosf(a0), 0.0f, sz + sr * sinf(a0));
-                Vec3 b1 = v3(sx + sr * cosf(a1), 0.0f, sz + sr * sinf(a1));
-                Vec3 t0 = v3(b0.x, sh, b0.z), t1 = v3(b1.x, sh, b1.z);
-                quad(b0, b1, t1, t0, body);
-                tri(t0, t1, v3(sx, sh, sz), top);
+                const float a0 = 6.2831853f * (float)i / NSEG;
+                const float a1 = 6.2831853f * (float)(i + 1) / NSEG;
+                for (int p = 0; p + 1 < NP; p++) {
+                    const float r0 = PROF[p][1],   y0 = PROF[p][0];
+                    const float r1 = PROF[p+1][1], y1 = PROF[p+1][0];
+                    const uint16_t col = shade565(body, 0.86f + 0.28f * (y0 / 0.114f));
+                    if (r1 <= 0.0001f) {                    /* the tip: a cone */
+                        tri(PIN(r0, y0, a0), PIN(r0, y0, a1), PIN(0.0f, y1, a0), top);
+                    } else {
+                        quad(PIN(r0, y0, a0), PIN(r0, y0, a1),
+                             PIN(r1, y1, a1), PIN(r1, y1, a0), col);
+                    }
+                }
             }
+            #undef PIN
         }
         s_mat = keep_mat;
     }

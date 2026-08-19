@@ -47,6 +47,13 @@ typedef enum {
      * your whole score, play from one end only, and a clock that ends the
      * game rather than a rack that runs out. */
     CUE_GAME_BARBILLIARDS,
+    /* G7: BILLIARDS GOLF. Eighteen holes on a pool table, from the Billiard &
+     * Golf scoreboard: each hole is a fixed arrangement of reds and a par, you
+     * count the strokes it takes to clear them, and the lowest total over the
+     * round wins. The only game here that is not a frame at all — there is no
+     * opponent to take the table from you, and no scoring shot: the SHOTS are
+     * the score, and fewer is better. */
+    CUE_GAME_GOLF,
     CUE_GAME_COUNT
 } CueGameKind;
 /* Both pyramid beds, wherever the game rather than the size is what matters. */
@@ -96,6 +103,41 @@ enum {
 #define CUE_ID_BIL_RED    1
 #define CUE_ID_BIL_WHITE  CUE_ID_CUE
 #define CUE_ID_BIL_YELLOW CUE_ID_YELLOW
+
+/* ---- BILLIARDS GOLF: the course ----------------------------------------
+ *
+ * Eighteen holes, each a par and an arrangement of reds. Read off the
+ * Billiard & Golf scoreboard, and cross-checked three ways: the nines total
+ * 38 and 35 exactly as the board prints them, and par is one more than the
+ * ball count on every hole without exception.
+ *
+ * A layout is given in the RACK TRIANGLE'S own frame — u across, 0 at the
+ * left corner and 1 at the right, v down, 0 at the apex ball and 1 at the
+ * base row — so it survives any table size or ball diameter. Most balls sit
+ * on one of the fifteen standard rack positions; the board also uses two
+ * arrangements that do not, and only on the holes named here:
+ *
+ *   a COLUMN straight down from the apex, balls touching (6, 8, 12, 13, 18).
+ *     Four is the most that fits: a fifth would sit past the base row.
+ *   a PAIR CENTRED on the back row, straddling the centre line and so
+ *     between two standard positions (hole 10).
+ */
+#define CUE_GOLF_HOLES 18
+#define CUE_GOLF_MAX_BALLS 4
+#define CUE_GOLF_MAX_STROKES 8      /* Rule 3: "limit 8" */
+typedef struct {
+    uint8_t par;
+    uint8_t n;
+    float   u[CUE_GOLF_MAX_BALLS];  /* across the triangle, 0..1 */
+    float   v[CUE_GOLF_MAX_BALLS];  /* apex to base row, 0..1   */
+} CueGolfHole;
+extern const CueGolfHole CUE_GOLF_COURSE[CUE_GOLF_HOLES];
+/* Par for the front nine, the back nine and the round. */
+int cue_golf_par(int from_hole, int to_hole);
+/* Which hole the next cue_table_rack() sets out. The rack takes no argument
+ * for it and every caller already goes through that one function. */
+void cue_table_golf_set_hole(int hole);
+int  cue_table_golf_hole(void);
 
 /* How far the woodwork carries on past the rail cap. CueVR's frame builder
  * (its own repository) makes the

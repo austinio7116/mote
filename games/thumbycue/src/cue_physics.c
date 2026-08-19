@@ -31,9 +31,21 @@
 
 void cue_world_defaults(CueWorld *w, float R, float mass) {
     memset(w, 0, sizeof(*w));
+    /* A skittle is 15 g of light wood on a 15 mm base and it TOPPLES rather
+     * than being driven along, so it takes far less off the ball than its mass
+     * would suggest: about a third of the approach speed, which is a clip and a
+     * change of line rather than a bounce. Below a crawl it rocks without going
+     * over — AEBBA rule 103, which scores and re-spots rather than fouling. */
+    w->skittle_take   = 0.35f;
+    w->skittle_topple = 0.12f;
     w->R = R;
     w->mass = mass;
     w->g = 9.806f;
+    /* Two thirds of a ball radius of drop before the far lip of a bed hole
+     * stops being a ramp and becomes a wall. Tuned so a bar billiards ball
+     * rolled at a hole goes down and one driven at it skips across, which is
+     * how the table plays. */
+    w->hole_catch = 0.66f;
     w->mu_s = 0.20f;          /* ball–cloth sliding (Marlow-ish) */
     w->mu_r = 0.010f;         /* rolling resistance */
     /* Vertical-spin decay: alpha = 5 mu_sp g / (2R). mu_sp ~ 0.022 gives a
@@ -75,10 +87,20 @@ void cue_phys_shot_begin(CueWorld *w) {
     w->jump_over = 0; w->jump_over_id = 0;
     w->jmp_pending = 0; w->jmp_idx = -1; w->jmp_hit_it = 0; w->jmp_bounced = 0;
     w->ntouch = 0; w->touch_over = 0;
+    w->side_cushion = 0;
     /* The skittles stand up again for each stroke: whether one went over is a
      * fact about THIS shot, and the host puts them back (Rule 103). */
     for (int k = 0; k < CUE_MAX_SKITTLE; k++) {
         w->skittle_down[k] = 0; w->skittle_order[k] = 0;
+        /* ...and one merely rocked off its spot has been put back too. */
+        w->skittle_nudged[k] = 0;
+        w->skittle_lean[k] = 0.0f; w->skittle_rate[k] = 0.0f;
+        /* ...and it goes back ON ITS SPOT (Rules 103, 114): a skittle that
+         * was knocked off it, with or without going over, is replaced before
+         * the next stroke, so the spot is what the world remembers and the
+         * position is only where this shot left it. */
+        w->skittle_vx[k] = w->skittle_vz[k] = 0.0f;
+        if (k < w->nskittle) w->skittle[k] = w->skittle_spot[k];
     }
     w->skittle_fell = 0;
 }
@@ -734,6 +756,12 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
         if (sn < -0.95f) sn = -0.95f;
         if (cushion_impact(w, b, best_n, sn)) {
             hit = 1;
+            /* Rule 108 asks whether the last-ball shot went off a SIDE
+             * cushion, and only the impact knows which cushion it was: a
+             * side's normal points across the table, an end's points along
+             * it. Recorded for the shot, read by the rules at the settle. */
+            if (ev && (best_n.z > 0.7f || best_n.z < -0.7f))
+                *ev |= CUE_EV_SIDE_CUSH;
             if (ev) *ev |= CUE_EV_CUSHION;
             if (vn > s_cush_vn) s_cush_vn = vn;                  /* loudest rail impact this step */
         }
@@ -806,6 +834,12 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
 CUE_HOT float cue_phys_cut_out(const CueWorld *w, int p, float x, float z) {
     Vec3  C = w->cut_c[p];
     float R = w->cut_r[p];
+    /* A hole in the open bed has no legs and no rail to run them out to: the
+     * missing cloth is the circle, and only the circle. */
+    if (w->pocket_bed[p]) {
+        float u = x - C.x, v = z - C.z;
+        return R - sqrtf(u*u + v*v);
+    }
     float sz = (C.z < 0.0f) ? -1.0f : 1.0f;
     float v  = sz * (z - C.z);
     if (p >= 4) {                                   /* a middle: half arc, two legs */
@@ -835,18 +869,186 @@ CUE_HOT float cue_phys_cut_out(const CueWorld *w, int p, float x, float z) {
 static CUE_HOT int check_skittles(CueWorld *w, CueBall *b) {
     if (!w->nskittle) return 0;
     const float R = cue_ball_r(w, b);
-    if (b->pos.y - R > 0.114f) return 0;         /* over the top of it */
+    /* Over the top of it. A skittle is 114 mm of light wood; a ball whose
+     * bottom is above that has cleared it. */
+    if (b->pos.y - R > 0.114f) return 0;
     int fell = 0;
     for (int k = 0; k < w->nskittle; k++) {
+        /* A FALLEN SKITTLE IS NOT AN OBSTACLE. It is lying on the cloth and the
+         * ball rolls over it; it is stood back up between shots, not during
+         * one. */
         if (w->skittle_down[k]) continue;
         float dx = b->pos.x - w->skittle[k].x, dz = b->pos.z - w->skittle[k].z;
-        float reach = R + w->skittle_r;
-        if (dx*dx + dz*dz > reach*reach) continue;
+        const float reach = R + w->skittle_r;
+        const float q = dx*dx + dz*dz;
+        if (q > reach * reach) continue;
+
+        /* THE BALL IS DEFLECTED, WHICH IS THE WHOLE GAME.
+         *
+         * This used to record that a skittle had gone over and do nothing else,
+         * on the argument that modelling a pin as something to rebound off
+         * would be a worse lie than ignoring the deflection. That was wrong,
+         * and wrong about the one thing bar billiards is: the ball passed
+         * straight through the pins, so the shot you had to play around them
+         * did not exist and neither did the game.
+         *
+         * A pin is fifteen grams of light wood on a fifteen-millimetre base and
+         * it TOPPLES rather than being driven along, so it takes far less off
+         * the ball than a free body of its mass would: the ball clips it, loses
+         * a little pace and a little line, and carries on. That is one impulse
+         * along the contact normal, scaled well below a rigid collision.
+         *
+         * The ball is NOT pushed out of the overlap. The pin is falling away
+         * from this instant on, so there is nothing left to be inside of, and
+         * shoving the ball clear would send it off on a line the pin no longer
+         * justifies. */
+        float d = sqrtf(q);
+        float nx, nz;
+        if (d > 1e-6f) { nx = dx / d; nz = dz / d; }
+        else           { nx = 1.0f;   nz = 0.0f;   }   /* dead centre: pick one */
+
+        const float vn = b->vel.x * nx + b->vel.z * nz;   /* < 0 closing */
+        const float speed = sqrtf(b->vel.x*b->vel.x + b->vel.z*b->vel.z);
+
+        /* RULE 103: OFF ITS SPOT BUT STILL STANDING. A ball that arrives at a
+         * crawl rocks a pin without felling it — the score counts, and it is
+         * put back before the next shot. Only a real contact puts one down. */
+        if (speed < w->skittle_topple) {
+            /* RULE 103 IS A MOVEMENT, NOT A FLAG. A ball that arrives at a
+             * crawl rocks the skittle off its spot without felling it: the
+             * score counts and it is replaced before the next stroke. It has
+             * to actually MOVE, or there is nothing to replace and nothing to
+             * see. It cannot slide far — the ball that shifted it had almost
+             * no pace to give. */
+            w->skittle_nudged[k] = 1;
+            w->skittle_vx[k] -= nx * speed * 0.5f;
+            w->skittle_vz[k] -= nz * speed * 0.5f;
+            continue;
+        }
+
+        if (vn < 0.0f) {
+            /* The ball keeps (1 - take) of its approach speed along the normal,
+             * so it turns away from the pin and slows a little, rather than
+             * bouncing off it. take = 1 would graze along the surface; above 1
+             * would rebound, which fifteen grams of falling wood cannot do. */
+            b->vel.x -= w->skittle_take * vn * nx;
+            b->vel.z -= w->skittle_take * vn * nz;
+        }
         w->skittle_down[k] = 1;
         w->skittle_order[k] = (uint8_t)(++w->skittle_fell);
+        /* IT FALLS BACK OVER THE BALL, and the foot is what goes away.
+         *
+         * This had it toppling away from the contact like a domino, and that
+         * is wrong for every strike a ball is capable of. Rule 74 keeps the
+         * whole cylinder below 51 mm and a ball's centre is at 24 mm, so the
+         * contact is ALWAYS about 53 mm below the centre of gravity that the
+         * mushroom head puts at 76.5 mm. Give a free body a horizontal impulse
+         * that far below its COG and, per unit impulse:
+         *
+         *      the foot  +423   forward, away from the ball
+         *      the COG    +83   forward
+         *      the head   -83   BACK, over the ball
+         *
+         * The base is knocked out from under it and the heavy head comes back
+         * over the top of the ball — which is what a struck skittle does, and
+         * what it could never do while the fall direction was -n.
+         *
+         * A little starting rate rather than a nudge to the angle, so it
+         * leaves upright smoothly instead of appearing already tilted. */
+        w->skittle_fx[k] = nx; w->skittle_fz[k] = nz;
+        w->skittle_lean[k] = 0.0f;
+        w->skittle_rate[k] = 2.0f + (vn < 0.0f ? -vn : 0.0f) * 1.5f;
+        /* ...and the foot goes the OTHER way, out from under it — the +423
+         * against the head's -83. That is the same impulse seen at the two
+         * ends of the same pin, not two separate effects. */
+        {   const float clos = (vn < 0.0f) ? -vn : 0.0f;
+            w->skittle_vx[k] -= nx * clos * 0.45f;
+            w->skittle_vz[k] -= nz * clos * 0.45f; }
         fell = 1;
     }
     return fell;
+}
+
+/* ---- A HOLE CUT IN THE OPEN BED ------------------------------------------
+ *
+ * Bar billiards, and nothing else here. A hole barely wider than the ball,
+ * with cloth all the way round it, is not a pocket: there is no mouth, no
+ * jaws, no throat, and no rail behind it to stop anything. What decides
+ * whether the ball goes down is FREE FALL.
+ *
+ * The ball rolls on the cloth until its centre crosses the near lip; from
+ * there to the far lip it is over nothing and falls under gravity. It is
+ * unsupported for the chord its centre cuts across the hole, which takes
+ *
+ *      t = chord / v      and it falls    y = g t^2 / 2
+ *
+ * At the far lip the lip meets the ball at bed level. If the ball's centre is
+ * still above the bed, the lip is BELOW the ball's equator: it pushes up and
+ * onward and the ball rims out, which is what a ball driven at a hole does.
+ * If the ball has fallen far enough, the lip is above the equator and pushes
+ * it down — it is caught.
+ *
+ * The whole character of the game falls out of that one line: you can pot the
+ * 200 from anywhere on the table, but only at a pace that gives it time to
+ * drop, and thumping it just skips it across the hole.
+ *
+ * Returns 1 = down, 0 = it survived (and has been kicked off the far lip). */
+static CUE_HOT int bed_hole(const CueWorld *w, CueBall *b, int p) {
+    const float R = cue_ball_r(w, b);
+    const float a = w->pocket_r[p];
+    const float cx = w->drop_c[p].x, cz = w->drop_c[p].z;
+    float vx = b->vel.x, vz = b->vel.z;
+    float v = sqrtf(vx*vx + vz*vz);
+    if (v < 1e-4f) return 1;                 /* stopped over it: it drops in */
+
+    /* The chord the CENTRE cuts: how far it is unsupported. The perpendicular
+     * distance from the hole's centre to the path decides it. */
+    const float ux = vx / v, uz = vz / v;
+    const float dx = cx - b->pos.x, dz = cz - b->pos.z;
+    float perp = dx * uz - dz * ux;          /* signed miss distance */
+    float pa = perp < 0.0f ? -perp : perp;
+    if (pa >= a) return 0;                   /* the centre clips the lip, no more */
+    const float half = sqrtf(a*a - pa*pa);
+
+    /* THE WHOLE CHORD, not the part that is left.
+     *
+     * The question is how far the ball has fallen by the time it reaches the
+     * FAR lip, and it has been unsupported since its centre crossed the near
+     * one — so the answer is about the full chord and nothing else. Taking
+     * the remaining distance from wherever the step happened to land the ball
+     * made it depend on the substep: the live game samples at 2 kHz and the
+     * AI ranks shots at 600 Hz, so the AI would have judged the same shot
+     * harder than it is and stopped playing pots that go in. */
+    const float span = 2.0f * half;
+
+    const float t = span / v;
+    const float fall = 0.5f * w->g * t * t;
+    const float need = w->hole_catch * R;
+    if (fall >= need) return 1;              /* below the lip: caught */
+
+    /* RIMMED OUT. The far lip is under the ball's equator, so it takes the
+     * ball up and away from the hole — hard and clean when it crossed fast
+     * and barely dropped, a rattling half-turn when it nearly went down. */
+    const float f = (need > 1e-6f) ? (fall / need) : 0.0f;   /* 0 fast .. 1 close */
+    /* Where it leaves: the far end of the chord, measured from the hole. */
+    const float along = dx * ux + dz * uz;   /* + means the hole is ahead */
+    float ex = b->pos.x + ux * (along + half) - cx;
+    float ez = b->pos.z + uz * (along + half) - cz;
+    float el = sqrtf(ex*ex + ez*ez);
+    if (el > 1e-6f) { ex /= el; ez /= el; } else { ex = ux; ez = uz; }
+    const float vn = vx * ex + vz * ez;
+    if (vn < 0.0f) {                          /* still heading into the lip */
+        const float e = 0.15f + 0.55f * f;    /* the slower it crossed, the more
+                                               * of its pace the lip takes back */
+        b->vel.x -= (1.0f + e) * vn * ex;
+        b->vel.z -= (1.0f + e) * vn * ez;
+    }
+    /* ...and it comes off the lip climbing, which is the little hop you see. */
+    b->vel.x *= (1.0f - 0.20f * f);
+    b->vel.z *= (1.0f - 0.20f * f);
+    b->vel.y += 0.35f * (0.3f + 0.7f * f) * v;
+    if (b->pos.y < R) b->pos.y = R;
+    return 0;
 }
 
 static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
@@ -855,7 +1057,14 @@ static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
         Vec3 d = v3_sub(b->pos, w->drop_c[p]); d.y = 0.0f;
         float q = d.x*d.x + d.z*d.z;
         float reach = w->cut_r[p] + cue_ball_r(w, b) * 3.0f;
-        if (q > reach * reach) continue;
+        if (q > reach * reach) {
+            /* Well clear of it: whatever this hole decided about the ball is
+             * spent, and it may be judged afresh if it comes back. Clearing
+             * this only on the near miss below left a ball that had rimmed
+             * out and rolled away permanently immune to the hole it escaped. */
+            if (b->over_hole == (uint8_t)(p + 1)) b->over_hole = 0;
+            continue;
+        }
 
         /* THE DROP IS THE POCKET CIRCLE. The ball's centre inside it and the
          * ball is down — which is a circle about the pocket, so the cut drawn
@@ -896,7 +1105,17 @@ static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
          * the drop have been tuned onto each other it is a fraction of a
          * millimetre of daylight rather than a rule of its own. */
         if (!in && cue_phys_cut_out(w, p, b->pos.x, b->pos.z) > 0.0f) in = 1;
-        if (!in) continue;
+        if (!in) { if (b->over_hole == (uint8_t)(p + 1)) b->over_hole = 0; continue; }
+
+        /* A HOLE IN THE BED IS JUDGED ONCE, ON THE WAY IN. The free-fall sum
+         * is about the whole crossing, so asking it again every step while
+         * the ball is still inside the circle would swallow a ball that has
+         * already been thrown out. */
+        if (w->pocket_bed[p]) {
+            if (b->over_hole == (uint8_t)(p + 1)) return 0;   /* already judged */
+            b->over_hole = (uint8_t)(p + 1);
+            if (!bed_hole(w, b, p)) return 0;
+        }
 
         if (b->drop <= 0.0f) {
             b->pocket = (uint8_t)p;
@@ -1064,6 +1283,50 @@ static void jump_land(CueWorld *w, CueBall *balls, int n) {
 }
 
 static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_t *ev) {
+    /* 0. THE SKITTLES GO OVER. A rod pivoting about its foot: theta'' =
+     * (3g/2L) sin theta, stopping flat on the cloth. Real motion, one degree of
+     * freedom, on the same substep clock as everything else. */
+    for (int k = 0; k < w->nskittle; k++) {
+        if (!w->skittle_down[k]) continue;
+        const float HALF_PI = 1.5707963f;
+        if (w->skittle_lean[k] >= HALF_PI) continue;
+        /* A TOP-HEAVY BODY, NOT A UNIFORM ROD.
+         *
+         * A skittle is a heavy mushroom head on a light stem: 12 g with its
+         * centre of gravity 76.5 mm up. Toppling about the foot it is a
+         * physical pendulum, theta'' = (m g d / I) sin theta with d the height
+         * of the COG and I the moment about the FOOT — which for this mass
+         * distribution is 109.6, not the 129.0 that a uniform rod of the same
+         * length gives. The head makes it fall SLOWER than a domino, and that
+         * is what it looks like: a slow, heavy topple rather than a snap. */
+        w->skittle_rate[k] += CUE_SKITTLE_FALL * sinf(w->skittle_lean[k]) * h;
+        w->skittle_lean[k] += w->skittle_rate[k] * h;
+        if (w->skittle_lean[k] > HALF_PI) {
+            w->skittle_lean[k] = HALF_PI;             /* it is on the cloth */
+            w->skittle_rate[k] = 0.0f;
+        }
+        /* AND THE FOOT TRAVELS. A ball does not hinge a skittle about a pin in
+         * the cloth, it knocks it off its spot; the foot slides away from the
+         * contact and cloth friction pulls it up over the same fifth of a
+         * second the pin takes to go over. Without this a skittle struck at
+         * pace pivoted on the spot, which reads as a hinge rather than as
+         * something knocked flying. */
+        {   float vx = w->skittle_vx[k], vz = w->skittle_vz[k];
+            float sp = sqrtf(vx*vx + vz*vz);
+            if (sp > 1e-5f) {
+                w->skittle[k].x += vx * h;
+                w->skittle[k].z += vz * h;
+                /* Wood on cloth: it stops fast, but not instantly — a hard
+                 * contact should send it a few inches, not shuffle it a
+                 * millimetre. */
+                float drag = 2.2f * w->g * h;
+                float ns = sp - drag; if (ns < 0.0f) ns = 0.0f;
+                w->skittle_vx[k] = vx / sp * ns;
+                w->skittle_vz[k] = vz / sp * ns;
+            } else { w->skittle_vx[k] = w->skittle_vz[k] = 0.0f; }
+        }
+    }
+
     /* 1. cloth friction + integrate. Balls mid-drop instead fall into the
      * pocket (pulled to the centre + accelerating downward) and are removed
      * when they sink below the recess. */
@@ -1378,12 +1641,16 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
         if (!b->on || b->drop > 0.0f) continue;
         float v2 = b->vel.x*b->vel.x + b->vel.z*b->vel.z;
         if (v2 < V_STOP*V_STOP) continue;
-        if (collide_cushions(w, b, ev)) {
+        uint32_t cev = 0;
+        if (collide_cushions(w, b, ev ? ev : &cev)) {
             /* The cue ball's own account. Recorded whether or not it has hit a
              * ball yet: a carom counts every cushion from the start of the
              * shot, not only the ones after first contact. */
             if (i == 0) touch_add(w, CUE_TOUCH_CUSHION, 0, 0);
             if (i == 0 && w->first_hit >= 0) w->jmp_bounced = 1;      /* (c) */
+            /* Book the side-cushion fact on the shot (Rule 108's witness):
+             * the collision path is const, so it arrives as an event bit. */
+            if ((ev ? *ev : cev) & CUE_EV_SIDE_CUSH) w->side_cushion = 1;
         }
         if (check_pockets(w, b) && ev) *ev |= CUE_EV_POCKET;
         if (check_skittles(w, b) && ev) *ev |= CUE_EV_SKITTLE;

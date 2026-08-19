@@ -438,6 +438,318 @@ int main(void) {
         ok(r.bb_barred && r.bb_time == 0.0f, "and when it runs out the bar drops", d);
     }
 
+    /* ---- THE SKITTLES ARE ACTUALLY THERE ------------------------------- *
+     *
+     * They were not. check_skittles recorded that one had gone over and did
+     * nothing else — the ball passed straight through — on the argument that a
+     * pin modelled as something to rebound off would be a worse lie than
+     * ignoring the deflection. It is the opposite: playing around the pins IS
+     * bar billiards, and a ball that goes through them is not playing the game.
+     *
+     * AEBBA rule 74 gives the shape: cylindrical to at least 51 mm above the
+     * base, 15-18 mm across, 114 mm tall. A ball is 47.6 mm across, so its
+     * highest point is below the flare and it always meets the STEM — which is
+     * why one radius is the whole collider and the mushroom is what you see. */
+    {   CueTable t; cue_table_init(&t, CUE_GAME_BARBILLIARDS);
+        static CueWorld ww;
+        int hit = 0, missed = 0; float worst_dev = 0.0f;
+        for (int i = -2; i <= 2; i++) {
+            cue_table_build_world(&t, &ww);
+            CueBall b; memset(&b, 0, sizeof b);
+            b.on = 1; b.id = 1; b.r = t.R; b.orient = m3_identity();
+            const Vec3 sk = ww.skittle[2];              /* the black */
+            const float off = (float)i * 0.012f;
+            b.pos = v3(sk.x - 0.09f, t.R, sk.z + off);
+            cue_phys_shot_begin(&ww);
+            cue_phys_strike(&ww, &b, v3(1,0,0), 2.0f, 0.0f, 0.0f);
+            uint32_t ev; float secs = 0.0f;
+            while (secs < 6.0f) {
+                cue_phys_step(&ww, &b, 1, 1.0f/240.0f, &ev);
+                secs += 1.0f/240.0f;
+                if (!cue_phys_moving(&ww, &b, 1)) break;
+            }
+            if (ww.skittle_down[2]) hit++; else missed++;
+            /* and it must have been turned: a clip off centre changes the line */
+            if (i != 0) {
+                float dev = fabsf(b.pos.z - (sk.z + off));
+                if (dev > worst_dev) worst_dev = dev;
+            }
+        }
+        ok(hit == 5, "a ball played at a skittle knocks it over", "5 of 5 aims");
+        ok(missed == 0, "...every time, not sometimes", "");
+        ok(worst_dev > 0.005f,
+           "...and the ball is turned by it, which is the whole game",
+           "an off-centre clip moves the ball off its line");
+    }
+
+    /* Rule 103: OFF ITS SPOT BUT STILL STANDING. A ball arriving at a crawl
+     * rocks a pin without felling it, and that is not a foul — the score counts
+     * and the skittle is put back before the next shot. */
+    {   CueTable t; cue_table_init(&t, CUE_GAME_BARBILLIARDS);
+        static CueWorld ww; cue_table_build_world(&t, &ww);
+        CueBall b; memset(&b, 0, sizeof b);
+        b.on = 1; b.id = 1; b.r = t.R; b.orient = m3_identity();
+        const Vec3 sk = ww.skittle[2];
+        b.pos = v3(sk.x - (t.R + ww.skittle_r) - 0.004f, t.R, sk.z);
+        cue_phys_shot_begin(&ww);
+        cue_phys_strike(&ww, &b, v3(1,0,0), 0.06f, 0.0f, 0.0f);
+        uint32_t ev; float secs = 0.0f;
+        while (secs < 6.0f) {
+            cue_phys_step(&ww, &b, 1, 1.0f/240.0f, &ev);
+            secs += 1.0f/240.0f;
+            if (!cue_phys_moving(&ww, &b, 1)) break;
+        }
+        ok(!ww.skittle_down[2], "a ball that barely reaches one leaves it standing",
+           "rule 103");
+        ok(ww.skittle_nudged[2], "...but records that it was moved off its spot",
+           "so it can be put back before the next shot");
+    }
+
+    /* ---- the trough feeds the D (Rules 91, 92, 94, 96) ----
+     * Pot BOTH balls from the break and the table is empty — the reported
+     * stuck game. Setup must hand the striker a ball and rebuild the break
+     * position, every time, without being asked twice. */
+    {   CueRules r; cue_rules_init(&r, &T, 0);
+        for (int i = 0; i < 8; i++) B[i].on = 0;
+        int placed = cue_rules_bb_setup(&r, &T, B, 8);
+        int red_on = -1;
+        for (int i = 0; i < 8; i++)
+            if (B[i].on && B[i].id == CUE_ID_BIL_RED) red_on = i;
+        ok(placed && B[0].on, "an empty table hands the striker a ball", NULL);
+        ok(red_on >= 0, "...and the red goes back on its spot (Rule 94)", NULL);
+        ok(r.bb_from_break && !r.ball_in_hand,
+           "the break plays from the SPOT, not from hand (Rule 92)", NULL);
+        char d[64];
+        snprintf(d, sizeof d, "white at %.3f,%.3f", (double)B[0].pos.x, (double)B[0].pos.z);
+        ok(fabsf(B[0].pos.x - T.baulk_x) < 1e-4f && fabsf(B[0].pos.z) < 1e-4f,
+           "...on the break spot", d);
+    }
+
+    /* ---- the struck ball comes off the cloth, not off the D (Rule 96) ---- */
+    {   CueRules r; cue_rules_init(&r, &T, 0);
+        for (int i = 0; i < 8; i++) B[i].on = 0;
+        B[0].on = 1; B[0].id = CUE_ID_CUE;
+        B[0].pos = v3(0.30f, T.R, 0.10f);          /* left up the table */
+        B[1].on = 1; B[1].id = CUE_ID_BIL_RED;
+        B[1].pos = v3(T.blue_x, T.R, 0.0f);        /* an object ball exists */
+        cue_rules_bb_setup(&r, &T, B, 8);
+        int on_cloth = 0;
+        for (int i = 1; i < 8; i++)
+            if (B[i].on && fabsf(B[i].pos.x - 0.30f) < 1e-4f) on_cloth = 1;
+        ok(B[0].on && fabsf(B[0].pos.x - T.baulk_x) < 1e-4f,
+           "a ball left on the cloth stays; the striker takes another", NULL);
+        ok(on_cloth, "...and the stranded one is still where it stopped", NULL);
+        ok(r.ball_in_hand, "a normal shot places anywhere in the D (Rule 96)", NULL);
+    }
+
+    /* ---- Rule 105: rack empty, take the ball furthest from the top ---- */
+    {   CueRules r; cue_rules_init(&r, &T, 0);
+        r.bb_barred = 1; r.bb_left = 3;
+        for (int i = 0; i < 8; i++) B[i].on = 0;
+        B[0].on = 1; B[0].id = CUE_ID_CUE;     B[0].pos = v3(0.40f, T.R, 0.00f);
+        B[1].on = 1; B[1].id = CUE_ID_BIL_RED; B[1].pos = v3(0.10f, T.R, 0.20f);
+        B[2].on = 1; B[2].id = CUE_ID_CUE;     B[2].pos = v3(0.10f, T.R, 0.05f);
+        cue_rules_bb_setup(&r, &T, B, 8);
+        char d[64];
+        snprintf(d, sizeof d, "took the one that stood at 0.10,0.05");
+        ok(B[0].on && fabsf(B[0].pos.x - T.baulk_x) < 1e-4f,
+           "rack empty: a table ball is lifted to the D", NULL);
+        int stranded = 0;
+        for (int i = 1; i < 8; i++)
+            if (B[i].on && fabsf(B[i].pos.z - 0.05f) < 1e-4f) stranded = 1;
+        ok(!stranded, "...the furthest from the top, nearest the centre line", d);
+    }
+
+    /* ---- Rules 110(c),(d): the offending ball goes back to the rack ---- */
+    {   CueRules r; cue_rules_init(&r, &T, 0);
+        for (int i = 0; i < 8; i++) B[i].on = 0;
+        B[1].on = 1; B[1].id = CUE_ID_CUE;
+        B[1].pos = v3(T.baulk_x + 0.01f, T.R, 0.0f);   /* sat on the D */
+        B[2].on = 1; B[2].id = CUE_ID_CUE;
+        B[2].pos = v3(0.30f, T.R, 0.0f);               /* fine where it is */
+        int m = cue_rules_bb_baulk_return(&r, &T, B, 8);
+        ok(m == 1 && !B[1].on && B[2].on,
+           "a ball on the D is returned to the rack, and only that one", NULL);
+    }
+
+    /* ---- Rule 108: the last-ball shot ---- */
+    {   CueRules r; cue_rules_init(&r, &T, 0);
+        r.bb_barred = 1; r.bb_left = 1; r.bb_last_ball = 1;
+        r.score[0] = 500; r.score[1] = 400; r.turn = 0;
+        for (int i = 0; i < 8; i++) B[i].on = 0;
+        int hole100 = -1, hole30 = -1;
+        for (int p = 0; p < W.npocket; p++) {
+            if (W.pocket_score[p] == 100) hole100 = p;
+            if (W.pocket_score[p] == 30 && hole30 < 0) hole30 = p;
+        }
+        /* a miss passes the shot across, and nothing else */
+        Shot miss = {0}; miss.first_hit = -1;
+        W.side_cushion = 1;
+        play(&r, &miss);
+        ok(!r.frame_over && r.turn == 1 && r.score[0] == 500,
+           "a missed last ball passes to the other player, no penalty", r.msg);
+        /* into the 100 without a side cushion: game over, no score */
+        r.turn = 0; r.bb_last_ball = 1;
+        Shot dry = {0}; dry.n = 1; dry.pot[0] = CUE_ID_CUE; dry.hole[0] = hole100;
+        dry.first_hit = -1;
+        W.side_cushion = 0;
+        play(&r, &dry);
+        ok(r.frame_over && r.score[0] == 500,
+           "potted without the side cushion: game over, score does not count", r.msg);
+        /* into the 100 off a side cushion: it counts, and the game ends */
+        cue_rules_init(&r, &T, 0);
+        r.bb_barred = 1; r.bb_left = 1; r.bb_last_ball = 1;
+        r.score[0] = 500; r.score[1] = 400; r.turn = 0;
+        W.side_cushion = 1;
+        Shot good = {0}; good.n = 1; good.pot[0] = CUE_ID_CUE; good.hole[0] = hole100;
+        good.first_hit = -1;
+        play(&r, &good);
+        ok(r.frame_over && r.score[0] == 600 && r.winner == 0,
+           "off a side cushion into the 100: it counts and the game ends", r.msg);
+        /* the black on the last ball still costs everything, and ends it */
+        cue_rules_init(&r, &T, 0);
+        r.bb_barred = 1; r.bb_left = 1; r.bb_last_ball = 1;
+        r.score[0] = 500; r.score[1] = 400; r.turn = 0;
+        W.side_cushion = 1;
+        Shot blk = {0}; blk.black_down = 1; blk.first_hit = -1;
+        play(&r, &blk);
+        ok(r.frame_over && r.score[0] == 0 && r.winner == 1,
+           "the black on the last ball: score lost, game over", r.msg);
+        (void)hole30;
+    }
+
+    /* ---- the holes are HOLES, not pockets cut in an edge ----
+     * cue_phys_cut_out models a pocket as an arc with two legs running out to
+     * the rail. Run the bar billiards holes through that and the legs claimed
+     * half the table as "no cloth here", so balls were swallowed from nowhere
+     * near a hole. A hole in the open bed is a circle and nothing else. */
+    {   cue_table_build_world(&T, &W);
+        int wrong = 0; float worst = 0.0f;
+        for (float z = -0.36f; z <= 0.361f; z += 0.004f)
+            for (float x = -0.70f; x <= 0.701f; x += 0.004f) {
+                /* The cut is drawn a hair outside the capture circle so the
+                 * two meet exactly; what must never happen is a claim out on
+                 * the open cloth. */
+                int near = 0;
+                for (int p = 0; p < W.npocket; p++) {
+                    float dx = x - W.pocket[p].x, dz = z - W.pocket[p].z;
+                    float e = W.cut_r[p] + 0.001f;
+                    if (dx*dx + dz*dz <= e*e) near = 1;
+                }
+                if (near) continue;
+                for (int p = 0; p < W.npocket; p++) {
+                    float o = cue_phys_cut_out(&W, p, x, z);
+                    if (o > 0.0f) { wrong++; if (o > worst) worst = o; break; }
+                }
+            }
+        char d[80];
+        snprintf(d, sizeof d, "%d cloth samples claimed, worst %.3f m", wrong, worst);
+        ok(wrong == 0, "cloth is cloth everywhere except at the nine holes", d);
+    }
+
+    /* ---- a ball must be ROLLED in, not driven at it ----
+     * The ball is unsupported for the width of the hole and falls under
+     * gravity for exactly that long. Cross it fast enough and the far lip is
+     * still below the ball's equator, so it kicks it up and onward. */
+    {   int down_slow = 0, down_fast = 0; float v_slow = 0, v_fast = 0;
+        for (int fast = 0; fast < 2; fast++) {
+            cue_table_build_world(&T, &W);
+            cue_phys_shot_begin(&W);
+            CueBall b; memset(&b, 0, sizeof b);
+            b.on = 1; b.id = CUE_ID_CUE;
+            b.pos = v3(W.pocket[0].x - 0.30f, T.R, W.pocket[0].z);
+            b.orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
+            cue_phys_strike(&W, &b, v3(1,0,0), fast ? 2.4f : 0.9f, 0.0f, 0.0f);
+            uint32_t ev; float t = 0.0f; float vlip = 0.0f; int seen = 0;
+            while (t < 6.0f) {
+                float dx = b.pos.x - W.pocket[0].x, dz = b.pos.z - W.pocket[0].z;
+                if (!seen && dx*dx + dz*dz < 0.0036f) {
+                    vlip = sqrtf(b.vel.x*b.vel.x + b.vel.z*b.vel.z); seen = 1;
+                }
+                cue_phys_step(&W, &b, 1, 1.0f/240.0f, &ev);
+                t += 1.0f/240.0f;
+                if (b.drop > 0.0f) break;
+                if (b.pos.x > W.pocket[0].x + 0.12f) break;   /* it got clean past */
+                if (!cue_phys_moving(&W, &b, 1)) break;
+            }
+            if (fast) { down_fast = (b.drop > 0.0f); v_fast = vlip; }
+            else      { down_slow = (b.drop > 0.0f); v_slow = vlip; }
+        }
+        char d[96];
+        snprintf(d, sizeof d, "rolled in at %.2f m/s", v_slow);
+        ok(down_slow, "a ball rolled at a hole goes down it", d);
+        snprintf(d, sizeof d, "crossed at %.2f m/s and stayed up", v_fast);
+        ok(!down_fast, "...and one driven at it skips straight over", d);
+    }
+
+    /* ---- the foot is not a hinge (Rules 103, 114) ----
+     * A struck skittle is knocked OFF its spot and slides while it goes over,
+     * and it is stood back on that spot before the next stroke. */
+    {   float moved[2] = {0,0};
+        for (int hard = 0; hard < 2; hard++) {
+            cue_table_build_world(&T, &W);
+            cue_phys_shot_begin(&W);
+            const int k = 2;                     /* the black, out on its own */
+            Vec3 spot = W.skittle[k];
+            CueBall b; memset(&b, 0, sizeof b);
+            b.on = 1; b.id = CUE_ID_CUE;
+            b.pos = v3(spot.x - 0.12f, T.R, spot.z);
+            b.orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
+            cue_phys_strike(&W, &b, v3(1,0,0), hard ? 3.2f : 0.6f, 0.0f, 0.0f);
+            uint32_t ev; float t = 0.0f;
+            while (t < 3.0f) {
+                cue_phys_step(&W, &b, 1, 1.0f/240.0f, &ev);
+                t += 1.0f/240.0f;
+                if (!cue_phys_moving(&W, &b, 1) && W.skittle_lean[k] >= 1.5707f) break;
+            }
+            float dx = W.skittle[k].x - spot.x, dz = W.skittle[k].z - spot.z;
+            moved[hard] = sqrtf(dx*dx + dz*dz);
+            /* ...and the next stroke finds it back where it belongs. */
+            cue_phys_shot_begin(&W);
+            char d[80];
+            snprintf(d, sizeof d, "%.4f, %.4f from the spot",
+                     (double)fabsf(W.skittle[k].x - spot.x),
+                     (double)fabsf(W.skittle[k].z - spot.z));
+            if (!hard)
+                ok(fabsf(W.skittle[k].x - spot.x) < 1e-6f &&
+                   fabsf(W.skittle[k].z - spot.z) < 1e-6f,
+                   "a skittle is stood back on its spot for the next stroke", d);
+        }
+        char d[80];
+        snprintf(d, sizeof d, "%.0f mm gently, %.0f mm hard",
+                 (double)(moved[0]*1000.0f), (double)(moved[1]*1000.0f));
+        ok(moved[1] > moved[0] * 4.0f && moved[1] > 0.02f,
+           "a skittle struck hard is knocked off its spot, not hinged on it", d);
+    }
+
+    /* ---- it falls BACK OVER THE BALL, not away like a domino ----
+     * Rule 74 keeps the whole cylinder below 51 mm and a ball's centre is at
+     * 24 mm, so the contact is always well below the centre of gravity the
+     * mushroom head puts at 76.5 mm: the foot is knocked forward and the head
+     * comes back over the ball. */
+    {   cue_table_build_world(&T, &W);
+        cue_phys_shot_begin(&W);
+        const int k = 2;
+        Vec3 spot = W.skittle[k];
+        CueBall b; memset(&b, 0, sizeof b);
+        b.on = 1; b.id = CUE_ID_CUE;
+        b.pos = v3(spot.x - 0.12f, T.R, spot.z);      /* struck from -x */
+        b.orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
+        cue_phys_strike(&W, &b, v3(1,0,0), 2.0f, 0.0f, 0.0f);
+        uint32_t ev; float t = 0.0f;
+        while (t < 3.0f) {
+            cue_phys_step(&W, &b, 1, 1.0f/240.0f, &ev); t += 1.0f/240.0f;
+            if (W.skittle_lean[k] >= 1.5707f) break;
+        }
+        char d[96];
+        snprintf(d, sizeof d, "head toward %+.2f, foot moved %+.0f mm",
+                 (double)W.skittle_fx[k], (double)((W.skittle[k].x - spot.x)*1000.0f));
+        ok(W.skittle_fx[k] < -0.5f,
+           "the head falls BACK over the ball, not away from it", d);
+        ok(W.skittle[k].x - spot.x > 0.0f,
+           "...while the foot is knocked out from under it, forward", d);
+    }
+
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);
     return s_fail ? 1 : 0;
 }

@@ -229,6 +229,10 @@ static const struct { int kind; const char *name;
      * this test is about the passage between two cushion jaws. Nothing to
      * measure, and a zero here would read as a failure rather than as N/A. */
     { CUE_GAME_BARBILLIARDS, "bar billiards", -1, -1, 0 },
+    /* Billiards golf is the UK 7 ft table, pockets and all — the game is
+     * eighteen layouts and a card, not a bed of its own — so it wants the same
+     * answer UK 8-ball gets, and gets it from the same numbers. */
+    { CUE_GAME_GOLF,     "billiards golf",  -1, -1, 0 },
 };
 
 /* A ball has to fit through with SOME room or the pocket is decorative. Three

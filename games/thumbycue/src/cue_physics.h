@@ -72,7 +72,12 @@ typedef struct {
     uint8_t id;      /* ball number / colour code (game-defined) */
     uint8_t pocket;  /* if potted: which pocket index it fell in, or
                       * CUE_OFF_TABLE if it left over a cushion instead */
-    uint8_t _pad;
+    /* WHICH BED HOLE THIS BALL IS CURRENTLY OVER, plus one, or 0 for none.
+     * A bar billiards hole is judged ONCE, on the step the ball's centre
+     * crosses into it (see check_pockets): a ball crossing at pace rims out,
+     * and without this it would be re-judged every step while it was still
+     * inside the circle and eventually swallowed anyway. */
+    uint8_t over_hole;
     float drop;      /* >0 while falling into the pocket (seconds remaining);
                       * still renders (sinking) but is out of play */
     /* How long it has been off the cloth. A ball can legitimately spend a
@@ -97,6 +102,11 @@ enum { CUE_TOUCH_BALL = 0, CUE_TOUCH_CUSHION };
 #define CUE_MAX_TOUCH 24
 /* Three on a bar billiards table, and nothing else has any. */
 #define CUE_MAX_SKITTLE 4
+/* How hard a bar billiards skittle topples, in 1/s^2: m g d / I about the foot,
+ * for 12 g with its centre of gravity 76.5 mm up (a 7 g mushroom head at 99 mm
+ * on a 5 g stem). A uniform rod of the same length would be 3g/2L = 129.0; the
+ * head makes this one fall more slowly, and heavily. */
+#define CUE_SKITTLE_FALL 109.6f
 typedef struct {
     uint8_t what;   /* CUE_TOUCH_* */
     uint8_t id;     /* the ball's id, for CUE_TOUCH_BALL */
@@ -202,6 +212,24 @@ typedef struct {
      * of them scoring from ten to two hundred, and which one a ball went down
      * IS the score. Filled in by cue_table_build_world beside the pocket. */
     int16_t pocket_score[CUE_MAX_POCKET];
+    /* A HOLE IN THE MIDDLE OF THE BED, not a cut in its edge.
+     *
+     * Every other pocket in these games is a bite taken out of the slate's
+     * boundary, which is why cue_phys_cut_out models one as an arc with two
+     * legs running out to the rail. Bar billiards' nine holes are cut in the
+     * OPEN BED with cloth all the way round them, and run through that same
+     * function those legs claimed half the table as "no cloth here" — which
+     * is exactly the reported fault of pockets gathering balls from nowhere
+     * near them. A bed hole is a circle and nothing else. */
+    uint8_t pocket_bed[CUE_MAX_POCKET];
+    /* HOW DEEP A BALL MUST FALL, as a fraction of its own radius, before the
+     * far lip of a bed hole can no longer throw it back out. A ball crossing
+     * a hole is unsupported for the width of the hole and falls under gravity
+     * for exactly that long; if its centre is still above the bed when it
+     * reaches the far lip, the lip is below its equator and kicks it up and
+     * onward — it rims out. That is why a bar billiards ball has to be rolled
+     * into a hole rather than driven at it. */
+    float hole_catch;
     /* IS THIS A MIDDLE POCKET? Carried rather than inferred from the index.
      * "p < 4 is a corner" was true of every rectangle and is written into the
      * drop-back choice, the AI's difficulty model and the HUD's pocket names —
@@ -301,10 +329,47 @@ typedef struct {
     Vec3   skittle[CUE_MAX_SKITTLE];
     uint8_t skittle_black[CUE_MAX_SKITTLE];  /* the fatal one */
     uint8_t skittle_down[CUE_MAX_SKITTLE];   /* knocked over this shot */
+    /* AEBBA rule 103: a ball may knock a skittle OFF ITS SPOT without felling
+     * it, and that is not a foul — the score counts and the skittle is put back
+     * before the next shot. So a touch too gentle to topple one is recorded
+     * separately from one that does. */
+    uint8_t skittle_nudged[CUE_MAX_SKITTLE];
+    /* HOW FAR OVER IT HAS GONE, and which way.
+     *
+     * A skittle knocked at the base is a rod pivoting about its foot, which is
+     * one degree of freedom: theta measured from upright, falling under
+     * theta'' = (3g/2L) sin theta. That is the real motion of a toppling pin
+     * and it integrates alongside the balls on the same clock, so it needs
+     * neither an animation timer above nor a rigid-body engine below — which
+     * matters, because this file is the handheld's physics and every test's.
+     *
+     * `lean` is radians from upright, stopping at a right angle when it is flat
+     * on the cloth; `fx`,`fz` is the way it goes, taken from the ball. */
+    float  skittle_lean[CUE_MAX_SKITTLE];
+    float  skittle_rate[CUE_MAX_SKITTLE];     /* rad/s */
+    float  skittle_fx[CUE_MAX_SKITTLE], skittle_fz[CUE_MAX_SKITTLE];
+    /* THE FOOT IS NOT A HINGE. A struck skittle is knocked OFF its spot and
+     * slides while it goes over — Rule 103 exists precisely because a skittle
+     * moves without falling. The foot carries its own velocity and is dragged
+     * down by cloth friction; `skittle_spot` is where it belongs, so it can be
+     * put back between strokes. */
+    float  skittle_vx[CUE_MAX_SKITTLE], skittle_vz[CUE_MAX_SKITTLE];
+    Vec3   skittle_spot[CUE_MAX_SKITTLE];
     uint8_t skittle_order[CUE_MAX_SKITTLE];  /* 1, 2, 3... in the order they fell */
     int    nskittle;
     float  skittle_r;
+    /* WHAT A SKITTLE TAKES OFF THE BALL. A pin is fifteen grams of light wood
+     * against a ball of ninety-odd and it topples rather than being driven, so
+     * it removes far less of the ball's pace than its mass alone would suggest.
+     * The fraction of the approach speed the ball loses across the contact. */
+    float  skittle_take;
+    /* ...and how slowly a ball may meet one and leave it standing (m/s). */
+    float  skittle_topple;
     int    skittle_fell;                     /* how many went over this shot */
+    /* A side cushion was struck this shot (normal across the table, not along
+     * it). AEBBA Rule 108: the last-ball shot must go OFF ONE SIDE CUSHION
+     * into the 100 or the 200, and this is the only witness. */
+    uint8_t side_cushion;
 
     /* ---- jump shots, as snooker actually defines one ----------------------
      *
@@ -410,6 +475,9 @@ enum {
     CUE_EV_JAW       = 1 << 3,   /* ball rattled a jaw */
     CUE_EV_BED       = 1 << 4,   /* a jumped ball came down on the slate */
     CUE_EV_SKITTLE   = 1 << 5,   /* a bar billiards skittle went over */
+    CUE_EV_SIDE_CUSH = 1 << 6,   /* ...and the cushion struck was a SIDE one:
+                                  * how the flag crosses the const collision
+                                  * path to be booked on the world by the step */
 };
 /* Is (x, z) on the cloth? Reads the outline when the world carries one and the
  * rectangles otherwise, so callers need not know which kind of bed it is. */

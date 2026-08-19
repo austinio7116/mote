@@ -78,8 +78,10 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     t->is_snooker = (kind == CUE_GAME_SNK10 || kind == CUE_GAME_SNK15 ||
                      kind == CUE_GAME_SNK6  || kind == CUE_GAME_BILLIARDS);
 
-    if (kind == CUE_GAME_UK8 || kind == CUE_GAME_SNK6) {
-        /* 7 ft UK pub 8-ball: 1.98 × 0.99 m, tight ROUNDED (curved) pockets. */
+    if (kind == CUE_GAME_UK8 || kind == CUE_GAME_SNK6 || kind == CUE_GAME_GOLF) {
+        /* 7 ft UK pub 8-ball: 1.98 × 0.99 m, tight ROUNDED (curved) pockets.
+         * Billiards golf is played on this bed too — it is a pub-table game
+         * and the board it comes from is a home table's. */
         t->half_len = 1.98f * 0.5f;
         t->half_wid = 0.99f * 0.5f;
         /* ENGLISH BALLS ON AN ENGLISH TABLE. This bed was carrying American
@@ -142,6 +144,10 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->spot = RGB565C(180, 180, 180); t->nballs = 16;
         /* UK 8-ball baulk line + D (white placed in the D after a foul). */
         t->baulk_x = -t->half_len * 0.6f; t->d_radius = t->half_wid * 0.35f;
+        /* GOLF never has more than the cue ball and four reds on the bed — the
+         * biggest hole is a par 5 — so it does not carry a rack it will never
+         * use. Everything else about the table is the UK 7 ft's. */
+        if (kind == CUE_GAME_GOLF) t->nballs = 1 + CUE_GOLF_MAX_BALLS;
         if (kind == CUE_GAME_SNK6) {
             /* 6-red snooker on the 7 ft UK table: same table geometry and ball
              * size as UK pool, but snooker balls/rules and snooker spots scaled
@@ -193,6 +199,9 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->cloth = RGB565C(18, 110, 120);    /* US tables often tournament blue-green */
         t->rail = RGB565C(70, 46, 30); t->rail_top = RGB565C(100, 66, 42);
         t->spot = RGB565C(180, 180, 180);
+        /* Golf never has more than the cue ball and four reds on the bed —
+         * the hole with the most is a par 5 — so it does not carry a rack it
+         * will never use. */
         t->nballs = (kind == CUE_GAME_US9) ? 10 : 16;
     } else if (kind == CUE_GAME_CN8) {
         /* Chinese 8-ball: 10 ft table, full-size pool balls (solids/stripes),
@@ -1639,6 +1648,8 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         for (int i = 0; i < (int)(sizeof HOLE / sizeof HOLE[0]); i++) {
             add_pocket(w, HOLE[i].x, HOLE[i].z, hr, 0);
             w->pocket_score[w->npocket - 1] = (int16_t)HOLE[i].v;
+            /* Cloth all the way round it: a circle, not a cut in the edge. */
+            w->pocket_bed[w->npocket - 1] = 1;
         }
 
         /* Rule 74. The skittles are 15 to 18 mm across; the black stands 6 mm
@@ -1649,6 +1660,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         #define SKITTLE(x_, z_, black_) do { \
             int i_ = w->nskittle++; \
             w->skittle[i_] = v3((x_), 0.0f, (z_)); \
+            w->skittle_spot[i_] = w->skittle[i_];   /* where it is replaced */ \
             w->skittle_black[i_] = (black_); } while (0)
         SKITTLE(0.050f, -0.178f, 0);
         SKITTLE(0.050f,  0.178f, 0);
@@ -1859,6 +1871,8 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * it. 0.22 is the roll a pool pocket has and the most this one will
          * take. */
         /* BARB  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* GOLF — the UK 7 ft bed, so the UK 7 ft corner cut, exactly */
+        /* GOLF  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -1873,6 +1887,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* PYRA7 */ { 0.0211f, 1.4100f, 0.2200f, 180.0f },
         /* BILL  */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
         /* BARB  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* GOLF  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -2086,7 +2101,12 @@ Vec3 cue_table_cue_home(const CueTable *t) {
      * Laid out along the spine, so on an L it is on the baulk arm and the pack
      * is round the corner from it. */
     Vec3 p;
-    if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind))
+    if (t->kind == CUE_GAME_BARBILLIARDS)
+        /* The centre of the D: the break spot itself (Rule 75), and where the
+         * last-ball shot must play from (Rule 108). A 4 cm D has no room for
+         * the off-centre courtesy the bigger tables get. */
+        p = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
+    else if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind))
         p = cue_table_lay(t, t->baulk_x, -t->d_radius * 0.55f, NULL);
     else
         p = cue_table_lay(t, -cue_table_axis(t) * 0.5f,
@@ -2807,10 +2827,102 @@ int cue_table_respot_one(const CueTable *t, CueBall *b, int n) {
     return 0;
 }
 
+/* THE COURSE, off the Billiard & Golf board. See cue_table.h for the frame. */
+const CueGolfHole CUE_GOLF_COURSE[CUE_GOLF_HOLES] = {
+    /*  1 */ { 4, 3, { 0.5000f, 0.1000f, 0.9000f, 0.0f },
+                     { 0.0000f, 1.0000f, 1.0000f, 0.0f } },   /* apex + both base corners */
+    /*  2 */ { 3, 2, { 0.5000f, 0.5000f, 0.0f, 0.0f },
+                     { 0.0000f, 1.0000f, 0.0f, 0.0f } },   /* apex + base centre */
+    /*  3 */ { 5, 4, { 0.5000f, 0.4000f, 0.6000f, 0.5000f },
+                     { 0.0000f, 0.2500f, 0.2500f, 0.5000f } },   /* a diamond */
+    /*  4 */ { 4, 3, { 0.5000f, 0.4000f, 0.6000f, 0.0f },
+                     { 0.0000f, 0.2500f, 0.2500f, 0.0f } },   /* a 1-2 triangle */
+    /*  5 */ { 5, 4, { 0.5000f, 0.4000f, 0.3000f, 0.2000f },
+                     { 0.0000f, 0.2500f, 0.5000f, 0.7500f } },   /* the left edge */
+    /*  6 */ { 4, 3, { 0.5000f, 0.5000f, 0.9000f, 0.0f },
+                     { 0.0000f, 0.2887f, 1.0000f, 0.0f } },   /* a column of two + the far corner */
+    /*  7 */ { 3, 2, { 0.5000f, 0.6000f, 0.0f, 0.0f },
+                     { 0.0000f, 0.2500f, 0.0f, 0.0f } },   /* apex + one to its right */
+    /*  8 */ { 5, 4, { 0.5000f, 0.5000f, 0.1000f, 0.9000f },
+                     { 0.0000f, 0.2887f, 1.0000f, 1.0000f } },   /* a column of two + both base corners */
+    /*  9 */ { 5, 4, { 0.5000f, 0.4000f, 0.6000f, 0.3000f },
+                     { 0.0000f, 0.2500f, 0.2500f, 0.5000f } },   /* apex, the row-2 pair, then row-3 left */
+    /* 10 */ { 3, 2, { 0.4000f, 0.6000f, 0.0f, 0.0f },
+                     { 1.0000f, 1.0000f, 0.0f, 0.0f } },   /* a pair CENTRED on the back row */
+    /* 11 */ { 4, 3, { 0.5000f, 0.6000f, 0.7000f, 0.0f },
+                     { 0.0000f, 0.2500f, 0.5000f, 0.0f } },   /* the right edge */
+    /* 12 */ { 4, 3, { 0.5000f, 0.5000f, 0.5000f, 0.0f },
+                     { 0.0000f, 0.2887f, 0.5774f, 0.0f } },   /* a column of three */
+    /* 13 */ { 3, 2, { 0.5000f, 0.5000f, 0.0f, 0.0f },
+                     { 0.0000f, 0.2887f, 0.0f, 0.0f } },   /* a column of two */
+    /* 14 */ { 5, 4, { 0.5000f, 0.6000f, 0.7000f, 0.1000f },
+                     { 0.0000f, 0.2500f, 0.5000f, 1.0000f } },   /* the right edge + the far base corner */
+    /* 15 */ { 4, 3, { 0.3000f, 0.5000f, 0.7000f, 0.0f },
+                     { 1.0000f, 1.0000f, 1.0000f, 0.0f } },   /* three along the base */
+    /* 16 */ { 3, 2, { 0.1000f, 0.9000f, 0.0f, 0.0f },
+                     { 1.0000f, 1.0000f, 0.0f, 0.0f } },   /* the two base corners */
+    /* 17 */ { 4, 3, { 0.5000f, 0.1000f, 0.5000f, 0.0f },
+                     { 0.0000f, 1.0000f, 1.0000f, 0.0f } },   /* apex + two on the base */
+    /* 18 */ { 5, 4, { 0.5000f, 0.5000f, 0.5000f, 0.5000f },
+                     { 0.0000f, 0.2887f, 0.5774f, 0.8660f } },   /* a column of four */
+};
+
+int cue_golf_par(int from_hole, int to_hole) {
+    int p = 0;
+    for (int h = from_hole; h <= to_hole && h < CUE_GOLF_HOLES; h++)
+        if (h >= 0) p += CUE_GOLF_COURSE[h].par;
+    return p;
+}
+
+/* ---- BILLIARDS GOLF: set a hole out -------------------------------------
+ *
+ * The layout is in the rack triangle's frame, so putting it on the cloth is
+ * the same sum every game already does for a rack: the apex ball goes on the
+ * spot the pack is racked from, u runs across the table and v runs away from
+ * the player. A five-ball base is ten radii across and the four row-steps are
+ * 1.732 radii each, which is what makes the standard positions come out
+ * touching.
+ *
+ * The cue ball goes on the baulk spot — the board's "Starting Point" — and it
+ * goes back there whenever it is potted (Rule 2), so it is one place. */
+static int rack_golf(const CueTable *t, CueBall *b, int hole) {
+    const float R = t->R;
+    int n = 0;
+    { Vec3 q = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
+      set_ball(&b[n++], CUE_ID_CUE, q.x, q.z, R); }
+    if (hole < 0) hole = 0;
+    if (hole >= CUE_GOLF_HOLES) hole = CUE_GOLF_HOLES - 1;
+    const CueGolfHole *g = &CUE_GOLF_COURSE[hole];
+    /* IN THE FOOT SPOT'S OWN FRAME, exactly as rack_pool builds its triangle:
+     * `up` runs away from the player and `side` across, so an L-shaped bed
+     * turns the layout with the spine instead of laying it across a cushion. */
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const Vec3 side = v3(-up.z, 0.0f, up.x);
+    const float baseW = 10.0f * R;               /* five balls across */
+    const float triH  = 4.0f * 1.7320508f * R;   /* four row-steps down */
+    for (int i = 0; i < g->n; i++) {
+        float across = (g->u[i] - 0.5f) * baseW;
+        float along  = g->v[i] * triH;
+        set_ball(&b[n++], (uint8_t)(1 + i),
+                 foot.x + up.x*along + side.x*across,
+                 foot.z + up.z*along + side.z*across, R);   /* reds 1.. */
+    }
+    return n;
+}
+
+/* The hole the next rack sets out. Held here because cue_table_rack takes no
+ * argument for it and every caller in the game already goes through it. */
+static int s_golf_hole = 0;
+void cue_table_golf_set_hole(int hole) {
+    s_golf_hole = (hole < 0) ? 0 : (hole >= CUE_GOLF_HOLES ? CUE_GOLF_HOLES-1 : hole);
+}
+int cue_table_golf_hole(void) { return s_golf_hole; }
+
 int cue_table_rack(const CueTable *t, CueBall *balls) {
     memset(balls, 0, sizeof(CueBall) * CUE_MAX_BALLS);
     int n;
-    if (t->kind == CUE_GAME_BARBILLIARDS) n = rack_barbilliards(t, balls);
+    if (t->kind == CUE_GAME_GOLF) n = rack_golf(t, balls, s_golf_hole);
+    else if (t->kind == CUE_GAME_BARBILLIARDS) n = rack_barbilliards(t, balls);
     else if (t->kind == CUE_GAME_BILLIARDS) n = rack_billiards(t, balls);
     else if (t->is_snooker)      n = rack_snooker(t, balls);
     else if (t->kind == CUE_GAME_US9) n = rack_9ball(t, balls);

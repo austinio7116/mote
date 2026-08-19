@@ -78,6 +78,20 @@ typedef struct {
      * sim already asks for it before every strike — and the planner had no way
      * to prefer a shot it could play flat. */
     float elev;
+    /* WHAT IT DID TO THE SKITTLES. Bar billiards only, and the difference
+     * between a break and nothing: a white costs the break (Rule 110(f)) and
+     * the black costs the ENTIRE SCORE (Rule 111(a)). The planner had no idea
+     * they were there — it fired at the 200 straight through the black peg and
+     * gave its whole game away, over and over. The sim already topples them;
+     * this is only reading the answer. */
+    int  skittle_white, skittle_black;
+    /* Which hole the STRUCK ball went down, or -1. Bar billiards has no cue
+     * ball to scratch — every white on the table is one — so its own ball
+     * going down is a SCORE, and the planner needs the hole to price it. */
+    int  cue_hole;
+    /* Which hole each potted ball went down, alongside `potted`. On this table
+     * the hole IS the score, and every white looks the same. */
+    int  hole[CUE_MAX_BALLS];
     /* DID ANY BALL REACH A CUSHION. Under WPA rules a shot that pots nothing
      * must send something to a rail, and the planner had no idea whether its
      * shot did — so a soft safety that touched nothing was a foul it could not
@@ -446,6 +460,11 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
     #define AI_SIM_GONE(bb) (!(bb).on || (bb).drop > 0.0f)
     out->cue_end = s_sb[cue_idx].pos;
     out->cue_potted = AI_SIM_GONE(s_sb[cue_idx]);
+    out->cue_hole = (out->cue_potted && !s_sb[cue_idx].on &&
+                     s_sb[cue_idx].pocket != CUE_OFF_TABLE)
+                  ? (int)s_sb[cue_idx].pocket
+                  : (out->cue_potted && s_sb[cue_idx].drop > 0.0f
+                     ? (int)s_sb[cue_idx].pocket : -1);
     out->npotted = 0;
     out->first_hit_idx = s_sw.first_hit_idx;
     /* ...and everything it touched, from its own account of the stroke. */
@@ -460,8 +479,17 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
     for (int i = 0; i < n; i++) {
         out->on[i] = !AI_SIM_GONE(s_sb[i]);
         out->end_pos[i] = s_sb[i].pos;
-        if (i != cue_idx && balls[i].on && AI_SIM_GONE(s_sb[i]))
+        if (i != cue_idx && balls[i].on && AI_SIM_GONE(s_sb[i])) {
+            out->hole[out->npotted] = s_sb[i].pocket;
             out->potted[out->npotted++] = i;
+        }
+    }
+    /* ...and the skittles, which no other game has and this one is decided by. */
+    out->skittle_white = out->skittle_black = 0;
+    for (int k = 0; k < s_sw.nskittle; k++) {
+        if (!s_sw.skittle_down[k]) continue;
+        if (s_sw.skittle_black[k]) out->skittle_black = 1;
+        else                       out->skittle_white = 1;
     }
 
     /* A POTTED COLOUR COMES BACK. The physics has no idea — it drops the ball
@@ -916,6 +944,10 @@ static int cue_crowd(const AiCtx *c, Vec3 cue_end, const Vec3 *pos, const int *o
  * rules. The pub game says no. */
 static int rail_required(const AiCtx *c) {
     if (c->snooker) return 0;
+    /* GOLF HAS NO FOULS. Nothing is given away by a ball that reaches no
+     * cushion — the stroke is simply spent — so a rule written to stop a
+     * player conceding a foul has nothing to say here. */
+    if (c->r->mode == CUE_GAME_GOLF) return 0;
     if (c->r->mode == CUE_GAME_UK8) return c->r->uk_intl;
     return 1;
 }
@@ -2283,8 +2315,17 @@ static void plan_finalize(void) {
     /* confidence gate vs. safety, scaled by persona accuracy (a deadeye attacks
      * long pots my potting_difficulty rates low; a shaky player doesn't). */
     float urg = snooker_urgency(c);
+    /* AT GOLF THERE IS NOTHING TO PLAY SAFE AGAINST.
+     *
+     * Every other game here weighs a pot against handing the table over — the
+     * whole point of a safety. A golfer has no opponent waiting for a mistake;
+     * they have a hole to clear and a card that counts every stroke, so a
+     * safety is simply a shot that cost one and achieved nothing. Take the
+     * pot, however thin: the worst a miss costs is the same stroke the safety
+     * would have cost anyway. */
     float baseThresh = c->snooker ? 8.0f : 0.0f;
     float minConf = baseThresh + ((p->safety_bias + 30.0f) / 50.0f) * 40.0f;
+    if (c->r->mode == CUE_GAME_GOLF) minConf = 0.0f;
     minConf *= clampf(0.45f + p->line_acc * 0.45f, 0.45f, 1.2f) * K_CONF;
     minConf += urg * 35.0f;        /* needing snookers → only attack near-certain pots */
     if (P.miss_caution) minConf += K_MISSCAUT;   /* one miss down: play the percentages */
@@ -2297,6 +2338,8 @@ static void plan_finalize(void) {
             Cand *sc = &P.pool[si];
             /* when behind & needing snookers, lean hard toward safety/snookering */
             float aggression = fmaxf(-10.0f, 25.0f - p->safety_bias) - urg * 40.0f;
+            /* ...and at golf, no safety is ever worth a stroke: see above. */
+            if (c->r->mode == CUE_GAME_GOLF) aggression = -1.0e5f;
             /* a scratch/foul pot is never worth taking over a legal safety */
             if (best_unsafe || sc->posScore * 0.6f > best.potScore + aggression) {
                 out.aim = sc->aim; out.power01 = sc->power01;
@@ -2879,9 +2922,38 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                 for (int pi = 0; pi < 3; pi++) {
                     AiSim sm;
                     ai_sim(c->w, c->t, c->b, c->n, 0, aim, PW[pi], 0.0f, 0.0f, &sm);
-                    if (sm.cue_potted) continue;
+                    /* Bar billiards has no in-off: the striker's own ball down
+                     * a hole is the score of that hole (Rule 97). */
+                    if (sm.cue_potted && r->mode != CUE_GAME_BARBILLIARDS) continue;
                     if (sm.first_hit_idx <= 0) continue;
                     if (!cue_rules_ball_legal(r, balls, n, balls[sm.first_hit_idx].id)) continue;
+                    /* AND IT MUST NOT FELL A SKITTLE.
+                     *
+                     * This sweep is the one shot in the planner that asks only
+                     * "does it reach a legal ball", and on a bar billiards
+                     * table that is nowhere near enough: a white costs the
+                     * break and the black costs the ENTIRE SCORE. Measured
+                     * over two frames, this path gave away seventeen
+                     * whole-score fouls, because the veto that keeps the black
+                     * out of a CHOSEN shot never runs down here. */
+                    if (sm.skittle_black) continue;
+                    if (sm.skittle_white) continue;
+                    /* ...nor leave anything back over the baulk line (110(c),(d)). */
+                    if (r->mode == CUE_GAME_BARBILLIARDS) {
+                        const float RR = c->t->R;
+                        const float th2 = c->t->baulk_arc * 0.5f * 3.14159265f / 180.0f;
+                        const float st2 = sinf(th2), ct2 = cosf(th2);
+                        const float dr2 = c->t->d_radius + RR;
+                        int back2 = 0;
+                        for (int i2 = 0; i2 < c->n && !back2; i2++) {
+                            if (!sm.on[i2]) continue;
+                            float u2 = sm.end_pos[i2].x - c->t->baulk_x;
+                            float v2 = sm.end_pos[i2].z;
+                            if (u2*st2 - fabsf(v2)*ct2 <= RR) back2 = 1;
+                            else if (u2*u2 + v2*v2 <= dr2*dr2) back2 = 1;
+                        }
+                        if (back2) continue;
+                    }
                     /* it reaches. prefer the one that also does something. */
                     int freed = 0;
                     float sc2 = 100.0f - PW[pi] * 20.0f;
@@ -3257,7 +3329,9 @@ int cue_ai_plan_tick(void) {
             ai_sim(c->w, c->t, c->b, c->n, 0, v->aim, v->power01,
                    v->tip_side, v->tip_vert, &sim);
         v->simmed = 1; v->cue_end = sim.cue_end; v->elev = sim.elev;
-        v->scratch = sim.cue_potted;
+        /* ...and `scratch` is what best_safety_idx and the pot ranking veto on,
+         * so on this table it must not be set by the ball going down a hole. */
+        v->scratch = sim.cue_potted && c->r->mode != CUE_GAME_BARBILLIARDS;
         /* The sim's job is NOT to decide whether the pot drops — that's the
          * heuristic potScore (cut/distance). The sim exists to (1) avoid in-offs
          * [scratch], (2) avoid fouls [wrong first ball], and (3) score the LEAVE
@@ -3336,7 +3410,87 @@ int cue_ai_plan_tick(void) {
             v->potScore = v->bad_first ? 0.0f
                         : clampf(28.0f + 9.0f * (float)pts, 0.0f, 100.0f);
         }
-        if (sim.cue_potted && c->r->mode != CUE_GAME_BILLIARDS)
+        /* ---- BAR BILLIARDS IS SCORED BY THE HOLE, AND GUARDED BY PINS ----
+         *
+         * Two things no other game here has, and the planner knew neither.
+         *
+         * THE HOLES ARE NOT WORTH THE SAME. Ten at the near end, two hundred
+         * at the far one behind the black peg, and the red doubles whatever it
+         * drops into (Rule 97). Every other game asks only "did the ball I
+         * named go in", so a 10 and a 200 ranked identically and the AI had no
+         * reason ever to go for the big one.
+         *
+         * AND THE PINS COST MORE THAN ANY POT IS WORTH. A white is the break
+         * (Rule 110(f)); the black is THE ENTIRE SCORE (Rule 111(a)). Measured
+         * before this went in: breaks of 160 and final scores of 13, because
+         * the planner fired at the 200 through the black peg and gave the game
+         * away every time it got there. There is no pot worth risking the
+         * black, so it is a veto and not a weighting. */
+        if (c->r->mode == CUE_GAME_BARBILLIARDS) {
+            int pts = 0;
+            for (int k = 0; k < sim.npotted; k++) {
+                int bi = sim.potted[k], hk = sim.hole[k];
+                if (bi <= 0 || bi >= c->n) continue;
+                if (hk < 0 || hk >= c->w->npocket) continue;   /* off the table */
+                int val = c->w->pocket_score[hk];
+                if (c->b[bi].id == CUE_ID_BIL_RED) val *= 2;   /* Rule 97 */
+                pts += val;
+            }
+            /* AND THE BALL IT STRUCK WITH SCORES TOO.
+             *
+             * There is no cue ball here to scratch: every white on the table is
+             * one, you take whichever the shot wants out of the D, and a white
+             * down a hole is the value of that hole (Rule 97). The host has
+             * always known this; the planner did not, and treated its own ball
+             * going down as an in-off — zeroing the leave and vetoing the
+             * candidate. That threw away half the legal shots in the game and
+             * is most of why 87% of its strokes fell through to the last-resort
+             * sweep with nothing chosen. */
+            if (sim.cue_hole >= 0 && sim.cue_hole < c->w->npocket)
+                pts += c->w->pocket_score[sim.cue_hole];
+
+            /* NOTHING MAY COME BACK OVER THE LINE (Rules 110(c), 110(d)).
+             *
+             * The commonest way to lose a break on this table, and the planner
+             * had no idea: a ball at rest on or behind the baulk arc, or
+             * obstructing the D, costs the break and goes to the rack. The D
+             * sits 60 mm off the bottom cushion with an arc of 155 degrees, so
+             * anything that dribbles back down the table lands in it —
+             * measured over two frames, forty fouls, the single biggest
+             * category. Same geometry as cue_rules_bb_in_baulk, asked of the
+             * simulated leave instead of the settled table. */
+            {   const float R = c->t->R;
+                const float th = c->t->baulk_arc * 0.5f * 3.14159265f / 180.0f;
+                const float st = sinf(th), ct = cosf(th);
+                const float dr = c->t->d_radius + R;
+                int back = 0;
+                for (int i = 0; i < c->n && !back; i++) {
+                    if (!sim.on[i]) continue;          /* down a hole: not on the table */
+                    float u = sim.end_pos[i].x - c->t->baulk_x;
+                    float vv = sim.end_pos[i].z;
+                    if (u * st - fabsf(vv) * ct <= R) back = 1;
+                    else if (u*u + vv*vv <= dr*dr)    back = 1;
+                }
+                if (back) v->bad_first = 1;
+            }
+            /* Rule 111(a): nothing on this table is worth the black. Vetoed
+             * the way a foul first contact is, so the 1000-point penalty
+             * keeps it out of the chosen shot however good the pot looked. */
+            if (sim.skittle_black) { v->bad_first = 1; v->pot_fails = 1; }
+            /* Rule 110(f): a white costs the break. Not fatal, but no pot
+             * short of the 200 is worth a break in progress. */
+            else if (sim.skittle_white) { v->bad_first = 1; }
+            v->pot_fails = v->pot_fails || (pts == 0);
+            /* 10 -> 30, 200 -> 100: enough spread that the planner reaches for
+             * the big hole, not so much that it only ever plays the 200. */
+            v->potScore = (v->bad_first || pts == 0) ? 0.0f
+                        : clampf(28.0f + 0.36f * (float)pts, 0.0f, 100.0f);
+        }
+        /* Bar billiards joins billiards here: its own ball going down is a
+         * SCORE, so the leave is not worthless — it is simply the next shot
+         * played from the D like every other. */
+        if (sim.cue_potted && c->r->mode != CUE_GAME_BILLIARDS &&
+                              c->r->mode != CUE_GAME_BARBILLIARDS)
             v->posScore = 0;                          /* in-off → worthless leave */
         else {
             /* SAFETIES KEEP THEIR OWN SCORE. They are built with
