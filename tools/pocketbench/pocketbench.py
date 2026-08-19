@@ -164,7 +164,16 @@ def link_keys(q):
     q["bset"] = "%.6f" % back
     q["rad"]  = "%.6f" % lipk
     q["set"]  = "%.6f" % ((depth + lipoff) / 1000.0)
-    q["kiss"] = "1"        # the cushions follow the hole; see solve_gap
+    # NO SOLVE. Four attempts at solving `gap` onto the frame-face meeting
+    # point all failed, the last by driving the cushions clean across the hole:
+    # the objective was "nearest cushion vertex to the meeting point", which
+    # reads zero both when the cushion arrives there and when it has buried the
+    # point completely, so the bisection locked onto the wrong root.
+    #
+    # The marker is still drawn — the meeting point itself is well defined and
+    # comes from the wood alone — so the error is visible while the cushions
+    # stay where the table authored them. Placing them is a construction job in
+    # the engine, not a search: build the facing to TERMINATE at that point.
     # THE CURVED DROP DEPTH, in mm like the rest. `roll` is a multiple of the
     # cut reference, which the pocket size now IS, so this is a plain divide —
     # and being absolute it needs no compensating when the pocket is dialled,

@@ -124,32 +124,93 @@ static float bore_clearance(const CueWorld *w, int p, float br, float bset) {
 }
 
 
-/* THE CUSHION'S TOP EDGE AGAINST THE BORE — measured off the mesh the game
- * actually draws, not off the physics nose line.
+/* WHERE THE BORE CROSSES THE INNER FACE OF THE FRAME — the point the cushion
+ * has to reach and stop at.
  *
- * These are different edges and the difference is the whole question. The nose
- * is the rubber's contact line, low down and overhanging; the TOP is the edge
- * you see from above, and from above the cushion face has to run continuously
- * into the bore. Solving the NOSE onto the hole puts the nose exactly on it
- * and still leaves the top 4.7-5.5mm short across a size sweep, which is the
- * gap that is actually visible.
+ * Two earlier tries at this both aimed at the wrong place. The first solved
+ * the physics NOSE line, which is low down and overhanging, and left the top
+ * edge 4.7-5.5mm short of the hole. The second solved the TOP edge but took
+ * the target as "the point on the bore nearest the cushion" — which is a point
+ * ON THE CUSHION, so it moved wherever the cushion was and could never be the
+ * thing the cushion was supposed to arrive at.
  *
- * Tangency alone would not be enough either: nearest-point-to-a-circle leaves
- * the end free to sit anywhere around the ring. What pins the place is that
- * the cushion end already lies against the frame's inner face, so the point on
- * the bore in that same direction IS the crossing of circle and frame edge —
- * reported through out_t so it can be drawn and checked rather than trusted.
+ * The frame's inner face is where the timber stops and the pocket opens: from
+ * above, the boundary between wood and everything else. It is read off the
+ * mesh here rather than reconstructed from rail widths, because the mesh is
+ * what is drawn. The target is where the bore circle crosses that boundary,
+ * and it does not depend on where the cushion currently happens to end.
  *
- * Cloth-material triangles in the raised band [bed, lip) are the rubber and
- * its cloth. Positive is short of the hole, negative is overhanging it; zero
- * in both directions is the target. */
+ * Returns the cushion top's signed distance from that point: positive short of
+ * it, negative past it. Zero is the cushion face running continuously into the
+ * bore with no sliver of frame showing and nothing hanging over the hole. */
 static float frame_meet_err(const CueWorld *w, int p, float br, float bset,
                             const CueTri *tri, int ntri, int bed, int lip,
-                            float *out_tx, float *out_tz) {
+                            float *out_tx, float *out_tz,
+                            float *out_fx, float *out_fz) {
     const float bx = w->pocket[p].x + w->pmnorm[p].x*bset;
     const float bz = w->pocket[p].z + w->pmnorm[p].z*bset;
     const float REACH = 0.35f;
-    float ytop = -1e30f;                      /* the cushion top, found not assumed */
+
+    /* THE FRAME EDGE, FROM THE WOOD AND NOTHING ELSE.
+     *
+     * The rim of the bore is wood all the way round, so "the wood vertex
+     * nearest the bore circle" picks an arbitrary place on it — which is what
+     * the previous try did, and why the target wandered. What defines the
+     * point is that the rim arc ENDS: the timber's inner face cuts across the
+     * hole, and where the circle runs out of wood is the meeting point.
+     *
+     * So take the wood on the rim, sort it by angle about the bore centre, and
+     * find the largest angular gap. That gap is the pocket opening, and its
+     * two edges are the two points where the bore meets the face of the frame.
+     * The cushion is not consulted anywhere in this. */
+    float ywood = -1e30f;
+    for (int t = bed; t < lip && t < ntri; t++) {
+        if (tri[t].mat != CUE_MAT_WOOD) continue;
+        for (int i = 0; i < 3; i++) {
+            const float dx = tri[t].v[i].x - w->pocket[p].x;
+            const float dz = tri[t].v[i].z - w->pocket[p].z;
+            if (dx*dx + dz*dz > REACH*REACH) continue;
+            if (tri[t].v[i].y > ywood) ywood = tri[t].v[i].y;
+        }
+    }
+    if (ywood < -1e29f) return NAN;
+    enum { MAXA = 4096 };
+    static float ang[MAXA]; int na = 0;
+    for (int t = bed; t < lip && t < ntri && na < MAXA; t++) {
+        if (tri[t].mat != CUE_MAT_WOOD) continue;
+        for (int i = 0; i < 3 && na < MAXA; i++) {
+            if (tri[t].v[i].y < ywood - 0.0015f) continue;
+            const float px = tri[t].v[i].x - w->pocket[p].x;
+            const float pz = tri[t].v[i].z - w->pocket[p].z;
+            if (px*px + pz*pz > REACH*REACH) continue;
+            const float dx = tri[t].v[i].x - bx, dz = tri[t].v[i].z - bz;
+            const float r = sqrtf(dx*dx + dz*dz);
+            if (fabsf(r - br) > 0.0025f) continue;      /* on the rim, 2.5mm */
+            ang[na++] = atan2f(dz, dx);
+        }
+    }
+    if (na < 4) return NAN;
+    for (int i = 1; i < na; i++) {                     /* insertion sort, na is small */
+        const float v = ang[i]; int j = i - 1;
+        while (j >= 0 && ang[j] > v) { ang[j+1] = ang[j]; j--; }
+        ang[j+1] = v;
+    }
+    float gapmax = -1.0f; int gi = 0;
+    for (int i = 0; i < na; i++) {
+        const float a0 = ang[i], a1 = (i+1 < na) ? ang[i+1] : ang[0] + 6.2831853f;
+        if (a1 - a0 > gapmax) { gapmax = a1 - a0; gi = i; }
+    }
+    /* the two edges of the opening — the two frame-face meetings */
+    const float e0 = ang[gi], e1 = (gi+1 < na) ? ang[gi+1] : ang[0] + 6.2831853f;
+    const float m0x = bx + cosf(e0)*br, m0z = bz + sinf(e0)*br;
+    const float m1x = bx + cosf(e1)*br, m1z = bz + sinf(e1)*br;
+    if (out_fx) *out_fx = m1x;
+    if (out_fz) *out_fz = m1z;
+    float tx = m0x, tz = m0z;
+    /* THE CUSHION'S END, against the nearer of the two meeting points. Which
+     * one a given cushion answers to is a matching question; the points
+     * themselves were fixed by the wood before the cushion was looked at. */
+    float ytop = -1e30f;
     for (int t = bed; t < lip && t < ntri; t++) {
         if (tri[t].mat != CUE_MAT_CLOTH) continue;
         for (int i = 0; i < 3; i++) {
@@ -160,27 +221,47 @@ static float frame_meet_err(const CueWorld *w, int p, float br, float bset,
         }
     }
     if (ytop < -1e29f) return NAN;
-    float ex = 0.0f, ez = 0.0f, near = 1e30f;
+    float near = 1e30f;
     for (int t = bed; t < lip && t < ntri; t++) {
         if (tri[t].mat != CUE_MAT_CLOTH) continue;
         for (int i = 0; i < 3; i++) {
-            if (tri[t].v[i].y < ytop - 0.0015f) continue;    /* within 1.5mm of the top */
+            if (tri[t].v[i].y < ytop - 0.0015f) continue;
             const float px = tri[t].v[i].x - w->pocket[p].x;
             const float pz = tri[t].v[i].z - w->pocket[p].z;
             if (px*px + pz*pz > REACH*REACH) continue;
-            const float dx = tri[t].v[i].x - bx, dz = tri[t].v[i].z - bz;
-            const float d = sqrtf(dx*dx + dz*dz);
-            if (d < near) { near = d; ex = tri[t].v[i].x; ez = tri[t].v[i].z; }
+            const float d0x = tri[t].v[i].x - m0x, d0z = tri[t].v[i].z - m0z;
+            const float d1x = tri[t].v[i].x - m1x, d1z = tri[t].v[i].z - m1z;
+            const float e0d = sqrtf(d0x*d0x + d0z*d0z);
+            const float e1d = sqrtf(d1x*d1x + d1z*d1z);
+            const float d = (e0d < e1d) ? e0d : e1d;
+            if (d < near) { near = d; tx = (e0d < e1d) ? m0x : m1x;
+                                      tz = (e0d < e1d) ? m0z : m1z; }
         }
     }
     if (near > 1e29f) return NAN;
-    const float ux = ex - bx, uz = ez - bz, ul = sqrtf(ux*ux + uz*uz);
-    if (ul < 1e-6f) return NAN;
-    if (out_tx) *out_tx = bx + ux/ul*br;
-    if (out_tz) *out_tz = bz + uz/ul*br;
-    return near - br;
+    /* SIGNED: inside the bore circle means the cushion has gone past the
+     * meeting point, outside means it has not reached it. An unsigned distance
+     * has no zero crossing for a solver to find. */
+    float cx = 0.0f, cz = 0.0f; float nb = 1e30f;
+    for (int t = bed; t < lip && t < ntri; t++) {
+        if (tri[t].mat != CUE_MAT_CLOTH) continue;
+        for (int i = 0; i < 3; i++) {
+            if (tri[t].v[i].y < ytop - 0.0015f) continue;
+            const float px = tri[t].v[i].x - w->pocket[p].x;
+            const float pz = tri[t].v[i].z - w->pocket[p].z;
+            if (px*px + pz*pz > REACH*REACH) continue;
+            const float dx = tri[t].v[i].x - tx, dz = tri[t].v[i].z - tz;
+            const float d = dx*dx + dz*dz;
+            if (d < nb) { nb = d; cx = tri[t].v[i].x; cz = tri[t].v[i].z; }
+        }
+    }
+    if (out_tx) *out_tx = tx;
+    if (out_tz) *out_tz = tz;
+    {   const float dx = cx - bx, dz = cz - bz;
+        const float r = sqrtf(dx*dx + dz*dz);
+        return (r < br) ? -near : near;
+    }
 }
-
 
 typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset,
                        flen, ang,
@@ -261,7 +342,7 @@ static float top_of_build(const CueTable *t, const CueWorld *w, int pidx, int mi
     const int m = w->pocket_mid[p];
     return frame_meet_err(w, p, m ? t->bore_side : t->bore_corner,
                           m ? t->bore_set_side : t->bore_set_corner,
-                          tri, ntri, bd, lp, NULL, NULL);
+                          tri, ntri, bd, lp, NULL, NULL, NULL, NULL);
 }
 
 static float solve_gap(int ti, int mid, const Knobs *k0, int pidx) {
@@ -700,10 +781,10 @@ int main(int argc, char **argv) {
     mid = W.pocket_mid[p];        /* the chosen pocket's own kind, not the flag */
     /* Measured here, where the mesh and the chosen pocket both exist, so the
      * target point can be DRAWN as well as reported. */
-    float tgx = 0.0f, tgz = 0.0f;
+    float tgx = 0.0f, tgz = 0.0f, tfx = 0.0f, tfz = 0.0f;
     const float topmm = frame_meet_err(&W, p, mid ? T.bore_side : T.bore_corner,
                                        mid ? T.bore_set_side : T.bore_set_corner,
-                                       tri, ntri, bd, lp, &tgx, &tgz) * 1000.0f;
+                                       tri, ntri, bd, lp, &tgx, &tgz, &tfx, &tfz) * 1000.0f;
     ox=W.pocket[p].x; oz=W.pocket[p].z;
     /* A FIXED WORLD SCALE. This was zoom*T.pr_corner — the view span tied to
      * the pocket radius — so the camera zoomed out at exactly the rate the
@@ -807,8 +888,40 @@ int main(int argc, char **argv) {
     circ_m(pc.x-n.x*W.pocket_r[p], pc.z-n.z*W.pocket_r[p], W.R, 255,255,255,0,0);
     /* THE POINT THE CUSHION HAS TO ARRIVE AT, drawn rather than asserted:
      * where the bore circle crosses the inner face of the frame. */
-    if (tgx != 0.0f || tgz != 0.0f) {
+    if (tfx != 0.0f || tfz != 0.0f) {          /* the frame edge sample, cyan */
+        float f0,f1; m2px(tfx,tfz,&f0,&f1); dot(f0,f1,4,90,230,255);
+    }
+    if (tgx != 0.0f || tgz != 0.0f) {          /* where the cushion must stop */
         float t0,t1; m2px(tgx,tgz,&t0,&t1); dot(t0,t1,5,255,235,60);
+    }
+    /* WHAT IS INSIDE THE HOLE. Every cushion vertex near this pocket, by how
+     * far it sits inside the bore circle and at what height, so "the cushion
+     * overhangs" can be read as numbers instead of argued from a picture. */
+    if (getenv("PB_DUMP")) {
+        const float bx2 = W.pocket[p].x + W.pmnorm[p].x*(mid?T.bore_set_side:T.bore_set_corner);
+        const float bz2 = W.pocket[p].z + W.pmnorm[p].z*(mid?T.bore_set_side:T.bore_set_corner);
+        const float br2 = mid ? T.bore_side : T.bore_corner;
+        float ymin=1e30f, ymax=-1e30f, worst=1e30f; float wy=0;
+        int inside=0, total=0;
+        for (int t = bd; t < lp && t < ntri; t++) {
+            if (tri[t].mat != CUE_MAT_CLOTH) continue;
+            for (int i = 0; i < 3; i++) {
+                const float px = tri[t].v[i].x - W.pocket[p].x;
+                const float pz = tri[t].v[i].z - W.pocket[p].z;
+                if (px*px + pz*pz > 0.35f*0.35f) continue;
+                const float dx = tri[t].v[i].x - bx2, dz = tri[t].v[i].z - bz2;
+                const float d = sqrtf(dx*dx+dz*dz) - br2;
+                total++;
+                if (tri[t].v[i].y < ymin) ymin = tri[t].v[i].y;
+                if (tri[t].v[i].y > ymax) ymax = tri[t].v[i].y;
+                if (d < -0.0002f) inside++;
+                if (d < worst) { worst = d; wy = tri[t].v[i].y; }
+            }
+        }
+        fprintf(stderr, "DUMP cushion verts near pocket: %d, INSIDE the bore: %d\n"
+                        "     deepest %+.2fmm at y=%.1fmm (cushion spans y %.1f..%.1fmm)\n",
+                total, inside, (double)(worst*1000), (double)(wy*1000),
+                (double)(ymin*1000), (double)(ymax*1000));
     }
     float q0,q1; m2px(pc.x,pc.z,&q0,&q1); dot(q0,q1,3,255,45,45);
     m2px(cc.x,cc.z,&q0,&q1); dot(q0,q1,3,80,200,255);
