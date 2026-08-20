@@ -58,6 +58,11 @@ static int run(int kind, int verbose, float *out_corner, float *out_mid) {
     ENV(off_corner); ENV(off_side); ENV(facing_len); ENV(gap_corner); ENV(gap_side);
     ENV(R); ENV(cap_corner); ENV(cap_side); ENV(half_len); ENV(half_wid);
     #undef ENV
+    /* PUT THE TIMBER BACK IN STEP. The knobs above write pr straight onto an
+     * already-initialised table, and the bore is DERIVED from pr — so without
+     * this a swept pocket size moved the drop and left the hole in the wood
+     * where it was, and the link then solved the cushions onto the old one. */
+    cue_table_normalise(&t);
     static CueWorld w;
     cue_table_build_world(&t, &w);
 
@@ -213,18 +218,32 @@ static int run(int kind, int verbose, float *out_corner, float *out_mid) {
  * to the millimetre, because on that table a millimetre is a third of the game. */
 static const struct { int kind; const char *name;
                       float want_c, want_m, tol; } EXPECT[] = {
-    /* -1 in want means "no fixed figure, just fit the ball with room". */
-    { CUE_GAME_UK8,      "UK 8-ball 7ft",   -1, -1, 0 },
+    /* -1 in want means "no fixed figure, just fit the ball with room".
+     *
+     * THE ROUNDED TABLES ARE PINNED NOW, because their pocket sizes were set
+     * from published openings rather than picked: 1.60 ball widths at a snooker
+     * or UK corner, 1.73 at a snooker middle, 1.50 on Chinese 8. They used to be
+     * 1.91-1.97 across the board, a quarter of a ball wider than any
+     * specification, and it played that way. Left unpinned they could drift back
+     * — the sizes are one authored number each and easy to nudge — so the
+     * clearances that came out of those openings are written down here.
+     *
+     * These are the FLOOD FILL's numbers, which are the narrowest passage a ball
+     * centre can actually get through, so they are a little under the openings
+     * quoted in cue_table.c: 34.6 mm of clearance on an 84.0 mm snooker corner
+     * mouth against a 52.5 mm ball. The tolerance is 1.5 mm, which is grid
+     * resolution plus room for a jaw curve tweak, not room for a resize. */
+    { CUE_GAME_UK8, "UK 8-ball 7ft", 31.1f, 30.5f, 1.5f },
     { CUE_GAME_US8,      "US 8-ball 9ft",   -1, -1, 0 },
     { CUE_GAME_US9,      "9-ball 9ft",      -1, -1, 0 },
-    { CUE_GAME_CN8,      "Chinese 8 10ft",  -1, -1, 0 },
-    { CUE_GAME_SNK15,    "snooker 12ft",    -1, -1, 0 },
-    { CUE_GAME_SNK10,    "snooker 10ft",    -1, -1, 0 },
-    { CUE_GAME_SNK6,     "snooker 6-red",   -1, -1, 0 },
+    { CUE_GAME_CN8, "Chinese 8 10ft", 30.1f, 28.6f, 1.5f },
+    { CUE_GAME_SNK15, "snooker 12ft", 34.6f, 38.3f, 1.5f },
+    { CUE_GAME_SNK10, "snooker 10ft", 34.6f, 38.3f, 1.5f },
+    { CUE_GAME_SNK6, "snooker 6-red", 31.1f, 30.5f, 1.5f },
     { CUE_GAME_STRAIGHT, "straight pool",   -1, -1, 0 },
     { CUE_GAME_PYRAMID,  "pyramid 12ft",   5.0f, 14.5f, 1.0f },
     { CUE_GAME_PYRAMID7, "pyramid 7ft",    5.0f, 14.5f, 1.0f },
-    { CUE_GAME_BILLIARDS,"English billiards",-1, -1, 0 },
+    { CUE_GAME_BILLIARDS, "English billiards", 34.6f, 38.3f, 1.5f },
     /* Bar billiards has no rail pockets at all — its holes are in the bed and
      * this test is about the passage between two cushion jaws. Nothing to
      * measure, and a zero here would read as a failure rather than as N/A. */
@@ -232,7 +251,7 @@ static const struct { int kind; const char *name;
     /* Billiards golf is the UK 7 ft table, pockets and all — the game is
      * eighteen layouts and a card, not a bed of its own — so it wants the same
      * answer UK 8-ball gets, and gets it from the same numbers. */
-    { CUE_GAME_GOLF,     "billiards golf",  -1, -1, 0 },
+    { CUE_GAME_GOLF, "billiards golf", 31.1f, 30.5f, 1.5f },
 };
 
 /* A ball has to fit through with SOME room or the pocket is decorative. Three

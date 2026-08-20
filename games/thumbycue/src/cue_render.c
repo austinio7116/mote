@@ -1568,6 +1568,10 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     uint16_t face  = shade565(t->cloth, 0.72f);   /* the vertical nose front face */
     uint16_t ctop  = shade565(t->cloth, 0.92f);   /* cloth top to the rail */
     const float ub = 0.45f * t->R;                /* undercut / overhang */
+    /* HOW FAR PAST THE BORE'S EDGE a folded cushion vertex has to land before
+     * the wood in front of it hides it. Three millimetres is a hair on a table
+     * and takes the end face out of sight from every angle tried. */
+    #define CUE_BORE_HIDE 0.003f
     for (int s = 0; s < w->nseg; s++) {
         const CueSeg *sg = &w->seg[s];
         /* Per-NODE back normal: average with the neighbouring segment when they
@@ -1675,8 +1679,32 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
             float md = zrail ? M.z : M.x;
             if (fabsf(md) > 1e-4f) {
                 float tn2 = (target - (zrail ? tp.z : tp.x)) / md;
+                /* both are bounded below, so they cannot be const */
                 Vec3 bp = v3(tp.x - nn.x*cw, 0, tp.z - nn.z*cw);
                 float tb = (target - (zrail ? bp.z : bp.x)) / md;
+                /* NEVER ACROSS A POCKET.
+                 *
+                 * This extension exists to run a free facing out until it meets
+                 * the woodwork, and it is measured along the facing's own
+                 * tangent with no notion of the hole in between. On a jaw whose
+                 * tip already finishes AT the frame — which is what the yellow
+                 * point is — it had nothing left to close, and instead drove the
+                 * tip 64.6 mm further on: out of the bore on the far side, with
+                 * the strip sweeping straight over the hole to get there. That
+                 * is the cushion visible inside the pocket, coming back out
+                 * further in.
+                 *
+                 * Bounding the ray stops it at the bore's edge. A tip already on
+                 * that edge and heading inward gets a limit of zero, so it stops
+                 * exactly on the yellow point and the geometry ends there. */
+                {   const float lim = cue_table_ray_bore_limit(w, tp.x, tp.z,
+                                                               M.x, M.z, tn2);
+                    if (lim < tn2) tn2 = lim;
+                }
+                {   const float lim = cue_table_ray_bore_limit(w, bp.x, bp.z,
+                                                               M.x, M.z, tb);
+                    if (lim < tb) tb = lim;
+                }
                 if (tn2 > 0.0f) { Vec3 e = v3_add(tp, v3_scale(M, tn2));
                                   if (afree) pa = e; else pb = e; }
                 if (tb > 0.0f) { Vec3 e = v3_add(bp, v3_scale(M, tb));
@@ -1684,6 +1712,19 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                                  else       { fbb = e; haveFbb = 1; } }
             }
         }
+        /* NOTHING PAST THE YELLOW POINT, which is where the jaw is built to
+         * finish. The extension above runs a free tip along its own tangent
+         * until it reaches the wood, and its target is worked out from `kn` —
+         * the previous vertex — on the assumption that `kn` lies on the
+         * STRAIGHT nose line. On a rounded jaw it does not: it is a point part
+         * way round the curve, so the target lands somewhere else and the tip is
+         * driven PAST the frame and into the bore. That is the sliver of cloth
+         * you can see inside the pocket.
+         *
+         * The tip is already at the wood by construction now, so the extension
+         * has nothing left to do there — but rather than unpick which tables
+         * still need it, the result is simply clamped out of the hole. Every
+         * pocket, every shape, and the same helper the collision world uses. */
         float uba = sharedA ? ub : 0.0f, ubb = sharedB ? ub : 0.0f;
         /* Back-vertex depth. Shared ends reach the full depth cw; a FREE tip
          * collapses to 0 because the nose was already extended along its tangent
@@ -1730,6 +1771,54 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         Vec3 br = haveFbb ? v3(fbb.x, rail_h, fbb.z)
                           : v3(pb.x - bkb.x*cwb*mscaleB, rail_h,
                                pb.z - bkb.z*cwb*mscaleB);
+        /* NO CUSHION INSIDE THE HOLE.
+         *
+         * The NOSE is built to finish on the yellow point and does — but the
+         * cushion is a body, and its base and its back are pushed out from the
+         * nose by the undercut and the cushion depth. Near a pocket that push
+         * is across the bore, so the base and the back can cross into the hole
+         * and show as a sliver of cloth INSIDE the pocket, past the point the
+         * cushion was supposed to stop at.
+         *
+         * The nose is left exactly where it is. Only the vertices behind it are
+         * pulled back to the bore's edge, which folds that sliver into the
+         * cushion's own back where it cannot be seen. Same helper the collision
+         * world uses, so the two cannot disagree about it — and it runs on every
+         * pocket of every shape, which is the point: a rectangle was already
+         * clean and an octagon was not. */
+        /* NOTHING OF THE CUSHION VISIBLE INSIDE THE BORE.
+         *
+         * Clamping the VERTICES to the bore's edge is not enough and cannot be:
+         * the cushion is a strip of quads, and a quad spanning two points on a
+         * circle cuts across the chord between them. With jaw steps of 7-8 mm
+         * near the mouth that chord dips about 2 mm inside the hole, which is
+         * the sliver of red — the undercut face — visible through the pocket.
+         *
+         * So every cushion vertex near a pocket is pushed a little way PAST the
+         * bore, into the timber, by enough to cover that dip. The bore wall is
+         * drawn at the true radius, so the cushion ends up behind it and is
+         * hidden — no gap appears, because the wood is what is in front. The
+         * NOSE the physics uses is untouched: these are the mesh's own copies. */
+        /* FOLDED BACK INTO THE TIMBER, not moved radially.
+         *
+         * The nose reaches the yellow point and stops, and measured in plan
+         * nothing of the cushion is inside the bore — 0.000 mm. But the end of
+         * the cushion is a vertical face standing at the rim, and from any
+         * camera above the bed that face projects over the hole, so the cushion
+         * reads as carrying on into the pocket. A radial clamp cannot fix that,
+         * because there is nothing radially inside to clamp.
+         *
+         * Folding it along the cushion's own outward normal puts it behind the
+         * bore wall, where the wood hides it. Capped at the cushion's depth so
+         * a fold can never drag the strip past its own back. */
+        {   const Vec3 un = v3(-sg->n.x, 0.0f, -sg->n.z);   /* into the timber */
+            for (int v = 0; v < 8; v++) {
+                Vec3 *pv = (v==0)?&ba:(v==1)?&bb:(v==2)?&an:(v==3)?&bn:
+                           (v==4)?&af:(v==5)?&bf:(v==6)?&ar:&br;
+                cue_table_hide_bore(w, &pv->x, &pv->z, un.x, un.z,
+                                    CUE_BORE_HIDE, cw);
+            }
+        }
         ribbon(ba, bb, bn, an, fdark);      /* undercut face (leans to nose) */
         quad(an, bn, bf, af, face);            /* small flat (planar) */
         ribbon(af, bf, br, ar, ctop);       /* cloth top → rail */

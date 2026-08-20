@@ -79,15 +79,24 @@ int main(void) {
          * backwards first time. */
         ok(fabsf(t.R * 2000.0f - 67.0f) < 0.6f,     "the ball is 67 mm");
         ok(fabsf(t.mass - 0.255f) < 0.010f,         "...and 255 g");
-        ok(fabsf(t.pr_corner * 2000.0f - (t.R * 2000.0f + 5.0f)) < 1.0f,
+        /* MEASURED, NOT AUTHORED. These read pr_corner*2 as the mouth, which
+         * it never was and certainly is not now: pr is the DROP and the BORE,
+         * and what a ball squeezes through is where the link left the two
+         * cushions. On this table the difference is the whole game — a 37 mm
+         * pocket radius gives a 74 mm opening, not a 74 mm hole — so the
+         * federation's figures have to be checked against the built table. */
+        float open_c = 0.0f, open_m = 0.0f;
+        cue_table_openings(&t, &open_c, &open_m);
+        const float ball_mm = t.R * 2000.0f;
+        printf("     openings: corner %.1f mm, middle %.1f mm (ball %.1f mm)\n",
+               (double)(open_c*1000.0f), (double)(open_m*1000.0f), (double)ball_mm);
+        ok(fabsf(open_c * 1000.0f - (ball_mm + 5.0f)) < 1.5f,
                                           "...the corner five millimetres wider");
-        ok(fabsf(t.pr_side * 2000.0f - (t.R * 2000.0f + 14.5f)) < 1.0f,
+        ok(fabsf(open_m * 1000.0f - (ball_mm + 14.5f)) < 1.5f,
                                           "...and the middle about fifteen");
-        ok(t.pr_side > t.pr_corner,       "...so the middle is the wider of the two");
+        ok(open_m > open_c,               "...so the middle is the wider of the two");
         ok(t.pocket_round == 0,           "the jaws are cut sharp, not rounded");
-        printf("     middle mouth %.0f mm, %s jaws\n",
-               (double)(t.pr_side*2000.0f),
-               t.pocket_round ? "rounded" : "mitred"); }
+        printf("     %s jaws\n", t.pocket_round ? "rounded" : "mitred"); }
 
     /* ---- the rack -------------------------------------------------------- */
     CueBall b[CUE_MAX_BALLS];

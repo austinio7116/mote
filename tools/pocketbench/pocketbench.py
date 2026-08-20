@@ -98,12 +98,11 @@ def defaults():
 
 # THE LINKED SCHEME, worked out here before it is worked into the engine.
 #
-# FOUR NUMBERS, AND NOT ONE OF THEM IS A BALL RADIUS. The game's own fields are
-# all written as multiples of R, which is exactly the thing being got rid of: a
-# pocket is a hole of a certain size in millimetres and the ball either fits
-# through it or does not. So the knobs here are millimetres, and the ÷R is done
-# on the way into the engine and nowhere else — it is a unit conversion for a
-# field that has not been changed yet, not part of the scheme.
+# FOUR NUMBERS, AND NOT ONE OF THEM IS A BALL RADIUS. A pocket is a hole of a
+# certain size in millimetres and the ball either fits through it or does not.
+# The tables were written as multiples of R and no longer are; the bench was
+# converting mm to R on the way in and no longer does. Millimetres end to end,
+# and the only place the ball appears is the fit test.
 #
 # TWO AUTHORED NUMBERS, not one. A pocket needs a size and it needs a depth,
 # and they are independent: the size is how big the hole is and the depth is
@@ -129,9 +128,9 @@ def defaults():
 # The translation into the fields the bench already drives, so the engine is
 # untouched and what is on the screen is the real renderer:
 #
-#   pr   = pocket / R        capm = 0        (the drop IS the pocket radius)
+#   pr   = pocket            capm = 0        (the drop IS the pocket radius)
 #   bore = pr                bset = back     (timber hole = drop, concentric)
-#   back = depth / R
+#   back = depth
 #   rad  = cut x                             (already a multiple of pr)
 #   set  = depth + cut offset                (metres, along the normal)
 #   roll = lip / pocket                      (a multiple of pr, which
@@ -152,14 +151,15 @@ def link_keys(q):
     if q.get("linked", "0") in ("", "0"):
         return q
     q = dict(q)
-    R = float(q.get("ballR", "0.0254"))          # metres, for the ÷R only
     psize  = float(q.get("psize",  "46.0"))      # mm, THE POCKET
     depth  = float(q.get("depth",  "8.0"))       # mm, along the normal
     lipk   = float(q.get("lipk",   "1.30"))      # x the pocket
     lipoff = float(q.get("lipoff", "0.0"))       # mm the cloth OVERHANGS the drop
     lip    = float(q.get("lip",    "11.0"))      # mm, how far the lip rolls
-    pr   = (psize / 1000.0) / R
-    back = (depth / 1000.0) / R
+    # STRAIGHT THROUGH: the bench's knobs are millimetres now, the same unit
+    # the tables are authored in, so there is nothing to convert.
+    pr   = psize
+    back = depth
     q["pr"]   = "%.6f" % pr
     q["capm"] = "0"
     q["back"] = "%.6f" % back
@@ -322,16 +322,20 @@ def source_block(name, d, v):
     c, m = v["corner"], v["middle"]
     return "\n".join([
         "/* %s  —  cue_table_init(), the %s */" % (d["label"], d["sym"]),
-        "    t->pr_corner  = %.4ff * t->R; t->pr_side  = %.4ff * t->R;" % (c["pr"], m["pr"]),
-        "    t->gap_corner = %.4ff * t->R; t->gap_side = %.4ff * t->R;" % (c["gap"], m["gap"]),
-        "    t->off_corner = %.4ff * t->R; t->off_side = %.4ff * t->R;" % (c["off"], m["off"]),
-        "    t->drop_back  = %.4ff * t->R; t->drop_back_side = %.4ff * t->R;" % (c["back"], m["back"]),
-        "    t->bore_corner = %.4ff * t->R; t->bore_side = %.4ff * t->R;" % (c["bore"], m["bore"]),
-        "    t->bore_set_corner = %.4ff * t->R; t->bore_set_side = %.4ff * t->R;" % (c["bset"], m["bset"]),
+        "    /* millimetres, and NOT multiples of the ball: the pocket is a hole",
+        "     * of a size, and it stays that size whatever is rolled at it. */",
+        "    t->pr_corner  = %.7ff; t->pr_side  = %.7ff;   /* %.2f / %.2f mm */"
+            % (c["pr"]/1000.0, m["pr"]/1000.0, c["pr"], m["pr"]),
+        "    t->drop_back  = %.7ff; t->drop_back_side = %.7ff;   /* %.2f / %.2f mm */"
+            % (c["back"]/1000.0, m["back"]/1000.0, c["back"], m["back"]),
+        "    t->off_corner = %.7ff; t->off_side = %.7ff;   /* %.2f / %.2f mm */"
+            % (c["off"]/1000.0, m["off"]/1000.0, c["off"], m["off"]),
+        "    t->cap_corner = %.7ff; t->cap_side = %.7ff;   /* %.2f / %.2f mm */"
+            % (c["capm"]/1000.0, m["capm"]/1000.0, c["capm"], m["capm"]),
         "",
-        "/* cue_table.c build_world() — the drop circle */",
-        "    float capc = t->pr_corner - %.4ff * t->R," % c["capm"],
-        "          caps = t->pr_side   - %.4ff * t->R;" % m["capm"],
+        "    /* the bore and the gaps are DERIVED — cue_table_normalise() puts",
+        "     * the timber on the drop, and the link puts the cushions on the",
+        "     * timber. Nothing below is authored any more. */",
         "",
         "/* cue_table_default_cut() — { set(m), rad(x pr), roll(x pr), arc(deg) } */",
         "    corner  { %.5ff, %.4ff, %.4ff, 90.0f }" % (c["set"], c["rad"], c["roll"]),
@@ -480,16 +484,19 @@ const FIELD={gap:'gap_corner / gap_side', pr:'pr_corner / pr_side',
              bore:'bore_corner / bore_side', bset:'bore_set_corner / bore_set_side',
              flen:'facing_len', ang:'ang_corner / ang_side', jaw:'jaw_r',
              rail:'rail_w', cush:'cushion_h', ball:'R', round:'pocket_round'};
-const RANGE={pr:[1.0,3.2,.01], gap:[1.2,3.8,.005], off:[0,2.6,.01],
-             capm:[0,1.0,.01], back:[-0.5,2.0,.01], set:[-0.02,0.06,.0005],
+/* MILLIMETRES. These were multiples of the ball, which is exactly the
+   relationship the tables were stripped of: a hole is a certain size, not a
+   certain number of balls. Only `ball` is still the ball. */
+const RANGE={pr:[20,90,.25], gap:[30,110,.25], off:[0,70,.25],
+             capm:[-30,30,.25], back:[-12,55,.25], set:[-0.02,0.06,.0005],
              rad:[0.5,2.6,.005], roll:[0,1.0,.005],
-             bore:[1.0,3.2,.01], bset:[-1.0,1.0,.01],
-             flen:[0,4.0,.01], ang:[0,90,.5], jaw:[0,1.2,.005],
-             rail:[0.02,0.20,.001], cush:[0.6,2.0,.01],
+             bore:[20,90,.25], bset:[-25,25,.25],
+             flen:[0,100,.25], ang:[0,90,.5], jaw:[0,30,.25],
+             rail:[0.02,0.20,.001], cush:[15,55,.25],
              ball:[0.010,0.080,.0005], round:[0,1,1]};
-const UNIT ={pr:'×R', gap:'×R', off:'×R', capm:'×R', back:'×R',
-             set:'m', rad:'×pr', roll:'×pr', bore:'×R', bset:'×R',
-             flen:'×R', ang:'deg', jaw:'×R', rail:'m', cush:'×R', ball:'m',
+const UNIT ={pr:'mm', gap:'mm', off:'mm', capm:'mm', back:'mm',
+             set:'m', rad:'×pr', roll:'×pr', bore:'mm', bset:'mm',
+             flen:'mm', ang:'deg', jaw:'mm', rail:'m', cush:'mm', ball:'m',
              round:'0=mitred 1=rounded'};
 const TIP  ={gap:'How far apart the knuckles sit — the opening the ball goes through. THE CUSHIONS MOVE WITH IT. t->gap_corner / t->gap_side in cue_table_init.',
              pr:'The size of the hole itself: the drawn bore, and what the drop and the lip are measured from. t->pr_corner / t->pr_side.',
@@ -506,7 +513,7 @@ const TIP  ={gap:'How far apart the knuckles sit — the opening the ball goes t
              jaw:'The radius of the knuckle circle the ball rattles off. Subtracted twice from the knuckle centres to give the mouth, so it changes the opening without moving a cushion. t->jaw_r.',
              rail:'How wide the timber is. The frame, the slate overhang and the cloth cut are all measured off it, so it moves everything outside the cushion at once. t->rail_w.',
              cush:'How tall the cushion is. Decides where the nose sits and how far a ball has to be off the bed to pass over it. t->cushion_h.',
-             ball:'The ball itself. Everything above is a multiple of it, so this rescales the whole pocket — which is the point: a pocket that only works at one ball size is not a pocket, it is a coincidence. t->R.',
+             ball:'The ball itself. NOTHING above is measured in it any more — the pocket is millimetres and stays where it is when this moves, so this is the fit test: dial it up until the ball no longer passes. t->R.',
              round:'Which jaw the table is built with: 0 mitred (American, straight facings) or 1 rounded (English, bezier knuckles). They are different constructions, not a setting on one. t->pocket_round.'};
 const PLAY=['gap','pr','off','capm','back'];
 const DIG ={set:4, gap:3, rad:3, roll:3, bore:3, bset:3};
@@ -606,7 +613,6 @@ function lsync(kind){
    amount of tuning on top of it means anything. */
 function lseed(kind){
   const k=CUR[TABLE][kind];
-  const R=(DEF[TABLE]?.ball ?? 25.4)/1000.0;      /* metres, for the xR only */
   /* The drop is the pocket field LESS the cap margin the engine takes off it.
      Linked, the cap goes to zero and `pr` becomes the drop itself — so the
      cut, which is a multiple of `pr`, has to be scaled by the same ratio or
@@ -615,14 +621,17 @@ function lseed(kind){
   const drop = k.pr - (k.capm||0);
   const ratio = drop>1e-6 ? k.pr/drop : 1.0;   /* the cut is x pr, and pr moves */
   LCUR[kind]={
-    lip   : k.roll * k.pr * R * 1000.0,   /* cut_ref is pr, so lip_d = pr*roll */
+    /* ALL MILLIMETRES ALREADY — pr, back and the rest come off the bench in
+       the same unit the tables are authored in, so there is no scaling left
+       here at all. `set` is the one straggler, still metres from CueCut. */
+    lip   : k.roll * k.pr,                /* cut_ref is pr, so lip_d = pr*roll */
     arc   : (DEF[TABLE]?.[kind]?.arc ?? 0),   /* what this table already has */
-    psize : drop * R * 1000.0,
-    depth : k.back * R * 1000.0,
+    psize : drop,
+    depth : k.back,
     lipk  : k.rad * ratio,
     /* mm of overhang, from the same relation, so a shipped table seeds as
        whatever it actually has rather than as zero */
-    lipoff: ((k.rad * ratio - 1.0) * (drop*R) - (k.set - k.back*R)) * 1000.0,
+    lipoff: (k.rad * ratio - 1.0) * drop - (k.set*1000.0 - k.back),
   };
   lsync(kind);
 }

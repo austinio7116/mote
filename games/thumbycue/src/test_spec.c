@@ -103,7 +103,14 @@ int main(void) {
          * wall a ball bounces off and two ends that disagree about it are
          * playing different tables. bed_hand, which way the L turns, is the
          * fourth and is SIM for exactly the same reason. */
-        ck(cue_table_field_count() == 51,
+        /* 56 with the rounded jaw's four points: jaw_p0, jaw_h1, jaw_h2 and the
+         * two axis angles jaw_ang_c / jaw_ang_m. All five are SIM — the curve
+         * they describe IS the cushion a ball bounces off, and the renderer and
+         * the collision world are built from the same segments, so two ends that
+         * disagree about it are playing pockets of different widths. Two of the
+         * four points are not numbers at all: the yellow point falls out of the
+         * bore and the cushion depth, and the tangent at P0 is the rail. */
+        ck(cue_table_field_count() == 56,
            "field count unchanged (add a field -> decide if it is SIM, then update this)");
 
         /* And the playing numbers, one per kind of thing a table can be: its

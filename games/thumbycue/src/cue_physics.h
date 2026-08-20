@@ -249,6 +249,19 @@ typedef struct {
      * on a thirty-gon are a shape nobody will look at closely; a missing
      * cushion is a wall a ball goes through. */
     int jaw_segs;
+    /* The rounded jaw's shape, copied off the table — see CueTable::jaw_p0.
+     * On the world because the curve is built here and the segments it makes
+     * ARE the physics; there is only one curve and both sides read it. */
+    float jaw_p0, jaw_h1, jaw_h2, jaw_ang_c, jaw_ang_m;
+    /* WHICH POCKET KINDS THE CUSHIONS ACTUALLY REACHED: bit 0 corner, bit 1
+     * middle. A pocket small enough stops reaching: the bore no longer crosses
+     * the frame's inner edge, so there is no point to stand a cushion tip on
+     * and the gap stays at its seed. Where that happens is a property of the
+     * TIMBER — the rail width and the setback decide it — not of the ball; on
+     * a UK 7ft with its 75mm rail it is somewhere under 30mm of pocket, and a
+     * 25mm one there reported 192mm across. Anything quoting a pocket size has
+     * to check this first, because the wrong number looks perfectly plausible. */
+    int linked;
     Vec3   jaw[CUE_MAX_SEG]; int njaw; float jaw_r;   /* immovable jaw-tip circles */
     Vec3   pocket[CUE_MAX_POCKET]; float pocket_r[CUE_MAX_POCKET]; int npocket;
     /* WHAT A HOLE IS WORTH. Zero on every table where a pocket is a pocket;

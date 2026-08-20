@@ -450,7 +450,11 @@ typedef struct { float pr, gap, off, capm, back, set, rad, roll, bore, bset,
                         * bench at all — so a gap could be dialled away in the
                         * pocket's own terms while the thing actually causing it
                         * sat off-screen. */
-                       jaw, rail, cush, ball;
+                       jaw, rail, cush, ball,
+                       /* THE ROUNDED JAW'S SHAPE, which was two constants in
+                        * curve_pts and so the one part of a pocket that could
+                        * not be looked at here at all. */
+                       jp0, jh1, jh2;
                        int round_; } Knobs;
 
 /* Built exactly the way the game builds it, with these numbers in place of the
@@ -472,13 +476,17 @@ static void apply_cut(int mid, const Knobs *k, const CueTable *t, CueWorld *ow) 
 
 static void build_tuned(int ti, int mid, const Knobs *k, CueTable *ot, CueWorld *ow) {
     CueTable t; cue_table_init(&t, TB[ti].k);
-    /* THE BALL AND THE POCKET STYLE FIRST, because everything below is a
-     * multiple of R and the jaw construction is chosen by pocket_round. */
+    /* THE BALL AND THE POCKET STYLE FIRST. Nothing below is a multiple of the
+     * ball any more — the knobs are millimetres, the same as the tables — but
+     * the jaw construction is still chosen by pocket_round, so it leads. */
     if (k->ball  > 0.0f) t.R = k->ball;
     if (k->round_ >= 0)  t.pocket_round = k->round_;
-    if (k->jaw  >= 0.0f) t.jaw_r     = k->jaw * t.R;
+    if (k->jaw  >= 0.0f) t.jaw_r     = k->jaw * 0.001f;
     if (k->rail >  0.0f) t.rail_w    = k->rail;
-    if (k->cush >  0.0f) t.cushion_h = k->cush * t.R;
+    if (k->jp0 >= 0.0f) t.jaw_p0 = k->jp0*0.001f;
+    if (k->jh1 >= 0.0f) t.jaw_h1 = k->jh1*0.001f;
+    if (k->jh2 >= 0.0f) t.jaw_h2 = k->jh2*0.001f;
+    if (k->cush >  0.0f) t.cushion_h = k->cush * 0.001f;
     /* FACING LENGTH AND SPLAY, which the bench did not have and which are the
      * two that shape a MITRED jaw. On a rounded table the jaw is a bezier and
      * neither is read, so they were never missed; on a mitred one they decide
@@ -486,15 +494,17 @@ static void build_tuned(int ti, int mid, const Knobs *k, CueTable *ot, CueWorld 
      * cushion standing proud of its own hole. facing_len is ONE field for both
      * pockets — the game has no separate corner and middle length — so the
      * slider moves both whichever type is being looked at. */
-    t.facing_len = k->flen*t.R;
-    if (mid) { t.pr_side   = k->pr*t.R;  t.gap_side   = k->gap*t.R;  t.off_side   = k->off*t.R;
-               t.drop_back_side = k->back*t.R; t.cap_side = k->capm*t.R;
-               t.bore_side  = k->bore*t.R; t.bore_set_side = k->bset*t.R;
+    t.facing_len = k->flen*0.001f;
+#define MM 0.001f
+    if (mid) { t.pr_side   = k->pr*MM;  t.gap_side   = k->gap*MM;  t.off_side   = k->off*MM;
+               t.drop_back_side = k->back*MM; t.cap_side = k->capm*MM;
+               t.bore_side  = k->bore*MM; t.bore_set_side = k->bset*MM;
                t.ang_side = k->ang; }
-    else     { t.pr_corner = k->pr*t.R;  t.gap_corner = k->gap*t.R;  t.off_corner = k->off*t.R;
-               t.drop_back      = k->back*t.R; t.cap_corner = k->capm*t.R;
-               t.bore_corner = k->bore*t.R; t.bore_set_corner = k->bset*t.R;
+    else     { t.pr_corner = k->pr*MM;  t.gap_corner = k->gap*MM;  t.off_corner = k->off*MM;
+               t.drop_back      = k->back*MM; t.cap_corner = k->capm*MM;
+               t.bore_corner = k->bore*MM; t.bore_set_corner = k->bset*MM;
                t.ang_corner = k->ang; }
+#undef MM
     cue_table_build_world(&t, ow);
     apply_cut(mid, k, &t, ow);
     *ot = t;
@@ -788,25 +798,29 @@ int main(int argc, char **argv) {
                        "\"bore\": %.4f, \"bset\": %.4f, "
                        "\"flen\": %.4f, \"ang\": %.2f, "
                        "\"jaw\": %.4f, \"rail\": %.4f, \"cush\": %.4f, "
-                       "\"ball\": %.4f, \"round\": %d}",
+                       "\"ball\": %.4f, \"round\": %d, \"jp0\": %.2f, \"jh1\": %.2f, \"jh2\": %.2f}",
                     m?"middle":"corner",
-                    (double)((m ? T.pr_side  : T.pr_corner ) / T.R),
-                    (double)((m ? T.gap_side : T.gap_corner) / T.R),
-                    (double)((m ? T.off_side : T.off_corner) / T.R),
-                    (double)((m ? T.cap_side : T.cap_corner) / T.R),
-                    (double)((m ? T.drop_back_side : T.drop_back) / T.R),
+                    /* MILLIMETRES, matching the knobs. The page seeds its
+                     * sliders straight from this, so an R here and a mm there
+                     * would have every shipped table opening at 2mm. */
+                    (double)((m ? T.pr_side  : T.pr_corner ) * 1000.0f),
+                    (double)((m ? T.gap_side : T.gap_corner) * 1000.0f),
+                    (double)((m ? T.off_side : T.off_corner) * 1000.0f),
+                    (double)((m ? T.cap_side : T.cap_corner) * 1000.0f),
+                    (double)((m ? T.drop_back_side : T.drop_back) * 1000.0f),
                     (double)c.set, (double)c.rad, (double)c.roll,
                     /* A knob the page does not receive is a knob the page
                      * cannot draw — and the paste-back block asks for every
                      * key by name, so a missing one takes the whole page
                      * down. */
-                    (double)((m ? T.bore_side : T.bore_corner) / T.R),
-                    (double)((m ? T.bore_set_side : T.bore_set_corner) / T.R),
-                    (double)(T.facing_len / T.R),
+                    (double)((m ? T.bore_side : T.bore_corner) * 1000.0f),
+                    (double)((m ? T.bore_set_side : T.bore_set_corner) * 1000.0f),
+                    (double)(T.facing_len * 1000.0f),
                     (double)(m ? T.ang_side : T.ang_corner),
-                    (double)(T.jaw_r / T.R), (double)T.rail_w,
-                    (double)(T.cushion_h / T.R), (double)T.R,
-                    T.pocket_round);
+                    (double)(T.jaw_r * 1000.0f), (double)T.rail_w,
+                    (double)(T.cushion_h * 1000.0f), (double)T.R,
+                    T.pocket_round, (double)(T.jaw_p0*1000.0f),
+                    (double)(T.jaw_h1*1000.0f), (double)(T.jaw_h2*1000.0f));
             }
             printf("}%s\n", i+1<NT ? "," : "");
         }
@@ -834,7 +848,12 @@ int main(int argc, char **argv) {
     /* Every knob unset. bset alone uses -99 because a real setback may legally
      * be negative; the rest cannot be, so -1 says "not given". round_ is an
      * int and takes -1 for the same reason. */
-    Knobs k = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-99, -1,-1, -1,-1,-1,-1, -1};
+    Knobs k = {-1,-1,-1,-99,-1,-1,-1,-1,-1,-99, -1,-1, -1,-1,-1,-1, -1,-1,-1, -1};
+    /* PLAN MODE: the cushion nose as a polyline in millimetres, and nothing
+     * else. A shaded 3D pocket cannot be laid over a photograph and judged —
+     * the nose is a soft boundary between two greens — so the curve that is
+     * being tuned gets emitted as the line it actually is. */
+    int plan = 0;
     float zoom=5.0f;
     for (int i=1;i<argc-1;i++){
         if(!strcmp(argv[i],"--table")) tbl=argv[++i];
@@ -854,6 +873,10 @@ int main(int argc, char **argv) {
         else if(!strcmp(argv[i],"--pink")) pinkbg=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--kiss")) { kiss=1; karc=(float)atof(argv[++i]); }
         else if(!strcmp(argv[i],"--bore")) k.bore=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--jp0")) k.jp0=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--jh1")) k.jh1=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--jh2")) k.jh2=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--plan")) plan=1;
         else if(!strcmp(argv[i],"--bset")) k.bset=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--flen")) k.flen=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--ang"))  k.ang =(float)atof(argv[++i]);
@@ -903,26 +926,38 @@ int main(int argc, char **argv) {
     {   CueTable t0; cue_table_init(&t0, TB[ti].k);
         CueWorld w0; cue_table_build_world(&t0, &w0);
         CueCut c0;   cue_table_get_cut(&w0, mid, &c0);
-        if(k.pr  <0) k.pr  = (mid?t0.pr_side :t0.pr_corner )/t0.R;
-        if(k.gap <0) k.gap = (mid?t0.gap_side:t0.gap_corner)/t0.R;
-        if(k.off <0) k.off = (mid?t0.off_side:t0.off_corner)/t0.R;
-        if(k.capm<0) k.capm= (mid?t0.cap_side:t0.cap_corner)/t0.R;
-        if(k.back<0) k.back= (mid?t0.drop_back_side:t0.drop_back)/t0.R;
+        /* MILLIMETRES, like the tables. These used to come back as multiples
+         * of the ball, which is the one thing a pocket must not be measured
+         * in — a hole is a certain size, not a certain number of balls. */
+        if(k.pr  <0) k.pr  = (mid?t0.pr_side :t0.pr_corner )*1000.0f;
+        if(k.gap <0) k.gap = (mid?t0.gap_side:t0.gap_corner)*1000.0f;
+        if(k.off <0) k.off = (mid?t0.off_side:t0.off_corner)*1000.0f;
+        /* Catch is SIGNED — pyramid's is -15.4mm, the lip pulled inside the
+         * drop — so it gets the same never-a-real-value sentinel as bset
+         * rather than being flagged unset by its sign, which would have made
+         * a negative one impossible to pass in. */
+        if(k.capm<-90.0f) k.capm= (mid?t0.cap_side:t0.cap_corner)*1000.0f;
+        if(k.back<0) k.back= (mid?t0.drop_back_side:t0.drop_back)*1000.0f;
         if(k.set <0) k.set = c0.set;
         if(k.rad <0) k.rad = c0.rad;
         if(k.roll<0) k.roll= c0.roll;
-        if(k.bore<0) k.bore= (mid?t0.bore_side:t0.bore_corner)/t0.R;
-        if(k.flen<0) k.flen= t0.facing_len/t0.R;
-        if(k.jaw <0) k.jaw = t0.jaw_r/t0.R;
+        if(k.bore<0) k.bore= (mid?t0.bore_side:t0.bore_corner)*1000.0f;
+        if(k.flen<0) k.flen= t0.facing_len*1000.0f;
+        if(k.jaw <0) k.jaw = t0.jaw_r*1000.0f;
         if(k.rail<0) k.rail= t0.rail_w;
-        if(k.cush<0) k.cush= t0.cushion_h/t0.R;
+        if(k.cush<0) k.cush= t0.cushion_h*1000.0f;
         if(k.ball<0) k.ball= t0.R;
+        /* the angle is SIGNED and zero is meaningful, so it gets a sentinel
+         * a real value could never be rather than being flagged by its sign */
+        if(k.jp0<0) k.jp0= t0.jaw_p0*1000.0f;
+        if(k.jh1<0) k.jh1= t0.jaw_h1*1000.0f;
+        if(k.jh2<0) k.jh2= t0.jaw_h2*1000.0f;
         if(k.round_<0) k.round_= t0.pocket_round;
         if(k.ang <0) k.ang = (mid?t0.ang_side:t0.ang_corner);
         /* Setback CAN be negative — pulling the hole in toward the cloth is a
          * legitimate direction — so it is flagged unset with a sentinel that a
          * real value could never be rather than by its sign. */
-        if(k.bset<-90.0f) k.bset= (mid?t0.bore_set_side:t0.bore_set_corner)/t0.R;
+        if(k.bset<-90.0f) k.bset= (mid?t0.bore_set_side:t0.bore_set_corner)*1000.0f;
     }
     /* The renderer's buffers, BEFORE the solve rather than after it: the solve
      * builds the mesh ~90 times to measure the top edge, and building into
@@ -1009,10 +1044,12 @@ int main(int argc, char **argv) {
      * target point can be DRAWN as well as reported. */
     float tgx = 0.0f, tgz = 0.0f, tfx = 0.0f, tfz = 0.0f;
     float ctx=0, ctz=0, cfx=0, cfz=0;
-    const float arcmm = touch_vs_frame(&W, p, mid ? T.bore_side : T.bore_corner,
-                                       mid ? T.bore_set_side : T.bore_set_corner,
-                                       tri, ntri, bd, lp, +1,
-                                       &ctx, &ctz, &cfx, &cfz) * 1000.0f;
+    /* THE LINKER'S OWN TWO POINTS, so the marker and the solve cannot
+     * disagree: where the jaw ends, and where the bore meets the plank it
+     * slides along. Their separation IS the link error, in millimetres. */
+    float arcmm = NAN;
+    if (generic_point(&T, &W, p, &ctx, &ctz, &cfx, &cfz))
+        arcmm = sqrtf((ctx-cfx)*(ctx-cfx) + (ctz-cfz)*(ctz-cfz)) * 1000.0f;
     const float topmm = frame_meet_err(&W, p, mid ? T.bore_side : T.bore_corner,
                                        mid ? T.bore_set_side : T.bore_set_corner,
                                        tri, ntri, bd, lp, &tgx, &tgz, &tfx, &tfz) * 1000.0f;
@@ -1376,34 +1413,150 @@ int main(int argc, char **argv) {
     /* HOW FAR THE JAW TIP IS FROM THE POINT, in mm — the number this whole
      * exercise is about, so it can be read rather than taken on trust. */
     float missmm = 9999.0f;
-    {   const float cwd = T.rail_w * 0.63f;
-        const float lz  = (W.pocket[p].z > 0.0f) ? (T.half_wid + cwd) : -(T.half_wid + cwd);
+    {   /* THE NEAREST CUSHION NOSE VERTEX TO THE YELLOW POINT.
+         *
+         * This used to look for a JAW CIRCLE within 4 mm of the frame's inner
+         * face, and a jaw circle sits at the cushion NOSE — a whole cushion
+         * depth (53 mm on a pyramid table) further in — so the test could
+         * never pass and the readout was a permanent 9999. What the link
+         * actually places there is the end of the facing, which is a nose
+         * VERTEX, so that is what is measured.
+         *
+         * Only the crossing on the bed side counts. A bore crosses the frame
+         * line twice and the outward one has no cushion on it and should not:
+         * taking the worst of the two reported 37.58 mm on a pyramid corner
+         * whose cushion was sitting exactly on its own crossing. */
+        const float cwd = W.cush_depth;
         const float brr = mid ? T.bore_side : T.bore_corner;
         const float bsx = mid ? T.bore_set_side : T.bore_set_corner;
         const float cx = W.pocket[p].x + W.pmnorm[p].x*bsx;
         const float cz = W.pocket[p].z + W.pmnorm[p].z*bsx;
-        const float perp = lz - cz, disc = brr*brr - perp*perp;
-        if (disc >= 0.0f) {
+        for (int axis = 0; axis < 2; axis++) {
+            /* the rail this pocket is on: a middle has only its long rail */
+            if (axis && fabsf(W.pocket[p].x) < T.half_len*0.5f) continue;
+            if (!axis && fabsf(W.pocket[p].z) < T.half_wid*0.5f) continue;
+            const float line = axis
+                ? (W.pocket[p].x > 0.0f ?  (T.half_len+cwd) : -(T.half_len+cwd))
+                : (W.pocket[p].z > 0.0f ?  (T.half_wid+cwd) : -(T.half_wid+cwd));
+            const float perp = axis ? (line - cx) : (line - cz);
+            const float disc = brr*brr - perp*perp;
+            if (disc < 0.0f) continue;                 /* the bore never reaches */
             const float rt = sqrtf(disc);
-            /* the jaw tip nearest that line, off the world's own jaw list */
-            float bestd = 1e30f;
-            for (int j = 0; j < W.njaw; j++) {
-                const float d = fabsf(W.jaw[j].z - lz);
-                if (d > 0.004f) continue;
-                const float y0 = cx - rt, y1 = cx + rt;
-                const float e = fminf(fabsf(W.jaw[j].x - y0), fabsf(W.jaw[j].x - y1));
-                if (e < bestd) bestd = e;
+            for (int sgn = 0; sgn < 2; sgn++) {
+                const float yx = axis ? line : (cx + (sgn ? rt : -rt));
+                const float yz = axis ? (cz + (sgn ? rt : -rt)) : line;
+                /* WHICH CROSSING HAS A CUSHION ON IT, measured ALONG the
+                 * rail rather than out from the middle of the bed. Radially
+                 * the frame line is always further out than the pocket, so
+                 * comparing distances-from-centre rejected both crossings and
+                 * every middle read 9999.
+                 *
+                 * A corner has one cushion, running back along the rail, so
+                 * only the crossing nearer the rail's centre counts. A MIDDLE
+                 * has one each way and both count. */
+                const float ct = axis ? yz : yx;                  /* along the rail */
+                const float pt = axis ? W.pocket[p].z : W.pocket[p].x;
+                if (!mid && fabsf(ct) > fabsf(pt)) continue;
+                float best = 1e30f;
+                for (int q = 0; q < W.nseg; q++) {
+                    const float d1 = hypotf(W.seg[q].a.x-yx, W.seg[q].a.z-yz);
+                    const float d2 = hypotf(W.seg[q].b.x-yx, W.seg[q].b.z-yz);
+                    const float d  = d1 < d2 ? d1 : d2;
+                    if (d < best) best = d;
+                }
+                if (best*1000.0f < missmm) missmm = best*1000.0f;
             }
-            if (bestd < 1e29f) missmm = bestd * 1000.0f;
         }
     }
     /* the millimetres the page shows beside the sliders — derived, never dialled */
     const float tipmm = bore_clearance(&W, p, mid ? T.bore_side : T.bore_corner,
                                        mid ? T.bore_set_side : T.bore_set_corner) * 1000.0f;
+    if (plan) {
+        /* Origin at the POCKET POINT with x along the rail the pocket sits on,
+         * so a corner from either end of either rail comes out the same way up
+         * and can be compared with one photograph. */
+        const float ox = W.pocket[p].x, oz = W.pocket[p].z;
+        const float sx = (ox >= 0.0f) ? 1.0f : -1.0f;
+        const float sz = (oz >= 0.0f) ? 1.0f : -1.0f;
+        printf("{\"table\": \"%s\", \"kind\": \"%s\", "
+               "\"jp0\": %.3f, \"jh1\": %.3f, \"jh2\": %.3f, \"round\": %d,\n",
+               TB[ti].name, mid ? "middle" : "corner",
+               (double)(T.jaw_p0*1000.0f), (double)(T.jaw_h1*1000.0f),
+               (double)(T.jaw_h2*1000.0f), T.pocket_round);
+        printf(" \"ball\": %.3f, \"mouth\": %.3f, \"rail_w\": %.3f, \"cush\": %.3f,\n",
+               (double)(W.R*2000.0f), (double)(cue_table_mouth_at(&W,p)*1000.0f),
+               (double)(T.rail_w*1000.0f), (double)(W.cush_depth*1000.0f));
+        /* the bore and the drop, as circles in the same frame */
+        {   const float br = mid ? T.bore_side : T.bore_corner;
+            const float bs = mid ? T.bore_set_side : T.bore_set_corner;
+            printf(" \"bore\": {\"r\": %.3f, \"x\": %.3f, \"z\": %.3f},\n",
+                   (double)(br*1000.0f),
+                   (double)((W.pmnorm[p].x*bs)*1000.0f*sx),
+                   (double)((W.pmnorm[p].z*bs)*1000.0f*sz));
+            printf(" \"drop\": {\"r\": %.3f, \"x\": %.3f, \"z\": %.3f},\n",
+                   (double)(W.pocket_r[p]*1000.0f),
+                   (double)((W.drop_c[p].x-ox)*1000.0f*sx),
+                   (double)((W.drop_c[p].z-oz)*1000.0f*sz));
+        }
+        /* THE KNUCKLE CIRCLES this pocket owns, and WHERE THE NARROWEST POINT
+         * ACTUALLY IS. The width is the number that decides whether a ball
+         * fits, so the drawing gets the two points it was measured between
+         * rather than just the figure. */
+        printf(" \"jaws\": [");
+        {   int f2 = 1;
+            for (int j = 0; j < W.njaw; j++) {
+                float bd = 1e30f; int bp = -1;
+                for (int q = 0; q < W.npocket; q++) {
+                    const float dx = W.jaw[j].x - W.pocket[q].x;
+                    const float dz = W.jaw[j].z - W.pocket[q].z;
+                    if (dx*dx + dz*dz < bd) { bd = dx*dx + dz*dz; bp = q; }
+                }
+                if (bp != p) continue;
+                printf("%s{\"r\": %.3f, \"x\": %.3f, \"z\": %.3f}", f2 ? "" : ", ",
+                       (double)(W.jaw_r*1000.0f),
+                       (double)((W.jaw[j].x-ox)*1000.0f*sx),
+                       (double)((W.jaw[j].z-oz)*1000.0f*sz));
+                f2 = 0;
+            }
+        }
+        printf("],\n");
+        /* THE NOSE, as separate runs. A segment is emitted with its kind so the
+         * straight rail and the curved jaw can be told apart in the drawing —
+         * which is the whole point: what is being matched is where one becomes
+         * the other. */
+        printf(" \"nose\": [");
+        int first = 1;
+        for (int i = 0; i < W.nseg; i++) {
+            const float amx = (W.seg[i].a.x + W.seg[i].b.x)*0.5f;
+            const float amz = (W.seg[i].a.z + W.seg[i].b.z)*0.5f;
+            /* this pocket's own, by nearest-pocket, same rule as the link */
+            int own = 1;
+            for (int q = 0; q < W.npocket; q++) {
+                if (q == p) continue;
+                const float d1 = (amx-W.pocket[p].x)*(amx-W.pocket[p].x)
+                               + (amz-W.pocket[p].z)*(amz-W.pocket[p].z);
+                const float d2 = (amx-W.pocket[q].x)*(amx-W.pocket[q].x)
+                               + (amz-W.pocket[q].z)*(amz-W.pocket[q].z);
+                if (d2 < d1) { own = 0; break; }
+            }
+            if (!own) continue;
+            printf("%s\n  {\"kind\": %d, \"ax\": %.3f, \"az\": %.3f, \"bx\": %.3f, \"bz\": %.3f}",
+                   first ? "" : ",", W.seg[i].kind,
+                   (double)((W.seg[i].a.x-ox)*1000.0f*sx), (double)((W.seg[i].a.z-oz)*1000.0f*sz),
+                   (double)((W.seg[i].b.x-ox)*1000.0f*sx), (double)((W.seg[i].b.z-oz)*1000.0f*sz));
+            first = 0;
+        }
+        printf("\n ]}\n");
+    }
     fprintf(stderr, "{\"mouth\": %.2f, \"drop\": %.2f, \"edge\": %.2f, "
                     "\"thick\": %.2f, \"ball\": %.2f, \"bore\": %.2f, "
-                    "\"tip\": %.2f, \"top\": %.2f, \"arc\": %.2f, \"miss\": %.2f, \"solved_gap\": %.4f, \"gap_to_drop\": %.2f}\n",
-        (double)(jaw_sep(&W,p)*1000.0f), (double)(W.pocket_r[p]*1000.0f),
+                    "\"tip\": %.2f, \"top\": %.2f, \"arc\": %.2f, \"miss\": %.2f, \"solved_gap\": %.4f, \"gap_to_drop\": %.2f, "
+                    "\"jp0\": %.2f, \"jh1\": %.2f, \"jh2\": %.2f}\n",
+        /* THE ENGINE'S OWN MEASURE, not the bench's. jaw_sep is the two jaw
+         * circles, which is the tightest point on a rounded pocket and 5 mm
+         * out on a mitred one — so the bench was reporting a mouth the game
+         * did not agree with, and a pyramid tuned here came out wrong there. */
+        (double)(cue_table_mouth_at(&W,p)*1000.0f), (double)(W.pocket_r[p]*1000.0f),
         (double)(W.cut_r[p]*1000.0f), (double)(W.lip_d[p]*1000.0f),
         (double)(W.R*2000.0f),
         (double)((mid ? T.bore_side : T.bore_corner) * 1000.0f),
@@ -1414,6 +1567,8 @@ int main(int argc, char **argv) {
         (double)gap_solved,
         (double)(( (W.cut_r[p] - sqrtf((W.cut_c[p].x-W.drop_c[p].x)*(W.cut_c[p].x-W.drop_c[p].x)
                                      + (W.cut_c[p].z-W.drop_c[p].z)*(W.cut_c[p].z-W.drop_c[p].z)))
-                   - W.pocket_r[p]) * 1000.0f));
+                   - W.pocket_r[p]) * 1000.0f),
+        (double)(T.jaw_p0*1000.0f), (double)(T.jaw_h1*1000.0f),
+        (double)(T.jaw_h2*1000.0f));
     return 0;
 }

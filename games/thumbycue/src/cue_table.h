@@ -251,6 +251,57 @@ typedef struct {
     float ang_corner, ang_side; /* facing splay from the rail line (deg) */
     float off_corner, off_side; /* pocket-centre offset beyond the boundary (m) */
     float jaw_r;                /* small knuckle rounding radius (m) */
+    /* ---- THE SHAPE OF A ROUNDED JAW ----------------------------------- *
+     *
+     * FOUR POINTS, and only three numbers, because two of the four are not free.
+     *
+     *   P0  on the cushion face, out along the rail. Where the straight stops
+     *       and the curve begins. jaw_p0 says how far out.
+     *   P3  THE YELLOW POINT: where the bore circle crosses the frame's inner
+     *       face. Not authored at all — it falls out of the hole in the timber
+     *       and the depth of the cushion, and it is where the jaw HAS to
+     *       finish, because that is where the rubber meets the wood. Ending the
+     *       jaw here is what used to be arrived at by sliding the whole end
+     *       treatment along the rail until it happened to land; now it is
+     *       simply where the curve is built to.
+     *   P1  on the tangent at P0, which is the rail itself. jaw_h1 says how
+     *       far along.
+     *   P2  on the tangent at P3, which is the pocket's own axis — 45 degrees
+     *       at a right-angle corner, square-on at a middle. jaw_h2 says how
+     *       far along.
+     *
+     * So the two end POINTS and the two end DIRECTIONS are all fixed by the
+     * pocket, and the shape is the two handle lengths. That is the whole of it.
+     *
+     * The angle at P3 is the one that decides how a pocket plays. Because the
+     * tangent there is the pocket's axis, the facing arrives running straight
+     * down the throat rather than across it — which is what the old fixed curve
+     * got wrong: it turned into the entry, so the narrowest part of a pocket sat
+     * somewhere along the curve instead of at its ends, and a pocket played
+     * tighter than the hole it was built around. On a 12 ft snooker corner that
+     * cost 34 mm.
+     *
+     * All three are millimetres. Read only when pocket_round is set: a mitred
+     * jaw is a straight cut and has no curve to shape. */
+    float jaw_p0;      /* along the rail from the yellow point's foot */
+    float jaw_h1;      /* P1, from P0 back along the rail */
+    float jaw_h2;      /* P2, from P3 back along the pocket axis */
+    /* WHICH WAY THE POCKET'S AXIS POINTS, in degrees off the rail's outward
+     * normal, turned towards the pocket. It is the direction the facing runs as
+     * it arrives at the yellow point, so it is what decides whether the throat
+     * is parallel-sided, a funnel, or a slot.
+     *
+     * At a CORNER the answer is geometry: two rails meeting square give a 45
+     * degree bisector, and that is the pocket's centre line. Authored anyway so
+     * a bed that is not a rectangle can say otherwise.
+     *
+     * At a MIDDLE it is NOT settled. Zero — square-on to the rail — is what the
+     * code did when it was hard-coded, and is what is here so that nothing moves
+     * until somebody decides. A real middle pocket's facings are cut at an angle
+     * rather than square, so this is expected to change; the two jaws mirror
+     * about the pocket, so one number sets both. */
+    float jaw_ang_c;   /* degrees, corner */
+    float jaw_ang_m;   /* degrees, middle */
     /* The rail: restitution at a crawl, how fast it falls with pace, and the
      * floor. See cue_table_rails for where the numbers come from. */
     float e_cush, cush_efall, e_cush_min;
@@ -408,6 +459,54 @@ int cue_table_validate(const CueTable *t, char *msg, int msgcap);
  * it before building or measuring. Idempotent. */
 void cue_table_normalise(CueTable *t);
 
+/* THE NARROWEST PASSAGE INTO ONE POCKET of a built world, in metres: the
+ * closest approach between the two sides of its mouth, whatever built them.
+ * A ball passes if its diameter fits. Shared so the bench, the workshop and
+ * the game cannot each have their own idea of how wide a pocket is — they
+ * disagreed by 5 mm on a mitred jaw, which is pyramid's entire clearance. */
+/* HOW FAR A RAY MAY RUN BEFORE IT ENTERS A BORE, capped at smax.
+ *
+ * For extending a cushion towards the woodwork without crossing a pocket. A
+ * point ON the bore's edge heading inward gets zero: it stops exactly there,
+ * which for a jaw tip is exactly the yellow point. Both endpoints of such an
+ * extension can be OUTSIDE the bore while the span between them cuts straight
+ * across the hole — which is why clamping the endpoints achieves nothing and
+ * this has to bound the ray. */
+float cue_table_ray_bore_limit(const CueWorld *w, float ox, float oz,
+                               float dx, float dz, float smax);
+float cue_table_mouth_at(const CueWorld *w, int p);
+/* PUSH A POINT OUT OF ANY POCKET'S BORE.
+ *
+ * Nothing belonging to a cushion may be inside the hole — not the nose, which
+ * is what a ball collides with, and not the back or the cloth top either, which
+ * are what you SEE through the pocket. A point inside a bore is moved radially
+ * out to its edge, which is the smallest move that clears it and so distorts the
+ * shape least. Returns 1 if it moved.
+ *
+ * Shared because the collision world and the mesh are two readings of the same
+ * cushion, and a clip applied to one and not the other is a cushion that looks
+ * right and plays wrong, or the reverse. */
+int cue_table_clear_bore(const CueWorld *w, float *x, float *z);
+/* ...and with a MARGIN, in metres, added to the bore's radius. Clamping a mesh
+ * vertex to exactly the bore's edge leaves it lying in the bore's own wall,
+ * which renders as a sliver of cloth fighting the timber for the same pixels.
+ * A margin pushes it a little way INTO the wood, where the wall hides it. */
+int cue_table_clear_bore_m(const CueWorld *w, float *x, float *z, float margin);
+/* FOLD A POINT OUT OF A BORE ALONG A GIVEN DIRECTION, rather than radially.
+ *
+ * A cushion legitimately ENDS at the bore's rim: its nose reaches the yellow
+ * point and stops, and nothing of it is inside the hole in plan. But the end is
+ * a vertical face standing at the rim, and from any camera above the bed that
+ * face projects over the hole — so the cushion reads as carrying on into the
+ * pocket even though it does not. Moving it radially cannot help, because it is
+ * not radially inside anything.
+ *
+ * What does help is folding it back along the cushion's own depth, into the
+ * timber, where the bore wall hides it. `ux,uz` is that direction, `margin` is
+ * how far past the bore's edge to land, and `reach` caps the fold so a badly
+ * placed point cannot drag the whole cushion away from its pocket. */
+int cue_table_hide_bore(const CueWorld *w, float *x, float *z,
+                        float ux, float uz, float margin, float reach);
 void cue_table_openings(const CueTable *t, float *corner, float *middle);
 
 /* WHAT IS PLAYABLE BUT ILL-ADVISED, as opposed to what cue_table_validate
@@ -476,7 +575,7 @@ void cue_table_derive_cut(CueWorld *w);
  * built out to it. So the crossing of bore and edge is one square root and the
  * gap that puts the tip on it is one subtraction. Nothing is measured off the
  * mesh and there is no root to choose. */
-void cue_table_link_gap(CueTable *t, const CueWorld *w);
+int  cue_table_link_gap(CueTable *t, const CueWorld *w);
 
 /* Lay out the opening rack / spots. Returns the number of balls placed.
  * balls[0] is always the cue ball. orient set to identity. */

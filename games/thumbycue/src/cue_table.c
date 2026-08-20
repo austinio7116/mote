@@ -80,6 +80,23 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     t->is_snooker = (kind == CUE_GAME_SNK10 || kind == CUE_GAME_SNK15 ||
                      kind == CUE_GAME_SNK6  || kind == CUE_GAME_BILLIARDS);
 
+    /* THE ROUNDED JAW'S SHAPE, for every table, before any of them speak.
+     * See CueTable::jaw_p0 for what the four points are. A STARTING POINT, in
+     * millimetres and the same on every table, so the shape can be looked at
+     * and compared before anything is tuned per table. */
+    t->jaw_p0  = 0.070f;   /* 70 mm out along the rail */
+    t->jaw_h1  = 0.030f;   /* 30 mm of rail tangent */
+    t->jaw_h2  = 0.030f;   /* 30 mm of pocket-axis tangent */
+    /* 45 at a corner is the bisector of two square rails, which is the pocket's
+     * centre line. 0 at a middle is square-on to the rail, which is only what
+     * the code used to do — see the note in cue_table.h. */
+    t->jaw_ang_c = 45.0f;
+    /* TEN DEGREES OFF SQUARE, which is 80 and 100 to the rail on the two
+     * sides — read off a photograph of a real middle pocket, where the throat
+     * is plainly a slight funnel rather than a parallel slot. The two jaws
+     * mirror about the pocket, so one number sets both. */
+    t->jaw_ang_m = 10.0f;
+
     if (kind == CUE_GAME_UK8 || kind == CUE_GAME_SNK6 || kind == CUE_GAME_GOLF) {
         /* 7 ft UK pub 8-ball: 1.98 × 0.99 m, tight ROUNDED (curved) pockets.
          * Billiards golf is played on this bed too — it is a pub-table game
@@ -134,7 +151,24 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * is. Written in ball radii these numbers made every table a special
          * case and made a custom table impossible to author. The values are
          * the ones the table already had, to the micron, so nothing moves. */
-        t->pr_corner  = 0.0514350f; t->pr_side  = 0.0465760f;   /* 51.44 / 46.58 mm */
+        /* SET FROM THE OPENING A BALL ACTUALLY HAS TO PASS, in ball widths.
+         *
+         * The pocket size is the only authored number here and the opening is a
+         * consequence of it, so the way to size a pocket is to say how wide the
+         * opening should be and work back. Ball widths, because that is what
+         * decides how much angular margin a pot has, and because the published
+         * figures are measured at different places on the cushion and comparing
+         * them as raw millimetres invites the wrong answer.
+         *
+         * Every corner on this engine measured 1.91-1.97 ball widths, and every
+         * published specification puts a corner between 1.49 and 1.69. A quarter
+         * of a ball too wide is a great deal of margin, and it played like it.
+         *
+         * 1.60 ball widths at both, which is the WEPF rule exactly: pocket
+         * opening = ball x 1.6. And it needs no interpreting — the federation
+         * measures it BETWEEN THE ENDS OF EACH CUSHION, which is where this
+         * engine measures too. 81.3 mm on a 50.8 mm ball. */
+        t->pr_corner  = 0.0411700f; t->pr_side  = 0.0412300f;   /* 41.17 / 41.23 mm */
         /* knuckles: what pr_corner + 0.833R / + 1.083R used to give */
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         /* Throat set back into the wood so the bore circle clears the (deepened)
@@ -235,7 +269,23 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * is. Written in ball radii these numbers made every table a special
          * case and made a custom table impossible to author. The values are
          * the ones the table already had, to the micron, so nothing moves. */
-        t->pr_corner  = 0.0580073f; t->pr_side  = 0.0537210f;   /* 58.01 / 53.72 mm */
+        /* SET FROM THE OPENING A BALL ACTUALLY HAS TO PASS, in ball widths.
+         *
+         * The pocket size is the only authored number here and the opening is a
+         * consequence of it, so the way to size a pocket is to say how wide the
+         * opening should be and work back. Ball widths, because that is what
+         * decides how much angular margin a pot has, and because the published
+         * figures are measured at different places on the cushion and comparing
+         * them as raw millimetres invites the wrong answer.
+         *
+         * Every corner on this engine measured 1.91-1.97 ball widths, and every
+         * published specification puts a corner between 1.49 and 1.69. A quarter
+         * of a ball too wide is a great deal of margin, and it played like it.
+         *
+         * 1.50 ball widths, from heyball's quoted 3.84 in (85 mm) on a 57.1 mm
+         * ball. Chinese 8 is the tightest of the three by some way, which is the
+         * game: snooker pockets and cloth under American balls. 85.7 mm. */
+        t->pr_corner  = 0.0441100f; t->pr_side  = 0.0428600f;   /* 44.11 / 42.86 mm */
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         /* MILLIMETRES. Where the pocket sits into the corner, and how much
          * of the hole is not catch — both were ball radii, so a custom table
@@ -368,8 +418,22 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * is. Written in ball radii these numbers made every table a special
          * case and made a custom table impossible to author. The values are
          * the ones the table already had, to the micron, so nothing moves. */
-        t->pr_corner = 0.0360000f;   /* 36.0 mm radius */
-        t->pr_side   = 0.0407500f;   /* 40.75 mm radius */
+        /* SET AGAINST THE FEDERATION'S OPENINGS, which is the only pyramid
+         * number a player would recognise: 72-74 mm at a corner and 82-84 in
+         * a middle. The opening is not authored — the link puts the cushions
+         * on the bore — so these were swept until the measured mouth landed
+         * in those bands: 36.0 gives 73.5 and 47.0 gives 83.0, against a 67 mm
+         * ball. Change the depth or the splay and they want re-sweeping, which
+         * is what the workshop's opening readout is for. */
+        /* PER BED, because the two do not share a ball. The 12 ft plays a
+         * 67 mm ball and the 7 ft a 57.15 mm one, so the same hole is a
+         * different pocket on each — the small bed had 14 mm of corner slack
+         * where the big one had 5. The federation quotes the smaller tables
+         * their own openings for exactly this reason. */
+        if (home) { t->pr_corner = 0.0310000f;   /* 31.0 mm radius */
+                    t->pr_side   = 0.0391000f; } /* 39.1 mm radius */
+        else      { t->pr_corner = 0.0370000f;   /* 37.0 mm radius */
+                    t->pr_side   = 0.0463000f; } /* 46.3 mm radius */
         /* THE KNUCKLE GAP IS THE POCKET, and pr_corner is not.
          *
          * pr_corner/pr_side drive the bore, the cut and the drop — how big the
@@ -421,13 +485,17 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * radius; at cap = 0 this table would get 0.44 of one, which is a ball
          * sitting on the lip. A negative cap makes the catch larger than the
          * mouth — see the note beside cap_corner in TAB_FIELDS. */
-        /* MILLIMETRES, like the rest. This was pr - off - 0.90 R, the last
-         * place a pocket number was written against the ball. The cap is
-         * NEGATIVE here — the catch is larger than the mouth, which is what
-         * lets a 67mm ball down a 72mm pocket at all — and that is a property
-         * of this table, not of the ball that happens to be on it. */
-        t->cap_corner = -0.0154270f;   /* -15.43 mm */
-        t->cap_side   = -0.0080300f;   /*  -8.03 mm */
+        /* ZERO, LIKE EVERY OTHER TABLE. This carried a negative catch — the
+         * drop circle swollen to 51.4 mm behind a 36 mm bore — so the hole a
+         * ball fell into was half as big again as the hole in the timber. It
+         * was doing the job the opening should do: reaching out past the jaws
+         * to take a ball that could not really fit. With the pocket sizes set
+         * from the federation's openings the ball fits for real, and the drop
+         * can be the bore like everywhere else.
+         *
+         * This was the last of pyramid's private conventions. */
+        t->cap_corner = 0.0f;
+        t->cap_side   = 0.0f;
         t->drop_back  = 0.0093800f; t->drop_back_side = 0.0100500f;  /* 9.38 / 10.05 mm */
         t->jaw_r = 0.004f;
         /* THE HOUSE, which is what a pyramid table has instead of a D: a line
@@ -466,11 +534,31 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          *
          * Per table, because 1.7 tuned them apart: the 10ft's corner is a
          * touch wider than the 12ft's and its middle wider too. */
-        if (kind == CUE_GAME_SNK10) {
-            t->pr_corner = 0.0559125f; t->pr_side = 0.0448875f;  /* 55.91 / 44.89 mm */
-        } else {
-            t->pr_corner = 0.0553875f; t->pr_side = 0.0433125f;  /* 55.39 / 43.31 mm */
-        }
+        /* SET FROM THE OPENING A BALL ACTUALLY HAS TO PASS, in ball widths.
+         *
+         * The pocket size is the only authored number here and the opening is a
+         * consequence of it, so the way to size a pocket is to say how wide the
+         * opening should be and work back. Ball widths, because that is what
+         * decides how much angular margin a pot has, and because the published
+         * figures are measured at different places on the cushion and comparing
+         * them as raw millimetres invites the wrong answer.
+         *
+         * Every corner on this engine measured 1.91-1.97 ball widths, and every
+         * published specification puts a corner between 1.49 and 1.69. A quarter
+         * of a ball too wide is a great deal of margin, and it played like it.
+         *
+         * CORNER 1.60 ball widths = 84.0 mm, which is the tournament band the
+         * WPBSA templates are quoted at (3.25-3.35 in) whichever end of the
+         * cushion it is measured from. MIDDLE 1.73 = 90.8 mm, and it is WIDER
+         * than the corner — the templates give 3.5 in at a corner and 4 in at a
+         * middle, because a ball arrives at a middle across the pocket rather
+         * than down its axis and needs the room. This engine had it the other
+         * way round, a 1.91 corner against a 1.60 middle.
+         *
+         * The 10 ft and the 12 ft take the same numbers: same ball, same rail,
+         * so the same pocket. 1.7 had them a touch apart and there is no reason
+         * in the specification for it. */
+        t->pr_corner = 0.0452900f; t->pr_side = 0.0466700f;  /* 45.29 / 46.67 mm */
         t->ang_corner = 60.0f; t->ang_side = 80.0f;
         /* Throat set well back into the wood: the small snooker pocket radius is
          * < the deepened cushion depth, so without this the bore circle never
@@ -744,6 +832,21 @@ static const CueTabField TAB_FIELDS[] = {
     TF(rail_top,        TF_U16, TF_LOOK, 0.0f, 65535.0f),
     TF(spot,            TF_U16, TF_LOOK, 0.0f, 65535.0f),
     TF(nballs,          TF_I32, TF_SIM,  2.0f, (float)CUE_MAX_BALLS),
+    /* THE ROUNDED JAW'S SHAPE. SIM, because the curve these two describe is
+     * the cushion a ball bounces off — the renderer and the collision world
+     * are built from the same segments. Appended at the END so a block written
+     * before they existed still reads: cue_table_unpack fills what the block
+     * carries and leaves the rest, and build_world treats a zero bulge as
+     * "never authored" rather than "dead straight". */
+    /* THE ROUNDED JAW'S FOUR POINTS, of which three are numbers. All SIM: the
+     * curve they describe IS the cushion a ball bounces off, and the renderer
+     * and the collision world are built from the same segments, so two ends
+     * that disagree about it are playing pockets of different widths. */
+    TF(jaw_p0,          TF_F32, TF_SIM,  0.010f, 0.300f),
+    TF(jaw_h1,          TF_F32, TF_SIM,  0.000f, 0.200f),
+    TF(jaw_h2,          TF_F32, TF_SIM,  0.000f, 0.200f),
+    TF(jaw_ang_c,       TF_F32, TF_SIM,  0.0f, 80.0f),
+    TF(jaw_ang_m,       TF_F32, TF_SIM, -60.0f, 60.0f),
 };
 #define TAB_NFIELD ((int)(sizeof TAB_FIELDS / sizeof TAB_FIELDS[0]))
 
@@ -1350,18 +1453,8 @@ static void build_ngon(CueWorld *w, const CueTable *t) {
         }
         w->jaw_segs = js;
     }
-    for (int i = 0; i < n; i++) {
-        const Vec3 a = cue_table_ngon_vert(t, i);
-        const Vec3 b = cue_table_ngon_vert(t, (i + 1) % n);
-        const float dx = b.x - a.x, dz = b.z - a.z;
-        const float l = sqrtf(dx*dx + dz*dz);
-        if (l < 1e-5f) continue;
-        const Vec3 out = v3(dz / l, 0.0f, -dx / l);
-        add_run(w, t, a, b, out,
-                (i % every)             ? LEND_REFLEX : LEND_CORNER,
-                ((i + 1) % n) % every   ? LEND_REFLEX : LEND_CORNER);
-    }
-
+    /* BEFORE THE RUNS: a rounded jaw finishes at its pocket's bore, so the
+     * pocket has to exist first. See the same note in build_L. */
     /* THE POCKETS, in outline order, each pushed out along its own bisector —
      * which for a regular polygon is simply the radial direction, by symmetry. */
     const float oc = t->off_corner;
@@ -1372,6 +1465,18 @@ static void build_ngon(CueWorld *w, const CueTable *t) {
         const float l = sqrtf(v.x*v.x + v.z*v.z);
         if (l < 1e-5f) continue;
         add_pocket(w, v.x + v.x / l * oc, v.z + v.z / l * oc, capc, 0);
+    }
+
+    for (int i = 0; i < n; i++) {
+        const Vec3 a = cue_table_ngon_vert(t, i);
+        const Vec3 b = cue_table_ngon_vert(t, (i + 1) % n);
+        const float dx = b.x - a.x, dz = b.z - a.z;
+        const float l = sqrtf(dx*dx + dz*dz);
+        if (l < 1e-5f) continue;
+        const Vec3 out = v3(dz / l, 0.0f, -dx / l);
+        add_run(w, t, a, b, out,
+                (i % every)             ? LEND_REFLEX : LEND_CORNER,
+                ((i + 1) % n) % every   ? LEND_REFLEX : LEND_CORNER);
     }
 
     /* ...and the outline itself, so the physics can say what is cloth. */
@@ -1447,40 +1552,11 @@ static void build_L(CueWorld *w, const CueTable *t) {
      * winding — (dz, -dx) for a counter-clockwise walk — exactly as a regular
      * bed's does, so there is no table of hand-written normals to get wrong and
      * nothing here asks which way the table turns. */
-    for (int i = 0; i < 6; i++) {
-        const int ia = i, ib = (i + 1) % 6;
-        Vec3 a = V[ia], b = V[ib];
-        const float dx = b.x - a.x, dz = b.z - a.z;
-        const float l = len[i];
-        if (l < 1e-5f) continue;
-        const Vec3 out = v3(dz / l, 0.0f, -dx / l);
-        const int enda = (ia == rf) ? LEND_REFLEX : LEND_CORNER;
-        const int endb = (ib == rf) ? LEND_REFLEX : LEND_CORNER;
-        if (i == lo0 || i == lo1) {
-            /* split at the middle, and put a pocket there */
-            Vec3 m = v3((a.x + b.x) * 0.5f, 0, (a.z + b.z) * 0.5f);
-            add_run(w, t, a, m, out, enda,        LEND_MIDDLE);
-            add_run(w, t, m, b, out, LEND_MIDDLE, endb);
-        } else if (ib == rf && er > 0.0f) {
-            /* stop short of the inside corner; the arc below turns it */
-            add_run(w, t, a, v3(b.x - dx/l*er, 0, b.z - dz/l*er), out,
-                    enda, LEND_REFLEX);
-        } else if (ia == rf && er > 0.0f) {
-            add_run(w, t, v3(a.x + dx/l*er, 0, a.z + dz/l*er), b, out,
-                    LEND_REFLEX, endb);
-        } else {
-            add_run(w, t, a, b, out, enda, endb);
-        }
-        if (ib == rf && er > 0.0f) {
-            /* the arc itself, between this edge's normal and the next one's */
-            Vec3 c = V[(ib + 1) % 6];
-            float ex2 = c.x - b.x, ez2 = c.z - b.z;
-            float l2 = sqrtf(ex2*ex2 + ez2*ez2);
-            if (l2 > 1e-5f)
-                add_elbow(w, b, out, v3(ez2/l2, 0.0f, -ex2/l2), er);
-        }
-    }
-
+    /* BEFORE THE RUNS, because a rounded jaw is built against its pocket: the
+     * curve finishes at the yellow point, where the bore circle crosses the
+     * frame's inner face, and the bore circle IS the pocket. Built the other
+     * way round the jaws found no pocket and came out as bare mitres — which is
+     * exactly what test_lshape caught. */
     /* THE POCKETS, in the order the boundary meets them — five outer corners
      * and the two middles — each pushed out along the bisector of its own two
      * outward normals, which is NOT always away from the table centre. The
@@ -1520,22 +1596,109 @@ static void build_L(CueWorld *w, const CueTable *t) {
                           (a.z + b.z) * 0.5f + out.z * os, caps, 1);
         }
     }
+
+    for (int i = 0; i < 6; i++) {
+        const int ia = i, ib = (i + 1) % 6;
+        Vec3 a = V[ia], b = V[ib];
+        const float dx = b.x - a.x, dz = b.z - a.z;
+        const float l = len[i];
+        if (l < 1e-5f) continue;
+        const Vec3 out = v3(dz / l, 0.0f, -dx / l);
+        const int enda = (ia == rf) ? LEND_REFLEX : LEND_CORNER;
+        const int endb = (ib == rf) ? LEND_REFLEX : LEND_CORNER;
+        if (i == lo0 || i == lo1) {
+            /* split at the middle, and put a pocket there */
+            Vec3 m = v3((a.x + b.x) * 0.5f, 0, (a.z + b.z) * 0.5f);
+            add_run(w, t, a, m, out, enda,        LEND_MIDDLE);
+            add_run(w, t, m, b, out, LEND_MIDDLE, endb);
+        } else if (ib == rf && er > 0.0f) {
+            /* stop short of the inside corner; the arc below turns it */
+            add_run(w, t, a, v3(b.x - dx/l*er, 0, b.z - dz/l*er), out,
+                    enda, LEND_REFLEX);
+        } else if (ia == rf && er > 0.0f) {
+            add_run(w, t, v3(a.x + dx/l*er, 0, a.z + dz/l*er), b, out,
+                    LEND_REFLEX, endb);
+        } else {
+            add_run(w, t, a, b, out, enda, endb);
+        }
+        if (ib == rf && er > 0.0f) {
+            /* the arc itself, between this edge's normal and the next one's */
+            Vec3 c = V[(ib + 1) % 6];
+            float ex2 = c.x - b.x, ez2 = c.z - b.z;
+            float l2 = sqrtf(ex2*ex2 + ez2*ez2);
+            if (l2 > 1e-5f)
+                add_elbow(w, b, out, v3(ez2/l2, 0.0f, -ex2/l2), er);
+        }
+    }
+
 }
 
 /* Sample nseg+1 points along a quadratic-bezier curve from s to e with a
  * perpendicular bulge (matches the 2D game's generateCurvePoints), inclusive of
  * both ends. Returns the point count. */
-static int curve_pts(Vec3 s, Vec3 e, float dir, int nseg, Vec3 *out) {
-    float dx = e.x - s.x, dz = e.z - s.z;
-    float len = sqrtf(dx*dx + dz*dz);
-    out[0] = s;
-    if (len < 1e-6f || nseg < 1) return 1;
-    float px = -dz/len, pz = dx/len, depth = len * 0.4f * dir;
-    float cx = (s.x+e.x)*0.5f + px*depth, cz = (s.z+e.z)*0.5f + pz*depth;
+/* Which pocket a point belongs to, by nearest. The same rule the cushion link
+ * uses, and it saves threading a pocket index through four call sites that do
+ * not otherwise care. */
+static int near_pocket(const CueWorld *w, Vec3 q) {
+    int best = -1; float bd = 1e30f;
+    for (int i = 0; i < w->npocket; i++) {
+        const float dx = q.x - w->pocket[i].x, dz = q.z - w->pocket[i].z;
+        const float d = dx*dx + dz*dz;
+        if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+}
+
+/* THE YELLOW POINT: where the bore circle crosses the frame's inner face.
+ *
+ * The frame's inner face is the cushion face pushed out by the cushion's depth,
+ * so it is a line parallel to the rail. The bore is a circle. Their crossing is
+ * where the rubber meets the wood, and therefore where a jaw has to finish — it
+ * is not a shape decision, it is what the timber already decided.
+ *
+ * `rd` must point AWAY from the pocket along the rail. There are two crossings
+ * and the far one is round the back of the pocket, so the larger root is the
+ * one the cushion can actually reach.
+ *
+ * Returns 0 when the bore does not reach the face at all, which is a pocket too
+ * small to build against that depth of cushion rather than a fault to paper
+ * over — see cue_table_warnings. */
+static int jaw_yellow(Vec3 nose, Vec3 rd, Vec3 outn, float cush,
+                      Vec3 bore_c, float bore_r, Vec3 *out) {
+    const Vec3 f0 = v3(nose.x + outn.x*cush, 0.0f, nose.z + outn.z*cush);
+    const float ax = f0.x - bore_c.x, az = f0.z - bore_c.z;
+    const float b = rd.x*ax + rd.z*az;
+    const float c = ax*ax + az*az - bore_r*bore_r;
+    const float disc = b*b - c;
+    if (disc < 0.0f) return 0;
+    const float t = -b + sqrtf(disc);
+    *out = v3(f0.x + rd.x*t, 0.0f, f0.z + rd.z*t);
+    return 1;
+}
+
+/* THE ROUNDED JAW, as a cubic with both ends pinned.
+ *
+ * See CueTable::jaw_p0 for what the four points are. Here they are assembled:
+ * P3 is handed in already solved, P0 sits jaw_p0 along the rail from P3's foot
+ * on the cushion face, and the two control points slide along the two tangents
+ * — the rail at one end, the pocket's axis at the other.
+ *
+ * Points come out P0 first and P3 last, so the caller gets rail-end to
+ * mouth-end and can reverse it for the outgoing half of a rail. */
+static int jaw_curve(const CueWorld *w, Vec3 p0, Vec3 end, Vec3 axis, Vec3 rd,
+                     int nseg, Vec3 *out) {
+    /* The tangent at P0 is the rail, running back towards the pocket; the
+     * tangent at the far end is the pocket's own axis, running back out to the
+     * bed. The two control points slide along those, and that is the shape. */
+    const Vec3 c1 = v3(p0.x - rd.x*w->jaw_h1, 0.0f, p0.z - rd.z*w->jaw_h1);
+    const Vec3 c2 = v3(end.x - axis.x*w->jaw_h2, 0.0f, end.z - axis.z*w->jaw_h2);
+    if (nseg < 1) nseg = 1;
+    out[0] = p0;
     for (int i = 1; i <= nseg; i++) {
-        float t = (float)i/nseg, o = 1.0f - t;
-        out[i] = v3(o*o*s.x + 2*o*t*cx + t*t*e.x, 0,
-                    o*o*s.z + 2*o*t*cz + t*t*e.z);
+        const float t = (float)i/(float)nseg, o = 1.0f - t;
+        const float b0 = o*o*o, b1 = 3.0f*o*o*t, b2 = 3.0f*o*t*t, b3 = t*t*t;
+        out[i] = v3(b0*p0.x + b1*c1.x + b2*c2.x + b3*end.x, 0.0f,
+                    b0*p0.z + b1*c1.z + b2*c2.z + b3*end.z);
     }
     return nseg + 1;
 }
@@ -1628,6 +1791,85 @@ static void blend_arc(CueWorld *w, Vec3 P, Vec3 corner, Vec3 Q) {
  * or neither was — which is the same answer whenever both ends carry a jaw, and
  * every rectangular rail does, so no shipped table moves by a micron. Per-end is
  * what a rail with a jaw at one end only needs. */
+/* THE POCKET'S OWN AXIS at one end of a rail, without needing pmnorm.
+ *
+ * pmnorm is worked out from the finished jaws, so it does not exist yet while
+ * the jaws are being built. It does not need to: at a MIDDLE the axis is the
+ * rail's outward normal, and at a CORNER it is the bisector of this rail's
+ * outward normal and the next rail's — which, where two rails meet at a right
+ * angle, is the outward normal turned halfway towards the pocket. `rd` points
+ * away from the pocket along the rail, so -rd is that direction. */
+static Vec3 jaw_axis(Vec3 outn, Vec3 rd, float ang) {
+    /* outn and rd are perpendicular unit vectors — the rail's normal and its
+     * direction — so turning one towards the other is a plain rotation, and
+     * 45 degrees reproduces the corner bisector exactly. `rd` runs AWAY from
+     * the pocket, so the turn is towards -rd, and because the two ends of a
+     * rail get opposite rd the pair mirrors about the pocket for free. */
+    const float c = cosf(ang * DEG), s = sinf(ang * DEG);
+    return v3_norm(v3(outn.x*c - rd.x*s, 0.0f, outn.z*c - rd.z*s));
+}
+
+/* ONE END OF A RAIL, as the four points of its jaw.
+ *
+ * `ok` is 0 when the bore never reaches the frame's inner face: there is then
+ * no yellow point, so no curve, and the caller runs the straight nose out to
+ * the old knuckle instead of inventing a shape. cue_table_warnings reports it.
+ */
+typedef struct { Vec3 p0, y, nose, nrm, axis, centre, pk; int ok; } CueJawEnd;
+
+static CueJawEnd jaw_end(const CueWorld *w, Vec3 k, Vec3 rd, Vec3 outn) {
+    CueJawEnd e; e.ok = 0; e.p0 = k; e.y = k; e.nose = k; e.nrm = outn;
+    e.axis = outn; e.centre = outn; e.pk = k;
+    /* WHICH POCKET THIS END RUNS INTO: the nearest, which is the same rule the
+     * cushion link uses. The pockets are added before the chains now precisely
+     * so this can be asked. */
+    const int p = near_pocket(w, k);
+    if (p < 0) return e;
+    e.pk = w->pocket[p];
+    const int mid = w->pocket_mid[p];
+    /* TWO DIFFERENT AXES, and running them together was wrong.
+     *
+     * The pocket's CENTRE LINE is geometry: the bisector of two square rails at
+     * a corner, square-on to the rail at a middle. The drop is set back along
+     * THAT, and so is the bore, because cue_table_normalise puts the hole in the
+     * timber on the hole the ball falls into.
+     *
+     * The FACING'S TANGENT at the yellow point is a choice, and at a middle it
+     * is not the centre line — a real middle's facings are cut a few degrees off
+     * square. Using the tangent for the setback as well pushed the bore centre
+     * sideways off the pocket's own line, which put the yellow point off the
+     * drop circle entirely: the cushion ended inside the hole. Caught by
+     * drawing it. */
+    const Vec3 centre = jaw_axis(outn, rd, mid ? 0.0f : 45.0f);
+    e.axis = jaw_axis(outn, rd, mid ? w->jaw_ang_m : w->jaw_ang_c);
+    e.centre = centre;
+    const float bset = mid ? w->drop_back_side : w->drop_back;
+    const Vec3 bc = v3(w->pocket[p].x + centre.x*bset, 0.0f,
+                       w->pocket[p].z + centre.z*bset);
+    Vec3 y;
+    if (!jaw_yellow(k, rd, outn, w->cush_depth, bc, w->pocket_r[p], &y)) return e;
+    e.y = y;
+    /* THE CURVE ENDS ON THE YELLOW POINT, and the cushion's back running on
+     * into the rail behind it is correct — that is what the timber is for. The
+     * only thing that must not happen is cushion showing INSIDE the bore, and
+     * that is dealt with where the mesh is built (cue_render: bore clipping)
+     * rather than by moving the curve. `nrm` is the curve's outward normal at
+     * that end, kept for placing the cap. */
+    Vec3 nv = v3(y.x - w->pocket[p].x, 0.0f, y.z - w->pocket[p].z);
+    {   const float al = nv.x*centre.x + nv.z*centre.z;
+        nv = v3(nv.x - centre.x*al, 0.0f, nv.z - centre.z*al);
+        const float nl = sqrtf(nv.x*nv.x + nv.z*nv.z);
+        nv = (nl > 1e-6f) ? v3(nv.x/nl, 0.0f, nv.z/nl) : outn;
+    }
+    e.nrm  = nv;
+    e.nose = y;
+    /* P0: back along the rail from the yellow point's foot on the cushion face. */
+    const Vec3 foot = v3(y.x - outn.x*w->cush_depth, 0.0f, y.z - outn.z*w->cush_depth);
+    e.p0 = v3(foot.x + rd.x*w->jaw_p0, 0.0f, foot.z + rd.z*w->jaw_p0);
+    e.ok = 1;
+    return e;
+}
+
 static void add_curved_chain_e(CueWorld *w, Vec3 tipIn, Vec3 kIn, Vec3 kMid,
                                Vec3 tipMid, float aIn, float aOut,
                                int nIn, int nOut, int jawIn, int jawMid) {
@@ -1637,50 +1879,76 @@ static void add_curved_chain_e(CueWorld *w, Vec3 tipIn, Vec3 kIn, Vec3 kMid,
     Vec3 in[CUE_JAW_MAXPTS], out[CUE_JAW_MAXPTS];
     if (nIn  > CUE_JAW_MAXPTS - 2) nIn  = CUE_JAW_MAXPTS - 2;
     if (nOut > CUE_JAW_MAXPTS - 2) nOut = CUE_JAW_MAXPTS - 2;
-    int ni = nIn  > 0 ? curve_pts(tipIn, kIn,    aIn,  nIn,  in)  : 0;
-    int no = nOut > 0 ? curve_pts(kMid,  tipMid, aOut, nOut, out) : 0;
-
-    float railLen = sqrtf((kMid.x-kIn.x)*(kMid.x-kIn.x) + (kMid.z-kIn.z)*(kMid.z-kIn.z));
-    float L = CUE_JAW_BLEND * w->R;
-    /* Never eat more than the rail can spare, nor a whole jaw curve. */
-    if (L > railLen * 0.45f) L = railLen * 0.45f;
+    (void)tipIn; (void)tipMid; (void)aIn; (void)aOut;
+    const float railLen = sqrtf((kMid.x-kIn.x)*(kMid.x-kIn.x) +
+                                (kMid.z-kIn.z)*(kMid.z-kIn.z));
     if (railLen < 1e-5f) return;
-    Vec3 rd = v3_norm(v3_sub(kMid, kIn));
-    /* BOTH ends of the nose are settled before ANY of it is emitted. Working
-     * them out as the chain is written looks equivalent and is not: the far
-     * knuckle's blend starts where the nose STOPS, so a nose emitted before its
-     * far end is known runs all the way to the knuckle and the blend after it
-     * collapses to a point. That is a jaw with no curve on its outgoing side —
-     * invisible in a picture of the table and worth 500 balls a run lost through
-     * the cushions in test_edge, which is how it was caught. */
-    const int blend_in  = (L > 1e-5f && ni > 1);
-    const int blend_out = (L > 1e-5f && no > 1);
-    Vec3 Q1 = blend_in  ? v3(kIn.x  + rd.x * L, 0, kIn.z  + rd.z * L) : kIn;
-    Vec3 Q2 = blend_out ? v3(kMid.x - rd.x * L, 0, kMid.z - rd.z * L) : kMid;
+    const Vec3 rdir = v3((kMid.x-kIn.x)/railLen, 0.0f, (kMid.z-kIn.z)/railLen);
+    /* Outward: away from the cloth, which is where the timber is. */
+    const Vec3 nin  = inward_n(kIn.x, kIn.z, kMid.x, kMid.z);
+    const Vec3 outn = v3(-nin.x, 0.0f, -nin.z);
 
-    if (blend_in) {
-        Vec3 P1;
-        int c1 = walk_back(in, ni - 1, 0, L, &P1);   /* back along the incoming curve */
-        add_poly(w, in, c1 + 1, 1);             /* curve, up to the last kept point */
-        add_seg(w, in[c1], P1, 1);              /* ...then the part-segment to the cut */
-        blend_arc(w, P1, kIn, Q1);              /* rounded junction */
-    } else if (ni > 1) {
-        add_poly(w, in, ni, 1);
-    }
-    add_seg(w, Q1, Q2, 0);                      /* the rail nose */
-    if (blend_out) {
-        Vec3 P2;
-        int c2 = walk_back(out, 0, no - 1, L, &P2);  /* on along the outgoing curve */
-        blend_arc(w, Q2, kMid, P2);
-        add_seg(w, P2, out[c2], 1);
-        add_poly(w, out + c2, no - c2, 1);      /* curve, on to the tip */
-    } else if (no > 1) {
-        add_poly(w, out, no, 1);
-    }
+    /* Each end's rail runs away from its own pocket, so they get opposite rd. */
+    const CueJawEnd A = (nIn  > 0) ? jaw_end(w, kIn,  rdir, outn)
+                                   : (CueJawEnd){kIn, kIn, outn, outn, kIn, 0};
+    const CueJawEnd B = (nOut > 0) ? jaw_end(w, kMid, v3(-rdir.x,0.0f,-rdir.z), outn)
+                                   : (CueJawEnd){kMid, kMid, outn, outn, kMid, 0};
 
-    Vec3 nin = inward_n(kIn.x, kIn.z, kMid.x, kMid.z);   /* nose inward normal */
-    if (jawIn)  add_jaw_recessed(w, kIn, nin);
-    if (jawMid) add_jaw_recessed(w, kMid, nin);
+    /* THE STRAIGHT NOSE RUNS BETWEEN THE TWO P0s. If a jaw could not be built
+     * its end keeps the old knuckle, so the rail still closes. And if the two
+     * P0s have crossed over — a jaw_p0 longer than half the rail — the nose is
+     * dropped rather than emitted backwards, which would face the wrong way. */
+    const Vec3 q1 = A.ok ? A.p0 : kIn;
+    const Vec3 q2 = B.ok ? B.p0 : kMid;
+
+    int ni = 0, no = 0;
+    if (A.ok) {
+        /* Built P0-first and reversed: the chain runs mouth -> rail -> rail ->
+         * mouth, so this half arrives at the nose rather than leaving it. */
+        Vec3 tmp[CUE_JAW_MAXPTS];
+        const int n = jaw_curve(w, A.p0, A.y, A.axis, rdir, nIn, tmp);
+        for (int i = 0; i < n; i++) in[i] = tmp[n-1-i];
+        ni = n;
+    }
+    if (B.ok)
+        no = jaw_curve(w, B.p0, B.y, B.axis, v3(-rdir.x,0.0f,-rdir.z), nOut, out);
+
+    /* NO BLEND ARC ANY MORE. It existed because the old curve met the rail at
+     * whatever angle its bulge left it, and that crease had to be rounded off
+     * in the geometry. The tangent at P0 IS the rail now, by construction, so
+     * the junction is already smooth and there is nothing to hide. */
+    if (ni > 1) add_poly(w, in, ni, 1);
+    if (sqrtf((q2.x-q1.x)*(q2.x-q1.x) + (q2.z-q1.z)*(q2.z-q1.z)) > 1e-4f &&
+        ((q2.x-q1.x)*rdir.x + (q2.z-q1.z)*rdir.z) > 0.0f)
+        add_seg(w, q1, q2, 0);
+    if (no > 1) add_poly(w, out, no, 1);
+
+    /* THE CAP GOES AT THE MOUTH, because that is where the chain now ends.
+     *
+     * A segment only pushes a ball out from its FRONT, and a polyline has open
+     * ends — so without a circle at the last vertex a ball arriving round the
+     * end of the rubber is in front of nothing and meets nothing. The circle is
+     * omnidirectional and closes it, and it is the rounded nose the rubber
+     * actually has. Recessed along the curve's own normal there, which is
+     * across the pocket axis, so its surface sits on the curve instead of
+     * bulging through it. */
+    for (int e = 0; e < 2; e++) {
+        const CueJawEnd *E = e ? &B : &A;
+        if (!(e ? jawMid : jawIn)) continue;
+        if (!E->ok) { add_jaw_recessed(w, e ? kMid : kIn, nin); continue; }
+        /* BEHIND the nose, and OUT OF THE THROAT.
+         *
+         * The direction is across the pocket's own centre line, from the line
+         * out to this jaw — which is the curve's outward normal at its end,
+         * because the tangent there is the axis. Taken from the POCKET POINT
+         * rather than from the rail's normal: at a middle the axis and the
+         * rail's normal are the same vector, so a perpendicular-to-axis test
+         * against the rail's normal reads zero and the recess went sideways
+         * ALONG the rail instead of backwards. That narrowed a snooker middle
+         * to 56 mm against a 52.5 mm ball. */
+        const float off = w->jaw_r + 0.15f * w->R;
+        add_jaw(w, v3(E->y.x + E->nrm.x*off, 0.0f, E->y.z + E->nrm.z*off));
+    }
 }
 
 /* Curved cushion chain (snooker/UK): bezier jaw → straight nose → bezier jaw. */
@@ -1858,7 +2126,14 @@ static void link_accumulate(const CueTable *t, const CueWorld *w,
     }
 }
 
-void cue_table_link_gap(CueTable *t, const CueWorld *w) {
+/* Returns 1 when both pocket kinds found their point, 0 when one fell back.
+ *
+ * IT HAS TO SAY. Below about 1.2 ball radii of pocket the bore stops reaching
+ * the plank's inner edge, there is no crossing to put a cushion on, and the
+ * gap was left at the seed — which on a UK 7ft reported a 192mm opening for a
+ * 25mm pocket. Silently plausible and completely wrong, which is the worst
+ * thing a measurement can be. */
+int cue_table_link_gap(CueTable *t, const CueWorld *w) {
     /* AN L OR AN N-GON takes the general route: same argument, no axes. */
     if (t->notch_x > 0.0f || t->notch_z > 0.0f || t->bed_shape != CUE_BED_RECT) {
         float acc[2] = { 0.0f, 0.0f }; int cnt[2] = { 0, 0 };
@@ -1866,17 +2141,21 @@ void cue_table_link_gap(CueTable *t, const CueWorld *w) {
         /* One gap per KIND, so ends that disagree get their mean — exact where
          * they are alike by symmetry, and the honest compromise where an L's
          * seven pockets are not. */
-        if (cnt[0]) { float g = t->gap_corner + acc[0]/(float)cnt[0];
-                      if (g > 0.005f && g < 0.30f) t->gap_corner = g; }
-        if (cnt[1]) { float g = t->gap_side   + acc[1]/(float)cnt[1];
-                      if (g > 0.005f && g < 0.30f) t->gap_side   = g; }
-        return;
+        int got = 0;
+        if (!cnt[0]) got |= 1;   /* no pockets of that kind is not a failure */
+        else { float g = t->gap_corner + acc[0]/(float)cnt[0];
+               if (g > 0.005f && g < 0.30f) { t->gap_corner = g; got |= 1; } }
+        if (!cnt[1]) got |= 2;
+        else { float g = t->gap_side + acc[1]/(float)cnt[1];
+               if (g > 0.005f && g < 0.30f) { t->gap_side = g; got |= 2; } }
+        return got;
     }
     const float R = t->R;
     const float cl = 2.0f*R, ml = 1.6f*R, e3 = 0.25f*R;
     const float cw = t->rail_w * 0.63f;
     const float hw = t->half_wid, hl = t->half_len;
     const float line_z = hw + cw;           /* the +z rail's frame inner edge */
+    int got = 3, seen_c = 0, seen_m = 0;
 
     /* THE CORNER. Its jaw comes along the +z rail from -x, so it answers to
      * the crossing on the far side of the bore centre from the table middle —
@@ -1885,6 +2164,7 @@ void cue_table_link_gap(CueTable *t, const CueWorld *w) {
         if (w->pocket_mid[p]) continue;
         if (w->pocket[p].x <= 0.0f || w->pocket[p].z <= 0.0f) continue;
         float yx;
+        seen_c = 1; got &= ~1;
         if (!link_edge_x(w, p, t->bore_corner, t->bore_set_corner, line_z, 0, &yx))
             break;
         /* Rounded:  tip.x = hl - cgap + cl*0.7f + e3
@@ -1897,7 +2177,7 @@ void cue_table_link_gap(CueTable *t, const CueWorld *w) {
             ? (cl*0.7f + e3)
             : ((sc2 > 1e-4f) ? (cw * cosf(t->ang_corner*DEG) / sc2) : 0.0f);
         float g = hl + reach_c - yx;
-        if (g > 0.02f && g < 0.30f) t->gap_corner = g;
+        if (g > 0.02f && g < 0.30f) { t->gap_corner = g; got |= 1; }
         break;
     }
     /* THE MIDDLE, on the same rail and the same edge line, approached from +x:
@@ -1906,6 +2186,7 @@ void cue_table_link_gap(CueTable *t, const CueWorld *w) {
         if (!w->pocket_mid[p]) continue;
         if (w->pocket[p].z <= 0.0f) continue;
         float yx;
+        seen_m = 1; got &= ~2;
         if (!link_edge_x(w, p, t->bore_side, t->bore_set_side, line_z, 1, &yx))
             break;
         /* Rounded:  tip.x = gap_side - 0.583R - ml*0.3f - e3
@@ -1915,10 +2196,11 @@ void cue_table_link_gap(CueTable *t, const CueWorld *w) {
             ? (0.583f*R + ml*0.3f + e3)
             : ((ss2 > 1e-4f) ? (cw * cosf(t->ang_side*DEG) / ss2) : 0.0f);
         float g = yx + reach_m;
-        if (g > 0.02f && g < 0.30f) t->gap_side = g;
+        if (g > 0.02f && g < 0.30f) { t->gap_side = g; got |= 2; }
         break;
     }
-    (void)hl;
+    (void)hl; (void)seen_c; (void)seen_m;
+    return got;
 }
 
 /* See cue_table.h. The bore is the drop: same radius, same centre.
@@ -1939,6 +2221,44 @@ void cue_table_normalise(CueTable *t) {
     t->bore_side       = t->pr_side   - t->cap_side;
     t->bore_set_corner = t->drop_back;
     t->bore_set_side   = t->drop_back_side;
+}
+
+static void smooth_seg_normals(CueWorld *w) {
+    /* Smooth vertex normals: at each endpoint shared with a neighbouring
+     * segment, average the two face normals so the collision normal can be
+     * interpolated continuously along GENTLE curves (snooker rounded knuckles,
+     * bezier jaw steps) — no kink there. But ONLY when the junction is actually
+     * smooth: a sharp CONVEX corner (the US straight-pocket rail↔facing mitre,
+     * which juts into play) must NOT be averaged, or the rail's endpoint normal
+     * gets pulled toward the facing and a ball gliding along the rail bounces
+     * off "the back of the knuckle" instead of glancing off the flat rail. The
+     * jaw circle handles contact at those sharp knuckles. Threshold ≈ 37°. */
+    const float SMOOTH_COS = 0.80f;
+    for (int s = 0; s < w->nseg; s++) {
+        Vec3 ns = w->seg[s].n;
+        Vec3 na = ns, nb = ns;
+        for (int o = 0; o < w->nseg; o++) {
+            if (o == s) continue;
+            /* Only smooth WITHIN a run of the same kind: the bezier jaw (all
+             * kind=1) stays a continuous rounded knuckle, but a facing must NEVER
+             * pull the straight rail nose's (kind=0) endpoint normal. Snooker's
+             * rail→curve junction is gentle enough to pass the dot test below, so
+             * without this a ball hugging the rail near the knuckle saw a normal
+             * tilted toward the pocket throat — funnelling it into the pocket and
+             * spinning it up off the rail. The jaw circle handles the junction. */
+            if (w->seg[o].kind != w->seg[s].kind) continue;
+            Vec3 no = w->seg[o].n;
+            if (ns.x*no.x + ns.z*no.z < SMOOTH_COS) continue;   /* sharp corner: keep crisp */
+            if (v3_len2(v3_sub(w->seg[o].b, w->seg[s].a)) < 1e-8f ||
+                v3_len2(v3_sub(w->seg[o].a, w->seg[s].a)) < 1e-8f)
+                na = v3_add(na, no);
+            if (v3_len2(v3_sub(w->seg[o].a, w->seg[s].b)) < 1e-8f ||
+                v3_len2(v3_sub(w->seg[o].b, w->seg[s].b)) < 1e-8f)
+                nb = v3_add(nb, no);
+        }
+        w->seg[s].na = v3_norm(na);
+        w->seg[s].nb = v3_norm(nb);
+    }
 }
 
 void cue_table_build_world(const CueTable *t, CueWorld *w) {
@@ -1975,6 +2295,17 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     /* the same number cue_render uses for the timber's inner edge (rw * 0.63) */
     w->cush_depth = t->rail_w * 0.63f;
     w->jaw_segs   = CUE_JAW_SEGS;   /* build_ngon trims it for a many-sided bed */
+    /* Zero is a MEANINGFUL angle — the facing running straight down the
+     * A table written before these existed unpacks them as zero, and a zero
+     * P0 puts the curve's start on top of its end. So they fall back, and only
+     * the shape is affected — the yellow point is derived either way. */
+    w->jaw_p0  = (t->jaw_p0 > 0.0f) ? t->jaw_p0 : 0.070f;
+    w->jaw_h1  = (t->jaw_h1 > 0.0f) ? t->jaw_h1 : 0.030f;
+    w->jaw_h2  = (t->jaw_h2 > 0.0f) ? t->jaw_h2 : 0.030f;
+    /* A corner angle of zero is a table that never said, and square-on at a
+     * corner is not a pocket; zero at a MIDDLE is meaningful, so it stands. */
+    w->jaw_ang_c = (t->jaw_ang_c > 0.0f) ? t->jaw_ang_c : 45.0f;
+    w->jaw_ang_m = t->jaw_ang_m;
     w->jaw_r = t->jaw_r;
     w->e_cush     = t->e_cush;
     w->cush_efall = t->cush_efall;
@@ -1983,6 +2314,32 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     w->drop_back_side = t->drop_back_side;
 
     const float hl = t->half_len, hw = t->half_wid, R = t->R;
+
+    /* THE POCKETS FIRST, because the jaw curve is built against them.
+     *
+     * These used to be added after the cushion chains, which was fine while a
+     * jaw was a shape in its own right. It is not any more: a rounded jaw now
+     * FINISHES at the yellow point — where the bore circle crosses the frame's
+     * inner face — and the bore circle is this pocket. So the pocket has to
+     * exist before the rail that runs into it is built.
+     *
+     * Only the position and the capture radius are set here; pmnorm and drop_c
+     * still come later, off the finished jaws, and the curve does not need them
+     * — it works out the pocket's axis from the rail it is on. */
+    const float d = 0.70710678f, oc = t->off_corner, os = t->off_side;
+    /* Drop-capture radius (independent of the visible mouth/pr_side), and PER
+     * TABLE — see cap_corner / cap_side. It used to be one literal here, 0.3 R
+     * with 0.15 R for a UK middle, which is why no table could be given a drop
+     * of its own without moving every other table's with it. */
+    float capc = t->pr_corner - t->cap_corner, caps = t->pr_side - t->cap_side;
+    if (t->bed_shape == CUE_BED_RECT && t->kind != CUE_GAME_BARBILLIARDS) {
+        add_pocket(w, -hl - oc*d, -hw - oc*d, capc, 0);
+        add_pocket(w,  hl + oc*d, -hw - oc*d, capc, 0);
+        add_pocket(w,  hl + oc*d,  hw + oc*d, capc, 0);
+        add_pocket(w, -hl - oc*d,  hw + oc*d, capc, 0);
+        add_pocket(w, 0.0f, -hw - os, caps, 1);
+        add_pocket(w, 0.0f,  hw + os, caps, 1);
+    }
 
     if (t->kind == CUE_GAME_BARBILLIARDS) {
         /* ---- BAR BILLIARDS: four plain cushions and nine holes in the bed --
@@ -2147,58 +2504,8 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
                             v3(-hl,0,-hw+cgap), v3(-hl - co,0,-hw+cgap - cl*0.7f - e3), ca, ca, nc, nc);
     }
 
-    /* Smooth vertex normals: at each endpoint shared with a neighbouring
-     * segment, average the two face normals so the collision normal can be
-     * interpolated continuously along GENTLE curves (snooker rounded knuckles,
-     * bezier jaw steps) — no kink there. But ONLY when the junction is actually
-     * smooth: a sharp CONVEX corner (the US straight-pocket rail↔facing mitre,
-     * which juts into play) must NOT be averaged, or the rail's endpoint normal
-     * gets pulled toward the facing and a ball gliding along the rail bounces
-     * off "the back of the knuckle" instead of glancing off the flat rail. The
-     * jaw circle handles contact at those sharp knuckles. Threshold ≈ 37°. */
-    const float SMOOTH_COS = 0.80f;
-    for (int s = 0; s < w->nseg; s++) {
-        Vec3 ns = w->seg[s].n;
-        Vec3 na = ns, nb = ns;
-        for (int o = 0; o < w->nseg; o++) {
-            if (o == s) continue;
-            /* Only smooth WITHIN a run of the same kind: the bezier jaw (all
-             * kind=1) stays a continuous rounded knuckle, but a facing must NEVER
-             * pull the straight rail nose's (kind=0) endpoint normal. Snooker's
-             * rail→curve junction is gentle enough to pass the dot test below, so
-             * without this a ball hugging the rail near the knuckle saw a normal
-             * tilted toward the pocket throat — funnelling it into the pocket and
-             * spinning it up off the rail. The jaw circle handles the junction. */
-            if (w->seg[o].kind != w->seg[s].kind) continue;
-            Vec3 no = w->seg[o].n;
-            if (ns.x*no.x + ns.z*no.z < SMOOTH_COS) continue;   /* sharp corner: keep crisp */
-            if (v3_len2(v3_sub(w->seg[o].b, w->seg[s].a)) < 1e-8f ||
-                v3_len2(v3_sub(w->seg[o].a, w->seg[s].a)) < 1e-8f)
-                na = v3_add(na, no);
-            if (v3_len2(v3_sub(w->seg[o].a, w->seg[s].b)) < 1e-8f ||
-                v3_len2(v3_sub(w->seg[o].b, w->seg[s].b)) < 1e-8f)
-                nb = v3_add(nb, no);
-        }
-        w->seg[s].na = v3_norm(na);
-        w->seg[s].nb = v3_norm(nb);
-    }
+    smooth_seg_normals(w);
 
-    /* Pocket circles: centre offset just beyond the boundary; drop-capture
-     * when the ball centre is within (radius − 0.3R), matching the 2D game. */
-    const float d = 0.70710678f, oc = t->off_corner, os = t->off_side;
-    /* Drop-capture radius (independent of the visible mouth/pr_side), and PER
-     * TABLE — see cap_corner / cap_side. It used to be one literal here, 0.3 R
-     * with 0.15 R for a UK middle, which is why no table could be given a drop
-     * of its own without moving every other table's with it. */
-    float capc = t->pr_corner - t->cap_corner, caps = t->pr_side - t->cap_side;
-    if (t->bed_shape == CUE_BED_RECT && t->kind != CUE_GAME_BARBILLIARDS) {
-        add_pocket(w, -hl - oc*d, -hw - oc*d, capc, 0);
-        add_pocket(w,  hl + oc*d, -hw - oc*d, capc, 0);
-        add_pocket(w,  hl + oc*d,  hw + oc*d, capc, 0);
-        add_pocket(w, -hl - oc*d,  hw + oc*d, capc, 0);
-        add_pocket(w, 0.0f, -hw - os, caps, 1);
-        add_pocket(w, 0.0f,  hw + os, caps, 1);
-    }
 
     /* ---- each pocket's mouth, from the two jaw tips beside it ------------ */
     for (int p = 0; p < w->npocket; p++) {
@@ -2232,6 +2539,30 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         float back = w->pocket_mid[p] ? w->drop_back_side : w->drop_back;
         w->drop_c[p] = v3(w->pocket[p].x + w->pmnorm[p].x * back, 0,
                           w->pocket[p].z + w->pmnorm[p].z * back);
+    }
+
+    /* ---- NOTHING OF A CUSHION INSIDE A POCKET --------------------------- *
+     *
+     * The nose is built to finish on the yellow point, and on every rectangle,
+     * L and mitred table it does — measured, zero vertices inside a bore. A
+     * POLYGON bed is the case that does not: its rails meet at angles the
+     * corner construction was not written for, and an octagon put sixteen nose
+     * vertices up to 3.3 mm inside the hole. That is cushion a ball can hit
+     * after it has passed the mouth, which is a rattle out of a pocket the ball
+     * had already gone into.
+     *
+     * So every vertex is pushed out to the bore's edge if it is inside it. On
+     * the tables that were already clear this changes nothing at all; where it
+     * bites, it stops the cushion at the hole instead of carrying on across it.
+     * The normals are re-smoothed afterwards because moving an endpoint changes
+     * the faces either side of it — and shared endpoints move identically, so
+     * the chain stays welded. */
+    {   int moved = 0;
+        for (int s = 0; s < w->nseg; s++) {
+            moved |= cue_table_clear_bore(w, &w->seg[s].a.x, &w->seg[s].a.z);
+            moved |= cue_table_clear_bore(w, &w->seg[s].b.x, &w->seg[s].b.z);
+        }
+        if (moved) smooth_seg_normals(w);
     }
 
     w->cut_ref[0] = t->pr_corner; w->cut_ref[1] = t->pr_side;
@@ -2270,11 +2601,13 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         if (!linking) {
             linking = 1;
             CueTable tt = *t;
+            int got = 3;
             for (int pass = 0; pass < 3; pass++) {
-                cue_table_link_gap(&tt, w);
+                got = cue_table_link_gap(&tt, w);
                 cue_table_build_world(&tt, w);
             }
             linking = 0;
+            w->linked = got;      /* after the rebuilds, which clear it */
         }
     }
 }
@@ -2285,20 +2618,208 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
 /* The narrowest passage at one pocket: the two jaw circles nearest it, less
  * their radii. That is the rule a ball has to pass, and it is the same measure
  * the bench reports as "mouth". */
-static float table_mouth_at(const CueWorld *w, int p) {
-    int j1 = -1, j2 = -1; float d1 = 1e30f, d2 = 1e30f;
-    for (int j = 0; j < w->njaw; j++) {
-        const float dx = w->jaw[j].x - w->pocket[p].x;
-        const float dz = w->jaw[j].z - w->pocket[p].z;
-        const float dd = dx*dx + dz*dz;
-        if (dd < d1) { d2 = d1; j2 = j1; d1 = dd; j1 = j; }
-        else if (dd < d2) { d2 = dd; j2 = j; }
+/* Is this point nearer pocket p than any other? */
+static int owns_pocket(const CueWorld *w, int p, float x, float z) {
+    float bd = 1e30f; int bp = -1;
+    for (int q = 0; q < w->npocket; q++) {
+        const float dx = x - w->pocket[q].x, dz = z - w->pocket[q].z;
+        const float d = dx*dx + dz*dz;
+        if (d < bd) { bd = d; bp = q; }
     }
-    if (j1 < 0 || j2 < 0) return 0.0f;
-    const float dx = w->jaw[j1].x - w->jaw[j2].x;
-    const float dz = w->jaw[j1].z - w->jaw[j2].z;
-    const float s = sqrtf(dx*dx + dz*dz) - 2.0f * w->jaw_r;
-    return s > 0.0f ? s : 0.0f;
+    return bp == p;
+}
+
+/* Distance between two line segments in the plane. */
+static float seg_seg_dist(float ax, float az, float bx, float bz,
+                          float cx, float cz, float dx_, float dz_) {
+    /* Four point-to-segment distances is exact for non-crossing segments, and
+     * the two sides of a pocket mouth never cross. */
+    float best = 1e30f;
+    const float ex1 = bx-ax, ez1 = bz-az, L1 = ex1*ex1 + ez1*ez1;
+    const float ex2 = dx_-cx, ez2 = dz_-cz, L2 = ex2*ex2 + ez2*ez2;
+    const float px[4] = { cx, dx_, ax, bx }, pz[4] = { cz, dz_, az, bz };
+    for (int i = 0; i < 4; i++) {
+        float sx, sz, ex, ez, L;
+        if (i < 2) { sx = ax; sz = az; ex = ex1; ez = ez1; L = L1; }
+        else       { sx = cx; sz = cz; ex = ex2; ez = ez2; L = L2; }
+        float tt = (L > 1e-12f) ? ((px[i]-sx)*ex + (pz[i]-sz)*ez) / L : 0.0f;
+        if (tt < 0.0f) tt = 0.0f; else if (tt > 1.0f) tt = 1.0f;
+        const float qx = px[i] - (sx + ex*tt), qz = pz[i] - (sz + ez*tt);
+        const float d = sqrtf(qx*qx + qz*qz);
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+/* Distance from a point to a segment. */
+static float pt_seg_dist(float px, float pz,
+                         float ax, float az, float bx, float bz) {
+    const float ex = bx-ax, ez = bz-az, L = ex*ex + ez*ez;
+    float tt = (L > 1e-12f) ? ((px-ax)*ex + (pz-az)*ez) / L : 0.0f;
+    if (tt < 0.0f) tt = 0.0f; else if (tt > 1.0f) tt = 1.0f;
+    const float qx = px - (ax + ex*tt), qz = pz - (az + ez*tt);
+    return sqrtf(qx*qx + qz*qz);
+}
+
+/* THE NARROWEST PASSAGE INTO ONE POCKET.
+ *
+ * This used to be the two nearest jaw CIRCLES less their radii, which is right
+ * on a rounded English pocket — the knuckles are the tightest point — and
+ * wrong on a mitred one, where the tightest point is the two facing TIPS and
+ * the circles sit behind them. On pyramid it read 76.4 mm where a ball
+ * actually had 71.6, and 5 mm is that game's entire clearance.
+ *
+ * So it is measured rather than assumed: everything belonging to this pocket
+ * is split into the two sides of its mouth, and the answer is the closest
+ * approach between anything on one side and anything on the other. Segments
+ * against segments, circles against both. That is the same quantity test_gap
+ * finds by flooding a grid, at a fraction of the cost, and it does not care
+ * which style of jaw built it. */
+int cue_table_clear_bore_m(const CueWorld *w, float *x, float *z, float margin) {
+    if (!w || !x || !z) return 0;
+    int moved = 0;
+    /* EVERY pocket, not the nearest: a middle and a corner on a short rail can
+     * both reach the same stretch of cushion, and clearing one can push a point
+     * into the other. Looped until it is outside all of them, with a low cap
+     * because two circles cannot argue for long. */
+    for (int pass = 0; pass < 4; pass++) {
+        int hit = 0;
+        for (int p = 0; p < w->npocket; p++) {
+            const float r = w->pocket_r[p] + margin;
+            if (r <= 0.0f) continue;
+            const float dx = *x - w->drop_c[p].x, dz = *z - w->drop_c[p].z;
+            const float d = sqrtf(dx*dx + dz*dz);
+            if (d >= r) continue;
+            if (d < 1e-6f) {                 /* dead centre: no direction to use */
+                *x = w->drop_c[p].x + r; hit = 1; moved = 1; continue;
+            }
+            *x = w->drop_c[p].x + dx / d * r;
+            *z = w->drop_c[p].z + dz / d * r;
+            hit = 1; moved = 1;
+        }
+        if (!hit) break;
+    }
+    return moved;
+}
+
+int cue_table_clear_bore(const CueWorld *w, float *x, float *z) {
+    return cue_table_clear_bore_m(w, x, z, 0.0f);
+}
+
+int cue_table_hide_bore(const CueWorld *w, float *x, float *z,
+                        float ux, float uz, float margin, float reach) {
+    if (!w || !x || !z) return 0;
+    const float ul = sqrtf(ux*ux + uz*uz);
+    if (ul < 1e-6f) return 0;
+    ux /= ul; uz /= ul;
+    int moved = 0;
+    for (int p = 0; p < w->npocket; p++) {
+        const float r = w->pocket_r[p] + margin;
+        if (r <= 0.0f) continue;
+        const float ax = *x - w->drop_c[p].x, az = *z - w->drop_c[p].z;
+        const float d2 = ax*ax + az*az;
+        if (d2 >= r*r) continue;                  /* already clear of this one */
+        /* |P + s*u - C| = r, taking the forward root. u is a unit vector, so
+         * s = -(a.u) + sqrt((a.u)^2 - |a|^2 + r^2). */
+        const float b = ax*ux + az*uz;
+        const float disc = b*b - d2 + r*r;
+        if (disc < 0.0f) continue;                /* cannot get out this way */
+        float sfar = -b + sqrtf(disc);
+        if (sfar <= 0.0f) continue;
+        if (sfar > reach) sfar = reach;           /* never fold further than told */
+        *x += ux * sfar; *z += uz * sfar;
+        moved = 1;
+    }
+    return moved;
+}
+
+float cue_table_ray_bore_limit(const CueWorld *w, float ox, float oz,
+                               float dx, float dz, float smax) {
+    if (!w) return smax;
+    const float dl = sqrtf(dx*dx + dz*dz);
+    if (dl < 1e-9f) return smax;
+    dx /= dl; dz /= dl;
+    float lim = smax;
+    for (int p = 0; p < w->npocket; p++) {
+        const float r = w->pocket_r[p];
+        if (r <= 0.0f) continue;
+        const float ax = ox - w->drop_c[p].x, az = oz - w->drop_c[p].z;
+        const float b = ax*dx + az*dz;
+        const float c = ax*ax + az*az - r*r;
+        const float disc = b*b - c;
+        if (disc < 0.0f) continue;              /* the ray misses this bore */
+        const float rt = sqrtf(disc);
+        const float s0 = -b - rt;               /* where it goes IN */
+        /* STARTING ON THE EDGE is the case that matters, and c is then zero, so
+         * s0 is either 0 or -2b. Heading inward means b < 0, and the ray enters
+         * at once: the limit is nothing at all, which is the whole point — the
+         * cushion stops at the yellow point instead of crossing the hole. */
+        if (s0 > 0.0f) { if (s0 < lim) lim = s0; }
+        else if (b < 0.0f && c <= 1e-9f) lim = 0.0f;
+    }
+    return lim < 0.0f ? 0.0f : lim;
+}
+
+float cue_table_mouth_at(const CueWorld *w, int p) {
+    const float ox = w->pocket[p].x, oz = w->pocket[p].z;
+    /* The mouth's axis: from the pocket out towards the bed. drop_c is set
+     * back INTO the pocket, so the outward normal points from it to the
+     * pocket point. Sides are then simply left and right of that axis. */
+    float nx = ox - w->drop_c[p].x, nz = oz - w->drop_c[p].z;
+    const float nl = sqrtf(nx*nx + nz*nz);
+    if (nl < 1e-6f) return 0.0f;
+    nx /= nl; nz /= nl;
+    /* Perpendicular, which is what "which side" is measured along. */
+    const float tx = -nz, tz = nx;
+    /* NEAR THIS POCKET AND NO OTHER. A middle and a corner on the same rail
+     * are close enough that a fixed radius picks up both, so everything is
+     * assigned to its nearest pocket — the same rule the link uses. */
+    #define OWNS(qx, qz) owns_pocket(w, p, (qx), (qz))
+    float best = 1e30f;
+    /* segment against segment */
+    for (int i = 0; i < w->nseg; i++) {
+        const CueSeg *a = &w->seg[i];
+        const float amx = (a->a.x + a->b.x)*0.5f, amz = (a->a.z + a->b.z)*0.5f;
+        if (!OWNS(amx, amz)) continue;
+        const float sa = (amx-ox)*tx + (amz-oz)*tz;
+        for (int j = i+1; j < w->nseg; j++) {
+            const CueSeg *b = &w->seg[j];
+            const float bmx = (b->a.x + b->b.x)*0.5f, bmz = (b->a.z + b->b.z)*0.5f;
+            if (!OWNS(bmx, bmz)) continue;
+            const float sb = (bmx-ox)*tx + (bmz-oz)*tz;
+            if (sa * sb >= 0.0f) continue;          /* same side of the mouth */
+            const float d = seg_seg_dist(a->a.x, a->a.z, a->b.x, a->b.z,
+                                         b->a.x, b->a.z, b->b.x, b->b.z);
+            if (d < best) best = d;
+        }
+    }
+    /* circle against circle, and circle against segment */
+    for (int i = 0; i < w->njaw; i++) {
+        if (!OWNS(w->jaw[i].x, w->jaw[i].z)) continue;
+        const float sa = (w->jaw[i].x-ox)*tx + (w->jaw[i].z-oz)*tz;
+        for (int j = i+1; j < w->njaw; j++) {
+            if (!OWNS(w->jaw[j].x, w->jaw[j].z)) continue;
+            const float sb = (w->jaw[j].x-ox)*tx + (w->jaw[j].z-oz)*tz;
+            if (sa * sb >= 0.0f) continue;
+            const float dx = w->jaw[i].x - w->jaw[j].x;
+            const float dz = w->jaw[i].z - w->jaw[j].z;
+            const float d = sqrtf(dx*dx + dz*dz) - 2.0f * w->jaw_r;
+            if (d < best) best = d;
+        }
+        for (int j = 0; j < w->nseg; j++) {
+            const CueSeg *b = &w->seg[j];
+            const float bmx = (b->a.x + b->b.x)*0.5f, bmz = (b->a.z + b->b.z)*0.5f;
+            if (!OWNS(bmx, bmz)) continue;
+            const float sb = (bmx-ox)*tx + (bmz-oz)*tz;
+            if (sa * sb >= 0.0f) continue;
+            const float d = pt_seg_dist(w->jaw[i].x, w->jaw[i].z,
+                                        b->a.x, b->a.z, b->b.x, b->b.z) - w->jaw_r;
+            if (d < best) best = d;
+        }
+    }
+    #undef OWNS
+    if (best > 1e29f) return 0.0f;
+    return best > 0.0f ? best : 0.0f;
 }
 
 void cue_table_openings(const CueTable *t, float *corner, float *middle) {
@@ -2315,10 +2836,15 @@ void cue_table_openings(const CueTable *t, float *corner, float *middle) {
     cue_table_normalise(&tt);
     cue_table_build_world(&tt, &w);
     for (int p = 0; p < w.npocket; p++) {
-        const float m = table_mouth_at(&w, p);
+        const float m = cue_table_mouth_at(&w, p);
         if (m <= 0.0f) continue;
-        if (w.pocket_mid[p]) { if (middle && *middle == 0.0f) *middle = m; }
-        else                 { if (corner && *corner == 0.0f) *corner = m; }
+        /* -1, NOT the number: an unlinked kind's cushions are still standing
+         * at the seed, so the gap between them is not this pocket's mouth and
+         * saying so would be worse than saying nothing. */
+        if (w.pocket_mid[p]) { if (middle && *middle == 0.0f)
+                                  *middle = (w.linked & 2) ? m : -1.0f; }
+        else                 { if (corner && *corner == 0.0f)
+                                  *corner = (w.linked & 1) ? m : -1.0f; }
     }
 }
 
@@ -2334,6 +2860,18 @@ int cue_table_warnings(const CueTable *t, char *msg, int msgcap) {
     char buf[128];
     /* Zero means there are no rail pockets to measure, which is bar billiards
      * and not a fault; only a pocket that EXISTS can be too small. */
+    if (mc < 0.0f) {
+        snprintf(buf, sizeof buf,
+                 "the corner pockets are too small for the cushions to meet\n");
+        if (msg && msgcap > 0) { strncat(msg, buf, (size_t)msgcap - strlen(msg) - 1); }
+        n++;
+    }
+    if (mm < 0.0f) {
+        snprintf(buf, sizeof buf,
+                 "the middle pockets are too small for the cushions to meet\n");
+        if (msg && msgcap > 0) { strncat(msg, buf, (size_t)msgcap - strlen(msg) - 1); }
+        n++;
+    }
     if (mc > 0.0f && mc < big) {
         snprintf(buf, sizeof buf,
                  "the corner pockets are %.0fmm across and the ball is %.0fmm\n",
