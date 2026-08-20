@@ -985,6 +985,28 @@ int cue_table_validate(const CueTable *t, char *msg, int msgcap) {
     float cR = (t->cue_R > 0.0f) ? t->cue_R : R;
     float big = (cR > R) ? cR : R;            /* the widest ball on the cloth */
 
+    /* BAR BILLIARDS IS A RECTANGLE OR IT IS NOTHING.
+     *
+     * It is the one game here whose pockets are not cut into the boundary at
+     * all: nine holes bored through the open cloth at coordinates fixed by the
+     * AEBBA layout, four plain cushions round them, and no rail pocket
+     * anywhere. cue_table_build_world takes its own branch for that — a branch
+     * which sits BEFORE the polygon and L ones and so is the only one it ever
+     * takes — so its cushions are always the four sides of a rectangle at
+     * +-half_len/+-half_wid whatever bed_shape says, and its holes are always
+     * where a 1.42 m by 0.79 m table put them.
+     *
+     * Ask for a hexagonal one and you get a square of cushions inside a
+     * hexagonal frame; ask for a deep L and the cushions run straight through
+     * the missing corner with two of the holes stranded in it. Neither is a
+     * table, and the honest place to say so is here rather than in the four
+     * separate places that would each have to cope. The workshop does not offer
+     * the game at all, and this is what makes that a fact about the table
+     * rather than a fact about the menu. */
+    if (t->kind == CUE_GAME_BARBILLIARDS && t->bed_shape != CUE_BED_RECT)
+        return tab_fail(msg, msgcap,
+                        "bar billiards has its holes in the bed, so its bed must be a rectangle");
+
     if (t->half_wid > t->half_len)
         return tab_fail(msg, msgcap, "the table is wider than it is long");
     if (t->half_wid < big * 4.0f)
