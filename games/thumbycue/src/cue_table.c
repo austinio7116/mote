@@ -567,10 +567,33 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
 
     cue_table_rails(t, kind);
 
-    /* How far past the pocket the DROP is centred. Zero is concentric with the
-     * hole, which is where it has always been; positive pushes it deeper, so a
-     * ball has to get further in before it is down. Per pocket type because a
-     * middle is a shallower thing than a corner. */
+    /* THE BORE IS THE DROP — the last of the three onto one circle.
+     *
+     * They were two authored numbers and they disagreed on every table: the
+     * American middles by 3.4mm of radius AND 8.6mm of centre, snooker's
+     * middle by 4.5mm, pyramid's corner by 14.4mm. So the hole in the timber
+     * did not sit on the circle a ball is actually caught by, and on the
+     * mitred American middle you could see it.
+     *
+     * The drop is the gameplay. The hole in the timber is the same hole, so it
+     * is set FROM it rather than dialled beside it — and because the cushions
+     * are linked to the bore, all three now arrive on one circle.
+     *
+     * It has to be here rather than in the link, because cue_render reads the
+     * bore off the TABLE. The link works on a copy of the table to rebuild the
+     * world, so a bore changed there moved the cushions and left the timber
+     * where it was: the hole and the circle stayed apart and the link error
+     * went from nothing to 2-22mm. The table is where the bore lives, so this
+     * is where it is decided.
+     *
+     * CUE_NOLINK leaves the authored numbers alone, so a before/after is still
+     * one binary. */
+    if (!getenv("CUE_NOLINK")) {
+        t->bore_corner     = t->pr_corner - t->cap_corner;
+        t->bore_side       = t->pr_side   - t->cap_side;
+        t->bore_set_corner = t->drop_back;
+        t->bore_set_side   = t->drop_back_side;
+    }
 }
 
 /* ---- THE TABLE AS A VALUE ------------------------------------------------ *
@@ -1714,6 +1737,22 @@ static int link_edge_x(const CueWorld *w, int p, float br, float bset,
  * needs no radius to be chosen. */
 static void link_accumulate(const CueTable *t, const CueWorld *w,
                             float *acc, int *cnt) {
+    /* THE MEDIAN, NOT THE MEAN.
+     *
+     * Every free jaw end on a regular bed wants the SAME correction, so any
+     * spread is error rather than information — and a mean has no defence
+     * against it. On a sixteen-gon one end came back with a delta of -334mm
+     * against the others' +27, from a tip on the far side of the table that
+     * the nearest-pocket rule had honestly assigned to this pocket. One such
+     * value is enough: the sixteen- and twenty-gons came out 28mm and 21mm off
+     * the point while every shape below them was inside half a millimetre.
+     *
+     * A median cannot be dragged by a few, and where the ends genuinely agree
+     * it IS the mean. Nothing is thrown away silently — the spread is what the
+     * bench's link-error readout shows. */
+    enum { DMAX = 4096 };
+    static float dv[2][DMAX]; static int dn[2];
+    dn[0] = dn[1] = 0;
     for (int i = 0; i < w->nseg; i++) {
         if (w->seg[i].kind != 1) continue;
         const Vec3 e[2] = { w->seg[i].a, w->seg[i].b };
@@ -1768,12 +1807,19 @@ static void link_accumulate(const CueTable *t, const CueWorld *w,
             const float rt = sqrtf(disc);
             const float d1 = -qu + rt, d2 = -qu - rt;
             {   const float dd = (fabsf(d1) < fabsf(d2)) ? d1 : d2;
-                if (getenv("PB_ACC")) fprintf(stderr,
-                    "ACC p=%d mid=%d tip=(%.4f,%.4f) u=(%+.2f,%+.2f) delta=%+.4f\n",
-                    p, m, (double)e[q].x, (double)e[q].z, (double)ux, (double)uz,
-                    (double)dd);
-                acc[m] += dd; cnt[m] += 1; }
+                if (dn[m] < DMAX) dv[m][dn[m]++] = dd;
+            }
         }
+    }
+    for (int m = 0; m < 2; m++) {
+        if (!dn[m]) continue;
+        for (int a2 = 1; a2 < dn[m]; a2++) {      /* insertion sort, small */
+            const float v2 = dv[m][a2]; int b2 = a2 - 1;
+            while (b2 >= 0 && dv[m][b2] > v2) { dv[m][b2+1] = dv[m][b2]; b2--; }
+            dv[m][b2+1] = v2;
+        }
+        acc[m] = dv[m][dn[m] / 2];
+        cnt[m] = 1;                                /* already the answer */
     }
 }
 
@@ -2161,7 +2207,15 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * because the pocket's normal is worked out from those same tips, so
      * moving them moves the target a little. */
     {   static int linking = 0;
-        if (!linking && t->bed_shape != CUE_BED_RECT) {
+        /* ON FOR EVERY SHAPE NOW, rectangles included, at the author's word.
+         * It was held back from them because their gaps were dialled by hand
+         * in the headset and linking moves their mouths; that is a judgement
+         * about how they PLAY, and it is being made deliberately rather than
+         * arrived at by accident. */
+        /* CUE_NOLINK builds the table as it was before any of this, so a
+         * before/after is one binary and one camera rather than two builds
+         * that might differ in some other way as well. */
+        if (!linking && !getenv("CUE_NOLINK")) {
             linking = 1;
             CueTable tt = *t;
             for (int pass = 0; pass < 3; pass++) {
