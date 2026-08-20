@@ -129,7 +129,12 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * That makes the pockets MORE generous relative to the ball, which is
          * what the bench tuning chose; the numbers are a description of that
          * table, not of the WEPF book. */
-        t->pr_corner  = 2.025f * t->R; t->pr_side  = 1.8337f * t->R;
+        /* MILLIMETRES, NOT BALL RADII. A pocket is a hole of a given size;
+         * how big the ball is decides whether it FITS, not how big the hole
+         * is. Written in ball radii these numbers made every table a special
+         * case and made a custom table impossible to author. The values are
+         * the ones the table already had, to the micron, so nothing moves. */
+        t->pr_corner  = 0.0514350f; t->pr_side  = 0.0465760f;   /* 51.44 / 46.58 mm */
         /* knuckles: what pr_corner + 0.833R / + 1.083R used to give */
         t->gap_corner = 2.9621f * t->R; t->gap_side = 3.2434f * t->R;
         t->facing_len = 1.8754f * t->R;
@@ -139,7 +144,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->off_corner = 0.675f * t->R; t->off_side = 1.4062f * t->R;
         /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
-        t->drop_back  = 0.3375f * t->R; t->drop_back_side = 0.18f * t->R;
+        t->drop_back  = 0.0085725f; t->drop_back_side = 0.0045720f;  /* 8.57 / 4.57 mm */
         t->jaw_r = 0.004f;
         t->cloth = RGB565C(22, 120, 70);
         t->rail = RGB565C(96, 54, 26); t->rail_top = RGB565C(128, 78, 38);
@@ -189,14 +194,19 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          *     gap     3.20 -> 2.56 R      gap   2.95 -> 2.36 R
          * Still the widest mouths on any table here, which is right for an
          * American table; they are no longer in a class of their own. */
-        t->pr_corner  = 2.20f * t->R; t->pr_side  = 1.88f * t->R;
+        /* MILLIMETRES, NOT BALL RADII. A pocket is a hole of a given size;
+         * how big the ball is decides whether it FITS, not how big the hole
+         * is. Written in ball radii these numbers made every table a special
+         * case and made a custom table impossible to author. The values are
+         * the ones the table already had, to the micron, so nothing moves. */
+        t->pr_corner  = 0.0628650f; t->pr_side  = 0.0537210f;   /* 62.87 / 53.72 mm */
         t->gap_corner = 2.56f * t->R; t->gap_side = 2.36f * t->R;
         t->facing_len = 1.55f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         t->off_corner = 1.30f * t->R; t->off_side = 1.20f * t->R;  /* corners set back into the pocket */
         /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
-        t->drop_back  = 0.28f * t->R; t->drop_back_side = 0.30f * t->R;
+        t->drop_back  = 0.0080010f; t->drop_back_side = 0.0085725f;  /* 8.00 / 8.57 mm */
         t->jaw_r = 0.004f;
         t->cloth = RGB565C(18, 110, 120);    /* US tables often tournament blue-green */
         t->rail = RGB565C(70, 46, 30); t->rail_top = RGB565C(100, 66, 42);
@@ -216,13 +226,18 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->cushion_h = 1.27f * t->R; t->rail_w = 0.080f;
         t->pocket_round = 1;                 /* rounded jaws, tight */
         /* Tighter again on the bench — they were too loose next to the others. */
-        t->pr_corner  = 2.03f * t->R; t->pr_side  = 1.88f * t->R;
+        /* MILLIMETRES, NOT BALL RADII. A pocket is a hole of a given size;
+         * how big the ball is decides whether it FITS, not how big the hole
+         * is. Written in ball radii these numbers made every table a special
+         * case and made a custom table impossible to author. The values are
+         * the ones the table already had, to the micron, so nothing moves. */
+        t->pr_corner  = 0.0580073f; t->pr_side  = 0.0537210f;   /* 58.01 / 53.72 mm */
         t->gap_corner = 2.675f * t->R; t->gap_side = 3.133f * t->R;
         t->facing_len = 1.667f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         t->off_corner = 0.60f * t->R; t->off_side = 1.25f * t->R;
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
-        t->drop_back  = 0.31f * t->R; t->drop_back_side = 0.50f * t->R;
+        t->drop_back  = 0.0088583f; t->drop_back_side = 0.0142875f;  /* 8.86 / 14.29 mm */
         t->jaw_r = 0.005f;
         t->cloth = RGB565C(22, 44, 155);     /* Chinese-8 royal blue cloth */
         t->rail = RGB565C(78, 48, 28); t->rail_top = RGB565C(112, 70, 36);
@@ -248,7 +263,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * and a zero mouth would fail validation. They describe a hole that is
          * never cut on a rail: the pockets this table has are in the bed. */
         t->pocket_round = 1;
-        t->pr_corner = t->pr_side = 1.30f * t->R;
+        t->pr_corner = t->pr_side = 0.0309400f;   /* 30.94 mm; no rail pockets */
         t->gap_corner = t->gap_side = 2.60f * t->R;
         t->facing_len = 1.00f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 80.0f;
@@ -344,8 +359,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * two allowances, which lands it at 65 and 74.5 — inside the 4-5 and
          * 14-18 mm the smaller tables are quoted at. Written this way round so
          * a bigger or smaller ball cannot silently stop fitting. */
-        t->pr_corner = t->R + 0.00250f;      /* 72.0 mm / 62.2 mm across */
-        t->pr_side   = t->R + 0.00725f;      /* 81.5 mm / 71.7 mm across */
+        /* MILLIMETRES, NOT BALL RADII. A pocket is a hole of a given size;
+         * how big the ball is decides whether it FITS, not how big the hole
+         * is. Written in ball radii these numbers made every table a special
+         * case and made a custom table impossible to author. The values are
+         * the ones the table already had, to the micron, so nothing moves. */
+        t->pr_corner = 0.0360000f;   /* 36.0 mm radius */
+        t->pr_side   = 0.0407500f;   /* 40.75 mm radius */
         /* THE KNUCKLE GAP IS THE POCKET, and pr_corner is not.
          *
          * pr_corner/pr_side drive the bore, the cut and the drop — how big the
@@ -370,6 +390,12 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * those the wrong way round and the size that was tuned comes out right
          * while the other is a millimetre out — which is a whole third of the
          * slack this game has. */
+        /* THESE TWO ARE NOW OVERWRITTEN BY THE LINK, and saying so is the
+         * point of leaving them: they were swept by measurement to put the
+         * narrowest passage on the FBS numbers, and the link decides the gap
+         * from the bore instead. They survive as the CUE_NOLINK geometry and
+         * as the record of what was measured. The official sizes are hit from
+         * the pocket size now — see pr_corner/pr_side above. */
         t->gap_corner = 1.415f * t->pr_corner;   /* -> 73.0 / 65.0 across */
         t->gap_side   = t->R + 0.01136f;         /* -> 82.5 / 74.5 across */
         /* Against the CORNER's mouth, because the corner is where two facings
@@ -398,7 +424,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * mouth — see the note beside cap_corner in TAB_FIELDS. */
         t->cap_corner = t->pr_corner - t->off_corner - 0.90f * t->R;
         t->cap_side   = t->pr_side   - t->off_side   - 0.68f * t->R;
-        t->drop_back  = 0.28f * t->R; t->drop_back_side = 0.30f * t->R;
+        t->drop_back  = 0.0093800f; t->drop_back_side = 0.0100500f;  /* 9.38 / 10.05 mm */
         t->jaw_r = 0.004f;
         /* THE HOUSE, which is what a pyramid table has instead of a D: a line
          * across the baulk end with the cue ball played from behind it. Carried
@@ -426,7 +452,21 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->R = 0.0262500f; t->mass = 0.142f;
         t->cushion_h = 1.27f * t->R; t->rail_w = 0.085f;
         t->pocket_round = 1;
-        t->pr_corner  = 1.98f * t->R; t->pr_side  = 1.82f * t->R;
+        /* THE POCKET IS THE 1.7 BORE. Now that the drop, the timber's hole and
+         * the cushion ends are one circle, the size of that circle is the one
+         * number left to pick — and 1.7's BORE is the number that was tuned by
+         * hand in the headset, not its pr. The corners were dialled wider than
+         * the drop (2.11 and 2.13 against 1.98) and the middles narrower (1.65
+         * and 1.71 against 1.82), so this widens a corner and tightens a
+         * middle, which is what those numbers say the table should be.
+         *
+         * Per table, because 1.7 tuned them apart: the 10ft's corner is a
+         * touch wider than the 12ft's and its middle wider too. */
+        if (kind == CUE_GAME_SNK10) {
+            t->pr_corner = 0.0559125f; t->pr_side = 0.0448875f;  /* 55.91 / 44.89 mm */
+        } else {
+            t->pr_corner = 0.0553875f; t->pr_side = 0.0433125f;  /* 55.39 / 43.31 mm */
+        }
         t->gap_corner = 2.813f * t->R; t->gap_side = 3.063f * t->R;
         t->facing_len = 1.25f * t->R;
         t->ang_corner = 60.0f; t->ang_side = 80.0f;
@@ -437,7 +477,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->off_corner = 1.30f * t->R; t->off_side = 1.00f * t->R;  /* corners back, but not too far */
         /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
-        t->drop_back  = 0.29f * t->R; t->drop_back_side = 0.63f * t->R;
+        t->drop_back  = 0.0076125f; t->drop_back_side = 0.0165375f; /* 7.61 / 16.54 mm */
         t->jaw_r = 0.012f;
         t->baulk_x = -t->half_len + 0.737f * sc;
         t->d_radius = 0.292f * sc;
