@@ -3577,7 +3577,16 @@ static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) 
         }
         return (bd < 0.0f) ? p : best;
     }
-    if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind)) {
+    /* BAR BILLIARDS IS PLAYED FROM THE D, EVERY STROKE (Rule 91), and it was
+     * not in this list. cue_rules_in_hand_anywhere already said "not anywhere"
+     * for it, correctly — but that only decides whether the whole cloth is
+     * allowed, and WHICH region is decided here. Missing from both branches it
+     * fell through to the US pool case at the bottom, which clamps to the cloth
+     * and nothing else: the ball could be put down anywhere on the table. Rule
+     * 75 gives it a D of about 4 cm at the centre of the base, and that is the
+     * same shape snooker's is, so it is the same code. */
+    if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind) ||
+        t->kind == CUE_GAME_BARBILLIARDS) {
         /* The D — and the pyramid's HOUSE, which is the same thing as far as
          * this is concerned: a region behind a line that the cue ball is played
          * from. A half-disc of radius d_radius centred on (baulk_x, 0), bulging

@@ -3532,7 +3532,12 @@ static Vec3 bb_place(const AiCtx *c) {
             if (sc > bestsc) { bestsc = sc; best = pos; }
         }
     }
-    return best;
+    /* THROUGH THE SAME CLAMP THE PLAYER'S PLACEMENT GOES THROUGH. The rings
+     * above are a full disc about the break spot and the D is a half one, so
+     * half of every ring was outside it — the AI was placing where the rules do
+     * not allow, and it went unnoticed because clamp_region had no bar billiards
+     * case either and was letting the player do the same. */
+    return cue_table_clamp_placement_any(c->t, best, c->b, c->n, 0, 0);
 }
 
 void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
