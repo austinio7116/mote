@@ -136,12 +136,14 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * the ones the table already had, to the micron, so nothing moves. */
         t->pr_corner  = 0.0514350f; t->pr_side  = 0.0465760f;   /* 51.44 / 46.58 mm */
         /* knuckles: what pr_corner + 0.833R / + 1.083R used to give */
-        t->gap_corner = 2.9621f * t->R; t->gap_side = 3.2434f * t->R;
-        t->facing_len = 1.8754f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         /* Throat set back into the wood so the bore circle clears the (deepened)
          * cushion back and a proper wood ring is cut — see reach math in PLAN. */
-        t->off_corner = 0.675f * t->R; t->off_side = 1.4062f * t->R;
+        /* MILLIMETRES. Where the pocket sits into the corner, and how much
+         * of the hole is not catch — both were ball radii, so a custom table
+         * could not author them and the shipped tables were not examples of
+         * anything. Values unchanged, to the micron. */
+        t->off_corner = 0.0171450f; t->off_side = 0.0357175f;  /* 17.15 / 35.72 mm */
         /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
         t->drop_back  = 0.0085725f; t->drop_back_side = 0.0045720f;  /* 8.57 / 4.57 mm */
@@ -200,10 +202,12 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * case and made a custom table impossible to author. The values are
          * the ones the table already had, to the micron, so nothing moves. */
         t->pr_corner  = 0.0628650f; t->pr_side  = 0.0537210f;   /* 62.87 / 53.72 mm */
-        t->gap_corner = 2.56f * t->R; t->gap_side = 2.36f * t->R;
-        t->facing_len = 1.55f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
-        t->off_corner = 1.30f * t->R; t->off_side = 1.20f * t->R;  /* corners set back into the pocket */
+        /* MILLIMETRES. Where the pocket sits into the corner, and how much
+         * of the hole is not catch — both were ball radii, so a custom table
+         * could not author them and the shipped tables were not examples of
+         * anything. Values unchanged, to the micron. */
+        t->off_corner = 0.0371475f; t->off_side = 0.0342900f;  /* 37.15 / 34.29 mm */
         /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
         t->drop_back  = 0.0080010f; t->drop_back_side = 0.0085725f;  /* 8.00 / 8.57 mm */
@@ -232,10 +236,12 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * case and made a custom table impossible to author. The values are
          * the ones the table already had, to the micron, so nothing moves. */
         t->pr_corner  = 0.0580073f; t->pr_side  = 0.0537210f;   /* 58.01 / 53.72 mm */
-        t->gap_corner = 2.675f * t->R; t->gap_side = 3.133f * t->R;
-        t->facing_len = 1.667f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
-        t->off_corner = 0.60f * t->R; t->off_side = 1.25f * t->R;
+        /* MILLIMETRES. Where the pocket sits into the corner, and how much
+         * of the hole is not catch — both were ball radii, so a custom table
+         * could not author them and the shipped tables were not examples of
+         * anything. Values unchanged, to the micron. */
+        t->off_corner = 0.0171450f; t->off_side = 0.0357188f;  /* 17.15 / 35.72 mm */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
         t->drop_back  = 0.0088583f; t->drop_back_side = 0.0142875f;  /* 8.86 / 14.29 mm */
         t->jaw_r = 0.005f;
@@ -264,10 +270,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * never cut on a rail: the pockets this table has are in the bed. */
         t->pocket_round = 1;
         t->pr_corner = t->pr_side = 0.0309400f;   /* 30.94 mm; no rail pockets */
-        t->gap_corner = t->gap_side = 2.60f * t->R;
-        t->facing_len = 1.00f * t->R;
         t->ang_corner = 45.0f; t->ang_side = 80.0f;
-        t->off_corner = t->off_side = 1.00f * t->R;
+        t->off_corner = t->off_side = 0.0238000f;   /* 23.80 mm */
         t->cap_corner = t->cap_side = 0.0f;
         t->drop_back  = t->drop_back_side = 0.0f;
         t->jaw_r = 0.006f;
@@ -390,31 +394,26 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * those the wrong way round and the size that was tuned comes out right
          * while the other is a millimetre out — which is a whole third of the
          * slack this game has. */
-        /* THESE TWO ARE NOW OVERWRITTEN BY THE LINK, and saying so is the
-         * point of leaving them: they were swept by measurement to put the
-         * narrowest passage on the FBS numbers, and the link decides the gap
-         * from the bore instead. They survive as the CUE_NOLINK geometry and
-         * as the record of what was measured. The official sizes are hit from
-         * the pocket size now — see pr_corner/pr_side above. */
-        t->gap_corner = 1.415f * t->pr_corner;   /* -> 73.0 / 65.0 across */
-        t->gap_side   = t->R + 0.01136f;         /* -> 82.5 / 74.5 across */
-        /* Against the CORNER's mouth, because the corner is where two facings
-         * come at each other and a long one makes them meet before the pocket
-         * does. One field serves both pockets, and this table is the first
-         * where the two mouths differ enough for that to matter — its middle is
-         * WIDER than its corner, where every other table is the other way
-         * about. Sized for the tighter of the two; a facing that is short of a
-         * middle pocket simply stops short, which is harmless. */
-        t->facing_len = 0.705f * t->pr_corner;
+        /* AUTHORED, LIKE EVERY OTHER TABLE. This block used to derive its own
+         * way — gap, facing and offset as ratios of pr_corner, the middle's
+         * gap off the ball — which made pyramid a third convention beside the
+         * ball-relative tables and the millimetre ones. It is millimetres now
+         * and the values are the ones it had.
+         *
+         * The gap is not authored at all any more: the link decides where a
+         * cushion ends, from the bore, on every table. The facing follows from
+         * the mitre angle and the cushion depth. Both are gone rather than
+         * left to look meaningful. */
+        t->ang_corner = 45.0f;
         /* THE MIDDLE'S FACINGS RUN ALMOST PARALLEL. A pool middle splays at 70
          * degrees off the rail and the mouth tapers in like a funnel; the
          * photographs of a Russian table show the two cushion ends facing each
          * other across a slot, which is a splay of very nearly ninety. Left a
          * couple of degrees short of parallel because a cushion end always has
          * a little relief on it, and dead parallel reads as a machined slot. */
-        t->ang_corner = 45.0f; t->ang_side = 88.0f;
-        t->off_corner = 0.591f * t->pr_corner;
-        t->off_side   = 0.638f * t->pr_side;
+        t->ang_side   = 88.0f;
+        t->off_corner = 0.0212760f;   /* 21.28 mm */
+        t->off_side   = 0.0259990f;   /* 26.00 mm */
         /* THE CATCH IS THE ONE THING THAT SCALES WITH THE BALL, not the mouth:
          * it is about how far a BALL has to travel past the cushion line before
          * it has gone, and a 68 mm ball needs the same fraction of itself
@@ -467,14 +466,16 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         } else {
             t->pr_corner = 0.0553875f; t->pr_side = 0.0433125f;  /* 55.39 / 43.31 mm */
         }
-        t->gap_corner = 2.813f * t->R; t->gap_side = 3.063f * t->R;
-        t->facing_len = 1.25f * t->R;
         t->ang_corner = 60.0f; t->ang_side = 80.0f;
         /* Throat set well back into the wood: the small snooker pocket radius is
          * < the deepened cushion depth, so without this the bore circle never
          * reaches the wood and no cutaway is cut (the fall is realistically set
          * back behind the mouth anyway). */
-        t->off_corner = 1.30f * t->R; t->off_side = 1.00f * t->R;  /* corners back, but not too far */
+        /* MILLIMETRES. Where the pocket sits into the corner, and how much
+         * of the hole is not catch — both were ball radii, so a custom table
+         * could not author them and the shipped tables were not examples of
+         * anything. Values unchanged, to the micron. */
+        t->off_corner = 0.0341250f; t->off_side = 0.0262500f;  /* 34.13 / 26.25 mm */
         /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
         t->drop_back  = 0.0076125f; t->drop_back_side = 0.0165375f; /* 7.61 / 16.54 mm */
@@ -607,6 +608,21 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
 
     cue_table_rails(t, kind);
 
+    /* THE GAP AND THE FACING ARE NOT AUTHORED. Nine tables used to carry a
+     * gap_corner/gap_side and a facing_len apiece, and not one of them
+     * survived the build: cue_table_link_gap decides where a cushion ends,
+     * from the bore, and a mitre's facing follows from its angle and the
+     * cushion's depth. They were rows a table designer could move with no
+     * effect, which is worse than no row at all — so they are gone, and what
+     * is left here is a SEED, enough for the first build the link then reads
+     * its jaw tips from.
+     *
+     * Off the pocket, not off the ball, so a seed cannot reintroduce the thing
+     * this whole scheme removes. */
+    t->gap_corner = 2.60f * t->pr_corner;
+    t->gap_side   = 2.60f * t->pr_side;
+    t->facing_len = 0.80f * t->pr_corner;
+
     /* THE BORE IS THE DROP — the last of the three onto one circle.
      *
      * They were two authored numbers and they disagreed on every table: the
@@ -626,14 +642,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
      * went from nothing to 2-22mm. The table is where the bore lives, so this
      * is where it is decided.
      *
-     * CUE_NOLINK leaves the authored numbers alone, so a before/after is still
-     * one binary. */
-    if (!getenv("CUE_NOLINK")) {
-        t->bore_corner     = t->pr_corner - t->cap_corner;
-        t->bore_side       = t->pr_side   - t->cap_side;
-        t->bore_set_corner = t->drop_back;
-        t->bore_set_side   = t->drop_back_side;
-    }
+     * CUE_NOLINK is gone with the authored gaps: without them there is no
+     * "before" for it to build, only the seed, and a switch that offers a
+     * comparison it cannot actually make is worse than no switch. */
+    t->bore_corner     = t->pr_corner - t->cap_corner;
+    t->bore_side       = t->pr_side   - t->cap_side;
+    t->bore_set_corner = t->drop_back;
+    t->bore_set_side   = t->drop_back_side;
 }
 
 /* ---- THE TABLE AS A VALUE ------------------------------------------------ *
