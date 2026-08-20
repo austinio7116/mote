@@ -421,8 +421,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * radius; at cap = 0 this table would get 0.44 of one, which is a ball
          * sitting on the lip. A negative cap makes the catch larger than the
          * mouth — see the note beside cap_corner in TAB_FIELDS. */
-        t->cap_corner = t->pr_corner - t->off_corner - 0.90f * t->R;
-        t->cap_side   = t->pr_side   - t->off_side   - 0.68f * t->R;
+        /* MILLIMETRES, like the rest. This was pr - off - 0.90 R, the last
+         * place a pocket number was written against the ball. The cap is
+         * NEGATIVE here — the catch is larger than the mouth, which is what
+         * lets a 67mm ball down a 72mm pocket at all — and that is a property
+         * of this table, not of the ball that happens to be on it. */
+        t->cap_corner = -0.0154270f;   /* -15.43 mm */
+        t->cap_side   = -0.0080300f;   /*  -8.03 mm */
         t->drop_back  = 0.0093800f; t->drop_back_side = 0.0100500f;  /* 9.38 / 10.05 mm */
         t->jaw_r = 0.004f;
         /* THE HOUSE, which is what a pyramid table has instead of a D: a line
@@ -642,9 +647,9 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
      * went from nothing to 2-22mm. The table is where the bore lives, so this
      * is where it is decided.
      *
-     * CUE_NOLINK is gone with the authored gaps: without them there is no
-     * "before" for it to build, only the seed, and a switch that offers a
-     * comparison it cannot actually make is worse than no switch. */
+     * There is no "unlinked" build any more: with the authored gaps gone
+     * there would be nothing to build one FROM, only the seed, and a switch
+     * that offers a comparison it cannot make is worse than no switch. */
     t->bore_corner     = t->pr_corner - t->cap_corner;
     t->bore_side       = t->pr_side   - t->cap_side;
     t->bore_set_corner = t->drop_back;
