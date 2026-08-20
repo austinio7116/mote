@@ -2272,10 +2272,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
          * in the headset and linking moves their mouths; that is a judgement
          * about how they PLAY, and it is being made deliberately rather than
          * arrived at by accident. */
-        /* CUE_NOLINK builds the table as it was before any of this, so a
-         * before/after is one binary and one camera rather than two builds
-         * that might differ in some other way as well. */
-        if (!linking && !getenv("CUE_NOLINK")) {
+        if (!linking) {
             linking = 1;
             CueTable tt = *t;
             for (int pass = 0; pass < 3; pass++) {
