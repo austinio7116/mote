@@ -2140,6 +2140,37 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         w->cut_roll[m] = c.roll; w->cut_arc[m] = c.arc;
     }
     cue_table_derive_cut(w);
+
+    /* THE CUSHIONS FOLLOW THE HOLE, on the shapes that need it.
+     *
+     * cue_table_link_gap was reachable only from the bench, so the game built
+     * every table with the authored gap and none of this applied in the
+     * headset. It applies here now — but only where the bed is NOT a plain
+     * rectangle.
+     *
+     * The rectangles are left alone deliberately: their gaps were dialled in
+     * the headset with a ball rolling at the pocket, and linking moves their
+     * mouths a long way (snooker's corner 103.0 -> 87.6, the American 9ft
+     * 107.2 -> 114.8). That is a decision about how those tables PLAY and it
+     * is the author's, not a side effect of a geometry fix. A polygon or an L
+     * has no such tuning to lose, and it is exactly where the cushions were
+     * standing still while the hole moved.
+     *
+     * Guarded against re-entry because the link needs a built world to read
+     * the jaw tips from and then wants the world built again — twice more,
+     * because the pocket's normal is worked out from those same tips, so
+     * moving them moves the target a little. */
+    {   static int linking = 0;
+        if (!linking && t->bed_shape != CUE_BED_RECT) {
+            linking = 1;
+            CueTable tt = *t;
+            for (int pass = 0; pass < 3; pass++) {
+                cue_table_link_gap(&tt, w);
+                cue_table_build_world(&tt, w);
+            }
+            linking = 0;
+        }
+    }
 }
 
 /* ---- the cloth cut, which both the renderer and the physics obey ---------- *
