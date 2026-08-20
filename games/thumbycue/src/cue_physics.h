@@ -264,6 +264,20 @@ typedef struct {
     int linked;
     Vec3   jaw[CUE_MAX_SEG]; int njaw; float jaw_r;   /* immovable jaw-tip circles */
     Vec3   pocket[CUE_MAX_POCKET]; float pocket_r[CUE_MAX_POCKET]; int npocket;
+    /* EACH POCKET'S OWN CENTRE LINE, pointing out of the pocket, recorded when
+     * the pocket is placed.
+     *
+     * Every shape already works this out in order to offset the pocket from its
+     * corner — a rectangle's 45 degree bisector, a polygon's radial, the L's
+     * bisector of two edge normals — and then threw it away. The jaw needs it:
+     * the bore is set back along it and the facing arrives down it. Guessing it
+     * as "45 degrees off the rail normal" is right for a rectangle and a square
+     * and wrong for every other polygon, which is why a triangle's pockets came
+     * out at 1.19 ball widths against a square's 1.60.
+     *
+     * Not pmnorm: that is derived from the finished jaws, so it does not exist
+     * while they are being built. */
+    Vec3   paxis[CUE_MAX_POCKET];
     /* WHAT A HOLE IS WORTH. Zero on every table where a pocket is a pocket;
      * bar billiards is the one game whose holes are not interchangeable — nine
      * of them scoring from ten to two hundred, and which one a ball went down

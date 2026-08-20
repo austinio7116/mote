@@ -84,13 +84,30 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
      * See CueTable::jaw_p0 for what the four points are. A STARTING POINT, in
      * millimetres and the same on every table, so the shape can be looked at
      * and compared before anything is tuned per table. */
+    /* 70 mm, AND NOT RAISED, though raising it would be tidier in the abstract.
+     *
+     * How far out the facing leaves the rail decides how sharp its bend has to
+     * be, and a tight bend bulges inside its own chord — so the narrowest part
+     * of a pocket ends up being the curve rather than its ends. Past about
+     * 110 mm that stops happening on every shape tried, and at 70 the shipped
+     * corners are pinched by about 5%.
+     *
+     * They are left pinched deliberately. Their pocket sizes were tuned against
+     * the openings that come out AT THIS VALUE, and those openings are what the
+     * game plays like now; raising this would widen every shipped corner —
+     * snooker from 1.60 ball widths to 1.68 — and re-tuning six numbers to undo
+     * a change nobody asked for is how a table that plays well stops playing
+     * well. A shape that actually needs a longer run says so for itself: see
+     * the polygon presets in the workshop, where a triangle asks for 140. */
     t->jaw_p0  = 0.070f;   /* 70 mm out along the rail */
     t->jaw_h1  = 0.030f;   /* 30 mm of rail tangent */
     t->jaw_h2  = 0.030f;   /* 30 mm of pocket-axis tangent */
-    /* 45 at a corner is the bisector of two square rails, which is the pocket's
-     * centre line. 0 at a middle is square-on to the rail, which is only what
-     * the code used to do — see the note in cue_table.h. */
-    t->jaw_ang_c = 45.0f;
+    /* ZERO IS STRAIGHT DOWN THE POCKET'S OWN CENTRE LINE, at a corner and at a
+     * middle alike. It used to be 45 at a corner because the centre line was
+     * being reconstructed from the rail rather than read off the pocket, and 45
+     * is what a rectangle's happens to be; now that the pocket carries its own
+     * axis the number means what it says. */
+    t->jaw_ang_c = 0.0f;
     /* TEN DEGREES OFF SQUARE, which is 80 and 100 to the rail on the two
      * sides — read off a photograph of a real middle pocket, where the throat
      * is plainly a slight funnel rather than a parallel slot. The two jaws
@@ -557,7 +574,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          *
          * The 10 ft and the 12 ft take the same numbers: same ball, same rail,
          * so the same pocket. 1.7 had them a touch apart and there is no reason
-         * in the specification for it. */
+         * in the specification for it.
+ */
         t->pr_corner = 0.0452900f; t->pr_side = 0.0466700f;  /* 45.29 / 46.67 mm */
         t->ang_corner = 60.0f; t->ang_side = 80.0f;
         /* Throat set well back into the wood: the small snooker pocket radius is
@@ -845,7 +863,7 @@ static const CueTabField TAB_FIELDS[] = {
     TF(jaw_p0,          TF_F32, TF_SIM,  0.010f, 0.300f),
     TF(jaw_h1,          TF_F32, TF_SIM,  0.000f, 0.200f),
     TF(jaw_h2,          TF_F32, TF_SIM,  0.000f, 0.200f),
-    TF(jaw_ang_c,       TF_F32, TF_SIM,  0.0f, 80.0f),
+    TF(jaw_ang_c,       TF_F32, TF_SIM, -40.0f, 60.0f),
     TF(jaw_ang_m,       TF_F32, TF_SIM, -60.0f, 60.0f),
 };
 #define TAB_NFIELD ((int)(sizeof TAB_FIELDS / sizeof TAB_FIELDS[0]))
@@ -1063,12 +1081,18 @@ static void add_jaw(CueWorld *w, Vec3 k) {
     if (w->njaw >= CUE_MAX_SEG) return;
     w->jaw[w->njaw++] = v3(k.x, w->R, k.z);
 }
-static void add_pocket(CueWorld *w, float x, float z, float cap, int mid) {
+/* `ax,az` is the pocket's own centre line, pointing OUT of the pocket — see
+ * CueWorld::paxis. Every caller has it to hand because it is the direction the
+ * pocket was offset from its corner along. */
+static void add_pocket(CueWorld *w, float x, float z, float cap, int mid,
+                       float ax, float az) {
     if (w->npocket >= CUE_MAX_POCKET) return;
     int i = w->npocket++;
     w->pocket[i] = v3(x, 0, z);
     w->pocket_r[i] = cap;
     w->pocket_mid[i] = (unsigned char)(mid ? 1 : 0);
+    const float l = sqrtf(ax*ax + az*az);
+    w->paxis[i] = (l > 1e-6f) ? v3(ax/l, 0.0f, az/l) : v3(0.0f, 0.0f, 1.0f);
 }
 
 /* Straight cushion chain (US pool): facing-tip → knuckle → knuckle →
@@ -1464,7 +1488,10 @@ static void build_ngon(CueWorld *w, const CueTable *t) {
         const Vec3 v = cue_table_ngon_vert(t, i);
         const float l = sqrtf(v.x*v.x + v.z*v.z);
         if (l < 1e-5f) continue;
-        add_pocket(w, v.x + v.x / l * oc, v.z + v.z / l * oc, capc, 0);
+        /* A regular bed's bisector is simply the radial, by symmetry — and it
+         * is 180/n degrees off a rail's normal, not 45. */
+        add_pocket(w, v.x + v.x / l * oc, v.z + v.z / l * oc, capc, 0,
+                   v.x / l, v.z / l);
     }
 
     for (int i = 0; i < n; i++) {
@@ -1587,13 +1614,15 @@ static void build_L(CueWorld *w, const CueTable *t) {
             float bx = p1z + p2z, bz = -p1x - p2x;
             float bl = sqrtf(bx*bx + bz*bz);
             if (bl > 1e-6f)
-                add_pocket(w, a.x + bx/bl * oc, a.z + bz/bl * oc, capc, 0);
+                add_pocket(w, a.x + bx/bl * oc, a.z + bz/bl * oc, capc, 0,
+                           bx/bl, bz/bl);
         }
         if ((i == lo0 || i == lo1) && len[i] > 1e-5f) {
             const float dx = b.x - a.x, dz = b.z - a.z;
             const Vec3 out = v3(dz / len[i], 0.0f, -dx / len[i]);
             add_pocket(w, (a.x + b.x) * 0.5f + out.x * os,
-                          (a.z + b.z) * 0.5f + out.z * os, caps, 1);
+                          (a.z + b.z) * 0.5f + out.z * os, caps, 1,
+                          out.x, out.z);
         }
     }
 
@@ -1791,22 +1820,29 @@ static void blend_arc(CueWorld *w, Vec3 P, Vec3 corner, Vec3 Q) {
  * or neither was — which is the same answer whenever both ends carry a jaw, and
  * every rectangular rail does, so no shipped table moves by a micron. Per-end is
  * what a rail with a jaw at one end only needs. */
-/* THE POCKET'S OWN AXIS at one end of a rail, without needing pmnorm.
+/* THE FACING'S TANGENT AT THE MOUTH: the pocket's own centre line, turned by an
+ * authored angle towards the pocket.
  *
- * pmnorm is worked out from the finished jaws, so it does not exist yet while
- * the jaws are being built. It does not need to: at a MIDDLE the axis is the
- * rail's outward normal, and at a CORNER it is the bisector of this rail's
- * outward normal and the next rail's — which, where two rails meet at a right
- * angle, is the outward normal turned halfway towards the pocket. `rd` points
- * away from the pocket along the rail, so -rd is that direction. */
-static Vec3 jaw_axis(Vec3 outn, Vec3 rd, float ang) {
-    /* outn and rd are perpendicular unit vectors — the rail's normal and its
-     * direction — so turning one towards the other is a plain rotation, and
-     * 45 degrees reproduces the corner bisector exactly. `rd` runs AWAY from
-     * the pocket, so the turn is towards -rd, and because the two ends of a
-     * rail get opposite rd the pair mirrors about the pocket for free. */
-    const float c = cosf(ang * DEG), s = sinf(ang * DEG);
-    return v3_norm(v3(outn.x*c - rd.x*s, 0.0f, outn.z*c - rd.z*s));
+ * The centre line comes off the world now (CueWorld::paxis) rather than being
+ * guessed as "45 degrees off the rail's normal". That guess is exactly right on
+ * a rectangle and a square and wrong on every other polygon — the true bisector
+ * at an n-gon corner is 180/n, so a triangle's was 15 degrees out and its
+ * pockets measured 1.19 ball widths against a square's 1.60.
+ *
+ * `rd` runs AWAY from the pocket along this rail, so turning towards -rd turns
+ * into the throat; and because the two ends of a rail get opposite rd, the pair
+ * mirrors about the pocket for free. Zero leaves the facing running straight
+ * down the centre line, which is the parallel-sided throat.
+ */
+static Vec3 jaw_tangent(Vec3 axis, Vec3 rd, float ang) {
+    /* the part of -rd square to the axis: the direction to turn towards */
+    const float d = -(rd.x*axis.x + rd.z*axis.z);
+    Vec3 t = v3(-rd.x - axis.x*d, 0.0f, -rd.z - axis.z*d);
+    const float tl = sqrtf(t.x*t.x + t.z*t.z);
+    if (tl < 1e-6f) return axis;                  /* rail along the axis */
+    t = v3(t.x/tl, 0.0f, t.z/tl);
+    const float c = cosf(ang * DEG), s2 = sinf(ang * DEG);
+    return v3_norm(v3(axis.x*c + t.x*s2, 0.0f, axis.z*c + t.z*s2));
 }
 
 /* ONE END OF A RAIL, as the four points of its jaw.
@@ -1840,8 +1876,11 @@ static CueJawEnd jaw_end(const CueWorld *w, Vec3 k, Vec3 rd, Vec3 outn) {
      * sideways off the pocket's own line, which put the yellow point off the
      * drop circle entirely: the cushion ended inside the hole. Caught by
      * drawing it. */
-    const Vec3 centre = jaw_axis(outn, rd, mid ? 0.0f : 45.0f);
-    e.axis = jaw_axis(outn, rd, mid ? w->jaw_ang_m : w->jaw_ang_c);
+    /* THE POCKET'S OWN, recorded when it was placed. Falls back to the rail's
+     * normal for a pocket that never got one, which is a pocket with no rails. */
+    Vec3 centre = w->paxis[p];
+    if (centre.x*centre.x + centre.z*centre.z < 0.25f) centre = outn;
+    e.axis = jaw_tangent(centre, rd, mid ? w->jaw_ang_m : w->jaw_ang_c);
     e.centre = centre;
     const float bset = mid ? w->drop_back_side : w->drop_back;
     const Vec3 bc = v3(w->pocket[p].x + centre.x*bset, 0.0f,
@@ -2302,9 +2341,9 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     w->jaw_p0  = (t->jaw_p0 > 0.0f) ? t->jaw_p0 : 0.070f;
     w->jaw_h1  = (t->jaw_h1 > 0.0f) ? t->jaw_h1 : 0.030f;
     w->jaw_h2  = (t->jaw_h2 > 0.0f) ? t->jaw_h2 : 0.030f;
-    /* A corner angle of zero is a table that never said, and square-on at a
-     * corner is not a pocket; zero at a MIDDLE is meaningful, so it stands. */
-    w->jaw_ang_c = (t->jaw_ang_c > 0.0f) ? t->jaw_ang_c : 45.0f;
+    /* Both are offsets from the pocket's own centre line now, and zero is a
+     * meaningful one — straight down it — so neither gets a fallback. */
+    w->jaw_ang_c = t->jaw_ang_c;
     w->jaw_ang_m = t->jaw_ang_m;
     w->jaw_r = t->jaw_r;
     w->e_cush     = t->e_cush;
@@ -2333,12 +2372,14 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * of its own without moving every other table's with it. */
     float capc = t->pr_corner - t->cap_corner, caps = t->pr_side - t->cap_side;
     if (t->bed_shape == CUE_BED_RECT && t->kind != CUE_GAME_BARBILLIARDS) {
-        add_pocket(w, -hl - oc*d, -hw - oc*d, capc, 0);
-        add_pocket(w,  hl + oc*d, -hw - oc*d, capc, 0);
-        add_pocket(w,  hl + oc*d,  hw + oc*d, capc, 0);
-        add_pocket(w, -hl - oc*d,  hw + oc*d, capc, 0);
-        add_pocket(w, 0.0f, -hw - os, caps, 1);
-        add_pocket(w, 0.0f,  hw + os, caps, 1);
+        /* The axis a corner was offset along IS its centre line: two rails
+         * meeting square bisect at 45 degrees, which is what d is. */
+        add_pocket(w, -hl - oc*d, -hw - oc*d, capc, 0, -d, -d);
+        add_pocket(w,  hl + oc*d, -hw - oc*d, capc, 0,  d, -d);
+        add_pocket(w,  hl + oc*d,  hw + oc*d, capc, 0,  d,  d);
+        add_pocket(w, -hl - oc*d,  hw + oc*d, capc, 0, -d,  d);
+        add_pocket(w, 0.0f, -hw - os, caps, 1, 0.0f, -1.0f);
+        add_pocket(w, 0.0f,  hw + os, caps, 1, 0.0f,  1.0f);
     }
 
     if (t->kind == CUE_GAME_BARBILLIARDS) {
@@ -2376,7 +2417,10 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
             { 0.640f,  0.000f, 200 },
         };
         for (int i = 0; i < (int)(sizeof HOLE / sizeof HOLE[0]); i++) {
-            add_pocket(w, HOLE[i].x, HOLE[i].z, hr, 0);
+            /* IN THE BED, not on a rail: no cushion runs into it, so the axis
+             * is only there to be well formed. Radial from the middle. */
+            add_pocket(w, HOLE[i].x, HOLE[i].z, hr, 0,
+                       HOLE[i].x, HOLE[i].z);
             w->pocket_score[w->npocket - 1] = (int16_t)HOLE[i].v;
             /* Cloth all the way round it: a circle, not a cut in the edge. */
             w->pocket_bed[w->npocket - 1] = 1;

@@ -1258,9 +1258,67 @@ static void lay_spot(const CueTable *t, float x, float across, float sr, uint16_
     Vec3 p = cue_table_lay(t, x, across, NULL);
     cloth_disc(p.x, p.z, sr, c);
 }
+/* A LINE ACROSS THE CLOTH, AND NOT PAST IT.
+ *
+ * `half` is how far the caller wants it to reach, which for the baulk line is
+ * the bed's half-width less half a ball. On a rectangle that IS the cloth's
+ * width. On a polygon it is the apothem, and the bed is far narrower than that
+ * at the baulk line — so the line ran out over the timber and off into the room,
+ * which is what you can see on a hexagon or a triangle.
+ *
+ * So each end is walked back until it is actually on the cloth. Bisection rather
+ * than arithmetic because the bed can be a rectangle, an L or any polygon and
+ * cue_table_on_bed already knows about all of them; twelve steps puts the end
+ * within a fifth of a millimetre of the edge, which is finer than the line is
+ * wide.
+ *
+ * Only the drawn quads are affected. In VR the markings are painted in the cloth
+ * shader — cue_render_set_markings(0) — where the geometry does the clipping and
+ * this never arose. */
+/* ON THE CLOTH, and for a polygon that is not what cue_table_on_bed answers.
+ *
+ * That one tests a set of RECTANGLES covering the bed, which is exact for a
+ * rectangle and for an L and a generous bounding box for a polygon: a point out
+ * past a hexagon's slanted edge is still inside the box, so the walk-back below
+ * never fired on the sides where it was most needed. A polygon gets a real
+ * point-in-polygon test off its own vertices. */
+static int lay_on_cloth(const CueTable *t, float x, float z) {
+    if (t->bed_shape != CUE_BED_NGON) return cue_table_on_bed(t, x, z);
+    const int n = cue_table_ngon_sides(t);
+    /* NO ASSUMPTION ABOUT THE WINDING. Testing for one sign meant that if the
+     * bed happened to wind the other way EVERY interior point read as outside,
+     * and the baulk line was clipped to nothing at all — which is a worse
+     * failure than the overhang it was there to fix, and it looked like the
+     * line had simply gone. So the test is that the signs AGREE, whichever way
+     * round they come out. */
+    int pos = 0, neg = 0;
+    for (int i = 0; i < n; i++) {
+        const Vec3 a = cue_table_ngon_vert(t, i);
+        const Vec3 b = cue_table_ngon_vert(t, (i + 1) % n);
+        const float cr = (b.x - a.x) * (z - a.z) - (b.z - a.z) * (x - a.x);
+        if (cr > 1e-9f) pos++; else if (cr < -1e-9f) neg++;
+    }
+    return !(pos && neg);
+}
+static float lay_reach(const CueTable *t, float x, float want) {
+    const float mag = want < 0.0f ? -want : want;
+    if (mag <= 0.0f) return 0.0f;
+    const float sgn = want < 0.0f ? -1.0f : 1.0f;
+    Vec3 p = cue_table_lay(t, x, want, NULL);
+    if (lay_on_cloth(t, p.x, p.z)) return mag;           /* already on it */
+    float lo = 0.0f, hi = mag;
+    for (int i = 0; i < 12; i++) {
+        const float mid = (lo + hi) * 0.5f;
+        p = cue_table_lay(t, x, sgn * mid, NULL);
+        if (lay_on_cloth(t, p.x, p.z)) lo = mid; else hi = mid;
+    }
+    return lo;
+}
 static void lay_line(const CueTable *t, float x, float half, float lw, uint16_t c) {
-    Vec3 a = cue_table_lay(t, x, -half, NULL);
-    Vec3 b = cue_table_lay(t, x,  half, NULL);
+    const float ha = lay_reach(t, x,  half);
+    const float hb = lay_reach(t, x, -half);   /* the two ends can differ on an L */
+    Vec3 a = cue_table_lay(t, x, -hb, NULL);
+    Vec3 b = cue_table_lay(t, x,  ha, NULL);
     cloth_line(a.x, a.z, b.x, b.z, lw, c);
 }
 static void emit_table_markings(const CueTable *t) {
@@ -1673,15 +1731,27 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                      k >= 0 && k < w->nseg && hops < 32; k += step, hops++)
                     if (w->seg[k].kind == 0) { nose_n = w->seg[k].n; break; }
             }
-            int zrail = fabsf(nose_n.z) > fabsf(nose_n.x);
-            float target = zrail ? (kn.z - nose_n.z * cw)
-                                 : (kn.x - nose_n.x * cw);
-            float md = zrail ? M.z : M.x;
+            /* IN THE RAIL'S OWN FRAME, not in x or z.
+             *
+             * This picked whichever of x and z the rail's normal leaned towards
+             * and then solved in that ONE coordinate. Every rail on a rectangle
+             * runs along an axis, so that was exact and nobody noticed. A
+             * polygon's rails run at whatever angle the shape gives them, and
+             * then "the dominant axis" is not the rail at all: the target came
+             * out meaningless and the facing was extended along its tangent to
+             * wherever that landed — straight off past the pocket and out
+             * through the timber, which is the sliver of cloth you can see
+             * poking out at a hexagon's and an octagon's corners.
+             *
+             * The frame's inner face is a LINE: the nose pushed out by one
+             * cushion depth. Meeting it is one dot product and one divide, with
+             * no axis in it, and it gives the identical answer on a rectangle. */
+            const Vec3 outw = v3(-nose_n.x, 0.0f, -nose_n.z);   /* to the timber */
+            const float md = M.x*outw.x + M.z*outw.z;
             if (fabsf(md) > 1e-4f) {
-                float tn2 = (target - (zrail ? tp.z : tp.x)) / md;
-                /* both are bounded below, so they cannot be const */
                 Vec3 bp = v3(tp.x - nn.x*cw, 0, tp.z - nn.z*cw);
-                float tb = (target - (zrail ? bp.z : bp.x)) / md;
+                float tn2 = (cw - ((tp.x-kn.x)*outw.x + (tp.z-kn.z)*outw.z)) / md;
+                float tb  = (cw - ((bp.x-kn.x)*outw.x + (bp.z-kn.z)*outw.z)) / md;
                 /* NEVER ACROSS A POCKET.
                  *
                  * This extension exists to run a free facing out until it meets
