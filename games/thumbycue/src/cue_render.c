@@ -1069,6 +1069,57 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
         #undef OUT
     }
 
+    /* THE POINT OF A SHARP MITRE, filled before the bore takes its share.
+     *
+     * A mitre corner sits cw/cos(pi/n) beyond the apothem, so it runs away as
+     * the angle sharpens: 37.6mm past the pocket on a hexagon, 49.8 on a
+     * square, 77.5 on a TRIANGLE. The bore is 52.6mm, so it reaches the corner
+     * on every shape but the triangle, and on that one a wedge of nothing is
+     * left inside the point — the spur that runs out past the drop.
+     *
+     * One fan does it: apex at the mitre corner, base on the bore's arc
+     * between the two places the circle crosses the adjacent planks' inner
+     * edges. That is the void exactly, and its inner boundary is the arc, so
+     * the bore is still what stops the timber.
+     *
+     * Gated on the bore not reaching the corner, which is the condition
+     * itself rather than a test for "is this a triangle" — a wide table with a
+     * small pocket would want it at four sides and gets it. */
+    for (int h = 0; h < nh; h++) {
+        int vi = -1; float vbest = 1e30f;
+        for (int i = 0; i < n; i++) {          /* the vertex this bore belongs to */
+            const Vec3 V = cue_table_ngon_vert(t, i);
+            const float dx = V.x - hx[h], dz = V.z - hz[h];
+            const float dd = dx*dx + dz*dz;
+            if (dd < vbest) { vbest = dd; vi = i; }
+        }
+        if (vi < 0) continue;
+        const Vec3 V = cue_table_ngon_vert(t, vi);
+        const float vl = sqrtf(V.x*V.x + V.z*V.z);
+        if (vl < 1e-6f) continue;
+        const float mx = V.x / vl * rin, mz = V.z / vl * rin;      /* mitre corner */
+        const float md = sqrtf((mx-hx[h])*(mx-hx[h]) + (mz-hz[h])*(mz-hz[h]));
+        if (md <= hr[h]) continue;             /* the bore already reaches it */
+        /* the arc between the two crossings, swept the short way */
+        const float a0 = atan2f(mz - hz[h], mx - hx[h]);
+        const float half = acosf(hr[h] / md > 1.0f ? 1.0f : hr[h] / md);
+        const int NA = CUE_ARC_SEGS;
+        for (int k = 0; k < NA; k++) {
+            /* THE ARC THE CORNER CAN SEE. The tangents from a point at
+             * distance d touch the circle at a0 +/- acos(r/d), so the near
+             * arc — the one facing the corner, and the one bounding the void
+             * — is a0-half to a0+half. Sweeping a0+pi instead takes the FAR
+             * arc and the fan covers the hole rather than the gap beside it,
+             * which is what it did on the first run. */
+            const float t0 = a0 - half + 2.0f*half*(float)k/(float)NA;
+            const float t1 = a0 - half + 2.0f*half*(float)(k+1)/(float)NA;
+            quad(v3(mx, ytop, mz),
+                 v3(hx[h] + cosf(t0)*hr[h], ytop, hz[h] + sinf(t0)*hr[h]),
+                 v3(hx[h] + cosf(t1)*hr[h], ytop, hz[h] + sinf(t1)*hr[h]),
+                 v3(mx, ytop, mz), top);
+        }
+    }
+
     /* THE WALL DOWN EACH BORE, ONLY WHERE THERE IS TIMBER ABOVE IT TO HANG FROM.
      *
      * "Not over the cloth" is not the same question and getting them confused
