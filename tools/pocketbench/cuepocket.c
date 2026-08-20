@@ -1184,6 +1184,83 @@ int main(int argc, char **argv) {
     }
     /* Every pocket on this table, so a front end can list them by name and
      * show where each one actually is rather than assuming six in a ring. */
+    /* PROOF, not a picture: every wood vertex on the frame's top must lie on
+     * the inner offset polygon, on the outer one, or on a bore circle. A
+     * mitred plank with a round hole in it has nowhere else to put a point, so
+     * anything that lands elsewhere is a stray angle and this counts it. */
+    if (getenv("PB_PROVE")) {
+        const int nn = cue_table_ngon_sides(&T);
+        const float ca2 = cosf(3.14159265f / (float)(nn > 2 ? nn : 3));
+        const float cw2 = T.rail_w * 0.63f, fw2 = T.rail_w + 0.055f;
+        const float ap_i = (T.half_len + cw2 / ca2) * ca2;
+        const float ap_o = (T.half_len + fw2 / ca2) * ca2;
+        const float tol = 0.0006f;                    /* 0.6mm */
+        float ywood = -1e30f;
+        for (int t = bd; t < lp && t < ntri; t++) if (tri[t].mat == CUE_MAT_WOOD)
+            for (int i2 = 0; i2 < 3; i2++) if (tri[t].v[i2].y > ywood) ywood = tri[t].v[i2].y;
+        int total = 0, inner = 0, outer = 0, onbore = 0, other = 0;
+        float worst = 0.0f;
+        for (int t = bd; t < lp && t < ntri; t++) {
+            if (tri[t].mat != CUE_MAT_WOOD) continue;
+            for (int i2 = 0; i2 < 3; i2++) {
+                const Vec3 P = tri[t].v[i2];
+                if (P.y < ywood - 0.0015f) continue;
+                total++;
+                float proj = -1e30f;
+                for (int f = 0; f < nn; f++) {
+                    const float phi = 6.2831853f * (float)f / (float)nn;
+                    const float d = P.x*cosf(phi) + P.z*sinf(phi);
+                    if (d > proj) proj = d;
+                }
+                if (fabsf(proj - ap_i) < tol) { inner++; continue; }
+                if (fabsf(proj - ap_o) < tol) { outer++; continue; }
+                int hit = 0; float best = 1e30f;
+                for (int h = 0; h < W.npocket; h++) {
+                    const float bx2 = W.pocket[h].x + W.pmnorm[h].x *
+                        (W.pocket_mid[h] ? T.bore_set_side : T.bore_set_corner);
+                    const float bz2 = W.pocket[h].z + W.pmnorm[h].z *
+                        (W.pocket_mid[h] ? T.bore_set_side : T.bore_set_corner);
+                    const float br2 = W.pocket_mid[h] ? T.bore_side : T.bore_corner;
+                    const float e2 = fabsf(sqrtf((P.x-bx2)*(P.x-bx2) + (P.z-bz2)*(P.z-bz2)) - br2);
+                    if (e2 < best) best = e2;
+                    if (e2 < tol) { hit = 1; break; }
+                }
+                if (hit) { onbore++; continue; }
+                other++;
+                if (best < 1e29f && best > worst) worst = best;
+            }
+        }
+        /* ...and the mitre itself: N planks meeting at N shared corners. For
+         * each polygon vertex there must be an emitted point AT the inner
+         * offset polygon's vertex and one at the outer's, because that shared
+         * corner is what a mitred joint IS. A vertex-position check alone does
+         * not show it — a point can sit on the inner polygon anywhere along a
+         * run — so the corners are looked for by name. */
+        int mit_in = 0, mit_out = 0;
+        for (int f = 0; f < nn; f++) {
+            const Vec3 V = cue_table_ngon_vert(&T, f);
+            const float vl = sqrtf(V.x*V.x + V.z*V.z);
+            if (vl < 1e-6f) continue;
+            const float rin2  = T.half_len + cw2 / ca2, rout2 = T.half_len + fw2 / ca2;
+            const float ix2 = V.x/vl*rin2,  iz2 = V.z/vl*rin2;
+            const float ox3 = V.x/vl*rout2, oz3 = V.z/vl*rout2;
+            int gi = 0, go = 0;
+            for (int t = bd; t < lp && t < ntri && !(gi && go); t++) {
+                if (tri[t].mat != CUE_MAT_WOOD) continue;
+                for (int i2 = 0; i2 < 3; i2++) {
+                    const Vec3 P = tri[t].v[i2];
+                    if (P.y < ywood - 0.0015f) continue;
+                    if (fabsf(P.x-ix2) < tol && fabsf(P.z-iz2) < tol) gi = 1;
+                    if (fabsf(P.x-ox3) < tol && fabsf(P.z-oz3) < tol) go = 1;
+                }
+            }
+            mit_in += gi; mit_out += go;
+        }
+        fprintf(stderr, "PROVE top-wood verts %d: inner %d  outer %d  bore %d  OTHER %d"
+                        "  (worst stray %.2fmm)   MITRES %d/%d inner, %d/%d outer\n",
+                total, inner, outer, onbore, other, (double)(worst*1000),
+                mit_in, nn, mit_out, nn);
+    }
     {   fprintf(stderr, "{\"npocket\": %d, \"shown\": %d, \"pockets\": [", W.npocket, p);
         for (int q = 0; q < W.npocket; q++)
             fprintf(stderr, "%s{\"i\": %d, \"mid\": %d, \"x\": %.4f, \"z\": %.4f}",

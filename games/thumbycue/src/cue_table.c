@@ -1767,8 +1767,12 @@ static void link_accumulate(const CueTable *t, const CueWorld *w,
             if (disc < 0.0f) continue;    /* the bore never reaches this edge */
             const float rt = sqrtf(disc);
             const float d1 = -qu + rt, d2 = -qu - rt;
-            acc[m] += (fabsf(d1) < fabsf(d2)) ? d1 : d2;
-            cnt[m] += 1;
+            {   const float dd = (fabsf(d1) < fabsf(d2)) ? d1 : d2;
+                if (getenv("PB_ACC")) fprintf(stderr,
+                    "ACC p=%d mid=%d tip=(%.4f,%.4f) u=(%+.2f,%+.2f) delta=%+.4f\n",
+                    p, m, (double)e[q].x, (double)e[q].z, (double)ux, (double)uz,
+                    (double)dd);
+                acc[m] += dd; cnt[m] += 1; }
         }
     }
 }
