@@ -35,6 +35,7 @@
  */
 #include "cue_table.h"
 #include "cue_physics.h"
+#include "cue_rules.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -172,11 +173,22 @@ int main(void) {
             ok(fabsf(m - rm) < 0.0001f, b);
         }
         /* A target nothing could give must SAY so rather than quietly land
-         * somewhere else. Twice the ball, on a snooker corner, is not a pocket
-         * this bed can be cut to. */
+         * somewhere else — and it must not get there by leaving the range a
+         * pocket radius is allowed to be. 300 mm is nearly six ball widths and
+         * would want a radius past the validator's own ceiling, so the honest
+         * answer is "no".
+         *
+         * 220 mm used to be the figure here and it was the wrong test: three
+         * passes of a purely RELATIVE range compound, so the radius walked
+         * 45 -> 100 -> 137 mm and got there. What that caught was the solver
+         * being able to hand back a table the validator would refuse, which is
+         * now bounded — see cut_one. */
         CueTable t; cue_table_init(&t, CUE_GAME_SNK15);
-        ok(cue_table_cut_to(&t, 0.220f, 0.0f) == 0,
+        ok(cue_table_cut_to(&t, 0.300f, 0.0f) == 0,
            "an impossible opening is refused rather than approximated");
+        char why[256];
+        ok(cue_table_validate(&t, why, sizeof why),
+           "...and the table it gave up on is still a legal one");
     }
     printf("\n");
 
@@ -220,6 +232,87 @@ int main(void) {
         }
         ok(h[0] != h[1] && h[1] != h[2] && h[0] != h[2],
            "...and the three specs hash three different ways");
+    }
+
+    printf("\n");
+
+    /* ---- AND THE SHAPES ------------------------------------------------- *
+     *
+     * The other four answers to "which table". These are for fun and they are
+     * still tables: a frame has to be rackable on one, every ball has to start
+     * on the cloth, and the pockets have to be the pockets of the game it says
+     * it is. The last one is the whole reason cue_table_cut_to exists — a bed
+     * that gains sides gains pocket, because the mouth that falls out of a
+     * pull-back depends on the angle it is pulled back from, and a 9 ft
+     * American table measured 1.94 ball widths as a rectangle and 2.20 as a
+     * round one. A quarter of a ball is the difference between a pot and a
+     * gift.
+     *
+     * WHY EVERY BALL, AND NOT JUST THE VALIDATOR. The validator checks the
+     * table; it does not rack it. A hexagon narrows away from its widest point,
+     * so a rack laid out against a rectangle's spine can be perfectly legal
+     * geometry with the black standing in the timber. Ask the bed. */
+    {   static CueWorld w; static CueBall b[CUE_MAX_BALLS];
+        for (int i = 0; i < NG; i++) {
+            for (int v = CUE_TAB_L; v < CUE_TAB_COUNT; v++) {
+                char m[200];
+                if (!cue_table_variant_ok(G[i].k, v)) continue;
+                CueTable t; cue_table_init(&t, G[i].k);
+                float base_c = 0.0f, base_m = 0.0f;
+                cue_table_openings(&t, &base_c, &base_m);
+                cue_table_variant(&t, v);
+
+                char why[256] = {0};
+                snprintf(m, sizeof m, "%-14s %-9s validates%s%s", G[i].name,
+                         CUE_TAB_NAME[v], cue_table_validate(&t, why, sizeof why) ? "" : ": ",
+                         cue_table_validate(&t, why, sizeof why) ? "" : why);
+                ok(cue_table_validate(&t, why, sizeof why), m);
+
+                cue_table_build_world(&t, &w);
+                const int n = cue_table_rack(&t, b);
+                int off = 0;
+                for (int j = 0; j < n; j++)
+                    if (b[j].on && !cue_world_on_bed(&w, b[j].pos.x, b[j].pos.z)) off++;
+                snprintf(m, sizeof m, "%-14s %-9s racks %d balls, %d off the cloth",
+                         G[i].name, CUE_TAB_NAME[v], n, off);
+                ok(n >= 2 && off == 0, m);
+
+                /* And the pockets are the game's own, measured. A regular bed
+                 * has no middles at all, so there is nothing to compare. */
+                float c = 0.0f, mm2 = 0.0f;
+                cue_table_openings(&t, &c, &mm2);
+                snprintf(m, sizeof m, "%-14s %-9s corner %.1f mm vs %.1f on the flat",
+                         G[i].name, CUE_TAB_NAME[v], (double)(c*1000), (double)(base_c*1000));
+                ok(base_c <= 0.0f || fabsf(c - base_c) < 0.0005f, m);
+                if (mm2 > 0.0f && base_m > 0.0f) {
+                    snprintf(m, sizeof m, "%-14s %-9s middle %.1f mm vs %.1f",
+                             G[i].name, CUE_TAB_NAME[v], (double)(mm2*1000),
+                             (double)(base_m*1000));
+                    ok(fabsf(mm2 - base_m) < 0.0005f, m);
+                }
+            }
+        }
+    }
+    printf("\n");
+
+    /* ...and the games that must NOT be offered a shape, because their whole
+     * layout is a fixed set of coordinates on a rectangle. */
+    {   const CueGameKind FIXED[] = { CUE_GAME_BARBILLIARDS, CUE_GAME_GOLF,
+                                      CUE_GAME_BILLIARDS };
+        const char *FN[] = { "bar billiards", "golf", "billiards" };
+        for (int i = 0; i < 3; i++) {
+            char m[96];
+            int any = 0;
+            for (int v = CUE_TAB_L; v < CUE_TAB_COUNT; v++)
+                if (cue_table_variant_ok(FIXED[i], v)) any = 1;
+            snprintf(m, sizeof m, "%-14s is offered no shapes", FN[i]);
+            ok(!any, m);
+            /* And asking anyway changes nothing. */
+            CueTable a, b2; cue_table_init(&a, FIXED[i]); b2 = a;
+            cue_table_variant(&b2, CUE_TAB_ROUND);
+            snprintf(m, sizeof m, "%-14s ...and asking for one is a no-op", FN[i]);
+            ok(memcmp(&a, &b2, sizeof a) == 0, m);
+        }
     }
 
     printf("\n%s\n", fails ? "FAILURES" : "all good");

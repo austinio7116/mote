@@ -3104,30 +3104,103 @@ const char *cue_table_spec_blurb(CueGameKind kind, int spec) {
  * well as moving the facings. Leaving the bore behind would open the mouth and
  * leave a slot between the end of the cushion and the frame that you can see
  * through — which is the exact fault the bore field was added to close. */
+/* The opening this pocket radius gives, or a negative number for "the cushions
+ * cannot meet round a hole this size", or exactly 0 for "there is no pocket of
+ * this kind on this bed". */
+static float cut_measure(CueTable *t, float *pr, float *bore, int middle, float v) {
+    *pr = v; *bore = v;
+    float c = 0.0f, m = 0.0f;
+    cue_table_openings(t, &c, &m);
+    return middle ? m : c;
+}
+
 static int cut_one(CueTable *t, int middle, float target) {
     if (target <= 0.0f) return 1;
     float *pr   = middle ? &t->pr_side       : &t->pr_corner;
     float *bore = middle ? &t->bore_side     : &t->bore_corner;
     const float pr0 = *pr;
-    /* Wide enough to hold any target a spec asks for, and no wider: a pocket
-     * radius outside this is not a table anybody cut. */
-    float lo = pr0 * 0.55f, hi = pr0 * 1.80f;
+    /* WIDE ENOUGH FOR A CHANGE OF OUTLINE, not just for a spec. A spec moves a
+     * pocket by a tenth of a ball width and 0.55 to 1.80 held every one of them
+     * comfortably; a shape moves it further, and a range that cannot reach the
+     * answer makes this return its closest miss with a straight face. */
+    float lo0 = pr0 * 0.35f, hi0 = pr0 * 2.20f;
+    /* AND INSIDE WHAT A POCKET CAN BE. The relative range is about how far a
+     * solve may travel from where it started; this is about where it may end
+     * up, and they are different questions. cue_table_cut_to runs three passes
+     * and each starts from where the last left off, so a relative range alone
+     * compounds: asked for a 220 mm corner on a snooker table — four ball
+     * widths — the radius walked 45 -> 100 -> 137 mm over three passes and
+     * reported success on a pocket the validator's own range (20..150 mm) would
+     * only just admit, and a fourth pass would have taken it past.
+     *
+     * A solver that can hand back a table the validator refuses is worse than
+     * one that says it could not get there. These are TF(pr_corner) and
+     * TF(pr_side)'s own limits; if those move, these follow. */
+    if (lo0 < 0.020f) lo0 = 0.020f;
+    if (hi0 > 0.150f) hi0 = 0.150f;
+    if (hi0 <= lo0)   { return 0; }
+
+    /* SCAN FIRST, THEN BISECT — because the reading is not monotonic
+     * everywhere, and a bisection that meets a discontinuity walks confidently
+     * into it and stays there.
+     *
+     * The opening rises cleanly with the radius over the range that matters,
+     * but below some radius the cushions can no longer be brought round the
+     * hole and the measurement stops being a mouth at all: on Russian pyramid's
+     * L it JUMPS to 136 mm, a larger number than the answer, so a bisection
+     * reads "too wide" and halves the radius again — away from the answer,
+     * every time. Measured: the corner was asked for 71.7 mm and returned 97.5,
+     * a third again as wide, on the one table in the game whose whole character
+     * is a pocket barely wider than its ball.
+     *
+     * A coarse sweep cannot be fooled by that. It finds the sample nearest the
+     * target and the interval around it, and the bisection then runs inside an
+     * interval known to be well-behaved. Sixteen plus twenty builds against the
+     * old forty, so it costs nothing, and it is at rack time either way. */
+    /* IS THERE A POCKET OF THIS KIND AT ALL? Asked at the radius the table
+     * actually has, once, and nowhere else. Zero means the bed carries no
+     * pocket of this kind — a regular bed has no middles, bar billiards has no
+     * rail pockets — and there is nothing to solve.
+     *
+     * It must NOT be asked of the scan's samples. A radius at the far end of
+     * the range breaks the geometry rather than removing the pocket, and it
+     * reads as zero too: asking a snooker table for a 220 mm corner pushed the
+     * radius to 99 mm, the measurement went to zero, and this reported success
+     * on a table it had not touched. An impossible target has to come back as
+     * an impossible target. */
+    if (cut_measure(t, pr, bore, middle, pr0) == 0.0f) {
+        *pr = pr0; *bore = pr0; return 1;
+    }
+
+    const int NS = 16;
     float best = pr0, best_err = 1e9f;
-    for (int i = 0; i < 40; i++) {
+    int   best_i = -1;
+    float got_at[NS + 1];
+    for (int i = 0; i <= NS; i++) {
+        const float v = lo0 + (hi0 - lo0) * (float)i / (float)NS;
+        const float got = cut_measure(t, pr, bore, middle, v);
+        got_at[i] = got;
+        if (got <= 0.0f) continue;         /* not a mouth at this radius */
+        const float err = fabsf(got - target);
+        if (err < best_err) { best_err = err; best = v; best_i = i; }
+    }
+    if (best_i < 0) { *pr = pr0; *bore = pr0; return 0; }        /* nothing measurable */
+
+    /* The neighbours of the best sample, skipping any that did not measure, so
+     * the bracket is a stretch the reading behaved over. */
+    float lo = best, hi = best;
+    const float step = (hi0 - lo0) / (float)NS;
+    if (best_i > 0  && got_at[best_i - 1] > 0.0f) lo = best - step;
+    if (best_i < NS && got_at[best_i + 1] > 0.0f) hi = best + step;
+
+    for (int i = 0; i < 20 && hi > lo; i++) {
         const float mid = 0.5f * (lo + hi);
-        *pr = mid; *bore = mid;
-        float c = 0.0f, m = 0.0f;
-        cue_table_openings(t, &c, &m);
-        const float got = middle ? m : c;
-        /* A negative reading means the cushions cannot meet round a hole this
-         * size — too SMALL, so the answer is above here. Zero means there is no
-         * pocket of this kind to measure, and no amount of bisection will make
-         * one. */
-        if (got == 0.0f) { *pr = pr0; *bore = pr0; return 1; }
-        const float err = (got < 0.0f) ? 1e9f : (got - target);
-        if (got > 0.0f && fabsf(err) < best_err) { best_err = fabsf(err); best = mid; }
-        if (got < 0.0f || got < target) lo = mid; else hi = mid;
-        if (got > 0.0f && fabsf(err) < 0.00002f) break;
+        const float got = cut_measure(t, pr, bore, middle, mid);
+        if (got <= 0.0f) break;
+        const float err = got - target;
+        if (fabsf(err) < best_err) { best_err = fabsf(err); best = mid; }
+        if (fabsf(err) < 0.00002f) break;
+        if (err < 0.0f) lo = mid; else hi = mid;
     }
     *pr = best; *bore = best;
     return best_err <= 0.0001f;      /* a tenth of a millimetre */
@@ -3154,13 +3227,135 @@ void cue_table_spec(CueTable *t, int spec) {
     }
 }
 
+/* ---- WHICH TABLE THE GAME IS ON ------------------------------------------
+ * See cue_table.h. */
+const char *const CUE_TAB_NAME[CUE_TAB_COUNT] = {
+    "TOURNAMENT", "PRO", "CLUB", "L-SHAPED", "HEXAGON", "OCTAGON", "ROUND"
+};
+
+/* The shape rows. `sides` of 0 means the L. */
+static const struct { int sides, every; } TAB_SHAPE[CUE_TAB_COUNT] = {
+    { 0, 0 }, { 0, 0 }, { 0, 0 },      /* the three specs are not shapes */
+    { 0, 0 },                          /* L */
+    { 6, 1 },                          /* hexagon: a pocket at every corner */
+    { 8, 1 },                          /* octagon */
+    /* ROUND is the same construction with enough sides to read as a curve and a
+     * pocket only every tenth of them, so it gets six pockets rather than
+     * sixty. Sixty pockets is not a table, it is a colander. */
+    { 60, 10 },
+};
+
+int cue_table_variant_ok(CueGameKind kind, int variant) {
+    if (variant <= CUE_TAB_TOURNAMENT || variant >= CUE_TAB_COUNT) return 1;
+    if (variant <= CUE_TAB_CLUB) return cue_table_spec_applies(kind);
+    /* THE SHAPES. What rules a game out is knowing where things are on the
+     * cloth in absolute terms.
+     *
+     * BAR BILLIARDS is nine holes bored at fixed coordinates from the AEBBA
+     * rules, three skittles among them, and play from one end: on a hexagon the
+     * holes stay where a 1.42 m rectangle put them and several are off the
+     * cloth. It is a fixed table and always was — the workshop refuses it as a
+     * starting point for the same reason.
+     *
+     * GOLF is eighteen fixed arrangements read off a scoreboard and scored by
+     * how many strokes a hole took. A hole laid out on a round table is not
+     * that hole, so the round means nothing.
+     *
+     * ENGLISH BILLIARDS wants the four spots and the D, which are positions
+     * down a rectangle's spine.
+     *
+     * Everything else racks against the foot spot and plays what is in front of
+     * it, which survives a change of outline. */
+    switch (kind) {
+    case CUE_GAME_BARBILLIARDS: case CUE_GAME_GOLF: case CUE_GAME_BILLIARDS:
+        return 0;
+    default: return 1;
+    }
+}
+
+void cue_table_variant(CueTable *t, int variant) {
+    if (!t) return;
+    if (variant <= CUE_TAB_TOURNAMENT || variant >= CUE_TAB_COUNT) return;
+    if (!cue_table_variant_ok(t->kind, variant)) return;
+    if (variant <= CUE_TAB_CLUB) { cue_table_spec(t, variant); return; }
+
+    /* THE POCKETS THIS TABLE HAS, measured before the outline moves, because
+     * they are what the shape's pockets will be cut back to.
+     *
+     * A change of outline changes every corner ANGLE, and the mouth that comes
+     * out of a pull-back depends on the angle it is pulled back from —
+     * build_ngon already scales the pull-back by sin(45)/sin(A/2) to put it
+     * back where a rectangle has it and gets within a few percent, the residue
+     * being the bezier knuckle's own shape, which does not sit on the pull-back
+     * point and drifts as the corner opens. Measured on the shipped code, a
+     * 9 ft American table goes 111.1 -> 118.9 (hexagon) -> 122.4 (octagon) ->
+     * 125.9 (round): 1.94 ball widths becoming 2.20, which is a pocket getting
+     * a quarter of a ball more generous every time the bed gains sides.
+     *
+     * Solving for the mouth closes that, and cue_table_cut_to solves for the
+     * mouth. So a hexagonal snooker table's corners are a snooker table's
+     * corners, and the shape is the only thing that changed — which is the
+     * whole point of offering it as the SAME GAME on a different table. */
+    float want_c = 0.0f, want_m = 0.0f;
+    cue_table_openings(t, &want_c, &want_m);
+    if (want_c < 0.0f) want_c = 0.0f;
+    if (want_m < 0.0f) want_m = 0.0f;
+
+    /* AS LONG AS THE TABLE IT CAME FROM, which is the table workshop's own
+     * rule: the bed's half-length becomes the shape's circumradius and the
+     * width follows it. A hexagonal snooker table is then the length of a
+     * twelve-footer, which is what somebody asking for one means, and it is a
+     * shape the workshop has been building since the bed stopped being a
+     * rectangle.
+     *
+     * IT HELD THE CLOTH AREA CONSTANT FOR A WHILE — solved from
+     * (n/2) R^2 sin(2 pi/n) so a frame on a round table was the same size of
+     * frame. Defensible, and it cost two invented geometry bugs, because it
+     * makes the bed smaller and a many-sided bed's edges are short to begin
+     * with. The workshop's rule has none of that and the workshop's polygons
+     * already work. A fun table is not worth a second sizing rule. */
+    const int sides = TAB_SHAPE[variant].sides;
+    const float R = t->half_len;
+    if (sides <= 0) {
+        t->bed_shape = CUE_BED_L;
+        t->bed_hand  = CUE_HAND_RIGHT;
+        t->half_wid  = R;
+        /* EVEN ARMS — a bite half the width each way, which is two arms of the
+         * same width meeting at a square elbow. The workshop's own L, and the
+         * shape people mean by one. */
+        t->notch_x = t->notch_z = R;
+    } else {
+        t->bed_shape = CUE_BED_NGON;
+        t->bed_sides = sides;
+        t->bed_pocket_every = TAB_SHAPE[variant].every;
+        t->half_wid = R;
+        t->notch_x = t->notch_z = 0.0f;
+    }
+    cue_table_normalise(t);
+    cue_table_cut_to(t, want_c, want_m);
+}
+
 int cue_table_cut_to(CueTable *t, float corner_m, float middle_m) {
     if (!t) return 0;
-    int ok = cut_one(t, 0, corner_m);
-    /* The middle second and independently: they solve on separate fields and
-     * the measurements do not interact — checked by sweeping each across every
-     * shipped table while watching the other, which never moved. */
-    ok &= cut_one(t, 1, middle_m);
+    /* CORNER, MIDDLE, AND ROUND AGAIN, because on some beds they DO interact.
+     *
+     * On a rectangle they do not: each solves on its own field, and sweeping
+     * either across every shipped table leaves the other where it stood. That
+     * was checked, and it was checked on rectangles only.
+     *
+     * AN L HAS SEVEN POCKETS AND NO SYMMETRY, and cue_table_link_gap answers
+     * with one gap per KIND — "ends that disagree get their mean", exact where
+     * they are alike and a compromise where they are not. So moving the middles
+     * moves the mean the corners were placed against, and the corner solve that
+     * ran first is undone by the middle solve that ran second.
+     *
+     * Three rounds, each starting from where the last left off, so it converges
+     * rather than oscillates. Cheap: the solve is at rack time, not in a frame. */
+    int ok = 0;
+    for (int pass = 0; pass < 3; pass++) {
+        ok  = cut_one(t, 0, corner_m);
+        ok &= cut_one(t, 1, middle_m);
+    }
     cue_table_normalise(t);
     return ok;
 }

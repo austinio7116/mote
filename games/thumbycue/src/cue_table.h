@@ -528,6 +528,54 @@ void cue_table_spec(CueTable *t, int spec);
 /* One line about what this spec is, in the player's terms, for a menu. */
 const char *cue_table_spec_blurb(CueGameKind kind, int spec);
 
+/* ---- WHICH TABLE THE GAME IS ON, AS ONE LIST ---------------------------- *
+ *
+ * A game and a table are two different choices and the menu only ever offered
+ * one of them. This is the other: the same snooker, the same pool, on a table
+ * that is not the one that ships.
+ *
+ * THE FIRST THREE ARE THE SPECS above — real tables, differing in how the
+ * pockets are cut and how fast the cloth is. The rest are SHAPES, and they are
+ * frankly for fun: an L-shaped bed you have to play round a corner on, and the
+ * regular family — hexagon, octagon, and enough sides to read as a circle. The
+ * shapes have existed in the table workshop since the bed stopped being a
+ * rectangle; what they have never had is a way to reach them without building a
+ * table by hand, which is a lot to ask of somebody who just wants a frame of
+ * snooker on a round table.
+ *
+ * ONE LIST, because on the menu it is one question. "Which table?" has seven
+ * answers and the player does not care that three of them are pocket
+ * templates and four are outlines.
+ *
+ * EVERY SHAPE KEEPS THE SAME AREA OF CLOTH as the standard table it came from.
+ * The workshop's shapes take the bed's half-length as the circumradius, which
+ * is right there — you are dialling a size — and wrong here: a hexagon of
+ * circumradius 1.785 m is a 3.57 m table with two thirds again as much cloth as
+ * the snooker table it is standing in for, and a frame on it is a different
+ * game rather than the same game on a different shape. Solved from the area
+ * instead, so the cloth you are given is the cloth you are used to.
+ *
+ * TOURNAMENT is index 0 and is a no-op, so a zeroed preference is the shipped
+ * table. Not every game has every variant — ask cue_table_variant_ok. */
+enum {
+    CUE_TAB_TOURNAMENT = 0, CUE_TAB_PRO, CUE_TAB_CLUB,
+    CUE_TAB_L, CUE_TAB_HEX, CUE_TAB_OCT, CUE_TAB_ROUND,
+    CUE_TAB_COUNT
+};
+extern const char *const CUE_TAB_NAME[CUE_TAB_COUNT];
+
+/* Can this game be played on this table? Returns 1 if so.
+ *
+ * The specs need rail pockets to cut. The shapes need a game whose rack and
+ * whose scoring do not depend on the bed being a rectangle — golf's course is
+ * laid out in the rack triangle's own frame and survives it, bar billiards'
+ * nine holes are at fixed coordinates from the rules and does not. */
+int cue_table_variant_ok(CueGameKind kind, int variant);
+
+/* Apply one, AFTER cue_table_init. TOURNAMENT is a no-op; so is a variant this
+ * game does not have, so calling it unconditionally is safe. */
+void cue_table_variant(CueTable *t, int variant);
+
 /* CUT THE POCKETS TO A MEASURED OPENING, corner and middle, in metres.
  *
  * The opening is measured and not authored, so this is a solve and not an
