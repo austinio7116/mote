@@ -334,14 +334,24 @@ int main(void) {
     {   cue_table_init(&T, CUE_GAME_BARBILLIARDS);
         cue_table_build_world(&T, &W);
         int n = cue_table_rack(&T, B);
+        /* CAN THE PHYSICS TAKE A BALL IN A HOLE IN THE MIDDLE OF THE BED? That is
+         * what this is for — every other table here has its pockets on a rail —
+         * so each hole is asked directly, with the ball started close enough that
+         * nothing else is in the way. Rolling at each hole all the way from the D
+         * asks a different question and gets a misleading answer on this board:
+         * see the shadowing check below. */
         int drops = 0, wrong = 0;
         for (int p = 0; p < W.npocket; p++) {
             for (int i = 0; i < n; i++) B[i].on = 0;
             B[0].on = 1; B[0].pocket = 0; B[0].drop = 0.0f;
-            B[0].pos = v3(T.baulk_x, T.R, 0.0f);
-            float dx = W.pocket[p].x - B[0].pos.x, dz = W.pocket[p].z - B[0].pos.z;
-            float L = sqrtf(dx*dx + dz*dz);
-            B[0].vel = v3(dx/L * 1.55f, 0, dz/L * 1.55f);
+            float ax = W.pocket[p].x - T.baulk_x, az = W.pocket[p].z;
+            float al = sqrtf(ax*ax + az*az); if (al < 1e-4f) al = 1.0f;
+            /* 150 mm short of it, on the line a ball would arrive on. The
+             * closest two holes on this board are 195 mm apart, so nothing
+             * nearer can catch it first. */
+            B[0].pos = v3(W.pocket[p].x - ax/al*0.150f, T.R,
+                          W.pocket[p].z - az/al*0.150f);
+            B[0].vel = v3(ax/al * 1.00f, 0, az/al * 1.00f);
             B[0].w = v3(0,0,0);
             cue_phys_shot_begin(&W);
             uint32_t ev = 0;
@@ -349,10 +359,79 @@ int main(void) {
                 cue_phys_step(&W, B, n, 1.0f/240.0f, &ev);
                 if (!B[0].on) break;
             }
-            if (!B[0].on) drops++; else wrong++;
+            if (!B[0].on && B[0].pocket == p) drops++; else wrong++;
         }
-        char d[64]; snprintf(d, sizeof d, "%d of %d holes took the ball", drops, W.npocket);
-        ok(wrong == 0, "a ball rolled at any hole goes down it", d);
+        char d[64];
+        snprintf(d, sizeof d, "%d of %d holes took the ball", drops, W.npocket);
+        ok(wrong == 0, "a ball rolled into any hole goes down that hole", d);
+
+        /* THE BOARD IS THE AEBBA BOARD, checked as geometry rather than by
+         * rolling balls at it — the black deflects anything sent up the middle,
+         * so a simulated roll answers a question about the skittle rather than
+         * about the layout.
+         *
+         * Five in a row at the far end and a diamond of four at the player's:
+         * the 200 at the front of the diamond with the black in front of IT, the
+         * two 50s at its sides, the 100 at its back between the two whites.
+         *
+         * NONE OF THIS USED TO HOLD. The 100 was the nearest hole to the D with
+         * nothing in front of it, the 200 was the furthest, and the black stood
+         * at the far end guarding the hole nobody could reach anyway — so a
+         * hundred a visit was there for the taking and the one skittle that is
+         * supposed to make the game hard protected nothing. */
+        {   int near = -1; float nd = 1e9f;
+            for (int p = 0; p < W.npocket; p++) {
+                float dx = W.pocket[p].x - T.baulk_x;
+                float dd = dx*dx + W.pocket[p].z*W.pocket[p].z;
+                if (dd < nd) { nd = dd; near = p; }
+            }
+            snprintf(d, sizeof d, "nearest is %d pts at x %+.3f",
+                     W.pocket_score[near], (double)W.pocket[near].x);
+            ok(near >= 0 && W.pocket_score[near] == 200,
+               "the 200 is the hole NEAREST the player", d);
+
+            int b200 = -1, b100 = -1;
+            for (int p = 0; p < W.npocket; p++) {
+                if (W.pocket_score[p] == 200) b200 = p;
+                if (W.pocket_score[p] == 100) b100 = p;
+            }
+            /* the black between the D and the 200, on its line. READ FROM THE
+             * SPOT, not from where the skittle is standing: the capture rolls
+             * above knocked it over, and skittle[] is live state while
+             * skittle_spot[] is where it is replaced. */
+            int blk = -1;
+            for (int i = 0; i < W.nskittle; i++) if (W.skittle_black[i]) blk = i;
+            int between = (blk >= 0 && b200 >= 0 &&
+                           W.skittle_spot[blk].x < W.pocket[b200].x &&
+                           W.skittle_spot[blk].x > T.baulk_x &&
+                           fabsf(W.skittle_spot[blk].z - W.pocket[b200].z) < 0.005f);
+            snprintf(d, sizeof d, "black spot x %+.3f, the 200 at %+.3f",
+                     blk >= 0 ? (double)W.skittle_spot[blk].x : 0.0,
+                     b200 >= 0 ? (double)W.pocket[b200].x : 0.0);
+            ok(between, "...and the black stands between the player and it", d);
+
+            /* the two whites level with the 100, one either side */
+            int wl = 0, wr = 0;
+            for (int i = 0; i < W.nskittle; i++) {
+                if (W.skittle_black[i] || b100 < 0) continue;
+                if (fabsf(W.skittle_spot[i].x - W.pocket[b100].x) > 0.005f) continue;
+                if (W.skittle_spot[i].z < W.pocket[b100].z) wl = 1; else wr = 1;
+            }
+            snprintf(d, sizeof d, "the 100 at x %+.3f, a white each side: %d %d",
+                     b100 >= 0 ? (double)W.pocket[b100].x : 0.0, wl, wr);
+            ok(wl && wr, "...and the two whites are level with the 100", d);
+
+            /* five across the far end, all on one line beyond the diamond */
+            int row = 0; float rowx = 0.0f;
+            for (int p = 0; p < W.npocket; p++) {
+                int v = W.pocket_score[p];
+                if (v == 10 || v == 20 || v == 30) { row++; rowx = W.pocket[p].x; }
+            }
+            int beyond = (b100 >= 0 && rowx > W.pocket[b100].x);
+            snprintf(d, sizeof d, "%d holes at x %+.3f, past the 100", row, (double)rowx);
+            ok(row == 5 && beyond,
+               "...and the row of five is beyond the diamond, at the far end", d);
+        }
     }
 
     /* The black peg guards the 200: a ball rolled straight up the centre line

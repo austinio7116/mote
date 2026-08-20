@@ -355,7 +355,10 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * every rack already asks for a mark on the centre line. */
         t->blue_x  = t->baulk_x + 0.175f;
         t->pink_x  = 0.0f;
-        t->black_x = t->half_len - 0.070f;     /* the 200 hole */
+        /* The 200 hole, which is at the PLAYER'S end — see the hole table in
+         * cue_table_build_world. It was written as half_len - 0.070, the far
+         * end, which is where the 200 used to be wrongly put. */
+        t->black_x = -t->half_len + 0.760f;   /* the 200 hole */
         t->cloth = RGB565C(24, 96, 52);
         t->rail = RGB565C(64, 40, 24); t->rail_top = RGB565C(92, 58, 30);
         t->spot = RGB565C(215, 215, 200);
@@ -2426,14 +2429,32 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
          * black goes on a snooker table — so it is written out here rather
          * than carried as twenty fields nobody would ever turn.
          *
-         * Laid out from the AEBBA measurements that do exist (Rule 74: the
-         * black skittle 6 mm in front of the 200 hole, the whites level with
-         * and 178 mm either side of the 100) and the standard arrangement:
-         * the 100 in the middle guarded by the two whites, two 50s out by the
-         * side cushions, a row of five across in front of the top cushion
-         * reading 30, 20, 10, 20, 30, and the 200 behind all of it with the
-         * black peg in the way. The hole coordinates themselves are not given
-         * in the rules; these are chosen to play the way the table does. */
+         * FIVE IN A ROW AT THE FAR END AND A DIAMOND OF FOUR AT THE PLAYER'S,
+         * which is the AEBBA board and was not what this was.
+         *
+         * From the D, going away: the 200 at the front of the diamond with the
+         * black skittle standing in front of it, the two 50s out at its sides,
+         * the 100 at its back between the two whites, and then the row of five
+         * across in front of the top cushion reading 30, 20, 10, 20, 30.
+         *
+         * WHY THE 200 IS THE NEAREST HOLE, which is the part that makes the
+         * board make sense: every stroke is played from the D at this end, so
+         * you are always shooting AWAY from the near holes. Reaching the 200
+         * means bringing a ball back down the table off a cushion or off another
+         * ball, past a skittle you must not topple. That is what earns two
+         * hundred. The far row is the easy scoring and is worth 10 to 30.
+         *
+         * IT WAS BUILT THE OTHER WAY ROUND AND INTERLEAVED: the 100 nearest, the
+         * 50s next, then the row of five, then the 200 furthest of all. So there
+         * was no diamond at all, the black guarded the hole at the BACK, and the
+         * 100 sat unguarded in front of the player — a hundred a visit for
+         * nothing, which is what gave it away.
+         *
+         * The x positions are chosen; the rules give the values, the order and
+         * the skittles, not the coordinates. These keep the old footprint — the
+         * scoring area in the far two thirds with a long run-up from the D — and
+         * put the four of the diamond and the five of the row where the board
+         * has them. */
         add_seg(w, v3(-hl, 0, -hw), v3( hl, 0, -hw), 0);
         add_seg(w, v3( hl, 0, -hw), v3( hl, 0,  hw), 0);
         add_seg(w, v3( hl, 0,  hw), v3(-hl, 0,  hw), 0);
@@ -2443,12 +2464,14 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
          * two hundred. The capture radius is the ball's centre reaching it. */
         const float hr = 1.26f * R;
         static const struct { float x, z; int v; } HOLE[] = {
-            { 0.050f,  0.000f, 100 },
-            { 0.260f, -0.290f,  50 }, { 0.260f,  0.290f,  50 },
-            { 0.470f, -0.290f,  30 }, { 0.470f,  0.290f,  30 },
-            { 0.470f, -0.145f,  20 }, { 0.470f,  0.145f,  20 },
-            { 0.470f,  0.000f,  10 },
-            { 0.640f,  0.000f, 200 },
+            /* the diamond, nearest the player first */
+            { 0.050f,  0.000f, 200 },
+            { 0.235f, -0.235f,  50 }, { 0.235f,  0.235f,  50 },
+            { 0.420f,  0.000f, 100 },
+            /* and the row of five across the far end */
+            { 0.615f, -0.290f,  30 }, { 0.615f,  0.290f,  30 },
+            { 0.615f, -0.145f,  20 }, { 0.615f,  0.145f,  20 },
+            { 0.615f,  0.000f,  10 },
         };
         for (int i = 0; i < (int)(sizeof HOLE / sizeof HOLE[0]); i++) {
             /* IN THE BED, not on a rail: no cushion runs into it, so the axis
@@ -2461,18 +2484,35 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         }
 
         /* Rule 74. The skittles are 15 to 18 mm across; the black stands 6 mm
-         * clear of the front edge of the 200 hole, the two whites level with
-         * the 100 and 178 mm either side of it. */
+         * clear of the front edge of the 200 hole, the two whites level with the
+         * 100 and 178 mm either side of it.
+         *
+         * READ OFF THE BOARD, not written out again. Both skittle positions were
+         * literal coordinates copied from the hole table, so when the holes were
+         * re-laid the skittles stayed where they were: the black went on guarding
+         * whatever now sat at the far end and the 200 was left open. A skittle is
+         * defined by the hole it stands at, so it is found by that. */
         w->skittle_r = 0.0085f;
         w->nskittle = 0;
+        Vec3 h200 = v3(0,0,0), h100 = v3(0,0,0);
+        int got200 = 0, got100 = 0;
+        for (int i = 0; i < w->npocket; i++) {
+            if (w->pocket_score[i] == 200) { h200 = w->pocket[i]; got200 = 1; }
+            if (w->pocket_score[i] == 100) { h100 = w->pocket[i]; got100 = 1; }
+        }
         #define SKITTLE(x_, z_, black_) do { \
             int i_ = w->nskittle++; \
             w->skittle[i_] = v3((x_), 0.0f, (z_)); \
             w->skittle_spot[i_] = w->skittle[i_];   /* where it is replaced */ \
             w->skittle_black[i_] = (black_); } while (0)
-        SKITTLE(0.050f, -0.178f, 0);
-        SKITTLE(0.050f,  0.178f, 0);
-        SKITTLE(0.640f - hr - 0.006f - w->skittle_r, 0.0f, 1);
+        if (got100) {
+            SKITTLE(h100.x, h100.z - 0.178f, 0);
+            SKITTLE(h100.x, h100.z + 0.178f, 0);
+        }
+        /* IN FRONT OF THE 200, and "in front" is the side the player is on —
+         * which is baulk, at -x. The black is what makes the nearest hole the
+         * hardest one on the table. */
+        if (got200) SKITTLE(h200.x - hr - 0.006f - w->skittle_r, h200.z, 1);
         #undef SKITTLE
         /* Rule 74's pin: 114 mm tall and about twelve grams of light wood.
          * Stood up as rigid bodies in a world whose floor is the bed and whose
