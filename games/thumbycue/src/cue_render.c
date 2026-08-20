@@ -1327,6 +1327,18 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     const float nose_h = t->cushion_h;       /* nose contact line (bottom of the front face) */
     const float flat_h = nose_h * 1.30f;     /* top of the small VERTICAL nose front face */
     const float rail_h = flat_h;             /* flat cushion top & wood top, level at flat_h */
+    /* HOW FAR THE PLANK'S INNER FACE DROPS.
+     *
+     * It went down to rail_h, which is the cushion top — so the "face" was the
+     * 2.16mm of frame_lift and nothing more, a step-closer rather than a face.
+     * Nobody had ever seen an inner face on these tables because there was not
+     * one to see, on a plank or on a ring.
+     *
+     * Dropped to the bed, the plank is a plain plank: a top, an outer skirt,
+     * and a full face down its inside. That face is also what closes the
+     * triangle a leaning cushion leaves under its nose at a pocket, which is
+     * the gap the whole exercise started from. */
+    const float face_low = 0.0f;
     uint16_t wood = t->rail, woodt = t->rail_top;
 
     /* Cloth bed — the slate polygon (see build_bed_boundary): out under the
@@ -1930,7 +1942,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         const float rin  = t->half_len + cw / ca;    /* the cushion's back */
         const float rout = t->half_len + fw / ca;    /* the frame's outer face */
         wood_ring_ngon(t, w, rin, rout, plank_y, bore_bot, woodt, wbore,
-                       hx, hz, hr, nh, rail_h, wlip);
+                       hx, hz, hr, nh, face_low, wlip);
         for (int i = 0; i < nn; i++) {               /* the skirt, one face each */
             Vec3 A = cue_table_ngon_vert(t, i);
             Vec3 B = cue_table_ngon_vert(t, (i + 1) % nn);
@@ -1977,12 +1989,12 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         #define RHI(v) ((h < 0.0f) ? !(v) : (v))
         const float nxi = (hl - nx) + cw, nxo = (hl - nx) + fw;  /* notch's inner rail */
         const float nzi = (hw - nz) + cw, nzo = (hw - nz) + fw;  /* notch's underside */
-        wood_plank_bored(-ox,  ox, ZLO(-oz,-ibz), ZHI(-oz,-ibz), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(0), rail_h, wlip); /* bottom */
-        wood_plank_bored( ibx, ox, ZLO(-oz, nzo), ZHI(-oz, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, rail_h, wlip); /* right, up to the notch */
-        wood_plank_bored( nxi, ox, ZLO(nzi, nzo), ZHI(nzi, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(1), rail_h, wlip); /* under the notch */
-        wood_plank_bored( nxi, nxo, ZLO(nzi, oz), ZHI(nzi, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, rail_h, wlip); /* beside the notch */
-        wood_plank_bored(-ox,  nxo, ZLO(ibz, oz), ZHI(ibz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(1), rail_h, wlip); /* top, short leg */
-        wood_plank_bored(-ox, -ibx, ZLO(-oz, oz), ZHI(-oz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 0, rail_h, wlip); /* left */
+        wood_plank_bored(-ox,  ox, ZLO(-oz,-ibz), ZHI(-oz,-ibz), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(0), face_low, wlip); /* bottom */
+        wood_plank_bored( ibx, ox, ZLO(-oz, nzo), ZHI(-oz, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, face_low, wlip); /* right, up to the notch */
+        wood_plank_bored( nxi, ox, ZLO(nzi, nzo), ZHI(nzi, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(1), face_low, wlip); /* under the notch */
+        wood_plank_bored( nxi, nxo, ZLO(nzi, oz), ZHI(nzi, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, face_low, wlip); /* beside the notch */
+        wood_plank_bored(-ox,  nxo, ZLO(ibz, oz), ZHI(ibz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(1), face_low, wlip); /* top, short leg */
+        wood_plank_bored(-ox, -ibx, ZLO(-oz, oz), ZHI(-oz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 0, face_low, wlip); /* left */
         /* the skirt, round the same six sides */
         quad(v3( ox,plank_y,ZH(-oz)), v3(-ox,plank_y,ZH(-oz)), v3(-ox,0,ZH(-oz)), v3( ox,0,ZH(-oz)), wood);
         quad(v3( ox,plank_y,ZH(nzo)), v3( ox,plank_y,ZH(-oz)), v3( ox,0,ZH(-oz)), v3( ox,0,ZH(nzo)), wood);
@@ -1995,10 +2007,10 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         #undef ZHI
         #undef RHI
     } else {
-    wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, rail_h, wlip); /* +z */
-    wood_plank_bored(-ox, ox, -oz, -ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 0, rail_h, wlip); /* -z */
-    wood_plank_bored(ibx, ox, -ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, rail_h, wlip); /* +x */
-    wood_plank_bored(-ox,-ibx,-ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 0, rail_h, wlip); /* -x */
+    wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, face_low, wlip); /* +z */
+    wood_plank_bored(-ox, ox, -oz, -ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 0, face_low, wlip); /* -z */
+    wood_plank_bored(ibx, ox, -ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, face_low, wlip); /* +x */
+    wood_plank_bored(-ox,-ibx,-ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 0, face_low, wlip); /* -x */
     quad(v3(-ox,plank_y,oz), v3(ox,plank_y,oz), v3(ox,0,oz), v3(-ox,0,oz), wood);
     quad(v3(ox,plank_y,-oz), v3(-ox,plank_y,-oz), v3(-ox,0,-oz), v3(ox,0,-oz), wood);
     quad(v3(ox,plank_y,oz), v3(ox,plank_y,-oz), v3(ox,0,-oz), v3(ox,0,oz), wood);
