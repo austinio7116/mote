@@ -1024,6 +1024,74 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
         }
     }
 
+    /* THE CORNER PIECE: timber from the mitre IN to the hole.
+     *
+     * The mitre was never the problem. The problem is that a mitre leaves the
+     * corner region EMPTY: on a rectangle the planks overlap — the +z plank
+     * spans the full width, so it covers the corner and the bore cuts a circle
+     * out of solid wood — but a ring built per edge with mitred ends has no
+     * overlap, and the area inboard of the mitre point is exactly where the
+     * pocket sits. Shrink the bore to nothing and the hole is still there,
+     * very nearly the same size, which is the proof that no cutting was ever
+     * involved. It is a gap left by the construction.
+     *
+     * So the wood is carried from the band's inner edge in to the bore, and
+     * the bore is what stops it. Per angular step, march out from the bore
+     * centre and find where the ray reaches the inner polygon — for a regular
+     * bed the faces sit at even steps of 2*pi/n, so that is a division rather
+     * than a search — and fill from the circle to there. Beyond it the band
+     * already has the timber. Where the band already reaches the hole this
+     * emits nothing, so it costs nothing on the shapes that were right. */
+    {   const float step_a = 6.2831853f / (float)n;
+        const float ap_in2 = rin * cosf(3.14159265f / (float)n);
+        for (int h = 0; h < nh; h++) {
+            const int NA = CUE_ARC_SEGS * 3;
+            for (int k = 0; k < NA; k++) {
+                const float a0 = 6.2831853f * (float)k / (float)NA;
+                const float a1 = 6.2831853f * (float)(k + 1) / (float)NA;
+                float t[2]; const float aa[2] = { a0, a1 };
+                for (int q = 0; q < 2; q++) {
+                    const float ux = cosf(aa[q]), uz = sinf(aa[q]);
+                    float best = 1e30f;
+                    for (int f = 0; f < n; f++) {
+                        const float phi = step_a * (float)f;
+                        const float nx2 = cosf(phi), nz2 = sinf(phi);
+                        const float du = ux*nx2 + uz*nz2;
+                        if (du <= 1e-6f) continue;          /* ray never reaches it */
+                        const float tt = (ap_in2 - (hx[h]*nx2 + hz[h]*nz2)) / du;
+                        if (tt > 0.0f && tt < best) best = tt;
+                    }
+                    /* AND NO FURTHER THAN THE CLOTH. Bounding only by the
+                     * polygon face floods the table: a ray pointing INWARD
+                     * meets a face on the far side, so t is half a table wide
+                     * and the fill covers the whole bed. Timber belongs
+                     * between the hole and the cloth's edge, so the cut circle
+                     * is the other bound, and it is the one that matters on
+                     * every ray that does not point out of the table. */
+                    {   const float qx = hx[h] - w->cut_c[h].x;
+                        const float qz = hz[h] - w->cut_c[h].z;
+                        const float bq = 2.0f*(qx*ux + qz*uz);
+                        const float cq = qx*qx + qz*qz - w->cut_r[h]*w->cut_r[h];
+                        const float disc = bq*bq - 4.0f*cq;
+                        if (disc > 0.0f) {
+                            const float tc = (-bq + sqrtf(disc)) * 0.5f;
+                            if (tc > 0.0f && tc < best) best = tc;
+                        }
+                    }
+                    t[q] = best;
+                }
+                if (t[0] > 1e29f || t[1] > 1e29f) continue;
+                if (t[0] <= hr[h] && t[1] <= hr[h]) continue;   /* the band has it */
+                const float r0 = t[0] > hr[h] ? t[0] : hr[h];
+                const float r1 = t[1] > hr[h] ? t[1] : hr[h];
+                quad(v3(hx[h] + cosf(a0)*hr[h], ytop, hz[h] + sinf(a0)*hr[h]),
+                     v3(hx[h] + cosf(a1)*hr[h], ytop, hz[h] + sinf(a1)*hr[h]),
+                     v3(hx[h] + cosf(a1)*r1,    ytop, hz[h] + sinf(a1)*r1),
+                     v3(hx[h] + cosf(a0)*r0,    ytop, hz[h] + sinf(a0)*r0), top);
+            }
+        }
+    }
+
     /* THE WALL DOWN EACH BORE, ONLY WHERE THERE IS TIMBER ABOVE IT TO HANG FROM.
      *
      * "Not over the cloth" is not the same question and getting them confused
