@@ -2974,9 +2974,9 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* UK8   */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
         /* US8   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
         /* US9   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
-        /* CN8   */ { 0.0170f, 1.1450f, 0.2200f,  90.0f },
-        /* SNK15 */ { 0.0145f, 1.1350f, 0.2150f,  90.0f },
-        /* SNK10 */ { 0.0145f, 1.1350f, 0.2150f,  90.0f },
+        /* CN8   */ { 0.0170f, 1.3550f, 0.2200f,  90.0f },
+        /* SNK15 */ { 0.0145f, 1.3550f, 0.2150f,  90.0f },
+        /* SNK10 */ { 0.0145f, 1.3550f, 0.2150f,  90.0f },
         /* SNK6  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
         /* STRT  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* PYRA — the American's cut, with the SETBACK scaled to this mouth
@@ -2985,7 +2985,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* PYRA7 — the same cut with the setback scaled to the smaller mouth */
         /* PYRA7 */ { 0.0168f, 1.3900f, 0.2200f,  90.0f },
         /* BILL — the standard table, so the 12 ft snooker cut exactly */
-        /* BILL  */ { 0.0145f, 1.1350f, 0.2150f,  90.0f },
+        /* BILL  */ { 0.0145f, 1.3550f, 0.2150f,  90.0f },
         /* BARB — the holes are in the bed and cut their own cloth. `roll` is
          * how far the cloth turns over the edge, and it is NOT only a drawing
          * number: cue_physics reads lip_d to decide how a dropping ball is
@@ -3001,14 +3001,14 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
         /* US8   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
         /* US9   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
-        /* CN8   */ { 0.0285f, 1.2650f, 0.2250f, 180.0f },
-        /* SNK15 */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
-        /* SNK10 */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
+        /* CN8   */ { 0.0285f, 1.4437f, 0.2250f, 180.0f },
+        /* SNK15 */ { 0.0285f, 1.4437f, 0.2150f, 180.0f },
+        /* SNK10 */ { 0.0285f, 1.4437f, 0.2150f, 180.0f },
         /* SNK6  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
         /* STRT  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* PYRA  */ { 0.0234f, 1.4100f, 0.2200f, 180.0f },   /* ...and the middle */
         /* PYRA7 */ { 0.0211f, 1.4100f, 0.2200f, 180.0f },
-        /* BILL  */ { 0.0285f, 1.2500f, 0.2150f, 180.0f },
+        /* BILL  */ { 0.0285f, 1.4437f, 0.2150f, 180.0f },
         /* BARB  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* GOLF  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
     };
