@@ -628,32 +628,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     t->gap_side   = 2.60f * t->pr_side;
     t->facing_len = 0.80f * t->pr_corner;
 
-    /* THE BORE IS THE DROP — the last of the three onto one circle.
-     *
-     * They were two authored numbers and they disagreed on every table: the
-     * American middles by 3.4mm of radius AND 8.6mm of centre, snooker's
-     * middle by 4.5mm, pyramid's corner by 14.4mm. So the hole in the timber
-     * did not sit on the circle a ball is actually caught by, and on the
-     * mitred American middle you could see it.
-     *
-     * The drop is the gameplay. The hole in the timber is the same hole, so it
-     * is set FROM it rather than dialled beside it — and because the cushions
-     * are linked to the bore, all three now arrive on one circle.
-     *
-     * It has to be here rather than in the link, because cue_render reads the
-     * bore off the TABLE. The link works on a copy of the table to rebuild the
-     * world, so a bore changed there moved the cushions and left the timber
-     * where it was: the hole and the circle stayed apart and the link error
-     * went from nothing to 2-22mm. The table is where the bore lives, so this
-     * is where it is decided.
-     *
-     * There is no "unlinked" build any more: with the authored gaps gone
-     * there would be nothing to build one FROM, only the seed, and a switch
-     * that offers a comparison it cannot make is worse than no switch. */
-    t->bore_corner     = t->pr_corner - t->cap_corner;
-    t->bore_side       = t->pr_side   - t->cap_side;
-    t->bore_set_corner = t->drop_back;
-    t->bore_set_side   = t->drop_back_side;
+    cue_table_normalise(t);
 }
 
 /* ---- THE TABLE AS A VALUE ------------------------------------------------ *
@@ -1946,6 +1921,26 @@ void cue_table_link_gap(CueTable *t, const CueWorld *w) {
     (void)hl;
 }
 
+/* See cue_table.h. The bore is the drop: same radius, same centre.
+ *
+ * They were two authored numbers and they disagreed on every table — the
+ * American middles by 3.4mm of radius AND 8.6mm of centre — so the hole in the
+ * timber did not sit on the circle a ball is caught by, and on the mitred
+ * American middle you could see it. The drop is the gameplay; the timber's
+ * hole is the same hole.
+ *
+ * Re-runnable, and that matters. The link places the cushions against the
+ * bore, so a pocket size edited without this is a table whose cushions still
+ * stand where the OLD size put them — and a workshop asking for the opening
+ * would be told the opening of the table it started with. */
+void cue_table_normalise(CueTable *t) {
+    if (!t) return;
+    t->bore_corner     = t->pr_corner - t->cap_corner;
+    t->bore_side       = t->pr_side   - t->cap_side;
+    t->bore_set_corner = t->drop_back;
+    t->bore_set_side   = t->drop_back_side;
+}
+
 void cue_table_build_world(const CueTable *t, CueWorld *w) {
     cue_world_defaults(w, t->R, t->mass);
     w->cush_tilt = asinf((t->cushion_h - t->R) / t->R);
@@ -2282,6 +2277,78 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
             linking = 0;
         }
     }
+}
+
+
+/* ---- what the pockets actually came out at ------------------------------- */
+
+/* The narrowest passage at one pocket: the two jaw circles nearest it, less
+ * their radii. That is the rule a ball has to pass, and it is the same measure
+ * the bench reports as "mouth". */
+static float table_mouth_at(const CueWorld *w, int p) {
+    int j1 = -1, j2 = -1; float d1 = 1e30f, d2 = 1e30f;
+    for (int j = 0; j < w->njaw; j++) {
+        const float dx = w->jaw[j].x - w->pocket[p].x;
+        const float dz = w->jaw[j].z - w->pocket[p].z;
+        const float dd = dx*dx + dz*dz;
+        if (dd < d1) { d2 = d1; j2 = j1; d1 = dd; j1 = j; }
+        else if (dd < d2) { d2 = dd; j2 = j; }
+    }
+    if (j1 < 0 || j2 < 0) return 0.0f;
+    const float dx = w->jaw[j1].x - w->jaw[j2].x;
+    const float dz = w->jaw[j1].z - w->jaw[j2].z;
+    const float s = sqrtf(dx*dx + dz*dz) - 2.0f * w->jaw_r;
+    return s > 0.0f ? s : 0.0f;
+}
+
+void cue_table_openings(const CueTable *t, float *corner, float *middle) {
+    if (corner) *corner = 0.0f;
+    if (middle) *middle = 0.0f;
+    if (!t) return;
+    /* STATIC, not stack: a CueWorld is a big structure and this is called from
+     * a menu, on a device whose stack is not. */
+    static CueWorld w;
+    /* A COPY, normalised: the caller may have edited a pocket field without
+     * putting the bore back in step, and reporting the old table's opening is
+     * the one answer this must never give. */
+    CueTable tt = *t;
+    cue_table_normalise(&tt);
+    cue_table_build_world(&tt, &w);
+    for (int p = 0; p < w.npocket; p++) {
+        const float m = table_mouth_at(&w, p);
+        if (m <= 0.0f) continue;
+        if (w.pocket_mid[p]) { if (middle && *middle == 0.0f) *middle = m; }
+        else                 { if (corner && *corner == 0.0f) *corner = m; }
+    }
+}
+
+int cue_table_warnings(const CueTable *t, char *msg, int msgcap) {
+    if (msg && msgcap > 0) msg[0] = 0;
+    if (!t) return 0;
+    const float R  = t->R;
+    const float cR = (t->cue_R > 0.0f) ? t->cue_R : R;
+    const float big = ((cR > R) ? cR : R) * 2.0f;      /* the widest ball ACROSS */
+    float mc = 0.0f, mm = 0.0f;
+    cue_table_openings(t, &mc, &mm);
+    int n = 0;
+    char buf[128];
+    /* Zero means there are no rail pockets to measure, which is bar billiards
+     * and not a fault; only a pocket that EXISTS can be too small. */
+    if (mc > 0.0f && mc < big) {
+        snprintf(buf, sizeof buf,
+                 "the corner pockets are %.0fmm across and the ball is %.0fmm\n",
+                 (double)(mc*1000.0f), (double)(big*1000.0f));
+        if (msg && msgcap > 0) { strncat(msg, buf, (size_t)msgcap - strlen(msg) - 1); }
+        n++;
+    }
+    if (mm > 0.0f && mm < big) {
+        snprintf(buf, sizeof buf,
+                 "the middle pockets are %.0fmm across and the ball is %.0fmm\n",
+                 (double)(mm*1000.0f), (double)(big*1000.0f));
+        if (msg && msgcap > 0) { strncat(msg, buf, (size_t)msgcap - strlen(msg) - 1); }
+        n++;
+    }
+    return n;
 }
 
 /* ---- the cloth cut, which both the renderer and the physics obey ---------- *

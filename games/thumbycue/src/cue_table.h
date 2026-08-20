@@ -382,6 +382,45 @@ uint32_t cue_table_hash(const CueTable *t);
  * sensible and together unplayable. */
 int cue_table_validate(const CueTable *t, char *msg, int msgcap);
 
+/* THE OPENING EACH POCKET TYPE ACTUALLY OFFERS, in metres, corner and middle.
+ *
+ * MEASURED, not derived, and it has to be: the gap is no longer authored —
+ * cue_table_link_gap decides where a cushion ends, from the bore — so the only
+ * honest way to know how wide a pocket came out is to build the table and put
+ * a rule across its knuckles. That is what this does.
+ *
+ * Either pointer may be null. A bed with no rail pockets (bar billiards)
+ * reports zero, which is not a fault: its holes are in the cloth.
+ *
+ * This is the number a table designer needs and could not previously see. The
+ * opening is an outcome of the pocket size, its depth AND the mitre angle
+ * together, so no single control can be bounded to keep it sane — which is why
+ * it is reported on the finished table rather than policed on every edit. */
+/* PUT THE DERIVED NUMBERS BACK IN STEP WITH THE AUTHORED ONES.
+ *
+ * The bore is the drop: same radius, same centre. That is decided from the
+ * pocket size and depth, so ANY edit to either leaves the bore stale — and a
+ * stale bore is not cosmetic, because the link places the cushions against it.
+ * A workshop that changed the pocket size and asked for the opening would have
+ * been told the opening of the table it started with.
+ *
+ * cue_table_init calls this, and anything that edits a pocket field must call
+ * it before building or measuring. Idempotent. */
+void cue_table_normalise(CueTable *t);
+
+void cue_table_openings(const CueTable *t, float *corner, float *middle);
+
+/* WHAT IS PLAYABLE BUT ILL-ADVISED, as opposed to what cue_table_validate
+ * refuses outright. Returns how many warnings there are and writes them, one
+ * per line, into msg.
+ *
+ * A pocket narrower than the ball is the one that matters and the one a
+ * thumbstick reaches in a moment. It is a WARNING and not a failure because a
+ * table like that is still a table — it builds, it renders, a ball rolls on it
+ * — and refusing to save someone's work over it would be the tool telling the
+ * designer what to want. */
+int cue_table_warnings(const CueTable *t, char *msg, int msgcap);
+
 /* How many fields the description carries, and the name of one — so a tuning
  * screen can walk the table without a second list of its own. */
 int         cue_table_field_count(void);
