@@ -54,7 +54,7 @@ def plan(table, kind, tipang=None, extra=()):
     cmd = [BIN, "--table", table, "--type", kind, "--plan",
            "--out", os.devnull]
     if tipang is not None:
-        cmd += ["--tipang", "%.4f" % tipang]
+        cmd += ["--jp0", "%.4f" % tipang]
     cmd += list(extra)
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not r.stdout.strip():
@@ -206,6 +206,17 @@ def main():
                     d.line([p0, p1], fill=C_RAIL, width=3)
             else:
                 d.line([p0, p1], fill=jaw, width=3)
+        # EVERY VERTEX, MARKED — because a kink lives BETWEEN two segments and
+        # the only way to say which pair is at fault is to see where the joins
+        # are. A smooth curve shows evenly spaced dots turning by equal steps;
+        # one dot out of line is the whole story.
+        if len(plans) == 1:
+            for s in dd["nose"]:
+                for (vx, vz) in ((s["ax"], s["az"]), (s["bx"], s["bz"])):
+                    q = T(vx, vz)
+                    r = 3.2 if s["kind"] == 1 else 2.0
+                    d.ellipse([q[0]-r, q[1]-r, q[0]+r, q[1]+r],
+                              fill=(255, 255, 255), outline=(20, 20, 20))
 
     # ---- THE THROAT, measured, at the narrowest ---------------------------
     if "waist" in d0 and d0["waist"]:
@@ -225,12 +236,13 @@ def main():
     if len(plans) > 1:
         for n, dd in enumerate(plans):
             col = SWEEP_COLS[n % len(SWEEP_COLS)]
-            d.text((8 + n * 175, y), "tip %+.1f deg   MOUTH %.1f mm"
-                   % (dd["tipang"], dd["mouth"]), fill=col)
+            d.text((8 + n * 175, y), "p0 %.0f h %.0f/%.0f  MOUTH %.1f"
+                   % (dd.get("jp0",0), dd.get("jh1",0), dd.get("jh2",0),
+                      dd["mouth"]), fill=col)
         y += 16
     else:
-        d.text((8, y), "tip angle %+.2f deg   %s jaw"
-               % (d0["tipang"],
+        d.text((8, y), "jaw_p0 %.0f mm  h1 %.0f  h2 %.0f   %s jaw"
+               % (d0.get("jp0",0), d0.get("jh1",0), d0.get("jh2",0),
                   "rounded" if d0["round"] else "MITRED "
                   "(these knobs do nothing on a mitred pocket)"), fill=C_TXT)
         y += 16

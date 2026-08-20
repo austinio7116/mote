@@ -854,6 +854,10 @@ int main(int argc, char **argv) {
      * the nose is a soft boundary between two greens — so the curve that is
      * being tuned gets emitted as the line it actually is. */
     int plan = 0;
+    /* Mark every cushion NOSE vertex on the picture. A kink lives between
+     * two segments, and the only way to say whether the nose is the thing
+     * that is kinked is to see the nose's own joins on the render. */
+    int dots = 0;
     float zoom=5.0f;
     for (int i=1;i<argc-1;i++){
         if(!strcmp(argv[i],"--table")) tbl=argv[++i];
@@ -877,6 +881,7 @@ int main(int argc, char **argv) {
         else if(!strcmp(argv[i],"--jh1")) k.jh1=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--jh2")) k.jh2=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--plan")) plan=1;
+        else if(!strcmp(argv[i],"--dots")) dots=1;
         else if(!strcmp(argv[i],"--bset")) k.bset=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--flen")) k.flen=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--ang"))  k.ang =(float)atof(argv[++i]);
@@ -1215,6 +1220,23 @@ int main(int argc, char **argv) {
                         "     deepest %+.2fmm at y=%.1fmm (cushion spans y %.1f..%.1fmm)\n",
                 total, inside, (double)(worst*1000), (double)(wy*1000),
                 (double)(ymin*1000), (double)(ymax*1000));
+    }
+    if (dots) {
+        /* EVERY NOSE VERTEX, and the two ends of each segment separately, so a
+         * chain that has come apart shows as two dots where there should be
+         * one. Drawn last, over everything, because they are the subject. */
+        for (int sg = 0; sg < W.nseg; sg++) {
+            if (W.seg[sg].kind != 1) continue;
+            float d0, d1;
+            m2px(W.seg[sg].a.x, W.seg[sg].a.z, &d0, &d1); dot(d0,d1,3,255,190,40);
+            m2px(W.seg[sg].b.x, W.seg[sg].b.z, &d0, &d1); dot(d0,d1,3,255,190,40);
+        }
+        for (int sg = 0; sg < W.nseg; sg++) {
+            if (W.seg[sg].kind != 0) continue;
+            float d0, d1;
+            m2px(W.seg[sg].a.x, W.seg[sg].a.z, &d0, &d1); dot(d0,d1,2,120,255,255);
+            m2px(W.seg[sg].b.x, W.seg[sg].b.z, &d0, &d1); dot(d0,d1,2,120,255,255);
+        }
     }
     float q0,q1; m2px(pc.x,pc.z,&q0,&q1); dot(q0,q1,3,255,45,45);
     m2px(cc.x,cc.z,&q0,&q1); dot(q0,q1,3,80,200,255);

@@ -1085,7 +1085,12 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
      * Gated on the bore not reaching the corner, which is the condition
      * itself rather than a test for "is this a triangle" — a wide table with a
      * small pocket would want it at four sides and gets it. */
-    for (int h = 0; h < nh; h++) {
+    /* Worked out per bore and KEPT, because the wall below has to know about it:
+     * where the fan puts timber, the bore needs a face down it, and the band
+     * test cannot see the fan. Zero half-angle means this bore has no fan. */
+    float fan_a[CUE_MAX_POCKET], fan_h[CUE_MAX_POCKET];
+    for (int h = 0; h < nh && h < CUE_MAX_POCKET; h++) { fan_a[h] = 0.0f; fan_h[h] = 0.0f; }
+    for (int h = 0; h < nh && h < CUE_MAX_POCKET; h++) {
         int vi = -1; float vbest = 1e30f;
         for (int i = 0; i < n; i++) {          /* the vertex this bore belongs to */
             const Vec3 V = cue_table_ngon_vert(t, i);
@@ -1103,6 +1108,7 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
         /* the arc between the two crossings, swept the short way */
         const float a0 = atan2f(mz - hz[h], mx - hx[h]);
         const float half = acosf(hr[h] / md > 1.0f ? 1.0f : hr[h] / md);
+        fan_a[h] = a0; fan_h[h] = half;
         const int NA = CUE_ARC_SEGS;
         for (int k = 0; k < NA; k++) {
             /* THE ARC THE CORNER CAN SEE. The tangents from a point at
@@ -1117,6 +1123,18 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
                  v3(hx[h] + cosf(t0)*hr[h], ytop, hz[h] + sinf(t0)*hr[h]),
                  v3(hx[h] + cosf(t1)*hr[h], ytop, hz[h] + sinf(t1)*hr[h]),
                  v3(mx, ytop, mz), top);
+            /* AND THE SAME AGAIN UNDERNEATH.
+             *
+             * A top face on its own is a lid over the void, not timber in it:
+             * from below, and from inside the pocket, the corner was still
+             * hollow. The piece is a solid wedge, so it has a bottom as well as
+             * a top, and the wall down the bore's arc closes the third side —
+             * see the band test below, which had to be taught about this fan
+             * because the timber band cannot see it. */
+            quad(v3(mx, ybot, mz),
+                 v3(hx[h] + cosf(t1)*hr[h], ybot, hz[h] + sinf(t1)*hr[h]),
+                 v3(hx[h] + cosf(t0)*hr[h], ybot, hz[h] + sinf(t0)*hr[h]),
+                 v3(mx, ybot, mz), top);
         }
     }
 
@@ -1148,7 +1166,21 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
                 float step = 6.2831853f / (float)n;
                 float phi = step * floorf(th / step + 0.5f);
                 float proj = rr2 * cosf(th - phi);
-                if (proj < ap_in || proj > ap_out) continue;   /* no wood here */
+                if (proj < ap_in || proj > ap_out) {
+                    /* OR THE MITRE FAN, which is timber the band cannot see.
+                     *
+                     * Past a sharp corner the planks have run out and the void
+                     * inside the point is filled by the fan above. Without this
+                     * the bore had no face there at all: you looked into the
+                     * pocket and saw straight through the back of it, which is
+                     * the "roof over the issue" — a lid with nothing under it.
+                     * With it the bore leaves a proper curved back. */
+                    if (h >= CUE_MAX_POCKET || fan_h[h] <= 0.0f) continue;
+                    float da = m - fan_a[h];
+                    while (da >  3.14159265f) da -= 6.2831853f;
+                    while (da < -3.14159265f) da += 6.2831853f;
+                    if (fabsf(da) > fan_h[h]) continue;
+                }
             }
             const float x0 = hx[h] + hr[h]*cosf(a0), z0 = hz[h] + hr[h]*sinf(a0);
             const float x1 = hx[h] + hr[h]*cosf(a1), z1 = hz[h] + hr[h]*sinf(a1);
@@ -1841,53 +1873,31 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         Vec3 br = haveFbb ? v3(fbb.x, rail_h, fbb.z)
                           : v3(pb.x - bkb.x*cwb*mscaleB, rail_h,
                                pb.z - bkb.z*cwb*mscaleB);
-        /* NO CUSHION INSIDE THE HOLE.
+        /* THE JAW CURVE IS NEVER TOUCHED — only what comes after it.
          *
-         * The NOSE is built to finish on the yellow point and does — but the
-         * cushion is a body, and its base and its back are pushed out from the
-         * nose by the undercut and the cushion depth. Near a pocket that push
-         * is across the bore, so the base and the back can cross into the hole
-         * and show as a sliver of cloth INSIDE the pocket, past the point the
-         * cushion was supposed to stop at.
+         * This folded all eight vertices of every segment along the cushion's
+         * outward normal, which included the nose, and included the interior
+         * nodes of the bezier. The last vertices of a jaw sit ON the bore's rim
+         * by construction, so they were inside "the rim plus a 3 mm margin" and
+         * got shoved sideways into the timber. That is the kink in the jaw: the
+         * visible curve was being bent to solve a problem that belongs to the
+         * cushion's back, past the end of it.
          *
-         * The nose is left exactly where it is. Only the vertices behind it are
-         * pulled back to the bore's edge, which folds that sliver into the
-         * cushion's own back where it cannot be seen. Same helper the collision
-         * world uses, so the two cannot disagree about it — and it runs on every
-         * pocket of every shape, which is the point: a rectangle was already
-         * clean and an octagon was not. */
-        /* NOTHING OF THE CUSHION VISIBLE INSIDE THE BORE.
-         *
-         * Clamping the VERTICES to the bore's edge is not enough and cannot be:
-         * the cushion is a strip of quads, and a quad spanning two points on a
-         * circle cuts across the chord between them. With jaw steps of 7-8 mm
-         * near the mouth that chord dips about 2 mm inside the hole, which is
-         * the sliver of red — the undercut face — visible through the pocket.
-         *
-         * So every cushion vertex near a pocket is pushed a little way PAST the
-         * bore, into the timber, by enough to cover that dip. The bore wall is
-         * drawn at the true radius, so the cushion ends up behind it and is
-         * hidden — no gap appears, because the wood is what is in front. The
-         * NOSE the physics uses is untouched: these are the mesh's own copies. */
-        /* FOLDED BACK INTO THE TIMBER, not moved radially.
-         *
-         * The nose reaches the yellow point and stops, and measured in plan
-         * nothing of the cushion is inside the bore — 0.000 mm. But the end of
-         * the cushion is a vertical face standing at the rim, and from any
-         * camera above the bed that face projects over the hole, so the cushion
-         * reads as carrying on into the pocket. A radial clamp cannot fix that,
-         * because there is nothing radially inside to clamp.
-         *
-         * Folding it along the cushion's own outward normal puts it behind the
-         * bore wall, where the wood hides it. Capped at the cushion's depth so
-         * a fold can never drag the strip past its own back. */
-        {   const Vec3 un = v3(-sg->n.x, 0.0f, -sg->n.z);   /* into the timber */
-            for (int v = 0; v < 8; v++) {
-                Vec3 *pv = (v==0)?&ba:(v==1)?&bb:(v==2)?&an:(v==3)?&bn:
-                           (v==4)?&af:(v==5)?&bf:(v==6)?&ar:&br;
-                cue_table_hide_bore(w, &pv->x, &pv->z, un.x, un.z,
-                                    CUE_BORE_HIDE, cw);
-            }
+         * The curve runs from the rail to the yellow point and that is the
+         * whole of it — every node, nose and back alike, stays exactly where
+         * cue_table put it. What can stray into the hole is the geometry AFTER
+         * the yellow point: the free tip's back, which is pushed out from the
+         * nose by the cushion's depth and so leans across the bore. Only those
+         * run straight back along the cushion's own outward normal until they
+         * are clear of it — a straight line away from the hole into the wood,
+         * which is where the wood hides them. Capped at the cushion depth so it
+         * can never drag a vertex past the cushion's own back. */
+        if (!sharedA || !sharedB) {
+            const Vec3 un = v3(-sg->n.x, 0.0f, -sg->n.z);   /* into the timber */
+            if (!sharedA) cue_table_hide_bore(w, &ar.x, &ar.z, un.x, un.z,
+                                              CUE_BORE_HIDE, cw);
+            if (!sharedB) cue_table_hide_bore(w, &br.x, &br.z, un.x, un.z,
+                                              CUE_BORE_HIDE, cw);
         }
         ribbon(ba, bb, bn, an, fdark);      /* undercut face (leans to nose) */
         quad(an, bn, bf, af, face);            /* small flat (planar) */
