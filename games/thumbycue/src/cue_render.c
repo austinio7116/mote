@@ -967,51 +967,60 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
             if (ax2*ax2 + az2*az2 < reach*reach ||
                 bx3*bx3 + bz3*bz3 < reach*reach) { M = MFINE; break; }
         }
-        /* A GRID OF CELLS, AND ANY CORNER INSIDE A BORE PULLED ONTO IT.
+        /* THE SAME CUT THE PLANKS GET: fine columns whose inner edge is the
+         * analytic circle. That is what bore_fill does for a rectangle and it
+         * is why those pockets are round.
          *
-         * The band was cut cross-section by cross-section, removing ONE
-         * interval per section. That is why the timber tore into slivers at a
-         * vertex: there a section is no longer square to the bore, and one
-         * interval cannot describe what a circle takes out of it — so the two
-         * ends of a step disagreed about where the arc was and the strip
-         * between them was emitted wrong or not at all.
+         * The band is already mitred — both its boundaries are the bed polygon
+         * offset outward, so two edges meet on the angle bisector whatever the
+         * angle is — and the wood, as on a plank, lies to ONE side of the
+         * bore: the mouth opens inward and the timber remains toward the outer
+         * face. So the same one-sided column fill applies, in the edge's own
+         * frame instead of in x and z.
          *
-         * Simpler, and it cannot tear. Cover the band in small quads, drop the
-         * ones a bore has entirely, and where a bore takes only part of a quad
-         * pull that quad's inside corners OUT onto the circle. Nothing is
-         * subtracted, so nothing can be subtracted twice or leave a gap
-         * between two subtractions, and the bore's edge comes out as the curve
-         * itself instead of as a chord across a section. */
-        const int NV = 3;
-        for (int k = 0; k < M; k++) {
-            const float s0 = 0.5f - 0.5f*cosf(3.14159265f*(float)k/(float)M);
-            const float s1 = 0.5f - 0.5f*cosf(3.14159265f*(float)(k+1)/(float)M);
-            for (int v = 0; v < NV; v++) {
-                const float v0 = (float)v/(float)NV, v1 = (float)(v+1)/(float)NV;
-                const float ss[4] = { s0, s1, s1, s0 };
-                const float vv[4] = { v0, v0, v1, v1 };
-                Vec3 c[4]; int inside = 0;
-                for (int q = 0; q < 4; q++) {
-                    const float ix  = Ai.x + (Bi.x-Ai.x)*ss[q];
-                    const float iz  = Ai.z + (Bi.z-Ai.z)*ss[q];
-                    const float ox2 = Ao.x + (Bo.x-Ao.x)*ss[q];
-                    const float oz2 = Ao.z + (Bo.z-Ao.z)*ss[q];
-                    float px = ix + (ox2-ix)*vv[q], pz = iz + (oz2-iz)*vv[q];
-                    for (int h = 0; h < nh; h++) {
-                        const float dx2 = px-hx[h], dz2 = pz-hz[h];
-                        const float dd2 = dx2*dx2 + dz2*dz2;
-                        if (dd2 >= hr[h]*hr[h]) continue;
-                        const float dl = sqrtf(dd2);
-                        if (dl > 1e-6f) { px = hx[h] + dx2/dl*hr[h];
-                                          pz = hz[h] + dz2/dl*hr[h]; }
-                        inside++;
-                        break;
-                    }
-                    c[q] = v3(px, ytop, pz);
+         * Per column, ask the cross-section from the inner boundary to the
+         * outer one where it leaves the circle — a quadratic with a closed
+         * root — and start the wood there. Two earlier attempts got this
+         * wrong: removing one interval per cross-section tore the timber into
+         * slivers at a vertex, and covering the band in cells and snapping
+         * their corners onto the bore left a faceted hole sized to the band
+         * rather than to the arc. Columns follow the curve itself. */
+        const int NC = CUE_ARC_SEGS * 3;
+        for (int k = 0; k < NC; k++) {
+            const float sa = (float)k / (float)NC, sb = (float)(k+1) / (float)NC;
+            float ta = 0.0f, tb = 0.0f; int gone_a = 0, gone_b = 0;
+            const float ss[2] = { sa, sb };
+            for (int q = 0; q < 2; q++) {
+                const Vec3 Pi = v3(Ai.x + (Bi.x-Ai.x)*ss[q], ytop, Ai.z + (Bi.z-Ai.z)*ss[q]);
+                const Vec3 Po = v3(Ao.x + (Bo.x-Ao.x)*ss[q], ytop, Ao.z + (Bo.z-Ao.z)*ss[q]);
+                const float dxs = Po.x - Pi.x, dzs = Po.z - Pi.z;
+                const float aq = dxs*dxs + dzs*dzs;
+                float best = 0.0f; int gone = 0;
+                if (aq > 1e-12f) for (int h = 0; h < nh; h++) {
+                    const float fx = Pi.x - hx[h], fz = Pi.z - hz[h];
+                    const float bq = 2.0f*(fx*dxs + fz*dzs);
+                    const float cq = fx*fx + fz*fz - hr[h]*hr[h];
+                    const float disc = bq*bq - 4.0f*aq*cq;
+                    if (disc <= 0.0f) continue;
+                    const float sq = sqrtf(disc);
+                    const float t0 = (-bq - sq) / (2.0f*aq);
+                    const float t1 = (-bq + sq) / (2.0f*aq);
+                    if (t1 <= 0.0f || t0 >= 1.0f) continue;   /* the circle misses */
+                    if (t1 >= 1.0f) { gone = 1; break; }      /* it takes the lot */
+                    if (t1 > best) best = t1;
                 }
-                if (inside == 4) continue;          /* the bore has all of it */
-                quad(c[0], c[1], c[2], c[3], top);
+                if (q == 0) { ta = best; gone_a = gone; } else { tb = best; gone_b = gone; }
             }
+            if (gone_a && gone_b) continue;            /* no timber in this column */
+            if (gone_a) ta = 1.0f;
+            if (gone_b) tb = 1.0f;
+            #define BAND(u, tt) v3(Ai.x + (Bi.x-Ai.x)*(u) + \
+                                   ((Ao.x + (Bo.x-Ao.x)*(u)) - (Ai.x + (Bi.x-Ai.x)*(u)))*(tt), \
+                                   ytop, \
+                                   Ai.z + (Bi.z-Ai.z)*(u) + \
+                                   ((Ao.z + (Bo.z-Ao.z)*(u)) - (Ai.z + (Bi.z-Ai.z)*(u)))*(tt))
+            quad(BAND(sa, ta), BAND(sb, tb), BAND(sb, 1.0f), BAND(sa, 1.0f), top);
+            #undef BAND
         }
     }
 
