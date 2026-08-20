@@ -968,80 +968,105 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
             if (ax2*ax2 + az2*az2 < reach*reach ||
                 bx3*bx3 + bz3*bz3 < reach*reach) { M = MFINE; break; }
         }
-        /* THE SAME CUT THE PLANKS GET: fine columns whose inner edge is the
-         * analytic circle. That is what bore_fill does for a rectangle and it
-         * is why those pockets are round.
+        /* THE BORE, CUT WHERE IT ACTUALLY MEETS THE PLANK.
          *
-         * The band is already mitred — both its boundaries are the bed polygon
-         * offset outward, so two edges meet on the angle bisector whatever the
-         * angle is — and the wood, as on a plank, lies to ONE side of the
-         * bore: the mouth opens inward and the timber remains toward the outer
-         * face. So the same one-sided column fill applies, in the edge's own
-         * frame instead of in x and z.
+         * Sampling the run in even columns is what put a RANGE of angles round
+         * every pocket. One column straddles the place where the bore starts
+         * eating the plank's inner edge, so its inner side runs from a point
+         * ON THE PLANK to a point ON THE CIRCLE — a chord that follows
+         * neither. That happens at both ends of every bore on every edge, and
+         * the boundary comes out as a fan of facets instead of plank, arc,
+         * plank.
          *
-         * Per column, ask the cross-section from the inner boundary to the
-         * outer one where it leaves the circle — a quadratic with a closed
-         * root — and start the wood there. Two earlier attempts got this
-         * wrong: removing one interval per cross-section tore the timber into
-         * slivers at a vertex, and covering the band in cells and snapping
-         * their corners onto the bore left a faceted hole sized to the band
-         * rather than to the arc. Columns follow the curve itself. */
-        const int NC = CUE_ARC_SEGS * 3;
-        for (int k = 0; k < NC; k++) {
-            const float sa = (float)k / (float)NC, sb = (float)(k+1) / (float)NC;
-            float ta = 0.0f, tb = 0.0f; int gone_a = 0, gone_b = 0;
-            const float ss[2] = { sa, sb };
-            for (int q = 0; q < 2; q++) {
-                const Vec3 Pi = v3(Ai.x + (Bi.x-Ai.x)*ss[q], ytop, Ai.z + (Bi.z-Ai.z)*ss[q]);
-                const Vec3 Po = v3(Ao.x + (Bo.x-Ao.x)*ss[q], ytop, Ao.z + (Bo.z-Ao.z)*ss[q]);
-                const float dxs = Po.x - Pi.x, dzs = Po.z - Pi.z;
-                const float aq = dxs*dxs + dzs*dzs;
-                float best = 0.0f; int gone = 0;
-                if (aq > 1e-12f) for (int h = 0; h < nh; h++) {
-                    const float fx = Pi.x - hx[h], fz = Pi.z - hz[h];
-                    const float bq = 2.0f*(fx*dxs + fz*dzs);
-                    const float cq = fx*fx + fz*fz - hr[h]*hr[h];
-                    const float disc = bq*bq - 4.0f*aq*cq;
-                    if (disc <= 0.0f) continue;
-                    const float sq = sqrtf(disc);
-                    const float t0 = (-bq - sq) / (2.0f*aq);
-                    const float t1 = (-bq + sq) / (2.0f*aq);
-                    if (t1 <= 0.0f || t0 >= 1.0f) continue;   /* the circle misses */
-                    if (t1 >= 1.0f) { gone = 1; break; }      /* it takes the lot */
-                    if (t1 > best) best = t1;
-                }
-                if (q == 0) { ta = best; gone_a = gone; } else { tb = best; gone_b = gone; }
+         * It does not show up in a check of where the VERTICES sit, because
+         * both ends of that chord are legitimately on one or the other. The
+         * stray thing is the edge between them.
+         *
+         * So solve for where the circle crosses the inner edge — a quadratic
+         * in the distance along it — and cut the run there. Between those
+         * crossings the inner boundary is the arc and nothing else; outside
+         * them it is the straight plank and nothing else. That is the shape a
+         * plank gets from its notch and bore_fill, which is the point. */
+        float cut[2*CUE_MAX_POCKET + 2]; int ncut = 0;
+        cut[ncut++] = 0.0f; cut[ncut++] = 1.0f;
+        {   const float ex = Bi.x - Ai.x, ez = Bi.z - Ai.z;
+            const float aq = ex*ex + ez*ez;
+            if (aq > 1e-12f) for (int h = 0; h < nh && ncut + 2 <= 2*CUE_MAX_POCKET + 2; h++) {
+                const float fx = Ai.x - hx[h], fz = Ai.z - hz[h];
+                const float bq = 2.0f*(fx*ex + fz*ez);
+                const float cq = fx*fx + fz*fz - hr[h]*hr[h];
+                const float disc = bq*bq - 4.0f*aq*cq;
+                if (disc <= 0.0f) continue;
+                const float sq = sqrtf(disc);
+                const float u0 = (-bq - sq) / (2.0f*aq), u1 = (-bq + sq) / (2.0f*aq);
+                if (u0 > 1e-5f && u0 < 1.0f - 1e-5f) cut[ncut++] = u0;
+                if (u1 > 1e-5f && u1 < 1.0f - 1e-5f) cut[ncut++] = u1;
             }
-            if (gone_a && gone_b) continue;            /* no timber in this column */
-            if (gone_a) ta = 1.0f;
-            if (gone_b) tb = 1.0f;
-            #define BAND(u, tt) v3(Ai.x + (Bi.x-Ai.x)*(u) + \
-                                   ((Ao.x + (Bo.x-Ao.x)*(u)) - (Ai.x + (Bi.x-Ai.x)*(u)))*(tt), \
-                                   ytop, \
-                                   Ai.z + (Bi.z-Ai.z)*(u) + \
-                                   ((Ao.z + (Bo.z-Ao.z)*(u)) - (Ai.z + (Bi.z-Ai.z)*(u)))*(tt))
-            quad(BAND(sa, ta), BAND(sb, tb), BAND(sb, 1.0f), BAND(sa, 1.0f), top);
-            /* THE INNER FACE — the wood dropping from the frame top down to
-             * the rail, along the band's inner edge.
-             *
-             * A plank gets one of these (wood_plank_bored takes ylow and lip
-             * for exactly this); a ring never had the parameters, so a polygon
-             * frame has been a top surface and a bore wall with NOTHING down
-             * its inside. That is the face the author asked for, and it is
-             * also what covers the triangle a leaning cushion leaves under its
-             * nose.
-             *
-             * Only where the timber still reaches that edge: ta/tb are where
-             * the bore has pushed the wood back, so a column the bore has bitten
-             * into is a pocket MOUTH and must stay open. Same rule the planks
-             * use, arrived at the same way. */
-            if (ylow < ytop && ta <= 1e-4f && tb <= 1e-4f) {
-                const Vec3 ia = BAND(sa, 0.0f), ib = BAND(sb, 0.0f);
-                quad(v3(ia.x, ytop, ia.z), v3(ib.x, ytop, ib.z),
-                     v3(ib.x, ylow, ib.z), v3(ia.x, ylow, ia.z), lip);
-            }
-            #undef BAND
         }
+        for (int a2 = 1; a2 < ncut; a2++) {              /* insertion sort, tiny */
+            const float v2 = cut[a2]; int b2 = a2 - 1;
+            while (b2 >= 0 && cut[b2] > v2) { cut[b2+1] = cut[b2]; b2--; }
+            cut[b2+1] = v2;
+        }
+        #define INN(u) v3(Ai.x + (Bi.x-Ai.x)*(u), ytop, Ai.z + (Bi.z-Ai.z)*(u))
+        #define OUT(u) v3(Ao.x + (Bo.x-Ao.x)*(u), ytop, Ao.z + (Bo.z-Ao.z)*(u))
+        for (int seg = 0; seg + 1 < ncut; seg++) {
+            const float g0 = cut[seg], g1 = cut[seg+1];
+            if (g1 - g0 < 1e-6f) continue;
+            const float mid = 0.5f*(g0 + g1);
+            const Vec3 M = INN(mid);
+            int bored = 0;
+            for (int h = 0; h < nh && !bored; h++) {
+                const float dx2 = M.x-hx[h], dz2 = M.z-hz[h];
+                if (dx2*dx2 + dz2*dz2 < hr[h]*hr[h]) bored = 1;
+            }
+            if (!bored) {                    /* PLAIN PLANK: one quad, one edge */
+                quad(INN(g0), INN(g1), OUT(g1), OUT(g0), top);
+                if (ylow < ytop) {
+                    const Vec3 ia = INN(g0), ib = INN(g1);
+                    quad(v3(ia.x, ytop, ia.z), v3(ib.x, ytop, ib.z),
+                         v3(ib.x, ylow, ib.z), v3(ia.x, ylow, ia.z), lip);
+                }
+                continue;
+            }
+            /* THE NOTCH: the inner boundary is the arc, in fine columns. */
+            const int NC = CUE_ARC_SEGS * 2;
+            for (int k = 0; k < NC; k++) {
+                const float sa = g0 + (g1-g0)*(float)k/(float)NC;
+                const float sb = g0 + (g1-g0)*(float)(k+1)/(float)NC;
+                const float ss[2] = { sa, sb };
+                float tt[2] = { 0.0f, 0.0f }; int gone[2] = { 0, 0 };
+                for (int q = 0; q < 2; q++) {
+                    const Vec3 Pi = INN(ss[q]), Po = OUT(ss[q]);
+                    const float dxs = Po.x - Pi.x, dzs = Po.z - Pi.z;
+                    const float aq = dxs*dxs + dzs*dzs;
+                    float best = 0.0f; int g2 = 0;
+                    if (aq > 1e-12f) for (int h = 0; h < nh; h++) {
+                        const float fx = Pi.x - hx[h], fz = Pi.z - hz[h];
+                        const float bq = 2.0f*(fx*dxs + fz*dzs);
+                        const float cq = fx*fx + fz*fz - hr[h]*hr[h];
+                        const float disc = bq*bq - 4.0f*aq*cq;
+                        if (disc <= 0.0f) continue;
+                        const float sq = sqrtf(disc);
+                        const float r0 = (-bq - sq) / (2.0f*aq);
+                        const float r1 = (-bq + sq) / (2.0f*aq);
+                        if (r1 <= 0.0f || r0 >= 1.0f) continue;
+                        if (r1 >= 1.0f) { g2 = 1; break; }
+                        if (r1 > best) best = r1;
+                    }
+                    tt[q] = best; gone[q] = g2;
+                }
+                if (gone[0] && gone[1]) continue;
+                if (gone[0]) tt[0] = 1.0f;
+                if (gone[1]) tt[1] = 1.0f;
+                #define BAND(u, f) v3(INN(u).x + (OUT(u).x - INN(u).x)*(f), ytop, \
+                                      INN(u).z + (OUT(u).z - INN(u).z)*(f))
+                quad(BAND(sa, tt[0]), BAND(sb, tt[1]), BAND(sb, 1.0f), BAND(sa, 1.0f), top);
+                #undef BAND
+            }
+        }
+        #undef INN
+        #undef OUT
     }
 
     /* THE WALL DOWN EACH BORE, ONLY WHERE THERE IS TIMBER ABOVE IT TO HANG FROM.

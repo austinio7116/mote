@@ -1188,6 +1188,108 @@ int main(int argc, char **argv) {
      * the inner offset polygon, on the outer one, or on a bore circle. A
      * mitred plank with a round hole in it has nowhere else to put a point, so
      * anything that lands elsewhere is a stray angle and this counts it. */
+    /* THE EDGES, not the vertices. A vertex on the plank and the next on the
+     * bore both pass a position check while the EDGE between them follows
+     * neither — and that chord is the stray angle. So every wood edge on the
+     * frame's top is classified: along a plank (both ends on the same offset
+     * polygon face), across the band (both ends at the same position along a
+     * run), on a bore (both ends on one circle), or STRAY. */
+    if (getenv("PB_EDGES")) {
+        const int nn = cue_table_ngon_sides(&T);
+        const float ca2 = cosf(3.14159265f / (float)(nn > 2 ? nn : 3));
+        const float cw2 = T.rail_w * 0.63f, fw2 = T.rail_w + 0.055f;
+        const float ap_i = (T.half_len + cw2 / ca2) * ca2;
+        const float ap_o = (T.half_len + fw2 / ca2) * ca2;
+        const float tol = 0.0008f;
+        float yw = -1e30f;
+        for (int t = bd; t < lp && t < ntri; t++) if (tri[t].mat == CUE_MAT_WOOD)
+            for (int i2 = 0; i2 < 3; i2++) if (tri[t].v[i2].y > yw) yw = tri[t].v[i2].y;
+        /* ONLY THE BOUNDARY EDGES. A quad is drawn as two triangles, so the
+         * diagonal across it is an INTERIOR edge — shared by both — and it
+         * follows neither the plank nor the arc by construction. Counting it
+         * as a stray is what the first run of this check did, and it reported
+         * thousands. An edge that appears twice is interior; the outline of
+         * the wood is the edges that appear once. */
+        enum { EMAX = 200000 };
+        static long long key[EMAX]; static int keyn;
+        keyn = 0;
+        for (int t = bd; t < lp && t < ntri; t++) {
+            if (tri[t].mat != CUE_MAT_WOOD) continue;
+            for (int e = 0; e < 3 && keyn < EMAX; e++) {
+                const Vec3 A = tri[t].v[e], B = tri[t].v[(e+1)%3];
+                if (A.y < yw - 0.0015f || B.y < yw - 0.0015f) continue;
+                const long long ax = (long long)llroundf(A.x*20000.0f);
+                const long long az = (long long)llroundf(A.z*20000.0f);
+                const long long bx = (long long)llroundf(B.x*20000.0f);
+                const long long bz = (long long)llroundf(B.z*20000.0f);
+                const long long k1 = ax*100003LL + az, k2 = bx*100003LL + bz;
+                key[keyn++] = (k1 < k2) ? (k1*1000003LL + k2) : (k2*1000003LL + k1);
+            }
+        }
+        for (int a2 = 1; a2 < keyn; a2++) {         /* shell sort, fast enough */
+            const long long v2 = key[a2]; int b2 = a2 - 1;
+            while (b2 >= 0 && key[b2] > v2) { key[b2+1] = key[b2]; b2--; }
+            key[b2+1] = v2;
+        }
+        int plank = 0, across = 0, arc = 0, stray = 0; float worst = 0.0f;
+        for (int t = bd; t < lp && t < ntri; t++) {
+            if (tri[t].mat != CUE_MAT_WOOD) continue;
+            for (int e = 0; e < 3; e++) {
+                const Vec3 A = tri[t].v[e], B = tri[t].v[(e+1)%3];
+                if (A.y < yw - 0.0015f || B.y < yw - 0.0015f) continue;
+                {   const long long ax = (long long)llroundf(A.x*20000.0f);
+                    const long long az = (long long)llroundf(A.z*20000.0f);
+                    const long long bx = (long long)llroundf(B.x*20000.0f);
+                    const long long bz = (long long)llroundf(B.z*20000.0f);
+                    const long long k1 = ax*100003LL + az, k2 = bx*100003LL + bz;
+                    const long long kk = (k1 < k2) ? (k1*1000003LL + k2) : (k2*1000003LL + k1);
+                    int lo2 = 0, hi2 = keyn - 1, at = -1;
+                    while (lo2 <= hi2) { const int m2 = (lo2+hi2)/2;
+                        if (key[m2] == kk) { at = m2; break; }
+                        if (key[m2] < kk) lo2 = m2+1; else hi2 = m2-1; }
+                    int cnt2 = 0;
+                    for (int j2 = at; j2 >= 0 && key[j2] == kk; j2--) cnt2++;
+                    for (int j2 = at+1; j2 < keyn && key[j2] == kk; j2++) cnt2++;
+                    if (cnt2 != 1) continue;        /* interior: not an outline */
+                }
+                const float len = sqrtf((A.x-B.x)*(A.x-B.x) + (A.z-B.z)*(A.z-B.z));
+                if (len < 1e-5f) continue;
+                float pa = -1e30f, pb = -1e30f;
+                for (int f = 0; f < nn; f++) {
+                    const float phi = 6.2831853f * (float)f / (float)nn;
+                    const float da = A.x*cosf(phi) + A.z*sinf(phi);
+                    const float db = B.x*cosf(phi) + B.z*sinf(phi);
+                    if (da > pa) pa = da;
+                    if (db > pb) pb = db;
+                }
+                /* along a plank: both ends the same distance out, on a face */
+                if (fabsf(pa - pb) < tol &&
+                    (fabsf(pa - ap_i) < tol || fabsf(pa - ap_o) < tol)) { plank++; continue; }
+                /* across the band: both ends on the two faces */
+                if ((fabsf(pa - ap_i) < tol && fabsf(pb - ap_o) < tol) ||
+                    (fabsf(pa - ap_o) < tol && fabsf(pb - ap_i) < tol)) { across++; continue; }
+                /* on a bore: both ends on the same circle */
+                int on = 0; float best = 1e30f;
+                for (int h = 0; h < W.npocket; h++) {
+                    const float bx2 = W.pocket[h].x + W.pmnorm[h].x *
+                        (W.pocket_mid[h] ? T.bore_set_side : T.bore_set_corner);
+                    const float bz2 = W.pocket[h].z + W.pmnorm[h].z *
+                        (W.pocket_mid[h] ? T.bore_set_side : T.bore_set_corner);
+                    const float br2 = W.pocket_mid[h] ? T.bore_side : T.bore_corner;
+                    const float ea = fabsf(sqrtf((A.x-bx2)*(A.x-bx2)+(A.z-bz2)*(A.z-bz2)) - br2);
+                    const float eb = fabsf(sqrtf((B.x-bx2)*(B.x-bx2)+(B.z-bz2)*(B.z-bz2)) - br2);
+                    const float m2 = ea > eb ? ea : eb;
+                    if (m2 < best) best = m2;
+                    if (m2 < tol) { on = 1; break; }
+                }
+                if (on) { arc++; continue; }
+                stray++;
+                if (best < 1e29f && best > worst) worst = best;
+            }
+        }
+        fprintf(stderr, "EDGES plank %d  across %d  arc %d  STRAY %d  (worst %.2fmm)\n",
+                plank, across, arc, stray, (double)(worst*1000));
+    }
     if (getenv("PB_PROVE")) {
         const int nn = cue_table_ngon_sides(&T);
         const float ca2 = cosf(3.14159265f / (float)(nn > 2 ? nn : 3));
