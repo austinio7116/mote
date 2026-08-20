@@ -110,7 +110,13 @@ int main(void) {
          * disagree about it are playing pockets of different widths. Two of the
          * four points are not numbers at all: the yellow point falls out of the
          * bore and the cushion depth, and the tangent at P0 is the rail. */
-        ck(cue_table_field_count() == 56,
+        /* 57 with jaw_p0_m, a middle's own curve start. SIM, like the rest of
+         * the jaw: it moves the cushion. A corner turns about 40 degrees from
+         * the rail to its axis and a middle about 70, so one run does opposite
+         * things to them — softening the corners kinked the middles while they
+         * shared a field. Zero means "follow the corner", so every table saved
+         * before it existed reads back as the table it was. */
+        ck(cue_table_field_count() == 57,
            "field count unchanged (add a field -> decide if it is SIM, then update this)");
 
         /* And the playing numbers, one per kind of thing a table can be: its

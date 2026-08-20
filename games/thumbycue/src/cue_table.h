@@ -283,7 +283,32 @@ typedef struct {
      *
      * All three are millimetres. Read only when pocket_round is set: a mitred
      * jaw is a straight cut and has no curve to shape. */
-    float jaw_p0;      /* along the rail from the yellow point's foot */
+    float jaw_p0;      /* corner: along the rail from the yellow point's foot */
+    /* A MIDDLE'S CURVE STARTS SOMEWHERE ELSE, and one number for both was wrong.
+     *
+     * Where P0 sits is what softens a jaw: the same total turn made over a
+     * longer run is a gentler curve. But a corner and a middle do not turn
+     * through the same angle — a 12 ft snooker corner turns about 40 degrees
+     * from the rail to the pocket's axis and its middle turns about 70 — so the
+     * same run does opposite things to them. Measured, per join along the jaw,
+     * on that table:
+     *
+     *     corner   p0  45 mm   sharpest join 17.3 deg, and the curve S-BENDS:
+     *                          -16 -17 -14 -9 -4 -0 +3 +6 +9
+     *              p0  70 mm   11.8 deg, a slight S still: ... -0.9 +0.5 +2.0
+     *              p0 120 mm    7.1 deg, one sign throughout, evenly spread
+     *
+     *     middle   p0  70 mm   10.3 deg, and about as even as it gets
+     *              p0 120 mm   19.7 deg, the whole turn dumped at the mouth:
+     *                          -5 -4 -3 -3 -4 -5 -7 -12 -20
+     *
+     * So a corner wants a LONGER run than 70 mm and a middle wants about what it
+     * has. Sharing one field meant softening the corners kinked the middles.
+     *
+     * ZERO MEANS "THE SAME AS THE CORNER", which is how every table saved before
+     * this field existed reads back, and it is what the shipped tables are set
+     * to anyway — so nothing changes by default and no table on disk is wrong. */
+    float jaw_p0_m;    /* middle: the same, or 0 to follow jaw_p0 */
     float jaw_h1;      /* P1, from P0 back along the rail */
     float jaw_h2;      /* P2, from P3 back along the pocket axis */
     /* WHICH WAY THE POCKET'S AXIS POINTS, in degrees off the rail's outward

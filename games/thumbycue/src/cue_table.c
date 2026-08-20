@@ -100,6 +100,9 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
      * well. A shape that actually needs a longer run says so for itself: see
      * the polygon presets in the workshop, where a triangle asks for 140. */
     t->jaw_p0  = 0.070f;   /* 70 mm out along the rail */
+    /* The same as the corner, so every shipped table is exactly what it was.
+     * See CueTable::jaw_p0_m for why they are separate at all. */
+    t->jaw_p0_m = 0.070f;
     t->jaw_h1  = 0.030f;   /* 30 mm of rail tangent */
     t->jaw_h2  = 0.030f;   /* 30 mm of pocket-axis tangent */
     /* ZERO IS STRAIGHT DOWN THE POCKET'S OWN CENTRE LINE, at a corner and at a
@@ -861,6 +864,8 @@ static const CueTabField TAB_FIELDS[] = {
      * and the collision world are built from the same segments, so two ends
      * that disagree about it are playing pockets of different widths. */
     TF(jaw_p0,          TF_F32, TF_SIM,  0.010f, 0.300f),
+    /* Zero is legal here and means "follow the corner" — see jaw_p0_m. */
+    TF(jaw_p0_m,        TF_F32, TF_SIM,  0.000f, 0.300f),
     TF(jaw_h1,          TF_F32, TF_SIM,  0.000f, 0.200f),
     TF(jaw_h2,          TF_F32, TF_SIM,  0.000f, 0.200f),
     TF(jaw_ang_c,       TF_F32, TF_SIM, -40.0f, 60.0f),
@@ -1926,7 +1931,11 @@ static CueJawEnd jaw_end(const CueWorld *w, Vec3 k, Vec3 rd, Vec3 outn) {
     e.nose = y;
     /* P0: back along the rail from the yellow point's foot on the cushion face. */
     const Vec3 foot = v3(y.x - outn.x*w->cush_depth, 0.0f, y.z - outn.z*w->cush_depth);
-    e.p0 = v3(foot.x + rd.x*w->jaw_p0, 0.0f, foot.z + rd.z*w->jaw_p0);
+    /* A MIDDLE'S CURVE STARTS ON ITS OWN NUMBER — see CueTable::jaw_p0_m. It
+     * turns through nearly twice a corner's angle, so the same run does the
+     * opposite thing to it. */
+    const float run = mid ? w->jaw_p0_m : w->jaw_p0;
+    e.p0 = v3(foot.x + rd.x*run, 0.0f, foot.z + rd.z*run);
     e.ok = 1;
     return e;
 }
@@ -2361,6 +2370,9 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * P0 puts the curve's start on top of its end. So they fall back, and only
      * the shape is affected — the yellow point is derived either way. */
     w->jaw_p0  = (t->jaw_p0 > 0.0f) ? t->jaw_p0 : 0.070f;
+    /* ZERO FOLLOWS THE CORNER. A table saved before this field existed reads
+     * back as zero, and that has to mean "as it was", not "no curve at all". */
+    w->jaw_p0_m = (t->jaw_p0_m > 0.0f) ? t->jaw_p0_m : w->jaw_p0;
     w->jaw_h1  = (t->jaw_h1 > 0.0f) ? t->jaw_h1 : 0.030f;
     w->jaw_h2  = (t->jaw_h2 > 0.0f) ? t->jaw_h2 : 0.030f;
     /* Both are offsets from the pocket's own centre line now, and zero is a
