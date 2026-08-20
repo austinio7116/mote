@@ -58,6 +58,14 @@ static struct { CueGameKind k; const char *name; const char *label; const char *
      * shaping — and the corner is where that shows, because two facings come at
      * each other there and a long one makes them meet before the pocket does. */
     {CUE_GAME_PYRAMID, "pyramid", "russian pyramid 12ft", "PYRA"},
+    /* THE REST OF THE SHIPPED TABLES. The bench grew up around the pockets that
+     * were being argued about and never got the others, so "every table" meant
+     * nine of thirteen — and the four missing ones are exactly the ones nobody
+     * had looked at. Bar billiards is not here because it has no rail pocket to
+     * draw: its nine holes are in the bed. */
+    {CUE_GAME_PYRAMID7,"pyramid7","russian pyramid 7ft","PYRA7"},
+    {CUE_GAME_BILLIARDS,"billiards","English billiards 12ft","BILL"},
+    {CUE_GAME_GOLF,   "golf",     "billiard golf 7ft",  "GOLF"},
 };
 /* COUNTED, NOT WRITTEN DOWN. This was a literal 8 against a list of nine, so
  * the last table in it — russian pyramid, the one the bench was extended FOR —
@@ -1508,6 +1516,33 @@ int main(int argc, char **argv) {
         printf(" \"ball\": %.3f, \"mouth\": %.3f, \"rail_w\": %.3f, \"cush\": %.3f,\n",
                (double)(W.R*2000.0f), (double)(cue_table_mouth_at(&W,p)*1000.0f),
                (double)(T.rail_w*1000.0f), (double)(W.cush_depth*1000.0f));
+        /* THE AUTHORED VALUES, so a drawing can be labelled with the numbers a
+         * table is actually built from rather than with what was measured off
+         * it. Everything here is a field somebody typed. */
+        printf(" \"authored\": {\"pr\": %.3f, \"off\": %.3f, \"cap\": %.3f,"
+               " \"gap\": %.3f, \"ang\": %.2f, \"jaw_ang\": %.2f,"
+               " \"jaw_r\": %.3f, \"drop_back\": %.3f},\n",
+               (double)((mid ? T.pr_side : T.pr_corner)*1000.0f),
+               (double)((mid ? T.off_side : T.off_corner)*1000.0f),
+               (double)((mid ? T.cap_side : T.cap_corner)*1000.0f),
+               (double)((mid ? T.gap_side : T.gap_corner)*1000.0f),
+               (double)(mid ? T.ang_side : T.ang_corner),
+               (double)(mid ? T.jaw_ang_m : T.jaw_ang_c),
+               (double)(T.jaw_r*1000.0f),
+               (double)((mid ? T.drop_back_side : T.drop_back)*1000.0f));
+        /* THE CUT: the flat rim round the hole and the roll over its edge. Both
+         * are multiples of the MOUTH, so the ratio is the authored number and
+         * the millimetres are what it comes to on this table. */
+        {   CueCut cc; cue_table_get_cut(&W, mid, &cc);
+            printf(" \"cut\": {\"set\": %.3f, \"rad_x\": %.4f, \"roll_x\": %.4f,"
+                   " \"arc\": %.1f, \"rim_r\": %.3f, \"roll\": %.3f,"
+                   " \"cx\": %.3f, \"cz\": %.3f},\n",
+                   (double)(cc.set*1000.0f), (double)cc.rad, (double)cc.roll,
+                   (double)cc.arc,
+                   (double)(W.cut_r[p]*1000.0f), (double)(W.lip_d[p]*1000.0f),
+                   (double)((W.cut_c[p].x-ox)*1000.0f*sx),
+                   (double)((W.cut_c[p].z-oz)*1000.0f*sz));
+        }
         /* the bore and the drop, as circles in the same frame */
         {   const float br = mid ? T.bore_side : T.bore_corner;
             const float bs = mid ? T.bore_set_side : T.bore_set_corner;
