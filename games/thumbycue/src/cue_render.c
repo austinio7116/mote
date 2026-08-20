@@ -932,7 +932,8 @@ static Vec3 pin_at(float sx, float sz, float r, float y, float a,
 static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
                            float rin, float rout, float ytop, float ybot,
                            uint16_t top, uint16_t wall,
-                           const float *hx, const float *hz, const float *hr, int nh)
+                           const float *hx, const float *hz, const float *hr, int nh,
+                           float ylow, uint16_t lip)
 {
     const int n = cue_table_ngon_sides(t);
     /* STEPS BUNCHED AT THE ENDS, because that is the only place anything
@@ -1020,6 +1021,25 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
                                    Ai.z + (Bi.z-Ai.z)*(u) + \
                                    ((Ao.z + (Bo.z-Ao.z)*(u)) - (Ai.z + (Bi.z-Ai.z)*(u)))*(tt))
             quad(BAND(sa, ta), BAND(sb, tb), BAND(sb, 1.0f), BAND(sa, 1.0f), top);
+            /* THE INNER FACE — the wood dropping from the frame top down to
+             * the rail, along the band's inner edge.
+             *
+             * A plank gets one of these (wood_plank_bored takes ylow and lip
+             * for exactly this); a ring never had the parameters, so a polygon
+             * frame has been a top surface and a bore wall with NOTHING down
+             * its inside. That is the face the author asked for, and it is
+             * also what covers the triangle a leaning cushion leaves under its
+             * nose.
+             *
+             * Only where the timber still reaches that edge: ta/tb are where
+             * the bore has pushed the wood back, so a column the bore has bitten
+             * into is a pocket MOUTH and must stay open. Same rule the planks
+             * use, arrived at the same way. */
+            if (ylow < ytop && ta <= 1e-4f && tb <= 1e-4f) {
+                const Vec3 ia = BAND(sa, 0.0f), ib = BAND(sb, 0.0f);
+                quad(v3(ia.x, ytop, ia.z), v3(ib.x, ytop, ib.z),
+                     v3(ib.x, ylow, ib.z), v3(ia.x, ylow, ia.z), lip);
+            }
             #undef BAND
         }
     }
@@ -1910,7 +1930,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         const float rin  = t->half_len + cw / ca;    /* the cushion's back */
         const float rout = t->half_len + fw / ca;    /* the frame's outer face */
         wood_ring_ngon(t, w, rin, rout, plank_y, bore_bot, woodt, wbore,
-                       hx, hz, hr, nh);
+                       hx, hz, hr, nh, rail_h, wlip);
         for (int i = 0; i < nn; i++) {               /* the skirt, one face each */
             Vec3 A = cue_table_ngon_vert(t, i);
             Vec3 B = cue_table_ngon_vert(t, (i + 1) % nn);
