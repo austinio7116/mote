@@ -587,55 +587,175 @@ static float wrapPI(float a) {
     while (a < -3.14159265f) a += 6.2831853f;
     return a;
 }
-/* Where to aim the OBJECT ball within the pocket — NOT the dead centre. Ported
- * from 2dpool getPocketAimPoint: the object ball, approaching from `target`, must
- * thread between the pocket's two knuckle "jaws". For each jaw we find the
- * limiting aim angle that just clears it (ball + knuckle radius), giving a valid
- * angular WINDOW; we aim down the middle of it. On a cut this window centre
- * shifts AWAY from the near jaw, so the ball misses it instead of rattling — the
- * whole reason snooker's tight pockets were unplayable with centre-aim. */
+/* WHERE TO AIM THE OBJECT BALL WITHIN THE POCKET — and against the shape the
+ * ball actually meets.
+ *
+ * The object ball has to thread the mouth, and on anything but a dead-straight
+ * pot the room it has is NOT centred on the pocket: the near jaw eats into the
+ * window as the approach angle opens, so the line that pots is offset away from
+ * it. Getting that offset right is the whole difference between a tight pocket
+ * that plays and a tight pocket that rattles.
+ *
+ * THIS USED THE JAW CIRCLES, AND THE JAW CIRCLES ARE NOT THE JAWS. w->jaw[] is a
+ * set of omnidirectional end-caps that close the open ends of the cushion
+ * polyline; cue_table sets them back behind the facing on purpose, so a ball is
+ * always stopped by the nose before it can ever reach one. Measured over a
+ * 40-frame match they were touched exactly ZERO times in 3294 shots. Aiming by
+ * them is aiming by a shape that is not there, and the error is one-sided —
+ * measured against the real nose on a 12 ft snooker corner:
+ *
+ *     approach    the window the pocket leaves      where it aimed
+ *        0 deg      -3.50 .. +3.50 deg                0.00   centred
+ *       12 deg      -4.90 .. +0.70 deg                0.00   76% into the near jaw
+ *       24 deg      -6.05 .. -3.45 deg                0.01   OUTSIDE IT
+ *
+ * Past about twenty degrees of approach the line it chose did not enter the
+ * pocket at all. That is a systematic clip of the near jaw on every cut, and it
+ * reads exactly like pockets being too tight — which is why it is worth saying
+ * plainly that it is not: at nought degrees the aim was already perfect.
+ *
+ * So the window is computed from the NOSE, the run of kind-1 segments the bezier
+ * jaw is built from. Each point on it blocks an arc of the directions the ball
+ * could be sent, one ball radius wide at that range; the ball must be sent
+ * outside every such arc, and it is sent down the middle of what is left. Points
+ * behind the ball or beyond the pocket cannot block anything and are skipped,
+ * which is what keeps this to arithmetic over a couple of dozen vertices.
+ *
+ * A shallow shot down the rail is handled by the same rule with nothing added:
+ * the rail's own nose vertices are in the list, so they close the window from
+ * that side exactly as the far jaw does. */
 static Vec3 pocket_aim_t(const AiCtx *c, int pk, Vec3 target) {
     const CueWorld *w = c->w;
-    Vec3 pocket = w->pocket[pk];
-    if (w->njaw < 2) return pocket;
-    /* the two knuckles flanking this pocket = its two nearest jaw circles */
-    int j1 = -1, j2 = -1; float d1 = 1e18f, d2b = 1e18f;
-    for (int i = 0; i < w->njaw; i++) {
-        float dd = d2(pocket, w->jaw[i]);
-        if (dd < d1)      { d2b = d1; j2 = j1; d1 = dd; j1 = i; }
-        else if (dd < d2b){ d2b = dd; j2 = i; }
-    }
-    if (j1 < 0 || j2 < 0) return pocket;
+    const Vec3 pocket = w->pocket[pk];
+    /* A hole in the open bed has no jaws and no preferred line — see
+     * is_bed_hole. Aim at the middle of it. */
+    if (is_bed_hole(c, pk)) return pocket;
     Vec3 ref = sub2(pocket, target);
-    float distP = len2(ref);
+    const float distP = len2(ref);
     if (distP < 1e-4f) return pocket;
-    float refA = atan2f(ref.z, ref.x);
-    float clr = c->t->R + w->jaw_r + c->t->R * 0.12f;   /* ball + knuckle + small margin */
-    /* Angle to each jaw (relative to the pocket-centre direction) and the angular
-     * half-width the ball needs to clear it. The ball threads the gap BETWEEN the
-     * two jaws, so we clear the lower-angle jaw on its UPPER (gap) side and the
-     * upper-angle jaw on its LOWER side. (The old code keyed the clear side off
-     * sign(rel) vs the pocket centre — wrong when BOTH jaws sit to one side of the
-     * pocket centre, i.e. a shallow down-the-rail shot: it then aimed straight at
-     * the near jaw. The gap, not the pocket centre, is the target.) */
-    float ang[2], hw[2]; int jj[2] = { j1, j2 };
-    for (int k = 0; k < 2; k++) {
-        Vec3 J = w->jaw[jj[k]];
-        float dJ = d2(J, target);
-        ang[k] = wrapPI(atan2f(J.z - target.z, J.x - target.x) - refA);
-        float ratio = clr / (dJ > clr ? dJ : clr);
-        hw[k] = asinf(ratio > 1.0f ? 1.0f : ratio);
+    const float refA = atan2f(ref.z, ref.x);
+    const Vec3 refd = v3(ref.x / distP, 0, ref.z / distP);
+    /* The ball's centre must stay this far off the nose: its own radius, and
+     * essentially nothing more. A safety margin is tempting and wrong here —
+     * approached at twenty-odd degrees a 1.6-ball pocket leaves a window under
+     * three degrees wide, and five per cent of a ball is a good part of it, so a
+     * margin does not make the aim safer, it moves it off centre. */
+    const float clr = c->t->R + 0.0002f;
+    /* HOW FAR ALONG A BLOCKER CAN STILL MATTER: up to the point where the ball
+     * would already be down. Once its centre is inside the drop the ball is
+     * potted and whatever the nose does further in is irrelevant — which is not
+     * a nicety, it is most of the answer. Bounding this at the POCKET instead
+     * counted the far jaw's whole inner face as blocking, and since a disc one
+     * ball wide at a quarter of a metre casts a shadow eleven degrees across,
+     * those phantom blockers ate the far half of every window and dragged the
+     * aim back toward the near jaw — a 25 to 35% bias that survived getting the
+     * shape right and the margin right.
+     *
+     * The nearest the drop reaches along the line is its centre less its radius,
+     * and that is the honest cut-off. */
+    float far = d2(w->drop_c[pk], target) - w->pocket_r[pk];
+    if (far < 0.0f) far = 0.0f;
+
+    /* THE LARGEST FREE ARC, not a single pair of bounds.
+     *
+     * Keeping one `lo` and one `hi` and pushing each inward assumes the blocked
+     * directions form exactly two runs, one either side. A bezier jaw is a
+     * dozen vertices and the nose carries on down the rail, so they do not: on a
+     * steep approach the near jaw's vertices block an arc that straddles the
+     * pocket point itself, the pair inverts, and the midpoint of an inverted
+     * interval is not a direction — it is arithmetic. That is why the aim was
+     * still a quarter of a window short of centre after the shape was right.
+     *
+     * So the blocked arcs are collected and subtracted. What is left of the
+     * drop's own arc is a set of gaps; the widest is the way in, and its centre
+     * is the aim. Exact, and a sort of a few dozen intervals. */
+    /* IT ALSO HAS TO GO IN. Clearing both jaws is necessary and not sufficient:
+     * on a steep approach a line can pass the near jaw and still cross the mouth
+     * without ever reaching the drop. pocket_r is already the capture radius of
+     * the ball's CENTRE, so the directions that reach it are an arc. */
+    float win_lo = -1.5707963f, win_hi = 1.5707963f;
+    {   const Vec3 dv = sub2(w->drop_c[pk], target);
+        const float dd = len2(dv);
+        if (dd > 1e-4f) {
+            const float da = wrapPI(atan2f(dv.z, dv.x) - refA);
+            float ratio = w->pocket_r[pk] / dd; if (ratio > 1.0f) ratio = 1.0f;
+            const float dhw = asinf(ratio);
+            win_lo = da - dhw; win_hi = da + dhw;
+        }
     }
-    int loi = (ang[0] <= ang[1]) ? 0 : 1, hii = 1 - loi;
-    float lo = ang[loi] + hw[loi];     /* clear the lower jaw on its gap side */
-    float hi = ang[hii] - hw[hii];     /* clear the upper jaw on its gap side */
-    /* aim at the centre of the clear window; if the gap is too tight to clear both
-     * (window inverts) aim between the jaw centres — the best the pocket allows. */
-    float chosen = (lo <= hi) ? 0.5f * (lo + hi) : 0.5f * (ang[0] + ang[1]);
-    float fa = refA + chosen;
-    Vec3 sd = v3(cosf(fa), 0, sinf(fa));
-    float t = dot2(ref, sd); if (t < 0) t = 0; if (t > distP) t = distP;
-    return v3(target.x + sd.x * t, c->t->R, target.z + sd.z * t);
+    if (win_hi <= win_lo) return pocket;
+
+    enum { NBLK = 384 };
+    float blo[NBLK], bhi[NBLK];
+    int nb = 0;
+    for (int s = 0; s < w->nseg && nb < NBLK; s++) {
+        /* SAMPLED ALONG THE SEGMENT, not just at its ends. Each sample is
+         * treated as a disc of one ball radius, and the union of their shadows
+         * stands in for the capsule the segment really is — which over-states
+         * the blockage between two samples, so they have to be close together.
+         * Five per segment on a jaw of a dozen segments is a couple of
+         * millimetres apart, well under the margins that decide a tight pot. */
+        enum { NSMP = 5 };
+        Vec3 pts[NSMP];
+        for (int q = 0; q < NSMP; q++) {
+            const float f = (float)q / (float)(NSMP - 1);
+            pts[q] = v3(w->seg[s].a.x + (w->seg[s].b.x - w->seg[s].a.x) * f, 0,
+                        w->seg[s].a.z + (w->seg[s].b.z - w->seg[s].a.z) * f);
+        }
+        for (int q = 0; q < NSMP && nb < NBLK; q++) {
+            const Vec3 rv = sub2(pts[q], target);
+            const float along = dot2(rv, refd);
+            if (along <= 0.0f || along > far) continue;   /* behind, or past it */
+            const float dV = len2(rv);
+            if (dV < 1e-5f) continue;
+            const float rel = wrapPI(atan2f(rv.z, rv.x) - refA);
+            float ratio = clr / dV; if (ratio > 1.0f) ratio = 1.0f;
+            const float hw = asinf(ratio);
+            const float l = rel - hw, h = rel + hw;
+            if (h <= win_lo || l >= win_hi) continue;     /* outside the arc */
+            blo[nb] = l; bhi[nb] = h; nb++;
+        }
+    }
+    /* sorted by where each arc starts, so one sweep can subtract them all */
+    for (int i = 1; i < nb; i++) {
+        const float kl = blo[i], kh = bhi[i];
+        int j = i - 1;
+        while (j >= 0 && blo[j] > kl) { blo[j+1] = blo[j]; bhi[j+1] = bhi[j]; j--; }
+        blo[j+1] = kl; bhi[j+1] = kh;
+    }
+    float best_lo = 0.0f, best_hi = -1.0f, cur = win_lo;
+    for (int i = 0; i < nb; i++) {
+        if (blo[i] > cur && blo[i] - cur > best_hi - best_lo) { best_lo = cur; best_hi = blo[i]; }
+        if (bhi[i] > cur) cur = bhi[i];
+        if (cur >= win_hi) break;
+    }
+    if (win_hi > cur && win_hi - cur > best_hi - best_lo) { best_lo = cur; best_hi = win_hi; }
+
+    float chosen;
+    if (best_hi > best_lo) {
+        chosen = 0.5f * (best_lo + best_hi);            /* down the middle of it */
+    } else {
+        /* NO WAY THROUGH AT ALL, by less than a ball. Take the direction with the
+         * most room rather than giving up: the caller's difficulty scoring is
+         * what decides whether a shot this tight is worth playing, and it needs
+         * the best line to judge, not a token one. */
+        float bestgap = -1e9f; chosen = 0.0f;
+        for (int k = 0; k <= 48; k++) {
+            const float a2 = win_lo + (win_hi - win_lo) * (float)k / 48.0f;
+            float room = 1e9f;
+            for (int i = 0; i < nb; i++) {
+                const float d1 = a2 - blo[i], d2_ = bhi[i] - a2;
+                const float r2 = (d1 < d2_) ? d1 : d2_;   /* inside is negative */
+                if (-r2 < room) room = -r2;
+            }
+            if (room > bestgap) { bestgap = room; chosen = a2; }
+        }
+    }
+    const float fa = refA + chosen;
+    const Vec3 sd = v3(cosf(fa), 0, sinf(fa));
+    float tt = dot2(ref, sd);
+    if (tt < 0.0f) tt = 0.0f; else if (tt > distP) tt = distP;
+    return v3(target.x + sd.x * tt, c->t->R, target.z + sd.z * tt);
 }
 
 /* Is the straight path start→end clear of all balls except `exclude` idx? */
