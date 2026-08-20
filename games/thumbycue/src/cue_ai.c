@@ -4567,16 +4567,37 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
         .w = w, .t = t, .r = r, .b = balls, .n = n, .p = p,
         .S = 12.0f / t->R, .maxdist_m = fmaxf(t->half_len, t->half_wid)*2.0f,
         .snooker = t->is_snooker,
+        /* THE BALLS HAVE A SIZE, and this was the one context in the file that
+         * did not say so — it was filled in a few lines down for bar billiards
+         * and left at zero for every other game, which is a designated
+         * initialiser quietly zeroing the field for the path that returns last.
+         *
+         * Nothing warns, and both things that read it fail silently and
+         * agreeably:
+         *
+         *   path_clear_at uses it as the clearance a ball needs from the line,
+         *   so at zero "is this line blocked" became d < 0, which is never —
+         *   EVERY PATH REPORTED CLEAR. The placement below scores each spot by
+         *   the pots it can see, and it could see every ball through every
+         *   other ball into every pocket. Put a ball on in front of a middle
+         *   pocket, ring it with blockers leaving one gap, and it stands behind
+         *   a blocker while 15% of the cloth had the shot — which is exactly
+         *   the fault the comment below is written about.
+         *
+         *   potting_difficulty uses it to find the GHOST ball, one contact
+         *   distance back from the object ball along the line to the pocket. At
+         *   zero the ghost IS the object ball, so the cut angle is measured to
+         *   the ball's centre instead of to where the cue ball has to arrive,
+         *   and every candidate's angle is understated — most at close range,
+         *   where a ball's width is most of the angle. */
+        .contact = (t->cue_R > 0.0f) ? (t->cue_R + t->R) : (2.0f * t->R),
     };
     AiCtx *c = &ctx;
 
     /* Rule 91: every stroke of bar billiards is played from the D, so this is
      * asked on every visit rather than after a foul — and the region is the D
      * itself, not the clamp the other games share. */
-    if (r->mode == CUE_GAME_BARBILLIARDS) {
-        ctx.contact = (t->cue_R > 0.0f) ? (t->cue_R + t->R) : (2.0f * t->R);
-        return bb_place(c);
-    }
+    if (r->mode == CUE_GAME_BARBILLIARDS) return bb_place(c);
 
     const int in_hand_any = cue_rules_in_hand_anywhere(r);
     Vec3 best_pos = cue_table_clamp_placement_any(t, cue_table_cue_home(t),
@@ -4639,55 +4660,260 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
         return cue_table_clamp_placement_balls(t, cand, balls, n, 1);
     }
 
-    /* A SWEEP AS WELL AS A SCATTER.
+    /* WORK BACK FROM THE SHOTS, NOT FORWARD FROM THE POSITIONS.
      *
-     * Forty-eight random points over the whole bed, clamped into a region as
-     * small as the D, is a lot of samples landing in much the same place and no
-     * guarantee that the one spot with a clear ball-on was among them. Placing
-     * yourself behind a ball when a shot existed a few centimetres away is the
-     * worst thing this function can do, and it was down to luck.
+     * This sampled the cloth — forty-eight random points and an eight-by-eight
+     * grid — and scored each by the best pot it could see. Sampling positions
+     * and hoping one of them has a shot gets the question the wrong way round,
+     * and it fails worst exactly where it matters most: one red left in
+     * snooker, placing in the D, and whether the AI can see that red at all is
+     * left to whether a sample happened to land in the strip that does. Miss it
+     * and the AI snookers itself from hand, which is a foul and four away.
      *
-     * So the random scatter keeps its spread and a grid guarantees the cover.
-     * Both go through the same clamp, so every candidate scored is the position
-     * that would actually be played — the clamp can no longer hand back a spot
-     * outside the region, which is what used to make the scoring a fiction.
+     * A shot is a BALL, a POCKET and a place to stand, and the first two decide
+     * the third. For each legal ball and each pocket it can actually reach, the
+     * cue ball has to arrive at the GHOST — one contact distance back from the
+     * ball along the line to that pocket. Stand anywhere on the ray from the
+     * ghost directly away from the pocket and the shot is dead straight; swing
+     * off that ray by an angle and the cut opens by the same angle. So the
+     * positions worth considering for one shot are a WEDGE behind its ghost,
+     * and they are enumerated rather than stumbled upon.
      *
-     * A hundred-odd path tests on a once-a-frame call is nothing. */
-    const int GRID = 8, TRIES = 48 + GRID * GRID;
-    for (int s = 0; s < TRIES; s++) {
-        Vec3 cand;
-        if (s < 48) {
-            cand = v3((rnd(rng) * 2.0f - 1.0f) * t->half_len,
-                      t->R,
-                      (rnd(rng) * 2.0f - 1.0f) * t->half_wid);
-        } else {
-            /* Over the region's own bounding box rather than the whole bed, so
-             * the grid lands INSIDE the D instead of being clamped onto its rim
-             * from every direction at once. */
-            int g = s - 48, gx = g % GRID, gz = g / GRID;
-            float fx = (gx + 0.5f) / (float)GRID, fz = (gz + 0.5f) / (float)GRID;
-            if (t->is_snooker || t->kind == CUE_GAME_UK8)
-                cand = v3(t->baulk_x - fx * t->d_radius, t->R,
-                          (fz * 2.0f - 1.0f) * t->d_radius);
-            else
-                cand = v3(-t->half_len + fx * (t->half_len + t->baulk_x), t->R,
-                          (fz * 2.0f - 1.0f) * t->half_wid);
-        }
-        cand = cue_table_clamp_placement_any(t, cand, balls, n, r->break_shot, in_hand_any);
+     * The region still has the last word — every candidate goes through the
+     * same clamp the player's own placement does — so a wedge lying outside the
+     * D collapses onto the nearest legal spot, which is the right answer to
+     * "where do I stand for a shot I cannot quite get behind".
+     *
+     * A grid over the region is kept as well. A wedge is generated from the
+     * ball's point of view and cannot know that the only legal spot with a
+     * sight of the ball is at a thin angle no wedge would propose; the grid does
+     * not care how good the angle is and covers the region regardless. Between
+     * the two, "is there a spot from which I can see the ball on" is answered by
+     * construction rather than by luck. */
 
-        pb[0].pos = cand; pb[0].on = 1;
-        float score = 0.0f;
-        for (int i = 1; i < n; i++) {
-            if (!pb[i].on) continue;
-            if (!cue_rules_ball_legal(r, pb, n, pb[i].id)) continue;
+    /* ---- the shots that exist, worked out once -------------------------- */
+    /* Which balls may be struck first. Read from the balls where they lie, so it
+     * does not depend on where the cue ball is going to end up. */
+    int legal[CUE_MAX_BALLS], nlegal = 0;
+    for (int i = 1; i < n; i++) {
+        if (!balls[i].on) continue;
+        if (!cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+        legal[nlegal++] = i;
+    }
+
+    /* ---- the candidates ------------------------------------------------- */
+    /* Bounded, because a wedge per ball per pocket at several angles and
+     * several distances is thousands of positions on a full snooker table and
+     * the good ones are all in the first few. */
+    enum { CAND_MAX = 768 };
+    static Vec3 cand[CAND_MAX];
+    int ncand = 0;
+    #define ADD(P) do { if (ncand < CAND_MAX) \
+        cand[ncand++] = cue_table_clamp_placement_any(t, (P), balls, n, \
+                                                      r->break_shot, in_hand_any); } while (0)
+
+    ADD(cue_table_cue_home(t));
+
+    /* THE WEDGES. Straight on first, then off to either side; near the ball
+     * first, then back down the table. The reach is the table's own length, so
+     * it scales from a 7 ft bed to a 12 ft one with no number to tune. */
+    {
+        static const float ANG[]  = { 0.0f, 14.0f, -14.0f, 30.0f, -30.0f, 48.0f, -48.0f };
+        static const float FRAC[] = { 0.18f, 0.42f, 0.75f };
+        const float reach = t->half_len * 2.0f;
+        for (int li = 0; li < nlegal; li++) {
+            const int i = legal[li];
+            const Vec3 O = balls[i].pos;
             for (int pk = 0; pk < w->npocket; pk++) {
-                if (!path_clear(c, pb[i].pos, w->pocket[pk], i)) continue;
-                if (!path_clear(c, cand, pb[i].pos, i)) continue;
-                float d = potting_difficulty(c, cand, pb[i].pos, pk);
-                if (d > score) score = d;
+                /* THE BALL MUST BE ABLE TO GET THERE. A pocket the object ball
+                 * cannot reach is not a shot, and generating positions for it is
+                 * how a sweep fills up with candidates chosen for pots that do
+                 * not exist. */
+                if (!path_clear(c, O, w->pocket[pk], i)) continue;
+                const Vec3 pdir = nrm2(sub2(w->pocket[pk], O));
+                if (pdir.x == 0.0f && pdir.z == 0.0f) continue;
+                const Vec3 G = v3(O.x - pdir.x * c->contact, t->R,
+                                  O.z - pdir.z * c->contact);
+                const float bx = -pdir.x, bz = -pdir.z;   /* away from the pocket */
+                for (unsigned a2 = 0; a2 < sizeof ANG / sizeof ANG[0]; a2++) {
+                    const float th = ANG[a2] * 0.017453293f;
+                    const float ct = cosf(th), st = sinf(th);
+                    const float dx = bx * ct - bz * st;
+                    const float dz = bx * st + bz * ct;
+                    for (unsigned f = 0; f < sizeof FRAC / sizeof FRAC[0]; f++)
+                        ADD(v3(G.x + dx * reach * FRAC[f], t->R,
+                               G.z + dz * reach * FRAC[f]));
+                }
             }
         }
-        if (score > best) { best = score; best_pos = cand; }
+    }
+
+    /* THE SIGHT FAN — WHERE CAN I SEE THIS BALL FROM, pocket or no pocket.
+     *
+     * The wedges above are generated per BALL AND POCKET, and skip any pocket
+     * the object ball cannot reach. A ball that can reach NO pocket therefore
+     * gets no candidates at all — and that is the snooker endgame exactly: one
+     * red left, tucked behind a colour with no line to a pocket, and every
+     * wedge loop passes over it. Nothing then proposes a position from which the
+     * red can even be STRUCK, and hitting it is the whole of the requirement:
+     * missing it is a foul and four away, where a bad pot is merely a bad pot.
+     *
+     * So each legal ball also gets a plain fan of rays out from itself, and a
+     * position on any of them is a position that can see it. The budget is
+     * shared out between the balls, because fifteen reds do not each need
+     * sixteen rays and one red on its own does. */
+    if (nlegal > 0) {
+        int rays = 192 / nlegal;
+        if (rays < 6)  rays = 6;
+        if (rays > 24) rays = 24;
+        static const float FR[] = { 0.12f, 0.30f, 0.55f, 0.85f };
+        const float reach = t->half_len * 2.0f;
+        for (int li = 0; li < nlegal; li++) {
+            const Vec3 O = balls[legal[li]].pos;
+            for (int a2 = 0; a2 < rays; a2++) {
+                const float th = 6.2831853f * (float)a2 / (float)rays;
+                const float dx = cosf(th), dz = sinf(th);
+                for (unsigned f = 0; f < sizeof FR / sizeof FR[0]; f++)
+                    ADD(v3(O.x + dx * reach * FR[f], t->R, O.z + dz * reach * FR[f]));
+            }
+        }
+    }
+
+    /* THE GRID over the region itself, which covers what neither of the above
+     * thought to propose. INSIDE the D, not over its bounding box: sampling a
+     * square and clamping put half of every row on the rim, which is a lot of
+     * candidates in a few places and a thin strip of the D never tried at all.
+     * The D is a half-disc, so it is sampled as one — radius and angle, with the
+     * radius square-rooted so the samples spread evenly over the AREA instead of
+     * bunching at the centre. */
+    {
+        const int GRID = 11;
+        const int in_D = (t->is_snooker || t->kind == CUE_GAME_UK8 ||
+                          CUE_GAME_IS_PYRAMID(t->kind)) && !in_hand_any;
+        for (int g = 0; g < GRID * GRID; g++) {
+            const int gu = g % GRID, gv = g / GRID;
+            const float fu = (gu + 0.5f) / (float)GRID, fv = (gv + 0.5f) / (float)GRID;
+            if (in_D) {
+                const float rad = sqrtf(fu) * t->d_radius;
+                const float ang = (fv - 0.5f) * 3.14159265f;   /* -90..+90 deg */
+                ADD(v3(t->baulk_x - cosf(ang) * rad, t->R, sinf(ang) * rad));
+            } else if (in_hand_any) {
+                ADD(v3((fu * 2.0f - 1.0f) * t->half_len, t->R,
+                       (fv * 2.0f - 1.0f) * t->half_wid));
+            } else {
+                ADD(v3(-t->half_len + fu * (t->half_len + t->baulk_x), t->R,
+                       (fv * 2.0f - 1.0f) * t->half_wid));
+            }
+        }
+    }
+
+    /* A HANDFUL OF RANDOM POINTS, for the same reason the break is jittered:
+     * two identical positions should not always give the identical placement,
+     * and a scatter costs almost nothing beside the wedges. */
+    for (int s = 0; s < 16; s++)
+        ADD(v3((rnd(rng) * 2.0f - 1.0f) * t->half_len, t->R,
+               (rnd(rng) * 2.0f - 1.0f) * t->half_wid));
+    #undef ADD
+
+    /* ---- and the best of them ------------------------------------------- *
+     *
+     * TIERED, because the three things being asked are not commensurable and
+     * adding them up buried the most important one.
+     *
+     *   REACHING THE BALL ON IS NOT A SCORE, IT IS A REQUIREMENT. Failing to is
+     *   a foul — four away in snooker, ball in hand handed straight back in
+     *   pool — and no potting angle is worth risking it for. So it outranks any
+     *   pot: a position that has it always beats a position that does not.
+     *
+     *   THE BEST POT next, which is what the old scoring measured and all it
+     *   measured.
+     *
+     *   HOW MANY BALLS CAN BE REACHED last, as a tie-break. With nothing
+     *   pottable every candidate used to score zero, and because the test is a
+     *   strict > the first one examined won — which was random sample zero. So
+     *   the AI placed at RANDOM whenever it could not pot, which on a tight
+     *   table is most of the time. Counting sights of the ball gives it
+     *   something to prefer with no pot on: stand where the most balls can be
+     *   reached, which is both the safest place to be and the likeliest to
+     *   leave something after the opponent's reply. */
+    for (int s = 0; s < ncand; s++) {
+        const Vec3 at = cand[s];
+        pb[0].pos = at; pb[0].on = 1;
+        int can_hit = 0, nsee = 0;
+        float bestpot = 0.0f;
+        for (int li = 0; li < nlegal; li++) {
+            const int i = legal[li];
+            if (!path_clear(c, at, pb[i].pos, i)) continue;
+            can_hit = 1; nsee++;
+            for (int pk = 0; pk < w->npocket; pk++) {
+                if (!path_clear(c, pb[i].pos, w->pocket[pk], i)) continue;
+                const float d = potting_difficulty(c, at, pb[i].pos, pk);
+                if (d > bestpot) bestpot = d;
+            }
+        }
+        const float score = (can_hit ? 1.0e6f : 0.0f)
+                          + bestpot * 1000.0f
+                          + (float)nsee;
+        if (score > best) { best = score; best_pos = at; }
+    }
+
+    /* ---- A LAST LOOK, WHEN NOTHING CAN REACH THE BALL ON ----------------- *
+     *
+     * Everything above is sampling, and sampling has a resolution: a hundred-odd
+     * positions cannot find a sight of the ball that exists only through a gap a
+     * couple of centimetres wide. On a 12 ft table with one red left behind a
+     * colour that is not a rare position, it is the endgame — and the cost of
+     * missing it is a foul, which is the one outcome this function exists to
+     * avoid.
+     *
+     * So when the coarse pass has come up with nothing that can reach a legal
+     * ball at all, the question is asked properly rather than sampled: sweep
+     * finely round each legal ball and step outward along every ray until a spot
+     * is found that IS legal and CAN see it. Fine enough that a gap of one ball
+     * width at arm's length cannot fall between two rays.
+     *
+     * Tested AFTER the clamp, which is the point: a sight of the ball from a spot
+     * the rules will not allow, or from one the clamp shoves aside to keep clear
+     * of the baulk colours, is not a sight of the ball. That is the difference
+     * between this and the sweep above, and it is why a few of these positions
+     * survived the sight fan.
+     *
+     * Paid for only in the position that needs it — best is still below the
+     * can-hit tier, so a coarse pass that found anything skips this entirely. */
+    if (best < 1.0e6f && nlegal > 0) {
+        const int RAYS = 144;
+        static const float FR[] = { 0.06f, 0.11f, 0.18f, 0.27f, 0.38f,
+                                    0.50f, 0.64f, 0.80f, 1.00f };
+        const float reach = t->half_len * 2.0f;
+        float bestfb = -1.0f;
+        for (int li = 0; li < nlegal; li++) {
+            const int i = legal[li];
+            const Vec3 O = balls[i].pos;
+            for (int a2 = 0; a2 < RAYS; a2++) {
+                const float th = 6.2831853f * (float)a2 / (float)RAYS;
+                const float dx = cosf(th), dz = sinf(th);
+                for (unsigned f = 0; f < sizeof FR / sizeof FR[0]; f++) {
+                    Vec3 at = cue_table_clamp_placement_any(
+                                  t, v3(O.x + dx * reach * FR[f], t->R,
+                                        O.z + dz * reach * FR[f]),
+                                  balls, n, r->break_shot, in_hand_any);
+                    pb[0].pos = at; pb[0].on = 1;
+                    if (!path_clear(c, at, O, i)) continue;
+                    /* it can be reached. Among the spots that can, take the one
+                     * with the best pot, and failing that the shortest distance
+                     * to the ball — a long thin sight of a ball is a hard shot,
+                     * but a hard shot is not a foul. */
+                    float sc = 0.0f;
+                    for (int pk = 0; pk < w->npocket; pk++) {
+                        if (!path_clear(c, O, w->pocket[pk], i)) continue;
+                        const float d = potting_difficulty(c, at, O, pk);
+                        if (d > sc) sc = d;
+                    }
+                    sc = sc * 1000.0f - d2(at, O);
+                    if (sc > bestfb) { bestfb = sc; best_pos = at; best = 1.0e6f + sc; }
+                }
+            }
+        }
     }
     return best_pos;
 }
