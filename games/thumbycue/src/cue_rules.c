@@ -131,7 +131,7 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
         {   Vec3 up; Vec3 f = cue_table_foot_spot_dir(t, &up);
             r->spot[0] = v3(f.x, t->R, f.z);
             r->spot_up = up; }
-        if (t->kind == CUE_GAME_US9) r->seq = 1;           /* lowest ball on (HUD) */
+        if (CUE_GAME_IS_ROTATION(t->kind)) r->seq = 1;     /* lowest ball on (HUD) */
         if (t->kind == CUE_GAME_STRAIGHT) {
             r->called_pocket = -1;
             r->target_score = 50;
@@ -778,15 +778,31 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
     }
 }
 
-/* ---- US 9-ball ------------------------------------------------------- */
-static int nine_lowest(const CueBall *b, int n) {     /* lowest 1..9 on table */
+/* ---- THE ROTATION GAMES: 9-BALL AND 10-BALL --------------------------- *
+ *
+ * One resolver, because they are one game. Lowest ball first, three consecutive
+ * fouls and you have lost, a push-out after the break, and one ball that ends
+ * the frame when it goes in legally. What differs is how many balls there are
+ * and which one is the money ball — nine out of a diamond, or ten out of a
+ * triangle — so those are the two things parameterised and nothing else is.
+ *
+ * They were not one function to begin with, and the money ball was the literal
+ * 9 in five places. Adding 10-ball by copying it would have meant five more,
+ * and the interesting bug in a copied resolver is the line you forgot to change:
+ * a 10-ball frame that ends when the NINE goes in reads as the game working
+ * until somebody pots them out of order. */
+static int rot_money(const CueRules *r) {
+    return CUE_GAME_MONEY_BALL(r->mode);
+}
+static int rot_lowest(const CueRules *r, const CueBall *b, int n) {
+    const int top = rot_money(r);
     int lo = 99;
     for (int i = 0; i < n; i++)
-        if (b[i].on && b[i].id >= 1 && b[i].id <= 9 && b[i].id < lo) lo = b[i].id;
+        if (b[i].on && b[i].id >= 1 && b[i].id <= top && b[i].id < lo) lo = b[i].id;
     return lo == 99 ? 0 : lo;
 }
-static void respot_nine(CueRules *r, CueBall *b, int n) {
-    CueBall *q = find_ball(b, n, 9);
+static void respot_money(CueRules *r, CueBall *b, int n) {
+    CueBall *q = find_ball(b, n, rot_money(r));
     if (!q) return;
     q->on = 1; q->vel = v3(0,0,0); q->w = v3(0,0,0);
     q->pos = r->spot[0]; q->orient = m3_identity();
@@ -795,6 +811,7 @@ static void respot_nine(CueRules *r, CueBall *b, int n) {
 static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
                           int scratch, int cushion, const int *potted, int np) {
     int was_break = r->break_shot;
+    const int money = rot_money(r);
 
     /* Push-out (WPA): the shot carries no obligation to hit the lowest ball or
      * drive a ball to a rail — the ONLY foul is pocketing the cue ball. A potted
@@ -802,8 +819,8 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
      * pass the shot back. */
     if (r->is_pushout) {
         r->is_pushout = 0; r->pushout_avail = 0; r->break_shot = 0;
-        for (int k = 0; k < np; k++) if (potted[k] == 9) respot_nine(r, b, n);
-        r->seq = nine_lowest(b, n);
+        for (int k = 0; k < np; k++) if (potted[k] == money) respot_money(r, b, n);
+        r->seq = rot_lowest(r, b, n);
         if (scratch) {                              /* the one push-out foul */
             r->last_foul = 1;
             r->cfoul[r->turn]++;
@@ -817,10 +834,10 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
     }
 
     /* lowest ball at the START of the shot = min(still-on, potted-this-shot) */
-    int lowest = nine_lowest(b, n);
+    int lowest = rot_lowest(r, b, n);
     int nine_potted = 0;
     for (int k = 0; k < np; k++) {
-        if (potted[k] == 9) nine_potted = 1;
+        if (potted[k] == money) nine_potted = 1;
         if (lowest == 0 || potted[k] < lowest) lowest = potted[k];
     }
     if (lowest == 0) lowest = 1;
@@ -836,8 +853,8 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
     /* the 9: potted legally wins (incl. on the break); on a foul it respots */
     if (nine_potted) {
         if (!foul) { r->frame_over = 1; r->winner = r->turn; book_frame(r, r->winner);
-                     snprintf(r->msg, sizeof r->msg, "9-BALL!"); return; }
-        respot_nine(r, b, n);
+                     snprintf(r->msg, sizeof r->msg, "%d-BALL!", money); return; }
+        respot_money(r, b, n);
     }
 
     if (foul) {
@@ -848,12 +865,12 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
         }
         r->turn = 1 - r->turn; r->ball_in_hand = 1;
         snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
-        r->break_shot = 0; r->seq = nine_lowest(b, n); return;
+        r->break_shot = 0; r->seq = rot_lowest(r, b, n); return;
     }
     r->cfoul[r->turn] = 0;
     if (np > 0) r->msg[0] = 0;                   /* potted legally → carry on */
     else { r->turn = 1 - r->turn; r->msg[0] = 0; }
-    r->break_shot = 0; r->seq = nine_lowest(b, n);
+    r->break_shot = 0; r->seq = rot_lowest(r, b, n);
 
     /* After the opening break, the player now at the table may push out. */
     if (was_break && !r->frame_over) { r->pushout_avail = 1; r->pushout_offer = 1; }
@@ -1823,7 +1840,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     if (wrong_ball) first_hit = -1;
 
     if (r->kind)                            resolve_snooker(r, b, n, w, first_hit, scratch, potted, np);
-    else if (r->mode == CUE_GAME_US9)       resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
+    else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
@@ -1882,7 +1899,7 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
             return !r->free_ball_id || id == r->free_ball_id;
         return snk_on(r, id);
     }
-    if (r->mode == CUE_GAME_US9) return id == nine_lowest(b, n);  /* must hit lowest */
+    if (CUE_GAME_IS_ROTATION(r->mode)) return id == rot_lowest(r, b, n);  /* lowest first */
     /* Straight pool: every object ball is legal to hit, always. The obligation
      * is to SAY which one, not to choose from a list — see cue_rules_call_shot. */
     if (r->mode == CUE_GAME_STRAIGHT) return id >= 1 && id <= 15;
@@ -1914,7 +1931,7 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
                        : r->target == 1 ? (r->nominated ? CN[r->nominated] : "COLOUR")
                        : CN[r->seq < 2 ? 2 : (r->seq > 7 ? 7 : r->seq)];
         snprintf(buf, cap, "ON %s", on);
-    } else if (r->mode == CUE_GAME_US9) {
+    } else if (CUE_GAME_IS_ROTATION(r->mode)) {
         snprintf(buf, cap, "ON %d", r->seq ? r->seq : 1);
     } else if (r->mode == CUE_GAME_STRAIGHT) {
         /* The score IS the state in 14.1 — there is no ball on to report, so the

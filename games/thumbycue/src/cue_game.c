@@ -57,8 +57,12 @@ static const char *k_mode_name[CUE_GAME_COUNT] = {
     "UK 8-BALL", "US 8-BALL", "US 9-BALL", "CHINESE 8",
     "SNOOKER 15", "SNOOKER 10", "SNOOKER 6",
     /* VR only — the handheld's picker stops at CUE_GAME_VR_FIRST and never
-     * shows this one, but the array is sized by the kind count on both. */
-    "STRAIGHT POOL", "PYRAMID",
+     * shows these, but the array is sized by the kind count on both and every
+     * row of it is reachable through cue_game_set_mode, which clamps to the
+     * count and not to the picker's limit. Half-filled it handed a null to
+     * menu_row for any kind past pyramid. */
+    "STRAIGHT POOL", "PYRAMID", "PYRAMID 7FT", "BILLIARDS",
+    "BAR BILLIARDS", "BILLIARD GOLF", "US 10-BALL",
 };
 static int s_opp_mode = 1;    /* 0 = 2 PLAYER, 1 = VS CPU, 2 = CPU vs CPU, 3 = 2P LINK */
 

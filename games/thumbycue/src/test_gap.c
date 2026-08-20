@@ -241,6 +241,10 @@ static const struct { int kind; const char *name;
     { CUE_GAME_SNK10, "snooker 10ft", 34.6f, 38.3f, 1.5f },
     { CUE_GAME_SNK6, "snooker 6-red", 31.1f, 30.5f, 1.5f },
     { CUE_GAME_STRAIGHT, "straight pool",   -1, -1, 0 },
+    /* Ten-ball is the 9 ft American bed and the same pocket block as 9-ball,
+     * so it is unpinned for the same reason: a mitred pocket's opening is set
+     * by the facings meeting, not by an authored figure to hold still. */
+    { CUE_GAME_US10,     "10-ball 9ft",     -1, -1, 0 },
     { CUE_GAME_PYRAMID,  "pyramid 12ft",   5.0f, 14.5f, 1.0f },
     { CUE_GAME_PYRAMID7, "pyramid 7ft",    5.0f, 14.5f, 1.0f },
     { CUE_GAME_BILLIARDS, "English billiards", 34.6f, 38.3f, 1.5f },

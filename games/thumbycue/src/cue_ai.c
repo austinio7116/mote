@@ -926,13 +926,15 @@ static int next_targets(const AiCtx *c, int just_idx, int *out_idx) {
                 if (best >= 0) out_idx[cnt++] = best;
             }
         }
-    } else if (c->r->mode == CUE_GAME_US9) {
-        /* 9-ball: the NEXT ball-on is the lowest still on the table once the ball
-         * we're about to pot is gone. (cue_rules_ball_legal only ever names the
-         * CURRENT lowest — i.e. just_idx — so using it here left position blind.) */
+    } else if (CUE_GAME_IS_ROTATION(c->r->mode)) {
+        /* The rotation games: the NEXT ball-on is the lowest still on the table
+         * once the ball we're about to pot is gone. (cue_rules_ball_legal only
+         * ever names the CURRENT lowest — i.e. just_idx — so using it here left
+         * position blind.) The ceiling is the money ball, which is 9 or 10. */
+        const int top = CUE_GAME_MONEY_BALL(c->r->mode);
         int lo = -1, loid = 999;
         for (int i = 1; i < c->n; i++)
-            if (c->b[i].on && i != just_idx && c->b[i].id <= 9 && c->b[i].id < loid)
+            if (c->b[i].on && i != just_idx && c->b[i].id <= top && c->b[i].id < loid)
                 { loid = c->b[i].id; lo = i; }
         if (lo >= 0) out_idx[cnt++] = lo;
     } else {
@@ -3669,7 +3671,9 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                 float dd = d2(cue, balls[i].pos);
                 if (dd < apexd) { apexd = dd; apex = i; }
             }
-            if (r->mode == CUE_GAME_US9 && apex >= 0) want_first = balls[apex].id;
+            /* THE ROTATION BREAK MUST STRIKE THE ONE FIRST, in 10-ball
+             * exactly as in 9-ball — the apex ball is the 1 in both racks. */
+            if (CUE_GAME_IS_ROTATION(r->mode) && apex >= 0) want_first = balls[apex].id;
 
             /* AS HARD AS THE PLAYER COULD. The planner simulates at
              * AI_SIM_SPEED and to_caller_power divides its answer by the front
