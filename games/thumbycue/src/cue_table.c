@@ -3227,6 +3227,52 @@ void cue_table_spec(CueTable *t, int spec) {
     }
 }
 
+/* ---- THE GAME ON SOMEBODY ELSE'S TABLE -----------------------------------
+ * See cue_table.h. */
+void cue_table_set_game(CueTable *t, CueGameKind kind) {
+    if (!t) return;
+    if (kind < 0 || kind >= CUE_GAME_COUNT) return;
+
+    /* What this game is, asked of the game itself rather than written out here
+     * a second time. cue_table_init already decides all four, per kind, and a
+     * second copy of that decision is a second thing to keep in step. */
+    CueTable std;
+    cue_table_init(&std, kind);
+
+    t->kind       = kind;
+    t->is_snooker = std.is_snooker;
+    t->reds       = std.reds;
+    t->nballs     = std.nballs;
+
+    if (std.is_snooker) {
+        /* IN ORDER DOWN THE TABLE, or laid out afresh. The four spots have no
+         * rows of their own anywhere — nothing dials blue, pink or black — so
+         * either they came from a snooker table and are right, or they came
+         * from a pool table and are all sitting at zero. */
+        if (!(t->baulk_x < t->blue_x && t->blue_x < t->pink_x &&
+              t->pink_x < t->black_x)) {
+            t->baulk_x = -t->half_len * 0.6f;
+            t->blue_x  =  0.0f;
+            t->pink_x  =  t->half_len * 0.5f;
+            t->black_x =  t->half_len * 0.82f;
+        }
+        /* A snooker frame is played from the D, so there has to be one. */
+        if (t->d_radius <= 0.0f) t->d_radius = t->half_wid * 0.35f;
+        t->house = std.house;
+    } else if (std.baulk_x != 0.0f || std.d_radius == 0.0f) {
+        /* A HEAD STRING AND NO D, which is what a snooker table's baulk line is
+         * not. Only where the game says so: Russian pyramid plays from a HOUSE
+         * and keeps its d_radius, which is why this asks the standard table
+         * rather than assuming every non-snooker game is American pool. */
+        if (std.d_radius <= 0.0f && t->d_radius > 0.0f) {
+            t->baulk_x  = -t->half_len * 0.5f;
+            t->d_radius = 0.0f;
+        }
+        t->house = std.house;
+    }
+    cue_table_normalise(t);
+}
+
 /* ---- WHICH TABLE THE GAME IS ON ------------------------------------------
  * See cue_table.h. */
 const char *const CUE_TAB_NAME[CUE_TAB_COUNT] = {

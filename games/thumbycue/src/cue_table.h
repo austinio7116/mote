@@ -576,6 +576,29 @@ int cue_table_variant_ok(CueGameKind kind, int variant);
  * game does not have, so calling it unconditionally is safe. */
 void cue_table_variant(CueTable *t, int variant);
 
+/* THE GAME'S OWN FIELDS, onto a table that is otherwise somebody else's.
+ *
+ * A saved table is GEOMETRY: a bed, its cushions, its pockets, its cloth. What
+ * it is NOT is a game. How many reds go in the triangle, whether the set is
+ * snooker's or pool's, how many balls there are at all — those belong to the
+ * game somebody picked, not to the bed they picked it on. So a hexagonal bed
+ * kept for both 15-red and 6-red snooker racks fifteen or six depending on
+ * which was chosen, rather than carrying one of them around for ever.
+ *
+ * FOUR FIELDS, LISTED AND NOT DERIVED, because "which of these fifty numbers
+ * describes the game rather than the table" is a judgement, and a judgement
+ * belongs somewhere it can be read and argued with.
+ *
+ * AND THE FURNITURE THE GAME NEEDS. A snooker frame wants a D and four spots in
+ * order down the table; a pool frame wants a head string and no D at all. The
+ * validator rightly refuses a snooker table whose spots are not in order, so
+ * asking for snooker on a bed laid out for pool would otherwise produce a table
+ * that cannot be racked. Where the layout is missing it is laid out, in the same
+ * proportions cue_table_init uses, which are the ones that scale to any bed.
+ * Where it is already there it is left exactly alone — a bed whose D and spots
+ * were dialled by hand keeps them. */
+void cue_table_set_game(CueTable *t, CueGameKind kind);
+
 /* CUT THE POCKETS TO A MEASURED OPENING, corner and middle, in metres.
  *
  * The opening is measured and not authored, so this is a solve and not an

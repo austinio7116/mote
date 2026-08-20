@@ -315,6 +315,76 @@ int main(void) {
         }
     }
 
+    printf("\n");
+
+    /* ---- A GAME ON SOMEBODY ELSE'S TABLE -------------------------------- *
+     *
+     * What makes a saved table a table rather than a game. A bed is geometry;
+     * how many reds go in the triangle and whether there is a D to play from
+     * belong to the game somebody picked. So every crossing has to come out
+     * playable, and the geometry has to survive it untouched — a bed that
+     * quietly resized itself when you chose a different game would be the
+     * saved table not being saved. */
+    {   static CueBall bb[CUE_MAX_BALLS];
+        const struct { CueGameKind from, to; const char *fn, *tn; } X[] = {
+            { CUE_GAME_US8,     CUE_GAME_SNK15,   "US 8-ball 9ft", "snooker 15" },
+            { CUE_GAME_US8,     CUE_GAME_SNK6,    "US 8-ball 9ft", "snooker 6"  },
+            { CUE_GAME_SNK15,   CUE_GAME_US9,     "snooker 12ft",  "9-ball"     },
+            { CUE_GAME_SNK15,   CUE_GAME_US10,    "snooker 12ft",  "10-ball"    },
+            { CUE_GAME_SNK15,   CUE_GAME_SNK6,    "snooker 12ft",  "snooker 6"  },
+            { CUE_GAME_SNK15,   CUE_GAME_STRAIGHT,"snooker 12ft",  "straight"   },
+            { CUE_GAME_UK8,     CUE_GAME_PYRAMID, "UK 8-ball 7ft", "pyramid"    },
+            { CUE_GAME_PYRAMID, CUE_GAME_SNK15,   "pyramid 12ft",  "snooker 15" },
+            { CUE_GAME_CN8,     CUE_GAME_UK8,     "chinese 10ft",  "UK 8-ball"  },
+        };
+        for (unsigned i = 0; i < sizeof X / sizeof X[0]; i++) {
+            CueTable t; cue_table_init(&t, X[i].from);
+            const float hl = t.half_len, hw = t.half_wid;
+            const float prc = t.pr_corner, prs = t.pr_side, R = t.R;
+            CueTable want; cue_table_init(&want, X[i].to);
+
+            cue_table_set_game(&t, X[i].to);
+
+            char m[160], why[200] = {0};
+            snprintf(m, sizeof m, "%-14s played as %-11s validates",
+                     X[i].fn, X[i].tn);
+            ok(cue_table_validate(&t, why, sizeof why), m);
+
+            snprintf(m, sizeof m, "%-14s ...keeps its bed and its pockets",
+                     X[i].fn);
+            ok(t.half_len == hl && t.half_wid == hw && t.R == R &&
+               t.pr_corner == prc && t.pr_side == prs, m);
+
+            snprintf(m, sizeof m, "%-14s ...racks %s's set: %d reds, %d balls",
+                     X[i].fn, X[i].tn, t.reds, t.nballs);
+            ok(t.reds == want.reds && t.nballs == want.nballs &&
+               t.is_snooker == want.is_snooker, m);
+
+            const int n = cue_table_rack(&t, bb);
+            snprintf(m, sizeof m, "%-14s ...and the rack lays out %d of them",
+                     X[i].fn, n);
+            ok(n == want.nballs, m);
+
+            /* A snooker frame is played from the D and a pool frame is not, so
+             * one has to exist and the other has to not. */
+            snprintf(m, sizeof m, "%-14s ...with %s", X[i].fn,
+                     want.is_snooker ? "a D to play from" : "no D");
+            ok(want.is_snooker ? (t.d_radius > 0.0f)
+                               : (want.d_radius > 0.0f || t.d_radius == 0.0f), m);
+        }
+
+        /* A TABLE ALREADY LAID OUT FOR THE GAME IS LEFT ALONE. Somebody who
+         * dialled a D and four spots by hand must not have them replaced with
+         * the defaults the moment the game is re-asked. */
+        CueTable a; cue_table_init(&a, CUE_GAME_SNK15);
+        a.d_radius *= 0.8f;
+        a.pink_x   *= 0.9f;
+        CueTable b3 = a;
+        cue_table_set_game(&b3, CUE_GAME_SNK15);
+        ok(b3.d_radius == a.d_radius && b3.pink_x == a.pink_x,
+           "a table already laid out for the game keeps its own D and spots");
+    }
+
     printf("\n%s\n", fails ? "FAILURES" : "all good");
     return fails ? 1 : 0;
 }
