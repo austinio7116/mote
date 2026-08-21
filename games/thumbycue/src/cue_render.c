@@ -1749,6 +1749,41 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                     mscaleB = 1.0f / (c > 0.35f ? c : 0.35f);
                 }
             }
+            /* A CUSHION TIP IS NOT A KNIFE EDGE, and on a mitred pocket the
+             * drawn one was: a straight nose meets a straight facing and the
+             * vertex they share is a true point. A real cushion cannot be —
+             * the rubber is wrapped in cloth, and cloth will not turn a corner
+             * sharper than its own thickness. Reported: "the mitred pockets
+             * have sharp points at the end of the cushions".
+             *
+             * DRAWN ONLY, and that is a deliberate departure from this file's
+             * usual rule that the felt you see is the felt the balls bounce
+             * off. It was tried in the shared geometry first — a proper tangent
+             * fillet in the segment chain — and it cannot go there: CueSeg
+             * carries per-vertex normals averaged with its neighbours to give a
+             * continuous normal field, so inserting anything between the facing
+             * and the nose changes what averages with what. Measured with a
+             * fillet of 0.05 mm, which is geometrically nothing at all, Russian
+             * pyramid's corner went from 19 pots in 125 to 4 and the American
+             * 9 ft from 89 to 93. A softer LOOK is not worth re-tuning every
+             * mitred pocket in the game.
+             *
+             * So the point is blunted where it is drawn and nowhere else: the
+             * shared front vertex is pulled back along the averaged normal by
+             * the thickness of a cloth wrap. No extra vertices — the tip simply
+             * becomes a short facet instead of a point, which is what a wrap
+             * looks like. Six per cent of the ball's radius is 1.7 mm on a 9 ft
+             * table, the right order for the thing itself and far below the
+             * scale at which the see-it/hit-it rule earns its keep. */
+            {   const float wrap = 0.06f * t->R;
+                const CueSeg *pr2 = &w->seg[(s + w->nseg - 1) % w->nseg];
+                if (sharedA && ((sg->kind == 1 && pr2->kind == 0) ||
+                                (sg->kind == 0 && pr2->kind == 1)))
+                    pa = v3(pa.x + na.x * wrap, pa.y, pa.z + na.z * wrap);
+                if (sharedB && ((sg->kind == 1 && nx->kind == 0) ||
+                                (sg->kind == 0 && nx->kind == 1)))
+                    pb = v3(pb.x + nb.x * wrap, pb.y, pb.z + nb.z * wrap);
+            }
         }
         /* Pocket facing: extend the free-tip NOSE along its own (mitre/tangent)
          * direction — CONTINUING THE SAME ANGLE — to STOP exactly at the frame
