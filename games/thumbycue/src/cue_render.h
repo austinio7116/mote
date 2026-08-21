@@ -55,6 +55,44 @@ typedef struct { Vec3 pos; Mat3 basis; float fov_deg; } CueView;
  * (so render and physics share one geometry source). Call once per table. */
 void cue_render_build_table(const CueTable *t, const CueWorld *w);
 
+/* ---- THE DRAWN CUSHION NOSE, FOR THE TEST THAT CHECKS IT ----------------- *
+ *
+ * The nose line the balls bounce off is cue_table's CueSeg chain; the nose line
+ * you SEE is built in cue_render.c from the same chain, and the whole contract
+ * between the two files — asserted in this header, and in a dozen comments since
+ * — is that those are the same line.
+ *
+ * Nothing checked it, and in 1.9 it stopped being true: a drawn-only softening of
+ * the mitred knuckles put the visible cushion end 3.4 mm along the rail from the
+ * one the ball hits. Twelve per table, on every American bed, and it took a
+ * headset and a player to find. A guarantee this file leans on this hard needs a
+ * test, not a comment.
+ *
+ * So: hand cue_render_capture_nose a buffer before calling
+ * cue_render_build_table, and the emitter records the nose vertices it actually
+ * DREW — from the same place the CUE_CUSHDUMP line is printed, so the two cannot
+ * disagree about what was drawn. One entry per cushion segment, in chain order.
+ * Pass (NULL, 0) to disarm; the count survives disarming so it can be read after.
+ *
+ * This is a test hook and it is deliberately not free of the thing it tests: it
+ * captures the drawn vertices, not a recomputation of them. A checker that
+ * rebuilds the geometry its own way is checking its own arithmetic. */
+/* `free_a`/`free_b` mark an end the renderer EXTENDED. A pocket facing whose tip
+ * is not shared with anything is run on along its own tangent until it meets the
+ * timber, because a cushion that stopped at the mouth would leave a wedge of
+ * daylight behind it. There is no collision segment out there and there does not
+ * need to be: it is past the mouth, inside the capture radius, where a ball is
+ * already down. So those two ends are allowed to differ — outward, and only
+ * outward — and the test checks that rather than pretending they match. */
+typedef struct {
+    float ax, az, bx, bz;
+    unsigned char kind, free_a, free_b;
+} CueDrawnNose;
+void cue_render_capture_nose(CueDrawnNose *buf, int cap);
+/* How many the last cue_render_build_table recorded (may exceed the cap, which
+ * is itself a failure worth reporting rather than a silent truncation). */
+int  cue_render_captured_nose(void);
+
 /* THE CHALK AS GEOMETRY, on or off. On by default, because the handheld has no
  * shader and flat quads on the bed are the only way it can have a baulk line at
  * all. A host that paints the markings into its cloth instead must turn this

@@ -1446,6 +1446,16 @@ static void emit_table_markings(const CueTable *t) {
     }
 }
 
+/* See cue_render.h. Armed by test_seehit, ignored by everything else. */
+static CueDrawnNose *s_nose_cap;
+static int s_nose_cap_n, s_nose_cap_len;
+void cue_render_capture_nose(CueDrawnNose *buf, int cap) {
+    s_nose_cap = buf; s_nose_cap_len = buf ? cap : 0;
+    /* Arming resets the count; disarming does not, so it survives being read. */
+    if (buf) s_nose_cap_n = 0;
+}
+int cue_render_captured_nose(void) { return s_nose_cap_n; }
+
 void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     /* Lip roll is scaled to each pocket's mouth radius (pr), so mode 1 already
      * gives a proportionate cloth fall on every table — the snooker drop only
@@ -1706,6 +1716,16 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     uint16_t face  = shade565(t->cloth, 0.72f);   /* the vertical nose front face */
     uint16_t ctop  = shade565(t->cloth, 0.92f);   /* cloth top to the rail */
     const float ub = 0.45f * t->R;                /* undercut / overhang */
+/* ---- CUE_CUSHDUMP / cue_render_capture_nose ------------------------------
+ * The nose line the balls bounce off is cue_table's; the nose line you see is
+ * this file's, and the contract is that they are the same line. Nothing checked
+ * it until test_seehit. Host only — naming stdio at all drags in a file layer
+ * the device has no syscalls for. */
+#ifdef MOTE_HOST
+    { const char *e = getenv("CUE_CUSHDUMP");
+      if (e) printf("DIMS kind %d hl %.6f hw %.6f rw %.6f cw %.6f R %.6f\n",
+                    (int)t->kind, hl, hw, rw, cw, t->R); }
+#endif
 /* ---- CUE_CUSHDUMP: THE CUSHION CHAIN AS DRAWN, IN PLAN -------------------
  *
  * The nose line the balls bounce off is cue_table's, and the nose line you see
@@ -1872,6 +1892,14 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                                                                M.x, M.z, tb);
                     if (lim < tb) tb = lim;
                 }
+                /* AND NEVER IN FRONT OF THE CUSHION THAT HITS. The run-on is
+                 * along the facing's own tangent; on a rectangle that always
+                 * leans away from the cloth, but on a polygon or round bed with
+                 * rounded jaws the last jaw segment can leave the nose heading
+                 * slightly INWARD, and extending along it walks the drawn tip
+                 * out in front of the collision one. test_seehit measured
+                 * 10.9 mm of it on a round Chinese bed. */
+                if (M.x*nn.x + M.z*nn.z > 1e-6f && tn2 > 0.0f) tn2 = 0.0f;
                 if (tn2 > 0.0f) { Vec3 e = v3_add(tp, v3_scale(M, tn2));
                                   if (afree) pa = e; else pb = e; }
                 if (tb > 0.0f) { Vec3 e = v3_add(bp, v3_scale(M, tb));
@@ -1971,6 +1999,26 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                         s, sg->kind, sharedA, sharedB, haveFba, haveFbb,
                         an.x, an.z, bn.x, bn.z, ar.x, ar.z, br.x, br.z); }
 #endif
+#ifdef MOTE_HOST
+        { const char *e = getenv("CUE_CUSHDUMP");
+          if (e) printf("CUSH %3d kind%d sA%d sB%d fA%d fB%d an %.6f %.6f bn %.6f %.6f"
+                        " ar %.6f %.6f br %.6f %.6f\n",
+                        s, sg->kind, sharedA, sharedB, haveFba, haveFbb,
+                        an.x, an.z, bn.x, bn.z, ar.x, ar.z, br.x, br.z); }
+#endif
+        /* The same vertices, for the test. Counted even when the buffer is full
+         * so it can say "more than you gave me room for" rather than comparing a
+         * prefix. */
+        if (s_nose_cap) {
+            if (s_nose_cap_n < s_nose_cap_len) {
+                CueDrawnNose *d = &s_nose_cap[s_nose_cap_n];
+                d->ax = an.x; d->az = an.z; d->bx = bn.x; d->bz = bn.z;
+                d->kind = (unsigned char)sg->kind;
+                d->free_a = (unsigned char)!sharedA;
+                d->free_b = (unsigned char)!sharedB;
+            }
+            s_nose_cap_n++;
+        }
         ribbon(ba, bb, bn, an, fdark);      /* undercut face (leans to nose) */
         quad(an, bn, bf, af, face);            /* small flat (planar) */
         ribbon(af, bf, br, ar, ctop);       /* cloth top → rail */
