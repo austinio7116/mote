@@ -1716,13 +1716,19 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * and takes the end face out of sight from every angle tried. */
     #define CUE_BORE_HIDE 0.003f
     /* HOW FAR THE DRAWN KNUCKLE IS EASED OFF ITS POINT, as a fraction of the
-     * ball's radius: 1.5 mm on a 9 ft table, 1.6 on a snooker table. A cushion
-     * end is rubber under cloth and cannot come to a true point; this is the
-     * radius the cloth will not turn inside. Big enough to read as not-sharp
-     * from across the table, small enough that nothing about the pocket you
-     * were aiming at has changed. */
+     * ball's radius. A cushion end is rubber under cloth and cannot come to a
+     * true point; this is the radius the cloth will not turn inside.
+     *
+     * 3.4 mm on a 9 ft table, 3.2 on a snooker table, 2.4 on Paul's little one,
+     * which is the order a real cushion tip is. Two earlier settings were too
+     * timid to see: 0.06 (which was not easing anything at all, see below) and
+     * then 0.08, which eased correctly and still read as sharp from a playing
+     * distance. Asked for more twice; this is the second. It is bounded by the
+     * see-it/hit-it rule — the drawn mouth widens by this much at each side and
+     * the played one does not — so it should not grow again without a reason
+     * better than taste. */
     #ifndef CUE_TIP_SOFT
-    #define CUE_TIP_SOFT 0.08f
+    #define CUE_TIP_SOFT 0.12f
     #endif
     /* AND WHAT COUNTS AS A CORNER. A rounded jaw is tessellated, so its nose
      * runs into its curve through a chain of nodes that each turn by a few
