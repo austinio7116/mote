@@ -36,7 +36,12 @@ CC=${CC:-cc}
 INC="-I$here -I$root/sdk -I$root/engine -I$root/engine/core -I$root/engine/math
      -I$root/engine/render -I$root/engine/assets -I$root/engine/input
      -I$root/engine/physics"
+# cue_render.c IS IN HERE NOW, for test_seehit: the whole point of that test is
+# that it drives the REAL emitter rather than a copy of its arithmetic. It links
+# host-side for three stubs (see the top of test_seehit.c) and costs every other
+# test nothing but a few hundred milliseconds of compile.
 SRC="$here/cue_table.c $here/cue_physics.c $here/cue_rules.c $here/cue_ai.c
+     $here/cue_render.c $here/r3d_raster.c
      $root/engine/physics/mote_phys.c $root/engine/core/mote_arena.c"
 FLAGS="-O1 -g -DCUE_JAW_SEGS=10 -DCUE_ARC_SEGS=20 -DCUE_MAX_SEG=256 -Wall"
 
