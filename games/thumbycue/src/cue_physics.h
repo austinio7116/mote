@@ -358,6 +358,24 @@ typedef struct {
     int first_hit;
     int first_hit_idx;
 
+    /* ---- WHAT THE ATTEMPT LOOKED LIKE, for the referee ------------------- *
+     *
+     * Foul and a miss is a judgement about EFFORT: did the stroke have the pace
+     * to reach the ball on, and did its line pass close? Neither is knowable
+     * from the settle alone — a cue ball that finished by the ball on may have
+     * gone there the long way round, and one that finished in baulk may have
+     * shaved it on the way. So the integrator keeps, per stroke:
+     *
+     *   att_min[i]  the closest the CUE ball's centre came to ball index i
+     *   att_path    how far the cue ball actually travelled, in metres
+     *
+     * Reset by cue_phys_shot_begin, like first_hit. Indexed by ball INDEX, not
+     * id, because snooker reds share an id. */
+    float att_min[CUE_MAX_BALLS];
+    float att_path;
+    Vec3  att_prev;
+    int   att_prev_ok;
+
     /* ---- WHAT THE CUE BALL TOUCHED, IN ORDER ---------------------------- *
      *
      * first_hit answers "what did it hit first", which is every question the

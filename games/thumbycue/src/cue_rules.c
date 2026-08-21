@@ -564,6 +564,68 @@ static int snookered_from_whole_d(CueRules *r, CueBall *b, int n,
     return snookered;
 }
 
+/* ---- THE MISS JUDGEMENT'S BOOKENDS ---------------------------------------- *
+ * See cue_rules.h. The set of legal balls-on is decided BEFORE the stroke —
+ * the same set resolve_snooker will judge against — and the free ball is read
+ * without being consumed, because consuming it is resolve's job. */
+void cue_rules_attempt_begin(CueRules *r, const CueBall *b, int n) {
+    r->att_have = 0;
+    if (!r || !r->kind || !b || n < 2 || !b[0].on) return;
+    const int fb = r->free_ball, fb_id = r->free_ball_id;
+    for (int i = 0; i < n && i < CUE_MAX_BALLS; i++) {
+        r->att_on[i] = 0;
+        if (i == 0 || !b[i].on) continue;
+        const int on = snk_on(r, b[i].id) ||
+                       (fb && (fb_id == 0 || b[i].id == fb_id));
+        if (!on) continue;
+        r->att_on[i] = 1;
+        r->att_pre[i] = v3_len(v3_sub(b[i].pos, b[0].pos));
+    }
+    r->att_have = 1;              /* half: end() must still run */
+}
+
+void cue_rules_attempt_end(CueRules *r, const CueWorld *w, const CueBall *b, int n) {
+    (void)b;
+    if (!r || !w || !r->att_have || !r->kind) { if (r) r->att_have = 0; return; }
+    /* The ball the attempt came NEAREST is the one the referee judges it
+     * against — a stroke aimed at one red is not marked down for the fourteen
+     * it ignored. */
+    float best_gap = 1.0e9f, best_pre = 0.0f;
+    for (int i = 1; i < n && i < CUE_MAX_BALLS; i++) {
+        if (!r->att_on[i]) continue;
+        if (w->att_min[i] >= 1.0e8f) continue;          /* never sampled */
+        const float gap = w->att_min[i] - 2.0f * w->R;  /* surface to surface */
+        if (gap < best_gap) { best_gap = gap; best_pre = r->att_pre[i]; }
+    }
+    if (best_gap >= 1.0e8f) { r->att_have = 0; return; } /* no legal ball existed */
+    if (best_gap < 0.0f) best_gap = 0.0f;                /* touched it */
+    r->att_gap  = best_gap / (2.0f * w->R);
+    r->att_dist = best_pre;
+    const float need = best_pre > 0.05f ? best_pre : 0.05f;
+    r->att_pace = w->att_path / need;
+    r->att_have = 2;              /* both halves: resolve may judge */
+}
+
+/* Was this failure to hit a good enough attempt for the standard in force?
+ * The numbers are the product of the tuning in test_missrule.c — change them
+ * there first, where every scenario is asserted at all three standards. */
+static int miss_attempt_ok(const CueRules *r) {
+    static const float GAP[4]  = { -1.0f, 3.00f, 1.50f, 0.30f };  /* ball widths */
+    static const float PACE[4] = {  0.0f, 0.60f, 0.90f, 1.05f };
+    const int lvl = r->miss_level;
+    if (lvl <= 0 || lvl > 3) return 0;          /* OFF: every failure is a miss */
+    if (r->att_have != 2)    return 0;          /* no data: judge as before 2.0 */
+    /* THE TOLERANCE GROWS WITH THE SHOT. Three times the room out of a snooker,
+     * because the referee judges the attempt and an escape off three cushions
+     * that lands a ball-width away IS a good attempt; and almost half a ball
+     * width more per metre of shot, because nobody is called for drift on a
+     * twelve-foot roll that a foot-long tap would be called for. */
+    float allow = GAP[lvl];
+    if (r->was_snookered) allow *= 3.0f;
+    allow *= 1.0f + 0.45f * r->att_dist;
+    return r->att_gap <= allow && r->att_pace >= PACE[lvl];
+}
+
 static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
                             int first_hit,
                             int scratch, const int *potted, int np) {
@@ -682,18 +744,24 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
          * is the commonest foul and a miss there is; suppressing the call there
          * meant the opponent was never once offered the replay. Only the
          * snookers-needed exemption suppresses it, per WPBSA. */
-        int miss_called = is_miss && !needs_snookers;
+        /* THE JUDGEMENT. A failure to hit is only CALLED a miss when the
+         * attempt was not good enough for the standard in force — see
+         * miss_attempt_ok. At level 0 (the handheld, and any stroke with no
+         * attempt data) every failure is called, exactly as before. */
+        int miss_called = is_miss && !needs_snookers && !miss_attempt_ok(r);
         r->last_miss = miss_called;
 
         /* 3-consecutive-miss forfeit (genuine, non-snookered misses only) */
-        if (is_miss && !r->was_snookered) {
+        /* CALLED misses, not raw failures: an attempt the referee accepted
+         * must not count towards losing the frame. */
+        if (miss_called && !r->was_snookered) {
             if (++r->cmiss[off] >= 3) {
                 r->frame_over = 1; r->winner = opp;
                 book_frame(r, r->winner);
                 snprintf(r->msg, sizeof r->msg, "3 MISSES - LOSS");
                 return;
             }
-        } else if (!is_miss) r->cmiss[off] = 0;
+        } else if (!miss_called) r->cmiss[off] = 0;
 
         /* Is the incoming player snookered on the post-foul ball-on? → free ball.
          * (Skipped after a scratch — the cue is replaced in the D.) */
@@ -2015,7 +2083,8 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     const int wrong_ball = r->cued_id && b[0].on && r->cued_id != b[0].id;
     if (wrong_ball) first_hit = -1;
 
-    if (r->kind)                            resolve_snooker(r, b, n, w, first_hit, scratch, potted, np);
+    if (r->kind)                            { resolve_snooker(r, b, n, w, first_hit, scratch, potted, np);
+                                              r->att_have = 0; }
     else if (r->mode == CUE_GAME_PAUL)      resolve_paul(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);

@@ -259,6 +259,9 @@ void cue_phys_shot_begin(CueWorld *w) {
     if (!w) return;
     w->first_hit = -1;
     w->first_hit_idx = -1;
+    for (int k = 0; k < CUE_MAX_BALLS; k++) w->att_min[k] = 1.0e9f;
+    w->att_path = 0.0f;
+    w->att_prev_ok = 0;
     w->jump_over = 0; w->jump_over_id = 0;
     w->jmp_pending = 0; w->jmp_idx = -1; w->jmp_hit_it = 0; w->jmp_bounced = 0;
     w->ntouch = 0; w->touch_over = 0;
@@ -1895,6 +1898,20 @@ float cue_phys_cushion_impact(void) { return s_cush_vn; }
 
 CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events) {
     if (events) *events = 0;
+    /* The attempt log — see cue_physics.h. Sampled at the step rather than the
+     * substep: at 2 kHz the cue ball moves under 4 mm a step at break pace, and
+     * the referee is judging in ball widths. */
+    if (n > 0 && balls[0].on) {
+        if (w->att_prev_ok)
+            w->att_path += v3_len(v3_sub(balls[0].pos, w->att_prev));
+        w->att_prev = balls[0].pos;
+        w->att_prev_ok = 1;
+        for (int k = 1; k < n && k < CUE_MAX_BALLS; k++) {
+            if (!balls[k].on) continue;
+            const float d = v3_len(v3_sub(balls[0].pos, balls[k].pos));
+            if (d < w->att_min[k]) w->att_min[k] = d;
+        }
+    }
     s_cush_vn = 0.0f;                  /* reset the cushion-impact meter for this step */
     s_bed_land = 0;
     float h = g_sub_h;

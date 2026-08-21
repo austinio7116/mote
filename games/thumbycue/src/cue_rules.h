@@ -251,6 +251,38 @@ typedef struct {
 
     /* snooker foul-and-a-miss + free ball (WPBSA) */
     int was_snookered;   /* striker had NO clear ball-on before the shot (set by cue_game) */
+
+    /* ---- FOUL AND A MISS, JUDGED --------------------------------------------
+     *
+     * WPBSA Section 3 Rule 14 does not call a miss on every failure to hit the
+     * ball on: the referee judges whether the striker made a GOOD ENOUGH
+     * ATTEMPT. miss_level is the standard that judgement is held to:
+     *
+     *   0  OFF       every failure to hit is a miss — the pre-2.0 behaviour,
+     *                and what the handheld still gets, since it never sets this
+     *   1  AMATEUR   a genuine try is enough: within three ball widths, and
+     *                most of the pace to get there
+     *   2  CLUB      within a ball and a half, at nearly full pace
+     *   3  PRO       almost every failure is called, as on television: within
+     *                half a ball, and the cue ball must have had the legs to
+     *                PASS the ball on
+     *
+     * The tolerance is not flat: a snookered escape earns three times the room
+     * (the referee judges the attempt, not the outcome), and every metre of
+     * pre-shot distance earns more again — a long roll up the table is judged
+     * kinder than a miss from a foot away.
+     *
+     * The attempt itself is measured by the two bookends below, on the same
+     * host-sets-it contract as was_snookered: cue_rules_attempt_begin before
+     * the stroke, cue_rules_attempt_end after the settle, and resolve consumes
+     * what they left. A resolve with no attempt data falls back to level 0. */
+    int   miss_level;
+    float att_gap;       /* how far the nearest ball-on was missed by, ball widths */
+    float att_pace;      /* cue-ball path length / pre-shot distance to that ball */
+    float att_dist;      /* that pre-shot distance, metres */
+    int   att_have;      /* both bookends ran for this stroke */
+    float att_pre[CUE_MAX_BALLS];   /* begin: pre-shot surface distance per index */
+    unsigned char att_on[CUE_MAX_BALLS]; /* begin: index was a legal ball-on */
     /* ---- what the HOST saw, set before cue_rules_resolve and cleared by it ----
      * Same contract as was_snookered above: the rules cannot see these for
      * themselves because they happen outside the settle. */
@@ -498,6 +530,12 @@ void cue_rules_nominate_free(CueRules *r, int id);
  * (the bed is convex), not because a cushion should be ignored. Pass the world
  * the shot is being played on and custom beds answer correctly; pass NULL for
  * the letter of the rule book and balls only. See clear_path in cue_rules.c. */
+/* The two bookends of the miss judgement — call around every snooker stroke.
+ * begin records the straight distance to each legal ball-on; end reads the
+ * integrator's attempt log out of the world. Harmless in any other game. */
+void cue_rules_attempt_begin(CueRules *r, const CueBall *b, int n);
+void cue_rules_attempt_end(CueRules *r, const CueWorld *w, const CueBall *b, int n);
+
 int  cue_rules_is_snookered(const CueRules *r, const CueBall *b, int n,
                             const CueWorld *w);
 
