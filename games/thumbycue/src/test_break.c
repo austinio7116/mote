@@ -47,7 +47,8 @@ static int      N;
 static const char *GAME_NAME[CUE_GAME_COUNT] = {
     "UK 8-ball 7ft", "US 8-ball 9ft", "9-ball 9ft", "Chinese 8 10ft",
     "snooker 12ft", "snooker 10-red", "snooker 6-red", "straight pool 9ft",
-    "russian pyramid 12ft"
+    "russian pyramid 12ft", "russian pyramid 7ft", "english billiards",
+    "bar billiards", "billiards golf", "10-ball 9ft", "paul 6ft"
 };
 
 typedef struct {

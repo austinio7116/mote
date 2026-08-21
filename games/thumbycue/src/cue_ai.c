@@ -549,9 +549,32 @@ typedef struct {
 
 #define PXm(ctx, px) ((px) * (ctx)->t->R / 12.0f)   /* px constant → metres */
 
-static int ai_value(int id) {
+/* WHAT A BALL IS WORTH, WHICH IS THE GAME'S BUSINESS AND NOT THE BALL'S.
+ *
+ * Snooker's ladder — 1 for a red, then 2 to 7 up the colours — was the only
+ * answer here, and it is the wrong one for PAUL: a colour is two and the black
+ * is four, and nothing else scores at all. Left alone the planner rated the
+ * pink at six and the black at seven, so it would pass over a four-point black
+ * for a two-point pink and think it was gaining.
+ *
+ * Taken as a mode rather than a context so the plain id version can stay for
+ * the places that genuinely mean "which colour is this". */
+static int ai_value_m(int mode, int id) {
+    if (mode == CUE_GAME_PAUL) {
+        if (id == CUE_ID_BLACK) return 4;
+        if (id >= CUE_ID_YELLOW) return 2;
+        return 1;
+    }
     if (id >= CUE_ID_YELLOW && id <= CUE_ID_BLACK) return id - 18; /* 20..25 → 2..7 */
     return 1;                                                       /* red / pool */
+}
+static int ai_value(int id) { return ai_value_m(0, id); }
+
+/* POT ANYTHING, IN ANY ORDER — which is Paul, and nothing else that reaches the
+ * general planner. Bar billiards and golf are pot-anything too and both take
+ * their own path long before here. */
+static int ai_free_for_all(const AiCtx *c) {
+    return c->r->mode == CUE_GAME_PAUL;
 }
 static int is_corner(const AiCtx *c, int pk) { (void)c; return pk < 4; }
 
@@ -857,7 +880,7 @@ static float score_shot(const AiCtx *c, float cut, float dg, float dpk,
     float powS = fmaxf(0.0f, 55.0f - power);
     float pdS = fmaxf(0.0f, 100.0f - (dpk / md) * 80.0f);
     float s = cutS*0.34f + distS*0.23f + pdS*0.43f + powS*0.25f + 10.0f;
-    if (c->snooker) s += (ai_value(target_id) - 1) * 5.0f;
+    if (c->snooker) s += (ai_value_m(c->r->mode, target_id) - 1) * 5.0f;
     return s;
 }
 
@@ -888,6 +911,16 @@ static float power01_of(float js_power) { return clampf(js_power * PWR_K, 0.05f,
 static int next_targets(const AiCtx *c, int just_idx, int *out_idx) {
     int cnt = 0;
     int jid = c->b[just_idx].id;
+    if (ai_free_for_all(c)) {
+        /* EVERYTHING LEFT. There is no order in Paul, so after potting one ball
+         * the next ball on is any of the others — which is what the planner has
+         * to evaluate position against. Under the snooker branch below it would
+         * have been asked to leave itself on a COLOUR after every red, on a
+         * table where that means nothing. */
+        for (int i = 1; i < c->n; i++)
+            if (c->b[i].on && i != just_idx) out_idx[cnt++] = i;
+        return cnt;
+    }
     if (c->snooker) {
         int potting_red = (jid < CUE_ID_YELLOW);
         if (potting_red) {                       /* red → a colour next */
@@ -926,13 +959,15 @@ static int next_targets(const AiCtx *c, int just_idx, int *out_idx) {
                 if (best >= 0) out_idx[cnt++] = best;
             }
         }
-    } else if (c->r->mode == CUE_GAME_US9) {
-        /* 9-ball: the NEXT ball-on is the lowest still on the table once the ball
-         * we're about to pot is gone. (cue_rules_ball_legal only ever names the
-         * CURRENT lowest — i.e. just_idx — so using it here left position blind.) */
+    } else if (CUE_GAME_IS_ROTATION(c->r->mode)) {
+        /* The rotation games: the NEXT ball-on is the lowest still on the table
+         * once the ball we're about to pot is gone. (cue_rules_ball_legal only
+         * ever names the CURRENT lowest — i.e. just_idx — so using it here left
+         * position blind.) The ceiling is the money ball, which is 9 or 10. */
+        const int top = CUE_GAME_MONEY_BALL(c->r->mode);
         int lo = -1, loid = 999;
         for (int i = 1; i < c->n; i++)
-            if (c->b[i].on && i != just_idx && c->b[i].id <= 9 && c->b[i].id < loid)
+            if (c->b[i].on && i != just_idx && c->b[i].id <= top && c->b[i].id < loid)
                 { loid = c->b[i].id; lo = i; }
         if (lo >= 0) out_idx[cnt++] = lo;
     } else {
@@ -1023,8 +1058,13 @@ static int open_targets(const AiCtx *c, const Vec3 *pos, const int *on) {
         if (c->b[i].id == CUE_ID_CUE) continue;
         if (on ? !on[i] : !c->b[i].on) continue;
         /* The pack that matters: reds at snooker, our own group at pool. */
-        int mine = c->snooker ? (c->b[i].id < CUE_ID_YELLOW)
-                              : cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id);
+        /* AT PAUL THE PACK IS THE WHOLE TABLE, so it asks the rules like the
+         * pool games do — cue_rules_ball_legal says yes to everything but the
+         * white. The snooker reading would have counted only the reds as worth
+         * having a sight of. */
+        int mine = (c->snooker && !ai_free_for_all(c))
+                     ? (c->b[i].id < CUE_ID_YELLOW)
+                     : cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id);
         if (!mine) continue;
         if (ball_is_open(c, i, pos, on)) cnt++;
     }
@@ -1196,7 +1236,7 @@ static float position_quality(const AiCtx *c, Vec3 cue_pos, int just_idx,
             this_ball_on = 1;
             if (out_rawpot && diff > *out_rawpot) *out_rawpot = diff;
             float fs = diff;
-            if (c->snooker) fs += ai_value(c->b[ti].id) * 6.0f;
+            if (c->snooker) fs += ai_value_m(c->r->mode, c->b[ti].id) * 6.0f;
 
             /* ANGLE. potting_difficulty is a pure "how likely is this to drop",
              * and it peaks dead straight — so on its own it walks the cue ball
@@ -1554,6 +1594,12 @@ static float opponent_best_pot(const AiCtx *c, const Vec3 *pos, const int *on) {
  * colours clearance it read 27 however few colours were left. */
 static float snooker_urgency(const AiCtx *c) {
     if (!c->snooker) return 0.0f;
+    /* NOT AT PAUL, and this is not a technicality: laying a snooker is only
+     * worth anything where a foul PAYS, and in Paul a miss is not a foul at all
+     * — the visit simply passes. There is no penalty to extract, so there is
+     * nothing to play safe FOR. Everything below is also expressed in
+     * reds_left and the colour sequence, neither of which Paul has. */
+    if (ai_free_for_all(c)) return 0.0f;
     const CueRules *r = c->r;
     int me = r->turn, opp = 1 - me;
     int deficit = r->score[opp] - r->score[me];
@@ -1584,6 +1630,7 @@ static float snooker_urgency(const AiCtx *c) {
  * whenever we are behind at all, not only when snookers are formally needed. */
 static int last_red_snooker_valuable(const AiCtx *c) {
     if (!c->snooker || c->r->reds_left != 1) return 0;
+    if (ai_free_for_all(c)) return 0;      /* no foul to win, so no snooker to lay */
     int me = c->r->turn;
     return c->r->score[1 - me] > c->r->score[me];
 }
@@ -3591,6 +3638,101 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     P.miss_caution = (c->snooker && r->cmiss[r->turn] == 1 &&
                       !cue_rules_is_snookered(r, balls, n, w)) ? 1 : 0;
 
+    /* 0a. PAUL'S BREAK, which is not a break at all: the stroke must reach
+     * NOTHING — no ball and no cushion — and touching either is a foul worth
+     * two shots to the opponent. Every other opening stroke in this planner is
+     * scored on how far it spreads a pack, so none of the machinery below fits;
+     * pointed at it, the AI played a proper break and fouled every time, which
+     * is what was reported.
+     *
+     * It is a search for SPACE rather than for a shot. Sweep the directions
+     * from wherever the white happened to land, take the one with the longest
+     * clear run, and strike softly enough to die well short of the end of it.
+     *
+     * THE RUN IS MEASURED CONSERVATIVELY and then CHECKED. The ball distance is
+     * exact — a ray against each ball's contact circle — and the cushion
+     * distance is taken off the bed's bounding box, which is exact on a
+     * rectangle and an over-estimate on anything else. So the chosen stroke is
+     * simulated, and if it touched something after all the power comes down and
+     * it is asked again. Three tries at most: a stroke this soft has a very
+     * short brake distance, so halving the power quarters the roll.
+     *
+     * A LAST RESORT OF ALMOST NOTHING. On a table where the white is genuinely
+     * jammed against a ball there is no legal break, and the rules say so — two
+     * shots to the opponent and play on. The softest possible tap is then the
+     * right answer: it concedes the foul at the smallest cost and does not move
+     * the position for the player who is about to be given it. */
+    if (r->break_shot && r->mode == CUE_GAME_PAUL) {
+        const Vec3 cue = balls[0].pos;
+        const float contact = c->contact;
+        /* The bed's own extent, less a ball: how far the CENTRE may travel
+         * before the ball is against a cushion. */
+        const float lim_x = w->play_x - t->R, lim_z = w->play_z - t->R;
+
+        enum { NA = 240 };
+        float bestA = 0.0f, bestRun = -1.0f;
+        float secondA = 0.0f, secondRun = -1.0f;
+        for (int i = 0; i < NA; i++) {
+            const float a = 6.2831853f * (float)i / (float)NA;
+            const float dx = cosf(a), dz = sinf(a);
+            /* to the first ball it would touch */
+            float run = 1e30f;
+            for (int k = 1; k < n; k++) {
+                if (!balls[k].on) continue;
+                const float rx = balls[k].pos.x - cue.x, rz = balls[k].pos.z - cue.z;
+                const float along = rx * dx + rz * dz;
+                if (along <= 0.0f) continue;
+                const float perp2 = rx*rx + rz*rz - along*along;
+                if (perp2 >= contact * contact) continue;      /* it misses */
+                const float hit = along - sqrtf(contact * contact - perp2);
+                if (hit < run) run = hit;
+            }
+            /* ...and to the cushion, off the bounding box */
+            if (dx > 1e-4f)  { const float d2_ = ( lim_x - cue.x) / dx; if (d2_ < run) run = d2_; }
+            if (dx < -1e-4f) { const float d2_ = (-lim_x - cue.x) / dx; if (d2_ < run) run = d2_; }
+            if (dz > 1e-4f)  { const float d2_ = ( lim_z - cue.z) / dz; if (d2_ < run) run = d2_; }
+            if (dz < -1e-4f) { const float d2_ = (-lim_z - cue.z) / dz; if (d2_ < run) run = d2_; }
+            if (run < 0.0f) run = 0.0f;
+            if (run > bestRun) { secondRun = bestRun; secondA = bestA;
+                                 bestRun = run; bestA = a; }
+            else if (run > secondRun) { secondRun = run; secondA = a; }
+        }
+
+        const float ANG[2] = { bestA, secondA };
+        const float RUN[2] = { bestRun, secondRun };
+        CueAIShot got; memset(&got, 0, sizeof got); got.target_pocket = -1;
+        int settled = 0;
+        for (int q = 0; q < 2 && !settled; q++) {
+            if (RUN[q] <= 0.0f) continue;
+            /* Stop at not much more than a third of the way, so the margin is
+             * the same order as the run itself rather than a fixed millimetre
+             * count that means nothing on a short one. */
+            float want = RUN[q] * 0.35f;
+            for (int tri = 0; tri < 3 && !settled; tri++, want *= 0.5f) {
+                /* In the planner's OWN units — power01 of 1 is AI_SIM_SPEED —
+                 * because cue_ai_plan_result puts every plan through
+                 * to_caller_power on the way out, and doing it twice would
+                 * halve the stroke again. */
+                const float v0 = bb_launch(c, want, 0.0f);
+                const float p01 = clampf(v0 / AI_SIM_SPEED, 0.02f, 1.0f);
+                AiSim sim;
+                ai_sim(w, t, balls, n, 0, ANG[q], p01, 0.0f, 0.0f, &sim);
+                if (sim.first_hit_idx >= 0 || sim.cushion || sim.npotted) continue;
+                got.aim = ANG[q]; got.power01 = p01;
+                got.valid = 1; got.safe = 1; got.target_id = 0;
+                settled = 1;
+            }
+        }
+        if (!settled) {
+            /* No legal break exists from where the white lies. Concede it as
+             * cheaply as possible. */
+            got.aim = bestA;
+            got.power01 = 0.02f;
+            got.valid = 1; got.safe = 1; got.target_id = 0;
+        }
+        P.result = got; P.phase = PH_DONE; return;
+    }
+
     /* 0. Break shot — chosen by simulation. See break_score above for what
      * "best" means, which is a different thing per game. */
     if (r->break_shot) {
@@ -3669,7 +3811,9 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                 float dd = d2(cue, balls[i].pos);
                 if (dd < apexd) { apexd = dd; apex = i; }
             }
-            if (r->mode == CUE_GAME_US9 && apex >= 0) want_first = balls[apex].id;
+            /* THE ROTATION BREAK MUST STRIKE THE ONE FIRST, in 10-ball
+             * exactly as in 9-ball — the apex ball is the 1 in both racks. */
+            if (CUE_GAME_IS_ROTATION(r->mode) && apex >= 0) want_first = balls[apex].id;
 
             /* AS HARD AS THE PLAYER COULD. The planner simulates at
              * AI_SIM_SPEED and to_caller_power divides its answer by the front

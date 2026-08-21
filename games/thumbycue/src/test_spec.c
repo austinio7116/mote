@@ -116,7 +116,11 @@ int main(void) {
          * things to them — softening the corners kinked the middles while they
          * shared a field. Zero means "follow the corner", so every table saved
          * before it existed reads back as the table it was. */
-        ck(cue_table_field_count() == 57,
+        /* 58 with mu_r, how fast the cloth is. SIM without question: it decides
+         * where every ball comes to rest, so two ends that disagree about it
+         * are not playing the same frame. Zero means the engine's own 0.010,
+         * which is what every table saved before it existed reads back as. */
+        ck(cue_table_field_count() == 58,
            "field count unchanged (add a field -> decide if it is SIM, then update this)");
 
         /* And the playing numbers, one per kind of thing a table can be: its

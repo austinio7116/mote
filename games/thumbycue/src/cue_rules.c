@@ -43,7 +43,13 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
      * "score this as snooker", and English billiards is played on the same bed
      * with the same balls and is not snooker by any reading — three balls, no
      * colours to nominate, and scoring by cannons and in-offs. */
-    r->kind = t->is_snooker && t->kind != CUE_GAME_BILLIARDS;
+    /* AND PAUL IS NOT SNOOKER EITHER. It is played with the snooker set on a
+     * snooker bed, so t->is_snooker is quite right about the TABLE — but its
+     * scoring is nothing like snooker's, there is no ball on and no order, and
+     * `kind` here means "score this as snooker". Left in, every red would have
+     * needed a colour after it. */
+    r->kind = t->is_snooker && t->kind != CUE_GAME_BILLIARDS &&
+              t->kind != CUE_GAME_PAUL;
     r->mode = t->kind;
     r->R = t->R;
     r->cpu = cpu;
@@ -95,8 +101,18 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
          * already put his ball in the D — exactly as snooker's rack does with
          * the same rule. Setting the flag as well would send the host into a
          * placement it does not need and leave the table looking empty. */
-    } else if (r->kind) {
+    } else if (r->kind || t->kind == CUE_GAME_PAUL) {
+        /* THE FOUR SPOTS AND THE D, for snooker AND for Paul. Paul scores
+         * nothing like snooker, but the table has the marks printed on it and
+         * one of them does real work: a level table with nothing left re-spots
+         * the black, and the black's spot has to exist for that to be possible.
+         * The rest are scenery — nothing is ever spotted in Paul. */
         r->target = 0; r->reds_left = t->reds ? t->reds : 15;
+        /* WHAT IS ON THE TABLE, before a ball has been struck — twenty-nine on
+         * a full set. Counted from the table's own red count rather than
+         * assumed, so a Paul frame on a bed built for six reds is right too. */
+        if (t->kind == CUE_GAME_PAUL)
+            r->paul_left = (t->reds ? t->reds : 15) + 5 * 2 + 4;
         /* colour spots by value 2..7 */
         /* SWAPPED. Standing behind the D looking up the table, the order
          * reading left to right is green, brown, yellow — "God Bless You".
@@ -131,7 +147,7 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
         {   Vec3 up; Vec3 f = cue_table_foot_spot_dir(t, &up);
             r->spot[0] = v3(f.x, t->R, f.z);
             r->spot_up = up; }
-        if (t->kind == CUE_GAME_US9) r->seq = 1;           /* lowest ball on (HUD) */
+        if (CUE_GAME_IS_ROTATION(t->kind)) r->seq = 1;     /* lowest ball on (HUD) */
         if (t->kind == CUE_GAME_STRAIGHT) {
             r->called_pocket = -1;
             r->target_score = 50;
@@ -778,15 +794,31 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
     }
 }
 
-/* ---- US 9-ball ------------------------------------------------------- */
-static int nine_lowest(const CueBall *b, int n) {     /* lowest 1..9 on table */
+/* ---- THE ROTATION GAMES: 9-BALL AND 10-BALL --------------------------- *
+ *
+ * One resolver, because they are one game. Lowest ball first, three consecutive
+ * fouls and you have lost, a push-out after the break, and one ball that ends
+ * the frame when it goes in legally. What differs is how many balls there are
+ * and which one is the money ball — nine out of a diamond, or ten out of a
+ * triangle — so those are the two things parameterised and nothing else is.
+ *
+ * They were not one function to begin with, and the money ball was the literal
+ * 9 in five places. Adding 10-ball by copying it would have meant five more,
+ * and the interesting bug in a copied resolver is the line you forgot to change:
+ * a 10-ball frame that ends when the NINE goes in reads as the game working
+ * until somebody pots them out of order. */
+static int rot_money(const CueRules *r) {
+    return CUE_GAME_MONEY_BALL(r->mode);
+}
+static int rot_lowest(const CueRules *r, const CueBall *b, int n) {
+    const int top = rot_money(r);
     int lo = 99;
     for (int i = 0; i < n; i++)
-        if (b[i].on && b[i].id >= 1 && b[i].id <= 9 && b[i].id < lo) lo = b[i].id;
+        if (b[i].on && b[i].id >= 1 && b[i].id <= top && b[i].id < lo) lo = b[i].id;
     return lo == 99 ? 0 : lo;
 }
-static void respot_nine(CueRules *r, CueBall *b, int n) {
-    CueBall *q = find_ball(b, n, 9);
+static void respot_money(CueRules *r, CueBall *b, int n) {
+    CueBall *q = find_ball(b, n, rot_money(r));
     if (!q) return;
     q->on = 1; q->vel = v3(0,0,0); q->w = v3(0,0,0);
     q->pos = r->spot[0]; q->orient = m3_identity();
@@ -795,6 +827,7 @@ static void respot_nine(CueRules *r, CueBall *b, int n) {
 static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
                           int scratch, int cushion, const int *potted, int np) {
     int was_break = r->break_shot;
+    const int money = rot_money(r);
 
     /* Push-out (WPA): the shot carries no obligation to hit the lowest ball or
      * drive a ball to a rail — the ONLY foul is pocketing the cue ball. A potted
@@ -802,8 +835,8 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
      * pass the shot back. */
     if (r->is_pushout) {
         r->is_pushout = 0; r->pushout_avail = 0; r->break_shot = 0;
-        for (int k = 0; k < np; k++) if (potted[k] == 9) respot_nine(r, b, n);
-        r->seq = nine_lowest(b, n);
+        for (int k = 0; k < np; k++) if (potted[k] == money) respot_money(r, b, n);
+        r->seq = rot_lowest(r, b, n);
         if (scratch) {                              /* the one push-out foul */
             r->last_foul = 1;
             r->cfoul[r->turn]++;
@@ -817,10 +850,10 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
     }
 
     /* lowest ball at the START of the shot = min(still-on, potted-this-shot) */
-    int lowest = nine_lowest(b, n);
+    int lowest = rot_lowest(r, b, n);
     int nine_potted = 0;
     for (int k = 0; k < np; k++) {
-        if (potted[k] == 9) nine_potted = 1;
+        if (potted[k] == money) nine_potted = 1;
         if (lowest == 0 || potted[k] < lowest) lowest = potted[k];
     }
     if (lowest == 0) lowest = 1;
@@ -836,8 +869,8 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
     /* the 9: potted legally wins (incl. on the break); on a foul it respots */
     if (nine_potted) {
         if (!foul) { r->frame_over = 1; r->winner = r->turn; book_frame(r, r->winner);
-                     snprintf(r->msg, sizeof r->msg, "9-BALL!"); return; }
-        respot_nine(r, b, n);
+                     snprintf(r->msg, sizeof r->msg, "%d-BALL!", money); return; }
+        respot_money(r, b, n);
     }
 
     if (foul) {
@@ -848,15 +881,175 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
         }
         r->turn = 1 - r->turn; r->ball_in_hand = 1;
         snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
-        r->break_shot = 0; r->seq = nine_lowest(b, n); return;
+        r->break_shot = 0; r->seq = rot_lowest(r, b, n); return;
     }
     r->cfoul[r->turn] = 0;
     if (np > 0) r->msg[0] = 0;                   /* potted legally → carry on */
     else { r->turn = 1 - r->turn; r->msg[0] = 0; }
-    r->break_shot = 0; r->seq = nine_lowest(b, n);
+    r->break_shot = 0; r->seq = rot_lowest(r, b, n);
 
     /* After the opening break, the player now at the table may push out. */
     if (was_break && !r->frame_over) { r->pushout_avail = 1; r->pushout_offer = 1; }
+}
+
+/* ---- PAUL ---------------------------------------------------------------- *
+ *
+ * A game two friends invented on a 6 ft home snooker table, and the only one in
+ * this file whose rules came from a person. Written down as they were described,
+ * which means the odd corner of it is left odd rather than tidied into whatever
+ * a federation would have done — a rule set that has been played is worth more
+ * than one that is consistent.
+ *
+ *   THE WHOLE SET GOES ON AT RANDOM. See rack_paul. There is nothing to break.
+ *
+ *   THE "BREAK" IS A STROKE THAT MUST TOUCH NOTHING. Tap the white, and if it
+ *   reaches a ball or a cushion that is a foul and the opponent has two shots.
+ *   It is the exact inverse of every other opening stroke in this file, where
+ *   failing to reach something is the offence — and it is the rule that makes
+ *   the random scatter a problem to be solved rather than a picture: the white
+ *   lands where it lands, and finding it room is the first thing you have to do.
+ *
+ *   THEN ALTERNATE VISITS AND POT WHAT YOU CAN REACH. No ball on, no order, no
+ *   nomination. A red is one, a colour two, the black four.
+ *
+ *   AN IN-OFF IS THE FOUL, and it costs two shots. That is the only penalty
+ *   named, so it is the only one here: missing everything simply ends the visit,
+ *   as it would on a table with nobody refereeing. A ball driven off the table
+ *   goes with the in-off, because a ball on the carpet has to be a foul in any
+ *   game or it becomes a tactic.
+ *
+ *   NOTHING EVER COMES BACK. No spotting, so the points on the table only fall,
+ *   and the frame ends the moment one player's lead is larger than what is
+ *   left. Level with an empty table re-spots the black and it is played for.
+ *
+ * TWENTY-NINE POINTS on the table at the start: fifteen reds, five colours at
+ * two, and the black at four. */
+static int paul_value(int id) {
+    if (is_red(id)) return 1;
+    if (id == CUE_ID_BLACK) return 4;
+    if (is_colour(id)) return 2;
+    return 0;
+}
+
+/* What is still to play for. */
+static int paul_left(const CueBall *b, int n) {
+    int pts = 0;
+    for (int i = 1; i < n; i++) if (b[i].on) pts += paul_value(b[i].id);
+    return pts;
+}
+
+/* Is this frame over, and who won it? The only ending condition is a lead
+ * bigger than what is left — and, once nothing is left, a lead at all. */
+static void paul_maybe_over(CueRules *r, CueBall *b, int n) {
+    const int left = paul_left(b, n);
+    r->paul_left = left;
+    const int lead = r->score[0] - r->score[1];
+    const int a = lead < 0 ? -lead : lead;
+    if (a > left) {
+        r->frame_over = 1;
+        r->winner = (lead > 0) ? 0 : 1;
+        book_frame(r, r->winner);
+        snprintf(r->msg, sizeof r->msg, "%d AHEAD WITH %d LEFT",
+                 a, left);
+        return;
+    }
+    if (left == 0 && a == 0) {
+        /* LEVEL AND EMPTY. Snooker's answer, because it is the only one that
+         * does not decide a frame with something other than a stroke: the black
+         * goes back up and it is played for. It is worth four, so the moment it
+         * is potted the lead is larger than the nothing that is left and the
+         * test above ends the frame on its own. */
+        CueBall *q = find_ball(b, n, CUE_ID_BLACK);
+        if (q) {
+            q->on = 1; q->vel = v3(0,0,0); q->w = v3(0,0,0);
+            q->drop = 0.0f; q->pocket = 0; q->orient = m3_identity();
+            q->pos = r->spot[7];
+            /* AND THE COUNT GOES BACK WITH IT. This was set from the empty
+             * table above, so the board said nothing was left while a black
+             * stood on its spot — and the frame's only ending condition is a
+             * comparison against that number. */
+            r->paul_left = paul_left(b, n);
+            snprintf(r->msg, sizeof r->msg, "LEVEL - BLACK RESPOTTED");
+        }
+    }
+}
+
+static void resolve_paul(CueRules *r, CueBall *b, int n, int first_hit,
+                         int scratch, int cushion, const int *potted, int np)
+{
+    const int was_break = r->break_shot;
+    r->break_shot = 0;
+
+    /* ---- what it was worth ---- */
+    int pts = 0, potted_any = 0;
+    for (int k = 0; k < np; k++) {
+        if (potted[k] == CUE_ID_CUE) continue;         /* the white is not a score */
+        pts += paul_value(potted[k]);
+        potted_any = 1;
+    }
+
+    /* ---- and whether it was a foul ---- */
+    int foul = 0; const char *why = "";
+    if (was_break) {
+        /* THE ONE STROKE THAT MUST REACH NOTHING. Either contact fouls it, and
+         * so does potting anything with it — a ball down off a stroke that was
+         * supposed to touch nothing is a ball that was touched. */
+        /* SHORT ENOUGH FOR THE BOARD. CueRules::msg is 24 characters because it
+         * is one HUD line, and "FOUL: " takes six of them — so a reason of more
+         * than seventeen is silently cut off mid-word. RAIL rather than CUSHION
+         * for the same reason, and it is the word the other resolvers here
+         * already use. */
+        if (first_hit >= 0) { foul = 1; why = "BREAK HIT A BALL"; }
+        else if (cushion)   { foul = 1; why = "BREAK HIT A RAIL"; }
+        else if (potted_any || scratch) { foul = 1; why = "BREAK POTTED"; }
+    }
+    if (!foul && scratch)   { foul = 1; why = "IN OFF"; }
+    if (!foul && r->n_off)  { foul = 1; why = "OFF THE TABLE"; }
+    r->last_foul = foul;
+
+    /* NOTHING SCORES ON A FOUL, and what went down stays down — there is no
+     * spotting in this game, so a ball potted on a foul is simply lost to
+     * whoever might have had it. That is harsher than snooker and softer than
+     * bar billiards, and it is what "nothing ever comes back" means. */
+    if (foul) {
+        r->brk = 0;
+        r->turn = 1 - r->turn;
+        /* TWO SHOTS, on the same machinery UK 8-ball's pub rules use, so the
+         * board's "2 SHOTS" and the shot counting are the ones already tested. */
+        r->two_shot = 1; r->shots_remaining = 2; r->free_shot = 1;
+        /* The white comes back in hand only if it went down. Otherwise it lies
+         * where it stopped, like every other two-shot game here. */
+        r->ball_in_hand = scratch ? 1 : 0;
+        snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        paul_maybe_over(r, b, n);
+        return;
+    }
+
+    if (pts > 0) {
+        r->score[r->turn] += pts;
+        r->brk += pts;
+        /* A pot cancels any two-shot advantage carried into the visit, exactly
+         * as it does under pub rules: the carry is compensation for being put in
+         * a bad place, and a scoring stroke says you were not. */
+        r->two_shot = 0; r->shots_remaining = 1; r->free_shot = 0;
+        snprintf(r->msg, sizeof r->msg, "%d", r->brk);
+        paul_maybe_over(r, b, n);
+        return;
+    }
+
+    /* A miss. NOT A FOUL — the only penalty this game names is the in-off, and
+     * a table with nobody refereeing does not fine you for trying something and
+     * failing. It just ends the visit, unless a shot is still owed. */
+    if (r->shots_remaining > 1) {
+        r->shots_remaining--; r->free_shot = 0;
+        snprintf(r->msg, sizeof r->msg, "2ND SHOT");
+        return;
+    }
+    r->brk = 0;
+    r->turn = 1 - r->turn;
+    r->two_shot = 0; r->shots_remaining = 1; r->free_shot = 0;
+    r->msg[0] = 0;
+    paul_maybe_over(r, b, n);
 }
 
 /* ---- straight pool (14.1 continuous) --------------------------------- *
@@ -1823,7 +2016,8 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     if (wrong_ball) first_hit = -1;
 
     if (r->kind)                            resolve_snooker(r, b, n, w, first_hit, scratch, potted, np);
-    else if (r->mode == CUE_GAME_US9)       resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
+    else if (r->mode == CUE_GAME_PAUL)      resolve_paul(r, b, n, first_hit, scratch, cushion, potted, np);
+    else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
@@ -1882,7 +2076,7 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
             return !r->free_ball_id || id == r->free_ball_id;
         return snk_on(r, id);
     }
-    if (r->mode == CUE_GAME_US9) return id == nine_lowest(b, n);  /* must hit lowest */
+    if (CUE_GAME_IS_ROTATION(r->mode)) return id == rot_lowest(r, b, n);  /* lowest first */
     /* Straight pool: every object ball is legal to hit, always. The obligation
      * is to SAY which one, not to choose from a list — see cue_rules_call_shot. */
     if (r->mode == CUE_GAME_STRAIGHT) return id >= 1 && id <= 15;
@@ -1892,6 +2086,9 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
     /* Bar billiards: every ball on the table is an object ball, and the one in
      * your hand is whichever white you picked up. */
     if (r->mode == CUE_GAME_BARBILLIARDS) return id != CUE_ID_CUE;
+    /* PAUL: everything on the table is fair game and always was. No ball on, no
+     * order, no nomination — you pot what you can reach. */
+    if (r->mode == CUE_GAME_PAUL) return id != CUE_ID_CUE;
     /* GOLF: clear the reds. There is no order and no nominated ball — the only
      * thing you may not strike first is your own cue ball. */
     if (r->mode == CUE_GAME_GOLF) return id != CUE_ID_CUE;
@@ -1914,7 +2111,19 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
                        : r->target == 1 ? (r->nominated ? CN[r->nominated] : "COLOUR")
                        : CN[r->seq < 2 ? 2 : (r->seq > 7 ? 7 : r->seq)];
         snprintf(buf, cap, "ON %s", on);
-    } else if (r->mode == CUE_GAME_US9) {
+    } else if (r->mode == CUE_GAME_PAUL) {
+        /* THERE IS NO BALL ON, so the only thing worth a status line is what is
+         * still to play for — which is also the only thing that ends the frame.
+         * "22 LEFT" beside a four-point lead tells a player exactly how much
+         * work is left, which is the whole tactical question in this game. */
+        /* AND WHETHER TWO SHOTS ARE OWED, which the pool board says the same way
+         * and which matters more here than it does there: with no penalty for
+         * missing, the free shot is the only thing a foul actually buys. */
+        if (r->shots_remaining > 1)
+            snprintf(buf, cap, "%d LEFT  2 SHOTS", r->paul_left);
+        else
+            snprintf(buf, cap, "%d ON THE TABLE", r->paul_left);
+    } else if (CUE_GAME_IS_ROTATION(r->mode)) {
         snprintf(buf, cap, "ON %d", r->seq ? r->seq : 1);
     } else if (r->mode == CUE_GAME_STRAIGHT) {
         /* The score IS the state in 14.1 — there is no ball on to report, so the

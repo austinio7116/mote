@@ -882,6 +882,54 @@ static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0,
             quad(v3(xt0,ytop,u0), v3(xt1,ytop,u1), v3(xt1,ybot,u1), v3(xt0,ybot,u0), wall);
         }
     }
+
+    /* ---- AND THE TWO STRAIGHT SIDES OF THE SLOT -------------------------
+     *
+     * The loop above walks the circle and draws the arc on the WOOD side of the
+     * bore's centre. On every table shipped until now that was the whole of it,
+     * because the centre sits on the CLOTH side of the plank's front face: the
+     * arc inside the timber is LESS than a semicircle and its two ends land on
+     * that face, so the hole closes itself.
+     *
+     * Push the centre past the face and the arc becomes MORE than a semicircle.
+     * Its ends are now the circle's widest points, BEHIND the face, and beyond
+     * them the circle curves back toward the cloth — so the arc stops in mid-air
+     * and there is nothing between its ends and the front of the wood. You look
+     * into the pocket and see straight out of the table. Reported on Paul, whose
+     * 12.6 mm drop setback is a lot to ask of 28 mm of cushion depth, and which
+     * is the first table here whose bore centre is behind the wood.
+     *
+     * A REAL POCKET IS CUT AS A SLOT, not as a circle: the round end at the back
+     * and two straight sides running out to the front edge. So that is what is
+     * emitted — one flat wall at each end of the arc, running STRAIGHT to the
+     * face. Not a mirrored arc, which would close the hole into a circle and
+     * leave a lip of wood standing in the mouth.
+     *
+     * Nothing at all where the centre is in front of the face, so every table
+     * that was right stays identical to the bit. */
+    if (axis == 0) {
+        const float face = rail_hi ? z0 : z1;
+        const float back = cz;                       /* the arc's ends sit here */
+        if (rail_hi ? (back > face) : (back < face)) {
+            for (int e = 0; e < 2; e++) {
+                float ux = e ? cx + r : cx - r;
+                if (ux < x0) ux = x0; if (ux > x1) ux = x1;
+                quad(v3(ux,ytop,face), v3(ux,ytop,back),
+                     v3(ux,ybot,back), v3(ux,ybot,face), wall);
+            }
+        }
+    } else {
+        const float face = rail_hi ? x0 : x1;
+        const float back = cx;
+        if (rail_hi ? (back > face) : (back < face)) {
+            for (int e = 0; e < 2; e++) {
+                float uz = e ? cz + r : cz - r;
+                if (uz < z0) uz = z0; if (uz > z1) uz = z1;
+                quad(v3(face,ytop,uz), v3(back,ytop,uz),
+                     v3(back,ybot,uz), v3(face,ybot,uz), wall);
+            }
+        }
+    }
 }
 
 /* A wood rail plank [xa,xb]×[za,zb] with a clean round bore at each pocket: cut a
@@ -1658,6 +1706,23 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     uint16_t face  = shade565(t->cloth, 0.72f);   /* the vertical nose front face */
     uint16_t ctop  = shade565(t->cloth, 0.92f);   /* cloth top to the rail */
     const float ub = 0.45f * t->R;                /* undercut / overhang */
+/* ---- CUE_CUSHDUMP: THE CUSHION CHAIN AS DRAWN, IN PLAN -------------------
+ *
+ * The nose line the balls bounce off is cue_table's, and the nose line you see
+ * is this file's, and the whole contract between them is that those are the
+ * same line. Nothing checked it. A drawn-only softening of the mitred knuckles
+ * moved the visible nose 3.4 mm up the rail from the collision one and it took
+ * a headset and a player to notice.
+ *
+ * So: set CUE_CUSHDUMP and every drawn nose and back vertex is printed in table
+ * coordinates, ready to be laid over the same table's CueSeg chain. Same spirit
+ * as CUE_BNDDUMP below, and the same rule — host only, because naming stdio at
+ * all drags in a file layer the device has no syscalls for. */
+#ifdef MOTE_HOST
+    { const char *e = getenv("CUE_CUSHDUMP");
+      if (e) printf("DIMS kind %d hl %.6f hw %.6f rw %.6f cw %.6f R %.6f\n",
+                    (int)t->kind, hl, hw, rw, cw, t->R); }
+#endif
     /* HOW FAR PAST THE BORE'S EDGE a folded cushion vertex has to land before
      * the wood in front of it hides it. Three millimetres is a hair on a table
      * and takes the end face out of sight from every angle tried. */
@@ -1899,6 +1964,13 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
             if (!sharedB) cue_table_hide_bore(w, &br.x, &br.z, un.x, un.z,
                                               CUE_BORE_HIDE, cw);
         }
+#ifdef MOTE_HOST
+        { const char *e = getenv("CUE_CUSHDUMP");
+          if (e) printf("CUSH %3d kind%d sA%d sB%d fA%d fB%d an %.6f %.6f bn %.6f %.6f"
+                        " ar %.6f %.6f br %.6f %.6f\n",
+                        s, sg->kind, sharedA, sharedB, haveFba, haveFbb,
+                        an.x, an.z, bn.x, bn.z, ar.x, ar.z, br.x, br.z); }
+#endif
         ribbon(ba, bb, bn, an, fdark);      /* undercut face (leans to nose) */
         quad(an, bn, bf, af, face);            /* small flat (planar) */
         ribbon(af, bf, br, ar, ctop);       /* cloth top → rail */

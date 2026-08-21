@@ -69,6 +69,11 @@ typedef struct {
     int nominated;
     int reds_left;
     int brk;             /* current break points */
+    /* PAUL: how many points are still on the table. It decides the frame — a
+     * lead bigger than this ends it — so it is kept where the board and the
+     * planner can both read it rather than being recounted by each of them from
+     * the ball array, which is how two answers to one question get about. */
+    int paul_left;
     Vec3 spot[8];        /* colour spots indexed by value 2..7 */
     /* WHICH WAY IS UP THE TABLE at the top spots, so a spot that is occupied
      * can be walked away from along the table rather than along world +x. On a
@@ -429,6 +434,11 @@ void cue_rules_set_uk(CueRules *r, int ruleset);   /* CUE_UK_* */
 static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
     if (!r || r->kind) return 0;                    /* snooker: the D */
     if (r->mode == CUE_GAME_BARBILLIARDS) return 0; /* Rule 91: the D, always */
+    /* PAUL: the D, and only after an in-off. It is played on a snooker table
+     * and the D is chalked on it, so that is where the white comes back from —
+     * but `kind` above is 0 for Paul (it is not scored as snooker), so it fell
+     * through to the pool answer and the white could be put down anywhere. */
+    if (r->mode == CUE_GAME_PAUL) return 0;
     if (r->mode == CUE_GAME_UK8) return r->uk_intl != CUE_UK_PUB;
     return 1;
 }

@@ -42,7 +42,8 @@ static void ck(int cond, const char *what) {
 
 static const char *NAME[CUE_GAME_COUNT] = {
     "uk8","us8","us9","cn8","snk15","snk10","snk6",
-    "straight","pyramid","pyramid7","billiards","barbilliards"
+    "straight","pyramid","pyramid7","billiards","barbilliards",
+    "golf","us10","paul"
 };
 
 /* ---- 1. the invariant ---------------------------------------------------- */

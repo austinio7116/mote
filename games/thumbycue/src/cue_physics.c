@@ -1581,9 +1581,58 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                     float lip_y = sqrtf(rr*rr - o1*o1) - ld;
                     if (b->pos.y < lip_y) {
                         b->pos.y = lip_y;
-                        float slope = -o1 / sqrtf(rr*rr - o1*o1);   /* dy/do, <= 0 */
-                        float rate  = slope * (o1 - o0) / h;
-                        b->vel.y = (rate < 0.0f) ? rate : 0.0f;     /* it never lifts it */
+                        const float slope = -o1 / sqrtf(rr*rr - o1*o1);  /* dy/do <= 0 */
+                        /* GRAVITY GETS TO WORK ON IT, which it did not.
+                         *
+                         * The vertical speed used to be set outright from how
+                         * fast the ball was crossing sideways —
+                         * slope * (o1-o0)/h — so a ball creeping over the edge
+                         * descended at a creep however steep the roll had got
+                         * under it, and vel.y was overwritten every substep so
+                         * gravity never accumulated. Reported as pots hanging
+                         * over the pocket as if suspended, and measured: a ball
+                         * arriving at 80 mm/s took 442 ms to disappear into a
+                         * 7 ft corner against 154 ms of free fall — nearly
+                         * three tenths of a second of hanging.
+                         *
+                         * A ball on a curved surface is not driven by its own
+                         * sideways speed; it is ACCELERATED down the slope by
+                         * gravity, and it leaves when it outruns the curve. So
+                         * take gravity's component along the surface — and the
+                         * rolling 5/7 of it, because it is still on cloth — and
+                         * push the ball outward with it. The vertical speed then
+                         * follows from the constraint rather than replacing it,
+                         * and a ball parked on the lip accelerates away instead
+                         * of sitting there.
+                         *
+                         * WHICH WAY IS "OUTWARD" is asked of the cut itself, not
+                         * assumed to be radial: the cloth edge is an arc with two
+                         * straight ends (see cue_phys_cut_out) and its gradient
+                         * is the only honest answer near the joins. */
+                        {   const float eps = 1e-4f;
+                            const float gx =
+                                cue_phys_cut_out(w, pk, b->pos.x + eps, b->pos.z) -
+                                cue_phys_cut_out(w, pk, b->pos.x - eps, b->pos.z);
+                            const float gz =
+                                cue_phys_cut_out(w, pk, b->pos.x, b->pos.z + eps) -
+                                cue_phys_cut_out(w, pk, b->pos.x, b->pos.z - eps);
+                            const float gl = sqrtf(gx*gx + gz*gz);
+                            if (gl > 1e-9f) {
+                                /* tangential gravity, resolved back onto the
+                                 * horizontal: -g*y'/(1+y'^2), rolling */
+                                const float at = (5.0f/7.0f) * w->g * (-slope)
+                                               / (1.0f + slope*slope);
+                                b->vel.x += (gx / gl) * at * h;
+                                b->vel.z += (gz / gl) * at * h;
+                            } }
+                        /* AND THE CONSTRAINT ON THE WAY DOWN, which is all the
+                         * old line was entitled to do: the surface may stop the
+                         * ball falling THROUGH it, and it may not hold it up.
+                         * The rate the cloth falls away is the floor on the
+                         * descent, not the value of it — a ball already dropping
+                         * faster than the roll keeps its own speed and leaves. */
+                        const float rate = slope * (o1 - o0) / h;
+                        if (b->vel.y > rate) b->vel.y = (rate < 0.0f) ? rate : 0.0f;
                     }
                 }
             }

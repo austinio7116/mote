@@ -54,8 +54,43 @@ typedef enum {
      * opponent to take the table from you, and no scoring shot: the SHOTS are
      * the score, and fewer is better. */
     CUE_GAME_GOLF,
+    /* G8: TEN-BALL. The same 9 ft bed and the same rotation game as 9-ball —
+     * lowest ball first, three fouls and you are out, the money ball wins it —
+     * played with ten object balls out of a TRIANGLE instead of nine out of a
+     * diamond. That sounds like a detail and is the whole difference: a
+     * diamond opens up off almost any break and a triangle does not, so the
+     * table stays cluttered, the lowest ball is far more often tied up, and
+     * the game turns into safety play rather than a run-out. Which is why it
+     * is the game the professionals moved to.
+     *
+     * WPA 10-ball is a CALL-SHOT game and this is not — a ball that goes in
+     * off a lucky contact counts here, where the rules would have it spotted.
+     * Calling a POCKET needs a way to say which one, and the game only has a
+     * way to name a ball; until it has one, slop counts and the board says so
+     * rather than pretending. */
+    CUE_GAME_US10,
+    /* G9: PAUL. A game two friends made up on a 6 ft home snooker table, and
+     * the only game here whose rules came from a person rather than a
+     * federation. It is worth having for exactly that reason: everything else
+     * in this list is somebody's official code, and none of them play like the
+     * game people actually invent when they have a small table and no referee.
+     *
+     * The whole set goes on the cloth AT RANDOM, differently every time, so
+     * there is no opening to learn and no rack to break. Then a "break" that is
+     * the opposite of one: a tap of the white that must touch NOTHING — not a
+     * ball, not a cushion — and fouls if it does. After that, alternate visits
+     * and pot whatever you can reach: a red is one, a colour two, the black
+     * four. An in-off costs you two shots. Nothing ever comes back up, so the
+     * points on the table only fall, and the frame ends the moment one player
+     * leads by more than is left. */
+    CUE_GAME_PAUL,
     CUE_GAME_COUNT
 } CueGameKind;
+/* The rotation games: lowest ball first, and one ball that ends the frame. */
+#define CUE_GAME_IS_ROTATION(k) \
+    ((k) == CUE_GAME_US9 || (k) == CUE_GAME_US10)
+/* ...and WHICH ball ends it. */
+#define CUE_GAME_MONEY_BALL(k) ((k) == CUE_GAME_US10 ? 10 : 9)
 /* Both pyramid beds, wherever the game rather than the size is what matters. */
 #define CUE_GAME_IS_PYRAMID(k) \
     ((k) == CUE_GAME_PYRAMID || (k) == CUE_GAME_PYRAMID7)
@@ -147,6 +182,20 @@ extern const char *const CUE_GOLF_ROUND_NAME[CUE_GOLF_ROUNDS];
  * for it and every caller already goes through that one function. */
 void cue_table_golf_set_hole(int hole);
 int  cue_table_golf_hole(void);
+
+/* ---- PAUL: THE SCATTER ---------------------------------------------------
+ *
+ * The seed the next cue_table_rack() lays Paul's table out from. Same shape as
+ * golf's hole above and for the same reason: the rack takes no arguments and
+ * every caller already goes through that one function.
+ *
+ * A SEED AND NOT A CALL TO RANDOM, because a layout has to be reproducible.
+ * "Different every game" is the caller's job — it has a clock and a frame
+ * counter — and a rack that reached for randomness itself could not be tested,
+ * could not be photographed twice, and could not be sent to the other end of a
+ * link. The seed is small enough to put in a packet. */
+void     cue_table_paul_set_seed(uint32_t seed);
+uint32_t cue_table_paul_seed(void);
 
 /* How far the woodwork carries on past the rail cap. CueVR's frame builder
  * (its own repository) makes the
@@ -330,6 +379,18 @@ typedef struct {
     /* The rail: restitution at a crawl, how fast it falls with pace, and the
      * floor. See cue_table_rails for where the numbers come from. */
     float e_cush, cush_efall, e_cush_min;
+    /* HOW FAST THE CLOTH IS, which is a fact about the table and was living in
+     * the physics defaults where no table could reach it.
+     *
+     * Rolling resistance: the one number that separates a match table under new
+     * worsted from a club table under ten years of nap. Everything a player
+     * calls "speed" is this — how far the white runs off a cushion, whether a
+     * safety reaches baulk, how much the pace has to come up on a long screw.
+     *
+     * ZERO MEANS THE ENGINE'S OWN DEFAULT (0.010), so every table that predates
+     * this field plays exactly as it did and a memset one does too. Lower is
+     * faster. */
+    float mu_r;
     /* HOW MUCH SMALLER THE DROP CIRCLE IS THAN THE HOLE, per pocket type (m).
      * Taken off pr to get the radius a ball's centre must be inside before it
      * is down. It was a literal in build_world — 0.3 R, and 0.15 R for a UK
@@ -457,6 +518,147 @@ uint32_t cue_table_hash(const CueTable *t);
  * cross-field checks after them catch the combinations that are individually
  * sensible and together unplayable. */
 int cue_table_validate(const CueTable *t, char *msg, int msgcap);
+
+/* ---- THE SPEC A STANDARD TABLE IS CUT TO -------------------------------- *
+ *
+ * The same game on three different tables. Nothing about snooker changes
+ * between the Crucible and a working men's club except the TABLE, and it
+ * changes enough that they are barely the same sport: the pockets are cut
+ * tighter and the cloth runs faster at the top end, and a shot that is a
+ * formality on one is a decision on the other.
+ *
+ * So a spec is not a difficulty setting. It is a real table, described the way
+ * a fitter describes one — the opening across the pocket in millimetres, how
+ * fast the cloth is, how lively the rubber is — and the game on top of it is
+ * untouched. The pocket opening is MEASURED and not authored (see
+ * cue_table_openings), so a spec asks for an opening and cue_table_cut_to
+ * solves for the pocket that gives it.
+ *
+ * PRO IS THE TABLE THE GAME SHIPPED WITH, to the millimetre, and the ladder
+ * goes UP from there: tournament is a little more generous and club more
+ * generous again. That is the other way round from how this was first built,
+ * where tournament was the shipped table and pro was tighter still — and the
+ * shipped pockets were already tight enough to be the hard end of the range,
+ * so making a tighter one only invented a table nobody wanted.
+ *
+ * TOURNAMENT IS THE DEFAULT, and it is deliberately not index 0. Every other
+ * default in this engine is a zero, which is tidy and would be wrong here:
+ * "which end of the range is the default" and "which end of the range is
+ * tightest" are two different questions and they have different answers. The
+ * default is the middle. See CUE_SPEC_DEFAULT, and note that a preference of
+ * zero therefore means PRO and not "unset" — nothing shipped has ever written
+ * one, so there is no file to be wrong about.
+ *
+ * Only the STANDARD games have specs; a workshop table is already whatever its
+ * author dialled, and bar billiards has no rail pockets to cut. Ask
+ * cue_table_spec_applies. */
+enum { CUE_SPEC_PRO = 0, CUE_SPEC_TOURNAMENT, CUE_SPEC_CLUB, CUE_SPEC_COUNT };
+#define CUE_SPEC_DEFAULT CUE_SPEC_TOURNAMENT
+extern const char *const CUE_SPEC_NAME[CUE_SPEC_COUNT];
+
+/* Does this game have specs to choose between? */
+int cue_table_spec_applies(CueGameKind kind);
+
+/* Apply one, AFTER cue_table_init. TOURNAMENT is a no-op by construction, so
+ * calling this unconditionally is safe and is what the caller should do. */
+void cue_table_spec(CueTable *t, int spec);
+
+/* One line about what this spec is, in the player's terms, for a menu. */
+const char *cue_table_spec_blurb(CueGameKind kind, int spec);
+
+/* ---- WHICH TABLE THE GAME IS ON, AS ONE LIST ---------------------------- *
+ *
+ * A game and a table are two different choices and the menu only ever offered
+ * one of them. This is the other: the same snooker, the same pool, on a table
+ * that is not the one that ships.
+ *
+ * THE FIRST THREE ARE THE SPECS above — real tables, differing in how the
+ * pockets are cut and how fast the cloth is. The rest are SHAPES, and they are
+ * frankly for fun: an L-shaped bed you have to play round a corner on, and the
+ * regular family — hexagon, octagon, and enough sides to read as a circle. The
+ * shapes have existed in the table workshop since the bed stopped being a
+ * rectangle; what they have never had is a way to reach them without building a
+ * table by hand, which is a lot to ask of somebody who just wants a frame of
+ * snooker on a round table.
+ *
+ * ONE LIST, because on the menu it is one question. "Which table?" has seven
+ * answers and the player does not care that three of them are pocket
+ * templates and four are outlines.
+ *
+ * EVERY SHAPE KEEPS THE SAME AREA OF CLOTH as the standard table it came from.
+ * The workshop's shapes take the bed's half-length as the circumradius, which
+ * is right there — you are dialling a size — and wrong here: a hexagon of
+ * circumradius 1.785 m is a 3.57 m table with two thirds again as much cloth as
+ * the snooker table it is standing in for, and a frame on it is a different
+ * game rather than the same game on a different shape. Solved from the area
+ * instead, so the cloth you are given is the cloth you are used to.
+ *
+ * THE FIRST THREE ARE THE SPECS ABOVE, IN THE SAME ORDER, so a spec index and a
+ * table index are the same number for the first three and there is nothing to
+ * convert. Tightest first, which puts the DEFAULT at index 1 — see
+ * CUE_TAB_DEFAULT. Not every game has every variant: ask
+ * cue_table_variant_ok. */
+enum {
+    CUE_TAB_PRO = 0, CUE_TAB_TOURNAMENT, CUE_TAB_CLUB,
+    CUE_TAB_L, CUE_TAB_HEX, CUE_TAB_OCT, CUE_TAB_ROUND,
+    CUE_TAB_COUNT
+};
+#define CUE_TAB_DEFAULT CUE_TAB_TOURNAMENT
+/* The first three ARE the specs, and this says so to the compiler rather than
+ * in a comment nobody will re-check. */
+typedef char cue_tab_specs_line_up[
+    ((int)CUE_TAB_PRO == (int)CUE_SPEC_PRO &&
+     (int)CUE_TAB_TOURNAMENT == (int)CUE_SPEC_TOURNAMENT &&
+     (int)CUE_TAB_CLUB == (int)CUE_SPEC_CLUB) ? 1 : -1];
+extern const char *const CUE_TAB_NAME[CUE_TAB_COUNT];
+
+/* Can this game be played on this table? Returns 1 if so.
+ *
+ * The specs need rail pockets to cut. The shapes need a game whose rack and
+ * whose scoring do not depend on the bed being a rectangle — golf's course is
+ * laid out in the rack triangle's own frame and survives it, bar billiards'
+ * nine holes are at fixed coordinates from the rules and does not. */
+int cue_table_variant_ok(CueGameKind kind, int variant);
+
+/* Apply one, AFTER cue_table_init. TOURNAMENT is a no-op; so is a variant this
+ * game does not have, so calling it unconditionally is safe. */
+void cue_table_variant(CueTable *t, int variant);
+
+/* THE GAME'S OWN FIELDS, onto a table that is otherwise somebody else's.
+ *
+ * A saved table is GEOMETRY: a bed, its cushions, its pockets, its cloth. What
+ * it is NOT is a game. How many reds go in the triangle, whether the set is
+ * snooker's or pool's, how many balls there are at all — those belong to the
+ * game somebody picked, not to the bed they picked it on. So a hexagonal bed
+ * kept for both 15-red and 6-red snooker racks fifteen or six depending on
+ * which was chosen, rather than carrying one of them around for ever.
+ *
+ * FOUR FIELDS, LISTED AND NOT DERIVED, because "which of these fifty numbers
+ * describes the game rather than the table" is a judgement, and a judgement
+ * belongs somewhere it can be read and argued with.
+ *
+ * AND THE FURNITURE THE GAME NEEDS. A snooker frame wants a D and four spots in
+ * order down the table; a pool frame wants a head string and no D at all. The
+ * validator rightly refuses a snooker table whose spots are not in order, so
+ * asking for snooker on a bed laid out for pool would otherwise produce a table
+ * that cannot be racked. Where the layout is missing it is laid out, in the same
+ * proportions cue_table_init uses, which are the ones that scale to any bed.
+ * Where it is already there it is left exactly alone — a bed whose D and spots
+ * were dialled by hand keeps them. */
+void cue_table_set_game(CueTable *t, CueGameKind kind);
+
+/* CUT THE POCKETS TO A MEASURED OPENING, corner and middle, in metres.
+ *
+ * The opening is measured and not authored, so this is a solve and not an
+ * assignment: it bisects the pocket radius (taking the bore with it, which is
+ * what actually cutting a bigger pocket does to the timber) until the rule
+ * across the knuckles reads what was asked for. About twenty builds per pocket
+ * type, so it belongs at rack time and not in a frame.
+ *
+ * Either target may be 0 to leave that pocket type alone. Returns 1 if both
+ * landed within a tenth of a millimetre, 0 if one could not be reached — which
+ * is a real answer for a target the table's geometry cannot give. */
+int cue_table_cut_to(CueTable *t, float corner_m, float middle_m);
 
 /* THE OPENING EACH POCKET TYPE ACTUALLY OFFERS, in metres, corner and middle.
  *
