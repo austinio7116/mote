@@ -94,6 +94,14 @@ typedef struct {
      * means nothing was called, and in 14.1 that is not an oversight but a
      * DECLARED SAFETY: play on, score nothing, hand the table over. */
     int called_pocket;   /* pocket index called with the ball, or -1 for none */
+
+    /* WPA 10-BALL IS A CALL-SHOT GAME, and this switches that half on. Off (the
+     * default, and the pre-2.0 behaviour) slop counts and the guide says so.
+     * On: every stroke after the break carries a called ball and pocket, a
+     * stroke whose call was not made passes the table with everything staying
+     * down except the 10 — which respots, WPA 9.5 — and the 10 itself only
+     * wins AS CALLED. The break is never a called shot. */
+    int call_shot_on;
     int target_score;    /* points that take the frame. 50 here, because a VR
                           * frame wants to end inside a session; 100 and 150 are
                           * the tournament numbers and cue_rules_set_target sets

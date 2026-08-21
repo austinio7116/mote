@@ -896,6 +896,27 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
                           int scratch, int cushion, const int *potted, int np) {
     int was_break = r->break_shot;
     const int money = rot_money(r);
+    /* The call, read and consumed whatever happens next — a call outlives
+     * nothing, exactly as at straight pool. */
+    const int called_id  = r->nominated;
+    const int called_pkt = r->called_pocket;
+    r->nominated = 0; r->called_pocket = -1;
+    /* Call-shot is in force for this stroke: 10-ball with the option on, after
+     * the break. WPA 9.1: the break is not a called shot. */
+    const int callshot = r->call_shot_on && r->mode == CUE_GAME_US10 &&
+                         !was_break && !r->is_pushout;
+    /* Was the call made — the called ball, down the called pocket? A call with
+     * no pocket (the app could not infer one and none was given) can never be
+     * made, which is the incentive to call. */
+    int made_call = 0;
+    if (callshot && called_id) {
+        for (int k = 0; k < np; k++) {
+            if (potted[k] != called_id) continue;
+            const CueBall *q = find_ball(b, n, called_id);
+            if (!q || q->pocket == CUE_OFF_TABLE) continue;
+            if (called_pkt >= 0 && (int)q->pocket == called_pkt) made_call = 1;
+        }
+    }
 
     /* Push-out (WPA): the shot carries no obligation to hit the lowest ball or
      * drive a ball to a rail — the ONLY foul is pocketing the cue ball. A potted
@@ -934,10 +955,13 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
     if (r->n_off && !foul)            { foul = 1; why = "OFF THE TABLE"; }
     r->last_foul = foul;
 
-    /* the 9: potted legally wins (incl. on the break); on a foul it respots */
+    /* the 9: potted legally wins (incl. on the break); on a foul it respots.
+     * Under call-shot the money only wins AS CALLED — potted legally any other
+     * way it is spotted, WPA 9.5, and the stroke is judged like any other. */
     if (nine_potted) {
-        if (!foul) { r->frame_over = 1; r->winner = r->turn; book_frame(r, r->winner);
-                     snprintf(r->msg, sizeof r->msg, "%d-BALL!", money); return; }
+        const int wins = !foul && (!callshot || (called_id == money && made_call));
+        if (wins) { r->frame_over = 1; r->winner = r->turn; book_frame(r, r->winner);
+                    snprintf(r->msg, sizeof r->msg, "%d-BALL!", money); return; }
         respot_money(r, b, n);
     }
 
@@ -952,7 +976,14 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
         r->break_shot = 0; r->seq = rot_lowest(r, b, n); return;
     }
     r->cfoul[r->turn] = 0;
-    if (np > 0) r->msg[0] = 0;                   /* potted legally → carry on */
+    /* NOT AS CALLED is not a foul — the table simply passes, with everything
+     * staying down (the 10 has already gone back). The other player takes it
+     * as it lies: no ball in hand, WPA. */
+    if (callshot && np > 0 && !made_call) {
+        r->turn = 1 - r->turn;
+        snprintf(r->msg, sizeof r->msg, "NOT AS CALLED");
+    }
+    else if (np > 0) r->msg[0] = 0;              /* potted legally → carry on */
     else { r->turn = 1 - r->turn; r->msg[0] = 0; }
     r->break_shot = 0; r->seq = rot_lowest(r, b, n);
 
@@ -2046,9 +2077,14 @@ static void resolve_straight(CueRules *r, CueBall *b, int n, int first_hit,
 }
 
 void cue_rules_call_shot(CueRules *r, int ball_id, int pocket) {
-    if (!r || r->mode != CUE_GAME_STRAIGHT) return;
-    r->nominated = (ball_id >= 1 && ball_id <= 15) ? ball_id : 0;
-    r->called_pocket = r->nominated ? pocket : -1;
+    if (!r) return;
+    if (r->mode == CUE_GAME_STRAIGHT) {
+        r->nominated = (ball_id >= 1 && ball_id <= 15) ? ball_id : 0;
+        r->called_pocket = r->nominated ? pocket : -1;
+    } else if (r->mode == CUE_GAME_US10 && r->call_shot_on) {
+        r->nominated = (ball_id >= 1 && ball_id <= 10) ? ball_id : 0;
+        r->called_pocket = r->nominated ? pocket : -1;
+    }
 }
 
 void cue_rules_set_target(CueRules *r, int points) {

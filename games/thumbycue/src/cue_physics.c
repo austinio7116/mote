@@ -1901,7 +1901,7 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
     /* The attempt log — see cue_physics.h. Sampled at the step rather than the
      * substep: at 2 kHz the cue ball moves under 4 mm a step at break pace, and
      * the referee is judging in ball widths. */
-    if (n > 0 && balls[0].on) {
+    if (w->att_track && n > 0 && balls[0].on) {
         if (w->att_prev_ok)
             w->att_path += v3_len(v3_sub(balls[0].pos, w->att_prev));
         w->att_prev = balls[0].pos;

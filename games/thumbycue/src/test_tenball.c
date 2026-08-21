@@ -213,6 +213,88 @@ int main(void) {
         ok(strstr(r9.msg, "9-BALL") != NULL, "...saying 9-BALL");
     }
 
+    /* ==== CALL SHOT (WPA), behind the option ================================
+     *
+     * Off, slop counts — everything above ran that way. On, every stroke after
+     * the break carries a called ball and pocket: made, you continue and the
+     * table keeps everything that fell; not made, the table passes as it lies
+     * with no foul, and the 10 respots if it dropped. The 10 itself only wins
+     * as called. `pocket` on the ball is what makes the call enforceable —
+     * the physics records which hole every pot actually fell in. */
+    {
+        static CueTable tc; static CueWorld wc; static CueBall bc[CUE_MAX_BALLS];
+        static CueRules rc;
+        printf("\n");
+        cue_table_init(&tc, CUE_GAME_US10);
+        cue_table_build_world(&tc, &wc);
+        int nc = cue_table_rack(&tc, bc);
+        cue_rules_init(&rc, &tc, 0);
+        rc.turn = 0; rc.break_shot = 0; rc.call_shot_on = 1;
+
+        /* Pot ball `bid` into pocket `pk`, first contact `fh`. The parameters
+         * must not be called `id`: a macro argument named after a struct member
+         * substitutes into `bc[_i].id` and leaves `bc[_i].1`. */
+        #define CPOT(fh, bid, pk) do {                                       \
+                int _o[1] = { (bid) };                                       \
+                for (int _i = 0; _i < nc; _i++)                              \
+                    if (bc[_i].id == (bid)) { bc[_i].on = 0; bc[_i].pocket = (uint8_t)(pk); } \
+                cue_rules_resolve(&rc, bc, nc, &wc, (fh), 0, 1, _o, 1);      \
+            } while (0)
+
+        cue_rules_call_shot(&rc, 1, 2);
+        CPOT(1, 1, 2);
+        ok(!rc.last_foul && rc.turn == 0, "called ball in the called pocket: carry on");
+
+        cue_rules_call_shot(&rc, 2, 3);
+        CPOT(2, 2, 5);                        /* right ball, wrong pocket */
+        ok(!rc.last_foul,                 "the wrong pocket is NOT a foul");
+        ok(rc.turn == 1,                  "...but the table passes");
+        ok(strstr(rc.msg, "NOT AS CALLED") != NULL, "...and says NOT AS CALLED");
+        {   int down = 1;
+            for (int i = 0; i < nc; i++) if (bc[i].id == 2 && bc[i].on) down = 0;
+            ok(down, "...and the slopped ball STAYS DOWN");
+        }
+
+        /* a call with no pocket can never be made */
+        rc.turn = 0;
+        cue_rules_call_shot(&rc, 3, -1);
+        CPOT(3, 3, 1);
+        ok(rc.turn == 1, "a pot with no pocket called passes the table");
+
+        /* the 10, potted legally off the lowest ball but not as called */
+        rc.turn = 0;
+        cue_rules_call_shot(&rc, 4, 0);
+        {   int o2[1] = { 10 };
+            for (int i = 0; i < nc; i++)
+                if (bc[i].id == 10) { bc[i].on = 0; bc[i].pocket = 4; }
+            cue_rules_resolve(&rc, bc, nc, &wc, 4, 0, 1, o2, 1);
+        }
+        ok(!rc.frame_over, "the 10 slopped in: NOT a win under call shot");
+        {   int back = 0;
+            for (int i = 0; i < nc; i++) if (bc[i].id == 10 && bc[i].on) back = 1;
+            ok(back, "...and it goes back on its spot");
+        }
+
+        /* the 10, called and made, wins */
+        rc.turn = 0; rc.frame_over = 0;
+        for (int i = 0; i < nc; i++)
+            if (bc[i].id >= 4 && bc[i].id <= 9) bc[i].on = 0;   /* clear to the 10 */
+        cue_rules_call_shot(&rc, 10, 1);
+        CPOT(10, 10, 1);
+        ok(rc.frame_over && rc.winner == 0, "the 10 called and made wins the frame");
+
+        /* and the break is never a called shot */
+        cue_table_init(&tc, CUE_GAME_US10);
+        cue_table_build_world(&tc, &wc);
+        nc = cue_table_rack(&tc, bc);
+        cue_rules_init(&rc, &tc, 0);
+        rc.turn = 0; rc.call_shot_on = 1;      /* break_shot still set by init */
+        CPOT(1, 3, 4);                          /* a ball off the break, no call */
+        ok(!rc.last_foul && rc.turn == 0,
+           "a ball off the break counts with nothing called: the break is not a called shot");
+        #undef CPOT
+    }
+
     printf("\n%s\n", fails ? "FAILURES" : "all good");
     return fails ? 1 : 0;
 }

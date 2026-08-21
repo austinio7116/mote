@@ -375,6 +375,17 @@ typedef struct {
     float att_path;
     Vec3  att_prev;
     int   att_prev_ok;
+    /* OFF UNLESS A REFEREE IS WATCHING. The log costs a length per ball per
+     * step; nothing on a live table, but cue_phys_step also runs inside the
+     * AI's planning at hundreds of candidate strokes a turn, and the referee's
+     * instrument has no business in a simulation nobody will judge. (An early
+     * version of this comment blamed the log for test_ai_frames' running time;
+     * measured properly, that test is simply slow — sixty whole frames of
+     * snooker — and was as slow before the log existed. The gate stays because
+     * it is right, not because it was the cost.) The host arms it on the world
+     * the referee actually judges; scratch worlds never do. Survives
+     * shot_begin, because it is a property of the world, not of a stroke. */
+    int   att_track;
 
     /* ---- WHAT THE CUE BALL TOUCHED, IN ORDER ---------------------------- *
      *

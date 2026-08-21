@@ -172,6 +172,7 @@ int main(void) {
     B[1].on = 1; B[1].id = 1;                       /* one red */
     B[0].pos = v3(-0.5f, T.R, 0.0f);
     B[1].pos = v3( 0.5f, T.R, 0.0f);                /* a metre away */
+    W.att_track = 1;
     cue_rules_attempt_begin(&R, B, NB);
     cue_phys_shot_begin(&W);
     B[0].vel = v3(0.45f, 0.0f, 0.0f);               /* dies well short */
@@ -194,6 +195,7 @@ int main(void) {
     B[1].on = 1; B[1].id = 1;
     B[0].pos = v3(-0.5f, T.R, 0.0f);
     B[1].pos = v3( 0.5f, T.R, 0.0f);
+    W.att_track = 1;
     cue_rules_attempt_begin(&R, B, NB);
     cue_phys_shot_begin(&W);
     {   /* two ball widths of lateral offset at the target, at pace */
