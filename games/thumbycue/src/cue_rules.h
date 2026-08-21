@@ -69,6 +69,11 @@ typedef struct {
     int nominated;
     int reds_left;
     int brk;             /* current break points */
+    /* PAUL: how many points are still on the table. It decides the frame — a
+     * lead bigger than this ends it — so it is kept where the board and the
+     * planner can both read it rather than being recounted by each of them from
+     * the ball array, which is how two answers to one question get about. */
+    int paul_left;
     Vec3 spot[8];        /* colour spots indexed by value 2..7 */
     /* WHICH WAY IS UP THE TABLE at the top spots, so a spot that is occupied
      * can be walked away from along the table rather than along world +x. On a

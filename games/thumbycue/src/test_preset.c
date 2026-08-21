@@ -77,27 +77,48 @@ int main(void) {
     }
     printf("\n");
 
-    /* ---- TOURNAMENT is the shipped table, to the bit ------------------- */
+    /* ---- PRO KEEPS THE SHIPPED POCKETS ---------------------------------- *
+     *
+     * Pro IS the table the game shipped with, because the shipped pockets were
+     * already the hard end of anything worth offering — the ladder goes UP from
+     * there. So its openings must be the shipped openings to the micron. Its
+     * CLOTH is faster, which is the half of a professional table a pocket size
+     * cannot express, so the structs are not identical and it is the pockets
+     * that are compared. */
     for (int i = 0; i < NG; i++) {
         CueTable a, b;
         cue_table_init(&a, G[i].k);
         cue_table_init(&b, G[i].k);
-        cue_table_spec(&b, CUE_SPEC_TOURNAMENT);
-        char m[96];
-        snprintf(m, sizeof m, "%-14s TOURNAMENT is what ships, byte for byte",
-                 G[i].name);
-        ok(memcmp(&a, &b, sizeof a) == 0, m);
+        cue_table_spec(&b, CUE_SPEC_PRO);
+        float ac = 0, am = 0, bc = 0, bm = 0;
+        cue_table_openings(&a, &ac, &am);
+        cue_table_openings(&b, &bc, &bm);
+        char m[128];
+        snprintf(m, sizeof m, "%-14s PRO keeps the shipped pockets (%.2f / %.2f)",
+                 G[i].name, (double)(bc*1000), (double)(bm*1000));
+        ok(fabsf(ac - bc) < 1e-6f && fabsf(am - bm) < 1e-6f, m);
+        /* And nothing about the BED moved with them. */
+        snprintf(m, sizeof m, "%-14s ...and the same bed and balls", G[i].name);
+        ok(a.half_len == b.half_len && a.half_wid == b.half_wid && a.R == b.R, m);
     }
     printf("\n");
 
-    /* ...and so is a spec index out of range, or a negative one: a saved
-     * preference from a build with a different list must not silently become a
-     * different table. */
+    /* THE DEFAULT IS TOURNAMENT, and deliberately not index 0 — which is the
+     * one thing about this ladder a reader will assume is a mistake. Every
+     * other default in the engine is a zero. */
+    ok(CUE_SPEC_DEFAULT == CUE_SPEC_TOURNAMENT, "the default spec is TOURNAMENT");
+    ok(CUE_TAB_DEFAULT  == CUE_TAB_TOURNAMENT,  "...and so is the default table");
+    ok(CUE_SPEC_PRO == 0 && CUE_TAB_PRO == 0,
+       "...while index 0 is PRO, the tightest");
+
+    /* A spec off the end of the list must change nothing: a saved preference
+     * from a build with a different list must not silently become a different
+     * table. */
     {   CueTable a, b; cue_table_init(&a, CUE_GAME_SNK15);
         b = a; cue_table_spec(&b, 99);
-        ok(memcmp(&a, &b, sizeof a) == 0, "a spec off the end of the list is the shipped table");
+        ok(memcmp(&a, &b, sizeof a) == 0, "a spec off the end of the list changes nothing");
         b = a; cue_table_spec(&b, -3);
-        ok(memcmp(&a, &b, sizeof a) == 0, "...and so is a negative one");
+        ok(memcmp(&a, &b, sizeof a) == 0, "...and so does a negative one");
     }
     printf("\n");
 
@@ -117,6 +138,7 @@ int main(void) {
                  G[i].name, (double)(c[CUE_SPEC_PRO]*1000),
                  (double)(c[CUE_SPEC_TOURNAMENT]*1000),
                  (double)(c[CUE_SPEC_CLUB]*1000));
+        (void)0;
         ok(c[CUE_SPEC_PRO] < c[CUE_SPEC_TOURNAMENT] &&
            c[CUE_SPEC_TOURNAMENT] < c[CUE_SPEC_CLUB], b);
         if (m[CUE_SPEC_TOURNAMENT] > 0.0f) {

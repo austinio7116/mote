@@ -549,9 +549,32 @@ typedef struct {
 
 #define PXm(ctx, px) ((px) * (ctx)->t->R / 12.0f)   /* px constant → metres */
 
-static int ai_value(int id) {
+/* WHAT A BALL IS WORTH, WHICH IS THE GAME'S BUSINESS AND NOT THE BALL'S.
+ *
+ * Snooker's ladder — 1 for a red, then 2 to 7 up the colours — was the only
+ * answer here, and it is the wrong one for PAUL: a colour is two and the black
+ * is four, and nothing else scores at all. Left alone the planner rated the
+ * pink at six and the black at seven, so it would pass over a four-point black
+ * for a two-point pink and think it was gaining.
+ *
+ * Taken as a mode rather than a context so the plain id version can stay for
+ * the places that genuinely mean "which colour is this". */
+static int ai_value_m(int mode, int id) {
+    if (mode == CUE_GAME_PAUL) {
+        if (id == CUE_ID_BLACK) return 4;
+        if (id >= CUE_ID_YELLOW) return 2;
+        return 1;
+    }
     if (id >= CUE_ID_YELLOW && id <= CUE_ID_BLACK) return id - 18; /* 20..25 → 2..7 */
     return 1;                                                       /* red / pool */
+}
+static int ai_value(int id) { return ai_value_m(0, id); }
+
+/* POT ANYTHING, IN ANY ORDER — which is Paul, and nothing else that reaches the
+ * general planner. Bar billiards and golf are pot-anything too and both take
+ * their own path long before here. */
+static int ai_free_for_all(const AiCtx *c) {
+    return c->r->mode == CUE_GAME_PAUL;
 }
 static int is_corner(const AiCtx *c, int pk) { (void)c; return pk < 4; }
 
@@ -857,7 +880,7 @@ static float score_shot(const AiCtx *c, float cut, float dg, float dpk,
     float powS = fmaxf(0.0f, 55.0f - power);
     float pdS = fmaxf(0.0f, 100.0f - (dpk / md) * 80.0f);
     float s = cutS*0.34f + distS*0.23f + pdS*0.43f + powS*0.25f + 10.0f;
-    if (c->snooker) s += (ai_value(target_id) - 1) * 5.0f;
+    if (c->snooker) s += (ai_value_m(c->r->mode, target_id) - 1) * 5.0f;
     return s;
 }
 
@@ -888,6 +911,16 @@ static float power01_of(float js_power) { return clampf(js_power * PWR_K, 0.05f,
 static int next_targets(const AiCtx *c, int just_idx, int *out_idx) {
     int cnt = 0;
     int jid = c->b[just_idx].id;
+    if (ai_free_for_all(c)) {
+        /* EVERYTHING LEFT. There is no order in Paul, so after potting one ball
+         * the next ball on is any of the others — which is what the planner has
+         * to evaluate position against. Under the snooker branch below it would
+         * have been asked to leave itself on a COLOUR after every red, on a
+         * table where that means nothing. */
+        for (int i = 1; i < c->n; i++)
+            if (c->b[i].on && i != just_idx) out_idx[cnt++] = i;
+        return cnt;
+    }
     if (c->snooker) {
         int potting_red = (jid < CUE_ID_YELLOW);
         if (potting_red) {                       /* red → a colour next */
@@ -1025,8 +1058,13 @@ static int open_targets(const AiCtx *c, const Vec3 *pos, const int *on) {
         if (c->b[i].id == CUE_ID_CUE) continue;
         if (on ? !on[i] : !c->b[i].on) continue;
         /* The pack that matters: reds at snooker, our own group at pool. */
-        int mine = c->snooker ? (c->b[i].id < CUE_ID_YELLOW)
-                              : cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id);
+        /* AT PAUL THE PACK IS THE WHOLE TABLE, so it asks the rules like the
+         * pool games do — cue_rules_ball_legal says yes to everything but the
+         * white. The snooker reading would have counted only the reds as worth
+         * having a sight of. */
+        int mine = (c->snooker && !ai_free_for_all(c))
+                     ? (c->b[i].id < CUE_ID_YELLOW)
+                     : cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id);
         if (!mine) continue;
         if (ball_is_open(c, i, pos, on)) cnt++;
     }
@@ -1198,7 +1236,7 @@ static float position_quality(const AiCtx *c, Vec3 cue_pos, int just_idx,
             this_ball_on = 1;
             if (out_rawpot && diff > *out_rawpot) *out_rawpot = diff;
             float fs = diff;
-            if (c->snooker) fs += ai_value(c->b[ti].id) * 6.0f;
+            if (c->snooker) fs += ai_value_m(c->r->mode, c->b[ti].id) * 6.0f;
 
             /* ANGLE. potting_difficulty is a pure "how likely is this to drop",
              * and it peaks dead straight — so on its own it walks the cue ball
@@ -1556,6 +1594,12 @@ static float opponent_best_pot(const AiCtx *c, const Vec3 *pos, const int *on) {
  * colours clearance it read 27 however few colours were left. */
 static float snooker_urgency(const AiCtx *c) {
     if (!c->snooker) return 0.0f;
+    /* NOT AT PAUL, and this is not a technicality: laying a snooker is only
+     * worth anything where a foul PAYS, and in Paul a miss is not a foul at all
+     * — the visit simply passes. There is no penalty to extract, so there is
+     * nothing to play safe FOR. Everything below is also expressed in
+     * reds_left and the colour sequence, neither of which Paul has. */
+    if (ai_free_for_all(c)) return 0.0f;
     const CueRules *r = c->r;
     int me = r->turn, opp = 1 - me;
     int deficit = r->score[opp] - r->score[me];
@@ -1586,6 +1630,7 @@ static float snooker_urgency(const AiCtx *c) {
  * whenever we are behind at all, not only when snookers are formally needed. */
 static int last_red_snooker_valuable(const AiCtx *c) {
     if (!c->snooker || c->r->reds_left != 1) return 0;
+    if (ai_free_for_all(c)) return 0;      /* no foul to win, so no snooker to lay */
     int me = c->r->turn;
     return c->r->score[1 - me] > c->r->score[me];
 }

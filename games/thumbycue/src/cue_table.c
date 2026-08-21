@@ -62,6 +62,15 @@ static void cue_table_rails(CueTable *t, CueGameKind kind) {
         t->e_cush = 0.965f; t->cush_efall = 0.052f; break;
     case CUE_GAME_CN8:                          /* built to English patterns */
         t->e_cush = 0.968f; t->cush_efall = 0.050f; break;
+    case CUE_GAME_PAUL:
+        /* A HOME TABLE'S RUBBER, and the one place in this file where the
+         * numbers go DOWN rather than sideways. Everything else here is a
+         * championship table and the spread between them is three points of
+         * published resilience; this is a folding 6 ft that cost a fortnight's
+         * pocket money, and its cushions were never Northern rubber. Deader at
+         * a crawl and falling off faster, which is what makes the game played
+         * on it a game of pots rather than of position. */
+        t->e_cush = 0.930f; t->cush_efall = 0.062f; break;
     default:                                    /* snooker, and 6-red on the English bed */
         t->e_cush = 0.970f; t->cush_efall = 0.050f; break;
     }
@@ -77,8 +86,12 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
      * because billiards scores cannons and in-offs and resolve_snooker would
      * make nonsense of it. One table, two quite different games, exactly as
      * UK 8-ball and 6-red snooker already share a bed. */
+    /* PAUL IS ON THIS LIST because it is played with the snooker set — fifteen
+     * reds and six colours — and this flag is about the TABLE and its balls,
+     * not about the rules. Its scoring is nothing like snooker's. */
     t->is_snooker = (kind == CUE_GAME_SNK10 || kind == CUE_GAME_SNK15 ||
-                     kind == CUE_GAME_SNK6  || kind == CUE_GAME_BILLIARDS);
+                     kind == CUE_GAME_SNK6  || kind == CUE_GAME_BILLIARDS ||
+                     kind == CUE_GAME_PAUL);
 
     /* THE ROUNDED JAW'S SHAPE, for every table, before any of them speak.
      * See CueTable::jaw_p0 for what the four points are. A STARTING POINT, in
@@ -274,6 +287,79 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * will never use. */
         t->nballs = (kind == CUE_GAME_US9)  ? 10
                   : (kind == CUE_GAME_US10) ? 11 : 16;
+    } else if (kind == CUE_GAME_PAUL) {
+        /* PAUL: a 6 ft home snooker table, which is a real object and a
+         * particular one — the folding kind that lives on top of a dining table
+         * or on its own thin legs, and the reason two children could invent a
+         * game on it at all.
+         *
+         * 6 ft by 3 ft of cloth, which is the size these are sold as, and the
+         * numbers that come with it are all consequences:
+         *
+         *   40 mm BALLS. A home set is not a snooker set shrunk to fit; 40 mm
+         *   is what comes in the box, and it is small enough that fifteen reds
+         *   and six colours scattered over a 6 ft bed is a crowded table rather
+         *   than an empty one. That crowding IS the game.
+         *
+         *   THIN CUSHIONS. A 1.8 m table cannot carry an 85 mm rail and still
+         *   have a bed worth playing on: the rail is 45 mm, which is what these
+         *   tables have, and it makes the pockets look and play tight because
+         *   there is very little timber for the jaw to curve through.
+         *
+         *   A 25.4 mm NOSE, because the nose height is not a style choice. The
+         *   WPA specification is 63.5% of the ball's diameter on every table
+         *   there is, and 63.5% of 40 mm is 25.4. A cushion set to a full-size
+         *   table's height would stand nearly two thirds of the way up a 40 mm
+         *   ball and there would be no such thing as a follow shot.
+         *
+         *   AND 50 mm POCKETS, cut below. That is 1.25 ball widths against a
+         *   snooker table's 1.60 — tighter in proportion than anything here
+         *   except Russian pyramid, and on a bed this small every pot is a
+         *   pot at a pocket you can see the far side of. */
+        t->half_len = 1.829f * 0.5f;
+        t->half_wid = 0.914f * 0.5f;
+        t->R = 0.020f;                              /* 40 mm across */
+        t->mass = 0.095f;                           /* a 40 mm phenolic ball */
+        t->cue_R = 0.0f; t->cue_mass = 0.0f;        /* a matched white */
+        t->cushion_h = t->R * 2.0f * 0.635f;        /* the WPA fraction, always */
+        t->rail_w = 0.045f;
+        t->pocket_round = 1;                        /* curved, like a snooker jaw */
+        t->reds = 15;
+        t->nballs = 22;                             /* the white and the full set */
+        t->cloth = RGB565C(4, 135, 21);
+        t->rail  = RGB565C(96, 62, 34);
+        t->rail_top = RGB565C(120, 80, 44);
+        t->spot = RGB565C(200, 200, 200);
+        /* THE SPOTS AND THE D EXIST because the table has them printed on it,
+         * and because an in-off has to put the white somewhere. Nothing is ever
+         * spotted in Paul — a potted ball is gone — so the four spots are
+         * scenery, and only the baulk line and the D do any work. Laid out in
+         * the same proportions as the 7 ft snooker bed. */
+        t->baulk_x  = -t->half_len * 0.6f;
+        t->d_radius =  t->half_wid * 0.35f;
+        t->blue_x   =  0.0f;
+        t->pink_x   =  t->half_len * 0.5f;
+        t->black_x  =  t->half_len * 0.82f;
+        /* THE POCKET. Everything but the radius is the 12 ft snooker table's,
+         * scaled by the ball rather than copied in millimetres — 0.762, which
+         * is 20 mm over 26.25 — because these numbers are all about where a
+         * ball sits in a hole and a smaller ball wants a smaller everything.
+         * The radius itself is solved for a 50 mm MOUTH, which is the figure
+         * that was asked for; see cue_table_openings for why a mouth cannot be
+         * authored directly. */
+        /* SOLVED FOR A 50 mm MOUTH at both, by cue_table_cut_to, and then
+         * written down — the same way every other pocket in this file was
+         * arrived at. The middle wants a SMALLER radius than the corner for the
+         * same opening, which looks wrong and is not: a middle's two jaws face
+         * each other across the pocket where a corner's meet at its axis, so
+         * the same hole leaves a wider gap between them. Snooker's middles are
+         * wider than its corners for the mirror-image reason. */
+        t->pr_corner = 0.0300730f; t->pr_side = 0.0253493f;
+        t->ang_corner = 60.0f; t->ang_side = 80.0f;
+        t->off_corner = 0.0260000f; t->off_side = 0.0200000f;
+        t->cap_corner = 0.0f;      t->cap_side = 0.0f;
+        t->drop_back  = 0.0058000f; t->drop_back_side = 0.0126000f;
+        t->jaw_r = 0.0091f;
     } else if (kind == CUE_GAME_CN8) {
         /* Chinese 8-ball: 10 ft table, full-size pool balls (solids/stripes),
          * but TIGHT ROUNDED ("Chinese template") pockets — closer to English
@@ -661,6 +747,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     case CUE_GAME_UK8: case CUE_GAME_SNK6:
         t->bore_corner = 2.0700f * t->R; t->bore_side = 1.8900f * t->R;
         t->bore_set_corner = 0.0000f * t->R; t->bore_set_side = 0.1800f * t->R;
+        break;
+    case CUE_GAME_PAUL:
+        /* Concentric, and equal to the hole. There is 45 mm of rail to work in
+         * and the pocket is 25 mm across the radius, so there is no room to set
+         * the bore back into timber that is barely there. */
+        t->bore_corner = t->pr_corner; t->bore_side = t->pr_side;
+        t->bore_set_corner = 0.0f; t->bore_set_side = 0.0f;
         break;
     case CUE_GAME_SNK10:
         t->bore_corner = 2.1300f * t->R; t->bore_side = 1.7100f * t->R;
@@ -3015,7 +3108,7 @@ void cue_table_openings(const CueTable *t, float *corner, float *middle) {
  *
  * A zero opening in a row means "leave this pocket type alone", which is what
  * bar billiards and the golf table want and what a middle-less bed needs. */
-const char *const CUE_SPEC_NAME[CUE_SPEC_COUNT] = { "TOURNAMENT", "PRO", "CLUB" };
+const char *const CUE_SPEC_NAME[CUE_SPEC_COUNT] = { "PRO", "TOURNAMENT", "CLUB" };
 
 /* Which family of standard table a game belongs to, for the spec table below.
  * A game with no entry has no specs. */
@@ -3049,26 +3142,39 @@ typedef struct {
     float e_cush_d, efall_d;      /* added to the table's own rail numbers */
 } SpecRow;
 
-/* [family][spec]. The TOURNAMENT column is all zeroes on purpose: it is the
- * shipped table, so there is nothing to apply. */
+/* [family][spec], tightest first. The PRO column's openings are all ZERO — "leave
+ * this pocket alone" — because pro IS the table the game shipped with, and the
+ * shipped pockets were already the hard end of anything worth offering. It gets
+ * the fast cloth, which is the other half of a professional table and the half
+ * a pocket size cannot express.
+ *
+ * TOURNAMENT is a few millimetres more generous on the shipped cloth, and it is
+ * the DEFAULT — so the game as it comes is slightly kinder than it was, which is
+ * a deliberate change and the reason this ladder was turned round. CLUB is more
+ * generous again, on a slow cloth over tired cushions. */
 static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
     /* NONE */
     { {0,0,0,0,0}, {0,0,0,0,0}, {0,0,0,0,0} },
-    /* SNOOKER — shipped 84.0 / 90.8 */
-    { {  0.0f,   0.0f, 0.0f,     0.0f,   0.0f },
-      { 79.0f,  86.0f, 0.0085f,  0.0f,   0.0f },
+    /* SNOOKER — shipped 84.0 / 90.8. Tournament templates are quoted around
+     * 3 3/8 in and the shipped table is at the tight end of that band, so the
+     * step up is a few millimetres rather than a re-cut; club is the 3 3/4 in
+     * pocket almost everybody actually learned on. */
+    { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
+      { 87.0f,  94.0f, 0.0f,     0.0f,   0.0f },
       { 95.0f, 105.0f, 0.0135f, -0.020f, 0.008f } },
-    /* ENGLISH POOL — shipped 81.3 / 81.3 */
-    { {  0.0f,   0.0f, 0.0f,     0.0f,   0.0f },
-      { 76.0f,  76.0f, 0.0085f,  0.0f,   0.0f },
+    /* ENGLISH POOL — shipped 81.3 / 81.3, which is already 1.60 ball widths. */
+    { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
+      { 84.0f,  86.0f, 0.0f,     0.0f,   0.0f },
       { 89.0f,  92.0f, 0.0135f, -0.020f, 0.008f } },
-    /* AMERICAN POOL — shipped 111.1 / 106.4 */
-    { {   0.0f,   0.0f, 0.0f,     0.0f,   0.0f },
-      { 101.6f,  99.0f, 0.0085f,  0.0f,   0.0f },
+    /* AMERICAN POOL — shipped 111.1 / 106.4. Tournament takes the 4 1/2 in
+     * (114.3 mm) that home and bar tables come with; club a generous 120. */
+    { {   0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
+      { 114.3f, 110.0f, 0.0f,     0.0f,   0.0f },
       { 120.0f, 116.0f, 0.0135f, -0.020f, 0.008f } },
-    /* CHINESE 8-BALL — shipped 85.7 / 85.7 */
-    { {  0.0f,   0.0f, 0.0f,     0.0f,   0.0f },
-      { 82.0f,  82.0f, 0.0085f,  0.0f,   0.0f },
+    /* CHINESE 8-BALL — shipped 85.7 / 85.7, and cut tight on purpose: 1.50 ball
+     * widths is what that game is, so its whole ladder is narrower. */
+    { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
+      { 88.0f,  90.0f, 0.0f,     0.0f,   0.0f },
       { 92.0f,  95.0f, 0.0135f, -0.020f, 0.008f } },
 };
 
@@ -3082,11 +3188,11 @@ const char *cue_table_spec_blurb(CueGameKind kind, int spec) {
     if (spec < 0 || spec >= CUE_SPEC_COUNT) spec = CUE_SPEC_TOURNAMENT;
     switch (spec) {
     case CUE_SPEC_PRO:
-        return "TIGHT POCKETS, FAST CLOTH - MATCH PRACTICE";
+        return "THE TIGHTEST POCKETS AND THE FASTEST CLOTH";
     case CUE_SPEC_CLUB:
         return "GENEROUS POCKETS, SLOW CLOTH, TIRED CUSHIONS";
     default:
-        return "AS THE MATCH TABLE IS CUT AND CLOTHED";
+        return "A LITTLE MORE ROOM THAN A PRO TABLE GIVES";
     }
 }
 
@@ -3210,7 +3316,10 @@ void cue_table_spec(CueTable *t, int spec) {
     if (!t) return;
     const int fam = spec_family(t->kind);
     if (fam == SPEC_FAM_NONE) return;
-    if (spec <= CUE_SPEC_TOURNAMENT || spec >= CUE_SPEC_COUNT) return;  /* as shipped */
+    /* NO SHORTCUT FOR INDEX 0 ANY MORE. It used to be tournament and a no-op, so
+     * "spec 0, do nothing" was both true and quick; index 0 is PRO now and PRO
+     * has a cloth of its own, so every spec has something to apply. */
+    if (spec < 0 || spec >= CUE_SPEC_COUNT) return;
     const SpecRow *r = &SPEC[fam][spec];
     cue_table_cut_to(t, r->corner_mm * 0.001f, r->middle_mm * 0.001f);
     if (r->mu_r > 0.0f) t->mu_r = r->mu_r;
@@ -3276,7 +3385,7 @@ void cue_table_set_game(CueTable *t, CueGameKind kind) {
 /* ---- WHICH TABLE THE GAME IS ON ------------------------------------------
  * See cue_table.h. */
 const char *const CUE_TAB_NAME[CUE_TAB_COUNT] = {
-    "TOURNAMENT", "PRO", "CLUB", "L-SHAPED", "HEXAGON", "OCTAGON", "ROUND"
+    "PRO", "TOURNAMENT", "CLUB", "L-SHAPED", "HEXAGON", "OCTAGON", "ROUND"
 };
 
 /* The shape rows. `sides` of 0 means the L. */
@@ -3292,7 +3401,7 @@ static const struct { int sides, every; } TAB_SHAPE[CUE_TAB_COUNT] = {
 };
 
 int cue_table_variant_ok(CueGameKind kind, int variant) {
-    if (variant <= CUE_TAB_TOURNAMENT || variant >= CUE_TAB_COUNT) return 1;
+    if (variant < 0 || variant >= CUE_TAB_COUNT) return 1;
     if (variant <= CUE_TAB_CLUB) return cue_table_spec_applies(kind);
     /* THE SHAPES. What rules a game out is knowing where things are on the
      * cloth in absolute terms.
@@ -3321,7 +3430,7 @@ int cue_table_variant_ok(CueGameKind kind, int variant) {
 
 void cue_table_variant(CueTable *t, int variant) {
     if (!t) return;
-    if (variant <= CUE_TAB_TOURNAMENT || variant >= CUE_TAB_COUNT) return;
+    if (variant < 0 || variant >= CUE_TAB_COUNT) return;
     if (!cue_table_variant_ok(t->kind, variant)) return;
     if (variant <= CUE_TAB_CLUB) { cue_table_spec(t, variant); return; }
 
@@ -3490,6 +3599,10 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* GOLF  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
         /* US10 — the same 9 ft American bed as 9-ball, so its cut exactly */
         /* US10  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
+        /* PAUL — the snooker cut, with the SETBACK scaled to this small mouth
+         * rather than copied in millimetres: 14.5 mm on a 45 mm snooker pocket
+         * is a third of it, and a third of Paul's is 8.4. */
+        /* PAUL  */ { 0.0084f, 1.3550f, 0.2150f,  90.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -3506,6 +3619,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* BARB  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* GOLF  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
         /* US10  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
+        /* PAUL  */ { 0.0100f, 1.4437f, 0.2150f, 180.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -4282,6 +4396,123 @@ static int rack_barbilliards(const CueTable *t, CueBall *b) {
     return n;
 }
 
+/* ---- PAUL: THE WHOLE SET, THROWN ON ---------------------------------------
+ *
+ * Every other rack in this file is a shape somebody can learn: a triangle, a
+ * diamond, four spots down a spine. This one is deliberately not. The set goes
+ * on at random and differently every game, which is the whole of Paul's opening
+ * — there is nothing to break and nothing to memorise, only a table you have to
+ * read from scratch every time.
+ *
+ * REJECTION SAMPLING, and it is the right tool: the constraints are "on the
+ * cloth", "not touching another ball" and "not over a pocket", none of which
+ * compose into a formula, and all of which are cheap to test. Twenty-two balls
+ * on a 6 ft bed is about a tenth of the cloth covered, so a candidate is
+ * accepted far more often than not and the whole layout costs a few hundred
+ * tries.
+ *
+ * A BUDGET, AND A FALLBACK. A loop that samples until it succeeds is a loop
+ * that can run for ever, and this one runs at the start of a frame in a headset.
+ * So each ball gets a fixed number of attempts and then settles for the best
+ * candidate it saw — the one furthest from its nearest neighbour. That can
+ * produce a touching pair on a table crowded by bad luck, which is a legal
+ * position and a perfectly ordinary thing to find on a real table somebody has
+ * thrown the balls onto.
+ *
+ * DETERMINISTIC, from cue_table_paul_set_seed. See the header: a layout that
+ * cannot be reproduced cannot be tested, photographed twice, or sent to the
+ * other end of a link.
+ *
+ * CLEAR OF THE POCKETS by a ball's radius past the drop, because a ball resting
+ * inside a pocket's catch is potted the instant the physics runs and the frame
+ * would start by scoring for nobody. */
+static uint32_t s_paul_seed = 1u;
+void     cue_table_paul_set_seed(uint32_t seed) { s_paul_seed = seed ? seed : 1u; }
+uint32_t cue_table_paul_seed(void) { return s_paul_seed; }
+
+/* xorshift32, which is all this needs: the layout has to be reproducible and
+ * unremarkable, not cryptographic. */
+static uint32_t paul_rand(uint32_t *st) {
+    uint32_t x = *st;
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    return (*st = x);
+}
+static float paul_frand(uint32_t *st) {
+    return (float)(paul_rand(st) & 0xFFFFFFu) / 16777216.0f;
+}
+
+static int rack_paul(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    /* THE SEED IS SCRAMBLED BEFORE IT IS USED, and it has to be. xorshift's
+     * first few outputs are strongly correlated with a small state, so seeds 1
+     * to 10 — which is exactly what a caller counting frames hands over — laid
+     * the white down in almost the same place every time: measured, x marched
+     * from -854 mm to -598 in even steps while z alternated between two values.
+     * Ten "random" tables with the cue ball on a line.
+     *
+     * A multiply-xor finaliser (splitmix32's) spreads a counter across the whole
+     * word before the shift register ever sees it, so consecutive seeds are as
+     * unalike as distant ones. */
+    uint32_t st = s_paul_seed;
+    st += 0x9E3779B9u;
+    st = (st ^ (st >> 16)) * 0x85EBCA6Bu;
+    st = (st ^ (st >> 13)) * 0xC2B2AE35u;
+    st ^= st >> 16;
+    if (!st) st = 1u;
+
+    /* THE SET, in the order it is laid down: the white FIRST, so it gets the
+     * pick of the table and the frame always has a cue ball that is not jammed
+     * in a corner by twenty-one balls placed before it. Then the black, then
+     * the colours, then the reds — most valuable first, for the same reason.
+     * The reds are what end up wedged, and there are fifteen of them. */
+    int id[CUE_MAX_BALLS], n = 0;
+    id[n++] = CUE_ID_CUE;
+    id[n++] = CUE_ID_BLACK;
+    for (int v = CUE_ID_YELLOW; v < CUE_ID_BLACK; v++) id[n++] = v;
+    for (int i = 0; i < 15; i++) id[n++] = 1;      /* the reds all share id 1 */
+
+    /* The window balls may land in: a ball's width inside the cushion nose all
+     * round, so nothing starts touching the rubber. */
+    const float mx = t->half_len - R * 1.6f;
+    const float mz = t->half_wid - R * 1.6f;
+
+    /* A CueWorld to ask about the cloth and the pockets. Static because it is
+     * far too big for a stack this deep, and there is one rack at a time. */
+    static CueWorld w;
+    cue_table_build_world((CueTable *)t, &w);
+
+    for (int i = 0; i < n; i++) {
+        float bx = 0.0f, bz = 0.0f, best_gap = -1.0f;
+        for (int tries = 0; tries < 120; tries++) {
+            const float x = (paul_frand(&st) * 2.0f - 1.0f) * mx;
+            const float z = (paul_frand(&st) * 2.0f - 1.0f) * mz;
+            if (!cue_world_on_bed(&w, x, z)) continue;
+            /* Clear of every pocket's catch, with a ball's radius to spare. */
+            int in_pocket = 0;
+            for (int p = 0; p < w.npocket && !in_pocket; p++) {
+                const float dx = x - w.drop_c[p].x, dz = z - w.drop_c[p].z;
+                const float clear = w.pocket_r[p] + R;
+                if (dx*dx + dz*dz < clear*clear) in_pocket = 1;
+            }
+            if (in_pocket) continue;
+            /* And how far it is from its nearest neighbour, which is both the
+             * test and the tie-breaker for the fallback. */
+            float gap = 1e30f;
+            for (int k = 0; k < i; k++) {
+                const float dx = x - b[k].pos.x, dz = z - b[k].pos.z;
+                const float d = sqrtf(dx*dx + dz*dz) - 2.0f * R;
+                if (d < gap) gap = d;
+            }
+            if (gap > best_gap) { best_gap = gap; bx = x; bz = z; }
+            if (gap > R * 0.25f) break;            /* good enough: take it */
+        }
+        set_ball(&b[i], id[i], bx, bz, R);
+    }
+    /* The white is index 0 by construction — see the order above — and gets its
+     * own size stamped on it by cue_table_rack like every other game's. */
+    return n;
+}
+
 static int rack_snooker(const CueTable *t, CueBall *b) {
     const float R = t->R;
     int n = 0;
@@ -4594,6 +4825,10 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
     if (t->kind == CUE_GAME_GOLF) n = rack_golf(t, balls, s_golf_hole);
     else if (t->kind == CUE_GAME_BARBILLIARDS) n = rack_barbilliards(t, balls);
     else if (t->kind == CUE_GAME_BILLIARDS) n = rack_billiards(t, balls);
+    /* PAUL BEFORE is_snooker, because it IS a snooker table by that flag —
+     * same set, same colours — and it is the one game here that does not rack.
+     * Behind the flag it got a snooker rack and the scatter never ran. */
+    else if (t->kind == CUE_GAME_PAUL) n = rack_paul(t, balls);
     else if (t->is_snooker)      n = rack_snooker(t, balls);
     else if (t->kind == CUE_GAME_US9)  n = rack_9ball(t, balls);
     else if (t->kind == CUE_GAME_US10) n = rack_10ball(t, balls);

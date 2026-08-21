@@ -69,6 +69,21 @@ typedef enum {
      * way to name a ball; until it has one, slop counts and the board says so
      * rather than pretending. */
     CUE_GAME_US10,
+    /* G9: PAUL. A game two friends made up on a 6 ft home snooker table, and
+     * the only game here whose rules came from a person rather than a
+     * federation. It is worth having for exactly that reason: everything else
+     * in this list is somebody's official code, and none of them play like the
+     * game people actually invent when they have a small table and no referee.
+     *
+     * The whole set goes on the cloth AT RANDOM, differently every time, so
+     * there is no opening to learn and no rack to break. Then a "break" that is
+     * the opposite of one: a tap of the white that must touch NOTHING — not a
+     * ball, not a cushion — and fouls if it does. After that, alternate visits
+     * and pot whatever you can reach: a red is one, a colour two, the black
+     * four. An in-off costs you two shots. Nothing ever comes back up, so the
+     * points on the table only fall, and the frame ends the moment one player
+     * leads by more than is left. */
+    CUE_GAME_PAUL,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
@@ -167,6 +182,20 @@ extern const char *const CUE_GOLF_ROUND_NAME[CUE_GOLF_ROUNDS];
  * for it and every caller already goes through that one function. */
 void cue_table_golf_set_hole(int hole);
 int  cue_table_golf_hole(void);
+
+/* ---- PAUL: THE SCATTER ---------------------------------------------------
+ *
+ * The seed the next cue_table_rack() lays Paul's table out from. Same shape as
+ * golf's hole above and for the same reason: the rack takes no arguments and
+ * every caller already goes through that one function.
+ *
+ * A SEED AND NOT A CALL TO RANDOM, because a layout has to be reproducible.
+ * "Different every game" is the caller's job — it has a clock and a frame
+ * counter — and a rack that reached for randomness itself could not be tested,
+ * could not be photographed twice, and could not be sent to the other end of a
+ * link. The seed is small enough to put in a packet. */
+void     cue_table_paul_set_seed(uint32_t seed);
+uint32_t cue_table_paul_seed(void);
 
 /* How far the woodwork carries on past the rail cap. CueVR's frame builder
  * (its own repository) makes the
@@ -505,17 +534,26 @@ int cue_table_validate(const CueTable *t, char *msg, int msgcap);
  * cue_table_openings), so a spec asks for an opening and cue_table_cut_to
  * solves for the pocket that gives it.
  *
- * TOURNAMENT IS EXACTLY WHAT SHIPS, on every table and to the millimetre. It is
- * first in the enum so it is what a zeroed table gets, which means a table
- * saved before any of this reads back as itself and nothing anybody has played
- * moves. PRO is tighter and faster than tournament, CLUB wider and slower —
- * and CLUB is the one to reach for if the game feels too hard, because a
- * generous pocket on a slow cloth is the table most people learned on.
+ * PRO IS THE TABLE THE GAME SHIPPED WITH, to the millimetre, and the ladder
+ * goes UP from there: tournament is a little more generous and club more
+ * generous again. That is the other way round from how this was first built,
+ * where tournament was the shipped table and pro was tighter still — and the
+ * shipped pockets were already tight enough to be the hard end of the range,
+ * so making a tighter one only invented a table nobody wanted.
+ *
+ * TOURNAMENT IS THE DEFAULT, and it is deliberately not index 0. Every other
+ * default in this engine is a zero, which is tidy and would be wrong here:
+ * "which end of the range is the default" and "which end of the range is
+ * tightest" are two different questions and they have different answers. The
+ * default is the middle. See CUE_SPEC_DEFAULT, and note that a preference of
+ * zero therefore means PRO and not "unset" — nothing shipped has ever written
+ * one, so there is no file to be wrong about.
  *
  * Only the STANDARD games have specs; a workshop table is already whatever its
  * author dialled, and bar billiards has no rail pockets to cut. Ask
  * cue_table_spec_applies. */
-enum { CUE_SPEC_TOURNAMENT = 0, CUE_SPEC_PRO, CUE_SPEC_CLUB, CUE_SPEC_COUNT };
+enum { CUE_SPEC_PRO = 0, CUE_SPEC_TOURNAMENT, CUE_SPEC_CLUB, CUE_SPEC_COUNT };
+#define CUE_SPEC_DEFAULT CUE_SPEC_TOURNAMENT
 extern const char *const CUE_SPEC_NAME[CUE_SPEC_COUNT];
 
 /* Does this game have specs to choose between? */
@@ -555,13 +593,23 @@ const char *cue_table_spec_blurb(CueGameKind kind, int spec);
  * game rather than the same game on a different shape. Solved from the area
  * instead, so the cloth you are given is the cloth you are used to.
  *
- * TOURNAMENT is index 0 and is a no-op, so a zeroed preference is the shipped
- * table. Not every game has every variant — ask cue_table_variant_ok. */
+ * THE FIRST THREE ARE THE SPECS ABOVE, IN THE SAME ORDER, so a spec index and a
+ * table index are the same number for the first three and there is nothing to
+ * convert. Tightest first, which puts the DEFAULT at index 1 — see
+ * CUE_TAB_DEFAULT. Not every game has every variant: ask
+ * cue_table_variant_ok. */
 enum {
-    CUE_TAB_TOURNAMENT = 0, CUE_TAB_PRO, CUE_TAB_CLUB,
+    CUE_TAB_PRO = 0, CUE_TAB_TOURNAMENT, CUE_TAB_CLUB,
     CUE_TAB_L, CUE_TAB_HEX, CUE_TAB_OCT, CUE_TAB_ROUND,
     CUE_TAB_COUNT
 };
+#define CUE_TAB_DEFAULT CUE_TAB_TOURNAMENT
+/* The first three ARE the specs, and this says so to the compiler rather than
+ * in a comment nobody will re-check. */
+typedef char cue_tab_specs_line_up[
+    ((int)CUE_TAB_PRO == (int)CUE_SPEC_PRO &&
+     (int)CUE_TAB_TOURNAMENT == (int)CUE_SPEC_TOURNAMENT &&
+     (int)CUE_TAB_CLUB == (int)CUE_SPEC_CLUB) ? 1 : -1];
 extern const char *const CUE_TAB_NAME[CUE_TAB_COUNT];
 
 /* Can this game be played on this table? Returns 1 if so.

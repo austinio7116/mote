@@ -62,7 +62,7 @@ static const char *k_mode_name[CUE_GAME_COUNT] = {
      * count and not to the picker's limit. Half-filled it handed a null to
      * menu_row for any kind past pyramid. */
     "STRAIGHT POOL", "PYRAMID", "PYRAMID 7FT", "BILLIARDS",
-    "BAR BILLIARDS", "BILLIARD GOLF", "US 10-BALL",
+    "BAR BILLIARDS", "BILLIARD GOLF", "US 10-BALL", "PAUL",
 };
 static int s_opp_mode = 1;    /* 0 = 2 PLAYER, 1 = VS CPU, 2 = CPU vs CPU, 3 = 2P LINK */
 
