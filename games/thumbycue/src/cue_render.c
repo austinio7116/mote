@@ -1706,6 +1706,18 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     uint16_t face  = shade565(t->cloth, 0.72f);   /* the vertical nose front face */
     uint16_t ctop  = shade565(t->cloth, 0.92f);   /* cloth top to the rail */
     const float ub = 0.45f * t->R;                /* undercut / overhang */
+/* ---- CUE_CUSHDUMP: THE CUSHION CHAIN AS DRAWN, IN PLAN -------------------
+ *
+ * The nose line the balls bounce off is cue_table's, and the nose line you see
+ * is this file's, and the whole contract between them is that those are the
+ * same line. Nothing checked it. A drawn-only softening of the mitred knuckles
+ * moved the visible nose 3.4 mm up the rail from the collision one and it took
+ * a headset and a player to notice.
+ *
+ * So: set CUE_CUSHDUMP and every drawn nose and back vertex is printed in table
+ * coordinates, ready to be laid over the same table's CueSeg chain. Same spirit
+ * as CUE_BNDDUMP below, and the same rule — host only, because naming stdio at
+ * all drags in a file layer the device has no syscalls for. */
 #ifdef MOTE_HOST
     { const char *e = getenv("CUE_CUSHDUMP");
       if (e) printf("DIMS kind %d hl %.6f hw %.6f rw %.6f cw %.6f R %.6f\n",
@@ -1715,31 +1727,6 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * the wood in front of it hides it. Three millimetres is a hair on a table
      * and takes the end face out of sight from every angle tried. */
     #define CUE_BORE_HIDE 0.003f
-    /* HOW FAR THE DRAWN KNUCKLE IS EASED OFF ITS POINT, as a fraction of the
-     * ball's radius. A cushion end is rubber under cloth and cannot come to a
-     * true point; this is the radius the cloth will not turn inside.
-     *
-     * 3.4 mm on a 9 ft table, 3.2 on a snooker table, 2.4 on Paul's little one,
-     * which is the order a real cushion tip is. Two earlier settings were too
-     * timid to see: 0.06 (which was not easing anything at all, see below) and
-     * then 0.08, which eased correctly and still read as sharp from a playing
-     * distance. Asked for more twice; this is the second. It is bounded by the
-     * see-it/hit-it rule — the drawn mouth widens by this much at each side and
-     * the played one does not — so it should not grow again without a reason
-     * better than taste. */
-    #ifndef CUE_TIP_SOFT
-    #define CUE_TIP_SOFT 0.12f
-    #endif
-    /* AND WHAT COUNTS AS A CORNER. A rounded jaw is tessellated, so its nose
-     * runs into its curve through a chain of nodes that each turn by a few
-     * degrees; those are not corners and easing them would just wobble the
-     * curve. A mitred pocket turns thirty to forty-five degrees at one node.
-     * cos 14 degrees separates the two with room either side. */
-    #define CUE_TIP_TURN 0.97f
-    /* Three facets across the corner — two new nodes. Enough that the highlight
-     * running along the cushion top bends round the tip instead of stopping
-     * dead at it, which is the whole of what a sharp point looks wrong for. */
-    #define CUE_TIP_SEGS 3
     for (int s = 0; s < w->nseg; s++) {
         const CueSeg *sg = &w->seg[s];
         /* Per-NODE back normal: average with the neighbouring segment when they
@@ -1750,12 +1737,6 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         Vec3 fba = v3(0,0,0), fbb = v3(0,0,0);
         int haveFba = 0, haveFbb = 0;
         int sharedA = 0, sharedB = 0;
-        /* How far each drawn end stops short of its own point (see below), and
-         * the neighbours it turns into. */
-        float sfta = 0.0f, sftb = 0.0f;
-        const CueSeg *prv = &w->seg[(s + w->nseg - 1) % w->nseg];
-        const CueSeg *nxt = &w->seg[(s + 1) % w->nseg];
-        const Vec3 sdir = v3_norm(v3_sub(sg->b, sg->a));   /* along this cushion */
         /* A MITRED CORNER: two straight noses meeting with no pocket between
          * them. Only bar billiards has one today — every other table puts a
          * pocket in every corner — and the perpendicular-back rule below left
@@ -1783,55 +1764,6 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                     mitreB = 1;
                     float c = nb.x*sg->n.x + nb.z*sg->n.z;
                     mscaleB = 1.0f / (c > 0.35f ? c : 0.35f);
-                }
-            }
-            /* A CUSHION TIP IS NOT A KNIFE EDGE, and on a mitred pocket the
-             * drawn one was: a straight nose meets a straight facing and the
-             * vertex they share is a true point. Reported: "the mitred pockets
-             * have sharp points at the end of the cushions". A cushion end is
-             * rubber under cloth and there is a smallest corner cloth will turn.
-             *
-             * DRAWN ONLY, which departs from this file's usual rule that the
-             * felt you see is the felt the balls bounce off. The rule was tried
-             * first and it cannot hold here: a proper tangent fillet in the
-             * segment chain changes the PLAY, because CueSeg carries per-vertex
-             * normals averaged with its neighbours to give a continuous normal
-             * field, so inserting anything between the facing and the nose
-             * changes what averages with what. Measured with a fillet of
-             * 0.05 mm — geometrically nothing — Russian pyramid's corner went
-             * from 19 pots in 125 to 4 and the American 9 ft from 89 to 93.
-             * Halving the pot rate on the hardest pocket in the game is not a
-             * softer look.
-             *
-             * SO IT IS AN OFFSET ON THE FRONT VERTICES, AND ONLY THOSE. The
-             * first version of this moved the shared NODE, pa/pb, and every
-             * vertex built from it moved too — including the cushion's back,
-             * which is the one thing on a cushion that has somewhere it must
-             * be. The wood's inner edge is at exactly hl + cw (see `ibx`), so
-             * easing the node lifted the cushion 1.6 mm clear of the timber at
-             * every knuckle and opened a line of daylight there. Reported
-             * against the 9 ft table, and it was this and not something older:
-             * measured at both settings, 24 of the 36 back vertices on that
-             * table fell short with the ease on and NONE of them fell short
-             * with it off.
-             *
-             * The back is built from pa/pb below and pa/pb are left alone. */
-            {   const float soft = CUE_TIP_SOFT * t->R;
-                const Vec3 pdir = v3_norm(v3_sub(pr->b, pr->a));
-                const Vec3 ndir = v3_norm(v3_sub(nx->b, nx->a));
-                /* No end may eat more than a third of its own cushion, or of
-                 * its neighbour's — the two sides retreat by the same amount,
-                 * so the shorter of the pair sets it. */
-                const float lme = sqrtf(v3_len2(v3_sub(sg->b, sg->a)));
-                const float lpr = sqrtf(v3_len2(v3_sub(pr->b, pr->a)));
-                const float lnx = sqrtf(v3_len2(v3_sub(nx->b, nx->a)));
-                if (sharedA && pdir.x*sdir.x + pdir.z*sdir.z < CUE_TIP_TURN) {
-                    float lim = 0.34f * (lme < lpr ? lme : lpr);
-                    sfta = soft < lim ? soft : lim;
-                }
-                if (sharedB && sdir.x*ndir.x + sdir.z*ndir.z < CUE_TIP_TURN) {
-                    float lim = 0.34f * (lme < lnx ? lme : lnx);
-                    sftb = soft < lim ? soft : lim;
                 }
             }
         }
@@ -1969,16 +1901,10 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * is what made the facing a spike; it is a piece of cushion and it has
          * a back all the way along. */
         float cwa = cw, cwb = cw;
-        /* THE EASED KNUCKLE MOVES THE FRONT OF THE CUSHION AND NOTHING ELSE.
-         * sfa/sfb are zero everywhere except at a nose/facing knuckle; the back
-         * vertices below are built from pa/pb, which are still exactly where
-         * cue_table put them, so the cushion still lands on the timber. */
-        const Vec3 qa = v3(pa.x + sdir.x*sfta, pa.y, pa.z + sdir.z*sfta);
-        const Vec3 qb = v3(pb.x - sdir.x*sftb, pb.y, pb.z - sdir.z*sftb);
-        Vec3 ba = v3(qa.x - na.x*uba, 0, qa.z - na.z*uba);
-        Vec3 bb = v3(qb.x - nb.x*ubb, 0, qb.z - nb.z*ubb);
-        Vec3 an = v3(qa.x, nose_h, qa.z), bn = v3(qb.x, nose_h, qb.z);
-        Vec3 af = v3(qa.x, flat_h, qa.z), bf = v3(qb.x, flat_h, qb.z);
+        Vec3 ba = v3(pa.x - na.x*uba, 0, pa.z - na.z*uba);
+        Vec3 bb = v3(pb.x - nb.x*ubb, 0, pb.z - nb.z*ubb);
+        Vec3 an = v3(pa.x, nose_h, pa.z), bn = v3(pb.x, nose_h, pb.z);
+        Vec3 af = v3(pa.x, flat_h, pa.z), bf = v3(pb.x, flat_h, pb.z);
         /* straight rail nose (kind 0): clean perpendicular back at depth cw (a
          * straight edge at ±(hw|hl)+cw) so the wood inner edge can touch it
          * exactly. Facings keep the averaged normal for top continuity. */
@@ -2040,58 +1966,14 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         }
 #ifdef MOTE_HOST
         { const char *e = getenv("CUE_CUSHDUMP");
-          if (e) printf("CUSH %3d kind%d sA%d sB%d fA%d fB%d ar %.6f %.6f br %.6f %.6f\n",
+          if (e) printf("CUSH %3d kind%d sA%d sB%d fA%d fB%d an %.6f %.6f bn %.6f %.6f"
+                        " ar %.6f %.6f br %.6f %.6f\n",
                         s, sg->kind, sharedA, sharedB, haveFba, haveFbb,
-                        ar.x, ar.z, br.x, br.z); }
+                        an.x, an.z, bn.x, bn.z, ar.x, ar.z, br.x, br.z); }
 #endif
         ribbon(ba, bb, bn, an, fdark);      /* undercut face (leans to nose) */
         quad(an, bn, bf, af, face);            /* small flat (planar) */
         ribbon(af, bf, br, ar, ctop);       /* cloth top → rail */
-
-        /* ---- THE EASED CORNER ITSELF ---------------------------------------
-         *
-         * Retreating the two ends leaves a wedge of nothing between where this
-         * cushion stops and where the next one starts. Fill it with a short arc
-         * round the point, and the tip reads as rubber under cloth rather than
-         * as a blade.
-         *
-         * This is the whole reason the first attempt did not work. That one
-         * moved the shared node, and a corner with its vertex moved is still a
-         * corner — one point, two edges, the same angle between them. Reported,
-         * and correctly: "the points were still razor sharp". A corner is only
-         * rounded by having MORE THAN ONE POINT in it, which is what this is:
-         * two new nodes on a quadratic through the old point, tangent to both
-         * edges because that is what a quadratic Bezier through its own control
-         * point is.
-         *
-         * Emitted at the B end only, so each corner is drawn once — every node
-         * in the chain is some segment's B.
-         *
-         * ALL OF IT SHARES ONE BACK POINT, `br`, which is where the cushion
-         * meets the timber. The back of a cushion has somewhere it has to be
-         * (the wood's inner edge is at exactly hl + cw — see `ibx` below) and
-         * the arc is a thing happening at the front. So the top of the corner
-         * is a fan about that one point rather than a strip. */
-        if (sftb > 0.0f) {
-            const Vec3 ndir = v3_norm(v3_sub(nxt->b, nxt->a));
-            const Vec3 C  = pb;                                  /* the old point */
-            const Vec3 Q1 = v3(pb.x + ndir.x*sftb, pb.y, pb.z + ndir.z*sftb);
-            Vec3 pv = qb;
-            for (int i = 1; i <= CUE_TIP_SEGS; i++) {
-                const float u = (float)i / (float)CUE_TIP_SEGS;
-                const float w0 = (1.0f-u)*(1.0f-u), w1 = 2.0f*u*(1.0f-u), w2 = u*u;
-                const Vec3 pn = v3(w0*qb.x + w1*C.x + w2*Q1.x, 0.0f,
-                                   w0*qb.z + w1*C.z + w2*Q1.z);
-                const Vec3 e0 = v3(pv.x - nb.x*ub, 0, pv.z - nb.z*ub);
-                const Vec3 e1 = v3(pn.x - nb.x*ub, 0, pn.z - nb.z*ub);
-                const Vec3 n0 = v3(pv.x, nose_h, pv.z), n1 = v3(pn.x, nose_h, pn.z);
-                const Vec3 f0 = v3(pv.x, flat_h, pv.z), f1 = v3(pn.x, flat_h, pn.z);
-                ribbon(e0, e1, n1, n0, fdark);
-                quad(n0, n1, f1, f0, face);
-                ribbon(f0, f1, br, br, ctop);
-                pv = pn;
-            }
-        }
     }
 
     /* Wood rail frame: full rectangular ring (the pocket caps punch holes

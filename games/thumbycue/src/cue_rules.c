@@ -969,7 +969,7 @@ static void paul_maybe_over(CueRules *r, CueBall *b, int n) {
              * stood on its spot — and the frame's only ending condition is a
              * comparison against that number. */
             r->paul_left = paul_left(b, n);
-            snprintf(r->msg, sizeof r->msg, "LEVEL - THE BLACK GOES BACK UP");
+            snprintf(r->msg, sizeof r->msg, "LEVEL - BLACK RESPOTTED");
         }
     }
 }
