@@ -8,10 +8,16 @@
 #include <stdint.h>
 
 enum { CUE_SFX_STRIKE = 0, CUE_SFX_CLACK, CUE_SFX_CUSHION, CUE_SFX_POT, CUE_SFX_UI,
-       /* The shot clock running out. Added at the END: the values above are
-        * shared with the handheld, whose switch ignores what it does not
-        * know, and renumbering them would swap every sound it does. */
-       CUE_SFX_KLAXON };
+       /* The shot clock's own two sounds. Added at the END: the values above
+        * are shared with the handheld, whose switch ignores what it does not
+        * know, and renumbering them would swap every sound it does.
+        *
+        * THE COUNTDOWN MUST NOT BORROW CUE_SFX_UI. That value has been a
+        * deliberate no-op in CueVR for its whole life, and half the app calls
+        * it — menu picks, decision screens, the cue meeting a ball it may not
+        * push through. Giving UI a sample to make the clock audible made every
+        * one of those beep, which was reported inside a day. */
+       CUE_SFX_KLAXON, CUE_SFX_BEEP };
 
 void cue_audio_init(void);
 void cue_audio_set_volume(int vol_0_20);

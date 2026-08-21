@@ -115,7 +115,13 @@ static inline int cue_ballset_ok(int mode, int set) {
     if (mode == CUE_GAME_BARBILLIARDS) return set == 9;
     if (set == 8) return CUE_GAME_IS_PYRAMID(mode);
     if (CUE_GAME_IS_PYRAMID(mode)) return set == 8;
-    if (mode == CUE_GAME_US9) return set == 0 || set == 4 || set == 6 || set == 7;
+    /* The two rotation games need every ball tellable from the far end — the
+     * lowest ball is the law of the game, and a grouped two-colour set makes
+     * the 2 and the 9 the same ball. 10-ball was left off this line when it
+     * arrived and shipped with UK yellow-and-red offered, which is spots and
+     * stripes minus the numbers the game runs on. */
+    if (mode == CUE_GAME_US9 || mode == CUE_GAME_US10)
+        return set == 0 || set == 4 || set == 6 || set == 7;
     return 1;
 }
 
