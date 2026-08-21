@@ -882,6 +882,54 @@ static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0,
             quad(v3(xt0,ytop,u0), v3(xt1,ytop,u1), v3(xt1,ybot,u1), v3(xt0,ybot,u0), wall);
         }
     }
+
+    /* ---- AND THE TWO STRAIGHT SIDES OF THE SLOT -------------------------
+     *
+     * The loop above walks the circle and draws the arc on the WOOD side of the
+     * bore's centre. On every table shipped until now that was the whole of it,
+     * because the centre sits on the CLOTH side of the plank's front face: the
+     * arc inside the timber is LESS than a semicircle and its two ends land on
+     * that face, so the hole closes itself.
+     *
+     * Push the centre past the face and the arc becomes MORE than a semicircle.
+     * Its ends are now the circle's widest points, BEHIND the face, and beyond
+     * them the circle curves back toward the cloth — so the arc stops in mid-air
+     * and there is nothing between its ends and the front of the wood. You look
+     * into the pocket and see straight out of the table. Reported on Paul, whose
+     * 12.6 mm drop setback is a lot to ask of 28 mm of cushion depth, and which
+     * is the first table here whose bore centre is behind the wood.
+     *
+     * A REAL POCKET IS CUT AS A SLOT, not as a circle: the round end at the back
+     * and two straight sides running out to the front edge. So that is what is
+     * emitted — one flat wall at each end of the arc, running STRAIGHT to the
+     * face. Not a mirrored arc, which would close the hole into a circle and
+     * leave a lip of wood standing in the mouth.
+     *
+     * Nothing at all where the centre is in front of the face, so every table
+     * that was right stays identical to the bit. */
+    if (axis == 0) {
+        const float face = rail_hi ? z0 : z1;
+        const float back = cz;                       /* the arc's ends sit here */
+        if (rail_hi ? (back > face) : (back < face)) {
+            for (int e = 0; e < 2; e++) {
+                float ux = e ? cx + r : cx - r;
+                if (ux < x0) ux = x0; if (ux > x1) ux = x1;
+                quad(v3(ux,ytop,face), v3(ux,ytop,back),
+                     v3(ux,ybot,back), v3(ux,ybot,face), wall);
+            }
+        }
+    } else {
+        const float face = rail_hi ? x0 : x1;
+        const float back = cx;
+        if (rail_hi ? (back > face) : (back < face)) {
+            for (int e = 0; e < 2; e++) {
+                float uz = e ? cz + r : cz - r;
+                if (uz < z0) uz = z0; if (uz > z1) uz = z1;
+                quad(v3(face,ytop,uz), v3(back,ytop,uz),
+                     v3(back,ybot,uz), v3(face,ybot,uz), wall);
+            }
+        }
+    }
 }
 
 /* A wood rail plank [xa,xb]×[za,zb] with a clean round bore at each pocket: cut a

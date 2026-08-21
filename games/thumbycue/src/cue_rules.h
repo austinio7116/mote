@@ -434,6 +434,11 @@ void cue_rules_set_uk(CueRules *r, int ruleset);   /* CUE_UK_* */
 static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
     if (!r || r->kind) return 0;                    /* snooker: the D */
     if (r->mode == CUE_GAME_BARBILLIARDS) return 0; /* Rule 91: the D, always */
+    /* PAUL: the D, and only after an in-off. It is played on a snooker table
+     * and the D is chalked on it, so that is where the white comes back from —
+     * but `kind` above is 0 for Paul (it is not scored as snooker), so it fell
+     * through to the pool answer and the white could be put down anywhere. */
+    if (r->mode == CUE_GAME_PAUL) return 0;
     if (r->mode == CUE_GAME_UK8) return r->uk_intl != CUE_UK_PUB;
     return 1;
 }

@@ -66,6 +66,10 @@ static struct { CueGameKind k; const char *name; const char *label; const char *
     {CUE_GAME_PYRAMID7,"pyramid7","russian pyramid 7ft","PYRA7"},
     {CUE_GAME_BILLIARDS,"billiards","English billiards 12ft","BILL"},
     {CUE_GAME_GOLF,   "golf",     "billiard golf 7ft",  "GOLF"},
+    /* PAUL — a 6 ft home table with 50 mm pockets and a 45 mm rail, which is
+     * the tightest ratio of pocket to TIMBER in the game and so the one most
+     * likely to leave the bore short of the frame's inner face. */
+    {CUE_GAME_PAUL,   "paul",     "Paul 6ft",           "PAUL"},
 };
 /* COUNTED, NOT WRITTEN DOWN. This was a literal 8 against a list of nine, so
  * the last table in it — russian pyramid, the one the bench was extended FOR —

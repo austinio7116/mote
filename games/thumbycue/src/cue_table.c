@@ -3125,7 +3125,16 @@ static int spec_family(CueGameKind kind) {
      * than the shipped ones, because the snooker row is written against a 12 ft
      * table's 90.8 mm middle and this bed's is 81.3. A spec that loosens a
      * pocket on the way to "pro" is the family being wrong. */
-    case CUE_GAME_UK8: case CUE_GAME_SNK6:         return SPEC_FAM_ENGLISH;
+    /* AND GOLF, which plays on the English 7 ft bed and whose whole score is
+     * how many strokes a hole took — so a pocket cut tighter or wider changes
+     * the game as directly as it changes any other. It was excluded along with
+     * bar billiards, on the grounds that its course is a fixed set of
+     * arrangements; but the course is laid out in the RACK TRIANGLE'S own frame,
+     * in fractions rather than millimetres, which is exactly what makes it
+     * survive a change of table. Measured: all eighteen holes rack with every
+     * ball on the cloth, on all three specs and all four shapes. */
+    case CUE_GAME_UK8: case CUE_GAME_SNK6:
+    case CUE_GAME_GOLF:                            return SPEC_FAM_ENGLISH;
     case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
     case CUE_GAME_STRAIGHT:                        return SPEC_FAM_AMERICAN;
     case CUE_GAME_CN8:                             return SPEC_FAM_CHINESE;
@@ -3422,7 +3431,19 @@ int cue_table_variant_ok(CueGameKind kind, int variant) {
      * Everything else racks against the foot spot and plays what is in front of
      * it, which survives a change of outline. */
     switch (kind) {
-    case CUE_GAME_BARBILLIARDS: case CUE_GAME_GOLF: case CUE_GAME_BILLIARDS:
+    /* BAR BILLIARDS is nine holes bored at fixed COORDINATES from the AEBBA
+     * rules, three skittles among them and play from one end: on a hexagon the
+     * holes stay where a 1.42 m rectangle put them and several are off the
+     * cloth. ENGLISH BILLIARDS wants the four spots and the D, which are
+     * positions down a rectangle's spine.
+     *
+     * GOLF USED TO BE HERE AND SHOULD NOT HAVE BEEN. Its course looked like the
+     * same objection — eighteen fixed arrangements read off a scoreboard — and
+     * it is the opposite: every hole is given in the rack triangle's own frame,
+     * u across and v down and both of them fractions, precisely so it survives
+     * any table size or ball diameter. Measured on all four shapes and all
+     * eighteen holes, every ball lands on the cloth. */
+    case CUE_GAME_BARBILLIARDS: case CUE_GAME_BILLIARDS:
         return 0;
     default: return 1;
     }

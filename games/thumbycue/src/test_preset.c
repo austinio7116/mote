@@ -61,7 +61,13 @@ static const struct { CueGameKind k; const char *name; int specs; } G[] = {
     { CUE_GAME_PYRAMID,     "pyramid 12ft",   0 },
     { CUE_GAME_PYRAMID7,    "pyramid 7ft",    0 },
     { CUE_GAME_BARBILLIARDS,"bar billiards",  0 },
-    { CUE_GAME_GOLF,        "golf",           0 },
+    /* GOLF HAS SPECS AND SHAPES, and used to have neither. It plays on the
+     * English 7 ft bed and its whole score is how many strokes a hole took, so
+     * a pocket cut tighter or wider changes it as directly as it changes any
+     * other game — and its course, which looked like the objection, is laid out
+     * in the rack triangle's own frame in FRACTIONS, which is precisely what
+     * makes it survive a change of table. */
+    { CUE_GAME_GOLF,        "golf",           1 },
 };
 #define NG ((int)(sizeof G / sizeof G[0]))
 
@@ -319,10 +325,12 @@ int main(void) {
 
     /* ...and the games that must NOT be offered a shape, because their whole
      * layout is a fixed set of coordinates on a rectangle. */
-    {   const CueGameKind FIXED[] = { CUE_GAME_BARBILLIARDS, CUE_GAME_GOLF,
-                                      CUE_GAME_BILLIARDS };
-        const char *FN[] = { "bar billiards", "golf", "billiards" };
-        for (int i = 0; i < 3; i++) {
+    {   /* Bar billiards' nine holes are at fixed COORDINATES from the rules;
+         * English billiards wants the four spots and the D down a rectangle's
+         * spine. Golf is NOT here — see the table above. */
+        const CueGameKind FIXED[] = { CUE_GAME_BARBILLIARDS, CUE_GAME_BILLIARDS };
+        const char *FN[] = { "bar billiards", "billiards" };
+        for (int i = 0; i < 2; i++) {
             char m[96];
             int any = 0;
             for (int v = CUE_TAB_L; v < CUE_TAB_COUNT; v++)

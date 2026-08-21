@@ -3638,6 +3638,101 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     P.miss_caution = (c->snooker && r->cmiss[r->turn] == 1 &&
                       !cue_rules_is_snookered(r, balls, n, w)) ? 1 : 0;
 
+    /* 0a. PAUL'S BREAK, which is not a break at all: the stroke must reach
+     * NOTHING — no ball and no cushion — and touching either is a foul worth
+     * two shots to the opponent. Every other opening stroke in this planner is
+     * scored on how far it spreads a pack, so none of the machinery below fits;
+     * pointed at it, the AI played a proper break and fouled every time, which
+     * is what was reported.
+     *
+     * It is a search for SPACE rather than for a shot. Sweep the directions
+     * from wherever the white happened to land, take the one with the longest
+     * clear run, and strike softly enough to die well short of the end of it.
+     *
+     * THE RUN IS MEASURED CONSERVATIVELY and then CHECKED. The ball distance is
+     * exact — a ray against each ball's contact circle — and the cushion
+     * distance is taken off the bed's bounding box, which is exact on a
+     * rectangle and an over-estimate on anything else. So the chosen stroke is
+     * simulated, and if it touched something after all the power comes down and
+     * it is asked again. Three tries at most: a stroke this soft has a very
+     * short brake distance, so halving the power quarters the roll.
+     *
+     * A LAST RESORT OF ALMOST NOTHING. On a table where the white is genuinely
+     * jammed against a ball there is no legal break, and the rules say so — two
+     * shots to the opponent and play on. The softest possible tap is then the
+     * right answer: it concedes the foul at the smallest cost and does not move
+     * the position for the player who is about to be given it. */
+    if (r->break_shot && r->mode == CUE_GAME_PAUL) {
+        const Vec3 cue = balls[0].pos;
+        const float contact = c->contact;
+        /* The bed's own extent, less a ball: how far the CENTRE may travel
+         * before the ball is against a cushion. */
+        const float lim_x = w->play_x - t->R, lim_z = w->play_z - t->R;
+
+        enum { NA = 240 };
+        float bestA = 0.0f, bestRun = -1.0f;
+        float secondA = 0.0f, secondRun = -1.0f;
+        for (int i = 0; i < NA; i++) {
+            const float a = 6.2831853f * (float)i / (float)NA;
+            const float dx = cosf(a), dz = sinf(a);
+            /* to the first ball it would touch */
+            float run = 1e30f;
+            for (int k = 1; k < n; k++) {
+                if (!balls[k].on) continue;
+                const float rx = balls[k].pos.x - cue.x, rz = balls[k].pos.z - cue.z;
+                const float along = rx * dx + rz * dz;
+                if (along <= 0.0f) continue;
+                const float perp2 = rx*rx + rz*rz - along*along;
+                if (perp2 >= contact * contact) continue;      /* it misses */
+                const float hit = along - sqrtf(contact * contact - perp2);
+                if (hit < run) run = hit;
+            }
+            /* ...and to the cushion, off the bounding box */
+            if (dx > 1e-4f)  { const float d2_ = ( lim_x - cue.x) / dx; if (d2_ < run) run = d2_; }
+            if (dx < -1e-4f) { const float d2_ = (-lim_x - cue.x) / dx; if (d2_ < run) run = d2_; }
+            if (dz > 1e-4f)  { const float d2_ = ( lim_z - cue.z) / dz; if (d2_ < run) run = d2_; }
+            if (dz < -1e-4f) { const float d2_ = (-lim_z - cue.z) / dz; if (d2_ < run) run = d2_; }
+            if (run < 0.0f) run = 0.0f;
+            if (run > bestRun) { secondRun = bestRun; secondA = bestA;
+                                 bestRun = run; bestA = a; }
+            else if (run > secondRun) { secondRun = run; secondA = a; }
+        }
+
+        const float ANG[2] = { bestA, secondA };
+        const float RUN[2] = { bestRun, secondRun };
+        CueAIShot got; memset(&got, 0, sizeof got); got.target_pocket = -1;
+        int settled = 0;
+        for (int q = 0; q < 2 && !settled; q++) {
+            if (RUN[q] <= 0.0f) continue;
+            /* Stop at not much more than a third of the way, so the margin is
+             * the same order as the run itself rather than a fixed millimetre
+             * count that means nothing on a short one. */
+            float want = RUN[q] * 0.35f;
+            for (int tri = 0; tri < 3 && !settled; tri++, want *= 0.5f) {
+                /* In the planner's OWN units — power01 of 1 is AI_SIM_SPEED —
+                 * because cue_ai_plan_result puts every plan through
+                 * to_caller_power on the way out, and doing it twice would
+                 * halve the stroke again. */
+                const float v0 = bb_launch(c, want, 0.0f);
+                const float p01 = clampf(v0 / AI_SIM_SPEED, 0.02f, 1.0f);
+                AiSim sim;
+                ai_sim(w, t, balls, n, 0, ANG[q], p01, 0.0f, 0.0f, &sim);
+                if (sim.first_hit_idx >= 0 || sim.cushion || sim.npotted) continue;
+                got.aim = ANG[q]; got.power01 = p01;
+                got.valid = 1; got.safe = 1; got.target_id = 0;
+                settled = 1;
+            }
+        }
+        if (!settled) {
+            /* No legal break exists from where the white lies. Concede it as
+             * cheaply as possible. */
+            got.aim = bestA;
+            got.power01 = 0.02f;
+            got.valid = 1; got.safe = 1; got.target_id = 0;
+        }
+        P.result = got; P.phase = PH_DONE; return;
+    }
+
     /* 0. Break shot — chosen by simulation. See break_score above for what
      * "best" means, which is a different thing per game. */
     if (r->break_shot) {

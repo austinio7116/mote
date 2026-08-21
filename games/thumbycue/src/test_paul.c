@@ -186,6 +186,11 @@ int main(void) {
     /* ---- THE BREAK MUST TOUCH NOTHING --------------------------------- */
     fresh(4);
     ok(R.break_shot,                  "the frame opens on a break");
+    /* AND THE WHITE LIES WHERE IT LANDED. The whole set is thrown on at random
+     * including the cue ball, so there is nothing to place — and the break is
+     * the problem of finding it room to move. Put in the D it would start in
+     * the one part of the table the scatter had been cleared out of. */
+    ok(!R.ball_in_hand,               "...with the white where it landed, not in hand");
     shot(-1, 0, NULL, 0);
     ok(!R.last_foul,                  "a break that touches nothing is legal");
     ok(R.turn == 1,                   "...and the visit passes, having scored nothing");
@@ -257,6 +262,17 @@ int main(void) {
     ok(R.turn == 1,                   "...the table changes hands");
     ok(R.shots_remaining == 2,        "...with two shots");
     ok(R.ball_in_hand,                "...and the white in hand, because it went down");
+    /* AND IN THE D, not anywhere. Paul is not SCORED as snooker so `kind` is 0,
+     * which is what sent this down the pool answer — the white could be put
+     * down anywhere on the table after an in-off. */
+    ok(!cue_rules_in_hand_anywhere(&R), "...to be placed in the D, not anywhere");
+    {   /* And the clamp agrees: a point up at the far end comes back to the D. */
+        const Vec3 far_ = v3(T.half_len * 0.8f, T.R, 0.0f);
+        const Vec3 got = cue_table_clamp_placement_balls(&T, far_, B, N, 0);
+        char b[128];
+        snprintf(b, sizeof b, "...and a placement at +%.0f mm is pulled back to %+.0f",
+                 (double)(far_.x*1000), (double)(got.x*1000));
+        ok(got.x <= T.baulk_x + 0.001f, b); }
     printf("\n");
 
     /* ---- what two shots actually buys --------------------------------- */
