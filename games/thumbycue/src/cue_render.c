@@ -823,6 +823,11 @@ static void emit_lip_run(const CueTable *t, Vec3 *ring0, const Vec3 *nrm,
  * across it) while the raised cushions still occlude its sides. */
 static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
     if (!s_lip_mode) return;
+#ifdef MOTE_HOST
+    if (getenv("CUE_LIPDUMP")) {
+        printf("LIP build: bnd.n %d shape %d\n", s_bnd.n, (int)t->bed_shape);
+    }
+#endif
     /* Roll the cloth over the edge of the cut and down into the pocket.
      *
      * Along the WHOLE cut — leg, arc, leg — as one continuous edge, because
@@ -856,6 +861,13 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
         int j = i;
         while (j < s_bnd.n && s_bnd.pk[j] == p) j++;
         int cnt = j - i;
+#ifdef MOTE_HOST
+        {   static int lg = -1;
+            if (lg < 0) lg = getenv("CUE_LIPDUMP") ? 1 : 0;
+            if (lg) printf("LIP pocket %d run %d points%s\n", p, cnt,
+                           cnt > CUE_LIP_MAX ? "  TRUNCATED" : "");
+        }
+#endif
         if (cnt > CUE_LIP_MAX) cnt = CUE_LIP_MAX;   /* cannot happen; see above */
         if (cnt >= 2) {
             Vec3 ring0[CUE_LIP_MAX], nrm[CUE_LIP_MAX];
@@ -2107,6 +2119,40 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * the BACK had, one line below and fixed long ago — the pair of them
          * were the two halves of "a free tip collapses to nothing". */
         float uba = ub, ubb = ub;
+        /* ...BUT IT CANNOT RUN OUT OVER THE HOLE.
+         *
+         * The undercut is the cushion's BASE, drawn at bed level and drawn
+         * after the bed, so where it reaches past the cloth's cutaway it lies
+         * flat over the pocket mouth — a straight line of skirt across the top
+         * of the drop lip, covering the curve the lip was rolled on. That is
+         * the straight edge at the mouth: not the cloth's cut, which is a
+         * proper arc, but the cushion's own footprint laid over it.
+         *
+         * A rubber overhangs its base; it does not overhang the hole. So each
+         * base vertex is walked back along its own normal only as far as the
+         * cutaway allows — solve where the line pa - na*u crosses the cut
+         * circle and stop half a millimetre short of it. Away from a pocket
+         * nothing is inside any cut circle and the full undercut is kept, so
+         * the section is unchanged along the whole rail. */
+        for (int q = 0; q < w->npocket; q++) {
+            const Vec3  C = w->cut_c[q];
+            const float R = w->cut_r[q];
+            if (R <= 0.0f) continue;
+            for (int e = 0; e < 2; e++) {
+                const Vec3 pp = e ? pb : pa;
+                const Vec3 nn2 = e ? nb : na;
+                const float dx = pp.x - C.x, dz = pp.z - C.z;
+                const float dn = dx * nn2.x + dz * nn2.z;
+                const float c0 = dx * dx + dz * dz - R * R;
+                const float disc = dn * dn - c0;
+                if (disc <= 0.0f) continue;          /* the line misses the cut */
+                const float root = dn - sqrtf(disc); /* where it enters the cut */
+                if (root <= 0.0f) continue;          /* entry is behind the nose */
+                const float lim = root - 0.0005f;
+                if (e) { if (ubb > lim) ubb = lim > 0.0f ? lim : 0.0f; }
+                else   { if (uba > lim) uba = lim > 0.0f ? lim : 0.0f; }
+            }
+        }
         /* Back-vertex depth. Shared ends reach the full depth cw; a FREE tip
          * collapses to 0 because the nose was already extended along its tangent
          * to the rail plane above — the facing continues at the same angle and
@@ -2557,6 +2603,23 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     }
 
   }
+#ifdef MOTE_HOST
+    /* CUE_BNDSHOW: paint the cloth boundary itself, just above the bed, so the
+     * edge can be READ off a render instead of guessed at. Pocket-tagged runs
+     * (the cutaway) come up magenta, the plain rail/edge runs cyan. Debug only. */
+    if (getenv("CUE_BNDSHOW")) {
+        for (int i = 0; i < s_bnd.n; i++) {
+            int j = (i + 1 < s_bnd.n) ? i + 1 : 0;
+            uint16_t c = (s_bnd.pk[i] >= 0 && s_bnd.pk[j] >= 0) ? RGB565C(255,0,255)
+                                                                : RGB565C(0,255,255);
+            Vec3 a = s_bnd.p[i], b = s_bnd.p[j];
+            float dx = b.x - a.x, dz = b.z - a.z, l = sqrtf(dx*dx + dz*dz) + 1e-9f;
+            float nx = -dz / l * 0.0015f, nz = dx / l * 0.0015f;
+            quad(v3(a.x - nx, 0.0012f, a.z - nz), v3(b.x - nx, 0.0012f, b.z - nz),
+                 v3(b.x + nx, 0.0012f, b.z + nz), v3(a.x + nx, 0.0012f, a.z + nz), c);
+        }
+    }
+#endif
     s_lip_ntab = s_ntab;      /* lips drawn last + depth-write OFF so balls cover them */
     emit_pocket_lips(t, w);   /* drop lip last → layers over the voids cleanly */
     /* CUE_SHOWDROP: a bright ring exactly on the functional pocket — where the
