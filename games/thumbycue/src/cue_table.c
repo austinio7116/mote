@@ -62,6 +62,11 @@ static void cue_table_rails(CueTable *t, CueGameKind kind) {
         t->e_cush = 0.965f; t->cush_efall = 0.052f; break;
     case CUE_GAME_CN8:                          /* built to English patterns */
         t->e_cush = 0.968f; t->cush_efall = 0.050f; break;
+    case CUE_GAME_CAROM_STRAIGHT: case CUE_GAME_CAROM_2C:
+    case CUE_GAME_CAROM_3C: case CUE_GAME_CAROM_4B:
+        /* K-55 on a heated table: the ball is meant to hold speed through
+         * three rails, which no pool cushion is asked to do. */
+        t->e_cush = 0.990f; t->cush_efall = 0.038f; break;
     case CUE_GAME_PAUL:
         /* A HOME TABLE'S RUBBER, and the one place in this file where the
          * numbers go DOWN rather than sideways. Everything else here is a
@@ -417,6 +422,28 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->rail = RGB565C(78, 48, 28); t->rail_top = RGB565C(112, 70, 36);
         t->spot = RGB565C(180, 180, 180);
         t->nballs = 16;
+    } else if (CUE_GAME_IS_CAROM(kind)) {
+        /* G11 — CAROM. The international match table: 2.84 m by 1.42 m inside
+         * the cushions, 61.5 mm balls at about 210 g, no pockets anywhere.
+         * The cloth is heated and fast and the rubber (K-55) is the liveliest
+         * in the building — the game is played off the rails. */
+        t->half_len = 2.840f * 0.5f;
+        t->half_wid = 1.420f * 0.5f;
+        t->R = 0.0615f * 0.5f; t->mass = 0.210f;
+        t->cushion_h = 1.27f * t->R; t->rail_w = 0.090f;
+        /* no rail pockets: the jaw fields describe a hole never cut, exactly
+         * as bar billiards does, because a zero mouth fails validation */
+        t->pocket_round = 1;
+        t->pr_corner = t->pr_side = 0.0309400f;
+        t->jaw_r = 0.005f;
+        /* no baulk line and no D: the line is parked at the cushion where the
+         * chalk cannot draw it, and a zero radius is already "no D" */
+        t->baulk_x = -t->half_len;
+        t->d_radius = 0.0f;
+        t->cloth = RGB565C(30, 120, 60);        /* tournament green-blue */
+        t->rail = RGB565C(70, 42, 24); t->rail_top = RGB565C(100, 62, 32);
+        t->spot = RGB565C(200, 200, 200);
+        t->nballs = (kind == CUE_GAME_CAROM_4B) ? 4 : 3;
     } else if (kind == CUE_GAME_BARBILLIARDS) {
         /* G6 — BAR BILLIARDS, and almost nothing above applies to it.
          *
@@ -2523,7 +2550,8 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * with 0.15 R for a UK middle, which is why no table could be given a drop
      * of its own without moving every other table's with it. */
     float capc = t->pr_corner - t->cap_corner, caps = t->pr_side - t->cap_side;
-    if (t->bed_shape == CUE_BED_RECT && t->kind != CUE_GAME_BARBILLIARDS) {
+    if (t->bed_shape == CUE_BED_RECT && t->kind != CUE_GAME_BARBILLIARDS &&
+        !CUE_GAME_IS_CAROM(t->kind)) {
         /* The axis a corner was offset along IS its centre line: two rails
          * meeting square bisect at 45 degrees, which is what d is. */
         add_pocket(w, -hl - oc*d, -hw - oc*d, capc, 0, -d, -d);
@@ -2532,6 +2560,14 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         add_pocket(w, -hl - oc*d,  hw + oc*d, capc, 0, -d,  d);
         add_pocket(w, 0.0f, -hw - os, caps, 1, 0.0f, -1.0f);
         add_pocket(w, 0.0f,  hw + os, caps, 1, 0.0f,  1.0f);
+    }
+
+    if (CUE_GAME_IS_CAROM(t->kind)) {
+        /* ---- CAROM: four plain cushions and nothing else at all ---------- */
+        add_seg(w, v3(-hl, 0, -hw), v3( hl, 0, -hw), 0);
+        add_seg(w, v3( hl, 0, -hw), v3( hl, 0,  hw), 0);
+        add_seg(w, v3( hl, 0,  hw), v3(-hl, 0,  hw), 0);
+        add_seg(w, v3(-hl, 0,  hw), v3(-hl, 0, -hw), 0);
     }
 
     if (t->kind == CUE_GAME_BARBILLIARDS) {
@@ -3457,6 +3493,8 @@ int cue_table_variant_ok(CueGameKind kind, int variant) {
      * u across and v down and both of them fractions, precisely so it survives
      * any table size or ball diameter. Measured on all four shapes and all
      * eighteen holes, every ball lands on the cloth. */
+    case CUE_GAME_CAROM_STRAIGHT: case CUE_GAME_CAROM_2C:
+    case CUE_GAME_CAROM_3C: case CUE_GAME_CAROM_4B:
     case CUE_GAME_BARBILLIARDS: case CUE_GAME_BILLIARDS:
         return 0;
     default: return 1;
@@ -3642,6 +3680,11 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* K-UK  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
         /* K-US  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
         /* K-CN  */ { 0.0170f, 1.3550f, 0.2200f,  90.0f },
+        /* CAROM has no pockets to cut — four rows of nothing, like BARB */
+        /* C-SR  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* C-2C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* C-3C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -3662,6 +3705,10 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* K-UK  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
         /* K-US  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
         /* K-CN  */ { 0.0285f, 1.4437f, 0.2250f, 180.0f },
+        /* C-SR  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* C-2C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* C-3C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -4295,6 +4342,27 @@ static void set_ball(CueBall *b, int id, float x, float z, float R) {
     b->pocket = 0;
 }
 
+/* CAROM'S OPENING. Three-ball games: the red on the foot spot, the
+ * opponent's ball on the head spot, the breaker's ball on the head string a
+ * hand's width to the side — the standard lag-winner's position. Four-ball:
+ * the two reds take the foot and head spots and the cue balls sit either
+ * side of the head string; the coordinates are chosen the way bar
+ * billiards' holes are, and the rules give everything else. */
+static int rack_carom(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    const float head = -t->half_len * 0.5f, foot = t->half_len * 0.5f;
+    set_ball(&b[0], CUE_ID_CUE,        head, -0.1825f, R);   /* the striker */
+    if (t->kind == CUE_GAME_CAROM_4B) {
+        set_ball(&b[1], CUE_ID_BIL_RED,    foot,  0.0f, R);
+        set_ball(&b[2], 2,                 head,  0.0f, R);  /* the second red */
+        set_ball(&b[3], CUE_ID_BIL_YELLOW, head,  0.1825f, R);
+        return 4;
+    }
+    set_ball(&b[1], CUE_ID_BIL_RED,    foot, 0.0f, R);
+    set_ball(&b[2], CUE_ID_BIL_YELLOW, head, 0.0f, R);
+    return 3;
+}
+
 static int rack_pool(const CueTable *t, CueBall *b) {
     const float R = t->R;
     /* IN THE FOOT SPOT'S OWN FRAME, not in world x and z. On a rectangle `up` is
@@ -4875,6 +4943,7 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
     memset(balls, 0, sizeof(CueBall) * CUE_MAX_BALLS);
     int n;
     if (t->kind == CUE_GAME_GOLF) n = rack_golf(t, balls, s_golf_hole);
+    else if (CUE_GAME_IS_CAROM(t->kind)) n = rack_carom(t, balls);
     else if (t->kind == CUE_GAME_BARBILLIARDS) n = rack_barbilliards(t, balls);
     else if (t->kind == CUE_GAME_BILLIARDS) n = rack_billiards(t, balls);
     /* PAUL BEFORE is_snooker, because it IS a snooker table by that flag —

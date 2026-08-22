@@ -1473,7 +1473,8 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * 1..15 are drawn as reds rather than as pool solids. It is NOT set on the
      * table, because `is_snooker` also decides the D, the four spots and where
      * a ball in hand may go — golf borrows the ball, not the game. */
-    s_is_snooker = t->is_snooker || t->kind == CUE_GAME_GOLF;
+    s_is_snooker = t->is_snooker || t->kind == CUE_GAME_GOLF ||
+                   CUE_GAME_IS_CAROM(t->kind);   /* white, yellow, red */
     s_cloth_shadow = shade565(t->cloth, 0.42f);   /* cloth bounce tint */
     s_bg_top = RGB565C(24, 26, 36);
     s_bg_bot = RGB565C(6, 7, 12);

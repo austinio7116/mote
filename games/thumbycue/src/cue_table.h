@@ -93,12 +93,23 @@ typedef enum {
     CUE_GAME_KILLER_UK,
     CUE_GAME_KILLER_US,
     CUE_GAME_KILLER_CN,
+    /* G11: CAROM — the pocketless table, four games on it. Three balls (two
+     * cue balls and a red; four-ball adds a second red) on a heated 10 ft bed
+     * with nothing to fall down: every point is a cannon. The variants differ
+     * only in what a cannon must do first — nothing, two cushions, three —
+     * and four-ball wants both REDS with the opponent's ball untouched. */
+    CUE_GAME_CAROM_STRAIGHT,
+    CUE_GAME_CAROM_2C,
+    CUE_GAME_CAROM_3C,
+    CUE_GAME_CAROM_4B,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
 #define CUE_GAME_IS_KILLER(k) \
     ((k) == CUE_GAME_KILLER_UK || (k) == CUE_GAME_KILLER_US || \
      (k) == CUE_GAME_KILLER_CN)
+#define CUE_GAME_IS_CAROM(k) \
+    ((k) >= CUE_GAME_CAROM_STRAIGHT && (k) <= CUE_GAME_CAROM_4B)
 #define CUE_GAME_IS_ROTATION(k) \
     ((k) == CUE_GAME_US9 || (k) == CUE_GAME_US10)
 /* ...and WHICH ball ends it. */

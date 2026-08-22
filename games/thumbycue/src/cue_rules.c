@@ -101,6 +101,14 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
          * already put his ball in the D — exactly as snooker's rack does with
          * the same rule. Setting the flag as well would send the host into a
          * placement it does not need and leave the table looking empty. */
+    } else if (CUE_GAME_IS_CAROM(t->kind)) {
+        /* CAROM: race to a target of cannons. The numbers are the customary
+         * club distances, scaled to how hard each game's point is: straight
+         * rail runs long, three-cushion is won in the teens. */
+        r->target_score = t->kind == CUE_GAME_CAROM_STRAIGHT ? 30
+                        : t->kind == CUE_GAME_CAROM_2C       ? 15
+                        : t->kind == CUE_GAME_CAROM_3C       ? 10 : 15;
+        r->bil_yellow = 0;
     } else if (CUE_GAME_IS_KILLER(t->kind)) {
         /* KILLER: the score IS the lives. Three each, counting down; the
          * frame ends when somebody has none. */
@@ -1513,6 +1521,94 @@ static void resolve_barbilliards(CueRules *r, CueBall *b, int n, const CueWorld 
         snprintf(r->msg, sizeof r->msg, "%d", pts);
 }
 
+/* ---- G11: CAROM ------------------------------------------------------------
+ *
+ * Every point is a cannon: the cue ball contacts both object balls in one
+ * stroke. What the stroke must do FIRST is the whole difference between the
+ * games — nothing (straight rail), two cushions, three — and the cue ball's
+ * own touch log holds the answer in order, cushions and balls alike. The
+ * count that matters is cushions BEFORE the second object ball is first
+ * contacted; rails after the cannon is made decorate nothing.
+ *
+ * Four-ball is the Korean and Japanese game: the objects are the two REDS,
+ * and touching the opponent's cue ball at any point ends the turn scoreless.
+ *
+ * A cannon keeps the striker at the table; anything else passes it. There are
+ * no pockets to scratch into; a ball off the table is the one foul the game
+ * has, and it goes back on its opening spot.
+ */
+static void resolve_carom(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                          int first_hit)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    const int fourb = (r->mode == CUE_GAME_CAROM_4B);
+    r->break_shot = 0;
+
+    /* the two objects: the reds in four-ball, the red and the OTHER cue ball
+     * in the three-ball games (index 0 is always the striker's ball — the
+     * host exchanges them the way billiards does) */
+    const int objA = CUE_ID_BIL_RED;
+    const int objB = fourb ? 2
+                   : (r->bil_yellow ? CUE_ID_BIL_WHITE : CUE_ID_BIL_YELLOW);
+    const int oppw = fourb ? (r->bil_yellow ? CUE_ID_BIL_WHITE
+                                            : CUE_ID_BIL_YELLOW) : -1;
+
+    int hitA = 0, hitB = 0, cush = 0, before = -1, touched_opp = 0;
+    if (w) {
+        for (int i = 0; i < w->ntouch; i++) {
+            if (w->touch[i].what == CUE_TOUCH_CUSHION) { cush++; continue; }
+            const int id = w->touch[i].id;
+            if (fourb && id == oppw) touched_opp = 1;
+            const int a = (id == objA), bb2 = (id == objB);
+            if (!a && !bb2) continue;
+            if (a) { if (!hitA) { hitA = 1; if (hitB && before < 0) before = cush; } }
+            else   { if (!hitB) { hitB = 1; if (hitA && before < 0) before = cush; } }
+        }
+    }
+    /* `before` is the cushion count when the SECOND object was first reached;
+     * a stroke that never got there scores nothing whatever it did. */
+    const int need = r->mode == CUE_GAME_CAROM_2C ? 2
+                   : r->mode == CUE_GAME_CAROM_3C ? 3 : 0;
+    const int cannon = hitA && hitB && before >= need && !touched_opp;
+
+    /* the one foul: a ball leaving the table. Back on its opening spot. */
+    if (r->n_off) {
+        CueTable ot; cue_table_init(&ot, (CueGameKind)r->mode);
+        CueBall home[CUE_MAX_BALLS]; const int hn = cue_table_rack(&ot, home);
+        for (int i = 0; i < n && i < hn; i++)
+            if (!b[i].on) {
+                b[i].on = 1;
+                b[i].pos = home[i].pos;
+                b[i].vel = v3(0, 0, 0); b[i].w = v3(0, 0, 0);
+                b[i].pocket = 0; b[i].drop = 0.0f;
+            }
+        r->last_foul = 1;
+        r->turn = you; r->bil_yellow = !r->bil_yellow;
+        snprintf(r->msg, sizeof r->msg, "FOUL: OFF THE TABLE");
+        return;
+    }
+    r->last_foul = 0;
+
+    if (cannon) {
+        r->score[me] += 1;
+        r->brk += 1;
+        if (r->target_score > 0 && r->score[me] >= r->target_score) {
+            r->frame_over = 1; r->winner = me; book_frame(r, me);
+            snprintf(r->msg, sizeof r->msg, "GAME");
+            return;
+        }
+        snprintf(r->msg, sizeof r->msg, "1");
+        return;                                   /* the striker plays on */
+    }
+
+    r->brk = 0;
+    r->turn = you;
+    r->bil_yellow = !r->bil_yellow;
+    if (touched_opp) snprintf(r->msg, sizeof r->msg, "TOUCHED WHITE");
+    else r->msg[0] = 0;
+    (void)first_hit;
+}
+
 /* ---- G10: KILLER ---------------------------------------------------------
  *
  * One shot each, strictly alternating. Pot any object ball and you are safe;
@@ -2278,6 +2374,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
+    else if (CUE_GAME_IS_CAROM(r->mode))     resolve_carom(r, b, n, w, first_hit);
     else if (CUE_GAME_IS_KILLER(r->mode))    resolve_killer(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
@@ -2332,6 +2429,14 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
     if (r->mode == CUE_GAME_BILLIARDS)
         return id == CUE_ID_BIL_RED ||
                id == (r->bil_yellow ? CUE_ID_BIL_WHITE : CUE_ID_BIL_YELLOW);
+    /* CAROM answers before the guard for billiards' own reason: when the
+     * yellow is in, the object WHITE wears id zero. Four-ball's objects are
+     * the two reds alone. */
+    if (CUE_GAME_IS_CAROM(r->mode)) {
+        if (r->mode == CUE_GAME_CAROM_4B) return id == CUE_ID_BIL_RED || id == 2;
+        return id == CUE_ID_BIL_RED ||
+               id == (r->bil_yellow ? CUE_ID_BIL_WHITE : CUE_ID_BIL_YELLOW);
+    }
     if (id == CUE_ID_CUE) return 0;
     /* Free ball: the NOMINATED one, once named — a free ball is nominated in
      * snooker exactly as a colour is, and "any ball is on" was the striker
@@ -2391,6 +2496,9 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
             snprintf(buf, cap, "%d ON THE TABLE", r->paul_left);
     } else if (CUE_GAME_IS_ROTATION(r->mode)) {
         snprintf(buf, cap, "ON %d", r->seq ? r->seq : 1);
+    } else if (CUE_GAME_IS_CAROM(r->mode)) {
+        snprintf(buf, cap, "%d - %d  TO %d", r->score[r->turn],
+                 r->score[1 - r->turn], r->target_score);
     } else if (CUE_GAME_IS_KILLER(r->mode)) {
         /* the board is the lives — yours first, because it is your shot */
         snprintf(buf, cap, "LIVES %d - %d", r->score[r->turn],
