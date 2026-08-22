@@ -466,7 +466,8 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu);
  * doing it, and it is lost — the golden duck. Everything else is identical to
  * International, which is why it is a flag on top of it rather than a third
  * body of rules. */
-enum { CUE_UK_PUB = 0, CUE_UK_INTL = 1, CUE_UK_ULTIMATE = 2 };
+enum { CUE_UK_PUB = 0, CUE_UK_INTL = 1, CUE_UK_ULTIMATE = 2,
+       CUE_UK_BLACKBALL = 3 };   /* WPA Blackball Rules 2005 */
 
 /* Pick which UK 8-ball is being played, before the break. 0 = pub (two shots
  * on a foul, no cushion requirement), 1 = international (ball in hand, and a
@@ -486,7 +487,11 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
      * but `kind` above is 0 for Paul (it is not scored as snooker), so it fell
      * through to the pool answer and the white could be put down anywhere. */
     if (r->mode == CUE_GAME_PAUL) return 0;
-    if (r->mode == CUE_GAME_UK8) return r->uk_intl != CUE_UK_PUB;
+    /* Blackball: baulk — the full-width rectangle behind the line, not the D
+     * (WPA Blackball 4c/4h). The value 2 is that region to the clamp. */
+    if (r->mode == CUE_GAME_UK8)
+        return r->uk_intl == CUE_UK_PUB ? 0
+             : r->uk_intl == CUE_UK_BLACKBALL ? 2 : 1;
     return 1;
 }
 /* Re-rack for the next frame of the same match: the frame state resets, the
@@ -499,6 +504,10 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t);
 void cue_rules_concede(CueRules *r, int player);
 /* Snooker Shootout, the host's clock talking to the rules' book: time up
  * (returns 0 on a tie — stage the blue), and the tie-break's verdict. */
+/* Is the striker snookered on every ball they may legally hit? The pool
+ * games' version of cue_rules_is_snookered — Blackball rule 5g hangs on it. */
+int  cue_rules_pool_snookered(const CueRules *r, const CueBall *b, int n,
+                              const CueWorld *w);
 int  cue_rules_shootout_time(CueRules *r);
 void cue_rules_shootout_win(CueRules *r, int winner);
 

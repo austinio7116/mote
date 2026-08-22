@@ -278,6 +278,12 @@ typedef struct {
      * Not pmnorm: that is derived from the finished jaws, so it does not exist
      * while they are being built. */
     Vec3   paxis[CUE_MAX_POCKET];
+    /* WHICH BALLS HAVE FULLY CROSSED the line between the middle pockets,
+     * toward baulk, this stroke — a bitmask by ball index, reset by
+     * cue_phys_shot_begin. Blackball's break legality (WPA 4b: two object
+     * balls must fully pass it) is the customer; tracked while att_track is
+     * on, like the rest of the referee's instruments. */
+    uint32_t brk_cross;
     /* WHAT A HOLE IS WORTH. Zero on every table where a pocket is a pocket;
      * bar billiards is the one game whose holes are not interchangeable — nine
      * of them scoring from ten to two hundred, and which one a ball went down

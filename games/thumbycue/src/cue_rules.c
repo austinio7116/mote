@@ -232,8 +232,15 @@ static void respot_colour(CueRules *r, CueBall *b, int n, int id) {
 
 /* ---- 8-ball ---------------------------------------------------------- */
 /* Off the table is a foul in pool too — jumping is not. */
-static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
+static void resolve_pool(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                         int first_hit,
                          int scratch, int cushion, const int *potted, int np) {
+    /* WPA Blackball Rules 2005, where the English game differs from the pub
+     * and WPA-international readings that share this resolver. */
+    const int bb = (r->mode == CUE_GAME_UK8 && r->uk_intl == CUE_UK_BLACKBALL);
+    /* Rule 6b: on the first shot after a foul — and only that shot — any ball
+     * may be struck and any ball potted without penalty. */
+    const int was_free = bb && r->free_shot && r->shots_remaining >= 2;
     int grp = r->group[r->turn];
     int low = 0, high = 0, eight = 0;
     for (int k = 0; k < np; k++) {
@@ -241,7 +248,7 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
         if (potted[k] == 8) eight = 1; else if (g == 1) low++; else if (g == 2) high++;
     }
     int my_potted = (grp == 1) ? low : high;   /* own group balls potted THIS shot */
-    int legal_pot = r->open ? (low || high) : my_potted;
+    int legal_pot = (r->open || was_free) ? (low || high) : my_potted;
     /* "on the 8" only if the group was cleared BEFORE this shot — i.e. it's
      * empty now AND you didn't just pot a group ball this shot. Otherwise the
      * shot that pots your last group ball would wrongly read as must-hit-8. */
@@ -250,7 +257,7 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
     int foul = 0; const char *why = "";
     if (scratch)            { foul = 1; why = "SCRATCH"; }
     else if (first_hit < 0) { foul = 1; why = "NO BALL"; }
-    else {
+    else if (!was_free) {
         int fg = pool_group(first_hit);
         if (!r->open) {
             if (on_eight) { if (first_hit != 8) { foul = 1; why = "MUST HIT 8"; } }
@@ -263,7 +270,19 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
      * nudge that touches nothing is legal there. UK international takes the
      * WPA requirement with the rest of it. */
     if (!foul && np == 0 && !cushion && first_hit >= 0 &&
-        (r->mode != CUE_GAME_UK8 || r->uk_intl)) { foul = 1; why = "NO RAIL"; }
+        (r->mode != CUE_GAME_UK8 || r->uk_intl) &&
+        !(bb && r->was_snookered)) { foul = 1; why = "NO RAIL"; }
+    /* Blackball 5e: a jump shot is a foul — the one pool reading here where
+     * leaving the bed is illegal in itself. */
+    if (bb && r->jumped && !foul) { foul = 1; why = "JUMP"; }
+    /* Blackball 4b: a legal break pots a ball or sends two object balls fully
+     * over the line between the middle pockets. The physics keeps the
+     * crossing account (CueWorld.brk_cross); anything already foul stands. */
+    if (bb && r->break_shot && !foul && np == 0) {
+        int crossed = 0;
+        if (w) { uint32_t m = w->brk_cross; while (m) { crossed += m & 1u; m >>= 1; } }
+        if (crossed < 2) { foul = 1; why = "BREAK"; }
+    }
     /* OFF THE TABLE. Last, so it names the foul when nothing worse did: a ball
      * driven off is a foul however good the contact was, and jumping is legal
      * here, so this is the only thing a clean jump shot can go wrong by. */
@@ -272,6 +291,18 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
 
     /* the 8 */
     if (eight) {
+        if (bb && r->break_shot) {
+            /* Rule 4d: the black off any break — with or without other balls,
+             * the cue ball included — is a re-rack and the same player breaks
+             * again. No penalty of any kind. */
+            r->last_foul = 0;
+            r->rerack = 2; r->racks++;
+            r->break_shot = 1;
+            r->ball_in_hand = 1;             /* the re-break is from baulk */
+            r->two_shot = 0; r->shots_remaining = 1; r->free_shot = 0;
+            snprintf(r->msg, sizeof r->msg, "RE-RACK");
+            return;
+        }
         if (r->break_shot && r->mode == CUE_GAME_UK8 &&
             r->uk_intl == CUE_UK_ULTIMATE) {
             /* THE GOLDEN BREAK, which the Ultimate Pool Group play and nobody
@@ -296,13 +327,23 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, int first_hit,
         }
     }
 
-    if (r->open && !foul && !r->break_shot && (low || high)) {  /* assign */
+    if (r->open && !foul && !r->break_shot && !was_free && (low || high)) {  /* assign (4e/4f) */
         int g = (low && !high) ? 1 : (high && !low) ? 2 : pool_group(first_hit);
         if (g == 1 || g == 2) { r->group[r->turn] = g; r->group[1-r->turn] = (g==1)?2:1; r->open = 0; }
     }
 
     if (foul) {
-        if (r->mode != CUE_GAME_UK8 || r->uk_intl) {
+        if (bb) {
+            /* Rules 5/6a/6c: the offender loses the next visit — a free shot
+             * plus one visit to the opponent — and the cue ball is played from
+             * where it lies, or from baulk after an in-off. (The lie-or-baulk
+             * choice on every foul, 6c, is not offered yet: as it lies, and
+             * baulk when it must be.) */
+            r->turn = 1 - r->turn;
+            r->two_shot = 1; r->shots_remaining = 2; r->free_shot = 1;
+            r->ball_in_hand = scratch ? 1 : 0;
+            snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);   /* HUD: FREE SHOT */
+        } else if (r->mode != CUE_GAME_UK8 || r->uk_intl) {
             /* WPA — US, Chinese, and UK international: any foul gives the
              * opponent ball in hand anywhere on the table. */
             r->turn = 1 - r->turn; r->ball_in_hand = 1;
@@ -404,7 +445,7 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t) {
 
 void cue_rules_set_uk(CueRules *r, int ruleset) {
     if (!r) return;
-    if (ruleset < CUE_UK_PUB || ruleset > CUE_UK_ULTIMATE) ruleset = CUE_UK_PUB;
+    if (ruleset < CUE_UK_PUB || ruleset > CUE_UK_BLACKBALL) ruleset = CUE_UK_PUB;
     r->uk_intl = ruleset;
 }
 
@@ -530,6 +571,18 @@ static int clear_path(Vec3 from, Vec3 to, float rad,
         }
     }
     return 1;
+}
+
+int cue_rules_pool_snookered(const CueRules *r, const CueBall *b, int n,
+                             const CueWorld *w) {
+    if (!r || r->kind || !b || !b[0].on) return 0;
+    int any_target = 0;
+    for (int i = 1; i < n; i++) {
+        if (!b[i].on || !cue_rules_ball_legal(r, b, n, b[i].id)) continue;
+        any_target = 1;
+        if (clear_path(b[0].pos, b[i].pos, r->R, b, n, i, w)) return 0;
+    }
+    return any_target;
 }
 
 int cue_rules_is_snookered(const CueRules *r, const CueBall *b, int n,
@@ -2229,7 +2282,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
     else if (r->mode == CUE_GAME_GOLF) resolve_golf(r, b, n, scratch);
-    else                                    resolve_pool(r, b, n, first_hit, scratch, cushion, potted, np);
+    else                                    resolve_pool(r, b, n, w, first_hit, scratch, cushion, potted, np);
     if (wrong_ball && r->last_foul && !r->frame_over)
         snprintf(r->msg, sizeof r->msg, "FOUL: WRONG BALL CUED");
 

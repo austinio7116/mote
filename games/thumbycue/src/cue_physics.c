@@ -265,6 +265,7 @@ void cue_phys_shot_begin(CueWorld *w) {
     w->jump_over = 0; w->jump_over_id = 0;
     w->jmp_pending = 0; w->jmp_idx = -1; w->jmp_hit_it = 0; w->jmp_bounced = 0;
     w->ntouch = 0; w->touch_over = 0;
+    w->brk_cross = 0;
     w->side_cushion = 0;
     /* WHAT THIS STROKE DID TO THE PINS is a fact about this stroke, so the
      * bookkeeping is cleared here. WHETHER A PIN IS LYING DOWN is not — it is
@@ -1901,6 +1902,15 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
     /* The attempt log — see cue_physics.h. Sampled at the step rather than the
      * substep: at 2 kHz the cue ball moves under 4 mm a step at break pace, and
      * the referee is judging in ball widths. */
+    if (w->att_track) {
+        /* the crossing account — see CueWorld::brk_cross. "Fully passed" is
+         * the whole ball on the baulk side, which the sample can only gain:
+         * a ball cannot recross within one step without a cushion. */
+        for (int k = 1; k < n && k < 32; k++)
+            if (balls[k].on &&
+                balls[k].pos.x < -cue_ball_r(w, &balls[k]))
+                w->brk_cross |= 1u << k;
+    }
     if (w->att_track && n > 0 && balls[0].on) {
         if (w->att_prev_ok)
             w->att_path += v3_len(v3_sub(balls[0].pos, w->att_prev));
