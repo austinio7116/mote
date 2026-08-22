@@ -4145,6 +4145,16 @@ Vec3 cue_table_clamp_placement_any(const CueTable *t, Vec3 p,
 
 static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) {
     float R = t->R;
+    /* BAULK, THE AREA — Blackball's in-hand region (rules 4c/4h): the full
+     * width of the table behind the baulk line, centre of the ball on the
+     * line counting as in (4c note). Region 2 from cue_rules_in_hand_anywhere. */
+    if (anywhere == 2) {
+        const float x0 = -t->half_len + R, x1 = t->baulk_x;
+        const float z1 = t->half_wid - R;
+        if (p.x < x0) p.x = x0; else if (p.x > x1) p.x = x1;
+        if (p.z < -z1) p.z = -z1; else if (p.z > z1) p.z = z1;
+        return p;
+    }
     /* BALL IN HAND MEANS THE WHOLE TABLE, where the rules say so. The English
      * table is the D under pub rules and the whole cloth under International
      * and Ultimate Pool, so the region cannot be decided by the table alone —
