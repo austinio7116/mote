@@ -3602,11 +3602,45 @@ void cue_table_variant(CueTable *t, int variant) {
          * shape people mean by one. */
         t->notch_x = t->notch_z = R;
     } else {
+        /* A POLYGON BED HAS A LARGEST SIZE, and the big tables come down to
+         * it rather than every table shrinking by a fixed fraction.
+         *
+         * The workshop's rule — circumradius = the bed's half-length — makes a
+         * bed as WIDE as the table is long. On a twelve-footer that is 3569 mm
+         * across against the rectangle's 3569 x 1778: nearly twice the cloth in
+         * the short direction, and it plays as big as it looks. The small beds
+         * have no such problem, so a flat fraction is the wrong shape of rule —
+         * and it does real damage down there, because the spots scale and the
+         * balls do not: at a flat two thirds, six-red snooker put the cue ball
+         * 4.6 mm inside the brown.
+         *
+         * So there is a cap. NGON_MAX_R is set to put the full-size snooker
+         * table on three quarters, which is the size that was asked for; a
+         * ten-foot bed comes down rather less, a nine-foot barely, and seven
+         * feet and under are left exactly where they were. One number, and it
+         * says what it means: the biggest a round table gets.
+         *
+         * The spots come with it — cue_table_init laid them against the table's
+         * ORIGINAL length, and this is the only variant that changes that
+         * length rather than just its shape. Left behind they sit off the
+         * cloth: measured, seventeen of twenty-two balls outside the cushions.
+         */
         t->bed_shape = CUE_BED_NGON;
         t->bed_sides = sides;
         t->bed_pocket_every = TAB_SHAPE[variant].every;
-        t->half_wid = R;
         t->notch_x = t->notch_z = 0.0f;
+        #define NGON_MAX_R 1.3384f          /* 3/4 of a 12 ft snooker's half-length */
+        if (t->half_len > NGON_MAX_R) {
+            const float k = NGON_MAX_R / t->half_len;
+            t->half_len  = NGON_MAX_R;
+            t->baulk_x  *= k;
+            t->d_radius *= k;
+            t->blue_x   *= k;
+            t->pink_x   *= k;
+            t->black_x  *= k;
+        }
+        #undef NGON_MAX_R
+        t->half_wid = t->half_len;
     }
     cue_table_normalise(t);
     cue_table_cut_to(t, want_c, want_m);
