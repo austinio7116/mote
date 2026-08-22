@@ -784,18 +784,27 @@
       <h3>Straight pool</h3>
       <div class="spec">9FT TABLE · 15 BALLS · 50 UP</div>
       <p>14.1 continuous, the old scoring game. There is no ball you must hit, no group and no
-      order: every ball on the table is worth one point.</p>
+      order: every ball on the table is worth one point, whichever ball it is. You pick one, say it
+      is going down, and if it does you score and carry on. <b>First to 50</b> wins the frame — the
+      real game is played to hundreds, this one is cut to a frame that fits a session.</p>
       <p><b>Calling a ball.</b> The ball you are aiming at is the ball you have called; there is no
-      menu for it. Aim at nothing in particular and you have called nothing, which makes the stroke
-      a safety.</p>
+      menu for it and nothing to press. Whatever your cue is pointing at when you strike is what
+      you have declared. Aim at nothing in particular and you have called nothing, which makes the
+      stroke a safety.</p>
       <p><b>Scoring.</b> Pot the called ball and it scores one, and so does every other ball that
-      happened to go down on the same stroke. An uncalled pot scores nothing and comes straight
-      back up onto the long string behind the foot spot.</p>
+      happened to go down on the same stroke — the accidental extra is a real part of the game. If
+      the call is not made, nothing on that stroke counts and every ball that went down comes
+      straight back up onto the long string behind the foot spot.</p>
+      <p><b>Your visit.</b> Keep making your calls and you stay at the table. Miss one and your
+      opponent is in, and the board says <b>MISSED CALL</b> — or <b>SAFETY</b>, if you called
+      nothing at all.</p>
       <div class="note">
-        <b>The pocket is optional.</b> Real 14.1 calls ball <em>and</em> pocket. Out of the box you
-        call only the ball, so a called ball that drops in a pocket you never intended still
-        scores. Set the <b>RULES</b> row to <b>CALL BALL AND POCKET</b> and the pocket has to be
-        right too — how you say a call is under <a href="#rules">Rules and the referee</a>.
+        <b>The pocket is optional.</b> Real 14.1 calls ball <em>and</em> pocket, and the <b>RULES</b>
+        row carries both readings. On <b>CALL THE BALL</b>, the default, you name only the ball and
+        it may go down <em>any</em> pocket, so a called ball that drops in a pocket you never
+        intended still scores. On <b>CALL BALL AND POCKET</b> it has to be the pocket you named as
+        well, and that is the only setting on this game that lights the pocket lamps — how you say a
+        call is under <a href="#rules">Rules and the referee</a>.
       </div>
       <p><b>Fouls</b> are potting the cue ball, hitting nothing, driving a ball off the table, and
       a stroke that neither pots a ball nor sends any ball to a cushion. A foul is
@@ -803,10 +812,20 @@
       the break has to send two object balls to a cushion or pot a called ball.
       <b>Three fouls in a row costs fifteen more</b> and the whole table is racked again with the
       offender breaking it.</p>
-      <p><b>The rerack.</b> When one ball is left the other fourteen go back as a triangle with the
-      apex space empty; the break ball and the cue ball stay exactly where they lie, and that
-      break ball is what you use to open the new rack. Clear the table outright and all fifteen go
-      back and you break from in hand. First to <b>50</b> takes the frame.</p>
+      <p><b>The rerack, which is what <em>continuous</em> means.</b> You never clear all fifteen.
+      When one ball is left the other fourteen go back as a triangle with the apex space empty; the
+      break ball and the cue ball stay exactly where they lie, and that break ball is what you use
+      to open the new rack. Your visit is not interrupted — play carries straight on, which is why
+      a good player spends the end of a rack putting that last ball somewhere it will smash the new
+      pack open. Clear the table outright and all fifteen go back and you break from in hand.</p>
+      <div class="note">
+        <b>One visit, start to finish.</b> Fourteen balls are still on and you are down on the 12
+        near the side pocket. You aim at it and strike; it drops, and the 5 it clipped on the way in
+        drops too — two points, and you are still at the table. You line up the 9 next, hit it too
+        thin, and it stays out: MISSED CALL, and your opponent is in. Under CALL THE BALL that is
+        the whole of it. Under CALL BALL AND POCKET you would have had to name the pocket the 12 was
+        going in as well, and a 12 that fell anywhere else would have come straight back up.
+      </div>
     </div>
   </div>
 
@@ -1012,7 +1031,7 @@
   </div>
 
   <div class="mode">
-    <div style="grid-column:1/-1">
+    <div>
       <h3>Carom — four games and no pockets at all</h3>
       <div class="spec">10FT TABLE · NO POCKETS · 61.5 MM BALLS · FOUR GAMES ON THE RULES ROW</div>
       <p>A new table with nowhere for anything to fall: four plain cushions all the way round.
@@ -1034,6 +1053,7 @@
           not touch. First to 15.</td></tr>
       </table>
     </div>
+    <figure><img src="img/cuevr/game-carom.png" alt="A carom table, with no pockets at all"></figure>
   </div>
 
   <h3>The balls each game is played with</h3>
@@ -1187,6 +1207,12 @@
   <p>Hold <kbd>X</kbd> at any point and the board is replaced by a <b>live photograph of the table
   from above</b>, for as long as you hold it.</p>
 
+  <figure>
+    <img src="img/cuevr/table-above.png" alt="The table seen from directly above">
+    <figcaption>What the board shows while you hold <kbd>X</kbd>: the whole table from directly
+    above, balls and all, updating as they move.</figcaption>
+  </figure>
+
   <div class="note">
     <b>The ball you cued is the ball you struck.</b> Nothing lifts or steers your cue onto the
     white for you, so if another ball is standing on the line, your tip reaches that one first and
@@ -1209,29 +1235,57 @@
 
   <h3>Foul and a miss</h3>
   <p>In the snooker games, failing to hit the ball on is always a foul — but whether it is also
-  called a <b>miss</b> depends on the effort you made, exactly as a real referee judges it. The
-  stroke needs enough pace to have reached the ball on, and a line that passed reasonably close.
-  An escape from a snooker is judged far more generously than an open shot, and a long roll up the
-  table more generously than a tap from a foot away. Three misses in a row from the same position,
-  when you can see the ball, lose the frame.</p>
-  <p>The <b>RULES</b> row sets how strict that judgement is:</p>
+  called a <b>miss</b> depends on the effort you made, exactly as a real referee judges it.</p>
+  <p><b>Where to set it.</b> The <b>RULES</b> row on the snooker games. It has three strictnesses,
+  and it can be turned off, in which case there is no judgement at all and every failure to hit the
+  ball on is a miss, as it always was before the rule existed.</p>
   <table>
     <tr><td><b>MISS: AMATEUR</b></td><td>A genuine try is enough — within about three ball widths,
       with most of the pace to get there.</td></tr>
     <tr><td><b>MISS: CLUB</b></td><td>The default. Within a ball and a half, at nearly full
       pace.</td></tr>
-    <tr><td><b>MISS: PRO</b></td><td>As on television: almost every failure is called. The cue ball
-      must have had the pace to pass the ball on, and only a genuine whisker escapes.</td></tr>
+    <tr><td><b>MISS: PRO</b></td><td>As on television: almost every failure is called. Within about
+      a third of a ball, and the cue ball must have had the pace to pass the ball on.</td></tr>
   </table>
 
-  <p>The same row has a fourth stop, <b>SHOOTOUT</b>, which is a different frame altogether — see
+  <p><b>How the referee decides.</b> He judges the stroke against the ball you came
+  <b>nearest</b> to, not against every legal ball on the table — a stroke aimed at one red is not
+  marked down for the fourteen it ignored. Two things then settle it:</p>
+  <table>
+    <tr><td><b>How close you came</b></td><td>Measured in ball widths — roughly three balls at
+      AMATEUR, a ball and a half at CLUB, a third of a ball at PRO.</td></tr>
+    <tr><td><b>Whether it was a real attempt</b></td><td>How far the cue ball travelled against how
+      far it had to go. A dribble that stops short is a miss however well aimed it was.</td></tr>
+  </table>
+  <p>Two allowances are made on top of that, because a referee makes them. You get <b>three times
+  the room</b> when you were snookered — an escape off three cushions that finishes a ball's width
+  away is a good attempt by anybody's reckoning — and more room the longer the shot, so nobody is
+  called for drift on a twelve-foot roll that the same drift on a tap from a foot away would be
+  called for. Three misses in a row from the same position, when you can see the ball, lose the
+  frame.</p>
+
+  <p>The same row has a fourth stop, <b>SHOOTOUT</b>. It <b>replaces</b> the miss rule rather than
+  sitting beside it: it is a different frame altogether, played against a clock — see
   <a href="#games">The games</a>.</p>
 
   <h3>Calling a pocket</h3>
-  <p>Four games can be played call-shot, and each one asks for it in its own way:</p>
+  <p>To call a shot is to say, before you play it, which ball you are potting and where it is
+  going. Four games can ask for it.</p>
+
+  <div class="note">
+    <b>Most of the time you say nothing at all.</b> When the pot in front of you is the obvious one,
+    the game calls it for you and you simply play the shot. That is how it behaves out of the box;
+    it is not a setting and there is nothing to switch on. You only ever have to do anything on the
+    strokes that are genuinely ambiguous — which is what stops a call-shot game turning into
+    paperwork.
+  </div>
+
+  <p><b>Where you set it</b> is the <b>RULES</b> row on the main menu, and each game words it its
+  own way:</p>
   <table>
-    <tr><td><b>Straight pool</b></td><td><b>CALL BALL AND POCKET</b> on the RULES row. Nothing counts
-      unless it was declared first — that is the game.</td></tr>
+    <tr><td><b>Straight pool</b></td><td><b>CALL THE BALL</b>, the default, wants the ball only, and
+      it may go down any pocket. <b>CALL BALL AND POCKET</b> wants both — nothing counts unless it
+      was declared first, and that is the real game.</td></tr>
     <tr><td><b>10-ball</b></td><td><b>CALL SHOT (WPA)</b>. Every stroke is called; the break is not.</td></tr>
     <tr><td><b>US 8-ball</b></td><td><b>CALL THE BLACK</b> asks only for the last one, which is how most
       people play. <b>CALL SHOT (WPA)</b> asks for every stroke, which is how the rule book has
@@ -1239,11 +1293,31 @@
     <tr><td><b>Chinese 8-ball</b></td><td>The same two, with <b>CALL SHOT (CBSA)</b> for the tournament
       reading.</td></tr>
   </table>
-  <p>Most calls you never make yourself — when the pot in front of you is obvious, the game calls
-  it for you and you just play. When it is genuinely ambiguous, <b>small LED lights behind each
-  pocket glow amber</b> and you say which you mean. Nothing is ever called on the break, and the
-  scoreboard says <b>NO CALL NEEDED</b> so you are not left wondering.</p>
-  <p>How you say it is the <b>CALL A POCKET</b> row on CONTROLS:</p>
+
+  <figure>
+    <img src="img/cuevr/call-pockets.png" alt="A called pocket, its lamp lit green in the timber">
+    <figcaption>A small lamp is set into the timber beside every pocket. This one is solid green:
+    that pocket has been called.</figcaption>
+  </figure>
+
+  <p><b>What the lamps mean.</b> There is one behind each pocket, and its colour is the whole
+  story:</p>
+  <table>
+    <tr><td><b>Flashing green</b></td><td>The game's own call. It has picked this pocket for you;
+      play the shot and it stands.</td></tr>
+    <tr><td><b>Solid green</b></td><td>A pocket <em>you</em> declared.</td></tr>
+    <tr><td><b>Red</b></td><td>A call is owed on this stroke, and this is not the pocket it is
+      on.</td></tr>
+    <tr><td><b>Amber, filling up</b></td><td>The pocket you are looking at now, filling as the dwell
+      runs. Let it fill and it is called.</td></tr>
+    <tr><td><b>Grey</b></td><td>Nothing needs calling this stroke.</td></tr>
+  </table>
+  <p>The called ball gets a <b>chalk ring</b> on the cloth as well, so one glance tells you both
+  halves of what is booked. <b>Nothing is ever called on the break</b>, and the scoreboard says
+  <b>NO CALL NEEDED</b> so you are not left wondering.</p>
+
+  <p><b>Overruling the game's choice</b> — or making the call yourself when the shot is ambiguous —
+  is the <b>CALL A POCKET</b> row on CONTROLS, and there are three ways to do it:</p>
   <table>
     <tr><td><b>LOOK + TRIGGER</b></td><td>Hold the trigger on your free hand, look at a ball or a
       pocket, and release to call it.</td></tr>
@@ -1253,9 +1327,8 @@
     <tr><td><b>POINT + TRIGGER</b></td><td>A laser from your free hand — or from the cue itself,
       if you have a real cue attached.</td></tr>
   </table>
-  <p>The called ball gets a <b>chalk ring</b> on the cloth and the called pocket's LED turns
-  <b>green</b>, so a glance tells you what is booked. The computer players call their pockets too,
-  and you see the call while their shot rolls.</p>
+  <p>The computer players call their pockets too, from the plan they actually made, and you see
+  their call light up while their shot is still rolling.</p>
 
   <h3>Turning the referee off</h3>
   <p>The <b>REF VOICE</b> row on the main menu sets a female voice, a male voice, or no voice at
@@ -1977,6 +2050,13 @@
     <figure><img src="img/cuevr/bed-hexagon-3q.png" alt="A hexagonal table in the room">
       <figcaption>A hexagon, on turned legs standing on its corners.</figcaption></figure>
   </div>
+
+  <figure>
+    <img src="img/cuevr/bed-round-pocket.png" alt="A pocket on the round bed">
+    <figcaption>A pocket on the round bed, close up. Frame, cushion and jaws are all rebuilt to
+    follow the curve, so the timber runs round the outside of the hole instead of meeting at a
+    corner.</figcaption>
+  </figure>
 
   <ul>
     <li><b>The shapes take rows away.</b> A regular bed has no second dimension, so BED WIDTH goes
