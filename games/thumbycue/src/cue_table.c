@@ -1684,6 +1684,36 @@ static void build_ngon(CueWorld *w, const CueTable *t) {
                 (i % every)             ? LEND_REFLEX : LEND_CORNER,
                 ((i + 1) % n) % every   ? LEND_REFLEX : LEND_CORNER);
     }
+#ifdef MOTE_HOST
+    /* CUE_NGONDUMP=1 — does the cushion actually REACH the pocket it is cut
+     * for? A jaw that stops short leaves bare cloth in the mouth and a bore
+     * with nothing running into it, which is what a round bed was reported
+     * for. Printed as the closest cushion point to each bore's rim: zero or
+     * less means the cushion arrives, positive is the gap. */
+    {   const char *e = getenv("CUE_NGONDUMP");
+        if (e) {
+            float edge = 0.0f;
+            {   const Vec3 a0 = cue_table_ngon_vert(t, 0);
+                const Vec3 b0 = cue_table_ngon_vert(t, 1 % n);
+                edge = sqrtf((b0.x-a0.x)*(b0.x-a0.x) + (b0.z-a0.z)*(b0.z-a0.z)); }
+            for (int q = 0; q < w->npocket; q++) {
+                float best = 1e9f;
+                for (int sgi = 0; sgi < w->nseg; sgi++) {
+                    const Vec3 P[2] = { w->seg[sgi].a, w->seg[sgi].b };
+                    for (int e2 = 0; e2 < 2; e2++) {
+                        const float dx2 = P[e2].x - w->pocket[q].x;
+                        const float dz2 = P[e2].z - w->pocket[q].z;
+                        const float d2 = sqrtf(dx2*dx2 + dz2*dz2) - w->pocket_r[q];
+                        if (d2 < best) best = d2;
+                    }
+                }
+                printf("NGON n %d edge %.4f jaw_segs %d | pocket %d rim gap %+.4f"
+                       " | pr %.4f\n",
+                       n, edge, w->jaw_segs, q, best, w->pocket_r[q]);
+            }
+        }
+    }
+#endif
 
     /* ...and the outline itself, so the physics can say what is cloth. */
     w->nbedv = n;

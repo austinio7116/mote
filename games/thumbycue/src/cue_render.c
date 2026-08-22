@@ -628,11 +628,29 @@ static void build_bed_boundary_ngon(const CueTable *t, const CueWorld *w,
     const float over = t->rail_w * CUE_SLATE_RAIL;    /* how far the slate runs on */
     const float sr = (ap + over) / (ap > 1e-5f ? ap : 1.0f) * rr;  /* slate radius */
     B->n = 0;
+#ifdef MOTE_HOST
+    /* CUE_BEDDUMP=1 — where the cloth stops on a polygon bed, against where
+     * the cushion sits, in the one unit that matters: distance from the
+     * centre to the LINE, not to the vertex. A polygon's vertex is further
+     * out than its edge, and reading the two as the same number is exactly
+     * the kind of mistake this prints out. */
+    {   const char *e = getenv("CUE_BEDDUMP");
+        if (e) {
+            const float cw_ = t->rail_w * 0.63f;
+            for (int q = 0; q < w->npocket; q++)
+                printf("BED pocket %d at (%.4f %.4f) r %.4f  frac (%.3f %.3f)\n",
+                       q, w->pocket[q].x, w->pocket[q].z, w->pocket_r[q],
+                       w->pocket[q].x / (t->half_len > 0 ? t->half_len : 1),
+                       w->pocket[q].z / (t->half_wid > 0 ? t->half_wid : 1));
+            printf("BED ngon n %d sides, r %.5f apothem %.5f | slate edge %.5f"
+                   " (vertex %.5f) | nose %.5f | cushion back %.5f | over %.5f\n",
+                   n, rr, ap, ap + over, sr, ap, ap + cw_, over);
+        }
+    }
+#endif
 
     for (int i = 0; i < n && B->n < CUE_BND_MAX; i++) {
         const Vec3 V  = cue_table_ngon_vert(t, i);
-        const Vec3 Vn = cue_table_ngon_vert(t, (i + 1) % n);
-        const Vec3 Vp = cue_table_ngon_vert(t, (i + n - 1) % n);
         const float vl = sqrtf(V.x*V.x + V.z*V.z);
         if (vl < 1e-5f) continue;
 
@@ -645,6 +663,9 @@ static void build_bed_boundary_ngon(const CueTable *t, const CueWorld *w,
         if (pk >= w->npocket) continue;
         const Vec3  C = w->cut_c[pk];
         const float R = w->cut_r[pk];
+
+        const Vec3 Vp = cue_table_ngon_vert(t, (i + n - 1) % n);
+        const Vec3 Vn = cue_table_ngon_vert(t, (i + 1) % n);
 
         /* The two edges meeting here, as unit directions leaving the vertex,
          * and the outward normal of each. */
@@ -1247,6 +1268,50 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
             const float x1 = hx[h] + hr[h]*cosf(a1), z1 = hz[h] + hr[h]*sinf(a1);
             quad(v3(x0, ytop, z0), v3(x1, ytop, z1),
                  v3(x1, ybot, z1), v3(x0, ybot, z0), wall);
+        }
+    }
+
+    /* ---- AND THE TWO STRAIGHT SIDES OF THE SLOT, ON A POLYGON ------------
+     *
+     * The same thing bore_fill does for a rail plank, which the ring never
+     * learned. A pocket cut into a fine polygon is nearly TANGENT to the
+     * ring's inner face: the arc leaves the timber almost along the rail, so
+     * where it goes the wall stops and there is nothing between its end and
+     * the face — the thin open slivers either side of a round table's pocket,
+     * which is not a shape any real table has. A pocket is cut as a SLOT: the
+     * round end at the back and two straight sides running out to the front
+     * edge. So each end of the arc gets a flat wall carried straight to the
+     * inner face, along that face's own normal.
+     *
+     * Found on a sixty-sided bed by comparing it with a hexagon, whose corners
+     * are wide enough that the arc leaves the timber well clear of the face
+     * and closes itself. Coarse beds emit nothing here, because their arcs
+     * never leave the band near the face: `gap` comes out at or below zero and
+     * the wall is skipped. */
+    for (int h = 0; h < nh; h++) {
+        const int NA = 240;
+        int prev_in = -1;
+        for (int k = 0; k <= NA; k++) {
+            const float a = 6.2831853f * (float)k / NA;
+            const float px = hx[h] + hr[h]*cosf(a), pz = hz[h] + hr[h]*sinf(a);
+            const float rr2 = sqrtf(px*px + pz*pz);
+            if (rr2 < 1e-5f) continue;
+            const float th = atan2f(pz, px);
+            const float step = 6.2831853f / (float)n;
+            const float phi = step * floorf(th / step + 0.5f);
+            const float proj = rr2 * cosf(th - phi);
+            const int in_band = (proj >= ap_in && proj <= ap_out);
+            if (prev_in >= 0 && in_band != prev_in) {
+                /* a crossing: carry this point straight to the inner face */
+                const float nx2 = cosf(phi), nz2 = sinf(phi);
+                const float gap = proj - ap_in;
+                if (gap > 1e-4f) {
+                    const float qx = px - nx2 * gap, qz = pz - nz2 * gap;
+                    quad(v3(px, ytop, pz), v3(qx, ytop, qz),
+                         v3(qx, ybot, qz), v3(px, ybot, pz), wall);
+                }
+            }
+            prev_in = in_band;
         }
     }
 }
@@ -2042,6 +2107,23 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
             }
             s_nose_cap_n++;
         }
+#ifdef MOTE_HOST
+        /* CUE_UNDERDUMP=1 — how far the cushion's BASE stands in over the
+         * cloth from its nose, which is the "under the nose protrudes" the
+         * round bed was reported for. Printed as the distance along the
+         * segment's own outward normal, so a rail and an arc are the same
+         * number. */
+        {   const char *e = getenv("CUE_UNDERDUMP");
+            if (e) {
+                const float pa_r = sqrtf(an.x*an.x + an.z*an.z);
+                const float ba_r = sqrtf(ba.x*ba.x + ba.z*ba.z);
+                const float inw  = (an.x - ba.x) * sg->n.x + (an.z - ba.z) * sg->n.z;
+                printf("UNDER seg %3d kind%d sA%d  nose_r %.5f base_r %.5f"
+                       "  base stands in %.5f m\n", s, sg->kind, sharedA,
+                       pa_r, ba_r, inw);
+            }
+        }
+#endif
         ribbon(ba, bb, bn, an, fdark);      /* undercut face (leans to nose) */
         quad(an, bn, bf, af, face);            /* small flat (planar) */
         ribbon(af, bf, br, ar, ctop);       /* cloth top → rail */
