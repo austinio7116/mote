@@ -1930,8 +1930,13 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
         for (int i = 0; i < n; i++) {
             if (!balls[i].on) continue;
             balls[i].vel = v3(0, 0, 0);
-            balls[i].w.y = 0.0f;
-            /* leave w.x/w.z = rolling residual; harmless, zero at next strike */
+            /* ALL of it, w.x/w.z included. This left the rolling residual
+             * behind a comment calling it harmless — but a resting ball with
+             * stored spin is not resting: ball-ball friction reads BOTH spins
+             * at the next contact, so the residual bent the throw of the NEXT
+             * shot. Measured at 0.2 mm of settle divergence from one quiet
+             * stroke into once-rolled balls. */
+            balls[i].w = v3(0, 0, 0);
         }
         return 0;
     }
