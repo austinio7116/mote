@@ -327,6 +327,16 @@ static CueBnd s_bnd;           /* shared by the bed cut and the lip */
  * a strip of daylight between the cloth and the frame. */
 static void slate_extent(const CueTable *t, const CueWorld *w, float *ex, float *ez) {
     (void)w;
+    /* CAROM'S CLOTH RUNS UNDER THE WHOLE FRAME. On a pocketed table the
+     * cushions and the wood cover everything past the part-rail extent; on
+     * the carom rectangle the frame is wide and the part-way cloth left bare
+     * geometry showing at its inner edge. Carom only, at Mark's instruction:
+     * nothing else reads a different answer than it did. */
+    if (CUE_GAME_IS_CAROM(t->kind)) {
+        *ex = t->half_len + t->rail_w;
+        *ez = t->half_wid + t->rail_w;
+        return;
+    }
     *ex = t->half_len + t->rail_w * CUE_SLATE_RAIL;
     *ez = t->half_wid + t->rail_w * CUE_SLATE_RAIL;
 }

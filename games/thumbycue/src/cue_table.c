@@ -1154,6 +1154,15 @@ int cue_table_validate(const CueTable *t, char *msg, int msgcap) {
     if (t->kind == CUE_GAME_BARBILLIARDS && t->bed_shape != CUE_BED_RECT)
         return tab_fail(msg, msgcap,
                         "bar billiards has its holes in the bed, so its bed must be a rectangle");
+    /* CAROM IS ONE FIXED MATCH TABLE. Its cushions are four plain rails built
+     * as a rectangle, and its variant list offers no shapes — but validate is
+     * a separate gate, and without this a hexagon or a triangle could be built
+     * with rectangular rails on a bed that is not one. Caught by test_frame,
+     * which builds every frame design on every shape and found a face wound
+     * against its own normal on a triangular carom table. */
+    if (CUE_GAME_IS_CAROM(t->kind) && t->bed_shape != CUE_BED_RECT)
+        return tab_fail(msg, msgcap,
+                        "carom is played on one fixed rectangular table");
 
     if (t->half_wid > t->half_len)
         return tab_fail(msg, msgcap, "the table is wider than it is long");
@@ -2562,15 +2571,18 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         add_pocket(w, 0.0f,  hw + os, caps, 1, 0.0f,  1.0f);
     }
 
+    /* CAROM IS PART OF THE CHAIN BELOW, not a block before it. Written as
+     * its own if, the four plain cushions went in and then control FELL INTO
+     * the pocketed-rectangle else-chain, which happily built a second, six-
+     * pocket cushion set on top of them — overlapping rails, and the wrap
+     * corner no longer shared, which is the square hole reported in one
+     * corner. One chain, one set of cushions. */
     if (CUE_GAME_IS_CAROM(t->kind)) {
-        /* ---- CAROM: four plain cushions and nothing else at all ---------- */
         add_seg(w, v3(-hl, 0, -hw), v3( hl, 0, -hw), 0);
         add_seg(w, v3( hl, 0, -hw), v3( hl, 0,  hw), 0);
         add_seg(w, v3( hl, 0,  hw), v3(-hl, 0,  hw), 0);
         add_seg(w, v3(-hl, 0,  hw), v3(-hl, 0, -hw), 0);
-    }
-
-    if (t->kind == CUE_GAME_BARBILLIARDS) {
+    } else if (t->kind == CUE_GAME_BARBILLIARDS) {
         /* ---- BAR BILLIARDS: four plain cushions and nine holes in the bed --
          *
          * There are no pockets on the rails, so the rails are four unbroken
