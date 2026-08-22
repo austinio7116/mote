@@ -243,6 +243,23 @@ static void respot_colour(CueRules *r, CueBall *b, int n, int id) {
 static void resolve_pool(CueRules *r, CueBall *b, int n, const CueWorld *w,
                          int first_hit,
                          int scratch, int cushion, const int *potted, int np) {
+    /* THE CALL, where the rule set asks for one. Level 1 asks only for the
+     * black — Chinese 8-ball's own exemption for the obvious shots, and the
+     * pub convention everywhere else; level 2 is WPA's every-stroke call.
+     * Never on the break in either. The call belongs to this stroke however
+     * it turns out, so it is read and cleared here. */
+    const int pool_call = (r->mode == CUE_GAME_US8 || r->mode == CUE_GAME_CN8)
+                        ? r->call_shot_on : 0;
+    const int called_id  = r->nominated;
+    const int called_pkt = r->called_pocket;
+    r->nominated = 0; r->called_pocket = -1;
+    int made_call = 0;
+    for (int k = 0; k < np && called_id; k++) {
+        if (potted[k] != called_id) continue;
+        const CueBall *q = find_ball(b, n, potted[k]);
+        if (!q || q->pocket == CUE_OFF_TABLE) continue;   /* driven off, not potted */
+        if (called_pkt < 0 || (int)q->pocket == called_pkt) made_call = 1;
+    }
     /* WPA Blackball Rules 2005, where the English game differs from the pub
      * and WPA-international readings that share this resolver. */
     const int bb = (r->mode == CUE_GAME_UK8 && r->uk_intl == CUE_UK_BLACKBALL);
@@ -257,6 +274,13 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, const CueWorld *w,
     }
     int my_potted = (grp == 1) ? low : high;   /* own group balls potted THIS shot */
     int legal_pot = (r->open || was_free) ? (low || high) : my_potted;
+    /* WPA 8-ball is a call-shot game: a ball potted that was not the one
+     * called ends the visit. It is NOT a foul and nothing comes back up — the
+     * table simply passes, exactly as ten-ball's does. The break and the free
+     * shot are exempt, and so is level 1, which asks only for the black. */
+    const int slopped = (pool_call >= 2 && !r->break_shot && !was_free &&
+                         legal_pot && !made_call);
+    if (slopped) legal_pot = 0;
     /* "on the 8" only if the group was cleared BEFORE this shot — i.e. it's
      * empty now AND you didn't just pot a group ball this shot. Otherwise the
      * shot that pots your last group ball would wrongly read as must-hit-8. */
@@ -326,16 +350,28 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, const CueWorld *w,
         if (r->break_shot) {                       /* re-spot, no result */
             respot_eight(r, b, n);
         } else {
-            /* legal win only if the group was clear BEFORE potting the 8 */
-            int win = !foul && !scratch && on_eight;
+            /* legal win only if the group was clear BEFORE potting the 8 —
+             * and, where the rules call, only in the pocket that was called.
+             * The black in the wrong pocket is loss of frame, WPA 3.15 and
+             * every pub table in the country. Both call levels ask for this
+             * one: level 1 asks for nothing else. */
+            const int eight_called = !pool_call || !on_eight ||
+                                     (called_id == 8 && made_call);
+            int win = !foul && !scratch && on_eight && eight_called;
             r->frame_over = 1; r->winner = win ? r->turn : (1 - r->turn);
             book_frame(r, r->winner);
-            snprintf(r->msg, sizeof r->msg, win ? "FRAME WON!" : "FOUL ON 8");
+            snprintf(r->msg, sizeof r->msg,
+                     win ? "FRAME WON!"
+                     : (!foul && !scratch && on_eight) ? "NOT AS CALLED - 8"
+                                                       : "FOUL ON 8");
             return;
         }
     }
 
-    if (r->open && !foul && !r->break_shot && !was_free && (low || high)) {  /* assign (4e/4f) */
+    /* WPA 8.3: with call shot on, the table stays open until a player pockets
+     * the ball they CALLED — slop leaves it open. */
+    if (pool_call >= 2 && !r->break_shot && !made_call) { /* nothing assigned */ }
+    else if (r->open && !foul && !r->break_shot && !was_free && (low || high)) {  /* assign (4e/4f) */
         int g = (low && !high) ? 1 : (high && !low) ? 2 : pool_group(first_hit);
         if (g == 1 || g == 2) { r->group[r->turn] = g; r->group[1-r->turn] = (g==1)?2:1; r->open = 0; }
     }
@@ -369,6 +405,11 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, const CueWorld *w,
         /* potting your own ball cancels any two-shot advantage carried in */
         r->two_shot = 0; r->shots_remaining = 1; r->free_shot = 0;
         r->msg[0] = 0;                              /* same player continues */
+    } else if (slopped) {
+        /* the ball went down, just not the one that was called */
+        r->turn = 1 - r->turn;
+        r->two_shot = 0; r->shots_remaining = 1; r->free_shot = 0;
+        snprintf(r->msg, sizeof r->msg, "NOT AS CALLED");
     } else if (r->shots_remaining > 1) {
         /* missed but still holding a shot from the carry — play on, same player */
         r->shots_remaining--; r->free_shot = 0;
@@ -2332,6 +2373,10 @@ void cue_rules_call_shot(CueRules *r, int ball_id, int pocket) {
         r->called_pocket = r->nominated ? pocket : -1;
     } else if (r->mode == CUE_GAME_US10 && r->call_shot_on) {
         r->nominated = (ball_id >= 1 && ball_id <= 10) ? ball_id : 0;
+        r->called_pocket = r->nominated ? pocket : -1;
+    } else if ((r->mode == CUE_GAME_US8 || r->mode == CUE_GAME_CN8) &&
+               r->call_shot_on) {
+        r->nominated = (ball_id >= 1 && ball_id <= 15) ? ball_id : 0;
         r->called_pocket = r->nominated ? pocket : -1;
     }
 }

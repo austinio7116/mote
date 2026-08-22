@@ -101,6 +101,15 @@ typedef struct {
      * stroke whose call was not made passes the table with everything staying
      * down except the 10 — which respots, WPA 9.5 — and the 10 itself only
      * wins AS CALLED. The break is never a called shot. */
+    /* AND THE 8-BALL GAMES CALL TOO, at two strengths, because the codes
+     * differ: WPA 8-ball calls ball and pocket on every stroke after the
+     * break, while Chinese 8-ball exempts the obvious shots and asks only
+     * that the BLACK be called — which is also what most pub tables play.
+     *   0  no calling
+     *   1  the black only
+     *   2  every stroke after the break
+     * Ten-ball uses 2 or nothing; the level is the same field so one host
+     * row can drive it. */
     int call_shot_on;
     int target_score;    /* points that take the frame. 50 here, because a VR
                           * frame wants to end inside a session; 100 and 150 are
