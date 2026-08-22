@@ -1472,19 +1472,24 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
     /* WHAT THE CUE BALL TOUCHED, and in what order. Only the two object balls
      * matter; a cushion between them changes nothing in billiards (it is
      * three-cushion that cares, and that is not this game). */
-    int hit_red = 0, hit_white = 0, first = 0;   /* first: the id struck first */
+    /* `first` is an ID, and one of the ids in this game is ZERO — the object
+     * white wears CUE_ID_BIL_WHITE == CUE_ID_CUE when the yellow is the
+     * striker's ball. Testing it for truth called every clean stroke the
+     * yellow played onto the white a MISS, and priced a white-first in-off as
+     * a red one. -1 means nothing struck; nothing else does. */
+    int hit_red = 0, hit_white = 0, first = -1;  /* first: the id struck first */
     if (w) {
         for (int i = 0; i < w->ntouch; i++) {
             if (w->touch[i].what != CUE_TOUCH_BALL) continue;
             int id = w->touch[i].id;
-            if (id == CUE_ID_BIL_RED) { if (!first) first = id; hit_red = 1; }
-            else                      { if (!first) first = id; hit_white = 1; }
+            if (id == CUE_ID_BIL_RED) { if (first < 0) first = id; hit_red = 1; }
+            else                      { if (first < 0) first = id; hit_white = 1; }
         }
     }
     /* A world that kept no account still has first_hit, which is enough for
      * everything but the cannon — better a game that scores the hazards than
      * one that refuses to run. */
-    if (!first && first_hit >= 0) {
+    if (first < 0 && first_hit >= 0) {
         first = first_hit;
         if (first_hit == CUE_ID_BIL_RED) hit_red = 1; else hit_white = 1;
     }
@@ -1498,13 +1503,12 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
      * `scratch` — but only a scratch AFTER a contact is an in-off. Section 2
      * Definition 17: the striker in hand who pockets his cue ball having hit
      * nothing is running a coup, and that is a foul (Rule 14(r)). */
-    const int in_off = scratch && first;
+    const int in_off = scratch && first >= 0;
     const int cannon = hit_red && hit_white;
 
     /* ---- the fouls ---- */
     int foul = 0; const char *why = "";
-    if (!first)                       { foul = 1; why = scratch ? "COUP" : "MISS"; }
-    else if (scratch && !first)       { foul = 1; why = "COUP"; }
+    if (first < 0)                    { foul = 1; why = scratch ? "COUP" : "MISS"; }
     if (r->n_off)                     { foul = 1; why = "OFF THE TABLE"; }
     /* Rules 9 and 10, checked on the stroke that would exceed them. A cannon
      * counts toward the cannon limit only when the stroke has no hazard in it,
@@ -2172,6 +2176,12 @@ int cue_rules_apply_decision(CueRules *r, int decision) {
 }
 
 int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
+    /* The generic guard cannot run first in billiards: the OBJECT WHITE wears
+     * CUE_ID_CUE, and the guard was answering for it before the billiards rule
+     * below ever saw the question. */
+    if (r->mode == CUE_GAME_BILLIARDS)
+        return id == CUE_ID_BIL_RED ||
+               id == (r->bil_yellow ? CUE_ID_BIL_WHITE : CUE_ID_BIL_YELLOW);
     if (id == CUE_ID_CUE) return 0;
     /* Free ball: the NOMINATED one, once named — a free ball is nominated in
      * snooker exactly as a colour is, and "any ball is on" was the striker
@@ -2197,7 +2207,6 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
     /* GOLF: clear the reds. There is no order and no nominated ball — the only
      * thing you may not strike first is your own cue ball. */
     if (r->mode == CUE_GAME_GOLF) return id != CUE_ID_CUE;
-    if (r->mode == CUE_GAME_BILLIARDS) return id != CUE_ID_CUE;
     if (CUE_GAME_IS_PYRAMID(r->mode))  return id >= 1 && id <= 15;
     if (r->open) return id != 8;                 /* open table: anything but the 8 */
     /* the 8 is legal ONLY once your own group is fully cleared */

@@ -40,17 +40,23 @@ static CueTable T;
 static CueWorld W;
 static CueBall  B[CUE_MAX_BALLS];
 
+/* The object white's REAL id is zero — CUE_ID_BIL_WHITE == CUE_ID_CUE — which
+ * a 0-terminated array cannot carry. That gap is exactly where the yellow
+ * player's fouls hid: no case here could even say "the striker hit the white".
+ * TW is the test's stand-in; play() translates it back to the real id. */
+#define TW 99
+static int untw(int id) { return id == TW ? CUE_ID_BIL_WHITE : id; }
 static void play(CueRules *r, const Shot *s) {
     memset(&W, 0, sizeof W);
     W.ntouch = 0;
     for (int i = 0; i < 4 && s->touch[i]; i++) {
         W.touch[W.ntouch].what = CUE_TOUCH_BALL;
-        W.touch[W.ntouch].id   = (unsigned char)s->touch[i];
+        W.touch[W.ntouch].id   = (unsigned char)untw(s->touch[i]);
         W.ntouch++;
     }
     int potted[8], np = 0;
-    for (int i = 0; i < 4 && s->pot[i]; i++) potted[np++] = s->pot[i];
-    int first = s->touch[0] ? s->touch[0] : -1;
+    for (int i = 0; i < 4 && s->pot[i]; i++) potted[np++] = untw(s->pot[i]);
+    int first = s->touch[0] ? untw(s->touch[0]) : -1;
     r->n_off = s->off;
     cue_rules_resolve(r, B, 3, &W, first, s->scratch, 1, potted, np);
 }
@@ -361,6 +367,43 @@ int main(void) {
         char d[64]; snprintf(d, sizeof d, "%d respots, break %d", placed, r.score[0]);
         ok(placed == 6 && r.score[0] == 18,
            "six pots of the red: six respots and eighteen points", d);
+    }
+
+    /* ---- THE YELLOW SIDE (Section 3 Rule 4, same rules, other ball) ------- *
+     * The striker's ball is the yellow and the OBJECT white wears id zero.
+     * Every case below was impossible to express before TW existed — and the
+     * first one was a foul on the device for as long as that was true. */
+    {   CueRules r; fresh(&r);
+        r.bil_yellow = 1;
+        cue_rules_billiards_swap(B, 3);
+        int sc0 = r.score[0], sc1 = r.score[1];
+        Shot s = { .touch = { TW } };            /* a clean stroke onto the white */
+        play(&r, &s);
+        ok(!r.last_foul, "yellow onto the object white: no foul", r.msg);
+        ok(r.score[0] == sc0 && r.score[1] == sc1,
+           "...and no score: the turn simply passes", "");
+    }
+    {   CueRules r; fresh(&r);
+        r.bil_yellow = 1;
+        cue_rules_billiards_swap(B, 3);
+        Shot s = { .touch = { TW, CUE_ID_BIL_RED }, .scratch = 1 };
+        play(&r, &s);
+        ok(!r.last_foul, "yellow: white first, red, in-off", r.msg);
+        ok(r.brk == 2 + 2,
+           "...scores the cannon AND the in-off priced by the WHITE (Rule 4(d))",
+           r.msg);
+    }
+    {   CueRules r; fresh(&r);
+        r.bil_yellow = 1;
+        ok(cue_rules_ball_legal(&r, B, 3, CUE_ID_BIL_WHITE),
+           "yellow's object white is a legal ball", "");
+        ok(!cue_rules_ball_legal(&r, B, 3, CUE_ID_BIL_YELLOW),
+           "...and his own yellow is not", "");
+        r.bil_yellow = 0;
+        ok(cue_rules_ball_legal(&r, B, 3, CUE_ID_BIL_YELLOW),
+           "white's object yellow is a legal ball", "");
+        ok(!cue_rules_ball_legal(&r, B, 3, CUE_ID_BIL_WHITE),
+           "...and the white in his hand is not", "");
     }
 
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);
