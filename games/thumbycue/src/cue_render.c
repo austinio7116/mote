@@ -713,7 +713,10 @@ static void build_bed_boundary(const CueTable *t, const CueWorld *w, CueBnd *B) 
      * it (see the bar-billiards block in the table build). That is also what
      * the table looks like: a flat green bed with nine small round holes in
      * it, not a cloth scalloped round its edge. */
-    if (t->kind == CUE_GAME_BARBILLIARDS) {
+    if (t->kind == CUE_GAME_BARBILLIARDS || CUE_GAME_IS_CAROM(t->kind)) {
+        /* No pockets bite the edge, so the boundary is the plain rectangle —
+         * bar billiards' answer, and carom's too. The bed fans off this the
+         * ordinary way (bar billiards then cuts its holes; carom has none). */
         B->n = 0;
         #define BB_V(x_, z_) do { B->p[B->n] = v3((x_), 0.0f, (z_)); \
                                   B->pk[B->n] = -1; B->n++; } while (0)
@@ -1716,7 +1719,16 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     uint16_t fdark = shade565(t->cloth, 0.55f);   /* undercut face (in shadow) */
     uint16_t face  = shade565(t->cloth, 0.72f);   /* the vertical nose front face */
     uint16_t ctop  = shade565(t->cloth, 0.92f);   /* cloth top to the rail */
-    const float ub = 0.45f * t->R;                /* undercut / overhang */
+    /* THE UNDERCUT IS FOR TABLES WITH POCKETS. The K66 nose overhangs and the
+     * face beneath sits in shadow — which reads as rubber on a rail the pocket
+     * cuts keep interrupting, and as an ugly dark stripe on a rail nothing
+     * interrupts. Bar billiards and carom run their cushions unbroken all the
+     * way round, so they get a clean vertical face directly under the SAME
+     * nose line the ball actually meets; nothing the physics reads moves. */
+    const int   plain = (t->kind == CUE_GAME_BARBILLIARDS ||
+                         CUE_GAME_IS_CAROM(t->kind));
+    if (plain) fdark = face;
+    const float ub = plain ? 0.0f : 0.45f * t->R; /* undercut / overhang */
 /* ---- CUE_CUSHDUMP / cue_render_capture_nose ------------------------------
  * The nose line the balls bounce off is cue_table's; the nose line you see is
  * this file's, and the contract is that they are the same line. Nothing checked
