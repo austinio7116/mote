@@ -1235,6 +1235,14 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
      * rather than by searching. */
     const float ca_n = cosf(3.14159265f / (float)n);
     const float ap_in = rin * ca_n, ap_out = rout * ca_n;
+    /* THE COLLAR RUNS A LITTLE PAST THE TIMBER, and it has to. The band test
+     * stops the bore's wall exactly at the wood's inner face — and the
+     * cushion tip, which is what continues the surface from there, ends on
+     * the bore's RIM rather than on that face. Between the two sat a hairline
+     * slit you could see through at every pocket, reported on a hexagon and a
+     * round bed alike. Four millimetres of overlap tucks the collar under the
+     * cushion, where nothing can see it, and closes the slit for good. */
+    const float ap_in_w = ap_in - 0.004f;
     for (int h = 0; h < nh; h++) {
         const int NA = 28;
         for (int k = 0; k < NA; k++) {
@@ -1248,7 +1256,7 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
                 float step = 6.2831853f / (float)n;
                 float phi = step * floorf(th / step + 0.5f);
                 float proj = rr2 * cosf(th - phi);
-                if (proj < ap_in || proj > ap_out) {
+                if (proj < ap_in_w || proj > ap_out) {
                     /* OR THE MITRE FAN, which is timber the band cannot see.
                      *
                      * Past a sharp corner the planks have run out and the void
@@ -1290,7 +1298,7 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
      * the wall is skipped. */
     for (int h = 0; h < nh; h++) {
         const int NA = 240;
-        int prev_in = -1;
+        float prev_proj = 0.0f; int have_prev = 0;
         for (int k = 0; k <= NA; k++) {
             const float a = 6.2831853f * (float)k / NA;
             const float px = hx[h] + hr[h]*cosf(a), pz = hz[h] + hr[h]*sinf(a);
@@ -1300,18 +1308,21 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
             const float step = 6.2831853f / (float)n;
             const float phi = step * floorf(th / step + 0.5f);
             const float proj = rr2 * cosf(th - phi);
-            const int in_band = (proj >= ap_in && proj <= ap_out);
-            if (prev_in >= 0 && in_band != prev_in) {
-                /* a crossing: carry this point straight to the inner face */
+            /* ONLY WHERE THE ARC CROSSES THE INNER FACE. The first cut fired
+             * at every band edge, so a crossing of the OUTER face drew a wall
+             * spanning the whole width of the timber — a spur standing out
+             * past the mouth on one side, which is what Mark marked. The slot
+             * side belongs to the front edge and nowhere else. */
+            if (have_prev && ((prev_proj < ap_in) != (proj < ap_in))) {
                 const float nx2 = cosf(phi), nz2 = sinf(phi);
                 const float gap = proj - ap_in;
-                if (gap > 1e-4f) {
+                if (gap > 1e-4f && gap < (ap_out - ap_in)) {
                     const float qx = px - nx2 * gap, qz = pz - nz2 * gap;
                     quad(v3(px, ytop, pz), v3(qx, ytop, qz),
                          v3(qx, ybot, qz), v3(px, ybot, pz), wall);
                 }
             }
-            prev_in = in_band;
+            prev_proj = proj; have_prev = 1;
         }
     }
 }
