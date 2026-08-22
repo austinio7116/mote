@@ -628,7 +628,7 @@ static int miss_attempt_ok(const CueRules *r) {
 
 static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
                             int first_hit,
-                            int scratch, const int *potted, int np) {
+                            int scratch, int cushion, const int *potted, int np) {
     r->break_shot = 0;            /* the opening break is over once it's resolved */
     int target_before = r->target;
     /* Reds remaining = what's actually on the table (post-shot). Tracking a
@@ -690,6 +690,11 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
     if (r->jumped) foul = 1;
     /* And so is putting a ball off the table, in every game there is. */
     if (r->n_off) foul = 1;
+    /* SHOOTOUT: every stroke must pot a ball or drive one to a cushion —
+     * the format has no place to hide. Judged only when nothing else already
+     * fouled the stroke, so the message below can name it. */
+    int shoot_norail = 0;
+    if (r->snk_shootout && !foul && np == 0 && !cushion) { foul = 1; shoot_norail = 1; }
     r->last_foul = foul;
 
     /* Respot every potted colour unless it was legally cleared IN SEQUENCE — a
@@ -749,6 +754,10 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
          * miss_attempt_ok. At level 0 (the handheld, and any stroke with no
          * attempt data) every failure is called, exactly as before. */
         int miss_called = is_miss && !needs_snookers && !miss_attempt_ok(r);
+        /* SHOOTOUT has no miss rule and no replays: a foul is ball in hand to
+         * the opponent — anywhere on the table — and play goes on. The clock
+         * is the pressure; the decision menu would just burn it. */
+        if (r->snk_shootout) miss_called = 0;
         r->last_miss = miss_called;
 
         /* 3-consecutive-miss forfeit (genuine, non-snookered misses only) */
@@ -791,7 +800,7 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
          * that at all" is not, and a penalty with no stated reason reads as the
          * game being broken. */
         const char *why = r->jumped ? "JUMP " : r->n_off ? "OFF TABLE " : "";
-        if (miss_called || opp_snk) {
+        if ((miss_called || opp_snk) && !r->snk_shootout) {
             /* a real choice exists → park for the opponent's decision */
             r->decision = CUE_DEC_PENDING;
             snprintf(r->msg, sizeof r->msg, miss_called ? "%sFOUL & MISS +%d"
@@ -799,6 +808,12 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
         } else {
             r->turn = opp;
             if (scratch) r->ball_in_hand = 1;
+            if (r->snk_shootout) {
+                r->ball_in_hand = 1;             /* every foul: in hand */
+                r->decision = CUE_DEC_NONE;
+                snprintf(r->msg, sizeof r->msg, "%sFOUL +%d%s", why, fv,
+                         shoot_norail ? " (NO RAIL)" : "");
+            } else
             snprintf(r->msg, sizeof r->msg, "%sFOUL +%d", why, fv);
         }
         return;
@@ -1945,6 +1960,28 @@ int cue_rules_billiards_respot(CueRules *r, const CueTable *t,
     return 0;
 }
 
+/* SHOOTOUT: the ten minutes are up. The scores decide it — or fail to, and
+ * the host stages the blue-ball tie-break and reports its verdict back through
+ * cue_rules_shootout_win. Both are host-called because only the host has a
+ * clock; the frame bookkeeping is the rules' own. */
+int cue_rules_shootout_time(CueRules *r) {
+    if (!r || r->frame_over) return 1;
+    if (r->score[0] == r->score[1]) return 0;      /* a tie: the blue decides */
+    r->frame_over = 1;
+    r->winner = (r->score[0] > r->score[1]) ? 0 : 1;
+    book_frame(r, r->winner);
+    snprintf(r->msg, sizeof r->msg, "TIME");
+    return 1;
+}
+
+void cue_rules_shootout_win(CueRules *r, int winner) {
+    if (!r || r->frame_over) return;
+    r->frame_over = 1;
+    r->winner = winner ? 1 : 0;
+    book_frame(r, r->winner);
+    snprintf(r->msg, sizeof r->msg, "SHOOTOUT");
+}
+
 void cue_rules_billiards_swap(CueBall *b, int n) {
     if (!b || n < 3) return;
     int other = -1;
@@ -2123,7 +2160,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     const int wrong_ball = r->cued_id && b[0].on && r->cued_id != b[0].id;
     if (wrong_ball) first_hit = -1;
 
-    if (r->kind)                            { resolve_snooker(r, b, n, w, first_hit, scratch, potted, np);
+    if (r->kind)                            { resolve_snooker(r, b, n, w, first_hit, scratch, cushion, potted, np);
                                               r->att_have = 0; }
     else if (r->mode == CUE_GAME_PAUL)      resolve_paul(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);

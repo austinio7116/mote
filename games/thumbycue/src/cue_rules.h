@@ -153,6 +153,12 @@ typedef struct {
      * conjunction with another score. It counts pots of the red in the current
      * break and nothing else resets it but a stroke that scores otherwise. */
     int bil_yellow;      /* the striker is playing with the yellow */
+    /* SNOOKER SHOOTOUT: the one-frame TV format, as a switch on the snooker
+     * games. Rules-side it changes three things: every stroke must pot or
+     * reach a cushion; every foul is ball in hand (anywhere, not the D); and
+     * there is no miss rule and no foul decisions. The clocks and the
+     * blue-ball tie-break are the host's. */
+    int snk_shootout;
     int bil_cannons;     /* consecutive cannons, not with a hazard */
     int bil_hazards;     /* consecutive hazard strokes, not with a cannon */
     int bil_spot_pots;   /* consecutive pots of the red off a spot */
@@ -472,7 +478,8 @@ void cue_rules_set_uk(CueRules *r, int ruleset);   /* CUE_UK_* */
  * pub rules, the whole cloth under International and Ultimate Pool. Every other
  * pool game is the whole cloth. */
 static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
-    if (!r || r->kind) return 0;                    /* snooker: the D */
+    if (!r) return 0;
+    if (r->kind) return r->snk_shootout;    /* snooker: the D — Shootout: anywhere */
     if (r->mode == CUE_GAME_BARBILLIARDS) return 0; /* Rule 91: the D, always */
     /* PAUL: the D, and only after an in-off. It is played on a snooker table
      * and the D is chalked on it, so that is where the white comes back from —
@@ -490,6 +497,10 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t);
  * which is the whole reason a snooker player concedes rather than potting out a
  * frame they cannot win. */
 void cue_rules_concede(CueRules *r, int player);
+/* Snooker Shootout, the host's clock talking to the rules' book: time up
+ * (returns 0 on a tie — stage the blue), and the tie-break's verdict. */
+int  cue_rules_shootout_time(CueRules *r);
+void cue_rules_shootout_win(CueRules *r, int winner);
 
 /* Should `player` concede? Ported from the 2D game: they need snookers, and
  * there are not enough of them left on the table to get. */
