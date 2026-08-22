@@ -2541,6 +2541,9 @@ static void plan_finalize(void) {
             float aggression = fmaxf(-10.0f, 25.0f - p->safety_bias) - urg * 40.0f;
             /* ...and at golf, no safety is ever worth a stroke: see above. */
             if (c->r->mode == CUE_GAME_GOLF) aggression = -1.0e5f;
+            /* KILLER: a stroke that pots nothing costs a LIFE, so a deliberate
+             * safety is a deliberate life given away. Pot or die trying. */
+            if (CUE_GAME_IS_KILLER(c->r->mode)) aggression = -1.0e5f;
             /* a scratch/foul pot is never worth taking over a legal safety */
             if (best_unsafe || sc->posScore * 0.6f > best.potScore + aggression) {
                 out.aim = sc->aim; out.power01 = sc->power01;
@@ -4187,7 +4190,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * line — a cannon rarely wants the full ball, and the fan is what finds the
      * thin contact that sends the cue ball on. The engine decides which of them
      * actually cannon; the scoring above pays them for it. */
-    if (c->r->mode == CUE_GAME_BILLIARDS) {
+    if (c->r->mode == CUE_GAME_BILLIARDS || CUE_GAME_IS_CAROM(c->r->mode)) {
         /* A NARROW FAN. The first one swept the whole face of the ball at
          * three powers, which is a hundred and sixty candidates of which most
          * miss everything — and a candidate that hits nothing is a foul, so
@@ -4198,8 +4201,14 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         Vec3 cue = c->b[0].pos;
         for (int a2 = 1; a2 < c->n && npool < MAXPOOL - 8; a2++) {
             if (!c->b[a2].on) continue;
+            /* carom's objects are the rules' answer — four-ball must never
+             * plan THROUGH the opponent's ball */
+            if (CUE_GAME_IS_CAROM(c->r->mode) &&
+                !cue_rules_ball_legal(c->r, c->b, c->n, c->b[a2].id)) continue;
             for (int b2 = 1; b2 < c->n && npool < MAXPOOL - 8; b2++) {
                 if (b2 == a2 || !c->b[b2].on) continue;
+                if (CUE_GAME_IS_CAROM(c->r->mode) &&
+                    !cue_rules_ball_legal(c->r, c->b, c->n, c->b[b2].id)) continue;
                 Vec3 A = c->b[a2].pos, Bp = c->b[b2].pos;
                 /* Where the cue ball must be at contact to send A's line at B,
                  * which is the same ghost the potting code builds. */
@@ -4493,6 +4502,38 @@ int cue_ai_plan_tick(void) {
             v->pot_fails = (pts == 0);
             v->potScore = v->bad_first ? 0.0f
                         : clampf(28.0f + 9.0f * (float)pts, 0.0f, 100.0f);
+        }
+        /* ---- CAROM IS SCORED OFF THE SIM'S OWN TOUCH LOG -----------------
+         *
+         * Same story as billiards below it, with the one thing billiards never
+         * cared about: WHEN the cushions came. The sim world (s_sw) keeps the
+         * cue ball's contacts in order, so the cushions BEFORE the second
+         * object ball are counted here exactly as the referee counts them —
+         * the planner is ranked by the same arithmetic that will score it. */
+        if (CUE_GAME_IS_CAROM(c->r->mode)) {
+            const int fourb = (c->r->mode == CUE_GAME_CAROM_4B);
+            const int objA = CUE_ID_BIL_RED;
+            const int objB = fourb ? 2
+                           : (c->r->bil_yellow ? CUE_ID_BIL_WHITE
+                                               : CUE_ID_BIL_YELLOW);
+            const int oppw = fourb ? (c->r->bil_yellow ? CUE_ID_BIL_WHITE
+                                                       : CUE_ID_BIL_YELLOW) : -1;
+            int hitA = 0, hitB = 0, cush = 0, before = -1, opp_touch = 0;
+            for (int i = 0; i < s_sw.ntouch; i++) {
+                if (s_sw.touch[i].what == CUE_TOUCH_CUSHION) { cush++; continue; }
+                const int id = s_sw.touch[i].id;
+                if (fourb && id == oppw) opp_touch = 1;
+                const int a3 = (id == objA), b3 = (id == objB);
+                if (!a3 && !b3) continue;
+                if (a3) { if (!hitA) { hitA = 1; if (hitB && before < 0) before = cush; } }
+                else    { if (!hitB) { hitB = 1; if (hitA && before < 0) before = cush; } }
+            }
+            const int need = c->r->mode == CUE_GAME_CAROM_2C ? 2
+                           : c->r->mode == CUE_GAME_CAROM_3C ? 3 : 0;
+            const int pt = hitA && hitB && before >= need && !opp_touch;
+            v->bad_first = (sim.first_hit_idx <= 0);
+            v->pot_fails = !pt;
+            v->potScore = pt ? 74.0f : 0.0f;
         }
         /* ---- BAR BILLIARDS IS SCORED BY THE HOLE, AND GUARDED BY PINS ----
          *
