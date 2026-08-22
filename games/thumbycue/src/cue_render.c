@@ -1017,6 +1017,14 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
                            const float *hx, const float *hz, const float *hr, int nh,
                            float ylow, uint16_t lip)
 {
+    /* THE ANGLES THE TOP SURFACE PUTS ON EACH BORE. Filled as the ring's own
+     * top face is walked and read by the wall, so the side of the hole is
+     * built from the very points the surface above it ends on. */
+    #define BORE_PTS 512
+    static float bore_a[CUE_MAX_POCKET][BORE_PTS];
+    int bore_n[CUE_MAX_POCKET];
+    for (int i2 = 0; i2 < CUE_MAX_POCKET; i2++) bore_n[i2] = 0;
+
     const int n = cue_table_ngon_sides(t);
     /* STEPS BUNCHED AT THE ENDS, because that is the only place anything
      * happens. A bore reaches about its own radius along the edge — a hundred
@@ -1122,7 +1130,7 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
                     const Vec3 Pi = INN(ss[q]), Po = OUT(ss[q]);
                     const float dxs = Po.x - Pi.x, dzs = Po.z - Pi.z;
                     const float aq = dxs*dxs + dzs*dzs;
-                    float best = 0.0f; int g2 = 0;
+                    float best = 0.0f; int g2 = 0, bestH = -1;
                     if (aq > 1e-12f) for (int h = 0; h < nh; h++) {
                         const float fx = Pi.x - hx[h], fz = Pi.z - hz[h];
                         const float bq = 2.0f*(fx*dxs + fz*dzs);
@@ -1134,9 +1142,21 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
                         const float r1 = (-bq + sq) / (2.0f*aq);
                         if (r1 <= 0.0f || r0 >= 1.0f) continue;
                         if (r1 >= 1.0f) { g2 = 1; break; }
-                        if (r1 > best) best = r1;
+                        if (r1 > best) { best = r1; bestH = h; }
                     }
                     tt[q] = best; gone[q] = g2;
+                    /* WHERE THE TOP SURFACE PUTS ITS EDGE ON THIS BORE, kept
+                     * so the wall below can be built from the SAME points.
+                     * Two curves inscribed in one circle at different samples
+                     * do not meet — they leave a sliver at every step, which
+                     * no amount of subdividing removes and an overlap only
+                     * hides. Sharing the points removes it by construction. */
+                    if (best > 0.0f && !g2 && bestH >= 0 && bestH < CUE_MAX_POCKET
+                        && bore_n[bestH] < BORE_PTS) {
+                        const Vec3 Pe = v3(Pi.x + dxs*best, 0.0f, Pi.z + dzs*best);
+                        bore_a[bestH][bore_n[bestH]++] =
+                            atan2f(Pe.z - hz[bestH], Pe.x - hx[bestH]);
+                    }
                 }
                 if (gone[0] && gone[1]) continue;
                 if (gone[0]) tt[0] = 1.0f;
@@ -1144,6 +1164,18 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
                 #define BAND(u, f) v3(INN(u).x + (OUT(u).x - INN(u).x)*(f), ytop, \
                                       INN(u).z + (OUT(u).z - INN(u).z)*(f))
                 quad(BAND(sa, tt[0]), BAND(sb, tt[1]), BAND(sb, 1.0f), BAND(sa, 1.0f), top);
+                /* AND THE LIP FOLLOWS THE ARC ROUND. The cloth rolls over the
+                 * timber's inner edge, and where a bore has eaten that edge
+                 * the edge IS the bore — so the lip belongs on the arc, not
+                 * only on the straight run either side of it. Emitted for the
+                 * plain columns and nowhere else, it stopped dead at the
+                 * mouth: the curve of the drop lip ran most of the way round
+                 * a pocket and then simply ended, which is what Mark marked. */
+                if (ylow < ytop) {
+                    const Vec3 ia = BAND(sa, tt[0]), ib = BAND(sb, tt[1]);
+                    quad(v3(ia.x, ytop, ia.z), v3(ib.x, ytop, ib.z),
+                         v3(ib.x, ylow, ib.z), v3(ia.x, ylow, ia.z), lip);
+                }
                 #undef BAND
             }
         }
@@ -1151,6 +1183,8 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
         #undef OUT
     }
 
+    /* (see the note where these are filled) the angles the TOP SURFACE put on
+     * each bore, which the wall below is built from so the two meet exactly. */
     /* THE POINT OF A SHARP MITRE, filled before the bore takes its share.
      *
      * A mitre corner sits cw/cos(pi/n) beyond the apothem, so it runs away as
@@ -1220,110 +1254,154 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
         }
     }
 
-    /* THE WALL DOWN EACH BORE, ONLY WHERE THERE IS TIMBER ABOVE IT TO HANG FROM.
+    /* THE WALL DOWN EACH BORE, BUILT TO MEET THE TIMBER RATHER THAN SAMPLED.
      *
-     * "Not over the cloth" is not the same question and getting them confused
-     * cost the pockets their mouths: the bed polygon stops at the cushion NOSE,
-     * so everything from the nose outward — the whole pocket opening included —
-     * read as "not cloth", and a wall was drawn straight across every mouth.
-     * The scalloped opening and the cloth rolling into it were behind it.
+     * The first version walked the circle in fixed steps and asked of each one
+     * "is there wood above this?". Two things follow from that and both were
+     * reported: a step that straddles the wood's edge is either drawn whole or
+     * dropped whole, so the collar ends somewhere near the face rather than on
+     * it — and what filled the difference was four millimetres of deliberate
+     * overlap, which is a cover-up and not a fit.
      *
-     * The timber is the band between the two ring faces, so that is the test.
-     * For a regular polygon a point's distance from the nearest FACE is its
-     * projection onto the nearest face normal, and the normals sit at even
-     * steps of 2*pi/n starting at +x — so the nearest one is found by rounding
-     * rather than by searching. */
+     * So the crossings are SOLVED instead. A bore is a circle; the timber is a
+     * band between two lines per face; the faces change at the polygon's own
+     * vertex directions. Every place the circle meets one of those is an angle
+     * that can be written down:
+     *
+     *   a face's line   dot(P, n) = L   ->   cos(a - phi) = (L - dot(C,n)) / r
+     *   a face boundary the ray from the middle at (f + 1/2) * step, which the
+     *                   circle meets where |t*u - C| = r
+     *
+     * Sort those angles and the circle is cut into arcs, each one wholly
+     * inside the wood or wholly outside it. Draw the ones inside, from exact
+     * end to exact end, and carry a flat side from each end straight to the
+     * face it stopped on. Everything meets by construction: no epsilon, no
+     * overlap, and the same code on a triangle, a hexagon and a sixty-gon.
+     *
+     * "Not over the cloth" is not the question and getting them confused cost
+     * the pockets their mouths once: the bed polygon stops at the cushion
+     * NOSE, so everything from the nose outward — the whole opening included —
+     * reads as "not cloth". The timber is the band between the ring's two
+     * faces, and that is what is asked. */
     const float ca_n = cosf(3.14159265f / (float)n);
     const float ap_in = rin * ca_n, ap_out = rout * ca_n;
-    /* THE COLLAR RUNS A LITTLE PAST THE TIMBER, and it has to. The band test
-     * stops the bore's wall exactly at the wood's inner face — and the
-     * cushion tip, which is what continues the surface from there, ends on
-     * the bore's RIM rather than on that face. Between the two sat a hairline
-     * slit you could see through at every pocket, reported on a hexagon and a
-     * round bed alike. Four millimetres of overlap tucks the collar under the
-     * cushion, where nothing can see it, and closes the slit for good. */
-    const float ap_in_w = ap_in - 0.004f;
+    const float step_n = 6.2831853f / (float)n;
     for (int h = 0; h < nh; h++) {
-        const int NA = 28;
-        for (int k = 0; k < NA; k++) {
-            const float a0 = 6.2831853f * (float)k / NA;
-            const float a1 = 6.2831853f * (float)(k + 1) / NA;
-            const float m  = 0.5f * (a0 + a1);
-            const float mx = hx[h] + hr[h]*cosf(m), mz = hz[h] + hr[h]*sinf(m);
-            {   const float rr2 = sqrtf(mx*mx + mz*mz);
-                if (rr2 < 1e-5f) continue;
-                float th = atan2f(mz, mx);
-                float step = 6.2831853f / (float)n;
-                float phi = step * floorf(th / step + 0.5f);
-                float proj = rr2 * cosf(th - phi);
-                if (proj < ap_in_w || proj > ap_out) {
-                    /* OR THE MITRE FAN, which is timber the band cannot see.
-                     *
-                     * Past a sharp corner the planks have run out and the void
-                     * inside the point is filled by the fan above. Without this
-                     * the bore had no face there at all: you looked into the
-                     * pocket and saw straight through the back of it, which is
-                     * the "roof over the issue" — a lid with nothing under it.
-                     * With it the bore leaves a proper curved back. */
-                    if (h >= CUE_MAX_POCKET || fan_h[h] <= 0.0f) continue;
-                    float da = m - fan_a[h];
+        const float cx = hx[h], cz = hz[h], rr = hr[h];
+        if (rr <= 1e-5f) continue;
+        #define CUT_MAX 256
+        float cut[CUT_MAX]; int ncut = 0;
+        #define ADD_CUT(a_) do { if (ncut < CUT_MAX) { \
+            float v_ = (a_); \
+            while (v_ < 0.0f) v_ += 6.2831853f; \
+            while (v_ >= 6.2831853f) v_ -= 6.2831853f; \
+            cut[ncut++] = v_; } } while (0)
+        /* THE TOP SURFACE'S OWN POINTS FIRST — every one of them, so the
+         * wall's vertices ARE the surface's vertices and the two cannot part
+         * company. The solved face crossings join them, which is what puts an
+         * exact end on the timber where the slot's sides go. */
+        for (int q = 0; q < bore_n[h] && q < BORE_PTS; q++) ADD_CUT(bore_a[h][q]);
+        for (int f = 0; f < n; f++) {
+            const float phi = step_n * (float)f;
+            const float d = cx * cosf(phi) + cz * sinf(phi);
+            for (int e = 0; e < 2; e++) {
+                const float L = e ? ap_out : ap_in;
+                const float c = (L - d) / rr;
+                if (c < -1.0f || c > 1.0f) continue;
+                const float w2 = acosf(c);
+                ADD_CUT(phi + w2); ADD_CUT(phi - w2);
+            }
+            /* and where the nearest face changes: the ray at the vertex */
+            {   const float b2 = step_n * ((float)f + 0.5f);
+                const float ux = cosf(b2), uz = sinf(b2);
+                const float B = cx * ux + cz * uz;
+                const float disc = B * B - (cx*cx + cz*cz - rr*rr);
+                if (disc > 0.0f) {
+                    const float sq = sqrtf(disc);
+                    for (int q = 0; q < 2; q++) {
+                        const float tq = q ? (B + sq) : (B - sq);
+                        if (tq <= 0.0f) continue;
+                        ADD_CUT(atan2f(tq * uz - cz, tq * ux - cx));
+                    }
+                }
+            }
+        }
+        for (int i = 1; i < ncut; i++) {            /* insertion sort, tiny */
+            const float v = cut[i]; int j = i - 1;
+            while (j >= 0 && cut[j] > v) { cut[j+1] = cut[j]; j--; }
+            cut[j+1] = v;
+        }
+        /* WHICH ARCS ARE IN THE WOOD — worked out for all of them first,
+         * because a slot side belongs to the boundary BETWEEN an arc that is
+         * and one that is not, and no arc can answer that alone. The first
+         * cut emitted a side at both ends of every arc it drew, including the
+         * cuts that merely pass from one face to the next INSIDE the timber,
+         * and those sides shot straight across the hole. */
+        unsigned char inarc[CUT_MAX];
+        for (int i = 0; i < ncut; i++) {
+            const float a0 = cut[i];
+            const float a1 = (i + 1 < ncut) ? cut[i+1] : cut[0] + 6.2831853f;
+            const float am = 0.5f * (a0 + a1);
+            const float mx = cx + rr * cosf(am), mz = cz + rr * sinf(am);
+            const float rm = sqrtf(mx*mx + mz*mz);
+            int ins = 0;
+            if (rm > 1e-5f) {
+                const float thm = atan2f(mz, mx);
+                const float phim = step_n * floorf(thm / step_n + 0.5f);
+                const float projm = rm * cosf(thm - phim);
+                ins = (projm >= ap_in && projm <= ap_out);
+                if (!ins && h < CUE_MAX_POCKET && fan_h[h] > 0.0f) {
+                    float da = am - fan_a[h];
                     while (da >  3.14159265f) da -= 6.2831853f;
                     while (da < -3.14159265f) da += 6.2831853f;
-                    if (fabsf(da) > fan_h[h]) continue;
+                    if (fabsf(da) <= fan_h[h]) ins = 1;
                 }
             }
-            const float x0 = hx[h] + hr[h]*cosf(a0), z0 = hz[h] + hr[h]*sinf(a0);
-            const float x1 = hx[h] + hr[h]*cosf(a1), z1 = hz[h] + hr[h]*sinf(a1);
-            quad(v3(x0, ytop, z0), v3(x1, ytop, z1),
-                 v3(x1, ybot, z1), v3(x0, ybot, z0), wall);
+            inarc[i] = (unsigned char)ins;
         }
-    }
-
-    /* ---- AND THE TWO STRAIGHT SIDES OF THE SLOT, ON A POLYGON ------------
-     *
-     * The same thing bore_fill does for a rail plank, which the ring never
-     * learned. A pocket cut into a fine polygon is nearly TANGENT to the
-     * ring's inner face: the arc leaves the timber almost along the rail, so
-     * where it goes the wall stops and there is nothing between its end and
-     * the face — the thin open slivers either side of a round table's pocket,
-     * which is not a shape any real table has. A pocket is cut as a SLOT: the
-     * round end at the back and two straight sides running out to the front
-     * edge. So each end of the arc gets a flat wall carried straight to the
-     * inner face, along that face's own normal.
-     *
-     * Found on a sixty-sided bed by comparing it with a hexagon, whose corners
-     * are wide enough that the arc leaves the timber well clear of the face
-     * and closes itself. Coarse beds emit nothing here, because their arcs
-     * never leave the band near the face: `gap` comes out at or below zero and
-     * the wall is skipped. */
-    for (int h = 0; h < nh; h++) {
-        const int NA = 240;
-        float prev_proj = 0.0f; int have_prev = 0;
-        for (int k = 0; k <= NA; k++) {
-            const float a = 6.2831853f * (float)k / NA;
-            const float px = hx[h] + hr[h]*cosf(a), pz = hz[h] + hr[h]*sinf(a);
-            const float rr2 = sqrtf(px*px + pz*pz);
-            if (rr2 < 1e-5f) continue;
-            const float th = atan2f(pz, px);
-            const float step = 6.2831853f / (float)n;
-            const float phi = step * floorf(th / step + 0.5f);
-            const float proj = rr2 * cosf(th - phi);
-            /* ONLY WHERE THE ARC CROSSES THE INNER FACE. The first cut fired
-             * at every band edge, so a crossing of the OUTER face drew a wall
-             * spanning the whole width of the timber — a spur standing out
-             * past the mouth on one side, which is what Mark marked. The slot
-             * side belongs to the front edge and nowhere else. */
-            if (have_prev && ((prev_proj < ap_in) != (proj < ap_in))) {
-                const float nx2 = cosf(phi), nz2 = sinf(phi);
-                const float gap = proj - ap_in;
-                if (gap > 1e-4f && gap < (ap_out - ap_in)) {
-                    const float qx = px - nx2 * gap, qz = pz - nz2 * gap;
-                    quad(v3(px, ytop, pz), v3(qx, ytop, qz),
-                         v3(qx, ybot, qz), v3(px, ybot, pz), wall);
-                }
+        /* each arc between two cuts is wholly in the wood or wholly out */
+        for (int i = 0; i < ncut; i++) {
+            const float a0 = cut[i];
+            const float a1 = (i + 1 < ncut) ? cut[i+1] : cut[0] + 6.2831853f;
+            if (a1 - a0 < 1e-5f) continue;
+            if (!inarc[i]) continue;
+            /* THE ARC ITSELF, END TO END AND NOT SUBDIVIDED. Its two ends
+             * are already points the top surface uses — subdividing between
+             * them would put vertices on the circle that the surface does not
+             * have, which is the sliver again. The surface's own sampling is
+             * what decides how round the hole looks, and the wall follows it. */
+            quad(v3(cx + rr*cosf(a0), ytop, cz + rr*sinf(a0)),
+                 v3(cx + rr*cosf(a1), ytop, cz + rr*sinf(a1)),
+                 v3(cx + rr*cosf(a1), ybot, cz + rr*sinf(a1)),
+                 v3(cx + rr*cosf(a0), ybot, cz + rr*sinf(a0)), wall);
+            /* AND THE SLOT'S TWO SIDES, at the ends where the wood really
+             * stops — the neighbouring arc is outside it — and where what it
+             * stops against is the INNER face. The cushion's tip arrives
+             * there, so the two meet and there is nothing to see through.
+             * Ends against the outer face need none: the frame's own outside
+             * is already there, and ends that merely cross from one face to
+             * the next are not ends at all. */
+            for (int e = 0; e < 2; e++) {
+                const int nb = e ? ((i + 1) % ncut)
+                                 : ((i + ncut - 1) % ncut);
+                if (inarc[nb]) continue;          /* not an end of the timber */
+                const float ae = e ? a1 : a0;
+                const float ex2 = cx + rr * cosf(ae), ez2 = cz + rr * sinf(ae);
+                const float re = sqrtf(ex2*ex2 + ez2*ez2);
+                if (re < 1e-5f) continue;
+                const float the = atan2f(ez2, ex2);
+                const float phie = step_n * floorf(the / step_n + 0.5f);
+                const float proje = re * cosf(the - phie);
+                const float gap = proje - ap_in;
+                if (gap <= 1e-4f || gap >= (ap_out - ap_in)) continue;
+                const float nx2 = cosf(phie), nz2 = sinf(phie);
+                const float qx = ex2 - nx2 * gap, qz = ez2 - nz2 * gap;
+                quad(v3(ex2, ytop, ez2), v3(qx, ytop, qz),
+                     v3(qx, ybot, qz), v3(ex2, ybot, ez2), wall);
             }
-            prev_proj = proj; have_prev = 1;
         }
+        #undef ADD_CUT
+        #undef CUT_MAX
     }
 }
 
