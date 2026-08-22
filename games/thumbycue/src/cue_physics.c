@@ -1329,6 +1329,39 @@ int cue_world_on_bed(const CueWorld *w, float x, float z) {
     return w->nplay ? cue_rects_contain(w->play_r, w->nplay, x, z) : 1;
 }
 
+/* ...AND THE SAME QUESTION FOR A BALL RATHER THAN A POINT.
+ *
+ * cue_world_on_bed asks about a POINT, which is the right question when a ball
+ * is already rolling — the contact is at its centre. It is the wrong question
+ * when something is being PLACED: a centre can sit a hair inside the cushion
+ * line with most of the ball buried in the rubber. Paul scatters twenty-two
+ * balls at random and its only guard was a rectangular window inset by a ball
+ * and a half, which is the whole answer on a rectangle and no answer at all on
+ * a polygon, where the cushion line runs diagonally across that window. Balls
+ * in the cushions, on the hexagon, exactly as reported.
+ *
+ * The bed polygon is convex, so "the whole ball is inside" is the same walk
+ * with the edge pushed in by its radius. */
+int cue_world_ball_on_bed(const CueWorld *w, float x, float z, float r) {
+    if (r < 0.0f) r = 0.0f;
+    if (w->nbedv >= 3) {
+        for (int i = 0; i < w->nbedv; i++) {
+            int j = (i + 1 == w->nbedv) ? 0 : i + 1;
+            float ex = w->bedv_x[j] - w->bedv_x[i];
+            float ez = w->bedv_z[j] - w->bedv_z[i];
+            const float el = sqrtf(ex * ex + ez * ez);
+            if (el < 1e-9f) continue;
+            /* signed distance outside this edge, positive = past it */
+            const float d = ((x - w->bedv_x[i]) * ez - (z - w->bedv_z[i]) * ex) / el;
+            if (d > -r) return 0;
+        }
+        return 1;
+    }
+    /* the rectangle path: an axis-aligned box, so its four extremes decide it */
+    return cue_world_on_bed(w, x - r, z) && cue_world_on_bed(w, x + r, z)
+        && cue_world_on_bed(w, x, z - r) && cue_world_on_bed(w, x, z + r);
+}
+
 /* WHAT IS UNDER A BALL AT (x, z): the cloth, the top of the frame, or nothing.
  *
  * Three regions and a hole. Inside the cushion line is the bed, MINUS the bite

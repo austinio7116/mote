@@ -245,11 +245,14 @@ static const struct { int kind; const char *name;
      * so it is unpinned for the same reason: a mitred pocket's opening is set
      * by the facings meeting, not by an authored figure to hold still. */
     { CUE_GAME_US10,     "10-ball 9ft",     -1, -1, 0 },
-    /* PAUL is PINNED, because its 50 mm mouth is the whole character of the
-     * game — 1.25 ball widths against a snooker table's 1.60 — and it is one
-     * authored radius each, easy to nudge. The clearance that comes out of a
-     * 50.0 mm mouth and a 40 mm ball is 10 mm at both. */
-    { CUE_GAME_PAUL,     "paul 6ft",       10.0f, 10.0f, 1.5f },
+    /* PAUL is PINNED, because its mouth is the whole character of the game —
+     * 1.29 ball widths against a snooker table's 1.60 — and it is one authored
+     * radius each, easy to nudge. The clearance out of a 54.0 mm mouth and a
+     * 42 mm ball is 12 mm at both. Both numbers have moved since this was
+     * written (40 mm on 50 mm, then 44) and the pin held through the second
+     * change by coincidence, 54 less 44 being the same 10: worth knowing that
+     * this row only bites when the DIFFERENCE moves. */
+    { CUE_GAME_PAUL,     "paul 6ft",       12.0f, 12.0f, 1.5f },
     { CUE_GAME_PYRAMID,  "pyramid 12ft",   5.0f, 14.5f, 1.0f },
     { CUE_GAME_PYRAMID7, "pyramid 7ft",    5.0f, 14.5f, 1.0f },
     { CUE_GAME_BILLIARDS, "English billiards", 34.6f, 38.3f, 1.5f },

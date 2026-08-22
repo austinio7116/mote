@@ -80,7 +80,7 @@ int main(void) {
     fresh(1);
     ok(fabsf(T.half_len * 2000.0f - 1829.0f) < 1.0f, "a 6 ft bed (1829 mm of cloth)");
     ok(fabsf(T.half_wid * 2000.0f -  914.0f) < 1.0f, "...by 3 ft (914 mm)");
-    ok(fabsf(T.R * 2000.0f - 44.0f) < 0.01f,         "44 mm balls");
+    ok(fabsf(T.R * 2000.0f - 42.0f) < 0.01f,         "42 mm balls");
     ok(T.cue_R == 0.0f,                              "...and a matched white, not a pool one");
     ok(T.pocket_round == 1,                          "curved pockets, not mitred");
     {   float c = 0, m = 0;
@@ -144,6 +144,43 @@ int main(void) {
         if (bad_off) printf("     %d off the cloth\n", bad_off);
         if (bad_pkt) printf("     %d resting in a pocket\n", bad_pkt);
         if (bad_lap) printf("     %d overlapping\n", bad_lap);
+    }
+
+    /* ...AND ON EVERY SHAPE PAUL CAN BE PLAYED ON, with the WHOLE BALL judged
+     * rather than its centre.
+     *
+     * The scatter's only guard was a rectangular window inset by a ball and a
+     * half. That is the entire answer on a rectangle and none at all on a
+     * polygon, where the cushion line cuts diagonally across that window: the
+     * centre passes the point test and most of the ball is in the rubber.
+     * Measured before the fix, over two hundred racks a bed — hexagon 4 balls,
+     * octagon 5, round 3, L 3, rectangle 0, which is why it was only ever
+     * reported on the odd shapes. */
+    {   static const char *const NM[CUE_TAB_COUNT] =
+            { "PRO", "TOURNAMENT", "CLUB", "L-SHAPE", "HEX", "OCT", "ROUND" };
+        int worst_v = -1, worst_n = 0;
+        for (int v = 0; v < CUE_TAB_COUNT; v++) {
+            if (v != CUE_TAB_DEFAULT && !cue_table_variant_ok(CUE_GAME_PAUL, v)) continue;
+            CueTable t; cue_table_init(&t, CUE_GAME_PAUL); cue_table_variant(&t, v);
+            static CueWorld w; cue_table_build_world(&t, &w);
+            for (uint32_t sd = 1; sd <= 60; sd++) {
+                CueBall bb[CUE_MAX_BALLS];
+                cue_table_paul_set_seed(sd);
+                const int n = cue_table_rack(&t, bb);
+                int off = 0;
+                for (int i = 0; i < n; i++)
+                    if (bb[i].on &&
+                        !cue_world_ball_on_bed(&w, bb[i].pos.x, bb[i].pos.z, t.R))
+                        off++;
+                if (off > worst_n) { worst_n = off; worst_v = v; }
+            }
+        }
+        char b[128];
+        if (worst_n) snprintf(b, sizeof b, "no ball in the cushions on any shape "
+                              "(worst: %d on %s)", worst_n, NM[worst_v]);
+        else snprintf(b, sizeof b, "no ball in the cushions on any shape, "
+                      "sixty racks a bed");
+        ok(!worst_n, b);
     }
 
     /* DIFFERENT EVERY GAME, and the same every time for one seed. */

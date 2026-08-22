@@ -595,6 +595,10 @@ enum {
 /* Is (x, z) on the cloth? Reads the outline when the world carries one and the
  * rectangles otherwise, so callers need not know which kind of bed it is. */
 int cue_world_on_bed(const CueWorld *w, float x, float z);
+/* ...and whether a whole BALL of radius r fits there. The point test is what a
+ * rolling ball is judged by; this is what anything being PLACED must use, or a
+ * centre a hair inside the cushion line puts most of the ball in the rubber. */
+int cue_world_ball_on_bed(const CueWorld *w, float x, float z, float r);
 
 int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events);
 float cue_phys_cushion_impact(void);   /* loudest rail-approach speed from last step */
