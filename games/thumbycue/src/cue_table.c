@@ -312,7 +312,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * 6 ft by 3 ft of cloth, which is the size these are sold as, and the
          * numbers that come with it are all consequences:
          *
-         *   40 mm BALLS. A home set is not a snooker set shrunk to fit; 40 mm
+         *   44 mm BALLS. A home set is not a snooker set shrunk to fit; 44 mm
          *   is what comes in the box, and it is small enough that fifteen reds
          *   and six colours scattered over a 6 ft bed is a crowded table rather
          *   than an empty one. That crowding IS the game.
@@ -322,20 +322,20 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          *   tables have, and it makes the pockets look and play tight because
          *   there is very little timber for the jaw to curve through.
          *
-         *   A 25.4 mm NOSE, because the nose height is not a style choice. The
+         *   A 27.9 mm NOSE, because the nose height is not a style choice. The
          *   WPA specification is 63.5% of the ball's diameter on every table
-         *   there is, and 63.5% of 40 mm is 25.4. A cushion set to a full-size
-         *   table's height would stand nearly two thirds of the way up a 40 mm
+         *   there is, and 63.5% of 44 mm is 27.9. A cushion set to a full-size
+         *   table's height would stand nearly two thirds of the way up a 44 mm
          *   ball and there would be no such thing as a follow shot.
          *
-         *   AND 50 mm POCKETS, cut below. That is 1.25 ball widths against a
+         *   AND 54 mm POCKETS, cut below. That is 1.23 ball widths against a
          *   snooker table's 1.60 — tighter in proportion than anything here
          *   except Russian pyramid, and on a bed this small every pot is a
          *   pot at a pocket you can see the far side of. */
         t->half_len = 1.829f * 0.5f;
         t->half_wid = 0.914f * 0.5f;
-        t->R = 0.020f;                              /* 40 mm across */
-        t->mass = 0.095f;                           /* a 40 mm phenolic ball */
+        t->R = 0.022f;                              /* 44 mm across */
+        t->mass = 0.126f;                           /* a 44 mm phenolic ball */
         t->cue_R = 0.0f; t->cue_mass = 0.0f;        /* a matched white */
         t->cushion_h = t->R * 2.0f * 0.635f;        /* the WPA fraction, always */
         t->rail_w = 0.045f;
@@ -357,25 +357,32 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->pink_x   =  t->half_len * 0.5f;
         t->black_x  =  t->half_len * 0.82f;
         /* THE POCKET. Everything but the radius is the 12 ft snooker table's,
-         * scaled by the ball rather than copied in millimetres — 0.762, which
-         * is 20 mm over 26.25 — because these numbers are all about where a
+         * scaled by the ball rather than copied in millimetres — 0.838, which
+         * is 22 mm over 26.25 — because these numbers are all about where a
          * ball sits in a hole and a smaller ball wants a smaller everything.
-         * The radius itself is solved for a 50 mm MOUTH, which is the figure
+         * The radius itself is solved for a 54 mm MOUTH, which is the figure
          * that was asked for; see cue_table_openings for why a mouth cannot be
-         * authored directly. */
-        /* SOLVED FOR A 50 mm MOUTH at both, by cue_table_cut_to, and then
+         * authored directly.
+         *
+         * THE BALL WENT UP FROM 40 mm TO 44 AND THE POCKET WITH IT, by the same
+         * 4 mm — 50 to 54. The ball-scaled numbers all moved by 22/20, and the
+         * radius had to be RE-SOLVED rather than nudged: the opening is a
+         * consequence of the jaw geometry AND the ball, so leaving the old
+         * radius alone under a bigger ball closed the mouth to 47.3 mm on its
+         * own. cue_table_cut_to bisected it back to 54.00/54.01. */
+        /* SOLVED FOR A 54 mm MOUTH at both, by cue_table_cut_to, and then
          * written down — the same way every other pocket in this file was
          * arrived at. The middle wants a SMALLER radius than the corner for the
          * same opening, which looks wrong and is not: a middle's two jaws face
          * each other across the pocket where a corner's meet at its axis, so
          * the same hole leaves a wider gap between them. Snooker's middles are
          * wider than its corners for the mirror-image reason. */
-        t->pr_corner = 0.0300730f; t->pr_side = 0.0253493f;
+        t->pr_corner = 0.0347488f; t->pr_side = 0.0280309f;
         t->ang_corner = 60.0f; t->ang_side = 80.0f;
-        t->off_corner = 0.0260000f; t->off_side = 0.0200000f;
+        t->off_corner = 0.0286000f; t->off_side = 0.0220000f;
         t->cap_corner = 0.0f;      t->cap_side = 0.0f;
-        t->drop_back  = 0.0058000f; t->drop_back_side = 0.0126000f;
-        t->jaw_r = 0.0091f;
+        t->drop_back  = 0.0063800f; t->drop_back_side = 0.0138600f;
+        t->jaw_r = 0.0100100f;
     } else if (kind == CUE_GAME_CN8) {
         /* Chinese 8-ball: 10 ft table, full-size pool balls (solids/stripes),
          * but TIGHT ROUNDED ("Chinese template") pockets — closer to English
@@ -788,7 +795,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         break;
     case CUE_GAME_PAUL:
         /* Concentric, and equal to the hole. There is 45 mm of rail to work in
-         * and the pocket is 25 mm across the radius, so there is no room to set
+         * and the pocket is 35 mm across the radius, so there is no room to set
          * the bore back into timber that is barely there. */
         t->bore_corner = t->pr_corner; t->bore_side = t->pr_side;
         t->bore_set_corner = 0.0f; t->bore_set_side = 0.0f;

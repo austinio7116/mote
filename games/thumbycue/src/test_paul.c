@@ -80,15 +80,15 @@ int main(void) {
     fresh(1);
     ok(fabsf(T.half_len * 2000.0f - 1829.0f) < 1.0f, "a 6 ft bed (1829 mm of cloth)");
     ok(fabsf(T.half_wid * 2000.0f -  914.0f) < 1.0f, "...by 3 ft (914 mm)");
-    ok(fabsf(T.R * 2000.0f - 40.0f) < 0.01f,         "40 mm balls");
+    ok(fabsf(T.R * 2000.0f - 44.0f) < 0.01f,         "44 mm balls");
     ok(T.cue_R == 0.0f,                              "...and a matched white, not a pool one");
     ok(T.pocket_round == 1,                          "curved pockets, not mitred");
     {   float c = 0, m = 0;
         cue_table_openings(&T, &c, &m);
         char b[96];
-        snprintf(b, sizeof b, "50 mm pockets: corner %.1f, middle %.1f (%.2f ball widths)",
+        snprintf(b, sizeof b, "54 mm pockets: corner %.1f, middle %.1f (%.2f ball widths)",
                  (double)(c*1000), (double)(m*1000), (double)(c/(2*T.R)));
-        ok(fabsf(c - 0.050f) < 0.0005f && fabsf(m - 0.050f) < 0.0005f, b); }
+        ok(fabsf(c - 0.054f) < 0.0005f && fabsf(m - 0.054f) < 0.0005f, b); }
     {   /* The nose height is not a style choice: 63.5% of the ball, always. */
         char b[96];
         snprintf(b, sizeof b, "a %.1f mm nose, which is 63.5%% of the ball",

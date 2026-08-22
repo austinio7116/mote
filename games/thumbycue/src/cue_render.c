@@ -818,6 +818,98 @@ static void emit_lip_run(const CueTable *t, Vec3 *ring0, const Vec3 *nrm,
     }
 }
 
+/* THE BED IS A POLYGON, AND A POLYGON IS NOT ALWAYS A FAN.
+ *
+ * The cloth was drawn as tri(centre, a, b) round the boundary — which is only
+ * the polygon if every edge is visible from the middle of the table. It is not.
+ * The cutaway at a pocket bites inward and then curls back OUT toward the rail,
+ * and measured on every bed there are six edges per pocket — thirty-six in all
+ * — whose sweep about the centre runs BACKWARDS. A fan triangle on one of those
+ * is wound the other way and lies back across the notch it was supposed to
+ * leave empty, filling the mouth with cloth as far as the ray from the table
+ * centre through the arc's outermost point.
+ *
+ * That ray is the straight edge at the pocket, and it is why it never matched
+ * any circle: it is not the cut, not the bore and not the drop, it is an
+ * artefact of the triangulation. It laid cloth over the drop lip and the lip
+ * simply vanished under it.
+ *
+ * Ear clipping instead: no centre, no assumption, and it is the polygon it is
+ * given whatever shape that is. O(n^2) on a couple of hundred points, once, at
+ * table build. */
+static void emit_bed_polygon(const CueTable *t) {
+    const int n = s_bnd.n;
+#ifdef MOTE_HOST
+#endif
+    if (n < 3) return;
+    uint16_t bedc = t->cloth;
+#ifdef MOTE_HOST
+    /* CUE_BEDRED: paint the BED CLOTH itself, so a render says exactly how far
+     * the cloth surface reaches round a pocket and what is cushion instead. */
+    if (getenv("CUE_BEDRED")) bedc = RGB565C(255, 40, 40);
+#endif
+
+    static int idx[CUE_BND_MAX];
+    int m = n;
+    for (int i = 0; i < n; i++) idx[i] = i;
+
+    float area = 0.0f;
+    for (int i = 0; i < n; i++) {
+        const Vec3 a = s_bnd.p[i], b = s_bnd.p[(i + 1) % n];
+        area += a.x * b.z - b.x * a.z;
+    }
+    const float wind = (area > 0.0f) ? 1.0f : -1.0f;
+
+    #define BX(k) (s_bnd.p[idx[k]].x)
+    #define BZ(k) (s_bnd.p[idx[k]].z)
+    int guard = 0;
+    while (m > 3 && guard++ < n * n) {
+        int cut = 0;
+        for (int k = 0; k < m; k++) {
+            const int k0 = (k + m - 1) % m, k2 = (k + 1) % m;
+            const float ax = BX(k0), az = BZ(k0);
+            const float bx = BX(k),  bz = BZ(k);
+            const float cx = BX(k2), cz = BZ(k2);
+            const float cross = ((bx - ax) * (cz - az) - (bz - az) * (cx - ax)) * wind;
+            /* CONVEX OR STRAIGHT, both count.
+             *
+             * A bed boundary is mostly SAMPLED — arcs at twenty steps a pocket,
+             * rails split into runs — so a great many vertices are exactly
+             * collinear with their neighbours. Demanding a strictly convex
+             * corner refuses every one of those, and on the rectangle and the L
+             * the clip ran out of ears with 190 of 214 points still in hand and
+             * fell back to a fan, which is the very thing being replaced. A
+             * collinear vertex is a degenerate ear: cutting it emits a zero-area
+             * triangle nobody sees and removes a point that was doing nothing. */
+            if (cross < -1e-12f) continue;              /* reflex: not an ear */
+            int clear = 1;
+            for (int q = 0; q < m && clear; q++) {
+                if (q == k0 || q == k || q == k2) continue;
+                const float px = BX(q), pz = BZ(q);
+                const float d0 = ((bx-ax)*(pz-az) - (bz-az)*(px-ax)) * wind;
+                const float d1 = ((cx-bx)*(pz-bz) - (cz-bz)*(px-bx)) * wind;
+                const float d2 = ((ax-cx)*(pz-cz) - (az-cz)*(px-cx)) * wind;
+                /* strictly inside: a point ON an edge of the candidate is a
+                 * neighbour of a collinear run, not an obstruction */
+                if (d0 > 1e-12f && d1 > 1e-12f && d2 > 1e-12f) clear = 0;
+            }
+            if (!clear) continue;
+            tri(s_bnd.p[idx[k0]], s_bnd.p[idx[k]], s_bnd.p[idx[k2]], bedc);
+            for (int q = k; q < m - 1; q++) idx[q] = idx[q + 1];
+            m--; cut = 1; break;
+        }
+        if (!cut) break;              /* no ear found: stop rather than spin */
+    }
+#ifdef MOTE_HOST
+    if (getenv("CUE_BEDRED"))
+        printf("BEDPOLY n=%d ears cut, %d left (3 = a clean finish)\n", n - m, m);
+#endif
+    for (int k = 1; k + 1 < m; k++)
+        tri(s_bnd.p[idx[0]], s_bnd.p[idx[k]], s_bnd.p[idx[k + 1]], bedc);
+    #undef BX
+    #undef BZ
+}
+
 /* Baize lip (the drop): rolls the cloth down into each pocket throat. Emitted
  * AFTER the pocket voids so depth-test layers it OVER the void (no rim cutting
  * across it) while the raised cushions still occlude its sides. */
@@ -1871,10 +1963,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
             }
         }
     } else {
-    for (int i = 0; i < s_bnd.n; i++) {
-        Vec3 a = s_bnd.p[i], b = s_bnd.p[(i + 1) % s_bnd.n];
-        tri(v3(0, 0, 0), a, b, t->cloth);
-    }
+    emit_bed_polygon(t);
     }
     /* The baulk line, the D and the spots, as GEOMETRY — flat quads laid on the
      * bed. That is the only way the handheld can have them: it has no shader to
@@ -1904,6 +1993,16 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     const int   plain = (t->kind == CUE_GAME_BARBILLIARDS ||
                          CUE_GAME_IS_CAROM(t->kind));
     if (plain) fdark = face;
+#ifdef MOTE_HOST
+    /* CUE_SKIRTBLUE: paint each cushion surface its own colour so a render says
+     * which one is which — undercut face BLUE, nose front face MAGENTA, cloth
+     * top to the rail YELLOW. The bed keeps the cloth colour. */
+    if (getenv("CUE_SKIRTBLUE")) {
+        fdark = RGB565C(40, 90, 255);
+        face  = RGB565C(255, 0, 200);
+        ctop  = RGB565C(255, 220, 0);
+    }
+#endif
     const float ub = plain ? 0.0f : 0.45f * t->R; /* undercut / overhang */
 /* ---- CUE_CUSHDUMP / cue_render_capture_nose ------------------------------
  * The nose line the balls bounce off is cue_table's; the nose line you see is
@@ -2119,40 +2218,6 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * the BACK had, one line below and fixed long ago — the pair of them
          * were the two halves of "a free tip collapses to nothing". */
         float uba = ub, ubb = ub;
-        /* ...BUT IT CANNOT RUN OUT OVER THE HOLE.
-         *
-         * The undercut is the cushion's BASE, drawn at bed level and drawn
-         * after the bed, so where it reaches past the cloth's cutaway it lies
-         * flat over the pocket mouth — a straight line of skirt across the top
-         * of the drop lip, covering the curve the lip was rolled on. That is
-         * the straight edge at the mouth: not the cloth's cut, which is a
-         * proper arc, but the cushion's own footprint laid over it.
-         *
-         * A rubber overhangs its base; it does not overhang the hole. So each
-         * base vertex is walked back along its own normal only as far as the
-         * cutaway allows — solve where the line pa - na*u crosses the cut
-         * circle and stop half a millimetre short of it. Away from a pocket
-         * nothing is inside any cut circle and the full undercut is kept, so
-         * the section is unchanged along the whole rail. */
-        for (int q = 0; q < w->npocket; q++) {
-            const Vec3  C = w->cut_c[q];
-            const float R = w->cut_r[q];
-            if (R <= 0.0f) continue;
-            for (int e = 0; e < 2; e++) {
-                const Vec3 pp = e ? pb : pa;
-                const Vec3 nn2 = e ? nb : na;
-                const float dx = pp.x - C.x, dz = pp.z - C.z;
-                const float dn = dx * nn2.x + dz * nn2.z;
-                const float c0 = dx * dx + dz * dz - R * R;
-                const float disc = dn * dn - c0;
-                if (disc <= 0.0f) continue;          /* the line misses the cut */
-                const float root = dn - sqrtf(disc); /* where it enters the cut */
-                if (root <= 0.0f) continue;          /* entry is behind the nose */
-                const float lim = root - 0.0005f;
-                if (e) { if (ubb > lim) ubb = lim > 0.0f ? lim : 0.0f; }
-                else   { if (uba > lim) uba = lim > 0.0f ? lim : 0.0f; }
-            }
-        }
         /* Back-vertex depth. Shared ends reach the full depth cw; a FREE tip
          * collapses to 0 because the nose was already extended along its tangent
          * to the rail plane above — the facing continues at the same angle and
@@ -2608,6 +2673,33 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * edge can be READ off a render instead of guessed at. Pocket-tagged runs
      * (the cutaway) come up magenta, the plain rail/edge runs cyan. Debug only. */
     if (getenv("CUE_BNDSHOW")) {
+        /* the three circles the pocket is made of, laid on the bed:
+         *   yellow = the CUT (what the cloth is supposed to be cut on)
+         *   cyan   = the BORE (the hole through the timber)
+         *   red    = the DROP (where a ball is captured) */
+        for (int q = 0; q < w->npocket; q++) {
+            const int mid = w->pocket_mid[q];
+            const float bs = mid ? t->bore_set_side : t->bore_set_corner;
+            const float br = mid ? t->bore_side : t->bore_corner;
+            struct { float cx, cz, r; uint16_t c; } ring[3] = {
+                { w->cut_c[q].x, w->cut_c[q].z, w->cut_r[q], RGB565C(255,255,0) },
+                { w->pocket[q].x + w->pmnorm[q].x * bs,
+                  w->pocket[q].z + w->pmnorm[q].z * bs, br, RGB565C(0,255,255) },
+                { w->drop_c[q].x, w->drop_c[q].z, w->pocket_r[q], RGB565C(255,0,0) },
+            };
+            for (int k = 0; k < 3; k++) {
+                const int NS = 96;
+                for (int a = 0; a < NS; a++) {
+                    float a0 = a * 6.2831853f / NS, a1 = (a + 1) * 6.2831853f / NS;
+                    float r0 = ring[k].r - 0.0008f, r1 = ring[k].r + 0.0008f;
+                    quad(v3(ring[k].cx + r0*cosf(a0), 0.0016f, ring[k].cz + r0*sinf(a0)),
+                         v3(ring[k].cx + r0*cosf(a1), 0.0016f, ring[k].cz + r0*sinf(a1)),
+                         v3(ring[k].cx + r1*cosf(a1), 0.0016f, ring[k].cz + r1*sinf(a1)),
+                         v3(ring[k].cx + r1*cosf(a0), 0.0016f, ring[k].cz + r1*sinf(a0)),
+                         ring[k].c);
+                }
+            }
+        }
         for (int i = 0; i < s_bnd.n; i++) {
             int j = (i + 1 < s_bnd.n) ? i + 1 : 0;
             uint16_t c = (s_bnd.pk[i] >= 0 && s_bnd.pk[j] >= 0) ? RGB565C(255,0,255)
