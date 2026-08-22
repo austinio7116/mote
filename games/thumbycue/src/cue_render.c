@@ -2097,7 +2097,16 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * has nothing left to do there — but rather than unpick which tables
          * still need it, the result is simply clamped out of the hole. Every
          * pocket, every shape, and the same helper the collision world uses. */
-        float uba = sharedA ? ub : 0.0f, ubb = sharedB ? ub : 0.0f;
+        /* THE UNDERCUT RUNS THE WHOLE LENGTH, both ends, exactly as the back
+         * below does. It collapsed to zero at a FREE tip — the end at the
+         * pocket mouth — so the cushion's bottom line converged on its nose as
+         * it approached the hole and ran in at a shallower angle than the rest
+         * of the piece. Mark spotted it face-on and named the cause before I
+         * had found it: a rubber cushion is the same section along its length,
+         * and the jaw is not where it stops being one. This is the same fault
+         * the BACK had, one line below and fixed long ago — the pair of them
+         * were the two halves of "a free tip collapses to nothing". */
+        float uba = ub, ubb = ub;
         /* Back-vertex depth. Shared ends reach the full depth cw; a FREE tip
          * collapses to 0 because the nose was already extended along its tangent
          * to the rail plane above — the facing continues at the same angle and

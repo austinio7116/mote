@@ -253,6 +253,19 @@ static const struct { int kind; const char *name;
     { CUE_GAME_PYRAMID,  "pyramid 12ft",   5.0f, 14.5f, 1.0f },
     { CUE_GAME_PYRAMID7, "pyramid 7ft",    5.0f, 14.5f, 1.0f },
     { CUE_GAME_BILLIARDS, "English billiards", 34.6f, 38.3f, 1.5f },
+    /* KILLER borrows its base game's table whole, so its pockets are that
+     * game's pockets and they are unpinned for the same reason those are. */
+    { CUE_GAME_KILLER_UK, "killer UK 7ft",  31.1f, 30.5f, 1.5f },
+    { CUE_GAME_KILLER_US, "killer US 9ft",   -1, -1, 0 },
+    { CUE_GAME_KILLER_CN, "killer 10ft",    30.1f, 28.6f, 1.5f },
+    /* CAROM HAS NO POCKETS AT ALL — four plain cushions right round — so
+     * there is no passage between two jaws to measure, exactly as at bar
+     * billiards below. Listed because this table has one row per game and the
+     * count is checked; skipped in the run for want of a pocket. */
+    { CUE_GAME_CAROM_STRAIGHT, "carom straight rail", -1, -1, 0 },
+    { CUE_GAME_CAROM_2C,       "carom 2-cushion",     -1, -1, 0 },
+    { CUE_GAME_CAROM_3C,       "carom 3-cushion",     -1, -1, 0 },
+    { CUE_GAME_CAROM_4B,       "carom four-ball",     -1, -1, 0 },
     /* Bar billiards has no rail pockets at all — its holes are in the bed and
      * this test is about the passage between two cushion jaws. Nothing to
      * measure, and a zero here would read as a failure rather than as N/A. */
@@ -277,6 +290,10 @@ int main(int argc, char **argv) {
     int fails = 0;
     for (int i = 0; i < (int)(sizeof EXPECT / sizeof EXPECT[0]); i++) {
         float c = 0, m = 0;
+        if (CUE_GAME_IS_CAROM(EXPECT[i].kind)) {
+            printf("%-16s no pockets at all: four plain cushions\n", EXPECT[i].name);
+            continue;
+        }
         if (EXPECT[i].kind == CUE_GAME_BARBILLIARDS) {
             printf("%-16s no rail pockets: its holes are in the bed\n", EXPECT[i].name);
             continue;
