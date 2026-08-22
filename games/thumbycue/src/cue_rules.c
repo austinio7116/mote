@@ -101,6 +101,13 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
          * already put his ball in the D — exactly as snooker's rack does with
          * the same rule. Setting the flag as well would send the host into a
          * placement it does not need and leave the table looking empty. */
+    } else if (CUE_GAME_IS_KILLER(t->kind)) {
+        /* KILLER: the score IS the lives. Three each, counting down; the
+         * frame ends when somebody has none. */
+        r->score[0] = r->score[1] = 3;
+        r->target_score = 0;
+        r->break_shot = 1;
+        r->ball_in_hand = 1;
     } else if (r->kind || t->kind == CUE_GAME_PAUL) {
         /* THE FOUR SPOTS AND THE D, for snooker AND for Paul. Paul scores
          * nothing like snooker, but the table has the marks printed on it and
@@ -1453,6 +1460,58 @@ static void resolve_barbilliards(CueRules *r, CueBall *b, int n, const CueWorld 
         snprintf(r->msg, sizeof r->msg, "%d", pts);
 }
 
+/* ---- G10: KILLER ---------------------------------------------------------
+ *
+ * One shot each, strictly alternating. Pot any object ball and you are safe;
+ * fail to pot — or foul — and one of your three lives goes. A scratch is a
+ * life AND ball in hand to the incoming player. The opening break is exempt:
+ * nobody loses a life for a dry break, which is the pub's own custom. The
+ * rack goes back on when the table runs dry with both players standing.
+ */
+static void resolve_killer(CueRules *r, CueBall *b, int n, int first_hit,
+                           int scratch, const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    const int was_break = r->break_shot;
+    r->break_shot = 0;
+    r->rerack = 0;
+
+    int foul = 0; const char *why = "";
+    if (scratch)             { foul = 1; why = "SCRATCH"; }
+    else if (first_hit < 0)  { foul = 1; why = "NO BALL"; }
+    else if (r->n_off)       { foul = 1; why = "OFF THE TABLE"; }
+    r->last_foul = foul;
+
+    /* a scratch still counts the other balls it sank; they stay down */
+    const int made = !foul && np > 0;
+
+    if (!made && !(was_break && !foul)) {
+        r->score[me]--;
+        if (r->score[me] <= 0) {
+            r->score[me] = 0;
+            r->frame_over = 1; r->winner = you;
+            book_frame(r, you);
+            snprintf(r->msg, sizeof r->msg, "OUT OF LIVES");
+            return;
+        }
+        snprintf(r->msg, sizeof r->msg, foul ? "FOUL: %s - A LIFE" : "%sA LIFE",
+                 foul ? why : "");
+    } else if (made) {
+        snprintf(r->msg, sizeof r->msg, "SAFE");
+    } else {
+        r->msg[0] = 0;                       /* a dry break: no harm done */
+    }
+
+    /* one shot each, whatever happened */
+    r->turn = you;
+    if (scratch) r->ball_in_hand = 1;
+
+    /* the table ran dry with both standing: rack it again */
+    int left = 0;
+    for (int i = 1; i < n; i++) if (b[i].on) left++;
+    if (left == 0) { r->rerack = 2; r->racks++; r->break_shot = 1; }
+}
+
 /* ---- G5: ENGLISH BILLIARDS ----------------------------------------------
  *
  * Three balls, two of them cue balls, and the whole game is in Section 3 Rules
@@ -2166,6 +2225,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
+    else if (CUE_GAME_IS_KILLER(r->mode))    resolve_killer(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
     else if (r->mode == CUE_GAME_GOLF) resolve_golf(r, b, n, scratch);
@@ -2244,6 +2304,8 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
     /* GOLF: clear the reds. There is no order and no nominated ball — the only
      * thing you may not strike first is your own cue ball. */
     if (r->mode == CUE_GAME_GOLF) return id != CUE_ID_CUE;
+    /* KILLER: pot what you like — any object ball, always. */
+    if (CUE_GAME_IS_KILLER(r->mode)) return id != CUE_ID_CUE;
     if (CUE_GAME_IS_PYRAMID(r->mode))  return id >= 1 && id <= 15;
     if (r->open) return id != 8;                 /* open table: anything but the 8 */
     /* the 8 is legal ONLY once your own group is fully cleared */
@@ -2276,6 +2338,10 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
             snprintf(buf, cap, "%d ON THE TABLE", r->paul_left);
     } else if (CUE_GAME_IS_ROTATION(r->mode)) {
         snprintf(buf, cap, "ON %d", r->seq ? r->seq : 1);
+    } else if (CUE_GAME_IS_KILLER(r->mode)) {
+        /* the board is the lives — yours first, because it is your shot */
+        snprintf(buf, cap, "LIVES %d - %d", r->score[r->turn],
+                 r->score[1 - r->turn]);
     } else if (r->mode == CUE_GAME_STRAIGHT) {
         /* The score IS the state in 14.1 — there is no ball on to report, so the
          * board carries the target and what has been called instead. */

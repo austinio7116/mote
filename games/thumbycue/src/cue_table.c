@@ -78,6 +78,17 @@ static void cue_table_rails(CueTable *t, CueGameKind kind) {
 }
 
 void cue_table_init(CueTable *t, CueGameKind kind) {
+    /* KILLER borrows its base game's whole table — bed, pockets, rubber, ball
+     * size — and only the rules differ; the kind is re-stamped so the rules
+     * know what they are refereeing. The same trick the snookers play by
+     * being three kinds, done by delegation instead of duplication. */
+    if (CUE_GAME_IS_KILLER(kind)) {
+        cue_table_init(t, kind == CUE_GAME_KILLER_UK ? CUE_GAME_UK8
+                        : kind == CUE_GAME_KILLER_US ? CUE_GAME_US8
+                                                     : CUE_GAME_CN8);
+        t->kind = kind;
+        return;
+    }
     memset(t, 0, sizeof(*t));
     t->kind = kind;
     /* ENGLISH BILLIARDS IS PLAYED ON A SNOOKER TABLE, and this flag is about
@@ -3134,10 +3145,13 @@ static int spec_family(CueGameKind kind) {
      * survive a change of table. Measured: all eighteen holes rack with every
      * ball on the cloth, on all three specs and all four shapes. */
     case CUE_GAME_UK8: case CUE_GAME_SNK6:
-    case CUE_GAME_GOLF:                            return SPEC_FAM_ENGLISH;
+    case CUE_GAME_GOLF:
+    case CUE_GAME_KILLER_UK:                       return SPEC_FAM_ENGLISH;
     case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
-    case CUE_GAME_STRAIGHT:                        return SPEC_FAM_AMERICAN;
-    case CUE_GAME_CN8:                             return SPEC_FAM_CHINESE;
+    case CUE_GAME_STRAIGHT:
+    case CUE_GAME_KILLER_US:                       return SPEC_FAM_AMERICAN;
+    case CUE_GAME_CN8:
+    case CUE_GAME_KILLER_CN:                       return SPEC_FAM_CHINESE;
     /* Russian pyramid's pockets are barely wider than its ball and that IS the
      * game; cutting them to a spec would be cutting the game up. Bar billiards
      * has no rail pockets at all, and golf's table is a prop for a course. */
@@ -3624,6 +3638,10 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * rather than copied in millimetres: 14.5 mm on a 45 mm snooker pocket
          * is a third of it, and a third of Paul's is 8.4. */
         /* PAUL  */ { 0.0084f, 1.3550f, 0.2150f,  90.0f },
+        /* KILLER — the base tables' own cuts, exactly */
+        /* K-UK  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
+        /* K-US  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
+        /* K-CN  */ { 0.0170f, 1.3550f, 0.2200f,  90.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -3641,6 +3659,9 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* GOLF  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
         /* US10  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
         /* PAUL  */ { 0.0100f, 1.4437f, 0.2150f, 180.0f },
+        /* K-UK  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
+        /* K-US  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
+        /* K-CN  */ { 0.0285f, 1.4437f, 0.2250f, 180.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -4854,7 +4875,7 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
     else if (t->kind == CUE_GAME_US9)  n = rack_9ball(t, balls);
     else if (t->kind == CUE_GAME_US10) n = rack_10ball(t, balls);
     else if (CUE_GAME_IS_PYRAMID(t->kind)) n = rack_pyramid(t, balls);
-    else                         n = rack_pool(t, balls);   /* UK8 + US8 */
+    else                         n = rack_pool(t, balls);   /* UK8 + US8 + CN8 + KILLER */
     /* ONE PLACE STAMPS THE CUE BALL. Every rack builds balls[0] as the white,
      * and every game but English pool wants it the same size as the rest — so
      * the exception is applied here rather than in three racks, and it sits at

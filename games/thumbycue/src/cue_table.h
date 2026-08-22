@@ -84,9 +84,21 @@ typedef enum {
      * points on the table only fall, and the frame ends the moment one player
      * leads by more than is left. */
     CUE_GAME_PAUL,
+    /* G10: KILLER. The pub elimination game, two players for now: one shot
+     * each, strictly alternating; pot any ball and you are safe, fail to pot
+     * — or foul — and you lose one of your three lives. A scratch is a life
+     * AND ball in hand. The table reracks when it runs dry with both still
+     * standing. Three kinds because it is played on three tables — the same
+     * pattern as the snookers — and everything but the bed is shared. */
+    CUE_GAME_KILLER_UK,
+    CUE_GAME_KILLER_US,
+    CUE_GAME_KILLER_CN,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
+#define CUE_GAME_IS_KILLER(k) \
+    ((k) == CUE_GAME_KILLER_UK || (k) == CUE_GAME_KILLER_US || \
+     (k) == CUE_GAME_KILLER_CN)
 #define CUE_GAME_IS_ROTATION(k) \
     ((k) == CUE_GAME_US9 || (k) == CUE_GAME_US10)
 /* ...and WHICH ball ends it. */
