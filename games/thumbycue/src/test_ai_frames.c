@@ -18,7 +18,7 @@
  *
  *   AI_FRAMES=200 AI_PERSONA=7 AI_GAME=4 /tmp/test_ai_frames
  *
- *   AI_FRAMES   how many frames to play          (default 60)
+ *   AI_FRAMES   how many frames to play          (default 6)
  *   AI_PERSONA  index into CUE_PERSONAS          (default 7)
  *   AI_GAME     CueGameKind                      (default 4 = 12 ft snooker)
  *   AI_SEED     rng seed                         (default 1)
@@ -672,7 +672,13 @@ static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
 }
 
 int main(void) {
-    int frames = 60, pi = 7, kind = CUE_GAME_SNK15;
+    /* SIX FRAMES IN THE SUITE, not sixty. Sixty frames of snooker self-play is
+     * the better measurement and it is also an hour of wall clock — long enough
+     * that it ran first, alphabetically, and held up every other test behind it.
+     * The distribution is only worth paying for when snooker itself changes;
+     * for everything else this is a smoke test, and AI_FRAMES=200 is there when
+     * the real number is wanted. */
+    int frames = 6, pi = 7, kind = CUE_GAME_SNK15;
     { const char *v = getenv("AI_FRAMES");  if (v) frames = atoi(v); }
     { const char *v = getenv("AI_PERSONA"); if (v) pi = atoi(v); }
     int pi2 = -1;
