@@ -163,6 +163,7 @@ static struct {
     int   has_render_model;
     int   has_perf;
     int   has_stylus;
+    XrPath mx_ink_path;
     int   has_refresh;
     PFN_xrEnumerateRenderModelPathsFB xrEnumerateRenderModelPathsFB_;
     PFN_xrGetRenderModelPropertiesFB  xrGetRenderModelPropertiesFB_;
@@ -779,8 +780,9 @@ static int make_actions(void) {
             { S.a_haptic,  path("/user/hand/left/output/haptic") },
             { S.a_haptic,  path("/user/hand/right/output/haptic") },
         };
-        sb.interactionProfile =
+        S.mx_ink_path =
             path("/interaction_profiles/logitech/mx_ink_stylus_logitech");
+        sb.interactionProfile = S.mx_ink_path;
         sb.suggestedBindings = pb;
         sb.countSuggestedBindings = sizeof pb / sizeof pb[0];
         if (!XR_SUCCEEDED(xrSuggestInteractionProfileBindings(S.instance, &sb)))
@@ -843,6 +845,17 @@ static void read_hand(int i, MoteVrHand *h, XrTime t) {
     gi.action = S.a_menu;
     if (XR_SUCCEEDED(xrGetActionStateBoolean(S.session, &gi, &b)) && b.isActive)
         h->menu = b.currentState;
+
+    /* IS THIS HAND A STYLUS? The runtime knows, and will say: the current
+     * interaction profile for a hand is whatever device is actually bound to it,
+     * which is the only reliable way to tell an MX Ink from a Touch controller
+     * when both fill the same slot. Asked once a frame, and cheap — it is a
+     * path comparison against a value the runtime already holds. */
+    if (S.has_stylus && S.mx_ink_path) {
+        XrInteractionProfileState ips = { XR_TYPE_INTERACTION_PROFILE_STATE };
+        if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(S.session, S.hand_path[i], &ips)))
+            h->stylus = (ips.interactionProfile == S.mx_ink_path);
+    }
 
     XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
     if (XR_SUCCEEDED(xrLocateSpace(S.hand_space[i], S.space, t, &loc)) &&

@@ -45,6 +45,12 @@ typedef struct {
     int        btn_lower;   /* A (right hand) / X (left hand) */
     int        btn_upper;   /* B (right hand) / Y (left hand) */
     int        menu;        /* only the left controller has one on Quest */
+    /* WHICH DEVICE THIS HAND IS ACTUALLY HOLDING. A stylus fills the same slot
+     * as a Touch controller by design — an app clamping one to a cue should not
+     * care which it is — but an app that wants to IGNORE the other hand has to
+     * be able to tell them apart. 1 when the runtime says this hand is on the
+     * Logitech MX Ink profile. */
+    int        stylus;
 } MoteVrHand;
 
 enum { MOTE_VR_LEFT = 0, MOTE_VR_RIGHT = 1 };
