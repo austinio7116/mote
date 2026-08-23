@@ -183,7 +183,23 @@ enum {
 /* WHICH HOLES A ROUND COVERS. Nine is a real round of golf and half the
  * sitting, which matters more on a table — where a hole is a handful of shots
  * and a full eighteen is a long session — than it does on grass. */
-enum { CUE_GOLF_18 = 0, CUE_GOLF_FRONT9, CUE_GOLF_BACK9, CUE_GOLF_ROUNDS };
+/* WHICH HOLES, AND HOW THEY ARE SCORED. The first three are strokeplay — every
+ * stroke counts and the lowest total wins the round. The last three are the same
+ * holes played as MATCHPLAY, which is a different game on the same course: each
+ * hole is won, lost or halved on its own, the totals are thrown away, and the
+ * match is decided on holes up with holes remaining. A player five ahead with
+ * four to play has won, however many strokes they took getting there.
+ *
+ * Matchplay is the older and the more forgiving of the two: one disastrous hole
+ * costs you that hole and nothing more, where in strokeplay a nine follows you
+ * round for the rest of the round. On a table, where a hole is four or five
+ * shots and a bad one can be a dozen, that difference is larger than on grass. */
+enum { CUE_GOLF_18 = 0, CUE_GOLF_FRONT9, CUE_GOLF_BACK9,
+       CUE_GOLF_M18, CUE_GOLF_MFRONT9, CUE_GOLF_MBACK9,
+       CUE_GOLF_ROUNDS };
+/* The same holes, whichever way they are scored. */
+#define CUE_GOLF_IS_MATCH(r)  ((r) >= CUE_GOLF_M18)
+#define CUE_GOLF_STROKE_OF(r) (CUE_GOLF_IS_MATCH(r) ? (r) - CUE_GOLF_M18 : (r))
 #define CUE_GOLF_HOLES 18
 #define CUE_GOLF_MAX_BALLS 4
 #define CUE_GOLF_MAX_STROKES 8      /* Rule 3: "limit 8" */
@@ -198,8 +214,14 @@ extern const CueGolfHole CUE_GOLF_COURSE[CUE_GOLF_HOLES];
 int cue_golf_par(int from_hole, int to_hole);
 /* The first and last hole of a round — one place, so nothing has to remember
  * that the back nine starts at ten. */
-static inline int cue_golf_first(int round) { return round == CUE_GOLF_BACK9 ? 9 : 0; }
-static inline int cue_golf_last(int round)  { return round == CUE_GOLF_FRONT9 ? 8 : 17; }
+/* The holes are the round's, whichever way it is being scored — so both take
+ * the strokeplay round the matchplay one is a copy of. */
+static inline int cue_golf_first(int round) {
+    return CUE_GOLF_STROKE_OF(round) == CUE_GOLF_BACK9 ? 9 : 0;
+}
+static inline int cue_golf_last(int round) {
+    return CUE_GOLF_STROKE_OF(round) == CUE_GOLF_FRONT9 ? 8 : 17;
+}
 extern const char *const CUE_GOLF_ROUND_NAME[CUE_GOLF_ROUNDS];
 /* Which hole the next cue_table_rack() sets out. The rack takes no argument
  * for it and every caller already goes through that one function. */

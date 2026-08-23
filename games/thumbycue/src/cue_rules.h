@@ -400,6 +400,10 @@ int  cue_rules_golf_leader(const CueRules *r);
  * starting hole with it, so nothing else has to know the back nine starts at
  * ten. Call after cue_rules_init, as cue_rules_set_uk is called. */
 void cue_rules_set_golf_round(CueRules *r, int round);
+
+/* Matchplay's score: holes up from seat 0's side, + for seat 0 and - for seat 1,
+ * counting only holes both players have finished. */
+int  cue_rules_golf_holes_up(const CueRules *r);
 /* Run the clock down. When it reaches zero the bar drops and potted balls stop
  * coming back (Rule 108's premise); the game is over when the balls run out. */
 void cue_rules_bb_tick(CueRules *r, float dt);

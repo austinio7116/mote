@@ -5075,6 +5075,7 @@ const CueGolfHole CUE_GOLF_COURSE[CUE_GOLF_HOLES] = {
 
 const char *const CUE_GOLF_ROUND_NAME[CUE_GOLF_ROUNDS] = {
     "18 HOLES", "FRONT NINE", "BACK NINE",
+    "MATCHPLAY 18", "MATCHPLAY FRONT 9", "MATCHPLAY BACK 9",
 };
 
 int cue_golf_par(int from_hole, int to_hole) {

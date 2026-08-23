@@ -1934,7 +1934,30 @@ static void resolve_golf(CueRules *r, CueBall *b, int n, int scratch)
     }
     const int first = cue_golf_first(r->golf_round);
     const int last  = cue_golf_last(r->golf_round);
-    if (r->golf_hole >= last) {
+    /* MATCHPLAY IS DECIDED HOLE BY HOLE, and can be over before the holes are.
+     *
+     * Each hole is won, lost or halved on its own and the totals are thrown
+     * away — so a player who is more holes up than there are holes left has
+     * won, whatever the cards say. That is the whole difference: a disastrous
+     * hole costs you that hole and nothing else, where in strokeplay a nine
+     * follows you round. On a table, where a bad hole can be a dozen shots,
+     * that matters more than it does on grass. */
+    if (!solo && CUE_GOLF_IS_MATCH(r->golf_round)) {
+        const int up = cue_rules_golf_holes_up(r);
+        const int left = last - r->golf_hole;
+        if (up > left || r->golf_hole >= last) {
+            r->frame_over = 1;
+            r->winner = (up > 0) ? 0 : (up < 0) ? 1 : -1;
+            if (r->winner >= 0) book_frame(r, r->winner);
+            if (up != 0 && left > 0)
+                snprintf(r->msg, sizeof r->msg, "%d AND %d",
+                         up > 0 ? up : -up, left);
+            else if (up != 0) snprintf(r->msg, sizeof r->msg, "%d UP",
+                                       up > 0 ? up : -up);
+            else snprintf(r->msg, sizeof r->msg, "HALVED");
+            return;
+        }
+    } else if (r->golf_hole >= last) {
         r->frame_over = 1;
         int a = cue_rules_golf_total(r, 0, first, last);
         int c = cue_rules_golf_total(r, 1, first, last);
@@ -1946,6 +1969,22 @@ static void resolve_golf(CueRules *r, CueBall *b, int n, int scratch)
     r->golf_hole++;
     r->golf_rack = 1;
     if (!solo) r->turn = r->golf_honour;     /* the honour leads off */
+}
+
+/* HOLES UP, from seat 0's side: +2 means seat 0 is two holes to the good, -1
+ * means seat 1 is one up, 0 is all square. Only holes BOTH have played count —
+ * a hole in progress is nobody's yet. */
+int cue_rules_golf_holes_up(const CueRules *r) {
+    if (!r) return 0;
+    const int first = cue_golf_first(r->golf_round);
+    const int last  = cue_golf_last(r->golf_round);
+    int up = 0;
+    for (int h = first; h <= last && h < CUE_GOLF_HOLES; h++) {
+        const int a = r->golf_card[0][h], b = r->golf_card[1][h];
+        if (!a || !b) continue;                /* not finished by both */
+        if (a < b) up++; else if (b < a) up--; /* LOW wins a hole */
+    }
+    return up;
 }
 
 int cue_rules_golf_total(const CueRules *r, int who, int from_hole, int to_hole) {
