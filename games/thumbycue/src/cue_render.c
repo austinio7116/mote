@@ -910,6 +910,75 @@ static void emit_bed_polygon(const CueTable *t) {
     #undef BZ
 }
 
+/* THE UNDERCUT BASE AT A KNUCKLE IS ONE POINT.
+ *
+ * The base is the nose set back by ub so the nose overhangs. Set a straight
+ * face back and you get a parallel straight; set the knuckle's 4 mm arc back by
+ * 12.9 mm and it contributes nothing, because the offset has passed its own
+ * centre and turned inside out. Measured with CUE_BASEDUMP: that inversion put
+ * twelve crossings in the mitred tables' base polyline, and of sixty-two
+ * undercut quads left forty-four self-crossing and eighteen wound backwards —
+ * and a backwards quad is back-face culled, which is the triangle of missing
+ * apron you could see the timber through. One fault, not two. The curved
+ * tables, whose jaws never invert, come back clean on every count.
+ *
+ * So the arc's vertices share ONE base point: where the two straights' set-back
+ * lines already cross. Taken from the FACE normals, because that is the line
+ * each straight's own base actually sits on — the ends carry AVERAGED vertex
+ * normals, which is what makes a straight's base subtly not its own face's
+ * offset, and skews the quad if you place a point on it.
+ *
+ * ONE POINT PER END, not per segment: the short rail between a middle pocket's
+ * two knuckles belongs to both and needs a different corner at each end. Held
+ * as one point per segment, the second knuckle overwrote the first and the base
+ * jumped the length of the table — a metre of gap, which CUE_BASEDUMP reported
+ * the moment it happened. */
+static Vec3 s_kbase_a[CUE_MAX_SEG], s_kbase_b[CUE_MAX_SEG];
+static uint8_t s_kbase_on[CUE_MAX_SEG];
+
+static int knuckle_of(const CueWorld *w, const CueSeg *g) {
+    if (w->jaw_r <= 1e-5f) return -1;
+    const float tol = w->jaw_r * 0.25f + 0.0002f;
+    for (int j = 0; j < w->njaw; j++) {
+        const float da = sqrtf((g->a.x-w->jaw[j].x)*(g->a.x-w->jaw[j].x) +
+                               (g->a.z-w->jaw[j].z)*(g->a.z-w->jaw[j].z));
+        const float db = sqrtf((g->b.x-w->jaw[j].x)*(g->b.x-w->jaw[j].x) +
+                               (g->b.z-w->jaw[j].z)*(g->b.z-w->jaw[j].z));
+        if (fabsf(da - w->jaw_r) < tol && fabsf(db - w->jaw_r) < tol) return j;
+    }
+    return -1;
+}
+
+static void knuckle_bases(const CueWorld *w, float u) {
+    memset(s_kbase_on, 0, sizeof s_kbase_on);
+    if (w->nseg < 3 || u <= 1e-6f) return;
+    for (int s = 0; s < w->nseg; s++) {
+        const int j = knuckle_of(w, &w->seg[s]);
+        if (j < 0 || (s_kbase_on[s] & 3) == 3) continue;
+        int first = s, last = s;
+        while (knuckle_of(w, &w->seg[(first + w->nseg - 1) % w->nseg]) == j)
+            first = (first + w->nseg - 1) % w->nseg;
+        while (knuckle_of(w, &w->seg[(last + 1) % w->nseg]) == j)
+            last = (last + 1) % w->nseg;
+        const CueSeg *P = &w->seg[(first + w->nseg - 1) % w->nseg];
+        const CueSeg *N = &w->seg[(last + 1) % w->nseg];
+        const float d1 = (P->a.x - P->n.x*u)*P->n.x + (P->a.z - P->n.z*u)*P->n.z;
+        const float d2 = (N->a.x - N->n.x*u)*N->n.x + (N->a.z - N->n.z*u)*N->n.z;
+        const float det = P->n.x*N->n.z - P->n.z*N->n.x;
+        if (fabsf(det) < 1e-6f) continue;
+        const Vec3 M = v3(( d1*N->n.z - d2*P->n.z) / det, 0.0f,
+                          (-d1*N->n.x + d2*P->n.x) / det);
+        for (int k = first; ; k = (k + 1) % w->nseg) {
+            s_kbase_a[k] = M; s_kbase_b[k] = M; s_kbase_on[k] = 3;
+            if (k == last) break;
+        }
+        const int pv = (first + w->nseg - 1) % w->nseg;
+        const int nx = (last + 1) % w->nseg;
+        s_kbase_b[pv] = M; s_kbase_on[pv] |= 2;
+        s_kbase_a[nx] = M; s_kbase_on[nx] |= 1;
+    }
+}
+
 /* Baize lip (the drop): rolls the cloth down into each pocket throat. Emitted
  * AFTER the pocket voids so depth-test layers it OVER the void (no rim cutting
  * across it) while the raised cushions still occlude its sides. */
@@ -2004,6 +2073,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     }
 #endif
     const float ub = plain ? 0.0f : 0.45f * t->R; /* undercut / overhang */
+    knuckle_bases(w, ub);
 /* ---- CUE_CUSHDUMP / cue_render_capture_nose ------------------------------
  * The nose line the balls bounce off is cue_table's; the nose line you see is
  * this file's, and the contract is that they are the same line. Nothing checked
@@ -2228,6 +2298,8 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         float cwa = cw, cwb = cw;
         Vec3 ba = v3(pa.x - na.x*uba, 0, pa.z - na.z*uba);
         Vec3 bb = v3(pb.x - nb.x*ubb, 0, pb.z - nb.z*ubb);
+        if (s_kbase_on[s] & 1) ba = v3(s_kbase_a[s].x, 0.0f, s_kbase_a[s].z);
+        if (s_kbase_on[s] & 2) bb = v3(s_kbase_b[s].x, 0.0f, s_kbase_b[s].z);
         Vec3 an = v3(pa.x, nose_h, pa.z), bn = v3(pb.x, nose_h, pb.z);
         Vec3 af = v3(pa.x, flat_h, pa.z), bf = v3(pb.x, flat_h, pb.z);
         /* straight rail nose (kind 0): clean perpendicular back at depth cw (a
@@ -2331,6 +2403,26 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                        "  base stands in %.5f m\n", s, sg->kind, sharedA,
                        pa_r, ba_r, inw);
             }
+        }
+#endif
+#ifdef MOTE_HOST
+        /* CUE_BASEDUMP — the undercut's two edges, per segment, in chain order:
+         * the BASE (set back, on the cloth) and the NOSE above it. Everything
+         * that can be wrong with this face is visible in those numbers: a base
+         * that does not join up, a base that crosses itself, or a quad that
+         * crosses itself and loses half its area to back-face culling. */
+        if (getenv("CUE_BASEDUMP")) {
+            /* the jaw circles once, with the first segment, so the checker can
+             * ask the question that matters for the physics: is the circle
+             * TANGENT to the two faces (a ball meets it at the point) or sat
+             * behind them (a ball never touches it)? */
+            if (s == 0)
+                for (int q = 0; q < w->njaw; q++)
+                    printf("JW %d %.6f %.6f %.6f\n", q,
+                           (double)w->jaw[q].x, (double)w->jaw[q].z, (double)w->jaw_r);
+            printf("UF %d %d %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n", s, sg->kind,
+                   (double)ba.x, (double)ba.z, (double)bb.x, (double)bb.z,
+                   (double)an.x, (double)an.z, (double)bn.x, (double)bn.z);
         }
 #endif
         ribbon(ba, bb, bn, an, fdark);      /* undercut face (leans to nose) */
@@ -2672,6 +2764,46 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     /* CUE_BNDSHOW: paint the cloth boundary itself, just above the bed, so the
      * edge can be READ off a render instead of guessed at. Pocket-tagged runs
      * (the cutaway) come up magenta, the plain rail/edge runs cyan. Debug only. */
+    /* CUE_SEGSHOW: lay the PHYSICS CHAIN itself on the cloth — the segments a
+     * ball actually bounces off, and the jaw circles it actually rebounds from
+     * — so what the table DOES can be checked against what it LOOKS like.
+     * Straight rail noses red, pocket facings yellow, jaw circles cyan, and a
+     * short green whisker on each segment's inward normal. Debug only. */
+    if (getenv("CUE_SEGSHOW")) {
+        /* AT NOSE HEIGHT, not on the cloth. The chain is the line a ball meets
+         * at the CUSHION NOSE, some 32 mm up; drawn flat on the bed it sits
+         * that far below what it describes, and any view that is not dead
+         * vertical shows it displaced by the parallax rather than by any fault
+         * in the geometry. Mark spotted that from the first pair of renders. */
+        const float Y = t->cushion_h + 0.0015f;
+        for (int i = 0; i < w->nseg; i++) {
+            const CueSeg *sg = &w->seg[i];
+            const uint16_t col = sg->kind ? RGB565C(255, 230, 0) : RGB565C(255, 40, 40);
+            float dx = sg->b.x - sg->a.x, dz = sg->b.z - sg->a.z;
+            const float l = sqrtf(dx*dx + dz*dz) + 1e-9f;
+            const float nx = -dz / l * 0.0022f, nz = dx / l * 0.0022f;
+            quad(v3(sg->a.x - nx, Y, sg->a.z - nz), v3(sg->b.x - nx, Y, sg->b.z - nz),
+                 v3(sg->b.x + nx, Y, sg->b.z + nz), v3(sg->a.x + nx, Y, sg->a.z + nz), col);
+            /* the inward normal, from the middle of the segment */
+            const float mx = (sg->a.x + sg->b.x) * 0.5f, mz = (sg->a.z + sg->b.z) * 0.5f;
+            const float ex = mx + sg->n.x * 0.018f, ez = mz + sg->n.z * 0.018f;
+            quad(v3(mx - nx*0.5f, Y, mz - nz*0.5f), v3(ex - nx*0.5f, Y, ez - nz*0.5f),
+                 v3(ex + nx*0.5f, Y, ez + nz*0.5f), v3(mx + nx*0.5f, Y, mz + nz*0.5f),
+                 RGB565C(0, 255, 90));
+        }
+        for (int i = 0; i < w->njaw; i++) {
+            const int NS = 48;
+            for (int k = 0; k < NS; k++) {
+                const float a0 = k * 6.2831853f / NS, a1 = (k + 1) * 6.2831853f / NS;
+                const float r0 = w->jaw_r - 0.0012f, r1 = w->jaw_r + 0.0012f;
+                quad(v3(w->jaw[i].x + r0*cosf(a0), Y, w->jaw[i].z + r0*sinf(a0)),
+                     v3(w->jaw[i].x + r0*cosf(a1), Y, w->jaw[i].z + r0*sinf(a1)),
+                     v3(w->jaw[i].x + r1*cosf(a1), Y, w->jaw[i].z + r1*sinf(a1)),
+                     v3(w->jaw[i].x + r1*cosf(a0), Y, w->jaw[i].z + r1*sinf(a0)),
+                     RGB565C(0, 220, 255));
+            }
+        }
+    }
     if (getenv("CUE_BNDSHOW")) {
         /* the three circles the pocket is made of, laid on the bed:
          *   yellow = the CUT (what the cloth is supposed to be cut on)

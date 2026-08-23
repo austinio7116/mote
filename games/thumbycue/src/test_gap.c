@@ -253,8 +253,16 @@ static const struct { int kind; const char *name;
      * change by coincidence, 54 less 44 being the same 10: worth knowing that
      * this row only bites when the DIFFERENCE moves. */
     { CUE_GAME_PAUL,     "paul 6ft",       12.0f, 12.0f, 1.5f },
-    { CUE_GAME_PYRAMID,  "pyramid 12ft",   5.0f, 14.5f, 1.0f },
-    { CUE_GAME_PYRAMID7, "pyramid 7ft",    5.0f, 14.5f, 1.0f },
+    /* THE MIDDLES WIDENED BY FIVE MILLIMETRES when the mitred knuckle was
+     * built as a circle the straights kiss rather than a circle buried behind
+     * them. The old rattle circle was recessed jaw_r + 0.15 R BACKWARDS out of
+     * the throat, and on a jaw as acute as a pyramid's that put it inside the
+     * mouth, narrowing the opening it was never meant to touch. It now sits
+     * tangent to both faces and intrudes on nothing. Rounding a convex corner
+     * can only ever REMOVE material, so an opening can only widen or stay put;
+     * the narrower figure this replaces was the artefact, not the intent. */
+    { CUE_GAME_PYRAMID,  "pyramid 12ft",   5.0f, 19.4f, 1.0f },
+    { CUE_GAME_PYRAMID7, "pyramid 7ft",    5.0f, 19.7f, 1.0f },
     { CUE_GAME_BILLIARDS, "English billiards", 34.6f, 38.3f, 1.5f },
     /* KILLER borrows its base game's table whole, so its pockets are that
      * game's pockets and they are unpinned for the same reason those are. */

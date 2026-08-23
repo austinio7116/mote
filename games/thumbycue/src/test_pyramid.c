@@ -74,9 +74,16 @@ int main(void) {
         /* THE FEDERATION'S NUMBERS, to the millimetre. The tournament ball is
          * 67 mm at 255 g — 68 was the OLD one, and is what this shipped with —
          * with the corner about five millimetres wider than the ball and the
-         * middle about fifteen. And the middle is the WIDER of the two, which
+         * middle about nineteen. And the middle is the WIDER of the two, which
          * is the other way round from every other table here and was got
-         * backwards first time. */
+         * backwards first time.
+         *
+         * The middle was fourteen and a half until the mitred knuckle became a
+         * circle the straights kiss instead of one buried behind them: the old
+         * circle was recessed backwards out of the throat, and on a jaw this
+         * acute that put it inside the mouth and narrowed it. Nothing about the
+         * pocket was cut differently — the faces did not move — so the wider
+         * figure is what this table always presented. */
         ok(fabsf(t.R * 2000.0f - 67.0f) < 0.6f,     "the ball is 67 mm");
         ok(fabsf(t.mass - 0.255f) < 0.010f,         "...and 255 g");
         /* MEASURED, NOT AUTHORED. These read pr_corner*2 as the mouth, which
@@ -92,8 +99,8 @@ int main(void) {
                (double)(open_c*1000.0f), (double)(open_m*1000.0f), (double)ball_mm);
         ok(fabsf(open_c * 1000.0f - (ball_mm + 5.0f)) < 1.5f,
                                           "...the corner five millimetres wider");
-        ok(fabsf(open_m * 1000.0f - (ball_mm + 14.5f)) < 1.5f,
-                                          "...and the middle about fifteen");
+        ok(fabsf(open_m * 1000.0f - (ball_mm + 19.0f)) < 1.5f,
+                                          "...and the middle about nineteen");
         ok(open_m > open_c,               "...so the middle is the wider of the two");
         ok(t.pocket_round == 0,           "the jaws are cut sharp, not rounded");
         printf("     %s jaws\n", t.pocket_round ? "rounded" : "mitred"); }

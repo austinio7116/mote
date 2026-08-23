@@ -1292,13 +1292,124 @@ static void add_jaw_recessed(CueWorld *w, Vec3 k, Vec3 nin) {
     float off = w->jaw_r + 0.15f * w->R;
     add_jaw(w, v3(k.x - nin.x * off, 0, k.z - nin.z * off));
 }
+/* THE STRAIGHTS KISS THE CIRCLE, AND THE ARC BETWEEN THEM IS THE KNUCKLE.
+ *
+ * The rattle circle was dropped near the vertex and then recessed behind the
+ * nose (jaw_r + 0.15 R) to keep it out of the throat — which put it somewhere a
+ * ball can never touch. At a convex corner the two flats always reach a ball
+ * first, so whatever the circle's radius, the faces shield it. Measured on the
+ * 9 ft American middle: the circle sat 8.3 mm behind the knuckle and a ball
+ * walked straight at it stopped 33-37 mm away against a 32.6 mm contact radius.
+ * It never once registered, and what the ball met instead was the FACING, whose
+ * normal looks into the mouth — so a ball onto the point was deflected IN
+ * rather than thrown out.
+ *
+ * The circle only becomes real when the flats STOP at it. So it is placed where
+ * it is tangent to both faces — the incircle of the corner, centre on the
+ * bisector at r/sin(half) — and each straight is cut back to its own tangent
+ * point, r/tan(half) from the vertex. The arc between those two points is then
+ * exposed, and it is the outermost thing at the knuckle: a ball meets the
+ * circle, and the existing jaw-circle collision does the rest.
+ *
+ * THE FACE LINES DO NOT MOVE. Only their ENDS do — every trimmed endpoint stays
+ * exactly on the line it was already on, so the angle a ball rebounds at, and
+ * the opening the pocket presents, are the ones the table was cut to. */
+static void mitre_kiss(Vec3 v, Vec3 toward_a, Vec3 toward_b, float r,
+                       Vec3 *ta, Vec3 *tb, Vec3 *c) {
+    Vec3 ua = v3_norm(v3(toward_a.x - v.x, 0.0f, toward_a.z - v.z));
+    Vec3 ub = v3_norm(v3(toward_b.x - v.x, 0.0f, toward_b.z - v.z));
+    float dot = ua.x*ub.x + ua.z*ub.z;
+    if (dot >  0.9999f) dot =  0.9999f;
+    if (dot < -0.9999f) dot = -0.9999f;
+    const float half = acosf(dot) * 0.5f;
+    const float th = tanf(half), sh = sinf(half);
+    float d = (th > 1e-4f) ? r / th : 0.0f;
+    /* A tangent point can never run past the end of the face it is on. */
+    const float la = v3_len(v3(toward_a.x-v.x, 0.0f, toward_a.z-v.z));
+    const float lb = v3_len(v3(toward_b.x-v.x, 0.0f, toward_b.z-v.z));
+    const float lim = 0.45f * ((la < lb) ? la : lb);
+    if (d > lim) d = lim;
+    *ta = v3(v.x + ua.x*d, 0.0f, v.z + ua.z*d);
+    *tb = v3(v.x + ub.x*d, 0.0f, v.z + ub.z*d);
+    Vec3 bis = v3_norm(v3(ua.x + ub.x, 0.0f, ua.z + ub.z));
+    const float cd = (sh > 1e-4f) ? (d * th) / sh : 0.0f;
+    *c = v3(v.x + bis.x*cd, 0.0f, v.z + bis.z*cd);
+}
+
+/* The exposed arc, drawn on the circle the straights were cut back to. Sized by
+ * its own length — about a millimetre a step — because CUE_JAW_SEGS is ten and
+ * ten steps round three millimetres of arc is a chain full of 0.3 mm segments
+ * for nothing. */
+static void add_arc_between(CueWorld *w, Vec3 c, Vec3 a0, Vec3 a1) {
+    const float r = sqrtf((a0.x-c.x)*(a0.x-c.x) + (a0.z-c.z)*(a0.z-c.z));
+    if (r <= 1e-5f) return;
+    float s0 = atan2f(a0.z - c.z, a0.x - c.x);
+    float s1 = atan2f(a1.z - c.z, a1.x - c.x);
+    float d = s1 - s0;
+    while (d >  3.14159265f) d -= 6.28318531f;
+    while (d < -3.14159265f) d += 6.28318531f;
+    int n = (int)((r * (d < 0.0f ? -d : d)) / 0.0010f + 0.5f);
+    if (n < 3) n = 3;
+    if (n > 6) n = 6;
+    Vec3 prev = a0;
+    for (int i = 1; i <= n; i++) {
+        const float a = s0 + d * (float)i / (float)n;
+        Vec3 p = v3(c.x + r*cosf(a), 0.0f, c.z + r*sinf(a));
+        add_seg(w, prev, p, 1);
+        prev = p;
+    }
+}
+
+/* ONE MITRED POCKET RUN — facing, nose, facing — with each knuckle rounded onto
+ * its own jaw circle. kn_a/kn_b say whether that end is a knuckle at all: an
+ * n-gon vertex carrying no pocket, and the L's reflex corner, run straight on
+ * with no facing and no circle.
+ *
+ * THIS IS THE ONLY PLACE A MITRED JAW IS BUILT. A rectangle arrives through
+ * add_chain and every other bed shape through add_run, and that is the whole
+ * point of the function existing: the knuckle was fitted to the rectangle and
+ * the octagon never got it, because add_run emitted its own facings inline and
+ * dropped a RECESSED circle at the vertex instead. That circle sits 8.3 mm
+ * behind the point, where no ball can reach it — which is the fault Mark hit on
+ * a middle pocket: the ball met the FACING, whose normal points into the mouth,
+ * and was deflected in rather than rebounding off the point. Same jaw, same
+ * numbers, one code path. */
+static void add_mitred(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4,
+                       int kn_a, int kn_b, Vec3 nin) {
+    const float r = w->jaw_r;
+    if (r <= 1e-5f) {                    /* no radius authored: the old corner */
+        if (kn_a) add_seg(w, P1, P2, 1);
+        add_seg(w, P2, P3, 0);
+        if (kn_b) add_seg(w, P3, P4, 1);
+        if (kn_a) add_jaw_recessed(w, P2, nin);
+        if (kn_b) add_jaw_recessed(w, P3, nin);
+        return;
+    }
+    Vec3 a2, b2, c2, a3, b3, c3;
+    Vec3 ns = P2, ne = P3;                     /* where the rail nose really runs */
+    if (kn_a) { mitre_kiss(P2, P1, P3, r, &a2, &b2, &c2); ns = b2; }
+    if (kn_b) { mitre_kiss(P3, P2, P4, r, &a3, &b3, &c3); ne = a3; }
+    /* IN BOUNDARY ORDER, and it has to be: the renderer joins pieces by testing
+     * whether one segment's b is the next one's a, walking the array and looking
+     * at s-1 and s+1 and nothing else. */
+    if (kn_a) { add_seg(w, P1, a2, 1); add_arc_between(w, c2, a2, b2); }
+    add_seg(w, ns, ne, 0);
+    if (kn_b) { add_arc_between(w, c3, a3, b3); add_seg(w, b3, P4, 1); }
+    /* THE CIRCLE STAYS, AND THE ARC IS DRAWN ON IT.
+     *
+     * The arc is what the RENDERER needs — a chain with a gap in it draws a
+     * notch at the knuckle, which is what a trimmed pair of straights looks
+     * like with nothing between them. The circle is what the PHYSICS has always
+     * used for a rattle, and it is the same locus as the arc, so a ball pushed
+     * out by an arc segment sits exactly ON the circle and the circle then
+     * finds no penetration to resolve. One shape, described twice, for two
+     * readers. */
+    if (kn_a) add_jaw(w, c2);
+    if (kn_b) add_jaw(w, c3);
+}
+
 static void add_chain(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4) {
-    add_seg(w, P1, P2, 1);
-    add_seg(w, P2, P3, 0);
-    add_seg(w, P3, P4, 1);
-    Vec3 nin = inward_n(P2.x, P2.z, P3.x, P3.z);   /* nose inward normal */
-    add_jaw_recessed(w, P2, nin);
-    add_jaw_recessed(w, P3, nin);
+    add_mitred(w, P1, P2, P3, P4, 1, 1, inward_n(P2.x, P2.z, P3.x, P3.z));
 }
 
 /* THE REFLEX CORNER AS A RADIUS RATHER THAN A POINT.
@@ -1451,40 +1562,30 @@ static void add_run(CueWorld *w, const CueTable *t, Vec3 a, Vec3 b, Vec3 out,
         return;
     }
 
-    /* IN BOUNDARY ORDER — facing, nose, facing — and it has to be.
-     *
-     * The renderer works out which cushion pieces are joined by testing whether
-     * one segment's b is the next segment's a, walking the array in order. It
-     * is not a search: it looks at s-1 and s+1 and nothing else. Emitting the
-     * nose first and then its two facings, which is the order that reads
-     * naturally here, leaves every facing looking FREE AT BOTH ENDS — so each
-     * one was run out to the rail on an assumption about which end was the
-     * knuckle that was simply wrong, and none of them shared vertices with the
-     * nose it belongs to. That is the wedge of cushion hanging below the timber
-     * at each pocket. add_chain has always emitted in this order; this is the
-     * same contract, and it is a contract rather than a preference. */
+    /* THE MITRE, through the same builder the rectangle uses — so the knuckle
+     * radius, the tangent jaw circle and the boundary order are the shape's,
+     * not this function's. What used to be here was a second copy of all three,
+     * and the copy is what left every non-rectangular bed with a sharp point
+     * and a circle behind it. */
+    Vec3 P1 = P2, P4 = P3;
     if (end_a != LEND_REFLEX) {
         float ang = (end_a == LEND_MIDDLE) ? t->ang_side : t->ang_corner;
-        float c = cosf(ang*DEG), s = sinf(ang*DEG);
-        const float sl = (w->cush_depth > 1e-6f && s > 1e-4f)
-                       ? (w->cush_depth / s) : sl_auth;
-        Vec3 P1 = v3(P2.x - d.x*(c*sl) + out.x*(s*sl), 0,
-                     P2.z - d.z*(c*sl) + out.z*(s*sl));
-        add_seg(w, P1, P2, 1);
+        float c = cosf(ang*DEG), s2 = sinf(ang*DEG);
+        const float sl = (w->cush_depth > 1e-6f && s2 > 1e-4f)
+                       ? (w->cush_depth / s2) : sl_auth;
+        P1 = v3(P2.x - d.x*(c*sl) + out.x*(s2*sl), 0,
+                P2.z - d.z*(c*sl) + out.z*(s2*sl));
     }
-    add_seg(w, P2, P3, 0);                       /* the nose */
     if (end_b != LEND_REFLEX) {
         float ang = (end_b == LEND_MIDDLE) ? t->ang_side : t->ang_corner;
-        float c = cosf(ang*DEG), s = sinf(ang*DEG);
-        const float sl = (w->cush_depth > 1e-6f && s > 1e-4f)
-                       ? (w->cush_depth / s) : sl_auth;
-        Vec3 P4 = v3(P3.x + d.x*(c*sl) + out.x*(s*sl), 0,
-                     P3.z + d.z*(c*sl) + out.z*(s*sl));
-        add_seg(w, P3, P4, 1);
+        float c = cosf(ang*DEG), s2 = sinf(ang*DEG);
+        const float sl = (w->cush_depth > 1e-6f && s2 > 1e-4f)
+                       ? (w->cush_depth / s2) : sl_auth;
+        P4 = v3(P3.x + d.x*(c*sl) + out.x*(s2*sl), 0,
+                P3.z + d.z*(c*sl) + out.z*(s2*sl));
     }
-    /* the jaw circles after, so they do not interleave with the chain */
-    if (end_a != LEND_REFLEX) add_jaw_recessed(w, P2, nin);
-    if (end_b != LEND_REFLEX) add_jaw_recessed(w, P3, nin);
+    add_mitred(w, P1, P2, P3, P4,
+               end_a != LEND_REFLEX, end_b != LEND_REFLEX, nin);
 }
 
 /* The whole L: six vertices, seven pockets, and a jaw circle on the reflex. */
