@@ -59,6 +59,32 @@ int main(void) {
 
     {   CueRules r; fresh(&r);
         ok(LP != RP && LP >= 0, "the table has two foot corners", "");
+        /* BOTH POCKETS ARE AT THE SAME END, and it is the end the balls are
+         * racked at — not opposite corners. That is the whole shape of the
+         * game: two players working one end of the table, each trying to move
+         * balls toward their own corner while denying the other. The four
+         * neutral pockets are the two middles and the two HEAD corners.
+         *
+         * Asserted against the rack rather than against a coordinate, so it
+         * still holds on a table the workshop built. */
+        {   /* NOT BY DISTANCE FROM THE RACK — on a 9 ft table the middles are
+             * exactly as far from the foot spot as the foot corners are, so
+             * distance cannot tell them apart. By what they ARE: corners, and
+             * past the rack rather than short of it. */
+            const Vec3 apex = B[1].pos;         /* the rack's apex, on the foot spot */
+            char m[80];
+            snprintf(m, sizeof m, "apex x %.2f, pockets x %.2f/%.2f, mid %d/%d",
+                     (double)apex.x, (double)W.pocket[LP].x, (double)W.pocket[RP].x,
+                     (int)W.pocket_mid[LP], (int)W.pocket_mid[RP]);
+            ok(!W.pocket_mid[LP] && !W.pocket_mid[RP] &&
+               W.pocket[LP].x > apex.x && W.pocket[RP].x > apex.x,
+               "both owned pockets are CORNERS, past the rack at that end", m); }
+        {   /* and they are on OPPOSITE SIDES of that end, not the same side */
+            char m[64];
+            snprintf(m, sizeof m, "z %.3f and %.3f",
+                     (double)W.pocket[LP].z, (double)W.pocket[RP].z);
+            ok(W.pocket[LP].z * W.pocket[RP].z < 0.0f,
+               "...one each side of the table, sharing that end", m); }
         ok(r.target_score == 8, "the game is eight of the fifteen", "");
     }
 
