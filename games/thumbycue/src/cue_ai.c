@@ -824,10 +824,43 @@ static int path_clear(const AiCtx *c, Vec3 start, Vec3 end, int exclude) {
     return path_clear_at(c, start, end, exclude, NULL, NULL);
 }
 
+/* ---- RUSSIAN PYRAMID'S POCKETS ARE THE GAME ------------------------------
+ *
+ * 68 mm balls into a mouth barely wider than they are. What that changes is not
+ * how hard a cut is, it is what ARRIVES: a ball more than about twenty degrees
+ * off the pocket's own centre line meets a jaw rather than the hole, however
+ * cleanly it was struck. The CUT angle does not come into it — a thin cut sent
+ * straight down the pocket's line is on, and a dead straight shot across the
+ * jaws is not — which is also why nothing is ever potted along a cushion at
+ * this game: a ball near a rail has no line into the corner at all.
+ *
+ * Measured against CueWorld::paxis, the centre line the table recorded when it
+ * placed the pocket. Not the direction from the table's centre, which is what
+ * the pool answer below uses: on a 2:1 bed that misses a corner's true bisector
+ * by nearly twenty degrees on its own, which at this tolerance is the entire
+ * budget.
+ *
+ * PYRAMID AND NOTHING ELSE. Asked in one place and applied in the two that
+ * price a pocket, so no other game's numbers move by a thousandth. */
+#define AI_PYR_APPROACH 20.0f      /* degrees off the centre line, at most */
+static int is_pyramid(const AiCtx *c) { return CUE_GAME_IS_PYRAMID(c->r->mode); }
+
+/* How far off the pocket's own centre line the object ball would arrive, in
+ * degrees. 0 is straight down the middle of the hole. */
+static float pocket_approach_deg(const AiCtx *c, Vec3 target, int pk) {
+    Vec3 in = nrm2(sub2(c->w->pocket[pk], target));   /* the way it travels */
+    Vec3 ax = c->w->paxis[pk];                        /* ...and the way out */
+    /* Both point the same way when the ball is arriving square: the axis runs
+     * out of the pocket and so does the ball. */
+    return acosf(clampf(dot2(in, ax), -1.0f, 1.0f)) * DEG;
+}
+
 /* Approach angle gate (ai.js checkPocketApproach + calculatePocketApproachAngle). */
 static int pocket_approach_ok(const AiCtx *c, Vec3 target, int pk) {
     /* Any direction will do into a hole in the bed — see is_bed_hole. */
     if (is_bed_hole(c, pk)) { (void)target; return 1; }
+    if (is_pyramid(c))
+        return pocket_approach_deg(c, target, pk) <= AI_PYR_APPROACH;
     Vec3 ppos = c->w->pocket[pk];
     Vec3 shotdir = nrm2(sub2(ppos, target));
     float ang;
@@ -871,6 +904,13 @@ static float potting_difficulty(const AiCtx *c, Vec3 cue, Vec3 target, int pk) {
         /* No approach penalty at all: there is no rail to come in past and no
          * knuckle to clip. What is left is the cut angle and the distance,
          * which the lines above have already priced. */
+    } else if (is_pyramid(c)) {
+        /* Nothing survives twenty degrees and it is already dear at ten, so
+         * the planner has to hunt for balls that are ALREADY on a line into a
+         * pocket rather than for balls it can cut in. */
+        const float app = pocket_approach_deg(c, target, pk);
+        if (app >= AI_PYR_APPROACH) return 0.0f;
+        score -= powf(app / AI_PYR_APPROACH, 1.5f) * 85.0f;
     } else if (!is_corner(c, pk)) {
         float from_rail = asinf(clampf(fabsf(pdir.z), 0, 1)) * DEG;
         if (from_rail < 40.0f)
@@ -1401,8 +1441,16 @@ static float position_quality(const AiCtx *c, Vec3 cue_pos, int just_idx,
              * a straight one is very slightly worse than useless.
              *
              * Only when there is a ball after the next one: on the last ball of
-             * the frame, the easiest pot is simply the best pot. */
-            if (cnt > 1) {
+             * the frame, the easiest pot is simply the best pot.
+             *
+             * AND NOT AT PYRAMID, where it is the wrong advice entirely. The
+             * reasoning behind it is that a straight leave has one line out of
+             * it, which matters in a game where the pot is easy and the
+             * position is the work. Here it is the other way round: a ball on a
+             * line into one of those pockets is a rare thing, and steering the
+             * cue ball off it to buy a fifteen degree cut throws away the shot
+             * to improve a position that will not have one. */
+            if (cnt > 1 && !is_pyramid(c)) {
                 Vec3 pd  = nrm2(sub2(c->w->pocket[pk], tpos));
                 Vec3 gh  = v3(tpos.x - pd.x*2*c->t->R, 0, tpos.z - pd.z*2*c->t->R);
                 Vec3 am  = nrm2(sub2(gh, cue_pos));
