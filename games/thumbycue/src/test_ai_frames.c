@@ -179,8 +179,20 @@ static int play_shot(const CuePersona *p) {
      * when the turn passes so index 0 is always the ball being struck. The
      * real host does both; without them the red never comes back and there is
      * nothing left to play at after two shots. */
-    if (T.kind == CUE_GAME_BILLIARDS) {
-        cue_rules_billiards_respot(&R, &T, B, N);
+    /* CAROM HAS TWO CUE BALLS TOO, and this only swapped them for English
+     * billiards — so through every carom frame index 0 stayed the white and
+     * the seat playing YELLOW planned, aimed and struck the other player's
+     * ball. It scored for nobody, every visit, in every game: straight rail,
+     * two-cushion and three-cushion all measured P1 at zero over hundreds of
+     * visits, which reads as a hopeless AI and was a harness that never gave
+     * it its own ball. The host has always done this for carom (see
+     * cuevr_app.c) — the guard here simply never caught up.
+     *
+     * The RESPOT stays billiards-only: a carom table has no pockets, so
+     * nothing is ever off it to bring back. */
+    if (T.kind == CUE_GAME_BILLIARDS || CUE_GAME_IS_CAROM(T.kind)) {
+        if (T.kind == CUE_GAME_BILLIARDS)
+            cue_rules_billiards_respot(&R, &T, B, N);
         int want_yellow = R.bil_yellow;
         int have_yellow = (B[0].id == CUE_ID_BIL_YELLOW);
         if (want_yellow != have_yellow) {
