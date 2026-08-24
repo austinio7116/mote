@@ -4391,7 +4391,21 @@ static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) 
      * and Ultimate Pool, so the region cannot be decided by the table alone —
      * the caller passes what the rules of the frame allow. Snooker is always
      * the D. */
-    if (anywhere && !t->is_snooker) {
+    /* ...AND "SNOOKER IS ALWAYS THE D" IS NOT TRUE OF EVERY SNOOKER FRAME.
+     *
+     * This threw the caller's answer away on any snooker bed, which is right
+     * for the frame game and exactly wrong for the two formats that exist to
+     * be different: the Shoot Out and THE 900 both give ball in hand ANYWHERE
+     * after a foul, and cue_rules_in_hand_anywhere has always said so. The
+     * table overruled it, so every placement — the player's and, far more
+     * visibly, the AI's, whose whole candidate sweep is filtered through this
+     * clamp — collapsed back into the D. A machine that answers every foul by
+     * putting the white in the D on a table where it may go anywhere is
+     * playing a much smaller game than the one in the rule book.
+     *
+     * WHICH region is a table question; WHETHER the whole cloth is allowed is a
+     * rules question, and the caller is the one holding the rules. */
+    if (anywhere) {
         /* Ball in hand anywhere on the cloth — which is a SHAPE, not two
          * numbers. Clamping to the bounding half-extents put the ball in the
          * missing corner of an L: a legal-looking placement outside the table,

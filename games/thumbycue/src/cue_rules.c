@@ -1616,13 +1616,19 @@ static void resolve_carom(CueRules *r, CueBall *b, int n, const CueWorld *w,
     if (r->n_off) {
         CueTable ot; cue_table_init(&ot, (CueGameKind)r->mode);
         CueBall home[CUE_MAX_BALLS]; const int hn = cue_table_rack(&ot, home);
-        for (int i = 0; i < n && i < hn; i++)
-            if (!b[i].on) {
-                b[i].on = 1;
-                b[i].pos = home[i].pos;
-                b[i].vel = v3(0, 0, 0); b[i].w = v3(0, 0, 0);
-                b[i].pocket = 0; b[i].drop = 0.0f;
-            }
+        for (int i = 0; i < n; i++) {
+            if (b[i].on) continue;
+            /* BY ID, NOT BY SLOT. The two cue balls are exchanged every time
+             * the turn passes so that index 0 is always the ball being struck
+             * — so after an odd number of visits slot 0 holds the YELLOW while
+             * the fresh rack's slot 0 is the white's spot, and restoring by
+             * index put whichever ball went off onto the other one's mark. */
+            for (int k = 0; k < hn; k++)
+                if (home[k].id == b[i].id) { b[i].pos = home[k].pos; break; }
+            b[i].on = 1;
+            b[i].vel = v3(0, 0, 0); b[i].w = v3(0, 0, 0);
+            b[i].pocket = 0; b[i].drop = 0.0f;
+        }
         r->last_foul = 1;
         r->turn = you; r->bil_yellow = !r->bil_yellow;
         snprintf(r->msg, sizeof r->msg, "FOUL: OFF THE TABLE");

@@ -137,6 +137,42 @@ int main(void) {
            "off the table: foul, back on its opening spot, turn over", r.msg);
     }
 
+    /* ---- ...AND ONTO ITS OWN SPOT, NOT THE OTHER BALL'S -------------------
+     *
+     * The two cue balls are exchanged every time the turn passes, so that slot
+     * 0 is always the ball being struck. The respot walked slots against a
+     * fresh rack — home[i] for b[i] — so after an odd number of visits it read
+     * the WHITE'S opening spot for a slot now holding the yellow, and a ball
+     * driven off came back on the wrong mark. Restored by id, it cannot. */
+    {   CueRules r; fresh(&r, CUE_GAME_CAROM_3C);
+        /* where each of them belongs, before anything is exchanged */
+        Vec3 home_w = v3(0,0,0), home_y = v3(0,0,0);
+        for (int i = 0; i < NB; i++) {
+            if (B[i].id == CUE_ID_BIL_WHITE)  home_w = B[i].pos;
+            if (B[i].id == CUE_ID_BIL_YELLOW) home_y = B[i].pos;
+        }
+        /* the yellow's visit: the host exchanges them, so slot 0 is now yellow */
+        cue_rules_billiards_swap(B, NB);
+        r.bil_yellow = 1;
+        /* and the WHITE — the object ball this visit — is driven off */
+        int wi = -1;
+        for (int i = 0; i < NB; i++) if (B[i].id == CUE_ID_BIL_WHITE) wi = i;
+        ok(wi > 0, "the exchange puts the white off slot 0", "");
+        B[wi].on = 0; B[wi].pos = v3(9, 9, 9);
+        W.ntouch = 1;
+        W.touch[0].what = CUE_TOUCH_BALL; W.touch[0].id = RD;
+        r.n_off = 1;
+        cue_rules_resolve(&r, B, NB, &W, RD, 0, 1, NULL, 0);
+        {   char m[80];
+            snprintf(m, sizeof m, "white at %.3f,%.3f  its spot %.3f,%.3f "
+                     "(yellow's is %.3f,%.3f)",
+                     (double)B[wi].pos.x, (double)B[wi].pos.z,
+                     (double)home_w.x, (double)home_w.z,
+                     (double)home_y.x, (double)home_y.z);
+            ok(B[wi].on && B[wi].pos.x == home_w.x && B[wi].pos.z == home_w.z,
+               "a ball off the table comes back on ITS OWN spot after an exchange", m); }
+    }
+
     printf(s_fail ? "\n%d FAILED\n" : "\nall good\n", s_fail);
     return s_fail != 0;
 }

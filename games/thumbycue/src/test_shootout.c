@@ -11,6 +11,7 @@
 #include "cue_table.h"
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 static int s_fail;
 static void ok(int cond, const char *what, const char *detail) {
@@ -75,6 +76,40 @@ int main(void) {
     {   CueRules r; fresh(&r, 1);
         play(&r, 1, 1, 1, NULL, 0);   /* scratch off a legal contact */
         ok(r.last_foul && r.ball_in_hand, "a scratch: foul, in hand", r.msg);
+    }
+
+    /* ---- AND THE TABLE HAS TO HONOUR IT -----------------------------------
+     *
+     * cue_rules_in_hand_anywhere said ANYWHERE from the day the Shoot Out went
+     * in, and the clamp threw the answer away: clamp_region carried an explicit
+     * "snooker is always the D", so every placement on a snooker bed collapsed
+     * into the D whatever the rules of the frame allowed. The rules test above
+     * passed throughout, because it only ever asked the rules.
+     *
+     * The AI is where it showed: its whole placement sweep — wedges, sight
+     * fans, grid, scatter — runs every candidate through this clamp, so it
+     * answered every foul by putting the white back in the D on a table where
+     * it could have gone anywhere. Asked of the clamp, at the far end of the
+     * table from baulk, where the D is nowhere near. */
+    {   CueRules r; fresh(&r, 1);
+        const Vec3 want = v3(T.half_len * 0.6f, T.R, T.half_wid * 0.5f);
+        CueBall none[1]; none[0] = B[0];
+        const Vec3 got = cue_table_clamp_placement_any(&T, want, none, 1, 0,
+                                            cue_rules_in_hand_anywhere(&r));
+        ok(got.x > T.baulk_x + 0.05f,
+           "the Shoot Out puts the white down where it likes, not in the D", "");
+        {   char m[64]; snprintf(m, sizeof m, "asked %.2f got %.2f", (double)want.x,
+                                 (double)got.x);
+            ok(fabsf(got.x - want.x) < 0.01f && fabsf(got.z - want.z) < 0.01f,
+               "...exactly where it was asked for", m); }
+    }
+    {   CueRules r; fresh(&r, 0);
+        const Vec3 want = v3(T.half_len * 0.6f, T.R, T.half_wid * 0.5f);
+        CueBall none[1]; none[0] = B[0];
+        const Vec3 got = cue_table_clamp_placement_any(&T, want, none, 1, 0,
+                                            cue_rules_in_hand_anywhere(&r));
+        ok(got.x <= T.baulk_x + 1e-4f,
+           "ordinary snooker still pulls it back behind the baulk line", "");
     }
 
     /* ---- plain snooker does not feel the switch ---- */
