@@ -106,6 +106,7 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
          * club distances, scaled to how hard each game's point is: straight
          * rail runs long, three-cushion is won in the teens. */
         r->target_score = t->kind == CUE_GAME_CAROM_STRAIGHT ? 30
+                        : t->kind == CUE_GAME_CAROM_1C       ? 20
                         : t->kind == CUE_GAME_CAROM_2C       ? 15
                         : t->kind == CUE_GAME_CAROM_3C       ? 10 : 15;
         r->bil_yellow = 0;
@@ -1608,7 +1609,8 @@ static void resolve_carom(CueRules *r, CueBall *b, int n, const CueWorld *w,
     }
     /* `before` is the cushion count when the SECOND object was first reached;
      * a stroke that never got there scores nothing whatever it did. */
-    const int need = r->mode == CUE_GAME_CAROM_2C ? 2
+    const int need = r->mode == CUE_GAME_CAROM_1C ? 1
+                   : r->mode == CUE_GAME_CAROM_2C ? 2
                    : r->mode == CUE_GAME_CAROM_3C ? 3 : 0;
     const int cannon = hitA && hitB && before >= need && !touched_opp;
 

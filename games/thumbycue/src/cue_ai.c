@@ -1263,6 +1263,7 @@ static float carom_leave(const AiCtx *c, Vec3 cue_end, const Vec3 *end_pos) {
 
     float ideal, sig;
     switch (c->r->mode) {
+        case CUE_GAME_CAROM_1C: ideal = 0.30f; sig = 0.36f; break;
         case CUE_GAME_CAROM_2C: ideal = 0.45f; sig = 0.40f; break;
         case CUE_GAME_CAROM_3C: ideal = 0.80f; sig = 0.55f; break;
         default:                ideal = 0.00f; sig = 0.40f; break;  /* nurse it */
@@ -3677,7 +3678,8 @@ static int carom_objects(const AiCtx *c, int *oa, int *ob) {
 /* HOW MANY CUSHIONS THIS GAME WANTS before the second object ball is reached.
  * Straight rail and four-ball want none; the others are named for it. */
 static int carom_need(const AiCtx *c) {
-    return c->r->mode == CUE_GAME_CAROM_2C ? 2
+    return c->r->mode == CUE_GAME_CAROM_1C ? 1
+         : c->r->mode == CUE_GAME_CAROM_2C ? 2
          : c->r->mode == CUE_GAME_CAROM_3C ? 3 : 0;
 }
 
@@ -4906,7 +4908,8 @@ int cue_ai_plan_tick(void) {
                 if (a3) { if (!hitA) { hitA = 1; if (hitB && before < 0) before = cush; } }
                 else    { if (!hitB) { hitB = 1; if (hitA && before < 0) before = cush; } }
             }
-            const int need = c->r->mode == CUE_GAME_CAROM_2C ? 2
+            const int need = c->r->mode == CUE_GAME_CAROM_1C ? 1
+                           : c->r->mode == CUE_GAME_CAROM_2C ? 2
                            : c->r->mode == CUE_GAME_CAROM_3C ? 3 : 0;
             const int pt = hitA && hitB && before >= need && !opp_touch;
             v->bad_first = (sim.first_hit_idx <= 0);

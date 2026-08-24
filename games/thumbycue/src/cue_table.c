@@ -64,6 +64,7 @@ static void cue_table_rails(CueTable *t, CueGameKind kind) {
         t->e_cush = 0.968f; t->cush_efall = 0.050f; break;
     case CUE_GAME_CAROM_STRAIGHT: case CUE_GAME_CAROM_2C:
     case CUE_GAME_CAROM_3C: case CUE_GAME_CAROM_4B:
+    case CUE_GAME_CAROM_1C:
         /* K-55 on a heated table: the ball is meant to hold speed through
          * three rails, which no pool cushion is asked to do. */
         t->e_cush = 0.990f; t->cush_efall = 0.038f; break;
@@ -3645,6 +3646,7 @@ int cue_table_variant_ok(CueGameKind kind, int variant) {
      * eighteen holes, every ball lands on the cloth. */
     case CUE_GAME_CAROM_STRAIGHT: case CUE_GAME_CAROM_2C:
     case CUE_GAME_CAROM_3C: case CUE_GAME_CAROM_4B:
+    case CUE_GAME_CAROM_1C:
     case CUE_GAME_BARBILLIARDS: case CUE_GAME_BILLIARDS:
         return 0;
     default: return 1;
@@ -3864,11 +3866,12 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* K-UK  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
         /* K-US  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
         /* K-CN  */ { 0.0170f, 1.3550f, 0.2200f,  90.0f },
-        /* CAROM has no pockets to cut — four rows of nothing, like BARB */
+        /* CAROM has no pockets to cut — five rows of nothing, like BARB */
         /* C-SR  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-2C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-3C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* C-1C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -3893,6 +3896,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* C-2C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-3C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* C-1C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here

@@ -102,6 +102,14 @@ typedef enum {
     CUE_GAME_CAROM_2C,
     CUE_GAME_CAROM_3C,
     CUE_GAME_CAROM_4B,
+    /* ONE-CUSHION, appended rather than slotted between straight rail and
+     * two-cushion where it belongs by difficulty. The mode number is stored in
+     * preferences and crosses the wire, so inserting it in the middle would
+     * renumber four games under every saved setting; the menu puts it in its
+     * proper place with an order table of its own. UMB recognises it and the
+     * cushion count was already a variable, so it is the same game with a
+     * different number in it. */
+    CUE_GAME_CAROM_1C,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
@@ -109,7 +117,7 @@ typedef enum {
     ((k) == CUE_GAME_KILLER_UK || (k) == CUE_GAME_KILLER_US || \
      (k) == CUE_GAME_KILLER_CN)
 #define CUE_GAME_IS_CAROM(k) \
-    ((k) >= CUE_GAME_CAROM_STRAIGHT && (k) <= CUE_GAME_CAROM_4B)
+    ((k) >= CUE_GAME_CAROM_STRAIGHT && (k) <= CUE_GAME_CAROM_1C)
 #define CUE_GAME_IS_ROTATION(k) \
     ((k) == CUE_GAME_US9 || (k) == CUE_GAME_US10)
 /* ...and WHICH ball ends it. */

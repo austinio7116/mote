@@ -117,6 +117,31 @@ int main(void) {
            "four-ball's objects are the two reds alone", "");
     }
 
+    /* ---- ONE-CUSHION: exactly what its name says ---------------------- */
+    {   CueRules r; fresh(&r, CUE_GAME_CAROM_1C);
+        PLAY(&r, RD, C, Y);
+        ok(r.score[0] == 1 && r.turn == 0,
+           "one cushion between the two objects is the point", r.msg);
+    }
+    {   CueRules r; fresh(&r, CUE_GAME_CAROM_1C);
+        PLAY(&r, RD, Y);
+        ok(r.score[0] == 0 && r.turn == 1,
+           "...and a direct cannon is not, so the turn passes", r.msg);
+    }
+    {   CueRules r; fresh(&r, CUE_GAME_CAROM_1C);
+        PLAY(&r, RD, C, C, C, Y);
+        ok(r.score[0] == 1, "more rails than asked for still scores", r.msg);
+    }
+    {   CueRules r; fresh(&r, CUE_GAME_CAROM_1C);
+        ok(r.target_score == 20, "one-cushion is a race to twenty", r.msg);
+    }
+    {   /* and the cushion has to come BEFORE the second ball, as the referee
+         * counts it — a rail after the cannon decorates nothing. */
+        CueRules r; fresh(&r, CUE_GAME_CAROM_1C);
+        PLAY(&r, RD, Y, C);
+        ok(r.score[0] == 0, "a rail after the cannon does not count", r.msg);
+    }
+
     /* ---- the race ends at the target ---- */
     {   CueRules r; fresh(&r, CUE_GAME_CAROM_3C);
         r.score[0] = r.target_score - 1;
