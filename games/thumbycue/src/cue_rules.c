@@ -3373,6 +3373,25 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
     } else if (CUE_GAME_IS_PYRAMID(r->mode)) {
         /* Balls, not points, and eight of them takes it. */
         snprintf(buf, cap, "%d - %d   (8 WINS)", r->score[0], r->score[1]);
+    } else if (r->mode == CUE_GAME_ONEPOCKET || r->mode == CUE_GAME_BANKPOOL ||
+               r->mode == CUE_GAME_HONOLULU) {
+        /* EIGHT OF THE FIFTEEN, AND NO GROUPS AT ALL.
+         *
+         * These three fell through to the eight-ball line below, which says
+         * OPEN until a group has been decided — and one never is here, because
+         * there are none. So the board read OPEN for the whole frame and the
+         * score of a game that is a race to eight appeared nowhere on it.
+         * Reported at Honolulu.
+         *
+         * One pocket carries what a foul left owed as well: until it is paid
+         * the next ball you pot is not a point, and that is not visible from
+         * the score. */
+        const int me = r->score[r->turn], them = r->score[1 - r->turn];
+        if (r->mode == CUE_GAME_ONEPOCKET && r->op_owed[r->turn] > 0)
+            snprintf(buf, cap, "%d - %d  TO %d   OWES %d", me, them,
+                     r->target_score, r->op_owed[r->turn]);
+        else
+            snprintf(buf, cap, "%d - %d  TO %d", me, them, r->target_score);
     } else {
         int g = r->group[r->turn];
         const char *grp = r->open ? "OPEN" : g == 1 ? "SOLIDS" : "STRIPES";
