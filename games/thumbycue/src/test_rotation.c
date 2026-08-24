@@ -112,6 +112,29 @@ int main(void) {
         ok(!r.frame_over, "classic: no three-foul rule at all", r.msg);
     }
 
+    /* ---- FIFTEEN-BALL: the same scoring, nobody telling you what to hit ---- */
+    {   CueRules r; fresh(&r, CUE_GAME_FIFTEEN);
+        ok(r.target_score == 61, "fifteen-ball is the same race to 61", "");
+        ok(B[1].id == 15, "the 15 is on the foot spot at the apex", "");
+        ok(cue_rules_ball_legal(&r, B, NB, 1) &&
+           cue_rules_ball_legal(&r, B, NB, 9) &&
+           cue_rules_ball_legal(&r, B, NB, 15),
+           "every ball is legal to strike", "");
+    }
+    {   CueRules r; fresh(&r, CUE_GAME_FIFTEEN);
+        int id[1] = { 12 };
+        shot(&r, 12, 0, 1, id, 1);
+        ok(!r.last_foul && r.score[0] == 12 && r.turn == 0,
+           "take the 12 with the 1 still up: twelve, and play on", r.msg);
+    }
+    {   CueRules r; fresh(&r, CUE_GAME_ROTATION);
+        int id[1] = { 12 };
+        shot(&r, 12, 0, 1, id, 1);
+        ok(r.last_foul && r.score[0] == 0,
+           "...which at rotation is a foul, and that is the whole difference",
+           r.msg);
+    }
+
     printf(s_fail ? "\n%d FAILED\n" : "\nall good\n", s_fail);
     return s_fail != 0;
 }

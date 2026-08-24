@@ -132,6 +132,10 @@ typedef enum {
      * decided long before the last ball. */
     CUE_GAME_ROTATION,
     CUE_GAME_ROTATION_PH,
+    /* FIFTEEN-BALL: rotation without the rotation. Any ball may be struck, and
+     * it is still worth its number to 61 — so the whole game is choosing which
+     * balls to take rather than being told. */
+    CUE_GAME_FIFTEEN,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
@@ -147,9 +151,12 @@ typedef enum {
 #define CUE_GAME_IS_ROTATION(k) \
     ((k) == CUE_GAME_US9 || (k) == CUE_GAME_US10 || \
      (k) == CUE_GAME_ROTATION || (k) == CUE_GAME_ROTATION_PH)
-/* ...and the two that score by the ball's number rather than by clearing it. */
+/* ...and the ones that score by the ball's NUMBER, to 61, rather than by
+ * clearing the table. Fifteen-ball is one of these and NOT one of the family
+ * above: it scores the same way and lets you shoot at anything. */
 #define CUE_GAME_IS_ROT61(k) \
-    ((k) == CUE_GAME_ROTATION || (k) == CUE_GAME_ROTATION_PH)
+    ((k) == CUE_GAME_ROTATION || (k) == CUE_GAME_ROTATION_PH || \
+     (k) == CUE_GAME_FIFTEEN)
 /* ...and WHICH ball ends it. */
 /* THE HIGHEST BALL IN PLAY, which for 9- and 10-ball is also the one that ends
  * the frame. Rotation has no money ball at all — it is played out until

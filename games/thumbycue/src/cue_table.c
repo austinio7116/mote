@@ -58,7 +58,8 @@ static void cue_table_rails(CueTable *t, CueGameKind kind) {
     case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
     case CUE_GAME_STRAIGHT: case CUE_GAME_ONEPOCKET:
     case CUE_GAME_BANKPOOL:
-    case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:  /* K-66, worsted */
+    case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
+    case CUE_GAME_FIFTEEN:                         /* K-66, worsted */
         t->e_cush = 0.985f; t->cush_efall = 0.046f; break;
     case CUE_GAME_UK8:                          /* championship English, Northern rubber */
         t->e_cush = 0.965f; t->cush_efall = 0.052f; break;
@@ -795,6 +796,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     case CUE_GAME_STRAIGHT: case CUE_GAME_ONEPOCKET:
     case CUE_GAME_BANKPOOL:
     case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
+    case CUE_GAME_FIFTEEN:
         t->bore_corner = 1.8900f * t->R; t->bore_side = 1.7600f * t->R;
         t->bore_set_corner = 0.0000f * t->R; t->bore_set_side = 0.0000f * t->R;
         break;
@@ -3350,6 +3352,7 @@ static int spec_family(CueGameKind kind) {
     case CUE_GAME_STRAIGHT: case CUE_GAME_ONEPOCKET:
     case CUE_GAME_BANKPOOL:
     case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
+    case CUE_GAME_FIFTEEN:
     case CUE_GAME_KILLER_US:                       return SPEC_FAM_AMERICAN;
     case CUE_GAME_CN8:
     case CUE_GAME_KILLER_CN:                       return SPEC_FAM_CHINESE;
@@ -3891,6 +3894,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* BANK  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* ROT   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* ROTPH */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
+        /* 15BAL */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -3921,6 +3925,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* BANK  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* ROT   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* ROTPH */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
+        /* 15BAL */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -4651,6 +4656,31 @@ static int rack_rotation(const CueTable *t, CueBall *b) {
     return n;
 }
 
+/* FIFTEEN-BALL: the 15 at the apex on the foot spot, the 13 and 14 in the back
+ * corners — the mirror of rotation's rack, and for the mirror reason. Here the
+ * biggest prize is the ball nearest you and the next two are furthest away, so
+ * the opening is a shot at something worth having rather than a toll. */
+static int rack_fifteen(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const Vec3 side = v3(-up.z, 0.0f, up.x);
+    const float footx = foot.x, footz = foot.z;
+    const float dx = R * 1.7320508f;
+    #define F15_AT(r_, o_) (footx + up.x*(r_) + side.x*(o_)), \
+                           (footz + up.z*(r_) + side.z*(o_))
+    static const int rows[5][5] = {
+        { 15 }, { 7, 4 }, { 6, 1, 11 }, { 10, 3, 9, 5 }, { 13, 8, 2, 12, 14 },
+    };
+    int n = 1;
+    for (int row = 0; row < 5; row++)
+        for (int k = 0; k <= row; k++)
+            set_ball(&b[n++], rows[row][k],
+                     F15_AT(row * dx, -(row) * R + k * 2.0f * R), R);
+    { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
+    #undef F15_AT
+    return n;
+}
+
 /* US 9-ball: diamond rack — 1 at the apex (foot spot), 9 in the centre. */
 static int rack_9ball(const CueTable *t, CueBall *b) {
     const float R = t->R;
@@ -5262,6 +5292,7 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
      * Behind the flag it got a snooker rack and the scatter never ran. */
     else if (t->kind == CUE_GAME_PAUL) n = rack_paul(t, balls);
     else if (t->is_snooker)      n = rack_snooker(t, balls);
+    else if (t->kind == CUE_GAME_FIFTEEN) n = rack_fifteen(t, balls);
     else if (CUE_GAME_IS_ROT61(t->kind)) n = rack_rotation(t, balls);
     else if (t->kind == CUE_GAME_US9)  n = rack_9ball(t, balls);
     else if (t->kind == CUE_GAME_US10) n = rack_10ball(t, balls);

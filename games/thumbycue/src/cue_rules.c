@@ -114,7 +114,9 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
         /* 120 on the table and 61 takes it — the majority, so the frame is
          * decided the moment one player cannot be caught. */
         r->target_score = 61;
-        r->seq = 1;                       /* the 1 is the ball on, off the rack */
+        /* the 1 is the ball on off the rack — except at fifteen-ball, where
+         * there is no ball on at all and the board says so */
+        r->seq = (t->kind == CUE_GAME_FIFTEEN) ? 0 : 1;
     } else if (t->kind == CUE_GAME_BANKPOOL) {
         /* Eight of the fifteen, as One Pocket is, and the foul debt with it. */
         r->target_score = 8;
@@ -1673,7 +1675,7 @@ static void resolve_carom(CueRules *r, CueBall *b, int n, const CueWorld *w,
     (void)first_hit;
 }
 
-/* ---- ROTATION, AND THE FILIPINO GAME ------------------------------------
+/* ---- ROTATION, THE FILIPINO GAME, AND FIFTEEN-BALL ----------------------
  *
  * Fifteen balls, the LOWEST always the one on, and a ball is worth its own
  * NUMBER. The numbers 1 to 15 come to 120, so 61 wins it — and the frame can
@@ -1718,9 +1720,15 @@ static void resolve_rotation(CueRules *r, CueBall *b, int n, int first_hit,
         if (potted[k] >= 1 && potted[k] <= 15 && potted[k] < lowest) lowest = potted[k];
     if (lowest == 99) lowest = 0;
 
+    /* FIFTEEN-BALL LETS YOU SHOOT AT ANYTHING, which is the whole of what
+     * separates it from rotation: the same fifteen balls, the same number for a
+     * score and the same 61 to win, but nobody tells you which one is on. So
+     * the obligation below is the rotation family's alone. */
+    const int must_hit_lowest = CUE_GAME_IS_ROTATION(r->mode);
     int foul = 0; const char *why = "";
     if (first_hit < 0)                    { foul = 1; why = "NO BALL HIT"; }
-    else if (lowest && first_hit != lowest) { foul = 1; why = "WRONG BALL FIRST"; }
+    else if (must_hit_lowest && lowest && first_hit != lowest)
+                                          { foul = 1; why = "WRONG BALL FIRST"; }
     else if (scratch)                     { foul = 1; why = "SCRATCH"; }
     else if (r->n_off)                    { foul = 1; why = "OFF THE TABLE"; }
     else if (!np && !cushion)             { foul = 1; why = "NO CUSHION"; }
@@ -2896,7 +2904,12 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
     if (CUE_GAME_IS_ROTATION(r->mode)) return id == rot_lowest(r, b, n);  /* lowest first */
     /* Straight pool: every object ball is legal to hit, always. The obligation
      * is to SAY which one, not to choose from a list — see cue_rules_call_shot. */
-    if (r->mode == CUE_GAME_STRAIGHT) return id >= 1 && id <= 15;
+    /* FIFTEEN-BALL likewise, and there is not even a call: any ball, any
+     * pocket, and its number is the score. */
+    if (r->mode == CUE_GAME_STRAIGHT ||
+        r->mode == CUE_GAME_FIFTEEN ||
+        r->mode == CUE_GAME_ONEPOCKET ||
+        r->mode == CUE_GAME_BANKPOOL) return id >= 1 && id <= 15;
     /* Pyramid: every one of the fifteen is on, always. */
     /* Billiards has no ball ON: Rule 16 makes it a miss only if the cue ball
      * fails to contact EITHER object ball, so both are legal to strike. */
@@ -2941,6 +2954,10 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
             snprintf(buf, cap, "%d LEFT  2 SHOTS", r->paul_left);
         else
             snprintf(buf, cap, "%d ON THE TABLE", r->paul_left);
+    } else if (r->mode == CUE_GAME_FIFTEEN) {
+        /* No ball on to report — that is the game — so the board is the race. */
+        snprintf(buf, cap, "%d - %d  TO %d", r->score[r->turn],
+                 r->score[1 - r->turn], r->target_score);
     } else if (CUE_GAME_IS_ROT61(r->mode)) {
         /* "ON 7" alone would leave out the only number that matters: rotation
          * is a race and the ball on is just the toll to be paid on the way. */
