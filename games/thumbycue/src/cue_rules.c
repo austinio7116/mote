@@ -1890,7 +1890,20 @@ static void resolve_golf(CueRules *r, CueBall *b, int n, int scratch)
 
     const int cleared = (left == 0);
     const int maxed   = (r->golf_strokes >= CUE_GOLF_MAX_STROKES);
-    if (!cleared && !maxed) {
+    /* MATCHPLAY: A HOLE YOU CANNOT TIE IS ALREADY LOST.
+     *
+     * The second player to a hole knows exactly what it takes: the opponent's
+     * number. Once they have played that many and the hole is not cleared,
+     * their next shot can only be worse, so nothing they do from here changes
+     * the result — and in matchplay the size of the loss is worth nothing
+     * either. They pick up. In strokeplay every shot still counts towards the
+     * total, so this applies to the match rounds only. */
+    int conceded = 0;
+    if (!cleared && !r->golf_solo && CUE_GOLF_IS_MATCH(r->golf_round)) {
+        const int theirs = r->golf_card[1 - me][r->golf_hole];
+        if (theirs && r->golf_strokes >= theirs) conceded = 1;
+    }
+    if (!cleared && !maxed && !conceded) {
         /* Still on the hole. The score IS the stroke count, so that is the
          * only thing worth saying. */
         snprintf(r->msg, sizeof r->msg, "%d", r->golf_strokes);
@@ -1900,11 +1913,13 @@ static void resolve_golf(CueRules *r, CueBall *b, int n, int scratch)
     /* The hole is done, one way or the other. Rule 3 caps it at eight. */
     int score = r->golf_strokes;
     if (score > CUE_GOLF_MAX_STROKES) score = CUE_GOLF_MAX_STROKES;
+    if (conceded) score = CUE_GOLF_CONCEDED;
     r->golf_card[me][r->golf_hole] = (uint8_t)score;
     r->golf_strokes = 0;
 
     const int par = CUE_GOLF_COURSE[r->golf_hole].par;
-    if (!cleared)              snprintf(r->msg, sizeof r->msg, "%d - LIMIT", score);
+    if (conceded)              snprintf(r->msg, sizeof r->msg, "PICK UP");
+    else if (!cleared)         snprintf(r->msg, sizeof r->msg, "%d - LIMIT", score);
     else if (score == 1)       snprintf(r->msg, sizeof r->msg, "HOLE IN ONE");
     else if (score <= par - 2) snprintf(r->msg, sizeof r->msg, "%d - EAGLE", score);
     else if (score == par - 1) snprintf(r->msg, sizeof r->msg, "%d - BIRDIE", score);
@@ -2001,8 +2016,15 @@ int cue_rules_golf_holes_up(const CueRules *r) {
 int cue_rules_golf_total(const CueRules *r, int who, int from_hole, int to_hole) {
     if (!r || who < 0 || who > 1) return 0;
     int t = 0;
-    for (int h = from_hole; h <= to_hole && h < CUE_GOLF_HOLES; h++)
-        if (h >= 0) t += r->golf_card[who][h];
+    for (int h = from_hole; h <= to_hole && h < CUE_GOLF_HOLES; h++) {
+        if (h < 0) continue;
+        /* A HOLE PICKED UP HAS NO STROKE COUNT — it is only ever a matchplay
+         * thing and matchplay does not add up, but the sentinel must not be
+         * allowed to land in a total as 255 wherever one is still drawn. It
+         * counts as the limit, which is the worst a hole can cost. */
+        const int v = r->golf_card[who][h];
+        t += (v == CUE_GOLF_CONCEDED) ? CUE_GOLF_MAX_STROKES : v;
+    }
     return t;
 }
 

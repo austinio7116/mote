@@ -25,6 +25,14 @@ enum { CUE_SEL_RANDOM = 0, CUE_SEL_TOP3, CUE_SEL_OPTIMAL };
 
 typedef struct {
     const char *name;
+    /* WHAT THEY ARE CALLED WHEN THERE IS NO ROOM FOR ALL OF IT.
+     *
+     * No rule about spaces gets this right. Most of them are an epithet and a
+     * name — Rookie Rick, Iron Nina — so the LAST word is the person; Clara
+     * CueQueen is the other way round, so the FIRST is; and The Machine is
+     * neither, since "The" is not anybody. A scorecard column that guesses will
+     * be wrong for one of them whichever guess it makes, so the roster says. */
+    const char *shortname;
     int   elo;
     float line_acc;     /* aim error, degrees (half of the ± range) */
     float power_acc;    /* power error, fraction (half of the ± range) */

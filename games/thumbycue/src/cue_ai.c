@@ -20,15 +20,15 @@
 
 /* ---- personas (ported from ai-personas.js) --------------------------- */
 const CuePersona CUE_PERSONAS[CUE_NUM_PERSONAS] = {
-    /* name              elo  line  pow  safety pwrB spin free  select          pos  ms  */
-    { "Rookie Rick",    1278, 1.20f,0.22f, -30, 1.30f,0.3f,0.0f, CUE_SEL_RANDOM, 0.00f,400 },
-    { "Steady Sue",     1382, 0.70f,0.15f,  15, 0.85f,0.5f,0.2f, CUE_SEL_TOP3,   0.40f,350 },
-    { "Hustler Hank",   1447, 0.50f,0.12f, -15, 1.30f,0.6f,0.3f, CUE_SEL_TOP3,   0.20f,300 },
-    { "Professor Pete", 1428, 0.40f,0.10f,  20, 0.80f,0.7f,0.7f, CUE_SEL_OPTIMAL,0.70f,350 },
-    { "Clara CueQueen", 1501, 0.25f,0.08f,  10, 0.85f,0.8f,0.6f, CUE_SEL_OPTIMAL,0.60f,300 },
-    { "Deadshot Dave",  1633, 0.10f,0.05f, -20, 1.15f,0.9f,0.4f, CUE_SEL_OPTIMAL,0.30f,250 },
-    { "Iron Nina",      1715, 0.02f,0.03f,   5, 0.75f,0.9f,0.9f, CUE_SEL_OPTIMAL,0.85f,300 },
-    { "The Machine",    1616, 0.00f,0.00f,   0, 1.00f,1.0f,1.0f, CUE_SEL_OPTIMAL,1.00f,200 },
+    /* name             short     elo  line  pow  safety pwrB spin free  select      pos  ms */
+    { "Rookie Rick", "Rick",    1278, 1.20f,0.22f, -30, 1.30f,0.3f,0.0f, CUE_SEL_RANDOM, 0.00f,400 },
+    { "Steady Sue", "Sue",     1382, 0.70f,0.15f,  15, 0.85f,0.5f,0.2f, CUE_SEL_TOP3,   0.40f,350 },
+    { "Hustler Hank", "Hank",   1447, 0.50f,0.12f, -15, 1.30f,0.6f,0.3f, CUE_SEL_TOP3,   0.20f,300 },
+    { "Professor Pete", "Pete", 1428, 0.40f,0.10f,  20, 0.80f,0.7f,0.7f, CUE_SEL_OPTIMAL,0.70f,350 },
+    { "Clara CueQueen", "Clara", 1501, 0.25f,0.08f,  10, 0.85f,0.8f,0.6f, CUE_SEL_OPTIMAL,0.60f,300 },
+    { "Deadshot Dave", "Dave",  1633, 0.10f,0.05f, -20, 1.15f,0.9f,0.4f, CUE_SEL_OPTIMAL,0.30f,250 },
+    { "Iron Nina", "Nina",      1715, 0.02f,0.03f,   5, 0.75f,0.9f,0.9f, CUE_SEL_OPTIMAL,0.85f,300 },
+    { "The Machine", "Machine",    1616, 0.00f,0.00f,   0, 1.00f,1.0f,1.0f, CUE_SEL_OPTIMAL,1.00f,200 },
 };
 
 /* ---- rng (xorshift32, [0,1)) ----------------------------------------- */

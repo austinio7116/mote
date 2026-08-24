@@ -203,6 +203,12 @@ enum { CUE_GOLF_18 = 0, CUE_GOLF_FRONT9, CUE_GOLF_BACK9,
 #define CUE_GOLF_HOLES 18
 #define CUE_GOLF_MAX_BALLS 4
 #define CUE_GOLF_MAX_STROKES 8      /* Rule 3: "limit 8" */
+/* A HOLE PICKED UP. In matchplay a hole you can no longer tie is already lost,
+ * so there is no reason to go on playing it — the card takes a dash where the
+ * stroke count would have gone, exactly as a paper matchplay card does. Held
+ * as a value above any real score so every "lower wins" comparison on the card
+ * treats it as the loss it is without a special case. */
+#define CUE_GOLF_CONCEDED 255
 typedef struct {
     uint8_t par;
     uint8_t n;
