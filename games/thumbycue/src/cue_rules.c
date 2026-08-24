@@ -110,6 +110,8 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
                         : t->kind == CUE_GAME_CAROM_2C       ? 15
                         : t->kind == CUE_GAME_CAROM_3C       ? 10 : 15;
         r->bil_yellow = 0;
+    } else if (t->kind == CUE_GAME_COWBOY) {
+        r->target_score = 101;
     } else if (CUE_GAME_IS_ROT61(t->kind)) {
         /* 120 on the table and 61 takes it — the majority, so the frame is
          * decided the moment one player cannot be caught. */
@@ -1790,6 +1792,118 @@ static void resolve_rotation(CueRules *r, CueBall *b, int n, int first_hit,
     r->msg[0] = 0;
 }
 
+/* ---- COWBOY POOL ---------------------------------------------------------
+ *
+ * Three balls — the 1, the 3 and the 5 — and a hundred and one points to be had
+ * off them three different ways at once. It is the strangest game on this list
+ * and the only one that changes its own rules as it goes.
+ *
+ *   TO 90       everything scores. A ball pocketed is worth its NUMBER, a
+ *               cannon off two balls is ONE, and an in-off is ONE.
+ *   91 TO 100   CANNONS ONLY. Pocketing scores nothing at all from here, so a
+ *               player who has spent the game potting has to find a different
+ *               game to finish it in.
+ *   THE 101st   a cannon off the 1 BALL FIRST, and nothing else will do.
+ *
+ * YOU CANNOT OVERSHOOT. A stroke worth more than the points left scores nothing
+ * and the visit is over — so the run into the nineties has to be counted, and a
+ * player on 88 cannot simply pot the 5. That is the whole tactical shape of the
+ * endgame and the reason the game is played at all.
+ *
+ * The balls always come back: with three of them on a nine-foot table, a game
+ * that removed them would be over in a minute. Pocketed, they go to their spots.
+ */
+static void resolve_cowboy(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                           int first_hit, int scratch, int cushion,
+                           const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    r->break_shot = 0;
+
+    /* WHAT THE CUE BALL TOUCHED, in order, so a cannon can be told from a
+     * single contact — the same log carom is scored from. */
+    int distinct = 0, seen[8]; int nseen = 0;
+    if (w) for (int i = 0; i < w->ntouch; i++) {
+        if (w->touch[i].what != CUE_TOUCH_BALL) continue;
+        int dup = 0;
+        for (int k = 0; k < nseen; k++) if (seen[k] == w->touch[i].id) dup = 1;
+        if (!dup && nseen < 8) seen[nseen++] = w->touch[i].id;
+    }
+    distinct = nseen;
+
+    int foul = 0; const char *why = "";
+    if (first_hit < 0)        { foul = 1; why = "NO BALL HIT"; }
+    else if (r->n_off)        { foul = 1; why = "OFF THE TABLE"; }
+    else if (!np && !cushion && !scratch) { foul = 1; why = "NO CUSHION"; }
+
+    const int have = r->score[me];
+    /* THE CEILING OF THE PHASE YOU ARE IN, and it is not 101 until the end.
+     * Pocketing and in-offs may carry you to NINETY and no further — that is
+     * what makes the run-in a counting problem rather than a potting one, and
+     * why a player on 88 cannot simply take the 5. From ninety the cannons may
+     * carry you to a hundred, and the hundred-and-first is its own shot. */
+    const int cap  = (have >= 100) ? 101 : (have >= 90) ? 100 : 90;
+    const int left = cap - have;
+
+    /* WHAT THE STROKE WAS WORTH, by the phase the striker is in. */
+    int gain = 0;
+    const int cannon = (distinct >= 2);
+    if (!foul) {
+        if (have >= 100) {
+            /* The last point: a cannon, and the 1 struck FIRST. */
+            if (cannon && first_hit == 1) gain = 1;
+        } else if (have >= 90) {
+            if (cannon) gain = 1;             /* cannons only from ninety */
+        } else {
+            for (int k = 0; k < np; k++)
+                if (potted[k] >= 1 && potted[k] <= 5) gain += potted[k];
+            if (cannon)  gain += 1;
+            if (scratch) gain += 1;           /* an in-off is a point here */
+        }
+    }
+
+    /* THE BALLS GO BACK, always — three balls that stayed down would end the
+     * game rather than the frame. */
+    r->respot = np;
+    if (scratch) r->ball_in_hand = 1;
+
+    if (foul) {
+        r->last_foul = 1;
+        r->cfoul[me]++;
+        r->turn = you;
+        r->brk = 0;
+        snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        return;
+    }
+    r->last_foul = 0;
+    r->cfoul[me] = 0;
+
+    /* NO OVERSHOOTING. Worth more than is left is worth nothing. */
+    if (gain > left) {
+        r->turn = you;
+        r->brk = 0;
+        snprintf(r->msg, sizeof r->msg, "TOO MANY - %d NEEDED", left);
+        return;
+    }
+
+    r->score[me] += gain;
+    if (r->score[me] >= 101) {
+        r->frame_over = 1; r->winner = me; book_frame(r, me);
+        snprintf(r->msg, sizeof r->msg, "GAME");
+        return;
+    }
+    if (gain) {
+        r->brk += gain;
+        snprintf(r->msg, sizeof r->msg, "%d", gain);
+        return;                                   /* the striker plays on */
+    }
+    r->brk = 0;
+    r->turn = you;
+    if (have >= 100)     snprintf(r->msg, sizeof r->msg, "CANNON OFF THE 1");
+    else if (have >= 90) snprintf(r->msg, sizeof r->msg, "CANNONS ONLY");
+    else                 r->msg[0] = 0;
+}
+
 /* ---- ONE POCKET ----------------------------------------------------------
  *
  * The most tactical game on a pool table and unlike anything else here: each
@@ -2829,6 +2943,8 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (CUE_GAME_IS_KILLER(r->mode))    resolve_killer(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
+    else if (r->mode == CUE_GAME_COWBOY)
+        resolve_cowboy(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_BANKPOOL)
         resolve_bank(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_ONEPOCKET)
@@ -2906,6 +3022,8 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
      * is to SAY which one, not to choose from a list — see cue_rules_call_shot. */
     /* FIFTEEN-BALL likewise, and there is not even a call: any ball, any
      * pocket, and its number is the score. */
+    /* Cowboy: the three balls on the table are all of them and all legal. */
+    if (r->mode == CUE_GAME_COWBOY) return id == 1 || id == 3 || id == 5;
     if (r->mode == CUE_GAME_STRAIGHT ||
         r->mode == CUE_GAME_FIFTEEN ||
         r->mode == CUE_GAME_ONEPOCKET ||
@@ -2954,6 +3072,17 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
             snprintf(buf, cap, "%d LEFT  2 SHOTS", r->paul_left);
         else
             snprintf(buf, cap, "%d ON THE TABLE", r->paul_left);
+    } else if (r->mode == CUE_GAME_COWBOY) {
+        /* The phase is the game, so the board says which one you are in. */
+        const int have = r->score[r->turn];
+        if (have >= 100)
+            snprintf(buf, cap, "%d - %d   CANNON OFF THE 1", have,
+                     r->score[1 - r->turn]);
+        else if (have >= 90)
+            snprintf(buf, cap, "%d - %d   CANNONS ONLY", have,
+                     r->score[1 - r->turn]);
+        else
+            snprintf(buf, cap, "%d - %d  TO 101", have, r->score[1 - r->turn]);
     } else if (r->mode == CUE_GAME_FIFTEEN) {
         /* No ball on to report — that is the game — so the board is the race. */
         snprintf(buf, cap, "%d - %d  TO %d", r->score[r->turn],

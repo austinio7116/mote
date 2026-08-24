@@ -59,7 +59,7 @@ static void cue_table_rails(CueTable *t, CueGameKind kind) {
     case CUE_GAME_STRAIGHT: case CUE_GAME_ONEPOCKET:
     case CUE_GAME_BANKPOOL:
     case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
-    case CUE_GAME_FIFTEEN:                         /* K-66, worsted */
+    case CUE_GAME_FIFTEEN: case CUE_GAME_COWBOY:    /* K-66, worsted */
         t->e_cush = 0.985f; t->cush_efall = 0.046f; break;
     case CUE_GAME_UK8:                          /* championship English, Northern rubber */
         t->e_cush = 0.965f; t->cush_efall = 0.052f; break;
@@ -268,7 +268,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     } else if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 ||
                kind == CUE_GAME_US10 || kind == CUE_GAME_STRAIGHT ||
                kind == CUE_GAME_ONEPOCKET || kind == CUE_GAME_BANKPOOL ||
-               CUE_GAME_IS_ROT61(kind)) {
+               CUE_GAME_IS_ROT61(kind) || kind == CUE_GAME_COWBOY) {
         /* 9 ft US table: 2.54 × 1.27 m, 2.25" balls, ANGLED straight-mitre
          * pockets (sharp points, more open than UK). Straight pool is played on
          * this same bed with the same fifteen balls — 14.1 is a rules game, not
@@ -312,7 +312,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * the hole with the most is a par 5 — so it does not carry a rack it
          * will never use. */
         t->nballs = (kind == CUE_GAME_US9)  ? 10
-                  : (kind == CUE_GAME_US10) ? 11 : 16;
+                  : (kind == CUE_GAME_US10) ? 11
+                  : (kind == CUE_GAME_COWBOY) ? 4 : 16;   /* cowboy: 1, 3, 5 */
     } else if (kind == CUE_GAME_PAUL) {
         /* PAUL: a 6 ft home snooker table, which is a real object and a
          * particular one — the folding kind that lives on top of a dining table
@@ -769,7 +770,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 || kind == CUE_GAME_CN8 ||
         kind == CUE_GAME_US10 || kind == CUE_GAME_STRAIGHT ||
         kind == CUE_GAME_ONEPOCKET || kind == CUE_GAME_BANKPOOL ||
-        CUE_GAME_IS_ROT61(kind))
+        CUE_GAME_IS_ROT61(kind) || kind == CUE_GAME_COWBOY)
         t->baulk_x = -t->half_len * 0.5f;
 
     /* THE HOLE IN THE TIMBER, dialled per table in tools/pocketbench.
@@ -796,7 +797,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     case CUE_GAME_STRAIGHT: case CUE_GAME_ONEPOCKET:
     case CUE_GAME_BANKPOOL:
     case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
-    case CUE_GAME_FIFTEEN:
+    case CUE_GAME_FIFTEEN: case CUE_GAME_COWBOY:
         t->bore_corner = 1.8900f * t->R; t->bore_side = 1.7600f * t->R;
         t->bore_set_corner = 0.0000f * t->R; t->bore_set_side = 0.0000f * t->R;
         break;
@@ -3352,7 +3353,7 @@ static int spec_family(CueGameKind kind) {
     case CUE_GAME_STRAIGHT: case CUE_GAME_ONEPOCKET:
     case CUE_GAME_BANKPOOL:
     case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
-    case CUE_GAME_FIFTEEN:
+    case CUE_GAME_FIFTEEN: case CUE_GAME_COWBOY:
     case CUE_GAME_KILLER_US:                       return SPEC_FAM_AMERICAN;
     case CUE_GAME_CN8:
     case CUE_GAME_KILLER_CN:                       return SPEC_FAM_CHINESE;
@@ -3895,6 +3896,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* ROT   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* ROTPH */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* 15BAL */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
+        /* COWBY */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -3926,6 +3928,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* ROT   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* ROTPH */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* 15BAL */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
+        /* COWBY */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -4656,6 +4659,23 @@ static int rack_rotation(const CueTable *t, CueBall *b) {
     return n;
 }
 
+/* COWBOY POOL: the 1, the 3 and the 5, and nothing else on the table. The 1
+ * goes on the foot spot, the 3 on the centre spot and the 5 on the head spot —
+ * spread the length of the bed, because a game whose last ten points are
+ * cannons wants the balls apart rather than racked. */
+static int rack_cowboy(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const Vec3 head = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
+    const Vec3 mid  = cue_table_lay(t, 0.0f, 0.0f, NULL);
+    set_ball(&b[1], 1, foot.x, foot.z, R);
+    set_ball(&b[2], 3, mid.x,  mid.z,  R);
+    set_ball(&b[3], 5, head.x, head.z, R);
+    { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
+    (void)up;
+    return 4;
+}
+
 /* FIFTEEN-BALL: the 15 at the apex on the foot spot, the 13 and 14 in the back
  * corners — the mirror of rotation's rack, and for the mirror reason. Here the
  * biggest prize is the ball nearest you and the next two are furthest away, so
@@ -5292,6 +5312,7 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
      * Behind the flag it got a snooker rack and the scatter never ran. */
     else if (t->kind == CUE_GAME_PAUL) n = rack_paul(t, balls);
     else if (t->is_snooker)      n = rack_snooker(t, balls);
+    else if (t->kind == CUE_GAME_COWBOY)  n = rack_cowboy(t, balls);
     else if (t->kind == CUE_GAME_FIFTEEN) n = rack_fifteen(t, balls);
     else if (CUE_GAME_IS_ROT61(t->kind)) n = rack_rotation(t, balls);
     else if (t->kind == CUE_GAME_US9)  n = rack_9ball(t, balls);

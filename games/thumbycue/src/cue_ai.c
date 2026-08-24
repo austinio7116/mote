@@ -4229,6 +4229,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         if (!balls[i].on) continue;
         if (!cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
         if (bank_game) break;
+        if (r->mode == CUE_GAME_COWBOY && r->score[r->turn] >= 90) break;
         for (int pk = 0; pk < w->npocket && ng < MAXG; pk++) {
             if (!pk_scores(c, pk)) continue;
             float bp, bs;
@@ -4549,6 +4550,13 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * thin contact that sends the cue ball on. The engine decides which of them
      * actually cannon; the scoring above pays them for it. */
     if (CUE_GAME_IS_CAROM(c->r->mode)) {
+        npool = carom_candidates(c, npool);
+    }
+    /* COWBOY POOL BECOMES A CANNON GAME AT NINETY, and the planner has to
+     * become one with it: from there a pot is worth nothing at all, so a
+     * planner still ranking pots would spend the endgame potting for no score
+     * and handing the table over. Below ninety it plays pool. */
+    else if (c->r->mode == CUE_GAME_COWBOY && c->r->score[c->r->turn] >= 90) {
         npool = carom_candidates(c, npool);
     }
     else if (c->r->mode == CUE_GAME_BILLIARDS) {
@@ -4913,6 +4921,50 @@ int cue_ai_plan_tick(void) {
                 v->potScore *= 0.45f;
                 v->posScore *= 0.45f;
             }
+        }
+        /* ---- COWBOY IS SCORED BY THE PHASE IT IS IN ----------------------
+         *
+         * Three ways to score at once and two ceilings on the way, so ranking
+         * by "how likely is this pot to drop" answers a question the game does
+         * not ask. Worked out here exactly as resolve_cowboy will: a ball is
+         * its number, a cannon is one, an in-off is one, pots stop counting at
+         * ninety, and a stroke worth more than the phase has left is worth
+         * NOTHING — which is the whole of the endgame and the one thing a
+         * planner left to itself would never discover. */
+        if (c->r->mode == CUE_GAME_COWBOY) {
+            const int have = c->r->score[c->r->turn];
+            const int cap  = (have >= 100) ? 101 : (have >= 90) ? 100 : 90;
+            const int left = cap - have;
+            int distinct = 0;
+            {   int seen[8], nseen = 0;
+                for (int i = 0; i < s_sw.ntouch; i++) {
+                    if (s_sw.touch[i].what != CUE_TOUCH_BALL) continue;
+                    int dup = 0;
+                    for (int k = 0; k < nseen; k++)
+                        if (seen[k] == s_sw.touch[i].id) dup = 1;
+                    if (!dup && nseen < 8) seen[nseen++] = s_sw.touch[i].id;
+                }
+                distinct = nseen; }
+            const int cannon = (distinct >= 2);
+            int gain = 0;
+            if (have >= 100) {
+                if (cannon && sim.first_hit_idx > 0 &&
+                    c->b[sim.first_hit_idx].id == 1) gain = 1;
+            } else if (have >= 90) {
+                if (cannon) gain = 1;
+            } else {
+                for (int k = 0; k < sim.npotted; k++) {
+                    const int bi = sim.potted[k];
+                    if (bi > 0 && bi < c->n && c->b[bi].id <= 5) gain += c->b[bi].id;
+                }
+                if (cannon)         gain += 1;
+                if (sim.cue_potted) gain += 1;
+            }
+            if (gain > left) gain = 0;              /* overshoot scores nothing */
+            v->bad_first = (sim.first_hit_idx <= 0);
+            v->pot_fails = (gain == 0);
+            v->potScore = v->bad_first ? 0.0f
+                        : clampf(26.0f + 12.0f * (float)gain, 0.0f, 100.0f);
         }
         /* ---- CAROM IS SCORED OFF THE SIM'S OWN TOUCH LOG -----------------
          *

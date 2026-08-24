@@ -136,6 +136,11 @@ typedef enum {
      * it is still worth its number to 61 — so the whole game is choosing which
      * balls to take rather than being told. */
     CUE_GAME_FIFTEEN,
+    /* COWBOY POOL: only the 1, the 3 and the 5, and a hundred and one points to
+     * be had off them by pocketing, by cannon and by in-off. The last ten come
+     * off cannons alone and the hundred-and-first is a cannon off the 1 — so a
+     * game that starts as pool finishes as billiards. */
+    CUE_GAME_COWBOY,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
