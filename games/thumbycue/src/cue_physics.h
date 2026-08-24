@@ -498,6 +498,16 @@ typedef struct {
      * the count at the settle is the count at the drop. */
     uint8_t rails[CUE_MAX_BALLS];
 
+    /* ...AND HOW MANY BALLS EACH ONE TOUCHED, for the same reason.
+     *
+     * HONOLULU scores nothing for a straight-in pot: the ball has to arrive by
+     * a bank, a kick, a combination, a carom or a billiard. `rails` answers the
+     * first two between them; this answers the rest — a ball that was set off
+     * by another ball, or that struck one on its way, has not gone in straight
+     * however clean the line looked. Counted for every ball including the cue
+     * ball's own contacts, from the start of the stroke. */
+    uint8_t balls_hit[CUE_MAX_BALLS];
+
     /* ---- jump shots, as snooker actually defines one ----------------------
      *
      * WPBSA Section 2, Definition 20: a jump shot is made when the cue-ball

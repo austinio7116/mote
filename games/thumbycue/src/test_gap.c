@@ -287,6 +287,7 @@ static const struct { int kind; const char *name;
     { CUE_GAME_ROTATION_PH,    "filipino rotation", -1, -1, 0 },
     { CUE_GAME_FIFTEEN,        "fifteen-ball",      -1, -1, 0 },
     { CUE_GAME_COWBOY,         "cowboy pool",       -1, -1, 0 },
+    { CUE_GAME_HONOLULU,       "honolulu",          -1, -1, 0 },
     /* Bar billiards has no rail pockets at all — its holes are in the bed and
      * this test is about the passage between two cushion jaws. Nothing to
      * measure, and a zero here would read as a failure rather than as N/A. */

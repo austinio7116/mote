@@ -1779,6 +1779,7 @@ static int find_banks(const AiCtx *c, Cand *out, int cap) {
          * over — so every ball wants a bank whether it is blocked or not, and
          * the ones in the open are the best banks on the table. */
         if (c->r->mode != CUE_GAME_BANKPOOL &&
+            c->r->mode != CUE_GAME_HONOLULU &&
             path_clear(c, cue, c->b[i].pos, i)) continue;
         Vec3 target = c->b[i].pos;
 
@@ -4221,7 +4222,14 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * the table with the visit lost — so the game skips them entirely and is
      * planned out of find_banks, which reflects the pocket in each rail and is
      * exactly the shot this game is made of. */
-    const int bank_game = (r->mode == CUE_GAME_BANKPOOL);
+    /* HONOLULU IS A BANK GAME TOO, as far as the planner is concerned. A
+     * straight pot scores nothing there either, and while the rules also allow
+     * a kick or a combination, the bank is the shot that can be SEARCHED FOR —
+     * find_banks reflects the pocket in each rail and finds real ones. Left on
+     * the pot planner it would line up straight pots all day and score
+     * precisely nothing with them. */
+    const int bank_game = (r->mode == CUE_GAME_BANKPOOL ||
+                           r->mode == CUE_GAME_HONOLULU);
     /* 1. enumerate (legal target × pocket) group scores */
     #define MAXG 96
     static int gti[MAXG], gpk[MAXG]; static float gpot[MAXG], gpos[MAXG]; int ng = 0;

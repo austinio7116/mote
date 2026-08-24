@@ -141,6 +141,11 @@ typedef enum {
      * off cannons alone and the hundred-and-first is a cannon off the 1 — so a
      * game that starts as pool finishes as billiards. */
     CUE_GAME_COWBOY,
+    /* HONOLULU: a straight-in pot scores nothing. Every scoring ball has to
+     * arrive the hard way — off a bank, a kick, a combination or a carom — so
+     * the shot every other game is built around is the one shot this game does
+     * not have. */
+    CUE_GAME_HONOLULU,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */

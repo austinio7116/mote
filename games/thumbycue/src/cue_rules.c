@@ -110,6 +110,8 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
                         : t->kind == CUE_GAME_CAROM_2C       ? 15
                         : t->kind == CUE_GAME_CAROM_3C       ? 10 : 15;
         r->bil_yellow = 0;
+    } else if (t->kind == CUE_GAME_HONOLULU) {
+        r->target_score = 8;
     } else if (t->kind == CUE_GAME_COWBOY) {
         r->target_score = 101;
     } else if (CUE_GAME_IS_ROT61(t->kind)) {
@@ -1792,6 +1794,96 @@ static void resolve_rotation(CueRules *r, CueBall *b, int n, int first_hit,
     r->msg[0] = 0;
 }
 
+/* ---- HONOLULU ------------------------------------------------------------
+ *
+ * A straight-in pot scores NOTHING. Every scoring ball has to arrive the hard
+ * way — off a bank, off a kick, out of a combination, or by a carom — so the
+ * one shot every other game on this table is built around is the only shot
+ * this game does not have. Fifteen balls, first to eight.
+ *
+ * WHAT COUNTS AS "THE HARD WAY", and this is the whole rule:
+ *
+ *   THE OBJECT BALL BANKED     it found a cushion before it dropped.
+ *   THE CUE BALL KICKED        it found one before it reached the object ball,
+ *                              which the cue ball's own touch log says in
+ *                              order.
+ *   A COMBINATION OR CAROM     the ball that dropped was moved by, or moved
+ *                              through, another ball.
+ *
+ * The first is CueWorld::rails, which bank pool needed. The third is
+ * CueWorld::balls_hit, which is new: the cue ball's touch log follows the cue
+ * ball, and a ball set off by a collision knows that about itself and nothing
+ * else does. Between the three there is no straight pot that reads as legal
+ * and no legal shot that reads as straight.
+ *
+ * A ball potted straight is not a foul — it is simply no score, and it goes
+ * back on the table like a bank pool ball that never banked.
+ */
+static void resolve_honolulu(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                             int first_hit, int scratch, int cushion,
+                             const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    r->break_shot = 0;
+
+    /* DID THE CUE BALL FIND A CUSHION BEFORE IT FOUND A BALL? Read from its
+     * own log, in order, which is the only thing that can say "before". */
+    int kicked = 0;
+    if (w) for (int i = 0; i < w->ntouch; i++) {
+        if (w->touch[i].what == CUE_TOUCH_CUSHION) { kicked = 1; break; }
+        if (w->touch[i].what == CUE_TOUCH_BALL) break;
+    }
+
+    int scored = 0, straight = 0;
+    for (int k = 0; k < np; k++) {
+        int idx = -1;
+        for (int i = 1; i < n; i++) if (b[i].id == potted[k]) { idx = i; break; }
+        if (idx < 0 || idx >= CUE_MAX_BALLS) { straight++; continue; }
+        const int banked = w && w->rails[idx] > 0;
+        /* ONE contact is the cue ball arriving and is what a straight pot is;
+         * more than one means it came through something, or something came
+         * through it. */
+        const int through = w && w->balls_hit[idx] > 1;
+        if (banked || kicked || through) scored++; else straight++;
+    }
+
+    int foul = 0; const char *why = "";
+    if (first_hit < 0)        { foul = 1; why = "NO BALL HIT"; }
+    else if (scratch)         { foul = 1; why = "SCRATCH"; }
+    else if (r->n_off)        { foul = 1; why = "OFF THE TABLE"; }
+    else if (!np && !cushion) { foul = 1; why = "NO CUSHION"; }
+
+    r->score[me] += scored;
+    r->respot     = straight;          /* a straight pot goes back on */
+
+    if (foul) {
+        r->last_foul = 1;
+        r->cfoul[me]++;
+        r->ball_in_hand = 1;
+        r->turn = you;
+        r->brk = 0;
+        snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        return;
+    }
+    r->last_foul = 0;
+    r->cfoul[me] = 0;
+
+    if (r->score[me] >= 8) {
+        r->frame_over = 1; r->winner = me; book_frame(r, me);
+        snprintf(r->msg, sizeof r->msg, "GAME");
+        return;
+    }
+    if (scored && !straight) {
+        r->brk += scored;
+        snprintf(r->msg, sizeof r->msg, "%d", scored);
+        return;                                   /* the striker plays on */
+    }
+    r->brk = 0;
+    r->turn = you;
+    if (straight) snprintf(r->msg, sizeof r->msg, "STRAIGHT IN - NO SCORE");
+    else          r->msg[0] = 0;
+}
+
 /* ---- COWBOY POOL ---------------------------------------------------------
  *
  * Three balls — the 1, the 3 and the 5 — and a hundred and one points to be had
@@ -2943,6 +3035,8 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (CUE_GAME_IS_KILLER(r->mode))    resolve_killer(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
+    else if (r->mode == CUE_GAME_HONOLULU)
+        resolve_honolulu(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_COWBOY)
         resolve_cowboy(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_BANKPOOL)
@@ -3026,6 +3120,7 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
     if (r->mode == CUE_GAME_COWBOY) return id == 1 || id == 3 || id == 5;
     if (r->mode == CUE_GAME_STRAIGHT ||
         r->mode == CUE_GAME_FIFTEEN ||
+        r->mode == CUE_GAME_HONOLULU ||
         r->mode == CUE_GAME_ONEPOCKET ||
         r->mode == CUE_GAME_BANKPOOL) return id >= 1 && id <= 15;
     /* Pyramid: every one of the fifteen is on, always. */
