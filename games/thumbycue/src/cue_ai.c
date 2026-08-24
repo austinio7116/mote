@@ -1773,8 +1773,13 @@ static int find_banks(const AiCtx *c, Cand *out, int cap) {
     for (int i = 1; i < c->n && nb < cap; i++) {
         if (!c->b[i].on) continue;
         if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
-        /* only for balls we cannot simply shoot at */
-        if (path_clear(c, cue, c->b[i].pos, i)) continue;
+        /* Normally banks are the answer to a ball you CANNOT simply shoot at,
+         * so a ball in the open is skipped. At BANK POOL a direct pot scores
+         * nothing at all — the ball goes back on the table and the visit is
+         * over — so every ball wants a bank whether it is blocked or not, and
+         * the ones in the open are the best banks on the table. */
+        if (c->r->mode != CUE_GAME_BANKPOOL &&
+            path_clear(c, cue, c->b[i].pos, i)) continue;
         Vec3 target = c->b[i].pos;
 
         for (int pk = 0; pk < c->w->npocket && nb < cap; pk++) {
@@ -4211,12 +4216,19 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
          * play something arbitrary. */
     }
 
+    /* AT BANK POOL A DIRECT POT IS NOT A SHOT. The groups below are pots
+     * straight at a pocket, which score nothing here and put the ball back on
+     * the table with the visit lost — so the game skips them entirely and is
+     * planned out of find_banks, which reflects the pocket in each rail and is
+     * exactly the shot this game is made of. */
+    const int bank_game = (r->mode == CUE_GAME_BANKPOOL);
     /* 1. enumerate (legal target × pocket) group scores */
     #define MAXG 96
     static int gti[MAXG], gpk[MAXG]; static float gpot[MAXG], gpos[MAXG]; int ng = 0;
     for (int i = 1; i < n && ng < MAXG; i++) {
         if (!balls[i].on) continue;
         if (!cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+        if (bank_game) break;
         for (int pk = 0; pk < w->npocket && ng < MAXG; pk++) {
             if (!pk_scores(c, pk)) continue;
             float bp, bs;
@@ -4252,8 +4264,11 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * bigger search. */
     if (ng == 0 && !CUE_GAME_IS_CAROM(r->mode) &&
         r->mode != CUE_GAME_BILLIARDS) { /* nothing direct: bank, then safety */
-        Cand banks[8];
-        int nbank = find_banks(c, banks, 8);
+        /* MORE OF THEM AT BANK POOL, because these are not a last resort
+         * there — they are the entire game, and eight candidates over fifteen
+         * balls and six pockets is a sample rather than a search. */
+        Cand banks[48];
+        int nbank = find_banks(c, banks, bank_game ? 48 : 8);
         Cand sc;
         if (nbank > 0 && find_safety(c, &sc, rng)) {
             /* Both kinds into the pool and both verified, then the usual gate

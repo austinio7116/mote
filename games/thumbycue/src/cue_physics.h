@@ -484,6 +484,20 @@ typedef struct {
      * into the 100 or the 200, and this is the only witness. */
     uint8_t side_cushion;
 
+    /* HOW MANY RAILS EACH BALL HAS TOUCHED THIS SHOT.
+     *
+     * `touch` is the CUE BALL'S account and nothing else — carom is a game
+     * about where the cue ball has been, so that is all it ever needed. BANK
+     * POOL asks the opposite question: did the OBJECT ball find a cushion
+     * before it dropped, because a ball potted without one does not score and
+     * goes back on the table. Nothing in the world could answer that, so this
+     * counts it, per ball, from the start of the stroke.
+     *
+     * Cumulative over the whole shot, which is the rule as written — "contacted
+     * a rail before being pocketed" — and a ball stops moving once it drops, so
+     * the count at the settle is the count at the drop. */
+    uint8_t rails[CUE_MAX_BALLS];
+
     /* ---- jump shots, as snooker actually defines one ----------------------
      *
      * WPBSA Section 2, Definition 20: a jump shot is made when the cue-ball

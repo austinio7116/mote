@@ -110,6 +110,10 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
                         : t->kind == CUE_GAME_CAROM_2C       ? 15
                         : t->kind == CUE_GAME_CAROM_3C       ? 10 : 15;
         r->bil_yellow = 0;
+    } else if (t->kind == CUE_GAME_BANKPOOL) {
+        /* Eight of the fifteen, as One Pocket is, and the foul debt with it. */
+        r->target_score = 8;
+        r->op_owed[0] = r->op_owed[1] = 0;
     } else if (t->kind == CUE_GAME_ONEPOCKET) {
         /* Eight of the fifteen, which leaves one ball that cannot decide it —
          * the game's own margin, and why a match can hang on a single safety. */
@@ -1768,6 +1772,89 @@ static void resolve_onepocket(CueRules *r, CueBall *b, int n, int first_hit,
     else              r->msg[0] = 0;
 }
 
+/* ---- BANK POOL -----------------------------------------------------------
+ *
+ * Fifteen balls on the 9 ft table, first to eight, and EVERY scoring ball must
+ * come off a cushion first. A ball potted without a bank does not count: it
+ * goes back on the table and the visit is over. That one rule is the whole
+ * game, and it makes a different player of you — the shots a pool player has
+ * spent years learning are precisely the ones that score nothing here.
+ *
+ * WHETHER A BALL BANKED is a question about the OBJECT ball, and nothing in the
+ * world could answer it until now: the touch log follows the cue ball, because
+ * carom is a game about where the cue ball has been. CueWorld::rails counts
+ * every ball's own cushions, and this reads it.
+ *
+ * A foul costs a ball, as it does at One Pocket and for the same reason: the
+ * game is played slowly and deliberately, and a penalty that costs only the
+ * turn is no penalty at all in a game where you were going to play safe
+ * anyway. Owed when there is nothing to give.
+ *
+ * NOT MODELLED: the strict prohibition on combinations, caroms and kicks. Those
+ * score nothing in a tournament, and here a banked ball counts however it got
+ * there. It is on the list rather than pretended at. */
+static void resolve_bank(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                         int first_hit, int scratch, int cushion,
+                         const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    r->break_shot = 0;
+
+    /* WHICH OF THE POTTED BALLS ACTUALLY BANKED. potted carries ids; the rail
+     * count is by index, so the ball is found by id. */
+    int scored = 0, unbanked = 0;
+    for (int k = 0; k < np; k++) {
+        int idx = -1;
+        for (int i = 1; i < n; i++) if (b[i].id == potted[k]) { idx = i; break; }
+        const int banked = (w && idx > 0 && idx < CUE_MAX_BALLS && w->rails[idx] > 0);
+        if (banked) scored++; else unbanked++;
+    }
+
+    int foul = 0; const char *why = "";
+    if (first_hit < 0)        { foul = 1; why = "NO BALL HIT"; }
+    else if (scratch)         { foul = 1; why = "SCRATCH"; }
+    else if (r->n_off)        { foul = 1; why = "OFF THE TABLE"; }
+    else if (!np && !cushion) { foul = 1; why = "NO CUSHION"; }
+
+    /* The banked ones count whatever else happened; the rest go back on. */
+    r->score[me] += scored;
+    r->respot     = unbanked;
+
+    if (foul) {
+        if (r->score[me] > 0) { r->score[me]--; r->respot++; }
+        else                    r->op_owed[me]++;
+        r->last_foul = 1;
+        r->cfoul[me]++;
+        if (scratch || r->n_off) r->ball_in_hand = 1;
+        r->turn = you;
+        r->brk = 0;
+        snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        return;
+    }
+    r->last_foul = 0;
+    r->cfoul[me] = 0;
+
+    while (r->op_owed[me] > 0 && r->score[me] > 0) {
+        r->score[me]--; r->op_owed[me]--; r->respot++;
+    }
+
+    if (r->score[me] >= 8) {
+        r->frame_over = 1; r->winner = me; book_frame(r, me);
+        snprintf(r->msg, sizeof r->msg, "GAME");
+        return;
+    }
+
+    if (scored && !unbanked) {
+        r->brk += scored;
+        snprintf(r->msg, sizeof r->msg, "%d", scored);
+        return;                                  /* the striker plays on */
+    }
+    r->brk = 0;
+    r->turn = you;
+    if (unbanked) snprintf(r->msg, sizeof r->msg, "NOT BANKED");
+    else          r->msg[0] = 0;
+}
+
 /* ---- G10: KILLER ---------------------------------------------------------
  *
  * One shot each, strictly alternating. Pot any object ball and you are safe;
@@ -2613,6 +2700,8 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (CUE_GAME_IS_KILLER(r->mode))    resolve_killer(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
+    else if (r->mode == CUE_GAME_BANKPOOL)
+        resolve_bank(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_ONEPOCKET)
         resolve_onepocket(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_GOLF) resolve_golf(r, b, n, scratch);

@@ -121,6 +121,11 @@ typedef enum {
      * fifteen. Appended like the two before it: kinds are stored and crossed
      * over the wire, so new ones go on the end. */
     CUE_GAME_ONEPOCKET,
+    /* BANK POOL. The 9 ft table again, and every scoring ball must come off a
+     * cushion first — a ball potted without a bank goes back on the table. A
+     * different skill from every other pool game here, and a Derby City
+     * championship discipline in its own right. */
+    CUE_GAME_BANKPOOL,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
