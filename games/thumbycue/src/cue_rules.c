@@ -1909,18 +1909,36 @@ static void resolve_honolulu(CueRules *r, CueBall *b, int n, const CueWorld *w,
         }
         const int banked = w && w->rails[idx] > 0;
         /* CAME THROUGH ANOTHER BALL, which is two different strokes wearing one
-         * name and neither is a count.
+         * name. Neither of them is a COUNT of contacts, and both were written
+         * as one first time.
          *
          *   A COMBINATION: the cue ball never touched this one at all. Some
          *   other ball did, and that is the whole test — a ball with a single
          *   contact that was not the white came off a combination, and counting
-         *   contacts alone read it as a straight pot. Mark found it in play.
+         *   contacts read it as a straight pot.
          *
-         *   A CAROM: the white touched it AND it went on to touch something
-         *   else, or something else touched it after the white did.
+         *   A CAROM: the white came to this ball OFF ANOTHER ONE. That is a
+         *   fact about the white's journey and not about this ball, which is
+         *   where the second reading went wrong: "hit by the white and touched
+         *   more than once" is false of the ordinary carom, where the white
+         *   glances off one ball and pots this with the only contact it has —
+         *   Mark's shot exactly, refused every time. And it is TRUE of a plain
+         *   straight pot whose object ball happens to brush another ball on its
+         *   way to the hole, which should score nothing at all.
+         *
+         * The white keeps its own log, in order, and that is the only thing
+         * that can answer "before" — the same log the kick above is read from.
          */
-        const int combo = w && idx > 0 && !w->hit_by_cue[idx];
-        const int carom = w && w->hit_by_cue[idx] && w->balls_hit[idx] > 1;
+        const int combo = w && w->balls_hit[idx] > 0 && !w->hit_by_cue[idx];
+        int carom = 0;
+        if (w && w->hit_by_cue[idx]) {
+            int off_a_ball = 0;
+            for (int i = 0; i < w->ntouch; i++) {
+                if (w->touch[i].what != CUE_TOUCH_BALL) continue;
+                if (w->touch[i].idx == idx) { carom = off_a_ball; break; }
+                off_a_ball = 1;                /* the white had already found one */
+            }
+        }
         if (banked || kicked || combo || carom) scored++;
         else {
             if (straight < 8) r->respot_id[straight] = (unsigned char)potted[k];
