@@ -1931,6 +1931,17 @@ static void resolve_golf(CueRules *r, CueBall *b, int n, int scratch)
         const int hi = r->golf_card[1][r->golf_hole];
         if (lo < hi)      r->golf_honour = 0;
         else if (hi < lo) r->golf_honour = 1;
+        /* AND IN MATCHPLAY THE HOLE HAS A RESULT, which is the whole of the
+         * scoring: strokes decide who won it and are then done with. Saying
+         * "you took five" tells a matchplay player nothing they need. */
+        if (CUE_GOLF_IS_MATCH(r->golf_round)) {
+            const int up = cue_rules_golf_holes_up(r);
+            const char *res = (lo == hi) ? "HOLE HALVED"
+                            : (lo < hi)  ? "HOLE TO YOU" : "HOLE TO THEM";
+            if (up == 0) snprintf(r->msg, sizeof r->msg, "%s - ALL SQUARE", res);
+            else snprintf(r->msg, sizeof r->msg, "%s - %d UP", res,
+                          up > 0 ? up : -up);
+        }
     }
     const int first = cue_golf_first(r->golf_round);
     const int last  = cue_golf_last(r->golf_round);
