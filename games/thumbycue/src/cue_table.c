@@ -107,7 +107,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
      * reds and six colours — and this flag is about the TABLE and its balls,
      * not about the rules. Its scoring is nothing like snooker's. */
     t->is_snooker = (kind == CUE_GAME_SNK10 || kind == CUE_GAME_SNK15 ||
-                     kind == CUE_GAME_SNK6  || kind == CUE_GAME_BILLIARDS ||
+                     kind == CUE_GAME_SNK6  || kind == CUE_GAME_SNK3 ||
+                     kind == CUE_GAME_BILLIARDS ||
                      kind == CUE_GAME_PAUL);
 
     /* THE ROUNDED JAW'S SHAPE, for every table, before any of them speak.
@@ -147,7 +148,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
      * mirror about the pocket, so one number sets both. */
     t->jaw_ang_m = 10.0f;
 
-    if (kind == CUE_GAME_UK8 || kind == CUE_GAME_SNK6 || kind == CUE_GAME_GOLF) {
+    if (kind == CUE_GAME_UK8 || kind == CUE_GAME_SNK6 ||
+        kind == CUE_GAME_SNK3 || kind == CUE_GAME_GOLF) {
         /* 7 ft UK pub 8-ball: 1.98 × 0.99 m, tight ROUNDED (curved) pockets.
          * Billiards golf is played on this bed too — it is a pub-table game
          * and the board it comes from is a home table's. */
@@ -241,11 +243,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * biggest hole is a par 5 — so it does not carry a rack it will never
          * use. Everything else about the table is the UK 7 ft's. */
         if (kind == CUE_GAME_GOLF) t->nballs = 1 + CUE_GOLF_MAX_BALLS;
-        if (kind == CUE_GAME_SNK6) {
+        if (kind == CUE_GAME_SNK6 || kind == CUE_GAME_SNK3) {
             /* 6-red snooker on the 7 ft UK table: same table geometry and ball
              * size as UK pool, but snooker balls/rules and snooker spots scaled
-             * onto the small bed. */
-            t->reds = 6;
+             * onto the small bed. THREE-RED is the same table again with a
+             * two-row triangle — a shorter frame on the same bed, which is the
+             * whole of the difference. */
+            t->reds = (kind == CUE_GAME_SNK3) ? 3 : 6;
             /* AND A MATCHED WHITE. The small cue ball is a POOL convention —
              * coin-op tables need to tell it from the object balls to return
              * it — and a snooker set has no such thing whatever bed it is
@@ -790,7 +794,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->bore_corner = 1.8700f * t->R; t->bore_side = 1.7800f * t->R;
         t->bore_set_corner = 0.5400f * t->R; t->bore_set_side = 0.4500f * t->R;
         break;
-    case CUE_GAME_UK8: case CUE_GAME_SNK6:
+    case CUE_GAME_UK8: case CUE_GAME_SNK6: case CUE_GAME_SNK3:
         t->bore_corner = 2.0700f * t->R; t->bore_side = 1.8900f * t->R;
         t->bore_set_corner = 0.0000f * t->R; t->bore_set_side = 0.1800f * t->R;
         break;
@@ -3331,7 +3335,7 @@ static int spec_family(CueGameKind kind) {
      * in fractions rather than millimetres, which is exactly what makes it
      * survive a change of table. Measured: all eighteen holes rack with every
      * ball on the cloth, on all three specs and all four shapes. */
-    case CUE_GAME_UK8: case CUE_GAME_SNK6:
+    case CUE_GAME_UK8: case CUE_GAME_SNK6: case CUE_GAME_SNK3:
     case CUE_GAME_GOLF:
     case CUE_GAME_KILLER_UK:                       return SPEC_FAM_ENGLISH;
     case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
@@ -3872,6 +3876,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* C-3C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-1C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* SNK3  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },   /* the SNK6 cut */
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -3897,6 +3902,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* C-3C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-1C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* SNK3  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },   /* the SNK6 cut */
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -4259,7 +4265,8 @@ int cue_table_game_ok(const CueTable *t, CueGameKind kind, int laid_out,
         /* ...and the triangle of reds behind the pink, whose back row is the
          * furthest thing up the table — in the pink's own frame, because that
          * is the frame it is racked in. */
-        int rows = (t->reds <= 6) ? 3 : (t->reds <= 10) ? 4 : 5;
+        int rows = (t->reds <= 3) ? 2 : (t->reds <= 6) ? 3
+                 : (t->reds <= 10) ? 4 : 5;
         float apexx = t->pink_x + 2.0f * t->R + 0.002f;
         float along = (float)(rows - 1) * t->R * 1.7320508f;
         float half  = (float)(rows - 1) * t->R;
@@ -4866,10 +4873,11 @@ static int rack_snooker(const CueTable *t, CueBall *b) {
       set_ball(&b[n++], CUE_ID_PINK,   q.x, q.z, R); }
     { Vec3 q = cue_table_lay(t, t->black_x, 0.0f, NULL);
       set_ball(&b[n++], CUE_ID_BLACK,  q.x, q.z, R); }
-    /* reds triangle: 3 rows (6), 4 rows (10) or 5 rows (15), apex behind pink,
+    /* reds triangle: 2 rows (3), 3 rows (6), 4 rows (10) or 5 rows (15), apex behind pink,
      * and laid out in the PINK'S own frame so that on an L it grows up the arm
      * the pink is on rather than off the side of it. */
-    int rows = (t->reds <= 6) ? 3 : (t->reds <= 10) ? 4 : 5;
+    int rows = (t->reds <= 3) ? 2 : (t->reds <= 6) ? 3
+             : (t->reds <= 10) ? 4 : 5;
     float apexx = t->pink_x + 2.0f * R + 0.002f;
     float dx = R * 1.7320508f;
     Vec3 up; Vec3 apex = cue_table_lay(t, apexx, 0.0f, &up);

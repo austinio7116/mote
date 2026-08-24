@@ -110,6 +110,12 @@ typedef enum {
      * cushion count was already a variable, so it is the same game with a
      * different number in it. */
     CUE_GAME_CAROM_1C,
+    /* THREE-RED SNOOKER, the 7 ft bed's own short format — the same table,
+     * balls and rules as the six-red game with a two-row triangle instead of a
+     * three. Appended for the same reason one-cushion was: the kind is stored
+     * and it crosses the wire, so it goes on the end rather than beside its
+     * relatives. */
+    CUE_GAME_SNK3,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
