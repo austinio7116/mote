@@ -1899,13 +1899,20 @@ static void resolve_honolulu(CueRules *r, CueBall *b, int n, const CueWorld *w,
     for (int k = 0; k < np; k++) {
         int idx = -1;
         for (int i = 1; i < n; i++) if (b[i].id == potted[k]) { idx = i; break; }
-        if (idx < 0 || idx >= CUE_MAX_BALLS) { straight++; continue; }
+        if (idx < 0 || idx >= CUE_MAX_BALLS) {
+            if (straight < 8) r->respot_id[straight] = (unsigned char)potted[k];
+            straight++; continue;
+        }
         const int banked = w && w->rails[idx] > 0;
         /* ONE contact is the cue ball arriving and is what a straight pot is;
          * more than one means it came through something, or something came
          * through it. */
         const int through = w && w->balls_hit[idx] > 1;
-        if (banked || kicked || through) scored++; else straight++;
+        if (banked || kicked || through) scored++;
+        else {
+            if (straight < 8) r->respot_id[straight] = (unsigned char)potted[k];
+            straight++;
+        }
     }
 
     int foul = 0; const char *why = "";
@@ -2094,10 +2101,15 @@ static void resolve_onepocket(CueRules *r, CueBall *b, int n, int first_hit,
     int mine = 0, theirs = 0, neutral = 0;
     for (int k = 0; k < np && k < 8; k++) {
         const int h = r->bb_hole[k];
-        if (h < 0)                   { neutral++; continue; }   /* off the table */
-        if (h == r->op_hole[me])     mine++;
-        else if (h == r->op_hole[you]) theirs++;
-        else                          neutral++;
+        /* NAMED, not counted: the ball that goes back is the one that went
+         * down a hole nobody owns, and the striker may have scored on the same
+         * stroke. See respot_id. */
+        if (h < 0 || (h != r->op_hole[me] && h != r->op_hole[you])) {
+            if (neutral < 8) r->respot_id[neutral] = (unsigned char)potted[k];
+            neutral++;
+            continue;
+        }
+        if (h == r->op_hole[me]) mine++; else theirs++;
     }
 
     /* ---- the foul, before anything is counted ---- */
@@ -2196,7 +2208,11 @@ static void resolve_bank(CueRules *r, CueBall *b, int n, const CueWorld *w,
         int idx = -1;
         for (int i = 1; i < n; i++) if (b[i].id == potted[k]) { idx = i; break; }
         const int banked = (w && idx > 0 && idx < CUE_MAX_BALLS && w->rails[idx] > 0);
-        if (banked) scored++; else unbanked++;
+        if (banked) scored++;
+        else {
+            if (unbanked < 8) r->respot_id[unbanked] = (unsigned char)potted[k];
+            unbanked++;
+        }
     }
 
     int foul = 0; const char *why = "";
@@ -3055,6 +3071,11 @@ void cue_rules_set_target(CueRules *r, int points) {
 void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
                        int first_hit, int scratch, int cushion,
                        const int *potted, int np) {
+    /* NAMED RESPOTS ARE THIS STROKE'S, so they are cleared going IN. Cleared on
+     * the way out instead, a resolver that sets none would inherit the last
+     * one's names and spot a ball nobody potted. */
+    for (int i = 0; i < 8; i++) r->respot_id[i] = 0;
+
     r->ball_in_hand = 0;
     r->last_foul = 0;
     r->last_miss = 0;

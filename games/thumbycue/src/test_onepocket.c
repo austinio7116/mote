@@ -139,6 +139,24 @@ int main(void) {
         ok(r.score[0] == 2 && r.turn == 0, "two down your own hole is two", r.msg);
     }
 
+    /* ---- AND IT IS THE RIGHT BALL THAT COMES BACK ------------------------
+     *
+     * The count alone was not enough and this is the case that proves it: score
+     * one into your own pocket and drop another into a neutral one on the same
+     * stroke. The respot has to name the neutral ball — asked for "one ball
+     * back", the table hands over the LOWEST that is off, which is the one you
+     * just scored. */
+    {   CueRules r; fresh(&r);
+        int nb = -1;
+        for (int i = 0; i < W.npocket; i++) if (i != LP && i != RP) { nb = i; break; }
+        int id[2] = { 3, 9 }; int h[2]; h[0] = LP; h[1] = nb;
+        shot(&r, 3, 0, 1, id, h, 2);
+        ok(r.score[0] == 1, "the 3 down your own pocket still scores", r.msg);
+        {   char m[48]; snprintf(m, sizeof m, "respot_id[0]=%d", r.respot_id[0]);
+            ok(r.respot == 1 && r.respot_id[0] == 9,
+               "...and it is the 9 that comes back, not the 3", m); }
+    }
+
     printf(s_fail ? "\n%d FAILED\n" : "\nall good\n", s_fail);
     return s_fail != 0;
 }

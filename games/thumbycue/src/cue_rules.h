@@ -141,6 +141,20 @@ typedef struct {
      * uk_intl is: it is a rule rather than a table, and the whole struct crosses
      * the wire. 0 is CLASSIC, the game shipped first. */
     int respot;          /* put this many of the striker's potted balls back */
+    /* ...AND WHICH ONES, WHERE IT MATTERS.
+     *
+     * The count alone is Russian pyramid's question, because its balls are
+     * interchangeable and giving one back is giving any back. It is the wrong
+     * question everywhere else: cue_table_respot_one hands back the LOWEST id
+     * that is off the table, and in One Pocket, bank pool and Honolulu that is
+     * very often a ball the striker legitimately SCORED — pot the 3 into your
+     * own pocket and the 5 into a neutral one, and the count alone brings the
+     * 3 back and leaves the 5 down.
+     *
+     * So the resolvers that know which ball name it. Zero means "any", which
+     * is pyramid's answer and cowboy's, where every potted ball comes back
+     * anyway. Cleared by resolve like bb_hole. */
+    unsigned char respot_id[8];
     int pyr_free;        /* CUE_PYR_* — see below */
 
     /* ---- G5: ENGLISH BILLIARDS ------------------------------------------ *

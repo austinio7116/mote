@@ -126,6 +126,15 @@ int main(void) {
            "an unbanked ball cannot finish the game", r.msg);
     }
 
+    /* ---- and the ball that comes back is the one that did not bank ---- */
+    {   CueRules r; fresh(&r);
+        int id[2] = { 3, 9 }, rl[2] = { 2, 0 };
+        shot(&r, 3, 0, 1, id, rl, 2);
+        {   char m[48]; snprintf(m, sizeof m, "respot_id[0]=%d", r.respot_id[0]);
+            ok(r.score[0] == 1 && r.respot == 1 && r.respot_id[0] == 9,
+               "the banked 3 scores and the unbanked 9 is the one spotted", m); }
+    }
+
     printf(s_fail ? "\n%d FAILED\n" : "\nall good\n", s_fail);
     return s_fail != 0;
 }
