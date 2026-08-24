@@ -507,6 +507,16 @@ typedef struct {
      * however clean the line looked. Counted for every ball including the cue
      * ball's own contacts, from the start of the stroke. */
     uint8_t balls_hit[CUE_MAX_BALLS];
+    /* ...AND WHETHER THE CUE BALL WAS THE ONE THAT HIT IT.
+     *
+     * Counting contacts is not enough to tell a combination from a straight
+     * pot, and Mark found it in play: the cue ball strikes A, A cannons into B,
+     * B drops. B has exactly ONE ball contact — the same count as a ball the
+     * cue ball potted directly — so by count alone the combination read as a
+     * straight pot and scored nothing. What separates them is not how many hit
+     * it but WHO: a ball the cue ball never touched was moved by another ball,
+     * and that is a combination however few contacts it had. */
+    uint8_t hit_by_cue[CUE_MAX_BALLS];
 
     /* ---- jump shots, as snooker actually defines one ----------------------
      *

@@ -1908,11 +1908,20 @@ static void resolve_honolulu(CueRules *r, CueBall *b, int n, const CueWorld *w,
             straight++; continue;
         }
         const int banked = w && w->rails[idx] > 0;
-        /* ONE contact is the cue ball arriving and is what a straight pot is;
-         * more than one means it came through something, or something came
-         * through it. */
-        const int through = w && w->balls_hit[idx] > 1;
-        if (banked || kicked || through) scored++;
+        /* CAME THROUGH ANOTHER BALL, which is two different strokes wearing one
+         * name and neither is a count.
+         *
+         *   A COMBINATION: the cue ball never touched this one at all. Some
+         *   other ball did, and that is the whole test — a ball with a single
+         *   contact that was not the white came off a combination, and counting
+         *   contacts alone read it as a straight pot. Mark found it in play.
+         *
+         *   A CAROM: the white touched it AND it went on to touch something
+         *   else, or something else touched it after the white did.
+         */
+        const int combo = w && idx > 0 && !w->hit_by_cue[idx];
+        const int carom = w && w->hit_by_cue[idx] && w->balls_hit[idx] > 1;
+        if (banked || kicked || combo || carom) scored++;
         else {
             if (straight < 8) r->respot_id[straight] = (unsigned char)potted[k];
             straight++;
@@ -1945,9 +1954,15 @@ static void resolve_honolulu(CueRules *r, CueBall *b, int n, const CueWorld *w,
         snprintf(r->msg, sizeof r->msg, "GAME");
         return;
     }
-    if (scored && !straight) {
+    /* A LEGAL SCORE KEEPS THE TABLE, whatever else went down with it. The
+     * straight one is spotted and costs you nothing but itself — it is not a
+     * foul, so there is nothing to hand the table over for. Mark asked, and the
+     * old reading gave you the point and took the visit, which is a penalty
+     * with no rule behind it. */
+    if (scored) {
         r->brk += scored;
-        snprintf(r->msg, sizeof r->msg, "%d", scored);
+        if (straight) snprintf(r->msg, sizeof r->msg, "%d - ONE SPOTTED", scored);
+        else          snprintf(r->msg, sizeof r->msg, "%d", scored);
         return;                                   /* the striker plays on */
     }
     r->brk = 0;
@@ -2272,9 +2287,13 @@ static void resolve_bank(CueRules *r, CueBall *b, int n, const CueWorld *w,
         return;
     }
 
-    if (scored && !unbanked) {
+    /* Same as Honolulu: a banked ball is a legal score and keeps the table.
+     * The unbanked one is spotted and is not a foul, so there is nothing to
+     * give the table up for. */
+    if (scored) {
         r->brk += scored;
-        snprintf(r->msg, sizeof r->msg, "%d", scored);
+        if (unbanked) snprintf(r->msg, sizeof r->msg, "%d - ONE SPOTTED", scored);
+        else          snprintf(r->msg, sizeof r->msg, "%d", scored);
         return;                                  /* the striker plays on */
     }
     r->brk = 0;

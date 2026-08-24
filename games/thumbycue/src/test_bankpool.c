@@ -72,11 +72,15 @@ int main(void) {
     }
 
     /* ---- a stroke that does both keeps the point and loses the table ---- */
-    {   CueRules r; fresh(&r);
+    {   /* A LEGAL SCORE KEEPS THE TABLE. The unbanked one is spotted and is
+         * not a foul, so there is nothing to give the table up for — the old
+         * reading gave you the point and took the visit, which is a penalty
+         * with no rule behind it. */
+        CueRules r; fresh(&r);
         int id[2] = { 3, 5 }, rl[2] = { 2, 0 };
         shot(&r, 3, 0, 1, id, rl, 2);
-        ok(r.score[0] == 1 && r.respot == 1 && r.turn == 1,
-           "banked one and dropped another: one point, one spot, visit over",
+        ok(r.score[0] == 1 && r.respot == 1 && r.turn == 0,
+           "banked one and dropped another: one point, one spot, table kept",
            r.msg);
     }
     {   CueRules r; fresh(&r);

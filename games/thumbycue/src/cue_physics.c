@@ -267,7 +267,9 @@ void cue_phys_shot_begin(CueWorld *w) {
     w->ntouch = 0; w->touch_over = 0;
     w->brk_cross = 0;
     w->side_cushion = 0;
-    for (int k = 0; k < CUE_MAX_BALLS; k++) { w->rails[k] = 0; w->balls_hit[k] = 0; }
+    for (int k = 0; k < CUE_MAX_BALLS; k++) {
+        w->rails[k] = 0; w->balls_hit[k] = 0; w->hit_by_cue[k] = 0;
+    }
     /* WHAT THIS STROKE DID TO THE PINS is a fact about this stroke, so the
      * bookkeeping is cleared here. WHETHER A PIN IS LYING DOWN is not — it is
      * the state of a body on the cloth, and it stays true until somebody
@@ -1881,6 +1883,9 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                  * about itself and nothing else does. */
                 if (i < CUE_MAX_BALLS && w->balls_hit[i] < 255) w->balls_hit[i]++;
                 if (j < CUE_MAX_BALLS && w->balls_hit[j] < 255) w->balls_hit[j]++;
+                /* i is always the lower index and the cue ball is 0, so this
+                 * is the whole of "did the white touch it". */
+                if (i == 0 && j < CUE_MAX_BALLS) w->hit_by_cue[j] = 1;
                 if (i == 0) touch_add(w, CUE_TOUCH_BALL, balls[j].id, (uint8_t)j);
                 if (w->first_hit < 0 && i == 0) { w->first_hit = balls[j].id; w->first_hit_idx = j; }
                 else if (w->first_hit >= 0 && i == 0) w->jmp_bounced = 1;  /* (c) */
