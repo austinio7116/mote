@@ -60,7 +60,7 @@ static void cue_table_rails(CueTable *t, CueGameKind kind) {
     case CUE_GAME_BANKPOOL:
     case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
     case CUE_GAME_FIFTEEN: case CUE_GAME_COWBOY:
-    case CUE_GAME_HONOLULU:                        /* K-66, worsted */
+    case CUE_GAME_HONOLULU: case CUE_GAME_SPEED:    /* K-66, worsted */
         t->e_cush = 0.985f; t->cush_efall = 0.046f; break;
     case CUE_GAME_UK8:                          /* championship English, Northern rubber */
         t->e_cush = 0.965f; t->cush_efall = 0.052f; break;
@@ -270,7 +270,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
                kind == CUE_GAME_US10 || kind == CUE_GAME_STRAIGHT ||
                kind == CUE_GAME_ONEPOCKET || kind == CUE_GAME_BANKPOOL ||
                CUE_GAME_IS_ROT61(kind) || kind == CUE_GAME_COWBOY ||
-               kind == CUE_GAME_HONOLULU) {
+               kind == CUE_GAME_HONOLULU || kind == CUE_GAME_SPEED) {
         /* 9 ft US table: 2.54 × 1.27 m, 2.25" balls, ANGLED straight-mitre
          * pockets (sharp points, more open than UK). Straight pool is played on
          * this same bed with the same fifteen balls — 14.1 is a rules game, not
@@ -773,7 +773,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         kind == CUE_GAME_US10 || kind == CUE_GAME_STRAIGHT ||
         kind == CUE_GAME_ONEPOCKET || kind == CUE_GAME_BANKPOOL ||
         CUE_GAME_IS_ROT61(kind) || kind == CUE_GAME_COWBOY ||
-        kind == CUE_GAME_HONOLULU)
+        kind == CUE_GAME_HONOLULU || kind == CUE_GAME_SPEED)
         t->baulk_x = -t->half_len * 0.5f;
 
     /* THE HOLE IN THE TIMBER, dialled per table in tools/pocketbench.
@@ -801,6 +801,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     case CUE_GAME_BANKPOOL:
     case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
     case CUE_GAME_FIFTEEN: case CUE_GAME_COWBOY: case CUE_GAME_HONOLULU:
+    case CUE_GAME_SPEED:
         t->bore_corner = 1.8900f * t->R; t->bore_side = 1.7600f * t->R;
         t->bore_set_corner = 0.0000f * t->R; t->bore_set_side = 0.0000f * t->R;
         break;
@@ -3357,6 +3358,7 @@ static int spec_family(CueGameKind kind) {
     case CUE_GAME_BANKPOOL:
     case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
     case CUE_GAME_FIFTEEN: case CUE_GAME_COWBOY: case CUE_GAME_HONOLULU:
+    case CUE_GAME_SPEED:
     case CUE_GAME_KILLER_US:                       return SPEC_FAM_AMERICAN;
     case CUE_GAME_CN8:
     case CUE_GAME_KILLER_CN:                       return SPEC_FAM_CHINESE;
@@ -3901,6 +3903,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* 15BAL */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* COWBY */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* HONOL */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
+        /* SPEED */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -3934,6 +3937,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* 15BAL */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* COWBY */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* HONOL */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
+        /* SPEED */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here

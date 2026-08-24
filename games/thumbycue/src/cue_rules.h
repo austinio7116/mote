@@ -239,6 +239,17 @@ typedef struct {
      * OWE one, which is taken from the first ball you do score. */
     int op_hole[2];
     int op_owed[2];
+    /* ---- SPEED POOL ------------------------------------------------------
+     *
+     * Not a frame: two attempts at the same task, and the CLOCK is the score.
+     * Each player clears a full rack and the lower time takes it, so there is
+     * no turn to win and nothing to defend — the opponent is a number.
+     *
+     * `sp_cs` is each attempt's time in hundredths, written by the HOST before
+     * resolve because the rules hold no clock any more than they hold a table.
+     * `sp_done` is who has had their rack. Same contract as bb_hole. */
+    int sp_cs[2];
+    int sp_done[2];
     int bb_in_baulk;     /* a ball came to rest on or inside the baulk arc */
     int bb_short;        /* the cue ball struck nothing and never reached the
                           * line through the black peg (Rule 110(o)) */

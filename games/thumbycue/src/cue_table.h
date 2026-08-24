@@ -146,6 +146,9 @@ typedef enum {
      * the shot every other game is built around is the one shot this game does
      * not have. */
     CUE_GAME_HONOLULU,
+    /* SPEED POOL: not a frame at all but a pair of attempts at the same task.
+     * Clear the rack, and the clock is the score — lowest wins. */
+    CUE_GAME_SPEED,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */

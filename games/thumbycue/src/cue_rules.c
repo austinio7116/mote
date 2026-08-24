@@ -110,6 +110,11 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
                         : t->kind == CUE_GAME_CAROM_2C       ? 15
                         : t->kind == CUE_GAME_CAROM_3C       ? 10 : 15;
         r->bil_yellow = 0;
+    } else if (t->kind == CUE_GAME_SPEED) {
+        /* No target: the score is a time, and lower is better. */
+        r->target_score = 0;
+        r->sp_cs[0] = r->sp_cs[1] = 0;
+        r->sp_done[0] = r->sp_done[1] = 0;
     } else if (t->kind == CUE_GAME_HONOLULU) {
         r->target_score = 8;
     } else if (t->kind == CUE_GAME_COWBOY) {
@@ -1794,6 +1799,62 @@ static void resolve_rotation(CueRules *r, CueBall *b, int n, int first_hit,
     r->msg[0] = 0;
 }
 
+/* ---- SPEED POOL ----------------------------------------------------------
+ *
+ * Not a frame. Two attempts at the same task: clear a full rack, and the CLOCK
+ * is the score. Lowest time wins, so there is no turn to take from anybody and
+ * nothing to defend — your opponent is a number on a board, and the only
+ * question on every shot is how fast you can be at the next one.
+ *
+ * That makes it the odd one out here in a way worth stating: every other game
+ * in this file is about denying the other player something. This one cannot be
+ * played badly on purpose.
+ *
+ * ANY BALL, ANY POCKET, and a scratch is not a foul in the usual sense — the
+ * cue ball comes back in hand and the clock never stopped, which is the whole
+ * of the penalty and a heavier one than a lost turn. Time is the only currency.
+ */
+static void resolve_speed(CueRules *r, CueBall *b, int n, int first_hit,
+                          int scratch, const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    (void)first_hit; (void)potted; (void)np;
+    r->break_shot = 0;
+    r->last_foul = 0;
+
+    /* A scratch costs you the seconds it takes to place the ball again. */
+    if (scratch) r->ball_in_hand = 1;
+
+    int left = 0;
+    for (int i = 1; i < n; i++) if (b[i].on) left++;
+    if (left > 0) {
+        /* Still clearing. The board is the clock and nothing else. */
+        r->msg[0] = 0;
+        return;
+    }
+
+    /* THE RACK IS CLEAR. The host has been writing the elapsed time in all
+     * along, so it is already here. */
+    r->sp_done[me] = 1;
+    if (!r->sp_done[you]) {
+        r->turn = you;                 /* their go at the same task */
+        r->rerack = 2;                 /* a fresh full rack */
+        r->ball_in_hand = 1;
+        snprintf(r->msg, sizeof r->msg, "%d.%02d - NOW THEM",
+                 r->sp_cs[me] / 100, r->sp_cs[me] % 100);
+        return;
+    }
+
+    /* Both have gone: the lower time takes it. */
+    r->frame_over = 1;
+    if (r->sp_cs[0] == r->sp_cs[1]) r->winner = -1;
+    else r->winner = (r->sp_cs[0] < r->sp_cs[1]) ? 0 : 1;
+    if (r->winner >= 0) book_frame(r, r->winner);
+    snprintf(r->msg, sizeof r->msg, "%d.%02d TO %d.%02d",
+             r->sp_cs[0] / 100, r->sp_cs[0] % 100,
+             r->sp_cs[1] / 100, r->sp_cs[1] % 100);
+}
+
 /* ---- HONOLULU ------------------------------------------------------------
  *
  * A straight-in pot scores NOTHING. Every scoring ball has to arrive the hard
@@ -3035,6 +3096,8 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (CUE_GAME_IS_KILLER(r->mode))    resolve_killer(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
+    else if (r->mode == CUE_GAME_SPEED)
+        resolve_speed(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_HONOLULU)
         resolve_honolulu(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_COWBOY)
@@ -3121,6 +3184,7 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
     if (r->mode == CUE_GAME_STRAIGHT ||
         r->mode == CUE_GAME_FIFTEEN ||
         r->mode == CUE_GAME_HONOLULU ||
+        r->mode == CUE_GAME_SPEED ||
         r->mode == CUE_GAME_ONEPOCKET ||
         r->mode == CUE_GAME_BANKPOOL) return id >= 1 && id <= 15;
     /* Pyramid: every one of the fifteen is on, always. */
@@ -3167,6 +3231,12 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
             snprintf(buf, cap, "%d LEFT  2 SHOTS", r->paul_left);
         else
             snprintf(buf, cap, "%d ON THE TABLE", r->paul_left);
+    } else if (r->mode == CUE_GAME_SPEED) {
+        if (r->sp_done[0] || r->sp_done[1]) {
+            const int d = r->sp_done[0] ? 0 : 1;
+            snprintf(buf, cap, "THEY DID %d.%02d", r->sp_cs[d] / 100,
+                     r->sp_cs[d] % 100);
+        } else snprintf(buf, cap, "CLEAR THE TABLE");
     } else if (r->mode == CUE_GAME_COWBOY) {
         /* The phase is the game, so the board says which one you are in. */
         const int have = r->score[r->turn];
