@@ -4218,7 +4218,22 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      *
      * That is why its carom looked like unrelated one-off cannons: they were
      * accidents. Carom falls through to its own generator instead. */
-    if (ng == 0 && !CUE_GAME_IS_CAROM(r->mode)) {  /* nothing direct: bank, then safety */
+    /* ...AND BILLIARDS IS THE SAME FAULT WITH POCKETS PRESENT. Its groups are
+     * POTS, so a position with no pot on gives ng == 0 and it took this branch
+     * too — hunting for a safety while an easy cannon sat on the table, worth
+     * two and the table kept. It falls through to the cannon fan instead.
+     *
+     * The fan itself is left exactly as it was, and that is a finding rather
+     * than caution: widening it with a spin sweep, as carom needs, took
+     * billiards' longest break from 29 to 17 and then to 11. The extra
+     * candidates crowd the POT candidates out of the shortlist the sim can
+     * afford, so the machine stops potting the red — worth three, and the
+     * whole top-of-the-table break — and plays cannons worth two instead. It
+     * scored the same and stopped building. Billiards is a potting game with
+     * cannons in it; carom is nothing but cannons, and only carom wants the
+     * bigger search. */
+    if (ng == 0 && !CUE_GAME_IS_CAROM(r->mode) &&
+        r->mode != CUE_GAME_BILLIARDS) { /* nothing direct: bank, then safety */
         Cand banks[8];
         int nbank = find_banks(c, banks, 8);
         Cand sc;
