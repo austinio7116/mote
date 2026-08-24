@@ -357,6 +357,15 @@ static int play_shot(const CuePersona *p) {
             }
         scratch = 0;
         R.bb_in_baulk = cue_rules_bb_in_baulk(&R, &T, B, N);
+    } else if (T.kind == CUE_GAME_ONEPOCKET) {
+        /* ONE POCKET IS SCORED ON WHICH HOLE, so the hole goes with the ball
+         * exactly as bar billiards' does. Without it every pot reads as
+         * pocket -1 — off the table — and the game cannot be played at all. */
+        for (int i = 1; i < N; i++)
+            if (was_on[i] && !B[i].on) {
+                if (np < 8) R.bb_hole[np] = B[i].pocket;
+                potted[np++] = B[i].id;
+            }
     } else
     for (int i = 1; i < N; i++)
         if (was_on[i] && !B[i].on) potted[np++] = B[i].id;
@@ -609,6 +618,15 @@ static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
     ai_build_table(kind);
     N = cue_table_rack(&T, B);
     cue_rules_init(&R, &T, 1);
+    /* ONE POCKET: WHOSE HOLE IS WHOSE. The rules hold no table and cannot work
+     * it out; the host names them at the rack and so must this. Seat 0 the left
+     * foot corner, seat 1 the right, as the app does. */
+    if (T.kind == CUE_GAME_ONEPOCKET) {
+        int lp = -1, rp = -1;
+        if (cue_table_foot_pockets(&T, &W, &lp, &rp)) {
+            R.op_hole[0] = lp; R.op_hole[1] = rp;
+        }
+    }
     /* BALL IN HAND FOR THE BREAK, which is what the game gives the striker and
      * what cue_ai_place is for. Without it the cue ball simply stays where the
      * rack left it, the planner never picks a break spot, and a persona with no

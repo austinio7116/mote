@@ -56,7 +56,7 @@
 static void cue_table_rails(CueTable *t, CueGameKind kind) {
     switch (kind) {
     case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
-    case CUE_GAME_STRAIGHT:                    /* K-66, worsted: the lively one */
+    case CUE_GAME_STRAIGHT: case CUE_GAME_ONEPOCKET:  /* K-66, worsted */
         t->e_cush = 0.985f; t->cush_efall = 0.046f; break;
     case CUE_GAME_UK8:                          /* championship English, Northern rubber */
         t->e_cush = 0.965f; t->cush_efall = 0.052f; break;
@@ -263,7 +263,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
             t->nballs  = 13;                            /* cue + 6 reds + 6 colours */
         }
     } else if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 ||
-               kind == CUE_GAME_US10 || kind == CUE_GAME_STRAIGHT) {
+               kind == CUE_GAME_US10 || kind == CUE_GAME_STRAIGHT ||
+               kind == CUE_GAME_ONEPOCKET) {
         /* 9 ft US table: 2.54 × 1.27 m, 2.25" balls, ANGLED straight-mitre
          * pockets (sharp points, more open than UK). Straight pool is played on
          * this same bed with the same fifteen balls — 14.1 is a rules game, not
@@ -762,7 +763,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
      * middle of the table, which is exactly what CueVR was doing. d_radius stays
      * zero: an American table has a head string and no D. */
     if (kind == CUE_GAME_US8 || kind == CUE_GAME_US9 || kind == CUE_GAME_CN8 ||
-        kind == CUE_GAME_US10 || kind == CUE_GAME_STRAIGHT)
+        kind == CUE_GAME_US10 || kind == CUE_GAME_STRAIGHT ||
+        kind == CUE_GAME_ONEPOCKET)
         t->baulk_x = -t->half_len * 0.5f;
 
     /* THE HOLE IN THE TIMBER, dialled per table in tools/pocketbench.
@@ -786,7 +788,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     t->bore_set_side   = 0.0f;
     switch (kind) {
     case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
-    case CUE_GAME_STRAIGHT:
+    case CUE_GAME_STRAIGHT: case CUE_GAME_ONEPOCKET:
         t->bore_corner = 1.8900f * t->R; t->bore_side = 1.7600f * t->R;
         t->bore_set_corner = 0.0000f * t->R; t->bore_set_side = 0.0000f * t->R;
         break;
@@ -3339,7 +3341,7 @@ static int spec_family(CueGameKind kind) {
     case CUE_GAME_GOLF:
     case CUE_GAME_KILLER_UK:                       return SPEC_FAM_ENGLISH;
     case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
-    case CUE_GAME_STRAIGHT:
+    case CUE_GAME_STRAIGHT: case CUE_GAME_ONEPOCKET:
     case CUE_GAME_KILLER_US:                       return SPEC_FAM_AMERICAN;
     case CUE_GAME_CN8:
     case CUE_GAME_KILLER_CN:                       return SPEC_FAM_CHINESE;
@@ -3877,6 +3879,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-1C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* SNK3  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },   /* the SNK6 cut */
+        /* 1POC  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -3903,6 +3906,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-1C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* SNK3  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },   /* the SNK6 cut */
+        /* 1POC  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -5061,6 +5065,26 @@ int cue_table_respot_one(const CueTable *t, CueBall *b, int n) {
 
 /* ...AND ONE NAMED BALL, for a ball that has been driven off the table. Same
  * foot-spot-and-up rule; see the header for why it cannot just be respot_one. */
+/* THE TWO FOOT-CORNER POCKETS — see the header for why by position. */
+int cue_table_foot_pockets(const CueTable *t, const CueWorld *w,
+                           int *left, int *right) {
+    if (!t || !w || w->npocket < 2) return 0;
+    int l = -1, r = -1;
+    for (int i = 0; i < w->npocket; i++) {
+        if (w->pocket_mid[i]) continue;                 /* corners only */
+        if (w->pocket[i].x <= 0.0f) continue;           /* the FOOT half */
+        if (w->pocket[i].z < 0.0f) {
+            if (l < 0 || w->pocket[i].x > w->pocket[l].x) l = i;
+        } else {
+            if (r < 0 || w->pocket[i].x > w->pocket[r].x) r = i;
+        }
+    }
+    if (l < 0 || r < 0) return 0;
+    if (left)  *left  = l;
+    if (right) *right = r;
+    return 1;
+}
+
 int cue_table_respot_ball(const CueTable *t, CueBall *b, int n, int idx) {
     if (!t || !b || idx < 0 || idx >= n) return 0;
     Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);

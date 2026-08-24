@@ -221,7 +221,24 @@ typedef struct {
      * the same order — the scoring IS which hole, and a list of ball ids
      * cannot say, least of all here where seven of the eight balls are
      * identical whites. */
-    int bb_hole[8];
+    int bb_hole[8];   /* also One Pocket's: WHICH pocket each pot went down */
+    /* ---- ONE POCKET ------------------------------------------------------
+     *
+     * Each player owns one of the two FOOT corner pockets and scores only into
+     * that one; a ball in the other player's pocket scores for THEM, and a ball
+     * in any of the other four is spotted. First to eight of the fifteen.
+     *
+     * `op_hole` is which pocket index belongs to each seat. The rules cannot
+     * work it out — a pocket array is in the order the cloth boundary walks it,
+     * which is not a fixed numbering and on a workshop table is not a
+     * rectangle's order at all — so the host sets it at the rack from
+     * cue_table_foot_pockets, the same contract as bb_hole.
+     *
+     * `op_owed` is the foul debt. A foul costs a ball: one of yours comes back
+     * out of the pocket and onto the table, and if you have none scored yet you
+     * OWE one, which is taken from the first ball you do score. */
+    int op_hole[2];
+    int op_owed[2];
     int bb_in_baulk;     /* a ball came to rest on or inside the baulk arc */
     int bb_short;        /* the cue ball struck nothing and never reached the
                           * line through the black peg (Rule 110(o)) */

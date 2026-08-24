@@ -547,6 +547,20 @@ typedef struct {
     float contact;
 } AiCtx;
 
+/* WHICH POCKETS SCORE, which in every game but one is all of them.
+ *
+ * ONE POCKET gives each player a single foot corner and nothing else counts —
+ * a ball down any other hole is spotted, and a ball down the OPPONENT'S is a
+ * point handed to them. A planner that ranks pots by how likely they are to
+ * drop, over all six holes, will therefore happily pot into the other player's
+ * pocket and lose the frame doing it. Asked once, here, and applied wherever
+ * pockets are enumerated. */
+static int pk_scores(const AiCtx *c, int pk) {
+    if (c->r->mode != CUE_GAME_ONEPOCKET) return 1;
+    return pk == c->r->op_hole[c->r->turn];
+}
+
+
 #define PXm(ctx, px) ((px) * (ctx)->t->R / 12.0f)   /* px constant → metres */
 
 /* WHAT A BALL IS WORTH, WHICH IS THE GAME'S BUSINESS AND NOT THE BALL'S.
@@ -1204,6 +1218,7 @@ static int best_next_shot(const AiCtx *c, Vec3 cue_pos, int just_idx,
         Vec3 tpos = pos_balls ? pos_balls[ti] : c->b[ti].pos;
         if (!path_clear_at(c, cue_pos, tpos, ti, pos_balls, on)) continue;
         for (int pk = 0; pk < c->w->npocket; pk++) {
+            if (!pk_scores(c, pk)) continue;
             Vec3 ap = pocket_aim_t(c, pk, tpos);
             if (!path_clear_at(c, tpos, ap, ti, pos_balls, on)) continue;
             float diff = potting_difficulty(c, cue_pos, tpos, pk);
@@ -4203,6 +4218,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         if (!balls[i].on) continue;
         if (!cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
         for (int pk = 0; pk < w->npocket && ng < MAXG; pk++) {
+            if (!pk_scores(c, pk)) continue;
             float bp, bs;
             if (eval_pot(c, i, pk, &bp, &bs)) { gti[ng]=i; gpk[ng]=pk; gpot[ng]=bp; gpos[ng]=bs; ng++; }
         }
@@ -5223,6 +5239,10 @@ CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r
             float opp = -1e9f;
             if (sim.on[L]) {
                 for (int pk = 0; pk < w->npocket; pk++) {
+                    /* The THREAT is what the OPPONENT could do next, so it is
+                     * their hole that matters here, not ours. */
+                    if (cx.r->mode == CUE_GAME_ONEPOCKET &&
+                        pk != cx.r->op_hole[1 - cx.r->turn]) continue;
                     float bp, bs;
                     if (eval_pot(&cx, L, pk, &bp, &bs) && bp > opp) opp = bp;
                 }
@@ -5416,6 +5436,7 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
             const int i = legal[li];
             const Vec3 O = balls[i].pos;
             for (int pk = 0; pk < w->npocket; pk++) {
+                if (!pk_scores(c, pk)) continue;
                 /* THE BALL MUST BE ABLE TO GET THERE. A pocket the object ball
                  * cannot reach is not a shot, and generating positions for it is
                  * how a sweep fills up with candidates chosen for pots that do
@@ -5537,6 +5558,7 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
             if (!path_clear(c, at, pb[i].pos, i)) continue;
             can_hit = 1; nsee++;
             for (int pk = 0; pk < w->npocket; pk++) {
+                if (!pk_scores(c, pk)) continue;
                 if (!path_clear(c, pb[i].pos, w->pocket[pk], i)) continue;
                 const float d = potting_difficulty(c, at, pb[i].pos, pk);
                 if (d > bestpot) bestpot = d;
@@ -5596,6 +5618,7 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
                      * but a hard shot is not a foul. */
                     float sc = 0.0f;
                     for (int pk = 0; pk < w->npocket; pk++) {
+                        if (!pk_scores(c, pk)) continue;
                         if (!path_clear(c, O, w->pocket[pk], i)) continue;
                         const float d = potting_difficulty(c, at, O, pk);
                         if (d > sc) sc = d;

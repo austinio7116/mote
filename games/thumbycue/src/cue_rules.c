@@ -110,6 +110,12 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
                         : t->kind == CUE_GAME_CAROM_2C       ? 15
                         : t->kind == CUE_GAME_CAROM_3C       ? 10 : 15;
         r->bil_yellow = 0;
+    } else if (t->kind == CUE_GAME_ONEPOCKET) {
+        /* Eight of the fifteen, which leaves one ball that cannot decide it —
+         * the game's own margin, and why a match can hang on a single safety. */
+        r->target_score = 8;
+        r->op_hole[0] = r->op_hole[1] = -1;   /* the host names them at the rack */
+        r->op_owed[0] = r->op_owed[1] = 0;
     } else if (CUE_GAME_IS_KILLER(t->kind)) {
         /* KILLER: the score IS the lives. Three each, counting down; the
          * frame ends when somebody has none. */
@@ -1658,6 +1664,110 @@ static void resolve_carom(CueRules *r, CueBall *b, int n, const CueWorld *w,
     (void)first_hit;
 }
 
+/* ---- ONE POCKET ----------------------------------------------------------
+ *
+ * The most tactical game on a pool table and unlike anything else here: each
+ * player owns ONE of the two foot corner pockets and scores only into it.
+ * Fifteen balls, first to eight, and a ball is only ever worth something to
+ * whoever owns the hole it went down.
+ *
+ *   YOUR POCKET      one point, and you stay at the table.
+ *   THEIR POCKET     one point TO THEM, and your visit is over. There is no
+ *                    way to refuse it: a ball down is down.
+ *   ANY OTHER        spotted, and your visit is over. The four neutral pockets
+ *                    are hazards rather than targets, which is the whole
+ *                    reason the game is played at a crawl.
+ *
+ * A FOUL COSTS A BALL. Not the turn only — one of your scored balls comes back
+ * out and onto the table, and if you have none yet you OWE one, taken from the
+ * first ball you do score. That is what makes a foul expensive enough to play
+ * safe for, and it is why the game is famous for two players nudging balls a
+ * millimetre at a time.
+ *
+ * The fouls are the ordinary pool ones: hit nothing, drive nothing to a cushion
+ * when nothing is potted, pot the cue ball, or put a ball off the table. A
+ * scratch also hands the cue ball over in hand behind the head string.
+ *
+ * WHICH POCKET IS WHOSE is the host's to say (see op_hole), because the rules
+ * hold no table and a pocket array has no fixed numbering. */
+static void resolve_onepocket(CueRules *r, CueBall *b, int n, int first_hit,
+                              int scratch, int cushion, const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    r->break_shot = 0;
+
+    /* WHERE EVERYTHING WENT. bb_hole runs in step with potted, and -1 is a ball
+     * driven off the table rather than down a hole. */
+    int mine = 0, theirs = 0, neutral = 0;
+    for (int k = 0; k < np && k < 8; k++) {
+        const int h = r->bb_hole[k];
+        if (h < 0)                   { neutral++; continue; }   /* off the table */
+        if (h == r->op_hole[me])     mine++;
+        else if (h == r->op_hole[you]) theirs++;
+        else                          neutral++;
+    }
+
+    /* ---- the foul, before anything is counted ---- */
+    int foul = 0; const char *why = "";
+    if (first_hit < 0)          { foul = 1; why = "NO BALL HIT"; }
+    else if (scratch)           { foul = 1; why = "SCRATCH"; }
+    else if (r->n_off)          { foul = 1; why = "OFF THE TABLE"; }
+    else if (!np && !cushion)   { foul = 1; why = "NO CUSHION"; }
+
+    /* A BALL DOWN IS DOWN, whoever fouled. The pot still counts for whoever
+     * owns the hole — a foul does not un-pot a ball — and the penalty is
+     * charged on top. */
+    if (mine)   r->score[me]  += mine;
+    if (theirs) r->score[you] += theirs;
+
+    /* ...and the neutral ones come back. The host does the placing, as it does
+     * for every other spot in this file. */
+    r->respot = neutral;
+
+    if (foul) {
+        /* THE PENALTY IS A BALL, and it is owed when there is none to give. */
+        if (r->score[me] > 0) { r->score[me]--; r->respot++; }
+        else                    r->op_owed[me]++;
+        r->last_foul = 1;
+        r->cfoul[me]++;
+        if (scratch || r->n_off) r->ball_in_hand = 1;
+        r->turn = you;
+        r->brk = 0;
+        snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        return;
+    }
+    r->last_foul = 0;
+    r->cfoul[me] = 0;
+
+    /* A DEBT IS PAID OUT OF THE NEXT BALL SCORED, which is what "owing" means:
+     * the ball goes in, comes straight back out, and the debt goes down. */
+    while (r->op_owed[me] > 0 && r->score[me] > 0) {
+        r->score[me]--; r->op_owed[me]--; r->respot++;
+    }
+
+    if (r->score[me] >= 8) {
+        r->frame_over = 1; r->winner = me; book_frame(r, me);
+        snprintf(r->msg, sizeof r->msg, "GAME");
+        return;
+    }
+    if (r->score[you] >= 8) {
+        r->frame_over = 1; r->winner = you; book_frame(r, you);
+        snprintf(r->msg, sizeof r->msg, "GAME");
+        return;
+    }
+
+    if (mine && !theirs && !neutral) {
+        r->brk += mine;
+        snprintf(r->msg, sizeof r->msg, mine > 1 ? "%d" : "%d", mine);
+        return;                              /* the striker plays on */
+    }
+    r->brk = 0;
+    r->turn = you;
+    if (theirs)      snprintf(r->msg, sizeof r->msg, "THEIR POCKET");
+    else if (neutral) snprintf(r->msg, sizeof r->msg, "SPOTTED");
+    else              r->msg[0] = 0;
+}
+
 /* ---- G10: KILLER ---------------------------------------------------------
  *
  * One shot each, strictly alternating. Pot any object ball and you are safe;
@@ -2503,6 +2613,8 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (CUE_GAME_IS_KILLER(r->mode))    resolve_killer(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
+    else if (r->mode == CUE_GAME_ONEPOCKET)
+        resolve_onepocket(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_GOLF) resolve_golf(r, b, n, scratch);
     else                                    resolve_pool(r, b, n, w, first_hit, scratch, cushion, potted, np);
     if (wrong_ball && r->last_foul && !r->frame_over)

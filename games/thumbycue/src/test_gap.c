@@ -280,6 +280,8 @@ static const struct { int kind; const char *name;
     { CUE_GAME_CAROM_1C,       "carom 1-cushion",     -1, -1, 0 },
     /* the 6-red bed exactly, so the same mouths */
     { CUE_GAME_SNK3,           "snooker 3-red",     31.1f, 30.5f, 1.5f },
+    /* the US 9 ft bed exactly, so the same mouths as 8-ball on it */
+    { CUE_GAME_ONEPOCKET,      "one pocket",        -1, -1, 0 },
     /* Bar billiards has no rail pockets at all — its holes are in the bed and
      * this test is about the passage between two cushion jaws. Nothing to
      * measure, and a zero here would read as a failure rather than as N/A. */

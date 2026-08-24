@@ -116,6 +116,11 @@ typedef enum {
      * and it crosses the wire, so it goes on the end rather than beside its
      * relatives. */
     CUE_GAME_SNK3,
+    /* ONE POCKET, on the 9 ft US table. Each player owns one of the two FOOT
+     * corner pockets and scores only into that one, first to eight of the
+     * fifteen. Appended like the two before it: kinds are stored and crossed
+     * over the wire, so new ones go on the end. */
+    CUE_GAME_ONEPOCKET,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
@@ -1027,6 +1032,15 @@ int cue_table_respot_one(const CueTable *t, CueBall *b, int n);
  *
  * Returns 1 if it found somewhere to put it. */
 int cue_table_respot_ball(const CueTable *t, CueBall *b, int n, int idx);
+
+/* THE TWO FOOT-CORNER POCKETS, which are the two One Pocket is played into.
+ * Found by position rather than by index: the pocket array is in the order the
+ * cloth boundary walks it, which is not a fixed numbering a game can rely on,
+ * and on a table the workshop built it is not even a rectangle's order. The
+ * foot end is +x; `left` is the one at -z and `right` the one at +z, seen from
+ * baulk looking up the table. Returns 0 if the table has no such pair. */
+int cue_table_foot_pockets(const CueTable *t, const CueWorld *w,
+                           int *left, int *right);
 
 Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
                                      const CueBall *balls, int n, int breaking);
