@@ -1312,6 +1312,56 @@ static float carom_leave(const AiCtx *c, Vec3 cue_end, const Vec3 *end_pos) {
     return clampf(sc, 0.0f, 100.0f);
 }
 
+/* ---- ONE POCKET IS ABOUT TERRITORY, NOT POTS ----------------------------
+ *
+ * Every other pool game here rewards a leave by what can be POTTED from it, and
+ * at one pocket that answers almost nothing: you are shooting at one hole out
+ * of six, so most visits have no pot at all and the ones that do are rare
+ * enough that a planner ranking them alone plays the game as a series of
+ * hopeful long shots.
+ *
+ * What a one pocket player is actually doing is moving the fifteen, a few
+ * inches at a time, toward THEIR end of the table and away from yours. A ball
+ * nudged two feet nearer your hole has not scored and is worth more than a
+ * thin pot that scatters the pack; a ball left sitting in front of your
+ * opponent's hole is a point you have handed over.
+ *
+ * So the leave is scored as territory:
+ *
+ *   EVERY BALL counts for whichever hole it is nearer, weighted by how near —
+ *   a ball on the lip is worth far more than one at mid-table, because that is
+ *   how much easier it is to finish.
+ *   THE CUE BALL wants to be at your own end too, since that is where the
+ *   next shot has to be played from.
+ *
+ * Added to the pot-based score rather than replacing it: a leave with a pot on
+ * is still a good leave, and this is what tells two pot-less leaves apart —
+ * which is most of them.
+ */
+static float onepocket_leave(const AiCtx *c, Vec3 cue_pos, const Vec3 *pos_balls) {
+    const int me  = c->r->turn;
+    const int mine = c->r->op_hole[me], theirs = c->r->op_hole[1 - me];
+    if (mine < 0 || theirs < 0) return 0.0f;      /* not chosen yet */
+    if (mine >= c->w->npocket || theirs >= c->w->npocket) return 0.0f;
+    const Vec3 pm = c->w->pocket[mine], pt = c->w->pocket[theirs];
+
+    float score = 0.0f;
+    for (int i = 1; i < c->n; i++) {
+        if (!c->b[i].on) continue;
+        const Vec3 b = pos_balls ? pos_balls[i] : c->b[i].pos;
+        const float dm = d2(b, pm), dt = d2(b, pt);
+        /* 1/(a+d) rather than a plain difference: the last foot to a pocket is
+         * worth more than the first, which is what "working a ball down" is. */
+        score += 26.0f * (1.0f / (0.30f + dm) - 1.0f / (0.30f + dt));
+    }
+    /* ...and where you are left standing. Worth less than the balls — you get
+     * to move the cue ball every visit and the balls only when you can reach
+     * them — but a cue ball at their end is a visit spent travelling. */
+    score += 8.0f * (1.0f / (0.30f + d2(cue_pos, pm))
+                   - 1.0f / (0.30f + d2(cue_pos, pt)));
+    return score;
+}
+
 static float position_quality(const AiCtx *c, Vec3 cue_pos, int just_idx,
                               const Vec3 *pos_balls, float *out_rawpot) {
     /* CAROM ANSWERS A DIFFERENT QUESTION, and asking this one gave it 0 every
@@ -1830,6 +1880,89 @@ static int find_banks(const AiCtx *c, Cand *out, int cap) {
         }
     }
     return nb;
+}
+
+/* ---- KICKS, WHICH HONOLULU IS HALF MADE OF ------------------------------
+ *
+ * A kick is the cue ball off a cushion FIRST and into the object ball after —
+ * the mirror image of a bank, and the other legal way to score at Honolulu,
+ * where a straight pot counts for nothing. find_banks reflects the POCKET in a
+ * rail so the object ball can be sent the long way round; this reflects the
+ * GHOST in a rail so the CUE ball can be. Same construction, other end of the
+ * shot, and it exists because half the game was outside the search: the
+ * planner could recognise a kick after the engine happened to produce one and
+ * had no way to go looking for one.
+ *
+ * Straightforward geometry, and deliberately not verified beyond a clear line
+ * to the rail: whether the cue ball really arrives on the ghost after the
+ * rebound is the engine's answer, and every candidate here is played out.
+ */
+static int find_kicks(const AiCtx *c, Cand *out, int cap) {
+    if (cap <= 0 || c->t->bed_shape != CUE_BED_RECT) return 0;
+    const Vec3 cue = c->b[0].pos;
+    const float R = c->t->R;
+    const float hx = c->t->half_len - R, hz = c->t->half_wid - R;
+    int nk = 0;
+
+    for (int i = 1; i < c->n && nk < cap; i++) {
+        if (!c->b[i].on) continue;
+        if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
+        const Vec3 target = c->b[i].pos;
+        for (int pk = 0; pk < c->w->npocket && nk < cap; pk++) {
+            if (!pk_scores(c, pk)) continue;
+            const Vec3 ap = pocket_aim_t(c, pk, target);
+            if (!path_clear(c, target, ap, i)) continue;   /* no way to the hole */
+            const Vec3 toP = nrm2(sub2(ap, target));
+            if (len2(toP) < 1e-6f) continue;
+            const Vec3 ghost = v3(target.x - toP.x * c->contact, 0,
+                                  target.z - toP.z * c->contact);
+            for (int rail = 0; rail < 4 && nk < cap; rail++) {
+                /* THE GHOST, REFLECTED IN THIS RAIL: aim the cue ball straight
+                 * at the reflection and it arrives at the ghost off the rail. */
+                Vec3 mir = ghost; float wall;
+                if (rail == 0)      { wall =  hx; mir.x = 2*wall - ghost.x; }
+                else if (rail == 1) { wall = -hx; mir.x = 2*wall - ghost.x; }
+                else if (rail == 2) { wall =  hz; mir.z = 2*wall - ghost.z; }
+                else                { wall = -hz; mir.z = 2*wall - ghost.z; }
+
+                /* Where the CUE ball meets that rail, and is it in front of it? */
+                const Vec3 cm = sub2(mir, cue);
+                float tt;
+                if (rail < 2) { if (fabsf(cm.x) < 1e-6f) continue;
+                                tt = (wall - cue.x) / cm.x; }
+                else          { if (fabsf(cm.z) < 1e-6f) continue;
+                                tt = (wall - cue.z) / cm.z; }
+                if (tt <= 0.02f || tt >= 0.98f) continue;
+                const Vec3 hit = v3(cue.x + cm.x*tt, 0, cue.z + cm.z*tt);
+                /* Both legs clear: to the rail, and from the rail to the ball.
+                 * A kick that clips something on the way is not the shot. */
+                if (!path_clear(c, cue, hit, i)) continue;
+                if (!path_clear(c, hit, ghost, i)) continue;
+
+                /* How thin the contact is when it gets there. */
+                const Vec3 in = nrm2(sub2(ghost, hit));
+                const float cut = acosf(clampf(dot2(in, toP), -1, 1)) * DEG;
+                if (cut > 45.0f) continue;             /* too fine off a rail */
+
+                const float dg  = d2(cue, hit) + d2(hit, ghost);
+                const float dpk = d2(target, ap);
+                const float pw  = calc_power(c, dg, dpk, cut);
+                float sc = score_shot(c, cut, dg, dpk, c->b[i].id, pw) - 30.0f;
+                if (sc <= 18.0f) continue;
+                Cand *q = &out[nk++];
+                memset(q, 0, sizeof *q);
+                q->tidx = i; q->pk = pk; q->ghost = ghost;
+                /* AIMED AT THE MIRROR, not at the ghost — that is the whole
+                 * trick, and aiming at the ghost would simply be the straight
+                 * pot this game does not have. */
+                q->aim = atan2f(mir.z - cue.z, mir.x - cue.x);
+                q->cut = cut; q->dg = dg; q->dpk = dpk;
+                q->js_power = pw; q->power01 = power01_of(pw);
+                q->potScore = sc; q->posScore = sc;
+            }
+        }
+    }
+    return nk;
 }
 
 /* Where the OBJECT ball finishes, and what it runs into on the way.
@@ -4315,8 +4448,15 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         /* MORE OF THEM AT BANK POOL, because these are not a last resort
          * there — they are the entire game, and eight candidates over fifteen
          * balls and six pockets is a sample rather than a search. */
-        Cand banks[48];
+        Cand banks[64];
         int nbank = find_banks(c, banks, bank_game ? 48 : 8);
+        /* AND HONOLULU'S OTHER HALF. A straight pot scores nothing there, and
+         * a kick — the cue ball off a cushion first — is as legal as a bank and
+         * often the only thing on. Bank pool does NOT get these: a kick does
+         * nothing for the object ball, which is the only thing that has to
+         * bank there. */
+        if (r->mode == CUE_GAME_HONOLULU && nbank < 64)
+            nbank += find_kicks(c, banks + nbank, 64 - nbank);
         Cand sc;
         if (nbank > 0 && find_safety(c, &sc, rng)) {
             /* Both kinds into the pool and both verified, then the usual gate
@@ -5139,6 +5279,11 @@ int cue_ai_plan_tick(void) {
              * genuinely ours to use, are scored on position. */
             v->posScore = position_quality(c, sim.cue_end, P.ti, sim.end_pos,
                                            &v->rawpot);
+            /* AND AT ONE POCKET, WHERE THE FIFTEEN NOW LIE. See
+             * onepocket_leave: most visits have no pot at all, so without this
+             * the planner is choosing between leaves it scores identically. */
+            if (c->r->mode == CUE_GAME_ONEPOCKET)
+                v->posScore += onepocket_leave(c, sim.cue_end, sim.end_pos);
 
             /* RE-SCORE A SAFETY ON WHAT THE ENGINE DID. safety_score was only
              * ever computed during the sweep, off predict_end_dir — the cheap
