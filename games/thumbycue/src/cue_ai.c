@@ -3752,7 +3752,7 @@ static int carom_candidates(const AiCtx *c, int npool) {
      * way and none, and screw / centre / follow. */
     static const float SIDE[] = { -0.62f, 0.0f, 0.62f };
     static const float VERT[] = { -0.40f, 0.0f, 0.42f };
-    static const float PWRD[] = { 0.24f, 0.38f };            /* direct */
+    static const float PWRD[] = { 0.24f, 0.38f, 0.54f };     /* direct */
     static const float PWRR[] = { 0.42f, 0.62f, 0.82f };     /* round the table */
     static const float FAN[]  = { -0.55f, -0.28f, 0.0f, 0.28f, 0.55f };
 
@@ -4519,6 +4519,25 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         npool = carom_candidates(c, npool);
     }
     else if (c->r->mode == CUE_GAME_BILLIARDS) {
+        /* ---- POT FIRST, THEN THE CANNON, AND WIDEN ONLY WHEN STUCK -------
+         *
+         * Mark's rule for the game, and the measurements agree with it. Pot if
+         * there is one — the red is three and the top-of-the-table break is
+         * built on it — and prefer the pot that ALSO cannons, which the scoring
+         * below already prices at five. The narrow fan here is what keeps that
+         * balance: widening it unconditionally with carom's spin sweep floods
+         * the pool with cannon candidates, crowds the POTS out of the shortlist
+         * the sim can afford, and the machine stops potting altogether. Longest
+         * break went 29 -> 17 measured exactly that way.
+         *
+         * But with no pot worth having, nothing is being crowded out and the
+         * narrow fan is simply a thin search. So the wide one — spin and pace,
+         * the same sweep carom uses — is brought in on that condition alone.
+         * Best analytic pot over the groups already found; 45 is a pot the
+         * machine would rather not be taking. */
+        float best_pot = 0.0f;
+        for (int gi = 0; gi < ng; gi++) if (gpot[gi] > best_pot) best_pot = gpot[gi];
+        const int stuck = (ng == 0 || best_pot < 45.0f);
         /* A NARROW FAN. The first one swept the whole face of the ball at
          * three powers, which is a hundred and sixty candidates of which most
          * miss everything — and a candidate that hits nothing is a foul, so
@@ -4573,6 +4592,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                 }
             }
         }
+        if (stuck) npool = carom_candidates(c, npool);
     }
 
     /* Sort by ANALYTIC COMPOSITE (pot + predicted position), not pot alone, so
@@ -4828,11 +4848,38 @@ int cue_ai_plan_tick(void) {
             /* Rule 4(d): the in-off is priced by the ball struck FIRST. */
             if (sim.cue_potted && first_id >= 0)
                 pts += (first_id == CUE_ID_BIL_RED) ? CUE_BIL_RED : CUE_BIL_WHITE;
+            /* POTTING THE WHITE ENDS THE BREAK, AND THAT WAS NOT PRICED.
+             *
+             * The red always comes back — off the table it goes straight to its
+             * spot, so potting it is three points and the same position again,
+             * which is the whole top-of-the-table game. The opponent's white
+             * does NOT come back: it stays off until its own owner plays. Pot
+             * it and the striker is left alone on the table with the red, with
+             * no cannon available to anybody, and whatever break was running
+             * stops there.
+             *
+             * On the raw points it looked like a near-equal choice — three
+             * against two — so the machine took the white whenever it was the
+             * easier ball. It is worth taking only when there is nothing else,
+             * so it is priced as what it costs rather than what it scores. */
+            int potted_white = 0;
+            for (int k = 0; k < sim.npotted; k++) {
+                const int bi = sim.potted[k];
+                if (bi > 0 && bi < c->n && c->b[bi].id != CUE_ID_BIL_RED)
+                    potted_white = 1;
+            }
             /* Hitting nothing is a foul and worth less than nothing. */
             v->bad_first = (first_id < 0);
             v->pot_fails = (pts == 0);
             v->potScore = v->bad_first ? 0.0f
                         : clampf(28.0f + 9.0f * (float)pts, 0.0f, 100.0f);
+            if (potted_white) {
+                /* Still positive when it scores — it is two points and a
+                 * legal shot — but well under any stroke that keeps the white
+                 * on the table for the next one. */
+                v->potScore *= 0.45f;
+                v->posScore *= 0.45f;
+            }
         }
         /* ---- CAROM IS SCORED OFF THE SIM'S OWN TOUCH LOG -----------------
          *
