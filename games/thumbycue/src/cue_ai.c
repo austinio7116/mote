@@ -3696,6 +3696,26 @@ static int carom_objects(const AiCtx *c, int *oa, int *ob) {
     return 1;
 }
 
+/* EVERY BALL A CANNON MAY BE MADE OFF, as indices. Carom and billiards have
+ * exactly two and the caller took them as a pair; COWBOY has three — the 1, the
+ * 3 and the 5 — and a cannon off any two of them scores, so a pair is the wrong
+ * shape. Returns how many were found. */
+static int cannon_objects_all(const AiCtx *c, int *out, int cap) {
+    int n = 0;
+    if (c->r->mode == CUE_GAME_COWBOY) {
+        for (int i = 1; i < c->n && n < cap; i++)
+            if (c->b[i].on && (c->b[i].id == 1 || c->b[i].id == 3 ||
+                               c->b[i].id == 5)) out[n++] = i;
+        return n;
+    }
+    {   int a = -1, b = -1;
+        if (!carom_objects(c, &a, &b)) return 0;
+        if (cap > 0) out[n++] = a;
+        if (cap > 1) out[n++] = b;
+    }
+    return n;
+}
+
 /* HOW MANY CUSHIONS THIS GAME WANTS before the second object ball is reached.
  * Straight rail and four-ball want none; the others are named for it. */
 static int carom_need(const AiCtx *c) {
@@ -3766,7 +3786,13 @@ static int carom_rail_hit(const AiCtx *c, Vec3 from, float ang,
  * cushions, because that is the only way those points are ever scored. */
 static int carom_candidates(const AiCtx *c, int npool) {
     int oa = -1, ob = -1;
-    if (!carom_objects(c, &oa, &ob)) return npool;
+    /* Cowboy has three objects rather than two, so the pair test below would
+     * turn it away with an EMPTY pool — which past ninety, where a pot scores
+     * nothing, leaves the machine with no shot in the world it is willing to
+     * play. The rail routes still want a pair; the direct cannons below take
+     * every ordered pair for themselves. */
+    const int pairish = carom_objects(c, &oa, &ob);
+    if (!pairish && c->r->mode != CUE_GAME_COWBOY) return npool;
     const int need = carom_need(c);
     const Vec3 cue = c->b[0].pos;
 
@@ -3779,9 +3805,22 @@ static int carom_candidates(const AiCtx *c, int npool) {
     static const float PWRR[] = { 0.42f, 0.62f, 0.82f };     /* round the table */
     static const float FAN[]  = { -0.55f, -0.28f, 0.0f, 0.28f, 0.55f };
 
-    /* ---- DIRECT CANNONS: first object, then on to the second ------------- */
-    for (int pass = 0; pass < 2; pass++) {
-        const int a = pass ? ob : oa, b = pass ? oa : ob;
+    /* ---- DIRECT CANNONS: first object, then on to the second -------------
+     *
+     * EVERY ORDERED PAIR, because at cowboy there are three balls and a cannon
+     * off any two of them scores — a pair taken both ways would miss a third of
+     * the game. Carom and billiards have exactly two objects and this comes out
+     * as the same two passes it always was. */
+    int obj[8]; int nobj = cannon_objects_all(c, obj, 8);
+    for (int pi = 0; pi < nobj * nobj; pi++) {
+        const int ai = pi / nobj, bi = pi % nobj;
+        if (ai == bi) continue;
+        const int a = obj[ai], b = obj[bi];
+        /* THE HUNDRED-AND-FIRST IS A CANNON OFF THE 1, and nothing else will
+         * do — so on the last point only the pairs that strike it first are
+         * worth generating at all. */
+        if (c->r->mode == CUE_GAME_COWBOY && c->r->score[c->r->turn] >= 100 &&
+            c->b[a].id != 1) continue;
         const Vec3 A = c->b[a].pos, B = c->b[b].pos;
         const Vec3 toB = nrm2(sub2(B, A));
         const Vec3 ghost = v3(A.x - toB.x * c->contact, 0, A.z - toB.z * c->contact);
@@ -3825,7 +3864,7 @@ static int carom_candidates(const AiCtx *c, int npool) {
      * all. The reflection is a straight-line approximation and it does not have
      * to be right: it only has to put the shot in the pool, and every candidate
      * is then played out properly by the sim. */
-    if (need > 0) {
+    if (need > 0 && pairish) {
         const int NA = 36;
         for (int k = 0; k < NA; k++) {
             const float ang0 = 6.2831853f * (float)k / (float)NA;
