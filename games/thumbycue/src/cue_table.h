@@ -126,6 +126,12 @@ typedef enum {
      * different skill from every other pool game here, and a Derby City
      * championship discipline in its own right. */
     CUE_GAME_BANKPOOL,
+    /* ROTATION, and the Filipino game played to the same board. Fifteen balls
+     * on the 9 ft table, the lowest one always on, and a ball is worth its own
+     * NUMBER — so the 120 on the table is a race to 61, and the frame can be
+     * decided long before the last ball. */
+    CUE_GAME_ROTATION,
+    CUE_GAME_ROTATION_PH,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
@@ -134,10 +140,23 @@ typedef enum {
      (k) == CUE_GAME_KILLER_CN)
 #define CUE_GAME_IS_CAROM(k) \
     ((k) >= CUE_GAME_CAROM_STRAIGHT && (k) <= CUE_GAME_CAROM_1C)
+/* THE LOWEST BALL IS ALWAYS THE ONE ON. True of 9-ball and 10-ball, and of
+ * rotation — which is where the family gets its name. Everything that reads
+ * this gets the new games for nothing: the legality test, the HUD's "ball on",
+ * and the planner's own idea of what it may shoot at. */
 #define CUE_GAME_IS_ROTATION(k) \
-    ((k) == CUE_GAME_US9 || (k) == CUE_GAME_US10)
+    ((k) == CUE_GAME_US9 || (k) == CUE_GAME_US10 || \
+     (k) == CUE_GAME_ROTATION || (k) == CUE_GAME_ROTATION_PH)
+/* ...and the two that score by the ball's number rather than by clearing it. */
+#define CUE_GAME_IS_ROT61(k) \
+    ((k) == CUE_GAME_ROTATION || (k) == CUE_GAME_ROTATION_PH)
 /* ...and WHICH ball ends it. */
-#define CUE_GAME_MONEY_BALL(k) ((k) == CUE_GAME_US10 ? 10 : 9)
+/* THE HIGHEST BALL IN PLAY, which for 9- and 10-ball is also the one that ends
+ * the frame. Rotation has no money ball at all — it is played out until
+ * somebody reaches 61 — but all fifteen are on, and rot_lowest reads this to
+ * know how far up to look. */
+#define CUE_GAME_MONEY_BALL(k) \
+    (CUE_GAME_IS_ROT61(k) ? 15 : (k) == CUE_GAME_US10 ? 10 : 9)
 /* Both pyramid beds, wherever the game rather than the size is what matters. */
 #define CUE_GAME_IS_PYRAMID(k) \
     ((k) == CUE_GAME_PYRAMID || (k) == CUE_GAME_PYRAMID7)

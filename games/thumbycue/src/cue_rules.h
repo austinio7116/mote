@@ -517,6 +517,14 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
      * but `kind` above is 0 for Paul (it is not scored as snooker), so it fell
      * through to the pool answer and the white could be put down anywhere. */
     if (r->mode == CUE_GAME_PAUL) return 0;
+    /* ROTATION: behind the head string, which is the classic game's penalty and
+     * a real one — you may not shoot at anything in front of the line, so a
+     * pack sitting at the foot end has to be reached the long way. The FILIPINO
+     * game gives ball in hand anywhere instead, which is the single biggest
+     * difference between the two and why the same rack plays like a different
+     * sport. Region 2 is the full-width rectangle behind the line. */
+    if (r->mode == CUE_GAME_ROTATION)    return 2;
+    if (r->mode == CUE_GAME_ROTATION_PH) return 1;
     /* Blackball: baulk — the full-width rectangle behind the line, not the D
      * (WPA Blackball 4c/4h). The value 2 is that region to the clamp. */
     if (r->mode == CUE_GAME_UK8)

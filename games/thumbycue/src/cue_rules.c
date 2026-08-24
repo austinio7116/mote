@@ -110,6 +110,11 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
                         : t->kind == CUE_GAME_CAROM_2C       ? 15
                         : t->kind == CUE_GAME_CAROM_3C       ? 10 : 15;
         r->bil_yellow = 0;
+    } else if (CUE_GAME_IS_ROT61(t->kind)) {
+        /* 120 on the table and 61 takes it — the majority, so the frame is
+         * decided the moment one player cannot be caught. */
+        r->target_score = 61;
+        r->seq = 1;                       /* the 1 is the ball on, off the rack */
     } else if (t->kind == CUE_GAME_BANKPOOL) {
         /* Eight of the fifteen, as One Pocket is, and the foul debt with it. */
         r->target_score = 8;
@@ -1668,6 +1673,115 @@ static void resolve_carom(CueRules *r, CueBall *b, int n, const CueWorld *w,
     (void)first_hit;
 }
 
+/* ---- ROTATION, AND THE FILIPINO GAME ------------------------------------
+ *
+ * Fifteen balls, the LOWEST always the one on, and a ball is worth its own
+ * NUMBER. The numbers 1 to 15 come to 120, so 61 wins it — and the frame can
+ * be over with balls still on the table, which is the whole shape of the game:
+ * the 15 alone is worth a quarter of what you need, and a player who has taken
+ * the low balls cheaply can still lose to one who took the high ones.
+ *
+ * It is the oldest of the rotation family and the reason the family has that
+ * name. The rack puts the 1 nearest you and the 2 and 3 in the far corners, so
+ * the opening is a long shot at the ball you are obliged to hit.
+ *
+ * THE FILIPINO GAME is the same board with two rules changed, and they are the
+ * two that decide how it feels:
+ *
+ *   BALL IN HAND ANYWHERE after a foul, where the classic game sends the
+ *   incoming player behind the head string. That single line is most of the
+ *   difference: a foul in the classic game leaves you a long way from a pack
+ *   at the foot end, and in the Filipino game it hands the table over.
+ *
+ *   THREE CONSECUTIVE FOULS LOSE THE FRAME, which the classic game does not
+ *   have at all — so a player who cannot reach the ball on cannot simply keep
+ *   fouling and handing it back.
+ *
+ * (House rules on the Filipino game vary and the jump-cue and snooker
+ * conventions are not modelled. These two are the ones every account agrees on.)
+ */
+static void resolve_rotation(CueRules *r, CueBall *b, int n, int first_hit,
+                             int scratch, int cushion, const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    const int ph = (r->mode == CUE_GAME_ROTATION_PH);
+    r->break_shot = 0;
+
+    /* THE BALL ON, read from the table as it was BEFORE the stroke — which is
+     * what the striker was obliged to hit, and the potted balls are already
+     * off by the time this runs. */
+    int lowest = 99;
+    for (int i = 1; i < n; i++)
+        if (b[i].on && b[i].id >= 1 && b[i].id <= 15 && b[i].id < lowest)
+            lowest = b[i].id;
+    for (int k = 0; k < np; k++)
+        if (potted[k] >= 1 && potted[k] <= 15 && potted[k] < lowest) lowest = potted[k];
+    if (lowest == 99) lowest = 0;
+
+    int foul = 0; const char *why = "";
+    if (first_hit < 0)                    { foul = 1; why = "NO BALL HIT"; }
+    else if (lowest && first_hit != lowest) { foul = 1; why = "WRONG BALL FIRST"; }
+    else if (scratch)                     { foul = 1; why = "SCRATCH"; }
+    else if (r->n_off)                    { foul = 1; why = "OFF THE TABLE"; }
+    else if (!np && !cushion)             { foul = 1; why = "NO CUSHION"; }
+
+    /* WHAT WENT DOWN IS WORTH ITS NUMBER — but only on a legal stroke. A foul
+     * scores nothing however many balls dropped, and they STAY down: rotation
+     * does not spot them, so the 120 on the table simply gets smaller and the
+     * player who fouled has given the points away rather than banked them. */
+    int gained = 0;
+    if (!foul) for (int k = 0; k < np; k++)
+        if (potted[k] >= 1 && potted[k] <= 15) gained += potted[k];
+
+    if (foul) {
+        r->last_foul = 1;
+        r->cfoul[me]++;
+        r->ball_in_hand = 1;
+        r->turn = you;
+        r->brk = 0;
+        /* THREE IN A ROW IS THE FRAME, in the Filipino game only. */
+        if (ph && r->cfoul[me] >= 3) {
+            r->frame_over = 1; r->winner = you; book_frame(r, you);
+            snprintf(r->msg, sizeof r->msg, "THREE FOULS");
+            return;
+        }
+        snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        return;
+    }
+    r->last_foul = 0;
+    r->cfoul[me] = 0;
+    r->score[me] += gained;
+    r->seq = 0;
+    for (int i = 1; i < n; i++)
+        if (b[i].on && b[i].id >= 1 && b[i].id <= 15 &&
+            (r->seq == 0 || b[i].id < r->seq)) r->seq = b[i].id;
+
+    if (r->score[me] >= 61) {
+        r->frame_over = 1; r->winner = me; book_frame(r, me);
+        snprintf(r->msg, sizeof r->msg, "GAME");
+        return;
+    }
+    /* AND THE TABLE CAN RUN OUT WITH NOBODY AT 61 — 120 points shared and the
+     * higher total takes it, which is the only way a frame ends short. */
+    if (r->seq == 0) {
+        r->frame_over = 1;
+        r->winner = (r->score[0] == r->score[1]) ? -1
+                  : (r->score[0] > r->score[1]) ? 0 : 1;
+        if (r->winner >= 0) book_frame(r, r->winner);
+        snprintf(r->msg, sizeof r->msg, "TABLE CLEARED");
+        return;
+    }
+
+    if (gained) {
+        r->brk += gained;
+        snprintf(r->msg, sizeof r->msg, "%d", gained);
+        return;                                  /* the striker plays on */
+    }
+    r->brk = 0;
+    r->turn = you;
+    r->msg[0] = 0;
+}
+
 /* ---- ONE POCKET ----------------------------------------------------------
  *
  * The most tactical game on a pool table and unlike anything else here: each
@@ -2693,6 +2807,13 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     if (r->kind)                            { resolve_snooker(r, b, n, w, first_hit, scratch, cushion, potted, np);
                                               r->att_have = 0; }
     else if (r->mode == CUE_GAME_PAUL)      resolve_paul(r, b, n, first_hit, scratch, cushion, potted, np);
+    /* ROTATION FIRST, because IS_ROTATION now matches it: the family is "the
+     * lowest ball is the one on", which rotation is the original of, but 9- and
+     * 10-ball are won by potting ONE named ball and rotation is won on points.
+     * Tested the other way round, rotation would be resolved as 9-ball and the
+     * frame would end when the 15 went down. */
+    else if (CUE_GAME_IS_ROT61(r->mode))
+        resolve_rotation(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
@@ -2820,6 +2941,11 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
             snprintf(buf, cap, "%d LEFT  2 SHOTS", r->paul_left);
         else
             snprintf(buf, cap, "%d ON THE TABLE", r->paul_left);
+    } else if (CUE_GAME_IS_ROT61(r->mode)) {
+        /* "ON 7" alone would leave out the only number that matters: rotation
+         * is a race and the ball on is just the toll to be paid on the way. */
+        snprintf(buf, cap, "ON %d   %d - %d  TO %d", r->seq ? r->seq : 1,
+                 r->score[r->turn], r->score[1 - r->turn], r->target_score);
     } else if (CUE_GAME_IS_ROTATION(r->mode)) {
         snprintf(buf, cap, "ON %d", r->seq ? r->seq : 1);
     } else if (CUE_GAME_IS_CAROM(r->mode)) {
