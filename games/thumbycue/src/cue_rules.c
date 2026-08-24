@@ -134,8 +134,12 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
         /* Eight of the fifteen, which leaves one ball that cannot decide it —
          * the game's own margin, and why a match can hang on a single safety. */
         r->target_score = 8;
-        r->op_hole[0] = r->op_hole[1] = -1;   /* the host names them at the rack */
+        /* Both unowned until the breaker has chosen — see op_pick. The host
+         * knows WHICH two pockets the table has; the rules know only that
+         * neither belongs to anybody yet. */
+        r->op_hole[0] = r->op_hole[1] = -1;
         r->op_owed[0] = r->op_owed[1] = 0;
+        r->op_pick = 0;
     } else if (CUE_GAME_IS_KILLER(t->kind)) {
         /* KILLER: the score IS the lives. Three each, counting down; the
          * frame ends when somebody has none. */
@@ -2094,7 +2098,26 @@ static void resolve_onepocket(CueRules *r, CueBall *b, int n, int first_hit,
                               int scratch, int cushion, const int *potted, int np)
 {
     const int me = r->turn, you = 1 - r->turn;
+    const int was_break = r->break_shot;
     r->break_shot = 0;
+
+    /* NOBODY OWNS A POCKET YET, so nothing on this stroke can score.
+     *
+     * The pockets are the breaker's choice and it is made AFTER the break —
+     * you look at what the break left and take the end that suits it. Until
+     * then a ball down belongs to nobody: it goes back on the table, and the
+     * breaker is asked. */
+    if (r->op_hole[me] < 0 || r->op_hole[you] < 0) {
+        for (int k = 0; k < np && k < 8; k++)
+            r->respot_id[k] = (unsigned char)potted[k];
+        r->respot = np;
+        r->op_pick = me + 1;
+        r->last_foul = 0;
+        r->brk = 0;
+        if (was_break) snprintf(r->msg, sizeof r->msg, "CHOOSE YOUR POCKET");
+        else           r->msg[0] = 0;
+        return;
+    }
 
     /* WHERE EVERYTHING WENT. bb_hole runs in step with potted, and -1 is a ball
      * driven off the table rather than down a hole. */

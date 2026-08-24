@@ -253,6 +253,18 @@ typedef struct {
      * OWE one, which is taken from the first ball you do score. */
     int op_hole[2];
     int op_owed[2];
+    /* WHO STILL HAS TO CHOOSE A POCKET, as seat+1, or 0 for nobody.
+     *
+     * One Pocket's pockets are the breaker's choice, and the choice is made
+     * AFTER the break — you look at what the break left and take the end that
+     * suits it, which is a real decision and the first one of the game. Until
+     * it is made, op_hole is -1 for both seats and nothing can score: a ball
+     * down on the break belongs to nobody and goes back on the table.
+     *
+     * The host does the asking, because choosing a pocket is pointing at one
+     * and only the host has a player. The OTHER seat is not asked: the second
+     * pocket is the other foot corner by rule, not by preference. */
+    int op_pick;
     /* ---- SPEED POOL ------------------------------------------------------
      *
      * Not a frame: two attempts at the same task, and the CLOCK is the score.

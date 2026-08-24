@@ -394,6 +394,30 @@ static int play_shot(const CuePersona *p) {
     int hole_snap[8], baulk_snap = R.bb_in_baulk;
     for (int k = 0; k < 8; k++) hole_snap[k] = R.bb_hole[k];
     cue_rules_resolve(&R, B, N, &W, W.first_hit, scratch, cushion_seen, potted, np);
+    /* ONE POCKET: ANSWER THE CHOICE, as the host does. The pocket with more of
+     * the fifteen nearer it, weighted by distance — a ball on the rail beside a
+     * hole is worth more than one at the far end — which is the same rule the
+     * app's machine uses, so the bench measures the same game. */
+    if (R.mode == CUE_GAME_ONEPOCKET && R.op_pick > 0) {
+        int lp = -1, rp = -1;
+        if (cue_table_foot_pockets(&T, &W, &lp, &rp)) {
+            float wl = 0.0f, wr = 0.0f;
+            for (int i = 1; i < N; i++) {
+                if (!B[i].on) continue;
+                const float dlx = B[i].pos.x - W.pocket[lp].x;
+                const float dlz = B[i].pos.z - W.pocket[lp].z;
+                const float drx = B[i].pos.x - W.pocket[rp].x;
+                const float drz = B[i].pos.z - W.pocket[rp].z;
+                wl += 1.0f / (0.25f + sqrtf(dlx*dlx + dlz*dlz));
+                wr += 1.0f / (0.25f + sqrtf(drx*drx + drz*drz));
+            }
+            const int who = R.op_pick - 1;
+            const int pick = (wr > wl) ? rp : lp;
+            R.op_hole[who]     = pick;
+            R.op_hole[1 - who] = (pick == lp) ? rp : lp;
+            R.op_pick = 0;
+        }
+    }
 
     /* ---- what the stroke did, in bar billiards' own terms ---------------
      * Read here and not from the pot counters: the resolve has just priced
@@ -618,14 +642,13 @@ static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
     ai_build_table(kind);
     N = cue_table_rack(&T, B);
     cue_rules_init(&R, &T, 1);
-    /* ONE POCKET: WHOSE HOLE IS WHOSE. The rules hold no table and cannot work
-     * it out; the host names them at the rack and so must this. Seat 0 the left
-     * foot corner, seat 1 the right, as the app does. */
+    /* ONE POCKET: NOBODY OWNS A POCKET YET. The breaker chooses after the
+     * break and the host does the asking, so the bench has to answer for
+     * itself — otherwise the frame runs with nothing owned and every pot
+     * spotted, which is not the game being measured. */
     if (T.kind == CUE_GAME_ONEPOCKET) {
-        int lp = -1, rp = -1;
-        if (cue_table_foot_pockets(&T, &W, &lp, &rp)) {
-            R.op_hole[0] = lp; R.op_hole[1] = rp;
-        }
+        R.op_hole[0] = R.op_hole[1] = -1;
+        R.op_pick = 0;
     }
     /* BALL IN HAND FOR THE BREAK, which is what the game gives the striker and
      * what cue_ai_place is for. Without it the cue ball simply stays where the

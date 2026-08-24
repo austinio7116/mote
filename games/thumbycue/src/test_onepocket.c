@@ -24,6 +24,8 @@ static CueBall  B[CUE_MAX_BALLS];
 static int NB;
 static int LP, RP;                     /* the two foot corners */
 
+/* THE FRAME AS IT IS ONCE THE POCKETS ARE OWNED, which is every case below
+ * bar the first group — the choosing itself is tested on its own. */
 static void fresh(CueRules *r) {
     cue_table_init(&T, CUE_GAME_ONEPOCKET);
     cue_table_build_world(&T, &W);
@@ -32,6 +34,15 @@ static void fresh(CueRules *r) {
     r->break_shot = 0;
     cue_table_foot_pockets(&T, &W, &LP, &RP);
     r->op_hole[0] = LP; r->op_hole[1] = RP;
+}
+/* ...and as it is off the rack, with neither pocket chosen. */
+static void fresh_unpicked(CueRules *r) {
+    cue_table_init(&T, CUE_GAME_ONEPOCKET);
+    cue_table_build_world(&T, &W);
+    NB = cue_table_rack(&T, B);
+    cue_rules_init(r, &T, 0);
+    cue_table_foot_pockets(&T, &W, &LP, &RP);
+    r->break_shot = 1;
 }
 
 /* one stroke: ball ids down the holes named, in step. */
@@ -155,6 +166,33 @@ int main(void) {
         {   char m[48]; snprintf(m, sizeof m, "respot_id[0]=%d", r.respot_id[0]);
             ok(r.respot == 1 && r.respot_id[0] == 9,
                "...and it is the 9 that comes back, not the 3", m); }
+    }
+
+    /* ---- NOBODY OWNS A POCKET UNTIL THE BREAKER HAS CHOSEN ---------------
+     *
+     * The pockets are the breaker's choice and it is made AFTER the break —
+     * you look at what the break left and take the end that suits it. Until
+     * then a ball down belongs to nobody. */
+    {   CueRules r; fresh_unpicked(&r);
+        ok(r.op_hole[0] < 0 && r.op_hole[1] < 0,
+           "off the rack neither pocket is owned", "");
+        ok(r.op_pick == 0, "...and nobody has been asked yet", "");
+    }
+    {   CueRules r; fresh_unpicked(&r);
+        int id[1] = { 3 }; int h[1]; h[0] = LP;
+        shot(&r, 3, 0, 1, id, h, 1);
+        ok(r.score[0] == 0 && r.score[1] == 0,
+           "a ball down on the break scores for nobody", r.msg);
+        {   char m[48]; snprintf(m, sizeof m, "respot_id[0]=%d", r.respot_id[0]);
+            ok(r.respot == 1 && r.respot_id[0] == 3,
+               "...it goes back on the table", m); }
+        ok(r.op_pick == 1, "...and the BREAKER is the one asked", r.msg);
+    }
+    {   /* the second seat's break asks the second seat */
+        CueRules r; fresh_unpicked(&r);
+        r.turn = 1;
+        shot(&r, 3, 0, 1, NULL, NULL, 0);
+        ok(r.op_pick == 2, "whoever broke is the one who chooses", r.msg);
     }
 
     printf(s_fail ? "\n%d FAILED\n" : "\nall good\n", s_fail);
