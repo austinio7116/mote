@@ -5047,6 +5047,35 @@ int cue_table_respot_one(const CueTable *t, CueBall *b, int n) {
     return 0;
 }
 
+/* ...AND ONE NAMED BALL, for a ball that has been driven off the table. Same
+ * foot-spot-and-up rule; see the header for why it cannot just be respot_one. */
+int cue_table_respot_ball(const CueTable *t, CueBall *b, int n, int idx) {
+    if (!t || !b || idx < 0 || idx >= n) return 0;
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const float R = t->R;
+    for (int step = 0; step < 60; step++) {
+        Vec3 p = v3(foot.x + up.x * (float)step * 2.05f * R, R,
+                    foot.z + up.z * (float)step * 2.05f * R);
+        if (!cue_table_on_bed(t, p.x, p.z)) continue;
+        int clash = 0;
+        for (int j = 0; j < n && !clash; j++) {
+            if (j == idx || !b[j].on) continue;
+            float dx = b[j].pos.x - p.x, dz = b[j].pos.z - p.z;
+            if (dx*dx + dz*dz < (2.0f*R)*(2.0f*R) * 0.98f) clash = 1;
+        }
+        if (clash) continue;
+        b[idx].pos = p;
+        b[idx].vel = v3(0,0,0);
+        b[idx].w   = v3(0,0,0);
+        b[idx].drop = 0.0f;
+        b[idx].pocket = 0;
+        b[idx].on = 1;
+        b[idx].orient = rand_orient();
+        return 1;
+    }
+    return 0;
+}
+
 /* THE COURSE, off the Billiard & Golf board. See cue_table.h for the frame. */
 const CueGolfHole CUE_GOLF_COURSE[CUE_GOLF_HOLES] = {
     /*  1 */ { 4, 3, { 0.5000f, 0.1000f, 0.9000f, 0.0f },

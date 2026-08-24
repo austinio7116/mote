@@ -1003,6 +1003,17 @@ Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p);
  * is not a rule. */
 int cue_table_respot_one(const CueTable *t, CueBall *b, int n);
 
+/* PUT ONE NAMED BALL BACK, which is a different question from respot_one.
+ *
+ * respot_one picks the LOWEST id that is off the table, because Russian
+ * pyramid's balls are interchangeable and it only has to give one back. A ball
+ * driven OFF the table is a specific ball: WPA spots the ball that left, and
+ * spotting whichever happens to be lowest would hand back one the striker
+ * legitimately potted. Same foot-spot-and-up rule, applied to `idx`.
+ *
+ * Returns 1 if it found somewhere to put it. */
+int cue_table_respot_ball(const CueTable *t, CueBall *b, int n, int idx);
+
 Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
                                      const CueBall *balls, int n, int breaking);
 

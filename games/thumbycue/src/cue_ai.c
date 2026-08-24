@@ -1215,8 +1215,96 @@ static int best_next_shot(const AiCtx *c, Vec3 cue_pos, int just_idx,
     return found;
 }
 
+/* WHICH BALL IS WHICH ON A CAROM TABLE, by id rather than by slot: index 0 is
+ * whichever cue ball the striker is on, and the other two move around it. */
+static int carom_idx(const AiCtx *c, int id) {
+    for (int i = 0; i < c->n; i++)
+        if (c->b[i].on && c->b[i].id == id) return i;
+    return -1;
+}
+
+/* HOW GOOD A CAROM LEAVE IS — and until now the answer was always zero.
+ *
+ * position_quality asks "what could I pot from here", and it asks it by walking
+ * the table's pockets. A carom table has none, so the loop never ran, every
+ * leave scored 0, and the planner ranked purely on whether a shot cannons —
+ * which every candidate in the pool does. Among all the scoring shots it was
+ * therefore choosing arbitrarily. That is the whole reason its straight rail
+ * looks like a series of unrelated one-off cannons instead of a break.
+ *
+ * On a pocketless table the leave is about WHERE THE THREE BALLS FINISH
+ * relative to each other, and what you want depends on the game:
+ *
+ *   STRAIGHT RAIL is nursing. The three balls want to be together and against
+ *   a cushion, so that the next cannon is a few inches and the one after that
+ *   is the same shot again. Tighter is monotonically better.
+ *
+ *   TWO-CUSHION needs enough room to get two rails in on the way, so a frozen
+ *   cluster is no use — the ideal is a modest spread rather than the least.
+ *
+ *   THREE-CUSHION needs most of the table, and the classic position is the
+ *   balls well apart with an angle across the bed.
+ *
+ *   FOUR-BALL wants the two reds together, and the opponent's ball — which is
+ *   a foul to touch — well away from them.
+ *
+ * One curve with a per-game ideal, so the shape is stated once and the games
+ * differ only in the number. Measured rather than assumed: see the harness
+ * numbers in the commit. */
+static float carom_leave(const AiCtx *c, Vec3 cue_end, const Vec3 *end_pos) {
+    const int fourb = (c->r->mode == CUE_GAME_CAROM_4B);
+    const int oppid = c->r->bil_yellow ? CUE_ID_BIL_WHITE : CUE_ID_BIL_YELLOW;
+    const int ia = carom_idx(c, CUE_ID_BIL_RED);
+    const int ib = fourb ? carom_idx(c, 2) : carom_idx(c, oppid);
+    if (ia < 0 || ib < 0) return 0.0f;
+    const Vec3 A = end_pos ? end_pos[ia] : c->b[ia].pos;
+    const Vec3 B = end_pos ? end_pos[ib] : c->b[ib].pos;
+    const float spread = (d2(cue_end, A) + d2(cue_end, B) + d2(A, B)) / 3.0f;
+
+    float ideal, sig;
+    switch (c->r->mode) {
+        case CUE_GAME_CAROM_2C: ideal = 0.45f; sig = 0.40f; break;
+        case CUE_GAME_CAROM_3C: ideal = 0.80f; sig = 0.55f; break;
+        default:                ideal = 0.00f; sig = 0.40f; break;  /* nurse it */
+    }
+    const float e = (spread - ideal) / sig;
+    float sc = 100.0f * expf(-0.5f * e * e);
+
+    /* AND STRAIGHT RAIL WANTS A CUSHION BEHIND IT. A cluster in the middle of
+     * the bed has to be nursed in the open, which is a harder game than the
+     * same cluster in a corner — so the rail is worth something on its own. */
+    if (c->r->mode == CUE_GAME_CAROM_STRAIGHT && c->t) {
+        const float mx = (cue_end.x + A.x + B.x) / 3.0f;
+        const float mz = (cue_end.z + A.z + B.z) / 3.0f;
+        const float ex = c->t->half_len - (mx < 0 ? -mx : mx);
+        const float ez = c->t->half_wid - (mz < 0 ? -mz : mz);
+        const float edge = ex < ez ? ex : ez;
+        sc += 15.0f * clampf(1.0f - edge / 0.45f, 0.0f, 1.0f);
+    }
+    /* FOUR-BALL: the opponent's ball is a foul to touch, so a leave that has it
+     * sitting in among the reds is worth less than the same reds on their own. */
+    if (fourb) {
+        const int io = carom_idx(c, oppid);
+        if (io >= 0) {
+            const Vec3 O = end_pos ? end_pos[io] : c->b[io].pos;
+            float dn = d2(cue_end, O);
+            if (d2(A, O) < dn) dn = d2(A, O);
+            if (d2(B, O) < dn) dn = d2(B, O);
+            sc += 20.0f * clampf(dn / 0.60f, 0.0f, 1.0f) - 10.0f;
+        }
+    }
+    return clampf(sc, 0.0f, 100.0f);
+}
+
 static float position_quality(const AiCtx *c, Vec3 cue_pos, int just_idx,
                               const Vec3 *pos_balls, float *out_rawpot) {
+    /* CAROM ANSWERS A DIFFERENT QUESTION, and asking this one gave it 0 every
+     * time — see carom_leave. Delegated here rather than at each call site so
+     * no caller can be missed. */
+    if (CUE_GAME_IS_CAROM(c->r->mode)) {
+        if (out_rawpot) *out_rawpot = 0.0f;
+        return carom_leave(c, cue_pos, pos_balls);
+    }
     int idx[CUE_MAX_BALLS];
     int cnt = next_targets(c, just_idx, idx);
     if (out_rawpot) *out_rawpot = 0.0f;
@@ -3540,6 +3628,216 @@ static void bb_plan_start(void) {
     P.result = o; P.phase = PH_DONE;
 }
 
+/* ================= CAROM: ITS OWN PLANNER ================================
+ *
+ * A pocketless table is a different game and the pot planner cannot express
+ * it. Everything here runs ONLY for the carom modes — the entry point is a
+ * single branch in the sweep — so no other game pays a cycle for it. English
+ * billiards keeps the narrow direct-cannon fan it has always had: it has
+ * pockets, its planner is mostly a pot planner, and widening its sweep would
+ * slow the one game that does not need this.
+ *
+ * WHAT THE OLD SHARED CODE COULD NOT DO, and why 2- and 3-cushion were a
+ * lottery rather than a game:
+ *
+ *   NO SPIN. Every cannon candidate was dead centre ball — tip_side and
+ *   tip_vert both hard zero. Three-cushion is PLAYED on side; you cannot get a
+ *   ball round three rails without it, so every route the game is about was
+ *   outside the search space.
+ *
+ *   NO RAIL ROUTES. It aimed as though potting the first object ball into the
+ *   second one's position and fanned across its face. That is a DIRECT cannon
+ *   and nothing else. The scorer counted cushions before the second object ball
+ *   exactly as the referee does — so a legal three-cushion score was recognised
+ *   whenever the simulation happened to produce one, and never once looked for.
+ *
+ * So this generates both, and the sim still has the last word on every one of
+ * them: a cannon either happens or it does not, and only the engine knows. */
+
+/* THE TWO OBJECT BALLS, whichever way round the whites are lying. Index 0 is
+ * always the ball being struck; the host exchanges them as the turn passes. */
+static int carom_objects(const AiCtx *c, int *oa, int *ob) {
+    const int fourb = (c->r->mode == CUE_GAME_CAROM_4B);
+    const int oppid = c->r->bil_yellow ? CUE_ID_BIL_WHITE : CUE_ID_BIL_YELLOW;
+    int a = -1, b = -1;
+    for (int i = 1; i < c->n; i++) {
+        if (!c->b[i].on) continue;
+        const int id = c->b[i].id;
+        if (fourb) { if (id == CUE_ID_BIL_RED || id == 2) { if (a < 0) a = i; else b = i; } }
+        else {
+            if (id == CUE_ID_BIL_RED) a = i;
+            else if (id == oppid)     b = i;
+        }
+    }
+    if (a < 0 || b < 0) return 0;
+    *oa = a; *ob = b;
+    return 1;
+}
+
+/* HOW MANY CUSHIONS THIS GAME WANTS before the second object ball is reached.
+ * Straight rail and four-ball want none; the others are named for it. */
+static int carom_need(const AiCtx *c) {
+    return c->r->mode == CUE_GAME_CAROM_2C ? 2
+         : c->r->mode == CUE_GAME_CAROM_3C ? 3 : 0;
+}
+
+/* One candidate, aimed along `ang`, with the spin and power given. */
+static int carom_push(const AiCtx *c, int npool, int tidx, Vec3 ghost,
+                      float ang, float pwr, float side, float vert, float pre) {
+    if (npool >= MAXPOOL - NSAFE_SIM) return npool;
+    Cand v; memset(&v, 0, sizeof v);
+    v.tidx    = tidx;
+    v.pk      = -1;                  /* no pocket: this is a cannon */
+    v.ghost   = ghost;
+    v.aim     = ang;
+    v.cut     = 0.0f;
+    v.dg      = d2(c->b[0].pos, ghost);
+    v.dpk     = 0.0f;
+    v.power01 = pwr;
+    v.js_power = pwr * AI_SIM_SPEED;
+    v.tip_side = side;
+    v.tip_vert = vert;
+    v.cannon  = 1;
+    /* WHAT THE PRE-SORT HAS TO GO ON, and it cannot be a constant.
+     *
+     * Only a few dozen of the pool are ever simulated — the cap scales with the
+     * persona — and which ones is decided by an analytic sort. Every cannon
+     * used to carry the same 38/40, so that sort fell through to its remaining
+     * term, a bonus for LOW power. Rail routes are played hard by definition,
+     * so they sorted to the very bottom and not one of them was ever played
+     * out: the whole point of the generator was unreachable. The caller says
+     * what kind of shot this is and the sort can then tell them apart. */
+    v.potScore = pre;
+    v.posScore = pre;
+    P.pool[npool++] = v;
+    return npool;
+}
+
+/* WHERE A BALL AIMED ALONG `ang` FIRST MEETS A CUSHION, and the direction it
+ * leaves in. The nose lines are the table's own play_* rectangle, so this is
+ * the same wall the physics will use — an approximation only in that it ignores
+ * the pockets, which a carom table does not have. Returns 0 if the ray somehow
+ * escapes (a bed that is not a rectangle: then rail routes are simply not
+ * offered and the direct cannons still are). */
+static int carom_rail_hit(const AiCtx *c, Vec3 from, float ang,
+                          Vec3 *hit, float *out_ang) {
+    if (c->t->bed_shape != CUE_BED_RECT) return 0;
+    const float R  = c->t->R;
+    /* half_len/half_wid are already measured TO THE CUSHION NOSE, so the ball's
+     * centre turns a radius short of them. */
+    const float hx = c->t->half_len - R, hz = c->t->half_wid - R;
+    if (hx <= 0.0f || hz <= 0.0f) return 0;
+    const float dx = cosf(ang), dz = sinf(ang);
+    float best = 1e18f; int axis = -1;
+    if (dx >  1e-6f) { float tt = ( hx - from.x) / dx; if (tt > 1e-4f && tt < best) { best = tt; axis = 0; } }
+    if (dx < -1e-6f) { float tt = (-hx - from.x) / dx; if (tt > 1e-4f && tt < best) { best = tt; axis = 0; } }
+    if (dz >  1e-6f) { float tt = ( hz - from.z) / dz; if (tt > 1e-4f && tt < best) { best = tt; axis = 1; } }
+    if (dz < -1e-6f) { float tt = (-hz - from.z) / dz; if (tt > 1e-4f && tt < best) { best = tt; axis = 1; } }
+    if (axis < 0) return 0;
+    hit->x = from.x + dx * best; hit->y = R; hit->z = from.z + dz * best;
+    *out_ang = axis == 0 ? atan2f(dz, -dx) : atan2f(-dz, dx);
+    return 1;
+}
+
+/* THE CANDIDATES. Direct cannons always; rail routes when the game asks for
+ * cushions, because that is the only way those points are ever scored. */
+static int carom_candidates(const AiCtx *c, int npool) {
+    int oa = -1, ob = -1;
+    if (!carom_objects(c, &oa, &ob)) return npool;
+    const int need = carom_need(c);
+    const Vec3 cue = c->b[0].pos;
+
+    /* SPIN IS THE GAME, not a refinement of it. Kept to three of each so the
+     * pool stays inside its cap with the rail routes below: full side either
+     * way and none, and screw / centre / follow. */
+    static const float SIDE[] = { -0.62f, 0.0f, 0.62f };
+    static const float VERT[] = { -0.40f, 0.0f, 0.42f };
+    static const float PWRD[] = { 0.24f, 0.38f };            /* direct */
+    static const float PWRR[] = { 0.42f, 0.62f, 0.82f };     /* round the table */
+    static const float FAN[]  = { -0.55f, -0.28f, 0.0f, 0.28f, 0.55f };
+
+    /* ---- DIRECT CANNONS: first object, then on to the second ------------- */
+    for (int pass = 0; pass < 2; pass++) {
+        const int a = pass ? ob : oa, b = pass ? oa : ob;
+        const Vec3 A = c->b[a].pos, B = c->b[b].pos;
+        const Vec3 toB = nrm2(sub2(B, A));
+        const Vec3 ghost = v3(A.x - toB.x * c->contact, 0, A.z - toB.z * c->contact);
+        const Vec3 line = sub2(ghost, cue);
+        const float dg = len2(line);
+        if (dg < 1e-3f) continue;
+        const float base = atan2f(line.z, line.x);
+        const float span = asinf(clampf(c->contact / (dg > c->contact ? dg : c->contact),
+                                        0.0f, 1.0f));
+        for (unsigned f = 0; f < sizeof FAN / sizeof FAN[0]; f++) {
+            const float ang = base + FAN[f] * span;
+            for (unsigned q = 0; q < sizeof PWRD / sizeof PWRD[0]; q++)
+                for (unsigned sd = 0; sd < sizeof SIDE / sizeof SIDE[0]; sd++)
+                    for (unsigned vt = 0; vt < sizeof VERT / sizeof VERT[0]; vt++) {
+                        /* Straight rail wants soft, centre-ball nursing shots
+                         * first and only needs spin to hold position; the
+                         * cushion games want the whole sweep. Trimming here
+                         * keeps the pool inside its cap where the extra
+                         * variants buy least. */
+                        if (need == 0 && SIDE[sd] != 0.0f && VERT[vt] != 0.0f) continue;
+                        /* A DIRECT CANNON CANNOT SCORE IN A CUSHION GAME
+                         * unless the natural angle happens to find the rails on
+                         * the way, so where cushions are required it ranks well
+                         * below a route that was built to take them. */
+                        npool = carom_push(c, npool, a, ghost, ang,
+                                           PWRD[q], SIDE[sd], VERT[vt],
+                                           need ? 24.0f : 62.0f);
+                    }
+        }
+    }
+
+    /* ---- ROUND THE TABLE, when the game is about cushions ----------------
+     *
+     * Aim at a cushion rather than at a ball. Reflect off it and see whether
+     * the outgoing line runs at either object ball; if it does, that is a route
+     * worth simulating — cue ball, rail, ball — and the engine will count how
+     * many rails it actually took and whether the second object followed.
+     *
+     * Two rails as well as one, because three-cushion's commonest pattern is
+     * three rails BEFORE the first ball and this is how those get proposed at
+     * all. The reflection is a straight-line approximation and it does not have
+     * to be right: it only has to put the shot in the pool, and every candidate
+     * is then played out properly by the sim. */
+    if (need > 0) {
+        const int NA = 36;
+        for (int k = 0; k < NA; k++) {
+            const float ang0 = 6.2831853f * (float)k / (float)NA;
+            Vec3 h1; float a1;
+            if (!carom_rail_hit(c, cue, ang0, &h1, &a1)) continue;
+            for (int rails = 1; rails <= 2; rails++) {
+                Vec3 from = h1; float ang = a1;
+                if (rails == 2) {
+                    Vec3 h2; float a2;
+                    if (!carom_rail_hit(c, h1, a1, &h2, &a2)) continue;
+                    from = h2; ang = a2;
+                }
+                /* does this leg run at either object ball? */
+                for (int t2 = 0; t2 < 2; t2++) {
+                    const int a = t2 ? ob : oa;
+                    const Vec3 O = c->b[a].pos;
+                    const float vx = O.x - from.x, vz = O.z - from.z;
+                    const float vl = sqrtf(vx*vx + vz*vz);
+                    if (vl < 1e-3f) continue;
+                    const float dot = (vx * cosf(ang) + vz * sinf(ang)) / vl;
+                    if (dot < 0.0f) continue;                 /* behind the leg */
+                    const float perp = vl * sqrtf(clampf(1.0f - dot*dot, 0.0f, 1.0f));
+                    if (perp > c->contact * 1.6f) continue;   /* misses the ball */
+                    for (unsigned q = 0; q < sizeof PWRR / sizeof PWRR[0]; q++)
+                        for (unsigned sd = 0; sd < sizeof SIDE / sizeof SIDE[0]; sd++)
+                            npool = carom_push(c, npool, a, cue, ang0,
+                                               PWRR[q], SIDE[sd], 0.0f, 72.0f);
+                }
+            }
+        }
+    }
+    return npool;
+}
+
+
 /* Rule 96: the ball is taken by hand and played FROM THE D, so where in the D
  * is a real choice — the only one the striker gets besides the stroke itself,
  * and on a four-centimetre D it still swings the angle onto a ball a foot away
@@ -3908,7 +4206,19 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         }
     }
 
-    if (ng == 0) {                       /* nothing direct: bank, then safety */
+    /* CAROM HAS NO POCKETS, SO IT HAS NO POT GROUPS — AND NEVER GOT PAST HERE.
+     *
+     * The loop above pairs each legal ball with each POCKET, so on a pocketless
+     * table `ng` is zero on every visit of every frame, and this branch returns
+     * before the cannon generator further down is ever reached. The carom
+     * planner has therefore never once been run: every shot the machine has
+     * played at straight rail, two-cushion, three-cushion and four-ball came
+     * out of the bank-and-safety fallback, which is looking for somewhere safe
+     * to leave a ball it cannot pot — a question that means nothing here.
+     *
+     * That is why its carom looked like unrelated one-off cannons: they were
+     * accidents. Carom falls through to its own generator instead. */
+    if (ng == 0 && !CUE_GAME_IS_CAROM(r->mode)) {  /* nothing direct: bank, then safety */
         Cand banks[8];
         int nbank = find_banks(c, banks, 8);
         Cand sc;
@@ -4190,7 +4500,10 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * line — a cannon rarely wants the full ball, and the fan is what finds the
      * thin contact that sends the cue ball on. The engine decides which of them
      * actually cannon; the scoring above pays them for it. */
-    if (c->r->mode == CUE_GAME_BILLIARDS || CUE_GAME_IS_CAROM(c->r->mode)) {
+    if (CUE_GAME_IS_CAROM(c->r->mode)) {
+        npool = carom_candidates(c, npool);
+    }
+    else if (c->r->mode == CUE_GAME_BILLIARDS) {
         /* A NARROW FAN. The first one swept the whole face of the ball at
          * three powers, which is a hundred and sixty candidates of which most
          * miss everything — and a candidate that hits nothing is a foul, so
@@ -4201,14 +4514,10 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         Vec3 cue = c->b[0].pos;
         for (int a2 = 1; a2 < c->n && npool < MAXPOOL - 8; a2++) {
             if (!c->b[a2].on) continue;
-            /* carom's objects are the rules' answer — four-ball must never
-             * plan THROUGH the opponent's ball */
-            if (CUE_GAME_IS_CAROM(c->r->mode) &&
-                !cue_rules_ball_legal(c->r, c->b, c->n, c->b[a2].id)) continue;
+
             for (int b2 = 1; b2 < c->n && npool < MAXPOOL - 8; b2++) {
                 if (b2 == a2 || !c->b[b2].on) continue;
-                if (CUE_GAME_IS_CAROM(c->r->mode) &&
-                    !cue_rules_ball_legal(c->r, c->b, c->n, c->b[b2].id)) continue;
+
                 Vec3 A = c->b[a2].pos, Bp = c->b[b2].pos;
                 /* Where the cue ball must be at contact to send A's line at B,
                  * which is the same ghost the potting code builds. */
@@ -4326,6 +4635,13 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * extra leave samples; weak potters don't. (The thinking-orbit hides the
      * longer search.) ~10 for a rookie up to SIM_CAP for The Machine. */
     int cap = 10 + (int)(p->position * 22.0f + 0.5f);
+    /* CAROM PAYS FOR ITS OWN SEARCH. Every candidate here is a cannon and the
+     * analytic score cannot tell a good one from a bad one — only the engine
+     * knows whether a route actually takes three rails and finds the second
+     * ball — so the sim IS the search rather than a verification of it. Three
+     * balls on a pocketless table is also the cheapest rollout in the game,
+     * which is what makes this affordable; no other mode is affected. */
+    if (CUE_GAME_IS_CAROM(c->r->mode)) cap = SIM_CAP;
     if (cap > SIM_CAP) cap = SIM_CAP;
     P.sim_cap = (npool < cap ? npool : cap);
 
