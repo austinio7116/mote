@@ -1894,14 +1894,33 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
         float v2 = b->vel.x*b->vel.x + b->vel.z*b->vel.z;
         if (v2 < V_STOP*V_STOP) continue;
         uint32_t cev = 0;
+        const float pvx = b->vel.x, pvz = b->vel.z;
         if (collide_cushions(w, b, ev ? ev : &cev)) {
             /* The cue ball's own account. Recorded whether or not it has hit a
              * ball yet: a carom counts every cushion from the start of the
              * shot, not only the ones after first contact. */
             if (i == 0) touch_add(w, CUE_TOUCH_CUSHION, 0, 0);
-            /* ...and EVERY ball's own count, which is what bank pool is
-             * scored on. Saturating, because after 255 rails nobody cares. */
-            if (i >= 0 && i < CUE_MAX_BALLS && w->rails[i] < 255) w->rails[i]++;
+            /* ...AND EVERY BALL'S OWN COUNT, WHICH IS A BANK AND NOT A RUB.
+             *
+             * Bank pool's whole question is whether the object ball came OFF a
+             * cushion into the pocket, and touching one is not the same thing.
+             * A ball rolled down a rail brushes it the length of the table and
+             * drops in the corner having been redirected by nothing — the
+             * oldest argument in the game, and counting bare contacts scored it
+             * as a bank every time.
+             *
+             * A bank turns the ball. So the contact only counts when the
+             * direction actually changed: fifteen degrees, which a real bank
+             * clears easily even off a thin angle and a graze never does. That
+             * is the same thing a player means by "it came off the rail". */
+            if (i >= 0 && i < CUE_MAX_BALLS && w->rails[i] < 255) {
+                const float pl = sqrtf(pvx*pvx + pvz*pvz);
+                const float nl = sqrtf(b->vel.x*b->vel.x + b->vel.z*b->vel.z);
+                if (pl > 1e-4f && nl > 1e-4f) {
+                    const float dot = (pvx*b->vel.x + pvz*b->vel.z) / (pl * nl);
+                    if (dot < 0.9659f) w->rails[i]++;      /* > 15 degrees */
+                }
+            }
             if (i == 0 && w->first_hit >= 0) w->jmp_bounced = 1;      /* (c) */
             /* Book the side-cushion fact on the shot (Rule 108's witness):
              * the collision path is const, so it arrives as an event bit. */
