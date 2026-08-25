@@ -397,22 +397,23 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, const CueWorld *w,
      *   to them.
      *
      *   THE PUB GAME asks for nothing, which is what makes it the pub game. */
+    int bad_break = 0;             /* a LOCAL, not a value smuggled in rerack */
     if (r->break_shot && !foul) {
         const int up = (r->mode == CUE_GAME_UK8 && r->uk_intl == CUE_UK_ULTIMATE);
         if (bb) {
             if (np == 0 && brk_crossed(w) < 2) { foul = 1; why = "BREAK"; }
         } else if (up) {
-            if (np + brk_crossed(w) < 3) r->rerack = 3;   /* see below */
+            if (np + brk_crossed(w) < 3) bad_break = 1;
         } else if (r->mode == CUE_GAME_US8 || r->mode == CUE_GAME_CN8 ||
                    (r->mode == CUE_GAME_UK8 && r->uk_intl == CUE_UK_INTL)) {
-            if (np == 0 && brk_rails(w, n) < 4) r->rerack = 3;
+            if (np == 0 && brk_rails(w, n) < 4) bad_break = 1;
         }
     }
     /* A RE-RACK IS NOT A FOUL, and the difference is the whole of these rules:
      * nothing is owed, nothing is in hand, the balls simply go back and the
      * other player breaks. Marked above and acted on here so it cannot be
      * confused with the foul path below, which pays in a different currency. */
-    if (r->rerack == 3) {
+    if (bad_break) {
         r->rerack = 2; r->racks++;
         r->last_foul = 0;
         r->break_shot = 1;
