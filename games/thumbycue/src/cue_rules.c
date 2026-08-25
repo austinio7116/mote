@@ -2366,6 +2366,7 @@ static void resolve_bank(CueRules *r, CueBall *b, int n, const CueWorld *w,
                          const int *potted, int np)
 {
     const int me = r->turn, you = 1 - r->turn;
+    const int was_break = r->break_shot;
     r->break_shot = 0;
 
     /* WHICH OF THE POTTED BALLS ACTUALLY BANKED. potted carries ids; the rail
@@ -2383,6 +2384,13 @@ static void resolve_bank(CueRules *r, CueBall *b, int n, const CueWorld *w,
     }
 
     int foul = 0; const char *why = "";
+    /* WPA 13.3: the break must pocket a ball or drive FOUR object balls to a
+     * rail. The book gives the incoming player a choice — take the balls where
+     * they lie, or make the breaker go again — and this game has no way to ask
+     * for that, so it is charged in bank pool's own currency instead: a foul,
+     * which here costs a ball. It is the same size of penalty the game uses for
+     * everything else, which is the point. */
+    if (was_break && np == 0 && brk_rails(w, n) < 4) { foul = 1; why = "BREAK"; }
     if (first_hit < 0)        { foul = 1; why = "NO BALL HIT"; }
     else if (scratch)         { foul = 1; why = "SCRATCH"; }
     else if (r->n_off)        { foul = 1; why = "OFF THE TABLE"; }
