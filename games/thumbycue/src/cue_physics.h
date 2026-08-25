@@ -506,6 +506,16 @@ typedef struct {
      * by another ball, or that struck one on its way, has not gone in straight
      * however clean the line looked. Counted for every ball including the cue
      * ball's own contacts, from the start of the stroke. */
+    /* EVERY CUSHION A BALL TOUCHED, however gently — which is a different
+     * question from rails[] and must not be confused with it.
+     *
+     * rails[] is a BANK detector: it only counts a contact that turned the ball
+     * more than fifteen degrees, because that is what bank pool means by "off
+     * the rail". The break rules of the WPA games ask something weaker and
+     * plainer — how many object balls were DRIVEN TO A RAIL — and a ball that
+     * runs almost parallel into a cushion and comes off gently has been driven
+     * to one. Counting that with rails[] would foul legal breaks. */
+    uint8_t cush[CUE_MAX_BALLS];
     uint8_t balls_hit[CUE_MAX_BALLS];
     /* ...AND WHETHER THE CUE BALL WAS THE ONE THAT HIT IT.
      *

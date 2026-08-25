@@ -268,7 +268,8 @@ void cue_phys_shot_begin(CueWorld *w) {
     w->brk_cross = 0;
     w->side_cushion = 0;
     for (int k = 0; k < CUE_MAX_BALLS; k++) {
-        w->rails[k] = 0; w->balls_hit[k] = 0; w->hit_by_cue[k] = 0;
+        w->rails[k] = 0; w->cush[k] = 0;
+        w->balls_hit[k] = 0; w->hit_by_cue[k] = 0;
     }
     /* WHAT THIS STROKE DID TO THE PINS is a fact about this stroke, so the
      * bookkeeping is cleared here. WHETHER A PIN IS LYING DOWN is not — it is
@@ -1924,6 +1925,9 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * direction actually changed: fifteen degrees, which a real bank
              * clears easily even off a thin angle and a graze never does. That
              * is the same thing a player means by "it came off the rail". */
+            /* The plain count first: touched a cushion, whatever it did next.
+             * See CueWorld::cush — the break rules want this one. */
+            if (i >= 0 && i < CUE_MAX_BALLS && w->cush[i] < 255) w->cush[i]++;
             if (i >= 0 && i < CUE_MAX_BALLS && w->rails[i] < 255) {
                 const float pl = sqrtf(pvx*pvx + pvz*pvz);
                 const float nl = sqrtf(b->vel.x*b->vel.x + b->vel.z*b->vel.z);

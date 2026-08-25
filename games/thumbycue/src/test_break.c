@@ -54,6 +54,11 @@ static const char *GAME_NAME[CUE_GAME_COUNT] = {
 typedef struct {
     int n, fouls, scratch, no_ball, wrong_ball, no_rail, off_table;
     int potted_any, potted_sum, to_cushion_sum, first_hit_ok;
+    /* WOULD THE WPA BREAK RULE HAVE FOULED IT? Pot a ball, or drive four object
+     * balls to a rail. Counted before any such rule is enforced, because a
+     * requirement the game's own break cannot meet is not a rule, it is a bug
+     * waiting to be reported. */
+    int wpa_short;
     double power_sum;
     /* What a GOOD break looks like, which is a different question per game.
      * Snooker: the cue ball comes back behind the baulk line and tight to the
@@ -131,21 +136,19 @@ static void one_break(int game, const CuePersona *p, Res *res, int trace)
         uint32_t ev = 0;
         int moving = cue_phys_step(&W, B, N, 1.0f/60.0f, &ev);
         if (ev & CUE_EV_CUSHION) cushion_seen = 1;
-        /* which balls reached a cushion: the rack-spread question */
-        for (int i = 1; i < N; i++) {
-            if (!B[i].on || hit_rail[i]) continue;
-            float ax = B[i].pos.x < 0 ? -B[i].pos.x : B[i].pos.x;
-            float az = B[i].pos.z < 0 ? -B[i].pos.z : B[i].pos.z;
-            if (ax > T.half_len - T.R * 1.35f || az > T.half_wid - T.R * 1.35f)
-                hit_rail[i] = 1;
-        }
+        /* which balls reached a cushion — the referee's own count now, not a
+         * guess from how near the rail they got. CueWorld::cush is every
+         * contact however gentle, which is exactly what "driven to a rail"
+         * means; the proximity test here could neither see a ball that touched
+         * and came away nor tell a touch from merely passing close. */
         if (!moving) break;
     }
 
     int potted[CUE_MAX_BALLS], np = 0, scratch = !B[0].on;
     for (int i = 1; i < N; i++) if (was_on[i] && !B[i].on) potted[np++] = B[i].id;
     int rails = 0;
-    for (int i = 1; i < N; i++) rails += hit_rail[i];
+    for (int i = 1; i < N && i < CUE_MAX_BALLS; i++) rails += (W.cush[i] != 0);
+    (void)hit_rail;
 
     int first = W.first_hit;
 
@@ -187,6 +190,8 @@ static void one_break(int game, const CuePersona *p, Res *res, int trace)
     res->power_sum += s.power01;
     res->potted_sum += np;
     res->to_cushion_sum += rails;
+    /* The WPA test, measured but not enforced — see the field. */
+    if (np == 0 && rails < 4) res->wpa_short++;
     if (np) res->potted_any++;
     if (want_first < 0 || first == want_first) res->first_hit_ok++;
     if (scratch) res->scratch++;
@@ -222,9 +227,9 @@ int main(void)
     cue_ai_set_max_speed(MAX_STRIKE_SPEED);
 
     printf("ThumbyCue break shot — %d breaks per game\n\n", nb);
-    printf("%-16s  foul%%  in-off%%  potted%%  to rail   | SNOOKER: in baulk%%  gap to cushion  "
+    printf("%-16s  foul%%  in-off%%  potted%%  to rail  WPAshort%%   | SNOOKER: in baulk%%  gap to cushion  "
            "balls moved  opp has pot%%\n", "game");
-    printf("%-16s  -----  -------  -------  -------   | %s\n", "",
+    printf("%-16s  -----  -------  -------  -------  --------   | %s\n", "",
            "-----------  --------------  -----------  ------------  -------------");
 
     int worst_foul = 0; const char *worst = "";
@@ -238,6 +243,7 @@ int main(void)
         printf("%-16s  %5.1f  %7.1f  %7.1f  %7.1f   | %11.1f  %14.3f  %11.1f  %12.1f  %13.1f\n",
                GAME_NAME[g], res.fouls * pc, res.scratch * pc,
                res.potted_any * pc, (double)res.to_cushion_sum / res.n,
+               res.wpa_short * pc,
                res.in_baulk * pc,
                res.n ? res.baulk_gap_sum / res.n : 0.0,
                (double)res.reds_moved_sum / res.n,
