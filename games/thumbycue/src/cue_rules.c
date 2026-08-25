@@ -271,6 +271,40 @@ static void respot_colour(CueRules *r, CueBall *b, int n, int id) {
 
 /* ---- 8-ball ---------------------------------------------------------- */
 /* Off the table is a foul in pool too — jumping is not. */
+/* ---- WAS THE BREAK A LEGAL ONE? -----------------------------------------
+ *
+ * Almost every rule book asks the same shape of question — the break must DO
+ * something, or it is not a break — and then asks it with different numbers and
+ * pays for it in a different currency. The numbers are per game and quoted at
+ * each call; these two only measure.
+ *
+ * DRIVEN TO A RAIL is CueWorld::cush and NOT rails[]. rails[] only counts a
+ * contact that turned the ball more than fifteen degrees, because that is what
+ * bank pool means by coming off a cushion; a ball that runs nearly parallel
+ * into a rail and comes away gently has still been driven to one, and counting
+ * it the bank way would foul legal breaks. Index 0 is the cue ball, which 14.1
+ * asks about separately.
+ *
+ * CROSSED THE LINE is CueWorld::brk_cross, whose bit per ball is set when the
+ * whole ball has passed the line between the middle pockets. Note that the
+ * books do not agree on WHICH line: blackball and Ultimate Pool use that one,
+ * 9-ball's Regulation 16 uses the head string, and the pyramid uses the centre
+ * line with its own rule about the ball's centre. Only the middle-pocket line
+ * is measured here, so only the games that use it may ask. */
+static int brk_rails(const CueWorld *w, int n) {
+    int c = 0;
+    if (!w) return 0;
+    for (int i = 1; i < n && i < CUE_MAX_BALLS; i++) if (w->cush[i]) c++;
+    return c;
+}
+static int brk_cue_rail(const CueWorld *w) { return w && w->cush[0]; }
+static int brk_crossed(const CueWorld *w) {
+    int c = 0;
+    uint32_t m = w ? w->brk_cross : 0u;
+    while (m) { c += (int)(m & 1u); m >>= 1; }
+    return c;
+}
+
 static void resolve_pool(CueRules *r, CueBall *b, int n, const CueWorld *w,
                          int first_hit,
                          int scratch, int cushion, const int *potted, int np) {
@@ -341,10 +375,52 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, const CueWorld *w,
     /* Blackball 4b: a legal break pots a ball or sends two object balls fully
      * over the line between the middle pockets. The physics keeps the
      * crossing account (CueWorld.brk_cross); anything already foul stands. */
-    if (bb && r->break_shot && !foul && np == 0) {
-        int crossed = 0;
-        if (w) { uint32_t m = w->brk_cross; while (m) { crossed += m & 1u; m >>= 1; } }
-        if (crossed < 2) { foul = 1; why = "BREAK"; }
+    /* ---- THE BREAK HAS TO DO SOMETHING ---------------------------------
+     *
+     * Four rule books meet on this resolver and none of them asks the same
+     * question, so none of them shares an answer.
+     *
+     *   BLACKBALL 8.5(b) — a ball potted, or at least TWO object balls across
+     *   the Center String (2.1(d): the line between the two side pockets). No
+     *   rail test at all, and a single pot satisfies it outright. A foul, which
+     *   under 8.13 hands over a free shot.
+     *
+     *   ULTIMATE POOL / IEPF 4f — no rail test either, and not a foul: THREE
+     *   POINTS, counting one for every ball potted and one for every unpotted
+     *   ball wholly past the centre-pocket line. Short of three is a mandatory
+     *   re-rack.
+     *
+     *   WPA 8-BALL 4.3 and HEYBALL 6(c) — a ball potted, or FOUR object balls
+     *   driven to a rail. Explicitly not a foul in either book and explicitly
+     *   NOT ball in hand at heyball: the incoming player is given a choice of
+     *   three, of which the one taken here is a re-rack with the break passing
+     *   to them.
+     *
+     *   THE PUB GAME asks for nothing, which is what makes it the pub game. */
+    if (r->break_shot && !foul) {
+        const int up = (r->mode == CUE_GAME_UK8 && r->uk_intl == CUE_UK_ULTIMATE);
+        if (bb) {
+            if (np == 0 && brk_crossed(w) < 2) { foul = 1; why = "BREAK"; }
+        } else if (up) {
+            if (np + brk_crossed(w) < 3) r->rerack = 3;   /* see below */
+        } else if (r->mode == CUE_GAME_US8 || r->mode == CUE_GAME_CN8 ||
+                   (r->mode == CUE_GAME_UK8 && r->uk_intl == CUE_UK_INTL)) {
+            if (np == 0 && brk_rails(w, n) < 4) r->rerack = 3;
+        }
+    }
+    /* A RE-RACK IS NOT A FOUL, and the difference is the whole of these rules:
+     * nothing is owed, nothing is in hand, the balls simply go back and the
+     * other player breaks. Marked above and acted on here so it cannot be
+     * confused with the foul path below, which pays in a different currency. */
+    if (r->rerack == 3) {
+        r->rerack = 2; r->racks++;
+        r->last_foul = 0;
+        r->break_shot = 1;
+        r->turn = 1 - r->turn;         /* "you break it, then" */
+        r->ball_in_hand = 1;
+        r->two_shot = 0; r->shots_remaining = 1; r->free_shot = 0;
+        snprintf(r->msg, sizeof r->msg, "ILLEGAL BREAK - RE-RACK");
+        return;
     }
     /* OFF THE TABLE. Last, so it names the foul when nothing worse did: a ball
      * driven off is a foul however good the contact was, and jumping is legal
@@ -1047,7 +1123,8 @@ static void respot_money(CueRules *r, CueBall *b, int n) {
     q->pos = r->spot[0]; q->orient = m3_identity();
 }
 
-static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
+static void resolve_9ball(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                          int first_hit,
                           int scratch, int cushion, const int *potted, int np) {
     int was_break = r->break_shot;
     const int money = rot_money(r);
@@ -1103,6 +1180,17 @@ static void resolve_9ball(CueRules *r, CueBall *b, int n, int first_hit,
     if (lowest == 0) lowest = 1;
 
     int foul = 0; const char *why = "";
+    /* WPA 5.3 (nine-ball) and 6.3 (ten-ball): the break must pocket a ball or
+     * drive FOUR object balls to a rail. A plain foul in both books, and 5.7 /
+     * 6.9 hand the incoming player the cue ball in hand anywhere — which is
+     * what the foul path below already does, so it need only be named.
+     *
+     * Regulation 16's other test — three object balls past the HEAD STRING —
+     * is deliberately not here. It is a Regulation and not a Rule (Reg 1: "the
+     * Rules have priority"), it is a tournament option rather than the game,
+     * and the head string is a different line from the one brk_crossed
+     * measures. */
+    if (was_break && np == 0 && brk_rails(w, n) < 4) { foul = 1; why = "BREAK"; }
     if (scratch)                      { foul = 1; why = "SCRATCH"; }
     else if (first_hit < 0)           { foul = 1; why = "NO BALL"; }
     else if (first_hit != lowest)     { foul = 1; why = "WRONG BALL"; }   /* must hit lowest first */
@@ -1715,11 +1803,13 @@ static void resolve_carom(CueRules *r, CueBall *b, int n, const CueWorld *w,
  * (House rules on the Filipino game vary and the jump-cue and snooker
  * conventions are not modelled. These two are the ones every account agrees on.)
  */
-static void resolve_rotation(CueRules *r, CueBall *b, int n, int first_hit,
+static void resolve_rotation(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                             int first_hit,
                              int scratch, int cushion, const int *potted, int np)
 {
     const int me = r->turn, you = 1 - r->turn;
     const int ph = (r->mode == CUE_GAME_ROTATION_PH);
+    const int was_break = r->break_shot;
     r->break_shot = 0;
 
     /* THE BALL ON, read from the table as it was BEFORE the stroke — which is
@@ -1739,6 +1829,12 @@ static void resolve_rotation(CueRules *r, CueBall *b, int n, int first_hit,
      * the obligation below is the rotation family's alone. */
     const int must_hit_lowest = CUE_GAME_IS_ROTATION(r->mode);
     int foul = 0; const char *why = "";
+    /* ROTATION FOLLOWS NINE-BALL, which is Mark's decision and not a rule book:
+     * the WPA has no Rotation ruleset at all — it is in neither the current
+     * book nor the 2016 one — so there is nothing to be faithful to. Nine-ball
+     * is the nearest game that IS published (lowest ball first, same rack, same
+     * table) and its break rule is the one adopted here. */
+    if (was_break && np == 0 && brk_rails(w, n) < 4) { foul = 1; why = "BREAK"; }
     if (first_hit < 0)                    { foul = 1; why = "NO BALL HIT"; }
     else if (must_hit_lowest && lowest && first_hit != lowest)
                                           { foul = 1; why = "WRONG BALL FIRST"; }
@@ -2127,7 +2223,8 @@ static void resolve_cowboy(CueRules *r, CueBall *b, int n, const CueWorld *w,
  *
  * WHICH POCKET IS WHOSE is the host's to say (see op_hole), because the rules
  * hold no table and a pocket array has no fixed numbering. */
-static void resolve_onepocket(CueRules *r, CueBall *b, int n, int first_hit,
+static void resolve_onepocket(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                              int first_hit,
                               int scratch, int cushion, const int *potted, int np)
 {
     const int me = r->turn, you = 1 - r->turn;
@@ -2170,6 +2267,20 @@ static void resolve_onepocket(CueRules *r, CueBall *b, int n, int first_hit,
 
     /* ---- the foul, before anything is counted ---- */
     int foul = 0; const char *why = "";
+    /* ONE POCKET TAKES ITS OWN RULE, and a much weaker one, on purpose.
+     *
+     * The two codes contradict each other: WPA 12.3 says "there are no special
+     * requirements for the break shot", and OnePocket.org 2.2 asks that "the
+     * cue ball or at least one object ball must be driven to a rail, or a ball
+     * pocketed". This is the second, because "no requirement" is not a rule you
+     * can implement and OnePocket.org is what tournaments actually run.
+     *
+     * And emphatically NOT the four-ball rule the eight-balls use. A one pocket
+     * break is meant to be soft — it moves almost nothing, which is the whole
+     * character of the game — so a four-ball requirement would foul nearly
+     * every legitimate break in it. */
+    if (was_break && np == 0 && brk_rails(w, n) < 1 && !brk_cue_rail(w))
+        { foul = 1; why = "BREAK"; }
     if (first_hit < 0)          { foul = 1; why = "NO BALL HIT"; }
     else if (scratch)           { foul = 1; why = "SCRATCH"; }
     else if (r->n_off)          { foul = 1; why = "OFF THE TABLE"; }
@@ -2982,7 +3093,8 @@ void cue_rules_billiards_swap(CueBall *b, int n) {
     CueBall tmp = b[0]; b[0] = b[other]; b[other] = tmp;
 }
 
-static void resolve_straight(CueRules *r, CueBall *b, int n, int first_hit,
+static void resolve_straight(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                             int first_hit,
                              int scratch, int cushion, const int *potted, int np) {
     const int was_break = r->break_shot;
     /* The call belongs to this stroke and no other, whatever becomes of it. */
@@ -3017,10 +3129,25 @@ static void resolve_straight(CueRules *r, CueBall *b, int n, int first_hit,
      * foul first, so the break price never applied. It is the same foul at a
      * different price, so it is the same branch with a different name. */
     int foul = 0; const char *why = "";
+    /* WPA 7.3(b), and the only break rule in the game that asks about the CUE
+     * BALL: "If no called ball is pocketed, the cue-ball AND two object-balls
+     * must each be driven to a rail after the cue-ball contacts the rack or the
+     * shot is a breaking foul." Conjunctive — two object balls is not enough on
+     * its own, and neither is the cue ball.
+     *
+     * It is priced differently too: TWO points off rather than the one a
+     * standard foul costs, and 7.10 says that where both happen on one stroke
+     * it counts as the breaking foul alone, so the two do not stack. 7.11 keeps
+     * it out of the three-consecutive-fouls count. */
+    if (was_break && np == 0 && (brk_rails(w, n) < 2 || !brk_cue_rail(w)))
+        { foul = 1; why = "BREAK"; }
     if (scratch)                        { foul = 1; why = "SCRATCH"; }
     else if (first_hit < 0)             { foul = 1; why = was_break ? "BREAK" : "NO BALL"; }
     else if (np == 0 && !cushion)       { foul = 1; why = was_break ? "BREAK" : "NO RAIL"; }
     if (r->n_off && !foul)              { foul = 1; why = "OFF THE TABLE"; }
+    /* ANY foul on the break costs two rather than one (7.3(b), 7.10) — which
+     * includes the break's own rule above, so nothing extra is charged for it
+     * and the two do not stack. */
     const int break_foul = (was_break && foul);
     r->last_foul = foul;
 
@@ -3169,9 +3296,9 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
      * Tested the other way round, rotation would be resolved as 9-ball and the
      * frame would end when the 15 went down. */
     else if (CUE_GAME_IS_ROT61(r->mode))
-        resolve_rotation(r, b, n, first_hit, scratch, cushion, potted, np);
-    else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, first_hit, scratch, cushion, potted, np);
-    else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, first_hit, scratch, cushion, potted, np);
+        resolve_rotation(r, b, n, w, first_hit, scratch, cushion, potted, np);
+    else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, w, first_hit, scratch, cushion, potted, np);
+    else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_CAROM(r->mode))     resolve_carom(r, b, n, w, first_hit);
     else if (CUE_GAME_IS_KILLER(r->mode))    resolve_killer(r, b, n, first_hit, scratch, potted, np);
@@ -3186,7 +3313,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (r->mode == CUE_GAME_BANKPOOL)
         resolve_bank(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_ONEPOCKET)
-        resolve_onepocket(r, b, n, first_hit, scratch, cushion, potted, np);
+        resolve_onepocket(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_GOLF) resolve_golf(r, b, n, scratch);
     else                                    resolve_pool(r, b, n, w, first_hit, scratch, cushion, potted, np);
     if (wrong_ball && r->last_foul && !r->frame_over)
