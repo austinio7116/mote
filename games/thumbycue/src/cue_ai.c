@@ -5095,34 +5095,18 @@ int cue_ai_plan_tick(void) {
             const BrkCand *b = &P.brk[P.brk_best_i];
             out.aim = b->aim; out.power01 = b->power;
             out.tip_side = b->side; out.tip_vert = b->vert;
-            /* AND A BREAK IS NEVER STRUCK TWICE THE SAME WAY.
+            /* THE VARIETY COMES FROM WHERE THE BALL IS STOOD, not from here.
              *
-             * This is deliberate VARIATION, not error, and it is the half of
-             * the same-break bug that choosing among near-equals cannot reach.
-             * Where one candidate genuinely wins outright — which is the normal
-             * case for a strong player on a full rack — the band admits only
-             * that one, and a persona with no aim error then delivers it
-             * identically for ever. The Machine has line_acc 0.00 by design, so
-             * its break was the same break to the last decimal, every rack,
-             * every launch.
-             *
-             * There are two reasons to move it, and neither is "add noise for
-             * the sake of it". The first is that break_score is ONE simulation
-             * of the most chaotic event in the game: the gap between the top
-             * candidates is comfortably inside the error of that estimate, so
-             * insisting on the exact maximum is false precision. The second is
-             * that this is what players do — nobody stands there and reproduces
-             * a break to a tenth of a degree, and a break that cannot be
-             * predicted is worth something in itself.
-             *
-             * Small enough to keep the shot: a third of a degree and a few per
-             * cent of pace is the difference between one break and another off
-             * the same rack, not the difference between hitting it and missing.
-             * It is drawn from the caller's stream like everything else, so the
-             * same seed still reproduces the same break exactly. */
-            out.aim   += (rnd(P.rng) - 0.5f) * 2.0f * 0.35f * RAD;
-            out.power01 = clampf(out.power01 * (1.0f + (rnd(P.rng) - 0.5f) * 0.06f),
-                                 0.05f, 1.0f);
+             * A deliberate wobble on the delivered aim and pace was tried here
+             * first and taken out again: it made a strong player miss the shot
+             * they had just chosen, to solve a problem that is not in the
+             * choosing at all. The break is the same break every time because
+             * the cue ball starts in the same PLACE every time — see the break
+             * branch of cue_ai_place, which flips the side and varies the
+             * distance out, and see take_ball_in_hand in the host, which used
+             * to skip calling it on a break. Move the ball and every candidate
+             * in the grid is a different shot; leave it and no amount of noise
+             * downstream is anything but noise. */
             /* The player's own accuracy, last, exactly as every other shot gets
              * it: the search finds the shot, the persona plays it. */
             out.aim += (rnd(P.rng) - 0.5f) * 2.0f * c->p->line_acc * RAD;

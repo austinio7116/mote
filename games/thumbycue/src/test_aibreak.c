@@ -49,6 +49,15 @@ static Shot plan_break(CueGameKind kind, uint32_t seed, int persona) {
     cue_rules_init(&r, &t, 0);
     r.break_shot = 1;
     uint32_t rng = seed;
+    /* STAND THE CUE BALL WHERE THE HOST WOULD, before anything is planned.
+     *
+     * This is the sequence the game actually runs — take_ball_in_hand places,
+     * then the planner searches FROM that position — and testing the planner
+     * alone measured something nobody plays. It also hid the real bug twice
+     * over: the break search was being asked the same question every time,
+     * because the cue ball was on the same spot every time, and no property of
+     * the planner could have told you that. */
+    b[0].pos = cue_ai_place(&w, &t, &r, b, n, &CUE_PERSONAS[persona], &rng);
     CueAIShot s = cue_ai_plan(&w, &t, &r, b, n, &CUE_PERSONAS[persona], &rng);
     Shot o = { s.aim, s.power01, s.tip_side, s.tip_vert };
     return o;
