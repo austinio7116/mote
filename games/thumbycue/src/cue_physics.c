@@ -352,6 +352,13 @@ int cue_touch_cushions_before_second_ball(const CueWorld *w) {
 
 /* Cue-ball deflection (squirt) at full side — declared in cue_physics.h so a
  * player who MEANS to use side can aim off for it, the way a real one does. */
+static float s_squirt = CUE_SQUIRT_RAD;
+void cue_phys_set_squirt(float rad) {
+    if (rad < CUE_SQUIRT_MIN) rad = CUE_SQUIRT_MIN;
+    if (rad > CUE_SQUIRT_MAX) rad = CUE_SQUIRT_MAX;
+    s_squirt = rad;
+}
+float cue_phys_squirt(void) { return s_squirt; }
 
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy) {
@@ -384,7 +391,7 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
      * shove the ball's mass sideways to get there. It is a couple of degrees at
      * most on a modern shaft, and deliberately kept small here — enough to be
      * felt as a thing to allow for, not enough to make aiming a guess. */
-    float squirt = -tip_side * CUE_SQUIRT_RAD;      /* right-hand side -> left */
+    float squirt = -tip_side * s_squirt;           /* right-hand side -> left */
     float cq = cosf(squirt), sq = sinf(squirt);
     Vec3 aim = v3_norm(v3_add(v3_scale(fwd, cq), v3_scale(right, sq)));
     b->vel = v3_scale(aim, speed * ce);
@@ -1457,6 +1464,21 @@ static CUE_HOT void jump_watch(CueWorld *w, CueBall *balls, int n) {
         float dz = cue->pos.z - balls[j].pos.z;
         if (dx > reach || dx < -reach || dz > reach || dz < -reach) continue;
         if (dx * dx + dz * dz >= reach * reach) continue;   /* no overlap in plan */
+        /* AND IT HAS TO HAVE CLEARED THE BALL. A plan-view overlap says the two
+         * footprints cross; it does not say the cue ball went OVER anything.
+         * "Airborne" here is y > R + 1e-4 — a tenth of a millimetre — so a
+         * two-millimetre hop off a bed where a ball stands fifty-two
+         * millimetres tall was being read as a pass-over. It is not: at that
+         * height the two spheres are interpenetrating, which is a COLLISION.
+         * This watcher runs before the ball-ball solver in the same substep, so
+         * what it was actually seeing was the frame of overlap just before the
+         * contact it was about to resolve — and every screw shot played with the
+         * butt up enough to leave the cloth was given a jump foul in snooker.
+         *
+         * The same 3-D separation collide_ball_ball uses. If they are touching,
+         * the cue ball is going into the ball, not over it. */
+        {   float dy = cue->pos.y - balls[j].pos.y;
+            if (dx * dx + dz * dz + dy * dy < reach * reach) continue; }
 
         if (w->first_hit_idx >= 0) {
             if (j != w->first_hit_idx) continue;            /* (a) — over another ball */

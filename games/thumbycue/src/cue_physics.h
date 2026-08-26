@@ -607,7 +607,31 @@ void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
  * purpose. Cueing side without allowing for it puts the cue ball a centimetre
  * wide over the length of a table, which is the difference between clipping the
  * outside of the pack and missing it. */
-#define CUE_SQUIRT_RAD 0.025f
+/* THE DEFAULT, and it is no longer the only value.
+ *
+ * This was 0.025 rad — 1.43 degrees — described here as "low-deflection
+ * territory, where a decent modern shaft sits". That is true and it is the
+ * wrong cue: a traditional one-piece ash snooker cue is not a low-deflection
+ * shaft, and players of one spend their lives allowing for exactly this.
+ *
+ * The measured range across real cues is about 0.5 to 2.3 degrees at full side
+ * (Ron Shepard's squirt measurements; Platinum Billiards' own table spans
+ * 1.3 to 2.3). A plain shaft sits near the top of that, so the default moves to
+ * 2.0 degrees and the low-deflection value stays reachable on the slider.
+ *
+ * IT IS PART OF THE SHOT, NOT AN ERROR — see the note above. Anything that
+ * means to use side and arrive where it aimed must aim off by tip_side times
+ * this, which is why the AI reads it too rather than carrying its own copy. */
+#define CUE_SQUIRT_RAD 0.0349f          /* 2.0 degrees */
+#define CUE_SQUIRT_MIN 0.0f             /* off: the cue ball goes where it is sent */
+#define CUE_SQUIRT_MAX 0.0611f          /* 3.5 degrees: past any cue ever measured */
+
+/* The live value, which every shot and the AI's aim-off both read. A setting
+ * rather than a constant because how much deflection feels right is a matter of
+ * which cue the player thinks they are holding. Local only: online carries ball
+ * POSITIONS, so the two ends never have to agree about it. */
+void  cue_phys_set_squirt(float rad);
+float cue_phys_squirt(void);
 
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy);

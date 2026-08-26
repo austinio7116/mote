@@ -442,6 +442,121 @@ int main(void) {
            "a ball stuck on the rail leaves after about ten seconds", d);
     }
 
+    /* ---- 14. A HOP TOO LOW TO CLEAR A BALL IS NOT A JUMP SHOT ------------
+     *
+     * The rule is passing OVER a ball, not leaving the bed, and everything
+     * above tests the first half of that: a real jump, high and clean. Nothing
+     * tested the other half, and that is where it was broken.
+     *
+     * The reported shot was ordinary snooker screw. The butt goes up to cue
+     * down on the ball, the app's deadband is crossed by a hair, the cue ball
+     * lifts two millimetres off a bed where a ball stands fifty-two tall, and
+     * it was given a jump foul — because the watcher tested a PLAN-VIEW
+     * footprint overlap and never asked whether the ball had been cleared. It
+     * runs before the ball-ball solver in the same substep, so what it saw was
+     * the overlap of the contact it was about to resolve.
+     *
+     * Every case here is a hop of a few millimetres into a ball a stick's
+     * length away. None of them passes over anything and none may be a foul.
+     * The cut angle is swept because the old fault was invisible at dead
+     * straight: with no cut the cue ball stops on the ball, the far-side
+     * exception short-circuits to excused, and the only geometry the file
+     * already tested was the one geometry that hid the bug.
+     *
+     * On SNOOKER, deliberately. Snooker and Blackball are the only rule sets
+     * that read w->jump_over, and the whole of this file until now ran on the
+     * UK8 table. And jumped is DERIVED from the physics here rather than set by
+     * hand, which is the difference between testing the rule and testing the
+     * line of code that copies the flag. */
+    {
+        CueTable st;
+        CueWorld sw;
+        cue_table_init(&st, CUE_GAME_SNK15);
+        cue_table_build_world(&st, &sw);
+
+        static const float CUT[]  = { 0.0f, 2.0f, 5.0f, 10.0f, 15.0f, 20.0f, 30.0f, 45.0f };
+        static const float DIST[] = { 0.10f, 0.15f, 0.20f };
+        int fouls = 0, played = 0, hops = 0;
+        float worst_hop = 0.0f;
+        for (unsigned di = 0; di < sizeof DIST / sizeof DIST[0]; di++)
+        for (unsigned ci = 0; ci < sizeof CUT / sizeof CUT[0]; ci++) {
+            CueBall sb[2];
+            memset(sb, 0, sizeof sb);
+            for (int i = 0; i < 2; i++) {
+                sb[i].on = 1; sb[i].id = (uint8_t)i;
+                sb[i].orient = m3_identity();
+                sb[i].pos.y = st.R;
+            }
+            /* The red set off to one side by the cut angle, at the line of
+             * centres the cue ball would have to take to hit it there. */
+            const float a = CUT[ci] * 3.14159265f / 180.0f;
+            sb[0].pos.x = -0.9f;  sb[0].pos.z = 0.0f;
+            sb[1].pos.x = -0.9f + DIST[di] * cosf(a);
+            sb[1].pos.z =          DIST[di] * sinf(a);
+
+            cue_phys_shot_begin(&sw);
+            /* 4.5 m/s, half a tip of screw, butt up fourteen degrees, and the
+             * vertical the app's own jump_launch hands over at that elevation.
+             * Not a jump shot by anybody's intent. */
+            cue_phys_strike_jump(&sw, &sb[0], dir, 4.5f, 0.0f, -0.30f, 0.20f, 0.208f);
+
+            float peak = 0.0f;
+            for (int k = 0; k < 20000; k++) {
+                uint32_t ev = 0;
+                int moving = cue_phys_step(&sw, sb, 2, 1.0f / 480.0f, &ev);
+                float h = sb[0].pos.y - sw.R;
+                if (h > peak) peak = h;
+                if (!moving) break;
+            }
+            played++;
+            if (peak > 1.0e-4f) hops++;
+            if (peak > worst_hop) worst_hop = peak;
+            if (sw.jump_over) {
+                fouls++;
+                printf("       cut %4.1f deg  dist %.2f m  hop %.2f mm  -> FOUL\n",
+                       (double)CUT[ci], (double)DIST[di], (double)(peak * 1000.0f));
+            }
+        }
+        char d[110];
+        snprintf(d, sizeof d, "%d of %d gave a foul; %d actually hopped, highest %.2f mm",
+                 fouls, played, hops, (double)(worst_hop * 1000.0f));
+        ok(fouls == 0, "a hop too low to clear a ball is never a jump shot, at any cut", d);
+        /* If the shots stopped hopping this test would pass by testing nothing,
+         * which is the way a regression test rots. */
+        ok(hops == played, "and every one of them did leave the bed", d);
+        ok(worst_hop < 0.5f * st.R,
+           "the hops are small — under half a ball radius", d);
+
+        /* AND THE RULE STILL BITES on a real one. Same table, same red, but
+         * launched hard enough to go over it: that is a jump shot and snooker
+         * fouls it. Without this the fix above could be "never foul anything". */
+        {
+            CueBall sb[2];
+            memset(sb, 0, sizeof sb);
+            for (int i = 0; i < 2; i++) {
+                sb[i].on = 1; sb[i].id = (uint8_t)i;
+                sb[i].orient = m3_identity(); sb[i].pos.y = st.R;
+            }
+            sb[0].pos.x = -0.9f;
+            sb[1].pos.x = -0.9f + 0.20f;
+            cue_phys_shot_begin(&sw);
+            cue_phys_strike_jump(&sw, &sb[0], dir, 4.5f, 0.0f, 0.0f, 0.30f, 1.60f);
+            float peak = 0.0f;
+            for (int k = 0; k < 20000; k++) {
+                uint32_t ev = 0;
+                int moving = cue_phys_step(&sw, sb, 2, 1.0f / 480.0f, &ev);
+                float h = sb[0].pos.y - sw.R;
+                if (h > peak) peak = h;
+                if (!moving) break;
+            }
+            char e[90];
+            snprintf(e, sizeof e, "hop %.1f mm, jump_over %d",
+                     (double)(peak * 1000.0f), sw.jump_over);
+            ok(peak > 2.0f * st.R, "the control shot really does clear the ball", e);
+            ok(sw.jump_over, "and clearing a ball before contact is still a jump shot", e);
+        }
+    }
+
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);
     return s_fail ? 1 : 0;
 }

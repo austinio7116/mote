@@ -3285,7 +3285,12 @@ const char *cue_render_ballset_name(int i) {
 }
 
 int cue_render_ballset_get(int i, CueBallSet *out) {
-    if (!out || i < 0 || i >= 9) return 0;
+    /* AGAINST THE ARRAY. The fourth place in this file to have carried a
+     * hand-written count of the ball sets, and the fourth to fall behind when
+     * one was added: it said 9 with ten sets present, so the designer's START
+     * FROM row could not reach BAR BILLIARDS and could not wrap backwards off
+     * PRO either — the row simply did nothing at both ends. */
+    if (!out || i < 0 || i >= cue_render_ballset_count()) return 0;
     *out = k_ballsets[i];
     return 1;
 }
