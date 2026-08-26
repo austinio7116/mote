@@ -37,6 +37,16 @@
   nav.toc .wrap{display:flex;gap:4px;flex-wrap:wrap;padding:8px 20px}
   nav.toc a{color:var(--dim);font-size:.84rem;padding:5px 10px;border-radius:6px}
   nav.toc a:hover{color:var(--ink);background:var(--panel);text-decoration:none}
+  nav.toc input#q{flex:1 1 240px;min-width:200px;background:var(--panel);color:var(--ink);
+    border:1px solid var(--line);border-radius:6px;padding:6px 10px;font:inherit;font-size:.86rem}
+  nav.toc input#q::placeholder{color:var(--dim)}
+  #results{position:sticky;top:0;z-index:6;background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;margin:10px 20px;padding:6px;max-height:60vh;overflow:auto;display:none}
+  #results a{display:block;padding:7px 10px;border-radius:6px;color:var(--ink)}
+  #results a:hover{background:rgba(255,255,255,.06);text-decoration:none}
+  #results .where{color:var(--dim);font-size:.8rem;display:block}
+  #results .none{padding:8px 10px;color:var(--dim)}
+  mark{background:rgba(226,132,54,.35);color:inherit;border-radius:3px;padding:0 2px}
 
   section{padding:44px 0 14px;border-bottom:1px solid var(--grid)}
   h2{font-size:1.8rem;color:var(--gold);margin:0 0 8px;letter-spacing:.02em}
@@ -142,7 +152,10 @@
 </header>
 
 <nav class="toc"><div class="wrap">
+  <input id="q" type="search" placeholder="Search the guide — try &quot;change balls&quot;, &quot;real cue&quot;, &quot;deflection&quot;"
+         autocomplete="off" aria-label="Search the guide">
   <a href="#start">Getting started</a>
+  <a href="#finding">Finding your way</a>
   <a href="#table">Setting up the table</a>
   <a href="#controls">Controls</a>
   <a href="#stroke">Playing a shot</a>
@@ -161,6 +174,8 @@
   <a href="#cues">Cues</a>
   <a href="#physics">Physics</a>
 </div></nav>
+
+<div id="results"></div>
 
 <div class="wrap">
 
@@ -187,6 +202,86 @@
     trigger to open it, or point at one of the chevrons at either end of the row to change the
     setting. <b>TABLE WORKSHOP</b> is where you build a table of your own.</figcaption>
   </figure>
+</section>
+
+<section id="finding">
+  <h2>Finding your way</h2>
+  <p class="lede">Almost everything lives on one of two screens: the <b>main menu</b> before a
+  frame, or the <b>pause menu</b> during one. Both are the same panel in the same place, so once
+  you know where it hangs you know where everything is.</p>
+
+  <p>Rows marked OPEN lead somewhere. Rows with a value on the right are changed in place with the
+  chevrons, <b>unless the row has more than two settings</b> — then clicking it opens a page of
+  names you point at, which is how you get to a game like COWBOY POOL without stepping through a
+  dozen stops one at a time.</p>
+
+  <h3>Where to go for what</h3>
+  <table>
+    <tr><th>What you want</th><th>Where it is</th></tr>
+    <tr><td><b>Different balls</b></td><td>MENU &rarr; APPEARANCE &rarr; BALLS. Click the row for
+      the gallery of all seventeen sets.</td></tr>
+    <tr><td><b>A different game</b></td><td>MENU &rarr; GAME. Click it for the gallery of cards; the
+      RULES row underneath carries the variants of whatever you picked.</td></tr>
+    <tr><td><b>Play with a real cue or a pen</b></td><td>MENU &rarr; CONTROLS &rarr; CUE SETUP. See
+      <a href="#realcue">Playing with your own cue</a>.</td></tr>
+    <tr><td><b>Cue deflection</b></td><td>MENU &rarr; CONTROLS &rarr; CUE DEFLECTION.</td></tr>
+    <tr><td><b>How the sticks move you</b></td><td>MENU &rarr; CONTROLS. ONE STICK &mdash; EITHER
+      HAND puts the same control on both, which is what you want with a cue in your
+      hands.</td></tr>
+    <tr><td><b>Cloth, timber, lighting, surroundings</b></td><td>MENU &rarr; APPEARANCE.</td></tr>
+    <tr><td><b>Resolution, anti-aliasing, ball reflections</b></td><td>MENU &rarr; GRAPHICS &mdash;
+      and it is on the <b>pause menu</b> too, since you judge all three by looking at a
+      table.</td></tr>
+    <tr><td><b>Move the table, or set its height again</b></td><td>Hold the <b>left menu</b> button
+      for a second, from anywhere.</td></tr>
+    <tr><td><b>Move the scoreboard</b></td><td>MENU &rarr; APPEARANCE, then <kbd>X</kbd>. See
+      <a href="#table">Pinning the scoreboard</a>.</td></tr>
+    <tr><td><b>Pocket size</b></td><td>MENU &rarr; TABLE WORKSHOP, or APPEARANCE &rarr;
+      POCKETS.</td></tr>
+    <tr><td><b>The rules of the game you are in</b></td><td>MENU (in a frame) &rarr; RULES OF THIS
+      GAME.</td></tr>
+    <tr><td><b>A scorecard</b></td><td>MENU (in a frame) &rarr; SCORECARD, at golf and
+      bowlliards.</td></tr>
+    <tr><td><b>Practice tools, drills, the clearance clock</b></td><td>MENU (in a frame) &rarr;
+      PRACTICE, with the opponent set to FREE PRACTICE.</td></tr>
+  </table>
+
+  <div class="grid g3">
+    <figure><img src="img/cuevr/menu-main.jpg" alt="The main menu">
+      <figcaption>The <b>main menu</b>. Rows that say OPEN lead somewhere.</figcaption></figure>
+    <figure><img src="img/cuevr/menu-pause.jpg" alt="The pause menu">
+      <figcaption>The <b>pause menu</b>, in a frame. It only lists what applies right
+      now.</figcaption></figure>
+    <figure><img src="img/cuevr/menu-appear.jpg" alt="The appearance screen">
+      <figcaption><b>APPEARANCE</b> — balls, cloth, timber, cue, lighting and the
+      surroundings.</figcaption></figure>
+    <figure><img src="img/cuevr/menu-graphics.jpg" alt="The graphics screen">
+      <figcaption><b>GRAPHICS</b> — resolution, anti-aliasing and how much of the room the balls
+      reflect.</figcaption></figure>
+    <figure><img src="img/cuevr/menu-controls.jpg" alt="The controls screen">
+      <figcaption><b>CONTROLS</b> — handedness, the cue mode, deflection, and how the sticks move
+      you.</figcaption></figure>
+    <figure><img src="img/cuevr/menu-pickgame.jpg" alt="The game gallery">
+      <figcaption>Clicking <b>GAME</b> opens the gallery: a photograph of each table rather than a
+      list of names.</figcaption></figure>
+    <figure><img src="img/cuevr/menu-pickrules.jpg" alt="The rules picker">
+      <figcaption>Clicking <b>RULES</b> opens the variants &mdash; and on US 8-ball that is where
+      the other games on its bed live.</figcaption></figure>
+    <figure><img src="img/cuevr/menu-pickballs.jpg" alt="The ball gallery">
+      <figcaption>Clicking <b>BALLS</b> opens the gallery. One rack, one camera, so the set is the
+      only difference.</figcaption></figure>
+    <figure><img src="img/cuevr/menu-pickbed.jpg" alt="The table picker">
+      <figcaption>Clicking <b>TABLE</b> offers the pocket templates, the fun shapes and anything you
+      have built.</figcaption></figure>
+    <figure><img src="img/cuevr/menu-pickopp.jpg" alt="The opponent picker">
+      <figcaption><b>OPPONENT</b> — the machine at eight strengths, a friend online, or a free
+      table.</figcaption></figure>
+    <figure><img src="img/cuevr/menu-cloth.jpg" alt="The cloth picker">
+      <figcaption><b>CLOTH</b> — twenty-four colours, as swatches.</figcaption></figure>
+    <figure><img src="img/cuevr/menu-timber.jpg" alt="The timber card">
+      <figcaption><b>FRAME</b> — seven woods, drawn with the lit cap above the rail's own
+      colour.</figcaption></figure>
+  </div>
 </section>
 
 <section id="table">
@@ -2778,5 +2873,116 @@
 </div></footer>
 
 </div>
+<script>
+/* SEARCH, BUILT FROM THE PAGE ITSELF.
+ *
+ * No index to keep in step: every heading in the document becomes an entry, and
+ * the text under it — down to the next heading of the same or higher rank — is
+ * what gets matched. A section added to the guide is searchable the moment it
+ * is written, which is the only arrangement that survives a guide this size.
+ *
+ * The aliases below are the exception, and they exist because players do not
+ * search for the words a manual uses. Nobody types "appearance"; they type
+ * "change balls". Each alias adds searchable words to a heading without putting
+ * them on the page. */
+(function () {
+  var ALIAS = {
+    'balls':            'change balls ball set colour numbered stripes spots swap',
+    'playing with your own cue': 'real cue physical stick pen mx ink calibrate attach setup',
+    'controls':         'settings buttons remap sticks options configure',
+    'setting up the table': 'height move position place table set up recentre',
+    'pinning the scoreboard': 'scoreboard board move score display arena screen',
+    'cloth':            'colour cloth baize green table colour change',
+    'woodwork':         'timber wood frame rails colour',
+    'lighting':         'lights lamps brightness dark',
+    'surroundings':     'arena passthrough dark room environment background',
+    'snap to the edges': 'move around walk turn teleport jump edge',
+    'the games':        'game modes list which games rules',
+    'opponents':        'ai computer cpu difficulty strength persona opponent',
+    'playing a friend': 'online multiplayer link pair friend',
+    'pockets':          'pocket size cut tight easy opening',
+    'build a table':    'workshop custom table design own table make',
+    'physics':          'deflection squirt spin throw swerve cushion',
+    'replays':          'replay watch again record save gallery',
+    'challenges':       'challenge drill practice clearance timed',
+    'career':           'career progress achievements unlock'
+  };
+  var box = document.getElementById('q');
+  var out = document.getElementById('results');
+  if (!box || !out) return;
+
+  /* Every heading, with the prose that belongs to it. */
+  var heads = [].slice.call(document.querySelectorAll('h2, h3'));
+  var entries = heads.map(function (h, i) {
+    var rank = +h.tagName[1], text = '', n = h.nextElementSibling;
+    while (n && !(/^H[123]$/.test(n.tagName) && +n.tagName[1] <= rank)) {
+      text += ' ' + (n.innerText || n.textContent || '');
+      n = n.nextElementSibling;
+    }
+    var title = (h.innerText || h.textContent || '').trim();
+    /* Somewhere to jump to: the heading's own id, or the section it sits in. */
+    var id = h.id;
+    if (!id) { var sec = h.closest('section'); id = sec && sec.id; }
+    if (!id) { id = 'gq' + i; h.id = id; }
+    /* ...and where it lives, so a result reads as a place and not a phrase. */
+    var sec2 = h.closest('section'), where = '';
+    if (sec2) {
+      var top = sec2.querySelector('h2');
+      if (top && top !== h) where = (top.innerText || '').trim();
+    }
+    return { title: title, where: where, id: id, rank: rank,
+             hay: (title + ' ' + (ALIAS[title.toLowerCase()] || '') + ' ' + text).toLowerCase() };
+  });
+
+  function esc(t) { return t.replace(/[&<>]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+
+  function run() {
+    var q = box.value.trim().toLowerCase();
+    if (q.length < 2) { out.style.display = 'none'; out.innerHTML = ''; return; }
+    var words = q.split(/\s+/);
+    var hits = [];
+    entries.forEach(function (e) {
+      var score = 0, all = true;
+      words.forEach(function (w) {
+        if (e.title.toLowerCase().indexOf(w) >= 0) score += 12;
+        else if (e.hay.indexOf(w) >= 0) score += 1;
+        else all = false;
+      });
+      /* A heading outranks a mention, and a shallower one outranks a deeper. */
+      if (all) hits.push({ e: e, s: score + (4 - e.rank) });
+    });
+    hits.sort(function (a, b) { return b.s - a.s; });
+    if (!hits.length) {
+      out.innerHTML = '<div class="none">Nothing for &ldquo;' + esc(q) +
+                      '&rdquo;. Try a plainer word &mdash; &ldquo;balls&rdquo;, ' +
+                      '&ldquo;cue&rdquo;, &ldquo;table&rdquo;, &ldquo;online&rdquo;.</div>';
+    } else {
+      out.innerHTML = hits.slice(0, 12).map(function (h) {
+        return '<a href="#' + h.e.id + '">' + esc(h.e.title) +
+               (h.e.where ? '<span class="where">' + esc(h.e.where) + '</span>' : '') +
+               '</a>';
+      }).join('');
+    }
+    out.style.display = 'block';
+  }
+
+  box.addEventListener('input', run);
+  box.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') { box.value = ''; run(); box.blur(); }
+    if (ev.key === 'Enter') { var a = out.querySelector('a'); if (a) a.click(); }
+  });
+  out.addEventListener('click', function (ev) {
+    if (ev.target.closest('a')) { out.style.display = 'none'; box.value = ''; }
+  });
+  document.addEventListener('click', function (ev) {
+    if (!out.contains(ev.target) && ev.target !== box) out.style.display = 'none';
+  });
+  /* "/" focuses it, the way every search box on the web now does. */
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === '/' && document.activeElement !== box) { ev.preventDefault(); box.focus(); }
+  });
+})();
+</script>
 </body>
 </html>
