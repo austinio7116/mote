@@ -152,7 +152,7 @@ static struct {
     /* input */
     XrActionSet action_set;
     XrAction    a_pose, a_aim, a_stick, a_trigger, a_squeeze;
-    XrAction    a_lower, a_upper, a_menu, a_haptic;
+    XrAction    a_lower, a_upper, a_menu, a_haptic, a_stickclick;
     XrPath      hand_path[2];
     XrSpace     hand_space[2], aim_space[2];
 
@@ -706,6 +706,13 @@ static int make_actions(void) {
     S.a_lower   = mk_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "lower",   "A");
     S.a_upper   = mk_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "upper",   "B");
     S.a_menu    = mk_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "menu",    "Menu");
+    /* PRESSING THE THUMBSTICK IN. Two more buttons the hardware has had
+     * all along and nothing here ever asked for — and they are the only
+     * spare buttons left on a Touch controller. A game where one hand is
+     * strapped to a real cue needs every control the free hand can carry,
+     * and that hand had run out. Unbound on any profile without a stick,
+     * which costs nothing: the action is simply never active. */
+    S.a_stickclick = mk_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "stickclick", "Stick");
     S.a_haptic  = mk_action(XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic", "Rumble");
     if (!S.a_pose || !S.a_stick || !S.a_haptic) return -1;
 
@@ -727,6 +734,8 @@ static int make_actions(void) {
         { S.a_upper,   path("/user/hand/left/input/y/click") },
         { S.a_upper,   path("/user/hand/right/input/b/click") },
         { S.a_menu,    path("/user/hand/left/input/menu/click") },
+        { S.a_stickclick, path("/user/hand/left/input/thumbstick/click") },
+        { S.a_stickclick, path("/user/hand/right/input/thumbstick/click") },
         { S.a_haptic,  path("/user/hand/left/output/haptic") },
         { S.a_haptic,  path("/user/hand/right/output/haptic") },
     };
@@ -845,6 +854,10 @@ static void read_hand(int i, MoteVrHand *h, XrTime t) {
     gi.action = S.a_menu;
     if (XR_SUCCEEDED(xrGetActionStateBoolean(S.session, &gi, &b)) && b.isActive)
         h->menu = b.currentState;
+    b.type = XR_TYPE_ACTION_STATE_BOOLEAN;
+    gi.action = S.a_stickclick;
+    if (XR_SUCCEEDED(xrGetActionStateBoolean(S.session, &gi, &b)) && b.isActive)
+        h->stick_click = b.currentState;
 
     /* IS THIS HAND A STYLUS? The runtime knows, and will say: the current
      * interaction profile for a hand is whatever device is actually bound to it,

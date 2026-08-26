@@ -51,6 +51,11 @@ typedef struct {
      * be able to tell them apart. 1 when the runtime says this hand is on the
      * Logitech MX Ink profile. */
     int        stylus;
+    /* THE THUMBSTICK PRESSED IN. Bound on Touch and on anything else with a
+     * stick; a device without one leaves it zero for ever, which is the honest
+     * answer rather than a special case. Two spare buttons, and on a controller
+     * that has to do the work of two they are worth having. */
+    int        stick_click;
 } MoteVrHand;
 
 enum { MOTE_VR_LEFT = 0, MOTE_VR_RIGHT = 1 };

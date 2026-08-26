@@ -624,7 +624,12 @@ void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
  * this, which is why the AI reads it too rather than carrying its own copy. */
 #define CUE_SQUIRT_RAD 0.0349f          /* 2.0 degrees */
 #define CUE_SQUIRT_MIN 0.0f             /* off: the cue ball goes where it is sent */
-#define CUE_SQUIRT_MAX 0.0611f          /* 3.5 degrees: past any cue ever measured */
+/* 5 DEGREES, WHICH IS PAST ANY CUE EVER MEASURED and deliberately so. The cap
+ * was 3.5, chosen as "past anything real" — but the published range tops out
+ * around 2.6 for a plain ash shaft, so 3.5 left barely half a step of headroom
+ * above the honest numbers and no room at all for a player who simply wants
+ * more of the effect than a real cue gives. It is their table. */
+#define CUE_SQUIRT_MAX 0.0873f          /* 5.0 degrees */
 
 /* The live value, which every shot and the AI's aim-off both read. A setting
  * rather than a constant because how much deflection feels right is a matter of
