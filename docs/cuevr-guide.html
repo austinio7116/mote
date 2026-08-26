@@ -40,6 +40,28 @@
   nav.toc input#q{flex:1 1 240px;min-width:200px;background:var(--panel);color:var(--ink);
     border:1px solid var(--line);border-radius:6px;padding:6px 10px;font:inherit;font-size:.86rem}
   nav.toc input#q::placeholder{color:var(--dim)}
+  nav.toc #toclinks{display:contents}
+  nav.toc #navtoggle{display:none;background:var(--panel);color:var(--ink);
+    border:1px solid var(--line);border-radius:6px;padding:6px 12px;font:inherit;
+    font-size:.86rem;cursor:pointer}
+  nav.toc #navtoggle:hover{border-color:var(--dim)}
+  /* ON A PHONE THE CONTENTS IS A MENU, not a wall.
+   *
+   * Sixteen links wrapping across a narrow screen filled two thirds of it, and
+   * the nav is STICKY — so that two thirds never went away, whatever the reader
+   * scrolled to. The search box is the one thing worth that space always, so it
+   * keeps the bar to itself and the links fold behind a button. */
+  @media(max-width:760px){
+    nav.toc .wrap{padding:8px 12px;gap:6px;flex-wrap:nowrap}
+    nav.toc input#q{flex:1 1 auto;min-width:0}
+    nav.toc #navtoggle{display:block;flex:0 0 auto;white-space:nowrap}
+    nav.toc #toclinks{display:none}
+    nav.toc.open #toclinks{display:flex;flex-wrap:wrap;gap:4px;width:100%;
+      max-height:60vh;overflow:auto;padding-top:6px;border-top:1px solid var(--line)}
+    nav.toc.open .wrap{flex-wrap:wrap}
+    nav.toc a{font-size:.9rem;padding:8px 12px}
+    #results{margin:10px 12px}
+  }
   #results{position:sticky;top:0;z-index:6;background:var(--panel);border:1px solid var(--line);
     border-radius:8px;margin:10px 20px;padding:6px;max-height:60vh;overflow:auto;display:none}
   #results a{display:block;padding:7px 10px;border-radius:6px;color:var(--ink)}
@@ -97,6 +119,20 @@
   table{border-collapse:collapse;width:100%;margin:16px 0;font-size:.95rem}
   th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
   th{background:var(--panel2);color:var(--gold);font-weight:600}
+  /* A TABLE ON A PHONE IS TWO COLUMNS OF ONE WORD EACH, otherwise. Several here
+   * are a short label against a sentence, and at 360 px the sentence gets about
+   * eight characters a line. Stacked, each row reads as a heading and its
+   * answer, which is what those tables are anyway. */
+  @media(max-width:600px){
+    table{font-size:.92rem}
+    table.stack, table.stack tbody, table.stack tr, table.stack td, table.stack th
+      {display:block;width:100%}
+    table.stack tr{border:1px solid var(--line);border-radius:8px;margin:0 0 10px;
+      padding:2px 0;background:var(--panel)}
+    table.stack td, table.stack th{border:0;padding:6px 12px}
+    table.stack th{border-radius:8px 8px 0 0}
+    table.stack td:first-child{color:var(--gold);padding-bottom:0}
+  }
   .tag{display:inline-block;background:var(--panel2);border:1px solid var(--line);
     color:var(--grnl);border-radius:4px;padding:2px 8px;margin:2px 4px 2px 0;font-size:.85rem}
 
@@ -154,6 +190,8 @@
 <nav class="toc"><div class="wrap">
   <input id="q" type="search" placeholder="Search the guide — try &quot;change balls&quot;, &quot;real cue&quot;, &quot;deflection&quot;"
          autocomplete="off" aria-label="Search the guide">
+  <button id="navtoggle" type="button" aria-expanded="false" aria-controls="toclinks">Contents</button>
+  <span id="toclinks">
   <a href="#start">Getting started</a>
   <a href="#finding">Finding your way</a>
   <a href="#table">Setting up the table</a>
@@ -173,6 +211,7 @@
   <a href="#workshop">Build a table</a>
   <a href="#cues">Cues</a>
   <a href="#physics">Physics</a>
+  </span>
 </div></nav>
 
 <div id="results"></div>
@@ -216,7 +255,7 @@
   dozen stops one at a time.</p>
 
   <h3>Where to go for what</h3>
-  <table>
+  <table class="stack">
     <tr><th>What you want</th><th>Where it is</th></tr>
     <tr><td><b>Different balls</b></td><td>MENU &rarr; APPEARANCE &rarr; BALLS. Click the row for
       the gallery of all seventeen sets.</td></tr>
@@ -2910,6 +2949,34 @@
   var box = document.getElementById('q');
   var out = document.getElementById('results');
   if (!box || !out) return;
+
+  /* The contents button, which only exists on a narrow screen — see the media
+   * query. Closes on a choice, on Escape, and on a tap anywhere else, because a
+   * menu that stays open over what you just chose is the same problem the wall
+   * of links was. */
+  var tog = document.getElementById('navtoggle');
+  var nav = document.querySelector('nav.toc');
+  if (tog && nav) {
+    var setOpen = function (on) {
+      nav.classList.toggle('open', on);
+      tog.setAttribute('aria-expanded', on ? 'true' : 'false');
+    };
+    tog.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      setOpen(!nav.classList.contains('open'));
+    });
+    nav.addEventListener('click', function (ev) {
+      if (ev.target.closest('#toclinks a')) setOpen(false);
+    });
+    document.addEventListener('click', function (ev) {
+      if (!nav.contains(ev.target)) setOpen(false);
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') setOpen(false);
+    });
+    /* Typing a search is the other way of saying "not the contents". */
+    box.addEventListener('focus', function () { setOpen(false); });
+  }
 
   /* Every heading, with the prose that belongs to it. */
   var heads = [].slice.call(document.querySelectorAll('h2, h3'));
