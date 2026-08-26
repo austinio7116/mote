@@ -85,6 +85,20 @@ typedef struct {
      * moment on the rail; one that has come to rest up there is not coming
      * back, and a frame cannot wait on it for ever. */
     float astray;
+    /* HOW MANY CUSHIONS THIS BALL HAS TOUCHED THIS STROKE.
+     *
+     * The world's CUE_EV_CUSHION says only that SOMETHING reached a rail, which
+     * answers the WPA "something must hit a cushion" rule and nothing else. A
+     * snooker break-off is a PATH — clip the outside red thin, off the top
+     * cushion, down the table between the pink and the blue, off two more and
+     * back into baulk — and a planner that cannot count the white's own rails
+     * cannot tell that shot from a white that rattled round five of them and
+     * dribbled into the same place.
+     *
+     * Reset by whoever begins the stroke: cue_phys_strike clears it for the
+     * ball it strikes, and the AI's sim clears the whole array when it copies
+     * the table. */
+    unsigned char cush_n;
     /* THIS BALL'S OWN SIZE AND WEIGHT, where it differs from the set.
      *
      * English pool is played with a cue ball smaller than the object balls —

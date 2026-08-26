@@ -391,6 +391,7 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
      * shove the ball's mass sideways to get there. It is a couple of degrees at
      * most on a modern shaft, and deliberately kept small here — enough to be
      * felt as a thing to allow for, not enough to make aiming a guess. */
+    b->cush_n = 0;                 /* a fresh stroke, a fresh count of rails */
     float squirt = -tip_side * s_squirt;           /* right-hand side -> left */
     float cq = cosf(squirt), sq = sinf(squirt);
     Vec3 aim = v3_norm(v3_add(v3_scale(fwd, cq), v3_scale(right, sq)));
@@ -968,6 +969,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
             if (ev && (best_n.z > 0.7f || best_n.z < -0.7f))
                 *ev |= CUE_EV_SIDE_CUSH;
             if (ev) *ev |= CUE_EV_CUSHION;
+            if (b->cush_n < 255) b->cush_n++;   /* this ball's own rail count */
             if (vn > s_cush_vn) s_cush_vn = vn;                  /* loudest rail impact this step */
         }
     }

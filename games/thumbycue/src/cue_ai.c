@@ -114,6 +114,28 @@ typedef struct {
      * cue ball's own account of the shot can answer it. */
     uint8_t touched[CUE_MAX_BALLS];
     int ntouched;
+    /* HOW THICK THE CONTACT ACTUALLY WAS, in metres of perpendicular offset
+     * between the target's centre and the cue ball's path — signed, so it says
+     * which side of the ball was struck.
+     *
+     * The planner ASKS for a thickness (the clip) and gets whatever squirt and
+     * swerve deliver. A single angular correction cannot fix that: squirt is a
+     * change of departure angle and swerve is a CURVE, so the error depends on
+     * how far the ball ran and how hard it was hit. Measuring the contact the
+     * simulation actually produced needs no model of either. */
+    float hit_off;
+    int   have_hit_off;
+    /* HOW MANY CUSHIONS THE CUE BALL ITSELF TOOK. `cushion` above is the WPA
+     * legality question — did anything reach a rail — and says nothing about
+     * the white's journey. A snooker break-off IS its journey. */
+    int cue_cushions;
+    /* DID THE WHITE COME HOME THROUGH THE GAP BETWEEN THE PINK AND THE BLUE.
+     *
+     * That is the route the break-off takes and it is a checkable event, not a
+     * feeling: both colours sit on the centre line at different distances up
+     * the table, so threading the gap is exactly the white's path CROSSING
+     * z = 0 at an x between the two spots. One test per step. */
+    int cue_gap;
 } AiSim;
 
 /* ---- what "power01 = 1" means --------------------------------------------- *
@@ -178,8 +200,99 @@ static float K_ANGLE = 12.0f;   /* weight on leaving a WORKABLE angle, not a str
 #ifndef CUE_BRK_SNK_TOP
 #define CUE_BRK_SNK_TOP  0.15f
 #endif
+/* SWEPT, NOT GUESSED. Every angle x every pace x thirteen values of side, from
+ * three stands in the D, on all three snooker tables — 86,000 breaks — scored
+ * on whether the white threaded the pink/blue gap and came home to baulk.
+ *
+ * AND SWEPT AGAINST AN ELEVATED CUE, which took three goes to get right.
+ *
+ * The first sweeps said 0.50, and they were worthless: the harness struck the
+ * ball LEVEL, with cue_phys_strike, while the game plays the machine's shot
+ * through cue_phys_strike_elev at cue_table_min_elev — about a degree and a
+ * half. Elevation plus side is SWERVE, the ball bends on its way to the red,
+ * and a level harness cannot see any of it. Reported from the headset as the
+ * machine catching the red far too thin with the position to match, while every
+ * number here said the route was perfect.
+ *
+ * Struck the way the game strikes it, the answer inverts: 0.50 threads the
+ * pink/blue gap 9 times in 40, and 0.14 threads it 38 and brings the white home
+ * 39. More side is more swerve is a bent path to a ball that is only a couple of
+ * millimetres of contact wide. */
 #ifndef CUE_BRK_SNK_SIDE
-#define CUE_BRK_SNK_SIDE 0.0f
+#define CUE_BRK_SNK_SIDE 0.14f
+#endif
+/* THE PACE, SWEPT AGAINST THE PHYSICS RATHER THAN GUESSED.
+ *
+ * The shipped pair was { 0.42, 0.50 } and the answer is not in it. A full sweep
+ * — every angle, every pace, every side, from three stands in the D, on all
+ * three snooker tables, scored on whether the white threaded the pink/blue gap
+ * and came back to baulk — puts the best break at 0.229 to 0.347 on eight of
+ * the nine stands. EVERY candidate the planner has ever generated for a snooker
+ * break was harder than the shot wants, which is why it drove into the pack and
+ * could not get home.
+ *
+ * The range is a little wider than the winners so the search can still find the
+ * one stand that wanted 0.494 — the far side of the D on a twelve-footer, which
+ * plays a genuinely different break — but five of the eight samples now land in
+ * the region the physics says the shot lives in, against three before and none
+ * as shipped. */
+/* ONE RANGE, AND THE SEARCH FINDS THE TABLE'S OWN VALUE INSIDE IT.
+ *
+ * SWEPT AGAINST THE RIGHT CLIPS, WHICH MATTERS. The first pass at this put the
+ * range at 0.22-0.45, measured while the thicknesses were wrong — too thin — and
+ * with those, more pace made everything worse, so the range was pulled down.
+ * With half-and-quarter-ball contacts the relationship inverts and the shot
+ * simply wants more: 0.22-0.45 gets the white home 3 times in 40, and 0.32-0.56
+ * gets it home 25, threads the pink/blue gap 39 times, and finishes on average
+ * PAST the baulk line rather than a third of a table short of it. A tuning
+ * number measured against a broken neighbour is worth nothing.
+ *
+ * A bigger bed wants more pace, as it should. It is tempting to hard-code three ranges — and it
+ * would be wrong: this game has a table workshop, so the bed can be any size
+ * anybody builds, and a lookup keyed on the three shipped sizes has nothing to
+ * say about a nine-foot one. Eight samples across the whole span, simulated,
+ * lets the physics answer for whatever table is actually on the floor. */
+/* HOW THIN THE CLIP IS, in ball radii of aim-point offset from the red's
+ * centre. Contact needs it under 2.0; past that the ghost ball misses.
+ *
+ * HALF BALL IS 1.0 AND QUARTER BALL IS ABOUT 1.5, and the break-off is played
+ * between them — Mark's description of the shot, and the reason the shipped
+ * four were right. I widened them to 1.40-1.98, which is quarter ball to a
+ * razor, on the strength of a sweep whose "degrees off the red" I had mapped
+ * onto thickness wrongly; the machine promptly started choosing contacts too
+ * fine to survive anything and putting the white down. Back where they were,
+ * with two more samples between them rather than beyond them. */
+#ifndef CUE_BRK_SNK_C0
+#define CUE_BRK_SNK_C0 0.95f
+#endif
+#ifndef CUE_BRK_SNK_C1
+#define CUE_BRK_SNK_C1 1.15f
+#endif
+#ifndef CUE_BRK_SNK_C2
+#define CUE_BRK_SNK_C2 1.32f
+#endif
+#ifndef CUE_BRK_SNK_C3
+#define CUE_BRK_SNK_C3 1.50f
+#endif
+#ifndef CUE_BRK_SNK_C4
+#define CUE_BRK_SNK_C4 1.65f
+#endif
+#ifndef CUE_BRK_SNK_C5
+#define CUE_BRK_SNK_C5 1.80f
+#endif
+#ifndef CUE_BRK_SNK_PEXP
+#define CUE_BRK_SNK_PEXP 0.8f
+#endif
+#ifndef CUE_BRK_SNK_P0
+#define CUE_BRK_SNK_P0 0.32f
+#endif
+/* AND THE TOP OF IT IS TRIMMED TO WHAT THE SWEEP ACTUALLY WON WITH. At 0.48
+ * the white takes four and five cushions and dies in the middle of the table:
+ * of the five breaks in forty that genuinely failed to get home, THREE were
+ * that one sample, each of them a metre short. No winner anywhere in the sweep
+ * needed more than 0.45. */
+#ifndef CUE_BRK_SNK_P1
+#define CUE_BRK_SNK_P1 0.56f
 #endif
 
 static float K_IDEAL = 15.0f;   /* the cut angle (deg) a break-builder wants on the next ball */
@@ -415,6 +528,7 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
         s_sb[i].vel = v3(0,0,0);
         s_sb[i].w   = v3(0,0,0);
         s_sb[i].drop = 0.0f;
+        s_sb[i].cush_n = 0;      /* the white's rail count is this stroke's */
     }
     extern void cue_phys_set_substep(float);
     cue_phys_set_substep(K_SUBSTEP);          /* coarser step: ~2x faster ranking sims */
@@ -438,10 +552,27 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
     out->have_hit_dir = 0;
     out->hit_dir = v3(0,0,0);
     out->cushion = 0;
+    /* The gap's own x range, taken from the table's spots so it is right on
+     * every size of snooker table without anything being told. */
+    out->cue_gap = 0;
+    out->hit_off = 0.0f; out->have_hit_off = 0;
+    Vec3 app = v3(0,0,0); int app_ok = 0;      /* the white's approach heading */
+    float gap_x0 = 0.0f, gap_x1 = 0.0f, prev_z = s_sb[cue_idx].pos.z;
+    {   const Vec3 bl = cue_table_lay(t, t->blue_x, 0.0f, 0);
+        const Vec3 pk = cue_table_lay(t, t->pink_x, 0.0f, 0);
+        gap_x0 = bl.x < pk.x ? bl.x : pk.x;
+        gap_x1 = bl.x < pk.x ? pk.x : bl.x; }
     for (int it = 0; it < 220; it++) {
         uint32_t ev = 0;
         cue_phys_step(&s_sw, s_sb, n, 0.05f, &ev);
         if (ev & CUE_EV_CUSHION) out->cushion = 1;
+        if (s_sb[cue_idx].on) {
+            const float nz = s_sb[cue_idx].pos.z;
+            if (prev_z * nz < 0.0f && s_sb[cue_idx].pos.x > gap_x0
+                                   && s_sb[cue_idx].pos.x < gap_x1)
+                out->cue_gap = 1;
+            prev_z = nz;
+        }
         /* The first object ball's heading, read on the first step after contact
          * — before a cushion or another ball can answer for it. */
         if (!out->have_hit_dir && s_sw.first_hit_idx > 0
@@ -451,7 +582,28 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
             if (sp > 0.05f) {
                 out->hit_dir = v3(v.x/sp, 0, v.z/sp);
                 out->have_hit_dir = 1;
+                /* AND HOW THICK IT WAS. The object ball leaves along the line
+                 * of centres, so the angle between that and the way the cue
+                 * ball was travelling gives the offset outright:
+                 * p = 2R sin(theta). Signed by the cross product, so "half a
+                 * ball on the left" and "on the right" are different answers.
+                 * approach_dir is the step BEFORE contact — after it, the cue
+                 * ball has already been deflected by the collision. */
+                if (app_ok) {
+                    const float cr = app.x * out->hit_dir.z - app.z * out->hit_dir.x;
+                    float sn = cr;
+                    if (sn >  1.0f) sn =  1.0f;
+                    if (sn < -1.0f) sn = -1.0f;
+                    out->hit_off = 2.0f * cue_ball_r(&s_sw, &s_sb[cue_idx]) * sn;
+                    out->have_hit_off = 1;
+                }
             }
+        }
+        /* Remember the way the white was going, for the step after the hit. */
+        if (!out->have_hit_dir) {
+            const Vec3 cv = s_sb[cue_idx].vel;
+            const float cs = sqrtf(cv.x*cv.x + cv.z*cv.z);
+            if (cs > 0.05f) { app = v3(cv.x/cs, 0, cv.z/cs); app_ok = 1; }
         }
         if (!s_sb[cue_idx].on) break;
         if (!cue_phys_moving(&s_sw, s_sb, n)) break;
@@ -503,6 +655,9 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
         else                       out->skittle_white = 1;
     }
     out->side_cushion = s_sw.side_cushion;
+    /* THE WHITE'S OWN RAILS, which the break scoring reads as the shape of the
+     * shot rather than as a legality. */
+    out->cue_cushions = s_sb[cue_idx].cush_n;
 
     /* A POTTED COLOUR COMES BACK. The physics has no idea — it drops the ball
      * and that is the end of it — so every position plan made after potting a
@@ -2476,7 +2631,13 @@ static int find_kick(const AiCtx *c, uint32_t *rng, Cand *out) {
 Vec3 s_brk_pred; int s_brk_pred_ok;
 
 /* One candidate break: where to aim, how hard, and how it is cued. */
-typedef struct { float aim, power, side, vert; } BrkCand;
+/* Clips x paces x sides, with room to spare. See P.brk below. */
+#define BRK_MAX 128
+typedef struct { float aim, power, side, vert;
+                 /* what thickness this candidate ASKED for, and how far the
+                  * target is — the two numbers the sim's measured contact is
+                  * corrected against. */
+                 float want_off, dist; } BrkCand;
 
 enum { PH_IDLE = 0, PH_SIM, PH_BREAK, PH_BB, PH_DONE };
 
@@ -2523,12 +2684,18 @@ static struct {
      * candidate is a full-settle simulation of fifteen balls and costs about
      * as much as any other, so doing them all in one go would stall exactly the
      * frame the player is watching the opponent get down on the shot. */
-    BrkCand brk[40]; int brk_n, brk_i, brk_best_i; float brk_best;
+    /* BIG ENOUGH FOR THE WHOLE GRID, and it has to be sized from the grid
+     * rather than guessed. Six clips x eight paces x two sides is 96, and at 40
+     * break_cands simply stopped generating — clip-major, so it produced the
+     * fullest three thicknesses and never created the thin ones at all. The
+     * comment above the generator warns about this exact failure at a cap of
+     * 16; a wider grid walked straight back into it. */
+    BrkCand brk[BRK_MAX]; int brk_n, brk_i, brk_best_i; float brk_best;
     /* EVERY CANDIDATE'S SCORE, not just the winning one — see the choice made
      * at the end of the break search. A running best cannot answer "which of
      * these were nearly as good", and that is the question a player actually
      * asks when they break. */
-    float brk_sc[40]; Vec3 brk_end[40]; float brk_worst;
+    float brk_sc[BRK_MAX]; Vec3 brk_end[BRK_MAX]; float brk_worst;
     int brk_want_first;
     /* Bar billiards runs its own search over its own candidates, spread over
      * ticks exactly as the break's is. `bb_probe` is the second pass: the few
@@ -3052,14 +3219,93 @@ static float break_score(const AiCtx *c, const CueRules *r, const CueBall *balls
         /* Behind the baulk line, and the closer to the cushion the better —
          * a cue ball tight to baulk is a safety, one loitering a foot off it
          * is a half-chance for the other player. */
+        /* GETTING HOME IS THE SHOT, so it dominates and it is CONTINUOUS.
+         *
+         * It was a +60 step at the baulk line and a -40 slide off the back
+         * cushion, which between them price a white dying in the middle of the
+         * table at about minus twenty — nothing, against a hundred and ten for
+         * threading the gap and four a ball for leaving the pack alone. So the
+         * search could buy a good-looking route and a tidy pack with the only
+         * thing that actually matters, and it did. */
         if (sim->cue_end.x < c->t->baulk_x) sc += 60.0f;
-        float gap = sim->cue_end.x - (-c->t->half_len + c->t->R);
-        if (gap < 0.0f) gap = 0.0f;
-        sc -= 40.0f * (gap / (2.0f * c->t->half_len));
+        {   /* 0 at the back cushion, 1 at the far end: how far up the table
+             * the white finished, whatever size the table is. */
+            float up = (sim->cue_end.x - (-c->t->half_len + c->t->R))
+                     / (2.0f * c->t->half_len);
+            if (up < 0.0f) up = 0.0f;
+            if (up > 1.0f) up = 1.0f;
+            sc -= 200.0f * up;
+        }
         /* And do not smash the pack about. A soft cost, not a rule: the break
          * has to move SOME reds to be a break at all, it just should not spray
          * them up the table. */
-        sc -= 1.5f * (float)moved;
+        /* AND NOTHING IS EARNED BY LEAVING THE PACK ALONE.
+         *
+         * A flat cost per red moved reads as a REWARD for moving none — and the
+         * cheapest way to move none is to graze the outside red so finely that
+         * nothing happens, which is a legal contact, scores top marks here, and
+         * leaves the white in the middle of the table. Give a noiseless player
+         * that objective and it finds the degenerate answer every time: The
+         * Machine hit the outside red 40 times out of 40 and got home 4.
+         *
+         * So it is a cost for SPRAYING the pack, not a prize for missing it.
+         * A break-off properly struck moves the outside red and a couple of its
+         * neighbours; past that it is a smash. */
+        if (moved > 4) sc -= 10.0f * (float)(moved - 4);
+
+        /* ---- AND THE PATH, WHICH IS MOST OF WHAT THE SHOT IS -------------
+         *
+         * Everything above prices where the white STOPPED. A break-off is not a
+         * destination, it is a route: clip the outside red thin with side and a
+         * touch of top, off the top cushion, back down the table BETWEEN THE
+         * PINK AND THE BLUE, off two more rails and into baulk. Score only the
+         * resting place and a white that rattled round five cushions and
+         * dribbled into the same corner is worth exactly as much — which is why
+         * the machine's break looked like it had no shot in mind.
+         *
+         * TWO CUSHIONS AT LEAST. Fewer is a different shot: the white has not
+         * come back, it has been left up the table or has died off one rail.
+         * More than three and it is loose and pinballing, which is not the
+         * controlled route either. */
+        {   const int cush = sim->cue_cushions;
+            if (cush < 2) sc -= 90.0f * (float)(2 - cush);
+            else if (cush > 3) sc -= 12.0f * (float)(cush - 3);
+        }
+        /* THE ROUTE HOME, AND IT IS THE BIGGEST THING ON THIS LIST.
+         *
+         * Between the pink and the blue, down the middle of the table. That is
+         * the break-off's path, and until now nothing scored it: the shot was
+         * priced on where the white stopped and on what it avoided, so a white
+         * that came home round the houses was worth the same as one that came
+         * home properly. It is worth more than reaching baulk, because a white
+         * that threads the gap is on the right line to get there and one that
+         * does not has played some other shot that happened to finish nearby. */
+        if (sim->cue_gap) sc += 110.0f;
+
+        /* MISSING THE BLUE IS A PRIORITY IN ITS OWN RIGHT. The route home runs
+         * past it, and a white that catches it has not played the shot at all —
+         * it has moved a colour off its spot, changed its own line, and can pot
+         * the thing. The other colours sit near the same corridor and matter
+         * for the same reason, less so. */
+        for (int i = 1; i < n; i++) {
+            if (!sim->touched[i]) continue;
+            if (balls[i].id == CUE_ID_BLUE)       sc -= 150.0f;
+            else if (balls[i].id >= CUE_ID_YELLOW) sc -= 70.0f;
+        }
+        /* AND IT IS THE OUTSIDE RED THAT GETS CLIPPED. Any red is legal and the
+         * scoring above cannot tell them apart, so a candidate that misses its
+         * mark and catches the next red along was priced as an equal. It is not
+         * one: the outside red is the only one you can clip thin enough to
+         * survive, and everything else is a nudge into the pack. */
+        {   const float sgn = (balls[0].pos.z >= 0.0f) ? 1.0f : -1.0f;
+            int outer = -1; float z1 = -1e9f;
+            for (int i = 1; i < n; i++) {
+                if (!balls[i].on || balls[i].id >= CUE_ID_YELLOW) continue;
+                const float zz = balls[i].pos.z * sgn;
+                if (zz > z1) { z1 = zz; outer = i; }
+            }
+            if (outer >= 0 && hit != outer) sc -= 45.0f;
+        }
         /* POTTING A RED IS A GIFT; POTTING A COLOUR IS A FOUL. They were priced
          * the same, which is how the break came to give away four points and the
          * table one time in eight: the colours sit on their spots right by the
@@ -3152,7 +3398,22 @@ static int break_cands(const AiCtx *c, const CueBall *balls, Vec3 cue, int tgt,
                 k.power = pows[pi];
                 k.side  = sides[si];
                 k.vert  = vert;
-                k.aim  += k.side * cue_phys_squirt();  /* aim off for the deflection */
+                /* AIM OFF FOR THE DEFLECTION, THE WAY THE DEFLECTION GOES.
+                 *
+                 * This was a PLUS, and the ball already departs at
+                 * aim + tip_side*squirt — measured, not reasoned: strike at a
+                 * known angle with a known side and read back the velocity.
+                 * So adding it again did not cancel the deflection, it doubled
+                 * it, and the break-off is the one shot in snooker or pool that
+                 * asks for side. About half of them do.
+                 *
+                 * It is an exact angle cancellation rather than a small-angle
+                 * approximation, so it is right at any setting — which matters
+                 * now the row goes to five degrees, where the doubling was
+                 * worth one and a half degrees of aim on a twelve-foot table. */
+                k.aim  -= k.side * cue_phys_squirt();
+                k.want_off = off;
+                k.dist     = d2(cue, tp);
                 out[nout++] = k;
             }
     return nout;
@@ -4338,7 +4599,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * "best" means, which is a different thing per game. */
     if (r->break_shot) {
         Vec3 cue = balls[0].pos;
-        BrkCand cand[40];
+        BrkCand cand[BRK_MAX];
         int ncand = 0, want_first = -1;
 
         /* How many sims this platform can spare.
@@ -4389,10 +4650,102 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             /* Fuller contacts are on the menu now. A 1.65 clip is a sliver and
              * only survives a perfect strike; with the error in the scoring the
              * search can see that and take a fuller one when it is worth more. */
-            float clips[4] = { 0.95f * side_sign, 1.20f * side_sign,
-                               1.45f * side_sign, 1.70f * side_sign };
-            float pows[2]  = { 0.42f, 0.50f };
-            float sides[3] = { -0.30f, 0.0f, 0.30f };
+            /* THE THICKNESS AXIS IS THE FINE ONE, because it is the one the
+             * shot turns on. Six samples across the useful range put them a
+             * tenth of a radius apart — and the sweep needed steps of about a
+             * tenth of a DEGREE to tell a break that comes home from one that
+             * puts the white down. So the clips get the resolution and the pace
+             * gives some up.
+             *
+             * FOUR FOR NOW, AND DELIBERATELY. Twelve measured worse than six and
+             * six worse than the four that were reaching the search before the
+             * array was enlarged — because every extra candidate is another
+             * chance for the ranking to pick a shot that works in one
+             * simulation and nowhere near it. Until each candidate is scored
+             * over an ensemble rather than a single draw, a wider grid is a
+             * worse break, and that is a property of the SEARCH, not of the
+             * numbers. Four thicknesses, five paces, two sides: 40. */
+            enum { NCLIP = 4 };
+            float clips[NCLIP];
+            for (int i = 0; i < NCLIP; i++)
+                clips[i] = (CUE_BRK_SNK_C0 +
+                            (CUE_BRK_SNK_C3 - CUE_BRK_SNK_C0) *
+                            (float)i / (float)(NCLIP - 1)) * side_sign;
+            /* THE PACE IS THE VARIABLE THAT MATTERS, so it gets a sweep and
+             * not a pair. Two values cannot cover six-foot to twelve-foot
+             * tables, different cloths and a cue ball stood anywhere in the D:
+             * the shot needs exactly enough to reach the top cushion, come back
+             * down between the pink and the blue and die in baulk, and "exactly
+             * enough" is a different number on every one of those. */
+            /* AND THE PACE SCALES WITH THE TABLE.
+             *
+             * 0.32 to 0.56 is right on a twelve-footer and far too hard on a
+             * seven: the same range put ten whites in forty down a pocket on
+             * the small bed. The shot is "reach the top cushion and come back",
+             * so what has to stay constant is the DISTANCE in table lengths,
+             * not the speed. Square-root scaling is what rolling resistance
+             * alone would say and it is not enough: at 0.5 the seven-footer
+             * still put five whites in forty down a pocket, because a small
+             * table's pockets are no smaller and a white with pace to spare
+             * finds them. Swept, the exponent is 0.8 — no scratches on any of
+             * the three, and the twelve-footer gets home more often than at any
+             * other setting tried.
+             *
+             * A law rather than a lookup, because this game has a workshop and
+             * the bed can be any size somebody builds. */
+            float pows[5];
+            const int npows = 5;
+            {   const float ref = 1.784f;            /* a 12 ft bed's half-length */
+                float k = powf(c->t->half_len / ref, CUE_BRK_SNK_PEXP);
+                if (k < 0.45f) k = 0.45f;
+                if (k > 1.35f) k = 1.35f;
+                for (int i = 0; i < npows; i++)
+                    pows[i] = k * (CUE_BRK_SNK_P0 +
+                                   (CUE_BRK_SNK_P1 - CUE_BRK_SNK_P0) *
+                                   (float)i / (float)(npows - 1)); }
+            /* SIDE ON THE BREAK SIDE, AND ONLY THAT SIDE.
+             *
+             * It offered plus, minus and NONE — so a third of the family played
+             * the shot with the side that sends the white the wrong way off the
+             * top cushion, and another third played it with none at all. A
+             * break-off is struck with the side that brings the white home:
+             * from the right of the D that is right-hand side, from the left it
+             * is left. Two magnitudes, so there is something to choose between,
+             * which is all the variety this shot is allowed.
+             *
+             * CUE_BRK_SNK_SIDE and _TOP have been sitting at the top of this
+             * file since the break was written, described as the numbers to
+             * sweep — and NOTHING HAS EVER READ THEM. The side was hard zero
+             * there while the grid hard-coded three of its own, and the top was
+             * a literal 0.15 in two places. They are the knob now.
+             *
+             * The sign is measured rather than reasoned: over forty racked
+             * breaks it is this one that brings the white back to baulk. */
+            /* A SMALL TABLE WANTS MORE SIDE, and it is not a smooth law.
+             *
+             * Measured on all three, forty breaks each: at 0.50 the twelve and
+             * ten-footers get the white home 30 and 32 times and the seven gets
+             * it home 13. Wind the side up and the seven-footer goes 13 -> 18
+             * -> 27 while the ten-footer falls off a cliff at 0.62 and only
+             * partly recovers. So there is no curve to fit through those three
+             * points, and pretending otherwise would mean choosing a number
+             * that suits none of them.
+             *
+             * A threshold instead. The big beds keep what measured best on
+             * them; below ten-foot the side ramps up to about 0.8 by seven
+             * foot, which is what measured best there. Angles are tighter on a
+             * short table and the white has less room to come round — more side
+             * is what buys the return, exactly as Mark said. */
+            float side_mag = CUE_BRK_SNK_SIDE;
+            {   const float hl = c->t->half_len;
+                if (hl < 1.40f) {
+                    float k = (1.40f - hl) / 0.40f;      /* 0 at 10ft, 1 at 7ft */
+                    if (k > 1.0f) k = 1.0f;
+                    side_mag *= 1.0f + 0.60f * k;
+                } }
+            const float sides[2] = { -side_mag * side_sign,
+                                     -side_mag * 0.70f * side_sign };
+            const int nsides = 2;
             /* GENERATE THE WHOLE GRID, then let the shuffle below take the
              * sample. The generation cap used to be the SIM budget, so the grid
              * was truncated where it happened to be written rather than sampled:
@@ -4400,10 +4753,13 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
              * the thinnest clip was never generated at all and the second target
              * — the other outside red — never got one candidate in its life. */
             int gcap = (int)(sizeof cand / sizeof cand[0]);
-            if (t1 >= 0) ncand = break_cands(c, balls, cue, t1, clips, 4, pows, 2,
-                                             sides, 3, 0.15f, cand, gcap, ncand);
-            if (t2 >= 0) ncand = break_cands(c, balls, cue, t2, clips, 2, pows, 2,
-                                             sides, 3, 0.15f, cand, gcap, ncand);
+            /* AND ONE TARGET: THE OUTSIDE RED. The second-outside red was on
+             * the menu too — the shot the note above already says nobody plays
+             * — and with a pace sweep the grid has better uses for the room. */
+            (void)t2;
+            if (t1 >= 0) ncand = break_cands(c, balls, cue, t1, clips, NCLIP, pows, npows,
+                                             sides, nsides, CUE_BRK_SNK_TOP,
+                                             cand, gcap, ncand);
         } else {
             /* Pool: the top ball of the rack, near enough full, hard. */
             int apex = -1; float apexd = 1e30f;
@@ -5076,9 +5432,23 @@ int cue_ai_plan_tick(void) {
             float jitter = (rnd(P.rng) - 0.5f) * 2.0f * c->p->line_acc * RAD;
             ai_sim(c->w, c->t, c->b, c->n, 0, b->aim + jitter, b->power,
                    b->side, b->vert, &sim);
+            /* AIMING OFF FROM THE SIM'S OWN CONTACT — PARKED, NOT DROPPED.
+             *
+             * The idea is right and it is the one the file already uses for
+             * throw: play the candidate, measure the thickness the engine
+             * really produced, and shift the aim by the difference. It needs no
+             * model of squirt or swerve because it corrects whatever they did.
+             *
+             * My measurement of that thickness was wrong. It is taken from the
+             * angle between the object ball's departure and the white's
+             * approach, and at ZERO deflection — where there is nothing to
+             * correct and the correction must therefore be nil — it moved the
+             * result a long way. So the sign or the frame is out. Left out of
+             * the search until that is settled: a correction that fires when
+             * there is nothing to correct is worse than none. */
             float sc = break_score(c, c->r, c->b, c->n, &sim,
                                    P.brk_want_first, c->snooker);
-            if (P.brk_i < 40) { P.brk_sc[P.brk_i] = sc; P.brk_end[P.brk_i] = sim.cue_end; }
+            if (P.brk_i < BRK_MAX) { P.brk_sc[P.brk_i] = sc; P.brk_end[P.brk_i] = sim.cue_end; }
             if (sc < P.brk_worst) P.brk_worst = sc;
             if (sc > P.brk_best) { P.brk_best = sc; P.brk_best_i = P.brk_i; }
         }
@@ -5107,10 +5477,36 @@ int cue_ai_plan_tick(void) {
          * genuinely better than the rest the spread is wide, the band admits
          * only it, and the machine still plays the right shot. */
         if (P.brk_best_i >= 0 && P.brk_n > 1) {
-            const int have = (P.brk_n < 40) ? P.brk_n : 40;
-            const float span = P.brk_best - P.brk_worst;
-            const float band = (span > 0.0f) ? span * 0.08f : 0.0f;
-            int near[40], nn = 0;
+            const int have = (P.brk_n < BRK_MAX) ? P.brk_n : BRK_MAX;
+            /* A FRACTION OF THE SHOT'S OWN VALUE, NOT OF THE RANGE — and a
+             * different fraction for a smash than for a safety.
+             *
+             * TWO THINGS WERE WRONG WITH THIS AND THE FIRST IS FATAL. The band
+             * was 8% of best-minus-worst, and a REJECTED break scores about
+             * minus a million: the span came out at a million, the band at
+             * eighty thousand, and EVERY candidate fell inside it including the
+             * illegal ones. The pick was then uniform over the lot — with the
+             * best break worth 55 it was choosing breaks worth MINUS fifty.
+             * That is not a player choosing between shots that are nearly the
+             * same. It is a coin toss, and it is what "the break has no skill
+             * in it any more" looks like from the other side of the screen.
+             *
+             * THE SECOND IS THAT IT WAS ASKED FOR BY POOL. The complaint was a
+             * pool break played identically every frame, and a pool break is a
+             * smash: which red goes where is chaos anyway, so choosing among
+             * near-equal candidates costs nothing and buys variety. A snooker
+             * break is the opposite — a safety played to a fraction of an inch,
+             * clipping the outside red thin and coming back to baulk. "Nearly
+             * as good" there is a DIFFERENT safety, and usually a worse one.
+             *
+             * So snooker takes the best break there is, every time, and its
+             * variety comes from the two places it should: the cue ball is
+             * stood somewhere slightly different in the D each frame, and the
+             * player's own accuracy does the rest. A known good shot, played
+             * carefully, varying only by where it started and how well it was
+             * struck — which is what a snooker break actually is. */
+            const float band = c->snooker ? 0.0f : fabsf(P.brk_best) * 0.06f;
+            int near[BRK_MAX], nn = 0;
             for (int k = 0; k < have; k++)
                 if (P.brk_sc[k] >= P.brk_best - band) near[nn++] = k;
             if (nn > 1) {
@@ -5124,12 +5520,23 @@ int cue_ai_plan_tick(void) {
              * scoring one's — the aiming line the opponent is shown comes from
              * it, and showing where a shot we are not playing would finish is
              * worse than showing nothing. */
-            if (P.brk_best_i < 40) {
+            if (P.brk_best_i < BRK_MAX) {
                 s_brk_pred = P.brk_end[P.brk_best_i]; s_brk_pred_ok = 1;
             }
             const BrkCand *b = &P.brk[P.brk_best_i];
             out.aim = b->aim; out.power01 = b->power;
             out.tip_side = b->side; out.tip_vert = b->vert;
+            /* AND HAND BACK WHAT THE SIM SAID, which this one path never did.
+             * Every other branch in this file fills cue_end_sim and
+             * sim_verified; the break filled s_brk_pred for the aiming line and
+             * stopped there. So the one struct field that exists to let a
+             * caller check "did the table do what the planner thought" read
+             * zero, unverified, on the only shot in a frame that is planned
+             * from a standing start. */
+            if (P.brk_best_i < BRK_MAX) {
+                out.cue_end_sim = P.brk_end[P.brk_best_i];
+                out.sim_verified = 1;
+            }
             /* THE VARIETY COMES FROM WHERE THE BALL IS STOOD, not from here.
              *
              * A deliberate wobble on the delivered aim and pace was tried here
