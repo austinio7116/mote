@@ -60,7 +60,8 @@ static void cue_table_rails(CueTable *t, CueGameKind kind) {
     case CUE_GAME_BANKPOOL:
     case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
     case CUE_GAME_FIFTEEN: case CUE_GAME_COWBOY:
-    case CUE_GAME_HONOLULU: case CUE_GAME_SPEED:    /* K-66, worsted */
+    case CUE_GAME_HONOLULU: case CUE_GAME_SPEED:
+    case CUE_GAME_BOWLLIARDS: case CUE_GAME_CRIBBAGE:   /* K-66, worsted */
         t->e_cush = 0.985f; t->cush_efall = 0.046f; break;
     case CUE_GAME_UK8:                          /* championship English, Northern rubber */
         t->e_cush = 0.965f; t->cush_efall = 0.052f; break;
@@ -270,7 +271,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
                kind == CUE_GAME_US10 || kind == CUE_GAME_STRAIGHT ||
                kind == CUE_GAME_ONEPOCKET || kind == CUE_GAME_BANKPOOL ||
                CUE_GAME_IS_ROT61(kind) || kind == CUE_GAME_COWBOY ||
-               kind == CUE_GAME_HONOLULU || kind == CUE_GAME_SPEED) {
+               kind == CUE_GAME_HONOLULU || kind == CUE_GAME_SPEED ||
+               kind == CUE_GAME_BOWLLIARDS || kind == CUE_GAME_CRIBBAGE) {
         /* 9 ft US table: 2.54 × 1.27 m, 2.25" balls, ANGLED straight-mitre
          * pockets (sharp points, more open than UK). Straight pool is played on
          * this same bed with the same fifteen balls — 14.1 is a rules game, not
@@ -313,8 +315,14 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         /* Golf never has more than the cue ball and four reds on the bed —
          * the hole with the most is a par 5 — so it does not carry a rack it
          * will never use. */
+        /* Bowlliards racks the 1 to the 10, which is ten-ball's count and not
+         * ten-ball's rack — the number of balls is the number of pins, and it
+         * is the only thing the two games have in common. Cribbage pool takes
+         * the whole fifteen and so wants the sixteen the fall-through already
+         * gives it; a row of its own would only restate the default. */
         t->nballs = (kind == CUE_GAME_US9)  ? 10
                   : (kind == CUE_GAME_US10) ? 11
+                  : (kind == CUE_GAME_BOWLLIARDS) ? 11
                   : (kind == CUE_GAME_COWBOY) ? 4 : 16;   /* cowboy: 1, 3, 5 */
     } else if (kind == CUE_GAME_PAUL) {
         /* PAUL: a 6 ft home snooker table, which is a real object and a
@@ -773,7 +781,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         kind == CUE_GAME_US10 || kind == CUE_GAME_STRAIGHT ||
         kind == CUE_GAME_ONEPOCKET || kind == CUE_GAME_BANKPOOL ||
         CUE_GAME_IS_ROT61(kind) || kind == CUE_GAME_COWBOY ||
-        kind == CUE_GAME_HONOLULU || kind == CUE_GAME_SPEED)
+        kind == CUE_GAME_HONOLULU || kind == CUE_GAME_SPEED ||
+        kind == CUE_GAME_BOWLLIARDS || kind == CUE_GAME_CRIBBAGE)
         t->baulk_x = -t->half_len * 0.5f;
 
     /* THE HOLE IN THE TIMBER, dialled per table in tools/pocketbench.
@@ -801,7 +810,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     case CUE_GAME_BANKPOOL:
     case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
     case CUE_GAME_FIFTEEN: case CUE_GAME_COWBOY: case CUE_GAME_HONOLULU:
-    case CUE_GAME_SPEED:
+    case CUE_GAME_SPEED: case CUE_GAME_BOWLLIARDS:
+    case CUE_GAME_CRIBBAGE:
         t->bore_corner = 1.8900f * t->R; t->bore_side = 1.7600f * t->R;
         t->bore_set_corner = 0.0000f * t->R; t->bore_set_side = 0.0000f * t->R;
         break;
@@ -3358,7 +3368,8 @@ static int spec_family(CueGameKind kind) {
     case CUE_GAME_BANKPOOL:
     case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
     case CUE_GAME_FIFTEEN: case CUE_GAME_COWBOY: case CUE_GAME_HONOLULU:
-    case CUE_GAME_SPEED:
+    case CUE_GAME_SPEED: case CUE_GAME_BOWLLIARDS:
+    case CUE_GAME_CRIBBAGE:
     case CUE_GAME_KILLER_US:                       return SPEC_FAM_AMERICAN;
     case CUE_GAME_CN8:
     case CUE_GAME_KILLER_CN:                       return SPEC_FAM_CHINESE;
@@ -3904,6 +3915,8 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* COWBY */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* HONOL */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* SPEED */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
+        /* BOWLL */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
+        /* CRIB  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
@@ -3938,6 +3951,8 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* COWBY */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* HONOL */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* SPEED */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
+        /* BOWLL */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
+        /* CRIB  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -4668,21 +4683,130 @@ static int rack_rotation(const CueTable *t, CueBall *b) {
     return n;
 }
 
-/* COWBOY POOL: the 1, the 3 and the 5, and nothing else on the table. The 1
- * goes on the foot spot, the 3 on the centre spot and the 5 on the head spot —
- * spread the length of the bed, because a game whose last ten points are
- * cannons wants the balls apart rather than racked. */
+/* COWBOY POOL: the 1, the 3 and the 5, and nothing else on the table.
+ *
+ * THE 1 ON THE HEAD SPOT, THE 3 ON THE FOOT SPOT, THE 5 IN THE CENTRE. That is
+ * the rule as written, and this had all three of them wrong — 1 on the foot, 3
+ * in the centre, 5 on the head — which is the same three spots with the balls
+ * rotated round them. It looks identical until you play it: the ball you must
+ * cannon off FIRST for the hundred-and-first point is the 1, and having it at
+ * the wrong end of the table changes the whole shape of the endgame.
+ *
+ * Spread the length of the bed, because a game whose last eleven points are
+ * cannons wants its balls apart rather than racked.
+ *
+ * WHERE EACH ONE LIVES IS ASKED TWICE — once to lay the table out and once to
+ * put a potted ball back — so it is answered in one place. Two copies of this
+ * is exactly how the balls came to be racked on one set of spots and respotted
+ * onto another. */
+Vec3 cue_table_cowboy_spot(const CueTable *t, int id) {
+    switch (id) {
+    case 1:  return cue_table_lay(t, t->baulk_x, 0.0f, NULL);   /* head spot */
+    case 5:  return cue_table_lay(t, 0.0f, 0.0f, NULL);         /* centre    */
+    default: return cue_table_foot_spot(t);                     /* the 3     */
+    }
+}
+
 static int rack_cowboy(const CueTable *t, CueBall *b) {
     const float R = t->R;
-    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
-    const Vec3 head = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
-    const Vec3 mid  = cue_table_lay(t, 0.0f, 0.0f, NULL);
-    set_ball(&b[1], 1, foot.x, foot.z, R);
-    set_ball(&b[2], 3, mid.x,  mid.z,  R);
-    set_ball(&b[3], 5, head.x, head.z, R);
+    const Vec3 one   = cue_table_cowboy_spot(t, 1);
+    const Vec3 three = cue_table_cowboy_spot(t, 3);
+    const Vec3 five  = cue_table_cowboy_spot(t, 5);
+    set_ball(&b[1], 1, one.x,   one.z,   R);
+    set_ball(&b[2], 3, three.x, three.z, R);
+    set_ball(&b[3], 5, five.x,  five.z,  R);
     { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
-    (void)up;
     return 4;
+}
+
+/* BOWLLIARDS: the 1 to the 10 in a FOUR-ROW triangle — one, two, three, four
+ * from the apex — with the apex on the foot spot. Ten balls make a four-row
+ * triangle and fifteen make a five-row one, which is the whole reason the game
+ * is played with ten: the rack is the set of pins.
+ *
+ * WHICH ball sits where is not a rule. The BCA rack for this designates no
+ * position at all — unlike rotation, where the 1 at the apex is the ball you
+ * are obliged to hit, and unlike nine-ball, where the 9 in the middle is the
+ * money. Bowlliards calls its ball every stroke and any of the ten will do, so
+ * the numbers carry no meaning past telling one ball from another when you name
+ * it. They go in numerically because a rack has to be SOME arrangement and a
+ * reproducible one is worth having in a test; nothing reads it.
+ *
+ * The ten-ball rack next door is a DIAMOND of the same ten balls and is not
+ * this: a diamond has a ball at the back point and this has a flat back row, so
+ * the two break quite differently. Borrowing rack_10ball would have been the
+ * obvious saving and it is the wrong shape. */
+static int rack_bowlliards(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const Vec3 side = v3(-up.z, 0.0f, up.x);
+    const float footx = foot.x, footz = foot.z;
+    const float dx = R * 1.7320508f;
+    #define BWL_AT(r_, o_) (footx + up.x*(r_) + side.x*(o_)), \
+                           (footz + up.z*(r_) + side.z*(o_))
+    static const int rows[4][4] = {
+        { 1 }, { 2, 3 }, { 4, 5, 6 }, { 7, 8, 9, 10 },
+    };
+    int n = 1;
+    for (int row = 0; row < 4; row++)
+        for (int k = 0; k <= row; k++)
+            set_ball(&b[n++], rows[row][k],
+                     BWL_AT(row * dx, -(row) * R + k * 2.0f * R), R);
+    { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
+    #undef BWL_AT
+    return n;
+}
+
+/* CRIBBAGE POOL: the ordinary fifteen-ball triangle with two things fixed in
+ * it, and only one of them looks like a rule.
+ *
+ * THE 15 GOES IN THE MIDDLE, where the black sits in eight-ball — the centre of
+ * the third row, the one position with a ball on every side of it. It is the
+ * ball that decides a level game, so the rack buries it.
+ *
+ * NO TWO OF THE THREE CORNERS MAY TOTAL FIFTEEN, which is the odd one and is
+ * worth knowing what it is for. The corners are the three balls a break can
+ * reach cleanly, and a pair of them adding to fifteen is a cribbage sitting in
+ * the open before anybody has played a stroke — the breaker takes both off the
+ * corners and is a fifth of the way to the game for nothing. So the rack is
+ * required to break up any such pair before the balls go down. The apex, the
+ * left back corner and the right back corner here are the 1, the 2 and the 3,
+ * which totals three, four and five between them and cannot offend.
+ *
+ * THE REST ARE "PLACED AT RANDOM" IN THE BOOK AND ARE NOT PLACED AT RANDOM
+ * HERE. A rack crosses the wire in a match and both ends have to lay out the
+ * same triangle from it, and a test that wants to read a position back needs
+ * one to read; every other rack in this file is fixed for the same two reasons.
+ * So the eleven free balls go in numerically, in the order the positions fall,
+ * which is a reproducible arrangement rather than a meaningful one. Nothing
+ * reads it — unlike rotation next door, where the apex is the ball you are
+ * obliged to hit. The arrangement happens to put the 4 and the 11 side by side
+ * in the second row; that is a consequence of counting, not a favour.
+ *
+ * Note that this is NOT rack_rotation, which also carries the 1 at the apex,
+ * the 15 in the centre and the 2 and 3 in the back corners. The two arrived
+ * there down different roads — rotation's is about which ball is on, this one
+ * is about which pairs are exposed — and sharing a function would tie two racks
+ * together that have no reason to move together. */
+static int rack_cribbage(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const Vec3 side = v3(-up.z, 0.0f, up.x);
+    const float footx = foot.x, footz = foot.z;
+    const float dx = R * 1.7320508f;
+    #define CRB_AT(r_, o_) (footx + up.x*(r_) + side.x*(o_)), \
+                           (footz + up.z*(r_) + side.z*(o_))
+    static const int rows[5][5] = {
+        { 1 }, { 4, 5 }, { 6, 15, 7 }, { 8, 9, 10, 11 }, { 2, 12, 13, 14, 3 },
+    };
+    int n = 1;
+    for (int row = 0; row < 5; row++)
+        for (int k = 0; k <= row; k++)
+            set_ball(&b[n++], rows[row][k],
+                     CRB_AT(row * dx, -(row) * R + k * 2.0f * R), R);
+    { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
+    #undef CRB_AT
+    return n;
 }
 
 /* FIFTEEN-BALL: the 15 at the apex on the foot spot, the 13 and 14 in the back
@@ -5188,7 +5312,18 @@ int cue_table_foot_pockets(const CueTable *t, const CueWorld *w,
 
 int cue_table_respot_ball(const CueTable *t, CueBall *b, int n, int idx) {
     if (!t || !b || idx < 0 || idx >= n) return 0;
-    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    Vec3 up; Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    /* COWBOY'S THREE BALLS EACH GO BACK TO THEIR OWN SPOT.
+     *
+     * Everywhere else a spotted ball goes to the foot spot, and that is right
+     * because everywhere else there is only one spot to go to. Cowboy has
+     * three and the balls are not interchangeable — they are worth one, three
+     * and five — so sending every one of them to the foot spot slowly collected
+     * all three at that end of the table, which is not the game.
+     *
+     * The direction to walk if the spot is taken stays the same: up the table
+     * from wherever the ball belongs. */
+    if (t->kind == CUE_GAME_COWBOY) foot = cue_table_cowboy_spot(t, b[idx].id);
     const float R = t->R;
     for (int step = 0; step < 60; step++) {
         Vec3 p = v3(foot.x + up.x * (float)step * 2.05f * R, R,
@@ -5322,6 +5457,8 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
     else if (t->kind == CUE_GAME_PAUL) n = rack_paul(t, balls);
     else if (t->is_snooker)      n = rack_snooker(t, balls);
     else if (t->kind == CUE_GAME_COWBOY)  n = rack_cowboy(t, balls);
+    else if (t->kind == CUE_GAME_BOWLLIARDS) n = rack_bowlliards(t, balls);
+    else if (t->kind == CUE_GAME_CRIBBAGE) n = rack_cribbage(t, balls);
     else if (t->kind == CUE_GAME_FIFTEEN) n = rack_fifteen(t, balls);
     else if (CUE_GAME_IS_ROT61(t->kind)) n = rack_rotation(t, balls);
     else if (t->kind == CUE_GAME_US9)  n = rack_9ball(t, balls);

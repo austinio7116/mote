@@ -2818,6 +2818,21 @@ static void plan_finalize(void) {
     float baseThresh = c->snooker ? 8.0f : 0.0f;
     float minConf = baseThresh + ((p->safety_bias + 30.0f) / 50.0f) * 40.0f;
     if (c->r->mode == CUE_GAME_GOLF) minConf = 0.0f;
+    /* AND THERE IS NOTHING TO PLAY SAFE WITH AT CRIBBAGE POOL EITHER, once you
+     * are ON a cribbage. The next stroke must pot the companion; a stroke that
+     * does not is a foul whatever it was aimed at, so a deliberate safety buys
+     * the same penalty a missed pot buys and buys it with certainty. Take the
+     * pot, however thin.
+     *
+     * It rarely bites, and that is worth saying rather than leaving to be
+     * rediscovered. Eight frames of self-play put the planner on a cribbage
+     * with no pot at all on the companion far more often than it put it on one
+     * with a thin pot to turn down, and the first of those never reaches here —
+     * plan_finalize returns from the safety-only branch above. So this is a
+     * rule about the game rather than a measured gain: it stops the planner
+     * ever CHOOSING the foul, in the cases where it has the choice. */
+    const int cr_owing = (c->r->mode == CUE_GAME_CRIBBAGE && c->r->cr_nowed > 0);
+    if (cr_owing) minConf = 0.0f;
     minConf *= clampf(0.45f + p->line_acc * 0.45f, 0.45f, 1.2f) * K_CONF;
     minConf += urg * 35.0f;        /* needing snookers → only attack near-certain pots */
     if (P.miss_caution) minConf += K_MISSCAUT;   /* one miss down: play the percentages */
@@ -2835,6 +2850,8 @@ static void plan_finalize(void) {
             /* KILLER: a stroke that pots nothing costs a LIFE, so a deliberate
              * safety is a deliberate life given away. Pot or die trying. */
             if (CUE_GAME_IS_KILLER(c->r->mode)) aggression = -1.0e5f;
+            /* ...and cribbage pool while a companion is owed: see minConf. */
+            if (cr_owing) aggression = -1.0e5f;
             /* a scratch/foul pot is never worth taking over a legal safety */
             if (best_unsafe || sc->posScore * 0.6f > best.potScore + aggression) {
                 out.aim = sc->aim; out.power01 = sc->power01;
@@ -3095,7 +3112,7 @@ static int break_cands(const AiCtx *c, const CueBall *balls, Vec3 cue, int tgt,
                 k.power = pows[pi];
                 k.side  = sides[si];
                 k.vert  = vert;
-                k.aim  += k.side * CUE_SQUIRT_RAD;   /* aim off for the deflection */
+                k.aim  += k.side * cue_phys_squirt();  /* aim off for the deflection */
                 out[nout++] = k;
             }
     return nout;
@@ -4790,9 +4807,25 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     /* COWBOY POOL BECOMES A CANNON GAME AT NINETY, and the planner has to
      * become one with it: from there a pot is worth nothing at all, so a
      * planner still ranking pots would spend the endgame potting for no score
-     * and handing the table over. Below ninety it plays pool. */
-    else if (c->r->mode == CUE_GAME_COWBOY && c->r->score[c->r->turn] >= 90) {
-        npool = carom_candidates(c, npool);
+     * and handing the table over.
+     *
+     * AND IT STARTS BECOMING ONE BEFORE NINETY. The counting problem does not
+     * begin at the cap, it begins five points short of it — from 85 the 5 ball
+     * can already overshoot, and from 87 the only strokes that land exactly are
+     * the 3, the 1, or a cannon. The planner had no cannon candidates at all
+     * below ninety, so on 87 it could not SEE the shot that scores one and had
+     * to choose between pots that were worth nothing; the player watched it
+     * take the 5 and throw the visit away.
+     *
+     * Five is the right width because five is the biggest ball on the table:
+     * inside that band some pot overshoots, so the precise stroke matters.
+     * Wider than that and the pool fills with cannon candidates in a phase
+     * where potting is simply better, which is the mistake billiards documents
+     * next door. */
+    else if (c->r->mode == CUE_GAME_COWBOY) {
+        const int have = c->r->score[c->r->turn];
+        const int cap  = (have >= 100) ? 101 : (have >= 90) ? 100 : 90;
+        if (have >= 90 || cap - have <= 5) npool = carom_candidates(c, npool);
     }
     else if (c->r->mode == CUE_GAME_BILLIARDS) {
         /* ---- POT FIRST, THEN THE CANNON, AND WIDEN ONLY WHEN STUCK -------
@@ -5180,25 +5213,45 @@ int cue_ai_plan_tick(void) {
                     if (!dup && nseen < 8) seen[nseen++] = s_sw.touch[i].id;
                 }
                 distinct = nseen; }
-            const int cannon = (distinct >= 2);
+            const int cannon  = (distinct >= 2);
+            const int cannon2 = (distinct >= 3);
+            const int cannon_pts = cannon2 ? 2 : cannon ? 1 : 0;
             int gain = 0;
             if (have >= 100) {
                 if (cannon && sim.first_hit_idx > 0 &&
                     c->b[sim.first_hit_idx].id == 1) gain = 1;
             } else if (have >= 90) {
-                if (cannon) gain = 1;
+                gain = cannon_pts;
             } else {
                 for (int k = 0; k < sim.npotted; k++) {
                     const int bi = sim.potted[k];
                     if (bi > 0 && bi < c->n && c->b[bi].id <= 5) gain += c->b[bi].id;
                 }
-                if (cannon)         gain += 1;
+                gain += cannon_pts;
                 if (sim.cue_potted) gain += 1;
             }
-            if (gain > left) gain = 0;              /* overshoot scores nothing */
+            /* OVERSHOOTING IS WORSE THAN DOING NOTHING, and scoring it as zero
+             * did not say so.
+             *
+             * A stroke worth more than the phase has left scores nothing and
+             * ends the visit. Ranked at zero that is merely unrewarded — the
+             * same as a missed pot — so on 87 the planner would happily pot the
+             * 5, hand the table over and wonder why the score had not moved.
+             * The player's own report: it does not know it has to land on
+             * ninety exactly.
+             *
+             * So an overshoot is pushed BELOW a shot that does nothing at all.
+             * That is not a tuning weight, it is the truth about the position:
+             * a ball that cannot be scored is a ball that should be left where
+             * it is, and playing safe is strictly better than throwing the
+             * visit away. Ranked this way the planner finds the counting shot —
+             * the 3 for exactly three — or, when there is not one, a safety. */
+            const int overshot = (gain > left);
+            if (overshot) gain = 0;
             v->bad_first = (sim.first_hit_idx <= 0);
             v->pot_fails = (gain == 0);
             v->potScore = v->bad_first ? 0.0f
+                        : overshot ? 4.0f
                         : clampf(26.0f + 12.0f * (float)gain, 0.0f, 100.0f);
         }
         /* ---- CAROM IS SCORED OFF THE SIM'S OWN TOUCH LOG -----------------

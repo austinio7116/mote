@@ -115,6 +115,45 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
         r->target_score = 0;
         r->sp_cs[0] = r->sp_cs[1] = 0;
         r->sp_done[0] = r->sp_done[1] = 0;
+    } else if (t->kind == CUE_GAME_BOWLLIARDS) {
+        /* THE TARGET IS THE PERFECT GAME, and it is a display number rather
+         * than something to reach: nobody wins by getting to three hundred, the
+         * higher of two ten-frame cards wins. It is here because it is the one
+         * figure that says what the card is for, and because a game whose
+         * maximum is unreachable is the mistake this game is easiest to make —
+         * see resolve_bowlliards on the foul penalty we do not apply. */
+        r->target_score = 300;
+        r->called_pocket = -1;
+        /* Every stroke but the break names a ball and a pocket. */
+        r->call_shot_on = 2;
+        for (int p = 0; p < 2; p++) {
+            r->bw_frame[p] = 0;
+            r->bw_sd[p] = 0xFF;
+            for (int i = 0; i < (int)sizeof r->bw_pins[p]; i++)
+                r->bw_pins[p][i] = 0xFF;       /* every delivery unplayed */
+        }
+        r->bw_inning = 1;
+        /* The first frame opens the way every other one does: a rack, a free
+         * break, and the cue ball behind the head string for it. */
+        r->break_shot = 1;
+        r->ball_in_hand = 1;
+    } else if (t->kind == CUE_GAME_CRIBBAGE) {
+        /* FIVE CRIBBAGES, and a target rather than a count of balls: the score
+         * is pairs made, so a board that already draws two numbers draws these.
+         * Five is a majority of the eight a rack holds, which is what makes it
+         * the number — and why the eighth, the 15 on its own, has to exist for
+         * a level game to be decided at all. */
+        r->target_score = 5;
+        r->called_pocket = -1;
+        /* Ball and pocket on every stroke but the break. */
+        r->call_shot_on = 2;
+        r->cr_nowed = 0;
+        for (int i = 0; i < 8; i++) r->cr_owed[i] = 0;
+        /* An OPEN break, and unlike bowlliards' free one it is an ordinary
+         * stroke of the breaker's inning — so it is set up the same way any
+         * other US game's is, from in hand behind the head string. */
+        r->break_shot = 1;
+        r->ball_in_hand = 1;
     } else if (t->kind == CUE_GAME_HONOLULU) {
         r->target_score = 8;
     } else if (t->kind == CUE_GAME_COWBOY) {
@@ -291,16 +330,35 @@ static void respot_colour(CueRules *r, CueBall *b, int n, int id) {
  * 9-ball's Regulation 16 uses the head string, and the pyramid uses the centre
  * line with its own rule about the ball's centre. Only the middle-pocket line
  * is measured here, so only the games that use it may ask. */
+/* NO WORLD MEANS UNKNOWN, AND UNKNOWN IS NOT A FOUL.
+ *
+ * Every break rule here is of the form "fewer than N balls reached a rail". The
+ * three counters below are the only things that can answer it, and they answer
+ * it from CueWorld — which a caller is allowed not to have. cue_rules_resolve
+ * takes the world as a pointer and test_wrongball passes NULL, because it is
+ * testing which ball was cued and has no opinion about cushions.
+ *
+ * These returned zero in that case, so "I cannot tell" was scored as "nothing
+ * touched a rail" and every such stroke was a break foul. Nothing in the game
+ * saw it — the app always has a world — but the first harness to resolve a
+ * break without one found it, and a rule that manufactures a foul out of
+ * missing information is wrong whoever is asking.
+ *
+ * So they report SATISFIED instead: a count nothing can be short of, and a cue
+ * ball that did find a cushion. A break can only be faulted on evidence. */
+#define BRK_PLENTY (CUE_MAX_BALLS + 1)
+
 static int brk_rails(const CueWorld *w, int n) {
     int c = 0;
-    if (!w) return 0;
+    if (!w) return BRK_PLENTY;
     for (int i = 1; i < n && i < CUE_MAX_BALLS; i++) if (w->cush[i]) c++;
     return c;
 }
-static int brk_cue_rail(const CueWorld *w) { return w && w->cush[0]; }
+static int brk_cue_rail(const CueWorld *w) { return w ? (w->cush[0] != 0) : 1; }
 static int brk_crossed(const CueWorld *w) {
+    if (!w) return BRK_PLENTY;
     int c = 0;
-    uint32_t m = w ? w->brk_cross : 0u;
+    uint32_t m = w->brk_cross;
     while (m) { c += (int)(m & 1u); m >>= 1; }
     return c;
 }
@@ -2086,6 +2144,769 @@ static void resolve_honolulu(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else          r->msg[0] = 0;
 }
 
+/* ---- BOWLLIARDS ----------------------------------------------------------
+ *
+ * Pocket billiards kept on a ten-pin bowling card, and the second half of that
+ * sentence is the whole game: the potting is ordinary call-shot pool, and every
+ * decision a player makes comes from the SCORING, which is a bowler's and not a
+ * pool player's. It is in the BCA rulebook and the WPA has never sanctioned it,
+ * which is why nothing here reads like the other American games on this table.
+ *
+ * Ten object balls, the 1 to the 10, racked as a four-row triangle. Ten frames.
+ * Each frame allows two INNINGS, an inning being a visit to the table that ends
+ * when the striker fails to pot the ball he called, or fouls, or clears all ten.
+ * Clear the ten in the first inning and it is a STRIKE; clear them across the
+ * two and it is a SPARE; anything else is an OPEN frame worth its pinfall. The
+ * bonuses are the bowler's exactly — a spare is ten and the next inning, a
+ * strike is ten and the next two — so three hundred is the perfect game and it
+ * is reachable, which matters more than it sounds and is argued below.
+ *
+ * A WORD ABOUT THE WORD FRAME, because there are two of them in this file and
+ * they are not the same thing. CueRules calls a rack a frame — frame_over,
+ * book_frame, cue_rules_next_frame — and bowlliards calls one tenth of a game a
+ * frame. The engine's frame is the whole ten of the game's, so r->frame_over
+ * means the GAME is decided and bw_frame is the bowling one. Anything that
+ * reads only one of the two names will be wrong about which.
+ *
+ * WHAT THE BREAK IS FOR, which is nothing. The break is not an inning, scores
+ * nothing, and every ball it pots is spotted before scoring play begins; a
+ * scratch or a jumped cue ball on it carries no penalty at all, and there is no
+ * balls-to-cushion requirement. So it is a free spread of the rack and the
+ * striker then starts the first inning with the cue ball in hand behind the
+ * head string. Scoring the break instead would put an eleventh delivery on a
+ * ten-delivery card with no box to write it in.
+ *
+ * A FOUL COSTS NO POINTS. It ends the INNING and, in the first inning, nothing
+ * else — the striker takes the second one from in hand behind the head string
+ * and the frame carries on. The BCA rulebook, bowlliards.com and Virtual Pool 4
+ * all read this way. bowlliards.net and a number of leagues take a point off
+ * per foul instead, and that is a real disagreement rather than a misreading;
+ * we follow the majority because a point penalty makes 300 UNATTAINABLE. A
+ * perfect game needs twelve consecutive clearances and a card whose maximum
+ * cannot be reached is not a bowling card. A house rule that costs a point is
+ * cheap to add on top of this; a maximum that has been quietly moved is not
+ * something a player can see.
+ *
+ * CALL SHOT: ball and pocket, and the pot has to be made as called for the ball
+ * to count. Kisses, caroms, combinations and banks need not be called — you say
+ * where the ball is going, not how it gets there. Anything else that drops on
+ * the same stroke is spotted and scores nothing, and crucially DOES NOT END THE
+ * INNING: it is not a foul, so there is nothing to hand the table over for. That
+ * is the one place this differs from straight pool next door, where the
+ * accidental extra counts a point.
+ *
+ * HOW IT ENDS. The two players take a frame each in turn, as bowlers on one
+ * lane do, so a fresh rack goes up between every frame and each of them carries
+ * its own free break. Ten frames each, and the higher card wins — level, and
+ * they play further frames alternately until one is better, which is the only
+ * part of this with no rule book behind it and is argued where it is written.
+ */
+
+/* THE CARD, one nibble to a delivery — see the block comment on bw_pins in
+ * cue_rules.h for why it is packed rather than a byte each. The slot number is
+ * the delivery number a bowling sheet prints: frame f owns 2f and 2f+1, and the
+ * tenth owns 18, 19 and 20. Fifteen is "not delivered", which is a different
+ * thing from a nought that was shot for and missed. */
+#define BW_SLOT(f_, d_)  ((f_) * 2 + (d_))
+
+static int bw_get(const CueRules *r, int who, int slot) {
+    if (!r || who < 0 || who > 1 || slot < 0 || slot > 20) return -1;
+    const int v = (slot & 1) ? (r->bw_pins[who][slot >> 1] & 0x0F)
+                             : (r->bw_pins[who][slot >> 1] >> 4);
+    return (v == 0x0F) ? -1 : v;
+}
+
+static void bw_put(CueRules *r, int who, int slot, int pins) {
+    if (!r || who < 0 || who > 1 || slot < 0 || slot > 20) return;
+    if (pins < 0) pins = 0x0F; else if (pins > 10) pins = 10;
+    unsigned char *p = &r->bw_pins[who][slot >> 1];
+    if (slot & 1) *p = (unsigned char)((*p & 0xF0) | pins);
+    else          *p = (unsigned char)((*p & 0x0F) | (pins << 4));
+}
+
+/* THE RUNNING TOTAL, scored the way a card is scored: over the DELIVERIES in
+ * the order they were made rather than frame by frame, because a strike's frame
+ * holds one delivery and reaches two frames forward for its bonus, and a frame
+ * loop cannot say "the next two" without unpicking that again at every step.
+ *
+ * A frame whose bonus has not been delivered yet is not scored at all and the
+ * walk stops there, which is why a bowler's box stays blank after a strike
+ * until two more balls have been thrown. It is not an approximation waiting to
+ * be corrected; there is genuinely no number to put in it. */
+static int bw_score(const CueRules *r, int who, int through) {
+    int roll[21], nr = 0;
+    for (int s = 0; s <= 20; s++) {
+        const int p = bw_get(r, who, s);
+        /* A strike leaves its frame's second slot empty and the frame after it
+         * fills the next one, so skipping the gaps keeps the deliveries in the
+         * order they were played. */
+        if (p >= 0) roll[nr++] = p;
+    }
+    int score = 0, i = 0;
+    for (int f = 0; f < 10 && f <= through; f++) {
+        if (i >= nr) break;
+        if (roll[i] == 10) {                       /* a strike: ten and the next two */
+            if (i + 2 >= nr) break;
+            score += 10 + roll[i + 1] + roll[i + 2];
+            i += 1;
+        } else {
+            if (i + 1 >= nr) break;                /* the frame is half played */
+            const int pinfall = roll[i] + roll[i + 1];
+            if (pinfall == 10) {                   /* a spare: ten and the next one */
+                if (i + 2 >= nr) break;
+                score += 10 + roll[i + 2];
+            } else score += pinfall;
+            i += 2;
+        }
+    }
+    return score;
+}
+
+/* HOW MANY OF THE TEN IN FRONT OF THE STRIKER ARE ALREADY DOWN.
+ *
+ * Not the frame's pinfall, which is a different number in the tenth: a delivery
+ * that clears the rack is followed by a fresh one, so the count goes back to
+ * nought and the frame's pinfall carries on past ten. Walking the frame's
+ * deliveries and resetting on each clearance is the same rule the tenth frame
+ * is written in — "re-rack only after a delivery that clears" — read off the
+ * card rather than kept as a second copy of it in a field of its own.
+ *
+ * Counted from the card rather than from the table on purpose. Balls potted
+ * without being called are SPOTTED and come back, and the spotting is the
+ * host's and happens after this runs, so the ball array here says the rack is
+ * emptier than it is about to be. */
+static int bw_rack_down(const CueRules *r, int who) {
+    const int f = r->bw_frame[who];
+    if (f >= 10) return (r->bw_sd[who] == 0xFF) ? 0 : r->bw_sd[who];
+    int down = 0;
+    for (int d = 0; d < 3; d++) {
+        const int p = bw_get(r, who, BW_SLOT(f, d));
+        if (p < 0) break;
+        down += p;
+        if (down >= 10) down = 0;          /* that one cleared it: a fresh rack */
+    }
+    return down;
+}
+
+/* Set the table out again and hand the striker the free break that comes with
+ * it. Every fresh rack in this game is broken, and the break is never an
+ * inning — so the two always travel together and there is nowhere a rack goes
+ * up without one. */
+static void bw_fresh_rack(CueRules *r) {
+    r->rerack = 2;
+    r->break_shot = 1;
+    r->ball_in_hand = 1;
+    r->respot = 0;                 /* the rack replaces every ball on the cloth */
+    for (int i = 0; i < 8; i++) r->respot_id[i] = 0;
+}
+
+static void resolve_bowlliards(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                               int first_hit, int scratch, int cushion,
+                               const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    const int was_break = r->break_shot;
+    const int called_id = r->nominated, called_pkt = r->called_pocket;
+    (void)w;
+    r->nominated = 0; r->called_pocket = -1;
+    r->break_shot = 0;
+
+    /* Everything down that did not score goes back on the table. Collected in
+     * one place because the break spots the lot and a scoring stroke spots all
+     * but one, and the two were the same loop written twice first time. */
+    int back = 0;
+    #define BW_SPOT(id_) do { if (back < 8) r->respot_id[back] = (unsigned char)(id_); \
+                              back++; } while (0)
+
+    if (was_break) {
+        /* THE FREE BREAK. No cushion requirement, no penalty for the cue ball
+         * going down or off, and nothing on it scores. There is no foul to
+         * find, so none is looked for. */
+        for (int k = 0; k < np; k++)
+            if (potted[k] != CUE_ID_CUE) BW_SPOT(potted[k]);
+        r->respot = back;
+        r->last_foul = 0;
+        r->cfoul[me] = 0;
+        r->ball_in_hand = 1;                    /* in hand behind the head string */
+        snprintf(r->msg, sizeof r->msg, "BREAK");
+        return;
+    }
+
+    int foul = 0; const char *why = "";
+    if (first_hit < 0)        { foul = 1; why = "NO BALL HIT"; }
+    else if (scratch)         { foul = 1; why = "SCRATCH"; }
+    else if (r->n_off)        { foul = 1; why = "OFF THE TABLE"; }
+    else if (!np && !cushion) { foul = 1; why = "NO CUSHION"; }
+
+    /* WAS THE CALL MADE? CueBall.pocket carries the pocket the ball fell in,
+     * which is what makes calling a pocket enforceable rather than an honour
+     * system. A pocket of -1 is a stroke nobody called a pocket for — the CPU's
+     * safeties arrive that way — and the ball then counts wherever it went. */
+    int made = 0;
+    for (int k = 0; k < np && called_id && !foul; k++) {
+        if (potted[k] != called_id) continue;
+        const CueBall *q = find_ball(b, n, potted[k]);
+        if (!q || q->pocket == CUE_OFF_TABLE) continue;   /* driven off, not potted */
+        if (called_pkt < 0 || (int)q->pocket == called_pkt) made = 1;
+    }
+
+    for (int k = 0; k < np; k++) {
+        if (potted[k] == CUE_ID_CUE) continue;    /* the white is replaced, not spotted */
+        if (made && potted[k] == called_id) continue;
+        BW_SPOT(potted[k]);
+    }
+    r->respot = back;
+    #undef BW_SPOT
+
+    const int scored = made ? 1 : 0;
+    const int f = r->bw_frame[me];
+    const int sudden = (f >= 10);            /* the tie-break: no card to write to */
+    const int before = bw_rack_down(r, me);
+    const int cleared = (before + scored) >= 10;
+
+    if (sudden) {
+        r->bw_sd[me] = (unsigned char)((r->bw_sd[me] == 0xFF ? 0 : r->bw_sd[me])
+                                       + scored);
+    } else {
+        const int slot = BW_SLOT(f, r->bw_inning - 1);
+        const int sofar = bw_get(r, me, slot);
+        bw_put(r, me, slot, (sofar < 0 ? 0 : sofar) + scored);
+    }
+    r->score[0] = bw_score(r, 0, 9);
+    r->score[1] = bw_score(r, 1, 9);
+
+    /* A FOUL COSTS NOTHING BUT THE INNING, so the consecutive-foul counter every
+     * other pool game here keeps has nothing to count towards and is left at
+     * nought rather than being allowed to accumulate towards a penalty that
+     * does not exist in this game. */
+    r->last_foul = foul;
+    r->cfoul[me] = 0;
+
+    /* THE STRIKER PLAYS ON as long as he keeps making the call and there is
+     * still something in front of him. An uncalled ball down with it is spotted
+     * and costs him nothing — it is not a foul, so there is nothing to hand the
+     * table over for. */
+    if (made && !cleared) {
+        r->brk += scored;
+        r->ball_in_hand = 0;
+        /* Both clamped to what they can actually be — nought to ten off a rack
+         * of ten — because the compiler cannot see that from an int and warns
+         * that eleven digits will not fit in a message of twenty-four. */
+        const int down = (before + scored) > 10 ? 10
+                       : (before + scored) < 0  ? 0 : (before + scored);
+        const int spot = back > 10 ? 10 : back < 0 ? 0 : back;
+        if (spot) snprintf(r->msg, sizeof r->msg, "%d DOWN - %d SPOTTED", down, spot);
+        else      snprintf(r->msg, sizeof r->msg, "%d DOWN", down);
+        return;
+    }
+
+    /* ---- the inning is over. How many does this frame get? ---------------
+     *
+     * THE TENTH FRAME IS THE TRAP, and getting it wrong silently costs the
+     * maximum rather than throwing anything. Within it, follow bowling to the
+     * letter: a strike earns two further deliveries and a spare one, and the
+     * rack is set out again ONLY after a delivery that cleared it. A bonus
+     * delivery that does not clear leaves the balls where they are and the next
+     * delivery shoots what is left — so a tenth of ten, four, six is a legal
+     * twenty and not a mistake. Re-racking after every bonus delivery instead
+     * would give a striker ten fresh balls to clear in one visit twice over,
+     * and re-racking never would make the second bonus delivery unplayable
+     * after a first that cleared. Both read as a working game and both put a
+     * different number at the bottom of the card. */
+    int allowed = 2;
+    if (!sudden && f == 9) {
+        const int d0 = bw_get(r, me, BW_SLOT(9, 0));
+        const int d1 = bw_get(r, me, BW_SLOT(9, 1));
+        if (d0 == 10) allowed = 3;                          /* strike: two more */
+        else if (d0 >= 0 && d1 >= 0 && d0 + d1 == 10) allowed = 3;  /* spare: one */
+    }
+    const int frame_done = (!sudden && f == 9) ? (r->bw_inning >= allowed)
+                                               : (cleared || r->bw_inning >= 2);
+
+    if (!frame_done) {
+        r->bw_inning++;
+        if (cleared) bw_fresh_rack(r);      /* the tenth only: a new rack, a new break */
+        else {
+            /* THE SECOND INNING IS PLAYED FROM WHERE THE BALLS LIE. No re-rack,
+             * and no ball in hand either unless the inning ended on a foul —
+             * missing a pot is not an offence and does not buy the striker a
+             * better cue ball than the one he left himself. */
+            r->ball_in_hand = foul ? 1 : 0;
+        }
+        r->brk += scored;
+        if (foul) snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        else if (cleared) {
+            /* Only the tenth ever gets here. The delivery just made is
+             * bw_inning - 2, and clearing a rack the striker did not himself
+             * open is a strike again rather than a spare — which is how twelve
+             * strikes on one card is a thing that can happen. */
+            const int d = r->bw_inning - 2;
+            const int strike = (d == 0) || (bw_get(r, me, BW_SLOT(9, d - 1)) == 10);
+            snprintf(r->msg, sizeof r->msg, "%s", strike ? "STRIKE" : "SPARE");
+        }
+        else snprintf(r->msg, sizeof r->msg, "MISS");
+        return;
+    }
+
+    /* ---- the frame is closed -------------------------------------------- */
+    if (sudden) {
+        if (cleared) snprintf(r->msg, sizeof r->msg, "CLEARED");
+        else         snprintf(r->msg, sizeof r->msg, "%d PINS", (int)r->bw_sd[me]);
+    } else if (f == 9) {
+        /* The tenth is worth up to thirty and its mark is the whole story of
+         * three deliveries, so the board gets the number instead. */
+        int pins = 0;
+        for (int d = 0; d < 3; d++) {
+            const int p = bw_get(r, me, BW_SLOT(9, d));
+            if (p >= 0) pins += p;
+        }
+        snprintf(r->msg, sizeof r->msg, "TENTH: %d", pins);
+    } else if (cleared) {
+        snprintf(r->msg, sizeof r->msg, (r->bw_inning == 1) ? "STRIKE" : "SPARE");
+    } else {
+        snprintf(r->msg, sizeof r->msg, "OPEN: %d", bw_rack_down(r, me));
+    }
+    r->brk = 0;
+    r->bw_inning = 1;
+    if (!sudden) r->bw_frame[me] = (unsigned char)(f + 1);
+    r->score[0] = bw_score(r, 0, 9);
+    r->score[1] = bw_score(r, 1, 9);
+
+    /* SUDDEN DEATH: tied on ten frames, so both play further frames alternately
+     * and the first superior one takes it. Superior means PINFALL and nothing
+     * else: a strike and a spare are both ten pins and neither is better than
+     * the other here, because the bonus that separates them on a card is a
+     * claim on innings that this frame does not have and never will. Level
+     * again, and they go round once more. */
+    if (sudden) {
+        if (r->bw_sd[you] == 0xFF) {          /* their answer to it */
+            r->turn = you;
+            bw_fresh_rack(r);
+            return;
+        }
+        const int a = r->bw_sd[0], c = r->bw_sd[1];
+        if (a != c) {
+            r->frame_over = 1;
+            r->winner = (a > c) ? 0 : 1;
+            book_frame(r, r->winner);
+            snprintf(r->msg, sizeof r->msg, "%d - %d", r->score[0], r->score[1]);
+            return;
+        }
+        /* AND IT CANNOT GO ON FOR EVER. Two players who cannot pot a ball
+         * between them tie every sudden-death frame at nought, and the rule as
+         * written then never lets go of the table — not a hypothetical, since
+         * that is exactly what a pair of idle seats does. So after twenty of
+         * them it is called a draw and the game ends without a winner, which
+         * speed pool already does when two clearances take the same time and
+         * which the host already knows how to show.
+         *
+         * This is OURS and not the BCA's: the book says play until one frame is
+         * better, full stop. A cap is a smaller departure from it than a table
+         * nobody can leave. */
+        r->bw_frame[0]++; r->bw_frame[1]++;
+        if (r->bw_frame[me] >= 30) {
+            r->frame_over = 1;
+            r->winner = -1;
+            snprintf(r->msg, sizeof r->msg, "DRAWN");
+            return;
+        }
+        r->bw_sd[0] = r->bw_sd[1] = 0xFF;
+        r->turn = you;
+        bw_fresh_rack(r);
+        snprintf(r->msg, sizeof r->msg, "LEVEL - AGAIN");
+        return;
+    }
+
+    /* THE TWO ALTERNATE FRAMES, so the striker hands over whenever the other
+     * player still has this frame to play — which, one behind or level, is
+     * whenever their card is not full. */
+    if (r->bw_frame[you] < 10) {
+        r->turn = you;
+        bw_fresh_rack(r);
+        return;
+    }
+    if (r->bw_frame[me] < 10) {               /* they have finished; play yours out */
+        bw_fresh_rack(r);
+        return;
+    }
+
+    /* Both cards are full. */
+    if (r->score[0] != r->score[1]) {
+        r->frame_over = 1;
+        r->winner = (r->score[0] > r->score[1]) ? 0 : 1;
+        book_frame(r, r->winner);
+        snprintf(r->msg, sizeof r->msg, "%d - %d", r->score[0], r->score[1]);
+        return;
+    }
+    r->bw_sd[0] = r->bw_sd[1] = 0xFF;
+    r->turn = you;
+    bw_fresh_rack(r);
+    snprintf(r->msg, sizeof r->msg, "TIED - SUDDEN DEATH");
+}
+
+/* What the card says, for a board that wants to draw one and for a test that
+ * wants to read one back. `inning` is nought-based, so the tenth frame's bonus
+ * deliveries are 1 and 2; -1 for an inning that has not been played. */
+int cue_rules_bw_pins(const CueRules *r, int who, int frame, int inning) {
+    if (!r || frame < 0 || frame > 9 || inning < 0 || inning > 2) return -1;
+    if (inning == 2 && frame != 9) return -1;
+    return bw_get(r, who, BW_SLOT(frame, inning));
+}
+
+/* The running total through `frame` (nought-based; pass 9 for the whole card).
+ * A frame still waiting on a strike's or a spare's bonus is not counted, which
+ * is why this can go backwards relative to the pins already down. */
+int cue_rules_bw_score(const CueRules *r, int who, int frame) {
+    if (!r || who < 0 || who > 1) return 0;
+    return bw_score(r, who, frame < 0 ? 0 : (frame > 9 ? 9 : frame));
+}
+
+/* ---- CRIBBAGE POOL --------------------------------------------------------
+ *
+ * Fifteen balls whose numbers are worth nothing on their own. What scores is a
+ * CRIBBAGE — two balls totalling fifteen, potted in succession inside one
+ * inning — and there are exactly seven of them in a rack: 1+14, 2+13, 3+12,
+ * 4+11, 5+10, 6+9 and 7+8. Five cribbages take the game and the rack is not
+ * played out once somebody has them. BCA rulebook 1992, pages 75 and 76;
+ * Shamos and the Wikipedia article agree with it on everything below that is
+ * not marked otherwise. The WPA has never sanctioned the game, which is why
+ * nothing here reads like the American games it sits beside.
+ *
+ * IN SUCCESSION IS THE WHOLE GAME. Pot the 4 and you are ON A CRIBBAGE: the
+ * next stroke must pot the 11, and there is no option to leave it and come back
+ * later. Fail and it is a foul — the 4 is spotted, the inning ends, and the pair
+ * has to be made again from nothing. Cribbages already completed are not
+ * touched; only the unpaired ball goes back. So a run here is short by
+ * construction, and the decision worth making is which ball to OPEN a pair
+ * with rather than which ball to pot.
+ *
+ * Both balls of a pair on one stroke is a cribbage as well — succession does
+ * not mean two strokes, it means nothing else got in between. Several balls on
+ * one stroke leave several pairs open at once, and the striker may take the
+ * companions in whichever order he likes so long as he keeps taking them;
+ * anything he pots on the way joins the list. See cr_owed in cue_rules.h.
+ *
+ * THE 15 IS THE BALL THE GAME TURNS ON, and it is worth being exact about why.
+ * It pairs with nothing — 15 plus anything is more than fifteen — so it can
+ * never start a cribbage, and potted while any other ball is still up it is
+ * simply spotted again with no penalty at all. Once the other fourteen are
+ * gone it is a cribbage on its own, which makes EIGHT in a rack rather than
+ * seven.
+ *
+ * That eighth is not a curiosity, it is the only thing that keeps the game
+ * finishable. Seven pairs split between two players cannot reach five and five;
+ * the best they can do is four and three. The 15 then takes the trailing player
+ * to four, and at four and four with an empty table neither player can ever
+ * score again — a rack that is not lost, not drawn and not playable, which is
+ * the failure this game invites and which looks from outside exactly like the
+ * frame having stopped for no reason. So an empty table with no winner spots
+ * the 15 and plays it again as the deciding cribbage, as often as it takes.
+ * It cannot go round for ever: with nothing else on the cloth the striker is on
+ * a cribbage by definition and must pot it, so a player who cannot fouls, and
+ * three fouls in a row loses the game.
+ *
+ * THE BREAK is an open break — a ball potted, or four object balls driven to a
+ * rail — and it is otherwise an ordinary stroke inside the breaker's own
+ * inning: what it pots counts and opens cribbages, and a scratch on it is a
+ * foul like any other. This is the opposite of bowlliards next door, where the
+ * break is free and scores nothing, and the two games are otherwise near
+ * neighbours; the difference is easy to carry across by accident.
+ *
+ * WHERE THE BOOK GIVES A CHOICE AND THIS CODE CANNOT ASK. Two places, both
+ * marked again where they happen. A failed open break lets the incoming player
+ * either re-rack and break himself or make the offender break again; a foul
+ * lets him either play the table as it lies or take the cue ball in hand in the
+ * kitchen. There is no mechanism here for putting a question to a player
+ * between strokes outside snooker's foul decisions, so one branch of each is
+ * taken and said so — the same thing resolve_pool does with heyball's choice of
+ * three.
+ */
+
+/* THE MATE THAT MAKES FIFTEEN, or nought for the ball that has none. Only the
+ * 15 has none, and that is the whole of what is special about it. */
+static int cr_mate(int id) { return (id >= 1 && id <= 14) ? 15 - id : 0; }
+
+/* The most balls one stroke can ever ask to have spotted is the fifteen, since
+ * a ball already off the table cannot also have been potted by this stroke. */
+#define CR_MAX_SPOT 16
+
+/* Name a ball to be spotted, keeping the list in ascending numerical order.
+ * That order is the rule book's and not a tidiness: spotted balls go on the
+ * foot spot and then one behind another up the long string, so the order they
+ * are named in decides which of them ends up where. */
+static void cr_spot(unsigned char *list, int *n, int id) {
+    if (id < 1 || id > 15) return;
+    if (*n >= CR_MAX_SPOT) { (*n)++; return; }
+    int i = *n;
+    while (i > 0 && list[i - 1] > (unsigned char)id) { list[i] = list[i - 1]; i--; }
+    list[i] = (unsigned char)id;
+    (*n)++;
+}
+
+/* Was `id` on the cloth when the striker addressed the ball? Still on it, or
+ * taken off by this very stroke — which is the same question and has to be
+ * asked of the two together, because the ball array has already been emptied by
+ * the time a resolver sees it. */
+static int cr_was_up(const CueBall *b, int n, const int *potted, int np, int id) {
+    for (int i = 1; i < n; i++)
+        if (b[i].id == id && b[i].on) return 1;
+    for (int k = 0; k < np; k++) if (potted[k] == id) return 1;
+    return 0;
+}
+
+static void resolve_cribbage(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                             int first_hit, int scratch, int cushion,
+                             const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    const int was_break = r->break_shot;
+    const int called_id = r->nominated, called_pkt = r->called_pocket;
+    r->break_shot = 0;
+    r->nominated = 0; r->called_pocket = -1;
+
+    unsigned char spot[CR_MAX_SPOT]; int nspot = 0;
+
+    /* WHAT HE CAME TO THE TABLE OWING, kept before the stroke is allowed to
+     * change it. The obligation is judged against the list he was ON, and the
+     * live list grows as this stroke's own pots are worked through it — so
+     * reading the obligation off the live list afterwards would let a stroke
+     * discharge a debt it had itself just created. */
+    unsigned char owed0[8];
+    const int nowed0 = (r->cr_nowed > 8) ? 8 : r->cr_nowed;
+    for (int i = 0; i < nowed0; i++) owed0[i] = r->cr_owed[i];
+
+    /* THE LONE 15 IS AN OBLIGATION TOO. With nothing else on the cloth there is
+     * nothing else to shoot at and the 15 is a cribbage in its own right, so
+     * the striker is on a cribbage whether he opened one or not. Without this
+     * the deciding stroke of a level game would be the one stroke in the game a
+     * player could miss for nothing, and two players missing it in turn is the
+     * deadlock coming back in through another door. */
+    int nup = 0;
+    for (int i = 1; i < n; i++) {
+        if (b[i].id < 1 || b[i].id > 15) continue;
+        if (cr_was_up(b, n, potted, np, b[i].id)) nup++;
+    }
+    const int lone15 = (nup == 1 && cr_was_up(b, n, potted, np, 15));
+
+    /* How many OBJECT balls went down, which is not np: the white is in that
+     * list too and it is replaced rather than spotted. */
+    int npo = 0;
+    for (int k = 0; k < np; k++) if (potted[k] != CUE_ID_CUE) npo++;
+
+    int foul = 0; const char *why = "";
+    if (first_hit < 0)         { foul = 1; why = "NO BALL HIT"; }
+    else if (scratch)          { foul = 1; why = "SCRATCH"; }
+    else if (r->n_off)         { foul = 1; why = "OFF THE TABLE"; }
+    else if (!npo && !cushion) { foul = 1; why = "NO CUSHION"; }
+
+    /* THE OPEN BREAK: a ball potted, or four object balls driven to a rail.
+     * Asked only of a break that was otherwise clean, exactly as the eight-ball
+     * codes ask it — a scratch on the break is already a foul and is priced as
+     * one, and a stroke cannot be both re-racked and paid for.
+     *
+     * NOT A FOUL, and the difference is the whole of the rule: nothing is owed,
+     * nobody's foul count moves, the balls simply go back. The book gives the
+     * incoming player a choice of re-racking and breaking himself or making the
+     * offender break again; the first is taken here because it is the one that
+     * cannot leave a player who has already shown he cannot open the rack
+     * trying to again, and there is nothing to ask him with. */
+    if (was_break && !foul && npo == 0 && brk_rails(w, n) < 4) {
+        r->rerack = 2; r->racks++;
+        r->last_foul = 0;
+        r->break_shot = 1;
+        r->turn = you;
+        r->ball_in_hand = 1;
+        r->cr_nowed = 0;
+        r->respot = 0;
+        r->brk = 0;
+        snprintf(r->msg, sizeof r->msg, "ILLEGAL BREAK - RE-RACK");
+        return;
+    }
+
+    if (foul) {
+        /* EVERY BALL THIS STROKE PUT DOWN WAS ILLEGALLY POTTED, so none of them
+         * counts and all of them go back on. That is the one place the general
+         * foul and the cribbage foul part company: a general foul makes the
+         * whole stroke illegal, while failing to pot a companion is a failure
+         * to do something in a stroke that was otherwise legal, and what such a
+         * stroke legally potted stands. */
+        for (int k = 0; k < np; k++)
+            if (potted[k] != CUE_ID_CUE) cr_spot(spot, &nspot, potted[k]);
+        for (int i = 0; i < (int)r->cr_nowed && i < 8; i++)
+            cr_spot(spot, &nspot, cr_mate(r->cr_owed[i]));
+        r->cr_nowed = 0;
+        goto penalty;
+    }
+
+    /* WAS THE CALL MADE? Ball and pocket, read the way bowlliards reads it: the
+     * ball has to be in the pocket it was named for, and a pocket of -1 is a
+     * stroke nobody named one for — the CPU's safeties arrive that way — so the
+     * ball then counts wherever it went.
+     *
+     * THE BREAK IS NOT CALLED, in this game as in every other that calls, and
+     * what drops on it counts and opens cribbages like any other stroke. Left
+     * out, a break that pots the 4 would spot it again and the open break would
+     * have satisfied itself by doing something the rules then undid. */
+    const int callshot = !was_break;
+    int made = 0;
+    for (int k = 0; k < np && called_id && !made; k++) {
+        if (potted[k] != called_id) continue;
+        const CueBall *q = find_ball(b, n, potted[k]);
+        if (!q || q->pocket == CUE_OFF_TABLE) continue;   /* driven off, not potted */
+        if (called_pkt < 0 || (int)q->pocket == called_pkt) made = 1;
+    }
+    /* A CALL ON THE 15 TOO EARLY IS NOT A CALL. The ball cannot count however
+     * cleanly it is potted, so a stroke whose only named ball was that one has
+     * named nothing, and the balls that came down with it are as uncalled as
+     * the ball itself. */
+    if (called_id == 15 && !lone15) made = 0;
+    const int counts = !callshot || made;
+
+    /* ---- what actually counted, lowest first ---------------------------- */
+    int cnt[16], ncnt = 0;
+    for (int k = 0; k < np; k++) {
+        const int id = potted[k];
+        if (id == CUE_ID_CUE) continue;
+        if (id == 15 && !lone15) { cr_spot(spot, &nspot, 15); continue; }
+        if (!counts)             { cr_spot(spot, &nspot, id); continue; }
+        int i = ncnt;
+        while (i > 0 && cnt[i - 1] > id) { cnt[i] = cnt[i - 1]; i--; }
+        cnt[i] = id; ncnt++;
+    }
+
+    /* ---- and what it did to the debt ------------------------------------ */
+    int scored = 0;
+    for (int i = 0; i < ncnt; i++) {
+        const int id = cnt[i];
+        if (id == 15) { scored++; continue; }        /* a cribbage on its own */
+        int at = -1;
+        for (int j = 0; j < (int)r->cr_nowed && j < 8; j++)
+            if (r->cr_owed[j] == id) { at = j; break; }
+        if (at >= 0) {
+            for (int j = at; j + 1 < (int)r->cr_nowed; j++)
+                r->cr_owed[j] = r->cr_owed[j + 1];
+            r->cr_nowed--;
+            scored++;
+        } else if (r->cr_nowed < 8) {
+            r->cr_owed[r->cr_nowed++] = (unsigned char)cr_mate(id);
+        }
+    }
+    r->score[me] += scored;
+
+    /* FIVE TAKES IT, THE MOMENT IT IS REACHED. The rack is not played out and
+     * the balls still on the cloth are not looked at — which is what makes the
+     * fifth cribbage worth setting up for rather than arriving at. */
+    if (r->score[me] >= r->target_score) {
+        r->respot = 0;
+        r->cr_nowed = 0;
+        r->last_foul = 0;
+        r->cfoul[me] = 0;
+        r->frame_over = 1; r->winner = me; book_frame(r, me);
+        snprintf(r->msg, sizeof r->msg, "GAME");
+        return;
+    }
+
+    /* DID HE POT WHAT HE WAS ON? Any one of the companions he owed will do —
+     * the striker chooses the order when several are open — but one of them has
+     * to arrive, and a cribbage completed out of a pair he opened on this very
+     * stroke does not answer for a pair he opened on the last one. */
+    if (nowed0 > 0 || lone15) {
+        int got = 0;
+        for (int i = 0; i < ncnt && !got; i++) {
+            /* Owing nothing and still under an obligation means the lone 15,
+             * and then the 15 is the only answer there is. */
+            if (nowed0 == 0) { if (cnt[i] == 15) got = 1; continue; }
+            for (int j = 0; j < nowed0; j++)
+                if (cnt[i] == owed0[j]) { got = 1; break; }
+        }
+        if (!got) {
+            /* THE UNPAIRED BALLS GO BACK, all of them: the inning ends here, so
+             * every pair still open is broken, including any this stroke opened
+             * itself. The ball to spot is the one already down, which is the
+             * MATE of what is owed — kept as one list rather than two, because
+             * two lists of the same seven pairs is two chances to disagree. */
+            for (int i = 0; i < (int)r->cr_nowed && i < 8; i++)
+                cr_spot(spot, &nspot, cr_mate(r->cr_owed[i]));
+            r->cr_nowed = 0;
+            foul = 1; why = "NO CRIBBAGE";
+            goto penalty;
+        }
+    }
+
+    /* ---- THE TIE-BREAK: an empty table that nobody has won ---------------
+     *
+     * Four and four, every pair made and the 15 with them, and not a ball left
+     * to play at. Spot the 15 and it is the deciding cribbage — see the block
+     * comment above for why this cannot be left to sort itself out. The striker
+     * keeps the table, because he can only have got here by scoring. */
+    {   int left = 0;
+        for (int i = 1; i < n; i++)
+            if (b[i].on && b[i].id >= 1 && b[i].id <= 15) left++;
+        if (left == 0 && nspot == 0) cr_spot(spot, &nspot, 15);
+    }
+
+    r->last_foul = 0;
+    r->cfoul[me] = 0;
+    r->ball_in_hand = 0;
+    r->respot = nspot;
+    for (int i = 0; i < 8; i++) r->respot_id[i] = (i < nspot) ? spot[i] : 0;
+
+    if (ncnt > 0) {
+        /* THE STRIKER PLAYS ON. He has either completed a cribbage or opened
+         * one, and either way there is something in front of him he must now
+         * do. An early 15 spotted alongside costs him nothing — it is not a
+         * foul, so there is nothing to hand the table over for. */
+        r->brk += scored;
+        if (r->cr_nowed == 1)
+            snprintf(r->msg, sizeof r->msg, "ON THE %d", r->cr_owed[0]);
+        else if (r->cr_nowed > 1)
+            snprintf(r->msg, sizeof r->msg, "%d TO PAIR", (int)r->cr_nowed);
+        else
+            snprintf(r->msg, sizeof r->msg, "CRIBBAGE - %d", r->score[me]);
+        return;
+    }
+
+    /* NOTHING DOWN AND NOTHING OWED: an ordinary miss, and the table passes
+     * without a penalty. The 15 taken early on its own arrives here, which is
+     * a decision rather than a reading — the books say it is spotted and there
+     * is no penalty, and are silent about the table. Keeping it would let a
+     * striker pot the same spotted ball for ever and never have to leave, which
+     * is not a rule anybody wrote down but is what "he keeps the table" comes
+     * to when the ball always comes back. */
+    r->brk = 0;
+    r->turn = you;
+    r->msg[0] = 0;
+    if (npo && !counts)     snprintf(r->msg, sizeof r->msg, "NOT AS CALLED");
+    else if (npo)           snprintf(r->msg, sizeof r->msg, "THE 15 - SPOTTED");
+    return;
+
+penalty:
+    /* A FOUL COSTS THE INNING AND NOTHING ELSE — no points come off, which is
+     * why this game has a three-foul rule at all: without one there would be no
+     * price for a player who simply could not reach the ball he owed.
+     *
+     * THE CUE BALL GOES TO THE KITCHEN. After a scratch or a ball off the table
+     * the book gives the incoming player no choice about it; after any other
+     * foul he may take that or play the table as it lies, and there is nothing
+     * here to ask him with. In hand is taken for both, which is what a player
+     * takes in most positions — but it is genuinely the weaker of the two when
+     * the balls are all at the foot end, so this is a choice made rather than a
+     * rule followed. */
+    r->respot = nspot;
+    for (int i = 0; i < 8; i++) r->respot_id[i] = (i < nspot) ? spot[i] : 0;
+    r->last_foul = 1;
+    r->brk = 0;
+    r->cfoul[me]++;
+    if (r->cfoul[me] >= 3) {
+        r->frame_over = 1; r->winner = you; book_frame(r, you);
+        snprintf(r->msg, sizeof r->msg, "3 FOULS - LOSS");
+        return;
+    }
+    r->turn = you;
+    r->ball_in_hand = 1;
+    snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+}
+
 /* ---- COWBOY POOL ---------------------------------------------------------
  *
  * Three balls — the 1, the 3 and the 5 — and a hundred and one points to be had
@@ -2125,10 +2946,30 @@ static void resolve_cowboy(CueRules *r, CueBall *b, int n, const CueWorld *w,
     }
     distinct = nseen;
 
+    /* HOW MANY OF THE THREE THE CUE BALL FOUND, which is the whole of what a
+     * cannon is worth here — and it is worth more off all three.
+     *
+     * Two balls is one point and THREE IS TWO, which the game scored as one.
+     * It is the only stroke in cowboy that pays double and it is the hardest
+     * one on the table, so losing it lost the shot players aim for: a pot of
+     * the 5 with a cannon off both the others is seven, and it was paying six.
+     *
+     * Worked out before the foul test because the foul test now needs it. */
+    const int cannon  = (distinct >= 2);
+    const int cannon2 = (distinct >= 3);
+
     int foul = 0; const char *why = "";
     if (first_hit < 0)        { foul = 1; why = "NO BALL HIT"; }
     else if (r->n_off)        { foul = 1; why = "OFF THE TABLE"; }
-    else if (!np && !cushion && !scratch) { foul = 1; why = "NO CUSHION"; }
+    /* A CANNON IS ITSELF THE STROKE, so it needs no cushion after it.
+     *
+     * The general rule — contact, then a pot or a rail — is the right one for
+     * a potting game, and cowboy stops being a potting game at ninety. Applied
+     * literally it fouled the shot the endgame is entirely made of: a delicate
+     * cannon off two balls that leaves everything where it lies touches no
+     * cushion by design, and calling that a foul made the last eleven points
+     * unplayable as they are meant to be played. */
+    else if (!np && !cushion && !scratch && !cannon) { foul = 1; why = "NO CUSHION"; }
 
     const int have = r->score[me];
     /* THE CEILING OF THE PHASE YOU ARE IN, and it is not 101 until the end.
@@ -2141,24 +2982,37 @@ static void resolve_cowboy(CueRules *r, CueBall *b, int n, const CueWorld *w,
 
     /* WHAT THE STROKE WAS WORTH, by the phase the striker is in. */
     int gain = 0;
-    const int cannon = (distinct >= 2);
+    /* One for two balls, two for all three — everywhere a cannon counts. */
+    const int cannon_pts = cannon2 ? 2 : cannon ? 1 : 0;
     if (!foul) {
         if (have >= 100) {
-            /* The last point: a cannon, and the 1 struck FIRST. */
+            /* The last point: a cannon, and the 1 struck FIRST. Worth one
+             * however many balls it found — the hundred-and-first is a single
+             * point by definition, and there is no hundred-and-second. */
             if (cannon && first_hit == 1) gain = 1;
         } else if (have >= 90) {
-            if (cannon) gain = 1;             /* cannons only from ninety */
+            gain = cannon_pts;                /* cannons only from ninety */
         } else {
             for (int k = 0; k < np; k++)
                 if (potted[k] >= 1 && potted[k] <= 5) gain += potted[k];
-            if (cannon)  gain += 1;
+            gain += cannon_pts;
             if (scratch) gain += 1;           /* an in-off is a point here */
         }
     }
 
     /* THE BALLS GO BACK, always — three balls that stayed down would end the
-     * game rather than the frame. */
+     * game rather than the frame.
+     *
+     * AND BY NAME. An unnamed respot means "any", which sends the host to
+     * respot_one — lowest id off the table, onto the foot spot. With one ball
+     * down that happens to be right; with two it puts them both at the foot
+     * end, and neither of them necessarily on its own spot. Cowboy's three
+     * balls are worth one, three and five and each has a spot of its own, so
+     * each is asked for by name and cue_table_respot_ball knows where it
+     * lives. */
     r->respot = np;
+    for (int k = 0; k < np && k < 8; k++)
+        r->respot_id[k] = (unsigned char)potted[k];
     if (scratch) r->ball_in_hand = 1;
 
     if (foul) {
@@ -3249,6 +4103,21 @@ void cue_rules_call_shot(CueRules *r, int ball_id, int pocket) {
     if (r->mode == CUE_GAME_STRAIGHT) {
         r->nominated = (ball_id >= 1 && ball_id <= 15) ? ball_id : 0;
         r->called_pocket = r->nominated ? pocket : -1;
+    } else if (r->mode == CUE_GAME_BOWLLIARDS) {
+        /* Ten balls, so ten legal names. Unconditional like straight pool's
+         * above rather than gated on call_shot_on: there is no bowlliards that
+         * does not call, so a switch for it would only be a way of turning the
+         * game off. */
+        r->nominated = (ball_id >= 1 && ball_id <= 10) ? ball_id : 0;
+        r->called_pocket = r->nominated ? pocket : -1;
+    } else if (r->mode == CUE_GAME_CRIBBAGE) {
+        /* All fifteen are nameable — including the 15, which cannot score early
+         * but can perfectly well be shot at and named. Unconditional like
+         * bowlliards' above rather than gated on call_shot_on: there is no
+         * cribbage pool that does not call, so a switch for it would only be a
+         * way of turning the game off. */
+        r->nominated = (ball_id >= 1 && ball_id <= 15) ? ball_id : 0;
+        r->called_pocket = r->nominated ? pocket : -1;
     } else if (r->mode == CUE_GAME_US10 && r->call_shot_on) {
         r->nominated = (ball_id >= 1 && ball_id <= 10) ? ball_id : 0;
         r->called_pocket = r->nominated ? pocket : -1;
@@ -3317,6 +4186,10 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
         resolve_speed(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_HONOLULU)
         resolve_honolulu(r, b, n, w, first_hit, scratch, cushion, potted, np);
+    else if (r->mode == CUE_GAME_BOWLLIARDS)
+        resolve_bowlliards(r, b, n, w, first_hit, scratch, cushion, potted, np);
+    else if (r->mode == CUE_GAME_CRIBBAGE)
+        resolve_cribbage(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_COWBOY)
         resolve_cowboy(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_BANKPOOL)
@@ -3398,6 +4271,38 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
      * pocket, and its number is the score. */
     /* Cowboy: the three balls on the table are all of them and all legal. */
     if (r->mode == CUE_GAME_COWBOY) return id == 1 || id == 3 || id == 5;
+    /* BOWLLIARDS: the rack is the 1 to the 10 and every one of them is on, in
+     * any order — the obligation is to SAY which, not to be told. Stopping at
+     * ten rather than fifteen matters more here than it looks: this function is
+     * how the planner learns what it may shoot at, and the five balls that are
+     * not in the game would otherwise be offered to it as targets that are not
+     * on the table. */
+    if (r->mode == CUE_GAME_BOWLLIARDS) return id >= 1 && id <= 10;
+    /* CRIBBAGE POOL: WHAT IS ON DEPENDS ENTIRELY ON WHAT YOU HAVE ALREADY DONE.
+     *
+     * This is how the planner learns the game, and it is the whole of what it
+     * is told. Having potted the 4 there is exactly one ball worth shooting at
+     * and it is the 11 — leave every ball legal and the machine plays a
+     * pleasant frame of pot-what-you-can, fouls on the second stroke of every
+     * pair it opens, and never scores. So the debt is the answer: on a cribbage
+     * only the companions owed are on, and with several owed the striker may
+     * pick any of them, which is the rule as written rather than a convenience.
+     *
+     * Off a cribbage the 15 is the one ball NOT on. It cannot start a pair, so
+     * a pot of it is a ball spotted and an inning thrown away — until it is the
+     * only ball left, and then it is the only ball on. */
+    if (r->mode == CUE_GAME_CRIBBAGE) {
+        if (id < 1 || id > 15) return 0;
+        if (r->cr_nowed) {
+            for (int i = 0; i < (int)r->cr_nowed && i < 8; i++)
+                if (r->cr_owed[i] == id) return 1;
+            return 0;
+        }
+        if (id != 15) return 1;
+        for (int i = 1; i < n; i++)
+            if (b[i].on && b[i].id >= 1 && b[i].id <= 14) return 0;
+        return 1;                       /* the deciding cribbage, on its own */
+    }
     if (r->mode == CUE_GAME_STRAIGHT ||
         r->mode == CUE_GAME_FIFTEEN ||
         r->mode == CUE_GAME_HONOLULU ||
@@ -3491,6 +4396,40 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
                      r->target_score, r->nominated);
         else
             snprintf(buf, cap, "%d/%d  SAFETY", r->score[r->turn], r->target_score);
+    } else if (r->mode == CUE_GAME_BOWLLIARDS) {
+        /* WHICH FRAME, WHICH INNING, AND THE TWO CARDS. There is no ball on to
+         * report — any of the ten will do — and the only thing a striker
+         * decides on is how much of the frame he has left, which is the inning
+         * he is in. The tenth's third delivery is a bonus and says so.
+         *
+         * The card total lags the pins on purpose: a frame waiting on a
+         * strike's bonus has no score yet, exactly as the blank box on a
+         * bowling sheet has none. */
+        const int fr = r->bw_frame[r->turn];
+        const char *inn = r->bw_inning >= 3 ? "BONUS"
+                        : r->bw_inning == 2 ? "2ND" : "1ST";
+        if (fr >= 10)
+            snprintf(buf, cap, "SUDDEN DEATH %s  %d - %d", inn,
+                     r->score[r->turn], r->score[1 - r->turn]);
+        else
+            snprintf(buf, cap, "FRAME %d %s   %d - %d", fr + 1, inn,
+                     r->score[r->turn], r->score[1 - r->turn]);
+    } else if (r->mode == CUE_GAME_CRIBBAGE) {
+        /* WHAT YOU ARE ON, because in this game that is the next stroke
+         * entirely: there is no choice about it and no safety to play instead,
+         * so a board that showed only the score would be leaving out the one
+         * thing the striker has to know. The race is carried with it — five
+         * cribbages, and the number is small enough that the gap between the
+         * two is the state of the game. */
+        const int me = r->score[r->turn], them = r->score[1 - r->turn];
+        if (r->cr_nowed == 1)
+            snprintf(buf, cap, "%d - %d   ON THE %d", me, them,
+                     (int)r->cr_owed[0]);
+        else if (r->cr_nowed > 1)
+            snprintf(buf, cap, "%d - %d   %d TO PAIR", me, them,
+                     (int)r->cr_nowed);
+        else
+            snprintf(buf, cap, "%d - %d  TO %d", me, them, r->target_score);
     } else if (r->mode == CUE_GAME_GOLF) {
         /* WHAT IS STILL BEING PLAYED FOR ON THIS HOLE.
          *

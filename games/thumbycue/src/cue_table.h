@@ -149,6 +149,24 @@ typedef enum {
     /* SPEED POOL: not a frame at all but a pair of attempts at the same task.
      * Clear the rack, and the clock is the score — lowest wins. */
     CUE_GAME_SPEED,
+    /* BOWLLIARDS: pocket billiards kept on a ten-pin bowling card. Ten object
+     * balls, ten frames, two innings a frame, and the pinfall carries a
+     * bowler's bonuses — a spare is worth ten and the next inning, a strike ten
+     * and the next two, and three hundred is the perfect game. A BCA rulebook
+     * game rather than a WPA one, which is why nothing about it reads like the
+     * rest of the American games here. Appended for the reason all of these
+     * are: the kind is stored in preferences and it crosses the wire. */
+    CUE_GAME_BOWLLIARDS,
+    /* CRIBBAGE POOL: the fifteen balls of a US rack, whose numbers matter only
+     * because they PAIR — the 1 with the 14, the 2 with the 13, down to the 7
+     * with the 8 — and potting a pair in succession is the whole game. Seven
+     * pairs, and the 15 that belongs to none of them is a cribbage on its own
+     * once the other fourteen are gone, which makes eight in a rack and is the
+     * only reason a level game can ever be decided. Five wins. A BCA rulebook
+     * game and never a WPA one, like bowlliards above it. Appended for the
+     * reason all of these are: the kind is stored in preferences and it crosses
+     * the wire. */
+    CUE_GAME_CRIBBAGE,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
@@ -1015,6 +1033,10 @@ float cue_table_spine_len(const CueTable *t);
  * when nobody has said otherwise. */
 Vec3 cue_table_foot_spot_dir(const CueTable *t, Vec3 *dir);
 Vec3 cue_table_foot_spot(const CueTable *t);
+/* WHERE COWBOY'S 1, 3 AND 5 BELONG — head spot, foot spot and centre. Asked
+ * both to lay the table out and to put a potted ball back, which is why it is
+ * one function: the two used to disagree. */
+Vec3 cue_table_cowboy_spot(const CueTable *t, int id);
 
 /* CAN THIS GAME BE RACKED ON THIS TABLE?
  *
