@@ -2553,6 +2553,27 @@ int cue_rules_bw_pins(const CueRules *r, int who, int frame, int inning) {
     return bw_get(r, who, BW_SLOT(frame, inning));
 }
 
+/* AND A CARD SET DIRECTLY, for a harness that wants to LOOK at one.
+ *
+ * A card is the one thing in this game that cannot be reached by playing: a
+ * full ten frames is a hundred-odd strokes of simulation, and the layout that
+ * draws it has to be checked against strikes, spares, an open tenth and a
+ * frame still waiting on its bonus — positions that take a particular run of
+ * luck to reach. So the deliveries can be written straight in.
+ *
+ * Deliberately NOT the way the game scores: this writes a delivery and asks no
+ * questions, where resolve_bowlliards decides whose inning it is, whether the
+ * frame is closed and what the pinfall was. Nothing in the game calls this and
+ * nothing should — it is here for the card's own sake, the way bw_pins is here
+ * for the board's. */
+void cue_rules_bw_set(CueRules *r, int who, int frame, int inning, int pins) {
+    if (!r || who < 0 || who > 1 || frame < 0 || frame > 9) return;
+    if (inning < 0 || inning > 2 || (inning == 2 && frame != 9)) return;
+    bw_put(r, who, BW_SLOT(frame, inning), pins);
+    r->score[0] = bw_score(r, 0, 9);
+    r->score[1] = bw_score(r, 1, 9);
+}
+
 /* The running total through `frame` (nought-based; pass 9 for the whole card).
  * A frame still waiting on a strike's or a spare's bonus is not counted, which
  * is why this can go backwards relative to the pins already down. */

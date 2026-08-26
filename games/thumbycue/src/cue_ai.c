@@ -2675,6 +2675,22 @@ static void plan_finalize(void) {
      * rattle-prone high-power variant just for a slightly better leave and misses
      * the pot. We want "good chance to pot AND good leave", never leave-at-any-cost. */
     float posAware = P.posAware; if (posAware > K_POSCAP) posAware = K_POSCAP;
+    /* POSITION IS THE GAME AT BOWLLIARDS, so it is weighted like it.
+     *
+     * Everywhere else the position weight is held down because a pot in hand
+     * beats a better angle you might not get — you are sharing the table, and a
+     * missed pot hands it over. Bowlliards is a rack cleared alone against a
+     * card, and the inning ends the moment a ball does not drop. Clearing ten
+     * is not ten pots, it is nine positions: the pot in front of you is worth
+     * nothing on its own if it leaves nothing after it.
+     *
+     * So the ceiling comes off — floored at the persona's own skill, never
+     * below it, so a weak player is still a weak player. Paired with the
+     * safety being switched off above: attempt everything, and choose between
+     * the attempts by where the cue ball finishes. */
+    if (c->r->mode == CUE_GAME_BOWLLIARDS) {
+        posAware = P.posAware > 0.85f ? P.posAware : 0.85f;
+    }
 
     /* A pot that a PERFECT strike does not sink is not a hard shot, it is the
      * wrong shot — nearly always a soft one carrying draw, where the tip put
@@ -2823,6 +2839,25 @@ static void plan_finalize(void) {
     float baseThresh = c->snooker ? 8.0f : 0.0f;
     float minConf = baseThresh + ((p->safety_bias + 30.0f) / 50.0f) * 40.0f;
     if (c->r->mode == CUE_GAME_GOLF) minConf = 0.0f;
+    /* NOR AT BOWLLIARDS, AND FOR THE SAME REASON TWICE OVER.
+     *
+     * A bowlliards frame is a rack the striker clears ON THEIR OWN, and the
+     * table never changes hands mid-frame — it passes when the inning ENDS,
+     * which is what a miss does. So a safety cannot protect anything: there is
+     * no opponent at the table to keep away from a pot, and playing safe
+     * spends the inning exactly as a missed pot spends it, having scored
+     * nothing where the pot might have.
+     *
+     * Worse than neutral, in fact. The card counts PINS, so a ball left on the
+     * table is a pin standing whatever the reason, and the frame's ceiling
+     * drops the moment the inning is thrown away deliberately. Take the pot,
+     * however thin: the worst a miss costs is the inning the safety was going
+     * to cost anyway, and a miss can still drop.
+     *
+     * See also the position weighting further down — with safety gone, the
+     * thing that separates a good bowlliards player from a lucky one is
+     * whether the cue ball finishes on the next ball, ten times running. */
+    if (c->r->mode == CUE_GAME_BOWLLIARDS) minConf = 0.0f;
     /* AND THERE IS NOTHING TO PLAY SAFE WITH AT CRIBBAGE POOL EITHER, once you
      * are ON a cribbage. The next stroke must pot the companion; a stroke that
      * does not is a foul whatever it was aimed at, so a deliberate safety buys

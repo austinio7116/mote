@@ -320,6 +320,75 @@ typedef struct {
      * on grass. */
     int golf_round;              /* CUE_GOLF_* below */
 
+    /* ---- BOWLLIARDS ------------------------------------------------------
+     *
+     * Pool kept on a ten-pin bowling card. Ten frames, two innings a frame, and
+     * the pinfall of each inning is what a bowler's card holds — because the
+     * bonuses are not properties of a frame at all: a spare is worth ten and
+     * THE NEXT INNING, a strike ten and THE NEXT TWO, so a frame cannot be
+     * scored until the two after it have been played. Nothing but the
+     * deliveries themselves is enough, which is why this is a card and not a
+     * running total.
+     *
+     * PACKED TWO TO A BYTE, and that is the wire's doing rather than a taste
+     * for bit fiddling. The whole of CueRules crosses the network once a shot
+     * and the packet is 768 bytes; the struct was already at 728 when this game
+     * arrived, so a card of one byte per delivery — twenty-one apiece, forty-two
+     * for the two players — would not have fitted and the packet would have had
+     * to grow under every other game to carry it. A pinfall is nought to ten
+     * and lives in a nibble with room over, so it does.
+     *
+     * The slot number is the DELIVERY number a bowling sheet would print:
+     * frame f owns slots 2f and 2f+1, and the tenth owns 18, 19 and 20 —
+     * twenty-one of them, which is the most a game can have. Fifteen means "not
+     * delivered", so a nought that was actually shot for is not confused with an
+     * inning that has not happened, and reading the card back is the whole of
+     * knowing where a frame stands.
+     *
+     * `bw_frame` is where each player's card has got to, 0..9 while there is
+     * still a card to fill and 10 once it is full. Ten also MEANS sudden death,
+     * and each further tied frame carries it on up — so it doubles as the count
+     * of roll-offs played, which is what the twenty-frame stop in
+     * resolve_bowlliards is measured against. It is per player because the two
+     * alternate frames and one of them is always a frame behind; `bw_inning` is
+     * not, because a frame is played out by one striker before the table changes
+     * hands, so there is only ever one inning in progress.
+     *
+     * `bw_sd` is the sudden-death frame's pinfall, which is played but never
+     * written to a card — there is no eleventh frame to put it in and the
+     * bonuses would have nothing to reach forward to, so the pins alone decide
+     * it. 0xFF for "has not played one yet". */
+    uint8_t bw_pins[2][11];      /* 21 deliveries, two nibbles to the byte */
+    uint8_t bw_frame[2];         /* 0..9, 10 for a full card, higher in sudden death */
+    uint8_t bw_inning;           /* 1..3 — the delivery in progress */
+    uint8_t bw_sd[2];            /* sudden-death pinfall, 0xFF = not yet */
+
+    /* ---- CRIBBAGE POOL ---------------------------------------------------
+     *
+     * A cribbage is two balls totalling fifteen, potted in succession inside
+     * one inning. Pot the first of a pair and you are ON A CRIBBAGE: the next
+     * stroke must pot the companion, there is no option to leave it, and
+     * failing is a foul that spots the unpaired ball and ends the inning.
+     *
+     * So the state of the game is not a score but a DEBT — which balls are
+     * still owed — and this is it. An entry is the id of a ball that must be
+     * potted; the ball already down is its companion, which is what makes
+     * spotting the unpaired ones on a foul a matter of reading 15 minus each
+     * entry rather than of keeping a second list.
+     *
+     * A LIST RATHER THAN A SINGLE BALL, because several can drop on one
+     * stroke. Pot the 4 and the 6 together and two cribbages are open at once;
+     * the striker may take the 11 or the 9 in whichever order he likes, but he
+     * must keep going until the list is empty, and anything he pots on the way
+     * joins it. Seven pairs is the most that can ever be open, so eight is a
+     * size that cannot be reached.
+     *
+     * It is not per player. The list is always empty when the table changes
+     * hands: an inning can only end with a foul, which clears it, or with a
+     * stroke that potted nothing while nothing was owed. */
+    uint8_t cr_owed[8];          /* companions still to be potted this inning */
+    uint8_t cr_nowed;            /* how many of them */
+
     /* 9-ball push-out (WPA) */
     int pushout_avail;   /* the next shot (first after the break) may be a push-out */
     int pushout_offer;   /* pending: ask the player at the table whether to push out */
@@ -562,6 +631,18 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
      * sport. Region 2 is the full-width rectangle behind the line. */
     if (r->mode == CUE_GAME_ROTATION)    return 2;
     if (r->mode == CUE_GAME_ROTATION_PH) return 1;
+    /* BOWLLIARDS puts the cue ball behind the head string every time it is in
+     * hand — for the break, for the second inning after a foul, and for the
+     * tenth frame's bonus deliveries — which is the same region 2 rotation
+     * uses and, here, is not a penalty at all: it is simply where a fresh rack
+     * is broken from. */
+    if (r->mode == CUE_GAME_BOWLLIARDS)  return 2;
+    /* CRIBBAGE POOL is behind the head string every time as well, and here it
+     * IS the penalty: a foul hands the incoming player the cue ball in the
+     * kitchen, so the balls at the foot end are a long way from where he has to
+     * start. The break is played from the same place, which is the only time it
+     * costs nothing. */
+    if (r->mode == CUE_GAME_CRIBBAGE)    return 2;
     /* Blackball: baulk — the full-width rectangle behind the line, not the D
      * (WPA Blackball 4c/4h). The value 2 is that region to the clamp. */
     if (r->mode == CUE_GAME_UK8)
@@ -621,6 +702,22 @@ void cue_rules_call_shot(CueRules *r, int ball_id, int pocket);
 /* Points that win the frame. 14.1 is played to a target across as many racks as
  * it takes — 150 in a world championship, 100 commonly, 50 here by default. */
 void cue_rules_set_target(CueRules *r, int points);
+
+/* ---- bowlliards: reading the card -------------------------------------- *
+ * The card is packed two deliveries to the byte to fit the wire, so nothing
+ * outside cue_rules.c should be picking at bw_pins itself. `frame` and
+ * `inning` are both nought-based; inning 2 exists only in the tenth. Returns
+ * the pinfall, or -1 for an inning that has not been played.
+ *
+ * The score is the bowler's, so a frame still waiting on a strike's or a
+ * spare's bonus contributes nothing yet — a blank box on a bowling sheet is
+ * not a zero. Pass 9 for the whole card. */
+int cue_rules_bw_pins(const CueRules *r, int who, int frame, int inning);
+int cue_rules_bw_score(const CueRules *r, int who, int frame);
+/* Write a delivery straight onto the card. For a harness that wants to LOOK at
+ * a card without playing a hundred strokes to reach one — see the note in
+ * cue_rules.c. The game itself never calls this. */
+void cue_rules_bw_set(CueRules *r, int who, int frame, int inning, int pins);
 /* Name the ball being taken as the free ball. Ignored unless one is awarded. */
 void cue_rules_nominate_free(CueRules *r, int id);
 
