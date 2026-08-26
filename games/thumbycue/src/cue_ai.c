@@ -2524,6 +2524,11 @@ static struct {
      * as much as any other, so doing them all in one go would stall exactly the
      * frame the player is watching the opponent get down on the shot. */
     BrkCand brk[40]; int brk_n, brk_i, brk_best_i; float brk_best;
+    /* EVERY CANDIDATE'S SCORE, not just the winning one — see the choice made
+     * at the end of the break search. A running best cannot answer "which of
+     * these were nearly as good", and that is the question a player actually
+     * asks when they break. */
+    float brk_sc[40]; Vec3 brk_end[40]; float brk_worst;
     int brk_want_first;
     /* Bar billiards runs its own search over its own candidates, spread over
      * ticks exactly as the break's is. `bb_probe` is the second pass: the few
@@ -4445,7 +4450,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
 
             for (int k = 0; k < ncand; k++) P.brk[k] = cand[k];
             P.brk_n = ncand; P.brk_i = 0;
-            P.brk_best = -1.0e30f; P.brk_best_i = -1;
+            P.brk_best = -1.0e30f; P.brk_best_i = -1; P.brk_worst = 1.0e30f;
             P.brk_want_first = want_first;
             P.phase = PH_BREAK;
             return;
@@ -5038,16 +5043,86 @@ int cue_ai_plan_tick(void) {
                    b->side, b->vert, &sim);
             float sc = break_score(c, c->r, c->b, c->n, &sim,
                                    P.brk_want_first, c->snooker);
-            if (sc > P.brk_best) { P.brk_best = sc; P.brk_best_i = P.brk_i;
-                                   s_brk_pred = sim.cue_end; s_brk_pred_ok = 1; }
+            if (P.brk_i < 40) { P.brk_sc[P.brk_i] = sc; P.brk_end[P.brk_i] = sim.cue_end; }
+            if (sc < P.brk_worst) P.brk_worst = sc;
+            if (sc > P.brk_best) { P.brk_best = sc; P.brk_best_i = P.brk_i; }
         }
         if (P.brk_i < P.brk_n) return 0;
 
         CueAIShot out; memset(&out, 0, sizeof out); out.target_pocket = -1;
+        /* NOT ALWAYS THE BEST ONE — one of the ones that were AS GOOD.
+         *
+         * This is the same-break-every-time bug, and seeding the generator
+         * properly did not cure it, because the seed was never what decided the
+         * break. The candidates are shuffled before simulating so that a weak
+         * player only samples a few of them; a STRONG one has a budget of
+         * `ncand * (0.18 + 0.82 * position)`, which at high skill is all of
+         * them. Try them all and the shuffle changes nothing: the same
+         * candidate scores highest and the same break gets played, launch after
+         * launch, with only the persona's hair of aim error between them.
+         *
+         * A real player does not do that. Several breaks off one rack are worth
+         * the same and they pick between them — by feel, by what they fancy,
+         * by what worked last time. So the choice is made among everything
+         * within a short reach of the best rather than by strict maximum.
+         *
+         * The band is a fraction of the observed SPREAD, so it is scale-free:
+         * it means "these were nearly as good as each other" whatever the units
+         * of break_score happen to be for this game. Where one break is
+         * genuinely better than the rest the spread is wide, the band admits
+         * only it, and the machine still plays the right shot. */
+        if (P.brk_best_i >= 0 && P.brk_n > 1) {
+            const int have = (P.brk_n < 40) ? P.brk_n : 40;
+            const float span = P.brk_best - P.brk_worst;
+            const float band = (span > 0.0f) ? span * 0.08f : 0.0f;
+            int near[40], nn = 0;
+            for (int k = 0; k < have; k++)
+                if (P.brk_sc[k] >= P.brk_best - band) near[nn++] = k;
+            if (nn > 1) {
+                int pick = (int)(rnd(P.rng) * (float)nn);
+                if (pick >= nn) pick = nn - 1;
+                P.brk_best_i = near[pick];
+            }
+        }
         if (P.brk_best_i >= 0) {
+            /* The prediction has to be the CHOSEN break's, not the highest
+             * scoring one's — the aiming line the opponent is shown comes from
+             * it, and showing where a shot we are not playing would finish is
+             * worse than showing nothing. */
+            if (P.brk_best_i < 40) {
+                s_brk_pred = P.brk_end[P.brk_best_i]; s_brk_pred_ok = 1;
+            }
             const BrkCand *b = &P.brk[P.brk_best_i];
             out.aim = b->aim; out.power01 = b->power;
             out.tip_side = b->side; out.tip_vert = b->vert;
+            /* AND A BREAK IS NEVER STRUCK TWICE THE SAME WAY.
+             *
+             * This is deliberate VARIATION, not error, and it is the half of
+             * the same-break bug that choosing among near-equals cannot reach.
+             * Where one candidate genuinely wins outright — which is the normal
+             * case for a strong player on a full rack — the band admits only
+             * that one, and a persona with no aim error then delivers it
+             * identically for ever. The Machine has line_acc 0.00 by design, so
+             * its break was the same break to the last decimal, every rack,
+             * every launch.
+             *
+             * There are two reasons to move it, and neither is "add noise for
+             * the sake of it". The first is that break_score is ONE simulation
+             * of the most chaotic event in the game: the gap between the top
+             * candidates is comfortably inside the error of that estimate, so
+             * insisting on the exact maximum is false precision. The second is
+             * that this is what players do — nobody stands there and reproduces
+             * a break to a tenth of a degree, and a break that cannot be
+             * predicted is worth something in itself.
+             *
+             * Small enough to keep the shot: a third of a degree and a few per
+             * cent of pace is the difference between one break and another off
+             * the same rack, not the difference between hitting it and missing.
+             * It is drawn from the caller's stream like everything else, so the
+             * same seed still reproduces the same break exactly. */
+            out.aim   += (rnd(P.rng) - 0.5f) * 2.0f * 0.35f * RAD;
+            out.power01 = clampf(out.power01 * (1.0f + (rnd(P.rng) - 0.5f) * 0.06f),
+                                 0.05f, 1.0f);
             /* The player's own accuracy, last, exactly as every other shot gets
              * it: the search finds the shot, the persona plays it. */
             out.aim += (rnd(P.rng) - 0.5f) * 2.0f * c->p->line_acc * RAD;
