@@ -910,6 +910,53 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     t->gap_side   = 2.60f * t->pr_side;
     t->facing_len = 0.80f * t->pr_corner;
 
+    /* ---- WHAT THIS TABLE IS DRESSED IN --------------------------------- *
+     *
+     * The fittings, as opposed to the shape. A pub table has chrome castings on
+     * its corners and dots on its rails; an American one has black mouldings
+     * and diamonds; a match snooker table has neither, because it has string
+     * pockets and a collector rail instead and neither of those is built yet.
+     *
+     * Written here rather than being offered as a preference, because it is
+     * what those tables ARE. The workshop lets you dress one you built however
+     * you like; a preset carries a whole CueTable, so it keeps what you chose.
+     *
+     * A LINER ON EVERYTHING WITH A DROP, for now. Cheap tables and dear ones
+     * all line the hole with something; what changes is what the corner casting
+     * is made of. Bar billiards is bored through open cloth with no rail round
+     * the holes, and carom has no pockets at all, so both get nothing. */
+    {   const int carom = (kind >= CUE_GAME_CAROM_STRAIGHT &&
+                           kind <= CUE_GAME_CAROM_4B) ||
+                          kind == CUE_GAME_CAROM_1C;
+        if (!carom && kind != CUE_GAME_BARBILLIARDS) {
+            t->furniture = CUE_FURN_LINER;
+            switch (kind) {
+            /* THE UK PUB TABLE and everything played on its bed: chrome on the
+             * corners, round dots on the rails. */
+            case CUE_GAME_UK8: case CUE_GAME_KILLER_UK:
+            case CUE_GAME_SNK6: case CUE_GAME_SNK3:
+            case CUE_GAME_GOLF:
+                t->furniture |= CUE_FURN_CORNERCAP | CUE_FURN_SIGHTS;
+                break;
+            /* THE AMERICAN BED and its long list of games: a black moulding on
+             * the corners, and diamonds rather than dots. */
+            case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
+            case CUE_GAME_KILLER_US: case CUE_GAME_KILLER_CN:
+            case CUE_GAME_CN8: case CUE_GAME_STRAIGHT:
+            case CUE_GAME_ONEPOCKET: case CUE_GAME_BANKPOOL:
+            case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
+            case CUE_GAME_FIFTEEN: case CUE_GAME_COWBOY:
+            case CUE_GAME_HONOLULU: case CUE_GAME_SPEED:
+            case CUE_GAME_BOWLLIARDS: case CUE_GAME_CRIBBAGE:
+                t->furniture |= CUE_FURN_CORNERCAP | CUE_FURN_CAP_BLACK
+                              | CUE_FURN_SIGHTS | CUE_FURN_DIAMONDS;
+                break;
+            /* Snooker, billiards and pyramid keep the liner and nothing else
+             * until the furniture they actually wear exists. */
+            default: break;
+            }
+        } }
+
     cue_table_normalise(t);
 }
 
@@ -1050,6 +1097,12 @@ static const CueTabField TAB_FIELDS[] = {
      * half to three times that: new worsted on a match table at one end, a
      * tired napped club cloth at the other. */
     TF(mu_r,            TF_F32, TF_SIM,  0.000f, 0.040f),
+    /* WHAT THE TABLE IS DRESSED IN. LOOK, not SIM: a liner in the drop and a
+     * casting on the corner are fittings, and no ball touches any of them, so
+     * this must not enter the hash two identical beds are matched by. Appended,
+     * like every field before it, which is what lets a file written without it
+     * still be read -- see cue_table_unpack. */
+    TF(furniture,       TF_I32, TF_LOOK, 0.0f, 255.0f),
 };
 #define TAB_NFIELD ((int)(sizeof TAB_FIELDS / sizeof TAB_FIELDS[0]))
 
@@ -1067,12 +1120,14 @@ static float tf_get(const CueTable *t, const CueTabField *f) {
     { unsigned short v; memcpy(&v, p, 2); return (float)v; }
 }
 
-static int tab_bytes(void) {
+static int tab_bytes_n(int nf) {
     int n = 4;
-    for (int i = 0; i < TAB_NFIELD; i++)
+    if (nf > TAB_NFIELD) nf = TAB_NFIELD;
+    for (int i = 0; i < nf; i++)
         n += (TAB_FIELDS[i].type == TF_U16) ? 2 : 4;
     return n;
 }
+static int tab_bytes(void) { return tab_bytes_n(TAB_NFIELD); }
 
 int cue_table_pack(const CueTable *t, unsigned char *out, int cap) {
     int need = tab_bytes();
@@ -1101,13 +1156,25 @@ int cue_table_pack(const CueTable *t, unsigned char *out, int cap) {
 int cue_table_unpack(CueTable *t, const unsigned char *in, int len) {
     if (!t || !in || len < 4) return 0;
     if (in[0] != CUE_TABLE_SPEC_VERSION) return 0;
-    if (in[1] != (unsigned char)TAB_NFIELD) return 0;
-    if (len < tab_bytes()) return 0;
+    /* A FILE WRITTEN BEFORE A FIELD WAS ADDED STILL DESCRIBES A TABLE.
+     *
+     * Every field this format has ever gained was APPENDED, so a shorter block
+     * is a PREFIX of a longer one: read what is there and leave the rest at the
+     * zero cue_table_init would have given it. Refusing outright -- which is
+     * what an exact count did -- threw away every table a player had built the
+     * first time the list grew, which is a high price for a field about what
+     * colour a pocket liner is.
+     *
+     * A LONGER block is refused, because that is a file from a future this code
+     * knows nothing about and guessing at it is worse than saying no. */
+    const int nf = (int)in[1];
+    if (nf > TAB_NFIELD) return 0;
+    if (len < tab_bytes_n(nf)) return 0;
 
     CueTable tmp;
     memset(&tmp, 0, sizeof tmp);
     int at = 4;
-    for (int i = 0; i < TAB_NFIELD; i++) {
+    for (int i = 0; i < nf; i++) {
         unsigned char *p = (unsigned char *)&tmp + TAB_FIELDS[i].off;
         if (TAB_FIELDS[i].type == TF_U16) {
             unsigned short v = (unsigned short)(in[at] | (in[at+1] << 8));

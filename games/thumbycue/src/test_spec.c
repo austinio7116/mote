@@ -120,7 +120,14 @@ int main(void) {
          * where every ball comes to rest, so two ends that disagree about it
          * are not playing the same frame. Zero means the engine's own 0.010,
          * which is what every table saved before it existed reads back as. */
-        ck(cue_table_field_count() == 58,
+        /* 59 with furniture, what the table is dressed in. LOOK, and not a
+         * close call: a liner in the drop and a casting on the corner are
+         * fittings that no ball touches, so two beds identical but for their
+         * trim are the same bed to play on and must hash alike. Zero means
+         * bare, which is what every table saved before it existed reads back
+         * as -- and now genuinely does, since unpack takes a shorter block as
+         * a prefix rather than refusing it. */
+        ck(cue_table_field_count() == 59,
            "field count unchanged (add a field -> decide if it is SIM, then update this)");
 
         /* And the playing numbers, one per kind of thing a table can be: its

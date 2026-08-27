@@ -226,7 +226,11 @@ typedef char cue_vr_first_in_range[(CUE_GAME_VR_FIRST <= CUE_GAME_COUNT) ? 1 : -
 /* What a table can be dressed in. See CueTable.furniture. */
 enum {
     CUE_FURN_LINER  = 1u << 0,   /* moulded liner in the pocket drops */
-    CUE_FURN_CHROME = 1u << 1,   /* chrome casting round the corner pockets */
+    CUE_FURN_CORNERCAP = 1u << 1,/* a casting round the corner pockets */
+    /* WHAT THAT CASTING IS MADE OF. Bright metal by default, which is the pub
+     * table's; set this and it is moulded black plastic instead, which is what
+     * an American table wears. Ignored without CUE_FURN_CORNERCAP. */
+    CUE_FURN_CAP_BLACK = 1u << 4,
     CUE_FURN_SIGHTS = 1u << 2,   /* sight dots along the rails */
     /* WHAT SHAPE THOSE DOTS ARE. Round is the pub table's; a diamond is the
      * American one, and a diamond has a long axis, which always points at the
