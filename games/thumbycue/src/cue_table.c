@@ -4158,6 +4158,14 @@ Vec3 cue_table_lay(const CueTable *t, float x, float across, Vec3 *dir) {
     return v3(x, 0.0f, across);
 }
 
+/* See cue_table.h. The renderer builds the rail plank to the first and bores it
+ * to the second; anything fitted to the table asks for them here. */
+float cue_table_rail_top(const CueTable *t) {
+    if (!t) return 0.0f;
+    return t->cushion_h * 1.30f + 0.085f * t->R;   /* rail_h + frame_lift */
+}
+float cue_table_bore_bot(void) { return -0.002f; }
+
 Vec3 cue_table_cue_home(const CueTable *t) {
     const float CUE_Y = (t->cue_R > 0.0f) ? t->cue_R : t->R;
     /* All games start OFF the centre line so a break naturally strikes the pack

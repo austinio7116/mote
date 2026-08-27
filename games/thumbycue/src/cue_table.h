@@ -223,6 +223,13 @@ typedef char cue_vr_first_in_range[(CUE_GAME_VR_FIRST <= CUE_GAME_COUNT) ? 1 : -
 /* Ball id conventions (shared by physics, render, rules).
  * Pool:    0 = cue, 1..7 solids, 8 = black, 9..15 stripes.
  * Snooker: 0 = cue, 1..15 reds, then the six colours below. */
+/* What a table can be dressed in. See CueTable.furniture. */
+enum {
+    CUE_FURN_LINER  = 1u << 0,   /* moulded liner in the pocket drops */
+    CUE_FURN_CHROME = 1u << 1,   /* chrome casting round the corner pockets */
+    CUE_FURN_SIGHTS = 1u << 2,   /* sight dots along the rails */
+};
+
 enum {
     CUE_ID_CUE = 0,
     CUE_ID_YELLOW = 20, CUE_ID_GREEN, CUE_ID_BROWN,
@@ -411,6 +418,23 @@ typedef struct {
      *   pocket_round = 0 → US pool (45° corner / 70° side facings)
      *   pocket_round = 1 → snooker/UK (tighter, more rounded). */
     int   pocket_round;
+    /* ---- THE FURNITURE THE TABLE IS DRESSED IN ------------------------- *
+     *
+     * The fittings, as opposed to the shape: a moulded liner in the drops, a
+     * chrome casting round the corners, sights along the rails. A property of
+     * the TABLE, exactly like pocket_round -- a pub table has chrome corners
+     * and sights and a match snooker table has neither, and that is not a
+     * preference, it is what those tables are. So each shipped bed sets its
+     * own in cue_table_init and the workshop offers them as rows; a preset
+     * carries a whole CueTable, so a table you build keeps what you dressed it
+     * in without another file learning a new field.
+     *
+     * NONE OF IT IS COLLIDED WITH. Every piece is built by the VR frame
+     * builder (cuevr_furn.c) and sits outside the mouth the ball goes through,
+     * so the handheld can ignore this word entirely and the physics never sees
+     * it. Room left in the bits for what snooker wants -- string pockets, and
+     * the collector rails a club table returns its balls along. */
+    unsigned furniture;
     float pr_corner, pr_side;   /* pocket hole radius (m) */
     /* THE HOLE CUT IN THE TIMBER, which is not the same measurement as the
      * mouth the ball goes through even though it started life equal to it. The
@@ -571,6 +595,24 @@ typedef struct {
     uint16_t cloth, rail, rail_top, spot;
     int nballs;
 } CueTable;
+
+/* ---- THE TWO HEIGHTS ANYTHING SITTING ON THE TABLE HAS TO KNOW ----------- *
+ *
+ * The top of the rail timber, and the bottom of the bore cut through it.
+ * Furniture -- a liner in a drop, a casting over a corner, a sight in a rail --
+ * is built to the table it is being fitted to, and both numbers come out of the
+ * cushion height and the ball.
+ *
+ * HERE RATHER THAN IN THE RENDERER, even though the renderer is what builds the
+ * timber to them, because they are facts about the TABLE and everything that
+ * needs them would otherwise have to link a software rasteriser to ask. The
+ * renderer calls these rather than keeping its own copy, so there is one source
+ * and a lowered cushion cannot leave a liner standing proud of its rail.
+ *
+ * Table space, metres, y up from the cloth. */
+float cue_table_rail_top(const CueTable *t);
+float cue_table_bore_bot(void);
+
 
 /* +1 for a right-handed L and -1 for a left-handed one: the factor every piece
  * of shape arithmetic multiplies its z by. ONE place says what the hand means

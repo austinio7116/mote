@@ -2444,7 +2444,11 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * hides the cushion back that now tucks under it (jaw_back runs the cushion
      * past the inner edge). A short inner riser closes the step down to rail_h. */
     const float frame_lift = 0.085f * t->R;
-    const float plank_y = rail_h + frame_lift;
+    /* ONE SOURCE. cue_render_rail_top is rail_h + frame_lift and is what the
+     * VR builder fits furniture to; taking it from there rather than repeating
+     * it is what stops a liner sitting proud of a rail somebody lowered. */
+    const float plank_y = cue_table_rail_top(t);
+    (void)frame_lift;
     float hx[CUE_MAX_POCKET], hz[CUE_MAX_POCKET], hr[CUE_MAX_POCKET];
     for (int p = 0; p < w->npocket; p++) {
         /* The TIMBER's bore: its own radius and its own setback along the
@@ -2461,7 +2465,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     }
     int nh = w->npocket;
     uint16_t wbore = shade565(woodt, 0.42f);   /* internal bore wall (in shadow) */
-    const float bore_bot = -0.002f;            /* bore wall reaches the bed; throat continues below */
+    const float bore_bot = cue_table_bore_bot();  /* bore wall reaches the bed; throat continues below */
     /* Inner-edge risers (the short wood lip dropping from the raised plank top to
      * rail_h along the mouth edge) are drawn INSIDE wood_plank_bored per wood
      * column, so they skip the pocket mouths (no wood line across the side
