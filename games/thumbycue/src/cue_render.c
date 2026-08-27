@@ -1406,17 +1406,44 @@ static void build_ring(const CueTable *t, const CueWorld *w,
         if (bl < 1e-6f) continue;
         bxn /= bl; bzn /= bl;
         float cx = bx[i] + bxn * (r / sn), cz = bz[i] + bzn * (r / sn);
-        const float cap = fillet_cap(t, w, cx, cz, r);
-        if (cap < r) {
-            r = cap;
-            if (r < 0.004f) {
-                if (s_ring_n < (int)(sizeof s_ring_x / sizeof s_ring_x[0])) {
-                    s_ring_x[s_ring_n] = bx[i]; s_ring_z[s_ring_n] = bz[i]; s_ring_n++;
+        /* KEEPING CLEAR OF THE DROP IS A SEARCH, not a subtraction.
+         *
+         * The centre moves WITH the radius -- it sits r/sin(A/2) back along the
+         * bisector -- so the clearance is not something you measure once at the
+         * radius you wanted and subtract. Measured there it read three quarters
+         * of a millimetre on a 9 ft, the corner was written off as impossible,
+         * and the table kept a square mitre and got no casting at all. A 33 mm
+         * fillet fits it perfectly well.
+         *
+         * Nor can you iterate r = clearance: a smaller r puts the centre nearer
+         * the VERTEX and so further from the drop, which is the opposite
+         * direction, and it collapses to nothing in one step.
+         *
+         * It is monotonic, though -- grow the fillet and its centre walks
+         * towards the pocket -- so bisect on "does this one clear". Twenty
+         * halvings of a rail's width is finer than a micron, and it is done
+         * once per corner per table, at any angle, without solving the
+         * quadratic a right angle happens to admit. */
+        {   float lo = 0.0f, hi = r;
+            #define FEASIBLE(rr) (fillet_cap(t, w, bx[i] + bxn * ((rr) / sn), \
+                                                   bz[i] + bzn * ((rr) / sn), \
+                                                   (rr)) >= (rr))
+            if (!FEASIBLE(hi)) {
+                for (int it = 0; it < 20; it++) {
+                    const float mid = 0.5f * (lo + hi);
+                    if (FEASIBLE(mid)) lo = mid; else hi = mid;
                 }
-                continue;
+                r = lo;
             }
-            cx = bx[i] + bxn * (r / sn); cz = bz[i] + bzn * (r / sn);
+            #undef FEASIBLE
         }
+        if (r < 0.004f) {
+            if (s_ring_n < (int)(sizeof s_ring_x / sizeof s_ring_x[0])) {
+                s_ring_x[s_ring_n] = bx[i]; s_ring_z[s_ring_n] = bz[i]; s_ring_n++;
+            }
+            continue;
+        }
+        cx = bx[i] + bxn * (r / sn); cz = bz[i] + bzn * (r / sn);
         const float back = r / tn;
         Fillet *f = &s_fil[s_nfil < ORING_MAX ? s_nfil : ORING_MAX - 1];
         f->vx = bx[i]; f->vz = bz[i];
