@@ -114,6 +114,19 @@ void cue_render_set_markings(int on);
  *
  * Off unless asked for. The VR build asks; the handheld has not. */
 void cue_render_set_corner_round(int on);
+
+/* ---- AND WHERE THOSE CORNERS ENDED UP ----------------------------------- *
+ *
+ * The arcs the rounding produced, in table space: centre, radius, and the span
+ * it was walked over. A chrome casting wrapping a corner has to sit on the very
+ * curve the timber was cut to, and working it out a second time in the builder
+ * that makes the casting is how chrome ends up a millimetre off the wood it is
+ * supposed to be wrapping -- so it is asked for instead.
+ *
+ * Valid after cue_render_build_table. Returns how many there are, which is zero
+ * when the rounding is off. */
+typedef struct { float cx, cz, r, a0, a1; } CueRenderArc;
+int cue_render_corner_arcs(const CueRenderArc **out);
 /* Bar billiards' skittles: whether the BAKED table mesh carries them. A
  * front-end that uploads the table once must turn them off and draw its own —
  * a skittle inside a static mesh cannot fall over. Default on. */

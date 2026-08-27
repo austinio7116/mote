@@ -1242,6 +1242,19 @@ static float  s_ring_z[ORING_MAX * (CORNER_SEGS + 2)];
 static int    s_ring_n;
 void cue_render_set_corner_round(int on) { s_corner_k = on ? 1.0f : 0.0f; }
 
+/* See cue_render.h. Copied out of the Fillet list rather than handing that over,
+ * so the builder cannot come to depend on the rest of it. */
+static CueRenderArc s_arc_out[ORING_MAX];
+int cue_render_corner_arcs(const CueRenderArc **out) {
+    for (int i = 0; i < s_nfil; i++) {
+        s_arc_out[i].cx = s_fil[i].cx; s_arc_out[i].cz = s_fil[i].cz;
+        s_arc_out[i].r  = s_fil[i].r;
+        s_arc_out[i].a0 = s_fil[i].a0; s_arc_out[i].a1 = s_fil[i].a1;
+    }
+    if (out) *out = s_arc_out;
+    return s_nfil;
+}
+
 /* How big a fillet may be before it starts eating a corner drop. The nearest
  * the arc comes to a bore is (distance between centres) - r, so this asks that
  * of every corner pocket and keeps the smallest answer. */

@@ -228,6 +228,12 @@ enum {
     CUE_FURN_LINER  = 1u << 0,   /* moulded liner in the pocket drops */
     CUE_FURN_CHROME = 1u << 1,   /* chrome casting round the corner pockets */
     CUE_FURN_SIGHTS = 1u << 2,   /* sight dots along the rails */
+    /* WHAT SHAPE THOSE DOTS ARE. Round is the pub table's; a diamond is the
+     * American one, and a diamond has a long axis, which always points at the
+     * cloth -- square across the rail it would read as a lozenge lying the
+     * wrong way and stop looking like a sight at all. Ignored without
+     * CUE_FURN_SIGHTS. */
+    CUE_FURN_DIAMONDS = 1u << 3,
 };
 
 enum {
