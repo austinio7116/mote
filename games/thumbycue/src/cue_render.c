@@ -1578,6 +1578,201 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
     }
 }
 
+/* ---- THE MITRE, ROUNDED --------------------------------------------------- *
+ *
+ * The outer corner of the rail ring was a right angle: two faces meeting at a
+ * vertical arris with a point of timber sticking out past the pocket. No table
+ * has ever been made like that.
+ *
+ * A FILLET, SET IN FROM THE CORNER. The first version struck the arc from the
+ * POCKET's centre, which sounds right -- the corner is round the pocket -- and
+ * is a trap: a circle about the pocket is tangent to a face at exactly one
+ * radius, so tangency fixes the radius and there is nothing left to choose. On
+ * these tables that radius is the whole corner setback, 112 mm on the 7 ft, and
+ * it takes far too much timber off.
+ *
+ * Put the centre the appropriate distance INSIDE the corner instead and the
+ * circle kisses both edges at ANY radius, because that is what a fillet is. For
+ * two faces meeting at an interior angle A the centre is r / sin(A/2) back
+ * along the bisector and the tangent points are r / tan(A/2) from the vertex
+ * along each edge -- which on a right angle is r*sqrt(2) and r, and on a
+ * hexagon's 120 degrees is 2r and r*sqrt(3). One formula, any shape.
+ *
+ * A LIST OF CORNERS, NOT THE TABLE'S EXTENTS. This was written against
+ * (+-ox, +-oz), which is only the corners of a rectangle. An L has five outer
+ * corners and an elbow, and a polygon has as many as it has sides. So the
+ * boundary is walked once per table, every vertex is measured, and the convex
+ * ones get a fillet.
+ *
+ * THE ELBOW STAYS SHARP. An L's reflex corner is an inside corner, and an
+ * inside corner of a table is a right angle -- there is nothing there to round
+ * off and a fillet struck at one would cut into the table rather than off it.
+ *
+ * OFF BY DEFAULT. The handheld draws this same mesh and has not asked for it;
+ * cue_render_set_corner_round is how the VR build turns it on. At 0 not a
+ * triangle moves. */
+#define CORNER_SEGS 14
+#define ORING_MAX   96
+#ifndef CUE_CORNER_FRAC
+#define CUE_CORNER_FRAC 0.42f   /* of the rail's own outer width */
+#endif
+
+typedef struct {
+    float vx, vz;      /* the sharp vertex it replaces */
+    float cx, cz;      /* the fillet's centre */
+    float r;
+    float a0, a1;      /* the arc, walked in boundary order */
+    float t0x, t0z;    /* where it leaves the incoming edge */
+    float t1x, t1z;    /* where it meets the outgoing one */
+} Fillet;
+
+static float s_corner_k;            /* 1 = filleted, 0 = the square mitre */
+static const CueWorld *s_cw;
+static Fillet s_fil[ORING_MAX];
+static int    s_nfil;
+static float  s_ring_x[ORING_MAX * (CORNER_SEGS + 2)];
+static float  s_ring_z[ORING_MAX * (CORNER_SEGS + 2)];
+static int    s_ring_n;
+void cue_render_set_corner_round(int on) { s_corner_k = on ? 1.0f : 0.0f; }
+
+/* How big a fillet may be before it starts eating a corner drop. The nearest
+ * the arc comes to a bore is (distance between centres) - r, so this asks that
+ * of every corner pocket and keeps the smallest answer. */
+static float fillet_cap(const CueTable *t, const CueWorld *w,
+                        float cx, float cz, float r) {
+    if (!w) return r;
+    for (int p = 0; p < w->npocket && p < CUE_MAX_POCKET; p++) {
+        if (w->pocket_mid[p] || w->pocket_bed[p]) continue;
+        const float bs = t->bore_set_corner;
+        const float px = w->pocket[p].x + w->pmnorm[p].x * bs;
+        const float pz = w->pocket[p].z + w->pmnorm[p].z * bs;
+        const float dx = px - cx, dz = pz - cz;
+        const float d = sqrtf(dx*dx + dz*dz);
+        const float cap = d - t->bore_corner - 0.002f;
+        if (cap < r) r = cap;
+    }
+    return r;
+}
+
+/* Fillet the convex vertices of a closed boundary, and remember both the arcs
+ * (for the faces below the rail) and the corners (for the timber on top).
+ *
+ * `bx`, `bz` walk the boundary with the material on the LEFT, which is what
+ * makes the cross product's sign the convexity test. */
+static void build_ring(const CueTable *t, const CueWorld *w,
+                       const float *bx, const float *bz, int nb, float want) {
+    s_nfil = 0; s_ring_n = 0;
+    if (nb < 3) return;
+    for (int i = 0; i < nb; i++) {
+        const int h = (i + nb - 1) % nb, j = (i + 1) % nb;
+        float ix = bx[i] - bx[h], iz = bz[i] - bz[h];   /* incoming */
+        float ox2 = bx[j] - bx[i], oz2 = bz[j] - bz[i]; /* outgoing */
+        const float il = sqrtf(ix*ix + iz*iz), ol = sqrtf(ox2*ox2 + oz2*oz2);
+        if (il < 1e-6f || ol < 1e-6f) continue;
+        ix /= il; iz /= il; ox2 /= ol; oz2 /= ol;
+        /* Walked with the material on the left, so an OUTSIDE corner turns
+         * left and the cross product is positive. An inside corner -- an L's
+         * elbow -- turns right and is left alone: there is nothing there to
+         * take off, and a fillet struck at one would cut into the table. */
+        const float crs = ix * oz2 - iz * ox2;
+        if (s_corner_k <= 0.0f || crs <= 1e-6f) {
+            if (s_ring_n < (int)(sizeof s_ring_x / sizeof s_ring_x[0])) {
+                s_ring_x[s_ring_n] = bx[i]; s_ring_z[s_ring_n] = bz[i]; s_ring_n++;
+            }
+            continue;
+        }
+        /* Interior angle between the two edges, and the fillet it admits. */
+        const float dot = -(ix * ox2 + iz * oz2);
+        float A = acosf(dot < -1.0f ? -1.0f : (dot > 1.0f ? 1.0f : dot));
+        const float half = A * 0.5f;
+        const float sn = sinf(half), tn = tanf(half);
+        if (sn < 1e-4f || tn < 1e-4f) continue;
+        float r = want;
+        /* never longer than half of either edge, or the arcs would overlap */
+        const float room = (il < ol ? il : ol) * 0.5f * tn;
+        if (r > room) r = room;
+        /* the bisector, into the material */
+        float bxn = -(ix - ox2), bzn = -(iz - oz2);
+        const float bl = sqrtf(bxn*bxn + bzn*bzn);
+        if (bl < 1e-6f) continue;
+        bxn /= bl; bzn /= bl;
+        float cx = bx[i] + bxn * (r / sn), cz = bz[i] + bzn * (r / sn);
+        const float cap = fillet_cap(t, w, cx, cz, r);
+        if (cap < r) {
+            r = cap;
+            if (r < 0.004f) {
+                if (s_ring_n < (int)(sizeof s_ring_x / sizeof s_ring_x[0])) {
+                    s_ring_x[s_ring_n] = bx[i]; s_ring_z[s_ring_n] = bz[i]; s_ring_n++;
+                }
+                continue;
+            }
+            cx = bx[i] + bxn * (r / sn); cz = bz[i] + bzn * (r / sn);
+        }
+        const float back = r / tn;
+        Fillet *f = &s_fil[s_nfil < ORING_MAX ? s_nfil : ORING_MAX - 1];
+        f->vx = bx[i]; f->vz = bz[i];
+        f->cx = cx; f->cz = cz; f->r = r;
+        f->t0x = bx[i] - ix * back;  f->t0z = bz[i] - iz * back;
+        f->t1x = bx[i] + ox2 * back; f->t1z = bz[i] + oz2 * back;
+        f->a0 = atan2f(f->t0z - cz, f->t0x - cx);
+        f->a1 = atan2f(f->t1z - cz, f->t1x - cx);
+        {   float d = f->a1 - f->a0;
+            while (d >  3.1415927f) d -= 6.2831853f;
+            while (d < -3.1415927f) d += 6.2831853f;
+            for (int k = 0; k <= CORNER_SEGS; k++) {
+                if (s_ring_n >= (int)(sizeof s_ring_x / sizeof s_ring_x[0])) break;
+                const float a = f->a0 + d * ((float)k / (float)CORNER_SEGS);
+                s_ring_x[s_ring_n] = cx + r * cosf(a);
+                s_ring_z[s_ring_n] = cz + r * sinf(a);
+                s_ring_n++;
+            }
+            f->a1 = f->a0 + d;
+        }
+        if (s_nfil < ORING_MAX) s_nfil++;
+    }
+}
+
+/* How far out the timber reaches along an outer edge.
+ *
+ * `v` runs ALONG the edge and `nominal` is the edge's own position across it --
+ * which is how the rectilinear planks above are built, so this only has to
+ * answer for faces that lie on an axis. Every fillet whose vertex sits on THIS
+ * face pulls it in over the span of its own arc; away from all of them the
+ * answer is the face itself, which is what leaves the straight rails and the
+ * handheld exactly as they were. */
+static float rail_out(float v, float nominal, int along_x) {
+    if (s_nfil == 0) return nominal;
+    float out = nominal;
+    for (int i = 0; i < s_nfil; i++) {
+        const Fillet *f = &s_fil[i];
+        const float fv  = along_x ? f->vx : f->vz;     /* vertex, along the edge */
+        const float fn  = along_x ? f->vz : f->vx;     /* vertex, across it */
+        if (fabsf(fn - nominal) > 1e-4f) continue;     /* not on this face */
+        const float cv  = along_x ? f->cx : f->cz;     /* centre, along */
+        const float cn  = along_x ? f->cz : f->cx;     /* centre, across */
+        const float d = v - cv;
+        if (fabsf(d) > f->r + 1e-4f) continue;         /* nowhere near the arc */
+        /* ONE SIDE OF THE CENTRE. The arc runs from the tangent point on THIS
+         * face -- which is directly across from the centre -- round to the
+         * tangent point on the next one, at the vertex end. Past the first of
+         * those the boundary is the straight edge again; taking the whole
+         * circle bowed every rail inward all the way down the table. */
+        if (d * (fv - cv) <= 0.0f && fabsf(d) > 1e-5f) continue;
+        /* CLAMPED, NOT SKIPPED, at the far end. A `>= r` bail here returned the
+         * straight edge exactly where the arc turns to meet the side face, so
+         * the timber kept its square corner for the last few millimetres and
+         * left a step standing proud of the curve below it. At the tangent
+         * point the height is zero, which is the answer, not a failure. */
+        float q = f->r * f->r - d * d;
+        if (q < 0.0f) q = 0.0f;
+        const float h = sqrtf(q);
+        const float lim = (nominal > cn) ? cn + h : cn - h;
+        if (nominal > cn) { if (lim < out) out = lim; }
+        else              { if (lim > out) out = lim; }
+    }
+    return out;
+}
+
 static void wood_plank_bored(float xa, float xb, float za, float zb,
                              float ytop, float ybot, uint16_t top, uint16_t wall,
                              const float *hx, const float *hz, const float *hr, int nh,
@@ -1597,9 +1792,34 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
     }
     /* wood top = plank minus the notch rectangles, split into x-columns at every
      * notch edge (so overlapping-x notches are both subtracted). */
-    float ex[2*CUE_MAX_POCKET + 2]; int ne = 0;
+    float ex[2*CUE_MAX_POCKET + 2 + 8*CORNER_SEGS + 8]; int ne = 0;
     ex[ne++] = xa; ex[ne++] = xb;
     for (int i = 0; i < ni; i++) { ex[ne++] = nx0[i]; ex[ne++] = nx1[i]; }
+    /* AND ENOUGH COLUMNS TO DRAW AN ARC WITH. The top face is built as
+     * x-columns, so a curved outer edge is simply a lot of columns whose outer
+     * end is a different number each time -- but only if the columns are there
+     * to begin with. Away from a rounded corner this adds nothing. */
+    /* OVER THE FILLET AND NOWHERE ELSE. The top face is built as x-columns, so
+     * a curved outer edge is a lot of columns whose outer end is a different
+     * number each time -- but only if the columns are there. Away from a
+     * rounded corner this adds nothing. */
+    if (s_nfil > 0 && axis == 0) {
+        for (int i = 0; i < s_nfil; i++) {
+            const Fillet *f = &s_fil[i];
+            if (fabsf(f->vz - za) > 1e-4f && fabsf(f->vz - zb) > 1e-4f) continue;
+            /* BY ANGLE, NOT BY x. Spaced evenly in x these bunched up where
+             * the arc runs across the rail and thinned out exactly where it
+             * turns to meet the side face -- which is where the boundary moves
+             * fastest, and it came out as a step. Walking the arc puts the
+             * columns where the curve actually needs them. */
+            for (int k = 0; k <= CORNER_SEGS * 2 && ne < (int)(sizeof ex / sizeof ex[0]); k++) {
+                const float a = f->a0 + (f->a1 - f->a0)
+                              * ((float)k / (float)(CORNER_SEGS * 2));
+                const float xx = f->cx + f->r * cosf(a);
+                if (xx > xa + 1e-5f && xx < xb - 1e-5f) ex[ne++] = xx;
+            }
+        }
+    }
     for (int i = 1; i < ne; i++) {                              /* sort x-edges */
         float e = ex[i]; int j = i-1;
         while (j >= 0 && ex[j] > e) { ex[j+1] = ex[j]; j--; }
@@ -1625,7 +1845,27 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
         float ix = rail_hi ? xa : xb;          /* x-plank inner (mouth) edge */
         for (int s = 0; s < ns; s++) {
             if (hi[s]-lo[s] <= 1e-4f) continue;
-            quad(v3(cx0,ytop,lo[s]), v3(cx1,ytop,lo[s]), v3(cx1,ytop,hi[s]), v3(cx0,ytop,hi[s]), top);
+            /* THE OUTER END OF THE COLUMN, WHICH IS NOT ALWAYS THE EDGE. On a
+             * z-rail the outer end is pulled in to the corner arc, and it is a
+             * different number at each side of the column -- which is what
+             * turns a run of columns into a curve rather than a staircase. */
+            float l0 = lo[s], l1 = lo[s], h0 = hi[s], h1 = hi[s];
+            if (axis == 0 && s_nfil > 0) {
+                if (rail_hi && hi[s] >= zb - 1e-4f) {
+                    h0 = rail_out(cx0, zb, 1);
+                    h1 = rail_out(cx1, zb, 1);
+                    if (h0 < lo[s] + 1e-4f && h1 < lo[s] + 1e-4f) continue;
+                    if (h0 < lo[s]) h0 = lo[s];
+                    if (h1 < lo[s]) h1 = lo[s];
+                } else if (!rail_hi && lo[s] <= za + 1e-4f) {
+                    l0 = rail_out(cx0, za, 1);
+                    l1 = rail_out(cx1, za, 1);
+                    if (l0 > hi[s] - 1e-4f && l1 > hi[s] - 1e-4f) continue;
+                    if (l0 > hi[s]) l0 = hi[s];
+                    if (l1 > hi[s]) l1 = hi[s];
+                }
+            }
+            quad(v3(cx0,ytop,l0), v3(cx1,ytop,l1), v3(cx1,ytop,h1), v3(cx0,ytop,h0), top);
             /* inner-edge riser — only where wood actually reaches the mouth edge,
              * so pocket mouths stay open (no wood line across the side pockets). */
             if (ylow < ytop) {
@@ -2464,6 +2704,47 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         hr[p] = is_mid ? t->bore_side : t->bore_corner;
     }
     int nh = w->npocket;
+    s_cw = w;
+    /* THE OUTER BOUNDARY, ONCE, WITH ITS CONVEX CORNERS FILLETED.
+     *
+     * The rail ring's outline for the shape at hand -- a rectangle's four, an
+     * L's six with the elbow among them -- walked with the material on the
+     * left so build_ring can tell an outside corner from an inside one. The
+     * radius is a fraction of the rail's own width, so it is in proportion on a
+     * 7 ft and on a 12. */
+    {   const float want = (oz - hw) * CUE_CORNER_FRAC;
+        float bx[8], bz[8]; int nb = 0;
+        if (t->bed_shape == CUE_BED_RECT) {
+            bx[0]=-ox; bz[0]=-oz;  bx[1]= ox; bz[1]=-oz;
+            bx[2]= ox; bz[2]= oz;  bx[3]=-ox; bz[3]= oz;  nb = 4;
+        } else if (t->bed_shape == CUE_BED_L) {
+            /* The L's six, in the order its planks are built in, and mirrored
+             * by the same hand they are -- a table may turn either way. The
+             * elbow is the one inside corner and build_ring leaves it sharp.
+             *
+             * A mirrored polygon is walked the other way round, and the whole
+             * convexity test is which way it turns, so the mirrored one is
+             * REVERSED as well: otherwise every outside corner reads as an
+             * inside one and a left-handed L gets no fillets at all. */
+            const float nxo2 = (hl - nx) + fw, nzo2 = (hw - nz) + fw;
+            const float hh = cue_table_hand(t);
+            bx[0]=-ox;   bz[0]=-oz   * hh;
+            bx[1]= ox;   bz[1]=-oz   * hh;
+            bx[2]= ox;   bz[2]= nzo2 * hh;
+            bx[3]= nxo2; bz[3]= nzo2 * hh;
+            bx[4]= nxo2; bz[4]= oz   * hh;
+            bx[5]=-ox;   bz[5]= oz   * hh;
+            nb = 6;
+            if (hh < 0.0f) {
+                for (int a = 0, b = nb - 1; a < b; a++, b--) {
+                    float tx = bx[a], tz = bz[a];
+                    bx[a] = bx[b]; bz[a] = bz[b];
+                    bx[b] = tx;    bz[b] = tz;
+                }
+            }
+        }
+        build_ring(t, w, bx, bz, nb, want);
+    }
     uint16_t wbore = shade565(woodt, 0.42f);   /* internal bore wall (in shadow) */
     const float bore_bot = cue_table_bore_bot();  /* bore wall reaches the bed; throat continues below */
     /* Inner-edge risers (the short wood lip dropping from the raised plank top to
@@ -2702,13 +2983,19 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         wood_plank_bored( nxi, nxo, ZLO(nzi, oz), ZHI(nzi, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, face_low, wlip); /* beside the notch */
         wood_plank_bored(-ox,  nxo, ZLO(ibz, oz), ZHI(ibz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(1), face_low, wlip); /* top, short leg */
         wood_plank_bored(-ox, -ibx, ZLO(-oz, oz), ZHI(-oz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 0, face_low, wlip); /* left */
-        /* the skirt, round the same six sides */
-        quad(v3( ox,plank_y,ZH(-oz)), v3(-ox,plank_y,ZH(-oz)), v3(-ox,0,ZH(-oz)), v3( ox,0,ZH(-oz)), wood);
-        quad(v3( ox,plank_y,ZH(nzo)), v3( ox,plank_y,ZH(-oz)), v3( ox,0,ZH(-oz)), v3( ox,0,ZH(nzo)), wood);
-        quad(v3(nxo,plank_y,ZH(nzo)), v3( ox,plank_y,ZH(nzo)), v3( ox,0,ZH(nzo)), v3(nxo,0,ZH(nzo)), wood);
-        quad(v3(nxo,plank_y,ZH( oz)), v3(nxo,plank_y,ZH(nzo)), v3(nxo,0,ZH(nzo)), v3(nxo,0,ZH( oz)), wood);
-        quad(v3(-ox,plank_y,ZH( oz)), v3(nxo,plank_y,ZH( oz)), v3(nxo,0,ZH( oz)), v3(-ox,0,ZH( oz)), wood);
-        quad(v3(-ox,plank_y,ZH(-oz)), v3(-ox,plank_y,ZH( oz)), v3(-ox,0,ZH( oz)), v3(-ox,0,ZH(-oz)), wood);
+        /* THE SKIRT, AS ONE CLOSED WALK. Six flat faces, each ending at a
+         * sharp vertex, cannot agree about where a rounded corner stops -- the
+         * two that meet there both claim it. build_ring already walked this
+         * outline and filleted its five outside corners (the elbow is an
+         * inside corner and stays sharp), so the skirt is that walk swept to
+         * the floor and there is only one answer. */
+        for (int i = 0; i < s_ring_n; i++) {
+            const int j = (i + 1) % s_ring_n;
+            quad(v3(s_ring_x[i], plank_y, s_ring_z[i]),
+                 v3(s_ring_x[j], plank_y, s_ring_z[j]),
+                 v3(s_ring_x[j], 0.0f,    s_ring_z[j]),
+                 v3(s_ring_x[i], 0.0f,    s_ring_z[i]), wood);
+        }
         #undef ZH
         #undef ZLO
         #undef ZHI
@@ -2718,10 +3005,17 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     wood_plank_bored(-ox, ox, -oz, -ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 0, face_low, wlip); /* -z */
     wood_plank_bored(ibx, ox, -ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, face_low, wlip); /* +x */
     wood_plank_bored(-ox,-ibx,-ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 0, face_low, wlip); /* -x */
-    quad(v3(-ox,plank_y,oz), v3(ox,plank_y,oz), v3(ox,0,oz), v3(-ox,0,oz), wood);
-    quad(v3(ox,plank_y,-oz), v3(-ox,plank_y,-oz), v3(-ox,0,-oz), v3(ox,0,-oz), wood);
-    quad(v3(ox,plank_y,oz), v3(ox,plank_y,-oz), v3(ox,0,-oz), v3(ox,0,oz), wood);
-    quad(v3(-ox,plank_y,-oz), v3(-ox,plank_y,oz), v3(-ox,0,oz), v3(-ox,0,-oz), wood);
+    {   /* ONE closed walk, swept to the floor -- so the faces cannot disagree
+         * about where a rounded corner ends, because there is only one of
+         * them. See build_ring. */
+        for (int i = 0; i < s_ring_n; i++) {
+            const int j = (i + 1) % s_ring_n;
+            quad(v3(s_ring_x[i], plank_y, s_ring_z[i]),
+                 v3(s_ring_x[j], plank_y, s_ring_z[j]),
+                 v3(s_ring_x[j], 0.0f,    s_ring_z[j]),
+                 v3(s_ring_x[i], 0.0f,    s_ring_z[i]), wood);
+        }
+    }
     }
 
     /* Pockets = circular VOIDS you look down into. The bed is already cut at

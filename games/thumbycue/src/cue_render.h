@@ -99,6 +99,21 @@ int  cue_render_captured_nose(void);
  * off: with both, the line is drawn twice — one following the cloth under the
  * cushion nose and one standing proud of it. */
 void cue_render_set_markings(int on);
+
+/* ---- THE OUTER CORNER OF THE RAIL, CURVED ROUND THE POCKET -------------- *
+ *
+ * A right-angled mitre with a point of timber past the pocket is not a table
+ * anybody has made. The corner becomes an arc struck from the POCKET's own
+ * centre, tangent to both outer faces -- so it comes off one straight edge and
+ * onto the other with no corner in it, and the ring of timber round a corner
+ * drop is a constant width, which is what a chrome corner cap needs to sit on.
+ *
+ * There is no radius to pass. Tangency fixes it, and the corner drop is set
+ * back along the 45 degree diagonal on every table here, so the same number
+ * touches both faces.
+ *
+ * Off unless asked for. The VR build asks; the handheld has not. */
+void cue_render_set_corner_round(int on);
 /* Bar billiards' skittles: whether the BAKED table mesh carries them. A
  * front-end that uploads the table once must turn them off and draw its own —
  * a skittle inside a static mesh cannot fall over. Default on. */
