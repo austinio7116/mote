@@ -82,15 +82,24 @@ static const char *k_cloth_name[CUE_NCLOTH] = {
 
 /* ---- frame / rail wood — browns through blacks & greys ------------------ *
  * Each entry is the side (shadowed) rail colour plus the lit top edge. */
-#define CUE_NFRAME 7
+/* TOURNAMENT is the deep oxblood on the match tables -- read off a Wuhan Open
+ * frame -- CHOSEN by rendering eight candidates and picking, not named from
+ * memory, which produced something two to three times too light twice over
+ * before anybody looked at a render. CUEVR_RAILRGB exists so a wood can be
+ * matched against a photograph without a rebuild per shade. Appended, not inserted: the index is a saved
+ * preference and a packed table field, so putting it anywhere else would
+ * restain every table anybody has already built. */
+#define CUE_NFRAME 8
 static const uint16_t k_frame_rail[CUE_NFRAME] = {
     RGB565C(96,54,26),   RGB565C(150,110,60), RGB565C(110,40,30), RGB565C(64,38,22),
-    RGB565C(28,26,28),   RGB565C(60,62,68),   RGB565C(120,124,130) };
+    RGB565C(28,26,28),   RGB565C(60,62,68),   RGB565C(120,124,130),
+    RGB565C(20,7,10) };
 static const uint16_t k_frame_top[CUE_NFRAME] = {
     RGB565C(128,78,38),  RGB565C(185,145,90), RGB565C(145,65,45), RGB565C(94,58,36),
-    RGB565C(54,50,52),   RGB565C(96,98,104),  RGB565C(168,171,178) };
+    RGB565C(54,50,52),   RGB565C(96,98,104),  RGB565C(168,171,178),
+    RGB565C(40,14,19) };
 static const char *k_frame_name[CUE_NFRAME] = {
-    "WALNUT","OAK","MAHOGANY","WENGE","EBONY","CHARCOAL","SILVER" };
+    "WALNUT","OAK","MAHOGANY","WENGE","EBONY","CHARCOAL","SILVER","TOURNAMENT" };
 
 /* ---- ball sets --------------------------------------------------------- */
 #define CUE_NBALLSET 10

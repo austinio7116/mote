@@ -17,7 +17,15 @@ enum { CUE_SFX_STRIKE = 0, CUE_SFX_CLACK, CUE_SFX_CUSHION, CUE_SFX_POT, CUE_SFX_
         * it — menu picks, decision screens, the cue meeting a ball it may not
         * push through. Giving UI a sample to make the clock audible made every
         * one of those beep, which was reported inside a day. */
-       CUE_SFX_KLAXON, CUE_SFX_BEEP };
+       CUE_SFX_KLAXON, CUE_SFX_BEEP,
+       /* A STRING POCKET'S TWO SOUNDS, back again and at the END for the same
+        * reason as the two above. They were dropped when every table in the VR
+        * game had a lined drop -- and a lined drop does sound the same whatever
+        * hits it, so that was right. The snooker table has a bag now, and a bag
+        * does not: the net gives, and it catches a ball rolling in gently quite
+        * differently from one arriving at pace. The samples were already in the
+        * tree, converted from 2dpool and unused by anything. */
+       CUE_SFX_SOFTPOT, CUE_SFX_HARDPOT, CUE_SFX_N };
 
 void cue_audio_init(void);
 void cue_audio_set_volume(int vol_0_20);

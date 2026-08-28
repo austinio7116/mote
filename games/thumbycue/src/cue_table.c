@@ -951,8 +951,17 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
                 t->furniture |= CUE_FURN_CORNERCAP | CUE_FURN_CAP_BLACK
                               | CUE_FURN_SIGHTS | CUE_FURN_DIAMONDS;
                 break;
-            /* Snooker, billiards and pyramid keep the liner and nothing else
-             * until the furniture they actually wear exists. */
+            /* THE FULL-SIZE SNOOKER BEDS wear what a club table wears: string
+             * bags hung on leather-wrapped pocket plates, and the wire
+             * collector each drop returns its ball along. NO LINER -- that is a
+             * moulded plastic lip for a drop that ends in a tray, and there is
+             * nothing here for one to line. */
+            case CUE_GAME_SNK15: case CUE_GAME_SNK10:
+            case CUE_GAME_BILLIARDS:
+                t->furniture = CUE_FURN_NETS | CUE_FURN_COLLECTOR;
+                break;
+            /* Billiards and pyramid keep the liner and nothing else until the
+             * furniture they actually wear exists. */
             default: break;
             }
         } }

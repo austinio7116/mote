@@ -786,6 +786,11 @@ static void build_bed_boundary(const CueTable *t, const CueWorld *w, CueBnd *B) 
  * point on the pocket floor, and a fan converging on a point is a spray of long
  * thin triangles, visible across the mouth of every pocket as spokes. Below it
  * the frame's tray closes the table off, so it needs no floor. */
+/* Six separate planks rather than one bored ring -- see cue_render_set_rail_split.
+ * Declared up here because the pocket lip needs it too: a netted drop opens all
+ * the way through and wants no dark cylinder standing inside it. */
+static int s_rail_split;
+
 static void emit_lip_run(const CueTable *t, Vec3 *ring0, const Vec3 *nrm,
                          int cnt, float ld, int M, int closed)
 {
@@ -807,6 +812,14 @@ static void emit_lip_run(const CueTable *t, Vec3 *ring0, const Vec3 *nrm,
         }
         for (int k = 0; k < cnt; k++) ring0[k] = ring1[k];
     }
+    /* AND THE DARK CYLINDER BELOW IT, which a netted table does not have.
+     *
+     * On a table with a floor the cloth rolls over the cut and then a dark wall
+     * carries the eye down to it, and that is right. Here the drop opens all
+     * the way through and a bag hangs in it: the wall is a black cylinder
+     * standing behind the pocket plate with the net inside it. The ribbon stops
+     * where it stops turning, and the net starts there. */
+    if (!s_rail_split)
     {   uint16_t dark = s_is_snooker ? RGB565C(34, 30, 20) : RGB565C(3, 4, 4);
         float fy = s_is_snooker ? -0.105f : -0.055f;
         for (int k = 0; k < last; k++) {
@@ -1041,7 +1054,9 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
                 nrm[k] = v3(wind * dz / l, 0, -wind * dx / l);
                 ring0[k] = s_bnd.p[i + k];
             }
-            emit_lip_run(t, ring0, nrm, cnt, w->lip_d[p] * lscale, M, 0);
+            emit_lip_run(t, ring0, nrm, cnt,
+                         w->lip_d[p] * lscale,
+                         M, 0);
         }
         i = j;
     }
@@ -1272,7 +1287,6 @@ static float s_rail_gap_mid;  /* ...and short of a middle one, which is not the 
  * a slot cut in it. A club snooker table is not a ring at all: six separate
  * planks, square ends, nothing in the corners. Deciding it off the gap alone
  * would have rebuilt every pool table's rail as well. */
-static int s_rail_split;
 void cue_render_set_rail_split(int on) { s_rail_split = on ? 1 : 0; }
 void cue_render_set_corner_round(int on) { s_corner_k = on ? 1.0f : 0.0f; }
 /* TWO NUMBERS, because the two kinds of drop are bridged by different things
@@ -1999,6 +2013,20 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
     }
 }
 
+/* An axis-aligned box: six faces, wound outward. `top` colours the up face and
+ * `side` the other five. */
+static void box6(float x0, float x1, float y0, float y1, float z0, float z1,
+                 uint16_t top, uint16_t side)
+{
+    if (x1 <= x0 || z1 <= z0 || y1 <= y0) return;
+    quad(v3(x0,y1,z0), v3(x1,y1,z0), v3(x1,y1,z1), v3(x0,y1,z1), top);   /* up */
+    quad(v3(x0,y0,z1), v3(x1,y0,z1), v3(x1,y0,z0), v3(x0,y0,z0), side);  /* down */
+    quad(v3(x0,y1,z1), v3(x1,y1,z1), v3(x1,y0,z1), v3(x0,y0,z1), side);  /* +z */
+    quad(v3(x1,y1,z0), v3(x0,y1,z0), v3(x0,y0,z0), v3(x1,y0,z0), side);  /* -z */
+    quad(v3(x1,y1,z1), v3(x1,y1,z0), v3(x1,y0,z0), v3(x1,y0,z1), side);  /* +x */
+    quad(v3(x0,y1,z0), v3(x0,y1,z1), v3(x0,y0,z1), v3(x0,y0,z0), side);  /* -x */
+}
+
 static void wood_plank_bored(float xa, float xb, float za, float zb,
                              float ytop, float ybot, uint16_t top, uint16_t wall,
                              const float *hx, const float *hz, const float *hr, int nh,
@@ -2173,6 +2201,13 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
             }
         }
     }
+    /* A SPLIT RAIL HAS NO BORES TO FILL. Its planks are built short and stop
+     * clear of every drop, so any pocket that still overlaps one does so by a
+     * sliver at its very end -- and bore_fill answers that with a wall of dark
+     * timber standing behind the pocket plate, which is the black box you can
+     * see through the gap. On a netted table the drop opens all the way
+     * through; there is nothing to line it with. */
+    if (s_rail_split) return;
     for (int i = 0; i < ni; i++) {                              /* bore EACH pocket */
         if (ngap[i]) {
             /* A CUT PLANK HAS TWO ENDS. Take the timber out and leave nothing
@@ -3397,39 +3432,19 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
             pk[np2].za = -zs; pk[np2].zb = zs;
             pk[np2].axis = 1; pk[np2].hi = !end; np2++;
         }
+        /* SIX FACES EACH, and nothing cleverer.
+         *
+         * These went through wood_plank_bored, which builds a top out of
+         * x-columns so a bored ring can follow an arc -- and then adds risers,
+         * lips and bore walls for the ring it is no longer part of. A plank
+         * with square ends and no hole in it is a BOX, and columned it came out
+         * with pieces missing at the ends where a column landed on nothing.
+         *
+         * The shape and position are exactly as before: same extents, same
+         * top, same depth to the cloth line. */
         for (int i = 0; i < np2; i++) {
-            wood_plank_bored(pk[i].xa, pk[i].xb, pk[i].za, pk[i].zb, plank_y,
-                             bore_bot, woodt, wbore, hx, hz, hr, nh,
-                             pk[i].axis, pk[i].hi, face_low, wlip);
-            /* THE OUTER FACE AND THE TWO ENDS, this plank's own. The ring walk
-             * that normally supplies the outside is gone with the corners. */
-            const float xa2 = pk[i].xa, xb2 = pk[i].xb;
-            const float za2 = pk[i].za, zb2 = pk[i].zb;
-            const float zo = pk[i].hi ? zb2 : za2;      /* outer edge, z-plank */
-            const float xo = pk[i].hi ? xb2 : xa2;      /* outer edge, x-plank */
-            if (pk[i].axis == 0) {
-                if (pk[i].hi)
-                    quad(v3(xa2, plank_y, zo), v3(xb2, plank_y, zo),
-                         v3(xb2, 0.0f,    zo), v3(xa2, 0.0f,    zo), wood);
-                else
-                    quad(v3(xb2, plank_y, zo), v3(xa2, plank_y, zo),
-                         v3(xa2, 0.0f,    zo), v3(xb2, 0.0f,    zo), wood);
-                quad(v3(xa2, plank_y, za2), v3(xa2, plank_y, zb2),
-                     v3(xa2, 0.0f,    zb2), v3(xa2, 0.0f,    za2), woodt);
-                quad(v3(xb2, plank_y, zb2), v3(xb2, plank_y, za2),
-                     v3(xb2, 0.0f,    za2), v3(xb2, 0.0f,    zb2), woodt);
-            } else {
-                if (pk[i].hi)
-                    quad(v3(xo, plank_y, zb2), v3(xo, plank_y, za2),
-                         v3(xo, 0.0f,    za2), v3(xo, 0.0f,    zb2), wood);
-                else
-                    quad(v3(xo, plank_y, za2), v3(xo, plank_y, zb2),
-                         v3(xo, 0.0f,    zb2), v3(xo, 0.0f,    za2), wood);
-                quad(v3(xb2, plank_y, za2), v3(xa2, plank_y, za2),
-                     v3(xa2, 0.0f,    za2), v3(xb2, 0.0f,    za2), woodt);
-                quad(v3(xa2, plank_y, zb2), v3(xb2, plank_y, zb2),
-                     v3(xb2, 0.0f,    zb2), v3(xa2, 0.0f,    zb2), woodt);
-            }
+            box6(pk[i].xa, pk[i].xb, 0.0f, plank_y, pk[i].za, pk[i].zb,
+                 woodt, wood);
         }
     } else {
     wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, face_low, wlip); /* +z */
