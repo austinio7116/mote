@@ -231,6 +231,17 @@ enum {
      * table's; set this and it is moulded black plastic instead, which is what
      * an American table wears. Ignored without CUE_FURN_CORNERCAP. */
     CUE_FURN_CAP_BLACK = 1u << 4,
+    /* ---- WHAT A SNOOKER TABLE WEARS INSTEAD ---------------------------- *
+     *
+     * A string bag hung under each drop on a metal loop with the leather
+     * wrapped over it, and -- on a club table -- three bent rails under the
+     * cushions that the bags empty onto, so every ball ends up at one end.
+     *
+     * NETS OPEN THE POCKET UP. The table's floor is a funnel that closes every
+     * drop off from underneath; a bag needs the drop to go all the way through,
+     * so it takes the funnel's place rather than hanging inside it. */
+    CUE_FURN_NETS      = 1u << 5,
+    CUE_FURN_COLLECTOR = 1u << 6,
     CUE_FURN_SIGHTS = 1u << 2,   /* sight dots along the rails */
     /* WHAT SHAPE THOSE DOTS ARE. Round is the pub table's; a diamond is the
      * American one, and a diamond has a long axis, which always points at the

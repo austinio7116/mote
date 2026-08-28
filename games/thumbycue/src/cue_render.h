@@ -115,6 +115,17 @@ void cue_render_set_markings(int on);
  * Off unless asked for. The VR build asks; the handheld has not. */
 void cue_render_set_corner_round(int on);
 
+/* ---- THE CUSHION RAIL IS SECTIONS, NOT A BORED RING --------------------- *
+ *
+ * A real table's rails are separate lengths bolted to the slate, with a GAP at
+ * every drop that the cast pocket plate bridges -- the plate is screwed across
+ * the ends of both sections, which is what it is for. `g` is how far either
+ * side of a pocket the timber stops. Zero draws the one-piece bored ring this
+ * has always drawn, so the handheld is untouched unless it asks. */
+void cue_render_set_rail_gap(float g, float g_mid);
+/* Six separate planks rather than a bored ring — see cue_render.c. */
+void cue_render_set_rail_split(int on);
+
 /* ---- AND WHERE THOSE CORNERS ENDED UP ----------------------------------- *
  *
  * The arcs the rounding produced, in table space: centre, radius, and the span

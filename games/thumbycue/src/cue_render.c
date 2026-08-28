@@ -1240,7 +1240,51 @@ static int    s_nfil;
 static float  s_ring_x[ORING_MAX * (CORNER_SEGS + 2)];
 static float  s_ring_z[ORING_MAX * (CORNER_SEGS + 2)];
 static int    s_ring_n;
+/* WHERE THE TIMBER IS ACTUALLY MISSING, in world x/z.
+ *
+ * Cutting the gap out of the plank's TOP is only half of it: the frame's outer
+ * skirt is one closed walk swept round the whole table, and it went on running
+ * round the corner arc through a gap the plank no longer had -- so the drop had
+ * a lump of rounded mitre still filling it and the cut planks had no end grain,
+ * just an open edge you could see into. The skirt has to be broken in the same
+ * places, and the two ends have to be capped, and both need to know where the
+ * gaps ARE. Recorded as the plank cuts them and read by the sweep below. */
+#define GAP_MAX (CUE_MAX_POCKET * 4)
+static float s_gapx0[GAP_MAX], s_gapx1[GAP_MAX];
+static float s_gapz0[GAP_MAX], s_gapz1[GAP_MAX];
+static int   s_ngaps;
+static int in_rail_gap(float x, float z) {
+    /* A hair of slop, so a ring vertex sitting exactly on a cut edge falls on
+     * the missing side of it rather than leaving a sliver of skirt behind. */
+    const float e = 0.002f;
+    for (int i = 0; i < s_ngaps; i++)
+        if (x > s_gapx0[i] - e && x < s_gapx1[i] + e &&
+            z > s_gapz0[i] - e && z < s_gapz1[i] + e) return 1;
+    return 0;
+}
+
+static float s_rail_gap;   /* how far short of a corner drop the rail stops */
+static float s_rail_gap_mid;  /* ...and short of a middle one, which is not the same */
+/* AND WHETHER THIS RAIL IS SIX PLANKS OR A RING WITH HOLES IN IT.
+ *
+ * NOT the same question as whether there is a gap. A pool table with corner
+ * castings has gaps and is still one mitred ring of timber -- the plate bridges
+ * a slot cut in it. A club snooker table is not a ring at all: six separate
+ * planks, square ends, nothing in the corners. Deciding it off the gap alone
+ * would have rebuilt every pool table's rail as well. */
+static int s_rail_split;
+void cue_render_set_rail_split(int on) { s_rail_split = on ? 1 : 0; }
 void cue_render_set_corner_round(int on) { s_corner_k = on ? 1.0f : 0.0f; }
+/* TWO NUMBERS, because the two kinds of drop are bridged by different things
+ * and one of them is often bridged by nothing. A table with corner castings
+ * wants its corners cut and its middles whole; a table with bag nets wants
+ * every drop cut, because the leather bridges all six. Deciding that in here
+ * off pocket_mid was the callee guessing at the caller's furniture, and it left
+ * a hole you could see the room through at every middle. */
+void cue_render_set_rail_gap(float g, float g_mid) {
+    s_rail_gap     = g     > 0.0f ? g     : 0.0f;
+    s_rail_gap_mid = g_mid > 0.0f ? g_mid : 0.0f;
+}
 
 /* See cue_render.h. Copied out of the Fillet list rather than handing that over,
  * so the builder cannot come to depend on the rest of it. */
@@ -1281,7 +1325,7 @@ static float fillet_cap(const CueTable *t, const CueWorld *w,
  * makes the cross product's sign the convexity test. */
 static void build_ring(const CueTable *t, const CueWorld *w,
                        const float *bx, const float *bz, int nb, float want) {
-    s_nfil = 0; s_ring_n = 0;
+    s_nfil = 0; s_ring_n = 0; s_ngaps = 0;
     if (nb < 3) return;
     for (int i = 0; i < nb; i++) {
         const int h = (i + nb - 1) % nb, j = (i + 1) % nb;
@@ -1963,14 +2007,83 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
      * can share the same x-range (the two corners of a short rail). */
     float nx0[CUE_MAX_POCKET], nx1[CUE_MAX_POCKET], nz0[CUE_MAX_POCKET], nz1[CUE_MAX_POCKET];
     int   pid[CUE_MAX_POCKET]; int ni = 0;
+    /* WHICH NOTCHES ARE GAPS, so they do not get filled straight back in.
+     *
+     * A notch is normally a rectangle taken out so the timber round the bore
+     * can be rebuilt properly -- bore_fill puts back everything in it that is
+     * not the hole. A GAP is the opposite: the rectangle is meant to stay
+     * empty, because the rail genuinely stops there and a bridge spans it.
+     * Running both through the same list meant every gap was cut and then
+     * immediately filled, which is why the triangle count moved, the column
+     * pass reported the top face removed, and the picture never changed. */
+    int   ngap[CUE_MAX_POCKET];
     for (int h = 0; h < nh; h++) {
         if (hz[h]+hr[h] <= za || hz[h]-hr[h] >= zb) continue;
         float a = hx[h]-hr[h], b = hx[h]+hr[h];
+        float c = hz[h]-hr[h], d = hz[h]+hr[h];
+        /* ---- A RAIL IS SECTIONS WITH GAPS, NOT ONE PIECE WITH HOLES -------
+         *
+         * A table is not built by boring a ring of timber. The cushion rails
+         * are separate lengths bolted onto the slate -- six of them on a
+         * full-size bed, two down each long side split at the middle pocket
+         * and one across each end -- and between them, at every drop, there is
+         * a GAP. What bridges that gap is the pocket plate: the cast surround
+         * is screwed down across the ends of both sections, which is what it is
+         * FOR. It is a bridge, not a trim piece laid on top.
+         *
+         * Drawn as one bored ring the timber runs on past every pocket and the
+         * surround has nothing to fill, so it sits on solid wood looking stuck
+         * on -- which is exactly how it read.
+         *
+         * The notch machinery already takes a rectangle out of a plank. A gap
+         * is the same rectangle taken out full width. */
+        /* ONLY WHERE SOMETHING BRIDGES IT. A gap with no plate over it is a
+         * hole you can see the room through, which is what the middles came
+         * out as -- the casting is built at the corners and nothing was
+         * spanning the middles. A pocket with no plate keeps its bored ring. */
+        int is_gap = 0;
+        {   const int is_mid = (s_cw && s_cw->pocket_mid[h]);
+            const float g = is_mid ? s_rail_gap_mid : s_rail_gap;
+            /* CUT ACROSS THE PLANK'S OWN LENGTH, whichever way it runs.
+             *
+             * a/b are always x here and c/d always z, and a gap written only
+             * in x cuts the side rails and does nothing at all to the end
+             * ones -- their length IS z, so a = hx - g landed off the end of
+             * the plank and was thrown away by the clamp below. That is why
+             * the end rails stayed in one piece while the triangle count
+             * dropped: half the gaps were being computed and discarded.
+             *
+             * A plank running in z also has to ask whether the pocket is
+             * anywhere near it in x, which for a side plank the x clamp did
+             * for free and here has to be asked outright. */
+            if (g > 0.0f && !s_rail_split && s_cw && !s_cw->pocket_bed[h]) {
+                if (axis == 0) {
+                    a = hx[h] - g; b = hx[h] + g;
+                    c = za; d = zb; is_gap = 1;
+                } else if (hx[h] + hr[h] > xa && hx[h] - hr[h] < xb) {
+                    c = hz[h] - g; d = hz[h] + g;
+                    a = xa; b = xb; is_gap = 1;
+                }
+                /* A CORNER IS CUT TO THE END OF THE PLANK, not to a gap either
+                 * side of it. There is no rail beyond a corner drop -- the
+                 * plank simply finishes -- so taking a symmetric slot out left
+                 * a block of timber stranded outboard of the cut, which is the
+                 * lump still filling every corner when you look straight down
+                 * at one. A middle has rail both ways and does want the slot. */
+                if (is_gap && !is_mid) {
+                    if (axis == 0) { if (hx[h] < 0.0f) a = xa; else b = xb; }
+                    else           { if (hz[h] < 0.0f) c = za; else d = zb; }
+                }
+            }
+        }
         if (a < xa) a = xa; if (b > xb) b = xb;
         if (b <= a + 1e-5f) continue;
-        float c = hz[h]-hr[h], d = hz[h]+hr[h];
         if (c < za) c = za; if (d > zb) d = zb;
-        nx0[ni]=a; nx1[ni]=b; nz0[ni]=c; nz1[ni]=d; pid[ni]=h; ni++;
+        if (is_gap && s_ngaps < GAP_MAX) {
+            s_gapx0[s_ngaps] = a; s_gapx1[s_ngaps] = b;
+            s_gapz0[s_ngaps] = c; s_gapz1[s_ngaps] = d; s_ngaps++;
+        }
+        nx0[ni]=a; nx1[ni]=b; nz0[ni]=c; nz1[ni]=d; pid[ni]=h; ngap[ni]=is_gap; ni++;
     }
     /* wood top = plank minus the notch rectangles, split into x-columns at every
      * notch edge (so overlapping-x notches are both subtracted). */
@@ -2060,9 +2173,34 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
             }
         }
     }
-    for (int i = 0; i < ni; i++)                                /* bore EACH pocket */
+    for (int i = 0; i < ni; i++) {                              /* bore EACH pocket */
+        if (ngap[i]) {
+            /* A CUT PLANK HAS TWO ENDS. Take the timber out and leave nothing
+             * across the cut and you are looking into the inside of the board:
+             * the top is gone, the outer face is gone with the skirt, and what
+             * is left is an open edge with the undercut showing through it as a
+             * dark wedge. These are the end grain, and they are what the
+             * bridge is bolted to. */
+            if (axis == 0) {
+                if (nx0[i] > xa + 1e-4f)
+                    quad(v3(nx0[i], ytop, nz0[i]), v3(nx0[i], ytop, nz1[i]),
+                         v3(nx0[i], 0.0f, nz1[i]), v3(nx0[i], 0.0f, nz0[i]), top);
+                if (nx1[i] < xb - 1e-4f)
+                    quad(v3(nx1[i], ytop, nz1[i]), v3(nx1[i], ytop, nz0[i]),
+                         v3(nx1[i], 0.0f, nz0[i]), v3(nx1[i], 0.0f, nz1[i]), top);
+            } else {
+                if (nz0[i] > za + 1e-4f)
+                    quad(v3(nx1[i], ytop, nz0[i]), v3(nx0[i], ytop, nz0[i]),
+                         v3(nx0[i], 0.0f, nz0[i]), v3(nx1[i], 0.0f, nz0[i]), top);
+                if (nz1[i] < zb - 1e-4f)
+                    quad(v3(nx0[i], ytop, nz1[i]), v3(nx1[i], ytop, nz1[i]),
+                         v3(nx1[i], 0.0f, nz1[i]), v3(nx0[i], 0.0f, nz1[i]), top);
+            }
+            continue;                                           /* a gap stays a gap */
+        }
         bore_fill(hx[pid[i]], hz[pid[i]], hr[pid[i]], nx0[i], nx1[i], nz0[i], nz1[i],
                   ytop, ybot, top, wall, axis, rail_hi);
+    }
 }
 
 /* ---- cloth markings (baulk line / D / spots) -------------------------- */
@@ -3136,6 +3274,9 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * because the faces above were wound Q->P. */
         for (int i = s_ring_n - 1; i >= 0; i--) {
             const int j = (i + s_ring_n - 1) % s_ring_n;
+            /* BROKEN WHERE THE PLANKS ARE. See in_rail_gap. */
+            if (in_rail_gap(s_ring_x[i], s_ring_z[i]) ||
+                in_rail_gap(s_ring_x[j], s_ring_z[j])) continue;
             quad(v3(s_ring_x[i], plank_y, s_ring_z[i]),
                  v3(s_ring_x[j], plank_y, s_ring_z[j]),
                  v3(s_ring_x[j], 0.0f,    s_ring_z[j]),
@@ -3191,6 +3332,9 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * the floor and there is only one answer. */
         for (int i = 0; i < s_ring_n; i++) {
             const int j = (i + 1) % s_ring_n;
+            /* BROKEN WHERE THE PLANKS ARE. See in_rail_gap. */
+            if (in_rail_gap(s_ring_x[i], s_ring_z[i]) ||
+                in_rail_gap(s_ring_x[j], s_ring_z[j])) continue;
             quad(v3(s_ring_x[i], plank_y, s_ring_z[i]),
                  v3(s_ring_x[j], plank_y, s_ring_z[j]),
                  v3(s_ring_x[j], 0.0f,    s_ring_z[j]),
@@ -3200,6 +3344,93 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         #undef ZLO
         #undef ZHI
         #undef RHI
+    } else if (s_rail_split && s_rail_gap > 0.0f) {
+        /* ---- A SPLIT RAIL: SIX PLANKS THAT NEVER TOUCH -----------------
+         *
+         * A DIFFERENT FRAME, not the usual one with holes in it.
+         *
+         * Every other table's rail is a continuous ring of timber with the
+         * drops bored through it, and the four corners are one piece of wood
+         * mitred round. A club snooker table is not built that way at all: it
+         * is six separate planks, each with two square ends, and what holds
+         * them together at the drops is the pocket plate. There is no timber
+         * in a corner to cut away, because none was ever put there.
+         *
+         * I built this first as a notch taken out of the ring, and it left the
+         * corner block stranded outboard of the cut, the mitre fillet sweeping
+         * through the drop, and a skirt walking round the outside of a corner
+         * that does not exist. All three are the same mistake: cutting holes in
+         * the wrong model. So the planks are simply built short.
+         *
+         * Their ends want no bores -- the timber stops clear of the drop -- so
+         * each is a plain box, and each carries its own outer face and its own
+         * two end faces rather than borrowing them from a ring walk. */
+        const float gC = s_rail_gap, gM = s_rail_gap_mid;
+        /* where the drops are: corners at |x| = pcx, middles at x = 0 */
+        float pcx = hl, pcz = hw, pmz = hw;
+        for (int q = 0; q < nh; q++) {
+            if (s_cw && s_cw->pocket_mid[q]) { pmz = fabsf(hz[q]); }
+            else { pcx = fabsf(hx[q]); pcz = fabsf(hz[q]); }
+        }
+        (void)pcz; (void)pmz;
+        const float xs = pcx - gC;        /* a long plank runs out to here */
+        const float zs = pcz - gC;        /* an end plank runs out to here */
+        const float xm = (gM > 0.0f) ? gM : 0.0f;   /* ...and stops here at a middle */
+
+        /* THE SIX. Two down each long side split by the middle drop, one
+         * across each end. A table with no middle drop is four. */
+        struct { float xa, xb, za, zb; int axis, hi; } pk[6]; int np2 = 0;
+        for (int side = 0; side < 2; side++) {
+            const float za2 = side ? -oz : ibz, zb2 = side ? -ibz : oz;
+            if (xm > 0.0f) {
+                pk[np2].xa = -xs; pk[np2].xb = -xm; pk[np2].za = za2; pk[np2].zb = zb2;
+                pk[np2].axis = 0; pk[np2].hi = !side; np2++;
+                pk[np2].xa =  xm; pk[np2].xb =  xs; pk[np2].za = za2; pk[np2].zb = zb2;
+                pk[np2].axis = 0; pk[np2].hi = !side; np2++;
+            } else {
+                pk[np2].xa = -xs; pk[np2].xb = xs; pk[np2].za = za2; pk[np2].zb = zb2;
+                pk[np2].axis = 0; pk[np2].hi = !side; np2++;
+            }
+        }
+        for (int end = 0; end < 2; end++) {
+            pk[np2].xa = end ? -ox : ibx; pk[np2].xb = end ? -ibx : ox;
+            pk[np2].za = -zs; pk[np2].zb = zs;
+            pk[np2].axis = 1; pk[np2].hi = !end; np2++;
+        }
+        for (int i = 0; i < np2; i++) {
+            wood_plank_bored(pk[i].xa, pk[i].xb, pk[i].za, pk[i].zb, plank_y,
+                             bore_bot, woodt, wbore, hx, hz, hr, nh,
+                             pk[i].axis, pk[i].hi, face_low, wlip);
+            /* THE OUTER FACE AND THE TWO ENDS, this plank's own. The ring walk
+             * that normally supplies the outside is gone with the corners. */
+            const float xa2 = pk[i].xa, xb2 = pk[i].xb;
+            const float za2 = pk[i].za, zb2 = pk[i].zb;
+            const float zo = pk[i].hi ? zb2 : za2;      /* outer edge, z-plank */
+            const float xo = pk[i].hi ? xb2 : xa2;      /* outer edge, x-plank */
+            if (pk[i].axis == 0) {
+                if (pk[i].hi)
+                    quad(v3(xa2, plank_y, zo), v3(xb2, plank_y, zo),
+                         v3(xb2, 0.0f,    zo), v3(xa2, 0.0f,    zo), wood);
+                else
+                    quad(v3(xb2, plank_y, zo), v3(xa2, plank_y, zo),
+                         v3(xa2, 0.0f,    zo), v3(xb2, 0.0f,    zo), wood);
+                quad(v3(xa2, plank_y, za2), v3(xa2, plank_y, zb2),
+                     v3(xa2, 0.0f,    zb2), v3(xa2, 0.0f,    za2), woodt);
+                quad(v3(xb2, plank_y, zb2), v3(xb2, plank_y, za2),
+                     v3(xb2, 0.0f,    za2), v3(xb2, 0.0f,    zb2), woodt);
+            } else {
+                if (pk[i].hi)
+                    quad(v3(xo, plank_y, zb2), v3(xo, plank_y, za2),
+                         v3(xo, 0.0f,    za2), v3(xo, 0.0f,    zb2), wood);
+                else
+                    quad(v3(xo, plank_y, za2), v3(xo, plank_y, zb2),
+                         v3(xo, 0.0f,    zb2), v3(xo, 0.0f,    za2), wood);
+                quad(v3(xb2, plank_y, za2), v3(xa2, plank_y, za2),
+                     v3(xa2, 0.0f,    za2), v3(xb2, 0.0f,    za2), woodt);
+                quad(v3(xa2, plank_y, zb2), v3(xb2, plank_y, zb2),
+                     v3(xb2, 0.0f,    zb2), v3(xa2, 0.0f,    zb2), woodt);
+            }
+        }
     } else {
     wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, face_low, wlip); /* +z */
     wood_plank_bored(-ox, ox, -oz, -ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 0, face_low, wlip); /* -z */
@@ -3210,6 +3441,9 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * them. See build_ring. */
         for (int i = 0; i < s_ring_n; i++) {
             const int j = (i + 1) % s_ring_n;
+            /* BROKEN WHERE THE PLANKS ARE. See in_rail_gap. */
+            if (in_rail_gap(s_ring_x[i], s_ring_z[i]) ||
+                in_rail_gap(s_ring_x[j], s_ring_z[j])) continue;
             quad(v3(s_ring_x[i], plank_y, s_ring_z[i]),
                  v3(s_ring_x[j], plank_y, s_ring_z[j]),
                  v3(s_ring_x[j], 0.0f,    s_ring_z[j]),
