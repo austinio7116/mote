@@ -2018,6 +2018,102 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
 
 /* An axis-aligned box: six faces, wound outward. `top` colours the up face and
  * `side` the other five. */
+/* A POLYGON, WOUND TO FACE A GIVEN OUTWARD NORMAL.
+ *
+ * The rasteriser culls back faces, and the convention here -- box6's, and so
+ * the whole table's -- is that (p1-p0)x(p2-p0) points AGAINST the outward
+ * normal. Ordering five-sided faces by hand against that is a mistake waiting
+ * at every one of them, so the normal is stated and the fan is turned to suit. */
+static void face_poly(const Vec3 *p, int n, Vec3 nrm, uint16_t col)
+{
+    if (n < 3) return;
+    const float e1x = p[1].x - p[0].x, e1y = p[1].y - p[0].y, e1z = p[1].z - p[0].z;
+    const float e2x = p[2].x - p[0].x, e2y = p[2].y - p[0].y, e2z = p[2].z - p[0].z;
+    const float cx2 = e1y*e2z - e1z*e2y;
+    const float cy2 = e1z*e2x - e1x*e2z;
+    const float cz2 = e1x*e2y - e1y*e2x;
+    const int flip = (cx2*nrm.x + cy2*nrm.y + cz2*nrm.z) > 0.0f;
+    for (int i = 1; i + 1 < n; i++) {
+        if (flip) tri(p[0], p[i+1], p[i], col);
+        else      tri(p[0], p[i],   p[i+1], col);
+    }
+}
+
+/* THE UNDERCUT AT A PLANK'S END, and the piece of plank that carries it.
+ *
+ * A cushion nose is angled, so the timber under it has to be angled too. Cut
+ * square across, a plank leaves a slab of bare end grain standing in the mouth
+ * -- the dark block either side of every drop -- where a real table has the
+ * cloth carrying round it and the timber showing only as an edge along the
+ * rail.
+ *
+ * So a bite is taken out of the plank's INNER BOTTOM edge at the end: deepest
+ * at the end and tapering to nothing a little way back, which leaves exactly
+ * one new face and it is a triangle. It is an UNDERCUT -- it never reaches the
+ * top, so there is no top edge to it -- and it stops well short of the
+ * cushion's active flat face, which is not touched at all.
+ *
+ * Everything is in the plank's own frame: u along it, v across it, y up. The
+ * caller says which end (su) and which side is inboard (sv) and the mapping
+ * back to world is the one line at PT.
+ *
+ * RENDER ONLY: how a pocket plays is the CueSeg chain and the mouth, and this
+ * touches neither. */
+static void plank_end_cut(int axis, float uE, float su, float uB,
+                          float vI, float vO, float y0, float y1,
+                          float H, float W,
+                          uint16_t top, uint16_t side, uint16_t cloth)
+{
+    const float sv = (vO > vI) ? 1.0f : -1.0f;
+    const float vW = vI + sv * W;
+    const float yH = y0 + H;
+    #define PT(U, V, Y) (axis ? v3((V), (Y), (U)) : v3((U), (Y), (V)))
+    const Vec3 uh = axis ? v3(0,0,su) : v3(su,0,0);
+    const Vec3 vh = axis ? v3(sv,0,0) : v3(0,0,sv);
+    /* 1. the top, whole */
+    {   Vec3 q[4] = { PT(uB,vI,y1), PT(uE,vI,y1), PT(uE,vO,y1), PT(uB,vO,y1) };
+        face_poly(q, 4, v3(0,1,0), top); }
+    /* 2. the outer face, whole */
+    {   Vec3 q[4] = { PT(uB,vO,y0), PT(uE,vO,y0), PT(uE,vO,y1), PT(uB,vO,y1) };
+        face_poly(q, 4, vh, side); }
+    /* 3. the inner face, with the cut's hypotenuse across its bottom */
+    {   Vec3 q[4] = { PT(uB,vI,y0), PT(uB,vI,y1), PT(uE,vI,y1), PT(uE,vI,yH) };
+        face_poly(q, 4, v3(-vh.x,-vh.y,-vh.z), side); }
+    /* 4. the underside, with the cut taken out of its end */
+    {   Vec3 q[4] = { PT(uB,vI,y0), PT(uB,vO,y0), PT(uE,vO,y0), PT(uE,vW,y0) };
+        face_poly(q, 4, v3(0,-1,0), side); }
+    /* 5. the end face, now five-sided */
+    {   Vec3 q[5] = { PT(uE,vW,y0), PT(uE,vO,y0), PT(uE,vO,y1),
+                      PT(uE,vI,y1), PT(uE,vI,yH) };
+        face_poly(q, 5, uh, side); }
+    /* 6. ...and the face the cut leaves, which is the one triangle, in cloth --
+     *    and STAMPED as cloth, not merely coloured like it.
+     *
+     *    The VR shader reads the material off the mesh: uv.x is 1 on cloth and
+     *    0 on timber. Emitted here it inherits CUE_MAT_WOOD from the plank
+     *    around it, so a cloth-coloured face came out with the woodgrain
+     *    running through it -- visible green with timber swirls in it. The lip
+     *    a few hundred lines up does the same save-and-restore for the same
+     *    reason. */
+    {   const uint8_t keep = s_mat;
+        s_mat = CUE_MAT_CLOTH;
+        Vec3 q[3] = { PT(uB,vI,y0), PT(uE,vW,y0), PT(uE,vI,yH) };
+        /* outward is away from the timber still there */
+        Vec3 n = v3(-uh.x*0.45f - vh.x*0.60f, -0.66f,
+                    -uh.z*0.45f - vh.z*0.60f);
+        face_poly(q, 3, n, cloth);
+        s_mat = keep; }
+    #undef PT
+}
+
+/* HOW FAR THE CUSHION NOSE OVERHANGS ITS OWN BASE -- the "cut in below".
+ *
+ * With the nose height it is an ANGLE, and it is the angle the timber under a
+ * pocket has to be cut back at too: the nose is raked, so the wood beneath it
+ * is raked the same way or the two do not meet. Written once because two places
+ * need the same number and a copy of it in each is a copy that drifts. */
+static float cush_undercut(const CueTable *t) { return 0.45f * t->R; }
+
 static void box6(float x0, float x1, float y0, float y1, float z0, float z1,
                  uint16_t top, uint16_t side)
 {
@@ -2708,7 +2804,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         ctop  = RGB565C(255, 220, 0);
     }
 #endif
-    const float ub = plain ? 0.0f : 0.45f * t->R; /* undercut / overhang */
+    const float ub = plain ? 0.0f : cush_undercut(t); /* undercut / overhang */
     knuckle_bases(w, ub);
 /* ---- CUE_CUSHDUMP / cue_render_capture_nose ------------------------------
  * The nose line the balls bounce off is cue_table's; the nose line you see is
@@ -3473,10 +3569,129 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          *
          * The shape and position are exactly as before: same extents, same
          * top, same depth to the cloth line. */
-        for (int i = 0; i < np2; i++) {
-            box6(pk[i].xa, pk[i].xb, 0.0f, plank_y, pk[i].za, pk[i].zb,
-                 woodt, wood);
-        }
+#ifdef MOTE_HOST
+        {   static int pd = -1;
+            if (pd < 0) pd = getenv("CUE_PLANKDUMP") ? 1 : 0;
+            if (pd) {
+                printf("PLANK plank_y %.4f  gC %.4f  xs %.4f zs %.4f\n",
+                       plank_y, gC, xs, zs);
+                for (int i = 0; i < np2; i++)
+                    printf("  pk%d axis%d x[%.4f %.4f] z[%.4f %.4f]\n", i,
+                           pk[i].axis, pk[i].xa, pk[i].xb, pk[i].za, pk[i].zb);
+                if (s_cw) for (int q = 0; q < s_cw->nseg; q++) {
+                    const CueSeg *g = &s_cw->seg[q];
+                    /* the MIDDLE pocket on +z: x near zero, z near the rail */
+                    if (fabsf(g->a.x) > hl*0.25f && fabsf(g->b.x) > hl*0.25f) continue;
+                    if (g->a.z < hw*0.5f && g->b.z < hw*0.5f) continue;
+                    printf("  seg%d kind%d a(%.4f,%.4f) b(%.4f,%.4f) n(%.3f,%.3f)\n",
+                           q, g->kind, g->a.x, g->a.z, g->b.x, g->b.z, g->n.x, g->n.z);
+                }
+            } }
+#endif
+        /* EVERY END OF EVERY PLANK STOPS AT A DROP -- a long one runs from a
+         * middle to a corner and an end one from corner to corner -- so all
+         * twelve get the undercut, and the box in the middle is what is left
+         * between the two cut pieces. */
+        /* THE CUT RISES TO THE NOSE'S CONTACT LINE, which is the bottom of the
+         * cushion's active front face -- see nose_h above, where this file
+         * already names it. It is NOT a fraction of the plank: cushion height
+         * varies from table to table, and a fraction picked to look right on
+         * one either leaves a wedge of bare timber standing above the cut or
+         * runs the cut up past the face the cushion actually plays off. */
+        {   const float Hc = t->cushion_h;           /* up the inner face */
+            const float Lc = gC * 2.3f;              /* only if the walk fails */
+            for (int i = 0; i < np2; i++) {
+                const int ax0 = pk[i].axis;
+                const float ua = ax0 ? pk[i].za : pk[i].xa;
+                const float ub = ax0 ? pk[i].zb : pk[i].xb;
+                const float va = ax0 ? pk[i].xa : pk[i].za;
+                const float vb = ax0 ? pk[i].xb : pk[i].zb;
+                /* inboard is whichever side is nearer the middle of the table */
+                const float vI = (fabsf(va) < fabsf(vb)) ? va : vb;
+                const float vO = (fabsf(va) < fabsf(vb)) ? vb : va;
+                /* THE SAME RAKE THE CUSHION'S OWN UNDERCUT USES.
+                 *
+                 * The nose overhangs its base by cush_undercut() over a height
+                 * of cushion_h, and that ratio is an angle -- about 19 degrees
+                 * on every table, because both terms scale with the ball. The
+                 * timber under the nose is cut back on that same angle, so the
+                 * two meet instead of one crossing the other.
+                 *
+                 * Everything before this was a distance picked some other way
+                 * and each was wrong in its own direction: a multiple of the
+                 * rail gap ran the cut 93 mm back, behind the cushion; the
+                 * flat face's own start was 70 mm and landed on it; hunting the
+                 * jaw's 45-degree point found a segment at the far end of the
+                 * plank and returned 690. An angle has none of those failure
+                 * modes -- there is nothing to search for. */
+                const float rake = cush_undercut(t);
+                /* ...AND ONLY AT A MIDDLE. A corner's mouth is diagonal to both
+                 * of its rails, so each plank's cut is seen nearly edge-on and
+                 * has to run further along the rail to clear the line of sight;
+                 * the jaws cover the extra. A middle's mouth is square to its
+                 * rail and there is nothing to cover it, which is why the same
+                 * distance that reads correctly at a corner starts out in the
+                 * open cushion at a middle. Two pocket shapes, two answers --
+                 * one rule for both was wrong at whichever end it was not
+                 * measured on. */
+                /* ACROSS THE PLANK IS NOT THE SAME QUESTION. The rake sets how
+                 * far back along the RAIL the cut starts -- that is the nose's
+                 * own angle and it is what the green point marks. How deep the
+                 * bite goes into the plank is the other point, and it wants to
+                 * reach most of the way across or the timber is still standing
+                 * in the mouth. Tying both to the rake pulled this one in with
+                 * it and put the wood back. */
+                const float Wc = fabsf(vO - vI) * 0.66f;
+                float Le[2] = { Lc, Lc };
+                for (int e2 = 0; e2 < 2; e2++) {
+                    const float uE2 = e2 ? ub : ua;
+                    const float half = ax0 ? hw : hl;
+                    if (fabsf(uE2) < half * 0.5f) { Le[e2] = rake; continue; }
+                    /* a corner end: back to where the flat face begins, which
+                     * is what it had and what looked right */
+                    if (!s_cw) continue;
+                    float best = -1.0f;
+                    for (int q = 0; q < s_cw->nseg; q++) {
+                        const CueSeg *g = &s_cw->seg[q];
+                        if (g->kind != 0) continue;
+                        const float gv  = ax0 ? g->a.x : g->a.z;
+                        const float gv2 = ax0 ? g->b.x : g->b.z;
+                        if (gv * vI <= 0.0f) continue;
+                        if (fabsf(gv - vI) > 0.14f || fabsf(gv2 - gv) > 1e-3f) continue;
+                        for (int e3 = 0; e3 < 2; e3++) {
+                            const float gu = ax0 ? (e3 ? g->b.z : g->a.z)
+                                                 : (e3 ? g->b.x : g->a.x);
+                            const float d2 = fabsf(gu - uE2);
+                            if (d2 > 1e-5f && (best < 0.0f || d2 < best)) best = d2;
+                        }
+                    }
+                    if (best > 0.0f) Le[e2] = best;
+                }
+                if (Le[0] > (ub - ua) * 0.40f) Le[0] = (ub - ua) * 0.40f;
+                if (Le[1] > (ub - ua) * 0.40f) Le[1] = (ub - ua) * 0.40f;
+#ifdef MOTE_HOST
+                {   static int ld = -1;
+                    if (ld < 0) ld = getenv("CUE_CUTDUMP") ? 1 : 0;
+                    if (ld) printf("CUT pk%d axis%d u[%.4f %.4f] vI %.4f -> L %.4f "
+                                   "(Lc %.4f)  H %.4f W %.4f\n", i, ax0, ua, ub,
+                                   vI, Le[0], Lc, Hc, Wc); }
+#endif
+                /* THE SAME CLOTH THE CUSHION BESIDE IT IS WEARING, at the
+                 * shade this file already gives an undercut face -- see fdark,
+                 * "undercut face (in shadow)". Flat t->cloth would be the one
+                 * unshaded green on a table where every other cloth face is
+                 * toned, and it sits directly beside the nose. */
+                const uint16_t ccut = shade565(t->cloth, 0.55f);
+                plank_end_cut(ax0, ua, -1.0f, ua + Le[0], vI, vO, 0.0f, plank_y,
+                              Hc, Wc, woodt, wood, ccut);
+                plank_end_cut(ax0, ub,  1.0f, ub - Le[1], vI, vO, 0.0f, plank_y,
+                              Hc, Wc, woodt, wood, ccut);
+                /* ...and the plain box between them */
+                if (!ax0) box6(ua + Le[0], ub - Le[1], 0.0f, plank_y,
+                               pk[i].za, pk[i].zb, woodt, wood);
+                else      box6(pk[i].xa, pk[i].xb, 0.0f, plank_y,
+                               ua + Le[0], ub - Le[1], woodt, wood);
+            } }
     } else {
     wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, face_low, wlip); /* +z */
     wood_plank_bored(-ox, ox, -oz, -ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 0, face_low, wlip); /* -z */
