@@ -689,6 +689,7 @@ int cue_world_ball_on_bed(const CueWorld *w, float x, float z, float r);
 
 int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events);
 float cue_phys_cushion_impact(void);   /* loudest rail-approach speed from last step */
+float cue_phys_pot_impact(void);        /* fastest pot-entry speed from last step */
 
 /* Override the integrator substep (0 = restore the default 2 kHz CUE_H). The AI
  * uses a coarser step for its headless ranking sims to run ~2x faster. */

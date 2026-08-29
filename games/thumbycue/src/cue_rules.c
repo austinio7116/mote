@@ -158,6 +158,14 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
         r->target_score = 8;
     } else if (t->kind == CUE_GAME_COWBOY) {
         r->target_score = 101;
+        /* FROM BEHIND THE HEAD STRING, and it has to find the 3 first.
+         * "Starting player must place the cue ball behind the head string and
+         * cause the cue ball to contact the 3 ball first." Neither was set, so
+         * the break could be played from wherever the rack left the white, at
+         * whatever it liked. */
+        r->break_shot = 1;
+        r->ball_in_hand = 1;
+        r->cow_inning = 0;
     } else if (CUE_GAME_IS_ROT61(t->kind)) {
         /* 120 on the table and 61 takes it — the majority, so the frame is
          * decided the moment one player cannot be caught. */
@@ -2954,6 +2962,10 @@ static void resolve_cowboy(CueRules *r, CueBall *b, int n, const CueWorld *w,
                            const int *potted, int np)
 {
     const int me = r->turn, you = 1 - r->turn;
+    /* READ BEFORE IT IS CLEARED, which is the whole of why every other
+     * resolver here keeps its own copy: the line below wipes it, so a test
+     * written further down sees 0 on the break like every other shot. */
+    const int was_break = r->break_shot;
     r->break_shot = 0;
 
     /* WHAT THE CUE BALL TOUCHED, in order, so a cannon can be told from a
@@ -2979,9 +2991,27 @@ static void resolve_cowboy(CueRules *r, CueBall *b, int n, const CueWorld *w,
     const int cannon  = (distinct >= 2);
     const int cannon2 = (distinct >= 3);
 
+    const int have = r->score[me];
+
     int foul = 0; const char *why = "";
     if (first_hit < 0)        { foul = 1; why = "NO BALL HIT"; }
     else if (r->n_off)        { foul = 1; why = "OFF THE TABLE"; }
+    /* THE BREAK MUST CONTACT THE 3 FIRST. */
+    else if (was_break && first_hit != 3) { foul = 1; why = "BREAK MUST HIT THE 3"; }
+    /* A SCRATCH IS A FOUL, and it is not a point.
+     *
+     * The first ninety are scored by pocketing an object ball, by a cannon off
+     * two, or by a cannon off three -- an in-off is not on that list, and the
+     * rules put the incoming player in the kitchen after one, which is the
+     * penalty for a foul. This awarded the striker a point for it and let him
+     * carry on, so the commonest foul in the game was the cheapest thing on the
+     * table. The one exception is the last point, which IS a deliberate in-off
+     * and is handled below. */
+    else if (scratch && have < 100) { foul = 1; why = "SCRATCH"; }
+    /* POCKETING IN THE CANNON PHASE IS A FOUL. From ninety the points may only
+     * be scored by cannons, and putting a ball down is not merely worth nothing
+     * -- it ends the inning and takes the inning's points with it. */
+    else if (have >= 90 && have < 100 && np) { foul = 1; why = "CANNONS ONLY"; }
     /* A CANNON IS ITSELF THE STROKE, so it needs no cushion after it.
      *
      * The general rule — contact, then a pot or a rail — is the right one for
@@ -2992,7 +3022,6 @@ static void resolve_cowboy(CueRules *r, CueBall *b, int n, const CueWorld *w,
      * unplayable as they are meant to be played. */
     else if (!np && !cushion && !scratch && !cannon) { foul = 1; why = "NO CUSHION"; }
 
-    const int have = r->score[me];
     /* THE CEILING OF THE PHASE YOU ARE IN, and it is not 101 until the end.
      * Pocketing and in-offs may carry you to NINETY and no further — that is
      * what makes the run-in a counting problem rather than a potting one, and
@@ -3007,17 +3036,26 @@ static void resolve_cowboy(CueRules *r, CueBall *b, int n, const CueWorld *w,
     const int cannon_pts = cannon2 ? 2 : cannon ? 1 : 0;
     if (!foul) {
         if (have >= 100) {
-            /* The last point: a cannon, and the 1 struck FIRST. Worth one
-             * however many balls it found — the hundred-and-first is a single
-             * point by definition, and there is no hundred-and-second. */
-            if (cannon && first_hit == 1) gain = 1;
+            /* THE LAST POINT IS A LOSING HAZARD, not a cannon.
+             *
+             * "The final point necessary to reach 101 and the win must be made
+             * by a losing hazard -- an intentional scratch made by caroming the
+             * cue ball off the one ball", and it is a foul if the cue ball
+             * fails to contact the 1 or contacts any other object ball.
+             *
+             * This asked for a CANNON off the 1, which is very nearly the
+             * opposite: it handed the game to a player who cannoned off the 1
+             * into another ball -- the one thing the rule explicitly fouls --
+             * and gave nothing at all for the in-off the game is won with. */
+            if (scratch && first_hit == 1 && distinct == 1) gain = 1;
         } else if (have >= 90) {
             gain = cannon_pts;                /* cannons only from ninety */
         } else {
             for (int k = 0; k < np; k++)
                 if (potted[k] >= 1 && potted[k] <= 5) gain += potted[k];
             gain += cannon_pts;
-            if (scratch) gain += 1;           /* an in-off is a point here */
+            /* NO POINT FOR AN IN-OFF. It is a foul above; the only scoring
+             * scratch in the game is the 101st. */
         }
     }
 
@@ -3037,25 +3075,49 @@ static void resolve_cowboy(CueRules *r, CueBall *b, int n, const CueWorld *w,
     if (scratch) r->ball_in_hand = 1;
 
     if (foul) {
+        /* AND IT COSTS THE WHOLE INNING.
+         *
+         * "All foul shots result in the player losing all points scored during
+         * the inning (not just those on the fouled stroke)." That is the rule
+         * that makes cowboy the game it is -- a run of eighty is not banked
+         * until you leave the table -- and it was not implemented at all: a
+         * foul simply ended the turn and every point already scored stood.
+         * No deduction below zero and no penalty beyond it: the score goes back
+         * to what the striker came to the table with. */
+        r->score[me] -= r->cow_inning;
+        if (r->score[me] < 0) r->score[me] = 0;
         r->last_foul = 1;
         r->cfoul[me]++;
         r->turn = you;
         r->brk = 0;
-        snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        if (r->cow_inning)
+            snprintf(r->msg, sizeof r->msg, "FOUL: %s - LOST %d",
+                     why, r->cow_inning);
+        else
+            snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        r->cow_inning = 0;
         return;
     }
     r->last_foul = 0;
     r->cfoul[me] = 0;
 
-    /* NO OVERSHOOTING. Worth more than is left is worth nothing. */
+    /* NO OVERSHOOTING, AND IT IS A FOUL. "The 90th point must be reached
+     * exactly, and the failure to do so is a foul resulting in a loss of turn"
+     * -- so it costs the inning like any other foul, which it did not. */
     if (gain > left) {
+        r->score[me] -= r->cow_inning;
+        if (r->score[me] < 0) r->score[me] = 0;
+        r->last_foul = 1;
+        r->cfoul[me]++;
         r->turn = you;
         r->brk = 0;
         snprintf(r->msg, sizeof r->msg, "TOO MANY - %d NEEDED", left);
+        r->cow_inning = 0;
         return;
     }
 
     r->score[me] += gain;
+    r->cow_inning += gain;          /* at risk until the striker leaves */
     if (r->score[me] >= 101) {
         r->frame_over = 1; r->winner = me; book_frame(r, me);
         snprintf(r->msg, sizeof r->msg, "GAME");
@@ -3066,9 +3128,13 @@ static void resolve_cowboy(CueRules *r, CueBall *b, int n, const CueWorld *w,
         snprintf(r->msg, sizeof r->msg, "%d", gain);
         return;                                   /* the striker plays on */
     }
+    /* A LEGAL STROKE THAT SCORED NOTHING ends the inning -- and the points
+     * banked in it are safe, which is the whole difference between leaving the
+     * table and fouling at it. */
+    r->cow_inning = 0;
     r->brk = 0;
     r->turn = you;
-    if (have >= 100)     snprintf(r->msg, sizeof r->msg, "CANNON OFF THE 1");
+    if (have >= 100)     snprintf(r->msg, sizeof r->msg, "IN OFF THE 1");
     else if (have >= 90) snprintf(r->msg, sizeof r->msg, "CANNONS ONLY");
     else                 r->msg[0] = 0;
 }

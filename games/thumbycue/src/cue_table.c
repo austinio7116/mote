@@ -934,7 +934,6 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
             /* THE UK PUB TABLE and everything played on its bed: chrome on the
              * corners, round dots on the rails. */
             case CUE_GAME_UK8: case CUE_GAME_KILLER_UK:
-            case CUE_GAME_SNK6: case CUE_GAME_SNK3:
             case CUE_GAME_GOLF:
                 t->furniture |= CUE_FURN_CORNERCAP | CUE_FURN_SIGHTS;
                 break;
@@ -942,7 +941,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
              * the corners, and diamonds rather than dots. */
             case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
             case CUE_GAME_KILLER_US: case CUE_GAME_KILLER_CN:
-            case CUE_GAME_CN8: case CUE_GAME_STRAIGHT:
+            case CUE_GAME_STRAIGHT:
             case CUE_GAME_ONEPOCKET: case CUE_GAME_BANKPOOL:
             case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
             case CUE_GAME_FIFTEEN: case CUE_GAME_COWBOY:
@@ -956,7 +955,22 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
              * collector each drop returns its ball along. NO LINER -- that is a
              * moulded plastic lip for a drop that ends in a tray, and there is
              * nothing here for one to line. */
+            /* AND THE SMALL SNOOKER TABLES TOO. Six-red and three-red share
+             * the 7 ft bed with UK pool, and they were wearing the pub table's
+             * chrome and dots because of it -- but the bed is the only thing
+             * they share. It is a snooker table: string bags on leather pocket
+             * plates and a collector, at 7 ft instead of 12. Nothing else about
+             * the table changes, because the furniture is dressing. */
+            /* CHINESE 8-BALL IS ON THIS LIST because it is built like a
+             * snooker table: a 10 ft bed with rounded pockets, a heavy timber
+             * cabinet on turned legs and string pockets over a collector. It
+             * was wearing the American bed's black mouldings and diamonds
+             * because it shared that branch, and it shares none of the table.
+             * A heyball rail is plain too -- the marked rail is an American
+             * convention and this table no more follows it than snooker does. */
             case CUE_GAME_SNK15: case CUE_GAME_SNK10:
+            case CUE_GAME_SNK6:  case CUE_GAME_SNK3:
+            case CUE_GAME_CN8:
             case CUE_GAME_BILLIARDS:
                 t->furniture = CUE_FURN_NETS | CUE_FURN_COLLECTOR;
                 break;

@@ -457,6 +457,12 @@ int cue_phys_airborne(const CueWorld *w, const CueBall *b) {
 /* loudest cushion-approach (normal) speed seen during the current cue_phys_step,
  * so the cushion SFX scales with the actual rail impact, not the whole table. */
 static float s_cush_vn;
+/* AND HOW FAST IT WENT DOWN THE HOLE. Separate from the cushion meter: the two
+ * are different events and a pot very often follows no cushion at all, so
+ * reading the rail figure for a pot gave whatever the last rail happened to
+ * say -- usually nothing, which is how every pot ended up voiced as a hard
+ * one. Measured where the pot is detected, off the ball's own speed. */
+static float s_pot_v;
 /* Set when a ball met the bed during the current step, so the caller can make
  * the noise a jumped ball makes when it comes down. */
 static int s_bed_land;
@@ -1965,7 +1971,12 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * the collision path is const, so it arrives as an event bit. */
             if ((ev ? *ev : cev) & CUE_EV_SIDE_CUSH) w->side_cushion = 1;
         }
-        if (check_pockets(w, b) && ev) *ev |= CUE_EV_POCKET;
+        {   /* read before check_pockets takes the ball off the table */
+            const float pv = sqrtf(b->vel.x * b->vel.x + b->vel.z * b->vel.z);
+            if (check_pockets(w, b)) {
+                if (pv > s_pot_v) s_pot_v = pv;
+                if (ev) *ev |= CUE_EV_POCKET;
+            } }
         if (check_skittles(w, b) && ev) *ev |= CUE_EV_SKITTLE;
     }
 }
@@ -1991,6 +2002,7 @@ static float g_sub_h = CUE_H;
 void cue_phys_set_substep(float h) { g_sub_h = (h > 0.0f) ? h : CUE_H; }
 
 float cue_phys_cushion_impact(void) { return s_cush_vn; }
+float cue_phys_pot_impact(void) { return s_pot_v; }
 
 CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events) {
     if (events) *events = 0;
@@ -2018,6 +2030,7 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
         }
     }
     s_cush_vn = 0.0f;                  /* reset the cushion-impact meter for this step */
+    s_pot_v   = 0.0f;                  /* ...and the pot-impact meter */
     s_bed_land = 0;
     float h = g_sub_h;
     w->_acc += dt;

@@ -20,6 +20,13 @@ typedef struct {
     int score[2];        /* snooker points */
     int frame_over, winner;
     int ball_in_hand;    /* set on resolve; consumed by cue_game */
+    /* COWBOY: what the striker has scored SINCE COMING TO THE TABLE.
+     *
+     * A foul in cowboy costs a player every point of the inning, not just the
+     * stroke's -- "all foul shots result in the player losing all points scored
+     * during the inning" -- so the running total has to be remembered
+     * separately from the score to be taken off it again. */
+    int cow_inning;
     float R;             /* ball radius (m) — for line-of-sight / snooker tests */
     /* Was the shot that just resolved a foul? Every code path already knows —
      * each resolver computes it and prices it — but none of them said so, and
@@ -643,6 +650,11 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
      * start. The break is played from the same place, which is the only time it
      * costs nothing. */
     if (r->mode == CUE_GAME_CRIBBAGE)    return 2;
+    /* COWBOY: behind the head string. The published rules put the incoming
+     * player in the kitchen after a scratch, and the break there too, and this
+     * fell through to the pool answer -- ball in hand anywhere, which on a
+     * table holding three balls and needing exact counts is a different game. */
+    if (r->mode == CUE_GAME_COWBOY)      return 2;
     /* Blackball: baulk — the full-width rectangle behind the line, not the D
      * (WPA Blackball 4c/4h). The value 2 is that region to the clamp. */
     if (r->mode == CUE_GAME_UK8)

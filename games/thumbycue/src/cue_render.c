@@ -789,6 +789,8 @@ static void build_bed_boundary(const CueTable *t, const CueWorld *w, CueBnd *B) 
 /* Six separate planks rather than one bored ring -- see cue_render_set_rail_split.
  * Declared up here because the pocket lip needs it too: a netted drop opens all
  * the way through and wants no dark cylinder standing inside it. */
+
+
 static int s_rail_split;
 
 static void emit_lip_run(const CueTable *t, Vec3 *ring0, const Vec3 *nrm,
@@ -1278,8 +1280,6 @@ static int in_rail_gap(float x, float z) {
     return 0;
 }
 
-static float s_rail_gap;   /* how far short of a corner drop the rail stops */
-static float s_rail_gap_mid;  /* ...and short of a middle one, which is not the same */
 /* AND WHETHER THIS RAIL IS SIX PLANKS OR A RING WITH HOLES IN IT.
  *
  * NOT the same question as whether there is a gap. A pool table with corner
@@ -1287,6 +1287,9 @@ static float s_rail_gap_mid;  /* ...and short of a middle one, which is not the 
  * a slot cut in it. A club snooker table is not a ring at all: six separate
  * planks, square ends, nothing in the corners. Deciding it off the gap alone
  * would have rebuilt every pool table's rail as well. */
+static float s_rail_gap;   /* how far short of a corner drop the rail stops */
+static float s_rail_gap_mid;  /* ...and short of a middle one, which is not the same */
+
 void cue_render_set_rail_split(int on) { s_rail_split = on ? 1 : 0; }
 void cue_render_set_corner_round(int on) { s_corner_k = on ? 1.0f : 0.0f; }
 /* TWO NUMBERS, because the two kinds of drop are bridged by different things
@@ -2336,6 +2339,44 @@ static void lay_line(const CueTable *t, float x, float half, float lw, uint16_t 
     Vec3 b = cue_table_lay(t, x,  ha, NULL);
     cloth_line(a.x, a.z, b.x, b.z, lw, c);
 }
+/* NOTHING OF THE CUSHION PAST THE END OF THE PLANK.
+ *
+ * On a split rail each plank stops short of the drop so the pocket plate has
+ * something to bridge. The cushion does not know that: its facing carries on
+ * into the corner exactly as it would over solid timber, so past the plank's
+ * end it is a strip of cloth standing over the gap -- the wedge you can see
+ * inside the pocket. On the 10 and 12 ft beds the plate is wide enough to hide
+ * it, which is why it went unnoticed there.
+ *
+ * The square of corner beyond BOTH of a corner pocket's cuts has no timber
+ * under it at all: the side rail's plank has stopped in x and the end rail's in
+ * z. A vertex in there is pulled back over whichever cut it has overrun by
+ * less -- so the cushion stops where it crosses the end corner of the plank and
+ * folds into the frame at that point, and nothing before it moves.
+ *
+ * CORNERS ONLY. A middle's jaws run into the band between its two plank ends by
+ * design -- that is where its mouth is -- and its plate bridges it.
+ *
+ * RENDER ONLY: collision is the CueSeg chain and the mouth, neither of which
+ * this touches, so the pocket plays exactly as it did. */
+static void rail_plank_clip(const CueWorld *w, Vec3 *p)
+{
+    if (!s_rail_split || !w) return;
+    for (int q = 0; q < w->npocket; q++) {
+        if (w->pocket_bed[q] || w->pocket_mid[q]) continue;
+        const float g = s_rail_gap;
+        if (g <= 0.0f) continue;
+        const float px = w->pocket[q].x, pz = w->pocket[q].z;
+        const float sx = (px >= 0.0f) ? 1.0f : -1.0f;
+        const float sz = (pz >= 0.0f) ? 1.0f : -1.0f;
+        const float Lx = px - sx * g, Lz = pz - sz * g;
+        const float ox = sx * (p->x - Lx), oz = sz * (p->z - Lz);
+        if (ox <= 0.0f || oz <= 0.0f) continue;      /* still over timber */
+        if (ox <= oz) p->x = Lx; else p->z = Lz;
+    }
+}
+
+
 static void emit_table_markings(const CueTable *t) {
     uint16_t lc = shade565(t->cloth, 1.65f);     /* lighter cloth line */
     uint16_t sc = RGB565C(220, 220, 205);        /* spot — off-white */
@@ -2845,19 +2886,6 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                                                                M.x, M.z, tb);
                     if (lim < tb) tb = lim;
                 }
-                /* AND NEVER IN FRONT OF THE CUSHION THAT HITS. The run-on is
-                 * along the facing's own tangent; on a rectangle that always
-                 * leans away from the cloth, but on a polygon or round bed with
-                 * rounded jaws the last jaw segment can leave the nose heading
-                 * slightly INWARD, and extending along it walks the drawn tip
-                 * out in front of the collision one. test_seehit measured
-                 * 10.9 mm of it on a round Chinese bed. */
-                if (M.x*nn.x + M.z*nn.z > 1e-6f && tn2 > 0.0f) tn2 = 0.0f;
-                if (tn2 > 0.0f) { Vec3 e = v3_add(tp, v3_scale(M, tn2));
-                                  if (afree) pa = e; else pb = e; }
-                if (tb > 0.0f) { Vec3 e = v3_add(bp, v3_scale(M, tb));
-                                 if (afree) { fba = e; haveFba = 1; }
-                                 else       { fbb = e; haveFbb = 1; } }
             }
         }
         /* NOTHING PAST THE YELLOW POINT, which is where the jaw is built to
@@ -2930,6 +2958,9 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         Vec3 br = haveFbb ? v3(fbb.x, rail_h, fbb.z)
                           : v3(pb.x - bkb.x*cwb*mscaleB, rail_h,
                                pb.z - bkb.z*cwb*mscaleB);
+        /* ...and none of it may stand over the gap in a split rail. */
+        rail_plank_clip(w, &pa); rail_plank_clip(w, &pb);
+        rail_plank_clip(w, &ar); rail_plank_clip(w, &br);
         /* THE JAW CURVE IS NEVER TOUCHED — only what comes after it.
          *
          * This folded all eight vertices of every segment along the cushion's

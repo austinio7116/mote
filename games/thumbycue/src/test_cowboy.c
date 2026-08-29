@@ -72,10 +72,18 @@ int main(void) {
         shot(&r, t, 2, 0, NULL, 0);
         ok(r.score[0] == 1, "a cannon off two balls is one", r.msg);
     }
-    {   CueRules r; fresh(&r, 0);
+    {   /* AN IN-OFF IS A FOUL, not a point.
+         *
+         * The published scoring for the first ninety is three things -- pot an
+         * object ball, cannon off two, cannon off three -- and an in-off is on
+         * none of them; the rules put the incoming player in the kitchen after
+         * a scratch, which is a penalty. This asserted the opposite and so kept
+         * the fault in place. */
+        CueRules r; fresh(&r, 0);
         int t[1] = { 3 };
         shot(&r, t, 1, 1, NULL, 0);
-        ok(r.score[0] == 1 && r.ball_in_hand, "an in-off is one, and in hand", r.msg);
+        ok(r.score[0] == 0 && r.last_foul && r.turn == 1 && r.ball_in_hand,
+           "an in-off is a foul, and hands over in hand", r.msg);
     }
     {   /* pot and cannon at once */
         CueRules r; fresh(&r, 0);
@@ -104,11 +112,27 @@ int main(void) {
         ok(!r.frame_over && r.score[0] == 100,
            "on a hundred, a cannon off the 3 is not the winning one", r.msg);
     }
-    {   CueRules r; fresh(&r, 100);
+    {   /* A CANNON OFF THE 1 DOES NOT WIN IT -- touching a second ball is
+         * exactly what the rule fouls. The 101st is a losing hazard. */
+        CueRules r; fresh(&r, 100);
         int t[2] = { 1, 5 };
         shot(&r, t, 2, 0, NULL, 0);
-        ok(r.frame_over && r.winner == 0,
-           "a cannon off the 1 FIRST wins it", r.msg);
+        ok(!r.frame_over && r.score[0] == 100,
+           "a cannon off the 1 does NOT win it", r.msg);
+    }
+    {   /* ...the in-off off the 1, touching nothing else, does. */
+        CueRules r; fresh(&r, 100);
+        int t[1] = { 1 };
+        shot(&r, t, 1, 1, NULL, 0);
+        ok(r.frame_over && r.winner == 0 && r.score[0] == 101,
+           "an in-off off the 1 alone wins it", r.msg);
+    }
+    {   /* and scratching off anything else is a foul */
+        CueRules r; fresh(&r, 100);
+        int t[1] = { 3 };
+        shot(&r, t, 1, 1, NULL, 0);
+        ok(!r.frame_over && r.turn == 1,
+           "an in-off off the 3 does not win it", r.msg);
     }
 
     /* ---- nothing may overshoot ---- */
@@ -157,13 +181,34 @@ int main(void) {
         shot(&r, t, 3, 0, NULL, 0);
         ok(r.score[0] == 97, "three balls is two in the nineties as well", r.msg);
     }
-    {   /* But the hundred-and-first is one point by definition: there is no
-         * hundred-and-second to take. */
+    {   /* THE LAST POINT IS ONE, and only off the 1 with nothing else
+         * touched -- so finding all three scores nothing at all. */
         CueRules r; fresh(&r, 100);
         int t[3] = { 1, 3, 5 };
         shot(&r, t, 3, 0, NULL, 0);
-        ok(r.score[0] == 101 && r.frame_over && r.winner == 0,
-           "the last point is one however many balls it found", r.msg);
+        ok(!r.frame_over && r.score[0] == 100,
+           "all three touched cannot be the last point", r.msg);
+    }
+    /* ---- AND A FOUL COSTS THE WHOLE INNING ----
+     * "All foul shots result in the player losing all points scored during the
+     * inning (not just those on the fouled stroke)." */
+    {   CueRules r; fresh(&r, 0);
+        int t1[2] = { 3, 5 }; int p1[1] = { 5 };
+        shot(&r, t1, 2, 0, p1, 1);          /* 5 potted + a cannon = 6 */
+        ok(r.score[0] == 6 && r.turn == 0, "six banked, still at the table", r.msg);
+        {   int t2[1] = { 3 };
+            shot(&r, t2, 1, 1, NULL, 0);    /* ...then an in-off */
+            ok(r.score[0] == 0 && r.turn == 1,
+               "the foul takes the whole inning with it", r.msg); }
+    }
+    {   /* ...but leaving the table legally banks them. */
+        CueRules r; fresh(&r, 0);
+        int t1[2] = { 3, 5 };
+        shot(&r, t1, 2, 0, NULL, 0);        /* a cannon: one */
+        {   int t2[1] = { 3 };
+            shot(&r, t2, 1, 0, NULL, 0);    /* legal, scores nothing */
+            ok(r.score[0] == 1 && r.turn == 1,
+               "a legal miss ends the inning and keeps the points", r.msg); }
     }
 
     /* (c) A CANNON NEEDS NO CUSHION. The endgame is made of delicate cannons
