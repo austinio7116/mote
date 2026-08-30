@@ -5622,17 +5622,16 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
      * the exception is applied here rather than in three racks, and it sits at
      * the height its own radius asks for. */
     cue_table_set_cue_ball(t, &balls[0]);
-    /* ...and the tolerance, on THE FOUR GAMES IT WAS MEASURED ON and no others.
+    /* ...and the tolerance, ON EVERY GAME THAT RACKS A PACK.
      *
-     * A LIST AND NOT AN EXCLUSION. Written as "everything except" it would
-     * quietly reach every game added afterwards, including the ones that do not
-     * rack at all, and the first anybody would know is a ball off its spot. The
-     * four here are the pool triangles the spread was measured on; snooker is
-     * left alone (its triangle is set tight by hand against the pink, and its
-     * break is not the shot this fixes), and so is everything else until it has
-     * been measured too. */
-    if (t->kind == CUE_GAME_UK8 || t->kind == CUE_GAME_US8 ||
-        t->kind == CUE_GAME_US9 || t->kind == CUE_GAME_CN8)
+     * The four skipped here are the only ones with no pack to set: carom has
+     * no object balls to rack at all, English billiards has three on spots, bar
+     * billiards is a board with a fixed layout, and Paul is already a scatter
+     * with a seed of its own. Everything else gets it -- snooker's reds
+     * included, and golf's course too. Anything standing on a spot is safe
+     * either way: rack_tolerance leaves those alone. */
+    if (!(CUE_GAME_IS_CAROM(t->kind)     || t->kind == CUE_GAME_BILLIARDS ||
+          t->kind == CUE_GAME_BARBILLIARDS || t->kind == CUE_GAME_PAUL))
         rack_tolerance(t, balls, n);
     return n;
 }

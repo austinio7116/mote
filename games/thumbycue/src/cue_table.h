@@ -1007,7 +1007,7 @@ int  cue_table_link_gap(CueTable *t, const CueWorld *w);
  * its own radius. Under a millimetre on a pool ball -- tighter than any rack
  * anybody has set with a triangle, and enough to stop a perfectly symmetric
  * pack refusing to open. See rack_tolerance() for the measurements. */
-#define CUE_RACK_TOL 0.03f
+#define CUE_RACK_TOL 0.004f
 
 /* The seed the next cue_table_rack() lays the pack out from. Same shape as
  * golf's hole and Paul's scatter above, and for the same reason: the rack takes
