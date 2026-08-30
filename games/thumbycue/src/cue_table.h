@@ -1001,6 +1001,25 @@ int  cue_table_link_gap(CueTable *t, const CueWorld *w);
 
 /* Lay out the opening rack / spots. Returns the number of balls placed.
  * balls[0] is always the cue ball. orient set to identity. */
+/* ---- THE RACK'S TOLERANCE ------------------------------------------------
+ *
+ * How far off a perfect lattice each ball in the pack is set, as a fraction of
+ * its own radius. Under a millimetre on a pool ball -- tighter than any rack
+ * anybody has set with a triangle, and enough to stop a perfectly symmetric
+ * pack refusing to open. See rack_tolerance() for the measurements. */
+#define CUE_RACK_TOL 0.03f
+
+/* The seed the next cue_table_rack() lays the pack out from. Same shape as
+ * golf's hole and Paul's scatter above, and for the same reason: the rack takes
+ * no arguments and every caller already goes through that one function.
+ *
+ * ZERO IS THE PERFECT LATTICE, which is what this always built, so a caller
+ * that says nothing gets exactly the rack it used to. Anything else has to be
+ * reproducible at both ends of a link, so it is a seed and not a call to
+ * random. */
+void     cue_table_rack_set_seed(unsigned seed);
+unsigned cue_table_rack_seed(void);
+
 int cue_table_rack(const CueTable *t, CueBall *balls);
 /* Give this ball the cue ball's own size and weight for this table (a no-op
  * where the set is matched). Racking does it; anything that re-creates the

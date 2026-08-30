@@ -5542,6 +5542,60 @@ void cue_table_golf_set_hole(int hole) {
 }
 int cue_table_golf_hole(void) { return s_golf_hole; }
 
+/* ---- THE RACK'S OWN TOLERANCE -------------------------------------------
+ *
+ * A rack is laid out on a perfect lattice with every ball exactly touching its
+ * neighbours, and that is the one arrangement a break cannot open up. Measured
+ * on the 9 ft table: fired straight into a perfect pack at any pace from 6 to
+ * 12 m/s, exactly EIGHT of the fifteen balls ever exceed half a metre a second.
+ * The same eight every time, whatever the pace, and wherever the cue ball is
+ * aimed -- a symmetric lattice struck down its own axis has no lateral
+ * component anywhere in it to give the rest. Seven balls sit in the triangle,
+ * and the complaint is that they always do.
+ *
+ * IT IS NOT ENERGY. Three quarters of the cue ball's kinetic energy arrives in
+ * the pack either way, and the figure goes UP with pace. Nor is it the solver's
+ * step rate: the travel figures are identical from 60 Hz to 4000 Hz.
+ *
+ * AND OPENING THE RACK UP IS THE WRONG FIX. A uniform gap measures WORSE at
+ * every pace below a full-blooded break -- the apex has to cross the gap before
+ * it touches anything, and the energy is gone by the time it does. A tight rack
+ * really is the best rack, exactly as the trade has always said.
+ *
+ * What is missing is asymmetry, not slack. Every ball in the pack is nudged by
+ * up to CUE_RACK_TOL of its own radius, which on a pool ball is under a
+ * millimetre -- tighter than any rack a human has ever set with a triangle --
+ * and that is enough: mean travel rises by a quarter, total ball movement by
+ * the same, and the balls left sitting where they were racked halve.
+ *
+ * A SEED, AND NOT A CALL TO RANDOM, for the reasons already set out above
+ * Paul's scatter: a rack has to be reproducible, has to be testable, and has to
+ * be sendable to the other end of a link in a packet. Seed 0 is the perfect
+ * lattice this always built, so nothing that does not ask for a tolerance gets
+ * one and every existing test still sees the rack it was written against. */
+static unsigned s_rack_seed = 0;
+void cue_table_rack_set_seed(unsigned seed) { s_rack_seed = seed; }
+unsigned cue_table_rack_seed(void) { return s_rack_seed; }
+
+static void rack_tolerance(const CueTable *t, CueBall *b, int n) {
+    if (!s_rack_seed) return;
+    unsigned r = s_rack_seed * 2654435761u + 0x9E3779B9u;
+    for (int i = 1; i < n; i++) {
+        if (!b[i].on) continue;
+        /* A SPOTTED BALL IS ON ITS SPOT. Snooker's colours are placed by the
+         * rules, not by the triangle, and a colour a millimetre off its spot is
+         * a colour that will not respot to the same place. Only the pack moves. */
+        if (b[i].id >= CUE_ID_YELLOW) continue;
+        const float rad = (b[i].r > 0.0f) ? b[i].r : t->R;
+        for (int k = 0; k < 2; k++) {
+            r = r * 1664525u + 1013904223u;
+            const float u = (float)((r >> 8) & 0xFFFFu) / 65535.0f - 0.5f;
+            const float d = u * 2.0f * CUE_RACK_TOL * rad;
+            if (k == 0) b[i].pos.x += d; else b[i].pos.z += d;
+        }
+    }
+}
+
 int cue_table_rack(const CueTable *t, CueBall *balls) {
     memset(balls, 0, sizeof(CueBall) * CUE_MAX_BALLS);
     int n;
@@ -5568,6 +5622,18 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
      * the exception is applied here rather than in three racks, and it sits at
      * the height its own radius asks for. */
     cue_table_set_cue_ball(t, &balls[0]);
+    /* ...and the tolerance, on THE FOUR GAMES IT WAS MEASURED ON and no others.
+     *
+     * A LIST AND NOT AN EXCLUSION. Written as "everything except" it would
+     * quietly reach every game added afterwards, including the ones that do not
+     * rack at all, and the first anybody would know is a ball off its spot. The
+     * four here are the pool triangles the spread was measured on; snooker is
+     * left alone (its triangle is set tight by hand against the pink, and its
+     * break is not the shot this fixes), and so is everything else until it has
+     * been measured too. */
+    if (t->kind == CUE_GAME_UK8 || t->kind == CUE_GAME_US8 ||
+        t->kind == CUE_GAME_US9 || t->kind == CUE_GAME_CN8)
+        rack_tolerance(t, balls, n);
     return n;
 }
 
