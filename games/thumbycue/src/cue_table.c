@@ -4271,6 +4271,12 @@ Vec3 cue_table_cue_home(const CueTable *t) {
         p = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
     else if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind))
         p = cue_table_lay(t, t->baulk_x, -t->d_radius * 0.55f, NULL);
+    /* GOLF tees off the MIDDLE of its line -- the two pegs are at +-d_radius on
+     * the baulk line and the ball starts between them, which is the same
+     * neutral spot the hole always began from. Where it MAY go is the whole
+     * line; where it STARTS is the middle, and the player moves along it. */
+    else if (t->kind == CUE_GAME_GOLF)
+        p = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
     else
         p = cue_table_lay(t, -cue_table_axis(t) * 0.5f,
                              cue_table_across(t) * 0.40f, NULL);
@@ -4598,6 +4604,26 @@ static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) 
      * and nothing else: the ball could be put down anywhere on the table. Rule
      * 75 gives it a D of about 4 cm at the centre of the base, and that is the
      * same shape snooker's is, so it is the same code. */
+    /* BILLIARDS GOLF IS TEED, and a tee is a LINE between two pegs rather than
+     * a region. The pegs stand at the two ends of the baulk line's own chord --
+     * (baulk_x, +-d_radius), which is where a snooker table already carries two
+     * spots -- and the ball may be put down anywhere between them.
+     *
+     * It used to be one fixed point at the middle of the baulk line, so every
+     * hole was played from the same millimetre and the machine teed off from
+     * there too. A tee you can move along is the whole difference between
+     * playing a hole and replaying a shot. */
+    if (t->kind == CUE_GAME_GOLF) {
+        Vec3 up; Vec3 c = cue_table_lay(t, t->baulk_x, 0.0f, &up);
+        Vec3 side = v3(-up.z, 0.0f, up.x);
+        float off = (p.x - c.x) * side.x + (p.z - c.z) * side.z;
+        const float lim = t->d_radius;
+        if (off >  lim) off =  lim;
+        if (off < -lim) off = -lim;
+        p.x = c.x + side.x * off;      /* ON the line: no `along` at all */
+        p.z = c.z + side.z * off;
+        return p;
+    }
     if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind) ||
         t->kind == CUE_GAME_BARBILLIARDS) {
         /* The D — and the pyramid's HOUSE, which is the same thing as far as
@@ -5541,6 +5567,15 @@ void cue_table_golf_set_hole(int hole) {
     s_golf_hole = (hole < 0) ? 0 : (hole >= CUE_GOLF_HOLES ? CUE_GOLF_HOLES-1 : hole);
 }
 int cue_table_golf_hole(void) { return s_golf_hole; }
+
+int cue_table_golf_tee(const CueTable *t, Vec3 *a, Vec3 *b) {
+    if (!t || t->kind != CUE_GAME_GOLF) return 0;
+    Vec3 up; const Vec3 c = cue_table_lay(t, t->baulk_x, 0.0f, &up);
+    const Vec3 side = v3(-up.z, 0.0f, up.x);
+    if (a) *a = v3(c.x - side.x * t->d_radius, c.y, c.z - side.z * t->d_radius);
+    if (b) *b = v3(c.x + side.x * t->d_radius, c.y, c.z + side.z * t->d_radius);
+    return 1;
+}
 
 /* ---- THE RACK'S OWN TOLERANCE -------------------------------------------
  *
