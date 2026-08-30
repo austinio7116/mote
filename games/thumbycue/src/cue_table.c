@@ -3719,7 +3719,20 @@ void cue_table_set_game(CueTable *t, CueGameKind kind) {
 /* ---- WHICH TABLE THE GAME IS ON ------------------------------------------
  * See cue_table.h. */
 const char *const CUE_TAB_NAME[CUE_TAB_COUNT] = {
-    "PRO", "TOURNAMENT", "CLUB", "L-SHAPED", "HEXAGON", "OCTAGON", "ROUND"
+    "PRO", "TOURNAMENT", "CLUB", "L-SHAPED", "HEXAGON", "OCTAGON", "ROUND",
+    "6 FT", "7 FT", "9 FT", "10 FT", "12 FT"
+};
+
+/* THE BEDS, in metres of playing surface, by stop. The width is half the
+ * length on every one of them, which is what every table in this family
+ * actually is: 6x3, 7x3.5, 9x4.5, 10x5, 12x6. */
+static const float TAB_SIZE_M[CUE_TAB_COUNT] = {
+    0,0,0, 0,0,0,0,
+    1.778f,   /* 6 ft -- the pub table you find in a small room */
+    1.980f,   /* 7 ft -- the standard English pub bed */
+    2.540f,   /* 9 ft -- the American tournament bed */
+    2.840f,   /* 10 ft -- Chinese 8-ball, and the smaller snooker */
+    3.569f    /* 12 ft -- the full-size match table */
 };
 
 /* The shape rows. `sides` of 0 means the L. */
@@ -3732,11 +3745,81 @@ static const struct { int sides, every; } TAB_SHAPE[CUE_TAB_COUNT] = {
      * pocket only every tenth of them, so it gets six pockets rather than
      * sixty. Sixty pockets is not a table, it is a colander. */
     { 60, 10 },
+    { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 },   /* the sizes are not shapes */
 };
+
+/* WHICH BEDS A GAME IS PLAYED ON.
+ *
+ * Not every size for every game: a 6 ft American table is not a thing anybody
+ * plays 9-ball on, and offering it would be inventing a game rather than
+ * offering a table. These are the beds each family is actually made in.
+ *
+ * The game's OWN size is offered too, so the row reads as a set of tables
+ * rather than as a list of alternatives to something unnamed. */
+static int size_ok(CueGameKind kind, int variant) {
+    /* NOT THE GAME'S OWN BED. The three specs are already that table -- PRO,
+     * TOURNAMENT and CLUB are three pocket cuts on the size the game ships on
+     * -- so a size stop naming it is a fourth card for a table already on the
+     * row three times. Only the OTHER beds are worth offering.
+     *
+     * Asked of the game rather than written down, so it cannot drift: a kind
+     * whose bed changes stops offering the size it just became. */
+    {   CueTable std; cue_table_init(&std, kind);
+        const float own = std.half_len * 2.0f;
+        if (TAB_SIZE_M[variant] > 0.0f &&
+            fabsf(TAB_SIZE_M[variant] - own) < 0.05f) return 0; }
+    switch (kind) {
+    /* ENGLISH POOL: the pub table comes in both, and the 6 ft is the one in
+     * the small room -- which is the table most people actually learned on. */
+    case CUE_GAME_UK8: case CUE_GAME_KILLER_UK:
+        return variant == CUE_TAB_6FT || variant == CUE_TAB_7FT;   /* 7 falls out above */
+    /* RUSSIAN PYRAMID: the 12 ft tournament bed and the 7 ft home one, which
+     * were two KINDS sharing every rule they had. CUE_GAME_PYRAMID is the game
+     * now and the bed is a row; CUE_GAME_PYRAMID7 stays a kind so that saved
+     * preferences, kept replays and anything on the wire still name a table
+     * that exists, but it is not offered and carries no size row of its own --
+     * it IS the 7 ft one. */
+    case CUE_GAME_PYRAMID:
+        return variant == CUE_TAB_7FT || variant == CUE_TAB_12FT;
+    /* SNOOKER is already a family of kinds by red count, and each of those
+     * names its own bed -- 12 ft for the full frame, 10 for ten-red, 7 for six
+     * and three. Offering sizes here would be two rows saying the same thing. */
+    /* AMERICAN POOL is made in 7, 8 and 9; the 9 is the tournament bed and the
+     * 7 is a bar box, which is a real and very different table. */
+    case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
+    case CUE_GAME_STRAIGHT: case CUE_GAME_ONEPOCKET: case CUE_GAME_BANKPOOL:
+    case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH: case CUE_GAME_FIFTEEN:
+    case CUE_GAME_COWBOY: case CUE_GAME_HONOLULU: case CUE_GAME_BOWLLIARDS:
+    case CUE_GAME_CRIBBAGE: case CUE_GAME_KILLER_US:
+        return variant == CUE_TAB_7FT || variant == CUE_TAB_9FT;
+    /* CHINESE 8-BALL is a 9 ft and a 10 ft game. */
+    case CUE_GAME_CN8: case CUE_GAME_KILLER_CN:
+        return variant == CUE_TAB_9FT || variant == CUE_TAB_10FT;
+    default: return 0;
+    }
+}
+
+/* IS THERE ALREADY A TABLE THAT IS THIS BED? Some games change more than their
+ * cloth with the size: Russian pyramid is played with 68 mm balls on the 12 ft
+ * tournament bed and the federation's smallest set on the 7 ft home one, and a
+ * 12 ft table racked with home balls is not either game.
+ *
+ * Where the codebase already has a kind describing that bed, the size stop asks
+ * it rather than carrying a second copy of its numbers -- so the two pyramid
+ * kinds become the two SIZES of one game and nothing about either had to be
+ * written down twice. Returns -1 when the bed is only a bed, which is the usual
+ * case: a 6 ft pub table is a 7 ft one with less cloth and the same balls. */
+static int size_ref_kind(CueGameKind kind, int variant) {
+    if (CUE_GAME_IS_PYRAMID(kind))
+        return (variant == CUE_TAB_7FT)  ? (int)CUE_GAME_PYRAMID7
+             : (variant == CUE_TAB_12FT) ? (int)CUE_GAME_PYRAMID : -1;
+    return -1;
+}
 
 int cue_table_variant_ok(CueGameKind kind, int variant) {
     if (variant < 0 || variant >= CUE_TAB_COUNT) return 1;
     if (variant <= CUE_TAB_CLUB) return cue_table_spec_applies(kind);
+    if (CUE_TAB_IS_SIZE(variant)) return size_ok(kind, variant);
     /* THE SHAPES. What rules a game out is knowing where things are on the
      * cloth in absolute terms.
      *
@@ -3782,6 +3865,57 @@ void cue_table_variant(CueTable *t, int variant) {
     if (variant < 0 || variant >= CUE_TAB_COUNT) return;
     if (!cue_table_variant_ok(t->kind, variant)) return;
     if (variant <= CUE_TAB_CLUB) { cue_table_spec(t, variant); return; }
+
+    /* ---- A SIZE. The bed changes and nothing else does. -------------------
+     *
+     * THE POCKETS DO NOT SHRINK WITH THE TABLE. A 6 ft pub table is played
+     * with the same 2-inch balls as a 7 ft one and its pockets are cut to the
+     * same templates -- so the openings are measured before the bed moves and
+     * cut back to afterwards, exactly as the shapes do it. A pocket that
+     * scaled with the cloth would be a different game on a smaller table
+     * rather than the same game on one.
+     *
+     * THE LAYOUT IS RE-DERIVED rather than scaled. The baulk line, the D and
+     * the spots are all fractions of the bed in cue_table_init, so they are
+     * cleared and cue_table_set_game lays them out again against the new
+     * numbers -- one place that knows where they go, and it is the place that
+     * already knew. */
+    if (CUE_TAB_IS_SIZE(variant)) {
+        const float len = TAB_SIZE_M[variant];
+        if (len <= 0.0f || t->half_len <= 0.0f) return;
+        float keep_c = 0.0f, keep_m = 0.0f;
+        cue_table_openings(t, &keep_c, &keep_m);
+        /* SCALED, NOT RE-DERIVED. Every one of these is a fraction of the bed
+         * in cue_table_init -- the baulk line at 0.6 of the half-length, the D
+         * at 0.35 of the half-width, the spots down the spine -- so scaling
+         * them by the same ratio gives exactly what init would have produced
+         * for this size, without a second copy of those fractions here to drift
+         * out of step with the first.
+         *
+         * THE BALLS DO NOT SCALE. A 6 ft pub table is played with the same
+         * 2-inch balls as a 7 ft one; only the cloth is smaller. R and the
+         * masses are left alone, and the pockets are cut back to the openings
+         * measured above for the same reason -- the templates are the ball's,
+         * not the table's. */
+        const float k = len / (t->half_len * 2.0f);
+        t->half_len *= k; t->half_wid *= k;
+        t->baulk_x  *= k; t->d_radius *= k;
+        t->blue_x   *= k; t->pink_x   *= k; t->black_x *= k;
+        t->rail_w   *= k;
+        /* ...AND THE BALLS THIS BED IS PLAYED WITH, where the game says the
+         * two go together. See size_ref_kind. */
+        {   const int ref = size_ref_kind(t->kind, variant);
+            if (ref >= 0) {
+                CueTable std; cue_table_init(&std, (CueGameKind)ref);
+                t->R = std.R; t->mass = std.mass;
+                t->cue_R = std.cue_R; t->cue_mass = std.cue_mass;
+                t->cushion_h = std.cushion_h;
+                /* its pockets, not the ones we came in with */
+                cue_table_openings(&std, &keep_c, &keep_m);
+            } }
+        if (keep_c > 0.0f || keep_m > 0.0f) cue_table_cut_to(t, keep_c, keep_m);
+        return;
+    }
 
     /* THE POCKETS THIS TABLE HAS, measured before the outline moves, because
      * they are what the shape's pockets will be cut back to.

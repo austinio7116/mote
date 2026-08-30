@@ -794,11 +794,26 @@ const char *cue_table_spec_blurb(CueGameKind kind, int spec);
  * convert. Tightest first, which puts the DEFAULT at index 1 — see
  * CUE_TAB_DEFAULT. Not every game has every variant: ask
  * cue_table_variant_ok. */
+/* ...AND THE SIZES, appended after the shapes.
+ *
+ * The same argument the shapes are here on: a game and a table are two
+ * different choices, and a 6 ft pub table is the same game of English pool as a
+ * 7 ft one. It was the other way round before -- a bed of a different size
+ * meant a KIND of its own, which is how there came to be a PYRAMID and a
+ * PYRAMID7 that share every rule they have. A size belongs on this row beside
+ * the specs and the outlines.
+ *
+ * APPENDED, never inserted. The index is a saved preference and a packed table
+ * field, so putting a size between the shapes would restyle every table
+ * anybody has already chosen. */
 enum {
     CUE_TAB_PRO = 0, CUE_TAB_TOURNAMENT, CUE_TAB_CLUB,
     CUE_TAB_L, CUE_TAB_HEX, CUE_TAB_OCT, CUE_TAB_ROUND,
+    CUE_TAB_6FT, CUE_TAB_7FT, CUE_TAB_9FT, CUE_TAB_10FT, CUE_TAB_12FT,
     CUE_TAB_COUNT
 };
+/* Is this stop a bed SIZE? */
+#define CUE_TAB_IS_SIZE(v) ((v) >= CUE_TAB_6FT && (v) <= CUE_TAB_12FT)
 #define CUE_TAB_DEFAULT CUE_TAB_TOURNAMENT
 /* The first three ARE the specs, and this says so to the compiler rather than
  * in a comment nobody will re-check. */
