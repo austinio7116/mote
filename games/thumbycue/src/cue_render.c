@@ -1356,6 +1356,27 @@ static void build_ring(const CueTable *t, const CueWorld *w,
          * elbow -- turns right and is left alone: there is nothing there to
          * take off, and a fillet struck at one would cut into the table. */
         const float crs = ix * oz2 - iz * ox2;
+        /* ---- NOTHING TO ROUND ON A CORNER THAT IS ALREADY ROUND ----------
+         *
+         * A fillet is tangent to both faces, so it runs r / tan(turn/2) along
+         * each of them -- and that blows up as the corner flattens. At a
+         * hexagon's 60 degrees it is 1.7 radii; at a round bed's 6 degrees it
+         * is NINETEEN, so every fillet ate most of both its neighbours and the
+         * outline came out as six chewed lobes instead of a circle.
+         *
+         * A round table has no corners to round. It is already round. Below
+         * twenty degrees of turn the two faces are as good as collinear, the
+         * vertex is passed through untouched, and the ring follows the bed --
+         * which is what it did before this was applied to polygons at all. The
+         * hexagon, the octagon and the twelve-gon are all well above the line
+         * and keep the fillet they have. */
+        {   const float turn = atan2f(crs, ix * ox2 + iz * oz2);
+            if (turn < 0.35f) {            /* 20 degrees */
+                if (s_ring_n < (int)(sizeof s_ring_x / sizeof s_ring_x[0])) {
+                    s_ring_x[s_ring_n] = bx[i]; s_ring_z[s_ring_n] = bz[i]; s_ring_n++;
+                }
+                continue;
+            } }
         if (s_corner_k <= 0.0f || crs <= 1e-6f) {
             if (s_ring_n < (int)(sizeof s_ring_x / sizeof s_ring_x[0])) {
                 s_ring_x[s_ring_n] = bx[i]; s_ring_z[s_ring_n] = bz[i]; s_ring_n++;
@@ -1428,6 +1449,38 @@ static void build_ring(const CueTable *t, const CueWorld *w,
                         if (e) { fp->t1x = qx; fp->t1z = qz; }
                         else   { fp->t0x = qx; fp->t0z = qz; }
                     }
+                    /* ---- AND IT MUST FIT ON THE FACES IT IS TANGENT TO ---
+                     *
+                     * The tangent points are dropped onto each adjoining face
+                     * by projection, and nothing said they had to land ON it.
+                     * A fillet runs r / tan(turn/2) along both faces, which
+                     * grows as the corner flattens -- 1.7 radii at a hexagon's
+                     * 60 degrees, 3.7 at a twelve-gon's 30 -- so on a bed with
+                     * many short sides each fillet ran off the end of its own
+                     * edges and into its neighbours, and the outline came out
+                     * chewed. A corner whose fillet does not fit is left
+                     * square, which is what it looked like before any of this
+                     * was applied to polygons. */
+                    {   int fits = 1;
+                        for (int e = 0; e < 2 && fits; e++) {
+                            const float ax3 = e ? bx[i] : bx[h], az3 = e ? bz[i] : bz[h];
+                            const float bx4 = e ? bx[j] : bx[i], bz4 = e ? bz[j] : bz[i];
+                            float ex3 = bx4 - ax3, ez3 = bz4 - az3;
+                            const float el3 = sqrtf(ex3*ex3 + ez3*ez3);
+                            if (el3 < 1e-6f) { fits = 0; break; }
+                            ex3 /= el3; ez3 /= el3;
+                            const float qx3 = e ? fp->t1x : fp->t0x;
+                            const float qz3 = e ? fp->t1z : fp->t0z;
+                            const float u3 = (qx3 - ax3) * ex3 + (qz3 - az3) * ez3;
+                            if (u3 < 0.0f || u3 > el3) fits = 0;
+                        }
+                        if (!fits) {
+                            if (s_ring_n < (int)(sizeof s_ring_x / sizeof s_ring_x[0])) {
+                                s_ring_x[s_ring_n] = bx[i];
+                                s_ring_z[s_ring_n] = bz[i]; s_ring_n++;
+                            }
+                            continue;
+                        } }
                     fp->back = sqrtf((fp->t0x - fp->vx) * (fp->t0x - fp->vx)
                                    + (fp->t0z - fp->vz) * (fp->t0z - fp->vz));
                     {   const float bkk = sqrtf((fp->t1x - fp->vx)*(fp->t1x - fp->vx)

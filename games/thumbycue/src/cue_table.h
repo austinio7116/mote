@@ -1036,11 +1036,6 @@ int  cue_table_link_gap(CueTable *t, const CueWorld *w);
 void     cue_table_rack_set_seed(unsigned seed);
 unsigned cue_table_rack_seed(void);
 
-/* THE TWO TEE PEGS, for the renderer and for anything that wants to say where
- * a golf hole is played from. The ball may be placed anywhere on the straight
- * line between them; clamp_region enforces it. Returns 0 on any other game. */
-int  cue_table_golf_tee(const CueTable *t, Vec3 *a, Vec3 *b);
-
 int cue_table_rack(const CueTable *t, CueBall *balls);
 /* Give this ball the cue ball's own size and weight for this table (a no-op
  * where the set is matched). Racking does it; anything that re-creates the
