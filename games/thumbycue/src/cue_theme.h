@@ -22,9 +22,11 @@
  *
  * The real card. Twenty-three of these are the cloths a table actually gets
  * recovered in, measured off a photograph of the manufacturer's swatch card
- * rather than invented — so ROYAL NAVY and FRENCH NAVY are genuinely almost the
- * same near-black, because on the card they are. The old ten were guesses at
- * names somebody liked.
+ * rather than invented. The old ten were guesses at names somebody liked.
+ *
+ * Four of the twenty-three are no longer the card's: two near-identical navies
+ * and two near-identical dark reds have been given over to light cloths, which
+ * the card does not run to. See the note beside them.
  *
  * The twenty-fourth is CHAMPIONSHIP, the green every version of the game before
  * this one was played on. It is not on the card and it is brighter than
@@ -61,11 +63,29 @@ static const uint16_t k_cloth[CUE_NCLOTH] = {
     RGB565C(42,56,77),    /* SLATE */
     RGB565C(38,43,59),    /* NAVY */
     RGB565C(28,47,106),   /* ROYAL BLUE */
-    RGB565C(15,18,33),    /* FRENCH NAVY */
-    RGB565C(13,14,19),    /* ROYAL NAVY */
+    /* ---- FOUR THAT ARE NOT ON THE CARD -----------------------------------
+     *
+     * FRENCH NAVY and ROYAL NAVY were two near-blacks a hair apart, and MAROON
+     * and CHERRY two dark reds the same, in a palette that already holds BLACK,
+     * NAVY, SLATE, WINDSOR RED and RED. Four slots spent on differences you
+     * cannot see across a room. These four are light instead, which is what the
+     * card has none of at all.
+     *
+     * SUBSTITUTED IN PLACE, not removed and appended. The cloth is saved as an
+     * INDEX and travels in a table, so shortening this array or shifting what
+     * follows it would repaint every table anybody has ever saved -- the same
+     * trap the bed presets fell into. Everything after PINK keeps its number;
+     * only these four slots change what they mean.
+     *
+     * Pitched at the light end of what cloth does rather than at what a colour
+     * picker calls light: SAGE, PINK and GOLD are the neighbours to judge them
+     * against, and all three sit in the 130-180 range on their brightest
+     * channel. */
+    RGB565C(72,152,138),  /* LIGHT TEAL */
+    RGB565C(198,176,30),  /* YELLOW */
     RGB565C(27,14,40),    /* PURPLE */
-    RGB565C(55,11,16),    /* MAROON */
-    RGB565C(67,10,10),    /* CHERRY */
+    RGB565C(140,110,180), /* LIGHT PURPLE */
+    RGB565C(190,90,170),  /* LIGHT MAGENTA */
     RGB565C(84,20,8),     /* WINDSOR RED */
     RGB565C(140,31,1),    /* RED */
     RGB565C(201,57,1),    /* ORANGE */
@@ -74,7 +94,7 @@ static const uint16_t k_cloth[CUE_NCLOTH] = {
 static const char *k_cloth_name[CUE_NCLOTH] = {
     "BLACK","SILVER","TAUPE","TAN","GOLD","PAPRIKA","NUTMEG","RANGER GREEN",
     "OLIVE","CHAMPIONSHIP","SAGE","POWDER BLUE","SLATE","NAVY","ROYAL BLUE",
-    "FRENCH NAVY","ROYAL NAVY","PURPLE","MAROON","CHERRY","WINDSOR RED","RED",
+    "LIGHT TEAL","YELLOW","PURPLE","LIGHT PURPLE","LIGHT MAGENTA","WINDSOR RED","RED",
     "ORANGE","PINK" };
 /* The one a table arrives in — the green it has always arrived on. OLIVE was
  * the default only for as long as it was the only green in the set. */
