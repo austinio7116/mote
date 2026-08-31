@@ -5949,6 +5949,28 @@ float cue_table_surface(const CueTable *t, float x, float z) {
             float dx = x - g[p].c.x, dz = z - g[p].c.z;
             float rb = g[p].bore - CUE_TIP_R;
             if (rb > 0.0f && dx*dx + dz*dz < rb*rb) return -1.0e9f;
+            /* ...AND IT GOES RIGHT THROUGH THE RAIL.
+             *
+             * The bore was a CIRCLE on the pocket centre, and a circle closes
+             * again: on most tables it runs out before the rail's outer face
+             * does -- 2.8 mm short on a 7 ft pub table, 16.8 on a 12 ft snooker
+             * one -- leaving a lip of timber lying across the mouth at rail
+             * height. A real middle pocket is a slot cut right through; you can
+             * see the floor through it. So a cue played from BEHIND the pocket,
+             * down at a ball sitting in the mouth, met a wall that is not on
+             * the table: reported from the headset, and blocked here at 85 mm
+             * past the nose on a snooker table at anything under 22 degrees.
+             *
+             * Outward of the centre the hole is a SLOT of the same width, and
+             * it needs no far end: past the frame the function has already
+             * returned. This can only ever open space that the table does not
+             * have timber in, so nothing that was clear becomes solid -- the
+             * rail and cushion tops elsewhere are untouched, which is what the
+             * cue rides up on. */
+            {   const float along  = dx * g[p].out.x + dz * g[p].out.z;
+                const float across = dx * -g[p].out.z + dz * g[p].out.x;
+                if (along >= 0.0f && rb > 0.0f && across * across < rb * rb)
+                    return -1.0e9f; }
             if (dx * g[p].out.x + dz * g[p].out.z >= 0.0f) continue;  /* past it */
             float cx2 = x - g[p].cut_c.x, cz2 = z - g[p].cut_c.z;
             float rc = g[p].cut_r - CUE_TIP_R;
