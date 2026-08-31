@@ -1034,6 +1034,9 @@ int  cue_table_link_gap(CueTable *t, const CueWorld *w);
  * reproducible at both ends of a link, so it is a seed and not a call to
  * random. */
 void     cue_table_rack_set_seed(unsigned seed);
+/* The rack's tolerance, as a fraction of a ball's radius; negative restores
+ * CUE_RACK_TOL. For sweeping it in the break harness, nothing else. */
+void     cue_table_rack_set_tol(float tol);
 unsigned cue_table_rack_seed(void);
 
 int cue_table_rack(const CueTable *t, CueBall *balls);

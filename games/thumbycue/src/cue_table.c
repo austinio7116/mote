@@ -5724,8 +5724,15 @@ static unsigned s_rack_seed = 0;
 void cue_table_rack_set_seed(unsigned seed) { s_rack_seed = seed; }
 unsigned cue_table_rack_seed(void) { return s_rack_seed; }
 
+/* HOW FAR OFF PERFECT, as a fraction of a ball's radius. CUE_RACK_TOL unless
+ * something has said otherwise -- which only the break harness does, to sweep
+ * it and see what the pack does at each. */
+static float s_rack_tol = -1.0f;
+void cue_table_rack_set_tol(float t) { s_rack_tol = t; }
+
 static void rack_tolerance(const CueTable *t, CueBall *b, int n) {
     if (!s_rack_seed) return;
+    const float TOL = (s_rack_tol >= 0.0f) ? s_rack_tol : CUE_RACK_TOL;
     unsigned r = s_rack_seed * 2654435761u + 0x9E3779B9u;
     for (int i = 1; i < n; i++) {
         if (!b[i].on) continue;
@@ -5737,7 +5744,7 @@ static void rack_tolerance(const CueTable *t, CueBall *b, int n) {
         for (int k = 0; k < 2; k++) {
             r = r * 1664525u + 1013904223u;
             const float u = (float)((r >> 8) & 0xFFFFu) / 65535.0f - 0.5f;
-            const float d = u * 2.0f * CUE_RACK_TOL * rad;
+            const float d = u * 2.0f * TOL * rad;
             if (k == 0) b[i].pos.x += d; else b[i].pos.z += d;
         }
     }
