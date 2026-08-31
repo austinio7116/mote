@@ -657,9 +657,14 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t) {
     /* The target is a property of the MATCH, like best_of — a 100-up frame is
      * followed by another 100-up frame, not by the default. */
     int tgt = r->target_score;
+    /* ...and so does the CLOCK, for exactly the same reason: a ten-minute game
+     * is followed by another ten-minute game, not by the default points target.
+     * Its LENGTH, not what is left of it — the next frame gets a full clock. */
+    float btm = r->bil_time_len;
     int first = (bf + f0 + f1) & 1;
     cue_rules_init(r, t, cpu);
     if (tgt > 0) r->target_score = tgt;
+    if (btm > 0.0f) cue_rules_bil_set_time(r, btm);
     r->frames[0] = f0; r->frames[1] = f1; r->best_of = bo;
     r->match_over = mo; r->match_winner = mw;
     r->break_first = bf;
@@ -852,8 +857,27 @@ static int snookered_from_whole_d(CueRules *r, CueBall *b, int n,
  * the same set resolve_snooker will judge against — and the free ball is read
  * without being consumed, because consuming it is resolve's job. */
 void cue_rules_attempt_begin(CueRules *r, const CueBall *b, int n) {
+    if (!r) return;
     r->att_have = 0;
-    if (!r || !r->kind || !b || n < 2 || !b[0].on) return;
+    /* ENGLISH BILLIARDS TAKES ITS BAULK PICTURE HERE, before the snooker gate
+     * below turns this call away (billiards has kind 0 — it is scored in points
+     * and it is not snooker). Rule 6 and Rule 16 both turn on where the object
+     * balls were WHEN THE STROKE WAS PLAYED, and by the time resolve runs they
+     * have been hit; this is the one call the host already makes at the right
+     * moment, with the right balls, for every striker including the machine. */
+    if (r->mode == CUE_GAME_BILLIARDS && b && n >= 2) {
+        r->bil_red_baulk = r->bil_wht_baulk = 0;
+        for (int i = 1; i < n && i < CUE_MAX_BALLS; i++) {
+            if (!b[i].on) continue;
+            /* Section 2 Definition 14: "A ball is in Baulk when it rests on the
+             * Baulk-line or between that line and the bottom cushion." The
+             * baulk end is -x, so that is everything at or below baulk_x. */
+            const int in_b = (b[i].pos.x <= r->baulk_x);
+            if (b[i].id == CUE_ID_BIL_RED) r->bil_red_baulk = in_b;
+            else                           r->bil_wht_baulk = in_b;
+        }
+    }
+    if (!r->kind || !b || n < 2 || !b[0].on) return;
     const int fb = r->free_ball, fb_id = r->free_ball_id;
     for (int i = 0; i < n && i < CUE_MAX_BALLS; i++) {
         r->att_on[i] = 0;
@@ -3463,6 +3487,11 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
     r->break_shot = 0;
     r->bil_respot_red = CUE_BIL_SPOT_NONE;
     r->bil_respot_white = 0;
+    /* CONSUMED HERE, whichever way this resolve goes out. The host sets it when
+     * it places the ball; leaving it standing would make the NEXT stroke look
+     * like one played from hand and put Rule 6 on a shot it does not bind. */
+    const int from_hand = r->bil_from_hand;
+    r->bil_from_hand = 0;
 
     /* WHAT THE CUE BALL TOUCHED, and in what order. Only the two object balls
      * matter; a cushion between them changes nothing in billiards (it is
@@ -3501,9 +3530,67 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
     const int in_off = scratch && first >= 0;
     const int cannon = hit_red && hit_white;
 
+    /* ---- BAULK: what a player IN HAND may and may not do (Rule 6) --------
+     *
+     * Only from in-hand, because that is the only time Rule 6 applies — a ball
+     * lying in baulk during ordinary play may be struck however you like.
+     *
+     * 6(f) is the one with teeth and the only one this can judge honestly. "If
+     * an object ball is in Baulk, no part of its surface may be played on
+     * directly from in-hand": so playing from the D straight onto a ball that
+     * was in baulk, with nothing touched in between, is playing improperly from
+     * in-hand and a foul under Rule 14(e). It is what makes the double baulk a
+     * shot worth playing — with both object balls behind the line the striker
+     * has to go up the table and come back off a cushion, and cannot simply
+     * roll up and nudge one.
+     *
+     * WHAT WENT BEFORE IT decides it: the touch list is in order, so if a
+     * cushion or the other object ball came first then this was not a direct
+     * stroke and the rule is not engaged. That much is exactly right. What this
+     * does NOT test is 6(d)'s further requirement that the cushion be one OUT
+     * of baulk, because the touch record carries what was hit and not where —
+     * so a stroke into the baulk cushion and back onto a ball in baulk is
+     * allowed here and would be a foul at a real table. It is the rarer half of
+     * the rule and it costs a per-contact position to judge; noted rather than
+     * silently approximated. */
+    int baulk_foul = 0;
+    if (from_hand && first >= 0 && w) {
+        const int first_in_baulk = (first == CUE_ID_BIL_RED) ? r->bil_red_baulk
+                                                             : r->bil_wht_baulk;
+        if (first_in_baulk) {
+            /* `first` IS the first ball touched, so "directly" is settled by
+             * whether anything at all came before it — and the only thing that
+             * can is a cushion. */
+            baulk_foul = (w->ntouch > 0 && w->touch[0].what == CUE_TOUCH_BALL);
+        }
+    }
+
     /* ---- the fouls ---- */
     int foul = 0; const char *why = "";
-    if (first < 0)                    { foul = 1; why = scratch ? "COUP" : "MISS"; }
+    int miss_only = 0;
+    if (first < 0) {
+        foul = 1; why = scratch ? "COUP" : "MISS";
+        /* RULE 16, AND THE WHOLE POINT OF A DOUBLE BAULK.
+         *
+         * "If a miss is made, by other than a stroke made directly into a
+         * pocket or off a shoulder of a pocket when the striker is in-hand with
+         * no object ball out of Baulk, the referee shall call MISS. A penalty
+         * of two points is incurred... Any other miss is a foul, and all direct
+         * 'coups' are fouls."
+         *
+         * So the player who is double baulked, plays properly out of baulk and
+         * fails to find anything has made a MISS: two points away, and that is
+         * all. An ordinary failure to hit is a FOUL, which costs the same two
+         * AND gives the incoming player Rule 15(c)(ii) — the balls spotted and
+         * the table from hand. That difference is the entire reason for leaving
+         * an opponent double baulked, and without it the tactic is free.
+         *
+         * A coup is excluded by name: running the cue ball into a pocket having
+         * hit nothing is a foul from any position (Rule 14(r)). */
+        if (!scratch && from_hand && !baulk_foul &&
+            r->bil_red_baulk && r->bil_wht_baulk) { miss_only = 1; why = "MISS"; }
+    }
+    if (baulk_foul) { foul = 1; miss_only = 0; why = "BALL IN BAULK"; }
     if (r->n_off)                     { foul = 1; why = "OFF THE TABLE"; }
     /* Rules 9 and 10, checked on the stroke that would exceed them. A cannon
      * counts toward the cannon limit only when the stroke has no hazard in it,
@@ -3532,7 +3619,12 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
         r->turn = you;
         r->bil_yellow = !r->bil_yellow;
         if (scratch) r->ball_in_hand = 1;
-        snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        /* Rule 16 again, in the words the board uses. A MISS is not a foul and
+         * saying FOUL for one is the referee getting it wrong out loud. */
+        snprintf(r->msg, sizeof r->msg, miss_only ? "%s" : "FOUL: %s", why);
+        /* Rule 5(a): the stroke that had been made has now been allowed to
+         * finish, so a clock that ran out during it ends the game here. */
+        if (r->bil_timeup) cue_rules_bil_expire(r);
         return;
     }
 
@@ -3552,6 +3644,7 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
         r->turn = you;
         r->bil_yellow = !r->bil_yellow;
         r->msg[0] = 0;
+        if (r->bil_timeup) cue_rules_bil_expire(r);
         return;
     }
 
@@ -3587,6 +3680,10 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
         return;
     }
     snprintf(r->msg, sizeof r->msg, "%d", pts);
+    /* "Any stroke that has been made shall be allowed to finish and any points
+     * scored shall be added to the appropriate side" — added first, on the line
+     * above, and only then is it TIME. */
+    if (r->bil_timeup) cue_rules_bil_expire(r);
     (void)b; (void)n;
 }
 
@@ -3947,6 +4044,44 @@ void cue_rules_bb_tick(CueRules *r, float dt) {
     if (!r || r->bb_barred) return;
     r->bb_time -= dt;
     if (r->bb_time <= 0.0f) { r->bb_time = 0.0f; r->bb_barred = 1; }
+}
+
+/* ---- ENGLISH BILLIARDS AGAINST THE CLOCK (Section 3 Rule 5) -------------- */
+
+void cue_rules_bil_set_time(CueRules *r, float secs) {
+    if (!r) return;
+    r->bil_time     = secs > 0.0f ? secs : 0.0f;
+    r->bil_time_len = r->bil_time;
+    r->bil_timeup   = 0;
+    /* A game is played to TIME or to POINTS and not to both — Rule 1(f) offers
+     * them as alternatives. Leaving a target standing under a clock would end a
+     * timed game early on a number nobody agreed to. */
+    if (r->bil_time > 0.0f) r->target_score = 0;
+}
+
+void cue_rules_bil_tick(CueRules *r, float dt) {
+    if (!r || r->bil_time <= 0.0f || r->bil_timeup || r->frame_over) return;
+    r->bil_time -= dt;
+    if (r->bil_time <= 0.0f) {
+        r->bil_time = 0.0f;
+        /* "the referee shall call TIME" — and nothing more, yet. Rule 5(a)
+         * allows the stroke that has been made to finish and score. */
+        r->bil_timeup = 1;
+    }
+}
+
+void cue_rules_bil_expire(CueRules *r) {
+    if (!r || r->frame_over || !r->bil_timeup) return;
+    r->frame_over = 1;
+    /* Rule 1(f)(i): most points in the stipulated time. Rule 5(c) allows the
+     * scores to be level, and says the rules setting the time must provide for
+     * a tie-break — so with none set this is a drawn game rather than a made-up
+     * winner. book_frame refuses a winner of -1, which is what a draw is. */
+    r->winner = (r->score[0] == r->score[1]) ? -1
+              : (r->score[0] > r->score[1]) ? 0 : 1;
+    if (r->winner >= 0) book_frame(r, r->winner);
+    snprintf(r->msg, sizeof r->msg,
+             r->winner < 0 ? "TIME - GAME DRAWN" : "TIME");
 }
 
 /* Rule 8(a): the Spot, then the Pyramid Spot, then the Centre Spot. Rule
@@ -4547,7 +4682,16 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
                  r->bb_barred ? "  BAR DOWN" : "");
     } else if (r->mode == CUE_GAME_BILLIARDS) {
         /* Points, a target, and which ball the striker is on — the last of
-         * which is half of knowing whose turn it is at a billiards table. */
+         * which is half of knowing whose turn it is at a billiards table.
+         *
+         * PLAYED TO A CLOCK, the board says so instead of naming a target that
+         * does not exist (Rule 1(f) — a game is to a time OR to a number of
+         * points). What is left of it is the only number that matters then. */
+        if (r->bil_time_len > 0.0f) {
+            const int sec = (int)(r->bil_time + 0.999f);
+            snprintf(buf, cap, "%d - %d   %d:%02d   %s", r->score[0], r->score[1],
+                     sec / 60, sec % 60, r->bil_yellow ? "YELLOW" : "WHITE");
+        } else
         snprintf(buf, cap, "%d - %d   (%d)   %s", r->score[0], r->score[1],
                  r->target_score, r->bil_yellow ? "YELLOW" : "WHITE");
     } else if (CUE_GAME_IS_PYRAMID(r->mode)) {

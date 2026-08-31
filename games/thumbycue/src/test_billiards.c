@@ -34,6 +34,7 @@ typedef struct {
     int scratch;    /* the cue ball was pocketed */
     int pot[4];     /* ids pocketed, 0-terminated (CUE_ID_CUE never appears) */
     int off;        /* balls forced off the table */
+    int cushion_first;  /* the cue ball reached a cushion before any ball */
 } Shot;
 
 static CueTable T;
@@ -49,6 +50,14 @@ static int untw(int id) { return id == TW ? CUE_ID_BIL_WHITE : id; }
 static void play(CueRules *r, const Shot *s) {
     memset(&W, 0, sizeof W);
     W.ntouch = 0;
+    /* A CUSHION BEFORE THE BALLS, which Rule 6 turns on: the difference between
+     * playing straight onto a ball in baulk and coming back off a cushion is
+     * the whole of 6(f), and the touch list is where it shows. */
+    if (s->cushion_first) {
+        W.touch[W.ntouch].what = CUE_TOUCH_CUSHION;
+        W.touch[W.ntouch].id   = 0;
+        W.ntouch++;
+    }
     for (int i = 0; i < 4 && s->touch[i]; i++) {
         W.touch[W.ntouch].what = CUE_TOUCH_BALL;
         W.touch[W.ntouch].id   = (unsigned char)untw(s->touch[i]);
@@ -404,6 +413,110 @@ int main(void) {
            "white's object yellow is a legal ball", "");
         ok(!cue_rules_ball_legal(&r, B, 3, CUE_ID_BIL_WHITE),
            "...and the white in his hand is not", "");
+    }
+
+    /* ---- BAULK, AND THE DOUBLE BAULK ------------------------------------
+     *
+     * Section 3 Rule 1(e) names it as a tactic: "to leave both object balls in
+     * Baulk when the next player is in-hand such that any attempt at disturbing
+     * the balls must be by means of an indirect stroke." Rule 6 is what makes
+     * it one, and Rule 16 is what it costs to fail.
+     *
+     * `bil_from_hand` is what the host sets when it places the ball, and the
+     * two baulk flags are what cue_rules_attempt_begin reads off the table
+     * before the stroke — so a case here sets the same three things the game
+     * does and asks the resolver the same question. */
+    {   CueRules r; fresh(&r);
+        /* Both object balls behind the line, striker in hand: a double baulk. */
+        r.bil_from_hand = 1; r.bil_red_baulk = 1; r.bil_wht_baulk = 1;
+        Shot s = { .touch = { CUE_ID_BIL_RED } };   /* straight at it */
+        play(&r, &s);
+        ok(r.last_foul, "6(f): from hand, straight onto a red in baulk = foul",
+           r.msg);
+        ok(!strncmp(r.msg, "FOUL", 4), "...and the board calls it a foul", r.msg);
+        ok(r.score[1] == 2, "...two to the opponent (Rule 15(c))", r.msg);
+    }
+    {   CueRules r; fresh(&r);
+        r.bil_from_hand = 1; r.bil_red_baulk = 1; r.bil_wht_baulk = 1;
+        /* Up the table, off a cushion, and back onto it: the legal escape. */
+        Shot s = { .touch = { CUE_ID_BIL_RED }, .cushion_first = 1 };
+        play(&r, &s);
+        ok(!r.last_foul, "6(d)/(e): a cushion first and the same red is legal",
+           r.msg);
+    }
+    {   CueRules r; fresh(&r);
+        /* The same stroke NOT from hand is nobody's business but the striker's:
+         * Rule 6 binds a player in hand and no one else. */
+        r.bil_from_hand = 0; r.bil_red_baulk = 1; r.bil_wht_baulk = 1;
+        Shot s = { .touch = { CUE_ID_BIL_RED } };
+        play(&r, &s);
+        ok(!r.last_foul, "...and none of it applies when not in hand", r.msg);
+    }
+    {   CueRules r; fresh(&r);
+        /* Rule 16: double baulked, played properly, hit nothing. A MISS. */
+        r.bil_from_hand = 1; r.bil_red_baulk = 1; r.bil_wht_baulk = 1;
+        Shot s = { .touch = { 0 } };
+        play(&r, &s);
+        ok(r.score[1] == 2, "16: double baulked and missed = two away", r.msg);
+        ok(!strncmp(r.msg, "MISS", 4),
+           "...and it is a MISS, not a foul -- no spotting option", r.msg);
+    }
+    {   CueRules r; fresh(&r);
+        /* ...but with a ball OUT of baulk to go at, the same failure is a foul:
+         * Rule 16 only excuses the striker who had nothing to aim at. */
+        r.bil_from_hand = 1; r.bil_red_baulk = 1; r.bil_wht_baulk = 0;
+        Shot s = { .touch = { 0 } };
+        play(&r, &s);
+        ok(!strncmp(r.msg, "FOUL", 4),
+           "16: a ball WAS out of baulk, so missing is a foul", r.msg);
+    }
+    {   CueRules r; fresh(&r);
+        /* "all direct 'coups' are fouls" — the cue ball into a pocket having
+         * hit nothing, however baulked the striker was. */
+        r.bil_from_hand = 1; r.bil_red_baulk = 1; r.bil_wht_baulk = 1;
+        Shot s = { .touch = { 0 }, .scratch = 1 };
+        play(&r, &s);
+        ok(!strncmp(r.msg, "FOUL", 4), "16: a coup is a foul from any position",
+           r.msg);
+    }
+
+    /* ---- THE CLOCK (Section 3 Rule 5) ------------------------------------ */
+    {   CueRules r; fresh(&r);
+        cue_rules_bil_set_time(&r, 10.0f);
+        ok(r.target_score == 0,
+           "1(f): a timed game has no points target", "");
+        cue_rules_bil_tick(&r, 4.0f);
+        ok(!r.bil_timeup && !r.frame_over, "...still running at 6 seconds", "");
+        cue_rules_bil_tick(&r, 8.0f);
+        ok(r.bil_timeup, "5(a): the clock runs out and the referee calls TIME", "");
+        ok(!r.frame_over,
+           "...and the game is NOT over yet: the stroke made may finish", "");
+        /* "Any stroke that has been made shall be allowed to finish and any
+         * points scored shall be added to the appropriate side." */
+        r.score[0] = 20; r.score[1] = 24;
+        Shot s = { .touch = { CUE_ID_BIL_RED }, .pot = { CUE_ID_BIL_RED } };
+        play(&r, &s);
+        ok(r.score[0] == 23, "...the pot in flight still scores its three", r.msg);
+        ok(r.frame_over, "...and THEN it is time", r.msg);
+        ok(r.winner == 1, "1(f)(i): most points in the time wins", r.msg);
+    }
+    {   CueRules r; fresh(&r);
+        cue_rules_bil_set_time(&r, 1.0f);
+        r.score[0] = r.score[1] = 30;
+        cue_rules_bil_tick(&r, 2.0f);
+        cue_rules_bil_expire(&r);
+        ok(r.frame_over, "5(c): level at time, and the game still ends", r.msg);
+        ok(r.winner == -1, "...as a draw, with no tie-break set", r.msg);
+        ok(r.frames[0] == 0 && r.frames[1] == 0,
+           "...and a draw is booked to nobody", "");
+    }
+    {   CueRules r; fresh(&r);
+        cue_rules_bil_set_time(&r, 600.0f);
+        cue_rules_bil_tick(&r, 100.0f);
+        cue_rules_next_frame(&r, &T);
+        ok(r.bil_time > 599.0f,
+           "the next frame of a timed match gets a FULL clock", "");
+        ok(r.bil_time_len == 600.0f, "...of the same length", "");
     }
 
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);

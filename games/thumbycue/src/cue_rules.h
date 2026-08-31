@@ -201,6 +201,60 @@ typedef struct {
      * the Centre Spot if the next player takes that option (Rule 15(c)(ii)). */
     int bil_respot_white;
 
+    /* ---- BAULK, AND THE DOUBLE BAULK ------------------------------------
+     *
+     * Section 3 Rule 1(e) names the tactic: "to leave both object balls in
+     * Baulk when the next player is in-hand such that any attempt at
+     * disturbing the balls must be by means of an indirect stroke." It is the
+     * defensive shot of the game, and it only exists because of what Rule 6
+     * forbids to a player in hand:
+     *
+     *   6(c) the cue-ball must be PLAYED OUT of Baulk
+     *   6(d) it must contact a cushion or a ball OUT of Baulk before it
+     *        re-enters and comes to rest in Baulk, or before it hits a ball
+     *        that is IN Baulk
+     *   6(e) it MAY be played against a cushion in Baulk first, on its way to
+     *        a ball out of Baulk
+     *   6(f) no part of an object ball in Baulk may be played on DIRECTLY
+     *        from in-hand, even the part above the Baulk-line
+     *
+     * Breaking any of those is "playing improperly from in-hand", a foul under
+     * Rule 14(e). And Rule 16 is the other half: a striker in hand with no
+     * object ball out of Baulk who plays a proper stroke and simply fails to
+     * hit anything has made a MISS, not a foul — two points either way, but a
+     * foul additionally lets the incoming player have the balls spotted and
+     * play from hand (Rule 15(c)(ii)), which from a double baulk is the whole
+     * prize. Getting out of one legally costs two; getting out of one illegally
+     * costs two AND hands the table back set up.
+     *
+     * `bil_from_hand` is host-set on the same contract as was_snookered: only
+     * the host knows whether the ball it just placed came from the D or was
+     * simply lying there. The two baulk flags are taken by
+     * cue_rules_attempt_begin from the positions the stroke starts from,
+     * because by the time resolve runs the balls have moved. */
+    int bil_from_hand;   /* host: this stroke is being played from in-hand */
+    int bil_red_baulk;   /* the red was in Baulk when the stroke began */
+    int bil_wht_baulk;   /* ...and so was the object white */
+
+    /* ---- THE CLOCK (Section 3 Rule 5) -----------------------------------
+     *
+     * Rule 1(f) gives a game two endings and this is the other one: the winner
+     * is the player "who has scored most points in the agreed or stipulated
+     * time". Rule 5(a) says what happens at the buzzer — "the referee shall
+     * call TIME. Any stroke that has been made shall be allowed to finish and
+     * any points scored shall be added to the appropriate side." So the clock
+     * running out does not end the frame where it stands; it ends it after the
+     * stroke in flight has been scored, which is why `bil_timeup` is a latch
+     * and not the ending itself. Rule 5(c) allows a level finish, and a level
+     * finish is a draw: winner -1, exactly as the carom games already record
+     * one.
+     *
+     * Zero means the game is played to a number of points instead, which is
+     * the other half of Rule 1(f) and the default. */
+    float bil_time;      /* seconds left on the clock, 0 = played to points */
+    float bil_time_len;  /* what it was set to — the next frame gets a full one */
+    int   bil_timeup;    /* TIME has been called; the stroke in play finishes */
+
     /* ---- G6: BAR BILLIARDS ---------------------------------------------- *
      *
      * Scored in points off nine holes and played against a clock rather than
@@ -714,6 +768,20 @@ void cue_rules_call_shot(CueRules *r, int ball_id, int pocket);
 /* Points that win the frame. 14.1 is played to a target across as many racks as
  * it takes — 150 in a world championship, 100 commonly, 50 here by default. */
 void cue_rules_set_target(CueRules *r, int points);
+/* ENGLISH BILLIARDS PLAYED TO A CLOCK (Section 3 Rule 5). `secs` of 0 puts the
+ * game back on its points target. Set before the frame starts, like the target;
+ * cue_rules_next_frame carries it to the next frame of a match for the same
+ * reason it carries the target — a timed game is followed by a timed game. */
+void cue_rules_bil_set_time(CueRules *r, float secs);
+/* Run the clock down. The host calls this once a frame while the frame is live
+ * — see cue_rules_bb_tick, which it mirrors. It never ends the frame itself:
+ * Rule 5(a) allows the stroke in progress to finish, so it only calls TIME. */
+void cue_rules_bil_tick(CueRules *r, float dt);
+/* TIME has been called and there is no stroke left to finish, so the game is
+ * over: most points wins, level is a draw. Called by resolve_billiards after it
+ * has scored the last stroke, and by the host when the clock runs out with the
+ * table at rest. Harmless twice. */
+void cue_rules_bil_expire(CueRules *r);
 
 /* ---- bowlliards: reading the card -------------------------------------- *
  * The card is packed two deliveries to the byte to fit the wire, so nothing
