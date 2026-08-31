@@ -3533,18 +3533,106 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         #define RHI(v) ((h < 0.0f) ? !(v) : (v))
         const float nxi = (hl - nx) + cw, nxo = (hl - nx) + fw;  /* notch's inner rail */
         const float nzi = (hw - nz) + cw, nzo = (hw - nz) + fw;  /* notch's underside */
+
+        /* ---- A NETTED L IS SIX SPLIT PLANKS, NOT A BORED RING -------------
+         *
+         * A snooker table's rail STOPS at every drop: the timber is six
+         * separate planks and what spans the gap is the leather pocket plate,
+         * which is what the bag hangs from. This branch built the L the way a
+         * pool table is built -- one ring with the drops bored THROUGH it --
+         * so there was no gap at any pocket, nothing for a plate to bridge and
+         * nowhere for a bag to hang. An L-shaped snooker table came out with
+         * its pockets drilled in the wood and no furniture at all.
+         *
+         * The rectangle's split rail a few lines down cannot be reused as it
+         * stands: it lays out its own six planks from hl and hw, and it decides
+         * which edge of a plank faces the cloth by taking whichever is nearer
+         * the middle of the table. That is true of a rectangle and false of an
+         * L, whose two notch rails face OUTWARD from the centre -- their mouth
+         * is at the larger coordinate, not the smaller. So the L states its own
+         * six edges and says for each which side the mouth is on, and the ends
+         * are pulled back off whichever drop each one runs into.
+         *
+         * `hi` is wood_plank_bored's own rail_hi, kept so the two constructions
+         * describe the same six planks: 1 = the wood lies toward the larger
+         * coordinate and the mouth is at the smaller. */
+        if (s_rail_split && s_rail_gap > 0.0f) {
+            struct { float ua, ub, va, vb; int axis, hi; } pl[6];
+            pl[0] = (typeof(pl[0])){ -ox,  ox, ZLO(-oz,-ibz), ZHI(-oz,-ibz), 0, RHI(0) };
+            pl[1] = (typeof(pl[0])){ ZLO(-oz, nzo), ZHI(-oz, nzo), ibx, ox,  1, 1 };
+            pl[2] = (typeof(pl[0])){ nxi, ox, ZLO(nzi, nzo), ZHI(nzi, nzo),  0, RHI(1) };
+            pl[3] = (typeof(pl[0])){ ZLO(nzi, oz), ZHI(nzi, oz), nxi, nxo,   1, 1 };
+            pl[4] = (typeof(pl[0])){ -ox, nxo, ZLO(ibz, oz), ZHI(ibz, oz),   0, RHI(1) };
+            pl[5] = (typeof(pl[0])){ ZLO(-oz, oz), ZHI(-oz, oz), -ox, -ibx,  1, 0 };
+            const float gC = s_rail_gap, gM = s_rail_gap_mid;
+            const float Hc = t->cushion_h, rake = cush_undercut(t);
+            for (int i = 0; i < 6; i++) {
+                const int ax0 = pl[i].axis;
+                float ua = pl[i].ua, ub = pl[i].ub;
+                const float va = pl[i].va, vb = pl[i].vb;
+                /* THE MOUTH IS STATED, not guessed from the middle of the
+                 * table -- see above. */
+                const float vI = pl[i].hi ? (va < vb ? va : vb) : (va < vb ? vb : va);
+                const float vO = pl[i].hi ? (va < vb ? vb : va) : (va < vb ? va : vb);
+                if (ub - ua < 1e-4f) continue;
+                /* EACH END STOPS SHORT OF THE DROP IT RUNS INTO. The drop is
+                 * found by looking, not by arithmetic on hl and hw: on an L a
+                 * plank's end may be a corner pocket, a middle, or -- at the
+                 * elbow -- no pocket at all, and a plank that runs into nothing
+                 * keeps its full length. */
+                for (int e = 0; e < 2; e++) {
+                    const float uE = e ? ub : ua;
+                    int best = -1; float bd = 1e9f;
+                    for (int q = 0; q < nh; q++) {
+                        const float qu = ax0 ? hz[q] : hx[q];
+                        const float qv = ax0 ? hx[q] : hz[q];
+                        const float du = qu - uE, dv = qv - vI;
+                        const float d2 = du*du + dv*dv;
+                        if (d2 < bd) { bd = d2; best = q; }
+                    }
+                    /* Only a drop this end actually reaches: a quarter of a
+                     * metre is well over a bore and well under the shortest
+                     * run between two of them. */
+                    if (best < 0 || bd > 0.25f * 0.25f) continue;
+                    const int mid = (s_cw && s_cw->pocket_mid[best]);
+                    const float g = mid ? (gM > 0.0f ? gM : gC) : gC;
+                    const float qu = ax0 ? hz[best] : hx[best];
+                    if (e) { if (qu - g < ub) ub = qu - g; }
+                    else   { if (qu + g > ua) ua = qu + g; }
+                }
+                if (ub - ua < 1e-4f) continue;
+                const float Wc = fabsf(vO - vI) * 0.66f;
+                const uint16_t ccut = shade565(t->cloth, 0.55f);
+                plank_end_cut(ax0, ua, -1.0f, ua + rake, vI, vO, 0.0f, plank_y,
+                              Hc, Wc, woodt, wood, ccut);
+                plank_end_cut(ax0, ub,  1.0f, ub - rake, vI, vO, 0.0f, plank_y,
+                              Hc, Wc, woodt, wood, ccut);
+                if (!ax0) box6(ua + rake, ub - rake, 0.0f, plank_y,
+                               va < vb ? va : vb, va < vb ? vb : va, woodt, wood);
+                else      box6(va < vb ? va : vb, va < vb ? vb : va, 0.0f, plank_y,
+                               ua + rake, ub - rake, woodt, wood);
+            }
+        } else {
         wood_plank_bored(-ox,  ox, ZLO(-oz,-ibz), ZHI(-oz,-ibz), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(0), face_low, wlip); /* bottom */
         wood_plank_bored( ibx, ox, ZLO(-oz, nzo), ZHI(-oz, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, face_low, wlip); /* right, up to the notch */
         wood_plank_bored( nxi, ox, ZLO(nzi, nzo), ZHI(nzi, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(1), face_low, wlip); /* under the notch */
         wood_plank_bored( nxi, nxo, ZLO(nzi, oz), ZHI(nzi, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 1, face_low, wlip); /* beside the notch */
         wood_plank_bored(-ox,  nxo, ZLO(ibz, oz), ZHI(ibz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(1), face_low, wlip); /* top, short leg */
         wood_plank_bored(-ox, -ibx, ZLO(-oz, oz), ZHI(-oz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 1, 0, face_low, wlip); /* left */
+        }
         /* THE SKIRT, AS ONE CLOSED WALK. Six flat faces, each ending at a
          * sharp vertex, cannot agree about where a rounded corner stops -- the
          * two that meet there both claim it. build_ring already walked this
          * outline and filleted its five outside corners (the elbow is an
          * inside corner and stays sharp), so the skirt is that walk swept to
          * the floor and there is only one answer. */
+        /* ...AND NO SKIRT AT ALL WHEN THE RAIL IS SPLIT. The walk is the
+         * outside of a RING, and six separate planks are not one. Each plank
+         * above is a box carrying its own outer face and its own two ends, so
+         * sweeping the walk as well wraps a second, unbroken wall round the
+         * table -- outboard of every plank, straight past every drop, and
+         * across the whole shelf the bags and the collector hang in. */
+        if (!(s_rail_split && s_rail_gap > 0.0f))
         for (int i = 0; i < s_ring_n; i++) {
             const int j = (i + 1) % s_ring_n;
             /* BROKEN WHERE THE PLANKS ARE. See in_rail_gap. */
