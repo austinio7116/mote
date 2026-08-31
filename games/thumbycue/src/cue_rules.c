@@ -661,10 +661,37 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t) {
      * is followed by another ten-minute game, not by the default points target.
      * Its LENGTH, not what is left of it — the next frame gets a full clock. */
     float btm = r->bil_time_len;
+    /* AND SO DOES THE RULE BOOK, which is the one this had been missing.
+     *
+     * Reported from an online match: "A best of 3 in 8 ball. It was supposed to
+     * be international rules, but in the second frame it suddenly changed the
+     * rules to 2 shots." It did. cue_rules_init memsets the whole struct and
+     * uk_intl comes back as 0 — which is CUE_UK_PUB, and PUB is the two-shot
+     * game. Every frame after the first was played to a code nobody chose.
+     *
+     * It is not only the UK row. Everything the host sets up at start_frame and
+     * does not set again here went the same way: the snooker miss standard, the
+     * shootout format, whether the shot is called, and golf's solo card. A
+     * best-of-seven of call-shot ten-ball was one frame of call-shot followed
+     * by six of ordinary ten-ball, and a snooker match set to the professional
+     * miss standard dropped to the default after frame one. None of it showed
+     * unless you knew what you had picked.
+     *
+     * The principle is already written three lines above: the target is a
+     * property of the MATCH, like best_of. So is the code being played to.
+     *
+     * ONLINE THIS IS NOT A DESYNC, which is why no harness caught it: both ends
+     * call this on their own press of A and both reset identically, so the two
+     * agree perfectly about the wrong rules. Only a player who knew what they
+     * had chosen could see it, which is exactly who reported it. */
+    int uk = r->uk_intl, call = r->call_shot_on, miss = r->miss_level;
+    int shoot = r->snk_shootout, solo = r->golf_solo;
     int first = (bf + f0 + f1) & 1;
     cue_rules_init(r, t, cpu);
     if (tgt > 0) r->target_score = tgt;
     if (btm > 0.0f) cue_rules_bil_set_time(r, btm);
+    r->uk_intl = uk; r->call_shot_on = call; r->miss_level = miss;
+    r->snk_shootout = shoot; r->golf_solo = solo;
     r->frames[0] = f0; r->frames[1] = f1; r->best_of = bo;
     r->match_over = mo; r->match_winner = mw;
     r->break_first = bf;

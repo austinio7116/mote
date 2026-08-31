@@ -186,8 +186,18 @@ typedef struct {
     /* SNOOKER SHOOTOUT: the one-frame TV format, as a switch on the snooker
      * games. Rules-side it changes three things: every stroke must pot or
      * reach a cushion; every foul is ball in hand (anywhere, not the D); and
-     * there is no miss rule and no foul decisions. The clocks and the
-     * blue-ball tie-break are the host's. */
+     * there is no miss rule and no foul decisions.
+     *
+     * The clocks and the blue-ball tie-break live in the host rather than here,
+     * and this used to say they "are the host's" as though that settled
+     * something. It does not, and the phrasing did damage: calling a thing the
+     * host's became a reason not to put it on the wire, so two ends each ran
+     * their own shootout clock and staged their own tie-break, and the clock
+     * decides when the frame ends while the tie-break decides who wins it.
+     * They cross now -- see CueVrNetState in the CueVR front end. Where a
+     * thing LIVES is a question about which struct owns the memory; whether it
+     * has to be AGREED is a different question, and the answer for anything
+     * that changes the result is always yes. */
     int snk_shootout;
     int bil_cannons;     /* consecutive cannons, not with a hazard */
     int bil_hazards;     /* consecutive hazard strokes, not with a cannon */

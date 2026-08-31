@@ -154,6 +154,32 @@ int main(void) {
         ok(!r.last_foul, "the pub break never needed the crossing rule", r.msg);
     }
 
+    /* ---- THE RULE BOOK SURVIVES A FRAME ---------------------------------
+     *
+     * Reported from an online best of 3: "It was supposed to be international
+     * rules, but in the second frame it suddenly changed the rules to 2 shots."
+     * cue_rules_next_frame re-inits the struct, cue_rules_init memsets it, and
+     * uk_intl came back 0 — CUE_UK_PUB, the two-shot game. Everything else the
+     * host sets up once per match and not once per frame went with it.
+     *
+     * Not an online fault: both ends reset identically and agreed perfectly
+     * about the wrong rules, which is why it took a player who knew what he had
+     * chosen to see it. */
+    {   CueTable t2; cue_table_init(&t2, CUE_GAME_UK8);
+        CueRules r; cue_rules_init(&r, &t2, 0);
+        cue_rules_set_uk(&r, CUE_UK_INTL);
+        r.best_of = 3; r.miss_level = 3; r.call_shot_on = 2; r.snk_shootout = 1;
+        r.frames[0] = 1;
+        cue_rules_next_frame(&r, &t2);
+        ok(r.uk_intl == CUE_UK_INTL,
+           "frame 2 of a match is still INTERNATIONAL, not two shots", r.msg);
+        ok(r.miss_level == 3,   "...and still the miss standard chosen", "");
+        ok(r.call_shot_on == 2, "...and still calling the shot", "");
+        ok(r.snk_shootout == 1, "...and still the shootout format", "");
+        ok(r.best_of == 3 && r.frames[0] == 1,
+           "...with the match itself intact", "");
+    }
+
     printf(s_fail ? "\n%d FAILED\n" : "\nall good\n", s_fail);
     return s_fail != 0;
 }
