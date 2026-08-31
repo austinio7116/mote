@@ -77,15 +77,18 @@ static const uint16_t k_cloth[CUE_NCLOTH] = {
      * trap the bed presets fell into. Everything after PINK keeps its number;
      * only these four slots change what they mean.
      *
-     * Pitched at the light end of what cloth does rather than at what a colour
-     * picker calls light: SAGE, PINK and GOLD are the neighbours to judge them
-     * against, and all three sit in the 130-180 range on their brightest
-     * channel. */
-    RGB565C(72,152,138),  /* LIGHT TEAL */
+     * MATCHED TO PHOTOGRAPHS, THROUGH THE RENDERER. The teal is an Ultimate
+     * Pool table and the blue is a tournament cloth, both sampled off video:
+     * (0,180,171) and (84,194,243) at the middle of the cloth. Those are not
+     * the numbers that go here -- a lit table comes out about a third brighter
+     * than its swatch, measured by rendering a known value and reading it back
+     * -- so these are the sources that LAND on those two, which is the only
+     * sense in which a cloth colour can be said to be right. */
+    RGB565C(6,124,120),   /* TEAL */
     RGB565C(198,176,30),  /* YELLOW */
     RGB565C(27,14,40),    /* PURPLE */
     RGB565C(140,110,180), /* LIGHT PURPLE */
-    RGB565C(190,90,170),  /* LIGHT MAGENTA */
+    RGB565C(78,150,188),  /* TOURNAMENT BLUE */
     RGB565C(84,20,8),     /* WINDSOR RED */
     RGB565C(140,31,1),    /* RED */
     RGB565C(201,57,1),    /* ORANGE */
@@ -94,7 +97,7 @@ static const uint16_t k_cloth[CUE_NCLOTH] = {
 static const char *k_cloth_name[CUE_NCLOTH] = {
     "BLACK","SILVER","TAUPE","TAN","GOLD","PAPRIKA","NUTMEG","RANGER GREEN",
     "OLIVE","CHAMPIONSHIP","SAGE","POWDER BLUE","SLATE","NAVY","ROYAL BLUE",
-    "LIGHT TEAL","YELLOW","PURPLE","LIGHT PURPLE","LIGHT MAGENTA","WINDSOR RED","RED",
+    "TEAL","YELLOW","PURPLE","LIGHT PURPLE","TOURNAMENT BLUE","WINDSOR RED","RED",
     "ORANGE","PINK" };
 /* The one a table arrives in — the green it has always arrived on. OLIVE was
  * the default only for as long as it was the only green in the set. */
