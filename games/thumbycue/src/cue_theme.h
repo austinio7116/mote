@@ -88,7 +88,7 @@ static const uint16_t k_cloth[CUE_NCLOTH] = {
     RGB565C(198,176,30),  /* YELLOW */
     RGB565C(27,14,40),    /* PURPLE */
     RGB565C(140,110,180), /* LIGHT PURPLE */
-    RGB565C(78,150,188),  /* TOURNAMENT BLUE */
+    RGB565C(8,88,150),    /* TOURNAMENT BLUE */
     RGB565C(84,20,8),     /* WINDSOR RED */
     RGB565C(140,31,1),    /* RED */
     RGB565C(201,57,1),    /* ORANGE */
