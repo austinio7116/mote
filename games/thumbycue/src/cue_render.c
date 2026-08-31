@@ -2165,6 +2165,91 @@ static void plank_end_cut(int axis, float uE, float su, float uB,
  * pocket has to be cut back at too: the nose is raked, so the wood beneath it
  * is raked the same way or the two do not meet. Written once because two places
  * need the same number and a copy of it in each is a copy that drifts. */
+static void box6(float x0, float x1, float y0, float y1, float z0, float z1,
+                 uint16_t top, uint16_t side);
+
+/* ---- ONE PLANK OF A SPLIT RAIL ------------------------------------------
+ *
+ * WRITTEN ONCE. The rectangle grew this -- the end cutaways, how far back each
+ * one starts, the clamp that stops a short plank being all cutaway -- and the
+ * L-shaped bed then grew a SECOND, simpler copy that used the plain rake at
+ * both ends. So an L's corners had a different cut from a rectangle's corners
+ * on the same table, which is exactly the sort of difference nobody can see
+ * until they put the two side by side.
+ *
+ * The only genuinely per-shape parts are the two the caller passes: which side
+ * of the plank the mouth is on (a rectangle can take whichever is nearer the
+ * middle of the table; the L's notch rails face outward and cannot), and
+ * whether each end runs into a MIDDLE or a corner. */
+
+/* HOW FAR BACK FROM ITS END A PLANK IS CUT AWAY.
+ *
+ * A corner's mouth is diagonal to both of its rails, so each plank's cut is
+ * seen nearly edge-on and has to run further along the rail to clear the line
+ * of sight -- back to where the cushion's flat face begins, which is what the
+ * jaws then cover. A middle's mouth is square to its rail and there is nothing
+ * to cover it, so the same distance that reads right at a corner starts out in
+ * the open cushion at a middle: that one gets the nose's own rake. Two pocket
+ * shapes, two answers; one rule for both was wrong at whichever end it was not
+ * measured on. */
+static float plank_end_len(int ax0, float uE, float vI, int is_mid,
+                           float rake, float Lc) {
+    if (is_mid) return rake;
+    if (!s_cw) return Lc;
+    float best = -1.0f;
+    for (int q = 0; q < s_cw->nseg; q++) {
+        const CueSeg *g = &s_cw->seg[q];
+        if (g->kind != 0) continue;                    /* flat faces only */
+        const float gv  = ax0 ? g->a.x : g->a.z;
+        const float gv2 = ax0 ? g->b.x : g->b.z;
+        /* ON THIS PLANK'S OWN RAIL: within a rail's width of its mouth line,
+         * and running along it rather than across. (This also had a sign test,
+         * gv * vI <= 0, to throw away the far side of the table -- which the
+         * distance test already does, the far side being a table's width away,
+         * and which divides by nothing when a face's mouth line sits at zero.
+         * An L's notch rails do sit at zero.) */
+        if (fabsf(gv - vI) > 0.14f || fabsf(gv2 - gv) > 1e-3f) continue;
+        for (int e3 = 0; e3 < 2; e3++) {
+            const float gu = ax0 ? (e3 ? g->b.z : g->a.z)
+                                 : (e3 ? g->b.x : g->a.x);
+            const float d2 = fabsf(gu - uE);
+            if (d2 > 1e-5f && (best < 0.0f || d2 < best)) best = d2;
+        }
+    }
+    return best > 0.0f ? best : Lc;
+}
+
+static void split_plank(int ax0, float ua, float ub, float va, float vb,
+                        float vI, float vO, int mid_a, int mid_b,
+                        float plank_y, float Hc, float rake, float Lc,
+                        float woodt, uint16_t wood, uint16_t ccut) {
+    if (ub - ua < 1e-4f) return;
+    /* ACROSS THE PLANK IS NOT THE SAME QUESTION as how far back along it. The
+     * rake is the nose's own angle; how deep the bite goes wants to reach most
+     * of the way across or timber is still standing in the mouth. */
+    const float Wc = fabsf(vO - vI) * 0.66f;
+    float Le[2];
+    Le[0] = plank_end_len(ax0, ua, vI, mid_a, rake, Lc);
+    Le[1] = plank_end_len(ax0, ub, vI, mid_b, rake, Lc);
+    /* ...and no plank is more cutaway than plank. */
+    if (Le[0] > (ub - ua) * 0.40f) Le[0] = (ub - ua) * 0.40f;
+    if (Le[1] > (ub - ua) * 0.40f) Le[1] = (ub - ua) * 0.40f;
+#ifdef MOTE_HOST
+    {   static int ld = -1;
+        if (ld < 0) ld = getenv("CUE_CUTDUMP") ? 1 : 0;
+        if (ld) printf("CUT axis%d u[%.4f %.4f] vI %.4f -> L %.4f %.4f "
+                       "(Lc %.4f)  H %.4f W %.4f\n", ax0, ua, ub, vI,
+                       Le[0], Le[1], Lc, Hc, Wc); }
+#endif
+    plank_end_cut(ax0, ua, -1.0f, ua + Le[0], vI, vO, 0.0f, plank_y,
+                  Hc, Wc, woodt, wood, ccut);
+    plank_end_cut(ax0, ub,  1.0f, ub - Le[1], vI, vO, 0.0f, plank_y,
+                  Hc, Wc, woodt, wood, ccut);
+    {   const float v0 = va < vb ? va : vb, v1 = va < vb ? vb : va;
+        if (!ax0) box6(ua + Le[0], ub - Le[1], 0.0f, plank_y, v0, v1, woodt, wood);
+        else      box6(v0, v1, 0.0f, plank_y, ua + Le[0], ub - Le[1], woodt, wood); }
+}
+
 static float cush_undercut(const CueTable *t) { return 0.45f * t->R; }
 
 static void box6(float x0, float x1, float y0, float y1, float z0, float z1,
@@ -3575,42 +3660,73 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                 const float vI = pl[i].hi ? (va < vb ? va : vb) : (va < vb ? vb : va);
                 const float vO = pl[i].hi ? (va < vb ? vb : va) : (va < vb ? va : vb);
                 if (ub - ua < 1e-4f) continue;
-                /* EACH END STOPS SHORT OF THE DROP IT RUNS INTO. The drop is
-                 * found by looking, not by arithmetic on hl and hw: on an L a
-                 * plank's end may be a corner pocket, a middle, or -- at the
-                 * elbow -- no pocket at all, and a plank that runs into nothing
-                 * keeps its full length. */
-                for (int e = 0; e < 2; e++) {
-                    const float uE = e ? ub : ua;
-                    int best = -1; float bd = 1e9f;
-                    for (int q = 0; q < nh; q++) {
-                        const float qu = ax0 ? hz[q] : hx[q];
-                        const float qv = ax0 ? hx[q] : hz[q];
-                        const float du = qu - uE, dv = qv - vI;
-                        const float d2 = du*du + dv*dv;
-                        if (d2 < bd) { bd = d2; best = q; }
-                    }
-                    /* Only a drop this end actually reaches: a quarter of a
-                     * metre is well over a bore and well under the shortest
-                     * run between two of them. */
-                    if (best < 0 || bd > 0.25f * 0.25f) continue;
-                    const int mid = (s_cw && s_cw->pocket_mid[best]);
+                /* EVERY DROP ON THIS EDGE CUTS IT, NOT JUST THE TWO IT ENDS AT.
+                 *
+                 * This pulled each END back to whatever drop it ran into and
+                 * left everything between them alone -- which is the whole
+                 * plank on a rectangle's short rail and WRONG on either of the
+                 * L's long ones, because a MIDDLE POCKET SITS IN THE MIDDLE OF
+                 * A RUN. Six edges is six planks only if no edge has a drop in
+                 * its interior; this L has two that do, and the rail was built
+                 * straight over both of them. Eight planks, not six.
+                 *
+                 * So each drop on the edge takes its own interval out of the
+                 * run and what survives is the timber. A corner's interval
+                 * straddles the end and simply shortens the plank -- which is
+                 * what the end-cut did -- and a middle's is interior and splits
+                 * it in two. One rule covers both, and it covers three drops on
+                 * one edge without being told about that case either. */
+                float cut0[CUE_MAX_POCKET + 1], cut1[CUE_MAX_POCKET + 1];
+                int cutm[CUE_MAX_POCKET + 1], ncut = 0;
+                for (int q = 0; q < nh && ncut <= CUE_MAX_POCKET; q++) {
+                    const float qu = ax0 ? hz[q] : hx[q];
+                    const float qv = ax0 ? hx[q] : hz[q];
+                    /* ON THIS EDGE: square to its mouth line, and within the
+                     * run. A quarter of a metre off the mouth is well over a
+                     * bore and well under the gap to the opposite rail. */
+                    if (fabsf(qv - vI) > 0.25f) continue;
+                    if (qu < ua - 0.25f || qu > ub + 0.25f) continue;
+                    const int mid = (s_cw && s_cw->pocket_mid[q]);
                     const float g = mid ? (gM > 0.0f ? gM : gC) : gC;
-                    const float qu = ax0 ? hz[best] : hx[best];
-                    if (e) { if (qu - g < ub) ub = qu - g; }
-                    else   { if (qu + g > ua) ua = qu + g; }
+                    /* A CORNER IS CUT TO THE END OF THE RUN, not to a gap
+                     * either side of it -- wood_plank_bored says the same
+                     * thing in the same words. There is no rail beyond a
+                     * corner drop; the plank simply finishes. Taking a
+                     * symmetric slot out of it instead leaves the timber
+                     * OUTBOARD of the drop standing as a stub, which is a
+                     * small square of wood sitting outside every corner.
+                     * A middle has rail both ways and does want the slot. */
+                    cutm[ncut] = mid;
+                    if (mid) { cut0[ncut] = qu - g; cut1[ncut] = qu + g; }
+                    else if (qu - ua < ub - qu) { cut0[ncut] = ua - 1.0f; cut1[ncut] = qu + g; }
+                    else                        { cut0[ncut] = qu - g;    cut1[ncut] = ub + 1.0f; }
+                    ncut++;
                 }
-                if (ub - ua < 1e-4f) continue;
-                const float Wc = fabsf(vO - vI) * 0.66f;
+                for (int a2 = 1; a2 < ncut; a2++) {      /* by where they start */
+                    const float k0 = cut0[a2], k1 = cut1[a2];
+                    const int km = cutm[a2]; int b2 = a2 - 1;
+                    while (b2 >= 0 && cut0[b2] > k0) {
+                        cut0[b2+1] = cut0[b2]; cut1[b2+1] = cut1[b2];
+                        cutm[b2+1] = cutm[b2]; b2--; }
+                    cut0[b2+1] = k0; cut1[b2+1] = k1; cutm[b2+1] = km;
+                }
+                /* THE SAME PLANK THE RECTANGLE BUILDS -- see split_plank. What
+                 * this has to supply that a rectangle does not is which side
+                 * the mouth is on (stated per edge above) and whether each end
+                 * runs into a middle, which the cut it stops at already knows. */
                 const uint16_t ccut = shade565(t->cloth, 0.55f);
-                plank_end_cut(ax0, ua, -1.0f, ua + rake, vI, vO, 0.0f, plank_y,
-                              Hc, Wc, woodt, wood, ccut);
-                plank_end_cut(ax0, ub,  1.0f, ub - rake, vI, vO, 0.0f, plank_y,
-                              Hc, Wc, woodt, wood, ccut);
-                if (!ax0) box6(ua + rake, ub - rake, 0.0f, plank_y,
-                               va < vb ? va : vb, va < vb ? vb : va, woodt, wood);
-                else      box6(va < vb ? va : vb, va < vb ? vb : va, 0.0f, plank_y,
-                               ua + rake, ub - rake, woodt, wood);
+                const float Lc = gC * 2.3f;
+                float run0 = ua; int run0_mid = 0;
+                for (int c = 0; c <= ncut; c++) {
+                    const float run1 = (c < ncut) ? cut0[c] : ub;
+                    const int   mid1 = (c < ncut) ? cutm[c] : 0;
+                    const float p0 = run0 < ua ? ua : run0;
+                    const float p1 = run1 > ub ? ub : run1;
+                    if (p1 - p0 > 0.02f)
+                        split_plank(ax0, p0, p1, va, vb, vI, vO, run0_mid, mid1,
+                                    plank_y, Hc, rake, Lc, woodt, wood, ccut);
+                    if (c < ncut && cut1[c] > run0) { run0 = cut1[c]; run0_mid = cutm[c]; }
+                }
             }
         } else {
         wood_plank_bored(-ox,  ox, ZLO(-oz,-ibz), ZHI(-oz,-ibz), plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, RHI(0), face_low, wlip); /* bottom */
@@ -3741,6 +3857,8 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * runs the cut up past the face the cushion actually plays off. */
         {   const float Hc = t->cushion_h;           /* up the inner face */
             const float Lc = gC * 2.3f;              /* only if the walk fails */
+            const float rake = cush_undercut(t);
+            const uint16_t ccut = shade565(t->cloth, 0.55f);
             for (int i = 0; i < np2; i++) {
                 const int ax0 = pk[i].axis;
                 const float ua = ax0 ? pk[i].za : pk[i].xa;
@@ -3750,88 +3868,13 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                 /* inboard is whichever side is nearer the middle of the table */
                 const float vI = (fabsf(va) < fabsf(vb)) ? va : vb;
                 const float vO = (fabsf(va) < fabsf(vb)) ? vb : va;
-                /* THE SAME RAKE THE CUSHION'S OWN UNDERCUT USES.
-                 *
-                 * The nose overhangs its base by cush_undercut() over a height
-                 * of cushion_h, and that ratio is an angle -- about 19 degrees
-                 * on every table, because both terms scale with the ball. The
-                 * timber under the nose is cut back on that same angle, so the
-                 * two meet instead of one crossing the other.
-                 *
-                 * Everything before this was a distance picked some other way
-                 * and each was wrong in its own direction: a multiple of the
-                 * rail gap ran the cut 93 mm back, behind the cushion; the
-                 * flat face's own start was 70 mm and landed on it; hunting the
-                 * jaw's 45-degree point found a segment at the far end of the
-                 * plank and returned 690. An angle has none of those failure
-                 * modes -- there is nothing to search for. */
-                const float rake = cush_undercut(t);
-                /* ...AND ONLY AT A MIDDLE. A corner's mouth is diagonal to both
-                 * of its rails, so each plank's cut is seen nearly edge-on and
-                 * has to run further along the rail to clear the line of sight;
-                 * the jaws cover the extra. A middle's mouth is square to its
-                 * rail and there is nothing to cover it, which is why the same
-                 * distance that reads correctly at a corner starts out in the
-                 * open cushion at a middle. Two pocket shapes, two answers --
-                 * one rule for both was wrong at whichever end it was not
-                 * measured on. */
-                /* ACROSS THE PLANK IS NOT THE SAME QUESTION. The rake sets how
-                 * far back along the RAIL the cut starts -- that is the nose's
-                 * own angle and it is what the green point marks. How deep the
-                 * bite goes into the plank is the other point, and it wants to
-                 * reach most of the way across or the timber is still standing
-                 * in the mouth. Tying both to the rake pulled this one in with
-                 * it and put the wood back. */
-                const float Wc = fabsf(vO - vI) * 0.66f;
-                float Le[2] = { Lc, Lc };
-                for (int e2 = 0; e2 < 2; e2++) {
-                    const float uE2 = e2 ? ub : ua;
-                    const float half = ax0 ? hw : hl;
-                    if (fabsf(uE2) < half * 0.5f) { Le[e2] = rake; continue; }
-                    /* a corner end: back to where the flat face begins, which
-                     * is what it had and what looked right */
-                    if (!s_cw) continue;
-                    float best = -1.0f;
-                    for (int q = 0; q < s_cw->nseg; q++) {
-                        const CueSeg *g = &s_cw->seg[q];
-                        if (g->kind != 0) continue;
-                        const float gv  = ax0 ? g->a.x : g->a.z;
-                        const float gv2 = ax0 ? g->b.x : g->b.z;
-                        if (gv * vI <= 0.0f) continue;
-                        if (fabsf(gv - vI) > 0.14f || fabsf(gv2 - gv) > 1e-3f) continue;
-                        for (int e3 = 0; e3 < 2; e3++) {
-                            const float gu = ax0 ? (e3 ? g->b.z : g->a.z)
-                                                 : (e3 ? g->b.x : g->a.x);
-                            const float d2 = fabsf(gu - uE2);
-                            if (d2 > 1e-5f && (best < 0.0f || d2 < best)) best = d2;
-                        }
-                    }
-                    if (best > 0.0f) Le[e2] = best;
-                }
-                if (Le[0] > (ub - ua) * 0.40f) Le[0] = (ub - ua) * 0.40f;
-                if (Le[1] > (ub - ua) * 0.40f) Le[1] = (ub - ua) * 0.40f;
-#ifdef MOTE_HOST
-                {   static int ld = -1;
-                    if (ld < 0) ld = getenv("CUE_CUTDUMP") ? 1 : 0;
-                    if (ld) printf("CUT pk%d axis%d u[%.4f %.4f] vI %.4f -> L %.4f "
-                                   "(Lc %.4f)  H %.4f W %.4f\n", i, ax0, ua, ub,
-                                   vI, Le[0], Lc, Hc, Wc); }
-#endif
-                /* THE SAME CLOTH THE CUSHION BESIDE IT IS WEARING, at the
-                 * shade this file already gives an undercut face -- see fdark,
-                 * "undercut face (in shadow)". Flat t->cloth would be the one
-                 * unshaded green on a table where every other cloth face is
-                 * toned, and it sits directly beside the nose. */
-                const uint16_t ccut = shade565(t->cloth, 0.55f);
-                plank_end_cut(ax0, ua, -1.0f, ua + Le[0], vI, vO, 0.0f, plank_y,
-                              Hc, Wc, woodt, wood, ccut);
-                plank_end_cut(ax0, ub,  1.0f, ub - Le[1], vI, vO, 0.0f, plank_y,
-                              Hc, Wc, woodt, wood, ccut);
-                /* ...and the plain box between them */
-                if (!ax0) box6(ua + Le[0], ub - Le[1], 0.0f, plank_y,
-                               pk[i].za, pk[i].zb, woodt, wood);
-                else      box6(pk[i].xa, pk[i].xb, 0.0f, plank_y,
-                               ua + Le[0], ub - Le[1], woodt, wood);
+                /* A MIDDLE END IS ONE NEAR THE MIDDLE OF THE RAIL, which on a
+                 * rectangle is all a middle can be. */
+                const float half = ax0 ? hw : hl;
+                const int mid_a = fabsf(ua) < half * 0.5f;
+                const int mid_b = fabsf(ub) < half * 0.5f;
+                split_plank(ax0, ua, ub, va, vb, vI, vO, mid_a, mid_b,
+                            plank_y, Hc, rake, Lc, woodt, wood, ccut);
             } }
     } else {
     wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, nh, 0, 1, face_low, wlip); /* +z */
