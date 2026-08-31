@@ -393,7 +393,23 @@ static int play_shot(const CuePersona *p) {
      * this stroke found has to be taken first. */
     int hole_snap[8], baulk_snap = R.bb_in_baulk;
     for (int k = 0; k < 8; k++) hole_snap[k] = R.bb_hole[k];
+    const int opp_before = R.score[1 - R.turn];
     cue_rules_resolve(&R, B, N, &W, W.first_hit, scratch, cushion_seen, potted, np);
+    /* AND THE PLANNER IS TOLD WHAT ITS OWN SHOT DID, which this bench had never
+     * done — so it has been measuring an AI the game does not run.
+     *
+     * cue_ai keeps no state between shots except this: cue_game.c calls
+     * note_foul when the opponent's score goes up and clear_fouls when it does
+     * not, and foul_avoid_angle then turns the aim of EVERY candidate by up to
+     * 0.10 rad to open the line on a ball it fouled against. Without those two
+     * calls s_nfoul is zero for the whole run and that correction never fires,
+     * so every number this bench has ever produced came from a planner with one
+     * of its inputs missing. The comment on the bench says it drives the same
+     * loop cue_game.c does, and this is the line where it did not. */
+    {   const int hit = (W.first_hit >= 0 && W.first_hit < N)
+                      ? B[W.first_hit].id : -1;
+        if (R.score[1 - turn_before] > opp_before) cue_ai_note_foul(s.target_id, hit);
+        else                                       cue_ai_clear_fouls(); }
     /* ONE POCKET: ANSWER THE CHOICE, as the host does. The pocket with more of
      * the fifteen nearer it, weighted by distance — a ball on the rail beside a
      * hole is worth more than one at the far end — which is the same rule the

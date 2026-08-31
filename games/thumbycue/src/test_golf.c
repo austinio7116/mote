@@ -140,9 +140,19 @@ int main(void) {
      * eighteen — lives inside CueRules, which the lockstep memcpys as one
      * block. That only works while it FITS, and the card is the first thing
      * here big enough to threaten it. */
+    /* 1024, WHICH IS WHAT THE PACKET ACTUALLY HOLDS. This said 768, and 768 was
+     * the buffer's size two raises ago — CUEVR_NET_RULES_MAX went to 1024 when
+     * bowlliards' ten-frame card took the struct to 756 and twelve bytes of
+     * headroom was judged a trap. The number here was a hand copy and it did
+     * not move with it, so this test has been guarding a limit that stopped
+     * existing: it failed the moment English billiards added its baulk flags
+     * and its clock, on a struct that fits the real buffer with 232 bytes to
+     * spare. The binding check is the _Static_assert in cuevr_app.c, which is
+     * written against the constant and cannot go stale; this is the handheld
+     * side's reminder that the budget is not infinite. */
     {   char d[64];
         snprintf(d, sizeof d, "CueRules is %d bytes", (int)sizeof(CueRules));
-        ok(sizeof(CueRules) <= 768, "the rules still fit the state packet", d);
+        ok(sizeof(CueRules) <= 1024, "the rules still fit the state packet", d);
         CueRules a; cue_rules_init(&a, &T, 0);
         for (int h = 0; h < CUE_GOLF_HOLES; h++) {
             a.golf_card[0][h] = (uint8_t)(h % 8 + 1);
