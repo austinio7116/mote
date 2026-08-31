@@ -1726,6 +1726,17 @@ typedef struct {
      * flag every cannon in the pool was filed as a safety, re-scored on how
      * badly it left the OPPONENT, and counted against the safety budget. */
     int   cannon;
+    /* THE GUARANTEED CONTACT, and a flag rather than a score, because it has to
+     * survive the sort. See the reserve below cand_sort: a candidate that
+     * cannot lose is worth nothing until the ones that can have failed, so it
+     * is deliberately ranked last — and something ranked last in a full pool is
+     * never simulated, which made it useless. This is how it gets found again. */
+    int   sure;
+    /* WHY bad_first was set: 1 = the sim's cue ball touched nothing at all,
+     * 0 = it touched something the rules do not allow first. The two are
+     * different faults and the flag alone cannot tell them apart — see
+     * CUE_AI_SUREDBG. */
+    int   no_contact;
 } Cand;
 
 /* JS variant sweep arrays. */
@@ -2734,7 +2745,27 @@ static int best_safety_idx(void) {
  * Returns 1 when *out already holds a simulation of the final aim, so the
  * caller can score straight from it instead of paying for another. */
 static int throw_correct(const AiCtx *c, Cand *q, AiSim *out) {
-    if ((q->pk < 0 && !q->cannon) || q->tidx <= 0 || q->tidx >= c->n) return 0;
+    /* A CANNON HAS NO POCKET, AND THIS CORRECTION IS A POCKET'S.
+     *
+     * The guard used to read `(q->pk < 0 && !q->cannon)`, which let a cannon
+     * through with pk == -1 — and the very next thing this does is ask
+     * pocket_aim_t where that pocket is, which indexes `w->pocket[pk]` with no
+     * bounds check. Every cannon candidate in the game was therefore corrected
+     * towards a direction computed from `w->pocket[-1]`: a read one element off
+     * the front of the array, and then up to 0.03 rad of aim per pass, twice,
+     * steering the shot at it.
+     *
+     * That is why the "cannot miss" floor missed. A candidate aimed dead at the
+     * centre of a ball 1.4 m away came back from the simulator having touched
+     * nothing, and both candidates in a two-candidate pool missed IDENTICALLY —
+     * which is the signature of a common perturbation rather than of a bad
+     * plan. Billiards and carom are the only games that set `cannon`, which is
+     * exactly where the machine was reported playing seemingly random shots.
+     *
+     * There is nothing to correct towards: a cannon's aim is already built by
+     * the ghost-ball construction that points the first object ball at the
+     * second one. So a candidate with no pocket leaves here untouched. */
+    if (q->pk < 0 || q->tidx <= 0 || q->tidx >= c->n) return 0;
     Vec3 want = nrm2(sub2(pocket_aim_t(c, q->pk, c->b[q->tidx].pos),
                           c->b[q->tidx].pos));
     /* Rotating the aim by d moves the cue ball's contact point by about dg*d,
@@ -2981,6 +3012,53 @@ static void plan_finalize(void) {
                     Cand tmp = P.pool[i]; P.pool[i] = P.pool[j]; P.pool[j] = tmp;
                 }
     }
+    /* CUE_AI_SUREDBG — why does the machine still hit nothing?
+     *
+     * The floor exists so that a position with no plan still has a legal shot,
+     * and a reserved slot exists so it is actually simulated. A billiards frame
+     * still ends about a third of its shots on "FOUL: MISS", so one of those two
+     * is not doing its job and only the planner knows which. This says, per
+     * plan: was a sure candidate BUILT, did it get INSIDE the sim budget, did
+     * the engine say it CONTACTS, and did it win. */
+    if (getenv("CUE_AI_SUREDBG")) {
+        int built = 0, insim = 0, simmed = 0, clean = 0;
+        for (int i = 0; i < npool; i++) {
+            if (!P.pool[i].sure) continue;
+            built++;
+            if (i < P.sim_cap) insim++;
+            if (P.pool[i].simmed) { simmed++; if (!P.pool[i].bad_first) clean++; }
+        }
+        int nclean = 0;
+        for (int i = 0; i < P.sim_cap && i < npool; i++)
+            if (P.pool[i].simmed && !P.pool[i].bad_first && !P.pool[i].scratch) nclean++;
+        fprintf(stderr, "[sure] pool=%d cap=%d  sure built=%d in-budget=%d "
+                "simmed=%d contacts=%d | clean shots in budget=%d\n",
+                npool, P.sim_cap, built, insim, simmed, clean, nclean);
+    }
+    /* AN EMPTY POOL IS NOT A SHOT, and it was being played as one.
+     *
+     * select_shot returns -1 when there is nothing to choose from; `sel` was
+     * then clamped to 0 and P.pool[0] read anyway — and P.pool is a static
+     * scratch buffer, so index 0 still held THE PREVIOUS PLAN'S candidate. The
+     * machine played the last position's shot at this one: an aim and a pace
+     * chosen for a table that no longer existed, which is as close to a random
+     * stroke as this planner can produce. Measured on one frame of English
+     * billiards: 13 of 112 plans came out of an empty pool, and every one of
+     * them printed the preceding plan's numbers back — same aim, same power,
+     * same target distance. That is the "it just hits a seemingly random shot"
+     * that was reported from play.
+     *
+     * A pool empties legitimately: billiards is three balls, and with the red
+     * off the table awaiting its respot and the opponent's white not yet in
+     * play there is a real moment with nothing legal to hit. The honest answer
+     * to that is the one both callers already handle — no valid shot — not a
+     * shot borrowed from history. cue_game.c nudges the ball forward and the
+     * bench counts it; neither of them wanted this. */
+    if (npool <= 0) {
+        CueAIShot none; memset(&none, 0, sizeof none);
+        none.target_pocket = -1; none.target_id = -1; none.best_pot = -1.0f;
+        P.result = none; return;                      /* valid stays 0 */
+    }
     int sel = select_shot(c, npool, P.rng);
     if (sel < 0) sel = 0;
     /* never let random/top-3 selection land on a scratch/foul if a clean shot
@@ -2991,6 +3069,22 @@ static void plan_finalize(void) {
 
     /* if even the best available shot scratches/fouls, prefer a safety instead */
     int best_unsafe = best.scratch || best.bad_first;
+    /* CUE_AI_SUREDBG, second half: WHAT THE PLANNER ACTUALLY CHOSE.
+     *
+     * The counts above say what was available; this says what won, and the two
+     * together separate the only two explanations a foul can have. If the shot
+     * the planner returns was simulated and the engine said it CONTACTS, then
+     * the plan was sound and the ball was missed on execution — the persona's
+     * aim error, applied after this function returns. If it comes out
+     * bad_first, the planner knowingly played a shot it had already watched
+     * miss, and that is a planning fault. Nothing else can be inferred from a
+     * foul rate on its own, which is why this exists. */
+    if (getenv("CUE_AI_SUREDBG"))
+        fprintf(stderr, "[chose] idx=%d/%d simmed=%d bad_first=%d nocontact=%d "
+                "scratch=%d sure=%d cannon=%d pow=%.2f pot=%.0f dg=%.2f\n",
+                sel, npool, best.simmed, best.bad_first, best.no_contact,
+                best.scratch, best.sure, best.cannon, (double)best.power01,
+                (double)best.potScore, (double)best.dg);
 
     /* confidence gate vs. safety, scaled by persona accuracy (a deadeye attacks
      * long pots my potting_difficulty rates low; a shaky player doesn't). */
@@ -5249,6 +5343,20 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
          * the planner spent its budget discovering fouls and then playing
          * some. Kept to the contacts a cannon is actually made off. */
         static const float FAN[] = { -0.55f, -0.3f, 0.0f, 0.3f, 0.55f };
+        /* LEFT AS IT IS, AND THAT IS A MEASUREMENT RATHER THAN CAUTION.
+         *
+         * These are a flat fraction of full power, which is not really a stroke
+         * — 0.26 of 12 m/s on a 12 ft bed is a cue ball that stops around the
+         * blue spot — so pacing them off bb_launch the way the floor below is
+         * paced looked like the obvious next fix. It was written, and it made
+         * NO DIFFERENCE AT ALL: one frame of billiards came out at 72 shots and
+         * 22 fouls with it and 72 shots and 22 fouls without it, to the shot.
+         * The fan is not what the planner ends up choosing.
+         *
+         * So it stays flat. A change to a tuned generator that buys nothing is
+         * a change that can only cost something later, and the note above
+         * records that widening this fan has twice cost billiards its longest
+         * break. */
         static const float PWR[] = { 0.26f, 0.40f };
         Vec3 cue = c->b[0].pos;
         for (int a2 = 1; a2 < c->n && npool < MAXPOOL - 8; a2++) {
@@ -5273,14 +5381,15 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                 for (int f = 0; f < (int)(sizeof FAN / sizeof FAN[0]); f++) {
                     for (int q = 0; q < (int)(sizeof PWR / sizeof PWR[0]); q++) {
                         if (npool >= MAXPOOL) break;
+                        const float pw = PWR[q];
                         Cand v; memset(&v, 0, sizeof v);
                         v.tidx = a2;
                         v.pk = -1;              /* no pocket: this is a cannon */
                         v.ghost = ghost;
                         v.aim = base + FAN[f] * span;
                         v.cut = 0.0f; v.dg = dg; v.dpk = d2(A, Bp);
-                        v.power01 = PWR[q];
-                        v.js_power = PWR[q] * AI_SIM_SPEED;
+                        v.power01 = pw;
+                        v.js_power = pw * AI_SIM_SPEED;
                         v.tip_side = 0.0f; v.tip_vert = 0.0f;
                         /* Ranked by the engine, not by a guess: a cannon either
                          * happens or it does not, and only the sim knows. This
@@ -5298,6 +5407,89 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             }
         }
         if (stuck) npool = carom_candidates(c, npool);
+    }
+
+    /* ---- AND ALWAYS SOMETHING LEGAL TO PLAY ----------------------------
+     *
+     * A shot that touches nothing is a foul, and bad_first already prices one
+     * at minus a thousand -- so any contact at all beats every miss in the
+     * pool. But that only helps if a contact is IN the pool, and in the two
+     * games scored by cannons it need not be: billiards is deliberately routed
+     * past the bank-and-safety fallback into its cannon fan, and if every
+     * candidate in that fan misses -- which is exactly the position with no pot
+     * on and the balls apart -- then every candidate is a foul and the planner
+     * must still return one of them. Reported from play: with no easy red, the
+     * machine plays a wild shot, hits nothing, and hands over two and the
+     * table.
+     *
+     * So there is a floor: aim FULL at each object ball, at two gentle paces.
+     * A full-ball contact is legal in both games, needs no plan and cannot
+     * miss, and the sim scores it like anything else -- if it happens to
+     * cannon, it is paid for the cannon.
+     *
+     * Four candidates, not a search. The wide spin sweep was tried here and
+     * cost billiards its longest break -- 29 to 17 to 11 -- because a hundred
+     * and sixty candidates crowd the POTS out of the shortlist the sim can
+     * afford. Four cannot crowd anything, and they are scored below a decent
+     * pot so they only win when nothing else is standing. */
+    if (c->r->mode == CUE_GAME_BILLIARDS || CUE_GAME_IS_CAROM(c->r->mode)) {
+        /* PACED TO ARRIVE, not to a pair of numbers.
+         *
+         * This was a flat { 0.22, 0.34 } of full power, and a flat fraction is
+         * not a stroke: on a 12 ft billiards table 0.22 of 12 m/s is a cue ball
+         * that stops around the blue spot, so the one candidate in the pool
+         * that could not miss could not even REACH. Traced from real frames —
+         * every foul in them was "FOUL: MISS" at pow=0.16..0.27, the cue ball
+         * touching nothing, which is exactly the shot Mark reported watching.
+         *
+         * bb_launch already solves the cloth for "how hard to travel d and
+         * still be doing vend when you get there", and it is ordinary rolling
+         * friction rather than anything bar billiards owns. So the floor asks
+         * for a speed AT THE BALL and lets the table decide the pace: a gentle
+         * arrival for position and a firm one for when the object ball has to
+         * be moved. A shot that arrives at 0.55 m/s is a soft roll into it; one
+         * that arrives at 1.6 m/s takes the ball somewhere. */
+        static const float SURE_ARRIVE[] = { 0.55f, 1.60f };   /* m/s at the ball */
+        const Vec3 cue2 = c->b[0].pos;
+        for (int t2 = 1; t2 < c->n && npool < MAXPOOL - 4; t2++) {
+            if (!c->b[t2].on) continue;
+            const Vec3 A = c->b[t2].pos;
+            const Vec3 line = sub2(A, cue2);
+            const float dg = len2(line);
+            if (dg < 1e-3f) continue;
+            for (int q = 0; q < (int)(sizeof SURE_ARRIVE / sizeof SURE_ARRIVE[0]) &&
+                            npool < MAXPOOL; q++) {
+                /* The run is to the CONTACT, not to the centre: the cue ball
+                 * stops a ball's width short of where the target sits. */
+                const float run = dg > c->contact ? dg - c->contact : 0.0f;
+                const float pw = clampf(bb_launch(c, run, SURE_ARRIVE[q])
+                                            / AI_SIM_SPEED, 0.05f, 1.0f);
+                Cand v; memset(&v, 0, sizeof v);
+                v.tidx = t2;
+                v.pk = -1;                       /* no pocket: this is a contact */
+                v.ghost = v3(A.x - line.x / dg * c->contact, 0.0f,
+                             A.z - line.z / dg * c->contact);
+                v.aim = atan2f(line.z, line.x);  /* straight at its centre */
+                v.cut = 0.0f; v.dg = dg; v.dpk = dg;
+                v.power01 = pw;
+                v.js_power = pw * AI_SIM_SPEED;
+                v.tip_side = 0.0f; v.tip_vert = 0.0f;
+                v.cannon = 1;
+                /* THE SHOT OF LAST RESORT, and scored to be exactly that.
+                 *
+                 * A TOUGH POT BEATS A CERTAIN FOUL, and it should: a pot that
+                 * misses the pocket has still HIT THE BALL, so bad_first is 0
+                 * and it keeps whatever it is worth, while this is worth almost
+                 * nothing. What must not happen is this crowding a long pot out
+                 * of the shortlist the sim can afford before it is ever tried,
+                 * so it sits below the cannon fan's 38 and below any pot the
+                 * planner would consider taking. */
+                v.potScore = 18.0f;
+                v.posScore = 30.0f;
+                v.sure     = 1;
+                P.pool[npool++] = v;
+            }
+        }
     }
 
     /* Sort by ANALYTIC COMPOSITE (pot + predicted position), not pot alone, so
@@ -5367,6 +5559,49 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             int slot = cap0 - 1 - taken;
             Cand tmp = P.pool[slot]; P.pool[slot] = P.pool[pick]; P.pool[pick] = tmp;
             taken++;
+        }
+    }
+
+    /* ---- AND ONE SLOT THE SURE THING CANNOT BE SORTED OUT OF ------------
+     *
+     * A GUARD, AND NOT — AS THIS COMMENT ONCE CLAIMED — THE FIX FOR "the
+     * machine plays a random shot and fouls".
+     *
+     * The reasoning was that the floor is scored 18/30 on purpose, below the
+     * cannon fan and below any pot worth taking, so on a full table it would
+     * sort past `sim_cap` and never be simulated — and a candidate the engine
+     * never rolls can never be chosen, because bad_first prices a miss at minus
+     * a thousand only among shots that were actually simulated. Sound, and it
+     * does not happen at billiards: CUE_AI_SUREDBG on a real frame reports
+     * `pool=32 cap=32` on every plan. The billiards pool comes out at exactly
+     * the sim ceiling, so the whole of it is simulated and the floor was in the
+     * search all along. Measured, not assumed, after the theory was written.
+     *
+     * It stays because the premise is still true wherever the pool DOES outrun
+     * the budget, and it costs one swap: the analytic order is set aside for
+     * ONE candidate that cannot foul, in the LAST slot, so it displaces the
+     * weakest shot being considered and nothing better. One is enough — this is
+     * a floor and not a plan, and the measured cost of crowding real candidates
+     * out of a billiards search is its longest break falling from 29 to 17.
+     *
+     * Billiards and carom only, which are the two games routed past the
+     * bank-and-safety fallback: everywhere else a position with nothing on
+     * still has a safety to play, and a safety is a plan. */
+    if ((c->r->mode == CUE_GAME_BILLIARDS || CUE_GAME_IS_CAROM(c->r->mode)) &&
+        npool > 0) {
+        int cap0 = 10 + (int)(p->position * 22.0f + 0.5f);
+        if (CUE_GAME_IS_CAROM(c->r->mode)) cap0 = SIM_CAP;
+        if (cap0 > SIM_CAP) cap0 = SIM_CAP;
+        if (cap0 > npool) cap0 = npool;
+        int have = 0;
+        for (int i = 0; i < cap0; i++) if (P.pool[i].sure) { have = 1; break; }
+        if (!have) {
+            for (int j = cap0; j < npool; j++) {
+                if (!P.pool[j].sure) continue;
+                const int slot = cap0 - 1;
+                Cand tmp = P.pool[slot]; P.pool[slot] = P.pool[j]; P.pool[j] = tmp;
+                break;
+            }
         }
     }
 
@@ -5591,7 +5826,8 @@ int cue_ai_plan_tick(void) {
          * [scratch], (2) avoid fouls [wrong first ball], and (3) score the LEAVE
          * for the next shot. So we keep the real cue leave for position and let
          * persona aim-error decide makes vs misses on execution. */
-        v->bad_first = (sim.first_hit_idx < 0) ||
+        v->no_contact = (sim.first_hit_idx < 0);
+        v->bad_first = v->no_contact ||
                        !cue_rules_ball_legal(c->r, c->b, c->n, c->b[sim.first_hit_idx].id);
         /* Nothing potted and nothing off a rail is a foul wherever the rule
          * applies, and it is the safety player's foul: a soft roll-up that
