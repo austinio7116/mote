@@ -519,6 +519,15 @@ int main(void) {
         ok(r.bil_time_len == 600.0f, "...of the same length", "");
     }
 
+    /* IN-HAND IS THE D AND NOTHING ELSE -- Section 3 Rule 6, "the cue-ball must
+     * be struck from a position on or within the lines of the 'D'". Billiards
+     * is not scored as snooker, so kind is 0 and this fell through to the pool
+     * answer: ball in hand anywhere on the cloth after every in-off. */
+    {   CueRules r; fresh(&r);
+        ok(cue_rules_in_hand_anywhere(&r) == 0,
+           "in hand is the D, never anywhere on the table", "");
+    }
+
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);
     return s_fail ? 1 : 0;
 }

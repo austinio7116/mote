@@ -694,6 +694,20 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
      * but `kind` above is 0 for Paul (it is not scored as snooker), so it fell
      * through to the pool answer and the white could be put down anywhere. */
     if (r->mode == CUE_GAME_PAUL) return 0;
+    /* ENGLISH BILLIARDS: THE D, ALWAYS, AND THERE IS NO OTHER KIND OF IN-HAND.
+     *
+     * Section 3 Rule 6: "To play from in-hand, the cue-ball must be struck from
+     * a position on or within the lines of the 'D'." Section 2 Rule 12 says the
+     * ball is in-hand before the start, when it has entered a pocket, and when
+     * it has been forced off the table -- an in-off and the opponent's ball
+     * coming back, and nothing else. The game has no ball in hand anywhere on
+     * the table at all.
+     *
+     * It fell through to the pool answer for exactly the reason Paul did, three
+     * comments up: `kind` is 0 because billiards is not scored as snooker, so
+     * "snooker is always the D" never got asked, and every in-off handed the
+     * striker the whole cloth. Reported from play. */
+    if (r->mode == CUE_GAME_BILLIARDS) return 0;
     /* ROTATION: behind the head string, which is the classic game's penalty and
      * a real one — you may not shoot at anything in front of the line, so a
      * pack sitting at the foot end has to be reached the long way. The FILIPINO
