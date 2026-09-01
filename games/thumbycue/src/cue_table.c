@@ -2743,7 +2743,13 @@ static void smooth_seg_normals(CueWorld *w) {
 
 void cue_table_build_world(const CueTable *t, CueWorld *w) {
     cue_world_defaults(w, t->R, t->mass);
-    w->cush_tilt = asinf((t->cushion_h - t->R) / t->R);
+    /* The nose-height ratio IS the sine of the tilt, so there is no angle to
+     * take and no arcsine to take it with -- see CueWorld.cush_sin. Clamped
+     * because a table built in the workshop can put the nose anywhere. */
+    {   float s = (t->cushion_h - t->R) / t->R;
+        if (s < -1.0f) s = -1.0f; else if (s > 1.0f) s = 1.0f;
+        w->cush_sin = s;
+        w->cush_cos = sqrtf(1.0f - s * s); }
     /* The height a ball has to be above the cloth to be over the rail rather
      * than bouncing off it. The table knows it; the physics only needed telling. */
     w->cushion_nose = t->cushion_h;

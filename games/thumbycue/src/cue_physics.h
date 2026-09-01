@@ -182,7 +182,15 @@ typedef struct {
     float cush_spin;  /* 0..1: how much of the rail friction impulse becomes NEW spin on the
                        * ball. <1 means the cushion imparts less spin while the bounce-angle
                        * effect of incoming spin is preserved (asymmetric). */
-    float cush_tilt;  /* contact-normal tilt from horizontal (rad), from nose height */
+    /* The contact-normal tilt from horizontal, as its SINE AND COSINE rather
+     * than as an angle.
+     *
+     * It was stored as radians, set with asinf() and read back with cosf() and
+     * sinf() in the same breath -- a round trip through the platform's libm to
+     * recover the number that went in. sin is the nose-height ratio itself and
+     * cos is sqrt(1 - sin^2), both exactly rounded on any chip, where asinf and
+     * its inverse are neither and are the OS's. See cushion_impact. */
+    float cush_sin, cush_cos;
     /* Bed. Only a jumped ball ever touches these. Cloth over slate is a poor
      * trampoline: a jumped ball takes two or three diminishing hops and stops,
      * and the settle speed is what stops it micro-bouncing for hundreds of

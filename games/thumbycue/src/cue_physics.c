@@ -60,7 +60,8 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
     /* Contact point ~0.15 R above centre ⇒ normal tilts up by asin(0.15). Kept
      * modest so top/back spin still bends the rebound a little, but the roll→side
      * coupling that built up running english off the rail is much smaller. */
-    w->cush_tilt = asinf(0.15f);
+    w->cush_sin = 0.15f;
+    w->cush_cos = sqrtf(1.0f - 0.15f * 0.15f);
     /* The bed. Cloth over slate returns very little: a jumped ball takes two or
      * three quick diminishing hops and is down. v_land is set so the last hop
      * is under a millimetre — below that it settles flat rather than chatter,
@@ -803,15 +804,39 @@ static CUE_HOT int cushion_impact(const CueWorld *w, CueBall *b, Vec3 n_face,
          * the whole point of integrating rather than resolving in one go. */
         float sI_n = -vy*S + vz*C + wx*R;
         float sI_d =  vx + wy*R*S - wz*R*C;
-        float phi  = atan2f(sI_n, sI_d);
         float sC_n =  vy + wx*R;
         float sC_d =  vx - wy*R;
-        float phiC = atan2f(sC_n, sC_d);
-        int   slipI = (sI_n*sI_n + sI_d*sI_d) > 1e-8f;
-        int   slipC = on_cloth && (sC_n*sC_n + sC_d*sC_d) > 1e-8f;
+        /* THE SLIP DIRECTION, WITHOUT ASKING libm FOR IT.
+         *
+         * This took atan2f of each pair and then immediately took the cosine
+         * and sine of the answer -- and cos(atan2(n,d)) is d/r and
+         * sin(atan2(n,d)) is n/r, with r the length this loop is already
+         * computing for the slip test just below. Six libm calls a slice, 576
+         * slices a cushion contact, to arrive back at the two numbers that went
+         * in.
+         *
+         * It is not only wasted work, it is the game's whole exposure to
+         * platform floating point. Divide and square root are correctly rounded
+         * everywhere by IEEE-754; atan2f, cosf and sinf are the platform's and
+         * two Android builds may differ in the last place. A power shot
+         * amplifies a last-place difference by about a thousand: measured on a
+         * UK 8-ball break, moving the cue ball 100 nm moves the worst ball
+         * 0.001 mm at 2 m/s and 0.372 mm at 12, and a tenth of a millimetre in
+         * moves a quarter of a METRE out. That is a Quest 2 and a Quest 3
+         * disagreeing about whether a ball went down -- reported from play, as
+         * "only on power shots", which is exactly the shape of the table above.
+         *
+         * This way both ends compute the same bits from the same numbers on any
+         * chip and any OS, and it is cheaper than what it replaces. */
+        float sI2 = sI_n*sI_n + sI_d*sI_d;
+        float sC2 = sC_n*sC_n + sC_d*sC_d;
+        int   slipI = sI2 > 1e-8f;
+        int   slipC = on_cloth && sC2 > 1e-8f;
 
-        float cph = slipI ? cosf(phi)  : 0.0f, sph = slipI ? sinf(phi)  : 0.0f;
-        float cpc = slipC ? cosf(phiC) : 0.0f, spc = slipC ? sinf(phiC) : 0.0f;
+        float rI = slipI ? sqrtf(sI2) : 1.0f;
+        float rC = slipC ? sqrtf(sC2) : 1.0f;
+        float cph = slipI ? sI_d / rI : 0.0f, sph = slipI ? sI_n / rI : 0.0f;
+        float cpc = slipC ? sC_d / rC : 0.0f, spc = slipC ? sC_n / rC : 0.0f;
         float mw  = slipI ? muw : 0.0f;
         float ms  = slipC ? mus : 0.0f;
 
@@ -915,9 +940,9 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
      * which is the reported ball-through-the-rail, and it also opened a band
      * with no wall and no floor in it. */
     if (b->pos.y - cue_ball_r(w, b) > w->rail_top) return 0;
-    /* Tilt the rail normal up by cush_tilt so top/back spin couples into the
+    /* Tilt the rail normal up by the cushion tilt so top/back spin couples into the
      * rebound; then re-normalise. */
-    float ct = cosf(w->cush_tilt), st = sinf(w->cush_tilt);
+    float ct = w->cush_cos, st = w->cush_sin;
     /* Treat the whole cushion chain as a POLYLINE and collide against the single
      * NEAREST contact point. The bounce normal is the smooth vertex-INTERPOLATED
      * normal at the contact (lerp(na,nb,t)) — a continuous normal field along the
