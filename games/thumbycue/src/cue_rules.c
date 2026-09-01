@@ -647,6 +647,59 @@ void cue_rules_concede(CueRules *r, int player) {
     book_frame(r, r->winner);
 }
 
+/* WHAT SURVIVES THE TABLE BEING LAID OUT AGAIN.
+ *
+ * cue_rules_init memsets the struct, so everything chosen before the frame
+ * started comes back as its default -- and uk_intl's default is 0, which is
+ * CUE_UK_PUB, the two-shot game. That was reported once already from an online
+ * best of three ("it suddenly changed the rules to 2 shots") and fixed here in
+ * next_frame by writing the list out by hand.
+ *
+ * It was then reported a SECOND time, from practice: pressing RE-RACK put UK
+ * 8-ball back to pub rules. rerack() calls cue_rules_init directly and had no
+ * such list, because the list was in next_frame rather than anywhere it could
+ * be shared.
+ *
+ * So it lives here once and both callers use it. A setting that belongs to the
+ * MATCH rather than to the frame goes in this struct and nowhere else. */
+typedef struct {
+    int   uk, call, miss, shoot, solo;
+    int   cpu, best_of, f0, f1, break_first, match_over, match_winner;
+    int   target;
+    float bil_len;
+} RulesKeep;
+
+static void rules_keep_take(const CueRules *r, RulesKeep *k) {
+    k->uk = r->uk_intl;        k->call = r->call_shot_on; k->miss  = r->miss_level;
+    k->shoot = r->snk_shootout; k->solo = r->golf_solo;   k->cpu   = r->cpu;
+    k->best_of = r->best_of;   k->f0 = r->frames[0];      k->f1    = r->frames[1];
+    k->break_first = r->break_first;
+    k->match_over = r->match_over; k->match_winner = r->match_winner;
+    k->target = r->target_score;   k->bil_len = r->bil_time_len;
+}
+
+static void rules_keep_put(CueRules *r, const RulesKeep *k) {
+    if (k->target > 0)    r->target_score = k->target;
+    if (k->bil_len > 0.0f) cue_rules_bil_set_time(r, k->bil_len);
+    r->uk_intl = k->uk;  r->call_shot_on = k->call; r->miss_level = k->miss;
+    r->snk_shootout = k->shoot; r->golf_solo = k->solo;
+    r->best_of = k->best_of;
+    r->frames[0] = k->f0; r->frames[1] = k->f1;
+    r->break_first = k->break_first;
+    r->match_over = k->match_over; r->match_winner = k->match_winner;
+}
+
+/* THE SAME FRAME, LAID OUT AGAIN. Not the next frame: nothing is scored, the
+ * break does not alternate and the match tally does not move. Everything the
+ * player chose before the frame started stays chosen. */
+void cue_rules_rerack(CueRules *r, const CueTable *t) {
+    RulesKeep k;
+    if (!r) return;
+    rules_keep_take(r, &k);
+    cue_rules_init(r, t, k.cpu);
+    rules_keep_put(r, &k);
+}
+
 void cue_rules_next_frame(CueRules *r, const CueTable *t) {
     int f0 = r->frames[0], f1 = r->frames[1], bo = r->best_of, cpu = r->cpu;
     int mo = r->match_over, mw = r->match_winner;
@@ -684,14 +737,14 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t) {
      * call this on their own press of A and both reset identically, so the two
      * agree perfectly about the wrong rules. Only a player who knew what they
      * had chosen could see it, which is exactly who reported it. */
-    int uk = r->uk_intl, call = r->call_shot_on, miss = r->miss_level;
-    int shoot = r->snk_shootout, solo = r->golf_solo;
+    /* ...and all of it through ONE list now -- see RulesKeep. Written out by
+     * hand here, it was missing from rerack() entirely, and the same bug was
+     * reported a second time from practice. */
+    RulesKeep k;
+    rules_keep_take(r, &k);
     int first = (bf + f0 + f1) & 1;
     cue_rules_init(r, t, cpu);
-    if (tgt > 0) r->target_score = tgt;
-    if (btm > 0.0f) cue_rules_bil_set_time(r, btm);
-    r->uk_intl = uk; r->call_shot_on = call; r->miss_level = miss;
-    r->snk_shootout = shoot; r->golf_solo = solo;
+    rules_keep_put(r, &k);
     r->frames[0] = f0; r->frames[1] = f1; r->best_of = bo;
     r->match_over = mo; r->match_winner = mw;
     r->break_first = bf;

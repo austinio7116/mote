@@ -180,6 +180,30 @@ int main(void) {
            "...with the match itself intact", "");
     }
 
+    /* AND A RE-RACK KEEPS IT TOO, which is the same bug in the other caller.
+     * next_frame was fixed when an online best of three "suddenly changed the
+     * rules to 2 shots" in frame two; rerack() calls cue_rules_init directly and
+     * had no such list, so pressing RE-RACK in practice put UK 8-ball back to
+     * pub rules. Both go through RulesKeep now. */
+    {   CueRules r; CueTable t;
+        cue_table_init(&t, CUE_GAME_UK8);
+        cue_rules_init(&r, &t, 0);
+        r.uk_intl      = CUE_UK_INTL;
+        r.call_shot_on = 2;
+        r.miss_level   = 3;
+        r.best_of      = 5;
+        r.frames[0]    = 2;
+        r.score[0]     = 40;          /* the FRAME's own state, which must go */
+        cue_rules_rerack(&r, &t);
+        ok(r.uk_intl == CUE_UK_INTL,
+           "a re-rack keeps international rules, not pub", "");
+        ok(r.call_shot_on == 2, "...and the called-shot level", "");
+        ok(r.miss_level == 3,   "...and the miss standard", "");
+        ok(r.best_of == 5 && r.frames[0] == 2,
+           "...and the match tally, which a re-rack does not touch", "");
+        ok(r.score[0] == 0, "...while the frame itself starts again", "");
+    }
+
     printf(s_fail ? "\n%d FAILED\n" : "\nall good\n", s_fail);
     return s_fail != 0;
 }

@@ -740,6 +740,13 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
              : r->uk_intl == CUE_UK_BLACKBALL ? 2 : 1;
     return 1;
 }
+/* The SAME frame, laid out again -- a re-rack. Nothing is scored, the break does
+ * not alternate, and every setting the player chose before the frame started
+ * survives: the UK code, the called-shot level, the snooker miss standard, the
+ * shootout format, golf's card, the points target and the billiards clock.
+ * Pressing RE-RACK used to put UK 8-ball back to pub rules. */
+void cue_rules_rerack(CueRules *r, const CueTable *t);
+
 /* Re-rack for the next frame of the same match: the frame state resets, the
  * frame tally and the match length do not. */
 void cue_rules_next_frame(CueRules *r, const CueTable *t);
