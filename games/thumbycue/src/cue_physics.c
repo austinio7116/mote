@@ -4,6 +4,7 @@
  * only ≤22 balls so pairwise work is trivial.
  */
 #include "cue_physics.h"
+#include "cue_trig.h"        /* sin and cos that do not come from the OS */
 #include <math.h>
 #include <string.h>
 
@@ -122,11 +123,13 @@ static void skittle_hull_build(float sr, float len) {
     s_hull_v[nv++] = v3(0, y0 - c, 0);                       /* 0: the foot   */
     for (int i = 0; i < N; i++) {
         const float a = 6.2831853f * (float)i / N;
-        s_hull_v[nv++] = v3(r1 * cosf(a), y1 - c, r1 * sinf(a));
+        float ca, sa; cue_sincosf(a, &sa, &ca);
+        s_hull_v[nv++] = v3(r1 * ca, y1 - c, r1 * sa);
     }
     for (int i = 0; i < N; i++) {
         const float a = 6.2831853f * (float)i / N;
-        s_hull_v[nv++] = v3(r2 * cosf(a), y2 - c, r2 * sinf(a));
+        float ca, sa; cue_sincosf(a, &sa, &ca);
+        s_hull_v[nv++] = v3(r2 * ca, y2 - c, r2 * sa);
     }
     const int TOP = nv;
     s_hull_v[nv++] = v3(0, y3 - c, 0);                       /* the cap's top */
@@ -376,7 +379,7 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
      * applied at the tip contact point r, and the DOWN component acting at a
      * SIDE offset produces spin about the travel axis — which the cloth friction
      * then turns into a curving path (swerve / masse). */
-    float ce = cosf(elev), se = sinf(elev);
+    float ce, se; cue_sincosf(elev, &se, &ce);
     Vec3 cdir = v3(fwd.x * ce, -se, fwd.z * ce);     /* cue direction, 3-D */
 
     /* Off centre costs almost no PACE. An earlier version scaled the drive by
@@ -394,7 +397,7 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
      * felt as a thing to allow for, not enough to make aiming a guess. */
     b->cush_n = 0;                 /* a fresh stroke, a fresh count of rails */
     float squirt = -tip_side * s_squirt;           /* right-hand side -> left */
-    float cq = cosf(squirt), sq = sinf(squirt);
+    float cq, sq; cue_sincosf(squirt, &sq, &cq);
     Vec3 aim = v3_norm(v3_add(v3_scale(fwd, cq), v3_scale(right, sq)));
     b->vel = v3_scale(aim, speed * ce);
     /* THE ONE PLACE THE BALL LEAVES THE CLOTH. The downward part of the cue's

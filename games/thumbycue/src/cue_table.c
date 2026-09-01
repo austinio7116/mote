@@ -10,6 +10,7 @@
  * from this one description, so they can never disagree.
  */
 #include "cue_table.h"
+#include "cue_trig.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -1441,8 +1442,8 @@ static void mitre_kiss(Vec3 v, Vec3 toward_a, Vec3 toward_b, float r,
     float dot = ua.x*ub.x + ua.z*ub.z;
     if (dot >  0.9999f) dot =  0.9999f;
     if (dot < -0.9999f) dot = -0.9999f;
-    const float half = acosf(dot) * 0.5f;
-    const float th = tanf(half), sh = sinf(half);
+    const float half = cue_acosf(dot) * 0.5f;
+    const float th = tanf(half), sh = cue_sinf(half);
     float d = (th > 1e-4f) ? r / th : 0.0f;
     /* A tangent point can never run past the end of the face it is on. */
     const float la = v3_len(v3(toward_a.x-v.x, 0.0f, toward_a.z-v.z));
@@ -1463,8 +1464,8 @@ static void mitre_kiss(Vec3 v, Vec3 toward_a, Vec3 toward_b, float r,
 static void add_arc_between(CueWorld *w, Vec3 c, Vec3 a0, Vec3 a1) {
     const float r = sqrtf((a0.x-c.x)*(a0.x-c.x) + (a0.z-c.z)*(a0.z-c.z));
     if (r <= 1e-5f) return;
-    float s0 = atan2f(a0.z - c.z, a0.x - c.x);
-    float s1 = atan2f(a1.z - c.z, a1.x - c.x);
+    float s0 = cue_atan2f(a0.z - c.z, a0.x - c.x);
+    float s1 = cue_atan2f(a1.z - c.z, a1.x - c.x);
     float d = s1 - s0;
     while (d >  3.14159265f) d -= 6.28318531f;
     while (d < -3.14159265f) d += 6.28318531f;
@@ -1474,7 +1475,7 @@ static void add_arc_between(CueWorld *w, Vec3 c, Vec3 a0, Vec3 a1) {
     Vec3 prev = a0;
     for (int i = 1; i <= n; i++) {
         const float a = s0 + d * (float)i / (float)n;
-        Vec3 p = v3(c.x + r*cosf(a), 0.0f, c.z + r*sinf(a));
+        Vec3 p = v3(c.x + r*cue_cosf(a), 0.0f, c.z + r*cue_sinf(a));
         add_seg(w, prev, p, 1);
         prev = p;
     }
@@ -1561,8 +1562,8 @@ static void add_elbow(CueWorld *w, Vec3 v, Vec3 na, Vec3 nb, float r) {
     const Vec3 c  = v3(v.x + (na.x + nb.x) * r, 0, v.z + (na.z + nb.z) * r);
     const Vec3 a0 = v3(c.x - na.x * r, 0, c.z - na.z * r);
     const Vec3 a1 = v3(c.x - nb.x * r, 0, c.z - nb.z * r);
-    float s0 = atan2f(a0.z - c.z, a0.x - c.x);
-    float s1 = atan2f(a1.z - c.z, a1.x - c.x);
+    float s0 = cue_atan2f(a0.z - c.z, a0.x - c.x);
+    float s1 = cue_atan2f(a1.z - c.z, a1.x - c.x);
     float d  = s1 - s0;                          /* the short way round */
     while (d >  3.14159265f) d -= 6.28318531f;
     while (d < -3.14159265f) d += 6.28318531f;
@@ -1571,7 +1572,7 @@ static void add_elbow(CueWorld *w, Vec3 v, Vec3 na, Vec3 nb, float r) {
     Vec3 prev = a0;
     for (int i = 1; i <= n; i++) {
         float a = s0 + d * (float)i / (float)n;
-        Vec3 p = v3(c.x + r * cosf(a), 0, c.z + r * sinf(a));
+        Vec3 p = v3(c.x + r * cue_cosf(a), 0, c.z + r * cue_sinf(a));
         /* kind 1, so the vertex smoothing averages ALONG the arc and leaves the
          * junctions with the two straight noses crisp — the same rule the bezier
          * jaws are built under. */
@@ -1690,7 +1691,7 @@ static void add_run(CueWorld *w, const CueTable *t, Vec3 a, Vec3 b, Vec3 out,
     Vec3 P1 = P2, P4 = P3;
     if (end_a != LEND_REFLEX) {
         float ang = (end_a == LEND_MIDDLE) ? t->ang_side : t->ang_corner;
-        float c = cosf(ang*DEG), s2 = sinf(ang*DEG);
+        float c = cue_cosf(ang*DEG), s2 = cue_sinf(ang*DEG);
         const float sl = (w->cush_depth > 1e-6f && s2 > 1e-4f)
                        ? (w->cush_depth / s2) : sl_auth;
         P1 = v3(P2.x - d.x*(c*sl) + out.x*(s2*sl), 0,
@@ -1698,7 +1699,7 @@ static void add_run(CueWorld *w, const CueTable *t, Vec3 a, Vec3 b, Vec3 out,
     }
     if (end_b != LEND_REFLEX) {
         float ang = (end_b == LEND_MIDDLE) ? t->ang_side : t->ang_corner;
-        float c = cosf(ang*DEG), s2 = sinf(ang*DEG);
+        float c = cue_cosf(ang*DEG), s2 = cue_sinf(ang*DEG);
         const float sl = (w->cush_depth > 1e-6f && s2 > 1e-4f)
                        ? (w->cush_depth / s2) : sl_auth;
         P4 = v3(P3.x + d.x*(c*sl) + out.x*(s2*sl), 0,
@@ -1783,7 +1784,7 @@ static void mirror_world_z(CueWorld *w) {
 float cue_table_axis(const CueTable *t) {
     if (!t) return 0.0f;
     if (t->bed_shape != CUE_BED_NGON) return t->half_len;
-    return t->half_len * cosf(3.14159265f / (float)cue_table_ngon_sides(t));
+    return t->half_len * cue_cosf(3.14159265f / (float)cue_table_ngon_sides(t));
 }
 
 /* ...and across it. A regular bed is as wide as it is long, and its narrowest
@@ -1805,7 +1806,7 @@ Vec3 cue_table_ngon_vert(const CueTable *t, int i) {
     const int n = cue_table_ngon_sides(t);
     const float r = t->half_len;
     const float a = 3.14159265f / (float)n + 6.2831853f * (float)i / (float)n;
-    return v3(r * cosf(a), 0.0f, r * sinf(a));
+    return v3(r * cue_cosf(a), 0.0f, r * cue_sinf(a));
 }
 
 static void build_ngon(CueWorld *w, const CueTable *t) {
@@ -1839,7 +1840,7 @@ static void build_ngon(CueWorld *w, const CueTable *t) {
      * belong to, and it should stay that way. */
     CueTable tt = *t;
     {   const float A = 3.14159265f * (float)(n - 2) / (float)n;   /* interior */
-        const float k = sinf(0.7853982f) / sinf(A * 0.5f);
+        const float k = cue_sinf(0.7853982f) / cue_sinf(A * 0.5f);
         tt.gap_corner *= k;
         tt.gap_side   *= k;
     }
@@ -2278,7 +2279,7 @@ static Vec3 jaw_tangent(Vec3 axis, Vec3 rd, float ang) {
     const float tl = sqrtf(t.x*t.x + t.z*t.z);
     if (tl < 1e-6f) return axis;                  /* rail along the axis */
     t = v3(t.x/tl, 0.0f, t.z/tl);
-    const float c = cosf(ang * DEG), s2 = sinf(ang * DEG);
+    const float c = cue_cosf(ang * DEG), s2 = cue_sinf(ang * DEG);
     return v3_norm(v3(axis.x*c + t.x*s2, 0.0f, axis.z*c + t.z*s2));
 }
 
@@ -2652,10 +2653,10 @@ int cue_table_link_gap(CueTable *t, const CueWorld *w) {
          * A mitre's run from the corner to the edge depends on its own facing
          * angle, so the two styles need their own arithmetic; sharing one was
          * the reason the mitred tables were left out. */
-        const float sc2 = sinf(t->ang_corner*DEG);
+        const float sc2 = cue_sinf(t->ang_corner*DEG);
         const float reach_c = t->pocket_round
             ? (cl*0.7f + e3)
-            : ((sc2 > 1e-4f) ? (cw * cosf(t->ang_corner*DEG) / sc2) : 0.0f);
+            : ((sc2 > 1e-4f) ? (cw * cue_cosf(t->ang_corner*DEG) / sc2) : 0.0f);
         float g = hl + reach_c - yx;
         if (g > 0.02f && g < 0.30f) { t->gap_corner = g; got |= 1; }
         break;
@@ -2671,10 +2672,10 @@ int cue_table_link_gap(CueTable *t, const CueWorld *w) {
             break;
         /* Rounded:  tip.x = gap_side - 0.583R - ml*0.3f - e3
          * Mitred:    tip.x = gap_side - cw/tan(ang_side) */
-        const float ss2 = sinf(t->ang_side*DEG);
+        const float ss2 = cue_sinf(t->ang_side*DEG);
         const float reach_m = t->pocket_round
             ? (0.583f*R + ml*0.3f + e3)
-            : ((ss2 > 1e-4f) ? (cw * cosf(t->ang_side*DEG) / ss2) : 0.0f);
+            : ((ss2 > 1e-4f) ? (cw * cue_cosf(t->ang_side*DEG) / ss2) : 0.0f);
         float g = yx + reach_m;
         if (g > 0.02f && g < 0.30f) { t->gap_side = g; got |= 2; }
         break;
@@ -2963,8 +2964,13 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     } else if (!t->pocket_round) {
         /* US pool: straight mitred facings. */
         const float g = t->gap_corner, sg = t->gap_side, sl = t->facing_len;
-        const float cc = cosf(t->ang_corner*DEG), sc = sinf(t->ang_corner*DEG);
-        const float cs = cosf(t->ang_side*DEG),   ss = sinf(t->ang_side*DEG);
+        /* THE JAWS ARE COLLISION GEOMETRY, so this may not be the platform's
+         * trig: an ulp here moves every pocket jaw on one headset and not the
+         * other, which is a systematic bias and not noise, and it is decided at
+         * the jaws whether a ball at speed drops or rattles out. See cue_trig.h. */
+        float cc, sc, cs, ss;
+        cue_sincosf(t->ang_corner*DEG, &sc, &cc);
+        cue_sincosf(t->ang_side*DEG,   &ss, &cs);
         /* OUT TO THE FRAME, the mitre's way. A rounded jaw reaches out by a
          * multiple of the ball; a mitre reaches out by facing_len * sin(ang),
          * so the length needed to arrive at the timber is cw / sin(ang) and
@@ -4668,7 +4674,7 @@ Vec3 cue_table_clamp_placement_any(const CueTable *t, Vec3 p,
             float rad = (float)ring * R;
             for (int a = 0; a < 16; a++) {
                 float th = (float)a * (6.2831853f / 16.0f);
-                Vec3 c = { want.x + cosf(th) * rad, want.y, want.z + sinf(th) * rad };
+                Vec3 c = { want.x + cue_cosf(th) * rad, want.y, want.z + cue_sinf(th) * rad };
                 c = clamp_region(t, c, breaking, anywhere);
                 if (placement_clear(t, c, balls, n)) return c;
             }
@@ -5897,13 +5903,13 @@ static int cue_table_pocket_gaps(const CueTable *t, CuePocketGap *g) {
 static int bed_contains(const CueTable *t, float x, float z, float g) {
     if (t->bed_shape == CUE_BED_NGON) {
         const int n = cue_table_ngon_sides(t);
-        const float ap = t->half_len * cosf(3.14159265f / (float)n) + g;
+        const float ap = t->half_len * cue_cosf(3.14159265f / (float)n) + g;
         const float r = sqrtf(x*x + z*z);
         if (r < 1e-6f) return 1;
-        const float th = atan2f(z, x);
+        const float th = cue_atan2f(z, x);
         const float step = 6.2831853f / (float)n;
         const float phi = step * floorf(th / step + 0.5f);
-        return r * cosf(th - phi) <= ap;
+        return r * cue_cosf(th - phi) <= ap;
     }
     CueRect rr[CUE_MAX_RECT];
     int nr = cue_table_bed_rects(t, g, rr, CUE_MAX_RECT);
@@ -6007,13 +6013,13 @@ static float cue_elev_for(float tip_y, float dd, float surf) {
     if (surf < -1.0f || dd <= 1.0e-4f) return 0.0f;
     float want = surf + cue_shaft_r(dd);
     if (want <= tip_y) return 0.0f;
-    return atan2f(want - tip_y, dd);
+    return cue_atan2f(want - tip_y, dd);
 }
 
 float cue_table_min_elev(const CueTable *t, const CueBall *balls, int n,
                          Vec3 tip, float aim) {
     const float R = t->R;
-    float bx = -cosf(aim), bz = -sinf(aim);      /* the stick runs BACK from the tip */
+    float bx = -cue_cosf(aim), bz = -cue_sinf(aim);      /* the stick runs BACK from the tip */
     float need = 0.0f;
 
     /* Walk back along the cue. Sampling alone can step over the rail edge, which
@@ -6085,7 +6091,7 @@ float cue_table_min_elev(const CueTable *t, const CueBall *balls, int n,
              * edge, where a cue alongside a ball needs no lift at all. */
             float need_y = R + sqrtf(room*room - perp2);
             if (need_y > tip.y) {
-                float e = atan2f(need_y - tip.y, along);
+                float e = cue_atan2f(need_y - tip.y, along);
                 if (e > need) need = e;
             }
         }
