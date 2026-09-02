@@ -2397,15 +2397,13 @@ static float plank_end_profile(int ax0, float uE, float su, float vI, float vO,
     {   Vec3 k[24]; int nk = 0;
         for (int i = 0; i < ncV; i++) if (v3_dot(nS, v3_sub(capV[i], An)) <= 1e-6f && nk < 24) k[nk++] = capV[i];
         for (int i = 0; i < ncS; i++) if (fabsf(v3_dot(nV, v3_sub(capS[i], An))) <= 1e-6f && nk < 24) k[nk++] = capS[i];
-        /* TIMBER ON BOTH PLANES. The caps were cloth so the cushion read as
-         * running on into the rail; on trial (2026-09-02) as the plank's own
-         * wood, the end of the rail as a rail is cut. */
-        (void)cfront; (void)cskirt;
-        cap_emit(k, nk, nV, side);
+        const uint8_t keep = s_mat; s_mat = CUE_MAT_CLOTH;
+        cap_emit(k, nk, nV, cfront);
         nk = 0;
         for (int i = 0; i < ncS; i++) if (v3_dot(nV, v3_sub(capS[i], An)) <= 1e-6f && nk < 24) k[nk++] = capS[i];
         for (int i = 0; i < ncV; i++) if (fabsf(v3_dot(nS, v3_sub(capV[i], An))) <= 1e-6f && nk < 24) k[nk++] = capV[i];
-        cap_emit(k, nk, nS, side); }
+        cap_emit(k, nk, nS, cskirt);
+        s_mat = keep; }
     #undef PT
     return uB;
 }
