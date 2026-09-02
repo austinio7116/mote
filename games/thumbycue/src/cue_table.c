@@ -23,6 +23,25 @@
 #include <stddef.h>
 #include <stdio.h>
 
+/* SCRATCH THAT IS PER THREAD WHERE THERE ARE THREADS.
+ *
+ * The table build keeps a few large things static rather than on the stack --
+ * a CueWorld, the jaw-end sort buffers -- because the Thumby Color's stack is
+ * small and the build is called from menus. On the Thumby Color there is one
+ * thread and a static is exactly right. CueVR is not one thread: its workshop
+ * bakes a preview table on a worker while the app thread builds the table it
+ * is about to promise in its hello, and the two builds shared this scratch and
+ * the link's re-entry guard. The loser of that race built its pocket without
+ * the link, or from a half-written world, and solved the bore 23 um off --
+ * the "stale hello hash" (955f5765 promised, 1ea3b1ad played) that had the
+ * joiner refuse the room one time in three. Thread-local puts each thread's
+ * build in its own scratch; the handheld build is unchanged. */
+#if defined(__ANDROID__) || defined(MOTE_HOST)
+#define CUE_TLS __thread
+#else
+#define CUE_TLS
+#endif
+
 #define DEG (3.14159265f / 180.0f)
 
 
@@ -1156,6 +1175,27 @@ static const CueTabField TAB_FIELDS[] = {
     TF(furniture,       TF_I32, TF_LOOK, 0.0f, 255.0f),
 };
 #define TAB_NFIELD ((int)(sizeof TAB_FIELDS / sizeof TAB_FIELDS[0]))
+/* The first sim field on which two tables differ, by name, with both values --
+ * for a bench that has just watched the same build give two answers. 0 if none. */
+int cue_table_first_diff(const CueTable *a, const CueTable *b, char *out, int cap) {
+    for (int i = 0; i < TAB_NFIELD; i++) {
+        if (!TAB_FIELDS[i].sim) continue;
+        const unsigned char *pa = (const unsigned char *)a + TAB_FIELDS[i].off;
+        const unsigned char *pb = (const unsigned char *)b + TAB_FIELDS[i].off;
+        int n = (TAB_FIELDS[i].type == TF_U16) ? 2 : 4;
+        if (memcmp(pa, pb, (size_t)n) == 0) continue;
+        if (TAB_FIELDS[i].type == TF_F32) {
+            float fa, fb; memcpy(&fa, pa, 4); memcpy(&fb, pb, 4);
+            snprintf(out, (size_t)cap, "%s: %.6f vs %.6f", TAB_FIELDS[i].name, (double)fa, (double)fb);
+        } else {
+            unsigned va = 0, vb = 0; memcpy(&va, pa, (size_t)n); memcpy(&vb, pb, (size_t)n);
+            snprintf(out, (size_t)cap, "%s: %u vs %u", TAB_FIELDS[i].name, va, vb);
+        }
+        return 1;
+    }
+    if (cap > 0) out[0] = 0;
+    return 0;
+}
 
 int         cue_table_field_count(void) { return TAB_NFIELD; }
 const char *cue_table_field_name(int i) {
@@ -2562,7 +2602,7 @@ static void link_accumulate(const CueTable *t, const CueWorld *w,
      * it IS the mean. Nothing is thrown away silently — the spread is what the
      * bench's link-error readout shows. */
     enum { DMAX = 4096 };
-    static float dv[2][DMAX]; static int dn[2];
+    static CUE_TLS float dv[2][DMAX]; static CUE_TLS int dn[2];
     dn[0] = dn[1] = 0;
     for (int i = 0; i < w->nseg; i++) {
         if (w->seg[i].kind != 1) continue;
@@ -3170,7 +3210,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * the jaw tips from and then wants the world built again — twice more,
      * because the pocket's normal is worked out from those same tips, so
      * moving them moves the target a little. */
-    {   static int linking = 0;
+    {   static CUE_TLS int linking = 0;
         /* ON FOR EVERY SHAPE NOW, rectangles included, at the author's word.
          * It was held back from them because their gaps were dialled by hand
          * in the headset and linking moves their mouths; that is a judgement
@@ -3406,7 +3446,7 @@ void cue_table_openings(const CueTable *t, float *corner, float *middle) {
     if (!t) return;
     /* STATIC, not stack: a CueWorld is a big structure and this is called from
      * a menu, on a device whose stack is not. */
-    static CueWorld w;
+    static CUE_TLS CueWorld w;
     /* A COPY, normalised: the caller may have edited a pocket field without
      * putting the bore back in step, and reporting the old table's opening is
      * the one answer this must never give. */
@@ -5322,7 +5362,7 @@ static int rack_paul(const CueTable *t, CueBall *b) {
 
     /* A CueWorld to ask about the cloth and the pockets. Static because it is
      * far too big for a stack this deep, and there is one rack at a time. */
-    static CueWorld w;
+    static CUE_TLS CueWorld w;
     cue_table_build_world((CueTable *)t, &w);
 
     for (int i = 0; i < n; i++) {

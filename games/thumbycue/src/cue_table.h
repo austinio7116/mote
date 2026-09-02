@@ -946,6 +946,7 @@ int cue_table_clear_bore_m(const CueWorld *w, float *x, float *z, float margin);
 int cue_table_hide_bore(const CueWorld *w, float *x, float *z,
                         float ux, float uz, float margin, float reach);
 void cue_table_openings(const CueTable *t, float *corner, float *middle);
+int  cue_table_first_diff(const CueTable *a, const CueTable *b, char *out, int cap);
 
 /* WHAT IS PLAYABLE BUT ILL-ADVISED, as opposed to what cue_table_validate
  * refuses outright. Returns how many warnings there are and writes them, one
