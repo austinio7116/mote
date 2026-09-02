@@ -821,6 +821,22 @@ static void emit_lip_run(const CueTable *t, Vec3 *ring0, const Vec3 *nrm,
      * the way through and a bag hangs in it: the wall is a black cylinder
      * standing behind the pocket plate with the net inside it. The ribbon stops
      * where it stops turning, and the net starts there. */
+    /* SNOOKER ONLY: the cloth carries on straight down below the roll to 45 mm
+     * (the bed's thickness), so the cut reads as a thick slate under the cloth.
+     * In the roll's LAST shade, so the face is the roll continued, not a step. */
+    if (s_is_snooker) {
+        const float st = 0.045f;
+        if (st > ld) {
+            const uint16_t col = shade565(t->cloth, 1.0f - 0.92f);   /* the roll's bottom ring */
+            for (int k = 0; k < last; k++) {
+                int k2 = (k + 1) % cnt;
+                quad(ring0[k], ring0[k2],
+                     v3(ring0[k2].x, -st, ring0[k2].z),
+                     v3(ring0[k].x,  -st, ring0[k].z), col);
+            }
+            for (int k = 0; k < cnt; k++) ring0[k].y = -st;
+        }
+    }
     if (!s_rail_split)
     {   uint16_t dark = s_is_snooker ? RGB565C(34, 30, 20) : RGB565C(3, 4, 4);
         float fy = s_is_snooker ? -0.105f : -0.055f;
