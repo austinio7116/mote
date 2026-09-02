@@ -821,10 +821,12 @@ static void emit_lip_run(const CueTable *t, Vec3 *ring0, const Vec3 *nrm,
      * the way through and a bag hangs in it: the wall is a black cylinder
      * standing behind the pocket plate with the net inside it. The ribbon stops
      * where it stops turning, and the net starts there. */
-    /* SNOOKER ONLY: the cloth carries on straight down below the roll to 45 mm
-     * (the bed's thickness), so the cut reads as a thick slate under the cloth.
-     * In the roll's LAST shade, so the face is the roll continued, not a step. */
-    if (s_is_snooker) {
+    /* SNOOKER AND CHINESE 8-BALL: the cloth carries on straight down below the
+     * roll to 45 mm (the bed's thickness), so the cut reads as a thick slate
+     * under the cloth. In the roll's LAST shade, so the face is the roll
+     * continued, not a step. The Chinese table has snooker's pockets and slate
+     * (asked for 2026-09-02); the other pool tables keep the shallow roll. */
+    if (s_is_snooker || t->kind == CUE_GAME_CN8) {
         const float st = 0.045f;
         if (st > ld) {
             const uint16_t col = shade565(t->cloth, 1.0f - 0.92f);   /* the roll's bottom ring */

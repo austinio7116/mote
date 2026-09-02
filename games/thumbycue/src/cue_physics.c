@@ -1051,10 +1051,10 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
  * Nothing is scripted, and nothing has to ask whether the ball is in the air.
  */
 #define CUE_POCKET_FLOOR (-0.10f)   /* the floor of the recess (m) */
-/* The bed's thickness as the fall sees it (m): down to here the ball is held
- * by the slate cut's own wall; below it the leather funnel narrows to the
- * bore at the floor. The lip gather spring that used to live here is gone. */
-#define CUE_POCKET_BED   (-0.040f)
+/* The bed's thickness as the fall sees it (m): the cut's face runs from under
+ * the cloth's roll down to here, on the table side of the pocket. 45 mm is the
+ * snooker cloth lip the renderer draws. */
+#define CUE_POCKET_BED   (-0.045f)
 
 /* HOW FAR PAST THE EDGE OF THE SLATE a point is, at pocket p. Negative is still
  * on cloth, zero is the edge, positive is out over the drop.
@@ -1732,59 +1732,104 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * A real pocket is a shaped casting with leather behind it. It is
              * what takes the pace off a firm pot and drops it in rather than
              * letting it through, and it is the same surface the ball rattles
-             * off when it does not go. So: a wall at the throat radius, which
-             * the ball cannot pass and gives up most of its pace against. */
+             * off when it does not go. What it meets is below. */
             {
-                /* THE WALLS, BY DEPTH. Through the bed (the top 40 mm) the ball
-                 * is inside the slate cut itself; the cut is what the cloth was
-                 * cut round, so its wall is where the slate is. Below the bed
-                 * the leather funnel takes over: wide enough at the top to take
-                 * a ball that fell at the cut's front, closing to the bore -- a
-                 * third of a ball inside it -- at the floor, which is where the
-                 * collector's bag picks it up. Both walls are inelastic: a
-                 * pocket back is leather over a casting and does not play the
-                 * ball back (0.25 was seen to rattle a middle for 445 ms). */
-                const float R = cue_ball_r(w, b);
-                const float y_bed = CUE_POCKET_BED;
-                const float e = 0.06f;
-                if (b->pos.y > y_bed && w->cut_r[pk] > 0.0f) {
-                    const float cx2 = w->cut_c[pk].x, cz2 = w->cut_c[pk].z;
-                    const float wall = w->cut_r[pk] - R;
-                    const float bx = b->pos.x - cx2, bz = b->pos.z - cz2;
-                    const float q2 = bx*bx + bz*bz;
-                    if (wall > 0.0f && q2 > wall * wall) {
-                        const float q = sqrtf(q2), nx = bx / q, nz = bz / q;
-                        b->pos.x = cx2 + nx * wall; b->pos.z = cz2 + nz * wall;
-                        const float vn = b->vel.x * nx + b->vel.z * nz;
-                        if (vn > 0.0f) { b->vel.x -= (1.0f + e) * vn * nx; b->vel.z -= (1.0f + e) * vn * nz; }
+                /* WHAT IS AROUND A BALL IN A POCKET, from the top down.
+                 *
+                 * The roll of cloth over the cut's edge holds it up until its
+                 * centre is a ball past the edge (the lip model above). Below
+                 * the roll, on the TABLE side, is the cut's own face through
+                 * the bed -- the face the cloth lip is drawn on -- which the
+                 * ball's side brushes as it tips in. Behind the slate's edge
+                 * there is no slate: the leather over the pocket's iron, the
+                 * bridge the net hangs from, is the back of the pocket, and it
+                 * stands from the cloth up. Under the iron hangs the net, which
+                 * gathers the ball to the bag at the floor. Each of these is
+                 * somewhere the ball is already allowed to be when it arrives,
+                 * so none of them moves the ball: they only stop it. (The
+                 * first version of this, 2026-09-02, put the cut's face all the
+                 * way round and while the ball was still on the roll; it
+                 * snapped the ball a radius inward and read as a straight
+                 * drop with the entry speed gone.) */
+                const float R   = cue_ball_r(w, b);
+                const float e   = 0.06f;                /* leather and net: dead */
+                const Vec3  C   = w->cut_c[pk];
+                const int   bed = w->pocket_bed[pk];
+                const int   mid = pk >= 4;
+                const float sx  = (C.x < 0.0f) ? -1.0f : 1.0f;
+                const float sz  = (C.z < 0.0f) ? -1.0f : 1.0f;
+                /* 1. THE CUT'S FACE, table side, from under the roll to the
+                 * bottom of the bed. It is where the lip model lets go. */
+                if (w->cut_r[pk] > 0.0f && b->pos.y <= -ld && b->pos.y >= CUE_POCKET_BED) {
+                    const float wall = rr * 0.999f;
+                    const float o = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
+                    if (o < wall) {
+                        const float eps = 1e-4f;
+                        const float gx = cue_phys_cut_out(w, pk, b->pos.x + eps, b->pos.z)
+                                       - cue_phys_cut_out(w, pk, b->pos.x - eps, b->pos.z);
+                        const float gz = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z + eps)
+                                       - cue_phys_cut_out(w, pk, b->pos.x, b->pos.z - eps);
+                        const float gl = sqrtf(gx*gx + gz*gz);
+                        if (gl > 1e-9f) {
+                            const float nx = gx / gl, nz = gz / gl;   /* into the cut */
+                            b->pos.x += nx * (wall - o); b->pos.z += nz * (wall - o);
+                            const float vn = b->vel.x * nx + b->vel.z * nz;
+                            if (vn < 0.0f) { b->vel.x -= (1.0f + e) * vn * nx; b->vel.z -= (1.0f + e) * vn * nz; }
+                        }
                     }
                 }
-                {
-                    const float bx = b->pos.x - pc2.x, bz = b->pos.z - pc2.z;
+                /* 2. THE IRON. The centre stops at the slate's edge, so the
+                 * ball stands a radius into the leather. From the cloth up; a
+                 * centre a ball below the cloth has passed under it. An open
+                 * bed has no edge and no iron. */
+                if (!bed && b->pos.y > -R) {
+                    if (!mid) {
+                        const float u = sx * (b->pos.x - C.x);
+                        if (u > 0.0f) {
+                            b->pos.x = C.x;
+                            const float vu = sx * b->vel.x;
+                            if (vu > 0.0f) b->vel.x -= (1.0f + e) * vu * sx;
+                        }
+                    }
+                    const float v = sz * (b->pos.z - C.z);
+                    if (v > 0.0f) {
+                        b->pos.z = C.z;
+                        const float vv = sz * b->vel.z;
+                        if (vv > 0.0f) b->vel.z -= (1.0f + e) * vv * sz;
+                    }
+                }
+                /* 3. THE NET, under the iron: as wide as the cut where it
+                 * hangs, a third of a ball inside the bore at the floor, where
+                 * the collector's bag takes the ball. */
+                if (b->pos.y <= -R) {
                     float r_bot = w->pocket_r[pk] - R * 0.35f;
                     if (r_bot < R * 0.25f) r_bot = R * 0.25f;
-                    /* the funnel's top takes the whole cut as seen from the bore */
                     float r_top = r_bot;
                     if (w->cut_r[pk] > 0.0f) {
-                        const float dx = w->cut_c[pk].x - pc2.x, dz = w->cut_c[pk].z - pc2.z;
-                        r_top = sqrtf(dx*dx + dz*dz) + w->cut_r[pk] - R;
+                        /* the farthest a centre inside the cut can be from the bore */
+                        const float rc = w->cut_r[pk] - rr;
+                        const float dx = C.x - pc2.x, dz = C.z - pc2.z;
+                        if (bed) r_top = sqrtf(dx*dx + dz*dz) + rc;
+                        else for (int k = 0; k <= 8; k++) {
+                            const float a = 3.14159265f + (mid ? 3.14159265f : 1.5707963f) * (float)k / 8.0f;
+                            const float px = C.x + sx * rc * cosf(a) - pc2.x;
+                            const float pz = C.z + sz * rc * sinf(a) - pc2.z;
+                            const float d  = sqrtf(px*px + pz*pz);
+                            if (d > r_top) r_top = d;
+                        }
                     }
-                    if (r_top < r_bot) r_top = r_bot;
-                    const float depth = y_bed - CUE_POCKET_FLOOR;
-                    float rmax = r_top;
-                    if (b->pos.y <= y_bed) {
-                        float f = (y_bed - b->pos.y) / depth;
-                        if (f > 1.0f) f = 1.0f;
-                        rmax = r_top + (r_bot - r_top) * f;
-                    }
+                    const float y0 = -R, depth = y0 - CUE_POCKET_FLOOR;
+                    float f = (y0 - b->pos.y) / depth;
+                    if (f > 1.0f) f = 1.0f;
+                    const float rmax = r_top + (r_bot - r_top) * f;
+                    const float bx = b->pos.x - pc2.x, bz = b->pos.z - pc2.z;
                     const float q2 = bx*bx + bz*bz;
                     if (q2 > rmax * rmax) {
                         const float q = sqrtf(q2), nx = bx / q, nz = bz / q;
                         b->pos.x = pc2.x + nx * rmax; b->pos.z = pc2.z + nz * rmax;
                         const float vn = b->vel.x * nx + b->vel.z * nz;
                         if (vn > 0.0f) { b->vel.x -= (1.0f + e) * vn * nx; b->vel.z -= (1.0f + e) * vn * nz; }
-                        /* on the funnel the fall has a way to go: down the
-                         * cone, which is towards the middle */
+                        /* a net is a slope: some of the fall goes down it */
                         const float slopef = (r_top - r_bot) / depth;
                         b->vel.x -= nx * slopef * w->g * h * 0.5f;
                         b->vel.z -= nz * slopef * w->g * h * 0.5f;
