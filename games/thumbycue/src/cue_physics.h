@@ -275,6 +275,7 @@ typedef struct {
      * On the world because the curve is built here and the segments it makes
      * ARE the physics; there is only one curve and both sides read it. */
     float jaw_p0, jaw_p0_m, jaw_h1, jaw_h2, jaw_ang_c, jaw_ang_m;
+    float jaw_h1_c, jaw_h2_c;   /* the corner's own handles (resolved: never 0) */
     /* WHICH POCKET KINDS THE CUSHIONS ACTUALLY REACHED: bit 0 corner, bit 1
      * middle. A pocket small enough stops reaching: the bore no longer crosses
      * the frame's inner edge, so there is no point to stand a cushion tip on

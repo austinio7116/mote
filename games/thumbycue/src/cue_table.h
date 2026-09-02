@@ -538,6 +538,12 @@ typedef struct {
     float jaw_p0_m;    /* middle: the same, or 0 to follow jaw_p0 */
     float jaw_h1;      /* P1, from P0 back along the rail */
     float jaw_h2;      /* P2, from P3 back along the pocket axis */
+    /* A CORNER'S HANDLES, or 0 to share the two above. The WPBSA corner jaw is
+     * an arc r 3.5 in tangent to the nose; the middle's is not, and one pair
+     * of handles could not be both. Appended after `furniture` in the field
+     * list so a table saved before them still reads. */
+    float jaw_h1_c;    /* corner P1, or 0 = jaw_h1 */
+    float jaw_h2_c;    /* corner P2, or 0 = jaw_h2 */
     /* WHICH WAY THE POCKET'S AXIS POINTS, in degrees off the rail's outward
      * normal, turned towards the pocket. It is the direction the facing runs as
      * it arrives at the yellow point, so it is what decides whether the throat

@@ -796,6 +796,14 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->drop_back  = 0.0076125f; t->drop_back_side = 0.0040000f; /* 7.61 / 4.00 mm */
         t->jaw_p0_m  = 0.0687f;   /* facing leaves the nose 111.8 out */
         t->jaw_ang_m = 3.0f;      /* and arrives 3 degrees off the throat's axis */
+        /* THE CORNER JAW IS THE GAUGE'S: an arc r 3.5 in tangent to the nose
+         * 92 mm from the nose corner. A cubic from 80 mm past the tip's foot
+         * with handles 48 / 15 mm lies on it to 0.2 mm rms (0.3 worst) over the
+         * gauge's whole jaw; the old 70 / 30 / 30 was 2.7 mm off and sat inside
+         * the gauge's nose line. Fitted 2026-09-02 against the 3MF. */
+        t->jaw_p0   = 0.080f;
+        t->jaw_h1_c = 0.048f;
+        t->jaw_h2_c = 0.015f;
         t->jaw_r = 0.012f;
         t->baulk_x = -t->half_len + 0.737f * sc;
         t->d_radius = 0.292f * sc;
@@ -1173,6 +1181,9 @@ static const CueTabField TAB_FIELDS[] = {
      * like every field before it, which is what lets a file written without it
      * still be read -- see cue_table_unpack. */
     TF(furniture,       TF_I32, TF_LOOK, 0.0f, 255.0f),
+    /* the corner jaw's own handles -- see CueTable::jaw_h1_c */
+    TF(jaw_h1_c,        TF_F32, TF_SIM,  0.000f, 0.200f),
+    TF(jaw_h2_c,        TF_F32, TF_SIM,  0.000f, 0.200f),
 };
 #define TAB_NFIELD ((int)(sizeof TAB_FIELDS / sizeof TAB_FIELDS[0]))
 /* The first sim field on which two tables differ, by name, with both values --
@@ -2219,13 +2230,13 @@ static int jaw_yellow(Vec3 nose, Vec3 rd, Vec3 outn, float cush,
  *
  * Points come out P0 first and P3 last, so the caller gets rail-end to
  * mouth-end and can reverse it for the outgoing half of a rail. */
-static int jaw_curve(const CueWorld *w, Vec3 p0, Vec3 end, Vec3 axis, Vec3 rd,
+static int jaw_curve(Vec3 p0, Vec3 end, Vec3 axis, Vec3 rd, float h1, float h2,
                      int nseg, Vec3 *out) {
     /* The tangent at P0 is the rail, running back towards the pocket; the
      * tangent at the far end is the pocket's own axis, running back out to the
      * bed. The two control points slide along those, and that is the shape. */
-    const Vec3 c1 = v3(p0.x - rd.x*w->jaw_h1, 0.0f, p0.z - rd.z*w->jaw_h1);
-    const Vec3 c2 = v3(end.x - axis.x*w->jaw_h2, 0.0f, end.z - axis.z*w->jaw_h2);
+    const Vec3 c1 = v3(p0.x - rd.x*h1, 0.0f, p0.z - rd.z*h1);
+    const Vec3 c2 = v3(end.x - axis.x*h2, 0.0f, end.z - axis.z*h2);
     if (nseg < 1) nseg = 1;
     out[0] = p0;
     for (int i = 1; i <= nseg; i++) {
@@ -2356,7 +2367,7 @@ static Vec3 jaw_tangent(Vec3 axis, Vec3 rd, float ang) {
  * no yellow point, so no curve, and the caller runs the straight nose out to
  * the old knuckle instead of inventing a shape. cue_table_warnings reports it.
  */
-typedef struct { Vec3 p0, y, nose, nrm, axis, centre, pk; int ok; } CueJawEnd;
+typedef struct { Vec3 p0, y, nose, nrm, axis, centre, pk; int ok; float h1, h2; } CueJawEnd;
 
 static CueJawEnd jaw_end(const CueWorld *w, Vec3 k, Vec3 rd, Vec3 outn) {
     CueJawEnd e; e.ok = 0; e.p0 = k; e.y = k; e.nose = k; e.nrm = outn;
@@ -2414,6 +2425,8 @@ static CueJawEnd jaw_end(const CueWorld *w, Vec3 k, Vec3 rd, Vec3 outn) {
      * opposite thing to it. */
     const float run = mid ? w->jaw_p0_m : w->jaw_p0;
     e.p0 = v3(foot.x + rd.x*run, 0.0f, foot.z + rd.z*run);
+    e.h1 = mid ? w->jaw_h1 : w->jaw_h1_c;   /* the handles are the pocket's own */
+    e.h2 = mid ? w->jaw_h2 : w->jaw_h2_c;
     e.ok = 1;
     return e;
 }
@@ -2454,12 +2467,12 @@ static void add_curved_chain_e(CueWorld *w, Vec3 tipIn, Vec3 kIn, Vec3 kMid,
         /* Built P0-first and reversed: the chain runs mouth -> rail -> rail ->
          * mouth, so this half arrives at the nose rather than leaving it. */
         Vec3 tmp[CUE_JAW_MAXPTS];
-        const int n = jaw_curve(w, A.p0, A.y, A.axis, rdir, nIn, tmp);
+        const int n = jaw_curve(A.p0, A.y, A.axis, rdir, A.h1, A.h2, nIn, tmp);
         for (int i = 0; i < n; i++) in[i] = tmp[n-1-i];
         ni = n;
     }
     if (B.ok)
-        no = jaw_curve(w, B.p0, B.y, B.axis, v3(-rdir.x,0.0f,-rdir.z), nOut, out);
+        no = jaw_curve(B.p0, B.y, B.axis, v3(-rdir.x,0.0f,-rdir.z), B.h1, B.h2, nOut, out);
 
     /* NO BLEND ARC ANY MORE. It existed because the old curve met the rail at
      * whatever angle its bulge left it, and that crease had to be rounded off
@@ -2859,6 +2872,8 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     w->jaw_p0_m = (t->jaw_p0_m > 0.0f) ? t->jaw_p0_m : w->jaw_p0;
     w->jaw_h1  = (t->jaw_h1 > 0.0f) ? t->jaw_h1 : 0.030f;
     w->jaw_h2  = (t->jaw_h2 > 0.0f) ? t->jaw_h2 : 0.030f;
+    w->jaw_h1_c = (t->jaw_h1_c > 0.0f) ? t->jaw_h1_c : w->jaw_h1;
+    w->jaw_h2_c = (t->jaw_h2_c > 0.0f) ? t->jaw_h2_c : w->jaw_h2;
     /* Both are offsets from the pocket's own centre line now, and zero is a
      * meaningful one — straight down it — so neither gets a fallback. */
     w->jaw_ang_c = t->jaw_ang_c;
