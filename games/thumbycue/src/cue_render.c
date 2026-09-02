@@ -2415,12 +2415,25 @@ static void split_plank(int ax0, float ua, float ub, float va, float vb,
     const uint16_t cfront = shade565(s_cloth, 0.72f);   /* the cushion's own vertical front shade */
     float box_a = ua + Le[0], box_b = ub - Le[1];
     {   Vec3 A, B, n;
-        if (plank_tip_for(ax0, ua, vI, &A, &B, &n))
+        /* THE PLANK RUNS TO THE TIP. The cushion's tip sat 2-3 mm past the
+         * plank's end (the end was the bore's tangent), so its open end hung
+         * in the air as a dark seam beside every pocket. The plank now ends
+         * exactly where the jaw meets its inner line, and the profile cut
+         * below takes the end from there. */
+        if (plank_tip_for(ax0, ua, vI, &A, &B, &n)) {
+            /* ...exactly to it. Ending past the tip let the cushion's front
+             * plane cut the end and leave a cloth face standing above the
+             * nose line, which read as green on top of the timber; the plank's
+             * own wood end at the tip is what a rail looks like. */
+            const float tu = (ax0 ? A.z : A.x);
+            if (tu < ua) ua = tu;
             box_a = plank_end_profile(ax0, ua, -1.0f, vI, vO, plank_y, Hc, rake, A, B, n, woodt, wood, ccut, cfront);
-        else plank_end_cut(ax0, ua, -1.0f, ua + Le[0], vI, vO, 0.0f, plank_y, Hc, Wc, woodt, wood, ccut);
-        if (plank_tip_for(ax0, ub, vI, &A, &B, &n))
+        } else plank_end_cut(ax0, ua, -1.0f, ua + Le[0], vI, vO, 0.0f, plank_y, Hc, Wc, woodt, wood, ccut);
+        if (plank_tip_for(ax0, ub, vI, &A, &B, &n)) {
+            const float tu = (ax0 ? A.z : A.x);
+            if (tu > ub) ub = tu;
             box_b = plank_end_profile(ax0, ub,  1.0f, vI, vO, plank_y, Hc, rake, A, B, n, woodt, wood, ccut, cfront);
-        else plank_end_cut(ax0, ub,  1.0f, ub - Le[1], vI, vO, 0.0f, plank_y, Hc, Wc, woodt, wood, ccut); }
+        } else plank_end_cut(ax0, ub,  1.0f, ub - Le[1], vI, vO, 0.0f, plank_y, Hc, Wc, woodt, wood, ccut); }
     if (box_b - box_a < 1e-4f) return;
     {   const float v0 = va < vb ? va : vb, v1 = va < vb ? vb : va;
         if (!ax0) box6(box_a, box_b, 0.0f, plank_y, v0, v1, woodt, wood);
