@@ -699,7 +699,11 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         else                        { t->half_len = 3.569f * 0.5f; t->half_wid = 1.778f * 0.5f; }
         float sc = t->half_len / master;     /* layout scale */
         t->R = 0.0262500f; t->mass = 0.142f;
-        t->cushion_h = 1.27f * t->R; t->rail_w = 0.085f;
+        /* 75.6 mm, so the cushion is 1.875 in deep (rail_w x 0.63 = 47.6 mm, the
+         * same rule cue_render draws the timber's inner edge by). The WPBSA
+         * middle-pocket template puts the slate edge 1.875 in behind the nose and
+         * the jaw ends there; at 85 the rubber ran 6 mm past the slate. */
+        t->cushion_h = 1.27f * t->R; t->rail_w = 0.0756f;
         t->pocket_round = 1;
         /* THE POCKET IS THE 1.7 BORE. Now that the drop, the timber's hole and
          * the cushion ends are one circle, the size of that circle is the one
@@ -736,7 +740,28 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * so the same pocket. 1.7 had them a touch apart and there is no reason
          * in the specification for it.
  */
-        t->pr_corner = 0.0452900f; t->pr_side = 0.0466700f;  /* 45.29 / 46.67 mm */
+        /* THE MIDDLE POCKET IS THE WPBSA 2005/6 TEMPLATE, measured off the 3D gauge
+         * and its drawing (CEBP, Dec 2007). In millimetres behind the cushion nose:
+         *   the slate drop is an arc r 53.2 whose centre sits 51.6 back -- 1.6 mm
+         *   proud of the nose, no undercut;  the facings are arcs r 79.4 tangent
+         *   to the nose 110 out, meeting the drop 46 out and 28 deep;  the throat
+         *   walls stand 41.3 either side of centre at the slate edge, 47.6 deep.
+         * How that maps onto this table:
+         *   the SLATE CUT is the functional drop (cue_phys_cut_out). The middle row
+         *   of cue_table_default_cut puts it at r 1.7736 x pr, 33.5 behind the
+         *   pocket centre: r 76.8 at 75.2 back. Its apex is the template's -- 1.6
+         *   proud of the nose -- but the arc is flatter than the template's r 53.2,
+         *   chosen by eye for the shape of the cut-away; towards the jaw feet the
+         *   ball drops up to 9 mm earlier than the gauge would have it;
+         *   the BORE (pr_side, 1.65 R = 43.3, cap 0) sits 41.7 back so that it
+         *   KISSES the cut at the mouth's centre -- both fronts 1.6 proud -- which
+         *   is how every other table here is cut and what gives the cut-away its
+         *   shape;  its foot on the slate edge is 42.9 out, the template's throat;
+         *   and the jaw's run and lean below fit the two facing arcs to 0.3 mm rms
+         *   with the shared handle lengths untouched.
+         * It stood 26.25 back with a drop 12.6 mm proud and a 91 mm mouth; it is
+         * now 85 mm and flush. The corner is not touched here. */
+        t->pr_corner = 0.0452900f; t->pr_side = 0.0433000f;  /* 45.29 / 43.30 mm */
         t->ang_corner = 60.0f; t->ang_side = 80.0f;
         /* Throat set well back into the wood: the small snooker pocket radius is
          * < the deepened cushion depth, so without this the bore circle never
@@ -746,10 +771,12 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * of the hole is not catch — both were ball radii, so a custom table
          * could not author them and the shipped tables were not examples of
          * anything. Values unchanged, to the micron. */
-        t->off_corner = 0.0341250f; t->off_side = 0.0262500f;  /* 34.13 / 26.25 mm */
+        t->off_corner = 0.0341250f; t->off_side = 0.0417000f;  /* 34.13 / 41.70 mm */
         /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
-        t->drop_back  = 0.0076125f; t->drop_back_side = 0.0165375f; /* 7.61 / 16.54 mm */
+        t->drop_back  = 0.0076125f; t->drop_back_side = 0.0040000f; /* 7.61 / 4.00 mm */
+        t->jaw_p0_m  = 0.0687f;   /* facing leaves the nose 111.8 out */
+        t->jaw_ang_m = 3.0f;      /* and arrives 3 degrees off the throat's axis */
         t->jaw_r = 0.012f;
         t->baulk_x = -t->half_len + 0.737f * sc;
         t->d_radius = 0.292f * sc;
@@ -3506,8 +3533,11 @@ static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
      * step up is a few millimetres rather than a re-cut; club is the 3 3/4 in
      * pocket almost everybody actually learned on. */
     { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
-      { 87.0f,  94.0f, 0.0f,     0.0f,   0.0f },
-      { 95.0f, 105.0f, 0.0135f, -0.020f, 0.008f } },
+      /* Scaled from the WPBSA PRO (83.1 / 86.5) by the ratios the ladder had
+       * before the middle was retemplated: TOURNAMENT 87/84, 94/90.8 and CLUB
+       * 95/84, 105/90.8 of PRO -- the same steps in feel, not the old absolutes. */
+      { 86.0f,  89.5f, 0.0f,     0.0f,   0.0f },
+      { 94.0f, 100.0f, 0.0135f, -0.020f, 0.008f } },
     /* ENGLISH POOL — shipped 81.3 / 81.3, which is already 1.60 ball widths. */
     { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
       { 84.0f,  86.0f, 0.0f,     0.0f,   0.0f },
@@ -4159,8 +4189,8 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* US8   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
         /* US9   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
         /* CN8   */ { 0.0285f, 1.4437f, 0.2250f, 180.0f },
-        /* SNK15 */ { 0.0285f, 1.4437f, 0.2150f, 180.0f },
-        /* SNK10 */ { 0.0285f, 1.4437f, 0.2150f, 180.0f },
+        /* SNK15 */ { 0.0335f, 1.7736f, 0.2150f, 180.0f },   /* r 76.8 at 75.2 back: kisses the bore 1.6 mm proud -- see the snooker block */
+        /* SNK10 */ { 0.0335f, 1.7736f, 0.2150f, 180.0f },
         /* SNK6  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
         /* STRT  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* PYRA  */ { 0.0234f, 1.4100f, 0.2200f, 180.0f },   /* ...and the middle */
