@@ -1051,18 +1051,10 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
  * Nothing is scripted, and nothing has to ask whether the ball is in the air.
  */
 #define CUE_POCKET_FLOOR (-0.10f)   /* the floor of the recess (m) */
-/* How hard the lip gathers a falling ball toward the pocket's axis, per second
- * squared per metre off it. Sized so a ball crossing at the rim is drawn to the
- * middle within the time it takes to fall — which is what the roll of the cloth
- * does to it on a real table. */
-/* Softened from 250. That was sized to drag a ball crossing at the rim into the
- * middle within the time it takes to fall, which it did — and at a middle
- * pocket, where the catch sits deeper, it was picking the ball up and throwing
- * it at the far wall. It only has to STEER the ball, not fling it: the ball is
- * already falling, and the lip below still carries it down. */
-#ifndef CUE_LIP_GATHER
-#define CUE_LIP_GATHER 90.0f
-#endif
+/* The bed's thickness as the fall sees it (m): down to here the ball is held
+ * by the slate cut's own wall; below it the leather funnel narrows to the
+ * bore at the floor. The lip gather spring that used to live here is gone. */
+#define CUE_POCKET_BED   (-0.040f)
 
 /* HOW FAR PAST THE EDGE OF THE SLATE a point is, at pocket p. Negative is still
  * on cloth, zero is the edge, positive is out over the drop.
@@ -1623,26 +1615,19 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             float o0 = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
 
             Vec3 pc2 = w->drop_c[pk];
-            /* GATHERED, NOT SPRUNG.
+            /* THE FALL IS GRAVITY AND THE POCKET'S WALLS, NOT A SPRING.
              *
-             * The pull toward the pocket's axis is a spring, and a spring with
-             * no damping in it does what springs do: the ball was thrown across
-             * the throat, came back, and crossed again all the way down. At
-             * CUE_LIP_GATHER = 90 the natural frequency is sqrt(90) = 9.5 rad/s
-             * and the drag here was 3/s, where not oscillating at all needs
-             * 2*sqrt(90) = 19/s — so it was a long way underdamped, and it
-             * showed: measured over 180 pots per table, a ball reversed
-             * direction inside a snooker middle 107 TIMES and took 582 ms to
-             * sink. Dropping the back wall's restitution helped that barely at
-             * all, because the wall was never what was throwing it about.
-             *
-             * A pocket does not play the ball back at you. It takes what the
-             * ball has and lets it fall, so the gather is damped just past
-             * critical: it steers to the middle and stays there. */
-            {   const float kk = CUE_LIP_GATHER;
-                const float cd = 2.2f * sqrtf(kk);       /* 1.1x critical */
-                b->vel.x += ((pc2.x - b->pos.x) * kk - b->vel.x * cd) * h;
-                b->vel.z += ((pc2.z - b->pos.z) * kk - b->vel.z * cd) * h; }
+             * This used to pull the ball to the bore's centre with a critically
+             * damped spring the moment its centre crossed the cut, and clamp it
+             * inside the bore at every depth. With the slate cut 18 mm ahead of
+             * the bore at a snooker corner that read as a jump: the ball lurched
+             * sideways and back the instant it passed the lip (reported
+             * 2026-09-02; it was never natural on any table). A pocket does
+             * nothing to a ball but stop holding it up. So: gravity, a little
+             * drag from the leather, and the walls below. */
+            {   const float drag = 1.5f * h;             /* leather, cloth, air */
+                b->vel.x -= b->vel.x * drag;
+                b->vel.z -= b->vel.z * drag; }
             b->vel.y -= w->g * h;
             b->pos.x += b->vel.x * h;
             b->pos.y += b->vel.y * h;
@@ -1750,27 +1735,59 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * off when it does not go. So: a wall at the throat radius, which
              * the ball cannot pass and gives up most of its pace against. */
             {
-                float bx = b->pos.x - pc2.x, bz = b->pos.z - pc2.z;
-                float rmax = w->pocket_r[pk] - cue_ball_r(w, b) * 0.35f;
-                if (rmax < cue_ball_r(w, b) * 0.25f) rmax = cue_ball_r(w, b) * 0.25f;
-                float q2 = bx*bx + bz*bz;
-                if (q2 > rmax * rmax) {
-                    float q = sqrtf(q2);
-                    float nx = bx / q, nz = bz / q;
-                    b->pos.x = pc2.x + nx * rmax;
-                    b->pos.z = pc2.z + nz * rmax;
-                    float vn = b->vel.x * nx + b->vel.z * nz;
-                    if (vn > 0.0f) {              /* only what is heading out */
-                        /* A pocket back is leather over a shaped casting and
-                         * gives back almost nothing — which is the point of it.
-                         * At 0.25 a ball caught off-centre was thrown across the
-                         * throat by the gather, bounced, and rattled visibly on
-                         * the way down: two contacts and 445 ms at a middle,
-                         * where the throat is narrower and the catch sits deeper.
-                         * A real one deadens the ball, it does not play it. */
-                        const float e = 0.06f;
-                        b->vel.x -= (1.0f + e) * vn * nx;
-                        b->vel.z -= (1.0f + e) * vn * nz;
+                /* THE WALLS, BY DEPTH. Through the bed (the top 40 mm) the ball
+                 * is inside the slate cut itself; the cut is what the cloth was
+                 * cut round, so its wall is where the slate is. Below the bed
+                 * the leather funnel takes over: wide enough at the top to take
+                 * a ball that fell at the cut's front, closing to the bore -- a
+                 * third of a ball inside it -- at the floor, which is where the
+                 * collector's bag picks it up. Both walls are inelastic: a
+                 * pocket back is leather over a casting and does not play the
+                 * ball back (0.25 was seen to rattle a middle for 445 ms). */
+                const float R = cue_ball_r(w, b);
+                const float y_bed = CUE_POCKET_BED;
+                const float e = 0.06f;
+                if (b->pos.y > y_bed && w->cut_r[pk] > 0.0f) {
+                    const float cx2 = w->cut_c[pk].x, cz2 = w->cut_c[pk].z;
+                    const float wall = w->cut_r[pk] - R;
+                    const float bx = b->pos.x - cx2, bz = b->pos.z - cz2;
+                    const float q2 = bx*bx + bz*bz;
+                    if (wall > 0.0f && q2 > wall * wall) {
+                        const float q = sqrtf(q2), nx = bx / q, nz = bz / q;
+                        b->pos.x = cx2 + nx * wall; b->pos.z = cz2 + nz * wall;
+                        const float vn = b->vel.x * nx + b->vel.z * nz;
+                        if (vn > 0.0f) { b->vel.x -= (1.0f + e) * vn * nx; b->vel.z -= (1.0f + e) * vn * nz; }
+                    }
+                }
+                {
+                    const float bx = b->pos.x - pc2.x, bz = b->pos.z - pc2.z;
+                    float r_bot = w->pocket_r[pk] - R * 0.35f;
+                    if (r_bot < R * 0.25f) r_bot = R * 0.25f;
+                    /* the funnel's top takes the whole cut as seen from the bore */
+                    float r_top = r_bot;
+                    if (w->cut_r[pk] > 0.0f) {
+                        const float dx = w->cut_c[pk].x - pc2.x, dz = w->cut_c[pk].z - pc2.z;
+                        r_top = sqrtf(dx*dx + dz*dz) + w->cut_r[pk] - R;
+                    }
+                    if (r_top < r_bot) r_top = r_bot;
+                    const float depth = y_bed - CUE_POCKET_FLOOR;
+                    float rmax = r_top;
+                    if (b->pos.y <= y_bed) {
+                        float f = (y_bed - b->pos.y) / depth;
+                        if (f > 1.0f) f = 1.0f;
+                        rmax = r_top + (r_bot - r_top) * f;
+                    }
+                    const float q2 = bx*bx + bz*bz;
+                    if (q2 > rmax * rmax) {
+                        const float q = sqrtf(q2), nx = bx / q, nz = bz / q;
+                        b->pos.x = pc2.x + nx * rmax; b->pos.z = pc2.z + nz * rmax;
+                        const float vn = b->vel.x * nx + b->vel.z * nz;
+                        if (vn > 0.0f) { b->vel.x -= (1.0f + e) * vn * nx; b->vel.z -= (1.0f + e) * vn * nz; }
+                        /* on the funnel the fall has a way to go: down the
+                         * cone, which is towards the middle */
+                        const float slopef = (r_top - r_bot) / depth;
+                        b->vel.x -= nx * slopef * w->g * h * 0.5f;
+                        b->vel.z -= nz * slopef * w->g * h * 0.5f;
                     }
                 }
             }
