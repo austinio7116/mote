@@ -2194,29 +2194,200 @@ static void box6(float x0, float x1, float y0, float y1, float z0, float z1,
  * measured on. */
 static float plank_end_len(int ax0, float uE, float vI, int is_mid,
                            float rake, float Lc) {
-    if (is_mid) return rake;
-    if (!s_cw) return Lc;
+    /* THE CUSHION'S END, NOT THE START OF ITS FLAT.
+     *
+     * This walked the chain for the nearest end of a FLAT face on the rail and
+     * cut back to it -- which at a corner is the far end of the jaw curve,
+     * 70 mm up the rail, and nothing to do with where the cushion ends. So the
+     * green face sat 70 mm behind the nose instead of meeting it (reported
+     * 2026-09-02; the middle, where the flat happens to end near the tip, had
+     * looked right by luck). The cushion ends at the OTHER end of the curve:
+     * the jaw's tip, which the sim puts on the plank's inner line, a few
+     * millimetres from the plank's end at a corner and a middle alike. The
+     * cut runs from there, at the nose's own rake, so it lies in the plane of
+     * the cushion's angled end face. */
+    (void)is_mid; (void)Lc;
+    if (!s_cw) return rake;
     float best = -1.0f;
     for (int q = 0; q < s_cw->nseg; q++) {
         const CueSeg *g = &s_cw->seg[q];
-        if (g->kind != 0) continue;                    /* flat faces only */
-        const float gv  = ax0 ? g->a.x : g->a.z;
-        const float gv2 = ax0 ? g->b.x : g->b.z;
-        /* ON THIS PLANK'S OWN RAIL: within a rail's width of its mouth line,
-         * and running along it rather than across. (This also had a sign test,
-         * gv * vI <= 0, to throw away the far side of the table -- which the
-         * distance test already does, the far side being a table's width away,
-         * and which divides by nothing when a face's mouth line sits at zero.
-         * An L's notch rails do sit at zero.) */
-        if (fabsf(gv - vI) > 0.14f || fabsf(gv2 - gv) > 1e-3f) continue;
+        if (g->kind != 1) continue;                    /* the jaw curves */
         for (int e3 = 0; e3 < 2; e3++) {
-            const float gu = ax0 ? (e3 ? g->b.z : g->a.z)
-                                 : (e3 ? g->b.x : g->a.x);
-            const float d2 = fabsf(gu - uE);
-            if (d2 > 1e-5f && (best < 0.0f || d2 < best)) best = d2;
+            const Vec3 P = e3 ? g->b : g->a;
+            const float gv = ax0 ? P.x : P.z;
+            const float gu = ax0 ? P.z : P.x;
+            if (fabsf(gv - vI) > 0.004f) continue;     /* on this plank's inner line */
+            const float d = fabsf(gu - uE);
+            if (d < 0.060f && (best < 0.0f || d < best)) best = d;
         }
     }
-    return best > 0.0f ? best : Lc;
+    return rake + (best > 0.0f ? best : 0.0f);
+}
+
+
+/* ---- THE PLANK'S END WEARS THE CUSHION'S PROFILE -----------------------------
+ *
+ * The cushion strip has no end cap: at a free tip it is left open and buried in
+ * the plank. What shows at a pocket is therefore the PLANK's end, and it used
+ * to be a box with one bite taken out of its inner bottom edge -- a shape
+ * chosen by a length. Below the nose the cushion's skirt leans back to its base
+ * (cush_undercut), and the plank's square corner stood proud of that lean by
+ * up to the whole undercut; beyond the tip a slab of end grain faced the hole
+ * (reported 2026-09-02, with a drawing).
+ *
+ * So the end is cut by the cushion's own two planes, both of which contain the
+ * tip's nose line: the SKIRT plane through the nose line and the skirt's base
+ * line (below the nose), and the VERTICAL front plane through the nose line
+ * (above it). The plank keeps what lies behind both -- a convex clip -- and the
+ * two new faces are cloth in the cushion's own two shades, so the cushion reads
+ * as running on into the timber. The planes run across the plank at whatever
+ * angle the jaw arrives at, which is what makes the corner's cut diagonal.
+ *
+ * RENDER ONLY: the pocket plays off the CueSeg chain, untouched. */
+typedef struct { Vec3 p[12]; int n; } CutPoly;
+
+/* Clip one polygon to the half-space  nrm . (p - o) <= 0 ; the pieces of edge
+ * that lie IN the plane are collected for the cap. */
+static void poly_clip(CutPoly *P, Vec3 nrm, Vec3 o, Vec3 *cap, int *ncap, int capmax) {
+    CutPoly out; out.n = 0;
+    for (int i = 0; i < P->n; i++) {
+        const Vec3 a = P->p[i], b = P->p[(i + 1) % P->n];
+        const float da = v3_dot(nrm, v3_sub(a, o)), db = v3_dot(nrm, v3_sub(b, o));
+        if (da <= 0.0f) { if (out.n < 12) out.p[out.n++] = a; }
+        if ((da <= 0.0f) != (db <= 0.0f)) {
+            const float t = da / (da - db);
+            const Vec3 x = v3_add(a, v3_scale(v3_sub(b, a), t));
+            if (out.n < 12) out.p[out.n++] = x;
+            if (*ncap < capmax) cap[(*ncap)++] = x;
+        }
+    }
+    *P = out;
+}
+
+/* The cap on a cut plane: the collected edge points, ordered round their centre. */
+static void cap_emit(Vec3 *pts, int n, Vec3 nrm, uint16_t col) {
+    if (n < 3) return;
+    /* drop near-duplicates */
+    Vec3 u[24]; int m = 0;
+    for (int i = 0; i < n && m < 24; i++) {
+        int dup = 0;
+        for (int k = 0; k < m; k++) if (v3_len2(v3_sub(u[k], pts[i])) < 1e-9f) { dup = 1; break; }
+        if (!dup) u[m++] = pts[i];
+    }
+    if (m < 3) return;
+    Vec3 c = v3(0,0,0);
+    for (int i = 0; i < m; i++) c = v3_add(c, u[i]);
+    c = v3_scale(c, 1.0f / (float)m);
+    /* a basis in the plane */
+    Vec3 e1 = v3_sub(u[0], c); e1 = v3_sub(e1, v3_scale(nrm, v3_dot(e1, nrm)));
+    if (v3_len2(e1) < 1e-12f) return;
+    e1 = v3_norm(e1);
+    const Vec3 e2 = v3_cross(nrm, e1);
+    float ang[24];
+    for (int i = 0; i < m; i++) {
+        const Vec3 d = v3_sub(u[i], c);
+        ang[i] = atan2f(v3_dot(d, e2), v3_dot(d, e1));
+    }
+    for (int i = 1; i < m; i++) {            /* insertion sort by angle */
+        const float a = ang[i]; const Vec3 v = u[i]; int j = i - 1;
+        while (j >= 0 && ang[j] > a) { ang[j+1] = ang[j]; u[j+1] = u[j]; j--; }
+        ang[j+1] = a; u[j+1] = v;
+    }
+    face_poly(u, m, nrm, col);
+}
+
+/* The jaw tip this plank end runs into, if any: the kind-1 endpoint on the
+ * plank's inner line nearest the end. A = the tip, B = the segment's other end,
+ * n = its normal (towards the cloth). */
+static int plank_tip_for(int ax0, float uE, float vI, Vec3 *A, Vec3 *B, Vec3 *n) {
+    if (!s_cw) return 0;
+    int best = -1, bend = 0; float bd = 1e30f;
+    for (int q = 0; q < s_cw->nseg; q++) {
+        const CueSeg *g = &s_cw->seg[q];
+        if (g->kind != 1) continue;
+        for (int e3 = 0; e3 < 2; e3++) {
+            const Vec3 P = e3 ? g->b : g->a;
+            const float gv = ax0 ? P.x : P.z, gu = ax0 ? P.z : P.x;
+            if (fabsf(gv - vI) > 0.004f) continue;
+            const float d = fabsf(gu - uE);
+            if (d < 0.060f && d < bd) { bd = d; best = q; bend = e3; }
+        }
+    }
+    if (best < 0) return 0;
+    const CueSeg *g = &s_cw->seg[best];
+    *A = bend ? g->b : g->a; *B = bend ? g->a : g->b; *n = g->n;
+    A->y = 0.0f; B->y = 0.0f; n->y = 0.0f;
+    return 1;
+}
+
+/* Build the plank's end piece, cut to the cushion's profile. Returns where the
+ * plain plank should stop (the piece runs from there to uE). */
+static float plank_end_profile(int ax0, float uE, float su, float vI, float vO,
+                               float y1, float nose_h, float ub,
+                               Vec3 A, Vec3 B, Vec3 n,
+                               uint16_t top, uint16_t side,
+                               uint16_t cskirt, uint16_t cfront) {
+    #define PT(U, V, Y) (ax0 ? v3((V), (Y), (U)) : v3((U), (Y), (V)))
+    /* the two planes, both through the tip's nose line */
+    const Vec3 An = v3(A.x, nose_h, A.z);
+    const Vec3 Ab = v3(A.x - n.x * ub, 0.0f, A.z - n.z * ub);   /* skirt base at the tip */
+    const Vec3 nV = v3_norm(v3(n.x, 0.0f, n.z));                /* vertical front: towards the cloth */
+    Vec3 nS = v3_cross(v3_sub(B, A), v3_sub(Ab, An));            /* skirt */
+    if (v3_len2(nS) < 1e-12f) nS = nV; else nS = v3_norm(nS);
+    if (v3_dot(nS, nV) < 0.0f) nS = v3_scale(nS, -1.0f);        /* towards the cloth too */
+    /* how far back the cuts reach along the plank: where each plane crosses
+     * the box's four long edges */
+    float uB = uE;
+    {   const float vv[2] = { vI, vO }, yy[2] = { 0.0f, y1 };
+        for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) for (int k = 0; k < 2; k++) {
+            const Vec3 nn = k ? nS : nV, oo = k ? An : An;
+            const Vec3 p0 = PT(0.0f, vv[i], yy[j]), p1 = PT(1.0f, vv[i], yy[j]);
+            const float d0 = v3_dot(nn, v3_sub(p0, oo)), d1 = v3_dot(nn, v3_sub(p1, oo));
+            const float slope = d1 - d0;                     /* per metre of u */
+            if (fabsf(slope) < 1e-4f) continue;
+            const float u = -d0 / slope;                     /* where the plane crosses */
+            if (su * (u - uB) < 0.0f) uB = u;
+        } }
+    uB -= su * 0.006f;
+    if (su * (uE - uB) < 0.015f) uB = uE - su * 0.015f;
+    if (su * (uE - uB) > 0.160f) uB = uE - su * 0.160f;
+    /* the end box as six polygons */
+    const float ua = su > 0.0f ? uB : uE, ub2 = su > 0.0f ? uE : uB;
+    CutPoly F[6];
+    #define QUAD(i, a, b, c, d) do { F[i].n = 4; F[i].p[0]=a; F[i].p[1]=b; F[i].p[2]=c; F[i].p[3]=d; } while (0)
+    QUAD(0, PT(ua,vI,y1), PT(ub2,vI,y1), PT(ub2,vO,y1), PT(ua,vO,y1));     /* top */
+    QUAD(1, PT(ua,vI,0),  PT(ua,vO,0),  PT(ub2,vO,0),  PT(ub2,vI,0));      /* bottom */
+    QUAD(2, PT(ua,vI,0),  PT(ub2,vI,0), PT(ub2,vI,y1), PT(ua,vI,y1));      /* inner */
+    QUAD(3, PT(ua,vO,0),  PT(ua,vO,y1), PT(ub2,vO,y1), PT(ub2,vO,0));      /* outer */
+    QUAD(4, PT(ua,vI,0),  PT(ua,vI,y1), PT(ua,vO,y1),  PT(ua,vO,0));       /* end at ua */
+    QUAD(5, PT(ub2,vI,0), PT(ub2,vO,0), PT(ub2,vO,y1), PT(ub2,vI,y1));     /* end at ub2 */
+    #undef QUAD
+    const Vec3 fn[6] = { v3(0,1,0), v3(0,-1,0),
+                         ax0 ? v3(vI < vO ? -1.0f : 1.0f,0,0) : v3(0,0,vI < vO ? -1.0f : 1.0f),
+                         ax0 ? v3(vI < vO ?  1.0f : -1.0f,0,0) : v3(0,0,vI < vO ?  1.0f : -1.0f),
+                         ax0 ? v3(0,0,-1) : v3(-1,0,0), ax0 ? v3(0,0,1) : v3(1,0,0) };
+    Vec3 capV[24], capS[24]; int ncV = 0, ncS = 0;
+    for (int i = 0; i < 6; i++) {
+        poly_clip(&F[i], nV, An, capV, &ncV, 24);
+        poly_clip(&F[i], nS, An, capS, &ncS, 24);
+    }
+    /* the cap on each plane is itself clipped by the other plane */
+    {   CutPoly cv; cv.n = 0; (void)cv; }
+    for (int i = 0; i < 6; i++)
+        if (F[i].n >= 3) face_poly(F[i].p, F[i].n, fn[i], i == 0 ? top : side);
+    /* caps: the collected points of one plane that also lie behind the other */
+    {   Vec3 k[24]; int nk = 0;
+        for (int i = 0; i < ncV; i++) if (v3_dot(nS, v3_sub(capV[i], An)) <= 1e-6f && nk < 24) k[nk++] = capV[i];
+        for (int i = 0; i < ncS; i++) if (fabsf(v3_dot(nV, v3_sub(capS[i], An))) <= 1e-6f && nk < 24) k[nk++] = capS[i];
+        const uint8_t keep = s_mat; s_mat = CUE_MAT_CLOTH;
+        cap_emit(k, nk, nV, cfront);
+        nk = 0;
+        for (int i = 0; i < ncS; i++) if (v3_dot(nV, v3_sub(capS[i], An)) <= 1e-6f && nk < 24) k[nk++] = capS[i];
+        for (int i = 0; i < ncV; i++) if (fabsf(v3_dot(nS, v3_sub(capV[i], An))) <= 1e-6f && nk < 24) k[nk++] = capV[i];
+        cap_emit(k, nk, nS, cskirt);
+        s_mat = keep; }
+    #undef PT
+    return uB;
 }
 
 static void split_plank(int ax0, float ua, float ub, float va, float vb,
@@ -2241,13 +2412,19 @@ static void split_plank(int ax0, float ua, float ub, float va, float vb,
                        "(Lc %.4f)  H %.4f W %.4f\n", ax0, ua, ub, vI,
                        Le[0], Le[1], Lc, Hc, Wc); }
 #endif
-    plank_end_cut(ax0, ua, -1.0f, ua + Le[0], vI, vO, 0.0f, plank_y,
-                  Hc, Wc, woodt, wood, ccut);
-    plank_end_cut(ax0, ub,  1.0f, ub - Le[1], vI, vO, 0.0f, plank_y,
-                  Hc, Wc, woodt, wood, ccut);
+    const uint16_t cfront = shade565(s_cloth, 0.72f);   /* the cushion's own vertical front shade */
+    float box_a = ua + Le[0], box_b = ub - Le[1];
+    {   Vec3 A, B, n;
+        if (plank_tip_for(ax0, ua, vI, &A, &B, &n))
+            box_a = plank_end_profile(ax0, ua, -1.0f, vI, vO, plank_y, Hc, rake, A, B, n, woodt, wood, ccut, cfront);
+        else plank_end_cut(ax0, ua, -1.0f, ua + Le[0], vI, vO, 0.0f, plank_y, Hc, Wc, woodt, wood, ccut);
+        if (plank_tip_for(ax0, ub, vI, &A, &B, &n))
+            box_b = plank_end_profile(ax0, ub,  1.0f, vI, vO, plank_y, Hc, rake, A, B, n, woodt, wood, ccut, cfront);
+        else plank_end_cut(ax0, ub,  1.0f, ub - Le[1], vI, vO, 0.0f, plank_y, Hc, Wc, woodt, wood, ccut); }
+    if (box_b - box_a < 1e-4f) return;
     {   const float v0 = va < vb ? va : vb, v1 = va < vb ? vb : va;
-        if (!ax0) box6(ua + Le[0], ub - Le[1], 0.0f, plank_y, v0, v1, woodt, wood);
-        else      box6(v0, v1, 0.0f, plank_y, ua + Le[0], ub - Le[1], woodt, wood); }
+        if (!ax0) box6(box_a, box_b, 0.0f, plank_y, v0, v1, woodt, wood);
+        else      box6(v0, v1, 0.0f, plank_y, box_a, box_b, woodt, wood); }
 }
 
 static float cush_undercut(const CueTable *t) { return 0.45f * t->R; }
