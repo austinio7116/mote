@@ -4175,8 +4175,19 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* US8   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
         /* US9   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
         /* CN8   */ { 0.0170f, 1.3550f, 0.2200f,  90.0f },
-        /* SNK15 */ { 0.0145f, 1.3550f, 0.2150f,  90.0f },
-        /* SNK10 */ { 0.0145f, 1.3550f, 0.2150f,  90.0f },
+        /* SNK15 and SNK10: THE WPBSA 2005/6 CORNER, read off the 3MF gauge.
+         * The slate drop is an arc r 3.5 in (88.94 mm fitted) CENTRED ON THE
+         * SLATE-EDGE CORNER -- where the two rails' inner faces meet, 47.6 mm
+         * (1.875 in) behind each nose. So rad = 88.9 / 45.29 (pr_corner) and
+         * set = the mouth centre to that corner along the diagonal: the mouth
+         * is off_corner 34.1 mm past the nose corner, the slate corner 47.6,
+         * (47.6 - 34.1) * sqrt 2 = 19.1 -- no: measured from the built world,
+         * mouth (1.8086, 0.9131) to slate corner (1.8321, 0.9366) = 33.2 mm.
+         * The drop's front then sits 55.7 mm in front of the mouth, 18 mm proud
+         * of the bore: at a corner the template does NOT kiss the bore. The
+         * old cut (r 61.4, set 14.5) started 8.8 mm later than the template. */
+        /* SNK15 */ { 0.0332f, 1.9629f, 0.2150f,  90.0f },
+        /* SNK10 */ { 0.0332f, 1.9629f, 0.2150f,  90.0f },
         /* SNK6  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
         /* STRT  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* PYRA — the American's cut, with the SETBACK scaled to this mouth
@@ -4185,7 +4196,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* PYRA7 — the same cut with the setback scaled to the smaller mouth */
         /* PYRA7 */ { 0.0168f, 1.3900f, 0.2200f,  90.0f },
         /* BILL — the standard table, so the 12 ft snooker cut exactly */
-        /* BILL  */ { 0.0145f, 1.3550f, 0.2150f,  90.0f },
+        /* BILL  */ { 0.0332f, 1.9629f, 0.2150f,  90.0f },   /* the 12 ft snooker corner (WPBSA), as SNK15 */
         /* BARB — the holes are in the bed and cut their own cloth. `roll` is
          * how far the cloth turns over the edge, and it is NOT only a drawing
          * number: cue_physics reads lip_d to decide how a dropping ball is
@@ -4235,7 +4246,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* STRT  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* PYRA  */ { 0.0234f, 1.4100f, 0.2200f, 180.0f },   /* ...and the middle */
         /* PYRA7 */ { 0.0211f, 1.4100f, 0.2200f, 180.0f },
-        /* BILL  */ { 0.0285f, 1.4437f, 0.2150f, 180.0f },
+        /* BILL  */ { 0.0335f, 1.7736f, 0.2150f, 180.0f },   /* the 12 ft snooker middle (WPBSA), as SNK15 */
         /* BARB  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* GOLF  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
         /* US10  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
