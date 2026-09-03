@@ -1280,15 +1280,25 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
     pw.walls        = 0;
     pw.restitution  = 0.02f;                /* the ball's own: the surface's wins */
     pw.friction     = 0.30f;
-    pw.linear_damp  = 0.8f;                 /* leather and string, not air */
-    pw.angular_damp = 0.8f;
+    /* leather and string, not air: nothing until the centre is below the cloth
+     * (see cue_phys_drop_fall's drag for the slow-motion lip this caused) */
+    pw.linear_damp  = (b->pos.y < 0.0f) ? 0.8f : 0.0f;
+    pw.angular_damp = (b->pos.y < 0.0f) ? 0.8f : 0.0f;
     /* FOUR SUBSTEPS TO THE SIM'S ONE. At 6 m/s a ball moves 3 mm in the sim's
      * 0.5 ms; lifted by its own spin against the back it can bury itself in
      * the plate's chamfer between two steps, and the solver's correction then
      * throws it out at several metres a second (seen 2026-09-03, topspin off
      * the pack). At 0.75 mm a step the contacts resolve as contacts. */
-    pw.substep      = 0.25f * h;
-    pw.max_substeps = 4;
+    /* Stepped below as FOUR CALLS of a quarter step each, not one call with
+     * substep = h/4: mote's accumulator subtracts the substep from the step and
+     * tests >=, and in float h - 3*(h/4) comes up a hair short of h/4, so the
+     * fourth substep never ran and the leftover was thrown away with this
+     * fresh world. Every dropping ball moved at three quarters of its speed
+     * under three quarters of gravity, on every build since the mesh pockets:
+     * "balls on the lip fall in slow motion" (2026-09-03). */
+    const float qh  = 0.25f * h;
+    pw.substep      = qh;
+    pw.max_substeps = 1;
     MoteBody bodies[3]; int n = 0;
     {   MoteBody *m = &bodies[n++];
         memset(m, 0, sizeof *m);
@@ -1312,7 +1322,7 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
         m->radius = net->bound_r;
         m->friction = 0.30f; m->restitution = 0.02f;  /* waxed cord: dead, and it slides */ }
     const Vec3 v_in = b->vel;
-    mote_phys_step(&pw, bodies, n, h);
+    for (int q = 0; q < 4; q++) { pw._acc = 0.0f; mote_phys_step(&pw, bodies, n, qh); }
     /* THE KNOCK. A change of horizontal speed of more than 0.4 m/s in one
      * substep against the pocket's surfaces is the ball striking the back;
      * the app voices it from the speed it arrived with (CUE_EV_BRIDGE). */
@@ -1342,7 +1352,14 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
 /* THE FALL, for one substep, on the ball itself: a little drag from the
  * leather and the cloth, gravity, and the move. */
 void cue_phys_drop_fall(const CueWorld *w, CueBall *b, float h) {
-    const float drag = 1.5f * h;
+    /* ONLY ONCE THE BALL IS IN THE THROAT. This drag stood for the leather and
+     * the string, and it was applied from the moment a ball was flagged as
+     * dropping -- while it was still up on the cloth's roll, in the air, with
+     * nothing touching it. With the mesh world's damping on top it took half
+     * the speed and a third of the spin off a slow ball toppling over the lip:
+     * "balls on the lip fall in slow motion... spinning in slow motion over
+     * it" (2026-09-03). Air does nothing to a ball. */
+    const float drag = (b->pos.y < 0.0f) ? 1.5f * h : 0.0f;
     b->vel.x -= b->vel.x * drag;
     b->vel.z -= b->vel.z * drag;
     b->vel.y -= w->g * h;
@@ -1904,6 +1921,12 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * that falls out of the same two lines rather than being asked for. */
             {
                 float o1 = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
+#ifdef MOTE_HOST
+                {   static int dbg = -1; if (dbg < 0) dbg = getenv("CUE_LIPDBG") ? 1 : 0;
+                    if (dbg) fprintf(stderr, "[dropdbg] pk%d o1 %.4f y %.5f lip_y %.5f vh %.4f vy %.4f\n", pk, o1, b->pos.y,
+                                     (o1 > 0.0f && o1 < rr) ? sqrtf(rr*rr - o1*o1) - ld : -1.0f,
+                                     sqrtf(b->vel.x*b->vel.x + b->vel.z*b->vel.z), b->vel.y); }
+#endif
                 /* ...WHERE THERE IS A RIM UNDER IT TO BE HELD BY.
                  *
                  * The arc above describes cloth turning over the EDGE of the
@@ -1920,88 +1943,96 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                 int over_open = clear > 0.0f && (gx*gx + gz*gz) < clear * clear;
                 if (!over_open && o1 > 0.0f && o1 < rr * 0.999f) {
                     float lip_y = sqrtf(rr*rr - o1*o1) - ld;
-                    if (b->pos.y < lip_y) {
-                        const float lift = lip_y - b->pos.y;    /* what the roll gave it */
-                        b->pos.y = lip_y;
-                        const float slope = -o1 / sqrtf(rr*rr - o1*o1);  /* dy/do <= 0 */
-                        /* GRAVITY GETS TO WORK ON IT, which it did not.
-                         *
-                         * The vertical speed used to be set outright from how
-                         * fast the ball was crossing sideways —
-                         * slope * (o1-o0)/h — so a ball creeping over the edge
-                         * descended at a creep however steep the roll had got
-                         * under it, and vel.y was overwritten every substep so
-                         * gravity never accumulated. Reported as pots hanging
-                         * over the pocket as if suspended, and measured: a ball
-                         * arriving at 80 mm/s took 442 ms to disappear into a
-                         * 7 ft corner against 154 ms of free fall — nearly
-                         * three tenths of a second of hanging.
-                         *
-                         * A ball on a curved surface is not driven by its own
-                         * sideways speed; it is ACCELERATED down the slope by
-                         * gravity, and it leaves when it outruns the curve. So
-                         * take gravity's component along the surface — and the
-                         * rolling 5/7 of it, because it is still on cloth — and
-                         * push the ball outward with it. The vertical speed then
-                         * follows from the constraint rather than replacing it,
-                         * and a ball parked on the lip accelerates away instead
-                         * of sitting there.
-                         *
-                         * WHICH WAY IS "OUTWARD" is asked of the cut itself, not
-                         * assumed to be radial: the cloth edge is an arc with two
-                         * straight ends (see cue_phys_cut_out) and its gradient
-                         * is the only honest answer near the joins. */
-                        {   const float eps = 1e-4f;
-                            const float gx =
-                                cue_phys_cut_out(w, pk, b->pos.x + eps, b->pos.z) -
-                                cue_phys_cut_out(w, pk, b->pos.x - eps, b->pos.z);
-                            const float gz =
-                                cue_phys_cut_out(w, pk, b->pos.x, b->pos.z + eps) -
-                                cue_phys_cut_out(w, pk, b->pos.x, b->pos.z - eps);
-                            const float gl = sqrtf(gx*gx + gz*gz);
-                            if (gl > 1e-9f) {
-                                /* tangential gravity, resolved back onto the
-                                 * horizontal: -g*y'/(1+y'^2), rolling */
-                                const float at = (5.0f/7.0f) * w->g * (-slope)
-                                               / (1.0f + slope*slope);
-                                b->vel.x += (gx / gl) * at * h;
-                                b->vel.z += (gz / gl) * at * h;
-                                /* CLIMBING BACK OUT COSTS WHAT IT COSTS. The
-                                 * roll lifted the ball by `lift` this substep;
-                                 * if it is heading back towards the table that
-                                 * height comes out of its outward speed, and a
-                                 * ball without enough of it stops climbing and
-                                 * falls back in. The surface used to lift it
-                                 * for nothing, so a hard pot that came off the
-                                 * far jaw rode up the roll and out over the
-                                 * cloth at full speed. */
-                                if (lift > 0.0f) {
-                                    const float ox = -gx / gl, oz = -gz / gl;     /* outward */
-                                    const float vo = b->vel.x * ox + b->vel.z * oz;
-                                    if (vo > 0.0f) {
-                                        const float v2 = vo * vo - 2.0f * w->g * lift;
-                                        const float vn = v2 > 0.0f ? sqrtf(v2) : 0.0f;
-                                        b->vel.x += (vn - vo) * ox;
-                                        b->vel.z += (vn - vo) * oz;
-                                    }
-                                }
-                            } }
-                        /* AND THE CONSTRAINT ON THE WAY DOWN, which is all the
-                         * old line was entitled to do: the surface may stop the
-                         * ball falling THROUGH it, and it may not hold it up.
-                         * The rate the cloth falls away is the floor on the
-                         * descent, not the value of it — a ball already dropping
-                         * faster than the roll keeps its own speed and leaves. */
-                        const float rate = slope * (o1 - o0) / h;
-                        /* AND IT MOVES AT THE ROLL'S OWN RATE, no slower and no
-                         * faster. This only capped vel.y from above, so a ball
-                         * held on the roll kept accumulating gravity in vel.y
-                         * while its height was pinned -- and left the edge with
-                         * speed it never earned. Measured as energy gained over
-                         * the pocket, and it is what let a spinning ball dance
-                         * round a middle's lip (2026-09-03). A ball in contact
-                         * with a surface has the surface's normal velocity. */
-                        b->vel.y = (rate < 0.0f) ? rate : 0.0f;
+                    /* A BALL ON THE ROLL. Its centre rides an arc of radius rr
+                     * about the roll's centre while gravity can hold it there:
+                     * the normal force is m(g cos(th) - vt^2/rr), so it leaves
+                     * the surface once vt^2 > g rr cos(th) -- a ball quicker
+                     * than sqrt(g rr), 0.59 m/s, flies off the crest, and a
+                     * slower one is carried round until the arc steepens under
+                     * it. The integrator has already applied all of gravity this
+                     * substep; the contact takes back only the component INTO
+                     * the surface, and keeps the rest -- that is what turns the
+                     * fall into speed along the roll. Rolling on cloth, two
+                     * sevenths of the tangential gravity go into spin.
+                     *
+                     * WHY NOT "vel.y = the roll's rate" (2026-09-03, for a day):
+                     * the arc curves away faster than its tangent, so the ball
+                     * was a hair above the surface nine substeps in ten and only
+                     * touched in the tenth; setting vel.y then threw away the
+                     * fall gravity had built, and the slope's push was applied in
+                     * that one substep only. A slow ball toppled at a tenth of
+                     * gravity: "balls on the lip fall in slow motion". Nor the
+                     * cap-from-above before it, which kept the fall AND the lift
+                     * and let a spinning ball dance round a middle's lip.
+                     * Contact is decided by height AND by whether gravity can
+                     * hold the ball; a lift is paid for out of the ball's speed;
+                     * energy over the pocket never rises (test_pocketdrop). */
+                    const float slope = -o1 / sqrtf(rr*rr - o1*o1);  /* dy/do <= 0 */
+                    const float inv   = 1.0f / sqrtf(1.0f + slope*slope);   /* cos(th) */
+                    const float eps = 1e-4f;
+                    const float gx =
+                        cue_phys_cut_out(w, pk, b->pos.x + eps, b->pos.z) -
+                        cue_phys_cut_out(w, pk, b->pos.x - eps, b->pos.z);
+                    const float gz =
+                        cue_phys_cut_out(w, pk, b->pos.x, b->pos.z + eps) -
+                        cue_phys_cut_out(w, pk, b->pos.x, b->pos.z - eps);
+                    const float gl = sqrtf(gx*gx + gz*gz);
+                    if (gl > 1e-9f) {
+                        const float ox = gx / gl, oz = gz / gl;              /* into the pocket, along the cut's gradient */
+                        const float nx = -slope * inv, ny = inv;              /* the surface normal (outward, up) */
+                        const float tx = inv,          ty = slope * inv;      /* the tangent, down the roll */
+                        const float vo = b->vel.x*ox + b->vel.z*oz;
+                        const float vt = vo * tx + b->vel.y * ty;             /* speed along the roll */
+                        const int   held = vt * vt <= w->g * rr * inv;        /* gravity can hold it to the arc */
+                        const int   below = b->pos.y < lip_y;
+                        if (below || (held && b->pos.y < lip_y + 0.0005f)) {
+                            const float lift = below ? lip_y - b->pos.y : 0.0f;
+#ifdef MOTE_HOST
+                            const float vh_pre = sqrtf(b->vel.x*b->vel.x + b->vel.z*b->vel.z);
+#endif
+                            b->pos.y = lip_y;
+                            /* only the speed into the surface goes */
+                            const float vn = vo * nx + b->vel.y * ny;
+                            if (vn < 0.0f || held) {
+                                b->vel.x -= vn * nx * ox;
+                                b->vel.z -= vn * nx * oz;
+                                b->vel.y -= vn * ny;
+                            }
+                            if (held) {
+                                /* rolling: 2/7 of the tangential gravity becomes spin */
+                                const float sin_th = -slope * inv;
+                                const float dvt = -(2.0f / 7.0f) * w->g * sin_th * h;
+                                b->vel.x += dvt * tx * ox;
+                                b->vel.z += dvt * tx * oz;
+                                b->vel.y += dvt * ty;
+                                const float Rb = cue_ball_r(w, b), dwr = (5.0f / 7.0f) * w->g * sin_th * h / Rb;
+                                b->w.x += oz * dwr;
+                                b->w.z -= ox * dwr;
+                            }
+                            if (lift > 0.0002f) {
+                                /* THE LIFT IS PAID FOR -- a real one, over 0.2 mm;
+                                 * the few microns a held ball sinks each substep
+                                 * are the integrator's and cost nothing (charged,
+                                 * they stopped a 0.02 m/s ball dead on the crest).
+                                 * A ball found well under the
+                                 * surface (a jaw bounce drove it there) is put
+                                 * back up, and the height it is given comes out
+                                 * of its speed, whichever way it is going. The
+                                 * old rule charged only a ball heading back to
+                                 * the table, and a 3.7 m/s cut into a middle
+                                 * gained 0.12 J/kg in a frame. */
+                                const float v2 = b->vel.x*b->vel.x + b->vel.y*b->vel.y + b->vel.z*b->vel.z;
+                                const float k2 = v2 > 1e-12f ? 1.0f - 2.0f * w->g * lift / v2 : 0.0f;
+                                const float k  = k2 > 0.0f ? sqrtf(k2) : 0.0f;
+                                b->vel.x *= k; b->vel.y *= k; b->vel.z *= k;
+                            }
+#ifdef MOTE_HOST
+                            {   static int dbg = -1; if (dbg < 0) dbg = getenv("CUE_LIPDBG") ? 1 : 0;
+                                if (dbg) fprintf(stderr, "[lipdbg] pk%d o1 %.4f slope %.3f lift %.7f held %d vh_pre %.4f vh_post %.4f vy %.3f w %.1f h %.5f\n",
+                                                 pk, o1, slope, lift, held, vh_pre, sqrtf(b->vel.x*b->vel.x + b->vel.z*b->vel.z), b->vel.y,
+                                                 sqrtf(b->w.x*b->w.x + b->w.z*b->w.z), h); }
+#endif
+                        }
                     }
                 }
             }
@@ -2056,8 +2087,9 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                     const float vy_keep = b->vel.y;
 #ifdef MOTE_HOST
                     {   static int dbg = -1; if (dbg < 0) dbg = getenv("CUE_MESHDBG") ? 1 : 0;
+                        static int nojaw = -1; if (nojaw < 0) nojaw = getenv("CUE_NOJAWDROP") ? 1 : 0;   /* measure: no jaws for a dropping ball */
                         const Vec3 v0 = b->vel;
-                        collide_cushions(w, b, ev);
+                        if (!nojaw) collide_cushions(w, b, ev);
                         b->vel.y = vy_keep;
                         if (dbg) { const Vec3 dv = v3_sub(b->vel, v0);
                             if (v3_len(dv) > 0.3f) fprintf(stderr, "[jawdbg] pk%d at (%.4f,%.4f,%.4f) v (%.2f,%.2f,%.2f) -> (%.2f,%.2f,%.2f) dv (%.2f,%.2f,%.2f) r_eff %.4f\n",
