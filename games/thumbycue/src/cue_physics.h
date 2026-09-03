@@ -674,6 +674,33 @@ int cue_phys_airborne(const CueWorld *w, const CueBall *b);
  * drawn pocket against the played one. */
 float cue_phys_cut_out(const CueWorld *w, int p, float x, float z);
 
+/* THE BAG under a pocket: ONE funnel for the sim and for the app's collector
+ * (cuevr_collector) and net (furn_nets). Its wall is `mouth_r` wide at the
+ * mouth (the slate cut's reach from the bore's centre on the table side, so
+ * it takes whatever falls through the cut) and `ring_r` at the ring 3.9 R
+ * below, straight between. The sim carries a potted ball inside it down to
+ * CUE_POCKET_FLOOR and the app carries it on from exactly there against the
+ * same wall, so the hand-over cannot move the ball. */
+float cue_phys_bag_mouth_y(const CueWorld *w);
+float cue_phys_bag_ring_y(const CueWorld *w);
+float cue_phys_bag_ring_r(const CueWorld *w);
+float cue_phys_bag_mouth_r(const CueWorld *w, int pk);
+float cue_phys_bag_r(const CueWorld *w, int pk, float y);   /* wall radius at height y */
+
+/* ONE FALL, ONE BALL. A potted ball keeps its CueBall: cue_phys_step moves it
+ * with these two until it is off the table for the rules, and an app with a
+ * ball return carries the SAME struct on with the same two functions, so no
+ * state is ever copied from one body to another and nothing can disagree
+ * about where the ball is. `fall` is drag, gravity and the move; `walls` is
+ * the cut's face through the bed, the leather over the iron, and the bag. */
+void cue_phys_drop_fall (const CueWorld *w, CueBall *b, float h);
+void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h);
+/* WHEN THE RULES GET THE BALL. 0 (the default, a table with no ball return):
+ * at CUE_POCKET_FLOOR. k > 0: when its centre is k radii under the cloth --
+ * it can never come back from there -- so an app's return takes the same ball
+ * on from inside the bed. Set once, the same at both ends of a link. */
+void cue_phys_set_drop_release(float radii);
+
 /* Advance the simulation by dt seconds. Returns 1 while any ball is still
  * moving, 0 once the table has settled. `events` (optional) receives a
  * bitwise OR of CUE_EV_* for sound/feedback this call. */

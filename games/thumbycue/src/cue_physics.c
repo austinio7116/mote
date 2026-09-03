@@ -1050,7 +1050,11 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
  * toward the middle — and then it falls, because there is no slate under it.
  * Nothing is scripted, and nothing has to ask whether the ball is in the air.
  */
-#define CUE_POCKET_FLOOR (-0.10f)   /* the floor of the recess (m) */
+/* Where a table with NO ball return lets go of a potted ball (m): it is
+ * switched off at the end of the step it crosses this in and is simply gone.
+ * An app with a return sets cue_phys_set_drop_release instead and this is
+ * never reached. */
+#define CUE_POCKET_FLOOR (-0.10f)
 /* The bed's thickness as the fall sees it (m): the cut's face runs from under
  * the cloth's roll down to here, on the table side of the pocket. 45 mm is the
  * snooker cloth lip the renderer draws. */
@@ -1086,6 +1090,150 @@ CUE_HOT float cue_phys_cut_out(const CueWorld *w, int p, float x, float z) {
     if (v > 0.0f && u > 0.0f)                                /* deep in the cut */
         return (u < v ? u : v) + R;
     return (v > 0.0f ? u : v) + R;                           /* against one leg */
+}
+
+/* The bag (see cue_physics.h). Heights hang off the bore's bottom the way the
+ * app's collector always did; the mouth's width is the cut's reach. */
+float cue_table_bore_bot(void);                   /* cue_table.c */
+static float s_release_radii = 0.0f;              /* see cue_phys_set_drop_release */
+void cue_phys_set_drop_release(float radii) { s_release_radii = radii > 0.0f ? radii : 0.0f; }
+float cue_table_bore_bot(void);                   /* cue_table.c */
+float cue_phys_bag_mouth_y(const CueWorld *w) { return cue_table_bore_bot() - w->R * 0.05f; }
+float cue_phys_bag_ring_y(const CueWorld *w)  { return cue_phys_bag_mouth_y(w) - w->R * 3.9f; }
+float cue_phys_bag_ring_r(const CueWorld *w)  { return w->R * 1.14f; }
+float cue_phys_bag_mouth_r(const CueWorld *w, int pk) {
+    if (pk < 0 || pk >= w->npocket) return 0.0f;
+    const Vec3 C = w->cut_c[pk], P = w->drop_c[pk];
+    if (w->cut_r[pk] <= 0.0f) return w->pocket_r[pk] * 0.93f;       /* no cut: the old bag */
+    const float dx = C.x - P.x, dz = C.z - P.z;
+    if (w->pocket_bed[pk]) return sqrtf(dx*dx + dz*dz) + w->cut_r[pk];  /* a hole in an open bed */
+    const int   mid = pk >= 4;
+    const float sx = (C.x < 0.0f) ? -1.0f : 1.0f, sz = (C.z < 0.0f) ? -1.0f : 1.0f;
+    float r = 0.0f;
+    for (int k = 0; k <= 8; k++) {                 /* the arc facing the table */
+        const float a  = 3.14159265f + (mid ? 3.14159265f : 1.5707963f) * (float)k / 8.0f;
+        const float px = C.x + sx * w->cut_r[pk] * cosf(a) - P.x;
+        const float pz = C.z + sz * w->cut_r[pk] * sinf(a) - P.z;
+        const float d  = sqrtf(px*px + pz*pz);
+        if (d > r) r = d;
+    }
+    return r;
+}
+float cue_phys_bag_r(const CueWorld *w, int pk, float y) {
+    const float ym = cue_phys_bag_mouth_y(w), yr = cue_phys_bag_ring_y(w);
+    const float rm = cue_phys_bag_mouth_r(w, pk), rg = cue_phys_bag_ring_r(w);
+    float t = (ym - yr) > 1e-6f ? (ym - y) / (ym - yr) : 1.0f;
+    if (t < 0.0f) t = 0.0f; else if (t > 1.0f) t = 1.0f;
+    return rm + (rg - rm) * t;
+}
+
+/* THE WALLS OF A POCKET, for one substep, on the ball itself (cue_physics.h). */
+void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
+    if (pk < 0 || pk >= w->npocket) return;
+    const float ld = w->lip_d[pk], rr = ld + cue_ball_r(w, b);
+    const Vec3  pc2 = w->drop_c[pk];
+    {
+        /* WHAT IS AROUND A BALL IN A POCKET, from the top down.
+         *
+         * The roll of cloth over the cut's edge holds it up until its
+         * centre is a ball past the edge (the lip model above). Below
+         * the roll, on the TABLE side, is the cut's own face through
+         * the bed -- the face the cloth lip is drawn on -- which the
+         * ball's side brushes as it tips in. Behind the slate's edge
+         * there is no slate: the leather over the pocket's iron, the
+         * bridge the net hangs from, is the back of the pocket, and it
+         * stands from the cloth up. Under the iron hangs the net, which
+         * gathers the ball to the bag at the floor. Each of these is
+         * somewhere the ball is already allowed to be when it arrives,
+         * so none of them moves the ball: they only stop it. (The
+         * first version of this, 2026-09-02, put the cut's face all the
+         * way round and while the ball was still on the roll; it
+         * snapped the ball a radius inward and read as a straight
+         * drop with the entry speed gone.) */
+        const float R   = cue_ball_r(w, b);
+        const float e   = 0.06f;                /* leather and net: dead */
+        const Vec3  C   = w->cut_c[pk];
+        const int   bed = w->pocket_bed[pk];
+        const int   mid = pk >= 4;
+        const float sx  = (C.x < 0.0f) ? -1.0f : 1.0f;
+        const float sz  = (C.z < 0.0f) ? -1.0f : 1.0f;
+        /* 1. THE CUT'S FACE, table side, from under the roll to the
+         * bottom of the bed. It is where the lip model lets go. */
+        if (w->cut_r[pk] > 0.0f && b->pos.y <= -ld && b->pos.y >= CUE_POCKET_BED) {
+            const float wall = rr * 0.999f;
+            const float o = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
+            if (o < wall) {
+                const float eps = 1e-4f;
+                const float gx = cue_phys_cut_out(w, pk, b->pos.x + eps, b->pos.z)
+                               - cue_phys_cut_out(w, pk, b->pos.x - eps, b->pos.z);
+                const float gz = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z + eps)
+                               - cue_phys_cut_out(w, pk, b->pos.x, b->pos.z - eps);
+                const float gl = sqrtf(gx*gx + gz*gz);
+                if (gl > 1e-9f) {
+                    const float nx = gx / gl, nz = gz / gl;   /* into the cut */
+                    b->pos.x += nx * (wall - o); b->pos.z += nz * (wall - o);
+                    const float vn = b->vel.x * nx + b->vel.z * nz;
+                    if (vn < 0.0f) { b->vel.x -= (1.0f + e) * vn * nx; b->vel.z -= (1.0f + e) * vn * nz; }
+                }
+            }
+        }
+        /* 2. THE IRON. The centre stops at the slate's edge, so the
+         * ball stands a radius into the leather. From the cloth up; a
+         * centre a ball below the cloth has passed under it. An open
+         * bed has no edge and no iron. */
+        if (!bed && b->pos.y > -R) {
+            if (!mid) {
+                const float u = sx * (b->pos.x - C.x);
+                if (u > 0.0f) {
+                    b->pos.x = C.x;
+                    const float vu = sx * b->vel.x;
+                    if (vu > 0.0f) b->vel.x -= (1.0f + e) * vu * sx;
+                }
+            }
+            const float v = sz * (b->pos.z - C.z);
+            if (v > 0.0f) {
+                b->pos.z = C.z;
+                const float vv = sz * b->vel.z;
+                if (vv > 0.0f) b->vel.z -= (1.0f + e) * vv * sz;
+            }
+        }
+        /* 3. THE NET, under the iron: the bag of cue_phys_bag_r, as
+         * wide as the cut where it hangs and closing to the ring, the
+         * SAME wall the app's collector steps the ball down after
+         * CUE_POCKET_FLOOR -- so the hand-over cannot move it. (Before
+         * this the sim allowed 36 mm off the axis at the floor and the
+         * collector 4.5 mm: a 30 mm sideways snap on every pot.) */
+        if (b->pos.y <= -R) {
+            float rmax = cue_phys_bag_r(w, pk, b->pos.y) - R;
+            if (rmax < R * 0.02f) rmax = R * 0.02f;
+            const float bx = b->pos.x - pc2.x, bz = b->pos.z - pc2.z;
+            const float q2 = bx*bx + bz*bz;
+            if (q2 > rmax * rmax) {
+                const float q = sqrtf(q2), nx = bx / q, nz = bz / q;
+                b->pos.x = pc2.x + nx * rmax; b->pos.z = pc2.z + nz * rmax;
+                const float vn = b->vel.x * nx + b->vel.z * nz;
+                if (vn > 0.0f) { b->vel.x -= (1.0f + e) * vn * nx; b->vel.z -= (1.0f + e) * vn * nz; }
+                /* a net is a slope: some of the fall goes down it */
+                const float ym = cue_phys_bag_mouth_y(w), yr = cue_phys_bag_ring_y(w);
+                const float dep = (ym - yr) > 1e-6f ? (ym - yr) : 1.0f;
+                const float slopef = (cue_phys_bag_mouth_r(w, pk) - cue_phys_bag_ring_r(w)) / dep;
+                b->vel.x -= nx * slopef * w->g * h * 0.5f;
+                b->vel.z -= nz * slopef * w->g * h * 0.5f;
+            }
+        }
+    }
+}
+
+/* THE FALL, for one substep, on the ball itself: a little drag from the
+ * leather and the cloth, gravity, and the move. */
+void cue_phys_drop_fall(const CueWorld *w, CueBall *b, float h) {
+    const float drag = 1.5f * h;
+    b->vel.x -= b->vel.x * drag;
+    b->vel.z -= b->vel.z * drag;
+    b->vel.y -= w->g * h;
+    b->pos.x += b->vel.x * h;
+    b->pos.y += b->vel.y * h;
+    b->pos.z += b->vel.z * h;
 }
 
 /* THE SKITTLES GO OVER, they do not bounce a ball back.
@@ -1625,13 +1773,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * 2026-09-02; it was never natural on any table). A pocket does
              * nothing to a ball but stop holding it up. So: gravity, a little
              * drag from the leather, and the walls below. */
-            {   const float drag = 1.5f * h;             /* leather, cloth, air */
-                b->vel.x -= b->vel.x * drag;
-                b->vel.z -= b->vel.z * drag; }
-            b->vel.y -= w->g * h;
-            b->pos.x += b->vel.x * h;
-            b->pos.y += b->vel.y * h;
-            b->pos.z += b->vel.z * h;
+            cue_phys_drop_fall(w, b, h);
 
             /* AND THE LIP IS STILL UNDER IT. The cloth rolls over the edge in a
              * quarter circle of radius `ld`, so a ball on that roll has its
@@ -1733,111 +1875,27 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * what takes the pace off a firm pot and drops it in rather than
              * letting it through, and it is the same surface the ball rattles
              * off when it does not go. What it meets is below. */
-            {
-                /* WHAT IS AROUND A BALL IN A POCKET, from the top down.
-                 *
-                 * The roll of cloth over the cut's edge holds it up until its
-                 * centre is a ball past the edge (the lip model above). Below
-                 * the roll, on the TABLE side, is the cut's own face through
-                 * the bed -- the face the cloth lip is drawn on -- which the
-                 * ball's side brushes as it tips in. Behind the slate's edge
-                 * there is no slate: the leather over the pocket's iron, the
-                 * bridge the net hangs from, is the back of the pocket, and it
-                 * stands from the cloth up. Under the iron hangs the net, which
-                 * gathers the ball to the bag at the floor. Each of these is
-                 * somewhere the ball is already allowed to be when it arrives,
-                 * so none of them moves the ball: they only stop it. (The
-                 * first version of this, 2026-09-02, put the cut's face all the
-                 * way round and while the ball was still on the roll; it
-                 * snapped the ball a radius inward and read as a straight
-                 * drop with the entry speed gone.) */
-                const float R   = cue_ball_r(w, b);
-                const float e   = 0.06f;                /* leather and net: dead */
-                const Vec3  C   = w->cut_c[pk];
-                const int   bed = w->pocket_bed[pk];
-                const int   mid = pk >= 4;
-                const float sx  = (C.x < 0.0f) ? -1.0f : 1.0f;
-                const float sz  = (C.z < 0.0f) ? -1.0f : 1.0f;
-                /* 1. THE CUT'S FACE, table side, from under the roll to the
-                 * bottom of the bed. It is where the lip model lets go. */
-                if (w->cut_r[pk] > 0.0f && b->pos.y <= -ld && b->pos.y >= CUE_POCKET_BED) {
-                    const float wall = rr * 0.999f;
-                    const float o = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
-                    if (o < wall) {
-                        const float eps = 1e-4f;
-                        const float gx = cue_phys_cut_out(w, pk, b->pos.x + eps, b->pos.z)
-                                       - cue_phys_cut_out(w, pk, b->pos.x - eps, b->pos.z);
-                        const float gz = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z + eps)
-                                       - cue_phys_cut_out(w, pk, b->pos.x, b->pos.z - eps);
-                        const float gl = sqrtf(gx*gx + gz*gz);
-                        if (gl > 1e-9f) {
-                            const float nx = gx / gl, nz = gz / gl;   /* into the cut */
-                            b->pos.x += nx * (wall - o); b->pos.z += nz * (wall - o);
-                            const float vn = b->vel.x * nx + b->vel.z * nz;
-                            if (vn < 0.0f) { b->vel.x -= (1.0f + e) * vn * nx; b->vel.z -= (1.0f + e) * vn * nz; }
-                        }
-                    }
-                }
-                /* 2. THE IRON. The centre stops at the slate's edge, so the
-                 * ball stands a radius into the leather. From the cloth up; a
-                 * centre a ball below the cloth has passed under it. An open
-                 * bed has no edge and no iron. */
-                if (!bed && b->pos.y > -R) {
-                    if (!mid) {
-                        const float u = sx * (b->pos.x - C.x);
-                        if (u > 0.0f) {
-                            b->pos.x = C.x;
-                            const float vu = sx * b->vel.x;
-                            if (vu > 0.0f) b->vel.x -= (1.0f + e) * vu * sx;
-                        }
-                    }
-                    const float v = sz * (b->pos.z - C.z);
-                    if (v > 0.0f) {
-                        b->pos.z = C.z;
-                        const float vv = sz * b->vel.z;
-                        if (vv > 0.0f) b->vel.z -= (1.0f + e) * vv * sz;
-                    }
-                }
-                /* 3. THE NET, under the iron: as wide as the cut where it
-                 * hangs, a third of a ball inside the bore at the floor, where
-                 * the collector's bag takes the ball. */
-                if (b->pos.y <= -R) {
-                    float r_bot = w->pocket_r[pk] - R * 0.35f;
-                    if (r_bot < R * 0.25f) r_bot = R * 0.25f;
-                    float r_top = r_bot;
-                    if (w->cut_r[pk] > 0.0f) {
-                        /* the farthest a centre inside the cut can be from the bore */
-                        const float rc = w->cut_r[pk] - rr;
-                        const float dx = C.x - pc2.x, dz = C.z - pc2.z;
-                        if (bed) r_top = sqrtf(dx*dx + dz*dz) + rc;
-                        else for (int k = 0; k <= 8; k++) {
-                            const float a = 3.14159265f + (mid ? 3.14159265f : 1.5707963f) * (float)k / 8.0f;
-                            const float px = C.x + sx * rc * cosf(a) - pc2.x;
-                            const float pz = C.z + sz * rc * sinf(a) - pc2.z;
-                            const float d  = sqrtf(px*px + pz*pz);
-                            if (d > r_top) r_top = d;
-                        }
-                    }
-                    const float y0 = -R, depth = y0 - CUE_POCKET_FLOOR;
-                    float f = (y0 - b->pos.y) / depth;
-                    if (f > 1.0f) f = 1.0f;
-                    const float rmax = r_top + (r_bot - r_top) * f;
-                    const float bx = b->pos.x - pc2.x, bz = b->pos.z - pc2.z;
-                    const float q2 = bx*bx + bz*bz;
-                    if (q2 > rmax * rmax) {
-                        const float q = sqrtf(q2), nx = bx / q, nz = bz / q;
-                        b->pos.x = pc2.x + nx * rmax; b->pos.z = pc2.z + nz * rmax;
-                        const float vn = b->vel.x * nx + b->vel.z * nz;
-                        if (vn > 0.0f) { b->vel.x -= (1.0f + e) * vn * nx; b->vel.z -= (1.0f + e) * vn * nz; }
-                        /* a net is a slope: some of the fall goes down it */
-                        const float slopef = (r_top - r_bot) / depth;
-                        b->vel.x -= nx * slopef * w->g * h * 0.5f;
-                        b->vel.z -= nz * slopef * w->g * h * 0.5f;
-                    }
-                }
-            }
+            cue_phys_drop_walls(w, pk, b, h);
+            /* THE POCKET IS CLOSED. While any of the ball is still above the
+             * cloth the jaws and the cushions stand in its way exactly as they
+             * do for a ball in play -- with the width the ball has at their
+             * height, which shrinks as it sinks, so it slips under the noses
+             * the way a ball does and can never leave through the side of a
+             * cushion (a power shot did, 2026-09-02: this branch used to skip
+             * the cushions altogether and the old bore clamp hid that). Below
+             * the cloth the cut's face, the iron and the bag are the walls. */
+            {   const float Rb = cue_ball_r(w, b);
+                if (b->pos.y > -Rb) {
+                    const float keep = b->r;
+                    const float yy = b->pos.y < 0.0f ? b->pos.y : 0.0f;
+                    b->r = sqrtf(Rb*Rb - yy*yy);
+                    collide_cushions(w, b, ev);
+                    b->r = keep;
+                } }
             ball_spin_orient(b, h);
-            if (b->pos.y < CUE_POCKET_FLOOR) { b->on = 0; b->drop = 0.0f; }
+            /* It keeps falling until the step ends; cue_phys_step switches
+             * it off there (see the note in it) and leaves pos and vel as
+             * they are, for whoever carries the same ball on. */
             continue;
         }
         if (0) {
@@ -2131,6 +2189,20 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
         iters++;
     }
     if (iters >= CUE_MAX_SUB) w->_acc = 0.0f;   /* shed backlog */
+    /* OFF THE TABLE AT THE END OF THE STEP, NOT IN THE MIDDLE OF IT. A ball
+     * that reaches the floor keeps falling through the rest of the substeps
+     * and is switched off here, so the pos and vel it leaves behind are the
+     * ball at this step's end -- exactly what the app's collector carries on
+     * from. Switched off mid-substep it lost the rest of the step, and the
+     * app (which had snapshotted the START of the frame) started the return up
+     * to a frame of fall higher: the ball came back up and dropped again
+     * (2026-09-02). */
+    for (int i = 0; i < n; i++) {
+        CueBall *b = &balls[i];
+        if (!b->on || b->drop <= 0.0f) continue;
+        const float rel = s_release_radii > 0.0f ? -s_release_radii * cue_ball_r(w, b) : CUE_POCKET_FLOOR;
+        if (b->pos.y < rel) { b->on = 0; b->drop = 0.0f; }   /* the rules have it; pos and vel stay the ball's */
+    }
     if (s_bed_land && events) *events |= CUE_EV_BED;
 
     /* Hard stop once everything has settled so we don't creep forever. */
