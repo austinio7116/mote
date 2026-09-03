@@ -726,6 +726,7 @@ enum {
     CUE_EV_JAW       = 1 << 3,   /* ball rattled a jaw */
     CUE_EV_BED       = 1 << 4,   /* a jumped ball came down on the slate */
     CUE_EV_SKITTLE   = 1 << 5,   /* a bar billiards skittle went over */
+    CUE_EV_BRIDGE    = 1 << 7,   /* a dropping ball struck the pocket's back: the plate, the iron, the lining */
     CUE_EV_SIDE_CUSH = 1 << 6,   /* ...and the cushion struck was a SIDE one:
                                   * how the flag crosses the const collision
                                   * path to be booked on the world by the step */
@@ -741,6 +742,7 @@ int cue_world_ball_on_bed(const CueWorld *w, float x, float z, float r);
 int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events);
 float cue_phys_cushion_impact(void);   /* loudest rail-approach speed from last step */
 float cue_phys_pot_impact(void);        /* fastest pot-entry speed from last step */
+float cue_phys_bridge_impact(void);     /* fastest speed into a pocket's back from last step (CUE_EV_BRIDGE) */
 
 /* Override the integrator substep (0 = restore the default 2 kHz CUE_H). The AI
  * uses a coarser step for its headless ranking sims to run ~2x faster. */

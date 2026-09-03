@@ -471,6 +471,7 @@ static float s_cush_vn;
  * say -- usually nothing, which is how every pot ended up voiced as a hard
  * one. Measured where the pot is detected, off the ball's own speed. */
 static float s_pot_v;
+static float s_bridge_v; static int s_bridge_hit;   /* the pocket's back was struck this step, and how fast */
 /* Set when a ball met the bed during the current step, so the caller can make
  * the noise a jumped ball makes when it comes down. */
 static int s_bed_land;
@@ -1208,14 +1209,16 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
                 if (u > 0.0f) {
                     b->pos.x = C.x;
                     const float vu = sx * b->vel.x;
-                    if (vu > 0.0f) { b->vel.x -= vu * sx; b->vel.y -= vu * CUE_IRON_DOWN; }
+                    if (vu > 0.0f) { b->vel.x -= vu * sx; b->vel.y -= vu * CUE_IRON_DOWN;
+                                     if (vu > 0.4f) { s_bridge_hit = 1; if (vu > s_bridge_v) s_bridge_v = vu; } }
                 }
             }
             const float v = sz * (b->pos.z - C.z);
             if (v > 0.0f) {
                 b->pos.z = C.z;
                 const float vv = sz * b->vel.z;
-                if (vv > 0.0f) { b->vel.z -= vv * sz; b->vel.y -= vv * CUE_IRON_DOWN; }
+                if (vv > 0.0f) { b->vel.z -= vv * sz; b->vel.y -= vv * CUE_IRON_DOWN;
+                                 if (vv > 0.4f) { s_bridge_hit = 1; if (vv > s_bridge_v) s_bridge_v = vv; } }
             }
         }
         /* 3. THE NET, under the iron: the bag of cue_phys_bag_r, as
@@ -1267,11 +1270,16 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
     pw.gravity      = v3(0.0f, -w->g, 0.0f);
     pw.walls        = 0;
     pw.restitution  = 0.02f;                /* the ball's own: the surface's wins */
-    pw.friction     = 0.45f;
+    pw.friction     = 0.30f;
     pw.linear_damp  = 0.8f;                 /* leather and string, not air */
     pw.angular_damp = 0.8f;
-    pw.substep      = h;
-    pw.max_substeps = 1;
+    /* FOUR SUBSTEPS TO THE SIM'S ONE. At 6 m/s a ball moves 3 mm in the sim's
+     * 0.5 ms; lifted by its own spin against the back it can bury itself in
+     * the plate's chamfer between two steps, and the solver's correction then
+     * throws it out at several metres a second (seen 2026-09-03, topspin off
+     * the pack). At 0.75 mm a step the contacts resolve as contacts. */
+    pw.substep      = 0.25f * h;
+    pw.max_substeps = 4;
     MoteBody bodies[3]; int n = 0;
     {   MoteBody *m = &bodies[n++];
         memset(m, 0, sizeof *m);
@@ -1286,15 +1294,23 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
         m->shape = MOTE_SHAPE_MESH; m->shape_data = solid;
         m->orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
         m->radius = solid->bound_r;
-        m->friction = 0.50f; m->restitution = 0.06f;  /* leather over iron: dead */ }
+        m->friction = 0.35f; m->restitution = 0.06f;  /* leather over iron: dead, and leather on phenolic slides at about 0.35 */ }
     if (net) {
         MoteBody *m = &bodies[n++];
         memset(m, 0, sizeof *m);
         m->shape = MOTE_SHAPE_MESH; m->shape_data = net;
         m->orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
         m->radius = net->bound_r;
-        m->friction = 0.70f; m->restitution = 0.02f;  /* string */ }
+        m->friction = 0.30f; m->restitution = 0.02f;  /* waxed cord: dead, and it slides */ }
+    const Vec3 v_in = b->vel;
     mote_phys_step(&pw, bodies, n, h);
+    /* THE KNOCK. A change of horizontal speed of more than 0.4 m/s in one
+     * substep against the pocket's surfaces is the ball striking the back;
+     * the app voices it from the speed it arrived with (CUE_EV_BRIDGE). */
+    {   const float dvx = bodies[0].vel.x - v_in.x, dvz = bodies[0].vel.z - v_in.z;
+        if (dvx*dvx + dvz*dvz > 0.4f * 0.4f) {
+            const float sp = sqrtf(v_in.x*v_in.x + v_in.z*v_in.z);
+            s_bridge_hit = 1; if (sp > s_bridge_v) s_bridge_v = sp; } }
 #ifdef MOTE_HOST
     {   /* CUE_MESHDBG=1: every substep in which the pocket's surfaces changed the
          * ball's velocity by more than 0.3 m/s -- where it was, what it had, what
@@ -1967,7 +1983,15 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                          * descent, not the value of it — a ball already dropping
                          * faster than the roll keeps its own speed and leaves. */
                         const float rate = slope * (o1 - o0) / h;
-                        if (b->vel.y > rate) b->vel.y = (rate < 0.0f) ? rate : 0.0f;
+                        /* AND IT MOVES AT THE ROLL'S OWN RATE, no slower and no
+                         * faster. This only capped vel.y from above, so a ball
+                         * held on the roll kept accumulating gravity in vel.y
+                         * while its height was pinned -- and left the edge with
+                         * speed it never earned. Measured as energy gained over
+                         * the pocket, and it is what let a spinning ball dance
+                         * round a middle's lip (2026-09-03). A ball in contact
+                         * with a surface has the surface's normal velocity. */
+                        b->vel.y = (rate < 0.0f) ? rate : 0.0f;
                     }
                 }
             }
@@ -2013,7 +2037,25 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                     const float keep = b->r;
                     const float yy = b->pos.y < 0.0f ? b->pos.y : 0.0f;
                     b->r = sqrtf(Rb*Rb - yy*yy);
+                    /* A JAW IS A VERTICAL WALL: it pushes sideways and takes
+                     * nothing off a fall. collide_surface is written for a ball
+                     * on the bed and zeroes vel.y on contact, which for a ball
+                     * dropping past a jaw tip meant its fall stopped dead at
+                     * the touch -- and, with the tip's rubber bounce, a hop out
+                     * (2026-09-03, topspin off the pack). Keep the fall. */
+                    const float vy_keep = b->vel.y;
+#ifdef MOTE_HOST
+                    {   static int dbg = -1; if (dbg < 0) dbg = getenv("CUE_MESHDBG") ? 1 : 0;
+                        const Vec3 v0 = b->vel;
+                        collide_cushions(w, b, ev);
+                        b->vel.y = vy_keep;
+                        if (dbg) { const Vec3 dv = v3_sub(b->vel, v0);
+                            if (v3_len(dv) > 0.3f) fprintf(stderr, "[jawdbg] pk%d at (%.4f,%.4f,%.4f) v (%.2f,%.2f,%.2f) -> (%.2f,%.2f,%.2f) dv (%.2f,%.2f,%.2f) r_eff %.4f\n",
+                                pk, b->pos.x, b->pos.y, b->pos.z, v0.x, v0.y, v0.z, b->vel.x, b->vel.y, b->vel.z, dv.x, dv.y, dv.z, b->r); } }
+#else
                     collide_cushions(w, b, ev);
+                    b->vel.y = vy_keep;
+#endif
                     b->r = keep;
                 } }
             ball_spin_orient(b, h);
@@ -2275,6 +2317,7 @@ void cue_phys_set_substep(float h) { g_sub_h = (h > 0.0f) ? h : CUE_H; }
 
 float cue_phys_cushion_impact(void) { return s_cush_vn; }
 float cue_phys_pot_impact(void) { return s_pot_v; }
+float cue_phys_bridge_impact(void) { return s_bridge_v; }
 
 CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events) {
     if (events) *events = 0;
@@ -2303,6 +2346,7 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
     }
     s_cush_vn = 0.0f;                  /* reset the cushion-impact meter for this step */
     s_pot_v   = 0.0f;                  /* ...and the pot-impact meter */
+    s_bridge_v = 0.0f; s_bridge_hit = 0;
     s_bed_land = 0;
     float h = g_sub_h;
     w->_acc += dt;
@@ -2328,6 +2372,7 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
         if (b->pos.y < rel) { b->on = 0; b->drop = 0.0f; }   /* the rules have it; pos and vel stay the ball's */
     }
     if (s_bed_land && events) *events |= CUE_EV_BED;
+    if (s_bridge_hit && events) *events |= CUE_EV_BRIDGE;
 
     /* Hard stop once everything has settled so we don't creep forever. */
     if (!cue_phys_moving(w, balls, n)) {
