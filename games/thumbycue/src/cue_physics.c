@@ -471,6 +471,7 @@ static float s_cush_vn;
  * say -- usually nothing, which is how every pot ended up voiced as a hard
  * one. Measured where the pot is detected, off the ball's own speed. */
 static float s_pot_v;
+static float s_entry_v[CUE_MAX_BALLS];   /* each dropping ball's speed at the lip, for the click when it is finally gone */
 static float s_bridge_v; static int s_bridge_hit;   /* the pocket's back was struck this step, and how fast */
 /* Set when a ball met the bed during the current step, so the caller can make
  * the noise a jumped ball makes when it comes down. */
@@ -1063,7 +1064,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
 /* The bed's thickness as the fall sees it (m): the cut's face runs from under
  * the cloth's roll down to here, on the table side of the pocket. 45 mm is the
  * snooker cloth lip the renderer draws. */
-#define CUE_POCKET_BED   (-0.045f)
+#define CUE_POCKET_BED   (-0.030f)   /* the default slate; a built world carries its own (CueWorld.bed_y) */
 /* The share of a ball's speed into the iron that the bridge turns downwards
  * into the net; the leather absorbs the rest. */
 #define CUE_IRON_DOWN    (0.75f)
@@ -1172,7 +1173,7 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
          * costs it the climb -- see the lip). Enforced only under the roll,
          * a hard pot that came back off the leather at 1.4 m/s with its
          * centre 13 mm down was lifted up the roll and out (2026-09-03). */
-        if (w->cut_r[pk] > 0.0f && b->pos.y <= 0.0f && b->pos.y >= CUE_POCKET_BED) {
+        if (w->cut_r[pk] > 0.0f && b->pos.y <= 0.0f && b->pos.y >= (w->bed_y < 0.0f ? w->bed_y : CUE_POCKET_BED)) {
             const float wall = rr * 0.999f;
             const float o = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
             if (o < wall) {
@@ -1252,6 +1253,14 @@ void cue_phys_set_pocket_geom(CueWorld *w, int pk, const MoteMesh *solid, const 
     if (!w || pk < 0 || pk >= CUE_MAX_POCKET) return;
     w->pgeom_solid[pk] = solid;
     w->pgeom_net[pk]   = net;
+    /* Where the solids end, downwards. The knock (CUE_EV_BRIDGE) is only
+     * theirs if the ball could have reached them: a ball whose top is under
+     * this line was stopped by the net, and a net makes no thump. Reported
+     * 2026-09-03: "balls drop before the bridge and still get the loud pot
+     * sound" -- the collar and bag were taking the credit. */
+    float ymin = 1e9f;
+    if (solid) for (int i = 0; i < solid->nverts; i++) if (solid->verts[i].y < ymin) ymin = solid->verts[i].y;
+    w->pgeom_solid_ymin[pk] = ymin;
 }
 
 /* THE POCKET AS IT IS DRAWN. The bridge, the plate and the net are the
@@ -1308,7 +1317,8 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
      * substep against the pocket's surfaces is the ball striking the back;
      * the app voices it from the speed it arrived with (CUE_EV_BRIDGE). */
     {   const float dvx = bodies[0].vel.x - v_in.x, dvz = bodies[0].vel.z - v_in.z;
-        if (dvx*dvx + dvz*dvz > 0.4f * 0.4f) {
+        const int could_reach_solid = solid && (b->pos.y + bodies[0].radius > w->pgeom_solid_ymin[pk] - 0.002f);
+        if (dvx*dvx + dvz*dvz > 0.4f * 0.4f && could_reach_solid) {
             const float sp = sqrtf(v_in.x*v_in.x + v_in.z*v_in.z);
             s_bridge_hit = 1; if (sp > s_bridge_v) s_bridge_v = sp; } }
 #ifdef MOTE_HOST
@@ -2289,6 +2299,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             const float pv = sqrtf(b->vel.x * b->vel.x + b->vel.z * b->vel.z);
             if (check_pockets(w, b)) {
                 if (pv > s_pot_v) s_pot_v = pv;
+                if (i < CUE_MAX_BALLS) s_entry_v[i] = pv;
                 if (ev) *ev |= CUE_EV_POCKET;
             } }
         if (check_skittles(w, b) && ev) *ev |= CUE_EV_SKITTLE;
@@ -2369,7 +2380,12 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
         CueBall *b = &balls[i];
         if (!b->on || b->drop <= 0.0f) continue;
         const float rel = s_release_radii > 0.0f ? -s_release_radii * cue_ball_r(w, b) : CUE_POCKET_FLOOR;
-        if (b->pos.y < rel) { b->on = 0; b->drop = 0.0f; }   /* the rules have it; pos and vel stay the ball's */
+        if (b->pos.y < rel) {
+            b->on = 0; b->drop = 0.0f;   /* the rules have it; pos and vel stay the ball's */
+            if (events) *events |= CUE_EV_POTTED;
+            /* the meter the app reads for the click is this ball's speed at the lip, not this step's */
+            if (i < CUE_MAX_BALLS && s_entry_v[i] > s_pot_v) s_pot_v = s_entry_v[i];
+        }
     }
     if (s_bed_land && events) *events |= CUE_EV_BED;
     if (s_bridge_hit && events) *events |= CUE_EV_BRIDGE;

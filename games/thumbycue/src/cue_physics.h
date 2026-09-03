@@ -497,6 +497,12 @@ typedef struct {
      * not hashed: both ends build them from the same table. */
     const MoteMesh *pgeom_solid[CUE_MAX_POCKET];
     const MoteMesh *pgeom_net[CUE_MAX_POCKET];
+    float pgeom_solid_ymin[CUE_MAX_POCKET];   /* the lowest point of the solids: a ball wholly under it can only have met the net */
+    /* THE SLATE'S THICKNESS, as a height: the cloth-covered face of the cut
+     * runs from the cloth down to here (40 mm on a 12 ft table, 30 on the
+     * rest -- asked for 2026-09-03), and the drawn lip is the same number
+     * (cue_table_slate_t). Filled in by cue_table_build_world. */
+    float bed_y;
     MoteBody sk[CUE_SKITTLE_BODIES];
     MoteWorld sk_world;
     int      sk_n;                           /* pins + planes */
@@ -727,6 +733,8 @@ enum {
     CUE_EV_BED       = 1 << 4,   /* a jumped ball came down on the slate */
     CUE_EV_SKITTLE   = 1 << 5,   /* a bar billiards skittle went over */
     CUE_EV_BRIDGE    = 1 << 7,   /* a dropping ball struck the pocket's back: the plate, the iron, the lining */
+    CUE_EV_POTTED    = 1 << 8,   /* a ball left the table for good this step (switched off at the release depth) --
+                                  * CUE_EV_POCKET is the lip, and a ball can rattle back out after it */
     CUE_EV_SIDE_CUSH = 1 << 6,   /* ...and the cushion struck was a SIDE one:
                                   * how the flag crosses the const collision
                                   * path to be booked on the world by the step */

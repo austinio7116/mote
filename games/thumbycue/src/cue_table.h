@@ -639,6 +639,8 @@ typedef struct {
  *
  * Table space, metres, y up from the cloth. */
 float cue_table_rail_top(const CueTable *t);
+/* The slate's thickness: 40 mm on a 12 ft bed, 30 mm on every smaller one. */
+float cue_table_slate_t(const CueTable *t);
 float cue_table_bore_bot(void);
 
 

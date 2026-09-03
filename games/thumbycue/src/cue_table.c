@@ -2822,8 +2822,16 @@ static void smooth_seg_normals(CueWorld *w) {
     }
 }
 
+/* THE SLATE. A full-size table carries a thicker bed than a pub or a pool
+ * table, and the cut's face under the cloth shows it: 40 mm on a 12 ft bed,
+ * 30 mm on the rest (the user's numbers, 2026-09-03). Judged by the bed's
+ * length, so the Russian pyramid's 12 ft bed counts and a 10 ft snooker
+ * table does not. */
+float cue_table_slate_t(const CueTable *t) { return t->half_len > 1.70f ? 0.040f : 0.030f; }
+
 void cue_table_build_world(const CueTable *t, CueWorld *w) {
     cue_world_defaults(w, t->R, t->mass);
+    w->bed_y = -cue_table_slate_t(t);
     /* The nose-height ratio IS the sine of the tilt, so there is no angle to
      * take and no arcsine to take it with -- see CueWorld.cush_sin. Clamped
      * because a table built in the workshop can put the nose anywhere. */
