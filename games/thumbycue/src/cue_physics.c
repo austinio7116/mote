@@ -6,6 +6,10 @@
 #include "cue_physics.h"
 #include "cue_trig.h"        /* sin and cos that do not come from the OS */
 #include <math.h>
+#include <stdlib.h>
+#ifdef MOTE_HOST
+#include <stdio.h>   /* the CUE_*DBG dumps */
+#endif
 #include <string.h>
 
 /* Fixed substep. 2 kHz keeps a fast break (≈6 m/s) to ~3 mm of travel per
@@ -1059,6 +1063,9 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
  * the cloth's roll down to here, on the table side of the pocket. 45 mm is the
  * snooker cloth lip the renderer draws. */
 #define CUE_POCKET_BED   (-0.045f)
+/* The share of a ball's speed into the iron that the bridge turns downwards
+ * into the net; the leather absorbs the rest. */
+#define CUE_IRON_DOWN    (0.75f)
 
 /* HOW FAR PAST THE EDGE OF THE SLATE a point is, at pocket p. Negative is still
  * on cloth, zero is the edge, positive is out over the drop.
@@ -1157,9 +1164,14 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
         const int   mid = pk >= 4;
         const float sx  = (C.x < 0.0f) ? -1.0f : 1.0f;
         const float sz  = (C.z < 0.0f) ? -1.0f : 1.0f;
-        /* 1. THE CUT'S FACE, table side, from under the roll to the
-         * bottom of the bed. It is where the lip model lets go. */
-        if (w->cut_r[pk] > 0.0f && b->pos.y <= -ld && b->pos.y >= CUE_POCKET_BED) {
+        /* 1. THE CUT'S FACE, table side, for every centre below the cloth
+         * down to the bottom of the bed. The slate's face is vertical: a ball
+         * whose centre is under the cloth cannot pass it at any speed, only
+         * one still above the cloth can ride the roll back out (and that
+         * costs it the climb -- see the lip). Enforced only under the roll,
+         * a hard pot that came back off the leather at 1.4 m/s with its
+         * centre 13 mm down was lifted up the roll and out (2026-09-03). */
+        if (w->cut_r[pk] > 0.0f && b->pos.y <= 0.0f && b->pos.y >= CUE_POCKET_BED) {
             const float wall = rr * 0.999f;
             const float o = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
             if (o < wall) {
@@ -1177,24 +1189,33 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
                 }
             }
         }
-        /* 2. THE IRON. The centre stops at the slate's edge, so the
-         * ball stands a radius into the leather. From the cloth up; a
-         * centre a ball below the cloth has passed under it. An open
-         * bed has no edge and no iron. */
-        if (!bed && b->pos.y > -R) {
+        /* 2. THE IRON, which is a BRIDGE. The centre stops at the slate's
+         * edge, so the ball stands a radius into the leather. From the
+         * cloth up; a centre a ball below the cloth has passed under it.
+         * An open bed has no edge and no iron.
+         *
+         * It does not play the ball back. The leather over the iron curves
+         * down into the net, so a ball that arrives at pace is TURNED: its
+         * speed into the back becomes speed downwards, and the leather
+         * keeps the rest. A vertical wall with a 6% bounce (the first
+         * version) sent a hard pot back across the pocket, off the far jaw
+         * and out over the cloth -- "flickers back out and into the table"
+         * (2026-09-03). CUE_IRON_DOWN is the share of the horizontal speed
+         * that becomes fall; the remainder is what the leather absorbs. */
+        if (!bed && b->pos.y > -R && !w->pgeom_solid[pk]) {   /* no drawn bridge: the analytic one */
             if (!mid) {
                 const float u = sx * (b->pos.x - C.x);
                 if (u > 0.0f) {
                     b->pos.x = C.x;
                     const float vu = sx * b->vel.x;
-                    if (vu > 0.0f) b->vel.x -= (1.0f + e) * vu * sx;
+                    if (vu > 0.0f) { b->vel.x -= vu * sx; b->vel.y -= vu * CUE_IRON_DOWN; }
                 }
             }
             const float v = sz * (b->pos.z - C.z);
             if (v > 0.0f) {
                 b->pos.z = C.z;
                 const float vv = sz * b->vel.z;
-                if (vv > 0.0f) b->vel.z -= (1.0f + e) * vv * sz;
+                if (vv > 0.0f) { b->vel.z -= vv * sz; b->vel.y -= vv * CUE_IRON_DOWN; }
             }
         }
         /* 3. THE NET, under the iron: the bag of cue_phys_bag_r, as
@@ -1203,7 +1224,7 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
          * CUE_POCKET_FLOOR -- so the hand-over cannot move it. (Before
          * this the sim allowed 36 mm off the axis at the floor and the
          * collector 4.5 mm: a 30 mm sideways snap on every pot.) */
-        if (b->pos.y <= -R) {
+        if (b->pos.y <= -R && !w->pgeom_net[pk]) {   /* no drawn net: the funnel */
             float rmax = cue_phys_bag_r(w, pk, b->pos.y) - R;
             if (rmax < R * 0.02f) rmax = R * 0.02f;
             const float bx = b->pos.x - pc2.x, bz = b->pos.z - pc2.z;
@@ -1222,6 +1243,74 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
             }
         }
     }
+}
+
+void cue_phys_set_pocket_geom(CueWorld *w, int pk, const MoteMesh *solid, const MoteMesh *net) {
+    if (!w || pk < 0 || pk >= CUE_MAX_POCKET) return;
+    w->pgeom_solid[pk] = solid;
+    w->pgeom_net[pk]   = net;
+}
+
+/* THE POCKET AS IT IS DRAWN. The bridge, the plate and the net are the
+ * triangles the frame is built from; the ball is a sphere against them in
+ * mote's solver for this one substep -- gravity and the move included, so
+ * the caller does not also fall. Iron and leather give back a little, the
+ * net almost nothing and it is rough, and the net's slope is what turns a
+ * hard ball's speed into fall. Nothing is invented: a ball that hits the
+ * bridge goes where the bridge's own curve sends it. */
+int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
+    if (pk < 0 || pk >= CUE_MAX_POCKET) return 0;
+    const MoteMesh *solid = w->pgeom_solid[pk], *net = w->pgeom_net[pk];
+    if (!solid && !net) return 0;
+    MoteWorld pw;
+    mote_phys_world_defaults(&pw);
+    pw.gravity      = v3(0.0f, -w->g, 0.0f);
+    pw.walls        = 0;
+    pw.restitution  = 0.02f;                /* the ball's own: the surface's wins */
+    pw.friction     = 0.45f;
+    pw.linear_damp  = 0.8f;                 /* leather and string, not air */
+    pw.angular_damp = 0.8f;
+    pw.substep      = h;
+    pw.max_substeps = 1;
+    MoteBody bodies[3]; int n = 0;
+    {   MoteBody *m = &bodies[n++];
+        memset(m, 0, sizeof *m);
+        m->shape = MOTE_SHAPE_SPHERE;
+        m->radius = cue_ball_r(w, b);
+        m->inv_mass = 1.0f / cue_ball_m(w, b);
+        m->pos = b->pos; m->vel = b->vel; m->w = b->w; m->orient = b->orient;
+        m->friction = 0.0f; m->restitution = 0.0f;   /* the surface decides */ }
+    if (solid) {
+        MoteBody *m = &bodies[n++];
+        memset(m, 0, sizeof *m);
+        m->shape = MOTE_SHAPE_MESH; m->shape_data = solid;
+        m->orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
+        m->radius = solid->bound_r;
+        m->friction = 0.50f; m->restitution = 0.06f;  /* leather over iron: dead */ }
+    if (net) {
+        MoteBody *m = &bodies[n++];
+        memset(m, 0, sizeof *m);
+        m->shape = MOTE_SHAPE_MESH; m->shape_data = net;
+        m->orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
+        m->radius = net->bound_r;
+        m->friction = 0.70f; m->restitution = 0.02f;  /* string */ }
+    mote_phys_step(&pw, bodies, n, h);
+#ifdef MOTE_HOST
+    {   /* CUE_MESHDBG=1: every substep in which the pocket's surfaces changed the
+         * ball's velocity by more than 0.3 m/s -- where it was, what it had, what
+         * it got. For reading a rebound off the drawn geometry. */
+        static int dbg = -1;
+        if (dbg < 0) dbg = getenv("CUE_MESHDBG") ? 1 : 0;
+        if (dbg) {
+            const Vec3 dv = v3_sub(bodies[0].vel, b->vel);
+            if (v3_len(dv) > 0.3f)
+                fprintf(stderr, "[meshdbg] pk%d at (%.4f,%.4f,%.4f) v (%.2f,%.2f,%.2f) -> (%.2f,%.2f,%.2f)  dv (%.2f,%.2f,%.2f)\n",
+                        pk, b->pos.x, b->pos.y, b->pos.z, b->vel.x, b->vel.y, b->vel.z,
+                        bodies[0].vel.x, bodies[0].vel.y, bodies[0].vel.z, dv.x, dv.y, dv.z);
+        } }
+#endif
+    b->pos = bodies[0].pos; b->vel = bodies[0].vel; b->w = bodies[0].w; b->orient = bodies[0].orient;
+    return 1;
 }
 
 /* THE FALL, for one substep, on the ball itself: a little drag from the
@@ -1773,7 +1862,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * 2026-09-02; it was never natural on any table). A pocket does
              * nothing to a ball but stop holding it up. So: gravity, a little
              * drag from the leather, and the walls below. */
-            cue_phys_drop_fall(w, b, h);
+            if (!cue_phys_drop_mesh(w, pk, b, h)) cue_phys_drop_fall(w, b, h);
 
             /* AND THE LIP IS STILL UNDER IT. The cloth rolls over the edge in a
              * quarter circle of radius `ld`, so a ball on that roll has its
@@ -1806,6 +1895,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                 if (!over_open && o1 > 0.0f && o1 < rr * 0.999f) {
                     float lip_y = sqrtf(rr*rr - o1*o1) - ld;
                     if (b->pos.y < lip_y) {
+                        const float lift = lip_y - b->pos.y;    /* what the roll gave it */
                         b->pos.y = lip_y;
                         const float slope = -o1 / sqrtf(rr*rr - o1*o1);  /* dy/do <= 0 */
                         /* GRAVITY GETS TO WORK ON IT, which it did not.
@@ -1850,6 +1940,25 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                                                / (1.0f + slope*slope);
                                 b->vel.x += (gx / gl) * at * h;
                                 b->vel.z += (gz / gl) * at * h;
+                                /* CLIMBING BACK OUT COSTS WHAT IT COSTS. The
+                                 * roll lifted the ball by `lift` this substep;
+                                 * if it is heading back towards the table that
+                                 * height comes out of its outward speed, and a
+                                 * ball without enough of it stops climbing and
+                                 * falls back in. The surface used to lift it
+                                 * for nothing, so a hard pot that came off the
+                                 * far jaw rode up the roll and out over the
+                                 * cloth at full speed. */
+                                if (lift > 0.0f) {
+                                    const float ox = -gx / gl, oz = -gz / gl;     /* outward */
+                                    const float vo = b->vel.x * ox + b->vel.z * oz;
+                                    if (vo > 0.0f) {
+                                        const float v2 = vo * vo - 2.0f * w->g * lift;
+                                        const float vn = v2 > 0.0f ? sqrtf(v2) : 0.0f;
+                                        b->vel.x += (vn - vo) * ox;
+                                        b->vel.z += (vn - vo) * oz;
+                                    }
+                                }
                             } }
                         /* AND THE CONSTRAINT ON THE WAY DOWN, which is all the
                          * old line was entitled to do: the surface may stop the
@@ -1876,6 +1985,21 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * letting it through, and it is the same surface the ball rattles
              * off when it does not go. What it meets is below. */
             cue_phys_drop_walls(w, pk, b, h);
+            /* RATTLED OUT. A centre a fifth of a ball back over the cloth,
+             * at cloth height, is a ball on the table again: it came off
+             * the far jaw and climbed out, which happens. The drop is
+             * cleared and the bed has it from here. Left flagged, it kept
+             * falling through the cloth with nothing under it and was
+             * potted from the middle of the bed -- "magically disappearing
+             * into the pocket again" (2026-09-03). The fifth is hysteresis
+             * against a ball creeping along the edge. */
+            {   const float Rb = cue_ball_r(w, b);
+                if (b->pos.y > -ld &&
+                    cue_phys_cut_out(w, pk, b->pos.x, b->pos.z) < -0.2f * Rb) {
+                    b->drop = 0.0f;
+                    if (b->pos.y < Rb) { b->pos.y = Rb; if (b->vel.y < 0.0f) b->vel.y = 0.0f; }
+                    continue;
+                } }
             /* THE POCKET IS CLOSED. While any of the ball is still above the
              * cloth the jaws and the cushions stand in its way exactly as they
              * do for a ball in play -- with the width the ball has at their

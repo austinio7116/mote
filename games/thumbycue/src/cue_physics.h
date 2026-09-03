@@ -489,6 +489,14 @@ typedef struct {
      * pin sinks to its own middle before anything stops it. gen_vs_plane
      * tests a hull vertex by vertex, which is the shape actually being
      * asked about. */
+    /* THE POCKETS' OWN SURFACES, when the app has them: the iron bridge, the
+     * leather plate and the net, as the triangles they are drawn from (CueVR's
+     * cuevr_pocket_geom). A dropping ball is a sphere against these in mote's
+     * solver -- see cue_phys_drop_mesh. NULL (the Thumby Color, tests) means
+     * the analytic walls in cue_phys_drop_walls stand in. Not on the wire and
+     * not hashed: both ends build them from the same table. */
+    const MoteMesh *pgeom_solid[CUE_MAX_POCKET];
+    const MoteMesh *pgeom_net[CUE_MAX_POCKET];
     MoteBody sk[CUE_SKITTLE_BODIES];
     MoteWorld sk_world;
     int      sk_n;                           /* pins + planes */
@@ -695,6 +703,13 @@ float cue_phys_bag_r(const CueWorld *w, int pk, float y);   /* wall radius at he
  * the cut's face through the bed, the leather over the iron, and the bag. */
 void cue_phys_drop_fall (const CueWorld *w, CueBall *b, float h);
 void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h);
+/* The pocket's DRAWN surfaces as colliders (see CueWorld.pgeom_*). Give the
+ * meshes once per world build; cue_phys_drop_mesh then does the fall for a
+ * ball in that pocket -- gravity, the move, and contacts with the bridge, the
+ * plate and the net in mote's solver -- and returns 1. It returns 0 when the
+ * pocket has no meshes, and the caller falls back to cue_phys_drop_fall. */
+void cue_phys_set_pocket_geom(CueWorld *w, int pk, const MoteMesh *solid, const MoteMesh *net);
+int  cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h);
 /* WHEN THE RULES GET THE BALL. 0 (the default, a table with no ball return):
  * at CUE_POCKET_FLOOR. k > 0: when its centre is k radii under the cloth --
  * it can never come back from there -- so an app's return takes the same ball
