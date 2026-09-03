@@ -1263,6 +1263,37 @@ void cue_phys_set_pocket_geom(CueWorld *w, int pk, const MoteMesh *solid, const 
     w->pgeom_solid_ymin[pk] = ymin;
 }
 
+/* The distance from a point to a triangle (Ericson, Real-Time Collision
+ * Detection 5.1.5), for one question: did the ball TOUCH the leather? */
+static float tri_dist(Vec3 p, Vec3 a, Vec3 b, Vec3 c) {
+    const Vec3 ab = v3_sub(b, a), ac = v3_sub(c, a), ap = v3_sub(p, a);
+    const float d1 = v3_dot(ab, ap), d2 = v3_dot(ac, ap);
+    if (d1 <= 0.0f && d2 <= 0.0f) return v3_len(ap);
+    const Vec3 bp = v3_sub(p, b);
+    const float d3 = v3_dot(ab, bp), d4 = v3_dot(ac, bp);
+    if (d3 >= 0.0f && d4 <= d3) return v3_len(bp);
+    const float vc = d1*d4 - d3*d2;
+    if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) { const float v = d1 / (d1 - d3); return v3_len(v3_sub(p, v3_add(a, v3_scale(ab, v)))); }
+    const Vec3 cp = v3_sub(p, c);
+    const float d5 = v3_dot(ab, cp), d6 = v3_dot(ac, cp);
+    if (d6 >= 0.0f && d5 <= d6) return v3_len(cp);
+    const float vb = d5*d2 - d1*d6;
+    if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) { const float wv = d2 / (d2 - d6); return v3_len(v3_sub(p, v3_add(a, v3_scale(ac, wv)))); }
+    const float va = d3*d6 - d5*d4;
+    if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f) { const float wv = (d4 - d3) / ((d4 - d3) + (d5 - d6)); return v3_len(v3_sub(p, v3_add(b, v3_scale(v3_sub(c, b), wv)))); }
+    const float denom = 1.0f / (va + vb + vc), v = vb * denom, wv = vc * denom;
+    return v3_len(v3_sub(p, v3_add(a, v3_add(v3_scale(ab, v), v3_scale(ac, wv)))));
+}
+static float mesh_dist(const MoteMesh *m, Vec3 p, float stop) {
+    float best = 1e9f;
+    for (int t = 0; t < m->ntris; t++) {
+        const uint16_t *tr = &m->tris[3 * t];
+        const float d = tri_dist(p, m->verts[tr[0]], m->verts[tr[1]], m->verts[tr[2]]);
+        if (d < best) { best = d; if (best < stop) break; }
+    }
+    return best;
+}
+
 /* THE POCKET AS IT IS DRAWN. The bridge, the plate and the net are the
  * triangles the frame is built from; the ball is a sphere against them in
  * mote's solver for this one substep -- gravity and the move included, so
@@ -1327,10 +1358,18 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
      * substep against the pocket's surfaces is the ball striking the back;
      * the app voices it from the speed it arrived with (CUE_EV_BRIDGE). */
     {   const float dvx = bodies[0].vel.x - v_in.x, dvz = bodies[0].vel.z - v_in.z;
-        const int could_reach_solid = solid && (b->pos.y + bodies[0].radius > w->pgeom_solid_ymin[pk] - 0.002f);
-        if (dvx*dvx + dvz*dvz > 0.4f * 0.4f && could_reach_solid) {
-            const float sp = sqrtf(v_in.x*v_in.x + v_in.z*v_in.z);
-            s_bridge_hit = 1; if (sp > s_bridge_v) s_bridge_v = sp; } }
+        const float dv = sqrtf(dvx*dvx + dvz*dvz);
+        /* ...AND IT WAS THE LEATHER. A change of speed alone said nothing about
+         * what caused it: the string collar and the bag turned a trickled ball
+         * just as sharply, and "never went near the bridge but made the bridge
+         * sound" (2026-09-03, twice). So the knock is the ball's surface within
+         * 3 mm of a triangle of the solids at the end of the substep -- asked
+         * only when the speed changed enough to matter. Its loudness is the
+         * change of speed, the knock itself, not the speed the ball arrived
+         * with: a ball that clips the leather on its way down is a touch. */
+        if (dv > 0.4f && solid && b->pos.y + bodies[0].radius > w->pgeom_solid_ymin[pk] - 0.002f
+            && mesh_dist(solid, bodies[0].pos, bodies[0].radius + 0.003f) < bodies[0].radius + 0.003f) {
+            s_bridge_hit = 1; if (dv > s_bridge_v) s_bridge_v = dv; } }
 #ifdef MOTE_HOST
     {   /* CUE_MESHDBG=1: every substep in which the pocket's surfaces changed the
          * ball's velocity by more than 0.3 m/s -- where it was, what it had, what
