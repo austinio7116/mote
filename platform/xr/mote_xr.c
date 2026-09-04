@@ -153,6 +153,9 @@ static struct {
     XrActionSet action_set;
     XrAction    a_pose, a_aim, a_stick, a_trigger, a_squeeze;
     XrAction    a_lower, a_upper, a_menu, a_haptic, a_stickclick;
+    XrReferenceSpaceType space_type;
+    XrPosef     recentre;          /* the new origin in the old frame, when one has been sent */
+    int         recentre_pending;
     XrPath      hand_path[2];
     XrSpace     hand_space[2], aim_space[2];
 
@@ -368,6 +371,7 @@ static int make_session(void) {
      * LOCAL's origin is the HEADSET, so "0.85 m up" in it is 0.85 m above your
      * eyes. STAGE is not guaranteed, so ask the runtime and fall back. */
     XrReferenceSpaceType want = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    /* remembered so a re-centre event for some OTHER space is not ours to act on */
     if (S.app.floor_relative) {
         uint32_t ns = 0;
         xrEnumerateReferenceSpaces(S.session, 0, &ns, NULL);
@@ -386,6 +390,7 @@ static int make_session(void) {
     XrReferenceSpaceCreateInfo rs = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
     rs.referenceSpaceType = want;
     rs.poseInReferenceSpace.orientation.w = 1.0f;
+    S.space_type = want;
     if (failed(xrCreateReferenceSpace(S.session, &rs, &S.space), "xrCreateReferenceSpace"))
         return -1;
     return 0;
@@ -1173,6 +1178,22 @@ static void pump_events(void) {
         case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
             S.quit = 1;
             break;
+        case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
+            /* THE RUNTIME RE-CENTRED. Our space keeps working, but its origin
+             * is somewhere else in the real room from `changeTime` on, and
+             * everything the app placed in it is now in the wrong place. The
+             * event says where the NEW origin sits in the OLD frame; the app
+             * asks for it through mote_xr_recentre_take and moves its content
+             * by the inverse. Ignored entirely until now, so a re-centre left
+             * the table adrift with no way for a game to know (2026-09-04). */
+            const XrEventDataReferenceSpaceChangePending *e =
+                (const XrEventDataReferenceSpaceChangePending *)&ev;
+            if (e->referenceSpaceType == S.space_type && e->poseValid) {
+                S.recentre = e->poseInPreviousSpace;
+                S.recentre_pending = 1;
+            }
+            break;
+        }
         default:
             break;
         }
@@ -1358,6 +1379,27 @@ void *mote_xr_render_model_take(int hand, uint32_t *out_len) {
     return bytes;
 }
 void mote_xr_haptic(float i, int ms) { haptic(i, ms); }
+
+int mote_xr_recentre_take(MoteVrV3 *pos, float *yaw) {
+    if (!S.recentre_pending) return 0;
+    S.recentre_pending = 0;
+    /* The event's pose T maps the NEW space's origin into the OLD frame, so
+     * content held in old coordinates is re-expressed with T's INVERSE. A
+     * re-centre turns about vertical and may change height; the yaw is all the
+     * rotation a placed table can use. */
+    const XrQuaternionf *q = &S.recentre.orientation;
+    const XrVector3f    *t = &S.recentre.position;
+    const float ty = atan2f(2.0f * (q->w * q->y + q->x * q->z),
+                            1.0f - 2.0f * (q->y * q->y + q->z * q->z));
+    const float iy = -ty, c = cosf(iy), s2 = sinf(iy);
+    if (yaw) *yaw = iy;
+    if (pos) {
+        pos->x = -(t->x * c + t->z * s2);
+        pos->y = -t->y;
+        pos->z = -(-t->x * s2 + t->z * c);
+    }
+    return 1;
+}
 void mote_xr_haptic_hand(int hand, float i, int ms) { haptic_hand(i, ms, hand); }
 
 void mote_xr_frame(void) {

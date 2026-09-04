@@ -178,6 +178,20 @@ void mote_xr_shutdown(void);
 /* Buzz both controllers. The thing being felt belongs to the scene, not to one
  * hand, and a buzz in only one hand for a shared event reads as a fault. */
 void mote_xr_haptic(float intensity, int ms);
+
+/* THE RUNTIME MOVED THE WORLD. A re-centre (the long press on the Meta button,
+ * a boundary re-localisation) re-defines where the reference space sits in the
+ * real room, so anything the app has placed in that space is left describing
+ * somewhere else -- the table jumps, and it is not the app's own doing.
+ *
+ * Returns 1 once per re-centre and fills the rigid transform to apply to
+ * everything placed in the space, so it stays where it is in the real room:
+ *
+ *     new_pos = *pos + rotY(*yaw) * old_pos;   new_yaw = old_yaw + *yaw;
+ *
+ * with rotY(a) v = (v.x cos a + v.z sin a, v.y, -v.x sin a + v.z cos a), the
+ * same turn a table is placed with. Returns 0 when nothing has happened. */
+int mote_xr_recentre_take(MoteVrV3 *pos, float *yaw);
 /* One controller only: MOTE_VR_LEFT or MOTE_VR_RIGHT, or -1 for both. What the
  * world does belongs in both hands; what a held object does belongs in the hand
  * holding it. */
