@@ -988,14 +988,19 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
             switch (kind) {
             /* THE UK PUB TABLE and everything played on its bed: chrome on the
              * corners, round dots on the rails. */
-            case CUE_GAME_UK8: case CUE_GAME_KILLER_UK:
+            /* NO KILLER KINDS IN HERE. A killer game delegates to its parent
+             * -- cue_table_init(t, UK8/US8/CN8) and then re-stamps the kind --
+             * and returns long before this switch, so listing them was dead
+             * code that read as though Chinese killer wore a liner. It wears
+             * the Chinese 8-ball table's bags, like the game it is (the player
+             * spotted the listing and was right to, 2026-09-05). */
+            case CUE_GAME_UK8:
             case CUE_GAME_GOLF:
                 t->furniture |= CUE_FURN_CORNERCAP | CUE_FURN_SIGHTS;
                 break;
             /* THE AMERICAN BED and its long list of games: a black moulding on
              * the corners, and diamonds rather than dots. */
             case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
-            case CUE_GAME_KILLER_US: case CUE_GAME_KILLER_CN:
             case CUE_GAME_STRAIGHT:
             case CUE_GAME_ONEPOCKET: case CUE_GAME_BANKPOOL:
             case CUE_GAME_ROTATION: case CUE_GAME_ROTATION_PH:
