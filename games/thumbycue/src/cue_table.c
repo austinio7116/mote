@@ -4511,6 +4511,23 @@ float cue_table_rail_top(const CueTable *t) {
 }
 float cue_table_bore_bot(void) { return -0.002f; }
 
+/* HOW FAR DOWN THE POCKET IS CLOSED IN, and the one number that says so.
+ *
+ * Under the cloth roll there is a dark shaft carrying the eye down to whatever
+ * catches the ball, and it has to reach that thing: a shaft that stops short
+ * leaves a band of open air round the pocket, and through it you see the
+ * cabinet, the apron and the frame's own underside. Which is what a pool table
+ * looked like the moment its return was moved down to a real depth
+ * (2026-09-05) -- the shaft ended at 55 mm and the funnel now starts at 110.
+ *
+ * A netted table's shaft ends where its bag begins and is unchanged. Everything
+ * else drops into a moulded boot, and this is its bottom: the renderer's shaft,
+ * CueVR's moulding and the return's funnel all take it from here rather than
+ * each carrying a number of its own. */
+float cue_table_pocket_shaft_bot(const CueTable *t) {
+    return (t && t->is_snooker) ? -0.105f : -0.110f;
+}
+
 Vec3 cue_table_cue_home(const CueTable *t) {
     const float CUE_Y = (t->cue_R > 0.0f) ? t->cue_R : t->R;
     /* All games start OFF the centre line so a break naturally strikes the pack

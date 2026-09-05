@@ -649,6 +649,9 @@ float cue_table_rail_top(const CueTable *t);
 /* The slate's thickness: 40 mm on a 12 ft bed, 30 mm on every smaller one. */
 float cue_table_slate_t(const CueTable *t);
 float cue_table_bore_bot(void);
+/* The bottom of the shaft under a pocket -- where the dark wall, the moulding
+ * and the ball return all have to meet. See cue_table.c. */
+float cue_table_pocket_shaft_bot(const CueTable *t);
 
 
 /* +1 for a right-handed L and -1 for a left-handed one: the factor every piece

@@ -841,7 +841,14 @@ static void emit_lip_run(const CueTable *t, Vec3 *ring0, const Vec3 *nrm,
     }
     if (!s_rail_split)
     {   uint16_t dark = s_is_snooker ? RGB565C(34, 30, 20) : RGB565C(3, 4, 4);
-        float fy = s_is_snooker ? -0.105f : -0.055f;
+        /* ALL THE WAY TO THE BOTTOM OF THE SHAFT. It stopped at 55 mm, which
+         * was under the old return's funnel and so closed the view; once the
+         * funnel moved down to a real boot depth the 55 mm left a band of open
+         * air round every pool pocket with the cabinet showing through it. This
+         * wall is also the ball's: it is emitted inside the lip run, which is
+         * the mesh handed to the solver, so the shaft that closes the view is
+         * the shaft the ball falls down. */
+        float fy = cue_table_pocket_shaft_bot(t);
         for (int k = 0; k < last; k++) {
             int k2 = (k + 1) % cnt;
             quad(ring0[k], ring0[k2],
