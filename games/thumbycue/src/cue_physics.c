@@ -1068,6 +1068,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
 /* The share of a ball's speed into the iron that the bridge turns downwards
  * into the net; the leather absorbs the rest. */
 #define CUE_IRON_DOWN    (0.75f)
+static float iron_down(float vy, float vu);   /* defined below, beside the drawn pocket */
 
 /* HOW FAR PAST THE EDGE OF THE SLATE a point is, at pocket p. Negative is still
  * on cloth, zero is the edge, positive is out over the drop.
@@ -1204,22 +1205,35 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
          * and out over the cloth -- "flickers back out and into the table"
          * (2026-09-03). CUE_IRON_DOWN is the share of the horizontal speed
          * that becomes fall; the remainder is what the leather absorbs. */
-        if (!bed && b->pos.y > -R && !w->pgeom_solid[pk]) {   /* no drawn bridge: the analytic one */
+        /* THE SLATE'S CORNERS STILL CONTAIN THE BALL unless there is a drawn
+         * back that goes all the way round. A snooker pocket has one -- the
+         * plate and the bag between them close it -- so the analytic walls
+         * stand aside for it. A LINED pocket's drawn piece is the moulding
+         * across the BACK only, about ninety degrees of it, so gating on the
+         * solid alone left the sides of a pool pocket with nothing at all in
+         * them and a spun ball climbed out sideways: six topspin shots between
+         * 4 and 8 m/s that 3.5 potted came back out (measured 2026-09-05
+         * against a 3.5 build). The net is what says the back is complete. */
+        if (!bed && b->pos.y > -R && !w->pgeom_net[pk]) {   /* no drawn bag: the analytic walls stand */
             if (!mid) {
                 const float u = sx * (b->pos.x - C.x);
                 if (u > 0.0f) {
                     b->pos.x = C.x;
                     const float vu = sx * b->vel.x;
-                    if (vu > 0.0f) { b->vel.x -= vu * sx; b->vel.y -= vu * CUE_IRON_DOWN;
-                                     if (vu > 0.4f) { s_bridge_hit = 1; if (vu > s_bridge_v) s_bridge_v = vu; } }
+                    if (vu > 0.0f) {
+                        b->vel.x -= vu * sx;
+                        b->vel.y = iron_down(b->vel.y, vu);
+                        if (vu > 0.4f) { s_bridge_hit = 1; if (vu > s_bridge_v) s_bridge_v = vu; } }
                 }
             }
             const float v = sz * (b->pos.z - C.z);
             if (v > 0.0f) {
                 b->pos.z = C.z;
                 const float vv = sz * b->vel.z;
-                if (vv > 0.0f) { b->vel.z -= vv * sz; b->vel.y -= vv * CUE_IRON_DOWN;
-                                 if (vv > 0.4f) { s_bridge_hit = 1; if (vv > s_bridge_v) s_bridge_v = vv; } }
+                if (vv > 0.0f) {
+                    b->vel.z -= vv * sz;
+                    b->vel.y = iron_down(b->vel.y, vv);
+                    if (vv > 0.4f) { s_bridge_hit = 1; if (vv > s_bridge_v) s_bridge_v = vv; } }
             }
         }
         /* 3. THE NET, under the iron: the bag of cue_phys_bag_r, as
@@ -1298,6 +1312,21 @@ static float mesh_dist(const MoteMesh *m, Vec3 p, float stop) {
         if (d < best) { best = d; if (best < stop) break; }
     }
     return best;
+}
+
+/* THE BACK TURNS SPEED DOWNWARD, AND CANNOT MAKE ANY. It takes the ball's
+ * speed INTO the wall away and gives a share of it back as fall. Written as
+ * `vy -= k*vu` that quietly created energy whenever the ball was already
+ * falling -- the two add, and the square of the sum is more than the sum of
+ * the squares. On a pool table, where these walls are all there is at the
+ * sides, the pocket test caught it fifteen times and up to 1.75 J/kg, which is
+ * 1.9 m/s conjured out of nothing (measured against a 3.5 build, 2026-09-05).
+ * The fall it gives is capped at what the wall actually took. */
+static float iron_down(float vy, float vu) {
+    const float want = vy - vu * CUE_IRON_DOWN;
+    const float cap2 = vy * vy + vu * vu;          /* everything it had, at most */
+    if (want * want > cap2) return -sqrtf(cap2);
+    return want;
 }
 
 /* THE POCKET AS IT IS DRAWN. The bridge, the plate and the net are the
