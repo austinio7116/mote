@@ -498,6 +498,10 @@ typedef struct {
     const MoteMesh *pgeom_solid[CUE_MAX_POCKET];
     const MoteMesh *pgeom_net[CUE_MAX_POCKET];
     float pgeom_solid_ymin[CUE_MAX_POCKET];   /* the lowest point of the solids: a ball wholly under it can only have met the net */
+    /* WHAT THE SOLID IS MADE OF. Leather over iron by default, which is a
+     * snooker bridge; a pool table's pocket is a moulded plastic liner and
+     * gives a ball a good deal more back. 0 means the default. */
+    float pgeom_e, pgeom_mu;
     /* THE SLATE'S THICKNESS, as a height: the cloth-covered face of the cut
      * runs from the cloth down to here (40 mm on a 12 ft table, 30 on the
      * rest -- asked for 2026-09-03), and the drawn lip is the same number
@@ -715,6 +719,9 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h);
  * plate and the net in mote's solver -- and returns 1. It returns 0 when the
  * pocket has no meshes, and the caller falls back to cue_phys_drop_fall. */
 void cue_phys_set_pocket_geom(CueWorld *w, int pk, const MoteMesh *solid, const MoteMesh *net);
+/* What the pocket's SOLID gives back and how it grips: leather over iron when
+ * never set (0.06 and 0.35), plastic for a lined pocket. */
+void cue_phys_set_pocket_material(CueWorld *w, float e, float mu);
 int  cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h);
 /* WHEN THE RULES GET THE BALL. 0 (the default, a table with no ball return):
  * at CUE_POCKET_FLOOR. k > 0: when its centre is k radii under the cloth --

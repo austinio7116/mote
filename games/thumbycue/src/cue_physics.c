@@ -1249,6 +1249,12 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
     }
 }
 
+void cue_phys_set_pocket_material(CueWorld *w, float e, float mu) {
+    if (!w) return;
+    w->pgeom_e  = e  > 0.0f ? e  : 0.0f;
+    w->pgeom_mu = mu > 0.0f ? mu : 0.0f;
+}
+
 void cue_phys_set_pocket_geom(CueWorld *w, int pk, const MoteMesh *solid, const MoteMesh *net) {
     if (!w || pk < 0 || pk >= CUE_MAX_POCKET) return;
     w->pgeom_solid[pk] = solid;
@@ -1344,7 +1350,10 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
         m->shape = MOTE_SHAPE_MESH; m->shape_data = solid;
         m->orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
         m->radius = solid->bound_r;
-        m->friction = 0.35f; m->restitution = 0.06f;  /* leather over iron: dead, and leather on phenolic slides at about 0.35 */ }
+        /* leather over iron is dead and grips (0.06 / 0.35); a moulded liner
+         * is neither, and the table says which it is wearing */
+        m->friction    = w->pgeom_mu > 0.0f ? w->pgeom_mu : 0.35f;
+        m->restitution = w->pgeom_e  > 0.0f ? w->pgeom_e  : 0.06f; }
     if (net) {
         MoteBody *m = &bodies[n++];
         memset(m, 0, sizeof *m);
