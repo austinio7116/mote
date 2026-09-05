@@ -39,6 +39,9 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 
+#include <math.h>
+#include <pthread.h>
+#include <time.h>
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <stdio.h>
@@ -153,6 +156,7 @@ static struct {
     XrActionSet action_set;
     XrAction    a_pose, a_aim, a_stick, a_trigger, a_squeeze;
     XrAction    a_lower, a_upper, a_menu, a_haptic, a_stickclick;
+    float       probe_fps;         /* the display rate, for the tracking probe's summary */
     XrPath      hand_path[2];
     XrSpace     hand_space[2], aim_space[2];
 
@@ -992,6 +996,10 @@ static void draw_frame(void) {
 
         MoteVrTracking track;
         memset(&track, 0, sizeof track);
+        if (S.last_display) {
+            const double d = (double)(fs.predictedDisplayTime - S.last_display) * 1e-9;
+            if (d > 1e-4) S.probe_fps = S.probe_fps * 0.9f + (float)(0.1 / d);
+        }
         track.dt = S.last_display ? (float)((double)(fs.predictedDisplayTime - S.last_display) * 1e-9)
                                   : 1.0f/72.0f;
         if (track.dt <= 0.0f || track.dt > 0.25f) track.dt = 1.0f/72.0f;
@@ -1148,6 +1156,102 @@ static void draw_frame(void) {
     xrEndFrame(S.session, &fei);
 }
 
+/* ---- THE TRACKING PROBE ------------------------------------------------
+ *
+ * ONE QUESTION: does the runtime have anything to tell us BETWEEN frames?
+ *
+ * The controller pose is read once a rendered frame, and at 72 Hz that is
+ * 13.9 ms -- 139 mm of tip travel at 10 m/s, against a 52 mm ball. Sampling it
+ * from a thread at several hundred Hz would fix that, but only if the extra
+ * samples carry NEW information. If the runtime is interpolating between its
+ * own updates they are a straight line between the frame samples and the
+ * thread would be a thread for nothing. So this measures, before anything is
+ * built on it (2026-09-04):
+ *
+ *   - how often the pose CHANGES when polled at 500 Hz. If the runtime updates
+ *     at the display rate, one poll in seven differs and no more.
+ *   - how far a sample sits OFF THE CHORD joining the samples one frame either
+ *     side of it. Interpolation lies exactly on that chord; real motion curves
+ *     away by about a quarter of a*dt^2, which for a hand accelerating at
+ *     100 m/s^2 is 5 mm.
+ *
+ * Runs for eight seconds from the first frame, logs a summary and stops. It
+ * reads poses and writes to the log; it changes nothing. */
+#ifndef MOTE_XR_TRACKPROBE
+#define MOTE_XR_TRACKPROBE 1
+#endif
+#if MOTE_XR_TRACKPROBE
+#define PROBE_HZ   500
+#define PROBE_SECS 8
+#define PROBE_N    (PROBE_HZ * PROBE_SECS)
+static struct {
+    pthread_t th; int started;
+    XrTime t[PROBE_N]; float x[PROBE_N], y[PROBE_N], z[PROBE_N]; int n;
+} S_probe;
+
+static XrTime probe_now(void) {
+    /* Meta's XrTime is CLOCK_MONOTONIC nanoseconds. The summary prints our
+     * "now" against the frame's predicted display time, so that assumption is
+     * visible rather than assumed. */
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (XrTime)ts.tv_sec * 1000000000LL + (XrTime)ts.tv_nsec;
+}
+
+static void *probe_run(void *arg) {
+    (void)arg;
+    const long period_ns = 1000000000L / PROBE_HZ;
+    while (S_probe.n < PROBE_N) {
+        if (S.session && S.running && S.hand_space[MOTE_VR_RIGHT] && S.space) {
+            XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+            const XrTime t = probe_now();
+            if (XR_SUCCEEDED(xrLocateSpace(S.hand_space[MOTE_VR_RIGHT], S.space, t, &loc)) &&
+                (loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {
+                const int i = S_probe.n;
+                S_probe.t[i] = t;
+                S_probe.x[i] = loc.pose.position.x;
+                S_probe.y[i] = loc.pose.position.y;
+                S_probe.z[i] = loc.pose.position.z;
+                S_probe.n = i + 1;
+            }
+        }
+        struct timespec sl = { 0, period_ns };
+        nanosleep(&sl, NULL);
+    }
+    int same = 0, moved = 0;
+    double biggest_step = 0.0;
+    for (int i = 1; i < S_probe.n; i++) {
+        const double dx = S_probe.x[i] - S_probe.x[i-1];
+        const double dy = S_probe.y[i] - S_probe.y[i-1];
+        const double dz = S_probe.z[i] - S_probe.z[i-1];
+        const double d = sqrt(dx*dx + dy*dy + dz*dz);
+        if (d < 1e-7) same++; else { moved++; if (d > biggest_step) biggest_step = d; }
+    }
+    const double secs = S_probe.n > 1 ? (double)(S_probe.t[S_probe.n-1] - S_probe.t[0]) * 1e-9 : 0.0;
+    xrlog("[trackprobe] %d polls over %.2f s at %d Hz asked: %d changed the pose, %d repeated it",
+          S_probe.n, secs, PROBE_HZ, moved, same);
+    xrlog("[trackprobe] the pose changes about %.0f times a second; the display runs at %.0f",
+          secs > 0.1 ? moved / secs : 0.0, (double)S.probe_fps);
+    const int span = PROBE_HZ / 72;
+    double worst = 0.0, sum = 0.0; int cnt = 0;
+    for (int i = span; i + span < S_probe.n; i++) {
+        const double ax = S_probe.x[i-span], ay = S_probe.y[i-span], az = S_probe.z[i-span];
+        const double bx = S_probe.x[i+span], by = S_probe.y[i+span], bz = S_probe.z[i+span];
+        const double mx = 0.5*(ax+bx), my = 0.5*(ay+by), mz = 0.5*(az+bz);
+        const double dx = S_probe.x[i]-mx, dy = S_probe.y[i]-my, dz = S_probe.z[i]-mz;
+        const double d = sqrt(dx*dx+dy*dy+dz*dz);
+        const double mv = sqrt((bx-ax)*(bx-ax)+(by-ay)*(by-ay)+(bz-az)*(bz-az));
+        if (mv > 0.010) { sum += d; cnt++; if (d > worst) worst = d; }
+    }
+    xrlog("[trackprobe] off the chord over one frame: mean %.2f mm, worst %.2f mm, over %d moving samples",
+          cnt ? sum/cnt*1000.0 : 0.0, worst*1000.0, cnt);
+    xrlog("[trackprobe] biggest step between polls %.2f mm", biggest_step*1000.0);
+    xrlog("[trackprobe] VERDICT: %s",
+          (cnt && sum/cnt > 0.0005) ? "the extra samples carry real motion -- a tracking thread is worth it"
+                                    : "the extra samples look interpolated -- a thread would add nothing");
+    return NULL;
+}
+#endif
+
 static void pump_events(void) {
     XrEventDataBuffer ev = { XR_TYPE_EVENT_DATA_BUFFER };
     while (xrPollEvent(S.instance, &ev) == XR_SUCCESS) {
@@ -1161,6 +1265,14 @@ static void pump_events(void) {
                 bi.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
                 if (!failed(xrBeginSession(S.session, &bi), "xrBeginSession"))
                     S.running = 1;
+#if MOTE_XR_TRACKPROBE
+                if (S.running && !S_probe.started) {
+                    S_probe.started = 1;
+                    if (pthread_create(&S_probe.th, NULL, probe_run, NULL) == 0)
+                        pthread_detach(S_probe.th);
+                    xrlog("[trackprobe] started: %d Hz for %d s -- MAKE SOME STROKES NOW", PROBE_HZ, PROBE_SECS);
+                }
+#endif
             } else if (e->state == XR_SESSION_STATE_STOPPING) {
                 S.running = 0;
                 xrEndSession(S.session);
