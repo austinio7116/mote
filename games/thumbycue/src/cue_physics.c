@@ -2082,33 +2082,40 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                                 b->vel.y -= vn * ny;
                             }
                             if (held) {
-                                /* rolling: 2/7 of the tangential gravity becomes spin */
+                                /* GRAVITY ROLLS IT DOWN THE SLOPE. A sphere
+                                 * rolling without slipping accelerates at
+                                 * (5/7) g sin(th) ALONG the surface, downhill,
+                                 * and its spin follows at dv/R.
+                                 *
+                                 * This had the sign inverted and the wrong
+                                 * share -- it applied 2/7 g sin(th) UP the
+                                 * roll, so a ball on the lip was being braked
+                                 * by the very thing that should have been
+                                 * taking it down, while the 5/7 went into spin
+                                 * that nothing was coupled to. That is a ball
+                                 * sitting on the lip turning over, on every
+                                 * table, because this block is the lip and
+                                 * every table shares it (mine, 2026-09-04;
+                                 * found 2026-09-05). */
                                 const float sin_th = -slope * inv;
-                                const float dvt = -(2.0f / 7.0f) * w->g * sin_th * h;
+                                const float dvt = (5.0f / 7.0f) * w->g * sin_th * h;
                                 b->vel.x += dvt * tx * ox;
                                 b->vel.z += dvt * tx * oz;
                                 b->vel.y += dvt * ty;
-                                const float Rb = cue_ball_r(w, b), dwr = (5.0f / 7.0f) * w->g * sin_th * h / Rb;
+                                const float Rb = cue_ball_r(w, b), dwr = dvt / Rb;
                                 b->w.x += oz * dwr;
                                 b->w.z -= ox * dwr;
                             }
-                            if (lift > 0.0002f) {
-                                /* THE LIFT IS PAID FOR -- a real one, over 0.2 mm;
-                                 * the few microns a held ball sinks each substep
-                                 * are the integrator's and cost nothing (charged,
-                                 * they stopped a 0.02 m/s ball dead on the crest).
-                                 * A ball found well under the
-                                 * surface (a jaw bounce drove it there) is put
-                                 * back up, and the height it is given comes out
-                                 * of its speed, whichever way it is going. The
-                                 * old rule charged only a ball heading back to
-                                 * the table, and a 3.7 m/s cut into a middle
-                                 * gained 0.12 J/kg in a frame. */
-                                const float v2 = b->vel.x*b->vel.x + b->vel.y*b->vel.y + b->vel.z*b->vel.z;
-                                const float k2 = v2 > 1e-12f ? 1.0f - 2.0f * w->g * lift / v2 : 0.0f;
-                                const float k  = k2 > 0.0f ? sqrtf(k2) : 0.0f;
-                                b->vel.x *= k; b->vel.y *= k; b->vel.z *= k;
-                            }
+                            /* NO CHARGE FOR THE LIFT. Moving along the arc
+                             * raises the ball, and the tangential gravity term
+                             * above has ALREADY taken that height out of its
+                             * speed -- charging again is counting it twice, and
+                             * counting it against the whole velocity is what
+                             * deleted a ball's motion across the lip. What is
+                             * left is the integrator's own error, a few microns
+                             * a substep, and the contact below removes the speed
+                             * that goes into the surface. */
+
 #ifdef MOTE_HOST
                             {   static int dbg = -1; if (dbg < 0) dbg = getenv("CUE_LIPDBG") ? 1 : 0;
                                 if (dbg) fprintf(stderr, "[lipdbg] pk%d o1 %.4f slope %.3f lift %.7f held %d vh_pre %.4f vh_post %.4f vy %.3f w %.1f h %.5f\n",
