@@ -1292,8 +1292,9 @@ int cue_phys_under_bodies(const CueWorld *w, MoteBody *out, int cap) {
     if (!w || !out) return 0;
     /* cloth over slate falling away under the ball: see s_lip_mu */
     if (w->pgeom_lip && n < cap) under_static(&out[n++], w->pgeom_lip, s_lip_mu, s_lip_e);
-    /* the return: moulded plastic under a slate, grips and gives little back */
-    if (w->pgeom_box && n < cap) under_static(&out[n++], w->pgeom_box, 0.35f, 0.16f);
+    /* the return: ROUGH moulded plastic under a slate. It grips and it gives
+     * almost nothing back, so a ball landing in it lands and rolls. */
+    if (w->pgeom_box && n < cap) under_static(&out[n++], w->pgeom_box, 0.50f, 0.12f);
     for (int k = 0; k < CUE_MAX_POCKET && k < w->npocket; k++) {
         /* leather over iron is dead and grips; a moulded liner is neither, and
          * the table says which it is wearing */
