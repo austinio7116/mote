@@ -31,6 +31,12 @@
                                        * (a fast strike wakes before it can penetrate WAKE_PEN) */
 #define SLEEP_DIST2  (0.025f * 0.025f)
 #define SLEEP_ANG2   (0.40f * 0.40f)
+/* ...AND IT HAS TO BE SLOW. Displacement and spin alone let a ball that had
+ * just landed on a slope -- moving, not yet turning, still inside 25 mm of
+ * where it touched down -- fall asleep after twenty substeps and stay there
+ * for ever, since a sleeper only wakes when something hits it. Two centimetres
+ * a second is not at rest (2026-09-05, the ball return). */
+#define SLEEP_VEL2   (0.02f * 0.02f)
 #define SLEEP_FRAMES 20
 
 static inline float u2f(uint32_t u) { float f; __builtin_memcpy(&f, &u, 4); return f; }
@@ -1108,7 +1114,8 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
                     b->_reserved[0] = 0;
                     b->_reserved[1] = f2u(b->pos.x); b->_reserved[2] = f2u(b->pos.y); b->_reserved[3] = f2u(b->pos.z);
                 }
-            } else if (s_touch[i] && s_pen[i] < 0.012f && disp2 < SLEEP_DIST2 && v3_dot(b->w, b->w) < SLEEP_ANG2) {
+            } else if (s_touch[i] && s_pen[i] < 0.012f && disp2 < SLEEP_DIST2 && v3_dot(b->w, b->w) < SLEEP_ANG2
+                       && v3_dot(b->vel, b->vel) < SLEEP_VEL2) {
                 b->_reserved[0]++;                         /* resting (not deeply overlapping) + still -> sleep */
             } else {                                       /* airborne / moving -> stay awake, re-anchor */
                 b->_reserved[0] = 0;
