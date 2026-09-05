@@ -1269,6 +1269,24 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
     }
 }
 
+void cue_phys_set_pocket_lip(CueWorld *w, const MoteMesh *lip) { if (w) w->pgeom_lip = lip; }
+
+/* WHAT THE CLOTH LIP IS, TO A BALL GOING OVER IT.
+ *
+ * Not a lot. The slate falls away under the ball as it crosses, so the normal
+ * force collapses and there is almost nothing left to grip with -- a ball slips
+ * over the roll carrying the rotation it arrived with, and picks up whatever
+ * the fall gives it. At the solver's 0.22 the lip was a rubber gripper: the
+ * friction solve drives the contact's slip to zero every substep, so the ball
+ * was spun up to match the speed it gained going down, which is a gear and not
+ * a pot ("weird rotational acceleration that does not look real", 2026-09-05).
+ * 0.05 is a ball glancing off cloth it is barely resting on. */
+static float s_lip_mu = 0.05f, s_lip_e = 0.08f;
+void cue_phys_set_lip_material(float mu, float e) {
+    if (mu >= 0.0f) s_lip_mu = mu;
+    if (e  >= 0.0f) s_lip_e  = e;
+}
+
 void cue_phys_set_pocket_material(CueWorld *w, float e, float mu) {
     if (!w) return;
     w->pgeom_e  = e  > 0.0f ? e  : 0.0f;
@@ -1371,7 +1389,7 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
     const float qh  = 0.25f * h;
     pw.substep      = qh;
     pw.max_substeps = 1;
-    MoteBody bodies[3]; int n = 0;
+    MoteBody bodies[4]; int n = 0;
     {   MoteBody *m = &bodies[n++];
         memset(m, 0, sizeof *m);
         m->shape = MOTE_SHAPE_SPHERE;
@@ -1389,6 +1407,14 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
          * is neither, and the table says which it is wearing */
         m->friction    = w->pgeom_mu > 0.0f ? w->pgeom_mu : 0.35f;
         m->restitution = w->pgeom_e  > 0.0f ? w->pgeom_e  : 0.06f; }
+    if (w->pgeom_lip) {
+        MoteBody *m = &bodies[n++];
+        memset(m, 0, sizeof *m);
+        m->shape = MOTE_SHAPE_MESH; m->shape_data = w->pgeom_lip;
+        m->orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
+        m->radius = w->pgeom_lip->bound_r;
+        /* cloth over slate falling away under the ball: see s_lip_mu */
+        m->friction = s_lip_mu; m->restitution = s_lip_e; }
     if (net) {
         MoteBody *m = &bodies[n++];
         memset(m, 0, sizeof *m);
@@ -2024,7 +2050,13 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                 float gx = b->pos.x - pc2.x, gz = b->pos.z - pc2.z;
                 float clear = w->pocket_r[pk] - cue_ball_r(w, b) * 1.35f;
                 int over_open = clear > 0.0f && (gx*gx + gz*gz) < clear * clear;
-                if (!over_open && o1 > 0.0f && o1 < rr * 0.999f) {
+                /* THE DRAWN ROLL, WHERE THERE IS ONE. With the cloth's lip
+                 * handed to the solver as the surface it is, a ball crossing it
+                 * is a sphere on that surface with friction and spin, stepped
+                 * by the same engine as everything else -- so this constraint,
+                 * which is the last hand-written thing between the bed and the
+                 * bag, stands aside exactly as the analytic walls do. */
+                if (!w->pgeom_lip && !over_open && o1 > 0.0f && o1 < rr * 0.999f) {
                     float lip_y = sqrtf(rr*rr - o1*o1) - ld;
                     /* A BALL ON THE ROLL. Its centre rides an arc of radius rr
                      * about the roll's centre while gravity can hold it there:

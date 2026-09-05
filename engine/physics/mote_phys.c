@@ -24,6 +24,8 @@
 #define MAX_SUBSTEPS 8                /* default cap (per-world overridable) + drop backlog */
 #define POS_BETA     0.2f             /* Baumgarte position-bias factor */
 #define POS_SLOP     0.005f           /* allowed penetration before bias kicks in */
+#define POS_SLOP_REL 0.02f            /* ...but never more than this share of the body:
+                                       * see slop_for() */
 #define WAKE_PEN     0.02f            /* an awake body intruding this deep wakes a sleeper */
 #define WAKE_VEL     0.30f            /* ...or contacting a sleeper while moving this fast
                                        * (a fast strike wakes before it can penetrate WAKE_PEN) */
@@ -863,6 +865,22 @@ static void apply_pseudo(MoteBody *bodies, Contact *c, float Jp) {
     }
 }
 
+/* HOW FAR A BODY IS LEFT SUNK INTO WHAT IT RESTS ON.
+ *
+ * A flat POS_SLOP is a fraction of a crate and a fifth of a snooker ball, and
+ * what it costs is not the look of it: the contact point is on the surface, so
+ * a ball sunk 5 mm of its 25.4 mm is spun by friction about a 20 mm arm rather
+ * than its own radius. Measured on a bare mesh slope, that is 28% too much
+ * spin for the speed and 60% of the (5/7)g sin(theta) a rolling ball is owed --
+ * enough that a ball trickling onto a pocket lip stopped dead and sat there for
+ * nearly three seconds (2026-09-05). Capped against the body, a ball keeps 95%
+ * of its roll and anything 250 mm or larger is untouched. */
+static inline float slop_for(const MoteBody *b) {
+    const float r = body_bound_r(b);
+    const float rel = POS_SLOP_REL * r;
+    return (r > 0.0f && rel < POS_SLOP) ? rel : POS_SLOP;
+}
+
 static void solve_pos(MoteBody *bodies, float h) {
     for (int i = 0; i < s_nct; i++) {
         Contact *c = &s_ct[i];
@@ -875,7 +893,9 @@ static void solve_pos(MoteBody *bodies, float h) {
             pvr = v3_sub(pvr, pvB);
         }
         float pvn = v3_dot(pvr, c->n);
-        float corr = clampf(c->pen - POS_SLOP, 0.0f, 0.2f);   /* cap deep-pen correction */
+        float slop = slop_for(&bodies[c->a]);                 /* the smaller body decides */
+        if (c->b >= 0) { const float sb = slop_for(&bodies[c->b]); if (sb < slop) slop = sb; }
+        float corr = clampf(c->pen - slop, 0.0f, 0.2f);       /* cap deep-pen correction */
         float target = POS_BETA * corr / h;
         float dJp = (target - pvn) / c->kn;
         float jp0 = c->jp;

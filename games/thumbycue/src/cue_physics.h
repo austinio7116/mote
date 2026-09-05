@@ -502,6 +502,12 @@ typedef struct {
      * snooker bridge; a pool table's pocket is a moulded plastic liner and
      * gives a ball a good deal more back. 0 means the default. */
     float pgeom_e, pgeom_mu;
+    /* THE CLOTH'S ROLL OVER THE CUT, as the table draws it. One mesh for every
+     * pocket -- cue_render emits the lips as one run and the solver's grid
+     * makes that free. With it set, the hand-written lip constraint stands
+     * aside and a ball leaving the bed is simply a sphere on the drawn surface
+     * in the solver, with its friction and its spin, all the way down. */
+    const MoteMesh *pgeom_lip;
     /* THE SLATE'S THICKNESS, as a height: the cloth-covered face of the cut
      * runs from the cloth down to here (40 mm on a 12 ft table, 30 on the
      * rest -- asked for 2026-09-03), and the drawn lip is the same number
@@ -722,6 +728,11 @@ void cue_phys_set_pocket_geom(CueWorld *w, int pk, const MoteMesh *solid, const 
 /* What the pocket's SOLID gives back and how it grips: leather over iron when
  * never set (0.06 and 0.35), plastic for a lined pocket. */
 void cue_phys_set_pocket_material(CueWorld *w, float e, float mu);
+/* The cloth lip's own friction and restitution (see cue_phys_set_pocket_lip).
+ * Negative leaves that one as it is. */
+void cue_phys_set_lip_material(float mu, float e);
+/* The drawn cloth roll, for every pocket at once. NULL = the hand-written lip. */
+void cue_phys_set_pocket_lip(CueWorld *w, const MoteMesh *lip);
 int  cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h);
 /* WHEN THE RULES GET THE BALL. 0 (the default, a table with no ball return):
  * at CUE_POCKET_FLOOR. k > 0: when its centre is k radii under the cloth --
