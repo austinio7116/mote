@@ -27,6 +27,33 @@
 #include <stdint.h>
 #include "mote_vr_math.h"
 
+/* ---- the pose between the frames --------------------------------------
+ *
+ * A controller pose read once a rendered frame is 13.9 ms apart at 72 Hz, and
+ * a cue tip doing 10 m/s covers 139 mm in that time against a ball 52 mm
+ * across: the ball is never seen at the tip, and a stroke's speed is an
+ * average over a step three times the ball's width. Measured on a Quest Pro
+ * (2026-09-04), the runtime answers xrLocateSpace with GENUINELY NEW poses at
+ * about 480 Hz -- 0.4% of samples 2 ms apart were collinear with their
+ * neighbours, where linear interpolation between 72 Hz updates would have made
+ * six in seven of them exactly collinear. So a thread reads them at that rate
+ * into this ring, and anything that needs the real path -- a strike -- walks
+ * it instead of guessing between two frames.
+ *
+ * The DRAWN pose is still the frame's own. Nothing here moves what you see. */
+typedef struct {
+    int64_t    t_ns;        /* when it was asked for, the runtime's own clock */
+    MoteVrPose pose;
+} MoteVrPoseSample;
+
+/* The most recent samples for one hand, NEWEST FIRST, up to `max`. Returns how
+ * many were written; 0 where there is no history (the desktop preview, or
+ * before the thread has run). Safe to call from the frame thread while the
+ * sampler is writing: the ring is a second long and the copy is checked
+ * against the writer afterwards, so a torn read comes back short rather than
+ * wrong. */
+int mote_xr_pose_history(int hand, MoteVrPoseSample *out, int max);
+
 /* ---- what the tracking layer produces ---------------------------------- */
 
 typedef struct {

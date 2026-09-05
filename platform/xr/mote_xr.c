@@ -1178,7 +1178,7 @@ static void draw_frame(void) {
  * Runs for eight seconds from the first frame, logs a summary and stops. It
  * reads poses and writes to the log; it changes nothing. */
 #ifndef MOTE_XR_TRACKPROBE
-#define MOTE_XR_TRACKPROBE 1
+#define MOTE_XR_TRACKPROBE 0   /* answered 2026-09-04: the poses are fused, not interpolated */
 #endif
 #if MOTE_XR_TRACKPROBE
 #define PROBE_HZ   500
@@ -1195,6 +1195,16 @@ static XrTime probe_now(void) {
      * visible rather than assumed. */
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
     return (XrTime)ts.tv_sec * 1000000000LL + (XrTime)ts.tv_nsec;
+}
+
+/* STRAIGHT TO LOGCAT, not through xrlog: MOTE_LOG is 0 in a release build and
+ * every engine log line is compiled out of it, so the first run of this probe
+ * wrote nothing at all (2026-09-04). A diagnostic that only works in a build
+ * nobody is wearing is not a diagnostic. */
+static void probe_log(const char *fmt, ...) {
+    char b[512];
+    va_list ap; va_start(ap, fmt); vsnprintf(b, sizeof b, fmt, ap); va_end(ap);
+    __android_log_print(ANDROID_LOG_INFO, "trackprobe", "%s", b);
 }
 
 static void *probe_run(void *arg) {
@@ -1227,9 +1237,9 @@ static void *probe_run(void *arg) {
         if (d < 1e-7) same++; else { moved++; if (d > biggest_step) biggest_step = d; }
     }
     const double secs = S_probe.n > 1 ? (double)(S_probe.t[S_probe.n-1] - S_probe.t[0]) * 1e-9 : 0.0;
-    xrlog("[trackprobe] %d polls over %.2f s at %d Hz asked: %d changed the pose, %d repeated it",
+    probe_log(" %d polls over %.2f s at %d Hz asked: %d changed the pose, %d repeated it",
           S_probe.n, secs, PROBE_HZ, moved, same);
-    xrlog("[trackprobe] the pose changes about %.0f times a second; the display runs at %.0f",
+    probe_log(" the pose changes about %.0f times a second; the display runs at %.0f",
           secs > 0.1 ? moved / secs : 0.0, (double)S.probe_fps);
     const int span = PROBE_HZ / 72;
     double worst = 0.0, sum = 0.0; int cnt = 0;
@@ -1242,15 +1252,108 @@ static void *probe_run(void *arg) {
         const double mv = sqrt((bx-ax)*(bx-ax)+(by-ay)*(by-ay)+(bz-az)*(bz-az));
         if (mv > 0.010) { sum += d; cnt++; if (d > worst) worst = d; }
     }
-    xrlog("[trackprobe] off the chord over one frame: mean %.2f mm, worst %.2f mm, over %d moving samples",
+    probe_log(" off the chord over one frame: mean %.2f mm, worst %.2f mm, over %d moving samples",
           cnt ? sum/cnt*1000.0 : 0.0, worst*1000.0, cnt);
-    xrlog("[trackprobe] biggest step between polls %.2f mm", biggest_step*1000.0);
-    xrlog("[trackprobe] VERDICT: %s",
-          (cnt && sum/cnt > 0.0005) ? "the extra samples carry real motion -- a tracking thread is worth it"
-                                    : "the extra samples look interpolated -- a thread would add nothing");
+    probe_log(" biggest step between polls %.2f mm", biggest_step*1000.0);
+    /* ---- IS THERE ANYTHING BETWEEN THE RUNTIME'S OWN UPDATES? -----------
+     *
+     * The chord test above cannot answer that: a runtime interpolating in
+     * straight lines between its updates still shows the hand's curvature over
+     * a whole frame, so the first version of this measured the stroke and
+     * called it a verdict (2026-09-04).
+     *
+     * The scale to look at is the smallest one. Three polls 2 ms apart are
+     * EXACTLY collinear if the pose between two updates is a straight line, so
+     * the deviation is zero except at the knots -- and the knots arrive at the
+     * update rate, 72 a second if the runtime only refreshes per frame.
+     * Genuinely fused poses are never exactly collinear: sensor noise and real
+     * jerk leave a little on every sample. */
+    {   double d1_sum = 0.0, d1_max = 0.0; int d1_n = 0, flat = 0, knots = 0;
+        for (int i = 1; i + 1 < S_probe.n; i++) {
+            const double mx = 0.5*(S_probe.x[i-1] + S_probe.x[i+1]);
+            const double my = 0.5*(S_probe.y[i-1] + S_probe.y[i+1]);
+            const double mz = 0.5*(S_probe.z[i-1] + S_probe.z[i+1]);
+            const double dx = S_probe.x[i]-mx, dy = S_probe.y[i]-my, dz = S_probe.z[i]-mz;
+            const double d = sqrt(dx*dx+dy*dy+dz*dz);
+            const double ax = S_probe.x[i+1]-S_probe.x[i-1];
+            const double ay = S_probe.y[i+1]-S_probe.y[i-1];
+            const double az = S_probe.z[i+1]-S_probe.z[i-1];
+            if (sqrt(ax*ax+ay*ay+az*az) < 0.0005) continue;   /* slower than 0.125 m/s */
+            d1_sum += d; d1_n++;
+            if (d > d1_max) d1_max = d;
+            if (d < 1e-6) flat++; else if (d > 20e-6) knots++;
+        }
+        probe_log(" at 2 ms: mean off-chord %.4f mm, worst %.3f mm, over %d moving samples",
+                  d1_n ? d1_sum/d1_n*1000.0 : 0.0, d1_max*1000.0, d1_n);
+        probe_log(" dead-flat %d of %d (%.1f%%); breaks in the flatness %d = %.0f a second",
+                  flat, d1_n, d1_n ? 100.0*flat/d1_n : 0.0, knots,
+                  secs > 0.1 ? knots/secs : 0.0);
+        probe_log(" VERDICT: %s",
+                  (d1_n && flat * 4 > d1_n * 3)
+                      ? "straight lines between updates -- the runtime is interpolating"
+                      : "every sample has its own answer -- the poses are fused, not interpolated");
+    }
     return NULL;
 }
 #endif
+
+/* ---- THE POSE RING ------------------------------------------------------
+ *
+ * One thread, both hands, ~500 Hz, into a ring a second long. Single writer,
+ * many readers: the head is published with a release store after the slot is
+ * filled, a reader takes it with an acquire load, copies backwards, and then
+ * checks the head has not run a whole lap while it was copying. A lap is two
+ * seconds of samples; a copy is a memcpy of a few dozen. */
+#define POSE_RING 1024
+static struct {
+    MoteVrPoseSample s[2][POSE_RING];
+    unsigned         head[2];        /* one past the newest */
+    pthread_t        th;
+    int              started, stop;
+} S_ring;
+
+static void *ring_run(void *arg) {
+    (void)arg;
+    const long period_ns = 2000000L;          /* 500 Hz */
+    while (!S_ring.stop) {
+        if (S.session && S.running && S.space) {
+            struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+            const XrTime t = (XrTime)ts.tv_sec * 1000000000LL + (XrTime)ts.tv_nsec;
+            for (int h = 0; h < 2; h++) {
+                if (!S.hand_space[h]) continue;
+                XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+                if (!XR_SUCCEEDED(xrLocateSpace(S.hand_space[h], S.space, t, &loc))) continue;
+                if (!(loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) ||
+                    !(loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) continue;
+                const unsigned hd = __atomic_load_n(&S_ring.head[h], __ATOMIC_RELAXED);
+                MoteVrPoseSample *sl = &S_ring.s[h][hd % POSE_RING];
+                sl->t_ns = (int64_t)t;
+                memcpy(&sl->pose.q, &loc.pose.orientation, sizeof sl->pose.q);
+                memcpy(&sl->pose.p, &loc.pose.position,    sizeof sl->pose.p);
+                __atomic_store_n(&S_ring.head[h], hd + 1, __ATOMIC_RELEASE);
+            }
+        }
+        struct timespec sl2 = { 0, period_ns };
+        nanosleep(&sl2, NULL);
+    }
+    return NULL;
+}
+
+int mote_xr_pose_history(int hand, MoteVrPoseSample *out, int max) {
+    if (hand < 0 || hand > 1 || !out || max <= 0) return 0;
+    if (max > POSE_RING - 2) max = POSE_RING - 2;
+    const unsigned h0 = __atomic_load_n(&S_ring.head[hand], __ATOMIC_ACQUIRE);
+    if (h0 == 0) return 0;
+    unsigned n = h0 < (unsigned)max ? h0 : (unsigned)max;
+    for (unsigned i = 0; i < n; i++) out[i] = S_ring.s[hand][(h0 - 1 - i) % POSE_RING];
+    /* did the writer lap us while we copied? then the oldest of these is not
+     * ours any more and the caller gets only what is certainly still good. */
+    const unsigned h1 = __atomic_load_n(&S_ring.head[hand], __ATOMIC_ACQUIRE);
+    const unsigned moved = h1 - h0;
+    if (moved >= POSE_RING) return 0;
+    if (moved + n > POSE_RING) n = POSE_RING - moved;
+    return (int)n;
+}
 
 static void pump_events(void) {
     XrEventDataBuffer ev = { XR_TYPE_EVENT_DATA_BUFFER };
@@ -1265,12 +1368,17 @@ static void pump_events(void) {
                 bi.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
                 if (!failed(xrBeginSession(S.session, &bi), "xrBeginSession"))
                     S.running = 1;
+                if (S.running && !S_ring.started) {
+                    S_ring.started = 1;
+                    if (pthread_create(&S_ring.th, NULL, ring_run, NULL) == 0)
+                        pthread_detach(S_ring.th);
+                }
 #if MOTE_XR_TRACKPROBE
                 if (S.running && !S_probe.started) {
                     S_probe.started = 1;
                     if (pthread_create(&S_probe.th, NULL, probe_run, NULL) == 0)
                         pthread_detach(S_probe.th);
-                    xrlog("[trackprobe] started: %d Hz for %d s -- MAKE SOME STROKES NOW", PROBE_HZ, PROBE_SECS);
+                    probe_log(" started: %d Hz for %d s -- MAKE SOME STROKES NOW", PROBE_HZ, PROBE_SECS);
                 }
 #endif
             } else if (e->state == XR_SESSION_STATE_STOPPING) {
