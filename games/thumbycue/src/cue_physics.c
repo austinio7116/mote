@@ -1107,6 +1107,13 @@ CUE_HOT float cue_phys_cut_out(const CueWorld *w, int p, float x, float z) {
 float cue_table_bore_bot(void);                   /* cue_table.c */
 static float s_release_radii = 0.0f;              /* see cue_phys_set_drop_release */
 void cue_phys_set_drop_release(float radii) { s_release_radii = radii > 0.0f ? radii : 0.0f; }
+/* THE RULES TAKE THE BALL AT THE BOTTOM OF THE SHAFT, not a radius down. The
+ * return's floor at its shallow end is 35 mm under the rim, so a ball lying on
+ * it has its centre 10 mm under the rim -- ABOVE a release line a radius down.
+ * That ball was never potted and never let go of (2026-09-05). Out of the
+ * bottom of the shaft is out of the pocket, whatever it lands on. */
+static float s_release_y = 1e9f;
+void cue_phys_set_drop_release_y(float y) { s_release_y = y; }
 float cue_table_bore_bot(void);                   /* cue_table.c */
 float cue_phys_bag_mouth_y(const CueWorld *w) { return cue_table_bore_bot() - w->R * 0.05f; }
 float cue_phys_bag_ring_y(const CueWorld *w)  { return cue_phys_bag_mouth_y(w) - w->R * 3.9f; }
@@ -1269,7 +1276,36 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
     }
 }
 
+static float s_lip_mu = 0.05f, s_lip_e = 0.08f;   /* see cue_phys_set_lip_material */
 void cue_phys_set_pocket_lip(CueWorld *w, const MoteMesh *lip) { if (w) w->pgeom_lip = lip; }
+void cue_phys_set_return_geom(CueWorld *w, const MoteMesh *box) { if (w) w->pgeom_box = box; }
+
+static void under_static(MoteBody *m, const MoteMesh *mesh, float mu, float e) {
+    memset(m, 0, sizeof *m);
+    m->shape = MOTE_SHAPE_MESH; m->shape_data = mesh;
+    m->orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
+    m->radius = mesh->bound_r;
+    m->friction = mu; m->restitution = e;
+}
+int cue_phys_under_bodies(const CueWorld *w, MoteBody *out, int cap) {
+    int n = 0;
+    if (!w || !out) return 0;
+    /* cloth over slate falling away under the ball: see s_lip_mu */
+    if (w->pgeom_lip && n < cap) under_static(&out[n++], w->pgeom_lip, s_lip_mu, s_lip_e);
+    /* the return: moulded plastic under a slate, grips and gives little back */
+    if (w->pgeom_box && n < cap) under_static(&out[n++], w->pgeom_box, 0.35f, 0.16f);
+    for (int k = 0; k < CUE_MAX_POCKET && k < w->npocket; k++) {
+        /* leather over iron is dead and grips; a moulded liner is neither, and
+         * the table says which it is wearing */
+        if (w->pgeom_solid[k] && n < cap)
+            under_static(&out[n++], w->pgeom_solid[k],
+                         w->pgeom_mu > 0.0f ? w->pgeom_mu : 0.35f,
+                         w->pgeom_e  > 0.0f ? w->pgeom_e  : 0.06f);
+        /* waxed cord: dead, and it slides */
+        if (w->pgeom_net[k] && n < cap) under_static(&out[n++], w->pgeom_net[k], 0.30f, 0.02f);
+    }
+    return n;
+}
 
 /* WHAT THE CLOTH LIP IS, TO A BALL GOING OVER IT.
  *
@@ -1281,7 +1317,6 @@ void cue_phys_set_pocket_lip(CueWorld *w, const MoteMesh *lip) { if (w) w->pgeom
  * was spun up to match the speed it gained going down, which is a gear and not
  * a pot ("weird rotational acceleration that does not look real", 2026-09-05).
  * 0.05 is a ball glancing off cloth it is barely resting on. */
-static float s_lip_mu = 0.05f, s_lip_e = 0.08f;
 void cue_phys_set_lip_material(float mu, float e) {
     if (mu >= 0.0f) s_lip_mu = mu;
     if (e  >= 0.0f) s_lip_e  = e;
@@ -1363,7 +1398,7 @@ static float iron_down(float vy, float vu) {
 int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
     if (pk < 0 || pk >= CUE_MAX_POCKET) return 0;
     const MoteMesh *solid = w->pgeom_solid[pk], *net = w->pgeom_net[pk];
-    if (!solid && !net) return 0;
+    if (!solid && !net && !w->pgeom_lip && !w->pgeom_box) return 0;
     MoteWorld pw;
     mote_phys_world_defaults(&pw);
     pw.gravity      = v3(0.0f, -w->g, 0.0f);
@@ -1389,7 +1424,13 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
     const float qh  = 0.25f * h;
     pw.substep      = qh;
     pw.max_substeps = 1;
-    MoteBody bodies[4]; int n = 0;
+    /* THE BALL, AND EVERY SURFACE UNDER THE CLOTH. It was this pocket's solid,
+     * the lip and this pocket's net, and nothing else -- so a ball out of the
+     * bottom of a shaft was in a world with no floor until the app's tray took
+     * it, and at the far end of the return it never got that far down: it sat
+     * on a floor this world could not see, put back and dropped and put back,
+     * spinning (2026-09-05). One set of bodies for everything below the bed. */
+    MoteBody bodies[CUE_UNDER_BODIES]; int n = 0;
     {   MoteBody *m = &bodies[n++];
         memset(m, 0, sizeof *m);
         m->shape = MOTE_SHAPE_SPHERE;
@@ -1397,31 +1438,7 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
         m->inv_mass = 1.0f / cue_ball_m(w, b);
         m->pos = b->pos; m->vel = b->vel; m->w = b->w; m->orient = b->orient;
         m->friction = 0.0f; m->restitution = 0.0f;   /* the surface decides */ }
-    if (solid) {
-        MoteBody *m = &bodies[n++];
-        memset(m, 0, sizeof *m);
-        m->shape = MOTE_SHAPE_MESH; m->shape_data = solid;
-        m->orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
-        m->radius = solid->bound_r;
-        /* leather over iron is dead and grips (0.06 / 0.35); a moulded liner
-         * is neither, and the table says which it is wearing */
-        m->friction    = w->pgeom_mu > 0.0f ? w->pgeom_mu : 0.35f;
-        m->restitution = w->pgeom_e  > 0.0f ? w->pgeom_e  : 0.06f; }
-    if (w->pgeom_lip) {
-        MoteBody *m = &bodies[n++];
-        memset(m, 0, sizeof *m);
-        m->shape = MOTE_SHAPE_MESH; m->shape_data = w->pgeom_lip;
-        m->orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
-        m->radius = w->pgeom_lip->bound_r;
-        /* cloth over slate falling away under the ball: see s_lip_mu */
-        m->friction = s_lip_mu; m->restitution = s_lip_e; }
-    if (net) {
-        MoteBody *m = &bodies[n++];
-        memset(m, 0, sizeof *m);
-        m->shape = MOTE_SHAPE_MESH; m->shape_data = net;
-        m->orient = (Mat3){{{1,0,0},{0,1,0},{0,0,1}}};
-        m->radius = net->bound_r;
-        m->friction = 0.30f; m->restitution = 0.02f;  /* waxed cord: dead, and it slides */ }
+    n += cue_phys_under_bodies(w, bodies + n, (int)(sizeof bodies / sizeof bodies[0]) - n);
     const Vec3 v_in = b->vel;
     for (int q = 0; q < 4; q++) { pw._acc = 0.0f; mote_phys_step(&pw, bodies, n, qh); }
     /* THE KNOCK. A change of horizontal speed of more than 0.4 m/s in one
@@ -2533,7 +2550,8 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
     for (int i = 0; i < n; i++) {
         CueBall *b = &balls[i];
         if (!b->on || b->drop <= 0.0f) continue;
-        const float rel = s_release_radii > 0.0f ? -s_release_radii * cue_ball_r(w, b) : CUE_POCKET_FLOOR;
+        const float rel = s_release_y < 1e8f ? s_release_y
+                        : s_release_radii > 0.0f ? -s_release_radii * cue_ball_r(w, b) : CUE_POCKET_FLOOR;
         if (b->pos.y < rel) {
             b->on = 0; b->drop = 0.0f;   /* the rules have it; pos and vel stay the ball's */
             if (events) *events |= CUE_EV_POTTED;

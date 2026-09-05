@@ -132,6 +132,16 @@ enum { CUE_TOUCH_BALL = 0, CUE_TOUCH_CUSHION };
 #define CUE_SKITTLE_BODIES   (CUE_MAX_SKITTLE + CUE_SKITTLE_PLANES)
 /* Every hull vertex against every plane it is touching, with room to spare. */
 #define CUE_SKITTLE_CONTACTS 192
+/* ...AND THE WORLD UNDER THE CLOTH, which is the bigger of the two. A dropping
+ * ball is solved against every surface below the bed at once -- the cloth lip,
+ * the return box, and each pocket's solid and net -- so that is one ball plus
+ * up to 2 + 2*CUE_MAX_POCKET statics. Pools sized for the skittles alone took
+ * a netted table's fourteen bodies into room for nine, and every snooker ball
+ * hung in its bag for ever (2026-09-05). Size the pools from this. */
+#define CUE_UNDER_STATICS    (2 + 2 * CUE_MAX_POCKET)
+#define CUE_UNDER_BODIES     (1 + CUE_UNDER_STATICS)
+#define CUE_PHYS_POOL_BODIES (CUE_UNDER_BODIES > CUE_SKITTLE_BODIES ? CUE_UNDER_BODIES : CUE_SKITTLE_BODIES)
+#define CUE_PHYS_POOL_CONTACTS 256
 /* ...and the arena those pools come out of. mote sizes a warm-start cache at
  * the next power of two above twice the contact count, so this is not the
  * small number the body count suggests — it is worth stating rather than
@@ -508,6 +518,12 @@ typedef struct {
      * aside and a ball leaving the bed is simply a sphere on the drawn surface
      * in the solver, with its friction and its spin, all the way down. */
     const MoteMesh *pgeom_lip;
+    /* THE RETURN BOX, the last surface under the cloth. With this in the same
+     * set as the shafts, the lip and the nets, everything a ball can meet once
+     * it has left the bed is one description, and every step below the cloth
+     * -- the sim's while the rules still own the ball, the app's once they have
+     * taken it -- solves against the same bodies with the same materials. */
+    const MoteMesh *pgeom_box;
     /* THE SLATE'S THICKNESS, as a height: the cloth-covered face of the cut
      * runs from the cloth down to here (40 mm on a 12 ft table, 30 on the
      * rest -- asked for 2026-09-03), and the drawn lip is the same number
@@ -731,6 +747,16 @@ void cue_phys_set_pocket_material(CueWorld *w, float e, float mu);
 /* The cloth lip's own friction and restitution (see cue_phys_set_pocket_lip).
  * Negative leaves that one as it is. */
 void cue_phys_set_lip_material(float mu, float e);
+/* The ball return, as a mesh. NULL for a table without one. */
+void cue_phys_set_return_geom(CueWorld *w, const MoteMesh *box);
+/* EVERY STATIC SURFACE UNDER THE CLOTH, as solver bodies with their materials:
+ * the shafts and liners of every pocket, the cloth lip, the nets, the return
+ * box. One function, so no step below the cloth can be given a different world
+ * from another. Returns how many it wrote. */
+int  cue_phys_under_bodies(const CueWorld *w, MoteBody *out, int cap);
+/* Where the rules take a potted ball, as a height under the cloth. Set, it
+ * replaces cue_phys_set_drop_release's radii. */
+void cue_phys_set_drop_release_y(float y);
 /* The drawn cloth roll, for every pocket at once. NULL = the hand-written lip. */
 void cue_phys_set_pocket_lip(CueWorld *w, const MoteMesh *lip);
 int  cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h);
