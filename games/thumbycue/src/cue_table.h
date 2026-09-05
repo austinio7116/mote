@@ -242,6 +242,13 @@ enum {
      * so it takes the funnel's place rather than hanging inside it. */
     CUE_FURN_NETS      = 1u << 5,
     CUE_FURN_COLLECTOR = 1u << 6,
+    /* A TRAY UNDER THE SLATE, which is where a lined table's balls go: they
+     * fall through the pocket, run down the funnel and gather at one end. Said
+     * outright rather than inferred from the absence of bags, because what a
+     * table HAS is the table's to declare -- and because a frame with buckets
+     * under each pocket instead is a third answer, not the negation of a
+     * second (2026-09-05). */
+    CUE_FURN_TRAY      = 1u << 7,
     CUE_FURN_SIGHTS = 1u << 2,   /* sight dots along the rails */
     /* WHAT SHAPE THOSE DOTS ARE. Round is the pub table's; a diamond is the
      * American one, and a diamond has a long axis, which always points at the

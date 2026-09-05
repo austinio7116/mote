@@ -1205,16 +1205,22 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
          * and out over the cloth -- "flickers back out and into the table"
          * (2026-09-03). CUE_IRON_DOWN is the share of the horizontal speed
          * that becomes fall; the remainder is what the leather absorbs. */
-        /* THE SLATE'S CORNERS STILL CONTAIN THE BALL unless there is a drawn
-         * back that goes all the way round. A snooker pocket has one -- the
-         * plate and the bag between them close it -- so the analytic walls
-         * stand aside for it. A LINED pocket's drawn piece is the moulding
-         * across the BACK only, about ninety degrees of it, so gating on the
-         * solid alone left the sides of a pool pocket with nothing at all in
-         * them and a spun ball climbed out sideways: six topspin shots between
-         * 4 and 8 m/s that 3.5 potted came back out (measured 2026-09-05
-         * against a 3.5 build). The net is what says the back is complete. */
-        if (!bed && b->pos.y > -R && !w->pgeom_net[pk]) {   /* no drawn bag: the analytic walls stand */
+        /* THE LIP AND THE DROP ARE THE SAME ON EVERY TABLE, and that is the
+         * point: the cloth's roll above, then whatever the table is DRAWN
+         * with, and nothing invented in between. These walls are the fallback
+         * for a table that has no drawn pocket at all -- the handheld, and the
+         * tests.
+         *
+         * A lined table briefly kept them, because its drawn moulding covers
+         * only about ninety degrees of the back and gating them off left the
+         * SIDES of the pocket empty: six topspin shots between 4 and 8 m/s
+         * climbed out. The answer was not to keep an invented wall on one
+         * table and not the other -- it was to draw the pocket properly, and
+         * the bore is now a closed cylinder in the collider from the cloth to
+         * below the slate (cuevr_frame's liner throat). So both tables run the
+         * same path again (2026-09-05, at the player's insistence, and they
+         * were right). */
+        if (!bed && b->pos.y > -R && !w->pgeom_solid[pk]) {   /* nothing drawn: the analytic walls stand in */
             if (!mid) {
                 const float u = sx * (b->pos.x - C.x);
                 if (u > 0.0f) {

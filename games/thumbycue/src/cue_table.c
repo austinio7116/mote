@@ -984,7 +984,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
                            kind <= CUE_GAME_CAROM_4B) ||
                           kind == CUE_GAME_CAROM_1C;
         if (!carom && kind != CUE_GAME_BARBILLIARDS) {
-            t->furniture = CUE_FURN_LINER;
+            t->furniture = CUE_FURN_LINER | CUE_FURN_TRAY;   /* moulded drops into a tray under the slate */
             switch (kind) {
             /* THE UK PUB TABLE and everything played on its bed: chrome on the
              * corners, round dots on the rails. */
