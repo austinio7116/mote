@@ -754,6 +754,13 @@ void cue_phys_set_return_geom(CueWorld *w, const MoteMesh *box);
  * box. One function, so no step below the cloth can be given a different world
  * from another. Returns how many it wrote. */
 int  cue_phys_under_bodies(const CueWorld *w, MoteBody *out, int cap);
+/* THE WORLD THOSE BODIES LIVE IN -- gravity, the ball's own material, the drag
+ * of what is down there -- so the sim's step and an app's persistent return box
+ * step the same ball through the same world. The ball bodies carry no material
+ * of their own (0), so mote falls back to this world's: phenolic at 0.30, a
+ * restitution low enough that every surface's own wins. below_cloth turns the
+ * drag on; above the cloth a ball is in air. */
+void cue_phys_under_world(const CueWorld *w, MoteWorld *pw, int below_cloth);
 /* Where the rules take a potted ball, as a height under the cloth. Set, it
  * replaces cue_phys_set_drop_release's radii. */
 void cue_phys_set_drop_release_y(float y);
@@ -793,6 +800,7 @@ int cue_world_ball_on_bed(const CueWorld *w, float x, float z, float r);
 
 int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events);
 float cue_phys_cushion_impact(void);   /* loudest rail-approach speed from last step */
+float cue_phys_ball_impact(void);      /* hardest ball-ball closing speed from last step (CUE_EV_BALL_HIT) */
 float cue_phys_pot_impact(void);        /* fastest pot-entry speed from last step */
 float cue_phys_bridge_impact(void);     /* fastest speed into a pocket's back from last step (CUE_EV_BRIDGE) */
 

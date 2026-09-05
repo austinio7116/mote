@@ -113,6 +113,7 @@ static int      s_nct;
 static Vec3    *s_pv, *s_pw;                                  /* position pseudo-velocities */
 static uint8_t *s_touch, *s_woke;                            /* contact this substep / woke this substep */
 static float   *s_pen;                                        /* deepest penetration this substep */
+static Vec3    *s_jsum;                                       /* net normal impulse on the body this substep */
 static int      s_max_bodies;
 
 typedef struct { uint32_t key; float jn, jt; } Imp;
@@ -137,12 +138,13 @@ int mote_phys_configure(MoteArena *arena, int max_bodies, int max_contacts) {
     s_touch  = mote_arena_alloc(arena, (size_t)s_max_bodies);
     s_woke   = mote_arena_alloc(arena, (size_t)s_max_bodies);
     s_pen    = mote_arena_alloc(arena, (size_t)s_max_bodies * sizeof(float));
+    s_jsum   = mote_arena_alloc(arena, (size_t)s_max_bodies * sizeof(Vec3));
     s_cacheA = mote_arena_alloc(arena, (size_t)s_cache_n * sizeof(Imp));
     s_cacheB = mote_arena_alloc(arena, (size_t)s_cache_n * sizeof(Imp));
     s_cache_prev = s_cacheA; s_cache_cur = s_cacheB;
     g_cell   = mote_arena_alloc(arena, (size_t)s_grid_cells * sizeof(int));
     g_next   = mote_arena_alloc(arena, (size_t)s_grid_bodies * sizeof(int));
-    return s_ct && s_pv && s_pw && s_touch && s_woke && s_pen && s_cacheA && s_cacheB && g_cell && g_next;
+    return s_ct && s_pv && s_pw && s_touch && s_woke && s_pen && s_jsum && s_cacheA && s_cacheB && g_cell && g_next;
 }
 
 static void cache_lookup(uint32_t key, float *jn, float *jt) {
@@ -1103,9 +1105,39 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
         /* Contact-gated sleep: a body may only fall asleep while it is RESTING on
          * something (had a contact) and barely moving — so it can never sleep in
          * mid-air (the floating-sphere bug). Once asleep it stays put (immovable)
-         * until displaced; an awake body intruding past WAKE_PEN wakes it. */
+         * until displaced; an awake body intruding past WAKE_PEN wakes it.
+         *
+         * AND A SPHERE ONLY ON LEVEL SUPPORT. "Barely moving for twenty substeps"
+         * is true of any ball at the top of its climb up a slope: on a 0.7 degree
+         * gully a reversing ball spends half a second under 0.02 m/s, and it was
+         * frozen there, sat on the slope for ever (a pool table's ball return,
+         * 2026-09-05). A ball has nothing to hold it on a slope -- it rolls -- so
+         * it may sleep only when the net normal impulse on it points straight
+         * against gravity, within half a degree: a level floor, a groove, a
+         * hollow. Boxes, capsules and hulls keep the old rule; they have faces
+         * and friction to rest on. */
+        if (n <= s_max_bodies) {
+            memset(s_jsum, 0, (size_t)n * sizeof s_jsum[0]);
+            for (int k = 0; k < s_nct; k++) {
+                const Contact *c = &s_ct[k];
+                Vec3 J = v3_scale(c->n, c->jn);
+                if (c->a < n) s_jsum[c->a] = v3_add(s_jsum[c->a], J);
+                if (c->b >= 0 && c->b < n) s_jsum[c->b] = v3_sub(s_jsum[c->b], J);
+            }
+        }
         if (n <= s_max_bodies) for (int i = 0; i < n; i++) {
             MoteBody *b = &bodies[i];
+            int level = 1;
+            if (b->shape == MOTE_SHAPE_SPHERE) {
+                const float g2 = v3_dot(w->gravity, w->gravity), j2 = v3_dot(s_jsum[i], s_jsum[i]);
+                if (g2 > 0.0f) {
+                    if (j2 <= 0.0f) level = 0;
+                    else {
+                        const float d = -v3_dot(s_jsum[i], w->gravity);
+                        level = d > 0.0f && d * d > 0.99992f * g2 * j2;   /* cos^2 of half a degree */
+                    }
+                }
+            }
             Vec3 anchor = v3(u2f(b->_reserved[1]), u2f(b->_reserved[2]), u2f(b->_reserved[3]));
             Vec3 dd = v3_sub(b->pos, anchor);
             float disp2 = v3_dot(dd, dd);
@@ -1114,7 +1146,7 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
                     b->_reserved[0] = 0;
                     b->_reserved[1] = f2u(b->pos.x); b->_reserved[2] = f2u(b->pos.y); b->_reserved[3] = f2u(b->pos.z);
                 }
-            } else if (s_touch[i] && s_pen[i] < 0.012f && disp2 < SLEEP_DIST2 && v3_dot(b->w, b->w) < SLEEP_ANG2
+            } else if (s_touch[i] && level && s_pen[i] < 0.012f && disp2 < SLEEP_DIST2 && v3_dot(b->w, b->w) < SLEEP_ANG2
                        && v3_dot(b->vel, b->vel) < SLEEP_VEL2) {
                 b->_reserved[0]++;                         /* resting (not deeply overlapping) + still -> sleep */
             } else {                                       /* airborne / moving -> stay awake, re-anchor */

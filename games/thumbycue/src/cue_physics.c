@@ -465,6 +465,7 @@ int cue_phys_airborne(const CueWorld *w, const CueBall *b) {
 /* loudest cushion-approach (normal) speed seen during the current cue_phys_step,
  * so the cushion SFX scales with the actual rail impact, not the whole table. */
 static float s_cush_vn;
+static float s_ball_vn;                 /* hardest ball-ball closing speed this step */
 /* AND HOW FAST IT WENT DOWN THE HOLE. Separate from the cushion meter: the two
  * are different events and a pot very often follows no cushion at all, so
  * reading the rail figure for a pot gave whatever the last rail happened to
@@ -1294,7 +1295,12 @@ int cue_phys_under_bodies(const CueWorld *w, MoteBody *out, int cap) {
     if (w->pgeom_lip && n < cap) under_static(&out[n++], w->pgeom_lip, s_lip_mu, s_lip_e);
     /* the return: ROUGH moulded plastic under a slate. It grips and it gives
      * almost nothing back, so a ball landing in it lands and rolls. */
-    if (w->pgeom_box && n < cap) under_static(&out[n++], w->pgeom_box, 0.50f, 0.12f);
+    /* 0.20, NOT 0.50. A phenolic ball on moulded plastic slides at about a
+     * fifth; a half is rubber, and on the box's WALLS it braked a ball sliding
+     * along the end into a stop and spun it about the vertical (2026-09-05).
+     * What stops a ball on a real return is rolling resistance, and the
+     * return's world carries that as angular damping, separately. */
+    if (w->pgeom_box && n < cap) under_static(&out[n++], w->pgeom_box, 0.20f, 0.12f);
     for (int k = 0; k < CUE_MAX_POCKET && k < w->npocket; k++) {
         /* leather over iron is dead and grips; a moulded liner is neither, and
          * the table says which it is wearing */
@@ -1396,20 +1402,39 @@ static float iron_down(float vy, float vu) {
  * net almost nothing and it is rough, and the net's slope is what turns a
  * hard ball's speed into fall. Nothing is invented: a ball that hits the
  * bridge goes where the bridge's own curve sends it. */
+void cue_phys_under_world(const CueWorld *w, MoteWorld *pw, int below_cloth) {
+    mote_phys_world_defaults(pw);
+    pw->gravity      = v3(0.0f, -w->g, 0.0f);
+    pw->walls        = 0;
+    /* THE BALL'S OWN MATERIAL, which mote combines with each surface's: friction
+     * as the geometric mean, restitution as the larger. The ball bodies are
+     * built with 0 and fall back to these. 0.30 is phenolic; 0.02 is low enough
+     * that every surface's own restitution is the one that counts. A world
+     * friction of 0 here is NOT "the surface decides": the mean of 0 and
+     * anything is 0, and a ball in such a world slides on every surface as if
+     * on ice, its spin never coupling to its roll ("gliding all over the place",
+     * the return box, 2026-09-05). */
+    pw->restitution  = 0.02f;
+    pw->friction     = 0.30f;
+    /* THE DRAG OF WHAT IS DOWN THERE, and nothing until the centre is below the
+     * cloth (see cue_phys_drop_fall's drag for the slow-motion lip this caused).
+     * A ball in a bag is in leather and string: 0.8. A ball in a moulded liner
+     * and a plastic return is in hard plastic, and the drag stands in for its
+     * rolling resistance: 0.3, which lets it roll the length of a gully with
+     * 25 mm of fall and still come to rest on a level pan. */
+    int netted = 0;
+    for (int k = 0; k < CUE_MAX_POCKET && k < w->npocket; k++) if (w->pgeom_net[k]) netted = 1;
+    const float drag = below_cloth ? (netted ? 0.8f : 0.3f) : 0.0f;
+    pw->linear_damp  = drag;
+    pw->angular_damp = drag;
+}
+
 int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
     if (pk < 0 || pk >= CUE_MAX_POCKET) return 0;
     const MoteMesh *solid = w->pgeom_solid[pk], *net = w->pgeom_net[pk];
     if (!solid && !net && !w->pgeom_lip && !w->pgeom_box) return 0;
     MoteWorld pw;
-    mote_phys_world_defaults(&pw);
-    pw.gravity      = v3(0.0f, -w->g, 0.0f);
-    pw.walls        = 0;
-    pw.restitution  = 0.02f;                /* the ball's own: the surface's wins */
-    pw.friction     = 0.30f;
-    /* leather and string, not air: nothing until the centre is below the cloth
-     * (see cue_phys_drop_fall's drag for the slow-motion lip this caused) */
-    pw.linear_damp  = (b->pos.y < 0.0f) ? 0.8f : 0.0f;
-    pw.angular_damp = (b->pos.y < 0.0f) ? 0.8f : 0.0f;
+    cue_phys_under_world(w, &pw, b->pos.y < 0.0f);
     /* FOUR SUBSTEPS TO THE SIM'S ONE. At 6 m/s a ball moves 3 mm in the sim's
      * 0.5 ms; lifted by its own spin against the back it can bury itself in
      * the plate's chamfer between two steps, and the solver's correction then
@@ -1455,7 +1480,17 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
          * only when the speed changed enough to matter. Its loudness is the
          * change of speed, the knock itself, not the speed the ball arrived
          * with: a ball that clips the leather on its way down is a touch. */
-        if (dv > 0.4f && solid && b->pos.y + bodies[0].radius > w->pgeom_solid_ymin[pk] - 0.002f
+        /* ...AND IT WAS THE BRIDGE, not the bottom of the bag. The leather is
+         * one mesh from the mouth to the collar, and a ball dropped softly
+         * over the lip falls a hand's depth and lands on the collar at a metre
+         * a second from gravity alone -- more than 0.4 m/s of change, within
+         * 3 mm of leather -- so every soft pot thumped like a hard one ("soft
+         * pots make the loud pot sound", 2026-09-05). The knock is a ball
+         * driven across the mouth into the back while its centre is still
+         * within a ball of the bed; anything lower has dropped, and what it
+         * does in the bag is the collector's to voice. */
+        if (dv > 0.4f && solid && bodies[0].pos.y > -bodies[0].radius
+            && b->pos.y + bodies[0].radius > w->pgeom_solid_ymin[pk] - 0.002f
             && mesh_dist(solid, bodies[0].pos, bodies[0].radius + 0.003f) < bodies[0].radius + 0.003f) {
             s_bridge_hit = 1; if (dv > s_bridge_v) s_bridge_v = dv; } }
 #ifdef MOTE_HOST
@@ -2402,8 +2437,19 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             float dx = balls[i].pos.x - balls[j].pos.x;
             float dz = balls[i].pos.z - balls[j].pos.z;
             if (dx > bb_min || dx < -bb_min || dz > bb_min || dz < -bb_min) continue;
+            /* HOW HARD THEY MEET: the closing speed along the line of centres,
+             * before the resolve changes it. This is what a clack's loudness
+             * is; the fastest ball on the table is not (a kiss between two
+             * slow balls while the white flies past played at full volume). */
+            float closing = 0.0f;
+            {   const float dd = sqrtf(dx * dx + dz * dz);
+                if (dd > 1e-6f) {
+                    const float nx = -dx / dd, nz = -dz / dd;             /* i -> j */
+                    closing = (balls[i].vel.x - balls[j].vel.x) * nx + (balls[i].vel.z - balls[j].vel.z) * nz;
+                } }
             if (collide_ball_ball(w, &balls[i], &balls[j])) {
                 if (ev) *ev |= CUE_EV_BALL_HIT;
+                if (closing > s_ball_vn) s_ball_vn = closing;
                 /* BOTH SIDES OF IT, which the cue ball's touch log cannot say:
                  * Honolulu asks whether the ball that DROPPED arrived by way of
                  * another ball, and a ball set off by a collision knows that
@@ -2499,6 +2545,7 @@ static float g_sub_h = CUE_H;
 void cue_phys_set_substep(float h) { g_sub_h = (h > 0.0f) ? h : CUE_H; }
 
 float cue_phys_cushion_impact(void) { return s_cush_vn; }
+float cue_phys_ball_impact(void) { return s_ball_vn; }
 float cue_phys_pot_impact(void) { return s_pot_v; }
 float cue_phys_bridge_impact(void) { return s_bridge_v; }
 
@@ -2528,6 +2575,7 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
         }
     }
     s_cush_vn = 0.0f;                  /* reset the cushion-impact meter for this step */
+    s_ball_vn = 0.0f;
     s_pot_v   = 0.0f;                  /* ...and the pot-impact meter */
     s_bridge_v = 0.0f; s_bridge_hit = 0;
     s_bed_land = 0;
