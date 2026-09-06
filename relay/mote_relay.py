@@ -51,10 +51,21 @@ def clean_code(raw: str) -> str:
     return out[:8]
 
 def clean_label(raw: str) -> str:
-    out = "".join(c for c in raw if c.isalnum() or c in "-_")
-    return out[:16] or "GAME"
+    """A room's label, as shown by LIST.
 
-async def read_line(reader: asyncio.StreamReader, cap: int = 64) -> bytes:
+    WAS 16 ALPHANUMERIC CHARACTERS, which is a game tag and nothing more. A
+    player browsing CueVR's rooms already knows they are CueVR rooms; what they
+    want is who is hosting and what is being played, and neither fits. Spaces
+    are allowed now and the cap is 48.
+
+    Still stripped hard, because this string is echoed to every other client:
+    no control characters, no newline (which would forge a second ROOM line),
+    and a bounded length whatever a client sends."""
+    out = "".join(c for c in raw if c.isalnum() or c in "-_ .+/'")
+    out = " ".join(out.split())          # no runs of spaces, no leading/trailing
+    return out[:48] or "GAME"
+
+async def read_line(reader: asyncio.StreamReader, cap: int = 160) -> bytes:
     """Read one '\\n'-terminated line, at most `cap` bytes, WITHOUT over-reading
     into the game stream that follows (so no game bytes are ever swallowed)."""
     buf = bytearray()
@@ -248,7 +259,10 @@ class Relay:
                 if key in self.rooms:
                     writer.write(b"TAKEN\n"); await writer.drain(); return
                 public = (len(a) > 1 and a[1].upper() == "PUB")
-                label = clean_label(a[2]) if len(a) > 2 else "GAME"
+                # THE REST OF THE LINE, not the third token: a label with spaces
+                # in it is the whole point. Old clients send one word and get
+                # exactly what they always did.
+                label = clean_label(" ".join(a[2:])) if len(a) > 2 else "GAME"
                 my_code = key
                 await self.wait_as_host(key, Room(reader, writer, loop.create_future(), public, label, gid, code), writer, peer)
                 return
@@ -270,7 +284,7 @@ class Relay:
                     await self.pair(self.rooms.pop(oldest), reader, writer, peer)
                     return
                 code = self.gen_code(gid)        # ...else host a public room and wait
-                label = clean_label(a[0]) if len(a) > 0 else "QUICK"
+                label = clean_label(" ".join(a[0:])) if len(a) > 0 else "QUICK"
                 key = rkey(gid, code); my_code = key
                 await self.wait_as_host(key, Room(reader, writer, loop.create_future(), True, label, gid, code), writer, peer)
                 return
