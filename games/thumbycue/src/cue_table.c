@@ -4198,8 +4198,23 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
      * shrank with it and the pocket only ever looked the same. Both are off the
      * mouth now, so they are independent, and the numbers below are what the
      * old ratios worked out to on each table. */
+        /* THE 7 FT BED'S CUT REACHED INSIDE ITS OWN DROP. The cloth was cut
+         * 3.32 mm SHORT of the drop circle at a corner and 2.14 at a middle --
+         * the only bed in the game that way round; the 12 ft has 18 mm of
+         * margin, the Chinese 7.5, the American a hundredth. That left a ring
+         * in which a ball's centre is inside the drop while the ball is still
+         * standing on cloth, and a ball caught there is neither potted nor
+         * held up: it settles on the lip's outer crest, slides back the way it
+         * came gathering speed, and is set down on the cloth again still
+         * carrying it -- in at 20 mm/s, out at 137, and 224 mm back up the
+         * table. Reported as a gentle straight-in shot that stopped on the lip
+         * and rolled back out, and only ever at a crawl, because a ball with
+         * any pace crosses three millimetres inside one step (2026-09-06).
+         * The cut is grown to clear the drop -- the drop itself does not move,
+         * so the table pots exactly as it did. Shared by UK8, SNK6, SNK3, GOLF
+         * and KILLER_UK, which are one bed. */
     static const CueCut corner[] = {
-        /* UK8   */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
+        /* UK8   */ { 0.0265f, 1.4430f, 0.2200f,  90.0f },
         /* US8   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
         /* US9   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
         /* CN8   */ { 0.0170f, 1.3550f, 0.2200f,  90.0f },
@@ -4216,7 +4231,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * old cut (r 61.4, set 14.5) started 8.8 mm later than the template. */
         /* SNK15 */ { 0.0332f, 1.9629f, 0.2150f,  90.0f },
         /* SNK10 */ { 0.0332f, 1.9629f, 0.2150f,  90.0f },
-        /* SNK6  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
+        /* SNK6  */ { 0.0265f, 1.4430f, 0.2200f,  90.0f },
         /* STRT  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* PYRA — the American's cut, with the SETBACK scaled to this mouth
          * (0.517 of it) rather than copied in millimetres. */
@@ -4234,7 +4249,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * take. */
         /* BARB  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* GOLF — the UK 7 ft bed, so the UK 7 ft corner cut, exactly */
-        /* GOLF  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
+        /* GOLF  */ { 0.0265f, 1.4430f, 0.2200f,  90.0f },
         /* US10 — the same 9 ft American bed as 9-ball, so its cut exactly */
         /* US10  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
         /* PAUL — the snooker cut, with the SETBACK scaled to this small mouth
@@ -4242,7 +4257,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * is a third of it, and a third of Paul's is 8.4. */
         /* PAUL  */ { 0.0084f, 1.3550f, 0.2150f,  90.0f },
         /* KILLER — the base tables' own cuts, exactly */
-        /* K-UK  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },
+        /* K-UK  */ { 0.0265f, 1.4430f, 0.2200f,  90.0f },
         /* K-US  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
         /* K-CN  */ { 0.0170f, 1.3550f, 0.2200f,  90.0f },
         /* CAROM has no pockets to cut — five rows of nothing, like BARB */
@@ -4251,7 +4266,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* C-3C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-1C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* SNK3  */ { 0.0265f, 1.3550f, 0.2200f,  90.0f },   /* the SNK6 cut */
+        /* SNK3  */ { 0.0265f, 1.4430f, 0.2200f,  90.0f },   /* the SNK6 cut */
         /* 1POC  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* BANK  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
         /* ROT   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
@@ -4264,22 +4279,22 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* CRIB  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
     };
     static const CueCut mid[] = {
-        /* UK8   */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
+        /* UK8   */ { 0.0250f, 1.5020f, 0.2200f, 180.0f },
         /* US8   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
         /* US9   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
         /* CN8   */ { 0.0285f, 1.4437f, 0.2250f, 180.0f },
         /* SNK15 */ { 0.0335f, 1.7736f, 0.2150f, 180.0f },   /* r 76.8 at 75.2 back: kisses the bore 1.6 mm proud -- see the snooker block */
         /* SNK10 */ { 0.0335f, 1.7736f, 0.2150f, 180.0f },
-        /* SNK6  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
+        /* SNK6  */ { 0.0250f, 1.5020f, 0.2200f, 180.0f },
         /* STRT  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* PYRA  */ { 0.0234f, 1.4100f, 0.2200f, 180.0f },   /* ...and the middle */
         /* PYRA7 */ { 0.0211f, 1.4100f, 0.2200f, 180.0f },
         /* BILL  */ { 0.0335f, 1.7736f, 0.2150f, 180.0f },   /* the 12 ft snooker middle (WPBSA), as SNK15 */
         /* BARB  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* GOLF  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
+        /* GOLF  */ { 0.0250f, 1.5020f, 0.2200f, 180.0f },
         /* US10  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
         /* PAUL  */ { 0.0100f, 1.4437f, 0.2150f, 180.0f },
-        /* K-UK  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },
+        /* K-UK  */ { 0.0250f, 1.5020f, 0.2200f, 180.0f },
         /* K-US  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
         /* K-CN  */ { 0.0285f, 1.4437f, 0.2250f, 180.0f },
         /* C-SR  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
@@ -4287,7 +4302,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* C-3C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
         /* C-1C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* SNK3  */ { 0.0250f, 1.4437f, 0.2200f, 180.0f },   /* the SNK6 cut */
+        /* SNK3  */ { 0.0250f, 1.5020f, 0.2200f, 180.0f },   /* the SNK6 cut */
         /* 1POC  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* BANK  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
         /* ROT   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
