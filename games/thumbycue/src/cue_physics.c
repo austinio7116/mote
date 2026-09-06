@@ -465,6 +465,10 @@ int cue_phys_airborne(const CueWorld *w, const CueBall *b) {
 /* loudest cushion-approach (normal) speed seen during the current cue_phys_step,
  * so the cushion SFX scales with the actual rail impact, not the whole table. */
 static float s_cush_vn;
+/* A POT IS OVER THE MOMENT IT IS TAKEN, where this is on. See the note at the
+ * site, and cue_physics.h: the game watches the ball fall and a ranking
+ * simulation must not. */
+static int g_fast_pot;
 static float s_ball_vn;                 /* hardest ball-ball closing speed this step */
 /* AND HOW FAST IT WENT DOWN THE HOLE. Separate from the cushion meter: the two
  * are different events and a pot very often follows no cushion at all, so
@@ -1779,7 +1783,27 @@ static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
 
         if (b->drop <= 0.0f) {
             b->pocket = (uint8_t)p;
-            b->drop = 1.0f;
+            /* THE RANKING SIMS DO NOT WATCH IT FALL.
+             *
+             * A pot used to be over in two millimetres. Since the drawn pockets
+             * it is a real boot -- a hundred and ten of them, down a mesh, at
+             * the solver's own rate -- and cue_phys_moving holds the whole
+             * table "still moving" until every dropping ball has finished. The
+             * game wants that: you watch the ball go. A SIMULATION does not.
+             * The planner asks two questions of a pot, which pocket and what
+             * the table looks like afterwards, and both are answered the
+             * instant the ball is taken; everything after that is a fall it
+             * never draws, run at a cost that is now most of the shot.
+             *
+             * Measured on a 10 ft snooker table (2026-09-06): plans averaging
+             * 1373 ms with the fall in them. Pete was timing out on a 15 second
+             * shot clock in the headset, which is slower again.
+             *
+             * The pocket is recorded either way, so a caller still learns which
+             * hole it went down; only the journey is skipped, and only where
+             * this is switched on. */
+            if (g_fast_pot) { b->on = 0; b->drop = 0.0f; }
+            else             b->drop = 1.0f;
             return 1;
         }
         return 0;
@@ -2543,6 +2567,9 @@ int cue_phys_moving(const CueWorld *w, const CueBall *balls, int n) {
  * radius per step, so the leave estimate is unchanged for shot ranking. */
 static float g_sub_h = CUE_H;
 void cue_phys_set_substep(float h) { g_sub_h = (h > 0.0f) ? h : CUE_H; }
+
+/* See cue_physics.h. Off in the game, on around the planner's ranking sims. */
+void cue_phys_set_fast_pot(int on) { g_fast_pot = on ? 1 : 0; }
 
 float cue_phys_cushion_impact(void) { return s_cush_vn; }
 float cue_phys_ball_impact(void) { return s_ball_vn; }

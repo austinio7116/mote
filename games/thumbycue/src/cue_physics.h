@@ -808,6 +808,17 @@ float cue_phys_bridge_impact(void);     /* fastest speed into a pocket's back fr
  * uses a coarser step for its headless ranking sims to run ~2x faster. */
 void cue_phys_set_substep(float h);
 
+/* SKIP THE FALL. With this on, a ball judged potted is taken off the table
+ * immediately with its pocket recorded, instead of dropping down the pocket's
+ * drawn geometry first.
+ *
+ * The game leaves it OFF: you watch the ball go, and the ball return depends on
+ * where it comes out. The AI's ranking sims turn it on, because they ask only
+ * which pocket it went down and what the table looks like afterwards -- both
+ * true the instant it is taken -- and the fall is now most of the cost of a
+ * simulated shot. Global, like the substep, and set around the same calls. */
+void cue_phys_set_fast_pot(int on);
+
 int cue_phys_moving(const CueWorld *w, const CueBall *balls, int n);
 
 /* ---- one shot begins ------------------------------------------------------

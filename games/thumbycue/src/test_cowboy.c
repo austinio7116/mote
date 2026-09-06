@@ -8,8 +8,11 @@
  */
 #include "cue_rules.h"
 #include "cue_table.h"
+#include "cue_ai.h"
+#include "cue_physics.h"
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 static int s_fail;
 static void ok(int cond, const char *what, const char *why) {
@@ -289,6 +292,63 @@ int main(void) {
             char w[64]; snprintf(w, sizeof w, "the %d goes back to its own spot", B[i].id);
             ok(B[i].on && dx*dx + dz*dz < 1e-3f, w, "");
         }
+    }
+
+    /* ---- THE MACHINE ON A HUNDRED -------------------------------------
+     *
+     * "When the ai reaches 100 it doesn't seem to know it has to scratch off
+     * the one" -- reported from a real frame, and it was two separate faults
+     * with the same cause: the rule changed and the planner was never told.
+     * It asked for a CANNON off the 1 (a foul under the corrected rule) and
+     * had no way to generate an in-off at all; the sim's `scratch` flag then
+     * vetoed at a thousand points the one stroke that wins the frame.
+     *
+     * So this asks the planner itself, on a table where the shot is there to
+     * be played, and then plays what it chose through the real engine and
+     * puts the result in front of the referee. Nothing is asserted about the
+     * geometry it picks -- only that what it plays wins the game. */
+    {   CueRules r; fresh(&r, 100);
+        /* The 1 in the open with a straightforward in-off available, and the
+         * other two well out of the way so a stray cannon cannot muddy it. */
+        for (int i = 1; i < NB; i++) B[i].on = 0;
+        int i1 = -1;
+        for (int i = 1; i < NB; i++) if (B[i].id == 1) { i1 = i; break; }
+        B[i1].on = 1;
+        B[i1].pos = v3(T.half_len * 0.45f, T.R, 0.0f);
+        B[0].on = 1; B[0].pos = v3(-T.half_len * 0.45f, T.R, 0.0f);
+        B[0].vel = v3(0,0,0); B[0].w = v3(0,0,0);
+        for (int i = 0; i < NB; i++) {
+            B[i].orient.r[0] = v3(1,0,0);
+            B[i].orient.r[1] = v3(0,1,0);
+            B[i].orient.r[2] = v3(0,0,1);
+        }
+        int was_on[CUE_MAX_BALLS];
+        for (int i = 0; i < NB; i++) was_on[i] = B[i].on;
+        uint32_t rng = 12345u;
+        CueAIShot sh = cue_ai_plan(&W, &T, &r, B, NB, &CUE_PERSONAS[7], &rng);
+        ok(sh.valid, "on 100 the machine finds a shot at all", "");
+        /* Play it, exactly as the host would. */
+        cue_phys_shot_begin(&W);
+        cue_rules_attempt_begin(&r, B, NB);
+        cue_phys_strike(&W, &B[0], v3(cosf(sh.aim), 0.0f, sinf(sh.aim)),
+                        sh.power01 * 8.5f, sh.tip_side, sh.tip_vert);
+        for (int it = 0; it < 4000; it++) {
+            uint32_t e = 0;
+            if (!cue_phys_step(&W, B, NB, 1.0f / 240.0f, &e)) break;
+        }
+        /* A ball in the throat of a pocket is potted even while it is still
+         * flagged on -- the pocket keeps it that way so the renderer can draw
+         * it falling. Same test the planner's own sim makes. */
+        #define GONE(bb) (!(bb).on || (bb).drop > 0.0f)
+        int first = W.first_hit, np = 0, pots[CUE_MAX_BALLS];
+        for (int i = 1; i < NB; i++)
+            if (was_on[i] && GONE(B[i])) pots[np++] = B[i].id;
+        const int scratch = GONE(B[0]);
+        ok(scratch, "...and it is a deliberate in-off", "");
+        cue_rules_resolve(&r, B, NB, &W, first, scratch, 1, pots, np);
+        ok(!r.last_foul, "the referee does not call it a foul", r.msg);
+        ok(r.frame_over && r.winner == 0 && r.score[0] == 101,
+           "the hundred-and-first point, and the game", r.msg);
     }
 
     printf(s_fail ? "\n%d FAILED\n" : "\nall good\n", s_fail);

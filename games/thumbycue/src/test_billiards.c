@@ -16,6 +16,8 @@
  */
 #include "cue_rules.h"
 #include "cue_table.h"
+#include "cue_ai.h"
+#include "cue_physics.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -526,6 +528,61 @@ int main(void) {
     {   CueRules r; fresh(&r);
         ok(cue_rules_in_hand_anywhere(&r) == 0,
            "in hand is the D, never anywhere on the table", "");
+    }
+
+    /* ---- THE MACHINE, IN HAND, LEFT IN A DOUBLE BAULK ------------------
+     *
+     * "Opponent had ball-in hand but shot right into the baulk!" -- reported
+     * from a real frame. The referee has always called it (Rule 6(f), and
+     * resolve_billiards above), so the machine was paying two points and a
+     * spotted table for it every time, and leaving an opponent double baulked
+     * -- which is the whole tactic -- cost nothing.
+     *
+     * Nothing here is asserted about WHAT it plays. A player in this position
+     * has two honest answers: up the table, off a cushion out of baulk and
+     * back down; or up the table and hit nothing at all, which is a MISS worth
+     * two and not a foul. Either is fine. What is checked is the one thing
+     * Rule 6(f) forbids: the first thing the cue ball touches being a ball
+     * that is in baulk. */
+    {   CueRules r; fresh(&r);
+        cue_table_build_world(&T, &W);
+        const float bx = T.baulk_x;
+        /* Both object balls behind the line, well apart, and the white in the
+         * D as the host would have just placed it. */
+        for (int i = 0; i < 3; i++) {
+            B[i].on = 1; B[i].vel = v3(0,0,0); B[i].w = v3(0,0,0);
+            B[i].orient.r[0] = v3(1,0,0);
+            B[i].orient.r[1] = v3(0,1,0);
+            B[i].orient.r[2] = v3(0,0,1);
+        }
+        B[0].pos = v3(bx, T.R, 0.0f);
+        for (int i = 1; i < 3; i++)
+            B[i].pos = (B[i].id == CUE_ID_BIL_RED)
+                     ? v3(bx - 0.18f, T.R,  0.22f)
+                     : v3(bx - 0.18f, T.R, -0.22f);
+        r.turn = 0;
+        r.break_shot = 0;                 /* mid-frame: this is an in-off, not the start */
+        r.bil_from_hand = 1;              /* the host has just placed it */
+        uint32_t rng = 987654u;
+        CueAIShot sh = cue_ai_plan(&W, &T, &r, B, 3, &CUE_PERSONAS[7], &rng);
+        ok(sh.valid, "double baulked, the machine still finds a stroke", "");
+        cue_phys_shot_begin(&W);
+        cue_rules_attempt_begin(&r, B, 3);
+        ok(r.bil_red_baulk && r.bil_wht_baulk,
+           "...and the referee has both object balls in baulk", "");
+        cue_phys_strike(&W, &B[0], v3(cosf(sh.aim), 0.0f, sinf(sh.aim)),
+                        sh.power01 * 8.5f, sh.tip_side, sh.tip_vert);
+        for (int it = 0; it < 6000; it++) {
+            uint32_t e = 0;
+            if (!cue_phys_step(&W, B, 3, 1.0f / 240.0f, &e)) break;
+        }
+        int direct = (W.ntouch > 0 && W.touch[0].what == CUE_TOUCH_BALL);
+        ok(!direct, "it does not play straight onto a ball in baulk", "");
+        int potted[8], np = 0;
+        for (int i = 1; i < 3; i++) if (!B[i].on) potted[np++] = B[i].id;
+        r.n_off = 0;
+        cue_rules_resolve(&r, B, 3, &W, W.first_hit, !B[0].on, 1, potted, np);
+        ok(r.score[1] <= 2, "...so it gives away two at most, not a foul and the table", r.msg);
     }
 
     printf(s_fail ? "\nFAILED (%d)\n" : "\nPASSED\n", s_fail);

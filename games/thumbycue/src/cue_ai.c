@@ -107,6 +107,14 @@ typedef struct {
      * too. The event is already on the wire from the physics; it was simply
      * being thrown away. */
     int cushion;
+    /* WAS THE CUE BALL'S VERY FIRST CONTACT A BALL, or a cushion?
+     *
+     * English billiards Rule 6(f) is the only rule in the building that asks
+     * it: a striker in hand may not play DIRECTLY onto an object ball that is
+     * in baulk, and "directly" means nothing came before it. The referee
+     * decides it from touch[0] (see resolve_billiards); the planner has to
+     * decide it from the same record or it will keep choosing the foul. */
+    int first_touch_ball;
     /* WHICH OBJECT BALLS THE CUE BALL TOUCHED, by index. first_hit_idx says
      * what it reached FIRST, which is every question the other games ask.
      * English billiards asks a different one — a cannon is contact with BOTH
@@ -532,6 +540,11 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
     }
     extern void cue_phys_set_substep(float);
     cue_phys_set_substep(K_SUBSTEP);          /* coarser step: ~2x faster ranking sims */
+    /* ...AND A POT IS OVER WHEN IT IS TAKEN. The planner needs the pocket and
+     * the table it leaves behind, and has both at that instant; watching the
+     * ball fall the length of a real boot is the game's job, not the search's,
+     * and it had become most of the cost of every simulated shot. */
+    cue_phys_set_fast_pot(1);
     Vec3 dir = v3(cosf(aim), 0, sinf(aim));
     /* Strike with the elevation the FRONT END will force on this shot, not
      * level. The cue is a stick: near a cushion, or with a ball behind the
@@ -609,6 +622,7 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
         if (!cue_phys_moving(&s_sw, s_sb, n)) break;
     }
     cue_phys_set_substep(0.0f);                /* restore the live 2 kHz step */
+    cue_phys_set_fast_pot(0);                  /* ...and the game watches them fall */
 
     /* A BALL IN THE THROAT OF A POCKET IS POTTED, even though it is still
      * flagged on: the pocket keeps it that way so the renderer can draw it
@@ -627,6 +641,9 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
                      ? (int)s_sb[cue_idx].pocket : -1);
     out->npotted = 0;
     out->first_hit_idx = s_sw.first_hit_idx;
+    /* Exactly the test the referee makes -- see resolve_billiards. */
+    out->first_touch_ball = (s_sw.ntouch > 0 &&
+                             s_sw.touch[0].what == CUE_TOUCH_BALL);
     /* ...and everything it touched, from its own account of the stroke. */
     memset(out->touched, 0, sizeof out->touched);
     out->ntouched = 0;
@@ -701,6 +718,41 @@ typedef struct {
      * at 2R was 1.6 mm thick. It is small and it is on EVERY shot. */
     float contact;
 } AiCtx;
+
+/* IS THE CUE BALL GOING DOWN A DISASTER, OR THE POINT OF THE SHOT?
+ *
+ * `scratch` costs a candidate a thousand points, and nearly everywhere in this
+ * file that is right: an in-off is a foul in every pocket game. Two games here
+ * are not every game. Bar billiards has no cue ball at all -- every white on
+ * the table is one, and its own ball down a hole is how you score. Cowboy's
+ * hundred-and-first point is a deliberate losing hazard off the 1 ball, and
+ * with the veto standing the one stroke that can win the frame ranked below
+ * every stroke that does nothing at all.
+ *
+ * ENGLISH BILLIARDS IS DELIBERATELY NOT ON THIS LIST. Its in-off is worth two
+ * or three and the scorer already prices one, so the veto does cost it strokes
+ * -- but the machine's longest break at billiards is a measured number that
+ * this file's notes have watched fall twice, and lifting the veto there is a
+ * change to be measured rather than assumed. */
+/* RULE 6(f) AS A GENERATOR RULE, not only as a verdict.
+ *
+ * A striker in hand may not play directly onto an object ball that is in
+ * baulk, so such a ball is not a legal FIRST contact for any candidate that
+ * goes straight at it. Catching those in the verdict alone was not enough:
+ * they are still built, they still carry the potScore of the pot they would
+ * have been, and only a few dozen of the pool are ever simulated -- so the
+ * fouls filled the shortlist and the escapes that are legal never got played
+ * out at all. A ball that cannot legally be struck is not a target. */
+static int bil_direct_banned(const AiCtx *c, int i) {
+    return c->r->mode == CUE_GAME_BILLIARDS && c->r->bil_from_hand &&
+           i > 0 && i < c->n && c->b[i].pos.x <= c->r->baulk_x;
+}
+
+static int ai_scratch_is_foul(const AiCtx *c) {
+    if (c->r->mode == CUE_GAME_BARBILLIARDS) return 0;
+    if (c->r->mode == CUE_GAME_COWBOY) return c->r->score[c->r->turn] < 100;
+    return 1;
+}
 
 /* WHICH POCKETS SCORE, which in every game but one is all of them.
  *
@@ -2952,7 +3004,7 @@ static void plan_finalize(void) {
             ai_sim(c->w, c->t, c->b, c->n, 0, q->aim, q->power01,
                    q->tip_side, q->tip_vert, &fin);
         q->cue_end = fin.cue_end;
-        q->scratch = fin.cue_potted;
+        q->scratch = fin.cue_potted && ai_scratch_is_foul(c);
         { int dropped = 0;
           for (int k = 0; k < fin.npotted; k++)
             if (fin.potted[k] == q->tidx) { dropped = 1; break; }
@@ -4409,11 +4461,14 @@ static int carom_candidates(const AiCtx *c, int npool) {
         const int ai = pi / nobj, bi = pi % nobj;
         if (ai == bi) continue;
         const int a = obj[ai], b = obj[bi];
-        /* THE HUNDRED-AND-FIRST IS A CANNON OFF THE 1, and nothing else will
-         * do — so on the last point only the pairs that strike it first are
-         * worth generating at all. */
-        if (c->r->mode == CUE_GAME_COWBOY && c->r->score[c->r->turn] >= 100 &&
-            c->b[a].id != 1) continue;
+        if (bil_direct_banned(c, a)) continue;       /* Rule 6(f) */
+        /* THE HUNDRED-AND-FIRST IS NOT A CANNON AT ALL, so this generator has
+         * nothing to offer on it -- see cowboy_inoff_candidates, and the note
+         * there. The planner does not call this on the last point; the guard
+         * that used to stand here kept the pairs that strike the 1 first, which
+         * are precisely the strokes the rule fouls. */
+        if (c->r->mode == CUE_GAME_COWBOY && c->r->score[c->r->turn] >= 100)
+            continue;
         const Vec3 A = c->b[a].pos, B = c->b[b].pos;
         const Vec3 toB = nrm2(sub2(B, A));
         const Vec3 ghost = v3(A.x - toB.x * c->contact, 0, A.z - toB.z * c->contact);
@@ -4492,6 +4547,172 @@ static int carom_candidates(const AiCtx *c, int npool) {
     return npool;
 }
 
+
+/* ---- GETTING OUT OF A DOUBLE BAULK --------------------------------------
+ *
+ * English billiards Rule 6(f): a striker in hand may not play directly onto an
+ * object ball that is in baulk. Leave both of them behind the line and the
+ * incoming player has no legal direct stroke on the table at all -- which is
+ * the entire point of the tactic, and the planner had no idea. Every candidate
+ * it built aimed straight at a ball, every one of them was a foul, and with all
+ * of them vetoed equally it simply played the first: two points away, the balls
+ * spotted, and the table handed back set up. "Opponent had ball-in hand but
+ * shot right into the baulk!", reported.
+ *
+ * The stroke a player makes here is up the table and back off a cushion out of
+ * baulk, so that is what this generates: the ball reflected in each rail, aimed
+ * at the reflection. The baulk cushion itself is excluded and the side cushions
+ * only count above the line -- 6(d) allows a cushion in baulk only on the way
+ * to a ball OUT of baulk, and there is not one.
+ *
+ * And a plain stroke up the table with nothing on it, last, because a proper
+ * stroke that hits nothing at all is a MISS under Rule 16 -- two points and the
+ * table left as it lies -- while a stroke into baulk is a FOUL, which is two
+ * points AND the balls spotted AND the opponent in hand. When there is no
+ * escape the difference between those two is the whole game. */
+static int bil_baulk_candidates(const AiCtx *c, int npool) {
+    if (c->r->mode != CUE_GAME_BILLIARDS || !c->r->bil_from_hand) return npool;
+    const float bx = c->r->baulk_x;
+    int any = 0;
+    for (int i = 1; i < c->n; i++) {
+        if (!c->b[i].on) continue;
+        any = 1;
+        if (c->b[i].pos.x > bx) return npool;   /* one is out: play that one */
+    }
+    if (!any) return npool;
+    if (c->t->bed_shape != CUE_BED_RECT) return npool;
+
+    const Vec3 cue = c->b[0].pos;
+    const float R = c->t->R;
+    const float hx = c->t->half_len - R, hz = c->t->half_wid - R;
+    static const float PWR[] = { 0.30f, 0.45f, 0.62f };
+
+    for (int i = 1; i < c->n && npool < MAXPOOL - NSAFE_SIM; i++) {
+        if (!c->b[i].on) continue;
+        const Vec3 O = c->b[i].pos;
+        /* rail 0 = top cushion (+x), 2/3 = the two long sides. The baulk
+         * cushion at -x is not on the list at all. */
+        for (int rail = 0; rail < 3 && npool < MAXPOOL - NSAFE_SIM; rail++) {
+            Vec3 mir = O; float wall;
+            if (rail == 0)      { wall =  hx; mir.x = 2*wall - O.x; }
+            else if (rail == 1) { wall =  hz; mir.z = 2*wall - O.z; }
+            else                { wall = -hz; mir.z = 2*wall - O.z; }
+            const Vec3 cm = sub2(mir, cue);
+            float tt;
+            if (rail == 0) { if (fabsf(cm.x) < 1e-6f) continue;
+                             tt = (wall - cue.x) / cm.x; }
+            else           { if (fabsf(cm.z) < 1e-6f) continue;
+                             tt = (wall - cue.z) / cm.z; }
+            if (tt <= 0.02f || tt >= 0.98f) continue;
+            const Vec3 hit = v3(cue.x + cm.x*tt, 0, cue.z + cm.z*tt);
+            /* THE CUSHION HAS TO BE OUT OF BAULK. A side cushion below the
+             * line is still baulk, and coming back off one onto a ball in
+             * baulk is the same foul by a longer route. */
+            if (hit.x <= bx + R) continue;
+            if (!path_clear(c, cue, hit, i)) continue;
+            if (!path_clear(c, hit, O, i)) continue;
+            const float ang = atan2f(mir.z - cue.z, mir.x - cue.x);
+            for (unsigned q = 0; q < sizeof PWR / sizeof PWR[0]; q++)
+                npool = carom_push(c, npool, i, O, ang, PWR[q], 0.0f, 0.0f, 62.0f);
+        }
+    }
+    /* AND THE HONEST MISS. Straight up the table to the top cushion: it may
+     * find nothing, and finding nothing from a double baulk is a MISS and not
+     * a foul. Ranked below every escape above, so it is only ever played when
+     * there is no escape to play. */
+    {   const float ang = atan2f(-cue.z, hx - cue.x);
+        for (unsigned q = 0; q < sizeof PWR / sizeof PWR[0]; q++)
+            npool = carom_push(c, npool, 1, cue, ang, PWR[q], 0.0f, 0.0f, 30.0f);
+    }
+    return npool;
+}
+
+/* ---- COWBOY'S HUNDRED-AND-FIRST POINT ------------------------------------
+ *
+ * "When the ai reaches 100 it doesn't seem to know it has to scratch off the
+ * one" -- reported, and it did not, twice over. The rule was corrected in
+ * resolve_cowboy some time ago (the last point is a LOSING HAZARD: the cue ball
+ * must strike the 1, touch nothing else, and go down) and the planner was left
+ * asking for the old one -- a cannon off the 1, which is now the one stroke the
+ * rule explicitly fouls. So the machine could not win a frame of cowboy: it
+ * spent the last point playing fouls, losing its inning, and coming back to 100
+ * to do it again.
+ *
+ * NOTHING IN THE PLANNER CAN EXPRESS AN IN-OFF. Every candidate anywhere else
+ * in this file sends an OBJECT ball at a pocket, and the sim flags the cue ball
+ * going down as `scratch` -- a thousand-point veto, because everywhere else in
+ * the building it is a foul. Here it is the winning stroke.
+ *
+ * So the geometry is built the way a player builds it. The cue ball leaves the
+ * contact along the TANGENT LINE -- perpendicular to the line of centres -- so
+ * to send it at a pocket, the line of centres must be perpendicular to the line
+ * from the 1 ball to that pocket. That fixes the ghost ball outright: two of
+ * them per pocket, one either side, and only the one the cue ball can actually
+ * reach from where it stands is worth anything.
+ *
+ * The tangent is exact only for a stunned cue ball and these are aimed with a
+ * touch of draw for that reason, but the aim does not have to be right -- as
+ * everywhere else here, the engine plays every candidate out and the scoring
+ * pays only the ones that actually drop. */
+static int cowboy_inoff_candidates(const AiCtx *c, int npool) {
+    int one = -1;
+    for (int i = 1; i < c->n; i++)
+        if (c->b[i].on && c->b[i].id == 1) { one = i; break; }
+    if (one < 0) return npool;                  /* no 1 ball: nothing to play */
+    const Vec3 C = c->b[0].pos, O = c->b[one].pos;
+    /* PACE, AND THERE HAS TO BE SOME. Measured on the game's own table with
+     * the 1 in the open and the cue ball a table's length away: nothing under
+     * 0.37 of full power reaches a pocket after the contact, and the shots that
+     * drop run from there to 0.92. The first version of this asked for 0.22 to
+     * 0.50 -- the pace a cannon is played at -- and not one of eighty-eight
+     * candidates put the cue ball anywhere near a hole.
+     *
+     * Stun holds the tangent line best, but a touch of follow was what dropped
+     * several of them, so both are offered and the engine picks. */
+    static const float VERT[] = { -0.20f, 0.15f };
+    static const float PWR[]  = { 0.40f, 0.60f, 0.85f };
+    for (int pk = 0; pk < c->w->npocket && npool < MAXPOOL - NSAFE_SIM; pk++) {
+        /* Where in the mouth the cue ball has to arrive -- the same window
+         * every pot in this file is aimed through, asked about the cue ball
+         * instead of an object ball. It leaves from the contact, which is a
+         * ball's width from the 1, so the 1's position is near enough to ask
+         * from. */
+        const Vec3 P0 = pocket_aim_t(c, pk, O);
+        Vec3 t = sub2(P0, O);
+        const float tl = len2(t);
+        if (tl < 1e-3f) continue;
+        t = v3(t.x / tl, 0.0f, t.z / tl);
+        for (int sgn = -1; sgn <= 1; sgn += 2) {
+            /* The line of centres, perpendicular to the way out. */
+            const Vec3 u = v3(-t.z * (float)sgn, 0.0f, t.x * (float)sgn);
+            const Vec3 ghost = v3(O.x - u.x * c->contact, 0.0f, O.z - u.z * c->contact);
+            Vec3 a = sub2(ghost, C);
+            const float al = len2(a);
+            if (al < 1e-3f) continue;
+            a = v3(a.x / al, 0.0f, a.z / al);
+            /* A contact at all: the cue ball has to be travelling INTO the line
+             * of centres. Below about a fifth it is a feather that carries no
+             * cue ball anywhere. */
+            if (a.x * u.x + a.z * u.z < 0.20f) continue;
+            const float ang = atan2f(a.z, a.x);
+            for (unsigned q = 0; q < sizeof PWR / sizeof PWR[0]; q++)
+                for (unsigned vt = 0; vt < sizeof VERT / sizeof VERT[0]; vt++)
+                    /* Ranked above a cannon's 38 -- on this point a cannon
+                     * scores nothing and this is the only stroke that can win
+                     * -- and RISING WITH PACE, which is not a preference but a
+                     * correction. Only the first thirty-odd of the pool are
+                     * ever simulated, the sort's remaining term is a bonus for
+                     * LOW power, and every candidate here would otherwise carry
+                     * the same number: the softest ones would take every slot,
+                     * and the softest ones are precisely the ones measured not
+                     * to reach. Same trap carom_push documents. */
+                    npool = carom_push(c, npool, one, ghost, ang,
+                                       PWR[q], 0.0f, VERT[vt],
+                                       55.0f + 12.0f * PWR[q]);
+        }
+    }
+    return npool;
+}
 
 /* Rule 96: the ball is taken by hand and played FROM THE D, so where in the D
  * is a real choice — the only one the striker gets besides the stroke itself,
@@ -4963,6 +5184,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     for (int i = 1; i < n && ng < MAXG; i++) {
         if (!balls[i].on) continue;
         if (!cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+        if (bil_direct_banned(c, i)) continue;      /* Rule 6(f) */
         if (bank_game) break;
         if (r->mode == CUE_GAME_COWBOY && r->score[r->turn] >= 90) break;
         for (int pk = 0; pk < w->npocket && ng < MAXG; pk++) {
@@ -4998,7 +5220,17 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * scored the same and stopped building. Billiards is a potting game with
      * cannons in it; carom is nothing but cannons, and only carom wants the
      * bigger search. */
-    if (ng == 0 && !CUE_GAME_IS_CAROM(r->mode) &&
+    /* ...AND COWBOY'S ENDGAME IS THE SAME FAULT AGAIN, hidden by the very code
+     * that was meant to handle it. Past ninety a pot scores nothing, so the
+     * group loop above breaks out at once and ng is zero on every visit -- and
+     * this branch then returned before the cannon sweep and the in-off
+     * generator further down were ever reached. The endgame planner has
+     * therefore never run: the machine spent the last eleven points playing
+     * banks and safeties, which is why it could neither cannon its way from 90
+     * to 100 nor scratch off the 1 to finish. */
+    const int cowboy_end = (r->mode == CUE_GAME_COWBOY &&
+                            r->score[r->turn] >= 90);
+    if (ng == 0 && !CUE_GAME_IS_CAROM(r->mode) && !cowboy_end &&
         r->mode != CUE_GAME_BILLIARDS) { /* nothing direct: bank, then safety */
         /* MORE OF THEM AT BANK POOL, because these are not a last resort
          * there — they are the entire game, and eight candidates over fifteen
@@ -5315,7 +5547,11 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     else if (c->r->mode == CUE_GAME_COWBOY) {
         const int have = c->r->score[c->r->turn];
         const int cap  = (have >= 100) ? 101 : (have >= 90) ? 100 : 90;
-        if (have >= 90 || cap - have <= 5) npool = carom_candidates(c, npool);
+        /* ...AND STOPS BEING ONE AGAIN AT A HUNDRED. The last point is a
+         * deliberate in-off off the 1 and a cannon is a foul, so the endgame's
+         * cannon sweep is the wrong generator for it entirely. */
+        if (have >= 100)                     npool = cowboy_inoff_candidates(c, npool);
+        else if (have >= 90 || cap - have <= 5) npool = carom_candidates(c, npool);
     }
     else if (c->r->mode == CUE_GAME_BILLIARDS) {
         /* ---- POT FIRST, THEN THE CANNON, AND WIDEN ONLY WHEN STUCK -------
@@ -5361,6 +5597,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         Vec3 cue = c->b[0].pos;
         for (int a2 = 1; a2 < c->n && npool < MAXPOOL - 8; a2++) {
             if (!c->b[a2].on) continue;
+            if (bil_direct_banned(c, a2)) continue;   /* Rule 6(f) */
 
             for (int b2 = 1; b2 < c->n && npool < MAXPOOL - 8; b2++) {
                 if (b2 == a2 || !c->b[b2].on) continue;
@@ -5407,6 +5644,10 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             }
         }
         if (stuck) npool = carom_candidates(c, npool);
+        /* ...AND THE ESCAPE, when the striker is in hand and everything is
+         * behind the line. Every candidate above aims straight at a ball,
+         * which from in-hand is the one stroke Rule 6(f) forbids. */
+        npool = bil_baulk_candidates(c, npool);
     }
 
     /* ---- AND ALWAYS SOMETHING LEGAL TO PLAY ----------------------------
@@ -5453,6 +5694,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
         const Vec3 cue2 = c->b[0].pos;
         for (int t2 = 1; t2 < c->n && npool < MAXPOOL - 4; t2++) {
             if (!c->b[t2].on) continue;
+            if (bil_direct_banned(c, t2)) continue;   /* Rule 6(f) */
             const Vec3 A = c->b[t2].pos;
             const Vec3 line = sub2(A, cue2);
             const float dg = len2(line);
@@ -5617,6 +5859,14 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * balls on a pocketless table is also the cheapest rollout in the game,
      * which is what makes this affordable; no other mode is affected. */
     if (CUE_GAME_IS_CAROM(c->r->mode)) cap = SIM_CAP;
+    /* COWBOY'S ENDGAME IS A CAROM TABLE WITH POCKETS ON IT, and it pays for
+     * its own search for the same reason: from ninety a pot scores nothing, so
+     * every candidate is a cannon or an in-off and the analytic score cannot
+     * tell a good one from a bad one -- only the engine knows whether the cue
+     * ball actually finds the second ball, or the pocket. Three balls is the
+     * cheapest rollout in the game. */
+    if (c->r->mode == CUE_GAME_COWBOY && c->r->score[c->r->turn] >= 90)
+        cap = SIM_CAP;
     if (cap > SIM_CAP) cap = SIM_CAP;
     P.sim_cap = (npool < cap ? npool : cap);
 
@@ -5820,7 +6070,7 @@ int cue_ai_plan_tick(void) {
         v->simmed = 1; v->cue_end = sim.cue_end; v->elev = sim.elev;
         /* ...and `scratch` is what best_safety_idx and the pot ranking veto on,
          * so on this table it must not be set by the ball going down a hole. */
-        v->scratch = sim.cue_potted && c->r->mode != CUE_GAME_BARBILLIARDS;
+        v->scratch = sim.cue_potted && ai_scratch_is_foul(c);
         /* The sim's job is NOT to decide whether the pot drops — that's the
          * heuristic potScore (cut/distance). The sim exists to (1) avoid in-offs
          * [scratch], (2) avoid fouls [wrong first ball], and (3) score the LEAVE
@@ -5916,6 +6166,33 @@ int cue_ai_plan_tick(void) {
             }
             /* Hitting nothing is a foul and worth less than nothing. */
             v->bad_first = (first_id < 0);
+            /* ...AND SO IS PLAYING INTO BAULK FROM HAND (Rule 6(f)).
+             *
+             * "Opponent had ball-in-hand but shot right into the baulk" --
+             * reported from a real frame, and from the double baulk that is
+             * the whole point of the tactic: white and red both behind the
+             * line, and the machine simply rolled up and nudged one. The
+             * referee has always called it (see resolve_billiards) so the
+             * machine was handing over two points and a spotted table every
+             * time it was left in one, without ever learning not to.
+             *
+             * The planner cannot read r->bil_red_baulk here -- those are taken
+             * at cue_rules_attempt_begin, which runs after the stroke has been
+             * chosen -- so the same Definition 14 test is made from the
+             * positions the plan is being made from. bil_from_hand IS set by
+             * the time the machine plans: the host places the ball first.
+             *
+             * The other half of the rule is in the sim: a stroke that reaches
+             * a cushion before the ball is not "direct" and is perfectly legal,
+             * which is exactly how a player gets out of a double baulk. */
+            if (c->r->bil_from_hand && sim.first_hit_idx > 0 &&
+                sim.first_hit_idx < c->n && sim.first_touch_ball) {
+                const float bx = c->r->baulk_x;
+                if (c->b[sim.first_hit_idx].pos.x <= bx) {
+                    v->bad_first = 1;
+                    pts = 0;
+                }
+            }
             v->pot_fails = (pts == 0);
             v->potScore = v->bad_first ? 0.0f
                         : clampf(28.0f + 9.0f * (float)pts, 0.0f, 100.0f);
@@ -5953,19 +6230,32 @@ int cue_ai_plan_tick(void) {
             const int cannon  = (distinct >= 2);
             const int cannon2 = (distinct >= 3);
             const int cannon_pts = cannon2 ? 2 : cannon ? 1 : 0;
-            int gain = 0;
+            int gain = 0, foul = 0;
             if (have >= 100) {
-                if (cannon && sim.first_hit_idx > 0 &&
-                    c->b[sim.first_hit_idx].id == 1) gain = 1;
+                /* THE LAST POINT IS A LOSING HAZARD, not a cannon: the cue ball
+                 * off the 1, touching nothing else, into a pocket. This asked
+                 * for a cannon off the 1 -- which resolve_cowboy fouls -- so
+                 * the machine could not finish a frame. Reported exactly that
+                 * way, and the rules had been right about it for months. */
+                if (sim.cue_potted && sim.first_hit_idx > 0 &&
+                    c->b[sim.first_hit_idx].id == 1 && distinct == 1) gain = 1;
+                else if (sim.cue_potted || distinct > 1) foul = 1;
             } else if (have >= 90) {
                 gain = cannon_pts;
+                /* Cannons only from ninety: a ball down here is not merely
+                 * worth nothing, it ends the inning and takes it with it. */
+                if (sim.npotted || sim.cue_potted) { foul = 1; gain = 0; }
             } else {
                 for (int k = 0; k < sim.npotted; k++) {
                     const int bi = sim.potted[k];
                     if (bi > 0 && bi < c->n && c->b[bi].id <= 5) gain += c->b[bi].id;
                 }
                 gain += cannon_pts;
-                if (sim.cue_potted) gain += 1;
+                /* AND AN IN-OFF IS A FOUL BELOW A HUNDRED, not a point. It was
+                 * scored as one here long after resolve_cowboy stopped paying
+                 * for it, so the commonest foul in the game read to the planner
+                 * as the cheapest point on the table. */
+                if (sim.cue_potted) { foul = 1; gain = 0; }
             }
             /* OVERSHOOTING IS WORSE THAN DOING NOTHING, and scoring it as zero
              * did not say so.
@@ -5985,7 +6275,7 @@ int cue_ai_plan_tick(void) {
              * the 3 for exactly three — or, when there is not one, a safety. */
             const int overshot = (gain > left);
             if (overshot) gain = 0;
-            v->bad_first = (sim.first_hit_idx <= 0);
+            v->bad_first = (sim.first_hit_idx <= 0) || foul;
             v->pot_fails = (gain == 0);
             v->potScore = v->bad_first ? 0.0f
                         : overshot ? 4.0f
