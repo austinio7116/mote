@@ -1282,29 +1282,6 @@ void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
 }
 
 static float s_lip_mu = 0.05f, s_lip_e = 0.08f;   /* see cue_phys_set_lip_material */
-/* THE BAG MAY NOT TOUCH A BALL THAT IS STILL ON THE CLOTH.
- *
- * A pocket's bag hangs BELOW the hole. Nothing about it should be able to reach
- * a ball that has not gone through yet -- and it was: the mouth of the bag hangs
- * two millimetres under the bore's top, 3.3 mm below the bed, while the cloth
- * rolls over the edge for 9.7 mm. So up to 6.4 mm of waxed cord, at a friction
- * of 0.30, sat inside the surface a ball crosses at 0.05, invisible from every
- * angle because the cloth draws over it.
- *
- * What that does is what was reported: "a really gentle shot direct towards the
- * pocket from close on a 7 ft snooker table ... stop and roll straight BACK OUT
- * from the lip" -- straight back, on the centre line, with no jaw anywhere near
- * it, so the only thing that can have done it is the bag. And harder ones that
- * cross the lip rather than dropping "gain rotation and momentum BACK UP the
- * lip" off the same obstruction (2026-09-06).
- *
- * Moving the cord is not the fix -- it is a fix for the version of the geometry
- * that exists today, and the next change to the lip or the bore puts it back.
- * The rule is: the bag is not a collider until the ball is off the cloth, which
- * means below the bottom of the roll. Above that the ball is still on the
- * table's own surface and the only things entitled to touch it are the cloth,
- * the jaws and the leather. The player's own words, and they are right. */
-static int s_under_nets = 1;
 void cue_phys_set_pocket_lip(CueWorld *w, const MoteMesh *lip) { if (w) w->pgeom_lip = lip; }
 void cue_phys_set_return_geom(CueWorld *w, const MoteMesh *box) { if (w) w->pgeom_box = box; }
 
@@ -1335,10 +1312,8 @@ int cue_phys_under_bodies(const CueWorld *w, MoteBody *out, int cap) {
             under_static(&out[n++], w->pgeom_solid[k],
                          w->pgeom_mu > 0.0f ? w->pgeom_mu : 0.35f,
                          w->pgeom_e  > 0.0f ? w->pgeom_e  : 0.06f);
-        /* waxed cord: dead, and it slides -- and it is not there at all until
-         * the ball is off the cloth. See s_under_nets. */
-        if (s_under_nets && w->pgeom_net[k] && n < cap)
-            under_static(&out[n++], w->pgeom_net[k], 0.30f, 0.02f);
+        /* waxed cord: dead, and it slides */
+        if (w->pgeom_net[k] && n < cap) under_static(&out[n++], w->pgeom_net[k], 0.30f, 0.02f);
     }
     return n;
 }
@@ -1493,14 +1468,7 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
         m->inv_mass = 1.0f / cue_ball_m(w, b);
         m->pos = b->pos; m->vel = b->vel; m->w = b->w; m->orient = b->orient;
         m->friction = 0.0f; m->restitution = 0.0f;   /* the surface decides */ }
-    /* ...AND THE BAG ONLY ONCE THE BALL IS THROUGH. Below the bottom of the
-     * cloth's roll it has left the table's surface and the string is what
-     * catches it; above that it is still on the cloth and the bag is not there
-     * to be met. See s_under_nets. */
-    {   const float ldk = (pk >= 0 && pk < CUE_MAX_POCKET) ? w->lip_d[pk] : 0.0f;
-        s_under_nets = (b->pos.y < -ldk);
-        n += cue_phys_under_bodies(w, bodies + n, (int)(sizeof bodies / sizeof bodies[0]) - n);
-        s_under_nets = 1; }
+    n += cue_phys_under_bodies(w, bodies + n, (int)(sizeof bodies / sizeof bodies[0]) - n);
     const Vec3 v_in = b->vel;
     for (int q = 0; q < 4; q++) { pw._acc = 0.0f; mote_phys_step(&pw, bodies, n, qh); }
     /* THE KNOCK. A change of horizontal speed of more than 0.4 m/s in one
