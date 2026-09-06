@@ -363,6 +363,34 @@ static int brk_rails(const CueWorld *w, int n) {
     return c;
 }
 static int brk_cue_rail(const CueWorld *w) { return w ? (w->cush[0] != 0) : 1; }
+/* IS THIS FRAME BEING PLAYED TO THE ULTIMATE POOL GROUP'S BOOK?
+ *
+ * Ultimate Pool is played on TWO different tables and it is the same game on
+ * both. In the UK it is the 7 ft English table with reds and yellows; Ultimate
+ * Pool USA is the same rule book -- International 8-ball plus the golden break
+ * -- played on a 7 ft AMERICAN table with mitred pockets. The equipment is
+ * American and the rules are English, and that pairing is the whole identity of
+ * it.
+ *
+ * The engine already had every part of it. US 8-ball takes the WPA branch at
+ * every other decision here, and WPA and UK International agree on all of them
+ * -- ball in hand anywhere on a foul, and a shot that pots nothing must reach a
+ * cushion. Only two things are the Ultimate Pool Group's own, and both were
+ * written to ask for the ENGLISH table by name:
+ *
+ *   the break requirement -- three balls potted or across the line, rather
+ *   than WPA's four to a cushion; and
+ *
+ *   the GOLDEN BREAK -- the black off the break wins the frame there and then,
+ *   and the black with the cue ball, or with any other foul, loses it.
+ *
+ * So it is one question asked in two places rather than a third body of rules.
+ */
+static int cue_rules_is_ultimate(const CueRules *r) {
+    if (!r || r->uk_intl != CUE_UK_ULTIMATE) return 0;
+    return r->mode == CUE_GAME_UK8 || r->mode == CUE_GAME_US8;
+}
+
 static int brk_crossed(const CueWorld *w) {
     if (!w) return BRK_PLENTY;
     int c = 0;
@@ -465,7 +493,7 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, const CueWorld *w,
      *   THE PUB GAME asks for nothing, which is what makes it the pub game. */
     int bad_break = 0;             /* a LOCAL, not a value smuggled in rerack */
     if (r->break_shot && !foul) {
-        const int up = (r->mode == CUE_GAME_UK8 && r->uk_intl == CUE_UK_ULTIMATE);
+        const int up = cue_rules_is_ultimate(r);
         if (bb) {
             if (np == 0 && brk_crossed(w) < 2) { foul = 1; why = "BREAK"; }
         } else if (up) {
@@ -509,8 +537,7 @@ static void resolve_pool(CueRules *r, CueBall *b, int n, const CueWorld *w,
             snprintf(r->msg, sizeof r->msg, "RE-RACK");
             return;
         }
-        if (r->break_shot && r->mode == CUE_GAME_UK8 &&
-            r->uk_intl == CUE_UK_ULTIMATE) {
+        if (r->break_shot && cue_rules_is_ultimate(r)) {
             /* THE GOLDEN BREAK, which the Ultimate Pool Group play and nobody
              * else does: the black off the break wins the frame outright, and
              * the black WITH the cue ball — or with any other foul — loses it.
