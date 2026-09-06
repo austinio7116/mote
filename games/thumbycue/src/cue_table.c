@@ -318,34 +318,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * is. Written in ball radii these numbers made every table a special
          * case and made a custom table impossible to author. The values are
          * the ones the table already had, to the micron, so nothing moves. */
-        /* WPA MOUTHS, SOLVED AGAINST THE GAME'S OWN MEASUREMENT.
-         *
-         * These were 62.87 / 53.72 mm of hole and opened 111.1 mm at the corner
-         * and 106.4 at the side -- 4.374" and 4.189". WPA is 4.500-4.625" at a
-         * corner and 5.000-5.125" at a side, so the corner was a shade tight
-         * and the SIDE was most of an inch too narrow AND narrower than its own
-         * corner, which no American table in the world is: every one of them
-         * has the side the wider of the two.
-         *
-         * These are the WPA PRO CUT, 4.500 / 5.000, which is what the shipped
-         * table should be -- the spec ladder steps up from it, so the table you
-         * get by default is the tight one and TOURNAMENT and CLUB open it out.
-         *
-         * Solved, not estimated. On a MITRED table the mouth is not authored
-         * anywhere: the cushion link stands the rail ends off the bore, so the
-         * opening is an outcome of the hole, the facing angle and the cushion's
-         * depth, and the only way to know it is to build the world and measure.
-         * cue_table_openings does exactly that, and these two numbers are its
-         * answer bisected to a micron. Do not eyeball them from the jaw tips --
-         * at a middle the FACINGS come closer together than the jaw tips do, so
-         * a jaw-to-jaw reading measures past the real constriction and is
-         * 30 mm wide (2026-09-06, and it cost a wrong first fix).
-         *
-         * NOTE THE HOLE IS STILL PINNED TO THE DROP, and on a mitred table that
-         * leaves a round bore wider than the mouth it serves. That is a
-         * separate fault -- see the backlog -- and unpinning it needs the
-         * timber's cut to stop being a circle, which is frame work. */
-        t->pr_corner  = 0.0650269f; t->pr_side  = 0.0639458f;   /* 114.30 / 127.00 mm open */
+        t->pr_corner  = 0.0628650f; t->pr_side  = 0.0537210f;   /* 62.87 / 53.72 mm */
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         /* MILLIMETRES. Where the pocket sits into the corner, and how much
          * of the hole is not catch — both were ball radii, so a custom table
@@ -3637,16 +3610,11 @@ static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
     { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
       { 84.0f,  86.0f, 0.0f,     0.0f,   0.0f },
       { 89.0f,  92.0f, 0.0135f, -0.020f, 0.008f } },
-    /* AMERICAN POOL — the shipped table is now the WPA PRO CUT, 4.500 / 5.000
-     * in (114.3 / 127.0 mm), so the ladder starts at the book's tight end
-     * instead of somewhere below it. Tournament takes the book's LOOSE end,
-     * 4.625 / 5.125 (117.5 / 130.2); club goes past the spec to a generous bar
-     * box, which is what a club table is. The old row read 114.3 / 110.0 and
-     * 120.0 / 116.0 against a shipped 111.1 / 106.4 -- a middle that was
-     * narrower than its corner at every rung of the ladder. */
+    /* AMERICAN POOL — shipped 111.1 / 106.4. Tournament takes the 4 1/2 in
+     * (114.3 mm) that home and bar tables come with; club a generous 120. */
     { {   0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
-      { 117.5f, 130.2f, 0.0f,     0.0f,   0.0f },
-      { 124.0f, 136.0f, 0.0135f, -0.020f, 0.008f } },
+      { 114.3f, 110.0f, 0.0f,     0.0f,   0.0f },
+      { 120.0f, 116.0f, 0.0135f, -0.020f, 0.008f } },
     /* CHINESE 8-BALL — shipped 85.7 / 85.7, and cut tight on purpose: 1.50 ball
      * widths is what that game is, so its whole ladder is narrower. */
     { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
