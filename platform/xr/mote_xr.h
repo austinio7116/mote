@@ -44,6 +44,28 @@
 typedef struct {
     int64_t    t_ns;        /* when it was asked for, the runtime's own clock */
     MoteVrPose pose;
+    /* AND THE RUNTIME'S OWN VELOCITY, which is not the same thing as the
+     * difference between two of these positions.
+     *
+     * A position stream can be smoothed -- by the fusion, by the pose
+     * predictor, by anything between the sensors and us -- and differencing a
+     * smoothed signal gives a smoothed speed with the peaks taken out of it. A
+     * cue delivery is nothing but a peak. Measured in a headset: a player
+     * swinging as hard as they could produced 12 mm of tip travel in 2.1 ms
+     * however hard they swung, and two very different strokes both scored 5.7
+     * m/s.
+     *
+     * xrLocateSpace will chain XrSpaceVelocity and report the linear velocity
+     * the runtime's own fusion holds, which never went through that. Asked for
+     * on the same call, so it costs nothing extra. `v_ok` is 0 where the
+     * runtime does not offer it, and the caller falls back to differencing. */
+    MoteVrV3   v;           /* linear velocity, metres per second */
+    MoteVrV3   w;           /* angular velocity, radians per second */
+    int        v_ok;
+    /* THE TWO TOGETHER ARE WHAT A CUE TIP NEEDS. A tip is a rigid offset from
+     * the controller, so its velocity is v + w x r -- the hand's own motion
+     * plus whatever the rotation adds a metre and a half down the stick. Both
+     * come from the fusion; neither is a difference of two positions. */
 } MoteVrPoseSample;
 
 /* The most recent samples for one hand, NEWEST FIRST, up to `max`. Returns how

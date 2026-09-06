@@ -1321,7 +1321,13 @@ static void *ring_run(void *arg) {
             const XrTime t = (XrTime)ts.tv_sec * 1000000000LL + (XrTime)ts.tv_nsec;
             for (int h = 0; h < 2; h++) {
                 if (!S.hand_space[h]) continue;
-                XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+                /* THE VELOCITY COMES WITH THE POSE, chained onto the same
+                 * call. See MoteVrPoseSample: differencing positions measures
+                 * whatever smoothing is between the sensors and us, and the
+                 * runtime's own fusion has a velocity that never went through
+                 * it. One struct, no extra call, no cost. */
+                XrSpaceVelocity vel = { XR_TYPE_SPACE_VELOCITY };
+                XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION, &vel };
                 if (!XR_SUCCEEDED(xrLocateSpace(S.hand_space[h], S.space, t, &loc))) continue;
                 if (!(loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) ||
                     !(loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) continue;
@@ -1330,6 +1336,12 @@ static void *ring_run(void *arg) {
                 sl->t_ns = (int64_t)t;
                 memcpy(&sl->pose.q, &loc.pose.orientation, sizeof sl->pose.q);
                 memcpy(&sl->pose.p, &loc.pose.position,    sizeof sl->pose.p);
+                sl->v_ok = ((vel.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) &&
+                            (vel.velocityFlags & XR_SPACE_VELOCITY_ANGULAR_VALID_BIT)) ? 1 : 0;
+                if (sl->v_ok) {
+                    memcpy(&sl->v, &vel.linearVelocity,  sizeof sl->v);
+                    memcpy(&sl->w, &vel.angularVelocity, sizeof sl->w);
+                } else { memset(&sl->v, 0, sizeof sl->v); memset(&sl->w, 0, sizeof sl->w); }
                 __atomic_store_n(&S_ring.head[h], hd + 1, __ATOMIC_RELEASE);
             }
         }
