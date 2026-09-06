@@ -109,6 +109,23 @@ typedef struct {
      * odd one out has to say so. */
     float r;         /* radius, metres. 0 = the world's R */
     float m;         /* mass, kg.       0 = the world's mass */
+    /* HOW DEEP THE CUSHION IS CURRENTLY HOLDING THIS BALL, in metres, and how
+     * fast that is running out.
+     *
+     * A cushion impact is not instantaneous. The rubber takes about three
+     * milliseconds to compress and hand the ball back, and for that long the
+     * ball's centre is INSIDE the cushion line rather than sitting on it. The
+     * separation step used to push it out to touch on every substep and reverse
+     * it there, which threw the whole of that away: the rebound started from
+     * the rigid surface, a centimetre further out than a real one does at pace.
+     *
+     * So the impact leaves an allowance behind it. While this is positive the
+     * separation step will not push the ball out past it, and it shrinks at the
+     * rate the ball is leaving, so the two run out together and the ball
+     * arrives at the surface exactly when the real contact ends. Zero
+     * everywhere else, and a memset ball is a ball no cushion is holding. */
+    float cush_sink;
+    float cush_sink_v;
 } CueBall;
 
 
@@ -147,6 +164,11 @@ enum { CUE_TOUCH_BALL = 0, CUE_TOUCH_CUSHION };
  * small number the body count suggests — it is worth stating rather than
  * leaving each caller to guess and get "the pools did not fit". */
 #define CUE_SKITTLE_ARENA   (96 * 1024)
+
+/* THE CUSHION'S COMPLIANCE COEFFICIENT for a ball of this mass and radius:
+ * metres of rebound set-back per (m/s) of outgoing speed per (m/s)^-0.2 of
+ * approach. Hertz; derived in cue_physics.c beside the impact that uses it. */
+float cue_phys_cush_give(float m, float R);
 
 typedef uint32_t (*CuePhysRigidFn)(MoteWorld *w, MoteBody *b, int n, float dt);
 void cue_phys_set_rigid(CuePhysRigidFn fn);
@@ -201,6 +223,12 @@ typedef struct {
      * cos is sqrt(1 - sin^2), both exactly rounded on any chip, where asinf and
      * its inverse are neither and are the OS's. See cushion_impact. */
     float cush_sin, cush_cos;
+    /* HOW COMPLIANT THIS TABLE'S RUBBER IS, as a multiple of the modelled
+     * cushion. 1 is the Hertz result for 60 Shore A rubber (see
+     * cue_phys_cush_give); 0 switches compliance off and restores the old
+     * instantaneous, rigid-surface rebound. A table with unusually hard rails
+     * — a pyramid table is the case that matters — sets it below 1. */
+    float cush_give;
     /* Bed. Only a jumped ball ever touches these. Cloth over slate is a poor
      * trampoline: a jumped ball takes two or three diminishing hops and stops,
      * and the settle speed is what stops it micro-bouncing for hundreds of

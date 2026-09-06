@@ -67,6 +67,7 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
      * coupling that built up running english off the rail is much smaller. */
     w->cush_sin = 0.15f;
     w->cush_cos = sqrtf(1.0f - 0.15f * 0.15f);
+    w->cush_give = 1.0f;   /* rubber as modelled; a table may harden its rails */
     /* The bed. Cloth over slate returns very little: a jumped ball takes two or
      * three quick diminishing hops and is down. v_land is set so the last hop
      * is under a millimetre — below that it settles flat rather than chatter,
@@ -744,6 +745,41 @@ static CUE_HOT int collide_surface(const CueWorld *w, CueBall *b, Vec3 N,
 #define CUE_CUSH_HOP 0.55f
 #endif
 
+/* THE CUSHION RUBBER'S ELASTIC MODULUS, in pascals.
+ *
+ * Cushion rubber is sold by hardness rather than by modulus: match-grade
+ * cloth-over rubber is about 60 Shore A, which is roughly 5 MPa. Nobody has
+ * published a stiffness for a billiard cushion, so this one number carries the
+ * whole compliance -- and two independent things land on it. The Hertz contact
+ * duration it gives is 2.7-4.5 ms across the playing range, which is what
+ * high-speed imaging of a cushion strike shows. And it puts the ball 3.5 mm
+ * into the rubber at 2.5 m/s, which is exactly where Mathavan et al. say the
+ * rigid-cushion assumption stops being fair -- a seventh of a ball. Neither was
+ * used to fit it. */
+#ifndef CUE_CUSH_E
+#define CUE_CUSH_E 5.0e6f
+#endif
+
+float cue_phys_cush_give(float m, float R)
+{
+    /* Hertz for a sphere pressed into a flat elastic body: F = k d^1.5 with
+     * k = (4/3) E sqrt(R). At full compression all the kinetic energy is in
+     * the spring, (2/5) k d^2.5 = (1/2) m v^2, so the depth is
+     *
+     *      d = A v^0.8,   A = (5m/4k)^0.4
+     *
+     * and the contact lasts t = 2.868 d / v (the standard Hertz coefficient
+     * for the half-sine impact), i.e. t = 2.868 A v^-0.2 -- longer the more
+     * gently it is touched, which is the right way round.
+     *
+     * What the rebound wants is neither of those alone but their product. The
+     * ball leaves at some speed u and stays in contact for t, so a real
+     * cushion starts it u*t further back than a rigid one does. This returns
+     * the 2.868 A; the impact multiplies by u and by v^-0.2. */
+    float k = 1.3333333f * CUE_CUSH_E * sqrtf(R);
+    return 2.868f * powf(5.0f * m / (4.0f * k), 0.4f);
+}
+
 static CUE_HOT int cushion_impact(const CueWorld *w, CueBall *b, Vec3 n_face,
                                   float sin_th)
 {
@@ -799,6 +835,7 @@ static CUE_HOT int cushion_impact(const CueWorld *w, CueBall *b, Vec3 n_face,
     if (zeta_in < 0.025f) {
         vy = -vy * e_v;
         b->vel = v3(vx*xh.x + vy*yh.x, 0.0f, vx*xh.z + vy*yh.z);
+        b->cush_sink = 0.0f; b->cush_sink_v = 0.0f;   /* leaning, not compressing */
         return 1;
     }
 
@@ -922,6 +959,60 @@ static CUE_HOT int cushion_impact(const CueWorld *w, CueBall *b, Vec3 n_face,
         vz += lift;
     }
 
+    /* ---- AND IT TAKES TIME, WHICH IS WHERE THE REBOUND STARTS FROM -------
+     *
+     * Everything above resolves the impact in velocity and leaves the ball
+     * standing on the rigid cushion line, because that is where the separation
+     * step put it a moment ago. A real cushion does not work like that. The
+     * ball drives into the rubber, the rubber gives, and only about three
+     * milliseconds later does it hand the ball back -- and by then the ball has
+     * spent that time inside the cushion instead of travelling away from it.
+     *
+     * The engine's ball, given its rebound speed u at the instant of contact,
+     * is u*t ahead of the real one when the real contact ends. At 5 m/s into a
+     * snooker rail that is 12.6 mm, a quarter of a ball; on a firm one it is
+     * approaching 20 mm. It is not a small correction and it is not cosmetic:
+     * it is where the angle comes off the cushion FROM, so every bank, every
+     * ball coming off the rail into a pocket and every safety played to length
+     * has been starting from the wrong place.
+     *
+     * So put the ball where the real one is at the START of the contact --
+     * u*t inside the line -- and leave an allowance behind saying the cushion
+     * is holding it there. The allowance runs out at u, the same rate the ball
+     * is leaving at, so it reaches the surface exactly as the real contact
+     * ends and its onward path is right. In between it is inside the rubber,
+     * which is also what really happens.
+     *
+     * The depth is bounded by the geometry of the cut, not by this: a ball
+     * cannot be held anywhere a segment does not reach, and the mouth of a
+     * pocket is still as wide as it was. */
+    if (w->cush_give > 0.0f) {
+        float u = -vy;                       /* outgoing normal speed (vy is inward) */
+        if (u > 0.0f) {
+            float give = cue_phys_cush_give(M, R) * w->cush_give;
+            float back = give * u * powf(zeta0, -0.2f);
+            /* A SHORTCUT, AND WHERE IT IS NOT EXACT. The real ball's centre
+             * goes in as far as the Hertz depth d = A v^0.8 and comes back
+             * out; putting it straight to u*t instead is between 1.6 and 2.5
+             * times deeper than the rubber ever really is, because the whole
+             * contact's retardation is spent at once rather than integrated
+             * across it. Where the ball ENDS UP when the contact is over --
+             * position and velocity both -- is exact, and that is what the
+             * rest of the shot is built on; only the three milliseconds in
+             * between are too deep, and at 72 Hz roughly one impact in four
+             * puts a frame inside that window at all.
+             *
+             * Capped short of the ball's own radius so the centre can never
+             * cross a pocket facing, which is a line with open throat behind
+             * it: past that the separation test reads the ball as being on the
+             * far side and stops seeing the cushion at all. */
+            if (back > 0.8f * R) back = 0.8f * R;
+            b->pos = v3_add(b->pos, v3_scale(yh, back));
+            b->cush_sink   = back;
+            b->cush_sink_v = u;
+        }
+    }
+
     b->vel = v3(vx*xh.x + vy*yh.x, vz, vx*xh.z + vy*yh.z);
     b->w   = v3(wx*xh.x + wy*yh.x, wz, wx*xh.z + wy*yh.z);
     if (b->vel.y < 0.0f) b->vel.y = 0.0f;            /* never driven downward */
@@ -982,7 +1073,12 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
         if (pen > best_pen) { best_pen = pen; best = s; best_n = sn; best_sep = nd; }
     }
     if (best >= 0) {
-        b->pos = v3_add(b->pos, v3_scale(best_sep, best_pen));   /* push out along separation */
+        /* Push out only as far as the rubber is not holding it in. A ball in
+         * the middle of a contact is legitimately inside the cushion line and
+         * must be left there; one that is merely resting on it has no
+         * allowance and is separated exactly as before. */
+        float push = best_pen - b->cush_sink;
+        if (push > 0.0f) b->pos = v3_add(b->pos, v3_scale(best_sep, push));
         Vec3 N = v3_norm(v3(best_n.x * ct, st, best_n.z * ct));  /* bounce off smooth normal */
         float vn = -(b->vel.x * N.x + b->vel.z * N.z);           /* approach speed into rail */
         /* WHERE ON THE BALL THE CUSHION ACTUALLY TOUCHES, which depends on how
@@ -1026,7 +1122,8 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
         if (dist < mind && dist > 1e-6f) {
             if (b->pos.y - cue_ball_r(w, b) > w->rail_top) continue;       /* flying over it */
             Vec3 N = v3_scale(d, 1.0f / dist);
-            b->pos = v3_add(b->pos, v3_scale(N, (mind - dist)));
+            float jpush = (mind - dist) - b->cush_sink;   /* the knuckle gives too */
+            if (jpush > 0.0f) b->pos = v3_add(b->pos, v3_scale(N, jpush));
             if (collide_surface(w, b, N, w->e_cush, w->mu_cush)) {
                 hit = 1;
                 if (ev) *ev |= CUE_EV_JAW;
@@ -2063,6 +2160,13 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
     for (int i = 0; i < n; i++) {
         CueBall *b = &balls[i];
         if (!b->on) continue;
+        /* The cushion gives the ball back: the depth it is holding runs out at
+         * the speed the ball is leaving at, so the two reach the surface
+         * together. See cushion_impact. */
+        if (b->cush_sink > 0.0f) {
+            b->cush_sink -= b->cush_sink_v * h;
+            if (b->cush_sink <= 0.0f) { b->cush_sink = 0.0f; b->cush_sink_v = 0.0f; }
+        }
         if (b->drop > 0.0f) {
             /* IN THE POCKET, FALLING — AND THE LIP STEERS IT IN.
              *
