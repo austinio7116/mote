@@ -15,6 +15,13 @@
 #include "mote_phys.h"
 #include "mote_config.h"
 #include <math.h>
+/* THE DIAGNOSTIC IS HOST-ONLY, and so is everything it needs. This file is
+ * compiled into the handheld's firmware, where stdio and getenv are neither
+ * free nor always there. */
+#ifdef MOTE_HOST
+#include <stdio.h>
+#include <stdlib.h>
+#endif
 #include <string.h>
 
 #define DEFAULT_H    (1.0f / 240.0f)  /* default substep; per-world overridable */
@@ -38,6 +45,23 @@
  * a second is not at rest (2026-09-05, the ball return). */
 #define SLEEP_VEL2   (0.02f * 0.02f)
 #define SLEEP_FRAMES 20
+/* HOW FAR OFF STRAIGHT UP the total contact impulse may point and still count
+ * as support a ball may rest on. See the sleep block.
+ *
+ * IT HAS TO BE TIGHT, and the number is not a tuning. A ball coasting through
+ * zero on a slope of angle T is held by an impulse tilted from vertical by
+ * atan((5/7) tan T) -- 0.536 degrees on the ball return's three-quarter-degree
+ * gully. That is the case this test exists to reject, so the gate must be well
+ * inside it, and a quarter of a degree is.
+ *
+ * WHAT MADE IT UNREACHABLE BEFORE was not the number but what it was applied
+ * to. Two faults, both below: the sum left out the FRICTION impulse, so a ball
+ * held on any slope read as tilted by that slope for ever; and it was judged one
+ * substep at a time, and one substep of an iterative solver wanders by a couple
+ * of degrees on a ball that is not moving at all. With friction in and the
+ * direction averaged, a settled ball reads 0.000 and a rolling one reads its
+ * slope, and a quarter of a degree sits between them with room on both sides. */
+#define SLEEP_LEVEL_COS2 0.99999048f   /* cos^2 of a quarter of a degree */
 
 static inline float u2f(uint32_t u) { float f; __builtin_memcpy(&f, &u, 4); return f; }
 static inline uint32_t f2u(float f) { uint32_t u; __builtin_memcpy(&u, &f, 4); return u; }
@@ -113,7 +137,11 @@ static int      s_nct;
 static Vec3    *s_pv, *s_pw;                                  /* position pseudo-velocities */
 static uint8_t *s_touch, *s_woke;                            /* contact this substep / woke this substep */
 static float   *s_pen;                                        /* deepest penetration this substep */
-static Vec3    *s_jsum;                                       /* net normal impulse on the body this substep */
+static Vec3    *s_jsum;                                       /* net contact impulse on the body this substep */
+static Vec3    *s_javg;                                       /* ...and its running mean, for the sleep gate */
+#ifdef MOTE_HOST
+static int      s_sleepdbg = -1;    /* MOTE_PHYS_SLEEPDBG: why a still body will not sleep */
+#endif
 static int      s_max_bodies;
 
 typedef struct { uint32_t key; float jn, jt; } Imp;
@@ -139,12 +167,13 @@ int mote_phys_configure(MoteArena *arena, int max_bodies, int max_contacts) {
     s_woke   = mote_arena_alloc(arena, (size_t)s_max_bodies);
     s_pen    = mote_arena_alloc(arena, (size_t)s_max_bodies * sizeof(float));
     s_jsum   = mote_arena_alloc(arena, (size_t)s_max_bodies * sizeof(Vec3));
+    s_javg   = mote_arena_alloc(arena, (size_t)s_max_bodies * sizeof(Vec3));
     s_cacheA = mote_arena_alloc(arena, (size_t)s_cache_n * sizeof(Imp));
     s_cacheB = mote_arena_alloc(arena, (size_t)s_cache_n * sizeof(Imp));
     s_cache_prev = s_cacheA; s_cache_cur = s_cacheB;
     g_cell   = mote_arena_alloc(arena, (size_t)s_grid_cells * sizeof(int));
     g_next   = mote_arena_alloc(arena, (size_t)s_grid_bodies * sizeof(int));
-    return s_ct && s_pv && s_pw && s_touch && s_woke && s_pen && s_jsum && s_cacheA && s_cacheB && g_cell && g_next;
+    return s_ct && s_pv && s_pw && s_touch && s_woke && s_pen && s_jsum && s_javg && s_cacheA && s_cacheB && g_cell && g_next;
 }
 
 static void cache_lookup(uint32_t key, float *jn, float *jt) {
@@ -1116,25 +1145,57 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
          * against gravity, within half a degree: a level floor, a groove, a
          * hollow. Boxes, capsules and hulls keep the old rule; they have faces
          * and friction to rest on. */
+#ifdef MOTE_HOST
+        if (s_sleepdbg < 0) s_sleepdbg = getenv("MOTE_PHYS_SLEEPDBG") ? 1 : 0;
+#endif
         if (n <= s_max_bodies) {
             memset(s_jsum, 0, (size_t)n * sizeof s_jsum[0]);
             for (int k = 0; k < s_nct; k++) {
                 const Contact *c = &s_ct[k];
-                Vec3 J = v3_scale(c->n, c->jn);
+                /* THE WHOLE CONTACT IMPULSE, NOT HALF OF IT.
+                 *
+                 * This summed the NORMAL impulses alone, and on any surface
+                 * that is not level that is not what holds a ball up: a ball
+                 * resting on a slope is held by its normal AND by the friction
+                 * along it, and the two together are what oppose gravity. Left
+                 * out, the sum was tilted by the slope's own angle for ever, so
+                 * a ball at rest on a 1.5 degree return-box floor could never
+                 * pass a test that asks for half a degree -- it sat there awake,
+                 * being nudged by the solver, retriggering the knock sound every
+                 * sixtieth of a second. Reported from two games in three as
+                 * "a constant rattling with some ball jittering somewhere".
+                 *
+                 * With friction in, the sum is the total force the surfaces are
+                 * putting into the body, and at rest that must be exactly minus
+                 * gravity whatever the surface is doing. Which is the thing the
+                 * test was trying to ask all along. It is also the same vector
+                 * apply_impulse uses, so the two cannot drift apart. */
+                Vec3 J = v3_add(v3_scale(c->n, c->jn), v3_scale(c->t, c->jt));
                 if (c->a < n) s_jsum[c->a] = v3_add(s_jsum[c->a], J);
                 if (c->b >= 0 && c->b < n) s_jsum[c->b] = v3_sub(s_jsum[c->b], J);
             }
         }
         if (n <= s_max_bodies) for (int i = 0; i < n; i++) {
             MoteBody *b = &bodies[i];
+            /* THE MEAN OF IT, NOT ONE SUBSTEP OF IT. A ball settled in a pile
+             * is held by half a dozen contacts the solver re-solves every
+             * substep, and the direction of their sum wanders by a couple of
+             * degrees while the ball itself does not move at all -- measured on
+             * the return box, 0.67 to 2.6 degrees on a ball whose displacement
+             * reads 0.0000. Judging any one substep against half a degree
+             * therefore rejects a ball that is plainly at rest. The wander is
+             * noise and averages away; what it is being told apart from -- a
+             * ball coasting on the gully -- is a steady tilt that does not. */
+            {   const float k = 0.12f;
+                s_javg[i] = v3_add(s_javg[i], v3_scale(v3_sub(s_jsum[i], s_javg[i]), k)); }
             int level = 1;
             if (b->shape == MOTE_SHAPE_SPHERE) {
-                const float g2 = v3_dot(w->gravity, w->gravity), j2 = v3_dot(s_jsum[i], s_jsum[i]);
+                const float g2 = v3_dot(w->gravity, w->gravity), j2 = v3_dot(s_javg[i], s_javg[i]);
                 if (g2 > 0.0f) {
                     if (j2 <= 0.0f) level = 0;
                     else {
-                        const float d = -v3_dot(s_jsum[i], w->gravity);
-                        level = d > 0.0f && d * d > 0.99992f * g2 * j2;   /* cos^2 of half a degree */
+                        const float d = -v3_dot(s_javg[i], w->gravity);
+                        level = d > 0.0f && d * d > SLEEP_LEVEL_COS2 * g2 * j2;
                     }
                 }
             }
@@ -1150,6 +1211,27 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
                        && v3_dot(b->vel, b->vel) < SLEEP_VEL2) {
                 b->_reserved[0]++;                         /* resting (not deeply overlapping) + still -> sleep */
             } else {                                       /* airborne / moving -> stay awake, re-anchor */
+                /* WHY A BODY THAT IS PLAINLY STILL WILL NOT SLEEP. Printed from
+                 * inside the branch that keeps it awake, so it cannot itself
+                 * change what the solver does; one line per body per substep,
+                 * which is a bench and never a game. */
+#ifdef MOTE_HOST
+                if (s_sleepdbg && b->inv_mass > 0.0f && v3_dot(b->vel, b->vel) < SLEEP_VEL2) {
+                    const float g2 = v3_dot(w->gravity, w->gravity), j2 = v3_dot(s_javg[i], s_javg[i]);
+                    const float d  = -v3_dot(s_javg[i], w->gravity);
+                    const float ang = (g2 > 0.0f && j2 > 0.0f && d > 0.0f)
+                                    ? 57.29578f * acosf(d / sqrtf(g2 * j2) > 1.0f ? 1.0f : d / sqrtf(g2 * j2))
+                                    : 180.0f;
+                    printf("[sleep] body %d awake: touch %d level %d (%.3f deg) pen %.4f disp %.4f "
+                           "|w| %.3f |v| %.4f\n", i, (int)s_touch[i], level, (double)ang,
+                           (double)s_pen[i], (double)sqrtf(disp2),
+                           (double)sqrtf(v3_dot(b->w, b->w)), (double)sqrtf(v3_dot(b->vel, b->vel)));
+                }
+#endif
+                /* A BODY THAT IS ACTUALLY MOVING FORGETS THE MEAN. Carrying an
+                 * average across a journey would let the flat ground a ball
+                 * rested on ten seconds ago vouch for the slope it is on now. */
+                if (v3_dot(b->vel, b->vel) > SLEEP_VEL2) s_javg[i] = s_jsum[i];
                 b->_reserved[0] = 0;
                 b->_reserved[1] = f2u(b->pos.x); b->_reserved[2] = f2u(b->pos.y); b->_reserved[3] = f2u(b->pos.z);
             }
