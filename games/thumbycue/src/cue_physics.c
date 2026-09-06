@@ -1094,7 +1094,15 @@ CUE_HOT float cue_phys_cut_out(const CueWorld *w, int p, float x, float z) {
     }
     float sz = (C.z < 0.0f) ? -1.0f : 1.0f;
     float v  = sz * (z - C.z);
-    if (p >= 4) {                                   /* a middle: half arc, two legs */
+    /* CARRIED, NOT INFERRED FROM THE INDEX. "p >= 4 is a middle" is true of
+     * every rectangle and of nothing else -- an L has FIVE corners, so its
+     * fifth would take the half-arc branch and be given a middle's cloth cut,
+     * which is the SDF that decides where the slate ends, where a ball tips
+     * over the lip and where it is caught. Every other site in this file
+     * already reads pocket_mid; this one was missed. On the shipped tables
+     * the two answers differ only at bar billiards' bed holes, and those
+     * return above without reaching here -- so nothing that ships moves. */
+    if (w->pocket_mid[p]) {                         /* a middle: half arc, two legs */
         float u = x - C.x;
         if (v > 0.0f) return R - (u < 0.0f ? -u : u);        /* between the legs */
         return R - sqrtf(u*u + v*v);                         /* on the arc */
