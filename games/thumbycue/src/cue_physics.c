@@ -1469,7 +1469,7 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
         m->pos = b->pos; m->vel = b->vel; m->w = b->w; m->orient = b->orient;
         m->friction = 0.0f; m->restitution = 0.0f;   /* the surface decides */ }
     n += cue_phys_under_bodies(w, bodies + n, (int)(sizeof bodies / sizeof bodies[0]) - n);
-    const Vec3 v_in = b->vel, v_in_w = b->w;
+    const Vec3 v_in = b->vel;
     for (int q = 0; q < 4; q++) { pw._acc = 0.0f; mote_phys_step(&pw, bodies, n, qh); }
     /* THE KNOCK. A change of horizontal speed of more than 0.4 m/s in one
      * substep against the pocket's surfaces is the ball striking the back;
@@ -1511,74 +1511,6 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
                         bodies[0].vel.x, bodies[0].vel.y, bodies[0].vel.z, dv.x, dv.y, dv.z);
         } }
 #endif
-    /* THE LIP CANNOT PUSH A BALL AWAY FROM THE POCKET.
-     *
-     * The cloth's roll is a downslope into the pocket the whole way round, so
-     * its outward surface normal tilts INWARD: a normal impulse from it can
-     * only ever push a ball further in and up, and at mu 0.05 its friction can
-     * hardly push at all. Gravity along it is inward by construction. So there
-     * is no honest way for the lip to accelerate a ball back out over the
-     * cloth -- and a ball that does that is the solver's position correction
-     * finding a facet EDGE of a curved mesh and pushing along it, which points
-     * wherever the edge happens to point. Reported as a rattling ball that
-     * "starts to move back across the jaw" and then "spinning UP the jaw away
-     * from the pocket" (2026-09-06). It is rare, and that is the signature of a
-     * geometric accident rather than a force.
-     *
-     * So the rule the table actually obeys is stated: over the roll, the
-     * surfaces below may take pace OFF a ball, and may never add pace away
-     * from the pocket. Anything the step added outward is given back.
-     *
-     * SCOPED TO THE ROLL, and it has to be. A ball driven into the BACK of the
-     * pocket rebounds toward the mouth, and that is the rattle -- the whole
-     * point of a jaw -- so the rule stands aside wherever the ball is within
-     * reach of the leather. What is left is the cloth's own lip, where nothing
-     * that can legitimately throw a ball outward exists. */
-    if (w->pgeom_lip) {
-        const float Rb2 = bodies[0].radius, near2 = Rb2 + 0.004f;
-        const int on_lip  = mesh_dist(w->pgeom_lip, bodies[0].pos, near2) < near2;
-        const int at_back = solid && mesh_dist(solid, bodies[0].pos, near2) < near2;
-        if (on_lip && !at_back) {
-            const float dx = bodies[0].pos.x - w->drop_c[pk].x;
-            const float dz = bodies[0].pos.z - w->drop_c[pk].z;
-            const float dl = sqrtf(dx*dx + dz*dz);
-            if (dl > 1e-5f) {
-                const float ux = dx / dl, uz = dz / dl;      /* away from the pocket */
-                const float was = v_in.x * ux + v_in.z * uz;
-                const float now = bodies[0].vel.x * ux + bodies[0].vel.z * uz;
-                /* AND THE ROTATION WITH IT -- reported in the same breath,
-                 * "a ball gain rotation and momentum BACK UP the lip", and it
-                 * is the same accident: the correction spins the ball as well
-                 * as shifting it, and a ball that leaves the lip rolling
-                 * outward carries itself away the moment it finds cloth. The
-                 * spin that rolls a ball along u is (y x u)/R, so that is the
-                 * component held; every other axis -- the side spin it arrived
-                 * with, the roll it already had -- is left alone. */
-                const float sx = -uz, sz = ux;               /* y x u, the rolling axis */
-                const float w_was = v_in_w.x * sx + v_in_w.z * sz;
-                const float w_now = bodies[0].w.x * sx + bodies[0].w.z * sz;
-                if (w_now > 0.0f && w_now > w_was) {
-                    const float wg = w_now - (w_was > 0.0f ? w_was : 0.0f);
-                    bodies[0].w.x -= wg * sx;
-                    bodies[0].w.z -= wg * sz;
-                }
-                if (now > 0.0f && now > was) {
-                    const float give = now - (was > 0.0f ? was : 0.0f);
-                    bodies[0].vel.x -= give * ux;
-                    bodies[0].vel.z -= give * uz;
-#ifdef MOTE_HOST
-                    {   static int dbg = -1;
-                        if (dbg < 0) dbg = getenv("CUE_LIPDBG") ? 1 : 0;
-                        if (dbg) fprintf(stderr, "[lipout] pk%d gave back %.3f m/s outward "
-                                                 "(was %.3f, became %.3f) at (%.4f,%.4f,%.4f)\n",
-                                         pk, (double)give, (double)was, (double)now,
-                                         (double)bodies[0].pos.x, (double)bodies[0].pos.y,
-                                         (double)bodies[0].pos.z); }
-#endif
-                }
-            }
-        }
-    }
     b->pos = bodies[0].pos; b->vel = bodies[0].vel; b->w = bodies[0].w; b->orient = bodies[0].orient;
     return 1;
 }
