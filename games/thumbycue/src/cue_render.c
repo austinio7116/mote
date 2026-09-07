@@ -1155,6 +1155,23 @@ static float bore_rim(float u, float cu, float cv, float r,
     return v;
 }
 
+/* THE WALL DOWN A BORE IS LINING, NOT TIMBER.
+ *
+ * It is the only face of the plank you look at from inside the pocket, and a
+ * real one is lined -- so it takes the liner's own near-black and the shader's
+ * matt path rather than the rail colour and a varnish highlight. `iscloth` is
+ * how the shader is told: wood_spec is varn * (1 - iscloth) * u_grain, and a
+ * timber-tagged near-black surface reads as a grey smear down the pocket.
+ *
+ * Only the wall. Everything else bore_fill emits is the plank's top face round
+ * the hole, which is timber and stays timber. */
+static void wall_quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, uint16_t col) {
+    const uint8_t keep = s_mat;
+    s_mat = CUE_MAT_CLOTH;
+    quad(a, b, c, d, col);
+    s_mat = keep;
+}
+
 static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0, float z1,
                       float ytop, float ybot, uint16_t top, uint16_t wall,
                       int axis, int rail_hi, const BoreCut *cuts) {
@@ -1171,7 +1188,7 @@ static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0,
             if (zt0 < z0) zt0 = z0; if (zt0 > z1) zt0 = z1;
             if (zt1 < z0) zt1 = z0; if (zt1 > z1) zt1 = z1;
             quad(v3(u0,ytop,zt0), v3(u1,ytop,zt1), v3(u1,ytop,wb), v3(u0,ytop,wa), top);
-            quad(v3(u0,ytop,zt0), v3(u1,ytop,zt1), v3(u1,ybot,zt1), v3(u0,ybot,zt0), wall);
+            wall_quad(v3(u0,ytop,zt0), v3(u1,ytop,zt1), v3(u1,ybot,zt1), v3(u0,ybot,zt0), wall);
         } else {                               /* columns along Z, depth along X */
             float u0 = z0 + (z1-z0)*k/N, u1 = z0 + (z1-z0)*(k+1)/N;
             const float face1 = rail_hi ? x0 : x1;
@@ -1183,7 +1200,7 @@ static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0,
             if (xt0 < x0) xt0 = x0; if (xt0 > x1) xt0 = x1;
             if (xt1 < x0) xt1 = x0; if (xt1 > x1) xt1 = x1;
             quad(v3(xt0,ytop,u0), v3(xt1,ytop,u1), v3(wb,ytop,u1), v3(wa,ytop,u0), top);
-            quad(v3(xt0,ytop,u0), v3(xt1,ytop,u1), v3(xt1,ybot,u1), v3(xt0,ybot,u0), wall);
+            wall_quad(v3(xt0,ytop,u0), v3(xt1,ytop,u1), v3(xt1,ybot,u1), v3(xt0,ybot,u0), wall);
         }
     }
 
@@ -1218,7 +1235,7 @@ static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0,
             for (int e = 0; e < 2; e++) {
                 float ux = e ? cx + r : cx - r;
                 if (ux < x0) ux = x0; if (ux > x1) ux = x1;
-                quad(v3(ux,ytop,face), v3(ux,ytop,back),
+                wall_quad(v3(ux,ytop,face), v3(ux,ytop,back),
                      v3(ux,ybot,back), v3(ux,ybot,face), wall);
             }
         }
@@ -1229,7 +1246,7 @@ static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0,
             for (int e = 0; e < 2; e++) {
                 float uz = e ? cz + r : cz - r;
                 if (uz < z0) uz = z0; if (uz > z1) uz = z1;
-                quad(v3(face,ytop,uz), v3(back,ytop,uz),
+                wall_quad(v3(face,ytop,uz), v3(back,ytop,uz),
                      v3(back,ybot,uz), v3(face,ybot,uz), wall);
             }
         }
@@ -2140,7 +2157,7 @@ static void wood_ring_ngon(const CueTable *t, const CueWorld *w,
                 if (gap <= 1e-4f || gap >= (ap_out - ap_in)) continue;
                 const float nx2 = cosf(phie), nz2 = sinf(phie);
                 const float qx = ex2 - nx2 * gap, qz = ez2 - nz2 * gap;
-                quad(v3(ex2, ytop, ez2), v3(qx, ytop, qz),
+                wall_quad(v3(ex2, ytop, ez2), v3(qx, ytop, qz),
                      v3(qx, ybot, qz), v3(ex2, ybot, ez2), wall);
             }
         }
@@ -3718,7 +3735,10 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         }
         build_ring(t, w, bx, bz, nb, want);
     }
-    uint16_t wbore = shade565(woodt, 0.42f);   /* internal bore wall (in shadow) */
+    /* THE SAME NEAR-BLACK THE LINER TUBE BELOW IT USES, so the bore wall and
+     * the tube read as one lining rather than as timber above plastic. It was
+     * the rail colour at 42%, which is what you could see round the throat. */
+    uint16_t wbore = RGB565C(3, 4, 4);        /* the pocket's lining, matt */
     const float bore_bot = cue_table_bore_bot();  /* bore wall reaches the bed; throat continues below */
     /* Inner-edge risers (the short wood lip dropping from the raised plank top to
      * rail_h along the mouth edge) are drawn INSIDE wood_plank_bored per wood
