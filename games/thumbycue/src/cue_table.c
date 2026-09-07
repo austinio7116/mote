@@ -4515,12 +4515,25 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
      * old ratios worked out to on each table.
      *
      * THE AMERICAN'S FOUR WERE SET BY EYE, on the bench, against the shape:
-     * the corner's lip opened out to 97.5 mm and the middle's tightened to
-     * 65.5, and both were then set back further -- 38.9 and 38.6 -- to put the
-     * roll's OUTER curve where it belongs. The outer curve is the edge that
-     * matters and the one the bench draws: the cloth has finished turning
-     * there and lets the ball go, a roll-depth beyond the inner one. Moving
-     * the roll moves it alone; moving the setback moves both together.
+     * the corner's cut opened out to 111.33 mm and the middle's tightened to
+     * 77.32, both set back 38.9 and 38.6.
+     *
+     * AND `rad` IS THE ROLL'S OUTER EDGE, NOT ITS INNER ONE. The renderer
+     * rolls the cloth along the cut boundary's own outward normal, and outward
+     * FROM THE CLOTH at a pocket points into the hole -- the cloth is the
+     * material outside the cut, so the direction it disappears in is inward.
+     * The cut circle is therefore where the cloth is still flat and starts to
+     * turn, and the roll runs IN from it to where the cloth has turned under
+     * and lets the ball go, at `rad - roll`.
+     *
+     * The bench drew it the other way round for a while, outer at rad + roll,
+     * which put every lip it was used to set a whole roll-depth too far out;
+     * dialled against that picture the real thing came back looking more set
+     * back than it had been asked for, and it was, by 13.83 mm at a corner and
+     * 11.82 at a middle. The two radii here are the old 97.5 and 65.5 with the
+     * roll added, which leaves the band of cloth that is actually turning
+     * exactly where the bench had drawn it. The setbacks did not move: the
+     * circle's centre never was the thing in question.
      *
      * They are the only numbers here chosen that way rather than converted,
      * and the fifteen games that share the 9 ft bed all carry them. */
@@ -4541,8 +4554,8 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * and KILLER_UK, which are one bed. */
     static const CueCut corner[] = {
         /* UK8   */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
-        /* US8   */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },
-        /* US9   */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },
+        /* US8   */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },
+        /* US9   */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },
         /* CN8   */ { 0.0170f, 0.059769f, 0.009704f,  90.0f },
         /* SNK15 and SNK10: THE WPBSA 2005/6 CORNER, read off the 3MF gauge.
          * The slate drop is an arc r 3.5 in (88.94 mm fitted) CENTRED ON THE
@@ -4558,7 +4571,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* SNK15 */ { 0.0332f, 0.088900f, 0.009737f,  90.0f },
         /* SNK10 */ { 0.0332f, 0.088900f, 0.009737f,  90.0f },
         /* SNK6  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
-        /* STRT  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* STRT  */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
         /* PYRA — the American's cut, with the SETBACK scaled to this mouth
          * (0.517 of it) rather than copied in millimetres. */
         /* PYRA  */ { 0.0189f, 0.051430f, 0.008140f,  90.0f },
@@ -4577,14 +4590,14 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* GOLF — the UK 7 ft bed, so the UK 7 ft corner cut, exactly */
         /* GOLF  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
         /* US10 — the same 9 ft American bed as 9-ball, so its cut exactly */
-        /* US10  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },
+        /* US10  */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },
         /* PAUL — the snooker cut, with the SETBACK scaled to this small mouth
          * rather than copied in millimetres: 14.5 mm on a 45 mm snooker pocket
          * is a third of it, and a third of Paul's is 8.4. */
         /* PAUL  */ { 0.0084f, 0.045760f, 0.007261f,  90.0f },
         /* KILLER — the base tables' own cuts, exactly */
         /* K-UK  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
-        /* K-US  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },
+        /* K-US  */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },
         /* K-CN  */ { 0.0170f, 0.059769f, 0.009704f,  90.0f },
         /* CAROM has no pockets to cut — five rows of nothing, like BARB */
         /* C-SR  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
@@ -4593,35 +4606,35 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* C-4B  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* C-1C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* SNK3  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },   /* the SNK6 cut */
-        /* 1POC  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* BANK  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* ROT   */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* ROTPH */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* 15BAL */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* COWBY */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* HONOL */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* SPEED */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* BOWLL */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },
-        /* CRIB  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* 1POC  */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* BANK  */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* ROT   */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* ROTPH */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* 15BAL */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* COWBY */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* HONOL */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* SPEED */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* BOWLL */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },
+        /* CRIB  */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
-        /* US8   */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },
-        /* US9   */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },
+        /* US8   */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },
+        /* US9   */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },
         /* CN8   */ { 0.0285f, 0.061877f, 0.009644f, 180.0f },
         /* SNK15 */ { 0.0335f, 0.076797f, 0.009310f, 180.0f },   /* r 76.8 at 75.2 back: kisses the bore 1.6 mm proud -- see the snooker block */
         /* SNK10 */ { 0.0335f, 0.076797f, 0.009310f, 180.0f },
         /* SNK6  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
-        /* STRT  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* STRT  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
         /* PYRA  */ { 0.0234f, 0.065283f, 0.010186f, 180.0f },   /* ...and the middle */
         /* PYRA7 */ { 0.0211f, 0.055131f, 0.008602f, 180.0f },
         /* BILL  */ { 0.0335f, 0.076797f, 0.009310f, 180.0f },   /* the 12 ft snooker middle (WPBSA), as SNK15 */
         /* BARB  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* GOLF  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
-        /* US10  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },
+        /* US10  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },
         /* PAUL  */ { 0.0100f, 0.039884f, 0.005940f, 180.0f },
         /* K-UK  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
-        /* K-US  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },
+        /* K-US  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },
         /* K-CN  */ { 0.0285f, 0.061877f, 0.009644f, 180.0f },
         /* C-SR  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* C-2C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
@@ -4629,16 +4642,16 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* C-4B  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* C-1C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* SNK3  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },   /* the SNK6 cut */
-        /* 1POC  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* BANK  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* ROT   */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* ROTPH */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* 15BAL */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* COWBY */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* HONOL */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* SPEED */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* BOWLL */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },
-        /* CRIB  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* 1POC  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* BANK  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* ROT   */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* ROTPH */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* 15BAL */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* COWBY */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* HONOL */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* SPEED */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* BOWLL */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },
+        /* CRIB  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here

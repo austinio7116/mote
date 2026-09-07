@@ -1081,6 +1081,17 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
                 nrm[k] = v3(wind * dz / l, 0, -wind * dx / l);
                 ring0[k] = s_bnd.p[i + k];
             }
+#ifdef MOTE_HOST
+            if (getenv("CUE_LIPDUMP")) {
+                int m = cnt / 2; float ld = w->lip_d[p] * lscale;
+                float r0 = hypotf(ring0[m].x - w->cut_c[p].x, ring0[m].z - w->cut_c[p].z);
+                float r1 = hypotf(ring0[m].x + nrm[m].x*ld - w->cut_c[p].x,
+                                  ring0[m].z + nrm[m].z*ld - w->cut_c[p].z);
+                printf("LIPDIR pocket %d mid%s  cut_r %.2f  ring0 %.2f -> roll end %.2f  (%s)  ld %.2f\n",
+                       p, w->pocket_mid[p] ? " MID" : "", w->cut_r[p]*1000.f,
+                       r0*1000.f, r1*1000.f, r1 < r0 ? "INWARD" : "OUTWARD", ld*1000.f);
+            }
+#endif
             emit_lip_run(t, ring0, nrm, cnt,
                          w->lip_d[p] * lscale,
                          M, 0);
