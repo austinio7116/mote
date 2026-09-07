@@ -4128,12 +4128,28 @@ const char *const CUE_TAB_NAME[CUE_TAB_COUNT] = {
     "6 FT", "7 FT", "9 FT", "10 FT", "12 FT"
 };
 
-/* THE BEDS, in metres of playing surface, by stop. The width is half the
- * length on every one of them, which is what every table in this family
- * actually is: 6x3, 7x3.5, 9x4.5, 10x5, 12x6. */
+/* THE BEDS, in metres of PLAYING SURFACE -- nose to nose between the cushions
+ * -- by stop, and every one of them is 2:1, which is what these tables are.
+ *
+ * NAMED BY THE TABLE, MEASURED BY THE CLOTH, and the two are never the same
+ * number: a 7 ft English pub table has a 78 x 39 in bed, a 9 ft American a
+ * 100 x 50, a 12 ft snooker table 11 ft 8 1/2 in. The rails are the
+ * difference. A comment here used to claim the family was "6x3, 7x3.5, 9x4.5,
+ * 10x5, 12x6", which describes none of them -- those are the table sizes, not
+ * the beds, and reading it that way is how the 6 ft came to be wrong. */
 static const float TAB_SIZE_M[CUE_TAB_COUNT] = {
     0,0,0, 0,0,0,0,
-    1.778f,   /* 6 ft -- the pub table you find in a small room */
+    /* 6 ft -- and this is the ULTIMATE POOL CHAMPIONSHIP table, which is the
+     * one the professional English game is played on. MEASURED NOSE TO NOSE ON
+     * A REAL ONE by a tester who owns it: 1825 x 910 mm.
+     *
+     * It was 1.778 -- 70 x 35 in, 47 mm short and 21 mm narrow -- which came
+     * from reading the comment above as though it named beds. The width lands
+     * at 912.5 rather than the 910 on the tape because a size stop scales the
+     * bed uniformly and these tables are 2:1; 2.5 mm is inside a tape laid
+     * across cloth, and the alternative is a second number here that only this
+     * one stop would use. */
+    1.825f,
     1.980f,   /* 7 ft -- the standard English pub bed */
     2.540f,   /* 9 ft -- the American tournament bed */
     2.840f,   /* 10 ft -- Chinese 8-ball, and the smaller snooker */
