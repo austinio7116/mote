@@ -1459,9 +1459,9 @@ int cue_table_validate(const CueTable *t, char *msg, int msgcap) {
      * separate places that would each have to cope. The workshop does not offer
      * the game at all, and this is what makes that a fact about the table
      * rather than a fact about the menu. */
-    if (t->kind == CUE_GAME_BARBILLIARDS && t->bed_shape != CUE_BED_RECT)
+    if (CUE_GAME_BED_HOLES(t->kind) && t->bed_shape != CUE_BED_RECT)
         return tab_fail(msg, msgcap,
-                        "bar billiards has its holes in the bed, so its bed must be a rectangle");
+                        "this game has its holes in the bed, so its bed must be a rectangle");
     /* CAROM IS ONE FIXED MATCH TABLE. Its cushions are four plain rails built
      * as a rectangle, and its variant list offers no shapes — but validate is
      * a separate gate, and without this a hexagon or a triangle could be built
@@ -4411,7 +4411,12 @@ int cue_table_variant_ok(CueGameKind kind, int variant) {
     case CUE_GAME_CAROM_STRAIGHT: case CUE_GAME_CAROM_2C:
     case CUE_GAME_CAROM_3C: case CUE_GAME_CAROM_4B:
     case CUE_GAME_CAROM_1C:
-    case CUE_GAME_BARBILLIARDS: case CUE_GAME_BILLIARDS:
+    /* BUMPER POOL is the same objection as bar billiards and for the same
+     * reason: two cups, twelve bumpers and ten starting spots, all written out
+     * at fixed coordinates for a 1.42 m rectangle. On a hexagon they stay where
+     * the rectangle put them. */
+    case CUE_GAME_BARBILLIARDS: case CUE_GAME_BUMPER:
+    case CUE_GAME_BILLIARDS:
         return 0;
     default: return 1;
     }

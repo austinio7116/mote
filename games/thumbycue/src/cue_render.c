@@ -3816,7 +3816,13 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         const float rs = ri;                       /* the shoulder inside the ring */
         const float ys = yr - tr;                  /* where the wood meets it */
         const float yc = yr + tr;                  /* and comes out above it */
-        const float rc = 0.0210f;                  /* the cap: 1.65 in, halved */
+        /* THE CAP IS SMALLER THAN THE RUBBER, and has to be: it sits over the
+         * ring's hole, not over the ring. Taken at the body's 1.65 in it came
+         * out 94% of the ring's own radius and hid the rubber from directly
+         * above -- which is the one angle the game is played from. A little
+         * proud of the 15/16 in hole and no more, so the rubber reads as a fat
+         * collar all the way round it. */
+        const float rc = ri * 1.16f;
         const uint16_t wood  = shade565(t->rail, 0.72f);   /* the table's own timber */
         const uint16_t woodl = shade565(t->rail, 0.92f);
         const uint16_t rub_w = RGB565C(238, 234, 222);
