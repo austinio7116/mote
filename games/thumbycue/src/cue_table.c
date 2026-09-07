@@ -3472,6 +3472,83 @@ static float pt_seg_dist(float px, float pz,
  * against segments, circles against both. That is the same quantity test_gap
  * finds by flooding a grid, at a fraction of the cost, and it does not care
  * which style of jaw built it. */
+/* ---- THE HOLE'S SHAPE, IN ONE PLACE --------------------------------------
+ *
+ * A CORNER'S hole is a capsule: a half circle at the back with two straight
+ * sides running forward to the frame, which is what link_edge_x stands its
+ * cushions against. Bored round instead, the circle's curve cut across the
+ * pocket line where the two rails meet -- reported from the headset, and
+ * visible from above.
+ *
+ * A MIDDLE'S IS A CIRCLE AND STAYS ONE. Its two cushions face each other
+ * across a single rail, its hole sits on the chord between them already, and
+ * it was right before any of this: there is nothing there to fix and it is not
+ * being touched. (Mark: "the middle pockets were fine before and did not need
+ * touching - ONLY the corner".)
+ *
+ * AND THE STRAIGHTS STOP AT THE FRAME. The first attempt ran them forward as a
+ * RAY, so everything within r of the spine's forward extension counted as
+ * inside the hole -- cushion nose points a long way down the rail included.
+ * They were pushed sideways out of a hole that was not there, which folded the
+ * noses into a bow tie at every jaw. A hole ends where the timber does.
+ *
+ * Returns the distance from the spine, so anything under r is inside, and the
+ * unit direction to push out along. */
+static float bore_reach(const CueWorld *w, int p, float x, float z,
+                        float *nx, float *nz)
+{
+    const float cx = w->drop_c[p].x, cz = w->drop_c[p].z;
+    float ox = x - cx, oz = z - cz;
+    if (!w->pocket_mid[p]) {
+        const float dx = -w->pmnorm[p].x, dz = -w->pmnorm[p].z;  /* towards the bed */
+        float t = ox*dx + oz*dz;
+        const float ibx = w->play_x + w->cush_depth;
+        const float ibz = w->play_z + w->cush_depth;
+        float lim = 1e30f;
+        if (fabsf(dx) > 1e-6f) { const float k = (fabsf(cx) - ibx) / fabsf(dx);
+                                 if (k < lim) lim = k; }
+        if (fabsf(dz) > 1e-6f) { const float k = (fabsf(cz) - ibz) / fabsf(dz);
+                                 if (k < lim) lim = k; }
+        if (lim < 0.0f) lim = 0.0f;
+        if (t > lim) t = lim;
+        if (t > 0.0f) { ox -= dx*t; oz -= dz*t; }
+    }
+    const float d = sqrtf(ox*ox + oz*oz);
+    if (nx && nz) {
+        if (d > 1e-6f) { *nx = ox/d; *nz = oz/d; }
+        else           { *nx = 1.0f; *nz = 0.0f; }
+    }
+    return d;
+}
+
+/* Where a ray leaves pocket p's hole, or enters it with `enter`. Bracketed and
+ * bisected: a capsule is two cases and a closed form for each is a page of sign
+ * juggling for a shape this cheap to sample. */
+static float bore_cross(const CueWorld *w, int p, float r,
+                        float ox, float oz, float ux, float uz,
+                        float smax, int enter)
+{
+    const int N = 48;
+    float prev = bore_reach(w, p, ox, oz, 0, 0);
+    for (int i = 1; i <= N; i++) {
+        const float s = smax * (float)i / (float)N;
+        const float d = bore_reach(w, p, ox + ux*s, oz + uz*s, 0, 0);
+        const int was = enter ? (prev >= r) : (prev <  r);
+        const int now = enter ? (d    <  r) : (d    >= r);
+        if (was && now) {
+            float lo = smax * (float)(i-1) / (float)N, hi = s;
+            for (int k = 0; k < 20; k++) {
+                const float m = 0.5f*(lo+hi);
+                const float dm = bore_reach(w, p, ox + ux*m, oz + uz*m, 0, 0);
+                if (enter ? (dm < r) : (dm >= r)) hi = m; else lo = m;
+            }
+            return 0.5f*(lo+hi);
+        }
+        prev = d;
+    }
+    return -1.0f;
+}
+
 int cue_table_clear_bore_m(const CueWorld *w, float *x, float *z, float margin) {
     if (!w || !x || !z) return 0;
     int moved = 0;
@@ -3484,14 +3561,11 @@ int cue_table_clear_bore_m(const CueWorld *w, float *x, float *z, float margin) 
         for (int p = 0; p < w->npocket; p++) {
             const float r = w->pocket_r[p] + margin;
             if (r <= 0.0f) continue;
-            const float dx = *x - w->drop_c[p].x, dz = *z - w->drop_c[p].z;
-            const float d = sqrtf(dx*dx + dz*dz);
+            float nx = 0.0f, nz = 0.0f;
+            const float d = bore_reach(w, p, *x, *z, &nx, &nz);
             if (d >= r) continue;
-            if (d < 1e-6f) {                 /* dead centre: no direction to use */
-                *x = w->drop_c[p].x + r; hit = 1; moved = 1; continue;
-            }
-            *x = w->drop_c[p].x + dx / d * r;
-            *z = w->drop_c[p].z + dz / d * r;
+            *x += nx * (r - d);
+            *z += nz * (r - d);
             hit = 1; moved = 1;
         }
         if (!hit) break;
@@ -3513,16 +3587,9 @@ int cue_table_hide_bore(const CueWorld *w, float *x, float *z,
     for (int p = 0; p < w->npocket; p++) {
         const float r = w->pocket_r[p] + margin;
         if (r <= 0.0f) continue;
-        const float ax = *x - w->drop_c[p].x, az = *z - w->drop_c[p].z;
-        const float d2 = ax*ax + az*az;
-        if (d2 >= r*r) continue;                  /* already clear of this one */
-        /* |P + s*u - C| = r, taking the forward root. u is a unit vector, so
-         * s = -(a.u) + sqrt((a.u)^2 - |a|^2 + r^2). */
-        const float b = ax*ux + az*uz;
-        const float disc = b*b - d2 + r*r;
-        if (disc < 0.0f) continue;                /* cannot get out this way */
-        float sfar = -b + sqrtf(disc);
-        if (sfar <= 0.0f) continue;
+        if (bore_reach(w, p, *x, *z, 0, 0) >= r) continue;   /* already clear */
+        float sfar = bore_cross(w, p, r, *x, *z, ux, uz, reach, 0);
+        if (sfar <= 0.0f) continue;               /* cannot get out this way */
         if (sfar > reach) sfar = reach;           /* never fold further than told */
         *x += ux * sfar; *z += uz * sfar;
         moved = 1;
@@ -3543,10 +3610,15 @@ float cue_table_ray_bore_limit(const CueWorld *w, float ox, float oz,
         const float ax = ox - w->drop_c[p].x, az = oz - w->drop_c[p].z;
         const float b = ax*dx + az*dz;
         const float c = ax*ax + az*az - r*r;
-        const float disc = b*b - c;
-        if (disc < 0.0f) continue;              /* the ray misses this bore */
-        const float rt = sqrtf(disc);
-        const float s0 = -b - rt;               /* where it goes IN */
+        float s0;
+        if (!w->pocket_mid[p]) {                /* a corner's hole is a capsule */
+            s0 = bore_cross(w, p, r, ox, oz, dx, dz, smax, 1);
+            if (s0 < 0.0f) s0 = 1e30f;
+        } else {
+            const float disc = b*b - c;
+            if (disc < 0.0f) continue;          /* the ray misses this bore */
+            s0 = -b - sqrtf(disc);              /* where it goes IN */
+        }
         /* STARTING ON THE EDGE is the case that matters, and c is then zero, so
          * s0 is either 0 or -2b. Heading inward means b < 0, and the ray enters
          * at once: the limit is nothing at all, which is the whole point — the
@@ -4435,10 +4507,16 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
      * mouth now, so they are independent, and the numbers below are what the
      * old ratios worked out to on each table.
      *
-     * THE AMERICAN'S TWO WERE SET BY EYE, on the bench, against the shape: the
-     * corner's lip opened out to 97.5 mm and the middle's tightened to 65.5.
-     * They are the only pair here chosen that way rather than converted, and
-     * the fifteen games that share the 9 ft bed all carry them. */
+     * THE AMERICAN'S FOUR WERE SET BY EYE, on the bench, against the shape:
+     * the corner's lip opened out to 97.5 mm and the middle's tightened to
+     * 65.5, and both were then set back further -- 38.9 and 38.6 -- to put the
+     * roll's OUTER curve where it belongs. The outer curve is the edge that
+     * matters and the one the bench draws: the cloth has finished turning
+     * there and lets the ball go, a roll-depth beyond the inner one. Moving
+     * the roll moves it alone; moving the setback moves both together.
+     *
+     * They are the only numbers here chosen that way rather than converted,
+     * and the fifteen games that share the 9 ft bed all carry them. */
         /* THE 7 FT BED'S CUT REACHED INSIDE ITS OWN DROP. The cloth was cut
          * 3.32 mm SHORT of the drop circle at a corner and 2.14 at a middle --
          * the only bed in the game that way round; the 12 ft has 18 mm of
@@ -4456,8 +4534,8 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * and KILLER_UK, which are one bed. */
     static const CueCut corner[] = {
         /* UK8   */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
-        /* US8   */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },
-        /* US9   */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },
+        /* US8   */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },
+        /* US9   */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },
         /* CN8   */ { 0.0170f, 0.059769f, 0.009704f,  90.0f },
         /* SNK15 and SNK10: THE WPBSA 2005/6 CORNER, read off the 3MF gauge.
          * The slate drop is an arc r 3.5 in (88.94 mm fitted) CENTRED ON THE
@@ -4473,7 +4551,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* SNK15 */ { 0.0332f, 0.088900f, 0.009737f,  90.0f },
         /* SNK10 */ { 0.0332f, 0.088900f, 0.009737f,  90.0f },
         /* SNK6  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
-        /* STRT  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* STRT  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
         /* PYRA — the American's cut, with the SETBACK scaled to this mouth
          * (0.517 of it) rather than copied in millimetres. */
         /* PYRA  */ { 0.0189f, 0.051430f, 0.008140f,  90.0f },
@@ -4492,14 +4570,14 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* GOLF — the UK 7 ft bed, so the UK 7 ft corner cut, exactly */
         /* GOLF  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
         /* US10 — the same 9 ft American bed as 9-ball, so its cut exactly */
-        /* US10  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },
+        /* US10  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },
         /* PAUL — the snooker cut, with the SETBACK scaled to this small mouth
          * rather than copied in millimetres: 14.5 mm on a 45 mm snooker pocket
          * is a third of it, and a third of Paul's is 8.4. */
         /* PAUL  */ { 0.0084f, 0.045760f, 0.007261f,  90.0f },
         /* KILLER — the base tables' own cuts, exactly */
         /* K-UK  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
-        /* K-US  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },
+        /* K-US  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },
         /* K-CN  */ { 0.0170f, 0.059769f, 0.009704f,  90.0f },
         /* CAROM has no pockets to cut — five rows of nothing, like BARB */
         /* C-SR  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
@@ -4508,35 +4586,35 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* C-4B  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* C-1C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* SNK3  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },   /* the SNK6 cut */
-        /* 1POC  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* BANK  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* ROT   */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* ROTPH */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* 15BAL */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* COWBY */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* HONOL */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* SPEED */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
-        /* BOWLL */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },
-        /* CRIB  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* 1POC  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* BANK  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* ROT   */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* ROTPH */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* 15BAL */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* COWBY */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* HONOL */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* SPEED */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* BOWLL */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },
+        /* CRIB  */ { 0.0389f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
-        /* US8   */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },
-        /* US9   */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },
+        /* US8   */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },
+        /* US9   */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },
         /* CN8   */ { 0.0285f, 0.061877f, 0.009644f, 180.0f },
         /* SNK15 */ { 0.0335f, 0.076797f, 0.009310f, 180.0f },   /* r 76.8 at 75.2 back: kisses the bore 1.6 mm proud -- see the snooker block */
         /* SNK10 */ { 0.0335f, 0.076797f, 0.009310f, 180.0f },
         /* SNK6  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
-        /* STRT  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* STRT  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
         /* PYRA  */ { 0.0234f, 0.065283f, 0.010186f, 180.0f },   /* ...and the middle */
         /* PYRA7 */ { 0.0211f, 0.055131f, 0.008602f, 180.0f },
         /* BILL  */ { 0.0335f, 0.076797f, 0.009310f, 180.0f },   /* the 12 ft snooker middle (WPBSA), as SNK15 */
         /* BARB  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* GOLF  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
-        /* US10  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },
+        /* US10  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },
         /* PAUL  */ { 0.0100f, 0.039884f, 0.005940f, 180.0f },
         /* K-UK  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
-        /* K-US  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },
+        /* K-US  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },
         /* K-CN  */ { 0.0285f, 0.061877f, 0.009644f, 180.0f },
         /* C-SR  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* C-2C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
@@ -4544,16 +4622,16 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* C-4B  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* C-1C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* SNK3  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },   /* the SNK6 cut */
-        /* 1POC  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* BANK  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* ROT   */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* ROTPH */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* 15BAL */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* COWBY */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* HONOL */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* SPEED */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* BOWLL */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },
-        /* CRIB  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* 1POC  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* BANK  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* ROT   */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* ROTPH */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* 15BAL */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* COWBY */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* HONOL */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* SPEED */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* BOWLL */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },
+        /* CRIB  */ { 0.0386f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
