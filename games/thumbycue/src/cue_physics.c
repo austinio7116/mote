@@ -2409,6 +2409,37 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                                 b->w.x += oz * dwr;
                                 b->w.z -= ox * dwr;
                             }
+                            /* AND THE ROLL IS CLOTH, SO IT DRAGS LIKE CLOTH.
+                             *
+                             * There was no friction here at all. Gravity acts
+                             * along the cut's GRADIENT, so a ball travelling
+                             * ACROSS it -- round the lip rather than into it --
+                             * felt no tangential force and no drag whatever: a
+                             * circular orbit on the roll was frictionless and
+                             * lasted for ever. On a pool pocket the ball is
+                             * past the roll almost at once and it never showed;
+                             * on a hole barely wider than the ball there is a
+                             * whole annulus of roll to circle, and 31 of 810
+                             * entries into bar billiards' nine holes never
+                             * resolved in fifteen seconds.
+                             *
+                             * The lip is the same cloth as the bed, so it takes
+                             * the same rolling resistance, applied along the
+                             * ball's own direction of travel over the surface.
+                             * Nothing else changes: a ball that was going to
+                             * drop still drops, and one crossing the lip still
+                             * crosses it, a little slower -- which is what
+                             * cloth does. */
+                            {   const float vx = b->vel.x, vz = b->vel.z;
+                                const float sp = sqrtf(vx*vx + vz*vz);
+                                if (sp > 1e-6f) {
+                                    float dv = w->mu_r * w->g * h;
+                                    if (dv > sp) dv = sp;
+                                    b->vel.x -= vx / sp * dv;
+                                    b->vel.z -= vz / sp * dv;
+                                }
+                            }
+
                             /* NO CHARGE FOR THE LIFT. Moving along the arc
                              * raises the ball, and the tangential gravity term
                              * above has ALREADY taken that height out of its
