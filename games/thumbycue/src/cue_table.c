@@ -4760,7 +4760,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * 1.26 R + roll, with R the 23.8 mm bar billiards ball. The release
          * condition then reduces to the honest one -- the ball drops wherever
          * it fits, which is the 6.19 mm of clearance the hole actually has. */
-        /* BARB  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
+        /* BARB  */ { 0.0000f, 0.033489f, 0.003500f, 360.0f },
         /* GOLF — the UK 7 ft bed, so the UK 7 ft corner cut, exactly */
         /* GOLF  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
         /* US10 — the same 9 ft American bed as 9-ball, so its cut exactly */
@@ -4797,7 +4797,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * once its centre is lip_d + R in from the cut's edge. 1.45 R + roll,
          * with R the 23.8 mm ball this bed is played with. A cup is kinder than
          * a 200 hole -- you are meant to be able to sink five of them. */
-        /* BUMP  */ { 0.0000f, 0.041317f, 0.006807f, 360.0f },
+        /* BUMP  */ { 0.0000f, 0.038010f, 0.003500f, 360.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
@@ -4828,7 +4828,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * 1.26 R + roll, with R the 23.8 mm bar billiards ball. The release
          * condition then reduces to the honest one -- the ball drops wherever
          * it fits, which is the 6.19 mm of clearance the hole actually has. */
-        /* BARB  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
+        /* BARB  */ { 0.0000f, 0.033489f, 0.003500f, 360.0f },
         /* GOLF  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
         /* US10  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },
         /* PAUL  */ { 0.0100f, 0.039884f, 0.005940f, 180.0f },
@@ -4851,7 +4851,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* SPEED */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
         /* BOWLL */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },
         /* CRIB  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
-        /* BUMP  */ { 0.0000f, 0.041317f, 0.006807f, 360.0f },
+        /* BUMP  */ { 0.0000f, 0.038010f, 0.003500f, 360.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here

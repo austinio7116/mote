@@ -2298,7 +2298,28 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                  * caps the roll against the pocket's own size); this is why
                  * that fix cannot fail quietly. */
                 float gx = b->pos.x - pc2.x, gz = b->pos.z - pc2.z;
+                /* ...AND ON A HOLE BARELY WIDER THAN THE BALL, 1.35 R IS MORE
+                 * MARGIN THAN THE POCKET HAS.
+                 *
+                 * The 1.35 is a safety margin, and on a pool pocket there is
+                 * room for it. On bar billiards' 30 mm hole with a 23.8 mm ball
+                 * it comes out NEGATIVE, so this test could never fire and the
+                 * ball was held on the roll all the way to the axis: it ran
+                 * round the lip taking speed from the slope on one side and
+                 * giving it back on the other, for ever. Measured entering
+                 * off-centre: 0.88 mJ at two and a half seconds and 4.49 a
+                 * quarter of a second later, which is the orbit that was
+                 * reported, and it gains because the arc is a surface and a
+                 * surface that never ends never lets go.
+                 *
+                 * The honest condition is geometric: once the ball's whole
+                 * footprint is inside the throat there is no cloth edge beneath
+                 * it. That is pocket_r - R. Half of it is kept as the floor
+                 * here, so a pool pocket -- where 1.35 R is the smaller number
+                 * and always was -- is untouched to the micron. */
+                const float geo_clear = w->pocket_r[pk] - cue_ball_r(w, b);
                 float clear = w->pocket_r[pk] - cue_ball_r(w, b) * 1.35f;
+                if (clear < geo_clear * 0.5f) clear = geo_clear * 0.5f;
                 int over_open = clear > 0.0f && (gx*gx + gz*gz) < clear * clear;
                 /* THE DRAWN ROLL, WHERE THERE IS ONE. With the cloth's lip
                  * handed to the solver as the surface it is, a ball crossing it
