@@ -4289,16 +4289,16 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         const uint8_t keep_mat = s_mat;
         s_mat = CUE_MAT_CLOTH;
         const uint16_t liner = RGB565C(3, 4, 4);
-        /* FROM THE BED DOWN, NOT FROM THE PLANK'S TOP.
+        /* AND NONE OF IT IS THE BALL'S. Everything here is emitted BEFORE
+         * s_lip_ntab, and the solver is handed [lip, ntri) only -- the drop
+         * lips -- so this whole assembly is drawn and never collided. That is
+         * what lets it have a floor at all, and it is why the tube may sit
+         * wherever it looks right: test_pocketdrop reports the same 34 rattles
+         * with it, without it, and with it run up through the plank.
          *
-         * The table mesh is the SOLVER'S mesh -- the shaft that closes the view
-         * is the shaft the ball falls down -- so a closed tube standing up
-         * through the plank is a wall across the pocket's mouth, and the ball
-         * meets it on the way in. A middle's mouth is 127 mm and its bore 93,
-         * so the ball arrived, hit the tube from outside and stayed there:
-         * every middle entry in test_pocketdrop rattled out, at 2.5 m/s and at
-         * 12. Below the bed there is nothing to block -- the ball is already
-         * falling down the hole the tube lines. */
+         * From the bed down all the same. Above the bed the bore wall is
+         * already lining (see wall_quad) and the cloth's roll covers the rest,
+         * so there is nothing up there for a tube to add. */
         const float ytop = cue_table_bore_bot();
         const float ybot = cue_table_pocket_shaft_bot(t);
         const int NSEG = CUE_ARC_SEGS * 2;
@@ -4306,15 +4306,47 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
             const float cx = hx[h], cz = hz[h];
             float r = hr[h] - 0.001f;
             if (r <= 0.002f) continue;
+            /* THE SHOULDER, which is what actually hides things.
+             *
+             * A tube on the bore is exactly the size of the hole, so it covers
+             * the hole and nothing else -- and what you could still see down
+             * the pocket was everything the hole is NOT: the facing cuts, which
+             * take the timber back past the bore circle beside each cushion,
+             * and the frame's own courses beyond them. Both sit outside the
+             * tube's silhouette and both are lit wood.
+             *
+             * So the tube opens out at the top, the way a moulded liner does:
+             * a cone from the bed down to the tube's rim, wide enough at the
+             * bed to reach past the facing cuts. It hides by standing in front,
+             * which needs no knowledge of what is behind it -- and there is a
+             * lot behind it, in two different meshes. */
+            const float r_sh = r * 1.50f;             /* past the facing cuts */
+            const float y_sh = ytop - r * 0.35f;      /* where the cone meets the tube */
             for (int k = 0; k < NSEG; k++) {
                 const float a0 = (float)k       / NSEG * 6.2831853f;
                 const float a1 = (float)(k + 1) / NSEG * 6.2831853f;
-                const float x0 = cx + cosf(a0) * r, z0 = cz + sinf(a0) * r;
-                const float x1 = cx + cosf(a1) * r, z1 = cz + sinf(a1) * r;
+                const float c0 = cosf(a0), s0 = sinf(a0);
+                const float c1 = cosf(a1), s1 = sinf(a1);
+                const float x0 = cx + c0 * r, z0 = cz + s0 * r;
+                const float x1 = cx + c1 * r, z1 = cz + s1 * r;
                 /* wound so the face looks INWARD -- it is only ever seen from
                  * inside the tube, down the mouth */
-                quad(v3(x0, ytop, z0), v3(x0, ybot, z0),
-                     v3(x1, ybot, z1),    v3(x1, ytop, z1), liner);
+                quad(v3(cx + c0*r_sh, ytop, cz + s0*r_sh), v3(x0, y_sh, z0),
+                     v3(x1, y_sh, z1), v3(cx + c1*r_sh, ytop, cz + s1*r_sh), liner);
+                quad(v3(x0, y_sh, z0), v3(x0, ybot, z0),
+                     v3(x1, ybot, z1), v3(x1, y_sh, z1), liner);
+            }
+            /* AND A FLOOR, so you are not looking through the bottom of it at
+             * the cabinet. At the tube's own foot, which is the bottom of the
+             * boot -- below the shaft the ball is watched falling down, so it
+             * closes the view without shortening the fall. Wound to face UP,
+             * because up is where it is looked at from. */
+            for (int k = 0; k < NSEG; k++) {
+                const float a0 = (float)k       / NSEG * 6.2831853f;
+                const float a1 = (float)(k + 1) / NSEG * 6.2831853f;
+                tri(v3(cx, ybot, cz),
+                    v3(cx + cosf(a1) * r, ybot, cz + sinf(a1) * r),
+                    v3(cx + cosf(a0) * r, ybot, cz + sinf(a0) * r), liner);
             }
         }
         s_mat = keep_mat;
