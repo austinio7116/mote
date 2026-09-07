@@ -318,7 +318,38 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * is. Written in ball radii these numbers made every table a special
          * case and made a custom table impossible to author. The values are
          * the ones the table already had, to the micron, so nothing moves. */
-        t->pr_corner  = 0.0628650f; t->pr_side  = 0.0537210f;   /* 62.87 / 53.72 mm */
+        /* CUT TO THE BOOK, AND THE BACK IS HALF A CIRCLE.
+         *
+         * Two things are being asked of these four numbers at once, and they
+         * were solved together rather than dialled one at a time.
+         *
+         * THE MOUTH, measured the way a manufacturer's drawing measures it:
+         * TIP TO TIP between the two cushion ends, with the side always half an
+         * inch wider than the corner. The shipped table is the PRO rung and
+         * that is the FOUR INCH cut Matchroom have played their events on for
+         * years: 101.60 and 114.30 mm. The catalogue band starts above it, at
+         * 4 1/2 to 4 5/8 with a 5 to 5 1/4 side, and TOURNAMENT and CLUB take
+         * those. They used to be 111.1 and 140.7 -- the corner between the two
+         * cuts and the side most of half an inch over the wide end of its own
+         * band.
+         *
+         * THE BACK, which is the bucket you can see. The cushion backs meet
+         * the frame at two points, and P1 (link_edge_x) has always landed them
+         * on the bore circle. What was never asked is where the bore's CENTRE
+         * sits relative to those two points: on a corner it sat 29 mm behind
+         * their chord with a radius 7 mm larger than half of it, so more than
+         * half the circle showed and the moulding wrapped 240 degrees round
+         * it. Put the centre ON the chord and the chord becomes a DIAMETER --
+         * exactly half the circle behind it, straight sides running forward
+         * from its ends, and the radius no longer a free number.
+         *
+         * Solved to: corner centre on a 114.30 chord, side on a 92.71 one. The
+         * side's chord is NOT its mouth and is not meant to be -- the mouth is
+         * measured at the cushion tips and the liner at the frame, two gaps at
+         * two depths. The setbacks carry the centres there; the corner's is
+         * negative because its chord lies in FRONT of the pocket's own centre.
+         */
+        t->pr_corner  = 0.0508000f; t->pr_side  = 0.0400050f;
         t->ang_corner = 45.0f; t->ang_side = 70.0f;
         /* MILLIMETRES. Where the pocket sits into the corner, and how much
          * of the hole is not catch — both were ball radii, so a custom table
@@ -327,7 +358,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->off_corner = 0.0371475f; t->off_side = 0.0342900f;  /* 37.15 / 34.29 mm */
         /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
-        t->drop_back  = 0.0080010f; t->drop_back_side = 0.0085725f;  /* 8.00 / 8.57 mm */
+        t->drop_back  = -0.0166710f; t->drop_back_side = 0.0161100f;  /* onto the chord */
         t->jaw_r = 0.004f;
         t->cloth = RGB565C(18, 110, 120);    /* US tables often tournament blue-green */
         t->rail = RGB565C(70, 46, 30); t->rail_top = RGB565C(100, 66, 42);
@@ -1139,8 +1170,15 @@ static const CueTabField TAB_FIELDS[] = {
      * still validates. */
     TF(cap_corner,      TF_F32, TF_SIM, -0.060f, 0.060f),
     TF(cap_side,        TF_F32, TF_SIM, -0.060f, 0.060f),
-    TF(drop_back,       TF_F32, TF_SIM,  0.000f, 0.100f),
-    TF(drop_back_side,  TF_F32, TF_SIM,  0.000f, 0.100f),
+    /* NEGATIVE IS A REAL SETBACK, not a broken one. This is how far the hole
+     * sits BEHIND the pocket's own centre along its axis, and on a mitred
+     * corner the answer is in front of it: the chord where the two cushion
+     * backs meet the frame lies 23 mm toward the table from the point the
+     * pocket is named for, and that chord is the hole's diameter. Floored at
+     * -60 mm, which is well outside anything a real cut needs and still cannot
+     * put the hole out on the cloth. */
+    TF(drop_back,       TF_F32, TF_SIM, -0.060f, 0.100f),
+    TF(drop_back_side,  TF_F32, TF_SIM, -0.060f, 0.100f),
     /* Snooker layout. Ignored for pool, but still part of the table. */
     TF(baulk_x,         TF_F32, TF_SIM, -2.00f, 2.00f),
     TF(d_radius,        TF_F32, TF_SIM,  0.000f, 0.600f),
@@ -3581,6 +3619,16 @@ typedef struct {
     float corner_mm, middle_mm;   /* 0 = leave that pocket type alone */
     float mu_r;                   /* 0 = the engine's own */
     float e_cush_d, efall_d;      /* added to the table's own rail numbers */
+    /* WHERE THE HOLE SITS, which a mitred rung cannot leave alone.
+     *
+     * On a mitred table the hole's diameter is the chord between the two
+     * places the cushion backs meet the frame, and its centre is ON that
+     * chord -- that is what makes the pocket back a half circle rather than a
+     * bucket. Open the mouth by a sixteenth of an inch and the chord moves, so
+     * the setback has to move with it or the rung loses the shape the shipped
+     * table has. Absolute metres; 0 leaves the table's own alone, which is
+     * every rounded family and PRO (PRO is the shipped table). */
+    float corner_back, middle_back;
 } SpecRow;
 
 /* [family][spec], tightest first. The PRO column's openings are all ZERO — "leave
@@ -3612,9 +3660,38 @@ static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
       { 89.0f,  92.0f, 0.0135f, -0.020f, 0.008f } },
     /* AMERICAN POOL — shipped 111.1 / 106.4. Tournament takes the 4 1/2 in
      * (114.3 mm) that home and bar tables come with; club a generous 120. */
-    { {   0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
-      { 114.3f, 110.0f, 0.0f,     0.0f,   0.0f },
-      { 120.0f, 116.0f, 0.0135f, -0.020f, 0.008f } },
+    /* AMERICAN POOL — the manufacturer's own bands, and the ladder IS the band:
+     * a corner is 4 1/2 to 4 5/8 in and a side is half an inch more, 5 to
+     * 5 1/4, both measured TIP TO TIP between the cushion ends. PRO takes the
+     * tight end and is the shipped table (hence the zeroes), CLUB the wide end,
+     * TOURNAMENT the middle.
+     *
+     *                    tip to tip          and these targets, which are the
+     *                 corner    side         NARROWEST passage each leaves
+     *   PRO          101.60   114.30         101.60    80.01     (4     / 4 1/2)
+     *   TOURNAMENT   114.30   127.00         114.30    92.71     (4 1/2 / 5    )
+     *   CLUB         117.48   133.35         117.48    99.06     (4 5/8 / 5 1/4)
+     *
+     * PRO IS THE FOUR INCH CUT, below the catalogue band on purpose: Matchroom
+     * have played their events on 4 in pockets for years and that is what a
+     * professional table is now. The band the manufacturers quote, 4 1/2 to
+     * 4 5/8, is where TOURNAMENT and CLUB sit -- and TOURNAMENT is the default
+     * a player gets (CUE_TAB_DEFAULT), so the 4 in table is something you
+     * choose rather than something you are handed.
+     *
+     * The two differ at the SIDE because a mitred middle's mouth is measured
+     * at the cushion tips and its narrowest passage is 34 mm further in, at the
+     * frame — two gaps at two depths, and the targets below are in the second
+     * because that is what the solver measures. The corner's two coincide.
+     *
+     * Each rung carries its own setback, solved with the radius so the hole's
+     * centre stays on the frame chord and the pocket back stays a half circle.
+     * The old row read 114.3 / 110.0 and 120.0 / 116.0 against a shipped
+     * 111.1 / 106.4 — a middle NARROWER than its own corner at every rung,
+     * which no American table is. */
+    { {   0.0f,   0.0f, 0.0085f,  0.0f,   0.0f,  0.0f,       0.0f      },
+      { 114.30f, 92.71f, 0.0f,    0.0f,   0.0f, -0.023021f,  0.016110f },
+      { 117.48f, 99.06f, 0.0135f,-0.020f, 0.008f, -0.024609f, 0.016110f } },
     /* CHINESE 8-BALL — shipped 85.7 / 85.7, and cut tight on purpose: 1.50 ball
      * widths is what that game is, so its whole ladder is narrower. */
     { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
@@ -3765,6 +3842,11 @@ void cue_table_spec(CueTable *t, int spec) {
      * has a cloth of its own, so every spec has something to apply. */
     if (spec < 0 || spec >= CUE_SPEC_COUNT) return;
     const SpecRow *r = &SPEC[fam][spec];
+    /* THE SETBACK FIRST, because the solve below moves the radius to hit a
+     * mouth and the mouth depends on where the hole is standing. */
+    if (r->corner_back != 0.0f) t->drop_back      = r->corner_back;
+    if (r->middle_back != 0.0f) t->drop_back_side = r->middle_back;
+    cue_table_normalise(t);
     cue_table_cut_to(t, r->corner_mm * 0.001f, r->middle_mm * 0.001f);
     if (r->mu_r > 0.0f) t->mu_r = r->mu_r;
     if (r->e_cush_d != 0.0f) {
@@ -4048,6 +4130,26 @@ void cue_table_variant(CueTable *t, int variant) {
     cue_table_openings(t, &want_c, &want_m);
     if (want_c < 0.0f) want_c = 0.0f;
     if (want_m < 0.0f) want_m = 0.0f;
+
+    /* AND THE RECTANGLE'S OWN CONSTRUCTION DOES NOT TRAVEL WITH IT.
+     *
+     * A mitred rectangle carries a NEGATIVE setback, because the chord where
+     * its two cushion backs meet the frame lies in front of the pocket's own
+     * centre and that chord is the hole's diameter. That reasoning is about two
+     * rails meeting at a right angle; on a hexagon they do not, and on a round
+     * bed there is no corner at all. Carried across, it put the hole so far
+     * forward that the round American bed's corner came out narrower than the
+     * ball and the table would not validate.
+     *
+     * So the outline changes and the hole goes back to a small positive
+     * setback -- 0.28 R, which is the 8.0 mm the American bed carried before
+     * any of this and is written as a ball fraction so it travels to any table
+     * that ever needs it. Concentric was tried and is not the answer: at zero
+     * the cushions cannot be brought round the hole at all and the mouth
+     * measures nothing. Measured after: the shapes come out exactly where they
+     * did (test_preset compares each against the flat). */
+    if (t->drop_back      < 0.0f) t->drop_back      = t->R * 0.28f;
+    if (t->drop_back_side < 0.0f) t->drop_back_side = t->R * 0.28f;
 
     /* AS LONG AS THE TABLE IT CAME FROM, which is the table workshop's own
      * rule: the bed's half-length becomes the shape's circumradius and the
