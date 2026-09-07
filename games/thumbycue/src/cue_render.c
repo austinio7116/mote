@@ -4235,6 +4235,71 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     }
     }
 
+    /* ---- THE POCKET LINER: a plain tube down the hole that was bored ------
+     *
+     * WHAT YOU COULD SEE DOWN AN AMERICAN POCKET was the two rails' inner
+     * faces meeting at their mitre -- a chevron of lit, varnished timber
+     * standing in the middle of the throat -- and the bore's own wall around
+     * it, which is the rail colour with the timber shader on it. Neither is
+     * anything a real pocket has: a pool table's hole is lined, and what you
+     * look down is a plain dark tube into the boot.
+     *
+     * The throat emit_pocket_lips hangs is not that tube. It is the cloth's
+     * cut walked downwards, and the cut is a SCALLOP -- an open run between
+     * the two cushion facings -- so it walls the front of the pocket and
+     * leaves the corner behind it open. Painting it magenta and rendering
+     * showed not one pixel of it from above; the wood is what you see.
+     *
+     * ON THE BORE, so it cannot foul anything. The tube's centre and radius
+     * are hx/hz/hr -- the hole already cut through the timber for this pocket
+     * -- inset a millimetre, so by construction it stands inside the hole the
+     * rails were bored with rather than needing to be fitted to them. It runs
+     * from the plank's top face, where the cloth lip covers its rim, down to
+     * cue_table_pocket_shaft_bot: the bottom of the boot, which is where the
+     * return's funnel starts. Below that its outlet is open and the ball is
+     * the tray's.
+     *
+     * POOL ONLY. A netted table has a bag hanging in the drop and no boot to
+     * line, which is the same set s_rail_split already names.
+     *
+     * Tagged as cloth, which is the shader's word for matt: wood_spec is
+     * varn * (1 - iscloth) * u_grain, so a timber-tagged near-black surface
+     * takes a varnish highlight and reads as a grey smear down the pocket. */
+    if (!s_rail_split) {
+        const uint8_t keep_mat = s_mat;
+        s_mat = CUE_MAT_CLOTH;
+        const uint16_t liner = RGB565C(3, 4, 4);
+        /* FROM THE BED DOWN, NOT FROM THE PLANK'S TOP.
+         *
+         * The table mesh is the SOLVER'S mesh -- the shaft that closes the view
+         * is the shaft the ball falls down -- so a closed tube standing up
+         * through the plank is a wall across the pocket's mouth, and the ball
+         * meets it on the way in. A middle's mouth is 127 mm and its bore 93,
+         * so the ball arrived, hit the tube from outside and stayed there:
+         * every middle entry in test_pocketdrop rattled out, at 2.5 m/s and at
+         * 12. Below the bed there is nothing to block -- the ball is already
+         * falling down the hole the tube lines. */
+        const float ytop = cue_table_bore_bot();
+        const float ybot = cue_table_pocket_shaft_bot(t);
+        const int NSEG = CUE_ARC_SEGS * 2;
+        for (int h = 0; h < nh; h++) {
+            const float cx = hx[h], cz = hz[h];
+            float r = hr[h] - 0.001f;
+            if (r <= 0.002f) continue;
+            for (int k = 0; k < NSEG; k++) {
+                const float a0 = (float)k       / NSEG * 6.2831853f;
+                const float a1 = (float)(k + 1) / NSEG * 6.2831853f;
+                const float x0 = cx + cosf(a0) * r, z0 = cz + sinf(a0) * r;
+                const float x1 = cx + cosf(a1) * r, z1 = cz + sinf(a1) * r;
+                /* wound so the face looks INWARD -- it is only ever seen from
+                 * inside the tube, down the mouth */
+                quad(v3(x0, ytop, z0), v3(x0, ybot, z0),
+                     v3(x1, ybot, z1),    v3(x1, ytop, z1), liner);
+            }
+        }
+        s_mat = keep_mat;
+    }
+
     /* Pockets = circular VOIDS you look down into. The bed is already cut at
      * the mouth, so a downward cone gives the recess. The OUTWARD half of each
      * pocket (the half sitting over the wood frame) gets a flush rail-level cap
