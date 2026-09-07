@@ -358,7 +358,14 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->off_corner = 0.0371475f; t->off_side = 0.0342900f;  /* 37.15 / 34.29 mm */
         /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
-        t->drop_back  =  0.0083290f; t->drop_back_side = 0.0161100f;  /* 25 mm of straight side */
+        /* THE MIDDLE'S HOLE SITS 2 mm FURTHER BACK THAN THE CHORD WANTS, and
+         * for the lip rather than for the hole. Setting the lip out to 38.6 to
+         * put its outer curve right moves the drop's cut_out, and the "no
+         * deeper than the pocket is wide" clamp then trimmed the roll from
+         * 11.82 mm to 10.14. Two millimetres of extra setback gives it back,
+         * and costs nothing anywhere else: with the hole a stadium the mouth
+         * does not move with the depth, so it stays at 114.30 exactly. */
+        t->drop_back  =  0.0083290f; t->drop_back_side = 0.0181100f;
         t->jaw_r = 0.004f;
         t->cloth = RGB565C(18, 110, 120);    /* US tables often tournament blue-green */
         t->rail = RGB565C(70, 46, 30); t->rail_top = RGB565C(100, 66, 42);
