@@ -358,7 +358,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->off_corner = 0.0371475f; t->off_side = 0.0342900f;  /* 37.15 / 34.29 mm */
         /* Tuned on the bench: the catch IS the hole, and it sits deeper in. */
         t->cap_corner = 0.0f;         t->cap_side = 0.0f;
-        t->drop_back  = -0.0166710f; t->drop_back_side = 0.0161100f;  /* onto the chord */
+        t->drop_back  =  0.0083290f; t->drop_back_side = 0.0161100f;  /* 25 mm of straight side */
         t->jaw_r = 0.004f;
         t->cloth = RGB565C(18, 110, 120);    /* US tables often tournament blue-green */
         t->rail = RGB565C(70, 46, 30); t->rail_top = RGB565C(100, 66, 42);
@@ -1071,6 +1071,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
             }
         } }
 
+    cue_table_dials(t);
     cue_table_normalise(t);
 }
 
@@ -2606,6 +2607,55 @@ static int link_edge_x(const CueWorld *w, int p, float br, float bset,
                        float line_z, int want_pos, float *out_x) {
     const float cx = w->pocket[p].x + w->pmnorm[p].x*bset;
     const float cz = w->pocket[p].z + w->pmnorm[p].z*bset;
+    /* THE HOLE IS A STADIUM, NOT A CIRCLE, and that is what lets the mouth be
+     * the mouth.
+     *
+     * This used to intersect a CIRCLE of radius br with the frame's edge, so
+     * the gap it left was a CHORD -- and a chord shrinks as the circle goes
+     * deeper. The cushions are stood off that gap, so every millimetre the hole
+     * was set back narrowed the mouth, and the two could not be set
+     * independently: dialling the pocket deeper closed it up, and holding the
+     * mouth meant growing the radius to compensate. Neither is a thing about
+     * pockets; both are artefacts of intersecting a round hole with a straight
+     * edge.
+     *
+     * A pocket back is a half circle with two STRAIGHT sides running forward
+     * from it, and the straights hold the hole at its full width all the way to
+     * the cushions. So the shape is a capsule about the ray that runs from the
+     * semicircle's centre out towards the table, and the frame's edge meets the
+     * STRAIGHTS rather than the curve: the gap is 2*br wherever it is measured,
+     * at any depth.
+     *
+     *   |(P - C) x d| = br, with d the forward unit vector, is one linear
+     *   equation in x -- two roots, one per side, and `want_pos` picks.
+     *
+     * Behind the centre there is no straight left, so a point that projects
+     * past it falls back to the cap and the old circle answer, which is the
+     * right answer there.
+     *
+     * Mark, 2026-09-07: "the mouth is defined by the cushion gap - nothing to
+     * do with how far back the bore is as the straight lines keep it at max
+     * diameter". */
+    const float dx = -w->pmnorm[p].x, dz = -w->pmnorm[p].z;   /* towards the bed */
+    if (fabsf(dz) > 1e-6f) {
+        /* BOTH ROOTS, THEN KEEP THE ONES ON THE STRAIGHT. Which side of the
+         * spine a root falls on is not the same question as which root the
+         * caller wants, and taking the caller's sign as the perpendicular sign
+         * put the answer BEHIND the semicircle every time -- so the test below
+         * always failed and this quietly went on being a circle. */
+        float xs[2]; int n = 0;
+        for (int k = 0; k < 2; k++) {
+            const float sgn = k ? 1.0f : -1.0f;
+            const float x = cx + (sgn * br + (line_z - cz) * dx) / dz;
+            const float t = (x - cx) * dx + (line_z - cz) * dz;
+            if (t >= 0.0f) xs[n++] = x;          /* forward of the centre */
+        }
+        if (n == 1) { *out_x = xs[0]; return 1; }
+        if (n == 2) { *out_x = want_pos ? (xs[0] > xs[1] ? xs[0] : xs[1])
+                                        : (xs[0] < xs[1] ? xs[0] : xs[1]);
+                      return 1; }
+    }
+    /* ...otherwise the cap, which is the circle this always was. */
     const float perp = line_z - cz;
     const float disc = br*br - perp*perp;
     if (disc < 0.0f) return 0;              /* the bore never reaches the edge */
@@ -2819,6 +2869,47 @@ int cue_table_link_gap(CueTable *t, const CueWorld *w) {
  * bore, so a pocket size edited without this is a table whose cushions still
  * stand where the OLD size put them — and a workshop asking for the opening
  * would be told the opening of the table it started with. */
+/* ---- POCKET DIALS, so the numbers can be set from outside -----------------
+ *
+ * Every one of these is a number that has to be chosen by eye against a render,
+ * and iterating on them by editing the source, rebuilding and re-shooting is
+ * slow and error-prone -- I got it wrong repeatedly. So they are readable from
+ * the environment, in MILLIMETRES (degrees for the angles), and tools/pocket/
+ * dial.sh sets them, measures the result and shoots it top-down in one go.
+ *
+ * Unset means "the table's own", so nothing changes unless something is asked
+ * for. getenv is called once per table build and returns NULL on the headset,
+ * where none of this is ever set.
+ *
+ *   CUE_PR_C / CUE_PR_S           pocket radius, corner / middle
+ *   CUE_BACK_C / CUE_BACK_S       how far the hole sits back along the axis
+ *   CUE_CUTSET_C / CUE_CUTSET_S   how far the cloth cut sits back
+ *   CUE_CUTRAD_C / CUE_CUTRAD_S   the cut's radius
+ *   CUE_CUTROLL_C / CUE_CUTROLL_S the lip's roll radius
+ *   CUE_ANG_C / CUE_ANG_S         facing angle off the rail, degrees
+ */
+static int cue_env_mm(const char *name, float *out) {
+    const char *v = getenv(name);
+    if (!v || !*v) return 0;
+    *out = (float)atof(v) * 0.001f;
+    return 1;
+}
+static int cue_env_deg(const char *name, float *out) {
+    const char *v = getenv(name);
+    if (!v || !*v) return 0;
+    *out = (float)atof(v);
+    return 1;
+}
+void cue_table_dials(CueTable *t) {
+    if (!t) return;
+    cue_env_mm ("CUE_PR_C",   &t->pr_corner);
+    cue_env_mm ("CUE_PR_S",   &t->pr_side);
+    cue_env_mm ("CUE_BACK_C", &t->drop_back);
+    cue_env_mm ("CUE_BACK_S", &t->drop_back_side);
+    cue_env_deg("CUE_ANG_C",  &t->ang_corner);
+    cue_env_deg("CUE_ANG_S",  &t->ang_side);
+}
+
 void cue_table_normalise(CueTable *t) {
     if (!t) return;
     t->bore_corner     = t->pr_corner - t->cap_corner;
@@ -3249,11 +3340,33 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         if (moved) smooth_seg_normals(w);
     }
 
-    w->cut_ref[0] = t->pr_corner; w->cut_ref[1] = t->pr_side;
+    /* THE CUT IS NOT THE POCKET SIZE, and tying it to pr_* meant it was.
+     *
+     * pr_corner/pr_side was doing four jobs at once: the drop circle a ball is
+     * caught by, the bore cut in the timber (via cue_table_normalise), the
+     * MOUTH (because link_edge_x stands the cushion ends against that bore),
+     * and -- through this line -- the radius of the cloth's cut and the depth
+     * of its roll. So moving the pocket to a published mouth dragged the lip
+     * with it: the American corner's cut went 87.4 -> 70.6 mm while its setback
+     * stayed put, the cloth pulled back behind the drop, and a pocket that had
+     * a rolled lip came out looking like a hard cut (2026-09-07).
+     *
+     * The rows in cue_table_default_cut are absolute metres now. They were
+     * already being juggled per table to undo exactly this -- pyramid and
+     * pyramid 7 carry the same multiplier with different setbacks "scaled to
+     * this mouth", Paul takes the snooker cut with a setback of its own -- and
+     * every one of them was converted by multiplying through by the pr it was
+     * written against, so no table's cut moves by a micron. What changes is
+     * that none of them can be moved again by a number that is not about them. */
+    w->cut_ref[0] = 1.0f; w->cut_ref[1] = 1.0f;
     for (int m = 0; m < 2; m++) {
         CueCut c; cue_table_default_cut(t->kind, m, &c);
         w->cut_set[m] = c.set; w->cut_rad[m] = c.rad;
         w->cut_roll[m] = c.roll; w->cut_arc[m] = c.arc;
+        /* ...and the dials, if any are set. See cue_table_dials. */
+        cue_env_mm(m ? "CUE_CUTSET_S"  : "CUE_CUTSET_C",  &w->cut_set[m]);
+        cue_env_mm(m ? "CUE_CUTRAD_S"  : "CUE_CUTRAD_C",  &w->cut_rad[m]);
+        cue_env_mm(m ? "CUE_CUTROLL_S" : "CUE_CUTROLL_C", &w->cut_roll[m]);
     }
     cue_table_derive_cut(w);
 
@@ -3672,6 +3785,10 @@ static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
      *   TOURNAMENT   114.30   127.00         114.30    92.71     (4 1/2 / 5    )
      *   CLUB         117.48   133.35         117.48    99.06     (4 5/8 / 5 1/4)
      *
+     * Re-solved against the STADIUM bore. Solved against the circle they came
+     * out 4.458 / 4.500 / 4.624 -- pro and tournament all but the same pocket,
+     * which is not a ladder.
+     *
      * PRO IS THE FOUR INCH CUT, below the catalogue band on purpose: Matchroom
      * have played their events on 4 in pockets for years and that is what a
      * professional table is now. The band the manufacturers quote, 4 1/2 to
@@ -3689,9 +3806,19 @@ static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
      * The old row read 114.3 / 110.0 and 120.0 / 116.0 against a shipped
      * 111.1 / 106.4 — a middle NARROWER than its own corner at every rung,
      * which no American table is. */
-    { {   0.0f,   0.0f, 0.0085f,  0.0f,   0.0f,  0.0f,       0.0f      },
-      { 114.30f, 92.71f, 0.0f,    0.0f,   0.0f, -0.023021f,  0.016110f },
-      { 117.48f, 99.06f, 0.0135f,-0.020f, 0.008f, -0.024609f, 0.016110f } },
+    /* ONE SETBACK FOR ALL THREE RUNGS, which is how every other table here
+     * already works and how it should always have been. The three were solved
+     * separately, each against a CIRCULAR bore where the mouth moved with the
+     * depth, so each rung needed its own depth to hold its own mouth. The bore
+     * is a stadium now: the straights hold it at full width however deep it
+     * sits, so the depth is free and the same number does for all three. The
+     * two that were carrying their own drove the drop forward into the roll
+     * clamp and cost the corner its lip -- 9.12 mm at tournament and 7.53 at
+     * club against the 13.83 it asks for. Zero here means the table's own,
+     * which is the +8.33 the shape was set to on the bench. */
+    { {   0.0f,   0.0f, 0.0085f,  0.0f,   0.0f,  0.0f, 0.0f },
+      { 114.30f, 92.71f, 0.0f,    0.0f,   0.0f,  0.0f, 0.0f },
+      { 117.48f, 99.06f, 0.0135f,-0.020f, 0.008f, 0.0f, 0.0f } },
     /* CHINESE 8-BALL — shipped 85.7 / 85.7, and cut tight on purpose: 1.50 ball
      * widths is what that game is, so its whole ladder is narrower. */
     { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
@@ -3860,6 +3987,13 @@ void cue_table_spec(CueTable *t, int spec) {
         if (t->cush_efall < 0.0f)  t->cush_efall = 0.0f;
         if (t->cush_efall > 0.50f) t->cush_efall = 0.50f;
     }
+    /* THE DIALS ARE THE LAST WORD, on a rung as much as on the shipped table.
+     * They were applied at the end of cue_table_init and the rung's own solve
+     * then ran straight over them, so setting CUE_PR_C and reading it back at
+     * anything but PRO showed the rung's number rather than the one asked for
+     * -- the tool quietly ignoring you. */
+    cue_table_dials(t);
+    cue_table_normalise(t);
 }
 
 /* ---- THE GAME ON SOMEBODY ELSE'S TABLE -----------------------------------
@@ -4293,13 +4427,18 @@ int cue_table_warnings(const CueTable *t, char *msg, int msgcap) {
  * honestly be judged, and they are per table size because a 12 ft snooker
  * pocket and a 9 ft American one are not the same cut scaled. */
 void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
-    /*                       set(m)   rad(x pr)  roll(x pr)  arc(deg)
+    /*                       set(m)    rad(m)     roll(m)    arc(deg)
      *
      * `rad` used to be a multiple of the DROP circle, which meant the cut could
      * not be held still while the drop was moved — shrink the drop and the cut
      * shrank with it and the pocket only ever looked the same. Both are off the
      * mouth now, so they are independent, and the numbers below are what the
-     * old ratios worked out to on each table. */
+     * old ratios worked out to on each table.
+     *
+     * THE AMERICAN'S TWO WERE SET BY EYE, on the bench, against the shape: the
+     * corner's lip opened out to 97.5 mm and the middle's tightened to 65.5.
+     * They are the only pair here chosen that way rather than converted, and
+     * the fifteen games that share the 9 ft bed all carry them. */
         /* THE 7 FT BED'S CUT REACHED INSIDE ITS OWN DROP. The cloth was cut
          * 3.32 mm SHORT of the drop circle at a corner and 2.14 at a middle --
          * the only bed in the game that way round; the 12 ft has 18 mm of
@@ -4316,10 +4455,10 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * so the table pots exactly as it did. Shared by UK8, SNK6, SNK3, GOLF
          * and KILLER_UK, which are one bed. */
     static const CueCut corner[] = {
-        /* UK8   */ { 0.0265f, 1.4430f, 0.2200f,  90.0f },
-        /* US8   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
-        /* US9   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
-        /* CN8   */ { 0.0170f, 1.3550f, 0.2200f,  90.0f },
+        /* UK8   */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
+        /* US8   */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },
+        /* US9   */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },
+        /* CN8   */ { 0.0170f, 0.059769f, 0.009704f,  90.0f },
         /* SNK15 and SNK10: THE WPBSA 2005/6 CORNER, read off the 3MF gauge.
          * The slate drop is an arc r 3.5 in (88.94 mm fitted) CENTRED ON THE
          * SLATE-EDGE CORNER -- where the two rails' inner faces meet, 47.6 mm
@@ -4331,17 +4470,17 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * The drop's front then sits 55.7 mm in front of the mouth, 18 mm proud
          * of the bore: at a corner the template does NOT kiss the bore. The
          * old cut (r 61.4, set 14.5) started 8.8 mm later than the template. */
-        /* SNK15 */ { 0.0332f, 1.9629f, 0.2150f,  90.0f },
-        /* SNK10 */ { 0.0332f, 1.9629f, 0.2150f,  90.0f },
-        /* SNK6  */ { 0.0265f, 1.4430f, 0.2200f,  90.0f },
-        /* STRT  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
+        /* SNK15 */ { 0.0332f, 0.088900f, 0.009737f,  90.0f },
+        /* SNK10 */ { 0.0332f, 0.088900f, 0.009737f,  90.0f },
+        /* SNK6  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
+        /* STRT  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
         /* PYRA — the American's cut, with the SETBACK scaled to this mouth
          * (0.517 of it) rather than copied in millimetres. */
-        /* PYRA  */ { 0.0189f, 1.3900f, 0.2200f,  90.0f },
+        /* PYRA  */ { 0.0189f, 0.051430f, 0.008140f,  90.0f },
         /* PYRA7 — the same cut with the setback scaled to the smaller mouth */
-        /* PYRA7 */ { 0.0168f, 1.3900f, 0.2200f,  90.0f },
+        /* PYRA7 */ { 0.0168f, 0.043090f, 0.006820f,  90.0f },
         /* BILL — the standard table, so the 12 ft snooker cut exactly */
-        /* BILL  */ { 0.0332f, 1.9629f, 0.2150f,  90.0f },   /* the 12 ft snooker corner (WPBSA), as SNK15 */
+        /* BILL  */ { 0.0332f, 0.088900f, 0.009737f,  90.0f },   /* the 12 ft snooker corner (WPBSA), as SNK15 */
         /* BARB — the holes are in the bed and cut their own cloth. `roll` is
          * how far the cloth turns over the edge, and it is NOT only a drawing
          * number: cue_physics reads lip_d to decide how a dropping ball is
@@ -4349,72 +4488,72 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * stopped being taken at all — five of the nine holes simply refused
          * it. 0.22 is the roll a pool pocket has and the most this one will
          * take. */
-        /* BARB  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
+        /* BARB  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
         /* GOLF — the UK 7 ft bed, so the UK 7 ft corner cut, exactly */
-        /* GOLF  */ { 0.0265f, 1.4430f, 0.2200f,  90.0f },
+        /* GOLF  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
         /* US10 — the same 9 ft American bed as 9-ball, so its cut exactly */
-        /* US10  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
+        /* US10  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },
         /* PAUL — the snooker cut, with the SETBACK scaled to this small mouth
          * rather than copied in millimetres: 14.5 mm on a 45 mm snooker pocket
          * is a third of it, and a third of Paul's is 8.4. */
-        /* PAUL  */ { 0.0084f, 1.3550f, 0.2150f,  90.0f },
+        /* PAUL  */ { 0.0084f, 0.045760f, 0.007261f,  90.0f },
         /* KILLER — the base tables' own cuts, exactly */
-        /* K-UK  */ { 0.0265f, 1.4430f, 0.2200f,  90.0f },
-        /* K-US  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
-        /* K-CN  */ { 0.0170f, 1.3550f, 0.2200f,  90.0f },
+        /* K-UK  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
+        /* K-US  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },
+        /* K-CN  */ { 0.0170f, 0.059769f, 0.009704f,  90.0f },
         /* CAROM has no pockets to cut — five rows of nothing, like BARB */
-        /* C-SR  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* C-2C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* C-3C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* C-1C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* SNK3  */ { 0.0265f, 1.4430f, 0.2200f,  90.0f },   /* the SNK6 cut */
-        /* 1POC  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
-        /* BANK  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
-        /* ROT   */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
-        /* ROTPH */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
-        /* 15BAL */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
-        /* COWBY */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
-        /* HONOL */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
-        /* SPEED */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
-        /* BOWLL */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },
-        /* CRIB  */ { 0.0325f, 1.3900f, 0.2200f,  90.0f },   /* the US 9 ft cut */
+        /* C-SR  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* C-2C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* C-3C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* C-4B  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* C-1C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* SNK3  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },   /* the SNK6 cut */
+        /* 1POC  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* BANK  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* ROT   */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* ROTPH */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* 15BAL */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* COWBY */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* HONOL */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* SPEED */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* BOWLL */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },
+        /* CRIB  */ { 0.0325f, 0.097500f, 0.013830f,  90.0f },   /* the US 9 ft cut */
     };
     static const CueCut mid[] = {
-        /* UK8   */ { 0.0250f, 1.5020f, 0.2200f, 180.0f },
-        /* US8   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
-        /* US9   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
-        /* CN8   */ { 0.0285f, 1.4437f, 0.2250f, 180.0f },
-        /* SNK15 */ { 0.0335f, 1.7736f, 0.2150f, 180.0f },   /* r 76.8 at 75.2 back: kisses the bore 1.6 mm proud -- see the snooker block */
-        /* SNK10 */ { 0.0335f, 1.7736f, 0.2150f, 180.0f },
-        /* SNK6  */ { 0.0250f, 1.5020f, 0.2200f, 180.0f },
-        /* STRT  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
-        /* PYRA  */ { 0.0234f, 1.4100f, 0.2200f, 180.0f },   /* ...and the middle */
-        /* PYRA7 */ { 0.0211f, 1.4100f, 0.2200f, 180.0f },
-        /* BILL  */ { 0.0335f, 1.7736f, 0.2150f, 180.0f },   /* the 12 ft snooker middle (WPBSA), as SNK15 */
-        /* BARB  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* GOLF  */ { 0.0250f, 1.5020f, 0.2200f, 180.0f },
-        /* US10  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
-        /* PAUL  */ { 0.0100f, 1.4437f, 0.2150f, 180.0f },
-        /* K-UK  */ { 0.0250f, 1.5020f, 0.2200f, 180.0f },
-        /* K-US  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
-        /* K-CN  */ { 0.0285f, 1.4437f, 0.2250f, 180.0f },
-        /* C-SR  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* C-2C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* C-3C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* C-4B  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* C-1C  */ { 0.0000f, 1.0000f, 0.2200f, 360.0f },
-        /* SNK3  */ { 0.0250f, 1.5020f, 0.2200f, 180.0f },   /* the SNK6 cut */
-        /* 1POC  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
-        /* BANK  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
-        /* ROT   */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
-        /* ROTPH */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
-        /* 15BAL */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
-        /* COWBY */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
-        /* HONOL */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
-        /* SPEED */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
-        /* BOWLL */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },
-        /* CRIB  */ { 0.0305f, 1.4150f, 0.2200f, 180.0f },   /* the US 9 ft cut */
+        /* UK8   */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
+        /* US8   */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },
+        /* US9   */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },
+        /* CN8   */ { 0.0285f, 0.061877f, 0.009644f, 180.0f },
+        /* SNK15 */ { 0.0335f, 0.076797f, 0.009310f, 180.0f },   /* r 76.8 at 75.2 back: kisses the bore 1.6 mm proud -- see the snooker block */
+        /* SNK10 */ { 0.0335f, 0.076797f, 0.009310f, 180.0f },
+        /* SNK6  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
+        /* STRT  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* PYRA  */ { 0.0234f, 0.065283f, 0.010186f, 180.0f },   /* ...and the middle */
+        /* PYRA7 */ { 0.0211f, 0.055131f, 0.008602f, 180.0f },
+        /* BILL  */ { 0.0335f, 0.076797f, 0.009310f, 180.0f },   /* the 12 ft snooker middle (WPBSA), as SNK15 */
+        /* BARB  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* GOLF  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
+        /* US10  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },
+        /* PAUL  */ { 0.0100f, 0.039884f, 0.005940f, 180.0f },
+        /* K-UK  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
+        /* K-US  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },
+        /* K-CN  */ { 0.0285f, 0.061877f, 0.009644f, 180.0f },
+        /* C-SR  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* C-2C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* C-3C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* C-4B  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* C-1C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* SNK3  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },   /* the SNK6 cut */
+        /* 1POC  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* BANK  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* ROT   */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* ROTPH */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* 15BAL */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* COWBY */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* HONOL */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* SPEED */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* BOWLL */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },
+        /* CRIB  */ { 0.0305f, 0.065500f, 0.011819f, 180.0f },   /* the US 9 ft cut */
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here

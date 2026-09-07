@@ -913,6 +913,13 @@ int cue_table_cut_to(CueTable *t, float corner_m, float middle_m);
  *
  * cue_table_init calls this, and anything that edits a pocket field must call
  * it before building or measuring. Idempotent. */
+/* POCKET DIALS. Reads CUE_PR_C, CUE_PR_S, CUE_BACK_C, CUE_BACK_S, CUE_ANG_C
+ * and CUE_ANG_S from the environment, in millimetres (degrees for the angles),
+ * and applies whichever are set. The cut's three -- CUE_CUTSET_*, CUE_CUTRAD_*,
+ * CUE_CUTROLL_* -- are applied in cue_table_build_world, because the cut lives
+ * on the world. Unset means the table's own number, so nothing moves unless
+ * something is asked for. See tools/pocket/dial.sh. */
+void cue_table_dials(CueTable *t);
 void cue_table_normalise(CueTable *t);
 
 /* THE NARROWEST PASSAGE INTO ONE POCKET of a built world, in metres: the
