@@ -1066,10 +1066,21 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
              * because it shared that branch, and it shares none of the table.
              * A heyball rail is plain too -- the marked rail is an American
              * convention and this table no more follows it than snooker does. */
+            /* AND PAUL, which IS a snooker table -- a 6 ft home one, the
+             * folding sort, with 42 mm balls and 54 mm pockets. It is flagged
+             * is_snooker for the physics and always was, and then fell through
+             * this switch to the default and wore an American pool table's
+             * moulded drop liners over a ball-return tray: the one dressing a
+             * folding 6 ft snooker table certainly does not have, and the whole
+             * of what was wrong with its pockets. String bags on leather
+             * plates, at 6 ft instead of 12; nothing else about the table
+             * changes, because the furniture is dressing and the measurements
+             * are the ones it already had. */
             case CUE_GAME_SNK15: case CUE_GAME_SNK10:
             case CUE_GAME_SNK6:  case CUE_GAME_SNK3:
             case CUE_GAME_CN8:
             case CUE_GAME_BILLIARDS:
+            case CUE_GAME_PAUL:
                 t->furniture = CUE_FURN_NETS | CUE_FURN_COLLECTOR;
                 break;
             /* Billiards and pyramid keep the liner and nothing else until the
