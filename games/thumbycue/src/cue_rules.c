@@ -4396,6 +4396,44 @@ void cue_rules_shootout_win(CueRules *r, int winner) {
     snprintf(r->msg, sizeof r->msg, "SHOOTOUT");
 }
 
+/* ---- BUMPER POOL: THE BALL YOU ADDRESS IS THE BALL YOU PLAY ---------------
+ *
+ * Every ball is a cue ball here and five of them are yours, so something has to
+ * decide WHICH one the stroke is about. The physics, the camera and the cue all
+ * take index 0 as the ball being struck -- billiards already swaps that at a
+ * change of turn -- and this does the same thing, only continuously and off the
+ * cue's own line rather than off whose turn it is.
+ *
+ * NO BUTTON, AND NO CYCLING. You choose by pointing the cue at a ball, which is
+ * how you choose on a real table; a key that steps through five balls is a menu
+ * standing between the player and the shot. The one picked is the striker's own
+ * ball nearest the tip ALONG the cue -- so lining up on a ball selects it, and
+ * balls behind you are never chosen however close they are.
+ *
+ * Returns 1 if the ball at index 0 changed, so the host can mark the HUD. */
+int cue_rules_bumper_addressed(CueBall *b, int n, int seat, Vec3 tip, Vec3 dir) {
+    if (!b || n < 2) return 0;
+    const int lo = seat ? 6 : 1, hi = seat ? 10 : 5;
+    int best = -1; float best_d = 0.0f;
+    for (int i = 0; i < n; i++) {
+        if (!b[i].on) continue;
+        if (b[i].id < lo || b[i].id > hi) continue;
+        const Vec3 to = v3_sub(b[i].pos, tip);
+        const float along = to.x * dir.x + to.z * dir.z;
+        if (along <= 0.0f) continue;              /* behind the tip: never it */
+        const float ax = to.x - dir.x * along, az = to.z - dir.z * along;
+        const float off = ax * ax + az * az;      /* how far off the line */
+        /* THE LINE FIRST AND THE DISTANCE SECOND. Nearest-to-the-tip alone
+         * picks whatever you happen to be standing over, which on a table this
+         * small is rarely what you are aiming at. */
+        const float score = off * 40.0f + along;
+        if (best < 0 || score < best_d) { best = i; best_d = score; }
+    }
+    if (best < 0 || best == 0) return 0;
+    CueBall tmp = b[0]; b[0] = b[best]; b[best] = tmp;
+    return 1;
+}
+
 void cue_rules_billiards_swap(CueBall *b, int n) {
     if (!b || n < 3) return;
     int other = -1;

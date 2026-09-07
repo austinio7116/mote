@@ -2764,6 +2764,10 @@ static struct {
      * ticks exactly as the break's is. `bb_probe` is the second pass: the few
      * leaders re-simulated off the true line, to see what a miss would cost. */
     BbCand bb[BB_MAX]; int bb_n, bb_i, bb_cap, bb_probe;
+    /* The candidate pool is shared with bumper pool, whose stroke is the same
+     * shape -- a ball, an aim, a pace, and a hole it means. This says which
+     * game's scoring bb_tick should price it with. */
+    int bp;
 } P;
 
 /* The best SIMULATED safety in the pool, or -1. Safeties carry pk < 0. */
@@ -4157,6 +4161,10 @@ static void bb_finish(void) {
     }
     if (best < 0) { P.result = o; return; }
     BbCand *q = &P.bb[best];
+    /* WHICH BALL IT PLAYS, which in bumper pool is a choice and everywhere else
+     * is index 0. The host swaps it in before the stroke, the same way a human's
+     * addressed ball is. */
+    o.strike_idx = P.bp ? q->tidx : 0;
     o.aim = q->aim + (rnd(P.rng) - 0.5f) * 2.0f * p->line_acc * RAD;
     o.power01 = clampf(q->power01 * (1.0f + (rnd(P.rng) - 0.5f) * 2.0f * p->power_acc),
                        0.03f, 1.0f);
@@ -4183,13 +4191,23 @@ static void bb_finish(void) {
 /* One simulation per tick, exactly as the break's search takes them: first
  * every candidate on its nominal line, then the leaders again either side of
  * it. Returns 1 when the plan is made. */
+/* Bumper pool shares this tick and prices it differently -- see bp_ev, which is
+ * defined with the rest of its planner below. */
+static float bp_ev(const AiCtx *c, const AiSim *sim, int *fatal);
+
 static int bb_tick(void) {
     AiCtx *c = &P.ctx;
     if (P.bb_i < P.bb_cap) {
         BbCand *q = &P.bb[P.bb_i++];
         AiSim sim;
-        ai_sim(c->w, c->t, c->b, c->n, 0, q->aim, q->power01, 0.0f, q->tip_vert, &sim);
-        q->ev = bb_ev(c, &sim, &q->pts, &q->foul, &q->fatal);
+        /* THE BALL THIS CANDIDATE PLAYS. Bar billiards always cues index 0 --
+         * one white, from the D, every stroke -- and bumper pool cues whichever
+         * of the striker's five the candidate chose. */
+        const int cue_idx = P.bp ? q->tidx : 0;
+        ai_sim(c->w, c->t, c->b, c->n, cue_idx, q->aim, q->power01, 0.0f, q->tip_vert, &sim);
+        if (P.bp) q->ev = bp_ev(c, &sim, &q->fatal);
+        else      q->ev = bb_ev(c, &sim, &q->pts, &q->foul, &q->fatal);
+        if (q->fatal) q->ev -= 500.0f;      /* the frame is not a weight */
         q->simmed = 1; q->cue_end = sim.cue_end;
         return 0;
     }
@@ -4216,10 +4234,11 @@ static int bb_tick(void) {
             BbCand *q = &P.bb[lead];
             float jit = fmaxf(c->p->line_acc, 0.35f) * 2.0f * RAD * (float)side;
             AiSim sim;
-            ai_sim(c->w, c->t, c->b, c->n, 0, q->aim + jit, q->power01, 0.0f,
-                   q->tip_vert, &sim);
-            int pts, foul, fatal;
-            float ev = bb_ev(c, &sim, &pts, &foul, &fatal);
+            ai_sim(c->w, c->t, c->b, c->n, P.bp ? q->tidx : 0,
+                   q->aim + jit, q->power01, 0.0f, q->tip_vert, &sim);
+            int pts = 0, foul = 0, fatal = 0;
+            float ev = P.bp ? bp_ev(c, &sim, &fatal)
+                            : bb_ev(c, &sim, &pts, &foul, &fatal);
             q->ev += ev * (0.5f / (float)BB_PROBE);
             if (fatal) q->ev -= 200.0f;    /* Rule 111 is a veto, not a weight */
             (void)pts; (void)foul;
@@ -4233,6 +4252,120 @@ static int bb_tick(void) {
 }
 
 /* The search, set going. */
+/* ---- BUMPER POOL: THE PLANNER -------------------------------------------
+ *
+ * The same shape of problem as bar billiards and nothing like the rest of this
+ * file: there is no cue ball, so the stroke is not "send the white into an
+ * object ball" but "send one of MY OWN five into MY cup". The struck ball is
+ * the scoring ball, which is exactly what AiSim.cue_hole reports, and the whole
+ * search is therefore over WHICH ball, at WHAT angle, at WHAT pace.
+ *
+ * It borrows bar billiards' candidate pool and its tick, because the pool is
+ * general -- an aim, a power, a ball, a hole -- and only the scoring differs.
+ *
+ * WHAT A STROKE IS WORTH HERE:
+ *   my ball in MY cup            the game, and another visit with it
+ *   my MARKED ball, before any   more again: nothing else of mine counts until
+ *                                it is down, so it is worth having first
+ *   my ball in the WRONG cup     a disaster, and if it is my last one it is the
+ *                                frame -- which is a veto and not a weight
+ *   an opponent's ball, anywhere it scores for THEM, so it is a real cost and
+ *                                the planner has to see it
+ *
+ * The candidates are the direct line to the cup and a fan either side of it,
+ * plus a bank off each long cushion, at two paces. Small, because the table is
+ * small and the bumpers do the rest. */
+static int bp_my_cup(const AiCtx *c) {
+    const int seat = c->r->turn;
+    for (int p = 0; p < c->w->npocket; p++) {
+        if (seat == 0 && c->w->pocket_score[p] < 0) return p;
+        if (seat == 1 && c->w->pocket_score[p] > 0) return p;
+    }
+    return -1;
+}
+static int bp_mine(const AiCtx *c, int id) {
+    return c->r->turn ? (id >= 6 && id <= 10) : (id >= 1 && id <= 5);
+}
+
+static void bp_gen(const AiCtx *c) {
+    P.bb_n = 0;
+    const int cup = bp_my_cup(c);
+    if (cup < 0) return;
+    const Vec3 C = c->w->pocket[cup];
+    const float hw = c->t->half_wid;
+    for (int i = 0; i < c->n && P.bb_n < BB_MAX; i++) {
+        if (!c->b[i].on || !bp_mine(c, c->b[i].id)) continue;
+        /* THE MARKED ONE FIRST. Until it is down nothing else of mine scores,
+         * so anything but it is a wasted visit -- and the planner would happily
+         * have spent the frame potting balls that went straight back on their
+         * spots. */
+        if (c->r->bp_marked[c->r->turn] &&
+            !(c->b[i].id == 5 || c->b[i].id == 10)) continue;
+        const Vec3 B = c->b[i].pos;
+        float aims[4]; int na = 0;
+        aims[na++] = atan2f(C.z - B.z, C.x - B.x);          /* straight at it */
+        /* ...and off each long cushion, which is how you reach a cup that its
+         * own two guards are covering: mirror the cup in the rail and aim at
+         * the image. */
+        for (int sgn = -1; sgn <= 1 && na < 4; sgn += 2) {
+            const float mz = (float)sgn * 2.0f * (hw - c->t->R) - C.z;
+            aims[na++] = atan2f(mz - B.z, C.x - B.x);
+        }
+        for (int a = 0; a < na && P.bb_n < BB_MAX; a++) {
+            for (int fan = -1; fan <= 1; fan++) {
+                if (a > 0 && fan) continue;                 /* fan the direct line only */
+                for (int pw = 0; pw < 2 && P.bb_n < BB_MAX; pw++) {
+                    BbCand *q = &P.bb[P.bb_n++];
+                    memset(q, 0, sizeof *q);
+                    q->aim = aims[a] + (float)fan * 1.6f * RAD;
+                    q->power01 = pw ? 0.42f : 0.24f;
+                    q->kind = BB_POT; q->tidx = i; q->pk = cup;
+                    q->pre = -(float)a * 4.0f - (fan ? 1.0f : 0.0f);
+                }
+            }
+        }
+    }
+}
+
+static float bp_ev(const AiCtx *c, const AiSim *sim, int *fatal) {
+    const int seat = c->r->turn, cup = bp_my_cup(c);
+    float ev = 0.0f;
+    *fatal = 0;
+    if (sim->cue_hole >= 0) {
+        if (sim->cue_hole == cup) ev += 120.0f;             /* the whole point */
+        else {
+            /* my own down the wrong cup: two to the opponent, and the FRAME if
+             * it was my last one */
+            ev -= 90.0f;
+            if (c->r->score[seat] >= c->r->target_score - 1) *fatal = 1;
+        }
+    }
+    /* anything of theirs I put down is a ball I gave them */
+    for (int k = 0; k < sim->npotted; k++) {
+        const int idx = sim->potted[k];
+        if (idx < 0 || idx >= c->n) continue;
+        if (!bp_mine(c, c->b[idx].id)) ev -= 45.0f;
+    }
+    /* and, failing all that, leave it near the cup rather than anywhere */
+    if (sim->cue_hole < 0 && cup >= 0) {
+        const float dx = sim->cue_end.x - c->w->pocket[cup].x;
+        const float dz = sim->cue_end.z - c->w->pocket[cup].z;
+        ev += 6.0f / (1.0f + sqrtf(dx*dx + dz*dz) * 4.0f);
+    }
+    return ev;
+}
+
+static void bp_plan_start(void) {
+    AiCtx *c = &P.ctx;
+    bp_gen(c);
+    bb_sort(P.bb_n, 0);
+    int cap = 10 + (int)(14.0f * c->p->position + 0.5f);
+    if (cap > P.bb_n) cap = P.bb_n;
+    P.bb_cap = cap; P.bb_i = 0; P.bb_probe = 0;
+    P.phase = cap > 0 ? PH_BB : PH_DONE;
+    P.bp = 1;                       /* score this pool bumper pool's way */
+}
+
 static void bb_plan_start(void) {
     AiCtx *c = &P.ctx;
     bb_margin = 0.5f; bb_ignore_white = 0;
@@ -4784,7 +4917,12 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
     /* BAR BILLIARDS PLAYS ITS OWN GAME AND SEARCHES ITS OWN WAY. Nothing
      * below fits it — see the block above bb_gen for what it assumes and why
      * none of it is true here. */
+    P.bp = 0;
     if (r->mode == CUE_GAME_BARBILLIARDS) { bb_plan_start(); return; }
+    /* BUMPER POOL PLAYS ITS OWN GAME TOO, and for the same reason: there is no
+     * cue ball, so "send the white into an object ball" describes nothing that
+     * happens here. See bp_gen. */
+    if (r->mode == CUE_GAME_BUMPER) { bp_plan_start(); return; }
 
     /* 0a. Two misses already. A third forfeits the frame, so nothing else
      * matters: find the nearest ball-on with a clear path and hit it in the

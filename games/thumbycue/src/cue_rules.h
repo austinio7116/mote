@@ -652,6 +652,13 @@ int cue_rules_billiards_respot(CueRules *r, const CueTable *t,
  * different balls, so at a change of turn the two whites exchange places in
  * the array — contents, ids and all — and everything downstream that knows
  * index 0 is the cue ball goes on being right. Call it when `turn` changes. */
+/* BUMPER POOL: put the ball the cue is addressing at index 0, which is the one
+ * the physics strikes. `tip` and `dir` are the cue's, in table space; `seat` is
+ * whose turn it is. Returns 1 if the choice changed. See the note at the
+ * definition: you choose by pointing, because that is how you choose on a real
+ * table, and a key that cycles five balls is a menu in front of the shot. */
+int  cue_rules_bumper_addressed(CueBall *b, int n, int seat, Vec3 tip, Vec3 dir);
+
 void cue_rules_billiards_swap(CueBall *b, int n);
 
 /* THE SCORES, from Section 3 Rule 4. A cannon, a pot white and an in-off

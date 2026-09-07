@@ -98,6 +98,12 @@ typedef struct {
      * scoring will fix that. Zero if the shot was not simulated. */
     Vec3  cue_end_sim;
     int   sim_verified;   /* 0 = this shot was never put through the engine */
+    /* WHICH BALL THE STROKE PLAYS, as an index into the ball array. Zero for
+     * every game but bumper pool, where five of the ten are the striker's and
+     * any of them may be cued -- so the planner has to say which one it chose,
+     * and the host swaps it to index 0 before the shot the same way a human's
+     * addressed ball is. */
+    int   strike_idx;
 } CueAIShot;
 
 /* What the CALLER's full power is, in m/s — whatever it multiplies the
