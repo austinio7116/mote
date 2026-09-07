@@ -3472,65 +3472,6 @@ static float pt_seg_dist(float px, float pz,
  * against segments, circles against both. That is the same quantity test_gap
  * finds by flooding a grid, at a fraction of the cost, and it does not care
  * which style of jaw built it. */
-/* ---- THE HOLE'S SHAPE, IN ONE PLACE --------------------------------------
- *
- * A CAPSULE, not a circle: a half circle at the back and two straight sides
- * running forward towards the bed, which is what a pocket back is and what
- * link_edge_x now stands the cushions against. Everything that asks "is this
- * inside the hole" has to ask the same shape, or the timber is cut round while
- * the cushions are cut straight -- and the round hole's curve then bites into
- * the pocket line, which is exactly what it did.
- *
- * Returns the distance from the SPINE (so anything under r is inside) and the
- * unit direction to push out along: perpendicular to the spine on the straight
- * sides, radial round the cap. */
-static float bore_reach(const CueWorld *w, int p, float x, float z,
-                        float *nx, float *nz)
-{
-    const float cx = w->drop_c[p].x, cz = w->drop_c[p].z;
-    const float dx = -w->pmnorm[p].x, dz = -w->pmnorm[p].z;   /* towards the bed */
-    const float vx = x - cx, vz = z - cz;
-    const float t = vx*dx + vz*dz;
-    float ox, oz;
-    if (t > 0.0f) { ox = vx - dx*t; oz = vz - dz*t; }   /* beside the straights */
-    else          { ox = vx;        oz = vz;        }   /* round the cap */
-    const float d = sqrtf(ox*ox + oz*oz);
-    if (nx && nz) {
-        if (d > 1e-6f) { *nx = ox/d; *nz = oz/d; }
-        else           { *nx = -dz;  *nz =  dx;  }      /* dead on the spine */
-    }
-    return d;
-}
-
-/* The first distance along a ray at which it is clear of pocket p's hole (or
- * enters it, with `enter`). Bracketed then bisected rather than solved: the
- * capsule is two cases and a closed form for each is a great deal of sign
- * juggling for a shape this cheap to sample. */
-static float bore_cross(const CueWorld *w, int p, float r,
-                        float ox, float oz, float ux, float uz,
-                        float smax, int enter)
-{
-    const int N = 48;
-    float prev = bore_reach(w, p, ox, oz, 0, 0);
-    for (int i = 1; i <= N; i++) {
-        const float s = smax * (float)i / (float)N;
-        const float d = bore_reach(w, p, ox + ux*s, oz + uz*s, 0, 0);
-        const int was = enter ? (prev >= r) : (prev <  r);
-        const int now = enter ? (d    <  r) : (d    >= r);
-        if (was && now) {
-            float lo = smax * (float)(i-1) / (float)N, hi = s;
-            for (int k = 0; k < 20; k++) {
-                const float m = 0.5f*(lo+hi);
-                const float dm = bore_reach(w, p, ox + ux*m, oz + uz*m, 0, 0);
-                if (enter ? (dm < r) : (dm >= r)) hi = m; else lo = m;
-            }
-            return 0.5f*(lo+hi);
-        }
-        prev = d;
-    }
-    return -1.0f;                                  /* never crosses within smax */
-}
-
 int cue_table_clear_bore_m(const CueWorld *w, float *x, float *z, float margin) {
     if (!w || !x || !z) return 0;
     int moved = 0;
@@ -3543,13 +3484,14 @@ int cue_table_clear_bore_m(const CueWorld *w, float *x, float *z, float margin) 
         for (int p = 0; p < w->npocket; p++) {
             const float r = w->pocket_r[p] + margin;
             if (r <= 0.0f) continue;
-            float nx = 0.0f, nz = 0.0f;
-            const float d = bore_reach(w, p, *x, *z, &nx, &nz);
+            const float dx = *x - w->drop_c[p].x, dz = *z - w->drop_c[p].z;
+            const float d = sqrtf(dx*dx + dz*dz);
             if (d >= r) continue;
-            /* Out along the shortest way there is: square off the straight
-               sides, radially round the cap. */
-            *x += nx * (r - d);
-            *z += nz * (r - d);
+            if (d < 1e-6f) {                 /* dead centre: no direction to use */
+                *x = w->drop_c[p].x + r; hit = 1; moved = 1; continue;
+            }
+            *x = w->drop_c[p].x + dx / d * r;
+            *z = w->drop_c[p].z + dz / d * r;
             hit = 1; moved = 1;
         }
         if (!hit) break;
@@ -3571,9 +3513,16 @@ int cue_table_hide_bore(const CueWorld *w, float *x, float *z,
     for (int p = 0; p < w->npocket; p++) {
         const float r = w->pocket_r[p] + margin;
         if (r <= 0.0f) continue;
-        if (bore_reach(w, p, *x, *z, 0, 0) >= r) continue;   /* already clear */
-        float sfar = bore_cross(w, p, r, *x, *z, ux, uz, reach, 0);
-        if (sfar <= 0.0f) continue;               /* cannot get out this way */
+        const float ax = *x - w->drop_c[p].x, az = *z - w->drop_c[p].z;
+        const float d2 = ax*ax + az*az;
+        if (d2 >= r*r) continue;                  /* already clear of this one */
+        /* |P + s*u - C| = r, taking the forward root. u is a unit vector, so
+         * s = -(a.u) + sqrt((a.u)^2 - |a|^2 + r^2). */
+        const float b = ax*ux + az*uz;
+        const float disc = b*b - d2 + r*r;
+        if (disc < 0.0f) continue;                /* cannot get out this way */
+        float sfar = -b + sqrtf(disc);
+        if (sfar <= 0.0f) continue;
         if (sfar > reach) sfar = reach;           /* never fold further than told */
         *x += ux * sfar; *z += uz * sfar;
         moved = 1;
@@ -3591,17 +3540,19 @@ float cue_table_ray_bore_limit(const CueWorld *w, float ox, float oz,
     for (int p = 0; p < w->npocket; p++) {
         const float r = w->pocket_r[p];
         if (r <= 0.0f) continue;
-        /* STARTING ON THE EDGE is the case that matters: a cushion reaching
-         * its yellow point is exactly on the rim, and if the next step is
-         * inward the limit is nothing at all -- which is the whole point, the
-         * cushion stops there instead of crossing the hole. */
-        const float d0 = bore_reach(w, p, ox, oz, 0, 0);
-        if (d0 <= r + 1e-6f) {
-            const float ahead = bore_reach(w, p, ox + dx*1e-4f, oz + dz*1e-4f, 0, 0);
-            if (ahead < d0 || d0 < r) { lim = 0.0f; continue; }
-        }
-        const float s0 = bore_cross(w, p, r, ox, oz, dx, dz, smax, 1);
-        if (s0 > 0.0f && s0 < lim) lim = s0;
+        const float ax = ox - w->drop_c[p].x, az = oz - w->drop_c[p].z;
+        const float b = ax*dx + az*dz;
+        const float c = ax*ax + az*az - r*r;
+        const float disc = b*b - c;
+        if (disc < 0.0f) continue;              /* the ray misses this bore */
+        const float rt = sqrtf(disc);
+        const float s0 = -b - rt;               /* where it goes IN */
+        /* STARTING ON THE EDGE is the case that matters, and c is then zero, so
+         * s0 is either 0 or -2b. Heading inward means b < 0, and the ray enters
+         * at once: the limit is nothing at all, which is the whole point — the
+         * cushion stops at the yellow point instead of crossing the hole. */
+        if (s0 > 0.0f) { if (s0 < lim) lim = s0; }
+        else if (b < 0.0f && c <= 1e-9f) lim = 0.0f;
     }
     return lim < 0.0f ? 0.0f : lim;
 }
