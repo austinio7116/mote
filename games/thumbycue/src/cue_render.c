@@ -86,6 +86,16 @@ static int      s_ball_set = 0;  /* 0 PRO, 1 UK Y/B, 2 UK Y/R, 3 dyna */
  * ten of them reds and a pool set would call half of them stripes. */
 static int      s_is_bumper = 0;
 
+/* THE CLOTH'S OWN RING ROUND EACH BED HOLE, kept so the lip can be built on it
+ * rather than on a circle that ought to be the same and is not. See the note at
+ * the annulus: 24 even rays plus four corner directions is a 28-gon, a lip of
+ * 24 even rays is a 24-gon, and between two different polygons inscribed in one
+ * circle there is a hairline of bare bed all the way round. */
+#define CUE_BEDLIP_MAX 40
+static int   s_bedlip_n[CUE_MAX_POCKET];
+static float s_bedlip_r[CUE_MAX_POCKET];
+static float s_bedlip_a[CUE_MAX_POCKET][CUE_BEDLIP_MAX];
+
 /* ---- per-frame projected lists ---------------------------------------- */
 typedef struct { float x0,y0,x1,y1,x2,y2; uint16_t d0,d1,d2; uint16_t color; } STri;
 static STri *s_stri; static int s_nstri;   /* arena-allocated (Mote) */
@@ -3190,7 +3200,22 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                     if (cz - z0 < room) room = cz - z0;
                     if (r0 > room * 0.9f) r0 = room * 0.9f;
 
-                    enum { NA = 24 };
+                    /* THE LIP IS BUILT ON THESE SAME ANGLES, and it has to be.
+                     *
+                     * The cloth's inner edge is 24 even rays PLUS the cell's
+                     * four corner directions -- 28 points on the circle -- and
+                     * the lip was a fresh 24-gon on the same circle. Two
+                     * different polygons inscribed in one circle do not share
+                     * an edge anywhere except at their vertices, so there was a
+                     * hairline of bare bed between the cloth and its own roll
+                     * all the way round every hole. Reported as tiny cracks,
+                     * and that is exactly what they were.
+                     *
+                     * So the angles are kept and the lip walks them. It is the
+                     * same rule the rail pockets already follow -- their lip
+                     * runs along the cloth's own boundary rather than along a
+                     * circle that ought to match it. */
+                    enum { NA = 32 };
                     float ang[NA + 4]; int na = 0;
                     for (int i = 0; i < NA; i++)
                         ang[na++] = 6.2831853f * (float)i / (float)NA;
@@ -3226,6 +3251,12 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                              v3(cx + r0*c1, 0, cz + r0*s1),
                              v3(cx + t1*c1, 0, cz + t1*s1),
                              v3(cx + t0*c0, 0, cz + t0*s0), t->cloth);
+                    }
+                    /* ...and hand the ring to the lip, exactly as drawn. */
+                    if (hole < CUE_MAX_POCKET && na <= CUE_BEDLIP_MAX) {
+                        s_bedlip_n[hole] = na;
+                        s_bedlip_r[hole] = r0;
+                        for (int i = 0; i < na; i++) s_bedlip_a[hole][i] = ang[i];
                     }
                 }
             }
@@ -3788,8 +3819,14 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     if (w->nbumper > 0) {
         const uint8_t keep_mat = s_mat;
         s_mat = CUE_MAT_WOOD;
-        const int NA = CUE_ARC_SEGS;
-        const int NP = 6;                          /* round the rubber's tube */
+        /* ROUND ENOUGH TO READ AS RUBBER. Six segments round the tube is a
+         * hexagonal ring with visible spikes where the facets meet, and twenty
+         * round the ring is not much better on a part this close to the eye --
+         * there are only twelve of them and they are the thing you look at
+         * while choosing a shot. Twelve and thirty-two is about 3,000 triangles
+         * for the set, which a table with two pockets and no rack can afford. */
+        const int NA = 32;                         /* round the ring */
+        const int NP = 12;                         /* round the rubber's tube */
         /* THE RUBBER SITS AT THE CUSHION'S NOSE HEIGHT, and that is not a
          * styling choice: a bumper turns a ball the way a cushion does, so it
          * has to meet it at the same place on the ball. Set anywhere else it
@@ -3838,7 +3875,13 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                 /* the turned cone, cloth to shoulder */
                 quad(v3(cx + c0*rb, 0.0f, cz + s0*rb), v3(cx + c1*rb, 0.0f, cz + s1*rb),
                      v3(cx + c1*rs, ys,   cz + s1*rs), v3(cx + c0*rs, ys,   cz + s0*rs), wood);
-                /* the rubber collar, swept round the shoulder */
+                /* THE RUBBER IS RUBBER, NOT TIMBER. The block sets
+                 * CUE_MAT_WOOD for the turned body, and the collar was
+                 * inheriting it -- so the one moulded part on the table was
+                 * being given grain and a varnish highlight. Cloth is the
+                 * shader's word for matt (wood_spec is varn * (1 - iscloth) *
+                 * u_grain), which is what a rubber ring wants. */
+                s_mat = CUE_MAT_CLOTH;
                 for (int j = 0; j < NP; j++) {
                     const float p0 = 6.2831853f * (float)j / (float)NP;
                     const float p1 = 6.2831853f * (float)(j + 1) / (float)NP;
@@ -3847,6 +3890,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                     quad(v3(cx + c0*q0, y0, cz + s0*q0), v3(cx + c1*q0, y0, cz + s1*q0),
                          v3(cx + c1*q1, y1, cz + s1*q1), v3(cx + c0*q1, y1, cz + s0*q1), rub);
                 }
+                s_mat = CUE_MAT_WOOD;              /* ...and back to the body */
                 /* the cap: a disc over the collar, and a rim under it */
                 quad(v3(cx + c0*rs, yc,  cz + s0*rs), v3(cx + c1*rs, yc,  cz + s1*rs),
                      v3(cx + c1*rc, yc,  cz + s1*rc), v3(cx + c0*rc, yc,  cz + s0*rc), wood);
@@ -3877,11 +3921,19 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * actually taken at. */
         for (int p = 0; p < w->npocket; p++) {
             const float ld = w->lip_d[p] > 0.0f ? w->lip_d[p] : 0.010f;
-            const float rc = w->pocket_r[p] + ld;    /* where the cloth is cut */
+            /* THE CLOTH'S OWN RING, at the cloth's own radius and on the
+             * cloth's own angles, so the roll starts exactly where the bed
+             * stops. Falls back to a plain circle for a hole the annulus never
+             * drew -- which cannot happen on a table that has one, and costs
+             * nothing to keep honest. */
+            const int have = (p < CUE_MAX_POCKET && s_bedlip_n[p] >= 3);
+            const float rc = have ? s_bedlip_r[p] : (w->pocket_r[p] + ld);
             Vec3 ring[CUE_LIP_MAX], nrm[CUE_LIP_MAX];
-            int cnt = NSEG < CUE_LIP_MAX ? NSEG : CUE_LIP_MAX;
+            int cnt = have ? s_bedlip_n[p] : NSEG;
+            if (cnt > CUE_LIP_MAX) cnt = CUE_LIP_MAX;
             for (int k = 0; k < cnt; k++) {
-                float a0 = 6.2831853f * (float)k / (float)cnt;
+                float a0 = have ? s_bedlip_a[p][k]
+                                : 6.2831853f * (float)k / (float)cnt;
                 float cx = cosf(a0), sz = sinf(a0);
                 ring[k] = v3(w->pocket[p].x + rc * cx, 0.0f,
                              w->pocket[p].z + rc * sz);

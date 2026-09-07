@@ -1588,6 +1588,21 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
     if (pk < 0 || pk >= CUE_MAX_POCKET) return 0;
     const MoteMesh *solid = w->pgeom_solid[pk], *net = w->pgeom_net[pk];
     if (!solid && !net && !w->pgeom_lip && !w->pgeom_box) return 0;
+    /* A HOLE IN THE BED HAS NO DRAWN POCKET, so this is not its path.
+     *
+     * The mesh drop exists to hand a ball to the shapes a table is DRAWN with:
+     * the shaft, the plate, the bag. Bar billiards' nine holes and bumper
+     * pool's two have none of that -- they are bored through the cloth, and
+     * what guides the ball is the analytic lip and shaft the fallback below
+     * builds. But the return BOX is under-cloth geometry too, and its presence
+     * alone was enough to bring a ball here: it then sat in a world whose only
+     * body was a box 110 mm beneath it, captured, and never moved again.
+     *
+     * That is the endless spin on the lip on both games, and it is why it only
+     * happened in the app -- with no return set, the fallback ran and the ball
+     * potted cleanly. Measured: potted at once without the box, frozen at cloth
+     * height with drop set for four seconds with it. */
+    if (!solid && !net && w->pocket_bed[pk]) return 0;
     MoteWorld pw;
     cue_phys_under_world(w, &pw, b->pos.y < 0.0f);
     /* FOUR SUBSTEPS TO THE SIM'S ONE. At 6 m/s a ball moves 3 mm in the sim's
