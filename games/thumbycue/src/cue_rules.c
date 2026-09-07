@@ -187,6 +187,14 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
         r->op_hole[0] = r->op_hole[1] = -1;
         r->op_owed[0] = r->op_owed[1] = 0;
         r->op_pick = 0;
+    } else if (t->kind == CUE_GAME_BUMPER) {
+        /* Five each, and the frame is over when somebody has sunk all five --
+         * or has put their LAST one in the wrong cup, which loses it outright. */
+        r->target_score = 5;
+        r->bp_cup[0] = r->bp_cup[1] = -1;   /* found from the world at the reset */
+        r->bp_marked[0] = r->bp_marked[1] = 1;
+        r->bp_owed[0] = r->bp_owed[1] = 0;
+        r->break_shot = 1;
     } else if (CUE_GAME_IS_KILLER(t->kind)) {
         /* KILLER: the score IS the lives. Three each, counting down; the
          * frame ends when somebody has none. */
@@ -3296,6 +3304,118 @@ static void resolve_cowboy(CueRules *r, CueBall *b, int n, const CueWorld *w,
  *
  * WHICH POCKET IS WHOSE is the host's to say (see op_hole), because the rules
  * hold no table and a pocket array has no fixed numbering. */
+/* ---- BUMPER POOL ---------------------------------------------------------
+ *
+ * Every ball is a cue ball: you strike one of your OWN five with the stick and
+ * try to sink all five in YOUR cup, at the far end from where they started.
+ * There is nothing here that behaves like a cue ball, so there is no scratch,
+ * no ball in hand and no wrong-ball foul -- the ball you struck is the ball you
+ * meant, and the only question a stroke asks is where things ended up.
+ *
+ *   THE MARKED BALL GOES FIRST. Until it is down, another of your own in your
+ *   own cup scores nothing and goes back on its spot.
+ *   YOUR OWN IN YOUR OWN CUP: it counts, and you shoot again.
+ *   YOUR OWN IN THE WRONG CUP: it still counts as gone -- it is in a hole and
+ *   nobody is getting it out -- and your opponent may drop TWO of theirs. If it
+ *   was your LAST ball, you lose the frame there and then.
+ *   AN OPPONENT'S BALL, in either cup: no penalty to anybody, and it counts for
+ *   its owner. That is the rule as written and it is the one that makes the
+ *   game: you can hand somebody the frame by helping them.
+ *
+ * Which seat owns which cup is read off the world once rather than assumed --
+ * cue_table_build_world marks them +1 and -1 and the rules take it from there,
+ * for the same reason one-pocket carries op_hole instead of inferring it. */
+static int bp_owner_of(int id) { return (id >= 1 && id <= 5) ? 0 : (id >= 6 && id <= 10) ? 1 : -1; }
+static int bp_is_marked(int id) { return id == 5 || id == 10; }
+
+static void resolve_bumper(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                           int first_hit, const int *potted, int np)
+{
+    const int me = r->turn, you = 1 - r->turn;
+    (void)first_hit;
+    r->break_shot = 0;
+    r->last_foul = 0;
+
+    /* WHOSE CUP IS WHICH, found once. The reds start at +x and shoot into the
+     * cup at -x, which cue_table marks -1; the whites are the other way. */
+    if (r->bp_cup[0] < 0 && w) {
+        for (int p = 0; p < w->npocket; p++) {
+            if (w->pocket_score[p] < 0) r->bp_cup[0] = p;   /* the reds' cup */
+            if (w->pocket_score[p] > 0) r->bp_cup[1] = p;   /* the whites' */
+        }
+    }
+
+    /* THE FORFEIT IS PAID AT THE HEAD OF THE TURN IT IS OWED TO.
+     *
+     * "Your opponent may drop two of their own balls into their cup" -- so it
+     * is their gain and not your loss, and it lands when they come to the
+     * table. Taken from the back of their run so the MARKED one is never taken
+     * this way: it has to be sunk, and being handed it would skip the rule the
+     * whole opening is built round.
+     *
+     * The ids are handed out for the host to lift off the cloth. A ball
+     * credited to the score and still lying on the table is two games at once. */
+    r->bp_take = 0;
+    if (r->bp_owed[me] > 0) {
+        const int base = (me == 0) ? 1 : 6;      /* 1..4 or 6..9; never the marked */
+        for (int k = 3; k >= 0 && r->bp_owed[me] > 0 && r->score[me] < r->target_score - 1; k--) {
+            int id = base + k, still_up = 0;
+            for (int i = 0; i < n; i++) if (b[i].on && b[i].id == id) still_up = 1;
+            if (!still_up) continue;
+            r->score[me]++;
+            r->bp_owed[me]--;
+            if (r->bp_take < 2) r->bp_take_id[r->bp_take++] = (unsigned char)id;
+        }
+        r->bp_owed[me] = 0;                      /* offered once, then gone */
+        if (r->bp_take) snprintf(r->msg, sizeof r->msg, "TWO OF YOURS, FOR THE WRONG CUP");
+    }
+
+    int again = 0, lost = 0, respot = 0;
+    for (int k = 0; k < np && k < 8; k++) {
+        const int id    = potted[k];
+        const int owner = bp_owner_of(id);
+        const int hole  = r->bb_hole[k];   /* which cup it went down */
+        if (owner < 0) continue;
+        const int own_cup = (hole >= 0 && hole == r->bp_cup[owner]);
+
+        /* THE MARKED ONE FIRST, and only for its own owner's account. */
+        if (r->bp_marked[owner] && !bp_is_marked(id)) {
+            if (r->respot < 8) r->respot_id[r->respot++] = (unsigned char)id;
+            respot = 1;
+            continue;
+        }
+        if (bp_is_marked(id)) r->bp_marked[owner] = 0;
+
+        r->score[owner]++;
+        if (owner == me && own_cup) again = 1;
+        if (owner == me && !own_cup) {
+            /* the wrong cup: two to your opponent, and the frame if it was
+             * your last */
+            if (r->score[me] >= r->target_score) lost = 1;
+            else r->bp_owed[you] += 2;
+        }
+    }
+
+    if (lost) {
+        r->frame_over = 1;
+        r->winner = you;
+        snprintf(r->msg, sizeof r->msg, "LAST BALL IN THE WRONG CUP - FRAME LOST");
+        return;
+    }
+    for (int s = 0; s < 2; s++)
+        if (r->score[s] >= r->target_score) {
+            r->frame_over = 1; r->winner = s;
+            snprintf(r->msg, sizeof r->msg, "%s HAS THEM ALL",
+                     s == 0 ? "RED" : "WHITE");
+            return;
+        }
+    if (respot && !again)
+        snprintf(r->msg, sizeof r->msg, "THE MARKED BALL GOES FIRST");
+    else if (again)
+        snprintf(r->msg, sizeof r->msg, "AGAIN");
+    if (!again) r->turn = you;
+}
+
 static void resolve_onepocket(CueRules *r, CueBall *b, int n, const CueWorld *w,
                               int first_hit,
                               int scratch, int cushion, const int *potted, int np)
@@ -4525,6 +4645,8 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
         resolve_bank(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_ONEPOCKET)
         resolve_onepocket(r, b, n, w, first_hit, scratch, cushion, potted, np);
+    else if (r->mode == CUE_GAME_BUMPER)
+        resolve_bumper(r, b, n, w, first_hit, potted, np);
     else if (r->mode == CUE_GAME_GOLF) resolve_golf(r, b, n, scratch);
     else                                    resolve_pool(r, b, n, w, first_hit, scratch, cushion, potted, np);
     if (wrong_ball && r->last_foul && !r->frame_over)

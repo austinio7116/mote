@@ -336,6 +336,34 @@ typedef struct {
      * and only the host has a player. The OTHER seat is not asked: the second
      * pocket is the other foot corner by rule, not by preference. */
     int op_pick;
+
+    /* ---- BUMPER POOL ------------------------------------------------------
+     *
+     * Two cups and no cue ball: seat 0 plays the REDS (ids 1..5) and sinks them
+     * in the cup at -x; seat 1 plays the WHITES (6..10) into the cup at +x. The
+     * balls start at the far end from the cup they are going to, which is why
+     * the opening shot is a bank and not a roll.
+     *
+     * `bp_cup` is the pocket index each seat is shooting into, found once from
+     * the world at init -- the rules must not assume which index the table
+     * built its cups at, for the same reason one-pocket's op_hole is carried
+     * rather than inferred.
+     *
+     * `bp_marked` is whether that seat's marked ball is still on the table. It
+     * has to be sunk FIRST: until it is down, one of that seat's other balls
+     * going in scores nothing and goes back on its spot.
+     *
+     * `bp_owed` is the two-ball forfeit -- your own ball in the wrong cup lets
+     * your opponent drop two of theirs -- paid at the start of their turn. */
+    int bp_cup[2];
+    int bp_marked[2];
+    int bp_owed[2];
+    /* ...and WHICH balls that forfeit took, so the host can lift them off the
+     * cloth. The rules decide the score; the table has to agree with it, and a
+     * ball credited but still lying there is two games at once. Filled at the
+     * start of the owed seat's turn and cleared by the host. */
+    unsigned char bp_take_id[2];
+    int bp_take;
     /* ---- SPEED POOL ------------------------------------------------------
      *
      * Not a frame: two attempts at the same task, and the CLOCK is the score.
