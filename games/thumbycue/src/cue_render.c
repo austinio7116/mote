@@ -2582,7 +2582,7 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
          * in the pocket -- one on each side, and one of them survived the first
          * go at this. Take in wherever a cut crosses this plank, bounded to the
          * neighbourhood of the hole so a line cannot reach off down the rail. */
-        if (cuts) for (int q = 0; q < 2; q++) {
+        if (0) for (int q = 0; q < 2; q++) {
             if (!cuts[h][q].on) continue;
             const float lim = hr[h] * BORE_CUT_REACH;
             if (axis == 0) {
@@ -4299,13 +4299,29 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * From the bed down all the same. Above the bed the bore wall is
          * already lining (see wall_quad) and the cloth's roll covers the rest,
          * so there is nothing up there for a tube to add. */
-        const float ytop = cue_table_bore_bot();
+        const float bb   = cue_table_bore_bot();
         const float ybot = cue_table_pocket_shaft_bot(t);
         const int NSEG = CUE_ARC_SEGS * 2;
         for (int h = 0; h < nh; h++) {
             const float cx = hx[h], cz = hz[h];
             float r = hr[h] - 0.001f;
             if (r <= 0.002f) continue;
+            /* AND IT STARTS BELOW THE LIP, not at the bed.
+             *
+             * The cloth's roll falls from the bed to lip_d under it, and the
+             * shoulder was starting at the bore's own top -- level with the
+             * bed, which is where the roll BEGINS. So it stood across the
+             * turn and cut a straight chord through the one curve in the
+             * pocket you actually look at, on every US and pool table.
+             *
+             * The lip is the line that matters and nothing may cross it. The
+             * shoulder starts a millimetre and a half below where the cloth
+             * has finished turning under, per pocket, because lip_d is per
+             * pocket -- and never higher than the bore's own bottom, so a
+             * table whose timber ends lower than that keeps what it had. */
+            float ytop = bb;
+            {   const float below = -w->lip_d[h] - 0.0015f;
+                if (below < ytop) ytop = below; }
             /* THE SHOULDER, which is what actually hides things.
              *
              * A tube on the bore is exactly the size of the hole, so it covers
