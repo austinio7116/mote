@@ -611,7 +611,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->baulk_x = 0.0f; t->d_radius = 0.0f; t->baulk_arc = 0.0f;
         t->blue_x = t->pink_x = t->black_x = 0.0f;
         t->cloth = RGB565C(24, 96, 52);
-        t->rail = RGB565C(64, 40, 24); t->rail_top = RGB565C(92, 58, 30);
+        /* TIMBER YOU CAN SEE. Bar billiards' rail is nearly black, which is
+         * right on a cabinet you look down into and wrong here: the twelve
+         * bumpers are turned from the table's own wood and are drawn in it, so
+         * at that value they read as black plastic studs. A mid walnut, and the
+         * lighter face for the caps -- the same relationship every other table
+         * has between rail and rail_top. */
+        t->rail = RGB565C(122, 76, 44); t->rail_top = RGB565C(158, 104, 62);
         t->spot = RGB565C(215, 215, 200);
         t->nballs = 10;                        /* five red and five white */
     } else if (CUE_GAME_IS_PYRAMID(kind)) {

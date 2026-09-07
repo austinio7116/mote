@@ -3860,8 +3860,13 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * proud of the 15/16 in hole and no more, so the rubber reads as a fat
          * collar all the way round it. */
         const float rc = ri * 1.16f;
-        const uint16_t wood  = shade565(t->rail, 0.72f);   /* the table's own timber */
-        const uint16_t woodl = shade565(t->rail, 0.92f);
+        /* THE TABLE'S OWN TIMBER, at the table's own brightness. Shaded to 0.72
+         * it read as black plastic rather than as the turned wood the part is
+         * made of -- and the one thing a bumper should look like is the rail it
+         * is screwed to. The cap takes rail_top, which is the lighter face the
+         * table already uses for timber caught by the light. */
+        const uint16_t wood  = t->rail;
+        const uint16_t woodl = t->rail_top;
         const uint16_t rub_w = RGB565C(238, 234, 222);
         const uint16_t rub_r = RGB565C(198, 42, 34);
         for (int k = 0; k < w->nbumper; k++) {
@@ -3893,7 +3898,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                 s_mat = CUE_MAT_WOOD;              /* ...and back to the body */
                 /* the cap: a disc over the collar, and a rim under it */
                 quad(v3(cx + c0*rs, yc,  cz + s0*rs), v3(cx + c1*rs, yc,  cz + s1*rs),
-                     v3(cx + c1*rc, yc,  cz + s1*rc), v3(cx + c0*rc, yc,  cz + s0*rc), wood);
+                     v3(cx + c1*rc, yc,  cz + s1*rc), v3(cx + c0*rc, yc,  cz + s0*rc), woodl);
                 quad(v3(cx + c0*rc, yc,  cz + s0*rc), v3(cx + c1*rc, yc,  cz + s1*rc),
                      v3(cx + c1*rc, h,   cz + s1*rc), v3(cx + c0*rc, h,   cz + s0*rc), wood);
                 tri(v3(cx, h, cz), v3(cx + c1*rc, h, cz + s1*rc),
@@ -5238,6 +5243,25 @@ static uint16_t ball_sample(uint8_t id, Vec3 nb, uint16_t base) {
         return base;
     }
     if (s_is_snooker) return base;              /* snooker balls are unmarked */
+    /* BUMPER POOL IS FIVE PLAIN REDS AND FIVE PLAIN WHITES, and it has to be
+     * said here or the pool set paints its numbers and stripes over them: the
+     * ids run 1-10, so 9 and 10 came out as striped pool balls and the rest
+     * carried number circles. On the board's remaining-balls strip that read
+     * as "four reds, three whites and two pool balls".
+     *
+     * The last of each run is the MARKED ball — the one you have to sink first
+     * — and a real set marks it with a spot. Six of them, one on each pole, in
+     * the same way the cue ball is spotted, so the mark is there whichever way
+     * the ball happens to be lying: on the table, and in a 3-pixel disc on the
+     * board, one visible face is all you get. */
+    if (s_is_bumper && id >= 1 && id <= 10) {
+        if (id != 5 && id != 10) return base;
+        float ax = fabsf(nb.x), ay = fabsf(nb.y), az = fabsf(nb.z);
+        float m = ax > ay ? (ax > az ? ax : az) : (ay > az ? ay : az);
+        if (m > 0.980f)
+            return (id == 5) ? RGB565C(242, 238, 228) : RGB565C(28, 28, 30);
+        return base;
+    }
     const CueBallSet *bs = bset();
     int us = bs->numbered;
     if (id >= 9 && id <= 15) {

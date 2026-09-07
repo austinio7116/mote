@@ -4983,6 +4983,23 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
                      r->target_score, r->op_owed[r->turn]);
         else
             snprintf(buf, cap, "%d - %d  TO %d", me, them, r->target_score);
+    } else if (r->mode == CUE_GAME_BUMPER) {
+        /* NOTHING HERE IS EVER OPEN. Bumper pool fell through to the eight-ball
+         * line below, which says OPEN until a group is decided -- and a seat IS
+         * its colour from the rack, so the board read OPEN for the whole frame
+         * and never showed the score of a game that is a race to five.
+         *
+         * The marked ball outranks the score: until it is down, one of your
+         * others going in is worth nothing and comes back out. */
+        const int me = r->score[r->turn], them = r->score[1 - r->turn];
+        const char *col = r->turn ? "WHITES" : "REDS";
+        if (r->bp_owed[r->turn] > 0)
+            snprintf(buf, cap, "%d - %d  TO 5   %s   OWES %d",
+                     me, them, col, r->bp_owed[r->turn]);
+        else if (r->bp_marked[r->turn])
+            snprintf(buf, cap, "%d - %d  TO 5   %s   MARKED FIRST", me, them, col);
+        else
+            snprintf(buf, cap, "%d - %d  TO 5   %s", me, them, col);
     } else {
         int g = r->group[r->turn];
         const char *grp = r->open ? "OPEN" : g == 1 ? "SOLIDS" : "STRIPES";
