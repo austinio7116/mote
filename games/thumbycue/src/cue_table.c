@@ -4613,7 +4613,24 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * stopped being taken at all — five of the nine holes simply refused
          * it. 0.22 is the roll a pool pocket has and the most this one will
          * take. */
-        /* BARB  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* BARB -- THE CUT IS THE CAPTURE RADIUS PLUS ONE ROLL, and it was
+         * not: 30.94 against a hole 29.99 across, which is 0.95 mm outside the
+         * capture radius when it needs to be a whole roll outside it. The
+         * renderer draws the ring at pocket_r + lip_d and the physics rides the
+         * roll off cut_r, so the two were a roll apart on the only table whose
+         * pockets are bored through the bed.
+         *
+         * The consequence is the clamp: lip_d came out cut_r - 1.15R = 3.57 mm,
+         * and a ball is released only once its centre is lip_d + R in from the
+         * cut's edge -- which on those numbers happens within 3.57 mm of dead
+         * centre and nowhere else. Anywhere off the axis the ball rode the roll
+         * round and round with nothing ever letting it go: "they just suspend
+         * the ball in infinite rolling rattling over the pocket".
+         *
+         * 1.26 R + roll, with R the 23.8 mm bar billiards ball. The release
+         * condition then reduces to the honest one -- the ball drops wherever
+         * it fits, which is the 6.19 mm of clearance the hole actually has. */
+        /* BARB  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
         /* GOLF — the UK 7 ft bed, so the UK 7 ft corner cut, exactly */
         /* GOLF  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },
         /* US10 — the same 9 ft American bed as 9-ball, so its cut exactly */
@@ -4627,11 +4644,11 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* K-US  */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },
         /* K-CN  */ { 0.0170f, 0.059769f, 0.009704f,  90.0f },
         /* CAROM has no pockets to cut — five rows of nothing, like BARB */
-        /* C-SR  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
-        /* C-2C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
-        /* C-3C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
-        /* C-4B  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
-        /* C-1C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* C-SR  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
+        /* C-2C  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
+        /* C-3C  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
+        /* C-4B  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
+        /* C-1C  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
         /* SNK3  */ { 0.0265f, 0.059408f, 0.009057f,  90.0f },   /* the SNK6 cut */
         /* 1POC  */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
         /* BANK  */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
@@ -4656,18 +4673,35 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* PYRA  */ { 0.0234f, 0.065283f, 0.010186f, 180.0f },   /* ...and the middle */
         /* PYRA7 */ { 0.0211f, 0.055131f, 0.008602f, 180.0f },
         /* BILL  */ { 0.0335f, 0.076797f, 0.009310f, 180.0f },   /* the 12 ft snooker middle (WPBSA), as SNK15 */
-        /* BARB  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* BARB -- THE CUT IS THE CAPTURE RADIUS PLUS ONE ROLL, and it was
+         * not: 30.94 against a hole 29.99 across, which is 0.95 mm outside the
+         * capture radius when it needs to be a whole roll outside it. The
+         * renderer draws the ring at pocket_r + lip_d and the physics rides the
+         * roll off cut_r, so the two were a roll apart on the only table whose
+         * pockets are bored through the bed.
+         *
+         * The consequence is the clamp: lip_d came out cut_r - 1.15R = 3.57 mm,
+         * and a ball is released only once its centre is lip_d + R in from the
+         * cut's edge -- which on those numbers happens within 3.57 mm of dead
+         * centre and nowhere else. Anywhere off the axis the ball rode the roll
+         * round and round with nothing ever letting it go: "they just suspend
+         * the ball in infinite rolling rattling over the pocket".
+         *
+         * 1.26 R + roll, with R the 23.8 mm bar billiards ball. The release
+         * condition then reduces to the honest one -- the ball drops wherever
+         * it fits, which is the 6.19 mm of clearance the hole actually has. */
+        /* BARB  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
         /* GOLF  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
         /* US10  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },
         /* PAUL  */ { 0.0100f, 0.039884f, 0.005940f, 180.0f },
         /* K-UK  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
         /* K-US  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },
         /* K-CN  */ { 0.0285f, 0.061877f, 0.009644f, 180.0f },
-        /* C-SR  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
-        /* C-2C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
-        /* C-3C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
-        /* C-4B  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
-        /* C-1C  */ { 0.0000f, 0.030940f, 0.006807f, 360.0f },
+        /* C-SR  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
+        /* C-2C  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
+        /* C-3C  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
+        /* C-4B  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
+        /* C-1C  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },
         /* SNK3  */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },   /* the SNK6 cut */
         /* 1POC  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
         /* BANK  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
