@@ -4287,6 +4287,35 @@ static int bp_mine(const AiCtx *c, int id) {
     return c->r->turn ? (id >= 6 && id <= 10) : (id >= 1 && id <= 5);
 }
 
+/* IS THIS LINE CLEAR OF THE TWELVE POSTS?
+ *
+ * The planner has to know, and nothing else in this file does: every other game
+ * asks whether a BALL is in the way, and a bumper is neither a ball nor a
+ * cushion. A line that clips one is not the shot that was aimed, so a
+ * generator that ignores them proposes a table's worth of shots that never
+ * happen -- which is what "the AI does not seem to aim avoiding the bumpers"
+ * is describing.
+ *
+ * Segment against circle, with the ball's own radius added, and only as far as
+ * the target: a post beyond the cup is not in the way. */
+static int bp_path_clear(const AiCtx *c, Vec3 from, Vec3 to, float pad) {
+    const float dx = to.x - from.x, dz = to.z - from.z;
+    const float len = sqrtf(dx*dx + dz*dz);
+    if (len < 1e-5f) return 1;
+    const float ux = dx / len, uz = dz / len;
+    const float rr = c->w->bumper_r + c->t->R + pad;
+    for (int k = 0; k < c->w->nbumper; k++) {
+        const float ox = c->w->bumper[k].x - from.x;
+        const float oz = c->w->bumper[k].z - from.z;
+        float tt = ox*ux + oz*uz;
+        if (tt < 0.0f) tt = 0.0f;
+        if (tt > len)  tt = len;
+        const float px = ox - ux*tt, pz = oz - uz*tt;
+        if (px*px + pz*pz < rr*rr) return 0;
+    }
+    return 1;
+}
+
 static void bp_gen(const AiCtx *c) {
     P.bb_n = 0;
     const int cup = bp_my_cup(c);
@@ -4302,14 +4331,56 @@ static void bp_gen(const AiCtx *c) {
         if (c->r->bp_marked[c->r->turn] &&
             !(c->b[i].id == 5 || c->b[i].id == 10)) continue;
         const Vec3 B = c->b[i].pos;
-        float aims[4]; int na = 0;
-        aims[na++] = atan2f(C.z - B.z, C.x - B.x);          /* straight at it */
-        /* ...and off each long cushion, which is how you reach a cup that its
-         * own two guards are covering: mirror the cup in the rail and aim at
-         * the image. */
-        for (int sgn = -1; sgn <= 1 && na < 4; sgn += 2) {
-            const float mz = (float)sgn * 2.0f * (hw - c->t->R) - C.z;
-            aims[na++] = atan2f(mz - B.z, C.x - B.x);
+        const float hl = c->t->half_len;
+        /* THE LINES WORTH TRYING, and every one of them is checked against the
+         * posts before it is offered.
+         *
+         *   the DIRECT line, when there is one;
+         *   a BANK off each side cushion -- mirror the cup in the rail and aim
+         *     at the image, then check BOTH legs, because a bank that clips a
+         *     post on the way out is no better than one that clips it coming
+         *     back;
+         *   a bank off the FAR end cushion, which is how you come at a cup
+         *     from behind when its two guards are covering the front. That is
+         *     the shot the table is built to demand and it was missing. */
+        struct { float aim; float pre; } cand[8]; int na = 0;
+        {   /* direct */
+            if (bp_path_clear(c, B, C, 0.0f)) {
+                cand[na].aim = atan2f(C.z - B.z, C.x - B.x);
+                cand[na].pre = 0.0f; na++;
+            }
+            /* off each side rail */
+            for (int sgn = -1; sgn <= 1; sgn += 2) {
+                const float wall = (float)sgn * (hw - c->t->R);
+                const Vec3 img = v3(C.x, 0.0f, 2.0f * wall - C.z);
+                const float a2 = atan2f(img.z - B.z, img.x - B.x);
+                /* where it meets the rail, so both legs can be checked */
+                const float f = (wall - B.z) / (img.z - B.z + 1e-9f);
+                if (f <= 0.0f || f >= 1.0f) continue;
+                const Vec3 hit = v3(B.x + (img.x - B.x) * f, 0.0f, wall);
+                if (!bp_path_clear(c, B, hit, 0.0f)) continue;
+                if (!bp_path_clear(c, hit, C, 0.0f)) continue;
+                cand[na].aim = a2; cand[na].pre = -3.0f; na++;
+            }
+            /* and off the end cushion behind the cup */
+            {   const float wall = (C.x > 0.0f ? 1.0f : -1.0f) * (hl - c->t->R);
+                const Vec3 img = v3(2.0f * wall - C.x, 0.0f, C.z);
+                const float f = (wall - B.x) / (img.x - B.x + 1e-9f);
+                if (f > 0.0f && f < 1.0f) {
+                    const Vec3 hit = v3(wall, 0.0f, B.z + (img.z - B.z) * f);
+                    if (bp_path_clear(c, B, hit, 0.0f) && bp_path_clear(c, hit, C, 0.0f)) {
+                        cand[na].aim = atan2f(img.z - B.z, img.x - B.x);
+                        cand[na].pre = -2.0f; na++;
+                    }
+                }
+            }
+            /* NOTHING CLEAR AT ALL is a position, not a bug: the cup is
+             * screened and the stroke is about leaving it better. Take the
+             * direct line anyway so there is always something to play. */
+            if (na == 0) {
+                cand[na].aim = atan2f(C.z - B.z, C.x - B.x);
+                cand[na].pre = -12.0f; na++;
+            }
         }
         for (int a = 0; a < na && P.bb_n < BB_MAX; a++) {
             for (int fan = -1; fan <= 1; fan++) {
@@ -4317,10 +4388,10 @@ static void bp_gen(const AiCtx *c) {
                 for (int pw = 0; pw < 2 && P.bb_n < BB_MAX; pw++) {
                     BbCand *q = &P.bb[P.bb_n++];
                     memset(q, 0, sizeof *q);
-                    q->aim = aims[a] + (float)fan * 1.6f * RAD;
+                    q->aim = cand[a].aim + (float)fan * 1.6f * RAD;
                     q->power01 = pw ? 0.42f : 0.24f;
                     q->kind = BB_POT; q->tidx = i; q->pk = cup;
-                    q->pre = -(float)a * 4.0f - (fan ? 1.0f : 0.0f);
+                    q->pre = cand[a].pre - (fan ? 1.0f : 0.0f);
                 }
             }
         }
