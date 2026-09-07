@@ -2582,7 +2582,7 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
          * in the pocket -- one on each side, and one of them survived the first
          * go at this. Take in wherever a cut crosses this plank, bounded to the
          * neighbourhood of the hole so a line cannot reach off down the rail. */
-        if (0) for (int q = 0; q < 2; q++) {
+        if (cuts) for (int q = 0; q < 2; q++) {
             if (!cuts[h][q].on) continue;
             const float lim = hr[h] * BORE_CUT_REACH;
             if (axis == 0) {
