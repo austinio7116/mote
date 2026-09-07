@@ -1029,6 +1029,52 @@ static CUE_HOT Vec3 seg_closest(Vec3 a, Vec3 b, Vec3 p) {
     return v3(a.x + ab.x * t, p.y, a.z + ab.z * t);
 }
 
+/* A BUMPER: A POST WITH A RUBBER RING ROUND IT.
+ *
+ * Bumper pool's twelve, and nothing else in the game has any -- w->nbumper is
+ * zero on every other table, so this loop costs one compare there and can
+ * reach nothing.
+ *
+ * A circle in plan, and the response is a cushion's rather than a ball's: the
+ * post does not move, the rubber gives the normal component back at
+ * `bumper_e`, and the ring's grip takes a little off along the tangent. The
+ * ball's SPIN is left alone, because a rubber ring an inch across cannot turn
+ * a ball over the way a cushion's full height can -- it meets it at the
+ * equator and lets go.
+ *
+ * Position is corrected before velocity, so a ball that arrives inside one on a
+ * long step is put on the surface rather than solved from within it. */
+static CUE_HOT int collide_bumpers(const CueWorld *w, CueBall *b) {
+    if (w->nbumper <= 0) return 0;
+    const float R = cue_ball_r(w, b);
+    const float rr = w->bumper_r + R;
+    int hit = 0;
+    for (int k = 0; k < w->nbumper; k++) {
+        const float dx = b->pos.x - w->bumper[k].x;
+        const float dz = b->pos.z - w->bumper[k].z;
+        const float d2 = dx*dx + dz*dz;
+        if (d2 >= rr*rr || d2 < 1e-12f) continue;
+        const float d = sqrtf(d2);
+        const float nx = dx / d, nz = dz / d;
+        b->pos.x += nx * (rr - d);
+        b->pos.z += nz * (rr - d);
+        const float vn = b->vel.x * nx + b->vel.z * nz;
+        if (vn < 0.0f) {
+            const float e = (w->bumper_e > 0.0f) ? w->bumper_e : 0.72f;
+            /* out along the normal... */
+            b->vel.x -= (1.0f + e) * vn * nx;
+            b->vel.z -= (1.0f + e) * vn * nz;
+            /* ...and the ring drags a little on the way past */
+            const float tx = -nz, tz = nx;
+            const float vt = b->vel.x * tx + b->vel.z * tz;
+            b->vel.x -= 0.06f * vt * tx;
+            b->vel.z -= 0.06f * vt * tz;
+            hit = 1;
+        }
+    }
+    return hit;
+}
+
 static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev) {
     int hit = 0;
     /* OVER THE CUSHION. A ball whose underside has cleared the TOP of the
@@ -2615,6 +2661,12 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
         if (v2 < V_STOP*V_STOP) continue;
         uint32_t cev = 0;
         const float pvx = b->vel.x, pvz = b->vel.z;
+        /* THE BUMPERS FIRST, and they are not cushions: a cushion event is a
+         * bank and the rules count them, so a bumper must not raise one or
+         * every carom and bank rule on the table would hear it. It scores
+         * nothing and is heard by nothing; it only turns the ball. */
+        const int bump = collide_bumpers(w, b);
+        if (bump && i == 0) { /* nothing to record: a bumper is not a cushion */ }
         if (collide_cushions(w, b, ev ? ev : &cev)) {
             /* The cue ball's own account. Recorded whether or not it has hit a
              * ball yet: a carom counts every cushion from the start of the

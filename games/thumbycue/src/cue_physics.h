@@ -134,6 +134,9 @@ enum { CUE_TOUCH_BALL = 0, CUE_TOUCH_CUSHION };
 #define CUE_MAX_TOUCH 24
 /* Three on a bar billiards table, and nothing else has any. */
 #define CUE_MAX_SKITTLE 4
+/* Twelve on a bumper pool table: eight in the centre cross and two guarding
+ * each cup. Sized with room to spare so a layout can be tried. */
+#define CUE_MAX_BUMPER 16
 /* HOW THE RIGID-BODY STEP IS REACHED. On the handheld the engine owns the
  * solver and a game calls it through the ABI (MoteApi::phys_step); CueVR and
  * the tests link mote_phys.c and pass mote_phys_step itself. So the physics
@@ -561,6 +564,27 @@ typedef struct {
     MoteWorld sk_world;
     int      sk_n;                           /* pins + planes */
     int      sk_on;                          /* the bodies are set up */
+    /* ---- BUMPERS: FIXED POSTS, WHICH A SKITTLE IS NOT ---------------------
+     *
+     * Bumper pool's bumpers stand where they are put. A skittle is a rigid body
+     * that topples and tumbles across the table; a bumper is a steel post on a
+     * rigid base with a rubber ring round it, and a ball comes off one the way
+     * it comes off a cushion -- so it is neither a skittle nor a segment, and it
+     * gets its own two lines here rather than being bent into either.
+     *
+     * A circle in plan, solved against the ball's centre: `bumper_r` already
+     * includes the rubber, and `bumper_e` is its restitution. The ring is what
+     * gives it back, so it is lively -- close to a cushion's and well short of
+     * a ball's. Nothing else on any table has any bumpers, so nothing else can
+     * be reached by this. */
+    Vec3   bumper[CUE_MAX_BUMPER];
+    int    nbumper;
+    float  bumper_r;
+    float  bumper_e;
+    /* Red or white rubber, which is not decoration: a real table runs the four
+     * INNER posts of the cross in white and the four outer ones and the four
+     * guards in red, so the centre reads as a target and the ends as a wall. */
+    uint8_t bumper_red[CUE_MAX_BUMPER];
     Vec3   skittle_spot[CUE_MAX_SKITTLE];
     uint8_t skittle_order[CUE_MAX_SKITTLE];  /* 1, 2, 3... in the order they fell */
     int    nskittle;

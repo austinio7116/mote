@@ -574,6 +574,46 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->rail = RGB565C(64, 40, 24); t->rail_top = RGB565C(92, 58, 30);
         t->spot = RGB565C(215, 215, 200);
         t->nballs = 8;                         /* Rule 79: a red and seven whites */
+    } else if (kind == CUE_GAME_BUMPER) {
+        /* G10 -- BUMPER POOL, on bar billiards' bed with the skittles taken out
+         * and twelve fixed bumpers put in.
+         *
+         * THE SAME BED, deliberately: 1.42 by 0.79 inside the cushions and the
+         * same 1 7/8 in ball. A real bumper pool table is smaller again, but a
+         * game that shares a bed shares a cabinet, a cloth and a set of
+         * cushions, and the shape of the game is in the bumpers rather than in
+         * a few centimetres of slate.
+         *
+         * TWO CUPS, one at the middle of each end, bored through the bed like
+         * bar billiards' holes -- so there is nothing on the rails to shape and
+         * the jaw fields below describe a pocket that is never cut. A cup is
+         * 1.45 R, comfortably wider than the ball: you are meant to sink five.
+         *
+         * The layout of the cups and the bumpers is a constant of the game and
+         * is written out in cue_table_build_world, for the same reason bar
+         * billiards' nine holes are -- a player no more dials it than he dials
+         * where the black spot goes. */
+        t->half_len = 1.420f * 0.5f;
+        t->half_wid = 0.790f * 0.5f;
+        t->R = 0.0238f; t->mass = 0.120f;
+        t->cushion_h = 1.20f * t->R; t->rail_w = 0.055f;
+        t->pocket_round = 1;
+        t->pr_corner = t->pr_side = 0.0413170f;   /* the cup; no rail pockets */
+        t->ang_corner = 45.0f; t->ang_side = 80.0f;
+        t->off_corner = t->off_side = 0.0238000f;
+        t->cap_corner = t->cap_side = 0.0f;
+        t->drop_back  = t->drop_back_side = 0.0f;
+        t->jaw_r = 0.006f;
+        /* NO D AND NO BAULK. Every ball is a cue ball and is played from where
+         * it lies, so there is nothing to place and nowhere to place it from --
+         * the one game here with no line on the cloth at all. The spots the
+         * balls start on are laid out by the rack. */
+        t->baulk_x = 0.0f; t->d_radius = 0.0f; t->baulk_arc = 0.0f;
+        t->blue_x = t->pink_x = t->black_x = 0.0f;
+        t->cloth = RGB565C(24, 96, 52);
+        t->rail = RGB565C(64, 40, 24); t->rail_top = RGB565C(92, 58, 30);
+        t->spot = RGB565C(215, 215, 200);
+        t->nballs = 10;                        /* five red and five white */
     } else if (CUE_GAME_IS_PYRAMID(kind)) {
         /* G2 — RUSSIAN PYRAMID. A 12 ft bed and 68 mm balls, into pockets barely
          * wider than the ball: the official corner opening is 72-74 mm against a
@@ -3067,6 +3107,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * of its own without moving every other table's with it. */
     float capc = t->pr_corner - t->cap_corner, caps = t->pr_side - t->cap_side;
     if (t->bed_shape == CUE_BED_RECT && t->kind != CUE_GAME_BARBILLIARDS &&
+        t->kind != CUE_GAME_BUMPER &&
         !CUE_GAME_IS_CAROM(t->kind)) {
         /* The axis a corner was offset along IS its centre line: two rails
          * meeting square bisect at 45 degrees, which is what d is. */
@@ -3089,6 +3130,90 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         add_seg(w, v3( hl, 0, -hw), v3( hl, 0,  hw), 0);
         add_seg(w, v3( hl, 0,  hw), v3(-hl, 0,  hw), 0);
         add_seg(w, v3(-hl, 0,  hw), v3(-hl, 0, -hw), 0);
+    } else if (t->kind == CUE_GAME_BUMPER) {
+        /* ---- BUMPER POOL: two cups, four plain cushions, twelve bumpers ----
+         *
+         * The rails are unbroken all the way round, as bar billiards' are, and
+         * everything that matters is in the bed: a cup at the middle of each
+         * end and the bumpers standing between them.
+         *
+         * THE CUPS ARE SET IN FROM THE CUSHION, not cut into it. A ball has to
+         * be able to pass BEHIND a cup -- that is half the game, because your
+         * own cup is guarded and the way in is off the end cushion -- so the
+         * cup sits a ball's width clear of the rail with a lane behind it. */
+        add_seg(w, v3(-hl, 0, -hw), v3( hl, 0, -hw), 0);
+        add_seg(w, v3( hl, 0, -hw), v3( hl, 0,  hw), 0);
+        add_seg(w, v3( hl, 0,  hw), v3(-hl, 0,  hw), 0);
+        add_seg(w, v3(-hl, 0,  hw), v3(-hl, 0, -hw), 0);
+
+        const float cr = 1.45f * R;                 /* the cup */
+        const float cup_x = hl - (2.6f * R + cr);   /* a lane behind it */
+        for (int e = 0; e < 2; e++) {
+            const float x = e ? cup_x : -cup_x;
+            add_pocket(w, x, 0.0f, cr, 0, x, 0.0f);
+            w->pocket_score[w->npocket - 1] = e ? +1 : -1;   /* which end owns it */
+            w->pocket_bed[w->npocket - 1] = 1;
+        }
+
+        /* ---- THE BUMPERS ------------------------------------------------
+         *
+         * A post with a rubber ring: 1 1/8 in across the rubber, which is a
+         * shade under half a ball, and standing proud of the cloth.
+         *
+         * EIGHT IN A CROSS AT THE CENTRE, one arm of it in line with the cups,
+         * and a gap at the middle just wide enough to pass a ball. The arm on
+         * the cup line is what stops the game being five straight shots: you
+         * cannot drive down the middle into your own cup, you have to come at
+         * it from an angle or off the end cushion. The gap is real and is
+         * threadable -- diagonally, between the four inner posts -- which is
+         * the shot the game is famous for.
+         *
+         * AND TWO GUARDING EACH CUP, square across the cup's mouth and a ball's
+         * width apart, so a ball has to arrive nearly straight to drop. Twelve,
+         * which is what the tables carry. */
+        /* THE PART, MEASURED, and not a number I liked the look of. A standard
+         * small bumper pool post carries a rubber ring of 1 3/4 in OUTSIDE
+         * diameter and 15/16 in inside, on a body 1.65 in across, standing
+         * about 1.65 in proud of the cloth. The ring is what a ball meets, so
+         * the collider is its outer radius: 22.2 mm, which against this bed's
+         * 23.8 mm ball is very nearly a ball wide -- and that is how big they
+         * look on a real table. It was 14.3, which is a third too small and is
+         * why the middle of the table read as a scatter of studs. */
+        w->bumper_r = 0.022225f;                /* 1 3/4 in OD, halved */
+        /* LIVELY, BECAUSE IT IS A RUBBER RING ON A RIGID POST. Not as lively as
+         * a cushion -- there is no give in the mounting to return -- and a long
+         * way from dead: a ball comes off a bumper with most of its pace, which
+         * is what makes the middle of this table dangerous. */
+        w->bumper_e = 0.72f;
+        w->nbumper = 0;
+        #define BUMPER(x_, z_, red_) do { \
+            if (w->nbumper < CUE_MAX_BUMPER) { \
+                w->bumper_red[w->nbumper] = (uint8_t)(red_); \
+                w->bumper[w->nbumper++] = v3((x_), 0.0f, (z_)); } \
+        } while (0)
+        {   /* THE GAP AT THE MIDDLE IS DIAGONAL, and it is the shot the game is
+             * known for -- the cross's arms block both straight lines, so the
+             * only way through the centre is corner to corner between the four
+             * inner posts. Sized off that diagonal and not off the axis: set
+             * from the axis it came out 33.8 mm against a 47.6 mm ball, which
+             * is not a gap at all. A ball plus 6 mm, on the diagonal. */
+            const float d1  = (2.0f * R + 2.0f * w->bumper_r + 0.006f) * 0.70710678f;
+            const float d2  = d1 + 2.0f * w->bumper_r + 2.0f * R;  /* the outer four */
+            BUMPER(-d2, 0.0f, 1); BUMPER(-d1, 0.0f, 0);
+            BUMPER( d1, 0.0f, 0); BUMPER( d2, 0.0f, 1);
+            BUMPER(0.0f, -d2, 1); BUMPER(0.0f, -d1, 0);
+            BUMPER(0.0f,  d1, 0); BUMPER(0.0f,  d2, 1);
+            /* ...AND THE PAIR THAT FLANKS EACH CUP, beside it along the end
+             * rail and not in front of it. They guard the cup from a ball
+             * running down the rail, which is the shot they exist to stop, and
+             * they leave the mouth open to a ball arriving off the end cushion
+             * -- which is the shot the game is played with. */
+            const float gz = cr + w->bumper_r + 0.004f;
+            BUMPER(-cup_x, -gz, 1); BUMPER(-cup_x,  gz, 1);
+            BUMPER( cup_x, -gz, 1); BUMPER( cup_x,  gz, 1);
+        }
+        #undef BUMPER
+        w->nskittle = 0;
     } else if (t->kind == CUE_GAME_BARBILLIARDS) {
         /* ---- BAR BILLIARDS: four plain cushions and nine holes in the bed --
          *
@@ -4660,6 +4785,14 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* SPEED */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
         /* BOWLL */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },
         /* CRIB  */ { 0.0389f, 0.111330f, 0.013830f,  90.0f },   /* the US 9 ft cut */
+        /* BUMP -- bumper pool's cups are bored through the bed like bar
+         * billiards' holes, so the cut is the capture radius PLUS ONE ROLL for
+         * the same reason: the renderer draws the ring at pocket_r + lip_d and
+         * the physics rides the roll off cut_r, and a ball is released only
+         * once its centre is lip_d + R in from the cut's edge. 1.45 R + roll,
+         * with R the 23.8 mm ball this bed is played with. A cup is kinder than
+         * a 200 hole -- you are meant to be able to sink five of them. */
+        /* BUMP  */ { 0.0000f, 0.041317f, 0.006807f, 360.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
@@ -4713,6 +4846,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* SPEED */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
         /* BOWLL */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },
         /* CRIB  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
+        /* BUMP  */ { 0.0000f, 0.041317f, 0.006807f, 360.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -5726,6 +5860,60 @@ static int rack_billiards(const CueTable *t, CueBall *b) {
  *
  * The waiting balls are OFF, and the host feeds them out one at a time as the
  * player calls for them. Index 0 is the ball being struck, as everywhere. */
+/* BUMPER POOL: five spots at each end, round the OTHER side's cup.
+ *
+ * "Place two red balls on each side of the white cup on the marks, placing the
+ * marked red ball directly in front of the white cup, and place white balls in
+ * the same position around the red cup." Your five start at the far end from
+ * the cup you are shooting into, which is what makes the opening shot a bank
+ * off the side cushion rather than a roll down the table.
+ *
+ * IDS: reds 1..5, whites 6..10, and the MARKED one of each is the last of its
+ * run -- 5 and 10 -- because the marked ball has to be sunk first and the rules
+ * ask for it by id. Index 0 is the ball being struck, as it is in billiards:
+ * every ball here is a cue ball and the app swaps the struck one into place. */
+static int rack_bumper(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    const float cr = 1.45f * R;
+    const float cup_x = t->half_len - (2.6f * R + cr);
+    int n = 0;
+    for (int side = 0; side < 2; side++) {
+        /* side 0 lays the REDS, and they stand at the +x end round the white
+         * cup; side 1 lays the whites at -x round the red cup. */
+        const float ex = side ? -cup_x : cup_x;         /* the end they start at */
+        const float in = side ? +1.0f : -1.0f;          /* ...and which way is in */
+        const uint8_t base = side ? 6 : 1;
+        /* FIVE SPOTS ON AN ARC ROUND THE CUP, and the radius is not a choice.
+         * Laid level with the cup a ball's width apart, the nearest two sit
+         * 58 mm from its centre -- and the lip reaches 34.5 with the ball
+         * reaching 23.8, so they would be resting ON the lip, 0.7 mm short of
+         * clear, and would drop off it before a shot was played.
+         *
+         * The arc is cup + ball + 12 mm, which clears by construction, and the
+         * five sit at 90, 45, 0, -45 and -90 degrees round it. The MARKED ball
+         * is the one at 0: directly in front of the cup, where the rules put
+         * it, and it is the one that has to be sunk first. */
+        /* ...AND CLEAR OF THE GUARDS. The two bumpers in front of the cup sit
+         * 52.8 mm out from it and 42.1 mm to each side, and at cup+ball+12 the
+         * 45 degree spots land straight on top of them. Pushed out until they
+         * clear: at 50 mm the nearest approach is 43.6 mm against the 38.1 mm
+         * a ball and a bumper need, and the five are then 84 mm apart on the
+         * arc, which is a ball and a half. */
+        const float bumr = 0.022225f;                  /* the bumper's rubber ring */
+        const float gz   = cr + bumr + 0.004f;         /* where the guards are */
+        const float z1   = gz + bumr + R + 0.008f;     /* clear of them */
+        const float z2   = z1 + 2.0f * R + 0.008f;
+        set_ball(&b[n++], (uint8_t)(base + 0), ex,  z2, R);
+        set_ball(&b[n++], (uint8_t)(base + 1), ex,  z1, R);
+        /* the MARKED one directly in front of the cup, which is where the rules
+         * put it and which is the one that has to be sunk first */
+        set_ball(&b[n++], (uint8_t)(base + 4), ex + in * (cr + R + 0.012f), 0.0f, R);
+        set_ball(&b[n++], (uint8_t)(base + 2), ex, -z1, R);
+        set_ball(&b[n++], (uint8_t)(base + 3), ex, -z2, R);
+    }
+    return n;
+}
+
 static int rack_barbilliards(const CueTable *t, CueBall *b) {
     const float R = t->R;
     int n = 0;
@@ -6308,6 +6496,7 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
     int n;
     if (t->kind == CUE_GAME_GOLF) n = rack_golf(t, balls, s_golf_hole);
     else if (CUE_GAME_IS_CAROM(t->kind)) n = rack_carom(t, balls);
+    else if (t->kind == CUE_GAME_BUMPER) n = rack_bumper(t, balls);
     else if (t->kind == CUE_GAME_BARBILLIARDS) n = rack_barbilliards(t, balls);
     else if (t->kind == CUE_GAME_BILLIARDS) n = rack_billiards(t, balls);
     /* PAUL BEFORE is_snooker, because it IS a snooker table by that flag —

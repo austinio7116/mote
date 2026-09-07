@@ -167,6 +167,21 @@ typedef enum {
      * reason all of these are: the kind is stored in preferences and it crosses
      * the wire. */
     CUE_GAME_CRIBBAGE,
+    /* BUMPER POOL: the bar billiards bed with the skittles taken out and twelve
+     * fixed BUMPERS put in -- rubber-ringed posts on a rigid base, which is a
+     * body this game has never had. Two cups, one at the middle of each end
+     * rail, two bumpers guarding each of them, and a cross of eight in the
+     * centre with a gap at its middle just wide enough to pass a ball.
+     *
+     * Five reds and five whites, one of each marked, and every ball is a cue
+     * ball: you strike your own colour with the stick and try to sink all five
+     * in YOUR cup. The marked one has to go first, the last one in the wrong
+     * cup loses the game outright, and jump shots are barred -- so the bumpers
+     * cannot be gone over, only round.
+     *
+     * Appended for the reason all of these are: the kind is stored in
+     * preferences and it crosses the wire. */
+    CUE_GAME_BUMPER,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
@@ -274,6 +289,14 @@ enum {
  * are exchanged, ids and all. Index 0 therefore carries whichever of the two
  * is being struck, and it draws in that ball's own colour without anything
  * downstream needing to know that the striker changed. */
+/* THE TWO GAMES WHOSE POCKETS ARE HOLES IN THE BED rather than bites out of
+ * its edge: bar billiards' nine and bumper pool's two. Everything that lays
+ * out cloth, cushions or lips has to know the difference -- the boundary is a
+ * plain rectangle, the cushions run unbroken all the way round, and the holes
+ * are cut through the middle of the bed afterwards. Written once because it was
+ * four separate tests on one kind and the second game found every one of them. */
+#define CUE_GAME_BED_HOLES(k) ((k) == CUE_GAME_BARBILLIARDS || (k) == CUE_GAME_BUMPER)
+
 #define CUE_ID_BIL_RED    1
 #define CUE_ID_BIL_WHITE  CUE_ID_CUE
 #define CUE_ID_BIL_YELLOW CUE_ID_YELLOW

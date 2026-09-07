@@ -79,6 +79,12 @@ int cue_render_skittle_profile(const float (**pts)[2]) {
 static int      s_lip_mode = 1;  /* 0=none 1=tight 2=wide 3=deep (CUE_LIP env) */
 static int      s_markings = 1;  /* emit the chalk as quads — see cue_render_set_markings */
 static int      s_ball_set = 0;  /* 0 PRO, 1 UK Y/B, 2 UK Y/R, 3 dyna */
+/* BUMPER POOL'S TEN, which belong to no set: five reds and five whites, and
+ * the marked one of each carries a spot of the other colour. Set from the kind
+ * beside s_is_snooker, because like snooker it decides what a bare id means --
+ * ids 1..5 are red here and 6..10 white, where a snooker table would call all
+ * ten of them reds and a pool set would call half of them stripes. */
+static int      s_is_bumper = 0;
 
 /* ---- per-frame projected lists ---------------------------------------- */
 typedef struct { float x0,y0,x1,y1,x2,y2; uint16_t d0,d1,d2; uint16_t color; } STri;
@@ -744,7 +750,7 @@ static void build_bed_boundary(const CueTable *t, const CueWorld *w, CueBnd *B) 
      * it (see the bar-billiards block in the table build). That is also what
      * the table looks like: a flat green bed with nine small round holes in
      * it, not a cloth scalloped round its edge. */
-    if (t->kind == CUE_GAME_BARBILLIARDS || CUE_GAME_IS_CAROM(t->kind)) {
+    if (CUE_GAME_BED_HOLES(t->kind) || CUE_GAME_IS_CAROM(t->kind)) {
         /* No pockets bite the edge, so the boundary is the plain rectangle —
          * bar billiards' answer, and carom's too. The bed fans off this the
          * ordinary way (bar billiards then cuts its holes; carom has none). */
@@ -3007,6 +3013,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * a ball in hand may go — golf borrows the ball, not the game. */
     s_is_snooker = t->is_snooker || t->kind == CUE_GAME_GOLF ||
                    CUE_GAME_IS_CAROM(t->kind);   /* white, yellow, red */
+    s_is_bumper  = (t->kind == CUE_GAME_BUMPER);
     s_cloth_shadow = shade565(t->cloth, 0.42f);   /* cloth bounce tint */
     s_bg_top = RGB565C(24, 26, 36);
     s_bg_bot = RGB565C(6, 7, 12);
@@ -3046,7 +3053,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                    fprintf(f, "%.6f %.6f %d\n", s_bnd.p[i].x, s_bnd.p[i].z, s_bnd.pk[i]);
                  fclose(f); } } }
 #endif
-    if (t->kind == CUE_GAME_BARBILLIARDS) {
+    if (CUE_GAME_BED_HOLES(t->kind)) {
         /* ---- G6: A BED WITH HOLES THROUGH THE MIDDLE OF IT ---------------
          *
          * Every other table's cloth is one polygon fanned from the middle,
@@ -3232,7 +3239,11 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * are drawn one over the other — which is exactly what CueVR looked like: a
      * baulk line twice, the painted one tucking under the cushion nose with the
      * cloth and the quad standing proud of it and stretching in the distance. */
-    if (s_markings) emit_table_markings(t);
+    /* BUMPER POOL HAS NO MARKS ON IT. No baulk line, no D, no spots -- every
+     * ball is played from where it lies and there is nothing to place. With
+     * baulk_x left at zero the baulk line came out drawn straight down the
+     * middle of the table, which is a line the game does not have. */
+    if (s_markings && t->kind != CUE_GAME_BUMPER) emit_table_markings(t);
     s_bed_ntab = s_ntab;   /* everything after here is raised (cushions/frame/voids) */
 
     /* Cushions from the chain segments: steep cloth playing face up to the
@@ -3251,7 +3262,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * interrupts. Bar billiards and carom run their cushions unbroken all the
      * way round, so they get a clean vertical face directly under the SAME
      * nose line the ball actually meets; nothing the physics reads moves. */
-    const int   plain = (t->kind == CUE_GAME_BARBILLIARDS ||
+    const int   plain = (CUE_GAME_BED_HOLES(t->kind) ||
                          CUE_GAME_IS_CAROM(t->kind));
     if (plain) fdark = face;
 #ifdef MOTE_HOST
@@ -3759,7 +3770,89 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      *
      * Drawn here, with the rest of the table, so the host uploads them with
      * everything else and does not need to know this game exists. */
-    if (t->kind == CUE_GAME_BARBILLIARDS) {
+    /* ---- BUMPER POOL'S TWELVE ---------------------------------------
+     *
+     * THE PART, as it comes out of the box: a turned DARK WOOD cone, widest at
+     * the cloth and tapering up; a fat RUBBER RING round its shoulder, red or
+     * white; and a dark wood CAP over the top of that. It screws to the slate
+     * through the middle.
+     *
+     * Two earlier attempts had it wrong in opposite directions -- a ring high
+     * up a plain cylinder, then a doughnut lying on the cloth round a chrome
+     * post -- and it is neither. The wood is the body, the rubber is a collar
+     * near the top, and the cap sits above the collar.
+     *
+     * THE RUBBER IS THE COLLIDER. Its outer radius is w->bumper_r exactly (see
+     * collide_bumpers), and nothing else here is drawn as wide, so the widest
+     * thing the eye sees is the thing the ball is actually turned by. */
+    if (w->nbumper > 0) {
+        const uint8_t keep_mat = s_mat;
+        s_mat = CUE_MAT_WOOD;
+        const int NA = CUE_ARC_SEGS;
+        const int NP = 6;                          /* round the rubber's tube */
+        /* THE RUBBER SITS AT THE CUSHION'S NOSE HEIGHT, and that is not a
+         * styling choice: a bumper turns a ball the way a cushion does, so it
+         * has to meet it at the same place on the ball. Set anywhere else it
+         * either lifts the ball or catches it under its equator, and the
+         * collider -- which is a circle in plan, with no height in it at all --
+         * would be describing a contact the picture does not show.
+         *
+         * Everything else is hung off that: the cone runs from the cloth up to
+         * the collar, and the cap sits over it. */
+        /* THE PROFILE IS THE PART'S, off the same measurements the collider
+         * takes: a ring 1 3/4 in outside and 15/16 in inside, on a body 1.65 in
+         * across standing 1.65 in proud of the cloth.
+         *
+         * The wood FLARES UPWARD -- narrow at the cloth, widest at the top --
+         * with the rubber round its shoulder and a dark cap over that. It was
+         * drawn tapering the other way, which is a chess pawn. */
+        const float ro = w->bumper_r;              /* 1 3/4 in OD: what is hit */
+        const float ri = ro * 0.5357f;             /* 15/16 in ID, halved */
+        const float tr = (ro - ri) * 0.5f;         /* the rubber's tube */
+        const float tc = ri + tr;                  /* the circle it rides */
+        const float yr = w->cushion_nose;          /* the nose height, exactly */
+        const float h  = 0.0419f;                  /* 1.65 in above the cloth */
+        const float rb = ro * 0.34f;               /* the foot */
+        const float rs = ri;                       /* the shoulder inside the ring */
+        const float ys = yr - tr;                  /* where the wood meets it */
+        const float yc = yr + tr;                  /* and comes out above it */
+        const float rc = 0.0210f;                  /* the cap: 1.65 in, halved */
+        const uint16_t wood  = shade565(t->rail, 0.72f);   /* the table's own timber */
+        const uint16_t woodl = shade565(t->rail, 0.92f);
+        const uint16_t rub_w = RGB565C(238, 234, 222);
+        const uint16_t rub_r = RGB565C(198, 42, 34);
+        for (int k = 0; k < w->nbumper; k++) {
+            const uint16_t rub = w->bumper_red[k] ? rub_r : rub_w;
+            const float cx = w->bumper[k].x, cz = w->bumper[k].z;
+            for (int i2 = 0; i2 < NA; i2++) {
+                const float a0 = 6.2831853f * (float)i2 / (float)NA;
+                const float a1 = 6.2831853f * (float)(i2 + 1) / (float)NA;
+                const float c0 = cosf(a0), s0 = sinf(a0);
+                const float c1 = cosf(a1), s1 = sinf(a1);
+                /* the turned cone, cloth to shoulder */
+                quad(v3(cx + c0*rb, 0.0f, cz + s0*rb), v3(cx + c1*rb, 0.0f, cz + s1*rb),
+                     v3(cx + c1*rs, ys,   cz + s1*rs), v3(cx + c0*rs, ys,   cz + s0*rs), wood);
+                /* the rubber collar, swept round the shoulder */
+                for (int j = 0; j < NP; j++) {
+                    const float p0 = 6.2831853f * (float)j / (float)NP;
+                    const float p1 = 6.2831853f * (float)(j + 1) / (float)NP;
+                    const float q0 = tc + tr * cosf(p0), y0 = yr + tr * sinf(p0);
+                    const float q1 = tc + tr * cosf(p1), y1 = yr + tr * sinf(p1);
+                    quad(v3(cx + c0*q0, y0, cz + s0*q0), v3(cx + c1*q0, y0, cz + s1*q0),
+                         v3(cx + c1*q1, y1, cz + s1*q1), v3(cx + c0*q1, y1, cz + s0*q1), rub);
+                }
+                /* the cap: a disc over the collar, and a rim under it */
+                quad(v3(cx + c0*rs, yc,  cz + s0*rs), v3(cx + c1*rs, yc,  cz + s1*rs),
+                     v3(cx + c1*rc, yc,  cz + s1*rc), v3(cx + c0*rc, yc,  cz + s0*rc), wood);
+                quad(v3(cx + c0*rc, yc,  cz + s0*rc), v3(cx + c1*rc, yc,  cz + s1*rc),
+                     v3(cx + c1*rc, h,   cz + s1*rc), v3(cx + c0*rc, h,   cz + s0*rc), wood);
+                tri(v3(cx, h, cz), v3(cx + c1*rc, h, cz + s1*rc),
+                                   v3(cx + c0*rc, h, cz + s0*rc), woodl);
+            }
+        }
+        s_mat = keep_mat;
+    }
+    if (CUE_GAME_BED_HOLES(t->kind)) {
         const int NSEG = 24;
         const uint8_t keep_mat = s_mat;
         s_mat = CUE_MAT_CLOTH;                 /* the lip is cloth, not timber */
@@ -4974,6 +5067,12 @@ static uint16_t ball_base(uint8_t id) {
         case CUE_ID_BLUE:   return RGB565C(30, 80, 200);
         case CUE_ID_PINK:   return RGB565C(235, 120, 150);
         case CUE_ID_BLACK:  return RGB565C(20, 20, 22);
+    }
+    if (s_is_bumper) {
+        /* Five and five, and the marked one of each is the last of its run.
+         * The mark itself is drawn in ball_sample; this is the ground. */
+        if (id >= 1 && id <= 5)  return RGB565C(196, 40, 34);   /* red */
+        if (id >= 6 && id <= 10) return RGB565C(238, 236, 226); /* white */
     }
     if (s_is_snooker) return RGB565C(190, 30, 30);          /* reds 1..15 */
     const CueBallSet *bs = bset();
