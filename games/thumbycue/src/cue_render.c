@@ -2700,7 +2700,14 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
      * a curved outer edge is a lot of columns whose outer end is a different
      * number each time -- but only if the columns are there. Away from a
      * rounded corner this adds nothing. */
-    if (s_nfil > 0 && axis == 0) {
+    /* WHICHEVER WAY THE PLANK RUNS. The top face is x-columns spanning z in
+     * both cases, so the arc is drawn the same way for both -- and the test
+     * just below, "is one of my z bounds a filleted vertex", is the whole of
+     * what decides whether there is anything to do. On a rectangle no z-plank
+     * ever reaches a corner (they stop at +/-ibz) so this was never reached
+     * for them anyway; on an L they run the full length into the corner, and
+     * the axis test was the only reason their corners stayed square. */
+    if (s_nfil > 0) {
         for (int i = 0; i < s_nfil; i++) {
             const Fillet *f = &s_fil[i];
             if (fabsf(f->vz - za) > 1e-4f && fabsf(f->vz - zb) > 1e-4f) continue;
@@ -2747,7 +2754,7 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
              * different number at each side of the column -- which is what
              * turns a run of columns into a curve rather than a staircase. */
             float l0 = lo[s], l1 = lo[s], h0 = hi[s], h1 = hi[s];
-            if (axis == 0 && s_nfil > 0) {
+            if (s_nfil > 0) {
                 if (rail_hi && hi[s] >= zb - 1e-4f) {
                     h0 = rail_out(cx0, zb, 1);
                     h1 = rail_out(cx1, zb, 1);
