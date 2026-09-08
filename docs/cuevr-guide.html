@@ -101,6 +101,14 @@
   .mode h3{margin:0 0 8px;color:var(--gold);font-size:1.25rem}
   .mode .spec{color:var(--grnl);font-size:.85rem;letter-spacing:.05em;margin:0 0 10px}
   .mode p{margin:0 0 10px;font-size:1rem;color:var(--ink);max-width:none}
+  /* A PANEL WITH NO SECOND COLUMN. The diagrams and rule tables that belong to
+     a game were sitting bare between the game blocks, on the page background,
+     so a section read as two bordered panels with loose pictures between them.
+     Same panel, same border, one column. */
+  .mode.solo{grid-template-columns:1fr}
+  .mode.solo figure{margin:0}
+  .mode.solo>table{margin:0}
+  .mode.solo figcaption{font-size:.9rem;color:var(--dim);margin-top:8px}
   @media(max-width:760px){.mode,.mode.rev{grid-template-columns:1fr}}
 
   /* opponent cards */
@@ -1365,11 +1373,13 @@
     </div>
   </div>
 
-  <figure>
-    <img src="img/cuevr/barbilliards-board.png" alt="The bar billiards board from above, with the hole values marked">
-    <figcaption>The board, from above, with the values written on. Nothing marks them on the cloth
-    in the game, so this is the diagram to learn. You stand at the D end, on the left.</figcaption>
-  </figure>
+  <div class="mode solo">
+    <figure>
+      <img src="img/cuevr/barbilliards-board.png" alt="The bar billiards board from above, with the hole values marked">
+      <figcaption>The board, from above, with the values written on. Nothing marks them on the cloth
+      in the game, so this is the diagram to learn. You stand at the D end, on the left.</figcaption>
+    </figure>
+  </div>
 
   <div class="mode">
     <div>
@@ -1396,35 +1406,73 @@
       scored.</figcaption></figure>
   </div>
 
-  <table>
-    <tr><th>Playing it</th><th></th></tr>
-    <tr><td><b>Where you play from</b></td>
-        <td>The D at the base, every stroke — a half-disc of 40 mm radius round the break spot. The
-        opening stroke is played from the spot itself, and the last-ball stroke from the middle of
-        the D.</td></tr>
-    <tr><td><b>Which ball you get</b></td>
-        <td>One out of the trough while the rack still holds one. When the rack is empty you take
-        the ball on the table furthest from the top cushion.</td></tr>
-    <tr><td><b>Your break</b></td>
-        <td>Runs on as long as you keep potting. A stroke that pots nothing ends it, and so does
-        any foul.</td></tr>
-    <tr><td><b>Fouls cost your break</b>, not points</td>
-        <td>Knocking over a <b>white</b> skittle; hitting nothing; sending a ball off the table or
-        back over the baulk lines; and potting from the break position four times running (you get
-        a "LEAVE ONE UP" warning after the third).</td></tr>
-    <tr><td><b>The black skittle</b></td>
-        <td>Knock it over and you lose <b>your entire score</b>. If a white went over as well,
-        whichever fell <em>first</em> decides which penalty applies.</td></tr>
-    <tr><td><b>The end</b></td>
-        <td>A <b>17-minute clock</b>, not a rack running out — a coin buys fifteen to twenty
-        minutes on a real one. When it expires the bar drops: potted balls stop coming back out of
-        the trough and play carries on until the balls are swallowed.</td></tr>
-    <tr><td><b>The last ball</b></td>
-        <td>With one ball left, the two white skittles are moved into the 50 holes and the stroke
-        is played from the middle of the D. It only counts if the ball goes into the <b>100 or the
-        200 off one side cushion</b>, and touching a white skittle voids it. Players take turns
-        until it goes down — or the black falls.</td></tr>
-  </table>
+  <div class="mode solo">
+    <table>
+      <tr><th>Playing it</th><th></th></tr>
+      <tr><td><b>Where you play from</b></td>
+          <td>The D at the base, every stroke — a half-disc of 40 mm radius round the break spot. The
+          opening stroke is played from the spot itself, and the last-ball stroke from the middle of
+          the D.</td></tr>
+      <tr><td><b>Which ball you get</b></td>
+          <td>One out of the trough while the rack still holds one. When the rack is empty you take
+          the ball on the table furthest from the top cushion.</td></tr>
+      <tr><td><b>Your break</b></td>
+          <td>Runs on as long as you keep potting. A stroke that pots nothing ends it, and so does
+          any foul.</td></tr>
+      <tr><td><b>Fouls cost your break</b>, not points</td>
+          <td>Knocking over a <b>white</b> skittle; hitting nothing; sending a ball off the table or
+          back over the baulk lines; and potting from the break position four times running (you get
+          a "LEAVE ONE UP" warning after the third).</td></tr>
+      <tr><td><b>The black skittle</b></td>
+          <td>Knock it over and you lose <b>your entire score</b>. If a white went over as well,
+          whichever fell <em>first</em> decides which penalty applies.</td></tr>
+      <tr><td><b>The end</b></td>
+          <td>A <b>17-minute clock</b>, not a rack running out — a coin buys fifteen to twenty
+          minutes on a real one. When it expires the bar drops: potted balls stop coming back out of
+          the trough and play carries on until the balls are swallowed.</td></tr>
+      <tr><td><b>The last ball</b></td>
+          <td>With one ball left, the two white skittles are moved into the 50 holes and the stroke
+          is played from the middle of the D. It only counts if the ball goes into the <b>100 or the
+          200 off one side cushion</b>, and touching a white skittle voids it. Players take turns
+          until it goes down — or the black falls.</td></tr>
+    </table>
+  </div>
+
+  <div class="mode">
+    <div>
+      <h3>Bumper pool</h3>
+      <div class="spec">142 × 79 CM · TWO CUPS · TWELVE BUMPERS · FIVE BALLS EACH</div>
+      <p>A small table with no pockets on the rails. There are <b>two cups</b> sunk in the cloth,
+      one at each end on the centre line, and <b>twelve bumpers</b> — rubber-collared posts standing
+      at cushion height — eight of them in a cross across the middle and two guarding each cup.</p>
+      <p><b>Five red and five white, and no cue ball.</b> The reds are one player's and the whites
+      are the other's; you strike your own balls, and the one you are pointing at is the one you
+      will play. Your five start at the far end from the cup you are shooting into, so the opening
+      stroke is a bank off a side cushion and not a roll down the table.</p>
+      <p><b>One ball of each five is marked, and it has to go down first.</b> Until it does, another
+      of your balls dropping in your cup counts for nothing and comes straight back out onto its
+      spot.</p>
+      <p><b>Your own ball in your own cup scores, and you carry on.</b> Your own ball in your
+      opponent's cup is a forfeit: they lift two of theirs and count them, taken at the start of
+      their turn. Put one of <em>their</em> balls down <em>their</em> cup and it counts for them.
+      First to get all five down takes it.</p>
+      <p>The bumpers turn a ball the way a cushion does — they are rigid posts with a rubber collar,
+      and a ball comes off one with rather less pace than it went in. Most of the table is played
+      around them rather than through them, and the computer plays it the same way: it looks for a
+      line to its cup, and when the posts have taken every straight one away it banks.</p>
+    </div>
+    <figure><img src="img/cuevr/game-bumper.png" alt="A bumper pool table"></figure>
+  </div>
+
+  <div class="mode solo">
+    <figure>
+      <img src="img/cuevr/bumper-board.png" alt="A bumper pool table from above, showing the cross of bumpers and the two cups">
+      <figcaption>From above. The two cups are on the centre line at either end with two bumpers
+      guarding each, and the other eight stand in a cross in the middle. The gap between the middle
+      four is barely wider than a ball, so a ball sent straight up the table is stopped rather than
+      threaded — which is why the game is played on the diagonal.</figcaption>
+    </figure>
+  </div>
 
   <div class="mode rev">
     <figure><img src="img/cuevr/game-golf.png" alt="A billiards golf table"></figure>
@@ -1466,13 +1514,15 @@
     </div>
   </div>
 
-  <figure>
-    <img src="img/cuevr/golf-scorecard.png" alt="The golf scorecard">
-    <figcaption>The scorecard, one press off the pause menu: a column per hole with the par row
-    above, under par cool and over par warm, the nines and the round totalled, and a drawing of the
-    hole you are about to play. Your plus-minus is against the par of the holes <em>played</em>,
-    not the whole course.</figcaption>
-  </figure>
+  <div class="mode solo">
+    <figure>
+      <img src="img/cuevr/golf-scorecard.png" alt="The golf scorecard">
+      <figcaption>The scorecard, one press off the pause menu: a column per hole with the par row
+      above, under par cool and over par warm, the nines and the round totalled, and a drawing of
+      the hole you are about to play. Your plus-minus is against the par of the holes
+      <em>played</em>, not the whole course.</figcaption>
+    </figure>
+  </div>
 
   <div class="mode">
     <div>
@@ -1550,12 +1600,14 @@
     </div>
   </div>
 
-  <figure>
-    <img src="img/cuevr/onepocket-lamps.png" alt="The two foot corner pockets lit green and red">
-    <figcaption>The far end of a one pocket table. Your pocket is lit green and your opponent's
-    red, all frame — the game is unplayable without knowing which is which, and being told once at
-    the rack is not the same as being able to look.</figcaption>
-  </figure>
+  <div class="mode solo">
+    <figure>
+      <img src="img/cuevr/onepocket-lamps.png" alt="The two foot corner pockets lit green and red">
+      <figcaption>The far end of a one pocket table. Your pocket is lit green and your opponent's
+      red, all frame — the game is unplayable without knowing which is which, and being told once
+      at the rack is not the same as being able to look.</figcaption>
+    </figure>
+  </div>
 
   <div class="mode">
     <div>
