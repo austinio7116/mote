@@ -2754,20 +2754,34 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
              * different number at each side of the column -- which is what
              * turns a run of columns into a curve rather than a staircase. */
             float l0 = lo[s], l1 = lo[s], h0 = hi[s], h1 = hi[s];
+            /* BOTH ENDS, INDEPENDENTLY, AND rail_hi HAS NO SAY IN IT.
+             *
+             * This used to pull the high end on a rail_hi plank and the low end
+             * otherwise, which reads as "the outer edge is the one away from the
+             * cloth" -- true of a plank running in x, where rail_hi names one of
+             * the very z bounds being chosen between. On a plank running in z it
+             * names an X edge, so using it here picks an end of the plank at
+             * random: the L's corners came out rounded on the -z side and square
+             * on the +z side, from the same line of code.
+             *
+             * A span is pulled at whichever of its ends lands on the plank's own
+             * bound, and it can be both -- the L's left rail runs the whole
+             * length and has a corner at each end. rail_out itself returns the
+             * bound untouched when no fillet sits on it, so asking twice costs
+             * nothing and every rectangle comes out as it did. */
             if (s_nfil > 0) {
-                if (rail_hi && hi[s] >= zb - 1e-4f) {
+                if (hi[s] >= zb - 1e-4f) {
                     h0 = rail_out(cx0, zb, 1);
                     h1 = rail_out(cx1, zb, 1);
-                    if (h0 < lo[s] + 1e-4f && h1 < lo[s] + 1e-4f) continue;
-                    if (h0 < lo[s]) h0 = lo[s];
-                    if (h1 < lo[s]) h1 = lo[s];
-                } else if (!rail_hi && lo[s] <= za + 1e-4f) {
+                }
+                if (lo[s] <= za + 1e-4f) {
                     l0 = rail_out(cx0, za, 1);
                     l1 = rail_out(cx1, za, 1);
-                    if (l0 > hi[s] - 1e-4f && l1 > hi[s] - 1e-4f) continue;
-                    if (l0 > hi[s]) l0 = hi[s];
-                    if (l1 > hi[s]) l1 = hi[s];
                 }
+                /* the column closed up entirely: nothing of it survives */
+                if (h0 <= l0 + 1e-4f && h1 <= l1 + 1e-4f) continue;
+                if (h0 < l0) h0 = l0;
+                if (h1 < l1) h1 = l1;
             }
             quad(v3(cx0,ytop,l0), v3(cx1,ytop,l1), v3(cx1,ytop,h1), v3(cx0,ytop,h0), top);
             /* inner-edge riser — only where wood actually reaches the mouth edge,
