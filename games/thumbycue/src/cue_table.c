@@ -5093,7 +5093,18 @@ float cue_table_bore_bot(void) { return -0.002f; }
  * CueVR's moulding and the return's funnel all take it from here rather than
  * each carrying a number of its own. */
 float cue_table_pocket_shaft_bot(const CueTable *t) {
-    return (t && t->is_snooker) ? -0.105f : -0.110f;
+    /* WHERE THE SHAFT ENDS AND THE CHANNEL BEGINS, and it is derived now.
+     *
+     * These were bare constants -- 110 mm of free fall before the tray even
+     * started -- and the tray then put its floor a whole ball BELOW that, so a
+     * ball's height was paid for twice and the frame hung 227 mm under the
+     * cloth. A real pub table is nothing like that deep.
+     *
+     * The shaft only has to carry the ball through the slate and out of the
+     * frame into the channel: the slate's own thickness and a little clearance.
+     * Everything below it is the channel's, measured from the BED. */
+    if (!t) return -0.068f;
+    return -(cue_table_slate_t(t) + 0.038f);
 }
 
 Vec3 cue_table_cue_home(const CueTable *t) {

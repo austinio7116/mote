@@ -1129,46 +1129,94 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
  *             1 = wood spans X (short rails, columns run along Z)
  *   rail_hi : 1 = wood is toward the LARGER coord (mouth at the smaller box edge)
  *             0 = wood toward the smaller coord (mouth at the larger box edge) */
-/* A STRAIGHT CUT INTO THE TIMBER: a line the wood is taken back to.
+/* THE HOLE IN THE TIMBER IS A STADIUM, because the hole in the table is.
  *
- * Setting a corner's hole further back leaves a sliver of wood trapped between
- * the bore circle and each cushion facing -- a thin wedge standing in the
- * pocket where the facing crosses the frame. It is not there when the hole sits
- * forward, because the circle then reaches past the facing on its own; it
- * appears the moment the hole is deep enough for the circle to fall short.
+ * A corner's pocket is a capsule: a half circle at the back and two straight
+ * sides running forward to the frame. That is what cue_table's bore_reach
+ * describes, what link_edge_x stands its cushions against, and what the fitted
+ * liner is moulded to -- so it is what the timber has to be cut to. Anything
+ * else and you see wood through the liner at the jaws.
  *
- * So the plank is cut ALONG THE FACINGS and back to the circle: each facing's
- * own line run on through the wood, and the timber taken to whichever of the
- * two -- line or circle -- reaches further into it. Which is how a real one is
- * cut. A middle has no such sliver and takes no cuts. */
-typedef struct { float x, z, dx, dz; int on; } BoreCut;
-/* How far from the hole a straight cut is allowed to act, in bore radii. It has
- * to reach past the circle to the frame -- about 1.2 radii on the tables here --
- * and must not reach off down the rail, where the facing's line has nothing to
- * do with the timber. */
-#define BORE_CUT_REACH 1.7f
+ * It was a CIRCLE here, set back along the pocket's axis, with the two cushion
+ * facings run on through the wood as straight cuts to take back the slivers the
+ * circle left, and a pair of end walls bolted on where the circle's widest
+ * points fell behind the plank's face. Three mechanisms approximating one
+ * shape, and where they disagreed the circle bulged out past the straight sides
+ * -- the extra curves visible looking down at a jaw.
+ *
+ * One shape now: a segment and a radius. A middle keeps a zero-length spine,
+ * which IS a circle, so every middle is unchanged to the bit. */
+typedef struct {
+    float ax, az;      /* the round end, at the back of the pocket */
+    float bx, bz;      /* the far end of the spine, where the timber stops */
+    float r;
+} BoreShape;
 
-/* The rim of the hole at one column, on the wood side: the circle, opened out
- * by any straight cut that reaches further. */
-static float bore_rim(float u, float cu, float cv, float r,
-                      const BoreCut *cuts, int axis, int hi) {
-    float d = r*r - (u-cu)*(u-cu);
-    d = d > 0.0f ? sqrtf(d) : 0.0f;
-    float v = hi ? cv + d : cv - d;
-    if (!cuts) return v;
-    for (int k = 0; k < 2; k++) {
-        if (!cuts[k].on) continue;
-        /* the cut line's own value at this column */
-        const float lu = axis ? cuts[k].z  : cuts[k].x;
-        const float lv = axis ? cuts[k].x  : cuts[k].z;
-        const float du = axis ? cuts[k].dz : cuts[k].dx;
-        const float dv = axis ? cuts[k].dx : cuts[k].dz;
-        if (fabsf(du) < 1e-6f) continue;          /* square to the column */
-        if (fabsf(u - cu) > r * BORE_CUT_REACH) continue;   /* and not off down the rail */
-        const float w2 = lv + (u - lu) * dv / du;
-        if (hi ? (w2 > v) : (w2 < v)) v = w2;
+/* Distance from the stadium's spine: under r is inside the hole. */
+static float bore_dist(const BoreShape *b, float x, float z) {
+    const float ux = b->bx - b->ax, uz = b->bz - b->az;
+    const float L2 = ux*ux + uz*uz;
+    float t = 0.0f;
+    if (L2 > 1e-12f) {
+        t = ((x - b->ax)*ux + (z - b->az)*uz) / L2;
+        if (t < 0.0f) t = 0.0f; else if (t > 1.0f) t = 1.0f;
     }
-    return v;
+    const float dx = x - (b->ax + ux*t), dz = z - (b->az + uz*t);
+    return sqrtf(dx*dx + dz*dz);
+}
+
+/* The rim of the hole at one column, on the wood side.
+ *
+ * A stadium is CONVEX, so its cross-section at a fixed column is a single
+ * interval and the far end of it is the rim. Take the extreme over the two
+ * round ends and the band between them: exact, closed form, no bisection.
+ *
+ * A column that misses the hole entirely gets the spine's own value there,
+ * which is what a circle's zero half-chord gave before -- the notch box is
+ * then floored from the spine outward and nothing is left standing. */
+static float bore_rim(float u, const BoreShape *b, int axis, int hi) {
+    const float au = axis ? b->az : b->ax, av = axis ? b->ax : b->az;
+    const float bu = axis ? b->bz : b->bx, bv = axis ? b->bx : b->bz;
+    float best = hi ? -1e30f : 1e30f;
+    int any = 0;
+    for (int e = 0; e < 2; e++) {                     /* the two round ends */
+        const float cu = e ? bu : au, cv = e ? bv : av;
+        float d = b->r*b->r - (u-cu)*(u-cu);
+        if (d < 0.0f) continue;
+        d = sqrtf(d);
+        const float v = hi ? cv + d : cv - d;
+        if (hi ? (v > best) : (v < best)) best = v;
+        any = 1;
+    }
+    {   float su = bu - au, sv = bv - av;             /* and the straight band */
+        const float L = sqrtf(su*su + sv*sv);
+        if (L > 1e-9f) {
+            su /= L; sv /= L;
+            const float nu = -sv * b->r, nv = su * b->r;
+            const float pu[4] = { au+nu, bu+nu, bu-nu, au-nu };
+            const float pv[4] = { av+nv, bv+nv, bv-nv, av-nv };
+            for (int e = 0; e < 4; e++) {
+                const int g = (e+1) & 3;
+                const float u0 = pu[e], u1 = pu[g];
+                if ((u < u0 && u < u1) || (u > u0 && u > u1)) continue;
+                float v;
+                if (fabsf(u1-u0) < 1e-9f) v = hi ? (pv[e] > pv[g] ? pv[e] : pv[g])
+                                                 : (pv[e] < pv[g] ? pv[e] : pv[g]);
+                else v = pv[e] + (pv[g]-pv[e]) * (u-u0)/(u1-u0);
+                if (hi ? (v > best) : (v < best)) best = v;
+                any = 1;
+            }
+        }
+    }
+    if (any) return best;
+    {   float t = 0.0f;                               /* the column misses it */
+        const float du = bu - au;
+        if (fabsf(du) > 1e-9f) {
+            t = (u - au) / du;
+            if (t < 0.0f) t = 0.0f; else if (t > 1.0f) t = 1.0f;
+        }
+        return av + (bv - av) * t;
+    }
 }
 
 /* THE WALL DOWN A BORE IS LINING, NOT TIMBER.
@@ -1188,9 +1236,9 @@ static void wall_quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, uint16_t col) {
     s_mat = keep;
 }
 
-static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0, float z1,
+static void bore_fill(const BoreShape *b, float x0, float x1, float z0, float z1,
                       float ytop, float ybot, uint16_t top, uint16_t wall,
-                      int axis, int rail_hi, const BoreCut *cuts) {
+                      int axis, int rail_hi) {
     const int N = CUE_ARC_SEGS * 3;
     for (int k = 0; k < N; k++) {
         if (axis == 0) {                       /* columns along X, depth along Z */
@@ -1198,8 +1246,8 @@ static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0,
             const float face0 = rail_hi ? z0 : z1;
             float zt0, zt1, wa, wb;            /* rim z, wood far edge */
             (void)face0;
-            zt0 = bore_rim(u0, cx, cz, r, cuts, 0, rail_hi);
-            zt1 = bore_rim(u1, cx, cz, r, cuts, 0, rail_hi);
+            zt0 = bore_rim(u0, b, 0, rail_hi);
+            zt1 = bore_rim(u1, b, 0, rail_hi);
             if (rail_hi) { wa = wb = z1; } else { wa = wb = z0; }
             if (zt0 < z0) zt0 = z0; if (zt0 > z1) zt0 = z1;
             if (zt1 < z0) zt1 = z0; if (zt1 > z1) zt1 = z1;
@@ -1210,8 +1258,8 @@ static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0,
             const float face1 = rail_hi ? x0 : x1;
             float xt0, xt1, wa, wb;
             (void)face1;
-            xt0 = bore_rim(u0, cz, cx, r, cuts, 1, rail_hi);
-            xt1 = bore_rim(u1, cz, cx, r, cuts, 1, rail_hi);
+            xt0 = bore_rim(u0, b, 1, rail_hi);
+            xt1 = bore_rim(u1, b, 1, rail_hi);
             if (rail_hi) { wa = wb = x1; } else { wa = wb = x0; }
             if (xt0 < x0) xt0 = x0; if (xt0 > x1) xt0 = x1;
             if (xt1 < x0) xt1 = x0; if (xt1 > x1) xt1 = x1;
@@ -1220,53 +1268,10 @@ static void bore_fill(float cx, float cz, float r, float x0, float x1, float z0,
         }
     }
 
-    /* ---- AND THE TWO STRAIGHT SIDES OF THE SLOT -------------------------
-     *
-     * The loop above walks the circle and draws the arc on the WOOD side of the
-     * bore's centre. On every table shipped until now that was the whole of it,
-     * because the centre sits on the CLOTH side of the plank's front face: the
-     * arc inside the timber is LESS than a semicircle and its two ends land on
-     * that face, so the hole closes itself.
-     *
-     * Push the centre past the face and the arc becomes MORE than a semicircle.
-     * Its ends are now the circle's widest points, BEHIND the face, and beyond
-     * them the circle curves back toward the cloth — so the arc stops in mid-air
-     * and there is nothing between its ends and the front of the wood. You look
-     * into the pocket and see straight out of the table. Reported on Paul, whose
-     * 12.6 mm drop setback is a lot to ask of 28 mm of cushion depth, and which
-     * is the first table here whose bore centre is behind the wood.
-     *
-     * A REAL POCKET IS CUT AS A SLOT, not as a circle: the round end at the back
-     * and two straight sides running out to the front edge. So that is what is
-     * emitted — one flat wall at each end of the arc, running STRAIGHT to the
-     * face. Not a mirrored arc, which would close the hole into a circle and
-     * leave a lip of wood standing in the mouth.
-     *
-     * Nothing at all where the centre is in front of the face, so every table
-     * that was right stays identical to the bit. */
-    if (axis == 0) {
-        const float face = rail_hi ? z0 : z1;
-        const float back = cz;                       /* the arc's ends sit here */
-        if (rail_hi ? (back > face) : (back < face)) {
-            for (int e = 0; e < 2; e++) {
-                float ux = e ? cx + r : cx - r;
-                if (ux < x0) ux = x0; if (ux > x1) ux = x1;
-                wall_quad(v3(ux,ytop,face), v3(ux,ytop,back),
-                     v3(ux,ybot,back), v3(ux,ybot,face), wall);
-            }
-        }
-    } else {
-        const float face = rail_hi ? x0 : x1;
-        const float back = cx;
-        if (rail_hi ? (back > face) : (back < face)) {
-            for (int e = 0; e < 2; e++) {
-                float uz = e ? cz + r : cz - r;
-                if (uz < z0) uz = z0; if (uz > z1) uz = z1;
-                wall_quad(v3(face,ytop,uz), v3(back,ytop,uz),
-                     v3(back,ybot,uz), v3(face,ybot,uz), wall);
-            }
-        }
-    }
+    /* The two straight sides of the slot used to be bolted on here, as a pair
+     * of walls run forward from the circle's widest points. They ARE the
+     * stadium, so bore_rim draws them with everything else and there is
+     * nothing left to patch. */
 }
 
 /* A wood rail plank [xa,xb]×[za,zb] with a clean round bore at each pocket: cut a
@@ -1405,6 +1410,7 @@ static float s_rail_gap_mid;  /* ...and short of a middle one, which is not the 
 
 void cue_render_set_rail_split(int on) { s_rail_split = on ? 1 : 0; }
 void cue_render_set_corner_round(int on) { s_corner_k = on ? 1.0f : 0.0f; }
+
 /* TWO NUMBERS, because the two kinds of drop are bridged by different things
  * and one of them is often bridged by nothing. A table with corner castings
  * wants its corners cut and its middles whole; a table with bag nets wants
@@ -2570,7 +2576,7 @@ static void box6(float x0, float x1, float y0, float y1, float z0, float z1,
 static void wood_plank_bored(float xa, float xb, float za, float zb,
                              float ytop, float ybot, uint16_t top, uint16_t wall,
                              const float *hx, const float *hz, const float *hr,
-                             const BoreCut (*cuts)[2], int nh,
+                             const BoreShape *shp, int nh,
                              int axis, int rail_hi, float ylow, uint16_t lip) {
     /* notches (clipped pocket bounding boxes) on this plank — note TWO pockets
      * can share the same x-range (the two corners of a short rail). */
@@ -2587,42 +2593,19 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
      * pass reported the top face removed, and the picture never changed. */
     int   ngap[CUE_MAX_POCKET];
     for (int h = 0; h < nh; h++) {
-        if (hz[h]+hr[h] <= za || hz[h]-hr[h] >= zb) continue;
-        float a = hx[h]-hr[h], b = hx[h]+hr[h];
-        float c = hz[h]-hr[h], d = hz[h]+hr[h];
-        /* ...AND WIDE ENOUGH FOR THE STRAIGHT CUTS.
-         *
-         * The notch is the bore's own bounding square, which is right while the
-         * hole is a circle. A cut running out along a facing reaches past it, so
-         * it was clamped at the box's edge and left a triangle of wood standing
-         * in the pocket -- one on each side, and one of them survived the first
-         * go at this. Take in wherever a cut crosses this plank, bounded to the
-         * neighbourhood of the hole so a line cannot reach off down the rail. */
-        if (cuts) for (int q = 0; q < 2; q++) {
-            if (!cuts[h][q].on) continue;
-            const float lim = hr[h] * BORE_CUT_REACH;
-            if (axis == 0) {
-                if (fabsf(cuts[h][q].dz) < 1e-6f) continue;
-                for (int e = 0; e < 2; e++) {
-                    const float zz = e ? zb : za;
-                    float xx = cuts[h][q].x + (zz - cuts[h][q].z)
-                             * cuts[h][q].dx / cuts[h][q].dz;
-                    if (xx < hx[h] - lim) xx = hx[h] - lim;
-                    if (xx > hx[h] + lim) xx = hx[h] + lim;
-                    if (xx < a) a = xx; if (xx > b) b = xx;
-                }
-            } else {
-                if (fabsf(cuts[h][q].dx) < 1e-6f) continue;
-                for (int e = 0; e < 2; e++) {
-                    const float xx = e ? xb : xa;
-                    float zz = cuts[h][q].z + (xx - cuts[h][q].x)
-                             * cuts[h][q].dz / cuts[h][q].dx;
-                    if (zz < hz[h] - lim) zz = hz[h] - lim;
-                    if (zz > hz[h] + lim) zz = hz[h] + lim;
-                    if (zz < c) c = zz; if (zz > d) d = zz;
-                }
-            }
-        }
+        /* THE NOTCH IS THE STADIUM'S BOUNDING BOX, not a circle's. The hole
+         * runs forward along its straights, so a box drawn round the round end
+         * alone stopped short and left a wedge of timber standing in the mouth
+         * -- which the cushion facings were then run on through the wood to
+         * take back. There is nothing to take back from a box that fits. */
+        const BoreShape *bs = &shp[h];
+        const float mnx = (bs->ax < bs->bx ? bs->ax : bs->bx) - bs->r;
+        const float mxx = (bs->ax > bs->bx ? bs->ax : bs->bx) + bs->r;
+        const float mnz = (bs->az < bs->bz ? bs->az : bs->bz) - bs->r;
+        const float mxz = (bs->az > bs->bz ? bs->az : bs->bz) + bs->r;
+        if (mxz <= za || mnz >= zb) continue;
+        float a = mnx, b = mxx;
+        float c = mnz, d = mxz;
         /* ---- A RAIL IS SECTIONS WITH GAPS, NOT ONE PIECE WITH HOLES -------
          *
          * A table is not built by boring a ring of timber. The cushion rails
@@ -2828,9 +2811,8 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
             }
             continue;                                           /* a gap stays a gap */
         }
-        bore_fill(hx[pid[i]], hz[pid[i]], hr[pid[i]], nx0[i], nx1[i], nz0[i], nz1[i],
-                  ytop, ybot, top, wall, axis, rail_hi,
-                  cuts ? cuts[pid[i]] : 0);
+        bore_fill(&shp[pid[i]], nx0[i], nx1[i], nz0[i], nz1[i],
+                  ytop, ybot, top, wall, axis, rail_hi);
     }
 }
 
@@ -3700,8 +3682,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * sides running forward to the frame, which is the shape link_edge_x stands
      * its cushions against. Length zero means a circle, which is what every
      * middle is and what every table was before this. */
-    static BoreCut cuts[CUE_MAX_POCKET][2];
-    for (int q = 0; q < CUE_MAX_POCKET; q++) cuts[q][0].on = cuts[q][1].on = 0;
+    static BoreShape shp[CUE_MAX_POCKET];
     for (int p = 0; p < w->npocket; p++) {
         /* The TIMBER's bore: its own radius and its own setback along the
          * pocket's outward normal — see CueTable.bore_corner. Both default to
@@ -3714,28 +3695,31 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         hx[p] = w->pocket[p].x + w->pmnorm[p].x * bs;
         hz[p] = w->pocket[p].z + w->pmnorm[p].z * bs;
         hr[p] = is_mid ? t->bore_side : t->bore_corner;
-        if (!is_mid) {
-            /* The two facings of this pocket, nearest one per side of its axis,
-             * as lines to cut the plank back to. See BoreCut. */
-            float best[2] = { 1e9f, 1e9f };
-            const float tx = -w->pmnorm[p].z, tz = w->pmnorm[p].x;
-            for (int q = 0; q < w->nseg; q++) {
-                if (w->seg[q].kind != 1) continue;
-                const float mx = (w->seg[q].a.x + w->seg[q].b.x) * 0.5f;
-                const float mz = (w->seg[q].a.z + w->seg[q].b.z) * 0.5f;
-                const float ex = mx - w->pocket[p].x, ez = mz - w->pocket[p].z;
-                const float d2 = ex*ex + ez*ez;
-                if (d2 > 0.09f) continue;                    /* another pocket */
-                const int side = (ex*tx + ez*tz) > 0.0f ? 1 : 0;
-                if (d2 >= best[side]) continue;              /* keep the nearest */
-                float ux = w->seg[q].b.x - w->seg[q].a.x;
-                float uz = w->seg[q].b.z - w->seg[q].a.z;
-                const float L = sqrtf(ux*ux + uz*uz);
-                if (L < 1e-6f) continue;
-                best[side] = d2;
-                cuts[p][side].x = w->seg[q].a.x; cuts[p][side].z = w->seg[q].a.z;
-                cuts[p][side].dx = ux / L;       cuts[p][side].dz = uz / L;
-                cuts[p][side].on = 1;
+        shp[p].ax = shp[p].bx = hx[p];
+        shp[p].az = shp[p].bz = hz[p];
+        shp[p].r  = hr[p];
+        /* AND HOW FAR THE STRAIGHTS RUN. The same limit cue_table's bore_reach
+         * uses -- forward along the pocket's axis until the hole leaves the
+         * timber at the frame's inner face -- so the wood is cut to exactly the
+         * shape the physics and the liner already agree on.
+         *
+         * A MIDDLE KEEPS A ZERO-LENGTH SPINE, which is a circle. Its two
+         * cushions face each other across one rail and its hole sits on the
+         * chord between them: it was right before any of this. Rectangles and
+         * Ls only -- a hexagon's timber is a swept ring, not planks, and
+         * play_x/play_z do not bound it. */
+        if (!is_mid && (t->bed_shape == CUE_BED_RECT || t->bed_shape == CUE_BED_L)) {
+            const float dx = -w->pmnorm[p].x, dz = -w->pmnorm[p].z;   /* to the bed */
+            const float ibx = w->play_x + w->cush_depth;
+            const float ibz = w->play_z + w->cush_depth;
+            float lim = 1e30f;
+            if (fabsf(dx) > 1e-6f) { const float k = (fabsf(hx[p]) - ibx) / fabsf(dx);
+                                     if (k < lim) lim = k; }
+            if (fabsf(dz) > 1e-6f) { const float k = (fabsf(hz[p]) - ibz) / fabsf(dz);
+                                     if (k < lim) lim = k; }
+            if (lim > 0.0f && lim < 1.0f) {
+                shp[p].bx = hx[p] + dx * lim;
+                shp[p].bz = hz[p] + dz * lim;
             }
         }
     }
@@ -3802,6 +3786,10 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * the tube read as one lining rather than as timber above plastic. It was
      * the rail colour at 42%, which is what you could see round the throat. */
     uint16_t wbore = RGB565C(3, 4, 4);        /* the pocket's lining, matt */
+    /* IDENTIFY: CUE_BOREVIS paints the bore WALL cyan while CUE_LIPVIS paints
+     * the mouth-edge riser magenta, so the faces inside a throat can be told
+     * apart from one another rather than inferred. */
+    if (getenv("CUE_BOREVIS")) wbore = RGB565C(0, 255, 255);
     const float bore_bot = cue_table_bore_bot();  /* bore wall reaches the bed; throat continues below */
     /* Inner-edge risers (the short wood lip dropping from the raised plank top to
      * rail_h along the mouth edge) are drawn INSIDE wood_plank_bored per wood
@@ -4278,12 +4266,12 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                 }
             }
         } else {
-        wood_plank_bored(-ox,  ox, ZLO(-oz,-ibz), ZHI(-oz,-ibz), plank_y, bore_bot, woodt, wbore, hx, hz, hr, cuts, nh, 0, RHI(0), face_low, wlip); /* bottom */
-        wood_plank_bored( ibx, ox, ZLO(-oz, nzo), ZHI(-oz, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, cuts, nh, 1, 1, face_low, wlip); /* right, up to the notch */
-        wood_plank_bored( nxi, ox, ZLO(nzi, nzo), ZHI(nzi, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, cuts, nh, 0, RHI(1), face_low, wlip); /* under the notch */
-        wood_plank_bored( nxi, nxo, ZLO(nzi, oz), ZHI(nzi, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, cuts, nh, 1, 1, face_low, wlip); /* beside the notch */
-        wood_plank_bored(-ox,  nxo, ZLO(ibz, oz), ZHI(ibz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, cuts, nh, 0, RHI(1), face_low, wlip); /* top, short leg */
-        wood_plank_bored(-ox, -ibx, ZLO(-oz, oz), ZHI(-oz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, cuts, nh, 1, 0, face_low, wlip); /* left */
+        wood_plank_bored(-ox,  ox, ZLO(-oz,-ibz), ZHI(-oz,-ibz), plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 0, RHI(0), face_low, wlip); /* bottom */
+        wood_plank_bored( ibx, ox, ZLO(-oz, nzo), ZHI(-oz, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 1, 1, face_low, wlip); /* right, up to the notch */
+        wood_plank_bored( nxi, ox, ZLO(nzi, nzo), ZHI(nzi, nzo), plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 0, RHI(1), face_low, wlip); /* under the notch */
+        wood_plank_bored( nxi, nxo, ZLO(nzi, oz), ZHI(nzi, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 1, 1, face_low, wlip); /* beside the notch */
+        wood_plank_bored(-ox,  nxo, ZLO(ibz, oz), ZHI(ibz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 0, RHI(1), face_low, wlip); /* top, short leg */
+        wood_plank_bored(-ox, -ibx, ZLO(-oz, oz), ZHI(-oz, oz),  plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 1, 0, face_low, wlip); /* left */
         }
         /* THE SKIRT, AS ONE CLOSED WALK. Six flat faces, each ending at a
          * sharp vertex, cannot agree about where a rounded corner stops -- the
@@ -4426,10 +4414,10 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                             plank_y, Hc, rake, Lc, woodt, wood, ccut);
             } }
     } else {
-    wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, cuts, nh, 0, 1, face_low, wlip); /* +z */
-    wood_plank_bored(-ox, ox, -oz, -ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, cuts, nh, 0, 0, face_low, wlip); /* -z */
-    wood_plank_bored(ibx, ox, -ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, cuts, nh, 1, 1, face_low, wlip); /* +x */
-    wood_plank_bored(-ox,-ibx,-ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, cuts, nh, 1, 0, face_low, wlip); /* -x */
+    wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 0, 1, face_low, wlip); /* +z */
+    wood_plank_bored(-ox, ox, -oz, -ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 0, 0, face_low, wlip); /* -z */
+    wood_plank_bored(ibx, ox, -ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 1, 1, face_low, wlip); /* +x */
+    wood_plank_bored(-ox,-ibx,-ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 1, 0, face_low, wlip); /* -x */
     {   /* ONE closed walk, swept to the floor -- so the faces cannot disagree
          * about where a rounded corner ends, because there is only one of
          * them. See build_ring. */
