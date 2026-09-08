@@ -605,6 +605,26 @@ typedef struct {
      * this field plays exactly as it did and a memset one does too. Lower is
      * faster. */
     float mu_r;
+    /* AND HOW MUCH IT GRIPS A SLIDING BALL, which is the other half of what a
+     * cloth is and was a single engine constant while mu_r was per table.
+     *
+     * mu_r decides how far a rolling ball RUNS. This decides how long a struck
+     * ball SLIDES before it settles into that roll -- how far a screw shot
+     * carries before it bites, how quickly follow takes. The literature puts
+     * ball-cloth sliding friction between about 0.15 and 0.4 depending on the
+     * cloth, so it is as much a property of the table as the speed is.
+     *
+     * It also sets how long english lasts: the drilling torque that decays
+     * vertical spin is mu N K a, so spin_decel is derived from this and a slow
+     * cloth kills side faster than a fast one, which it should.
+     *
+     * NOT DERIVED FROM mu_r, deliberately. One "cloth speed" control moving
+     * both is tempting, but rolling resistance is mostly nap hysteresis and
+     * sliding is surface friction; they correlate without being proportional,
+     * and there is no published relation to borrow. Two measured numbers.
+     *
+     * ZERO MEANS THE ENGINE'S OWN DEFAULT (0.20), as with mu_r. */
+    float mu_s;
     /* HOW MUCH SMALLER THE DROP CIRCLE IS THAN THE HOLE, per pocket type (m).
      * Taken off pr to get the radius a ball's centre must be inside before it
      * is down. It was a literal in build_world — 0.3 R, and 0.15 R for a UK

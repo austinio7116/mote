@@ -1283,6 +1283,7 @@ static const CueTabField TAB_FIELDS[] = {
      * half to three times that: new worsted on a match table at one end, a
      * tired napped club cloth at the other. */
     TF(mu_r,            TF_F32, TF_SIM,  0.000f, 0.040f),
+    TF(mu_s,            TF_F32, TF_SIM,  0.000f, 0.600f),
     /* WHAT THE TABLE IS DRESSED IN. LOOK, not SIM: a liner in the drop and a
      * casting on the corner are fittings, and no ball touches any of them, so
      * this must not enter the hash two identical beds are matched by. Appended,
@@ -3090,6 +3091,11 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     w->e_cush_min = t->e_cush_min;
     /* Zero is "the engine's own", not "a frictionless cloth" — see CueTable. */
     if (t->mu_r > 0.0f) w->mu_r = t->mu_r;
+    /* ...AND THE SPIN RATE FOLLOWS THE SLIDING COEFFICIENT, so it has to be
+     * re-derived here: the world's defaults computed it from the engine's mu_s
+     * before this table had said what its cloth is. */
+    if (t->mu_s > 0.0f) { w->mu_s = t->mu_s;
+                          w->spin_decel = cue_phys_spin_decel(w, t->R); }
     w->drop_back = t->drop_back;
     w->drop_back_side = t->drop_back_side;
 
@@ -3952,6 +3958,7 @@ static int spec_family(CueGameKind kind) {
 typedef struct {
     float corner_mm, middle_mm;   /* 0 = leave that pocket type alone */
     float mu_r;                   /* 0 = the engine's own */
+    float mu_s;                   /* 0 = the engine's own */
     float e_cush_d, efall_d;      /* added to the table's own rail numbers */
     /* WHERE THE HOLE SITS, which a mitred rung cannot leave alone.
      *
@@ -4197,6 +4204,7 @@ void cue_table_spec(CueTable *t, int spec) {
     cue_table_normalise(t);
     cue_table_cut_to(t, r->corner_mm * 0.001f, r->middle_mm * 0.001f);
     if (r->mu_r > 0.0f) t->mu_r = r->mu_r;
+    if (r->mu_s > 0.0f) t->mu_s = r->mu_s;
     if (r->e_cush_d != 0.0f) {
         t->e_cush += r->e_cush_d;
         /* The validator's range, honoured here rather than discovered there. */

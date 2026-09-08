@@ -34,6 +34,18 @@
 #define U_ROLL   0.01f        /* m/s contact-point slip => rolling */
 #define W_STOP   0.05f        /* rad/s spin */
 
+/* 3*pi/16: the drilling-torque coefficient for a circular patch under a
+ * HERTZIAN (parabolic) pressure distribution, which is the distribution
+ * Zhuravlev's closed form assumes. The uniform-pressure figure quoted in most
+ * simulator write-ups is 2/3; the two differ by 12%, which is inside the
+ * uncertainty on the patch radius itself. */
+#define CUE_DRILL_K 0.58904862f
+
+float cue_phys_spin_decel(const CueWorld *w, float R) {
+    if (!w || R <= 1e-6f) return 0.0f;
+    return 2.5f * w->mu_s * w->g * CUE_DRILL_K * w->contact_a / (R * R);
+}
+
 void cue_world_defaults(CueWorld *w, float R, float mass) {
     memset(w, 0, sizeof(*w));
     /* A skittle is 15 g of light wood on a 15 mm base and it TOPPLES rather
@@ -52,9 +64,26 @@ void cue_world_defaults(CueWorld *w, float R, float mass) {
     w->hole_catch = 0.66f;
     w->mu_s = 0.20f;          /* ball–cloth sliding (Marlow-ish) */
     w->mu_r = 0.010f;         /* rolling resistance */
-    /* Vertical-spin decay: alpha = 5 mu_sp g / (2R). mu_sp ~ 0.022 gives a
-     * couple of seconds of carry, which matches real side-spin persistence. */
-    w->spin_decel = 5.0f * 0.022f * w->g / (2.0f * R);
+    /* THE CONTACT PATCH, and every spin number comes out of it.
+     *
+     * This used to be a phenomenological mu_sp = 0.022 giving a constant
+     * alpha = 5 mu_sp g / 2R, which is the form pooltool uses and is a perfectly
+     * respectable model -- but the constant was wrong, and the model cannot
+     * answer the question a player asks of it.
+     *
+     * WRONG: alpha came out at 18.9 rad/s^2 on a pool ball and 22.7 on a bumper
+     * ball. Alciatore's compiled property table gives the measured ball-cloth
+     * spin deceleration as 5 to 15. English was dying about twice too fast on
+     * every table in the building.
+     *
+     * A 2.8 mm patch puts a pool ball at 9.9 rad/s^2 and the smallest ball here
+     * at 14.3 -- inside the measured band across the whole range, which the
+     * mu_sp form could not do at any single value because it scales as 1/R
+     * where the patch model scales as 1/R^2. It is also about half the old
+     * rate, and the old rate was the one reported as english coming off too
+     * quickly to play with. */
+    w->contact_a = 0.0028f;
+    w->spin_decel = cue_phys_spin_decel(w, R);
     w->e_bb = 0.96f;
     w->mu_bb = 0.06f;         /* ball–ball throw friction */
     w->e_cush = 0.96f;     /* at a crawl; cue_table sets the real per-table set */
@@ -531,7 +560,21 @@ static CUE_HOT void ball_cloth(const CueWorld *w, CueBall *b, float h) {
         b->w.z = -b->vel.x / R;
     }
 
-    /* Vertical spin (english) decays independently of motion. */
+    /* THE DRILLING TORQUE, at the rate a measured patch gives.
+     *
+     * Independent of the ball's motion, which is the standard model and the
+     * one pooltool uses. A COUPLED model was tried -- Contensou-Zhuravlev,
+     * sliding and drilling sharing one friction budget -- and it is the right
+     * physics but it cannot be dropped into this integrator as it stands: the
+     * same factor that scales the sliding force also scales du_full, the
+     * threshold that decides a ball has reached ROLLING. With heavy side that
+     * factor goes to nearly zero, the threshold with it, and the ball never
+     * leaves the sliding branch -- so it never picks up rolling resistance and
+     * never re-syncs its roll axes, and friction along a topspun ball's slip
+     * pushes it FORWARD. A ball with side simply accelerated away. Reverted.
+     *
+     * What survives is the constant, and it is the part that was actually
+     * wrong: see contact_a. */
     if (b->w.y > W_STOP)       b->w.y -= w->spin_decel * h;
     else if (b->w.y < -W_STOP) b->w.y += w->spin_decel * h;
     else                       b->w.y = 0.0f;

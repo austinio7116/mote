@@ -200,7 +200,15 @@ typedef struct {
     float R, mass, g;
     float mu_s;       /* sliding (ball–cloth kinetic) friction */
     float mu_r;       /* rolling resistance */
-    float spin_decel; /* vertical-spin angular deceleration (rad/s^2) */
+    /* THE CONTACT PATCH, which is where sidespin actually goes.
+     *
+     * Vertical-axis spin does not appear in the slip velocity of a POINT
+     * contact at all, so a point model says english never decays. It decays
+     * because the contact is a patch: the tangential tractions across it make a
+     * drilling torque. `contact_a` is that patch's radius, and it is the one
+     * number the whole coupled friction model below is built from. */
+    float contact_a;
+    float spin_decel; /* pure-spin angular deceleration (rad/s^2), derived from contact_a */
     /* Ball–ball. */
     float e_bb;       /* restitution */
     float mu_bb;      /* friction (throw) */
@@ -849,6 +857,12 @@ int cue_world_on_bed(const CueWorld *w, float x, float z);
  * rolling ball is judged by; this is what anything being PLACED must use, or a
  * centre a hair inside the cushion line puts most of the ball in the rubber. */
 int cue_world_ball_on_bed(const CueWorld *w, float x, float z, float r);
+
+/* The pure-spin angular deceleration a cloth of this grip and this contact
+ * patch gives a ball of radius R: alpha = (5/2) mu_s g K a / R^2. Exported
+ * because the world's defaults and the per-table cloth both have to derive it
+ * and there must be one formula. */
+float cue_phys_spin_decel(const CueWorld *w, float R);
 
 int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events);
 float cue_phys_cushion_impact(void);   /* loudest rail-approach speed from last step */
