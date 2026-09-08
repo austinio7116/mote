@@ -3807,7 +3807,21 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
      * rail_h along the mouth edge) are drawn INSIDE wood_plank_bored per wood
      * column, so they skip the pocket mouths (no wood line across the side
      * pockets). rail_h is passed as the riser bottom. */
-    uint16_t wlip = shade565(woodt, 0.80f);
+    /* THE MOUTH-EDGE RISER IS LINING, NOT TIMBER.
+     *
+     * It is the short face where the plank's raised top drops to rail height
+     * along the mouth edge. Along a rail the cushion covers it; at a POCKET the
+     * cloth is cut away and it is exposed, looking straight into the throat --
+     * so a wedge of raw wood sat inside every pocket, under the liner and above
+     * the cut. Reported as black and brown bits and gaps through to weird brown
+     * stuff, and identified by painting this one face lurid: 46 pixels of it
+     * are visible on a whole-table view and all of them are at pockets.
+     *
+     * The same near-black the bore wall uses, for the reason written there: the
+     * wall and the tube should read as one lining rather than as timber above
+     * plastic. CUE_LIPVIS paints it lurid to check that claim again. */
+    uint16_t wlip = wbore;
+    if (getenv("CUE_LIPVIS")) wlip = RGB565C(255, 0, 255);
     s_mat = CUE_MAT_WOOD;          /* everything from here down is timber */
 
     /* ---- G6: THE NINE HOLES, THE THREE SKITTLES, AND FOUR CORNERS -------
