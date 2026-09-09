@@ -5795,7 +5795,10 @@ static int rack_fifteen(const CueTable *t, CueBall *b) {
     return n;
 }
 
-/* US 9-ball: diamond rack — 1 at the apex (foot spot), 9 in the centre. */
+/* US 9-ball: diamond rack — the 9 in the centre, ON THE FOOT SPOT, the 1 at
+ * the apex two rows nearer the breaker. The 1 sat on the spot and the diamond
+ * hung off it towards the foot rail, which put the 9 a hundred millimetres past
+ * the middle of the half; the money ball is what the spot marks. */
 static int rack_9ball(const CueTable *t, CueBall *b) {
     const float R = t->R;
     Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
@@ -5804,15 +5807,15 @@ static int rack_9ball(const CueTable *t, CueBall *b) {
     float dx = R * 1.7320508f;
     #define RACK_AT(r_, o_) (footx + up.x*(r_) + side.x*(o_)), \
                             (fz    + up.z*(r_) + side.z*(o_))
-    set_ball(&b[1], 1, RACK_AT(0.0f,     0.0f),   R);
-    set_ball(&b[2], 2, RACK_AT(dx,      -R),      R);
-    set_ball(&b[3], 3, RACK_AT(dx,       R),      R);
-    set_ball(&b[4], 4, RACK_AT(2*dx,    -2*R),    R);
-    set_ball(&b[5], 9, RACK_AT(2*dx,     0.0f),   R);   /* 9 in the middle */
-    set_ball(&b[6], 5, RACK_AT(2*dx,     2*R),    R);
-    set_ball(&b[7], 6, RACK_AT(3*dx,    -R),      R);
-    set_ball(&b[8], 7, RACK_AT(3*dx,     R),      R);
-    set_ball(&b[9], 8, RACK_AT(4*dx,     0.0f),   R);
+    set_ball(&b[1], 1, RACK_AT(-2*dx,    0.0f),   R);   /* the apex */
+    set_ball(&b[2], 2, RACK_AT(-dx,     -R),      R);
+    set_ball(&b[3], 3, RACK_AT(-dx,      R),      R);
+    set_ball(&b[4], 4, RACK_AT(0.0f,    -2*R),    R);
+    set_ball(&b[5], 9, RACK_AT(0.0f,     0.0f),   R);   /* 9 on the spot */
+    set_ball(&b[6], 5, RACK_AT(0.0f,     2*R),    R);
+    set_ball(&b[7], 6, RACK_AT(dx,      -R),      R);
+    set_ball(&b[8], 7, RACK_AT(dx,       R),      R);
+    set_ball(&b[9], 8, RACK_AT(2*dx,     0.0f),   R);
     { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
     #undef RACK_AT
     return 10;
