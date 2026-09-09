@@ -125,11 +125,21 @@ void cue_render_set_corner_round(int on);
 void cue_render_set_rail_gap(float g, float g_mid);
 /* Six separate planks rather than a bored ring — see cue_render.c. */
 void cue_render_set_rail_split(int on);
-/* THE TIMBER'S ROUND BACK is the fitted liner's outer edge plus a hair: `m` is
- * how far that edge stands past the bore, in metres. The mouth's two cuts meet
- * the round where a line at the mouth's width crosses it. Zero (no liner) is the
- * bare bore. */
-void cue_render_set_bore_setback(float m);
+/* A CORNER'S ROUND BACK is the fitted liner's widest reach past the bore, in
+ * metres, plus a hair; it also sets where the pocket's boot starts. Zero (no
+ * liner) is the bare bore. */
+void cue_render_set_bore_wall(float m);
+/* A MIDDLE'S ROUND BACK IS THE LINER'S OWN OUTLINE. `ang`/`rad` are `n`
+ * bearings (ascending, 0 = +x) and the liner's outer radius at each, no
+ * clearance. Include the liner's two TIPS as vertices exactly, or the chord
+ * across a tip flares past where the liner ends. The lip tapers to the bore at
+ * the tips, which is where the mouth's jaw cuts are, so the two meet. */
+void cue_render_set_bore_outline(int pocket, const float *ang, const float *rad, int n);
+/* ...AND ITS THROAT, so the wall follows the liner down rather than dropping
+ * vertically from the flange and leaving a cavity behind it. `dr[k]` is how far
+ * past the bore the liner stands at height `y[k]`, top down; `lip` is the
+ * flange's full reach, which is what the outline above tapers from. */
+void cue_render_set_bore_profile(const float *dr, const float *y, int n, float lip);
 
 /* ---- AND WHERE THOSE CORNERS ENDED UP ----------------------------------- *
  *

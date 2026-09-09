@@ -1146,24 +1146,184 @@ static void emit_pocket_lips(const CueTable *t, const CueWorld *w) {
  *
  * One shape now: a segment and a radius. A middle keeps a zero-length spine,
  * which IS a circle, so every middle is unchanged to the bit. */
+#define BORE_NA 64      /* bearings the liner's outline is sampled at evenly... */
+#define BORE_NV (BORE_NA + 2)   /* ...plus its two TIPS, exactly. Without those the
+                                 * chord across a tip carries some of the throat's
+                                 * flare past where the liner ends: a wedge of hole
+                                 * flaring out from each tip to the plank's face. */
 typedef struct {
-    float ax, az;      /* the pocket's centre */
-    float r;           /* THE ROUND BACK: just behind the fitted liner's outer edge */
-    float hw;          /* THE MOUTH: the bore's radius, half the width between the jaws */
-    float nx, nz;      /* the pocket's outward normal: +n is INTO the rail */
-    float smeet;       /* where the jaws' lines meet the round: sqrt(r^2 - hw^2) behind the centre */
-    float fx, fz;      /* the slot's forward end, out past the plank's front face */
+    float ax, az;          /* the pocket's centre */
+    float r;               /* A CORNER'S ROUND BACK: just behind the liner's outer edge */
+    float hw;              /* THE MOUTH: the bore, half the width between the jaws */
+    float nx, nz;          /* the pocket's outward normal: +n is INTO the rail */
+    float smeet;           /* where a corner's jaws meet its round: sqrt(r^2 - hw^2) back */
+    float fx, fz;          /* the mouth's forward end, out past the plank's front face */
+    int   use_out;         /* a MIDDLE with a liner: cut to the outline below instead */
+    int   nv;              /* vertices in the outline below */
+    float ang[BORE_NV];    /* their bearings, ascending, 0 = +x */
+    float rad[BORE_NV];    /* the liner's own outer edge at each, no clearance */
 } BoreShape;
 /* THE HOLE IN THE TIMBER: a slot the mouth's width from the plank's front face
  * back to where its two sides meet the round, and the round from there back.
  *
- * The round is the liner's outer edge plus a hair, so the liner is just in
- * front of the wood and shows at the back. The two sides are the cushion jaws
- * carried on through the timber. They END on the round -- at the mouth's width
+ * THE ROUND IS THE LINER'S OWN OUTLINE, not a circle. Its lip is deepest at the
+ * back of the pocket and tapers to NOTHING by the tips, where the cushion
+ * starts -- so wood cut to one radius is right at one bearing and wrong at
+ * every other: too far out at the jaws, where it fails to reach the cushion,
+ * and the wrong curve at the back. On a middle that leaves a black band outside
+ * the lip all the way round, widest at its two ends. Cut to the liner's outline
+ * it is right everywhere, and at the tips it closes onto the bore -- which is
+ * where the mouth's two jaw cuts already are, so the two meet with nothing
+ * between them. CueVR samples its own furn_liner_outer into rad[], so the wood
+ * and the moulding cannot drift.
+ *
+ * The flange is the widest part of the liner, wider than the throat's roll
+ * below it, so a wall dropped straight down from this outline clears the whole
+ * moulding without having to follow it down.
+ *
+ * The two sides are the cushion jaws carried on through the timber. They END
+ * on the round -- at the mouth's width
  * a line crosses a 68 mm circle 37 mm behind the centre on a US corner -- so
  * there is no back face to the cut, and forward of that point the round is not
  * used, so the hole at the plank's front face is exactly the mouth. */
-static float s_bore_setback;   /* the liner's outer edge past the bore, from CueVR */
+static float s_bore_out[CUE_MAX_POCKET][BORE_NV], s_bore_ang[CUE_MAX_POCKET][BORE_NV];
+static int   s_bore_nv[CUE_MAX_POCKET];   /* the liner's FLANGE outline, from CueVR, no clearance */
+static int   s_bore_out_on;
+/* THE LINER'S THROAT, top down: how far past the bore it stands at each height.
+ * Its flange is the widest part and sits on the plank top; below that the
+ * throat steps IN under the flange and then rolls OUT. The wood follows it, so
+ * there is no cavity between liner and timber for a look down the pocket to
+ * find. The taper is the flange's: at a bearing where the flange is a fraction
+ * w of its full lip, the throat is the same fraction of its own reach. */
+static float s_bore_prof_dr[8], s_bore_prof_y[8];
+static int   s_bore_prof_n;
+static float s_bore_lip;                 /* the flange's full reach past the bore */
+static const float BORE_CLEAR = 0.0007f; /* the liner sits this far in front of the wood */
+/* THE TOP EDGE HAS NO CLEARANCE. The wood stands 0.7 mm behind the liner's
+ * surface everywhere -- under the lip that is invisible, and at the tips, where
+ * the lip has tapered to nothing, it was a 0.7 mm slot between the liner's edge
+ * and the plank's top you could look down into, widening to a wedge where the
+ * columns crossed it. So the plank's TOP rim sits ON the liner's surface (the
+ * edge of a horizontal face meeting a vertical one, nothing to fight), and the
+ * wall steps back to its clearance just beneath it, under the top face. */
+static float s_bore_top = -1e30f;        /* the plank top bore_fill is cutting, or none */
+
+static float bore_roff(float y) {        /* the throat's reach past the bore at height y */
+    const int n = s_bore_prof_n;
+    if (n <= 0) return 0.0f;
+    if (y >= s_bore_prof_y[0]) return s_bore_prof_dr[0];
+    for (int k = 0; k + 1 < n; k++) {
+        const float ya = s_bore_prof_y[k], yb = s_bore_prof_y[k+1];    /* descending */
+        if (y <= ya && y >= yb) {
+            const float f = (ya - yb) > 1e-9f ? (ya - y) / (ya - yb) : 0.0f;
+            return s_bore_prof_dr[k] + (s_bore_prof_dr[k+1] - s_bore_prof_dr[k]) * f;
+        }
+    }
+    return s_bore_prof_dr[n-1];
+}
+/* The wood's radius at vertex q and height y, for a middle cut to its liner. */
+static float bore_rad_at(const BoreShape *b, int q, float y) {
+    if (s_bore_prof_n <= 0 || s_bore_lip <= 1e-6f) return b->rad[q] + BORE_CLEAR;
+    float w = (b->rad[q] - b->hw) / s_bore_lip;          /* the flange's taper here */
+    if (w < 0.0f) w = 0.0f; else if (w > 1.0f) w = 1.0f;
+    const float clear = (y >= s_bore_top - 1e-6f) ? 0.0f : BORE_CLEAR;
+    return b->hw + bore_roff(y) * w + clear;
+}
+/* The flange's taper at any bearing: 0 beyond the liner's tips. */
+static float bore_w_ang(const BoreShape *b, float th) {
+    while (th < 0.0f) th += 6.2831853f;
+    while (th >= 6.2831853f) th -= 6.2831853f;
+    for (int i = 0; i < b->nv; i++) {
+        const int j = (i + 1) % b->nv;
+        float a0 = b->ang[i], a1 = b->ang[j];
+        if (j == 0) a1 += 6.2831853f;
+        float t = th; if (t < a0) t += 6.2831853f;
+        if (t >= a0 && t <= a1) {
+            const float f = (a1 - a0) > 1e-9f ? (t - a0) / (a1 - a0) : 0.0f;
+            const float wi = b->rad[i] - b->hw, wj = b->rad[j] - b->hw;
+            return wi + (wj - wi) * f;
+        }
+    }
+    return 0.0f;
+}
+/* ...and at any bearing, between vertices. */
+static float bore_rad_ang(const BoreShape *b, float th, float y) {
+    while (th < 0.0f) th += 6.2831853f;
+    while (th >= 6.2831853f) th -= 6.2831853f;
+    for (int i = 0; i < b->nv; i++) {
+        const int j = (i + 1) % b->nv;
+        float a0 = b->ang[i], a1 = b->ang[j];
+        if (j == 0) a1 += 6.2831853f;
+        float t = th; if (t < a0) t += 6.2831853f;
+        if (t >= a0 && t <= a1) {
+            const float f = (a1 - a0) > 1e-9f ? (t - a0) / (a1 - a0) : 0.0f;
+            return bore_rad_at(b, i, y) + (bore_rad_at(b, j, y) - bore_rad_at(b, i, y)) * f;
+        }
+    }
+    return bore_rad_at(b, 0, y);
+}
+static float s_bore_wall;      /* the liner's widest reach past the bore, for the boot */
+
+/* THE BOOT'S RIM AT ONE BEARING: what stands above it there, and how high it
+ * has to reach to meet it.
+ *
+ * Behind the liner that is timber -- the wall's foot on a middle, a jaw's foot
+ * or the round back on a corner -- at the plank's bottom. Everywhere else it is
+ * the cloth: the roll turns under the cut and ends lip_d in and lip_d down, and
+ * on a pool table nothing continues below that ring, so the boot must, at the
+ * ring's own radius, tucked half a millimetre up behind its last course. A
+ * collar at the wall's radius all the way round left, between the roll's end
+ * and a wall twelve millimetres further out, a slot you looked straight through
+ * into the cavity under the plank; one at the bore's radius stood inside the
+ * roll's footprint instead, a ring above the lip drop. Returns 1 for timber. */
+static int boot_rim_at(const BoreShape *b, int have_shape, const CueTable *t, const CueWorld *w,
+                       int h, float cx, float cz, float r_sh, float bb, float ytop,
+                       float ang, float *rs, float *top) {
+    const float dx = cosf(ang), dz = sinf(ang);
+    int timber = 0; float rim = r_sh;
+    if (!have_shape) timber = 1;
+    else if (b->use_out) {                        /* a middle: as far as the liner reaches */
+        if (bore_w_ang(b, ang) > 1e-6f) { timber = 1; rim = bore_rad_ang(b, ang, bb) - 0.0002f; }
+    } else if (t->bed_shape != CUE_BED_RECT) timber = 1;   /* an L or an n-gon: as it was */
+    else {                                        /* a corner: a jaw's foot, or the round back */
+        const float ibx = t->half_len + t->rail_w * 0.63f, ibz = t->half_wid + t->rail_w * 0.63f;
+        #define BEHIND(X, Z) (fabsf(X) >= ibx - 1e-5f || fabsf(Z) >= ibz - 1e-5f)
+        const float sd = dx * b->nx + dz * b->nz;
+        const float td = -dx * b->nz + dz * b->nx;
+        if (fabsf(td) > 1e-6f) {
+            const float rj = b->hw / fabsf(td);   /* where this ray meets a jaw line */
+            if (rj * sd <= b->smeet + 1e-6f && BEHIND(cx + rj * dx, cz + rj * dz)) { timber = 1; rim = rj - 0.0002f; }
+        }
+        if (!timber && sd > 0.0f && r_sh * sd >= b->smeet - 1e-6f
+            && BEHIND(cx + r_sh * dx, cz + r_sh * dz)) { timber = 1; rim = r_sh; }
+        #undef BEHIND
+    }
+    if (timber) { *rs = rim; *top = bb; return 1; }
+    {   /* the cloth: the roll's end ring, cut_r - lip_d about the cut's centre */
+        const float R = w->cut_r[h] - w->lip_d[h];
+        const float ex = cx - w->cut_c[h].x, ez = cz - w->cut_c[h].z;
+        const float bq = ex * dx + ez * dz, cq = ex * ex + ez * ez - R * R;
+        const float disc = bq * bq - cq;
+        float rr = disc > 0.0f ? -bq + sqrtf(disc) : R;
+        if (rr < 0.002f) rr = R;
+        *rs  = rr + 0.0002f;
+        *top = -w->lip_d[h] + 0.0005f;
+        if (*top < ytop + 1e-5f) *top = ytop;
+        return 0;
+    }
+}
+/* One arc of the boot between two bearings: the collar down to the cone's rim,
+ * and the cone down to the tube. Wound so the faces look INWARD -- they are
+ * only ever seen from inside, down the mouth. */
+static void boot_piece(float cx, float cz, float a0, float rs0, float tb0, float a1, float rs1, float tb1,
+                       float ytop, float y_sh, float x0, float z0, float x1, float z1, int collar, uint16_t col) {
+    const float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
+    if (collar && (tb0 > ytop + 1e-5f || tb1 > ytop + 1e-5f))
+        quad(v3(cx + c0*rs0, tb0, cz + s0*rs0), v3(cx + c0*rs0, ytop, cz + s0*rs0),
+             v3(cx + c1*rs1, ytop, cz + s1*rs1), v3(cx + c1*rs1, tb1, cz + s1*rs1), col);
+    quad(v3(cx + c0*rs0, ytop, cz + s0*rs0), v3(x0, y_sh, z0),
+         v3(x1, y_sh, z1), v3(cx + c1*rs1, ytop, cz + s1*rs1), col);
+}
 /* CUE_MATVIS=2: name the faces. Everything bore_fill emits gets its own colour
  * -- shoulder RED (what is about to be cut), notch closure ORANGE, the refilled
  * plank top WHITE, the riser CYAN -- so a face can be pointed at rather than
@@ -1179,37 +1339,67 @@ static int s_matvis;
  * A column that misses the hole entirely gets the spine's own value there,
  * which is what a circle's zero half-chord gave before -- the notch box is
  * then floored from the spine outward and nothing is left standing. */
-static float bore_rim(float u, const BoreShape *b, int axis, int hi) {
+static float bore_rim(float u, const BoreShape *b, int axis, int hi, float y) {
     const float au = axis ? b->az : b->ax, av = axis ? b->ax : b->az;
     const float fu = axis ? b->fz : b->fx, fv = axis ? b->fx : b->fz;
-    const float bx_ = b->ax + b->nx * b->smeet, bz_ = b->az + b->nz * b->smeet;
-    const float bu = axis ? bz_ : bx_, bv = axis ? bx_ : bz_;
+    const float nu = axis ? b->nz : b->nx, nv = axis ? b->nx : b->nz;
     float best = hi ? -1e30f : 1e30f;
     int any = 0;
-    const float nu = axis ? b->nz : b->nx, nv = axis ? b->nx : b->nz;
-    {   float d = b->r*b->r - (u-au)*(u-au);         /* the round back... */
+    if (!b->use_out) {
+        /* A CORNER KEEPS ITS CIRCLE. Its jaws follow the mitre, and the round is
+         * clipped to behind where they meet it -- forward of that the circle is
+         * wider than the mouth and is not part of the hole. Untouched. */
+        float d = b->r*b->r - (u-au)*(u-au);
         if (d >= 0.0f) {
             d = sqrtf(d);
             const float v = hi ? av + d : av - d;
-            /* ...but only behind where the jaws meet it: forward of that the
-             * round is wider than the mouth and is not part of the hole */
             const float sv = (u - au) * nu + (v - av) * nv;
             if (sv >= b->smeet - 1e-5f) {
                 if (hi ? (v > best) : (v < best)) best = v;
                 any = 1;
             }
         }
+    } else
+    /* A MIDDLE IS CUT TO THE LINER'S OUTLINE, as a closed polygon: the
+     * cross-section at this column is found by walking its edges. */
+    {   float pu0 = 0.0f, pv0 = 0.0f;
+        for (int e = 0; e <= b->nv; e++) {
+            const int   ia = e % b->nv;
+            const float th = b->ang[ia];
+            const float rr = bore_rad_at(b, ia, y);
+            const float px = b->ax + rr * cosf(th), pz = b->az + rr * sinf(th);
+            const float pu1 = axis ? pz : px, pv1 = axis ? px : pz;
+            if (e > 0 && !((u < pu0 && u < pu1) || (u > pu0 && u > pu1))) {
+                float v;
+                if (fabsf(pu1 - pu0) < 1e-9f) v = hi ? (pv0 > pv1 ? pv0 : pv1)
+                                                     : (pv0 < pv1 ? pv0 : pv1);
+                else v = pv0 + (pv1 - pv0) * (u - pu0) / (pu1 - pu0);
+                if (hi ? (v > best) : (v < best)) best = v;
+                any = 1;
+            }
+            pu0 = pu1; pv0 = pv1;
+        }
     }
-    {   float su = bu - fu, sv = bv - fv;             /* and the mouth, front to back */
-        const float au_ = fu, av_ = fv;
-        #define au au_
-        #define av av_
+    /* AND THE MOUTH, ON A CORNER ONLY: a slot the bore's width, from out past
+     * the plank's front face back to where its two sides meet the round, which
+     * is smeet behind the centre. It has to run the whole way or the section
+     * between is left as timber standing in the pocket.
+     *
+     * A MIDDLE HAS NO MOUTH CUT. Its hole is the liner's outline and nothing
+     * else: the outline already closes to the bore past the liner's tips, which
+     * carries the cut out through the plank's front face on its own. A slot
+     * added to that only takes away timber the liner was going to cover. */
+    if (!b->use_out) {
+        const float mbx = b->ax + b->nx * b->smeet;
+        const float mbz = b->az + b->nz * b->smeet;
+        const float au = axis ? mbz : mbx, av = axis ? mbx : mbz;
+        float su = au - fu, sv = av - fv;
         const float L = sqrtf(su*su + sv*sv);
         if (L > 1e-9f) {
             su /= L; sv /= L;
             const float bnu = -sv * b->hw, bnv = su * b->hw;
-            const float pu[4] = { au+bnu, bu+bnu, bu-bnu, au-bnu };
-            const float pv[4] = { av+bnv, bv+bnv, bv-bnv, av-bnv };
+            const float pu[4] = { fu+bnu, au+bnu, au-bnu, fu-bnu };
+            const float pv[4] = { fv+bnv, av+bnv, av-bnv, fv-bnv };
             for (int e = 0; e < 4; e++) {
                 const int g = (e+1) & 3;
                 const float u0 = pu[e], u1 = pu[g];
@@ -1222,12 +1412,11 @@ static float bore_rim(float u, const BoreShape *b, int axis, int hi) {
                 any = 1;
             }
         }
-        #undef au
-        #undef av
     }
     if (any) return best;
     return hi ? -1e30f : 1e30f;                      /* the column misses the hole entirely */
 }
+
 
 /* THE WALL DOWN A BORE IS LINING, NOT TIMBER.
  *
@@ -1250,38 +1439,86 @@ static void bore_fill(const BoreShape *b, float x0, float x1, float z0, float z1
                       float ytop, float ybot, uint16_t top, uint16_t wall,
                       int axis, int rail_hi) {
     const int N = CUE_ARC_SEGS * 3;
-    for (int k = 0; k < N; k++) {
-        if (axis == 0) {                       /* columns along X, depth along Z */
-            float u0 = x0 + (x1-x0)*k/N, u1 = x0 + (x1-x0)*(k+1)/N;
-            const float face0 = rail_hi ? z0 : z1;
-            float zt0, zt1, wa, wb;            /* rim z, wood far edge */
-            (void)face0;
-            zt0 = bore_rim(u0, b, 0, rail_hi);
-            zt1 = bore_rim(u1, b, 0, rail_hi);
-            if (rail_hi) { wa = wb = z1; } else { wa = wb = z0; }
-            /* a column past the hole is solid: its rim is the plank's own edge */
-            if (zt0 < -1e29f || zt0 > 1e29f) zt0 = rail_hi ? z0 : z1;
-            if (zt1 < -1e29f || zt1 > 1e29f) zt1 = rail_hi ? z0 : z1;
-            if (zt0 < z0) zt0 = z0; if (zt0 > z1) zt0 = z1;
-            if (zt1 < z0) zt1 = z0; if (zt1 > z1) zt1 = z1;
-            quad(v3(u0,ytop,zt0), v3(u1,ytop,zt1), v3(u1,ytop,wb), v3(u0,ytop,wa), s_matvis >= 2 ? RGB565C(255,255,255) : top);
-            wall_quad(v3(u0,ytop,zt0), v3(u1,ytop,zt1), v3(u1,ybot,zt1), v3(u0,ybot,zt0), wall);
-        } else {                               /* columns along Z, depth along X */
-            float u0 = z0 + (z1-z0)*k/N, u1 = z0 + (z1-z0)*(k+1)/N;
-            const float face1 = rail_hi ? x0 : x1;
-            float xt0, xt1, wa, wb;
-            (void)face1;
-            xt0 = bore_rim(u0, b, 1, rail_hi);
-            xt1 = bore_rim(u1, b, 1, rail_hi);
-            if (rail_hi) { wa = wb = x1; } else { wa = wb = x0; }
-            if (xt0 < -1e29f || xt0 > 1e29f) xt0 = rail_hi ? x0 : x1;
-            if (xt1 < -1e29f || xt1 > 1e29f) xt1 = rail_hi ? x0 : x1;
-            if (xt0 < x0) xt0 = x0; if (xt0 > x1) xt0 = x1;
-            if (xt1 < x0) xt1 = x0; if (xt1 > x1) xt1 = x1;
-            quad(v3(xt0,ytop,u0), v3(xt1,ytop,u1), v3(wb,ytop,u1), v3(wa,ytop,u0), s_matvis >= 2 ? RGB565C(255,255,255) : top);
-            wall_quad(v3(xt0,ytop,u0), v3(xt1,ytop,u1), v3(xt1,ybot,u1), v3(xt0,ybot,u0), wall);
+    const float ua = axis ? z0 : x0, ub = axis ? z1 : x1;   /* along the plank */
+    const float va = axis ? x0 : z0, vb = axis ? x1 : z1;   /* across it */
+    const float face = rail_hi ? va : vb, far = rail_hi ? vb : va;
+    /* THE HEIGHTS THE WALL BENDS AT: the plank's top, the bore's bottom, and
+     * every throat point between -- one band each, so the wall steps in under
+     * the flange and out round the roll exactly as the liner does. A corner,
+     * or a table with no liner, has a vertical wall: two heights, one band. */
+    float ys[12]; int ny = 0;
+    ys[ny++] = ytop;
+    if (b->use_out)
+        for (int k = 0; k < s_bore_prof_n && ny < 11; k++)
+            if (s_bore_prof_y[k] < ytop - 1e-5f && s_bore_prof_y[k] > ybot + 1e-5f) ys[ny++] = s_bore_prof_y[k];
+    ys[ny++] = ybot;
+    s_bore_top = ytop;
+    #define P(U,Y,V) (axis == 0 ? v3((U),(Y),(V)) : v3((V),(Y),(U)))
+    #define CL(v) ((v) < va ? va : ((v) > vb ? vb : (v)))
+    /* the rim at one column and height, a miss reading as the plank's own face */
+    #define RIM(U,Y) ({ float r_ = bore_rim((U), b, axis, rail_hi, (Y)); \
+                        (r_ < -1e29f || r_ > 1e29f) ? face : CL(r_); })
+    if (b->use_out && getenv("CUE_FILLDBG")) {          /* the hole, column by column */
+        fprintf(stderr, "[fill] mid at (%.4f,%.4f) hw %.4f  plank u %.4f..%.4f  face v %.4f\n",
+                (double)b->ax, (double)b->az, (double)b->hw, (double)ua, (double)ub, (double)face);
+        fprintf(stderr, "[fill]   u(mm from centre)");
+        for (int q = 0; q < ny; q++) fprintf(stderr, "  rim@y%+.1f", (double)(ys[q]*1000.0f));
+        fprintf(stderr, "   (rim as mm behind the face; 0 = solid)\n");
+        for (int k = 0; k <= N; k++) {
+            const float u = ua + (ub-ua)*k/N;
+            fprintf(stderr, "[fill]   %+7.1f          ", (double)((u - (axis ? b->az : b->ax))*1000.0f));
+            for (int q = 0; q < ny; q++) fprintf(stderr, "  %7.2f", (double)(fabsf(RIM(u, ys[q]) - face)*1000.0f));
+            fprintf(stderr, "\n");
         }
     }
+    /* THE COLUMNS, WITH A BOUNDARY AT THE HOLE'S OWN EDGE. Evenly spaced, the
+     * column that straddles where the hole ends draws its wall as one quad
+     * slanting from the plank's face across the column's whole width -- 2 mm on
+     * a US middle -- and a slanted face streaks when seen off-centre from above:
+     * a wedge flaring from the liner's tip out to the face. The hole's edge is
+     * vertical; the columns have to break there. So each band's extreme in u
+     * goes into the list, with a couple of hairs either side, and the transition
+     * is a quarter of a millimetre wide. */
+    float us[64]; int nu = 0;
+    for (int k = 0; k <= N; k++) us[nu++] = ua + (ub-ua)*k/N;
+    if (b->use_out) {
+        for (int q = 0; q < ny && nu + 8 <= 64; q++) {
+            float umin = 1e30f, umax = -1e30f;
+            for (int i = 0; i < b->nv; i++) {
+                const float rr = bore_rad_at(b, i, ys[q]);
+                const float px = b->ax + rr * cosf(b->ang[i]), pz = b->az + rr * sinf(b->ang[i]);
+                const float pu = axis ? pz : px;
+                if (pu < umin) umin = pu; if (pu > umax) umax = pu;
+            }
+            const float ds[4] = { -0.00025f, 0.0f, 0.00025f, 0.0f };
+            for (int e = 0; e < 3; e++) {
+                const float a_ = umin + ds[e], b_ = umax - ds[e];
+                if (a_ > ua && a_ < ub) us[nu++] = a_;
+                if (b_ > ua && b_ < ub) us[nu++] = b_;
+            }
+        }
+        for (int i = 1; i < nu; i++) { float v = us[i]; int j = i; while (j > 0 && us[j-1] > v) { us[j] = us[j-1]; j--; } us[j] = v; }
+    }
+    for (int k = 0; k + 1 < nu; k++) {
+        const float u0 = us[k], u1 = us[k+1];
+        if (u1 - u0 < 1e-6f) continue;
+        /* the top face, from the hole's rim at the plank's top out to the far edge */
+        const float t0 = RIM(u0, ytop), t1 = RIM(u1, ytop);
+        quad(P(u0,ytop,t0), P(u1,ytop,t1), P(u1,ytop,far), P(u0,ytop,far),
+             s_matvis >= 2 ? RGB565C(255,255,255) : top);
+        /* and the wall, band by band */
+        for (int q = 0; q + 1 < ny; q++) {
+            const float ya = ys[q], yb = ys[q+1];
+            const float a0 = RIM(u0, ya), a1 = RIM(u1, ya);
+            const float b0 = RIM(u0, yb), b1 = RIM(u1, yb);
+            /* where the hole misses, this quad IS the plank's front face across
+             * the notch, so it is drawn regardless */
+            wall_quad(P(u0,ya,a0), P(u1,ya,a1), P(u1,yb,b1), P(u0,yb,b0), wall);
+        }
+    }
+    #undef RIM
+    #undef CL
+    #undef P
 
     /* THE NOTCH'S OWN SIDE FACES. The columns above draw the wall along the
      * rim; they cannot draw a wall that runs ALONG a column. Where the hole
@@ -1292,7 +1529,7 @@ static void bore_fill(const BoreShape *b, float x0, float x1, float z0, float z1
      * middle. Both windings, so it reads from either side. */
     for (int e = 0; e < 2; e++) {
         const float ue = axis == 0 ? (e ? x1 : x0) : (e ? z1 : z0);
-        float r = bore_rim(ue, b, axis, rail_hi);
+        float r = bore_rim(ue, b, axis, rail_hi, ytop);
         const float lo_ = axis == 0 ? z0 : x0, hi_ = axis == 0 ? z1 : x1;
         const float face = rail_hi ? lo_ : hi_;
         if (r < -1e29f || r > 1e29f) continue;                 /* no hole at this edge */
@@ -1303,7 +1540,7 @@ static void bore_fill(const BoreShape *b, float x0, float x1, float z0, float z1
          * a face here would stand in the middle of the pocket. If the hole is
          * still there a hair past the edge, it is not this plank's to close. */
         {   const float past = e ? ue + 0.0005f : ue - 0.0005f;
-            const float rp = bore_rim(past, b, axis, rail_hi);
+            const float rp = bore_rim(past, b, axis, rail_hi, ytop);
             if (rp > -1e29f && rp < 1e29f && fabsf(rp - face) > 1e-5f
                 && (rail_hi ? rp > face : rp < face)) continue;
         }
@@ -1314,6 +1551,7 @@ static void bore_fill(const BoreShape *b, float x0, float x1, float z0, float z1
             wall_quad(a, bq, c, d, cc);
             wall_quad(d, c, bq, a, cc); }
     }
+    s_bore_top = -1e30f;
 }
 
 /* A wood rail plank [xa,xb]×[za,zb] with a clean round bore at each pocket: cut a
@@ -1450,7 +1688,24 @@ static int in_rail_gap(float x, float z) {
 static float s_rail_gap;   /* how far short of a corner drop the rail stops */
 static float s_rail_gap_mid;  /* ...and short of a middle one, which is not the same */
 
-void cue_render_set_bore_setback(float m) { s_bore_setback = m > 0.0f ? m : 0.0f; }
+void cue_render_set_bore_wall(float m) { s_bore_wall = m > 0.0f ? m : 0.0f; }
+
+void cue_render_set_bore_profile(const float *dr, const float *y, int n, float lip) {
+    if (!dr || !y || n <= 0) { s_bore_prof_n = 0; s_bore_lip = 0.0f; return; }
+    if (n > 8) n = 8;
+    for (int k = 0; k < n; k++) { s_bore_prof_dr[k] = dr[k]; s_bore_prof_y[k] = y[k]; }
+    s_bore_prof_n = n; s_bore_lip = lip;
+}
+
+void cue_render_set_bore_outline(int pocket, const float *ang, const float *rad, int n) {
+    if (pocket < 0 || pocket >= CUE_MAX_POCKET) { s_bore_out_on = 0; return; }
+    if (!ang || !rad || n <= 0) { s_bore_out_on = 0; return; }
+    if (n > BORE_NV) n = BORE_NV;
+    for (int q = 0; q < n; q++) { s_bore_ang[pocket][q] = ang[q]; s_bore_out[pocket][q] = rad[q]; }
+    s_bore_nv[pocket] = n;
+    s_bore_out_on = 1;
+}
+
 
 void cue_render_set_rail_split(int on) { s_rail_split = on ? 1 : 0; }
 void cue_render_set_corner_round(int on) { s_corner_k = on ? 1.0f : 0.0f; }
@@ -2643,8 +2898,20 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
          * -- which the cushion facings were then run on through the wood to
          * take back. There is nothing to take back from a box that fits. */
         const BoreShape *bs = &shp[h];
-        float mnx = bs->ax - bs->r, mxx = bs->ax + bs->r;
-        float mnz = bs->az - bs->r, mxz = bs->az + bs->r;
+        float rmax = bs->r;
+        if (bs->use_out) {
+            float dmax = 0.0f;
+            for (int k = 0; k < s_bore_prof_n; k++) if (s_bore_prof_dr[k] > dmax) dmax = s_bore_prof_dr[k];
+            rmax = 0.0f;
+            for (int q = 0; q < bs->nv; q++) {
+                float w = s_bore_lip > 1e-6f ? (bs->rad[q] - bs->hw) / s_bore_lip : 0.0f;
+                if (w < 0.0f) w = 0.0f; else if (w > 1.0f) w = 1.0f;
+                const float r = bs->hw + (dmax > bs->rad[q] - bs->hw ? dmax : bs->rad[q] - bs->hw) * w + BORE_CLEAR;
+                if (r > rmax) rmax = r;
+            }
+        }
+        float mnx = bs->ax - rmax, mxx = bs->ax + rmax;
+        float mnz = bs->az - rmax, mxz = bs->az + rmax;
         {   const float bbx = bs->ax + bs->nx * bs->smeet, bbz = bs->az + bs->nz * bs->smeet;
             float sx = bbx - bs->fx, sz = bbz - bs->fz;
             const float L = sqrtf(sx*sx + sz*sz);
@@ -3759,7 +4026,15 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         hr[p] = is_mid ? t->bore_side : t->bore_corner;
         shp[p].ax = hx[p]; shp[p].az = hz[p];
         shp[p].hw = hr[p];
-        shp[p].r  = hr[p] + s_bore_setback;
+        shp[p].r  = hr[p] + s_bore_wall;
+        /* A MIDDLE IS CUT TO THE LINER'S OUTLINE. A corner keeps its circle and
+         * its mitre jaws, which are already right, and is untouched. */
+        shp[p].use_out = 0;
+        if (is_mid && s_bore_out_on) {
+            shp[p].use_out = 1;
+            shp[p].nv = s_bore_nv[p];
+            for (int q = 0; q < shp[p].nv; q++) { shp[p].rad[q] = s_bore_out[p][q]; shp[p].ang[q] = s_bore_ang[p][q]; }
+        }
         shp[p].nx = w->pmnorm[p].x; shp[p].nz = w->pmnorm[p].z;
         {   const float m2 = shp[p].r*shp[p].r - shp[p].hw*shp[p].hw;
             shp[p].smeet = m2 > 0.0f ? sqrtf(m2) : 0.0f; }
@@ -4583,9 +4858,17 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
              * a short collar carries it down to where the cone was starting:
              * wall, collar, cone, tube, one dark surface, no ledge. Without a
              * liner nothing here changes. */
-            const float r_wall = s_bore_setback > 0.0f ? hr[h] + s_bore_setback + 0.0005f : 0.0f;
+            const float r_wall = s_bore_wall > 0.0f ? hr[h] + s_bore_wall + 0.0005f : 0.0f;
             const float r_sh = r_wall > 0.0f ? r_wall : r * 1.50f;
+            /* WHAT THE RIM FOLLOWS is decided bearing by bearing -- boot_rim_at:
+             * the timber's foot behind the liner, the cloth roll's end ring
+             * everywhere else -- and where the two meet, the arc is split at the
+             * exact bearing and a face joins the two rims, so nothing is open
+             * under the plank's bottom edge between the liner's tip and the
+             * roll. Without a liner the boot is what it always was. */
+            const int have = (h < CUE_MAX_POCKET);
             const float y_sh = ytop - r * 0.35f;      /* where the cone meets the tube */
+            #define RIM_AT(A, RS, TB) boot_rim_at(&shp[h < CUE_MAX_POCKET ? h : 0], have, t, w, h, cx, cz, r_sh, bb, ytop, (A), (RS), (TB))
             for (int k = 0; k < NSEG; k++) {
                 const float a0 = (float)k       / NSEG * 6.2831853f;
                 const float a1 = (float)(k + 1) / NSEG * 6.2831853f;
@@ -4593,16 +4876,35 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                 const float c1 = cosf(a1), s1 = sinf(a1);
                 const float x0 = cx + c0 * r, z0 = cz + s0 * r;
                 const float x1 = cx + c1 * r, z1 = cz + s1 * r;
-                if (r_wall > 0.0f && bb > ytop + 1e-5f)      /* the collar, wall's foot down to the cone */
-                    quad(v3(cx + c0*r_sh, bb, cz + s0*r_sh), v3(cx + c0*r_sh, ytop, cz + s0*r_sh),
-                         v3(cx + c1*r_sh, ytop, cz + s1*r_sh), v3(cx + c1*r_sh, bb, cz + s1*r_sh), liner);
-                /* wound so the face looks INWARD -- it is only ever seen from
-                 * inside the tube, down the mouth */
-                quad(v3(cx + c0*r_sh, ytop, cz + s0*r_sh), v3(x0, y_sh, z0),
-                     v3(x1, y_sh, z1), v3(cx + c1*r_sh, ytop, cz + s1*r_sh), liner);
+                float rs0, tb0, rs1, tb1;
+                int t0 = RIM_AT(a0, &rs0, &tb0), t1 = RIM_AT(a1, &rs1, &tb1);
+                if (r_wall <= 0.0f) { t0 = t1 = 1; rs0 = rs1 = r_sh; tb0 = tb1 = bb; }
+                if (t0 == t1) {
+                    boot_piece(cx, cz, a0, rs0, tb0, a1, rs1, tb1, ytop, y_sh, x0, z0, x1, z1, r_wall > 0.0f, liner);
+                } else {
+                    float lo = a0, hi = a1;
+                    for (int it = 0; it < 18; it++) {
+                        const float m = 0.5f * (lo + hi); float rm, tm;
+                        if (RIM_AT(m, &rm, &tm) == t0) lo = m; else hi = m;
+                    }
+                    float rsA, tbA, rsB, tbB;
+                    RIM_AT(lo, &rsA, &tbA); RIM_AT(hi, &rsB, &tbB);
+                    const float am = 0.5f * (lo + hi), cm = cosf(am), sm = sinf(am);
+                    const float xm = cx + cm * r, zm = cz + sm * r;
+                    boot_piece(cx, cz, a0, rs0, tb0, am, rsA, tbA, ytop, y_sh, x0, z0, xm, zm, 1, liner);
+                    boot_piece(cx, cz, am, rsB, tbB, a1, rs1, tb1, ytop, y_sh, xm, zm, x1, z1, 1, liner);
+                    /* the face between the two rims, seen from either side */
+                    {   const Vec3 A0 = v3(cx + cm*rsA, bb,   cz + sm*rsA), A1 = v3(cx + cm*rsA, ytop, cz + sm*rsA);
+                        const Vec3 B0 = v3(cx + cm*rsB, bb,   cz + sm*rsB), B1 = v3(cx + cm*rsB, ytop, cz + sm*rsB);
+                        const Vec3 T  = v3(xm, y_sh, zm);
+                        quad(A0, A1, B1, B0, liner); quad(B0, B1, A1, A0, liner);
+                        tri(A1, T, B1, liner);       tri(B1, T, A1, liner);
+                    }
+                }
                 quad(v3(x0, y_sh, z0), v3(x0, ybot, z0),
                      v3(x1, ybot, z1), v3(x1, y_sh, z1), liner);
             }
+            #undef RIM_AT
             /* AND A FLOOR, so you are not looking through the bottom of it at
              * the cabinet. At the tube's own foot, which is the bottom of the
              * boot -- below the shaft the ball is watched falling down, so it
