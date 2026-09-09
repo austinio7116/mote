@@ -125,6 +125,11 @@ void cue_render_set_corner_round(int on);
 void cue_render_set_rail_gap(float g, float g_mid);
 /* Six separate planks rather than a bored ring — see cue_render.c. */
 void cue_render_set_rail_split(int on);
+/* THE TIMBER'S ROUND BACK is the fitted liner's outer edge plus a hair: `m` is
+ * how far that edge stands past the bore, in metres. The mouth's two cuts meet
+ * the round where a line at the mouth's width crosses it. Zero (no liner) is the
+ * bare bore. */
+void cue_render_set_bore_setback(float m);
 
 /* ---- AND WHERE THOSE CORNERS ENDED UP ----------------------------------- *
  *
