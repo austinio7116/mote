@@ -321,6 +321,48 @@ void cue_phys_shot_begin(CueWorld *w) {
     w->skittle_fell = 0;
 }
 
+/* THE SAME LIST, OFF AND ON. See CueShotRec.
+ *
+ * Written against the fields rather than as one memcpy of a range, because the
+ * record is not contiguous in a CueWorld and never will be: it is interleaved
+ * with the table's geometry, which is the half that a rebuild is FOR. */
+#define CUE_SHOT_FIELDS(A, B)                                                 \
+    do {                                                                      \
+        A first_hit       = B first_hit;                                      \
+        A first_hit_idx   = B first_hit_idx;                                  \
+        A att_path        = B att_path;                                       \
+        A att_prev_ok     = B att_prev_ok;                                    \
+        A jump_over       = B jump_over;                                      \
+        A jump_over_id    = B jump_over_id;                                   \
+        A jmp_pending     = B jmp_pending;                                    \
+        A jmp_idx         = B jmp_idx;                                        \
+        A jmp_hit_it      = B jmp_hit_it;                                     \
+        A jmp_bounced     = B jmp_bounced;                                    \
+        A ntouch          = B ntouch;                                         \
+        A touch_over      = B touch_over;                                     \
+        A brk_cross       = B brk_cross;                                      \
+        A side_cushion    = B side_cushion;                                   \
+        A skittle_fell    = B skittle_fell;                                   \
+        memcpy(A touch, B touch, sizeof (A touch));                           \
+        memcpy(A att_min, B att_min, sizeof (A att_min));                     \
+        memcpy(A rails, B rails, sizeof (A rails));                           \
+        memcpy(A cush, B cush, sizeof (A cush));                              \
+        memcpy(A balls_hit, B balls_hit, sizeof (A balls_hit));               \
+        memcpy(A hit_by_cue, B hit_by_cue, sizeof (A hit_by_cue));            \
+        memcpy(A skittle_order, B skittle_order, sizeof (A skittle_order));   \
+        memcpy(A skittle_nudged, B skittle_nudged, sizeof (A skittle_nudged));\
+    } while (0)
+
+void cue_phys_shot_save(const CueWorld *w, CueShotRec *r) {
+    if (!w || !r) return;
+    CUE_SHOT_FIELDS(r->, w->);
+}
+
+void cue_phys_shot_load(CueWorld *w, const CueShotRec *r) {
+    if (!w || !r) return;
+    CUE_SHOT_FIELDS(w->, r->);
+}
+
 /* STAND THEM BACK UP, once the stroke has been judged.
  *
  * This used to happen at the START of the next stroke, which is why the pins

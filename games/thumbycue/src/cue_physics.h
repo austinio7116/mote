@@ -900,6 +900,46 @@ int cue_phys_moving(const CueWorld *w, const CueBall *balls, int n);
  * like a rules bug and is not one. One call, and a field added here is cleared
  * everywhere at once. */
 void cue_phys_shot_begin(CueWorld *w);
+
+/* ---- ...AND THE SAME RECORD, LIFTED OUT AND PUT BACK ----------------------
+ *
+ * A CueWorld is built from a CueTable by cue_table_build_world, which memsets
+ * it first — so rebuilding the world throws the shot away. That is right when
+ * the rebuild is a new frame and wrong when it is not, and the case where it is
+ * not is a host that rebuilds the table for a reason that has nothing to do
+ * with the game: CueVR re-bakes the whole thing to change the cloth's colour,
+ * and doing it while the opponent was still down on a shot left the referee
+ * with an empty record. An empty record is a cue ball that hit nothing, which
+ * is a foul and a ball in hand. Reported exactly that way.
+ *
+ * So the record can be taken off a world and put onto another one. The fields
+ * are the ones cue_phys_shot_begin clears, and they are listed in one place —
+ * here — for the same reason that reset is: a field added to the per-shot state
+ * has to be added once, not wherever somebody remembered.
+ *
+ * Carrying it is always safe. cue_phys_shot_begin runs at every strike, so a
+ * record carried onto a table nobody is playing on is cleared before it can be
+ * read; the only shot it can reach is one already in flight, which is the shot
+ * it belongs to. */
+typedef struct {
+    int     first_hit, first_hit_idx;
+    float   att_min[CUE_MAX_BALLS];
+    float   att_path;
+    int     att_prev_ok;
+    int     jump_over, jump_over_id;
+    int     jmp_pending, jmp_idx, jmp_hit_it, jmp_bounced;
+    CueTouch touch[CUE_MAX_TOUCH];
+    int     ntouch, touch_over;
+    uint32_t brk_cross;
+    uint8_t side_cushion;
+    uint8_t rails[CUE_MAX_BALLS], cush[CUE_MAX_BALLS];
+    uint8_t balls_hit[CUE_MAX_BALLS], hit_by_cue[CUE_MAX_BALLS];
+    uint8_t skittle_order[CUE_MAX_SKITTLE], skittle_nudged[CUE_MAX_SKITTLE];
+    int     skittle_fell;
+} CueShotRec;
+void cue_phys_shot_save(const CueWorld *w, CueShotRec *r);
+void cue_phys_shot_load(CueWorld *w, const CueShotRec *r);
+
 /* Stand the skittles up as rigid bodies and give them the little world they
  * fall about in: the bed is its floor, the cushions its walls. Called by
  * cue_table_build_world once the pins and the bed are known. */
