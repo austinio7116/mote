@@ -537,6 +537,16 @@ int cue_phys_airborne(const CueWorld *w, const CueBall *b) {
 /* loudest cushion-approach (normal) speed seen during the current cue_phys_step,
  * so the cushion SFX scales with the actual rail impact, not the whole table. */
 static float s_cush_vn;
+/* ...AND THE SAME FOR THE JAW KNUCKLES, which are rail too.
+ *
+ * A jaw tip is a quarter-round of the same rubber as the cushion and it is hit
+ * at every pace a cushion is, but nothing measured it: the event went out with
+ * no number and the app had to play a fixed gain, so clipping a knuckle at a
+ * crawl was as loud as rattling one at eight metres a second. Reported exactly
+ * that way. Its own meter rather than folded into s_cush_vn, because a step
+ * that touches a rail AND a knuckle has two impacts and the app asks about
+ * them separately. */
+static float s_jaw_vn;
 /* A POT IS OVER THE MOMENT IT IS TAKEN, where this is on. See the note at the
  * site, and cue_physics.h: the game watches the ball fall and a ranking
  * simulation must not. */
@@ -1253,11 +1263,15 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
         if (dist < mind && dist > 1e-6f) {
             if (b->pos.y - cue_ball_r(w, b) > w->rail_top) continue;       /* flying over it */
             Vec3 N = v3_scale(d, 1.0f / dist);
+            /* Taken BEFORE the bounce, the same way the cushion's is: after
+             * collide_surface the velocity is the one leaving. */
+            const float jvn = -(b->vel.x * N.x + b->vel.z * N.z);
             float jpush = (mind - dist) - b->cush_sink;   /* the knuckle gives too */
             if (jpush > 0.0f) b->pos = v3_add(b->pos, v3_scale(N, jpush));
             if (collide_surface(w, b, N, w->e_cush, w->mu_cush)) {
                 hit = 1;
                 if (ev) *ev |= CUE_EV_JAW;
+                if (jvn > s_jaw_vn) s_jaw_vn = jvn;   /* hardest knuckle this step */
             }
         }
     }
@@ -2888,6 +2902,7 @@ void cue_phys_set_substep(float h) { g_sub_h = (h > 0.0f) ? h : CUE_H; }
 void cue_phys_set_fast_pot(int on) { g_fast_pot = on ? 1 : 0; }
 
 float cue_phys_cushion_impact(void) { return s_cush_vn; }
+float cue_phys_jaw_impact(void)     { return s_jaw_vn; }
 float cue_phys_ball_impact(void) { return s_ball_vn; }
 float cue_phys_pot_impact(void) { return s_pot_v; }
 float cue_phys_bridge_impact(void) { return s_bridge_v; }
@@ -2918,6 +2933,7 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
         }
     }
     s_cush_vn = 0.0f;                  /* reset the cushion-impact meter for this step */
+    s_jaw_vn  = 0.0f;                  /* ...and the knuckles' */
     s_ball_vn = 0.0f;
     s_pot_v   = 0.0f;                  /* ...and the pot-impact meter */
     s_bridge_v = 0.0f; s_bridge_hit = 0;

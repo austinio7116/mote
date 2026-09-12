@@ -869,6 +869,7 @@ float cue_phys_cushion_impact(void);   /* loudest rail-approach speed from last 
 float cue_phys_ball_impact(void);      /* hardest ball-ball closing speed from last step (CUE_EV_BALL_HIT) */
 float cue_phys_pot_impact(void);        /* fastest pot-entry speed from last step */
 float cue_phys_bridge_impact(void);     /* fastest speed into a pocket's back from last step (CUE_EV_BRIDGE) */
+float cue_phys_jaw_impact(void);        /* hardest jaw-knuckle approach from last step (CUE_EV_JAW) */
 
 /* Override the integrator substep (0 = restore the default 2 kHz CUE_H). The AI
  * uses a coarser step for its headless ranking sims to run ~2x faster. */
