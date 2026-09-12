@@ -29,7 +29,12 @@ int main(int argc, char **argv) {
     int px = atoi(argv[4]);
     int first = argc > 5 ? atoi(argv[5]) : 32;
     int count = argc > 6 ? atoi(argv[6]) : 95;   /* 32..126 */
-    if (px < 4) px = 4; if (px > 96) px = 96;
+    /* 96 was a handheld's ceiling -- a 128-pixel screen has no use for a glyph
+     * taller than three quarters of it. CueVR's panel is a texture in a room and
+     * its largest face is baked at 120. The real limit is the glyph struct:
+     * w/h/adv are uint8 and yoff is int8, so a face much past 200 would start
+     * losing its offsets. */
+    if (px < 4) px = 4; if (px > 200) px = 200;
     if (first < 0) first = 0; if (first > 255) first = 255;
     if (count < 1) count = 1; if (first + count > 256) count = 256 - first;
 
