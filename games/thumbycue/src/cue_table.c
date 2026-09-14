@@ -5019,6 +5019,21 @@ void cue_table_derive_cut(CueWorld *w) {
         w->cut_c[p] = v3(C.x + n.x * w->cut_set[i], 0, C.z + n.z * w->cut_set[i]);
         w->cut_r[p] = w->cut_ref[i]  * w->cut_rad[i];
         w->lip_d[p] = w->cut_ref[i]  * w->cut_roll[i];
+#ifdef MOTE_HOST
+        /* CUE_CUTDBG: the cloth cut against the pocket it belongs to. A middle's
+         * cut is a SLAB of half-width cut_r running out to the rail, so if that
+         * half-width is wider than the mouth the cut reaches PAST the knuckles
+         * over cloth that is still there -- and a ball resting on the lip is
+         * inside the pocket as far as the under-cloth step is concerned. */
+        if (getenv("CUE_CUTDBG"))
+            fprintf(stderr, "[cut] p%d %s  cut_r %.2f mm  set %.2f  ref %.2f rad %.2f"
+                            "  lip_d %.2f  pocket(%.4f,%.4f)\n",
+                    p, w->pocket_mid[p] ? "MID" : "cnr",
+                    (double)(w->cut_r[p]*1000.0), (double)(w->cut_set[i]*1000.0),
+                    (double)(w->cut_ref[i]*1000.0), (double)w->cut_rad[i],
+                    (double)(w->lip_d[p]*1000.0),
+                    (double)C.x, (double)C.z);
+#endif
 
         /* THE ROLL CANNOT BE DEEPER THAN THE POCKET IS WIDE.
          *
