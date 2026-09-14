@@ -350,7 +350,25 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * negative because its chord lies in FRONT of the pocket's own centre.
          */
         t->pr_corner  = 0.0508000f; t->pr_side  = 0.0400050f;
-        t->ang_corner = 45.0f; t->ang_side = 70.0f;
+        /* THE MIDDLE'S FACING, TO THE WPA CUT.
+         *
+         * The WPA Recommended Equipment Specifications set a "Horizontal Pocket
+         * Cut Angle" -- the angle the rubber and its liner are cut at, the same
+         * on both sides of a pocket entrance: 142 degrees at a corner, 104 at a
+         * middle, each plus one. This field is the supplement of that, measured
+         * off the rail line, so 104 is 76 here.
+         *
+         * It was 70, which is a 110 degree cut: six degrees past what the
+         * specification allows, and past it in the closing direction, so the
+         * middle shut down harder behind the mouth than any American table
+         * does. Measured off the built table, the opening ran 135.0 mm between
+         * the noses to 93.0 mm fifty millimetres in -- a throat narrower than
+         * the same table's CORNER, which is backwards.
+         *
+         * The corner is 45 here, a 135 degree cut, against the specification's
+         * 142: seven degrees of flare it does not have. Left alone -- that is a
+         * separate number and a separate decision. */
+        t->ang_corner = 45.0f; t->ang_side = 76.0f;
         /* MILLIMETRES. Where the pocket sits into the corner, and how much
          * of the hole is not catch — both were ball radii, so a custom table
          * could not author them and the shipped tables were not examples of
@@ -4003,15 +4021,31 @@ static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
      * (114.3 mm) that home and bar tables come with; club a generous 120. */
     /* AMERICAN POOL — the manufacturer's own bands, and the ladder IS the band:
      * a corner is 4 1/2 to 4 5/8 in and a side is half an inch more, 5 to
-     * 5 1/4, both measured TIP TO TIP between the cushion ends. PRO takes the
+     * 5 1/8, both measured between the cushion noses where the direction
+     * changes into the pocket -- pointed lip to pointed lip, which is the
+     * WPA's own wording for the MOUTH. PRO takes the
      * tight end and is the shipped table (hence the zeroes), CLUB the wide end,
      * TOURNAMENT the middle.
      *
-     *                    tip to tip          and these targets, which are the
+     *                    mouth               and these targets, which are the
      *                 corner    side         NARROWEST passage each leaves
-     *   PRO          101.60   114.30         101.60    80.01     (4     / 4 1/2)
-     *   TOURNAMENT   114.30   127.00         114.30    92.71     (4 1/2 / 5    )
-     *   CLUB         117.48   133.35         117.48    99.06     (4 5/8 / 5 1/4)
+     *   PRO          101.60   114.30         101.60    82.92     (4     / 4 1/2)
+     *   TOURNAMENT   114.30   127.00         114.30    95.62     (4 1/2 / 5    )
+     *   CLUB         117.48   130.18         117.48    98.80     (4 5/8 / 5 1/8)
+     *
+     * THE MIDDLE'S TWO NUMBERS ARE 31.38 mm APART, which is the facing's reach
+     * across at a 104 degree cut plus the 0.2 mm by which the solver's measure
+     * and a plain horizontal gap differ -- cue_table_mouth_at takes the closest
+     * approach of the two walls, and between two converging facings that is
+     * slightly shorter than the gap straight across. The corner's two numbers
+     * still coincide.
+     *
+     * SIDE IS CORNER PLUS HALF AN INCH, which is the rule the WPA states and
+     * the one this ladder is built on. CLUB's side read 133.35 -- 5 1/4 in,
+     * an eighth over its own corner plus a half and an eighth outside the
+     * specification's 5 to 5 1/8 band. The corners bracket their band exactly
+     * (4 1/2 and 4 5/8); the sides now bracket theirs (5 and 5 1/8). PRO sits
+     * below both on purpose, being the four inch cut.
      *
      * Re-solved against the STADIUM bore. Solved against the circle they came
      * out 4.458 / 4.500 / 4.624 -- pro and tournament all but the same pocket,
@@ -4044,9 +4078,15 @@ static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
      * clamp and cost the corner its lip -- 9.12 mm at tournament and 7.53 at
      * club against the 13.83 it asks for. Zero here means the table's own,
      * which is the +8.33 the shape was set to on the bench. */
-    { {   0.0f,   0.0f, 0.0085f,  0.0f,   0.0f,  0.0f, 0.0f },
-      { 114.30f, 92.71f, 0.0f,    0.0f,   0.0f,  0.0f, 0.0f },
-      { 117.48f, 99.06f, 0.0135f,-0.020f, 0.008f, 0.0f, 0.0f } },
+    /* PRO IS SOLVED NOW TOO, where it used to be a pair of zeros meaning "this
+     * is the table as it shipped, leave it alone". The shipped middle was not
+     * what the row above it claimed: 122.30 mm against the 114.30 written here.
+     * Three rungs that all say what they are beats two that do and one that is
+     * whatever fell out. The corner is unchanged either way -- as built it
+     * measures 101.600, which is what it is now asked for. */
+    { { 101.60f, 82.92f, 0.0085f,  0.0f,   0.0f,  0.0f, 0.0f },
+      { 114.30f, 95.62f, 0.0f,     0.0f,   0.0f,  0.0f, 0.0f },
+      { 117.48f, 98.80f, 0.0135f, -0.020f, 0.008f, 0.0f, 0.0f } },
     /* CHINESE 8-BALL — shipped 85.7 / 85.7, and cut tight on purpose: 1.50 ball
      * widths is what that game is, so its whole ladder is narrower. */
     { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },

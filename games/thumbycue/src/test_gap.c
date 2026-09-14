@@ -299,6 +299,14 @@ static const struct { int kind; const char *name;
      * eighteen layouts and a card, not a bed of its own — so it wants the same
      * answer UK 8-ball gets, and gets it from the same numbers. */
     { CUE_GAME_GOLF, "billiards golf", 31.1f, 30.5f, 1.5f },
+    /* Bumper pool has no rail pockets either -- two cups sunk in the cloth at
+     * the middle of each end rail, and twelve posts. Same answer bar billiards
+     * gets, and for the same reason: there is no opening between cushions to
+     * measure. It was missing entirely, which is not a soft failure here --
+     * every_kind_expected is a static assert on this table having a row per
+     * kind, so the whole test stopped COMPILING when the kind was added and
+     * has not run since. */
+    { CUE_GAME_BUMPER, "bumper pool", -1, -1, 0 },
 };
 
 /* A ball has to fit through with SOME room or the pocket is decorative. Three
@@ -319,7 +327,8 @@ int main(int argc, char **argv) {
             printf("%-16s no pockets at all: four plain cushions\n", EXPECT[i].name);
             continue;
         }
-        if (EXPECT[i].kind == CUE_GAME_BARBILLIARDS) {
+        if (EXPECT[i].kind == CUE_GAME_BARBILLIARDS ||
+            EXPECT[i].kind == CUE_GAME_BUMPER) {
             printf("%-16s no rail pockets: its holes are in the bed\n", EXPECT[i].name);
             continue;
         }
