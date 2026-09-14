@@ -1670,6 +1670,10 @@ void cue_phys_under_world(const CueWorld *w, MoteWorld *pw, int below_cloth) {
      * the return box, 2026-09-05). */
     pw->restitution  = 0.02f;
     pw->friction     = 0.30f;
+#ifdef MOTE_HOST
+    {   const char *e = getenv("CUE_UNDERFRIC");   /* for the settle sweep */
+        if (e) pw->friction = (float)atof(e); }
+#endif
     /* THE DRAG OF WHAT IS DOWN THERE, and nothing until the centre is below the
      * cloth (see cue_phys_drop_fall's drag for the slow-motion lip this caused).
      * A ball in a bag is in leather and string: 0.8. A ball in a moulded liner
