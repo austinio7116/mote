@@ -1685,6 +1685,10 @@ void cue_phys_under_world(const CueWorld *w, MoteWorld *pw, int below_cloth) {
     const float drag = below_cloth ? (netted ? 0.8f : 0.3f) : 0.0f;
     pw->linear_damp  = drag;
     pw->angular_damp = drag;
+#ifdef MOTE_HOST
+    {   const char *e = getenv("CUE_UNDERSPIN");   /* the angular half alone */
+        if (e && below_cloth) pw->angular_damp = (float)atof(e); }
+#endif
 }
 
 int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
