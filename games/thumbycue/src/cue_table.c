@@ -4027,18 +4027,44 @@ static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
      * tight end and is the shipped table (hence the zeroes), CLUB the wide end,
      * TOURNAMENT the middle.
      *
-     *                    mouth               and these targets, which are the
+     *                mouth AT THE LIP        and these targets, which are the
      *                 corner    side         NARROWEST passage each leaves
-     *   PRO          101.60   114.30         101.60    82.92     (4     / 4 1/2)
-     *   TOURNAMENT   114.30   127.00         114.30    95.62     (4 1/2 / 5    )
-     *   CLUB         117.48   130.18         117.48    98.80     (4 5/8 / 5 1/8)
+     *   PRO          101.60   114.30         101.60    89.17     (4     / 4 1/2)
+     *   TOURNAMENT   114.30   127.00         114.30   101.87     (4 1/2 / 5    )
+     *   CLUB         117.48   130.18         117.48   105.05     (4 5/8 / 5 1/8)
      *
-     * THE MIDDLE'S TWO NUMBERS ARE 31.38 mm APART, which is the facing's reach
-     * across at a 104 degree cut plus the 0.2 mm by which the solver's measure
-     * and a plain horizontal gap differ -- cue_table_mouth_at takes the closest
-     * approach of the two walls, and between two converging facings that is
-     * slightly shorter than the gap straight across. The corner's two numbers
-     * still coincide.
+     * WHERE ON THE KNUCKLE THE MOUTH IS READ, which is worth a quarter of an
+     * inch and is the thing to get wrong here.
+     *
+     * The knuckle is a FILLET of radius jaw_r between the cushion's nose line
+     * and its facing, so there are three points on it and they are not the
+     * same place:
+     *
+     *   POINTED LIP   where the two lines would meet if there were no fillet.
+     *                 A real cushion comes to a point there, and "from pointed
+     *                 lip to pointed lip" is the WPA's own wording.
+     *   ARC CENTRE    the crown of the fillet that stands in for that point.
+     *   TANGENT       where the straight nose stops and the fillet starts --
+     *                 the outermost thing on the knuckle.
+     *
+     * The fillet's tangent sits jaw_r/tan(cut/2) back from the point, so at a
+     * 104 degree middle with a 4 mm fillet the lip and the tangent readings are
+     * 6.25 mm apart, and at a 142 degree corner 3.31 mm.
+     *
+     * THE CORNER HAS ALWAYS BEEN READ AT THE LIP -- its facings are parallel,
+     * so its narrowest passage and its lip separation are the same number, and
+     * that number is what the row asks for. The middle is read there too now.
+     * Targeting the TANGENT instead, which is what the first cut of this did,
+     * puts the lips 6.25 mm inside the specification while the arithmetic all
+     * looks right: a middle asked for 5 inches measured 4 3/4 between its
+     * points, and measured it on a table whose corner was being read the other
+     * way. Two pockets, two definitions, on the same table.
+     *
+     * So the middle's two numbers are 25.13 mm apart: the facing's reach across
+     * at a 104 degree cut, less the two fillet tangents, less the 0.2 mm by
+     * which cue_table_mouth_at and a plain horizontal gap differ -- it takes the
+     * closest approach of the two walls, and between converging facings that is
+     * a little shorter than the gap straight across.
      *
      * SIDE IS CORNER PLUS HALF AN INCH, which is the rule the WPA states and
      * the one this ladder is built on. CLUB's side read 133.35 -- 5 1/4 in,
@@ -4084,9 +4110,9 @@ static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
      * Three rungs that all say what they are beats two that do and one that is
      * whatever fell out. The corner is unchanged either way -- as built it
      * measures 101.600, which is what it is now asked for. */
-    { { 101.60f, 82.92f, 0.0085f,  0.0f,   0.0f,  0.0f, 0.0f },
-      { 114.30f, 95.62f, 0.0f,     0.0f,   0.0f,  0.0f, 0.0f },
-      { 117.48f, 98.80f, 0.0135f, -0.020f, 0.008f, 0.0f, 0.0f } },
+    { { 101.60f, 89.17f, 0.0085f,  0.0f,   0.0f,  0.0f, 0.0f },
+      { 114.30f, 101.87f, 0.0f,    0.0f,   0.0f,  0.0f, 0.0f },
+      { 117.48f, 105.05f, 0.0135f,-0.020f, 0.008f, 0.0f, 0.0f } },
     /* CHINESE 8-BALL — shipped 85.7 / 85.7, and cut tight on purpose: 1.50 ball
      * widths is what that game is, so its whole ladder is narrower. */
     { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
