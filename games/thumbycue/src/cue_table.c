@@ -365,10 +365,29 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * the noses to 93.0 mm fifty millimetres in -- a throat narrower than
          * the same table's CORNER, which is backwards.
          *
-         * The corner is 45 here, a 135 degree cut, against the specification's
-         * 142: seven degrees of flare it does not have. Left alone -- that is a
-         * separate number and a separate decision. */
-        t->ang_corner = 45.0f; t->ang_side = 76.0f;
+         * The corner goes the same way: 45 is a 135 degree cut, which is two
+         * facings exactly PARALLEL down the corner's own bisector, and the
+         * specification asks for 142 -- seven degrees of flare, so the channel
+         * opens behind the lips instead of running straight. 38 here.
+         *
+         * WATCH THE TIMBER WHEN THIS MOVES. The facing's length is not
+         * authored: it is cush_depth/sin(ang), so it always reaches the frame's
+         * inner face whatever the angle -- but it arrives cush_depth*cot(ang)
+         * out from where it started, and at 38 that is 13 mm per side further
+         * out than at 45. The hole cut in the timber is a STADIUM about the
+         * pocket's own axis (see link_edge_x), and a facing that lands outside
+         * the stadium's straight would be a cushion ending against solid wood
+         * with a slot beside it.
+         *
+         * MEASURED, and one of the two facings DOES land outside it: 9.81 mm
+         * past the stadium's half-width on every rung, where at 45 it was
+         * 0.14 mm inside. It does not show, because the notch cue_render cuts
+         * is the stadium's BOUNDING BOX and not the stadium, so there is that
+         * much slack to sit in. Checked with eighteen camera angles round the
+         * corner on two bodies, flood-filling for daylight through the table
+         * each time: zero at all of them. If the notch is ever tightened to the
+         * stadium itself, this is the thing that breaks first. */
+        t->ang_corner = 38.0f; t->ang_side = 76.0f;
         /* MILLIMETRES. Where the pocket sits into the corner, and how much
          * of the hole is not catch — both were ball radii, so a custom table
          * could not author them and the shipped tables were not examples of
@@ -4029,9 +4048,22 @@ static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
      *
      *                mouth AT THE LIP        and these targets, which are the
      *                 corner    side         NARROWEST passage each leaves
-     *   PRO          101.60   114.30         101.60    89.17     (4     / 4 1/2)
-     *   TOURNAMENT   114.30   127.00         114.30   101.87     (4 1/2 / 5    )
-     *   CLUB         117.48   130.18         117.48   105.05     (4 5/8 / 5 1/8)
+     *   PRO          101.60   114.30          81.81    89.17     (4     / 4 1/2)
+     *   TOURNAMENT   114.30   127.00          94.51   101.87     (4 1/2 / 5    )
+     *   CLUB         117.48   130.18          97.69   105.05     (4 5/8 / 5 1/8)
+     *
+     * THE CORNER'S TWO NUMBERS NO LONGER COINCIDE, and that is the 142 degree
+     * cut arriving. At 135 the facings were parallel and the channel held one
+     * width from the lips to the frame, so the lip separation WAS the narrowest
+     * passage; at 142 each facing is seven degrees off the bisector and the
+     * channel closes 19.79 mm behind the lips. The middle closes 25.13 mm
+     * behind its own, because 104 is fourteen degrees off square against the
+     * corner's seven.
+     *
+     * Both pockets still open WIDER at the lip than they measure at the throat,
+     * and the middle stays wider than the corner at both readings -- 5 against
+     * 4 1/2 at the lips, 4.01 in against 3.72 at the throats -- which is the
+     * relation a real table has and the one this table did not have before.
      *
      * WHERE ON THE KNUCKLE THE MOUTH IS READ, which is worth a quarter of an
      * inch and is the thing to get wrong here.
@@ -4110,9 +4142,9 @@ static const SpecRow SPEC[SPEC_FAM_COUNT][CUE_SPEC_COUNT] = {
      * Three rungs that all say what they are beats two that do and one that is
      * whatever fell out. The corner is unchanged either way -- as built it
      * measures 101.600, which is what it is now asked for. */
-    { { 101.60f, 89.17f, 0.0085f,  0.0f,   0.0f,  0.0f, 0.0f },
-      { 114.30f, 101.87f, 0.0f,    0.0f,   0.0f,  0.0f, 0.0f },
-      { 117.48f, 105.05f, 0.0135f,-0.020f, 0.008f, 0.0f, 0.0f } },
+    { {  81.81f,  89.17f, 0.0085f,  0.0f,   0.0f,  0.0f, 0.0f },
+      {  94.51f, 101.87f, 0.0f,     0.0f,   0.0f,  0.0f, 0.0f },
+      {  97.69f, 105.05f, 0.0135f, -0.020f, 0.008f, 0.0f, 0.0f } },
     /* CHINESE 8-BALL — shipped 85.7 / 85.7, and cut tight on purpose: 1.50 ball
      * widths is what that game is, so its whole ladder is narrower. */
     { {  0.0f,   0.0f, 0.0085f,  0.0f,   0.0f },
