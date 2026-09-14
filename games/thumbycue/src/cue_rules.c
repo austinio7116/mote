@@ -3396,15 +3396,22 @@ static void resolve_bumper(CueRules *r, CueBall *b, int n, const CueWorld *w,
         }
     }
 
+    /* BOOKED INTO THE MATCH, both ways out of a frame. book_frame says above it
+     * that it is called from every place a frame can end so the tally cannot be
+     * updated in some of them and not others -- and bumper pool was the one
+     * place it was not, so a best-of-five sat at 0-0 however many frames were
+     * played. Reported from online play. */
     if (lost) {
         r->frame_over = 1;
         r->winner = you;
+        book_frame(r, r->winner);
         snprintf(r->msg, sizeof r->msg, "LAST BALL IN THE WRONG CUP - FRAME LOST");
         return;
     }
     for (int s = 0; s < 2; s++)
         if (r->score[s] >= r->target_score) {
             r->frame_over = 1; r->winner = s;
+            book_frame(r, r->winner);
             snprintf(r->msg, sizeof r->msg, "%s HAS THEM ALL",
                      s == 0 ? "RED" : "WHITE");
             return;
