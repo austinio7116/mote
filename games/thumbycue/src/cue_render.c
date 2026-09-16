@@ -1292,7 +1292,28 @@ static int boot_rim_at(const BoreShape *b, int have_shape, const CueTable *t, co
         const float td = -dx * b->nz + dz * b->nx;
         if (fabsf(td) > 1e-6f) {
             const float rj = b->hw / fabsf(td);   /* where this ray meets a jaw line */
-            if (rj * sd <= b->smeet + 1e-6f && BEHIND(cx + rj * dx, cz + rj * dz)) { timber = 1; rim = rj - 0.0002f; }
+            /* ...AND IT HAS TO MEET IT INSIDE THE POCKET.
+             *
+             * A ray along the pocket's own axis is PARALLEL to the jaw line and
+             * never meets it, so td is zero -- but in floats it is not quite
+             * zero. Measured on a UK 8-ball CLUB corner: sd = 1.0000 exactly,
+             * td = 1.132e-06, which clears the guard above by 13% and puts the
+             * meeting point FORTY KILOMETRES down the ray. The two tests that
+             * follow then pass for nothing: rj*sd is hugely NEGATIVE when the
+             * ray points back into the table, so it is trivially under smeet,
+             * and BEHIND() is true of any point 40 km away. So the boot's rim
+             * came back at 40 km and the ring swept out to it -- a curved
+             * channel leaving the underside of the lip drop, running flat
+             * across the mouth and away to a vanishing point. That is the black
+             * spike, and it is CLUB-only because only there does the bearing
+             * land close enough to the axis for td to collapse.
+             *
+             * A boot rim belongs inside the pocket; the widest honest one is
+             * the shape's own radius. Past that the ray has not met a jaw at
+             * all, and the cloth branch below is the right answer -- which is
+             * what it already does for every other bearing. */
+            if (rj <= b->r * 3.0f
+                && rj * sd <= b->smeet + 1e-6f && BEHIND(cx + rj * dx, cz + rj * dz)) { timber = 1; rim = rj - 0.0002f; }
         }
         if (!timber && sd > 0.0f && r_sh * sd >= b->smeet - 1e-6f
             && BEHIND(cx + r_sh * dx, cz + r_sh * dz)) { timber = 1; rim = r_sh; }
