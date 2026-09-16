@@ -5019,6 +5019,41 @@ void cue_table_derive_cut(CueWorld *w) {
         w->cut_c[p] = v3(C.x + n.x * w->cut_set[i], 0, C.z + n.z * w->cut_set[i]);
         w->cut_r[p] = w->cut_ref[i]  * w->cut_rad[i];
         w->lip_d[p] = w->cut_ref[i]  * w->cut_roll[i];
+
+        /* ---- THE TWO CIRCLES KISS, THEY DO NOT OVERLAP ------------------
+         *
+         * The catch (pocket_r about drop_c) and the cloth cut (cut_r about
+         * cut_c) are the two circles that decide a pocket, and they are meant
+         * to be fitted to each other: "the cut drawn round the pocket can be
+         * fitted to it exactly, and what you watch drop is what the physics
+         * did". They are not. The cut is a FIXED size per table kind --
+         * cut_ref is 1.0 and the rows are absolute metres -- while the catch
+         * grows with the spec rung, so the catch reaches further and further
+         * onto cloth that is still there:
+         *
+         *      UK 8-ball middle, from the pocket's centre toward the table
+         *      rung          catch ends   cloth ends   overlap
+         *      PRO             36.66        36.93       -0.27  (fitted)
+         *      TOURNAMENT      38.99        36.93        2.06
+         *      CLUB            41.95        36.93        5.02
+         *
+         * Five millimetres of cloth on a CLUB table is inside the catch. A
+         * ball resting there is potted by one rule and handed back by the
+         * other -- the escape test below reads the same cut and begins at
+         * 0.2 R past it -- and on CLUB those two thresholds are 0.06 mm apart,
+         * so it flips every substep. That is the ball that sits on a middle's
+         * lip and spins back out.
+         *
+         * So the catch is pushed BACK into the pocket until its edge kisses
+         * the cut's, rather than the cloth being moved to meet it: nothing
+         * visible changes, because the cut is where it always was. What
+         * changes is that the pocket takes the ball when it reaches the hole
+         * instead of while it is still on felt. PRO moves by 0.27 mm. */
+        {   const float back = w->pocket_r[p] - (w->cut_r[p] - w->cut_set[i]);
+            if (back > 0.0f && !w->pocket_bed[p]) {
+                w->drop_c[p] = v3(w->pocket[p].x + w->pmnorm[p].x * back, 0,
+                                  w->pocket[p].z + w->pmnorm[p].z * back);
+            } }
 #ifdef MOTE_HOST
         /* CUE_CUTDBG: the cloth cut against the pocket it belongs to. A middle's
          * cut is a SLAB of half-width cut_r running out to the rail, so if that
