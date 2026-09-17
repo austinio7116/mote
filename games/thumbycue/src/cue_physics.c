@@ -876,7 +876,7 @@ float cue_phys_cush_give(float m, float R)
 }
 
 static CUE_HOT int cushion_impact(const CueWorld *w, CueBall *b, Vec3 n_face,
-                                  float sin_th)
+                                  float sin_th, float give)
 {
     /* The paper's frame: X along the cushion, Y into it, Z up. */
     Vec3 up = v3(0,1,0);
@@ -915,6 +915,19 @@ static CUE_HOT int cushion_impact(const CueWorld *w, CueBall *b, Vec3 n_face,
     float e_v = w->e_cush - w->cush_efall * (vy*sqrtf(1.0f - sin_th*sin_th) + vz*sin_th);
     if (e_v < w->e_cush_min) e_v = w->e_cush_min;
     if (e_v > w->e_cush)     e_v = w->e_cush;
+    /* ...AND HOW MUCH RUBBER IS ACTUALLY BEHIND IT.
+     *
+     * Everything above is the cushion's FULL SECTION, measured on rails. A
+     * pocket facing is a mitre cut across that section, so at the point of a
+     * jaw there is a sliver of rubber on the frame and it cannot give a ball
+     * back what a rail does -- on a real table a ball off the very point dies,
+     * and here it came off like the middle of a cushion.
+     *
+     * `give` is 1 on every rail nose, so this multiply is exactly 1.0 there and
+     * the whole of normal play is arithmetically unchanged. Only a facing
+     * carries anything less, tapering to CUE_JAW_GIVE_TIP at the point. One
+     * multiply, on contact. */
+    if (give > 0.0f && give < 1.0f) e_v *= give;
     const float e2 = e_v * e_v;
     const float muw = w->mu_cush, mus = w->mu_s;
     /* On the cloth the ball is held; in the air there is no second contact. */
@@ -1195,6 +1208,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
      * chain, so the ball sees a single shared normal across the rail↔facing
      * junction instead of bouncing off the kink. Resolved once per step. */
     int best = -1; float best_pen = -1.0f; Vec3 best_n = {0,0,0}, best_sep = {0,0,0};
+    float best_g = 1.0f;   /* rubber depth at the contact, 1 = full: CueSeg::ga */
     for (int s = 0; s < w->nseg; s++) {
         const CueSeg *seg = &w->seg[s];
         Vec3 ab = v3_sub(seg->b, seg->a); ab.y = 0.0f;
@@ -1211,7 +1225,9 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
         /* smooth surface normal interpolated between the segment's vertex normals */
         Vec3 sn = v3_norm(v3_add(v3_scale(seg->na, 1.0f - t), v3_scale(seg->nb, t)));
         float pen = cue_ball_r(w, b) - dist;
-        if (pen > best_pen) { best_pen = pen; best = s; best_n = sn; best_sep = nd; }
+        if (pen > best_pen) { best_pen = pen; best = s; best_n = sn; best_sep = nd;
+                              /* on the same t the normal is lerped on */
+                              best_g = seg->ga + (seg->gb - seg->ga) * t; }
     }
     if (best >= 0) {
         /* Push out only as far as the rubber is not holding it in. A ball in
@@ -1242,7 +1258,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
         float sn     = (nose_y - rise) / cue_ball_r(w, b);        /* + above centre, - below */
         if (sn >  0.95f) sn =  0.95f;
         if (sn < -0.95f) sn = -0.95f;
-        if (cushion_impact(w, b, best_n, sn)) {
+        if (cushion_impact(w, b, best_n, sn, best_g)) {
             hit = 1;
             /* Rule 108 asks whether the last-ball shot went off a SIDE
              * cushion, and only the impact knows which cushion it was: a
@@ -1268,11 +1284,18 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
             const float jvn = -(b->vel.x * N.x + b->vel.z * N.z);
             float jpush = (mind - dist) - b->cush_sink;   /* the knuckle gives too */
             if (jpush > 0.0f) b->pos = v3_add(b->pos, v3_scale(N, jpush));
-            if (collide_surface(w, b, N, w->e_cush, w->mu_cush)) {
+            /* THE KNUCKLE'S OWN DEPTH. This took the cushion's full-section
+             * restitution, and a knuckle is the thinnest rubber on the table --
+             * which is why a ball off the point of a jaw came back like a rail.
+             * jaw_g is 1 where the section is full, so nothing else moves. */
+            {   float je = w->e_cush;
+                if (j < CUE_MAX_SEG && w->jaw_g[j] > 0.0f && w->jaw_g[j] < 1.0f)
+                    je *= w->jaw_g[j];
+            if (collide_surface(w, b, N, je, w->mu_cush)) {
                 hit = 1;
                 if (ev) *ev |= CUE_EV_JAW;
                 if (jvn > s_jaw_vn) s_jaw_vn = jvn;   /* hardest knuckle this step */
-            }
+            } }
         }
     }
     return hit;
@@ -2007,7 +2030,51 @@ static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
          * ball is down — which is a circle about the pocket, so the cut drawn
          * round the pocket can be fitted to it exactly, and what you watch drop
          * is what the physics did. */
-        int in = (q <= w->pocket_r[p] * w->pocket_r[p]);
+        /* ---- THE CATCH IS THE LIP'S OWN SHAPE ---------------------------
+         *
+         * It was a CIRCLE about drop_c, with the cut test below as a backstop.
+         * Two rules for one question, measured differently, and they drift
+         * apart with the pocket: the cut is a fixed size per table kind while
+         * the circle grows with the spec rung, so on a CLUB table the circle
+         * reached 5 mm PAST the cloth's edge, over felt that is still there. A
+         * ball resting in that band was caught by one rule and handed back by
+         * the escape test -- which reads the cut -- and flipped between them
+         * every substep. That is the ball that sits on a middle's lip and spins
+         * back, and no amount of lining the two circles up can stop two rules
+         * disagreeing somewhere; a workshop table can put them anywhere.
+         *
+         * So there is one rule now, and it is the shape you can SEE: the cloth
+         * cut, an arc about cut_c with two straight tangent legs out to the
+         * slate's edges -- a quarter of a circle at a corner, a half at a
+         * middle, cut away by the cushions exactly as it is drawn, because the
+         * renderer walks this identical curve. A ball with no cloth under it is
+         * in the pocket. The escape test reads the same function, so the two
+         * cannot disagree at any pocket size, on any table, ever.
+         *
+         * What the circle was kept for, the jaws now do: "the leak does not
+         * reproduce -- 1044 shots per table at every pocket, speed and angle,
+         * and 16,632 more fired hard from twenty angles... the balls that used
+         * to escape now rattle off the jaws, which is what a jaw is for."
+         *
+         * AND NO HEIGHT TEST, which is worth saying because the obvious worry
+         * is a ball JUMPED along the rail crossing the mouth in the air.
+         *
+         * `drop` is not the pot. It is the HANDOFF from cloth physics to pocket
+         * physics -- the rules take the ball at the bottom of its shaft, much
+         * further down this file -- and BOTH paths run the same gravity. A ball
+         * flying over the cut is handed over, keeps flying and falling exactly
+         * as it would have, never touches a wall or the lip because it is above
+         * them, and the escape test hands it back the moment it is clear over
+         * cloth on the far side. Nothing about it is potted and nothing about
+         * its flight changes.
+         *
+         * So the alternative -- "it must be at cloth height to be caught" --
+         * buys nothing and costs a number nobody can defend: pick it too low
+         * and a ball rattling out of the jaws is refused, too high and the
+         * loophole is still there. The shape is the rule. */
+        const float co = cue_phys_cut_out(w, p, b->pos.x, b->pos.z);
+        int in = (co > 0.0f);
+        (void)q;
 
         /* AND NOTHING ELSE. There was a second test — which side of the line
          * between the two jaw tips the ball was on — put there because a circle
@@ -2041,7 +2108,6 @@ static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
          * which is a ball already through the opening, and now that the cut and
          * the drop have been tuned onto each other it is a fraction of a
          * millimetre of daylight rather than a rule of its own. */
-        if (!in && cue_phys_cut_out(w, p, b->pos.x, b->pos.z) > 0.0f) in = 1;
         if (!in) { if (b->over_hole == (uint8_t)(p + 1)) b->over_hole = 0; continue; }
 
         /* A HOLE IN THE BED IS JUDGED ONCE, ON THE WAY IN. The free-fall sum

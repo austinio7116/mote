@@ -192,8 +192,26 @@ typedef struct {
  * from these. kind: 0 = straight rail nose, 1 = pocket facing/jaw.
  * na/nb are the smooth (vertex-averaged) normals at the a/b ends, so the
  * collision normal can be interpolated along the segment — a continuous normal
- * field across the whole chain (no kink at the rail↔facing junction). */
-typedef struct { Vec3 a, b, n, na, nb; uint8_t kind; } CueSeg;
+ * field across the whole chain (no kink at the rail↔facing junction).
+ *
+ * ga/gb are HOW MUCH RUBBER IS BEHIND each end, 1 = the cushion's full depth,
+ * interpolated along the segment exactly as the normal is. A rail nose is 1 at
+ * both ends and is not touched by this at all. A facing is a straight mitre cut
+ * across a cushion of constant depth, so the rubber behind it thins LINEARLY
+ * from the knuckle -- still the full section -- to the pocket end, where it is
+ * a sliver backed by the frame and gives far less back than the middle of a
+ * rail does. Read at the impact and nowhere else: one lerp and one multiply on
+ * contact, nothing per frame. */
+/* WHAT IS LEFT OF THE CUSHION AT THE VERY POINT OF A JAW, as a fraction of its
+ * full depth. The facing thins to a sliver there and a sliver cannot give a
+ * ball back what a full section does -- on a real table a ball off the point of
+ * a jaw dies, and here it rebounded like the middle of a rail. Applied to the
+ * cushion's restitution only, and only on a facing: a rail nose is 1.0 and is
+ * arithmetically untouched. */
+#ifndef CUE_JAW_GIVE_TIP
+#define CUE_JAW_GIVE_TIP 0.55f
+#endif
+typedef struct { Vec3 a, b, n, na, nb; uint8_t kind; float ga, gb; } CueSeg;
 
 typedef struct {
     /* Ball / cloth. */
@@ -335,6 +353,12 @@ typedef struct {
      * to check this first, because the wrong number looks perfectly plausible. */
     int linked;
     Vec3   jaw[CUE_MAX_SEG]; int njaw; float jaw_r;   /* immovable jaw-tip circles */
+    /* ...and how much rubber is behind each of them, 1 = the cushion's full
+     * depth. THE KNUCKLE IS WHERE A BALL ACTUALLY RATTLES, and it is the
+     * thinnest part of the cushion, so it is the one that has to be graded:
+     * grading the segments alone did nothing at all, because a ball at a jaw
+     * never touches them. See grade_jaws. */
+    float  jaw_g[CUE_MAX_SEG];
     Vec3   pocket[CUE_MAX_POCKET]; float pocket_r[CUE_MAX_POCKET]; int npocket;
     /* EACH POCKET'S OWN CENTRE LINE, pointing out of the pocket, recorded when
      * the pocket is placed.

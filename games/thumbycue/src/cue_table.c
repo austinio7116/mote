@@ -1607,6 +1607,7 @@ static void add_seg(CueWorld *w, Vec3 a, Vec3 b, uint8_t kind) {
     s->b = v3(b.x, w->R, b.z);
     s->n = inward_n(a.x, a.z, b.x, b.z);
     s->kind = kind;
+    s->ga = s->gb = 1.0f;          /* graded later: see grade_jaws */
 }
 static void add_jaw(CueWorld *w, Vec3 k) {
     if (w->njaw >= CUE_MAX_SEG) return;
@@ -1737,6 +1738,18 @@ static void add_mitred(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4,
     /* IN BOUNDARY ORDER, and it has to be: the renderer joins pieces by testing
      * whether one segment's b is the next one's a, walking the array and looking
      * at s-1 and s+1 and nothing else. */
+    /* ---- HOW MUCH RUBBER IS LEFT ALONG A FACING ------------------------
+     *
+     * The facing is a straight mitre cut across a cushion of constant depth, so
+     * what is behind it thins LINEARLY: the full section where it meets the
+     * knuckle, a sliver at the pocket end. A sliver backed by the frame does not
+     * give the way the middle of a rail does, which is why a ball off the very
+     * point of a jaw comes back dead on a real table and came back like a rail
+     * here. The knuckle ARC is the cushion's own corner and keeps the full
+     * section -- it is rounded, not thinned.
+     *
+     * CUE_JAW_GIVE_TIP is what is left at the very point. The nose is 1 and is
+     * not touched at all. */
     if (kn_a) { add_seg(w, P1, a2, 1); add_arc_between(w, c2, a2, b2); }
     add_seg(w, ns, ne, 0);
     if (kn_b) { add_arc_between(w, c3, a3, b3); add_seg(w, b3, P4, 1); }
@@ -3020,6 +3033,95 @@ void cue_table_normalise(CueTable *t) {
     t->bore_set_side   = t->drop_back_side;
 }
 
+/* ---- HOW MUCH RUBBER IS BEHIND EACH POINT OF EVERY JAW -------------------
+ *
+ * MEASURED off the finished boundary, not assumed, and not tied to any one
+ * builder -- a mitred pocket, a curved snooker jaw and an L's notch are all
+ * just segments by the time they get here, and they all need this.
+ *
+ * The cushion is a strip of constant depth whose FRONT face is the rail nose.
+ * A pocket is opened by cutting that strip away, so a jaw point sits RECESSED
+ * behind the nose line and what is left behind it is the depth less that
+ * recess. Measured on a UK 8-ball CLUB corner: the jaw runs back 47.2 mm from
+ * a nose line at z = -0.4950, and the cushion is rail_w * 0.63 = 47.25 mm
+ * deep -- so a jaw really is cut to nothing at its point. That is what makes
+ * this self-normalising: the deepest recess on the table IS the cushion's
+ * depth, so nothing has to be carried in and it is right on every table,
+ * every pocket size and every shape.
+ *
+ * Build-time only: a few hundred jaw points against six noses, once. The
+ * impact reads one lerped number (CueSeg::ga) and multiplies by it. */
+static void grade_jaws(CueWorld *w) {
+    float deepest = 0.0f;
+    /* how far behind the nearest rail nose each jaw end sits */
+    for (int i = 0; i < w->nseg; i++) {
+        if (w->seg[i].kind == 0) continue;
+        const Vec3 e[2] = { w->seg[i].a, w->seg[i].b };
+        float r[2] = { 1e30f, 1e30f };
+        for (int j = 0; j < w->nseg; j++) {
+            if (w->seg[j].kind != 0) continue;
+            const CueSeg *n = &w->seg[j];
+            for (int k = 0; k < 2; k++) {
+                float d = (e[k].x - n->a.x) * n->n.x + (e[k].z - n->a.z) * n->n.z;
+                if (d < 0.0f) d = -d;
+                if (d < r[k]) r[k] = d;
+            }
+        }
+        for (int k = 0; k < 2; k++) if (r[k] < 1e29f && r[k] > deepest) deepest = r[k];
+    }
+    /* the jaw-tip circles are measured the same way, and they matter MORE:
+     * that is the collider a ball meets at a knuckle */
+    for (int j = 0; j < w->njaw; j++) {
+        float best = 1e30f;
+        for (int i = 0; i < w->nseg; i++) {
+            if (w->seg[i].kind != 0) continue;
+            const CueSeg *n = &w->seg[i];
+            float d = (w->jaw[j].x - n->a.x) * n->n.x + (w->jaw[j].z - n->a.z) * n->n.z;
+            if (d < 0.0f) d = -d;
+            if (d < best) best = d;
+        }
+        if (best < 1e29f && best > deepest) deepest = best;
+    }
+    if (deepest <= 1e-6f) {                       /* no jaws: nothing to grade */
+        for (int j = 0; j < w->njaw; j++) w->jaw_g[j] = 1.0f;
+        return;
+    }
+    for (int j = 0; j < w->njaw; j++) {
+        float best = 1e30f;
+        for (int i = 0; i < w->nseg; i++) {
+            if (w->seg[i].kind != 0) continue;
+            const CueSeg *n = &w->seg[i];
+            float d = (w->jaw[j].x - n->a.x) * n->n.x + (w->jaw[j].z - n->a.z) * n->n.z;
+            if (d < 0.0f) d = -d;
+            if (d < best) best = d;
+        }
+        float g = 1.0f - (best < 1e29f ? best : 0.0f) / deepest;
+        if (g < CUE_JAW_GIVE_TIP) g = CUE_JAW_GIVE_TIP;
+        if (g > 1.0f) g = 1.0f;
+        w->jaw_g[j] = g;
+    }
+    for (int i = 0; i < w->nseg; i++) {
+        CueSeg *sg = &w->seg[i];
+        if (sg->kind == 0) { sg->ga = sg->gb = 1.0f; continue; }
+        const Vec3 e[2] = { sg->a, sg->b };
+        float g[2] = { 1.0f, 1.0f };
+        for (int k = 0; k < 2; k++) {
+            float best = 1e30f;
+            for (int j = 0; j < w->nseg; j++) {
+                if (w->seg[j].kind != 0) continue;
+                const CueSeg *n = &w->seg[j];
+                float d = (e[k].x - n->a.x) * n->n.x + (e[k].z - n->a.z) * n->n.z;
+                if (d < 0.0f) d = -d;
+                if (d < best) best = d;
+            }
+            g[k] = 1.0f - (best < 1e29f ? best : 0.0f) / deepest;
+            if (g[k] < CUE_JAW_GIVE_TIP) g[k] = CUE_JAW_GIVE_TIP;
+            if (g[k] > 1.0f) g[k] = 1.0f;
+        }
+        sg->ga = g[0]; sg->gb = g[1];
+    }
+}
+
 static void smooth_seg_normals(CueWorld *w) {
     /* Smooth vertex normals: at each endpoint shared with a neighbouring
      * segment, average the two face normals so the collision normal can be
@@ -3472,6 +3574,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     }
 
     smooth_seg_normals(w);
+    grade_jaws(w);
 
 
     /* ---- each pocket's mouth, from the two jaw tips beside it ------------ */
@@ -3529,7 +3632,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
             moved |= cue_table_clear_bore(w, &w->seg[s].a.x, &w->seg[s].a.z);
             moved |= cue_table_clear_bore(w, &w->seg[s].b.x, &w->seg[s].b.z);
         }
-        if (moved) smooth_seg_normals(w);
+        if (moved) { smooth_seg_normals(w); grade_jaws(w); }
     }
 
     /* THE CUT IS NOT THE POCKET SIZE, and tying it to pr_* meant it was.
