@@ -1422,6 +1422,63 @@ float cue_phys_bag_r(const CueWorld *w, int pk, float y) {
     return rm + (rg - rm) * t;
 }
 
+#ifdef MOTE_HOST
+/* CUE_LIPE: WHICH STAGE OF A DROP CREATES ENERGY.
+ *
+ * Cloth, leather and cord can only take energy away. A ball over a pocket that
+ * has more of it after a substep than before was pushed, and the only question
+ * worth asking is BY WHAT -- the mote solve against the drawn lip, the analytic
+ * fall, or the cut's own face. Three days went into measuring the end state
+ * instead, and the end state is the wrong thing to watch: a ball can be handed
+ * a millijoule and still settle, so "it came to rest" proves nothing.
+ *
+ * Set CUE_LIPE to a threshold in J/kg (3e-4 is a good floor) and every stage
+ * that adds more than that prints its name, what the ball gained, and where it
+ * was. Split into height, speed and spin, because which of the three grew says
+ * what did it: height is a lift, spin alone is the friction solve gearing the
+ * ball, speed is a push. */
+static float cue_phys_ball_e(const CueWorld *w, const CueBall *b) {
+    const float R = cue_ball_r(w, b);
+    const float I = 0.4f * R * R;
+    return 0.5f * (b->vel.x*b->vel.x + b->vel.y*b->vel.y + b->vel.z*b->vel.z)
+         + 0.5f * I * (b->w.x*b->w.x + b->w.y*b->w.y + b->w.z*b->w.z)
+         + 9.806f * b->pos.y;
+}
+static float s_lipe_thresh = -1.0f;
+static int cue_phys_lipe_on(void) {
+    if (s_lipe_thresh < 0.0f) {
+        const char *e = getenv("CUE_LIPE");
+        s_lipe_thresh = e ? (float)atof(e) : 0.0f;
+    }
+    return s_lipe_thresh > 0.0f;
+}
+static void cue_phys_lipe(const CueWorld *w, int pk, const CueBall *b,
+                   const char *stage, float e0, const Vec3 *p0,
+                   const Vec3 *v0, const Vec3 *w0) {
+    if (!cue_phys_lipe_on()) return;
+    const float e1 = cue_phys_ball_e(w, b);
+    if (e1 - e0 <= s_lipe_thresh) return;
+    const float R = cue_ball_r(w, b), I = 0.4f * R * R;
+    const float dh = 9.806f * (b->pos.y - p0->y);
+    const float dv = 0.5f * ((b->vel.x*b->vel.x + b->vel.y*b->vel.y + b->vel.z*b->vel.z)
+                           - (v0->x*v0->x + v0->y*v0->y + v0->z*v0->z));
+    const float dw = 0.5f * I * ((b->w.x*b->w.x + b->w.y*b->w.y + b->w.z*b->w.z)
+                               - (w0->x*w0->x + w0->y*w0->y + w0->z*w0->z));
+    fprintf(stderr, "[lip] pk%d %-10s gain %9.3e = height %9.3e + speed %9.3e + spin %9.3e"
+                    "  y %8.5f  cut_out %8.5f  |v| %6.4f\n",
+            pk, stage, (double)(e1 - e0), (double)dh, (double)dv, (double)dw,
+            (double)b->pos.y,
+            (double)cue_phys_cut_out(w, pk, b->pos.x, b->pos.z),
+            (double)sqrtf(b->vel.x*b->vel.x + b->vel.z*b->vel.z));
+}
+#define LIPE_BEFORE(w,b) const float _e0 = cue_phys_lipe_on() ? cue_phys_ball_e(w,b) : 0.0f; \
+                         const Vec3 _p0 = (b)->pos, _v0 = (b)->vel, _w0 = (b)->w
+#define LIPE_AFTER(w,pk,b,name) cue_phys_lipe(w,pk,b,name,_e0,&_p0,&_v0,&_w0)
+#else
+#define LIPE_BEFORE(w,b) ((void)0)
+#define LIPE_AFTER(w,pk,b,name) ((void)0)
+#endif
+
 /* THE WALLS OF A POCKET, for one substep, on the ball itself (cue_physics.h). */
 void cue_phys_drop_walls(const CueWorld *w, int pk, CueBall *b, float h) {
     if (pk < 0 || pk >= w->npocket) return;
@@ -2437,7 +2494,13 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * 2026-09-02; it was never natural on any table). A pocket does
              * nothing to a ball but stop holding it up. So: gravity, a little
              * drag from the leather, and the walls below. */
-            if (!cue_phys_drop_mesh(w, pk, b, h)) cue_phys_drop_fall(w, b, h);
+            {   LIPE_BEFORE(w, b);
+                if (!cue_phys_drop_mesh(w, pk, b, h)) {
+                    LIPE_AFTER(w, pk, b, "drop_mesh0");
+                    LIPE_BEFORE(w, b);
+                    cue_phys_drop_fall(w, b, h);
+                    LIPE_AFTER(w, pk, b, "drop_fall");
+                } else LIPE_AFTER(w, pk, b, "drop_mesh"); }
 
             /* AND THE LIP IS STILL UNDER IT. The cloth rolls over the edge in a
              * quarter circle of radius `ld`, so a ball on that roll has its
@@ -2646,7 +2709,9 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * what takes the pace off a firm pot and drops it in rather than
              * letting it through, and it is the same surface the ball rattles
              * off when it does not go. What it meets is below. */
-            cue_phys_drop_walls(w, pk, b, h);
+            {   LIPE_BEFORE(w, b);
+                cue_phys_drop_walls(w, pk, b, h);
+                LIPE_AFTER(w, pk, b, "drop_walls"); }
             /* RATTLED OUT. A centre a fifth of a ball back over the cloth,
              * at cloth height, is a ball on the table again: it came off
              * the far jaw and climbed out, which happens. The drop is
@@ -2656,8 +2721,33 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
              * into the pocket again" (2026-09-03). The fifth is hysteresis
              * against a ball creeping along the edge. */
             {   const float Rb = cue_ball_r(w, b);
+                const float co = cue_phys_cut_out(w, pk, b->pos.x, b->pos.z);
+                /* ...AND A BALL THAT NEVER SANK IS SIMPLY ON THE CLOTH.
+                 *
+                 * The fifth of a ball above is hysteresis, and it is the right
+                 * idea for a ball that has already dropped below the bed: that
+                 * one really is in the pocket and must not flicker back out.
+                 * Applied to a ball still AT CLOTH HEIGHT it does the opposite
+                 * of what it is for -- it holds a ball that is standing on
+                 * whole cloth, outside the cut, in the pocket's world, where
+                 * the drawn cloth lip is a surface under it and the solver
+                 * resolves the overlap by LIFTING it.
+                 *
+                 * Measured on a 10 ft CLUB snooker middle, a ball run slowly
+                 * across the mouth: 1553 substeps gained energy, 89% of them
+                 * with the ball's centre between 25.75 and 26.19 mm against a
+                 * 26.25 mm radius -- on the cloth, to a tenth of a millimetre
+                 * -- and three quarters of the gain was HEIGHT. 97% of the
+                 * ones outside the cut were inside this very band. The ball
+                 * was being geared: speed out, spin and lift in. That is
+                 * "running perfectly across the lip very slow".
+                 *
+                 * So the band applies to a ball that has sunk, and a ball that
+                 * has not sunk goes back to the bed the moment it has cloth
+                 * under it again. Nothing changes for a pot: a ball on its way
+                 * in is INSIDE the cut, where co > 0 and neither test fires. */
                 if (b->pos.y > -ld &&
-                    cue_phys_cut_out(w, pk, b->pos.x, b->pos.z) < -0.2f * Rb) {
+                    (co < -0.2f * Rb || (co <= 0.0f && b->pos.y >= Rb - 1.0e-4f))) {
                     b->drop = 0.0f;
                     if (b->pos.y < Rb) { b->pos.y = Rb; if (b->vel.y < 0.0f) b->vel.y = 0.0f; }
                     continue;
