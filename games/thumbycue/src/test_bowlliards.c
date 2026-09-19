@@ -103,6 +103,17 @@ static void scratch(void) {
     host();
 }
 
+/* ONE DELIVERY OFF THE CARD, decoded the way cue_rules.c packs it. A frame's
+ * SCORE is no use for reading a strike back: a bowler's box stays blank until
+ * the two deliveries its bonus reaches forward to have been made, so
+ * R.score is still nought at the moment the strike is thrown. The pinfall is
+ * on the card, and that is what these read. */
+static int card(int who, int slot) {
+    const int v = (slot & 1) ? (R.bw_pins[who][slot >> 1] & 0x0F)
+                             : (R.bw_pins[who][slot >> 1] >> 4);
+    return (v == 0x0F) ? -1 : v;
+}
+
 static void fresh(void) {
     cue_table_init(&T, CUE_GAME_BOWLLIARDS);
     cue_table_build_world(&T, &W);
@@ -341,6 +352,85 @@ int main(void) {
       while (!R.frame_over && guard++ < 400) play_frame(0, 0);
       ok(guard < 400,                    "sudden death between two idle seats ends");
       ok(R.frame_over && R.winner < 0,   "...and it ends drawn, with no winner"); }
+
+    /* ---- CANADIAN HOUSE RULES ------------------------------------------
+     *
+     * Three differences, and each one is tested against the same stroke played
+     * under the book, so what is being measured is the VARIANT and not the
+     * scorer. */
+    printf("\n  canadian\n");
+
+    /* 1. THE BREAK'S BALLS STAY DOWN, AND THEY SCORE. */
+    fresh();
+    cue_rules_set_bowl(&R, CUE_BOWL_CANADIAN);
+    take(3, 1); take(5, 1);
+    { int p[2]; p[0] = 3; p[1] = 5;
+      cue_rules_resolve(&R, B, NB, &W, 1, 0, 1, p, 2); }
+    ok(R.respot == 0,                    "nothing potted on the break is spotted");
+    host();
+    ok(on_table() == 8,                  "...they stay down");
+    ok(R.bw_inning == 1 && R.bw_frame[0] == 0, "the break is still not an inning");
+    /* The card is not scored until the frame closes -- a bowler's box stays
+     * blank -- so the pinfall is read off the delivery rather than the total. */
+    ok(card(0, 0) == 2,                  "...and open the frame's first delivery");
+    pot_n(8);
+    ok(card(0, 0) == 10,                 "eight more and the first delivery is ten: a strike");
+    ok(R.bw_frame[0] == 1,               "...which closes the frame");
+
+    /* ...and under the book the same break scores nothing. */
+    fresh();
+    take(3, 1); take(5, 1);
+    { int p[2]; p[0] = 3; p[1] = 5;
+      cue_rules_resolve(&R, B, NB, &W, 1, 0, 1, p, 2); }
+    ok(R.respot == 2,                    "under the book both are spotted");
+    host();
+    ok(on_table() == 10,                 "...and the rack is whole again");
+
+    /* 2. THE WHITE IS PLAYED WHERE IT LIES AFTER THE BREAK. */
+    fresh();
+    cue_rules_set_bowl(&R, CUE_BOWL_CANADIAN);
+    cue_rules_resolve(&R, B, NB, &W, 1, 0, 1, NULL, 0);
+    ok(!R.ball_in_hand,                  "after the break the white stays where it stopped");
+    /* ...unless it went down, and that is all a break scratch costs. */
+    fresh();
+    cue_rules_set_bowl(&R, CUE_BOWL_CANADIAN);
+    take(3, 1);
+    { int p[1]; p[0] = 3;
+      cue_rules_resolve(&R, B, NB, &W, 1, 1, 1, p, 1); }
+    ok(R.ball_in_hand,                   "a scratch on the break gives the white back");
+    host();
+    ok(on_table() == 9,                  "...and the ball it potted still stays down");
+    pot_n(9);
+    ok(card(0, 0) == 10,                 "...and still counts: a break scratch costs the position only");
+
+    /* 3. A NO-CUSHION FOUL DOES NOT HAND THE WHITE OVER. */
+    fresh();
+    cue_rules_set_bowl(&R, CUE_BOWL_CANADIAN);
+    brk();
+    { const int id = lowest_on();
+      cue_rules_call_shot(&R, id, 1);
+      cue_rules_resolve(&R, B, NB, &W, id, 0, 0, NULL, 0);   /* hit, no cushion */
+      host(); }
+    ok(R.last_foul,                      "failing to reach a cushion is still a foul");
+    ok(R.bw_inning == 2,                 "...and still ends the inning");
+    ok(!R.ball_in_hand,                  "...but the white is played where it lies");
+
+    /* ...where the book hands it over. */
+    fresh();
+    brk();
+    { const int id = lowest_on();
+      cue_rules_call_shot(&R, id, 1);
+      cue_rules_resolve(&R, B, NB, &W, id, 0, 0, NULL, 0);
+      host(); }
+    ok(R.last_foul && R.ball_in_hand,    "under the book the same foul gives it back");
+
+    /* A scratch hands it over under either, which is the line the variant
+     * does NOT move. */
+    fresh();
+    cue_rules_set_bowl(&R, CUE_BOWL_CANADIAN);
+    brk();
+    scratch();
+    ok(R.last_foul && R.ball_in_hand,    "a scratch still gives the white back, Canadian or not");
 
     printf(fails ? "\n%d FAILED\n" : "\nall good\n", fails);
     return fails != 0;

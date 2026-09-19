@@ -786,6 +786,12 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t) {
     r->turn = first;
 }
 
+void cue_rules_set_bowl(CueRules *r, int ruleset) {
+    if (!r) return;
+    r->bw_canadian = (ruleset == CUE_BOWL_CANADIAN) ? CUE_BOWL_CANADIAN
+                                                    : CUE_BOWL_BCA;
+}
+
 void cue_rules_set_uk(CueRules *r, int ruleset) {
     if (!r) return;
     if (ruleset < CUE_UK_PUB || ruleset > CUE_UK_BLACKBALL) ruleset = CUE_UK_PUB;
@@ -2466,24 +2472,68 @@ static void resolve_bowlliards(CueRules *r, CueBall *b, int n, const CueWorld *w
                               back++; } while (0)
 
     if (was_break) {
-        /* THE FREE BREAK. No cushion requirement, no penalty for the cue ball
-         * going down or off, and nothing on it scores. There is no foul to
-         * find, so none is looked for. */
-        for (int k = 0; k < np; k++)
-            if (potted[k] != CUE_ID_CUE) BW_SPOT(potted[k]);
+        /* THE FREE BREAK. No cushion requirement and no penalty for the cue
+         * ball going down or off. There is no foul to find, so none is looked
+         * for; what differs between the two rule sets is what becomes of the
+         * balls it pots, and of the white.
+         *
+         * UNDER THE BOOK nothing on the break scores and every ball it pots is
+         * spotted, because scoring it would put an eleventh delivery on a
+         * ten-delivery card with no box to write it in.
+         *
+         * CANADIAN KEEPS THEM DOWN. They are not a delivery of their own --
+         * they OPEN the frame's first one, and the striker then plays that
+         * inning and adds to it, so the card still has ten boxes. The white is
+         * played from wherever it stopped.
+         *
+         * (A break that cleared all ten would write a ten into the first box,
+         * which reads as a strike, and the striker would still be at the table
+         * with nothing to pot -- ending the inning on his next stroke. It
+         * cannot happen off a ten-ball rack and is not special-cased.) */
+        int down = 0;
+        for (int k = 0; k < np; k++) {
+            if (potted[k] == CUE_ID_CUE) continue;
+            if (r->bw_canadian) down++;         /* it stays where it fell */
+            else                BW_SPOT(potted[k]);
+        }
         r->respot = back;
         r->last_foul = 0;
         r->cfoul[me] = 0;
+        if (r->bw_canadian) {
+            const int bf = r->bw_frame[me];
+            if (bf >= 10) {
+                r->bw_sd[me] = (unsigned char)((r->bw_sd[me] == 0xFF ? 0 : r->bw_sd[me])
+                                               + down);
+            } else {
+                const int slot = BW_SLOT(bf, 0);
+                const int sofar = bw_get(r, me, slot);
+                bw_put(r, me, slot, (sofar < 0 ? 0 : sofar) + down);
+            }
+            r->score[0] = bw_score(r, 0, 9);
+            r->score[1] = bw_score(r, 1, 9);
+            /* ONLY GOING DOWN PUTS IT BACK IN HAND, and that is the whole of
+             * what a break scratch costs: the position, never the pinfall. */
+            r->ball_in_hand = scratch ? 1 : 0;
+            if (down) snprintf(r->msg, sizeof r->msg, "BREAK - %d DOWN", down);
+            else      snprintf(r->msg, sizeof r->msg, "BREAK");
+            return;
+        }
         r->ball_in_hand = 1;                    /* in hand behind the head string */
         snprintf(r->msg, sizeof r->msg, "BREAK");
         return;
     }
 
-    int foul = 0; const char *why = "";
-    if (first_hit < 0)        { foul = 1; why = "NO BALL HIT"; }
-    else if (scratch)         { foul = 1; why = "SCRATCH"; }
-    else if (r->n_off)        { foul = 1; why = "OFF THE TABLE"; }
-    else if (!np && !cushion) { foul = 1; why = "NO CUSHION"; }
+    /* WHICH FOULS HAND THE WHITE OVER, as well as which strokes are fouls.
+     * Under the book every foul ends the inning and the next one is played in
+     * hand behind the head string. Canadian keeps that for a white that has
+     * left the table, and for a stroke that hit nothing at all -- but a stroke
+     * that merely failed to reach a cushion leaves the balls, and the white,
+     * exactly where they lie. */
+    int foul = 0, bih = 0; const char *why = "";
+    if (first_hit < 0)        { foul = 1; bih = 1; why = "NO BALL HIT"; }
+    else if (scratch)         { foul = 1; bih = 1; why = "SCRATCH"; }
+    else if (r->n_off)        { foul = 1; bih = 1; why = "OFF THE TABLE"; }
+    else if (!np && !cushion) { foul = 1; bih = !r->bw_canadian; why = "NO CUSHION"; }
 
     /* WAS THE CALL MADE? CueBall.pocket carries the pocket the ball fell in,
      * which is what makes calling a pocket enforceable rather than an honour
@@ -2578,7 +2628,7 @@ static void resolve_bowlliards(CueRules *r, CueBall *b, int n, const CueWorld *w
              * and no ball in hand either unless the inning ended on a foul —
              * missing a pot is not an offence and does not buy the striker a
              * better cue ball than the one he left himself. */
-            r->ball_in_hand = foul ? 1 : 0;
+            r->ball_in_hand = bih ? 1 : 0;
         }
         r->brk += scored;
         if (foul) snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);

@@ -461,6 +461,12 @@ typedef struct {
     uint8_t bw_frame[2];         /* 0..9, 10 for a full card, higher in sudden death */
     uint8_t bw_inning;           /* 1..3 — the delivery in progress */
     uint8_t bw_sd[2];            /* sudden-death pinfall, 0xFF = not yet */
+    /* CANADIAN HOUSE RULES, which is a real variant and not a setting: the
+     * break's balls stay down and score, the white is played from where it
+     * stopped, and a stroke that reached no cushion is a foul that does not
+     * hand the white over. See resolve_bowlliards. A byte, in the padding
+     * after bw_sd, because the whole struct crosses the wire once a shot. */
+    uint8_t bw_canadian;         /* CUE_BOWL_* */
 
     /* ---- CRIBBAGE POOL ---------------------------------------------------
      *
@@ -708,6 +714,10 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu);
  * doing it, and it is lost — the golden duck. Everything else is identical to
  * International, which is why it is a flag on top of it rather than a third
  * body of rules. */
+/* BOWLLIARDS, under the book or under Canadian house rules. */
+enum { CUE_BOWL_BCA = 0, CUE_BOWL_CANADIAN = 1 };
+void cue_rules_set_bowl(CueRules *r, int ruleset);   /* CUE_BOWL_* */
+
 enum { CUE_UK_PUB = 0, CUE_UK_INTL = 1, CUE_UK_ULTIMATE = 2,
        CUE_UK_BLACKBALL = 3 };   /* WPA Blackball Rules 2005 */
 
