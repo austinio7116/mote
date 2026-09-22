@@ -323,6 +323,22 @@ if(MOTE_TARGET STREQUAL "host")
 
     endif()  # NOT WIN32 (cue-sports simulation tests)
 
+    if(NOT WIN32)
+    # Grand Thumb Auto III: the draw-distance cone, checked without a renderer.
+    # If this is wrong the city either has holes in it or blows the triangle
+    # budget, and neither is diagnosable by looking at a 128x128 screen.
+    add_executable(gta3_test_view
+        games/grandthumbauto3/src/test_view.c
+        games/grandthumbauto3/src/gta3_view.c)
+    target_include_directories(gta3_test_view PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/grandthumbauto3/src)
+    target_compile_definitions(gta3_test_view PRIVATE MOTE_HOST=1)
+    target_compile_options(gta3_test_view PRIVATE -O2 -Wall -Wextra
+        -Wno-unused-parameter)
+    target_link_libraries(gta3_test_view PRIVATE m)
+    endif()  # NOT WIN32 (Grand Thumb Auto III module tests)
+
     # CueVR — the mixed-reality cue-sports game — lives in its own repository:
     #   https://github.com/austinio7116/CueVR   (private)
     #
