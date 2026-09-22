@@ -367,6 +367,20 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_options(gta3_test_camera PRIVATE -O2 -Wall -Wextra
         -Wno-unused-parameter)
     target_link_libraries(gta3_test_camera PRIVATE m)
+
+    # Grand Thumb Auto III: vehicle silhouettes. An inward normal is an
+    # invisible car and a cabin inside the body is a brick — neither is
+    # diagnosable at 128x128 with a car six pixels long.
+    add_executable(gta3_test_veh
+        games/grandthumbauto3/src/test_veh.c
+        games/grandthumbauto3/src/gta3_veh.c)
+    target_include_directories(gta3_test_veh PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/grandthumbauto3/src)
+    target_compile_definitions(gta3_test_veh PRIVATE MOTE_HOST=1)
+    target_compile_options(gta3_test_veh PRIVATE -O2 -Wall -Wextra
+        -Wno-unused-parameter)
+    target_link_libraries(gta3_test_veh PRIVATE m)
     endif()  # NOT WIN32 (Grand Thumb Auto III module tests)
 
     # CueVR — the mixed-reality cue-sports game — lives in its own repository:
