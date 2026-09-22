@@ -3448,14 +3448,24 @@ static int is_mission_car(int i){
 static void stream_entities(float dt) {
     if (g_dm) return;              /* DM: index-shared world — nothing recycles */
     float px=pl_x(), pz=pl_z();
-    /* Traffic/ped density below still wants a rough "how much world is visible"
-     * radius. The old top-down camera's smoothed height (g_camh) served that;
-     * the chase camera's height doesn't mean the same thing, so estimate the
-     * same quantity directly from speed instead: 15 m on foot, widening to
-     * 40 m at CAM_SPD, matching the old CAM_FOOT..CAM_MAX range. */
-    float g_camh = 15.0f;
-    if (player.mode==MODE_CAR)
-        g_camh = 15.0f + (40.0f-15.0f) * mote_clampf(fabsf(cars[player.car].spd)/CAM_SPD, 0.0f, 1.0f);
+    /* The entity streamer sizes its spawn bubble from how much of the city is
+     * visible. That used to be the top-down camera's smoothed height, which the
+     * chase camera deleted. Reproduce the OLD curve exactly — 15 m on foot, 21 m
+     * in a stationary car, ramping to 40 m at CAM_SPD — so traffic and ped
+     * density keep their tuned values. This is deliberately a fossil of a camera
+     * that no longer exists; Task 5 reconciles it against the real draw
+     * distances (VIEW_GROUND_R / VIEW_BLD_R) once those exist.
+     *
+     * The old value was also lerped toward its target at 2.5/s. That is NOT
+     * reproduced here: the density logic below has its own 0.8 s timer and
+     * recycles only off-screen entities, so a ~0.4 s lag on this estimate has no
+     * observable effect, and Task 5 replaces the estimate outright. */
+    float vis_h = 15.0f;                                    /* old CAM_FOOT */
+    if (player.mode == MODE_CAR) {
+        float s = fabsf(cars[player.car].spd);
+        vis_h = 21.0f + (40.0f - 21.0f) * (s / CAM_SPD);     /* old CAM_CAR..CAM_MAX */
+        if (vis_h > 40.0f) vis_h = 40.0f;
+    }
     for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
         if (!c->alive || i==player.car || c->driver==DRV_COP || c->type==VEH_TANK) continue;
         if (is_mission_car(i)) continue;      /* the job's own cars are exempt from recycling */
@@ -3478,13 +3488,13 @@ static void stream_entities(float dt) {
     s_denst -= dt;
     if (s_denst <= 0){
         s_denst = 0.8f;
-        int R=(int)(g_camh*0.62f/TILE)+3; if(R>11) R=11;      /* ~visible radius, in tiles */
+        int R=(int)(vis_h*0.62f/TILE)+3; if(R>11) R=11;      /* ~visible radius, in tiles */
         int cx=(int)(px/TILE), cz=(int)(pz/TILE), rt=0;
         for (int z=cz-R; z<=cz+R; z++) for (int x=cx-R; x<=cx+R; x++) if (is_drivable(x,z)) rt++;
         int target = rt/7; if(target<3) target=3; if(target>10) target=10;
         int nn=0; for (int i=0;i<NCAR;i++) if(cars[i].alive && cars[i].driver==DRV_NPC) nn++;
 #ifdef MOTE_HOST
-        if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[DENS] R=%d rt=%d target=%d nn=%d camh=%.0f\n",R,rt,target,nn,g_camh);
+        if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[DENS] R=%d rt=%d target=%d nn=%d camh=%.0f\n",R,rt,target,nn,vis_h);
 #endif
         if (nn < target){                                      /* grow: revive a dead slot off-screen */
             for (int i=0;i<NCAR;i++) if(!cars[i].alive){ respawn_npc(i); break; }
@@ -3498,7 +3508,7 @@ static void stream_entities(float dt) {
     }
     /* peds stream in a ring JUST outside the current view (scales with zoom), so streets
      * ahead are already populated — not 50 m away where they were never seen again. */
-    { float vis = g_camh*0.82f + 3.0f;                       /* ~visible diagonal radius */
+    { float vis = vis_h*0.82f + 3.0f;                       /* ~visible diagonal radius */
       float rmin = vis + 2.0f, rmax = vis + 14.0f;
       for (int i=0;i<NPED;i++){ Ped*p=&peds[i];
         if (!p->alive) continue;
