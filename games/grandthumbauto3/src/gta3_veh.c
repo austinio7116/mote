@@ -11,16 +11,16 @@ static const unsigned char SIL[19] = {
     GTA3_SIL_COMPACT,  /*  1 COMPACT    */
     GTA3_SIL_WEDGE,    /*  2 COUPE      */
     GTA3_SIL_WEDGE,    /*  3 SPORTS     */
-    GTA3_SIL_WEDGE,    /*  4 RACER      */
+    GTA3_SIL_RACER,    /*  4 RACER      */
     GTA3_SIL_LONGHOOD, /*  5 MUSCLE     */
     GTA3_SIL_COMPACT,  /*  6 HOTHATCH   */
     GTA3_SIL_LONGHOOD, /*  7 CLASSIC    */
     GTA3_SIL_WEDGE,    /*  8 CLASSICSPT */
-    GTA3_SIL_SEDAN,    /*  9 LUXURY     */
+    GTA3_SIL_LUXURY,   /*  9 LUXURY     */
     GTA3_SIL_WAGON,    /* 10 WAGON      */
     GTA3_SIL_VAN,      /* 11 VAN        */
-    GTA3_SIL_VAN,      /* 12 PICKUP     */
-    GTA3_SIL_WAGON,    /* 13 JEEP       */
+    GTA3_SIL_PICKUP,   /* 12 PICKUP     */
+    GTA3_SIL_JEEP,     /* 13 JEEP       */
     GTA3_SIL_SEDAN,    /* 14 TAXI       */
     GTA3_SIL_SEDAN,    /* 15 POLICE     */
     GTA3_SIL_TRUCK,    /* 16 AMBULANCE  */
@@ -50,6 +50,10 @@ static const Sil SILDEF[GTA3_SIL_N] = {
     /* WAGON    */ { 40, 74, -55,  55, 90 },
     /* VAN      */ { 46, 96, -80,  70, 94 },
     /* TRUCK    */ { 44, 88, -30,  80, 92 },
+    /* LUXURY   */ { 32, 58, -62,  30, 88 },   /* longer bonnet, lower roof than SEDAN */
+    /* RACER    */ { 24, 42, -46,  18, 82 },   /* lowest of the lot, shallow glasshouse */
+    /* PICKUP   */ { 38, 74, -18,  62, 90 },   /* cab over the front half; bed behind is bare body */
+    /* JEEP     */ { 44, 86, -60,  58, 92 },   /* short and tall, near-vertical glass */
 };
 
 void gta3_box(MeshVert *v, MeshFace *f, int *nf,
@@ -76,12 +80,25 @@ void gta3_veh_build(Gta3VehMesh *m, int sil) {
     const Sil *s = &SILDEF[sil];
     int nf;
 
-    gta3_box(m->bv, m->bf, &nf, -127, 127, 0, s->body_h, -127, 127);
+    /* 118, not 127: the wheel slab below runs to the int8 limit at 127 so it sits
+     * PROUD of the bodywork, which is what reads as a tyre track. The body being
+     * a few percent narrower than the track is also true of real cars. */
+    gta3_box(m->bv, m->bf, &nf, -118, 118, 0, s->body_h, -127, 127);
     m->body = (Mesh){ .verts=m->bv, .faces=m->bf, .nverts=8, .nfaces=nf,
                       .scale=1.0f, .bound_r=1.8f, .color=0xFFFF };
 
-    int cw = (127 * s->cab_w) / 100;
+    int cw = (118 * s->cab_w) / 100;   /* cab_w is a fraction of the BODY half-width */
     gta3_box(m->cv, m->cf, &nf, -cw, cw, s->body_h, s->cab_top, s->cab_z0, s->cab_z1);
     m->cabin = (Mesh){ .verts=m->cv, .faces=m->cf, .nverts=8, .nfaces=nf,
                        .scale=1.0f, .bound_r=1.8f, .color=MOTE_RGB565(40,46,60) };
+
+    /* Wheel line: one slab, proud of the body in x and hanging below it, so from
+     * the chase camera it reads as the tyre track and the dark gap under the sill.
+     * Inset in z so it stops short of the bumpers rather than running the full
+     * length. It does NOT dip below y=0: the road is a flat quad at y=0, so
+     * anything under that is simply buried. 12 triangles — a box per corner
+     * would be 48, and at 18 live cars that alone exceeds max_tris. */
+    gta3_box(m->wv, m->wf, &nf, -127, 127, 0, 16, -96, 96);
+    m->wheels = (Mesh){ .verts=m->wv, .faces=m->wf, .nverts=8, .nfaces=nf,
+                        .scale=1.0f, .bound_r=1.8f, .color=MOTE_RGB565(24,24,28) };
 }

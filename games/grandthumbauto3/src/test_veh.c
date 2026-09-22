@@ -156,11 +156,21 @@ int main(void) {
         Gta3VehMesh m;
         gta3_veh_build(&m, s);
 
-        ok(m.body.nfaces == 12 && m.cabin.nfaces == 12, "both boxes have 12 faces");
+        ok(m.body.nfaces == 12 && m.cabin.nfaces == 12 && m.wheels.nfaces == 12,
+           "all three boxes have 12 faces");
         ok(normals_outward(m.bv, m.bf, 12), "body normals point outward");
         ok(normals_outward(m.cv, m.cf, 12), "cabin normals point outward");
+        ok(normals_outward(m.wv, m.wf, 12), "wheel normals point outward");
         ok(all_faces_screen_ok(m.bv, m.bf, 12), "body faces are front-facing in screen space");
         ok(all_faces_screen_ok(m.cv, m.cf, 12), "cabin faces are front-facing in screen space");
+        ok(all_faces_screen_ok(m.wv, m.wf, 12), "wheel faces are front-facing in screen space");
+        /* The wheel slab only reads as a tyre track if it is PROUD of the body in x
+         * and does not dip below the road plane at y=0. Both are easy to lose to an
+         * int8 overflow: 134 wraps to -122 and silently inverts the box. */
+        { float bxl,bxh,wxl,wxh,wyl,wyh;
+          span(m.bv,&bxl,&bxh,0); span(m.wv,&wxl,&wxh,0); span(m.wv,&wyl,&wyh,1);
+          ok(wxh > bxh && wxl < bxl, "the wheel line is wider than the body");
+          ok(wyl >= 0.0f, "the wheel line does not sink below the road plane"); }
 
         float blo, bhi, clo, chi;
         span(m.bv, &blo, &bhi, 1);            /* body Y */

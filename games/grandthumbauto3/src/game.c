@@ -329,7 +329,8 @@ static Gta3VehMesh g_veh[GTA3_SIL_N];
 /* Pristine x half-extents per silhouette, so the per-draw aspect squeeze
  * below always scales from the original rather than from an already-squeezed
  * value. Vertex 1 is (+x, y0, z0) in box()'s corner layout. */
-static int8_t g_veh_bx[GTA3_SIL_N], g_veh_cx[GTA3_SIL_N];
+#define VEH_WHEEL_R 26.0f   /* draw the wheel line only within this range */
+static int8_t g_veh_bx[GTA3_SIL_N], g_veh_cx[GTA3_SIL_N], g_veh_wx[GTA3_SIL_N];
 
 static void build_bgeom(int L, float hx, float hy, float hz) {
     float md = hx; if (hy > md) md = hy; if (hz > md) md = hz; g_bmd[L] = md;
@@ -1303,6 +1304,7 @@ static void g_init(void) {
         gta3_veh_build(&g_veh[s], s);
         g_veh_bx[s] = g_veh[s].bv[1].x;
         g_veh_cx[s] = g_veh[s].cv[1].x;
+        g_veh_wx[s] = g_veh[s].wv[1].x;
     }
     build_ground();
     build_quad();
@@ -3969,10 +3971,12 @@ static void draw_vehicle_mesh(const Car *c) {
      * the +/-X faces' winding -- silently invisible sides on the flat path. */
     int8_t bx = (int8_t)mote_clampf(g_veh_bx[sil] * ar, -127.0f, 127.0f);
     int8_t cx = (int8_t)mote_clampf(g_veh_cx[sil] * ar, -127.0f, 127.0f);
+    int8_t wx = (int8_t)mote_clampf(g_veh_wx[sil] * ar, -127.0f, 127.0f);
     static const int XP[4] = {1,2,5,6}, XN[4] = {0,3,4,7};
     for (int k = 0; k < 4; k++) {
         m->bv[XP[k]].x =  bx; m->bv[XN[k]].x = -bx;
         m->cv[XP[k]].x =  cx; m->cv[XN[k]].x = -cx;
+        m->wv[XP[k]].x =  wx; m->wv[XN[k]].x = -wx;
     }
 
     /* z already spans the full +/-127, so keying the (uniform) scale to
@@ -3982,12 +3986,33 @@ static void draw_vehicle_mesh(const Car *c) {
 
     uint16_t paint = c->wrecked ? MOTE_RGB565(38,34,34)
                    : (c->type < CARS2_N ? CAR_COL[c->type] : MOTE_RGB565(190,190,200));
-    uint16_t glass = c->wrecked ? MOTE_RGB565(24,22,22) : MOTE_RGB565(40,46,60);
+    /* Glass takes its tint from the car's own paint rather than one shared slate
+     * blue: a quarter of the body colour plus a cool floor, so a red car gets warm
+     * dark glass and a blue one cool dark glass. Free — it is arithmetic on a
+     * colour we already have — and it stops 54 cars sharing one window. */
+    uint16_t glass;
+    if (c->wrecked) glass = MOTE_RGB565(24,22,22);
+    else {
+        int pr = (paint >> 11) & 31, pg = (paint >> 5) & 63, pb = paint & 31;
+        glass = MOTE_RGB565(18 + (pr * 8) / 31 * 2, 20 + (pg * 8) / 63 * 2, 30 + (pb * 8) / 31 * 2);
+    }
 
     MoteObject body = { .pos=v3(c->x, 0.0f, c->z), .basis=b, .mesh=&m->body, .color=paint };
     mote->scene_add_object_scaled(&body, sc);
     MoteObject cab  = { .pos=v3(c->x, 0.0f, c->z), .basis=b, .mesh=&m->cabin, .color=glass };
     mote->scene_add_object_scaled(&cab, sc);
+
+    /* Wheel line: detail that drops off with distance. 12 more triangles per car,
+     * and at 18 live cars that is 216 against a budget whose measured peak is
+     * already 597 of 850 — so only the cars close enough to actually resolve a
+     * tyre get one. The chase camera means that is usually your own car plus
+     * whatever you are about to hit. */
+    { float dx = c->x - cam_pos.x, dz = c->z - cam_pos.z;
+      if (dx*dx + dz*dz < VEH_WHEEL_R * VEH_WHEEL_R) {
+          MoteObject wh = { .pos=v3(c->x, 0.0f, c->z), .basis=b, .mesh=&m->wheels,
+                            .color = c->wrecked ? MOTE_RGB565(16,14,14) : MOTE_RGB565(24,24,28) };
+          mote->scene_add_object_scaled(&wh, sc);
+      } }
 
     /* One oriented shadow, replacing the eight-triangle octagon that used to
      * be assembled by hand from scene_add_tri in g_update. Semi-axes (0.55
