@@ -501,6 +501,85 @@ static int bld_tex(int x, int z) {
 #define VIEW_HAZE_R     70.0f    /* beyond this, buildings go untextured + tinted */
 #define VIEW_BLD_CAP     110     /* max building submissions per frame */
 
+/* ------------------------------------------------------------ day / night ---
+ * Atmosphere only — nothing in the simulation reads the time of day.
+ *
+ * One float walks a four-keyframe palette (night / dawn / day / dusk). The sky
+ * is a vertical gradient painted by set_background_cb (ABI v26), a per-band
+ * pass that runs on BOTH cores before any geometry, with depth already cleared.
+ * Cost is ~nil: the engine already fills the background every frame, so this
+ * writes the same pixels with a per-row colour instead of one flat one.
+ *
+ * The part that matters: `haze_far` and the ground skirt are DERIVED from
+ * sky_hor rather than stored separately. Both exist to blend the world edge
+ * into the sky — see haze_tint() and draw_ground_skirt() — so if the sky moved
+ * while they stayed put, the hard horizon seam those two were added to remove
+ * would come straight back, as a wrongly-coloured band where ground meets sky. */
+#define DAY_SECONDS  240.0f      /* one full cycle */
+
+typedef struct { uint8_t r, g, b; } Rgb;
+typedef struct { Rgb top, hor, haze_near; Vec3 sun; } TodKey;
+
+/* sun is the direction TOWARD the light. mote_pipe shades a face as
+ * 0.25 + 0.75*max(0, n·sun), so a sun below the horizon simply parks the world
+ * on its 0.25 ambient floor — dark but readable, which is what night wants. */
+static const TodKey TOD[4] = {
+    /* midnight */ {{ 10, 12, 22}, { 26, 30, 44}, { 40, 44, 60}, { 0.30f,  0.15f, -0.30f}},
+    /* dawn     */ {{ 40, 54, 96}, {216,140, 96}, {150,120,120}, { 0.90f,  0.20f, -0.10f}},
+    /* noon     */ {{ 70,110,175}, {150,175,205}, {120,140,160}, { 0.25f,  0.92f, -0.30f}},
+    /* dusk     */ {{ 46, 44, 92}, {226,110, 70}, {150,110,110}, {-0.90f,  0.18f,  0.10f}},
+};
+
+static float    g_tod = 0.60f;          /* [0,1), 0 = midnight; start just before dusk */
+static Rgb      g_sky_hor, g_haze_near; /* this frame's palette, read by the render pass */
+static uint16_t g_sky_row[MOTE_FB_H];   /* precomputed gradient, one colour per scanline */
+
+static Rgb rgb_lerp(Rgb a, Rgb b, float t) {
+    Rgb o; o.r = (uint8_t)(a.r + (b.r - a.r) * t);
+           o.g = (uint8_t)(a.g + (b.g - a.g) * t);
+           o.b = (uint8_t)(a.b + (b.b - a.b) * t); return o;
+}
+static uint16_t rgb565(Rgb c) { return MOTE_RGB565(c.r, c.g, c.b); }
+
+/* Band callback: runs on both cores over disjoint row ranges. It only READS
+ * g_sky_row, which tod_advance rewrites once per frame in update — before any
+ * rendering — so there is no cross-core write to race on. */
+static void sky_band(uint16_t *fb, int y0, int y1) {
+    for (int y = y0; y < y1; y++) {
+        uint16_t c = g_sky_row[y], *row = fb + y * MOTE_FB_W;
+        for (int x = 0; x < MOTE_FB_W; x++) row[x] = c;
+    }
+}
+
+static void tod_advance(float dt) {
+    g_tod += dt / DAY_SECONDS;
+    while (g_tod >= 1.0f) g_tod -= 1.0f;
+
+    float f = g_tod * 4.0f; int k = (int)f; float t = f - (float)k;
+    const TodKey *a = &TOD[k & 3], *b = &TOD[(k + 1) & 3];
+
+    Rgb top    = rgb_lerp(a->top,  b->top,  t);
+    g_sky_hor  = rgb_lerp(a->hor,  b->hor,  t);
+    g_haze_near = rgb_lerp(a->haze_near, b->haze_near, t);
+
+    /* Reach the horizon colour ABOVE the visual horizon, then hold it flat.
+     * Ramping over the full 128 rows would land g_sky_hor at y=127, which the
+     * ground covers — so the sky just above the horizon would be some midpoint
+     * of the ramp while haze_tint and the skirt blend to g_sky_hor, and the
+     * seam those exist to hide would reappear in a new colour. The camera's
+     * horizon drifts with pitch and look-ahead, so flatten from SKY_HOR_Y and
+     * let it land anywhere below that. Rows past it cost nothing: geometry
+     * covers them. */
+    #define SKY_HOR_Y 56
+    for (int y = 0; y < MOTE_FB_H; y++) {
+        float t = (y >= SKY_HOR_Y) ? 1.0f : (float)y / (float)SKY_HOR_Y;
+        g_sky_row[y] = rgb565(rgb_lerp(top, g_sky_hor, t));
+    }
+
+    mote->scene_set_sun(v3_norm(v3_lerp(a->sun, b->sun, t)));
+    mote->scene_set_background(rgb565(g_sky_hor));   /* used only if the cb is absent */
+}
+
 /* engine/render/mote_scene3d.c's billboard pool (k_vtbl.config.max_billboards,
  * below) is shared by EVERY entity billboard this frame — peds, cops, pickups,
  * the phonebox marker, and trees — and exhaustion is SILENT: scene_add_billboard
@@ -1206,9 +1285,13 @@ static void g_init(void) {
     g_fmed   = v47 ? mote->ui_font(MOTE_FONT_MED)   : 0;   /* 1.5x  labels/standard */
     g_fread  = v47 ? mote->ui_font(MOTE_FONT_READ)  : 0;   /* 1.66x headers/banners */
     g_flarge = v47 ? mote->ui_font(MOTE_FONT_LARGE) : 0;   /* 2x    big impact words */
-    mote->scene_set_background(MOTE_RGB565(24, 26, 32));
     if (mote->audio_set_stream) mote->audio_set_stream(engine_fill);
-    mote->scene_set_sun(v3_norm(v3(0.25f, 0.92f, -0.3f)));
+    /* Sky + sun now come from the day/night palette; seed them before the first
+     * frame so nothing renders against an unset background. The gradient needs
+     * set_background_cb (ABI v26); without it tod_advance's
+     * scene_set_background fallback leaves a flat sky that still cycles. */
+    tod_advance(0.0f);
+    if (mote->set_background_cb) mote->set_background_cb(sky_band);
     cam_focal = 64.0f / tanf(FOV * (3.14159265f / 180.0f) * 0.5f);
     build_vstats();
     for (int s = 0; s < GTA3_SIL_N; s++) {
@@ -1436,7 +1519,9 @@ static void road_markings(int x, int z) {
 static void draw_ground_skirt(void) {
     float s = VIEW_BLD_R;
     float x0 = view_x - s, x1 = view_x + s, z0 = view_z - s, z1 = view_z + s;
-    uint16_t col = MOTE_RGB565(42, 45, 55);
+    /* Midway along the same ramp haze_tint walks, so the skirt sits between lit
+     * ground and sky at every time of day rather than at one fixed dusk tone. */
+    uint16_t col = rgb565(rgb_lerp(g_haze_near, g_sky_hor, 0.5f));
     mote->scene_add_tri(v3(x0,-0.05f,z0), v3(x1,-0.05f,z0), v3(x1,-0.05f,z1), col, 0);
     mote->scene_add_tri(v3(x0,-0.05f,z0), v3(x1,-0.05f,z1), v3(x0,-0.05f,z1), col, 0);
 }
@@ -1474,10 +1559,10 @@ static void draw_ground_window(void) {
 static uint16_t haze_tint(float d) {
     float t = (d - VIEW_HAZE_R) / (VIEW_BLD_R - VIEW_HAZE_R);
     if (t < 0.0f) t = 0.0f; if (t > 1.0f) t = 1.0f;
-    int r = (int)(60 + (24 - 60) * t);
-    int g = (int)(64 + (26 - 64) * t);
-    int b = (int)(78 + (32 - 78) * t);
-    return MOTE_RGB565(r, g, b);
+    /* The FAR end is the sky's own horizon colour, not a constant: the whole
+     * point of the band is that a building at the draw distance is
+     * indistinguishable from the sky behind it, and the sky now moves. */
+    return rgb565(rgb_lerp(g_haze_near, g_sky_hor, t));
 }
 
 static void draw_buildings_window(void) {
@@ -3915,6 +4000,13 @@ static void draw_vehicle(int i){
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
+
+    /* Time of day, advanced here for the same reason the billboard counter
+     * below is: every early-return path (map overlay, briefing freeze,
+     * deathmatch end) still renders a frame, and a sky that stopped moving
+     * whenever one of them was up would be visible as a stall. It also keeps
+     * the title screen's orbit cycling. */
+    tod_advance(dt);
 
     /* Per-frame billboard-pool bookkeeping: reset unconditionally at the START
      * of the frame, before any early-return path (deathmatch end/respawn,
