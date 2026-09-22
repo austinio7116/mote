@@ -132,18 +132,28 @@ current fixed ±12/±14:
 - Buildings: 112 m (28 tiles). The existing dual base/top visibility test
   (game.c:1312-1313) is kept so tall blocks do not blink out.
 
-Buildings beyond 70 m draw with `MoteObject.color` set to a blend toward the
-`scene_set_background` colour. This reads as haze, hides the cut-off, and moves
-those draws off `max_tex_tris` onto `max_tris`, which is where the headroom is.
+Buildings beyond 70 m draw untextured, flat-shaded in a haze colour blended
+toward the `scene_set_background` colour. This hides the cut-off and moves those
+draws off `max_tex_tris` onto `max_tris`, which is where the headroom is.
 
-This depends on the per-draw colour override superseding a mesh texture. Verify
-that in the rasterizer before building on it. If the override does not apply to
-textured meshes, the fallback is a hard distance cut with a larger building
-radius and no haze.
+**Resolved 2026-09-21:** `MoteObject.color` does *not* suppress a mesh texture.
+`mote_pipe.c:132` selects the textured path purely on
+`mesh->texture && mesh->face_uvs`, and `obj->color` (127-128) only feeds the
+untextured path's `mcol`. Setting a colour on a textured building mesh is
+therefore ignored.
 
-Submission order is near band first, then far band until a submission cap is
-hit. Overflow then degrades as distant haze blocks disappearing, rather than the
-engine silently dropping whatever arrives last.
+The haze band instead uses a parallel array of untextured meshes,
+`g_hmesh[NBLV]`, sharing the existing `g_bv[L]` / `g_bf[L]` vertex and face data
+with `.texture = 0` and `.face_uvs = 0`. That takes the flat path, where
+`obj->color` applies. Cost is 14 extra `Mesh` structs and no extra geometry data.
+
+Submission order, per the existing comment at game.c:3977: entities first
+(a vanished car is more jarring than a clipped far building), then near-band
+buildings, then far-band haze until a submission cap is hit.
+
+Note for tuning: the textured-tri pool overflowing is not silent. `mote_pipe.c`
+latches `s_textri_starved` and falls back to flat shading in the mesh's average
+colour, which the OS surfaces.
 
 Starting radii, the 70 m haze threshold and the submission cap are starting
 values. Final numbers come from profiling `scene_tri_count()` in the dense
@@ -209,15 +219,29 @@ phone box becomes a low box mesh.
 its footprint semi-axes and heading. Without it, billboards and meshes float.
 This is the cheapest thing that sells the third-person view.
 
+This replaces existing code rather than adding to it: cars currently get a
+hand-built 8-triangle octagon ground quad assembled from `scene_add_tri`
+(game.c:3984-4000). `scene_add_shadow_ex` takes the same semi-axis vectors that
+octagon is already computing from `VSTAT[c->type].len`/`.wid` and the heading,
+so the replacement is smaller code and frees 8 triangles per car.
+
 **Bullets and tracers** (game.c:4188, 4301) currently project by hand in
 `overlay`, which works but draws over buildings. They move to depth-tested
 `scene_add_line` in the 3D pass.
 
 ### 5. Radar
 
-New in this fork, not a port. Without it the missions, which route you across
-the city by marker arrow alone, stop being navigable — top-down the street grid
-is self-evident, and behind a car at 3 m it is not.
+New in this fork, not a port.
+
+The game already has a **full-map pause view**: MENU toggles `g_showmap`
+(game.c:947, 3782-3800, `draw_map` at 4203), which halts gameplay and pans a
+city map with the d-pad. That is kept as-is and is not what this section
+replaces.
+
+What is missing is *live* navigation. Top-down, the street grid ahead is
+self-evident from the play view itself; behind a car at 3 m it is not, and
+pausing to open the map at every junction is not navigation. The radar fills
+that gap while driving.
 
 A small rotating radar drawn in `overlay`, sampling `tile_at` around the player:
 roads light, water dark, buildings mid, with mission markers and wanted cops as
