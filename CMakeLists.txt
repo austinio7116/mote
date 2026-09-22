@@ -52,6 +52,19 @@ endif()
 if(MOTE_TARGET STREQUAL "host")
     find_package(SDL2 REQUIRED)
 
+    # Homebrew's SDL2 cmake config exports its include dir as
+    # /opt/homebrew/include/SDL2, which satisfies "SDL.h" but not the
+    # <SDL2/SDL.h> spelling this codebase uses everywhere (see
+    # platform/host/mote_plat_host.c). On Linux this never bites because
+    # SDL2 lands in /usr/include/SDL2 and /usr/include is already a default
+    # search path. Fall back to pkg-config to recover the missing parent
+    # directory (/opt/homebrew/include) without touching the working
+    # SDL2::SDL2 / SDL2_INCLUDE_DIRS path used elsewhere.
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(SDL2_PKGCONFIG QUIET sdl2)
+    endif()
+
     add_library(mote_engine STATIC ${MOTE_ENGINE_SOURCES})
     target_include_directories(mote_engine PUBLIC ${MOTE_INCLUDE_DIRS})
     target_compile_definitions(mote_engine PUBLIC MOTE_HOST=1)
@@ -66,6 +79,9 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_definitions(mote_plat_host PUBLIC MOTE_HOST=1)
     if(TARGET SDL2::SDL2)
         target_link_libraries(mote_plat_host PUBLIC SDL2::SDL2)
+        if(SDL2_PKGCONFIG_FOUND)
+            target_include_directories(mote_plat_host PUBLIC ${SDL2_PKGCONFIG_INCLUDE_DIRS})
+        endif()
     else()
         target_include_directories(mote_plat_host PUBLIC ${SDL2_INCLUDE_DIRS})
         target_link_libraries(mote_plat_host PUBLIC ${SDL2_LIBRARIES})
@@ -322,6 +338,50 @@ if(MOTE_TARGET STREQUAL "host")
     target_link_libraries(cue_test_break PRIVATE m)
 
     endif()  # NOT WIN32 (cue-sports simulation tests)
+
+    if(NOT WIN32)
+    # Grand Thumb Auto III: the draw-distance cone, checked without a renderer.
+    # If this is wrong the city either has holes in it or blows the triangle
+    # budget, and neither is diagnosable by looking at a 128x128 screen.
+    add_executable(gta3_test_view
+        games/grandthumbauto3/src/test_view.c
+        games/grandthumbauto3/src/gta3_view.c)
+    target_include_directories(gta3_test_view PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/grandthumbauto3/src)
+    target_compile_definitions(gta3_test_view PRIVATE MOTE_HOST=1)
+    target_compile_options(gta3_test_view PRIVATE -O2 -Wall -Wextra
+        -Wno-unused-parameter)
+    target_link_libraries(gta3_test_view PRIVATE m)
+
+    # Grand Thumb Auto III: the chase camera. Behind-not-in-front, no flip on
+    # reverse, the short way round pi, and never inside a building — none of
+    # which are safe to eyeball on a 128x128 screen.
+    add_executable(gta3_test_camera
+        games/grandthumbauto3/src/test_camera.c
+        games/grandthumbauto3/src/gta3_camera.c)
+    target_include_directories(gta3_test_camera PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/grandthumbauto3/src)
+    target_compile_definitions(gta3_test_camera PRIVATE MOTE_HOST=1)
+    target_compile_options(gta3_test_camera PRIVATE -O2 -Wall -Wextra
+        -Wno-unused-parameter)
+    target_link_libraries(gta3_test_camera PRIVATE m)
+
+    # Grand Thumb Auto III: vehicle silhouettes. An inward normal is an
+    # invisible car and a cabin inside the body is a brick — neither is
+    # diagnosable at 128x128 with a car six pixels long.
+    add_executable(gta3_test_veh
+        games/grandthumbauto3/src/test_veh.c
+        games/grandthumbauto3/src/gta3_veh.c)
+    target_include_directories(gta3_test_veh PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/grandthumbauto3/src)
+    target_compile_definitions(gta3_test_veh PRIVATE MOTE_HOST=1)
+    target_compile_options(gta3_test_veh PRIVATE -O2 -Wall -Wextra
+        -Wno-unused-parameter)
+    target_link_libraries(gta3_test_veh PRIVATE m)
+    endif()  # NOT WIN32 (Grand Thumb Auto III module tests)
 
     # CueVR — the mixed-reality cue-sports game — lives in its own repository:
     #   https://github.com/austinio7116/CueVR   (private)

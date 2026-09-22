@@ -165,16 +165,44 @@ def _magick():
     if shutil.which("convert"): return (["convert"], ["identify"])
     sys.exit("mote: ImageMagick (magick/convert) needed to bake images")
 
+def _have_magick():
+    import shutil
+    return shutil.which("magick") or shutil.which("convert")
+
+def _read_image_wh_raw(path):
+    """(w, h, raw RGBA8 bytes) for `path`, via ImageMagick if present, else Pillow.
+
+    Both paths must produce identical bytes for the same PNG — bake_image's
+    output depends only on this tuple.
+
+    This equivalence is a straight decode, with no resize step, so it holds
+    here. It does NOT extend to bake_icon() below, the one place a resize
+    actually happens: ImageMagick's `-resize 60x60!` and Pillow's `im.resize`
+    use different kernels by default, so those two paths can still produce
+    different bytes for a source icon that isn't already 60x60, even though
+    they both call through this same function's ImageMagick/Pillow split."""
+    import subprocess
+    if _have_magick():
+        conv, ident = _magick()
+        w, h = subprocess.check_output(ident + ["-format", "%w %h", path]).split()
+        w, h = int(w), int(h)
+        raw = subprocess.check_output(conv + [path, "-depth", "8", "RGBA:-"])
+        return w, h, raw
+    try:
+        from PIL import Image
+    except ImportError:
+        sys.exit("mote: need ImageMagick (magick/convert) or Pillow (PIL) to bake images")
+    im = Image.open(path).convert("RGBA")
+    w, h = im.size
+    raw = im.tobytes()
+    return w, h, raw
+
 def bake_image(name, path, out):
     """PNG/BMP -> a MoteImage header: <name>_px[] RGB565 + <name>_img.
 
     Alpha < 128 becomes the magenta colour-key (transparent); the image's key is
     set so the 2D rasteriser/blit skips it."""
-    import subprocess
-    conv, ident = _magick()
-    w, h = subprocess.check_output(ident + ["-format", "%w %h", path]).split()
-    w, h = int(w), int(h)
-    raw = subprocess.check_output(conv + [path, "-depth", "8", "RGBA:-"])
+    w, h, raw = _read_image_wh_raw(path)
     KEY = 0xF81F
     px = []
     keyed = False
@@ -277,8 +305,23 @@ def bake_icon(path, out):
     """icon.png/.bmp -> src/icon.h : a compact paletted `mote_game_icon_data[]` blob
     (sdk/mote_icon.h), the launcher icon that travels in the game module."""
     import subprocess
-    conv, _ = _magick()
-    raw = subprocess.check_output(conv + [path, "-resize", "60x60!", "-depth", "8", "RGBA:-"])
+    if _have_magick():
+        conv, _ = _magick()
+        raw = subprocess.check_output(conv + [path, "-resize", "60x60!", "-depth", "8", "RGBA:-"])
+    else:
+        try:
+            from PIL import Image
+        except ImportError:
+            sys.exit("mote: need ImageMagick (magick/convert) or Pillow (PIL) to bake images")
+        im = Image.open(path).convert("RGBA")
+        if im.size != (60, 60):
+            # Pin an explicit filter rather than take Pillow's default (which
+            # has changed across Pillow versions), so at least THIS path is
+            # deterministic across runs. It is still not byte-identical to
+            # ImageMagick's `-resize 60x60!` above -- see the equivalence-
+            # limit note on _read_image_wh_raw's docstring.
+            im = im.resize((60, 60), Image.LANCZOS)
+        raw = im.tobytes()
     px = [((raw[i*4] >> 3) << 11) | ((raw[i*4+1] >> 2) << 5) | (raw[i*4+2] >> 3) for i in range(60*60)]
     blob = _icon_encode(px)
     L = ['/* GENERATED launcher icon — compact paletted blob (sdk/mote_icon.h),',
@@ -397,10 +440,7 @@ def bake_wav(name, path, out):
 
 def _png_rgb565(path):
     """PNG/BMP -> (w, h, [rgb565]) with alpha<128 -> magenta key 0xF81F."""
-    import subprocess
-    conv, ident = _magick()
-    w, h = subprocess.check_output(ident + ["-format", "%w %h", path]).split(); w, h = int(w), int(h)
-    raw = subprocess.check_output(conv + [path, "-depth", "8", "RGBA:-"])
+    w, h, raw = _read_image_wh_raw(path)
     KEY = 0xF81F; px = []
     for i in range(w * h):
         r, g, b, a = raw[i*4], raw[i*4+1], raw[i*4+2], raw[i*4+3]
@@ -512,9 +552,8 @@ def bake_anims(name, apath, gdir, out):
         elif t[0] == "f" and cur is not None:
             ev = t[3] if len(t) > 3 else "-"
             cur["fr"].append({"cell": int(t[1]), "dur": int(t[2]), "ev": "" if ev == "-" else ev})
-    conv, ident = _magick(); sp = os.path.join(gdir, sheet)
-    w, h = subprocess.check_output(ident + ["-format", "%w %h", sp]).split(); w, h = int(w), int(h)
-    raw = subprocess.check_output(conv + [sp, "-depth", "8", "RGBA:-"]); KEY = 0xF81F; px = []
+    sp = os.path.join(gdir, sheet)
+    w, h, raw = _read_image_wh_raw(sp); KEY = 0xF81F; px = []
     for i in range(w*h):
         r, g, b, a = raw[i*4], raw[i*4+1], raw[i*4+2], raw[i*4+3]
         px.append(KEY if (a < 128 or (r > 200 and g < 60 and b > 200)) else ((r>>3)<<11)|((g>>2)<<5)|(b>>3))
