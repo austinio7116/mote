@@ -79,6 +79,14 @@ static void host_fill(MoteCatalog *c) {
                 g_icon_abi[i] = ab ? *ab : 0; }
         }
         c->e[c->count].icon = 0; c->e[c->count].icon_blob = 0;
+        /* The launcher's MoteCatalog lives on its caller's stack and is never
+         * zeroed (only cat.count is reset per frame — see mote_launcher_run),
+         * so any field this function doesn't set is stack garbage. `frag` was
+         * left unset here, which made the launcher show a bogus "FRAGMENTED"
+         * banner and refuse to launch whenever the leftover stack bytes were
+         * nonzero. The host has no FAT/fragmentation concept — every .so path
+         * is always "contiguous" — so this is always 0. */
+        c->e[c->count].frag = 0;
         if (g_icon[i]) { if (g_icon_abi[i] >= 22u) c->e[c->count].icon_blob = g_icon[i];
                          else c->e[c->count].icon = (const uint16_t *)g_icon[i]; }
         c->count++;
