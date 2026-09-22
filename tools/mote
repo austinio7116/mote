@@ -1024,6 +1024,15 @@ def cmd_push(args):
             sys.exit("mote: device did not accept PUT")
         ser.write(data); ser.flush()
         res = _readline(ser, max(20.0, len(data) / 8000.0))   # big images: lots of flash
+        if res == "ERR full":
+            sys.exit("mote: push failed — not enough free space on the device for "
+                     "%d bytes.\n"
+                     "  The old copy is truncated first (FA_CREATE_ALWAYS), so the "
+                     "ceiling is roughly the free space.\n"
+                     "  Delete a game from /mote (or from the ThumbyOne lobby) and "
+                     "push again.\n"
+                     "  The partial file stays hidden — /.installing was left in "
+                     "place — so nothing half-written can be launched." % len(data))
         if res != "OK":
             sys.exit("mote: push failed: %r" % res)
         print("pushed %s (%d bytes)" % (name, len(data)))

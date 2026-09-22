@@ -276,7 +276,28 @@ void mote_usb_task(void) {
             uint8_t tmp[64]; UINT bw = 0;
             uint32_t want = s_put_size - s_put_got; if (want > sizeof tmp) want = sizeof tmp;
             uint32_t n = tud_cdc_read(tmp, want);
-            if (n) { f_write(&s_putf, tmp, n, &bw); s_put_got += n; }
+            if (!n) continue;
+            /* CHECK bw. FatFs reports a full volume as a SHORT WRITE with FR_OK,
+             * not an error. This used to advance s_put_got by n — the bytes read
+             * from USB — and ignore bw entirely, so a push that overran the free
+             * space still reached s_put_size, cleared the install journal and
+             * answered OK. The host printed "pushed <full size>" and the device
+             * held a TRUNCATED image whose header was intact: correct magic,
+             * 4 KB-aligned offset, an unbroken cluster chain that passes the
+             * launcher's contiguity walk, and a game that fails to map.
+             * Diagnosing that from the runner's "map failed" screen is nearly
+             * impossible, because every value it prints looks right. */
+            FRESULT fr = f_write(&s_putf, tmp, n, &bw);
+            if (fr != FR_OK || bw != n) {
+                s_rx_active = 0;
+                if (s_put_open) { f_close(&s_putf); s_put_open = 0; }
+                /* Leave /.installing in place: the launcher hides a file named
+                 * there, so the truncated image cannot be listed or launched
+                 * until a push completes whole. */
+                cdc_say(fr != FR_OK ? "ERR write\n" : "ERR full\n");
+                return;
+            }
+            s_put_got += bw;
         }
         if (s_put_got >= s_put_size) {
             s_rx_active = 0;
