@@ -62,6 +62,15 @@ static void fill_catalog(MoteCatalog *c) {
         c->e[i].name[MOTE_NAME_MAX - 1] = 0;
         c->e[i].offset = e->offset;
         c->e[i].size   = e->size;
+        /* mote_launcher_run keeps its MoteCatalog on the stack (SCRATCH, not BSS)
+         * and only resets .count, so every field this function leaves alone is
+         * stack garbage. `frag` gates the A button — mote_launcher.c refuses to
+         * launch an entry with it set — so garbage here shows as a game that
+         * displays DEFRAG and cannot be started, with nothing actually wrong.
+         * This store is a flat XIP region with no FAT and no fragmentation
+         * concept (that belongs to the ThumbyOne lobby's FAT path), so it is
+         * always 0 here. The android and host fills set it for the same reason. */
+        c->e[i].frag   = 0;
         store_icon(&c->e[i], e->offset);
         c->count++;
     }
