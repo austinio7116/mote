@@ -332,6 +332,12 @@ static Gta3VehMesh g_veh[GTA3_SIL_N];
 #define VEH_WHEEL_R 26.0f   /* draw the wheel line only within this range */
 #define VEH_DETAIL_R 22.0f  /* trim panels and lamps: closer still */
 static int8_t g_veh_bx[GTA3_SIL_N], g_veh_cx[GTA3_SIL_N], g_veh_wx[GTA3_SIL_N];
+/* Pristine cabin roofline and z extents, for the same reason as the x extents
+ * above: draw_vehicle_mesh mutates the shared mesh per car, so every draw has
+ * to start from the built values rather than from whatever the last car left
+ * behind. Without these the jitter compounds and a car walks its own roof off
+ * over a few hundred frames. */
+static int8_t g_veh_cy[GTA3_SIL_N], g_veh_cz0[GTA3_SIL_N], g_veh_cz1[GTA3_SIL_N];
 
 static void build_bgeom(int L, float hx, float hy, float hz) {
     float md = hx; if (hy > md) md = hy; if (hz > md) md = hz; g_bmd[L] = md;
@@ -533,6 +539,11 @@ static const TodKey TOD[4] = {
 };
 
 static float    g_tod = 0.60f;          /* [0,1), 0 = midnight; start just before dusk */
+/* Seconds of gameplay, accumulated from dt. NOT mote->micros(): MOTE_DT_MS
+ * pins the platform clock, which is how every headless capture runs, so a
+ * micros-based animation is frozen in exactly the frames used to check it.
+ * Drives the police lightbar. */
+static float    g_ptime = 0.0f;
 static Rgb      g_sky_hor, g_haze_near; /* this frame's palette, read by the render pass */
 static Vec3     g_sun_dir;              /* lerped sun, reused for the sky body and the night test */
 static uint16_t g_sky_row[MOTE_FB_H];   /* precomputed gradient, one colour per scanline */
@@ -1316,6 +1327,10 @@ static void g_init(void) {
         g_veh_bx[s] = g_veh[s].bv[1].x;
         g_veh_cx[s] = g_veh[s].cv[1].x;
         g_veh_wx[s] = g_veh[s].wv[1].x;
+        /* gta3_box corner order: y1 (the roof) is at 2,3,6,7; z0 at 0..3, z1 at 4..7. */
+        g_veh_cy[s]  = g_veh[s].cv[3].y;
+        g_veh_cz0[s] = g_veh[s].cv[0].z;
+        g_veh_cz1[s] = g_veh[s].cv[4].z;
     }
     build_ground();
     build_quad();
@@ -4051,6 +4066,36 @@ static void draw_vehicle_mesh(const Car *c) {
         m->wv[XP[k]].x =  wx; m->wv[XN[k]].x = -wx;
     }
 
+    /* Per-TYPE cabin jitter, riding the same mutate-the-shared-mesh trick the x
+     * squeeze above uses. Eleven silhouettes over 54 car types meant two cars on
+     * the same silhouette differed only in paint and overall size; nudging the
+     * roofline and where the glasshouse sits gives them different profiles too,
+     * for no triangles and no extra meshes.
+     *
+     * Deterministic from the type, so a given car always looks like itself, and
+     * it must start from the PRISTINE g_veh_cy/cz values — reading back the
+     * mutated mesh would let the jitter compound draw after draw.
+     *
+     * The roof is clamped to stay at least 6 units above the cabin floor
+     * (the body top, cv[0].y). A cabin whose top crosses its bottom is an
+     * INVERTED box: every face's winding flips and the sides silently vanish on
+     * the flat path. Same trap the x clamp above guards against. */
+    { unsigned jh = (unsigned)c->type * 0x9E3779B1u;
+      int base   = m->cv[0].y;                        /* cabin floor = body top */
+      int top    = g_veh_cy[sil] + (int)((jh >> 3) & 7) - 3;     /* +-3 units of roof */
+      int zshift = (int)((jh >> 9) & 7) - 3;                     /* +-3 units fore/aft */
+      if (top < base + 6) top = base + 6;
+      int z0 = g_veh_cz0[sil] + zshift, z1 = g_veh_cz1[sil] + zshift;
+      if (z0 < -127) z0 = -127;
+      if (z1 >  127) z1 =  127;
+      static const int YT[4] = {2,3,6,7};
+      static const int Z0[4] = {0,1,2,3}, Z1[4] = {4,5,6,7};
+      for (int k = 0; k < 4; k++) {
+          m->cv[YT[k]].y = (int8_t)top;
+          m->cv[Z0[k]].z = (int8_t)z0;
+          m->cv[Z1[k]].z = (int8_t)z1;
+      } }
+
     /* z already spans the full +/-127, so keying the (uniform) scale to
      * half-length makes the car's length exact; the x squeeze above then
      * makes the width exact too. */
@@ -4123,22 +4168,113 @@ static void draw_vehicle_mesh(const Car *c) {
           mote->scene_add_tri(p0,p1,p2, trim, 0);
           mote->scene_add_tri(p0,p2,p3, trim, 0); }
 
-        /* Lamps, lit only once the sun is low. Discs, not points: a disc carries
-         * a world radius so it shrinks with distance like a real lamp, where a
-         * point is a fixed pixel size and pops as you approach.
+        /* A quad, as the pair of double-sided triangles everything else here
+         * uses. ZFACE puts one on an end face (constant z), which is where
+         * every lamp lives. */
+        #define QUAD(p0,p1,p2,p3,col) do { mote->scene_add_tri((p0),(p1),(p2),(col),0); \
+                                           mote->scene_add_tri((p0),(p2),(p3),(col),0); } while (0)
+        #define ZFACE(x0,x1,y0,y1,z,col) \
+            QUAD(VPT((x0),(y0),(z)), VPT((x1),(y0),(z)), \
+                 VPT((x1),(y1),(z)), VPT((x0),(y1),(z)), (col))
+
+        /* A rear spoiler for the supercars: a blade standing clear of the tail
+         * on two end plates. RACER only, and only this close — the lowered
+         * SILDEF row is what makes a racer read as a racer at distance; this is
+         * the flourish you get when one is right in front of you. 6 triangles. */
+        if (sil == GTA3_SIL_RACER) {
+            /* +11, not +26: a local unit is sc/127 metres and a racer's sc is about
+             * 2.9 m, so +26 put the blade 1.05 m off the deck — measured, and about
+             * four times a real spoiler. +11 is roughly 0.25 m above the bodywork. */
+            float sx = bodyx * 0.92f, y = bodytop + 11, z = -104;
+            QUAD(VPT(-sx,y,z-9), VPT(sx,y,z-9), VPT(sx,y,z+9), VPT(-sx,y,z+9), paint);
+            QUAD(VPT(-sx,bodytop,z), VPT(-sx,y,z), VPT(-sx,y,z+9), VPT(-sx,bodytop,z+9), paint);
+            QUAD(VPT( sx,bodytop,z), VPT( sx,y,z), VPT( sx,y,z+9), VPT( sx,bodytop,z+9), paint);
+        }
+
+        /* Lamps, lit only once the sun is low, in the shape the silhouette asks
+         * for — round discs, square lamps, or a full-width bar. Every car on the
+         * road wearing the same round pair was the thing this replaces.
          *
          * z = +-133, NOT +-122: the body box spans +-127, so a lamp at 122 sits
          * INSIDE the solid and the depth test buries it. Nothing rendered at
-         * 122 — measured. 133 puts the disc's centre just proud of the face,
-         * the same trick the panels above use with their +2 lift. */
+         * 122 — measured. 133 puts the lamp just proud of the face, the same
+         * trick the panels above use with their +2 lift.
+         *
+         * A disc carries a world radius, so the round style shrinks with
+         * distance like a real lamp and costs no triangles at all; the other two
+         * are 8 and 6 triangles respectively. */
         if (sun_elev() < 0.10f) {   /* dusk through dawn, plus a little slack */
-            float lx = bodyx * 0.66f, ly = bodytop * 0.55f, r = 0.17f;
-            Vec3 tl=VPT(-lx,ly,-133), tr=VPT(lx,ly,-133);
-            mote->scene_add_disc(tl, r, MOTE_RGB565(246,70,52));
-            mote->scene_add_disc(tr, r, MOTE_RGB565(246,70,52));
-            Vec3 hl=VPT(-lx,ly,133), hr=VPT(lx,ly,133);
-            mote->scene_add_disc(hl, r*1.15f, MOTE_RGB565(255,244,206));
-            mote->scene_add_disc(hr, r*1.15f, MOTE_RGB565(255,244,206));
+            const uint16_t TAIL = MOTE_RGB565(246,70,52), HEAD = MOTE_RGB565(255,244,206);
+            float lx = bodyx * 0.66f, ly = bodytop * 0.55f;
+            switch (gta3_lamp_style(sil)) {
+            case GTA3_LAMP_RECT: {
+                float w = bodyx * 0.20f, h = bodytop * 0.22f;
+                if (h < 5.0f) h = 5.0f;
+                ZFACE(-lx-w, -lx+w, ly-h, ly+h, -133, TAIL);
+                ZFACE( lx-w,  lx+w, ly-h, ly+h, -133, TAIL);
+                ZFACE(-lx-w, -lx+w, ly-h, ly+h,  133, HEAD);
+                ZFACE( lx-w,  lx+w, ly-h, ly+h,  133, HEAD);
+                break; }
+            case GTA3_LAMP_BAR: {
+                float w = bodyx * 0.80f, h = bodytop * 0.13f, sw = bodyx * 0.30f;
+                if (h < 4.0f) h = 4.0f;
+                ZFACE(-w, w, ly-h, ly+h, -133, TAIL);              /* one bar across the tail */
+                ZFACE(-lx-sw, -lx+sw, ly-h, ly+h, 133, HEAD);      /* two slits at the front */
+                ZFACE( lx-sw,  lx+sw, ly-h, ly+h, 133, HEAD);
+                break; }
+            default: {
+                float r = 0.17f;
+                mote->scene_add_disc(VPT(-lx,ly,-133), r, TAIL);
+                mote->scene_add_disc(VPT( lx,ly,-133), r, TAIL);
+                mote->scene_add_disc(VPT(-lx,ly, 133), r*1.15f, HEAD);
+                mote->scene_add_disc(VPT( lx,ly, 133), r*1.15f, HEAD);
+                break; }
+            }
+        }
+
+        /* Police livery: a white panel down each flank, over whatever paint the
+         * type carries. x = +-121 puts it just outside the body's +-118 so it
+         * cannot z-fight, and inside the wheel slab's +-127 so it does not poke
+         * through the tyre line. 4 triangles. */
+        if (c->type == CAR_POLICE || c->type == CAR_POLICE2) {
+            const uint16_t LIVERY = MOTE_RGB565(238,240,244);
+            float y0 = bodytop * 0.30f, y1 = bodytop * 0.82f;
+            QUAD(VPT(-121,y0,-70), VPT(-121,y0,70), VPT(-121,y1,70), VPT(-121,y1,-70), LIVERY);
+            QUAD(VPT( 121,y0,-70), VPT( 121,y0,70), VPT( 121,y1,70), VPT( 121,y1,-70), LIVERY);
+        }
+        #undef ZFACE
+        #undef QUAD
+        #undef VPT
+    }
+
+    /* Police lightbar. Gated at the WHEEL radius, not the detail radius: the bar
+     * is what tells you a cruiser is a cruiser, so it has to survive further out
+     * than a bonnet stripe does. Top face plus rear face per half, 8 triangles,
+     * and only cop cars ever reach here.
+     *
+     * It flashes only while the car is actually on you (DRV_COP). A cruiser
+     * parked at the station sits dark, which is also how you tell the two apart
+     * at a glance. g_ptime, not mote->micros(): micros is pinned under
+     * MOTE_DT_MS and the bar would be frozen in every headless capture. */
+    if ((c->type == CAR_POLICE || c->type == CAR_POLICE2) && !c->wrecked &&
+        d2 < VEH_WHEEL_R * VEH_WHEEL_R) {
+        float k = sc * (1.0f / 127.0f);
+        #define VPT(lx,ly,lz) ({ Vec3 l_ = m3_mul_v3(&b, v3((lx)*k,(ly)*k,(lz)*k)); \
+                                 v3(c->x + l_.x, l_.y, c->z + l_.z); })
+        float cabx = m->cv[1].x, cabtop = m->cv[3].y;
+        float bw = cabx * 0.88f, y0 = cabtop + 2, y1 = cabtop + 14;
+        int phase = c->driver == DRV_COP ? ((int)(g_ptime * 4.0f) & 1) : -1;
+        uint16_t red  = phase < 0 ? MOTE_RGB565(96,26,22)  : (phase == 0 ? MOTE_RGB565(255,40,32) : MOTE_RGB565(70,18,16));
+        uint16_t blue = phase < 0 ? MOTE_RGB565(24,34,102) : (phase == 1 ? MOTE_RGB565(60,110,255) : MOTE_RGB565(18,26,74));
+        for (int h = 0; h < 2; h++) {
+            float x0 = h ? 0.0f : -bw, x1 = h ? bw : 0.0f;
+            uint16_t col = h ? blue : red;
+            /* top */
+            mote->scene_add_tri(VPT(x0,y1,-19), VPT(x1,y1,-19), VPT(x1,y1,19), col, 0);
+            mote->scene_add_tri(VPT(x0,y1,-19), VPT(x1,y1, 19), VPT(x0,y1,19), col, 0);
+            /* rear face, so the bar is still there from directly behind */
+            mote->scene_add_tri(VPT(x0,y0,-19), VPT(x1,y0,-19), VPT(x1,y1,-19), col, 0);
+            mote->scene_add_tri(VPT(x0,y0,-19), VPT(x1,y1,-19), VPT(x0,y1,-19), col, 0);
         }
         #undef VPT
     }
@@ -4202,6 +4338,7 @@ static void g_update(float dt) {
      * whenever one of them was up would be visible as a stall. It also keeps
      * the title screen's orbit cycling. */
     tod_advance(dt);
+    g_ptime += dt;
 
     /* Per-frame billboard-pool bookkeeping: reset unconditionally at the START
      * of the frame, before any early-return path (deathmatch end/respawn,
@@ -4227,6 +4364,11 @@ static void g_update(float dt) {
           if (sd){ mote_rand_seed(sd|1u); g_seed_override=sd; }   /* vary job type + contact per seed */
           const char *mt=getenv("MOTE_GTA_MTYPE"); if(mt) g_force_mtype=atoi(mt);
           start_mission(); bdone=1; } }
+    /* test: MOTE_GTA_HEAT=3 starts play at that wanted level, so a capture can
+     * reach cop cars and a pursuit without scripting a crime spree first.
+     * PROFILING.md notes combat has never been profiled; this is how. */
+    { static int hd=0; const char *hv=getenv("MOTE_GTA_HEAT");
+      if (hv && g_state==ST_PLAY && !hd){ hd=1; heat=(float)atof(hv); heat_cool=0; } }
     { static int tpd=0; if (getenv("MOTE_GTA_TP_PHONE") && g_state==ST_PLAY && !tpd){   /* test: stand by a phone box */
           for (int m=0;m<nmark;m++) if(markers[m].kind==MK_PHONE){
               if(player.mode==MODE_CAR){cars[player.car].alive=0;player.mode=MODE_FOOT;player.car=-1;}

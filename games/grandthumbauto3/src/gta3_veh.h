@@ -3,7 +3,7 @@
  *
  * The game has 54 car types. Authoring 54 meshes would be absurd and shipping
  * 54 sprite sheets of 8 yaw angles each would not fit in flash, so identity
- * comes from COLOUR and the geometry collapses to eleven shapes, which the 19
+ * comes from COLOUR and the geometry collapses to fourteen shapes, which the 19
  * CAR_CLS handling classes map onto. Adding a silhouette is nearly free: it is
  * one SILDEF row and one more Gta3VehMesh built at init (~400 B), with no
  * per-frame cost at all, since the mesh is picked per car type.
@@ -27,17 +27,35 @@
 
 #include "mote_mesh.h"
 
-enum { GTA3_SIL_SEDAN, GTA3_SIL_COMPACT, GTA3_SIL_WEDGE, GTA3_SIL_LONGHOOD,
+/* There used to be a single GTA3_SIL_WEDGE carrying the COUPE, SPORTS and
+ * CLASSICSPT handling classes at once — 14 of the 54 car types, 26% of every
+ * car on the road, all the same two boxes in different paint. Counted, not
+ * assumed: WEDGE 14 types and SEDAN 11 meant 46% of traffic was one of two
+ * shapes. WEDGE is now three shapes and TAXI has its own, which takes the
+ * worst-case share to 11%. A silhouette is cheap — one SILDEF row and ~400 B
+ * of mesh built once at init, with no per-frame cost, since the mesh is
+ * picked per car type. */
+enum { GTA3_SIL_SEDAN, GTA3_SIL_COMPACT, GTA3_SIL_COUPE, GTA3_SIL_LONGHOOD,
        GTA3_SIL_WAGON, GTA3_SIL_VAN, GTA3_SIL_TRUCK,
        GTA3_SIL_LUXURY,   /* longer than a sedan, lower roof, cabin set back */
        GTA3_SIL_RACER,    /* very low and long — the supercars */
        GTA3_SIL_PICKUP,   /* cab over the front half only, open bed behind */
        GTA3_SIL_JEEP,     /* short, tall, upright glasshouse */
+       GTA3_SIL_SPORTS,   /* low, cabin pushed forward over a long tail */
+       GTA3_SIL_CLASSICSPT, /* long bonnet, tall upright glasshouse */
+       GTA3_SIL_TAXI,     /* a sedan made taller and boxier — cab proportions */
        GTA3_SIL_N };
 
 /* Map one of the 19 CAR_CLS handling classes to a silhouette. Out-of-range
  * input returns GTA3_SIL_SEDAN rather than reading off the end. */
 int gta3_sil_for_class(int car_cls);
+
+/* Lamp shape, chosen by silhouette so the lights agree with the bodywork: a
+ * van gets square lamps and a supercar a light bar, rather than every car on
+ * the road wearing the same round pair. Read by the caller, which owns the
+ * geometry — this header only says which shape a shape should wear. */
+enum { GTA3_LAMP_ROUND, GTA3_LAMP_RECT, GTA3_LAMP_BAR };
+int gta3_lamp_style(int sil);
 
 typedef struct {
     MeshVert bv[8]; MeshFace bf[12];    /* body box */

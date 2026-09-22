@@ -208,11 +208,49 @@ int main(void) {
         ok(all_faces_screen_ok(bv2, bf2, 12), "turret barrel faces are front-facing in screen space");
     }
 
-    /* 4. a van and a wedge must not be the same box */
-    ok(fabsf(yhgt[GTA3_SIL_VAN] - yhgt[GTA3_SIL_WEDGE]) > 8.0f,
-       "a van is visibly taller than a low wedge");
+    /* 4. a van and a racer must not be the same box */
+    ok(fabsf(yhgt[GTA3_SIL_VAN] - yhgt[GTA3_SIL_RACER]) > 8.0f,
+       "a van is visibly taller than a low racer");
     ok(zlen[GTA3_SIL_LONGHOOD] > 0.0f && zlen[GTA3_SIL_COMPACT] > 0.0f,
        "silhouettes have non-zero length");
+
+    /* 5. the silhouettes that were split out of the old single WEDGE have to be
+     * genuinely different boxes, or the split bought nothing. COUPE, SPORTS and
+     * CLASSICSPT carried 14 of the 54 car types between them as one shape. */
+    {
+        const int sp[3] = { GTA3_SIL_COUPE, GTA3_SIL_SPORTS, GTA3_SIL_CLASSICSPT };
+        const char *nm[3] = { "coupe", "sports", "classicspt" };
+        int distinct = 1;
+        for (int i = 0; i < 3; i++)
+            for (int j = i + 1; j < 3; j++) {
+                Gta3VehMesh a, b2;
+                gta3_veh_build(&a, sp[i]); gta3_veh_build(&b2, sp[j]);
+                /* roofline, and where the glasshouse sits fore/aft */
+                if (a.cv[3].y == b2.cv[3].y && a.cv[0].z == b2.cv[0].z &&
+                    a.cv[4].z == b2.cv[4].z) {
+                    distinct = 0;
+                    printf("  FAIL %s and %s are the same cabin\n", nm[i], nm[j]);
+                }
+            }
+        ok(distinct, "coupe, sports and classicspt are three different shapes");
+        ok(gta3_sil_for_class(14) != gta3_sil_for_class(0), "a taxi is not a plain sedan");
+    }
+
+    /* 6. lamp styles: in range for every silhouette, out-of-range falls back,
+     * and more than one style is actually in use (a table that answered ROUND
+     * for everything would pass a range check and change nothing on screen). */
+    {
+        int used[3] = {0,0,0}, inrange = 1;
+        for (int s = 0; s < GTA3_SIL_N; s++) {
+            int st = gta3_lamp_style(s);
+            if (st < 0 || st > GTA3_LAMP_BAR) inrange = 0; else used[st] = 1;
+        }
+        ok(inrange, "every silhouette has a lamp style in range");
+        ok(used[GTA3_LAMP_ROUND] && used[GTA3_LAMP_RECT] && used[GTA3_LAMP_BAR],
+           "all three lamp styles are in use");
+        ok(gta3_lamp_style(-1) == GTA3_LAMP_ROUND, "negative silhouette falls back to round");
+        ok(gta3_lamp_style(999) == GTA3_LAMP_ROUND, "huge silhouette falls back to round");
+    }
 
     printf(s_fail ? "FAILED (%d)\n" : "passed\n", s_fail);
     return s_fail ? 1 : 0;

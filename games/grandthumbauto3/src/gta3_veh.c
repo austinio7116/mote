@@ -7,30 +7,56 @@
  *  7 CLASSIC  8 CLASSICSPT  9 LUXURY  10 WAGON  11 VAN  12 PICKUP  13 JEEP
  * 14 TAXI  15 POLICE  16 AMBULANCE  17 FIRETRUCK  18 TOWTRUCK */
 static const unsigned char SIL[19] = {
-    GTA3_SIL_SEDAN,    /*  0 SEDAN      */
-    GTA3_SIL_COMPACT,  /*  1 COMPACT    */
-    GTA3_SIL_WEDGE,    /*  2 COUPE      */
-    GTA3_SIL_WEDGE,    /*  3 SPORTS     */
-    GTA3_SIL_RACER,    /*  4 RACER      */
-    GTA3_SIL_LONGHOOD, /*  5 MUSCLE     */
-    GTA3_SIL_COMPACT,  /*  6 HOTHATCH   */
-    GTA3_SIL_LONGHOOD, /*  7 CLASSIC    */
-    GTA3_SIL_WEDGE,    /*  8 CLASSICSPT */
-    GTA3_SIL_LUXURY,   /*  9 LUXURY     */
-    GTA3_SIL_WAGON,    /* 10 WAGON      */
-    GTA3_SIL_VAN,      /* 11 VAN        */
-    GTA3_SIL_PICKUP,   /* 12 PICKUP     */
-    GTA3_SIL_JEEP,     /* 13 JEEP       */
-    GTA3_SIL_SEDAN,    /* 14 TAXI       */
-    GTA3_SIL_SEDAN,    /* 15 POLICE     */
-    GTA3_SIL_TRUCK,    /* 16 AMBULANCE  */
-    GTA3_SIL_TRUCK,    /* 17 FIRETRUCK  */
-    GTA3_SIL_TRUCK,    /* 18 TOWTRUCK   */
+    GTA3_SIL_SEDAN,      /*  0 SEDAN      */
+    GTA3_SIL_COMPACT,    /*  1 COMPACT    */
+    GTA3_SIL_COUPE,      /*  2 COUPE      */
+    GTA3_SIL_SPORTS,     /*  3 SPORTS     */
+    GTA3_SIL_RACER,      /*  4 RACER      */
+    GTA3_SIL_LONGHOOD,   /*  5 MUSCLE     */
+    GTA3_SIL_COMPACT,    /*  6 HOTHATCH   */
+    GTA3_SIL_LONGHOOD,   /*  7 CLASSIC    */
+    GTA3_SIL_CLASSICSPT, /*  8 CLASSICSPT */
+    GTA3_SIL_LUXURY,     /*  9 LUXURY     */
+    GTA3_SIL_WAGON,      /* 10 WAGON      */
+    GTA3_SIL_VAN,        /* 11 VAN        */
+    GTA3_SIL_PICKUP,     /* 12 PICKUP     */
+    GTA3_SIL_JEEP,       /* 13 JEEP       */
+    GTA3_SIL_TAXI,       /* 14 TAXI       */
+    GTA3_SIL_SEDAN,      /* 15 POLICE     */
+    GTA3_SIL_TRUCK,      /* 16 AMBULANCE  */
+    GTA3_SIL_TRUCK,      /* 17 FIRETRUCK  */
+    GTA3_SIL_TRUCK,      /* 18 TOWTRUCK   */
 };
 
 int gta3_sil_for_class(int car_cls) {
     if (car_cls < 0 || car_cls >= 19) return GTA3_SIL_SEDAN;
     return SIL[car_cls];
+}
+
+/* Lamp shape per silhouette. Round is the default and costs nothing (the
+ * caller draws discs); the other two cost triangles, so they go to the shapes
+ * where they actually read: square lamps on the tall slab-sided vehicles, a
+ * light bar on the low ones where a round pair would look wrong. */
+static const unsigned char LAMP[GTA3_SIL_N] = {
+    /* SEDAN      */ GTA3_LAMP_ROUND,
+    /* COMPACT    */ GTA3_LAMP_ROUND,
+    /* COUPE      */ GTA3_LAMP_RECT,
+    /* LONGHOOD   */ GTA3_LAMP_ROUND,
+    /* WAGON      */ GTA3_LAMP_RECT,
+    /* VAN        */ GTA3_LAMP_RECT,
+    /* TRUCK      */ GTA3_LAMP_RECT,
+    /* LUXURY     */ GTA3_LAMP_BAR,
+    /* RACER      */ GTA3_LAMP_BAR,
+    /* PICKUP     */ GTA3_LAMP_RECT,
+    /* JEEP       */ GTA3_LAMP_ROUND,
+    /* SPORTS     */ GTA3_LAMP_BAR,
+    /* CLASSICSPT */ GTA3_LAMP_ROUND,
+    /* TAXI       */ GTA3_LAMP_ROUND,
+};
+
+int gta3_lamp_style(int sil) {
+    if (sil < 0 || sil >= GTA3_SIL_N) return GTA3_LAMP_ROUND;
+    return LAMP[sil];
 }
 
 /* Per silhouette, in normalised int8 space (127 = the car's half-length):
@@ -40,20 +66,23 @@ int gta3_sil_for_class(int car_cls) {
  *   cab_z1  : where the cabin ends, toward the nose
  *   cab_w   : the cabin's half-width as a fraction of the body's
  * A long hood pushes cab_z0/z1 toward the tail; a van runs the cabin nearly the
- * whole length and stands tall; a wedge is low with a shallow cabin. */
+ * whole length and stands tall; a racer is low with a shallow glasshouse. */
 typedef struct { int body_h, cab_top, cab_z0, cab_z1, cab_w; } Sil;
 static const Sil SILDEF[GTA3_SIL_N] = {
-    /* SEDAN    */ { 34, 62, -55,  40, 88 },
-    /* COMPACT  */ { 36, 64, -50,  50, 88 },
-    /* WEDGE    */ { 28, 48, -50,  25, 84 },
-    /* LONGHOOD */ { 32, 58, -72,  14, 86 },
-    /* WAGON    */ { 40, 74, -55,  55, 90 },
-    /* VAN      */ { 46, 96, -80,  70, 94 },
-    /* TRUCK    */ { 44, 88, -30,  80, 92 },
-    /* LUXURY   */ { 32, 58, -62,  30, 88 },   /* longer bonnet, lower roof than SEDAN */
-    /* RACER    */ { 24, 42, -46,  18, 82 },   /* lowest of the lot, shallow glasshouse */
-    /* PICKUP   */ { 38, 74, -18,  62, 90 },   /* cab over the front half; bed behind is bare body */
-    /* JEEP     */ { 44, 86, -60,  58, 92 },   /* short and tall, near-vertical glass */
+    /* SEDAN      */ { 34, 62, -55,  40, 88 },
+    /* COMPACT    */ { 36, 64, -50,  50, 88 },
+    /* COUPE      */ { 30, 54, -62,  22, 86 },   /* notchback: cabin set back over a short rear deck */
+    /* LONGHOOD   */ { 32, 58, -72,  14, 86 },
+    /* WAGON      */ { 40, 74, -55,  55, 90 },
+    /* VAN        */ { 46, 96, -80,  70, 94 },
+    /* TRUCK      */ { 44, 88, -30,  80, 92 },
+    /* LUXURY     */ { 32, 58, -62,  30, 88 },   /* longer bonnet, lower roof than SEDAN */
+    /* RACER      */ { 20, 36, -52,   8, 80 },   /* lowest of the lot, shallow glasshouse */
+    /* PICKUP     */ { 38, 74, -18,  62, 90 },   /* cab over the front half; bed behind is bare body */
+    /* JEEP       */ { 44, 86, -60,  58, 92 },   /* short and tall, near-vertical glass */
+    /* SPORTS     */ { 26, 46, -30,  34, 82 },   /* cabin forward over a long tail — mid-engined read */
+    /* CLASSICSPT */ { 32, 60, -58,   6, 84 },   /* long bonnet under a tall upright glasshouse */
+    /* TAXI       */ { 38, 70, -52,  44, 90 },   /* a sedan made taller and squarer */
 };
 
 void gta3_box(MeshVert *v, MeshFace *f, int *nf,
