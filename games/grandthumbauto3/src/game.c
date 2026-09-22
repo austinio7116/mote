@@ -43,6 +43,8 @@
 #include "citygen.h"       /* runtime procedural city — every new game is a fresh map.
                             * (assets/city.png remains the hand-made reference; its baked
                             * city_map.h is no longer compiled in.) */
+#include "gta3_camera.h"
+#include "gta3_view.h"
 static uint8_t g_city[CG_W*CG_H];   /* the generated city (bss, ~65 KB) */
 #include "shoot.sfx.h"
 #include "smg.sfx.h"
@@ -414,27 +416,29 @@ static int bld_tex(int x, int z) {
 }
 
 /* ---------------------------------------------------------------- camera ---- */
-/* 100% TOP-DOWN: the camera looks straight down (−Y). North (−Z) is screen-up,
- * East (+X) is screen-right. Perspective still bleeds a little of each building's
- * side into view (tall roofs bloom outward), which is the GTA-1 look. */
-#define FOV       60.0f
-#define CAM_FOOT  15.0f      /* tight zoom on foot */
-#define CAM_CAR   21.0f      /* zoom when stopped in a car */
-#define CAM_MAX   40.0f      /* pulled right out at top speed */
+/* Chase camera: eye behind and above the player/car, looking ahead of it. See
+ * gta3_camera.h for the framing/smoothing/collision rationale. */
+/* 55, not 60: a 60 degree horizontal field behind a car reads as fisheye on a
+ * 128x128 panel, and every extra degree is more city inside the draw cone. */
+#define FOV       55.0f
+/* Chase framing, metres. The car values interpolate on speed over 0..CAM_SPD. */
+#define CAM_FOOT_D   4.5f
+#define CAM_FOOT_H   2.4f
+#define CAM_FOOT_L   3.0f
+#define CAM_CAR_D0   6.5f
+#define CAM_CAR_H0   2.8f
+#define CAM_CAR_L0   4.0f
+#define CAM_CAR_D1  10.0f
+#define CAM_CAR_H1   3.6f
+#define CAM_CAR_L1   9.0f
+#define CAM_SPD     18.0f    /* speed, m/s, at which the framing is fully out */
 
 static Mat3  cam_basis;
 static Vec3  cam_pos;
 static float cam_focal;      /* 64 / tan(fov/2) — set in init */
 static float view_x, view_z; /* world point the camera is centred on */
-static float g_camh = CAM_FOOT;   /* smoothed camera height (metres above ground) */
-
-static void set_topdown_camera(float tx, float tz) {
-    view_x = tx; view_z = tz;
-    cam_pos = v3(tx, g_camh, tz);
-    cam_basis.r[0] = v3(1, 0,  0);   /* right  -> +X (east)  */
-    cam_basis.r[1] = v3(0, 0, -1);   /* up     -> -Z (north) */
-    cam_basis.r[2] = v3(0, -1, 0);   /* fwd    -> -Y (down)  */
-}
+static Gta3Cam  g_cam;
+static Gta3View g_view;
 
 /* world -> logical 128x128 screen, EXACTLY like engine mote_pipe.c */
 static int world_to_screen(Vec3 w, float *sx, float *sy, float *px_per_m) {
@@ -943,6 +947,7 @@ static int   rival_car, rival_i;  /* RIVAL: rival's car slot + its checkpoint pr
 static const char *g_msg; static float g_msg_t;
 static float hosp_x, hosp_z;
 static int   g_showmap, g_mapsx, g_mapsy; static float g_maptime;   /* full-map view */
+static int   g_lookback;      /* LB held on foot: swing the camera round */
 
 /* ================================================== 2P DEATHMATCH state ====
  * Same generated city on both units (nonce winner rolls the seed and sends it),
@@ -1269,8 +1274,8 @@ static void road_markings(int x, int z) {
 
 static void draw_ground_window(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE);
-    for (int z = cz - 12; z <= cz + 12; z++) {
-        for (int x = cx - 12; x <= cx + 12; x++) {
+    for (int z = cz - 16; z <= cz + 16; z++) {
+        for (int x = cx - 16; x <= cx + 16; x++) {
             if (!tile_visible(x, z, 0)) continue;
             char c = tile_at(x, z);
             if (c == '.' || c == 'B') {              /* road + bridge use the road sheet */
@@ -1294,8 +1299,8 @@ static void draw_ground_window(void) {
 
 static void draw_buildings_window(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE);
-    for (int z = cz - 14; z <= cz + 14; z++)      /* wider than the ground so tall blocks at the edge stay up */
-        for (int x = cx - 14; x <= cx + 14; x++) {
+    for (int z = cz - 22; z <= cz + 22; z++)      /* wider than the ground so tall blocks at the edge stay up */
+        for (int x = cx - 22; x <= cx + 22; x++) {
             char c = tile_at(x, z);
             if (c != '#' && c != 'O' && c != 'H') continue;
             int gdir = is_garage(x, z) ? garage_dir(x, z) : -1;
@@ -1809,6 +1814,54 @@ static void add_pickup(float x,float z,int kind){ for(int i=0;i<NPICK;i++) if(!p
 static float pl_x(void){ return player.mode==MODE_CAR ? cars[player.car].x : player.x; }
 static float pl_z(void){ return player.mode==MODE_CAR ? cars[player.car].z : player.z; }
 static float pl_yaw(void){ return player.mode==MODE_CAR ? cars[player.car].yaw : player.yaw; }
+
+/* The camera's tile-solidity test. Buildings block; bridges, roads and water do
+ * not — driving a bridge with the camera snapping to the deck would be worse
+ * than letting it fly. */
+static int cam_solid(int tx, int tz, void *ud) {
+    (void)ud;
+    char c = tile_at(tx, tz);
+    return c == '#' || c == 'O' || c == 'H';
+}
+
+/* Place the chase camera and publish everything the rest of the file reads:
+ * cam_basis + cam_pos for the engine and world_to_screen, view_x/view_z as the
+ * centre the draw windows iterate around, and g_view as this frame's cone. */
+static void chase_camera(float tx, float tz, float yaw, float dt) {
+    /* Reset on discontinuity rather than at every player.mode assignment. There
+     * are ~15 of those plus a debug teleport, so detecting it here is the only
+     * version a later edit cannot forget: a mode change or a jump no walk or
+     * drive could produce means the old smoothed pose is meaningless. */
+    static int   g_cam_mode = -1;
+    static float g_cam_lastx, g_cam_lastz;
+
+    float jx = tx - g_cam_lastx, jz = tz - g_cam_lastz;
+    if (player.mode != g_cam_mode || jx*jx + jz*jz > 64.0f) gta3_cam_reset(&g_cam);
+    g_cam_mode = player.mode; g_cam_lastx = tx; g_cam_lastz = tz;
+
+    float dist = CAM_FOOT_D, height = CAM_FOOT_H, look = CAM_FOOT_L;
+    if (player.mode == MODE_CAR) {
+        float s = fabsf(cars[player.car].spd) / CAM_SPD;
+        if (s > 1.0f) s = 1.0f;
+        dist   = CAM_CAR_D0 + (CAM_CAR_D1 - CAM_CAR_D0) * s;
+        height = CAM_CAR_H0 + (CAM_CAR_H1 - CAM_CAR_H0) * s;
+        look   = CAM_CAR_L0 + (CAM_CAR_L1 - CAM_CAR_L0) * s;
+    }
+    if (g_lookback) { dist *= 0.8f; yaw += 3.14159265f; }
+
+    gta3_cam_update(&g_cam, tx, tz, yaw, dist, height, look, dt,
+                    cam_solid, 0, TILE);
+
+    cam_pos   = g_cam.eye;
+    cam_basis = mote_camera_look(g_cam.eye, g_cam.target);
+    /* The draw windows iterate tiles around a centre. Centre them on a point
+     * ahead of the camera, not on the camera itself: almost everything drawn is
+     * in front, so a window centred on the eye wastes half its span behind. */
+    view_x = g_cam.eye.x + cam_basis.r[2].x * 40.0f;
+    view_z = g_cam.eye.z + cam_basis.r[2].z * 40.0f;
+
+    gta3_view_set(&g_view, g_cam.eye, cam_basis.r[2], FOV, 1.45f);
+}
 
 static void place_markers(void) {
     /* snap each marker to the nearest pavement tile around a target block; the
@@ -2939,6 +2992,7 @@ static void buy_gun(void) {
 }
 
 static void reset_game(void) {
+    gta3_cam_reset(&g_cam);   /* cold start: nothing to smooth from yet */
     /* EVERY NEW GAME IS A NEW CITY: regenerate the whole map, then everything
      * below (colliders, markers, traffic, dock) rebuilds from the fresh tiles */
     {
@@ -3394,6 +3448,14 @@ static int is_mission_car(int i){
 static void stream_entities(float dt) {
     if (g_dm) return;              /* DM: index-shared world — nothing recycles */
     float px=pl_x(), pz=pl_z();
+    /* Traffic/ped density below still wants a rough "how much world is visible"
+     * radius. The old top-down camera's smoothed height (g_camh) served that;
+     * the chase camera's height doesn't mean the same thing, so estimate the
+     * same quantity directly from speed instead: 15 m on foot, widening to
+     * 40 m at CAM_SPD, matching the old CAM_FOOT..CAM_MAX range. */
+    float g_camh = 15.0f;
+    if (player.mode==MODE_CAR)
+        g_camh = 15.0f + (40.0f-15.0f) * mote_clampf(fabsf(cars[player.car].spd)/CAM_SPD, 0.0f, 1.0f);
     for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
         if (!c->alive || i==player.car || c->driver==DRV_COP || c->type==VEH_TANK) continue;
         if (is_mission_car(i)) continue;      /* the job's own cars are exempt from recycling */
@@ -3600,7 +3662,7 @@ static void g_update(float dt) {
 
     /* ---- title / death screens ---- */
     if (g_state != ST_PLAY) {
-        set_topdown_camera(pl_x(), pl_z());
+        chase_camera(pl_x(), pl_z(), pl_yaw(), dt);
         mote->scene_camera(&cam_basis, cam_pos, FOV);
         draw_ground_window(); draw_buildings_window();
         if (g_state==ST_TITLE){
@@ -3767,7 +3829,7 @@ static void g_update(float dt) {
         if (dm_end || dm_dead_t>0){              /* end box / respawn wait: world holds */
             if (dm_dead_t>0){ dm_dead_t-=dt; if (dm_dead_t<=0) dm_respawn_me(); }
             if (dm_end && mote_just_pressed(in,MOTE_BTN_B)){ dm_stop(); g_state=ST_TITLE; return; }
-            set_topdown_camera(pl_x(), pl_z());
+            chase_camera(pl_x(), pl_z(), pl_yaw(), dt);
             mote->scene_camera(&cam_basis, cam_pos, FOV);
             draw_ground_window();
             dm_draw_remote();
@@ -3957,18 +4019,16 @@ static void g_update(float dt) {
               sfx(&phone_sfx, g); s_ring=1.9f; } } }
     if (cash>best_cash) best_cash=cash;    /* in memory only — flushed to flash at death */
 
-    /* speed-based zoom + engine pitch: tight/quiet on foot, out/loud with speed */
-    float ztarget = CAM_FOOT;
+    /* engine pitch rides speed: quiet on foot, loud with speed */
     if (player.mode==MODE_CAR){ float s=fabsf(cars[player.car].spd);
-        ztarget = CAM_CAR + (CAM_MAX-CAM_CAR)*(s/18.0f); if(ztarget>CAM_MAX) ztarget=CAM_MAX;
         g_eng_f = 30.0f + s*5.0f;   /* lower, rumblier drone (was 46 + s*7.5) */
         float at = 0.11f + s*0.012f; if(at>0.30f)at=0.30f; g_eng_a += (at-g_eng_a)*0.3f;
     } else g_eng_a *= 0.85f;
-    g_camh += (ztarget - g_camh) * mote_clampf(2.5f*dt, 0.0f, 1.0f);
 
     float tx = (player.mode==MODE_CAR)? cars[player.car].x : player.x;
     float tz = (player.mode==MODE_CAR)? cars[player.car].z : player.z;
-    set_topdown_camera(tx, tz);
+    float tyaw = (player.mode==MODE_CAR)? cars[player.car].yaw : player.yaw;
+    chase_camera(tx, tz, tyaw, dt);
     mote->scene_camera(&cam_basis, cam_pos, FOV);
 
     draw_ground_window();
