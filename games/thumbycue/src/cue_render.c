@@ -198,8 +198,16 @@ static int project_z(Vec3 world, float *sx, float *sy, float *vz) {
  * through twenty emitter signatures. */
 static uint8_t s_mat = CUE_MAT_CLOTH;
 
+/* HOW MANY THE BUFFER REFUSED. tri() drops silently when it is full, which is
+ * the right behaviour -- a table missing its last few triangles still draws --
+ * but it means a change that ADDS geometry can quietly cost the pocket lips
+ * their mesh and nothing says so. Counted here and printed by CUE_TRIDUMP, the
+ * same bargain the frame builder's vertex ceiling makes. */
+static int s_tab_dropped;
+int cue_render_table_dropped(void) { return s_tab_dropped; }
+
 static void tri(Vec3 a, Vec3 b, Vec3 c, uint16_t col) {
-    if (s_ntab >= MAX_TABLE_TRI) return;
+    if (s_ntab >= MAX_TABLE_TRI) { s_tab_dropped++; return; }
     CueTri *t = &s_tab[s_ntab++];
     t->v[0] = a; t->v[1] = b; t->v[2] = c;
     t->nrm = v3_norm(v3_cross(v3_sub(b, a), v3_sub(c, a)));
@@ -1731,6 +1739,42 @@ void cue_render_set_bore_outline(int pocket, const float *ang, const float *rad,
 void cue_render_set_rail_split(int on) { s_rail_split = on ? 1 : 0; }
 void cue_render_set_corner_round(int on) { s_corner_k = on ? 1.0f : 0.0f; }
 
+/* ---- THE CUSHION'S TOP EDGE, ROUNDED ------------------------------------- *
+ *
+ * The cross-section is four rails of vertices: the base on the cloth, the nose
+ * line the ball plays off, the top of the nose's little vertical face, and the
+ * back that tucks under the timber. One of the joins between them is an edge
+ * you can see from across the room.
+ *
+ * THE TOP OF THE NOSE IS A RIGHT ANGLE. The vertical face meets the cushion
+ * top dead square -- a line no piece of rubber has ever had -- and the VR
+ * build's normal welding deliberately leaves it alone, because ninety degrees
+ * is far past its crease threshold. That is the hard line down every rail, and
+ * it is a hard step in COLOUR as well, since the face and the top are authored
+ * in two different shades of the cloth. An arc fixes both at once: its bands
+ * carry shades between the two and its normals roll from one face to the other.
+ *
+ * THE BOTTOM OF THE NOSE IS NOT AN EDGE and gets nothing -- see the note in
+ * cush_section, which has the measurement.
+ *
+ * NOTHING THE PHYSICS READS MOVES. The arc starts a radius BELOW the nose line
+ * and rolls away from the table, so the nose stays exactly where cue_table put
+ * it -- which is what cue_render_capture_nose and test_seehit check.
+ *
+ * OFF UNLESS ASKED FOR. The handheld draws this same mesh into a 2200-triangle
+ * buffer at 128x128, where a millimetre is a fraction of a pixel; the bands
+ * would be cost with nothing to show for them. The VR build asks. */
+static float s_cush_fil   = 0.0f;   /* metres. 0 = the square edge, as before */
+static int   s_cush_fil_n = 0;      /* facets across the quarter turn */
+
+void cue_render_set_cush_fillet(float r, int segs) {
+    if (!(r > 0.0f) || segs < 1) { s_cush_fil = 0.0f; s_cush_fil_n = 0; return; }
+    if (r > 0.012f) r = 0.012f;     /* past this it is a reshaped nose, not an edge */
+    if (segs > 8) segs = 8;
+    s_cush_fil = r; s_cush_fil_n = segs;
+}
+float cue_render_cush_fillet(void) { return s_cush_fil; }
+
 /* TWO NUMBERS, because the two kinds of drop are bridged by different things
  * and one of them is often bridged by nothing. A table with corner castings
  * wants its corners cut and its middles whole; a table with bag nets wants
@@ -2881,6 +2925,120 @@ static void split_plank(int ax0, float ua, float ub, float va, float vb,
 
 static float cush_undercut(const CueTable *t) { return 0.45f * t->R; }
 
+/* ---- ONE CUSHION CROSS-SECTION ------------------------------------------- *
+ *
+ * Every cushion in the building comes through here -- a straight rail, a pocket
+ * facing, the bezier of a curved jaw -- so there is one profile and no way for
+ * a fillet to reach some of them and not the others. That is the whole reason
+ * it is a function: the geometry round a pocket is difficult enough without two
+ * descriptions of the shape it has to agree with.
+ *
+ * The caller passes the three rails it has already worked out, in the plan it
+ * worked them out in: the base (already set back, and already overridden at a
+ * knuckle), the nose line, and the back (already folded clear of a bore at a
+ * free tip, already clipped to a split rail). This fills in what lies between
+ * them. IT NEVER MOVES A POINT THE CALLER GAVE IT.
+ *
+ * THE RADIUS IS THE SAME EVERYWHERE ON THE TABLE, and it has to be: adjacent
+ * segments share their end vertices, so a radius that varied between them would
+ * open a crack down the strip at every join. It comes off the height of the
+ * nose's little vertical face, a table constant, and the only thing that can
+ * take it away is a back run too short to lay the arc on -- asked per NODE, off
+ * that node's own back point, so the two segments meeting there always get the
+ * same answer.
+ */
+static void cush_section(Vec3 ba, Vec3 bb,      /* base, on the cloth (y = 0) */
+                         Vec3 pa, Vec3 pb,      /* the nose line (x and z only) */
+                         Vec3 ar, Vec3 br,      /* the back, at rail height */
+                         float nose_h, float flat_h,
+                         uint16_t fdark, uint16_t face, uint16_t ctop)
+{
+    const Vec3 an = v3(pa.x, nose_h, pa.z), bn = v3(pb.x, nose_h, pb.z);
+
+    /* how far back the top runs at each end */
+    const float dax = ar.x - pa.x, daz = ar.z - pa.z;
+    const float dbx = br.x - pb.x, dbz = br.z - pb.z;
+    const float dal = sqrtf(dax*dax + daz*daz), dbl = sqrtf(dbx*dbx + dbz*dbz);
+
+    float r = s_cush_fil;
+    if (s_cush_fil_n < 1) r = 0.0f;
+    /* THE FACE HAS TO SURVIVE IT. The arc and the two strips of flat that hold
+     * its shading want four radii between them, and the face they come out of
+     * is only three tenths of the nose's height to begin with. */
+    {   const float vf = flat_h - nose_h;
+        if (r > vf * 0.25f) r = vf * 0.25f; }
+    const float hold = r * 2.0f;
+    /* ...and a back run with room to lay it on. Measured across every table,
+     * the shortest is the cushion's full depth, 47 mm, so this has never yet
+     * bitten; it is here so that a folded facing cannot be the thing that
+     * finds out. */
+    const float ra = (r >= 3.0e-4f && dal > (r + hold) * 4.0f) ? r : 0.0f;
+    const float rb = (r >= 3.0e-4f && dbl > (r + hold) * 4.0f) ? r : 0.0f;
+
+    if (ra <= 0.0f && rb <= 0.0f) {          /* square, exactly as it always was */
+        const Vec3 af = v3(pa.x, flat_h, pa.z), bf = v3(pb.x, flat_h, pb.z);
+        ribbon(ba, bb, bn, an, fdark);       /* undercut face (leans to nose) */
+        quad(an, bn, bf, af, face);          /* small flat (planar) */
+        ribbon(af, bf, br, ar, ctop);        /* cloth top -> rail */
+        return;
+    }
+    const int N = s_cush_fil_n;
+
+    /* ---- the skirt, up to the nose -------------------------------------- *
+     *
+     * AND THE BOTTOM OF THE NOSE IS LEFT ALONE, on purpose. The skirt leans
+     * back by cush_undercut, which is atan(0.45 / 1.27) -- 19.5 degrees on
+     * every table in the building -- so the join at the nose is not an edge,
+     * it is a shallow bend, and the normal welding already shades straight
+     * through it. A fillet struck there is r * tan(turn / 2) long: a sixth of
+     * the radius, so 0.17 mm at a one-millimetre fillet, which is under the
+     * 0.1 mm tolerance the VR build welds vertices at. It was built, measured
+     * and taken out again -- it only grew past the weld at a radius of 1.75 mm,
+     * and below that it cost 756 triangles a table to draw nothing. If the
+     * bottom of a cushion ever wants softening it is the FOOT that wants it,
+     * where the skirt meets the cloth: that one is a 110 degree crease and it
+     * is genuinely hard. */
+    ribbon(ba, bb, bn, an, fdark);
+
+    /* ---- A STRIP OF FLAT EITHER SIDE, TO HOLD THE SHADING ---------------- *
+     *
+     * The VR build averages a vertex's normal across every face meeting it
+     * within its crease angle, and a millimetre of arc welded straight into a
+     * face forty-seven millimetres wide drags the shading across the whole of
+     * it: the top came out as one long gradient and the rail looked inflated,
+     * which is exactly the failure that file's own note warns about. So the arc
+     * is bounded by a narrow strip of the flat it came from, two radii wide.
+     * Those strips are dead flat, so the vertices where they meet the face and
+     * the top take that face's own normal and the roll stays in the couple of
+     * millimetres it belongs in. It is the support loop every subdivision
+     * modeller puts beside a bevel, for the same reason. */
+    const Vec3 ha = v3(pa.x, flat_h - ra - hold, pa.z);
+    const Vec3 hb = v3(pb.x, flat_h - rb - hold, pb.z);
+    const Vec3 ta = v3(pa.x, flat_h - ra, pa.z), tb = v3(pb.x, flat_h - rb, pb.z);
+    quad(an, bn, hb, ha, face);
+    quad(ha, hb, tb, ta, face);
+
+    /* ---- the top of the nose: a quarter turn onto the cushion top -------- */
+    {   const float eax = dal > 1e-6f ? dax / dal : 0.0f, eaz = dal > 1e-6f ? daz / dal : 0.0f;
+        const float ebx = dbl > 1e-6f ? dbx / dbl : 0.0f, ebz = dbl > 1e-6f ? dbz / dbl : 0.0f;
+        Vec3 pva = ta, pvb = tb;
+        for (int k = 1; k <= N; k++) {
+            const float th = (float)k * 1.5707963f / (float)N;
+            const float c = 1.0f - cosf(th), sn = sinf(th);
+            const Vec3 qa = v3(pa.x + eax * ra * c, flat_h - ra + ra * sn,
+                               pa.z + eaz * ra * c);
+            const Vec3 qb = v3(pb.x + ebx * rb * c, flat_h - rb + rb * sn,
+                               pb.z + ebz * rb * c);
+            ribbon(pva, pvb, qb, qa, mix565(face, ctop, ((float)k - 0.5f) / (float)N));
+            pva = qa; pvb = qb;
+        }
+        const Vec3 ga = v3(pa.x + eax * (ra + hold), flat_h, pa.z + eaz * (ra + hold));
+        const Vec3 gb = v3(pb.x + ebx * (rb + hold), flat_h, pb.z + ebz * (rb + hold));
+        ribbon(pva, pvb, gb, ga, ctop);      /* the strip on the top */
+        ribbon(ga, gb, br, ar, ctop);        /* and the top itself */
+    }
+}
+
 static void box6(float x0, float x1, float y0, float y1, float z0, float z1,
                  uint16_t top, uint16_t side)
 {
@@ -3359,7 +3517,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     s_lip_mode = 1;
     { extern char *getenv(const char*); const char *e = getenv("CUE_LIP"); if (e) s_lip_mode = e[0]-'0'; }
     { extern char *getenv(const char*); const char *e2 = getenv("CUE_BALLSET"); if (e2) s_ball_set = e2[0]-'0'; }
-    s_ntab = 0;
+    s_ntab = 0; s_tab_dropped = 0;
     s_mat = CUE_MAT_CLOTH;   /* the bed and the cushions are cloth; the run below
                               * switches to timber when the woodwork starts */
     s_cloth = t->cloth;
@@ -3875,7 +4033,6 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
         if (s_kbase_on[s] & 1) ba = v3(s_kbase_a[s].x, 0.0f, s_kbase_a[s].z);
         if (s_kbase_on[s] & 2) bb = v3(s_kbase_b[s].x, 0.0f, s_kbase_b[s].z);
         Vec3 an = v3(pa.x, nose_h, pa.z), bn = v3(pb.x, nose_h, pb.z);
-        Vec3 af = v3(pa.x, flat_h, pa.z), bf = v3(pb.x, flat_h, pb.z);
         /* straight rail nose (kind 0): clean perpendicular back at depth cw (a
          * straight edge at ±(hw|hl)+cw) so the wood inner edge can touch it
          * exactly. Facings keep the averaged normal for top continuity. */
@@ -4002,9 +4159,13 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                    (double)an.x, (double)an.z, (double)bn.x, (double)bn.z);
         }
 #endif
-        ribbon(ba, bb, bn, an, fdark);      /* undercut face (leans to nose) */
-        quad(an, bn, bf, af, face);            /* small flat (planar) */
-        ribbon(af, bf, br, ar, ctop);       /* cloth top → rail */
+        /* ONE PROFILE, FOR EVERY CUSHION ON THE TABLE -- see cush_section, which
+         * still draws these same three faces when no fillet is asked for.
+         *
+         * an/bn, NOT pa/pb: rail_plank_clip has moved pa and pb since the nose
+         * was taken off them, and the strip is drawn on the nose that was
+         * captured above. */
+        cush_section(ba, bb, an, bn, ar, br, nose_h, flat_h, fdark, face, ctop);
     }
 
     /* Wood rail frame: full rectangular ring (the pocket caps punch holes
@@ -5086,6 +5247,18 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
             }
         }
     }
+#ifdef MOTE_HOST
+    /* CUE_TRIDUMP=1 -- what the table cost, and whether the buffer ran out. The
+     * ceiling drops triangles in silence, so something that adds geometry can
+     * take the pocket lips off the end of the mesh and look like a rendering
+     * fault somewhere else entirely. */
+    if (getenv("CUE_TRIDUMP"))
+        printf("TRIS kind %d  total %d of %d  (bed %d, raised %d, lips %d)"
+               "  fillet %.4f x%d  DROPPED %d\n",
+               (int)t->kind, s_ntab, MAX_TABLE_TRI, s_bed_ntab,
+               s_lip_ntab - s_bed_ntab, s_ntab - s_lip_ntab,
+               (double)s_cush_fil, s_cush_fil_n, s_tab_dropped);
+#endif
 }
 
 void cue_render_set_markings(int on) { s_markings = on ? 1 : 0; }
