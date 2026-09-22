@@ -25,9 +25,9 @@
                              * itself is gone: Task 7 replaced the sprite with a tinted mesh */
 /* tankturret.h/tankturret_img (turret+barrel top-down sprite) is gone: Task 9
  * replaced it with the gta3_box mesh built in build_turret() below. */
-#include "player.h"        /* player_img — 4 walk frames, 16x16 */
-#include "ped.h"           /* ped_img — 2 frames x 4 variants, 16x16 */
-#include "cop.h"           /* cop_img — foot officer, 2 frames, 16x16 */
+#include "player.h"        /* player_img — 64x96, 4 facings x 6 rows */
+#include "ped.h"           /* ped_img — 64x256 */
+#include "cop.h"           /* cop_img — foot officer, 64x32 */
 #include "scenery.h"       /* scenery_img — oak/pine/autumn/bush/flowers/boulder, 20x20 */
 #include "props.h"         /* props_img — phonebox / gun mat / spray decal, 16x16 */
 #include "title.font.h"    /* title — DejaVu Serif Condensed Bold @20px (edit in Studio Font tab) */
@@ -529,13 +529,21 @@ static int world_to_screen(Vec3 w, float *sx, float *sy, float *px_per_m) {
  * The angle is measured against the CAMERA forward, not a world axis, so the
  * choice follows the view: a ped walking away from the camera shows its back
  * whichever compass direction that happens to be.
- * 0 back, 1 front, 2 left, 3 right — matching make_chars3d.py's column order. */
+ * 0 back, 1 front, 2 left, 3 right — matching make_chars3d.py's column order.
+ *
+ * rel is in the game's "driver's right" yaw convention (-sin(yaw), cos(yaw)),
+ * i.e. yaw+90. world_to_screen actually projects against cam_basis.r[0] =
+ * cross((0,1,0), forward), which is yaw-90 -- the OPPOSITE of driver's right
+ * (see the note at screen_or_edge, game.c:4489, and draw_radar, game.c:4607,
+ * which hit the same mismatch). So rel=+90 ("driver's right" of camera
+ * forward) actually projects to screen-LEFT, and vice versa: the left/right
+ * columns below are swapped relative to a naive reading of rel. */
 static int facing_cell(float yaw) {
     float cyaw = atan2f(cam_basis.r[2].z, cam_basis.r[2].x);
     float rel = gta3_wrap_angle(yaw - cyaw);
     if (rel > -0.785f && rel <= 0.785f) return 0;        /* same way as the camera: back */
-    if (rel > 0.785f && rel <= 2.356f)  return 3;
-    if (rel < -0.785f && rel >= -2.356f) return 2;
+    if (rel > 0.785f && rel <= 2.356f)  return 2;
+    if (rel < -0.785f && rel >= -2.356f) return 3;
     return 1;                                            /* toward the camera: front */
 }
 
@@ -1468,12 +1476,21 @@ static void draw_buildings_window(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE);
     int w = (int)(VIEW_BLD_R / TILE) + 1;
     int submitted = 0;
-    /* Two passes: the near, textured band first, then the far haze band until
-     * the cap. Overflow then shows as distant blocks missing rather than as
-     * whatever arrived last being dropped. */
-    for (int pass = 0; pass < 2; pass++) {
-        for (int z = cz - w; z <= cz + w; z++)
-            for (int x = cx - w; x <= cx + w; x++) {
+    /* Walk outward in Chebyshev rings from the camera tile (same shape as the
+     * tree scan below), classifying near/far by actual distance as each tile
+     * is visited. That makes the cap drop the FARTHEST buildings, not
+     * whichever tile a north-to-south raster scan happened to reach last: a
+     * plain two-pass raster kept the first VIEW_BLD_CAP submissions in MAP
+     * order, unrelated to camera distance, so a close building behind the
+     * cap could be missing its mesh while its collider still stood, and a
+     * saturated near pass could starve the far pass so the haze band never
+     * rendered at all. Ring order also replaces the old double 59x59 scan
+     * (~6,962 tile checks/frame across both passes) with one bounded walk. */
+    for (int r = 0; r <= w && submitted < VIEW_BLD_CAP; r++) {
+        for (int dz = -r; dz <= r; dz++) {
+            for (int dx = -r; dx <= r; dx++) {
+                if (r > 0 && dx != -r && dx != r && dz != -r && dz != r) continue; /* interior: visited at a smaller r */
+                int x = cx + dx, z = cz + dz;
                 char c = tile_at(x, z);
                 if (c != '#' && c != 'O' && c != 'H') continue;
                 int gdir = is_garage(x, z) ? garage_dir(x, z) : -1;
@@ -1484,7 +1501,6 @@ static void draw_buildings_window(void) {
                 float ddx = wx - cam_pos.x, ddz = wz - cam_pos.z;
                 float d = sqrtf(ddx*ddx + ddz*ddz);
                 int far = d > VIEW_HAZE_R;
-                if (far != pass) continue;
                 if (submitted >= VIEW_BLD_CAP) return;
                 /* Base OR top in the cone: culling on the elevated centre alone
                  * made tall blocks blink out while their footprint was still
@@ -1502,6 +1518,7 @@ static void draw_buildings_window(void) {
                 }
                 submitted++;
             }
+        }
     }
 }
 
@@ -3806,7 +3823,12 @@ static void draw_vehicle_mesh(const Car *c) {
      * g_quad are mutated per draw. box()'s corner order puts +x at indices
      * 1,2,5,6 and -x at 0,3,4,7. */
     float ar = vs->wid / vs->len;
-    int8_t bx = (int8_t)(g_veh_bx[sil] * ar), cx = (int8_t)(g_veh_cx[sil] * ar);
+    /* Clamp before narrowing: every cars2 cell today is 28x60 (ar < 1), but a
+     * future vehicle with wid > len would push g_veh_bx[sil]*ar past 127 and
+     * wrap negative in the int8_t cast, inverting the box in x and flipping
+     * the +/-X faces' winding -- silently invisible sides on the flat path. */
+    int8_t bx = (int8_t)mote_clampf(g_veh_bx[sil] * ar, -127.0f, 127.0f);
+    int8_t cx = (int8_t)mote_clampf(g_veh_cx[sil] * ar, -127.0f, 127.0f);
     static const int XP[4] = {1,2,5,6}, XN[4] = {0,3,4,7};
     for (int k = 0; k < 4; k++) {
         m->bv[XP[k]].x =  bx; m->bv[XN[k]].x = -bx;
@@ -3835,11 +3857,19 @@ static void draw_vehicle_mesh(const Car *c) {
      * hidden underneath from a chase camera. The (0.22, 0.28) world-space
      * offset toward the sun's shadow is carried over unchanged from the
      * octagon this replaced (visually tuned there, not re-derived here). */
-    float fx = cosf(c->yaw), fz = sinf(c->yaw);
-    mote->scene_add_shadow_ex(v3(c->x + 0.22f, 0.02f, c->z + 0.28f),
-                              v3(fx * vs->len * 0.55f, 0, fz * vs->len * 0.55f),
-                              v3(-fz * vs->wid * 0.62f, 0, fx * vs->wid * 0.62f),
-                              0.55f);
+    /* Gated on g_view the same way bb_add() gates billboards: the mesh itself
+     * is saved by the pipe's own bound-sphere cull, but scene_add_shadow_ex
+     * has no such cull, and this call used to run for all 18 alive cars
+     * unconditionally. Worst case that's 18 car + up to 34 in-view ped
+     * shadows = 52 against a max_shadows of 40, dropped silently past the
+     * cap; see max_shadows=64 below. */
+    if (gta3_view_tile(&g_view, c->x, 0.02f, c->z, VIEW_GROUND_R, vs->len)) {
+        float fx = cosf(c->yaw), fz = sinf(c->yaw);
+        mote->scene_add_shadow_ex(v3(c->x + 0.22f, 0.02f, c->z + 0.28f),
+                                  v3(fx * vs->len * 0.55f, 0, fz * vs->len * 0.55f),
+                                  v3(-fz * vs->wid * 0.62f, 0, fx * vs->wid * 0.62f),
+                                  0.55f);
+    }
 }
 
 static void draw_vehicle(int i){
@@ -3871,6 +3901,17 @@ static void draw_vehicle(int i){
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
+
+    /* Per-frame billboard-pool bookkeeping: reset unconditionally at the START
+     * of the frame, before any early-return path (deathmatch end/respawn,
+     * briefing freeze, map overlay, ...) can draw a billboard. bb_add()
+     * increments g_bb_used, and it used to be reset only in the main play
+     * path further down -- any branch that returned before reaching that
+     * reset (e.g. the dm_end/dm_dead_t branch, which draws the remote
+     * player's avatar via dm_draw_remote -> draw_character -> bb_add) left
+     * the counter climbing frame over frame until the pool saturated and
+     * bb_add started silently rejecting everything. */
+    g_bb_used = 0; g_bb_budget_drop = 0;
 
     if (g_brief_active){                                  /* the job briefing freezes the city */
         if (mote_just_pressed(in, MOTE_BTN_A)) g_brief_active = 0;         /* accept */
@@ -4297,7 +4338,8 @@ static void g_update(float dt) {
     float tyaw = (player.mode==MODE_CAR)? cars[player.car].yaw : player.yaw;
     chase_camera(tx, tz, tyaw, dt);
     mote->scene_camera(&cam_basis, cam_pos, FOV);
-    g_bb_used = 0; g_bb_budget_drop = 0;   /* new frame, g_view is current: reset bb_add's counters */
+    /* g_bb_used / g_bb_budget_drop reset at the top of g_update now, not here
+     * -- see the comment there for why. */
 
     draw_ground_window();
     /* Buildings are submitted AFTER the entities below: the textured-tri pool is
@@ -4349,17 +4391,20 @@ static void g_update(float dt) {
               MOTE_BLEND_NONE, VIEW_GROUND_R, 1.0f);
     }
     for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive) continue;
-        int fr=((int)p->animt)&1;
         if (p->iscop){
-            /* cop_img has only 2 rows (walk, no dedicated aim/fire art) — in
-             * combat, toggle between them off firecd instead of walking, so
-             * there's still a visible cue that they're shooting. */
+            /* cop_img genuinely has only 2 walk rows (no dedicated aim/fire
+             * art) — in combat, toggle between them off firecd instead of
+             * walking, so there's still a visible cue that they're shooting. */
+            int fr=((int)p->animt)&1;
             if (wanted()>0){
                 float dx=pl_x()-p->x, dz=pl_z()-p->z;
                 if (dx*dx+dz*dz < 560.0f) fr = (p->firecd > 0.85f) ? 1 : 0;
             }
             draw_character(&cop_img, p->x, p->z, p->yaw, 0, fr, 2);
         } else {
+            /* ped_img has 4 walk frames (make_chars3d.py); &1 only ever hit
+             * rows 0/1 of each variant, leaving rows variant*4+2/+3 unreachable. */
+            int fr=((int)p->animt)&3;
             draw_character(&ped_img, p->x, p->z, p->yaw, p->variant, fr, 4);
         }
     }
@@ -4490,11 +4535,14 @@ static int screen_or_edge(float wx, float wz, float *sx, float *sy, float *ang) 
      * cross((0,1,0), forward) instead, which points the other way — so the
      * screen-x offset here needs the opposite sign of what a naive sin(rel)
      * would give, to agree with what world_to_screen would have produced. */
-    *ang = rel;
     float ex = -sinf(rel), ey = -cosf(rel);
     float k = 54.0f / (fabsf(ex) > fabsf(ey) ? fabsf(ex) : fabsf(ey));
     *sx = 64.0f + ex * k;
     *sy = 64.0f + ey * k;
+    /* draw_arrow wants a SCREEN angle (dx=cosf(ang), dy=sinf(ang) straight into
+     * framebuffer coords), not the world bearing `rel`. Derive it from the same
+     * ex/ey used for position, so the arrow's rotation and its position agree. */
+    *ang = atan2f(ey, ex);
     return 0;
 }
 
@@ -4620,7 +4668,13 @@ static void draw_phys_boxes(uint16_t *fb){
  * inverse. Verified both directions round-trip: feeding a radar (10,0) back
  * through the marker formula returns (10,0).) */
 #define RADAR_X   4
-#define RADAR_Y   84
+#define RADAR_Y   32   /* NOT 84: that placement (x 3..45, y 83..125) sat directly under the
+                        * on-foot prompt line (centred x=64, y=102..108, wide enough to run
+                        * under the disc) and over the health bar (x2..42,y116..122) / weapon
+                        * label (x60,y115), and draw_radar is called last in g_overlay so it
+                        * painted over both. y=32 clears the top HUD panel (y0..11), the
+                        * mission line (x2,y12, ends well before y30), the prompt line, and
+                        * the health bar / weapon label. */
 #define RADAR_R   20
 #define RADAR_M   2.6f        /* world metres per radar pixel */
 static void draw_radar(uint16_t *fb) {
@@ -4917,7 +4971,13 @@ static const MoteGameVtbl k_vtbl = {
      * has ~35% headroom to spend even at the old, tighter margin, and there
      * is no cost argument for cutting it close when the failure mode is
      * invisible until someone hits it on hardware. */
-    .config = { .max_tex_tris = 1100, .max_tris = 850, .depth = 1, .max_shadows = 40,
+    .config = { .max_tex_tris = 1100, .max_tris = 850, .depth = 1,
+                /* max_shadows = 64, not 40: worst case is 18 car + up to 34
+                 * in-view ped shadows = 52, which already exceeded 40 with
+                 * vehicle shadows left ungated (fixed above). Same
+                 * "combat was never profiled" argument as max_tris/
+                 * max_tex_tris above, applied here too. */
+                .max_shadows = 64,
                 .max_bodies = NCAR+NSTAT, .max_contacts = 220,     /* 2D physics pool (ABI v42; 2-pt box manifolds, capped) */
                 /* 112 slots (measured peak: downtown avenue, 92 live billboards
                  * with the pool uncapped — the entity-heaviest of the profiled
@@ -4930,7 +4990,10 @@ static const MoteGameVtbl k_vtbl = {
                  * trees drop first) instead of silently dropping whatever the engine
                  * happened to see last. Keep this in sync with MAX_BILLBOARDS. See
                  * PROFILING.md for the full measurement. */
-                .max_billboards = MAX_BILLBOARDS, .max_lines = 24 },
+                /* max_lines = 48, not 24: game.c submits one tracer per alive
+                 * bullet (NBULLET = 40), ungated, so an SMG burst could lose
+                 * tracers silently past the old cap. */
+                .max_billboards = MAX_BILLBOARDS, .max_lines = 48 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
