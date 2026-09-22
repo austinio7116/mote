@@ -4,6 +4,15 @@
 
 void gta3_view_set(Gta3View *v, Vec3 eye, Vec3 fwd, float fov_deg, float aspect_slack) {
     v->eye = eye;
+    /* v3_norm already guards a zero-length (or NaN) fwd, falling back to
+     * v3(0,0,1) rather than propagating NaN -- see engine/math/mote_vec.h.
+     * What it does NOT guard is fov_deg going negative: that makes `half`
+     * negative, and since sin_half is cached, cosang >= cos_widened in
+     * gta3_view_tile flips from WIDENING the cone to NARROWING it (the
+     * "works because cosf is even" reasoning recorded elsewhere does not
+     * hold once sinf(half) is signed). Clamp it, the same treatment
+     * gta3_wrap_angle already gives a non-finite yaw. */
+    if (fov_deg < 0.0f) fov_deg = 0.0f;
     v->fwd = v3_norm(fwd);
     float half = fov_deg * 0.5f * (3.14159265f / 180.0f) * aspect_slack;
     if (half > 1.55f) half = 1.55f;          /* never open past ~89 deg */

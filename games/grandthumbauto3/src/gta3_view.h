@@ -39,6 +39,11 @@ void gta3_view_set(Gta3View *v, Vec3 eye, Vec3 fwd, float fov_deg, float aspect_
  * distance), so a tile whose CENTRE is outside the cone but whose near corner
  * is inside still draws — without that, tiles pop at the screen edge.
  *
+ * Near-eye early-out: a tile at or inside its own half-width of the eye
+ * (distance^2 <= (tile_m/2)^2) always draws, with no cone test at all --
+ * there is no meaningful bearing to test at that range, and it is typically
+ * the ground under the player.
+ *
  * Returns 1 to draw, 0 to skip. */
 int gta3_view_tile(const Gta3View *v, float wx, float wy, float wz,
                    float radius_m, float tile_m);
