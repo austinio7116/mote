@@ -52,6 +52,19 @@ endif()
 if(MOTE_TARGET STREQUAL "host")
     find_package(SDL2 REQUIRED)
 
+    # Homebrew's SDL2 cmake config exports its include dir as
+    # /opt/homebrew/include/SDL2, which satisfies "SDL.h" but not the
+    # <SDL2/SDL.h> spelling this codebase uses everywhere (see
+    # platform/host/mote_plat_host.c). On Linux this never bites because
+    # SDL2 lands in /usr/include/SDL2 and /usr/include is already a default
+    # search path. Fall back to pkg-config to recover the missing parent
+    # directory (/opt/homebrew/include) without touching the working
+    # SDL2::SDL2 / SDL2_INCLUDE_DIRS path used elsewhere.
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(SDL2_PKGCONFIG QUIET sdl2)
+    endif()
+
     add_library(mote_engine STATIC ${MOTE_ENGINE_SOURCES})
     target_include_directories(mote_engine PUBLIC ${MOTE_INCLUDE_DIRS})
     target_compile_definitions(mote_engine PUBLIC MOTE_HOST=1)
@@ -66,6 +79,9 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_definitions(mote_plat_host PUBLIC MOTE_HOST=1)
     if(TARGET SDL2::SDL2)
         target_link_libraries(mote_plat_host PUBLIC SDL2::SDL2)
+        if(SDL2_PKGCONFIG_FOUND)
+            target_include_directories(mote_plat_host PUBLIC ${SDL2_PKGCONFIG_INCLUDE_DIRS})
+        endif()
     else()
         target_include_directories(mote_plat_host PUBLIC ${SDL2_INCLUDE_DIRS})
         target_link_libraries(mote_plat_host PUBLIC ${SDL2_LIBRARIES})
