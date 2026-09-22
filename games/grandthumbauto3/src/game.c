@@ -4091,21 +4091,30 @@ static void g_update(float dt) {
     }
 
     if (player.mode == MODE_FOOT) {
-        /* direct 8-way walk: the dpad moves you, and you face your heading */
-        float mvx=0, mvz=0;
-        if (mote_pressed(in, MOTE_BTN_UP))    mvz -= 1;
-        if (mote_pressed(in, MOTE_BTN_DOWN))  mvz += 1;
-        if (mote_pressed(in, MOTE_BTN_LEFT))  mvx -= 1;
-        if (mote_pressed(in, MOTE_BTN_RIGHT)) mvx += 1;
-        float ml = mvx*mvx+mvz*mvz;
-        if (ml > 0.01f) {
-            float inv = 1.0f/sqrtf(ml); mvx*=inv; mvz*=inv;
-            player.yaw = atan2f(mvz, mvx);
-            { float nx=player.x+mvx*5.0f*dt, nz=player.z+mvz*5.0f*dt;
-              if (!ped_blocked_by_car(nx,nz) || ped_blocked_by_car(player.x,player.z))
-                  move_body(&player.x, &player.z, nx, nz, 0); }
+        /* Tank controls: left/right turn in place, up/down walk along the
+         * facing. The camera swings to follow the player, so a camera-
+         * relative d-pad (the old 8-way absolute scheme) flips direction
+         * under the player's hands every time the camera comes round a
+         * corner; turning in place is invariant to that. */
+        const float TURN = 3.0f;              /* rad/s */
+        const float WALK_SPD = 5.0f;          /* m/s, same as the old 8-way walk */
+        if (mote_pressed(in, MOTE_BTN_LEFT))  player.yaw -= TURN * dt;
+        if (mote_pressed(in, MOTE_BTN_RIGHT)) player.yaw += TURN * dt;
+        player.yaw = gta3_wrap_angle(player.yaw);
+
+        float drive = 0.0f;
+        if (mote_pressed(in, MOTE_BTN_UP))   drive =  1.0f;
+        if (mote_pressed(in, MOTE_BTN_DOWN)) drive = -0.5f;   /* backing up is slower, and does not turn */
+
+        if (drive != 0.0f) {
+            float nx = player.x + cosf(player.yaw) * WALK_SPD * drive * dt;
+            float nz = player.z + sinf(player.yaw) * WALK_SPD * drive * dt;
+            if (!ped_blocked_by_car(nx,nz) || ped_blocked_by_car(player.x,player.z))
+                move_body(&player.x, &player.z, nx, nz, 0);
             player.animt += dt*8.0f;
         }
+        g_lookback = mote_pressed(in, MOTE_BTN_LB);
+
         if (mote_pressed(in, MOTE_BTN_B)) fire_weapon();
         if (mote_just_pressed(in, MOTE_BTN_RB)){          /* RB: switch to your next owned weapon */
             for (int t=0;t<NWEAP;t++){ weapon=(weapon+1)%NWEAP;
@@ -4163,6 +4172,7 @@ static void g_update(float dt) {
             }
         }
     } else {                                                   /* MODE_CAR */
+        g_lookback = 0;                    /* can't stick from a foot session before entering */
         Car *c=&cars[player.car];
         drive_car(c, dt, mote_pressed(in,MOTE_BTN_RB), mote_pressed(in,MOTE_BTN_LB),
                   mote_pressed(in,MOTE_BTN_LEFT), mote_pressed(in,MOTE_BTN_RIGHT));
