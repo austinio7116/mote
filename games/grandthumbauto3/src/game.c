@@ -1627,7 +1627,11 @@ static int move_body(float *x, float *z, float nx, float nz, int drive) {
 
 static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int steerR) {
     int ci = (int)(c - cars);
-    float steer = (steerR?1.0f:0.0f) - (steerL?1.0f:0.0f);   /* screen-relative: LEFT=left */
+    /* Screen-relative, and the sign flipped with the camera: increasing yaw rotates
+     * forward TOWARD +Z, which the top-down basis (r[0]=+X, up=-Z) put on the right
+     * of the screen but the chase basis (r[0]=cross(up,fwd)) puts on the LEFT.
+     * Measured, not assumed: d(fwd)/dyaw . cam_right = -1 at every yaw. */
+    float steer = (steerL?1.0f:0.0f) - (steerR?1.0f:0.0f);
     MoteBody2D *b=&bodies[ci];
     float cc=cosf(b->angle), ss=sinf(b->angle), fs=b->vx*cc+b->vy*ss;
     /* LB = PROGRESSIVE BRAKE: soft on a tap, ramping harder the longer it is held.
@@ -4267,8 +4271,9 @@ static void g_update(float dt) {
          * corner; turning in place is invariant to that. */
         const float TURN = 3.0f;              /* rad/s */
         const float WALK_SPD = 5.0f;          /* m/s, same as the old 8-way walk */
-        if (mote_pressed(in, MOTE_BTN_LEFT))  player.yaw -= TURN * dt;
-        if (mote_pressed(in, MOTE_BTN_RIGHT)) player.yaw += TURN * dt;
+        /* yaw+ turns visually LEFT under the chase camera — see drive_car. */
+        if (mote_pressed(in, MOTE_BTN_LEFT))  player.yaw += TURN * dt;
+        if (mote_pressed(in, MOTE_BTN_RIGHT)) player.yaw -= TURN * dt;
         player.yaw = gta3_wrap_angle(player.yaw);
 
         float drive = 0.0f;
@@ -4350,8 +4355,8 @@ static void g_update(float dt) {
              * turret instead of steering (steering is dead when stopped anyway);
              * once rolling, the turret eases back onto the hull line. */
             if (fabsf(c->spd) < 0.8f){
-                if (mote_pressed(in,MOTE_BTN_LEFT))  g_turret -= 2.2f*dt;
-                if (mote_pressed(in,MOTE_BTN_RIGHT)) g_turret += 2.2f*dt;
+                if (mote_pressed(in,MOTE_BTN_LEFT))  g_turret += 2.2f*dt;   /* yaw+ = screen left */
+                if (mote_pressed(in,MOTE_BTN_RIGHT)) g_turret -= 2.2f*dt;
             } else g_turret += ang_diff(c->yaw, g_turret) * mote_clampf(2.5f*dt,0,1);
         }
         if (mote_pressed(in, MOTE_BTN_B)){ if(c->type==VEH_TANK) fire_shell(c); else fire_weapon(); }
