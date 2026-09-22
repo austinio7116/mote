@@ -499,7 +499,7 @@ static int bld_tex(int x, int z) {
  * just returns 0 past the cap, so whatever was submitted after the pool filled
  * simply never renders, with nothing to say so. bb_add() (below) is the one
  * place that submits, so it is the one place that has to guard this. */
-#define MAX_BILLBOARDS   48
+#define MAX_BILLBOARDS   112
 
 static Mat3  cam_basis;
 static Vec3  cam_pos;
@@ -4876,19 +4876,42 @@ static void g_overlay(uint16_t *fb) {
     else if (player.mode==MODE_FOOT) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER   B ATTACK");
 
     if (g_state==ST_PLAY && !g_showmap) draw_radar(fb);
+
+#ifdef MOTE_HOST
+    /* Profiling HUD (Task 13). perf() fills [fps, update_us, raster_us, flush_us,
+     * core0_pct, core1_pct] for the LATEST FRAME RECORDED — one frame behind this
+     * draw, since mote_perf_record() runs after overlay() (os/mote_os.c:378-382).
+     * That record also does NOT include overlay()'s own cost — see PROFILING.md.
+     * scene_tri_count() IS current: it reflects this frame's committed scene,
+     * built earlier in update(). Left in permanently, behind MOTE_GTA_DEBUG, so
+     * whoever next tunes the VIEW_ radii or pool sizes has a live readout
+     * instead of guessing. */
+    if (getenv("MOTE_GTA_DEBUG")) {
+        uint32_t pf[6] = {0};
+        if (mote->perf) mote->perf(pf);
+        char line[48];
+        snprintf(line, sizeof line, "%ufps u%u r%u t%d",
+                 pf[0], pf[1], pf[2], mote->scene_tri_count());
+        mote_ftext(mote, fb, g_fmed, line, 2, 2, MOTE_RGB565(200,255,140));
+        snprintf(line, sizeof line, "bb%d/%d drop%d", g_bb_used, MAX_BILLBOARDS, g_bb_budget_drop);
+        mote_ftext(mote, fb, g_fmed, line, 2, 12, MOTE_RGB565(200,255,140));
+    }
+#endif
 }
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tex_tris = 1600, .max_tris = 2200, .depth = 1, .max_shadows = 40,
+    .config = { .max_tex_tris = 950, .max_tris = 700, .depth = 1, .max_shadows = 40,
                 .max_bodies = NCAR+NSTAT, .max_contacts = 220,     /* 2D physics pool (ABI v42; 2-pt box manifolds, capped) */
-                /* 48 slots, shared by peds, cops, pickups, the phonebox marker and
-                 * trees, all gated through bb_add (see MAX_BILLBOARDS/g_bb_used
-                 * above): a view-cone + distance test before anything is spent on
-                 * an entity the camera can't see, and a budget guard so a pool that
-                 * does fill degrades on purpose (far trees drop first) instead of
-                 * silently dropping whatever the engine happened to see last. Keep
-                 * this in sync with MAX_BILLBOARDS. */
+                /* 112 slots (Task 13 profile: downtown avenue peaked at 92 live
+                 * billboards with the pool uncapped, +~15%), shared by peds, cops,
+                 * pickups, the phonebox marker and trees, all gated through bb_add
+                 * (see MAX_BILLBOARDS/g_bb_used above): a view-cone + distance test
+                 * before anything is spent on an entity the camera can't see, and a
+                 * budget guard so a pool that does fill degrades on purpose (far
+                 * trees drop first) instead of silently dropping whatever the engine
+                 * happened to see last. Keep this in sync with MAX_BILLBOARDS. See
+                 * PROFILING.md for the full measurement. */
                 .max_billboards = MAX_BILLBOARDS, .max_lines = 24 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
