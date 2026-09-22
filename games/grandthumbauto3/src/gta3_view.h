@@ -19,6 +19,8 @@ typedef struct {
     Vec3  eye;       /* camera position, world metres */
     Vec3  fwd;       /* camera forward, unit length */
     float cos_half;  /* cosine of the half-angle the cone accepts */
+    float sin_half;  /* sine of the same angle — frame-invariant, so it is
+                      * computed once here rather than per tile test */
 } Gta3View;
 
 /* Build the cone for this frame.
