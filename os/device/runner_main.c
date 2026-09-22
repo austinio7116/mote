@@ -16,6 +16,7 @@
 #include "mote_font.h"
 #include "thumbyone_handoff.h"
 #include "thumbyone_fs.h"
+#include "thumbyone_disk.h"   /* thumbyone_disk_read — FAT-chain contiguity walk */
 #include "ff.h"
 #include "slot_layout.h"     /* THUMBYONE_FAT_OFFSET */
 #include <string.h>
@@ -47,22 +48,83 @@ static void diag(const char *why, const char *name, uint32_t off, uint32_t magic
     snprintf(b, sizeof b, "f=%.18s", name[0]?name:"(none)"); mote_font_draw(fb, b, 8, 50, MOTE_RGB565(200,200,200));
     snprintf(b, sizeof b, "off=%08lx", (unsigned long)off);   mote_font_draw(fb, b, 8, 66, MOTE_RGB565(160,220,255));
     snprintf(b, sizeof b, "mag=%08lx", (unsigned long)magic); mote_font_draw(fb, b, 8, 82, MOTE_RGB565(160,220,255));
+    if (why[0] == 'f')   /* "fragmented": the fix is not obvious from the word alone */
+        mote_font_draw(fb, "RUN DEFRAG IN LOBBY", 8, 94, MOTE_RGB565(255,160,160));
     mote_font_draw(fb, "MENU: lobby", 8, 104, MOTE_RGB565(180,180,180));
     mote_plat_present(fb);
     for (int i = 0; i < 250; i++) { MoteButtons r; mote_plat_buttons(&r);
         if (r.menu) break; mote_plat_present(fb); sleep_ms(16); }
 }
 
+/* Read one FAT12/16 entry straight off the disk (1-sector cache) — a verbatim
+ * port of lobby_main.c's mote_fat_get. f_lseek/fp->clust lags at cluster
+ * boundaries, which made every multi-cluster file look fragmented, so walk the
+ * FAT directly. */
+static uint8_t s_fatsec[512];
+static int32_t s_fatlba = -1;
+static DWORD mote_fat_get(DWORD clst) {
+    int is12 = (g_fs.fs_type == FS_FAT12);
+    DWORD bo = is12 ? (clst + (clst >> 1)) : (clst * 2u);
+    DWORD bv[2];
+    for (int k = 0; k < 2; k++) {
+        DWORD bb = bo + (DWORD)k;
+        int32_t l = (int32_t)g_fs.fatbase + (int32_t)(bb / 512u);
+        if (l != s_fatlba) { if (thumbyone_disk_read(s_fatsec, (uint32_t)l, 1) != 0) return 0xFFFFFFFFu; s_fatlba = l; }
+        bv[k] = s_fatsec[bb % 512u];
+    }
+    DWORD v = bv[0] | (bv[1] << 8);
+    if (is12) v = (clst & 1) ? (v >> 4) : (v & 0x0FFFu);
+    return v;
+}
+
+/* A .mote executes IN PLACE through a single ATRANS window, which maps a run of
+ * PHYSICALLY CONTIGUOUS flash from the file's first cluster. A fragmented file
+ * therefore maps its first cluster correctly and unrelated flash after that.
+ *
+ * That failure is brutal to diagnose from the outside, because everything the
+ * outside can see looks right: the header lives in the first cluster, so the
+ * magic reads 'MOTE' and the offset is a sane 4 KB-aligned number, and `mote
+ * list` reports the correct version and ABI because mote_read_meta uses f_read,
+ * which walks the cluster chain properly. Only the XIP window sees the garbage —
+ * and the first thing it hits is h->reg, ~132 KB into a typical module, so the
+ * symptom is reg() returning nothing and the runner reporting "map failed".
+ *
+ * The lobby already refuses to launch a fragmented file. This is the same walk,
+ * repeated here, so that if one ever reaches the runner it says which problem it
+ * is instead of the one that looks most likely. Returns 1 if contiguous. */
+static int mote_file_contiguous(FIL *fp) {
+    DWORD sclust = fp->obj.sclust; FSIZE_t sz = f_size(fp);
+    if (sclust < 2) return 0;
+    DWORD cb = (DWORD)g_fs.csize * 512u; if (cb == 0) return 1;
+    DWORD nclust = (DWORD)((sz + cb - 1) / cb);
+    if (nclust <= 1) return 1;
+    s_fatlba = -1;                                           /* fresh cache */
+    DWORD eoc = (g_fs.fs_type == FS_FAT12) ? 0x0FF8u : 0xFFF8u;
+    DWORD prev = sclust;
+    for (DWORD i = 1; i < nclust; i++) {
+        DWORD next = mote_fat_get(prev);
+        if (next == 0xFFFFFFFFu) return 1;                   /* read error: don't false-flag */
+        if (next >= eoc) return (i == nclust - 1);
+        if (next != prev + 1) return 0;
+        prev = next;
+    }
+    return 1;
+}
+
 /* Physical flash offset of a /mote/ file's first cluster (clst2sect):
- * sect = database + (sclust-2)*csize ; offset = FAT_OFFSET + sect*512. */
-static uint32_t resolve_offset(const char *name) {
+ * sect = database + (sclust-2)*csize ; offset = FAT_OFFSET + sect*512.
+ * *out_frag is set to 1 when the file is fragmented (see mote_file_contiguous). */
+static uint32_t resolve_offset(const char *name, int *out_frag) {
+    if (out_frag) *out_frag = 0;
     char path[80];
     snprintf(path, sizeof path, "%s/%s", MOTE_DIR, name);
     FIL fp;
     if (f_open(&fp, path, FA_READ) != FR_OK) return 0;
     FATFS *fs = fp.obj.fs;
     DWORD  sclust = fp.obj.sclust;
+    int    contig = mote_file_contiguous(&fp);
     f_close(&fp);
+    if (out_frag) *out_frag = !contig;
     if (!fs || sclust < 2) return 0;
     DWORD sect = fs->database + (DWORD)(sclust - 2) * fs->csize;
     return (uint32_t)THUMBYONE_FAT_OFFSET + sect * 512u;
@@ -88,7 +150,16 @@ int main(void) {
 
     if (name[0] == 0) { diag("no request", name, 0, 0); back_to_lobby(); }
 
-    uint32_t off = resolve_offset(name);
+    int frag = 0;
+    uint32_t off = resolve_offset(name, &frag);
+    /* Check contiguity BEFORE mapping. A fragmented module maps its first
+     * cluster fine — correct magic, sane aligned offset — and unrelated flash
+     * after it, so the generic "map failed" sends you hunting the offset, the
+     * ABI and the push, all of which check out. Say which problem it is. */
+    if (off && frag) {
+        diag("fragmented", name, off, *(volatile uint32_t *)(uintptr_t)MOTE_MODULE_VADDR);
+        back_to_lobby();
+    }
     MoteApi api; mote_api_fill(&api);
     uint32_t map_us = 0;
     const MoteGameVtbl *vt = off ? mote_loader_map(off, &api, &map_us) : 0;
