@@ -1521,6 +1521,38 @@ static void road_markings(int x, int z) {
  * side with the other's colour. A mid-tone between haze_tint's near (60,64,78)
  * and far (24,26,32) values gives the cut somewhere to land that isn't the
  * sky itself: ground -> hazy ground -> sky. */
+/* Water shimmer: animated specular flecks on visible water tiles, a deterministic
+ * per-tile phase so each fleck twinkles independently.
+ *
+ * These are scene_add_point, NOT overlay dots. As overlay drawing they had no
+ * depth test and painted straight onto the framebuffer after the 3D pass, so
+ * sparkles on water BEHIND a building drew over the building — the same defect
+ * the bullet tracers had before they moved to scene_add_line. Points are
+ * depth-TESTED against the scene (they just don't write depth), which is
+ * exactly what a specular fleck wants.
+ *
+ * Gated on the view cone and capped: the scan is 21x21 tiles and a lake fills
+ * most of them, which would otherwise spend the whole point pool on water
+ * that is behind the camera. */
+#define WATER_FLECKS_MAX 56
+static void draw_water_shimmer(void) {
+    float t = (float)mote->micros() * 1e-6f;
+    int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0;
+    for (int z = cz - 10; z <= cz + 10 && n < WATER_FLECKS_MAX; z++)
+        for (int x = cx - 10; x <= cx + 10 && n < WATER_FLECKS_MAX; x++) {
+            if (tile_at(x, z) != '~') continue;
+            if (!gta3_view_tile(&g_view, x*TILE + TILE*0.5f, 0.06f, z*TILE + TILE*0.5f,
+                                VIEW_GROUND_R, TILE)) continue;
+            unsigned h = (unsigned)(x * 2654435761u ^ z * 40503u);
+            float shim = sinf(t * 1.6f + (float)(h & 255) * 0.0246f);
+            if (shim <= 0.45f) continue;
+            float wx = x*TILE + 1.0f + ((h >> 4) & 3), wz = z*TILE + 1.0f + ((h >> 9) & 3);
+            uint16_t col = shim > 0.8f ? MOTE_RGB565(180,225,240) : MOTE_RGB565(110,185,215);
+            mote->scene_add_point(v3(wx, 0.06f, wz), col, 1);
+            n++;
+        }
+}
+
 static void draw_ground_skirt(void) {
     float s = VIEW_BLD_R;
     float x0 = view_x - s, x1 = view_x + s, z0 = view_z - s, z1 = view_z + s;
@@ -4459,6 +4491,7 @@ static void g_update(float dt) {
      * -- see the comment there for why. */
 
     draw_ground_window();
+    draw_water_shimmer();
     /* Buildings are submitted AFTER the entities below: the textured-tri pool is
      * first-come (extra tris are silently dropped), and a clipped far building is
      * far less jarring than a vanished car. The raster is depth-buffered, so
@@ -4882,20 +4915,6 @@ static void g_overlay(uint16_t *fb) {
             float dx=markers[m].x-view_x, dz=markers[m].z-view_z; if (dx*dx+dz*dz>2500.0f) continue;
             world_ring(fb, markers[m].x, markers[m].z, ph?7:6, MOTE_RGB565(120,200,255)); } }
 
-    /* water shimmer: animated specular flecks on visible water tiles (deterministic
-     * per-tile phase → each fleck twinkles independently) — cheap "living water". */
-    { float t=(float)mote->micros()*1e-6f; int cx=(int)(view_x/TILE), cz=(int)(view_z/TILE);
-      for (int z=cz-10; z<=cz+10; z++) for (int x=cx-10; x<=cx+10; x++){
-          if (tile_at(x,z)!='~') continue;
-          unsigned h=(unsigned)(x*2654435761u ^ z*40503u);
-          float shim = sinf(t*1.6f + (float)(h&255)*0.0246f);
-          if (shim>0.45f){
-              float wx=x*TILE+1.0f+((h>>4)&3), wz=z*TILE+1.0f+((h>>9)&3);
-              uint16_t col = shim>0.8f ? MOTE_RGB565(180,225,240) : MOTE_RGB565(110,185,215);
-              world_dot(fb, wx, wz, 1, col);
-          }
-      } }
-
     /* trees, pickups, people and vehicles are drawn as depth-tested billboards/ground
      * quads/meshes in the scene pass; only the on-foot PLAYER and the PK_PACKAGE crate
      * marker (no atlas cell) stay overlay drawing. */
@@ -5099,6 +5118,7 @@ static const MoteGameVtbl k_vtbl = {
      * is no cost argument for cutting it close when the failure mode is
      * invisible until someone hits it on hardware. */
     .config = { .max_tex_tris = 1100, .max_tris = 850, .depth = 1,
+                .max_points = WATER_FLECKS_MAX,   /* water shimmer, depth-tested in the 3D pass */
                 /* max_shadows = 64, not 40: worst case is 18 car + up to 34
                  * in-view ped shadows = 52, which already exceeded 40 with
                  * vehicle shadows left ungated (fixed above). Same
