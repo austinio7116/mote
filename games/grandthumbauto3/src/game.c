@@ -3821,7 +3821,13 @@ static void draw_vehicle_mesh(const Car *c) {
     Gta3VehMesh *m = &g_veh[sil];
 
     Mat3 b = m3_identity();
-    m3_rotate_local(&b, 1, -c->yaw);
+    /* pi/2 - yaw, NOT -yaw. gta3_veh builds the nose along +Z, while the game's
+     * heading is (cos yaw, sin yaw) in x/z — and -yaw lands the nose exactly 90
+     * degrees off at every yaw, which is cars driving sideways. Same family as
+     * the sprite path's -(yaw + pi/2) above, which points a -Z nose and so
+     * differs by pi. Verified numerically against both conventions rather than
+     * derived: a plausible-looking alternative, yaw - pi/2, is 180 degrees out. */
+    m3_rotate_local(&b, 1, 1.5707963f - c->yaw);
 
     /* The mesh is authored square in x/z (both span +/-127) and the engine's
      * only scale is uniform, so a uniform scale alone draws every car as wide
@@ -3898,7 +3904,7 @@ static void draw_vehicle(int i){
              * (the hull mesh above is rotated to c->yaw). 1.9 m sits the
              * pivot atop the hull's cabin box (TRUCK silhouette, ~2.15 m
              * roofline at this tank's length) rather than buried in it. */
-            Mat3 tb = m3_identity(); m3_rotate_local(&tb, 1, -tyaw);
+            Mat3 tb = m3_identity(); m3_rotate_local(&tb, 1, 1.5707963f - tyaw);  /* +Z nose, as the hull above */
             Vec3 tpos = v3(tx, 1.9f, tz);
             MoteObject tcab = { .pos=tpos, .basis=tb, .mesh=&g_turcab, .color=MOTE_RGB565(74,86,58) };
             mote->scene_add_object_ex(&tcab, 0);
