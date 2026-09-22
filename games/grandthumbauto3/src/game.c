@@ -493,12 +493,22 @@ static int bld_tex(int x, int z) {
 #define VIEW_HAZE_R     70.0f    /* beyond this, buildings go untextured + tinted */
 #define VIEW_BLD_CAP     110     /* max building submissions per frame */
 
+/* engine/render/mote_scene3d.c's billboard pool (k_vtbl.config.max_billboards,
+ * below) is shared by EVERY entity billboard this frame — peds, cops, pickups,
+ * the phonebox marker, and trees — and exhaustion is SILENT: scene_add_billboard
+ * just returns 0 past the cap, so whatever was submitted after the pool filled
+ * simply never renders, with nothing to say so. bb_add() (below) is the one
+ * place that submits, so it is the one place that has to guard this. */
+#define MAX_BILLBOARDS   48
+
 static Mat3  cam_basis;
 static Vec3  cam_pos;
 static float cam_focal;      /* 64 / tan(fov/2) — set in init */
 static float view_x, view_z; /* world point the camera is centred on */
 static Gta3Cam  g_cam;
 static Gta3View g_view;
+static int   g_bb_used;      /* billboards submitted this frame — reset each frame
+                              * in g_update once g_view is current; see bb_add(). */
 
 /* world -> logical 128x128 screen, EXACTLY like engine mote_pipe.c */
 static int world_to_screen(Vec3 w, float *sx, float *sy, float *px_per_m) {
@@ -528,6 +538,30 @@ static int facing_cell(float yaw) {
     return 1;                                            /* toward the camera: front */
 }
 
+static int g_bb_budget_drop;  /* diagnostic only: submissions rejected by the budget
+                               * check specifically (in view, but the pool was full) —
+                               * as opposed to the much more common frustum/radius
+                               * rejection. Reset alongside g_bb_used. */
+/* The one place that submits an entity billboard, so it is the one place
+ * that has to guard the pool (see MAX_BILLBOARDS above): rejects anything
+ * outside the view cone/radius via gta3_view_tile (g_view is current for
+ * this frame by the time anything below calls this — set in chase_camera,
+ * called at the top of the 3D build in g_update) BEFORE spending a slot on
+ * it, then rejects anything once the frame's count reaches the pool size.
+ * `radius_m` bounds distance, `tile_m` is roughly the billboard's own width
+ * in metres — gta3_view_tile slackens the cone test by it so an object
+ * doesn't visibly pop as it crosses the edge. Returns 1 iff it actually
+ * submitted (and counted) a billboard. */
+static int bb_add(const MoteImage *img, float x, float y, float z,
+                  int fx, int fy, int fw, int fh, float world_h, uint8_t blend,
+                  float radius_m, float tile_m) {
+    if (!gta3_view_tile(&g_view, x, y, z, radius_m, tile_m)) return 0;
+    if (g_bb_used >= MAX_BILLBOARDS) { g_bb_budget_drop++; return 0; }
+    if (!mote->scene_add_billboard(v3(x, y, z), img, fx, fy, fw, fh, world_h, blend)) return 0;
+    g_bb_used++;
+    return 1;
+}
+
 /* A person, as an upright camera-facing quad with a shadow under it. 1.8 m is
  * roughly human height in this world's scale, and the shadow is what stops a
  * billboard reading as a sticker floating over the road. */
@@ -536,17 +570,19 @@ static void draw_character(const MoteImage *img, float x, float z, float yaw,
                            int variant, int frame, int nframes) {
     int col = facing_cell(yaw);
     int row = variant * nframes + frame;
-    mote->scene_add_billboard(v3(x, CHAR_H * 0.5f, z), img,
-                              col * 16, row * 16, 16, 16, CHAR_H, MOTE_BLEND_NONE);
+    if (!bb_add(img, x, CHAR_H * 0.5f, z, col * 16, row * 16, 16, 16, CHAR_H,
+               MOTE_BLEND_NONE, VIEW_GROUND_R, 1.0f))
+        return;                        /* off-screen or out of billboard budget: no shadow either */
     mote->scene_add_shadow_ex(v3(x, 0.02f, z), v3(0.42f, 0, 0), v3(0, 0, 0.42f), 0.5f);
 }
 
 /* An upright camera-facing sprite that is not a person: a tree, a pickup, a
- * phone box. Anchored at the ground, so `h` is its full world height. */
+ * phone box. Anchored at the ground, so `h` is its full world height.
+ * radius_m/tile_m feed bb_add's view-cone test — see there. */
 static void draw_upright(const MoteImage *img, float x, float z,
-                         int fx, int fy, int fw, int fh, float h) {
-    mote->scene_add_billboard(v3(x, h * 0.5f, z), img, fx, fy, fw, fh, h,
-                              MOTE_BLEND_NONE);
+                         int fx, int fy, int fw, int fh, float h,
+                         float radius_m, float tile_m) {
+    bb_add(img, x, h * 0.5f, z, fx, fy, fw, fh, h, MOTE_BLEND_NONE, radius_m, tile_m);
 }
 
 /* -------------------------------------------------------------- entities ---- */
@@ -4229,6 +4265,7 @@ static void g_update(float dt) {
     float tyaw = (player.mode==MODE_CAR)? cars[player.car].yaw : player.yaw;
     chase_camera(tx, tz, tyaw, dt);
     mote->scene_camera(&cam_basis, cam_pos, FOV);
+    g_bb_used = 0; g_bb_budget_drop = 0;   /* new frame, g_view is current: reset bb_add's counters */
 
     draw_ground_window();
     /* Buildings are submitted AFTER the entities below: the textured-tri pool is
@@ -4254,7 +4291,7 @@ static void g_update(float dt) {
         float dx=markers[m].x-view_x, dz=markers[m].z-view_z;
         if (dx*dx+dz*dz > 2500.0f) continue;
         if (markers[m].kind==MK_PHONE){          /* has volume: an upright billboard, not a decal */
-            draw_upright(&props_img, markers[m].x, markers[m].z, 0,0,16,16, 2.2f);
+            draw_upright(&props_img, markers[m].x, markers[m].z, 0,0,16,16, 2.2f, VIEW_GROUND_R, 1.0f);
             continue;
         }
         int cell = markers[m].kind==MK_GUN?1 : 3;             /* gun mat / dock marker: genuinely flat decals */
@@ -4269,11 +4306,15 @@ static void g_update(float dt) {
     }
     /* pickups: upright billboards with a small vertical bob so they read as
      * collectable, not painted on the road like the decals above. PK_PACKAGE
-     * has no atlas cell — it stays a crate marker drawn in the overlay. */
+     * has no atlas cell — it stays a crate marker drawn in the overlay.
+     * NPICK=44 are scattered across the WHOLE map (unlike peds, which
+     * stream_entities already keeps near the player) with no frustum test of
+     * their own before this task, so distance + view-cone gating here both
+     * matter — see bb_add. */
     for (int i=0;i<NPICK;i++){ Pickup*p=&picks[i]; if(!p->alive||p->kind==PK_PACKAGE) continue;
         float bob = 0.15f * sinf(p->bob);
-        mote->scene_add_billboard(v3(p->x, 0.6f+bob, p->z), &pickups_img,
-                                  p->kind*16, 0, 16, 16, 1.0f, MOTE_BLEND_NONE);
+        bb_add(&pickups_img, p->x, 0.6f+bob, p->z, p->kind*16, 0, 16, 16, 1.0f,
+              MOTE_BLEND_NONE, VIEW_GROUND_R, 1.0f);
     }
     for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive) continue;
         int fr=((int)p->animt)&1;
@@ -4305,21 +4346,33 @@ static void g_update(float dt) {
     dm_draw_remote();                                           /* the OTHER player */
     /* the rival is a real DRV_NPC car — draw_vehicle() above already renders it */
     draw_buildings_window();                                    /* after entities (budget priority) */
+#ifdef MOTE_HOST
+    { static int on=-1; if(on<0) on=getenv("MOTE_GTA_DEBUG")?1:0;
+      if(on) fprintf(stderr,"[BB] pre-trees used=%d/%d\n", g_bb_used, MAX_BILLBOARDS); }
+#endif
     /* scenery LAST — trees drawn over everyone passing beneath. Upright billboards now
      * (Task 9), not flat canopies: a tree lying flat read as a green disc from any
      * angle but straight down. The hash still only ever picks column 0 or 1 of the
      * sheet (oak / pine); scenery.png also carries autumn/bush/flowers/boulder cells
-     * for future use, but the selection below is unchanged from before this task. */
+     * for future use, but the selection below is unchanged from before this task.
+     *
+     * bb_add's view-cone test (VIEW_GROUND_R, tile_m~2m for a canopy) does most of
+     * the culling. The scan itself walks OUTWARD in Chebyshev rings from the camera
+     * tile, rather than a plain top-left-to-bottom-right raster, and bails once the
+     * billboard budget (MAX_BILLBOARDS) is gone: if the pool does run dry, the trees
+     * that get dropped are the far ones, not whichever the raster order happened to
+     * reach first. Peds/pickups/markers are drawn earlier and so get first claim on
+     * the pool; trees are the last billboard consumer this frame. */
     { int cx=(int)(view_x/TILE), cz=(int)(view_z/TILE);
-      for (int z=cz-11; z<=cz+11; z++) for (int x=cx-11; x<=cx+11; x++){
-          if (tile_at(x,z)!=' ') continue;
-          unsigned h=(unsigned)(x*668265263u ^ z*374761393u); if ((h&3)==0) continue;
-          float tx=x*TILE+((h>>4)&7)*0.4f+1.0f, tz=z*TILE+((h>>8)&7)*0.4f+1.0f;
-          /* a ground quad was free of any per-instance draw budget; a billboard is
-           * not (k_vtbl.config.max_billboards), so cap how far out trees draw —
-           * same 50 m radius already used for markers below. */
-          float dx=tx-view_x, dz=tz-view_z; if (dx*dx+dz*dz > 2500.0f) continue;
-          draw_upright(&scenery_img, tx, tz, ((h>>2)&1)*20, 0, 20, 20, 5.5f);
+      for (int r=0; r<=11 && g_bb_used<MAX_BILLBOARDS; r++){
+          for (int dz=-r; dz<=r; dz++) for (int dx=-r; dx<=r; dx++){
+              if (r>0 && dx!=-r && dx!=r && dz!=-r && dz!=r) continue;   /* interior: visited at a smaller r */
+              int x=cx+dx, z=cz+dz;
+              if (tile_at(x,z)!=' ') continue;
+              unsigned h=(unsigned)(x*668265263u ^ z*374761393u); if ((h&3)==0) continue;
+              float tx=x*TILE+((h>>4)&7)*0.4f+1.0f, tz=z*TILE+((h>>8)&7)*0.4f+1.0f;
+              draw_upright(&scenery_img, tx, tz, ((h>>2)&1)*20, 0, 20, 20, 5.5f, VIEW_GROUND_R, 2.0f);
+          }
       } }
     /* bullet tracers: depth-tested 3D lines (Task 9), not overlay draw_line — so a
      * tracer fired past a building's corner is actually occluded by it. */
@@ -4328,6 +4381,18 @@ static void g_update(float dt) {
                              v3(b->x - b->vx*0.03f, 0.9f, b->z - b->vz*0.03f),
                              b->fromcop ? MOTE_RGB565(120,180,255) : MOTE_RGB565(255,230,140));
     }
+#ifdef MOTE_HOST
+    /* billboard-budget evidence: MOTE_GTA_DEBUG logs this frame's count, the
+     * running peak, and how many submissions this frame were IN VIEW but
+     * dropped for lack of a slot (as opposed to the much more common
+     * frustum/radius rejection in bb_add) — so "is 48 enough" is a measured
+     * answer, and if it ever isn't, this says so instead of guessing. */
+    if (getenv("MOTE_GTA_DEBUG")) {
+        static int peak=0; if (g_bb_used>peak) peak=g_bb_used;
+        fprintf(stderr,"[BB] used=%d/%d peak=%d dropped=%d\n",
+                g_bb_used, MAX_BILLBOARDS, peak, g_bb_budget_drop);
+    }
+#endif
 }
 
 /* -------------------------------------------------------------- overlay ----- */
@@ -4671,10 +4736,14 @@ static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
     .config = { .max_tex_tris = 1600, .max_tris = 2200, .depth = 1, .max_shadows = 40,
                 .max_bodies = NCAR+NSTAT, .max_contacts = 220,     /* 2D physics pool (ABI v42; 2-pt box manifolds, capped) */
-                /* billboards: up to NPED+1 characters, NPICK pickups, a handful of
-                 * phone-box markers, and trees within the 50 m cap above — 300 is
-                 * generous headroom over the worst-case park-tile count there. */
-                .max_billboards = 48, .max_lines = 24 },
+                /* 48 slots, shared by peds, cops, pickups, the phonebox marker and
+                 * trees, all gated through bb_add (see MAX_BILLBOARDS/g_bb_used
+                 * above): a view-cone + distance test before anything is spent on
+                 * an entity the camera can't see, and a budget guard so a pool that
+                 * does fill degrades on purpose (far trees drop first) instead of
+                 * silently dropping whatever the engine happened to see last. Keep
+                 * this in sync with MAX_BILLBOARDS. */
+                .max_billboards = MAX_BILLBOARDS, .max_lines = 24 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
