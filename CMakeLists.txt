@@ -337,6 +337,20 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_options(gta3_test_view PRIVATE -O2 -Wall -Wextra
         -Wno-unused-parameter)
     target_link_libraries(gta3_test_view PRIVATE m)
+
+    # Grand Thumb Auto III: the chase camera. Behind-not-in-front, no flip on
+    # reverse, the short way round pi, and never inside a building — none of
+    # which are safe to eyeball on a 128x128 screen.
+    add_executable(gta3_test_camera
+        games/grandthumbauto3/src/test_camera.c
+        games/grandthumbauto3/src/gta3_camera.c)
+    target_include_directories(gta3_test_camera PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/games/grandthumbauto3/src)
+    target_compile_definitions(gta3_test_camera PRIVATE MOTE_HOST=1)
+    target_compile_options(gta3_test_camera PRIVATE -O2 -Wall -Wextra
+        -Wno-unused-parameter)
+    target_link_libraries(gta3_test_camera PRIVATE m)
     endif()  # NOT WIN32 (Grand Thumb Auto III module tests)
 
     # CueVR — the mixed-reality cue-sports game — lives in its own repository:
