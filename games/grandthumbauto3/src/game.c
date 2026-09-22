@@ -616,6 +616,29 @@ static int   g_bb_used;      /* billboards submitted this frame — reset each f
                               * in g_update once g_view is current; see bb_add(). */
 static float g_titlet;       /* title/death-screen orbit angle accumulator; reset in reset_game() */
 
+/* Width of `s` in the title font, by summing each glyph's pen advance. The
+ * MoteFont layout (engine/render/mote_2d.h) is public, so this is the same
+ * arithmetic text_font() does when it walks the string — no guessing, and no
+ * constant to go stale if title.font.h is re-baked at a different size.
+ * Codepoints outside the baked range contribute nothing, which is what
+ * text_font does with them too. */
+static int title_w(const char *s) {
+    int w = 0;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        int g = (int)*p - (int)title.first;
+        if (g >= 0 && g < (int)title.count) w += title.glyphs[g].adv;
+    }
+    return w;
+}
+
+/* One centred line of the logo: black drop shadow one pixel down and right,
+ * warm gold face over it. */
+static void title_line(uint16_t *fb, const char *s, int y) {
+    int x = (MOTE_FB_W - title_w(s)) / 2;
+    mote->text_font(fb, &title, s, x + 2, y + 2, MOTE_RGB565(12,10,14));
+    mote->text_font(fb, &title, s, x,     y,     MOTE_RGB565(244,204,72));
+}
+
 /* world -> logical 128x128 screen, EXACTLY like engine mote_pipe.c */
 static int world_to_screen(Vec3 w, float *sx, float *sy, float *px_per_m) {
     Vec3 rel = v3_sub(w, cam_pos);
@@ -5272,19 +5295,20 @@ static void g_overlay(uint16_t *fb) {
         /* big serif logo straight over the live city, GTA1-style: black drop shadow,
          * warm gold face, thin underline — no boxed-in panel */
         if (mote->text_font){                                    /* logo moved up to free the lower half */
-            mote->text_font(fb, &title, "GRAND",     25+2, 18+2, MOTE_RGB565(12,10,14));
-            mote->text_font(fb, &title, "GRAND",     25,   18,   MOTE_RGB565(244,204,72));
-            mote->text_font(fb, &title, "THUMBAUTO", 7+2,  38+2, MOTE_RGB565(12,10,14));
-            mote->text_font(fb, &title, "THUMBAUTO", 7,    38,   MOTE_RGB565(244,204,72));
-            /* THUMBAUTO measures 97 px from x=7, ending at 104; III is 18 px, so it sits
-             * on the same baseline at 106 with room to spare — no reflow, and it reads as
-             * the numeral of the logo rather than a third line crowding the banner. */
-            mote->text_font(fb, &title, "III",       106+2, 38+2, MOTE_RGB565(12,10,14));
-            mote->text_font(fb, &title, "III",       106,   38,   MOTE_RGB565(244,204,72));
+            /* GRAND THUMB / AUTO III, each centred on its own line.
+             *
+             * The x values used to be hand-measured constants ("THUMBAUTO
+             * measures 97 px from x=7"), which is a number that silently stops
+             * being true if the font is ever re-baked at another size. The
+             * MoteFont struct carries each glyph's pen advance, so title_w()
+             * sums the real widths and both lines centre themselves. */
+            title_line(fb, "GRAND THUMB", 18);
+            title_line(fb, "AUTO III",    38);
         } else {
-            mote->text_2x(fb, "GRAND", 30, 24, MOTE_RGB565(240,210,80));
-            mote->text_2x(fb, "THUMBAUTO", 14, 40, MOTE_RGB565(240,210,80));
-            mote->text_2x(fb, "III", 46, 56, MOTE_RGB565(240,210,80));   /* no room beside it at 2x */
+            /* The 3x5 built-in advances MOTE_FONT_CELL_W (4) per glyph, so 8 at
+             * 2x: 11 chars = 88 px and 8 chars = 64 px, both centred on 128. */
+            mote->text_2x(fb, "GRAND THUMB", (MOTE_FB_W - 11*8)/2, 24, MOTE_RGB565(240,210,80));
+            mote->text_2x(fb, "AUTO III",    (MOTE_FB_W -  8*8)/2, 40, MOTE_RGB565(240,210,80));
         }
         /* translucent dark banner so the body text pops over the live city, framed by
          * the gold rule on top (dim the real pixels — you can still see the road) */
