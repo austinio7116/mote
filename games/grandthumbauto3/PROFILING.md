@@ -82,11 +82,15 @@ otherwise show a list). All measurements were on foot (`MODE_FOOT`); see
 
 ## Peak counts, by scenario
 
-Pool caps below reflect this profile's own settings (`max_tris=700`,
-`max_tex_tris=950`, `max_billboards=112`) — see "How to reproduce" for the
-exact command per row. Every column is a genuine measured peak, not a value
-truncated by hitting a smaller cap (verified: `dropped=0` in every run below
-except the two facade-jam rows, which are described).
+These counts were captured with the pools at their first-revision sizes
+(`max_tris=700`, `max_tex_tris=950`, `max_billboards=112`) — see "How to
+reproduce" for the exact command per row. Every column is a genuine measured
+peak, not a value truncated by hitting a smaller cap (verified: `dropped=0`
+in every run below except the two facade-jam rows, which are described). The
+pools were since widened to `max_tris=850`/`max_tex_tris=1100` (see "Pool
+values set" below) — strictly larger, so these peaks are still comfortably
+under cap; they were not re-measured at the new sizes because the scene
+content, and therefore the true peak, doesn't change with the pool size.
 
 | Scenario | flat tris (`max_tris`) peak | textured tris (`max_tex_tris`) peak | billboards peak | shadows peak |
 |---|---|---|---|---|
@@ -144,14 +148,32 @@ raw peak is lower.
 
 ## Pool values set, and the measurement each came from
 
-| Setting | Old (spec guess) | New | From |
-|---|---|---|---|
-| `max_tris` | 2200 | **700** | park/alley peak 597, +15% ≈ 686, rounded up |
-| `max_tex_tris` | 1600 | **950** | alley peak 798, +15% ≈ 918, rounded up |
-| `max_billboards` | 48 | **112** | downtown peak 92 (uncapped), +15% ≈ 106, rounded up to a clean number |
-| `max_shadows` | 40 | 40 (unchanged) | peak observed 23, well under cap — not touched |
-| `max_lines` | 24 | 24 (unchanged) | no bullets were fired in the count-focused runs above; see "regression" section for a separate run that did fire a weapon without crashing, but it did not produce a peak-line-count measurement. Left at spec value. |
-| `max_contacts`, `max_bodies`, `depth` | unchanged | unchanged | not in scope for this task |
+**Revised after a fix-round review (round 1).** `max_tris` and
+`max_tex_tris` originally carried the usual ~15% margin over their measured
+peaks. The reviewer's finding, accepted here: 15% is too thin because the
+five profiled scenes were all on foot and combat-idle — none combined dense
+building geometry with a firefight's vehicle count. `wreck_car()` in
+`game.c` never removes a wrecked car from the draw list, and the traffic
+streamer's target moving-vehicle count is independent of wrecks, so husks
+accumulate ON TOP of normal traffic rather than replacing it — a tank alone
+costs 4 boxes (body, cabin, turret cab, turret barrel) against a car's 2. A
+prolonged firefight in a dense area can plausibly put more vehicle geometry
+on screen than any profiled scene. Since starvation is silent (flat-tinted
+buildings, or objects that just don't draw) and the arena had ~35% headroom
+to spend even at the tighter margin, the widened margin costs nothing
+measurable and removes a real risk. `max_billboards` was left at 112 — it
+already measured the entity-heaviest of the five scenes (downtown avenue)
+and carries the most generous ratio of the three pools (+22% over its
+measured peak).
+
+| Setting | Old (spec guess) | Round 1 (this profile, ~15%) | Round 2 (widened, this fix) | From |
+|---|---|---|---|---|
+| `max_tris` | 2200 | 700 | **850** | park/alley peak 597, +~42% |
+| `max_tex_tris` | 1600 | 950 | **1100** | alley peak 798, +~38% |
+| `max_billboards` | 48 | 112 | **112 (unchanged)** | downtown peak 92 (uncapped), +~22% — already the widest-margin pool of the three |
+| `max_shadows` | 40 | 40 (unchanged) | 40 (unchanged) | peak observed 23, well under cap — not touched |
+| `max_lines` | 24 | 24 (unchanged) | 24 (unchanged) | no bullets were fired in the count-focused runs above; see "regression" section for a separate run that did fire a weapon without crashing, but it did not produce a peak-line-count measurement. Left at spec value. |
+| `max_contacts`, `max_bodies`, `depth` | unchanged | unchanged | unchanged | not in scope for this task |
 
 **`set_fps_limit(30)` was deliberately NOT added.** The brief's Step 6 says
 to pin the frame rate once downtown holds 30 fps on-device, and that can't be
@@ -161,24 +183,28 @@ established without the device. `k_vtbl.config` and the `VIEW_*` radii
 target (brief Step 5) likewise needs a real fps reading, which this machine
 cannot produce. Both are the first two items on the device checklist below.
 
-## No conflict with the arena ceiling — but only because the pools shrank
+## No conflict with the arena ceiling — even at the widened margin
 
 The brief's known ceiling: `max_billboards=96` boots cleanly; **128 overflows
 the host arena** at the OLD tri-pool sizes (`max_tex_tris=1600`,
-`max_tris=2200`). That ceiling does NOT hold at this profile's new,
-measured-and-shrunk tri pools (`max_tex_tris=950`, `max_tris=700`): with
-those pools, `max_billboards=128` boots cleanly and the arena sits at
-**65.0%** used (184,336 / 283,648 bytes on host, which is 277 KB — 5 KB more
-than the device's 272 KB, so this is a close proxy, not a generous one). At
-`max_billboards=112` (the value actually set) the arena is at **64.7%**.
+`max_tris=2200`). That ceiling does not hold once the tri pools are sized off
+measurement instead of the spec guess. At this profile's FIRST revision
+(`max_tex_tris=950`, `max_tris=700`), `max_billboards=128` booted cleanly at
+65.0% arena used, and the value actually set (`max_billboards=112`) sat at
+64.7%.
 
-So: **no conflict to report.** The old ceiling was an artifact of the old,
-oversized triangle pools, not a hard limit — shrinking `max_tris` and
-`max_tex_tris` to their measured peaks freed enough arena to comfortably fit
-a billboard pool sized off ITS OWN measured peak. If a future change grows
-`max_tris`/`max_tex_tris` back up, re-check the arena headroom before
-assuming 112 billboards still fits (the one-line `s_arena.used` hook
-described above reproduces this check in under a minute).
+**At the round-2, widened values (`max_tex_tris=1100`, `max_tris=850`,
+`max_billboards=112` unchanged), the arena sits at 70.4% used** (199,768 /
+283,648 bytes on host, which is 277 KB — 5 KB more than the device's 272 KB,
+so this is a close proxy, not a generous one). Confirmed boots cleanly, game
+runs normally (billboard/debug logging active, no `OUT OF MEMORY` screen).
+
+So: **still no conflict to report**, even after widening the margin from
+~15% to ~40%. Roughly 30% of the arena remains unused. If a future change
+grows any of these pools further, re-check the arena headroom before
+assuming it still fits (the one-line `s_arena.used` hook described above
+reproduces this check in under a minute) — but there is no reason, from this
+measurement, to think 850/1100/112 is anywhere near the real ceiling.
 
 ## What was not measured (and why)
 
@@ -233,6 +259,36 @@ for a device-side debug toggle, or leave it host-only and rely on `mote
 logs`/screenshots for the on-device numbers instead). This was left
 host-only deliberately, matching every other `MOTE_GTA_DEBUG` block already
 in this file, all of which are `#ifdef MOTE_HOST`.
+
+## ⚠ Combat scenes were never profiled — read this before trusting the numbers above
+
+Everything measured in this document was on foot and combat-idle: no cops,
+no gunfire, no tank, no persistent wrecks. That means the following scenes
+were **outside the host survey** and are the ones most likely to exceed the
+triangle budget in practice:
+
+- **Cops-and-heat** — several police cars converging, sirens, escalating
+  heat levels.
+- **A tank on screen** — 4 boxes (body, cabin, turret cab, turret barrel)
+  against a normal car's 2.
+- **Several persistent wrecks** — `wreck_car()` (`game.c`) never removes a
+  wrecked car from the draw list, and the traffic streamer's target moving-
+  vehicle count is independent of wrecks, so husks accumulate ON TOP of
+  normal traffic instead of replacing it. A prolonged firefight in a dense
+  area can plausibly stack more vehicle geometry on screen than any scene in
+  the table above.
+- **Link deathmatch** — a second player's avatar and vehicle, drawn on top
+  of everything else.
+
+`max_tris` and `max_tex_tris` carry a wider-than-usual margin specifically
+to absorb this gap (see "Pool values set" above) — but that is a margin
+based on judgment, not a measurement of combat itself. **Before trusting
+this profile, start (or provoke) a firefight in the densest part of downtown
+— several cop cars, gunfire, ideally a tank or a few wrecks left standing —
+and read the debug HUD's `t` value against the numbers in the table above.**
+If it exceeds `max_tris`/`max_tex_tris`, you'll see the starvation symptoms
+below rather than a crash — but it's still worth knowing whether the margin
+held.
 
 ## On-device checklist (do this with the device in hand)
 

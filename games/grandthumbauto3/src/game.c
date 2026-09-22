@@ -4901,12 +4901,30 @@ static void g_overlay(uint16_t *fb) {
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tex_tris = 950, .max_tris = 700, .depth = 1, .max_shadows = 40,
+    /* Task 13 profile (games/grandthumbauto3/PROFILING.md): max_tris and
+     * max_tex_tris carry a wider-than-usual margin over their measured peaks
+     * (~42% / ~38%, not the usual ~15%) because the host survey never
+     * profiled COMBAT. It covered downtown/alley/park/bridge/facade-jam on
+     * foot, combat-idle — no scene combined dense building geometry with a
+     * firefight's vehicle count. wreck_car() (game.c) never removes a
+     * wrecked car from the draw list, and the traffic streamer's target
+     * moving-vehicle count is independent of wrecks, so husks accumulate ON
+     * TOP of normal traffic rather than replacing it; a tank alone costs 4
+     * boxes (body, cabin, turret cab, turret barrel) against a car's 2. A
+     * prolonged firefight in a dense area can plausibly put more vehicle
+     * geometry on screen than any profiled scene. Starvation is silent
+     * (flat-tinted buildings, or objects that just don't draw), the arena
+     * has ~35% headroom to spend even at the old, tighter margin, and there
+     * is no cost argument for cutting it close when the failure mode is
+     * invisible until someone hits it on hardware. */
+    .config = { .max_tex_tris = 1100, .max_tris = 850, .depth = 1, .max_shadows = 40,
                 .max_bodies = NCAR+NSTAT, .max_contacts = 220,     /* 2D physics pool (ABI v42; 2-pt box manifolds, capped) */
-                /* 112 slots (Task 13 profile: downtown avenue peaked at 92 live
-                 * billboards with the pool uncapped, +~15%), shared by peds, cops,
-                 * pickups, the phonebox marker and trees, all gated through bb_add
-                 * (see MAX_BILLBOARDS/g_bb_used above): a view-cone + distance test
+                /* 112 slots (measured peak: downtown avenue, 92 live billboards
+                 * with the pool uncapped — the entity-heaviest of the profiled
+                 * scenes, so this already carries the most generous ratio of the
+                 * three pools, +~22%), shared by peds, cops, pickups, the
+                 * phonebox marker and trees, all gated through bb_add (see
+                 * MAX_BILLBOARDS/g_bb_used above): a view-cone + distance test
                  * before anything is spent on an entity the camera can't see, and a
                  * budget guard so a pool that does fill degrades on purpose (far
                  * trees drop first) instead of silently dropping whatever the engine
