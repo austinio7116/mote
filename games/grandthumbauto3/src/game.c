@@ -702,11 +702,16 @@ static int bb_add(const MoteImage *img, float x, float y, float z,
 /* A person, as an upright camera-facing quad with a shadow under it. 1.8 m is
  * roughly human height in this world's scale, and the shadow is what stops a
  * billboard reading as a sticker floating over the road. */
-/* 1.6, not the 1.8 a real person would be: on a 128x128 panel with the camera
+/* 1.45, not the 1.8 a real person would be: on a 128x128 panel with the camera
  * 4.5 m back, 1.8 m filled about a third of the frame height and crowded the
- * view. Physics and the ped collision radius are untouched — this is the
- * billboard's drawn height only. */
-#define CHAR_H 1.6f
+ * view. It went 1.8 -> 1.6 -> 1.45 by eye on captures, each step a request to
+ * free up screen. Physics and the ped collision radius are untouched — this is
+ * the billboard's drawn height only. */
+#define CHAR_H 1.45f
+/* The ground shadow scales WITH the figure. Held at a fixed 0.42 it kept
+ * spreading out from under a shrinking sprite, which reads as a person
+ * hovering. 0.26 of height matches the 0.42/1.6 the 1.6 m figure had. */
+#define CHAR_SHADOW_R (CHAR_H * 0.2625f)
 static void draw_character(const MoteImage *img, float x, float z, float yaw,
                            int variant, int frame, int nframes) {
     int col = facing_cell(yaw);
@@ -714,7 +719,7 @@ static void draw_character(const MoteImage *img, float x, float z, float yaw,
     if (!bb_add(img, x, CHAR_H * 0.5f, z, col * 16, row * 16, 16, 16, CHAR_H,
                MOTE_BLEND_NONE, VIEW_GROUND_R, 1.0f))
         return;                        /* off-screen or out of billboard budget: no shadow either */
-    mote->scene_add_shadow_ex(v3(x, 0.02f, z), v3(0.42f, 0, 0), v3(0, 0, 0.42f), 0.5f);
+    mote->scene_add_shadow_ex(v3(x, 0.02f, z), v3(CHAR_SHADOW_R, 0, 0), v3(0, 0, CHAR_SHADOW_R), 0.5f);
 }
 
 /* An upright camera-facing sprite that is not a person: a tree, a pickup, a
