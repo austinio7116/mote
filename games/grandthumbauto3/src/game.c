@@ -539,11 +539,6 @@ static const TodKey TOD[4] = {
 };
 
 static float    g_tod = 0.60f;          /* [0,1), 0 = midnight; start just before dusk */
-/* Seconds of gameplay, accumulated from dt. NOT mote->micros(): MOTE_DT_MS
- * pins the platform clock, which is how every headless capture runs, so a
- * micros-based animation is frozen in exactly the frames used to check it.
- * Drives the police lightbar. */
-static float    g_ptime = 0.0f;
 static Rgb      g_sky_hor, g_haze_near; /* this frame's palette, read by the render pass */
 static Vec3     g_sun_dir;              /* lerped sun, reused for the sky body and the night test */
 static uint16_t g_sky_row[MOTE_FB_H];   /* precomputed gradient, one colour per scanline */
@@ -4254,8 +4249,8 @@ static void draw_vehicle_mesh(const Car *c) {
      *
      * It flashes only while the car is actually on you (DRV_COP). A cruiser
      * parked at the station sits dark, which is also how you tell the two apart
-     * at a glance. g_ptime, not mote->micros(): micros is pinned under
-     * MOTE_DT_MS and the bar would be frozen in every headless capture. */
+     * at a glance. The phase comes from micros(), the same source as the radar
+     * strobe and the marker rings below, so the two bars stay in step. */
     if ((c->type == CAR_POLICE || c->type == CAR_POLICE2) && !c->wrecked &&
         d2 < VEH_WHEEL_R * VEH_WHEEL_R) {
         float k = sc * (1.0f / 127.0f);
@@ -4263,7 +4258,7 @@ static void draw_vehicle_mesh(const Car *c) {
                                  v3(c->x + l_.x, l_.y, c->z + l_.z); })
         float cabx = m->cv[1].x, cabtop = m->cv[3].y;
         float bw = cabx * 0.88f, y0 = cabtop + 2, y1 = cabtop + 14;
-        int phase = c->driver == DRV_COP ? ((int)(g_ptime * 4.0f) & 1) : -1;
+        int phase = c->driver == DRV_COP ? ((int)(mote->micros() / 250000ull) & 1) : -1;
         uint16_t red  = phase < 0 ? MOTE_RGB565(96,26,22)  : (phase == 0 ? MOTE_RGB565(255,40,32) : MOTE_RGB565(70,18,16));
         uint16_t blue = phase < 0 ? MOTE_RGB565(24,34,102) : (phase == 1 ? MOTE_RGB565(60,110,255) : MOTE_RGB565(18,26,74));
         for (int h = 0; h < 2; h++) {
@@ -4338,7 +4333,6 @@ static void g_update(float dt) {
      * whenever one of them was up would be visible as a stall. It also keeps
      * the title screen's orbit cycling. */
     tod_advance(dt);
-    g_ptime += dt;
 
     /* Per-frame billboard-pool bookkeeping: reset unconditionally at the START
      * of the frame, before any early-return path (deathmatch end/respawn,
