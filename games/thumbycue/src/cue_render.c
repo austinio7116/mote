@@ -827,7 +827,19 @@ static void emit_lip_run(const CueTable *t, Vec3 *ring0, const Vec3 *nrm,
     for (int sring = 1; sring <= M; sring++) {
         float phi = (float)sring / M * 1.5707963f;
         float tn = sinf(phi), yy = -ld * (1.0f - cosf(phi));
-        uint16_t col = shade565(t->cloth, 1.0f - 0.92f * (1.0f - cosf(phi)));
+        /* THE FIRST BAND IS THE BED'S OWN COLOUR, EXACTLY.
+         *
+         * The shade used to be taken at the band's BOTTOM edge, so the first
+         * band -- the one that meets the bed -- was already a little darker
+         * than the cloth it runs out of, and the fade began with a step at the
+         * mouth instead of starting from nothing. Taken at the band's TOP edge
+         * instead, and spread over M-1 steps rather than M, so the first band
+         * is the cloth to the bit and the last is still the full 0.08 at the
+         * bottom of the roll. The geometry is untouched: only which point on
+         * the curve each band is coloured from. */
+        const float ct = M > 1 ? (float)(sring - 1) / (float)(M - 1) : 0.0f;
+        uint16_t col = shade565(t->cloth,
+                                1.0f - 0.92f * (1.0f - cosf(ct * 1.5707963f)));
         Vec3 ring1[CUE_LIP_MAX];
         for (int k = 0; k < cnt; k++)
             ring1[k] = v3(base[k].x + nrm[k].x * ld * tn, yy,
