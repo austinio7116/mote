@@ -1311,16 +1311,25 @@ static void road_markings(int x, int z) {
 
 /* A flat haze-coloured skirt under the world, out to roughly VIEW_BLD_R, so an
  * open sightline (a plaza, a junction, a lake crossing) shows ground fading
- * toward the background instead of a void once real ground tiles run out at
- * VIEW_GROUND_R. Two triangles via scene_add_tri, which is DOUBLE-SIDED
- * (drawn regardless of winding) — unlike scene_add_object, so it is immune
- * to the winding trap g_hmesh/g_quadShade needed fixing for. Slightly below
- * y=0 so real ground tiles always win the depth test; colour is haze_tint's
- * value at t=1 (the far end of the ramp), i.e. effectively the background. */
+ * toward the background instead of a hard one-row cut once real ground tiles
+ * run out at VIEW_GROUND_R. Two triangles via scene_add_tri, which is
+ * DOUBLE-SIDED (drawn regardless of winding) — unlike scene_add_object, so
+ * it is immune to the winding trap g_hmesh/g_quadShade needed fixing for.
+ * Slightly below y=0 so real ground tiles always win the depth test.
+ *
+ * Colour: roughly the MIDPOINT of haze_tint's ramp, not its t=1 (background)
+ * end. At exactly the background colour the skirt is a visual no-op — those
+ * pixels already rendered as background when nothing was there, so filling
+ * them with same-coloured geometry changes the depth buffer but not the
+ * image. The actual defect was the HARD CUT from textured ground straight to
+ * background; a same-coloured skirt can't soften that, it just backfills one
+ * side with the other's colour. A mid-tone between haze_tint's near (60,64,78)
+ * and far (24,26,32) values gives the cut somewhere to land that isn't the
+ * sky itself: ground -> hazy ground -> sky. */
 static void draw_ground_skirt(void) {
     float s = VIEW_BLD_R;
     float x0 = view_x - s, x1 = view_x + s, z0 = view_z - s, z1 = view_z + s;
-    uint16_t col = MOTE_RGB565(24, 26, 32);
+    uint16_t col = MOTE_RGB565(42, 45, 55);
     mote->scene_add_tri(v3(x0,-0.05f,z0), v3(x1,-0.05f,z0), v3(x1,-0.05f,z1), col, 0);
     mote->scene_add_tri(v3(x0,-0.05f,z0), v3(x1,-0.05f,z1), v3(x0,-0.05f,z1), col, 0);
 }
