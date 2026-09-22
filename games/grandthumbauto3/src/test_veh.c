@@ -49,16 +49,9 @@ static void span(const MeshVert *v, float *lo, float *hi, int axis) {
     }
 }
 
-/* Replicate the rasterizer's own front-face test.
- *
- * mote_raster.c's edge() is the 2D cross (B-A)x(C-A); tri_core drops any
- * triangle whose area2 <= 0 ("screen-clockwise => positive"). mote_pipe.c's
- * project() flips y (sy = centre - focal*vy/vz) because screen y grows
- * downward, and that flip inverts the handedness. So winding has to be right
- * in SCREEN space, not world space: a mesh with correct outward normals can
- * still be culled at every pixel and render nothing, silently. Vehicles are
- * untextured and tinted, so they take the flat path where this is enforced —
- * unlike the textured path, which ignores the sign. */
+/* Screen-space signed area of a projected triangle -- see the full comment on
+ * screen_winding_ok() below for why this has to be checked in screen space
+ * rather than world space. */
 static float screen_area(Vec3 a, Vec3 b, Vec3 c) {
     float ax = 64.0f + 64.0f*a.x/a.z, ay = 64.0f - 64.0f*a.y/a.z;
     float bx = 64.0f + 64.0f*b.x/b.z, by = 64.0f - 64.0f*b.y/b.z;
