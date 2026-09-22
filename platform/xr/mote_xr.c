@@ -168,6 +168,7 @@ static struct {
     int   has_perf;
     int   has_stylus;
     XrPath mx_ink_path;
+    int   stylus_tier;       /* which binding tier took, -1 none -- see below */
     int   has_refresh;
     PFN_xrEnumerateRenderModelPathsFB xrEnumerateRenderModelPathsFB_;
     PFN_xrGetRenderModelPropertiesFB  xrGetRenderModelPropertiesFB_;
@@ -775,33 +776,98 @@ static int make_actions(void) {
      * without it and the whole suggestion is then rejected, taking nothing with
      * it but a log line. */
     if (S.has_stylus) {
-        XrActionSuggestedBinding pb[] = {
-            { S.a_pose,    path("/user/hand/left/input/grip/pose") },
-            { S.a_pose,    path("/user/hand/right/input/grip/pose") },
-            { S.a_aim,     path("/user/hand/left/input/aim/pose") },
-            { S.a_aim,     path("/user/hand/right/input/aim/pose") },
-            /* The barrel's front button reads as the trigger, the rear as the
-             * grip: that is where a hand's finger and thumb already are. */
-            { S.a_trigger, path("/user/hand/left/input/front/value") },
-            { S.a_trigger, path("/user/hand/right/input/front/value") },
-            { S.a_squeeze, path("/user/hand/left/input/rear/value") },
-            { S.a_squeeze, path("/user/hand/right/input/rear/value") },
-            { S.a_lower,   path("/user/hand/left/input/cluster_front/click") },
-            { S.a_lower,   path("/user/hand/right/input/cluster_front/click") },
-            { S.a_upper,   path("/user/hand/left/input/cluster_back/click") },
-            { S.a_upper,   path("/user/hand/right/input/cluster_back/click") },
-            { S.a_haptic,  path("/user/hand/left/output/haptic") },
-            { S.a_haptic,  path("/user/hand/right/output/haptic") },
+        /* THE PATHS ARE THE POINT, AND THE OLD ONES WERE NOT REAL.
+         *
+         * This suggested `input/front/value`, `input/rear/value`,
+         * `cluster_front/click` and `cluster_back/click`. The MX Ink has no
+         * `front` or `rear` input at all, and every one of its own components
+         * carries the vendor suffix -- `cluster_front_logitech`, not
+         * `cluster_front`. One bad path makes the runtime throw out the WHOLE
+         * suggestion, so the pen bound nothing, fell back to Touch emulation,
+         * and had no upper button anywhere. It is the reason none of this has
+         * ever run on hardware.
+         *
+         * The map, on the pen as it is held:
+         *   middle pad  -> trigger    the finger is already on it
+         *   tip force   -> squeeze    pressing the nib is a grip
+         *   front click -> lower      A / X
+         *   back click  -> upper      B / Y
+         *   front x2    -> menu       the pen's OWN double tap, not a hold
+         *   back x2     -> stick click
+         *
+         * The double taps are the pen's own inputs rather than a gesture timed
+         * in the game -- asked for as "the double press option rather than
+         * holding", and the pen reports both natively.
+         *
+         * AND IT DEGRADES INSTEAD OF FAILING. A suggestion the runtime rejects
+         * changes nothing at all, so the tiers below are tried in turn and the
+         * first that is accepted stands: the full map, then the map without
+         * the double taps, then without the tip, then poses and haptics alone.
+         * Whatever a given runtime's spelling of the cluster components turns
+         * out to be, a pen still arrives with a pose and a trigger rather than
+         * nothing -- and none of this can touch a Touch controller, which is
+         * bound by a different profile suggested above and is not revisited
+         * here. */
+        #define PEN_CORE \
+            { S.a_pose,    path("/user/hand/left/input/grip/pose") },  \
+            { S.a_pose,    path("/user/hand/right/input/grip/pose") }, \
+            { S.a_aim,     path("/user/hand/left/input/aim/pose") },   \
+            { S.a_aim,     path("/user/hand/right/input/aim/pose") },  \
+            { S.a_haptic,  path("/user/hand/left/output/haptic") },    \
+            { S.a_haptic,  path("/user/hand/right/output/haptic") }
+        #define PEN_PAD \
+            { S.a_trigger, path("/user/hand/left/input/cluster_middle_logitech/value") }, \
+            { S.a_trigger, path("/user/hand/right/input/cluster_middle_logitech/value") }
+        #define PEN_CLICKS \
+            { S.a_lower,   path("/user/hand/left/input/cluster_front_logitech/click") },  \
+            { S.a_lower,   path("/user/hand/right/input/cluster_front_logitech/click") }, \
+            { S.a_upper,   path("/user/hand/left/input/cluster_back_logitech/click") },   \
+            { S.a_upper,   path("/user/hand/right/input/cluster_back_logitech/click") }
+        #define PEN_TIP \
+            { S.a_squeeze, path("/user/hand/left/input/tip_logitech/force") }, \
+            { S.a_squeeze, path("/user/hand/right/input/tip_logitech/force") }
+        #define PEN_TAPS \
+            { S.a_menu,       path("/user/hand/left/input/cluster_front_logitech/double_tap_logitech") },  \
+            { S.a_menu,       path("/user/hand/right/input/cluster_front_logitech/double_tap_logitech") }, \
+            { S.a_stickclick, path("/user/hand/left/input/cluster_back_logitech/double_tap_logitech") },   \
+            { S.a_stickclick, path("/user/hand/right/input/cluster_back_logitech/double_tap_logitech") }
+
+        XrActionSuggestedBinding t0[] = { PEN_CORE, PEN_PAD, PEN_CLICKS, PEN_TIP, PEN_TAPS };
+        XrActionSuggestedBinding t1[] = { PEN_CORE, PEN_PAD, PEN_CLICKS, PEN_TIP };
+        XrActionSuggestedBinding t2[] = { PEN_CORE, PEN_PAD, PEN_CLICKS };
+        XrActionSuggestedBinding t3[] = { PEN_CORE, PEN_PAD };
+        XrActionSuggestedBinding t4[] = { PEN_CORE };
+        #undef PEN_TAPS
+        #undef PEN_TIP
+        #undef PEN_CLICKS
+        #undef PEN_PAD
+        #undef PEN_CORE
+        const struct { const XrActionSuggestedBinding *b; uint32_t n; const char *what; } TIER[] = {
+            { t0, (uint32_t)(sizeof t0 / sizeof t0[0]), "full" },
+            { t1, (uint32_t)(sizeof t1 / sizeof t1[0]), "no double taps" },
+            { t2, (uint32_t)(sizeof t2 / sizeof t2[0]), "no tip" },
+            { t3, (uint32_t)(sizeof t3 / sizeof t3[0]), "pad only" },
+            { t4, (uint32_t)(sizeof t4 / sizeof t4[0]), "poses only" },
         };
         S.mx_ink_path =
             path("/interaction_profiles/logitech/mx_ink_stylus_logitech");
         sb.interactionProfile = S.mx_ink_path;
-        sb.suggestedBindings = pb;
-        sb.countSuggestedBindings = sizeof pb / sizeof pb[0];
-        if (!XR_SUCCEEDED(xrSuggestInteractionProfileBindings(S.instance, &sb)))
-            xrlog("[mote-xr] stylus bindings rejected");
-        else
-            xrlog("[mote-xr] stylus profile bound");
+        S.stylus_tier = -1;
+        for (int i = 0; i < (int)(sizeof TIER / sizeof TIER[0]); i++) {
+            sb.suggestedBindings = TIER[i].b;
+            sb.countSuggestedBindings = TIER[i].n;
+            if (XR_SUCCEEDED(xrSuggestInteractionProfileBindings(S.instance, &sb))) {
+                S.stylus_tier = i;
+                xrlog("[mote-xr] stylus profile bound (%s)", TIER[i].what);
+                break;
+            }
+        }
+        if (S.stylus_tier < 0) {
+            /* Nothing took. The pen is then a Touch controller as far as the
+             * runtime is concerned, which is what it was before any of this. */
+            S.mx_ink_path = XR_NULL_PATH;
+            xrlog("[mote-xr] stylus bindings rejected at every tier");
+        }
     }
 
     XrSessionActionSetsAttachInfo at = { XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
