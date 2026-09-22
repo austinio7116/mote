@@ -282,6 +282,7 @@ static MeshFace g_bf[NBLV][12];
 static uint8_t  g_buv[NBLV][72];
 static float    g_bmd[NBLV];
 static Mesh     g_bmesh[NBLV][NBTEX];
+static Mesh     g_hmesh[NBLV];       /* untextured haze band, shares g_bv[L]/g_bf[L] */
 
 static void build_bgeom(int L, float hx, float hy, float hz) {
     float md = hx; if (hy > md) md = hy; if (hz > md) md = hz; g_bmd[L] = md;
@@ -315,6 +316,15 @@ static void build_buildings(void) {
                                     .scale=g_bmd[L], .bound_r=g_bmd[L]*1.75f,
                                     .texture=tex[t], .face_uvs=g_buv[L] };
     }
+    /* The far band draws UNTEXTURED, so it can be tinted toward the background
+     * and so it costs max_tris rather than max_tex_tris. A per-draw colour does
+     * NOT suppress a texture — mote_pipe.c picks the textured path purely on
+     * (mesh->texture && mesh->face_uvs), and obj->color only feeds the flat
+     * path. Hence a parallel mesh with no texture, sharing the same geometry. */
+    for (int L=0; L<NBLV; L++)
+        g_hmesh[L] = (Mesh){ .verts=g_bv[L], .faces=g_bf[L], .nverts=8, .nfaces=12,
+                             .scale=g_bmd[L], .bound_r=g_bmd[L]*1.75f,
+                             .texture=0, .face_uvs=0, .color=MOTE_RGB565(60,64,78) };
 }
 
 /* GARAGE meshes: a low box with a ROOF + back/side walls but the STREET-FACING wall
@@ -432,6 +442,13 @@ static int bld_tex(int x, int z) {
 #define CAM_CAR_H1   3.6f
 #define CAM_CAR_L1   9.0f
 #define CAM_SPD     18.0f    /* speed, m/s, at which the framing is fully out */
+
+/* Draw distances, metres. Ground is shorter than buildings on purpose: past
+ * ~50 m the road is near edge-on and mostly hidden by facades anyway. */
+#define VIEW_GROUND_R   52.0f
+#define VIEW_BLD_R     112.0f
+#define VIEW_HAZE_R     70.0f    /* beyond this, buildings go untextured + tinted */
+#define VIEW_BLD_CAP     110     /* max building submissions per frame */
 
 static Mat3  cam_basis;
 static Vec3  cam_pos;
@@ -1083,11 +1100,11 @@ static void g_init(void) {
     g_state = ST_TITLE;
 }
 
-/* on-screen test for a tile centre (with margin) so we only submit what's visible */
-static int tile_visible(int x, int z, float y) {
-    float sx, sy;
-    if (!world_to_screen(v3(x*TILE+TILE*0.5f, y, z*TILE+TILE*0.5f), &sx, &sy, 0)) return 0;
-    return sx > -40 && sx < 168 && sy > -40 && sy < 168;
+/* World-space cone test for a tile centre. Replaces the old screen-space test,
+ * which was written for a camera pointing straight down. */
+static int tile_visible_r(int x, int z, float y, float radius) {
+    return gta3_view_tile(&g_view, x*TILE+TILE*0.5f, y, z*TILE+TILE*0.5f,
+                          radius, TILE);
 }
 
 /* thin flat quad on the road surface, for lane paint */
@@ -1274,9 +1291,10 @@ static void road_markings(int x, int z) {
 
 static void draw_ground_window(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE);
-    for (int z = cz - 16; z <= cz + 16; z++) {
-        for (int x = cx - 16; x <= cx + 16; x++) {
-            if (!tile_visible(x, z, 0)) continue;
+    int w = (int)(VIEW_GROUND_R / TILE) + 1;
+    for (int z = cz - w; z <= cz + w; z++) {
+        for (int x = cx - w; x <= cx + w; x++) {
+            if (!tile_visible_r(x, z, 0, VIEW_GROUND_R)) continue;
             char c = tile_at(x, z);
             if (c == '.' || c == 'B') {              /* road + bridge use the road sheet */
                 g_ground.texture = &roads_img;
@@ -1297,27 +1315,57 @@ static void draw_ground_window(void) {
     }
 }
 
+/* Blend a building's tone toward the background over the far band, so the draw
+ * distance reads as haze instead of a wall of nothing. t = 0 at VIEW_HAZE_R,
+ * 1 at VIEW_BLD_R. */
+static uint16_t haze_tint(float d) {
+    float t = (d - VIEW_HAZE_R) / (VIEW_BLD_R - VIEW_HAZE_R);
+    if (t < 0.0f) t = 0.0f; if (t > 1.0f) t = 1.0f;
+    int r = (int)(60 + (24 - 60) * t);
+    int g = (int)(64 + (26 - 64) * t);
+    int b = (int)(78 + (32 - 78) * t);
+    return MOTE_RGB565(r, g, b);
+}
+
 static void draw_buildings_window(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE);
-    for (int z = cz - 22; z <= cz + 22; z++)      /* wider than the ground so tall blocks at the edge stay up */
-        for (int x = cx - 22; x <= cx + 22; x++) {
-            char c = tile_at(x, z);
-            if (c != '#' && c != 'O' && c != 'H') continue;
-            int gdir = is_garage(x, z) ? garage_dir(x, z) : -1;
-            float th, hy;
-            if (gdir >= 0){ th = GARAGE_H; hy = th * 0.5f; }      /* garage: a low roofed bay, open front */
-            else { int L = bld_level(x, z); th = g_lvl_h[L]; hy = th * 0.5f; }
-            float wx = x*TILE+TILE*0.5f, wz = z*TILE+TILE*0.5f, sx, sy;
-            /* Draw if the BASE or the TOP could be on screen. Culling on the elevated
-             * centre alone made tall blocks blink out (revealing the ground beneath)
-             * as their centre projected off-screen while their footprint was still in view. */
-            int vis = 0;
-            if (world_to_screen(v3(wx, 0.1f, wz), &sx, &sy, 0) && sx>-52 && sx<180 && sy>-52 && sy<180) vis = 1;
-            if (!vis && world_to_screen(v3(wx, th, wz), &sx, &sy, 0) && sx>-52 && sx<180 && sy>-52 && sy<180) vis = 1;
-            if (!vis) continue;
-            if (gdir >= 0) mote_draw(mote, &gr_mesh[gdir], v3(wx, hy, wz));
-            else           mote_draw(mote, &g_bmesh[bld_level(x,z)][bld_tex(x,z)], v3(wx, hy, wz));
-        }
+    int w = (int)(VIEW_BLD_R / TILE) + 1;
+    int submitted = 0;
+    /* Two passes: the near, textured band first, then the far haze band until
+     * the cap. Overflow then shows as distant blocks missing rather than as
+     * whatever arrived last being dropped. */
+    for (int pass = 0; pass < 2; pass++) {
+        for (int z = cz - w; z <= cz + w; z++)
+            for (int x = cx - w; x <= cx + w; x++) {
+                char c = tile_at(x, z);
+                if (c != '#' && c != 'O' && c != 'H') continue;
+                int gdir = is_garage(x, z) ? garage_dir(x, z) : -1;
+                float th, hy;
+                if (gdir >= 0){ th = GARAGE_H; hy = th * 0.5f; }      /* garage: a low roofed bay, open front */
+                else { int L = bld_level(x, z); th = g_lvl_h[L]; hy = th * 0.5f; }
+                float wx = x*TILE+TILE*0.5f, wz = z*TILE+TILE*0.5f;
+                float ddx = wx - cam_pos.x, ddz = wz - cam_pos.z;
+                float d = sqrtf(ddx*ddx + ddz*ddz);
+                int far = d > VIEW_HAZE_R;
+                if (far != pass) continue;
+                if (submitted >= VIEW_BLD_CAP) return;
+                /* Base OR top in the cone: culling on the elevated centre alone
+                 * made tall blocks blink out while their footprint was still
+                 * plainly in view. */
+                if (!gta3_view_tile(&g_view, wx, 0.1f, wz, VIEW_BLD_R, TILE) &&
+                    !gta3_view_tile(&g_view, wx, th,   wz, VIEW_BLD_R, TILE)) continue;
+                if (gdir >= 0) { mote_draw(mote, &gr_mesh[gdir], v3(wx, hy, wz)); }
+                else if (far) {
+                    MoteObject o = { .pos = v3(wx, hy, wz), .basis = m3_identity(),
+                                     .mesh = &g_hmesh[bld_level(x,z)],
+                                     .color = haze_tint(d) };
+                    mote->scene_add_object(&o);
+                } else {
+                    mote_draw(mote, &g_bmesh[bld_level(x,z)][bld_tex(x,z)], v3(wx, hy, wz));
+                }
+                submitted++;
+            }
+    }
 }
 
 /* -------------------------------------------------------- movement + AI ----- */
@@ -3448,24 +3496,12 @@ static int is_mission_car(int i){
 static void stream_entities(float dt) {
     if (g_dm) return;              /* DM: index-shared world — nothing recycles */
     float px=pl_x(), pz=pl_z();
-    /* The entity streamer sizes its spawn bubble from how much of the city is
-     * visible. That used to be the top-down camera's smoothed height, which the
-     * chase camera deleted. Reproduce the OLD curve exactly — 15 m on foot, 21 m
-     * in a stationary car, ramping to 40 m at CAM_SPD — so traffic and ped
-     * density keep their tuned values. This is deliberately a fossil of a camera
-     * that no longer exists; Task 5 reconciles it against the real draw
-     * distances (VIEW_GROUND_R / VIEW_BLD_R) once those exist.
-     *
-     * The old value was also lerped toward its target at 2.5/s. That is NOT
-     * reproduced here: the density logic below has its own 0.8 s timer and
-     * recycles only off-screen entities, so a ~0.4 s lag on this estimate has no
-     * observable effect, and Task 5 replaces the estimate outright. */
-    float vis_h = 15.0f;                                    /* old CAM_FOOT */
-    if (player.mode == MODE_CAR) {
-        float s = fabsf(cars[player.car].spd);
-        vis_h = 21.0f + (40.0f - 21.0f) * (s / CAM_SPD);     /* old CAM_CAR..CAM_MAX */
-        if (vis_h > 40.0f) vis_h = 40.0f;
-    }
+    /* The entity streamer sizes its spawn bubble from how far the camera can
+     * actually see. The chase camera's ground draw distance is constant
+     * (VIEW_GROUND_R), unlike the old top-down camera's height, which zoomed
+     * out with speed — so the bubble is now a flat radius rather than a speed
+     * curve. */
+    float vis_h = VIEW_GROUND_R;
     for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
         if (!c->alive || i==player.car || c->driver==DRV_COP || c->type==VEH_TANK) continue;
         if (is_mission_car(i)) continue;      /* the job's own cars are exempt from recycling */
