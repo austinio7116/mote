@@ -352,7 +352,18 @@ held.
       fps after all four, the spec's reserve plan applies: road-corridor
       occlusion (deferred from the design on purpose). Stop and raise this
       rather than shipping under target.
-8. **Once downtown holds 30 fps**, pin it. Add, once, on the first frame of
+8. **Watch the raster-time line for the ground-skirt's fixed cost.**
+   `draw_ground_skirt()` (`game.c`) submits two depth-writing triangles
+   covering a flat `VIEW_BLD_R*2` x `VIEW_BLD_R*2` (224 m x 224 m) square
+   under the world, EVERY frame, unconditionally — including on the title
+   screen, where nothing else in the scene justifies it. It is cheap per
+   triangle, but it is two more depth-writing triangles than a frame with
+   nothing else on screen needs, and it was not separately measured in this
+   profile (folded into the flat-triangle counts above, not isolated). If
+   the device's raster-time line looks high on an otherwise-empty frame
+   (title screen, or a scene with few buildings/peds), check whether the
+   skirt is a meaningful fraction of it before looking elsewhere.
+9. **Once downtown holds 30 fps**, pin it. Add, once, on the first frame of
    `update()`:
    ```c
    static int fps_armed; if (!fps_armed) { fps_armed = 1; mote->set_fps_limit(30); }
