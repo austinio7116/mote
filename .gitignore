@@ -36,3 +36,6 @@ dist/
 dist-linux/
 studio/assets/uifont.cfg
 .claude/worktrees/
+
+# git worktrees for isolated feature work
+.worktrees/
