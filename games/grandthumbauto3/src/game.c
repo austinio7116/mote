@@ -201,6 +201,13 @@ static void build_ground(void) {
  * (scale 0.5 → verts span ±0.5 m; mote_draw_ex's scale then sets the metre size.) */
 static MeshVert g_qv[4] = { {-127,0,-127},{127,0,-127},{127,0,127},{-127,0,127} };
 static MeshFace g_qf[2] = { {0,1,2, 0,127,0}, {0,2,3, 0,127,0} };   /* normal +y → faces the top-down camera */
+/* g_quadShade's own face array: g_qf with b/c swapped. g_qf's winding is CW
+ * viewed from outside relative to its stored +y normal (same mismatch found
+ * in the building meshes — see g_hf above), which the textured raster path
+ * ignores (magnitude-only area test) but the flat path does not (positive
+ * area required). g_quad (textured) keeps g_qf unchanged; g_quadShade (flat)
+ * needs the reversed winding to render at all. */
+static MeshFace g_qfS[2] = { {0,2,1, 0,127,0}, {0,3,2, 0,127,0} };
 static uint8_t  g_quv2[12];
 static Mesh     g_quad;
 static Mesh g_quadShade;   /* untextured dark quad (same verts) — layered over wrecks to char them */
@@ -208,7 +215,7 @@ static void build_quad(void){
     g_quad = (Mesh){ .verts=g_qv, .faces=g_qf, .nverts=4, .nfaces=2,
                      .scale=0.5f, .bound_r=0.9f, .texture=0 };
     g_quad.face_uvs = g_quv2;
-    g_quadShade = (Mesh){ .verts=g_qv, .faces=g_qf, .nverts=4, .nfaces=2,
+    g_quadShade = (Mesh){ .verts=g_qv, .faces=g_qfS, .nverts=4, .nfaces=2,
                           .scale=0.5f, .bound_r=0.9f, .color=MOTE_RGB565(22,20,24) };
 }
 static void quad_uv(const MoteImage *img, int fx,int fy,int fw,int fh){
@@ -282,7 +289,16 @@ static MeshFace g_bf[NBLV][12];
 static uint8_t  g_buv[NBLV][72];
 static float    g_bmd[NBLV];
 static Mesh     g_bmesh[NBLV][NBTEX];
-static Mesh     g_hmesh[NBLV];       /* untextured haze band, shares g_bv[L]/g_bf[L] */
+static Mesh     g_hmesh[NBLV];       /* untextured haze band, shares g_bv[L] verts */
+/* g_hmesh's own face array: same triangles as g_bf[L] but with b/c swapped.
+ * The textured path (raster_tex_tri) culls on area MAGNITUDE only, so g_bf's
+ * winding has never mattered until now. The flat path (tri_core) requires
+ * POSITIVE screen-space area and drops anything else — g_bf's winding turns
+ * out negative there, so g_hmesh needs reversed vertex order to render at
+ * all. Normals are copied unchanged: mote_pipe's backface pre-cull uses the
+ * stored normal, not the winding, so this only flips the rasteriser's area
+ * sign and leaves which faces are front-facing untouched. */
+static MeshFace g_hf[NBLV][12];
 
 static void build_bgeom(int L, float hx, float hy, float hz) {
     float md = hx; if (hy > md) md = hy; if (hz > md) md = hz; g_bmd[L] = md;
@@ -321,10 +337,14 @@ static void build_buildings(void) {
      * NOT suppress a texture — mote_pipe.c picks the textured path purely on
      * (mesh->texture && mesh->face_uvs), and obj->color only feeds the flat
      * path. Hence a parallel mesh with no texture, sharing the same geometry. */
-    for (int L=0; L<NBLV; L++)
-        g_hmesh[L] = (Mesh){ .verts=g_bv[L], .faces=g_bf[L], .nverts=8, .nfaces=12,
+    for (int L=0; L<NBLV; L++) {
+        for (int f=0; f<12; f++)
+            g_hf[L][f] = (MeshFace){ g_bf[L][f].a, g_bf[L][f].c, g_bf[L][f].b,
+                                     g_bf[L][f].nx, g_bf[L][f].ny, g_bf[L][f].nz };
+        g_hmesh[L] = (Mesh){ .verts=g_bv[L], .faces=g_hf[L], .nverts=8, .nfaces=12,
                              .scale=g_bmd[L], .bound_r=g_bmd[L]*1.75f,
                              .texture=0, .face_uvs=0, .color=MOTE_RGB565(60,64,78) };
+    }
 }
 
 /* GARAGE meshes: a low box with a ROOF + back/side walls but the STREET-FACING wall
@@ -1289,9 +1309,26 @@ static void road_markings(int x, int z) {
     }
 }
 
+/* A flat haze-coloured skirt under the world, out to roughly VIEW_BLD_R, so an
+ * open sightline (a plaza, a junction, a lake crossing) shows ground fading
+ * toward the background instead of a void once real ground tiles run out at
+ * VIEW_GROUND_R. Two triangles via scene_add_tri, which is DOUBLE-SIDED
+ * (drawn regardless of winding) — unlike scene_add_object, so it is immune
+ * to the winding trap g_hmesh/g_quadShade needed fixing for. Slightly below
+ * y=0 so real ground tiles always win the depth test; colour is haze_tint's
+ * value at t=1 (the far end of the ramp), i.e. effectively the background. */
+static void draw_ground_skirt(void) {
+    float s = VIEW_BLD_R;
+    float x0 = view_x - s, x1 = view_x + s, z0 = view_z - s, z1 = view_z + s;
+    uint16_t col = MOTE_RGB565(24, 26, 32);
+    mote->scene_add_tri(v3(x0,-0.05f,z0), v3(x1,-0.05f,z0), v3(x1,-0.05f,z1), col, 0);
+    mote->scene_add_tri(v3(x0,-0.05f,z0), v3(x1,-0.05f,z1), v3(x0,-0.05f,z1), col, 0);
+}
+
 static void draw_ground_window(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE);
     int w = (int)(VIEW_GROUND_R / TILE) + 1;
+    draw_ground_skirt();
     for (int z = cz - w; z <= cz + w; z++) {
         for (int x = cx - w; x <= cx + w; x++) {
             if (!tile_visible_r(x, z, 0, VIEW_GROUND_R)) continue;
