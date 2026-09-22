@@ -23,11 +23,8 @@
 #include "bld_panel.h"      /* bld_panel_img  — grey cladding panels */
 #include "cars2_meta.h"    /* per-car opaque art sizes (draw + physics sizing) — cars2_img
                              * itself is gone: Task 7 replaced the sprite with a tinted mesh */
-#include "tankturret.h"    /* tankturret_img — turret+barrel, pivot at image centre */
-#define TURRET_CW 32
-#define TURRET_CH 80
-#define TURRET_LEN_M 8.00f
-#define TURRET_WID_M 3.20f
+/* tankturret.h/tankturret_img (turret+barrel top-down sprite) is gone: Task 9
+ * replaced it with the gta3_box mesh built in build_turret() below. */
 #include "player.h"        /* player_img — 4 walk frames, 16x16 */
 #include "ped.h"           /* ped_img — 2 frames x 4 variants, 16x16 */
 #include "cop.h"           /* cop_img — foot officer, 2 frames, 16x16 */
@@ -207,6 +204,34 @@ static void build_quad(void){
     g_quad = (Mesh){ .verts=g_qv, .faces=g_qf, .nverts=4, .nfaces=2,
                      .scale=0.5f, .bound_r=0.9f, .texture=0 };
     g_quad.face_uvs = g_quv2;
+}
+#define TURRET_LEN_M 8.00f
+#define TURRET_WID_M 3.20f
+/* Task 9: the tank turret — a cab box + a long barrel box, built from
+ * gta3_box (the proven winding exposed by gta3_veh.h/.c) instead of drawn as
+ * a rotated flat sprite. Both share one .scale (TURRET_LEN_M*0.5, set in
+ * build_turret below), so their normalised int8 coordinates below are metres
+ * expressed as (metres / (TURRET_LEN_M*0.5)) * 127. Untextured, so — per the
+ * trap this task exists to pre-empt — their winding is exactly what
+ * test_veh.c's turret-shaped sweep checks. */
+static MeshVert g_turcabv[8], g_turbarv[8];
+static MeshFace g_turcabf[12], g_turbarf[12];
+static Mesh     g_turcab, g_turbar;
+/* Build the two turret boxes once, in the same normalised int8 space as
+ * gta3_veh_build's body/cabin: coordinates below are metres * (127 /
+ * (TURRET_LEN_M*0.5)). The cab sits centred on the pivot with a little
+ * forward bias; the barrel starts inside the cab (so the two boxes overlap
+ * rather than leaving a gap) and runs most of the way to the front edge of
+ * the TURRET_LEN_M envelope. Both meshes carry their own fixed .scale, so
+ * callers draw them with scene_add_object_ex rather than *_scaled. */
+static void build_turret(void){
+    int nf;
+    gta3_box(g_turcabv, g_turcabf, &nf, -32,32, 0,25, -44,19);   /* cab */
+    g_turcab = (Mesh){ .verts=g_turcabv, .faces=g_turcabf, .nverts=8, .nfaces=nf,
+                       .scale=TURRET_LEN_M*0.5f, .bound_r=1.6f, .color=0xFFFF };
+    gta3_box(g_turbarv, g_turbarf, &nf, -5,5, 10,16, 13,121);    /* barrel */
+    g_turbar = (Mesh){ .verts=g_turbarv, .faces=g_turbarf, .nverts=8, .nfaces=nf,
+                       .scale=TURRET_LEN_M*0.5f, .bound_r=1.6f, .color=0xFFFF };
 }
 static void quad_uv(const MoteImage *img, int fx,int fy,int fw,int fh){
     g_quad.texture=img; int tw=img->w, th=img->h;
@@ -514,6 +539,14 @@ static void draw_character(const MoteImage *img, float x, float z, float yaw,
     mote->scene_add_billboard(v3(x, CHAR_H * 0.5f, z), img,
                               col * 16, row * 16, 16, 16, CHAR_H, MOTE_BLEND_NONE);
     mote->scene_add_shadow_ex(v3(x, 0.02f, z), v3(0.42f, 0, 0), v3(0, 0, 0.42f), 0.5f);
+}
+
+/* An upright camera-facing sprite that is not a person: a tree, a pickup, a
+ * phone box. Anchored at the ground, so `h` is its full world height. */
+static void draw_upright(const MoteImage *img, float x, float z,
+                         int fx, int fy, int fw, int fh, float h) {
+    mote->scene_add_billboard(v3(x, h * 0.5f, z), img, fx, fy, fw, fh, h,
+                              MOTE_BLEND_NONE);
 }
 
 /* -------------------------------------------------------------- entities ---- */
@@ -1132,6 +1165,7 @@ static void g_init(void) {
     }
     build_ground();
     build_quad();
+    build_turret();
     build_buildings();
     build_garages();
     if (mote->load){ int b[2]={0,0}; if(mote->load(0,b,sizeof b)==(int)sizeof b && b[0]==0x47544131) best_cash=b[1]; }
@@ -3776,8 +3810,17 @@ static void draw_vehicle(int i){
             else tyaw = c->yaw;
             float rec = (i==player.car)? g_tankrecoil*1.4f : 0.0f;
             float tx=c->x - cosf(tyaw)*rec, tz=c->z - sinf(tyaw)*rec;
-            draw_ground_sprite(&tankturret_img, tx, tz, tyaw, 0,0,TURRET_CW,TURRET_CH,
-                               TURRET_LEN_M, TURRET_WID_M, 1);
+            /* mesh, not sprite (Task 9): a box cab + a box barrel, parented to
+             * the hull's position but rotated to tyaw independently of c->yaw
+             * (the hull mesh above is rotated to c->yaw). 1.9 m sits the
+             * pivot atop the hull's cabin box (TRUCK silhouette, ~2.15 m
+             * roofline at this tank's length) rather than buried in it. */
+            Mat3 tb = m3_identity(); m3_rotate_local(&tb, 1, -tyaw);
+            Vec3 tpos = v3(tx, 1.9f, tz);
+            MoteObject tcab = { .pos=tpos, .basis=tb, .mesh=&g_turcab, .color=MOTE_RGB565(74,86,58) };
+            mote->scene_add_object_ex(&tcab, 0);
+            MoteObject tbar = { .pos=tpos, .basis=tb, .mesh=&g_turbar, .color=MOTE_RGB565(58,66,46) };
+            mote->scene_add_object_ex(&tbar, 0);
         } }
 
 static void g_update(float dt) {
@@ -4208,9 +4251,13 @@ static void g_update(float dt) {
      * marked by an arrow into the opening instead of a floor decal). */
     for (int m=0;m<nmark;m++){
         if (markers[m].kind==MK_SPRAY) continue;             /* garage: drawn as an arrow below */
-        int cell = markers[m].kind==MK_PHONE?0 : markers[m].kind==MK_GUN?1 : 3;
         float dx=markers[m].x-view_x, dz=markers[m].z-view_z;
         if (dx*dx+dz*dz > 2500.0f) continue;
+        if (markers[m].kind==MK_PHONE){          /* has volume: an upright billboard, not a decal */
+            draw_upright(&props_img, markers[m].x, markers[m].z, 0,0,16,16, 2.2f);
+            continue;
+        }
+        int cell = markers[m].kind==MK_GUN?1 : 3;             /* gun mat / dock marker: genuinely flat decals */
         draw_ground_sprite(&props_img, markers[m].x, markers[m].z, 0, cell*16,0,16,16, 2.1f, 2.1f, 0);
     }
     for (int i=0;i<g_ngar;i++){                               /* an arrow on the approach, pointing INTO the bay */
@@ -4219,6 +4266,14 @@ static void g_update(float dt) {
         float dx=ax-view_x, dz=az-view_z; if (dx*dx+dz*dz > 2500.0f) continue;
         float yaw=atan2f((float)g_gar[i].oz, (float)g_gar[i].ox);     /* heading points INTO the garage (sprite +Z is -x at yaw 0) */
         draw_ground_sprite(&props_img, ax, az, yaw, 4*16,0,16,16, 2.6f, 2.2f, 1);
+    }
+    /* pickups: upright billboards with a small vertical bob so they read as
+     * collectable, not painted on the road like the decals above. PK_PACKAGE
+     * has no atlas cell — it stays a crate marker drawn in the overlay. */
+    for (int i=0;i<NPICK;i++){ Pickup*p=&picks[i]; if(!p->alive||p->kind==PK_PACKAGE) continue;
+        float bob = 0.15f * sinf(p->bob);
+        mote->scene_add_billboard(v3(p->x, 0.6f+bob, p->z), &pickups_img,
+                                  p->kind*16, 0, 16, 16, 1.0f, MOTE_BLEND_NONE);
     }
     for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive) continue;
         int fr=((int)p->animt)&1;
@@ -4250,36 +4305,32 @@ static void g_update(float dt) {
     dm_draw_remote();                                           /* the OTHER player */
     /* the rival is a real DRV_NPC car — draw_vehicle() above already renders it */
     draw_buildings_window();                                    /* after entities (budget priority) */
-    /* scenery LAST — canopies drawn over everyone passing beneath. The hash picks the
-     * TYPE per tile: 0 oak / 1 pine / 2 autumn (tall, collidable trunks), 3 bush /
-     * 4 flowerbed (low, walk-through), 5 boulder (low, collidable). */
+    /* scenery LAST — trees drawn over everyone passing beneath. Upright billboards now
+     * (Task 9), not flat canopies: a tree lying flat read as a green disc from any
+     * angle but straight down. The hash still only ever picks column 0 or 1 of the
+     * sheet (oak / pine); scenery.png also carries autumn/bush/flowers/boulder cells
+     * for future use, but the selection below is unchanged from before this task. */
     { int cx=(int)(view_x/TILE), cz=(int)(view_z/TILE);
       for (int z=cz-11; z<=cz+11; z++) for (int x=cx-11; x<=cx+11; x++){
           if (tile_at(x,z)!=' ') continue;
           unsigned h=(unsigned)(x*668265263u ^ z*374761393u); if ((h&3)==0) continue;
           float tx=x*TILE+((h>>4)&7)*0.4f+1.0f, tz=z*TILE+((h>>8)&7)*0.4f+1.0f;
-          draw_ground_sprite(&scenery_img, tx, tz, 0, ((h>>2)&1)*20,0,20,20, 5.5f, 5.5f, 0);
+          /* a ground quad was free of any per-instance draw budget; a billboard is
+           * not (k_vtbl.config.max_billboards), so cap how far out trees draw —
+           * same 50 m radius already used for markers below. */
+          float dx=tx-view_x, dz=tz-view_z; if (dx*dx+dz*dz > 2500.0f) continue;
+          draw_upright(&scenery_img, tx, tz, ((h>>2)&1)*20, 0, 20, 20, 5.5f);
       } }
+    /* bullet tracers: depth-tested 3D lines (Task 9), not overlay draw_line — so a
+     * tracer fired past a building's corner is actually occluded by it. */
+    for (int i=0;i<NBULLET;i++){ Bullet*b=&bullets[i]; if(!b->alive) continue;
+        mote->scene_add_line(v3(b->x, 0.9f, b->z),
+                             v3(b->x - b->vx*0.03f, 0.9f, b->z - b->vz*0.03f),
+                             b->fromcop ? MOTE_RGB565(120,180,255) : MOTE_RGB565(255,230,140));
+    }
 }
 
 /* -------------------------------------------------------------- overlay ----- */
-typedef struct { float sy, sx, ang, scale; const MoteImage *img; int fx, fy, fw, fh; } Spr;
-static Spr g_spr[128]; static int g_nspr;
-
-static void push_sprite(const MoteImage *img, float wx, float wz, float yaw,
-                        int fx, int fy, int fw, int fh, float len_m, int oriented) {
-    float sx, sy, ppm;
-    if (!world_to_screen(v3(wx, 0.12f, wz), &sx, &sy, &ppm)) return;
-    if (sx < -40 || sx > 168 || sy < -40 || sy > 168) return;
-    float ang = 0.0f;
-    if (oriented) {
-        float ax, ay, dx=cosf(yaw), dz=sinf(yaw);
-        if (world_to_screen(v3(wx+dx, 0.12f, wz+dz), &ax, &ay, 0)) ang = atan2f(ay-sy, ax-sx) + 1.5708f;
-    }
-    float scale = (len_m * ppm) / (float)fh;
-    if (g_nspr < 128) g_spr[g_nspr++] = (Spr){ sy, sx, ang, scale, img, fx, fy, fw, fh };
-}
-
 /* small helper: project a world point + draw a filled screen dot */
 static void world_dot(uint16_t *fb, float wx, float wz, int r, uint16_t col) {
     float sx, sy; if (!world_to_screen(v3(wx,0.1f,wz), &sx, &sy, 0)) return;
@@ -4424,7 +4475,6 @@ static void g_overlay(uint16_t *fb) {
         mote_ftextc(mote, fb, g_fmed, 64, 84, MOTE_RGB565(150,160,180), "B CANCEL");
         return;
     }
-    g_nspr = 0;
     /* markers are drawn as prop sprites in the scene pass now (phonebox/gun mat/spray) */
     if (g_state==ST_PLAY && mission_beacon()){   /* target: beating ring if on-screen, else an edge ARROW pointing to it */
         uint16_t mc = MOTE_RGB565(255,70,200);
@@ -4462,18 +4512,13 @@ static void g_overlay(uint16_t *fb) {
           }
       } }
 
-    /* trees, people and vehicles are drawn as depth-tested ground quads in the scene pass;
-     * only the on-foot PLAYER stays an overlay so it's always visible (never occluded). */
-    for (int i=0;i<NPICK;i++){ Pickup*p=&picks[i]; if(!p->alive) continue;
-        if (p->kind==PK_PACKAGE){                       /* no atlas cell: draw a crate marker */
-            world_dot(fb, p->x, p->z, 4, MOTE_RGB565(28,20,10));
-            world_dot(fb, p->x, p->z, 3, MOTE_RGB565(196,150,78));
-            world_dot(fb, p->x, p->z, 1, MOTE_RGB565(120,86,40)); continue; }
-        push_sprite(&pickups_img, p->x, p->z, 0, p->kind*16,0,16,16, 1.8f, 0); }
-    for (int i=1;i<g_nspr;i++){ Spr t=g_spr[i]; int j=i-1;
-        while (j>=0 && g_spr[j].sy>t.sy){ g_spr[j+1]=g_spr[j]; j--; } g_spr[j+1]=t; }
-    for (int i=0;i<g_nspr;i++){ Spr*s=&g_spr[i];
-        mote->blit_ex(fb, s->img, s->sx, s->sy, s->fx, s->fy, s->fw, s->fh, s->ang, s->scale, MOTE_BLEND_NONE, 0, 128); }
+    /* trees, pickups, people and vehicles are drawn as depth-tested billboards/ground
+     * quads/meshes in the scene pass; only the on-foot PLAYER and the PK_PACKAGE crate
+     * marker (no atlas cell) stay overlay drawing. */
+    for (int i=0;i<NPICK;i++){ Pickup*p=&picks[i]; if(!p->alive||p->kind!=PK_PACKAGE) continue;
+        world_dot(fb, p->x, p->z, 4, MOTE_RGB565(28,20,10));
+        world_dot(fb, p->x, p->z, 3, MOTE_RGB565(196,150,78));
+        world_dot(fb, p->x, p->z, 1, MOTE_RGB565(120,86,40)); }
     /* police LIGHTBAR: alternating red/blue strobes on active squad cars */
     { int phase = (int)(mote->micros()/200000u)&1;
       for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
@@ -4496,13 +4541,9 @@ static void g_overlay(uint16_t *fb) {
 #endif
     if (g_showboxes) draw_phys_boxes(fb);
 
-    /* (tank turret is part of the hull sprite now; it just fires forward) */
-
-    /* bullets (tracers) + fx (blood/spark/flash) */
-    for (int i=0;i<NBULLET;i++){ Bullet*b=&bullets[i]; if(!b->alive) continue;
-        float sx,sy,ex,ey;
-        if (world_to_screen(v3(b->x,0.3f,b->z),&sx,&sy,0) && world_to_screen(v3(b->x-b->vx*0.03f,0.3f,b->z-b->vz*0.03f),&ex,&ey,0))
-            mote->draw_line(fb,(int)sx,(int)sy,(int)ex,(int)ey, b->fromcop?MOTE_RGB565(120,180,255):MOTE_RGB565(255,230,120),12,128); }
+    /* bullet tracers are added as depth-tested scene lines in the 3D build now
+     * (Task 9) — see the loop near draw_upright's scenery pass in g_update —
+     * so they disappear behind buildings instead of painting over them here. */
     for (int i=0;i<NFX;i++){ Fx*f=&fxs[i]; if(f->t<=0) continue;
         if (f->kind==3){                                        /* smoke: grey puff that grows + fades */
             uint16_t g = f->t>0.5f?MOTE_RGB565(120,120,128):MOTE_RGB565(78,78,88);
@@ -4630,7 +4671,10 @@ static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
     .config = { .max_tex_tris = 1600, .max_tris = 2200, .depth = 1, .max_shadows = 40,
                 .max_bodies = NCAR+NSTAT, .max_contacts = 220,     /* 2D physics pool (ABI v42; 2-pt box manifolds, capped) */
-                .max_billboards = 48 },
+                /* billboards: up to NPED+1 characters, NPICK pickups, a handful of
+                 * phone-box markers, and trees within the 50 m cap above — 300 is
+                 * generous headroom over the worst-case park-tile count there. */
+                .max_billboards = 48, .max_lines = 24 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 

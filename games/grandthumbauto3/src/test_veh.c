@@ -185,6 +185,26 @@ int main(void) {
         span(m.cv, &yl, &yh, 1); yhgt[s] = yh;
     }
 
+    /* Task 9: the tank turret is built directly from gta3_box (not from
+     * gta3_veh_build's silhouette table), with an off-centre asymmetric
+     * barrel box whose z-range does not straddle the origin the way the
+     * body/cabin pairs above do. A winding bug that only shows up off-centre
+     * would slip past every check above it, so prove this shape independently
+     * with the same proven helpers rather than trusting the pattern holds. */
+    {
+        MeshVert cv[8]; MeshFace cf[12]; int ncf;
+        gta3_box(cv, cf, &ncf, -32, 32, 0, 25, -44, 19);        /* turret cab */
+        ok(ncf == 12, "turret cab box has 12 faces");
+        ok(normals_outward(cv, cf, 12), "turret cab normals point outward");
+        ok(all_faces_screen_ok(cv, cf, 12), "turret cab faces are front-facing in screen space");
+
+        MeshVert bv2[8]; MeshFace bf2[12]; int nbf;
+        gta3_box(bv2, bf2, &nbf, -5, 5, 10, 16, 13, 121);       /* turret barrel: off-centre, asymmetric */
+        ok(nbf == 12, "turret barrel box has 12 faces");
+        ok(normals_outward(bv2, bf2, 12), "turret barrel normals point outward");
+        ok(all_faces_screen_ok(bv2, bf2, 12), "turret barrel faces are front-facing in screen space");
+    }
+
     /* 4. a van and a wedge must not be the same box */
     ok(fabsf(yhgt[GTA3_SIL_VAN] - yhgt[GTA3_SIL_WEDGE]) > 8.0f,
        "a van is visibly taller than a low wedge");

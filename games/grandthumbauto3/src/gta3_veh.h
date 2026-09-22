@@ -42,4 +42,14 @@ typedef struct {
  * to half the car's longest dimension. */
 void gta3_veh_build(Gta3VehMesh *m, int sil);
 
+/* The box builder gta3_veh_build uses internally, exposed so other geometry
+ * (Task 9's tank turret) can build off-hull boxes without duplicating the
+ * winding: CCW from outside in this normalised int8 space, so mote__face
+ * derives outward normals AND the result is front-facing in SCREEN space
+ * once projected (see test_veh.c's screen_winding_ok for why those two are
+ * not the same guarantee). x0<x1, y0<y1, z0<z1 is assumed but not enforced;
+ * *nf is reset to 0 and left at 12. */
+void gta3_box(MeshVert *v, MeshFace *f, int *nf,
+             int x0, int x1, int y0, int y1, int z0, int z1);
+
 #endif /* GTA3_VEH_H */

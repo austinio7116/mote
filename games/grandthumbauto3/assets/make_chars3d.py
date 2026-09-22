@@ -166,6 +166,83 @@ def main():
                   extra_poses=["aim", "fire"])
         else:
             sheet(name, skin, shirt, trousers, hair, shoe, frames)
+    scenery()
+
+
+# --- Task 9: side-view scenery -------------------------------------------
+# scenery_img used to be top-down tree canopies -- a green disc from any
+# camera angle but straight down. game.c:draw_upright now stands it up as a
+# billboard, so the art has to read as a tree from the SIDE: a trunk holding
+# up a canopy, not a canopy alone. Layout stays the 20x20 cell size
+# scenery_img is indexed with (game.c only ever selects column 0 or 1 today,
+# but all six are generated so the sheet is ready when that's extended).
+#
+#   columns: 0 oak  1 pine  2 autumn  3 bush  4 flowers  5 boulder
+#
+# oak/pine/autumn are TALL with a visible trunk; bush/flowers/boulder are
+# low mounds that sit straight on the ground, no trunk.
+SCELL = 20
+
+
+def _trunk(d, cx, y0, y1, col):
+    d.rectangle([cx - 1, y0, cx + 1, y1], fill=col + (255,))
+
+
+def _oak(d, ox):
+    cx = ox + 10
+    _trunk(d, cx, 12, 19, (74, 54, 34))
+    d.ellipse([ox + 2, 2, ox + 18, 15], fill=(70, 120, 54, 255))
+    d.ellipse([ox + 3, 8, ox + 17, 15], fill=(44, 84, 40, 255))     # shaded underside
+    d.ellipse([ox + 4, 3, ox + 11, 9], fill=(104, 158, 74, 255))    # sheen
+
+
+def _pine(d, ox):
+    cx = ox + 10
+    _trunk(d, cx, 15, 19, (68, 48, 32))
+    d.polygon([(cx, 1), (ox + 2, 17), (ox + 18, 17)], fill=(38, 78, 48, 255))
+    d.polygon([(cx, 5), (ox + 5, 14), (ox + 15, 14)], fill=(52, 100, 62, 255))
+    d.polygon([(cx, 9), (ox + 7, 17), (ox + 13, 17)], fill=(60, 116, 72, 255))
+
+
+def _autumn(d, ox):
+    cx = ox + 10
+    _trunk(d, cx, 12, 19, (74, 54, 34))
+    d.ellipse([ox + 2, 2, ox + 18, 15], fill=(152, 104, 44, 255))
+    d.ellipse([ox + 3, 8, ox + 17, 15], fill=(110, 70, 34, 255))
+    d.ellipse([ox + 4, 3, ox + 11, 9], fill=(214, 150, 62, 255))
+
+
+def _bush(d, ox):
+    d.ellipse([ox + 3, 11, ox + 17, 19], fill=(52, 82, 42, 255))
+    d.ellipse([ox + 4, 8, ox + 16, 16], fill=(78, 116, 56, 255))
+    d.ellipse([ox + 6, 8, ox + 12, 12], fill=(112, 150, 78, 255))
+
+
+def _flowers(d, ox):
+    d.ellipse([ox + 2, 13, ox + 18, 19], fill=(56, 88, 42, 255))
+    d.ellipse([ox + 3, 11, ox + 17, 16], fill=(74, 108, 50, 255))
+    dots = [(214, 96, 116), (232, 214, 110), (228, 232, 232), (178, 116, 214)]
+    pts = [(ox + 5, 12), (ox + 9, 10), (ox + 13, 12), (ox + 11, 14), (ox + 7, 14), (ox + 15, 13)]
+    for (px, py), col in zip(pts, dots * 2):
+        d.rectangle([px, py, px + 1, py + 1], fill=col + (255,))
+
+
+def _boulder(d, ox):
+    d.ellipse([ox + 2, 12, ox + 18, 19], fill=(70, 68, 66, 255))       # ground shadow
+    d.polygon([(ox + 3, 17), (ox + 4, 9), (ox + 9, 5), (ox + 15, 8),
+               (ox + 17, 14), (ox + 15, 18), (ox + 5, 18)], fill=(120, 118, 114, 255))
+    d.polygon([(ox + 5, 10), (ox + 9, 6), (ox + 13, 8), (ox + 9, 12)], fill=(150, 148, 144, 255))
+
+
+def scenery():
+    cells = [_oak, _pine, _autumn, _bush, _flowers, _boulder]
+    img = Image.new("RGBA", (SCELL * len(cells), SCELL), KEY)
+    d = ImageDraw.Draw(img)
+    for i, fn in enumerate(cells):
+        fn(d, i * SCELL)
+    out = os.path.join(HERE, "scenery.png")
+    img.save(out)
+    print("wrote %s (%dx%d)" % (out, img.width, img.height))
 
 
 if __name__ == "__main__":

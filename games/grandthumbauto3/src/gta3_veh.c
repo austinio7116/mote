@@ -52,8 +52,8 @@ static const Sil SILDEF[GTA3_SIL_N] = {
     /* TRUCK    */ { 44, 88, -30,  80, 92 },
 };
 
-static void box(MeshVert *v, MeshFace *f, int *nf,
-                int x0, int x1, int y0, int y1, int z0, int z1) {
+void gta3_box(MeshVert *v, MeshFace *f, int *nf,
+             int x0, int x1, int y0, int y1, int z0, int z1) {
     const int C[8][3] = { {x0,y0,z0},{x1,y0,z0},{x1,y1,z0},{x0,y1,z0},
                           {x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1} };
     for (int i = 0; i < 8; i++) {
@@ -76,12 +76,12 @@ void gta3_veh_build(Gta3VehMesh *m, int sil) {
     const Sil *s = &SILDEF[sil];
     int nf;
 
-    box(m->bv, m->bf, &nf, -127, 127, 0, s->body_h, -127, 127);
+    gta3_box(m->bv, m->bf, &nf, -127, 127, 0, s->body_h, -127, 127);
     m->body = (Mesh){ .verts=m->bv, .faces=m->bf, .nverts=8, .nfaces=nf,
                       .scale=1.0f, .bound_r=1.8f, .color=0xFFFF };
 
     int cw = (127 * s->cab_w) / 100;
-    box(m->cv, m->cf, &nf, -cw, cw, s->body_h, s->cab_top, s->cab_z0, s->cab_z1);
+    gta3_box(m->cv, m->cf, &nf, -cw, cw, s->body_h, s->cab_top, s->cab_z0, s->cab_z1);
     m->cabin = (Mesh){ .verts=m->cv, .faces=m->cf, .nverts=8, .nfaces=nf,
                        .scale=1.0f, .bound_r=1.8f, .color=MOTE_RGB565(40,46,60) };
 }
