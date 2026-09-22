@@ -17,6 +17,7 @@
 #include "mote_vec.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 
 static int s_fail;
@@ -76,24 +77,51 @@ static Vec3 to_view(Vec3 p, Vec3 n, float dist) {
     return v3(v3_dot(r,d), v3_dot(u,d), v3_dot(f,d));
 }
 
-/* For every face: recover its outward normal from the stored int8 nx/ny/nz,
- * put the camera out along that normal looking straight at the face, and
- * assert the projected triangle is front-facing under the rasterizer's own
- * rule. A face viewed head-on from outside MUST be front-facing; if it isn't,
- * the vehicle is invisible in game no matter what normals_outward() says. */
-static int screen_winding_ok(const MeshVert *v, const MeshFace *f, int nf) {
-    for (int i = 0; i < nf; i++) {
-        Vec3 pa = v3(v[f[i].a].x, v[f[i].a].y, v[f[i].a].z);
-        Vec3 pb = v3(v[f[i].b].x, v[f[i].b].y, v[f[i].b].z);
-        Vec3 pc = v3(v[f[i].c].x, v[f[i].c].y, v[f[i].c].z);
-        Vec3 n = v3_norm(v3(f[i].nx / 127.0f, f[i].ny / 127.0f, f[i].nz / 127.0f));
+static Vec3 vert_of(const MeshVert *v, int i) {
+    return v3(v[i].x, v[i].y, v[i].z);
+}
 
-        Vec3 va = to_view(pa, n, 600.0f);
-        Vec3 vb = to_view(pb, n, 600.0f);
-        Vec3 vc = to_view(pc, n, 600.0f);
+/* The box centroid is independent of any face's vertex order, and so is a
+ * face's vertex mean, so the direction between them is a valid "outward"
+ * that does not move when winding changes. */
+static Vec3 box_centroid(const MeshVert *v) {
+    float x=0, y=0, z=0;
+    for (int i = 0; i < 8; i++) { x += v[i].x; y += v[i].y; z += v[i].z; }
+    return v3(x/8.0f, y/8.0f, z/8.0f);
+}
 
-        if (screen_area(va, vb, vc) <= 0.0f) return 0;
-    }
+/* Replicate the rasterizer's own front-face test.
+ *
+ * mote_raster.c's edge() is the 2D cross (B-A)x(C-A); tri_core drops any
+ * triangle whose area2 <= 0 ("screen-clockwise => positive"). mote_pipe.c's
+ * project() flips y (sy = centre - focal*vy/vz) because screen y grows
+ * downward, and that flip inverts the handedness. So winding has to be right
+ * in SCREEN space, not world space: a mesh with correct outward normals can
+ * still be culled at every pixel and render nothing, silently. Vehicles are
+ * untextured and tinted, so they take the flat path where this is enforced —
+ * unlike the textured path, which ignores the sign.
+ *
+ * The camera direction MUST come from an independent ground truth, not from
+ * the face's stored normal: mote__face derives that normal from the very
+ * vertex order under test, so a camera built from it flips along with the
+ * winding and the area stays positive either way — a check that cannot fail.
+ * The box centroid and the face's vertex mean are both order-independent, so
+ * the direction between them is safe to use instead. */
+static int screen_winding_ok(const MeshVert *v, const MeshFace *f) {
+    Vec3 a = vert_of(v, f->a), b = vert_of(v, f->b), c = vert_of(v, f->c);
+    Vec3 ctr = box_centroid(v);
+    Vec3 mid = v3_scale(v3_add(v3_add(a, b), c), 1.0f/3.0f);
+    Vec3 out = v3_norm(v3_sub(mid, ctr));           /* order-independent */
+
+    Vec3 va = to_view(a, out, 600.0f);
+    Vec3 vb = to_view(b, out, 600.0f);
+    Vec3 vc = to_view(c, out, 600.0f);
+
+    return screen_area(va, vb, vc) > 0.0f;
+}
+
+static int all_faces_screen_ok(const MeshVert *v, const MeshFace *f, int nf) {
+    for (int i = 0; i < nf; i++) if (!screen_winding_ok(v, &f[i])) return 0;
     return 1;
 }
 
@@ -116,6 +144,19 @@ int main(void) {
         ok(all, "every silhouette is reachable from some class");
     }
 
+    /* Prove the check discriminates. This test was tautological once — it
+     * derived its camera from the same normal it was checking — and passed
+     * happily while a reversed face rendered nothing. If this line ever stops
+     * failing on reversed input, the check above has stopped working. */
+    {
+        Gta3VehMesh m;
+        gta3_veh_build(&m, GTA3_SIL_SEDAN);
+        MeshFace rev = m.bf[0];
+        uint8_t t = rev.b; rev.b = rev.c; rev.c = t;
+        ok(screen_winding_ok(m.bv, &m.bf[0]), "the real face passes the winding check");
+        ok(!screen_winding_ok(m.bv, &rev),    "a reversed face FAILS the winding check");
+    }
+
     /* 2, 3, 4, 5 */
     float zlen[GTA3_SIL_N], yhgt[GTA3_SIL_N];
     for (int s = 0; s < GTA3_SIL_N; s++) {
@@ -125,8 +166,8 @@ int main(void) {
         ok(m.body.nfaces == 12 && m.cabin.nfaces == 12, "both boxes have 12 faces");
         ok(normals_outward(m.bv, m.bf, 12), "body normals point outward");
         ok(normals_outward(m.cv, m.cf, 12), "cabin normals point outward");
-        ok(screen_winding_ok(m.bv, m.bf, 12), "body faces are front-facing in screen space");
-        ok(screen_winding_ok(m.cv, m.cf, 12), "cabin faces are front-facing in screen space");
+        ok(all_faces_screen_ok(m.bv, m.bf, 12), "body faces are front-facing in screen space");
+        ok(all_faces_screen_ok(m.cv, m.cf, 12), "cabin faces are front-facing in screen space");
 
         float blo, bhi, clo, chi;
         span(m.bv, &blo, &bhi, 1);            /* body Y */
