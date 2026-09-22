@@ -509,6 +509,7 @@ static Gta3Cam  g_cam;
 static Gta3View g_view;
 static int   g_bb_used;      /* billboards submitted this frame — reset each frame
                               * in g_update once g_view is current; see bb_add(). */
+static float g_titlet;       /* title/death-screen orbit angle accumulator; reset in reset_game() */
 
 /* world -> logical 128x128 screen, EXACTLY like engine mote_pipe.c */
 static int world_to_screen(Vec3 w, float *sx, float *sy, float *px_per_m) {
@@ -3184,6 +3185,7 @@ static void buy_gun(void) {
 
 static void reset_game(void) {
     gta3_cam_reset(&g_cam);   /* cold start: nothing to smooth from yet */
+    g_titlet = 0.0f;          /* restart the title-screen orbit from a fixed angle each game */
     /* EVERY NEW GAME IS A NEW CITY: regenerate the whole map, then everything
      * below (colliders, markers, traffic, dock) rebuilds from the fresh tiles */
     {
@@ -3904,7 +3906,20 @@ static void g_update(float dt) {
 
     /* ---- title / death screens ---- */
     if (g_state != ST_PLAY) {
-        chase_camera(pl_x(), pl_z(), pl_yaw(), dt);
+        /* Title and death screens: a slow orbit round the block, which is also the
+         * shot the gallery screenshot wants. chase_camera on a stationary player
+         * framed the back of a parked car, and at spawn was often jammed against
+         * a building — so this does not call chase_camera at all; its
+         * discontinuity guard (see chase_camera) picks the gameplay camera back
+         * up cleanly on re-entry because reset_game()/respawn() always move the
+         * player far enough for the guard's jump check to fire. */
+        g_titlet += dt * 0.15f;
+        float ox = pl_x() + cosf(g_titlet) * 22.0f;
+        float oz = pl_z() + sinf(g_titlet) * 22.0f;
+        cam_pos = v3(ox, 12.0f, oz);
+        cam_basis = mote_camera_look(cam_pos, v3(pl_x(), 3.0f, pl_z()));
+        view_x = pl_x(); view_z = pl_z();
+        gta3_view_set(&g_view, cam_pos, cam_basis.r[2], FOV, 1.45f);
         mote->scene_camera(&cam_basis, cam_pos, FOV);
         draw_ground_window(); draw_buildings_window();
         if (g_state==ST_TITLE){
@@ -4447,6 +4462,35 @@ static void draw_arrow(uint16_t *fb, float cx, float cy, float ang, uint16_t col
     }
 }
 
+/* Where does a world point belong on screen — and if it is not on screen, which
+ * edge does it point to?
+ *
+ * Returns 1 when the point projects normally (sx, sy are its screen position).
+ * Returns 0 when it is behind the camera or off the edge; sx/sy are then
+ * clamped to the screen border and `ang` is the direction to draw an arrow.
+ *
+ * The behind-camera case cannot use the projection at all — it failed, and
+ * world_to_screen does not write its outputs on failure — so the bearing
+ * comes from the world-space angle between the camera forward and the
+ * direction to the point. */
+static int screen_or_edge(float wx, float wz, float *sx, float *sy, float *ang) {
+    if (world_to_screen(v3(wx, 0.6f, wz), sx, sy, 0) &&
+        *sx > 4 && *sx < 124 && *sy > 4 && *sy < 124) {
+        *ang = 0.0f;
+        return 1;
+    }
+    /* World-space bearing, relative to where the camera looks. */
+    float dx = wx - cam_pos.x, dz = wz - cam_pos.z;
+    float fwd_a = atan2f(cam_basis.r[2].z, cam_basis.r[2].x);
+    float rel = gta3_wrap_angle(atan2f(dz, dx) - fwd_a);
+    /* rel = 0 straight ahead, +/-pi behind. Screen up is ahead. */
+    *ang = rel;
+    float ex = sinf(rel), ey = -cosf(rel);
+    float k = 54.0f / (fabsf(ex) > fabsf(ey) ? fabsf(ex) : fabsf(ey));
+    *sx = 64.0f + ex * k;
+    *sy = 64.0f + ey * k;
+    return 0;
+}
 
 static uint16_t map_color(char c){
     switch(c){
@@ -4560,19 +4604,12 @@ static void g_overlay(uint16_t *fb) {
     /* markers are drawn as prop sprites in the scene pass now (phonebox/gun mat/spray) */
     if (g_state==ST_PLAY && mission_beacon()){   /* target: beating ring if on-screen, else an edge ARROW pointing to it */
         uint16_t mc = MOTE_RGB565(255,70,200);
-        float sx, sy; int on = world_to_screen(v3(mx,0.1f,mz), &sx, &sy, 0);
-        if (on && sx>=6 && sx<=122 && sy>=18 && sy<=118){
+        float sx, sy, ang;
+        if (screen_or_edge(mx, mz, &sx, &sy, &ang)){
             int ph=((int)(mote->micros()/200000ull))&1;
             world_ring(fb, mx, mz, ph?10:8, mc);
-        } else {                                  /* off-screen: point the way from screen centre */
-            float s0x,s0y,s1x,s1y;                /* screen dir = project player + a step toward target */
-            world_to_screen(v3(pl_x(),0.1f,pl_z()), &s0x,&s0y, 0);
-            float ux=mx-pl_x(), uz=mz-pl_z(), ul=sqrtf(ux*ux+uz*uz); if(ul<0.01f) ul=1;
-            world_to_screen(v3(pl_x()+ux/ul*6.0f, 0.1f, pl_z()+uz/ul*6.0f), &s1x,&s1y, 0);
-            float ang=atan2f(s1y-s0y, s1x-s0x), dx=cosf(ang), dy=sinf(ang);
-            float tX=fabsf(dx)>1e-4f?50.0f/fabsf(dx):1e9f, tY=fabsf(dy)>1e-4f?40.0f/fabsf(dy):1e9f;
-            float tt=tX<tY?tX:tY;
-            draw_arrow(fb, 64.0f+dx*tt, 66.0f+dy*tt, ang, mc);   /* steady, no flashing */
+        } else {                                  /* off-screen: edge arrow, steady (no flashing) */
+            draw_arrow(fb, sx, sy, ang, mc);
         } }
     if (g_state==ST_PLAY && mission==MI_NONE){   /* looking for work: beating ring on every phone box */
         int ph=((int)(mote->micros()/240000ull))&1;
