@@ -4483,9 +4483,15 @@ static int screen_or_edge(float wx, float wz, float *sx, float *sy, float *ang) 
     float dx = wx - cam_pos.x, dz = wz - cam_pos.z;
     float fwd_a = atan2f(cam_basis.r[2].z, cam_basis.r[2].x);
     float rel = gta3_wrap_angle(atan2f(dz, dx) - fwd_a);
-    /* rel = 0 straight ahead, +/-pi behind. Screen up is ahead. */
+    /* rel = 0 straight ahead, +/-pi behind. Screen up is ahead.
+     * rel is expressed in the game's own yaw convention, where "driver's
+     * right" is (-sin(yaw), cos(yaw)) (see the rx/rz comment at game.c:835).
+     * cam_basis.r[0] (what world_to_screen actually projects against) is
+     * cross((0,1,0), forward) instead, which points the other way — so the
+     * screen-x offset here needs the opposite sign of what a naive sin(rel)
+     * would give, to agree with what world_to_screen would have produced. */
     *ang = rel;
-    float ex = sinf(rel), ey = -cosf(rel);
+    float ex = -sinf(rel), ey = -cosf(rel);
     float k = 54.0f / (fabsf(ex) > fabsf(ey) ? fabsf(ex) : fabsf(ey));
     *sx = 64.0f + ex * k;
     *sy = 64.0f + ey * k;
