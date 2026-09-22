@@ -33,6 +33,23 @@
 #define V_STOP   0.005f       /* m/s linear */
 #define U_ROLL   0.01f        /* m/s contact-point slip => rolling */
 #define W_STOP   0.05f        /* rad/s spin */
+/* How slowly a ball has to be travelling before its side is treated as drilling
+ * on the spot. Five centimetres a second is already a ball that has stopped to
+ * the eye. */
+#define SPOT_V      0.05f     /* m/s */
+/* ...AND HOW MUCH MORE OF THE PATCH IT GETS, WHICH IS THE CLOTH'S TO SAY.
+ *
+ * spin_decel already scales with mu_s -- "a slow cloth kills side faster than a
+ * fast one, which it should", as cue_table.h puts it -- so the BASE rate tracks
+ * the cloth already. The extra a stopped ball gets should too: a fast cloth has
+ * less friction to hand over when the sliding stops, so it hands over less.
+ *
+ * Referenced to a SLOW cloth (0.25) rather than to the 0.20 default, so the
+ * default sits inside the range rather than pinned at the top of it: 3x on a
+ * slow cloth, about 2.6x on the default, about 2.2x on a fast one. Three is the
+ * ceiling -- four was tried and read as the ball being braked. */
+#define SPOT_MU_REF 0.25f     /* the cloth that earns the whole of it */
+#define SPOT_DRILL  2.0f      /* so 1 + this = 3x, at SPOT_MU_REF and above */
 
 /* 3*pi/16: the drilling-torque coefficient for a circular patch under a
  * HERTZIAN (parabolic) pressure distribution, which is the distribution
@@ -627,8 +644,34 @@ static CUE_HOT void ball_cloth(const CueWorld *w, CueBall *b, float h) {
      *
      * What survives is the constant, and it is the part that was actually
      * wrong: see contact_a. */
-    if (b->w.y > W_STOP)       b->w.y -= w->spin_decel * h;
-    else if (b->w.y < -W_STOP) b->w.y += w->spin_decel * h;
+    /* ---- ...AND A BALL SPINNING ON THE SPOT LOSES IT FASTER -------------
+     *
+     * The constant above is the drilling torque a MOVING ball feels, where the
+     * contact patch's friction is shared out between sliding and drilling. A
+     * ball that has stopped travelling is spending none of that budget on
+     * sliding, so the whole patch is drilling -- which is the Contensou result
+     * arrived at from the other end, without the coupling that could not be
+     * dropped into this integrator (see the note above: scaling the sliding
+     * force also scales du_full, and a ball with heavy side then never reaches
+     * the rolling branch at all).
+     *
+     * Reported from play: "the ball seems to often end up spinning on the spot
+     * as if the spin does not die normally". It does not -- a stationary ball
+     * was losing side at the same rate as one crossing the table.
+     *
+     * ONLY WHEN IT HAS EFFECTIVELY STOPPED. Above SPOT_V nothing changes by a
+     * single bit, so nothing that is still travelling plays differently. */
+    float sdec = w->spin_decel;
+    {   const float sp2 = b->vel.x * b->vel.x + b->vel.z * b->vel.z;
+        if (sp2 < SPOT_V * SPOT_V) {
+            const float t = 1.0f - sqrtf(sp2) / SPOT_V;   /* 1 at a dead stop */
+            float extra = SPOT_DRILL * (w->mu_s / SPOT_MU_REF);
+            if (extra > SPOT_DRILL) extra = SPOT_DRILL;   /* never past 3x */
+            if (extra < 0.0f)       extra = 0.0f;
+            sdec *= 1.0f + extra * t;
+        } }
+    if (b->w.y > W_STOP)       b->w.y -= sdec * h;
+    else if (b->w.y < -W_STOP) b->w.y += sdec * h;
     else                       b->w.y = 0.0f;
 
     /* A BALL ON THE CLOTH HAS NO VERTICAL MOTION — unless something has just
