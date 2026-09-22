@@ -4585,6 +4585,90 @@ static void draw_phys_boxes(uint16_t *fb){
     }
 }
 
+/* A live radar, rotated so up is where the camera looks.
+ *
+ * Top-down, the street grid ahead was simply visible in the play view. Behind a
+ * car at 3 m it is not, and the missions route across the city. The MENU map
+ * still exists for planning; this is for driving.
+ *
+ * 40 px across, bottom-left, sampling the tile map on a coarse step — fine
+ * enough to show which way a street runs, cheap enough to run every frame.
+ *
+ * Rotation: derived from the engine's own camera basis, NOT the game's
+ * "driver's right" vocabulary (-sin(yaw), cos(yaw)) — see the note at
+ * screen_or_edge (game.c:4489), which hit exactly this mismatch for the
+ * off-screen mission arrow. mote_camera_look sets r[2]=forward and
+ * r[0]=cross((0,1,0), forward); for forward=(cos a, 0, sin a) that gives
+ * r[0]=(sin a, 0, -cos a) as the camera's REAL right.
+ *
+ * World offset (dx,dz) from the player -> radar offset (rx,ry), screen-style
+ * (y down), derived so "ahead" -> top (rx=0,ry<0) and "real right" -> right
+ * (rx>0,ry=0):
+ *   rx = (dx*sa - dz*ca) / RADAR_M
+ *   ry = -(dx*ca + dz*sa) / RADAR_M
+ * Check: dead ahead is dx=cos a,dz=sin a -> rx=0, ry=-1/RADAR_M (top). Real
+ * right is dx=sin a,dz=-cos a -> rx=1/RADAR_M (right), ry=0. Both correct.
+ *
+ * That 2x2 matrix is its own inverse (it's an orthogonal reflection: N^2=I),
+ * so radar-pixel -> world drops out algebraically to the same coefficients
+ * with (px,py) and (dx,dz) swapped:
+ *   wx = pl_x() + RADAR_M*(px*sa - py*ca)
+ *   wz = pl_z() - RADAR_M*(px*ca + py*sa)
+ * (This is a property of this particular rotation, not a shortcut taken on
+ * faith — the brief's version used the SAME matrix in both directions, which
+ * is wrong in general; it only happens to be right here because N is its own
+ * inverse. Verified both directions round-trip: feeding a radar (10,0) back
+ * through the marker formula returns (10,0).) */
+#define RADAR_X   4
+#define RADAR_Y   84
+#define RADAR_R   20
+#define RADAR_M   2.6f        /* world metres per radar pixel */
+static void draw_radar(uint16_t *fb) {
+    int cx = RADAR_X + RADAR_R, cy = RADAR_Y + RADAR_R;
+    float a = atan2f(cam_basis.r[2].z, cam_basis.r[2].x);
+    float ca = cosf(a), sa = sinf(a);
+
+    mote->draw_circle(fb, cx, cy, RADAR_R + 1, MOTE_RGB565(16,18,24), 1, 0, 128);
+    for (int py = -RADAR_R; py <= RADAR_R; py++)
+        for (int px = -RADAR_R; px <= RADAR_R; px++) {
+            if (px*px + py*py > RADAR_R*RADAR_R) continue;
+            /* radar pixel -> world */
+            float wx = pl_x() + RADAR_M*(px*sa - py*ca);
+            float wz = pl_z() - RADAR_M*(px*ca + py*sa);
+            char c = tile_at((int)floorf(wx/TILE), (int)floorf(wz/TILE));
+            uint16_t col;
+            if (c=='.'||c=='B') col = MOTE_RGB565(120,124,136);
+            else if (c=='~')    col = MOTE_RGB565(30,44,86);
+            else if (c==','||c==' ') col = MOTE_RGB565(58,62,72);
+            else                col = MOTE_RGB565(38,40,50);
+            mote->draw_pixel(fb, cx + px, cy + py, col);
+        }
+
+    /* mission markers, then wanted cops on top of them */
+    for (int m = 0; m < nmark; m++) {
+        float dx = markers[m].x - pl_x(), dz = markers[m].z - pl_z();
+        float rx = (dx*sa - dz*ca) / RADAR_M, ry = -(dx*ca + dz*sa) / RADAR_M;
+        if (rx*rx + ry*ry > RADAR_R*RADAR_R) continue;
+        mote->draw_rect(fb, cx+(int)rx-1, cy+(int)ry-1, 3, 3,
+                        MOTE_RGB565(240,200,80), 1, 0, 128);
+    }
+    if (wanted() > 0)
+        for (int i = 0; i < NCAR; i++) {
+            Car *c = &cars[i];
+            if (!c->alive || c->driver != DRV_COP) continue;
+            float dx = c->x - pl_x(), dz = c->z - pl_z();
+            float rx = (dx*sa - dz*ca) / RADAR_M, ry = -(dx*ca + dz*sa) / RADAR_M;
+            if (rx*rx + ry*ry > RADAR_R*RADAR_R) continue;
+            mote->draw_rect(fb, cx+(int)rx-1, cy+(int)ry-1, 3, 3,
+                            MOTE_RGB565(90,150,255), 1, 0, 128);
+        }
+
+    /* the player: always dead centre, always pointing up */
+    mote->draw_pixel(fb, cx, cy, MOTE_RGB565(255,255,255));
+    mote->draw_pixel(fb, cx, cy-1, MOTE_RGB565(255,255,255));
+    mote->draw_pixel(fb, cx, cy-2, MOTE_RGB565(200,255,200));
+}
+
 static void g_overlay(uint16_t *fb) {
     if (g_showmap){ draw_map(fb); return; }
     if (g_state==ST_DMLINK){
@@ -4790,6 +4874,8 @@ static void g_overlay(uint16_t *fb) {
         else mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(120,220,150), "SPRAY SHOP: LOSE HEAT"); }
     else if (near_marker(MK_DOCK,3.6f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(235,170,90), "DRIVE A CAR IN TO SELL");
     else if (player.mode==MODE_FOOT) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER   B ATTACK");
+
+    if (g_state==ST_PLAY && !g_showmap) draw_radar(fb);
 }
 
 static const MoteGameVtbl k_vtbl = {
