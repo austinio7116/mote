@@ -489,6 +489,33 @@ static int world_to_screen(Vec3 w, float *sx, float *sy, float *px_per_m) {
     return 1;
 }
 
+/* Which of the four side-view columns to show for a character facing `yaw`.
+ * The angle is measured against the CAMERA forward, not a world axis, so the
+ * choice follows the view: a ped walking away from the camera shows its back
+ * whichever compass direction that happens to be.
+ * 0 back, 1 front, 2 left, 3 right — matching make_chars3d.py's column order. */
+static int facing_cell(float yaw) {
+    float cyaw = atan2f(cam_basis.r[2].z, cam_basis.r[2].x);
+    float rel = gta3_wrap_angle(yaw - cyaw);
+    if (rel > -0.785f && rel <= 0.785f) return 0;        /* same way as the camera: back */
+    if (rel > 0.785f && rel <= 2.356f)  return 3;
+    if (rel < -0.785f && rel >= -2.356f) return 2;
+    return 1;                                            /* toward the camera: front */
+}
+
+/* A person, as an upright camera-facing quad with a shadow under it. 1.8 m is
+ * roughly human height in this world's scale, and the shadow is what stops a
+ * billboard reading as a sticker floating over the road. */
+#define CHAR_H 1.8f
+static void draw_character(const MoteImage *img, float x, float z, float yaw,
+                           int variant, int frame, int nframes) {
+    int col = facing_cell(yaw);
+    int row = variant * nframes + frame;
+    mote->scene_add_billboard(v3(x, CHAR_H * 0.5f, z), img,
+                              col * 16, row * 16, 16, 16, CHAR_H, MOTE_BLEND_NONE);
+    mote->scene_add_shadow_ex(v3(x, 0.02f, z), v3(0.42f, 0, 0), v3(0, 0, 0.42f), 0.5f);
+}
+
 /* -------------------------------------------------------------- entities ---- */
 /* 8 car sprites (cars.png cells) + BUS + TANK (own sprites). Index also selects
  * the stats row in VSTAT. */
@@ -3501,7 +3528,7 @@ static void dm_draw_remote(void){
         draw_vehicle_mesh(&rpc);
     } else {                                          /* on foot, same hero sprite */
         int fr = rp_fire_t>0 ? 5 : rp_moving ? ((int)(rp_anim*8.0f)&3) : 0;
-        draw_ground_sprite(&player_img, rp_dx2, rp_dz2, rp_yaw, fr*16,0,16,16, 1.9f, 1.9f, 1);
+        draw_character(&player_img, rp_dx2, rp_dz2, rp_yaw, 0, fr, 6);
     }
 }
 
@@ -4194,22 +4221,26 @@ static void g_update(float dt) {
         draw_ground_sprite(&props_img, ax, az, yaw, 4*16,0,16,16, 2.6f, 2.2f, 1);
     }
     for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive) continue;
-        int fr=((int)p->animt)&1, fy=p->variant*16;
-        const MoteImage *img = p->iscop ? &cop_img : &ped_img;
+        int fr=((int)p->animt)&1;
         if (p->iscop){
-            fy = 0;
-            if (wanted()>0){                                   /* in combat: aim / fire poses */
+            /* cop_img has only 2 rows (walk, no dedicated aim/fire art) — in
+             * combat, toggle between them off firecd instead of walking, so
+             * there's still a visible cue that they're shooting. */
+            if (wanted()>0){
                 float dx=pl_x()-p->x, dz=pl_z()-p->z;
-                if (dx*dx+dz*dz < 560.0f) fr = (p->firecd > 0.85f) ? 3 : 2;
+                if (dx*dx+dz*dz < 560.0f) fr = (p->firecd > 0.85f) ? 1 : 0;
             }
+            draw_character(&cop_img, p->x, p->z, p->yaw, 0, fr, 2);
+        } else {
+            draw_character(&ped_img, p->x, p->z, p->yaw, p->variant, fr, 4);
         }
-        draw_ground_sprite(img, p->x, p->z, p->yaw, fr*16, fy, 16,16, 1.9f, 1.9f, 1); }
+    }
     if (player.mode==MODE_FOOT && g_state==ST_PLAY){          /* player walks under trees too */
         int fr;
         if      (g_aim_t > 0.62f) fr = 5;                      /* muzzle flash */
         else if (g_aim_t > 0.0f)  fr = 4;                      /* holding aim */
         else                      fr = ((int)player.animt)&3;  /* walk cycle */
-        draw_ground_sprite(&player_img, player.x, player.z, player.yaw, fr*16,0,16,16, 1.9f, 1.9f, 1); }
+        draw_character(&player_img, player.x, player.z, player.yaw, 0, fr, 6); }
     /* vehicles: draw_vehicle_mesh sizes each car's boxes from VSTAT.len/wid directly
      * (no sprite art proportions to preserve now that cars are mesh, not sprite). */
     for (int i=0;i<NCAR;i++){
@@ -4598,7 +4629,8 @@ static void g_overlay(uint16_t *fb) {
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
     .config = { .max_tex_tris = 1600, .max_tris = 2200, .depth = 1, .max_shadows = 40,
-                .max_bodies = NCAR+NSTAT, .max_contacts = 220 },   /* 2D physics pool (ABI v42; 2-pt box manifolds, capped) */
+                .max_bodies = NCAR+NSTAT, .max_contacts = 220,     /* 2D physics pool (ABI v42; 2-pt box manifolds, capped) */
+                .max_billboards = 48 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
