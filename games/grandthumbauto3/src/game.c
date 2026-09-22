@@ -2031,7 +2031,14 @@ static void chase_camera(float tx, float tz, float yaw, float dt) {
         height = CAM_CAR_H0 + (CAM_CAR_H1 - CAM_CAR_H0) * s;
         look   = CAM_CAR_L0 + (CAM_CAR_L1 - CAM_CAR_L0) * s;
     }
-    if (g_lookback) { dist *= 0.8f; yaw += 3.14159265f; }
+    /* Gate on MODE_FOOT at the point of USE, not at each mode transition.
+     * player.mode can flip to CAR inside the on-foot input branch (jacking a
+     * car with A), so the branch that clears this flag does not run until the
+     * next frame — and that same frame is when the discontinuity guard resets
+     * the camera, whose snap path has no smoothing. The result was a one-frame
+     * hard-snap to a reversed pose on car entry with LB held. Gating here is
+     * immune to whichever path changed the mode, and to paths added later. */
+    if (g_lookback && player.mode == MODE_FOOT) { dist *= 0.8f; yaw += 3.14159265f; }
 
     gta3_cam_update(&g_cam, tx, tz, yaw, dist, height, look, dt,
                     cam_solid, 0, TILE);
