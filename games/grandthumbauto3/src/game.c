@@ -293,6 +293,10 @@ static MeshFace g_hf[NBLV][12];
 /* one built mesh pair per vehicle silhouette (Task 6's gta3_veh.h) — shared by
  * every car of that silhouette, tinted per-draw from CAR_COL. */
 static Gta3VehMesh g_veh[GTA3_SIL_N];
+/* Pristine x half-extents per silhouette, so the per-draw aspect squeeze
+ * below always scales from the original rather than from an already-squeezed
+ * value. Vertex 1 is (+x, y0, z0) in box()'s corner layout. */
+static int8_t g_veh_bx[GTA3_SIL_N], g_veh_cx[GTA3_SIL_N];
 
 static void build_bgeom(int L, float hx, float hy, float hz) {
     float md = hx; if (hy > md) md = hy; if (hz > md) md = hz; g_bmd[L] = md;
@@ -1094,7 +1098,11 @@ static void g_init(void) {
     mote->scene_set_sun(v3_norm(v3(0.25f, 0.92f, -0.3f)));
     cam_focal = 64.0f / tanf(FOV * (3.14159265f / 180.0f) * 0.5f);
     build_vstats();
-    for (int s = 0; s < GTA3_SIL_N; s++) gta3_veh_build(&g_veh[s], s);
+    for (int s = 0; s < GTA3_SIL_N; s++) {
+        gta3_veh_build(&g_veh[s], s);
+        g_veh_bx[s] = g_veh[s].bv[1].x;
+        g_veh_cx[s] = g_veh[s].cv[1].x;
+    }
     build_ground();
     build_quad();
     build_buildings();
@@ -3684,11 +3692,25 @@ static void draw_vehicle_mesh(const Car *c) {
     Mat3 b = m3_identity();
     m3_rotate_local(&b, 1, -c->yaw);
 
-    /* Normalised geometry spans +/-127 in each axis; scale each axis to this
-     * car's measured size by scaling the object and letting the mesh's own
-     * proportions carry the shape. The longest axis sets the scale. */
-    float half_len = vs->len * 0.5f, half_wid = vs->wid * 0.5f;
-    float sc = half_len > half_wid ? half_len : half_wid;
+    /* The mesh is authored square in x/z (both span +/-127) and the engine's
+     * only scale is uniform, so a uniform scale alone draws every car as wide
+     * as it is long. Squeeze x per car to its measured width/length ratio
+     * before submitting. Safe to mutate a shared mesh: scene_add_object
+     * consumes the vertices at submit time, the same reason g_ground and
+     * g_quad are mutated per draw. box()'s corner order puts +x at indices
+     * 1,2,5,6 and -x at 0,3,4,7. */
+    float ar = vs->wid / vs->len;
+    int8_t bx = (int8_t)(g_veh_bx[sil] * ar), cx = (int8_t)(g_veh_cx[sil] * ar);
+    static const int XP[4] = {1,2,5,6}, XN[4] = {0,3,4,7};
+    for (int k = 0; k < 4; k++) {
+        m->bv[XP[k]].x =  bx; m->bv[XN[k]].x = -bx;
+        m->cv[XP[k]].x =  cx; m->cv[XN[k]].x = -cx;
+    }
+
+    /* z already spans the full +/-127, so keying the (uniform) scale to
+     * half-length makes the car's length exact; the x squeeze above then
+     * makes the width exact too. */
+    float sc = vs->len * 0.5f;
 
     uint16_t paint = c->wrecked ? MOTE_RGB565(38,34,34)
                    : (c->type < CARS2_N ? CAR_COL[c->type] : MOTE_RGB565(190,190,200));
@@ -3700,11 +3722,17 @@ static void draw_vehicle_mesh(const Car *c) {
     mote->scene_add_object_scaled(&cab, sc);
 
     /* One oriented shadow, replacing the eight-triangle octagon that used to
-     * be assembled by hand from scene_add_tri in g_update. */
+     * be assembled by hand from scene_add_tri in g_update. Semi-axes (0.55
+     * length, 0.62 width) deliberately exceed the box's own half-extents
+     * (0.5/0.5) so the ellipse peeks out past the opaque body on all sides —
+     * sized to the box's own footprint or smaller, it would be entirely
+     * hidden underneath from a chase camera. The (0.22, 0.28) world-space
+     * offset toward the sun's shadow is carried over unchanged from the
+     * octagon this replaced (visually tuned there, not re-derived here). */
     float fx = cosf(c->yaw), fz = sinf(c->yaw);
-    mote->scene_add_shadow_ex(v3(c->x, 0.02f, c->z),
-                              v3(fx * vs->len * 0.46f, 0, fz * vs->len * 0.46f),
-                              v3(-fz * vs->wid * 0.48f, 0, fx * vs->wid * 0.48f),
+    mote->scene_add_shadow_ex(v3(c->x + 0.22f, 0.02f, c->z + 0.28f),
+                              v3(fx * vs->len * 0.55f, 0, fz * vs->len * 0.55f),
+                              v3(-fz * vs->wid * 0.62f, 0, fx * vs->wid * 0.62f),
                               0.55f);
 }
 
