@@ -661,7 +661,11 @@ static int bb_add(const MoteImage *img, float x, float y, float z,
 /* A person, as an upright camera-facing quad with a shadow under it. 1.8 m is
  * roughly human height in this world's scale, and the shadow is what stops a
  * billboard reading as a sticker floating over the road. */
-#define CHAR_H 1.8f
+/* 1.6, not the 1.8 a real person would be: on a 128x128 panel with the camera
+ * 4.5 m back, 1.8 m filled about a third of the frame height and crowded the
+ * view. Physics and the ped collision radius are untouched — this is the
+ * billboard's drawn height only. */
+#define CHAR_H 1.6f
 static void draw_character(const MoteImage *img, float x, float z, float yaw,
                            int variant, int frame, int nframes) {
     int col = facing_cell(yaw);
@@ -1164,6 +1168,7 @@ static const char *g_msg; static float g_msg_t;
 static float hosp_x, hosp_z;
 static int   g_showmap, g_mapsx, g_mapsy; static float g_maptime;   /* full-map view */
 static int   g_lookback;      /* LB held on foot: swing the camera round */
+static int   g_radar_on = 1;  /* RB on the map screen hides/shows the radar (screen space is scarce) */
 
 /* ================================================== 2P DEATHMATCH state ====
  * Same generated city on both units (nonce winner rolls the seed and sends it),
@@ -4253,6 +4258,7 @@ static void g_update(float dt) {
     }
     if (g_showmap){
         g_maptime += dt; int sp = mote_pressed(in,MOTE_BTN_B) ? 6 : 3;   /* B = pan faster */
+        if (mote_just_pressed(in,MOTE_BTN_RB)) g_radar_on = !g_radar_on;   /* hide the radar to free screen */
         if (mote_pressed(in,MOTE_BTN_LEFT))  g_mapsx-=sp;
         if (mote_pressed(in,MOTE_BTN_RIGHT)) g_mapsx+=sp;
         if (mote_pressed(in,MOTE_BTN_UP))    g_mapsy-=sp;
@@ -4718,7 +4724,10 @@ static void draw_map(uint16_t *fb){
     }
     mote_ui_panel(fb, 0, 0, 128, 11, MOTE_RGB565(14,16,24), MOTE_RGB565(60,70,110));
     mote_ftext(mote, fb, g_fmed, "CITY MAP", 3, 1, MOTE_RGB565(240,230,120));
-    mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,160,180), "MENU CLOSE    DPAD PAN");
+    /* two lines now, so the pair sits one line-height apart ending where the single
+     * line used to: 118 is the lowest that clears the bottom edge at 1.5x. */
+    mote_ftextc(mote, fb, g_fmed, 64, 106, MOTE_RGB565(150,160,180), "MENU CLOSE    DPAD PAN");
+    mote_ftextfc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,160,180), "RB  RADAR %s", g_radar_on ? "ON" : "OFF");
 }
 
 /* DEBUG: outline every 2D physics body (green = vehicle OBB, orange = static building/tree)
@@ -4779,13 +4788,14 @@ static void draw_phys_boxes(uint16_t *fb){
  * inverse. Verified both directions round-trip: feeding a radar (10,0) back
  * through the marker formula returns (10,0).) */
 #define RADAR_X   4
-#define RADAR_Y   32   /* NOT 84: that placement (x 3..45, y 83..125) sat directly under the
+#define RADAR_Y   14   /* NOT 84: that placement (x 3..45, y 83..125) sat directly under the
                         * on-foot prompt line (centred x=64, y=102..108, wide enough to run
                         * under the disc) and over the health bar (x2..42,y116..122) / weapon
                         * label (x60,y115), and draw_radar is called last in g_overlay so it
-                        * painted over both. y=32 clears the top HUD panel (y0..11), the
-                        * mission line (x2,y12, ends well before y30), the prompt line, and
-                        * the health bar / weapon label. */
+                        * painted over both. y=14 tucks it just under the top HUD panel
+                        * (y0..11) so it eats as little of the view as possible, and still
+                        * clears the prompt line and the health bar / weapon label. It can
+                        * also be hidden outright — RB on the map screen toggles g_radar_on. */
 #define RADAR_R   20
 #define RADAR_M   2.6f        /* world metres per radar pixel */
 static void draw_radar(uint16_t *fb) {
@@ -4956,9 +4966,15 @@ static void g_overlay(uint16_t *fb) {
             mote->text_font(fb, &title, "GRAND",     25,   18,   MOTE_RGB565(244,204,72));
             mote->text_font(fb, &title, "THUMBAUTO", 7+2,  38+2, MOTE_RGB565(12,10,14));
             mote->text_font(fb, &title, "THUMBAUTO", 7,    38,   MOTE_RGB565(244,204,72));
+            /* THUMBAUTO measures 97 px from x=7, ending at 104; III is 18 px, so it sits
+             * on the same baseline at 106 with room to spare — no reflow, and it reads as
+             * the numeral of the logo rather than a third line crowding the banner. */
+            mote->text_font(fb, &title, "III",       106+2, 38+2, MOTE_RGB565(12,10,14));
+            mote->text_font(fb, &title, "III",       106,   38,   MOTE_RGB565(244,204,72));
         } else {
             mote->text_2x(fb, "GRAND", 30, 24, MOTE_RGB565(240,210,80));
             mote->text_2x(fb, "THUMBAUTO", 14, 40, MOTE_RGB565(240,210,80));
+            mote->text_2x(fb, "III", 46, 56, MOTE_RGB565(240,210,80));   /* no room beside it at 2x */
         }
         /* translucent dark banner so the body text pops over the live city, framed by
          * the gold rule on top (dim the real pixels — you can still see the road) */
@@ -5040,7 +5056,7 @@ static void g_overlay(uint16_t *fb) {
     else if (near_marker(MK_DOCK,3.6f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(235,170,90), "DRIVE A CAR IN TO SELL");
     else if (player.mode==MODE_FOOT) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER   B ATTACK");
 
-    if (g_state==ST_PLAY && !g_showmap) draw_radar(fb);
+    if (g_state==ST_PLAY && !g_showmap && g_radar_on) draw_radar(fb);
 
 #ifdef MOTE_HOST
     /* Profiling HUD (Task 13). perf() fills [fps, update_us, raster_us, flush_us,
