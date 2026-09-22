@@ -330,6 +330,7 @@ static Gta3VehMesh g_veh[GTA3_SIL_N];
  * below always scales from the original rather than from an already-squeezed
  * value. Vertex 1 is (+x, y0, z0) in box()'s corner layout. */
 #define VEH_WHEEL_R 26.0f   /* draw the wheel line only within this range */
+#define VEH_DETAIL_R 22.0f  /* trim panels and lamps: closer still */
 static int8_t g_veh_bx[GTA3_SIL_N], g_veh_cx[GTA3_SIL_N], g_veh_wx[GTA3_SIL_N];
 
 static void build_bgeom(int L, float hx, float hy, float hz) {
@@ -533,6 +534,7 @@ static const TodKey TOD[4] = {
 
 static float    g_tod = 0.60f;          /* [0,1), 0 = midnight; start just before dusk */
 static Rgb      g_sky_hor, g_haze_near; /* this frame's palette, read by the render pass */
+static Vec3     g_sun_dir;              /* lerped sun, reused for the sky body and the night test */
 static uint16_t g_sky_row[MOTE_FB_H];   /* precomputed gradient, one colour per scanline */
 
 static Rgb rgb_lerp(Rgb a, Rgb b, float t) {
@@ -555,6 +557,14 @@ static void sky_band(uint16_t *fb, int y0, int y1) {
 static void tod_advance(float dt) {
     g_tod += dt / DAY_SECONDS;
     while (g_tod >= 1.0f) g_tod -= 1.0f;
+#ifdef MOTE_HOST
+    /* MOTE_GTA_TOD=0.85 pins the clock, so a headless capture can be taken at a
+     * chosen hour without driving the run out to the right frame number. Test
+     * hook only — same shape as MOTE_GTA_VIEW and MOTE_GTA_SEED. */
+    { static int read = 0; static float pin = -1.0f;
+      if (!read) { read = 1; const char *e = getenv("MOTE_GTA_TOD"); if (e) pin = (float)atof(e); }
+      if (pin >= 0.0f) g_tod = pin; }
+#endif
 
     float f = g_tod * 4.0f; int k = (int)f; float t = f - (float)k;
     const TodKey *a = &TOD[k & 3], *b = &TOD[(k + 1) & 3];
@@ -577,7 +587,8 @@ static void tod_advance(float dt) {
         g_sky_row[y] = rgb565(rgb_lerp(top, g_sky_hor, t));
     }
 
-    mote->scene_set_sun(v3_norm(v3_lerp(a->sun, b->sun, t)));
+    g_sun_dir = v3_norm(v3_lerp(a->sun, b->sun, t));
+    mote->scene_set_sun(g_sun_dir);
     mote->scene_set_background(rgb565(g_sky_hor));   /* used only if the cb is absent */
 }
 
@@ -1537,6 +1548,67 @@ static void road_markings(int x, int z) {
  * most of them, which would otherwise spend the whole point pool on water
  * that is behind the camera. */
 #define WATER_FLECKS_MAX 56
+/* Sun elevation as a sine of the clock: -1 at midnight, 0 at dawn, +1 at noon,
+ * 0 at dusk. Separate from g_sun_dir, whose four TOD[] keyframes are SHADING
+ * directions with a positive y at every hour — asking them whether the sun is
+ * up gives "always". The sky disc and the car lamps both ask this instead. */
+static float sun_elev(void) { return sinf(6.2831853f * (g_tod - 0.25f)); }
+
+/* The sun (or, once it has set, the moon) as a single screen-facing disc.
+ *
+ * Until now the "sun" was only a lighting direction — the cycle changed how
+ * things were lit with nothing in the sky to explain why.
+ *
+ * The disc does NOT ride g_sun_dir. Those four TOD[] vectors are shading
+ * directions, picked so faces are lit pleasantly at each keyframe, and every
+ * one of them has a positive y — midnight's is (0.30, 0.15, -0.30). Driving
+ * the disc from them means the sun never sets and the moon never appears;
+ * measured, that is exactly what happened. So the disc gets its own arc from
+ * g_tod: azimuth sweeps a full turn per day, elevation is a sine that is -1 at
+ * midnight, 0 at dawn, +1 at noon, 0 at dusk. Lighting keeps g_sun_dir
+ * untouched. Both run off g_tod, so they stay in step without a second clock.
+ *
+ * Placed far out and depth-TESTED (scene_add_disc does not write depth), so
+ * buildings occlude it exactly as they should. Below the horizon the sun is
+ * replaced by the moon at the antipode — up all night, setting at dawn. */
+#define SKY_BODY_D 300.0f
+#define SKY_BODY_ELEV 0.075f   /* ~4.3 deg: inside the ~5.5 deg the camera can see */
+static void draw_sky_body(void) {
+    float az   = 6.2831853f * g_tod;
+    float elev = sun_elev();
+    int night = (elev < 0.0f);
+    if (night) { elev = -elev; az += 3.1415927f; }
+    if (elev < 0.02f) return;                 /* right at the horizon: skip the sliver */
+
+    /* Compress elevation into the sliver of sky this camera can actually see.
+     *
+     * The chase camera pitches about 22 degrees DOWN (eye at 2.4 m looking at
+     * GTA3_CAM_LOOK_Y 1.2 m about 3 m ahead) and has a 55 degree vertical
+     * field, so the top of the frame sits near +5.5 degrees of elevation. A
+     * true noon sun at 67 degrees projects roughly 70 px ABOVE the screen and
+     * is never seen; measured, before this was added. Elevation is therefore
+     * scaled from 0..90 degrees into 0..SKY_BODY_ELEV. Azimuth is untouched,
+     * so the disc still tracks across the sky and still rises and sets, just
+     * within a band that is on screen. */
+    float de = asinf(elev > 1.0f ? 1.0f : elev) * (SKY_BODY_ELEV / 1.5707963f);
+    float ce = cosf(de);
+    Vec3 d = v3(sinf(az) * ce, sinf(de), cosf(az) * ce);
+
+    Vec3 p = v3(cam_pos.x + d.x * SKY_BODY_D,
+                cam_pos.y + d.y * SKY_BODY_D,
+                cam_pos.z + d.z * SKY_BODY_D);
+    if (night) {
+        mote->scene_add_disc(p, 12.0f, MOTE_RGB565(226, 230, 238));
+    } else {
+        /* Low sun reddens toward the horizon colour it is painting anyway, so
+         * the disc and the sky agree at dawn and dusk instead of a white dot
+         * sitting on an orange band. */
+        float lift = elev > 0.45f ? 1.0f : elev / 0.45f;
+        Rgb warm = { 250, 180, 90 };
+        mote->scene_add_disc(p, 16.0f, rgb565(rgb_lerp(g_sky_hor, warm, 0.55f + 0.45f * lift)));
+    }
+}
+
 static void draw_water_shimmer(void) {
     float t = (float)mote->micros() * 1e-6f;
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0;
@@ -4007,12 +4079,69 @@ static void draw_vehicle_mesh(const Car *c) {
      * already 597 of 850 — so only the cars close enough to actually resolve a
      * tyre get one. The chase camera means that is usually your own car plus
      * whatever you are about to hit. */
-    { float dx = c->x - cam_pos.x, dz = c->z - cam_pos.z;
-      if (dx*dx + dz*dz < VEH_WHEEL_R * VEH_WHEEL_R) {
-          MoteObject wh = { .pos=v3(c->x, 0.0f, c->z), .basis=b, .mesh=&m->wheels,
-                            .color = c->wrecked ? MOTE_RGB565(16,14,14) : MOTE_RGB565(24,24,28) };
-          mote->scene_add_object_scaled(&wh, sc);
-      } }
+    float ddx = c->x - cam_pos.x, ddz = c->z - cam_pos.z, d2 = ddx*ddx + ddz*ddz;
+    if (d2 < VEH_WHEEL_R * VEH_WHEEL_R) {
+        MoteObject wh = { .pos=v3(c->x, 0.0f, c->z), .basis=b, .mesh=&m->wheels,
+                          .color = c->wrecked ? MOTE_RGB565(16,14,14) : MOTE_RGB565(24,24,28) };
+        mote->scene_add_object_scaled(&wh, sc);
+    }
+
+    /* ---- close-range detail: two-tone panels and lit lamps ----------------
+     * Both are gated on the same radius as the wheel line, for the same reason:
+     * this is detail that only reads up close, and the budget cannot carry it
+     * on all 18 cars at once.
+     *
+     * Panels go through scene_add_tri rather than a mesh: it is DOUBLE-SIDED
+     * and depth-tested, so a decal is 2 triangles with no winding to get wrong
+     * — and this project has got winding wrong five times. Their corners come
+     * from the car's OWN built mesh vertices, pushed through the SAME basis and
+     * scale the body uses, so they lie on the surface instead of being
+     * re-derived and drifting off it. */
+    if (d2 < VEH_DETAIL_R * VEH_DETAIL_R && !c->wrecked) {
+        float k = sc * (1.0f / 127.0f);
+        #define VPT(lx,ly,lz) ({ Vec3 l_ = m3_mul_v3(&b, v3((lx)*k,(ly)*k,(lz)*k));                                  v3(c->x + l_.x, l_.y, c->z + l_.z); })
+        float cabx = m->cv[1].x, cabtop = m->cv[3].y;         /* squeezed cabin half-width, roofline */
+        float cz0 = m->cv[0].z, cz1 = m->cv[4].z;             /* cabin z extent */
+        float bodyx = m->bv[1].x, bodytop = m->bv[3].y;
+
+        /* Deterministic per-type trim, so a given car always looks like itself. */
+        unsigned th = (unsigned)c->type * 2654435761u;
+        uint16_t trim = (th & 3) == 0 ? MOTE_RGB565(232,228,220)      /* cream roof   */
+                      : (th & 3) == 1 ? MOTE_RGB565(30,30,36)         /* black roof   */
+                      : (th & 3) == 2 ? MOTE_RGB565(120,124,134)      /* silver       */
+                                      : glass;                        /* body-matched */
+
+        /* roof panel, lifted 2 units clear of the cabin so it cannot z-fight */
+        { float rx = cabx * 0.86f, z0 = cz0 + 8, z1 = cz1 - 8, y = cabtop + 2;
+          Vec3 p0=VPT(-rx,y,z0), p1=VPT(rx,y,z0), p2=VPT(rx,y,z1), p3=VPT(-rx,y,z1);
+          mote->scene_add_tri(p0,p1,p2, trim, 0);
+          mote->scene_add_tri(p0,p2,p3, trim, 0); }
+
+        /* bonnet stripe: a narrow band up the middle of the front deck */
+        { float sx = bodyx * 0.22f, z0 = cz1 + 4, z1 = 118.0f, y = bodytop + 2;
+          Vec3 p0=VPT(-sx,y,z0), p1=VPT(sx,y,z0), p2=VPT(sx,y,z1), p3=VPT(-sx,y,z1);
+          mote->scene_add_tri(p0,p1,p2, trim, 0);
+          mote->scene_add_tri(p0,p2,p3, trim, 0); }
+
+        /* Lamps, lit only once the sun is low. Discs, not points: a disc carries
+         * a world radius so it shrinks with distance like a real lamp, where a
+         * point is a fixed pixel size and pops as you approach.
+         *
+         * z = +-133, NOT +-122: the body box spans +-127, so a lamp at 122 sits
+         * INSIDE the solid and the depth test buries it. Nothing rendered at
+         * 122 — measured. 133 puts the disc's centre just proud of the face,
+         * the same trick the panels above use with their +2 lift. */
+        if (sun_elev() < 0.10f) {   /* dusk through dawn, plus a little slack */
+            float lx = bodyx * 0.66f, ly = bodytop * 0.55f, r = 0.17f;
+            Vec3 tl=VPT(-lx,ly,-133), tr=VPT(lx,ly,-133);
+            mote->scene_add_disc(tl, r, MOTE_RGB565(246,70,52));
+            mote->scene_add_disc(tr, r, MOTE_RGB565(246,70,52));
+            Vec3 hl=VPT(-lx,ly,133), hr=VPT(lx,ly,133);
+            mote->scene_add_disc(hl, r*1.15f, MOTE_RGB565(255,244,206));
+            mote->scene_add_disc(hr, r*1.15f, MOTE_RGB565(255,244,206));
+        }
+        #undef VPT
+    }
 
     /* One oriented shadow, replacing the eight-triangle octagon that used to
      * be assembled by hand from scene_add_tri in g_update. Semi-axes (0.55
@@ -4516,6 +4645,7 @@ static void g_update(float dt) {
      * -- see the comment there for why. */
 
     draw_ground_window();
+    draw_sky_body();
     draw_water_shimmer();
     /* Buildings are submitted AFTER the entities below: the textured-tri pool is
      * first-come (extra tris are silently dropped), and a clipped far building is
@@ -5115,8 +5245,13 @@ static void g_overlay(uint16_t *fb) {
         uint32_t pf[6] = {0};
         if (mote->perf) mote->perf(pf);
         char line[48];
+        /* The HUD shows this frame; the pool has to be sized for the WORST
+         * frame, so the peak goes to stderr where a headless run can read it. */
+        int tris = mote->scene_tri_count();
+        { static int tpeak = 0;
+          if (tris > tpeak) { tpeak = tris; fprintf(stderr, "[TRI] peak=%d\n", tpeak); } }
         snprintf(line, sizeof line, "%ufps u%u r%u t%d",
-                 pf[0], pf[1], pf[2], mote->scene_tri_count());
+                 pf[0], pf[1], pf[2], tris);
         mote_ftext(mote, fb, g_fmed, line, 2, 2, MOTE_RGB565(200,255,140));
         snprintf(line, sizeof line, "bb%d/%d drop%d", g_bb_used, MAX_BILLBOARDS, g_bb_budget_drop);
         mote_ftext(mote, fb, g_fmed, line, 2, 12, MOTE_RGB565(200,255,140));
@@ -5144,6 +5279,7 @@ static const MoteGameVtbl k_vtbl = {
      * invisible until someone hits it on hardware. */
     .config = { .max_tex_tris = 1100, .max_tris = 850, .depth = 1,
                 .max_points = WATER_FLECKS_MAX,   /* water shimmer, depth-tested in the 3D pass */
+                .max_discs  = 40,   /* sun/moon + car lamps, both depth-tested */
                 /* max_shadows = 64, not 40: worst case is 18 car + up to 34
                  * in-view ped shadows = 52, which already exceeded 40 with
                  * vehicle shadows left ungated (fixed above). Same
