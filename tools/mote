@@ -173,7 +173,14 @@ def _read_image_wh_raw(path):
     """(w, h, raw RGBA8 bytes) for `path`, via ImageMagick if present, else Pillow.
 
     Both paths must produce identical bytes for the same PNG — bake_image's
-    output depends only on this tuple."""
+    output depends only on this tuple.
+
+    This equivalence is a straight decode, with no resize step, so it holds
+    here. It does NOT extend to bake_icon() below, the one place a resize
+    actually happens: ImageMagick's `-resize 60x60!` and Pillow's `im.resize`
+    use different kernels by default, so those two paths can still produce
+    different bytes for a source icon that isn't already 60x60, even though
+    they both call through this same function's ImageMagick/Pillow split."""
     import subprocess
     if _have_magick():
         conv, ident = _magick()
@@ -308,7 +315,12 @@ def bake_icon(path, out):
             sys.exit("mote: need ImageMagick (magick/convert) or Pillow (PIL) to bake images")
         im = Image.open(path).convert("RGBA")
         if im.size != (60, 60):
-            im = im.resize((60, 60))
+            # Pin an explicit filter rather than take Pillow's default (which
+            # has changed across Pillow versions), so at least THIS path is
+            # deterministic across runs. It is still not byte-identical to
+            # ImageMagick's `-resize 60x60!` above -- see the equivalence-
+            # limit note on _read_image_wh_raw's docstring.
+            im = im.resize((60, 60), Image.LANCZOS)
         raw = im.tobytes()
     px = [((raw[i*4] >> 3) << 11) | ((raw[i*4+1] >> 2) << 5) | (raw[i*4+2] >> 3) for i in range(60*60)]
     blob = _icon_encode(px)
