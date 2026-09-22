@@ -11,6 +11,10 @@ void gta3_cam_reset(Gta3Cam *c) {
 
 float gta3_wrap_angle(float a) {
     const float TAU = 6.2831853f;
+    /* A non-finite yaw would spin the loops below forever — subtracting TAU
+     * never reduces an infinity — and on a handheld that is a frozen frame
+     * with no way out but a power cycle. Fold it to a neutral heading. */
+    if (!isfinite(a)) return 0.0f;
     while (a >  3.14159265f) a -= TAU;
     while (a <= -3.14159265f) a += TAU;
     return a;
@@ -59,7 +63,7 @@ void gta3_cam_update(Gta3Cam *c, float anchor_x, float anchor_z, float facing_ya
     if (run < GTA3_CAM_MIN_D) run = GTA3_CAM_MIN_D;
 
     Vec3 want_eye = v3(anchor_x - fx * run, height, anchor_z - fz * run);
-    Vec3 want_tgt = v3(anchor_x + fx * look, GTA3_CAM_EYE_Y, anchor_z + fz * look);
+    Vec3 want_tgt = v3(anchor_x + fx * look, GTA3_CAM_LOOK_Y, anchor_z + fz * look);
 
     if (!c->started) {
         c->eye = want_eye;

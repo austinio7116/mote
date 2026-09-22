@@ -59,7 +59,9 @@ void gta3_cam_update(Gta3Cam *c, float anchor_x, float anchor_z, float facing_ya
 #define GTA3_CAM_YAW_K   4.0f
 /* The camera never comes closer to the anchor than this, whatever it hits. */
 #define GTA3_CAM_MIN_D   1.8f
-/* Eye height above the anchor's ground position, for the collision ray. */
-#define GTA3_CAM_EYE_Y   1.2f
+/* Height of the look-at TARGET above the anchor's ground position. Not the
+ * eye height — that is the caller's `height` argument — and not used by the
+ * collision ray, which is purely 2D over the tile grid. */
+#define GTA3_CAM_LOOK_Y   1.2f
 
 #endif /* GTA3_CAMERA_H */

@@ -80,6 +80,9 @@ int main(void) {
     }
     ok(fabsf(gta3_wrap_angle(3.0f * 3.14159265f)) < 3.15f, "wrap_angle folds 3pi");
     ok(fabsf(gta3_wrap_angle(0.5f) - 0.5f) < 1e-5f, "wrap_angle leaves 0.5 alone");
+    ok(gta3_wrap_angle(INFINITY) == 0.0f, "an infinite yaw folds to zero instead of hanging the frame");
+    ok(gta3_wrap_angle(-INFINITY) == 0.0f, "a negative infinite yaw folds to zero");
+    ok(gta3_wrap_angle(NAN) == 0.0f, "a NaN yaw folds to zero");
 
     /* 4. the wall. The camera wants to be 7 m toward -Z, which is inside solid
      * tiles from z = -4 m. It must stop short, and not closer than the floor. */
