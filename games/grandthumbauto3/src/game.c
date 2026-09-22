@@ -58,9 +58,17 @@ static uint8_t g_city[CG_W*CG_H];   /* the generated city (bss, ~65 KB) */
 #include "win.sfx.h"
 #include "bust.sfx.h"
 #include <math.h>
+/* stdio is NOT host-only: the mission-brief and faction-event text use snprintf
+ * (gen_contact, and the "THE <faction> WANT YOU DEAD" line), which run on the
+ * device too. Guarding this include left snprintf implicitly declared in the
+ * device build — and an implicit declaration of a VARIADIC function means the
+ * compiler assumes a non-variadic calling convention, which is undefined
+ * behaviour that would show up only on hardware, as corrupted brief text.
+ * tools/mote links sdk/mote_syscalls.c precisely so device games can use
+ * snprintf, so the prototype is all that was missing. */
+#include <stdio.h>
 #ifdef MOTE_HOST
-#include <stdio.h>      /* headless AI instrumentation (MOTE_GTA_DEBUG) */
-#include <stdlib.h>
+#include <stdlib.h>     /* getenv — headless instrumentation only (MOTE_GTA_DEBUG) */
 #endif
 
 MOTE_GAME_MODULE();
