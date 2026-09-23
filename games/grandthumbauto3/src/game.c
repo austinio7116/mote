@@ -542,6 +542,18 @@ static float    g_tod = 0.60f;          /* [0,1), 0 = midnight; start just befor
 static Rgb      g_sky_hor, g_haze_near; /* this frame's palette, read by the render pass */
 static Vec3     g_sun_dir;              /* lerped sun, reused for the sky body and the night test */
 static uint16_t g_sky_row[MOTE_FB_H];   /* precomputed gradient, one colour per scanline */
+/* Stars. Screen positions are recomputed once per frame from the camera's
+ * heading and plotted by sky_band, rather than submitted as scene points: the
+ * background pass already walks every sky pixel on both cores, so a star costs
+ * one store, and the point pool is spent on water shimmer.
+ *
+ * 72 x 2 bytes. GAME_RAM had 3928 bytes spare when this went in, so the budget
+ * is real — stars are a table, rain further down is procedural for the same
+ * reason. */
+#define SKY_HOR_Y 56   /* gradient reaches the horizon colour here, flat below */
+#define STARS 72
+static uint8_t  g_star_x[STARS], g_star_y[STARS];
+static uint8_t  g_star_lit;             /* 0 = daylight, else brightness 1..255 */
 
 static Rgb rgb_lerp(Rgb a, Rgb b, float t) {
     Rgb o; o.r = (uint8_t)(a.r + (b.r - a.r) * t);
@@ -557,6 +569,18 @@ static void sky_band(uint16_t *fb, int y0, int y1) {
     for (int y = y0; y < y1; y++) {
         uint16_t c = g_sky_row[y], *row = fb + y * MOTE_FB_W;
         for (int x = 0; x < MOTE_FB_W; x++) row[x] = c;
+    }
+    /* Stars over the fresh gradient. This callback runs on BOTH cores for
+     * different bands, so it only reads the table — everything it needs was
+     * computed once in the update pass. */
+    if (!g_star_lit) return;
+    int v = g_star_lit;
+    uint16_t dim = MOTE_RGB565((150*v)/255, (158*v)/255, (185*v)/255);
+    uint16_t brt = MOTE_RGB565((230*v)/255, (236*v)/255, (255*v)/255);
+    for (int i = 0; i < STARS; i++) {
+        int sy = g_star_y[i];
+        if (sy < y0 || sy >= y1) continue;
+        fb[sy * MOTE_FB_W + g_star_x[i]] = (i & 3) ? dim : brt;
     }
 }
 
@@ -587,7 +611,6 @@ static void tod_advance(float dt) {
      * horizon drifts with pitch and look-ahead, so flatten from SKY_HOR_Y and
      * let it land anywhere below that. Rows past it cost nothing: geometry
      * covers them. */
-    #define SKY_HOR_Y 56
     for (int y = 0; y < MOTE_FB_H; y++) {
         float t = (y >= SKY_HOR_Y) ? 1.0f : (float)y / (float)SKY_HOR_Y;
         g_sky_row[y] = rgb565(rgb_lerp(top, g_sky_hor, t));
@@ -1591,6 +1614,39 @@ static void road_markings(int x, int z) {
  * directions with a positive y at every hour — asking them whether the sun is
  * up gives "always". The sky disc and the car lamps both ask this instead. */
 static float sun_elev(void) { return sinf(6.2831853f * (g_tod - 0.25f)); }
+
+/* Lay the stars out for this frame.
+ *
+ * Each star owns a fixed azimuth and elevation derived from its index, so the
+ * field is stable: turn around and the same stars come back. Only the screen
+ * projection moves. Azimuth is measured against the camera's heading and
+ * mapped across the frame by the same focal length the 3D pass uses, so they
+ * pan at the right rate instead of sliding.
+ *
+ * Brightness follows sun elevation rather than a hard night flag, so they fade
+ * up through dusk instead of switching on. */
+static void stars_update(Vec3 fwd) {
+    float e = sun_elev();
+    float lit = (0.10f - e) * 4.0f;              /* fully out well after sunset */
+    if (lit <= 0.0f) { g_star_lit = 0; return; }
+    if (lit > 1.0f) lit = 1.0f;
+    g_star_lit = (uint8_t)(lit * 255.0f);
+
+    float cam_az = atan2f(fwd.x, fwd.z);
+    for (int i = 0; i < STARS; i++) {
+        unsigned h = ((unsigned)i * 2654435761u) ^ 0x9e3779b9u;
+        float az   = (float)(h & 1023) * (6.2831853f / 1024.0f);
+        float elev = 0.06f + (float)((h >> 10) & 255) * (0.55f / 255.0f);
+        float rel  = az - cam_az;
+        while (rel >  3.1415927f) rel -= 6.2831853f;
+        while (rel < -3.1415927f) rel += 6.2831853f;
+        if (rel < -1.2f || rel > 1.2f) { g_star_y[i] = 255; continue; }   /* behind: park off-band */
+        int sx = (int)(MOTE_FB_W * 0.5f + cam_focal * tanf(rel));
+        int sy = (int)((1.0f - elev / 0.61f) * (float)SKY_HOR_Y);
+        if (sx < 0 || sx >= MOTE_FB_W || sy < 0 || sy >= SKY_HOR_Y) { g_star_y[i] = 255; continue; }
+        g_star_x[i] = (uint8_t)sx; g_star_y[i] = (uint8_t)sy;
+    }
+}
 
 /* The sun (or, once it has set, the moon) as a single screen-facing disc.
  *
@@ -4852,6 +4908,7 @@ static void g_update(float dt) {
      * -- see the comment there for why. */
 
     draw_ground_window();
+    stars_update(cam_basis.r[2]);   /* before the background pass paints the sky */
     draw_sky_body();
     draw_water_shimmer();
     /* Buildings are submitted AFTER the entities below: the textured-tri pool is

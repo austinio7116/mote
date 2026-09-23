@@ -80,7 +80,7 @@ static const Sil SILDEF[GTA3_SIL_N] = {
     /* RACER      */ { 20, 36, -52,   8, 80 },   /* lowest of the lot, shallow glasshouse */
     /* PICKUP     */ { 38, 74, -18,  62, 90 },   /* cab over the front half; bed behind is bare body */
     /* JEEP       */ { 44, 86, -60,  58, 92 },   /* short and tall, near-vertical glass */
-    /* SPORTS     */ { 26, 46, -30,  34, 82 },   /* cabin forward over a long tail — mid-engined read */
+    /* SPORTS     */ { 26, 46, -58,   2, 82 },   /* long bonnet, cabin set back toward the tail */
     /* CLASSICSPT */ { 32, 60, -58,   6, 84 },   /* long bonnet under a tall upright glasshouse */
     /* TAXI       */ { 38, 70, -52,  44, 90 },   /* a sedan made taller and squarer */
 };
