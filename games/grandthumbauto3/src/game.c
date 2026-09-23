@@ -540,6 +540,15 @@ static const TodKey TOD[4] = {
 };
 
 static float    g_tod = 0.60f;          /* [0,1), 0 = midnight; start just before dusk */
+/* Weather. Entirely procedural — no particle array, because GAME_RAM had well
+ * under 4 KB spare when this went in. Intensity is two slow sines of different
+ * periods (about 8.7 and 24 minutes) so storms arrive irregularly rather than
+ * on a visible loop, and every raindrop's position is a hash of its index and
+ * the clock. 16 bytes of state for the whole system. */
+static float    g_wtime;                /* weather clock, seconds */
+static float    g_wet;                  /* 0 = dry, 1 = downpour */
+static float    g_flash;                /* lightning, decays to 0 */
+static float    g_flash_cd;             /* seconds until the next strike */
 static Rgb      g_sky_hor, g_haze_near; /* this frame's palette, read by the render pass */
 static Vec3     g_sun_dir;              /* lerped sun, reused for the sky body and the night test */
 static uint16_t g_sky_row[MOTE_FB_H];   /* precomputed gradient, one colour per scanline */
@@ -585,6 +594,37 @@ static void sky_band(uint16_t *fb, int y0, int y1) {
     }
 }
 
+static void weather_advance(float dt) {
+    g_wtime += dt;
+    /* Two incommensurate periods, so the pattern does not visibly repeat. The
+     * -0.45 threshold and 2.2 gain mean it is raining maybe a fifth of the
+     * time, ramping in and out over a minute or so rather than switching. */
+    float w = sinf(g_wtime * 0.0121f) * 0.6f + sinf(g_wtime * 0.0043f + 1.7f) * 0.4f;
+    g_wet = mote_clampf((w - 0.45f) * 2.2f, 0.0f, 1.0f);
+#ifdef MOTE_HOST
+    /* MOTE_GTA_WET=0.8 pins the intensity, so a capture can be taken in a storm
+     * without running out to the minute the cycle happens to produce one. Same
+     * shape as MOTE_GTA_TOD. */
+    { static int read = 0; static float pin = -1.0f;
+      if (!read) { read = 1; const char *e = getenv("MOTE_GTA_WET"); if (e) pin = (float)atof(e); }
+      if (pin >= 0.0f) g_wet = pin; }
+#endif
+
+    if (g_flash > 0.0f) g_flash -= dt * 6.0f;        /* a strike is brief */
+    if (g_flash < 0.0f) g_flash = 0.0f;
+    if (g_wet > 0.55f) {                             /* only heavy rain thunders */
+        g_flash_cd -= dt;
+        if (g_flash_cd <= 0.0f) {
+            g_flash = 1.0f;
+            /* Hash the clock rather than call frand(): this runs before the RNG
+             * is declared, and keeping weather off the game RNG means a storm
+             * cannot shift car or ped spawns. */
+            unsigned h = (unsigned)(g_wtime * 1000.0f) * 2654435761u;
+            g_flash_cd = 2.5f + (float)(h >> 24) * (7.0f / 255.0f);
+        }
+    } else g_flash_cd = 1.5f;
+}
+
 static void tod_advance(float dt) {
     g_tod += dt / DAY_SECONDS;
     while (g_tod >= 1.0f) g_tod -= 1.0f;
@@ -612,6 +652,23 @@ static void tod_advance(float dt) {
      * horizon drifts with pitch and look-ahead, so flatten from SKY_HOR_Y and
      * let it land anywhere below that. Rows past it cost nothing: geometry
      * covers them. */
+    /* Storm tint, then lightning, both folded into the palette BEFORE the rows
+     * are baked — so the flash lights the whole sky in one pass rather than
+     * needing a separate full-screen blend, and the haze/skirt that blend to
+     * g_sky_hor stay in agreement with it. */
+    if (g_wet > 0.0f) {
+        const Rgb ST_TOP = { 52, 56, 64 }, ST_HOR = { 96, 100, 110 }, ST_HAZE = { 82, 86, 96 };
+        float w = g_wet * 0.85f;
+        top         = rgb_lerp(top, ST_TOP, w);
+        g_sky_hor   = rgb_lerp(g_sky_hor, ST_HOR, w);
+        g_haze_near = rgb_lerp(g_haze_near, ST_HAZE, w);
+    }
+    if (g_flash > 0.0f) {
+        const Rgb LIT = { 236, 240, 255 };
+        float fl = g_flash * 0.8f;
+        top       = rgb_lerp(top, LIT, fl);
+        g_sky_hor = rgb_lerp(g_sky_hor, LIT, fl);
+    }
     for (int y = 0; y < MOTE_FB_H; y++) {
         float t = (y >= SKY_HOR_Y) ? 1.0f : (float)y / (float)SKY_HOR_Y;
         g_sky_row[y] = rgb565(rgb_lerp(top, g_sky_hor, t));
@@ -869,6 +926,7 @@ static void car_body_init(int i) {
                                                                    each other (walls stay dull - rest=min) */
     bodies[i].ang_damp = 3.0f; bodies[i].lin_damp = 0.35f;    /* light rolling resistance; low-ish so drifts hold */
     bodies[i].lat_damp = v->grip;                             /* per-car tyre grip (muscle slides, sports plant) */
+    /* apply_drive re-applies this every frame with the wet-road penalty. */
     npc_target[i] = c->yaw; ai_state[i] = AIS_CRUISE; lane_pref[i] = (uint8_t)irand(3);
 }
 
@@ -877,6 +935,11 @@ static void car_body_init(int i) {
  * collision-imparted sideways velocity gets bled by the tyres, not floated away. */
 static void apply_drive(MoteBody2D *b, const VStat *v, float throttle, float brake, float steer, float dt) {
     int ci = (int)(b - bodies);
+    /* Wet roads: bleed up to 22% of tyre grip in a downpour. Re-applied every
+     * frame rather than set at spawn, because the weather changes under cars
+     * that are already driving. Light on purpose — the brief asked for a
+     * little looseness, not an ice rink. */
+    b->lat_damp = v->grip * (1.0f - 0.22f * g_wet);
     float c=cosf(b->angle), s=sinf(b->angle);
     /* drive ONLY along the heading; the engine's tyre model owns the sideways
      * velocity, so a hard turn's momentum builds into a real slide. */
@@ -4482,6 +4545,9 @@ static void g_update(float dt) {
      * deathmatch end) still renders a frame, and a sky that stopped moving
      * whenever one of them was up would be visible as a stall. It also keeps
      * the title screen's orbit cycling. */
+    /* Weather advances BEFORE the sky is baked, so the tint and any flash land
+     * in this frame's palette rather than the next one's. */
+    weather_advance(dt);
     tod_advance(dt);
 
     /* Per-frame billboard-pool bookkeeping: reset unconditionally at the START
@@ -5353,6 +5419,50 @@ static void draw_radar(uint16_t *fb) {
     mote->draw_pixel(fb, cx, cy-2, MOTE_RGB565(200,255,200));
 }
 
+/* Rain, drawn over the finished frame.
+ *
+ * Every streak is a hash of its index: a fixed column, its own fall speed and
+ * its own length. The column drifts slowly sideways with the clock so the
+ * field does not read as fixed vertical lanes, and y scrolls and wraps. That
+ * makes the whole system stateless — no particle array, which matters because
+ * GAME_RAM had under 4 KB spare.
+ *
+ * Streak COUNT scales with intensity, so drizzle and downpour differ in
+ * density rather than only in colour, and the streaks lean the same way at all
+ * times so it reads as wind-driven rather than as noise. */
+static void draw_rain(uint16_t *fb) {
+    if (g_wet < 0.05f) return;
+    int n = (int)(g_wet * 74.0f);
+    uint16_t col = MOTE_RGB565(158, 176, 206);
+    float drift = g_wtime * 13.0f;
+    for (int i = 0; i < n; i++) {
+        unsigned h = ((unsigned)i * 2654435761u) ^ 0x9e3779b9u;
+        int spd = 150 + (int)((h >> 8) & 63);                 /* px/s, varied per streak */
+        int x   = (int)((float)(h % MOTE_FB_W) + drift) % MOTE_FB_W;
+        int y   = (int)(g_wtime * (float)spd + (float)((h >> 16) % 128)) % 128;
+        int len = 4 + (int)((h >> 22) & 3);
+        mote->draw_line(fb, x, y, x - 2, y + len, col, 0, MOTE_FB_H);
+    }
+    /* The flash washes the ground too, not just the sky the palette already
+     * lit, so a strike reads as lighting the street rather than a sky effect.
+     *
+     * NOT mote_dim_box with keep16 > 16: it does r*keep16>>4 with no clamp, so
+     * a channel at 31 lands on 38 and bleeds into the next field — a brighten
+     * that corrupts colour. This lifts each channel toward white and clamps. */
+    if (g_flash > 0.35f) {
+        int lift = (int)(g_flash * 6.0f);
+        for (int j = 0; j < MOTE_FB_H; j++)
+            for (int i = 0; i < MOTE_FB_W; i++) {
+                uint16_t c = fb[j*MOTE_FB_W+i];
+                int r=(c>>11)&31, g=(c>>5)&63, b=c&31;
+                r += lift;      if (r > 31) r = 31;
+                g += lift*2;    if (g > 63) g = 63;
+                b += lift;      if (b > 31) b = 31;
+                fb[j*MOTE_FB_W+i] = (uint16_t)((r<<11)|(g<<5)|b);
+            }
+    }
+}
+
 static void g_overlay(uint16_t *fb) {
     if (g_showmap){ draw_map(fb); return; }
     if (g_state==ST_DMLINK){
@@ -5511,6 +5621,7 @@ static void g_overlay(uint16_t *fb) {
     else      ftext_sh(g_fmed, fb, 3, 0, MOTE_RGB565(120,230,120), "$%d", cash);
     /* wanted heads */
     for (int i=0;i<5;i++) mote->draw_circle(fb, 70+i*8, 5, 2, i<wanted()?MOTE_RGB565(250,210,70):MOTE_RGB565(50,54,64), 1, 0,128);
+    draw_rain(fb);
     /* health bar */
     mote->draw_rect(fb, 2, 116, 40, 6, MOTE_RGB565(40,20,20), 1, 0,128);
     mote->draw_rect(fb, 2, 116, (int)(40*health/MAXHP), 6, MOTE_RGB565(210,60,60), 1, 0,128);
