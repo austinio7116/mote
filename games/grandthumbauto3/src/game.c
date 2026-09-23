@@ -600,7 +600,13 @@ static void weather_advance(float dt) {
      * -0.45 threshold and 2.2 gain mean it is raining maybe a fifth of the
      * time, ramping in and out over a minute or so rather than switching. */
     float w = sinf(g_wtime * 0.0121f) * 0.6f + sinf(g_wtime * 0.0043f + 1.7f) * 0.4f;
-    g_wet = mote_clampf((w - 0.45f) * 2.2f, 0.0f, 1.0f);
+    /* 0.80/4.0, not 0.45/2.2. The first pair had it raining 20% of the time and
+     * thundering 10% — measured over six simulated hours — which reads as a wet
+     * climate rather than weather. This is about 6% raining and 2% storming, so
+     * rain arrives roughly every twenty minutes and lasts a minute or two. The
+     * higher threshold also caps the peak near 0.8, so a full downpour is rare
+     * rather than the normal state of a shower. */
+    g_wet = mote_clampf((w - 0.80f) * 4.0f, 0.0f, 1.0f);
 #ifdef MOTE_HOST
     /* MOTE_GTA_WET=0.8 pins the intensity, so a capture can be taken in a storm
      * without running out to the minute the cycle happens to produce one. Same
@@ -830,7 +836,9 @@ static void draw_upright(const MoteImage *img, float x, float z,
 #define CAR_SEDAN     45   /* mundane saloon (cop-avoid fallback) */
 enum { DRV_NONE, DRV_NPC, DRV_PLAYER, DRV_COP };
 typedef struct { float x,z,yaw,spd; uint8_t type, driver, alive; float hp; float firecd;
-                 uint8_t wrecked; } Car;   /* wrecked: burnt husk — visible, pushable, not drivable */
+                 uint8_t wrecked;          /* burnt husk — visible, pushable, not drivable */
+                 uint8_t lamp; } Car;      /* LAMP_* below: brake / reverse, set by drive_car */
+enum { LAMP_OFF, LAMP_BRAKE, LAMP_REV };
 static void draw_vehicle_mesh(const Car *c);   /* defined below; used by dm_draw_remote above its definition */
 
 /* per-vehicle handling. accel m/s^2 · maxspd m/s · turn · mass · length · width ·
@@ -1956,6 +1964,9 @@ static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int
         fs = b->vx*cc + b->vy*ss;
         if (fs < 0.0f){ b->vx -= cc*fs; b->vy -= ss*fs; }
     }
+    /* Rear lamps follow what the pedal is actually doing, so the light matches
+     * the manoeuvre: red under braking, white once LB has become reverse. */
+    c->lamp = braking ? LAMP_BRAKE : ((brake && s_revok) ? LAMP_REV : LAMP_OFF);
 }
 
 /* follow the actual road shape: probe headings (prefer straight, then gentle
@@ -4418,31 +4429,49 @@ static void draw_vehicle_mesh(const Car *c) {
          * A disc carries a world radius, so the round style shrinks with
          * distance like a real lamp and costs no triangles at all; the other two
          * are 8 and 6 triangles respectively. */
-        if (sun_elev() < 0.10f) {   /* dusk through dawn, plus a little slack */
-            const uint16_t TAIL = MOTE_RGB565(246,70,52), HEAD = MOTE_RGB565(255,244,206);
+        /* Rear lamps light when it is dark OR when the pedal says so, so a
+         * brake light reads in broad daylight — that is the whole point of it.
+         * Headlights stay night-only: a car running its beams at noon looks
+         * wrong, and nothing about braking should switch them on. */
+        int night = sun_elev() < 0.10f;
+        int rear  = c->lamp;
+        if (night || rear) {
+            uint16_t TAIL = (rear == LAMP_BRAKE) ? MOTE_RGB565(255, 40, 28)    /* hard on the brakes */
+                          : (rear == LAMP_REV)   ? MOTE_RGB565(250,250,235)    /* reversing: white */
+                                                 : MOTE_RGB565(246, 70, 52);   /* running lamps */
+            const uint16_t HEAD = MOTE_RGB565(255,244,206);
             float lx = bodyx * 0.66f, ly = bodytop * 0.55f;
+            /* Braking and reversing fatten the lamp as well as recolouring it,
+             * so it still reads at the distance a chase camera puts you at. */
+            float gain = rear ? 1.45f : 1.0f;
             switch (gta3_lamp_style(sil)) {
             case GTA3_LAMP_RECT: {
-                float w = bodyx * 0.20f, h = bodytop * 0.22f;
+                float w = bodyx * 0.20f * gain, h = bodytop * 0.22f * gain;
                 if (h < 5.0f) h = 5.0f;
                 veh_zface(&b, c->x, c->z, k, -lx-w, -lx+w, ly-h, ly+h, -133, TAIL);
                 veh_zface(&b, c->x, c->z, k,  lx-w,  lx+w, ly-h, ly+h, -133, TAIL);
-                veh_zface(&b, c->x, c->z, k, -lx-w, -lx+w, ly-h, ly+h,  133, HEAD);
-                veh_zface(&b, c->x, c->z, k,  lx-w,  lx+w, ly-h, ly+h,  133, HEAD);
+                if (night) {
+                    veh_zface(&b, c->x, c->z, k, -lx-w, -lx+w, ly-h, ly+h,  133, HEAD);
+                    veh_zface(&b, c->x, c->z, k,  lx-w,  lx+w, ly-h, ly+h,  133, HEAD);
+                }
                 break; }
             case GTA3_LAMP_BAR: {
-                float w = bodyx * 0.80f, h = bodytop * 0.13f, sw = bodyx * 0.30f;
+                float w = bodyx * 0.80f, h = bodytop * 0.13f * gain, sw = bodyx * 0.30f;
                 if (h < 4.0f) h = 4.0f;
                 veh_zface(&b, c->x, c->z, k, -w, w, ly-h, ly+h, -133, TAIL);   /* bar across the tail */
-                veh_zface(&b, c->x, c->z, k, -lx-sw, -lx+sw, ly-h, ly+h, 133, HEAD); /* two front slits */
-                veh_zface(&b, c->x, c->z, k,  lx-sw,  lx+sw, ly-h, ly+h, 133, HEAD);
+                if (night) {
+                    veh_zface(&b, c->x, c->z, k, -lx-sw, -lx+sw, ly-h, ly+h, 133, HEAD); /* front slits */
+                    veh_zface(&b, c->x, c->z, k,  lx-sw,  lx+sw, ly-h, ly+h, 133, HEAD);
+                }
                 break; }
             default: {
-                float r = 0.17f;
+                float r = 0.17f * gain;
                 mote->scene_add_disc(veh_pt(&b, c->x, c->z, k, -lx, ly, -133), r, TAIL);
                 mote->scene_add_disc(veh_pt(&b, c->x, c->z, k,  lx, ly, -133), r, TAIL);
-                mote->scene_add_disc(veh_pt(&b, c->x, c->z, k, -lx, ly,  133), r*1.15f, HEAD);
-                mote->scene_add_disc(veh_pt(&b, c->x, c->z, k,  lx, ly,  133), r*1.15f, HEAD);
+                if (night) {
+                    mote->scene_add_disc(veh_pt(&b, c->x, c->z, k, -lx, ly,  133), 0.17f*1.15f, HEAD);
+                    mote->scene_add_disc(veh_pt(&b, c->x, c->z, k,  lx, ly,  133), 0.17f*1.15f, HEAD);
+                }
                 break; }
             }
         }
@@ -4648,6 +4677,19 @@ static void g_update(float dt) {
      * PROFILING.md notes combat has never been profiled; this is how. */
     { static int hd=0; const char *hv=getenv("MOTE_GTA_HEAT");
       if (hv && g_state==ST_PLAY && !hd){ hd=1; heat=(float)atof(hv); heat_cool=0; } }
+    /* test: MOTE_GTA_INCAR=1 drops the player straight into the nearest car at
+     * the start of play. The scripted "walk into traffic and hammer A" dance in
+     * the capture harness stops landing whenever a physics or spawn change
+     * moves the cars, which has cost three separate verification attempts. */
+    { static int icd=0;
+      if (getenv("MOTE_GTA_INCAR") && g_state==ST_PLAY && !icd && player.mode==MODE_FOOT){
+          int best=-1; float bd=1e9f;
+          for (int i=0;i<NCAR;i++){ Car *c=&cars[i];
+              if (!c->alive || c->wrecked || c->driver==DRV_COP) continue;
+              float dx=c->x-player.x, dz=c->z-player.z, d=dx*dx+dz*dz;
+              if (d<bd){ bd=d; best=i; } }
+          if (best>=0){ icd=1; cars[best].driver=DRV_PLAYER;
+                        player.mode=MODE_CAR; player.car=best; } } }
     { static int tpd=0; if (getenv("MOTE_GTA_TP_PHONE") && g_state==ST_PLAY && !tpd){   /* test: stand by a phone box */
           for (int m=0;m<nmark;m++) if(markers[m].kind==MK_PHONE){
               if(player.mode==MODE_CAR){cars[player.car].alive=0;player.mode=MODE_FOOT;player.car=-1;}
