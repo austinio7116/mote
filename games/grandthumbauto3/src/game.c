@@ -123,6 +123,39 @@ static void corridor_info(int x, int z, int *orient, int *pos, int *span) {
     else if (hext<=ROADW && vext>ROADW) { *orient=2; *pos=eW; *span=hext; }
     else                                { *orient=3; }
 }
+/* Traffic lights cost FOUR BYTES for the whole city: this clock. A junction's
+ * phase is a pure function of its tile coordinates and the time, so nothing is
+ * stored per junction and none of it has to be found, built or recycled as the
+ * player moves. corridor_info() already reports orient==3 for a crossing, so
+ * even "where are the junctions" is derived from the map on demand. */
+static float    g_ltime;                /* traffic-light clock, seconds */
+
+/* Traffic lights, with no state per junction.
+ *
+ * LIGHT_CYCLE is the full period; each axis holds green for half of it, minus
+ * LIGHT_AMBER at the end of its turn. The junction's tile coordinates are
+ * hashed into an offset so neighbouring crossings are not all in lockstep —
+ * without that the whole grid blinks as one and the city looks mechanical.
+ *
+ * axis: 0 = traffic travelling along X (east-west), 1 = along Z. Returns
+ * LIGHT_GREEN / LIGHT_AMBER / LIGHT_RED. */
+#define LIGHT_CYCLE 16.0f
+#define LIGHT_AMBER  2.2f
+enum { LIGHT_GREEN, LIGHT_AMBER_ON, LIGHT_RED };
+static int light_state(int ix, int iz, int axis) {
+    unsigned h = ((unsigned)ix * 73856093u) ^ ((unsigned)iz * 19349663u);
+    float t = g_ltime + (float)(h & 1023) * (LIGHT_CYCLE / 1024.0f);
+    float ph = t - LIGHT_CYCLE * floorf(t / LIGHT_CYCLE);        /* 0 .. CYCLE */
+    float half = LIGHT_CYCLE * 0.5f;
+    float mine = (axis == 0) ? ph : ph - half;                   /* time into MY green window */
+    if (mine < 0.0f || mine >= half) return LIGHT_RED;
+    return (mine >= half - LIGHT_AMBER) ? LIGHT_AMBER_ON : LIGHT_GREEN;
+}
+/* Which axis a heading travels along: 0 = X, 1 = Z. */
+static int light_axis(float heading) {
+    return (fabsf(cosf(heading)) >= fabsf(sinf(heading))) ? 0 : 1;
+}
+
 /* EDGE16 road autotile neighbour mask, computed inline from the flash map. */
 static int road_mask(int x, int z) {
     int m=0;
@@ -990,10 +1023,22 @@ static void apply_drive(MoteBody2D *b, const VStat *v, float throttle, float bra
     b->avel += (targ - b->avel) * mote_clampf(9.0f*dt, 0.0f, 1.0f);   /* 7 -> 9: wheel bites sooner */
 }
 static float ang_diff(float target, float cur){ float d=target-cur; while(d>3.14159f)d-=6.2832f; while(d<-3.14159f)d+=6.2832f; return d; }
-static void ai_drive(int i, float target_yaw, float throttle, float dt) {
+/* brake > 0 is only used by the red-light hold: cutting the throttle alone
+ * leaves a car coasting on lin_damp 0.35, which drifts it straight through the
+ * junction. Measured: with throttle-cut only, NPCs stopped at a red essentially
+ * never reached rest. */
+static void ai_drive_b(int i, float target_yaw, float throttle, float brake, float dt) {
     float d = ang_diff(target_yaw, bodies[i].angle);
     float steer = d>0.06f ? 1.0f : (d<-0.06f ? -1.0f : 0.0f);
-    apply_drive(&bodies[i], &VSTAT[cars[i].type], throttle, 0.0f, steer, dt);
+    apply_drive(&bodies[i], &VSTAT[cars[i].type], throttle, brake, steer, dt);
+    if (brake > 0.0f) {          /* brakes hold to a stop; they never reverse */
+        MoteBody2D *b = &bodies[i];
+        float c2=cosf(b->angle), s2=sinf(b->angle), fs=b->vx*c2+b->vy*s2;
+        if (fs < 0.0f) { b->vx -= c2*fs; b->vy -= s2*fs; }
+    }
+}
+static void ai_drive(int i, float target_yaw, float throttle, float dt) {
+    ai_drive_b(i, target_yaw, throttle, 0.0f, dt);
 }
 /* is another vehicle close ahead? (so NPCs coast/queue instead of ramming) */
 /* brake only for a car that is genuinely in MY lane, ahead, and going roughly MY way
@@ -1805,6 +1850,54 @@ static void draw_sky_body(void) {
     }
 }
 
+/* Traffic-light heads at the junctions around the player.
+ *
+ * Walks OUTWARD in rings from the camera tile and stops at LIGHTS_MAX heads,
+ * so the ones that get dropped when the budget runs out are always the far
+ * ones. Nothing is stored: corridor_info() finds the junctions and
+ * light_state() colours them, both from the map and one clock.
+ *
+ * Two heads per junction, one per axis, set back toward the approach they
+ * govern so you can tell which light is yours. A dark backing disc behind each
+ * lamp gives it a housing — without it a bare coloured dot reads as a pickup. */
+#define LIGHTS_MAX   10      /* junctions drawn; 4 discs each against max_discs */
+/* 3.0 m, a real traffic-light height — and not higher, for the same reason the
+ * sun disc had to have its elevation compressed. The chase camera pitches
+ * about 22 degrees down with a 55 degree field, so the top of the frame sits
+ * near 5.5 degrees above the eye (2.4 m). A lamp at h is therefore off the top
+ * of the screen until the player is (h - 2.4) / tan(5.5deg) away: 22 m at
+ * 4.6 m high, which is past the junction you are approaching. At 3.0 m it
+ * comes into view about 6 m out, which is where you need it. */
+#define LIGHT_H      3.0f    /* lamp height, metres */
+static void draw_traffic_lights(void) {
+    int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0;
+    for (int r = 1; r <= 7 && n < LIGHTS_MAX; r++) {
+        for (int dz = -r; dz <= r && n < LIGHTS_MAX; dz++)
+        for (int dx = -r; dx <= r && n < LIGHTS_MAX; dx++) {
+            if (dx != -r && dx != r && dz != -r && dz != r) continue;   /* ring shell only */
+            int x = cx + dx, z = cz + dz;
+            int o, p_, sp_;
+            corridor_info(x, z, &o, &p_, &sp_);
+            if (o != 3) continue;                       /* not a crossing */
+            float wx = x*TILE + TILE*0.5f, wz = z*TILE + TILE*0.5f;
+            if (!gta3_view_tile(&g_view, wx, LIGHT_H, wz, VIEW_GROUND_R, TILE)) continue;
+            n++;
+            for (int axis = 0; axis < 2; axis++) {
+                int st = light_state(x, z, axis);
+                uint16_t col = (st == LIGHT_GREEN)   ? MOTE_RGB565(60,230,90)
+                             : (st == LIGHT_AMBER_ON)? MOTE_RGB565(250,190,50)
+                                                     : MOTE_RGB565(240,50,40);
+                /* set back along the axis it governs, on the right-hand side */
+                float lx = wx + (axis == 0 ? -TILE*0.55f : TILE*0.42f);
+                float lz = wz + (axis == 0 ? TILE*0.42f : -TILE*0.55f);
+                Vec3 at = v3(lx, LIGHT_H, lz);
+                mote->scene_add_disc(at, 0.46f, MOTE_RGB565(24,26,32));   /* housing */
+                mote->scene_add_disc(at, 0.30f, col);
+            }
+        }
+    }
+}
+
 static void draw_water_shimmer(void) {
     float t = (float)mote->micros() * 1e-6f;
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0;
@@ -2217,6 +2310,26 @@ static void update_traffic(float dt) {
                 float lat=-dx*hs+dz*hc; if (fabsf(lat)>1.7f) continue;
                 if (fabsf(ang_diff(bodies[j].angle, ba)) > 2.5f){ dodge=1.0f; break; } }
         }
+        /* RED LIGHT: stop at the near edge of the junction ahead.
+         *
+         * Reuses `blocked`, which already cuts the throttle, so a stopping car
+         * needs no new per-car state — the whole feature is one global clock.
+         *
+         * A car ALREADY inside the junction is never stopped: it must clear,
+         * and amber exists so it can. The probe looks one tile ahead, which at
+         * cruising speed is about where you would start braking. */
+        int at_red = 0;
+        if (!blocked && !turning){
+            int px = (int)((c->x + fx*TILE*1.15f)/TILE), pz = (int)((c->z + fz*TILE*1.15f)/TILE);
+            int here_o, mine_o, p_, sp_;
+            corridor_info((int)(c->x/TILE), (int)(c->z/TILE), &here_o, &p_, &sp_);
+            corridor_info(px, pz, &mine_o, &p_, &sp_);
+            if (mine_o == 3 && here_o != 3) {                  /* junction ahead, and I am not in one */
+                int st = light_state(px, pz, light_axis(ba));
+                if (st == LIGHT_RED) { blocked = 1; at_red = 1; }
+            }
+        }
+
         /* JUNCTION YIELD: give way to a MOVING perpendicular crosser near my entry point.
          * Priority: a car already IN the junction goes first; equal approaches → lower index
          * (a total order, so two arrivals can never mutually wait). */
@@ -2255,7 +2368,9 @@ static void update_traffic(float dt) {
         float throttle = blocked ? 0.0f : (turning ? 0.45f : (approach ? 0.5f : (dodge>0 ? 0.5f : 1.0f)));
         if (stuck_t[i] > 1.0f){ blocked=0;                       /* recovery: push, or reverse if wedged */
             throttle = (road_run(c->x,c->z, fx,fz, TILE*1.4f) < TILE*0.9f) ? -0.9f : 1.0f; }
-        ai_drive(i, target, throttle, dt);
+        /* A red light BRAKES; every other `blocked` reason keeps coasting, which
+         * is what queueing behind another car should feel like. */
+        ai_drive_b(i, target, throttle, at_red ? 0.85f : 0.0f, dt);
 
         float cc=cosf(ba), ss=sinf(ba), fs=b->vx*cc+b->vy*ss;    /* cap forward speed */
         float cap = blocked ? 2.0f : (turning ? 3.0f : (approach ? 4.6f : 9.5f));
@@ -4660,6 +4775,7 @@ static void g_update(float dt) {
      * the title screen's orbit cycling. */
     /* Weather advances BEFORE the sky is baked, so the tint and any flash land
      * in this frame's palette rather than the next one's. */
+    g_ltime += dt;                     /* traffic-light phase (see light_state) */
     weather_advance(dt);
     tod_advance(dt);
 
@@ -4958,10 +5074,13 @@ static void g_update(float dt) {
          * corner; turning in place is invariant to that. */
         const float TURN = 3.0f;              /* rad/s */
         const float WALK_SPD = 5.0f;          /* m/s, same as the old 8-way walk */
-        /* SPRINT: hold B while walking FORWARD. B is also attack and every other
-         * button is taken (A interact, LB look-back, RB weapon switch), so the
-         * sprint is gated on UP being held too — tapping B to swing or shoot
-         * while standing still or backing up behaves exactly as it always has.
+        /* SPRINT: hold A while walking FORWARD — "enter a car, or run".
+         *
+         * A's other job, entering a car or using a shop/phone, fires on the
+         * PRESS EDGE (mote_just_pressed), while this reads the HELD state. The
+         * two cannot collide: a tap enters the car and the hold then does
+         * nothing because you are no longer on foot. Holding A in open street
+         * with nothing to interact with just runs.
          *
          * Burns in STAM_BURN seconds and refills in STAM_FILL, and once it is
          * emptied you cannot sprint again until it has recovered past
@@ -4980,7 +5099,7 @@ static void g_update(float dt) {
         if (mote_pressed(in, MOTE_BTN_UP))   drive =  1.0f;
         if (mote_pressed(in, MOTE_BTN_DOWN)) drive = -0.5f;   /* backing up is slower, and does not turn */
 
-        int want_run = drive > 0.0f && mote_pressed(in, MOTE_BTN_B) && !g_stam_spent;
+        int want_run = drive > 0.0f && mote_pressed(in, MOTE_BTN_A) && !g_stam_spent;
         if (want_run && g_stam > 0.0f) {
             g_stam -= dt / STAM_BURN;
             if (g_stam <= 0.0f) { g_stam = 0.0f; g_stam_spent = 1; }   /* latch until recovered */
@@ -5167,6 +5286,7 @@ static void g_update(float dt) {
     draw_ground_window();
     stars_update(cam_basis.r[2]);   /* before the background pass paints the sky */
     draw_sky_body();
+    draw_traffic_lights();
     draw_water_shimmer();
     /* Buildings are submitted AFTER the entities below: the textured-tri pool is
      * first-come (extra tris are silently dropped), and a clipped far building is
@@ -5847,7 +5967,7 @@ static void g_overlay(uint16_t *fb) {
         if (player.mode==MODE_CAR && wanted()>0) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(120,220,150), "DRIVE IN: RESPRAY $100");
         else mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(120,220,150), "SPRAY SHOP: LOSE HEAT"); }
     else if (near_marker(MK_DOCK,3.6f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(235,170,90), "DRIVE A CAR IN TO SELL");
-    else if (player.mode==MODE_FOOT && g_showcmds) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER   B ATTACK");
+    else if (player.mode==MODE_FOOT && g_showcmds) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER/RUN  B ATTACK");
 
     if (g_state==ST_PLAY && !g_showmap && g_radar_on) draw_radar(fb);
 
@@ -5898,7 +6018,11 @@ static const MoteGameVtbl k_vtbl = {
      * invisible until someone hits it on hardware. */
     .config = { .max_tex_tris = 1100, .max_tris = 850, .depth = 1,
                 .max_points = WATER_FLECKS_MAX,   /* water shimmer, depth-tested in the 3D pass */
-                .max_discs  = 40,   /* sun/moon + car lamps, both depth-tested */
+                /* sun/moon (1) + car lamps (4 per car inside VEH_DETAIL_R) +
+                 * traffic lights (4 per junction, LIGHTS_MAX of them). The
+                 * lights alone can want 40, so this is sized for them rather
+                 * than trimmed to a measured peak. */
+                .max_discs  = 72,
                 /* max_shadows = 64, not 40: worst case is 18 car + up to 34
                  * in-view ped shadows = 52, which already exceeded 40 with
                  * vehicle shadows left ungated (fixed above). Same
