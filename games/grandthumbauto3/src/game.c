@@ -1323,7 +1323,15 @@ static const char *g_msg; static float g_msg_t;
 static float hosp_x, hosp_z;
 static int   g_showmap, g_mapsx, g_mapsy; static float g_maptime;   /* full-map view */
 static int   g_lookback;      /* LB held on foot: swing the camera round */
-static int   g_radar_on = 1;  /* RB on the map screen hides/shows the radar (screen space is scarce) */
+static int   g_radar_on = 1;  /* minimap on/off — a SETTINGS row (was RB on the map screen) */
+static int   g_showcmds = 1;  /* draw the "A ENTER  B ATTACK" prompt during play */
+/* The pause screen has two tabs: LB/RB flip between the city map and settings.
+ * g_setsel is the highlighted settings row; g_setmsg flashes the result of a
+ * save or load for a couple of seconds so the button press has an answer. */
+enum { TAB_MAP, TAB_SET, TAB_N };
+enum { SET_MINIMAP, SET_CMDS, SET_SAVE, SET_LOAD, SET_N };
+static int   g_menutab = TAB_MAP, g_setsel;
+static const char *g_setmsg; static float g_setmsg_t;
 
 /* ================================================== 2P DEATHMATCH state ====
  * Same generated city on both units (nonce winner rolls the seed and sends it),
@@ -4536,6 +4544,67 @@ static void draw_vehicle(int i){
             mote->scene_add_object_ex(&tbar, 0);
         } }
 
+/* ---- progress save -------------------------------------------------------
+ *
+ * PROGRESS ONLY: cash, the best-cash record, wanted level, weapon and ammo,
+ * the mission chain position, and where the player is standing. NOT the world
+ * — no cars, peds, wrecks or pickups. The city is regenerated from its seed on
+ * load, so you come back to a fresh street at your saved spot with your
+ * progress intact. A full world snapshot would need a versioned serialiser and
+ * a buffer that GAME_RAM (under 4 KB spare) cannot hold.
+ *
+ * Slot 1. Slot 0 stays the best-cash record the death screen writes, so a
+ * manual save can never cost you that.
+ *
+ * `ver` is checked on load and a mismatch is refused rather than read: these
+ * structs are written straight to flash, so a layout change from a later build
+ * would otherwise be reinterpreted as live state. */
+#define SAVE_MAGIC 0x33415447u          /* 'GTA3' */
+#define SAVE_VER   1u
+#define SAVE_SLOT  1
+typedef struct {
+    uint32_t magic, ver;
+    int32_t  cash, best;
+    float    px, pz, pyaw;
+    float    heat;
+    int32_t  weapon;
+    int32_t  owned[NWEAP], ammo[NWEAP];
+    int32_t  mission_chain;
+    float    tod;
+} SaveGame;
+
+static int save_game(void) {
+    if (!mote->save) return 0;
+    SaveGame g;
+    /* Zero by hand rather than memset: <string.h> is not pulled into this
+     * freestanding module, and the struct is small. */
+    { unsigned char *q = (unsigned char *)&g; for (unsigned i = 0; i < sizeof g; i++) q[i] = 0; }
+    g.magic = SAVE_MAGIC; g.ver = SAVE_VER;
+    g.cash = cash; g.best = best_cash;
+    g.px = player.x; g.pz = player.z; g.pyaw = player.yaw;
+    g.heat = heat; g.weapon = weapon; g.mission_chain = mission_chain; g.tod = g_tod;
+    for (int i = 0; i < NWEAP; i++) { g.owned[i] = owned[i]; g.ammo[i] = ammo[i]; }
+    return mote->save(SAVE_SLOT, &g, sizeof g) == (int)sizeof g;
+}
+
+static int load_game(void) {
+    if (!mote->load) return 0;
+    SaveGame g;
+    if (mote->load(SAVE_SLOT, &g, sizeof g) != (int)sizeof g) return 0;
+    if (g.magic != SAVE_MAGIC || g.ver != SAVE_VER) return 0;
+    cash = g.cash; best_cash = g.best;
+    heat = g.heat; heat_cool = 0;
+    weapon = g.weapon; if (weapon < 0 || weapon >= NWEAP) weapon = W_FIST;
+    mission_chain = g.mission_chain; g_tod = g.tod;
+    for (int i = 0; i < NWEAP; i++) { owned[i] = g.owned[i]; ammo[i] = g.ammo[i]; }
+    /* Put the player on foot at the saved spot: the car they were in belonged
+     * to the old world and no longer exists. */
+    if (player.mode == MODE_CAR && player.car >= 0) cars[player.car].driver = DRV_NONE;
+    player.mode = MODE_FOOT; player.car = -1;
+    player.x = g.px; player.z = g.pz; player.yaw = g.pyaw;
+    return 1;
+}
+
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
@@ -4789,14 +4858,31 @@ static void g_update(float dt) {
         }
     }
 
-    /* MENU toggles the full-map view; while open, gameplay pauses and the d-pad pans */
+    /* MENU toggles the pause screen; while open, gameplay pauses. */
     if (mote_just_pressed(in, MOTE_BTN_MENU)){
         g_showmap = !g_showmap;
         if (g_showmap){ g_mapsx=(int)(pl_x()/TILE)-64; g_mapsy=(int)(pl_z()/TILE)-64; }
     }
     if (g_showmap){
-        g_maptime += dt; int sp = mote_pressed(in,MOTE_BTN_B) ? 6 : 3;   /* B = pan faster */
-        if (mote_just_pressed(in,MOTE_BTN_RB)) g_radar_on = !g_radar_on;   /* hide the radar to free screen */
+        g_maptime += dt;
+        if (g_setmsg_t > 0.0f) g_setmsg_t -= dt;
+        /* LB/RB flip tabs on either screen, so you can always get back. */
+        if (mote_just_pressed(in,MOTE_BTN_RB)) g_menutab = (g_menutab+1) % TAB_N;
+        if (mote_just_pressed(in,MOTE_BTN_LB)) g_menutab = (g_menutab+TAB_N-1) % TAB_N;
+        if (g_menutab == TAB_SET) {
+            if (mote_just_pressed(in,MOTE_BTN_UP))   g_setsel = (g_setsel+SET_N-1) % SET_N;
+            if (mote_just_pressed(in,MOTE_BTN_DOWN)) g_setsel = (g_setsel+1) % SET_N;
+            if (mote_just_pressed(in,MOTE_BTN_A)) {
+                switch (g_setsel) {
+                case SET_MINIMAP: g_radar_on = !g_radar_on; break;
+                case SET_CMDS:    g_showcmds = !g_showcmds; break;
+                case SET_SAVE:    g_setmsg = save_game() ? "SAVED" : "SAVE FAILED"; g_setmsg_t = 2.0f; break;
+                case SET_LOAD:    g_setmsg = load_game() ? "LOADED" : "NO SAVE";    g_setmsg_t = 2.0f; break;
+                }
+            }
+            return;                     /* settings tab does not pan the map */
+        }
+        int sp = mote_pressed(in,MOTE_BTN_B) ? 6 : 3;   /* B = pan faster */
         if (mote_pressed(in,MOTE_BTN_LEFT))  g_mapsx-=sp;
         if (mote_pressed(in,MOTE_BTN_RIGHT)) g_mapsx+=sp;
         if (mote_pressed(in,MOTE_BTN_UP))    g_mapsy-=sp;
@@ -5302,7 +5388,40 @@ static void draw_map(uint16_t *fb){
     /* two lines now, so the pair sits one line-height apart ending where the single
      * line used to: 118 is the lowest that clears the bottom edge at 1.5x. */
     mote_ftextc(mote, fb, g_fmed, 64, 106, MOTE_RGB565(150,160,180), "MENU CLOSE    DPAD PAN");
-    mote_ftextfc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,160,180), "RB  RADAR %s", g_radar_on ? "ON" : "OFF");
+    mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,160,180), "RB  SETTINGS");
+}
+
+/* The SETTINGS tab of the pause screen. Same framing as the map — a title
+ * panel at the top and the control hints on the bottom two lines — so the two
+ * tabs read as one screen you flip between rather than two different menus.
+ *
+ * Toggles show their state on the right; actions do not. The selected row gets
+ * a filled bar rather than just a bright colour, which stays legible over the
+ * dimmed city behind it. */
+static void draw_settings(uint16_t *fb) {
+    mote_dim_box(fb, 0, 0, 128, 128, 5);                  /* the city stays faintly visible */
+    mote_ui_panel(fb, 0, 0, 128, 11, MOTE_RGB565(14,16,24), MOTE_RGB565(60,70,110));
+    mote_ftext(mote, fb, g_fmed, "SETTINGS", 3, 1, MOTE_RGB565(240,230,120));
+
+    static const char *NAME[SET_N] = { "MINIMAP", "COMMANDS", "SAVE GAME", "LOAD GAME" };
+    for (int i = 0; i < SET_N; i++) {
+        int y = 24 + i * 16;
+        int sel = (i == g_setsel);
+        if (sel) mote->draw_rect(fb, 6, y - 3, 116, 14, MOTE_RGB565(46,56,86), 1, 0, 128);
+        uint16_t fg = sel ? MOTE_RGB565(250,244,200) : MOTE_RGB565(168,176,196);
+        mote_ftext(mote, fb, g_fmed, NAME[i], 12, y, fg);
+        const char *val = (i == SET_MINIMAP) ? (g_radar_on ? "ON" : "OFF")
+                        : (i == SET_CMDS)    ? (g_showcmds ? "ON" : "OFF") : 0;
+        if (val) {
+            uint16_t vc = (val[1] == 'N') ? MOTE_RGB565(140,230,140) : MOTE_RGB565(200,120,120);
+            mote_ftext(mote, fb, g_fmed, val, 92, y, vc);
+        }
+    }
+    if (g_setmsg && g_setmsg_t > 0.0f)
+        mote_ftextc(mote, fb, g_fmed, 64, 92, MOTE_RGB565(250,230,120), g_setmsg);
+
+    mote_ftextc(mote, fb, g_fmed, 64, 106, MOTE_RGB565(150,160,180), "DPAD PICK    A APPLY");
+    mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,160,180), "LB  MAP     MENU CLOSE");
 }
 
 /* DEBUG: outline every 2D physics body (green = vehicle OBB, orange = static building/tree)
@@ -5464,7 +5583,7 @@ static void draw_rain(uint16_t *fb) {
 }
 
 static void g_overlay(uint16_t *fb) {
-    if (g_showmap){ draw_map(fb); return; }
+    if (g_showmap){ if (g_menutab == TAB_SET) draw_settings(fb); else draw_map(fb); return; }
     if (g_state==ST_DMLINK){
         mote_ui_panel(fb, 12, 36, 104, 58, MOTE_RGB565(14,16,24), MOTE_RGB565(160,60,50));
         mote_ftextc(mote, fb, g_fread, 64, 40, MOTE_RGB565(245,110,95), "DEATHMATCH");
@@ -5671,7 +5790,7 @@ static void g_overlay(uint16_t *fb) {
         if (player.mode==MODE_CAR && wanted()>0) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(120,220,150), "DRIVE IN: RESPRAY $100");
         else mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(120,220,150), "SPRAY SHOP: LOSE HEAT"); }
     else if (near_marker(MK_DOCK,3.6f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(235,170,90), "DRIVE A CAR IN TO SELL");
-    else if (player.mode==MODE_FOOT) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER   B ATTACK");
+    else if (player.mode==MODE_FOOT && g_showcmds) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER   B ATTACK");
 
     if (g_state==ST_PLAY && !g_showmap && g_radar_on) draw_radar(fb);
 
