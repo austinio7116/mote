@@ -829,6 +829,10 @@ static void build_vstats(void) {
 typedef struct { float x,z,yaw,spd; uint8_t variant, alive, hp; float animt; float flee;
                  uint8_t iscop; float firecd; } Ped;  /* iscop: a bailed-out officer on foot */
 
+/* Sprint stamina: 1 = full, 0 = empty. g_stam_spent latches at empty so you
+ * cannot re-trigger until it has recovered past STAM_ARM. */
+static float   g_stam = 1.0f;
+static uint8_t g_stam_spent;
 enum { MODE_FOOT, MODE_CAR };
 typedef struct { float x,z,yaw; int mode; int car; float animt; } Player;
 
@@ -4727,6 +4731,19 @@ static void g_update(float dt) {
          * corner; turning in place is invariant to that. */
         const float TURN = 3.0f;              /* rad/s */
         const float WALK_SPD = 5.0f;          /* m/s, same as the old 8-way walk */
+        /* SPRINT: hold B while walking FORWARD. B is also attack and every other
+         * button is taken (A interact, LB look-back, RB weapon switch), so the
+         * sprint is gated on UP being held too — tapping B to swing or shoot
+         * while standing still or backing up behaves exactly as it always has.
+         *
+         * Burns in STAM_BURN seconds and refills in STAM_FILL, and once it is
+         * emptied you cannot sprint again until it has recovered past
+         * STAM_ARM — without that latch you get a stutter where the player
+         * flickers between running and walking at zero stamina. */
+        #define STAM_BURN 2.6f
+        #define STAM_FILL 4.2f
+        #define STAM_ARM  0.35f
+        #define SPRINT_MUL 1.75f
         /* yaw+ turns visually LEFT under the chase camera — see drive_car. */
         if (mote_pressed(in, MOTE_BTN_LEFT))  player.yaw += TURN * dt;
         if (mote_pressed(in, MOTE_BTN_RIGHT)) player.yaw -= TURN * dt;
@@ -4736,12 +4753,24 @@ static void g_update(float dt) {
         if (mote_pressed(in, MOTE_BTN_UP))   drive =  1.0f;
         if (mote_pressed(in, MOTE_BTN_DOWN)) drive = -0.5f;   /* backing up is slower, and does not turn */
 
+        int want_run = drive > 0.0f && mote_pressed(in, MOTE_BTN_B) && !g_stam_spent;
+        if (want_run && g_stam > 0.0f) {
+            g_stam -= dt / STAM_BURN;
+            if (g_stam <= 0.0f) { g_stam = 0.0f; g_stam_spent = 1; }   /* latch until recovered */
+        } else {
+            g_stam += dt / STAM_FILL;
+            if (g_stam > 1.0f) g_stam = 1.0f;
+            if (g_stam_spent && g_stam >= STAM_ARM) g_stam_spent = 0;
+            want_run = 0;
+        }
+        float spd = WALK_SPD * (want_run ? SPRINT_MUL : 1.0f);
+
         if (drive != 0.0f) {
-            float nx = player.x + cosf(player.yaw) * WALK_SPD * drive * dt;
-            float nz = player.z + sinf(player.yaw) * WALK_SPD * drive * dt;
+            float nx = player.x + cosf(player.yaw) * spd * drive * dt;
+            float nz = player.z + sinf(player.yaw) * spd * drive * dt;
             if (!ped_blocked_by_car(nx,nz) || ped_blocked_by_car(player.x,player.z))
                 move_body(&player.x, &player.z, nx, nz, 0);
-            player.animt += dt*8.0f;
+            player.animt += dt * (want_run ? 13.0f : 8.0f);   /* legs keep up with the pace */
         }
         g_lookback = mote_pressed(in, MOTE_BTN_LB);
 
@@ -5467,6 +5496,16 @@ static void g_overlay(uint16_t *fb) {
     /* health bar */
     mote->draw_rect(fb, 2, 116, 40, 6, MOTE_RGB565(40,20,20), 1, 0,128);
     mote->draw_rect(fb, 2, 116, (int)(40*health/MAXHP), 6, MOTE_RGB565(210,60,60), 1, 0,128);
+    /* Stamina: a thin strip under the health bar, shown ONLY when it is not
+     * full. A permanent second bar would cost screen on a 128 px panel for
+     * something that reads as "fine" almost all the time; appearing when you
+     * start sprinting is the whole signal. Amber while it recovers, dim red
+     * while the latch is holding you at a walk. */
+    if (g_stam < 1.0f) {
+        uint16_t sc = g_stam_spent ? MOTE_RGB565(150,60,40) : MOTE_RGB565(230,180,60);
+        mote->draw_rect(fb, 2, 123, 40, 2, MOTE_RGB565(30,26,20), 1, 0,128);
+        mote->draw_rect(fb, 2, 123, (int)(40*g_stam), 2, sc, 1, 0,128);
+    }
     /* weapon + ammo */
     mote_ftextf(mote, fb, g_fmed, 60, 115, MOTE_RGB565(220,220,140), "%s", WNAME[weapon]);
     if (weapon!=W_FIST) mote_ftextf(mote, fb, g_fmed, 108, 115, MOTE_RGB565(200,200,210), "%d", ammo[weapon]);
