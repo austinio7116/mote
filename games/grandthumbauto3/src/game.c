@@ -1942,14 +1942,29 @@ static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int
     MoteBody2D *b=&bodies[ci];
     float cc=cosf(b->angle), ss=sinf(b->angle), fs=b->vx*cc+b->vy*ss;
     /* LB = PROGRESSIVE BRAKE: soft on a tap, ramping harder the longer it is held.
-     * It only becomes REVERSE once the car has actually STOPPED first. */
-    static float s_bhold; static int s_revok;
+     * It only becomes REVERSE once the car has actually STOPPED first.
+     *
+     * Two ways in. A FRESH press with the car already near a stop reverses at
+     * once (so a car nudging you never locks reverse out). Otherwise the press
+     * brakes — and then, once the car has actually come to rest and stayed
+     * there for REV_DWELL, it drops into reverse WITHOUT needing a release,
+     * the way an automatic does. Holding the pedal from speed used to brake to
+     * a stop and sit there forever, which gave no hint that reverse existed.
+     *
+     * The dwell is what stops a hard stop from snapping straight into reverse:
+     * the car settles for a quarter second first, which also covers the moment
+     * the brake clamp pins fs to zero. */
+    #define REV_STOP  0.35f      /* m/s: "stopped" */
+    #define REV_DWELL 0.25f      /* s at rest before reverse engages */
+    static float s_bhold; static int s_revok; static float s_stopt;
     if (brake){
-        if (s_bhold == 0.0f) s_revok = (fs < 3.0f);          /* decided at the PRESS: a FRESH brake press
-                                                                reverses unless you're still driving forward
-                                                                (so a car nudging you never locks out reverse) */
+        if (s_bhold == 0.0f){ s_revok = (fs < 3.0f); s_stopt = 0.0f; }
         s_bhold += dt;
-    } else s_bhold = 0;                                       /* release re-arms the decision */
+        if (!s_revok){                                        /* braked from speed: wait for rest */
+            if (fabsf(fs) < REV_STOP) { s_stopt += dt; if (s_stopt >= REV_DWELL) s_revok = 1; }
+            else s_stopt = 0.0f;
+        }
+    } else { s_bhold = 0; s_stopt = 0.0f; }                   /* release re-arms the decision */
     float thr = throttle?1.0f:0.0f, brk = 0.0f;
     int braking = 0;
     if (brake){
