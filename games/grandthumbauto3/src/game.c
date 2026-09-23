@@ -4764,6 +4764,22 @@ static int load_game(void) {
     return 1;
 }
 
+/* Is there a car the player could get into right now?
+ *
+ * The SAME predicate the enter branch uses (14 m^2, alive, not wrecked, not
+ * already yours, not the peer's in a deathmatch). RB on foot is contextual —
+ * use when something is in reach, cycle weapon otherwise — and if these two
+ * tests ever drifted apart a single press would do both. */
+static int car_in_reach(void) {
+    for (int i = 0; i < NCAR; i++) {
+        if (!cars[i].alive || cars[i].wrecked || cars[i].driver == DRV_PLAYER) continue;
+        if (g_dm && i == dm_peer_car) continue;
+        float dx = cars[i].x - player.x, dz = cars[i].z - player.z;
+        if (dx*dx + dz*dz < 14.0f) return 1;
+    }
+    return 0;
+}
+
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
@@ -4974,6 +4990,12 @@ static void g_update(float dt) {
     }
 
     int A = mote_just_pressed(in, MOTE_BTN_A);
+    /* USE = enter a car, exit a car, or work a shop/phone. It moved from A to
+     * RB so that A can be the throttle while driving, which is where a thumb
+     * naturally rests. On foot RB stays CONTEXTUAL: it only means "use" when
+     * something is actually in reach, and otherwise still cycles your weapon —
+     * so nothing had to be evicted to another button. */
+    int USE = mote_just_pressed(in, MOTE_BTN_RB);
     if (g_msg_t>0) g_msg_t-=dt;
     if (fire_cd>0) fire_cd-=dt;
     if (g_shell_cd>0) g_shell_cd-=dt;
@@ -5121,13 +5143,16 @@ static void g_update(float dt) {
         g_lookback = mote_pressed(in, MOTE_BTN_LB);
 
         if (mote_pressed(in, MOTE_BTN_B)) fire_weapon();
-        if (mote_just_pressed(in, MOTE_BTN_RB)){          /* RB: switch to your next owned weapon */
+        /* RB with nothing in reach: cycle your weapon, as it always did. The
+         * reach test below is the same one the USE branch runs, so the two can
+         * never both fire on one press. */
+        if (USE && !near_marker(MK_GUN,3.0f) && !near_marker(MK_PHONE,3.0f) && !car_in_reach()) {
             for (int t=0;t<NWEAP;t++){ weapon=(weapon+1)%NWEAP;
                 if (weapon==W_FIST || (owned[weapon] && ammo[weapon]>0)) break; }
             say(WNAME[weapon]);
         }
-        /* A: interact with a shop/phone if in range, else enter/jack a car */
-        if (A) {
+        /* RB: work a shop/phone if in range, else enter/jack a car */
+        else if (USE) {
             if (near_marker(MK_GUN, 3.0f))        buy_gun();
             else if (near_marker(MK_PHONE, 3.0f)) start_mission();
             else {
@@ -5179,7 +5204,7 @@ static void g_update(float dt) {
     } else {                                                   /* MODE_CAR */
         g_lookback = 0;                    /* can't stick from a foot session before entering */
         Car *c=&cars[player.car];
-        drive_car(c, dt, mote_pressed(in,MOTE_BTN_RB), mote_pressed(in,MOTE_BTN_LB),
+        drive_car(c, dt, mote_pressed(in,MOTE_BTN_A), mote_pressed(in,MOTE_BTN_LB),
                   mote_pressed(in,MOTE_BTN_LEFT), mote_pressed(in,MOTE_BTN_RIGHT));
         if (c->type==VEH_TANK){
             /* TURRET CONTROL: when the tank is (near) still, LEFT/RIGHT traverse the
@@ -5210,7 +5235,7 @@ static void g_update(float dt) {
         /* pay-n-spray: drive in with heat to lose the cops for a fee */
         if (near_marker(MK_SPRAY, 3.2f) && wanted()>0 && cash>=SPRAY_FEE){
             cash-=SPRAY_FEE; heat=0; if(c->alive)c->hp=100; say("SPRAYED - HEAT CLEARED"); sfx(&cash_sfx,0.7f); }
-        if (A && player.mode==MODE_CAR) {                      /* exit beside the car */
+        if (USE && player.mode==MODE_CAR) {                    /* RB: step out beside the car */
             int ci=player.car;
             float rx=cosf(c->yaw+1.5708f), rz=sinf(c->yaw+1.5708f);
             player.x=c->x+rx*2.2f; player.z=c->z+rz*2.2f; player.yaw=c->yaw;
@@ -5961,13 +5986,20 @@ static void g_overlay(uint16_t *fb) {
             mote_ftextc(mote, fb, g_fread, 64, 99, mtc, l2); }
         else { mote_dim_box(fb, 0, 99, 128, 17, 5);
             mote_ftextc(mote, fb, g_fread, 64, 102, mtc, l1); } }
-    else if (near_marker(MK_GUN,3.0f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(230,220,120), "A: BUY WEAPON");
-    else if (near_marker(MK_PHONE,3.0f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(150,200,240), "A: ANSWER PHONE");
+    else if (near_marker(MK_GUN,3.0f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(230,220,120), "RB: BUY WEAPON");
+    else if (near_marker(MK_PHONE,3.0f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(150,200,240), "RB: ANSWER PHONE");
     else if (near_marker(MK_SPRAY,3.4f)) {
         if (player.mode==MODE_CAR && wanted()>0) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(120,220,150), "DRIVE IN: RESPRAY $100");
         else mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(120,220,150), "SPRAY SHOP: LOSE HEAT"); }
     else if (near_marker(MK_DOCK,3.6f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(235,170,90), "DRIVE A CAR IN TO SELL");
-    else if (player.mode==MODE_FOOT && g_showcmds) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER/RUN  B ATTACK");
+    /* The prompt follows the mode, because the buttons do: on foot RB enters a
+     * car and A runs; behind the wheel A is the throttle and RB gets out. */
+    else if (g_showcmds) {
+        if (player.mode==MODE_FOOT)
+            mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "RB ENTER   A RUN");
+        else
+            mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A GAS  LB BRAKE  RB OUT");
+    }
 
     if (g_state==ST_PLAY && !g_showmap && g_radar_on) draw_radar(fb);
 
