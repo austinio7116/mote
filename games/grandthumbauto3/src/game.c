@@ -28,7 +28,8 @@
 #include "player.h"        /* player_img — 64x96, 4 facings x 6 rows */
 #include "ped.h"           /* ped_img — 64x256 */
 #include "cop.h"           /* cop_img — foot officer, 64x32 */
-#include "scenery.h"       /* scenery_img — oak/pine/autumn/bush/flowers/boulder, 20x20 */
+#include "scenery.h"       /* scenery_img — oak/pine/autumn/bush/flowers/boulder/palm, 20x20 */
+#define SCEN_PALM 6       /* cell 6: the beach palm (see assets/scenery.png) */
 #include "props.h"         /* props_img — phonebox / gun mat / spray decal, 16x16 */
 #include "title.font.h"    /* title — DejaVu Serif Condensed Bold @20px (edit in Studio Font tab) */
 #include "pickups.h"       /* pickups_img — cash/pistol/smg/shotgun/medkit, 16x16 */
@@ -5017,7 +5018,16 @@ static void g_update(float dt) {
               if (tile_at(x,z)!=' ') continue;
               unsigned h=(unsigned)(x*668265263u ^ z*374761393u); if ((h&3)==0) continue;
               float tx=x*TILE+((h>>4)&7)*0.4f+1.0f, tz=z*TILE+((h>>8)&7)*0.4f+1.0f;
-              draw_upright(&scenery_img, tx, tz, ((h>>2)&1)*20, 0, 20, 20, 5.5f, VIEW_GROUND_R, 2.0f);
+              /* Palms on the beaches: any park tile that touches water gets the
+               * palm cell instead of an oak, and stands taller. The test is the
+               * four neighbours of a tile we are already visiting, so it costs
+               * four tile_at() calls on park tiles only — no table, no extra
+               * pass, and nothing stored. */
+              int shore = tile_at(x+1,z)=='~' || tile_at(x-1,z)=='~'
+                       || tile_at(x,z+1)=='~' || tile_at(x,z-1)=='~';
+              int cell  = shore ? SCEN_PALM : (int)((h>>2)&1);
+              float ht  = shore ? 7.0f : 5.5f;
+              draw_upright(&scenery_img, tx, tz, cell*20, 0, 20, 20, ht, VIEW_GROUND_R, 2.0f);
           }
       } }
     /* bullet tracers: depth-tested 3D lines (Task 9), not overlay draw_line — so a
