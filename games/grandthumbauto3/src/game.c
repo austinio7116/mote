@@ -4052,6 +4052,51 @@ static void physics_pass(float dt) {
  * CARS2_N with no CAR_CLS/CAR_COL entry, so both are handled explicitly: a
  * van silhouette for the bus, a truck silhouette for the tank hull, both in a
  * neutral grey (the tank's turret keeps drawing as its own sprite below). */
+/* Vehicle-decal emitters.
+ *
+ * These exist for ONE reason: stack. The decals, lamps, spoiler and police
+ * lightbar were written as VPT/QUAD/ZFACE macros, where every VPT is a
+ * statement expression yielding a Vec3 and every QUAD takes four of them by
+ * value. At -O2 GCC gives each inlined temporary its own slot rather than
+ * reusing them, which took draw_vehicle_mesh's frame from 384 to 1472 bytes —
+ * measured with -fstack-usage.
+ *
+ * The device gives core0 PICO_STACK_SIZE = 0x1000, four kilobytes, in
+ * SCRATCH_Y; below it sit core1's stack and then GAME_RAM. The host has
+ * megabytes, so every headless capture looked perfect while the device fell
+ * over. Keeping these out of line means one small transient frame instead of a
+ * permanent 1.4 KB one in the caller.
+ *
+ * veh_pt maps a point in the mesh's normalised int8 space through the car's
+ * basis and scale, exactly as the body/cabin meshes are transformed. */
+static Vec3 veh_pt(const Mat3 *b, float cx, float cz, float k,
+                   float lx, float ly, float lz) {
+    Vec3 l = m3_mul_v3(b, v3(lx * k, ly * k, lz * k));
+    return v3(cx + l.x, l.y, cz + l.z);
+}
+
+/* One quad as two double-sided triangles. scene_add_tri is winding-proof, so a
+ * decal is two triangles with no winding to get wrong. */
+__attribute__((noinline))
+static void veh_quad(const Mat3 *b, float cx, float cz, float k,
+                     const float q[4][3], uint16_t col) {
+    Vec3 p0 = veh_pt(b, cx, cz, k, q[0][0], q[0][1], q[0][2]);
+    Vec3 p1 = veh_pt(b, cx, cz, k, q[1][0], q[1][1], q[1][2]);
+    Vec3 p2 = veh_pt(b, cx, cz, k, q[2][0], q[2][1], q[2][2]);
+    Vec3 p3 = veh_pt(b, cx, cz, k, q[3][0], q[3][1], q[3][2]);
+    mote->scene_add_tri(p0, p1, p2, col, 0);
+    mote->scene_add_tri(p0, p2, p3, col, 0);
+}
+
+/* A quad on an end face (constant z), which is where every lamp lives. */
+__attribute__((noinline))
+static void veh_zface(const Mat3 *b, float cx, float cz, float k,
+                      float x0, float x1, float y0, float y1, float z,
+                      uint16_t col) {
+    const float q[4][3] = { {x0,y0,z}, {x1,y0,z}, {x1,y1,z}, {x0,y1,z} };
+    veh_quad(b, cx, cz, k, q, col);
+}
+
 static void draw_vehicle_mesh(const Car *c) {
     int sil = (c->type < CARS2_N) ? gta3_sil_for_class(CAR_CLS[c->type])
                                   : (c->type == VEH_BUS ? GTA3_SIL_VAN : GTA3_SIL_TRUCK);
@@ -4167,7 +4212,7 @@ static void draw_vehicle_mesh(const Car *c) {
      * re-derived and drifting off it. */
     if (d2 < VEH_DETAIL_R * VEH_DETAIL_R && !c->wrecked) {
         float k = sc * (1.0f / 127.0f);
-        #define VPT(lx,ly,lz) ({ Vec3 l_ = m3_mul_v3(&b, v3((lx)*k,(ly)*k,(lz)*k));                                  v3(c->x + l_.x, l_.y, c->z + l_.z); })
+        float q[4][3];                       /* ONE reused quad buffer — see veh_quad */
         float cabx = m->cv[1].x, cabtop = m->cv[3].y;         /* squeezed cabin half-width, roofline */
         float cz0 = m->cv[0].z, cz1 = m->cv[4].z;             /* cabin z extent */
         float bodyx = m->bv[1].x, bodytop = m->bv[3].y;
@@ -4181,24 +4226,15 @@ static void draw_vehicle_mesh(const Car *c) {
 
         /* roof panel, lifted 2 units clear of the cabin so it cannot z-fight */
         { float rx = cabx * 0.86f, z0 = cz0 + 8, z1 = cz1 - 8, y = cabtop + 2;
-          Vec3 p0=VPT(-rx,y,z0), p1=VPT(rx,y,z0), p2=VPT(rx,y,z1), p3=VPT(-rx,y,z1);
-          mote->scene_add_tri(p0,p1,p2, trim, 0);
-          mote->scene_add_tri(p0,p2,p3, trim, 0); }
+          q[0][0]=-rx; q[0][1]=y; q[0][2]=z0;  q[1][0]= rx; q[1][1]=y; q[1][2]=z0;
+          q[2][0]= rx; q[2][1]=y; q[2][2]=z1;  q[3][0]=-rx; q[3][1]=y; q[3][2]=z1;
+          veh_quad(&b, c->x, c->z, k, q, trim); }
 
         /* bonnet stripe: a narrow band up the middle of the front deck */
         { float sx = bodyx * 0.22f, z0 = cz1 + 4, z1 = 118.0f, y = bodytop + 2;
-          Vec3 p0=VPT(-sx,y,z0), p1=VPT(sx,y,z0), p2=VPT(sx,y,z1), p3=VPT(-sx,y,z1);
-          mote->scene_add_tri(p0,p1,p2, trim, 0);
-          mote->scene_add_tri(p0,p2,p3, trim, 0); }
-
-        /* A quad, as the pair of double-sided triangles everything else here
-         * uses. ZFACE puts one on an end face (constant z), which is where
-         * every lamp lives. */
-        #define QUAD(p0,p1,p2,p3,col) do { mote->scene_add_tri((p0),(p1),(p2),(col),0); \
-                                           mote->scene_add_tri((p0),(p2),(p3),(col),0); } while (0)
-        #define ZFACE(x0,x1,y0,y1,z,col) \
-            QUAD(VPT((x0),(y0),(z)), VPT((x1),(y0),(z)), \
-                 VPT((x1),(y1),(z)), VPT((x0),(y1),(z)), (col))
+          q[0][0]=-sx; q[0][1]=y; q[0][2]=z0;  q[1][0]= sx; q[1][1]=y; q[1][2]=z0;
+          q[2][0]= sx; q[2][1]=y; q[2][2]=z1;  q[3][0]=-sx; q[3][1]=y; q[3][2]=z1;
+          veh_quad(&b, c->x, c->z, k, q, trim); }
 
         /* A rear spoiler for the supercars: a blade standing clear of the tail
          * on two end plates. RACER only, and only this close — the lowered
@@ -4209,9 +4245,15 @@ static void draw_vehicle_mesh(const Car *c) {
              * 2.9 m, so +26 put the blade 1.05 m off the deck — measured, and about
              * four times a real spoiler. +11 is roughly 0.25 m above the bodywork. */
             float sx = bodyx * 0.92f, y = bodytop + 11, z = -104;
-            QUAD(VPT(-sx,y,z-9), VPT(sx,y,z-9), VPT(sx,y,z+9), VPT(-sx,y,z+9), paint);
-            QUAD(VPT(-sx,bodytop,z), VPT(-sx,y,z), VPT(-sx,y,z+9), VPT(-sx,bodytop,z+9), paint);
-            QUAD(VPT( sx,bodytop,z), VPT( sx,y,z), VPT( sx,y,z+9), VPT( sx,bodytop,z+9), paint);
+            q[0][0]=-sx; q[0][1]=y; q[0][2]=z-9;  q[1][0]= sx; q[1][1]=y; q[1][2]=z-9;
+            q[2][0]= sx; q[2][1]=y; q[2][2]=z+9;  q[3][0]=-sx; q[3][1]=y; q[3][2]=z+9;
+            veh_quad(&b, c->x, c->z, k, q, paint);
+            for (int e = 0; e < 2; e++) {       /* the two end plates */
+                float ex = e ? sx : -sx;
+                q[0][0]=ex; q[0][1]=bodytop; q[0][2]=z;    q[1][0]=ex; q[1][1]=y; q[1][2]=z;
+                q[2][0]=ex; q[2][1]=y;       q[2][2]=z+9;  q[3][0]=ex; q[3][1]=bodytop; q[3][2]=z+9;
+                veh_quad(&b, c->x, c->z, k, q, paint);
+            }
         }
 
         /* Lamps, lit only once the sun is low, in the shape the silhouette asks
@@ -4233,24 +4275,24 @@ static void draw_vehicle_mesh(const Car *c) {
             case GTA3_LAMP_RECT: {
                 float w = bodyx * 0.20f, h = bodytop * 0.22f;
                 if (h < 5.0f) h = 5.0f;
-                ZFACE(-lx-w, -lx+w, ly-h, ly+h, -133, TAIL);
-                ZFACE( lx-w,  lx+w, ly-h, ly+h, -133, TAIL);
-                ZFACE(-lx-w, -lx+w, ly-h, ly+h,  133, HEAD);
-                ZFACE( lx-w,  lx+w, ly-h, ly+h,  133, HEAD);
+                veh_zface(&b, c->x, c->z, k, -lx-w, -lx+w, ly-h, ly+h, -133, TAIL);
+                veh_zface(&b, c->x, c->z, k,  lx-w,  lx+w, ly-h, ly+h, -133, TAIL);
+                veh_zface(&b, c->x, c->z, k, -lx-w, -lx+w, ly-h, ly+h,  133, HEAD);
+                veh_zface(&b, c->x, c->z, k,  lx-w,  lx+w, ly-h, ly+h,  133, HEAD);
                 break; }
             case GTA3_LAMP_BAR: {
                 float w = bodyx * 0.80f, h = bodytop * 0.13f, sw = bodyx * 0.30f;
                 if (h < 4.0f) h = 4.0f;
-                ZFACE(-w, w, ly-h, ly+h, -133, TAIL);              /* one bar across the tail */
-                ZFACE(-lx-sw, -lx+sw, ly-h, ly+h, 133, HEAD);      /* two slits at the front */
-                ZFACE( lx-sw,  lx+sw, ly-h, ly+h, 133, HEAD);
+                veh_zface(&b, c->x, c->z, k, -w, w, ly-h, ly+h, -133, TAIL);   /* bar across the tail */
+                veh_zface(&b, c->x, c->z, k, -lx-sw, -lx+sw, ly-h, ly+h, 133, HEAD); /* two front slits */
+                veh_zface(&b, c->x, c->z, k,  lx-sw,  lx+sw, ly-h, ly+h, 133, HEAD);
                 break; }
             default: {
                 float r = 0.17f;
-                mote->scene_add_disc(VPT(-lx,ly,-133), r, TAIL);
-                mote->scene_add_disc(VPT( lx,ly,-133), r, TAIL);
-                mote->scene_add_disc(VPT(-lx,ly, 133), r*1.15f, HEAD);
-                mote->scene_add_disc(VPT( lx,ly, 133), r*1.15f, HEAD);
+                mote->scene_add_disc(veh_pt(&b, c->x, c->z, k, -lx, ly, -133), r, TAIL);
+                mote->scene_add_disc(veh_pt(&b, c->x, c->z, k,  lx, ly, -133), r, TAIL);
+                mote->scene_add_disc(veh_pt(&b, c->x, c->z, k, -lx, ly,  133), r*1.15f, HEAD);
+                mote->scene_add_disc(veh_pt(&b, c->x, c->z, k,  lx, ly,  133), r*1.15f, HEAD);
                 break; }
             }
         }
@@ -4262,12 +4304,13 @@ static void draw_vehicle_mesh(const Car *c) {
         if (c->type == CAR_POLICE || c->type == CAR_POLICE2) {
             const uint16_t LIVERY = MOTE_RGB565(238,240,244);
             float y0 = bodytop * 0.30f, y1 = bodytop * 0.82f;
-            QUAD(VPT(-121,y0,-70), VPT(-121,y0,70), VPT(-121,y1,70), VPT(-121,y1,-70), LIVERY);
-            QUAD(VPT( 121,y0,-70), VPT( 121,y0,70), VPT( 121,y1,70), VPT( 121,y1,-70), LIVERY);
+            for (int e = 0; e < 2; e++) {
+                float ex = e ? 121.0f : -121.0f;
+                q[0][0]=ex; q[0][1]=y0; q[0][2]=-70;  q[1][0]=ex; q[1][1]=y0; q[1][2]= 70;
+                q[2][0]=ex; q[2][1]=y1; q[2][2]= 70;  q[3][0]=ex; q[3][1]=y1; q[3][2]=-70;
+                veh_quad(&b, c->x, c->z, k, q, LIVERY);
+            }
         }
-        #undef ZFACE
-        #undef QUAD
-        #undef VPT
     }
 
     /* Police lightbar. Gated at the WHEEL radius, not the detail radius: the bar
@@ -4282,8 +4325,7 @@ static void draw_vehicle_mesh(const Car *c) {
     if ((c->type == CAR_POLICE || c->type == CAR_POLICE2) && !c->wrecked &&
         d2 < VEH_WHEEL_R * VEH_WHEEL_R) {
         float k = sc * (1.0f / 127.0f);
-        #define VPT(lx,ly,lz) ({ Vec3 l_ = m3_mul_v3(&b, v3((lx)*k,(ly)*k,(lz)*k)); \
-                                 v3(c->x + l_.x, l_.y, c->z + l_.z); })
+        float q[4][3];
         float cabx = m->cv[1].x, cabtop = m->cv[3].y;
         float bw = cabx * 0.88f, y0 = cabtop + 2, y1 = cabtop + 14;
         int phase = c->driver == DRV_COP ? ((int)(mote->micros() / 250000ull) & 1) : -1;
@@ -4293,13 +4335,14 @@ static void draw_vehicle_mesh(const Car *c) {
             float x0 = h ? 0.0f : -bw, x1 = h ? bw : 0.0f;
             uint16_t col = h ? blue : red;
             /* top */
-            mote->scene_add_tri(VPT(x0,y1,-19), VPT(x1,y1,-19), VPT(x1,y1,19), col, 0);
-            mote->scene_add_tri(VPT(x0,y1,-19), VPT(x1,y1, 19), VPT(x0,y1,19), col, 0);
+            q[0][0]=x0; q[0][1]=y1; q[0][2]=-19;  q[1][0]=x1; q[1][1]=y1; q[1][2]=-19;
+            q[2][0]=x1; q[2][1]=y1; q[2][2]= 19;  q[3][0]=x0; q[3][1]=y1; q[3][2]= 19;
+            veh_quad(&b, c->x, c->z, k, q, col);
             /* rear face, so the bar is still there from directly behind */
-            mote->scene_add_tri(VPT(x0,y0,-19), VPT(x1,y0,-19), VPT(x1,y1,-19), col, 0);
-            mote->scene_add_tri(VPT(x0,y0,-19), VPT(x1,y1,-19), VPT(x0,y1,-19), col, 0);
+            q[0][0]=x0; q[0][1]=y0; q[0][2]=-19;  q[1][0]=x1; q[1][1]=y0; q[1][2]=-19;
+            q[2][0]=x1; q[2][1]=y1; q[2][2]=-19;  q[3][0]=x0; q[3][1]=y1; q[3][2]=-19;
+            veh_quad(&b, c->x, c->z, k, q, col);
         }
-        #undef VPT
     }
 
     /* One oriented shadow, replacing the eight-triangle octagon that used to
