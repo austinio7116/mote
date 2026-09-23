@@ -881,9 +881,21 @@ static void apply_drive(MoteBody2D *b, const VStat *v, float throttle, float bra
     /* drive ONLY along the heading; the engine's tyre model owns the sideways
      * velocity, so a hard turn's momentum builds into a real slide. */
     float ofs = b->vx*c + b->vy*s;                    /* current forward speed */
-    /* global feel: punchier acceleration + higher top speed (cars felt sluggish) */
-    float tfs = ofs + (throttle*v->accel*1.5f - brake*v->accel*1.7f)*dt;
-    tfs = mote_clampf(tfs, -v->maxspd*1.3f*0.45f, v->maxspd*1.3f);
+    /* Acceleration falls away as speed rises, instead of being constant until it
+     * slams into a clamp. pull = 1 - (v/vmax)^2 is the standard drag shape: full
+     * shove off the line, tapering to nothing as the car approaches its top
+     * speed, so the car settles onto vmax rather than pinning to it.
+     *
+     * The multiplier drops 1.5 -> 1.0 at the same time. Flat 1.5 put a sedan at
+     * its 84 km/h top speed in 0.6 s, which is what made it feel fake: there
+     * was no sense of gathering speed, just an instant jump to the clamp. With
+     * drag at 1.0 the same car passes 50% in 0.51 s and 95% in 1.71 s — still
+     * brisk for an arcade city, but you can feel it pulling. */
+    float vmax = v->maxspd * 1.3f;
+    float frac = mote_clampf(fabsf(ofs) / vmax, 0.0f, 1.0f);
+    float pull = 1.0f - frac * frac;
+    float tfs = ofs + (throttle*v->accel*1.0f*pull - brake*v->accel*1.7f)*dt;
+    tfs = mote_clampf(tfs, -vmax*0.45f, vmax);      /* kept as a bound; drag should reach it first */
     float dfs = tfs - ofs;
     b->vx += c*dfs; b->vy += s*dfs;                   /* change speed along heading; leave lateral alone */
     /* progressive steering (builds while held, snaps on reversal, relaxes on release).
@@ -891,14 +903,20 @@ static void apply_drive(MoteBody2D *b, const VStat *v, float throttle, float bra
      * tight at a crawl and wide at speed. Held hard at speed, the low grip lets go. */
     if (steer == 0.0f)                         steerhold[ci] -= steerhold[ci]*mote_clampf(7.0f*dt,0,1);
     else if (steerhold[ci]*steer < 0.0f)       steerhold[ci] = steer*0.30f;      /* reversal */
-    else                                       steerhold[ci] = mote_clampf(steerhold[ci] + steer*2.6f*dt, -1.0f, 1.0f);
+    else                                       steerhold[ci] = mote_clampf(steerhold[ci] + steer*4.6f*dt, -1.0f, 1.0f);
     float spd  = fabsf(tfs);
     float gate = mote_clampf((spd-0.45f)*0.9f, 0.0f, 1.0f);   /* DEAD when still: wheels need some roll to turn */
     /* steering-wheel model: yaw carries the SIGN of travel — wheel held left drives a
      * left arc forward, and re-traces that same arc when backing up (yaw flips). */
     float rev  = (tfs < 0.0f) ? -1.0f : 1.0f;
-    float targ = steerhold[ci] * v->turn * 0.82f * gate * rev;
-    b->avel += (targ - b->avel) * mote_clampf(7.0f*dt, 0.0f, 1.0f);
+    /* Extra yaw authority at TOWN speeds only. Yaw rate used to be flat above
+     * the gate, so turning radius (v / yaw) grew straight with speed and city
+     * corners needed a run-up. This lifts yaw by up to 45% below ~14 m/s and
+     * leaves fast driving exactly as it was, so corners tighten without making
+     * the highway twitchy. */
+    float turnfac = 1.0f + 0.45f * (1.0f - mote_clampf(spd * (1.0f/14.0f), 0.0f, 1.0f));
+    float targ = steerhold[ci] * v->turn * 0.82f * turnfac * gate * rev;
+    b->avel += (targ - b->avel) * mote_clampf(9.0f*dt, 0.0f, 1.0f);   /* 7 -> 9: wheel bites sooner */
 }
 static float ang_diff(float target, float cur){ float d=target-cur; while(d>3.14159f)d-=6.2832f; while(d<-3.14159f)d+=6.2832f; return d; }
 static void ai_drive(int i, float target_yaw, float throttle, float dt) {
