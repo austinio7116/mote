@@ -5211,7 +5211,11 @@ static void g_update(float dt) {
     } else {                                                   /* MODE_CAR */
         g_lookback = 0;                    /* can't stick from a foot session before entering */
         Car *c=&cars[player.car];
-        drive_car(c, dt, mote_pressed(in,MOTE_BTN_A), mote_pressed(in,MOTE_BTN_LB),
+        /* Behind the wheel the pedals sit under the two face buttons — A gas,
+         * B brake/reverse — and shooting moves to the left shoulder. On foot B
+         * is still attack and LB is still look-back; the two modes are
+         * separate, so neither binding had to give anything up. */
+        drive_car(c, dt, mote_pressed(in,MOTE_BTN_A), mote_pressed(in,MOTE_BTN_B),
                   mote_pressed(in,MOTE_BTN_LEFT), mote_pressed(in,MOTE_BTN_RIGHT));
         if (c->type==VEH_TANK){
             /* TURRET CONTROL: when the tank is (near) still, LEFT/RIGHT traverse the
@@ -5222,7 +5226,7 @@ static void g_update(float dt) {
                 if (mote_pressed(in,MOTE_BTN_RIGHT)) g_turret -= 2.2f*dt;
             } else g_turret += ang_diff(c->yaw, g_turret) * mote_clampf(2.5f*dt,0,1);
         }
-        if (mote_pressed(in, MOTE_BTN_B)){ if(c->type==VEH_TANK) fire_shell(c); else fire_weapon(); }
+        if (mote_pressed(in, MOTE_BTN_LB)){ if(c->type==VEH_TANK) fire_shell(c); else fire_weapon(); }
         /* SELL DOCK: roll onto the pier slowly and the fence takes the car */
         if (near_marker(MK_DOCK, 3.4f) && fabsf(c->spd)<3.0f && !c->wrecked){
             static const uint16_t SELL[19]={ 180,140,220,700,1200,450,300,350,550,650,
@@ -5626,9 +5630,9 @@ static void draw_controls(uint16_t *fb) {
         { "",     "IN CAR"           },
         { "DPAD", "STEER"            },
         { "A",    "GAS"              },
-        { "LB",   "BRAKE / REVERSE"  },
+        { "B",    "BRAKE / REVERSE"  },
+        { "LB",   "FIRE"             },
         { "RB",   "GET OUT"          },
-        { "B",    "FIRE"             },
         { "",     "ANYWHERE"         },
         { "MENU", "MAP / SETTINGS"   },
     };
