@@ -12,7 +12,8 @@
  */
 #include "mote_api.h"
 #include "mote_build.h"
-#include "ground.h"        /* ground_img  — 8-cell 16px atlas (asphalt/pavement/grass/water/...) */
+#include "ground.h"        /* ground_img  — 16-cell 16px atlas, 2 rows (see ground_uv) */
+#include "water_beach.h"   /* water_beach_img — the water autotile with NO seawall, for beaches */
 #include "bld_brick.h"      /* bld_brick_img  — 64x32 wall|roof atlas (facade|roof) */
 #include "bld_office.h"     /* bld_office_img */
 #include "bld_tower.h"      /* bld_tower_img  */
@@ -320,11 +321,16 @@ static void draw_ground_sprite(const MoteImage *img, float wx,float wz, float ya
     mote->scene_add_object_ex(&o, MOTE_DRAW_NO_DEPTH_WRITE);
 }
 /* atlas cell -> the two-triangle UV set (cell is 16px of a 128px-wide atlas). */
-enum { G_ASPHALT, G_DASH, G_PAVE, G_GRASS, G_WATER, G_CROSS, G_EDGE, G_DIRT };
+/* ground.png is TWO rows of 8 cells: cell = row*8 + col. It was one row, but
+ * ground_uv packs u as cell*32 into a uint8_t, so cell 8 wraps to u=0 and the
+ * sheet was hard-capped at 8 — all of which were already in use. */
+enum { G_ASPHALT, G_DASH, G_PAVE, G_GRASS, G_WATER, G_CROSS, G_EDGE, G_DIRT,
+       G_SAND, G_SANDWET };
 static void ground_uv(int cell) {
-    uint8_t u0 = (uint8_t)(cell * 32), u1 = (uint8_t)(cell * 32 + 31);
-    /* v0..v1 = 0..255 (full tile). corners: 0=(u0,0)1=(u1,0)2=(u1,255)3=(u0,255) */
-    uint8_t U[4] = { u0, u1, u1, u0 }, V[4] = { 0, 0, 255, 255 };
+    int col = cell & 7, row = cell >> 3;
+    uint8_t u0 = (uint8_t)(col * 32), u1 = (uint8_t)(col * 32 + 31);
+    uint8_t v0 = (uint8_t)(row * 128), v1 = (uint8_t)(row * 128 + 127);
+    uint8_t U[4] = { u0, u1, u1, u0 }, V[4] = { v0, v0, v1, v1 };
     int idx[2][3] = { {0,1,2}, {0,2,3} };
     for (int f = 0; f < 2; f++)
         for (int k = 0; k < 3; k++) { g_guv[f*6+k*2] = U[idx[f][k]]; g_guv[f*6+k*2+1] = V[idx[f][k]]; }
@@ -2228,6 +2234,41 @@ static void draw_water_shimmer(void) {
         }
 }
 
+/* BEACHES, entirely at draw time — there is no sand tile in the map.
+ *
+ * A real T_SAND char would mean auditing every T_GRASS test in citygen.h (about
+ * twenty) plus walkable_world, drivable_world and the bench, tree and ped
+ * placement rules, and for a change that is purely how the ground is painted it
+ * buys nothing. draw_ground_window already has (x,z), so the cell is chosen from
+ * the tile's surroundings instead, which is the same test the palm rule uses —
+ * so palms end up standing on the sand for free.
+ *
+ * Returns 0 not a beach, 1 wet sand (on the water), 2 dry sand (one tile back).
+ * Sand does NOT change handling: drivable_world and walkable_world still see
+ * plain grass, so nothing reaches the physics solver. */
+static int beach_block(int x, int z) {
+    /* Beaches come in STRETCHES, not speckle: one hash per 8x8 block (32 m)
+     * decides whether this piece of waterfront is sand at all, so some shores
+     * stay grass behind their seawall and the coast reads as varied. */
+    unsigned h = ((unsigned)(x >> 3) * 0x27d4eb2du) ^ ((unsigned)(z >> 3) * 0x165667b1u);
+    return ((h >> 11) & 3) == 0;
+}
+/* Grass with open water on one of its four sides. '~' directly, not
+ * is_waterlike(), because that counts bridge tiles and a bridge deck is not a
+ * shore. */
+static int shore_tile(int x, int z) {
+    if (tile_at(x, z) != ' ') return 0;
+    return tile_at(x+1, z) == '~' || tile_at(x-1, z) == '~'
+        || tile_at(x, z+1) == '~' || tile_at(x, z-1) == '~';
+}
+static int beach_at(int x, int z) {
+    if (tile_at(x, z) != ' ' || !beach_block(x, z)) return 0;
+    if (shore_tile(x, z)) return 1;
+    if (shore_tile(x+1, z) || shore_tile(x-1, z) ||
+        shore_tile(x, z+1) || shore_tile(x, z-1)) return 2;
+    return 0;
+}
+
 static void draw_ground_skirt(void) {
     float s = VIEW_BLD_R;
     float x0 = view_x - s, x1 = view_x + s, z0 = view_z - s, z1 = view_z + s;
@@ -2249,15 +2290,24 @@ static void draw_ground_window(void) {
             if (c == '.' || c == 'B') {              /* road + bridge use the road sheet */
                 g_ground.texture = &roads_img;
                 road_uv(roads_at.lut[road_mask(x, z)]);
-            } else if (c == '~') {                    /* water: autotiled seawall shorelines */
-                g_ground.texture = &water_img;
+            } else if (c == '~') {                    /* water: autotiled shorelines */
+                /* The seawall — concrete cap, seam and shadow — is baked into
+                 * the closed sides of every cell in water.png, so water next to
+                 * a beach would draw a wall across it. water_beach.png is the
+                 * same 16 cells with the wall replaced by wet sand shelving out
+                 * through shallows, and it reuses water_at.lut because the
+                 * mask-to-cell mapping is identical. */
+                int sandy = beach_at(x+1, z) || beach_at(x-1, z)
+                         || beach_at(x, z+1) || beach_at(x, z-1);
+                g_ground.texture = sandy ? &water_beach_img : &water_img;
                 road_uv(water_at.lut[water_mask(x, z)]);
             } else if (is_garage(x, z)) {            /* garage bay floor: use the pavement cell so it reads as a drive-in */
                 g_ground.texture = &ground_img;
                 ground_uv(ground_cell(','));
             } else {
                 g_ground.texture = &ground_img;
-                ground_uv(ground_cell(c));
+                int b = (c == ' ') ? beach_at(x, z) : 0;
+                ground_uv(b == 1 ? G_SANDWET : b == 2 ? G_SAND : ground_cell(c));
             }
             mote_draw(mote, &g_ground, v3(x*TILE+TILE*0.5f, 0, z*TILE+TILE*0.5f));
             if (c == '.' || c == 'B') road_markings(x, z);

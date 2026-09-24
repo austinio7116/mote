@@ -136,6 +136,10 @@ def build_ground(path):
         px[x,y]=(140,118,84,255)
     im.save(path); print("wrote", path)
 
+# WARNING: this path is absolute, belongs to another machine, and points at
+# games/grandthumbauto -- NOT grandthumbauto3. Running this script as-is here
+# either fails or overwrites the wrong game's committed art. make_beach.py
+# derives its ROOT from the script's own location; do that before running this.
 ROOT = "/home/maustin/thumby-color/mote/games/grandthumbauto/assets"
 build(road_cell,  f"{ROOT}/roads.png")
 build(water_cell, f"{ROOT}/water.png")
