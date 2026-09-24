@@ -84,6 +84,8 @@
   figcaption{color:var(--dim);font-size:.9rem;margin-top:8px;max-width:76ch}
   .grid{display:grid;gap:18px}
   .g2{grid-template-columns:repeat(2,1fr)}
+  .closeups figure{margin:0 0 10px}
+  .closeups figcaption{color:var(--gold);letter-spacing:.05em}
   .g3{grid-template-columns:repeat(3,1fr)}
   .g4{grid-template-columns:repeat(4,1fr)}
   @media(max-width:900px){.g3,.g4{grid-template-columns:repeat(2,1fr)}}
@@ -187,7 +189,7 @@
       <span class="badge">32 GAMES</span>
       <span class="badge">10 BED SHAPES</span>
       <span class="badge">8 OPPONENTS</span>
-      <span class="badge">18 CUES</span>
+      <span class="badge">22 CUES</span>
       <span class="badge">PRO / TOURNAMENT / CLUB</span>
       <span class="badge">BUILD YOUR OWN TABLE</span>
       <span class="badge">PLAY A FRIEND</span>
@@ -2528,14 +2530,12 @@
     <tr><td><b>BALLS</b> (the strip)</td><td>Which set of balls is racked. Twenty-one sets. The
       chips on the same card also set whether the cue ball carries <b>measle spots</b> — with them
       on you can see what the white is doing, how much it is spinning and which way.</td></tr>
-    <tr><td><b>CUE</b> (the strip)</td><td>Your cue, from a rack of eighteen.</td></tr>
+    <tr><td><b>CUE</b> (the strip)</td><td>Your cue, from a rack of twenty-two or your own.</td></tr>
     <tr><td><b>Environment &rarr; Lighting</b></td><td>The light rig over the table.</td></tr>
     <tr><td><b>Environment &rarr; Surroundings</b></td><td>Your own room, a dark hall, or an arena.
       Also three chips on the pause menu, since that is the one you change mid-frame.</td></tr>
-    <tr><td><b>Workshop &rarr; Cue</b></td><td>Start from any of the eighteen cues and change the
-      parts you care about: splice points, point length, veneers, shaft (ash or maple), butt figure,
-      and the splice, accent and butt colours. The cue you are building lies on the table while you
-      work.</td></tr>
+    <tr><td><b>Workshop &rarr; Cue</b></td><td>Build a cue the way a real one is made: splice,
+      veneers, panels, insert, plate, end cap, woods and colours. See <a href="#cues">Cues</a>.</td></tr>
     <tr><td><b>Workshop &rarr; Ball set</b></td><td>Start from an authored set and change the style,
       numbers, band width, number spokes, stripe ground, the low balls, the high balls and the
       black. Any colour row can step back to <b>PER NUMBER</b> to take its colour from the set's own
@@ -2544,8 +2544,9 @@
       to it since.</td></tr>
   </table>
 
-  <p>Both builders save with your preferences, and your custom cue never appears in your opponent's
-  hands online — they see the cue they chose.</p>
+  <p>Both workshops keep what you build, and both can <b>SHARE</b> it as a six-letter code and take
+  one in with <b>ENTER A CODE</b>. The ball workshop's <b>START FROM</b> lists your own sets after
+  the built-in ones. Online, your opponent sees your cue as you built it.</p>
 
   <h3>Table designs</h3>
   <p>Five bodies, on the <b>BODY</b> chips at the top of the timber card. Each one follows the
@@ -3221,16 +3222,8 @@
 
 <section id="cues">
   <h2>Cues</h2>
-  <p class="lede">Eighteen cues, each modelled on a real one. Your choice is saved, and in an online
-  match it is the cue your opponent sees in your hands.</p>
-
-  <h3>Building your own</h3>
-  <p><b>Workshop &rarr; Cue</b> is a cue designer laid out like the ball and table workshops: a rail
-  of pages down the side, sliders and pickers rather than steppers, and the cue in your hands
-  changing as you work. Length, taper, tip, splice, woods, wrap, badge and ferrule.</p>
-  <p>The cues you build are <b>kept</b>. Save one and it joins your library, photographed as it
-  looks, and it sits alongside the eighteen on the cue picker for you to take back up whenever you
-  like. You can go back and alter one, save it as a new cue, or throw it away.</p>
+  <p class="lede">Twenty-two cues, each made the way a real one is. Your choice is saved, and in an
+  online match your opponent sees the cue in your hands exactly as you built it.</p>
 
   <div class="rack">
     <div class="row"><div class="nm">GASLIGHT</div><img src="img/cuevr/cue0.jpg" alt="Gaslight cue"></div>
@@ -3251,8 +3244,119 @@
     <div class="row"><div class="nm">MOONSTONE</div><img src="img/cuevr/cue15.jpg" alt="Moonstone cue"></div>
     <div class="row"><div class="nm">SAPPHIRE</div><img src="img/cuevr/cue16.jpg" alt="Sapphire cue"></div>
     <div class="row"><div class="nm">CATHEDRAL</div><img src="img/cuevr/cue17.jpg" alt="Cathedral cue"></div>
+    <div class="row"><div class="nm">HAND MADE</div><img src="img/cuevr/cue18.jpg" alt="Hand Made cue"></div>
+    <div class="row"><div class="nm">CARBON</div><img src="img/cuevr/cue19.jpg" alt="Carbon cue"></div>
+    <div class="row"><div class="nm">JUBILEE</div><img src="img/cuevr/cue20.jpg" alt="Jubilee cue"></div>
+    <div class="row"><div class="nm">ST GEORGE</div><img src="img/cuevr/cue21.jpg" alt="St George cue"></div>
   </div>
 
+  <h3>Close up</h3>
+  <p>The butt of every cue, from the splice to the end. Every one is built the same way: the points
+  are spliced into the butt with their veneers, panels are let in round it, and a plate or insert
+  sits in the flat at the end.</p>
+  <div class="closeups">
+    <figure><img src="img/cuevr/cue0-butt.jpg" alt="The butt of the Gaslight cue"><figcaption>GASLIGHT</figcaption></figure>
+    <figure><img src="img/cuevr/cue1-butt.jpg" alt="The butt of the Twin Flame cue"><figcaption>TWIN FLAME</figcaption></figure>
+    <figure><img src="img/cuevr/cue2-butt.jpg" alt="The butt of the Edwardian cue"><figcaption>EDWARDIAN</figcaption></figure>
+    <figure><img src="img/cuevr/cue3-butt.jpg" alt="The butt of the Mayfair cue"><figcaption>MAYFAIR</figcaption></figure>
+    <figure><img src="img/cuevr/cue4-butt.jpg" alt="The butt of the Kingfisher cue"><figcaption>KINGFISHER</figcaption></figure>
+    <figure><img src="img/cuevr/cue5-butt.jpg" alt="The butt of the Regency cue"><figcaption>REGENCY</figcaption></figure>
+    <figure><img src="img/cuevr/cue6-butt.jpg" alt="The butt of the Royal cue"><figcaption>ROYAL</figcaption></figure>
+    <figure><img src="img/cuevr/cue7-butt.jpg" alt="The butt of the Prism cue"><figcaption>PRISM</figcaption></figure>
+    <figure><img src="img/cuevr/cue8-butt.jpg" alt="The butt of the Lagoon cue"><figcaption>LAGOON</figcaption></figure>
+    <figure><img src="img/cuevr/cue9-butt.jpg" alt="The butt of the Sunset cue"><figcaption>SUNSET</figcaption></figure>
+    <figure><img src="img/cuevr/cue10-butt.jpg" alt="The butt of the Riptide cue"><figcaption>RIPTIDE</figcaption></figure>
+    <figure><img src="img/cuevr/cue11-butt.jpg" alt="The butt of the Ember cue"><figcaption>EMBER</figcaption></figure>
+    <figure><img src="img/cuevr/cue12-butt.jpg" alt="The butt of the Cardinal cue"><figcaption>CARDINAL</figcaption></figure>
+    <figure><img src="img/cuevr/cue13-butt.jpg" alt="The butt of the Blue Note cue"><figcaption>BLUE NOTE</figcaption></figure>
+    <figure><img src="img/cuevr/cue14-butt.jpg" alt="The butt of the Owl's Eye cue"><figcaption>OWL'S EYE</figcaption></figure>
+    <figure><img src="img/cuevr/cue15-butt.jpg" alt="The butt of the Moonstone cue"><figcaption>MOONSTONE</figcaption></figure>
+    <figure><img src="img/cuevr/cue16-butt.jpg" alt="The butt of the Sapphire cue"><figcaption>SAPPHIRE</figcaption></figure>
+    <figure><img src="img/cuevr/cue17-butt.jpg" alt="The butt of the Cathedral cue"><figcaption>CATHEDRAL</figcaption></figure>
+    <figure><img src="img/cuevr/cue18-butt.jpg" alt="The butt of the Hand Made cue"><figcaption>HAND MADE</figcaption></figure>
+    <figure><img src="img/cuevr/cue19-butt.jpg" alt="The butt of the Carbon cue"><figcaption>CARBON</figcaption></figure>
+    <figure><img src="img/cuevr/cue20-butt.jpg" alt="The butt of the Jubilee cue"><figcaption>JUBILEE</figcaption></figure>
+    <figure><img src="img/cuevr/cue21-butt.jpg" alt="The butt of the St George cue"><figcaption>ST GEORGE</figcaption></figure>
+  </div>
+
+  <h3>Building your own</h3>
+  <p><b>Workshop &rarr; Cue</b> has a rail of pages down the side and the cue on the table in
+  front of you. It turns to whatever part you are editing, and every change shows on it
+  straight away.</p>
+
+  <figure>
+    <img src="img/cuevr/cw-cue.jpg" alt="The Cue page of the cue workshop">
+    <figcaption><b>Cue.</b> The name, the rack cue to start from, and saving, sharing and
+    deleting.</figcaption>
+  </figure>
+
+  <table>
+    <tr><th>Page</th><th>What it sets</th></tr>
+    <tr><td><b>Cue</b></td><td>The name, and which cue you start from: any rack cue, or one of your
+      own.</td></tr>
+    <tr><td><b>Shaft</b></td><td>The timber (ash, maple, birdseye, flame or carbon), its colour and
+      lightness, the ring spacing, contrast and arrows of the grain, the ferrule, the tip, the
+      varnish and the cue's length.</td></tr>
+    <tr><td><b>Splice</b></td><td>How many points (none, 4, 6 or 8), by hand or by machine, how long
+      they are, where the splice sits, how round the tips are and how long the veneers' crescents
+      run.</td></tr>
+    <tr><td><b>Veneers</b></td><td>Up to eight veneers under the points and round the panel, each with
+      its own colour and thickness. The points and the panel are set separately.</td></tr>
+    <tr><td><b>Butt</b></td><td>The butt timber, its figure and lightness, and the collar: brass,
+      silver, black or ivory, its width and where it sits.</td></tr>
+    <tr><td><b>Panel</b></td><td>No panel, one on the front, or four round the butt; how long and wide
+      they are, how they spread into the butt, an inner panel set back inside, and a cross band and
+      stripe let in across them.</td></tr>
+    <tr><td><b>Panel wood</b></td><td>What the panel is made of, a timber with its figure or mother of
+      pearl, and its lightness.</td></tr>
+    <tr><td><b>Insert</b></td><td>A block of another material at the end of the panel: its length and
+      the shape of its top, and the flat on the butt that the plate sits in.</td></tr>
+    <tr><td><b>Plate</b></td><td>The maker's plate: its shape, what it is made of, the screws or pins,
+      a border, the emblem and the lettering. Lettering can be all capitals, or fill the plate's
+      width.</td></tr>
+    <tr><td><b>Extras</b></td><td>For a pool cue: a linen wrap, a butt sleeve, rings and
+      inlays.</td></tr>
+    <tr><td><b>End cap</b></td><td>A capped butt with rings, and a flag or disc on the end.</td></tr>
+  </table>
+
+  <div class="grid g2">
+    <figure><img src="img/cuevr/cw-shaft.jpg" alt="The Shaft page"><figcaption><b>Shaft</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-splice.jpg" alt="The Splice page"><figcaption><b>Splice</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-veneers.jpg" alt="The Veneers page"><figcaption><b>Veneers</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-butt.jpg" alt="The Butt page"><figcaption><b>Butt</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-panel.jpg" alt="The Panel page"><figcaption><b>Panel</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-panelwood.jpg" alt="The Panel wood page"><figcaption><b>Panel wood</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-insert.jpg" alt="The Insert page"><figcaption><b>Insert</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-plate.jpg" alt="The Plate page"><figcaption><b>Plate</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-extras.jpg" alt="The Extras page"><figcaption><b>Extras</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-endcap.jpg" alt="The End cap page"><figcaption><b>End cap</b></figcaption></figure>
+  </div>
+
+  <h3>Colours</h3>
+  <p>Point at any colour swatch to open the picker. Choose any colour from the square, or one of
+  the named woods and colours beside it: EBONY, ROSEWOOD, MAPLE, BRASS and so on.</p>
+  <figure>
+    <img src="img/cuevr/cw-colour.jpg" alt="The colour picker in the cue workshop">
+    <figcaption>The colour picker, open on the butt.</figcaption>
+  </figure>
+
+  <h3>Saving, sharing and deleting</h3>
+  <ul>
+    <li><b>SAVE</b> writes over the cue of yours you are editing. Started from a rack cue, it says
+      <b>SAVE AS MY CUE</b> and makes it yours; after that it writes over it.</li>
+    <li><b>SAVE A COPY</b> keeps a second cue, and you go on editing the copy.</li>
+    <li><b>DONE</b> saves if anything changed and closes. Look at a rack cue without changing it and
+      you are simply holding that cue.</li>
+    <li><b>DELETE</b> throws one of your cues away. Press it twice.</li>
+    <li><b>SHARE</b> gives you a six-letter code, such as <span class="cap-t">47Z-BPX</span>. Anyone
+      who types it into <b>ENTER A CODE</b> gets a copy of your cue among their own. Sharing the same
+      design twice gives the same code.</li>
+    <li><b>Twenty-four cues</b> of your own. When there is no room, delete one.</li>
+  </ul>
+  <figure>
+    <img src="img/cuevr/cw-share.jpg" alt="A share code shown in the cue workshop">
+    <figcaption>A share code, ready to give to a friend.</figcaption>
+  </figure>
 </section>
 
 <section id="chalk">
@@ -3307,6 +3411,9 @@
   block stops dead in mid-air while your hand keeps moving. Turn and slide your hand until the
   block sits the way you want it, then let go &mdash; that is how it is held from then on, this
   pickup and every one after. Two quick squeezes put it back to normal.</p>
+  <p><b>Chalk &rarr; CUSTOM CHALK POSITION</b> turns this off, so the side trigger does nothing to
+  the block, and turning it off puts the block back to normal. <b>RESET CHALK POSITION</b> does the
+  same without turning it off.</p>
   <p><b>KEEP IT IN REACH</b> brings the block round the table with you. Walk to the other end and
   after a moment it moves to the rail beside you, on straight timber and never over a pocket. Turn
   it off and it stays where you left it.</p>
