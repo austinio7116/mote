@@ -41,6 +41,13 @@ static void settle(Gta3Cam *c, float ax, float az, float yaw,
         gta3_cam_update(c, ax, az, yaw, 7.0f, 3.0f, 5.0f, 1.0f / 60.0f, solid, 0, TILE);
 }
 
+static void settle_y(Gta3Cam *c, float ax, float ay, float az, float yaw,
+                     Gta3SolidFn solid, int frames) {
+    for (int i = 0; i < frames; i++)
+        gta3_cam_update_y(c, ax, ay, az, yaw, 7.0f, 3.0f, 5.0f, 1.0f / 60.0f,
+                          solid, 0, TILE);
+}
+
 int main(void) {
     printf("gta3_camera\n");
 
@@ -105,6 +112,41 @@ int main(void) {
         settle(&b, 20, 20, 0.7f, solid_none, 400);     /* then comes to a's pose */
         ok(fabsf(a.eye.x - b.eye.x) < 1e-3f && fabsf(a.eye.z - b.eye.z) < 1e-3f,
            "smoothing converges to one answer from different starts");
+    }
+
+    /* 6. the airborne anchor. gta3_cam_update treats `height` as an absolute
+     * eye y, which frames a helicopter at 40 m from 3 m off the road -- i.e.
+     * not in shot. gta3_cam_update_y lifts the eye AND the look target by the
+     * anchor's own height. */
+    {
+        Gta3Cam g, a; gta3_cam_reset(&g); gta3_cam_reset(&a);
+        settle(&g, 0, 0, 0.0f, solid_none, 400);
+        settle_y(&a, 0, 40.0f, 0, 0.0f, solid_none, 400);
+        ok(fabsf((a.eye.y - g.eye.y) - 40.0f) < 1e-3f,
+           "an anchor 40 m up lifts the eye by exactly 40 m");
+        ok(fabsf((a.target.y - g.target.y) - 40.0f) < 1e-3f,
+           "and lifts the look target by the same 40 m");
+        ok(fabsf(a.eye.x - g.eye.x) < 1e-3f && fabsf(a.eye.z - g.eye.z) < 1e-3f,
+           "altitude does not move the eye horizontally");
+    }
+    {
+        Gta3Cam z, y; gta3_cam_reset(&z); gta3_cam_reset(&y);
+        settle(&z, 12, -7, 1.1f, solid_wall, 400);
+        settle_y(&y, 12, 0.0f, -7, 1.1f, solid_wall, 400);
+        ok(fabsf(z.eye.x - y.eye.x) < 1e-4f && fabsf(z.eye.y - y.eye.y) < 1e-4f &&
+           fabsf(z.eye.z - y.eye.z) < 1e-4f,
+           "gta3_cam_update is gta3_cam_update_y with anchor_y = 0");
+    }
+    {
+        /* Above the rooftops the caller passes solid = 0: the collision DDA
+         * walks the tile grid with no notion of height, so a camera flying over
+         * a block would be shoved forward by a building it is nowhere near. */
+        Gta3Cam f, w; gta3_cam_reset(&f); gta3_cam_reset(&w);
+        settle_y(&f, 0, 40.0f, 0, 1.5708f, 0,          400);
+        settle_y(&w, 0, 40.0f, 0, 1.5708f, solid_wall, 400);
+        ok(f.eye.z < -6.5f, "with no solid callback the eye takes its full distance");
+        ok(w.eye.z > f.eye.z + 1.0f,
+           "and the wall would otherwise pull it in, which is why flight passes 0");
     }
 
     printf(s_fail ? "FAILED (%d)\n" : "passed\n", s_fail);

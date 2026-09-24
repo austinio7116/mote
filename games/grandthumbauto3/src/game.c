@@ -544,6 +544,17 @@ static int bld_tex(int x, int z) {
     return cand[ci][(dev_hash(x,z) >> 17) & 3u];
 }
 
+/* The surface under a world point: a building's roof if it stands there, the
+ * road otherwise. Building heights are already quantised per tile, so landing on
+ * a roof costs one lookup and no new state. */
+static float floor_y(float wx, float wz) {
+    int tx = (int)(wx / TILE), tz = (int)(wz / TILE);
+    char c = tile_at(tx, tz);
+    if ((c == '#' || c == 'O' || c == 'H') && !is_garage(tx, tz))
+        return g_lvl_h[bld_level(tx, tz)];
+    return 0.0f;
+}
+
 /* ---------------------------------------------------------------- camera ---- */
 /* Chase camera: eye behind and above the player/car, looking ahead of it. See
  * gta3_camera.h for the framing/smoothing/collision rationale. */
@@ -561,6 +572,14 @@ static int bld_tex(int x, int z) {
 #define CAM_CAR_H1   3.6f
 #define CAM_CAR_L1   9.0f
 #define CAM_SPD     18.0f    /* speed, m/s, at which the framing is fully out */
+/* Helicopter framing. The car values put a 7 m aircraft 6.5 m from the lens,
+ * where its canopy alone fills the frame and you are flying blind — measured,
+ * not guessed: the first capture was a black rectangle across the whole screen
+ * and nothing else. Back off and look further ahead so the ground the aircraft
+ * is over stays in shot, which is the only thing worth seeing from up there. */
+#define CAM_HELI_D  20.0f
+#define CAM_HELI_H   7.0f
+#define CAM_HELI_L  14.0f
 
 /* Draw distances, metres. Ground is shorter than buildings on purpose: past
  * ~50 m the road is near edge-on and mostly hidden by facades anyway. */
@@ -907,7 +926,8 @@ static void draw_upright(const MoteImage *img, float x, float z,
 #define NCARTYPE   CARS2_N
 #define VEH_BUS    NCARTYPE
 #define VEH_TANK   (NCARTYPE+1)
-#define NVEH       (NCARTYPE+2)
+#define VEH_HELI   (NCARTYPE+2)
+#define NVEH       (NCARTYPE+3)
 #define CAR_POLICE    26   /* dark POLICE cruiser (lightbar) */
 #define CAR_POLICE2   39   /* white highway patrol           */
 #define CAR_TAXI      30   /* teal cab (TAXI sign)           */
@@ -971,6 +991,13 @@ static void build_vstats(void) {
     }
     VSTAT[VEH_BUS] =(VStat){ 12, 12, 1.2f, 3.4f, 8.6f, 3.77f, 22 };   /* +10%%: wider would block 2-lane roads */
     VSTAT[VEH_TANK]=(VStat){ 9,  8,  1.5f, 8.0f, 6.2f,  3.92f, 28 };
+    /* len == wid on purpose. draw_vehicle_mesh squeezes x by wid/len to undo
+     * the mesh's square authoring, assigning ONE x to all four corners of both
+     * third-box slabs at once. That is right for axles, which each span the
+     * full track, and wrong for skids, which are one per side — it would
+     * collapse both rails onto the centreline. An aspect of exactly 1 leaves
+     * the authored shape alone, which is what the SILDEF row already draws. */
+    VSTAT[VEH_HELI]=(VStat){ 7, 24, 1.9f, 3.0f, 7.0f,  7.0f,   6 };
 }
 
 typedef struct { float x,z,yaw,spd; uint8_t variant, alive, hp; float animt; float flee;
@@ -1005,6 +1032,31 @@ static int         g_nbodies;          /* bodies in the last physics step (debug
 static MoteWorld2D pworld;
 static float       npc_target[NCAR];   /* NPC desired heading */
 static float       stuck_t[NCAR];      /* time spent unable to move (stuck detection) */
+/* ------------------------------------------------------------- helicopter ---
+ * The one flyable aircraft, parked at generation in cars[HELI_SLOT] beside the
+ * tank's cars[NCAR-1]. Altitude lives HERE, not in the physics: MoteBody2D has
+ * no y at all, so the solver keeps doing x/z and the height is one float.
+ *
+ * g_heli_y is the world y of the skids, not a height above whatever is below —
+ * absolute is what the camera, the mesh and the ceiling all want, and the floor
+ * is only needed at the moment of landing.
+ *
+ * While airborne the body carries MOTE_B2D_SENSOR, which the solver honours by
+ * detecting overlaps and applying no impulse, so the aircraft passes over cars
+ * and walls instead of shouldering them along the street. Masks cannot do this
+ * job: mote_phys2d.c:194 skips the filter when either mask is zero, and every
+ * body in this game has zero. */
+#define HELI_SLOT    (NCAR-2)
+#define HELI_CEIL    45.0f     /* metres. The tallest building level is 24.0 m
+                                * (g_lvl_h[13]), and the ground draw window has
+                                * to widen with altitude — see draw_ground_window.
+                                * 45 clears every roof and stays inside budget. */
+#define HELI_CLIMB    9.0f     /* m/s, full collective */
+#define HELI_YAW      1.9f     /* rad/s */
+#define HELI_ACC     11.0f     /* m/s^2 along the nose */
+#define HELI_DRAG     0.9f     /* per second, so it coasts rather than stops dead */
+static float g_heli_y, g_heli_vy;
+static float g_rotor;                  /* blade phase, radians — visual only */
 /* Stopped at a red light LAST frame. Without this, waiting at a light is
  * indistinguishable from being wedged: stuck_t climbs while the car sits still,
  * and at 1 s the jam recovery cancels `blocked`, picks a fresh heading and
@@ -1139,6 +1191,17 @@ static int is_drivable(int x,int z){ char c=tile_at(x,z); return c=='.'||c=='B';
 /* a QUIET spot to stash the tank: clear 3x3 pavement/grass pocket, no street
  * within 2 tiles, and at least one straight drivable escape run within 8 tiles
  * (so the prize is hidden but never sealed in). */
+/* A helicopter needs a CLEAR PAD, not a hiding place: a 3x3 of open ground with
+ * nothing solid within two tiles, so the rotor is not inside a facade and you
+ * can lift straight out. It does NOT need an escape run — that is the whole
+ * point of the thing — so unlike tank_hideout it never asks for a road. */
+static int heli_pad(int x,int z){
+    for (int dz=-2;dz<=2;dz++)for (int dx=-2;dx<=2;dx++){
+        char c=tile_at(x+dx,z+dz);
+        if (c!=','&&c!=' ') return 0;
+    }
+    return 1;
+}
 static int tank_hideout(int x,int z){
     for (int dz=-1;dz<=1;dz++)for (int dx=-1;dx<=1;dx++){
         char c=tile_at(x+dx,z+dz);
@@ -1368,6 +1431,28 @@ static void spawn_world(void) {
       if (getenv("MOTE_GTA_DEBUG"))
           fprintf(stderr,"[TANK] hidden at tile (%d,%d) hideout=%d\n",
                   (int)(cars[NCAR-1].x/TILE),(int)(cars[NCAR-1].z/TILE),placed);
+#endif
+    }
+
+    /* the HELICOPTER — same treatment as the tank, on an open pad rather than in
+     * a pocket. It sits nearer than the tank does: the reward for finding it is
+     * the flying, not the walk. */
+    { float ox,oz; int placed=0;
+      for (int pass=0; pass<2 && !placed; pass++){
+          float rmin = pass==0 ? 70.0f : 30.0f;
+          if (find_near(player.x,player.z, rmin, 200.0f, heli_pad, &ox,&oz)){
+              cars[HELI_SLOT]=(Car){ ox,oz,(float)(irand(4))*1.5708f,0,VEH_HELI,DRV_NONE,1,100.0f,0 };
+              placed=1;
+          }
+      }
+      if (!placed && find_near(player.x,player.z, 30.0f, 240.0f, pav_or_grass, &ox,&oz))
+          { cars[HELI_SLOT]=(Car){ ox,oz,0,0,VEH_HELI,DRV_NONE,1,100.0f,0 }; placed=1; }
+      if (!placed) cars[HELI_SLOT].alive=0;
+      g_heli_y = 0.0f; g_heli_vy = 0.0f;
+#ifdef MOTE_HOST
+      if (getenv("MOTE_GTA_DEBUG"))
+          fprintf(stderr,"[HELI] pad at tile (%d,%d) placed=%d\n",
+                  (int)(cars[HELI_SLOT].x/TILE),(int)(cars[HELI_SLOT].z/TILE),placed);
 #endif
     }
 }
@@ -2281,11 +2366,26 @@ static void draw_ground_skirt(void) {
 
 static void draw_ground_window(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE);
-    int w = (int)(VIEW_GROUND_R / TILE) + 1;
+    /* The radius is measured from the EYE in 3D (gta3_view_tile), so from a
+     * helicopter at 40 m every ground tile is already more than the stock 52 m
+     * away and NOTHING draws — measured: zero tiles. It has to grow with
+     * altitude. Measured cost on the way up: 64 tiles at ground level, 118 at
+     * 40 m, against a textured pool of 1100 tris shared with the buildings.
+     * That is why HELI_CEIL is 45 m and not higher: at 80 m it is 404 tiles
+     * and at 150 m it is 1308, which is the whole pool twice over.
+     *
+     * The 0.9 is measured too, not chosen. At 1.2 the ceiling cost 291 tiles
+     * (582 tris) on top of 46 buildings, about 1042 of the 1100 pool — no
+     * margin at all. 0.9 draws 158 tiles for 776 total, and the two frames are
+     * indistinguishable: the extra radius was spending triangles on ground
+     * that the haze skirt and the buildings already covered. */
+    float gr = VIEW_GROUND_R + (cam_pos.y - CAM_FOOT_H) * 0.9f;
+    if (gr < VIEW_GROUND_R) gr = VIEW_GROUND_R;
+    int w = (int)(gr / TILE) + 1;
     draw_ground_skirt();
     for (int z = cz - w; z <= cz + w; z++) {
         for (int x = cx - w; x <= cx + w; x++) {
-            if (!tile_visible_r(x, z, 0, VIEW_GROUND_R)) continue;
+            if (!tile_visible_r(x, z, 0, gr)) continue;
             char c = tile_at(x, z);
             if (c == '.' || c == 'B') {              /* road + bridge use the road sheet */
                 g_ground.texture = &roads_img;
@@ -2385,6 +2485,59 @@ static int move_body(float *x, float *z, float nx, float nz, int drive) {
     if (ok(nx, *z)) *x = nx; else hit = 1;
     if (ok(*x, nz)) *z = nz; else hit = 1;
     return hit;
+}
+
+/* Flying, which replaces drive_car entirely when you are in the helicopter.
+ *
+ * On the ground the aircraft does nothing but lift: no taxiing, no steering.
+ * A helicopter that drove like a car would need a second set of handling
+ * constants and would be worse than either thing.
+ *
+ * Airborne, the D-pad is pitch and yaw and the face buttons are the collective:
+ * A climbs, B descends. That mirrors the car's A/B pedals rather than inventing
+ * a third scheme.
+ *
+ * Nothing here reads or writes heat, and no crime is committed by flying. */
+static void fly_heli(Car *c, int slot, float dt,
+                     int up, int down, int fwd, int back, int yawL, int yawR) {
+    MoteBody2D *b = &bodies[slot];
+    float fl = floor_y(c->x, c->z);
+    int airborne = (g_heli_y > fl + 0.2f);
+
+    /* collective */
+    float want = up ? HELI_CLIMB : (down ? -HELI_CLIMB : 0.0f);
+    g_heli_vy += (want - g_heli_vy) * mote_clampf(4.0f * dt, 0.0f, 1.0f);
+    g_heli_y  += g_heli_vy * dt;
+    if (g_heli_y > HELI_CEIL) { g_heli_y = HELI_CEIL; if (g_heli_vy > 0.0f) g_heli_vy = 0.0f; }
+    if (g_heli_y < fl)        { g_heli_y = fl;        if (g_heli_vy < 0.0f) g_heli_vy = 0.0f; }
+
+    /* The sensor flag is what lets it pass over traffic and walls. Cleared the
+     * moment the skids are down, so a landed helicopter is solid again and cars
+     * cannot drive through it. */
+    if (airborne) b->flags |=  MOTE_B2D_SENSOR;
+    else          b->flags &= (uint8_t)~MOTE_B2D_SENSOR;
+
+    if (!airborne) {
+        b->vx = b->vy = 0.0f; b->avel = 0.0f; c->spd = 0.0f;
+        g_rotor += (up ? 22.0f : 6.0f) * dt;     /* spooling on the pad */
+        return;
+    }
+
+    if (yawL) c->yaw += HELI_YAW * dt;           /* yaw+ turns visually LEFT, as in drive_car */
+    if (yawR) c->yaw -= HELI_YAW * dt;
+    b->angle = c->yaw;
+    b->avel = 0.0f;
+
+    float fx = cosf(c->yaw), fz = sinf(c->yaw);
+    float th = (fwd ? 1.0f : 0.0f) - (back ? 1.0f : 0.0f);
+    b->vx += fx * HELI_ACC * th * dt;
+    b->vy += fz * HELI_ACC * th * dt;
+    float damp = 1.0f - mote_clampf(HELI_DRAG * dt, 0.0f, 1.0f);
+    b->vx *= damp; b->vy *= damp;
+    float sp = sqrtf(b->vx*b->vx + b->vy*b->vy), cap = VSTAT[VEH_HELI].maxspd;
+    if (sp > cap) { b->vx = b->vx / sp * cap; b->vy = b->vy / sp * cap; }
+    c->spd = sp;
+    g_rotor += 34.0f * dt;
 }
 
 static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int steerR) {
@@ -2778,6 +2931,7 @@ static void ai_debug(float dt){
 }
 
 static void footcop_fire(Ped *p, float px, float pz);
+static int  player_in_gun_reach(void);
 static void sfx(const MoteSfx *s, float g);
 static void rmbl(float in, int ms);          /* forward: the ped brawl uses both */
 static void hurt_player(float dmg);
@@ -2822,7 +2976,8 @@ static void update_peds(float dt) {
                 if (!ped_blocked_by_car(nx,nz) || ped_blocked_by_car(p->x,p->z))
                     move_body(&p->x,&p->z, nx, nz, 0);
                 p->animt += 3.6f*dt*1.2f; }
-            if (cd2<560.0f) footcop_fire(p, px, pz);        /* fire when in range */
+            if (cd2<560.0f && player_in_gun_reach())
+                footcop_fire(p, px, pz);                        /* fire when in range */
             continue;
         }
         float ddx=p->x-px, ddz=p->z-pz, d2=ddx*ddx+ddz*ddz;
@@ -2948,6 +3103,19 @@ static void panic_at(float x,float z){ g_panic=4.5f; g_panicx=x; g_panicz=z; }  
 static void add_fx(float x,float z,int k){ for(int i=0;i<NFX;i++) if(fxs[i].t<=0){ fxs[i]=(Fx){x,z,(k==3)?0.9f:0.45f,(uint8_t)k}; return; } }
 static void add_pickup(float x,float z,int kind){ for(int i=0;i<NPICK;i++) if(!picks[i].alive){ picks[i]=(Pickup){x,z,(uint8_t)kind,1,0}; return; } }
 
+/* The player's height. Everything in this game is 2D except the helicopter, so
+ * this is zero for every other state and the callers below are the only places
+ * that care. */
+static float pl_y(void){
+    return (player.mode==MODE_CAR && player.car>=0 &&
+            cars[player.car].type==VEH_HELI) ? g_heli_y : 0.0f;
+}
+/* How high small arms reach. Bullets are 2D — x, z and no height at all — so
+ * without this gate a beat officer on the pavement shoots down a helicopter at
+ * the 45 m ceiling. Below it you are in range and flying low over a chase is
+ * genuinely dangerous; above it they can only watch. */
+#define HELI_GUN_Y 18.0f
+static int player_in_gun_reach(void){ return pl_y() <= HELI_GUN_Y; }
 static float pl_x(void){ return player.mode==MODE_CAR ? cars[player.car].x : player.x; }
 static float pl_z(void){ return player.mode==MODE_CAR ? cars[player.car].z : player.z; }
 static float pl_yaw(void){ return player.mode==MODE_CAR ? cars[player.car].yaw : player.yaw; }
@@ -2977,7 +3145,9 @@ static void chase_camera(float tx, float tz, float yaw, float dt) {
     g_cam_mode = player.mode; g_cam_lastx = tx; g_cam_lastz = tz;
 
     float dist = CAM_FOOT_D, height = CAM_FOOT_H, look = CAM_FOOT_L;
-    if (player.mode == MODE_CAR) {
+    if (player.mode == MODE_CAR && cars[player.car].type == VEH_HELI) {
+        dist = CAM_HELI_D; height = CAM_HELI_H; look = CAM_HELI_L;
+    } else if (player.mode == MODE_CAR) {
         float s = fabsf(cars[player.car].spd) / CAM_SPD;
         if (s > 1.0f) s = 1.0f;
         dist   = CAM_CAR_D0 + (CAM_CAR_D1 - CAM_CAR_D0) * s;
@@ -2993,8 +3163,17 @@ static void chase_camera(float tx, float tz, float yaw, float dt) {
      * immune to whichever path changed the mode, and to paths added later. */
     if (g_lookback && player.mode == MODE_FOOT) { dist *= 0.8f; yaw += 3.14159265f; }
 
-    gta3_cam_update(&g_cam, tx, tz, yaw, dist, height, look, dt,
-                    cam_solid, 0, TILE);
+    /* An airborne anchor lifts BOTH the eye and the look target (see
+     * gta3_cam_update_y), and above the tallest roof the tile-grid collision
+     * DDA is switched off — it has no notion of height, so it would shove the
+     * camera forward for a building the helicopter is flying over. */
+    float anchor_y = 0.0f; int above_roofs = 0;
+    if (player.mode==MODE_CAR && player.car>=0 && cars[player.car].type==VEH_HELI) {
+        anchor_y = g_heli_y;
+        above_roofs = (g_heli_y > g_lvl_h[NBLV-1] + 1.0f);
+    }
+    gta3_cam_update_y(&g_cam, tx, anchor_y, tz, yaw, dist, height, look, dt,
+                      above_roofs ? 0 : cam_solid, 0, TILE);
 
     cam_pos   = g_cam.eye;
     cam_basis = mote_camera_look(g_cam.eye, g_cam.target);
@@ -3328,6 +3507,7 @@ static void update_bullets(float dt) {
         if (!drivable_world(b->x,b->z)){ add_fx(b->x,b->z,1); b->alive=0; continue; }
         if (b->fromcop){
             float dx=b->x-pl_x(), dz=b->z-pl_z(); float r=(player.mode==MODE_CAR)?2.0f:1.1f;
+            if (!player_in_gun_reach()) continue;    /* it cannot climb to you */
             if (dx*dx+dz*dz<r*r){ b->alive=0; add_fx(b->x,b->z,0);
                 if(player.mode==MODE_CAR){ cars[player.car].hp-=10; if(cars[player.car].hp<=0){wreck_car(&cars[player.car]); player.mode=MODE_FOOT; player.x=pl_x(); player.z=pl_z(); player.car=-1; hurt_player(20);} }
                 else hurt_player(9); }
@@ -3526,7 +3706,7 @@ static void update_cops(float dt) {
         }
         if (c->type==VEH_TANK){                                   /* army armour: shells at range */
             c->firecd-=dt;
-            if (c->firecd<=0 && pd2<45.0f*45.0f && pd2>9.0f*9.0f){
+            if (c->firecd<=0 && pd2<45.0f*45.0f && pd2>9.0f*9.0f && player_in_gun_reach()){
                 c->firecd=2.8f;
                 float a=atan2f(pz-c->z, px-c->x)+(frand()*2-1)*0.04f;
                 float mx0=c->x+cosf(a)*4.0f, mz0=c->z+sinf(a)*4.0f;   /* from the barrel tip */
@@ -3883,7 +4063,7 @@ static void draw_portrait(uint16_t *fb, int ox, int oy, uint32_t s){
 static int find_parked_car(float rmin, float rmax){
     int best=-1; float bd=1e18f, px=pl_x(), pz=pl_z();
     for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
-        if(!c->alive||c->wrecked||i==player.car||c->type==VEH_TANK||c->type==VEH_BUS) continue;
+        if(!c->alive||c->wrecked||i==player.car||c->type==VEH_TANK||c->type==VEH_BUS||c->type==VEH_HELI) continue;
         if(c->driver!=DRV_NONE && c->driver!=DRV_NPC) continue;
         float dx=c->x-px, dz=c->z-pz, d2=dx*dx+dz*dz;
         if(d2<rmin*rmin||d2>rmax*rmax) continue;
@@ -3894,7 +4074,7 @@ static int find_parked_car(float rmin, float rmax){
 static int find_npc_car(float rmin, float rmax){
     int best=-1; float bd=1e18f, px=pl_x(), pz=pl_z();
     for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
-        if(!c->alive||c->wrecked||c->driver!=DRV_NPC||c->type==VEH_TANK||c->type==VEH_BUS) continue;
+        if(!c->alive||c->wrecked||c->driver!=DRV_NPC||c->type==VEH_TANK||c->type==VEH_BUS||c->type==VEH_HELI) continue;
         float dx=c->x-px, dz=c->z-pz, d2=dx*dx+dz*dz;
         if(d2<rmin*rmin||d2>rmax*rmax) continue;
         if(d2<bd){ bd=d2; best=i; } }
@@ -4031,7 +4211,7 @@ static int setup_mission(int rot, float mult){
     } else if (rot==MI_DEMO){
         int want = 3 + irand(3);                             /* 3-5 cars */
         for (int i=0;i<NCAR && mtarg_n<want && mtarg_n<6;i++){ Car*c=&cars[i];
-            if(!c->alive||c->wrecked||i==player.car||c->type==VEH_TANK) continue;
+            if(!c->alive||c->wrecked||i==player.car||c->type==VEH_TANK||c->type==VEH_HELI) continue;
             float dx=c->x-pl_x(),dz=c->z-pl_z(),d2=dx*dx+dz*dz;
             if(d2<18.0f*18.0f||d2>170.0f*170.0f) continue;
             mtarg[mtarg_n++]=i; }
@@ -4669,7 +4849,12 @@ static void stream_entities(float dt) {
      * curve. */
     float vis_h = VIEW_GROUND_R;
     for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
-        if (!c->alive || i==player.car || c->driver==DRV_COP || c->type==VEH_TANK) continue;
+        /* The helicopter is exempt from recycling for the same reason the tank
+          * is: it is a one-off prize placed at generation, and stream_entities
+          * would respawn a parked one as ordinary traffic the moment you walked
+          * away from it. */
+        if (!c->alive || i==player.car || c->driver==DRV_COP ||
+            c->type==VEH_TANK || c->type==VEH_HELI) continue;
         if (is_mission_car(i)) continue;      /* the job's own cars are exempt from recycling */
         float dx=c->x-px, dz=c->z-pz, d2=dx*dx+dz*dz;
         if (c->driver==DRV_NPC){       /* moving traffic: recycle ONLY when off-screen */
@@ -4900,6 +5085,20 @@ static void veh_quad(const Mat3 *b, float cx, float cz, float k,
     mote->scene_add_tri(p0, p2, p3, col, 0);
 }
 
+/* veh_pt with a HEIGHT. Every other vehicle sits on the road, so veh_pt drops
+ * the anchor's y entirely; the helicopter is the one thing that does not. */
+__attribute__((noinline))
+static void heli_quad(const Mat3 *b, float cx, float cy, float cz, float k,
+                      const float q[4][3], uint16_t col) {
+    Vec3 p[4];
+    for (int i = 0; i < 4; i++) {
+        Vec3 l = m3_mul_v3(b, v3(q[i][0]*k, q[i][1]*k, q[i][2]*k));
+        p[i] = v3(cx + l.x, cy + l.y, cz + l.z);
+    }
+    mote->scene_add_tri(p[0], p[1], p[2], col, 0);
+    mote->scene_add_tri(p[0], p[2], p[3], col, 0);
+}
+
 /* A quad on an end face (constant z), which is where every lamp lives. */
 __attribute__((noinline))
 static void veh_zface(const Mat3 *b, float cx, float cz, float k,
@@ -4911,7 +5110,8 @@ static void veh_zface(const Mat3 *b, float cx, float cz, float k,
 
 static void draw_vehicle_mesh(const Car *c) {
     int sil = (c->type < CARS2_N) ? gta3_sil_for_class(CAR_CLS[c->type])
-                                  : (c->type == VEH_BUS ? GTA3_SIL_VAN : GTA3_SIL_TRUCK);
+            : (c->type == VEH_BUS)  ? GTA3_SIL_VAN
+            : (c->type == VEH_HELI) ? GTA3_SIL_HELI : GTA3_SIL_TRUCK;
     const VStat *vs = &VSTAT[c->type];
     Gta3VehMesh *m = &g_veh[sil];
 
@@ -4940,6 +5140,10 @@ static void draw_vehicle_mesh(const Car *c) {
     int8_t cx = (int8_t)mote_clampf(g_veh_cx[sil] * ar, -127.0f, 127.0f);
     int8_t wx = (int8_t)mote_clampf(g_veh_wx[sil] * ar, -127.0f, 127.0f);
     static const int XP[4] = {1,2,5,6}, XN[4] = {0,3,4,7};
+    /* Not the helicopter: it is authored at its final width (see gta3_veh.c),
+     * and this loop assigns ONE x to all four corners of both third-box slabs,
+     * which would fold its two skids onto the centreline. */
+    if (sil != GTA3_SIL_HELI)
     for (int k = 0; k < 4; k++) {
         m->bv[XP[k]].x =  bx; m->bv[XN[k]].x = -bx;
         m->cv[XP[k]].x =  cx; m->cv[XN[k]].x = -cx;
@@ -4963,6 +5167,10 @@ static void draw_vehicle_mesh(const Car *c) {
      * (the body top, cv[0].y). A cabin whose top crosses its bottom is an
      * INVERTED box: every face's winding flips and the sides silently vanish on
      * the flat path. Same trap the x clamp above guards against. */
+    /* Not the helicopter: there is exactly one of it, so jitter buys no variety,
+     * and nudging the canopy off the nose is the one thing that stops it
+     * reading as an aircraft. */
+    if (sil != GTA3_SIL_HELI)
     { unsigned jh = (unsigned)c->type * 0x9E3779B1u;
       int base   = m->cv[0].y;                        /* cabin floor = body top */
       int top    = g_veh_cy[sil] + (int)((jh >> 3) & 7) - 3;     /* +-3 units of roof */
@@ -4997,9 +5205,13 @@ static void draw_vehicle_mesh(const Car *c) {
         glass = MOTE_RGB565(18 + (pr * 8) / 31 * 2, 20 + (pg * 8) / 63 * 2, 30 + (pb * 8) / 31 * 2);
     }
 
-    MoteObject body = { .pos=v3(c->x, 0.0f, c->z), .basis=b, .mesh=&m->body, .color=paint };
+    /* Everything below is placed at vy rather than 0. Only the helicopter ever
+     * leaves the road, so for every other vehicle this is the same y it was. */
+    float vy = (c->type == VEH_HELI) ? g_heli_y : 0.0f;
+
+    MoteObject body = { .pos=v3(c->x, vy, c->z), .basis=b, .mesh=&m->body, .color=paint };
     mote->scene_add_object_scaled(&body, sc);
-    MoteObject cab  = { .pos=v3(c->x, 0.0f, c->z), .basis=b, .mesh=&m->cabin, .color=glass };
+    MoteObject cab  = { .pos=v3(c->x, vy, c->z), .basis=b, .mesh=&m->cabin, .color=glass };
     mote->scene_add_object_scaled(&cab, sc);
 
     /* Wheel line: detail that drops off with distance. 12 more triangles per car,
@@ -5009,7 +5221,7 @@ static void draw_vehicle_mesh(const Car *c) {
      * whatever you are about to hit. */
     float ddx = c->x - cam_pos.x, ddz = c->z - cam_pos.z, d2 = ddx*ddx + ddz*ddz;
     if (d2 < VEH_WHEEL_R * VEH_WHEEL_R) {
-        MoteObject wh = { .pos=v3(c->x, 0.0f, c->z), .basis=b, .mesh=&m->wheels,
+        MoteObject wh = { .pos=v3(c->x, vy, c->z), .basis=b, .mesh=&m->wheels,
                           .color = c->wrecked ? MOTE_RGB565(16,14,14) : MOTE_RGB565(24,24,28) };
         mote->scene_add_object_scaled(&wh, sc);
     }
@@ -5025,7 +5237,10 @@ static void draw_vehicle_mesh(const Car *c) {
      * from the car's OWN built mesh vertices, pushed through the SAME basis and
      * scale the body uses, so they lie on the surface instead of being
      * re-derived and drifting off it. */
-    if (d2 < VEH_DETAIL_R * VEH_DETAIL_R && !c->wrecked) {
+    /* Not the helicopter: veh_quad places its corners on the road plane, so the
+     * roof stripe and the lamps would stay behind on the tarmac while the
+     * aircraft climbed away from them. */
+    if (d2 < VEH_DETAIL_R * VEH_DETAIL_R && !c->wrecked && c->type != VEH_HELI) {
         float k = sc * (1.0f / 127.0f);
         float q[4][3];                       /* ONE reused quad buffer — see veh_quad */
         float cabx = m->cv[1].x, cabtop = m->cv[3].y;         /* squeezed cabin half-width, roofline */
@@ -5194,16 +5409,80 @@ static void draw_vehicle_mesh(const Car *c) {
      * cap; see max_shadows=64 below. */
     if (gta3_view_tile(&g_view, c->x, 0.02f, c->z, VIEW_GROUND_R, vs->len)) {
         float fx = cosf(c->yaw), fz = sinf(c->yaw);
-        mote->scene_add_shadow_ex(v3(c->x + 0.22f, 0.02f, c->z + 0.28f),
-                                  v3(fx * vs->len * 0.55f, 0, fz * vs->len * 0.55f),
-                                  v3(-fz * vs->wid * 0.62f, 0, fx * vs->wid * 0.62f),
-                                  0.55f);
+        /* The helicopter's shadow lands on whatever is UNDER it — road or roof
+         * — and shrinks and fades as it climbs. Without that, altitude is
+         * unreadable: the aircraft just gets smaller with no cue as to whether
+         * it is high or far away. */
+        float sy = 0.02f, shrink = 1.0f, alpha = 0.55f;
+        if (c->type == VEH_HELI) {
+            float fl = floor_y(c->x, c->z), h = g_heli_y - fl;
+            sy = fl + 0.03f;
+            shrink = 1.0f / (1.0f + h * 0.05f);
+            alpha  = 0.55f * shrink;
+            if (alpha < 0.12f) alpha = 0.12f;
+        }
+        mote->scene_add_shadow_ex(v3(c->x + 0.22f, sy, c->z + 0.28f),
+                                  v3(fx * vs->len * 0.55f * shrink, 0, fz * vs->len * 0.55f * shrink),
+                                  v3(-fz * vs->wid * 0.62f * shrink, 0, fx * vs->wid * 0.62f * shrink),
+                                  alpha);
     }
 }
 
 static void draw_vehicle(int i){
     Car*c=&cars[i]; if(!c->alive) return;
         draw_vehicle_mesh(c);
+        if (c->type==VEH_HELI && !c->wrecked){
+            /* TAIL BOOM, FIN AND BOTH ROTORS: triangles, not mesh. The rotors
+             * spin and Gta3VehMesh is built once at init, and the boom is thin
+             * enough that a box would spend 12 triangles on something two
+             * quads say just as well. All of it is placed through the same
+             * basis and scale the fuselage uses, so it stays attached. */
+            const float k = VSTAT[VEH_HELI].len * 0.5f / 127.0f;
+            Mat3 hb = m3_identity();
+            m3_rotate_local(&hb, 1, 1.5707963f - c->yaw);
+            const uint16_t SHELL = MOTE_RGB565(150,152,164);
+            float q[4][3];
+            /* boom: one horizontal and one vertical quad, so it has a section
+             * from every angle instead of vanishing edge-on from above. */
+            { float y = 34.0f, w = 9.0f, z0 = -20.0f, z1 = -122.0f;
+              q[0][0]=-w; q[0][1]=y; q[0][2]=z0;  q[1][0]= w; q[1][1]=y; q[1][2]=z0;
+              q[2][0]= w; q[2][1]=y; q[2][2]=z1;  q[3][0]=-w; q[3][1]=y; q[3][2]=z1;
+              heli_quad(&hb, c->x, g_heli_y, c->z, k, q, SHELL);
+              q[0][0]=0; q[0][1]=y-w; q[0][2]=z0;  q[1][0]=0; q[1][1]=y+w; q[1][2]=z0;
+              q[2][0]=0; q[2][1]=y+w; q[2][2]=z1;  q[3][0]=0; q[3][1]=y-w; q[3][2]=z1;
+              heli_quad(&hb, c->x, g_heli_y, c->z, k, q, SHELL); }
+            /* fin: upright at the end of the boom */
+            { q[0][0]=0; q[0][1]=34.0f; q[0][2]=-96.0f;  q[1][0]=0; q[1][1]=34.0f; q[1][2]=-127.0f;
+              q[2][0]=0; q[2][1]=86.0f; q[2][2]=-127.0f; q[3][0]=0; q[3][1]=74.0f; q[3][2]=-104.0f;
+              heli_quad(&hb, c->x, g_heli_y, c->z, k, q, SHELL); }
+            /* tail rotor: one blade pair on the fin, spinning with the main */
+            { float a = g_rotor * 2.0f, ca = cosf(a), sa = sinf(a), R = 30.0f, W = 4.0f;
+              q[0][0]=3; q[0][1]=60.0f - ca*R; q[0][2]=-112.0f - sa*R;
+              q[1][0]=3; q[1][1]=60.0f + ca*R; q[1][2]=-112.0f + sa*R;
+              q[2][0]=3; q[2][1]=60.0f + ca*R + sa*W; q[2][2]=-112.0f + sa*R - ca*W;
+              q[3][0]=3; q[3][1]=60.0f - ca*R + sa*W; q[3][2]=-112.0f - sa*R - ca*W;
+              heli_quad(&hb, c->x, g_heli_y, c->z, k, q, MOTE_RGB565(40,42,50)); }
+            /* MAIN AND TAIL ROTOR, four triangles, not in the mesh: they spin,
+             * and Gta3VehMesh is built once at init. Two blades crossed at the
+             * phase angle, drawn as thin flat quads. scene_add_tri is
+             * double-sided, so a blade that has rotated past edge-on is still
+             * drawn — which is exactly what a rotor disc needs. */
+            const float R = VSTAT[VEH_HELI].len * 0.62f;   /* disc radius */
+            const float BW = 0.16f;                        /* blade half-width */
+            float hy = g_heli_y + VSTAT[VEH_HELI].len * 0.42f;
+            const uint16_t BLADE = MOTE_RGB565(40,42,50);
+            for (int k = 0; k < 2; k++) {
+                float a = g_rotor + k * 1.5707963f;
+                float ax = cosf(a), az = sinf(a);
+                float px = -az * BW, pz = ax * BW;          /* across the blade */
+                mote->scene_add_tri(v3(c->x - ax*R - px, hy, c->z - az*R - pz),
+                                    v3(c->x + ax*R - px, hy, c->z + az*R - pz),
+                                    v3(c->x + ax*R + px, hy, c->z + az*R + pz), BLADE, 0);
+                mote->scene_add_tri(v3(c->x - ax*R - px, hy, c->z - az*R - pz),
+                                    v3(c->x + ax*R + px, hy, c->z + az*R + pz),
+                                    v3(c->x - ax*R + px, hy, c->z - az*R + pz), BLADE, 0);
+            }
+        }
         if (c->type==VEH_TANK && !c->wrecked){
             /* independent TURRET: swings smoothly toward the hull heading (lags the
              * hull through turns) and kicks back on recoil. Pivot = image centre. */
@@ -5382,6 +5661,37 @@ static void g_update(float dt) {
               /* 3.2 m, not 4: car_in_reach uses 14 m^2, i.e. 3.74 m, so a
                * 4 m drop lands just outside and RB never enters. */
               player.x = t->x - 3.2f; player.z = t->z; player.yaw = 0.0f; } } }
+    /* test: MOTE_GTA_TP_HELI=1 stands the player beside the helicopter, and
+     * =2 puts them in it and already airborne, which is the only way to reach
+     * the flight code from a scripted capture. Same reason as the tank's hook:
+     * the pad is picked from the game RNG, which MOTE_GTA_SEED does not pin. */
+    { static int tph=0; const char *hv=getenv("MOTE_GTA_TP_HELI");
+      if (hv && g_state==ST_PLAY && !tph && player.mode==MODE_FOOT){
+          Car *h = &cars[HELI_SLOT];
+          if (h->alive && h->type==VEH_HELI){ tph=1;
+              int m2 = atoi(hv);
+              if (m2 >= 2){
+                  player.mode=MODE_CAR; player.car=HELI_SLOT;
+                  h->driver=DRV_PLAYER; g_heli_y=20.0f; g_heli_vy=0.0f;
+                  /* =3 also parks it over the nearest TALL roof, which is the
+                   * only practical way to capture a roof landing: steering
+                   * there with scripted key presses takes hundreds of frames
+                   * and lands somewhere different every build. */
+                  if (m2 >= 3){
+                      int px0=(int)(h->x/TILE), pz0=(int)(h->z/TILE), bx=-1, bz=-1, bd=1<<30;
+                      for (int z=pz0-40; z<=pz0+40; z++) for (int x=px0-40; x<=px0+40; x++){
+                          char tc=tile_at(x,z);
+                          if (tc!='H' || is_garage(x,z)) continue;
+                          int d=(x-px0)*(x-px0)+(z-pz0)*(z-pz0);
+                          if (d<bd){ bd=d; bx=x; bz=z; } }
+                      if (bx>=0){ h->x=(bx+0.5f)*TILE; h->z=(bz+0.5f)*TILE;
+                                  bodies[HELI_SLOT].x=h->x; bodies[HELI_SLOT].y=h->z;
+                                  g_heli_y = g_lvl_h[bld_level(bx,bz)] + 12.0f; } }
+                  gta3_cam_reset(&g_cam);
+              } else {
+                  /* 3.2 m, not 4: car_in_reach uses 14 m^2 — see the tank hook. */
+                  player.x = h->x - 3.2f; player.z = h->z; player.yaw = 0.0f;
+              } } } }
     /* test: MOTE_GTA_TP_PED=1 stands the player next to the nearest pedestrian,
      * facing them. Punching range is under 2 m and the scripted walks never
      * reliably land inside it. */
@@ -5785,6 +6095,12 @@ static void g_update(float dt) {
          * B brake/reverse — and shooting moves to the left shoulder. On foot B
          * is still attack and LB is still look-back; the two modes are
          * separate, so neither binding had to give anything up. */
+        if (c->type==VEH_HELI)
+            fly_heli(c, player.car, dt,
+                     mote_pressed(in,MOTE_BTN_A),    mote_pressed(in,MOTE_BTN_B),
+                     mote_pressed(in,MOTE_BTN_UP),   mote_pressed(in,MOTE_BTN_DOWN),
+                     mote_pressed(in,MOTE_BTN_LEFT), mote_pressed(in,MOTE_BTN_RIGHT));
+        else
         drive_car(c, dt, mote_pressed(in,MOTE_BTN_A), mote_pressed(in,MOTE_BTN_B),
                   mote_pressed(in,MOTE_BTN_LEFT), mote_pressed(in,MOTE_BTN_RIGHT));
         if (c->type==VEH_TANK){
@@ -5796,7 +6112,11 @@ static void g_update(float dt) {
                 if (mote_pressed(in,MOTE_BTN_RIGHT)) g_turret -= 2.2f*dt;
             } else g_turret += ang_diff(c->yaw, g_turret) * mote_clampf(2.5f*dt,0,1);
         }
-        if (mote_pressed(in, MOTE_BTN_LB)){ if(c->type==VEH_TANK) fire_shell(c); else fire_weapon(); }
+        /* No weapons from the helicopter: shooting from a hover would make the
+         * rampage and vigilante jobs trivially winnable, and it needs bullets
+         * that start at altitude and aim down. LB is dead in the air. */
+        if (mote_pressed(in, MOTE_BTN_LB) && c->type!=VEH_HELI){
+            if(c->type==VEH_TANK) fire_shell(c); else fire_weapon(); }
         /* SELL DOCK: roll onto the pier slowly and the fence takes the car */
         if (near_marker(MK_DOCK, 3.4f) && fabsf(c->spd)<3.0f && !c->wrecked){
             static const uint16_t SELL[19]={ 180,140,220,700,1200,450,300,350,550,650,
@@ -5816,6 +6136,13 @@ static void g_update(float dt) {
         /* pay-n-spray: drive in with heat to lose the cops for a fee */
         if (near_marker(MK_SPRAY, 3.2f) && wanted()>0 && cash>=SPRAY_FEE){
             cash-=SPRAY_FEE; heat=0; if(c->alive)c->hp=100; say("SPRAYED - HEAT CLEARED"); sfx(&cash_sfx,0.7f); }
+        /* You cannot step out of a helicopter in mid-air. The check is against
+         * the floor UNDER the aircraft, so setting down on a roof counts as
+         * landed and you get out on the roof. */
+        if (USE && player.mode==MODE_CAR && c->type==VEH_HELI &&
+            g_heli_y > floor_y(c->x, c->z) + 0.3f) {
+            say("LAND FIRST");
+        } else
         if (USE && player.mode==MODE_CAR) {                    /* RB: step out beside the car */
             int ci=player.car;
             float rx=cosf(c->yaw+1.5708f), rz=sinf(c->yaw+1.5708f);
@@ -6205,6 +6532,11 @@ static void draw_controls(uint16_t *fb) {
         { "B",    "BRAKE / REVERSE"  },
         { "LB",   "FIRE"             },
         { "RB",   "GET OUT"          },
+        { "",     "IN THE HELI"      },
+        { "DPAD", "PITCH / YAW"      },
+        { "A",    "CLIMB"            },
+        { "B",    "DESCEND"          },
+        { "RB",   "GET OUT (LANDED)" },
         { "",     "ANYWHERE"         },
         { "MENU", "MAP / SETTINGS"   },
     };
@@ -6618,9 +6950,16 @@ static void g_overlay(uint16_t *fb) {
      * c->spd is metres per second along the heading and goes negative in
      * reverse, so it is the magnitude that is shown. */
     if (player.mode==MODE_CAR && player.car>=0) {
+        char sb[10];
+        if (cars[player.car].type==VEH_HELI) {
+            /* Height above the ground, not above whatever roof is underneath:
+             * "0M" over a tower would be wrong when you are 24 m up. */
+            int alt = (int)(g_heli_y + 0.5f); if (alt > 999) alt = 999;
+            snprintf(sb, sizeof sb, "%dM", alt);
+        } else {
         int mph = (int)(fabsf(cars[player.car].spd) * 2.2369f + 0.5f);
         if (mph > 999) mph = 999;
-        char sb[10]; snprintf(sb, sizeof sb, "%dMPH", mph);
+        snprintf(sb, sizeof sb, "%dMPH", mph); }
         int w = 0; for (const char *q = sb; *q; q++) w += 4;      /* 3x5 cell advance */
         mote->text(fb, sb, 126 - w, 117, MOTE_RGB565(210,222,240));
     }

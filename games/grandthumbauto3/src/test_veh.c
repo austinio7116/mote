@@ -40,13 +40,16 @@ static int normals_outward(const MeshVert *v, const MeshFace *f, int nf) {
     return 1;
 }
 
-static void span(const MeshVert *v, float *lo, float *hi, int axis) {
+static void span_n(const MeshVert *v, int n, float *lo, float *hi, int axis) {
     *lo = 1e9f; *hi = -1e9f;
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < n; i++) {
         float c = axis == 0 ? v[i].x : axis == 1 ? v[i].y : v[i].z;
         if (c < *lo) *lo = c;
         if (c > *hi) *hi = c;
     }
+}
+static void span(const MeshVert *v, float *lo, float *hi, int axis) {
+    span_n(v, 8, lo, hi, axis);
 }
 
 /* Screen-space signed area of a projected triangle -- see the full comment on
@@ -132,9 +135,14 @@ int main(void) {
     ok(gta3_sil_for_class(-1) == GTA3_SIL_SEDAN, "negative class falls back to sedan");
     ok(gta3_sil_for_class(999) == GTA3_SIL_SEDAN, "huge class falls back to sedan");
     {
+        /* GTA3_SIL_HELI is deliberately unreachable from gta3_sil_for_class:
+         * a helicopter is not one of the 19 CAR_CLS handling classes, it is a
+         * vehicle TYPE the game picks directly. Every other silhouette must
+         * still be reachable, or it is dead weight in flash and RAM. */
         int all = 1;
-        for (int s = 0; s < GTA3_SIL_N; s++) if (!seen[s]) all = 0;
-        ok(all, "every silhouette is reachable from some class");
+        for (int s = 0; s < GTA3_SIL_N; s++) if (s != GTA3_SIL_HELI && !seen[s]) all = 0;
+        ok(all, "every silhouette except the helicopter is reachable from some class");
+        ok(!seen[GTA3_SIL_HELI], "and no handling class maps onto the helicopter");
     }
 
     /* Prove the check discriminates. This test was tautological once — it
@@ -177,17 +185,28 @@ int main(void) {
           ok(normals_outward(m.wv + 8, ff, 12), "front axle normals point outward");
           ok(all_faces_screen_ok(m.wv + 8, ff, 12), "front axle faces are front-facing in screen space"); }
         /* The GAP is the whole point: without it the two boxes are one slab
-         * again and the car has no wheels, just a rectangle along the sill. */
-        { float rz0,rz1,fz0,fz1;
-          span(m.wv,     &rz0,&rz1, 2);        /* rear axle z */
-          span(m.wv + 8, &fz0,&fz1, 2);        /* front axle z */
-          ok(fz0 > rz1, "there is a gap between the rear and front axles"); }
+         * again and the car has no wheels, just a rectangle along the sill.
+         * A car's pair is separated along Z (front axle ahead of rear); the
+         * helicopter's is separated along X (a skid either side of the
+         * fuselage). The invariant both share is that the two boxes are
+         * DISJOINT in some axis, so that is what is asserted. */
+        { float a0,a1,b0,b1; int axis = (s == GTA3_SIL_HELI) ? 0 : 2;
+          span(m.wv,     &a0,&a1, axis);
+          span(m.wv + 8, &b0,&b1, axis);
+          ok(b0 > a1 || a0 > b1,
+             s == GTA3_SIL_HELI ? "the two skids do not meet under the fuselage"
+                                  : "there is a gap between the rear and front axles"); }
         /* The wheel slab only reads as a tyre track if it is PROUD of the body in x
          * and does not dip below the road plane at y=0. Both are easy to lose to an
          * int8 overflow: 134 wraps to -122 and silently inverts the box. */
+        /* Both boxes, not just the first: a car's axles each span the full
+         * track, but the helicopter's skids are one per side, so measuring
+         * wv[0..7] alone sees only the left rail. */
         { float bxl,bxh,wxl,wxh,wyl,wyh;
-          span(m.bv,&bxl,&bxh,0); span(m.wv,&wxl,&wxh,0); span(m.wv,&wyl,&wyh,1);
-          ok(wxh > bxh && wxl < bxl, "the wheel line is wider than the body");
+          span(m.bv,&bxl,&bxh,0); span_n(m.wv,16,&wxl,&wxh,0); span_n(m.wv,16,&wyl,&wyh,1);
+          ok(wxh > bxh && wxl < bxl,
+             s == GTA3_SIL_HELI ? "the skids stand outboard of the fuselage"
+                                : "the wheel line is wider than the body");
           ok(wyl >= 0.0f, "the wheel line does not sink below the road plane"); }
 
         float blo, bhi, clo, chi;

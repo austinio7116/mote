@@ -24,6 +24,11 @@ top-down map.
 | Attack | `B` |
 | Enter car / switch weapon | `RB` |
 | Look back | `LB` |
+| **In the helicopter** | |
+| Pitch / yaw | `DPAD` |
+| Climb | `A` |
+| Descend | `B` |
+| Get out (landed only) | `RB` |
 | **In a car** | |
 | Steer | `DPAD` |
 | Gas | `A` |
@@ -53,10 +58,13 @@ rolls back.
 - **Weather** — rain and thunderstorms that come and go, with wet road tinting.
 - **Rotating minimap** — a live radar under the title bar, hideable from the settings page.
 - **Save and load** — a settings tab on the pause screen, plus a persisted best-cash record.
+- **A flyable helicopter** — parked on an open pad somewhere in the city, with a 45 m ceiling, rooftop landings, an altitude readout in place of the speedo, and police who can only shoot at you below 18 m.
 - **Hidden content** — a treasure island in the bottom-left water reached by a footbridge, weapon and cash caches in the forests, a rare one-shot rocket launcher, and a drivable tank with finite shells.
 - **Street detail** — park benches on plazas and pavements, railings on the long bridges, palm trees on the waterline, zebra crossings and phone boxes.
 - **Beaches** — a quarter of the waterfront is sand two tiles deep, wet on the waterline and dry behind it, with the seawall dropped where it meets the water.
 - **Draw budget** — cone culling, a banded draw distance with a haze band and ground skirt, and every pool (triangles, billboards, discs, shadows) sized from a measured host profile.
+
+![The helicopter at its 45 m ceiling, rotor spinning, the city and a rooftop below](../../docs/img/grandthumbauto3-heli.png)
 
 ![A beach: palm trees on dry sand, wet sand on the waterline, and water with no seawall where it meets the sand](../../docs/img/grandthumbauto3-beach.png)
 

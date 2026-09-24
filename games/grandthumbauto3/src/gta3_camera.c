@@ -46,6 +46,13 @@ static float clear_run(float ax, float az, float dx, float dz, float want,
 void gta3_cam_update(Gta3Cam *c, float anchor_x, float anchor_z, float facing_yaw,
                      float dist, float height, float look, float dt,
                      Gta3SolidFn solid, void *ud, float tile_m) {
+    gta3_cam_update_y(c, anchor_x, 0.0f, anchor_z, facing_yaw,
+                      dist, height, look, dt, solid, ud, tile_m);
+}
+
+void gta3_cam_update_y(Gta3Cam *c, float anchor_x, float anchor_y, float anchor_z,
+                       float facing_yaw, float dist, float height, float look,
+                       float dt, Gta3SolidFn solid, void *ud, float tile_m) {
     /* Yaw is smoothed, not the eye vector, so the camera swings through corners
      * rather than sliding sideways through them. */
     if (!c->started) {
@@ -62,8 +69,9 @@ void gta3_cam_update(Gta3Cam *c, float anchor_x, float anchor_z, float facing_ya
     float run = clear_run(anchor_x, anchor_z, -fx, -fz, dist, solid, ud, tile_m);
     if (run < GTA3_CAM_MIN_D) run = GTA3_CAM_MIN_D;
 
-    Vec3 want_eye = v3(anchor_x - fx * run, height, anchor_z - fz * run);
-    Vec3 want_tgt = v3(anchor_x + fx * look, GTA3_CAM_LOOK_Y, anchor_z + fz * look);
+    Vec3 want_eye = v3(anchor_x - fx * run, anchor_y + height, anchor_z - fz * run);
+    Vec3 want_tgt = v3(anchor_x + fx * look, anchor_y + GTA3_CAM_LOOK_Y,
+                       anchor_z + fz * look);
 
     if (!c->started) {
         c->eye = want_eye;

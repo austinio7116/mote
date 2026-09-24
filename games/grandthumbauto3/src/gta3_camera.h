@@ -54,6 +54,23 @@ void gta3_cam_update(Gta3Cam *c, float anchor_x, float anchor_z, float facing_ya
                      float dist, float height, float look, float dt,
                      Gta3SolidFn solid, void *ud, float tile_m);
 
+/* The same, for an anchor that is OFF THE GROUND.
+ *
+ * gta3_cam_update treats `height` as an absolute eye y and looks at the fixed
+ * GTA3_CAM_LOOK_Y, both of which assume the thing being followed is standing on
+ * the road. A helicopter at 40 m would be framed from 2.8 m, i.e. not in shot at
+ * all. Here `anchor_y` lifts both: the eye sits at anchor_y + height and the
+ * target at anchor_y + GTA3_CAM_LOOK_Y.
+ *
+ * Pass `solid = 0` when the anchor is above the rooftops. The collision DDA
+ * walks the tile grid with no notion of height, so a camera flying over a block
+ * is otherwise shoved forward by a building it is nowhere near.
+ *
+ * gta3_cam_update is exactly this with anchor_y = 0. */
+void gta3_cam_update_y(Gta3Cam *c, float anchor_x, float anchor_y, float anchor_z,
+                       float facing_yaw, float dist, float height, float look,
+                       float dt, Gta3SolidFn solid, void *ud, float tile_m);
+
 /* Smoothing rates, per second. Position is faster than yaw on purpose. */
 #define GTA3_CAM_POS_K   8.0f
 #define GTA3_CAM_YAW_K   4.0f

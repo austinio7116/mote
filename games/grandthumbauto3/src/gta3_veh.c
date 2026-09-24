@@ -52,6 +52,7 @@ static const unsigned char LAMP[GTA3_SIL_N] = {
     /* SPORTS     */ GTA3_LAMP_BAR,
     /* CLASSICSPT */ GTA3_LAMP_ROUND,
     /* TAXI       */ GTA3_LAMP_ROUND,
+    /* HELI       */ GTA3_LAMP_ROUND,
 };
 
 int gta3_lamp_style(int sil) {
@@ -83,6 +84,16 @@ static const Sil SILDEF[GTA3_SIL_N] = {
     /* SPORTS     */ { 26, 46, -58,   2, 82 },   /* long bonnet, cabin set back toward the tail */
     /* CLASSICSPT */ { 32, 60, -58,   6, 84 },   /* long bonnet under a tall upright glasshouse */
     /* TAXI       */ { 38, 70, -52,  44, 90 },   /* a sedan made taller and squarer */
+    /* HELI: the three boxes read as an aircraft rather than a car.
+     *   body_h 54 / cab_top 86 — a deep fuselage under a tall bubble canopy.
+     *   cab_z0 24 / cab_z1 118 — the canopy sits over the NOSE, which is what
+     *     separates a helicopter from a car at a glance.
+     *   cab_w 78 — narrower than the fuselage, so the canopy reads as glass
+     *     set into the shell rather than a second storey.
+     * The fuselage itself is cut short at z = -24 (see gta3_veh_build); the
+     * tail boom and both rotors are triangles the caller draws, because a
+     * rotor spins and this mesh is built once at init. */
+    /* HELI       */ { 54, 86,  24, 118, 78 },
 };
 
 void gta3_box(MeshVert *v, MeshFace *f, int *nf,
@@ -112,11 +123,24 @@ void gta3_veh_build(Gta3VehMesh *m, int sil) {
     /* 118, not 127: the wheel slab below runs to the int8 limit at 127 so it sits
      * PROUD of the bodywork, which is what reads as a tyre track. The body being
      * a few percent narrower than the track is also true of real cars. */
-    gta3_box(m->bv, m->bf, &nf, -118, 118, 0, s->body_h, -127, 127);
+    /* The helicopter is authored at its FINAL proportions, not squeezed later.
+     * Every car is authored square in x/z and the caller narrows x by the
+     * measured wid/len; that path assigns one x to all four corners of both
+     * third-box slabs at once, which is right for axles and would collapse
+     * two skids onto the centreline. So the aircraft carries its own
+     * half-width here (44 of 127, i.e. a 2.4 m fuselage on a 7 m airframe)
+     * and draw_vehicle_mesh skips the squeeze for it.
+     *
+     * Its fuselage also stops short of the tail: a full-length slab reads as
+     * a bus, and the space behind it is where the caller draws the boom. */
+    int heli = (sil == GTA3_SIL_HELI);
+    int halfw = heli ? 44 : 118;
+    int bz0   = heli ? -24 : -127;
+    gta3_box(m->bv, m->bf, &nf, -halfw, halfw, 0, s->body_h, bz0, 127);
     m->body = (Mesh){ .verts=m->bv, .faces=m->bf, .nverts=8, .nfaces=nf,
                       .scale=1.0f, .bound_r=1.8f, .color=0xFFFF };
 
-    int cw = (118 * s->cab_w) / 100;   /* cab_w is a fraction of the BODY half-width */
+    int cw = (halfw * s->cab_w) / 100;   /* cab_w is a fraction of the BODY half-width */
     gta3_box(m->cv, m->cf, &nf, -cw, cw, s->body_h, s->cab_top, s->cab_z0, s->cab_z1);
     m->cabin = (Mesh){ .verts=m->cv, .faces=m->cf, .nverts=8, .nfaces=nf,
                        .scale=1.0f, .bound_r=1.8f, .color=MOTE_RGB565(40,46,60) };
@@ -132,9 +156,18 @@ void gta3_veh_build(Gta3VehMesh *m, int sil) {
      * the shared box builder into its own half of the arrays, and the second
      * box's face indices are shifted by 8 because mote__face writes indices
      * relative to the vertex pointer it was handed. */
+    /* A helicopter's third box pair is SKIDS, not axles: two rails running
+     * most of the length, outboard of the fuselage and standing the aircraft
+     * clear of the ground. Same 24 triangles, same two boxes, different
+     * extents — so nothing else in the builder or the caller changes. */
     int nf2;
-    gta3_box(m->wv,     m->wf,      &nf,  -127, 127, 0, 16, -96, -40);   /* rear axle */
-    gta3_box(m->wv + 8, m->wf + 12, &nf2, -127, 127, 0, 16,  40,  96);   /* front axle */
+    if (heli) {
+        gta3_box(m->wv,     m->wf,      &nf,  -62, -46, 0, 14, -16, 104);   /* left skid */
+        gta3_box(m->wv + 8, m->wf + 12, &nf2,  46,  62, 0, 14, -16, 104);   /* right skid */
+    } else {
+        gta3_box(m->wv,     m->wf,      &nf,  -127, 127, 0, 16, -96, -40);  /* rear axle */
+        gta3_box(m->wv + 8, m->wf + 12, &nf2, -127, 127, 0, 16,  40,  96);  /* front axle */
+    }
     for (int i = 0; i < nf2; i++) {
         m->wf[12+i].a = (uint8_t)(m->wf[12+i].a + 8);
         m->wf[12+i].b = (uint8_t)(m->wf[12+i].b + 8);

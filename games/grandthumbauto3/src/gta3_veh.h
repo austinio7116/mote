@@ -46,6 +46,11 @@ enum { GTA3_SIL_SEDAN, GTA3_SIL_COMPACT, GTA3_SIL_COUPE, GTA3_SIL_LONGHOOD,
        GTA3_SIL_SPORTS,   /* low, cabin pushed forward over a long tail */
        GTA3_SIL_CLASSICSPT, /* long bonnet, tall upright glasshouse */
        GTA3_SIL_TAXI,     /* a sedan made taller and boxier — cab proportions */
+       /* The helicopter reuses the three-box layout as fuselage / canopy /
+        * skids rather than body / cabin / wheels, so it needs no new fields and
+        * no new builder — only its own SILDEF row. The rotor is not in the mesh:
+        * it spins, so the caller draws it as four triangles at a phase angle. */
+       GTA3_SIL_HELI,
        GTA3_SIL_N };
 
 /* Map one of the 19 CAR_CLS handling classes to a silhouette. Out-of-range
