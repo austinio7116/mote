@@ -4185,6 +4185,21 @@ static void reset_game_dm_finish(uint32_t seed){
       for (int k=0;k<40;k++)
         for (int t=0;t<40;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
             if (pav_or_grass(tx,tz)){ add_pickup(tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, CACHE[irand(8)]); break; } } }
+    /* TREASURE ISLE cache. citygen carved the island and its footbridge and
+     * exported the centre; this stocks it. Placed here, near the end of
+     * spawn_world, because add_pickup and the PK_ kinds are declared well
+     * below the spawn code that runs first.
+     *
+     * Cash, health and a shotgun: worth the walk, and the pair you most want
+     * after fighting your way out of somewhere. */
+    if (cg_isle_x >= 0) {
+        float ix = (cg_isle_x + 0.5f) * TILE, iz = (cg_isle_y + 0.5f) * TILE;
+        add_pickup(ix,             iz,             PK_CASH);
+        add_pickup(ix + TILE*1.2f, iz,             PK_CASH);
+        add_pickup(ix - TILE*1.2f, iz,             PK_CASH);
+        add_pickup(ix,             iz + TILE*1.2f, PK_HEALTH);
+        add_pickup(ix,             iz - TILE*1.2f, PK_SHOTGUN);
+    }
     for (int i=0;i<NPICK;i++) picks[i].seen=1;   /* caches show on the DM map */
     g_state=ST_PLAY;
 #ifdef MOTE_HOST
