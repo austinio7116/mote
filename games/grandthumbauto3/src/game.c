@@ -1377,12 +1377,12 @@ static float hosp_x, hosp_z;
 static int   g_showmap, g_mapsx, g_mapsy; static float g_maptime;   /* full-map view */
 static int   g_lookback;      /* LB held on foot: swing the camera round */
 static int   g_radar_on = 1;  /* minimap on/off — a SETTINGS row (was RB on the map screen) */
-static int   g_showcmds = 1;  /* draw the "A ENTER  B ATTACK" prompt during play */
+static int   g_ctlpage;       /* the CONTROLS page, opened from SETTINGS */
 /* The pause screen has two tabs: LB/RB flip between the city map and settings.
  * g_setsel is the highlighted settings row; g_setmsg flashes the result of a
  * save or load for a couple of seconds so the button press has an answer. */
 enum { TAB_MAP, TAB_SET, TAB_N };
-enum { SET_MINIMAP, SET_CMDS, SET_SAVE, SET_LOAD, SET_N };
+enum { SET_MINIMAP, SET_CONTROLS, SET_SAVE, SET_LOAD, SET_N };
 static int   g_menutab = TAB_MAP, g_setsel;
 static const char *g_setmsg; static float g_setmsg_t;
 
@@ -5055,12 +5055,19 @@ static void g_update(float dt) {
 
     /* MENU toggles the pause screen; while open, gameplay pauses. */
     if (mote_just_pressed(in, MOTE_BTN_MENU)){
+        if (g_ctlpage) { g_ctlpage = 0; return; }    /* back out one level first */
         g_showmap = !g_showmap;
         if (g_showmap){ g_mapsx=(int)(pl_x()/TILE)-64; g_mapsy=(int)(pl_z()/TILE)-64; }
     }
     if (g_showmap){
         g_maptime += dt;
         if (g_setmsg_t > 0.0f) g_setmsg_t -= dt;
+        if (g_ctlpage) {                     /* the page owns every button until dismissed */
+            if (mote_just_pressed(in,MOTE_BTN_A) || mote_just_pressed(in,MOTE_BTN_B) ||
+                mote_just_pressed(in,MOTE_BTN_RB) || mote_just_pressed(in,MOTE_BTN_LB))
+                g_ctlpage = 0;
+            return;
+        }
         /* LB/RB flip tabs on either screen, so you can always get back. */
         if (mote_just_pressed(in,MOTE_BTN_RB)) g_menutab = (g_menutab+1) % TAB_N;
         if (mote_just_pressed(in,MOTE_BTN_LB)) g_menutab = (g_menutab+TAB_N-1) % TAB_N;
@@ -5070,7 +5077,7 @@ static void g_update(float dt) {
             if (mote_just_pressed(in,MOTE_BTN_A)) {
                 switch (g_setsel) {
                 case SET_MINIMAP: g_radar_on = !g_radar_on; break;
-                case SET_CMDS:    g_showcmds = !g_showcmds; break;
+                case SET_CONTROLS: g_ctlpage = 1; break;
                 case SET_SAVE:    g_setmsg = save_game() ? "SAVED" : "SAVE FAILED"; g_setmsg_t = 2.0f; break;
                 case SET_LOAD:    g_setmsg = load_game() ? "LOADED" : "NO SAVE";    g_setmsg_t = 2.0f; break;
                 }
@@ -5600,20 +5607,61 @@ static void draw_map(uint16_t *fb){
  * Toggles show their state on the right; actions do not. The selected row gets
  * a filled bar rather than just a bright colour, which stays legible over the
  * dimmed city behind it. */
+/* The CONTROLS page. Rows use the built-in 3x5 font rather than the 1.5x UI
+ * font: twelve lines have to fit under a title bar on a 128 px panel, and at
+ * the larger size they do not. Two columns — button, then what it does — with
+ * the button column in a brighter colour so the list scans down the left. */
+static void draw_controls(uint16_t *fb) {
+    mote_dim_box(fb, 0, 0, 128, 128, 4);
+    mote_ui_panel(fb, 0, 0, 128, 11, MOTE_RGB565(14,16,24), MOTE_RGB565(60,70,110));
+    mote_ftext(mote, fb, g_fmed, "CONTROLS", 3, 1, MOTE_RGB565(240,230,120));
+
+    static const char *ROW[][2] = {
+        { "",     "ON FOOT"          },
+        { "DPAD", "MOVE / TURN"      },
+        { "A",    "RUN (HOLD)"       },
+        { "B",    "ATTACK"           },
+        { "RB",   "ENTER / WEAPON"   },
+        { "LB",   "LOOK BACK"        },
+        { "",     "IN CAR"           },
+        { "DPAD", "STEER"            },
+        { "A",    "GAS"              },
+        { "LB",   "BRAKE / REVERSE"  },
+        { "RB",   "GET OUT"          },
+        { "B",    "FIRE"             },
+        { "",     "ANYWHERE"         },
+        { "MENU", "MAP / SETTINGS"   },
+    };
+    const uint16_t HEAD = MOTE_RGB565(240,200,110);
+    const uint16_t KEY  = MOTE_RGB565(160,210,250);
+    const uint16_t TXT  = MOTE_RGB565(206,212,226);
+    int y = 15;
+    for (unsigned i = 0; i < sizeof ROW / sizeof ROW[0]; i++) {
+        if (ROW[i][0][0] == 0) {                       /* section heading */
+            y += (i ? 3 : 0);
+            mote->text(fb, ROW[i][1], 6, y, HEAD);
+        } else {
+            mote->text(fb, ROW[i][0], 10, y, KEY);
+            mote->text(fb, ROW[i][1], 42, y, TXT);
+        }
+        y += 7;
+    }
+    mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,160,180), "ANY BUTTON: BACK");
+}
+
 static void draw_settings(uint16_t *fb) {
     mote_dim_box(fb, 0, 0, 128, 128, 5);                  /* the city stays faintly visible */
     mote_ui_panel(fb, 0, 0, 128, 11, MOTE_RGB565(14,16,24), MOTE_RGB565(60,70,110));
     mote_ftext(mote, fb, g_fmed, "SETTINGS", 3, 1, MOTE_RGB565(240,230,120));
 
-    static const char *NAME[SET_N] = { "MINIMAP", "COMMANDS", "SAVE GAME", "LOAD GAME" };
+    static const char *NAME[SET_N] = { "MINIMAP", "CONTROLS", "SAVE GAME", "LOAD GAME" };
     for (int i = 0; i < SET_N; i++) {
         int y = 24 + i * 16;
         int sel = (i == g_setsel);
         if (sel) mote->draw_rect(fb, 6, y - 3, 116, 14, MOTE_RGB565(46,56,86), 1, 0, 128);
         uint16_t fg = sel ? MOTE_RGB565(250,244,200) : MOTE_RGB565(168,176,196);
         mote_ftext(mote, fb, g_fmed, NAME[i], 12, y, fg);
-        const char *val = (i == SET_MINIMAP) ? (g_radar_on ? "ON" : "OFF")
-                        : (i == SET_CMDS)    ? (g_showcmds ? "ON" : "OFF") : 0;
+        const char *val = (i == SET_MINIMAP) ? (g_radar_on ? "ON" : "OFF") : 0;
         if (val) {
             uint16_t vc = (val[1] == 'N') ? MOTE_RGB565(140,230,140) : MOTE_RGB565(200,120,120);
             mote_ftext(mote, fb, g_fmed, val, 92, y, vc);
@@ -5785,7 +5833,9 @@ static void draw_rain(uint16_t *fb) {
 }
 
 static void g_overlay(uint16_t *fb) {
-    if (g_showmap){ if (g_menutab == TAB_SET) draw_settings(fb); else draw_map(fb); return; }
+    if (g_showmap){ if (g_ctlpage) draw_controls(fb);
+                    else if (g_menutab == TAB_SET) draw_settings(fb);
+                    else draw_map(fb); return; }
     if (g_state==ST_DMLINK){
         mote_ui_panel(fb, 12, 36, 104, 58, MOTE_RGB565(14,16,24), MOTE_RGB565(160,60,50));
         mote_ftextc(mote, fb, g_fread, 64, 40, MOTE_RGB565(245,110,95), "DEATHMATCH");
@@ -5992,14 +6042,11 @@ static void g_overlay(uint16_t *fb) {
         if (player.mode==MODE_CAR && wanted()>0) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(120,220,150), "DRIVE IN: RESPRAY $100");
         else mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(120,220,150), "SPRAY SHOP: LOSE HEAT"); }
     else if (near_marker(MK_DOCK,3.6f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(235,170,90), "DRIVE A CAR IN TO SELL");
-    /* The prompt follows the mode, because the buttons do: on foot RB enters a
-     * car and A runs; behind the wheel A is the throttle and RB gets out. */
-    else if (g_showcmds) {
-        if (player.mode==MODE_FOOT)
-            mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "RB ENTER   A RUN");
-        else
-            mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A GAS  LB BRAKE  RB OUT");
-    }
+    /* No standing control hint during play. It sat there permanently for
+     * something you need once, on a 128 px panel where that line is 8% of the
+     * height. The full list lives behind SETTINGS > CONTROLS instead. The
+     * CONTEXTUAL prompts above stay — "RB: ANSWER PHONE" is telling you a phone
+     * is in reach, which is state you cannot get any other way. */
 
     if (g_state==ST_PLAY && !g_showmap && g_radar_on) draw_radar(fb);
 
