@@ -2954,6 +2954,12 @@ static void wreck_car(Car *c) {
 
 /* big area blast (tank shell / chained wrecks) */
 static float g_shell_cd, g_tankrecoil;
+/* Shells on board. The tank was an unlimited artillery piece, which made
+ * finding it the end of the game rather than a prize you have to spend. It
+ * carries TANK_SHELLS rounds and there is no resupply: run it dry and you
+ * still have the toughest vehicle in the city, just without the gun. */
+#define TANK_SHELLS 10
+static int g_shells = TANK_SHELLS;
 static float g_turret;      /* tank turret yaw (world) — aims independently of the hull */
 static void explode(float x, float z) {
     add_fx(x,z,1); for(int k=0;k<6;k++) add_fx(x+(frand()*2-1)*2.5f, z+(frand()*2-1)*2.5f, 1);
@@ -2969,7 +2975,10 @@ static void explode(float x, float z) {
         if (dx*dx+dz*dz<18.0f) dm_send2('D', 34); }
 }
 static void fire_shell(Car *c) {
-    if (g_shell_cd>0) return; g_shell_cd=1.35f; g_tankrecoil=0.22f;
+    if (g_shell_cd>0) return;
+    if (g_shells <= 0) { g_shell_cd = 0.45f; say("NO SHELLS"); return; }
+    g_shells--;
+    g_shell_cd=1.35f; g_tankrecoil=0.22f;
     sfx(&boom_sfx,0.6f); rmbl(0.6f,150);
     float a=g_turret;                                     /* the TURRET aims, not the hull */
     float mx0=c->x+cosf(a)*4.0f, mz0=c->z+sinf(a)*4.0f;   /* muzzle = barrel tip */
@@ -3836,6 +3845,7 @@ static void buy_gun(void) {
 
 static void reset_game(void) {
     gta3_cam_reset(&g_cam);   /* cold start: nothing to smooth from yet */
+    g_shells = TANK_SHELLS;   /* a fresh city means a fresh tank, fully loaded */
     g_titlet = 0.0f;          /* restart the title-screen orbit from a fixed angle each game */
     /* EVERY NEW GAME IS A NEW CITY: regenerate the whole map, then everything
      * below (colliders, markers, traffic, dock) rebuilds from the fresh tiles */
@@ -4974,6 +4984,17 @@ static void g_update(float dt) {
      * PROFILING.md notes combat has never been profiled; this is how. */
     { static int hd=0; const char *hv=getenv("MOTE_GTA_HEAT");
       if (hv && g_state==ST_PLAY && !hd){ hd=1; heat=(float)atof(hv); heat_cool=0; } }
+    /* test: MOTE_GTA_TP_TANK=1 stands the player beside the hidden tank. Its
+     * spawn draws on the game RNG, which MOTE_GTA_SEED does not pin (that
+     * fixes the city layout only), so it lands somewhere different every run
+     * and cannot be reached with MOTE_GTA_VIEW. */
+    { static int tpt=0;
+      if (getenv("MOTE_GTA_TP_TANK") && g_state==ST_PLAY && !tpt && player.mode==MODE_FOOT){
+          Car *t = &cars[NCAR-1];
+          if (t->alive && t->type==VEH_TANK){ tpt=1;
+              /* 3.2 m, not 4: car_in_reach uses 14 m^2, i.e. 3.74 m, so a
+               * 4 m drop lands just outside and RB never enters. */
+              player.x = t->x - 3.2f; player.z = t->z; player.yaw = 0.0f; } } }
     /* test: MOTE_GTA_TP_PED=1 stands the player next to the nearest pedestrian,
      * facing them. Punching range is under 2 m and the scripted walks never
      * reliably land inside it. */
@@ -6173,7 +6194,16 @@ static void g_overlay(uint16_t *fb) {
         mote->draw_rect(fb, 2, 123, (int)(40*g_stam), 2, sc, 1, 0,128);
     }
     /* weapon + ammo */
-    mote_ftextf(mote, fb, g_fmed, 60, 115, MOTE_RGB565(220,220,140), "%s", WNAME[weapon]);
+    /* In the tank the weapon label is meaningless — B fires the cannon, not
+     * whatever you were carrying — so the round count takes that slot. It
+     * turns red at empty, which is the moment the tank stops being a weapon
+     * and becomes just armour. */
+    if (player.mode==MODE_CAR && player.car>=0 && cars[player.car].type==VEH_TANK)
+        mote_ftextf(mote, fb, g_fmed, 52, 115,
+                    g_shells ? MOTE_RGB565(220,220,140) : MOTE_RGB565(210,90,80),
+                    "SHELL %d", g_shells);
+    else
+        mote_ftextf(mote, fb, g_fmed, 60, 115, MOTE_RGB565(220,220,140), "%s", WNAME[weapon]);
     if (weapon!=W_FIST && player.mode!=MODE_CAR)
         mote_ftextf(mote, fb, g_fmed, 108, 115, MOTE_RGB565(200,200,210), "%d", ammo[weapon]);
     /* SPEEDO, bottom right, only while driving. The built-in 3x5 font, not the
