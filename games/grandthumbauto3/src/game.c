@@ -928,7 +928,12 @@ static void build_vstats(void) {
 }
 
 typedef struct { float x,z,yaw,spd; uint8_t variant, alive, hp; float animt; float flee;
-                 uint8_t iscop; float firecd; } Ped;  /* iscop: a bailed-out officer on foot */
+                 uint8_t iscop; float firecd;
+                 float rage; } Ped;        /* rage: seconds left fighting back (see ped_brave) */
+/* A small, FIXED minority will swing back instead of running. Derived from the
+ * ped slot rather than stored or rolled, so the same slot always behaves the
+ * same way for as long as that person exists, and it costs nothing: 1 in 8. */
+static int ped_brave(int i){ return (((unsigned)i * 2654435761u) >> 29) == 0; }
 
 /* Sprint stamina: 1 = full, 0 = empty. g_stam_spent latches at empty so you
  * cannot re-trigger until it has recovered past STAM_ARM. */
@@ -2452,6 +2457,8 @@ static void ai_debug(float dt){
 
 static void footcop_fire(Ped *p, float px, float pz);
 static void sfx(const MoteSfx *s, float g);
+static void rmbl(float in, int ms);          /* forward: the ped brawl uses both */
+static void hurt_player(float dmg);
 static void wreck_car(Car *c);
 static void mission_win(void);
 /* people cannot walk through/over cars (cars hitting THEM at speed is do_runovers') */
@@ -2503,9 +2510,27 @@ static void update_peds(float dt) {
         if (armed && d2 < 64.0f){ flee=1; }                          /* sees your gun (8 m) */
         if (!flee && g_panic > 0){ float dx=p->x-g_panicx, dz=p->z-g_panicz;
             if (dx*dx+dz*dz < 144.0f){ flee=1; tx=g_panicx; tz=g_panicz; } }  /* panic (12 m) */
+        if (p->rage > 0.0f) flee = 0;                  /* the brave do not flee */
         if (flee){ p->flee = 1.4f; p->yaw = atan2f(p->z-tz, p->x-tx); }        /* run away from threat */
         if (p->flee>0) p->flee-=dt;
-        float spd = p->flee>0 ? 4.2f : 1.3f;
+        /* FIGHTING BACK: close on the player and swing. Slower than a sprint —
+         * you can always outrun them — and it times out, so a brawl does not
+         * follow you across the city. */
+        if (p->rage > 0.0f) {
+            p->rage -= dt;
+            p->flee = 0.0f;
+            p->yaw = atan2f(pz - p->z, px - p->x);
+            if (d2 < 3.2f) {
+                p->firecd -= dt;
+                if (p->firecd <= 0.0f) {
+                    p->firecd = 0.85f;
+                    hurt_player(5);
+                    sfx(&punch_sfx, 0.45f);
+                    rmbl(0.35f, 90);
+                }
+            }
+        }
+        float spd = (p->rage>0.0f) ? 3.4f : (p->flee>0 ? 4.2f : 1.3f);
         {
             int onr = is_roadlike((int)(p->x/TILE),(int)(p->z/TILE));
             if (!onr && frand() < (p->flee>0?0.0f:1.2f)*dt) p->yaw = (float)irand(8)*0.7854f;
@@ -2793,7 +2818,10 @@ static void fire_weapon(void) {
         fire_cd = 0.3f; sfx(&punch_sfx,0.7f);
         float fxp=cosf(yaw), fzp=sinf(yaw), hx=pl_x()+fxp*1.4f, hz=pl_z()+fzp*1.4f;
         for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive) continue;
-            float dx=p->x-hx,dz=p->z-hz; if(dx*dx+dz*dz<3.2f){ if(--p->hp<=0) kill_ped(i,1); else { p->flee=1.5f; add_fx(p->x,p->z,0);} break; } }
+            float dx=p->x-hx,dz=p->z-hz; if(dx*dx+dz*dz<3.2f){ if(--p->hp<=0) kill_ped(i,1);
+                else { add_fx(p->x,p->z,0);
+                       /* Punched: most run, the brave square up. */
+                       if (ped_brave(i) && !p->iscop) p->rage = 6.0f; else p->flee = 1.5f; } break; } }
         if (g_dm && rp_hp>0 && !rp_mode){ float dx=rp_x-hx,dz=rp_z-hz;
             if (dx*dx+dz*dz<3.2f){ dm_send2('D',12); add_fx(rp_x,rp_z,0); } }
         add_heat_at(0.05f, pl_x(), pl_z(), 0); return;
@@ -2886,7 +2914,20 @@ static void wreck_car(Car *c) {
     if (c->driver==DRV_COP){ cash+=150; add_heat_at(1.0f, c->x, c->z, 1); }
     /* PERSISTENT WRECK: the car stays as a burnt husk — visible, pushable, blocks
      * traffic — instead of vanishing. Streamed away only once far off-screen. */
+    /* Throw the driver clear. A car that wrecks with someone in it used to
+     * simply set driver=DRV_NONE and the occupant ceased to exist; now they
+     * bail out beside it and run. A cop bails as an armed officer — he was
+     * chasing you a second ago and that should not stop because his car did. */
+    if (c->driver == DRV_COP || c->driver == DRV_NPC) {
+        float ry = c->yaw + 1.5708f;
+        float ex = c->x + cosf(ry)*2.6f, ez = c->z + sinf(ry)*2.6f;
+        if (c->driver == DRV_COP) spawn_footcop(ex, ez);
+        else for (int j=0;j<NPED;j++) if(!peds[j].alive){
+            peds[j] = (Ped){ ex, ez, ry, 0, (uint8_t)irand(4), 1, 2, 0, /*flee*/2.5f, 0, 0, 0 };
+            break; }
+    }
     c->wrecked=1; c->driver=DRV_NONE; c->hp=0; c->spd=0;
+    c->firecd=0.0f;                          /* burn: see the husk fire below */
 }
 
 /* big area blast (tank shell / chained wrecks) */
@@ -2946,7 +2987,8 @@ static void update_bullets(float dt) {
                 dm_send2('D', rp_mode?12:20); } }
         for (int p=0;p<NPED && !hit;p++){ Ped*pd=&peds[p]; if(!pd->alive) continue;
             float dx=b->x-pd->x, dz=b->z-pd->z; if(dx*dx+dz*dz<1.1f){ hit=1; b->alive=0;
-                if(--pd->hp<=0) kill_ped(p,1); else pd->flee=1.5f; } }
+                if(--pd->hp<=0) kill_ped(p,1);
+                else if (ped_brave(p) && !pd->iscop) pd->rage = 6.0f; else pd->flee=1.5f; } }
         for (int c=0;c<NCAR && !hit;c++){ Car*cc=&cars[c]; if(!cc->alive||cc->driver==DRV_PLAYER) continue;
             float dx=b->x-cc->x, dz=b->z-cc->z; if(dx*dx+dz*dz<3.0f){ hit=1; b->alive=0;
                 cc->hp-=18; if(cc->hp<=0) wreck_car(cc); } }
@@ -4352,14 +4394,49 @@ static void physics_pass(float dt) {
             float now=sqrtf(b->vx*b->vx+b->vy*b->vy);            /* crash feel: big speed drop */
             if (prespd[i]>12.0f && now<prespd[i]*0.55f){
                 sfx(&crash_sfx,0.6f); rmbl(0.5f,120); cars[i].hp -= (prespd[i]-12.0f)*2.0f;
+                /* RAMMING A POLICE CAR is a crime in itself — the cop you just
+                 * hit is the witness, so this adds heat directly rather than
+                 * going through cops_witness. Damage is dealt to them as well;
+                 * a squad car should not be a bollard. */
+                for (int j=0;j<NCAR;j++){ Car *oc=&cars[j];
+                    if (j==i || !oc->alive || oc->wrecked) continue;
+                    float ddx=oc->x-cars[i].x, ddz=oc->z-cars[i].z;
+                    if (ddx*ddx+ddz*ddz > 30.0f) continue;
+                    oc->hp -= (prespd[i]-12.0f)*1.6f;
+                    if (oc->driver==DRV_COP) add_heat(0.55f);
+                    if (oc->hp<=0) wreck_car(oc);
+                }
                 if (cars[i].hp<=0){ wreck_car(&cars[i]); player.mode=MODE_FOOT; player.car=-1;
                                     player.x=b->x; player.z=b->y; hurt_player(16); continue; }
             }
         } else if (cars[i].driver != DRV_NONE){                 /* AI cars clamp to ROAD (off pavement) */
+            /* Other cars take crash damage too. Only the player's did, so you
+             * could ram traffic all day and nothing happened to it. Same speed
+             * -drop test, and wrecking one throws its driver clear. */
+            float onow = sqrtf(b->vx*b->vx + b->vy*b->vy);
+            if (prespd[i] > 12.0f && onow < prespd[i]*0.55f && !cars[i].wrecked) {
+                cars[i].hp -= (prespd[i] - 12.0f) * 1.6f;
+                if (cars[i].hp <= 0) wreck_car(&cars[i]);
+            }
             if (!road_world(b->x, prez[i])){ b->x=prex[i]; b->vx=0; }
             if (!road_world(prex[i], b->y)){ b->y=prez[i]; b->vy=0; }
         }                                                       /* DRV_NONE (jackable/parked) = freely pushable */
         cars[i].x=b->x; cars[i].z=b->y; cars[i].yaw=b->angle;
+        /* A wrecked car BURNS. One explosion at the moment of death read as a
+         * car that had simply turned black; a husk that keeps throwing flame
+         * reads as destroyed. Gated on distance so a wreck left across the
+         * city is not spending fx slots you cannot see. */
+        if (cars[i].wrecked) {
+            float fdx=cars[i].x-pl_x(), fdz=cars[i].z-pl_z();
+            if (fdx*fdx+fdz*fdz < 46.0f*46.0f) {
+                cars[i].firecd -= dt;
+                if (cars[i].firecd <= 0.0f) {
+                    cars[i].firecd = 0.28f + frand()*0.30f;
+                    add_fx(cars[i].x + (frand()*2-1)*1.1f,
+                           cars[i].z + (frand()*2-1)*1.1f, 0);
+                }
+            }
+        }
         float cc=cosf(b->angle), ss=sinf(b->angle);
         cars[i].spd = b->vx*cc + b->vy*ss;
     }
@@ -4857,6 +4934,18 @@ static void g_update(float dt) {
      * PROFILING.md notes combat has never been profiled; this is how. */
     { static int hd=0; const char *hv=getenv("MOTE_GTA_HEAT");
       if (hv && g_state==ST_PLAY && !hd){ hd=1; heat=(float)atof(hv); heat_cool=0; } }
+    /* test: MOTE_GTA_TP_PED=1 stands the player next to the nearest pedestrian,
+     * facing them. Punching range is under 2 m and the scripted walks never
+     * reliably land inside it. */
+    { static int tpp=0;
+      if (getenv("MOTE_GTA_TP_PED") && g_state==ST_PLAY && !tpp && player.mode==MODE_FOOT){
+          int best=-1; float bd=1e9f;
+          for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive||p->iscop) continue;
+              float dx=p->x-player.x, dz=p->z-player.z, d=dx*dx+dz*dz;
+              if (d<bd){ bd=d; best=i; } }
+          if (best>=0){ tpp=1;
+              player.x = peds[best].x - 1.0f; player.z = peds[best].z;
+              player.yaw = 0.0f; } } }
     /* test: MOTE_GTA_INCAR=1 drops the player straight into the nearest car at
      * the start of play. The scripted "walk into traffic and hammer A" dance in
      * the capture harness stops landing whenever a physics or spawn change
@@ -6045,7 +6134,23 @@ static void g_overlay(uint16_t *fb) {
     }
     /* weapon + ammo */
     mote_ftextf(mote, fb, g_fmed, 60, 115, MOTE_RGB565(220,220,140), "%s", WNAME[weapon]);
-    if (weapon!=W_FIST) mote_ftextf(mote, fb, g_fmed, 108, 115, MOTE_RGB565(200,200,210), "%d", ammo[weapon]);
+    if (weapon!=W_FIST && player.mode!=MODE_CAR)
+        mote_ftextf(mote, fb, g_fmed, 108, 115, MOTE_RGB565(200,200,210), "%d", ammo[weapon]);
+    /* SPEEDO, bottom right, only while driving. The built-in 3x5 font, not the
+     * 1.5x UI one: "120MPH" at the larger size does not fit beside the weapon
+     * label, and a speed readout wants to sit quietly in the corner. It takes
+     * the ammo slot, which is the one thing on this row you are not reading
+     * while your hands are on the wheel.
+     *
+     * c->spd is metres per second along the heading and goes negative in
+     * reverse, so it is the magnitude that is shown. */
+    if (player.mode==MODE_CAR && player.car>=0) {
+        int mph = (int)(fabsf(cars[player.car].spd) * 2.2369f + 0.5f);
+        if (mph > 999) mph = 999;
+        char sb[10]; snprintf(sb, sizeof sb, "%dMPH", mph);
+        int w = 0; for (const char *q = sb; *q; q++) w += 4;      /* 3x5 cell advance */
+        mote->text(fb, sb, 126 - w, 117, MOTE_RGB565(210,222,240));
+    }
 
     if (mission!=MI_NONE){
         uint16_t mcol=MOTE_RGB565(250,230,90); int t=(int)mission_t;
