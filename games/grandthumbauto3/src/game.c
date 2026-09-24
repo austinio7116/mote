@@ -633,13 +633,16 @@ static void weather_advance(float dt) {
      * -0.45 threshold and 2.2 gain mean it is raining maybe a fifth of the
      * time, ramping in and out over a minute or so rather than switching. */
     float w = sinf(g_wtime * 0.0121f) * 0.6f + sinf(g_wtime * 0.0043f + 1.7f) * 0.4f;
-    /* 0.80/4.0, not 0.45/2.2. The first pair had it raining 20% of the time and
-     * thundering 10% — measured over six simulated hours — which reads as a wet
-     * climate rather than weather. This is about 6% raining and 2% storming, so
-     * rain arrives roughly every twenty minutes and lasts a minute or two. The
-     * higher threshold also caps the peak near 0.8, so a full downpour is rare
-     * rather than the normal state of a shower. */
-    g_wet = mote_clampf((w - 0.80f) * 4.0f, 0.0f, 1.0f);
+    /* Measured over six simulated hours of this exact formula:
+     *
+     *     0.45 / 2.2   raining 20.3%   storming 10.7%   (first attempt)
+     *     0.80 / 4.0   raining  6.3%   storming  1.9%
+     *     0.86 / 5.0   raining  4.2%   storming  0.9%   (here)
+     *
+     * A wet fifth of the time read as a climate rather than as weather. At
+     * 4.2% rain shows up now and then and is gone again, and the high
+     * threshold caps intensity so a full downpour stays rare. */
+    g_wet = mote_clampf((w - 0.86f) * 5.0f, 0.0f, 1.0f);
 #ifdef MOTE_HOST
     /* MOTE_GTA_WET=0.8 pins the intensity, so a capture can be taken in a storm
      * without running out to the minute the cycle happens to produce one. Same
@@ -822,12 +825,12 @@ static int bb_add(const MoteImage *img, float x, float y, float z,
 /* A person, as an upright camera-facing quad with a shadow under it. 1.8 m is
  * roughly human height in this world's scale, and the shadow is what stops a
  * billboard reading as a sticker floating over the road. */
-/* 1.45, not the 1.8 a real person would be: on a 128x128 panel with the camera
+/* 1.32, not the 1.8 a real person would be: on a 128x128 panel with the camera
  * 4.5 m back, 1.8 m filled about a third of the frame height and crowded the
- * view. It went 1.8 -> 1.6 -> 1.45 by eye on captures, each step a request to
- * free up screen. Physics and the ped collision radius are untouched — this is
- * the billboard's drawn height only. */
-#define CHAR_H 1.45f
+ * view. It went 1.8 -> 1.6 -> 1.45 -> 1.32 by eye on captures, each step a
+ * request to free up screen. Physics and the ped collision radius are
+ * untouched — this is the billboard's drawn height only. */
+#define CHAR_H 1.32f
 /* The ground shadow scales WITH the figure. Held at a fixed 0.42 it kept
  * spreading out from under a shrinking sprite, which reads as a person
  * hovering. 0.26 of height matches the 0.42/1.6 the 1.6 m figure had. */
@@ -1860,18 +1863,34 @@ static void draw_sky_body(void) {
  * Two heads per junction, one per axis, set back toward the approach they
  * govern so you can tell which light is yours. A dark backing disc behind each
  * lamp gives it a housing — without it a bare coloured dot reads as a pickup. */
-#define LIGHTS_MAX   10      /* junctions drawn; 4 discs each against max_discs */
-/* 3.0 m, a real traffic-light height — and not higher, for the same reason the
- * sun disc had to have its elevation compressed. The chase camera pitches
- * about 22 degrees down with a 55 degree field, so the top of the frame sits
- * near 5.5 degrees above the eye (2.4 m). A lamp at h is therefore off the top
- * of the screen until the player is (h - 2.4) / tan(5.5deg) away: 22 m at
- * 4.6 m high, which is past the junction you are approaching. At 3.0 m it
- * comes into view about 6 m out, which is where you need it. */
-#define LIGHT_H      3.0f    /* lamp height, metres */
+#define LIGHTS_MAX   6       /* junctions drawn per frame */
+#define LIGHT_RING   4       /* tiles: keep them inside reliable building range */
+#define LIGHT_H      3.0f    /* head height, metres */
+
+/* Traffic-light heads at the junctions around the player.
+ *
+ * Drawn as flat triangles, NOT discs, for two reasons. A disc is a bare
+ * coloured dot with nothing holding it up, which read as floating; a head on a
+ * post reads as a traffic light. And discs raster in the FX pass, which tests
+ * depth but only against what was actually drawn — the banded building cull
+ * can drop a building, and the light then shows through the hole where it
+ * should have been. Flat tris raster BEFORE the textured building pass and
+ * write depth, so a building drawn afterwards paints over them regardless.
+ *
+ * Kept small and few on purpose: a 128 px panel has no room to spare, so the
+ * head is 0.34 m and only the nearest LIGHTS_MAX junctions inside LIGHT_RING
+ * tiles get one. The ring walk goes outward, so what drops is always the far
+ * ones.
+ *
+ * Still no state: corridor_info() finds the junctions and light_state()
+ * colours them, both from the map and one clock.
+ *
+ * Head and post face ALONG the axis they govern, so the light you can read is
+ * the one controlling the approach you are on. */
 static void draw_traffic_lights(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0;
-    for (int r = 1; r <= 7 && n < LIGHTS_MAX; r++) {
+    const uint16_t POST = MOTE_RGB565(58, 62, 72);
+    for (int r = 1; r <= LIGHT_RING && n < LIGHTS_MAX; r++) {
         for (int dz = -r; dz <= r && n < LIGHTS_MAX; dz++)
         for (int dx = -r; dx <= r && n < LIGHTS_MAX; dx++) {
             if (dx != -r && dx != r && dz != -r && dz != r) continue;   /* ring shell only */
@@ -1887,12 +1906,26 @@ static void draw_traffic_lights(void) {
                 uint16_t col = (st == LIGHT_GREEN)   ? MOTE_RGB565(60,230,90)
                              : (st == LIGHT_AMBER_ON)? MOTE_RGB565(250,190,50)
                                                      : MOTE_RGB565(240,50,40);
-                /* set back along the axis it governs, on the right-hand side */
                 float lx = wx + (axis == 0 ? -TILE*0.55f : TILE*0.42f);
                 float lz = wz + (axis == 0 ? TILE*0.42f : -TILE*0.55f);
-                Vec3 at = v3(lx, LIGHT_H, lz);
-                mote->scene_add_disc(at, 0.46f, MOTE_RGB565(24,26,32));   /* housing */
-                mote->scene_add_disc(at, 0.30f, col);
+                /* face normal runs across the approach this light governs */
+                float ux = (axis == 0) ? 0.0f : 1.0f, uz = (axis == 0) ? 1.0f : 0.0f;
+                const float HW = 0.17f, HT = 0.34f, PW = 0.05f;
+                /* post, ground to just under the head */
+                mote->scene_add_tri(v3(lx-ux*PW, 0.0f,     lz-uz*PW),
+                                    v3(lx+ux*PW, 0.0f,     lz+uz*PW),
+                                    v3(lx+ux*PW, LIGHT_H,  lz+uz*PW), POST, 0);
+                mote->scene_add_tri(v3(lx-ux*PW, 0.0f,     lz-uz*PW),
+                                    v3(lx+ux*PW, LIGHT_H,  lz+uz*PW),
+                                    v3(lx-ux*PW, LIGHT_H,  lz-uz*PW), POST, 0);
+                /* head */
+                float y0 = LIGHT_H, y1 = LIGHT_H + HT;
+                mote->scene_add_tri(v3(lx-ux*HW, y0, lz-uz*HW),
+                                    v3(lx+ux*HW, y0, lz+uz*HW),
+                                    v3(lx+ux*HW, y1, lz+uz*HW), col, 0);
+                mote->scene_add_tri(v3(lx-ux*HW, y0, lz-uz*HW),
+                                    v3(lx+ux*HW, y1, lz+uz*HW),
+                                    v3(lx-ux*HW, y1, lz-uz*HW), col, 0);
             }
         }
     }
@@ -6101,11 +6134,10 @@ static const MoteGameVtbl k_vtbl = {
      * invisible until someone hits it on hardware. */
     .config = { .max_tex_tris = 1100, .max_tris = 850, .depth = 1,
                 .max_points = WATER_FLECKS_MAX,   /* water shimmer, depth-tested in the 3D pass */
-                /* sun/moon (1) + car lamps (4 per car inside VEH_DETAIL_R) +
-                 * traffic lights (4 per junction, LIGHTS_MAX of them). The
-                 * lights alone can want 40, so this is sized for them rather
-                 * than trimmed to a measured peak. */
-                .max_discs  = 72,
+                /* sun/moon (1) + car lamps (4 per car inside VEH_DETAIL_R).
+                 * Traffic lights briefly lived here too and pushed this to 72;
+                 * they are flat triangles now, so it goes back. */
+                .max_discs  = 40,
                 /* max_shadows = 64, not 40: worst case is 18 car + up to 34
                  * in-view ped shadows = 52, which already exceeded 40 with
                  * vehicle shadows left ungated (fixed above). Same
