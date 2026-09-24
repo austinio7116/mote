@@ -2071,12 +2071,21 @@ static void draw_traffic_lights(void) {
                   if (!ok) continue; }
                 float lx = px*TILE + TILE*0.5f;
                 float lz = pz*TILE + TILE*0.5f;
-                /* Quad plane: width runs ACROSS the approach this light
-                 * governs, so a driver on that approach sees its face. */
-                float ux = (axis == 0) ? 0.0f : 1.0f, uz = (axis == 0) ? 1.0f : 0.0f;
-                /* ...and the facing normal, used to stand the lamp a couple of
-                 * centimetres proud of the housing so it cannot z-fight. */
-                float nx = (axis == 0) ? 1.0f : 0.0f, nz = (axis == 0) ? 0.0f : 1.0f;
+                /* The head FACES THE CAMERA rather than the approach it governs.
+                 *
+                 * It used to lie in the plane across its own approach, so from
+                 * the perpendicular street you saw it exactly edge-on: a flat
+                 * quad with zero projected area. scene_add_tri is double-sided,
+                 * so backfacing was never the issue; edge-on was.
+                 *
+                 * Turning the quad to face the viewer costs nothing — still two
+                 * triangles — and is readable from anywhere. Which approach a
+                 * light governs is carried by WHICH CORNER it stands on, which
+                 * does not depend on the viewing angle at all. */
+                float vx = lx - cam_pos.x, vz = lz - cam_pos.z;
+                float vl = sqrtf(vx*vx + vz*vz); if (vl < 0.001f) vl = 0.001f;
+                float nx = vx/vl, nz = vz/vl;        /* camera -> light, on the ground plane */
+                float ux = -nz,   uz =  nx;          /* its horizontal perpendicular */
 
                 /* A VERTICAL housing, hanging from the top of the post and
                  * straddling eye level, with the lit lamp in its slot: top
@@ -2089,12 +2098,18 @@ static void draw_traffic_lights(void) {
                  * h is off the top of the screen nearer than (h - 2.4)/0.096
                  * metres: the old head topped out at 3.30 m, so it vanished
                  * inside 9.3 m — exactly when you are at the junction and
-                 * actually need to read it. This head runs 2.95 m down to
-                 * 2.15 m, and everything below 2.4 m is on screen at ANY
+                 * actually need to read it. This head runs 3.10 m down to
+                 * 1.90 m, and everything below 2.4 m is on screen at ANY
                  * distance. */
-                const float PW = 0.045f;
-                const float HTOP = 2.95f, HBOT = 2.15f, HW = 0.15f;
-                const float SLOT = (HTOP - HBOT) / 3.0f, LW = 0.105f;
+                /* Sized for a 128 px screen, not for scale: at 40 m a real
+                 * 0.3 m lamp is under one pixel. 0.36 m of lamp in a 0.52 m
+                 * housing reads from about 25 m in and still looks like a
+                 * signal head close up. HTOP 3.10 keeps the RED lamp centre at
+                 * 2.90 m, so it only leaves the top of the frame inside 5.2 m
+                 * -- by which point you are in the junction. */
+                const float PW = 0.08f;
+                const float HTOP = 3.10f, HBOT = 1.90f, HW = 0.26f;
+                const float SLOT = (HTOP - HBOT) / 3.0f, LW = 0.18f;
 
                 /* post, ground to the top of the head */
                 mote->scene_add_tri(v3(lx-ux*PW, 0.0f, lz-uz*PW),
@@ -2114,7 +2129,11 @@ static void draw_traffic_lights(void) {
                 { int slot = (st == LIGHT_RED) ? 0 : (st == LIGHT_AMBER_ON ? 1 : 2);
                   float cy = HTOP - SLOT*(slot + 0.5f);
                   float ly0 = cy - LW, ly1 = cy + LW;
-                  float cxx = lx + nx*0.03f, czz = lz + nz*0.03f;
+                  /* TOWARD the camera, not away. This read `+ nx` and pushed the
+                   * lamp 3 cm BEHIND the housing, where the depth test threw it
+                   * away: every signal drew its dark box and no lit lamp at all,
+                   * which is why they looked absent rather than dim. */
+                  float cxx = lx - nx*0.06f, czz = lz - nz*0.06f;
                   mote->scene_add_tri(v3(cxx-ux*LW, ly0, czz-uz*LW),
                                       v3(cxx+ux*LW, ly0, czz+uz*LW),
                                       v3(cxx+ux*LW, ly1, czz+uz*LW), col, 0);
@@ -2766,6 +2785,24 @@ static void rmbl(float in, int ms){
     g_lastrumble = now; mote->rumble(in, ms);
 }
 static void add_heat(float a){ heat += a; if(heat>6) heat=6; heat_cool=0; }
+/* Hitting a squad car is ALWAYS a felony, worth at least one full star.
+ *
+ * This used to be add_heat(0.55f), which could never show anything: the wanted
+ * level is (int)heat, so half a point reads as zero stars and ramming a police
+ * car looked like it did nothing at all. It now floors heat at 1.0 on the first
+ * hit and adds half a star for each one after.
+ *
+ * The cooldown is because contact lasts several frames — without it a single
+ * scrape would ladder you to six stars in under a second. */
+static float g_ramcd;
+static void cop_rammed(void) {
+    if (g_ramcd > 0.0f) return;
+    g_ramcd = 1.2f;
+    if (heat < 1.0f) heat = 1.0f; else heat += 0.5f;
+    if (heat > 6.0f) heat = 6.0f;
+    heat_cool = 0;
+    say("HIT A COP CAR");
+}
 /* line of sight blocked by buildings (samples the tile map every ~2 m) */
 static int sight_clear(float x0,float z0,float x1,float z1){
     float dx=x1-x0, dz=z1-z0, d=sqrtf(dx*dx+dz*dz);
@@ -4632,6 +4669,23 @@ static void physics_pass(float dt) {
         if (i==player.car){
             if (blocked_bldg_w(b->x, b->y)){ b->x=prex[i]; b->y=prez[i]; b->vx*=0.2f; b->vy*=0.2f; }  /* anti-tunnel backstop */
             if (in_water_w(b->x, b->y)){ cars[i].x=b->x; cars[i].z=b->y; drown(); continue; }
+            /* ANY real contact with a squad car counts, not just a heavy crash.
+             * The speed-drop test below only fires when you lose 45% of your
+             * speed in a frame; a scrape or a nudge at junction speed left you
+             * completely clean, which is the case you reported. */
+            for (int j=0;j<NCAR;j++){ Car *oc=&cars[j];
+                if (j==i || !oc->alive || oc->wrecked || oc->driver!=DRV_COP) continue;
+                float ddx=oc->x-cars[i].x, ddz=oc->z-cars[i].z;
+                /* Threshold from the ACTUAL car lengths, not a constant. A flat
+                 * 4.9 m never fired: two 5.5 m cars touching nose-to-tail sit
+                 * about 5.5 m centre-to-centre, so the test was tighter than
+                 * contact itself. */
+                float rad = (VSTAT[cars[i].type].len + VSTAT[oc->type].len) * 0.55f;
+                if (ddx*ddx+ddz*ddz > rad*rad) continue;
+                float rvx=b->vx-bodies[j].vx, rvy=b->vy-bodies[j].vy;
+                if (rvx*rvx+rvy*rvy < 4.0f) continue;           /* a hit, not parked alongside */
+                cop_rammed(); break;
+            }
             float now=sqrtf(b->vx*b->vx+b->vy*b->vy);            /* crash feel: big speed drop */
             if (prespd[i]>12.0f && now<prespd[i]*0.55f){
                 sfx(&crash_sfx,0.6f); rmbl(0.5f,120); cars[i].hp -= (prespd[i]-12.0f)*2.0f;
@@ -4644,7 +4698,7 @@ static void physics_pass(float dt) {
                     float ddx=oc->x-cars[i].x, ddz=oc->z-cars[i].z;
                     if (ddx*ddx+ddz*ddz > 30.0f) continue;
                     oc->hp -= (prespd[i]-12.0f)*1.6f;
-                    if (oc->driver==DRV_COP) add_heat(0.55f);
+                    if (oc->driver==DRV_COP) cop_rammed();
                     if (oc->hp<=0) wreck_car(oc);
                 }
                 if (cars[i].hp<=0){ wreck_car(&cars[i]); player.mode=MODE_FOOT; player.car=-1;
@@ -5146,6 +5200,7 @@ static void g_update(float dt) {
     /* Weather advances BEFORE the sky is baked, so the tint and any flash land
      * in this frame's palette rather than the next one's. */
     g_ltime += dt;                     /* traffic-light phase (see light_state) */
+    if (g_ramcd > 0.0f) g_ramcd -= dt;
     weather_advance(dt);
     tod_advance(dt);
 
@@ -5189,9 +5244,17 @@ static void g_update(float dt) {
               if (!is_junction(x,z)) continue;
               int d=(x-px0)*(x-px0)+(z-pz0)*(z-pz0);
               if (d<bd){ bd=d; bx=x; bz=z; } }
+          /* The value picks WHICH SIDE to stand on: 0 south, 1 north, 2 east,
+           * 3 west, each looking in at the junction. One side is not a test of
+           * a traffic light — a flat head is only edge-on from some approaches,
+           * so all four have to be checked. */
           if (bx>=0){ tpl=1;
-              player.x=(bx+0.5f)*TILE; player.z=(bz+0.5f)*TILE + TILE*2.2f;
-              player.yaw=-1.5708f; } } }
+              int side = atoi(getenv("MOTE_GTA_TP_LIGHT")) & 3;
+              float jx=(bx+0.5f)*TILE, jz=(bz+0.5f)*TILE, D=TILE*2.2f;
+              const float OX[4]={0.0f,0.0f, D,   -D  };
+              const float OZ[4]={D,   -D,   0.0f, 0.0f};
+              const float YW[4]={-1.5708f, 1.5708f, 3.14159f, 0.0f};
+              player.x=jx+OX[side]; player.z=jz+OZ[side]; player.yaw=YW[side]; } } }
     /* test: MOTE_GTA_TP_TANK=1 stands the player beside the hidden tank. Its
      * spawn draws on the game RNG, which MOTE_GTA_SEED does not pin (that
      * fixes the city layout only), so it lands somewhere different every run
