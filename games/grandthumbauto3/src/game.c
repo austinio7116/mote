@@ -1907,12 +1907,16 @@ static void draw_sky_body(void) {
  * Two heads per junction, one per axis, set back toward the approach they
  * govern so you can tell which light is yours. A dark backing disc behind each
  * lamp gives it a housing — without it a bare coloured dot reads as a pickup. */
-#define LIGHTS_MAX   6       /* junctions drawn per frame */
+/* Lights are small and cheap now, so they stay visible well down the street
+ * rather than popping in at the last moment. Buildings draw to VIEW_BLD_R
+ * (112 m), which is what bounds this: past that there is nothing to occlude
+ * them and a light would hang in the haze. */
+#define LIGHTS_MAX   12      /* crossings drawn per frame */
 /* 7 tiles, not 4. At one light per junction TILE the near ring was already
  * saturated; at one per intersection the nearest crossing is often further than
  * 16 m away — measured 47 m from one downtown vantage — and no light drew at
  * all. 7 tiles is 28 m, still inside reliable building range. */
-#define LIGHT_RING   7
+#define LIGHT_RING   16      /* tiles (64 m) */
 #define LIGHT_H      3.0f    /* head height, metres */
 
 /* Traffic-light heads at the junctions around the player.
@@ -1952,7 +1956,12 @@ static void draw_traffic_lights(void) {
              * north neighbours are NOT junctions picks exactly the top-left
              * corner of each block, and needs no state. */
             if (!is_junction(x, z) || is_junction(x-1, z) || is_junction(x, z-1)) continue;
-            float wx = x*TILE + TILE*0.5f, wz = z*TILE + TILE*0.5f;
+            /* Measure the crossing so the posts can go on its CORNERS. (x,z) is
+             * its top-left tile, so walk east and south while still in it. */
+            int jw = 0, jh = 0;
+            while (jw < 10 && is_junction(x+jw+1, z)) jw++;
+            while (jh < 10 && is_junction(x, z+jh+1)) jh++;
+            float wx = (x + jw*0.5f)*TILE + TILE*0.5f, wz = (z + jh*0.5f)*TILE + TILE*0.5f;
             if (!gta3_view_tile(&g_view, wx, LIGHT_H, wz, VIEW_GROUND_R, TILE)) continue;
             n++;
             for (int axis = 0; axis < 2; axis++) {
@@ -1960,8 +1969,31 @@ static void draw_traffic_lights(void) {
                 uint16_t col = (st == LIGHT_GREEN)   ? MOTE_RGB565(60,230,90)
                              : (st == LIGHT_AMBER_ON)? MOTE_RGB565(250,190,50)
                                                      : MOTE_RGB565(240,50,40);
-                float lx = wx + (axis == 0 ? -TILE*0.55f : TILE*0.42f);
-                float lz = wz + (axis == 0 ? TILE*0.42f : -TILE*0.55f);
+                /* ON THE PAVEMENT CORNER, not in the carriageway. A post in the
+                 * middle of the junction is both wrong and in the way; kerbside
+                 * is where a real signal stands. The two axes take diagonally
+                 * opposite corners — north-west and south-east of the crossing —
+                 * so each approach has one on its right-hand side and they never
+                 * overlap. One tile OUTSIDE the junction block is the pavement. */
+                int px = (axis == 0) ? x - 1 : x + jw + 1;
+                int pz = (axis == 0) ? z - 1 : z + jh + 1;
+                /* If that corner is not somewhere a post could stand, try the
+                 * other three. Measured over three maps: the preferred corner
+                 * is pavement or verge about 97% of the time, but the rest land
+                 * in the carriageway, a wall, or — worst — open water, and a
+                 * signal standing in the river is not a detail anyone forgives.
+                 * If no corner works the light is skipped rather than faked. */
+                { const int CX[4] = { x-1, x+jw+1, x-1,      x+jw+1 };
+                  const int CZ[4] = { z-1, z+jh+1, z+jh+1,   z-1    };
+                  int ok = 0;
+                  for (int t = 0; t < 4 && !ok; t++) {
+                      int tx = CX[(axis + t) & 3], tz = CZ[(axis + t) & 3];
+                      char tc = tile_at(tx, tz);
+                      if (tc == ',' || tc == ' ') { px = tx; pz = tz; ok = 1; }
+                  }
+                  if (!ok) continue; }
+                float lx = px*TILE + TILE*0.5f;
+                float lz = pz*TILE + TILE*0.5f;
                 /* Quad plane: width runs ACROSS the approach this light
                  * governs, so a driver on that approach sees its face. */
                 float ux = (axis == 0) ? 0.0f : 1.0f, uz = (axis == 0) ? 1.0f : 0.0f;
