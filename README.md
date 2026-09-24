@@ -2451,30 +2451,7 @@ level). Its `.mote` ships in the games bundle attached to the
 | `fxdemo` | the FX toolkit — depth-tested points/lines/discs/ring, textured + procedural sphere impostors, soft shadow, `set_background_cb` gradient, a 3D-sprite billboard, a textured mesh, and an additive `blit_ex` HUD sparkle |
 | `wolfmote` | **Wolfenstein-3D-style FPS** — textured wall/door cube meshes, billboard enemies (guard + brute, aim/fire/hit/dead) + scenery, a `blit_ex` gun with additive muzzle flash, two weapons, doors (B), hand-authored text-map levels, and `MoteSfx` sound |
 | `grandthumbauto` | **top-down open-city driving** — the `phys2d_step` 2D rigid-body solver as a game: cars with `lat_damp` tyre grip, on-foot + vehicle play, city streets, a wanted level *(binary in the games bundle; source lands with a future release)* |
-| `grandthumbauto3` | **third-person open-city crime sandbox** — the largest game in the tree: a 254x256 procedural city, chase camera, textured building massing, 54 vehicles on 14 silhouettes, 14 mission types, day/night, weather and traffic lights (see the feature list below) |
-
-### Grand Thumb Auto III — features
-
-`games/grandthumbauto3`, the third-person fork of `grandthumbauto`. One line per feature:
-
-- **Procedural city** — a 254x256 tile map generated at boot: road grid, avenues, pavements, parks, rivers, lakes, bridges and a plaza, different every seed.
-- **Third-person chase camera** — smoothed yaw, wall collision, no flip when reversing, and an orbit for the title and death screens.
-- **On-foot play** — walk, sprint on A with stamina, punch, eight weapons plus fists, and LB to look behind you.
-- **Vehicle play** — RB to get in or out, A for the throttle, B to brake and drop into reverse once stopped, LB to fire from the car.
-- **54 vehicles on 14 silhouettes** — sedan, compact, coupe, sports, racer, long-hood, wagon, van, truck, luxury, pickup, jeep, classic sports and taxi, each drawn as a tinted mesh with a cabin, a wheel line and an oriented ground shadow.
-- **Car damage** — vehicles take damage, catch fire and wreck, ejecting the driver; a damage bar sits under the health bar while you drive.
-- **Traffic AI** — cars hold a right-hand lane with pure-pursuit steering, change lanes, take turns, yield at junctions, queue behind each other and wait at red lights.
-- **Traffic lights** — one signal head per intersection on a kerbside post, red/amber/green off a single global clock with no per-junction state.
-- **Pedestrians** — 34 live peds who walk the pavements, flee a fight, and occasionally fight back.
-- **Police and a wanted level** — up to six stars, ambient patrols that act as witnesses, squad cars and foot officers that pursue you, sirens, and an automatic felony for ramming a cop car.
-- **14 mission types** — courier, rampage, getaway, hit, deliver, pickup, repo, escort, smuggle, demolition, vigilante, wanted-survival, circuit time-trial and a rubber-band rival race.
-- **Day/night cycle** — a gradient sky on a full clock, a sun and moon on their own arc, stars that fade up through dusk, and daylight clouds.
-- **Weather** — rain and thunderstorms that come and go, with wet road tinting.
-- **Rotating minimap** — a live radar under the title bar, hideable from the settings page.
-- **Save and load** — a settings tab on the pause screen, plus a persisted best-cash record.
-- **Hidden content** — a treasure island in the bottom-left water reached by a footbridge, weapon and cash caches in the forests, a rare one-shot rocket launcher, and a drivable tank with finite shells.
-- **Street detail** — park benches on plazas and pavements, railings on the long bridges, palm trees on the waterline, zebra crossings and phone boxes.
-- **Draw budget** — cone culling, a banded draw distance with a haze band and ground skirt, and every pool (triangles, billboards, discs, shadows) sized from a measured host profile.
+| `grandthumbauto3` | **third-person open-city crime sandbox** — the largest game in the tree: a 254x256 procedural city, chase camera, textured building massing, 54 vehicles on 14 silhouettes, 14 mission types, day/night, weather and traffic lights (see [its README](games/grandthumbauto3/README.md)) |
 
 ### Key reference files to read when in doubt
 
