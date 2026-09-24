@@ -68,6 +68,23 @@ rolls back.
 
 ![A beach: palm trees on dry sand, wet sand on the waterline, and water with no seawall where it meets the sand](../../docs/img/grandthumbauto3-beach.png)
 
+## Temporary debug affordances
+
+**BRING HELI** — a row on the SETTINGS page (MENU, then RB to the settings tab)
+that puts the helicopter 9 m in front of you, so flying can be tested on the
+device without first finding its pad. It steps closer until the tile is
+somewhere an aircraft can sit, and always lands directly ahead rather than at a
+random bearing.
+
+This is meant to come out. To remove it, delete the `SET_HELI` row from the
+settings enum, its entry in `NAME[]`, and its `case` in the settings switch —
+nothing else refers to it.
+
+The host-only equivalents are environment variables, which are no use with the
+handheld in your hands: `MOTE_GTA_TP_HELI=1` stands beside the aircraft, `2`
+puts you in it already airborne, and `3` also parks it over the nearest tall
+roof.
+
 ## Build and test
 
 ```bash

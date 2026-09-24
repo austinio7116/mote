@@ -1534,7 +1534,12 @@ static int   g_ctlpage;       /* the CONTROLS page, opened from SETTINGS */
  * g_setsel is the highlighted settings row; g_setmsg flashes the result of a
  * save or load for a couple of seconds so the button press has an answer. */
 enum { TAB_MAP, TAB_SET, TAB_N };
-enum { SET_MINIMAP, SET_CONTROLS, SET_SAVE, SET_LOAD, SET_N };
+/* SET_HELI is a TEMPORARY DEBUG ROW. It brings the helicopter to you instead of
+ * making you find its pad, which is the only way to test flying on the device
+ * (MOTE_GTA_TP_HELI is host-only, and a scripted env var is no use with the
+ * handheld in your hands). Delete the enum row, the NAME entry and the case in
+ * the settings switch to remove it — nothing else refers to it. */
+enum { SET_MINIMAP, SET_CONTROLS, SET_HELI, SET_SAVE, SET_LOAD, SET_N };
 static int   g_menutab = TAB_MAP, g_setsel;
 static const char *g_setmsg; static float g_setmsg_t;
 
@@ -5958,6 +5963,26 @@ static void g_update(float dt) {
                 switch (g_setsel) {
                 case SET_MINIMAP: g_radar_on = !g_radar_on; break;
                 case SET_CONTROLS: g_ctlpage = 1; break;
+                /* TEMPORARY DEBUG — see the SET_HELI comment at the enum. */
+                case SET_HELI: {
+                    Car *h = &cars[HELI_SLOT];
+                    /* ALWAYS straight in front of you, stepping closer until
+                     * the tile is somewhere a helicopter can sit. A pad search
+                     * picks a random bearing, which half the time puts the
+                     * thing behind your back and makes the row look broken;
+                     * for a debug affordance, predictable beats tidy. */
+                    float fxh = cosf(pl_yaw()), fzh = sinf(pl_yaw());
+                    float ox = pl_x(), oz = pl_z();          /* worst case: on top of you */
+                    for (float d = 9.0f; d >= 3.0f; d -= 1.0f) {
+                        float cx2 = pl_x() + fxh * d, cz2 = pl_z() + fzh * d;
+                        char tc = tile_at((int)(cx2 / TILE), (int)(cz2 / TILE));
+                        if (tc == ',' || tc == ' ' || tc == '.') { ox = cx2; oz = cz2; break; }
+                    }
+                    *h = (Car){ ox, oz, pl_yaw(), 0, VEH_HELI, DRV_NONE, 1, 100.0f, 0 };
+                    car_body_init(HELI_SLOT);
+                    g_heli_y = 0.0f; g_heli_vy = 0.0f;
+                    g_setmsg = "HELI DELIVERED"; g_setmsg_t = 2.0f;
+                } break;
                 case SET_SAVE:    g_setmsg = save_game() ? "SAVED" : "SAVE FAILED"; g_setmsg_t = 2.0f; break;
                 case SET_LOAD:    g_setmsg = load_game() ? "LOADED" : "NO SAVE";    g_setmsg_t = 2.0f; break;
                 }
@@ -6562,9 +6587,13 @@ static void draw_settings(uint16_t *fb) {
     mote_ui_panel(fb, 0, 0, 128, 11, MOTE_RGB565(14,16,24), MOTE_RGB565(60,70,110));
     mote_ftext(mote, fb, g_fmed, "SETTINGS", 3, 1, MOTE_RGB565(240,230,120));
 
-    static const char *NAME[SET_N] = { "MINIMAP", "CONTROLS", "SAVE GAME", "LOAD GAME" };
+    /* "BRING HELI" is the temporary debug row — see the SET_HELI comment. Rows
+     * are 14 px apart, not 16: five of them at 16 ran the last highlight into
+     * the result message at y = 94. */
+    static const char *NAME[SET_N] = { "MINIMAP", "CONTROLS", "BRING HELI",
+                                       "SAVE GAME", "LOAD GAME" };
     for (int i = 0; i < SET_N; i++) {
-        int y = 24 + i * 16;
+        int y = 22 + i * 14;
         int sel = (i == g_setsel);
         if (sel) mote->draw_rect(fb, 6, y - 3, 116, 14, MOTE_RGB565(46,56,86), 1, 0, 128);
         uint16_t fg = sel ? MOTE_RGB565(250,244,200) : MOTE_RGB565(168,176,196);
@@ -6576,7 +6605,7 @@ static void draw_settings(uint16_t *fb) {
         }
     }
     if (g_setmsg && g_setmsg_t > 0.0f)
-        mote_ftextc(mote, fb, g_fmed, 64, 92, MOTE_RGB565(250,230,120), g_setmsg);
+        mote_ftextc(mote, fb, g_fmed, 64, 94, MOTE_RGB565(250,230,120), g_setmsg);
 
     mote_ftextc(mote, fb, g_fmed, 64, 106, MOTE_RGB565(150,160,180), "DPAD PICK    A APPLY");
     mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,160,180), "LB  MAP     MENU CLOSE");
