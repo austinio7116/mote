@@ -2001,39 +2001,43 @@ static void draw_traffic_lights(void) {
                  * centimetres proud of the housing so it cannot z-fight. */
                 float nx = (axis == 0) ? 1.0f : 0.0f, nz = (axis == 0) ? 0.0f : 1.0f;
 
-                /* A HORIZONTAL housing with the lit lamp in the right slot,
-                 * rather than a coloured tab on a stick.
+                /* A VERTICAL housing, hanging from the top of the post and
+                 * straddling eye level, with the lit lamp in its slot: top
+                 * red, middle amber, bottom green — a real signal head.
                  *
-                 * The old head was 0.34 m square on a 0.10 m post: at 10 m that
-                 * is a four-pixel blob on top of a one-pixel line 37 px tall,
-                 * so the post was the whole signal and it read as a vertical
-                 * line. The housing is now 0.95 m wide and 0.30 m tall, which
-                 * gives it a shape at distance, and the lamp sits LEFT, MIDDLE
-                 * or RIGHT within it for red / amber / green. Position carries
-                 * the state as well as colour does, which matters on a panel
-                 * where a lamp is three pixels across. */
-                const float HW = 0.475f, HT = 0.30f, PW = 0.045f;
-                const float LW = 0.115f, SLOT = 0.28f;
-                float y0 = LIGHT_H, y1 = LIGHT_H + HT;
+                 * The hang is what makes it visible CLOSE UP, and that is
+                 * geometry, not taste. The chase camera pitches about 22
+                 * degrees down with a 55 degree field, so the top of the frame
+                 * sits near 5.5 degrees above the 2.4 m eye. Anything at height
+                 * h is off the top of the screen nearer than (h - 2.4)/0.096
+                 * metres: the old head topped out at 3.30 m, so it vanished
+                 * inside 9.3 m — exactly when you are at the junction and
+                 * actually need to read it. This head runs 2.95 m down to
+                 * 2.15 m, and everything below 2.4 m is on screen at ANY
+                 * distance. */
+                const float PW = 0.045f;
+                const float HTOP = 2.95f, HBOT = 2.15f, HW = 0.15f;
+                const float SLOT = (HTOP - HBOT) / 3.0f, LW = 0.105f;
 
-                /* post */
+                /* post, ground to the top of the head */
                 mote->scene_add_tri(v3(lx-ux*PW, 0.0f, lz-uz*PW),
                                     v3(lx+ux*PW, 0.0f, lz+uz*PW),
-                                    v3(lx+ux*PW, y0,   lz+uz*PW), POST, 0);
+                                    v3(lx+ux*PW, HTOP, lz+uz*PW), POST, 0);
                 mote->scene_add_tri(v3(lx-ux*PW, 0.0f, lz-uz*PW),
-                                    v3(lx+ux*PW, y0,   lz+uz*PW),
-                                    v3(lx-ux*PW, y0,   lz-uz*PW), POST, 0);
+                                    v3(lx+ux*PW, HTOP, lz+uz*PW),
+                                    v3(lx-ux*PW, HTOP, lz-uz*PW), POST, 0);
                 /* housing */
-                mote->scene_add_tri(v3(lx-ux*HW, y0, lz-uz*HW),
-                                    v3(lx+ux*HW, y0, lz+uz*HW),
-                                    v3(lx+ux*HW, y1, lz+uz*HW), HOUSING, 0);
-                mote->scene_add_tri(v3(lx-ux*HW, y0, lz-uz*HW),
-                                    v3(lx+ux*HW, y1, lz+uz*HW),
-                                    v3(lx-ux*HW, y1, lz-uz*HW), HOUSING, 0);
-                /* lit lamp, in the slot its state belongs to */
-                { float o = (st == LIGHT_GREEN) ? SLOT : (st == LIGHT_RED ? -SLOT : 0.0f);
-                  float cxx = lx + ux*o + nx*0.03f, czz = lz + uz*o + nz*0.03f;
-                  float ly0 = y0 + (HT - LW*2.0f)*0.5f, ly1 = ly0 + LW*2.0f;
+                mote->scene_add_tri(v3(lx-ux*HW, HBOT, lz-uz*HW),
+                                    v3(lx+ux*HW, HBOT, lz+uz*HW),
+                                    v3(lx+ux*HW, HTOP, lz+uz*HW), HOUSING, 0);
+                mote->scene_add_tri(v3(lx-ux*HW, HBOT, lz-uz*HW),
+                                    v3(lx+ux*HW, HTOP, lz+uz*HW),
+                                    v3(lx-ux*HW, HTOP, lz-uz*HW), HOUSING, 0);
+                /* lit lamp: red top, amber middle, green bottom */
+                { int slot = (st == LIGHT_RED) ? 0 : (st == LIGHT_AMBER_ON ? 1 : 2);
+                  float cy = HTOP - SLOT*(slot + 0.5f);
+                  float ly0 = cy - LW, ly1 = cy + LW;
+                  float cxx = lx + nx*0.03f, czz = lz + nz*0.03f;
                   mote->scene_add_tri(v3(cxx-ux*LW, ly0, czz-uz*LW),
                                       v3(cxx+ux*LW, ly0, czz+uz*LW),
                                       v3(cxx+ux*LW, ly1, czz+uz*LW), col, 0);
@@ -6286,7 +6290,21 @@ static void g_overlay(uint16_t *fb) {
      * something that reads as "fine" almost all the time; appearing when you
      * start sprinting is the whole signal. Amber while it recovers, dim red
      * while the latch is holding you at a walk. */
-    if (g_stam < 1.0f) {
+    if (player.mode==MODE_CAR && player.car>=0) {
+        /* DRIVING: the strip shows the CAR's condition instead of your stamina,
+         * which you cannot spend from behind the wheel anyway. Without it the
+         * only warning that a car is about to die is that it dies. Green down
+         * to amber to red, and the tank is scaled by its own 600 hp so a full
+         * tank reads full rather than pinned. */
+        const Car *pc = &cars[player.car];
+        float maxhp = (pc->type==VEH_TANK) ? 600.0f : 100.0f;
+        float frac = mote_clampf(pc->hp / maxhp, 0.0f, 1.0f);
+        uint16_t cc2 = frac > 0.55f ? MOTE_RGB565(90,200,110)
+                     : frac > 0.25f ? MOTE_RGB565(230,180,60)
+                                    : MOTE_RGB565(220,70,55);
+        mote->draw_rect(fb, 2, 123, 40, 2, MOTE_RGB565(26,26,30), 1, 0,128);
+        mote->draw_rect(fb, 2, 123, (int)(40*frac), 2, cc2, 1, 0,128);
+    } else if (g_stam < 1.0f) {
         uint16_t sc = g_stam_spent ? MOTE_RGB565(150,60,40) : MOTE_RGB565(230,180,60);
         mote->draw_rect(fb, 2, 123, 40, 2, MOTE_RGB565(30,26,20), 1, 0,128);
         mote->draw_rect(fb, 2, 123, (int)(40*g_stam), 2, sc, 1, 0,128);
