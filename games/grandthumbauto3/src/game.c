@@ -130,6 +130,23 @@ static void corridor_info(int x, int z, int *orient, int *pos, int *span) {
  * even "where are the junctions" is derived from the map on demand. */
 static float    g_ltime;                /* traffic-light clock, seconds */
 
+/* Is this tile a real CROSSING?
+ *
+ * corridor_info's orient==3 is its else-branch: it means "neither a clean
+ * one-axis corridor", which is true of a crossing AND of a short isolated road
+ * stub whose extents are both SMALLER than a road width. Using it alone put
+ * traffic lights on scraps of road that cross nothing. This requires both
+ * extents to actually exceed ROADW, which is the crossing case only. */
+static int is_junction(int x, int z) {
+    if (!is_roadlike(x,z)) return 0;
+    int eN=0,eS=0,eE=0,eW=0, cap=ROADW+2;
+    while (eN<cap && is_roadlike(x,z-1-eN)) eN++;
+    while (eS<cap && is_roadlike(x,z+1+eS)) eS++;
+    while (eE<cap && is_roadlike(x+1+eE,z)) eE++;
+    while (eW<cap && is_roadlike(x-1-eW,z)) eW++;
+    return (eN+eS+1) > ROADW && (eE+eW+1) > ROADW;
+}
+
 /* Traffic lights, with no state per junction.
  *
  * LIGHT_CYCLE is the full period; each axis holds green for half of it, minus
@@ -1891,7 +1908,11 @@ static void draw_sky_body(void) {
  * govern so you can tell which light is yours. A dark backing disc behind each
  * lamp gives it a housing — without it a bare coloured dot reads as a pickup. */
 #define LIGHTS_MAX   6       /* junctions drawn per frame */
-#define LIGHT_RING   4       /* tiles: keep them inside reliable building range */
+/* 7 tiles, not 4. At one light per junction TILE the near ring was already
+ * saturated; at one per intersection the nearest crossing is often further than
+ * 16 m away — measured 47 m from one downtown vantage — and no light drew at
+ * all. 7 tiles is 28 m, still inside reliable building range. */
+#define LIGHT_RING   7
 #define LIGHT_H      3.0f    /* head height, metres */
 
 /* Traffic-light heads at the junctions around the player.
@@ -1916,15 +1937,21 @@ static void draw_sky_body(void) {
  * the one controlling the approach you are on. */
 static void draw_traffic_lights(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0;
-    const uint16_t POST = MOTE_RGB565(58, 62, 72);
+    const uint16_t POST    = MOTE_RGB565(58, 62, 72);
+    const uint16_t HOUSING = MOTE_RGB565(26, 28, 34);   /* dark box the lamp sits in */
     for (int r = 1; r <= LIGHT_RING && n < LIGHTS_MAX; r++) {
         for (int dz = -r; dz <= r && n < LIGHTS_MAX; dz++)
         for (int dx = -r; dx <= r && n < LIGHTS_MAX; dx++) {
             if (dx != -r && dx != r && dz != -r && dz != r) continue;   /* ring shell only */
             int x = cx + dx, z = cz + dz;
-            int o, p_, sp_;
-            corridor_info(x, z, &o, &p_, &sp_);
-            if (o != 3) continue;                       /* not a crossing */
+            /* ONE light per intersection, not one per junction TILE. A crossing
+             * is ROADW-plus tiles across, so every tile in it is a junction and
+             * this drew a housing on each — a dozen stacked in the same
+             * junction. Measured: 2788 junction tiles on a 254x256 map, which is
+             * only about 170 actual crossings. Taking the tile whose west and
+             * north neighbours are NOT junctions picks exactly the top-left
+             * corner of each block, and needs no state. */
+            if (!is_junction(x, z) || is_junction(x-1, z) || is_junction(x, z-1)) continue;
             float wx = x*TILE + TILE*0.5f, wz = z*TILE + TILE*0.5f;
             if (!gta3_view_tile(&g_view, wx, LIGHT_H, wz, VIEW_GROUND_R, TILE)) continue;
             n++;
@@ -1935,24 +1962,52 @@ static void draw_traffic_lights(void) {
                                                      : MOTE_RGB565(240,50,40);
                 float lx = wx + (axis == 0 ? -TILE*0.55f : TILE*0.42f);
                 float lz = wz + (axis == 0 ? TILE*0.42f : -TILE*0.55f);
-                /* face normal runs across the approach this light governs */
+                /* Quad plane: width runs ACROSS the approach this light
+                 * governs, so a driver on that approach sees its face. */
                 float ux = (axis == 0) ? 0.0f : 1.0f, uz = (axis == 0) ? 1.0f : 0.0f;
-                const float HW = 0.17f, HT = 0.34f, PW = 0.05f;
-                /* post, ground to just under the head */
-                mote->scene_add_tri(v3(lx-ux*PW, 0.0f,     lz-uz*PW),
-                                    v3(lx+ux*PW, 0.0f,     lz+uz*PW),
-                                    v3(lx+ux*PW, LIGHT_H,  lz+uz*PW), POST, 0);
-                mote->scene_add_tri(v3(lx-ux*PW, 0.0f,     lz-uz*PW),
-                                    v3(lx+ux*PW, LIGHT_H,  lz+uz*PW),
-                                    v3(lx-ux*PW, LIGHT_H,  lz-uz*PW), POST, 0);
-                /* head */
+                /* ...and the facing normal, used to stand the lamp a couple of
+                 * centimetres proud of the housing so it cannot z-fight. */
+                float nx = (axis == 0) ? 1.0f : 0.0f, nz = (axis == 0) ? 0.0f : 1.0f;
+
+                /* A HORIZONTAL housing with the lit lamp in the right slot,
+                 * rather than a coloured tab on a stick.
+                 *
+                 * The old head was 0.34 m square on a 0.10 m post: at 10 m that
+                 * is a four-pixel blob on top of a one-pixel line 37 px tall,
+                 * so the post was the whole signal and it read as a vertical
+                 * line. The housing is now 0.95 m wide and 0.30 m tall, which
+                 * gives it a shape at distance, and the lamp sits LEFT, MIDDLE
+                 * or RIGHT within it for red / amber / green. Position carries
+                 * the state as well as colour does, which matters on a panel
+                 * where a lamp is three pixels across. */
+                const float HW = 0.475f, HT = 0.30f, PW = 0.045f;
+                const float LW = 0.115f, SLOT = 0.28f;
                 float y0 = LIGHT_H, y1 = LIGHT_H + HT;
+
+                /* post */
+                mote->scene_add_tri(v3(lx-ux*PW, 0.0f, lz-uz*PW),
+                                    v3(lx+ux*PW, 0.0f, lz+uz*PW),
+                                    v3(lx+ux*PW, y0,   lz+uz*PW), POST, 0);
+                mote->scene_add_tri(v3(lx-ux*PW, 0.0f, lz-uz*PW),
+                                    v3(lx+ux*PW, y0,   lz+uz*PW),
+                                    v3(lx-ux*PW, y0,   lz-uz*PW), POST, 0);
+                /* housing */
                 mote->scene_add_tri(v3(lx-ux*HW, y0, lz-uz*HW),
                                     v3(lx+ux*HW, y0, lz+uz*HW),
-                                    v3(lx+ux*HW, y1, lz+uz*HW), col, 0);
+                                    v3(lx+ux*HW, y1, lz+uz*HW), HOUSING, 0);
                 mote->scene_add_tri(v3(lx-ux*HW, y0, lz-uz*HW),
                                     v3(lx+ux*HW, y1, lz+uz*HW),
-                                    v3(lx-ux*HW, y1, lz-uz*HW), col, 0);
+                                    v3(lx-ux*HW, y1, lz-uz*HW), HOUSING, 0);
+                /* lit lamp, in the slot its state belongs to */
+                { float o = (st == LIGHT_GREEN) ? SLOT : (st == LIGHT_RED ? -SLOT : 0.0f);
+                  float cxx = lx + ux*o + nx*0.03f, czz = lz + uz*o + nz*0.03f;
+                  float ly0 = y0 + (HT - LW*2.0f)*0.5f, ly1 = ly0 + LW*2.0f;
+                  mote->scene_add_tri(v3(cxx-ux*LW, ly0, czz-uz*LW),
+                                      v3(cxx+ux*LW, ly0, czz+uz*LW),
+                                      v3(cxx+ux*LW, ly1, czz+uz*LW), col, 0);
+                  mote->scene_add_tri(v3(cxx-ux*LW, ly0, czz-uz*LW),
+                                      v3(cxx+ux*LW, ly1, czz+uz*LW),
+                                      v3(cxx-ux*LW, ly1, czz-uz*LW), col, 0); }
             }
         }
     }
@@ -2381,10 +2436,7 @@ static void update_traffic(float dt) {
         int at_red = 0;
         if (!blocked && !turning){
             int px = (int)((c->x + fx*TILE*1.15f)/TILE), pz = (int)((c->z + fz*TILE*1.15f)/TILE);
-            int here_o, mine_o, p_, sp_;
-            corridor_info((int)(c->x/TILE), (int)(c->z/TILE), &here_o, &p_, &sp_);
-            corridor_info(px, pz, &mine_o, &p_, &sp_);
-            if (mine_o == 3 && here_o != 3) {                  /* junction ahead, and I am not in one */
+            if (is_junction(px, pz) && !is_junction((int)(c->x/TILE), (int)(c->z/TILE))) {
                 int st = light_state(px, pz, light_axis(ba));
                 if (st == LIGHT_RED) { blocked = 1; at_red = 1; }
             }
@@ -4984,6 +5036,20 @@ static void g_update(float dt) {
      * PROFILING.md notes combat has never been profiled; this is how. */
     { static int hd=0; const char *hv=getenv("MOTE_GTA_HEAT");
       if (hv && g_state==ST_PLAY && !hd){ hd=1; heat=(float)atof(hv); heat_cool=0; } }
+    /* test: MOTE_GTA_TP_LIGHT=1 stands the player a few metres south of the
+     * nearest junction, looking north at it, so a capture can actually see a
+     * traffic light instead of hunting for a vantage where one happens to be
+     * in frame. */
+    { static int tpl=0;
+      if (getenv("MOTE_GTA_TP_LIGHT") && g_state==ST_PLAY && !tpl && player.mode==MODE_FOOT){
+          int px0=(int)(player.x/TILE), pz0=(int)(player.z/TILE), bx=-1, bz=-1, bd=1<<30;
+          for (int z=pz0-20; z<=pz0+20; z++) for (int x=px0-20; x<=px0+20; x++){
+              if (!is_junction(x,z)) continue;
+              int d=(x-px0)*(x-px0)+(z-pz0)*(z-pz0);
+              if (d<bd){ bd=d; bx=x; bz=z; } }
+          if (bx>=0){ tpl=1;
+              player.x=(bx+0.5f)*TILE; player.z=(bz+0.5f)*TILE + TILE*2.2f;
+              player.yaw=-1.5708f; } } }
     /* test: MOTE_GTA_TP_TANK=1 stands the player beside the hidden tank. Its
      * spawn draws on the game RNG, which MOTE_GTA_SEED does not pin (that
      * fixes the city layout only), so it lands somewhere different every run
