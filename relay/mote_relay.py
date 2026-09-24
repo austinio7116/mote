@@ -22,6 +22,17 @@ Wire protocol (client <-> relay), one text handshake line then raw bytes:
     CODE = 1-8 chars [A-Z0-9] (upper-cased, other chars dropped). LABEL = one
     token, <=16 chars, shown in LIST (a game/player tag).
 
+    SHARE CODES (MOTE2 only): a small blob -- a cue design, a ball set -- kept
+    on disk under a six-character code, so a player can hand a thing they made
+    to someone else by reading out six letters. Nothing is relayed; the
+    connection closes after the reply.
+        "MOTE2 PUT <GAMEID> <KIND> <LEN>\n" + LEN bytes  ->  "CODE <CODE>\n"
+        "MOTE2 GET <GAMEID> <CODE>\n"  ->  "DATA <KIND> <LEN>\n" + LEN bytes,
+                                           or "NONE\n"
+    KIND = 1-8 [A-Z0-9]. LEN <= 8192. The same blob always gets the same code.
+    Errors: "ERR\n" (malformed), "BUSY\n" (this address is putting too fast),
+    "FULL\n" (the store is at its cap), "OFF\n" (no --store).
+
     When two clients meet, the relay pairs them:
         -> host:   "GO H\n"      -> joiner: "GO G\n"
     then every byte from one is forwarded verbatim to the other until either
@@ -38,6 +49,8 @@ under systemd (see mote-relay.service). Python 3.8+.
 """
 import argparse
 import asyncio
+import hashlib
+import os
 import socket
 import time
 
@@ -105,6 +118,81 @@ class Room:
         self.claimed = asyncio.Event()    # a joiner has taken the room
         self.released = asyncio.Event()   # host handler has stopped watching the reader
 
+SHARE_ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no confusable 0/O/1/I
+
+class Store:
+    """Share codes on disk: <dir>/<gid>/<CODE> holds "KIND\n" then the blob,
+    and <dir>/<gid>/index.tsv maps each blob's hash to its code, so putting the
+    same thing twice hands back the code it already has. Loaded at startup;
+    small files, written whole, so a crash never leaves half a design."""
+    def __init__(self, root, cap, per_hour):
+        self.root, self.cap, self.per_hour = root, cap, per_hour
+        self.by_hash = {}      # "gid/sha" -> code
+        self.codes = set()     # "gid/CODE"
+        self.puts = {}         # ip -> [times]
+        for gid in (os.listdir(root) if os.path.isdir(root) else []):
+            idx = os.path.join(root, gid, "index.tsv")
+            if not os.path.isfile(idx):
+                continue
+            for ln in open(idx, encoding="ascii", errors="ignore"):
+                t = ln.split()
+                if len(t) == 2:
+                    self.by_hash[gid + "/" + t[0]] = t[1]
+                    self.codes.add(gid + "/" + t[1])
+        log(f"share store {root}: {len(self.codes)} codes")
+
+    def ok_rate(self, ip):
+        now = time.monotonic()
+        q = [t for t in self.puts.get(ip, []) if now - t < 3600]
+        if len(q) >= self.per_hour:
+            self.puts[ip] = q
+            return False
+        q.append(now); self.puts[ip] = q
+        if len(self.puts) > 10000:          # forget the quiet ones
+            self.puts = {k: v for k, v in self.puts.items() if v and now - v[-1] < 3600}
+        return True
+
+    def put(self, gid, kind, blob):
+        sha = hashlib.sha256(kind.encode() + b"\n" + blob).hexdigest()[:32]
+        have = self.by_hash.get(gid + "/" + sha)
+        if have:
+            return have
+        if len(self.codes) >= self.cap:
+            return None
+        for _ in range(50):
+            code = "".join(random.choice(SHARE_ALPHA) for _ in range(6))
+            if gid + "/" + code not in self.codes:
+                break
+        else:
+            return None
+        d = os.path.join(self.root, gid)
+        os.makedirs(d, exist_ok=True)
+        tmp = os.path.join(d, code + ".tmp")
+        with open(tmp, "wb") as f:
+            f.write(kind.encode() + b"\n" + blob)
+        os.replace(tmp, os.path.join(d, code))
+        with open(os.path.join(d, "index.tsv"), "a", encoding="ascii") as f:
+            f.write(f"{sha} {code}\n")
+        self.by_hash[gid + "/" + sha] = code
+        self.codes.add(gid + "/" + code)
+        return code
+
+    def get(self, gid, code):
+        if gid + "/" + code not in self.codes:
+            return None
+        try:
+            raw = open(os.path.join(self.root, gid, code), "rb").read()
+        except OSError:
+            return None
+        nl = raw.find(b"\n")
+        if nl < 0:
+            return None
+        return raw[:nl].decode("ascii", "ignore"), raw[nl + 1:]
+
+def clean_gid(raw: str) -> str:
+    """A game id as a directory name: letters and digits only."""
+    return "".join(c for c in raw.upper() if c.isalnum())[:16]
+
 def rkey(gid, code):
     return gid + "/" + code       # rooms are namespaced per game, so codes don't collide across games
 
@@ -113,6 +201,7 @@ class Relay:
         self.args = args
         self.rooms = {}            # "gid/CODE" -> Room  (a host waiting for a partner)
         self.conns = 0
+        self.store = Store(args.store, args.store_cap, args.puts_per_hour) if args.store else None
 
     def gen_code(self, gid) -> str:
         alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no confusable 0/O/1/I
@@ -241,6 +330,35 @@ class Relay:
                 a = t[2:]
             loop = asyncio.get_event_loop()
 
+            if verb in ("PUT", "GET") and t[0] == "MOTE2":
+                sg = clean_gid(gid)
+                if self.store is None or not sg:
+                    writer.write(b"OFF\n" if self.store is None else b"ERR\n"); await writer.drain(); return
+                if verb == "PUT":               # PUT <KIND> <LEN>, then the blob
+                    kind = clean_code(a[0]) if len(a) > 0 else ""
+                    try:
+                        n = int(a[1]) if len(a) > 1 else -1
+                    except ValueError:
+                        n = -1
+                    if not kind or n <= 0 or n > 8192:
+                        writer.write(b"ERR\n"); await writer.drain(); return
+                    ip = peer[0] if isinstance(peer, tuple) else str(peer)
+                    if not self.store.ok_rate(ip):
+                        writer.write(b"BUSY\n"); await writer.drain(); return
+                    blob = await asyncio.wait_for(reader.readexactly(n), timeout=15)
+                    code = self.store.put(sg, kind, blob)
+                    writer.write((f"CODE {code}\n" if code else "FULL\n").encode()); await writer.drain()
+                    log(f"share {sg}: put {kind} {n}B -> {code} ({peer})")
+                    return
+                code = clean_code(a[0]) if len(a) > 0 else ""
+                got = self.store.get(sg, code) if code else None
+                if got is None:
+                    writer.write(b"NONE\n"); await writer.drain(); return
+                kind, blob = got
+                writer.write(f"DATA {kind} {len(blob)}\n".encode() + blob); await writer.drain()
+                log(f"share {sg}: get {code} ({peer})")
+                return
+
             if verb == "LIST":                  # browse this game's open public rooms
                 out = bytearray()
                 for k, r in list(self.rooms.items()):
@@ -290,7 +408,7 @@ class Relay:
                 return
 
             writer.write(b"ERR\n"); await writer.drain()
-        except (asyncio.TimeoutError, OSError, ConnectionError):
+        except (asyncio.TimeoutError, asyncio.IncompleteReadError, OSError, ConnectionError):
             pass
         finally:
             # if we registered as a host and are bailing, don't leak the slot.
@@ -309,6 +427,9 @@ async def main():
     ap.add_argument("--join-timeout", type=int, default=0, help="optional backstop: seconds a LONE host may wait before the room is reaped (0 = wait as long as the host stays connected; never fires on a paired room)")
     ap.add_argument("--idle", type=int, default=900, help="seconds of TRUE silence before a paired room is dropped (TCP keepalive catches dead peers in ~70s regardless; this is only a backstop for a paused/AFK pair)")
     ap.add_argument("--max-conns", type=int, default=2000)
+    ap.add_argument("--store", default="", help="directory for share codes (PUT/GET); empty = share codes off")
+    ap.add_argument("--store-cap", type=int, default=200000, help="most share codes kept")
+    ap.add_argument("--puts-per-hour", type=int, default=60, help="share codes one address may make an hour")
     args = ap.parse_args()
 
     async def watchdog():
