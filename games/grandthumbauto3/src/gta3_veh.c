@@ -127,7 +127,19 @@ void gta3_veh_build(Gta3VehMesh *m, int sil) {
      * length. It does NOT dip below y=0: the road is a flat quad at y=0, so
      * anything under that is simply buried. 12 triangles — a box per corner
      * would be 48, and at 18 live cars that alone exceeds max_tris. */
-    gta3_box(m->wv, m->wf, &nf, -127, 127, 0, 16, -96, 96);
-    m->wheels = (Mesh){ .verts=m->wv, .faces=m->wf, .nverts=8, .nfaces=nf,
+    /* TWO axle slabs with the middle open, so the gap between them reads as
+     * four tyres rather than one rectangle down the sill. Each is built with
+     * the shared box builder into its own half of the arrays, and the second
+     * box's face indices are shifted by 8 because mote__face writes indices
+     * relative to the vertex pointer it was handed. */
+    int nf2;
+    gta3_box(m->wv,     m->wf,      &nf,  -127, 127, 0, 16, -96, -40);   /* rear axle */
+    gta3_box(m->wv + 8, m->wf + 12, &nf2, -127, 127, 0, 16,  40,  96);   /* front axle */
+    for (int i = 0; i < nf2; i++) {
+        m->wf[12+i].a = (uint8_t)(m->wf[12+i].a + 8);
+        m->wf[12+i].b = (uint8_t)(m->wf[12+i].b + 8);
+        m->wf[12+i].c = (uint8_t)(m->wf[12+i].c + 8);
+    }
+    m->wheels = (Mesh){ .verts=m->wv, .faces=m->wf, .nverts=16, .nfaces=nf+nf2,
                         .scale=1.0f, .bound_r=1.8f, .color=MOTE_RGB565(24,24,28) };
 }

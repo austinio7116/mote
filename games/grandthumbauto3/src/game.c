@@ -835,11 +835,26 @@ static int bb_add(const MoteImage *img, float x, float y, float z,
  * spreading out from under a shrinking sprite, which reads as a person
  * hovering. 0.26 of height matches the 0.42/1.6 the 1.6 m figure had. */
 #define CHAR_SHADOW_R (CHAR_H * 0.2625f)
+/* The sprite cells are 16 px wide but the figure only occupies columns 3..12,
+ * so a full-cell quad is a quarter empty air either side and the people look
+ * stocky. Drawing a 12-wide sub-rect (columns 2..13) keeps every pixel of the
+ * figure, with a pixel of margin, and narrows the billboard by 25% — the
+ * quad's aspect follows the source rect, and world_h is unchanged, so they get
+ * thinner without getting shorter.
+ *
+ * EXCEPT the two firing poses on the player sheet, rows 4 and 5, whose gun arm
+ * reaches column 15. Measured per cell across all three sheets: ped and cop are
+ * 3..12 everywhere, the player is 3..12 walking and 4..15 firing. Those two
+ * frames keep the full cell, which also lets the arm read as extended. */
+#define CHAR_CELL_X 2
+#define CHAR_CELL_W 12
 static void draw_character(const MoteImage *img, float x, float z, float yaw,
                            int variant, int frame, int nframes) {
     int col = facing_cell(yaw);
     int row = variant * nframes + frame;
-    if (!bb_add(img, x, CHAR_H * 0.5f, z, col * 16, row * 16, 16, 16, CHAR_H,
+    int wide = (nframes == 6 && frame >= 4);        /* player's aim/fire poses */
+    int cx = wide ? 0 : CHAR_CELL_X, cw = wide ? 16 : CHAR_CELL_W;
+    if (!bb_add(img, x, CHAR_H * 0.5f, z, col * 16 + cx, row * 16, cw, 16, CHAR_H,
                MOTE_BLEND_NONE, VIEW_GROUND_R, 1.0f))
         return;                        /* off-screen or out of billboard budget: no shadow either */
     mote->scene_add_shadow_ex(v3(x, 0.02f, z), v3(CHAR_SHADOW_R, 0, 0), v3(0, 0, CHAR_SHADOW_R), 0.5f);
@@ -1037,7 +1052,14 @@ static float ang_diff(float target, float cur){ float d=target-cur; while(d>3.14
  * never reached rest. */
 static void ai_drive_b(int i, float target_yaw, float throttle, float brake, float dt) {
     float d = ang_diff(target_yaw, bodies[i].angle);
-    float steer = d>0.06f ? 1.0f : (d<-0.06f ? -1.0f : 0.0f);
+    /* PROPORTIONAL, not bang-bang. This used to be full lock left, full lock
+     * right, or nothing, with the deadband at 0.06 rad — so a car holding a
+     * straight line sawed between the two, which is the visible weave down a
+     * street. Steering effort now scales with how far off heading the car
+     * actually is, and the deadband widens slightly, so small errors are
+     * corrected gently and only a real corner asks for full lock. */
+    float steer = mote_clampf(d * 3.2f, -1.0f, 1.0f);
+    if (d > -0.035f && d < 0.035f) steer = 0.0f;
     apply_drive(&bodies[i], &VSTAT[cars[i].type], throttle, brake, steer, dt);
     if (brake > 0.0f) {          /* brakes hold to a stop; they never reverse */
         MoteBody2D *b = &bodies[i];
@@ -4547,7 +4569,10 @@ static void draw_vehicle_mesh(const Car *c) {
     for (int k = 0; k < 4; k++) {
         m->bv[XP[k]].x =  bx; m->bv[XN[k]].x = -bx;
         m->cv[XP[k]].x =  cx; m->cv[XN[k]].x = -cx;
-        m->wv[XP[k]].x =  wx; m->wv[XN[k]].x = -wx;
+        /* both axle slabs: the wheel mesh is two boxes now, so the second
+         * box's corners live 8 vertices further along. */
+        m->wv[XP[k]].x   =  wx; m->wv[XN[k]].x   = -wx;
+        m->wv[XP[k]+8].x =  wx; m->wv[XN[k]+8].x = -wx;
     }
 
     /* Per-TYPE cabin jitter, riding the same mutate-the-shared-mesh trick the x

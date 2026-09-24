@@ -156,14 +156,32 @@ int main(void) {
         Gta3VehMesh m;
         gta3_veh_build(&m, s);
 
-        ok(m.body.nfaces == 12 && m.cabin.nfaces == 12 && m.wheels.nfaces == 12,
-           "all three boxes have 12 faces");
+        /* wheels are TWO axle boxes now, so 24 faces over 16 vertices */
+        ok(m.body.nfaces == 12 && m.cabin.nfaces == 12 && m.wheels.nfaces == 24,
+           "body and cabin have 12 faces, the wheels 24");
+        ok(m.wheels.nverts == 16, "the wheel mesh has both axle boxes");
         ok(normals_outward(m.bv, m.bf, 12), "body normals point outward");
         ok(normals_outward(m.cv, m.cf, 12), "cabin normals point outward");
-        ok(normals_outward(m.wv, m.wf, 12), "wheel normals point outward");
+        /* Each axle box is checked on its own: normals_outward and
+         * all_faces_screen_ok both derive a centroid from the FIRST 8 vertices,
+         * so handing them a two-box mesh judges the front axle against the rear
+         * box's centre and fails every face. The front box's faces index
+         * wv[8..15], so they are de-offset into a local copy first. */
+        ok(normals_outward(m.wv, m.wf, 12), "rear axle normals point outward");
         ok(all_faces_screen_ok(m.bv, m.bf, 12), "body faces are front-facing in screen space");
         ok(all_faces_screen_ok(m.cv, m.cf, 12), "cabin faces are front-facing in screen space");
-        ok(all_faces_screen_ok(m.wv, m.wf, 12), "wheel faces are front-facing in screen space");
+        ok(all_faces_screen_ok(m.wv, m.wf, 12), "rear axle faces are front-facing in screen space");
+        { MeshFace ff[12];
+          for (int i = 0; i < 12; i++) { ff[i] = m.wf[12+i];
+              ff[i].a -= 8; ff[i].b -= 8; ff[i].c -= 8; }
+          ok(normals_outward(m.wv + 8, ff, 12), "front axle normals point outward");
+          ok(all_faces_screen_ok(m.wv + 8, ff, 12), "front axle faces are front-facing in screen space"); }
+        /* The GAP is the whole point: without it the two boxes are one slab
+         * again and the car has no wheels, just a rectangle along the sill. */
+        { float rz0,rz1,fz0,fz1;
+          span(m.wv,     &rz0,&rz1, 2);        /* rear axle z */
+          span(m.wv + 8, &fz0,&fz1, 2);        /* front axle z */
+          ok(fz0 > rz1, "there is a gap between the rear and front axles"); }
         /* The wheel slab only reads as a tyre track if it is PROUD of the body in x
          * and does not dip below the road plane at y=0. Both are easy to lose to an
          * int8 overflow: 134 wraps to -122 and silently inverts the box. */

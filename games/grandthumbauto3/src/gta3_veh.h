@@ -12,11 +12,13 @@
  * separate per-draw colours, because MoteObject.color is a single colour for
  * the whole object and a car with no windows reads as a brick.
  *
- * Wheels are ONE box, not four. A box per corner is 48 triangles per car, and
- * with 18 cars alive that exceeds the whole max_tris budget on its own. A
- * single dark slab spanning the wheelbase, set slightly wider than the body
- * and sitting below it, reads as the wheel line from the chase camera for 12
- * triangles — and the caller only draws it for cars close enough to tell.
+ * Wheels are TWO boxes, not four. A box per corner is 48 triangles per car,
+ * and with 18 cars alive that exceeds the whole max_tris budget on its own. A
+ * single slab spanning the whole wheelbase was 12 triangles but read as a
+ * rectangle painted along the sill — no wheels at all. Two slabs, one per
+ * axle, with the middle of the car left open, read as a front and rear pair
+ * for 24 triangles, and the caller only draws them for cars close enough to
+ * tell.
  *
  * Dimensions are normalised: the body spans +/-1 in each axis before the Mesh
  * scale is applied, so the caller sizes each car from its own measured art
@@ -60,7 +62,7 @@ int gta3_lamp_style(int sil);
 typedef struct {
     MeshVert bv[8]; MeshFace bf[12];    /* body box */
     MeshVert cv[8]; MeshFace cf[12];    /* cabin box */
-    MeshVert wv[8]; MeshFace wf[12];    /* wheel line: one slab under the body */
+    MeshVert wv[16]; MeshFace wf[24];   /* wheels: TWO axle slabs, front and rear */
     Mesh body, cabin, wheels;
 } Gta3VehMesh;
 
