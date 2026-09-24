@@ -1939,6 +1939,83 @@ static void draw_sky_body(void) {
  *
  * Head and post face ALONG the axis they govern, so the light you can read is
  * the one controlling the approach you are on. */
+/* Railings on the BIG bridges, and benches in the parks.
+ *
+ * Both ride the same outward ring walk the traffic lights use, and both are
+ * flat triangles so they raster before the building pass and are occluded by
+ * it properly.
+ *
+ * A railing only goes on a bridge tile whose water crossing is genuinely long
+ * — LONG_SPAN tiles or more measured along the span — so the little connectors
+ * over inlets stay bare, which is what you asked for. The run is measured from
+ * the tile outward in both directions along the crossing axis, which costs a
+ * couple of tile lookups and needs nothing stored.
+ *
+ * A bench is a seat quad and a back quad, 4 triangles, on park grass that the
+ * scenery pass left EMPTY — the same hash it uses to decide where trees go, so
+ * a bench is never planted inside a canopy. */
+#define LONG_SPAN   6      /* bridge tiles across the water before it gets railings */
+#define DETAIL_RING 9      /* tiles: how far out benches and railings are drawn */
+#define DETAIL_MAX  16     /* pieces per frame: at 4 tris each this is the
+                            * cap that kept the worst scene under 750 of 850 */
+
+static void draw_street_detail(void) {
+    int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0;
+    const uint16_t RAIL  = MOTE_RGB565(150,152,160);
+    const uint16_t WOOD  = MOTE_RGB565(120, 82, 46);
+    const uint16_t WOODD = MOTE_RGB565( 86, 58, 32);
+    for (int r = 1; r <= DETAIL_RING && n < DETAIL_MAX; r++) {
+        for (int dz = -r; dz <= r && n < DETAIL_MAX; dz++)
+        for (int dx = -r; dx <= r && n < DETAIL_MAX; dx++) {
+            if (dx != -r && dx != r && dz != -r && dz != r) continue;
+            int x = cx + dx, z = cz + dz;
+            char t = tile_at(x, z);
+            float wx = x*TILE + TILE*0.5f, wz = z*TILE + TILE*0.5f;
+
+            if (t == 'B') {
+                /* Which way does the span run, and is it long enough to bother? */
+                int ew = is_waterlike(x-1,z) || is_waterlike(x+1,z);
+                int run = 1;
+                for (int k=1;k<20;k++){ if (tile_at(ew? x-k:x, ew? z:z-k) != 'B') break; run++; }
+                for (int k=1;k<20;k++){ if (tile_at(ew? x+k:x, ew? z:z+k) != 'B') break; run++; }
+                if (run < LONG_SPAN) continue;
+                if (!gta3_view_tile(&g_view, wx, 0.6f, wz, VIEW_GROUND_R, TILE)) continue;
+                n++;
+                /* a rail down each side, across the span direction */
+                for (int side = 0; side < 2; side++) {
+                    float o = (side ? 1.0f : -1.0f) * TILE * 0.46f;
+                    float ax = ew ? wx - TILE*0.5f : wx + o, az = ew ? wz + o : wz - TILE*0.5f;
+                    float bx = ew ? wx + TILE*0.5f : wx + o, bz = ew ? wz + o : wz + TILE*0.5f;
+                    mote->scene_add_tri(v3(ax,0.10f,az), v3(bx,0.10f,bz), v3(bx,0.95f,bz), RAIL, 0);
+                    mote->scene_add_tri(v3(ax,0.10f,az), v3(bx,0.95f,bz), v3(ax,0.95f,az), RAIL, 0);
+                }
+                continue;
+            }
+
+            if (t != ' ') continue;
+            unsigned h = (unsigned)(x*668265263u ^ z*374761393u);
+            if ((h & 3) != 0) continue;                 /* the scenery pass PUT A TREE here */
+            if (((h >> 6) & 3) != 0) continue;          /* and only a quarter of the rest */
+            if (!gta3_view_tile(&g_view, wx, 0.5f, wz, VIEW_GROUND_R, TILE)) continue;
+            n++;
+            /* bench: seat then back, turned one of four ways by the same hash */
+            { int turn = (int)((h >> 12) & 3);
+              float ax = (turn & 1) ? 0.62f : 0.0f, az = (turn & 1) ? 0.0f : 0.62f;
+              float bxo = (turn & 1) ? 0.0f : 0.22f,  bzo = (turn & 1) ? 0.22f : 0.0f;
+              if (turn & 2) { bxo = -bxo; bzo = -bzo; }
+              float sx = wx, sz = wz;
+              mote->scene_add_tri(v3(sx-ax, 0.42f, sz-az), v3(sx+ax, 0.42f, sz+az),
+                                  v3(sx+ax+bxo, 0.42f, sz+az+bzo), WOOD, 0);
+              mote->scene_add_tri(v3(sx-ax, 0.42f, sz-az), v3(sx+ax+bxo, 0.42f, sz+az+bzo),
+                                  v3(sx-ax+bxo, 0.42f, sz-az+bzo), WOOD, 0);
+              mote->scene_add_tri(v3(sx-ax+bxo, 0.42f, sz-az+bzo), v3(sx+ax+bxo, 0.42f, sz+az+bzo),
+                                  v3(sx+ax+bxo, 0.86f, sz+az+bzo), WOODD, 0);
+              mote->scene_add_tri(v3(sx-ax+bxo, 0.42f, sz-az+bzo), v3(sx+ax+bxo, 0.86f, sz+az+bzo),
+                                  v3(sx-ax+bxo, 0.86f, sz-az+bzo), WOODD, 0); }
+        }
+    }
+}
+
 static void draw_traffic_lights(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0;
     const uint16_t POST    = MOTE_RGB565(58, 62, 72);
@@ -3050,12 +3127,16 @@ static float g_shell_cd, g_tankrecoil;
 static int g_shells = TANK_SHELLS;
 static float g_turret;      /* tank turret yaw (world) — aims independently of the hull */
 static void explode(float x, float z) {
-    add_fx(x,z,1); for(int k=0;k<6;k++) add_fx(x+(frand()*2-1)*2.5f, z+(frand()*2-1)*2.5f, 1);
-    sfx(&boom_sfx,1.0f); rmbl(0.8f,200); add_heat_at(0.8f, x, z, 1);
+    /* A BIG blast. It was 4.5 m across and did 80 to a car, so a rocket could
+     * not even destroy a 100 hp saloon outright — the one thing a rocket is
+     * for. Peds die out to 7.5 m, cars take 140 inside 6.6 m (one shot on
+     * anything but the tank's 600), and the fx cloud is wider to match. */
+    add_fx(x,z,1); for(int k=0;k<10;k++) add_fx(x+(frand()*2-1)*3.6f, z+(frand()*2-1)*3.6f, 1);
+    sfx(&boom_sfx,1.0f); rmbl(1.0f,260); add_heat_at(0.8f, x, z, 1);
     for (int p=0;p<NPED;p++){ Ped*pd=&peds[p]; if(!pd->alive) continue;
-        float dx=pd->x-x, dz=pd->z-z; if(dx*dx+dz*dz<20.0f) kill_ped(p,1); }
+        float dx=pd->x-x, dz=pd->z-z; if(dx*dx+dz*dz<56.0f) kill_ped(p,1); }
     for (int c=0;c<NCAR;c++){ Car*cc=&cars[c]; if(!cc->alive||cc->driver==DRV_PLAYER) continue;
-        float dx=cc->x-x, dz=cc->z-z; if(dx*dx+dz*dz<20.0f){ cc->hp-=80; if(cc->hp<=0) wreck_car(cc); } }
+        float dx=cc->x-x, dz=cc->z-z; if(dx*dx+dz*dz<44.0f){ cc->hp-=140; if(cc->hp<=0) wreck_car(cc); } }
     /* the player takes blast damage too (unless snug in the tank) */
     if (!(player.mode==MODE_CAR && cars[player.car].type==VEH_TANK)){
         float dx=pl_x()-x, dz=pl_z()-z; if(dx*dx+dz*dz<16.0f) hurt_player(28); }
@@ -3127,7 +3208,9 @@ static void update_pickups(float dt) {
                     float_txt(p->x,p->z,b); } break;
                 case PK_HEALTH: health=MAXHP; float_txt(p->x,p->z,"HEALTH"); break;
                 case PK_FLAME: owned[W_FLAME]=1; ammo[W_FLAME]+=140; weapon=W_FLAME; float_txt(p->x,p->z,"FLAMER"); break;
-                case PK_ROCKET: owned[W_ROCKET]=1; ammo[W_ROCKET]+=6; weapon=W_ROCKET; float_txt(p->x,p->z,"ROCKET"); break;
+                /* 3, not 6: the rocket one-shots cars and clears a crowd now,
+                 * so the scarcity IS the balance. */
+                case PK_ROCKET: owned[W_ROCKET]=1; ammo[W_ROCKET]+=3; weapon=W_ROCKET; float_txt(p->x,p->z,"ROCKET"); break;
                 case PK_PISTOL: owned[W_PISTOL]=1; ammo[W_PISTOL]+=40; weapon=W_PISTOL; float_txt(p->x,p->z,"PISTOL"); break;
                 case PK_SMG: owned[W_SMG]=1; ammo[W_SMG]+=80; weapon=W_SMG; float_txt(p->x,p->z,"SMG"); break;
                 case PK_SHOTGUN: owned[W_SHOTGUN]=1; ammo[W_SHOTGUN]+=24; weapon=W_SHOTGUN; float_txt(p->x,p->z,"SHOTGUN"); break;
@@ -3963,10 +4046,33 @@ static void reset_game(void) {
     for (int i=0;i<NCAR;i++) car_body_init(i);      /* physics bodies for every vehicle */
     hosp_x=player.x; hosp_z=player.z;
     /* weapon CACHES hidden at random spots across the whole city */
-    { static const uint8_t CACHE[8]={PK_PISTOL,PK_SMG,PK_SHOTGUN,PK_FLAME,PK_HEALTH,PK_CASH,PK_ROCKET,PK_SMG};
+    /* The ROCKET is out of the common table. As one of eight kinds across 28
+     * caches it turned up three or four times per city, which is not a rare
+     * prize — it is standard issue. It now appears in only a third of cities,
+     * once, somewhere in the whole map. */
+    { static const uint8_t CACHE[8]={PK_PISTOL,PK_SMG,PK_SHOTGUN,PK_FLAME,PK_HEALTH,PK_CASH,PK_SHOTGUN,PK_SMG};
       for (int k=0;k<28;k++){
         for (int t=0;t<40;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
             if (pav_or_grass(tx,tz)){ add_pickup(tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, CACHE[irand(8)]); break; } } } }
+    if (irand(3) == 0) {
+        for (int t=0;t<200;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
+            if (pav_or_grass(tx,tz)){ add_pickup(tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, PK_ROCKET); break; } }
+    }
+    /* CACHES IN THE TREES. The scatter above lands anywhere walkable, which is
+     * mostly pavement; nothing rewarded pushing into a park. A tile counts as
+     * wooded when the scenery pass would put a tree on it — the SAME hash it
+     * draws from, so a cache is always found under actual canopy rather than on
+     * a bare patch that merely happens to be grass. */
+    { static const uint8_t WOOD[6]={PK_CASH,PK_HEALTH,PK_SHOTGUN,PK_CASH,PK_SMG,PK_HEALTH};
+      int placed=0;
+      for (int t=0;t<3000 && placed<12;t++){
+          int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
+          if (tile_at(tx,tz)!=' ') continue;
+          unsigned h=(unsigned)(tx*668265263u ^ tz*374761393u);
+          if ((h&3)==0) continue;                     /* the scenery pass skips these */
+          add_pickup(tx*TILE+TILE*0.5f+1.6f, tz*TILE+TILE*0.5f+1.6f, WOOD[irand(6)]);
+          placed++;
+      } }
     /* weapons + medkits scattered on pavements around the start */
     add_pickup(markers[0].x+2, markers[0].z+2, PK_PISTOL);
     { static const uint8_t scatter[8]={PK_PISTOL,PK_SMG,PK_HEALTH,PK_SHOTGUN,PK_SMG,PK_HEALTH,PK_PISTOL,PK_HEALTH};
@@ -5608,6 +5714,7 @@ static void g_update(float dt) {
     stars_update(cam_basis.r[2]);   /* before the background pass paints the sky */
     draw_sky_body();
     draw_traffic_lights();
+    draw_street_detail();
     draw_water_shimmer();
     /* Buildings are submitted AFTER the entities below: the textured-tri pool is
      * first-come (extra tris are silently dropped), and a clipped far building is
