@@ -156,8 +156,11 @@ static int is_junction(int x, int z) {
  *
  * axis: 0 = traffic travelling along X (east-west), 1 = along Z. Returns
  * LIGHT_GREEN / LIGHT_AMBER / LIGHT_RED. */
-#define LIGHT_CYCLE 16.0f
-#define LIGHT_AMBER  2.2f
+/* 10 s, not 16: half the cycle is your red, so 16 meant waiting up to 8 s at a
+ * junction, which is an age in a game. 10 caps the wait at 5 s and keeps the
+ * stop short. */
+#define LIGHT_CYCLE 10.0f
+#define LIGHT_AMBER  1.4f
 enum { LIGHT_GREEN, LIGHT_AMBER_ON, LIGHT_RED };
 static int light_state(int ix, int iz, int axis) {
     unsigned h = ((unsigned)ix * 73856093u) ^ ((unsigned)iz * 19349663u);
@@ -854,23 +857,28 @@ static int bb_add(const MoteImage *img, float x, float y, float z,
 #define CHAR_SHADOW_R (CHAR_H * 0.2625f)
 /* The sprite cells are 16 px wide but the figure only occupies columns 3..12,
  * so a full-cell quad is a quarter empty air either side and the people look
- * stocky. Drawing a 12-wide sub-rect (columns 2..13) keeps every pixel of the
- * figure, with a pixel of margin, and narrows the billboard by 25% — the
+ * stocky. Drawing a narrower sub-rect keeps every pixel of the figure — the
  * quad's aspect follows the source rect, and world_h is unchanged, so they get
  * thinner without getting shorter.
  *
- * EXCEPT the two firing poses on the player sheet, rows 4 and 5, whose gun arm
- * reaches column 15. Measured per cell across all three sheets: ped and cop are
- * 3..12 everywhere, the player is 3..12 walking and 4..15 firing. Those two
- * frames keep the full cell, which also lets the arm read as extended. */
-#define CHAR_CELL_X 2
-#define CHAR_CELL_W 12
+ * Measured per cell across all three sheets: ped and cop are 3..12 everywhere,
+ * the player is 3..12 walking and 4..15 firing. The two firing poses (player
+ * sheet, rows 4 and 5) therefore take their own, wider rect so the extended
+ * gun arm is not clipped. */
+/* Tightened again to the measured extent itself: columns 3..12 is 10 px, so
+ * cx 3 / cw 10 keeps every pixel of the figure with no margin and takes
+ * another 17% off the width. The firing poses run 4..15, which is 12 px, so
+ * they narrow the same way instead of taking the whole 16-wide cell. */
+#define CHAR_CELL_X 3
+#define CHAR_CELL_W 10
+#define CHAR_FIRE_X 4
+#define CHAR_FIRE_W 12
 static void draw_character(const MoteImage *img, float x, float z, float yaw,
                            int variant, int frame, int nframes) {
     int col = facing_cell(yaw);
     int row = variant * nframes + frame;
     int wide = (nframes == 6 && frame >= 4);        /* player's aim/fire poses */
-    int cx = wide ? 0 : CHAR_CELL_X, cw = wide ? 16 : CHAR_CELL_W;
+    int cx = wide ? CHAR_FIRE_X : CHAR_CELL_X, cw = wide ? CHAR_FIRE_W : CHAR_CELL_W;
     if (!bb_add(img, x, CHAR_H * 0.5f, z, col * 16 + cx, row * 16, cw, 16, CHAR_H,
                MOTE_BLEND_NONE, VIEW_GROUND_R, 1.0f))
         return;                        /* off-screen or out of billboard budget: no shadow either */
@@ -991,6 +999,12 @@ static int         g_nbodies;          /* bodies in the last physics step (debug
 static MoteWorld2D pworld;
 static float       npc_target[NCAR];   /* NPC desired heading */
 static float       stuck_t[NCAR];      /* time spent unable to move (stuck detection) */
+/* Stopped at a red light LAST frame. Without this, waiting at a light is
+ * indistinguishable from being wedged: stuck_t climbs while the car sits still,
+ * and at 1 s the jam recovery cancels `blocked`, picks a fresh heading and
+ * floors the throttle — so no car ever actually waited at a red, it paused for
+ * a second and then drove through the junction. */
+static uint8_t     red_wait[NCAR];
 enum { AIS_CRUISE=0, AIS_TURN=1 };     /* NPC driving state machine */
 static uint8_t     ai_state[NCAR];
 static float       turn_wx[NCAR], turn_wz[NCAR];   /* TURN exit waypoint (hugs the corner) */
@@ -1897,6 +1911,48 @@ static void draw_sky_body(void) {
     }
 }
 
+/* Daytime clouds: 7 puffs, two discs each, with NO state at all.
+ *
+ * Each puff's bearing and height come from a hash of its index, so the field
+ * is stable the way the star field is; g_tod adds a slow eastward drift, which
+ * is the only thing that moves. Nothing is stored, so this costs zero RAM and
+ * 14 discs in the FX pass.
+ *
+ * Elevation is confined to the same narrow band the sun disc uses. The chase
+ * camera pitches about 22 degrees down and the top of the frame sits near
+ * +5.5 degrees, so a cloud at a realistic height is simply above the screen.
+ * 0.020..0.075 rad keeps them in the strip of sky that is actually drawn.
+ *
+ * They are discs, which are depth-TESTED but do not write depth, so a building
+ * in front covers them and they never paint over the skyline.
+ *
+ * Only in daylight: they fade in with the sun between elevation 0.10 and 0.30
+ * and are gone at night, when the star field has the sky instead. */
+#define CLOUDS   7
+#define CLOUD_D  260.0f
+static void draw_clouds(void) {
+    float e = sun_elev();
+    if (e < 0.10f) return;
+    float fade = (e < 0.30f) ? (e - 0.10f) / 0.20f : 1.0f;
+    Rgb white = { 248, 250, 255 };
+    uint16_t col = rgb565(rgb_lerp(g_sky_hor, white, 0.30f + 0.55f * fade));
+    for (int i = 0; i < CLOUDS; i++) {
+        unsigned h = ((unsigned)i * 2654435761u) ^ 0x85ebca6bu;
+        float az = (float)(h & 1023) * (6.2831853f / 1024.0f) + g_tod * 1.7f;
+        float de = 0.020f + (float)((h >> 10) & 255) * (0.055f / 255.0f);
+        float ce = cosf(de);
+        Vec3 d = v3(sinf(az) * ce, sinf(de), cosf(az) * ce);
+        Vec3 p = v3(cam_pos.x + d.x * CLOUD_D,
+                    cam_pos.y + d.y * CLOUD_D,
+                    cam_pos.z + d.z * CLOUD_D);
+        float r = 13.0f + (float)((h >> 18) & 7);
+        /* A second lobe, offset along the horizon, so a puff is not a circle. */
+        float sx = cosf(az) * r * 1.15f, sz = -sinf(az) * r * 1.15f;
+        mote->scene_add_disc(p, r, col);
+        mote->scene_add_disc(v3(p.x + sx, p.y - r * 0.18f, p.z + sz), r * 0.75f, col);
+    }
+}
+
 /* Traffic-light heads at the junctions around the player.
  *
  * Walks OUTWARD in rings from the camera tile and stops at LIGHTS_MAX heads,
@@ -1992,10 +2048,19 @@ static void draw_street_detail(void) {
                 continue;
             }
 
-            if (t != ' ') continue;
+            /* Benches on PLAZA (' ') and on PAVEMENT (','). The pavement is
+             * where most of the walking happens, so leaving it bare was the
+             * gap; it gets them at a quarter the plaza rate so a street does
+             * not turn into a waiting room. Pavement tiles are never planted
+             * by the scenery pass, so they skip the tree test. */
+            if (t != ' ' && t != ',') continue;
             unsigned h = (unsigned)(x*668265263u ^ z*374761393u);
-            if ((h & 3) != 0) continue;                 /* the scenery pass PUT A TREE here */
-            if (((h >> 6) & 3) != 0) continue;          /* and only a quarter of the rest */
+            if (t == ' ') {
+                if ((h & 3) != 0) continue;             /* the scenery pass PUT A TREE here */
+                if (((h >> 6) & 3) != 0) continue;      /* and only a quarter of the rest */
+            } else {
+                if (((h >> 8) & 15) != 0) continue;     /* one pavement tile in 16 */
+            }
             if (!gta3_view_tile(&g_view, wx, 0.5f, wz, VIEW_GROUND_R, TILE)) continue;
             n++;
             /* bench: seat then back, turned one of four ways by the same hash */
@@ -2396,14 +2461,14 @@ static void update_traffic(float dt) {
     for (int i=0;i<NCAR;i++) {
         Car *c=&cars[i];
         int patrol = (c->driver==DRV_COP && wanted()==0 && c->type!=VEH_TANK);
-        if (!c->alive || (c->driver!=DRV_NPC && !patrol)) continue;   /* patrols cruise like traffic */
+        if (!c->alive || (c->driver!=DRV_NPC && !patrol)) { red_wait[i]=0; continue; }  /* patrols cruise like traffic */
         MoteBody2D *b=&bodies[i];
         const VStat *v=&VSTAT[c->type];
         if (mission==MI_REPO && i==mission_car && c->driver==DRV_NPC){   /* the debtor floors it away from you */
             float ay=atan2f(c->z-pl_z(), c->x-pl_x());
             float dd=1.5708f*floorf(ay/1.5708f+0.5f);
             if (road_run(c->x,c->z, cosf(dd),sinf(dd), TILE*1.5f) < TILE*1.2f) dd=best_turn(c->x,c->z,dd,0);
-            ai_drive(i, dd, 1.0f, dt); continue;
+            ai_drive(i, dd, 1.0f, dt); red_wait[i]=0; continue;
         }
         float d = 1.5708f * floorf(npc_target[i]/1.5708f + 0.5f);   /* committed cardinal */
         float ba=b->angle, spd=b->vx*cosf(ba)+b->vy*sinf(ba);
@@ -2484,7 +2549,7 @@ static void update_traffic(float dt) {
         /* JAM RECOVERY: break free of a wedge/orbit. The racer commits to CRUISING straight
          * along a fresh checkpoint-ward cardinal (a tight turn waypoint here can re-orbit),
          * and holds it for ~1 s (rc_esc_t) so it clears the junction before turning again. */
-        if (stuck_t[i] > 1.0f){
+        if (stuck_t[i] > 1.0f && !red_wait[i]){
             if (is_racer){
                 d = best_turn_toward(c->x,c->z,d, rcx,rcz, 1,1);   /* escape onto any real road toward CP */
                 npc_target[i]=d; ai_state[i]=AIS_CRUISE; rc_escd=d; rc_esc_t=1.0f;
@@ -2573,6 +2638,7 @@ static void update_traffic(float dt) {
                 if (st == LIGHT_RED) { blocked = 1; at_red = 1; }
             }
         }
+        red_wait[i] = (uint8_t)at_red;
 
         /* JUNCTION YIELD: give way to a MOVING perpendicular crosser near my entry point.
          * Priority: a car already IN the junction goes first; equal approaches → lower index
@@ -2610,7 +2676,7 @@ static void update_traffic(float dt) {
         }
 
         float throttle = blocked ? 0.0f : (turning ? 0.45f : (approach ? 0.5f : (dodge>0 ? 0.5f : 1.0f)));
-        if (stuck_t[i] > 1.0f){ blocked=0;                       /* recovery: push, or reverse if wedged */
+        if (stuck_t[i] > 1.0f && !red_wait[i]){ blocked=0;       /* recovery: push, or reverse if wedged */
             throttle = (road_run(c->x,c->z, fx,fz, TILE*1.4f) < TILE*0.9f) ? -0.9f : 1.0f; }
         /* A red light BRAKES; every other `blocked` reason keeps coasting, which
          * is what queueing behind another car should feel like. */
@@ -4557,7 +4623,7 @@ static void stream_entities(float dt) {
         if (is_mission_car(i)) continue;      /* the job's own cars are exempt from recycling */
         float dx=c->x-px, dz=c->z-pz, d2=dx*dx+dz*dz;
         if (c->driver==DRV_NPC){       /* moving traffic: recycle ONLY when off-screen */
-            if (fabsf(c->spd) < 0.6f) stuck_t[i]+=dt; else stuck_t[i]=0;
+            if (fabsf(c->spd) < 0.6f && !red_wait[i]) stuck_t[i]+=dt; else stuck_t[i]=0;
             /* NEVER teleport a car the player can see — that looks ridiculous. Cars only
              * recycle once well off-screen (visible radius ~32 m even at max zoom-out):
              * far behind, or wedged AND out of view. On-screen jams clear via jam-recovery. */
@@ -5776,6 +5842,7 @@ static void g_update(float dt) {
     draw_ground_window();
     stars_update(cam_basis.r[2]);   /* before the background pass paints the sky */
     draw_sky_body();
+    draw_clouds();
     draw_traffic_lights();
     draw_street_detail();
     draw_water_shimmer();
@@ -6595,10 +6662,12 @@ static const MoteGameVtbl k_vtbl = {
      * invisible until someone hits it on hardware. */
     .config = { .max_tex_tris = 1100, .max_tris = 850, .depth = 1,
                 .max_points = WATER_FLECKS_MAX,   /* water shimmer, depth-tested in the 3D pass */
-                /* sun/moon (1) + car lamps (4 per car inside VEH_DETAIL_R).
-                 * Traffic lights briefly lived here too and pushed this to 72;
-                 * they are flat triangles now, so it goes back. */
-                .max_discs  = 40,
+                /* sun/moon (1) + car lamps (4 per car inside VEH_DETAIL_R,
+                 * so up to ~36) + clouds (CLOUDS * 2 = 14). 40 left no room
+                 * for the clouds, and since they are submitted first the
+                 * overflow would have silently eaten CAR LAMPS instead.
+                 * 16 more discs is 256 bytes of engine arena, not GAME_RAM. */
+                .max_discs  = 56,
                 /* max_shadows = 64, not 40: worst case is 18 car + up to 34
                  * in-view ped shadows = 52, which already exceeded 40 with
                  * vehicle shadows left ungated (fixed above). Same
