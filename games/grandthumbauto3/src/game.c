@@ -1633,9 +1633,23 @@ enum { TAB_MAP, TAB_SET, TAB_N };
  *
  * To remove them: delete the two enum rows, their two NAME entries, and their
  * two cases in the settings switch. Nothing else refers to them. */
-enum { SET_MINIMAP, SET_CONTROLS, SET_HELI, SET_TANK, SET_SAVE, SET_LOAD, SET_N };
+enum { SET_MINIMAP, SET_SOUND, SET_CONTROLS, SET_HELI, SET_TANK, SET_SAVE, SET_LOAD, SET_N };
 static int   g_menutab = TAB_MAP, g_setsel;
 static const char *g_setmsg; static float g_setmsg_t;
+/* SOUND on/off, persisted.
+ *
+ * It rides slot 0, the blob that already carries the best-cash record, because
+ * that is the one the game reads at boot whether or not you have a saved game.
+ * The blob grows from two ints to three; the loader accepts the OLD two-int
+ * form and leaves sound on, so an existing save does not lose its record and
+ * does not come back muted.
+ *
+ * Written the moment it is toggled rather than at death, which is the only
+ * other time slot 0 is flushed — a setting you changed and then quit without
+ * dying would otherwise not stick, which is exactly how someone would test it. */
+#define SAVE0_MAGIC 0x47544131
+static uint8_t g_sound_on = 1;
+static void save_prefs(void);
 /* Where a debug-delivered vehicle lands: ALWAYS straight in front of you,
  * stepping closer until the tile is somewhere one can sit. A pad search picks a
  * random bearing, which half the time puts the thing behind your back and makes
@@ -1795,7 +1809,15 @@ static void g_init(void) {
     build_turret();
     build_buildings();
     build_garages();
-    if (mote->load){ int b[2]={0,0}; if(mote->load(0,b,sizeof b)==(int)sizeof b && b[0]==0x47544131) best_cash=b[1]; }
+    if (mote->load){
+        int b[3]={0,0,1}; int got = mote->load(0,b,sizeof b);
+        /* Two ints is the old blob: record only, sound stays on. Three is the
+         * current one, whose third int is the flags word. */
+        if (got >= (int)(2*sizeof(int)) && b[0]==SAVE0_MAGIC){
+            best_cash = b[1];
+            if (got >= (int)(3*sizeof(int))) g_sound_on = (uint8_t)(b[2] & 1);
+        }
+    }
     reset_game();
     g_state = ST_TITLE;
 }
@@ -3395,7 +3417,18 @@ static void say(const char *m){ g_msg=m; g_msg_t=2.2f; }
 /* Throttle repeated SFX so a crowd run-over (many cash/crash sounds in a few
  * frames) can't stack dozens of synth voices and stall the frame. Each distinct
  * recipe replays at most ~18x/sec; rumble is capped similarly. */
+/* Slot 0: the record and the preferences, written together because they share
+ * one blob. Called on every toggle and once more as the death screen fades. */
+static void save_prefs(void){
+    if (!mote->save) return;
+    int b[3] = { SAVE0_MAGIC, best_cash, g_sound_on ? 1 : 0 };
+    mote->save(0, b, sizeof b);
+}
+
 static void sfx(const MoteSfx *s, float g){
+    /* ONE gate for every sample in the game. The engine drone is separate and
+     * is silenced at its own source — see g_eng_a in g_update. */
+    if (!g_sound_on) return;
     if (!mote->audio_play_sfx) return;
     if (!mote->micros){ mote->audio_play_sfx(s,g); return; }
     static const MoteSfx *lp[8]={0}; static uint32_t lt[8]={0};
@@ -6394,7 +6427,7 @@ static void g_update(float dt) {
         }
         else { g_screen_t-=dt;
             if (!death_saved && g_screen_t < 2.35f && mote->save) {   /* screen shown first, then flush */
-                int b[2]={0x47544131, best_cash}; mote->save(0,b,sizeof b); death_saved=1;
+                save_prefs(); death_saved=1;
             }
             if (g_screen_t<=0) respawn(g_state==ST_BUSTED); }
         return;
@@ -6488,6 +6521,7 @@ static void g_update(float dt) {
             if (mote_just_pressed(in,MOTE_BTN_A)) {
                 switch (g_setsel) {
                 case SET_MINIMAP: g_radar_on = !g_radar_on; break;
+                case SET_SOUND:   g_sound_on = !g_sound_on; save_prefs(); break;
                 case SET_CONTROLS: g_ctlpage = 1; break;
                 /* TEMPORARY DEBUG — see the SET_HELI comment at the enum. */
                 case SET_TANK: {
@@ -6758,7 +6792,10 @@ static void g_update(float dt) {
     if (cash>best_cash) best_cash=cash;    /* in memory only — flushed to flash at death */
 
     /* engine pitch rides speed: quiet on foot, loud with speed */
-    if (player.mode==MODE_CAR){ float s=fabsf(cars[player.car].spd);
+    /* The engine drone is a STREAM, not a sample, so sfx()'s gate does not
+     * reach it — its amplitude is silenced here instead. Eased to zero rather
+     * than cut, so toggling sound off mid-drive fades out instead of clicking. */
+    if (player.mode==MODE_CAR && g_sound_on){ float s=fabsf(cars[player.car].spd);
         g_eng_f = 30.0f + s*5.0f;   /* lower, rumblier drone (was 46 + s*7.5) */
         float at = 0.11f + s*0.012f; if(at>0.30f)at=0.30f; g_eng_a += (at-g_eng_a)*0.3f;
     } else g_eng_a *= 0.85f;
@@ -7122,28 +7159,29 @@ static void draw_settings(uint16_t *fb) {
     mote_ftext(mote, fb, g_fmed, "SETTINGS", 3, 1, MOTE_RGB565(240,230,120));
 
     /* "BRING HELI" and "BRING TANK" are the temporary debug rows — see the
-     * SET_HELI comment. Rows are 12 px apart, not the original 16: six of them
-     * at 16 would run off the bottom of the panel, and at 14 the last
+     * SET_HELI comment. Rows are 11 px apart, not the original 16: seven of
+     * them at 16 would run off the bottom of the panel, and at 12 the last
      * highlight overlaps the result message at y = 94. */
-    static const char *NAME[SET_N] = { "MINIMAP", "CONTROLS", "BRING HELI",
+    static const char *NAME[SET_N] = { "MINIMAP", "SOUND", "CONTROLS", "BRING HELI",
                                        "BRING TANK", "SAVE GAME", "LOAD GAME" };
     for (int i = 0; i < SET_N; i++) {
-        int y = 20 + i * 12;
+        int y = 19 + i * 11;
         int sel = (i == g_setsel);
         if (sel) mote->draw_rect(fb, 6, y - 3, 116, 14, MOTE_RGB565(46,56,86), 1, 0, 128);
         uint16_t fg = sel ? MOTE_RGB565(250,244,200) : MOTE_RGB565(168,176,196);
         mote_ftext(mote, fb, g_fmed, NAME[i], 12, y, fg);
-        const char *val = (i == SET_MINIMAP) ? (g_radar_on ? "ON" : "OFF") : 0;
+        const char *val = (i == SET_MINIMAP) ? (g_radar_on ? "ON" : "OFF")
+                        : (i == SET_SOUND)   ? (g_sound_on ? "ON" : "OFF") : 0;
         if (val) {
             uint16_t vc = (val[1] == 'N') ? MOTE_RGB565(140,230,140) : MOTE_RGB565(200,120,120);
             mote_ftext(mote, fb, g_fmed, val, 92, y, vc);
         }
     }
     if (g_setmsg && g_setmsg_t > 0.0f)
-        mote_ftextc(mote, fb, g_fmed, 64, 94, MOTE_RGB565(250,230,120), g_setmsg);
+        mote_ftextc(mote, fb, g_fmed, 64, 99, MOTE_RGB565(250,230,120), g_setmsg);
 
-    mote_ftextc(mote, fb, g_fmed, 64, 106, MOTE_RGB565(150,160,180), "DPAD PICK    A APPLY");
-    mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,160,180), "LB  MAP     MENU CLOSE");
+    mote_ftextc(mote, fb, g_fmed, 64, 109, MOTE_RGB565(150,160,180), "DPAD PICK    A APPLY");
+    mote_ftextc(mote, fb, g_fmed, 64, 119, MOTE_RGB565(150,160,180), "LB  MAP     MENU CLOSE");
 }
 
 /* DEBUG: outline every 2D physics body (green = vehicle OBB, orange = static building/tree)

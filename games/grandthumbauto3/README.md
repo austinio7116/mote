@@ -63,7 +63,7 @@ itself up again when you let go of `B`.
 - **Day/night cycle** — a gradient sky on a full clock, a sun and moon on their own arc, stars that fade up through dusk, and daylight clouds.
 - **Weather** — rain and thunderstorms that come and go, with wet road tinting.
 - **Rotating minimap** — a live radar under the title bar, hideable from the settings page.
-- **Save and load** — a settings tab on the pause screen, plus a persisted best-cash record.
+- **Save and load** — a settings tab on the pause screen, plus a persisted best-cash record and a persisted sound on/off setting.
 - **A flyable helicopter** — parked on an open pad somewhere in the city, with a 45 m ceiling, rooftop landings, flight over water and buildings, an altitude readout in place of the speedo, and police who can only shoot at you below 18 m. It hovers rather than ditches over water, because there is only one of them.
 - **Hidden content** — a treasure island in the bottom-left water reached by a footbridge, weapon and cash caches in the forests, five more on the roofs of tall buildings that only the helicopter can reach, a rare one-shot rocket launcher, and a drivable tank with finite shells.
 - **Street detail** — street lamps along the kerbs whose heads light up at dusk, bus stops with a sign facing the road, park benches on plazas and pavements, railings on the long bridges, palm trees on the waterline, puddles on the road while it rains, zebra crossings and phone boxes.
