@@ -544,6 +544,12 @@ static int bld_tex(int x, int z) {
     return cand[ci][(dev_hash(x,z) >> 17) & 3u];
 }
 
+/* The helicopter's altitude, declared here because the floor helpers below need
+ * it and they sit next to the rest of the world geometry. The rest of the
+ * aircraft's state, and why altitude lives outside the physics at all, is at
+ * HELI_SLOT further down. */
+static float g_heli_y, g_heli_vy;
+
 /* The surface under a world point: a building's roof if it stands there, the
  * road otherwise. Building heights are already quantised per tile, so landing on
  * a roof costs one lookup and no new state. */
@@ -553,6 +559,31 @@ static float floor_y(float wx, float wz) {
     if ((c == '#' || c == 'O' || c == 'H') && !is_garage(tx, tz))
         return g_lvl_h[bld_level(tx, tz)];
     return 0.0f;
+}
+
+/* The lowest the helicopter may descend at this position.
+ *
+ * Water is not a landing surface — it holds a hover. There is exactly one
+ * helicopter in a city and no way to get another, so letting a descent over the
+ * river sink it would make a mis-timed landing permanently cost you the
+ * feature. Everything else lands normally, roofs included.
+ *
+ * '~' directly rather than in_water_w(), which is declared hundreds of lines
+ * further down; the test is one tile lookup either way. */
+#define HELI_WATER_HOVER 2.6f
+static float heli_floor(float wx, float wz) {
+    if (tile_at((int)(wx / TILE), (int)(wz / TILE)) == '~') return HELI_WATER_HOVER;
+    return floor_y(wx, wz);
+}
+/* Is the aircraft off the ground? Over water the answer is ALWAYS yes, however
+ * low it is: there is nothing there to be down on. Asking the height alone got
+ * this wrong by 0.2 m — the hover clamp parks it at HELI_WATER_HOVER and the
+ * height test wanted more than that before it counted as flying, so a descent
+ * over the river went "landed" for one frame and the drown check took it.
+ * Every caller asks this rather than comparing heights itself. */
+static int heli_aloft(float wx, float wz) {
+    if (tile_at((int)(wx / TILE), (int)(wz / TILE)) == '~') return 1;
+    return g_heli_y > floor_y(wx, wz) + 0.2f;
 }
 
 /* ---------------------------------------------------------------- camera ---- */
@@ -1063,7 +1094,6 @@ static float       stuck_t[NCAR];      /* time spent unable to move (stuck detec
 #define HELI_YAW      1.9f     /* rad/s */
 #define HELI_ACC     11.0f     /* m/s^2 along the nose */
 #define HELI_DRAG     0.9f     /* per second, so it coasts rather than stops dead */
-static float g_heli_y, g_heli_vy;
 static float g_rotor;                  /* blade phase, radians — visual only */
 /* Stopped at a red light LAST frame. Without this, waiting at a light is
  * indistinguishable from being wedged: stuck_t climbs while the car sits still,
@@ -2589,8 +2619,8 @@ static int move_body(float *x, float *z, float nx, float nz, int drive) {
 static void fly_heli(Car *c, int slot, float dt,
                      int up, int down, int fwd, int back, int yawL, int yawR) {
     MoteBody2D *b = &bodies[slot];
-    float fl = floor_y(c->x, c->z);
-    int airborne = (g_heli_y > fl + 0.2f);
+    float fl = heli_floor(c->x, c->z);
+    int airborne = heli_aloft(c->x, c->z);
 
     /* collective */
     float want = up ? HELI_CLIMB : (down ? -HELI_CLIMB : 0.0f);
@@ -5120,8 +5150,15 @@ static void physics_pass(float dt) {
         if (!cars[i].alive) continue;
         MoteBody2D *b=&bodies[i];
         if (i==player.car){
-            if (blocked_bldg_w(b->x, b->y)){ b->x=prex[i]; b->y=prez[i]; b->vx*=0.2f; b->vy*=0.2f; }  /* anti-tunnel backstop */
-            if (in_water_w(b->x, b->y)){ cars[i].x=b->x; cars[i].z=b->y; drown(); continue; }
+            /* BOTH of these are ground rules, and an airborne helicopter is
+             * not on the ground. The building snap-back rewinds any car whose
+             * centre lands on a solid tile, which would have bounced the
+             * aircraft off every roof it flew over; the water check drowns
+             * you, which made the river and the whole seafront a no-go area
+             * and left the helicopter with nowhere interesting to fly. */
+            int flying = (cars[i].type==VEH_HELI && heli_aloft(b->x, b->y));
+            if (!flying && blocked_bldg_w(b->x, b->y)){ b->x=prex[i]; b->y=prez[i]; b->vx*=0.2f; b->vy*=0.2f; }  /* anti-tunnel backstop */
+            if (!flying && in_water_w(b->x, b->y)){ cars[i].x=b->x; cars[i].z=b->y; drown(); continue; }
             /* ANY real contact with a squad car counts, not just a heavy crash.
              * The speed-drop test below only fires when you lose 45% of your
              * speed in a frame; a scrape or a nudge at junction speed left you
@@ -5842,16 +5879,24 @@ static void g_update(float dt) {
                    * only practical way to capture a roof landing: steering
                    * there with scripted key presses takes hundreds of frames
                    * and lands somewhere different every build. */
+                  /* =3 parks it over the nearest tall ROOF and =4 over the
+                   * nearest WATER, the two surfaces with their own landing
+                   * rule. Steering to either with scripted key presses takes
+                   * hundreds of frames and lands somewhere different every
+                   * build. The scan is the whole map: some seeds have no water
+                   * within reach of the pad, and a hook that silently does
+                   * nothing is worse than no hook. */
                   if (m2 >= 3){
+                      char want = (m2 >= 4) ? '~' : 'H';
                       int px0=(int)(h->x/TILE), pz0=(int)(h->z/TILE), bx=-1, bz=-1, bd=1<<30;
-                      for (int z=pz0-40; z<=pz0+40; z++) for (int x=px0-40; x<=px0+40; x++){
+                      for (int z=0; z<MAPH; z++) for (int x=0; x<MAPW; x++){
                           char tc=tile_at(x,z);
-                          if (tc!='H' || is_garage(x,z)) continue;
+                          if (tc!=want || (want=='H' && is_garage(x,z))) continue;
                           int d=(x-px0)*(x-px0)+(z-pz0)*(z-pz0);
                           if (d<bd){ bd=d; bx=x; bz=z; } }
                       if (bx>=0){ h->x=(bx+0.5f)*TILE; h->z=(bz+0.5f)*TILE;
                                   bodies[HELI_SLOT].x=h->x; bodies[HELI_SLOT].y=h->z;
-                                  g_heli_y = g_lvl_h[bld_level(bx,bz)] + 12.0f; } }
+                                  g_heli_y = (want=='~' ? 0.0f : g_lvl_h[bld_level(bx,bz)]) + 12.0f; } }
                   gta3_cam_reset(&g_cam);
               } else {
                   /* 3.2 m, not 4: car_in_reach uses 14 m^2 — see the tank hook. */
@@ -6321,7 +6366,7 @@ static void g_update(float dt) {
          * the floor UNDER the aircraft, so setting down on a roof counts as
          * landed and you get out on the roof. */
         if (USE && player.mode==MODE_CAR && c->type==VEH_HELI &&
-            g_heli_y > floor_y(c->x, c->z) + 0.3f) {
+            heli_aloft(c->x, c->z)) {
             say("LAND FIRST");
         } else
         if (USE && player.mode==MODE_CAR) {                    /* RB: step out beside the car */

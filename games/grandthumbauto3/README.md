@@ -63,7 +63,7 @@ itself up again when you let go of `B`.
 - **Weather** — rain and thunderstorms that come and go, with wet road tinting.
 - **Rotating minimap** — a live radar under the title bar, hideable from the settings page.
 - **Save and load** — a settings tab on the pause screen, plus a persisted best-cash record.
-- **A flyable helicopter** — parked on an open pad somewhere in the city, with a 45 m ceiling, rooftop landings, an altitude readout in place of the speedo, and police who can only shoot at you below 18 m.
+- **A flyable helicopter** — parked on an open pad somewhere in the city, with a 45 m ceiling, rooftop landings, flight over water and buildings, an altitude readout in place of the speedo, and police who can only shoot at you below 18 m. It hovers rather than ditches over water, because there is only one of them.
 - **Hidden content** — a treasure island in the bottom-left water reached by a footbridge, weapon and cash caches in the forests, a rare one-shot rocket launcher, and a drivable tank with finite shells.
 - **Street detail** — park benches on plazas and pavements, railings on the long bridges, palm trees on the waterline, zebra crossings and phone boxes.
 - **Beaches** — a quarter of the waterfront is sand two tiles deep, wet on the waterline and dry behind it, with the seawall dropped where it meets the water.
@@ -88,7 +88,7 @@ nothing else refers to it.
 The host-only equivalents are environment variables, which are no use with the
 handheld in your hands: `MOTE_GTA_TP_HELI=1` stands beside the aircraft, `2`
 puts you in it already airborne, and `3` also parks it over the nearest tall
-roof.
+roof, and `4` over the nearest water.
 
 ## Build and test
 
