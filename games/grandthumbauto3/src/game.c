@@ -1058,11 +1058,30 @@ static void build_vstats(void) {
 
 typedef struct { float x,z,yaw,spd; uint8_t variant, alive, hp; float animt; float flee;
                  uint8_t iscop; float firecd;
-                 float rage; } Ped;        /* rage: seconds left fighting back (see ped_brave) */
+                 float rage;               /* seconds left fighting back (see ped_brave) */
+                 uint8_t gang; } Ped;      /* a street crew member — see GANG_N below */
 /* A small, FIXED minority will swing back instead of running. Derived from the
  * ped slot rather than stored or rolled, so the same slot always behaves the
  * same way for as long as that person exists, and it costs nothing: 1 in 8. */
 static int ped_brave(int i){ return (((unsigned)i * 2654435761u) >> 29) == 0; }
+
+/* ------------------------------------------------------------ street crew ---
+ * A RARE knot of people who are hostile on sight rather than when provoked,
+ * standing together on one corner. Put the boot into all of them and the last
+ * one down is carrying the crew's takings.
+ *
+ * One crew per city at most, and only in some cities, so running into them is
+ * an event rather than a feature of every street. They are marked by a flag on
+ * the ped rather than by slot, because foot cops take whatever ped slot is
+ * free and would otherwise inherit a dead crew member's identity.
+ *
+ * The takings drop as a handful of ordinary cash pickups rather than a new
+ * kind: it needs no sprite cell, it reads as a payout because there are
+ * several of them, and each one is collected by the code that already exists. */
+#define GANG_N       4       /* members in a crew */
+#define GANG_SIGHT  15.0f    /* metres at which they come for you */
+#define GANG_PURSE   6       /* cash pickups the last one down drops */
+static uint8_t g_gang_alive;     /* members still standing; 0 = no crew in this city */
 
 /* Sprint stamina: 1 = full, 0 = empty. g_stam_spent latches at empty so you
  * cannot re-trigger until it has recovered past STAM_ARM. */
@@ -3205,6 +3224,11 @@ static void update_peds(float dt) {
         if (armed && d2 < 64.0f){ flee=1; }                          /* sees your gun (8 m) */
         if (!flee && g_panic > 0){ float dx=p->x-g_panicx, dz=p->z-g_panicz;
             if (dx*dx+dz*dz < 144.0f){ flee=1; tx=g_panicx; tz=g_panicz; } }  /* panic (12 m) */
+        /* A crew member comes for you on SIGHT, and keeps coming: the rage is
+         * topped up every frame you are inside GANG_SIGHT rather than being a
+         * one-shot timer, so they do not lose interest mid-fight. */
+        if (p->gang && !p->iscop && d2 < GANG_SIGHT*GANG_SIGHT && g_state==ST_PLAY)
+            p->rage = 2.5f;
         if (p->rage > 0.0f) flee = 0;                  /* the brave do not flee */
         if (flee){ p->flee = 1.4f; p->yaw = atan2f(p->z-tz, p->x-tx); }        /* run away from threat */
         if (p->flee>0) p->flee-=dt;
@@ -3551,6 +3575,19 @@ static void kill_ped(int i, int gore) {
     if (p->iscop){ cash+=100; add_heat_at(1.2f,p->x,p->z,0); float_txt(p->x,p->z,"+$100");
         if (irand(2)) add_pickup(p->x,p->z,PK_PISTOL); }   /* ...and sometimes his sidearm */
     else { add_pickup(p->x,p->z,PK_CASH); add_heat_at(gore?0.6f:0.5f, p->x,p->z, 0); }
+    /* THE CREW'S TAKINGS. Dropped by whoever goes down last rather than by a
+     * nominated member, so you cannot lose the prize by killing the wrong one
+     * first — and you have to finish all four to see any of it. */
+    if (p->gang && g_gang_alive) {
+        g_gang_alive--;
+        if (g_gang_alive == 0) {
+            for (int k = 0; k < GANG_PURSE; k++) {
+                float a = (float)k * (6.2831853f / GANG_PURSE);
+                add_pickup(p->x + cosf(a)*1.1f, p->z + sinf(a)*1.1f, PK_CASH);
+            }
+            say("THE CREW'S TAKINGS");
+        }
+    }
     /* KILL STREAK: chain kills inside 2.5 s for escalating bonus cash */
     { static float last_kill_t; static int streak;
       float now=(float)(mote->micros()/1000000.0);
@@ -4651,6 +4688,32 @@ static void reset_game(void) {
           add_pickup(tx*TILE+TILE*0.5f+1.6f, tz*TILE+TILE*0.5f+1.6f, WOOD[irand(6)]);
           placed++;
       } }
+    /* THE STREET CREW. One city in three, four of them on one patch of
+     * pavement well away from where you start, all wearing the same variant so
+     * they read as a crew rather than four strangers who happen to be cross. */
+    g_gang_alive = 0;
+    int want_gang = (irand(3) == 0);
+#ifdef MOTE_HOST
+    /* test: MOTE_GTA_GANG=1 forces the crew to exist. One city in three means
+     * hunting for a seed that has one, and the seed also fixes where they are. */
+    if (getenv("MOTE_GTA_GANG")) want_gang = 1;
+#endif
+    if (want_gang) {
+        float ox, oz;
+        if (find_near(player.x, player.z, 60.0f, 220.0f, pav_or_grass, &ox, &oz)) {
+            uint8_t v = (uint8_t)irand(4);
+            for (int k = 0; k < GANG_N; k++) {
+                int slot = -1;
+                for (int j = 0; j < NPED; j++) if (!peds[j].alive) { slot = j; break; }
+                if (slot < 0) break;
+                float a = (float)k * 1.5708f;
+                peds[slot] = (Ped){ ox + cosf(a)*1.6f, oz + sinf(a)*1.6f,
+                                    0, 0, v, 1, 3, 0, 0, 0, 0, 0, /*gang*/1 };
+                g_gang_alive++;
+            }
+        }
+    }
+
     /* ROOFTOP CACHES — the reward for finding the helicopter.
      *
      * Five of them, on the roofs of TALL buildings only ('H', the top height
@@ -6038,6 +6101,14 @@ static void g_update(float dt) {
                   /* 3.2 m, not 4: car_in_reach uses 14 m^2 — see the tank hook. */
                   player.x = h->x - 3.2f; player.z = h->z; player.yaw = 0.0f;
               } } } }
+    /* test: MOTE_GTA_TP_GANG=1 stands the player just inside the street crew's
+     * sight radius, facing them — the only way to reach the fight from a
+     * scripted capture, since they spawn on a random corner. */
+    { static int tpg=0;
+      if (getenv("MOTE_GTA_TP_GANG") && g_state==ST_PLAY && !tpg && player.mode==MODE_FOOT){
+          for (int i=0;i<NPED;i++) if (peds[i].alive && peds[i].gang){
+              tpg=1; player.x = peds[i].x - 9.0f; player.z = peds[i].z;
+              player.yaw = 0.0f; break; } } }
     /* test: MOTE_GTA_TP_PED=1 stands the player next to the nearest pedestrian,
      * facing them. Punching range is under 2 m and the scripted walks never
      * reliably land inside it. */

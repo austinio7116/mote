@@ -57,6 +57,7 @@ itself up again when you let go of `B`.
 - **Traffic AI** — cars hold a right-hand lane with pure-pursuit steering, change lanes, take turns, yield at junctions, queue behind each other and wait at red lights.
 - **Traffic lights** — one signal head per intersection on a kerbside post, red/amber/green off a single global clock with no per-junction state.
 - **Pedestrians** — 34 live peds who walk the pavements, flee a fight, and occasionally fight back.
+- **Street crews** — one city in three has a knot of four matching pedestrians who come for you on sight rather than when provoked. Put all four down and the last one drops the crew's takings.
 - **Police and a wanted level** — up to six stars, ambient patrols that act as witnesses, squad cars and foot officers that pursue you, sirens, and an automatic felony for ramming a cop car.
 - **14 mission types** — courier, rampage, getaway, hit, deliver, pickup, repo, escort, smuggle, demolition, vigilante, wanted-survival, circuit time-trial and a rubber-band rival race.
 - **Day/night cycle** — a gradient sky on a full clock, a sun and moon on their own arc, stars that fade up through dusk, and daylight clouds.
