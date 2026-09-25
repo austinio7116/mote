@@ -142,10 +142,12 @@ int main(void) {
          * and RAM. */
         int all = 1;
         for (int s = 0; s < GTA3_SIL_N; s++)
-            if (s != GTA3_SIL_HELI && s != GTA3_SIL_BUS && s != GTA3_SIL_TANK && !seen[s]) all = 0;
+            if (s != GTA3_SIL_HELI && s != GTA3_SIL_BUS && s != GTA3_SIL_TANK &&
+                s != GTA3_SIL_BOAT && !seen[s]) all = 0;
         ok(all, "every class-driven silhouette is reachable from some class");
-        ok(!seen[GTA3_SIL_HELI] && !seen[GTA3_SIL_BUS] && !seen[GTA3_SIL_TANK],
-           "and no handling class maps onto the heli, bus or tank");
+        ok(!seen[GTA3_SIL_HELI] && !seen[GTA3_SIL_BUS] && !seen[GTA3_SIL_TANK] &&
+           !seen[GTA3_SIL_BOAT],
+           "and no handling class maps onto the heli, bus, tank or boat");
     }
 
     /* Prove the check discriminates. This test was tautological once — it
@@ -197,7 +199,8 @@ int main(void) {
          * helicopter's skids and the tank's tracks are separated along X, one
          * per side. The invariant all three share is that the two boxes are
          * DISJOINT in some axis, so that is what is asserted. */
-        { int sideways = (s == GTA3_SIL_HELI || s == GTA3_SIL_TANK);
+        { int sideways = (s == GTA3_SIL_HELI || s == GTA3_SIL_TANK ||
+                          s == GTA3_SIL_BOAT);
           float a0,a1,b0,b1; int axis = sideways ? 0 : 2;
           span(m.wv,     &a0,&a1, axis);
           span(m.wv + 8, &b0,&b1, axis);
@@ -215,6 +218,7 @@ int main(void) {
           ok(wxh > bxh && wxl < bxl,
              (s == GTA3_SIL_HELI) ? "the skids stand outboard of the fuselage"
              : (s == GTA3_SIL_TANK) ? "the tracks stand outboard of the hull"
+             : (s == GTA3_SIL_BOAT) ? "the gunwales stand outboard of the hull"
                                     : "the wheel line is wider than the body");
           ok(wyl >= 0.0f, "the wheel line does not sink below the road plane"); }
 
@@ -343,6 +347,22 @@ int main(void) {
         ok(cz1 < bz1,                    "with a hood in front of it");
         ok((bz1-cz1) < (bz1-bz0) * 0.25f, "and that hood is short");
         ok(cz0 - bz0 < bz1 - cz1,        "the hood is longer than anything behind the cabin");
+    }
+    {
+        Gta3VehMesh m;
+        gta3_veh_build(&m, GTA3_SIL_BOAT);
+        float bz0,bz1, cz0,cz1, by0,by1, cy0,cy1, wz0,wz1, ax0,ax1, bx0,bx1;
+        span(m.bv,&bz0,&bz1,2); span(m.cv,&cz0,&cz1,2);
+        span(m.bv,&by0,&by1,1); span(m.cv,&cy0,&cy1,1);
+        span(m.wv,&wz0,&wz1,2);
+        span_n(m.wv,16,&ax0,&ax1,0); span(m.bv,&bx0,&bx1,0);
+        /* A boat is a long SHALLOW hull: it sits low in the water with a small
+         * wheelhouse aft, not a cabin over most of its length like a van. */
+        ok((by1-by0) < (bz1-bz0) * 0.30f, "the boat hull is shallow for its length");
+        ok((cz1-cz0) < (bz1-bz0) * 0.45f, "the wheelhouse is a minority of the hull");
+        ok((cz0+cz1) * 0.5f < 0.0f,       "and sits aft of midships");
+        ok((wz1-wz0) > (bz1-bz0) * 0.85f, "the gunwales run nearly the whole hull");
+        ok(ax1 > bx1 && ax0 < bx0,        "with the hull between them");
     }
     {
         Gta3VehMesh m;

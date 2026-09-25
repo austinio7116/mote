@@ -53,6 +53,7 @@ static const unsigned char LAMP[GTA3_SIL_N] = {
     /* HELI       */ GTA3_LAMP_ROUND,
     /* BUS        */ GTA3_LAMP_RECT,
     /* TANK       */ GTA3_LAMP_RECT,
+    /* BOAT       */ GTA3_LAMP_ROUND,
 };
 
 int gta3_lamp_style(int sil) {
@@ -119,6 +120,13 @@ static const Sil SILDEF[GTA3_SIL_N] = {
      * 86%), which is what leaves the turret standing proud as the tall part
      * instead of competing with a cab. */
     /* TANK       */ { 52, 70, -96,  86, 86 },
+    /* BOAT: a long SHALLOW hull. body_h 24 against a 254-unit length is what
+     * makes it sit in the water rather than on it; every road vehicle here is
+     * three or four times deeper for its length. The wheelhouse (cab_top 68,
+     * -104..-18 at 62%) is small and set well aft, which is the shape that
+     * separates a boat from a van at a glance, and it leaves the whole bow
+     * open as foredeck. */
+    /* BOAT       */ { 24, 68,-104, -18, 62 },
 };
 
 void gta3_box(MeshVert *v, MeshFace *f, int *nf,
@@ -196,6 +204,13 @@ void gta3_veh_build(Gta3VehMesh *m, int sil) {
          * mesh says "tracks" without costing a triangle more. */
         gta3_box(m->wv,     m->wf,      &nf,  -127, -84, 0, 30, -122, 122);  /* left track */
         gta3_box(m->wv + 8, m->wf + 12, &nf2,   84, 127, 0, 30, -122, 122);  /* right track */
+    } else if (sil == GTA3_SIL_BOAT) {
+        /* GUNWALES: a raised rail down each side, running almost the whole
+         * hull. Same two boxes as the tank's tracks and the helicopter's
+         * skids, different extents — and like both of those, the gap between
+         * them is the deck rather than the underside. */
+        gta3_box(m->wv,     m->wf,      &nf,  -127, -96, 0, 34, -120, 118);  /* port rail */
+        gta3_box(m->wv + 8, m->wf + 12, &nf2,   96, 127, 0, 34, -120, 118);  /* starboard rail */
     } else {
         gta3_box(m->wv,     m->wf,      &nf,  -127, 127, 0, 16, -96, -40);  /* rear axle */
         gta3_box(m->wv + 8, m->wf + 12, &nf2, -127, 127, 0, 16,  40,  96);  /* front axle */
