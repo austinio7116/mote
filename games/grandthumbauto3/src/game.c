@@ -1304,6 +1304,26 @@ static int heli_pad(int x,int z){
     }
     return 1;
 }
+/* A MOORING: open water with somewhere to stand on the other side of it.
+ *
+ * The tile itself must be water, so the boat starts afloat and sail_boat works
+ * from the first frame. At least one of its four neighbours must be walkable,
+ * or the prize is sitting in the middle of a lake and the only way to reach it
+ * is the helicopter — which makes it the helicopter's reward, not its own.
+ *
+ * Three more water tiles beyond it, so a mooring on a one-tile puddle does not
+ * count: there has to be somewhere to go. */
+static int boat_mooring(int x,int z){
+    if (tile_at(x,z) != '~') return 0;
+    int walk = 0, open = 0;
+    static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
+    for (int k=0;k<4;k++){
+        char c = tile_at(x+DX[k], z+DZ[k]);
+        if (c==','||c==' ') walk = 1;
+        if (c=='~')         open++;
+    }
+    return walk && open >= 2;
+}
 static int tank_hideout(int x,int z){
     for (int dz=-1;dz<=1;dz++)for (int dx=-1;dx<=1;dx++){
         char c=tile_at(x+dx,z+dz);
@@ -1572,6 +1592,33 @@ static void spawn_world(void) {
       if (getenv("MOTE_GTA_DEBUG"))
           fprintf(stderr,"[HELI] pad at tile (%d,%d) placed=%d\n",
                   (int)(cars[HELI_SLOT].x/TILE),(int)(cars[HELI_SLOT].z/TILE),placed);
+#endif
+    }
+
+    /* the BOAT — one city in two, at a mooring. Rarer than the helicopter,
+     * which every city gets: a map whose shorelines are all seawall with no
+     * walkable tile beside deep water simply does not have one, and that is
+     * the right answer rather than dropping it somewhere unreachable. */
+    cars[BOAT_SLOT].alive = 0;
+    { int want = (irand(2) == 0);
+#ifdef MOTE_HOST
+      /* test: MOTE_GTA_BOAT=1 forces it, since one city in two means hunting
+       * for a seed and the seed also fixes where it is. */
+      if (getenv("MOTE_GTA_BOAT")) want = 1;
+#endif
+      if (want) {
+          float ox,oz;
+          if (find_near(player.x,player.z, 40.0f, 260.0f, boat_mooring, &ox,&oz) ||
+              find_near(player.x,player.z, 10.0f, 320.0f, boat_mooring, &ox,&oz)) {
+              cars[BOAT_SLOT]=(Car){ ox,oz,(float)(irand(4))*1.5708f,0,
+                                     VEH_BOAT,DRV_NONE,1,100.0f,0 };
+              car_body_init(BOAT_SLOT);
+          }
+      }
+#ifdef MOTE_HOST
+      if (getenv("MOTE_GTA_DEBUG"))
+          fprintf(stderr,"[BOAT] alive=%d at tile (%d,%d)\n", cars[BOAT_SLOT].alive,
+                  (int)(cars[BOAT_SLOT].x/TILE),(int)(cars[BOAT_SLOT].z/TILE));
 #endif
     }
 }
@@ -4593,7 +4640,7 @@ static void draw_portrait(uint16_t *fb, int ox, int oy, uint32_t s){
 static int find_parked_car(float rmin, float rmax){
     int best=-1; float bd=1e18f, px=pl_x(), pz=pl_z();
     for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
-        if(!c->alive||c->wrecked||i==player.car||c->type==VEH_TANK||c->type==VEH_BUS||c->type==VEH_HELI) continue;
+        if(!c->alive||c->wrecked||i==player.car||c->type==VEH_TANK||c->type==VEH_BUS||c->type==VEH_HELI||c->type==VEH_BOAT) continue;
         if(c->driver!=DRV_NONE && c->driver!=DRV_NPC) continue;
         float dx=c->x-px, dz=c->z-pz, d2=dx*dx+dz*dz;
         if(d2<rmin*rmin||d2>rmax*rmax) continue;
@@ -4604,7 +4651,7 @@ static int find_parked_car(float rmin, float rmax){
 static int find_npc_car(float rmin, float rmax){
     int best=-1; float bd=1e18f, px=pl_x(), pz=pl_z();
     for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
-        if(!c->alive||c->wrecked||c->driver!=DRV_NPC||c->type==VEH_TANK||c->type==VEH_BUS||c->type==VEH_HELI) continue;
+        if(!c->alive||c->wrecked||c->driver!=DRV_NPC||c->type==VEH_TANK||c->type==VEH_BUS||c->type==VEH_HELI||c->type==VEH_BOAT) continue;
         float dx=c->x-px, dz=c->z-pz, d2=dx*dx+dz*dz;
         if(d2<rmin*rmin||d2>rmax*rmax) continue;
         if(d2<bd){ bd=d2; best=i; } }
@@ -4741,7 +4788,7 @@ static int setup_mission(int rot, float mult){
     } else if (rot==MI_DEMO){
         int want = 3 + irand(3);                             /* 3-5 cars */
         for (int i=0;i<NCAR && mtarg_n<want && mtarg_n<6;i++){ Car*c=&cars[i];
-            if(!c->alive||c->wrecked||i==player.car||c->type==VEH_TANK||c->type==VEH_HELI) continue;
+            if(!c->alive||c->wrecked||i==player.car||c->type==VEH_TANK||c->type==VEH_HELI||c->type==VEH_BOAT) continue;
             float dx=c->x-pl_x(),dz=c->z-pl_z(),d2=dx*dx+dz*dz;
             if(d2<18.0f*18.0f||d2>170.0f*170.0f) continue;
             mtarg[mtarg_n++]=i; }
@@ -5432,7 +5479,7 @@ static void stream_entities(float dt) {
           * would respawn a parked one as ordinary traffic the moment you walked
           * away from it. */
         if (!c->alive || i==player.car || c->driver==DRV_COP ||
-            c->type==VEH_TANK || c->type==VEH_HELI) continue;
+            c->type==VEH_TANK || c->type==VEH_HELI || c->type==VEH_BOAT) continue;
         if (is_mission_car(i)) continue;      /* the job's own cars are exempt from recycling */
         float dx=c->x-px, dz=c->z-pz, d2=dx*dx+dz*dz;
         if (c->driver==DRV_NPC){       /* moving traffic: recycle ONLY when off-screen */
@@ -6306,6 +6353,28 @@ static void g_update(float dt) {
               /* 3.2 m, not 4: car_in_reach uses 14 m^2, i.e. 3.74 m, so a
                * 4 m drop lands just outside and RB never enters. */
               player.x = t->x - 3.2f; player.z = t->z; player.yaw = 0.0f; } } }
+    /* test: MOTE_GTA_TP_BOAT=1 stands the player beside the boat, =2 puts them
+     * aboard. Its mooring is picked from the game RNG, which MOTE_GTA_SEED does
+     * not pin (that fixes the city layout only). */
+    { static int tpb=0; const char *bv=getenv("MOTE_GTA_TP_BOAT");
+      if (bv && g_state==ST_PLAY && !tpb && player.mode==MODE_FOOT){
+          Car *bt = &cars[BOAT_SLOT];
+          if (bt->alive && bt->type==VEH_BOAT){ tpb=1;
+              if (atoi(bv) >= 2){
+                  player.mode=MODE_CAR; player.car=BOAT_SLOT;
+                  bt->driver=DRV_PLAYER; gta3_cam_reset(&g_cam);
+              } else {
+                  /* on the walkable side, not in the water */
+                  static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
+                  int tx=(int)(bt->x/TILE), tz=(int)(bt->z/TILE);
+                  for (int k=0;k<4;k++){
+                      char c2 = tile_at(tx+DX[k], tz+DZ[k]);
+                      if (c2==','||c2==' '){
+                          player.x = (tx+DX[k]+0.5f)*TILE;
+                          player.z = (tz+DZ[k]+0.5f)*TILE;
+                          player.yaw = atan2f(bt->z-player.z, bt->x-player.x);
+                          break; } }
+              } } } }
     /* test: MOTE_GTA_TP_HELI=1 stands the player beside the helicopter, and
      * =2 puts them in it and already airborne, which is the only way to reach
      * the flight code from a scripted capture. Same reason as the tank's hook:
@@ -6865,6 +6934,14 @@ static void g_update(float dt) {
         if (USE && player.mode==MODE_CAR && c->type==VEH_HELI &&
             heli_aloft(c->x, c->z)) {
             say("LAND FIRST");
+        } else
+        /* You cannot step off a boat into open water. The test is the same
+         * predicate the movement uses, so "where the boat may be" and "where
+         * you may get out" can never drift apart. */
+        if (USE && player.mode==MODE_CAR && c->type==VEH_BOAT &&
+            boat_afloat(c->x + cosf(c->yaw+1.5708f)*2.2f,
+                        c->z + sinf(c->yaw+1.5708f)*2.2f)) {
+            say("PULL ALONGSIDE");
         } else
         if (USE && player.mode==MODE_CAR) {                    /* RB: step out beside the car */
             int ci=player.car;
