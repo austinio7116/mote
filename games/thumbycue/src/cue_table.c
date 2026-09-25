@@ -4809,8 +4809,38 @@ void cue_table_variant(CueTable *t, int variant) {
     cue_table_cut_to(t, want_c, want_m);
 }
 
+/* THE SOLVE, REMEMBERED. The same table is cut to the same mouths many times
+ * over -- the menu's preview, the frame the preview became, the hash the other
+ * end is sent -- and each solve builds the table's world a dozen times over. A
+ * pure function of the table and the two targets, so the last few answers are
+ * kept against the exact bytes they were asked with: a table that differs in
+ * any field at all misses, and nothing can go stale. One cache per thread
+ * where there are threads (the renderer's worker cuts tables too). */
+#define CUT_MEMO_N 6
+typedef struct { CueTable in, out; float c, m; int ok, have; } CutMemo;
+#if defined(MOTE_HOST)
+static _Thread_local CutMemo s_cut_memo[CUT_MEMO_N];
+static _Thread_local int s_cut_memo_next;
+#else
+static CutMemo s_cut_memo[CUT_MEMO_N];
+static int s_cut_memo_next;
+#endif
+static int cut_to_solve(CueTable *t, float corner_m, float middle_m);
 int cue_table_cut_to(CueTable *t, float corner_m, float middle_m) {
     if (!t) return 0;
+    for (int i = 0; i < CUT_MEMO_N; i++) {
+        const CutMemo *e = &s_cut_memo[i];
+        if (e->have && e->c == corner_m && e->m == middle_m &&
+            memcmp(&e->in, t, sizeof *t) == 0) { *t = e->out; return e->ok; }
+    }
+    CutMemo *e = &s_cut_memo[s_cut_memo_next];
+    s_cut_memo_next = (s_cut_memo_next + 1) % CUT_MEMO_N;
+    e->in = *t; e->c = corner_m; e->m = middle_m;
+    e->ok = cut_to_solve(t, corner_m, middle_m);
+    e->out = *t; e->have = 1;
+    return e->ok;
+}
+static int cut_to_solve(CueTable *t, float corner_m, float middle_m) {
     /* CORNER, MIDDLE, AND ROUND AGAIN, because on some beds they DO interact.
      *
      * On a rectangle they do not: each solves on its own field, and sweeping
