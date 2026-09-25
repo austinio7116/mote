@@ -972,7 +972,8 @@ static void draw_upright(const MoteImage *img, float x, float z,
 #define VEH_BUS    NCARTYPE
 #define VEH_TANK   (NCARTYPE+1)
 #define VEH_HELI   (NCARTYPE+2)
-#define NVEH       (NCARTYPE+3)
+#define VEH_BOAT   (NCARTYPE+3)
+#define NVEH       (NCARTYPE+4)
 #define CAR_POLICE    26   /* dark POLICE cruiser (lightbar) */
 #define CAR_POLICE2   39   /* white highway patrol           */
 #define CAR_TAXI      30   /* teal cab (TAXI sign)           */
@@ -1054,6 +1055,13 @@ static void build_vstats(void) {
      * player 3.5 m off the centre on every side, which is outside the reach
      * test, so RB could never get you in. That was the bug. */
     VSTAT[VEH_HELI]=(VStat){ 7, 24, 1.9f, 3.0f, 7.0f,  2.6f,   6 };
+    /* A boat: long, light for its size, and with almost no lateral grip — a
+     * hull slides through a turn rather than biting like a tyre, and grip 4
+     * against a car's 22 is what produces that without a second physics model.
+     * wid is the real 2.8 m and not the length: it drives the collision box
+     * and the shadow, and a 7 m square box would hold the player too far off
+     * the hull to ever get aboard (the mistake the helicopter shipped with). */
+    VSTAT[VEH_BOAT]=(VStat){ 8, 17, 1.35f, 4.0f, 7.0f, 2.8f, 4 };
 }
 
 typedef struct { float x,z,yaw,spd; uint8_t variant, alive, hp; float animt; float flee;
@@ -1122,6 +1130,10 @@ static float       stuck_t[NCAR];      /* time spent unable to move (stuck detec
  * job: mote_phys2d.c:194 skips the filter when either mask is zero, and every
  * body in this game has zero. */
 #define HELI_SLOT    (NCAR-2)
+/* The boat, like the tank at NCAR-1 and the helicopter at NCAR-2, is a one-off
+ * placed at generation rather than streamed traffic. Three of the eighteen car
+ * slots are now reserved this way. */
+#define BOAT_SLOT    (NCAR-3)
 #define HELI_CEIL    45.0f     /* metres. The tallest building level is 24.0 m
                                 * (g_lvl_h[13]), and the ground draw window has
                                 * to widen with altitude — see draw_ground_window.
@@ -5609,6 +5621,7 @@ static void draw_vehicle_mesh(const Car *c) {
     int sil = (c->type < CARS2_N) ? gta3_sil_for_class(CAR_CLS[c->type])
             : (c->type == VEH_BUS)  ? GTA3_SIL_BUS
             : (c->type == VEH_HELI) ? GTA3_SIL_HELI
+            : (c->type == VEH_BOAT) ? GTA3_SIL_BOAT
             : (c->type == VEH_TANK) ? GTA3_SIL_TANK : GTA3_SIL_TRUCK;
     const VStat *vs = &VSTAT[c->type];
     Gta3VehMesh *m = &g_veh[sil];
@@ -5640,8 +5653,9 @@ static void draw_vehicle_mesh(const Car *c) {
     static const int XP[4] = {1,2,5,6}, XN[4] = {0,3,4,7};
     /* Not the helicopter: it is authored at its final width (see gta3_veh.c),
      * and this loop assigns ONE x to all four corners of both third-box slabs,
-     * which would fold its two skids onto the centreline. */
-    if (sil != GTA3_SIL_HELI)
+     * which would fold its two skids onto the centreline.
+     * The boat is exempt for the same reason: its gunwales are one per side. */
+    if (sil != GTA3_SIL_HELI && sil != GTA3_SIL_BOAT)
     for (int k = 0; k < 4; k++) {
         m->bv[XP[k]].x =  bx; m->bv[XN[k]].x = -bx;
         m->cv[XP[k]].x =  cx; m->cv[XN[k]].x = -cx;
@@ -5668,7 +5682,7 @@ static void draw_vehicle_mesh(const Car *c) {
     /* Not the helicopter: there is exactly one of it, so jitter buys no variety,
      * and nudging the canopy off the nose is the one thing that stops it
      * reading as an aircraft. */
-    if (sil != GTA3_SIL_HELI)
+    if (sil != GTA3_SIL_HELI && sil != GTA3_SIL_BOAT)
     { unsigned jh = (unsigned)c->type * 0x9E3779B1u;
       int base   = m->cv[0].y;                        /* cabin floor = body top */
       int top    = g_veh_cy[sil] + (int)((jh >> 3) & 7) - 3;     /* +-3 units of roof */
@@ -5697,6 +5711,7 @@ static void draw_vehicle_mesh(const Car *c) {
     uint16_t paint = c->wrecked ? MOTE_RGB565(38,34,34)
                    : (c->type == CAR_TAXI) ? MOTE_RGB565(240,190,26)
                    : (c->type == VEH_TANK) ? MOTE_RGB565(74,86,58)   /* army green, same as the turret */
+                   : (c->type == VEH_BOAT) ? MOTE_RGB565(232,236,242)   /* white hull */
                    : (c->type < CARS2_N ? CAR_COL[c->type] : MOTE_RGB565(190,190,200));
     /* Glass takes its tint from the car's own paint rather than one shared slate
      * blue: a quarter of the body colour plus a cool floor, so a red car gets warm
@@ -5708,6 +5723,10 @@ static void draw_vehicle_mesh(const Car *c) {
      * than the hull rather than the glass tint every car gets, so the whole
      * vehicle is green and only the tracks are dark. */
     else if (c->type == VEH_TANK) glass = MOTE_RGB565(62,72,48);
+    /* A wheelhouse is glass on three sides; the cool dark tint every car gets
+     * is right for it, but a white hull makes that tint nearly black, so the
+     * boat takes a mid blue instead. */
+    else if (c->type == VEH_BOAT) glass = MOTE_RGB565(58,92,126);
     else {
         int pr = (paint >> 11) & 31, pg = (paint >> 5) & 63, pb = paint & 31;
         glass = MOTE_RGB565(18 + (pr * 8) / 31 * 2, 20 + (pg * 8) / 63 * 2, 30 + (pb * 8) / 31 * 2);
@@ -6731,7 +6750,18 @@ static void g_update(float dt) {
         if (near_marker(MK_DOCK, 3.4f) && fabsf(c->spd)<3.0f && !c->wrecked){
             static const uint16_t SELL[19]={ 180,140,220,700,1200,450,300,350,550,650,
                                              200,250,220,300,260,800,400,900,500 };
-            int price = (c->type==VEH_BUS)?350 : (c->type==VEH_TANK)?2500 : SELL[CAR_CLS[c->type]];
+            /* Every non-car type needs its own price. SELL is indexed by
+             * CAR_CLS, which has one entry per CARS2 car and none for the
+             * bus, tank, helicopter or boat — so a type past CARS2_N read off
+             * the end of CAR_CLS and then indexed a 19-entry table with
+             * whatever byte came back. The helicopter has been doing that
+             * since it was added. */
+            int price = (c->type==VEH_BUS)  ?  350
+                      : (c->type==VEH_TANK) ? 2500
+                      : (c->type==VEH_HELI) ? 3000
+                      : (c->type==VEH_BOAT) ?  900
+                      : (c->type < CARS2_N) ? SELL[CAR_CLS[c->type]]
+                                            :  300;
             cash += price; sfx(&cash_sfx,0.8f);
             { char b[10]; b[0]='+'; b[1]='$'; int n=price,k=2; char d2[5]; int dn=0;
               while(n){d2[dn++]='0'+n%10;n/=10;} while(dn) b[k++]=d2[--dn]; b[k]=0;
