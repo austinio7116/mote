@@ -6176,9 +6176,9 @@ static void draw_vehicle(int i){
             }
         }
         if (c->type==VEH_BOAT && !c->wrecked && boat_afloat(c->x, c->z)){
-            /* A WAKE: two pale triangles spreading astern, widening with speed.
-             * Four triangles total, flat, on the water surface — the same pool
-             * and the same depth behaviour as the bridge railings, so a wake
+            /* A WAKE: two pale triangles spreading astern, widening with speed —
+             * one per side, so two in total, flat and on the water surface. The same
+             * pool and the same depth behaviour as the bridge railings, so a wake
              * behind a building is occluded by it.
              *
              * Drawn only when the hull is actually moving: a moored boat with a
