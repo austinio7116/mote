@@ -457,6 +457,15 @@ void cue_phys_set_squirt(float rad) {
 }
 float cue_phys_squirt(void) { return s_squirt; }
 
+/* HOW MUCH SPIN A GIVEN OFFSET BUYS, against the rigid-sphere ideal. 1.0 is
+ * the impulse model exactly (wR/v = 2.5 x the offset), and at 1.0 the strike
+ * is bit-for-bit what it always was -- see the one line that reads it. A
+ * tuning knob for matching a real table; online play keeps it at 1.0, because
+ * two ends that disagree about it would not stay in step. */
+static float s_spin_gain = 1.0f;
+void  cue_phys_set_spin_gain(float k) { s_spin_gain = (k > 0.0f && k < 4.0f) ? k : 1.0f; }
+float cue_phys_spin_gain(void) { return s_spin_gain; }
+
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy) {
     dir.y = 0.0f;
@@ -531,7 +540,7 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                     v3_scale(vert,  tv * BR));
     Vec3 J = v3_scale(cdir, speed * BM);             /* impulse along the cue */
     float I = 0.4f * BM * BR * BR;
-    b->w = v3_scale(v3_cross(r, J), 1.0f / I);
+    b->w = v3_scale(v3_cross(r, J), s_spin_gain / I);
 }
 
 void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,

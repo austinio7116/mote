@@ -784,6 +784,10 @@ void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
  * POSITIONS, so the two ends never have to agree about it. */
 void  cue_phys_set_squirt(float rad);
 float cue_phys_squirt(void);
+/* The spin a tip offset buys, as a multiple of the rigid-sphere ideal; 1.0 is
+ * the model as it stands. A tuning knob -- keep it at 1.0 for online play. */
+void  cue_phys_set_spin_gain(float k);
+float cue_phys_spin_gain(void);
 
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy);
