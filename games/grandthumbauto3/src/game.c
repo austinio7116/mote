@@ -2554,6 +2554,12 @@ static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int
     float steer = (steerL?1.0f:0.0f) - (steerR?1.0f:0.0f);
     MoteBody2D *b=&bodies[ci];
     float cc=cosf(b->angle), ss=sinf(b->angle), fs=b->vx*cc+b->vy*ss;
+    /* TOTAL speed, not the forward component. A car mid-slide has a forward
+     * speed passing through zero while it is still travelling 6 m/s sideways,
+     * and "stopped" measured along the nose would drop it into reverse in the
+     * middle of the corner — which is exactly what the first drift capture
+     * did. Stopped means stopped. */
+    float tot = sqrtf(b->vx*b->vx + b->vy*b->vy);
     /* LB = PROGRESSIVE BRAKE: soft on a tap, ramping harder the longer it is held.
      * It only becomes REVERSE once the car has actually STOPPED first.
      *
@@ -2571,10 +2577,14 @@ static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int
     #define REV_DWELL 0.25f      /* s at rest before reverse engages */
     static float s_bhold; static int s_revok; static float s_stopt;
     if (brake){
-        if (s_bhold == 0.0f){ s_revok = (fs < 3.0f); s_stopt = 0.0f; }
+        /* A fresh press only reverses when the car is ALREADY stopped. This
+         * used to admit anything under 3 m/s, so a gentle press at walking
+         * pace skipped the brake entirely and went straight to reverse —
+         * which is exactly the case where you wanted the brake. */
+        if (s_bhold == 0.0f){ s_revok = (tot < REV_STOP); s_stopt = 0.0f; }
         s_bhold += dt;
         if (!s_revok){                                        /* braked from speed: wait for rest */
-            if (fabsf(fs) < REV_STOP) { s_stopt += dt; if (s_stopt >= REV_DWELL) s_revok = 1; }
+            if (tot < REV_STOP) { s_stopt += dt; if (s_stopt >= REV_DWELL) s_revok = 1; }
             else s_stopt = 0.0f;
         }
     } else { s_bhold = 0; s_stopt = 0.0f; }                   /* release re-arms the decision */
@@ -2587,7 +2597,33 @@ static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int
             braking = 1;
         } else thr = -0.55f;                                  /* pressed from a stop -> reverse */
     }
+    /* A braked TURN is a handbrake turn, not an emergency stop. Full brake is
+     * about 3 g and parks the car in well under a second, which leaves no
+     * window in which to slide at all — measured: 20 m/s to rest in 20 frames,
+     * with the lateral velocity never leaving zero. With the wheel over, the
+     * pedal keeps under half its stopping power, so the car carries speed
+     * through the corner. Braking in a STRAIGHT LINE is untouched. */
+    int sliding = braking && steer != 0.0f;
+    if (sliding) brk *= 0.42f;
     apply_drive(b, &VSTAT[c->type], thr, brk, steer, dt);
+    /* BRAKING BREAKS THE REAR LOOSE. apply_drive sets lat_damp from the car's
+     * grip every frame, so overriding it here (after the call, before the
+     * solver steps) is the whole handbrake: less lateral scrub means the
+     * momentum you carried into the corner keeps going sideways and the tail
+     * comes round. Only the player's car — ai_drive_b brakes NPCs at red
+     * lights in a straight line, where a grip cut would buy nothing and risk
+     * sliding them through the junction. */
+    if (braking) {
+        /* 0.65, swept rather than picked. Measured over a braked left-hander
+         * with the throttle held: 0.86 slides hardest but lets the heading run
+         * away from the velocity until the car is travelling broadside, and
+         * 0.35 barely beats an unbraked turn. At 0.65 the peak lateral speed
+         * goes from 7.6 m/s unbraked to 10.3 m/s, the car still carries
+         * 11 m/s forward through the corner, and it gathers itself up again
+         * when the pedal comes off. */
+        float cut = sliding ? 0.65f : 0.72f * mote_clampf(brk, 0.0f, 1.0f);
+        b->lat_damp *= 1.0f - cut;
+    }
     if (braking){                                             /* brakes stop the car, never reverse it */
         fs = b->vx*cc + b->vy*ss;
         if (fs < 0.0f){ b->vx -= cc*fs; b->vy -= ss*fs; }

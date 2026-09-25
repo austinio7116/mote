@@ -38,8 +38,12 @@ top-down map.
 | **Anywhere** | |
 | Map / settings | `MENU` |
 
-Reverse engages on its own once the car has come to a stop — hold `B` and it
-rolls back.
+`B` is the brake first and reverse second: held from speed it only ever brakes,
+and it drops into reverse on its own once the car has actually come to rest, no
+release needed. Held **while steering** it is a handbrake — the pedal keeps
+under half its stopping power and lateral grip falls, so the tail steps out and
+you can slide a corner. Keep the throttle on through it and the car gathers
+itself up again when you let go of `B`.
 
 ## Features
 
@@ -47,6 +51,7 @@ rolls back.
 - **Third-person chase camera** — smoothed yaw, wall collision, no flip when reversing, and an orbit for the title and death screens.
 - **On-foot play** — walk, sprint on A with stamina, punch, eight weapons plus fists, and LB to look behind you.
 - **Vehicle play** — RB to get in or out, A for the throttle, B to brake and drop into reverse once stopped, LB to fire from the car.
+- **Handbrake drifts** — braking while steering cuts lateral grip instead of stopping you, so you can slide a corner and pick the car back up on the exit.
 - **54 vehicles on 14 silhouettes** — sedan, compact, coupe, sports, racer, long-hood, wagon, van, truck, luxury, pickup, jeep, classic sports and taxi, each drawn as a tinted mesh with a cabin, a wheel line and an oriented ground shadow.
 - **Car damage** — vehicles take damage, catch fire and wreck, ejecting the driver; a damage bar sits under the health bar while you drive.
 - **Traffic AI** — cars hold a right-hand lane with pure-pursuit steering, change lanes, take turns, yield at junctions, queue behind each other and wait at red lights.
