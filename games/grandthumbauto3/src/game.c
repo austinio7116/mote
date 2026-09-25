@@ -2917,6 +2917,65 @@ static void fly_heli(Car *c, int slot, float dt,
     g_rotor += 34.0f * dt;
 }
 
+/* Sailing, which replaces drive_car entirely when you are in the boat.
+ *
+ * OFF WATER the engine does nothing and the hull stops. That is what "only runs
+ * on water" means mechanically, and it has to be a movement rule rather than a
+ * collision rule: the boat is moored at a shoreline, so the tile under its
+ * centre is legitimately land for a moment as it noses in, and a collision rule
+ * would either trap it there or shove it out.
+ *
+ * ON WATER the throttle drives along the heading and the rudder turns, with the
+ * hull's lat_damp of 4 (against a car's 22) doing the sliding — a boat carries
+ * its momentum through a turn and that falls out of the existing solver for
+ * free. Steering authority scales with speed because a rudder does nothing when
+ * the hull is not moving, which is both true and what stops the boat spinning
+ * on the spot at a jetty.
+ *
+ * B is astern, not a brake: a boat has no brakes, so there is no stop-then-
+ * reverse dwell of the kind drive_car needs. */
+#define BOAT_ACC    6.5f     /* m/s^2 ahead */
+#define BOAT_ASTERN 0.45f    /* astern is this fraction of ahead */
+#define BOAT_TURN   1.15f    /* rad/s at full rudder authority */
+#define BOAT_DRAG   0.55f    /* per second: a hull coasts a long way */
+static void sail_boat(Car *c, int slot, float dt,
+                      int throttle, int brake, int steerL, int steerR) {
+    MoteBody2D *b = &bodies[slot];
+    float cc = cosf(b->angle), ss = sinf(b->angle);
+    float fs = b->vx*cc + b->vy*ss;                    /* speed along the hull */
+
+    if (!boat_afloat(c->x, c->z)) {
+        /* Aground. Kill the way on and give back no steering: whatever put it
+         * here, it is not going anywhere under power. */
+        b->vx *= 0.80f; b->vy *= 0.80f; b->avel = 0.0f;
+        c->spd = 0.0f; c->lamp = LAMP_OFF;
+        return;
+    }
+
+    float th = (throttle ? 1.0f : 0.0f) - (brake ? BOAT_ASTERN : 0.0f);
+    fs += th * BOAT_ACC * dt;
+    float cap = VSTAT[VEH_BOAT].maxspd * 1.3f;
+    if (fs >  cap)        fs =  cap;
+    if (fs < -cap*0.45f)  fs = -cap*0.45f;
+    /* Rewrite the along-hull component and leave the lateral alone: the solver
+     * owns that, which is where the slide comes from. */
+    float lat = -b->vx*ss + b->vy*cc;
+    b->vx = cc*fs - ss*lat;
+    b->vy = ss*fs + cc*lat;
+
+    float damp = 1.0f - mote_clampf(BOAT_DRAG * dt, 0.0f, 1.0f);
+    b->vx *= damp; b->vy *= damp;
+
+    /* Rudder authority: nothing at rest, full by a third of top speed. */
+    float auth = mote_clampf(fabsf(fs) / (cap * 0.33f), 0.0f, 1.0f);
+    float rud  = ((steerL ? 1.0f : 0.0f) - (steerR ? 1.0f : 0.0f)) * BOAT_TURN * auth;
+    if (fs < 0.0f) rud = -rud;                         /* astern, the stern leads */
+    b->avel += (rud - b->avel) * mote_clampf(4.0f*dt, 0.0f, 1.0f);
+    c->yaw = b->angle;
+    c->spd = fs;
+    c->lamp = (th < 0.0f) ? LAMP_REV : LAMP_OFF;
+}
+
 static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int steerR) {
     int ci = (int)(c - cars);
     /* Screen-relative, and the sign flipped with the camera: increasing yaw rotates
@@ -6746,6 +6805,10 @@ static void g_update(float dt) {
                      mote_pressed(in,MOTE_BTN_A),    mote_pressed(in,MOTE_BTN_B),
                      mote_pressed(in,MOTE_BTN_UP),   mote_pressed(in,MOTE_BTN_DOWN),
                      mote_pressed(in,MOTE_BTN_LEFT), mote_pressed(in,MOTE_BTN_RIGHT));
+        else if (c->type==VEH_BOAT)
+            sail_boat(c, player.car, dt,
+                      mote_pressed(in,MOTE_BTN_A),    mote_pressed(in,MOTE_BTN_B),
+                      mote_pressed(in,MOTE_BTN_LEFT), mote_pressed(in,MOTE_BTN_RIGHT));
         else
         drive_car(c, dt, mote_pressed(in,MOTE_BTN_A), mote_pressed(in,MOTE_BTN_B),
                   mote_pressed(in,MOTE_BTN_LEFT), mote_pressed(in,MOTE_BTN_RIGHT));
@@ -6760,8 +6823,10 @@ static void g_update(float dt) {
         }
         /* No weapons from the helicopter: shooting from a hover would make the
          * rampage and vigilante jobs trivially winnable, and it needs bullets
-         * that start at altitude and aim down. LB is dead in the air. */
-        if (mote_pressed(in, MOTE_BTN_LB) && c->type!=VEH_HELI){
+         * that start at altitude and aim down. LB is dead in the air.
+         * The boat is out for the same reason as the helicopter: bullets are
+         * 2D and start at the hull, and a gunboat is a different feature. */
+        if (mote_pressed(in, MOTE_BTN_LB) && c->type!=VEH_HELI && c->type!=VEH_BOAT){
             if(c->type==VEH_TANK) fire_shell(c); else fire_weapon(); }
         /* SELL DOCK: roll onto the pier slowly and the fence takes the car */
         if (near_marker(MK_DOCK, 3.4f) && fabsf(c->spd)<3.0f && !c->wrecked){
