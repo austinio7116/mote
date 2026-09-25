@@ -53,6 +53,7 @@ static const unsigned char LAMP[GTA3_SIL_N] = {
     /* TAXI       */ GTA3_LAMP_ROUND,
     /* HELI       */ GTA3_LAMP_ROUND,
     /* BUS        */ GTA3_LAMP_RECT,
+    /* TANK       */ GTA3_LAMP_RECT,
 };
 
 int gta3_lamp_style(int sil) {
@@ -113,6 +114,13 @@ static const Sil SILDEF[GTA3_SIL_N] = {
      * -124..114 at 97% of the width and stands 116 tall, so what you see is a
      * single flush box with a flat front. */
     /* BUS        */ { 34,116,-124, 114, 97 },
+    /* TANK: a SLAB. It used to borrow the TRUCK silhouette, which since that
+     * was reshaped means a short cab up front over a long open bed — a flatbed
+     * lorry with a gun on it. The hull is now a plain deep box (body_h 52) with
+     * a low, long superstructure over nearly all of it (cab_top 70, -96..86 at
+     * 86%), which is what leaves the turret standing proud as the tall part
+     * instead of competing with a cab. */
+    /* TANK       */ { 52, 70, -96,  86, 86 },
 };
 
 void gta3_box(MeshVert *v, MeshFace *f, int *nf,
@@ -183,6 +191,13 @@ void gta3_veh_build(Gta3VehMesh *m, int sil) {
     if (heli) {
         gta3_box(m->wv,     m->wf,      &nf,  -62, -46, 0, 14, -16, 104);   /* left skid */
         gta3_box(m->wv + 8, m->wf + 12, &nf2,  46,  62, 0, 14, -16, 104);   /* right skid */
+    } else if (sil == GTA3_SIL_TANK) {
+        /* TRACKS, not wheels: one full-length rail per side, running the whole
+         * hull and standing taller than any tyre. The gap between them is the
+         * hull's underside, exactly as with the axle pair, so the same two-box
+         * mesh says "tracks" without costing a triangle more. */
+        gta3_box(m->wv,     m->wf,      &nf,  -127, -84, 0, 30, -122, 122);  /* left track */
+        gta3_box(m->wv + 8, m->wf + 12, &nf2,   84, 127, 0, 30, -122, 122);  /* right track */
     } else {
         gta3_box(m->wv,     m->wf,      &nf,  -127, 127, 0, 16, -96, -40);  /* rear axle */
         gta3_box(m->wv + 8, m->wf + 12, &nf2, -127, 127, 0, 16,  40,  96);  /* front axle */

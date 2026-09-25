@@ -289,10 +289,14 @@ static Mesh     g_turcab, g_turbar;
  * callers draw them with scene_add_object_ex rather than *_scaled. */
 static void build_turret(void){
     int nf;
-    gta3_box(g_turcabv, g_turcabf, &nf, -32,32, 0,25, -44,19);   /* cab */
+    /* -46..46 wide and 38 tall, not -32..32 by 25: at the smaller size the
+     * turret read as a box someone had left on the roof rather than the mass
+     * the whole vehicle is built around. A real turret is most of the hull's
+     * width and the tallest thing on it. */
+    gta3_box(g_turcabv, g_turcabf, &nf, -46,46, 0,38, -52,26);   /* cab */
     g_turcab = (Mesh){ .verts=g_turcabv, .faces=g_turcabf, .nverts=8, .nfaces=nf,
                        .scale=TURRET_LEN_M*0.5f, .bound_r=1.6f, .color=0xFFFF };
-    gta3_box(g_turbarv, g_turbarf, &nf, -5,5, 10,16, 13,121);    /* barrel */
+    gta3_box(g_turbarv, g_turbarf, &nf, -7,7, 16,26, 20,124);    /* barrel */
     g_turbar = (Mesh){ .verts=g_turbarv, .faces=g_turbarf, .nverts=8, .nfaces=nf,
                        .scale=TURRET_LEN_M*0.5f, .bound_r=1.6f, .color=0xFFFF };
 }
@@ -2143,26 +2147,42 @@ static void draw_clouds(void) {
         Vec3 p = v3(cam_pos.x + d.x * CLOUD_D,
                     cam_pos.y + d.y * CLOUD_D,
                     cam_pos.z + d.z * CLOUD_D);
-        float r = 13.0f + (float)((h >> 18) & 7);
-        /* FLAT BOTTOM, round top — which is what separates a cloud from a
-         * circle, and from the sun.
+        float ux = cosf(az), uz = -sinf(az);          /* horizontal, across the view */
+
+        /* FLAT BOTTOM, ROUND TOP, and a different shape every puff.
          *
-         * The two discs are the bumps along the top. Under them sits a quad
-         * running from the disc centres down to a common base line, so the
-         * silhouette is a straight edge underneath with lobes rising out of
-         * it. The quad has to be built camera-facing, the same way the traffic
-         * light heads are: a world-space quad in a fixed plane is edge-on and
-         * invisible from half the compass. */
-        float sx = cosf(az) * r * 1.15f, sz = -sinf(az) * r * 1.15f;
-        float ux = cosf(az), uz = -sinf(az);          /* horizontal perpendicular to the view */
-        float halfw = r * 1.15f + r * 0.75f;          /* out to the far edge of the second lobe */
-        float base  = p.y - r * 0.62f;
-        float x0 = p.x - ux * r,       z0 = p.z - uz * r;
-        float x1 = p.x + ux * halfw,   z1 = p.z + uz * halfw;
-        mote->scene_add_tri(v3(x0, base, z0), v3(x1, base, z1), v3(x1, p.y, z1), col, 0);
-        mote->scene_add_tri(v3(x0, base, z0), v3(x1, p.y, z1), v3(x0, p.y, z0), col, 0);
-        mote->scene_add_disc(p, r, col);
-        mote->scene_add_disc(v3(p.x + sx, p.y - r * 0.18f, p.z + sz), r * 0.75f, col);
+         * Two discs with a quad UNDER them was still a pair of circles: the
+         * quad only reached the disc centres, so a whole disc-radius of round
+         * hung below the flat part and the eye read a ball.
+         *
+         * The lobes now sit ON the base line, and the skirt quad is drawn SIX
+         * METRES NEARER than they are. Flat triangles write depth and the FX
+         * discs are depth-TESTED against them, so the quad hides the lower
+         * half of every lobe — a straight edge underneath with only the tops
+         * showing. That is a real flat bottom rather than a suggestion of one.
+         *
+         * Two or three lobes, each a different radius and spacing off the same
+         * hash, so no two clouds are the same shape. */
+        float r = 9.0f + (float)((h >> 18) & 7);
+        int nlobe = 2 + (int)((h >> 23) & 1);
+        float lo = 1e9f, hi = -1e9f;
+        for (int k = 0; k < nlobe; k++) {
+            float off = ((float)k - (nlobe - 1) * 0.5f) * r * 1.05f;
+            float rk  = r * (0.60f + 0.40f * (float)((h >> (3 * k + 4)) & 7) / 7.0f);
+            mote->scene_add_disc(v3(p.x + ux * off, p.y, p.z + uz * off), rk, col);
+            if (off - rk < lo) lo = off - rk;
+            if (off + rk > hi) hi = off + rk;
+        }
+        /* the skirt: nearer than the lobes, so it wins the depth test */
+        float sd = (CLOUD_D - 6.0f) / CLOUD_D;
+        Vec3 q = v3(cam_pos.x + d.x * CLOUD_D * sd,
+                    cam_pos.y + d.y * CLOUD_D * sd,
+                    cam_pos.z + d.z * CLOUD_D * sd);
+        float base = q.y - r * 0.85f;
+        float x0 = q.x + ux * lo, z0 = q.z + uz * lo;
+        float x1 = q.x + ux * hi, z1 = q.z + uz * hi;
+        mote->scene_add_tri(v3(x0, base, z0), v3(x1, base, z1), v3(x1, q.y, z1), col, 0);
+        mote->scene_add_tri(v3(x0, base, z0), v3(x1, q.y, z1), v3(x0, q.y, z0), col, 0);
     }
 }
 
@@ -2343,7 +2363,17 @@ static void draw_traffic_lights(void) {
             while (jw < 10 && is_junction(x+jw+1, z)) jw++;
             while (jh < 10 && is_junction(x, z+jh+1)) jh++;
             float wx = (x + jw*0.5f)*TILE + TILE*0.5f, wz = (z + jh*0.5f)*TILE + TILE*0.5f;
-            if (!gta3_view_tile(&g_view, wx, LIGHT_H, wz, VIEW_GROUND_R, TILE)) continue;
+            /* Distance only here — the CONE test is per POST, below.
+             *
+             * It used to be per CROSSING, on the junction's centre, and the
+             * posts stand on its corners up to half the crossing plus a tile
+             * away. Walk up to a post and the centre goes behind you, the
+             * whole crossing culls, and the light you are standing next to
+             * vanishes. Measured walking in: visible right down to 2.3 m, then
+             * gone for the rest of the approach. */
+            { float cdx = wx - cam_pos.x, cdz = wz - cam_pos.z;
+              if (cdx*cdx + cdz*cdz > (VIEW_GROUND_R + 2.0f*TILE) *
+                                      (VIEW_GROUND_R + 2.0f*TILE)) continue; }
             n++;
             for (int axis = 0; axis < 2; axis++) {
                 int st = light_state(x, z, axis);
@@ -2375,6 +2405,7 @@ static void draw_traffic_lights(void) {
                   if (!ok) continue; }
                 float lx = px*TILE + TILE*0.5f;
                 float lz = pz*TILE + TILE*0.5f;
+                if (!gta3_view_tile(&g_view, lx, LIGHT_H, lz, VIEW_GROUND_R, TILE)) continue;
                 /* The head FACES THE CAMERA rather than the approach it governs.
                  *
                  * It used to lie in the plane across its own approach, so from
@@ -5306,7 +5337,8 @@ static void veh_zface(const Mat3 *b, float cx, float cz, float k,
 static void draw_vehicle_mesh(const Car *c) {
     int sil = (c->type < CARS2_N) ? gta3_sil_for_class(CAR_CLS[c->type])
             : (c->type == VEH_BUS)  ? GTA3_SIL_BUS
-            : (c->type == VEH_HELI) ? GTA3_SIL_HELI : GTA3_SIL_TRUCK;
+            : (c->type == VEH_HELI) ? GTA3_SIL_HELI
+            : (c->type == VEH_TANK) ? GTA3_SIL_TANK : GTA3_SIL_TRUCK;
     const VStat *vs = &VSTAT[c->type];
     Gta3VehMesh *m = &g_veh[sil];
 
@@ -5393,6 +5425,7 @@ static void draw_vehicle_mesh(const Car *c) {
      * make_carcolors.py would put the teal straight back. */
     uint16_t paint = c->wrecked ? MOTE_RGB565(38,34,34)
                    : (c->type == CAR_TAXI) ? MOTE_RGB565(240,190,26)
+                   : (c->type == VEH_TANK) ? MOTE_RGB565(74,86,58)   /* army green, same as the turret */
                    : (c->type < CARS2_N ? CAR_COL[c->type] : MOTE_RGB565(190,190,200));
     /* Glass takes its tint from the car's own paint rather than one shared slate
      * blue: a quarter of the body colour plus a cool floor, so a red car gets warm
@@ -5400,6 +5433,10 @@ static void draw_vehicle_mesh(const Car *c) {
      * colour we already have — and it stops 54 cars sharing one window. */
     uint16_t glass;
     if (c->wrecked) glass = MOTE_RGB565(24,22,22);
+    /* A tank has no windows. Its superstructure takes a slightly darker green
+     * than the hull rather than the glass tint every car gets, so the whole
+     * vehicle is green and only the tracks are dark. */
+    else if (c->type == VEH_TANK) glass = MOTE_RGB565(62,72,48);
     else {
         int pr = (paint >> 11) & 31, pg = (paint >> 5) & 63, pb = paint & 31;
         glass = MOTE_RGB565(18 + (pr * 8) / 31 * 2, 20 + (pg * 8) / 63 * 2, 30 + (pb * 8) / 31 * 2);
@@ -5721,8 +5758,9 @@ static void draw_vehicle(int i){
             /* mesh, not sprite (Task 9): a box cab + a box barrel, parented to
              * the hull's position but rotated to tyaw independently of c->yaw
              * (the hull mesh above is rotated to c->yaw). 1.9 m sits the
-             * pivot atop the hull's cabin box (TRUCK silhouette, ~2.15 m
-             * roofline at this tank's length) rather than buried in it. */
+             * pivot atop the hull's superstructure (TANK silhouette, cab_top
+             * 70 of 127 at this tank's 6.2 m length) rather than buried in
+             * it. */
             Mat3 tb = m3_identity(); m3_rotate_local(&tb, 1, 1.5707963f - tyaw);  /* +Z nose, as the hull above */
             Vec3 tpos = v3(tx, 1.9f, tz);
             MoteObject tcab = { .pos=tpos, .basis=tb, .mesh=&g_turcab, .color=MOTE_RGB565(74,86,58) };

@@ -135,17 +135,17 @@ int main(void) {
     ok(gta3_sil_for_class(-1) == GTA3_SIL_SEDAN, "negative class falls back to sedan");
     ok(gta3_sil_for_class(999) == GTA3_SIL_SEDAN, "huge class falls back to sedan");
     {
-        /* GTA3_SIL_HELI and GTA3_SIL_BUS are deliberately unreachable from
-         * gta3_sil_for_class: neither is one of the 19 CAR_CLS handling
-         * classes, they are vehicle TYPES the game picks directly. Every other
+        /* HELI, BUS and TANK are deliberately unreachable from
+         * gta3_sil_for_class: none is one of the 19 CAR_CLS handling classes,
+         * they are vehicle TYPES the game picks directly. Every other
          * silhouette must still be reachable, or it is dead weight in flash
          * and RAM. */
         int all = 1;
         for (int s = 0; s < GTA3_SIL_N; s++)
-            if (s != GTA3_SIL_HELI && s != GTA3_SIL_BUS && !seen[s]) all = 0;
-        ok(all, "every silhouette except the helicopter and bus is class-reachable");
-        ok(!seen[GTA3_SIL_HELI] && !seen[GTA3_SIL_BUS],
-           "and no handling class maps onto either of those two");
+            if (s != GTA3_SIL_HELI && s != GTA3_SIL_BUS && s != GTA3_SIL_TANK && !seen[s]) all = 0;
+        ok(all, "every class-driven silhouette is reachable from some class");
+        ok(!seen[GTA3_SIL_HELI] && !seen[GTA3_SIL_BUS] && !seen[GTA3_SIL_TANK],
+           "and no handling class maps onto the heli, bus or tank");
     }
 
     /* Prove the check discriminates. This test was tautological once — it
@@ -193,12 +193,17 @@ int main(void) {
          * helicopter's is separated along X (a skid either side of the
          * fuselage). The invariant both share is that the two boxes are
          * DISJOINT in some axis, so that is what is asserted. */
-        { float a0,a1,b0,b1; int axis = (s == GTA3_SIL_HELI) ? 0 : 2;
+        /* A car's pair is separated along Z (front axle ahead of rear); the
+         * helicopter's skids and the tank's tracks are separated along X, one
+         * per side. The invariant all three share is that the two boxes are
+         * DISJOINT in some axis, so that is what is asserted. */
+        { int sideways = (s == GTA3_SIL_HELI || s == GTA3_SIL_TANK);
+          float a0,a1,b0,b1; int axis = sideways ? 0 : 2;
           span(m.wv,     &a0,&a1, axis);
           span(m.wv + 8, &b0,&b1, axis);
           ok(b0 > a1 || a0 > b1,
-             s == GTA3_SIL_HELI ? "the two skids do not meet under the fuselage"
-                                  : "there is a gap between the rear and front axles"); }
+             sideways ? "the two rails do not meet under the hull"
+                      : "there is a gap between the rear and front axles"); }
         /* The wheel slab only reads as a tyre track if it is PROUD of the body in x
          * and does not dip below the road plane at y=0. Both are easy to lose to an
          * int8 overflow: 134 wraps to -122 and silently inverts the box. */
@@ -208,8 +213,9 @@ int main(void) {
         { float bxl,bxh,wxl,wxh,wyl,wyh;
           span(m.bv,&bxl,&bxh,0); span_n(m.wv,16,&wxl,&wxh,0); span_n(m.wv,16,&wyl,&wyh,1);
           ok(wxh > bxh && wxl < bxl,
-             s == GTA3_SIL_HELI ? "the skids stand outboard of the fuselage"
-                                : "the wheel line is wider than the body");
+             (s == GTA3_SIL_HELI) ? "the skids stand outboard of the fuselage"
+             : (s == GTA3_SIL_TANK) ? "the tracks stand outboard of the hull"
+                                    : "the wheel line is wider than the body");
           ok(wyl >= 0.0f, "the wheel line does not sink below the road plane"); }
 
         float blo, bhi, clo, chi;
@@ -332,6 +338,23 @@ int main(void) {
         ok(cz1 < bz1,                    "with a hood in front of it");
         ok((bz1-cz1) < (bz1-bz0) * 0.25f, "and that hood is short");
         ok(cz0 - bz0 < bz1 - cz1,        "the hood is longer than anything behind the cabin");
+    }
+    {
+        Gta3VehMesh m;
+        gta3_veh_build(&m, GTA3_SIL_TANK);
+        float bz0,bz1, cz0,cz1, by0,by1, cy0,cy1, wz0,wz1, wy0,wy1, ax0,ax1, bx0,bx1;
+        span(m.bv,&bz0,&bz1,2); span(m.cv,&cz0,&cz1,2);
+        span(m.bv,&by0,&by1,1); span(m.cv,&cy0,&cy1,1);
+        span(m.wv,&wz0,&wz1,2); span(m.wv,&wy0,&wy1,1);
+        span_n(m.wv,16,&ax0,&ax1,0); span(m.bv,&bx0,&bx1,0);
+        /* A tank is a slab with a low superstructure and full-length tracks.
+         * It used to borrow TRUCK, which since that was reshaped is a short
+         * cab over a long open bed — a flatbed lorry with a gun on it. */
+        ok((cy1-cy0) < (by1-by0) * 0.6f, "the tank superstructure is shallower than its hull");
+        ok((cz1-cz0) > (bz1-bz0) * 0.6f, "and covers most of the hull's length");
+        ok((wz1-wz0) > (bz1-bz0) * 0.9f, "the tracks run nearly the whole hull");
+        ok((wy1-wy0) > 20.0f,            "and stand taller than any tyre");
+        ok(ax1 > bx1 && ax0 < bx0,       "with the hull sitting between them");
     }
     {
         Gta3VehMesh m;
