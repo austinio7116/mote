@@ -76,7 +76,13 @@ static const Sil SILDEF[GTA3_SIL_N] = {
     /* LONGHOOD   */ { 32, 58, -72,  14, 86 },
     /* WAGON      */ { 40, 74, -55,  55, 90 },
     /* VAN        */ { 46, 96, -80,  70, 94 },
-    /* TRUCK      */ { 44, 88, -30,  80, 92 },
+    /* TRUCK: short cab set FORWARD, with a bonnet in front of it and a long
+     * flat bed behind. It used to run the cabin from -30 to 80 at 92% of the
+     * body width, which is a box van: one slab most of the length of the
+     * chassis. The cab is now 34..96 — about a quarter of the length, up at
+     * the front — so z 96..127 reads as the engine and everything behind 34 is
+     * open deck. Narrower too, at 84%, so the bed's sides show past it. */
+    /* TRUCK      */ { 40, 92,  34,  96, 84 },
     /* LUXURY     */ { 32, 58, -62,  30, 88 },   /* longer bonnet, lower roof than SEDAN */
     /* RACER      */ { 20, 36, -52,   8, 80 },   /* lowest of the lot, shallow glasshouse */
     /* PICKUP     */ { 38, 74, -18,  62, 90 },   /* cab over the front half; bed behind is bare body */
@@ -85,15 +91,19 @@ static const Sil SILDEF[GTA3_SIL_N] = {
     /* CLASSICSPT */ { 32, 60, -58,   6, 84 },   /* long bonnet under a tall upright glasshouse */
     /* TAXI       */ { 38, 70, -52,  44, 90 },   /* a sedan made taller and squarer */
     /* HELI: the three boxes read as an aircraft rather than a car.
-     *   body_h 54 / cab_top 86 — a deep fuselage under a tall bubble canopy.
-     *   cab_z0 24 / cab_z1 118 — the canopy sits over the NOSE, which is what
-     *     separates a helicopter from a car at a glance.
+     *   body_h 44 / cab_top 76 — a shallower fuselage under a lower canopy.
+     *     At 54/86 both boxes were deep enough that the whole thing read as
+     *     one stacked block.
+     *   cab_z0 50 / cab_z1 118 — the canopy is now 68 units long against its
+     *     68 units of width, i.e. SQUARE in plan and sitting over the nose. It
+     *     used to run 94 units back, which is a long rectangle on top of a
+     *     longer one: two boxes, nothing aircraft about it.
      *   cab_w 78 — narrower than the fuselage, so the canopy reads as glass
      *     set into the shell rather than a second storey.
      * The fuselage itself is cut short at z = -24 (see gta3_veh_build); the
      * tail boom and both rotors are triangles the caller draws, because a
      * rotor spins and this mesh is built once at init. */
-    /* HELI       */ { 54, 86,  24, 118, 78 },
+    /* HELI       */ { 44, 76,  50, 118, 78 },
 };
 
 void gta3_box(MeshVert *v, MeshFace *f, int *nf,

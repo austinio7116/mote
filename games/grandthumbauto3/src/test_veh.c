@@ -289,6 +289,38 @@ int main(void) {
         ok(gta3_lamp_style(999) == GTA3_LAMP_ROUND, "huge silhouette falls back to round");
     }
 
+    /* SHAPE CHECKS for the two silhouettes that are meant to read as something
+     * other than a car. Both were wrong on first authoring in exactly the way
+     * these assert against: one long box stacked on another. */
+    {
+        Gta3VehMesh m;
+        gta3_veh_build(&m, GTA3_SIL_TRUCK);
+        float bz0,bz1, cz0,cz1, bx0,bx1, cx0,cx1;
+        span(m.bv,&bz0,&bz1,2); span(m.cv,&cz0,&cz1,2);
+        span(m.bv,&bx0,&bx1,0); span(m.cv,&cx0,&cx1,0);
+        /* A truck is a short cab up front, not a box van: the cab takes well
+         * under half the chassis and sits in its forward half. */
+        ok((cz1-cz0) < (bz1-bz0) * 0.45f, "the truck cab is under half the chassis long");
+        ok((cz0+cz1) * 0.5f > 0.0f,        "the truck cab sits in the forward half");
+        ok(cz1 < bz1,                      "there is a bonnet in front of the truck cab");
+        ok((bz1-bz0) - (cz1-cz0) > (bz1-bz0) * 0.5f, "and a long flat bed behind it");
+        ok(cx1 < bx1,                      "the truck bed is wider than its cab");
+    }
+    {
+        Gta3VehMesh m;
+        gta3_veh_build(&m, GTA3_SIL_HELI);
+        float cz0,cz1, cx0,cx1, by0,by1, cy0,cy1;
+        span(m.cv,&cz0,&cz1,2); span(m.cv,&cx0,&cx1,0);
+        span(m.bv,&by0,&by1,1); span(m.cv,&cy0,&cy1,1);
+        /* The canopy is SQUARE in plan. As a long rectangle on a longer one it
+         * read as a stacked block rather than an aircraft. */
+        float len = cz1-cz0, wid = cx1-cx0;
+        ok(len > wid*0.8f && len < wid*1.25f, "the helicopter canopy is square in plan");
+        ok(cz1 > 0.0f,                        "and sits over the nose");
+        ok((cy1-cy0) < len,                   "the canopy is wider than it is tall");
+        ok((by1-by0) < len,                   "and so is the fuselage");
+    }
+
     printf(s_fail ? "FAILED (%d)\n" : "passed\n", s_fail);
     return s_fail ? 1 : 0;
 }

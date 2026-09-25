@@ -962,16 +962,24 @@ static const uint8_t CAR_CLS[54] = {
  /*40*/14,10, 0, 1,12, 0, 1,13,   /* yellow cab, estate, blk sedan, orange cmp, old pickup, maroon sedan, teal cmp, beige jeep */
  /*48*/ 4, 4, 8, 4, 3, 3 };        /* Countach, lime lambo, green speedster, F40, red coupe, silver 911 */
 /*                        accel maxspd turn  grip  massx */
+/* accel · maxspd · turn · grip (tyre lat_damp) · mass factor.
+ *
+ * The SPORTS tier was barely quicker than a taxi: 25 against the sedan's 18,
+ * on a scale where vmax is maxspd * 1.3. It now runs 28 (131 km/h against the
+ * sedan's 84) with grip up from 26 to 29 and more steering authority, so it
+ * both goes and holds on. RACER is lifted with it to keep the supercars above
+ * the sports cars rather than beside them, and CLASSICSPT gets a smaller lift
+ * so the old sports cars stay characterful without matching the modern ones. */
 static const float CLS_STAT[19][5] = {
  /* SEDAN     */ { 25, 18, 2.4f, 22, 1.00f },
  /* COMPACT   */ { 26, 18, 2.7f, 24, 0.95f },
  /* COUPE     */ { 27, 20, 2.6f, 22, 1.00f },
- /* SPORTS    */ { 34, 25, 2.8f, 26, 0.95f },
- /* RACER     */ { 38, 27, 3.0f, 28, 0.90f },
+ /* SPORTS    */ { 39, 28, 3.05f, 29, 0.92f },
+ /* RACER     */ { 43, 31, 3.25f, 31, 0.88f },
  /* MUSCLE    */ { 33, 24, 2.1f, 15, 1.15f },
  /* HOTHATCH  */ { 30, 21, 2.9f, 25, 0.90f },
  /* CLASSIC   */ { 21, 16, 2.2f, 20, 1.10f },
- /* CLASSICSPT*/ { 30, 22, 2.6f, 22, 1.00f },
+ /* CLASSICSPT*/ { 33, 24, 2.8f, 25, 1.00f },
  /* LUXURY    */ { 24, 19, 2.1f, 18, 1.25f },
  /* WAGON     */ { 22, 16, 2.2f, 20, 1.10f },
  /* VAN       */ { 19, 15, 1.8f, 20, 1.20f },
@@ -991,13 +999,13 @@ static void build_vstats(void) {
     }
     VSTAT[VEH_BUS] =(VStat){ 12, 12, 1.2f, 3.4f, 8.6f, 3.77f, 22 };   /* +10%%: wider would block 2-lane roads */
     VSTAT[VEH_TANK]=(VStat){ 9,  8,  1.5f, 8.0f, 6.2f,  3.92f, 28 };
-    /* len == wid on purpose. draw_vehicle_mesh squeezes x by wid/len to undo
-     * the mesh's square authoring, assigning ONE x to all four corners of both
-     * third-box slabs at once. That is right for axles, which each span the
-     * full track, and wrong for skids, which are one per side — it would
-     * collapse both rails onto the centreline. An aspect of exactly 1 leaves
-     * the authored shape alone, which is what the SILDEF row already draws. */
-    VSTAT[VEH_HELI]=(VStat){ 7, 24, 1.9f, 3.0f, 7.0f,  7.0f,   6 };
+    /* wid is the real 2.6 m, not len. It was 7.0 to make the mesh's wid/len
+     * squeeze a no-op, but draw_vehicle_mesh skips that squeeze for the
+     * helicopter outright now, so the only things wid still drives are the
+     * PHYSICS BOX and the shadow — and a 7 m square collision box held the
+     * player 3.5 m off the centre on every side, which is outside the reach
+     * test, so RB could never get you in. That was the bug. */
+    VSTAT[VEH_HELI]=(VStat){ 7, 24, 1.9f, 3.0f, 7.0f,  2.6f,   6 };
 }
 
 typedef struct { float x,z,yaw,spd; uint8_t variant, alive, hp; float animt; float flee;
@@ -1393,7 +1401,14 @@ static void spawn_world(void) {
     /* traffic + parked cars, well-spaced on roads, each FACING ALONG the street */
     for (int i=0;i<NCAR;i++){ float ox,oz;                    /* moving traffic (cars[0] becomes jackable) */
         if (i<8 && find_road_clear(player.x,player.z, 12.0f, 62.0f, &ox,&oz)){
-            int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN; if(irand(20)==0)ty=VEH_BUS;  /* buses rare */
+            int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+#ifdef MOTE_HOST
+        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
+         * how a silhouette gets looked at. Traffic types are random, so
+         * catching a specific one on camera otherwise means driving around
+         * until one turns up. See CAR_CLS for which type is which class. */
+        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
+#endif if(irand(20)==0)ty=VEH_BUS;  /* buses rare */
             float yaw; place_in_lane(&ox,&oz,&yaw);              /* right lane, facing along the street */
             cars[i]=(Car){ ox,oz,yaw,0,(uint8_t)ty,DRV_NPC,1 };
             npc_target[i]=yaw; stuck_t[i]=0;
@@ -1402,6 +1417,13 @@ static void spawn_world(void) {
     /* a jackable car right next to the player — a RANDOM type each run */
     { float ox,oz; if (find_near(player.x,player.z, 2.0f, 3.4f, is_drivable, &ox,&oz)){
         int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+#ifdef MOTE_HOST
+        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
+         * how a silhouette gets looked at. Traffic types are random, so
+         * catching a specific one on camera otherwise means driving around
+         * until one turns up. See CAR_CLS for which type is which class. */
+        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
+#endif
         cars[0]=(Car){ ox,oz, road_heading((int)(ox/TILE),(int)(oz/TILE)), 0, (uint8_t)ty,DRV_NONE,1 }; } }
     /* pedestrians on nearby pavement/grass */
     for (int i=0;i<NPED;i++){ float ox,oz;                    /* ~22 pedestrians; rest free for foot-cops */
@@ -4732,6 +4754,13 @@ static void dm_recycle_traffic(float dt){
     float ox,oz;
     if(find_road_clear(tx,tz, 26.0f, 52.0f, &ox,&oz)){
         int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+#ifdef MOTE_HOST
+        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
+         * how a silhouette gets looked at. Traffic types are random, so
+         * catching a specific one on camera otherwise means driving around
+         * until one turns up. See CAR_CLS for which type is which class. */
+        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
+#endif
         cars[far]=(Car){ ox,oz, road_heading((int)(ox/TILE),(int)(oz/TILE)), 0,(uint8_t)ty,DRV_NPC,1,100.0f,0 };
         car_body_init(far);
     }
@@ -4828,6 +4857,13 @@ static void reset_game_dm_finish(uint32_t seed){
             float sxp=(i==0)?axp:bxp, szp=(i==0)?azp:bzp, ox,oz;
             if (find_near(sxp,szp, 2.0f, 8.0f, is_drivable, &ox,&oz)){
                 int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+#ifdef MOTE_HOST
+        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
+         * how a silhouette gets looked at. Traffic types are random, so
+         * catching a specific one on camera otherwise means driving around
+         * until one turns up. See CAR_CLS for which type is which class. */
+        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
+#endif
                 cars[i]=(Car){ ox,oz, road_heading((int)(ox/TILE),(int)(oz/TILE)), 0,(uint8_t)ty, DRV_NONE,1,100.0f,0 };
                 continue;
             }
@@ -4835,6 +4871,13 @@ static void reset_game_dm_finish(uint32_t seed){
         for (int t=0;t<80;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
             if (parked ? !is_drivable(tx,tz) : !is_road(tx,tz)) continue;
             int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+#ifdef MOTE_HOST
+        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
+         * how a silhouette gets looked at. Traffic types are random, so
+         * catching a specific one on camera otherwise means driving around
+         * until one turns up. See CAR_CLS for which type is which class. */
+        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
+#endif
             cars[i]=(Car){ tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f,
                            road_heading(tx,tz), 0,(uint8_t)ty, parked?DRV_NONE:DRV_NPC, 1,100.0f,0 };
             break; }
@@ -4923,7 +4966,14 @@ static void dm_draw_remote(void){
 static void respawn_npc(int i) {
     float ox,oz;
     if (find_road_clear(pl_x(),pl_z(), 46.0f, 78.0f, &ox,&oz)){
-        int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;   /* no far-recycled buses */
+        int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+#ifdef MOTE_HOST
+        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
+         * how a silhouette gets looked at. Traffic types are random, so
+         * catching a specific one on camera otherwise means driving around
+         * until one turns up. See CAR_CLS for which type is which class. */
+        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
+#endif   /* no far-recycled buses */
         float yaw; place_in_lane(&ox,&oz,&yaw);                   /* right lane, facing along the street */
         cars[i]=(Car){ ox,oz,yaw,0,(uint8_t)ty,DRV_NPC,1,100,0 };
         car_body_init(i); npc_target[i]=yaw; stuck_t[i]=0;
@@ -5675,15 +5725,28 @@ static int load_game(void) {
  * already yours, not the peer's in a deathmatch). RB on foot is contextual —
  * use when something is in reach, cycle weapon otherwise — and if these two
  * tests ever drifted apart a single press would do both. */
-static int car_in_reach(void) {
+/* The nearest vehicle you could get into, or -1.
+ *
+ * The reach scales with the vehicle's LENGTH instead of being a flat 3.74 m
+ * from its centre. A flat radius works for cars because they are all about
+ * 4.5 m long; it fails for anything bigger, and it failed completely for the
+ * 7 m helicopter, whose own collision box holds you further out than the
+ * radius allowed — so RB cycled your weapon instead of putting you in it.
+ *
+ * Shared with the USE branch so the two can never disagree: if this says a
+ * vehicle is in reach, that is the vehicle RB takes. */
+static int car_reach_pick(void) {
+    int best = -1; float bd = 1e9f;
     for (int i = 0; i < NCAR; i++) {
         if (!cars[i].alive || cars[i].wrecked || cars[i].driver == DRV_PLAYER) continue;
         if (g_dm && i == dm_peer_car) continue;
-        float dx = cars[i].x - player.x, dz = cars[i].z - player.z;
-        if (dx*dx + dz*dz < 14.0f) return 1;
+        float dx = cars[i].x - player.x, dz = cars[i].z - player.z, d = dx*dx + dz*dz;
+        float r = 1.9f + VSTAT[cars[i].type].len * 0.5f;   /* arm's length past the hull */
+        if (d < r*r && d < bd) { bd = d; best = i; }
     }
-    return 0;
+    return best;
 }
+static int car_in_reach(void) { return car_reach_pick() >= 0; }
 
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
@@ -6165,11 +6228,7 @@ static void g_update(float dt) {
             if (near_marker(MK_GUN, 3.0f))        buy_gun();
             else if (near_marker(MK_PHONE, 3.0f)) start_mission();
             else {
-                int best=-1; float bd=14.0f;
-                for (int i=0;i<NCAR;i++){ if(!cars[i].alive||cars[i].wrecked||cars[i].driver==DRV_PLAYER) continue;
-                    if (g_dm && i==dm_peer_car) continue;           /* the peer is driving this one */
-                    float dx=cars[i].x-player.x, dz=cars[i].z-player.z, d=dx*dx+dz*dz;
-                    if (d<bd){bd=d;best=i;} }
+                int best = car_reach_pick();
                 if (best>=0) {
                     if (cars[best].driver==DRV_COP) {            /* eject a fighting officer */
                         float ry=cars[best].yaw+1.5708f;
