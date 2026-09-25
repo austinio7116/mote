@@ -920,7 +920,17 @@ static int bb_add(const MoteImage *img, float x, float y, float z,
  * Measured per cell across all three sheets: ped and cop are 3..12 everywhere,
  * the player is 3..12 walking and 4..15 firing. The two firing poses (player
  * sheet, rows 4 and 5) therefore take their own, wider rect so the extended
- * gun arm is not clipped. */
+ * gun arm is not clipped.
+ *
+ * This is as far as the RECT can go — 3..12 is the figure's own extent, and
+ * the engine takes the quad's aspect straight from the source rect
+ * (mote_scene3d.c: q->hw = q->hh * fw/fh), so there is no narrower quad to
+ * draw the same pixels into. Anything thinner has to come out of the art, and
+ * did: assets/make_slim.py pulled one pixel off each side of every row 9 px or
+ * wider, which took the torso from 10 px to 8 and left the 4 px head and 6 px
+ * legs alone. Measured on a capture, the shirt went from 21 px across to 17.
+ * The cell extents are still 3..12 because narrower rows keep their outermost
+ * columns; no single row is wider than 8. */
 /* Tightened again to the measured extent itself: columns 3..12 is 10 px, so
  * cx 3 / cw 10 keeps every pixel of the figure with no margin and takes
  * another 17% off the width. The firing poses run 4..15, which is 12 px, so
