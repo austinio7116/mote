@@ -1667,6 +1667,7 @@ static float g_screen_t;
 static int   cash, best_cash;
 static float health;
 static float heat, heat_cool;            /* wanted = (int)heat */
+static float g_pursuit;                  /* seconds of UNBROKEN pursuit; see update_heat */
 static float g_panic, g_panicx, g_panicz; /* recent violence: peds nearby panic + flee */
 static int   weapon, owned[NWEAP], ammo[NWEAP];
 static float fire_cd;
@@ -3624,12 +3625,21 @@ static void rmbl(float in, int ms){
     g_lastrumble = now; mote->rumble(in, ms);
 }
 static void add_heat(float a){ heat += a; if(heat>6) heat=6; heat_cool=0; }
-/* Hitting a squad car is ALWAYS a felony, worth at least one full star.
+/* A crime with a GUARANTEED star value: floor the heat at `f` the first time,
+ * then half a star for each repeat. Anything that must be visible immediately
+ * goes through here rather than add_heat.
  *
- * This used to be add_heat(0.55f), which could never show anything: the wanted
- * level is (int)heat, so half a point reads as zero stars and ramming a police
- * car looked like it did nothing at all. It now floors heat at 1.0 on the first
- * hit and adds half a star for each one after.
+ * The wanted level is (int)heat, so an add_heat below 1.0 reads as zero stars
+ * and the crime looks like it did nothing at all. That bug shipped twice —
+ * ramming a squad car was add_heat(0.55f), and stealing one was add_heat(0.3f),
+ * which left you driving a police car with no response whatsoever because
+ * update_cops only chases at wanted() > 0. One helper so there is no third. */
+static void heat_at_least(float f) {
+    if (heat < f) heat = f; else heat += 0.5f;
+    if (heat > 6.0f) heat = 6.0f;
+    heat_cool = 0;
+}
+/* Hitting a squad car is ALWAYS a felony, worth at least one full star.
  *
  * The cooldown is because contact lasts several frames — without it a single
  * scrape would ladder you to six stars in under a second. */
@@ -3637,9 +3647,7 @@ static float g_ramcd;
 static void cop_rammed(void) {
     if (g_ramcd > 0.0f) return;
     g_ramcd = 1.2f;
-    if (heat < 1.0f) heat = 1.0f; else heat += 0.5f;
-    if (heat > 6.0f) heat = 6.0f;
-    heat_cool = 0;
+    heat_at_least(1.0f);
     say("HIT A COP CAR");
 }
 /* line of sight blocked by buildings (samples the tile map every ~2 m) */
@@ -4287,8 +4295,11 @@ static void update_cops(float dt) {
         /* ARRIVAL: the squad car pulls up near the player and stops (player on foot, or
          * their car is slow) → the officer steps OUT, clear of the car, and fights on
          * foot. The abandoned (DRV_NONE) car is stealable. Cars never shoot. */
+        /* 6.0 m/s used to end a car chase the moment you slowed for a corner or
+         * for traffic: the officer parked and finished it on foot. 2.5 m/s means
+         * he only gets out when you are genuinely stopped. */
         int player_slow = (player.mode==MODE_FOOT) ||
-                          (player.car>=0 && fabsf(cars[player.car].spd) < 6.0f);
+                          (player.car>=0 && fabsf(cars[player.car].spd) < 2.5f);
         if (pd2<130.0f && cspd<3.5f && player_slow && c->type!=VEH_TANK){
             float rx=cosf(c->yaw+1.5708f), rz=sinf(c->yaw+1.5708f);
             float ox=c->x+rx*2.5f, oz=c->z+rz*2.5f;              /* step clear of the car */
@@ -4331,17 +4342,66 @@ static void update_cops(float dt) {
     }
 }
 
+/* Seconds of unbroken pursuit that buy one more star, and the ceiling that
+ * buys them up to. The cap is 4 deliberately: the tank arrives at 5, and the
+ * army should be something you provoke, not something a long chase hands you. */
+#define PURSUE_STEP 12.0f
+#define PURSUE_CAP   4.0f
+
 static void update_heat(float dt) {
     heat_cool+=dt;
-    int copnear=0; float px=pl_x(),pz=pl_z();
-    for (int i=0;i<NCAR;i++) if(cars[i].alive&&cars[i].driver==DRV_COP){ float dx=cars[i].x-px,dz=cars[i].z-pz; if(dx*dx+dz*dz<900.0f){copnear=1;break;} }
-    if(!copnear) for (int i=0;i<NPED;i++) if(peds[i].alive&&peds[i].iscop){ float dx=peds[i].x-px,dz=peds[i].z-pz; if(dx*dx+dz*dz<900.0f){copnear=1;break;} }
+    /* Two radii, one pass. copnear (30 m, any officer) blocks the cooldown.
+     * pursued (45 m WITH line of sight) is the stronger claim that someone is
+     * actually on you, and it drives the escalation below. The LOS raycasts
+     * only run while wanted, and stop at the first officer who can see you. */
+    int copnear=0, pursued=0, hot=(wanted()>0); float px=pl_x(),pz=pl_z();
+    for (int i=0;i<NCAR;i++){ if(!cars[i].alive||cars[i].driver!=DRV_COP) continue;
+        float dx=cars[i].x-px,dz=cars[i].z-pz,d2=dx*dx+dz*dz;
+        if(d2<900.0f) copnear=1;
+        if(hot&&!pursued&&d2<2025.0f&&sight_clear(cars[i].x,cars[i].z,px,pz)) pursued=1;
+        if(copnear&&(pursued||!hot)) break; }
+    for (int i=0;i<NPED&&!(copnear&&(pursued||!hot));i++){ if(!peds[i].alive||!peds[i].iscop) continue;
+        float dx=peds[i].x-px,dz=peds[i].z-pz,d2=dx*dx+dz*dz;
+        if(d2<900.0f) copnear=1;
+        if(hot&&!pursued&&d2<2025.0f&&sight_clear(peds[i].x,peds[i].z,px,pz)) pursued=1; }
+    /* ESCALATION. Heat used to be purely event-driven: ram a squad car, outrun
+     * it without committing another crime, and you sat at exactly 1.00 stars
+     * until the cooldown started. Nothing raised the stakes for a chase that
+     * kept going. Now every PURSUE_STEP seconds of being SEEN adds a star.
+     *
+     * Breaking line of sight drains the meter at half rate rather than clearing
+     * it, so ducking behind one building costs you progress without erasing a
+     * chase you have already survived most of. */
+    if (hot && pursued){
+        g_pursuit += dt;
+        if (g_pursuit >= PURSUE_STEP){
+            g_pursuit = 0.0f;
+            if (heat < PURSUE_CAP){
+                heat += 1.0f; if (heat > PURSUE_CAP) heat = PURSUE_CAP;
+                heat_cool = 0; say("THE HEAT IS RISING");
+            }
+        }
+    } else if (g_pursuit > 0.0f){
+        g_pursuit -= dt*0.5f; if (g_pursuit < 0.0f) g_pursuit = 0.0f;
+    }
     /* Wanted stars are sticky: the law only starts to forget after you've been
      * clean AND out of sight for a while (longer the hotter you are), then bleeds
      * off slowly — ~10s per star, so a 5-star spree takes the better part of a
-     * minute of laying low to shake. */
-    float need = 6.0f + 1.4f*heat;
-    if (heat_cool>need && !copnear && heat>0){ heat-=0.10f*dt; if(heat<0)heat=0; }
+     * minute of laying low to shake.
+     *
+     * The 6.0 s floor used to make a one-star chase IMPOSSIBLE. update_cops
+     * dispatches the first squad car 48-90 m out (find_road_clear's radii), and
+     * at ~12 m/s along streets it needs well over ten seconds to close. The star
+     * expired at 7.4 s with the cop still 48 m away and closing, so ramming a
+     * police car reliably looked like it did nothing. 14.0 s outlasts the
+     * dispatch, which is the whole point: once the car is inside 30 m copnear
+     * pins the heat and the chase actually starts.
+     *
+     * pursued joins copnear on the gate so an officer watching you from 40 m
+     * keeps you wanted. Escaping now means 30 m of separation AND no line of
+     * sight, held for the full count. */
+    float need = 14.0f + 1.4f*heat;
+    if (heat_cool>need && !copnear && !pursued && heat>0){ heat-=0.10f*dt; if(heat<0)heat=0; }
 }
 
 static void mission_cleanup(void);   /* defined with start_mission below */
@@ -4976,7 +5036,7 @@ static void reset_game(void) {
     for (int i=0;i<NBULLET;i++) bullets[i].alive=0;
     for (int i=0;i<NPICK;i++) picks[i].alive=0;
     for (int i=0;i<NFX;i++) fxs[i].t=0;
-    cash=0; health=MAXHP; heat=0; heat_cool=99; fire_cd=0;
+    cash=0; health=MAXHP; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
     weapon=W_FIST; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;} owned[W_FIST]=1; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0;
     g_rng ^= (uint32_t)mote->micros();     /* each run is a different city day */
@@ -5077,7 +5137,7 @@ static void reset_game(void) {
 
 static void respawn(int busted) {
     cash = cash>150 ? cash-150 : 0;
-    health=MAXHP; heat=0; heat_cool=99;
+    health=MAXHP; heat=0; heat_cool=99; g_pursuit=0;
     for (int i=0;i<NCAR;i++) if(cars[i].alive&&cars[i].driver==DRV_COP) cars[i].driver=DRV_NPC;
     player.mode=MODE_FOOT; player.car=-1; player.x=hosp_x; player.z=hosp_z;
     if (busted){ weapon=W_FIST; }        /* busted: lose your guns */
@@ -5316,7 +5376,7 @@ static void reset_game_dm_finish(uint32_t seed){
     for (int i=0;i<NPICK;i++){ picks[i].alive=0; g_dmpkt[i]=0; }
     for (int i=0;i<NFX;i++) fxs[i].t=0;
     for (int i=0;i<NPED;i++) peds[i].alive=0;              /* an empty city: just you two */
-    cash=0; health=MAXHP; heat=0; heat_cool=99; fire_cd=0;
+    cash=0; health=MAXHP; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
     weapon=W_PISTOL; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;}
     owned[W_FIST]=1; owned[W_PISTOL]=1; ammo[W_PISTOL]=60; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0; nmark=0;  /* no shops/phones/missions */
@@ -6294,7 +6354,7 @@ static int load_game(void) {
     if (mote->load(SAVE_SLOT, &g, sizeof g) != (int)sizeof g) return 0;
     if (g.magic != SAVE_MAGIC || g.ver != SAVE_VER) return 0;
     cash = g.cash; best_cash = g.best;
-    heat = g.heat; heat_cool = 0;
+    heat = g.heat; heat_cool = 0; g_pursuit = 0;
     weapon = g.weapon; if (weapon < 0 || weapon >= NWEAP) weapon = W_FIST;
     mission_chain = g.mission_chain; g_tod = g.tod;
     for (int i = 0; i < NWEAP; i++) { owned[i] = g.owned[i]; ammo[i] = g.ammo[i]; }
@@ -6689,7 +6749,7 @@ static void g_update(float dt) {
         dm_poll();
         dm_rx_age += dt;
         if (mote->net_health()==MOTE_NET_LOST && !dm_end) dm_end=3; /* v45: engine-measured loss (blips recover) */
-        heat=0; heat_cool=99;                    /* no police in DM */
+        heat=0; heat_cool=99; g_pursuit=0;       /* no police in DM */
         if (rp_fire_t>0) rp_fire_t-=dt;
         rp_anim += dt;
         if (dm_ramcd>0) dm_ramcd-=dt;
@@ -6908,7 +6968,11 @@ static void g_update(float dt) {
                 if (best>=0) {
                     if (cars[best].driver==DRV_COP) {            /* eject a fighting officer */
                         float ry=cars[best].yaw+1.5708f;
-                        add_heat(0.3f); spawn_footcop(cars[best].x+cosf(ry)*2.5f, cars[best].z+sinf(ry)*2.5f);
+                        /* Taking a squad car off an officer is worth TWO stars
+                         * on the spot. No witness test: the man you just threw
+                         * out is the witness. */
+                        heat_at_least(2.0f); say("STOLE A COP CAR");
+                        spawn_footcop(cars[best].x+cosf(ry)*2.5f, cars[best].z+sinf(ry)*2.5f);
                     } else if (cars[best].driver==DRV_NPC) {     /* the DRIVER bails out + runs */
                         float ry=cars[best].yaw+1.5708f;
                         float ex=cars[best].x+cosf(ry)*2.6f, ez=cars[best].z+sinf(ry)*2.6f;
