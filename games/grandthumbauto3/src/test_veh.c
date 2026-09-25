@@ -359,6 +359,12 @@ int main(void) {
         /* A boat is a long SHALLOW hull: it sits low in the water with a small
          * wheelhouse aft, not a cabin over most of its length like a van. */
         ok((by1-by0) < (bz1-bz0) * 0.30f, "the boat hull is shallow for its length");
+        /* BEAM. The boat is exempt from draw_vehicle_mesh's wid/len squeeze,
+         * so whatever width is authored here is the width that ships. It was
+         * missed when that exemption went in and came out 6.5 m wide on a 7 m
+         * hull — very nearly square. Nothing narrows it later, so this is the
+         * only place the mistake can be caught. */
+        ok((bx1-bx0) < (bz1-bz0) * 0.50f, "the boat is far narrower than it is long");
         ok((cz1-cz0) < (bz1-bz0) * 0.45f, "the wheelhouse is a minority of the hull");
         ok((cz0+cz1) * 0.5f < 0.0f,       "and sits aft of midships");
         ok((wz1-wz0) > (bz1-bz0) * 0.85f, "the gunwales run nearly the whole hull");

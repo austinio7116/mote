@@ -166,8 +166,18 @@ void gta3_veh_build(Gta3VehMesh *m, int sil) {
      *
      * Its fuselage also stops short of the tail: a full-length slab reads as
      * a bus, and the space behind it is where the caller draws the boom. */
+    /* The HELICOPTER and the BOAT are authored at their FINAL width here,
+     * because draw_vehicle_mesh skips the wid/len squeeze for both — that
+     * squeeze assigns one x to all four corners of both third-box slabs, which
+     * would fold their per-side skids and gunwales onto the centreline.
+     *
+     * The boat was missed when that exemption went in: it kept the 118 every
+     * car starts with and nothing narrowed it afterwards, so a 7 m hull came
+     * out 6.5 m wide — very nearly square. 50 of 127 at its 3.5 m half-length
+     * is 2.76 m, which matches the 2.8 its VStat already claimed. */
     int heli = (sil == GTA3_SIL_HELI);
-    int halfw = heli ? 44 : 118;
+    int boat = (sil == GTA3_SIL_BOAT);
+    int halfw = heli ? 44 : boat ? 50 : 118;
     int bz0   = heli ? -24 : -127;
     gta3_box(m->bv, m->bf, &nf, -halfw, halfw, 0, s->body_h, bz0, 127);
     m->body = (Mesh){ .verts=m->bv, .faces=m->bf, .nverts=8, .nfaces=nf,
@@ -209,8 +219,8 @@ void gta3_veh_build(Gta3VehMesh *m, int sil) {
          * hull. Same two boxes as the tank's tracks and the helicopter's
          * skids, different extents — and like both of those, the gap between
          * them is the deck rather than the underside. */
-        gta3_box(m->wv,     m->wf,      &nf,  -127, -96, 0, 34, -120, 118);  /* port rail */
-        gta3_box(m->wv + 8, m->wf + 12, &nf2,   96, 127, 0, 34, -120, 118);  /* starboard rail */
+        gta3_box(m->wv,     m->wf,      &nf,  -58, -42, 0, 30, -120, 118);   /* port rail */
+        gta3_box(m->wv + 8, m->wf + 12, &nf2,  42,  58, 0, 30, -120, 118);   /* starboard rail */
     } else {
         gta3_box(m->wv,     m->wf,      &nf,  -127, 127, 0, 16, -96, -40);  /* rear axle */
         gta3_box(m->wv + 8, m->wf + 12, &nf2, -127, 127, 0, 16,  40,  96);  /* front axle */
