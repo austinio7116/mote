@@ -29,6 +29,11 @@ top-down map.
 | Climb | `A` |
 | Descend | `B` |
 | Get out (landed only) | `RB` |
+| **In the boat** | |
+| Steer | `DPAD` |
+| Ahead | `A` |
+| Astern | `B` |
+| Get out (alongside only) | `RB` |
 | **In a car** | |
 | Steer | `DPAD` |
 | Gas | `A` |
@@ -53,7 +58,7 @@ itself up again when you let go of `B`.
 - **On-foot play** — walk, sprint on A with stamina, punch, eight weapons plus fists, and LB to look behind you.
 - **Vehicle play** — RB to get in or out, A for the throttle, B to brake and drop into reverse once stopped, LB to fire from the car.
 - **Handbrake drifts** — braking while steering cuts lateral grip instead of stopping you, so you can slide a corner and pick the car back up on the exit.
-- **54 vehicles on 16 silhouettes** — sedan, compact, coupe, sports, racer, long-hood, wagon, van, truck, pickup, jeep, classic sports and taxi, plus a bus, a tank and a helicopter that are vehicle types rather than handling classes. No silhouette carries more than 17% of the 54 types. Each is a tinted mesh with a cabin, a wheel line and an oriented ground shadow; taxis are yellow with a roof sign.
+- **54 vehicles on 16 silhouettes** — sedan, compact, coupe, sports, racer, long-hood, wagon, van, truck, pickup, jeep, classic sports, plus a bus, a tank, a boat and a helicopter that are vehicle types rather than handling classes. No silhouette carries more than 17% of the 54 types. Each is a tinted mesh with a cabin, a wheel line and an oriented ground shadow; taxis are yellow with a roof sign.
 - **Car damage** — vehicles take damage, catch fire and wreck, ejecting the driver; a damage bar sits under the health bar while you drive.
 - **Traffic AI** — cars hold a right-hand lane with pure-pursuit steering, change lanes, take turns, yield at junctions, queue behind each other and wait at red lights.
 - **Traffic lights** — one signal head per intersection on a kerbside post, red/amber/green off a single global clock with no per-junction state.
@@ -66,6 +71,7 @@ itself up again when you let go of `B`.
 - **Rotating minimap** — a live radar under the title bar, hideable from the settings page.
 - **Save and load** — three save slots on the settings tab of the pause screen, picked with LEFT/RIGHT and marked when occupied, plus a persisted best-cash record and a persisted sound on/off setting.
 - **A flyable helicopter** — parked on an open pad somewhere in the city, with a 45 m ceiling, rooftop landings, flight over water and buildings, an altitude readout in place of the speedo, and police who can only shoot at you below 18 m. It hovers rather than ditches over water, because there is only one of them.
+- **A boat** — moored at a shoreline in one city in two, rarer than the helicopter. It runs on water and nowhere else: drive it aground and the engine gives you nothing, but astern still works at reduced power to back you off the beach. RB will not put you out into open water. Low grip, so a hull carries its momentum through a turn, with a wake that widens with speed.
 - **Hidden content** — a treasure island in the bottom-left water reached by a footbridge, weapon and cash caches in the forests, five more on the roofs of tall buildings that only the helicopter can reach, a rare one-shot rocket launcher, and a drivable tank with finite shells.
 - **Street detail** — street lamps along the kerbs whose heads light up at dusk, bus stops with a sign facing the road, park benches on plazas and pavements, railings on the long bridges, palm trees on the waterline, puddles on the road while it rains, zebra crossings and phone boxes.
 - **City ambience** — a siren somewhere else in the city every twenty seconds or so, quiet enough to read as distance, and only when nothing is chasing you.
@@ -78,23 +84,22 @@ itself up again when you let go of `B`.
 
 ## Temporary debug affordances
 
-**BRING HELI** and **BRING TANK** — two rows on the SETTINGS page (MENU, then
-RB to the settings tab) that put the one-off vehicles 9 m in front of you, so
-both can be tested on the device without first finding where they were hidden.
-Each steps closer until the tile is somewhere the vehicle can sit, and always
-delivers directly ahead rather than at a random bearing. A delivered tank comes
-with a full load of shells.
+**BRING** — a row on the SETTINGS page (MENU, then RB to the settings tab)
+whose value picks HELI, TANK or BOAT with LEFT/RIGHT and delivers it with A.
+The helicopter and the tank arrive 9 m in front of you; the boat goes to the
+nearest mooring, because it has to be on water, and says so.
 
-These are meant to come out. To remove them, delete the `SET_HELI` and
-`SET_TANK` rows from the settings enum, their entries in `NAME[]`, and their
-two `case`s in the settings switch — nothing else refers to them.
+This row is meant to come out. To remove it, delete the `SET_BRING` row
+from the settings enum, its entry in `NAME[]`, and its `case` in the settings
+switch — nothing else refers to it.
 
 The host-only equivalents are environment variables, which are no use with the
 handheld in your hands: `MOTE_GTA_TP_HELI=1` stands beside the aircraft, `2`
 puts you in it already airborne, `3` also parks it over the nearest tall roof,
-`4` over the nearest water, and `5` over the nearest rooftop cache. `MOTE_GTA_TP_TANK=1` stands beside the tank,
-and `MOTE_GTA_CARTYPE=<n>` forces the type of the first eight traffic cars so a
-given silhouette can be got on camera.
+`4` over the nearest water, and `5` over the nearest rooftop cache. `MOTE_GTA_TP_TANK=1` stands beside the tank.
+`MOTE_GTA_BOAT=1` forces the boat to exist (one city in two), `MOTE_GTA_TP_BOAT=1`
+stands you beside it and `=2` puts you aboard. `MOTE_GTA_CARTYPE=<n>` forces the
+type of the first eight traffic cars so a given silhouette can be got on camera.
 
 ## Build and test
 
