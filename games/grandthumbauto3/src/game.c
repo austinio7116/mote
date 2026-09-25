@@ -590,6 +590,22 @@ static int heli_aloft(float wx, float wz) {
     return g_heli_y > floor_y(wx, wz) + 0.2f;
 }
 
+/* Is this world point on open water?
+ *
+ * '~' only. NOT is_waterlike(), which also counts bridge tiles: a bridge deck
+ * is a road with water underneath it, and a boat that could motor along one
+ * would be a boat driving down a street.
+ *
+ * The one predicate is consulted by everything that cares — the drown
+ * exemption in physics_pass, the movement gate in sail_boat, and the exit gate
+ * on RB — so those three can never disagree about where the boat may be. That
+ * is the same shape heli_aloft() has, and for the same reason: the helicopter
+ * shipped a bug where two of its three callers compared heights themselves and
+ * differed by 0.2 m. */
+static int boat_afloat(float wx, float wz) {
+    return tile_at((int)(wx / TILE), (int)(wz / TILE)) == '~';
+}
+
 /* ---------------------------------------------------------------- camera ---- */
 /* Chase camera: eye behind and above the player/car, looking ahead of it. See
  * gta3_camera.h for the framing/smoothing/collision rationale. */
@@ -5470,13 +5486,14 @@ static void physics_pass(float dt) {
         if (!cars[i].alive) continue;
         MoteBody2D *b=&bodies[i];
         if (i==player.car){
-            /* BOTH of these are ground rules, and an airborne helicopter is
-             * not on the ground. The building snap-back rewinds any car whose
-             * centre lands on a solid tile, which would have bounced the
-             * aircraft off every roof it flew over; the water check drowns
-             * you, which made the river and the whole seafront a no-go area
-             * and left the helicopter with nowhere interesting to fly. */
-            int flying = (cars[i].type==VEH_HELI && heli_aloft(b->x, b->y));
+            /* BOTH of these are ground rules, and neither an airborne
+             * helicopter nor a floating boat is on the ground. The building
+             * snap-back rewinds any car whose centre lands on a solid tile,
+             * which would bounce the helicopter off every roof it flies over;
+             * the water check drowns you, which is exactly what must not
+             * happen to the one vehicle whose whole job is being on water. */
+            int flying = (cars[i].type==VEH_HELI && heli_aloft(b->x, b->y)) ||
+                         (cars[i].type==VEH_BOAT && boat_afloat(b->x, b->y));
             if (!flying && blocked_bldg_w(b->x, b->y)){ b->x=prex[i]; b->y=prez[i]; b->vx*=0.2f; b->vy*=0.2f; }  /* anti-tunnel backstop */
             if (!flying && in_water_w(b->x, b->y)){ cars[i].x=b->x; cars[i].z=b->y; drown(); continue; }
             /* ANY real contact with a squad car counts, not just a heavy crash.
