@@ -66,7 +66,8 @@ itself up again when you let go of `B`.
 - **Save and load** — a settings tab on the pause screen, plus a persisted best-cash record.
 - **A flyable helicopter** — parked on an open pad somewhere in the city, with a 45 m ceiling, rooftop landings, flight over water and buildings, an altitude readout in place of the speedo, and police who can only shoot at you below 18 m. It hovers rather than ditches over water, because there is only one of them.
 - **Hidden content** — a treasure island in the bottom-left water reached by a footbridge, weapon and cash caches in the forests, five more on the roofs of tall buildings that only the helicopter can reach, a rare one-shot rocket launcher, and a drivable tank with finite shells.
-- **Street detail** — park benches on plazas and pavements, railings on the long bridges, palm trees on the waterline, zebra crossings and phone boxes.
+- **Street detail** — street lamps along the kerbs whose heads light up at dusk, bus stops with a sign facing the road, park benches on plazas and pavements, railings on the long bridges, palm trees on the waterline, puddles on the road while it rains, zebra crossings and phone boxes.
+- **City ambience** — a siren somewhere else in the city every twenty seconds or so, quiet enough to read as distance, and only when nothing is chasing you.
 - **Beaches** — a quarter of the waterfront is sand two tiles deep, wet on the waterline and dry behind it, with the seawall dropped where it meets the water.
 - **Draw budget** — cone culling, a banded draw distance with a haze band and ground skirt, and every pool (triangles, billboards, discs, shadows) sized from a measured host profile.
 

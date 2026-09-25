@@ -2270,6 +2270,120 @@ static void draw_clouds(void) {
 #define DETAIL_MAX  16     /* pieces per frame: at 4 tris each this is the
                             * cap that kept the worst scene under 750 of 850 */
 
+/* Street furniture that stands UP: lamps and bus stops.
+ *
+ * Their own ring and their own cap, not the bench budget. They are tall and
+ * thin, so they read from much further away than a bench does and want a
+ * longer range — but they are also on nearly every pavement tile, so sharing
+ * DETAIL_MAX would starve the benches and railings entirely.
+ *
+ * Placement is from the tile coordinate, not a hash: lamps go at a fixed
+ * spacing along a kerb, which is what makes a line of them read as street
+ * lighting rather than as scattered poles. A bus stop replaces a lamp at a
+ * much rarer interval, so the two never collide.
+ *
+ * Nothing is stored. A lamp is four triangles (post plus head) and a stop is
+ * six (post, sign, and the sign's back).
+ *
+ * Height: the head sits at 4.2 m, which the chase camera loses off the top of
+ * the frame inside about 19 m in a car — but the POST runs to the ground, so
+ * what you lose up close is the lamp, not the object. That is the same trade
+ * the traffic lights make and it reads fine.
+ */
+#define LAMP_RING   12      /* tiles (48 m) */
+#define LAMP_MAX    14      /* posts per frame */
+#define LAMP_EVERY   5      /* tiles between lamps along a kerb */
+#define STOP_EVERY  35      /* and between bus stops */
+/* Puddles ride the same walk. They are on ROAD tiles, which this pass skips
+ * anyway, so they cost one extra branch and no second scan. Two triangles
+ * each, placed and sized from the tile hash, and only while it is actually
+ * wet — they fade in with g_wet and are gone the moment the road dries, which
+ * is the whole point of them. */
+#define PUDDLE_MAX  10
+static void draw_street_lamps(void) {
+    int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0, np = 0;
+    int night = (sun_elev() < 0.06f);
+    int wet = (g_wet > 0.25f);
+    uint16_t pud = rgb565(rgb_lerp(g_haze_near, (Rgb){70,96,124}, 0.55f + 0.35f*g_wet));
+    const uint16_t POST = MOTE_RGB565(96, 98,108);
+    const uint16_t HEAD = night ? MOTE_RGB565(255,232,150) : MOTE_RGB565(150,152,162);
+    const uint16_t SIGN = MOTE_RGB565(40,110,180), SIGNB = MOTE_RGB565(28, 78,130);
+    for (int r = 1; r <= LAMP_RING && n < LAMP_MAX; r++) {
+        for (int dz = -r; dz <= r && n < LAMP_MAX; dz++)
+        for (int dx = -r; dx <= r && n < LAMP_MAX; dx++) {
+            if (dx != -r && dx != r && dz != -r && dz != r) continue;
+            int x = cx + dx, z = cz + dz;
+            char tt = tile_at(x, z);
+            if (wet && np < PUDDLE_MAX && (tt == '.' || tt == 'B')) {
+                unsigned ph = (unsigned)(x*374761393u ^ z*668265263u);
+                if ((ph & 7) == 0) {                         /* one road tile in eight */
+                    float wx2 = x*TILE + 0.8f + (float)((ph >> 4) & 3),
+                          wz2 = z*TILE + 0.8f + (float)((ph >> 8) & 3);
+                    if (gta3_view_tile(&g_view, wx2, 0.03f, wz2, VIEW_GROUND_R, TILE)) {
+                        float rr = 0.55f + 0.30f * (float)((ph >> 12) & 3);
+                        float ss = rr * 0.62f;               /* oval, not a circle */
+                        np++;
+                        mote->scene_add_tri(v3(wx2-rr,0.025f,wz2-ss), v3(wx2+rr,0.025f,wz2-ss),
+                                            v3(wx2+rr,0.025f,wz2+ss), pud, 0);
+                        mote->scene_add_tri(v3(wx2-rr,0.025f,wz2-ss), v3(wx2+rr,0.025f,wz2+ss),
+                                            v3(wx2-rr,0.025f,wz2+ss), pud, 0);
+                    }
+                }
+            }
+            if (tt != ',') continue;
+            /* Which side is the road? That is the way the lamp arm reaches and
+             * the way a bus-stop sign faces. */
+            int rx = 0, rz = 0;
+            if      (is_roadlike(x+1, z)) rx =  1;
+            else if (is_roadlike(x-1, z)) rx = -1;
+            else if (is_roadlike(x, z+1)) rz =  1;
+            else if (is_roadlike(x, z-1)) rz = -1;
+            else continue;                      /* not a kerb tile */
+            /* Spaced along the kerb, measured on the axis the kerb RUNS along,
+             * so a straight run of pavement gets evenly spaced posts. */
+            int along = rx ? z : x;
+            int stop  = (along % STOP_EVERY) == 0;
+            if (!stop && (along % LAMP_EVERY) != 0) continue;
+            float wx = x*TILE + TILE*0.5f, wz = z*TILE + TILE*0.5f;
+            if (!gta3_view_tile(&g_view, wx, 2.0f, wz, VIEW_GROUND_R, TILE)) continue;
+            n++;
+            /* stand it on the kerb edge, a little way toward the road */
+            float px = wx + rx*TILE*0.30f, pz = wz + rz*TILE*0.30f;
+            float ux = (float)rz, uz = (float)-rx;     /* along the kerb */
+            const float PW = 0.085f;
+            if (stop) {
+                /* BUS STOP: a post with a flag sign facing the road. */
+                mote->scene_add_tri(v3(px-ux*PW,0.0f,pz-uz*PW), v3(px+ux*PW,0.0f,pz+uz*PW),
+                                    v3(px+ux*PW,2.45f,pz+uz*PW), POST, 0);
+                mote->scene_add_tri(v3(px-ux*PW,0.0f,pz-uz*PW), v3(px+ux*PW,2.45f,pz+uz*PW),
+                                    v3(px-ux*PW,2.45f,pz-uz*PW), POST, 0);
+                float sw = 0.42f, y0 = 1.80f, y1 = 2.40f;
+                float ax = px - ux*0.04f, az = pz - uz*0.04f;   /* clear of the post */
+                mote->scene_add_tri(v3(ax,y0,az), v3(ax+ux*sw,y0,az+uz*sw),
+                                    v3(ax+ux*sw,y1,az+uz*sw), SIGN, 0);
+                mote->scene_add_tri(v3(ax,y0,az), v3(ax+ux*sw,y1,az+uz*sw),
+                                    v3(ax,y1,az), SIGN, 0);
+                /* a darker band along the bottom so it is not one flat card */
+                mote->scene_add_tri(v3(ax,y0,az), v3(ax+ux*sw,y0,az+uz*sw),
+                                    v3(ax+ux*sw,y0+0.14f,az+uz*sw), SIGNB, 0);
+                mote->scene_add_tri(v3(ax,y0,az), v3(ax+ux*sw,y0+0.14f,az+uz*sw),
+                                    v3(ax,y0+0.14f,az), SIGNB, 0);
+            } else {
+                /* LAMP: post, then a head cantilevered out over the road. */
+                mote->scene_add_tri(v3(px-ux*PW,0.0f,pz-uz*PW), v3(px+ux*PW,0.0f,pz+uz*PW),
+                                    v3(px+ux*PW,4.20f,pz+uz*PW), POST, 0);
+                mote->scene_add_tri(v3(px-ux*PW,0.0f,pz-uz*PW), v3(px+ux*PW,4.20f,pz+uz*PW),
+                                    v3(px-ux*PW,4.20f,pz-uz*PW), POST, 0);
+                float hx = px + rx*0.85f, hz = pz + rz*0.85f;     /* out over the kerb */
+                mote->scene_add_tri(v3(px,4.20f,pz), v3(hx,4.05f,hz),
+                                    v3(hx+ux*0.26f,3.95f,hz+uz*0.26f), HEAD, 0);
+                mote->scene_add_tri(v3(px,4.20f,pz), v3(hx+ux*0.26f,3.95f,hz+uz*0.26f),
+                                    v3(px+ux*0.26f,4.10f,pz+uz*0.26f), HEAD, 0);
+            }
+        }
+    }
+}
+
 static void draw_street_detail(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0;
     const uint16_t RAIL  = MOTE_RGB565(150,152,160);
@@ -6621,6 +6735,17 @@ static void g_update(float dt) {
           float dx=cars[i].x-pl_x(), dz=cars[i].z-pl_z();
           if (dx*dx+dz*dz<70.0f*70.0f){ chase=1; break; } }
       if (chase && s_siren<=0){ sfx(s_tone?&siren_hi_sfx:&siren_lo_sfx, 0.34f); s_tone^=1; s_siren=0.44f; } }
+    /* CITY AMBIENCE: a siren somewhere else in the city, now and then, at a
+     * gain low enough to read as distance. It only plays when you are NOT
+     * wanted — with heat on you the chase siren is already running and a
+     * second one would just muddy it. Costs one float and one sample that is
+     * already in flash. */
+    { static float s_amb = 9.0f;
+      s_amb -= dt;
+      if (s_amb <= 0.0f) {
+          s_amb = 14.0f + frand() * 26.0f;
+          if (wanted() == 0 && g_state == ST_PLAY) sfx(&siren_sfx, 0.10f);
+      } }
     /* a phone box RINGS when you're looking for work and get close — louder the nearer you are */
     { static float s_ring; s_ring-=dt;
       if (mission==MI_NONE && !g_brief_active && g_state==ST_PLAY){
@@ -6651,6 +6776,7 @@ static void g_update(float dt) {
     draw_sky_body();
     draw_clouds();
     draw_traffic_lights();
+    draw_street_lamps();
     draw_street_detail();
     draw_water_shimmer();
     /* Buildings are submitted AFTER the entities below: the textured-tri pool is
