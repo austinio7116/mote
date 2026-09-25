@@ -182,8 +182,9 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->half_wid = 0.99f * 0.5f;
         /* ENGLISH BALLS ON AN ENGLISH TABLE. This bed was carrying American
          * 2 1/4 in balls (57.15 mm, 170 g), which is the wrong ball for both
-         * games played on it. English pool is 2.000 in ± 0.005 (50.8 mm) at
-         * 4.5-5.0 oz under WEPF rules, and a 7 ft snooker set is the same size.
+         * games played on it. English pool is 2.000 in ± 0.005 (50.8 mm) --
+         * about 118 g for an Aramith 2 in ball -- and a 7 ft snooker set is
+         * the same size.
          *
          * Everything around it is written in BALL-RADII, so the pockets would
          * have followed the ball down. They are rescaled below to keep the cut
@@ -194,7 +195,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * omega = (r x J)/I with both J and I proportional to m. */
         t->R = 0.0254f; t->mass = 0.116f;
         /* AND THE WHITE IS SMALLER, which is the thing about an English table.
-         * 47.6 mm and 94 g against the object balls' 50.8 and 116 — the
+         * 47.6 mm and 97 g against the object balls' 50.8 and 116 — the
          * convention comes from coin-op ball returns needing to tell the cue
          * ball from the rest, and it is what a pub table has in it.
          *
@@ -203,7 +204,11 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * lower against the cushion nose. Both fall out of the physics now that
          * a ball carries its own size and weight rather than borrowing the
          * set's. */
-        t->cue_R = 0.0238f; t->cue_mass = 0.094f;
+        /* 97 g: a 1 7/8 in white of the same resin as a 2 in 118 g ball
+         * weighs (47.6/50.8)^3 of it. It was 94, which made the white less
+         * dense than the balls it plays -- 3 % light, a touch more recoil off
+         * a full ball and a touch less through the rack. */
+        t->cue_R = 0.0238f; t->cue_mass = 0.097f;
         t->cushion_h = 1.27f * t->R; t->rail_w = 0.075f;
         t->pocket_round = 1;
         /* TIGHTER THAN THEY WERE, and about the size a 7 ft table's pockets

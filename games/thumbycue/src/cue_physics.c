@@ -742,7 +742,7 @@ static CUE_HOT int collide_ball_ball(const CueWorld *w, CueBall *bi, CueBall *bj
     if (vn >= 0.0f) return 0;                  /* separating already */
 
     /* Normal impulse. Written with both masses because English pool's cue ball
-     * is lighter than the balls it strikes — 94 g against 116 — and with equal
+     * is lighter than the balls it strikes — 97 g against 116 — and with equal
      * masses this is exactly the old m/2 reduced mass. */
     const float mi = cue_ball_m(w, bi), mj = cue_ball_m(w, bj);
     float Jn = -(1.0f + w->e_bb) * vn / (1.0f / mi + 1.0f / mj);
