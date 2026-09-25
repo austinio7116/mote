@@ -1010,17 +1010,20 @@ static const uint8_t CAR_CLS[54] = {
 /* accel · maxspd · turn · grip (tyre lat_damp) · mass factor.
  *
  * The SPORTS tier was barely quicker than a taxi: 25 against the sedan's 18,
- * on a scale where vmax is maxspd * 1.3. It now runs 28 (131 km/h against the
- * sedan's 84) with grip up from 26 to 29 and more steering authority, so it
- * both goes and holds on. RACER is lifted with it to keep the supercars above
- * the sports cars rather than beside them, and CLASSICSPT gets a smaller lift
- * so the old sports cars stay characterful without matching the modern ones. */
+ * on a scale where vmax is maxspd * 1.3. It now runs 28 with grip up from 26
+ * to 29 and more steering authority, so it both goes and holds on.
+ *
+ * RACER is the top tier and now does a genuine 100 mph. maxspd is not the top
+ * speed: drag (pull = 1 - (v/vmax)^2) settles a car near 86% of vmax rather
+ * than at it, so the number was swept against a measured run rather than
+ * derived -- 31 gave 77 mph, 36 gave 88, 40 gave 95, and 43 gives 101.
+ * Measured top speeds now: RACER 101 mph, SPORTS 70, a plain sedan 40. */
 static const float CLS_STAT[19][5] = {
  /* SEDAN     */ { 25, 18, 2.4f, 22, 1.00f },
  /* COMPACT   */ { 26, 18, 2.7f, 24, 0.95f },
  /* COUPE     */ { 27, 20, 2.6f, 22, 1.00f },
  /* SPORTS    */ { 39, 28, 3.05f, 29, 0.92f },
- /* RACER     */ { 43, 31, 3.25f, 31, 0.88f },
+ /* RACER     */ { 43, 43, 3.25f, 31, 0.88f },
  /* MUSCLE    */ { 33, 24, 2.1f, 15, 1.15f },
  /* HOTHATCH  */ { 30, 21, 2.9f, 25, 0.90f },
  /* CLASSIC   */ { 21, 16, 2.2f, 20, 1.10f },
@@ -3368,6 +3371,22 @@ static void chase_camera(float tx, float tz, float yaw, float dt) {
         dist   = CAM_CAR_D0 + (CAM_CAR_D1 - CAM_CAR_D0) * s;
         height = CAM_CAR_H0 + (CAM_CAR_H1 - CAM_CAR_H0) * s;
         look   = CAM_CAR_L0 + (CAM_CAR_L1 - CAM_CAR_L0) * s;
+        /* BIG VEHICLES need the camera further back and a lot higher. The
+         * framing above is one set of numbers for every vehicle, tuned on a
+         * 4.5 m car; behind an 8.6 m bus or a tank with a turret on it the eye
+         * sits below the roofline and you cannot see the road at all. Scaling
+         * on length alone is enough because in this game the long vehicles are
+         * also the tall ones. Height is lifted harder than distance: the
+         * problem is seeing OVER the thing, not being close to it. */
+        float big = mote_clampf((VSTAT[cars[player.car].type].len - 4.8f) / 3.8f,
+                                0.0f, 1.0f);
+        /* The tank is the one vehicle whose height its LENGTH does not
+         * predict: at 6.2 m it scores 0.37, but the turret sitting on top of
+         * the hull makes it taller in the frame than the 8.6 m bus. */
+        if (cars[player.car].type == VEH_TANK && big < 0.80f) big = 0.80f;
+        dist   *= 1.0f + big * 0.55f;
+        height *= 1.0f + big * 1.10f;
+        look   *= 1.0f + big * 0.40f;
     }
     /* Gate on MODE_FOOT at the point of USE, not at each mode transition.
      * player.mode can flip to CAR inside the on-foot input branch (jacking a
@@ -3747,7 +3766,18 @@ static void update_pickups(float dt) {
     for (int i=0;i<NPICK;i++){ Pickup*p=&picks[i]; if(!p->alive) continue;
         p->bob+=dt*4;
         float dx=p->x-pl_x(), dz=p->z-pl_z();
-        if (dx*dx+dz*dz<2.2f){ p->alive=0; sfx(&cash_sfx,0.7f);
+        /* HEIGHT MATTERS for the rooftop caches. The reach test is 2D, so
+         * without this you would hoover a roof cache up by walking under the
+         * building. pl_y() is the helicopter's altitude when you are flying it
+         * and zero otherwise, so a roof cache is reachable only by bringing
+         * the aircraft level with the roof — which is the point of it. */
+        float py = floor_y(p->x, p->z);
+        if (fabsf(pl_y() - py) > 3.0f) continue;
+        /* A wider reach up there. The 1.5 m the on-foot radius gives is fine
+         * when you can walk onto a crate; hovering a 7 m aircraft that
+         * precisely is not the game. */
+        float reach = (py > 0.5f) ? 16.0f : 2.2f;
+        if (dx*dx+dz*dz<reach){ p->alive=0; sfx(&cash_sfx,0.7f);
             if (g_dm){ dm_send2('T',(uint8_t)i); g_dmpkt[i]=20.0f; }
             switch(p->kind){
                 case PK_CASH: { int amt=25+irand(40); cash+=amt;
@@ -4619,6 +4649,24 @@ static void reset_game(void) {
           unsigned h=(unsigned)(tx*668265263u ^ tz*374761393u);
           if ((h&3)==0) continue;                     /* the scenery pass skips these */
           add_pickup(tx*TILE+TILE*0.5f+1.6f, tz*TILE+TILE*0.5f+1.6f, WOOD[irand(6)]);
+          placed++;
+      } }
+    /* ROOFTOP CACHES — the reward for finding the helicopter.
+     *
+     * Five of them, on the roofs of TALL buildings only ('H', the top height
+     * band), so they cannot be reached on foot and are worth the trip. The
+     * best prizes in the game go here: the rocket, the flamer, a full medkit
+     * and cash, rather than another pistol.
+     *
+     * They need no new field. A pickup's height is floor_y() at its position,
+     * which is the roof it stands on, and update_pickups uses the same lookup
+     * to decide you have to be level with it to take it. */
+    { static const uint8_t ROOF[5]={PK_ROCKET,PK_FLAME,PK_HEALTH,PK_CASH,PK_SHOTGUN};
+      int placed=0;
+      for (int t=0;t<4000 && placed<5;t++){
+          int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
+          if (tile_at(tx,tz)!='H' || is_garage(tx,tz)) continue;
+          add_pickup(tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, ROOF[placed]);
           placed++;
       } }
     /* weapons + medkits scattered on pavements around the start */
@@ -5960,7 +6008,21 @@ static void g_update(float dt) {
                    * build. The scan is the whole map: some seeds have no water
                    * within reach of the pad, and a hook that silently does
                    * nothing is worse than no hook. */
-                  if (m2 >= 3){
+                  /* =5 parks it over the nearest ROOFTOP CACHE, which is the
+                   * only practical way to test those: they land on random tall
+                   * roofs and finding one by flying about takes thousands of
+                   * frames. */
+                  if (m2 == 5){
+                      int best=-1; float bd=1e18f;
+                      for (int k=0;k<NPICK;k++){ Pickup*pk=&picks[k];
+                          if (!pk->alive) continue;
+                          float fy=floor_y(pk->x,pk->z); if (fy < 0.5f) continue;
+                          float dx2=pk->x-h->x, dz2=pk->z-h->z, d2=dx2*dx2+dz2*dz2;
+                          if (d2<bd){ bd=d2; best=k; } }
+                      if (best>=0){ h->x=picks[best].x; h->z=picks[best].z;
+                                    bodies[HELI_SLOT].x=h->x; bodies[HELI_SLOT].y=h->z;
+                                    g_heli_y = floor_y(h->x,h->z) + 10.0f; }
+                  } else if (m2 >= 3){
                       char want = (m2 >= 4) ? '~' : 'H';
                       int px0=(int)(h->x/TILE), pz0=(int)(h->z/TILE), bx=-1, bz=-1, bd=1<<30;
                       for (int z=0; z<MAPH; z++) for (int x=0; x<MAPW; x++){
@@ -6565,8 +6627,11 @@ static void g_update(float dt) {
      * matter — see bb_add. */
     for (int i=0;i<NPICK;i++){ Pickup*p=&picks[i]; if(!p->alive||p->kind==PK_PACKAGE) continue;
         float bob = 0.15f * sinf(p->bob);
-        bb_add(&pickups_img, p->x, 0.6f+bob, p->z, p->kind*16, 0, 16, 16, 1.0f,
-              MOTE_BLEND_NONE, VIEW_GROUND_R, 1.0f);
+        /* floor_y, not 0: a cache on a roof sits ON that roof. Every other
+         * pickup is on a street tile, where floor_y is 0 and this is the
+         * height it always had. */
+        bb_add(&pickups_img, p->x, floor_y(p->x,p->z) + 0.6f + bob, p->z,
+              p->kind*16, 0, 16, 16, 1.0f, MOTE_BLEND_NONE, VIEW_GROUND_R, 1.0f);
     }
     for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive) continue;
         if (p->iscop){

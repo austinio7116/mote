@@ -64,7 +64,7 @@ itself up again when you let go of `B`.
 - **Rotating minimap** — a live radar under the title bar, hideable from the settings page.
 - **Save and load** — a settings tab on the pause screen, plus a persisted best-cash record.
 - **A flyable helicopter** — parked on an open pad somewhere in the city, with a 45 m ceiling, rooftop landings, flight over water and buildings, an altitude readout in place of the speedo, and police who can only shoot at you below 18 m. It hovers rather than ditches over water, because there is only one of them.
-- **Hidden content** — a treasure island in the bottom-left water reached by a footbridge, weapon and cash caches in the forests, a rare one-shot rocket launcher, and a drivable tank with finite shells.
+- **Hidden content** — a treasure island in the bottom-left water reached by a footbridge, weapon and cash caches in the forests, five more on the roofs of tall buildings that only the helicopter can reach, a rare one-shot rocket launcher, and a drivable tank with finite shells.
 - **Street detail** — park benches on plazas and pavements, railings on the long bridges, palm trees on the waterline, zebra crossings and phone boxes.
 - **Beaches** — a quarter of the waterfront is sand two tiles deep, wet on the waterline and dry behind it, with the seawall dropped where it meets the water.
 - **Draw budget** — cone culling, a banded draw distance with a haze band and ground skirt, and every pool (triangles, billboards, discs, shadows) sized from a measured host profile.
@@ -89,7 +89,7 @@ two `case`s in the settings switch — nothing else refers to them.
 The host-only equivalents are environment variables, which are no use with the
 handheld in your hands: `MOTE_GTA_TP_HELI=1` stands beside the aircraft, `2`
 puts you in it already airborne, `3` also parks it over the nearest tall roof,
-and `4` over the nearest water. `MOTE_GTA_TP_TANK=1` stands beside the tank,
+`4` over the nearest water, and `5` over the nearest rooftop cache. `MOTE_GTA_TP_TANK=1` stands beside the tank,
 and `MOTE_GTA_CARTYPE=<n>` forces the type of the first eight traffic cars so a
 given silhouette can be got on camera.
 
