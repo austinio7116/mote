@@ -2000,10 +2000,19 @@ static void draw_sky_body(void) {
     } else {
         /* Low sun reddens toward the horizon colour it is painting anyway, so
          * the disc and the sky agree at dawn and dusk instead of a white dot
-         * sitting on an orange band. */
+         * sitting on an orange band.
+         *
+         * A HALO and a bright core, because the clouds sit in the same band of
+         * sky at a similar size and the plain warm disc was being read as one
+         * of them. The halo is the warm tone at the old radius; the core is a
+         * smaller, much brighter disc on top of it, which nothing else in the
+         * sky has. */
         float lift = elev > 0.45f ? 1.0f : elev / 0.45f;
         Rgb warm = { 250, 180, 90 };
-        mote->scene_add_disc(p, 16.0f, rgb565(rgb_lerp(g_sky_hor, warm, 0.55f + 0.45f * lift)));
+        Rgb core = { 255, 246, 214 };
+        Rgb glow = rgb_lerp(g_sky_hor, warm, 0.55f + 0.45f * lift);
+        mote->scene_add_disc(p, 19.0f, rgb565(glow));
+        mote->scene_add_disc(p, 11.0f, rgb565(rgb_lerp(glow, core, 0.75f)));
     }
 }
 
@@ -2030,11 +2039,22 @@ static void draw_clouds(void) {
     float e = sun_elev();
     if (e < 0.10f) return;
     float fade = (e < 0.30f) ? (e - 0.10f) / 0.20f : 1.0f;
-    Rgb white = { 248, 250, 255 };
-    uint16_t col = rgb565(rgb_lerp(g_sky_hor, white, 0.30f + 0.55f * fade));
+    /* Off-white, not white. The sun is the brightest thing in the sky and it
+     * has to stay that way — a pure white puff the same size as the disc is
+     * what made the two hard to tell apart. */
+    Rgb pale = { 226, 230, 240 };
+    uint16_t col = rgb565(rgb_lerp(g_sky_hor, pale, 0.30f + 0.55f * fade));
+    float sun_az = 6.2831853f * g_tod;
     for (int i = 0; i < CLOUDS; i++) {
         unsigned h = ((unsigned)i * 2654435761u) ^ 0x85ebca6bu;
         float az = (float)(h & 1023) * (6.2831853f / 1024.0f) + g_tod * 1.7f;
+        /* Nothing within about 12 degrees of the sun's bearing. Two round pale
+         * things side by side in the same patch of sky is the confusion, and
+         * the cheapest fix is to not put them there. */
+        float rel = az - sun_az;
+        while (rel >  3.1415927f) rel -= 6.2831853f;
+        while (rel < -3.1415927f) rel += 6.2831853f;
+        if (fabsf(rel) < 0.21f) continue;
         float de = 0.020f + (float)((h >> 10) & 255) * (0.055f / 255.0f);
         float ce = cosf(de);
         Vec3 d = v3(sinf(az) * ce, sinf(de), cosf(az) * ce);
@@ -2042,8 +2062,23 @@ static void draw_clouds(void) {
                     cam_pos.y + d.y * CLOUD_D,
                     cam_pos.z + d.z * CLOUD_D);
         float r = 13.0f + (float)((h >> 18) & 7);
-        /* A second lobe, offset along the horizon, so a puff is not a circle. */
+        /* FLAT BOTTOM, round top — which is what separates a cloud from a
+         * circle, and from the sun.
+         *
+         * The two discs are the bumps along the top. Under them sits a quad
+         * running from the disc centres down to a common base line, so the
+         * silhouette is a straight edge underneath with lobes rising out of
+         * it. The quad has to be built camera-facing, the same way the traffic
+         * light heads are: a world-space quad in a fixed plane is edge-on and
+         * invisible from half the compass. */
         float sx = cosf(az) * r * 1.15f, sz = -sinf(az) * r * 1.15f;
+        float ux = cosf(az), uz = -sinf(az);          /* horizontal perpendicular to the view */
+        float halfw = r * 1.15f + r * 0.75f;          /* out to the far edge of the second lobe */
+        float base  = p.y - r * 0.62f;
+        float x0 = p.x - ux * r,       z0 = p.z - uz * r;
+        float x1 = p.x + ux * halfw,   z1 = p.z + uz * halfw;
+        mote->scene_add_tri(v3(x0, base, z0), v3(x1, base, z1), v3(x1, p.y, z1), col, 0);
+        mote->scene_add_tri(v3(x0, base, z0), v3(x1, p.y, z1), v3(x0, p.y, z0), col, 0);
         mote->scene_add_disc(p, r, col);
         mote->scene_add_disc(v3(p.x + sx, p.y - r * 0.18f, p.z + sz), r * 0.75f, col);
     }
@@ -2159,8 +2194,34 @@ static void draw_street_detail(void) {
             }
             if (!gta3_view_tile(&g_view, wx, 0.5f, wz, VIEW_GROUND_R, TILE)) continue;
             n++;
-            /* bench: seat then back, turned one of four ways by the same hash */
+            /* bench: seat then back. On a PAVEMENT tile the bench faces the
+             * STREET — seat parallel to the kerb, back to the buildings —
+             * which is where a real one points and what stops half of them
+             * sitting side-on to the road. The turn code is two bits: bit 0
+             * picks the seat's axis (0 = along Z, 1 = along X) and bit 1 flips
+             * which side the backrest is on, so the road's direction maps
+             * straight onto it:
+             *     road east  (+x) -> seat along Z, back at -x -> 2
+             *     road west  (-x) -> seat along Z, back at +x -> 0
+             *     road south (+z) -> seat along X, back at -z -> 3
+             *     road north (-z) -> seat along X, back at +z -> 1
+             * Plaza benches keep the hash: there is no street to face. */
             { int turn = (int)((h >> 12) & 3);
+              /* Three tiles, not one. Measured over three maps: only 68% of
+               * pavement bench tiles touch a road directly, so a one-tile test
+               * left a third of them on the random hash — which is the third
+               * that faced a wall. Two tiles reaches 80-84%, three reaches
+               * 84-92%, and 12 m is still plainly "the bench by that street".
+               * At most twelve tile_at calls, on at most DETAIL_MAX 16 benches
+               * a frame. */
+              if (t == ',') {
+                  for (int d = 1; d <= 3; d++) {
+                      if      (is_roadlike(x+d, z)) { turn = 2; break; }
+                      else if (is_roadlike(x-d, z)) { turn = 0; break; }
+                      else if (is_roadlike(x, z+d)) { turn = 3; break; }
+                      else if (is_roadlike(x, z-d)) { turn = 1; break; }
+                  }
+              }
               float ax = (turn & 1) ? 0.62f : 0.0f, az = (turn & 1) ? 0.0f : 0.62f;
               float bxo = (turn & 1) ? 0.0f : 0.22f,  bzo = (turn & 1) ? 0.22f : 0.0f;
               if (turn & 2) { bxo = -bxo; bzo = -bzo; }
@@ -7116,11 +7177,12 @@ static const MoteGameVtbl k_vtbl = {
      * invisible until someone hits it on hardware. */
     .config = { .max_tex_tris = 1100, .max_tris = 850, .depth = 1,
                 .max_points = WATER_FLECKS_MAX,   /* water shimmer, depth-tested in the 3D pass */
-                /* sun/moon (1) + car lamps (4 per car inside VEH_DETAIL_R,
-                 * so up to ~36) + clouds (CLOUDS * 2 = 14). 40 left no room
-                 * for the clouds, and since they are submitted first the
-                 * overflow would have silently eaten CAR LAMPS instead.
-                 * 16 more discs is 256 bytes of engine arena, not GAME_RAM. */
+                /* sun (halo + core = 2, or the moon's 1) + car lamps (4 per
+                 * car inside VEH_DETAIL_R, so up to ~36) + cloud lobes
+                 * (CLOUDS * 2 = 14) = 52. 40 left no room for the clouds, and
+                 * since they are submitted first the overflow would have
+                 * silently eaten CAR LAMPS instead. 16 more discs is 256 bytes
+                 * of engine arena, not GAME_RAM. */
                 .max_discs  = 56,
                 /* max_shadows = 64, not 40: worst case is 18 car + up to 34
                  * in-view ped shadows = 52, which already exceeded 40 with
