@@ -279,7 +279,12 @@ int main(void) {
                 }
             }
         ok(distinct, "coupe, sports and classicspt are three different shapes");
-        ok(gta3_sil_for_class(14) != gta3_sil_for_class(0), "a taxi is not a plain sedan");
+        /* TAXI is folded into WAGON (see gta3_veh.h). What makes a taxi a taxi
+         * is now its yellow paint and its roof sign, both keyed on CAR_TAXI in
+         * draw_vehicle_mesh, not its silhouette. Assert the fold rather than a
+         * distinction that no longer exists. */
+        ok(gta3_sil_for_class(14) == GTA3_SIL_WAGON,
+           "the taxi handling class draws as a wagon");
     }
 
     /* 6. lamp styles: in range for every silhouette, out-of-range falls back,

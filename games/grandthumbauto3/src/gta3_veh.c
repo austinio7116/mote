@@ -21,7 +21,7 @@ static const unsigned char SIL[19] = {
     GTA3_SIL_VAN,        /* 11 VAN        */
     GTA3_SIL_PICKUP,     /* 12 PICKUP     */
     GTA3_SIL_JEEP,       /* 13 JEEP       */
-    GTA3_SIL_TAXI,       /* 14 TAXI       */
+    GTA3_SIL_WAGON,      /* 14 TAXI  -> folded into WAGON, see gta3_veh.h */
     GTA3_SIL_SEDAN,      /* 15 POLICE     */
     GTA3_SIL_TRUCK,      /* 16 AMBULANCE  */
     GTA3_SIL_TRUCK,      /* 17 FIRETRUCK  */
@@ -50,7 +50,6 @@ static const unsigned char LAMP[GTA3_SIL_N] = {
     /* JEEP       */ GTA3_LAMP_ROUND,
     /* SPORTS     */ GTA3_LAMP_BAR,
     /* CLASSICSPT */ GTA3_LAMP_ROUND,
-    /* TAXI       */ GTA3_LAMP_ROUND,
     /* HELI       */ GTA3_LAMP_ROUND,
     /* BUS        */ GTA3_LAMP_RECT,
     /* TANK       */ GTA3_LAMP_RECT,
@@ -93,7 +92,6 @@ static const Sil SILDEF[GTA3_SIL_N] = {
     /* JEEP       */ { 44, 86, -60,  58, 92 },   /* short and tall, near-vertical glass */
     /* SPORTS     */ { 26, 46, -58,   2, 82 },   /* long bonnet, cabin set back toward the tail */
     /* CLASSICSPT */ { 32, 60, -58,   6, 84 },   /* long bonnet under a tall upright glasshouse */
-    /* TAXI       */ { 38, 70, -52,  44, 90 },   /* a sedan made taller and squarer */
     /* HELI: the three boxes read as an aircraft rather than a car.
      *   body_h 44 / cab_top 76 — a shallower fuselage under a lower canopy.
      *     At 54/86 both boxes were deep enough that the whole thing read as

@@ -29,6 +29,20 @@
 
 #include "mote_mesh.h"
 
+/* TAXI is GONE too, folded into WAGON. On the same weighted parameter distance
+ * that retired LUXURY, WAGON and TAXI were 14.4 apart against the roughly 12
+ * the per-type cabin jitter already covers. A taxi is not identified by its
+ * shape any more: draw_vehicle_mesh paints CAR_TAXI yellow and gives it a black
+ * roof sign, and both survive the fold. What it loses is two units of body
+ * height and eleven of cabin length, which buys the 576 bytes of GAME_RAM the
+ * boat's silhouette costs.
+ *
+ * NOT folded, though it is closer at 13.0: SEDAN and COMPACT. They are the two
+ * biggest users, 15 of the 54 car types between them, and merging them takes
+ * the worst-case silhouette share from 17% to 28% — undoing the split that
+ * brought it down from 46%. Closest is not the same as foldable.
+ */
+
 /* LUXURY is GONE, folded into COUPE. Measured across all sixteen rows on a
  * weighted parameter distance, COUPE and LUXURY were the closest pair that was
  * not simply the two biggest users: 13.8, against the roughly 12 that the
@@ -54,7 +68,6 @@ enum { GTA3_SIL_SEDAN, GTA3_SIL_COMPACT, GTA3_SIL_COUPE, GTA3_SIL_LONGHOOD,
        GTA3_SIL_JEEP,     /* short, tall, upright glasshouse */
        GTA3_SIL_SPORTS,   /* low, cabin pushed forward over a long tail */
        GTA3_SIL_CLASSICSPT, /* long bonnet, tall upright glasshouse */
-       GTA3_SIL_TAXI,     /* a sedan made taller and boxier — cab proportions */
        /* The helicopter reuses the three-box layout as fuselage / canopy /
         * skids rather than body / cabin / wheels, so it needs no new fields and
         * no new builder — only its own SILDEF row. The rotor is not in the mesh:
