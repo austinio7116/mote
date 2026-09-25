@@ -1649,6 +1649,14 @@ static const char *g_setmsg; static float g_setmsg_t;
  * dying would otherwise not stick, which is exactly how someone would test it. */
 #define SAVE0_MAGIC 0x47544131
 static uint8_t g_sound_on = 1;
+/* THREE SAVE SLOTS, numbered 1..3 in the menu. Slot 0 of the platform's eight
+ * is this preferences blob, so the game's saves start at 1 and g_slot is the
+ * 0-based index into them.
+ *
+ * Which slot you last picked rides the same flags word as the sound setting —
+ * two bits, free, and it means the menu comes back where you left it. */
+#define NSAVE_SLOT 3
+static uint8_t g_slot;                  /* 0..NSAVE_SLOT-1; platform slot = g_slot + 1 */
 static void save_prefs(void);
 /* Where a debug-delivered vehicle lands: ALWAYS straight in front of you,
  * stepping closer until the tile is somewhere one can sit. A pad search picks a
@@ -1815,7 +1823,11 @@ static void g_init(void) {
          * current one, whose third int is the flags word. */
         if (got >= (int)(2*sizeof(int)) && b[0]==SAVE0_MAGIC){
             best_cash = b[1];
-            if (got >= (int)(3*sizeof(int))) g_sound_on = (uint8_t)(b[2] & 1);
+            if (got >= (int)(3*sizeof(int))) {
+                g_sound_on = (uint8_t)(b[2] & 1);
+                g_slot     = (uint8_t)((b[2] >> 1) & 3);
+                if (g_slot >= NSAVE_SLOT) g_slot = 0;
+            }
         }
     }
     reset_game();
@@ -3421,7 +3433,8 @@ static void say(const char *m){ g_msg=m; g_msg_t=2.2f; }
  * one blob. Called on every toggle and once more as the death screen fades. */
 static void save_prefs(void){
     if (!mote->save) return;
-    int b[3] = { SAVE0_MAGIC, best_cash, g_sound_on ? 1 : 0 };
+    int b[3] = { SAVE0_MAGIC, best_cash,
+                 (g_sound_on ? 1 : 0) | ((g_slot & 3) << 1) };
     mote->save(0, b, sizeof b);
 }
 
@@ -6044,7 +6057,9 @@ static void draw_vehicle(int i){
  * would otherwise be reinterpreted as live state. */
 #define SAVE_MAGIC 0x33415447u          /* 'GTA3' */
 #define SAVE_VER   1u
-#define SAVE_SLOT  1
+/* The platform slot the game's save lives in. Slot 0 is the preferences and
+ * record blob, so the three game slots are 1, 2 and 3. */
+#define SAVE_SLOT  (1 + g_slot)
 typedef struct {
     uint32_t magic, ver;
     int32_t  cash, best;
@@ -6518,6 +6533,23 @@ static void g_update(float dt) {
         if (g_menutab == TAB_SET) {
             if (mote_just_pressed(in,MOTE_BTN_UP))   g_setsel = (g_setsel+SET_N-1) % SET_N;
             if (mote_just_pressed(in,MOTE_BTN_DOWN)) g_setsel = (g_setsel+1) % SET_N;
+            /* LEFT/RIGHT adjusts the highlighted row where it has something to
+             * adjust. On SAVE or LOAD that is WHICH SLOT, which is why the two
+             * need no row of their own: the number is shown on the row you are
+             * about to act on. */
+            { int adj = (mote_just_pressed(in,MOTE_BTN_RIGHT) ? 1 : 0)
+                      - (mote_just_pressed(in,MOTE_BTN_LEFT)  ? 1 : 0);
+              if (adj) {
+                  if (g_setsel == SET_SAVE || g_setsel == SET_LOAD) {
+                      g_slot = (uint8_t)((g_slot + NSAVE_SLOT + adj) % NSAVE_SLOT);
+                      save_prefs();
+                      g_setmsg = 0;      /* the old SAVED/LOADED line is about another slot */
+                  } else if (g_setsel == SET_MINIMAP) {
+                      g_radar_on = !g_radar_on;
+                  } else if (g_setsel == SET_SOUND) {
+                      g_sound_on = !g_sound_on; save_prefs();
+                  }
+              } }
             if (mote_just_pressed(in,MOTE_BTN_A)) {
                 switch (g_setsel) {
                 case SET_MINIMAP: g_radar_on = !g_radar_on; break;
@@ -7175,12 +7207,21 @@ static void draw_settings(uint16_t *fb) {
         if (val) {
             uint16_t vc = (val[1] == 'N') ? MOTE_RGB565(140,230,140) : MOTE_RGB565(200,120,120);
             mote_ftext(mote, fb, g_fmed, val, 92, y, vc);
+        } else if (i == SET_SAVE || i == SET_LOAD) {
+            /* The slot number, and a dot when that slot already holds a game.
+             * load(slot, 0, 0) returns the stored length, so this is the same
+             * question the loader asks, not a second record of it. */
+            int used = (mote->load && mote->load(1 + g_slot, 0, 0) > 0);
+            char sb[6]; sb[0] = (char)('1' + g_slot); sb[1] = used ? ' ' : 0;
+            sb[2] = used ? '*' : 0; sb[3] = 0;
+            mote_ftext(mote, fb, g_fmed, sb, 92, y,
+                       used ? MOTE_RGB565(235,238,245) : MOTE_RGB565(120,128,146));
         }
     }
     if (g_setmsg && g_setmsg_t > 0.0f)
         mote_ftextc(mote, fb, g_fmed, 64, 99, MOTE_RGB565(250,230,120), g_setmsg);
 
-    mote_ftextc(mote, fb, g_fmed, 64, 109, MOTE_RGB565(150,160,180), "DPAD PICK    A APPLY");
+    mote_ftextc(mote, fb, g_fmed, 64, 109, MOTE_RGB565(150,160,180), "UP/DN PICK  L/R SET");
     mote_ftextc(mote, fb, g_fmed, 64, 119, MOTE_RGB565(150,160,180), "LB  MAP     MENU CLOSE");
 }
 
