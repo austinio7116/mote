@@ -16,7 +16,7 @@ static const unsigned char SIL[19] = {
     GTA3_SIL_COMPACT,    /*  6 HOTHATCH   */
     GTA3_SIL_LONGHOOD,   /*  7 CLASSIC    */
     GTA3_SIL_CLASSICSPT, /*  8 CLASSICSPT */
-    GTA3_SIL_LUXURY,     /*  9 LUXURY     */
+    GTA3_SIL_COUPE,      /*  9 LUXURY  -> folded into COUPE, see gta3_veh.h */
     GTA3_SIL_WAGON,      /* 10 WAGON      */
     GTA3_SIL_VAN,        /* 11 VAN        */
     GTA3_SIL_PICKUP,     /* 12 PICKUP     */
@@ -45,7 +45,6 @@ static const unsigned char LAMP[GTA3_SIL_N] = {
     /* WAGON      */ GTA3_LAMP_RECT,
     /* VAN        */ GTA3_LAMP_RECT,
     /* TRUCK      */ GTA3_LAMP_RECT,
-    /* LUXURY     */ GTA3_LAMP_BAR,
     /* RACER      */ GTA3_LAMP_BAR,
     /* PICKUP     */ GTA3_LAMP_RECT,
     /* JEEP       */ GTA3_LAMP_ROUND,
@@ -88,7 +87,6 @@ static const Sil SILDEF[GTA3_SIL_N] = {
      * the front — so z 96..127 reads as the engine and everything behind 34 is
      * open deck. Narrower too, at 84%, so the bed's sides show past it. */
     /* TRUCK      */ { 40, 92,  34,  96, 84 },
-    /* LUXURY     */ { 32, 58, -62,  30, 88 },   /* longer bonnet, lower roof than SEDAN */
     /* RACER      */ { 20, 36, -52,   8, 80 },   /* lowest of the lot, shallow glasshouse */
     /* PICKUP     */ { 38, 74, -18,  62, 90 },   /* cab over the front half; bed behind is bare body */
     /* JEEP       */ { 44, 86, -60,  58, 92 },   /* short and tall, near-vertical glass */

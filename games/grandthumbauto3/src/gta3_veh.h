@@ -29,7 +29,17 @@
 
 #include "mote_mesh.h"
 
-/* There used to be a single GTA3_SIL_WEDGE carrying the COUPE, SPORTS and
+/* LUXURY is GONE, folded into COUPE. Measured across all sixteen rows on a
+ * weighted parameter distance, COUPE and LUXURY were the closest pair that was
+ * not simply the two biggest users: 13.8, against the roughly 12 that the
+ * per-type cabin jitter (+-3 units of roof and +-3 fore/aft) already covers.
+ * The two rows differed by 2 units of body height, 4 of roofline, 2 of cabin
+ * width and 8 of cabin length, with an identical cab_z0 — a difference no one
+ * could see, for 504 bytes of GAME_RAM, which is the scarcest thing in this
+ * game. LUXURY's three car types now draw as COUPE, and take its RECT lamps in
+ * place of the light BAR.
+ *
+ * There used to be a single GTA3_SIL_WEDGE carrying the COUPE, SPORTS and
  * CLASSICSPT handling classes at once — 14 of the 54 car types, 26% of every
  * car on the road, all the same two boxes in different paint. Counted, not
  * assumed: WEDGE 14 types and SEDAN 11 meant 46% of traffic was one of two
@@ -39,7 +49,6 @@
  * picked per car type. */
 enum { GTA3_SIL_SEDAN, GTA3_SIL_COMPACT, GTA3_SIL_COUPE, GTA3_SIL_LONGHOOD,
        GTA3_SIL_WAGON, GTA3_SIL_VAN, GTA3_SIL_TRUCK,
-       GTA3_SIL_LUXURY,   /* longer than a sedan, lower roof, cabin set back */
        GTA3_SIL_RACER,    /* very low and long — the supercars */
        GTA3_SIL_PICKUP,   /* cab over the front half only, open bed behind */
        GTA3_SIL_JEEP,     /* short, tall, upright glasshouse */
