@@ -3715,6 +3715,10 @@ static void chase_camera(float tx, float tz, float yaw, float dt) {
          * predict: at 6.2 m it scores 0.37, but the turret sitting on top of
          * the hull makes it taller in the frame than the 8.6 m bus. */
         if (cars[player.car].type == VEH_TANK && big < 0.80f) big = 0.80f;
+        /* The boat is the opposite case to the tank: 7 m long but the shallowest
+         * thing in the game, so the length-derived lift would have the camera
+         * looking down onto the deck instead of out over the bow. Halve it. */
+        if (cars[player.car].type == VEH_BOAT) big *= 0.5f;
         dist   *= 1.0f + big * 0.55f;
         height *= 1.0f + big * 1.10f;
         look   *= 1.0f + big * 0.40f;
@@ -6169,6 +6173,31 @@ static void draw_vehicle(int i){
                 mote->scene_add_tri(v3(c->x - ax*R - px, hy, c->z - az*R - pz),
                                     v3(c->x + ax*R + px, hy, c->z + az*R + pz),
                                     v3(c->x - ax*R + px, hy, c->z - az*R + pz), BLADE, 0);
+            }
+        }
+        if (c->type==VEH_BOAT && !c->wrecked && boat_afloat(c->x, c->z)){
+            /* A WAKE: two pale triangles spreading astern, widening with speed.
+             * Four triangles total, flat, on the water surface — the same pool
+             * and the same depth behaviour as the bridge railings, so a wake
+             * behind a building is occluded by it.
+             *
+             * Drawn only when the hull is actually moving: a moored boat with a
+             * permanent wake reads as broken. */
+            float sp = fabsf(c->spd);
+            if (sp > 1.2f) {
+                float t = mote_clampf((sp - 1.2f) / 12.0f, 0.0f, 1.0f);
+                float fx = cosf(c->yaw), fz = sinf(c->yaw);
+                float rx = -fz, rz = fx;
+                float len = 3.0f + 9.0f * t, wid = 0.7f + 1.9f * t;
+                float sx = c->x - fx*3.2f, sz = c->z - fz*3.2f;   /* at the stern */
+                uint16_t w1 = MOTE_RGB565(206,222,232), w2 = MOTE_RGB565(150,182,204);
+                for (int side = 0; side < 2; side++) {
+                    float s2 = side ? 1.0f : -1.0f;
+                    mote->scene_add_tri(v3(sx + rx*s2*0.5f, 0.06f, sz + rz*s2*0.5f),
+                                        v3(sx - fx*len + rx*s2*wid, 0.06f, sz - fz*len + rz*s2*wid),
+                                        v3(sx - fx*len*0.55f, 0.06f, sz - fz*len*0.55f),
+                                        side ? w1 : w2, 0);
+                }
             }
         }
         if (c->type==VEH_TANK && !c->wrecked){
