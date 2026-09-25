@@ -89,9 +89,11 @@ whose value picks HELI, TANK or BOAT with LEFT/RIGHT and delivers it with A.
 The helicopter and the tank arrive 9 m in front of you; the boat goes to the
 nearest mooring, because it has to be on water, and says so.
 
-This row is meant to come out. To remove it, delete the `SET_BRING` row
-from the settings enum, its entry in `NAME[]`, and its `case` in the settings
-switch — nothing else refers to it.
+This row is meant to come out. To remove it, delete: the `SET_BRING` row in
+the settings enum; the `BRING_HELI`/`BRING_TANK`/`BRING_BOAT`/`BRING_N` enum;
+the `g_bring` variable; the `case SET_BRING` in the settings switch; its arm
+of the LEFT/RIGHT handler; its `NAME[]` entry; and the `BN[]` value arm in
+`draw_settings`.
 
 The host-only equivalents are environment variables, which are no use with the
 handheld in your hands: `MOTE_GTA_TP_HELI=1` stands beside the aircraft, `2`

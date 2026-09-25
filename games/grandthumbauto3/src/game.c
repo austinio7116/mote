@@ -1612,7 +1612,6 @@ static void spawn_world(void) {
               find_near(player.x,player.z, 10.0f, 320.0f, boat_mooring, &ox,&oz)) {
               cars[BOAT_SLOT]=(Car){ ox,oz,(float)(irand(4))*1.5708f,0,
                                      VEH_BOAT,DRV_NONE,1,100.0f,0 };
-              car_body_init(BOAT_SLOT);
           }
       }
 #ifdef MOTE_HOST
@@ -1706,8 +1705,9 @@ enum { TAB_MAP, TAB_SET, TAB_N };
  * would run the last highlight into the hint lines.
  *
  * To remove it: delete this enum row, its NAME entry, its case in the settings
- * switch, its arm of the LEFT/RIGHT handler, and g_bring. Nothing else refers
- * to it. */
+ * switch, its arm of the LEFT/RIGHT handler, g_bring, the BRING_HELI/BRING_TANK/
+ * BRING_BOAT/BRING_N enum, and the BN[] value arm in draw_settings. Nothing
+ * else refers to it. */
 enum { SET_MINIMAP, SET_SOUND, SET_CONTROLS, SET_BRING, SET_SAVE, SET_LOAD, SET_N };
 enum { BRING_HELI, BRING_TANK, BRING_BOAT, BRING_N };
 static uint8_t g_bring;
@@ -3001,11 +3001,28 @@ static void sail_boat(Car *c, int slot, float dt,
          * is what a real hull does; driving on is not. */
         float k = 1.0f - mote_clampf(6.0f * dt, 0.0f, 1.0f);  /* dt-scaled: frame load varies */
         b->avel = 0.0f;
-        if (brake) {
+        /* Astern is allowed only when there is WATER BEHIND THE STERN to back into.
+         * Without that test this arm was a licence to drive: it had no cap and no
+         * decay, so one held button reversed the hull tens of metres across
+         * pavement, gaining speed the whole way. A boat with water behind it can
+         * come off a beach; a boat with land behind it does not move, which is
+         * what "runs on water and nowhere else" means.
+         *
+         * A hull beached hard enough that even its stern is dry therefore stays
+         * put. That now takes deliberate effort, because you can no longer drive
+         * inland to arrange it. */
+        if (brake && boat_afloat(c->x - cosf(b->angle) * 3.5f,
+                                 c->z - sinf(b->angle) * 3.5f)) {
             float cc2 = cosf(b->angle), ss2 = sinf(b->angle);
             float back = -BOAT_ACC * BOAT_ASTERN * 0.33f * dt;
             b->vx += cc2 * back; b->vy += ss2 * back;
-            c->spd = b->vx*cc2 + b->vy*ss2;
+            b->vx *= k; b->vy *= k;                       /* same decay as the else arm */
+            float fs2 = b->vx*cc2 + b->vy*ss2;
+            if (fs2 < -2.0f) {                            /* a crawl off the beach, not a drive */
+                b->vx = cc2 * -2.0f; b->vy = ss2 * -2.0f;
+                fs2 = -2.0f;
+            }
+            c->spd = fs2;
             c->lamp = LAMP_REV;
         } else {
             b->vx *= k; b->vy *= k;
@@ -7446,7 +7463,7 @@ static void draw_settings(uint16_t *fb) {
     mote_ftext(mote, fb, g_fmed, "SETTINGS", 3, 1, MOTE_RGB565(240,230,120));
 
     /* "BRING" is the temporary debug row — see the SET_BRING comment. Rows
-     * are 11 px apart, not the original 16: seven of them at 16 would run off
+     * are 11 px apart, not the original 16: six of them at 16 would run off
      * the bottom of the panel, and at 12 the last highlight overlaps the
      * result message at y = 94. */
     static const char *NAME[SET_N] = { "MINIMAP", "SOUND", "CONTROLS", "BRING",

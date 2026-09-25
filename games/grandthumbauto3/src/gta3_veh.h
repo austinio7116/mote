@@ -34,8 +34,10 @@
  * the per-type cabin jitter already covers. A taxi is not identified by its
  * shape any more: draw_vehicle_mesh paints CAR_TAXI yellow and gives it a black
  * roof sign, and both survive the fold. What it loses is two units of body
- * height and eleven of cabin length, which buys the 576 bytes of GAME_RAM the
- * boat's silhouette costs.
+ * height and eleven of cabin length, which buys the 504 bytes of GAME_RAM the
+ * boat's silhouette costs (sizeof says 576; removing a silhouette also shifts
+ * padding and .bss ordering, and 504 is what was measured, same as when
+ * LUXURY was retired and when TAXI was retired on this branch).
  *
  * NOT folded, though it is closer at 13.0: SEDAN and COMPACT. They are the two
  * biggest users, 15 of the 54 car types between them, and merging them takes
@@ -57,8 +59,8 @@
  * CLASSICSPT handling classes at once — 14 of the 54 car types, 26% of every
  * car on the road, all the same two boxes in different paint. Counted, not
  * assumed: WEDGE 14 types and SEDAN 11 meant 46% of traffic was one of two
- * shapes. WEDGE is now three shapes and TAXI has its own, which takes the
- * worst-case share to 11%. A silhouette is cheap — one SILDEF row and ~400 B
+ * shapes. WEDGE is now three shapes, and the worst-case share today is 17%.
+ * A silhouette is cheap — one SILDEF row and ~400 B
  * of mesh built once at init, with no per-frame cost, since the mesh is
  * picked per car type. */
 enum { GTA3_SIL_SEDAN, GTA3_SIL_COMPACT, GTA3_SIL_COUPE, GTA3_SIL_LONGHOOD,
