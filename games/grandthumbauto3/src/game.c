@@ -2992,11 +2992,23 @@ static void sail_boat(Car *c, int slot, float dt,
     float fs = b->vx*cc + b->vy*ss;                    /* speed along the hull */
 
     if (!boat_afloat(c->x, c->z)) {
-        /* Aground. Kill the way on and give back no steering: whatever put it
-         * here, it is not going anywhere under power. */
+        /* Aground. No ahead and no rudder — you cannot drive a hull up a street.
+         * ASTERN still works, at a third power, because the alternative is a boat
+         * that bricks itself the first time it touches a beach, and it spawns at
+         * a shoreline so that is the first thing that happens to it. Backing off
+         * is what a real hull does; driving on is not. */
         float k = 1.0f - mote_clampf(6.0f * dt, 0.0f, 1.0f);  /* dt-scaled: frame load varies */
-        b->vx *= k; b->vy *= k; b->avel = 0.0f;
-        c->spd = 0.0f; c->lamp = LAMP_OFF;
+        b->avel = 0.0f;
+        if (brake) {
+            float cc2 = cosf(b->angle), ss2 = sinf(b->angle);
+            float back = -BOAT_ACC * BOAT_ASTERN * 0.33f * dt;
+            b->vx += cc2 * back; b->vy += ss2 * back;
+            c->spd = b->vx*cc2 + b->vy*ss2;
+            c->lamp = LAMP_REV;
+        } else {
+            b->vx *= k; b->vy *= k;
+            c->spd = 0.0f; c->lamp = LAMP_OFF;
+        }
         return;
     }
 
