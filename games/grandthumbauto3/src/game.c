@@ -1459,6 +1459,13 @@ static void spawn_world(void) {
     /* a jackable car right next to the player — a RANDOM type each run */
     { float ox,oz; if (find_near(player.x,player.z, 2.0f, 3.4f, is_drivable, &ox,&oz)){
         int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+#ifdef MOTE_HOST
+        /* The starter car too, not just the traffic: this is the one
+         * MOTE_GTA_INCAR picks, since it is the nearest, and it OVERWRITES
+         * cars[0] after the traffic loop has run — so forcing the traffic
+         * type alone left the car you actually drive on a random type. */
+        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
+#endif
 
         cars[0]=(Car){ ox,oz, road_heading((int)(ox/TILE),(int)(oz/TILE)), 0, (uint8_t)ty,DRV_NONE,1 }; } }
     /* pedestrians on nearby pavement/grass */
@@ -5298,7 +5305,7 @@ static void veh_zface(const Mat3 *b, float cx, float cz, float k,
 
 static void draw_vehicle_mesh(const Car *c) {
     int sil = (c->type < CARS2_N) ? gta3_sil_for_class(CAR_CLS[c->type])
-            : (c->type == VEH_BUS)  ? GTA3_SIL_VAN
+            : (c->type == VEH_BUS)  ? GTA3_SIL_BUS
             : (c->type == VEH_HELI) ? GTA3_SIL_HELI : GTA3_SIL_TRUCK;
     const VStat *vs = &VSTAT[c->type];
     Gta3VehMesh *m = &g_veh[sil];
@@ -5380,7 +5387,12 @@ static void draw_vehicle_mesh(const Car *c) {
      * makes the width exact too. */
     float sc = vs->len * 0.5f;
 
+    /* CAR_COL is sampled from cars2.png and that sheet's cab is TEAL, which is
+     * not what anyone pictures when they see a taxi. This one type overrides
+     * its sample rather than the generated table being hand-edited, since
+     * make_carcolors.py would put the teal straight back. */
     uint16_t paint = c->wrecked ? MOTE_RGB565(38,34,34)
+                   : (c->type == CAR_TAXI) ? MOTE_RGB565(240,190,26)
                    : (c->type < CARS2_N ? CAR_COL[c->type] : MOTE_RGB565(190,190,200));
     /* Glass takes its tint from the car's own paint rather than one shared slate
      * blue: a quarter of the body colour plus a cool floor, so a red car gets warm
@@ -5401,6 +5413,31 @@ static void draw_vehicle_mesh(const Car *c) {
     mote->scene_add_object_scaled(&body, sc);
     MoteObject cab  = { .pos=v3(c->x, vy, c->z), .basis=b, .mesh=&m->cabin, .color=glass };
     mote->scene_add_object_scaled(&cab, sc);
+
+    /* TAXI ROOF SIGN: a small black box on the roof, which is the one thing
+     * that says "taxi" at a glance. Drawn with the body rather than with the
+     * close-range trim, because it is the identifying feature and a car you
+     * can see at all should be identifiable. Four quads — the two long sides
+     * and the two ends — so it has a section from every angle instead of
+     * vanishing edge-on. */
+    if (c->type == CAR_TAXI && !c->wrecked) {
+        float k = sc * (1.0f / 127.0f);
+        float q[4][3];
+        float sx = m->cv[1].x * 0.30f;                /* a third of the cabin's half-width */
+        float y0 = m->cv[3].y + 1.0f, y1 = y0 + 9.0f; /* just clear of the roofline */
+        float z0 = -13.0f, z1 = 13.0f;
+        const uint16_t SIGN = MOTE_RGB565(24,24,28);
+        q[0][0]=-sx; q[0][1]=y0; q[0][2]=z0;  q[1][0]= sx; q[1][1]=y0; q[1][2]=z0;
+        q[2][0]= sx; q[2][1]=y1; q[2][2]=z0;  q[3][0]=-sx; q[3][1]=y1; q[3][2]=z0;
+        veh_quad(&b, c->x, c->z, k, q, SIGN);
+        q[0][2]=z1; q[1][2]=z1; q[2][2]=z1; q[3][2]=z1;
+        veh_quad(&b, c->x, c->z, k, q, SIGN);
+        q[0][0]=-sx; q[0][1]=y0; q[0][2]=z0;  q[1][0]=-sx; q[1][1]=y0; q[1][2]=z1;
+        q[2][0]=-sx; q[2][1]=y1; q[2][2]=z1;  q[3][0]=-sx; q[3][1]=y1; q[3][2]=z0;
+        veh_quad(&b, c->x, c->z, k, q, SIGN);
+        q[0][0]= sx; q[1][0]= sx; q[2][0]= sx; q[3][0]= sx;
+        veh_quad(&b, c->x, c->z, k, q, SIGN);
+    }
 
     /* Wheel line: detail that drops off with distance. 12 more triangles per car,
      * and at 18 live cars that is 216 against a budget whose measured peak is

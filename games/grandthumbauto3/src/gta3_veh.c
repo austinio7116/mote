@@ -53,6 +53,7 @@ static const unsigned char LAMP[GTA3_SIL_N] = {
     /* CLASSICSPT */ GTA3_LAMP_ROUND,
     /* TAXI       */ GTA3_LAMP_ROUND,
     /* HELI       */ GTA3_LAMP_ROUND,
+    /* BUS        */ GTA3_LAMP_RECT,
 };
 
 int gta3_lamp_style(int sil) {
@@ -75,7 +76,11 @@ static const Sil SILDEF[GTA3_SIL_N] = {
     /* COUPE      */ { 30, 54, -62,  22, 86 },   /* notchback: cabin set back over a short rear deck */
     /* LONGHOOD   */ { 32, 58, -72,  14, 86 },
     /* WAGON      */ { 40, 74, -55,  55, 90 },
-    /* VAN        */ { 46, 96, -80,  70, 94 },
+    /* VAN: a BOX with a short hood. It used to run the cabin -80..70, which
+     * left a long bonnet at each end and read as a tall estate car. The cabin
+     * now runs -122..76 at 96% of the body width, so the only thing in front
+     * of it is the 76..127 stub of hood, and the sides are flush. */
+    /* VAN        */ { 42,104,-122,  76, 96 },
     /* TRUCK: short cab set FORWARD, with a bonnet in front of it and a long
      * flat bed behind. It used to run the cabin from -30 to 80 at 92% of the
      * body width, which is a box van: one slab most of the length of the
@@ -104,6 +109,12 @@ static const Sil SILDEF[GTA3_SIL_N] = {
      * tail boom and both rotors are triangles the caller draws, because a
      * rotor spins and this mesh is built once at init. */
     /* HELI       */ { 44, 76,  50, 118, 78 },
+    /* BUS: one long rectangle. It used to borrow the VAN silhouette, which
+     * gave an 8.6 m vehicle a van's nose and shoulders; at that length the
+     * proportions read as a stretched van rather than a bus. The cabin spans
+     * -124..114 at 97% of the width and stands 116 tall, so what you see is a
+     * single flush box with a flat front. */
+    /* BUS        */ { 34,116,-124, 114, 97 },
 };
 
 void gta3_box(MeshVert *v, MeshFace *f, int *nf,

@@ -135,14 +135,17 @@ int main(void) {
     ok(gta3_sil_for_class(-1) == GTA3_SIL_SEDAN, "negative class falls back to sedan");
     ok(gta3_sil_for_class(999) == GTA3_SIL_SEDAN, "huge class falls back to sedan");
     {
-        /* GTA3_SIL_HELI is deliberately unreachable from gta3_sil_for_class:
-         * a helicopter is not one of the 19 CAR_CLS handling classes, it is a
-         * vehicle TYPE the game picks directly. Every other silhouette must
-         * still be reachable, or it is dead weight in flash and RAM. */
+        /* GTA3_SIL_HELI and GTA3_SIL_BUS are deliberately unreachable from
+         * gta3_sil_for_class: neither is one of the 19 CAR_CLS handling
+         * classes, they are vehicle TYPES the game picks directly. Every other
+         * silhouette must still be reachable, or it is dead weight in flash
+         * and RAM. */
         int all = 1;
-        for (int s = 0; s < GTA3_SIL_N; s++) if (s != GTA3_SIL_HELI && !seen[s]) all = 0;
-        ok(all, "every silhouette except the helicopter is reachable from some class");
-        ok(!seen[GTA3_SIL_HELI], "and no handling class maps onto the helicopter");
+        for (int s = 0; s < GTA3_SIL_N; s++)
+            if (s != GTA3_SIL_HELI && s != GTA3_SIL_BUS && !seen[s]) all = 0;
+        ok(all, "every silhouette except the helicopter and bus is class-reachable");
+        ok(!seen[GTA3_SIL_HELI] && !seen[GTA3_SIL_BUS],
+           "and no handling class maps onto either of those two");
     }
 
     /* Prove the check discriminates. This test was tautological once — it
@@ -305,6 +308,30 @@ int main(void) {
         ok(cz1 < bz1,                      "there is a bonnet in front of the truck cab");
         ok((bz1-bz0) - (cz1-cz0) > (bz1-bz0) * 0.5f, "and a long flat bed behind it");
         ok(cx1 < bx1,                      "the truck bed is wider than its cab");
+    }
+    {
+        Gta3VehMesh m;
+        gta3_veh_build(&m, GTA3_SIL_BUS);
+        float bz0,bz1, cz0,cz1, bx0,bx1, cx0,cx1, by0,by1, cy0,cy1;
+        span(m.bv,&bz0,&bz1,2); span(m.cv,&cz0,&cz1,2);
+        span(m.bv,&bx0,&bx1,0); span(m.cv,&cx0,&cx1,0);
+        span(m.bv,&by0,&by1,1); span(m.cv,&cy0,&cy1,1);
+        /* A bus is one long flush box, not a van with a nose. */
+        ok((cz1-cz0) > (bz1-bz0) * 0.9f,  "the bus cabin spans nearly the whole chassis");
+        ok((cx1-cx0) > (bx1-bx0) * 0.9f,  "and nearly its whole width");
+        ok(cy1 > (bz1-bz0) * 0.4f,        "the bus stands tall against its length");
+    }
+    {
+        Gta3VehMesh m;
+        gta3_veh_build(&m, GTA3_SIL_VAN);
+        float bz0,bz1, cz0,cz1;
+        span(m.bv,&bz0,&bz1,2); span(m.cv,&cz0,&cz1,2);
+        /* A van is a box with a SHORT hood: cabin over most of the length,
+         * with what is left all at the front. */
+        ok((cz1-cz0) > (bz1-bz0) * 0.7f, "the van cabin covers most of the chassis");
+        ok(cz1 < bz1,                    "with a hood in front of it");
+        ok((bz1-cz1) < (bz1-bz0) * 0.25f, "and that hood is short");
+        ok(cz0 - bz0 < bz1 - cz1,        "the hood is longer than anything behind the cabin");
     }
     {
         Gta3VehMesh m;

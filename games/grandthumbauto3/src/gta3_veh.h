@@ -51,6 +51,7 @@ enum { GTA3_SIL_SEDAN, GTA3_SIL_COMPACT, GTA3_SIL_COUPE, GTA3_SIL_LONGHOOD,
         * no new builder — only its own SILDEF row. The rotor is not in the mesh:
         * it spins, so the caller draws it as four triangles at a phase angle. */
        GTA3_SIL_HELI,
+       GTA3_SIL_BUS,      /* one long rectangular box: no nose to speak of */
        GTA3_SIL_N };
 
 /* Map one of the 19 CAR_CLS handling classes to a silhouette. Out-of-range
