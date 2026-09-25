@@ -1448,8 +1448,9 @@ static int rd_edge(int cx,int cz,int nx,int nz){
     if (nz==cz-1){ for(int d=0;d<4;d++) if(is_drivable(cx*4+d,cz*4+0)&&is_drivable(nx*4+d,nz*4+3)) return 1; return 0; }
     return 0;
 }
+enum { RF_RACER, RF_COP };                          /* who rf_dist is currently flooded for */
 static uint8_t rf_dist[RD_N*RD_N];                  /* racer field: cell distance to the checkpoint */
-static int     rf_valid=0; static float rf_tx=-1, rf_tz=-1;
+static int     rf_valid=0, rf_owner=0; static float rf_tx=-1, rf_tz=-1;
 static void race_field(float tx,float tz){
     rf_valid=0;
     for (int i=0;i<RD_N*RD_N;i++) rf_dist[i]=0xFF;
@@ -1468,7 +1469,7 @@ static void race_field(float tx,float tz){
             rf_dist[n]=(uint8_t)(d+1); rd_q[tail++]=(uint16_t)n;
         }
     }
-    rf_tx=tx; rf_tz=tz; rf_valid=1;
+    rf_tx=tx; rf_tz=tz; rf_valid=1; rf_owner=RF_RACER;
 }
 /* cost-to-checkpoint at a world point (in coarse cells); huge if unrouteable */
 static float race_cost(float x,float z){
@@ -1477,6 +1478,7 @@ static float race_cost(float x,float z){
     uint8_t d=rf_dist[cz*RD_N+cx];
     return d==0xFF ? 1e6f : (float)d;
 }
+
 
 
 static int find_road_clear(float px,float pz,float rmin,float rmax,float*ox,float*oz){
@@ -4202,6 +4204,63 @@ static void do_runovers(void) {
 /* keep cars from driving through each other: push overlapping pairs apart and
  * bleed speed (a bump). Circle approximation, ~car length between centres. */
 static float g_copspawn;
+/* ---- THE SAME FIELD, POINTED AT THE PLAYER, FOR THE POLICE ---------------
+ *
+ * Squad cars used to seek by BEARING: score each cardinal by how directly it
+ * points at the player. That is a straight-line heuristic on a road network
+ * that is not straight, and it has local minima. Measured on seed 42 with
+ * three cars dispatched: a real road route existed the whole time (road_dist
+ * 48-96 m, player standing on a road cell), and the nearest car sat at 40-48 m
+ * for forty-five seconds while its route distance cycled 48 -> 64 -> 80 -> 48.
+ * It was driving back and forth. Heat decayed to zero with three police cars
+ * one block away.
+ *
+ * best_turn_toward solved this for the rival racer by descending a BFS field
+ * instead, which on an accurate graph has no local minima. The police now
+ * descend the same field.
+ *
+ * ONE field, not one per cop: rf_dist holds distance TO the target, so a
+ * single flood from the player serves every officer at once.
+ *
+ * It is also the ONLY field -- rf_dist is 4096 bytes and GAME_RAM has under a
+ * kilobyte spare, so a second one does not fit. rf_owner arbitrates. The rival
+ * racer keeps it during MI_RIVAL (cop_field_ready refuses to claim it), and
+ * the police take it the rest of the time. Without that rule the two would
+ * rebuild over each other every frame, two full floods per frame. */
+static int cf_cx=-1, cf_cz=-1;          /* the coarse cell the cop field was built from */
+
+static int cop_field_ready(float px,float pz) {
+    if (mission==MI_RIVAL) return 0;                 /* the racer owns it; cops fall back */
+    int pcx=(int)(px/TILE)/4, pcz=(int)(pz/TILE)/4;
+    if (pcx<0||pcz<0||pcx>=RD_N||pcz>=RD_N) return 0;
+    /* Seed from a cell that HAS road. race_field expands only through rd_edge,
+     * which needs drivable tiles on both sides, so flooding from a player stood
+     * in a park or out on a pier yields an all-0xFF field -- every cop reads
+     * "unrouteable" and silently falls back to the bearing seek. Walk out to the
+     * nearest roaded cell instead; 16 m of slack at the end of the route is well
+     * inside what the arrival and ram logic already handle. */
+    int sx=pcx, sz=pcz;
+    if (!rd_cell_road(sx,sz)){
+        int best=-1;
+        for (int r=1;r<=2&&best<0;r++)
+            for (int dz=-r;dz<=r;dz++) for (int dx=-r;dx<=r;dx++){
+                int nx=pcx+dx, nz=pcz+dz;
+                if (nx<0||nz<0||nx>=RD_N||nz>=RD_N) continue;
+                if (dx*dx+dz*dz>r*r+1 || !rd_cell_road(nx,nz)) continue;
+                sx=nx; sz=nz; best=0; break; }
+        if (best<0) return 0;                        /* nowhere near a road at all */
+    }
+    /* Cells are 4 tiles = 16 m, so at road speed this reflooods about once a
+     * second, not once a frame. */
+    if (rf_valid && rf_owner==RF_COP && cf_cx==sx && cf_cz==sz) return 1;
+    race_field((sx*4+2)*TILE, (sz*4+2)*TILE);        /* centre of the seed cell */
+    rf_owner=RF_COP; cf_cx=sx; cf_cz=sz;
+    return rf_valid;
+}
+static float cop_cost(float x,float z){
+    return (rf_owner==RF_COP) ? race_cost(x,z) : 1e6f;
+}
+
 static void update_cops(float dt) {
     int w=wanted(), px=pl_x(), pz=pl_z(), alivecops=0;
     for (int i=0;i<NCAR;i++) if(cars[i].alive && cars[i].driver==DRV_COP) alivecops++;
@@ -4307,16 +4366,41 @@ static void update_cops(float dt) {
             if (spawn_footcop(ox,oz)){
                 c->driver=DRV_NONE; bodies[i].vx=bodies[i].vy=0; continue; }
         }
-        /* ROAD-AWARE SEEK: chase along the streets — pick the cardinal that has road AND
-         * heads most toward the player, instead of beelining into a kerb and jamming. */
-        float want = atan2f(pz-c->z, px-c->x), bestd=want, bestscore=-2.0f;
+        /* ROAD-AWARE SEEK: chase along the streets, descending the routed-cost
+         * field toward the player (see cop_field_ready above). Scoring by
+         * BEARING instead — "which cardinal points most directly at him" — is
+         * what made squad cars oscillate a block away for a minute at a time.
+         *
+         * Sample the cost where each road ACTUALLY REACHES rather than at a
+         * fixed distance: the racer hit exactly this and its comment records
+         * why, a fixed sample overshoots a bend into a building and scores a
+         * perfectly good exit as unrouteable.
+         *
+         * If the field is unavailable (the rival racer holds it) or cannot
+         * route from here, fall back to the old bearing score — which is what
+         * every cop used to do, so the worst case is the previous behaviour. */
+        /* jam recovery: a wedged squad car backs out for ~1.2s instead of grinding forever */
+        static float copstuck[NCAR];
+        float want = atan2f(pz-c->z, px-c->x), bestd=want;
+        int have_field = cop_field_ready(px,pz);
+        float bestcost=1e30f, bestscore=-2.0f; int got_cost=0;
         for (int k=0;k<4;k++){ float t=k*1.5708f;
             float run=road_run(c->x,c->z, cosf(t),sinf(t), TILE*4.0f);
             if (run < TILE*0.9f) continue;
-            float score = cosf(ang_diff(t,want)) + 0.015f*run;   /* toward player + longer road */
+            if (have_field){
+                float sd = run>TILE*4.0f ? TILE*4.0f : run;
+                float sx = c->x+cosf(t)*sd, sz = c->z+sinf(t)*sd;
+                float cst = cop_cost(sx,sz);
+                if (cst < 1e6f){                                 /* routable exit */
+                    float g = sqrtf((sx-px)*(sx-px)+(sz-pz)*(sz-pz));
+                    float sc = cst*1000.0f + g;                  /* cost dominates; g breaks ties */
+                    if (sc < bestcost){ bestcost=sc; bestd=t; got_cost=1; }
+                    continue;
+                }
+            }
+            if (got_cost) continue;                              /* a routed exit always wins */
+            float score = cosf(ang_diff(t,want)) + 0.015f*run;   /* no route: old bearing seek */
             if (score>bestscore){ bestscore=score; bestd=t; } }
-        /* jam recovery: a wedged squad car backs out for ~1.2s instead of grinding forever */
-        static float copstuck[NCAR];
         float cthr = 1.0f;
         if (copstuck[i]>1.2f){ cthr=-0.9f; copstuck[i]+=dt; if (copstuck[i]>2.4f) copstuck[i]=0; }
         else if (cspd<0.7f) copstuck[i]+=dt;
