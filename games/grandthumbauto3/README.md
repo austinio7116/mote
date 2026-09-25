@@ -75,20 +75,23 @@ itself up again when you let go of `B`.
 
 ## Temporary debug affordances
 
-**BRING HELI** — a row on the SETTINGS page (MENU, then RB to the settings tab)
-that puts the helicopter 9 m in front of you, so flying can be tested on the
-device without first finding its pad. It steps closer until the tile is
-somewhere an aircraft can sit, and always lands directly ahead rather than at a
-random bearing.
+**BRING HELI** and **BRING TANK** — two rows on the SETTINGS page (MENU, then
+RB to the settings tab) that put the one-off vehicles 9 m in front of you, so
+both can be tested on the device without first finding where they were hidden.
+Each steps closer until the tile is somewhere the vehicle can sit, and always
+delivers directly ahead rather than at a random bearing. A delivered tank comes
+with a full load of shells.
 
-This is meant to come out. To remove it, delete the `SET_HELI` row from the
-settings enum, its entry in `NAME[]`, and its `case` in the settings switch —
-nothing else refers to it.
+These are meant to come out. To remove them, delete the `SET_HELI` and
+`SET_TANK` rows from the settings enum, their entries in `NAME[]`, and their
+two `case`s in the settings switch — nothing else refers to them.
 
 The host-only equivalents are environment variables, which are no use with the
 handheld in your hands: `MOTE_GTA_TP_HELI=1` stands beside the aircraft, `2`
-puts you in it already airborne, and `3` also parks it over the nearest tall
-roof, and `4` over the nearest water.
+puts you in it already airborne, `3` also parks it over the nearest tall roof,
+and `4` over the nearest water. `MOTE_GTA_TP_TANK=1` stands beside the tank,
+and `MOTE_GTA_CARTYPE=<n>` forces the type of the first eight traffic cars so a
+given silhouette can be got on camera.
 
 ## Build and test
 

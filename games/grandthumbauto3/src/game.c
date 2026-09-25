@@ -1432,13 +1432,15 @@ static void spawn_world(void) {
     for (int i=0;i<NCAR;i++){ float ox,oz;                    /* moving traffic (cars[0] becomes jackable) */
         if (i<8 && find_road_clear(player.x,player.z, 12.0f, 62.0f, &ox,&oz)){
             int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+            if(irand(20)==0)ty=VEH_BUS;  /* buses rare */
 #ifdef MOTE_HOST
-        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
-         * how a silhouette gets looked at. Traffic types are random, so
-         * catching a specific one on camera otherwise means driving around
-         * until one turns up. See CAR_CLS for which type is which class. */
-        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
-#endif if(irand(20)==0)ty=VEH_BUS;  /* buses rare */
+            /* test: MOTE_GTA_CARTYPE=<n> forces the type of the first eight
+             * traffic cars, which is how a silhouette gets looked at on
+             * camera. Traffic types are random, so catching a specific one
+             * otherwise means driving around until it turns up. See CAR_CLS
+             * for which type is which class. */
+            { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
+#endif
             float yaw; place_in_lane(&ox,&oz,&yaw);              /* right lane, facing along the street */
             cars[i]=(Car){ ox,oz,yaw,0,(uint8_t)ty,DRV_NPC,1 };
             npc_target[i]=yaw; stuck_t[i]=0;
@@ -1447,13 +1449,7 @@ static void spawn_world(void) {
     /* a jackable car right next to the player — a RANDOM type each run */
     { float ox,oz; if (find_near(player.x,player.z, 2.0f, 3.4f, is_drivable, &ox,&oz)){
         int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
-#ifdef MOTE_HOST
-        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
-         * how a silhouette gets looked at. Traffic types are random, so
-         * catching a specific one on camera otherwise means driving around
-         * until one turns up. See CAR_CLS for which type is which class. */
-        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
-#endif
+
         cars[0]=(Car){ ox,oz, road_heading((int)(ox/TILE),(int)(oz/TILE)), 0, (uint8_t)ty,DRV_NONE,1 }; } }
     /* pedestrians on nearby pavement/grass */
     for (int i=0;i<NPED;i++){ float ox,oz;                    /* ~22 pedestrians; rest free for foot-cops */
@@ -1586,14 +1582,31 @@ static int   g_ctlpage;       /* the CONTROLS page, opened from SETTINGS */
  * g_setsel is the highlighted settings row; g_setmsg flashes the result of a
  * save or load for a couple of seconds so the button press has an answer. */
 enum { TAB_MAP, TAB_SET, TAB_N };
-/* SET_HELI is a TEMPORARY DEBUG ROW. It brings the helicopter to you instead of
- * making you find its pad, which is the only way to test flying on the device
- * (MOTE_GTA_TP_HELI is host-only, and a scripted env var is no use with the
- * handheld in your hands). Delete the enum row, the NAME entry and the case in
- * the settings switch to remove it — nothing else refers to it. */
-enum { SET_MINIMAP, SET_CONTROLS, SET_HELI, SET_SAVE, SET_LOAD, SET_N };
+/* SET_HELI and SET_TANK are TEMPORARY DEBUG ROWS. They bring the one-off
+ * vehicles to you instead of making you find where they were hidden, which is
+ * the only way to test either on the device — MOTE_GTA_TP_HELI and
+ * MOTE_GTA_TP_TANK are host-only, and a scripted env var is no use with the
+ * handheld in your hands.
+ *
+ * To remove them: delete the two enum rows, their two NAME entries, and their
+ * two cases in the settings switch. Nothing else refers to them. */
+enum { SET_MINIMAP, SET_CONTROLS, SET_HELI, SET_TANK, SET_SAVE, SET_LOAD, SET_N };
 static int   g_menutab = TAB_MAP, g_setsel;
 static const char *g_setmsg; static float g_setmsg_t;
+/* Where a debug-delivered vehicle lands: ALWAYS straight in front of you,
+ * stepping closer until the tile is somewhere one can sit. A pad search picks a
+ * random bearing, which half the time puts the thing behind your back and makes
+ * the row look broken; for a debug affordance, predictable beats tidy. */
+static float pl_x(void), pl_z(void), pl_yaw(void);
+static void bring_here(float *ox, float *oz) {
+    float fx = cosf(pl_yaw()), fz = sinf(pl_yaw());
+    *ox = pl_x(); *oz = pl_z();                  /* worst case: on top of you */
+    for (float d = 9.0f; d >= 3.0f; d -= 1.0f) {
+        float cx = pl_x() + fx * d, cz = pl_z() + fz * d;
+        char tc = tile_at((int)(cx / TILE), (int)(cz / TILE));
+        if (tc == ',' || tc == ' ' || tc == '.') { *ox = cx; *oz = cz; break; }
+    }
+}
 
 /* ================================================== 2P DEATHMATCH state ====
  * Same generated city on both units (nonce winner rolls the seed and sends it),
@@ -4784,13 +4797,7 @@ static void dm_recycle_traffic(float dt){
     float ox,oz;
     if(find_road_clear(tx,tz, 26.0f, 52.0f, &ox,&oz)){
         int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
-#ifdef MOTE_HOST
-        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
-         * how a silhouette gets looked at. Traffic types are random, so
-         * catching a specific one on camera otherwise means driving around
-         * until one turns up. See CAR_CLS for which type is which class. */
-        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
-#endif
+
         cars[far]=(Car){ ox,oz, road_heading((int)(ox/TILE),(int)(oz/TILE)), 0,(uint8_t)ty,DRV_NPC,1,100.0f,0 };
         car_body_init(far);
     }
@@ -4887,13 +4894,7 @@ static void reset_game_dm_finish(uint32_t seed){
             float sxp=(i==0)?axp:bxp, szp=(i==0)?azp:bzp, ox,oz;
             if (find_near(sxp,szp, 2.0f, 8.0f, is_drivable, &ox,&oz)){
                 int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
-#ifdef MOTE_HOST
-        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
-         * how a silhouette gets looked at. Traffic types are random, so
-         * catching a specific one on camera otherwise means driving around
-         * until one turns up. See CAR_CLS for which type is which class. */
-        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
-#endif
+
                 cars[i]=(Car){ ox,oz, road_heading((int)(ox/TILE),(int)(oz/TILE)), 0,(uint8_t)ty, DRV_NONE,1,100.0f,0 };
                 continue;
             }
@@ -4901,13 +4902,7 @@ static void reset_game_dm_finish(uint32_t seed){
         for (int t=0;t<80;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
             if (parked ? !is_drivable(tx,tz) : !is_road(tx,tz)) continue;
             int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
-#ifdef MOTE_HOST
-        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
-         * how a silhouette gets looked at. Traffic types are random, so
-         * catching a specific one on camera otherwise means driving around
-         * until one turns up. See CAR_CLS for which type is which class. */
-        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
-#endif
+
             cars[i]=(Car){ tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f,
                            road_heading(tx,tz), 0,(uint8_t)ty, parked?DRV_NONE:DRV_NPC, 1,100.0f,0 };
             break; }
@@ -4997,13 +4992,7 @@ static void respawn_npc(int i) {
     float ox,oz;
     if (find_road_clear(pl_x(),pl_z(), 46.0f, 78.0f, &ox,&oz)){
         int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
-#ifdef MOTE_HOST
-        /* test: MOTE_GTA_CARTYPE=<n> forces the starter car's type, which is
-         * how a silhouette gets looked at. Traffic types are random, so
-         * catching a specific one on camera otherwise means driving around
-         * until one turns up. See CAR_CLS for which type is which class. */
-        { const char *f=getenv("MOTE_GTA_CARTYPE"); if(f) ty=atoi(f); }
-#endif   /* no far-recycled buses */
+   /* no far-recycled buses */
         float yaw; place_in_lane(&ox,&oz,&yaw);                   /* right lane, facing along the street */
         cars[i]=(Car){ ox,oz,yaw,0,(uint8_t)ty,DRV_NPC,1,100,0 };
         car_body_init(i); npc_target[i]=yaw; stuck_t[i]=0;
@@ -6169,20 +6158,17 @@ static void g_update(float dt) {
                 case SET_MINIMAP: g_radar_on = !g_radar_on; break;
                 case SET_CONTROLS: g_ctlpage = 1; break;
                 /* TEMPORARY DEBUG — see the SET_HELI comment at the enum. */
+                case SET_TANK: {
+                    Car *h = &cars[NCAR-1];
+                    float ox, oz; bring_here(&ox, &oz);
+                    *h = (Car){ ox, oz, pl_yaw(), 0, VEH_TANK, DRV_NONE, 1, 600.0f, 0 };
+                    car_body_init(NCAR-1);
+                    g_shells = TANK_SHELLS;      /* a delivered tank is a loaded one */
+                    g_setmsg = "TANK DELIVERED"; g_setmsg_t = 2.0f;
+                } break;
                 case SET_HELI: {
                     Car *h = &cars[HELI_SLOT];
-                    /* ALWAYS straight in front of you, stepping closer until
-                     * the tile is somewhere a helicopter can sit. A pad search
-                     * picks a random bearing, which half the time puts the
-                     * thing behind your back and makes the row look broken;
-                     * for a debug affordance, predictable beats tidy. */
-                    float fxh = cosf(pl_yaw()), fzh = sinf(pl_yaw());
-                    float ox = pl_x(), oz = pl_z();          /* worst case: on top of you */
-                    for (float d = 9.0f; d >= 3.0f; d -= 1.0f) {
-                        float cx2 = pl_x() + fxh * d, cz2 = pl_z() + fzh * d;
-                        char tc = tile_at((int)(cx2 / TILE), (int)(cz2 / TILE));
-                        if (tc == ',' || tc == ' ' || tc == '.') { ox = cx2; oz = cz2; break; }
-                    }
+                    float ox, oz; bring_here(&ox, &oz);
                     *h = (Car){ ox, oz, pl_yaw(), 0, VEH_HELI, DRV_NONE, 1, 100.0f, 0 };
                     car_body_init(HELI_SLOT);
                     g_heli_y = 0.0f; g_heli_vy = 0.0f;
@@ -6788,13 +6774,14 @@ static void draw_settings(uint16_t *fb) {
     mote_ui_panel(fb, 0, 0, 128, 11, MOTE_RGB565(14,16,24), MOTE_RGB565(60,70,110));
     mote_ftext(mote, fb, g_fmed, "SETTINGS", 3, 1, MOTE_RGB565(240,230,120));
 
-    /* "BRING HELI" is the temporary debug row — see the SET_HELI comment. Rows
-     * are 14 px apart, not 16: five of them at 16 ran the last highlight into
-     * the result message at y = 94. */
+    /* "BRING HELI" and "BRING TANK" are the temporary debug rows — see the
+     * SET_HELI comment. Rows are 12 px apart, not the original 16: six of them
+     * at 16 would run off the bottom of the panel, and at 14 the last
+     * highlight overlaps the result message at y = 94. */
     static const char *NAME[SET_N] = { "MINIMAP", "CONTROLS", "BRING HELI",
-                                       "SAVE GAME", "LOAD GAME" };
+                                       "BRING TANK", "SAVE GAME", "LOAD GAME" };
     for (int i = 0; i < SET_N; i++) {
-        int y = 22 + i * 14;
+        int y = 20 + i * 12;
         int sel = (i == g_setsel);
         if (sel) mote->draw_rect(fb, 6, y - 3, 116, 14, MOTE_RGB565(46,56,86), 1, 0, 128);
         uint16_t fg = sel ? MOTE_RGB565(250,244,200) : MOTE_RGB565(168,176,196);
