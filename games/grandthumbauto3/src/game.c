@@ -2947,7 +2947,8 @@ static void sail_boat(Car *c, int slot, float dt,
     if (!boat_afloat(c->x, c->z)) {
         /* Aground. Kill the way on and give back no steering: whatever put it
          * here, it is not going anywhere under power. */
-        b->vx *= 0.80f; b->vy *= 0.80f; b->avel = 0.0f;
+        float k = 1.0f - mote_clampf(6.0f * dt, 0.0f, 1.0f);  /* dt-scaled: frame load varies */
+        b->vx *= k; b->vy *= k; b->avel = 0.0f;
         c->spd = 0.0f; c->lamp = LAMP_OFF;
         return;
     }
