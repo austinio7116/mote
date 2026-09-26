@@ -137,6 +137,9 @@ float cue_render_cush_fillet(void);
  * rails only for now. Off (0) unless asked for, so the handheld's mesh is the
  * mesh it always was. Render only. */
 void  cue_render_set_plank_fillet(float r, int segs);
+/* ...and the inner arris -- the rail top over the cushion, and the plank end at
+ * a pocket -- as its own, smaller radius. Needs the outer one on. */
+void  cue_render_set_plank_fillet_inner(float r, int segs);
 
 /* How many triangles the table's buffer refused on the last build. It drops
  * them in silence -- the right behaviour for a table that has to draw whatever
