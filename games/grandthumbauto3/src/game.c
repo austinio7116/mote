@@ -2255,8 +2255,15 @@ static void draw_sky_body(void) {
  *
  * Only in daylight: they fade in with the sun between elevation 0.10 and 0.30
  * and are gone at night, when the star field has the sky instead. */
-#define CLOUDS   7
-#define CLOUD_D  260.0f
+#define CLOUDS     7
+/* The CONDENSATION LEVEL, in metres above the camera. Real cumulus form where
+ * rising air hits its dew point, and that altitude is the same for every cloud
+ * in the sky on a given day — which is why a real cloudscape has all its flat
+ * bottoms on one plane while the tops are all different heights. That one fact
+ * is most of what makes a sky read as a sky. */
+#define CLOUD_BASE  12.0f
+#define CLOUD_NEAR 140.0f
+#define CLOUD_FAR  420.0f
 static void draw_clouds(void) {
     float e = sun_elev();
     if (e < 0.10f) return;
@@ -2265,10 +2272,14 @@ static void draw_clouds(void) {
      * has to stay that way — a pure white puff the same size as the disc is
      * what made the two hard to tell apart. */
     Rgb pale = { 226, 230, 240 };
-    uint16_t col = rgb565(rgb_lerp(g_sky_hor, pale, 0.30f + 0.55f * fade));
+    float base_mix = 0.30f + 0.55f * fade;
     float sun_az = 6.2831853f * g_tod;
     for (int i = 0; i < CLOUDS; i++) {
         unsigned h = ((unsigned)i * 2654435761u) ^ 0x85ebca6bu;
+        /* h is spent: bits 0-20 and 23 carry bearing, radius and lobe count,
+         * and the per-lobe radius term already overlaps them. A second hash is
+         * one multiply and buys 32 fresh bits. */
+        unsigned h2 = h * 2246822519u ^ 0x27d4eb2fu;
         float az = (float)(h & 1023) * (6.2831853f / 1024.0f) + g_tod * 1.7f;
         /* Nothing within about 12 degrees of the sun's bearing. Two round pale
          * things side by side in the same patch of sky is the confusion, and
@@ -2277,13 +2288,34 @@ static void draw_clouds(void) {
         while (rel >  3.1415927f) rel -= 6.2831853f;
         while (rel < -3.1415927f) rel += 6.2831853f;
         if (fabsf(rel) < 0.21f) continue;
-        float de = 0.020f + (float)((h >> 10) & 255) * (0.055f / 255.0f);
-        float ce = cosf(de);
-        Vec3 d = v3(sinf(az) * ce, sinf(de), cosf(az) * ce);
-        Vec3 p = v3(cam_pos.x + d.x * CLOUD_D,
-                    cam_pos.y + d.y * CLOUD_D,
-                    cam_pos.z + d.z * CLOUD_D);
+
+        /* A DECK AT ONE ALTITUDE, not puffs scattered on a shell.
+         *
+         * Elevation used to be an independent random number and every cloud sat
+         * at the same 260 m, so bases landed at unrelated heights and all seven
+         * were the same apparent size — a row of equal stickers on a dome.
+         *
+         * Now the only thing that varies is how FAR away a cloud is, and its
+         * base altitude is fixed. Perspective then does the work that used to
+         * be faked: a distant cloud subtends a smaller angle AND sits lower in
+         * the sky, both by the same 1/distance, which is exactly what a real
+         * cloud layer does. Size variety comes out of the geometry for free
+         * rather than from inflating the puffs.
+         *
+         * 140-420 m against a 12 m base puts them between 1.6 and 4.9 degrees
+         * up. The in-car camera tops out near +5.5, so the whole deck stays on
+         * screen from a car; on foot there is far more headroom. */
+        float cd = CLOUD_NEAR + (float)(h2 & 63) * ((CLOUD_FAR - CLOUD_NEAR) / 63.0f);
+        float hx = sinf(az) * cd, hz = cosf(az) * cd;
+        Vec3 p = v3(cam_pos.x + hx, cam_pos.y + CLOUD_BASE, cam_pos.z + hz);
         float ux = cosf(az), uz = -sinf(az);          /* horizontal, across the view */
+
+        /* HAZE, tied to distance rather than to a random bit. Air between you
+         * and the cloud scatters light into the line of sight, so the far ones
+         * sit closer to the sky's own colour. Keep it gentle: a strong tint
+         * just makes every cloud look dirty. */
+        float far_t = (cd - CLOUD_NEAR) / (CLOUD_FAR - CLOUD_NEAR);
+        uint16_t col = rgb565(rgb_lerp(g_sky_hor, pale, base_mix * (1.0f - 0.18f * far_t)));
 
         /* FLAT BOTTOM, ROUND TOP, and a different shape every puff.
          *
@@ -2291,30 +2323,37 @@ static void draw_clouds(void) {
          * quad only reached the disc centres, so a whole disc-radius of round
          * hung below the flat part and the eye read a ball.
          *
-         * The lobes now sit ON the base line, and the skirt quad is drawn SIX
-         * METRES NEARER than they are. Flat triangles write depth and the FX
-         * discs are depth-TESTED against them, so the quad hides the lower
-         * half of every lobe — a straight edge underneath with only the tops
-         * showing. That is a real flat bottom rather than a suggestion of one.
+         * The lobes sit ON the base line and the skirt quad is drawn SIX METRES
+         * NEARER. Flat triangles write depth and the FX discs are depth-TESTED
+         * against them, so the quad hides the lower half of every lobe — a
+         * straight edge underneath with only the tops showing.
          *
-         * Two or three lobes, each a different radius and spacing off the same
-         * hash, so no two clouds are the same shape. */
-        float r = 9.0f + (float)((h >> 18) & 7);
-        int nlobe = 2 + (int)((h >> 23) & 1);
-        float lo = 1e9f, hi = -1e9f;
+         * One to four lobes. Two-or-three always produced the same lozenge; a
+         * single small puff and a four-lobe bank are different objects. */
+        float r = 8.0f + (float)((h >> 18) & 7) * 1.3f;
+        int nlobe = 1 + (int)((h >> 23) & 3);
+        float spread = 0.72f + (float)((h2 >> 6) & 15) * (0.46f / 15.0f);
+        float lo = 1e9f, hi = -1e9f, rmax = 0.0f;
         for (int k = 0; k < nlobe; k++) {
-            float off = ((float)k - (nlobe - 1) * 0.5f) * r * 1.05f;
+            float off = ((float)k - (nlobe - 1) * 0.5f) * r * spread;
             float rk  = r * (0.60f + 0.40f * (float)((h >> (3 * k + 4)) & 7) / 7.0f);
-            mote->scene_add_disc(v3(p.x + ux * off, p.y, p.z + uz * off), rk, col);
+            /* THE LOBES USED TO SHARE ONE y. Collinear centres meant the tops
+             * rose and fell in a tidy arc. Lifting each lobe by up to 0.35r
+             * gives the ragged top a cumulus has. Only UP — dropping one would
+             * push it through the flat bottom the skirt exists to hold. */
+            float yj = r * 0.35f * (float)((h2 >> (14 + 3 * k)) & 7) / 7.0f;
+            mote->scene_add_disc(v3(p.x + ux * off, p.y + yj, p.z + uz * off), rk, col);
             if (off - rk < lo) lo = off - rk;
             if (off + rk > hi) hi = off + rk;
+            if (rk > rmax) rmax = rk;
         }
-        /* the skirt: nearer than the lobes, so it wins the depth test */
-        float sd = (CLOUD_D - 6.0f) / CLOUD_D;
-        Vec3 q = v3(cam_pos.x + d.x * CLOUD_D * sd,
-                    cam_pos.y + d.y * CLOUD_D * sd,
-                    cam_pos.z + d.z * CLOUD_D * sd);
-        float base = q.y - r * 0.85f;
+        /* The skirt: same altitude, six metres nearer, so it wins the depth
+         * test against the lobes. Deep enough to cover the largest lobe's
+         * underside — sized off rmax rather than a fixed fraction of r, which
+         * left the biggest lobe of a wide bank hanging below the flat edge. */
+        float sk = (cd - 6.0f) / cd;
+        Vec3 q = v3(cam_pos.x + hx * sk, cam_pos.y + CLOUD_BASE, cam_pos.z + hz * sk);
+        float base = q.y - rmax * 1.05f;
         float x0 = q.x + ux * lo, z0 = q.z + uz * lo;
         float x1 = q.x + ux * hi, z1 = q.z + uz * hi;
         mote->scene_add_tri(v3(x0, base, z0), v3(x1, base, z1), v3(x1, q.y, z1), col, 0);
