@@ -123,6 +123,9 @@ The game is close to two budget ceilings, and both are checked on every change:
 - **Triangles** — `max_tris` is 850 and the worst measured scene peaks near 740.
   See [`PROFILING.md`](PROFILING.md) for the measured scenes behind every pool size.
 
+  Open defects, with reproductions and what has already been ruled out, are in
+  [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
+
 After any device build, disassemble `mote_game_register` and confirm the literal
 it returns is the address of `k_vtbl`. A NULL there is the "map failed" bug —
 see [`docs/DEVICE_DEBUGGING.md`](../../docs/DEVICE_DEBUGGING.md).
