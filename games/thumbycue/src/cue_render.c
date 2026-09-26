@@ -3375,22 +3375,32 @@ static void ring_centre(float *cx, float *cz) {
 }
 /* Cut the tops in [t0, s_ntab) back to RING_FS radii inside the ring. Returns
  * whether the fillet is on (and so whether the sweep has to carry it). */
+/* what the last bored table's outer arris did: 0 not asked, 1 rounded,
+ * 2 the ring is not convex, 3 no room for it, 4 out of memory */
+static int s_ring_fil_state;
+int cue_render_ring_fillet_state(void) { return s_ring_fil_state; }
 static int ring_fillet_trim(int t0, float ytop) {
     const float r = ring_fil_r(ytop);
+    s_ring_fil_state = !(s_plank_fil > 0.0f) ? 0 : !(r > 0.0f) ? 3 : !ring_convex() ? 2 : 1;
     if (!(r > 0.0f) || !ring_convex()) return 0;
     const float ins = RING_FS * r;
     float cx, cz; ring_centre(&cx, &cz);
     const int n = s_ntab - t0;
     if (n <= 0) return 1;
     CueTri *keep = (CueTri *)malloc(sizeof(CueTri) * (size_t)n);
-    if (!keep) return 0;
+    if (!keep) { s_ring_fil_state = 4; return 0; }
     memcpy(keep, &s_tab[t0], sizeof(CueTri) * (size_t)n);
     s_ntab = t0;
     const uint8_t mat_was = s_mat;
     for (int t = 0; t < n; t++) {
         const CueTri *T = &keep[t];
         s_mat = T->mat;
-        const int is_top = T->nrm.y > 0.9f && fabsf(T->v[0].y - ytop) < 1e-4f &&
+        /* EITHER WAY UP. The table is double-sided and the plank tops are
+         * wound with their normals pointing DOWN; asking for up trimmed none
+         * of them, and the flat top ran on over the arc to the square edge --
+         * rounded from the side, where the arc shows under it, square from
+         * above, where the top covers it. */
+        const int is_top = fabsf(T->nrm.y) > 0.9f && fabsf(T->v[0].y - ytop) < 1e-4f &&
                            fabsf(T->v[1].y - ytop) < 1e-4f && fabsf(T->v[2].y - ytop) < 1e-4f;
         if (!is_top) { tri(T->v[0], T->v[1], T->v[2], T->color); continue; }
         Vec3 P[48]; int m = 3; P[0] = T->v[0]; P[1] = T->v[1]; P[2] = T->v[2];

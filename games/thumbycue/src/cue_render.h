@@ -137,6 +137,7 @@ float cue_render_cush_fillet(void);
  * rails only for now. Off (0) unless asked for, so the handheld's mesh is the
  * mesh it always was. Render only. */
 void  cue_render_set_plank_fillet(float r, int segs);
+int   cue_render_ring_fillet_state(void);   /* see cue_render.c */
 /* ...and the inner arris -- the rail top over the cushion, and the plank end at
  * a pocket -- as its own, smaller radius. Needs the outer one on. */
 void  cue_render_set_plank_fillet_inner(float r, int segs);
