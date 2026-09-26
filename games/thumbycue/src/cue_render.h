@@ -133,6 +133,10 @@ void cue_render_set_corner_round(int on);
  * been folded almost to nothing beside a bore keeps its shape. */
 void  cue_render_set_cush_fillet(float r, int segs);
 float cue_render_cush_fillet(void);
+/* THE PLANK'S OUTER TOP EDGE, ROUNDED: the arris a hand runs along. Split
+ * rails only for now. Off (0) unless asked for, so the handheld's mesh is the
+ * mesh it always was. Render only. */
+void  cue_render_set_plank_fillet(float r, int segs);
 
 /* How many triangles the table's buffer refused on the last build. It drops
  * them in silence -- the right behaviour for a table that has to draw whatever

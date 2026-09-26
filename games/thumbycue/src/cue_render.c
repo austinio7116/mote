@@ -1787,6 +1787,20 @@ void cue_render_set_cush_fillet(float r, int segs) {
 }
 float cue_render_cush_fillet(void) { return s_cush_fil; }
 
+/* THE PLANK'S OUTER TOP ARRIS. An arc of s_plank_fil_n facets, bounded by a
+ * flat strip either side 0.4 radii wide -- the cushion's support loops, for the
+ * same reason: the VR build welds normals across faces within its crease
+ * angle, and an arc welded straight into a face the width of the plank drags
+ * the shading across all of it. */
+static float s_plank_fil   = 0.0f;
+static int   s_plank_fil_n = 0;
+void cue_render_set_plank_fillet(float r, int segs) {
+    if (!(r > 0.0f) || segs < 1) { s_plank_fil = 0.0f; s_plank_fil_n = 0; return; }
+    if (r > 0.015f) r = 0.015f;
+    if (segs > 8) segs = 8;
+    s_plank_fil = r; s_plank_fil_n = segs;
+}
+
 /* TWO NUMBERS, because the two kinds of drop are bridged by different things
  * and one of them is often bridged by nothing. A table with corner castings
  * wants its corners cut and its middles whole; a table with bag nets wants
@@ -2739,6 +2753,100 @@ static float plank_end_len(int ax0, float uE, float vI, int is_mid,
  * angle the jaw arrives at, which is what makes the corner's cut diagonal.
  *
  * RENDER ONLY: the pocket plays off the CueSeg chain, untouched. */
+/* THE PLANK'S CROSS-SECTION with its outer top arris rounded, in (v, y):
+ * v across the plank, y up. Walked round from the inner bottom corner. pc[k]
+ * says whether point k is a corner of the section (the support-strip points
+ * lie on a straight side and are left out of the end caps, where they would
+ * make zero-area triangles). Returns the count, or 0 if there is no fillet to
+ * draw -- none asked for, or a section too small to carry it. */
+#define PLANK_PROF_MAX 16
+static int plank_profile(float vI, float vO, float y0, float y1,
+                         float *pv, float *py, int *pc, float *pk) {
+    float r = s_plank_fil;
+    const int N = s_plank_fil_n;
+    if (!(r > 0.0f) || N < 1) return 0;
+    const float W = fabsf(vO - vI), H = y1 - y0;
+    /* THE STRIPS ARE NARROW: the normals fade across the whole of each one,
+     * so at two radii wide the roll spread over five radii of rail */
+    const float SW = 1.4f;                   /* arc + strip, in radii */
+    if (SW * r > 0.5f * W) r = 0.5f * W / SW;
+    if (SW * r > 0.5f * H) r = 0.5f * H / SW;
+    if (r < 0.0005f) return 0;
+    const float sv = vO > vI ? 1.0f : -1.0f;
+    int n = 0;
+    #define PP(V, Y, C, K) do { pv[n] = (V); py[n] = (Y); pc[n] = (C); pk[n] = (K); n++; } while (0)
+    PP(vI, y0, 1, 0.0f);
+    PP(vO, y0, 1, 0.0f);
+    PP(vO, y1 - SW * r, 0, 0.0f);
+    PP(vO, y1 - r, 1, 0.0f);
+    for (int k = 1; k < N; k++) {
+        const float th = (float)k / (float)N * 1.5707963f;
+        PP(vO - sv * r + sv * r * cosf(th), y1 - r + r * sinf(th), 1, (float)k / (float)N);
+    }
+    PP(vO - sv * r, y1, 1, 1.0f);
+    PP(vO - sv * SW * r, y1, 0, 1.0f);
+    PP(vI, y1, 1, 1.0f);
+    #undef PP
+    return n;
+}
+
+/* The side of the section from point k to k+1, as a face along the plank from
+ * u0 to u1: its four corners, its outward normal, and its colour -- the top's
+ * on the top, the side's on the sides, and between the two round the arc. */
+static void plank_prof_face(int ax0, float u0, float u1,
+                            const float *pv, const float *py, const float *pk, int n, int k,
+                            Vec3 *q, Vec3 *nrm, uint16_t top, uint16_t side, uint16_t *col) {
+    #define PT(U, V, Y) (ax0 ? v3((V), (Y), (U)) : v3((U), (Y), (V)))
+    const int j = (k + 1) % n;
+    q[0] = PT(u0, pv[k], py[k]); q[1] = PT(u1, pv[k], py[k]);
+    q[2] = PT(u1, pv[j], py[j]); q[3] = PT(u0, pv[j], py[j]);
+    /* outward: perpendicular to the side, away from the section's middle */
+    float cv = 0.0f, cy = 0.0f;
+    for (int i = 0; i < n; i++) { cv += pv[i]; cy += py[i]; }
+    cv /= (float)n; cy /= (float)n;
+    float dv = pv[j] - pv[k], dy = py[j] - py[k];
+    float ev = dy, ey = -dv;
+    const float mv = 0.5f * (pv[k] + pv[j]) - cv, my = 0.5f * (py[k] + py[j]) - cy;
+    if (ev * mv + ey * my < 0.0f) { ev = -ev; ey = -ey; }
+    const float L = sqrtf(ev * ev + ey * ey);
+    if (L > 1e-9f) { ev /= L; ey /= L; }
+    *nrm = PT(0.0f, ev, ey);
+    const int on_top = py[k] >= py[n - 1] - 1e-6f && py[j] >= py[n - 1] - 1e-6f;
+    const int on_arc = pk[j] > 0.0f && !on_top;
+    *col = on_top ? top : on_arc ? mix565(side, top, 0.5f * (pk[k] + pk[j])) : side;
+#ifdef MOTE_HOST
+    {   static int dbg = -1; if (dbg < 0) dbg = getenv("CUE_FILDBG") ? 1 : 0;
+        if (dbg && on_arc) *col = RGB565C(255, 0, 255); }
+#endif
+    #undef PT
+}
+
+/* box6, for a split plank, with the outer top arris rounded when asked. */
+static void plank_box(int ax0, float u0, float u1, float vI, float vO,
+                      float y0, float y1, uint16_t top, uint16_t side) {
+    float pv[PLANK_PROF_MAX], py[PLANK_PROF_MAX], pk[PLANK_PROF_MAX]; int pc[PLANK_PROF_MAX];
+    const int n = plank_profile(vI, vO, y0, y1, pv, py, pc, pk);
+    if (!n || u1 - u0 < 1e-4f) {
+        const float v0 = vI < vO ? vI : vO, v1 = vI < vO ? vO : vI;
+        if (!ax0) box6(u0, u1, y0, y1, v0, v1, top, side);
+        else      box6(v0, v1, y0, y1, u0, u1, top, side);
+        return;
+    }
+    for (int k = 0; k < n; k++) {
+        Vec3 q[4], nrm; uint16_t col;
+        plank_prof_face(ax0, u0, u1, pv, py, pk, n, k, q, &nrm, top, side, &col);
+        face_poly(q, 4, nrm, col);
+    }
+    #define PT(U, V, Y) (ax0 ? v3((V), (Y), (U)) : v3((U), (Y), (V)))
+    for (int e = 0; e < 2; e++) {
+        Vec3 cap[PLANK_PROF_MAX]; int m = 0;
+        const float u = e ? u1 : u0;
+        for (int k = 0; k < n; k++) if (pc[k]) cap[m++] = PT(u, pv[k], py[k]);
+        face_poly(cap, m, e ? PT(1.0f, 0.0f, 0.0f) : PT(-1.0f, 0.0f, 0.0f), side);
+    }
+    #undef PT
+}
+
 typedef struct { Vec3 p[12]; int n; } CutPoly;
 
 /* Clip one polygon to the half-space  nrm . (p - o) <= 0 ; the pieces of edge
@@ -2763,8 +2871,8 @@ static void poly_clip(CutPoly *P, Vec3 nrm, Vec3 o, Vec3 *cap, int *ncap, int ca
 static void cap_emit(Vec3 *pts, int n, Vec3 nrm, uint16_t col) {
     if (n < 3) return;
     /* drop near-duplicates */
-    Vec3 u[24]; int m = 0;
-    for (int i = 0; i < n && m < 24; i++) {
+    Vec3 u[48]; int m = 0;
+    for (int i = 0; i < n && m < 48; i++) {
         int dup = 0;
         for (int k = 0; k < m; k++) if (v3_len2(v3_sub(u[k], pts[i])) < 1e-9f) { dup = 1; break; }
         if (!dup) u[m++] = pts[i];
@@ -2778,7 +2886,7 @@ static void cap_emit(Vec3 *pts, int n, Vec3 nrm, uint16_t col) {
     if (v3_len2(e1) < 1e-12f) return;
     e1 = v3_norm(e1);
     const Vec3 e2 = v3_cross(nrm, e1);
-    float ang[24];
+    float ang[48];
     for (int i = 0; i < m; i++) {
         const Vec3 d = v3_sub(u[i], c);
         ang[i] = atan2f(v3_dot(d, e2), v3_dot(d, e1));
@@ -2846,9 +2954,30 @@ static float plank_end_profile(int ax0, float uE, float su, float vI, float vO,
     uB -= su * 0.006f;
     if (su * (uE - uB) < 0.015f) uB = uE - su * 0.015f;
     if (su * (uE - uB) > 0.160f) uB = uE - su * 0.160f;
-    /* the end box as six polygons */
+    /* the end box as six polygons -- or, with the outer arris rounded, as the
+     * plank's own section run from ua to ub2 with a cap at each end */
     const float ua = su > 0.0f ? uB : uE, ub2 = su > 0.0f ? uE : uB;
-    CutPoly F[6];
+    CutPoly F[PLANK_PROF_MAX + 2];
+    Vec3 fn[PLANK_PROF_MAX + 2];
+    uint16_t fc[PLANK_PROF_MAX + 2];
+    int nF = 6;
+    float ppv[PLANK_PROF_MAX], ppy[PLANK_PROF_MAX], ppk[PLANK_PROF_MAX]; int ppc[PLANK_PROF_MAX];
+    const int np = plank_profile(vI, vO, 0.0f, y1, ppv, ppy, ppc, ppk);
+    if (np) {
+        nF = np + 2;
+        for (int k = 0; k < np; k++) {
+            F[k].n = 4;
+            plank_prof_face(ax0, ua, ub2, ppv, ppy, ppk, np, k, F[k].p, &fn[k], top, side, &fc[k]);
+        }
+        for (int e = 0; e < 2; e++) {
+            CutPoly *C = &F[np + e]; C->n = 0;
+            const float u = e ? ub2 : ua;
+            for (int k = 0; k < np; k++) if (ppc[k] && C->n < 12) C->p[C->n++] = PT(u, ppv[k], ppy[k]);
+            fn[np + e] = e ? PT(1.0f, 0.0f, 0.0f) : PT(-1.0f, 0.0f, 0.0f);
+            fn[np + e].y = 0.0f;
+            fc[np + e] = side;
+        }
+    } else {
     #define QUAD(i, a, b, c, d) do { F[i].n = 4; F[i].p[0]=a; F[i].p[1]=b; F[i].p[2]=c; F[i].p[3]=d; } while (0)
     QUAD(0, PT(ua,vI,y1), PT(ub2,vI,y1), PT(ub2,vO,y1), PT(ua,vO,y1));     /* top */
     QUAD(1, PT(ua,vI,0),  PT(ua,vO,0),  PT(ub2,vO,0),  PT(ub2,vI,0));      /* bottom */
@@ -2857,28 +2986,30 @@ static float plank_end_profile(int ax0, float uE, float su, float vI, float vO,
     QUAD(4, PT(ua,vI,0),  PT(ua,vI,y1), PT(ua,vO,y1),  PT(ua,vO,0));       /* end at ua */
     QUAD(5, PT(ub2,vI,0), PT(ub2,vO,0), PT(ub2,vO,y1), PT(ub2,vI,y1));     /* end at ub2 */
     #undef QUAD
-    const Vec3 fn[6] = { v3(0,1,0), v3(0,-1,0),
+    const Vec3 fn6[6] = { v3(0,1,0), v3(0,-1,0),
                          ax0 ? v3(vI < vO ? -1.0f : 1.0f,0,0) : v3(0,0,vI < vO ? -1.0f : 1.0f),
                          ax0 ? v3(vI < vO ?  1.0f : -1.0f,0,0) : v3(0,0,vI < vO ?  1.0f : -1.0f),
                          ax0 ? v3(0,0,-1) : v3(-1,0,0), ax0 ? v3(0,0,1) : v3(1,0,0) };
-    Vec3 capV[24], capS[24]; int ncV = 0, ncS = 0;
-    for (int i = 0; i < 6; i++) {
-        poly_clip(&F[i], nV, An, capV, &ncV, 24);
-        poly_clip(&F[i], nS, An, capS, &ncS, 24);
+    for (int i = 0; i < 6; i++) { fn[i] = fn6[i]; fc[i] = i == 0 ? top : side; }
+    }
+    Vec3 capV[48], capS[48]; int ncV = 0, ncS = 0;
+    for (int i = 0; i < nF; i++) {
+        poly_clip(&F[i], nV, An, capV, &ncV, 48);
+        poly_clip(&F[i], nS, An, capS, &ncS, 48);
     }
     /* the cap on each plane is itself clipped by the other plane */
     {   CutPoly cv; cv.n = 0; (void)cv; }
-    for (int i = 0; i < 6; i++)
-        if (F[i].n >= 3) face_poly(F[i].p, F[i].n, fn[i], i == 0 ? top : side);
+    for (int i = 0; i < nF; i++)
+        if (F[i].n >= 3) face_poly(F[i].p, F[i].n, fn[i], fc[i]);
     /* caps: the collected points of one plane that also lie behind the other */
-    {   Vec3 k[24]; int nk = 0;
-        for (int i = 0; i < ncV; i++) if (v3_dot(nS, v3_sub(capV[i], An)) <= 1e-6f && nk < 24) k[nk++] = capV[i];
-        for (int i = 0; i < ncS; i++) if (fabsf(v3_dot(nV, v3_sub(capS[i], An))) <= 1e-6f && nk < 24) k[nk++] = capS[i];
+    {   Vec3 k[48]; int nk = 0;
+        for (int i = 0; i < ncV; i++) if (v3_dot(nS, v3_sub(capV[i], An)) <= 1e-6f && nk < 48) k[nk++] = capV[i];
+        for (int i = 0; i < ncS; i++) if (fabsf(v3_dot(nV, v3_sub(capS[i], An))) <= 1e-6f && nk < 48) k[nk++] = capS[i];
         const uint8_t keep = s_mat; s_mat = CUE_MAT_CLOTH;
         cap_emit(k, nk, nV, cfront);
         nk = 0;
-        for (int i = 0; i < ncS; i++) if (v3_dot(nV, v3_sub(capS[i], An)) <= 1e-6f && nk < 24) k[nk++] = capS[i];
-        for (int i = 0; i < ncV; i++) if (fabsf(v3_dot(nS, v3_sub(capV[i], An))) <= 1e-6f && nk < 24) k[nk++] = capV[i];
+        for (int i = 0; i < ncS; i++) if (v3_dot(nV, v3_sub(capS[i], An)) <= 1e-6f && nk < 48) k[nk++] = capS[i];
+        for (int i = 0; i < ncV; i++) if (fabsf(v3_dot(nS, v3_sub(capV[i], An))) <= 1e-6f && nk < 48) k[nk++] = capV[i];
         cap_emit(k, nk, nS, cskirt);
         s_mat = keep; }
     #undef PT
@@ -2931,8 +3062,15 @@ static void split_plank(int ax0, float ua, float ub, float va, float vb,
         } else plank_end_cut(ax0, ub,  1.0f, ub - Le[1], vI, vO, 0.0f, plank_y, Hc, Wc, woodt, wood, ccut); }
     if (box_b - box_a < 1e-4f) return;
     {   const float v0 = va < vb ? va : vb, v1 = va < vb ? vb : va;
-        if (!ax0) box6(box_a, box_b, 0.0f, plank_y, v0, v1, woodt, wood);
-        else      box6(v0, v1, 0.0f, plank_y, box_a, box_b, woodt, wood); }
+        if (!(s_plank_fil > 0.0f)) {
+            if (!ax0) box6(box_a, box_b, 0.0f, plank_y, v0, v1, woodt, wood);
+            else      box6(v0, v1, 0.0f, plank_y, box_a, box_b, woodt, wood);
+        } else {
+            /* the plank's own two long sides; the outer is the one on vO's side */
+            const float po = fabsf(v1 - vO) < fabsf(v0 - vO) ? v1 : v0;
+            const float pi = po == v1 ? v0 : v1;
+            plank_box(ax0, box_a, box_b, pi, po, 0.0f, plank_y, woodt, wood);
+        } }
 }
 
 static float cush_undercut(const CueTable *t) { return 0.45f * t->R; }
