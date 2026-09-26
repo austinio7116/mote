@@ -3292,6 +3292,233 @@ static void box6(float x0, float x1, float y0, float y1, float z0, float z1,
     quad(v3(x0,y1,z0), v3(x0,y1,z1), v3(x0,y0,z1), v3(x0,y0,z0), side);  /* -x */
 }
 
+/* ---- THE RING'S OUTER ARRIS, ROUNDED -------------------------------------
+ *
+ * A bored rail's top is x-columns and its outside is the ring swept to the
+ * floor, so the arris is the join of two meshes that never meet in one piece.
+ * It is rounded in two steps: the tops already emitted are cut back to a line
+ * RING_FS radii inside the ring (a strip and the arc), and then the ring's
+ * sweep carries the section -- a strip of top, the arc, a strip of wall -- the
+ * way the split plank's section does (plank_profile). Convex rings only: an L's
+ * elbow would be cut into by the straight lines the tops are trimmed against,
+ * and keeps its square edge.
+ *
+ * RENDER ONLY, and off unless cue_render_set_plank_fillet asked for it. */
+#define RING_FS 1.4f
+static float ring_fil_r(float ytop) {
+    float r = s_plank_fil;
+    if (!(r > 0.0f) || s_plank_fil_n < 1 || s_ring_n < 3) return 0.0f;
+    if (RING_FS * r > 0.3f * ytop) r = 0.3f * ytop / RING_FS;
+    return r >= 0.0005f ? r : 0.0f;
+}
+/* the ring's inward normal along edge i -> i+1 */
+static void ring_edge_in(int i, float cx, float cz, float *nx, float *nz) {
+    const int j = (i + 1) % s_ring_n;
+    float dx = s_ring_x[j] - s_ring_x[i], dz = s_ring_z[j] - s_ring_z[i];
+    const float L = sqrtf(dx * dx + dz * dz);
+    if (L < 1e-9f) { *nx = 0.0f; *nz = 0.0f; return; }
+    float px = -dz / L, pz = dx / L;
+    if (px * (cx - s_ring_x[i]) + pz * (cz - s_ring_z[i]) < 0.0f) { px = -px; pz = -pz; }
+    *nx = px; *nz = pz;
+}
+static int ring_convex(void) {
+    int sg = 0;
+    for (int i = 0; i < s_ring_n; i++) {
+        const int h = (i + s_ring_n - 1) % s_ring_n, j = (i + 1) % s_ring_n;
+        const float c = (s_ring_x[i] - s_ring_x[h]) * (s_ring_z[j] - s_ring_z[i])
+                      - (s_ring_z[i] - s_ring_z[h]) * (s_ring_x[j] - s_ring_x[i]);
+        if (fabsf(c) < 1e-10f) continue;
+        const int k = c > 0.0f ? 1 : -1;
+        if (!sg) sg = k; else if (k != sg) return 0;
+    }
+    return 1;
+}
+static void ring_centre(float *cx, float *cz) {
+    float x = 0.0f, z = 0.0f;
+    for (int i = 0; i < s_ring_n; i++) { x += s_ring_x[i]; z += s_ring_z[i]; }
+    *cx = x / (float)s_ring_n; *cz = z / (float)s_ring_n;
+}
+/* Cut the tops in [t0, s_ntab) back to RING_FS radii inside the ring. Returns
+ * whether the fillet is on (and so whether the sweep has to carry it). */
+static int ring_fillet_trim(int t0, float ytop) {
+    const float r = ring_fil_r(ytop);
+    if (!(r > 0.0f) || !ring_convex()) return 0;
+    const float ins = RING_FS * r;
+    float cx, cz; ring_centre(&cx, &cz);
+    const int n = s_ntab - t0;
+    if (n <= 0) return 1;
+    CueTri *keep = (CueTri *)malloc(sizeof(CueTri) * (size_t)n);
+    if (!keep) return 0;
+    memcpy(keep, &s_tab[t0], sizeof(CueTri) * (size_t)n);
+    s_ntab = t0;
+    const uint8_t mat_was = s_mat;
+    for (int t = 0; t < n; t++) {
+        const CueTri *T = &keep[t];
+        s_mat = T->mat;
+        const int is_top = T->nrm.y > 0.9f && fabsf(T->v[0].y - ytop) < 1e-4f &&
+                           fabsf(T->v[1].y - ytop) < 1e-4f && fabsf(T->v[2].y - ytop) < 1e-4f;
+        if (!is_top) { tri(T->v[0], T->v[1], T->v[2], T->color); continue; }
+        Vec3 P[48]; int m = 3; P[0] = T->v[0]; P[1] = T->v[1]; P[2] = T->v[2];
+        for (int e = 0; e < s_ring_n && m >= 3; e++) {
+            float nx, nz; ring_edge_in(e, cx, cz, &nx, &nz);
+            if (nx == 0.0f && nz == 0.0f) continue;
+            const float ex = s_ring_x[e], ez = s_ring_z[e];
+            int out_any = 0;
+            float dd[48];
+            for (int k = 0; k < m; k++) {
+                dd[k] = (P[k].x - ex) * nx + (P[k].z - ez) * nz - ins;
+                if (dd[k] < 0.0f) out_any = 1;
+            }
+            if (!out_any) continue;
+            Vec3 Q[48]; int q = 0;
+            for (int k = 0; k < m && q < 46; k++) {
+                const int k2 = (k + 1) % m;
+                if (dd[k] >= 0.0f) Q[q++] = P[k];
+                if ((dd[k] >= 0.0f) != (dd[k2] >= 0.0f)) {
+                    const float u = dd[k] / (dd[k] - dd[k2]);
+                    Q[q++] = v3_add(P[k], v3_scale(v3_sub(P[k2], P[k]), u));
+                }
+            }
+            m = q; for (int k = 0; k < m; k++) P[k] = Q[k];
+        }
+        for (int k = 1; k + 1 < m; k++) {
+            if (v3_len2(v3_cross(v3_sub(P[k], P[0]), v3_sub(P[k + 1], P[0]))) < 1e-14f) continue;
+            tri(P[0], P[k], P[k + 1], T->color);
+        }
+    }
+    s_mat = mat_was;
+    free(keep);
+    return 1;
+}
+/* ...and the ring swept with the section: wall to the floor, a strip of wall,
+ * the arc, a strip of top. Broken where the planks are, as the square sweep. */
+static void ring_fillet_sweep(float ytop, uint16_t top, uint16_t side) {
+    const float r = ring_fil_r(ytop);
+    const int N = s_plank_fil_n;
+    float cx, cz; ring_centre(&cx, &cz);
+    /* the section, (d inward, y up), and how much of the top's colour each has */
+    float sd[16], sy[16], sk[16]; int ns = 0;
+    sd[ns] = 0.0f; sy[ns] = 0.0f; sk[ns++] = 0.0f;
+    sd[ns] = 0.0f; sy[ns] = ytop - RING_FS * r; sk[ns++] = 0.0f;
+    sd[ns] = 0.0f; sy[ns] = ytop - r; sk[ns++] = 0.0f;
+    for (int k = 1; k < N && ns < 14; k++) {
+        const float th = (float)k / (float)N * 1.5707963f;
+        sd[ns] = r * (1.0f - cosf(th)); sy[ns] = ytop - r + r * sinf(th); sk[ns++] = (float)k / (float)N;
+    }
+    sd[ns] = r; sy[ns] = ytop; sk[ns++] = 1.0f;
+    sd[ns] = RING_FS * r; sy[ns] = ytop; sk[ns++] = 1.0f;
+    for (int i = 0; i < s_ring_n; i++) {
+        const int j = (i + 1) % s_ring_n;
+        if (in_rail_gap(s_ring_x[i], s_ring_z[i]) || in_rail_gap(s_ring_x[j], s_ring_z[j])) continue;
+        /* the mitred inset at each end, so neighbouring edges share points */
+        float mx[2], mz[2];
+        for (int e = 0; e < 2; e++) {
+            const int v = e ? j : i;
+            float ax, az, bx, bz;
+            ring_edge_in((v + s_ring_n - 1) % s_ring_n, cx, cz, &ax, &az);
+            ring_edge_in(v, cx, cz, &bx, &bz);
+            const float dt = 1.0f + ax * bx + az * bz;
+            if (dt < 0.2f) { mx[e] = bx; mz[e] = bz; }
+            else { mx[e] = (ax + bx) / dt; mz[e] = (az + bz) / dt; }
+        }
+        float nx, nz; ring_edge_in(i, cx, cz, &nx, &nz);
+        for (int k = 0; k + 1 < ns; k++) {
+            const Vec3 a0 = v3(s_ring_x[i] + mx[0] * sd[k],     sy[k],     s_ring_z[i] + mz[0] * sd[k]);
+            const Vec3 b0 = v3(s_ring_x[j] + mx[1] * sd[k],     sy[k],     s_ring_z[j] + mz[1] * sd[k]);
+            const Vec3 a1 = v3(s_ring_x[i] + mx[0] * sd[k + 1], sy[k + 1], s_ring_z[i] + mz[0] * sd[k + 1]);
+            const Vec3 b1 = v3(s_ring_x[j] + mx[1] * sd[k + 1], sy[k + 1], s_ring_z[j] + mz[1] * sd[k + 1]);
+            /* outward: (-dy, dd) in the section, carried into the world */
+            const float od = -(sy[k + 1] - sy[k]), oy = sd[k + 1] - sd[k];
+            const Vec3 on = v3(nx * od, oy, nz * od);
+            const float kk = 0.5f * (sk[k] + sk[k + 1]);
+            const uint16_t col = (sk[k] >= 1.0f && sk[k + 1] >= 1.0f) ? top
+                               : kk > 0.0f ? mix565(side, top, kk) : side;
+            Vec3 q[4] = { a0, b0, b1, a1 };
+            face_poly(q, 4, on, col);
+        }
+    }
+}
+
+/* THE BORED RAIL'S INNER ARRIS: the radius a riser of height h can carry */
+static float riser_fil_q(float h) {
+    float q = s_plank_fil_in;
+    if (!(q > 0.0f) || s_plank_fil_in_n < 1 || !(s_plank_fil > 0.0f)) return 0.0f;
+    if (RING_FS * q > 0.3f * h) q = 0.3f * h / RING_FS;
+    return q >= 0.0003f ? q : 0.0f;
+}
+/* ...and the riser swept with that section: the wall, a strip of it, the arc,
+ * a strip of top -- along the mouth edge from e0 to e1, (inx, inz) pointing
+ * into the timber. */
+static void riser_fillet(Vec3 e0, Vec3 e1, float inx, float inz,
+                         float ylow, float ytop, float q, uint16_t wall, uint16_t top) {
+    const int N = s_plank_fil_in_n;
+    float sd[12], sy[12], sk[12]; int ns = 0;
+    sd[ns] = 0.0f; sy[ns] = ylow; sk[ns++] = 0.0f;
+    sd[ns] = 0.0f; sy[ns] = ytop - RING_FS * q; sk[ns++] = 0.0f;
+    sd[ns] = 0.0f; sy[ns] = ytop - q; sk[ns++] = 0.0f;
+    for (int k = 1; k < N && ns < 10; k++) {
+        const float th = (float)k / (float)N * 1.5707963f;
+        sd[ns] = q * (1.0f - cosf(th)); sy[ns] = ytop - q + q * sinf(th); sk[ns++] = (float)k / (float)N;
+    }
+    sd[ns] = q; sy[ns] = ytop; sk[ns++] = 1.0f;
+    sd[ns] = RING_FS * q; sy[ns] = ytop; sk[ns++] = 1.0f;
+    for (int k = 0; k + 1 < ns; k++) {
+        const Vec3 a0 = v3(e0.x + inx * sd[k],     sy[k],     e0.z + inz * sd[k]);
+        const Vec3 b0 = v3(e1.x + inx * sd[k],     sy[k],     e1.z + inz * sd[k]);
+        const Vec3 a1 = v3(e0.x + inx * sd[k + 1], sy[k + 1], e0.z + inz * sd[k + 1]);
+        const Vec3 b1 = v3(e1.x + inx * sd[k + 1], sy[k + 1], e1.z + inz * sd[k + 1]);
+        const float od = -(sy[k + 1] - sy[k]), oy = sd[k + 1] - sd[k];
+        const Vec3 on = v3(inx * od, oy, inz * od);
+        const float kk = 0.5f * (sk[k] + sk[k + 1]);
+        const uint16_t col = (sk[k] >= 1.0f && sk[k + 1] >= 1.0f) ? top
+                           : kk > 0.0f ? mix565(wall, top, kk) : wall;
+        Vec3 qd[4] = { a0, b0, b1, a1 };
+        face_poly(qd, 4, on, col);
+    }
+}
+
+typedef struct { int along_z; float e, a0, a1, inx, inz, q; } RiserSeg;
+/* The end of a rounded run, closed: the little quarter between the square
+ * corner the next column still has and the arc. */
+static void riser_fillet_cap(const RiserSeg *g, float at, float dir, float ytop, uint16_t col) {
+    const int N = s_plank_fil_in_n;
+    Vec3 P[12]; int m = 0;
+    #define RP(D, Y) (g->along_z ? v3(g->e + g->inx * (D), (Y), at) : v3(at, (Y), g->e + g->inz * (D)))
+    P[m++] = RP(0.0f, ytop);
+    P[m++] = RP(0.0f, ytop - g->q);
+    for (int k = 1; k < N && m < 11; k++) {
+        const float th = (float)k / (float)N * 1.5707963f;
+        P[m++] = RP(g->q * (1.0f - cosf(th)), ytop - g->q + g->q * sinf(th));
+    }
+    P[m++] = RP(g->q, ytop);
+    #undef RP
+    const Vec3 nrm = g->along_z ? v3(0.0f, 0.0f, dir) : v3(dir, 0.0f, 0.0f);
+    face_poly(P, m, nrm, col);
+}
+static void riser_fillet_runs(RiserSeg *rs, int n, float ylow, float ytop, uint16_t wall, uint16_t top) {
+    /* by edge, then along it */
+    for (int i = 1; i < n; i++) {
+        RiserSeg t = rs[i]; int j = i - 1;
+        while (j >= 0 && (rs[j].along_z > t.along_z ||
+               (rs[j].along_z == t.along_z && (rs[j].e > t.e + 1e-6f ||
+               (fabsf(rs[j].e - t.e) <= 1e-6f && rs[j].a0 > t.a0))))) { rs[j + 1] = rs[j]; j--; }
+        rs[j + 1] = t;
+    }
+    for (int i = 0; i < n; ) {
+        RiserSeg run = rs[i]; int k = i + 1;
+        while (k < n && rs[k].along_z == run.along_z && fabsf(rs[k].e - run.e) <= 1e-6f &&
+               fabsf(rs[k].a0 - run.a1) <= 1e-5f && rs[k].inx == run.inx && rs[k].inz == run.inz) {
+            run.a1 = rs[k].a1; k++;
+        }
+        const Vec3 e0 = run.along_z ? v3(run.e, 0.0f, run.a0) : v3(run.a0, 0.0f, run.e);
+        const Vec3 e1 = run.along_z ? v3(run.e, 0.0f, run.a1) : v3(run.a1, 0.0f, run.e);
+        riser_fillet(e0, e1, run.inx, run.inz, ylow, ytop, run.q, wall, top);
+        riser_fillet_cap(&run, run.a0, -1.0f, ytop, top);
+        riser_fillet_cap(&run, run.a1,  1.0f, ytop, top);
+        i = k;
+    }
+}
+
 static void wood_plank_bored(float xa, float xb, float za, float zb,
                              float ytop, float ybot, uint16_t top, uint16_t wall,
                              const float *hx, const float *hz, const float *hr,
@@ -3455,6 +3682,7 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
         while (j >= 0 && ex[j] > e) { ex[j+1] = ex[j]; j--; }
         ex[j+1] = e;
     }
+    RiserSeg rs[64]; int nrs = 0;
     for (int c = 0; c < ne-1; c++) {
         float cx0 = ex[c], cx1 = ex[c+1];
         if (cx1 <= cx0 + 1e-5f) continue;
@@ -3509,19 +3737,43 @@ static void wood_plank_bored(float xa, float xb, float za, float zb,
                 if (h0 < l0) h0 = l0;
                 if (h1 < l1) h1 = l1;
             }
-            quad(v3(cx0,ytop,l0), v3(cx1,ytop,l1), v3(cx1,ytop,h1), v3(cx0,ytop,h0), top);
+            /* THE INNER ARRIS, ROUNDED when asked: the top stops short of the
+             * mouth edge by the arc and its strip, and the riser carries them */
+            const float qi = (ylow < ytop) ? riser_fil_q(ytop - ylow) : 0.0f;
+            const int rA = ylow < ytop && axis == 0 && rail_hi && lo[s] <= za+1e-4f;
+            const int rB = ylow < ytop && axis == 0 && !rail_hi && hi[s] >= zb-1e-4f;
+            const int rC = ylow < ytop && !rA && !rB && inner_col && (cx1 - cx0) > 2.0f * RING_FS * qi;
+            float tx0 = cx0, tx1 = cx1;
+            if (qi > 0.0f) {
+                if (rA) { l0 = l1 = za + RING_FS * qi; if (h0 < l0) h0 = l0; if (h1 < l1) h1 = l1; }
+                if (rB) { h0 = h1 = zb - RING_FS * qi; if (l0 > h0) l0 = h0; if (l1 > h1) l1 = h1; }
+                if (rC) { if (rail_hi) tx0 = xa + RING_FS * qi; else tx1 = xb - RING_FS * qi; }
+            }
+            quad(v3(tx0,ytop,l0), v3(tx1,ytop,l1), v3(tx1,ytop,h1), v3(tx0,ytop,h0), top);
             /* inner-edge riser — only where wood actually reaches the mouth edge,
              * so pocket mouths stay open (no wood line across the side pockets). */
             if (ylow < ytop) {
-                if (axis == 0 && rail_hi && lo[s] <= za+1e-4f)
+                if (qi > 0.0f && (rA || rB || rC)) {
+                    /* gathered, and swept once the columns are done, so a run
+                     * of them is one fillet with a cap only at its two ends */
+                    if (nrs < 64) {
+                        RiserSeg *g = &rs[nrs++];
+                        if (rA)      { g->along_z = 0; g->e = za; g->a0 = cx0; g->a1 = cx1; g->inx = 0.0f; g->inz =  1.0f; }
+                        else if (rB) { g->along_z = 0; g->e = zb; g->a0 = cx0; g->a1 = cx1; g->inx = 0.0f; g->inz = -1.0f; }
+                        else         { g->along_z = 1; g->e = ix; g->a0 = lo[s]; g->a1 = hi[s]; g->inx = rail_hi ? 1.0f : -1.0f; g->inz = 0.0f; }
+                        g->q = qi;
+                    }
+                }
+                else if (rA)
                     quad(v3(cx0,ytop,za), v3(cx1,ytop,za), v3(cx1,ylow,za), v3(cx0,ylow,za), lip);
-                else if (axis == 0 && !rail_hi && hi[s] >= zb-1e-4f)
+                else if (rB)
                     quad(v3(cx0,ytop,zb), v3(cx1,ytop,zb), v3(cx1,ylow,zb), v3(cx0,ylow,zb), lip);
                 else if (inner_col)
                     quad(v3(ix,ytop,lo[s]), v3(ix,ytop,hi[s]), v3(ix,ylow,hi[s]), v3(ix,ylow,lo[s]), lip);
             }
         }
     }
+    riser_fillet_runs(rs, nrs, ylow, ytop, lip, top);
     /* A SPLIT RAIL HAS NO BORES TO FILL. Its planks are built short and stop
      * clear of every drop, so any pocket that still overlaps one does so by a
      * sliver at its very end -- and bore_fill answers that with a wall of dark
@@ -5171,10 +5423,16 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
                             plank_y, Hc, rake, Lc, woodt, wood, ccut);
             } }
     } else {
+    const int top_t0 = s_ntab;
     wood_plank_bored(-ox, ox,  ibz,  oz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 0, 1, face_low, wlip); /* +z */
     wood_plank_bored(-ox, ox, -oz, -ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 0, 0, face_low, wlip); /* -z */
     wood_plank_bored(ibx, ox, -ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 1, 1, face_low, wlip); /* +x */
     wood_plank_bored(-ox,-ibx,-ibz, ibz,  plank_y, bore_bot, woodt, wbore, hx, hz, hr, shp, nh, 1, 0, face_low, wlip); /* -x */
+    /* THE OUTER ARRIS, ROUNDED, when asked: the top is cut back from the ring
+     * by the arc and its strip, and the ring's sweep carries them. */
+    const int ring_fil = ring_fillet_trim(top_t0, plank_y);
+    if (ring_fil) ring_fillet_sweep(plank_y, woodt, wood);
+    else
     {   /* ONE closed walk, swept to the floor -- so the faces cannot disagree
          * about where a rounded corner ends, because there is only one of
          * them. See build_ring. */
