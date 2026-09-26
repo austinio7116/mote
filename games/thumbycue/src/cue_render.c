@@ -1476,6 +1476,11 @@ static void wall_quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, uint16_t col) {
     s_mat = keep;
 }
 
+/* arc + strip, in radii, for every rounded arris on a rail -- see ring_fillet */
+#define RING_FS 1.4f
+static float riser_fil_q(float h);
+static int   s_plank_fil_in_n;
+static void  face_poly(const Vec3 *p, int n, Vec3 nrm, uint16_t col);
 static void bore_fill(const BoreShape *b, float x0, float x1, float z0, float z1,
                       float ytop, float ybot, uint16_t top, uint16_t wall,
                       int axis, int rail_hi) {
@@ -1540,17 +1545,48 @@ static void bore_fill(const BoreShape *b, float x0, float x1, float z0, float z1
         }
         for (int i = 1; i < nu; i++) { float v = us[i]; int j = i; while (j > 0 && us[j-1] > v) { us[j] = us[j-1]; j--; } us[j] = v; }
     }
+    /* THE ARRIS ROUNDED, as along the rest of the mouth edge (riser_fillet):
+     * straight where the hole misses, and round the hole's own rim where it
+     * does -- the section laid across the plank either way. The wall below
+     * starts where the arc has turned down. */
+    const float fq = riser_fil_q(ytop);
+    const float sgn = far > face ? 1.0f : -1.0f;
+    const int fil = fq > 0.0f && (ny < 2 || ys[1] < ytop - RING_FS * fq - 1e-5f)
+                 && fabsf(far - face) > 3.0f * RING_FS * fq;
     for (int k = 0; k + 1 < nu; k++) {
         const float u0 = us[k], u1 = us[k+1];
         if (u1 - u0 < 1e-6f) continue;
         /* the top face, from the hole's rim at the plank's top out to the far edge */
         const float t0 = RIM(u0, ytop), t1 = RIM(u1, ytop);
-        quad(P(u0,ytop,t0), P(u1,ytop,t1), P(u1,ytop,far), P(u0,ytop,far),
+        const float fs = fil ? sgn * RING_FS * fq : 0.0f;
+        quad(P(u0,ytop,t0 + fs), P(u1,ytop,t1 + fs), P(u1,ytop,far), P(u0,ytop,far),
              s_matvis >= 2 ? RGB565C(255,255,255) : top);
+        if (fil) {
+            const int NQ = s_plank_fil_in_n;
+            float sd[12], sy[12], sk[12]; int ns = 0;
+            sd[ns] = 0.0f; sy[ns] = ytop - RING_FS * fq; sk[ns++] = 0.0f;
+            sd[ns] = 0.0f; sy[ns] = ytop - fq; sk[ns++] = 0.0f;
+            for (int j = 1; j < NQ && ns < 10; j++) {
+                const float th = (float)j / (float)NQ * 1.5707963f;
+                sd[ns] = fq * (1.0f - cosf(th)); sy[ns] = ytop - fq + fq * sinf(th); sk[ns++] = (float)j / (float)NQ;
+            }
+            sd[ns] = fq; sy[ns] = ytop; sk[ns++] = 1.0f;
+            sd[ns] = RING_FS * fq; sy[ns] = ytop; sk[ns++] = 1.0f;
+            for (int j = 0; j + 1 < ns; j++) {
+                Vec3 qd[4] = { P(u0, sy[j],   t0 + sgn * sd[j]),   P(u1, sy[j],   t1 + sgn * sd[j]),
+                               P(u1, sy[j+1], t1 + sgn * sd[j+1]), P(u0, sy[j+1], t0 + sgn * sd[j+1]) };
+                const float od = -(sy[j+1] - sy[j]), oy = sd[j+1] - sd[j];
+                const Vec3 on = axis == 0 ? v3(0.0f, oy, sgn * od) : v3(sgn * od, oy, 0.0f);
+                const float kk = 0.5f * (sk[j] + sk[j+1]);
+                const uint16_t col = (sk[j] >= 1.0f && sk[j+1] >= 1.0f) ? top
+                                   : kk > 0.0f ? mix565(wall, top, kk) : wall;
+                face_poly(qd, 4, on, col);
+            }
+        }
         /* and the wall, band by band */
         for (int q = 0; q + 1 < ny; q++) {
-            const float ya = ys[q], yb = ys[q+1];
-            const float a0 = RIM(u0, ya), a1 = RIM(u1, ya);
+            const float ya = (fil && q == 0) ? ytop - RING_FS * fq : ys[q], yb = ys[q+1];
+            const float a0 = RIM(u0, ys[q]), a1 = RIM(u1, ys[q]);
             const float b0 = RIM(u0, yb), b1 = RIM(u1, yb);
             /* where the hole misses, this quad IS the plank's front face across
              * the notch, so it is drawn regardless */
@@ -3304,7 +3340,6 @@ static void box6(float x0, float x1, float y0, float y1, float z0, float z1,
  * and keeps its square edge.
  *
  * RENDER ONLY, and off unless cue_render_set_plank_fillet asked for it. */
-#define RING_FS 1.4f
 static float ring_fil_r(float ytop) {
     float r = s_plank_fil;
     if (!(r > 0.0f) || s_plank_fil_n < 1 || s_ring_n < 3) return 0.0f;
@@ -3478,23 +3513,6 @@ static void riser_fillet(Vec3 e0, Vec3 e1, float inx, float inz,
 }
 
 typedef struct { int along_z; float e, a0, a1, inx, inz, q; } RiserSeg;
-/* The end of a rounded run, closed: the little quarter between the square
- * corner the next column still has and the arc. */
-static void riser_fillet_cap(const RiserSeg *g, float at, float dir, float ytop, uint16_t col) {
-    const int N = s_plank_fil_in_n;
-    Vec3 P[12]; int m = 0;
-    #define RP(D, Y) (g->along_z ? v3(g->e + g->inx * (D), (Y), at) : v3(at, (Y), g->e + g->inz * (D)))
-    P[m++] = RP(0.0f, ytop);
-    P[m++] = RP(0.0f, ytop - g->q);
-    for (int k = 1; k < N && m < 11; k++) {
-        const float th = (float)k / (float)N * 1.5707963f;
-        P[m++] = RP(g->q * (1.0f - cosf(th)), ytop - g->q + g->q * sinf(th));
-    }
-    P[m++] = RP(g->q, ytop);
-    #undef RP
-    const Vec3 nrm = g->along_z ? v3(0.0f, 0.0f, dir) : v3(dir, 0.0f, 0.0f);
-    face_poly(P, m, nrm, col);
-}
 static void riser_fillet_runs(RiserSeg *rs, int n, float ylow, float ytop, uint16_t wall, uint16_t top) {
     /* by edge, then along it */
     for (int i = 1; i < n; i++) {
@@ -3512,9 +3530,9 @@ static void riser_fillet_runs(RiserSeg *rs, int n, float ylow, float ytop, uint1
         }
         const Vec3 e0 = run.along_z ? v3(run.e, 0.0f, run.a0) : v3(run.a0, 0.0f, run.e);
         const Vec3 e1 = run.along_z ? v3(run.e, 0.0f, run.a1) : v3(run.a1, 0.0f, run.e);
+        /* NO CAPS: a run ends where the timber round a pocket takes over,
+         * and bore_fill rounds that edge with the same section */
         riser_fillet(e0, e1, run.inx, run.inz, ylow, ytop, run.q, wall, top);
-        riser_fillet_cap(&run, run.a0, -1.0f, ytop, top);
-        riser_fillet_cap(&run, run.a1,  1.0f, ytop, top);
         i = k;
     }
 }
