@@ -7812,10 +7812,22 @@ static void draw_controls(uint16_t *fb) {
     mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,160,180), "ANY BUTTON: BACK");
 }
 
+/* MOTE_GAME_VERSION defines this at the foot of the file; declaring it here
+ * lets the settings header show the SAME string the launcher reads out of the
+ * module's flash image, instead of a second literal that could drift from it. */
+extern const char mote_game_version[];
+
 static void draw_settings(uint16_t *fb) {
     mote_dim_box(fb, 0, 0, 128, 128, 5);                  /* the city stays faintly visible */
     mote_ui_panel(fb, 0, 0, 128, 11, MOTE_RGB565(14,16,24), MOTE_RGB565(60,70,110));
     mote_ftext(mote, fb, g_fmed, "SETTINGS", 3, 1, MOTE_RGB565(240,230,120));
+    /* Version at the other end of the title bar: right-aligned so it does not
+     * depend on how long the number is, and dim, because it is there to be
+     * looked up rather than read. */
+    { char vb[16];
+      snprintf(vb, sizeof vb, "v%s", mote_game_version);
+      mote_ftext(mote, fb, g_fmed, vb, 125 - mote_fontw(g_fmed, vb), 1,
+                 MOTE_RGB565(120,132,156)); }
 
     /* Rows are 11 px apart, not the original 16: six of them at 16 ran off
      * the bottom of the panel, and at 12 the last highlight overlapped the
@@ -8369,5 +8381,5 @@ static const MoteGameVtbl k_vtbl = {
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
-MOTE_GAME_META("Grand Thumb Auto III", "austinio7116");
+MOTE_GAME_META("Grand Thumb Auto III", "chrisdiana");
 MOTE_GAME_VERSION("1.0.0");
