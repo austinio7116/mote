@@ -6267,14 +6267,25 @@ static void draw_vehicle_mesh(const Car *c) {
         }
 
         /* Police livery: a white panel down each flank, over whatever paint the
-         * type carries. x = +-121 puts it just outside the body's +-118 so it
-         * cannot z-fight, and inside the wheel slab's +-127 so it does not poke
-         * through the tyre line. 4 triangles. */
+         * type carries. 4 triangles.
+         *
+         * The x offset MUST come from the mesh, not from a constant. This read
+         * +-121, "just outside the body's +-118" -- but +-118 is the AUTHORED
+         * half-width, and draw_vehicle_mesh squeezes every car's body in x by
+         * wid/len before it gets here (bx = g_veh_bx[sil] * ar, above). A
+         * cruiser is 2.8 m on a 4.6 m body, so its flank actually sits near
+         * +-72 and the panels hung half a metre off each side in mid-air --
+         * two white rectangles floating beside the car.
+         *
+         * bodyx is that squeezed half-width. +3 clears the paint without
+         * z-fighting and stays inside the wheel slab, which the same squeeze
+         * puts at 127*ar -- always about 9*ar further out than the body. */
         if (c->type == CAR_POLICE || c->type == CAR_POLICE2) {
             const uint16_t LIVERY = MOTE_RGB565(238,240,244);
             float y0 = bodytop * 0.30f, y1 = bodytop * 0.82f;
+            float lx = bodyx + 3.0f;
             for (int e = 0; e < 2; e++) {
-                float ex = e ? 121.0f : -121.0f;
+                float ex = e ? lx : -lx;
                 q[0][0]=ex; q[0][1]=y0; q[0][2]=-70;  q[1][0]=ex; q[1][1]=y0; q[1][2]= 70;
                 q[2][0]=ex; q[2][1]=y1; q[2][2]= 70;  q[3][0]=ex; q[3][1]=y1; q[3][2]=-70;
                 veh_quad(&b, c->x, c->z, k, q, LIVERY);
@@ -7279,12 +7290,36 @@ static void g_update(float dt) {
         /* pay-n-spray: drive in with heat to lose the cops for a fee */
         if (near_marker(MK_SPRAY, 3.2f) && wanted()>0 && cash>=SPRAY_FEE){
             cash-=SPRAY_FEE; heat=0; if(c->alive)c->hp=100; say("SPRAYED - HEAT CLEARED"); sfx(&cash_sfx,0.7f); }
-        /* You cannot step out of a helicopter in mid-air. The check is against
-         * the floor UNDER the aircraft, so setting down on a roof counts as
-         * landed and you get out on the roof. */
+        /* You cannot step out of a helicopter in mid-air, and you cannot step
+         * out ONTO A ROOF either.
+         *
+         * Roof exit used to be allowed on purpose -- "setting down on a roof
+         * counts as landed and you get out on the roof" -- but nothing else in
+         * the game supports a player above street level. On foot pl_y() is
+         * zero, so the figure drew at ground height inside the building; and
+         * move_body walks with walkable_world, which rejects '#'/'O'/'H'
+         * outright, so the first step shoved the player off the footprint and
+         * back down to the street. You got out on the roof and instantly fell
+         * through it.
+         *
+         * Supporting it properly is not a small change: draw_character pins its
+         * billboard at CHAR_H*0.5, chase_camera anchors at y=0 on foot, and
+         * peds, cars and bullets are all 2D, so a player standing on a roof
+         * would still be shot at and run over from the street. The engine
+         * comment at the top of this file is explicit that the helicopter is
+         * the only thing with a height.
+         *
+         * Nothing is lost by refusing. The rooftop caches were always meant to
+         * be taken from the aircraft -- update_pickups gives them a 16 m reach
+         * for exactly that reason -- so there was never anything to get out
+         * for. */
         if (USE && player.mode==MODE_CAR && c->type==VEH_HELI &&
             heli_aloft(c->x, c->z)) {
             say("LAND FIRST");
+        } else
+        if (USE && player.mode==MODE_CAR && c->type==VEH_HELI &&
+            floor_y(c->x, c->z) > 0.5f) {
+            say("LAND ON THE STREET");
         } else
         /* You cannot step off a boat into open water. The test is the same
          * predicate the movement uses, so "where the boat may be" and "where
