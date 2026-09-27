@@ -2784,7 +2784,12 @@ static struct {
      * shape -- a ball, an aim, a pace, and a hole it means. This says which
      * game's scoring bb_tick should price it with. */
     int bp;
+    /* FREE PYRAMID: the slot of the ball this plan cues, in the CALLER's
+     * array. The plan itself runs on s_free_b, a copy with that ball swapped
+     * into slot 0; the host swaps it the same way before the stroke. */
+    int free_k;
 } P;
+static CueBall s_free_b[CUE_MAX_BALLS];
 
 /* The best SIMULATED safety in the pool, or -1. Safeties carry pk < 0. */
 static int best_safety_idx(void) {
@@ -5017,11 +5022,43 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * below fits it — see the block above bb_gen for what it assumes and why
      * none of it is true here. */
     P.bp = 0;
+    P.free_k = 0;
     if (r->mode == CUE_GAME_BARBILLIARDS) { bb_plan_start(); return; }
     /* BUMPER POOL PLAYS ITS OWN GAME TOO, and for the same reason: there is no
      * cue ball, so "send the white into an object ball" describes nothing that
      * happens here. See bp_gen. */
     if (r->mode == CUE_GAME_BUMPER) { bp_plan_start(); return; }
+
+    /* FREE PYRAMID: WHICH BALL TO CUE is decided the way this planner already
+     * decides WHICH POT -- by eval_pot's geometry, before anything is
+     * simulated. Every ball on the table is tried in slot 0 of a copy and
+     * every legal target and pocket scored from it (step 1 below, widened by
+     * one loop); the cue ball of the best pot is kept, and the whole plan then
+     * runs once, on that copy, at the ordinary budget. With no pot from any
+     * ball it stays on the ball in slot 0 and the usual bank/safety search
+     * takes it from there. */
+    if (CUE_GAME_IS_PYRAMID(r->mode) && r->pyr_free == CUE_PYR_FREE && !r->break_shot) {
+        int bestk = 0; float bestp = -1e30f, bests = -1e30f;
+        for (int k = 0; k < n; k++) {
+            if (!balls[k].on) continue;
+            memcpy(s_free_b, balls, sizeof(CueBall) * (size_t)n);
+            { CueBall tb = s_free_b[0]; s_free_b[0] = s_free_b[k]; s_free_b[k] = tb; }
+            c->b = s_free_b;
+            for (int i = 1; i < n; i++) {
+                if (!s_free_b[i].on) continue;
+                if (!cue_rules_ball_legal(r, s_free_b, n, s_free_b[i].id)) continue;
+                for (int pk = 0; pk < w->npocket; pk++) {
+                    float bp, bs;
+                    if (!eval_pot(c, i, pk, &bp, &bs)) continue;
+                    if (bp > bestp || (bp == bestp && bs > bests)) { bestp = bp; bests = bs; bestk = k; }
+                }
+            }
+        }
+        memcpy(s_free_b, balls, sizeof(CueBall) * (size_t)n);
+        { CueBall tb = s_free_b[0]; s_free_b[0] = s_free_b[bestk]; s_free_b[bestk] = tb; }
+        balls = s_free_b; c->b = s_free_b;
+        P.free_k = bestk;
+    }
 
     /* 0a. Two misses already. A third forfeits the frame, so nothing else
      * matters: find the nearest ball-on with a clear path and hit it in the
@@ -6731,7 +6768,12 @@ int cue_ai_plan_tick(void) {
     return 0;
 }
 
-CueAIShot cue_ai_plan_result(void) { return to_caller_power(P.result); }
+CueAIShot cue_ai_plan_result(void) {
+    CueAIShot o = to_caller_power(P.result);
+    /* free pyramid: the ball it chose to cue, in the caller's array */
+    if (P.free_k > 0) o.strike_idx = P.free_k;
+    return o;
+}
 
 CueAIShot cue_ai_plan(const CueWorld *w, const CueTable *t, const CueRules *r,
                       const CueBall *balls, int n, const CuePersona *p,
