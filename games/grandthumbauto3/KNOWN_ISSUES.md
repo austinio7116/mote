@@ -4,6 +4,11 @@ Open defects with a reproduction and the evidence already gathered, so the next
 person does not re-derive it. Each entry says what was RULED OUT, which is the
 expensive part.
 
+**The game has been run on a Thumby Color.** It boots, loads and plays on real
+hardware, so nothing below is a "does it even work on a device" question. What
+is still open is the arena measurement in the second entry, and that is blocked
+on tooling rather than on access to a device.
+
 ---
 
 ## Squad cars plateau ~40 m from the player on some layouts
@@ -156,10 +161,21 @@ PROFILING.md says outright that combat was never measured.
 
 1. **Raise `max_tris`.** A `ScreenTri` is 36 bytes, so 850 to 1000 costs 5.4 KB
    of ENGINE ARENA, not GAME_RAM. The arena is `MOTE_ARENA_SIZE`, 272 KB on the
-   device. **This needs checking on hardware first**: if `mote_arena_alloc`
-   comes up short, `mote_scene_configure` returns 0 and the game will not start
-   — a hard failure that cannot be seen from a host build, since the host does
-   not report arena use (`perf` shows `u0 r0`).
+   device. If `mote_arena_alloc` comes up short, `mote_scene_configure` returns
+   0 and the game does not start, so the headroom has to be known before the
+   number is changed.
+
+   **Measuring it needs a small tooling change first.** `mote_os.c` publishes
+   the figure — `mote_perf_set_mem(s_arena.used / 1024, MOTE_ARENA_SIZE / 1024)`
+   — and it arrives as `perf()`'s `pf[1]` and `pf[2]`, which the game's HUD
+   prints as `u<used> r<total>`. But that whole profiling HUD sits inside
+   `#ifdef MOTE_HOST`, so it is not compiled into the device build, and on the
+   host the two read `u0 r0` because the host does not fill them. So the one
+   build that knows the answer is the one that cannot show it.
+
+   Un-gating the HUD block (or just the `u`/`r` fields) for the device build
+   turns this from a guess into a reading: if total minus used is comfortably
+   over 6 KB, raise the pool.
 2. **Cap concurrent police geometry.** The dispatcher keeps `wanted()` cars
    alive; gating vehicle DETAIL (trim panels, livery, lightbar) by distance more
    aggressively during a chase would cut the per-car cost without cutting the

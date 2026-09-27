@@ -140,6 +140,8 @@ The game is close to two budget ceilings, and both are checked on every change:
 - **`GAME_RAM`** — 134 KB at `0x2005E800`, with **968 bytes free**. Check with
   `arm-none-eabi-nm` on the `.elf`: `__mote_bss_end` against the top of the region.
 - **Triangles** — `max_tris` is 850, and a three-star pursuit now **reaches it**.
+  (The game runs on a Thumby Color; what is unmeasured is the engine arena's
+  spare capacity, which the device build cannot report — see KNOWN_ISSUES.)
   `MOTE_GTA_DEBUG=1` prints `[TRI] peak=` to stderr and shows `t<n>` in the HUD;
   seed 7 at `MOTE_GTA_HEAT=3` peaks at exactly 850, which means the list filled
   and further triangles were dropped. See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
