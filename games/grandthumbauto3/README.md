@@ -85,30 +85,30 @@ itself up again when you let go of `B`.
 
 ## Temporary debug affordances
 
-**CHEAT CODES** — typed on foot during play, on the handheld itself:
+**BRING** — a hidden row on the SETTINGS page. Open the menu, `RB` to the
+settings tab, then **tap `B` four times**: a BRING row appears at the bottom.
+`LEFT`/`RIGHT` picks HELI, TANK or BOAT and `A` delivers it. Four more taps
+puts the row away again.
 
-| Code | Delivers |
-|---|---|
-| LB LB LB LB **UP** | the helicopter, 9 m in front of you |
-| LB LB LB LB **DOWN** | the tank, same place |
-| LB LB LB LB **LEFT** | the boat, at the nearest mooring |
+The helicopter and the tank arrive 9 m in front of you. The boat has to arrive
+on water, so it goes to the nearest mooring instead and the message says so.
 
-The boat is the odd one because it has to arrive on water; it goes to the
-nearest mooring instead and the message says so. Presses more than 1.5 s apart
-do not count, so a half-typed code cannot sit waiting to be completed later.
+`B` is the button because the settings tab is the one screen where it does
+nothing — `UP`/`DOWN` pick a row, `LEFT`/`RIGHT` set its value, `A` activates
+it, `LB`/`RB` flip tabs, `MENU` closes — so the code cannot disturb anything on
+its way in.
 
-On foot only — in a car LB and RB are brake and throttle and would spell
-things constantly. The prefix is four LBs rather than anything involving RB
-because RB is USE: a code containing it puts you in the car beside you partway
-through, and the on-foot guard then discards the sequence. LB on foot only
-swings the look-back camera, so entering a code costs nothing but a flick of
-the view.
+This replaced an in-play code (four `LB`s then a direction, entered on foot).
+That one passed its scripted capture but was no good in the hand: it wanted
+four taps inside a 1.5 s window while `LB` was also swinging the look-back
+camera, and nothing on screen told you whether a tap had registered. Here the
+row either appears or it does not.
 
-This is meant to come out. To remove it, delete `cheat_poll`, `bring_vehicle`,
-the `BRING_HELI`/`BRING_TANK`/`BRING_BOAT` enum, `g_code`/`g_code_t`,
-`CODE_PREFIX`, and the one `cheat_poll(in, dt)` call. It replaced a BRING row
-on the settings page, which put a debug affordance where every player would
-find it.
+This is meant to come out. To remove it, delete `bring_vehicle`, the
+`BRING_HELI`/`BRING_TANK`/`BRING_BOAT`/`BRING_N` enum, `g_bring`, `g_cheats`,
+`set_rows()` and its two call sites, the `SET_BRING` row in the settings enum,
+the B-tap block in the settings handler, its `LEFT`/`RIGHT` and `A` arms, its
+`NAME[]` entry and the `BN[]` value arm in `draw_settings`.
 
 The host-only equivalents are environment variables, which are no use with the
 handheld in your hands: `MOTE_GTA_TP_HELI=1` stands beside the aircraft, `2`
@@ -125,6 +125,10 @@ type of the first eight traffic cars so a given silhouette can be got on camera.
 ./tools/mote build games/grandthumbauto3 --device   # .mote for the device
 cmake --build build_host --target gta3_test_veh gta3_test_view gta3_test_camera
 ```
+
+`gta3_shots.sh` lives in this folder and takes headless gameplay captures to
+`games/grandthumbauto3/gta3_shots/` (git-ignored). Run it from anywhere; it
+finds the repo root from its own location.
 
 Three host test binaries cover the parts that are testable without a frame:
 `gta3_test_veh` (vehicle mesh construction, silhouettes, lamp styles),

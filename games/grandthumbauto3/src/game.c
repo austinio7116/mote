@@ -1765,7 +1765,13 @@ static int   g_ctlpage;       /* the CONTROLS page, opened from SETTINGS */
  * g_setsel is the highlighted settings row; g_setmsg flashes the result of a
  * save or load for a couple of seconds so the button press has an answer. */
 enum { TAB_MAP, TAB_SET, TAB_N };
-enum { SET_MINIMAP, SET_SOUND, SET_CONTROLS, SET_SAVE, SET_LOAD, SET_N };
+/* SET_BRING is LAST on purpose: the row is hidden until the B-tap cheat turns
+ * it on (see the BRING CHEAT comment), and putting it at the end means hiding
+ * it is just a shorter row count rather than a hole in the middle that every
+ * index would have to step over. set_rows() is that count. */
+enum { SET_MINIMAP, SET_SOUND, SET_CONTROLS, SET_SAVE, SET_LOAD, SET_BRING, SET_N };
+static uint8_t g_cheats;                       /* BRING row revealed */
+static int set_rows(void){ return g_cheats ? SET_N : SET_N - 1; }
 static int   g_menutab = TAB_MAP, g_setsel;
 static const char *g_setmsg; static float g_setmsg_t;
 /* SOUND on/off, persisted.
@@ -6585,40 +6591,28 @@ static int car_reach_pick(void) {
 static int car_in_reach(void) { return car_reach_pick() >= 0; }
 
 
-/* ---------------------------------------------------- the CHEAT CODES -----
+/* ------------------------------------------------- the BRING CHEAT --------
  *
- * These three deliveries used to be a row on the SETTINGS page, which meant a
- * debug affordance sat in the menu where every player would find it. Behind a
- * button code they are still one press away for someone who knows it and
- * invisible to everyone else, which is what a cheat is for.
+ * These three deliveries are debug affordances, so they are not on the
+ * settings page until you ask for them. Tap B four times ON THE SETTINGS TAB
+ * and a BRING row appears at the bottom; LEFT/RIGHT picks HELI, TANK or BOAT
+ * and A delivers it. Tap it again to put the row away.
  *
- *     LB LB LB LB UP     the helicopter, 9 m in front of you
- *     LB LB LB LB DOWN   the tank, same place
- *     LB LB LB LB LEFT   the boat, at the nearest mooring
+ * B is the button because the settings tab is the one screen where it does
+ * NOTHING: UP/DOWN pick a row, LEFT/RIGHT set its value, A activates it,
+ * LB/RB flip tabs and MENU closes. So the code cannot disturb anything on its
+ * way in, and there is no reason to press B there by accident.
  *
- * ON FOOT ONLY, so that in a car LB and RB stay brake and throttle without
- * spelling anything.
+ * This replaces an in-play code (four LBs then a direction, entered on foot).
+ * That one worked in scripted capture but not in the hand -- it wanted four
+ * taps inside the 1.5 s window while LB was also swinging the look-back
+ * camera, and nothing on screen told you whether a tap had registered. The
+ * settings page has no competing binding and the row either appears or does
+ * not, so the feedback is the feature.
  *
- * The prefix is four LBs and not, as first written, LB LB RB RB, because RB is
- * the USE button: entering the code put the player IN the car beside them on
- * the third press, the on-foot guard below then wiped the buffer, and the code
- * could never complete. It failed silently and looked like a matching bug. LB
- * on foot only swings the look-back camera, so the code has no side effect but
- * a flick of the view. Four of them is not something a thumb produces by
- * accident, and the trailing direction is harmless on any button.
- *
- * The boat is the odd one because it has to arrive on water; it goes to the
- * nearest mooring instead and the message says so.
- *
- * Cost is eight bytes. g_code packs the last eight presses at four bits each —
- * the button ids run 0..8, so a nibble holds one — and matching is a compare
- * of the low twenty bits against a constant. No buffer to scan, no history to
- * walk. g_code_t clears the lot after a second and a half of no presses, so a
- * half-typed code cannot sit there waiting to be completed by an unrelated
- * press a minute later. */
-enum { BRING_HELI, BRING_TANK, BRING_BOAT };
-static uint32_t g_code;
-static float    g_code_t;
+ * Costs two bytes: the press counter and the visible flag. */
+enum { BRING_HELI, BRING_TANK, BRING_BOAT, BRING_N };
+static uint8_t g_bring;        /* which of the three the row is showing */
 
 static void bring_vehicle(int which) {
     float ox, oz; bring_here(&ox, &oz);
@@ -6627,13 +6621,13 @@ static void bring_vehicle(int which) {
         *h = (Car){ ox, oz, pl_yaw(), 0, VEH_TANK, DRV_NONE, 1, 600.0f, 0 };
         car_body_init(NCAR-1);
         g_shells = TANK_SHELLS;
-        say("TANK DELIVERED");
+        g_setmsg = "TANK DELIVERED";
     } else if (which == BRING_HELI) {
         Car *h = &cars[HELI_SLOT];
         *h = (Car){ ox, oz, pl_yaw(), 0, VEH_HELI, DRV_NONE, 1, 100.0f, 0 };
         car_body_init(HELI_SLOT);
         g_heli_y = 0.0f; g_heli_vy = 0.0f;
-        say("HELI DELIVERED");
+        g_setmsg = "HELI DELIVERED";
     } else {
         /* A boat has to arrive on WATER, so it does not go in front of you
          * like the other two — it goes to the nearest mooring, and the
@@ -6649,33 +6643,15 @@ static void bring_vehicle(int which) {
             *h = (Car){ (bx+0.5f)*TILE, (bz+0.5f)*TILE, pl_yaw(), 0,
                         VEH_BOAT, DRV_NONE, 1, 100.0f, 0 };
             car_body_init(BOAT_SLOT);
-            say("BOAT AT THE NEAREST MOORING");
+            g_setmsg = "BOAT AT THE MOORING";
         } else {
-            say("NO WATER NEARBY");
+            g_setmsg = "NO WATER NEARBY";
         }
     }
+    g_setmsg_t = 2.0f;
     sfx(&cash_sfx, 0.6f);
 }
 
-/* One nibble per press, most recent in the low four bits. */
-#define CODE_PREFIX 0x6666u          /* LB LB LB LB */
-static void cheat_poll(const MoteInput *in, float dt) {
-    if (g_state != ST_PLAY || player.mode != MODE_FOOT) { g_code = 0; return; }
-    g_code_t -= dt;
-    if (g_code_t <= 0.0f) g_code = 0;
-    int hit = -1;
-    for (int b = 0; b < MOTE_BTN_COUNT; b++)
-        if (mote_just_pressed(in, (MoteBtnId)b)) { hit = b; break; }
-    if (hit < 0) return;
-    g_code = (g_code << 4) | (uint32_t)hit;
-    g_code_t = 1.5f;
-    if (((g_code >> 4) & 0xFFFFu) != CODE_PREFIX) return;
-    switch (g_code & 0xFu) {
-        case MOTE_BTN_UP:   bring_vehicle(BRING_HELI); g_code = 0; break;
-        case MOTE_BTN_DOWN: bring_vehicle(BRING_TANK); g_code = 0; break;
-        case MOTE_BTN_LEFT: bring_vehicle(BRING_BOAT); g_code = 0; break;
-    }
-}
 
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
@@ -7015,7 +6991,6 @@ static void g_update(float dt) {
         return;
     }
 
-    cheat_poll(in, dt);
     int A = mote_just_pressed(in, MOTE_BTN_A);
     /* USE = enter a car, exit a car, or work a shop/phone. It moved from A to
      * RB so that A can be the throttle while driving, which is where a thumb
@@ -7099,8 +7074,23 @@ static void g_update(float dt) {
         if (mote_just_pressed(in,MOTE_BTN_RB)) g_menutab = (g_menutab+1) % TAB_N;
         if (mote_just_pressed(in,MOTE_BTN_LB)) g_menutab = (g_menutab+TAB_N-1) % TAB_N;
         if (g_menutab == TAB_SET) {
-            if (mote_just_pressed(in,MOTE_BTN_UP))   g_setsel = (g_setsel+SET_N-1) % SET_N;
-            if (mote_just_pressed(in,MOTE_BTN_DOWN)) g_setsel = (g_setsel+1) % SET_N;
+            /* THE BRING CHEAT: four taps of B, which does nothing else on this
+             * tab. The counter resets after 1.5 s without a tap, so a stray
+             * press cannot sit waiting to be completed later. */
+            { static float bt; static uint8_t bn;
+              bt -= dt; if (bt <= 0.0f) bn = 0;
+              if (mote_just_pressed(in,MOTE_BTN_B)) {
+                  bt = 1.5f;
+                  if (++bn >= 4) {
+                      bn = 0; g_cheats = !g_cheats;
+                      if (!g_cheats && g_setsel >= set_rows()) g_setsel = 0;
+                      g_setmsg = g_cheats ? "BRING UNLOCKED" : "BRING HIDDEN";
+                      g_setmsg_t = 2.0f;
+                  }
+              } }
+            int nrow = set_rows();
+            if (mote_just_pressed(in,MOTE_BTN_UP))   g_setsel = (uint8_t)((g_setsel+nrow-1) % nrow);
+            if (mote_just_pressed(in,MOTE_BTN_DOWN)) g_setsel = (uint8_t)((g_setsel+1) % nrow);
             /* LEFT/RIGHT adjusts the highlighted row where it has something to
              * adjust. On SAVE or LOAD that is WHICH SLOT, which is why the two
              * need no row of their own: the number is shown on the row you are
@@ -7116,6 +7106,8 @@ static void g_update(float dt) {
                       g_radar_on = !g_radar_on;
                   } else if (g_setsel == SET_SOUND) {
                       g_sound_on = !g_sound_on; save_prefs();
+                  } else if (g_setsel == SET_BRING) {
+                      g_bring = (uint8_t)((g_bring + BRING_N + adj) % BRING_N);
                   }
               } }
             if (mote_just_pressed(in,MOTE_BTN_A)) {
@@ -7125,6 +7117,7 @@ static void g_update(float dt) {
                 case SET_CONTROLS: g_ctlpage = 1; break;
                 case SET_SAVE:    g_setmsg = save_game() ? "SAVED" : "SAVE FAILED"; g_setmsg_t = 2.0f; break;
                 case SET_LOAD:    g_setmsg = load_game() ? "LOADED" : "NO SAVE";    g_setmsg_t = 2.0f; break;
+                case SET_BRING:   bring_vehicle(g_bring); break;
                 }
             }
             return;                     /* settings tab does not pan the map */
@@ -7828,11 +7821,16 @@ static void draw_settings(uint16_t *fb) {
      * result message at y = 94. Five rows now that BRING has gone to a cheat
      * code, but the spacing is left alone — it is not worth a reflow. */
     static const char *NAME[SET_N] = { "MINIMAP", "SOUND", "CONTROLS",
-                                       "SAVE GAME", "LOAD GAME" };
-    for (int i = 0; i < SET_N; i++) {
+                                       "SAVE GAME", "LOAD GAME", "BRING" };
+    for (int i = 0; i < set_rows(); i++) {
         int y = 19 + i * 11;
         int sel = (i == g_setsel);
-        if (sel) mote->draw_rect(fb, 6, y - 3, 116, 14, MOTE_RGB565(46,56,86), 1, 0, 128);
+        /* 11 tall at y-1, not 14 at y-3: rows are 11 px apart, so a 14 px box
+         * starting 3 px high covers 13 of them and eats the bottom two pixels
+         * of the row ABOVE. That clipped "SAVE GAME" whenever LOAD was
+         * highlighted, and it was there before BRING existed — the sixth row
+         * only made it obvious. */
+        if (sel) mote->draw_rect(fb, 6, y - 1, 116, 11, MOTE_RGB565(46,56,86), 1, 0, 128);
         uint16_t fg = sel ? MOTE_RGB565(250,244,200) : MOTE_RGB565(168,176,196);
         mote_ftext(mote, fb, g_fmed, NAME[i], 12, y, fg);
         const char *val = (i == SET_MINIMAP) ? (g_radar_on ? "ON" : "OFF")
@@ -7840,6 +7838,9 @@ static void draw_settings(uint16_t *fb) {
         if (val) {
             uint16_t vc = (val[1] == 'N') ? MOTE_RGB565(140,230,140) : MOTE_RGB565(200,120,120);
             mote_ftext(mote, fb, g_fmed, val, 92, y, vc);
+        } else if (i == SET_BRING) {
+            static const char *BN[BRING_N] = { "HELI", "TANK", "BOAT" };
+            mote_ftext(mote, fb, g_fmed, BN[g_bring], 84, y, MOTE_RGB565(235,238,245));
         } else if (i == SET_SAVE || i == SET_LOAD) {
             /* The slot number, and a dot when that slot already holds a game.
              * load(slot, 0, 0) returns the stored length, so this is the same

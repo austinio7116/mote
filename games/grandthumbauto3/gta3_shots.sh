@@ -10,7 +10,7 @@
 # and games/grandthumbauto3/build/GrandThumbAutoIII.so built. Output goes to
 # ./gta3_shots/*.png (created if missing). Re-run any time with no args:
 #
-#   tools/gta3_shots.sh
+#   games/grandthumbauto3/gta3_shots.sh
 #
 # --- How this reaches real gameplay -----------------------------------
 #
@@ -65,11 +65,11 @@
 #   MOTE_SHOT_FRAME=N       which frame MOTE_SHOT dumps (default 20)
 #
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."      # repo root: this script lives in the game folder
 
 HOST=./build_host/mote_host
 GAME=games/grandthumbauto3/build/GrandThumbAutoIII.so
-OUT=gta3_shots
+OUT=games/grandthumbauto3/gta3_shots
 mkdir -p "$OUT"
 
 if [ ! -x "$HOST" ]; then

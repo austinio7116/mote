@@ -40,5 +40,6 @@ studio/assets/uifont.cfg
 # git worktrees for isolated feature work
 .worktrees/
 
-# tools/gta3_shots.sh output — regenerate, don't commit
+# games/grandthumbauto3/gta3_shots.sh output — regenerate, don't commit
 /gta3_shots/
+/games/grandthumbauto3/gta3_shots/
