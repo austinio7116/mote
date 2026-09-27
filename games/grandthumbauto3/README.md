@@ -1,7 +1,7 @@
 # Grand Thumb Auto III
 
-A third-person open-city crime sandbox for the Thumby Color, built on the Mote
-engine. The third-person fork of `grandthumbauto`: the camera sits behind the
+**Version 1.0.0.** A third-person open-city crime sandbox for the Thumby Color,
+built on the Mote engine. The third-person fork of `grandthumbauto`: the camera sits behind the
 player rather than overhead, so the city is drawn as 3D massing instead of a
 top-down map.
 
