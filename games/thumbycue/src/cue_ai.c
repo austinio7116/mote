@@ -752,6 +752,10 @@ static int bil_direct_banned(const AiCtx *c, int i) {
 
 static int ai_scratch_is_foul(const AiCtx *c) {
     if (c->r->mode == CUE_GAME_BARBILLIARDS) return 0;
+    /* FREE PYRAMID: the struck ball down a pocket after a contact is a ball
+     * scored (the свояк), not an in-off; a stroke that hits nothing is caught
+     * as a bad first contact whatever went down. */
+    if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_FREE) return 0;
     if (c->r->mode == CUE_GAME_COWBOY) return c->r->score[c->r->turn] < 100;
     return 1;
 }
@@ -1009,6 +1013,16 @@ static Vec3 pocket_aim_t(const AiCtx *c, int pk, Vec3 target) {
  * simulated one, so "what did this shot open up" can be measured on the balls
  * as they finished rather than guessed at from where they started. NULL for
  * either means "use the live table". */
+/* IS SLOT i THE BALL BEING STRUCK? By id everywhere it always was -- and by
+ * SLOT in free pyramid, where any ball may be cued: the host puts the struck
+ * ball in slot 0, and the yellow (which wears the cue ball's id) is then an
+ * object ball like any other. Asked by id there, the planner saw through the
+ * yellow and treated its own cue ball as an obstacle. */
+static int ai_is_cue(const AiCtx *c, int i) {
+    if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_FREE) return i == 0;
+    return c->b[i].id == CUE_ID_CUE;
+}
+
 static int path_clear_at(const AiCtx *c, Vec3 start, Vec3 end, int exclude,
                          const Vec3 *pos, const int *on) {
     Vec3 dir = sub2(end, start);
@@ -1018,7 +1032,7 @@ static int path_clear_at(const AiCtx *c, Vec3 start, Vec3 end, int exclude,
     float clr = c->contact;
     for (int i = 0; i < c->n; i++) {
         int alive = on ? on[i] : c->b[i].on;
-        if (i == exclude || !alive || c->b[i].id == CUE_ID_CUE) continue;
+        if (i == exclude || !alive || ai_is_cue(c, i)) continue;
         Vec3 bp = pos ? pos[i] : c->b[i].pos;
         Vec3 tb = sub2(bp, start);
         float proj = dot2(tb, nd);
@@ -1294,7 +1308,7 @@ static int ghost_fits(const AiCtx *c, Vec3 tp, int pk, int self,
     float clr = c->contact;
     for (int i = 0; i < c->n; i++) {
         int alive = on ? on[i] : c->b[i].on;
-        if (i == self || !alive || c->b[i].id == CUE_ID_CUE) continue;
+        if (i == self || !alive || ai_is_cue(c, i)) continue;
         Vec3 bp = pos ? pos[i] : c->b[i].pos;
         if (d2(bp, g) < clr) return 0;
     }
@@ -1318,7 +1332,7 @@ static int ball_is_open(const AiCtx *c, int i, const Vec3 *pos, const int *on) {
 static int open_targets(const AiCtx *c, const Vec3 *pos, const int *on) {
     int cnt = 0;
     for (int i = 0; i < c->n; i++) {
-        if (c->b[i].id == CUE_ID_CUE) continue;
+        if (ai_is_cue(c, i)) continue;
         if (on ? !on[i] : !c->b[i].on) continue;
         /* The pack that matters: reds at snooker, our own group at pool. */
         /* AT PAUL THE PACK IS THE WHOLE TABLE, so it asks the rules like the
@@ -1365,7 +1379,7 @@ static int cue_crowd(const AiCtx *c, Vec3 cue_end, const Vec3 *pos, const int *o
     float r = K_CROWD * c->t->R, r2 = r * r;
     int cnt = 0;
     for (int i = 0; i < c->n; i++) {
-        if (c->b[i].id == CUE_ID_CUE) continue;
+        if (ai_is_cue(c, i)) continue;
         if (on ? !on[i] : !c->b[i].on) continue;
         Vec3 tp = pos ? pos[i] : c->b[i].pos;
         float dx = tp.x - cue_end.x, dz = tp.z - cue_end.z;
