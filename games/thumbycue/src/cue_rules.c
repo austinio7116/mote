@@ -3893,7 +3893,14 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
     int pot_red = 0, pot_white = 0;
     for (int k = 0; k < np; k++) {
         if (potted[k] == CUE_ID_BIL_RED) pot_red = 1;
-        else if (potted[k] != CUE_ID_CUE) pot_white = 1;
+        /* ANYTHING ELSE IN THE LIST IS THE OBJECT WHITE, whichever colour it
+         * wears: the striker's own ball never reaches `potted` (it is
+         * `scratch`), and the white that is the object ball when the striker
+         * is on the yellow wears CUE_ID_CUE. Testing the id against CUE_ID_CUE
+         * threw that pot away -- no two points, and at the host it read as an
+         * in-off with ball in hand ("after potting opponent's ball ... the
+         * system gives me a ball-in-hand instead"). */
+        else pot_white = 1;
     }
     /* The cue ball is index 0 whatever colour it is wearing, so an in-off is
      * `scratch` — but only a scratch AFTER a contact is an in-off. Section 2

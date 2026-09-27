@@ -404,6 +404,25 @@ int main(void) {
            "...scores the cannon AND the in-off priced by the WHITE (Rule 4(d))",
            r.msg);
     }
+    /* POTTING THE OPPONENT'S WHITE FROM THE YELLOW: two points, the break
+     * goes on, and he plays from where his yellow lies -- not from hand.
+     * Reported from the headset as ball in hand "95% of the time". */
+    {   CueRules r; fresh(&r);
+        r.bil_yellow = 1; r.turn = 1;
+        cue_rules_billiards_swap(B, 3);
+        Shot s = { .touch = { TW }, .pot = { TW } };
+        play(&r, &s);
+        ok(!r.last_foul, "yellow pots the white: no foul", r.msg);
+        ok(r.brk == 2, "...two points for the white (Rule 4)", r.msg);
+        ok(r.turn == 1, "...and the break goes on", r.msg);
+        ok(!r.ball_in_hand, "...from where the yellow lies, not from hand", r.msg);
+    }
+    {   CueRules r; fresh(&r);
+        Shot s = { .touch = { CUE_ID_BIL_YELLOW }, .pot = { CUE_ID_BIL_YELLOW } };
+        play(&r, &s);
+        ok(!r.last_foul && r.brk == 2 && !r.ball_in_hand,
+           "white pots the yellow: the same, the other way round", r.msg);
+    }
     {   CueRules r; fresh(&r);
         r.bil_yellow = 1;
         ok(cue_rules_ball_legal(&r, B, 3, CUE_ID_BIL_WHITE),
