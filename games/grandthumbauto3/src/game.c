@@ -1058,6 +1058,34 @@ static const uint8_t CAR_CLS[54] = {
  /*32*/ 2, 0, 3, 4,11, 0, 0,15,    /* teal coupe, blue sedan, red sports, striped RACER, big van, magenta sedan, beige sedan, patrol */
  /*40*/14,10, 0, 1,12, 0, 1,13,   /* yellow cab, estate, blk sedan, orange cmp, old pickup, maroon sedan, teal cmp, beige jeep */
  /*48*/ 4, 4, 8, 4, 3, 3 };        /* Countach, lime lambo, green speedster, F40, red coupe, silver 911 */
+
+/* What the HUD calls the thing you are driving.
+ *
+ * Indexed by CAR_CLS, so there is no second table to keep in step with the 54
+ * cells -- the classes above already say what each car IS, and they were
+ * reviewed cell by cell. A name table keyed on the type instead would be 54
+ * entries that could drift out of agreement with the class that drives the
+ * handling.
+ *
+ * Costs no GAME_RAM. WNAME is the same shape and the linker puts it at
+ * 0x1082f290, in the .rodata the module executes from in flash.
+ *
+ * The four vehicles above NCARTYPE have no CAR_CLS row -- they are types
+ * rather than handling classes -- so they are named directly. */
+static const char *CNAME[19] = {
+    "SEDAN",   "COMPACT",   "COUPE",      "SPORTS",  "RACER",
+    "MUSCLE",  "HOT HATCH", "CLASSIC",    "CLASSIC SPT", "LUXURY",
+    "WAGON",   "VAN",       "PICKUP",     "JEEP",    "TAXI",
+    "POLICE",  "AMBULANCE", "FIRE TRUCK", "TOW TRUCK" };
+
+static const char *veh_name(int type) {
+    if (type == VEH_BUS)  return "BUS";
+    if (type == VEH_TANK) return "TANK";
+    if (type == VEH_HELI) return "HELICOPTER";
+    if (type == VEH_BOAT) return "BOAT";
+    if (type < 0 || type >= NCARTYPE) return "CAR";
+    return CNAME[CAR_CLS[type]];
+}
 /*                        accel maxspd turn  grip  massx */
 /* accel · maxspd · turn · grip (tyre lat_damp) · mass factor.
  *
@@ -8210,6 +8238,14 @@ static void g_overlay(uint16_t *fb) {
         snprintf(sb, sizeof sb, "%dMPH", mph); }
         int w = 0; for (const char *q = sb; *q; q++) w += 4;      /* 3x5 cell advance */
         mote->text(fb, sb, 126 - w, 117, MOTE_RGB565(210,222,240));
+        /* What you are driving, right-aligned over the readout. Same 3x5 font
+         * and the same right edge, so the two read as one block; dimmer,
+         * because the speed is the number you glance at and the name is the
+         * thing you already know. y=110 clears the weapon label's row at 115
+         * -- that row belongs to the 1.5x font and is taller than it looks. */
+        const char *vn = veh_name(cars[player.car].type);
+        int nw = 0; for (const char *q = vn; *q; q++) nw += 4;
+        mote->text(fb, vn, 126 - nw, 110, MOTE_RGB565(150,164,188));
     }
 
     if (mission!=MI_NONE){

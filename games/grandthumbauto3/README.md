@@ -56,7 +56,7 @@ itself up again when you let go of `B`.
 - **Procedural city** — a 254x256 tile map generated at boot: road grid, avenues, pavements, parks, rivers, lakes, bridges and a plaza, different every seed.
 - **Third-person chase camera** — smoothed yaw, wall collision, no flip when reversing, and an orbit for the title and death screens.
 - **On-foot play** — walk, sprint on A with stamina, punch, eight weapons plus fists, and LB to look behind you.
-- **Vehicle play** — RB to get in or out, A for the throttle, B to brake and drop into reverse once stopped, LB to fire from the car.
+- **Vehicle play** — RB to get in or out, A for the throttle, B to brake and drop into reverse once stopped, LB to fire from the car. The bottom-right corner names what you are driving over the speed readout — the handling class, so a cab says TAXI and a cruiser says POLICE — and the helicopter shows altitude in place of speed.
 - **Handbrake drifts** — braking while steering cuts lateral grip instead of stopping you, so you can slide a corner and pick the car back up on the exit.
 - **54 vehicles on 16 silhouettes** — sedan, compact, coupe, sports, racer, long-hood, wagon, van, truck, pickup, jeep, classic sports, plus a bus, a tank, a boat and a helicopter that are vehicle types rather than handling classes. No silhouette carries more than 17% of the 54 types. Each is a tinted mesh with a cabin, a wheel line and an oriented ground shadow; taxis are yellow with a roof sign.
 - **Car damage** — vehicles take damage, catch fire and wreck, ejecting the driver; a damage bar sits under the health bar while you drive.
