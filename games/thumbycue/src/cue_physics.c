@@ -401,10 +401,17 @@ void cue_phys_skittles_respot(CueWorld *w) {
 }
 
 /* Append to the cue ball's account. Only ever called for ball 0. */
-static void touch_add(CueWorld *w, uint8_t what, uint8_t id, uint8_t idx) {
+static void touch_add(CueWorld *w, uint8_t what, uint8_t id, uint8_t idx, float x) {
     if (w->ntouch >= CUE_MAX_TOUCH) { w->touch_over = 1; return; }
     CueTouch *t = &w->touch[w->ntouch++];
-    t->what = what; t->id = id; t->idx = idx; t->_pad = 0;
+    t->what = what; t->id = id; t->idx = idx;
+    const float f = (w->play_x > 1e-4f) ? x / w->play_x : 0.0f;
+    int q = 128 + (int)lroundf(f * 127.0f);
+    t->xq = (uint8_t)(q < 0 ? 0 : q > 255 ? 255 : q);
+}
+float cue_touch_x(const CueWorld *w, const CueTouch *t) {
+    if (!w || !t) return 0.0f;
+    return ((float)t->xq - 128.0f) / 127.0f * w->play_x;
 }
 
 int cue_touch_count(const CueWorld *w) { return w ? w->ntouch : 0; }
@@ -3023,7 +3030,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                 /* i is always the lower index and the cue ball is 0, so this
                  * is the whole of "did the white touch it". */
                 if (i == 0 && j < CUE_MAX_BALLS) w->hit_by_cue[j] = 1;
-                if (i == 0) touch_add(w, CUE_TOUCH_BALL, balls[j].id, (uint8_t)j);
+                if (i == 0) touch_add(w, CUE_TOUCH_BALL, balls[j].id, (uint8_t)j, balls[0].pos.x);
                 if (w->first_hit < 0 && i == 0) { w->first_hit = balls[j].id; w->first_hit_idx = j; }
                 else if (w->first_hit >= 0 && i == 0) w->jmp_bounced = 1;  /* (c) */
                 /* Did it hit the ball it is in the act of passing over? That is
@@ -3053,7 +3060,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             /* The cue ball's own account. Recorded whether or not it has hit a
              * ball yet: a carom counts every cushion from the start of the
              * shot, not only the ones after first contact. */
-            if (i == 0) touch_add(w, CUE_TOUCH_CUSHION, 0, 0);
+            if (i == 0) touch_add(w, CUE_TOUCH_CUSHION, 0, 0, b->pos.x);
             /* ...AND EVERY BALL'S OWN COUNT, WHICH IS A BANK AND NOT A RUB.
              *
              * Bank pool's whole question is whether the object ball came OFF a

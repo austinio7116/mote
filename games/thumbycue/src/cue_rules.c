@@ -3915,7 +3915,7 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
      * Only from in-hand, because that is the only time Rule 6 applies — a ball
      * lying in baulk during ordinary play may be struck however you like.
      *
-     * 6(f) is the one with teeth and the only one this can judge honestly. "If
+     * 6(f) is the one with teeth. "If
      * an object ball is in Baulk, no part of its surface may be played on
      * directly from in-hand": so playing from the D straight onto a ball that
      * was in baulk, with nothing touched in between, is playing improperly from
@@ -3924,24 +3924,29 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
      * has to go up the table and come back off a cushion, and cannot simply
      * roll up and nudge one.
      *
-     * WHAT WENT BEFORE IT decides it: the touch list is in order, so if a
-     * cushion or the other object ball came first then this was not a direct
-     * stroke and the rule is not engaged. That much is exactly right. What this
-     * does NOT test is 6(d)'s further requirement that the cushion be one OUT
-     * of baulk, because the touch record carries what was hit and not where —
-     * so a stroke into the baulk cushion and back onto a ball in baulk is
-     * allowed here and would be a foul at a real table. It is the rarer half of
-     * the rule and it costs a per-contact position to judge; noted rather than
-     * silently approximated. */
+     * WHAT WENT BEFORE IT decides it, and 6(c)-(e) say what counts: the ball
+     * must be played OUT of baulk (c), so the cushion that makes a stroke onto
+     * a ball in baulk legal is one OUT of baulk (d) -- a cushion in baulk may
+     * be played first only on the way to a ball out of baulk (e). So a ball in
+     * baulk struck first is a foul unless the cue ball met a cushion out of
+     * baulk before it. The touch record carries where the cue ball was at each
+     * touch (CueTouch.xq), which it did not when this was first written: off
+     * the baulk cushion and back onto a ball in baulk was let through, and was
+     * reported as "Rule 6c not enforced". */
     int baulk_foul = 0;
     if (from_hand && first >= 0 && w) {
         const int first_in_baulk = (first == CUE_ID_BIL_RED) ? r->bil_red_baulk
                                                              : r->bil_wht_baulk;
         if (first_in_baulk) {
-            /* `first` IS the first ball touched, so "directly" is settled by
-             * whether anything at all came before it — and the only thing that
-             * can is a cushion. */
-            baulk_foul = (w->ntouch > 0 && w->touch[0].what == CUE_TOUCH_BALL);
+            /* `first` IS the first ball touched, so only cushions can have
+             * come before it -- and only one OUT of baulk makes it legal. */
+            int out_cush = 0;
+            for (int k = 0; k < w->ntouch; k++) {
+                if (w->touch[k].what == CUE_TOUCH_BALL) break;   /* the first ball */
+                if (w->touch[k].what == CUE_TOUCH_CUSHION &&
+                    cue_touch_x(w, &w->touch[k]) > r->baulk_x) out_cush = 1;
+            }
+            baulk_foul = !out_cush;
         }
     }
 

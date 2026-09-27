@@ -37,6 +37,7 @@ typedef struct {
     int pot[4];     /* ids pocketed, 0-terminated (CUE_ID_CUE never appears) */
     int off;        /* balls forced off the table */
     int cushion_first;  /* the cue ball reached a cushion before any ball */
+    int cushion_baulk;  /* ...and that cushion was IN baulk (the baulk cushion) */
 } Shot;
 
 static CueTable T;
@@ -50,7 +51,9 @@ static CueBall  B[CUE_MAX_BALLS];
 #define TW 99
 static int untw(int id) { return id == TW ? CUE_ID_BIL_WHITE : id; }
 static void play(CueRules *r, const Shot *s) {
+    const float px = W.play_x;       /* the bed's, for where a touch was */
     memset(&W, 0, sizeof W);
+    W.play_x = px;
     W.ntouch = 0;
     /* A CUSHION BEFORE THE BALLS, which Rule 6 turns on: the difference between
      * playing straight onto a ball in baulk and coming back off a cushion is
@@ -58,6 +61,8 @@ static void play(CueRules *r, const Shot *s) {
     if (s->cushion_first) {
         W.touch[W.ntouch].what = CUE_TOUCH_CUSHION;
         W.touch[W.ntouch].id   = 0;
+        /* the top cushion, or the baulk cushion: xq is x over play_x, 128+-127 */
+        W.touch[W.ntouch].xq   = (uint8_t)(s->cushion_baulk ? 128 - 120 : 128 + 120);
         W.ntouch++;
     }
     for (int i = 0; i < 4 && s->touch[i]; i++) {
@@ -463,6 +468,23 @@ int main(void) {
         Shot s = { .touch = { CUE_ID_BIL_RED }, .cushion_first = 1 };
         play(&r, &s);
         ok(!r.last_foul, "6(d)/(e): a cushion first and the same red is legal",
+           r.msg);
+    }
+    {   CueRules r; fresh(&r);
+        r.bil_from_hand = 1; r.bil_red_baulk = 1; r.bil_wht_baulk = 1;
+        /* Off the BAULK cushion and onto it: never out of baulk -- 6(c), (d).
+         * Reported as "Rule 6c not enforced". */
+        Shot s = { .touch = { CUE_ID_BIL_RED }, .cushion_first = 1, .cushion_baulk = 1 };
+        play(&r, &s);
+        ok(r.last_foul, "6(c)/(d): off the baulk cushion onto a red in baulk = foul",
+           r.msg);
+    }
+    {   CueRules r; fresh(&r);
+        r.bil_from_hand = 1; r.bil_red_baulk = 0; r.bil_wht_baulk = 1;
+        /* ...but a baulk cushion on the way to a ball OUT of baulk is 6(e) */
+        Shot s = { .touch = { CUE_ID_BIL_RED }, .cushion_first = 1, .cushion_baulk = 1 };
+        play(&r, &s);
+        ok(!r.last_foul, "6(e): off the baulk cushion onto a red out of baulk is legal",
            r.msg);
     }
     {   CueRules r; fresh(&r);

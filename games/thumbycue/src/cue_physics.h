@@ -184,7 +184,12 @@ typedef struct {
     uint8_t what;   /* CUE_TOUCH_* */
     uint8_t id;     /* the ball's id, for CUE_TOUCH_BALL */
     uint8_t idx;    /* ...and its index, since snooker reds share an id */
-    uint8_t _pad;
+    /* WHERE ALONG THE TABLE the cue ball was at this touch: its x as a
+     * fraction of play_x, 128 +- 127 (about 14 mm a step on a 12 ft bed).
+     * Billiards' Rule 6(d) turns on whether a cushion was in baulk or out of
+     * it, and "a cushion" alone could not say. The byte was padding, so the
+     * record keeps its size. cue_touch_x() decodes it. */
+    uint8_t xq;
 } CueTouch;
 
 /* A cushion nose segment in the X–Z plane with an inward unit normal
@@ -703,6 +708,8 @@ typedef struct {
     /* Integrator accumulator (do not touch). */
     float _acc;
 } CueWorld;
+/* The cue ball's x at touch t, in metres (see CueTouch.xq). */
+float cue_touch_x(const CueWorld *w, const CueTouch *t);
 
 static inline float cue_ball_r(const CueWorld *w, const CueBall *b) {
     return (b->r > 0.0f) ? b->r : w->R;
