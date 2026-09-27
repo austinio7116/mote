@@ -239,6 +239,75 @@ int main(void) {
         cue_rules_resolve(&r, b, n, &w, 11, 0, 1, potted, 1);
         ok(r.frame_over == 0,             "seven does not"); }
 
+    /* ---- FREE PYRAMID (FBSR) ------------------------------------------- *
+     * The host swaps the ball struck into b[0]; here a white, id 5, is struck
+     * and the yellow (id 0) lies elsewhere. */
+    {   CueBall fb[CUE_MAX_BALLS]; memcpy(fb, b, sizeof fb);
+        int k5 = -1; for (int i = 0; i < n; i++) if (fb[i].id == 5) k5 = i;
+        CueBall tmp = fb[0]; fb[0] = fb[k5]; fb[k5] = tmp;
+
+        cue_rules_init(&r, &t, 0); r.pyr_free = CUE_PYR_FREE; r.break_shot = 0;
+        ok(cue_rules_ball_legal(&r, fb, n, 0),  "FREE: the yellow is a ball to hit when a white is struck");
+        ok(!cue_rules_ball_legal(&r, fb, n, 5), "...but not the ball being struck");
+
+        /* the struck ball potted off another: a свояк, and it scores */
+        r.turn = 0; r.score[0] = 0;
+        {   int potted[2] = { 5, 9 }; r.bb_hole[0] = 1; r.bb_hole[1] = 2;
+            cue_rules_resolve(&r, fb, n, &w, 9, 1, 1, potted, 2); }
+        ok(!r.last_foul,                  "FREE: the struck ball potted off another is no foul");
+        ok(r.score[0] == 2,               "...it scores, with the ball it potted");
+        ok(r.turn == 0 && !r.ball_in_hand, "...the visit goes on, and nothing is in hand");
+        ok(r.pyr_nback == 0,              "...and nothing goes back");
+
+        /* the yellow is just another ball */
+        {   int potted[1] = { 0 }; r.bb_hole[0] = 3;
+            cue_rules_resolve(&r, fb, n, &w, 0, 0, 1, potted, 1); }
+        ok(!r.last_foul && r.score[0] == 3, "FREE: the yellow potted scores like any other");
+
+        /* an object ball off the table: no foul, not scored, back on the spot */
+        {   int potted[1] = { 7 }; r.bb_hole[0] = -1;
+            cue_rules_resolve(&r, fb, n, &w, 7, 0, 1, potted, 1); }
+        ok(!r.last_foul,                  "FREE: an object ball off the table is no foul");
+        ok(r.score[0] == 3,               "...and does not score");
+        ok(r.pyr_nback == 1 && r.pyr_back[0] == 7, "...it goes back on the spot");
+        ok(r.turn == 1,                   "...and nothing potted hands the table over");
+
+        /* THE FOUL: nothing is given back, the OPPONENT takes a ball */
+        r.turn = 0; r.score[0] = 3; r.score[1] = 1;
+        {   int potted[1] = { 12 }; r.bb_hole[0] = 4;
+            cue_rules_resolve(&r, fb, n, &w, -1, 0, 0, potted, 1); }
+        ok(r.last_foul,                   "FREE: hitting nothing is a foul");
+        ok(r.score[0] == 3 && r.score[1] == 1, "...the offender keeps every ball he has");
+        ok(r.pyr_nback == 1 && r.pyr_back[0] == 12, "...what the foul potted goes back");
+        ok(r.turn == 1 && r.pyr_take == 1, "...and the opponent is to take a ball");
+        ok(!r.ball_in_hand,               "...and plays from the position, nothing in hand");
+        cue_rules_pyr_take(&r, 1);
+        ok(r.score[1] == 2 && !r.pyr_take, "the ball taken scores for the taker");
+
+        /* the yellow potted on a foul goes back too -- id 0, named */
+        r.turn = 0;
+        {   int potted[1] = { 0 }; r.bb_hole[0] = 2;
+            cue_rules_resolve(&r, fb, n, &w, -1, 0, 0, potted, 1); }
+        ok(r.pyr_nback == 1 && r.pyr_back[0] == 0, "FREE: the yellow potted on a foul is named to go back");
+
+        /* the struck ball off the table IS a foul */
+        r.turn = 0;
+        {   int potted[1] = { 5 }; r.bb_hole[0] = -1;
+            cue_rules_resolve(&r, fb, n, &w, 9, 1, 1, potted, 1); }
+        ok(r.last_foul,                   "FREE: the struck ball off the table is a foul");
+
+        /* no pot and no rail */
+        r.turn = 0;
+        cue_rules_resolve(&r, fb, n, &w, 9, 0, 0, NULL, 0);
+        ok(r.last_foul,                   "FREE: no pot and no rail is a foul");
+
+        /* a penalty ball can win the frame */
+        r.turn = 0; r.score[1] = 7; r.frame_over = 0;
+        cue_rules_resolve(&r, fb, n, &w, -1, 0, 0, NULL, 0);
+        cue_rules_pyr_take(&r, 1);
+        ok(r.frame_over && r.winner == 1, "the eighth ball can be a penalty ball");
+    }
+
     printf("\n%s\n", fails ? "FAILURES" : "all good");
     return fails ? 1 : 0;
 }

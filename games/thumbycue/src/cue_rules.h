@@ -163,6 +163,22 @@ typedef struct {
      * anyway. Cleared by resolve like bb_hole. */
     unsigned char respot_id[8];
     int pyr_free;        /* CUE_PYR_* — see below */
+    /* FREE PYRAMID'S TWO JOBS FOR THE HOST, both set on resolve.
+     *
+     * `pyr_back` names every ball that goes back on the back spot -- anything
+     * potted on a foul, and any ball driven off the table on ANY stroke
+     * (FBSR §25). Named by id, and not through respot_id, because the ball
+     * that goes back is quite often the yellow, whose id is 0, and respot_id
+     * reads 0 as "any".
+     *
+     * `pyr_take` is the penalty itself, which in this game is not a ball given
+     * back but a ball TAKEN: after a foul the opponent lifts any ball they like
+     * off the table and scores it (§7). The rules cannot say which -- it is the
+     * incoming player's choice -- so the host asks them, and then calls
+     * cue_rules_pyr_take with the ball they chose. */
+    unsigned char pyr_back[16];
+    int pyr_nback;
+    int pyr_take;
 
     /* ---- G5: ENGLISH BILLIARDS ------------------------------------------ *
      *
@@ -586,10 +602,15 @@ typedef struct {
 /* Which pyramid. CLASSIC is the white-cue-ball game: pot the objects, eight
  * wins, and the cue ball down a pocket is a foul. COMBAT also scores a cue ball
  * potted OFF an object ball (a "свой"), which is the shot the game is famous
- * for. FREE lets any ball on the table be played as the cue ball, which breaks
- * an assumption balls[0] carries through the rules, the AI and the wire — so it
- * is named here and not yet implemented, rather than pretended about. */
+ * for. FREE lets any ball on the table be played as the cue ball after the
+ * break (FBSR Free Pyramid): the host swaps the ball being struck into index 0,
+ * as bumper pool does, so to these rules b[0] is still "the ball struck". */
 enum { CUE_PYR_CLASSIC = 0, CUE_PYR_COMBAT = 1, CUE_PYR_FREE = 2 };
+
+/* FREE PYRAMID: the incoming player has chosen the penalty ball (see pyr_take).
+ * The host has already lifted it off the table; this scores it for `taker`
+ * and ends the frame if that makes eight. */
+void cue_rules_pyr_take(CueRules *r, int taker);
 
 /* Where a potted red goes back. The order is Section 3 Rule 8: the Spot, and
  * if that is occupied the Pyramid Spot, and if both are occupied the Centre

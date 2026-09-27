@@ -1715,6 +1715,94 @@ static void resolve_pyramid(CueRules *r, CueBall *b, int n, int first_hit,
     snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
 }
 
+/* ---- FREE PYRAMID (Свободная пирамида), FBSR rules ------------------------ *
+ *
+ * Fifteen white balls and a yellow. The yellow breaks from the house; after
+ * that, before every stroke, the striker may play ANY ball as the cue ball
+ * (§5.1). The host swaps that ball into b[0], so here b[0] is the ball struck
+ * whatever its id, and `scratch` means b[0] left the bed.
+ *
+ *   §5.4-5.5  every ball potted counts, the struck ball too once it has hit
+ *             another ("свояк")
+ *   §6        one point a ball; eight wins
+ *   §7        a foul scores the OPPONENT a ball: they lift any ball they choose
+ *             off the table (pyr_take; the host asks them)
+ *   §25       balls potted on a foul, and any ball jumped off the table, go back
+ *             on the back spot; an object ball jumped off is not a foul, the
+ *             struck ball jumped off is (the general rules' §29.1.10, as the
+ *             Free rules read it: "a penalty only if the jumped ball is the
+ *             cue ball")
+ *   §5.3      after a foul the incoming player plays from the position, with a
+ *             free choice of cue ball again -- no ball in hand
+ *
+ * The host passes every ball that left the bed in `potted`, the struck ball
+ * included, with bb_hole[k] = -1 for a ball that left the TABLE rather than
+ * going down a pocket. */
+static void resolve_pyramid_free(CueRules *r, CueBall *b, int n, int first_hit,
+                                 int scratch, int cushion, const int *potted, int np) {
+    (void)n; (void)scratch;
+    const int me = r->turn, you = 1 - r->turn;
+    r->break_shot = 0;
+    r->respot = 0;
+    r->pyr_nback = 0;
+    r->pyr_take = 0;
+    r->ball_in_hand = 0;
+
+    const int struck = b[0].id;
+    int scored = 0, cue_off = 0;
+    for (int k = 0; k < np; k++) {
+        const int off = (k < 8) && r->bb_hole[k] == -1;
+        if (off) {
+            if (potted[k] == struck) cue_off = 1;
+            /* off the table, never scored: back on the spot, foul or not */
+            if (r->pyr_nback < 16) r->pyr_back[r->pyr_nback++] = (unsigned char)potted[k];
+        } else scored++;
+    }
+
+    int foul = 0; const char *why = "";
+    if (first_hit < 0)                  { foul = 1; why = "NO BALL"; }
+    else if (cue_off)                   { foul = 1; why = "OFF THE TABLE"; }
+    else if (scored == 0 && !cushion)   { foul = 1; why = "NO RAIL"; }
+    r->last_foul = foul;
+
+    if (!foul) {
+        r->score[me] += scored;
+        if (r->score[me] >= 8) {
+            r->frame_over = 1; r->winner = me; book_frame(r, me);
+            snprintf(r->msg, sizeof r->msg, "PYRAMID!");
+            return;
+        }
+        if (scored) { snprintf(r->msg, sizeof r->msg, "%d BALL%s", scored,
+                               scored == 1 ? "" : "S"); return; }
+        r->turn = you; r->msg[0] = 0;
+        return;
+    }
+
+    /* A foul scores nothing it potted: every ball that went down goes back
+     * (the off-table ones are already named above). */
+    for (int k = 0; k < np; k++) {
+        const int off = (k < 8) && r->bb_hole[k] == -1;
+        if (!off && r->pyr_nback < 16) r->pyr_back[r->pyr_nback++] = (unsigned char)potted[k];
+    }
+    r->cfoul[me]++;
+    r->turn = you;
+    r->pyr_take = 1;               /* the opponent lifts a ball of their choice */
+    snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+}
+
+void cue_rules_pyr_take(CueRules *r, int taker) {
+    if (!r) return;
+    taker = taker ? 1 : 0;
+    r->pyr_take = 0;
+    r->score[taker]++;
+    if (r->score[taker] >= 8) {
+        r->frame_over = 1; r->winner = taker; book_frame(r, taker);
+        snprintf(r->msg, sizeof r->msg, "PYRAMID!");
+        return;
+    }
+    snprintf(r->msg, sizeof r->msg, "PENALTY BALL");
+}
+
 /* ---- G6: BAR BILLIARDS --------------------------------------------------
  *
  * Nine holes in the bed worth ten to two hundred, three skittles standing
@@ -4721,6 +4809,8 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
         resolve_rotation(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, w, first_hit, scratch, cushion, potted, np);
+    else if (CUE_GAME_IS_PYRAMID(r->mode) && r->pyr_free == CUE_PYR_FREE)
+        resolve_pyramid_free(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_CAROM(r->mode))     resolve_carom(r, b, n, w, first_hit);
     else if (CUE_GAME_IS_KILLER(r->mode))    resolve_killer(r, b, n, first_hit, scratch, potted, np);
@@ -4801,6 +4891,11 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
         return id == CUE_ID_BIL_RED ||
                id == (r->bil_yellow ? CUE_ID_BIL_WHITE : CUE_ID_BIL_YELLOW);
     }
+    /* FREE PYRAMID answers before the guard too: the yellow wears CUE_ID_CUE
+     * and is an object ball whenever another ball is being struck. Any ball
+     * but the one in b[0]. */
+    if (CUE_GAME_IS_PYRAMID(r->mode) && r->pyr_free == CUE_PYR_FREE)
+        return (b && n > 0) ? id != b[0].id : id != CUE_ID_CUE;
     if (id == CUE_ID_CUE) return 0;
     /* Free ball: the NOMINATED one, once named — a free ball is nominated in
      * snooker exactly as a colour is, and "any ball is on" was the striker
