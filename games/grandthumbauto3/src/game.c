@@ -6594,7 +6594,7 @@ static int car_in_reach(void) { return car_reach_pick() >= 0; }
 /* ------------------------------------------------- the BRING CHEAT --------
  *
  * These three deliveries are debug affordances, so they are not on the
- * settings page until you ask for them. Tap B four times ON THE SETTINGS TAB
+ * settings page until you ask for them. Tap B nine times ON THE SETTINGS TAB
  * and a BRING row appears at the bottom; LEFT/RIGHT picks HELI, TANK or BOAT
  * and A delivers it. Tap it again to put the row away.
  *
@@ -7074,14 +7074,15 @@ static void g_update(float dt) {
         if (mote_just_pressed(in,MOTE_BTN_RB)) g_menutab = (g_menutab+1) % TAB_N;
         if (mote_just_pressed(in,MOTE_BTN_LB)) g_menutab = (g_menutab+TAB_N-1) % TAB_N;
         if (g_menutab == TAB_SET) {
-            /* THE BRING CHEAT: four taps of B, which does nothing else on this
-             * tab. The counter resets after 1.5 s without a tap, so a stray
-             * press cannot sit waiting to be completed later. */
+            /* THE BRING CHEAT: NINE taps of B, which does nothing else on this
+             * tab. The window is per tap, not for the whole run: each press
+             * restarts 1.5 s, so nine unhurried taps are fine and a stray one
+             * cannot sit waiting to be completed a minute later. */
             { static float bt; static uint8_t bn;
               bt -= dt; if (bt <= 0.0f) bn = 0;
               if (mote_just_pressed(in,MOTE_BTN_B)) {
                   bt = 1.5f;
-                  if (++bn >= 4) {
+                  if (++bn >= 9) {
                       bn = 0; g_cheats = !g_cheats;
                       if (!g_cheats && g_setsel >= set_rows()) g_setsel = 0;
                       g_setmsg = g_cheats ? "BRING UNLOCKED" : "BRING HIDDEN";

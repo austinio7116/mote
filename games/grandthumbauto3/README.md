@@ -86,8 +86,8 @@ itself up again when you let go of `B`.
 ## Temporary debug affordances
 
 **BRING** — a hidden row on the SETTINGS page. Open the menu, `RB` to the
-settings tab, then **tap `B` four times**: a BRING row appears at the bottom.
-`LEFT`/`RIGHT` picks HELI, TANK or BOAT and `A` delivers it. Four more taps
+settings tab, then **tap `B` nine times**: a BRING row appears at the bottom.
+`LEFT`/`RIGHT` picks HELI, TANK or BOAT and `A` delivers it. Nine more taps
 puts the row away again.
 
 The helicopter and the tank arrive 9 m in front of you. The boat has to arrive
