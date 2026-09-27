@@ -7,6 +7,8 @@
  * scale-free; the JS "power" scalar is mapped to the engine's 0..1 strike scale.
  */
 #include "cue_ai.h"
+/* see cue_ai_set_target_plan */
+static int s_ai_never_safe, s_ai_only_id = -1;
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -2967,6 +2969,11 @@ static void plan_finalize(void) {
             if (P.pool[j].scratch || P.pool[j].bad_first) bs -= 1000.0f;
             if (P.pool[i].pot_fails) as -= K_POTVERIFY;
             if (P.pool[j].pot_fails) bs -= K_POTVERIFY;
+            /* the ball the player is aiming at, first, where one is asked for */
+            if (s_ai_only_id > 0) {
+                if (P.pool[i].tidx <= 0 || P.pool[i].tidx >= c->n || c->b[P.pool[i].tidx].id != s_ai_only_id) as -= 500.0f;
+                if (P.pool[j].tidx <= 0 || P.pool[j].tidx >= c->n || c->b[P.pool[j].tidx].id != s_ai_only_id) bs -= 500.0f;
+            }
             as -= K_ELEVPEN * (P.pool[i].elev * DEG) * 0.1f;
             bs -= K_ELEVPEN * (P.pool[j].elev * DEG) * 0.1f;
             if (bs > as) { Cand tmp=P.pool[i]; P.pool[i]=P.pool[j]; P.pool[j]=tmp; }
@@ -3031,6 +3038,11 @@ static void plan_finalize(void) {
             if (P.pool[j].scratch || P.pool[j].bad_first) bs -= 1000.0f;
             if (P.pool[i].pot_fails) as -= K_POTVERIFY;
             if (P.pool[j].pot_fails) bs -= K_POTVERIFY;
+            /* the ball the player is aiming at, first, where one is asked for */
+            if (s_ai_only_id > 0) {
+                if (P.pool[i].tidx <= 0 || P.pool[i].tidx >= c->n || c->b[P.pool[i].tidx].id != s_ai_only_id) as -= 500.0f;
+                if (P.pool[j].tidx <= 0 || P.pool[j].tidx >= c->n || c->b[P.pool[j].tidx].id != s_ai_only_id) bs -= 500.0f;
+            }
             as -= K_ELEVPEN * (P.pool[i].elev * DEG) * 0.1f;
             bs -= K_ELEVPEN * (P.pool[j].elev * DEG) * 0.1f;
             if (bs > as) { Cand tmp=P.pool[i]; P.pool[i]=P.pool[j]; P.pool[j]=tmp; }
@@ -3193,6 +3205,7 @@ static void plan_finalize(void) {
     minConf *= clampf(0.45f + p->line_acc * 0.45f, 0.45f, 1.2f) * K_CONF;
     minConf += urg * 35.0f;        /* needing snookers → only attack near-certain pots */
     if (P.miss_caution) minConf += K_MISSCAUT;   /* one miss down: play the percentages */
+    if (s_ai_never_safe) minConf = 0.0f;       /* a practice target: the pot, always */
     if (best_unsafe || best.potScore < minConf) {
         /* The safeties are already in the pool and already through the engine —
          * this picks the best VERIFIED one rather than re-running the analytic
@@ -3209,6 +3222,7 @@ static void plan_finalize(void) {
             if (CUE_GAME_IS_KILLER(c->r->mode)) aggression = -1.0e5f;
             /* ...and cribbage pool while a companion is owed: see minConf. */
             if (cr_owing) aggression = -1.0e5f;
+            if (s_ai_never_safe) aggression = -1.0e5f;
             /* a scratch/foul pot is never worth taking over a legal safety */
             if (best_unsafe || sc->posScore * 0.6f > best.potScore + aggression) {
                 out.aim = sc->aim; out.power01 = sc->power01;
@@ -6105,6 +6119,14 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * not deliberately scratch or foul. The sim is what catches those. */
     if (P.sim_cap > 0) P.phase = PH_SIM;
     else { plan_finalize(); P.phase = PH_DONE; }
+}
+
+/* A PLAN FOR A PRACTICE TARGET: never a safety, and -- where the player has
+ * shown which ball they mean by aiming at it -- that ball's pot first. Off
+ * unless a caller asks, so no opponent anywhere plays differently. */
+void cue_ai_set_target_plan(int never_safe, int only_id) {
+    s_ai_never_safe = never_safe ? 1 : 0;
+    s_ai_only_id = only_id > 0 ? only_id : -1;
 }
 
 int cue_ai_plan_tick(void) {

@@ -141,6 +141,9 @@ void      cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules
                             const CueBall *balls, int n, const CuePersona *p, uint32_t *rng);
 int       cue_ai_plan_tick(void);     /* returns 1 when planning is complete */
 CueAIShot cue_ai_plan_result(void);
+/* A practice target's plan: never a safety, and (only_id > 0) the pot on that
+ * ball chosen first. Off by default; the caller turns it off again. */
+void cue_ai_set_target_plan(int never_safe, int only_id);
 
 /* Ball-in-hand: choose where to place the cue ball. `restrict_d` = confine to
  * the D / behind the head string (placement already clamped by the caller). */
