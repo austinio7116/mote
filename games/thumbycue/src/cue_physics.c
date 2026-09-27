@@ -33,6 +33,23 @@
 #define V_STOP   0.005f       /* m/s linear */
 #define U_ROLL   0.01f        /* m/s contact-point slip => rolling */
 #define W_STOP   0.05f        /* rad/s spin */
+/* How slowly a ball has to be travelling before its side is treated as drilling
+ * on the spot. Five centimetres a second is already a ball that has stopped to
+ * the eye. */
+#define SPOT_V      0.05f     /* m/s */
+/* ...AND HOW MUCH MORE OF THE PATCH IT GETS, WHICH IS THE CLOTH'S TO SAY.
+ *
+ * spin_decel already scales with mu_s -- "a slow cloth kills side faster than a
+ * fast one, which it should", as cue_table.h puts it -- so the BASE rate tracks
+ * the cloth already. The extra a stopped ball gets should too: a fast cloth has
+ * less friction to hand over when the sliding stops, so it hands over less.
+ *
+ * Referenced to a SLOW cloth (0.25) rather than to the 0.20 default, so the
+ * default sits inside the range rather than pinned at the top of it: 3x on a
+ * slow cloth, about 2.6x on the default, about 2.2x on a fast one. Three is the
+ * ceiling -- four was tried and read as the ball being braked. */
+#define SPOT_MU_REF 0.25f     /* the cloth that earns the whole of it */
+#define SPOT_DRILL  2.0f      /* so 1 + this = 3x, at SPOT_MU_REF and above */
 
 /* 3*pi/16: the drilling-torque coefficient for a circular patch under a
  * HERTZIAN (parabolic) pressure distribution, which is the distribution
@@ -440,6 +457,15 @@ void cue_phys_set_squirt(float rad) {
 }
 float cue_phys_squirt(void) { return s_squirt; }
 
+/* HOW MUCH SPIN A GIVEN OFFSET BUYS, against the rigid-sphere ideal. 1.0 is
+ * the impulse model exactly (wR/v = 2.5 x the offset), and at 1.0 the strike
+ * is bit-for-bit what it always was -- see the one line that reads it. A
+ * tuning knob for matching a real table; online play keeps it at 1.0, because
+ * two ends that disagree about it would not stay in step. */
+static float s_spin_gain = 1.0f;
+void  cue_phys_set_spin_gain(float k) { s_spin_gain = (k > 0.0f && k < 4.0f) ? k : 1.0f; }
+float cue_phys_spin_gain(void) { return s_spin_gain; }
+
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy) {
     dir.y = 0.0f;
@@ -514,7 +540,7 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                     v3_scale(vert,  tv * BR));
     Vec3 J = v3_scale(cdir, speed * BM);             /* impulse along the cue */
     float I = 0.4f * BM * BR * BR;
-    b->w = v3_scale(v3_cross(r, J), 1.0f / I);
+    b->w = v3_scale(v3_cross(r, J), s_spin_gain / I);
 }
 
 void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
@@ -627,8 +653,34 @@ static CUE_HOT void ball_cloth(const CueWorld *w, CueBall *b, float h) {
      *
      * What survives is the constant, and it is the part that was actually
      * wrong: see contact_a. */
-    if (b->w.y > W_STOP)       b->w.y -= w->spin_decel * h;
-    else if (b->w.y < -W_STOP) b->w.y += w->spin_decel * h;
+    /* ---- ...AND A BALL SPINNING ON THE SPOT LOSES IT FASTER -------------
+     *
+     * The constant above is the drilling torque a MOVING ball feels, where the
+     * contact patch's friction is shared out between sliding and drilling. A
+     * ball that has stopped travelling is spending none of that budget on
+     * sliding, so the whole patch is drilling -- which is the Contensou result
+     * arrived at from the other end, without the coupling that could not be
+     * dropped into this integrator (see the note above: scaling the sliding
+     * force also scales du_full, and a ball with heavy side then never reaches
+     * the rolling branch at all).
+     *
+     * Reported from play: "the ball seems to often end up spinning on the spot
+     * as if the spin does not die normally". It does not -- a stationary ball
+     * was losing side at the same rate as one crossing the table.
+     *
+     * ONLY WHEN IT HAS EFFECTIVELY STOPPED. Above SPOT_V nothing changes by a
+     * single bit, so nothing that is still travelling plays differently. */
+    float sdec = w->spin_decel;
+    {   const float sp2 = b->vel.x * b->vel.x + b->vel.z * b->vel.z;
+        if (sp2 < SPOT_V * SPOT_V) {
+            const float t = 1.0f - sqrtf(sp2) / SPOT_V;   /* 1 at a dead stop */
+            float extra = SPOT_DRILL * (w->mu_s / SPOT_MU_REF);
+            if (extra > SPOT_DRILL) extra = SPOT_DRILL;   /* never past 3x */
+            if (extra < 0.0f)       extra = 0.0f;
+            sdec *= 1.0f + extra * t;
+        } }
+    if (b->w.y > W_STOP)       b->w.y -= sdec * h;
+    else if (b->w.y < -W_STOP) b->w.y += sdec * h;
     else                       b->w.y = 0.0f;
 
     /* A BALL ON THE CLOTH HAS NO VERTICAL MOTION — unless something has just
@@ -690,7 +742,7 @@ static CUE_HOT int collide_ball_ball(const CueWorld *w, CueBall *bi, CueBall *bj
     if (vn >= 0.0f) return 0;                  /* separating already */
 
     /* Normal impulse. Written with both masses because English pool's cue ball
-     * is lighter than the balls it strikes — 94 g against 116 — and with equal
+     * is lighter than the balls it strikes — 97 g against 116 — and with equal
      * masses this is exactly the old m/2 reduced mass. */
     const float mi = cue_ball_m(w, bi), mj = cue_ball_m(w, bj);
     float Jn = -(1.0f + w->e_bb) * vn / (1.0f / mi + 1.0f / mj);

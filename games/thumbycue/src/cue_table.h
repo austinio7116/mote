@@ -456,7 +456,7 @@ typedef struct {
     /* THE CUE BALL, WHERE IT IS NOT ONE OF THE SET.
      *
      * English pool is played with a cue ball smaller and lighter than the
-     * object balls — 47.6 mm and 94 g against 50.8 mm and 116 g — because
+     * object balls — 47.6 mm and 97 g against 50.8 mm and 116 g — because
      * coin-op tables have to separate it to return it. Zero means "the same as
      * the rest", which is every other game here. */
     float cue_R, cue_mass;

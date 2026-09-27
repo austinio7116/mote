@@ -25,7 +25,13 @@ enum { CUE_SFX_STRIKE = 0, CUE_SFX_CLACK, CUE_SFX_CUSHION, CUE_SFX_POT, CUE_SFX_
         * does not: the net gives, and it catches a ball rolling in gently quite
         * differently from one arriving at pace. The samples were already in the
         * tree, converted from 2dpool and unused by anything. */
-       CUE_SFX_SOFTPOT, CUE_SFX_HARDPOT, CUE_SFX_N };
+       CUE_SFX_SOFTPOT, CUE_SFX_HARDPOT,
+       /* A NOTIFICATION BELL, at the END for the same reason as everything
+        * above it: something happened that you were not looking at. The
+        * records use it, and so does a match arriving while you are knocking
+        * balls about. The handheld's switch has no default, so a value it does
+        * not know is silently nothing there. */
+       CUE_SFX_BELL, CUE_SFX_N };
 
 void cue_audio_init(void);
 void cue_audio_set_volume(int vol_0_20);

@@ -115,6 +115,31 @@ void cue_render_set_markings(int on);
  * Off unless asked for. The VR build asks; the handheld has not. */
 void cue_render_set_corner_round(int on);
 
+/* ---- ROUND THE CUSHION'S EDGES ------------------------------------------- *
+ *
+ * `r` metres on the two joins of the nose -- the right angle where its little
+ * vertical face meets the cushion top, and the shallow bend where it meets the
+ * skirt below -- drawn as `segs` facets across the quarter turn. r = 0 (the
+ * default) is the square-edged section this has always drawn, so the handheld
+ * is unaffected unless it asks.
+ *
+ * RENDER ONLY, AND THE NOSE LINE DOES NOT MOVE: the top arc starts a radius
+ * below the nose and rolls away from the table, and the bottom arc is tangent
+ * to the two faces that meet at it. cue_render_capture_nose reports the same
+ * line either way, which is what test_seehit compares against the CueSeg chain.
+ *
+ * The radius is clamped to what the section can spare -- three quarters of the
+ * vertical face, a third of the way back along the top -- so a facing that has
+ * been folded almost to nothing beside a bore keeps its shape. */
+void  cue_render_set_cush_fillet(float r, int segs);
+float cue_render_cush_fillet(void);
+
+/* How many triangles the table's buffer refused on the last build. It drops
+ * them in silence -- the right behaviour for a table that has to draw whatever
+ * happens -- so anything that adds geometry should ask. CUE_TRIDUMP=1 prints
+ * the whole count on a host build. */
+int cue_render_table_dropped(void);
+
 /* ---- THE CUSHION RAIL IS SECTIONS, NOT A BORED RING --------------------- *
  *
  * A real table's rails are separate lengths bolted to the slate, with a GAP at

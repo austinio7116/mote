@@ -84,6 +84,8 @@
   figcaption{color:var(--dim);font-size:.9rem;margin-top:8px;max-width:76ch}
   .grid{display:grid;gap:18px}
   .g2{grid-template-columns:repeat(2,1fr)}
+  .closeups figure{margin:0 0 10px}
+  .closeups figcaption{color:var(--gold);letter-spacing:.05em}
   .g3{grid-template-columns:repeat(3,1fr)}
   .g4{grid-template-columns:repeat(4,1fr)}
   @media(max-width:900px){.g3,.g4{grid-template-columns:repeat(2,1fr)}}
@@ -187,7 +189,7 @@
       <span class="badge">32 GAMES</span>
       <span class="badge">10 BED SHAPES</span>
       <span class="badge">8 OPPONENTS</span>
-      <span class="badge">18 CUES</span>
+      <span class="badge">23 CUES</span>
       <span class="badge">PRO / TOURNAMENT / CLUB</span>
       <span class="badge">BUILD YOUR OWN TABLE</span>
       <span class="badge">PLAY A FRIEND</span>
@@ -339,8 +341,8 @@
       <figcaption>The strip along the foot &mdash; <b>TABLE</b>, <b>CLOTH</b>, <b>TIMBER</b>,
       <b>BALLS</b>, <b>CUE</b> &mdash; is how the table looks.</figcaption></figure>
     <figure><img src="img/cuevr/menu-graphics.jpg" alt="The graphics screen">
-      <figcaption><b>Settings &rarr; Graphics</b> — eye width, anti-aliasing and how much of the
-      room the balls reflect, with what the last frame cost underneath.</figcaption></figure>
+      <figcaption><b>Settings &rarr; Graphics</b> — per-eye resolution, anti-aliasing and how much
+      of the room the balls reflect, with what the last frame cost underneath.</figcaption></figure>
     <figure><img src="img/cuevr/menu-controls.jpg" alt="The controls screen">
       <figcaption><b>Settings &rarr; Controls</b> — which hand holds the cue, controllers or a real
       cue, and how the sticks move the table.</figcaption></figure>
@@ -369,69 +371,74 @@
 
 <section id="table">
   <h2>Setting up the table</h2>
-  <p class="lede">Where the table sits and how high it stands is the first thing to set.</p>
+  <p class="lede">One panel, and every way in opens the same one.</p>
 
   <figure>
-    <img src="img/cuevr/place-table.jpg" alt="The table placement screen showing a height of 85 cm">
-    <figcaption>The placement screen. Three things to do, and only the first is compulsory. The
-    height is shown in centimetres so you can match a real piece of furniture.</figcaption>
+    <img src="img/cuevr/place-table.jpg" alt="The table panel: two steps, the outline's size and height, and what each control does">
+    <figcaption>The table panel. Two steps down the side &mdash; <b>Your real table</b> and
+    <b>Scoreboard</b> &mdash; and under them what the step is for, the size and height it is at, and
+    a line for each control.</figcaption>
   </figure>
 
-  <p>The panel down the side carries the three steps, and says what the sticks and the triggers
-  do while you are on each one. <b>Adjust the height</b> is the one you have to do; <b>Adjust the
-  square</b> fits a drawn rectangle to the real surface the cloth is laid over; <b>Scoreboard</b>
-  is marked optional and nothing waits for it.</p>
+  <p>The first thing you do is mark <b>the real surface you are playing over</b>: a desk, a dining
+  table, the end of a bed. The game table then <b>stands on it</b>. You do not set the cloth's
+  height separately and you do not turn the cloth separately &mdash; where that outline is and how
+  high it is decides all three, so the rail lands over your real edge and your bridge hand comes
+  down on something solid.</p>
 
   <table>
     <tr><th>Control</th><th>What it does</th></tr>
-    <tr><td>Left stick</td><td>Slides the table around the room.</td></tr>
-    <tr><td>Right stick, left and right</td><td>Turns the table.</td></tr>
-    <tr><td>Right stick, up and down</td><td>Raises and lowers the table. This is the only thing
-      that needs this screen — sliding and turning work anywhere.</td></tr>
-    <tr><td><b>Grip</b> a rail, or the bed</td><td>Takes hold of the table. Move your hand and it
-      comes with you; roll your wrist and it turns about where you are holding it.</td></tr>
-    <tr><td><b>Trigger</b>, with the controller lying flat</td><td>Sets the height off something
-      real. Lay a controller on your dining table and pull the trigger: the cloth drops to that
-      surface, less the thickness of the controller, and the panel tells you what height it
-      took.</td></tr>
-    <tr><td><kbd>A</kbd></td><td>Finished. Saves the position. Either hand.</td></tr>
+    <tr><td><b>Trigger</b>, held</td><td>The outline comes with your hand &mdash; where it is, how
+      high it is and which way it runs, all at once. Let go to leave it there. This is the quickest
+      way by a distance: stand at your desk, point along it, pull.</td></tr>
+    <tr><td><b>Both triggers</b>, held</td><td>Your two hands become the near edge of the outline,
+      so its width is the width of your reach and its angle and height come with it. Put a hand on
+      each corner of your desk and pull. Two controllers only.</td></tr>
+    <tr><td>Left stick</td><td>Slides the outline.</td></tr>
+    <tr><td>Right stick</td><td>Makes it bigger or smaller.</td></tr>
+    <tr><td><b>Grip</b> + right stick</td><td>Turns it, and raises or lowers it.</td></tr>
+    <tr><td><b>Grip</b> a corner</td><td>Drags that corner to where your real corner is.</td></tr>
+    <tr><td><kbd>A</kbd>, or <b>DONE</b></td><td>Finished. It is kept between sessions.</td></tr>
   </table>
 
   <div class="note">
-    <b>With a real cue on, this screen is one stick.</b> The stick sets the height and turns the
-    table; <b>squeeze the side trigger</b> and it slides the table about instead — forward, back
-    and sideways. Squeeze it again to go back to the height. The panel says which of the two it is
-    on. <kbd>A</kbd> works from either hand. See
-    <a href="#onestick">One stick has to do everything</a>.
+    <b>The bright edge is the side you play from.</b> It turns amber when you have walked round to
+    a different side, and the panel says what to do about it: rotate the outline round to where you
+    are standing. That edge decides which way the cloth runs, so it is worth getting right.
   </div>
 
   <div class="note">
-    <b>Line the table up with real furniture.</b> Set the height so the cloth matches something you
-    actually have — a dining table, a desk, or the arm of a sofa. Then when you lean on the table
-    your hand touches something solid. If the table is at a height that matches nothing in the room
-    you will keep leaning on thin air, and the stroke will feel wrong. If the table is drawn over
-    a real table, there is a better way still: mark its edge and snap to it — see
-    <a href="#snap">Snap to the edges</a>.
+    <b>With a real cue on, this is one stick.</b> The stick slides, scales or turns depending on
+    which job it is on, and the <b>side trigger</b> steps between them; the panel names the live
+    one. The trigger still carries the outline, and <kbd>A</kbd> still finishes. See
+    <a href="#onestick">One stick has to do everything</a>.
   </div>
 
-  <p>A real snooker table has its bed about 85 cm off the floor, which is where the screen starts.
-  You do not need a room big enough for the whole table. If space is tight, bring the part of the
-  table you need into the space you have — the left stick slides it and the right stick turns it,
-  at any time, and you can keep doing that as the frame goes on.</p>
+  <p><b>Whether the outline shows while you play</b> is on the same panel: <b>Never</b>,
+  <b>Always</b>, or <b>On press</b> &mdash; a short press of your butt hand's upper button brings it
+  up for a couple of seconds. It is that hand and not the other, because the bridge hand's upper
+  button belongs to the rest.</p>
 
-  <p>The table stays where you put it between sessions. You do not have to come back to this screen
-  to move it, though: the sticks slide and turn the table whenever you are at it, including in the
-  middle of a frame. The one thing only this screen can change is the <b>height</b> — to get back to
-  it, press <kbd>MENU</kbd> and choose the <b>Table</b> square, or open <b>Environment &rarr;
-  Table</b> from the main menu.</p>
+  <p>A real snooker table has its bed about 85 cm off the floor, which is where the panel starts.
+  You do not need a room big enough for the whole table: the sticks slide and turn the table at any
+  time, including in the middle of a frame, so bring the part you need into the space you have.</p>
+
+  <p>To come back to the panel: press <kbd>MENU</kbd> and choose the <b>Table</b> square, or open
+  <b>Environment &rarr; Table</b> from the main menu. Both open this same panel.</p>
 
   <h3>Pinning the scoreboard</h3>
   <p>The scoreboard normally hangs above the far end of the table and moves with it. If you would
-  rather it lived somewhere real — a wall, or a television that is switched off — choose
-  <b>Scoreboard</b> on this screen, or <b>Environment &rarr; Scoreboard &rarr; PIN IT
-  SOMEWHERE</b>. Grip the board, carry it to where you want it and let go; it stays flat where you
-  left it. Press <kbd>A</kbd> when you are done. It keeps that place between sessions, exactly as
-  the table does, until <b>BACK TO AUTO</b> puts it back above the table.</p>
+  rather it lived somewhere real — a wall, or a television that is switched off — tap
+  <b>Scoreboard</b>, the second step on the table panel. Grip the board, carry it to where you want
+  it and let go; it stays flat where you left it. Press <kbd>A</kbd> when you are done. It keeps
+  that place between sessions, exactly as the table does, until <b>BACK TO AUTO</b> puts it back
+  above the table.</p>
+
+  <figure>
+    <img src="img/cuevr/board-step.png" alt="The scoreboard step of the table panel">
+    <figcaption>The same panel, second step. Both steps stay on screen the whole time, so moving
+    between them is one tap.</figcaption>
+  </figure>
 
   <p><b>The arena has a screen of its own.</b> A pinned board is a place in your real room, and the
   arena is not your real room — so while you are in it the scoreboard goes onto the screen built
@@ -843,6 +850,9 @@
   </div>
 
   <h3>The rest of the settings</h3>
+  <p>Settings has five tabs: <b>Controls</b> (which hand, real cue or controllers, how the table
+  moves, and the button that calibrates a cue), <b>Cue feel</b> (the rows below), <b>Chalk</b>
+  (see <a href="#chalk">Chalk</a>), <b>Graphics</b> and <b>Voice</b>.</p>
   <table>
     <tr><th>Row</th><th>What it does</th></tr>
     <tr><td><b>STROKE</b></td>
@@ -881,10 +891,22 @@
   </table>
 
   <h3>The Logitech MX Ink</h3>
-  <p>If you play with the pen, you no longer have to switch your other controller off to keep it out
-  of the way. The game asks the headset which device is in which hand, and when it finds a pen it
-  stands the other controller down entirely — no second hand in the scene, no stray button presses
-  from a controller sitting on the arm of a chair.</p>
+  <p>The pen is a cue in its own right. Its buttons map to the ones the game uses:</p>
+  <table>
+    <tr><th>On the pen</th><th>What it is</th></tr>
+    <tr><td>Middle pad</td><td>The trigger.</td></tr>
+    <tr><td>Pressing the tip</td><td>The grip.</td></tr>
+    <tr><td>Front cluster button</td><td>The lower button — <kbd>A</kbd> or <kbd>X</kbd>.</td></tr>
+    <tr><td>Back cluster button</td><td>The upper button — <kbd>B</kbd> or <kbd>Y</kbd>.</td></tr>
+    <tr><td>Front button, double tap</td><td><kbd>MENU</kbd>.</td></tr>
+    <tr><td>Back button, double tap</td><td>Clicking the stick.</td></tr>
+  </table>
+  <p>The double taps are the pen's own, not a gesture timed by the game, so they feel the same as
+  they do everywhere else on the pen.</p>
+  <p><b>Your other controller stays live</b> — it still points at menus, still bridges, still
+  presses things. If you would rather it stood down while the pen is in play, <b>Settings &rarr;
+  Controls &rarr; OFF HAND</b> has that; the row only appears once the game has actually seen a
+  pen.</p>
   <div class="note">
     <b>If you have one, we would like to hear how it goes.</b> None of us owns a pen, so this is
     written from the headset's own device reports rather than from playing with it.
@@ -930,35 +952,31 @@
   </div>
 
   <h3>Marking your real table</h3>
-  <p>If the table is drawn over a real piece of furniture, you can walk into its edge while leaning
-  across for a shot. Choose <b>Adjust the square</b> on the placement screen to mark it — or
-  <b>Environment &rarr; Real edge &rarr; MARK THE EDGE</b> — and you get a faint pane of light that
-  you size to your own furniture. The left stick moves it, the right stick
-  stretches it along and across, and the side triggers turn it — either way round. You can also
-  grip any corner and drag it to where your real corner is. The lit edge is the side you lean
-  over; it goes amber when it is not.
-  <b>With a real cue set up it is one stick:</b> the side trigger steps it through move, size and
-  turn, and the panel says which. If you lose the square altogether,
-  <b>BRING IT BACK TO THE TABLE</b> on the panel puts it back where the table is. Show it all the time, never, or for
-  a couple of seconds on a short press of your <b>butt hand's upper button</b> while you play. It
-  is that hand and not the other one, because the bridge hand's upper button belongs to the rest —
-  on a left-handed setting those two are the opposite way round from a right-handed one, and
-  sharing a press would have brought the rest up every time you glanced at your furniture.</p>
+  <p>This is the first step of the table panel, and the one worth doing properly. If the cloth is
+  drawn over a real piece of furniture you can lean on it, rest a bridge hand on its edge and walk
+  into it safely — and the game table stands on whatever you mark, so marking it well is how the
+  cloth ends up at the right height and the right way round.</p>
 
-  <figure>
-    <img src="img/cuevr/square-screen.png" alt="The ADJUST THE SQUARE screen, with the panel listing what each control does">
-    <figcaption><b>ADJUST THE SQUARE.</b> The panel carries the whole of it: what the square is for,
-    how big it currently is in centimetres, and a line for each control — left stick to slide it,
-    right stick to make it bigger or smaller, grip to turn it, grip a corner to drag that corner.
-    With a real cue clamped on, those three become one stick and the side trigger swaps between
-    them; the panel names the live one.</figcaption>
-  </figure>
+  <p>Stand at the edge of your desk, <b>point along it and hold the trigger</b>: the outline comes
+  to your hand, at your hand's height, running the way you are pointing. Let go and it stays. From
+  there the left stick slides it, the right stick sizes it, grip with the right stick turns and
+  raises it, and you can grip any corner and drag it onto your real corner. <b>RESET THE
+  OUTLINE</b> puts it back under the table if you lose it.</p>
+
+  <p>Or use both hands: <b>hold both triggers</b> and the line between them is the near edge, so
+  the width comes from your reach along with the angle and the height. A hand on each corner of
+  your desk sets the whole thing in one go.</p>
+
+  <p>The bright edge is the side you play from; amber means you are standing at a different one and
+  should rotate the outline round to you. Show it while you play — <b>Never</b>, <b>Always</b>,
+  or <b>On press</b> — from the same panel.</p>
 
   <figure>
     <img src="img/cuevr/table-mark.jpg" alt="A faint translucent rectangle lying on the table surface">
-    <figcaption>The mark, sized to a metre square. It lies in the room rather than on the cloth, so
-    moving or turning the table leaves it where your real table is.</figcaption>
+    <figcaption>The mark. It lies in the room rather than on the cloth — it is your furniture it
+    describes, not the table.</figcaption>
   </figure>
+
 
   <h3 id="snap">Snap to the edges</h3>
   <p>Once the mark is in, the <b>TABLE MOVEMENT</b> row has a setting built around it: <b>SNAP TO
@@ -1267,7 +1285,7 @@
       <p>Pool balls and WPA 8-ball rules — identical to US 8-ball above, including ball in hand
       anywhere for any foul, and including the cushion requirement: a shot that neither pots a ball
       nor sends any ball to a cushion after the contact is a foul. Played on a ten-foot table built
-      like a snooker table, with tight rounded pockets.</p>
+      like a snooker table, with tight rounded pockets and dressed in the same napped baize.</p>
       <p>Those pockets are the whole difference. They reject a ball hit too hard and punish an
       approach that is even slightly off. Of the pool games it is the tightest at 1.50 ball widths, and only the two Russian pyramid tables are harder.</p>
       <p>The RULES row carries four ways to play it. <b>HEYBALL</b> is the standard code and calls
@@ -1776,11 +1794,12 @@
       takes every pot however thin and chooses between them by where the cue ball finishes, which
       is what clearing ten actually asks of you.</p>
       <p>The <b>RULES</b> row offers <b>CANADIAN</b> house rules as well as the standard game.
-      Under those the break is a scoring stroke: whatever goes down on it stays down and counts
-      towards your first inning. You play the white from wherever it finishes rather than taking
-      it in hand, unless you potted it — a scratch on the break costs you the position and nothing
-      else. And failing to reach a cushion is still a foul, but the incoming player takes the table
-      as it lies instead of with the ball in hand.</p>
+      Under those <b>you do not call anything</b> — no ball, no pocket, pot what you can. The
+      break is a scoring stroke: whatever goes down on it stays down and counts towards your first
+      inning. You play the white from wherever it finishes rather than taking it in hand, unless
+      you potted it — a scratch on the break costs you the position and nothing else. And failing
+      to reach a cushion is still a foul, but the incoming player takes the table as it lies
+      instead of with the ball in hand.</p>
       <p>Try it with the <b>TENPIN</b> ball set: ivory pins with the two red rings round the neck,
       numbered one to ten as pins are, and a swirled bowling ball for the cue ball.</p>
     </div>
@@ -2451,6 +2470,15 @@
     <tr><td><b>BROWSE</b></td><td>You want to see which rooms are open and pick one.</td></tr>
   </table>
 
+  <div class="note">
+    <b>You practise while you wait.</b> Whichever way you started — quick match, hosting,
+    joining a code, picking a room off the browser — you are put straight onto a practice table
+    with the game you chose racked up, instead of watching the word <em>Waiting</em>. The search
+    carries on in the background and the scoreboard says so, with your code on it if you are
+    hosting. A <b>bell</b> rings when somebody arrives and the match takes over; another rings if
+    the search gives up, and the table stays yours. <b>Pause &rarr; Home</b> calls it off.
+  </div>
+
   <p>You both see the same table, the same balls and the same score. You will see your opponent's
   cue move as they play, and it is the cue they chose. The referee calls fouls at both ends, and the
   player who was fouled against makes the decision.</p>
@@ -2502,22 +2530,23 @@
     <tr><td><b>BALLS</b> (the strip)</td><td>Which set of balls is racked. Twenty-one sets. The
       chips on the same card also set whether the cue ball carries <b>measle spots</b> — with them
       on you can see what the white is doing, how much it is spinning and which way.</td></tr>
-    <tr><td><b>CUE</b> (the strip)</td><td>Your cue, from a rack of eighteen.</td></tr>
+    <tr><td><b>CUE</b> (the strip)</td><td>Your cue, from a rack of twenty-three or your own.</td></tr>
     <tr><td><b>Environment &rarr; Lighting</b></td><td>The light rig over the table.</td></tr>
     <tr><td><b>Environment &rarr; Surroundings</b></td><td>Your own room, a dark hall, or an arena.
       Also three chips on the pause menu, since that is the one you change mid-frame.</td></tr>
-    <tr><td><b>Workshop &rarr; Cue</b></td><td>Start from any of the eighteen cues and change the
-      parts you care about: splice points, point length, veneers, shaft (ash or maple), butt figure,
-      and the splice, accent and butt colours. The cue you are building lies on the table while you
-      work.</td></tr>
+    <tr><td><b>Workshop &rarr; Cue</b></td><td>Build a cue the way a real one is made: splice,
+      veneers, panels, insert, plate, end cap, woods and colours. See <a href="#cues">Cues</a>.</td></tr>
     <tr><td><b>Workshop &rarr; Ball set</b></td><td>Start from an authored set and change the style,
       numbers, band width, number spokes, stripe ground, the low balls, the high balls and the
       black. Any colour row can step back to <b>PER NUMBER</b> to take its colour from the set's own
-      palette.</td></tr>
+      palette. The <b>Finish</b> page also has <b>WEAR</b>: how played-in the set is, which is a
+      different thing from <b>SHINE</b> — shine is how the set was made, wear is what has happened
+      to it since.</td></tr>
   </table>
 
-  <p>Both builders save with your preferences, and your custom cue never appears in your opponent's
-  hands online — they see the cue they chose.</p>
+  <p>Both workshops keep what you build, and both can <b>SHARE</b> it as a six-letter code and take
+  one in with <b>ENTER A CODE</b>. The ball workshop's <b>START FROM</b> lists your own sets after
+  the built-in ones. Online, your opponent sees your cue as you built it.</p>
 
   <h3>Table designs</h3>
   <p>Five bodies, on the <b>BODY</b> chips at the top of the timber card. Each one follows the
@@ -2547,19 +2576,28 @@
       into, and the balls run the length of the table into it.</figcaption></figure>
     <figure><img src="img/cuevr/body-snooker.png" alt="The Snooker table body">
       <figcaption><span class="cap-t">SNOOKER</span> — the club table. A heavy cabinet set back
-      under an overhanging frame, on turned legs, and the only body that leaves room underneath for
-      the bags and the collector rails. A netted table is built on this one and nothing else, and
-      this one is offered on nothing but a netted table &mdash; on any other design the furniture
-      has nowhere to hang.</figcaption></figure>
+      under an overhanging frame, on turned legs, leaving room underneath for the bags and the
+      collector rails. Offered on nothing but a netted table &mdash; on any other design the
+      furniture has nowhere to hang.</figcaption></figure>
+    <figure><img src="img/cuevr/body-arcade.png" alt="The Arcade table body">
+      <figcaption><span class="cap-t">ARCADE</span> — the gothic cabinet. A row of pointed
+      arches cut clean through the apron, a trefoil light in each spandrel, and eight-sided pillar
+      legs with a turned neck and a gilt collar. Snooker only, like the other two.</figcaption></figure>
+    <figure><img src="img/cuevr/body-match.png" alt="The Match table body">
+      <figcaption><span class="cap-t">MATCH</span> — the tournament cabinet. A panelled apron
+      with a scalloped skirt between the posts, and heavy turned legs with inlaid bands at the
+      collar and the ankle. Snooker only.</figcaption></figure>
   </div>
 
   <p><b>AUTO</b> gives each table the body it would really have: the 7 ft pub table gets CABINET, the
   9 ft American beds and straight pool get PRO, the 12 ft match table, 10-red snooker, English
   billiards and Paul get SNOOKER, and everything else — the Chinese 10 ft, pyramid, bar billiards,
   the rotation games and any many-sided or round bed — gets VICTORIAN.</p>
-  <p>A table dressed with <b>string pockets</b> is always built on SNOOKER, whichever body you pick.
-  The bags and the collector rails hang in the shelf that body's overhang leaves, and on any other
-  design they would be buried in the cabinet or left floating under it.</p>
+  <p>A table dressed with <b>string pockets</b> is always built on one of the three snooker bodies
+  — <span class="cap-t">SNOOKER</span>, <span class="cap-t">ARCADE</span> or
+  <span class="cap-t">MATCH</span> — whichever else you pick. The bags and the collector rails
+  hang in the shelf their overhang leaves, and on any other design they would be buried in the
+  cabinet or left floating under it.</p>
 
   <p>It works the other way too: <b>SNOOKER is only offered on a table that has the bags</b>. The
   overhang exists to leave them somewhere to hang, so on a table with drop pockets there is nothing
@@ -3184,38 +3222,145 @@
 
 <section id="cues">
   <h2>Cues</h2>
-  <p class="lede">Eighteen cues, each modelled on a real one. Your choice is saved, and in an online
-  match it is the cue your opponent sees in your hands.</p>
-
-  <h3>Building your own</h3>
-  <p><b>Workshop &rarr; Cue</b> is a cue designer laid out like the ball and table workshops: a rail
-  of pages down the side, sliders and pickers rather than steppers, and the cue in your hands
-  changing as you work. Length, taper, tip, splice, woods, wrap, badge and ferrule.</p>
-  <p>The cues you build are <b>kept</b>. Save one and it joins your library, photographed as it
-  looks, and it sits alongside the eighteen on the cue picker for you to take back up whenever you
-  like. You can go back and alter one, save it as a new cue, or throw it away.</p>
+  <p class="lede">Twenty-three cues, each made the way a real one is. Your choice is saved, and in an
+  online match your opponent sees the cue in your hands exactly as you built it.</p>
 
   <div class="rack">
     <div class="row"><div class="nm">CLASSIC</div><img src="img/cuevr/cue0.jpg" alt="Classic cue"></div>
-    <div class="row"><div class="nm">CROWN</div><img src="img/cuevr/cue1.jpg" alt="Crown cue"></div>
+    <div class="row"><div class="nm">TWIN FLAME</div><img src="img/cuevr/cue1.jpg" alt="Twin Flame cue"></div>
     <div class="row"><div class="nm">EDWARDIAN</div><img src="img/cuevr/cue2.jpg" alt="Edwardian cue"></div>
-    <div class="row"><div class="nm">JOE DAVIS</div><img src="img/cuevr/cue3.jpg" alt="Joe Davis cue"></div>
-    <div class="row"><div class="nm">CENTURY</div><img src="img/cuevr/cue4.jpg" alt="Century cue"></div>
-    <div class="row"><div class="nm">ASCOT</div><img src="img/cuevr/cue5.jpg" alt="Ascot cue"></div>
+    <div class="row"><div class="nm">MAYFAIR</div><img src="img/cuevr/cue3.jpg" alt="Mayfair cue"></div>
+    <div class="row"><div class="nm">KINGFISHER</div><img src="img/cuevr/cue4.jpg" alt="Kingfisher cue"></div>
+    <div class="row"><div class="nm">REGENCY</div><img src="img/cuevr/cue5.jpg" alt="Regency cue"></div>
     <div class="row"><div class="nm">ROYAL</div><img src="img/cuevr/cue6.jpg" alt="Royal cue"></div>
-    <div class="row"><div class="nm">TM RAINBOW</div><img src="img/cuevr/cue7.jpg" alt="TM Rainbow cue"></div>
-    <div class="row"><div class="nm">TM TEAL</div><img src="img/cuevr/cue8.jpg" alt="TM Teal cue"></div>
-    <div class="row"><div class="nm">TM CORAL</div><img src="img/cuevr/cue9.jpg" alt="TM Coral cue"></div>
-    <div class="row"><div class="nm">TM OCEAN</div><img src="img/cuevr/cue10.jpg" alt="TM Ocean cue"></div>
-    <div class="row"><div class="nm">PREDATOR</div><img src="img/cuevr/cue11.jpg" alt="Predator cue"></div>
-    <div class="row"><div class="nm">GC RED</div><img src="img/cuevr/cue12.jpg" alt="GC Red cue"></div>
-    <div class="row"><div class="nm">GC BLUE</div><img src="img/cuevr/cue13.jpg" alt="GC Blue cue"></div>
-    <div class="row"><div class="nm">VIKING EYE</div><img src="img/cuevr/cue14.jpg" alt="Viking Eye cue"></div>
-    <div class="row"><div class="nm">VIKING PEARL</div><img src="img/cuevr/cue15.jpg" alt="Viking Pearl cue"></div>
-    <div class="row"><div class="nm">VIKING BLUE</div><img src="img/cuevr/cue16.jpg" alt="Viking Blue cue"></div>
-    <div class="row"><div class="nm">VIKING SCROLL</div><img src="img/cuevr/cue17.jpg" alt="Viking Scroll cue"></div>
+    <div class="row"><div class="nm">PRISM</div><img src="img/cuevr/cue7.jpg" alt="Prism cue"></div>
+    <div class="row"><div class="nm">LAGOON</div><img src="img/cuevr/cue8.jpg" alt="Lagoon cue"></div>
+    <div class="row"><div class="nm">SUNSET</div><img src="img/cuevr/cue9.jpg" alt="Sunset cue"></div>
+    <div class="row"><div class="nm">RIPTIDE</div><img src="img/cuevr/cue10.jpg" alt="Riptide cue"></div>
+    <div class="row"><div class="nm">EMBER</div><img src="img/cuevr/cue11.jpg" alt="Ember cue"></div>
+    <div class="row"><div class="nm">CARDINAL</div><img src="img/cuevr/cue12.jpg" alt="Cardinal cue"></div>
+    <div class="row"><div class="nm">BLUE NOTE</div><img src="img/cuevr/cue13.jpg" alt="Blue Note cue"></div>
+    <div class="row"><div class="nm">OWL'S EYE</div><img src="img/cuevr/cue14.jpg" alt="Owl's Eye cue"></div>
+    <div class="row"><div class="nm">MOONSTONE</div><img src="img/cuevr/cue15.jpg" alt="Moonstone cue"></div>
+    <div class="row"><div class="nm">SAPPHIRE</div><img src="img/cuevr/cue16.jpg" alt="Sapphire cue"></div>
+    <div class="row"><div class="nm">CATHEDRAL</div><img src="img/cuevr/cue17.jpg" alt="Cathedral cue"></div>
+    <div class="row"><div class="nm">HAND MADE</div><img src="img/cuevr/cue18.jpg" alt="Hand Made cue"></div>
+    <div class="row"><div class="nm">CARBON</div><img src="img/cuevr/cue19.jpg" alt="Carbon cue"></div>
+    <div class="row"><div class="nm">JUBILEE</div><img src="img/cuevr/cue20.jpg" alt="Jubilee cue"></div>
+    <div class="row"><div class="nm">ST GEORGE</div><img src="img/cuevr/cue21.jpg" alt="St George cue"></div>
+    <div class="row"><div class="nm">VINTAGE</div><img src="img/cuevr/cue22.jpg" alt="Vintage cue"></div>
   </div>
 
+  <h3>Close up</h3>
+  <p>The butt of every cue, from the splice to the end. Every one is built the same way: the points
+  are spliced into the butt with their veneers, panels are let in round it, and a plate or insert
+  sits in the flat at the end.</p>
+  <div class="closeups">
+    <figure><img src="img/cuevr/cue0-butt.jpg" alt="The butt of the Classic cue"><figcaption>CLASSIC</figcaption></figure>
+    <figure><img src="img/cuevr/cue1-butt.jpg" alt="The butt of the Twin Flame cue"><figcaption>TWIN FLAME</figcaption></figure>
+    <figure><img src="img/cuevr/cue2-butt.jpg" alt="The butt of the Edwardian cue"><figcaption>EDWARDIAN</figcaption></figure>
+    <figure><img src="img/cuevr/cue3-butt.jpg" alt="The butt of the Mayfair cue"><figcaption>MAYFAIR</figcaption></figure>
+    <figure><img src="img/cuevr/cue4-butt.jpg" alt="The butt of the Kingfisher cue"><figcaption>KINGFISHER</figcaption></figure>
+    <figure><img src="img/cuevr/cue5-butt.jpg" alt="The butt of the Regency cue"><figcaption>REGENCY</figcaption></figure>
+    <figure><img src="img/cuevr/cue6-butt.jpg" alt="The butt of the Royal cue"><figcaption>ROYAL</figcaption></figure>
+    <figure><img src="img/cuevr/cue7-butt.jpg" alt="The butt of the Prism cue"><figcaption>PRISM</figcaption></figure>
+    <figure><img src="img/cuevr/cue8-butt.jpg" alt="The butt of the Lagoon cue"><figcaption>LAGOON</figcaption></figure>
+    <figure><img src="img/cuevr/cue9-butt.jpg" alt="The butt of the Sunset cue"><figcaption>SUNSET</figcaption></figure>
+    <figure><img src="img/cuevr/cue10-butt.jpg" alt="The butt of the Riptide cue"><figcaption>RIPTIDE</figcaption></figure>
+    <figure><img src="img/cuevr/cue11-butt.jpg" alt="The butt of the Ember cue"><figcaption>EMBER</figcaption></figure>
+    <figure><img src="img/cuevr/cue12-butt.jpg" alt="The butt of the Cardinal cue"><figcaption>CARDINAL</figcaption></figure>
+    <figure><img src="img/cuevr/cue13-butt.jpg" alt="The butt of the Blue Note cue"><figcaption>BLUE NOTE</figcaption></figure>
+    <figure><img src="img/cuevr/cue14-butt.jpg" alt="The butt of the Owl's Eye cue"><figcaption>OWL'S EYE</figcaption></figure>
+    <figure><img src="img/cuevr/cue15-butt.jpg" alt="The butt of the Moonstone cue"><figcaption>MOONSTONE</figcaption></figure>
+    <figure><img src="img/cuevr/cue16-butt.jpg" alt="The butt of the Sapphire cue"><figcaption>SAPPHIRE</figcaption></figure>
+    <figure><img src="img/cuevr/cue17-butt.jpg" alt="The butt of the Cathedral cue"><figcaption>CATHEDRAL</figcaption></figure>
+    <figure><img src="img/cuevr/cue18-butt.jpg" alt="The butt of the Hand Made cue"><figcaption>HAND MADE</figcaption></figure>
+    <figure><img src="img/cuevr/cue19-butt.jpg" alt="The butt of the Carbon cue"><figcaption>CARBON</figcaption></figure>
+    <figure><img src="img/cuevr/cue20-butt.jpg" alt="The butt of the Jubilee cue"><figcaption>JUBILEE</figcaption></figure>
+    <figure><img src="img/cuevr/cue21-butt.jpg" alt="The butt of the St George cue"><figcaption>ST GEORGE</figcaption></figure>
+    <figure><img src="img/cuevr/cue22-butt.jpg" alt="The butt of the Vintage cue"><figcaption>VINTAGE</figcaption></figure>
+  </div>
+
+  <h3>Building your own</h3>
+  <p><b>Workshop &rarr; Cue</b> has a rail of pages down the side and the cue on the table in
+  front of you. It turns to whatever part you are editing, and every change shows on it
+  straight away.</p>
+
+  <figure>
+    <img src="img/cuevr/cw-cue.jpg" alt="The Cue page of the cue workshop">
+    <figcaption><b>Cue.</b> The name, the rack cue to start from, and saving, sharing and
+    deleting.</figcaption>
+  </figure>
+
+  <table>
+    <tr><th>Page</th><th>What it sets</th></tr>
+    <tr><td><b>Cue</b></td><td>The name, and which cue you start from: any rack cue, or one of your
+      own.</td></tr>
+    <tr><td><b>Shaft</b></td><td>The timber (ash, maple or carbon), its colour and lightness, the ring
+      spacing, contrast and arrows of the grain, whether an ash shaft's grain lines are dark or
+      brown, the ferrule (silver, brass, ivory, black or red-brown fibre), the tip, the varnish and
+      the cue's length.</td></tr>
+    <tr><td><b>Splice</b></td><td>How many points (none, 4, 6 or 8), by hand or by machine, how long
+      they are, where the splice sits, how round the tips are and how long the veneers' crescents
+      run.</td></tr>
+    <tr><td><b>Veneers</b></td><td>Up to eight veneers under the points and round the panel, each with
+      its own colour and thickness. The points and the panel are set separately.</td></tr>
+    <tr><td><b>Butt</b></td><td>The butt timber, its figure and lightness, and the collar: brass,
+      silver, black, ivory, or ivory with a brass ring each side; its width and where it sits.</td></tr>
+    <tr><td><b>Panel</b></td><td>No panel, one on the front, or four round the butt; how long and wide
+      they are, how they spread into the butt, an inner panel set back inside, and a cross band and
+      stripe let in across them.</td></tr>
+    <tr><td><b>Panel wood</b></td><td>What the panel is made of, a timber with its figure or mother of
+      pearl, and its lightness.</td></tr>
+    <tr><td><b>Insert</b></td><td>A block of another material at the end of the panel: its length and
+      the shape of its top, and the flat on the butt that the plate sits in.</td></tr>
+    <tr><td><b>Plate</b></td><td>The maker's plate: its shape, what it is made of (ivory, enamel,
+      brass, silver, black and gold, or boxwood), the screws or pins, a border, the emblem (a lion
+      among them) and the lettering, in serif, the game's own, sans or gothic. Lettering can be all
+      capitals, or fill the plate's width.</td></tr>
+    <tr><td><b>Extras</b></td><td>For a pool cue: a linen wrap, a butt sleeve, rings and
+      inlays.</td></tr>
+    <tr><td><b>End cap</b></td><td>A capped butt with rings, and a flag or disc on the end.</td></tr>
+  </table>
+
+  <div class="grid g2">
+    <figure><img src="img/cuevr/cw-shaft.jpg" alt="The Shaft page"><figcaption><b>Shaft</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-splice.jpg" alt="The Splice page"><figcaption><b>Splice</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-veneers.jpg" alt="The Veneers page"><figcaption><b>Veneers</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-butt.jpg" alt="The Butt page"><figcaption><b>Butt</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-panel.jpg" alt="The Panel page"><figcaption><b>Panel</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-panelwood.jpg" alt="The Panel wood page"><figcaption><b>Panel wood</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-insert.jpg" alt="The Insert page"><figcaption><b>Insert</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-plate.jpg" alt="The Plate page"><figcaption><b>Plate</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-extras.jpg" alt="The Extras page"><figcaption><b>Extras</b></figcaption></figure>
+    <figure><img src="img/cuevr/cw-endcap.jpg" alt="The End cap page"><figcaption><b>End cap</b></figcaption></figure>
+  </div>
+
+  <h3>Colours</h3>
+  <p>Point at any colour swatch to open the picker. Choose any colour from the square, or one of
+  the named woods and colours beside it: EBONY, ROSEWOOD, MAPLE, BRASS and so on.</p>
+  <figure>
+    <img src="img/cuevr/cw-colour.jpg" alt="The colour picker in the cue workshop">
+    <figcaption>The colour picker, open on the butt.</figcaption>
+  </figure>
+
+  <h3>Saving, sharing and deleting</h3>
+  <ul>
+    <li><b>SAVE</b> writes over the cue of yours you are editing. Started from a rack cue, it says
+      <b>SAVE AS MY CUE</b> and makes it yours; after that it writes over it.</li>
+    <li><b>SAVE A COPY</b> keeps a second cue, and you go on editing the copy.</li>
+    <li><b>DONE</b> saves if anything changed and closes. Look at a rack cue without changing it and
+      you are simply holding that cue.</li>
+    <li><b>DELETE</b> throws one of your cues away. Press it twice.</li>
+    <li><b>SHARE</b> gives you a six-letter code, such as <span class="cap-t">47Z-BPX</span>. Anyone
+      who types it into <b>ENTER A CODE</b> gets a copy of your cue among their own. Sharing the same
+      design twice gives the same code.</li>
+    <li><b>Twenty-four cues</b> of your own. When there is no room, delete one.</li>
+  </ul>
+  <figure>
+    <img src="img/cuevr/cw-share.jpg" alt="A share code shown in the cue workshop">
+    <figcaption>A share code, ready to give to a friend.</figcaption>
+  </figure>
 </section>
 
 <section id="chalk">
@@ -3225,7 +3370,7 @@
   itself unless you ask for the job.</p>
 
   <h3>Do I have to?</h3>
-  <p>No. <b>Settings &rarr; Cue feel &rarr; CHALKING</b> is set to <b>AUTOMATIC</b>, which means
+  <p>No. <b>Settings &rarr; Chalk &rarr; CHALKING</b> is set to <b>AUTOMATIC</b>, which means
   your tip is always chalked, nothing ever slips, and the chalk is simply an object on the rail you
   may pick up if you feel like it. Set it to <b>MANUAL</b> and it becomes part of the game: the tip
   wears a little with every stroke, wears a lot with a hard one, and a wide contact on a bare tip
@@ -3255,10 +3400,38 @@
   <p><b>Environment &rarr; Cloth</b> has its own switch for whether the cloth picks chalk up at all,
   and a <b>WIPE THE TABLE</b> button.</p>
 
+  <h3>Chalk on the white</h3>
+  <p>The tip leaves chalk on the cue ball as well, on the spot it actually struck — a pale,
+  tip-sized smudge in your chalk's colour. They build up over a session and fade over a minute or
+  two, and the same hand that sweeps the cloth takes them off the ball: trigger held, palm over the
+  white. <b>Chalk &rarr; MARKS ON THE WHITE</b> turns the whole thing off, and turning it off
+  cleans the ball.</p>
+
+  <h3>Holding it, and hearing it</h3>
+  <p>Every sweep of the block across your tip is <b>heard and felt</b> — real recordings of a
+  block on a tip, a different one each time, whether the tip needed chalking or not. <b>CHALK
+  SOUND</b> turns that off if you would rather play in quiet.</p>
+  <p><b>Hold it however suits you.</b> With the block in your hand, squeeze the side trigger: the
+  block stops dead in mid-air while your hand keeps moving. Turn and slide your hand until the
+  block sits the way you want it, then let go &mdash; that is how it is held from then on, this
+  pickup and every one after. Two quick squeezes put it back to normal.</p>
+  <p><b>Chalk &rarr; CUSTOM CHALK POSITION</b> turns this off, so the side trigger does nothing to
+  the block, and turning it off puts the block back to normal. <b>RESET CHALK POSITION</b> does the
+  same without turning it off.</p>
+  <p><b>KEEP IT IN REACH</b> brings the block round the table with you. Walk to the other end and
+  after a moment it moves to the rail beside you, on straight timber and never over a pocket. Turn
+  it off and it stays where you left it.</p>
+
+  <figure>
+    <img src="img/cuevr/settings-chalk.png" alt="The Chalk tab of the settings screen">
+    <figcaption><b>Settings &rarr; Chalk.</b> Everything about the block in one place.</figcaption>
+  </figure>
+
   <h3>Your block</h3>
   <p><b>CHALK BLOCK</b> is a cube or a cylinder, and <b>CHALK COLOUR</b> green, grey or blue. The
   cube marks the cloth the way pressed chalk does; the cylinder is the hard sort and barely marks
-  it at all. Chalk is personal: online you see the block your opponent is using, in their colour,
+  it at all. The marks come out in your chalk's own colour. Chalk is personal: online you see the
+  block your opponent is using, in their colour,
   and how much is on their tip — and your own marks switch decides whether you see any marks at
   all, whoever made them.</p>
 </section>
