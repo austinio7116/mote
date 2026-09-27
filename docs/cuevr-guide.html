@@ -285,7 +285,7 @@
   <table class="stack">
     <tr><th>What you want</th><th>Where it is</th></tr>
     <tr><td><b>Different balls</b></td><td><b>BALLS</b>, on the strip along the foot of the main
-      menu. It opens the gallery of all twenty-one sets.</td></tr>
+      menu. It opens the gallery of all twenty-six sets.</td></tr>
     <tr><td><b>A different game</b></td><td>Step <b>1 GAME</b>. It opens the gallery of cards; step
       <b>2 RULES</b> underneath carries the variants of whatever you picked.</td></tr>
     <tr><td><b>A different opponent</b></td><td>Step <b>3 VS</b> &mdash; the machine at eight
@@ -328,6 +328,9 @@
     <tr><td><b>Stop the colours going back on</b></td><td>The <b>Auto respot</b> chip on the same
       pause menu. On, they come back until the reds are gone and then stop, so you can play a
       clearance.</td></tr>
+    <tr><td><b>A target to play position to</b></td><td><b>Target on</b> on the same pause menu, in
+      practice or a challenge; <b>Move the target</b> puts it where you want it. See
+      <a href="#target">The target</a>.</td></tr>
   </table>
 
   <div class="grid g3">
@@ -353,7 +356,7 @@
       <figcaption>Step <b>2 RULES</b> opens the variants &mdash; and on US 8-ball that is where
       the other games on its bed live.</figcaption></figure>
     <figure><img src="img/cuevr/menu-pickballs.jpg" alt="The ball gallery">
-      <figcaption>Clicking <b>BALLS</b> opens the gallery of all twenty-one sets. One rack, one
+      <figcaption>Clicking <b>BALLS</b> opens the gallery of all twenty-six sets. One rack, one
       camera, so the set is the only difference.</figcaption></figure>
     <figure><img src="img/cuevr/menu-pickbed.jpg" alt="The table picker">
       <figcaption>The <b>TABLE</b> panel offers the pocket templates, the fun shapes and anything
@@ -364,8 +367,8 @@
     <figure><img src="img/cuevr/menu-cloth.jpg" alt="The cloth picker">
       <figcaption><b>CLOTH</b> — twenty-four colours, as swatches.</figcaption></figure>
     <figure><img src="img/cuevr/menu-timber.jpg" alt="The timber card">
-      <figcaption>The <b>TIMBER</b> panel — eight woods, and the <b>BODY</b> chips along the top
-      for which table they are built into.</figcaption></figure>
+      <figcaption>The <b>TIMBER</b> panel — the finish, sixteen colours and your own, and the
+      <b>BODY</b> chips along the top for which table they are built into.</figcaption></figure>
   </div>
 </section>
 
@@ -2403,6 +2406,25 @@
     rules throughout.
   </div>
 
+  <h3 id="target">The target</h3>
+  <p>A chalk bullseye on the cloth to play the cue ball to: a <b>50</b> in the middle, then
+  <b>20</b> and <b>10</b> rings, 26 cm across. Tap <kbd>MENU</kbd> in practice or a challenge and
+  choose <b>Target on</b>; it is chalked where you last left it. <b>Move the target</b> puts it in
+  your free hand, the same as a ball in hand: take it anywhere on the table and pull the trigger to
+  put it down. <b>Target off</b> rubs it out.</p>
+  <p>When the cue ball comes to rest inside the target, the ring it stopped in &mdash; the 50, the
+  20 or the 10 &mdash; lights up. It goes out as soon as the cue ball moves again or you move the
+  target.</p>
+  <p>A challenge can have its own target. In the layout editor, <b>PUT THE TARGET ON</b>, then pull
+  the trigger near it to pick it up and carry it like a ball. It is saved with the challenge and
+  chalked on the table whenever the challenge is played; your practice target comes back when the
+  challenge ends.</p>
+
+  <figure>
+    <img src="img/cuevr/practice-target.png" alt="The practice target chalked on a snooker table">
+    <figcaption>The target, chalked on the cloth between the blue and the pink.</figcaption>
+  </figure>
+
   <p><b>Challenges</b> set you a goal on a fixed layout — clear the table, or reach a score. Each
   one is judged over a single visit, so a miss ends the attempt and you start again.</p>
 
@@ -2523,11 +2545,11 @@
       built.</td></tr>
     <tr><td><b>CLOTH</b> (the strip)</td><td>The colour of the cloth. Twenty-four to choose
       from.</td></tr>
-    <tr><td><b>TIMBER</b> (the strip)</td><td>The timber of the frame and rails — eight finishes —
+    <tr><td><b>TIMBER</b> (the strip)</td><td>The timber of the frame and rails — varnished or plain, sixteen colours and your own, eleven woods —
       and, on the chips along the top of the same card, the <b>BODY</b>: the build of the table
       itself, legs, cabinet and proportions. Four designs, or <b>Auto</b> to let each game bring its
       own.</td></tr>
-    <tr><td><b>BALLS</b> (the strip)</td><td>Which set of balls is racked. Twenty-one sets. The
+    <tr><td><b>BALLS</b> (the strip)</td><td>Which set of balls is racked. Twenty-six sets. The
       chips on the same card also set whether the cue ball carries <b>measle spots</b> — with them
       on you can see what the white is doing, how much it is spinning and which way.</td></tr>
     <tr><td><b>CUE</b> (the strip)</td><td>Your cue, from a rack of twenty-three or your own.</td></tr>
@@ -2606,7 +2628,7 @@
 
   <div class="note">
     <b>One timber setting covers the whole table.</b> There is no separate setting for the body. The
-    <b>FRAME</b> row picks one of eight woods for the rails, and the body is made of the same wood:
+    <b>TIMBER</b> panel picks the finish, colour and wood for the rails, and the body is made of the same timber:
     apron, skirt, legs and the square blocks under a Victorian leg all take the colour
     you chose, with the lit mouldings a little paler and the shadowed courses darker.
     <br><br>
@@ -2632,111 +2654,71 @@
   <a href="#workshop">Build a table</a>.</p>
 
   <h3>Balls</h3>
-  <p>Twenty-one sets, and they are <b>presets</b> in the same sense the tables are — every one of
-  them, including the ones that shipped first, is built from the same model. Choose the one you can
-  read most easily from the far end of the table. The <b>BALLS</b> panel opens a gallery: one rack,
-  one table, one camera, so the only difference between two cards is the set.</p>
+  <p>Twenty-three sets. The <b>BALLS</b> panel opens a gallery: one rack, one table, one camera, so
+  the only difference between two cards is the set.</p>
 
   <div class="grid g4">
     <figure><img src="img/cuevr/set-pro.jpg" alt="The PRO ball set">
-      <figcaption><span class="cap-t">PRO</span> — standard numbered balls.</figcaption></figure>
-    <figure><img src="img/cuevr/set-ukyb.jpg" alt="The UK yellow and blue set">
-      <figcaption><span class="cap-t">UK Y/B</span> — pub yellows and blues. Nothing is numbered
-      except the black, which carries an 8 in a circle, as an English set
-      does.</figcaption></figure>
-    <figure><img src="img/cuevr/set-ukyr.jpg" alt="The UK yellow and red set">
-      <figcaption><span class="cap-t">UK Y/R</span> — pub yellows and reds, and the same 8 on the
-      black.</figcaption></figure>
+      <figcaption><span class="cap-t">PRO</span> — Numbered, standard colours.</figcaption></figure>
+    <figure><img src="img/cuevr/set-ukyb.jpg" alt="The UK Y/B ball set">
+      <figcaption><span class="cap-t">UK Y/B</span> — Yellows and blues, 8 on the black.</figcaption></figure>
+    <figure><img src="img/cuevr/set-ukyr.jpg" alt="The UK Y/R ball set">
+      <figcaption><span class="cap-t">UK Y/R</span> — Yellows and reds, 8 on the black.</figcaption></figure>
     <figure><img src="img/cuevr/set-league.jpg" alt="The PRO LEAGUE ball set">
-      <figcaption><span class="cap-t">PRO LEAGUE</span> — banded, numbered in a ringed
-      circle.</figcaption></figure>
+      <figcaption><span class="cap-t">PRO LEAGUE</span> — Banded, numbers in a ringed circle.</figcaption></figure>
     <figure><img src="img/cuevr/set-tour.jpg" alt="The PRO TOUR ball set">
-      <figcaption><span class="cap-t">PRO TOUR</span> — numbered, tournament colours.</figcaption></figure>
+      <figcaption><span class="cap-t">PRO TOUR</span> — Numbered, tournament colours.</figcaption></figure>
     <figure><img src="img/cuevr/set-pink.jpg" alt="The HOT PINK ball set">
-      <figcaption><span class="cap-t">HOT PINK</span> — pink and black.</figcaption></figure>
+      <figcaption><span class="cap-t">HOT PINK</span> — Pink and black.</figcaption></figure>
     <figure><img src="img/cuevr/set-space.jpg" alt="The SPACE ball set">
-      <figcaption><span class="cap-t">SPACE</span> — darker colours over a swirled
-      galaxy.</figcaption></figure>
+      <figcaption><span class="cap-t">SPACE</span> — Colours over a galaxy swirl.</figcaption></figure>
     <figure><img src="img/cuevr/set-vintage.jpg" alt="The VINTAGE ball set">
-      <figcaption><span class="cap-t">VINTAGE</span> — aged ivory and muted colours.</figcaption></figure>
-  </div>
-
-  <p><b>And four taken off photographs of real sets.</b> Spots and stripes in all four cases, in
-  the colours the real thing is moulded in rather than the colours a screen would pick.</p>
-
-  <div class="grid g4">
-    <figure><img src="img/cuevr/set-english.jpg" alt="The ENGLISH S&amp;S ball set">
-      <figcaption><span class="cap-t">ENGLISH S&amp;S</span> — spots and stripes in English
-      colours: a warmer yellow than an American set, a flag blue rather than a royal, and a maroon
-      seven.</figcaption></figure>
-    <figure><img src="img/cuevr/set-tvtour.jpg" alt="The TV TOUR ball set">
-      <figcaption><span class="cap-t">TV TOUR</span> — matte pastels, picked so seven colours stay
-      apart under a broadcast light rather than in the box. Nothing in it is
-      saturated.</figcaption></figure>
-    <figure><img src="img/cuevr/set-marble.jpg" alt="The MARBLE ball set">
-      <figcaption><span class="cap-t">MARBLE</span> — each colour swirled through black, the way a
-      poured resin comes out. The swirl is in the colour only; the ground and the cue ball stay
-      clean.</figcaption></figure>
-    <figure><img src="img/cuevr/set-ivory.jpg" alt="The IVORY ball set">
-      <figcaption><span class="cap-t">IVORY</span> — no white in it at all: every pole is a warm
-      ivory and the colours sit dusty against it. The belt is turned a quarter, so the number is in
-      the ivory with the colour banded round it.</figcaption></figure>
-  </div>
-
-  <p><b>Four that are made of something else.</b> These change the surface rather than the
-  markings, and they are the reason the balls were rebuilt at all.</p>
-
-  <div class="grid g4">
+      <figcaption><span class="cap-t">VINTAGE</span> — Aged ivory, muted colours.</figcaption></figure>
+    <figure><img src="img/cuevr/set-pyramid.jpg" alt="The PYRAMID ball set">
+      <figcaption><span class="cap-t">PYRAMID</span> — Fifteen ivories, red cue ball. Pyramid only.</figcaption></figure>
+    <figure><img src="img/cuevr/set-barbill.jpg" alt="The BAR BILL ball set">
+      <figcaption><span class="cap-t">BAR BILL</span> — One red, seven whites. Bar billiards only.</figcaption></figure>
     <figure><img src="img/cuevr/set-glass.jpg" alt="The GLASS ball set">
-      <figcaption><span class="cap-t">GLASS</span> — PRO cast in glass. Genuinely refractive: the
-      shader traces a ray through each ball, so you see the cloth and the balls behind it bent
-      through the near face, and the markings float inside.</figcaption></figure>
-    <figure><img src="img/cuevr/set-chrome.jpg" alt="The CHROME ball set">
-      <figcaption><span class="cap-t">CHROME</span> — anodised metal. A metal is its reflection, so
-      each ball carries the room, the cushion line and the other balls, tinted towards its own
-      colour so a rack stays tellable apart.</figcaption></figure>
+      <figcaption><span class="cap-t">GLASS</span> — Glass, 244 g.</figcaption></figure>
     <figure><img src="img/cuevr/set-pearl.jpg" alt="The PEARL ball set">
-      <figcaption><span class="cap-t">PEARL</span> — bright colours under a mother-of-pearl
-      sheen.</figcaption></figure>
-    <figure><img src="img/cuevr/set-tenpin.jpg" alt="The TENPIN ball set">
-      <figcaption><span class="cap-t">TENPIN</span> — ivory bowling pins with the two red rings
-      round the neck, numbered one to ten as pins are, and a swirled bowling ball for the cue ball.
-      Made for <a href="#games">bowlliards</a> and offered everywhere.</figcaption></figure>
-  </div>
-
-  <p><b>And three with a texture over them.</b></p>
-
-  <div class="grid g4">
+      <figcaption><span class="cap-t">PEARL</span> — Mother-of-pearl finish.</figcaption></figure>
+    <figure><img src="img/cuevr/set-chrome.jpg" alt="The CHROME ball set">
+      <figcaption><span class="cap-t">CHROME</span> — Titanium, 440 g.</figcaption></figure>
     <figure><img src="img/cuevr/set-camo.jpg" alt="The CAMO ball set">
-      <figcaption><span class="cap-t">CAMO</span> — camouflage over the ordinary ball colours, so
-      it stays a set you can read.</figcaption></figure>
+      <figcaption><span class="cap-t">CAMO</span> — Camouflage over the colours.</figcaption></figure>
     <figure><img src="img/cuevr/set-timber.jpg" alt="The TIMBER ball set">
-      <figcaption><span class="cap-t">TIMBER</span> — turned from wood, spots and stripes, the
-      grain running over the poles as well.</figcaption></figure>
+      <figcaption><span class="cap-t">TIMBER</span> — Lignum vitae, 122 g.</figcaption></figure>
+    <figure><img src="img/cuevr/set-tenpin.jpg" alt="The TENPIN ball set">
+      <figcaption><span class="cap-t">TENPIN</span> — Bowling pins, numbered 1 to 10.</figcaption></figure>
     <figure><img src="img/cuevr/set-antique.jpg" alt="The ANTIQUE ball set">
-      <figcaption><span class="cap-t">ANTIQUE</span> — crazed ivory: a hundred years of lacquer
-      shrinking away from itself.</figcaption></figure>
-  </div>
-
-  <p><b>Two that belong to one game each.</b></p>
-
-  <div class="grid g4">
-    <figure><img src="img/cuevr/set-pyramid.jpg" alt="The pyramid ball set">
-      <figcaption><span class="cap-t">PYRAMID</span> — fifteen plain ivories with a small bare black
-      numeral on both poles, and a red cue ball. Pyramid only.</figcaption></figure>
-    <figure><img src="img/cuevr/set-barbill.jpg" alt="The bar billiards ball set">
-      <figcaption><span class="cap-t">BAR BILL</span> — one red and seven identical whites, no
-      markings. Bar billiards only. There is no coloured cue ball because every white is one; the
-      spotted white is the one you are about to strike.</figcaption></figure>
+      <figcaption><span class="cap-t">ANTIQUE</span> — Crazed ivory.</figcaption></figure>
+    <figure><img src="img/cuevr/set-english.jpg" alt="The ENGLISH S&amp;S ball set">
+      <figcaption><span class="cap-t">ENGLISH S&amp;S</span> — Spots and stripes, English colours.</figcaption></figure>
+    <figure><img src="img/cuevr/set-tvtour.jpg" alt="The TV TOUR ball set">
+      <figcaption><span class="cap-t">TV TOUR</span> — Matte pastels.</figcaption></figure>
+    <figure><img src="img/cuevr/set-marble.jpg" alt="The MARBLE ball set">
+      <figcaption><span class="cap-t">MARBLE</span> — Colours swirled through black.</figcaption></figure>
+    <figure><img src="img/cuevr/set-ivory.jpg" alt="The IVORY ball set">
+      <figcaption><span class="cap-t">IVORY</span> — Ivory poles, the number in the ivory.</figcaption></figure>
+    <figure><img src="img/cuevr/set-silver.jpg" alt="The SILVER ball set">
+      <figcaption><span class="cap-t">SILVER</span> — Silver swirl, black cue ball.</figcaption></figure>
+    <figure><img src="img/cuevr/set-planets.jpg" alt="The PLANETS ball set">
+      <figcaption><span class="cap-t">PLANETS</span> — Marbled planets, a black-hole 8.</figcaption></figure>
+    <figure><img src="img/cuevr/set-glassswirl.jpg" alt="The GLASS SWIRL ball set">
+      <figcaption><span class="cap-t">GLASS SWIRL</span> — Glass, a swirled pattern.</figcaption></figure>
+    <figure><img src="img/cuevr/set-granite.jpg" alt="The GRANITE ball set">
+      <figcaption><span class="cap-t">GRANITE</span> — Grey crackle.</figcaption></figure>
+    <figure><img src="img/cuevr/set-sportglass.jpg" alt="The SPORT GLASS ball set">
+      <figcaption><span class="cap-t">SPORT GLASS</span> — Sparkling glass.</figcaption></figure>
   </div>
 
   <div class="note">
     <b>Three of them weigh what they are made of.</b> A phenolic resin ball is about 170 g at
     57 mm, which is what every set here weighs except three: <b>GLASS</b> is 244 g, <b>CHROME</b> is
-    titanium at 440 g, and <b>TIMBER</b> is lignum vitae at 122 g. That is not decoration. A tip
+    titanium at 440 g, and <b>TIMBER</b> is lignum vitae at 122 g. A tip
     arriving at 5 m/s sends the wooden cue ball away at 7.1, the resin one at 6.6 and the titanium
     one at 4.7, and they carry that difference into every collision afterwards. Play a frame with
-    the chrome set and it plays heavy.
+    the chrome set and it plays heavier.
   </div>
 
   <div class="note">
@@ -2756,27 +2738,80 @@
   </div>
 
   <h3>Woodwork</h3>
-  <p>Eight woods, on the <b>TIMBER</b> panel, and they cover the body as well as the rails.
-  Clicking it opens a card of swatches drawn the way the frame is built, with the lit cap above and
-  the rail's own colour below, so a swatch looks like the timber you will get.</p>
+  <p>The <b>TIMBER</b> panel sets the rails and the body together, in three choices made one after
+  another: the <b>finish</b>, the <b>colour</b>, and &mdash; for a varnished finish &mdash; the
+  <b>wood</b>. The wood does not choose the colour, so varnished oak can be navy. Every tile on
+  the card is a picture of the rail in what that tile offers, so it looks like the timber you will
+  get.</p>
 
   <figure>
-    <img src="img/cuevr/timber-card.png" alt="The timber card">
-    <figcaption>The timber card. The one on the table is outlined; pull the trigger on any other and
-    it is fitted straight away. The <b>BODY</b> chips along the top choose the table the timber is
-    built into, and <b>Plain timber</b> or <b>Wood grain</b> at the foot says whether the figure of
-    the wood is drawn.</figcaption>
+    <img src="img/cuevr/timber-card.png" alt="The timber card, on its COLOUR tab">
+    <figcaption>The timber card on its <b>COLOUR</b> tab. <b>FINISH</b> along the top is
+    <b>VARNISHED</b> or <b>PLAIN</b>; the <b>BODY</b> chips choose the table the timber is built
+    into. The one on the table is outlined; pull the trigger on any other and it is fitted
+    straight away.</figcaption>
+  </figure>
+  <figure>
+    <img src="img/cuevr/timber-woods.png" alt="The timber card, on its WOOD tab">
+    <figcaption>The <b>WOOD</b> tab, on a varnished finish: eleven woods, and <b>SHINE</b> above
+    them &mdash; <b>OFF</b>, <b>SMOOTH</b>, a mirror-flat clear coat, or <b>WITH THE GRAIN</b>,
+    where the wood's figure shows in the reflection &mdash; with <b>SHARPNESS</b> beside it.</figcaption>
   </figure>
 
+  <table>
+    <tr><th>Choice</th><th>What it does</th></tr>
+    <tr><td><b>FINISH</b></td><td><b>VARNISHED</b> is a real wood's grain under a clear lacquer
+      that reflects the lamps. <b>PLAIN</b> is the colour alone, with no grain.</td></tr>
+    <tr><td><b>COLOUR</b></td><td>Sixteen colours, and <b>YOUR OWN</b>, which opens a mixer for any
+      colour at all.</td></tr>
+    <tr><td><b>WOOD</b></td><td>Varnished only. Rosewood, birdseye, curly maple, ribbon, ebony,
+      wenge, mahogany, oak, walnut, cherry and maple, each drawn from photographs of the real
+      timber.</td></tr>
+    <tr><td><b>SHINE</b></td><td>On the WOOD tab. <b>OFF</b>, no clear coat at all;
+      <b>SMOOTH</b> (the default); or <b>WITH THE GRAIN</b>. <b>SHARPNESS</b> beside it sets how
+      the lamp sits in the coat: low is a broad soft glow, high a small bright point, 50 as it
+      was.</td></tr>
+    <tr><td><b>LEATHER</b> / <b>METAL</b></td><td>Beside the finish: on a table with string pockets,
+      the colour of the leather over each pocket; on a table with corner castings, the colour of
+      the metal. <b>DEFAULT</b> in the mixer puts the table's own back.</td></tr>
+  </table>
+  <p>A fresh install starts on smooth varnished mahogany in <b>TOURNAMENT</b>. The body is drawn
+  in the timber's colour; <b>Settings &rarr; Graphics &rarr; BODY GRAIN</b> draws the wood's grain
+  on the body and legs as well, without the varnish, for a little more work on the headset.</p>
+
+  <p>The sixteen colours, each in smooth varnished mahogany:</p>
   <div class="grid g4">
-    <figure><img src="img/cuevr/wood0.jpg" alt="Walnut"><figcaption><span class="cap-t">WALNUT</span></figcaption></figure>
-    <figure><img src="img/cuevr/wood1.jpg" alt="Oak"><figcaption><span class="cap-t">OAK</span></figcaption></figure>
-    <figure><img src="img/cuevr/wood2.jpg" alt="Mahogany"><figcaption><span class="cap-t">MAHOGANY</span></figcaption></figure>
-    <figure><img src="img/cuevr/wood3.jpg" alt="Wenge"><figcaption><span class="cap-t">WENGE</span></figcaption></figure>
-    <figure><img src="img/cuevr/wood4.jpg" alt="Ebony"><figcaption><span class="cap-t">EBONY</span></figcaption></figure>
-    <figure><img src="img/cuevr/wood5.jpg" alt="Charcoal"><figcaption><span class="cap-t">CHARCOAL</span></figcaption></figure>
-    <figure><img src="img/cuevr/wood6.jpg" alt="Silver"><figcaption><span class="cap-t">SILVER</span></figcaption></figure>
-    <figure><img src="img/cuevr/wood7.jpg" alt="Tournament"><figcaption><span class="cap-t">TOURNAMENT</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-walnut.jpg" alt="Walnut timber"><figcaption><span class="cap-t">WALNUT</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-oak.jpg" alt="Oak timber"><figcaption><span class="cap-t">OAK</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-mahogany.jpg" alt="Mahogany timber"><figcaption><span class="cap-t">MAHOGANY</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-wenge.jpg" alt="Wenge timber"><figcaption><span class="cap-t">WENGE</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-ebony.jpg" alt="Ebony timber"><figcaption><span class="cap-t">EBONY</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-charcoal.jpg" alt="Charcoal timber"><figcaption><span class="cap-t">CHARCOAL</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-silver.jpg" alt="Silver timber"><figcaption><span class="cap-t">SILVER</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-tournament.jpg" alt="Tournament timber"><figcaption><span class="cap-t">TOURNAMENT</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-rosewood.jpg" alt="Rosewood timber"><figcaption><span class="cap-t">ROSEWOOD</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-cherry.jpg" alt="Cherry timber"><figcaption><span class="cap-t">CHERRY</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-teak.jpg" alt="Teak timber"><figcaption><span class="cap-t">TEAK</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-maple.jpg" alt="Maple timber"><figcaption><span class="cap-t">MAPLE</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-burgundy.jpg" alt="Burgundy timber"><figcaption><span class="cap-t">BURGUNDY</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-greyoak.jpg" alt="Grey Oak timber"><figcaption><span class="cap-t">GREY OAK</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-racinggreen.jpg" alt="Racing Green timber"><figcaption><span class="cap-t">RACING GREEN</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodcol-navy.jpg" alt="Navy timber"><figcaption><span class="cap-t">NAVY</span></figcaption></figure>
+  </div>
+
+  <p>The eleven woods, each in a colour that suits it:</p>
+  <div class="grid g4">
+    <figure><img src="img/cuevr/woodfig-rosewood.jpg" alt="Varnished rosewood"><figcaption><span class="cap-t">ROSEWOOD</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodfig-birdseye.jpg" alt="Varnished birdseye"><figcaption><span class="cap-t">BIRDSEYE</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodfig-curly.jpg" alt="Varnished curly maple"><figcaption><span class="cap-t">CURLY MAPLE</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodfig-ribbon.jpg" alt="Varnished ribbon"><figcaption><span class="cap-t">RIBBON</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodfig-ebony.jpg" alt="Varnished ebony"><figcaption><span class="cap-t">EBONY</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodfig-wenge.jpg" alt="Varnished wenge"><figcaption><span class="cap-t">WENGE</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodfig-mahogany.jpg" alt="Varnished mahogany"><figcaption><span class="cap-t">MAHOGANY</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodfig-oak.jpg" alt="Varnished oak"><figcaption><span class="cap-t">OAK</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodfig-walnut.jpg" alt="Varnished walnut"><figcaption><span class="cap-t">WALNUT</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodfig-cherry.jpg" alt="Varnished cherry"><figcaption><span class="cap-t">CHERRY</span></figcaption></figure>
+    <figure><img src="img/cuevr/woodfig-maple.jpg" alt="Varnished maple"><figcaption><span class="cap-t">MAPLE</span></figcaption></figure>
   </div>
 
   <h3>Cloth</h3>
@@ -3222,7 +3257,7 @@
 
 <section id="cues">
   <h2>Cues</h2>
-  <p class="lede">Twenty-three cues, each made the way a real one is. Your choice is saved, and in an
+  <p class="lede">Twenty-nine cues, each made the way a real one is. Your choice is saved, and in an
   online match your opponent sees the cue in your hands exactly as you built it.</p>
 
   <div class="rack">
@@ -3249,6 +3284,12 @@
     <div class="row"><div class="nm">JUBILEE</div><img src="img/cuevr/cue20.jpg" alt="Jubilee cue"></div>
     <div class="row"><div class="nm">ST GEORGE</div><img src="img/cuevr/cue21.jpg" alt="St George cue"></div>
     <div class="row"><div class="nm">VINTAGE</div><img src="img/cuevr/cue22.jpg" alt="Vintage cue"></div>
+    <div class="row"><div class="nm">MIDNIGHT</div><img src="img/cuevr/cue23.jpg" alt="Midnight cue"></div>
+    <div class="row"><div class="nm">BIRDIE</div><img src="img/cuevr/cue24.jpg" alt="Birdie cue"></div>
+    <div class="row"><div class="nm">ASHPOOL</div><img src="img/cuevr/cue25.jpg" alt="Ashpool cue"></div>
+    <div class="row"><div class="nm">FOREST</div><img src="img/cuevr/cue26.jpg" alt="Forest cue"></div>
+    <div class="row"><div class="nm">COBALT</div><img src="img/cuevr/cue27.jpg" alt="Cobalt cue"></div>
+    <div class="row"><div class="nm">OBSIDIAN</div><img src="img/cuevr/cue28.jpg" alt="Obsidian cue"></div>
   </div>
 
   <h3>Close up</h3>
@@ -3279,6 +3320,12 @@
     <figure><img src="img/cuevr/cue20-butt.jpg" alt="The butt of the Jubilee cue"><figcaption>JUBILEE</figcaption></figure>
     <figure><img src="img/cuevr/cue21-butt.jpg" alt="The butt of the St George cue"><figcaption>ST GEORGE</figcaption></figure>
     <figure><img src="img/cuevr/cue22-butt.jpg" alt="The butt of the Vintage cue"><figcaption>VINTAGE</figcaption></figure>
+    <figure><img src="img/cuevr/cue23-butt.jpg" alt="The butt of the Midnight cue"><figcaption>MIDNIGHT</figcaption></figure>
+    <figure><img src="img/cuevr/cue24-butt.jpg" alt="The butt of the Birdie cue"><figcaption>BIRDIE</figcaption></figure>
+    <figure><img src="img/cuevr/cue25-butt.jpg" alt="The butt of the Ashpool cue"><figcaption>ASHPOOL</figcaption></figure>
+    <figure><img src="img/cuevr/cue26-butt.jpg" alt="The butt of the Forest cue"><figcaption>FOREST</figcaption></figure>
+    <figure><img src="img/cuevr/cue27-butt.jpg" alt="The butt of the Cobalt cue"><figcaption>COBALT</figcaption></figure>
+    <figure><img src="img/cuevr/cue28-butt.jpg" alt="The butt of the Obsidian cue"><figcaption>OBSIDIAN</figcaption></figure>
   </div>
 
   <h3>Building your own</h3>
@@ -3666,7 +3713,8 @@
     'setting up the table': 'height move position place table set up recentre',
     'pinning the scoreboard': 'scoreboard board move score display arena screen',
     'cloth':            'colour cloth baize green table colour change',
-    'woodwork':         'timber wood frame rails colour',
+    'target':           'target bullseye practice position rings 10 20 50 chalk',
+    'woodwork':         'timber wood frame rails colour varnish varnished plain finish shine smooth grain mahogany oak walnut cherry maple rosewood birdseye curly ribbon ebony wenge leather metal',
     'lighting':         'lights lamps brightness dark',
     'surroundings':     'arena passthrough dark room environment background',
     'snap to the edges': 'move around walk turn teleport jump edge',
