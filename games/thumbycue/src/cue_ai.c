@@ -1020,6 +1020,10 @@ static Vec3 pocket_aim_t(const AiCtx *c, int pk, Vec3 target) {
  * yellow and treated its own cue ball as an obstacle. */
 static int ai_is_cue(const AiCtx *c, int i) {
     if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_FREE) return i == 0;
+    /* ENGLISH BILLIARDS TOO: on the yellow, the OBJECT white wears CUE_ID_CUE,
+     * and asked by id the planner saw through it and took the yellow in its
+     * own hand for an obstacle. Slot 0 is the striker's ball there as well. */
+    if (c->r->mode == CUE_GAME_BILLIARDS) return i == 0;
     return c->b[i].id == CUE_ID_CUE;
 }
 
