@@ -7310,16 +7310,23 @@ static void g_update(float dt) {
          * the only thing with a height.
          *
          * Nothing is lost by refusing. The rooftop caches were always meant to
-         * be taken from the aircraft -- update_pickups gives them a 16 m reach
-         * for exactly that reason -- so there was never anything to get out
-         * for. */
+         * be taken from the aircraft -- update_pickups gives them a squared
+         * reach of 16, a 4 m radius, against 2.2 (1.5 m) on the ground, for
+         * exactly that reason. Verified by flying to one: it collects at roof
+         * height without leaving the aircraft.
+         *
+         * LANDING on a roof is untouched and still works -- heli_floor returns
+         * the roof height and fly_heli clamps the descent there, so the skids
+         * settle on the building and heli_aloft goes false. The refusal is only
+         * about stepping OUT, which is why the message says there is no way
+         * down rather than telling you to land: you have landed. */
         if (USE && player.mode==MODE_CAR && c->type==VEH_HELI &&
             heli_aloft(c->x, c->z)) {
             say("LAND FIRST");
         } else
         if (USE && player.mode==MODE_CAR && c->type==VEH_HELI &&
             floor_y(c->x, c->z) > 0.5f) {
-            say("LAND ON THE STREET");
+            say("NO WAY DOWN FROM HERE");
         } else
         /* You cannot step off a boat into open water. The test is the same
          * predicate the movement uses, so "where the boat may be" and "where
