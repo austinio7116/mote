@@ -84,16 +84,30 @@ itself up again when you let go of `B`.
 
 ## Temporary debug affordances
 
-**BRING** — a row on the SETTINGS page (MENU, then RB to the settings tab)
-whose value picks HELI, TANK or BOAT with LEFT/RIGHT and delivers it with A.
-The helicopter and the tank arrive 9 m in front of you; the boat goes to the
-nearest mooring, because it has to be on water, and says so.
+**CHEAT CODES** — typed on foot during play, on the handheld itself:
 
-This row is meant to come out. To remove it, delete: the `SET_BRING` row in
-the settings enum; the `BRING_HELI`/`BRING_TANK`/`BRING_BOAT`/`BRING_N` enum;
-the `g_bring` variable; the `case SET_BRING` in the settings switch; its arm
-of the LEFT/RIGHT handler; its `NAME[]` entry; and the `BN[]` value arm in
-`draw_settings`.
+| Code | Delivers |
+|---|---|
+| LB LB LB LB **UP** | the helicopter, 9 m in front of you |
+| LB LB LB LB **DOWN** | the tank, same place |
+| LB LB LB LB **LEFT** | the boat, at the nearest mooring |
+
+The boat is the odd one because it has to arrive on water; it goes to the
+nearest mooring instead and the message says so. Presses more than 1.5 s apart
+do not count, so a half-typed code cannot sit waiting to be completed later.
+
+On foot only — in a car LB and RB are brake and throttle and would spell
+things constantly. The prefix is four LBs rather than anything involving RB
+because RB is USE: a code containing it puts you in the car beside you partway
+through, and the on-foot guard then discards the sequence. LB on foot only
+swings the look-back camera, so entering a code costs nothing but a flick of
+the view.
+
+This is meant to come out. To remove it, delete `cheat_poll`, `bring_vehicle`,
+the `BRING_HELI`/`BRING_TANK`/`BRING_BOAT` enum, `g_code`/`g_code_t`,
+`CODE_PREFIX`, and the one `cheat_poll(in, dt)` call. It replaced a BRING row
+on the settings page, which put a debug affordance where every player would
+find it.
 
 The host-only equivalents are environment variables, which are no use with the
 handheld in your hands: `MOTE_GTA_TP_HELI=1` stands beside the aircraft, `2`
