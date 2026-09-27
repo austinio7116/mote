@@ -259,6 +259,11 @@ typedef struct {
      * cue_rules_attempt_begin from the positions the stroke starts from,
      * because by the time resolve runs the balls have moved. */
     int bil_from_hand;   /* host: this stroke is being played from in-hand */
+    /* What the last stroke scored WITH -- cannon, red potted, white potted,
+     * in-off, 1 each -- zero for a stroke that scored nothing. A billiards
+     * break is points, and this is what they were made of, for the host's
+     * frame statistics. */
+    unsigned char bil_last[4];
     int bil_red_baulk;   /* the red was in Baulk when the stroke began */
     int bil_wht_baulk;   /* ...and so was the object white */
 

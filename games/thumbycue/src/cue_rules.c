@@ -3859,6 +3859,7 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
     r->break_shot = 0;
     r->bil_respot_red = CUE_BIL_SPOT_NONE;
     r->bil_respot_white = 0;
+    memset(r->bil_last, 0, sizeof r->bil_last);
     /* CONSUMED HERE, whichever way this resolve goes out. The host sets it when
      * it places the ball; leaving it standing would make the NEXT stroke look
      * like one played from hand and put Rule 6 on a shot it does not bind. */
@@ -4029,6 +4030,10 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
 
     r->score[me] += pts;
     r->brk += pts;
+    r->bil_last[0] = (unsigned char)(cannon ? 1 : 0);
+    r->bil_last[1] = (unsigned char)(pot_red ? 1 : 0);
+    r->bil_last[2] = (unsigned char)(pot_white ? 1 : 0);
+    r->bil_last[3] = (unsigned char)(in_off ? 1 : 0);
 
     /* The two sequences, each counted only while the other kind is absent. */
     if (cannon && !hazard) r->bil_cannons++; else r->bil_cannons = 0;
