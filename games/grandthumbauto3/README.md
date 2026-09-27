@@ -28,7 +28,7 @@ top-down map.
 | Pitch / yaw | `DPAD` |
 | Climb | `A` |
 | Descend | `B` |
-| Get out (landed only) | `RB` |
+| Get out (landed, and not on a roof) | `RB` |
 | **In the boat** | |
 | Steer | `DPAD` |
 | Ahead | `A` |
@@ -64,19 +64,20 @@ itself up again when you let go of `B`.
 - **Traffic lights** — one signal head per intersection on a kerbside post, red/amber/green off a single global clock with no per-junction state.
 - **Pedestrians** — 34 live peds who walk the pavements, flee a fight, and occasionally fight back.
 - **Street crews** — one city in three has a knot of four matching pedestrians who come for you on sight rather than when provoked. Put all four down and the last one drops the crew's takings.
-- **Police and a wanted level** — up to six stars, ambient patrols that act as witnesses, squad cars and foot officers that pursue you, sirens, and an automatic felony for ramming a cop car.
+- **Police and a wanted level** — up to six stars. Ambient patrols are the witnesses: a crime nobody sees costs you nothing, and gunfire and explosions are heard through walls where a theft has to be watched. Ramming a squad car is an automatic star; stealing one is two on the spot. **Stay in sight of the police and the level climbs on its own** — every twelve seconds of unbroken pursuit adds a star, up to four, so a chase you cannot shake gets worse rather than stalling. Escaping means both 30 m of separation and no line of sight, held for long enough; ducking behind one building only slows the count down. Squad cars chase by descending a routed distance field over the street grid rather than steering at you in a straight line, so they corner instead of grinding along the wall between you. At three stars they arrive in pairs, at four they throw roadblocks across the road ahead, and at five the army sends a tank.
 - **14 mission types** — courier, rampage, getaway, hit, deliver, pickup, repo, escort, smuggle, demolition, vigilante, wanted-survival, circuit time-trial and a rubber-band rival race.
-- **Day/night cycle** — a gradient sky on a full clock, a sun and moon on their own arc, stars that fade up through dusk, and daylight clouds.
+- **Day/night cycle** — a gradient sky on a full clock, a sun and moon on their own arc, stars that fade up through dusk, and a daylight cloud deck. The clouds sit at one altitude the way real cumulus do, all their flat bottoms on a single plane, so the only thing that varies is how far away a cloud is — perspective then makes the distant ones smaller and lower in the sky at the same time, and hazier, without any of it being faked per cloud.
 - **Weather** — rain and thunderstorms that come and go, with wet road tinting.
 - **Rotating minimap** — a live radar under the title bar, hideable from the settings page.
 - **Save and load** — three save slots on the settings tab of the pause screen, picked with LEFT/RIGHT and marked when occupied, plus a persisted best-cash record and a persisted sound on/off setting.
-- **A flyable helicopter** — parked on an open pad somewhere in the city, with a 45 m ceiling, rooftop landings, flight over water and buildings, an altitude readout in place of the speedo, and police who can only shoot at you below 18 m. It hovers rather than ditches over water, because there is only one of them.
+- **A flyable helicopter** — parked on an open pad somewhere in the city, with a 45 m ceiling, flight over water and buildings, an altitude readout in place of the speedo, and police who can only shoot at you below 18 m. It hovers rather than ditches over water, because there is only one of them. **You can set it down on any roof**, and the skids settle on the building properly — but you cannot step out up there, because nothing on foot in this game has a height. Rooftop caches are meant to be taken from the cockpit anyway: they have a 4 m collection radius against 1.5 m on the ground, so hovering level with the roof picks them up.
 - **A boat** — moored at a shoreline in one city in two, rarer than the helicopter. It runs on water and nowhere else: drive it aground and the engine gives you nothing, but astern still works at reduced power to back you off the beach. RB will not put you out into open water. Low grip, so a hull carries its momentum through a turn, with a wake that widens with speed.
 - **Hidden content** — a treasure island in the bottom-left water reached by a footbridge, weapon and cash caches in the forests, five more on the roofs of tall buildings that only the helicopter can reach, a rare one-shot rocket launcher, and a drivable tank with finite shells.
-- **Street detail** — street lamps along the kerbs whose heads light up at dusk, bus stops with a sign facing the road, park benches on plazas and pavements, railings on the long bridges, palm trees on the waterline, puddles on the road while it rains, zebra crossings and phone boxes.
+- **Street detail** — street lamps along the kerbs whose heads light up at dusk, bus stops with a sign facing the road, park benches on plazas and pavements, shrubs in the parks, railings on the long bridges, palm trees on the waterline, puddles on the road while it rains, zebra crossings and phone boxes.
+- **Parking lots** — open pavement pockets away from the kerb are surfaced as asphalt with painted bays, about fifty-five to a city and averaging ten bays each. They cost nothing to draw: the ground pass emits the same triangles either way, just with a different cell of a sheet it has already bound.
 - **City ambience** — a siren somewhere else in the city every twenty seconds or so, quiet enough to read as distance, and only when nothing is chasing you.
 - **Beaches** — a quarter of the waterfront is sand two tiles deep, wet on the waterline and dry behind it, with the seawall dropped where it meets the water.
-- **Draw budget** — cone culling, a banded draw distance with a haze band and ground skirt, and every pool (triangles, billboards, discs, shadows) sized from a measured host profile.
+- **Draw budget** — cone culling, a banded draw distance with a haze band and ground skirt, and every pool (triangles, billboards, discs, shadows) sized from a measured host profile. That profile never covered combat, and a three-star pursuit now fills the triangle list — see [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
 
 ![The helicopter at its 45 m ceiling, rotor spinning, the city and a rooftop below](../../docs/img/grandthumbauto3-heli.png)
 
@@ -132,10 +133,14 @@ Three host test binaries cover the parts that are testable without a frame:
 
 The game is close to two budget ceilings, and both are checked on every change:
 
-- **`GAME_RAM`** — 134 KB at `0x2005E800`, with about 2.2 KB free. Check with
+- **`GAME_RAM`** — 134 KB at `0x2005E800`, with **968 bytes free**. Check with
   `arm-none-eabi-nm` on the `.elf`: `__mote_bss_end` against the top of the region.
-- **Triangles** — `max_tris` is 850 and the worst measured scene peaks near 740.
-  See [`PROFILING.md`](PROFILING.md) for the measured scenes behind every pool size.
+- **Triangles** — `max_tris` is 850, and a three-star pursuit now **reaches it**.
+  `MOTE_GTA_DEBUG=1` prints `[TRI] peak=` to stderr and shows `t<n>` in the HUD;
+  seed 7 at `MOTE_GTA_HEAT=3` peaks at exactly 850, which means the list filled
+  and further triangles were dropped. See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
+  See [`PROFILING.md`](PROFILING.md) for the measured scenes behind every pool size —
+  note that combat was never among them.
 
   Open defects, with reproductions and what has already been ruled out, are in
   [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
