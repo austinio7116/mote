@@ -214,6 +214,42 @@ int main(void) {
     ok(R.last_foul == 1 && R.last_miss == 0,
        "  AMATEUR accepts it: a genuine attempt, let go");
 
+    /* ---- WPBSA: AFTER ANY FOUL, PLAY OR PUT THEM BACK IN ----------------- */
+    /* an in-off off a red: a foul, never a miss */
+    {   frame(); R.miss_level = 2; R.snk_again = 0;
+        cue_phys_shot_begin(&W);
+        cue_rules_resolve(&R, B, NB, &W, 1, 1, 1, NULL, 0);
+        ok(R.last_foul && !R.last_miss &&
+           (R.decision == CUE_DEC_PENDING) == (R.dec_free_ball || R.dec_can_restore),
+           "snk_again off: a foul asks only for a free ball or a miss (the handheld)");
+        frame(); R.miss_level = 2; R.snk_again = 1;
+        cue_phys_shot_begin(&W);
+        cue_rules_resolve(&R, B, NB, &W, 1, 1, 1, NULL, 0);
+        ok(R.last_foul && !R.last_miss && R.decision == CUE_DEC_PENDING,
+           "snk_again on: the same foul asks the opponent (WPBSA)");
+        cue_rules_apply_decision(&R, CUE_DEC_AGAIN);
+        ok(R.turn == 0 && R.ball_in_hand, "...MAKE THEM PLAY: the offender again, from the D");
+        /* and a wrong ball first, from where it lies */
+        frame(); R.miss_level = 2; R.snk_again = 1;
+        cue_phys_shot_begin(&W);
+        cue_rules_resolve(&R, B, NB, &W, CUE_ID_BLUE, 0, 1, NULL, 0);
+        ok(R.last_foul && R.decision == CUE_DEC_PENDING, "a wrong ball first asks the opponent");
+        cue_rules_apply_decision(&R, CUE_DEC_AGAIN);
+        ok(R.turn == 0 && !R.ball_in_hand, "...and MAKE THEM PLAY puts the offender back in, from here");
+        /* an in-off: they play again from the D */
+        frame(); R.miss_level = 2; R.snk_again = 1;
+        cue_phys_shot_begin(&W);
+        cue_rules_resolve(&R, B, NB, &W, 1, 1, 1, NULL, 0);             /* hit a red, went in-off */
+        ok(R.last_foul && R.decision == CUE_DEC_PENDING, "an in-off asks too");
+        cue_rules_apply_decision(&R, CUE_DEC_AGAIN);
+        ok(R.turn == 0 && R.ball_in_hand, "...and the offender plays again from the D");
+        frame(); R.miss_level = 2; R.snk_again = 1;
+        cue_phys_shot_begin(&W);
+        cue_rules_resolve(&R, B, NB, &W, 1, 1, 1, NULL, 0);
+        cue_rules_apply_decision(&R, CUE_DEC_PLAY);
+        ok(R.turn == 1 && R.ball_in_hand, "...or the incoming player takes it in hand");
+    }
+
     printf("\n%d checks, %d failed\n", checks, fails);
     if (!fails) printf("\nall good\n");
     return fails ? 1 : 0;

@@ -702,6 +702,10 @@ typedef struct {
     int   cpu, best_of, f0, f1, break_first, match_over, match_winner;
     int   target;
     float bil_len;
+    /* ...and the two added since: free pyramid (5.9 left it off, so frame two
+     * of a free pyramid match, or a re-rack, went back to classic) and the
+     * WPBSA put-them-back-in after any foul. */
+    int   pyr_free, snk_again;
 } RulesKeep;
 
 static void rules_keep_take(const CueRules *r, RulesKeep *k) {
@@ -711,6 +715,7 @@ static void rules_keep_take(const CueRules *r, RulesKeep *k) {
     k->break_first = r->break_first;
     k->match_over = r->match_over; k->match_winner = r->match_winner;
     k->target = r->target_score;   k->bil_len = r->bil_time_len;
+    k->pyr_free = r->pyr_free;     k->snk_again = r->snk_again;
 }
 
 static void rules_keep_put(CueRules *r, const RulesKeep *k) {
@@ -722,6 +727,7 @@ static void rules_keep_put(CueRules *r, const RulesKeep *k) {
     r->frames[0] = k->f0; r->frames[1] = k->f1;
     r->break_first = k->break_first;
     r->match_over = k->match_over; r->match_winner = k->match_winner;
+    r->pyr_free = k->pyr_free;     r->snk_again = k->snk_again;
 }
 
 /* THE SAME FRAME, LAID OUT AGAIN. Not the next frame: nothing is scored, the
@@ -1228,7 +1234,7 @@ static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
          * that at all" is not, and a penalty with no stated reason reads as the
          * game being broken. */
         const char *why = r->jumped ? "JUMP " : r->n_off ? "OFF TABLE " : "";
-        if ((miss_called || opp_snk) && !r->snk_shootout) {
+        if ((miss_called || opp_snk || r->snk_again) && !r->snk_shootout) {
             /* a real choice exists → park for the opponent's decision */
             r->decision = CUE_DEC_PENDING;
             snprintf(r->msg, sizeof r->msg, miss_called ? "%sFOUL & MISS +%d"
@@ -4883,7 +4889,11 @@ int cue_rules_apply_decision(CueRules *r, int decision) {
          * REPLAY, which also puts every ball back where it was and so gives
          * them the position they fouled out of. */
         r->turn = off;
-        r->ball_in_hand = 0; r->free_ball = 0;
+        /* ...AND AFTER AN IN-OFF, FROM THE D. The cue ball is off the table;
+         * the offender plays again in hand, exactly as the incoming player
+         * would have. It was cleared, which left the cue ball wherever it had
+         * fallen from. */
+        r->ball_in_hand = r->dec_scratch ? 1 : 0; r->free_ball = 0;
     } else {
         r->turn = opp;
         r->ball_in_hand = r->dec_scratch ? 1 : 0;

@@ -593,6 +593,12 @@ typedef struct {
     int dec_scratch;     /* the foul was a scratch (cue potted) */
     int dec_offender;    /* player who committed the foul */
     int dec_penalty;     /* penalty already awarded (for restore re-apply) */
+    /* WPBSA Section 3: after ANY foul the next player may play from the
+     * position left or ask the offender to play again -- not only after a
+     * miss or when snookered. 1 asks the question after every foul; 0 is the
+     * handheld's old behaviour, whose decision screen has no "play again" yet.
+     * Set by the host before the frame, like uk_intl. */
+    int snk_again;
 
     /* ---- the match, not the frame ----
      * A frame is one rack; a match is the best of N of them. Everything above

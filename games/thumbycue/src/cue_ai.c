@@ -6863,7 +6863,10 @@ int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
     if (hasPot)               return CUE_DEC_PLAY;
     if (pot.safe && pot.valid && pot.score > SAFE_GOOD)
         return CUE_DEC_PLAY;  /* a safety worth playing beats giving them a turn */
-    return CUE_DEC_REPLAY;    /* nothing on and nothing to play: let them solve it */
+    /* nothing on and nothing to play: let them solve it -- from HERE. This
+     * returned REPLAY, which with no restore on offer applied as PLAY: the
+     * machine meant to hand the table back and took it itself. */
+    return r->snk_again ? CUE_DEC_AGAIN : CUE_DEC_REPLAY;
 }
 
 CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r,
