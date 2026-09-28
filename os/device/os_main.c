@@ -62,6 +62,14 @@ static void fill_catalog(MoteCatalog *c) {
         c->e[i].name[MOTE_NAME_MAX - 1] = 0;
         c->e[i].offset = e->offset;
         c->e[i].size   = e->size;
+        /* MUST be cleared explicitly. mote_launcher_run() holds its MoteCatalog
+         * on the STACK (uninitialised, see mote_launcher.c), and `frag` is only
+         * ever assigned by the ThumbyOne slot lobby's FatFs walk in
+         * lobby_main.c. In the standalone OS the store is contiguous flash, so
+         * fragmentation cannot occur -- but leaving the field unwritten means
+         * the launcher reads stack garbage, paints the red DEFRAG badge, and
+         * mote_launcher.c:160 then refuses to launch the game at all. */
+        c->e[i].frag   = 0;
         store_icon(&c->e[i], e->offset);
         c->count++;
     }
