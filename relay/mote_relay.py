@@ -30,6 +30,18 @@ Wire protocol (client <-> relay), one text handshake line then raw bytes:
         "MOTE2 GET <GAMEID> <CODE>\n"  ->  "DATA <KIND> <LEN>\n" + LEN bytes,
                                            or "NONE\n"
     KIND = 1-8 [A-Z0-9]. LEN <= 8192. The same blob always gets the same code.
+
+    THE GALLERY: a code its owner has chosen to show everyone. Sharing a code
+    never lists it; publishing is a second, separate step.
+        "MOTE2 PUB <GAMEID> <CODE> <NAME...>\n"  ->  "OK\n", "NONE\n" (no such
+                                            code), "BUSY\n" (too many for now)
+        "MOTE2 GALLERY <GAMEID> <KIND> <FROM> <COUNT>\n"
+            ->  "ITEM <CODE> <UNIXTIME> <NAME...>\n" * n , then "END <TOTAL>\n"
+    newest first, COUNT <= 50. A published code is listed once, under the name
+    it was first published with. TAKING ONE DOWN is the operator's: a line with
+    the code in <store>/hidden.txt (every game) or <store>/<GAMEID>/hidden.txt
+    hides it from every gallery at once -- the file is read again whenever it
+    changes, so no restart. The code itself still works for GET.
     Errors: "ERR\n" (malformed), "BUSY\n" (this address is putting too fast),
     "FULL\n" (the store is at its cap), "OFF\n" (no --store).
 
@@ -62,6 +74,13 @@ import random
 def clean_code(raw: str) -> str:
     out = "".join(c for c in raw.upper() if c.isalnum())
     return out[:8]
+
+def clean_name(raw: str) -> str:
+    """A gallery entry's name: what the player typed, echoed to everyone, so
+    printable, one line, no tabs (the file's separator), and bounded."""
+    out = "".join(c for c in raw.upper() if 32 <= ord(c) < 127 and c != "\t")
+    out = " ".join(out.split())
+    return out[:32] or "UNTITLED"
 
 def clean_label(raw: str) -> str:
     """A room's label, as shown by LIST.
@@ -139,7 +158,21 @@ class Store:
                 if len(t) == 2:
                     self.by_hash[gid + "/" + t[0]] = t[1]
                     self.codes.add(gid + "/" + t[1])
-        log(f"share store {root}: {len(self.codes)} codes")
+        # the gallery: per game, newest last on disk, "time\tcode\tkind\tname"
+        self.gal = {}          # gid -> [(time, code, kind, name)]
+        self.gal_codes = set() # "gid/CODE" already listed
+        self.hidden = {}       # path -> (mtime, set of codes)
+        for gid in (os.listdir(root) if os.path.isdir(root) else []):
+            gp = os.path.join(root, gid, "gallery.tsv")
+            if not os.path.isfile(gp):
+                continue
+            for ln in open(gp, encoding="ascii", errors="ignore"):
+                t = ln.rstrip("\n").split("\t")
+                if len(t) == 4 and t[0].isdigit():
+                    self.gal.setdefault(gid, []).append((int(t[0]), t[1], t[2], t[3]))
+                    self.gal_codes.add(gid + "/" + t[1])
+        log(f"share store {root}: {len(self.codes)} codes, "
+            f"{sum(len(v) for v in self.gal.values())} in galleries")
 
     def ok_rate(self, ip):
         now = time.monotonic()
@@ -176,6 +209,48 @@ class Store:
         self.by_hash[gid + "/" + sha] = code
         self.codes.add(gid + "/" + code)
         return code
+
+    def hidden_codes(self, gid):
+        """The operator's take-down lists, global and this game's, re-read
+        whenever either file changes."""
+        out = set()
+        for p in (os.path.join(self.root, "hidden.txt"), os.path.join(self.root, gid, "hidden.txt")):
+            try:
+                mt = os.path.getmtime(p)
+            except OSError:
+                continue
+            have = self.hidden.get(p)
+            if not have or have[0] != mt:
+                codes = set()
+                for ln in open(p, encoding="ascii", errors="ignore"):
+                    c = clean_code(ln.split("#")[0].strip())
+                    if c:
+                        codes.add(c)
+                have = (mt, codes); self.hidden[p] = have
+            out |= have[1]
+        return out
+
+    def publish(self, gid, code, name):
+        """List a code in its game's gallery. None if there is no such code."""
+        got = self.get(gid, code)
+        if got is None:
+            return None
+        key = gid + "/" + code
+        if key in self.gal_codes:
+            return True                          # listed already, under its first name
+        kind = got[0]
+        ent = (int(time.time()), code, kind, name)
+        d = os.path.join(self.root, gid)
+        with open(os.path.join(d, "gallery.tsv"), "a", encoding="ascii") as f:
+            f.write(f"{ent[0]}\t{code}\t{kind}\t{name}\n")
+        self.gal.setdefault(gid, []).append(ent)
+        self.gal_codes.add(key)
+        return True
+
+    def gallery(self, gid, kind, start, count):
+        hide = self.hidden_codes(gid)
+        items = [e for e in reversed(self.gal.get(gid, [])) if e[2] == kind and e[1] not in hide]
+        return len(items), items[start:start + count]
 
     def get(self, gid, code):
         if gid + "/" + code not in self.codes:
@@ -329,6 +404,38 @@ class Relay:
                 gid = "*"                        # legacy shared pool
                 a = t[2:]
             loop = asyncio.get_event_loop()
+
+            if verb in ("PUB", "GALLERY") and t[0] == "MOTE2":
+                sg = clean_gid(gid)
+                if self.store is None or not sg:
+                    writer.write(b"OFF\n" if self.store is None else b"ERR\n"); await writer.drain(); return
+                if verb == "PUB":               # PUB <CODE> <NAME...>
+                    code = clean_code(a[0]) if len(a) > 0 else ""
+                    name = clean_name(" ".join(a[1:])) if len(a) > 1 else "UNTITLED"
+                    ip = peer[0] if isinstance(peer, tuple) else str(peer)
+                    if not code:
+                        writer.write(b"ERR\n"); await writer.drain(); return
+                    if not self.store.ok_rate(ip):
+                        writer.write(b"BUSY\n"); await writer.drain(); return
+                    ok = self.store.publish(sg, code, name)
+                    writer.write(b"OK\n" if ok else b"NONE\n"); await writer.drain()
+                    log(f"gallery {sg}: publish {code} '{name}' -> {'ok' if ok else 'none'} ({peer})")
+                    return
+                kind = clean_code(a[0]) if len(a) > 0 else ""
+                try:
+                    start = max(0, int(a[1])) if len(a) > 1 else 0
+                    count = min(50, max(1, int(a[2]))) if len(a) > 2 else 20
+                except ValueError:
+                    start, count = 0, 20
+                if not kind:
+                    writer.write(b"ERR\n"); await writer.drain(); return
+                total, items = self.store.gallery(sg, kind, start, count)
+                out = bytearray()
+                for tm, code, _k, name in items:
+                    out += f"ITEM {code} {tm} {name}\n".encode()
+                out += f"END {total}\n".encode()
+                writer.write(out); await writer.drain()
+                return
 
             if verb in ("PUT", "GET") and t[0] == "MOTE2":
                 sg = clean_gid(gid)
