@@ -8,6 +8,7 @@
 #include "cue_types.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static void book_frame(CueRules *r, int winner);
 
@@ -3982,6 +3983,11 @@ static void resolve_billiards(CueRules *r, CueBall *b, int n, const CueWorld *w,
             r->bil_red_baulk && r->bil_wht_baulk) { miss_only = 1; why = "MISS"; }
     }
     if (baulk_foul) { foul = 1; miss_only = 0; why = "BALL IN BAULK"; }
+#ifdef MOTE_HOST
+    if (getenv("CUE_BAULKDBG"))
+        fprintf(stderr, "[baulk] from_hand %d first %d red_baulk %d wht_baulk %d ntouch %d -> baulk_foul %d\n",
+                from_hand, first, r->bil_red_baulk, r->bil_wht_baulk, w ? w->ntouch : -1, baulk_foul);
+#endif
     if (r->n_off)                     { foul = 1; why = "OFF THE TABLE"; }
     /* Rules 9 and 10, checked on the stroke that would exceed them. A cannon
      * counts toward the cannon limit only when the stroke has no hazard in it,
