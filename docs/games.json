@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-08-12T17:44:25+00:00",
+ "generated": "2026-09-28T07:09:13+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -1268,6 +1268,46 @@
      "file": "games/linux/x86_64/libmg_thumboxels.so",
      "size": 47368,
      "sha256": "7439a982536c32befbc2227be49907b2be4351d5a9138aaeed423ab08b150db7"
+    }
+   }
+  },
+  {
+   "id": "grandthumbauto3",
+   "name": "Grand Thumb Auto III",
+   "author": "chrisdiana",
+   "version": "1.0.1",
+   "abi": 47,
+   "size": 328188,
+   "sha256": "758b1163ef8d958ff4f2d3949c22f0e7699a1e21411a569840a68603a1e2c2da",
+   "file": "games/GrandThumbAutoIII.mote",
+   "icon": "img/gallery/grandthumbauto3-icon.png",
+   "thumb": "img/gallery/grandthumbauto3-1.png",
+   "screenshots": [
+    "img/gallery/grandthumbauto3-1.png",
+    "img/gallery/grandthumbauto3-2.png",
+    "img/gallery/grandthumbauto3-3.png"
+   ],
+   "tag": "Third-person open-city sandbox",
+   "desc": "Grand Thumb Auto with the camera behind you: the city is built in 3D and you walk and drive through it at street level. A new 254x256 city is generated each time you play, with avenues, parks, rivers, bridges and beaches. Steal any of 54 cars, trucks, buses and police cruisers, and find the helicopter, the boat and the tank. Traffic keeps to its lanes and stops at red lights, the police chase you up to six stars, and there are 14 kinds of mission. Day turns to night, rain and thunderstorms roll in, and three save slots keep your progress. Based on Grand Thumb Auto by austinio7116.",
+   "guide": null,
+   "multiplayer": false,
+   "android": {
+    "arm64-v8a": {
+     "file": "games/android/arm64-v8a/libmg_grandthumbauto3.so",
+     "size": 389952,
+     "sha256": "c5d9fd100c316abf1d3d775726e71f3a4ddecf0c10aea96781f3c8f891b2629b"
+    },
+    "armeabi-v7a": {
+     "file": "games/android/armeabi-v7a/libmg_grandthumbauto3.so",
+     "size": 422068,
+     "sha256": "8db2f7f3370b135dbfd1f1f94517bbe55d0de01e1c43e8f86b104af3ee6791d1"
+    }
+   },
+   "linux": {
+    "x86_64": {
+     "file": "games/linux/x86_64/libmg_grandthumbauto3.so",
+     "size": 395824,
+     "sha256": "eb62970b01a26c1b2a2672b9fdb3a2dd906aebae7e3f42d22ae1469864734aff"
     }
    }
   }
