@@ -7979,9 +7979,17 @@ static void draw_radar(uint16_t *fb) {
     for (int py = -RADAR_R; py <= RADAR_R; py++)
         for (int px = -RADAR_R; px <= RADAR_R; px++) {
             if (px*px + py*py > RADAR_R*RADAR_R) continue;
-            /* radar pixel -> world */
-            float wx = pl_x() + RADAR_M*(px*sa - py*ca);
-            float wz = pl_z() - RADAR_M*(px*ca + py*sa);
+            /* Radar pixel -> world. Screen up is the way you are facing and
+             * screen RIGHT is your right hand.
+             *
+             * The px terms used to carry the opposite sign, which mirrored the
+             * whole dial: facing north it drew west on the right, so the
+             * minimap was a reflection of the map page rather than a rotation
+             * of it. Forward is (ca,sa) and the game's own +90 convention --
+             * the same one the car-exit code uses as yaw+1.5708 -- makes right
+             * (-sa,ca), which is what these two lines now compute. */
+            float wx = pl_x() + RADAR_M*(-px*sa - py*ca);
+            float wz = pl_z() + RADAR_M*( px*ca - py*sa);
             char c = tile_at((int)floorf(wx/TILE), (int)floorf(wz/TILE));
             uint16_t col;
             if (c=='.'||c=='B') col = MOTE_RGB565(120,124,136);
@@ -7994,7 +8002,7 @@ static void draw_radar(uint16_t *fb) {
     /* mission markers, then wanted cops on top of them */
     for (int m = 0; m < nmark; m++) {
         float dx = markers[m].x - pl_x(), dz = markers[m].z - pl_z();
-        float rx = (dx*sa - dz*ca) / RADAR_M, ry = -(dx*ca + dz*sa) / RADAR_M;
+        float rx = (dz*ca - dx*sa) / RADAR_M, ry = -(dx*ca + dz*sa) / RADAR_M;
         if (rx*rx + ry*ry > RADAR_R*RADAR_R) continue;
         mote->draw_rect(fb, cx+(int)rx-1, cy+(int)ry-1, 3, 3,
                         MOTE_RGB565(240,200,80), 1, 0, 128);
@@ -8004,7 +8012,7 @@ static void draw_radar(uint16_t *fb) {
             Car *c = &cars[i];
             if (!c->alive || c->driver != DRV_COP) continue;
             float dx = c->x - pl_x(), dz = c->z - pl_z();
-            float rx = (dx*sa - dz*ca) / RADAR_M, ry = -(dx*ca + dz*sa) / RADAR_M;
+            float rx = (dz*ca - dx*sa) / RADAR_M, ry = -(dx*ca + dz*sa) / RADAR_M;
             if (rx*rx + ry*ry > RADAR_R*RADAR_R) continue;
             mote->draw_rect(fb, cx+(int)rx-1, cy+(int)ry-1, 3, 3,
                             MOTE_RGB565(90,150,255), 1, 0, 128);
