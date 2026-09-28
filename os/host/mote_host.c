@@ -14,6 +14,7 @@
 #include "mote_platform.h"
 #include <dlfcn.h>
 #include <stdio.h>
+#include <stdlib.h>   /* getenv -- implicit decl is a hard error on GCC 16 (C23) */
 #include <string.h>
 
 /* Pretty name from a path: strip dir and trailing ".so". */
