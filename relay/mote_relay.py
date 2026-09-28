@@ -33,8 +33,14 @@ Wire protocol (client <-> relay), one text handshake line then raw bytes:
 
     THE GALLERY: a code its owner has chosen to show everyone. Sharing a code
     never lists it; publishing is a second, separate step.
-        "MOTE2 PUB <GAMEID> <CODE> <NAME...>\n"  ->  "OK\n", "NONE\n" (no such
-                                            code), "BUSY\n" (too many for now)
+        "MOTE2 PUB <GAMEID> <CODE> <PICLEN> <NAME...>\n" + PICLEN bytes
+                                        ->  "OK\n", "NONE\n" (no such code),
+                                            "BUSY\n" (too many for now)
+        "MOTE2 THUMB <GAMEID> <CODE>\n"  ->  "DATA THUMB <LEN>\n" + LEN bytes,
+                                            or "NONE\n"
+    The picture is the game's own photograph of the thing, in the game's own
+    format, at most 40000 bytes (PICLEN 0 for none); the relay keeps it and
+    hands it back, and never looks inside it.
         "MOTE2 GALLERY <GAMEID> <KIND> <FROM> <COUNT>\n"
             ->  "ITEM <CODE> <UNIXTIME> <NAME...>\n" * n , then "END <TOTAL>\n"
     newest first, COUNT <= 50. A published code is listed once, under the name
@@ -230,12 +236,19 @@ class Store:
             out |= have[1]
         return out
 
-    def publish(self, gid, code, name):
-        """List a code in its game's gallery. None if there is no such code."""
+    def publish(self, gid, code, name, pic=b""):
+        """List a code in its game's gallery, with its picture. None if there
+        is no such code."""
         got = self.get(gid, code)
         if got is None:
             return None
         key = gid + "/" + code
+        d = os.path.join(self.root, gid)
+        if pic and not os.path.isfile(os.path.join(d, code + ".thumb")):
+            tmp = os.path.join(d, code + ".thumb.tmp")
+            with open(tmp, "wb") as f:
+                f.write(pic)
+            os.replace(tmp, os.path.join(d, code + ".thumb"))
         if key in self.gal_codes:
             return True                          # listed already, under its first name
         kind = got[0]
@@ -246,6 +259,14 @@ class Store:
         self.gal.setdefault(gid, []).append(ent)
         self.gal_codes.add(key)
         return True
+
+    def thumb(self, gid, code):
+        if gid + "/" + code not in self.gal_codes:
+            return None
+        try:
+            return open(os.path.join(self.root, gid, code + ".thumb"), "rb").read()
+        except OSError:
+            return None
 
     def gallery(self, gid, kind, start, count):
         hide = self.hidden_codes(gid)
@@ -405,19 +426,31 @@ class Relay:
                 a = t[2:]
             loop = asyncio.get_event_loop()
 
-            if verb in ("PUB", "GALLERY") and t[0] == "MOTE2":
+            if verb in ("PUB", "GALLERY", "THUMB") and t[0] == "MOTE2":
                 sg = clean_gid(gid)
                 if self.store is None or not sg:
                     writer.write(b"OFF\n" if self.store is None else b"ERR\n"); await writer.drain(); return
-                if verb == "PUB":               # PUB <CODE> <NAME...>
+                if verb == "THUMB":             # THUMB <CODE>
                     code = clean_code(a[0]) if len(a) > 0 else ""
-                    name = clean_name(" ".join(a[1:])) if len(a) > 1 else "UNTITLED"
+                    pic = self.store.thumb(sg, code) if code else None
+                    if pic is None:
+                        writer.write(b"NONE\n"); await writer.drain(); return
+                    writer.write(f"DATA THUMB {len(pic)}\n".encode() + pic); await writer.drain()
+                    return
+                if verb == "PUB":               # PUB <CODE> <PICLEN> <NAME...>, then the picture
+                    code = clean_code(a[0]) if len(a) > 0 else ""
+                    try:
+                        plen = int(a[1]) if len(a) > 1 else -1
+                    except ValueError:
+                        plen = -1
+                    name = clean_name(" ".join(a[2:])) if len(a) > 2 else "UNTITLED"
                     ip = peer[0] if isinstance(peer, tuple) else str(peer)
-                    if not code:
+                    if not code or plen < 0 or plen > 40000:
                         writer.write(b"ERR\n"); await writer.drain(); return
                     if not self.store.ok_rate(ip):
                         writer.write(b"BUSY\n"); await writer.drain(); return
-                    ok = self.store.publish(sg, code, name)
+                    pic = await asyncio.wait_for(reader.readexactly(plen), timeout=15) if plen else b""
+                    ok = self.store.publish(sg, code, name, pic)
                     writer.write(b"OK\n" if ok else b"NONE\n"); await writer.drain()
                     log(f"gallery {sg}: publish {code} '{name}' -> {'ok' if ok else 'none'} ({peer})")
                     return
