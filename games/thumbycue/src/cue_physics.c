@@ -1923,6 +1923,38 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
                         bodies[0].vel.x, bodies[0].vel.y, bodies[0].vel.z, dv.x, dv.y, dv.z);
         } }
 #endif
+#ifdef MOTE_HOST
+    {   /* CUE_MESHPEN=1: a ball lifted more than 2 mm in one sim step by the
+         * surfaces -- which body, how deep it was before, and the triangle. */
+        static int dbg = -1;
+        if (dbg < 0) dbg = getenv("CUE_MESHPEN") ? 1 : 0;
+        if (dbg && bodies[0].pos.y - b->pos.y - b->vel.y * h > 0.002f) {
+            for (int k = 1; k < n; k++) {
+                if (bodies[k].shape != MOTE_SHAPE_MESH) continue;
+                const MoteMesh *m = (const MoteMesh *)bodies[k].shape_data;
+                float best = 1e9f; int bt = -1;
+                for (int t = 0; t < m->ntris; t++) {
+                    const uint16_t *tr = &m->tris[3 * t];
+                    const float d = tri_dist(b->pos, m->verts[tr[0]], m->verts[tr[1]], m->verts[tr[2]]);
+                    if (d < best) { best = d; bt = t; }
+                }
+                if (best < bodies[0].radius) {
+                    const uint16_t *tr = &m->tris[3 * bt];
+                    const Vec3 A = m->verts[tr[0]], B = m->verts[tr[1]], C = m->verts[tr[2]];
+                    const Vec3 nn = v3_cross(v3_sub(B, A), v3_sub(C, A));
+                    const float nl = v3_len(nn);
+                    fprintf(stderr, "[meshpen] pk%d body %d (%s) pen %.4f tri %d n (%+.2f %+.2f %+.2f) "
+                            "A (%.4f %.4f %.4f) ball (%.4f %.4f %.4f) vy %.3f -> lift %.4f\n",
+                            pk, k, m == w->pgeom_lip ? "lip" : m == w->pgeom_box ? "box" :
+                            m == w->pgeom_solid[pk] ? "solid" : m == w->pgeom_net[pk] ? "net" : "other",
+                            bodies[0].radius - best, bt,
+                            nl > 0 ? nn.x / nl : 0, nl > 0 ? nn.y / nl : 0, nl > 0 ? nn.z / nl : 0,
+                            A.x, A.y, A.z, b->pos.x, b->pos.y, b->pos.z, b->vel.y,
+                            bodies[0].pos.y - b->pos.y);
+                }
+            }
+        } }
+#endif
     b->pos = bodies[0].pos; b->vel = bodies[0].vel; b->w = bodies[0].w; b->orient = bodies[0].orient;
     return 1;
 }

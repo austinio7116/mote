@@ -690,6 +690,15 @@ static void mesh_test_tri(MoteBody *bodies, int i, int mi, int t, int faceted) {
         Vec3 fn = v3_norm(v3_cross(v3_sub(B, A), v3_sub(C, A)));
         if (v3_dot(d, fn) < 0.0f) fn = v3_scale(fn, -1.0f);
         float pen = b->radius - v3_dot(d, fn);
+        /* MOTE_EDGEN=1 (trial, off by default): a sphere touching a triangle's
+         * EDGE or CORNER is pushed along the line from that point to its
+         * centre, by its true depth. The face normal it uses otherwise is only
+         * right on the face: a ball resting on the top edge of a vertical wall
+         * reads as buried a radius deep sideways, and each step's correction
+         * pumps energy into it (CueVR OUTDOOR corner: a 2.8 m/s pot left at
+         * -10 m/s and 500 rad/s). On a face the two are the same contact. */
+        static int edgen = -1; if (edgen < 0) edgen = getenv("MOTE_EDGEN") ? 1 : 0;
+        if (edgen && dist > 1e-6f) { fn = v3_scale(d, 1.0f / dist); pen = b->radius - dist; }
         if (pen > 0.0f) add_contact(i, mi, fn, cp, pen, 1000u + (uint32_t)t);
     }
 }
