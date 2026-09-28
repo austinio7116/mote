@@ -41,9 +41,17 @@ Wire protocol (client <-> relay), one text handshake line then raw bytes:
     The picture is the game's own photograph of the thing, in the game's own
     format, at most 40000 bytes (PICLEN 0 for none); the relay keeps it and
     hands it back, and never looks inside it.
-        "MOTE2 GALLERY <GAMEID> <KIND> <FROM> <COUNT>\n"
-            ->  "ITEM <CODE> <UNIXTIME> <NAME...>\n" * n , then "END <TOTAL>\n"
-    newest first, COUNT <= 50. A published code is listed once, under the name
+        "MOTE2 GALLERY <GAMEID> <KIND> <FROM> <COUNT> [NEW|TOP] [DEVICE]\n"
+            ->  "ITEM <CODE> <UNIXTIME> <LIKES> <MINE> <NAME...>\n" * n ,
+                then "END <TOTAL>\n"
+    newest first (NEW, the default) or most liked first (TOP, newest breaking a
+    tie), COUNT <= 50. MINE is 1 when DEVICE has liked that entry.
+        "MOTE2 LIKE <GAMEID> <CODE> <DEVICE>\n"  ->  "LIKES <N> <MINE>\n"
+    toggles DEVICE's like of a listed entry; "NONE\n" if it is not listed,
+    "BUSY\n" past the per-address hourly cap. DEVICE is the headset's own
+    random id: one like per headset per entry, which a script can get round --
+    the cap slows that, and a Meta user proof can replace the id later without
+    changing the wire. A published code is listed once, under the name
     it was first published with. TAKING ONE DOWN is the operator's: a line with
     the code in <store>/hidden.txt (every game) or <store>/<GAMEID>/hidden.txt
     hides it from every gallery at once -- the file is read again whenever it
@@ -177,6 +185,21 @@ class Store:
                 if len(t) == 4 and t[0].isdigit():
                     self.gal.setdefault(gid, []).append((int(t[0]), t[1], t[2], t[3]))
                     self.gal_codes.add(gid + "/" + t[1])
+        # likes: "gid/CODE" -> set of device ids, from <gid>/likes.tsv, an
+        # append-only log of "time\tcode\tdevice\t+1|-1" replayed at start
+        self.likes = {}
+        self.like_rate = {}    # ip -> [times]
+        for gid in (os.listdir(root) if os.path.isdir(root) else []):
+            lp = os.path.join(root, gid, "likes.tsv")
+            if not os.path.isfile(lp):
+                continue
+            for ln in open(lp, encoding="ascii", errors="ignore"):
+                t = ln.rstrip("\n").split("\t")
+                if len(t) != 4:
+                    continue
+                st = self.likes.setdefault(gid + "/" + t[1], set())
+                if t[3] == "+1": st.add(t[2])
+                else: st.discard(t[2])
         log(f"share store {root}: {len(self.codes)} codes, "
             f"{sum(len(v) for v in self.gal.values())} in galleries")
 
@@ -268,10 +291,40 @@ class Store:
         except OSError:
             return None
 
-    def gallery(self, gid, kind, start, count):
+    def ok_like_rate(self, ip, per_hour=300):
+        now = time.monotonic()
+        q = [t for t in self.like_rate.get(ip, []) if now - t < 3600]
+        if len(q) >= per_hour:
+            self.like_rate[ip] = q
+            return False
+        q.append(now); self.like_rate[ip] = q
+        if len(self.like_rate) > 10000:
+            self.like_rate = {k: v for k, v in self.like_rate.items() if v and now - v[-1] < 3600}
+        return True
+
+    def like(self, gid, code, dev):
+        """Toggle one device's like of a listed entry: (count, mine), or None."""
+        key = gid + "/" + code
+        if key not in self.gal_codes:
+            return None
+        st = self.likes.setdefault(key, set())
+        on = dev not in st
+        if on: st.add(dev)
+        else: st.discard(dev)
+        with open(os.path.join(self.root, gid, "likes.tsv"), "a", encoding="ascii") as f:
+            f.write(f"{int(time.time())}\t{code}\t{dev}\t{'+1' if on else '-1'}\n")
+        return len(st), 1 if on else 0
+
+    def gallery(self, gid, kind, start, count, top=False, dev=""):
         hide = self.hidden_codes(gid)
         items = [e for e in reversed(self.gal.get(gid, [])) if e[2] == kind and e[1] not in hide]
-        return len(items), items[start:start + count]
+        def nl(e): return len(self.likes.get(gid + "/" + e[1], ()))
+        if top:
+            items.sort(key=lambda e: (-nl(e), -e[0]))
+        page = [(e[0], e[1], e[2], e[3], nl(e),
+                 1 if dev and dev in self.likes.get(gid + "/" + e[1], ()) else 0)
+                for e in items[start:start + count]]
+        return len(items), page
 
     def get(self, gid, code):
         if gid + "/" + code not in self.codes:
@@ -426,10 +479,21 @@ class Relay:
                 a = t[2:]
             loop = asyncio.get_event_loop()
 
-            if verb in ("PUB", "GALLERY", "THUMB") and t[0] == "MOTE2":
+            if verb in ("PUB", "GALLERY", "THUMB", "LIKE") and t[0] == "MOTE2":
                 sg = clean_gid(gid)
                 if self.store is None or not sg:
                     writer.write(b"OFF\n" if self.store is None else b"ERR\n"); await writer.drain(); return
+                if verb == "LIKE":              # LIKE <CODE> <DEVICE>
+                    code = clean_code(a[0]) if len(a) > 0 else ""
+                    dev = "".join(c for c in (a[1] if len(a) > 1 else "") if c.isalnum())[:32]
+                    ip = peer[0] if isinstance(peer, tuple) else str(peer)
+                    if not code or len(dev) < 8:
+                        writer.write(b"ERR\n"); await writer.drain(); return
+                    if not self.store.ok_like_rate(ip):
+                        writer.write(b"BUSY\n"); await writer.drain(); return
+                    got = self.store.like(sg, code, dev)
+                    writer.write((f"LIKES {got[0]} {got[1]}\n" if got else "NONE\n").encode()); await writer.drain()
+                    return
                 if verb == "THUMB":             # THUMB <CODE>
                     code = clean_code(a[0]) if len(a) > 0 else ""
                     pic = self.store.thumb(sg, code) if code else None
@@ -462,10 +526,12 @@ class Relay:
                     start, count = 0, 20
                 if not kind:
                     writer.write(b"ERR\n"); await writer.drain(); return
-                total, items = self.store.gallery(sg, kind, start, count)
+                top = len(a) > 3 and a[3].upper() == "TOP"
+                dev = "".join(c for c in (a[4] if len(a) > 4 else "") if c.isalnum())[:32]
+                total, items = self.store.gallery(sg, kind, start, count, top, dev)
                 out = bytearray()
-                for tm, code, _k, name in items:
-                    out += f"ITEM {code} {tm} {name}\n".encode()
+                for tm, code, _k, name, nlike, mine in items:
+                    out += f"ITEM {code} {tm} {nlike} {mine} {name}\n".encode()
                 out += f"END {total}\n".encode()
                 writer.write(out); await writer.drain()
                 return
