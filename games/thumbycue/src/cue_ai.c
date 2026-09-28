@@ -2144,6 +2144,18 @@ static int find_banks(const AiCtx *c, Cand *out, int cap) {
                 Vec3 hit = v3(target.x + tm.x*tt, 0, target.z + tm.z*tt);
                 if (!path_clear(c, target, hit, i)) continue;
                 if (!path_clear(c, hit, ap, i)) continue;
+                /* NOT OFF THE POCKET'S OWN RAIL. A rail that ends at the
+                 * pocket is no bank into it (cue_phys_banked), so a mirror in
+                 * the half of a side rail running into this corner, or the
+                 * end rail under it, is a shot that scores nothing. Judged at
+                 * the point on the cushion the ball touches, as the referee
+                 * judges it. */
+                {   float cx = hit.x, cz = hit.z;
+                    if (rail == 0) cx += R; else if (rail == 1) cx -= R;
+                    else if (rail == 2) cz += R; else cz -= R;
+                    int pa = -1, pb = -1;
+                    if (cue_phys_rail_at(c->w, cx, cz, &pa, &pb) >= 0 &&
+                        (pa == pk || pb == pk)) continue; }
 
                 Vec3 aimv = nrm2(sub2(ghost, cue));
                 float cut = acosf(clampf(dot2(aimv, gdir), -1, 1)) * DEG;

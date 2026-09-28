@@ -30,7 +30,7 @@ static void fresh(CueRules *r) {
     NB = cue_table_rack(&T, B);
     cue_rules_init(r, &T, 0);
     r->break_shot = 0;
-    memset(W.rails, 0, sizeof W.rails);
+    memset(W.rail_hit, 0, sizeof W.rail_hit);
     memset(W.balls_hit, 0, sizeof W.balls_hit);
     memset(W.hit_by_cue, 0, sizeof W.hit_by_cue);
     W.ntouch = 0;
@@ -49,7 +49,7 @@ static void shot2(CueRules *r, int id, int rails, int hits, int cue, int kick) {
     W.touch[W.ntouch].id = (unsigned char)id;
     W.touch[W.ntouch].idx = (unsigned char)(i > 0 ? i : 0); W.ntouch++;
     if (i > 0) {
-        W.rails[i] = (unsigned char)rails;
+        W.rail_hit[i] = (rails) ? cue_phys_rail_far(&W, B[i].pocket) : 0;
         W.balls_hit[i] = (unsigned char)hits;
         W.hit_by_cue[i] = (unsigned char)cue;
         B[i].on = 0;
@@ -72,7 +72,7 @@ static void shot_off(CueRules *r, int id, int first) {
     W.touch[1].what = CUE_TOUCH_BALL;
     W.touch[1].id = (unsigned char)id;    W.touch[1].idx = (unsigned char)i;
     W.ntouch = 2;
-    W.rails[i] = 0; W.balls_hit[i] = 1; W.hit_by_cue[i] = 1; B[i].on = 0;
+    W.rail_hit[i] = 0; W.balls_hit[i] = 1; W.hit_by_cue[i] = 1; B[i].on = 0;
     W.balls_hit[f] = 1; W.hit_by_cue[f] = 1;
     int p[1] = { id };
     cue_rules_resolve(r, B, NB, &W, first, 0, 1, p, 1);
@@ -92,7 +92,7 @@ static void settle_and_resolve(CueRules *r, CueWorld *w, CueBall *b, int n,
     for (int i = 1; i < n; i++)
         if (was_on[i] && !b[i].on && b[i].pocket != CUE_OFF_TABLE)
             potted[np++] = b[i].id;
-    for (int i = 0; i < CUE_MAX_BALLS; i++) if (w->rails[i]) cushion = 1;
+    for (int i = 0; i < CUE_MAX_BALLS; i++) if (w->rail_hit[i]) cushion = 1;
     for (int i = 0; i < w->ntouch; i++)
         if (w->touch[i].what == CUE_TOUCH_CUSHION) cushion = 1;
     cue_rules_resolve(r, b, n, w, w->first_hit, !b[0].on, cushion, potted, np);
@@ -128,7 +128,7 @@ static void real_shots(void) {
         cue_phys_shot_begin(&w);
         cue_phys_strike(&w, &b[0], ax, 2.2f, 0.0f, 0.0f);
         settle_and_resolve(&r, &w, b, n, was_on);
-        ok(!b[2].on && w.hit_by_cue[2] == 0 && w.rails[2] == 0,
+        ok(!b[2].on && w.hit_by_cue[2] == 0 && !cue_phys_banked(&w, 2, b[2].pocket),
            "played: the white never touched the ball that dropped", r.msg);
         ok(r.score[0] == 1 && r.turn == 0,
            "...so the combination scores and keeps the table", r.msg);
@@ -161,7 +161,7 @@ static void real_shots(void) {
         /* The point of the case: one contact, by the white, and no rail — the
          * exact fingerprint of a straight pot, which is why it was refused. */
         ok(!b[2].on && w.hit_by_cue[2] == 1 && w.balls_hit[2] == 1 &&
-           w.rails[2] == 0,
+           !cue_phys_banked(&w, 2, b[2].pocket),
            "played: the potted ball has ONE contact and no rail, as a straight "
            "pot has", r.msg);
         ok(r.score[0] == 1 && r.turn == 0,
@@ -231,7 +231,7 @@ int main(void) {
         W.ntouch = 0;
         W.touch[W.ntouch].what = CUE_TOUCH_BALL; W.touch[W.ntouch].id = 3; W.ntouch++;
         W.touch[W.ntouch].what = CUE_TOUCH_CUSHION; W.ntouch++;
-        W.rails[i] = 0; W.balls_hit[i] = 1; W.hit_by_cue[i] = 1; B[i].on = 0;
+        W.rail_hit[i] = 0; W.balls_hit[i] = 1; W.hit_by_cue[i] = 1; B[i].on = 0;
         int p[1] = { 3 };
         cue_rules_resolve(&r, B, NB, &W, 3, 0, 1, p, 1);
         ok(r.score[0] == 0,
@@ -244,8 +244,8 @@ int main(void) {
         const int ia = idx_of(3), ib = idx_of(9);
         W.ntouch = 0;
         W.touch[0].what = CUE_TOUCH_BALL; W.touch[0].id = 3; W.ntouch = 1;
-        W.rails[ia] = 1; W.balls_hit[ia] = 1; W.hit_by_cue[ia] = 1; B[ia].on = 0;
-        W.rails[ib] = 0; W.balls_hit[ib] = 1; W.hit_by_cue[ib] = 1; B[ib].on = 0;
+        W.rail_hit[ia] = cue_phys_rail_far(&W, B[ia].pocket); W.balls_hit[ia] = 1; W.hit_by_cue[ia] = 1; B[ia].on = 0;
+        W.rail_hit[ib] = 0; W.balls_hit[ib] = 1; W.hit_by_cue[ib] = 1; B[ib].on = 0;
         int p[2] = { 3, 9 };
         cue_rules_resolve(&r, B, NB, &W, 3, 0, 1, p, 2);
         ok(r.score[0] == 1, "the banked one still scores", r.msg);

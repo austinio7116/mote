@@ -334,12 +334,10 @@ static void respot_colour(CueRules *r, CueBall *b, int n, int id) {
  * pays for it in a different currency. The numbers are per game and quoted at
  * each call; these two only measure.
  *
- * DRIVEN TO A RAIL is CueWorld::cush and NOT rails[]. rails[] only counts a
- * contact that turned the ball more than fifteen degrees, because that is what
- * bank pool means by coming off a cushion; a ball that runs nearly parallel
- * into a rail and comes away gently has still been driven to one, and counting
- * it the bank way would foul legal breaks. Index 0 is the cue ball, which 14.1
- * asks about separately.
+ * DRIVEN TO A RAIL is CueWorld::cush, a count of every cushion touched. The
+ * bank games ask a different question of CueWorld::rail_hit -- which rails,
+ * and whether one of them was not the target pocket's own. Index 0 is the cue
+ * ball, which 14.1 asks about separately.
  *
  * CROSSED THE LINE is CueWorld::brk_cross, whose bit per ball is set when the
  * whole ball has passed the line between the middle pockets. Note that the
@@ -2310,7 +2308,7 @@ static void resolve_honolulu(CueRules *r, CueBall *b, int n, const CueWorld *w,
             if (straight < 8) r->respot_id[straight] = (unsigned char)potted[k];
             straight++; continue;
         }
-        const int banked = w && w->rails[idx] > 0;
+        const int banked = cue_phys_banked(w, idx, b[idx].pocket == CUE_OFF_TABLE ? -1 : (int)b[idx].pocket);
         /* CAME THROUGH ANOTHER BALL, which is two different strokes wearing one
          * name. Neither of them is a COUNT of contacts, and both were written
          * as one first time.
@@ -3693,10 +3691,13 @@ static void resolve_onepocket(CueRules *r, CueBall *b, int n, const CueWorld *w,
  * game, and it makes a different player of you — the shots a pool player has
  * spent years learning are precisely the ones that score nothing here.
  *
- * WHETHER A BALL BANKED is a question about the OBJECT ball, and nothing in the
- * world could answer it until now: the touch log follows the cue ball, because
- * carom is a game about where the cue ball has been. CueWorld::rails counts
- * every ball's own cushions, and this reads it.
+ * WHETHER A BALL BANKED is a question about the OBJECT ball, and the touch log
+ * follows the cue ball, because carom is a game about where the cue ball has
+ * been. CueWorld::rail_hit records every rail each ball touched, and a bank is
+ * a touch on any rail that does NOT end at the pocket the ball went in --
+ * cue_phys_banked. The jaws belong to their rail, so off the middle pocket's
+ * jaw into a corner is a bank, and clipping the target pocket's own jaw, or
+ * running down its own rail, is not.
  *
  * A foul costs a ball, as it does at One Pocket and for the same reason: the
  * game is played slowly and deliberately, and a penalty that costs only the
@@ -3713,14 +3714,36 @@ static void resolve_bank(CueRules *r, CueBall *b, int n, const CueWorld *w,
     const int me = r->turn, you = 1 - r->turn;
     const int was_break = r->break_shot;
     r->break_shot = 0;
+    /* THE CALL, consumed whichever way the stroke goes, as every calling game
+     * consumes it. */
+    const int called_id = r->nominated, called_pkt = r->called_pocket;
+    r->nominated = 0; r->called_pocket = -1;
 
-    /* WHICH OF THE POTTED BALLS ACTUALLY BANKED. potted carries ids; the rail
-     * count is by index, so the ball is found by id. */
+    /* WHICH OF THE POTTED BALLS SCORED. potted carries ids; the rail record
+     * is by index, so the ball is found by id.
+     *
+     * A ball scores when it banked AND it is the ball that was called, in the
+     * pocket it was called for (WPA 13) -- so one ball a stroke at most.
+     * Anything else that drops is spotted and is not a foul: a ball in the
+     * wrong pocket, a second ball, an unbanked one. A pocket of -1 is a stroke
+     * named without one (the machine's safeties arrive that way) and the
+     * called ball then counts wherever it banked in. The break is not called,
+     * and what it banks in counts. */
     int scored = 0, unbanked = 0;
+    const char *spot_why = NULL;
     for (int k = 0; k < np; k++) {
         int idx = -1;
         for (int i = 1; i < n; i++) if (b[i].id == potted[k]) { idx = i; break; }
-        const int banked = (w && idx > 0 && idx < CUE_MAX_BALLS && w->rails[idx] > 0);
+        const int pk = (idx > 0 && b[idx].pocket != CUE_OFF_TABLE) ? (int)b[idx].pocket : -1;
+        int banked = idx > 0 && cue_phys_banked(w, idx, pk);
+        if (!banked) { if (!spot_why) spot_why = "NOT BANKED"; }
+        else if (!was_break) {
+            if (potted[k] != called_id || scored) {
+                banked = 0; if (!spot_why) spot_why = called_id ? "NOT THE CALLED BALL" : "NOT CALLED";
+            } else if (called_pkt >= 0 && pk != called_pkt) {
+                banked = 0; if (!spot_why) spot_why = "WRONG POCKET";
+            }
+        }
         if (banked) scored++;
         else {
             if (unbanked < 8) r->respot_id[unbanked] = (unsigned char)potted[k];
@@ -3774,13 +3797,13 @@ static void resolve_bank(CueRules *r, CueBall *b, int n, const CueWorld *w,
      * give the table up for. */
     if (scored) {
         r->brk += scored;
-        if (unbanked) snprintf(r->msg, sizeof r->msg, "%d - ONE SPOTTED", scored);
+        if (unbanked) snprintf(r->msg, sizeof r->msg, "%d - %d SPOTTED", scored, unbanked);
         else          snprintf(r->msg, sizeof r->msg, "%d", scored);
         return;                                  /* the striker plays on */
     }
     r->brk = 0;
     r->turn = you;
-    if (unbanked) snprintf(r->msg, sizeof r->msg, "NOT BANKED");
+    if (unbanked) snprintf(r->msg, sizeof r->msg, "%s", spot_why ? spot_why : "SPOTTED");
     else          r->msg[0] = 0;
 }
 
@@ -4777,6 +4800,12 @@ void cue_rules_call_shot(CueRules *r, int ball_id, int pocket) {
          * bowlliards' above rather than gated on call_shot_on: there is no
          * cribbage pool that does not call, so a switch for it would only be a
          * way of turning the game off. */
+        r->nominated = (ball_id >= 1 && ball_id <= 15) ? ball_id : 0;
+        r->called_pocket = r->nominated ? pocket : -1;
+    } else if (r->mode == CUE_GAME_BANKPOOL) {
+        /* WPA 13: every shot but the break is called, ball and pocket.
+         * Unconditional for the reason cribbage's is: there is no bank pool
+         * that does not call. */
         r->nominated = (ball_id >= 1 && ball_id <= 15) ? ball_id : 0;
         r->called_pocket = r->nominated ? pocket : -1;
     } else if (r->mode == CUE_GAME_US10 && r->call_shot_on) {

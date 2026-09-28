@@ -648,7 +648,18 @@ typedef struct {
      * Cumulative over the whole shot, which is the rule as written — "contacted
      * a rail before being pocketed" — and a ball stops moving once it drops, so
      * the count at the settle is the count at the drop. */
-    uint8_t rails[CUE_MAX_BALLS];
+    /* WHICH RAILS IT TOUCHED, one bit a rail. A RAIL is the cushion between
+     * two neighbouring pockets, the jaws at either end included -- a jaw is
+     * part of the rail it finishes. Every contact counts, however glancing;
+     * there is no angle in it. Whether a touch made a BANK depends on the
+     * pocket the ball then drops in: a rail that ends at that pocket is the
+     * pocket's own, and a ball run down it or clipping its jaw on the way in
+     * has not been banked. cue_phys_banked asks that question.
+     *
+     * (It was a count of contacts that turned the ball fifteen degrees, which
+     * scored a ball off the target pocket's jaw as a bank and a ball off a far
+     * rail at a shallow angle as none.) */
+    uint16_t rail_hit[CUE_MAX_BALLS];
 
     /* ...AND HOW MANY BALLS EACH ONE TOUCHED, for the same reason.
      *
@@ -968,11 +979,23 @@ typedef struct {
     int     ntouch, touch_over;
     uint32_t brk_cross;
     uint8_t side_cushion;
-    uint8_t rails[CUE_MAX_BALLS], cush[CUE_MAX_BALLS];
+    uint8_t cush[CUE_MAX_BALLS];
+    uint16_t rail_hit[CUE_MAX_BALLS];
     uint8_t balls_hit[CUE_MAX_BALLS], hit_by_cue[CUE_MAX_BALLS];
     uint8_t skittle_order[CUE_MAX_SKITTLE], skittle_nudged[CUE_MAX_SKITTLE];
     int     skittle_fell;
 } CueShotRec;
+/* THE RAIL at table point (x, z): its index for rail_hit, and the two pockets
+ * it runs between (either may be NULL). -1 on a table with fewer than two
+ * pockets, where there is no rail to name. */
+int cue_phys_rail_at(const CueWorld *w, float x, float z, int *pa, int *pb);
+/* DID BALL idx COME OFF A RAIL THAT IS NOT `pocket`'s OWN, for bank pool and
+ * Honolulu. `pocket` is the one it dropped in; -1 (or CUE_OFF_TABLE) for a
+ * ball not potted, where any rail will do. */
+int cue_phys_banked(const CueWorld *w, int idx, int pocket);
+/* A rail_hit bit for a rail that does NOT end at `pocket` -- for tests that
+ * need a bank without playing one. 0 if the table has none. */
+uint16_t cue_phys_rail_far(const CueWorld *w, int pocket);
 void cue_phys_shot_save(const CueWorld *w, CueShotRec *r);
 void cue_phys_shot_load(CueWorld *w, const CueShotRec *r);
 

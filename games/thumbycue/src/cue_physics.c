@@ -323,7 +323,7 @@ void cue_phys_shot_begin(CueWorld *w) {
     w->brk_cross = 0;
     w->side_cushion = 0;
     for (int k = 0; k < CUE_MAX_BALLS; k++) {
-        w->rails[k] = 0; w->cush[k] = 0;
+        w->rail_hit[k] = 0; w->cush[k] = 0;
         w->balls_hit[k] = 0; w->hit_by_cue[k] = 0;
     }
     /* WHAT THIS STROKE DID TO THE PINS is a fact about this stroke, so the
@@ -362,13 +362,70 @@ void cue_phys_shot_begin(CueWorld *w) {
         A skittle_fell    = B skittle_fell;                                   \
         memcpy(A touch, B touch, sizeof (A touch));                           \
         memcpy(A att_min, B att_min, sizeof (A att_min));                     \
-        memcpy(A rails, B rails, sizeof (A rails));                           \
+        memcpy(A rail_hit, B rail_hit, sizeof (A rail_hit));                  \
         memcpy(A cush, B cush, sizeof (A cush));                              \
         memcpy(A balls_hit, B balls_hit, sizeof (A balls_hit));               \
         memcpy(A hit_by_cue, B hit_by_cue, sizeof (A hit_by_cue));            \
         memcpy(A skittle_order, B skittle_order, sizeof (A skittle_order));   \
         memcpy(A skittle_nudged, B skittle_nudged, sizeof (A skittle_nudged));\
     } while (0)
+
+/* THE RAILS ARE THE GAPS BETWEEN THE POCKETS, taken in order round the table.
+ * Order is by angle about the centre with each axis scaled by its half-size, so
+ * a corner pocket sits on the diagonal and a contact just along either rail
+ * from it falls on that rail's side -- a facing included, which is what makes a
+ * jaw part of the rail it finishes. Pockets are few, contacts are rare events,
+ * so this sorts on every call rather than keeping a table that could go stale. */
+static int rail_order(const CueWorld *w, int *ord, float *ang) {
+    const int np = w->npocket < CUE_MAX_POCKET ? w->npocket : CUE_MAX_POCKET;
+    const float hl = w->play_x > 1e-3f ? w->play_x : 1.0f;
+    const float hw = w->play_z > 1e-3f ? w->play_z : 1.0f;
+    for (int p = 0; p < np; p++) {
+        ord[p] = p;
+        ang[p] = atan2f(w->pocket[p].z / hw, w->pocket[p].x / hl);
+    }
+    for (int i = 1; i < np; i++)                    /* insertion sort, np <= 12 */
+        for (int j = i; j > 0 && ang[ord[j]] < ang[ord[j-1]]; j--) {
+            int t = ord[j]; ord[j] = ord[j-1]; ord[j-1] = t;
+        }
+    return np;
+}
+int cue_phys_rail_at(const CueWorld *w, float x, float z, int *pa, int *pb) {
+    int ord[CUE_MAX_POCKET]; float ang[CUE_MAX_POCKET];
+    const int np = w ? rail_order(w, ord, ang) : 0;
+    if (np < 2) return -1;
+    const float hl = w->play_x > 1e-3f ? w->play_x : 1.0f;
+    const float hw = w->play_z > 1e-3f ? w->play_z : 1.0f;
+    const float a = atan2f(z / hw, x / hl);
+    /* rail k runs from ord[k] to ord[k+1]; the last wraps past +-pi */
+    int k = np - 1;
+    for (int i = 0; i + 1 < np; i++)
+        if (a >= ang[ord[i]] && a < ang[ord[i+1]]) { k = i; break; }
+    if (pa) *pa = ord[k];
+    if (pb) *pb = ord[(k + 1) % np];
+    return k;
+}
+int cue_phys_banked(const CueWorld *w, int idx, int pocket) {
+    if (!w || idx < 0 || idx >= CUE_MAX_BALLS) return 0;
+    const uint16_t hit = w->rail_hit[idx];
+    if (!hit) return 0;
+    if (pocket < 0 || pocket >= CUE_MAX_POCKET) return 1;
+    int ord[CUE_MAX_POCKET]; float ang[CUE_MAX_POCKET];
+    const int np = rail_order(w, ord, ang);
+    if (np < 2) return 1;
+    for (int k = 0; k < np && k < 16; k++) {
+        if (!(hit & (1u << k))) continue;
+        if (ord[k] != pocket && ord[(k + 1) % np] != pocket) return 1;
+    }
+    return 0;                        /* only the pocket's own rails */
+}
+uint16_t cue_phys_rail_far(const CueWorld *w, int pocket) {
+    int ord[CUE_MAX_POCKET]; float ang[CUE_MAX_POCKET];
+    const int np = w ? rail_order(w, ord, ang) : 0;
+    for (int k = 0; k < np && k < 16; k++)
+        if (ord[k] != pocket && ord[(k + 1) % np] != pocket) return (uint16_t)(1u << k);
+    return 0;
+}
 
 void cue_phys_shot_save(const CueWorld *w, CueShotRec *r) {
     if (!w || !r) return;
@@ -1242,7 +1299,7 @@ static CUE_HOT int collide_bumpers(const CueWorld *w, CueBall *b) {
     return hit;
 }
 
-static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev) {
+static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev, Vec3 *cn) {
     int hit = 0;
     /* OVER THE CUSHION. A ball whose underside has cleared the TOP of the
      * cushion is past the rail, not bouncing off it — that is what a jump shot
@@ -1319,6 +1376,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
         if (sn < -0.95f) sn = -0.95f;
         if (cushion_impact(w, b, best_n, sn, best_g)) {
             hit = 1;
+            if (cn) *cn = best_sep;          /* from the cushion to the ball */
             /* Rule 108 asks whether the last-ball shot went off a SIDE
              * cushion, and only the impact knows which cushion it was: a
              * side's normal points across the table, an end's points along
@@ -1352,6 +1410,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev)
                     je *= w->jaw_g[j];
             if (collide_surface(w, b, N, je, w->mu_cush)) {
                 hit = 1;
+                if (cn) *cn = N;
                 if (ev) *ev |= CUE_EV_JAW;
                 if (jvn > s_jaw_vn) s_jaw_vn = jvn;   /* hardest knuckle this step */
             } }
@@ -2867,13 +2926,13 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                     {   static int dbg = -1; if (dbg < 0) dbg = getenv("CUE_MESHDBG") ? 1 : 0;
                         static int nojaw = -1; if (nojaw < 0) nojaw = getenv("CUE_NOJAWDROP") ? 1 : 0;   /* measure: no jaws for a dropping ball */
                         const Vec3 v0 = b->vel;
-                        if (!nojaw) collide_cushions(w, b, ev);
+                        if (!nojaw) collide_cushions(w, b, ev, NULL);
                         b->vel.y = vy_keep;
                         if (dbg) { const Vec3 dv = v3_sub(b->vel, v0);
                             if (v3_len(dv) > 0.3f) fprintf(stderr, "[jawdbg] pk%d at (%.4f,%.4f,%.4f) v (%.2f,%.2f,%.2f) -> (%.2f,%.2f,%.2f) dv (%.2f,%.2f,%.2f) r_eff %.4f\n",
                                 pk, b->pos.x, b->pos.y, b->pos.z, v0.x, v0.y, v0.z, b->vel.x, b->vel.y, b->vel.z, dv.x, dv.y, dv.z, b->r); } }
 #else
-                    collide_cushions(w, b, ev);
+                    collide_cushions(w, b, ev, NULL);
                     b->vel.y = vy_keep;
 #endif
                     b->r = keep;
@@ -3088,7 +3147,8 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
          * nothing and is heard by nothing; it only turns the ball. */
         const int bump = collide_bumpers(w, b);
         if (bump && i == 0) { /* nothing to record: a bumper is not a cushion */ }
-        if (collide_cushions(w, b, ev ? ev : &cev)) {
+        Vec3 chit_n = v3(0, 0, 0);
+        if (collide_cushions(w, b, ev ? ev : &cev, &chit_n)) {
             /* The cue ball's own account. Recorded whether or not it has hit a
              * ball yet: a carom counts every cushion from the start of the
              * shot, not only the ones after first contact. */
@@ -3109,13 +3169,13 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             /* The plain count first: touched a cushion, whatever it did next.
              * See CueWorld::cush — the break rules want this one. */
             if (i >= 0 && i < CUE_MAX_BALLS && w->cush[i] < 255) w->cush[i]++;
-            if (i >= 0 && i < CUE_MAX_BALLS && w->rails[i] < 255) {
-                const float pl = sqrtf(pvx*pvx + pvz*pvz);
-                const float nl = sqrtf(b->vel.x*b->vel.x + b->vel.z*b->vel.z);
-                if (pl > 1e-4f && nl > 1e-4f) {
-                    const float dot = (pvx*b->vel.x + pvz*b->vel.z) / (pl * nl);
-                    if (dot < 0.9659f) w->rails[i]++;      /* > 15 degrees */
-                }
+            /* ...AND WHICH RAIL IT WAS, for the bank games: every contact,
+             * at the point on the cushion the ball touched. See rail_hit. */
+            if (i >= 0 && i < CUE_MAX_BALLS) {
+                const int k = cue_phys_rail_at(w, b->pos.x - chit_n.x * cue_ball_r(w, b),
+                                               b->pos.z - chit_n.z * cue_ball_r(w, b),
+                                               NULL, NULL);
+                if (k >= 0 && k < 16) w->rail_hit[i] |= (uint16_t)(1u << k);
             }
             if (i == 0 && w->first_hit >= 0) w->jmp_bounced = 1;      /* (c) */
             /* Book the side-cushion fact on the shot (Rule 108's witness):
