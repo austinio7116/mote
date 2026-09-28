@@ -36,3 +36,10 @@ dist/
 dist-linux/
 studio/assets/uifont.cfg
 .claude/worktrees/
+
+# git worktrees for isolated feature work
+.worktrees/
+
+# games/grandthumbauto3/gta3_shots.sh output — regenerate, don't commit
+/gta3_shots/
+/games/grandthumbauto3/gta3_shots/

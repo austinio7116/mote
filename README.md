@@ -2405,6 +2405,7 @@ Every game in `games/` (all in the release bundle — drop the `.mote` files int
 <td align="center"><a href="games/papermote"><img src="games/papermote/icon.png" width="48" alt="papermote"></a><br><sub><a href="games/papermote">papermote</a></sub></td>
 </tr>
 <tr>
+<td align="center"><a href="games/grandthumbauto3"><img src="games/grandthumbauto3/icon.png" width="48" alt="grandthumbauto3"></a><br><sub><a href="games/grandthumbauto3">grandthumbauto3</a></sub></td>
 <td align="center"><a href="games/pong3d"><img src="games/pong3d/icon.png" width="48" alt="pong3d"></a><br><sub><a href="games/pong3d">pong3d</a></sub></td>
 <td align="center"><a href="games/tanks"><img src="games/tanks/icon.png" width="48" alt="tanks"></a><br><sub><a href="games/tanks">tanks</a></sub></td>
 <td align="center"><a href="games/tetris3d"><img src="games/tetris3d/icon.png" width="48" alt="tetris3d"></a><br><sub><a href="games/tetris3d">tetris3d</a></sub></td>
@@ -2450,6 +2451,7 @@ level). Its `.mote` ships in the games bundle attached to the
 | `fxdemo` | the FX toolkit — depth-tested points/lines/discs/ring, textured + procedural sphere impostors, soft shadow, `set_background_cb` gradient, a 3D-sprite billboard, a textured mesh, and an additive `blit_ex` HUD sparkle |
 | `wolfmote` | **Wolfenstein-3D-style FPS** — textured wall/door cube meshes, billboard enemies (guard + brute, aim/fire/hit/dead) + scenery, a `blit_ex` gun with additive muzzle flash, two weapons, doors (B), hand-authored text-map levels, and `MoteSfx` sound |
 | `grandthumbauto` | **top-down open-city driving** — the `phys2d_step` 2D rigid-body solver as a game: cars with `lat_damp` tyre grip, on-foot + vehicle play, city streets, a wanted level *(binary in the games bundle; source lands with a future release)* |
+| `grandthumbauto3` | **third-person open-city crime sandbox** — the largest game in the tree: a 254x256 procedural city, chase camera, textured building massing, 54 vehicles on 14 silhouettes, 14 mission types, day/night, weather and traffic lights (see [its README](games/grandthumbauto3/README.md)) |
 
 ### Key reference files to read when in doubt
 

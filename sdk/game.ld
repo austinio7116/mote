@@ -28,9 +28,6 @@ SECTIONS
         *(.text*)
         *(.rodata*)
         *(.srodata*)
-        *(.ARM.extab* .gnu.linkonce.armextab.*)
-        . = ALIGN(4);
-        *(.ARM.exidx* .gnu.linkonce.armexidx.*)
         . = ALIGN(4);
     } > FLASH_IMG
 
@@ -68,5 +65,24 @@ SECTIONS
         __mote_bss_end = .;
     } > GAME_RAM
 
-    /DISCARD/ : { *(.comment) *(.note*) *(.debug*) }
+    /* .ARM.exidx / .ARM.extab are DISCARDED, not placed.
+     *
+     * They are unwind tables. A game module is -ffreestanding C with no
+     * exceptions and nothing that unwinds, so they are dead weight — but more
+     * than that, KEEPING them silently corrupts the link. They carry
+     * SHF_LINK_ORDER, and under --gc-sections this ld (arm-none-eabi 10.3.1)
+     * mis-resolves R_ARM_ABS32 relocations into .rodata placed after them: the
+     * section is kept and placed, the symbol gets a correct address, and the
+     * reference is still written as 0.
+     *
+     * What that cost: mote_game_register returned a NULL vtable, so
+     * mote_loader_map returned 0 and the device reported "map failed" on a
+     * module whose header, magic, ABI, offset alignment and cluster chain were
+     * all perfect. It is layout-dependent, so it appears and disappears as a
+     * game grows — grandthumbauto and grandthumbauto3 were both silently
+     * broken; thumbycraft and thumbyrogue happened to link fine.
+     *
+     * Verified by disassembling mote_game_register in every game before and
+     * after. Dropping --gc-sections also fixes it but costs thumbyrogue 19%. */
+    /DISCARD/ : { *(.comment) *(.note*) *(.debug*) *(.ARM.extab*) *(.ARM.exidx*) }
 }
