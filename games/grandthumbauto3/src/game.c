@@ -1795,6 +1795,9 @@ static uint8_t g_sound_on = 1;
  * two bits, free, and it means the menu comes back where you left it. */
 #define NSAVE_SLOT 3
 static uint8_t g_slot;                  /* 0..NSAVE_SLOT-1; platform slot = g_slot + 1 */
+/* The seed citygen built the current city from. A save without this is a save
+ * of a player standing in a city nobody can rebuild -- see save_game. */
+static uint32_t g_city_seed;
 static void save_prefs(void);
 /* Where a debug-delivered vehicle lands: ALWAYS straight in front of you,
  * stepping closer until the tile is somewhere one can sit. A pad search picks a
@@ -5203,7 +5206,12 @@ static void buy_gun(void) {
     sfx(&cash_sfx,0.7f);
 }
 
-static void reset_game(void) {
+/* want = 0 rolls a fresh city; anything else rebuilds THAT city, which is how
+ * a load puts the map back. Everything downstream (colliders, markers,
+ * traffic, caches) derives from the tiles, so re-running this with the saved
+ * seed is the whole job -- there is no separate "restore the map" path to
+ * keep in step with worldgen. */
+static void reset_game_seeded(uint32_t want) {
     gta3_cam_reset(&g_cam);   /* cold start: nothing to smooth from yet */
     g_shells = TANK_SHELLS;   /* a fresh city means a fresh tank, fully loaded */
     g_titlet = 0.0f;          /* restart the title-screen orbit from a fixed angle each game */
@@ -5214,6 +5222,8 @@ static void reset_game(void) {
 #ifdef MOTE_HOST
         { const char *sd=getenv("MOTE_GTA_SEED"); if (sd) seed=(uint32_t)strtoul(sd,0,10); }
 #endif
+        if (want) seed = want;              /* a load rebuilding its own city */
+        g_city_seed = seed;
         citygen(g_city, seed);
     }
     build_zebra_map();
@@ -5223,7 +5233,14 @@ static void reset_game(void) {
     cash=0; health=MAXHP; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
     weapon=W_FIST; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;} owned[W_FIST]=1; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0;
-    g_rng ^= (uint32_t)mote->micros();     /* each run is a different city day */
+    /* A fresh game gets a different city day every run. A LOAD must not: the
+     * spawn search, the parked cars and the traffic init all draw from g_rng,
+     * so leaving it on the clock would put the right map back with everything
+     * on it in different places. reset_game_dm_finish learned this the hard
+     * way -- the two units generated the same tiles and then invented
+     * different jackable cars. Same derivation, same reason. */
+    if (want) { g_rng = want ^ 0x51ED2701u; if (!g_rng) g_rng = 1u; }
+    else      g_rng ^= (uint32_t)mote->micros();
 #ifdef MOTE_HOST
     if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[SEED] micros=%u rng=%u\n",(unsigned)mote->micros(),g_rng);
 #endif
@@ -5327,6 +5344,8 @@ static void respawn(int busted) {
     if (busted){ weapon=W_FIST; }        /* busted: lose your guns */
     g_state=ST_PLAY;
 }
+
+static void reset_game(void){ reset_game_seeded(0); }   /* a brand-new city */
 
 /* ============================================== 2P deathmatch (see state block) */
 static void dm_send_hello(void){
@@ -6514,7 +6533,7 @@ static void draw_vehicle(int i){
  * structs are written straight to flash, so a layout change from a later build
  * would otherwise be reinterpreted as live state. */
 #define SAVE_MAGIC 0x33415447u          /* 'GTA3' */
-#define SAVE_VER   1u
+#define SAVE_VER   2u          /* v2 adds the city seed; v1 saves cannot place you */
 /* The platform slot the game's save lives in. Slot 0 is the preferences and
  * record blob, so the three game slots are 1, 2 and 3. */
 #define SAVE_SLOT  (1 + g_slot)
@@ -6527,6 +6546,7 @@ typedef struct {
     int32_t  owned[NWEAP], ammo[NWEAP];
     int32_t  mission_chain;
     float    tod;
+    uint32_t seed;                  /* the city. v1 had no such field — see load_game */
 } SaveGame;
 
 static int save_game(void) {
@@ -6539,6 +6559,11 @@ static int save_game(void) {
     g.cash = cash; g.best = best_cash;
     g.px = player.x; g.pz = player.z; g.pyaw = player.yaw;
     g.heat = heat; g.weapon = weapon; g.mission_chain = mission_chain; g.tod = g_tod;
+    /* THE CITY. Without this a save is a set of coordinates and no map to read
+     * them against: every new game rolls a seed off micros(), so loading in a
+     * later session dropped the player at the old city's x/z inside an
+     * unrelated one — inside a building, in the river, anywhere. */
+    g.seed = g_city_seed;
     for (int i = 0; i < NWEAP; i++) { g.owned[i] = owned[i]; g.ammo[i] = ammo[i]; }
     return mote->save(SAVE_SLOT, &g, sizeof g) == (int)sizeof g;
 }
@@ -6548,6 +6573,11 @@ static int load_game(void) {
     SaveGame g;
     if (mote->load(SAVE_SLOT, &g, sizeof g) != (int)sizeof g) return 0;
     if (g.magic != SAVE_MAGIC || g.ver != SAVE_VER) return 0;
+    /* Rebuild the saved city FIRST. reset_game_seeded resets cash, weapons and
+     * position on its way through, so every field below has to be applied
+     * after it, not before. Skipped when the seed already matches, so loading
+     * inside the city you saved in does not throw the world away. */
+    if (g.seed && g.seed != g_city_seed) reset_game_seeded(g.seed);
     cash = g.cash; best_cash = g.best;
     heat = g.heat; heat_cool = 0; g_pursuit = 0;
     weapon = g.weapon; if (weapon < 0 || weapon >= NWEAP) weapon = W_FIST;
