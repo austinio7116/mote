@@ -203,6 +203,8 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
         r->target_score = 0;
         r->break_shot = 1;
         r->ball_in_hand = 1;
+        /* two players until cue_rules_killer_setup says otherwise */
+        r->kl_n = 2; r->kl_lives0 = 3; r->kl_winner = -1;
     } else if (r->kind || t->kind == CUE_GAME_PAUL) {
         /* THE FOUR SPOTS AND THE D, for snooker AND for Paul. Paul scores
          * nothing like snooker, but the table has the marks printed on it and
@@ -673,6 +675,13 @@ static void book_frame(CueRules *r, int winner) {
 
 void cue_rules_concede(CueRules *r, int player) {
     if (r->frame_over) return;
+    /* Killer for three or more: `player` is a side of the view, and the only
+     * side that can give anything up is the one at the table -- so it is the
+     * player at the table who leaves. The field cannot concede to itself. */
+    if (CUE_GAME_IS_KILLER(r->mode) && r->kl_n >= 3) {
+        if (player == r->turn) cue_rules_killer_retire(r, cue_rules_killer_shooter(r));
+        return;
+    }
     r->frame_over = 1;
     r->conceded = 1;
     r->winner = 1 - player;
@@ -705,6 +714,9 @@ typedef struct {
      * of a free pyramid match, or a re-rack, went back to classic) and the
      * WPBSA put-them-back-in after any foul. */
     int   pyr_free, snk_again;
+    /* KILLER'S TABLE OF PLAYERS is the match's too: who is playing, in what
+     * order, with how many lives, and the frames each has won. */
+    uint8_t kl_n, kl_lives0, kl_first, kl_order[8], kl_frames[8];
 } RulesKeep;
 
 static void rules_keep_take(const CueRules *r, RulesKeep *k) {
@@ -715,6 +727,9 @@ static void rules_keep_take(const CueRules *r, RulesKeep *k) {
     k->match_over = r->match_over; k->match_winner = r->match_winner;
     k->target = r->target_score;   k->bil_len = r->bil_time_len;
     k->pyr_free = r->pyr_free;     k->snk_again = r->snk_again;
+    k->kl_n = r->kl_n; k->kl_lives0 = r->kl_lives0; k->kl_first = r->kl_first;
+    memcpy(k->kl_order, r->kl_order, sizeof k->kl_order);
+    memcpy(k->kl_frames, r->kl_frames, sizeof k->kl_frames);
 }
 
 static void rules_keep_put(CueRules *r, const RulesKeep *k) {
@@ -727,7 +742,14 @@ static void rules_keep_put(CueRules *r, const RulesKeep *k) {
     r->break_first = k->break_first;
     r->match_over = k->match_over; r->match_winner = k->match_winner;
     r->pyr_free = k->pyr_free;     r->snk_again = k->snk_again;
+    if (CUE_GAME_IS_KILLER(r->mode)) {
+        r->kl_n = k->kl_n; r->kl_lives0 = k->kl_lives0; r->kl_first = k->kl_first;
+        memcpy(r->kl_order, k->kl_order, sizeof r->kl_order);
+        memcpy(r->kl_frames, k->kl_frames, sizeof r->kl_frames);
+    }
 }
+
+static void killer_frame_start(CueRules *r, int next);
 
 /* THE SAME FRAME, LAID OUT AGAIN. Not the next frame: nothing is scored, the
  * break does not alternate and the match tally does not move. Everything the
@@ -738,6 +760,7 @@ void cue_rules_rerack(CueRules *r, const CueTable *t) {
     rules_keep_take(r, &k);
     cue_rules_init(r, t, k.cpu);
     rules_keep_put(r, &k);
+    killer_frame_start(r, 0);
 }
 
 void cue_rules_next_frame(CueRules *r, const CueTable *t) {
@@ -789,6 +812,7 @@ void cue_rules_next_frame(CueRules *r, const CueTable *t) {
     r->match_over = mo; r->match_winner = mw;
     r->break_first = bf;
     r->turn = first;
+    killer_frame_start(r, 1);
 }
 
 void cue_rules_set_bowl(CueRules *r, int ruleset) {
@@ -3859,6 +3883,241 @@ static void resolve_killer(CueRules *r, CueBall *b, int n, int first_hit,
     if (left == 0) { r->rerack = 2; r->racks++; r->break_shot = 1; }
 }
 
+/* ---- G10b: KILLER FOR 3 TO 8 -------------------------------------------
+ *
+ * The same game as resolve_killer, stroke for stroke -- the same fouls, the
+ * same dry-break exemption, the same scratch, the same re-rack -- with the
+ * table going to the NEXT PLAYER STANDING in the drawn order rather than to
+ * "the other one", and the frame over only when one is left. The two-player
+ * game does not come through here at all (kl_n < 3), so it stays exactly what
+ * it was. See the block at the end of CueRules for what turn/score/winner mean
+ * while this is being played. */
+
+static int kl_standing(const CueRules *r) {
+    int a = 0;
+    for (int p = 0; p < r->kl_n; p++) a += r->kl_lives[p] > 0;
+    return a;
+}
+
+/* The next place in the order after `pos` whose player still has a life. */
+static int kl_next_pos(const CueRules *r, int pos) {
+    for (int k = 1; k <= r->kl_n; k++) {
+        const int q = (pos + k) % r->kl_n;
+        if (r->kl_lives[r->kl_order[q]] > 0) return q;
+    }
+    return pos;
+}
+
+/* The two-side view: the player at the table against the best of the field. */
+static void kl_view(CueRules *r) {
+    const int cur = r->kl_order[r->kl_pos];
+    int best = 0;
+    for (int p = 0; p < r->kl_n; p++)
+        if (p != cur && r->kl_lives[p] > best) best = r->kl_lives[p];
+    r->turn &= 1;
+    r->score[r->turn]     = r->kl_lives[cur];
+    r->score[1 - r->turn] = best;
+}
+
+static void kl_book(CueRules *r, int w) {
+    r->kl_winner = (int8_t)w;
+    r->frame_over = 1;
+    /* the view: the field took it, unless the one left is at the table
+     * (somebody else retired while they were down to play) */
+    r->winner = (w == r->kl_order[r->kl_pos]) ? r->turn : 1 - r->turn;
+    if (r->kl_frames[w] < 255) r->kl_frames[w]++;
+    const int need = (r->best_of > 1) ? (r->best_of / 2 + 1) : 1;
+    if (r->kl_frames[w] >= need) { r->match_over = 1; r->match_winner = r->winner; }
+}
+
+/* `player` has just gone out. If that leaves one standing, it is their frame. */
+static int kl_gone(CueRules *r, int player) {
+    r->kl_lives[player] = 0;
+    if (r->kl_nout < CUE_KILLER_MAX) r->kl_outs[r->kl_nout++] = (uint8_t)player;
+    if (kl_standing(r) > 1) return 0;
+    int w = -1;
+    for (int p = 0; p < r->kl_n; p++) if (r->kl_lives[p] > 0) w = p;
+    if (w < 0) w = player;               /* cannot happen: somebody was standing */
+    kl_book(r, w);
+    return 1;
+}
+
+static void resolve_killer_n(CueRules *r, CueBall *b, int n, int first_hit,
+                             int scratch, const int *potted, int np)
+{
+    (void)potted;
+    const int me = r->kl_order[r->kl_pos];
+    const int was_break = r->break_shot;
+    r->break_shot = 0;
+    r->rerack = 0;
+
+    int foul = 0; const char *why = "";
+    if (scratch)             { foul = 1; why = "SCRATCH"; }
+    else if (first_hit < 0)  { foul = 1; why = "NO BALL"; }
+    else if (r->n_off)       { foul = 1; why = "OFF THE TABLE"; }
+    r->last_foul = foul;
+
+    const int made = !foul && np > 0;
+
+    if (!made && !(was_break && !foul)) {
+        if (r->kl_lives[me] > 0) r->kl_lives[me]--;
+        if (r->kl_lives[me] == 0) {
+            snprintf(r->msg, sizeof r->msg, "OUT OF LIVES");
+            if (kl_gone(r, me)) {
+                /* as the two-player game does: the table stays with the one
+                 * who went out, and the view says the field won */
+                kl_view(r);
+                return;
+            }
+        } else {
+            snprintf(r->msg, sizeof r->msg, foul ? "FOUL: %s - A LIFE" : "%sA LIFE",
+                     foul ? why : "");
+        }
+    } else if (made) {
+        snprintf(r->msg, sizeof r->msg, "SAFE");
+    } else {
+        r->msg[0] = 0;
+    }
+
+    /* one shot each, round the order, past anyone who is out */
+    r->kl_pos = (uint8_t)kl_next_pos(r, r->kl_pos);
+    r->turn = 1 - r->turn;
+    if (scratch) r->ball_in_hand = 1;
+
+    int left = 0;
+    for (int i = 1; i < n; i++) if (b[i].on) left++;
+    if (left == 0) { r->rerack = 2; r->racks++; r->break_shot = 1; }
+    kl_view(r);
+}
+
+/* A new frame (next = 1: the break moves one place round the order) or the
+ * same one laid out again (next = 0). Everyone gets their lives back. */
+static void killer_frame_start(CueRules *r, int next) {
+    if (!CUE_GAME_IS_KILLER(r->mode)) return;
+    if (r->kl_n < 3) {
+        if (r->kl_lives0 > 0) r->score[0] = r->score[1] = r->kl_lives0;
+        return;
+    }
+    if (next) r->kl_first = (uint8_t)((r->kl_first + 1) % r->kl_n);
+    r->kl_pos = r->kl_first;
+    for (int p = 0; p < CUE_KILLER_MAX; p++)
+        r->kl_lives[p] = p < r->kl_n ? r->kl_lives0 : 0;
+    r->kl_nout = 0;
+    memset(r->kl_outs, 0, sizeof r->kl_outs);
+    r->kl_winner = -1;
+    r->frames[0] = r->frames[1] = 0;
+    r->turn = 0;
+    kl_view(r);
+}
+
+void cue_rules_killer_draw(uint32_t seed, int n, uint8_t *order) {
+    if (n < 1) return;
+    if (n > CUE_KILLER_MAX) n = CUE_KILLER_MAX;
+    uint32_t x = seed ? seed : 0x9E3779B9u;
+    for (int i = 0; i < n; i++) order[i] = (uint8_t)i;
+    for (int i = n - 1; i > 0; i--) {                 /* Fisher-Yates */
+        x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+        const int j = (int)(x % (uint32_t)(i + 1));
+        const uint8_t t = order[i]; order[i] = order[j]; order[j] = t;
+    }
+}
+
+void cue_rules_killer_setup(CueRules *r, int n, int lives, const uint8_t *order) {
+    if (!r || !CUE_GAME_IS_KILLER(r->mode)) return;
+    if (n < 2) n = 2;
+    if (n > CUE_KILLER_MAX) n = CUE_KILLER_MAX;
+    if (lives <= 0) lives = 3;
+    if (lives > 99) lives = 99;
+    int perm = order != NULL;
+    if (perm) {
+        int seen = 0;
+        for (int i = 0; i < n; i++) {
+            if (order[i] >= n || (seen & (1 << order[i]))) { perm = 0; break; }
+            seen |= 1 << order[i];
+        }
+    }
+    r->kl_lives0 = (uint8_t)lives;
+    memset(r->kl_frames, 0, sizeof r->kl_frames);
+    r->frames[0] = r->frames[1] = 0;
+    r->match_over = 0;
+    if (n == 2) {
+        /* the two-player game, as it always was */
+        r->kl_n = 2;
+        r->score[0] = r->score[1] = lives;
+        if (perm) cue_rules_set_break(r, order[0]);
+        return;
+    }
+    r->kl_n = (uint8_t)n;
+    for (int i = 0; i < CUE_KILLER_MAX; i++)
+        r->kl_order[i] = (uint8_t)(i < n ? (perm ? order[i] : i) : 0);
+    r->kl_first = 0;
+    killer_frame_start(r, 0);
+}
+
+void cue_rules_killer_retire(CueRules *r, int player) {
+    if (!r || !CUE_GAME_IS_KILLER(r->mode) || r->frame_over) return;
+    if (r->kl_n < 3) { cue_rules_concede(r, player & 1); return; }
+    if (player < 0 || player >= r->kl_n || r->kl_lives[player] == 0) return;
+    const int at_table = r->kl_order[r->kl_pos] == player;
+    snprintf(r->msg, sizeof r->msg, "RETIRED");
+    if (kl_gone(r, player)) {
+        r->conceded = 1;
+        kl_view(r);
+        return;
+    }
+    if (at_table) {
+        r->kl_pos = (uint8_t)kl_next_pos(r, r->kl_pos);
+        r->turn = 1 - r->turn;
+    }
+    kl_view(r);
+}
+
+static int kl_ring(const CueRules *r) {
+    return CUE_GAME_IS_KILLER(r->mode) && r->kl_n >= 3;
+}
+int cue_rules_killer_players(const CueRules *r) { return kl_ring(r) ? r->kl_n : 2; }
+int cue_rules_killer_shooter(const CueRules *r) {
+    return kl_ring(r) ? r->kl_order[r->kl_pos] : (r->turn & 1);
+}
+int cue_rules_killer_next(const CueRules *r) {
+    return kl_ring(r) ? r->kl_order[kl_next_pos(r, r->kl_pos)] : 1 - (r->turn & 1);
+}
+int cue_rules_killer_lives(const CueRules *r, int p) {
+    if (p < 0 || p >= cue_rules_killer_players(r)) return 0;
+    return kl_ring(r) ? r->kl_lives[p] : r->score[p];
+}
+int cue_rules_killer_out(const CueRules *r, int p) { return cue_rules_killer_lives(r, p) <= 0; }
+int cue_rules_killer_standing(const CueRules *r) {
+    int a = 0;
+    for (int p = 0; p < cue_rules_killer_players(r); p++) a += !cue_rules_killer_out(r, p);
+    return a;
+}
+int cue_rules_killer_order(const CueRules *r, int place) {
+    if (place < 0 || place >= cue_rules_killer_players(r)) return -1;
+    if (kl_ring(r)) return r->kl_order[place];
+    return (r->break_first + place) & 1;
+}
+int cue_rules_killer_out_at(const CueRules *r, int k) {
+    if (kl_ring(r)) return (k >= 0 && k < r->kl_nout) ? r->kl_outs[k] : -1;
+    if (k != 0 || !r->frame_over || r->winner < 0 || r->winner > 1) return -1;
+    return 1 - r->winner;
+}
+int cue_rules_killer_winner(const CueRules *r) {
+    if (!r->frame_over) return -1;
+    return kl_ring(r) ? r->kl_winner : r->winner;
+}
+int cue_rules_killer_frames(const CueRules *r, int p) {
+    if (p < 0 || p >= cue_rules_killer_players(r)) return 0;
+    return kl_ring(r) ? r->kl_frames[p] : r->frames[p];
+}
+int cue_rules_killer_match_winner(const CueRules *r) {
+    if (!r->match_over) return -1;
+    if (!kl_ring(r)) return r->match_winner;
+    const int need = (r->best_of > 1) ? (r->best_of / 2 + 1) : 1;
+    for (int p = 0; p < r->kl_n; p++) if (r->kl_frames[p] >= need) return p;
+    return -1;
+}
+
 /* ---- G5: ENGLISH BILLIARDS ----------------------------------------------
  *
  * Three balls, two of them cue balls, and the whole game is in Section 3 Rules
@@ -4871,6 +5130,8 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
         resolve_pyramid_free(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (CUE_GAME_IS_CAROM(r->mode))     resolve_carom(r, b, n, w, first_hit);
+    else if (CUE_GAME_IS_KILLER(r->mode) && r->kl_n >= 3)
+        resolve_killer_n(r, b, n, first_hit, scratch, potted, np);
     else if (CUE_GAME_IS_KILLER(r->mode))    resolve_killer(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BILLIARDS)  resolve_billiards(r, b, n, w, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_BARBILLIARDS) resolve_barbilliards(r, b, n, w, first_hit, potted, np);
@@ -5087,6 +5348,10 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
     } else if (CUE_GAME_IS_CAROM(r->mode)) {
         snprintf(buf, cap, "%d - %d  TO %d", r->score[r->turn],
                  r->score[1 - r->turn], r->target_score);
+    } else if (CUE_GAME_IS_KILLER(r->mode) && r->kl_n >= 3) {
+        /* yours, and how many are still in it with you */
+        snprintf(buf, cap, "LIVES %d  %d OF %d LEFT", r->score[r->turn],
+                 kl_standing(r), r->kl_n);
     } else if (CUE_GAME_IS_KILLER(r->mode)) {
         /* the board is the lives — yours first, because it is your shot */
         snprintf(buf, cap, "LIVES %d - %d", r->score[r->turn],

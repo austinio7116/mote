@@ -608,7 +608,46 @@ typedef struct {
     int best_of;         /* 1 = a single frame, else an odd number */
     int match_over, match_winner;
     int conceded;        /* the frame was given up rather than played out */
+
+    /* ---- KILLER FOR 3 TO 8 PLAYERS ----
+     * At the END of the struct on purpose: everything above keeps its offset,
+     * so the two-player game is the same bytes it always was (test_killer_n).
+     *
+     * Killer is the one game where "the opponent" is not one person, so the
+     * truth for three or more players lives here, by PLAYER NUMBER 0..kl_n-1,
+     * and the two-side fields above become a VIEW of it that the sim keeps up
+     * to date after every stroke:
+     *
+     *   turn        flips every stroke, as it always has in killer (the table
+     *               changes hands every shot), so "the turn moved" still means
+     *               "somebody else is at the table". It is NOT a player number.
+     *   score[turn]    the lives of the player at the table
+     *   score[1-turn]  the most lives anyone else has -- the field
+     *   winner      the side of that view holding the winner when the frame
+     *               ends -- the field, when the player at the table went out;
+     *               the player who actually won is kl_winner
+     *   frames[]    left at 0: the match tally is kl_frames
+     *
+     * So the planner, the status line and anything written for two sides read
+     * something sensible and never index past [1] -- but anything that has to
+     * know WHO reads the cue_rules_killer_* calls below, never these.
+     *
+     * With kl_n < 3 (the two-player game, and every other game) none of this
+     * is used: score[] is the lives and turn is the player, as before, and the
+     * cue_rules_killer_* calls read them. */
+    uint8_t kl_n;              /* players, 3..8; 0 or 2 = the two-player game */
+    uint8_t kl_lives0;         /* lives each at the start of a frame */
+    uint8_t kl_pos;            /* the player at the table, as a place in kl_order */
+    uint8_t kl_first;          /* the place in kl_order that broke THIS frame */
+    int8_t  kl_winner;         /* who won the frame, -1 while it is being played */
+    uint8_t kl_nout;           /* how many have gone out this frame */
+    uint8_t kl_order[8];       /* the shooting order, drawn: player numbers */
+    uint8_t kl_lives[8];       /* lives, by player number */
+    uint8_t kl_outs[8];        /* who went out, in the order they did */
+    uint8_t kl_frames[8];      /* frames won this match, by player number */
 } CueRules;
+
+#define CUE_KILLER_MAX 8
 
 /* Which pyramid. CLASSIC is the white-cue-ball game: pot the objects, eight
  * wins, and the cue ball down a pocket is a foul. COMBAT also scores a cue ball
@@ -946,5 +985,48 @@ int  cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id);
 
 /* Short status line for the HUD (group / ball-on). */
 void cue_rules_status(const CueRules *r, char *buf, int cap);
+
+/* ---- KILLER, 2 TO 8 PLAYERS ----
+ *
+ * The rule book is the two-player one, unchanged, with the table going round
+ * the drawn order instead of back and forth: three lives each (or `lives`),
+ * one shot a turn. Pot any ball and you are safe; miss, or foul (a scratch, an
+ * air shot, a ball off the table) and a life goes. A scratch gives the NEXT
+ * player standing the cue ball in hand. A dry break costs nothing. A player
+ * with no lives left is out and the turn skips them; the table is racked again
+ * when it runs dry with two or more standing; the last one standing wins the
+ * frame. In a match the break goes round the order, one place a frame, and the
+ * first to best_of/2+1 frames takes it.
+ *
+ * Player numbers are the caller's seats, 0..n-1. None of this asks who is a
+ * person and who is the AI: that is the host's. */
+
+/* After cue_rules_init on a killer table. n 2..8 (outside that it is clamped),
+ * lives <= 0 means three, order is the shooting order as player numbers (a
+ * permutation of 0..n-1; NULL or anything else is 0,1,2..). With n == 2 this is
+ * the two-player game exactly: the lives go in score[] and order[0] breaks.
+ * Resets the match tally. Does nothing off a killer table. */
+void cue_rules_killer_setup(CueRules *r, int n, int lives, const uint8_t *order);
+/* THE DRAW: a shooting order for n players from a seed, the same on every
+ * machine given the same seed (online, use one both ends already share, such
+ * as the rack seed). Fills order[0..n-1]. */
+void cue_rules_killer_draw(uint32_t seed, int n, uint8_t *order);
+/* A player leaves the frame (conceded, or gone from the room): out, as if their
+ * last life had gone, with no foul -- the next player plays the balls as they
+ * lie. If only one is left they win it. With two players it is a concede. */
+void cue_rules_killer_retire(CueRules *r, int player);
+
+int cue_rules_killer_players(const CueRules *r);          /* 2..8 */
+int cue_rules_killer_shooter(const CueRules *r);          /* player at the table */
+int cue_rules_killer_next(const CueRules *r);             /* who plays after them */
+int cue_rules_killer_lives(const CueRules *r, int player);
+int cue_rules_killer_out(const CueRules *r, int player);  /* no lives left */
+int cue_rules_killer_standing(const CueRules *r);         /* players with lives */
+int cue_rules_killer_order(const CueRules *r, int place);  /* player at that place */
+int cue_rules_killer_out_at(const CueRules *r, int k);     /* k-th out this frame, or -1 */
+int cue_rules_killer_winner(const CueRules *r);           /* -1 while it is on */
+int cue_rules_killer_frames(const CueRules *r, int player);
+/* The match's winner as a player number, -1 until it is over. */
+int cue_rules_killer_match_winner(const CueRules *r);
 
 #endif

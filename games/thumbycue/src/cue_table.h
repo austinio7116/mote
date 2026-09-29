@@ -84,7 +84,8 @@ typedef enum {
      * points on the table only fall, and the frame ends the moment one player
      * leads by more than is left. */
     CUE_GAME_PAUL,
-    /* G10: KILLER. The pub elimination game, two players for now: one shot
+    /* G10: KILLER. The pub elimination game, 2 to 8 players (the table goes
+     * round a drawn order: cue_rules_killer_setup): one shot
      * each, strictly alternating; pot any ball and you are safe, fail to pot
      * — or foul — and you lose one of your three lives. A scratch is a life
      * AND ball in hand. The table reracks when it runs dry with both still
