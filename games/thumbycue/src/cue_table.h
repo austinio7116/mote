@@ -872,6 +872,11 @@ enum {
     CUE_TAB_PRO = 0, CUE_TAB_TOURNAMENT, CUE_TAB_CLUB,
     CUE_TAB_L, CUE_TAB_HEX, CUE_TAB_OCT, CUE_TAB_ROUND,
     CUE_TAB_6FT, CUE_TAB_7FT, CUE_TAB_9FT, CUE_TAB_10FT, CUE_TAB_12FT,
+    /* RUSSIAN PYRAMID'S CLUB TABLES: the same beds with more forgiving
+     * pockets, as the clubs keep beside their tournament tables for players
+     * starting out (and tournaments are held on them under the federation's
+     * rules). Pyramid only. See cue_table_variant. */
+    CUE_TAB_PYR_CLUB12, CUE_TAB_PYR_CLUB7,
     CUE_TAB_COUNT
 };
 /* Is this stop a bed SIZE? */

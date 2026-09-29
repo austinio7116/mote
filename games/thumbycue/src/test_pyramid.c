@@ -99,8 +99,24 @@ int main(void) {
                (double)(open_c*1000.0f), (double)(open_m*1000.0f), (double)ball_mm);
         ok(fabsf(open_c * 1000.0f - (ball_mm + 5.0f)) < 1.5f,
                                           "...the corner five millimetres wider");
-        ok(fabsf(open_m * 1000.0f - (ball_mm + 19.0f)) < 1.5f,
-                                          "...and the middle about nineteen");
+        /* 81 mm since 2026-09-29, from a Russian player: the middle had been
+         * 85.7, about five millimetres wider than a tournament table's */
+        ok(fabsf(open_m * 1000.0f - 81.0f) < 0.3f,
+                                          "...and the middle 81 mm, ball + 14");
+        /* THE CLUB TABLES: 74 and 83 on the 12 ft (the player's own numbers),
+         * the same clearances over the 7 ft's ball */
+        {   static const int CV[2] = { CUE_TAB_PYR_CLUB12, CUE_TAB_PYR_CLUB7 };
+            for (int k = 0; k < 2; k++) {
+                CueTable c; cue_table_init(&c, CUE_GAME_PYRAMID); cue_table_variant(&c, CV[k]);
+                float cc = 0.0f, cm = 0.0f; cue_table_openings(&c, &cc, &cm);
+                const float b = c.R * 2000.0f;
+                printf("     %s: corner %.1f mm, middle %.1f mm (ball %.1f mm)\n",
+                       CUE_TAB_NAME[CV[k]], (double)(cc*1000.0f), (double)(cm*1000.0f), (double)b);
+                ok(cue_table_variant_ok(CUE_GAME_PYRAMID, CV[k]), "the club table is offered");
+                ok(fabsf(cc * 1000.0f - (b + 7.0f)) < 0.3f,  "...its corners ball + 7");
+                ok(fabsf(cm * 1000.0f - (b + 16.0f)) < 0.3f, "...its middles ball + 16");
+                ok(!cue_table_variant_ok(CUE_GAME_US9, CV[k]), "...and on no other game");
+            } }
         ok(open_m > open_c,               "...so the middle is the wider of the two");
         ok(t.pocket_round == 0,           "the jaws are cut sharp, not rounded");
         printf("     %s jaws\n", t.pocket_round ? "rounded" : "mitred"); }

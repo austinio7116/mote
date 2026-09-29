@@ -752,10 +752,19 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * different pocket on each — the small bed had 14 mm of corner slack
          * where the big one had 5. The federation quotes the smaller tables
          * their own openings for exactly this reason. */
+        /* THE MIDDLES AT 81 MM (a Russian player, 2026-09-29: "the corner
+         * pockets are basically fine -- the tournament standard is around
+         * 71.5-73 mm -- but the middle pockets are a little wider than they
+         * should be... 81 mm would make the 12 ft table much closer to the
+         * tournament standard"). Measured at the NARROWEST passage, which on
+         * these 88-degree middles is the back of the facings; across the lip
+         * corners it reads about 3.8 mm more. They were 85.7 there. 81 is the
+         * 67 mm ball plus 14, and the 7 ft gets the same 14 over its ball:
+         * 71.15. The corners are untouched at 71.65 (ball + 4.65). */
         if (home) { t->pr_corner = 0.0310000f;   /* 31.0 mm radius */
-                    t->pr_side   = 0.0391000f; } /* 39.1 mm radius */
+                    t->pr_side   = 0.0364750f; } /* 36.475 mm: middle 71.15 */
         else      { t->pr_corner = 0.0370000f;   /* 37.0 mm radius */
-                    t->pr_side   = 0.0463000f; } /* 46.3 mm radius */
+                    t->pr_side   = 0.0441200f; } /* 44.12 mm: middle 81.00 */
         /* THE KNUCKLE GAP IS THE POCKET, and pr_corner is not.
          *
          * pr_corner/pr_side drive the bore, the cut and the drop — how big the
@@ -4481,7 +4490,8 @@ void cue_table_set_game(CueTable *t, CueGameKind kind) {
  * See cue_table.h. */
 const char *const CUE_TAB_NAME[CUE_TAB_COUNT] = {
     "PRO", "TOURNAMENT", "CLUB", "L-SHAPED", "HEXAGON", "OCTAGON", "ROUND",
-    "6 FT", "7 FT", "9 FT", "10 FT", "12 FT"
+    "6 FT", "7 FT", "9 FT", "10 FT", "12 FT",
+    "CLUB 12 FT", "CLUB 7 FT"
 };
 
 /* THE BEDS, in metres of PLAYING SURFACE -- nose to nose between the cushions
@@ -4509,7 +4519,8 @@ static const float TAB_SIZE_M[CUE_TAB_COUNT] = {
     1.980f,   /* 7 ft -- the standard English pub bed */
     2.540f,   /* 9 ft -- the American tournament bed */
     2.840f,   /* 10 ft -- Chinese 8-ball, and the smaller snooker */
-    3.569f    /* 12 ft -- the full-size match table */
+    3.569f,   /* 12 ft -- the full-size match table */
+    0, 0      /* pyramid's club tables are their own beds' (see cue_table_variant) */
 };
 
 /* The shape rows. `sides` of 0 means the L. */
@@ -4523,6 +4534,7 @@ static const struct { int sides, every; } TAB_SHAPE[CUE_TAB_COUNT] = {
      * sixty. Sixty pockets is not a table, it is a colander. */
     { 60, 10 },
     { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 },   /* the sizes are not shapes */
+    { 0, 0 }, { 0, 0 },                                 /* nor pyramid's club tables */
 };
 
 /* WHICH BEDS A GAME IS PLAYED ON.
@@ -4596,6 +4608,7 @@ static int size_ref_kind(CueGameKind kind, int variant) {
 int cue_table_variant_ok(CueGameKind kind, int variant) {
     if (variant < 0 || variant >= CUE_TAB_COUNT) return 1;
     if (variant <= CUE_TAB_CLUB) return cue_table_spec_applies(kind);
+    if (variant == CUE_TAB_PYR_CLUB12 || variant == CUE_TAB_PYR_CLUB7) return kind == CUE_GAME_PYRAMID;
     if (CUE_TAB_IS_SIZE(variant)) return size_ok(kind, variant);
     /* THE SHAPES. What rules a game out is knowing where things are on the
      * cloth in absolute terms.
@@ -4647,6 +4660,22 @@ void cue_table_variant(CueTable *t, int variant) {
     if (variant < 0 || variant >= CUE_TAB_COUNT) return;
     if (!cue_table_variant_ok(t->kind, variant)) return;
     if (variant <= CUE_TAB_CLUB) { cue_table_spec(t, variant); return; }
+
+    /* ---- RUSSIAN PYRAMID'S CLUB TABLES. The tournament bed, 12 ft or 7 ft,
+     * with the pockets a Russian club keeps on its tables for beginners and
+     * casual players -- a player who used to play on them, 2026-09-29: "for a
+     * 12 ft table, corner pockets 73-75 mm, middle pockets 82-85 mm...
+     * around 74 mm for the corner pockets and 83 mm for the middle". Their
+     * 74 and 83 are the 67 mm ball plus 7 and 16, measured at the narrowest
+     * passage as the tournament pockets are, and the 7 ft gets the same
+     * clearances over its own ball. Cut to rather than authored, so they
+     * cannot drift from what the table measures. */
+    if (variant == CUE_TAB_PYR_CLUB12 || variant == CUE_TAB_PYR_CLUB7) {
+        if (variant == CUE_TAB_PYR_CLUB7) cue_table_variant(t, CUE_TAB_7FT);
+        const float ball = 2.0f * t->R;
+        cue_table_cut_to(t, ball + 0.007f, ball + 0.016f);
+        return;
+    }
 
     /* ---- A SIZE. The bed changes and nothing else does. -------------------
      *
