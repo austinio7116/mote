@@ -59,6 +59,32 @@ Wire protocol (client <-> relay), one text handshake line then raw bytes:
     Errors: "ERR\n" (malformed), "BUSY\n" (this address is putting too fast),
     "FULL\n" (the store is at its cap), "OFF\n" (no --store).
 
+    ROOMS OF UP TO EIGHT (MOTE2 only): a hub rather than a splice. Every
+    member's frames go to the members they name, stamped with who sent them
+    and one room-wide sequence number, so every member sees the one order.
+        "MOTE2 ROOMN <GAMEID> HOST <CODE> <PUB|PRIV> <MAX 2..8> [LABEL...]\n"
+                    ->  "SEAT 0 <MAX>\n", then framed    (or "TAKEN\n", "ERR\n")
+        "MOTE2 ROOMN <GAMEID> JOIN <CODE>\n"
+                    ->  "SEAT <K> <MAX>\n", then framed
+                        or "NONE\n" / "FULL\n" / "BUSY\n" (started)
+        "MOTE2 ROOMN <GAMEID> QUICK <MAX> [LABEL...]\n"
+                    ->  a place in the oldest open public room of that size,
+                        else a new public one hosted: "SEAT <K> <MAX>\n"
+    LIST shows these rooms beside the old ones, with the places taken:
+        "ROOM <CODE> <LABEL> <HAVE>/<MAX>\n"
+    Frames, little-endian lengths:
+        client -> relay:  u16 len | u8 to | payload         (len = 1 + payload)
+                          to = a member 0..7, 0xFF everyone else, 0xFE the relay
+        relay -> client:  u16 len | u8 from | u32 seq | payload  (len = 5 + payload)
+                          from 0xFE is the relay itself, payload ASCII:
+                          "MEMBERS <k...>" (to a new member: who is here, itself
+                          included), "JOINED <k>", "LEFT <k>", "START", "CLOSED"
+    To the relay: "START" (the host only) takes the room off LIST and closes it
+    to JOIN; everyone hears "START". The host is member 0; a joiner takes the
+    lowest free place. The host leaving closes the room ("CLOSED" to all). A
+    member whose unsent backlog passes --room-backlog bytes is dropped (LEFT)
+    rather than stalling the room. Old verbs are untouched.
+
     When two clients meet, the relay pairs them:
         -> host:   "GO H\n"      -> joiner: "GO G\n"
     then every byte from one is forwarded verbatim to the other until either
@@ -150,6 +176,94 @@ class Room:
         self.created = time.monotonic()
         self.claimed = asyncio.Event()    # a joiner has taken the room
         self.released = asyncio.Event()   # host handler has stopped watching the reader
+
+class Member:
+    __slots__ = ("k", "reader", "writer", "q", "backlog", "task", "gone", "peer")
+    def __init__(self, k, reader, writer, peer):
+        self.k, self.reader, self.writer, self.peer = k, reader, writer, peer
+        self.q = asyncio.Queue()
+        self.backlog = 0
+        self.task = None
+        self.gone = False
+
+class RoomN:
+    """A room of 2..8 members. Frames are forwarded in the order the relay
+    reads them, and each gets the next room-wide sequence number as it is
+    queued, so every member receives the frames it is sent in one total order
+    (the event loop is single-threaded: numbering and queueing happen in one
+    step). Each member has its own write queue and writer task, so a slow
+    member cannot stall the others -- it is dropped past the backlog cap."""
+    CTRL = 0xFE
+    ALL = 0xFF
+    def __init__(self, gid, code, public, maxn, label):
+        self.gid, self.code, self.public, self.maxn, self.label = gid, code, public, maxn, label
+        self.members = {}          # k -> Member
+        self.seq = 0
+        self.started = False
+        self.closed = False
+        self.created = time.monotonic()
+        self.done = asyncio.Event()
+
+    def free_place(self):
+        for k in range(self.maxn):
+            if k not in self.members:
+                return k
+        return -1
+
+    def frame(self, frm, payload):
+        self.seq = (self.seq + 1) & 0xFFFFFFFF
+        return (5 + len(payload)).to_bytes(2, "little") + bytes([frm]) + \
+               self.seq.to_bytes(4, "little") + payload
+
+    def send_to(self, m, data, cap):
+        if m.gone:
+            return
+        m.backlog += len(data)
+        m.q.put_nowait(data)
+        if m.backlog > cap:
+            log(f"nroom {self.gid}/{self.code}: member {m.k} backlog {m.backlog}B, dropped")
+            self.drop(m, "backlog")
+
+    def deliver(self, frm, to, payload, cap):
+        """One frame from `frm`: to one member, or everyone but the sender."""
+        if to == self.ALL:
+            targets = [m for k, m in sorted(self.members.items()) if k != frm]
+        else:
+            m = self.members.get(to)
+            targets = [m] if m is not None and to != frm else []
+        if not targets:
+            return
+        data = self.frame(frm, payload)      # ONE number for all its receivers
+        for m in targets:
+            self.send_to(m, data, cap)
+
+    def control(self, text, cap, only=None, skip=None):
+        payload = text.encode()
+        data = self.frame(self.CTRL, payload)
+        for k, m in sorted(self.members.items()):
+            if (only is not None and k != only) or k == skip:
+                continue
+            self.send_to(m, data, cap)
+
+    def drop(self, m, why):
+        if m.gone:
+            return
+        m.gone = True
+        m.q.put_nowait(None)                 # the writer closes the socket when it gets here
+        if self.members.get(m.k) is m:
+            del self.members[m.k]
+        log(f"nroom {self.gid}/{self.code}: member {m.k} left ({why}), {len(self.members)} remain")
+        if m.k == 0 and not self.closed:
+            self.closed = True
+            self.control("CLOSED", 1 << 30)
+            for o in list(self.members.values()):
+                o.gone = True
+                o.q.put_nowait(None)
+            self.members.clear()
+        elif not self.closed:
+            self.control(f"LEFT {m.k}", 1 << 30)
+        if not self.members:
+            self.done.set()
 
 SHARE_ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no confusable 0/O/1/I
 
@@ -349,6 +463,7 @@ class Relay:
     def __init__(self, args):
         self.args = args
         self.rooms = {}            # "gid/CODE" -> Room  (a host waiting for a partner)
+        self.nrooms = {}           # "gid/CODE" -> RoomN (a hub of up to eight)
         self.conns = 0
         self.store = Store(args.store, args.store_cap, args.puts_per_hour) if args.store else None
 
@@ -356,7 +471,7 @@ class Relay:
         alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no confusable 0/O/1/I
         for _ in range(20):
             c = "".join(random.choice(alpha) for _ in range(4))
-            if rkey(gid, c) not in self.rooms:
+            if rkey(gid, c) not in self.rooms and rkey(gid, c) not in self.nrooms:
                 return c
         return "R" + "".join(random.choice(alpha) for _ in range(5))
 
@@ -454,6 +569,130 @@ class Relay:
             except OSError:
                 pass
             log(f"room {key}: timed out (backstop)")
+
+    async def member_writer(self, room, m):
+        try:
+            while True:
+                data = await m.q.get()
+                if data is None:
+                    break
+                m.backlog -= len(data)
+                m.writer.write(data)
+                await m.writer.drain()
+        except (OSError, ConnectionError):
+            room.drop(m, "write error")
+        finally:
+            try:
+                m.writer.close()
+            except OSError:
+                pass
+
+    async def member_reader(self, room, m):
+        """Read one member's frames until it goes; forward each as it lands."""
+        cap = self.args.room_backlog
+        why = "closed"
+        try:
+            while not m.gone:
+                hdr = await asyncio.wait_for(m.reader.readexactly(2), timeout=self.args.idle)
+                n = int.from_bytes(hdr, "little")
+                if n < 1:
+                    why = "empty frame"; break
+                body = await asyncio.wait_for(m.reader.readexactly(n), timeout=self.args.idle)
+                if m.gone or room.closed:
+                    break
+                to, payload = body[0], body[1:]
+                if to == RoomN.CTRL:
+                    cmd = payload.decode("ascii", "ignore").strip().upper()
+                    if cmd == "START" and m.k == 0 and not room.started:
+                        room.started = True
+                        log(f"nroom {room.gid}/{room.code}: started with {len(room.members)}")
+                        room.control("START", cap)
+                    continue
+                room.deliver(m.k, to, payload, cap)
+        except asyncio.TimeoutError:
+            why = f"idle >{self.args.idle}s"
+        except asyncio.IncompleteReadError:
+            why = "peer EOF"
+        except (OSError, ConnectionError) as e:
+            why = f"net {type(e).__name__}"
+        room.drop(m, why)
+
+    async def nroom_member(self, key, room, k, reader, writer, peer):
+        m = Member(k, reader, writer, peer)
+        others = sorted(room.members)
+        room.members[k] = m
+        writer.write(f"SEAT {k} {room.maxn}\n".encode())
+        m.task = asyncio.create_task(self.member_writer(room, m))
+        cap = self.args.room_backlog
+        room.control("MEMBERS " + " ".join(str(x) for x in sorted(room.members)), cap, only=k)
+        if others:
+            room.control(f"JOINED {k}", cap, skip=k)
+        log(f"nroom {key}: member {k} in ({peer}), {len(room.members)}/{room.maxn}")
+        await self.member_reader(room, m)
+        await asyncio.gather(m.task, return_exceptions=True)
+        if room.done.is_set() and self.nrooms.get(key) is room:
+            self.nrooms.pop(key, None)
+            log(f"nroom {key}: closed")
+
+    async def handle_roomn(self, gid, a, reader, writer, peer):
+        sub = a[0].upper() if a else ""
+        if sub == "HOST":                   # HOST <CODE> <PUB|PRIV> <MAX> [LABEL...]
+            code = clean_code(a[1]) if len(a) > 1 else ""
+            try:
+                maxn = int(a[3]) if len(a) > 3 else 0
+            except ValueError:
+                maxn = 0
+            if not code or not 2 <= maxn <= 8:
+                writer.write(b"ERR\n"); await writer.drain(); return
+            key = rkey(gid, code)
+            if key in self.rooms or key in self.nrooms:
+                writer.write(b"TAKEN\n"); await writer.drain(); return
+            public = a[2].upper() == "PUB"
+            label = clean_label(" ".join(a[4:])) if len(a) > 4 else "GAME"
+            room = RoomN(gid, code, public, maxn, label)
+            self.nrooms[key] = room
+            log(f"nroom {key}: hosted, {maxn} places {'(public)' if public else '(private)'} ({peer})")
+            await self.nroom_member(key, room, 0, reader, writer, peer)
+            return
+        if sub == "JOIN":                   # JOIN <CODE>
+            code = clean_code(a[1]) if len(a) > 1 else ""
+            key = rkey(gid, code)
+            room = self.nrooms.get(key) if code else None
+            if room is None or room.closed:
+                writer.write(b"NONE\n"); await writer.drain(); return
+            if room.started:
+                writer.write(b"BUSY\n"); await writer.drain(); return
+            k = room.free_place()
+            if k < 0:
+                writer.write(b"FULL\n"); await writer.drain(); return
+            await self.nroom_member(key, room, k, reader, writer, peer)
+            return
+        if sub == "QUICK":                  # QUICK <MAX> [LABEL...]
+            try:
+                maxn = int(a[1]) if len(a) > 1 else 0
+            except ValueError:
+                maxn = 0
+            if not 2 <= maxn <= 8:
+                writer.write(b"ERR\n"); await writer.drain(); return
+            best = None
+            for key, r in self.nrooms.items():
+                if (r.public and r.gid == gid and r.maxn == maxn and not r.started
+                        and not r.closed and r.free_place() >= 0
+                        and (best is None or r.created < self.nrooms[best].created)):
+                    best = key
+            if best is not None:
+                room = self.nrooms[best]
+                await self.nroom_member(best, room, room.free_place(), reader, writer, peer)
+                return
+            code = self.gen_code(gid)
+            key = rkey(gid, code)
+            label = clean_label(" ".join(a[2:])) if len(a) > 2 else "QUICK"
+            room = RoomN(gid, code, True, maxn, label)
+            self.nrooms[key] = room
+            log(f"nroom {key}: quick-hosted, {maxn} places ({peer})")
+            await self.nroom_member(key, room, 0, reader, writer, peer)
+            return
+        writer.write(b"ERR\n"); await writer.drain()
 
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         peer = writer.get_extra_info("peername")
@@ -565,12 +804,20 @@ class Relay:
                 log(f"share {sg}: get {code} ({peer})")
                 return
 
+            if verb == "ROOMN" and t[0] == "MOTE2":
+                await self.handle_roomn(gid, a, reader, writer, peer)
+                return
+
             if verb == "LIST":                  # browse this game's open public rooms
                 out = bytearray()
                 for k, r in list(self.rooms.items()):
                     if r.public and r.gid == gid:
                         out += f"ROOM {r.code} {r.label}\n".encode()
                         if len(out) > 3500: break
+                for k, r in list(self.nrooms.items()):
+                    if len(out) > 3500: break
+                    if r.public and r.gid == gid and not r.started and not r.closed:
+                        out += f"ROOM {r.code} {r.label} {len(r.members)}/{r.maxn}\n".encode()
                 out += b"END\n"
                 writer.write(out); await writer.drain()
                 return
@@ -580,7 +827,7 @@ class Relay:
                 if not code:
                     writer.write(b"ERR\n"); await writer.drain(); return
                 key = rkey(gid, code)
-                if key in self.rooms:
+                if key in self.rooms or key in self.nrooms:
                     writer.write(b"TAKEN\n"); await writer.drain(); return
                 public = (len(a) > 1 and a[1].upper() == "PUB")
                 # THE REST OF THE LINE, not the third token: a label with spaces
@@ -633,6 +880,7 @@ async def main():
     ap.add_argument("--join-timeout", type=int, default=0, help="optional backstop: seconds a LONE host may wait before the room is reaped (0 = wait as long as the host stays connected; never fires on a paired room)")
     ap.add_argument("--idle", type=int, default=900, help="seconds of TRUE silence before a paired room is dropped (TCP keepalive catches dead peers in ~70s regardless; this is only a backstop for a paused/AFK pair)")
     ap.add_argument("--max-conns", type=int, default=2000)
+    ap.add_argument("--room-backlog", type=int, default=262144, help="bytes a ROOMN member may have unsent before it is dropped")
     ap.add_argument("--store", default="", help="directory for share codes (PUT/GET); empty = share codes off")
     ap.add_argument("--store-cap", type=int, default=200000, help="most share codes kept")
     ap.add_argument("--puts-per-hour", type=int, default=60, help="share codes one address may make an hour")

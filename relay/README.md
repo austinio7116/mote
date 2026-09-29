@@ -96,6 +96,33 @@ After `GO`, every byte each side sends is forwarded verbatim to the other. The
 own random nonce** (never `link_is_host`, which is 0 on both ends over the Studio
 bridge), so it's advisory only.
 
+### Rooms of up to eight (`ROOMN`, MOTE2 only)
+
+A hub rather than a splice, for games with more than two players (CueVR 6.1
+doubles, Killer, team matches). Additive: no old verb changed, and an old relay
+answers `ERR` to it. The exact frames are in the docstring of `mote_relay.py`.
+
+| Client sends | Relay replies |
+|---|---|
+| `MOTE2 ROOMN <GAMEID> HOST <CODE> <PUB\|PRIV> <MAX 2..8> [LABEL…]\n` | `SEAT 0 <MAX>\n`, then framed; `TAKEN` / `ERR` |
+| `MOTE2 ROOMN <GAMEID> JOIN <CODE>\n` | `SEAT <K> <MAX>\n`, then framed; `NONE` / `FULL` / `BUSY` (started) |
+| `MOTE2 ROOMN <GAMEID> QUICK <MAX> [LABEL…]\n` | a place in the oldest open public room of that size, else hosts one |
+
+After `SEAT`, every message is a frame (`u16` little-endian length first). A
+client sends `to | payload` (`to` = a member, `0xFF` everyone else, `0xFE` the
+relay); the relay delivers `from | u32 room_seq | payload`, one sequence for
+the whole room, so every member sees one order. The relay's own frames come
+`from 0xFE`: `MEMBERS …`, `JOINED k`, `LEFT k`, `START`, `CLOSED`. The host
+(member 0) sends `START` to take the room off `LIST` and close it to `JOIN`.
+The host leaving closes the room. A member with more than `--room-backlog`
+bytes (default 256 KB) unsent is dropped rather than stalling the room. `LIST`
+shows open N-rooms as `ROOM <CODE> <LABEL> <HAVE>/<MAX>`.
+
+Bench: `python3 test_roomn.py --old <the previous mote_relay.py>` runs its own
+relays on localhost: eight members and one order, unicast, `START`, leaving,
+`QUICK`, the backlog drop, and the old verbs byte for byte against the old
+relay.
+
 **Wired into the Studio.** `link_net.c` has a relay transport alongside Host/Join
 LAN: it connects out to the configured `relay_host:port`, does the `MOTE1 …`
 handshake, reads the `GO` line, then the same `s_conn` pipe drives send/recv so
