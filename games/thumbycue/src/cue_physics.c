@@ -1384,6 +1384,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev,
             if (ev && (best_n.z > 0.7f || best_n.z < -0.7f))
                 *ev |= CUE_EV_SIDE_CUSH;
             if (ev) *ev |= CUE_EV_CUSHION;
+            if (ev && w->first_hit >= 0) *ev |= CUE_EV_CUSH_AFTER;
             if (b->cush_n < 255) b->cush_n++;   /* this ball's own rail count */
             if (vn > s_cush_vn) s_cush_vn = vn;                  /* loudest rail impact this step */
         }

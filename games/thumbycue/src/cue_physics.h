@@ -892,6 +892,9 @@ enum {
     CUE_EV_BRIDGE    = 1 << 7,   /* a dropping ball struck the pocket's back: the plate, the iron, the lining */
     CUE_EV_POTTED    = 1 << 8,   /* a ball left the table for good this step (switched off at the release depth) --
                                   * CUE_EV_POCKET is the lip, and a ball can rattle back out after it */
+    CUE_EV_CUSH_AFTER = 1 << 9,  /* a cushion AFTER the cue ball's first contact: what
+                                  * the pool games' "no rail" rule asks (WPA 6.3) --
+                                  * a cushion on the way to the object ball is not one */
     CUE_EV_SIDE_CUSH = 1 << 6,   /* ...and the cushion struck was a SIDE one:
                                   * how the flag crosses the const collision
                                   * path to be booked on the world by the step */

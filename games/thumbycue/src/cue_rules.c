@@ -5085,6 +5085,9 @@ void cue_rules_set_target(CueRules *r, int points) {
 void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
                        int first_hit, int scratch, int cushion,
                        const int *potted, int np) {
+    /* NO RAIL is "no rail after the contact" wherever a game has it; bar
+     * billiards' break, which must touch nothing at all, keeps the plain one */
+    const int cush_rail = r->cush_after ? (r->cush_after == 2) : cushion;
     /* NAMED RESPOTS ARE THIS STROKE'S, so they are cleared going IN. Cleared on
      * the way out instead, a resolver that sets none would inherit the last
      * one's names and spot a ball nobody potted. */
@@ -5114,7 +5117,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     const int wrong_ball = r->cued_id && b[0].on && r->cued_id != b[0].id;
     if (wrong_ball) first_hit = -1;
 
-    if (r->kind)                            { resolve_snooker(r, b, n, w, first_hit, scratch, cushion, potted, np);
+    if (r->kind)                            { resolve_snooker(r, b, n, w, first_hit, scratch, cush_rail, potted, np);
                                               r->att_have = 0; }
     else if (r->mode == CUE_GAME_PAUL)      resolve_paul(r, b, n, first_hit, scratch, cushion, potted, np);
     /* ROTATION FIRST, because IS_ROTATION now matches it: the family is "the
@@ -5123,12 +5126,12 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
      * Tested the other way round, rotation would be resolved as 9-ball and the
      * frame would end when the 15 went down. */
     else if (CUE_GAME_IS_ROT61(r->mode))
-        resolve_rotation(r, b, n, w, first_hit, scratch, cushion, potted, np);
-    else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, w, first_hit, scratch, cushion, potted, np);
-    else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, w, first_hit, scratch, cushion, potted, np);
+        resolve_rotation(r, b, n, w, first_hit, scratch, cush_rail, potted, np);
+    else if (CUE_GAME_IS_ROTATION(r->mode)) resolve_9ball(r, b, n, w, first_hit, scratch, cush_rail, potted, np);
+    else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, w, first_hit, scratch, cush_rail, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode) && r->pyr_free == CUE_PYR_FREE)
-        resolve_pyramid_free(r, b, n, first_hit, scratch, cushion, potted, np);
-    else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cushion, potted, np);
+        resolve_pyramid_free(r, b, n, first_hit, scratch, cush_rail, potted, np);
+    else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cush_rail, potted, np);
     else if (CUE_GAME_IS_CAROM(r->mode))     resolve_carom(r, b, n, w, first_hit);
     else if (CUE_GAME_IS_KILLER(r->mode) && r->kl_n >= 3)
         resolve_killer_n(r, b, n, first_hit, scratch, potted, np);
@@ -5138,13 +5141,13 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (r->mode == CUE_GAME_SPEED)
         resolve_speed(r, b, n, first_hit, scratch, potted, np);
     else if (r->mode == CUE_GAME_HONOLULU)
-        resolve_honolulu(r, b, n, w, first_hit, scratch, cushion, potted, np);
+        resolve_honolulu(r, b, n, w, first_hit, scratch, cush_rail, potted, np);
     else if (r->mode == CUE_GAME_BOWLLIARDS)
-        resolve_bowlliards(r, b, n, w, first_hit, scratch, cushion, potted, np);
+        resolve_bowlliards(r, b, n, w, first_hit, scratch, cush_rail, potted, np);
     else if (r->mode == CUE_GAME_CRIBBAGE)
-        resolve_cribbage(r, b, n, w, first_hit, scratch, cushion, potted, np);
+        resolve_cribbage(r, b, n, w, first_hit, scratch, cush_rail, potted, np);
     else if (r->mode == CUE_GAME_COWBOY)
-        resolve_cowboy(r, b, n, w, first_hit, scratch, cushion, potted, np);
+        resolve_cowboy(r, b, n, w, first_hit, scratch, cush_rail, potted, np);
     else if (r->mode == CUE_GAME_BANKPOOL)
         resolve_bank(r, b, n, w, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_ONEPOCKET)
@@ -5152,7 +5155,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (r->mode == CUE_GAME_BUMPER)
         resolve_bumper(r, b, n, w, first_hit, potted, np);
     else if (r->mode == CUE_GAME_GOLF) resolve_golf(r, b, n, scratch);
-    else                                    resolve_pool(r, b, n, w, first_hit, scratch, cushion, potted, np);
+    else                                    resolve_pool(r, b, n, w, first_hit, scratch, cush_rail, potted, np);
     if (wrong_ball && r->last_foul && !r->frame_over)
         snprintf(r->msg, sizeof r->msg, "FOUL: WRONG BALL CUED");
 
@@ -5161,6 +5164,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     r->cued_id = 0;
     r->jumped = 0;
     r->n_off = 0;
+    r->cush_after = 0;
     r->bb_in_baulk = 0;
     r->bb_short = 0;
     for (int i = 0; i < 8; i++) r->bb_hole[i] = -1;

@@ -523,6 +523,11 @@ typedef struct {
 
     /* snooker foul-and-a-miss + free ball (WPBSA) */
     int was_snookered;   /* striker had NO clear ball-on before the shot (set by cue_game) */
+    /* A CUSHION AFTER THE FIRST CONTACT, set by the caller before resolving:
+     * 0 not told (the cushion_seen argument stands, as it always has), 1 no,
+     * 2 yes. The pool games' NO RAIL asks for this one; a cushion on the way
+     * in, escaping a snooker, is not a rail after contact. */
+    int cush_after;
 
     /* ---- FOUL AND A MISS, JUDGED --------------------------------------------
      *
