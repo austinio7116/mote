@@ -8018,6 +8018,23 @@ static void draw_radar(uint16_t *fb) {
                             MOTE_RGB565(90,150,255), 1, 0, 128);
         }
 
+    /* NORTH on the rim.
+     *
+     * The dial turns with your heading, which is what makes it useful while
+     * driving -- it matches what is out of the windscreen. The cost is that it
+     * only lines up with the MAP PAGE, which is always north-up, when you
+     * happen to be facing north; heading south it is the map turned 180, and
+     * on a grid city that reads as a mirror. This tick says which way north is
+     * so the two are never ambiguous against each other.
+     *
+     * World north is (0,-1) put through the same inverse the blips use, which
+     * gives screen (-ca, sa). Worth checking against two headings: facing
+     * north (ca=0, sa=-1) it lands straight up, and facing east (ca=1, sa=0)
+     * it lands on the left, which is where north should be. */
+    { float nx = -ca, ny = sa;
+      int tx = cx + (int)(nx * (RADAR_R - 3)), ty = cy + (int)(ny * (RADAR_R - 3));
+      mote->text(fb, "N", tx - 1, ty - 2, MOTE_RGB565(240,150,120)); }
+
     /* the player: always dead centre, always pointing up */
     mote->draw_pixel(fb, cx, cy, MOTE_RGB565(255,255,255));
     mote->draw_pixel(fb, cx, cy-1, MOTE_RGB565(255,255,255));
