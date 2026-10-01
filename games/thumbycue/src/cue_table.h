@@ -193,6 +193,23 @@ typedef enum {
      * "sinuca mista" of annex C, the reds behind the pink. */
     CUE_GAME_SINUCA,
     CUE_GAME_SINUCA6,
+    /* THE MESINHA, Brazil's bar table: a 2.00 x 1.00 m bed (the 2.20 x 1.20
+     * table), 50 mm balls and a 54 mm white, plastic cup pockets cut to the
+     * CBBS shape at 64 mm corners and 69 mm middles. Five ways to play it,
+     * one kind each because the rack and the referee differ:
+     *   MESINHA      par ou impar, the bar game: odd against even, the 1 the
+     *                money ball on its own mark; boteco fouls (one ball, two
+     *                for hitting theirs first)
+     *   MESINHA_1B   the same, one ball off for any foul
+     *   MESINHA_PI   par e impar to the CBBS rules (2006): fourteen balls,
+     *                2 to 15, no money ball
+     *   MESINHA_MM   mata-mata: 1-7 against 9-15, no 8
+     *   MESINHA8     bola 8 */
+    CUE_GAME_MESINHA,
+    CUE_GAME_MESINHA_1B,
+    CUE_GAME_MESINHA_PI,
+    CUE_GAME_MESINHA_MM,
+    CUE_GAME_MESINHA8,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
@@ -222,6 +239,11 @@ typedef enum {
 #define CUE_GAME_MONEY_BALL(k) \
     (CUE_GAME_IS_ROT61(k) ? 15 : (k) == CUE_GAME_US10 ? 10 : 9)
 /* Both pyramid beds, wherever the game rather than the size is what matters. */
+#define CUE_GAME_IS_MESINHA(k) \
+    ((k) >= CUE_GAME_MESINHA && (k) <= CUE_GAME_MESINHA8)
+/* ...and the two that are par ou impar with the 1 as the money ball */
+#define CUE_GAME_IS_PARIMPAR_BAR(k) \
+    ((k) == CUE_GAME_MESINHA || (k) == CUE_GAME_MESINHA_1B)
 #define CUE_GAME_IS_PYRAMID(k) \
     ((k) == CUE_GAME_PYRAMID || (k) == CUE_GAME_PYRAMID7)
 /* legacy coarse aliases (kept so existing call sites read cleanly) */

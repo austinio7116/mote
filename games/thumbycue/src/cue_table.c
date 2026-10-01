@@ -570,6 +570,49 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
             t->reds = 6;                 /* annex C: six reds behind the pink */
             t->nballs = 13;
         }
+    } else if (CUE_GAME_IS_MESINHA(kind)) {
+        /* THE MESINHA, Brazil's bar table. Sold by its outside size; this is
+         * the common 2.20 x 1.20 m one, whose cloth is 2.00 x 1.00 between
+         * the cushion noses. The 2.20 x 1.30 and the 1.90 x 1.20 are size
+         * stops (CUE_TAB_MZ_*), 20 cm less each way again.
+         *
+         * Balls of 50 mm and a bigger white, 54 mm: the bar set. A 50 mm
+         * phenolic ball is about 120 g; the white of the same resin at 54 mm
+         * is 151 g. The nose stands at 63.5% of the ball, the WPA fraction.
+         *
+         * THE POCKETS ARE THE CBBS SHAPE AT THE CUP'S SIZE (Mark, 2026-10-01:
+         * "CBBS shape, cup-sized") -- the mesao's mitred corners and arc-cut
+         * middles, every length scaled to the 64 mm corner and 69 mm middle a
+         * bar table's plastic cups give: 64/85 at a corner, 69/95 at a middle.
+         * So the corner round is R50 x 0.753 = 37.6 mm and the middle arc
+         * R70 x 0.726 = 50.8 mm, stopping 36.3 mm behind the nose; the slate
+         * cut R70 x 0.753 and R50 x 0.726 the same way (cue_table_default_cut).
+         * The bores are solved for the openings. */
+        t->half_len = 2.000f * 0.5f;
+        t->half_wid = 1.000f * 0.5f;
+        t->R = 0.025f; t->mass = 0.120f;
+        t->cue_R = 0.027f; t->cue_mass = 0.151f;
+        t->cushion_h = 0.635f * 2.0f * t->R;
+        t->rail_w = 0.060f;                    /* a cushion 37.8 mm deep */
+        t->pocket_round = 0;
+        t->ang_corner = 48.0f; t->ang_side = 90.0f;
+        t->jaw_r = 0.0376f;
+        t->jaw_arc_m = 0.0508f; t->jaw_arc_d_m = 0.0363f;
+        t->pr_corner = 0.03384f; t->pr_side = 0.03453f;   /* solved: 64.00 / 69.00 mm */
+        t->cap_corner = 0.0f;    t->cap_side = 0.0f;
+        t->off_corner = 0.0226f; t->off_side = 0.0218f;
+        t->drop_back  = 0.0301f; t->drop_back_side = 0.0145f;
+        /* THE MARKS (CBBS par e impar, arts. 4-6): the D's straight line
+         * across the middle of the lower half, its arc 26 cm on the 2.84 m
+         * table and so 18.3 cm here; the lower mark where the line crosses
+         * the long centre line, the upper one in the middle of the top half
+         * (the foot spot, where the rack goes). */
+        t->baulk_x  = -t->half_len * 0.5f;
+        t->d_radius =  0.183f;
+        t->cloth = RGB565C(22, 120, 70);
+        t->rail = RGB565C(96, 54, 26); t->rail_top = RGB565C(128, 78, 38);
+        t->spot = RGB565C(180, 180, 180);
+        t->nballs = (kind == CUE_GAME_MESINHA_PI || kind == CUE_GAME_MESINHA_MM) ? 15 : 16;
     } else if (kind == CUE_GAME_CN8) {
         /* Chinese 8-ball: 10 ft table, full-size pool balls (solids/stripes),
          * but TIGHT ROUNDED ("Chinese template") pockets — closer to English
@@ -4830,6 +4873,8 @@ int cue_table_variant_ok(CueGameKind kind, int variant) {
      * CueTable::jaw_arc_m), which an L or a polygon's add_run does not build;
      * on another outline they would come out as square slots. */
     case CUE_GAME_SINUCA: case CUE_GAME_SINUCA6:
+    case CUE_GAME_MESINHA: case CUE_GAME_MESINHA_1B: case CUE_GAME_MESINHA_PI:
+    case CUE_GAME_MESINHA_MM: case CUE_GAME_MESINHA8:
         return 0;
     default: return 1;
     }
@@ -5290,6 +5335,14 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * R12 slate edge outside the circle), 2026-10-01. */
         /* SINU  */ { 0.0400f, 0.070000f, 0.005000f,  90.0f },
         /* SIN6  */ { 0.0400f, 0.070000f, 0.005000f,  90.0f },
+        /* THE MESINHA'S: the mesao's cut at the cup's scale, 64/85 -- R52.7
+         * centred 52.7 out along the axis, the pocket's point 22.6 out. The
+         * same 5 mm roll. */
+        /* MZ    */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
+        /* MZ1B  */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
+        /* MZPI  */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
+        /* MZMM  */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
+        /* MZ8   */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
@@ -5349,6 +5402,12 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * The same 5 mm roll as the corners. */
         /* SINU  */ { 0.0200f, 0.050000f, 0.005000f, 180.0f },
         /* SIN6  */ { 0.0200f, 0.050000f, 0.005000f, 180.0f },
+        /* ...and its middles at 69/95: R36.3 centred 36.3 behind the nose. */
+        /* MZ    */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
+        /* MZ1B  */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
+        /* MZPI  */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
+        /* MZMM  */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
+        /* MZ8   */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -5653,7 +5712,8 @@ Vec3 cue_table_cue_home(const CueTable *t) {
          * last-ball shot must play from (Rule 108). A 4 cm D has no room for
          * the off-centre courtesy the bigger tables get. */
         p = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
-    else if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind))
+    else if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind) ||
+             CUE_GAME_IS_MESINHA(t->kind))
         p = cue_table_lay(t, t->baulk_x, -t->d_radius * 0.55f, NULL);
     /* GOLF tees off the MIDDLE of its line -- the two pegs are at +-d_radius on
      * the baulk line and the ball starts between them, which is the same
@@ -5994,8 +6054,12 @@ static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) 
      * thing to put a ball on when the whole point is that you may start a hole
      * where you like. The D is the room the game wants and the table already
      * draws it. */
+    /* THE MESINHA'S D, where the white comes back after an in-off (CBBS
+     * par e impar, art. 17); the break is from the whole width behind its
+     * line, which is region 2 above. */
     if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind) ||
-        t->kind == CUE_GAME_BARBILLIARDS || t->kind == CUE_GAME_GOLF) {
+        t->kind == CUE_GAME_BARBILLIARDS || t->kind == CUE_GAME_GOLF ||
+        CUE_GAME_IS_MESINHA(t->kind)) {
         /* The D — and the pyramid's HOUSE, which is the same thing as far as
          * this is concerned: a region behind a line that the cue ball is played
          * from. A half-disc of radius d_radius centred on (baulk_x, 0), bulging
@@ -6146,6 +6210,49 @@ static int rack_pool(const CueTable *t, CueBall *b) {
      * already knew. */
     { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
     #undef RACK_AT
+    return n;
+}
+
+/* THE MESINHA'S RACKS. The triangle on the upper mark, base to the top
+ * cushion, as every Brazilian rule book has it.
+ *
+ *   PAR E IMPAR (CBBS art. 10): the fourteen, 2 to 15, with the APEX EMPTY --
+ *     the vertex of the triangle is on the mark, without a ball.
+ *   PAR OU IMPAR, the bar game: the same fourteen, and the 1, the money
+ *     ball, on its own mark at the breaking end -- the lower mark, where the
+ *     D's line crosses the long centre line.
+ *   MATA-MATA: 1-7 and 9-15 with the apex ON the mark, and the slot the 8
+ *     would have, the centre of the third row, left empty.
+ *
+ * "Grouped at random" in the books; a fixed mix here, odd and even (or the
+ * two groups) alternating so neither side's balls sit together, because both
+ * ends of an online frame have to rack the same table. */
+static int rack_mesinha(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const Vec3 side = v3(-up.z, 0.0f, up.x);
+    const float dx = R * 1.7320508f;
+    static const int PI_ROWS[5][5] = {
+        { 0 }, { 2, 3 }, { 5, 4, 7 }, { 6, 9, 8, 11 }, { 13, 10, 15, 12, 14 },
+    };
+    static const int MM_ROWS[5][5] = {
+        { 1 }, { 9, 2 }, { 10, 0, 3 }, { 4, 11, 12, 5 }, { 13, 6, 14, 7, 15 },
+    };
+    const int (*rows)[5] = (t->kind == CUE_GAME_MESINHA_MM) ? MM_ROWS : PI_ROWS;
+    int n = 1;
+    for (int row = 0; row < 5; row++)
+        for (int k = 0; k <= row; k++) {
+            const int id = rows[row][k];
+            if (!id) continue;
+            const float r_ = row * dx, o_ = -(float)row * R + (float)k * 2.0f * R;
+            set_ball(&b[n++], id, foot.x + up.x*r_ + side.x*o_,
+                                  foot.z + up.z*r_ + side.z*o_, R);
+        }
+    if (CUE_GAME_IS_PARIMPAR_BAR(t->kind)) {
+        Vec3 q = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
+        set_ball(&b[n++], 1, q.x, q.z, R);
+    }
+    { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
     return n;
 }
 
@@ -7086,6 +7193,8 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
     else if (t->kind == CUE_GAME_US9)  n = rack_9ball(t, balls);
     else if (t->kind == CUE_GAME_US10) n = rack_10ball(t, balls);
     else if (CUE_GAME_IS_PYRAMID(t->kind)) n = rack_pyramid(t, balls);
+    else if (CUE_GAME_IS_MESINHA(t->kind) && t->kind != CUE_GAME_MESINHA8)
+                                 n = rack_mesinha(t, balls);
     else                         n = rack_pool(t, balls);   /* UK8 + US8 + CN8 + KILLER */
     /* ONE PLACE STAMPS THE CUE BALL. Every rack builds balls[0] as the white,
      * and every game but English pool wants it the same size as the rest — so
