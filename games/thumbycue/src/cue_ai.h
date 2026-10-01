@@ -177,6 +177,11 @@ int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
 CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r,
                          const CueBall *balls, int n, const CuePersona *p,
                          uint32_t *rng);
+/* The opponent pushed out: play from here (CUE_DEC_PLAY) or hand the shot back
+ * to them (CUE_DEC_AGAIN), judged as r->turn, the player answering. */
+int cue_ai_pushout_respond(const CueWorld *w, const CueTable *t, const CueRules *r,
+                           const CueBall *balls, int n, const CuePersona *p,
+                           uint32_t *rng);
 
 /* Debug: the object-ball aim point the planner would use to pot `target` into
  * pocket pk (jaw-aware). Exposed for the diagram/diagnostic tools. */

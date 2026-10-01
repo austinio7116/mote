@@ -6881,12 +6881,46 @@ int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
     return r->snk_again ? CUE_DEC_AGAIN : CUE_DEC_REPLAY;
 }
 
+/* THEIR PUSH-OUT, AND IT IS OURS TO ANSWER: play the table from here, or make
+ * them play it. Returns CUE_DEC_PLAY or CUE_DEC_AGAIN (hand it back).
+ *
+ * The question is the one after an ordinary foul with no restore on offer
+ * (cue_ai_decide's last rung), and the answer is the same: the table is the
+ * same table whoever plays it, so the only thing to weigh is whether we would
+ * rather be the one at it.
+ *
+ *   a pot the planner would go for       -> play on: it is a shot at the rack
+ *   no pot, but a safety worth the name  -> play on: hand it back and they
+ *                                           play that safety on us instead
+ *   neither -- snookered, or nothing on  -> hand it back: let them find it,
+ *                                           and a foul from there is ball in
+ *                                           hand to us
+ *
+ * The planner's own bar for "go for it" is the persona's (minConf), so a
+ * hustler takes on a push-out a professor gives back. r->turn is already the
+ * player answering: the push-out resolve moves it. */
+int cue_ai_pushout_respond(const CueWorld *w, const CueTable *t, const CueRules *r,
+                           const CueBall *balls, int n, const CuePersona *p,
+                           uint32_t *rng) {
+    CueRules mine = *r; mine.pushout_resp = 0;
+    CueAIShot pl = cue_ai_plan(w, t, &mine, balls, n, p, rng);
+    if (!pl.valid) return CUE_DEC_AGAIN;
+    if (!pl.safe) return CUE_DEC_PLAY;
+    if (pl.score > SAFE_GOOD) return CUE_DEC_PLAY;
+    return CUE_DEC_AGAIN;
+}
+
 CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r,
                          const CueBall *balls, int n, const CuePersona *p,
                          uint32_t *rng) {
+    /* THE BALLS HAVE A SIZE here too -- see cue_ai_place. Left at zero, every
+     * leave the search below weighed had a clear line from the white to the
+     * ball on, through any ball standing in the way, so the "medium" leave it
+     * picked could be a snooker it had measured as a fair pot. */
     AiCtx c = { .w = w, .t = t, .r = r, .b = balls, .n = n, .p = p,
                 .S = 12.0f / t->R, .maxdist_m = fmaxf(t->half_len, t->half_wid) * 2.0f,
-                .snooker = t->is_snooker };
+                .snooker = t->is_snooker,
+                .contact = (t->cue_R > 0.0f) ? (t->cue_R + t->R) : (2.0f * t->R) };
     CueAIShot out; memset(&out, 0, sizeof out); out.target_pocket = -1;
     out.safe = 1; out.valid = 1; out.power01 = 0.22f;
 
