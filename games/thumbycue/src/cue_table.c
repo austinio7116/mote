@@ -5284,9 +5284,12 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* BUMP  */ { 0.0000f, 0.038010f, 0.003500f, 360.0f },
         /* THE MESAO'S SLATE (annex N): R70 at each corner, centred 70 mm
          * out along the axis from where the noses meet, so its edge runs
-         * through that point. The pocket's own point is 30 mm out. */
-        /* SINU  */ { 0.0400f, 0.070000f, 0.009737f,  90.0f },
-        /* SIN6  */ { 0.0400f, 0.070000f, 0.009737f,  90.0f },
+         * through that point. The pocket's own point is 30 mm out. The cloth
+         * starts to turn at the circle and rolls over 5 mm -- a firm edge,
+         * picked by Mark off four rolls side by side (9, 5 and 2.5 mm, and the
+         * R12 slate edge outside the circle), 2026-10-01. */
+        /* SINU  */ { 0.0400f, 0.070000f, 0.005000f,  90.0f },
+        /* SIN6  */ { 0.0400f, 0.070000f, 0.005000f,  90.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
@@ -5342,9 +5345,10 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* CRIB  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
         /* BUMP  */ { 0.0000f, 0.038010f, 0.003500f, 360.0f },
         /* ...and R50 at each middle, centred 50 mm behind the nose so its
-         * front is on the nose line. The pocket's point is 30 mm behind it. */
-        /* SINU  */ { 0.0200f, 0.050000f, 0.009310f, 180.0f },
-        /* SIN6  */ { 0.0200f, 0.050000f, 0.009310f, 180.0f },
+         * front is on the nose line. The pocket's point is 30 mm behind it.
+         * The same 5 mm roll as the corners. */
+        /* SINU  */ { 0.0200f, 0.050000f, 0.005000f, 180.0f },
+        /* SIN6  */ { 0.0200f, 0.050000f, 0.005000f, 180.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
