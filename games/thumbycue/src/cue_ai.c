@@ -821,6 +821,24 @@ static int ai_sn_castigo(const AiCtx *c, int id) {
     if (c->r->sn_phase != CUE_SN_OPEN && c->r->sn_phase != CUE_SN_CAST) return 0;
     return ai_value(id) != ai_sn_on(c->b, c->n);
 }
+/* ---- THE MESINHA -----------------------------------------------------
+ * Its two groups: odd against even with the 1 as the money ball, or 1-7
+ * against 9-15 (mata-mata, and bola 8 with the 8 between). As cue_rules.c's
+ * mz_group: 1 or 2, 0 for the money ball or the 8. */
+static int ai_mz_group(int mode, int id) {
+    if (id <= 0) return 0;
+    if (mode == CUE_GAME_MESINHA_MM || mode == CUE_GAME_MESINHA8)
+        return (id >= 1 && id <= 7) ? 1 : (id >= 9 && id <= 15) ? 2 : 0;
+    if (id < 2 || id > 15) return 0;
+    return (id & 1) ? 1 : 2;
+}
+static int ai_mz_left(const AiCtx *c, int grp, int skip) {
+    int k = 0;
+    for (int i = 1; i < c->n; i++)
+        if (i != skip && c->b[i].on && ai_mz_group(c->r->mode, c->b[i].id) == grp) k++;
+    return k;
+}
+
 /* A ball that may be the first contact of a SAFETY or a kick. */
 static int ai_safe_legal(const AiCtx *c, int id) {
     if (c->r->mode == CUE_GAME_SINUCA)
@@ -1339,6 +1357,20 @@ static int next_targets(const AiCtx *c, int just_idx, int *out_idx) {
                 if (best >= 0) out_idx[cnt++] = best;
             }
         }
+    } else if (CUE_GAME_IS_MESINHA(c->r->mode)) {
+        /* THE REST OF YOURS, and when this one clears them, the money ball or
+         * the 8 -- the same as 8-ball below, in the mesinha's own groups. */
+        const int mine = c->r->open ? 0 : c->r->group[c->r->turn];
+        const int last = CUE_GAME_IS_PARIMPAR_BAR(c->r->mode) ? 1
+                       : (c->r->mode == CUE_GAME_MESINHA8) ? 8 : 0;
+        int fin = -1, remaining = 0;
+        for (int i = 1; i < c->n; i++) {
+            if (!c->b[i].on || i == just_idx) continue;
+            const int id = c->b[i].id, g = ai_mz_group(c->r->mode, id);
+            if (last && id == last) { fin = i; continue; }
+            if (g && (mine == 0 || g == mine)) { out_idx[cnt++] = i; remaining++; }
+        }
+        if (remaining == 0 && fin >= 0) out_idx[cnt++] = fin;
     } else if (CUE_GAME_IS_ROTATION(c->r->mode)) {
         /* The rotation games: the NEXT ball-on is the lowest still on the table
          * once the ball we're about to pot is gone. (cue_rules_ball_legal only
@@ -6531,6 +6563,22 @@ int cue_ai_plan_tick(void) {
             for (int k = 0; k < sim.npotted; k++)
                 if (sim.potted[k] == v->tidx) { dropped = 1; break; }
             v->pot_fails = !dropped;
+        }
+        /* THE MESINHA'S VETOES. The money ball or the 8 down before your
+         * group is clear is the frame lost; one of theirs down is a foul paid
+         * in balls. Neither is a weighting. */
+        if (CUE_GAME_IS_MESINHA(c->r->mode) && !v->bad_first) {
+            const int mode = c->r->mode;
+            const int last = CUE_GAME_IS_PARIMPAR_BAR(mode) ? 1 : (mode == CUE_GAME_MESINHA8) ? 8 : 0;
+            const int mine = c->r->open ? 0 : c->r->group[c->r->turn];
+            const int on_last = mine && ai_mz_left(c, mine, -1) == 0;
+            for (int k = 0; k < sim.npotted; k++) {
+                const int bi = sim.potted[k];
+                if (bi <= 0 || bi >= c->n) continue;
+                const int id = c->b[bi].id, g = ai_mz_group(mode, id);
+                if (last && id == last && !on_last) { v->bad_first = 1; break; }
+                if (mine && g && g != mine) { v->bad_first = 1; break; }
+            }
         }
         /* ---- ENGLISH BILLIARDS IS SCORED, NOT POTTED --------------------
          *
