@@ -4655,7 +4655,32 @@ int cue_table_variant_ok(CueGameKind kind, int variant) {
     }
 }
 
+/* A TABLE'S VARIANT, REMEMBERED. Applying one measures the pockets' mouths
+ * and cuts them to size -- worlds built and every segment pair searched, 11 to
+ * 45 ms here and four or five times that on a headset -- and it is asked for
+ * the same table again and again: the menu's preview builds it, and BREAK OFF
+ * builds it once more inside the press, which was most of a 585 ms freeze on
+ * the headset (2026-10-01). The answer is a function of the table handed in
+ * and the variant and of nothing else, so a few are kept, keyed on every byte
+ * of the input as the cut's memo is, and nothing can go stale. */
+#define VAR_MEMO_N 8
+typedef struct { CueTable in, out; int v, have; } VarMemo;
+static CUE_TLS VarMemo s_var_memo[VAR_MEMO_N];
+static CUE_TLS int s_var_memo_next;
+static void variant_apply(CueTable *t, int variant);
 void cue_table_variant(CueTable *t, int variant) {
+    if (!t) return;
+    for (int i = 0; i < VAR_MEMO_N; i++) {
+        const VarMemo *e = &s_var_memo[i];
+        if (e->have && e->v == variant && memcmp(&e->in, t, sizeof *t) == 0) { *t = e->out; return; }
+    }
+    VarMemo *e = &s_var_memo[s_var_memo_next];
+    s_var_memo_next = (s_var_memo_next + 1) % VAR_MEMO_N;
+    e->in = *t; e->v = variant;
+    variant_apply(t, variant);
+    e->out = *t; e->have = 1;
+}
+static void variant_apply(CueTable *t, int variant) {
     if (!t) return;
     if (variant < 0 || variant >= CUE_TAB_COUNT) return;
     if (!cue_table_variant_ok(t->kind, variant)) return;
