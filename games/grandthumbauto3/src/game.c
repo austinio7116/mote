@@ -1928,6 +1928,7 @@ static int engine_fill(int16_t *out, int n) {
 }
 
 static void reset_game(void);
+static void refresh_have_save(void);   /* defined with save_game; the title asks it */
 
 static void g_init(void) {
     int v47 = (mote->abi_version>=47 && mote->ui_font);
@@ -1972,6 +1973,8 @@ static void g_init(void) {
         }
     }
     reset_game();
+    /* After the prefs above, because it asks about the slot THEY selected. */
+    refresh_have_save();
     g_state = ST_TITLE;
 }
 
@@ -6549,6 +6552,18 @@ typedef struct {
     uint32_t seed;                  /* the city. v1 had no such field — see load_game */
 } SaveGame;
 
+/* Does the selected slot hold a game? load(slot,0,0) returns the stored length,
+ * the same question the SAVE/LOAD rows ask to draw their "occupied" dot.
+ *
+ * CACHED, because the title screen is a live 30 fps scene and this would
+ * otherwise be a flash read every frame. The settings page can afford to ask
+ * directly -- it is a static menu -- but the title cannot. Refreshed at boot
+ * and after a save, which are the only two moments the answer can change. */
+static int g_have_save;
+static void refresh_have_save(void){
+    g_have_save = (mote->load && mote->load(SAVE_SLOT, 0, 0) > 0);
+}
+
 static int save_game(void) {
     if (!mote->save) return 0;
     SaveGame g;
@@ -6565,7 +6580,9 @@ static int save_game(void) {
      * unrelated one — inside a building, in the river, anywhere. */
     g.seed = g_city_seed;
     for (int i = 0; i < NWEAP; i++) { g.owned[i] = owned[i]; g.ammo[i] = ammo[i]; }
-    return mote->save(SAVE_SLOT, &g, sizeof g) == (int)sizeof g;
+    int ok = mote->save(SAVE_SLOT, &g, sizeof g) == (int)sizeof g;
+    if (ok) g_have_save = 1;
+    return ok;
 }
 
 static int load_game(void) {
@@ -6908,6 +6925,14 @@ static void g_update(float dt) {
         draw_ground_window(); draw_buildings_window();
         if (g_state==ST_TITLE){
             if (mote_just_pressed(in,MOTE_BTN_A)){ reset_game(); g_state=ST_PLAY; }
+            /* LB CONTINUES a saved game, and is offered only when the selected
+             * slot holds one -- an option that does nothing is worse than no
+             * option. load_game rebuilds the saved city itself, so there is no
+             * reset_game() first; calling one would roll a fresh map and then
+             * immediately throw it away. */
+            else if (mote_just_pressed(in,MOTE_BTN_LB) && g_have_save){
+                if (load_game()) g_state = ST_PLAY;
+            }
             else if (mote->abi_version>=44 && mote_just_pressed(in,MOTE_BTN_B)){
                 /* the engine lobby connects (USB/LAN/Internet) and resolves the
                  * authority; nonce 2 beats 1 so the existing hello + city transfer
@@ -7132,6 +7157,7 @@ static void g_update(float dt) {
                   if (g_setsel == SET_SAVE || g_setsel == SET_LOAD) {
                       g_slot = (uint8_t)((g_slot + NSAVE_SLOT + adj) % NSAVE_SLOT);
                       save_prefs();
+                      refresh_have_save();   /* the title offers THIS slot */
                       g_setmsg = 0;      /* the old SAVED/LOADED line is about another slot */
                   } else if (g_setsel == SET_MINIMAP) {
                       g_radar_on = !g_radar_on;
@@ -8208,14 +8234,19 @@ static void g_overlay(uint16_t *fb) {
         }
         /* translucent dark banner so the body text pops over the live city, framed by
          * the gold rule on top (dim the real pixels — you can still see the road) */
-        mote_dim_box(fb, 4, 67, 120, 54, 6);   /* keep 6/16 ≈ 38% */
+        mote_dim_box(fb, 4, 67, 120, 58, 6);   /* keep 6/16 ≈ 38% */
         mote->draw_rect(fb, 10, 63, 108, 1, MOTE_RGB565(12,10,14), 1, 0, 128);
         mote->draw_rect(fb, 10, 62, 108, 1, MOTE_RGB565(244,204,72), 1, 0, 128);
         /* engine Audiowide (v47): CTA as a 1.66x banner, stats/labels at 1.5x */
         mote_ftextfc(mote, fb, g_fmed,  64, 71, MOTE_RGB565(235,238,245), "BEST $%d", best_cash);
         mote_ftextc (mote, fb, g_fread, 64, 87, MOTE_RGB565(150,230,150), "PRESS A TO PLAY");
         if (mote->abi_version>=44)
-          mote_ftextc(mote, fb, g_fmed, 64, 107, MOTE_RGB565(245,110,95), "B  2P DEATHMATCH");
+          mote_ftextc(mote, fb, g_fmed, 64, 103, MOTE_RGB565(245,110,95), "B  2P DEATHMATCH");
+        /* Only when there is a game to continue. The slot is named because the
+         * settings page can point at any of the three, and "LOAD" alone would
+         * not say which one you are about to get. */
+        if (g_have_save)
+          mote_ftextfc(mote, fb, g_fmed, 64, 114, MOTE_RGB565(150,200,245), "LB  CONTINUE %d", g_slot + 1);
         return;
     }
     if (g_state==ST_WASTED || g_state==ST_BUSTED){
