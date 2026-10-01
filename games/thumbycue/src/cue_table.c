@@ -4826,6 +4826,10 @@ int cue_table_variant_ok(CueGameKind kind, int variant) {
      * the rectangle put them. */
     case CUE_GAME_BARBILLIARDS: case CUE_GAME_BUMPER:
     case CUE_GAME_BILLIARDS:
+    /* THE MESAO's middles are arcs cut for a rectangle's straight rail (see
+     * CueTable::jaw_arc_m), which an L or a polygon's add_run does not build;
+     * on another outline they would come out as square slots. */
+    case CUE_GAME_SINUCA: case CUE_GAME_SINUCA6:
         return 0;
     default: return 1;
     }

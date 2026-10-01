@@ -797,6 +797,37 @@ static int ai_value_m(int mode, int id) {
 }
 static int ai_value(int id) { return ai_value_m(0, id); }
 
+/* ---- SINUCA BRASILEIRA ------------------------------------------------
+ *
+ * The lowest ball up is the ball on, and every other one may be played -- at
+ * the start of a visit, or as the second colour after a free one -- with a
+ * castigo: seven to the opponent if it does not go in. So two questions the
+ * rest of the planner asks with cue_rules_ball_legal need sharper answers
+ * here: which balls are worth POTTING (all of them, but the castigo ones only
+ * when the pot is near certain), and which may be played SAFE (only the ball
+ * on -- a colour played safe is a castigo foul, or a discipline one when it
+ * is free). */
+static int ai_sn_on(const CueBall *b, int n) {
+    int lo = 0;
+    for (int i = 1; i < n; i++) {
+        if (!b[i].on) continue;
+        const int v = ai_value(b[i].id);
+        if (v > 0 && (lo == 0 || v < lo)) lo = v;
+    }
+    return lo;
+}
+static int ai_sn_castigo(const AiCtx *c, int id) {
+    if (c->r->mode != CUE_GAME_SINUCA || c->r->break_shot) return 0;
+    if (c->r->sn_phase != CUE_SN_OPEN && c->r->sn_phase != CUE_SN_CAST) return 0;
+    return ai_value(id) != ai_sn_on(c->b, c->n);
+}
+/* A ball that may be the first contact of a SAFETY or a kick. */
+static int ai_safe_legal(const AiCtx *c, int id) {
+    if (c->r->mode == CUE_GAME_SINUCA)
+        return id > 0 && ai_value(id) == ai_sn_on(c->b, c->n);
+    return cue_rules_ball_legal(c->r, c->b, c->n, id);
+}
+
 /* POT ANYTHING, IN ANY ORDER — which is Paul, and nothing else that reaches the
  * general planner. Bar billiards and golf are pot-anything too and both take
  * their own path long before here. */
@@ -1051,6 +1082,52 @@ static int path_clear(const AiCtx *c, Vec3 start, Vec3 end, int exclude) {
     return path_clear_at(c, start, end, exclude, NULL, NULL);
 }
 
+/* ...AND OF THE CUSHIONS. path_clear asks about balls and nothing else, so a
+ * line the cue ball cannot travel because a JAW is in the way read as open.
+ * It mattered most where a ball hangs between a pocket's facings: the planner
+ * saw a sure pot, played it, and the cue ball met the nose's round instead of
+ * the ball -- seen on the Brazilian mesao's corners, where the facings run a
+ * long way back and a ball can sit deep between them, as five fouls in a row
+ * (2026-10-01). A ball of radius `rad` sweeping start->end is blocked by any
+ * cushion segment or jaw circle it would have to pass through. A cushion the
+ * ball is already resting against at the start is not counted: it is leaving
+ * it, not running into it. */
+static float ai_seg_dist(Vec3 p, Vec3 a, Vec3 b) {
+    const float ex = b.x - a.x, ez = b.z - a.z, l2 = ex*ex + ez*ez;
+    float t = (l2 > 1e-12f) ? ((p.x - a.x)*ex + (p.z - a.z)*ez) / l2 : 0.0f;
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    const float dx = p.x - (a.x + ex*t), dz = p.z - (a.z + ez*t);
+    return sqrtf(dx*dx + dz*dz);
+}
+static int ai_segs_cross(Vec3 a, Vec3 b, Vec3 c, Vec3 d) {
+    const float d1 = (d.x-c.x)*(a.z-c.z) - (d.z-c.z)*(a.x-c.x);
+    const float d2 = (d.x-c.x)*(b.z-c.z) - (d.z-c.z)*(b.x-c.x);
+    const float d3 = (b.x-a.x)*(c.z-a.z) - (b.z-a.z)*(c.x-a.x);
+    const float d4 = (b.x-a.x)*(d.z-a.z) - (b.z-a.z)*(d.x-a.x);
+    return ((d1 > 0) != (d2 > 0)) && ((d3 > 0) != (d4 > 0));
+}
+static int rails_clear(const AiCtx *c, Vec3 start, Vec3 end, float rad) {
+    const CueWorld *w = c->w;
+    const float slack = 0.0005f;           /* half a millimetre of grace */
+    for (int sg = 0; sg < w->nseg; sg++) {
+        const Vec3 a = w->seg[sg].a, b = w->seg[sg].b;
+        if (ai_seg_dist(start, a, b) < rad + 0.001f) continue;   /* resting on it */
+        float d = ai_segs_cross(start, end, a, b) ? 0.0f : 1e9f;
+        if (d > 0.0f) {
+            float e;
+            e = ai_seg_dist(a, start, end); if (e < d) d = e;
+            e = ai_seg_dist(b, start, end); if (e < d) d = e;
+            e = ai_seg_dist(end, a, b);     if (e < d) d = e;
+        }
+        if (d < rad - slack) return 0;
+    }
+    for (int j = 0; j < w->njaw; j++) {
+        if (d2(start, w->jaw[j]) < rad + w->jaw_r + 0.001f) continue;
+        if (ai_seg_dist(w->jaw[j], start, end) < rad + w->jaw_r - slack) return 0;
+    }
+    return 1;
+}
+
 /* ---- RUSSIAN PYRAMID'S POCKETS ARE THE GAME ------------------------------
  *
  * 68 mm balls into a mouth barely wider than they are. What that changes is not
@@ -1162,6 +1239,11 @@ static float score_shot(const AiCtx *c, float cut, float dg, float dpk,
     float pdS = fmaxf(0.0f, 100.0f - (dpk / md) * 80.0f);
     float s = cutS*0.34f + distS*0.23f + pdS*0.43f + powS*0.25f + 10.0f;
     if (c->snooker) s += (ai_value_m(c->r->mode, target_id) - 1) * 5.0f;
+    /* THE CASTIGO. A miss here is seven to the other side and the table to
+     * them as well, so a colour with a castigo has to be a much better pot
+     * than the ball on before it is the shot: enough to outweigh its own value
+     * bonus, a 7 included, by a clear margin. */
+    if (ai_sn_castigo(c, target_id)) s -= 45.0f;
     return s;
 }
 
@@ -1200,6 +1282,22 @@ static int next_targets(const AiCtx *c, int just_idx, int *out_idx) {
          * table where that means nothing. */
         for (int i = 1; i < c->n; i++)
             if (c->b[i].on && i != just_idx) out_idx[cnt++] = i;
+        return cnt;
+    }
+    if (c->r->mode == CUE_GAME_SINUCA) {
+        /* After the ball on (in its turn) any ball is free; after a colour
+         * that opened the visit, the ball on; after a free colour, the ball on
+         * or another colour. A colour comes back, so it is still there. */
+        const int on = ai_sn_on(c->b, c->n);
+        const int ph = c->r->break_shot ? CUE_SN_ON : c->r->sn_phase;
+        const int ball_on = (ai_value(jid) == on && ph != CUE_SN_FREE);
+        if (ball_on || ph == CUE_SN_FREE) {
+            for (int i = 1; i < c->n; i++)
+                if (c->b[i].on && (i != just_idx || !ball_on)) out_idx[cnt++] = i;
+        } else {
+            for (int i = 1; i < c->n; i++)
+                if (c->b[i].on && ai_value(c->b[i].id) == on) out_idx[cnt++] = i;
+        }
         return cnt;
     }
     if (c->snooker) {
@@ -1878,6 +1976,8 @@ static int eval_pot(const AiCtx *c, int tidx, int pk,
     int near = dpk < R*4.0f;
     if (cut > (near ? 75.0f : 70.0f)) return 0;
     if (!path_clear(c, cue, ghost, tidx)) return 0;
+    /* the cue ball has to be able to get there past the cushions, too */
+    if (!rails_clear(c, cue, ghost, c->contact - c->t->R)) return 0;
 
     float dg = d2(cue, ghost);
     float diff = potting_difficulty(c, cue, target, pk);
@@ -1918,6 +2018,14 @@ static struct { int target_id, hit_id; } s_foul[FOUL_MEM];
 static int s_nfoul;
 
 void cue_ai_note_foul(int target_id, int hit_id) {
+    /* ONLY A FOUL ON A BALL IT DID NOT MEAN TO HIT. The memory is there to
+     * steer the aim off a ball that was clipped on the way; a foul off the
+     * TARGET itself -- Sinuca's castigo, a pot that missed, an in-off after a
+     * clean contact -- was recorded too, and then every later shot at that ball
+     * was turned away from it. In Sinuca that missed the ball entirely, which
+     * fouled again, which was recorded again: five fouls in a row on a ball
+     * hanging over the pocket (2026-10-01). */
+    if (hit_id == target_id) return;
     for (int i = 0; i < s_nfoul; i++)
         if (s_foul[i].target_id == target_id && s_foul[i].hit_id == hit_id) return;
     if (s_nfoul == FOUL_MEM) {
@@ -2490,7 +2598,7 @@ static int find_safety(const AiCtx *c, Cand *out, uint32_t *rng) {
 
     for (int i = 1; i < c->n; i++) {
         if (!c->b[i].on) continue;
-        if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
+        if (!ai_safe_legal(c, c->b[i].id)) continue;
         Vec3 target = c->b[i].pos;
         Vec3 base = nrm2(sub2(target, cue));
 
@@ -2595,7 +2703,7 @@ static int find_kick(const AiCtx *c, uint32_t *rng, Cand *out) {
     memset(kick, 0, sizeof kick);
     int skip = s_nfoul;                  /* one fouled escape, try the next one */
     for (int i = 1; i < c->n; i++) {
-        if (!c->b[i].on || !cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
+        if (!c->b[i].on || !ai_safe_legal(c, c->b[i].id)) continue;
         Vec3 tp = c->b[i].pos;
         for (int rail = 0; rail < 4; rail++) {
             Vec3 mp;                       /* target mirrored across the rail nose */
@@ -2618,7 +2726,7 @@ static int find_kick(const AiCtx *c, uint32_t *rng, Cand *out) {
             Vec3 rdir = (rail < 2) ? v3(aimd.x,0,-aimd.z) : v3(-aimd.x,0,aimd.z);
             int fb = first_hit_along(c, H, rdir, 10.0f);
             if (fb < 0) continue;
-            if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[fb].id)) continue;  /* would foul */
+            if (!ai_safe_legal(c, c->b[fb].id)) continue;  /* would foul */
             float dHT = d2(H, c->b[fb].pos);
             float score = (fb == i ? 25.0f : 0.0f) - d1 - dHT;   /* prefer the on-ball, short path */
             if (nk < KICK_MAX) {
@@ -2681,7 +2789,7 @@ static int find_kick(const AiCtx *c, uint32_t *rng, Cand *out) {
                0.0f, 0.0f, &sm);
         if (sm.cue_potted) continue;
         if (sm.first_hit_idx <= 0) continue;
-        if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[sm.first_hit_idx].id)) continue;
+        if (!ai_safe_legal(c, c->b[sm.first_hit_idx].id)) continue;
         bc = kick[bi];
         bc.simmed = 1; bc.cue_end = sm.cue_end; bc.bad_first = 0;
         bc.tidx = sm.first_hit_idx;      /* the ball it really reaches */
@@ -3241,6 +3349,19 @@ static void plan_finalize(void) {
     minConf += urg * 35.0f;        /* needing snookers → only attack near-certain pots */
     if (P.miss_caution) minConf += K_MISSCAUT;   /* one miss down: play the percentages */
     if (s_ai_never_safe) minConf = 0.0f;       /* a practice target: the pot, always */
+    /* SINUCA'S CASTIGO, AGAIN, at the point of decision. The score already
+     * carries the price, but a miss gives seven AND the table away, so a
+     * colour played at that risk has to clear a higher bar than an ordinary
+     * pot does; below it the shot is the ball on, or a safety on it.
+     *
+     * NINETY, measured. On the mesao a mid-table player (Professor Pete, six
+     * frames) potted 56% of what he rated 60-74 and 64% of 75-89, and every
+     * one of 23 he rated 90 or more. A 60% pot that costs seven when it misses
+     * is a losing shot whatever the colour is worth; only the sure ones pay. */
+    if (!s_ai_never_safe && best.tidx > 0 && best.tidx < c->n &&
+        ai_sn_castigo(c, c->b[best.tidx].id) &&
+        best.potScore < fmaxf(minConf + 30.0f, 90.0f))
+        best_unsafe = 1;
     if (best_unsafe || best.potScore < minConf) {
         /* The safeties are already in the pool and already through the engine —
          * this picks the best VERIFIED one rather than re-running the analytic
@@ -5590,14 +5711,14 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
          * don't clip an illegal ball on the way and give away a foul) */
         int bestn = -1; float bestd = 1e9f;
         for (int i = 1; i < n; i++) {
-            if (!balls[i].on || !cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+            if (!balls[i].on || !ai_safe_legal(c, balls[i].id)) continue;
             if (!path_clear(c, balls[0].pos, balls[i].pos, i)) continue;
             float dd = d2(balls[0].pos, balls[i].pos);
             if (dd < bestd) { bestd = dd; bestn = i; }
         }
         if (bestn < 0)   /* nothing with a clear path — aim at nearest legal anyway */
             for (int i = 1; i < n; i++)
-                if (balls[i].on && cue_rules_ball_legal(r, balls, n, balls[i].id)) {
+                if (balls[i].on && ai_safe_legal(c, balls[i].id)) {
                     float dd = d2(balls[0].pos, balls[i].pos);
                     if (dd < bestd) { bestd = dd; bestn = i; }
                 }
@@ -5635,7 +5756,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                      * a hole is the score of that hole (Rule 97). */
                     if (sm.cue_potted && r->mode != CUE_GAME_BARBILLIARDS) continue;
                     if (sm.first_hit_idx <= 0) continue;
-                    if (!cue_rules_ball_legal(r, balls, n, balls[sm.first_hit_idx].id)) continue;
+                    if (!ai_safe_legal(c, balls[sm.first_hit_idx].id)) continue;
                     /* AND IT MUST NOT FELL A SKITTLE.
                      *
                      * This sweep is the one shot in the planner that asks only

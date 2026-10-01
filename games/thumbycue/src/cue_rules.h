@@ -650,7 +650,30 @@ typedef struct {
     uint8_t kl_lives[8];       /* lives, by player number */
     uint8_t kl_outs[8];        /* who went out, in the order they did */
     uint8_t kl_frames[8];      /* frames won this match, by player number */
+
+    /* ---- SINUCA BRASILEIRA (CBBS rules, 1999 and the 2009 summary) ----
+     *
+     * Seven balls worth 1 to 7, and the lowest on the table is the ball on.
+     * A visit is a sequence of PHASES, because what may be played next
+     * depends on what has just gone in:
+     *
+     *   OPEN  the start of a visit: the ball on (free -- missing it costs
+     *         nothing) or any other ball "with castigo", which costs seven if
+     *         it is not potted
+     *   ON    a colour was potted at the start of the visit: the ball on next
+     *   FREE  the ball on has just gone in: any ball, free of castigo
+     *   CAST  a free colour has just gone in: the ball on, or one more colour
+     *         with castigo
+     *
+     * The ball PLAYED is the first ball the cue ball meets -- the call is
+     * inferred, as it is in call-shot 10-ball. Only the ball on, potted in
+     * its turn, stays down; everything else comes back to its mark.
+     * sn_tie is the deciding game on the 7 after a level frame. */
+    int sn_phase;              /* CUE_SN_* */
+    int sn_tie;
 } CueRules;
+
+enum { CUE_SN_OPEN = 0, CUE_SN_ON, CUE_SN_FREE, CUE_SN_CAST };
 
 #define CUE_KILLER_MAX 8
 
