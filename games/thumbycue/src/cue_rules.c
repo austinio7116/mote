@@ -252,6 +252,7 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
             { const int SPOT_I = 0; SPOT_AT(t->baulk_x - t->d_radius, 0.0f); }
             r->seq = 1;                  /* the 1 is on */
             r->sn_phase = CUE_SN_ON;     /* the break must play it */
+            r->snk_again = 1;            /* the refusal (art. 4) */
         }
         #undef SPOT_AT
         /* and which way is "up the table" where the top colours live */
@@ -264,6 +265,15 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
         {   Vec3 up; Vec3 f = cue_table_foot_spot_dir(t, &up);
             r->spot[0] = v3(f.x, t->R, f.z);
             r->spot_up = up; }
+        /* THE MESINHA'S LOWER MARK, where the bar game's money ball stands
+         * and goes back to if the break pots it. */
+        if (CUE_GAME_IS_MESINHA(t->kind)) {
+            Vec3 q = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
+            r->spot[1] = v3(q.x, t->R, q.z);
+            /* the beneficiary of a foul may hand the table back, except in
+             * the bar game (see resolve_mesinha) */
+            r->snk_again = !CUE_GAME_IS_PARIMPAR_BAR(t->kind);
+        }
         if (CUE_GAME_IS_ROTATION(t->kind)) r->seq = 1;     /* lowest ball on (HUD) */
         if (t->kind == CUE_GAME_STRAIGHT) {
             r->called_pocket = -1;
@@ -1306,6 +1316,201 @@ static void resolve_sinuca(CueRules *r, CueBall *b, int n,
         r->dec_can_restore = 0; r->dec_free_ball = 0;
         r->decision = CUE_DEC_PENDING;
     }
+}
+
+/* ---- THE MESINHA'S FIVE GAMES ---------------------------------------------
+ *
+ * One referee, because they are one shape of game: two groups of balls, the
+ * first ball potted on the break decides who has which, you must play your
+ * own group first, and a foul is paid in BALLS -- the side that benefits has
+ * one (or two) of its own taken off the table, which is a ball they no longer
+ * have to pot. What differs, by kind:
+ *
+ *   MESINHA     par ou impar, the bar game (sinucadeboteco). Odd 3-15 against
+ *               even 2-14; the 1 is the money ball on its own mark. Clear
+ *               your group, then pot the 1 to win; the 1 before then loses.
+ *               Fouls the boteco way: one of their balls off, two when you
+ *               hit one of theirs first; one penalty a stroke.
+ *   MESINHA_1B  the same, one ball off for any foul.
+ *   MESINHA_PI  par e impar to the CBBS book (2006). Balls 2-15, no money
+ *               ball; clear yours to win. A foul takes the beneficiary's
+ *               LOWEST ball off (art. 25) and they may hand the table back.
+ *   MESINHA_MM  mata-mata (sinucajota): 1-7 against 9-15, no 8; a foul lets
+ *               the beneficiary take one of their own off, and hand it back.
+ *   MESINHA8    bola 8: solids and stripes, then the 8; the 8 early, or off
+ *               the table, loses. Fouls as mata-mata.
+ *
+ * Taken as given where the books leave a choice to a player, because there is
+ * no screen to make it on yet:
+ *  - the ball a mata-mata / bola 8 beneficiary takes off is their lowest;
+ *  - a break that pots nothing leaves the table OPEN rather than letting the
+ *    opponent pick (CBBS art. 14); the first legal pot after decides;
+ *  - a break that pots both groups gives the breaker the group of the first
+ *    ball to drop (art. 13 lets them choose; the bar game does it this way).
+ * A ball of the offender's own group potted on a foul comes back, to the
+ * foot spot (CBBS art. 18 puts it against the cushion by its pocket). */
+static int mz_group(int mode, int id) {        /* 1 or 2, 0 = neither */
+    if (id <= 0) return 0;
+    if (mode == CUE_GAME_MESINHA_MM || mode == CUE_GAME_MESINHA8) {
+        if (id >= 1 && id <= 7) return 1;
+        if (id >= 9 && id <= 15) return 2;
+        return 0;                               /* the 8 */
+    }
+    if (id < 2 || id > 15) return 0;            /* the 1, the money ball */
+    return (id & 1) ? 1 : 2;                    /* odd 1, even 2 */
+}
+static int mz_left(const CueBall *b, int n, int mode, int grp) {
+    int k = 0;
+    for (int i = 1; i < n; i++)
+        if (b[i].on && mz_group(mode, b[i].id) == grp) k++;
+    return k;
+}
+/* The beneficiary's lowest ball still up, taken off the table. */
+static int mz_take_off(CueBall *b, int n, int mode, int grp) {
+    int best = -1;
+    for (int i = 1; i < n; i++)
+        if (b[i].on && mz_group(mode, b[i].id) == grp &&
+            (best < 0 || b[i].id < b[best].id)) best = i;
+    if (best < 0) return 0;
+    b[best].on = 0; b[best].vel = v3(0,0,0); b[best].w = v3(0,0,0);
+    return b[best].id;
+}
+/* Back on the table: the foot spot, or as near it up the spine as is free. */
+static void mz_spot_back(CueRules *r, CueBall *b, int n, int id) {
+    CueBall *q = find_ball(b, n, id);
+    if (!q) return;
+    q->on = 1; q->vel = v3(0,0,0); q->w = v3(0,0,0); q->orient = m3_identity();
+    Vec3 p = r->spot[0];
+    for (int step = 0; step <= 60; step++) {
+        Vec3 t = p; const float d = (float)step * r->R * 0.5f;
+        t.x += r->spot_up.x * d; t.z += r->spot_up.z * d;
+        if (!spot_taken(b, n, t, id, r->R)) { p = t; break; }
+    }
+    q->pos = p;
+}
+static void mz_end(CueRules *r, int winner, const char *why) {
+    r->frame_over = 1; r->winner = winner; r->decision = CUE_DEC_NONE;
+    book_frame(r, winner);
+    snprintf(r->msg, sizeof r->msg, "%s", why);
+}
+
+static void resolve_mesinha(CueRules *r, CueBall *b, int n, int first_hit,
+                            int scratch, const int *potted, int np) {
+    const int mode = r->mode, off = r->turn, opp = 1 - off;
+    const int bar = CUE_GAME_IS_PARIMPAR_BAR(mode), eight = (mode == CUE_GAME_MESINHA8);
+    const int breaking = r->break_shot;
+    r->break_shot = 0;
+    r->decision = CUE_DEC_NONE;
+    int pid[CUE_MAX_BALLS]; int npot = 0;
+    for (int k = 0; k < np && npot < CUE_MAX_BALLS; k++)
+        if (potted[k] != CUE_ID_CUE) pid[npot++] = potted[k];
+    int money_down = 0, eight_down = 0;
+    for (int k = 0; k < npot; k++) {
+        if (bar && pid[k] == 1) money_down = 1;
+        if (eight && pid[k] == 8) eight_down = 1;
+    }
+    const int mine = r->open ? 0 : r->group[off];
+    const int theirs = r->open ? 0 : r->group[opp];
+    /* ON THE MONEY BALL OR THE 8: your group was gone before this stroke --
+     * nothing of it on the table now, and none of it went down on this one. */
+    int mine_potted = 0;
+    for (int k = 0; k < npot; k++) if (mine && mz_group(mode, pid[k]) == mine) mine_potted++;
+    const int on_last = !r->open && mz_left(b, n, mode, mine) + mine_potted == 0;
+    const int hit_g = (first_hit > 0) ? mz_group(mode, first_hit) : -1;
+
+    /* ---- THE BREAK DECIDES THE GROUPS ---------------------------------- */
+    if (breaking && r->open && !scratch) {
+        for (int k = 0; k < npot; k++) {
+            const int g = mz_group(mode, pid[k]);
+            if (g) { r->group[off] = g; r->group[opp] = 3 - g; r->open = 0; break; }
+        }
+    }
+    /* THE MONEY BALL OR THE 8 ON THE BREAK: back on its spot, no harm. */
+    if (breaking && money_down) { CueBall *q = find_ball(b, n, 1); if (q) {
+        q->on = 1; q->vel = v3(0,0,0); q->w = v3(0,0,0); q->pos = r->spot[1]; } money_down = 0; }
+    if (breaking && eight_down) { mz_spot_back(r, b, n, 8); eight_down = 0; }
+
+    /* ---- THE FAULTS ---------------------------------------------------- */
+    const char *why = 0;
+    int wrong_first = 0;
+    if (scratch)                    why = "IN-OFF";
+    else if (first_hit <= 0)        why = "MISSED";
+    else if (r->n_off)              why = "OFF TABLE";
+    else if (!breaking && !r->open) {
+        const int want = on_last ? 0 : mine;    /* 0: the money ball or the 8 */
+        if (want && hit_g != want)   { why = "WRONG BALL"; wrong_first = (hit_g == theirs); }
+        if (!want && first_hit != (bar ? 1 : 8) && (bar || eight)) why = "WRONG BALL";
+    } else if (!breaking && r->open) {
+        if ((bar && first_hit == 1) || (eight && first_hit == 8)) why = "WRONG BALL";
+    }
+    if (!why && !breaking && !r->open)
+        for (int k = 0; k < npot; k++)
+            if (mz_group(mode, pid[k]) == theirs) { why = "THEIR BALL"; break; }
+    const int foul = (why != 0);
+    r->last_foul = foul;
+
+    /* ---- THE BALLS THAT END IT ----------------------------------------- */
+    if (money_down) {
+        if (on_last && !foul) { mz_end(r, off, "THE 1: FRAME"); return; }
+        mz_end(r, opp, on_last ? "THE 1 ON A FOUL: LOST" : "THE 1 TOO SOON: LOST"); return;
+    }
+    if (eight_down) {
+        if (on_last && !foul) { mz_end(r, off, "THE 8: FRAME"); return; }
+        mz_end(r, opp, "THE 8 TOO SOON: LOST"); return;
+    }
+    if (eight && r->n_off) {
+        CueBall *q = find_ball(b, n, 8);
+        if (q && !q->on) { mz_end(r, opp, "THE 8 OFF THE TABLE: LOST"); return; }
+    }
+
+    if (foul) {
+        /* What the offender potted of their own comes back; theirs stays down. */
+        for (int k = 0; k < npot; k++)
+            if (!r->open && mz_group(mode, pid[k]) == mine) mz_spot_back(r, b, n, pid[k]);
+        /* THE PRICE, in the beneficiary's own balls. */
+        int take = 1;
+        if (mode == CUE_GAME_MESINHA && wrong_first) take = 2;   /* boteco: hit theirs, two */
+        int taken = 0;
+        if (!r->open) for (int k = 0; k < take; k++) taken += mz_take_off(b, n, mode, theirs) ? 1 : 0;
+        r->last_foul_pts = taken;
+        r->turn = opp;
+        if (scratch) r->ball_in_hand = 1;
+        /* Theirs all gone is theirs won -- except in the bar game, where the
+         * 1 is still to be potted. */
+        if (!r->open && !bar && !eight && mz_left(b, n, mode, theirs) == 0) {
+            mz_end(r, opp, "FOUL ON THE LAST BALL"); return;
+        }
+        /* CBBS, mata-mata and bola 8: the beneficiary may hand it back. */
+        if (!bar) {
+            r->turn = off;
+            r->dec_offender = off; r->dec_penalty = 0; r->dec_scratch = scratch;
+            r->dec_can_restore = 0; r->dec_free_ball = 0;
+            r->decision = CUE_DEC_PENDING;
+            r->ball_in_hand = 0;
+        }
+        if (taken) snprintf(r->msg, sizeof r->msg, "FOUL: %s, %d OFF", why, taken);
+        else       snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+        return;
+    }
+
+    /* ---- A LEGAL STROKE ------------------------------------------------ */
+    /* An open table takes its groups from the first ball potted. */
+    if (r->open && npot > 0) {
+        for (int k = 0; k < npot; k++) {
+            const int g = mz_group(mode, pid[k]);
+            if (g) { r->group[off] = g; r->group[opp] = 3 - g; r->open = 0; break; }
+        }
+    }
+    const int mine2 = r->open ? 0 : r->group[off];
+    int kept = 0;
+    for (int k = 0; k < npot; k++)
+        if (mine2 && mz_group(mode, pid[k]) == mine2) kept = 1;
+    if (!r->open && !bar && !eight && mz_left(b, n, mode, mine2) == 0) {
+        mz_end(r, off, "FRAME"); return;
+    }
+    if (kept) { r->msg[0] = 0; return; }        /* yours went in: play on */
+    r->turn = opp;
+    r->msg[0] = 0;
 }
 
 static void resolve_snooker(CueRules *r, CueBall *b, int n, const CueWorld *w,
@@ -5346,6 +5551,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
                                               r->att_have = 0; }
     else if (r->mode == CUE_GAME_PAUL)      resolve_paul(r, b, n, first_hit, scratch, cushion, potted, np);
     else if (r->mode == CUE_GAME_SINUCA)    resolve_sinuca(r, b, n, first_hit, scratch, potted, np);
+    else if (CUE_GAME_IS_MESINHA(r->mode))  resolve_mesinha(r, b, n, first_hit, scratch, potted, np);
     /* ROTATION FIRST, because IS_ROTATION now matches it: the family is "the
      * lowest ball is the one on", which rotation is the original of, but 9- and
      * 10-ball are won by potting ONE named ball and rotation is won on points.
@@ -5459,6 +5665,16 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
         return snk_on(r, id);
     }
     if (CUE_GAME_IS_ROTATION(r->mode)) return id == rot_lowest(r, b, n);  /* lowest first */
+    /* THE MESINHA: your own group; on an open table anything but the money
+     * ball or the 8; with your group gone, the 1 or the 8. */
+    if (CUE_GAME_IS_MESINHA(r->mode)) {
+        const int bar = CUE_GAME_IS_PARIMPAR_BAR(r->mode), eight = (r->mode == CUE_GAME_MESINHA8);
+        const int g = mz_group(r->mode, id);
+        if (r->open) return g != 0;
+        const int mine = r->group[r->turn];
+        if (b && mz_left(b, n, r->mode, mine) == 0) return bar ? id == 1 : eight ? id == 8 : 0;
+        return g == mine;
+    }
     /* SINUCA: any ball, except where the ball on is the only one allowed --
      * the break, and straight after a colour opened the visit. */
     if (r->mode == CUE_GAME_SINUCA) {
@@ -5543,6 +5759,12 @@ void cue_rules_status(const CueRules *r, char *buf, int cap) {
                        : r->target == 1 ? (r->nominated ? CN[r->nominated] : "COLOUR")
                        : CN[r->seq < 2 ? 2 : (r->seq > 7 ? 7 : r->seq)];
         snprintf(buf, cap, "ON %s", on);
+    } else if (CUE_GAME_IS_MESINHA(r->mode)) {
+        const int lo = (r->mode == CUE_GAME_MESINHA_MM || r->mode == CUE_GAME_MESINHA8);
+        static const char *const NAME[2][3] = { { "OPEN", "ODD", "EVEN" },
+                                                { "OPEN", "SOLIDS", "STRIPES" } };
+        const int g = r->open ? 0 : r->group[r->turn];
+        snprintf(buf, cap, "%s", NAME[lo][g >= 0 && g <= 2 ? g : 0]);
     } else if (r->mode == CUE_GAME_SINUCA) {
         /* THE BALL ON, BY NUMBER, and what the next stroke may be: after the
          * ball on goes down any colour is free; after a free colour the next

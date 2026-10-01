@@ -1122,8 +1122,9 @@ static int rails_clear(const AiCtx *c, Vec3 start, Vec3 end, float rad) {
         if (d < rad - slack) return 0;
     }
     for (int j = 0; j < w->njaw; j++) {
-        if (d2(start, w->jaw[j]) < rad + w->jaw_r + 0.001f) continue;
-        if (ai_seg_dist(w->jaw[j], start, end) < rad + w->jaw_r - slack) return 0;
+        const float jr = cue_jaw_radius(w, j);
+        if (d2(start, w->jaw[j]) < rad + jr + 0.001f) continue;
+        if (ai_seg_dist(w->jaw[j], start, end) < rad + jr - slack) return 0;
     }
     return 1;
 }

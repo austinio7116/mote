@@ -833,6 +833,10 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
     if (!r) return 0;
     if (r->kind) return r->snk_shootout;    /* snooker: the D — Shootout: anywhere */
     if (r->mode == CUE_GAME_BARBILLIARDS) return 0; /* Rule 91: the D, always */
+    /* THE MESINHA: the break from anywhere behind the D's line (the "area de
+     * saida", CBBS par e impar art. 6), and after an in-off from the D (art.
+     * 17). The four games played on it all do the same. */
+    if (CUE_GAME_IS_MESINHA(r->mode)) return r->break_shot ? 2 : 0;
     /* PAUL: the D, and only after an in-off. It is played on a snooker table
      * and the D is chalked on it, so that is where the white comes back from —
      * but `kind` above is 0 for Paul (it is not scored as snooker), so it fell

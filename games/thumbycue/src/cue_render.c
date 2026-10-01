@@ -1013,14 +1013,16 @@ static Vec3 s_kbase_a[CUE_MAX_SEG], s_kbase_b[CUE_MAX_SEG];
 static uint8_t s_kbase_on[CUE_MAX_SEG];
 
 static int knuckle_of(const CueWorld *w, const CueSeg *g) {
-    if (w->jaw_r <= 1e-5f) return -1;
-    const float tol = w->jaw_r * 0.25f + 0.0002f;
     for (int j = 0; j < w->njaw; j++) {
+        /* each circle's own radius -- see CueWorld::jaw_rad */
+        const float jr = cue_jaw_radius(w, j);
+        if (jr <= 1e-5f) continue;
+        const float tol = jr * 0.25f + 0.0002f;
         const float da = sqrtf((g->a.x-w->jaw[j].x)*(g->a.x-w->jaw[j].x) +
                                (g->a.z-w->jaw[j].z)*(g->a.z-w->jaw[j].z));
         const float db = sqrtf((g->b.x-w->jaw[j].x)*(g->b.x-w->jaw[j].x) +
                                (g->b.z-w->jaw[j].z)*(g->b.z-w->jaw[j].z));
-        if (fabsf(da - w->jaw_r) < tol && fabsf(db - w->jaw_r) < tol) return j;
+        if (fabsf(da - jr) < tol && fabsf(db - jr) < tol) return j;
     }
     return -1;
 }

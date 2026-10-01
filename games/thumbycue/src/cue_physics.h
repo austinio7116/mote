@@ -359,6 +359,12 @@ typedef struct {
      * to check this first, because the wrong number looks perfectly plausible. */
     int linked;
     Vec3   jaw[CUE_MAX_SEG]; int njaw; float jaw_r;   /* immovable jaw-tip circles */
+    /* EACH CIRCLE'S OWN RADIUS, or 0 for jaw_r. A table whose corners and
+     * middles are rounded differently -- the mesinha's CBBS corners against
+     * its sharp mitred middles -- needs two; every other table leaves these
+     * at 0 and its circles are what they always were. cue_jaw_radius. */
+    float  jaw_rad[CUE_MAX_SEG];
+    float  jaw_r_m;                   /* the middles' knuckle, or 0 for jaw_r */
     /* ...and how much rubber is behind each of them, 1 = the cushion's full
      * depth. THE KNUCKLE IS WHERE A BALL ACTUALLY RATTLES, and it is the
      * thinnest part of the cushion, so it is the one that has to be graded:
@@ -720,6 +726,9 @@ typedef struct {
     /* Integrator accumulator (do not touch). */
     float _acc;
 } CueWorld;
+static inline float cue_jaw_radius(const CueWorld *w, int j) {
+    return (j >= 0 && j < w->njaw && w->jaw_rad[j] > 0.0f) ? w->jaw_rad[j] : w->jaw_r;
+}
 /* The cue ball's x at touch t, in metres (see CueTouch.xq). */
 float cue_touch_x(const CueWorld *w, const CueTouch *t);
 

@@ -638,6 +638,10 @@ typedef struct {
      * says, which is every table built before these existed. */
     float jaw_arc_m;
     float jaw_arc_d_m;
+    /* THE MIDDLES' KNUCKLE, on a mitred table, or 0 for jaw_r. A table had one
+     * rounding for all six; the mesinha's corners take the CBBS 37.6 mm round
+     * and its middles are cut sharp. */
+    float jaw_r_m;
     /* The rail: restitution at a crawl, how fast it falls with pace, and the
      * floor. See cue_table_rails for where the numbers come from. */
     float e_cush, cush_efall, e_cush_min;

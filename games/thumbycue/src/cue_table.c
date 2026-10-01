@@ -595,10 +595,15 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->cushion_h = 0.635f * 2.0f * t->R;
         t->rail_w = 0.060f;                    /* a cushion 37.8 mm deep */
         t->pocket_round = 0;
-        t->ang_corner = 48.0f; t->ang_side = 90.0f;
+        t->ang_corner = 48.0f;
         t->jaw_r = 0.0376f;
-        t->jaw_arc_m = 0.0508f; t->jaw_arc_d_m = 0.0363f;
-        t->pr_corner = 0.03384f; t->pr_side = 0.03453f;   /* solved: 64.00 / 69.00 mm */
+        /* THE MIDDLES ARE MITRED, sharp and straight -- not the mesao's arc
+         * (Mark, 2026-10-01, off a Brazilian shop's photograph of one). The
+         * facings leave the nose at 70 degrees, the pool middle's angle, on
+         * a 4 mm knuckle. */
+        t->ang_side = 70.0f;
+        t->jaw_r_m = 0.004f;
+        t->pr_corner = 0.03384f; t->pr_side = 0.03454f;   /* solved: 64.00 / 69.00 mm */
         t->cap_corner = 0.0f;    t->cap_side = 0.0f;
         t->off_corner = 0.0226f; t->off_side = 0.0218f;
         t->drop_back  = 0.0301f; t->drop_back_side = 0.0145f;
@@ -1242,6 +1247,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
             case CUE_GAME_GOLF:
                 t->furniture |= CUE_FURN_CORNERCAP | CUE_FURN_SIGHTS;
                 break;
+            /* THE MESINHA: a pool table's liners and tray, and metal over
+             * its corners -- the bright casting for now, while the cast
+             * aluminium plates of a Brazilian bar table are drawn up. */
+            case CUE_GAME_MESINHA: case CUE_GAME_MESINHA_1B: case CUE_GAME_MESINHA_PI:
+            case CUE_GAME_MESINHA_MM: case CUE_GAME_MESINHA8:
+                t->furniture |= CUE_FURN_CORNERCAP;
+                break;
             /* THE AMERICAN BED and its long list of games: a black moulding on
              * the corners, and diamonds rather than dots. */
             case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
@@ -1457,6 +1469,8 @@ static const CueTabField TAB_FIELDS[] = {
     /* an arc-cut middle -- see CueTable::jaw_arc_m. Zero is not an arc. */
     TF(jaw_arc_m,       TF_F32, TF_SIM,  0.000f, 0.200f),
     TF(jaw_arc_d_m,     TF_F32, TF_SIM,  0.000f, 0.200f),
+    /* the middles' own knuckle, or 0 for jaw_r -- see CueTable::jaw_r_m */
+    TF(jaw_r_m,         TF_F32, TF_SIM,  0.000f, 0.050f),
 };
 #define TAB_NFIELD ((int)(sizeof TAB_FIELDS / sizeof TAB_FIELDS[0]))
 /* The first sim field on which two tables differ, by name, with both values --
@@ -1738,6 +1752,13 @@ static void add_seg(CueWorld *w, Vec3 a, Vec3 b, uint8_t kind) {
 }
 static void add_jaw(CueWorld *w, Vec3 k) {
     if (w->njaw >= CUE_MAX_SEG) return;
+    w->jaw_rad[w->njaw] = 0.0f;                /* the world's jaw_r */
+    w->jaw[w->njaw++] = v3(k.x, w->R, k.z);
+}
+/* ...or one of its own size -- see CueWorld::jaw_rad. */
+static void add_jaw_r(CueWorld *w, Vec3 k, float r) {
+    if (w->njaw >= CUE_MAX_SEG) return;
+    w->jaw_rad[w->njaw] = (fabsf(r - w->jaw_r) < 1e-9f) ? 0.0f : r;
     w->jaw[w->njaw++] = v3(k.x, w->R, k.z);
 }
 /* `ax,az` is the pocket's own centre line, pointing OUT of the pocket — see
@@ -1847,9 +1868,35 @@ static void add_arc_between(CueWorld *w, Vec3 c, Vec3 a0, Vec3 a1) {
  * a middle pocket: the ball met the FACING, whose normal points into the mouth,
  * and was deflected in rather than rebounding off the point. Same jaw, same
  * numbers, one code path. */
+/* ONE KNUCKLE RADIUS AT EACH END. The mesinha rounds its corners on the CBBS
+ * template and cuts its middles sharp, so one rail can have two; ra == rb ==
+ * jaw_r is every other table, and goes down exactly the old path. */
+static void add_mitred_r(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4,
+                         int kn_a, int kn_b, Vec3 nin, float ra, float rb);
 static void add_mitred(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4,
                        int kn_a, int kn_b, Vec3 nin) {
-    const float r = w->jaw_r;
+    add_mitred_r(w, P1, P2, P3, P4, kn_a, kn_b, nin, w->jaw_r, w->jaw_r);
+}
+static void add_mitred_r(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4,
+                         int kn_a, int kn_b, Vec3 nin, float ra, float rb) {
+    if (ra != rb) {
+        /* MIXED: each end on its own. An end with no radius keeps the old
+         * corner -- a recessed circle at the vertex. */
+        Vec3 a2 = P2, b2 = P2, c2 = P2, a3 = P3, b3 = P3, c3 = P3;
+        const int ka = kn_a && ra > 1e-5f, kb = kn_b && rb > 1e-5f;
+        Vec3 ns = P2, ne = P3;
+        if (ka) { mitre_kiss(P2, P1, P3, ra, &a2, &b2, &c2); ns = b2; }
+        if (kb) { mitre_kiss(P3, P2, P4, rb, &a3, &b3, &c3); ne = a3; }
+        if (kn_a) { if (ka) { add_seg(w, P1, a2, 1); add_arc_between(w, c2, a2, b2); }
+                    else      add_seg(w, P1, P2, 1); }
+        add_seg(w, ns, ne, 0);
+        if (kn_b) { if (kb) { add_arc_between(w, c3, a3, b3); add_seg(w, b3, P4, 1); }
+                    else      add_seg(w, P3, P4, 1); }
+        if (kn_a) { if (ka) add_jaw_r(w, c2, ra); else add_jaw_recessed(w, P2, nin); }
+        if (kn_b) { if (kb) add_jaw_r(w, c3, rb); else add_jaw_recessed(w, P3, nin); }
+        return;
+    }
+    const float r = ra;
     if (r <= 1e-5f) {                    /* no radius authored: the old corner */
         if (kn_a) add_seg(w, P1, P2, 1);
         add_seg(w, P2, P3, 0);
@@ -1889,12 +1936,19 @@ static void add_mitred(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4,
      * out by an arc segment sits exactly ON the circle and the circle then
      * finds no penetration to resolve. One shape, described twice, for two
      * readers. */
-    if (kn_a) add_jaw(w, c2);
-    if (kn_b) add_jaw(w, c3);
+    if (kn_a) add_jaw_r(w, c2, r);
+    if (kn_b) add_jaw_r(w, c3, r);
 }
 
 static void add_chain(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4) {
     add_mitred(w, P1, P2, P3, P4, 1, 1, inward_n(P2.x, P2.z, P3.x, P3.z));
+}
+/* A long rail of a rectangle, corner to middle (mid_b) or middle to corner:
+ * the middle's end takes the middles' knuckle. */
+static void add_chain_cm(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4, int mid_b) {
+    const float rm = (w->jaw_r_m > 0.0f) ? w->jaw_r_m : w->jaw_r;
+    add_mitred_r(w, P1, P2, P3, P4, 1, 1, inward_n(P2.x, P2.z, P3.x, P3.z),
+                 mid_b ? w->jaw_r : rm, mid_b ? rm : w->jaw_r);
 }
 
 /* HOW FAR THE ARC-CUT MIDDLE'S JAW RUNS ALONG THE RAIL, from where it leaves
@@ -3436,6 +3490,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     w->jaw_arc_m   = (t->bed_shape == CUE_BED_RECT) ? t->jaw_arc_m : 0.0f;
     w->jaw_arc_d_m = t->jaw_arc_d_m;
     w->jaw_r = t->jaw_r;
+    w->jaw_r_m = t->jaw_r_m;
     w->e_cush     = t->e_cush;
     w->cush_efall = t->cush_efall;
     w->e_cush_min = t->e_cush_min;
@@ -3733,16 +3788,16 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
                         ? (w->cush_depth / sc) : sl;
         const float sls = (w->cush_depth > 1e-6f && ss > 1e-4f)
                         ? (w->cush_depth / ss) : sl;
-        add_chain(w, v3(-hl+g - cc*slc, 0, -hw - sc*slc), v3(-hl+g, 0, -hw),
-                     v3(-sg, 0, -hw),                   v3(-sg + cs*sls, 0, -hw - ss*sls));
-        add_chain(w, v3(sg - cs*sls, 0, -hw - ss*sls),    v3(sg, 0, -hw),
-                     v3(hl-g, 0, -hw),                  v3(hl-g + cc*slc, 0, -hw - sc*slc));
+        add_chain_cm(w, v3(-hl+g - cc*slc, 0, -hw - sc*slc), v3(-hl+g, 0, -hw),
+                     v3(-sg, 0, -hw),                   v3(-sg + cs*sls, 0, -hw - ss*sls), 1);
+        add_chain_cm(w, v3(sg - cs*sls, 0, -hw - ss*sls),    v3(sg, 0, -hw),
+                     v3(hl-g, 0, -hw),                  v3(hl-g + cc*slc, 0, -hw - sc*slc), 0);
         add_chain(w, v3(hl + sc*slc, 0, -hw+g - cc*slc),  v3(hl, 0, -hw+g),
                      v3(hl, 0, hw-g),                   v3(hl + sc*slc, 0, hw-g + cc*slc));
-        add_chain(w, v3(hl-g + cc*slc, 0, hw + sc*slc),   v3(hl-g, 0, hw),
-                     v3(sg, 0, hw),                     v3(sg - cs*sls, 0, hw + ss*sls));
-        add_chain(w, v3(-sg + cs*sls, 0, hw + ss*sls),    v3(-sg, 0, hw),
-                     v3(-hl+g, 0, hw),                  v3(-hl+g - cc*slc, 0, hw + sc*slc));
+        add_chain_cm(w, v3(hl-g + cc*slc, 0, hw + sc*slc),   v3(hl-g, 0, hw),
+                     v3(sg, 0, hw),                     v3(sg - cs*sls, 0, hw + ss*sls), 1);
+        add_chain_cm(w, v3(-sg + cs*sls, 0, hw + ss*sls),    v3(-sg, 0, hw),
+                     v3(-hl+g, 0, hw),                  v3(-hl+g - cc*slc, 0, hw + sc*slc), 0);
         add_chain(w, v3(-hl - sc*slc, 0, hw-g + cc*slc),  v3(-hl, 0, hw-g),
                      v3(-hl, 0, -hw+g),                 v3(-hl - sc*slc, 0, -hw+g - cc*slc));
     } else {
@@ -4200,7 +4255,7 @@ float cue_table_mouth_at(const CueWorld *w, int p) {
             if (sa * sb >= 0.0f) continue;
             const float dx = w->jaw[i].x - w->jaw[j].x;
             const float dz = w->jaw[i].z - w->jaw[j].z;
-            const float d = sqrtf(dx*dx + dz*dz) - 2.0f * w->jaw_r;
+            const float d = sqrtf(dx*dx + dz*dz) - cue_jaw_radius(w, i) - cue_jaw_radius(w, j);
             if (d < best) best = d;
         }
         for (int j = 0; j < w->nseg; j++) {
@@ -4210,7 +4265,7 @@ float cue_table_mouth_at(const CueWorld *w, int p) {
             const float sb = (bmx-ox)*tx + (bmz-oz)*tz;
             if (sa * sb >= 0.0f) continue;
             const float d = pt_seg_dist(w->jaw[i].x, w->jaw[i].z,
-                                        b->a.x, b->a.z, b->b.x, b->b.z) - w->jaw_r;
+                                        b->a.x, b->a.z, b->b.x, b->b.z) - cue_jaw_radius(w, i);
             if (d < best) best = d;
         }
     }

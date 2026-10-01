@@ -1393,7 +1393,7 @@ static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev,
     for (int j = 0; j < w->njaw; j++) {
         Vec3 d = v3_sub(b->pos, w->jaw[j]); d.y = 0.0f;
         float dist = sqrtf(d.x * d.x + d.z * d.z);
-        float mind = cue_ball_r(w, b) + w->jaw_r;
+        float mind = cue_ball_r(w, b) + cue_jaw_radius(w, j);
         if (dist < mind && dist > 1e-6f) {
             if (b->pos.y - cue_ball_r(w, b) > w->rail_top) continue;       /* flying over it */
             Vec3 N = v3_scale(d, 1.0f / dist);
