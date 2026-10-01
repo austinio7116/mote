@@ -4766,7 +4766,8 @@ void cue_table_set_game(CueTable *t, CueGameKind kind) {
 const char *const CUE_TAB_NAME[CUE_TAB_COUNT] = {
     "PRO", "TOURNAMENT", "CLUB", "L-SHAPED", "HEXAGON", "OCTAGON", "ROUND",
     "6 FT", "7 FT", "9 FT", "10 FT", "12 FT",
-    "CLUB 12 FT", "CLUB 7 FT"
+    "CLUB 12 FT", "CLUB 7 FT",
+    "2.20 X 1.30 M", "1.90 X 1.20 M"
 };
 
 /* THE BEDS, in metres of PLAYING SURFACE -- nose to nose between the cushions
@@ -4795,7 +4796,8 @@ static const float TAB_SIZE_M[CUE_TAB_COUNT] = {
     2.540f,   /* 9 ft -- the American tournament bed */
     2.840f,   /* 10 ft -- Chinese 8-ball, and the smaller snooker */
     3.569f,   /* 12 ft -- the full-size match table */
-    0, 0      /* pyramid's club tables are their own beds' (see cue_table_variant) */
+    0, 0,     /* pyramid's club tables are their own beds' (see cue_table_variant) */
+    0, 0      /* the mesinha's are not 2:1 -- see variant_apply */
 };
 
 /* The shape rows. `sides` of 0 means the L. */
@@ -4810,6 +4812,7 @@ static const struct { int sides, every; } TAB_SHAPE[CUE_TAB_COUNT] = {
     { 60, 10 },
     { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 },   /* the sizes are not shapes */
     { 0, 0 }, { 0, 0 },                                 /* nor pyramid's club tables */
+    { 0, 0 }, { 0, 0 },                                 /* nor the mesinha's sizes */
 };
 
 /* WHICH BEDS A GAME IS PLAYED ON.
@@ -4884,6 +4887,7 @@ int cue_table_variant_ok(CueGameKind kind, int variant) {
     if (variant < 0 || variant >= CUE_TAB_COUNT) return 1;
     if (variant <= CUE_TAB_CLUB) return cue_table_spec_applies(kind);
     if (variant == CUE_TAB_PYR_CLUB12 || variant == CUE_TAB_PYR_CLUB7) return kind == CUE_GAME_PYRAMID;
+    if (variant == CUE_TAB_MZ_220x130 || variant == CUE_TAB_MZ_190x120) return CUE_GAME_IS_MESINHA(kind);
     if (CUE_TAB_IS_SIZE(variant)) return size_ok(kind, variant);
     /* THE SHAPES. What rules a game out is knowing where things are on the
      * cloth in absolute terms.
@@ -4976,6 +4980,23 @@ static void variant_apply(CueTable *t, int variant) {
      * passage as the tournament pockets are, and the 7 ft gets the same
      * clearances over its own ball. Cut to rather than authored, so they
      * cannot drift from what the table measures. */
+    /* ---- THE MESINHA'S SIZES: 20 cm off the outside each way, as the
+     * 2.20 x 1.20's 2.00 x 1.00 cloth is (Mark, 2026-10-01). The same balls
+     * and the same cups, so the pockets are cut back to what they were; the
+     * marks go where cue_table_init puts them on any bed -- the D's line
+     * across the middle of the lower half, its arc in proportion to the
+     * width (26 cm on 1.42 m). */
+    if (variant == CUE_TAB_MZ_220x130 || variant == CUE_TAB_MZ_190x120) {
+        float keep_c = 0.0f, keep_m = 0.0f;
+        cue_table_openings(t, &keep_c, &keep_m);
+        const float L = (variant == CUE_TAB_MZ_220x130) ? 2.00f : 1.70f;
+        const float W = (variant == CUE_TAB_MZ_220x130) ? 1.10f : 1.00f;
+        t->half_len = L * 0.5f; t->half_wid = W * 0.5f;
+        t->baulk_x  = -t->half_len * 0.5f;
+        t->d_radius = 0.260f * (W / 1.42f);
+        if (keep_c > 0.0f || keep_m > 0.0f) cue_table_cut_to(t, keep_c, keep_m);
+        return;
+    }
     if (variant == CUE_TAB_PYR_CLUB12 || variant == CUE_TAB_PYR_CLUB7) {
         if (variant == CUE_TAB_PYR_CLUB7) cue_table_variant(t, CUE_TAB_7FT);
         const float ball = 2.0f * t->R;

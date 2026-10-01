@@ -928,6 +928,10 @@ enum {
      * starting out (and tournaments are held on them under the federation's
      * rules). Pyramid only. See cue_table_variant. */
     CUE_TAB_PYR_CLUB12, CUE_TAB_PYR_CLUB7,
+    /* THE MESINHA'S OTHER TWO, by the outside size they are sold by: the
+     * 2.20 x 1.30 (a 2.00 x 1.10 cloth) and the 1.90 x 1.20 (1.70 x 1.00).
+     * Not 2:1, so not the uniform sizes above. Mesinha only. */
+    CUE_TAB_MZ_220x130, CUE_TAB_MZ_190x120,
     CUE_TAB_COUNT
 };
 /* Is this stop a bed SIZE? */
