@@ -183,6 +183,16 @@ typedef enum {
      * Appended for the reason all of these are: the kind is stored in
      * preferences and it crosses the wire. */
     CUE_GAME_BUMPER,
+    /* SINUCA BRASILEIRA: the CBBS game on the mesão, the federation's 2.84 by
+     * 1.42 m table with 54 mm balls. Seven balls, numbered 1 (red) to 7
+     * (black), the lowest on the table is the ball on and every other ball
+     * risks seven points; nothing but the ball on stays down. Mitred corners
+     * and round-cut middles, to the federation's own drawings (annexes F-N).
+     *
+     * SINUCA6 is the same table played as snooker with six reds -- the
+     * "sinuca mista" of annex C, the reds behind the pink. */
+    CUE_GAME_SINUCA,
+    CUE_GAME_SINUCA6,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
@@ -591,6 +601,21 @@ typedef struct {
      * about the pocket, so one number sets both. */
     float jaw_ang_c;   /* degrees, corner */
     float jaw_ang_m;   /* degrees, middle */
+    /* A MIDDLE POCKET CUT AS AN ARC, which is a different jaw from the corner's.
+     *
+     * The Brazilian federation's table (CBBS, Regulamento 2008, annexes G, J and
+     * L) mitres its corners and rounds its middles: each middle jaw is one arc
+     * of 70 mm radius tangent to the nose, centred 70 mm behind it, and it
+     * stops 50 mm behind the nose where the throat is 95 mm across. From there
+     * the throat walls run straight, at a slight angle to where the arc left
+     * off. Neither the mitre nor the bezier jaw is that shape, and a table has
+     * one pocket_round for all six pockets, so the middle says so itself.
+     *
+     * jaw_arc_m is the arc's radius and jaw_arc_d_m how far behind the nose
+     * it stops. ZERO MEANS NOT AN ARC: the middle is cut the way pocket_round
+     * says, which is every table built before these existed. */
+    float jaw_arc_m;
+    float jaw_arc_d_m;
     /* The rail: restitution at a crawl, how fast it falls with pace, and the
      * floor. See cue_table_rails for where the numbers come from. */
     float e_cush, cush_efall, e_cush_min;
