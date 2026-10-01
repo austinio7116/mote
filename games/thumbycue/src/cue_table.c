@@ -599,9 +599,10 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->jaw_r = 0.0376f;
         /* THE MIDDLES ARE MITRED, sharp and straight -- not the mesao's arc
          * (Mark, 2026-10-01, off a Brazilian shop's photograph of one). The
-         * facings leave the nose at 70 degrees, the pool middle's angle, on
-         * a 4 mm knuckle. */
-        t->ang_side = 70.0f;
+         * facings leave the nose NEARLY SQUARE: 87 degrees, picked by Mark
+         * from 84, 87 and 90 side by side (70, a pool middle's, was far too
+         * sharp). On a 4 mm knuckle. */
+        t->ang_side = 87.0f;
         t->jaw_r_m = 0.004f;
         t->pr_corner = 0.03384f; t->pr_side = 0.03454f;   /* solved: 64.00 / 69.00 mm */
         t->cap_corner = 0.0f;    t->cap_side = 0.0f;
