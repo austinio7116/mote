@@ -7548,3 +7548,62 @@ int cue_ai_open_targets(const CueWorld *w, const CueTable *t, const CueRules *r,
     c.S = 12.0f / t->R; c.snooker = t->is_snooker;
     return open_targets(&c, NULL, NULL);
 }
+
+/* ---- THE MESINHA'S TWO CHOICES, MADE BY THE MACHINE -----------------------
+ *
+ * How pottable a ball is from where the white stands: the best of the
+ * planner's own difficulty over every pocket it can reach, with the white's
+ * path and the ball's path to the pocket both clear. 0 = nothing on. */
+static float mz_pottable(const AiCtx *c, int i) {
+    const Vec3 cue = c->b[0].pos;
+    float best = 0.0f;
+    for (int pk = 0; pk < c->w->npocket; pk++) {
+        Vec3 ppos = c->w->pocket[pk];
+        if (!path_clear(c, c->b[i].pos, ppos, i)) continue;
+        Vec3 pdir = nrm2(sub2(ppos, c->b[i].pos));
+        Vec3 ghost = v3(c->b[i].pos.x - pdir.x*c->contact, 0, c->b[i].pos.z - pdir.z*c->contact);
+        if (!path_clear(c, cue, ghost, i)) continue;
+        const float d = potting_difficulty(c, cue, c->b[i].pos, pk);
+        if (d > best) best = d;
+    }
+    return best;
+}
+static AiCtx mz_ctx(const CueWorld *w, const CueTable *t, const CueRules *r,
+                    const CueBall *balls, int n) {
+    AiCtx c = { .w = w, .t = t, .r = r, .b = balls, .n = n, .p = &CUE_PERSONAS[0],
+                .S = 12.0f / t->R, .maxdist_m = fmaxf(t->half_len, t->half_wid) * 2.0f,
+                .snooker = 0,
+                .contact = (t->cue_R > 0.0f) ? (t->cue_R + t->R) : (2.0f * t->R) };
+    return c;
+}
+/* WHICH OF ITS OWN TO LIFT (mata-mata, bola 8): the one it would find hardest
+ * to pot, since every ball it keeps is one it still has to get in. */
+int cue_ai_mz_take(const CueWorld *w, const CueTable *t, const CueRules *r,
+                   const CueBall *balls, int n) {
+    AiCtx c = mz_ctx(w, t, r, balls, n);
+    int pick = -1; float worst = 1e9f;
+    for (int i = 1; i < n; i++) {
+        if (!balls[i].on || !cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+        const float v = mz_pottable(&c, i);
+        if (v < worst) { worst = v; pick = i; }
+    }
+    return pick;
+}
+/* WHICH GROUP (CBBS par e impar, after a break that decided nothing): the one
+ * whose three easiest balls are easiest -- the visit it can start now. */
+int cue_ai_mz_group(const CueWorld *w, const CueTable *t, const CueRules *r,
+                    const CueBall *balls, int n) {
+    AiCtx c = mz_ctx(w, t, r, balls, n);
+    float top[3][3] = { { 0 } };
+    for (int i = 1; i < n; i++) {
+        if (!balls[i].on) continue;
+        const int g = cue_rules_mz_group(r->mode, balls[i].id);
+        if (g < 1 || g > 2) continue;
+        float v = mz_pottable(&c, i);
+        for (int k = 0; k < 3; k++)
+            if (v > top[g][k]) { const float t2 = top[g][k]; top[g][k] = v; v = t2; }
+    }
+    const float s1 = top[1][0] + top[1][1] + top[1][2];
+    const float s2 = top[2][0] + top[2][1] + top[2][2];
+    return (s2 > s1) ? 2 : 1;
+}

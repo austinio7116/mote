@@ -170,6 +170,13 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
 void cue_ai_note_foul(int target_id, int hit_id);
 void cue_ai_clear_fouls(void);
 
+/* THE MESINHA: which of its own balls the machine lifts after the other
+ * side's foul (a ball index, or -1), and which group it takes when a CBBS
+ * break hands it the choice (1 odd, 2 even). See CueRules::mz_take, mz_pick. */
+int cue_ai_mz_take(const CueWorld *w, const CueTable *t, const CueRules *r,
+                   const CueBall *balls, int n);
+int cue_ai_mz_group(const CueWorld *w, const CueTable *t, const CueRules *r,
+                    const CueBall *balls, int n);
 int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
                   const CueBall *balls, int n, const CuePersona *p,
                   uint32_t *rng);

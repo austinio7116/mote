@@ -671,6 +671,19 @@ typedef struct {
      * sn_tie is the deciding game on the 7 after a level frame. */
     int sn_phase;              /* CUE_SN_* */
     int sn_tie;
+
+    /* ---- THE MESINHA'S TWO CHOICES -------------------------------------
+     *
+     * mz_take: balls the player at the table must take off before playing --
+     *   one of their OWN, after the other side's foul at mata-mata and bola
+     *   8 (the beneficiary's choice, as free pyramid's penalty ball is). The
+     *   host lifts it and calls cue_rules_mz_taken; the play-on / hand-back
+     *   question follows.
+     * mz_pick: the player at the table chooses their group before playing --
+     *   CBBS par e impar after a break that pots nothing or goes in-off (arts.
+     *   14 and 15). cue_rules_mz_choose answers it. */
+    int mz_take;
+    int mz_pick;
 } CueRules;
 
 enum { CUE_SN_OPEN = 0, CUE_SN_ON, CUE_SN_FREE, CUE_SN_CAST };
@@ -689,6 +702,13 @@ enum { CUE_PYR_CLASSIC = 0, CUE_PYR_COMBAT = 1, CUE_PYR_FREE = 2 };
  * The host has already lifted it off the table; this scores it for `taker`
  * and ends the frame if that makes eight. */
 void cue_rules_pyr_take(CueRules *r, int taker);
+/* THE MESINHA: one of the beneficiary's own balls has been lifted (see mz_take);
+ * and the group chosen by the player at the table (see mz_pick), 1 or 2. */
+void cue_rules_mz_taken(CueRules *r, const CueBall *b, int n);
+void cue_rules_mz_choose(CueRules *r, int grp);
+/* Which group a ball is in for this mesinha game: 1, 2, or 0 for the money
+ * ball / the 8 / none. */
+int  cue_rules_mz_group(int mode, int id);
 
 /* Where a potted red goes back. The order is Section 3 Rule 8: the Spot, and
  * if that is occupied the Pyramid Spot, and if both are occupied the Centre

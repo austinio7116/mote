@@ -1394,6 +1394,35 @@ static void mz_end(CueRules *r, int winner, const char *why) {
     snprintf(r->msg, sizeof r->msg, "%s", why);
 }
 
+int cue_rules_mz_group(int mode, int id) { return mz_group(mode, id); }
+
+void cue_rules_mz_choose(CueRules *r, int grp) {
+    if (!r || !r->mz_pick) return;
+    grp = (grp == 2) ? 2 : 1;
+    r->group[r->turn] = grp; r->group[1 - r->turn] = 3 - grp;
+    r->open = 0; r->mz_pick = 0;
+    snprintf(r->msg, sizeof r->msg, "%s", grp == 1 ? "ODD" : "EVEN");
+}
+
+void cue_rules_mz_taken(CueRules *r, const CueBall *b, int n) {
+    if (!r || r->mz_take <= 0) return;
+    r->mz_take--;
+    const int me = r->turn;
+    /* Their last one gone is their frame -- at mata-mata. At bola 8 the 8 is
+     * still to come. */
+    if (r->mode == CUE_GAME_MESINHA_MM && mz_left(b, n, r->mode, r->group[me]) == 0) {
+        r->mz_take = 0;
+        mz_end(r, me, "FOUL ON THE LAST BALL");
+        return;
+    }
+    if (r->mz_take > 0) return;
+    /* ...and now the choice: play on, or make the offender play again. The
+     * turn sits on the offender while it is asked, as every foul's does. */
+    r->turn = r->dec_offender;
+    r->decision = CUE_DEC_PENDING;
+    snprintf(r->msg, sizeof r->msg, "BALL TAKEN OFF");
+}
+
 static void resolve_mesinha(CueRules *r, CueBall *b, int n, int first_hit,
                             int scratch, const int *potted, int np) {
     const int mode = r->mode, off = r->turn, opp = 1 - off;
@@ -1424,6 +1453,19 @@ static void resolve_mesinha(CueRules *r, CueBall *b, int n, int first_hit,
             const int g = mz_group(mode, pid[k]);
             if (g) { r->group[off] = g; r->group[opp] = 3 - g; r->open = 0; break; }
         }
+    }
+    /* CBBS PAR E IMPAR: A BREAK THAT DECIDES NOTHING HANDS THE CHOICE OVER.
+     * Nothing potted, or the white gone in: the opponent chooses their group
+     * before they play, from the table as it lies (art. 14), or from the D
+     * after an in-off (art. 15) -- and a ball of the group that choice gives
+     * the breaker, potted with the white, comes back. */
+    if (breaking && mode == CUE_GAME_MESINHA_PI && r->open && (npot == 0 || scratch)) {
+        r->turn = opp;
+        r->mz_pick = 1;
+        r->ball_in_hand = scratch ? 1 : 0;
+        r->last_foul = scratch;
+        snprintf(r->msg, sizeof r->msg, "%s", scratch ? "IN-OFF: THEY CHOOSE" : "THEY CHOOSE A GROUP");
+        return;
     }
     /* THE MONEY BALL OR THE 8 ON THE BREAK: back on its spot, no harm. */
     if (breaking && money_down) { CueBall *q = find_ball(b, n, 1); if (q) {
@@ -1470,6 +1512,19 @@ static void resolve_mesinha(CueRules *r, CueBall *b, int n, int first_hit,
         /* THE PRICE, in the beneficiary's own balls. */
         int take = 1;
         if (mode == CUE_GAME_MESINHA && wrong_first) take = 2;   /* boteco: hit theirs, two */
+        /* MATA-MATA AND BOLA 8: THE BENEFICIARY CHOOSES WHICH. They come to the
+         * table and take one of their own off before anything else happens
+         * (mz_take, answered by the host); then the play-on question. */
+        if (!r->open && (mode == CUE_GAME_MESINHA_MM || mode == CUE_GAME_MESINHA8) &&
+            mz_left(b, n, mode, theirs) > 0) {
+            r->turn = opp;
+            r->mz_take = take;
+            r->ball_in_hand = 0;
+            r->dec_offender = off; r->dec_scratch = scratch;
+            r->dec_penalty = 0; r->dec_can_restore = 0; r->dec_free_ball = 0;
+            snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
+            return;
+        }
         int taken = 0;
         if (!r->open) for (int k = 0; k < take; k++) taken += mz_take_off(b, n, mode, theirs) ? 1 : 0;
         r->last_foul_pts = taken;
@@ -5669,6 +5724,7 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
      * ball or the 8; with your group gone, the 1 or the 8. */
     if (CUE_GAME_IS_MESINHA(r->mode)) {
         const int bar = CUE_GAME_IS_PARIMPAR_BAR(r->mode), eight = (r->mode == CUE_GAME_MESINHA8);
+        if (r->mz_take) return mz_group(r->mode, id) == r->group[r->turn];   /* one to lift */
         const int g = mz_group(r->mode, id);
         if (r->open) return g != 0;
         const int mine = r->group[r->turn];

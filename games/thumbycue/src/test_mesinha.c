@@ -62,6 +62,27 @@ int main(void) {
       for (int id = 2; id <= 7; id++) ball(id)->on = 0;
       stroke(&r, 1, 0, 1, 0);
       ok(r.frame_over && r.winner == 0, "mata-mata: the last of yours is the frame", r.msg); }
+    { CueRules r; fresh(&r, CUE_GAME_MESINHA_MM); groups(&r, 1);
+      stroke(&r, 10, 0, 0, 0);
+      ok(r.last_foul && r.mz_take == 1 && r.turn == 1 && on(9), "mata-mata foul: the beneficiary is at the table, one of theirs to take", r.msg);
+      ok(cue_rules_ball_legal(&r, B, NB, 12) && !cue_rules_ball_legal(&r, B, NB, 3), "...and only one of their own may be named", "");
+      ball(13)->on = 0; cue_rules_mz_taken(&r, B, NB);
+      ok(r.mz_take == 0 && r.decision == CUE_DEC_PENDING && r.turn == 0, "taken: now play on or hand it back", r.msg);
+      cue_rules_apply_decision(&r, CUE_DEC_PLAY);
+      ok(r.turn == 1, "played on: the beneficiary has the table", ""); }
+    { CueRules r; fresh(&r, CUE_GAME_MESINHA_MM); groups(&r, 1);
+      for (int id = 10; id <= 15; id++) ball(id)->on = 0;      /* their 9 left */
+      stroke(&r, 9, 0, 0, 0);
+      ball(9)->on = 0; cue_rules_mz_taken(&r, B, NB);
+      ok(r.frame_over && r.winner == 1, "mata-mata: taking their last ball off wins it", r.msg); }
+    { CueRules r; fresh(&r, CUE_GAME_MESINHA_PI);
+      stroke(&r, 5, 0, 0, 0);
+      ok(r.mz_pick && r.turn == 1 && r.open, "CBBS: an empty break, the opponent chooses", r.msg);
+      cue_rules_mz_choose(&r, 2);
+      ok(!r.open && r.group[1] == 2 && r.group[0] == 1 && r.turn == 1, "...even for them, odd for the breaker, and they play", r.msg); }
+    { CueRules r; fresh(&r, CUE_GAME_MESINHA_PI);
+      stroke(&r, 5, 1, 0, 0);
+      ok(r.mz_pick && r.turn == 1 && r.ball_in_hand, "CBBS: an in-off break, they choose, from the D", r.msg); }
     { CueRules r; fresh(&r, CUE_GAME_MESINHA8); groups(&r, 1);
       stroke(&r, 2, 0, 8, 0);
       ok(r.frame_over && r.winner == 1, "bola 8: the 8 too soon loses", r.msg); }
