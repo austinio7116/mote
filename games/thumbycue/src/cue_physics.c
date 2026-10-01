@@ -1890,6 +1890,20 @@ void cue_phys_under_world(const CueWorld *w, MoteWorld *pw, int below_cloth) {
 #endif
 }
 
+/* CUE_PHYS_PROF (a profiling build only): where a substep's time goes --
+ * 1 cloth and integration, 2 ball against ball, 3 cushions, jaws and pockets
+ * -- summed per call of cue_phys_step and printed for every call over 0.5 ms. */
+#if defined(CUE_PHYS_PROF) && defined(MOTE_HOST)
+#include <time.h>
+static double s_prof[4]; static int s_prof_sub;
+static double s_prof_step; static long s_prof_calls;
+static double prof_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec * 1e-6; }
+#define PROF_T(v) const double v = prof_now()
+#define PROF_ADD(k, a, b) (s_prof[k] += (b) - (a))
+#else
+#define PROF_T(v) ((void)0)
+#define PROF_ADD(k, a, b) ((void)0)
+#endif
 int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
     if (pk < 0 || pk >= CUE_MAX_POCKET) return 0;
     const MoteMesh *solid = w->pgeom_solid[pk], *net = w->pgeom_net[pk];
@@ -1941,8 +1955,86 @@ int cue_phys_drop_mesh(const CueWorld *w, int pk, CueBall *b, float h) {
         m->pos = b->pos; m->vel = b->vel; m->w = b->w; m->orient = b->orient;
         m->friction = 0.0f; m->restitution = 0.0f;   /* the surface decides */ }
     n += cue_phys_under_bodies(w, bodies + n, (int)(sizeof bodies / sizeof bodies[0]) - n);
+    /* ONLY WHAT THIS BALL CAN TOUCH IN THIS STEP. Each of the four quarter
+     * steps below tested the ball against every triangle in the 3x3 cells
+     * around it -- three transforms and three square roots apiece before the
+     * reject -- and round a pocket's mouth that is the cloth's roll, five
+     * hundred triangles in a few centimetres: 80,000 tests a frame for one
+     * dropping ball, 11 to 18 ms on the headset (2026-10-01).
+     *
+     * So the list is cut once per step to the triangles whose box comes within
+     * the ball's radius plus everything it can travel in the step. A contact
+     * needs the triangle within the radius, so nothing that could touch is
+     * left out -- and nor is a touching triangle's neighbour across an edge,
+     * which the engine's seam test looks for, since it shares that edge. The
+     * same contacts, found in a different order. A list too long for the
+     * scratch keeps the whole mesh. */
+#if !defined(MOTE_MODULE_BUILD)   /* the handheld has no drawn pockets, and no room for the lists */
+    {   enum { CULL_T = 640 };
+        static MoteMesh cm[CUE_UNDER_BODIES];
+        static uint16_t ct[CUE_UNDER_BODIES][3 * CULL_T];
+        const Vec3 c = b->pos;
+        const float sp = sqrtf(v3_dot(b->vel, b->vel));
+        const float rr = cue_ball_r(w, b) + (sp + w->g * h) * h + 0.002f;
+        for (int k = 1; k < n; k++) {
+            if (bodies[k].shape != MOTE_SHAPE_MESH || !bodies[k].shape_data) continue;
+            const MoteMesh *m = (const MoteMesh *)bodies[k].shape_data;
+            MoteMesh *o = &cm[k];
+            int kept = 0, over = 0;
+            #define CULL_TRI(t) do { \
+                const uint16_t *tr = &m->tris[3 * (t)]; \
+                const Vec3 A = m->verts[tr[0]], B = m->verts[tr[1]], C = m->verts[tr[2]]; \
+                const float lx = fminf(A.x, fminf(B.x, C.x)), hx = fmaxf(A.x, fmaxf(B.x, C.x)); \
+                const float ly = fminf(A.y, fminf(B.y, C.y)), hy = fmaxf(A.y, fmaxf(B.y, C.y)); \
+                const float lz = fminf(A.z, fminf(B.z, C.z)), hz = fmaxf(A.z, fmaxf(B.z, C.z)); \
+                const float dx = c.x < lx ? lx - c.x : c.x > hx ? c.x - hx : 0.0f; \
+                const float dy = c.y < ly ? ly - c.y : c.y > hy ? c.y - hy : 0.0f; \
+                const float dz = c.z < lz ? lz - c.z : c.z > hz ? c.z - hz : 0.0f; \
+                if (dx * dx + dy * dy + dz * dz <= rr * rr) { \
+                    if (kept >= CULL_T) { over = 1; break; } \
+                    ct[k][3 * kept] = tr[0]; ct[k][3 * kept + 1] = tr[1]; ct[k][3 * kept + 2] = tr[2]; kept++; } \
+            } while (0)
+            if (m->grid_n > 0) {
+                /* the engine's own 3x3: a triangle it would not test, this does not keep */
+                const int gn = m->grid_n;
+                const int bx = (int)((c.x - m->grid_x0) * m->grid_invx);
+                const int bz = (int)((c.z - m->grid_z0) * m->grid_invz);
+                for (int gz = bz - 1; gz <= bz + 1 && !over; gz++) {
+                    if (gz < 0 || gz >= gn) continue;
+                    for (int gx = bx - 1; gx <= bx + 1 && !over; gx++) {
+                        if (gx < 0 || gx >= gn) continue;
+                        const int cell = gz * gn + gx;
+                        for (int e = m->grid_start[cell]; e < m->grid_start[cell + 1]; e++) CULL_TRI(m->grid_tri[e]);
+                    }
+                }
+            } else {
+                for (int t = 0; t < m->ntris; t++) CULL_TRI(t);
+            }
+            #undef CULL_TRI
+            if (over) continue;                 /* too many to list: the whole mesh, as before */
+            *o = *m;
+            o->tris = ct[k]; o->ntris = kept;
+            o->grid_n = 0; o->grid_start = NULL; o->grid_tri = NULL;
+            bodies[k].shape_data = o;
+        }
+    }
+#endif
+#if defined(CUE_PHYS_PROF) && defined(MOTE_HOST)
+    {   static int told;
+        if (!told) { told = 1;
+            fprintf(stderr, "[physprof] a dropping ball meets %d bodies:", n - 1);
+            for (int k = 1; k < n; k++) { const MoteMesh *mm = (const MoteMesh *)bodies[k].shape_data;
+                fprintf(stderr, " %d tris%s", mm ? mm->ntris : -1, mm && mm->grid_n > 0 ? "(grid)" : ""); }
+            fprintf(stderr, "\n"); } }
+#endif
     const Vec3 v_in = b->vel;
+#if defined(CUE_PHYS_PROF) && defined(MOTE_HOST)
+    const double ps0 = prof_now();
+#endif
     for (int q = 0; q < 4; q++) { pw._acc = 0.0f; mote_phys_step(&pw, bodies, n, qh); }
+#if defined(CUE_PHYS_PROF) && defined(MOTE_HOST)
+    s_prof_step += prof_now() - ps0; s_prof_calls++;
+#endif
     /* THE KNOCK. A change of horizontal speed of more than 0.4 m/s in one
      * substep against the pocket's surfaces is the ball striking the back;
      * the app voices it from the speed it arrived with (CUE_EV_BRIDGE). */
@@ -2596,6 +2688,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
         }
     }
 
+    PROF_T(p0);
     /* 1. cloth friction + integrate. Balls mid-drop instead fall into the
      * pocket (pulled to the centre + accelerating downward) and are removed
      * when they sink below the recess. */
@@ -3079,6 +3172,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
         b->pos.y = cue_ball_r(w, b);
         ball_spin_orient(b, h);
     }
+    PROF_T(p1); PROF_ADD(1, p0, p1);
     /* 1b. the jump-shot watch, while the white is off the bed. Before the
      * collisions, so a pass-over is seen at the position it happened at rather
      * than after the contact has moved everything. */
@@ -3092,6 +3186,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
     /* The reject has to be at least the biggest pair on the table, or it would
      * skip a real contact. With a smaller cue ball every pair is 2R or less, so
      * the set's own diameter is still the safe bound. */
+    PROF_T(p2);
     const float bb_min = 2.0f * w->R;
     for (int i = 0; i < n; i++) {
         if (!balls[i].on || balls[i].drop > 0.0f) continue;
@@ -3132,6 +3227,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             }
         }
     }
+    PROF_T(p3); PROF_ADD(2, p2, p3);
     /* 3. cushions + jaws, then 4. pockets (skip droppers AND asleep balls — a
      * resting ball can't be entering a cushion or pocket, and this loop's
      * per-ball cushion/jaw scan is the hot path during the long roll-out). */
@@ -3192,6 +3288,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
             } }
         if (check_skittles(w, b) && ev) *ev |= CUE_EV_SKITTLE;
     }
+    PROF_T(p4); PROF_ADD(3, p3, p4);
 }
 
 int cue_phys_moving(const CueWorld *w, const CueBall *balls, int n) {
@@ -3263,6 +3360,18 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
         iters++;
     }
     if (iters >= CUE_MAX_SUB) w->_acc = 0.0f;   /* shed backlog */
+#if defined(CUE_PHYS_PROF) && defined(MOTE_HOST)
+    {   const double tot = s_prof[1] + s_prof[2] + s_prof[3];
+        if (tot > 0.5) {
+            int on = 0, mov = 0, drop = 0;
+            for (int i = 0; i < n; i++) if (balls[i].on) { on++;
+                if (balls[i].drop > 0.0f) drop++;
+                if (balls[i].vel.x * balls[i].vel.x + balls[i].vel.z * balls[i].vel.z > 1e-6f) mov++; }
+            fprintf(stderr, "[physprof] %d substeps %.2f ms: integrate %.2f (of it mote_phys_step %.2f in %ld drop calls)  ball-ball %.2f  cushions/pockets %.2f  (%d on, %d moving, %d dropping)\n",
+                    iters, tot, s_prof[1], s_prof_step, s_prof_calls, s_prof[2], s_prof[3], on, mov, drop);
+        }
+        s_prof[1] = s_prof[2] = s_prof[3] = 0.0; s_prof_step = 0; s_prof_calls = 0; }
+#endif
     /* OFF THE TABLE AT THE END OF THE STEP, NOT IN THE MIDDLE OF IT. A ball
      * that reaches the floor keeps falling through the rest of the substeps
      * and is switched off here, so the pos and vel it leaves behind are the
