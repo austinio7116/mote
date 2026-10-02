@@ -83,28 +83,19 @@ int main(void) {
     }
     printf("\n");
 
-    /* ---- PRO KEEPS THE SHIPPED POCKETS ---------------------------------- *
+    /* ---- A RUNG MOVES THE POCKETS, NEVER THE BED ----------------------- *
      *
-     * Pro IS the table the game shipped with, because the shipped pockets were
-     * already the hard end of anything worth offering — the ladder goes UP from
-     * there. So its openings must be the shipped openings to the micron. Its
-     * CLOTH is faster, which is the half of a professional table a pocket size
-     * cannot express, so the structs are not identical and it is the pockets
-     * that are compared. */
+     * It used to say PRO kept the bare table's pockets to the micron. Only
+     * ThumbyCue on the Thumby Color ever played the bare table; CueVR always
+     * applies a rung, and the game is CueVR's now (2026-10-02). What still
+     * matters is that the rung leaves the bed and the balls alone. */
     for (int i = 0; i < NG; i++) {
         CueTable a, b;
         cue_table_init(&a, G[i].k);
         cue_table_init(&b, G[i].k);
         cue_table_spec(&b, CUE_SPEC_PRO);
-        float ac = 0, am = 0, bc = 0, bm = 0;
-        cue_table_openings(&a, &ac, &am);
-        cue_table_openings(&b, &bc, &bm);
         char m[128];
-        snprintf(m, sizeof m, "%-14s PRO keeps the shipped pockets (%.2f / %.2f)",
-                 G[i].name, (double)(bc*1000), (double)(bm*1000));
-        ok(fabsf(ac - bc) < 1e-6f && fabsf(am - bm) < 1e-6f, m);
-        /* And nothing about the BED moved with them. */
-        snprintf(m, sizeof m, "%-14s ...and the same bed and balls", G[i].name);
+        snprintf(m, sizeof m, "%-14s PRO keeps the bed and balls", G[i].name);
         ok(a.half_len == b.half_len && a.half_wid == b.half_wid && a.R == b.R, m);
     }
     printf("\n");
