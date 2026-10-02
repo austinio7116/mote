@@ -542,16 +542,34 @@
         as you hold it — the quickest way to read a position without walking round.</td></tr>
     <tr><td><b>Left stick</b></td>
         <td>Slides the table around the room. Works at any time, including mid-frame, on either
-        hand.</td></tr>
+        hand. With <a href="#moving">Movement: Camera</a> it walks you instead.</td></tr>
     <tr><td><b>Right stick</b></td>
         <td>Turns the table. Also at any time. Between the two sticks you can bring any shot in
-        front of you without walking.</td></tr>
+        front of you without walking. With <a href="#moving">Movement: Camera</a> it turns you
+        instead.</td></tr>
     <tr><td><b>Trigger</b> (in menus)</td><td>Selects the row or item you are pointing at.</td></tr>
     <tr><td><kbd>A</kbd> and <kbd>B</kbd></td><td>Confirm and go back.</td></tr>
     <tr><td><kbd>MENU</kbd></td><td>Pauses the game. Only the left controller has this button — if
         your cue is clamped to that one, the scoreboard shows a <b>MENU</b> row you can point at
         instead.</td></tr>
   </table>
+
+  <h3 id="moving">Movement: Table or Camera</h3>
+  <p>The sticks can move the table or move you. <b>MOVEMENT</b> is a row on the pause menu, and
+  <b>Settings &rarr; Movement</b> has it twice, because you may want it differently in each:
+  <b>MOVEMENT IN VR</b> for the rooms the game draws round you, and <b>MOVEMENT IN MIXED
+  REALITY</b> for your own room. The pause menu's row sets the one you are in.</p>
+  <table>
+    <tr><th>Setting</th><th>The sticks</th></tr>
+    <tr><td><b>TABLE</b></td><td>As described above: the left stick slides the table, the right
+      stick turns it. This is the default.</td></tr>
+    <tr><td><b>CAMERA</b></td><td>You walk the room, as in a first-person game. The left stick moves
+      you where you are looking and steps you to the side; the right stick turns you on the spot.
+      The best way to explore the pub, the club and the library.</td></tr>
+  </table>
+  <p><b>Walls stop you.</b> In the arena and the rooms, you cannot walk or slide through a wall, a
+  bookcase or the bar. Walk into one and you slide along it. If you change to a smaller room
+  while standing beyond its walls, you are brought back in towards the table.</p>
 
   <h3>When your hands go below the table</h3>
   <p>Two rows on <b>Settings &rarr; Controls</b>, for controllers. Neither changes your aim or the
@@ -2989,7 +3007,8 @@
   <p>After any shot, the <b>Replay</b> square on the pause menu plays it again — the swing of the cue
   included, not just the balls. The view is yours: the same controls that move the table move it
   during a replay, so you can watch from the pocket's end, from above, or from where your opponent
-  stood. Hold the <b>trigger</b> for slow motion, press <kbd>A</kbd> to watch it again, and point at
+  stood. Hold the <b>trigger</b> for slow motion, press <kbd>A</kbd> to watch it again (or, with a
+  real cue in your hand, press a <b>thumbstick</b> in), and point at
   <b>KEEP THIS SHOT</b> on the panel to save it — the row answers <b>SAVED 3/32</b>, and it will
   not save the same shot twice. Keeping a shot leaves the replay open, so you can watch it again
   after you have kept it.</p>
@@ -3015,7 +3034,13 @@
 
 <section id="online">
   <h2>Playing a friend</h2>
-  <p class="lede">Up to eight headsets share one table, on the same wi-fi or over the internet.</p>
+  <p class="lede">Up to eight headsets share one table, on the same wi-fi or over the internet.
+  Anyone else can watch.</p>
+
+  <p><b>The Online page is in two steps.</b> First choose how you want to play: LAN, HOST, JOIN,
+  QUICK, PRIVATE ROOM or BROWSE. Only when you host do you get the room's settings &mdash; the
+  format, how many players, and for winner stays on its cap &mdash; and then <b>OPEN THE ROOM</b>.
+  Joining asks nothing: you play the host's game.</p>
 
   <figure>
     <img src="img/cuevr/online_doubles.png" alt="Choosing the room's format">
@@ -3032,9 +3057,35 @@
     <tr><td><b>TEAMS OF 3</b></td><td>Four or six.</td></tr>
     <tr><td><b>TEAMS OF 4</b></td><td>Four, six or eight.</td></tr>
     <tr><td><b>KILLER</b></td><td>Three to eight, or two of you in a game of six.</td></tr>
+    <tr><td><b>WINNER STAYS ON</b></td><td>Three or more, up to the most the host allows. See
+      below.</td></tr>
   </table>
   <p>The computer plays every place nobody takes, and plays on for anyone who leaves. The host
   chooses the format and everyone in the room plays it.</p>
+
+  <h3>Winner stays on</h3>
+  <p>A room for a group. Two play a frame; the winner stays at the table and the next in the queue
+  comes on to play them, and the challenger breaks. People come and go as they like, and the room
+  runs until everyone has left. Only people play: there are no computer players in it.</p>
+  <ul>
+    <li><b>The host sets it up:</b> the most players allowed, and a <b>cap</b> on how many frames in
+      a row a winner may stay on &mdash; none, 2, 3 or 5. At the cap the winner goes to the back of
+      the queue too.</li>
+    <li><b>The scoreboard keeps count:</b> everyone in queue order with their wins, the two at the
+      table lit, and who is next.</li>
+    <li><b>A pound coin on the rail for each player waiting,</b> as in a pub. It moves out of the
+      way if your cue comes near it.</li>
+  </ul>
+
+  <h3>Watching</h3>
+  <p><b>Any game being played online can be watched.</b> <b>BROWSE</b> lists rooms in two columns:
+  those open to join, and those being played, each with <b>WATCH</b>. If you have a room's code,
+  <b>WATCH</b> sits beside JOIN on the code screen. Every format can be watched: one against one,
+  doubles, teams, killer and winner stays on.</p>
+  <p>A watcher sees the table, the strokes and the score as the players do, but cannot play: you
+  hold no cue, the game, its rules and its table are locked, and there is no CONCEDE. The board
+  says <b>WATCHING</b> and names the players. <b>STOP WATCHING</b> on the pause menu takes you
+  home.</p>
 
   <div class="grid g2">
     <figure><img src="img/cuevr/lobby.jpg" alt="Hosting a game">
@@ -3123,8 +3174,9 @@
       on you can see what the white is doing, how much it is spinning and which way.</td></tr>
     <tr><td><b>CUE</b> (the strip)</td><td>Your cue, from a rack of twenty-three or your own.</td></tr>
     <tr><td><b>Environment &rarr; Lighting</b></td><td>The light rig over the table.</td></tr>
-    <tr><td><b>Environment &rarr; Surroundings</b></td><td>Your own room, a dark hall, or an arena.
-      Also three chips on the pause menu, since that is the one you change mid-frame.</td></tr>
+    <tr><td><b>Environment &rarr; Surroundings</b></td><td>Your own room, a dark hall, an arena, a
+      pub, a snooker club, a dining room or a library. Also chips on the pause menu, since that is
+      the one you change mid-frame.</td></tr>
     <tr><td><b>Workshop &rarr; Cue</b></td><td>Build a cue the way a real one is made: splice,
       veneers, panels, insert, plate, end cap, woods and colours. See <a href="#cues">Cues</a>.</td></tr>
     <tr><td><b>Workshop &rarr; Ball set</b></td><td>Start from an authored set and change the style,
@@ -3454,6 +3506,17 @@
     <figure><img src="img/cuevr/surround1.jpg" alt="Dark room"><figcaption><span class="cap-t">DARK ROOM</span> — a plain dark hall drawn over your room.</figcaption></figure>
     <figure><img src="img/cuevr/surround2.jpg" alt="Arena"><figcaption><span class="cap-t">ARENA</span> — a tournament arena with seating.</figcaption></figure>
   </div>
+  <div class="grid g2">
+    <figure><img src="img/cuevr/surround3.jpg" alt="The pub"><figcaption><span class="cap-t">PUB</span> — a smoky 1980s pub: red Axminster carpet, a bar of bottles and optics, a dartboard, a jukebox and a cigarette machine.</figcaption></figure>
+    <figure><img src="img/cuevr/surround4.jpg" alt="The snooker club"><figcaption><span class="cap-t">SNOOKER CLUB</span> — a long, dim room of full-size tables under canopy lights, the nearest under its dust cover, with slider scoreboards, cue racks and honours boards.</figcaption></figure>
+    <figure><img src="img/cuevr/surround5.jpg" alt="The dining room"><figcaption><span class="cap-t">DINING ROOM</span> — a stately home's dining room: white sash windows onto a terrace and garden, a chandelier and a fireplace.</figcaption></figure>
+    <figure><img src="img/cuevr/surround6.jpg" alt="The library"><figcaption><span class="cap-t">LIBRARY</span> — an old mansion's library in dark oak: a gallery of books up a spiral staircase, chesterfields by the fire, a desk and a globe.</figcaption></figure>
+  </div>
+  <p><b>SMOKE</b> and <b>TAR</b>, on <b>Settings &rarr; Graphics</b>, set how thick the smoke
+  hangs in the pub and the snooker club, and how yellow it has turned the ceiling.</p>
+  <p>In every room but your own and the dark hall, <a href="#moving">walls stop you</a>, and
+  <a href="#moving">Movement: Camera</a> lets you walk round and look at it all.</p>
+
 </section>
 
 <section id="pockets">
@@ -4391,11 +4454,14 @@
     'controls':         'settings buttons remap sticks options configure',
     'setting up the table': 'height move position place table set up recentre',
     'pinning the scoreboard': 'scoreboard board move score display arena screen',
+    'movement: table or camera': 'walk camera move explore fps first person turn walls locomotion sticks mixed reality vr',
+    'winner stays on': 'queue challenger cap coin group pub online room wins',
+    'watching':         'watch spectate spectator browse live game online stop watching',
     'cloth':            'colour cloth baize green table colour change',
     'target':           'target bullseye practice position rings 10 20 50 chalk',
     'woodwork':         'timber wood frame rails colour varnish varnished plain finish shine smooth grain mahogany oak walnut cherry maple rosewood birdseye curly ribbon ebony wenge leather metal',
     'lighting':         'lights lamps brightness dark',
-    'surroundings':     'arena passthrough dark room environment background',
+    'surroundings':     'arena passthrough dark room environment background pub club snooker club dining room library smoke tar',
     'snap to the edges': 'move around walk turn teleport jump edge',
     'the games':        'game modes list which games rules',
     'opponents':        'ai computer cpu difficulty strength persona opponent',
