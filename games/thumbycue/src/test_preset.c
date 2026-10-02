@@ -288,6 +288,18 @@ int main(void) {
                 CueTable t; cue_table_init(&t, G[i].k);
                 float base_c = 0.0f, base_m = 0.0f;
                 cue_table_openings(&t, &base_c, &base_m);
+                /* PYRAMID'S BEDS ARE TWO TABLES, not one table in two sizes:
+                 * the 7 ft stop IS the PYRAMID7 kind, with its own balls and
+                 * its own pockets, and the club stops are cut to ball + 7 mm
+                 * and ball + 16 mm on whichever bed they stand on (see
+                 * cue_table_variant). Each is held to that, not to the 12 ft
+                 * tournament table. */
+                if (CUE_GAME_IS_PYRAMID(G[i].k) &&
+                    (v == CUE_TAB_7FT || v == CUE_TAB_PYR_CLUB7 || v == CUE_TAB_PYR_CLUB12)) {
+                    CueTable r; cue_table_init(&r, v == CUE_TAB_PYR_CLUB12 ? CUE_GAME_PYRAMID : CUE_GAME_PYRAMID7);
+                    if (v == CUE_TAB_7FT) cue_table_openings(&r, &base_c, &base_m);
+                    else { base_c = 2.0f * r.R + 0.007f; base_m = 2.0f * r.R + 0.016f; }
+                }
                 cue_table_variant(&t, v);
 
                 char why[256] = {0};

@@ -127,7 +127,13 @@ int main(void) {
          * bare, which is what every table saved before it existed reads back
          * as -- and now genuinely does, since unpack takes a shorter block as
          * a prefix rather than refusing it. */
-        ck(cue_table_field_count() == 59,
+        /* 65: mu_s, how fast sidespin dies on the cloth (SIM -- it bends the
+         * path), the corner jaw's own handles jaw_h1_c / jaw_h2_c, the arc-cut
+         * middle jaw_arc_m / jaw_arc_d_m and the middles' own knuckle jaw_r_m
+         * (the Brazilian tables). The five jaw fields are SIM for the reason
+         * the rest of the jaw is: they move the cushion a ball bounces off.
+         * Zero in each means "as before", so older tables read back unchanged. */
+        ck(cue_table_field_count() == 65,
            "field count unchanged (add a field -> decide if it is SIM, then update this)");
 
         /* And the playing numbers, one per kind of thing a table can be: its

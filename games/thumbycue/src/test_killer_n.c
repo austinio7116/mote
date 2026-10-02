@@ -4,10 +4,19 @@
  * strokes (made up, but every kind the resolver can be handed -- pots, dry
  * shots, air shots, scratches, balls off the table, a table potted dry, whole
  * matches with next_frame between them) is played through the rules and every
- * byte of the struct as it was before the N-player fields were added is folded
- * into one hash, with the status line. The expected numbers were recorded from
- * the rules BEFORE this change (mote 6dd2a9c1), so a difference anywhere in the
- * two-player game -- a message, a life, a turn, a frame booked -- fails here.
+ * thing a player can see of the game -- whose shot, the lives, ball in hand, the
+ * foul, the message and the status line, the frame and the match -- is folded
+ * into one hash. The expected numbers come from the rules BEFORE N-player
+ * killer (mote 6dd2a9c1), so a difference anywhere in the two-player game -- a
+ * message, a life, a turn, a frame booked -- fails here.
+ *
+ * WHAT IS SEEN, NOT THE STRUCT'S BYTES. It used to hash every byte of CueRules
+ * up to `conceded`, and every field another game added in front of that (the
+ * sinuca's phase, the mesinha's choices) moved the bytes and failed it with
+ * Killer playing exactly as before -- the frame counts never changed. A test
+ * that fails on every unrelated change is one nobody reads. Recorded again
+ * this way FROM 6dd2a9c1 itself (2026-10-02), so it still compares against
+ * the old rules and not against whatever they are today.
  *
  * The second plays 3, 5 and 8 players: the drawn order, who shoots next, a
  * player going out and being skipped, lives never below zero, ball in hand to
@@ -67,8 +76,16 @@ static uint64_t fnv(uint64_t h, const void *p, size_t n) {
     return h;
 }
 
-/* Every byte the struct had before the Killer fields went on the end. */
-#define OLD_PREFIX (offsetof(CueRules, conceded) + sizeof(int))
+/* What a player can see of the game, field by field -- every one of these has
+ * been in CueRules since before N-player killer, so the same function builds
+ * against the old rules to record and the new ones to compare. */
+static uint64_t seen(uint64_t h, const CueRules *r) {
+    const int v[] = { r->turn, r->score[0], r->score[1], r->frame_over, r->winner,
+                      r->ball_in_hand, r->last_foul, r->break_shot,
+                      r->frames[0], r->frames[1], r->match_over, r->match_winner };
+    h = fnv(h, v, sizeof v);
+    return fnv(h, r->msg, strnlen(r->msg, sizeof r->msg));
+}
 
 static uint64_t identity_run(CueGameKind k, uint32_t seed, int strokes, int *nframes) {
     CueRules r;
@@ -104,7 +121,7 @@ static uint64_t identity_run(CueGameKind k, uint32_t seed, int strokes, int *nfr
                 if (B[i].on && B[i].id == pot[q]) { B[i].on = 0; break; }
         r.n_off = off;
         cue_rules_resolve(&r, B, NB, &W, first, scratch, 1, pot, np);
-        h = fnv(h, &r, OLD_PREFIX);
+        h = seen(h, &r);
         char st[64]; cue_rules_status(&r, st, sizeof st);
         h = fnv(h, st, strlen(st));
         if (r.rerack == 2) { NB = cue_table_rack(&T, B); B[0].on = 1; }
@@ -118,10 +135,10 @@ static uint64_t identity_run(CueGameKind k, uint32_t seed, int strokes, int *nfr
                 cue_rules_next_frame(&r, &T);
                 NB = cue_table_rack(&T, B); B[0].on = 1;
             }
-            h = fnv(h, &r, OLD_PREFIX);
+            h = seen(h, &r);
         } else if (d == 99) {                                  /* now and then, give it up */
             cue_rules_concede(&r, r.turn);
-            h = fnv(h, &r, OLD_PREFIX);
+            h = seen(h, &r);
         }
     }
     if (nframes) *nframes = frames;
@@ -186,15 +203,15 @@ static int random_frame(CueRules *r, int n, uint32_t seed, int *bad, int *outs, 
 
 int main(void) {
     printf("killer_n\n");
-    printf("  sizeof(CueRules) = %d, old prefix %d\n", (int)sizeof(CueRules), (int)OLD_PREFIX);
 
     /* ---- 1. two players, byte for byte what they were ---- */
-    {   /* recorded from the rules before N-player killer (mote 6dd2a9c1) */
+    {   /* recorded from the rules before N-player killer: mote 6dd2a9c1, built with
+         * -DKILLER_RECORD_ONLY and run with KILLER_RECORD=1 */
         static const struct { CueGameKind k; uint32_t seed; uint64_t want; int frames; } G[] = {
-            { CUE_GAME_KILLER_UK, 1u,        0x7139cc6ce1ff05ddull, 728 },
-            { CUE_GAME_KILLER_US, 12345u,    0x9c3a6d45c7cd5053ull, 745 },
-            { CUE_GAME_KILLER_CN, 987654u,   0x6b40dc4e2b11bd60ull, 743 },
-            { CUE_GAME_KILLER_UK, 55555u,    0x35ccc34ad500fbc0ull, 734 },
+            { CUE_GAME_KILLER_UK, 1u,        0xced90973e4159d49ull, 728 },
+            { CUE_GAME_KILLER_US, 12345u,    0x99fcc6f68e648993ull, 745 },
+            { CUE_GAME_KILLER_CN, 987654u,   0x6120f0b5f157e357ull, 743 },
+            { CUE_GAME_KILLER_UK, 55555u,    0x4de5aa8981acbb42ull, 734 },
         };
         const int record = getenv("KILLER_RECORD") != NULL;
         for (unsigned i = 0; i < sizeof G / sizeof G[0]; i++) {
@@ -211,6 +228,7 @@ int main(void) {
         if (record) return 0;
     }
 
+#ifndef KILLER_RECORD_ONLY   /* built against the old rules: part 1 only */
     /* ---- 2. the draw ---- */
     {   uint8_t a[8], b2[8]; int same = 1, perm = 1, moved = 0;
         cue_rules_killer_draw(777u, 8, a); cue_rules_killer_draw(777u, 8, b2);
@@ -382,6 +400,9 @@ int main(void) {
     }
 
     /* ---- 9. two players through the new calls: the old game, the old fields ---- */
+    /* every byte before the Killer fields -- both built in this run, so a
+     * field added in front changes both alike */
+    #define OLD_PREFIX (offsetof(CueRules, conceded) + sizeof(int))
     {   CueRules r, o; fresh(&r, CUE_GAME_KILLER_UK); o = r;
         const uint8_t order[2] = { 1, 0 };
         cue_rules_killer_setup(&r, 2, 0, order);
@@ -413,6 +434,7 @@ int main(void) {
            "the plan from six players is the plan against one opponent with the field's lives", d);
     }
 
+#endif
     printf("\n%s\n", s_fail ? "FAILED" : "all good");
     return s_fail != 0;
 }
