@@ -180,7 +180,31 @@ def roomn_tests(port):
         c = ls.recv(4096)
         if not c: break
         lst += c
-    check("a started room is off LIST", b"TEST" not in lst)
+    check("a started room is off LIST (no ROOM line)", b"ROOM TEST" not in lst)
+    check("...and listed to watch instead (LIVE, which old readers skip)", b"LIVE TEST " in lst, lst.decode())
+
+    print("\n--- ROOMN: watchers (6.3) ---")
+    w = conn(port, f"MOTE2 ROOMN {GID} WATCH TEST")
+    seat = readline(w)
+    check("a started room takes a watcher, at place 8", seat.startswith("SEAT 8 "), seat)
+    mem = recv_frame(w)
+    check("the watcher hears who plays (and itself)", mem[2].startswith(b"MEMBERS ") and b" 8" in mem[2], mem[2].decode())
+    hw = recv_frame(ms[0])
+    check("the host alone hears WATCHER 8", hw[0] == 0xFE and hw[2] == b"WATCHER 8", hw[2].decode())
+    send_frame(ms[2], 0xFF, b"for all")
+    got = recv_frame(w)
+    check("the watcher hears what the players send everyone", got[0] == 2 and got[2] == b"for all")
+    for k in (0, 1, 3, 4, 5, 6, 7): recv_frame(ms[k])
+    send_frame(w, 0xFF, b"from the stands")
+    hf = recv_frame(ms[0])
+    check("a watcher's broadcast reaches the host alone", hf[0] == 8 and hf[2] == b"from the stands")
+    send_frame(ms[1], 0xFF, b"next")
+    got = [recv_frame(ms[k])[2] for k in (0, 2, 3, 4, 5, 6, 7)]
+    check("...and no player but the host ever saw it", all(g == b"next" for g in got), str(got))
+    recv_frame(w)
+    w.close()
+    uw = recv_frame(ms[0])
+    check("the host hears UNWATCH 8, and the room carries on", uw[2] == b"UNWATCH 8", uw[2].decode())
 
     print("\n--- ROOMN: leaving ---")
     js[3].close()                                # member 4

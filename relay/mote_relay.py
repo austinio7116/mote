@@ -210,6 +210,20 @@ class RoomN:
                 return k
         return -1
 
+    # WATCHERS (6.3): places WATCH_BASE.. -- never a player's place, never
+    # counted in the room's size, so a full or started room can still be
+    # watched. A client from before them ignores any place past 7.
+    WATCH_BASE, WATCH_MAX = 8, 16
+    def free_watch(self):
+        for k in range(self.WATCH_BASE, self.WATCH_BASE + self.WATCH_MAX):
+            if k not in self.members:
+                return k
+        return -1
+    def players(self):
+        return {k: m for k, m in self.members.items() if k < self.WATCH_BASE}
+    def watchers(self):
+        return [k for k in self.members if k >= self.WATCH_BASE]
+
     def frame(self, frm, payload):
         self.seq = (self.seq + 1) & 0xFFFFFFFF
         return (5 + len(payload)).to_bytes(2, "little") + bytes([frm]) + \
@@ -225,7 +239,11 @@ class RoomN:
             self.drop(m, "backlog")
 
     def deliver(self, frm, to, payload, cap):
-        """One frame from `frm`: to one member, or everyone but the sender."""
+        """One frame from `frm`: to one member, or everyone but the sender.
+        A watcher speaks to the host alone, whatever it addresses: it can say
+        hello, and nothing it sends can reach the table of anyone playing."""
+        if frm >= self.WATCH_BASE:
+            to = 0
         if to == self.ALL:
             targets = [m for k, m in sorted(self.members.items()) if k != frm]
         else:
@@ -253,6 +271,12 @@ class RoomN:
         if self.members.get(m.k) is m:
             del self.members[m.k]
         log(f"nroom {self.gid}/{self.code}: member {m.k} left ({why}), {len(self.members)} remain")
+        if m.k >= self.WATCH_BASE:
+            if not self.closed:
+                self.control(f"UNWATCH {m.k}", 1 << 30, only=0)
+            if not self.members:
+                self.done.set()
+            return
         if m.k == 0 and not self.closed:
             self.closed = True
             self.control("CLOSED", 1 << 30)
@@ -624,9 +648,16 @@ class Relay:
         writer.write(f"SEAT {k} {room.maxn}\n".encode())
         m.task = asyncio.create_task(self.member_writer(room, m))
         cap = self.args.room_backlog
-        room.control("MEMBERS " + " ".join(str(x) for x in sorted(room.members)), cap, only=k)
-        if others:
-            room.control(f"JOINED {k}", cap, skip=k)
+        if k >= RoomN.WATCH_BASE:
+            # a WATCHER: who is playing (and itself), and the host is told --
+            # by a word a client from before watchers does not know, so it
+            # never takes one for a player
+            room.control("MEMBERS " + " ".join(str(x) for x in sorted(room.players())) + f" {k}", cap, only=k)
+            room.control(f"WATCHER {k}", cap, only=0)
+        else:
+            room.control("MEMBERS " + " ".join(str(x) for x in sorted(room.players())), cap, only=k)
+            if others:
+                room.control(f"JOINED {k}", cap, skip=k)
         log(f"nroom {key}: member {k} in ({peer}), {len(room.members)}/{room.maxn}")
         await self.member_reader(room, m)
         await asyncio.gather(m.task, return_exceptions=True)
@@ -663,6 +694,17 @@ class Relay:
             if room.started:
                 writer.write(b"BUSY\n"); await writer.drain(); return
             k = room.free_place()
+            if k < 0:
+                writer.write(b"FULL\n"); await writer.drain(); return
+            await self.nroom_member(key, room, k, reader, writer, peer)
+            return
+        if sub == "WATCH":                  # WATCH <CODE>: a room being played, to watch
+            code = clean_code(a[1]) if len(a) > 1 else ""
+            key = rkey(gid, code)
+            room = self.nrooms.get(key) if code else None
+            if room is None or room.closed or 0 not in room.members:
+                writer.write(b"NONE\n"); await writer.drain(); return
+            k = room.free_watch()
             if k < 0:
                 writer.write(b"FULL\n"); await writer.drain(); return
             await self.nroom_member(key, room, k, reader, writer, peer)
@@ -817,7 +859,13 @@ class Relay:
                 for k, r in list(self.nrooms.items()):
                     if len(out) > 3500: break
                     if r.public and r.gid == gid and not r.started and not r.closed:
-                        out += f"ROOM {r.code} {r.label} {len(r.members)}/{r.maxn}\n".encode()
+                        out += f"ROOM {r.code} {r.label} {len(r.players())}/{r.maxn}\n".encode()
+                    # ...and games being played, to watch (6.3): a line a
+                    # reader from before them skips, as it skips any it does
+                    # not know. Public rooms only, started or full.
+                    elif (r.public and r.gid == gid and not r.closed and 0 in r.members
+                          and (r.started or len(r.players()) >= r.maxn)):
+                        out += f"LIVE {r.code} {r.label} {len(r.players())}/{r.maxn} {len(r.watchers())}\n".encode()
                 out += b"END\n"
                 writer.write(out); await writer.drain()
                 return
