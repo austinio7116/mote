@@ -1773,6 +1773,20 @@ enum { SET_MINIMAP, SET_SOUND, SET_CONTROLS, SET_SAVE, SET_LOAD, SET_BRING, SET_
 static uint8_t g_cheats;                       /* BRING row revealed */
 static int set_rows(void){ return g_cheats ? SET_N : SET_N - 1; }
 static int   g_menutab = TAB_MAP, g_setsel;
+/* TITLE MENU. Driven like the settings page -- UP/DOWN to pick, A to take it --
+ * rather than a dedicated button per option. Two of the three rows are
+ * conditional (CONTINUE needs a save, deathmatch needs ABI 44), so the list is
+ * built each frame and g_titlesel indexes the VISIBLE rows, not the enum. */
+static int g_have_save;        /* selected slot holds a game; see refresh_have_save */
+enum { TM_NEW, TM_CONTINUE, TM_DM, TM_N };
+static uint8_t g_titlesel;
+static int title_rows(uint8_t *out) {
+    int n = 0;
+    out[n++] = TM_NEW;                                  /* always offered */
+    if (g_have_save)                 out[n++] = TM_CONTINUE;
+    if (mote->abi_version >= 44)     out[n++] = TM_DM;
+    return n;
+}
 static const char *g_setmsg; static float g_setmsg_t;
 /* SOUND on/off, persisted.
  *
@@ -6559,7 +6573,6 @@ typedef struct {
  * otherwise be a flash read every frame. The settings page can afford to ask
  * directly -- it is a static menu -- but the title cannot. Refreshed at boot
  * and after a save, which are the only two moments the answer can change. */
-static int g_have_save;
 static void refresh_have_save(void){
     g_have_save = (mote->load && mote->load(SAVE_SLOT, 0, 0) > 0);
 }
@@ -6924,16 +6937,20 @@ static void g_update(float dt) {
         mote->scene_camera(&cam_basis, cam_pos, FOV);
         draw_ground_window(); draw_buildings_window();
         if (g_state==ST_TITLE){
-            if (mote_just_pressed(in,MOTE_BTN_A)){ reset_game(); g_state=ST_PLAY; }
-            /* LB CONTINUES a saved game, and is offered only when the selected
-             * slot holds one -- an option that does nothing is worse than no
-             * option. load_game rebuilds the saved city itself, so there is no
+            uint8_t rows[TM_N]; int nrow = title_rows(rows);
+            if (g_titlesel >= nrow) g_titlesel = 0;     /* a row can disappear */
+            if (mote_just_pressed(in,MOTE_BTN_UP))   g_titlesel = (uint8_t)((g_titlesel+nrow-1)%nrow);
+            if (mote_just_pressed(in,MOTE_BTN_DOWN)) g_titlesel = (uint8_t)((g_titlesel+1)%nrow);
+            int pick = mote_just_pressed(in,MOTE_BTN_A) ? rows[g_titlesel] : -1;
+
+            if (pick == TM_NEW){ reset_game(); g_state=ST_PLAY; }
+            /* CONTINUE rebuilds the saved city inside load_game, so there is no
              * reset_game() first; calling one would roll a fresh map and then
              * immediately throw it away. */
-            else if (mote_just_pressed(in,MOTE_BTN_LB) && g_have_save){
+            else if (pick == TM_CONTINUE){
                 if (load_game()) g_state = ST_PLAY;
             }
-            else if (mote->abi_version>=44 && mote_just_pressed(in,MOTE_BTN_B)){
+            else if (pick == TM_DM){
                 /* the engine lobby connects (USB/LAN/Internet) and resolves the
                  * authority; nonce 2 beats 1 so the existing hello + city transfer
                  * handshake runs unchanged, tie-free */
@@ -8234,19 +8251,32 @@ static void g_overlay(uint16_t *fb) {
         }
         /* translucent dark banner so the body text pops over the live city, framed by
          * the gold rule on top (dim the real pixels — you can still see the road) */
-        mote_dim_box(fb, 4, 67, 120, 58, 6);   /* keep 6/16 ≈ 38% */
+        mote_dim_box(fb, 4, 66, 120, 60, 6);   /* keep 6/16 ≈ 38% */
         mote->draw_rect(fb, 10, 63, 108, 1, MOTE_RGB565(12,10,14), 1, 0, 128);
         mote->draw_rect(fb, 10, 62, 108, 1, MOTE_RGB565(244,204,72), 1, 0, 128);
-        /* engine Audiowide (v47): CTA as a 1.66x banner, stats/labels at 1.5x */
-        mote_ftextfc(mote, fb, g_fmed,  64, 71, MOTE_RGB565(235,238,245), "BEST $%d", best_cash);
-        mote_ftextc (mote, fb, g_fread, 64, 87, MOTE_RGB565(150,230,150), "PRESS A TO PLAY");
-        if (mote->abi_version>=44)
-          mote_ftextc(mote, fb, g_fmed, 64, 103, MOTE_RGB565(245,110,95), "B  2P DEATHMATCH");
-        /* Only when there is a game to continue. The slot is named because the
-         * settings page can point at any of the three, and "LOAD" alone would
-         * not say which one you are about to get. */
-        if (g_have_save)
-          mote_ftextfc(mote, fb, g_fmed, 64, 114, MOTE_RGB565(150,200,245), "LB  CONTINUE %d", g_slot + 1);
+        mote_ftextfc(mote, fb, g_fmed, 64, 69, MOTE_RGB565(235,238,245), "BEST $%d", best_cash);
+
+        /* THE MENU. Rows are centred in the band under the BEST line so that
+         * one, two or three of them all sit where the eye expects, instead of
+         * the list hanging off the top when deathmatch or CONTINUE is absent. */
+        { uint8_t rows[TM_N]; int nrow = title_rows(rows);
+          if (g_titlesel >= nrow) g_titlesel = 0;
+          int y0 = 83 + (39 - nrow*13) / 2;
+          for (int i = 0; i < nrow; i++) {
+              int y = y0 + i*13, sel = (i == g_titlesel);
+              if (sel) mote->draw_rect(fb, 10, y-2, 108, 13, MOTE_RGB565(46,56,86), 1, 0, 128);
+              uint16_t fg = sel ? MOTE_RGB565(250,244,200) : MOTE_RGB565(160,170,192);
+              switch (rows[i]) {
+              case TM_NEW: mote_ftextc(mote, fb, g_fmed, 64, y, fg, "NEW GAME"); break;
+              /* The slot is named: the settings page can point at any of the
+               * three, and "CONTINUE" alone would not say which you get. */
+              case TM_CONTINUE: mote_ftextfc(mote, fb, g_fmed, 64, y, fg, "CONTINUE %d", g_slot+1); break;
+              default: mote_ftextc(mote, fb, g_fmed, 64, y, fg, "2P DEATHMATCH"); break;
+              }
+          }
+        }
+        /* The buttons are no longer written on each row, so say them once. */
+        mote->text(fb, "UP/DOWN PICK   A SELECT", 64 - 23*4/2, 121, MOTE_RGB565(150,160,180));
         return;
     }
     if (g_state==ST_WASTED || g_state==ST_BUSTED){
