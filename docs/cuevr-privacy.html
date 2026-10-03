@@ -90,9 +90,9 @@ section happens at all.</p>
   <li>The position of your head and your hands, so your opponent can see your cue move.</li>
   <li>Your display name and which cue you chose.</li>
   <li>The room code, when you are using one.</li>
+  <li>Your voice, only if you have turned voice chat on (see <i>Voice chat</i> below).</li>
 </ul>
-<p>That is the whole of it. There is no voice chat, no text chat, and no way for either player to
-send anything else.</p>
+<p>That is the whole of it. There is no text chat, and no way for a player to send anything else.</p>
 
 <h3>How it gets there</h3>
 <ul>
@@ -104,6 +104,27 @@ send anything else.</p>
       handles the internet (IP) address of each connected player for the duration of the session.
       Addresses are used only to route the session and are not stored, logged for analysis, or
       shared. The relay holds no accounts and keeps no history of matches.</li>
+</ul>
+
+<h2>Voice chat</h2>
+<p>Voice chat is being added to online rooms. This section describes how it works in the versions of
+CueVR that have it. It is <b>off unless you turn it on</b>.</p>
+<ul>
+  <li><b>Your choice.</b> Settings &gt; Sound &gt; YOUR MICROPHONE is OFF to begin with. PUSH TO TALK
+      sends your voice only while you hold a thumbstick in. OPEN sends it while you are speaking;
+      silence is not sent.</li>
+  <li><b>The microphone permission</b> is asked for the first time you set the microphone to PUSH TO
+      TALK or OPEN. With PUSH TO TALK the microphone is listening while you are in a room, so that your
+      first word is not cut off, but nothing is sent until you press.</li>
+  <li><b>What is sent:</b> your voice, compressed, in short pieces as you speak, and where you are
+      standing at the table so that your voice comes from your place. It goes only to the other people
+      in that room, through the developer's relay server.</li>
+  <li><b>What is kept: nothing.</b> The relay passes voice on as it arrives. It never records, stores or
+      listens to it, and nothing is recorded on your headset either.</li>
+  <li><b>Who hears you:</b> the players and anyone watching that room. Watchers can hear the players but
+      cannot be heard.</li>
+  <li><b>Your controls:</b> MUTE anyone in the room, immediately, on your own headset; THE OTHERS'
+      VOICES sets how loud everyone else is, down to off; and REPORT (see below).</li>
 </ul>
 
 <h2>Sharing what you make</h2>
@@ -128,6 +149,11 @@ does not, you can report them from the headset's own menu button while you are i
 reporting tools. A report is handled by Meta under Meta's privacy policy and passed to us so that we
 can look into it. It can include what you tell us in it, who the other player was (their Meta display
 name or user ID), when it happened, and anything you choose to attach in Meta's report form.</p>
+<p>In versions with voice chat you can also choose REPORT on the pause screen, next to a player in your
+room. That sends us one line: the time, the room, the reason you picked, both players' display names
+and their places in the room. It does not include anyone's internet address: the relay keeps only a
+one-way scrambled form of it (a salted hash), so that repeated reports about the same connection can be
+recognised without the address itself being kept.</p>
 <ul>
   <li>We use a report only to look into the conduct it describes — for example to warn a player or to
       stop them playing online.</li>
@@ -143,8 +169,8 @@ name or user ID), when it happened, and anything you choose to attach in Meta's 
   camera images, and it does not request camera permission. No image, video or scan of your
   surroundings is captured, stored or transmitted.
 </div>
-<p>The same is true of your microphone: CueVR does not request microphone permission and does not
-record audio.</p>
+<p>Your microphone is used only for voice chat, only if you turn it on, and nothing you say is
+recorded (see <i>Voice chat</i>).</p>
 
 <h2>What the app is permitted to do</h2>
 <p>These are the only permissions the app declares:</p>
@@ -153,9 +179,11 @@ record audio.</p>
   <tr><td><code>INTERNET</code></td><td>Online multiplayer, and the Meta entitlement check.</td></tr>
   <tr><td><code>ACCESS_NETWORK_STATE</code></td><td>To tell whether a network is available before trying to connect.</td></tr>
   <tr><td><code>OPENXR</code> / <code>OPENXR_SYSTEM</code></td><td>To run as a VR application.</td></tr>
+  <tr><td><code>RECORD_AUDIO</code></td><td>Voice chat in online rooms, in the versions that have it. Asked for only when you
+      turn the microphone on.</td></tr>
 </table>
 <p>There is no location permission, no contacts permission, no storage permission for your personal
-files, no camera permission and no microphone permission.</p>
+files and no camera permission.</p>
 
 <h2>What we do not do</h2>
 <ul>
