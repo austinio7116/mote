@@ -8251,7 +8251,7 @@ static void g_overlay(uint16_t *fb) {
         }
         /* translucent dark banner so the body text pops over the live city, framed by
          * the gold rule on top (dim the real pixels — you can still see the road) */
-        mote_dim_box(fb, 4, 66, 120, 60, 6);   /* keep 6/16 ≈ 38% */
+        mote_dim_box(fb, 4, 66, 120, 57, 6);   /* keep 6/16 ≈ 38%; 57 ends just under the last row */
         mote->draw_rect(fb, 10, 63, 108, 1, MOTE_RGB565(12,10,14), 1, 0, 128);
         mote->draw_rect(fb, 10, 62, 108, 1, MOTE_RGB565(244,204,72), 1, 0, 128);
         mote_ftextfc(mote, fb, g_fmed, 64, 69, MOTE_RGB565(235,238,245), "BEST $%d", best_cash);
@@ -8275,8 +8275,6 @@ static void g_overlay(uint16_t *fb) {
               }
           }
         }
-        /* The buttons are no longer written on each row, so say them once. */
-        mote->text(fb, "UP/DOWN PICK   A SELECT", 64 - 23*4/2, 121, MOTE_RGB565(150,160,180));
         return;
     }
     if (g_state==ST_WASTED || g_state==ST_BUSTED){
