@@ -814,6 +814,10 @@ void  cue_phys_set_squirt(float rad);
 float cue_phys_squirt(void);
 /* The spin a tip offset buys, as a multiple of the rigid-sphere ideal; 1.0 is
  * the model as it stands. A tuning knob -- keep it at 1.0 for online play. */
+/* The spin a tip offset buys, against the rigid-sphere ideal: 0.80 on every
+ * table since 6.4 (Mark, 2026-10-03), after the 6.3 testers found the full
+ * ideal too much -- first on UK 8-ball's light white, then everywhere. */
+#define CUE_SPIN_GAIN_DEFAULT 0.80f
 void  cue_phys_set_spin_gain(float k);
 float cue_phys_spin_gain(void);
 
