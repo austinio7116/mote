@@ -102,8 +102,11 @@ section happens at all.</p>
       developer, which forwards it between the players in the room (up to eight) and anyone watching
       the match. To do that the server necessarily
       handles the internet (IP) address of each connected player for the duration of the session.
-      Addresses are used only to route the session and are not stored, logged for analysis, or
-      shared. The relay holds no accounts and keeps no history of matches.</li>
+      Addresses are used to route the session. The server's ordinary operating log also notes the
+      address of each connection as it joins a room, saves or fetches a share code, or publishes to the
+      gallery, beside the room or code it was for. That log is read only to keep the service running
+      and to deal with misuse; it is not analysed, not shared, and is overwritten as it rolls over.
+      The relay holds no accounts and keeps no history of matches.</li>
 </ul>
 
 <h2>Voice chat</h2>
