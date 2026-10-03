@@ -85,6 +85,38 @@ Wire protocol (client <-> relay), one text handshake line then raw bytes:
     member whose unsent backlog passes --room-backlog bytes is dropped (LEFT)
     rather than stalling the room. Old verbs are untouched.
 
+    VOICE (CueVR 6.4, test builds first): a room's members may talk. Nothing
+    of it reaches a client that does not ask, so an old client in the same
+    room sees exactly the frames it always did, numbered exactly as before.
+        to the relay:  "VOICE"  ->  from 0xFE, to that member alone:
+                       "VOICE <TOKEN> <UDPPORT>"   (TOKEN: 16 hex digits)
+                       (an old relay, or one run with --no-voice, says
+                       nothing, and the client simply has no voice)
+                       "VOICE TCP" / "VOICE UDP": how this member wants voice
+                       delivered (it says TCP when the relay's UDP never
+                       reaches it; UDP again when it does)
+    UDP, to <relay>:<UDPPORT>, every datagram carrying the member's token:
+        client -> relay:  'K' 1 TOKEN(8) u32 id u32 ms   (keepalive; answered)
+                          'A' 1 TOKEN(8) <voice packet>  (fanned out)
+        relay -> client:  'P' 1 u32 id u32 ms            (the answer)
+                          'A' 1 u8 from <voice packet>
+    TCP, for a member whose UDP does not get through:
+        client -> relay:  frame to 0xFD, payload <voice packet>
+        relay -> client:  frame from 0xFD, payload u8 from <voice packet>,
+                          stamped with the room's CURRENT sequence (it takes
+                          no number of its own, so the game's frames are
+                          numbered as if voice did not exist), and dropped
+                          rather than queued behind more than --voice-backlog
+                          bytes: game traffic first, stale voice never.
+    A token is good only while its member is in the room; a watcher's voice
+    is never passed on (it listens). The relay never looks inside a voice
+    packet and never keeps one.
+    REPORTING SOMEONE (VRC.Content.3): "REPORT <K> <REASON> <TEXT...>" to the
+    relay is kept, one line, in <store>/reports.tsv -- when, which game and
+    room, who reported whom (place, address, the names the reporter's game
+    gives), why -- and answered "REPORTED", or "REPORT OFF" (no --store),
+    or "REPORT BUSY" (too many from one address in an hour).
+
     When two clients meet, the relay pairs them:
         -> host:   "GO H\n"      -> joiner: "GO G\n"
     then every byte from one is forwarded verbatim to the other until either
@@ -178,13 +210,23 @@ class Room:
         self.released = asyncio.Event()   # host handler has stopped watching the reader
 
 class Member:
-    __slots__ = ("k", "reader", "writer", "q", "backlog", "task", "gone", "peer")
+    __slots__ = ("k", "reader", "writer", "q", "backlog", "task", "gone", "peer",
+                 "vtok", "uaddr", "useen", "vtcp", "vwin", "vcount")
     def __init__(self, k, reader, writer, peer):
         self.k, self.reader, self.writer, self.peer = k, reader, writer, peer
         self.q = asyncio.Queue()
         self.backlog = 0
         self.task = None
         self.gone = False
+        # VOICE: the token it was given, where its UDP comes from and when it
+        # was last heard there, whether it asked for voice over TCP, and its
+        # packets this second (a cap, so one member cannot flood the room)
+        self.vtok = None
+        self.uaddr = None
+        self.useen = 0.0
+        self.vtcp = False
+        self.vwin = 0.0
+        self.vcount = 0
 
 class RoomN:
     """A room of 2..8 members. Frames are forwarded in the order the relay
@@ -203,6 +245,7 @@ class RoomN:
         self.closed = False
         self.created = time.monotonic()
         self.done = asyncio.Event()
+        self.vdropped = 0          # voice packets not queued to a backed-up member
 
     def free_place(self):
         for k in range(self.maxn):
@@ -254,6 +297,42 @@ class RoomN:
         data = self.frame(frm, payload)      # ONE number for all its receivers
         for m in targets:
             self.send_to(m, data, cap)
+
+    VOICE = 0xFD
+    def voice(self, frm, pkt, udp, vcap):
+        """One voice packet from member `frm`, to every other member that
+        asked for voice: by UDP where its UDP gets through, else down its TCP
+        -- unless that is backed up, when the packet is simply dropped (it is
+        stale by the time it would arrive, and the game's frames come first).
+        A watcher listens only."""
+        if frm >= self.WATCH_BASE or self.closed:
+            return
+        now = time.monotonic()
+        dgram = b"A\x01" + bytes([frm]) + pkt
+        for k, o in self.members.items():
+            if k == frm or o.gone or o.vtok is None:
+                continue
+            if udp is not None and o.uaddr is not None and not o.vtcp and now - o.useen < 20.0:
+                udp.sendto(dgram, o.uaddr)
+            elif o.backlog <= vcap:
+                data = (6 + len(pkt)).to_bytes(2, "little") + bytes([self.VOICE]) + \
+                       self.seq.to_bytes(4, "little") + bytes([frm]) + pkt
+                o.backlog += len(data)
+                o.q.put_nowait(data)
+            else:
+                self.vdropped += 1
+
+    def control_quiet(self, text, only):
+        """The relay's word to one member that takes no number of its own (the
+        voice's answers), so everyone else's sequence runs exactly as before."""
+        m = self.members.get(only)
+        if m is None or m.gone:
+            return
+        payload = text.encode()
+        data = (5 + len(payload)).to_bytes(2, "little") + bytes([self.CTRL]) + \
+               self.seq.to_bytes(4, "little") + payload
+        m.backlog += len(data)
+        m.q.put_nowait(data)
 
     def control(self, text, cap, only=None, skip=None):
         payload = text.encode()
@@ -490,6 +569,90 @@ class Relay:
         self.nrooms = {}           # "gid/CODE" -> RoomN (a hub of up to eight)
         self.conns = 0
         self.store = Store(args.store, args.store_cap, args.puts_per_hour) if args.store else None
+        self.vtokens = {}          # voice token (8 bytes) -> (room, member)
+        self.udp = None            # the voice's datagram transport, once bound
+        self.report_rate = {}      # ip -> [times]
+
+    # ---- VOICE ------------------------------------------------------------
+    def voice_ctrl(self, room, m, cmd, raw):
+        """A member's VOICE... to the relay. Answered to that member alone."""
+        if self.args.no_voice or self.udp is None:
+            return                              # an old relay says nothing either
+        if cmd == "VOICE":
+            if m.vtok is None:
+                tok = os.urandom(8)
+                while tok in self.vtokens:
+                    tok = os.urandom(8)
+                m.vtok = tok
+                self.vtokens[tok] = (room, m)
+            port = self.args.voice_port or self.args.port
+            room.control_quiet(f"VOICE {m.vtok.hex().upper()} {port}", m.k)
+            log(f"nroom {room.gid}/{room.code}: member {m.k} has voice")
+        elif cmd == "VOICE TCP":
+            m.vtcp = True
+            log(f"nroom {room.gid}/{room.code}: member {m.k} voice over TCP")
+        elif cmd == "VOICE UDP":
+            m.vtcp = False
+
+    def voice_forget(self, m):
+        if m.vtok is not None and self.vtokens.get(m.vtok, (None, None))[1] is m:
+            del self.vtokens[m.vtok]
+        m.vtok = None
+
+    def voice_allow(self, m):
+        """Fifty packets a second is one talker; a hundred is the cap."""
+        now = time.monotonic()
+        if now - m.vwin >= 1.0:
+            m.vwin, m.vcount = now, 0
+        m.vcount += 1
+        return m.vcount <= 100
+
+    def datagram(self, data, addr):
+        if len(data) < 10 or len(data) > 512 or data[1] != 1:
+            return
+        got = self.vtokens.get(bytes(data[2:10]))
+        if got is None:
+            return
+        room, m = got
+        if m.gone or room.closed:
+            self.voice_forget(m)
+            return
+        m.uaddr, m.useen = addr, time.monotonic()
+        kind = data[0]
+        if kind == 0x4B and len(data) >= 18:           # 'K': keepalive, answered
+            if self.voice_allow(m):
+                self.udp.sendto(b"P\x01" + bytes(data[10:18]), addr)
+        elif kind == 0x41 and len(data) > 10 + 11:     # 'A': a voice packet
+            if self.voice_allow(m):
+                room.voice(m.k, bytes(data[10:]), self.udp, self.args.voice_backlog)
+
+    # ---- REPORTS (VRC.Content.3) ---------------------------------------------
+    def report(self, room, m, raw):
+        """REPORT <K> <REASON> <TEXT...>: one line in <store>/reports.tsv."""
+        if self.store is None:
+            return "REPORT OFF"
+        ip = m.peer[0] if isinstance(m.peer, tuple) else str(m.peer)
+        now = time.monotonic()
+        q = [t for t in self.report_rate.get(ip, []) if now - t < 3600]
+        if len(q) >= 10:
+            self.report_rate[ip] = q
+            return "REPORT BUSY"
+        q.append(now); self.report_rate[ip] = q
+        t = raw.split(None, 3)
+        try:
+            k = int(t[1]) if len(t) > 1 else -1
+        except ValueError:
+            k = -1
+        reason = clean_code(t[2]) if len(t) > 2 else "OTHER"
+        text = "".join(c for c in (t[3] if len(t) > 3 else "") if 32 <= ord(c) < 127 and c != "\t")[:200]
+        who = room.members.get(k)
+        wip = (who.peer[0] if isinstance(who.peer, tuple) else str(who.peer)) if who else "-"
+        line = "\t".join([time.strftime("%Y-%m-%d %H:%M:%S"), room.gid, room.code, str(m.k), ip,
+                          str(k), wip, reason or "OTHER", text]) + "\n"
+        with open(os.path.join(self.args.store, "reports.tsv"), "a", encoding="ascii", errors="replace") as f:
+            f.write(line)
+        log(f"nroom {room.gid}/{room.code}: member {m.k} reported member {k} ({reason})")
+        return "REPORTED"
 
     def gen_code(self, gid) -> str:
         alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no confusable 0/O/1/I
@@ -626,11 +789,21 @@ class Relay:
                     break
                 to, payload = body[0], body[1:]
                 if to == RoomN.CTRL:
-                    cmd = payload.decode("ascii", "ignore").strip().upper()
+                    raw = payload.decode("ascii", "ignore").strip()
+                    cmd = raw.upper()
                     if cmd == "START" and m.k == 0 and not room.started:
                         room.started = True
                         log(f"nroom {room.gid}/{room.code}: started with {len(room.members)}")
                         room.control("START", cap)
+                    elif cmd.startswith("VOICE"):
+                        self.voice_ctrl(room, m, cmd, raw)
+                    elif cmd.startswith("REPORT "):
+                        room.control_quiet(self.report(room, m, raw), m.k)
+                    continue
+                if to == RoomN.VOICE:
+                    # voice down the TCP, from a member whose UDP does not get out
+                    if m.vtok is not None and not self.args.no_voice and self.voice_allow(m):
+                        room.voice(m.k, payload, self.udp, self.args.voice_backlog)
                     continue
                 room.deliver(m.k, to, payload, cap)
         except asyncio.TimeoutError:
@@ -660,6 +833,7 @@ class Relay:
                 room.control(f"JOINED {k}", cap, skip=k)
         log(f"nroom {key}: member {k} in ({peer}), {len(room.members)}/{room.maxn}")
         await self.member_reader(room, m)
+        self.voice_forget(m)
         await asyncio.gather(m.task, return_exceptions=True)
         if room.done.is_set() and self.nrooms.get(key) is room:
             self.nrooms.pop(key, None)
@@ -932,6 +1106,9 @@ async def main():
     ap.add_argument("--store", default="", help="directory for share codes (PUT/GET); empty = share codes off")
     ap.add_argument("--store-cap", type=int, default=200000, help="most share codes kept")
     ap.add_argument("--puts-per-hour", type=int, default=60, help="share codes one address may make an hour")
+    ap.add_argument("--voice-port", type=int, default=0, help="UDP port for room voice (0 = the same number as --port)")
+    ap.add_argument("--no-voice", action="store_true", help="answer no VOICE request (clients then have no voice)")
+    ap.add_argument("--voice-backlog", type=int, default=16384, help="bytes queued to a member past which voice to it over TCP is dropped")
     args = ap.parse_args()
 
     async def watchdog():
@@ -948,6 +1125,20 @@ async def main():
     asyncio.get_event_loop().create_task(watchdog())
 
     relay = Relay(args)
+    if not args.no_voice:
+        class VoiceUDP(asyncio.DatagramProtocol):
+            def connection_made(self, transport):
+                relay.udp = transport
+            def datagram_received(self, data, addr):
+                relay.datagram(data, addr)
+            def error_received(self, exc):
+                pass
+        try:
+            await asyncio.get_event_loop().create_datagram_endpoint(
+                VoiceUDP, local_addr=(args.addr, args.voice_port or args.port))
+            log(f"voice: udp {args.addr}:{args.voice_port or args.port}")
+        except OSError as e:
+            log(f"voice: no udp port ({e}) -- rooms will have no voice")
     server = await asyncio.start_server(relay.handle, args.addr, args.port)
     log(f"mote-relay listening on {args.addr}:{args.port} "
         f"(join-timeout={args.join_timeout}s idle={args.idle}s max={args.max_conns})")

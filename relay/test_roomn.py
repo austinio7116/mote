@@ -7,7 +7,9 @@ behave byte for byte as they did.
 
 Starts its own relay(s) on free localhost ports -- never a live one. With
 --old, the same old-verb scenarios run against the old relay too and the two
-transcripts must be identical.
+transcripts must be identical -- and a room in which one member talks (VOICE,
+UDP and TCP) must look, to the two members that never asked, exactly as it
+does on the old relay, which ignores all of it.
 """
 import argparse
 import os
@@ -15,6 +17,7 @@ import random
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -293,6 +296,271 @@ def roomn_tests(port):
     check("and the others carry on", f[2] == b"still here")
     for s in (h, a, dead): s.close()
 
+# ---- VOICE ---------------------------------------------------------------
+VPKT = lambda n: bytes([n & 0xFF, n >> 8, n & 0xFF, n >> 8, 1 if n == 0 else 0]) + b"\x00\x80" * 3 + bytes([0x78]) + bytes(range(40))
+
+def udp_sock():
+    u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    u.bind(("127.0.0.1", 0)); u.settimeout(1.0)
+    return u
+
+def udp_recv(u, timeout=1.0):
+    u.settimeout(timeout)
+    try:
+        return u.recv(2048)
+    except socket.timeout:
+        return None
+
+def voice_ask(s):
+    """VOICE to the relay; the answer (from 0xFE), parsed"""
+    send_frame(s, 0xFE, b"VOICE")
+    f = recv_frame(s)
+    t = f[2].decode().split()
+    return f, bytes.fromhex(t[1]), int(t[2])
+
+def voice_tests(port, store):
+    print("\n--- VOICE: asking, the token, keepalives ---")
+    h = conn(port, f"MOTE2 ROOMN {GID} HOST VOIC PRIV 4 VOICE ROOM")
+    readline(h); recv_frame(h)
+    js = []
+    for k in range(1, 4):
+        j = conn(port, f"MOTE2 ROOMN {GID} JOIN VOIC"); readline(j); recv_frame(j); js.append(j)
+    ms = [h] + js
+    for k, m in enumerate(ms):                   # everyone hears the later JOINEDs
+        for _ in range(3 if k == 0 else 3 - k):
+            recv_frame(m)
+    send_frame(ms[2], 0xFF, b"before")           # a game frame, for its number
+    seq_before = [recv_frame(ms[k])[1] for k in (0, 1, 3)]
+    f1, tok1, uport = voice_ask(ms[1])
+    check("VOICE is answered from the relay, with a token and the UDP port",
+          f1[0] == 0xFE and len(tok1) == 8 and uport == port, f1[2].decode())
+    f2, tok2, _ = voice_ask(ms[2])
+    f3, tok3, _ = voice_ask(ms[3])
+    check("each member has its own token", len({tok1, tok2, tok3}) == 3)
+    send_frame(ms[2], 0xFF, b"after")
+    seq_after = [recv_frame(ms[k])[1] for k in (0, 1, 3)]
+    check("the answers took no number: the next game frame follows on everywhere",
+          all(b == a + 1 for a, b in zip(seq_before, seq_after)), f"{seq_before} -> {seq_after}")
+    check("...and member 1's answer carried the room's current number", f1[1] == seq_before[0], f"{f1[1]} vs {seq_before[0]}")
+    u1, u2, u3 = udp_sock(), udp_sock(), udp_sock()
+    ra = ("127.0.0.1", uport)
+    u1.sendto(b"K\x01" + tok1 + (7).to_bytes(4, "little") + (1234).to_bytes(4, "little"), ra)
+    pong = udp_recv(u1)
+    check("a keepalive is answered with its id and time", pong == b"P\x01" + (7).to_bytes(4, "little") + (1234).to_bytes(4, "little"), repr(pong))
+    u2.sendto(b"K\x01" + tok2 + bytes(8), ra); udp_recv(u2)
+    u9 = udp_sock()
+    u9.sendto(b"K\x01" + bytes(8) + bytes(8), ra)
+    check("a keepalive with a token nobody has goes unanswered", udp_recv(u9, 0.4) is None)
+
+    print("\n--- VOICE: fanned out by UDP, by TCP, and to nobody who did not ask ---")
+    pk = VPKT(0)
+    u1.sendto(b"A\x01" + tok1 + pk, ra)
+    got2 = udp_recv(u2)
+    check("member 2 (UDP known) hears member 1 by UDP", got2 == b"A\x01\x01" + pk, repr(got2)[:60])
+    f = recv_frame(ms[3])
+    check("member 3 (asked, no UDP yet) hears it down its TCP, from 0xFD, member 1 first",
+          f[0] == 0xFD and f[2] == b"\x01" + pk, f"{f[0]:#x} {f[2][:8]!r}")
+    check("...stamped with the room's current number (taking none)", f[1] == seq_after[2], f"{f[1]} vs {seq_after[2]}")
+    check("member 1 does not hear itself", udp_recv(u1, 0.3) is None)
+    send_frame(ms[2], 0xFF, b"game")
+    f0 = recv_frame(ms[0])
+    check("member 0 (never asked) gets nothing but the game: the next frame is the game's",
+          f0[2] == b"game" and f0[1] == seq_after[0] + 1, f"{f0[2]!r} {f0[1]}")
+    recv_frame(ms[1]); recv_frame(ms[3])
+    u9.sendto(b"A\x01" + bytes(8) + pk, ra)
+    check("voice with a bad token goes nowhere", udp_recv(u2, 0.4) is None)
+
+    print("\n--- VOICE: TCP both ways ---")
+    send_frame(ms[3], 0xFD, VPKT(5))
+    g1 = udp_recv(u1); g2 = udp_recv(u2)
+    check("voice sent down TCP (to 0xFD) reaches the UDP members", g1 == b"A\x01\x03" + VPKT(5) and g2 == g1, repr(g1)[:40])
+    send_frame(ms[2], 0xFE, b"VOICE TCP")
+    time.sleep(0.1)
+    u1.sendto(b"A\x01" + tok1 + VPKT(1), ra)
+    f = recv_frame(ms[2])
+    check("a member that said VOICE TCP gets it down TCP, though its UDP is known", f[0] == 0xFD and f[2] == b"\x01" + VPKT(1))
+    check("...and not by UDP as well", udp_recv(u2, 0.3) is None)
+    recv_frame(ms[3])
+    send_frame(ms[2], 0xFE, b"VOICE UDP")
+    time.sleep(0.1)
+    u1.sendto(b"A\x01" + tok1 + VPKT(2), ra)
+    check("VOICE UDP puts it back on UDP", udp_recv(u2) == b"A\x01\x01" + VPKT(2))
+    recv_frame(ms[3])
+    send_frame(ms[0], 0xFD, VPKT(3))
+    check("voice down TCP from a member that never asked is dropped", udp_recv(u2, 0.4) is None)
+
+    print("\n--- VOICE: a watcher listens and is never heard ---")
+    send_frame(h, 0xFE, b"START")
+    for m in ms: recv_frame(m)
+    w = conn(port, f"MOTE2 ROOMN {GID} WATCH VOIC"); readline(w); recv_frame(w); recv_frame(h)
+    fw, tokw, _ = voice_ask(w)
+    uw = udp_sock(); uw.sendto(b"K\x01" + tokw + bytes(8), ra); udp_recv(uw)
+    u1.sendto(b"A\x01" + tok1 + VPKT(4), ra)
+    check("the watcher hears a player", udp_recv(uw) == b"A\x01\x01" + VPKT(4))
+    udp_recv(u2); recv_frame(ms[3])
+    uw.sendto(b"A\x01" + tokw + VPKT(9), ra)
+    send_frame(w, 0xFD, VPKT(9))
+    check("nothing the watcher says reaches a player (UDP or TCP)",
+          udp_recv(u1, 0.4) is None and udp_recv(u2, 0.2) is None)
+    send_frame(ms[2], 0xFF, b"next")
+    check("...and member 3's next frame is the game's", recv_frame(ms[3])[2] == b"next")
+    for k in (0, 1): recv_frame(ms[k])
+    recv_frame(w)
+
+    print("\n--- VOICE: a cap on the packets, and a member that stops reading ---")
+    for i in range(300):
+        u1.sendto(b"A\x01" + tok1 + VPKT(i), ra)
+    n = 0
+    while udp_recv(u2, 0.3) is not None:
+        n += 1
+    check("one member cannot flood the room (100 a second)", 50 <= n <= 110, f"{n} of 300 passed")
+    # a member that asks for voice and then stops reading, behind a small window
+    dead = conn(port, f"MOTE2 ROOMN {GID} WATCH VOIC", rcvbuf=4096); readline(dead)
+    recv_frame(dead); recv_frame(h)                   # MEMBERS; the host hears WATCHER
+    voice_ask(dead)
+    for i in range(3000):                             # ~1 MB of voice at it, down TCP
+        send_frame(ms[2], 0xFD, VPKT(i & 0xFF) + bytes(300))
+        if i % 100 == 99:
+            time.sleep(0.12)                          # under the packet cap
+    time.sleep(0.3)
+    send_frame(ms[2], 0xFF, b"still in")
+    got = [recv_frame(ms[k]) for k in (0, 1)]
+    check("voice that cannot get through is dropped; the member it was for is not",
+          [g[2] for g in got] == [b"still in", b"still in"], str([g[2][:12] for g in got]))
+    f = recv_frame(ms[3])
+    seen_v = 0
+    while f[0] == 0xFD:
+        seen_v += 1; f = recv_frame(ms[3])
+    check("...and a member that does read gets the game frame behind the voice it was sent", f[2] == b"still in", f"{seen_v} voice first")
+    while True:
+        g = recv_frame(w)
+        if g[0] != 0xFD: break
+    check("(the other watcher too)", g[2] == b"still in")
+    dead.close()
+    uw_ = recv_frame(h)
+    check("the backed-up watcher was never dropped: it leaves when it closes (UNWATCH)", uw_[2].startswith(b"UNWATCH"), uw_[2].decode())
+    while udp_recv(u1, 0.2) is not None: pass
+    while udp_recv(uw, 0.1) is not None: pass
+
+    print("\n--- VOICE: a token dies with its member ---")
+    js[0].close()                                 # member 1
+    for k in (0, 2, 3):
+        recv_frame(ms[k])
+    recv_frame(w)
+    time.sleep(0.2)
+    u1.sendto(b"A\x01" + tok1 + VPKT(8), ra)
+    check("a member gone: its token speaks to nobody", udp_recv(u2, 0.4) is None)
+
+    print("\n--- REPORT ---")
+    send_frame(ms[2], 0xFE, b"REPORT 3 SPEECH SHOUTING|MARK")
+    f = recv_frame(ms[2])
+    rep = os.path.join(store, "reports.tsv") if store else None
+    if store:
+        lines = open(rep).read().splitlines() if os.path.exists(rep) else []
+        check("a report is answered REPORTED and kept, one line", f[2] == b"REPORTED" and len(lines) == 1
+              and lines[0].split("\t")[3:6] == ["2", "127.0.0.1", "3"] and lines[0].split("\t")[7] == "SPEECH",
+              f"{f[2]!r} {lines[-1] if lines else ''}")
+    else:
+        check("without a store a report says so", f[2] == b"REPORT OFF", f[2].decode())
+    send_frame(ms[2], 0xFF, b"x")
+    check("...and took no number", recv_frame(ms[0])[1] == f[1] + 1)
+    for s_ in (h, ms[2], ms[3], w): s_.close()
+    for u in (u1, u2, u3, u9, uw): u.close()
+
+def voice_policy():
+    """RoomN.voice itself, with members whose queues are as backed up as we
+    like: the drop is decided by the bytes queued, and never drops a member."""
+    import asyncio, importlib.util
+    spec = importlib.util.spec_from_file_location("mote_relay_t", os.path.join(HERE, "mote_relay.py"))
+    mr = importlib.util.module_from_spec(spec); spec.loader.exec_module(mr)
+    async def run():
+        room = mr.RoomN("G", "C", False, 4, "L")
+        ms = [mr.Member(k, None, None, ("1.2.3.4", 5)) for k in range(4)]
+        for m in ms:
+            room.members[m.k] = m
+            m.vtok = bytes([m.k]) * 8
+        ms[2].backlog = 20000                   # past the cap
+        ms[3].backlog = 100
+        ms[3].vtcp = True
+        room.seq = 41
+        room.voice(1, b"v" * 50, None, 16384)
+        r = {k: ms[k].q.qsize() for k in range(4)}
+        return r, room.vdropped, ms[3].q.get_nowait(), room.seq, [m.gone for m in ms]
+    r, dropped, frame, seq, gone = asyncio.run(run())
+    print("\n--- VOICE: the backlog rule, on its own ---")
+    check("a member backed up past --voice-backlog gets no voice, the rest do", r == {0: 1, 1: 0, 2: 0, 3: 1} and dropped == 1, f"{r} dropped {dropped}")
+    check("...the frame is from 0xFD with the room's number, which does not move",
+          frame[2] == 0xFD and int.from_bytes(frame[3:7], "little") == 41 and seq == 41 and frame[7] == 1, repr(frame[:8]))
+    check("...and nobody is dropped for it", not any(gone))
+
+def room_transcript(port, voice):
+    """A ROOMN session as two OLD clients see it -- bytes, numbers and all --
+    with a third member that, when `voice`, asks for voice and talks over UDP
+    and TCP throughout. Lockstep: each game frame is read where it lands before
+    the next is sent, so the order is the script's and not the scheduler's.
+    Against the old relay (which ignores all the voice) the transcripts of
+    the two old clients must be identical."""
+    out = {0: [], 2: []}
+    h = conn(port, f"MOTE2 ROOMN {GID} HOST TRAN PRIV 3 OLD CLIENTS")
+    out[0].append(readline(h).encode()); out[0].append(recv_frame(h))
+    v = conn(port, f"MOTE2 ROOMN {GID} JOIN TRAN"); readline(v); recv_frame(v)
+    out[0].append(recv_frame(h))
+    o = conn(port, f"MOTE2 ROOMN {GID} JOIN TRAN")
+    out[2].append(readline(o).encode()); out[2].append(recv_frame(o))
+    out[0].append(recv_frame(h)); recv_frame(v)
+    tok, ra = None, None
+    u = udp_sock()
+    if voice:
+        send_frame(v, 0xFE, b"VOICE")
+        v.settimeout(0.5)
+        try:
+            f = recv_frame(v)
+            if f[0] == 0xFE and f[2].startswith(b"VOICE "):
+                t = f[2].decode().split(); tok = bytes.fromhex(t[1]); ra = ("127.0.0.1", int(t[2]))
+        except socket.timeout:
+            pass
+        v.settimeout(5)
+    def talk(i):
+        if not voice: return
+        if tok: u.sendto(b"A\x01" + tok + VPKT(i), ra)
+        send_frame(v, 0xFD, VPKT(i))
+        send_frame(v, 0xFE, b"VOICE TCP" if i % 2 else b"VOICE UDP")
+        send_frame(v, 0xFE, b"VOICE")
+    def land(sender, to=0xFF):
+        for m, k in ((h, 0), (o, 2)):
+            if m is not sender and (to == 0xFF or to == k):
+                out[k].append(recv_frame(m))
+        if v is not sender and to == 0xFF:
+            f = recv_frame(v)
+            while f[0] == 0xFE and f[2].startswith(b"VOICE"):
+                f = recv_frame(v)
+    for i in range(30):
+        talk(i)
+        snd = [h, v, o][i % 3]
+        send_frame(snd, 0xFF, f"g{i}".encode())
+        land(snd)
+        if i == 10:
+            send_frame(h, 2, b"just for two"); land(h, 2)
+        if i == 20:
+            send_frame(h, 0xFE, b"START")
+            for m, k in ((h, 0), (o, 2)): out[k].append(recv_frame(m))
+            recv_frame(v)
+    time.sleep(0.2)
+    v.close()
+    for m, k in ((h, 0), (o, 2)):
+        m.settimeout(1.0)
+        try:
+            out[k].append(recv_frame(m))
+        except (socket.timeout, EOFError):
+            out[k].append("none")
+    h.close()
+    try:
+        out[2].append(recv_frame(o))
+    except (socket.timeout, EOFError):
+        out[2].append("none")
+    o.close(); u.close()
+    return out
+
 def old_transcript(port):
     """The old verbs, recorded as bytes, so two relays can be compared."""
     out = []
@@ -361,9 +629,29 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--old", help="the relay before ROOMN, to compare the old verbs against")
     args = ap.parse_args()
-    new, port = start_relay(os.path.join(HERE, "mote_relay.py"), ["--room-backlog", "65536"])
+    store = tempfile.mkdtemp(prefix="roomn_store_")
+    new, port = start_relay(os.path.join(HERE, "mote_relay.py"), ["--room-backlog", "65536", "--store", store])
     try:
         roomn_tests(port)
+        voice_tests(port, store)
+        voice_policy()
+        print("\n--- VOICE: an old client's room, with and without a talker in it ---")
+        quiet = room_transcript(port, False)
+        loud = room_transcript(port, True)
+        check("old clients see the same bytes whether or not someone in the room talks",
+              quiet == loud, "" if quiet == loud else f"{len(quiet[0])}/{len(loud[0])} frames")
+        nv, nvport = start_relay(os.path.join(HERE, "mote_relay.py"), ["--no-voice"])
+        try:
+            s_ = conn(nvport, f"MOTE2 ROOMN {GID} HOST NOVO PRIV 2"); readline(s_); recv_frame(s_)
+            send_frame(s_, 0xFE, b"VOICE"); s_.settimeout(0.5)
+            try:
+                recv_frame(s_); said = True
+            except socket.timeout:
+                said = False
+            check("a relay run --no-voice says nothing to VOICE (as an old one does)", not said)
+            s_.close()
+        finally:
+            nv.kill()
         print("\n--- old verbs ---")
         tn = old_transcript(port)
         check("old verbs ran", len(tn) > 10)
@@ -377,6 +665,13 @@ def main():
                 check(f"old verb '{a}' identical to the old relay", a == b and x == y,
                       "" if x == y else f"new {x[:80]!r} old {y[:80]!r}")
             check("same number of exchanges", len(tn) == len(to))
+            old2, oport2 = start_relay(args.old)
+            try:
+                old_loud = room_transcript(oport2, True)
+            finally:
+                old2.kill()
+            check("ROOMN, old clients beside a talker: identical to the old relay, byte for byte",
+                  old_loud == loud, "" if old_loud == loud else f"new {loud[0][:3]} old {old_loud[0][:3]}")
     finally:
         new.kill()
         log = new.stdout.read().decode(errors="replace")

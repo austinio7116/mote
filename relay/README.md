@@ -123,6 +123,40 @@ relays on localhost: eight members and one order, unicast, `START`, leaving,
 `QUICK`, the backlog drop, and the old verbs byte for byte against the old
 relay.
 
+### Voice in the rooms (`VOICE`, CueVR test builds first)
+
+A room's members may talk. It is kept entirely apart from the game's frames:
+a client that never asks is never sent any of it, and the game's frames are
+numbered exactly as they would be without it (the voice's own frames and
+answers take no room sequence number). An old client in the same room as a
+talker sees byte for byte what the previous relay sends it; `test_roomn.py
+--old` checks exactly that.
+
+| Client sends | Relay replies |
+|---|---|
+| `VOICE` (to `0xFE`) | `VOICE <TOKEN> <UDPPORT>` to that member alone (16 hex digits); nothing from an old relay or one run `--no-voice` |
+| `VOICE TCP` / `VOICE UDP` (to `0xFE`) | nothing: how the member wants voice delivered |
+| UDP `'K' 1 TOKEN(8) id(4) ms(4)` | UDP `'P' 1 id ms` — the keepalive and its answer |
+| UDP `'A' 1 TOKEN(8) <packet>` | UDP `'A' 1 <from> <packet>` to every other member that asked |
+| frame to `0xFD`, payload `<packet>` | frame from `0xFD`, payload `<from> <packet>`, to members on TCP |
+| `REPORT <K> <REASON> <TEXT>` (to `0xFE`) | `REPORTED`, `REPORT OFF` (no `--store`), `REPORT BUSY`; a line in `<store>/reports.tsv` |
+
+A token is good only while its member is in the room. The relay sends voice by
+UDP to a member whose keepalives it has heard in the last 20 s and who has not
+asked for TCP; otherwise down the member's TCP, unless more than
+`--voice-backlog` bytes (16 KB) are already queued to it, when the packet is
+dropped (it would be stale, and the game's frames come first). A watcher's
+voice is never passed on. 100 packets a second per member at most (one talker
+is 50). The relay never looks inside a voice packet and never keeps one.
+
+Flags: `--voice-port` (UDP, default the same number as `--port`),
+`--no-voice`, `--voice-backlog`.
+
+**Deploying a relay with voice** needs the UDP port open as well as the TCP
+one, in both places (the cloud's security list *and* the box's iptables), e.g.
+`sudo iptables -I INPUT 6 -p udp --dport 443 -j ACCEPT`. If UDP is not
+opened, nothing breaks: every client falls back to voice over its TCP.
+
 **Wired into the Studio.** `link_net.c` has a relay transport alongside Host/Join
 LAN: it connects out to the configured `relay_host:port`, does the `MOTE1 …`
 handshake, reads the `GO` line, then the same `s_conn` pipe drives send/recv so
