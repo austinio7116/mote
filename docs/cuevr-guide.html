@@ -274,8 +274,9 @@
   <b>RULES</b> and <b>VS</b> &mdash; with <b>PLAY</b> beside them. Under the steps is a strip of
   five panels for how the table looks: <b>TABLE</b>, <b>CLOTH</b>, <b>TIMBER</b>, <b>BALLS</b> and
   <b>CUE</b>. Down the side are four tiles for everything else: <b>Environment</b> (the table, the
-  scoreboard, the mark round your real table, calibrating a real cue, the lights and the room),
-  <b>Settings</b> (controls, cue feel, graphics, the referee's voice), <b>Records</b> (stats, games
+  scoreboard, the mark round your real table, calibrating a real cue, the lights, the room and a
+  venue of your own), <b>Settings</b> (controls, cue feel, graphics, and sound: the referee, the
+  crowd and voice chat), <b>Records</b> (stats, games
   played, replays, career) and <b>Workshop</b> (build a table, a ball set, a cue or a
   challenge).</p>
 
@@ -314,8 +315,20 @@
       foot of the main menu.</td></tr>
     <tr><td><b>Lighting and surroundings</b></td><td><b>Environment</b> &rarr; <b>Lighting</b> or
       <b>Surroundings</b>. Your room, the dark hall, the arena, the pub, the snooker club, the
-      dining room and the library are also chips on the <b>pause menu</b>, since that is the one
-      you change mid-frame.</td></tr>
+      dining room, the library and your venue are also chips on the <b>pause menu</b>, since that
+      is the one you change mid-frame.</td></tr>
+    <tr><td><b>A venue of your own</b> &mdash; a pub, a club, an arena, a studio or a
+      theatre</td><td><b>Environment &rarr; Venue</b>. See <a href="#venue">Your venue</a>.</td></tr>
+    <tr><td><b>Play tour matches at the event's own venue</b></td><td><b>Environment &rarr;
+      Surroundings &rarr; Tour matches at the event's venue</b>. See <a href="#venues">Where the
+      events are played</a>.</td></tr>
+    <tr><td><b>The crowd: how it looks and how loud it is</b></td><td><b>VENUE CROWD</b> on
+      <b>Environment &rarr; Surroundings</b>; <b>CROWD</b> on <b>Settings &rarr; Sound</b>. See
+      <a href="#crowd">The crowd</a>.</td></tr>
+    <tr><td><b>Talk to the other players online</b></td><td><b>Settings &rarr; Sound &rarr; YOUR
+      MICROPHONE</b>. See <a href="#voice">Voice chat</a>.</td></tr>
+    <tr><td><b>How much spin a tip off the middle gives</b></td><td><b>SPIN</b> on the pause
+      menu. See <a href="#physics">Physics</a>.</td></tr>
     <tr><td><b>Resolution, anti-aliasing, ball reflections</b></td><td><b>Settings &rarr;
       Graphics</b>, which also prints what the last frame cost.</td></tr>
     <tr><td><b>Move the table, or set its height again</b></td><td><b>Environment &rarr;
@@ -1452,6 +1465,9 @@
       happened to go down on the same stroke — the accidental extra is a real part of the game. If
       the call is not made, nothing on that stroke counts and every ball that went down comes
       straight back up onto the long string behind the foot spot.</p>
+      <p><b>In practice it never runs out.</b> With the opponent set to <b>FREE PRACTICE</b>, when
+      one ball is left the other fourteen are racked again, as in the real game, so you can keep
+      going.</p>
       <p><b>Your visit.</b> Keep making your calls and you stay at the table. Miss one and your
       opponent is in, and the board says <b>MISSED CALL</b> — or <b>SAFETY</b>, if you called
       nothing at all.</p>
@@ -1497,7 +1513,9 @@
       both measured at the narrowest point. That leaves a couple of
       millimetres either side of a straight corner pot. The middles are the <em>wider</em> of the
       two, the opposite of every other table here, and the jaws are cut as a straight mitre rather
-      than the English curve — with only a 4 mm radius at the point itself.</p>
+      than the English curve. The point of each jaw is rounded as the federation's rules ask:
+      5 mm at the corners and 11 mm at the middles, and the cushion's nose stands 42 mm above
+      the cloth.</p>
       <p><b>Club tables.</b> <b>CLUB 12 FT</b> and <b>CLUB 7 FT</b>, in the table picker, have the
       more forgiving pockets clubs keep for beginners and casual play: 74 mm corners and 83 mm
       middles on the 12 ft.</p>
@@ -2731,6 +2749,25 @@
   RE-RACK in a career. To stop, use <b>PAUSE MATCH</b> or <b>SAVE AND LEAVE</b> (see
   <a href="#saving">Saving and resuming</a>) and come back to it. Career matches count towards
   your records, apart from doubles and team matches.</p>
+
+  <h3 id="venues">Where the events are played</h3>
+  <p>Turn on <b>Tour matches at the event's venue</b> under <b>Environment &rarr;
+  Surroundings</b>, and every tour and event match is played in its event's own room instead of
+  yours. The leagues are in pubs and clubs, the county and national events in clubs and
+  television studios, the pro tour in arenas and studios, and the majors in big arenas and
+  theatres. The same event is always in the same room.</p>
+  <ul>
+    <li><b>The venue puts out its own table and balls</b> for the match: championship cloth on
+      tournament or mahogany timber at the pro snooker venues, a coin-op cabinet in a pub. Your own
+      table comes back when the match ends.</li>
+    <li><b>The trophy you are playing for is on show</b> beside the table, on its stand.</li>
+    <li><b>The World Championship snooker final</b> is always played in the <b>Arena</b>.</li>
+    <li><b>Your own room for this one match:</b> pick it from the <b>ROOM</b> chips on the pause
+      menu. <b>Event venue</b> on the same row takes you back.</li>
+  </ul>
+  <p>With it off, which is how it starts, tour matches are played in whatever room you have
+  chosen. Two things happen either way: the World final is in the Arena, and the venue's crowd
+  is heard &mdash; see <a href="#crowd">The crowd</a>.</p>
 </section>
 
 <section id="events">
@@ -3013,7 +3050,7 @@
   during a replay, so you can watch from the pocket's end, from above, or from where your opponent
   stood. Hold the <b>trigger</b> for slow motion, press <kbd>A</kbd> to watch it again (or, with a
   real cue in your hand, press a <b>thumbstick</b> in), and point at
-  <b>KEEP THIS SHOT</b> on the panel to save it — the row answers <b>SAVED 3/32</b>, and it will
+  <b>KEEP THIS SHOT</b> on the panel to save it — the row answers <b>SAVED 3/128</b>, and it will
   not save the same shot twice. Keeping a shot leaves the replay open, so you can watch it again
   after you have kept it.</p>
 
@@ -3090,6 +3127,31 @@
   hold no cue, the game, its rules and its table are locked, and there is no CONCEDE. The board
   says <b>WATCHING</b> and names the players. <b>STOP WATCHING</b> on the pause menu takes you
   home.</p>
+
+  <h3 id="voice">Voice chat</h3>
+  <p><b>Talk to the other players in any online room.</b> It is off until you turn it on:
+  <b>Settings &rarr; Sound &rarr; YOUR MICROPHONE</b>.</p>
+  <table>
+    <tr><th>YOUR MICROPHONE</th><th>What it does</th></tr>
+    <tr><td><b>OFF</b></td><td>Nothing is sent. You still hear everyone else. This is how it
+      starts.</td></tr>
+    <tr><td><b>PUSH TO TALK</b></td><td>Hold either <b>thumbstick</b> in to talk. Pressing it during
+      a replay restarts the replay instead.</td></tr>
+    <tr><td><b>OPEN</b></td><td>You are heard whenever you speak.</td></tr>
+  </table>
+  <ul>
+    <li><b>The headset asks for the microphone</b> the first time you turn it on. Say no and
+      nothing is sent.</li>
+    <li><b>THE OTHERS' VOICES</b>, under it, sets how loud the other players are.</li>
+    <li><b>You hear each player from where they stand</b> at the table.</li>
+    <li><b>IN THE ROOM</b>, on the pause menu online, lists everyone with a light while they are
+      talking, and what your own microphone is doing. <b>MUTE</b> silences a player for you at once.
+      <b>REPORT</b> tells us about a player, with the reason.</li>
+    <li><b>The scoreboard marks whoever is talking</b> with a green mark on the corner of their ball.</li>
+    <li><b>Watchers hear the players, but nobody hears a watcher.</b></li>
+  </ul>
+  <p>Your voice goes only to the people in the room, and it is not recorded or kept. The
+  <a href="cuevr-privacy.html">privacy policy</a> has the details.</p>
 
   <div class="grid g2">
     <figure><img src="img/cuevr/lobby.jpg" alt="Hosting a game">
@@ -3519,7 +3581,86 @@
   <p><b>SMOKE</b> and <b>TAR</b>, on <b>Settings &rarr; Graphics</b>, set how thick the smoke
   hangs in the pub and the snooker club, and how yellow it has turned the ceiling.</p>
   <p>In every room but your own and the dark hall, <a href="#moving">walls stop you</a>, and
-  <a href="#moving">Movement: Camera</a> lets you walk round and look at it all.</p>
+  <a href="#moving">Movement: Camera</a> lets you walk round and look at it all. Steps take you
+  up and down: the banks of seats in an arena or a theatre, the stairs down into a club's pit
+  and its gallery, and the library's spiral staircase.</p>
+
+  <h3 id="venue">Your venue</h3>
+  <p><b>Environment &rarr; Venue</b> makes a room of your own to play in, from the same rooms
+  the tour's events are played in. Choose what kind of room it is, and it is built for you. It
+  stands round your table in any match, on your own or online &mdash; online it is only what
+  you see; the other players keep their own rooms.</p>
+  <figure>
+    <img src="img/cuevr/venue_tab.jpg" alt="The Venue tab">
+    <figcaption><b>Environment &rarr; Venue</b>, with a club's show table in a pit chosen and four
+    favourites saved.</figcaption>
+  </figure>
+  <table>
+    <tr><th>Row</th><th>What it does</th></tr>
+    <tr><td><b>OFF / PLAY IN IT</b></td><td>Beside the title. On, your venue replaces the room
+      chosen on Surroundings. <b>Your venue</b> on the Surroundings chips, or on the pause menu's
+      <b>ROOM</b> row, turns it on too.</td></tr>
+    <tr><td><b>TYPE</b></td><td>Pub, club, arena, television studio or theatre.</td></tr>
+    <tr><td><b>STYLE</b></td><td>The kinds that type comes in. A pub can be an estate pub, a
+      Victorian gin palace, a country inn, a sports bar or a working men's club. An arena is in a
+      ballroom, a conference hall or a sports hall. A studio is in a warehouse, a black box or an
+      old mill. A theatre is in the round or has the table on its stage. A club depends on the
+      game: a snooker club, a snooker academy or a show table down in a pit for snooker; a pool
+      hall or a pool academy for pool.</td></tr>
+    <tr><td><b>SIZE</b></td><td>Small, medium, large or biggest: how big the room is, how many
+      other tables a club has, and how many seats an arena has.</td></tr>
+    <tr><td><b>NEW ROOM</b></td><td>Another room of the same type, style and size. Every one is
+      different.</td></tr>
+    <tr><td><b>ADD TO FAVOURITES</b></td><td>Keeps this room, up to eight. Each one is a chip
+      under <b>FAVOURITES</b>, named by its style and size; point at it to go back to that exact
+      room. <b>REMOVE FROM FAVOURITES</b> takes the one you are in off the list.</td></tr>
+    <tr><td><b>TABLE</b></td><td><b>My own</b> keeps your table as it is. <b>The venue's</b> puts
+      out the table and balls the room would use. Online you always play on your own.</td></tr>
+  </table>
+  <p>The venue is dressed for the game you are playing: a club's other tables are the same game
+  as yours, and the room changes with it if you rack a different game.</p>
+  <div class="grid g2">
+    <figure><img src="img/cuevr/venue_ginpalace.jpg" alt="A Victorian gin palace"><figcaption><span class="cap-t">PUB</span> — a Victorian gin palace, with UK 8-ball racked.</figcaption></figure>
+    <figure><img src="img/cuevr/venue_sportsbar.jpg" alt="A sports bar"><figcaption><span class="cap-t">PUB</span> — a sports bar.</figcaption></figure>
+    <figure><img src="img/cuevr/venue_poolhall.jpg" alt="A pool hall"><figcaption><span class="cap-t">CLUB</span> — a pool hall at its biggest, rows of other tables under their lights.</figcaption></figure>
+    <figure><img src="img/cuevr/venue_pit.jpg" alt="A club's show table in a pit"><figcaption><span class="cap-t">CLUB</span> — a snooker club's show table, down in a pit with its gallery round it.</figcaption></figure>
+    <figure><img src="img/cuevr/venue_arena.jpg" alt="A championship arena in a ballroom"><figcaption><span class="cap-t">ARENA</span> — a championship arena in a ballroom, with the trophy on show.</figcaption></figure>
+    <figure><img src="img/cuevr/venue_blackbox.jpg" alt="A black box television studio"><figcaption><span class="cap-t">STUDIO</span> — a black box television studio.</figcaption></figure>
+    <figure><img src="img/cuevr/venue_theatre.jpg" alt="A theatre in the round"><figcaption><span class="cap-t">THEATRE</span> — in the round, the seats going up on every side.</figcaption></figure>
+  </div>
+
+  <h3 id="crowd">The crowd</h3>
+  <p>The venues have people in their seats, and you hear them. In your own rooms you hear the
+  people who would be there &mdash; friends, diners or drinkers &mdash; if CROWD is set to
+  ALL GAMES.</p>
+  <div class="grid g2">
+    <figure><img src="img/cuevr/crowd_avatars.jpg" alt="The crowd as avatars"><figcaption><span class="cap-t">AVATARS</span> — people in their own clothes, of every build, lit by the room. This is how it starts.</figcaption></figure>
+    <figure><img src="img/cuevr/crowd_splats.jpg" alt="The crowd as swaying splats"><figcaption><span class="cap-t">SWAYING SPLATS</span> — soft dark shapes in the seats, moving a little. Brightened here so you can see them.</figcaption></figure>
+  </div>
+  <table>
+    <tr><th>Setting</th><th>Where</th><th>What it does</th></tr>
+    <tr><td><b>VENUE CROWD</b></td><td>Environment &rarr; Surroundings</td><td>How the people
+      look: <b>Avatars</b> or <b>Swaying splats</b>.</td></tr>
+    <tr><td><b>ADVERTISING BOARDS</b></td><td>Environment &rarr; Surroundings</td><td>The
+      sponsors' names on the venues' boards, or plain boards.</td></tr>
+    <tr><td><b>CROWD</b></td><td>Settings &rarr; Sound</td><td><b>OFF</b>; <b>EVENTS</b> (the
+      venues only, and how it starts); or <b>ALL GAMES</b>, every game, with each room's own
+      people.</td></tr>
+    <tr><td><b>CUSHION</b></td><td>Settings &rarr; Sound</td><td>How loud the balls are on the
+      cushions and jaws.</td></tr>
+  </table>
+  <p><b>What you hear.</b> The room talks quietly as you walk in and between frames, and settles
+  as you get down to break. While you play it is quiet, and it answers what happens the moment
+  it happens:</p>
+  <ul>
+    <li><b>applause for a pot</b>, more for a long or thin one;</li>
+    <li><b>applause for a 50 and a 100</b> in a snooker break, as the ball that makes it drops;</li>
+    <li><b>a round for the frame ball</b>, and more again for the match;</li>
+    <li><b>an ooh</b> when a ball rattles in the jaws, <b>an aah</b> at a near miss, and <b>a
+      groan</b> at a foul.</li>
+  </ul>
+  <p>You hear the crowd from where it sits, so the stand on your left is on your left. Every room
+  claps in its own way.</p>
 
 </section>
 
@@ -3592,7 +3733,8 @@
 
   <h3>The knuckle on a mitred pocket</h3>
   <p>Where the two straight faces meet they do not meet in a point. Each one <b>stops short and runs
-  tangent into a small circle</b> — 4 mm on the American and pyramid tables, or whatever
+  tangent into a small circle</b> — 4 mm on the American tables, 5 mm at the corners and 11 mm
+  at the middles of the Russian pyramid tables, or whatever
   <b>KNUCKLE RADIUS</b> is set to on a table you build — and the arc between the two tangent points
   <em>is</em> the knuckle. The circle is the whole of the tip, so a ball rebounds from the arc you
   can see, at the place you can see it.</p>
@@ -4321,6 +4463,11 @@
   </ul>
   <p>The cushion nose sits above the middle of the ball, as it does on a real table, so a ball is
   pressed down into the cloth as it goes in and lifted slightly as it comes out.</p>
+  <p><b>The American and Russian pyramid tables have K55 cushions</b>, the profile those tables
+  use: a lower, pointed nose, with the top of the cushion sloping down to it at 7 degrees.</p>
+  <p><b>SPIN</b>, on the pause menu, sets how much spin a tip off the middle of the cue ball
+  gives, from 0.50 to 1.50. It starts at 0.80, and online is always played at 0.80 whatever it is
+  set to.</p>
 
   <h3>Pockets</h3>
   <p>The pocket you see cut into the cloth is exactly the pocket that catches the ball. The jaws
