@@ -745,6 +745,11 @@ float cue_table_rail_top(const CueTable *t);
  * table but the American ones, which have K55 rubbers (Mark, 2026-10-03) -- no
  * wall above the nose, just a 3 mm sliver, so the top and the frame are low. */
 float cue_table_cush_top(const CueTable *t);
+/* ...the top of the vertical face over the nose, and the slope from there back
+ * to the rail (0 on every table but the K55 ones, where the top climbs at 7
+ * degrees and cue_table_cush_top is where it meets the wood). */
+float cue_table_cush_face_top(const CueTable *t);
+float cue_table_cush_slope(const CueTable *t);
 /* The slate's thickness: 40 mm on a 12 ft bed, 30 mm on every smaller one. */
 float cue_table_slate_t(const CueTable *t);
 float cue_table_bore_bot(void);

@@ -5765,8 +5765,7 @@ Vec3 cue_table_lay(const CueTable *t, float x, float across, Vec3 *dir) {
 
 /* See cue_table.h. The renderer builds the rail plank to the first and bores it
  * to the second; anything fitted to the table asks for them here. */
-float cue_table_cush_top(const CueTable *t) {
-    if (!t) return 0.0f;
+static int cush_k55(const CueTable *t) {
     /* K55: the American tables -- the games the 9 ft US bed is built for in
      * cue_table_init, and only those. NOT "pocket_round 0": the mesão, the
      * mesinha and the pyramid tables are mitred too, and the Brazilian ones are
@@ -5783,7 +5782,26 @@ float cue_table_cush_top(const CueTable *t) {
                      * (Mark, 2026-10-03: "russian pyramid cushions should
                      * match the 8-ball ones in terms of profile too") */
                     CUE_GAME_IS_PYRAMID(k);
-    return k55 ? t->cushion_h + 0.003f : t->cushion_h * 1.30f;
+    return k55;
+}
+/* THE K55's TOP SLOPE, 7 degrees: the rubber's top runs up from the nose to
+ * the rail at the angle the Russian federation sets for its tables ("Наклон
+ * резины относительно игровой поверхности стола, град -- 6-8", ФБСР technical
+ * requirements 14.12.2020) and the K55 drawing shows (Mark, 2026-10-03, "we do
+ * need to get that gentle drop angle"). tan 7 deg. */
+#define CUE_K55_SLOPE 0.12278f
+float cue_table_cush_slope(const CueTable *t) { return (t && cush_k55(t)) ? CUE_K55_SLOPE : 0.0f; }
+/* The top of the little vertical face over the nose: 1.30 x the nose, or on a
+ * K55 a 3 mm sliver -- the top then climbs from here to the rail. */
+float cue_table_cush_face_top(const CueTable *t) {
+    if (!t) return 0.0f;
+    return cush_k55(t) ? t->cushion_h + 0.003f : t->cushion_h * 1.30f;
+}
+/* THE CUSHION TOP AT THE RAIL, which the wood cap is level with: the face top,
+ * plus the slope over the cushion's depth (rail_w * 0.63, the renderer's cw). */
+float cue_table_cush_top(const CueTable *t) {
+    if (!t) return 0.0f;
+    return cue_table_cush_face_top(t) + cue_table_cush_slope(t) * (t->rail_w * 0.63f);
 }
 float cue_table_rail_top(const CueTable *t) {
     if (!t) return 0.0f;

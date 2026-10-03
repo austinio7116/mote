@@ -3204,6 +3204,34 @@ static void split_plank(int ax0, float ua, float ub, float va, float vb,
 
 static float cush_undercut(const CueTable *t) { return 0.45f * t->R; }
 
+/* THE K55's SLOPED TOP. Each cushion's top is ONE PLANE: the face top at its
+ * rail's nose line, climbing at the slope with the distance BEHIND that line,
+ * and level with the wood once it gets there. Measured from the RAIL's nose
+ * and not from each segment's own, so a facing is a cut straight down through
+ * that plane -- its top edge rises toward the pocket the way a real mitred
+ * rubber's does -- and nothing has to be squeezed into the short sections at a
+ * pocket (which is what faceted the first try). Zero slope on every other
+ * table, where all of this reads flat_h exactly as before. */
+static const CueWorld *s_k55_w;
+static float s_k55_slope, s_k55_face, s_k55_rail;
+static float k55_top_at(float x, float z) {
+    if (s_k55_slope <= 0.0f || !s_k55_w) return s_k55_face;
+    float best = 0.0f;
+    for (int i = 0; i < s_k55_w->nseg; i++) {
+        const CueSeg *g = &s_k55_w->seg[i];
+        if (g->kind != 0) continue;
+        const float ex = g->b.x - g->a.x, ez = g->b.z - g->a.z;
+        const float L = sqrtf(ex*ex + ez*ez);
+        if (L < 1e-6f) continue;
+        const float u = ((x - g->a.x) * ex + (z - g->a.z) * ez) / L;
+        if (u < -0.30f || u > L + 0.30f) continue;        /* not this rail's */
+        const float d = -((x - g->a.x) * g->n.x + (z - g->a.z) * g->n.z);
+        if (d > best) best = d;
+    }
+    const float h = s_k55_face + s_k55_slope * best;
+    return h < s_k55_rail ? h : s_k55_rail;
+}
+
 /* ---- ONE CUSHION CROSS-SECTION ------------------------------------------- *
  *
  * Every cushion in the building comes through here -- a straight rail, a pocket
@@ -3230,6 +3258,7 @@ static void cush_section(Vec3 ba, Vec3 bb,      /* base, on the cloth (y = 0) */
                          Vec3 pa, Vec3 pb,      /* the nose line (x and z only) */
                          Vec3 ar, Vec3 br,      /* the back, at rail height */
                          float nose_h, float flat_h,
+                         float fha, float fhb,  /* the face top at each end (flat_h but on a K55) */
                          uint16_t fdark, uint16_t face, uint16_t ctop)
 {
     const Vec3 an = v3(pa.x, nose_h, pa.z), bn = v3(pb.x, nose_h, pb.z);
@@ -3241,6 +3270,7 @@ static void cush_section(Vec3 ba, Vec3 bb,      /* base, on the cloth (y = 0) */
 
     float r = s_cush_fil;
     if (s_cush_fil_n < 1) r = 0.0f;
+    if (s_k55_slope > 0.0f) r = 0.0f;   /* the K55's nose is a point, and its top a plane */
     /* THE FACE HAS TO SURVIVE IT. The arc and the two strips of flat that hold
      * its shading want four radii between them, and the face they come out of
      * is only three tenths of the nose's height to begin with. */
@@ -3255,7 +3285,7 @@ static void cush_section(Vec3 ba, Vec3 bb,      /* base, on the cloth (y = 0) */
     const float rb = (r >= 3.0e-4f && dbl > (r + hold) * 4.0f) ? r : 0.0f;
 
     if (ra <= 0.0f && rb <= 0.0f) {          /* square, exactly as it always was */
-        const Vec3 af = v3(pa.x, flat_h, pa.z), bf = v3(pb.x, flat_h, pb.z);
+        const Vec3 af = v3(pa.x, fha, pa.z), bf = v3(pb.x, fhb, pb.z);
         ribbon(ba, bb, bn, an, fdark);       /* undercut face (leans to nose) */
         quad(an, bn, bf, af, face);          /* small flat (planar) */
         ribbon(af, bf, br, ar, ctop);        /* cloth top -> rail */
@@ -4059,8 +4089,10 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     const float rw = t->rail_w;
     const float cw = rw * 0.63f;        /* cushion depth (nose → cushion back); +50% for a beefier rail */
     const float nose_h = t->cushion_h;       /* nose contact line (bottom of the front face) */
-    const float flat_h = cue_table_cush_top(t);  /* top of the small VERTICAL nose front face (3 mm on K55) */
-    const float rail_h = flat_h;             /* flat cushion top & wood top, level at flat_h */
+    const float flat_h = cue_table_cush_face_top(t);  /* top of the small VERTICAL nose front face (3 mm on K55) */
+    const float rail_h = cue_table_cush_top(t);       /* the cushion top at the rail, and the wood: flat_h but on a K55 */
+    s_k55_w = w; s_k55_slope = cue_table_cush_slope(t);
+    s_k55_face = flat_h; s_k55_rail = rail_h;
     /* HOW FAR THE PLANK'S INNER FACE DROPS.
      *
      * It went down to rail_h, which is the cushion top — so the "face" was the
@@ -4688,7 +4720,10 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
          * an/bn, NOT pa/pb: rail_plank_clip has moved pa and pb since the nose
          * was taken off them, and the strip is drawn on the nose that was
          * captured above. */
-        cush_section(ba, bb, an, bn, ar, br, nose_h, flat_h, fdark, face, ctop);
+        /* THE K55's PLANE: every vertex at the height its rail's top has there */
+        if (s_k55_slope > 0.0f) { ar.y = k55_top_at(ar.x, ar.z); br.y = k55_top_at(br.x, br.z); }
+        cush_section(ba, bb, an, bn, ar, br, nose_h, flat_h,
+                     k55_top_at(an.x, an.z), k55_top_at(bn.x, bn.z), fdark, face, ctop);
     }
 
     /* Wood rail frame: full rectangular ring (the pocket caps punch holes
