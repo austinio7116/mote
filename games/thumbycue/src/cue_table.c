@@ -3313,7 +3313,7 @@ void cue_table_normalise(CueTable *t) {
  *
  * Build-time only: a few hundred jaw points against six noses, once. The
  * impact reads one lerped number (CueSeg::ga) and multiplies by it. */
-static void grade_jaws(CueWorld *w) {
+static void grade_jaws(CueWorld *w, int round_nose) {
     float deepest = 0.0f;
     /* how far behind the nearest rail nose each jaw end sits */
     for (int i = 0; i < w->nseg; i++) {
@@ -3356,6 +3356,20 @@ static void grade_jaws(CueWorld *w) {
             float d = (w->jaw[j].x - n->a.x) * n->n.x + (w->jaw[j].z - n->a.z) * n->n.z;
             if (d < 0.0f) d = -d;
             if (d < best) best = d;
+        }
+        /* A ROUNDED NOSE IS NOT A KNUCKLE. On the Brazilian tables the circle
+         * is the whole R50 / R37.6 round into the facing, and its CENTRE sits
+         * that far inside the cushion -- so measured there it read as the
+         * thinnest rubber on the table and bounced at the 0.55 floor, a full
+         * section playing dead (Mark, 2026-10-03, a Mesinha replay: "is the
+         * normal wrong or is the circle of the mitre just dead?"). Measured at
+         * its FRONT, where the ball meets it. Every other table keeps the
+         * centre: their jaws were tuned on it. */
+        if (round_nose) {
+            const float rr = w->jaw_rad[j] > 0.0f ? w->jaw_rad[j] : w->jaw_r;
+            /* the rounds only: the mesinha's 4 mm middle knuckles are a real
+             * jaw point and keep their centre measure */
+            if (rr > 0.010f) best = best > rr ? best - rr : 0.0f;
         }
         float g = 1.0f - (best < 1e29f ? best : 0.0f) / deepest;
         if (g < CUE_JAW_GIVE_TIP) g = CUE_JAW_GIVE_TIP;
@@ -3863,7 +3877,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     }
 
     smooth_seg_normals(w);
-    grade_jaws(w);
+    grade_jaws(w, CUE_GAME_IS_MESINHA(t->kind) || t->kind == CUE_GAME_SINUCA || t->kind == CUE_GAME_SINUCA6);
 
 
     /* ---- each pocket's mouth, from the two jaw tips beside it ------------ */
@@ -3921,7 +3935,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
             moved |= cue_table_clear_bore(w, &w->seg[s].a.x, &w->seg[s].a.z);
             moved |= cue_table_clear_bore(w, &w->seg[s].b.x, &w->seg[s].b.z);
         }
-        if (moved) { smooth_seg_normals(w); grade_jaws(w); }
+        if (moved) { smooth_seg_normals(w); grade_jaws(w, CUE_GAME_IS_MESINHA(t->kind) || t->kind == CUE_GAME_SINUCA || t->kind == CUE_GAME_SINUCA6); }
     }
 
     /* THE CUT IS NOT THE POCKET SIZE, and tying it to pr_* meant it was.
