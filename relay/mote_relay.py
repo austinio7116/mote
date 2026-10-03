@@ -649,8 +649,15 @@ class Relay:
         wip = (who.peer[0] if isinstance(who.peer, tuple) else str(who.peer)) if who else "-"
         line = "\t".join([time.strftime("%Y-%m-%d %H:%M:%S"), room.gid, room.code, str(m.k), ip,
                           str(k), wip, reason or "OTHER", text]) + "\n"
-        with open(os.path.join(self.args.store, "reports.tsv"), "a", encoding="ascii", errors="replace") as f:
-            f.write(line)
+        # A REPORT NEVER COSTS ITS SENDER THE ROOM: a store that cannot be
+        # written says so in the answer, and the room carries on
+        try:
+            os.makedirs(self.args.store, exist_ok=True)
+            with open(os.path.join(self.args.store, "reports.tsv"), "a", encoding="ascii", errors="replace") as f:
+                f.write(line)
+        except OSError as e:
+            log(f"nroom {room.gid}/{room.code}: a report could not be kept ({type(e).__name__})")
+            return "REPORT OFF"
         log(f"nroom {room.gid}/{room.code}: member {m.k} reported member {k} ({reason})")
         return "REPORTED"
 

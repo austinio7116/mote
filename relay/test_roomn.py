@@ -629,7 +629,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--old", help="the relay before ROOMN, to compare the old verbs against")
     args = ap.parse_args()
-    store = tempfile.mkdtemp(prefix="roomn_store_")
+    # a store the relay has to make itself: a report must not depend on it existing
+    store = os.path.join(tempfile.mkdtemp(prefix="roomn_store_"), "store")
     new, port = start_relay(os.path.join(HERE, "mote_relay.py"), ["--room-backlog", "65536", "--store", store])
     try:
         roomn_tests(port)
