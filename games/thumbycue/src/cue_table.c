@@ -814,7 +814,11 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
             t->R = 0.0335f; t->mass = 0.255f;   /* 67 mm, and heavy with it */
             t->rail_w = 0.085f;
         }
-        t->cushion_h = 1.20f * t->R;
+        /* 42 mm on the federation's 67-68 mm ball (ФБСР technical
+         * requirements, 14.12.2020: "Высота рабочей кромки резины над плитой,
+         * мм -- 42"): 0.627 of the ball, and the 7 ft table's smaller ball gets
+         * the same fraction. Was 1.20 R, 40.2 mm. */
+        t->cushion_h = 0.627f * 2.0f * t->R;
         /* MITRED, not rounded. The federation's specification gives the openings
          * to the millimetre and says nothing about the jaw profile, but every
          * description of a Russian table calls the губки — the lips — SHARP,
@@ -943,7 +947,11 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->cap_corner = 0.0f;
         t->cap_side   = 0.0f;
         t->drop_back  = 0.0093800f; t->drop_back_side = 0.0100500f;  /* 9.38 / 10.05 mm */
-        t->jaw_r = 0.004f;
+        /* THE RUBBER'S ROUNDS, by the same document: R1 5 mm at a corner,
+         * R2 11 +/- 1 mm in a middle (Mark, 2026-10-03). Were 4 mm both. The
+         * openings measure the same either way: 71.65 and 81.00 mm. */
+        t->jaw_r = 0.005f;
+        t->jaw_r_m = 0.011f;
         /* THE HOUSE, which is what a pyramid table has instead of a D: a line
          * across the baulk end with the cue ball played from behind it. Carried
          * in baulk_x + d_radius because that is the pair every renderer and the
