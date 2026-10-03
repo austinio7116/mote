@@ -111,11 +111,14 @@ Wire protocol (client <-> relay), one text handshake line then raw bytes:
     A token is good only while its member is in the room; a watcher's voice
     is never passed on (it listens). The relay never looks inside a voice
     packet and never keeps one.
-    REPORTING SOMEONE (VRC.Content.3): "REPORT <K> <REASON> <TEXT...>" to the
-    relay is kept, one line, in <store>/reports.tsv -- when, which game and
-    room, who reported whom (place, address, the names the reporter's game
-    gives), why -- and answered "REPORTED", or "REPORT OFF" (no --store),
-    or "REPORT BUSY" (too many from one address in an hour).
+    REPORTING SOMEONE (VRC.Content.3): "REPORT <K> <REASON> <REPORTED>|<REPORTER>"
+    to the relay is kept, one line, in <store>/reports.tsv -- the time, the
+    game and room, the reason, both display names, both places, and a salted
+    hash of each address (HMAC-SHA256 under the relay's own secret,
+    <store>/reports.salt, made once; never the address itself) -- and
+    answered "REPORTED", or "REPORT OFF" (no --store), or "REPORT BUSY" (too
+    many from one address in an hour). A report is kept no longer than 90
+    days after it is dealt with (the policy): delete its line.
 
     When two clients meet, the relay pairs them:
         -> host:   "GO H\n"      -> joiner: "GO G\n"
@@ -134,6 +137,7 @@ under systemd (see mote-relay.service). Python 3.8+.
 import argparse
 import asyncio
 import hashlib
+import hmac
 import os
 import socket
 import time
@@ -627,8 +631,38 @@ class Relay:
                 room.voice(m.k, bytes(data[10:]), self.udp, self.args.voice_backlog)
 
     # ---- REPORTS (VRC.Content.3) ---------------------------------------------
+    def report_salt(self):
+        """THE RELAY'S OWN SECRET, kept beside the reports: an address is never
+        written down, only a keyed hash of it, so repeat reports about one
+        connection can be matched without the address being kept. Made once,
+        readable by the relay alone, and the same across restarts."""
+        if getattr(self, "_salt", None):
+            return self._salt
+        p = os.path.join(self.args.store, "reports.salt")
+        try:
+            with open(p, "rb") as f:
+                salt = f.read()
+        except OSError:
+            salt = b""
+        if len(salt) < 16:
+            salt = os.urandom(32)
+            fd = os.open(p + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(salt)
+            os.replace(p + ".tmp", p)
+        self._salt = salt
+        return salt
+
+    def addr_hash(self, peer):
+        ip = peer[0] if isinstance(peer, tuple) else str(peer)
+        return hmac.new(self.report_salt(), ip.encode(), hashlib.sha256).hexdigest()[:16]
+
     def report(self, room, m, raw):
-        """REPORT <K> <REASON> <TEXT...>: one line in <store>/reports.tsv."""
+        """REPORT <K> <REASON> <REPORTED NAME>|<REPORTER NAME>: one line in
+        <store>/reports.tsv -- the time, the room, the reason, both display
+        names, both places, and a salted hash of each address (never the
+        address). Kept no longer than 90 days after it is dealt with: that is
+        the operator's to do, by deleting the line."""
         if self.store is None:
             return "REPORT OFF"
         ip = m.peer[0] if isinstance(m.peer, tuple) else str(m.peer)
@@ -644,15 +678,17 @@ class Relay:
         except ValueError:
             k = -1
         reason = clean_code(t[2]) if len(t) > 2 else "OTHER"
-        text = "".join(c for c in (t[3] if len(t) > 3 else "") if 32 <= ord(c) < 127 and c != "\t")[:200]
+        text = "".join(c for c in (t[3] if len(t) > 3 else "") if 32 <= ord(c) < 127 and c != "\t")
+        names = (text.split("|", 1) + [""])[:2]
+        reported_name, reporter_name = names[0].strip()[:40] or "-", names[1].strip()[:40] or "-"
         who = room.members.get(k)
-        wip = (who.peer[0] if isinstance(who.peer, tuple) else str(who.peer)) if who else "-"
-        line = "\t".join([time.strftime("%Y-%m-%d %H:%M:%S"), room.gid, room.code, str(m.k), ip,
-                          str(k), wip, reason or "OTHER", text]) + "\n"
         # A REPORT NEVER COSTS ITS SENDER THE ROOM: a store that cannot be
         # written says so in the answer, and the room carries on
         try:
             os.makedirs(self.args.store, exist_ok=True)
+            line = "\t".join([time.strftime("%Y-%m-%d %H:%M:%S"), room.gid, room.code, reason or "OTHER",
+                              reported_name, reporter_name, str(k), str(m.k),
+                              self.addr_hash(who.peer) if who else "-", self.addr_hash(m.peer)]) + "\n"
             with open(os.path.join(self.args.store, "reports.tsv"), "a", encoding="ascii", errors="replace") as f:
                 f.write(line)
         except OSError as e:

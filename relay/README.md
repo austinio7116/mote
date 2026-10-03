@@ -139,7 +139,16 @@ talker sees byte for byte what the previous relay sends it; `test_roomn.py
 | UDP `'K' 1 TOKEN(8) id(4) ms(4)` | UDP `'P' 1 id ms` — the keepalive and its answer |
 | UDP `'A' 1 TOKEN(8) <packet>` | UDP `'A' 1 <from> <packet>` to every other member that asked |
 | frame to `0xFD`, payload `<packet>` | frame from `0xFD`, payload `<from> <packet>`, to members on TCP |
-| `REPORT <K> <REASON> <TEXT>` (to `0xFE`) | `REPORTED`, `REPORT OFF` (no `--store`), `REPORT BUSY`; a line in `<store>/reports.tsv` |
+| `REPORT <K> <REASON> <REPORTED>\|<REPORTER>` (to `0xFE`) | `REPORTED`, `REPORT OFF` (no `--store`), `REPORT BUSY`; a line in `<store>/reports.tsv` |
+
+**Reports** are one tab-separated line each: time, game, room, reason, the
+reported and the reporting display names, their places, and a salted hash of
+each address -- HMAC-SHA256 under the relay's own secret (`<store>/reports.salt`,
+made on the first report, mode 600), cut to 16 hex digits -- never the address
+itself, as the privacy policy says. The same address always hashes the same,
+so repeat reports about one connection can be matched. Keep `reports.salt`
+with the reports (a new salt matches nothing old), and delete a report's line
+no later than 90 days after it has been dealt with.
 
 A token is good only while its member is in the room. The relay sends voice by
 UDP to a member whose keepalives it has heard in the last 20 s and who has not

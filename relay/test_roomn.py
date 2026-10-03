@@ -452,20 +452,48 @@ def voice_tests(port, store):
     check("a member gone: its token speaks to nobody", udp_recv(u2, 0.4) is None)
 
     print("\n--- REPORT ---")
-    send_frame(ms[2], 0xFE, b"REPORT 3 SPEECH SHOUTING|MARK")
+    send_frame(ms[2], 0xFE, b"REPORT 3 SPEECH SHOUTER|MARK")
     f = recv_frame(ms[2])
     rep = os.path.join(store, "reports.tsv") if store else None
     if store:
         lines = open(rep).read().splitlines() if os.path.exists(rep) else []
-        check("a report is answered REPORTED and kept, one line", f[2] == b"REPORTED" and len(lines) == 1
-              and lines[0].split("\t")[3:6] == ["2", "127.0.0.1", "3"] and lines[0].split("\t")[7] == "SPEECH",
-              f"{f[2]!r} {lines[-1] if lines else ''}")
+        t = lines[0].split("\t") if lines else []
+        check("a report is answered REPORTED and kept, one line", f[2] == b"REPORTED" and len(lines) == 1, f"{f[2]!r}")
+        check("...time, room, reason, both names, both places, two hashes",
+              len(t) == 10 and t[2] == "VOIC" and t[3] == "SPEECH" and t[4:8] == ["SHOUTER", "MARK", "3", "2"]
+              and all(len(h) == 16 and all(c in "0123456789abcdef" for c in h) for h in t[8:10]), "\t".join(t))
+        check("...and no address in it", "127.0.0.1" not in lines[0] if lines else False)
+        check("one address, one hash (both ends are 127.0.0.1 here)", len(t) == 10 and t[8] == t[9])
+        salt = os.path.join(store, "reports.salt")
+        check("the relay's secret is its own (mode 600)", os.path.exists(salt) and (os.stat(salt).st_mode & 0o777) == 0o600,
+              oct(os.stat(salt).st_mode & 0o777) if os.path.exists(salt) else "missing")
+        REPORT_HASH[0] = t[8] if len(t) == 10 else None
     else:
         check("without a store a report says so", f[2] == b"REPORT OFF", f[2].decode())
     send_frame(ms[2], 0xFF, b"x")
     check("...and took no number", recv_frame(ms[0])[1] == f[1] + 1)
     for s_ in (h, ms[2], ms[3], w): s_.close()
     for u in (u1, u2, u3, u9, uw): u.close()
+
+REPORT_HASH = [None]
+
+def report_again(store):
+    """a new relay on the same store: the same address hashes the same"""
+    p, port = start_relay(os.path.join(HERE, "mote_relay.py"), ["--store", store])
+    try:
+        h = conn(port, f"MOTE2 ROOMN {GID} HOST AGIN PRIV 2"); readline(h); recv_frame(h)
+        j = conn(port, f"MOTE2 ROOMN {GID} JOIN AGIN"); readline(j); recv_frame(j); recv_frame(h)
+        send_frame(h, 0xFE, b"REPORT 1 NAME RUDE|ME")
+        f = recv_frame(h)
+        lines = open(os.path.join(store, "reports.tsv")).read().splitlines()
+        t = lines[-1].split("\t")
+        print("\n--- REPORT: a restarted relay ---")
+        check("a report after a restart is kept too", f[2] == b"REPORTED" and len(lines) == 2)
+        check("...and the same address has the same hash (repeat reports can be matched)",
+              REPORT_HASH[0] is not None and t[8] == REPORT_HASH[0], f"{t[8]} vs {REPORT_HASH[0]}")
+        h.close(); j.close()
+    finally:
+        p.kill()
 
 def voice_policy():
     """RoomN.voice itself, with members whose queues are as backed up as we
@@ -635,6 +663,7 @@ def main():
     try:
         roomn_tests(port)
         voice_tests(port, store)
+        report_again(store)
         voice_policy()
         print("\n--- VOICE: an old client's room, with and without a talker in it ---")
         quiet = room_transcript(port, False)
