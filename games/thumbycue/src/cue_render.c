@@ -4059,7 +4059,7 @@ void cue_render_build_table(const CueTable *t, const CueWorld *w) {
     const float rw = t->rail_w;
     const float cw = rw * 0.63f;        /* cushion depth (nose → cushion back); +50% for a beefier rail */
     const float nose_h = t->cushion_h;       /* nose contact line (bottom of the front face) */
-    const float flat_h = nose_h * 1.30f;     /* top of the small VERTICAL nose front face */
+    const float flat_h = cue_table_cush_top(t);  /* top of the small VERTICAL nose front face (3 mm on K55) */
     const float rail_h = flat_h;             /* flat cushion top & wood top, level at flat_h */
     /* HOW FAR THE PLANK'S INNER FACE DROPS.
      *

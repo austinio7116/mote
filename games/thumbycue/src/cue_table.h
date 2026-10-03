@@ -741,6 +741,10 @@ typedef struct {
  *
  * Table space, metres, y up from the cloth. */
 float cue_table_rail_top(const CueTable *t);
+/* THE CUSHION TOP, which the wood cap is level with: 1.30 x the nose on every
+ * table but the American ones, which have K55 rubbers (Mark, 2026-10-03) -- no
+ * wall above the nose, just a 3 mm sliver, so the top and the frame are low. */
+float cue_table_cush_top(const CueTable *t);
 /* The slate's thickness: 40 mm on a 12 ft bed, 30 mm on every smaller one. */
 float cue_table_slate_t(const CueTable *t);
 float cue_table_bore_bot(void);

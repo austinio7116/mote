@@ -3466,7 +3466,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
                                     w->bound_r, CUE_MAX_RECT);
     /* The same height cue_table_surface reports and cue_render draws: the
      * cushion top and the wood cap are one surface, not a step. */
-    w->rail_top = t->cushion_h * 1.30f;
+    w->rail_top = cue_table_cush_top(t);
     /* the same number cue_render uses for the timber's inner edge (rw * 0.63) */
     w->cush_depth = t->rail_w * 0.63f;
     w->jaw_segs   = CUE_JAW_SEGS;   /* build_ngon trims it for a many-sided bed */
@@ -5742,9 +5742,18 @@ Vec3 cue_table_lay(const CueTable *t, float x, float across, Vec3 *dir) {
 
 /* See cue_table.h. The renderer builds the rail plank to the first and bores it
  * to the second; anything fitted to the table asks for them here. */
+float cue_table_cush_top(const CueTable *t) {
+    if (!t) return 0.0f;
+    /* K55: the mitred (pocket_round 0) pool tables. The K55 is 1 1/4" across
+     * the top and 1 5/16" at the glue face with the nose at 1 3/8"-1 7/16", and
+     * a US table's cap sits just above its nose -- not 11 mm above it. */
+    const int k55 = t->pocket_round == 0 && t->kind != CUE_GAME_BUMPER &&
+                    !CUE_GAME_BED_HOLES(t->kind) && !CUE_GAME_IS_CAROM(t->kind);
+    return k55 ? t->cushion_h + 0.003f : t->cushion_h * 1.30f;
+}
 float cue_table_rail_top(const CueTable *t) {
     if (!t) return 0.0f;
-    return t->cushion_h * 1.30f + 0.085f * t->R;   /* rail_h + frame_lift */
+    return cue_table_cush_top(t) + 0.085f * t->R;   /* rail_h + frame_lift */
 }
 float cue_table_bore_bot(void) { return -0.002f; }
 
@@ -7483,7 +7492,7 @@ float cue_table_surface(const CueTable *t, float x, float z) {
     /* EXACTLY WHAT IS DRAWN, and nothing on top of it.
      *
      * cue_render.c builds the cushion top and the wood top level with each
-     * other at cushion_h * 1.30 — the rail cap is NOT a step above the cushion,
+     * other at cue_table_cush_top (cushion_h * 1.30, or the K55 sliver on US tables) — the rail cap is NOT a step above the cushion,
      * they are one surface. (cushion_h itself is the ball-CONTACT line at 63.5%
      * of ball height, which is a different thing again and easy to mistake for
      * the top of the cushion.)
@@ -7495,7 +7504,7 @@ float cue_table_surface(const CueTable *t, float x, float z) {
      * cue is a cylinder resting on a surface: its centreline sits one shaft
      * radius above, which cue_elev_for already adds, and there is nothing left
      * to account for. */
-    return t->cushion_h * 1.30f;
+    return cue_table_cush_top(t);
 }
 
 /* Elevation needed for the shaft to sit above `surf` at distance `dd` back. */
