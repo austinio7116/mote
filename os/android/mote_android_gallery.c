@@ -39,7 +39,19 @@
 #define MOTE_GALLERY_BASE_DEFAULT "https://austinio7116.github.io/mote"
 #endif
 
-/* The ABI key this build looks for in the manifest. */
+/* The platform block and ABI key this build looks for in the manifest.
+ *
+ * The block name is NOT always "android": a desktop/handheld Linux build (the
+ * Steam Deck bundle) reads "linux" instead. Both are x86-64 in practice, but
+ * Android is Bionic and Linux is glibc, so a module built for one will not
+ * dlopen on the other — they have to be separate keys or the wrong .so gets
+ * downloaded and fails to load. See tools/gen_gallery.py. */
+#if defined(__ANDROID__)
+#define MOTE_GALLERY_PLAT "android"
+#else
+#define MOTE_GALLERY_PLAT "linux"
+#endif
+
 #if defined(__aarch64__)
 #define MOTE_ANDROID_ABI "arm64-v8a"
 #elif defined(__arm__)
@@ -251,7 +263,7 @@ static int parse_manifest(const char *path) {
               g->desc_len = (long)(q - d);
           } }
         /* the per-ABI module block, if this game publishes one */
-        const char *av = field(p, oe, "android");
+        const char *av = field(p, oe, MOTE_GALLERY_PLAT);
         if (av && *av == '{') {
             const char *ae = obj_end(av, oe);
             const char *mv = field(av, ae, MOTE_ANDROID_ABI);

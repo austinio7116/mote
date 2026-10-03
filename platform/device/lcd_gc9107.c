@@ -11,10 +11,15 @@
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/pwm.h"
+#include "thumbyone_panel.h"
 
 #define LCD_SPI            spi0
+#if THUMBYONE_PANEL_ST7735S
+#define LCD_SPI_HZ         THUMBYONE_PANEL_SPI_HZ
+#else
 #define LCD_SPI_HZ         (80 * 1000 * 1000)
 
+#endif
 #define PIN_SCK   18
 #define PIN_TX    19
 #define PIN_CS    17
@@ -43,9 +48,17 @@ static void lcd_cmd(uint8_t cmd, const uint8_t *data, size_t len) {
 }
 
 static void lcd_set_window_full(void) {
+#if THUMBYONE_PANEL_ST7735S
+    lcd_cmd(0x36, (uint8_t[]){THUMBYONE_PANEL_MADCTL}, 1);
+    lcd_cmd(0x2a, (uint8_t[]){0x00, THUMBYONE_PANEL_X0,
+                            0x00, THUMBYONE_PANEL_X1}, 4);
+    lcd_cmd(0x2b, (uint8_t[]){0x00, THUMBYONE_PANEL_Y0,
+                            0x00, THUMBYONE_PANEL_Y1}, 4);
+#else
     lcd_cmd(0x36, (uint8_t[]){0x00}, 1);
     lcd_cmd(0x2a, (uint8_t[]){0x00, 0x00, 0x00, 0x7f}, 4);
     lcd_cmd(0x2b, (uint8_t[]){0x00, 0x00, 0x00, 0x7f}, 4);
+#endif
     lcd_cmd(0x2c, NULL, 0);
 }
 
@@ -63,6 +76,11 @@ void mote_lcd_init(void) {
     gpio_put(PIN_RST, 0); sleep_ms(50);
     gpio_put(PIN_RST, 1); sleep_ms(120);
 
+#if THUMBYONE_PANEL_ST7735S
+    /* Non-stock panel: the controller-specific block below is
+     * replaced wholesale. See ThumbyOne/common/lib/thumbyone_panel.h. */
+    thumbyone_panel_init_seq(lcd_cmd);
+#else
     lcd_cmd(0xFE, NULL, 0);
     lcd_cmd(0xEF, NULL, 0);
 
@@ -99,6 +117,7 @@ void mote_lcd_init(void) {
 
     lcd_cmd(0x11, NULL, 0); sleep_ms(120);
     lcd_cmd(0x29, NULL, 0); sleep_ms(10);
+#endif  /* THUMBYONE_PANEL_ST7735S */
 
     dma_ch = dma_claim_unused_channel(true);
     dma_cfg = dma_channel_get_default_config(dma_ch);

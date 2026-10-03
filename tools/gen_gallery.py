@@ -66,17 +66,26 @@ def mote_meta(path):
         "sha256": hashlib.sha256(data).hexdigest(),
     }
 
-# Android game modules, if any have been staged for publishing. A module is the
-# same game compiled for a phone (android/tools/build_modules.sh --publish), and
-# the block is purely additive: consumers that only know about .mote ignore it,
-# and a game with no module simply isn't offered to Android clients.
+# Native game modules, if any have been staged for publishing. A module is the
+# same game compiled for a client that can't execute Cortex-M33 code — a phone,
+# or an x86-64 Linux handheld/desktop (a Steam Deck running the Linux bundle).
+# Built by android/tools/build_modules.sh --publish. The blocks are purely
+# additive: consumers that only know about .mote ignore them, and a game with no
+# module simply isn't offered to that client.
+#
+# `linux` is deliberately separate from `android` rather than sharing an
+# "x86_64" key. Android x86_64 is Bionic and Linux x86_64 is glibc — same
+# instruction set, incompatible C library — so one shared key would hand an
+# Android x86 client (emulator, ChromeOS's Android runtime) a module it cannot
+# load, and it would fail at dlopen rather than showing as unavailable.
 ANDROID_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
+LINUX_ABIS = ("x86_64",)
 
 
-def android_modules(gid):
+def native_modules(gid, plat, abis):
     out = {}
-    for abi in ANDROID_ABIS:
-        rel = "games/android/%s/libmg_%s.so" % (abi, gid)
+    for abi in abis:
+        rel = "games/%s/%s/libmg_%s.so" % (plat, abi, gid)
         p = os.path.join(DOCS, rel)
         if not os.path.isfile(p):
             continue
@@ -102,7 +111,8 @@ def main():
         icon  = "img/gallery/%s-icon.png" % gid
         thumb = "img/gallery/%s-1.png" % gid
         shots = ["img/gallery/%s-%d.png" % (gid, i) for i in range(1, g["shots"] + 1)]
-        droid = android_modules(gid)
+        droid = native_modules(gid, "android", ANDROID_ABIS)
+        lin = native_modules(gid, "linux", LINUX_ABIS)
         games.append({
             "id": gid,
             "name": g["name"],
@@ -120,10 +130,12 @@ def main():
             "guide": g["guide"],
             "multiplayer": g["multiplayer"],
             **({"android": droid} if droid else {}),
+            **({"linux": lin} if lin else {}),
         })
-        print("  %-16s v%-7s abi%d %7d B  %s%s" % (
+        print("  %-16s v%-7s abi%d %7d B  %s%s%s" % (
             gid, meta["version"], meta["abi"], meta["size"], meta["sha256"][:12],
-            "  +android(%s)" % ",".join(sorted(droid)) if droid else ""))
+            "  +android(%s)" % ",".join(sorted(droid)) if droid else "",
+            "  +linux(%s)" % ",".join(sorted(lin)) if lin else ""))
     manifest = {
         "schema": 1,
         "generated": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat(),

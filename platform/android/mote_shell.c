@@ -246,7 +246,13 @@ static void load_screen_cfg(void) {
 /* ====================================================================== *
  *  settings (persisted next to the saves)
  * ====================================================================== */
-enum { LAY_CHASSIS = 0, LAY_FILL = 1 };
+/* LAY_BARE drops the chassis photo entirely and integer-scales the 128x128
+ * frame to fill as much of the display as a whole multiple allows, centred on
+ * black. It exists for handhelds that already have real buttons — a Steam Deck
+ * running the Linux bundle becomes the Thumby, rather than showing a picture of
+ * one. On a 1280x800 Deck that is 6x (768x768) with a 256px border either side
+ * and 16px top and bottom; 7x would need 896 and does not fit. */
+enum { LAY_CHASSIS = 0, LAY_FILL = 1, LAY_BARE = 2 };
 enum { SH_TOP = 0, SH_SHELL = 1 };   /* shoulder placement */
 static struct {
     int  layout;        /* LAY_* */
@@ -519,6 +525,32 @@ static void shoulder_layout(void);
 static void layout(void) {
     SDL_GetRendererOutputSize(ren, &s_ow, &s_oh);
     int W = s_ow, H = s_oh;
+
+    /* Bare mode: no chassis at all. Largest whole-number scale of the 128x128
+     * frame that fits, centred; everything else stays black. Falls back to 1x
+     * on a window too small for even that, so the frame is never squashed to a
+     * non-integer size (which is the whole point of this mode). */
+    if (cfg.layout == LAY_BARE) {
+        int lim = W < H ? W : H;
+        int n = lim / MOTE_FB_W;
+        if (n < 1) n = 1;
+        s_ss = n * MOTE_FB_W;
+        s_sx = (W - s_ss) / 2;
+        s_sy = (H - s_ss) / 2;
+        /* No chassis rect; point it at the frame so any chassis-relative
+         * helper that still runs stays inside the visible square. */
+        s_dx = s_sx; s_dy = s_sy; s_dw = s_ss; s_dh = s_ss;
+        if (tex_frame) SDL_SetTextureScaleMode(tex_frame, SDL_ScaleModeNearest);
+        /* Logged because "why is there a border" and "why is it not sharp" are
+         * the two questions this mode generates, and both are answered by the
+         * scale it settled on. */
+        { static int last_n; if (n != last_n) { last_n = n;
+            SDL_Log("mote: bare layout %dx%d -> %dx (%dpx), border %d x %d",
+                    W, H, n, s_ss, s_sx, s_sy); } }
+        shoulder_layout();
+        return;
+    }
+
     if (photo_w <= 0 || photo_h <= 0) { s_dx = s_dy = 0; s_dw = W; s_dh = H; s_sx = s_sy = 0; s_ss = H; return; }
 
     float aspect = (float)photo_w / (float)photo_h;
@@ -1074,7 +1106,8 @@ static void row_text(int id, char *name, char *val, char *hint, int cap) {
     switch (id) {
     case ROW_LAYOUT:
         snprintf(name, cap, "Screen");
-        snprintf(val, cap, "%s", cfg.layout == LAY_CHASSIS ? "Crisp" : "Bigger");
+        snprintf(val, cap, "%s", cfg.layout == LAY_CHASSIS ? "Crisp" :
+                                 cfg.layout == LAY_FILL    ? "Bigger" : "Fullscreen");
         snprintf(hint, cap, "Pixel-perfect, or fill more of the phone");
         break;
     case ROW_SHOULDER:
@@ -1124,7 +1157,14 @@ static void relay_commit(int keep) {
 
 static void settings_activate(int id) {
     switch (id) {
-    case ROW_LAYOUT:   cfg.layout = !cfg.layout; layout(); break;
+    case ROW_LAYOUT:
+        /* Both chassis layouts need the photo. The Steam Deck bundle ships
+         * without it (3.6 MB for a view that hardware doesn't want), so with no
+         * photo loaded the row stays on Fullscreen instead of cycling into a
+         * layout that has nothing to draw. */
+        if (photo_w <= 0 || photo_h <= 0) cfg.layout = LAY_BARE;
+        else                              cfg.layout = (cfg.layout + 1) % 3;
+        layout(); break;
     case ROW_SHOULDER: cfg.shoulder = !cfg.shoulder; layout(); break;
     case ROW_HAPTIC:   cfg.haptics = !cfg.haptics; break;
     case ROW_FPS:      mote_perf_toggle(); return;   /* cycles the on-LCD overlay */
@@ -1407,8 +1447,14 @@ int main(int argc, char *argv[]) {
     int dw = 1280, dh = 720;
     { const char *sz = SDL_getenv("MOTE_SHELL_SIZE");
       if (sz) { int a, b; if (sscanf(sz, "%dx%d", &a, &b) == 2 && a > 200 && b > 200) { dw = a; dh = b; } } }
+    /* MOTE_SHELL_FULLSCREEN=1 — borderless fullscreen at the display's own
+     * resolution. Set by the Steam Deck bundle's launcher so the shell comes up
+     * as a console rather than a window; harmless everywhere else. */
+    Uint32 wflags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
+    { const char *fs = SDL_getenv("MOTE_SHELL_FULLSCREEN");
+      if (fs && *fs && *fs != '0') wflags |= SDL_WINDOW_FULLSCREEN_DESKTOP; }
     win = SDL_CreateWindow("Mote (Android shell)", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                           dw, dh, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+                           dw, dh, wflags);
 #else
     win = SDL_CreateWindow("Mote", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 0, 0,
                            SDL_WINDOW_FULLSCREEN | SDL_WINDOW_SHOWN);
@@ -1428,6 +1474,13 @@ int main(int argc, char *argv[]) {
     mote_shell_set_storage(store);
     snprintf(s_cfg_path, sizeof s_cfg_path, "%s/shell.cfg", store);
     cfg_load();
+    /* MOTE_SHELL_BARE=1 — force the chassis-free integer-scaled layout at
+     * startup, ahead of whatever shell.cfg says. The Steam Deck bundle sets it
+     * so the console look survives a fresh install with no config yet. The
+     * settings row still cycles layouts for the session; this only decides
+     * where each launch starts. */
+    { const char *bare = SDL_getenv("MOTE_SHELL_BARE");
+      if (bare && *bare && *bare != '0') cfg.layout = LAY_BARE; }
     if (cfg.relay[0]) mote_shell_set_relay(cfg.relay);
     else              snprintf(cfg.relay, sizeof cfg.relay, "%s", mote_shell_get_relay());
     jni_bind();
@@ -1655,7 +1708,7 @@ int main(int argc, char *argv[]) {
         SDL_SetRenderDrawColor(ren, 8, 9, 14, 255);
         SDL_RenderClear(ren);
 
-        SDL_Texture *chassis = tex_photo;
+        SDL_Texture *chassis = (cfg.layout == LAY_BARE) ? NULL : tex_photo;
         if (chassis) {
             SDL_Rect d = { s_dx, s_dy, s_dw, s_dh };
             SDL_RenderCopy(ren, chassis, NULL, &d);
@@ -1671,7 +1724,9 @@ int main(int argc, char *argv[]) {
             Uint32 since = SDL_GetTicks() - s_last_touch_ms;
             ov = since > 1200 ? 0 : (Uint8)(255 - since * 255 / 1200);
         }
-        if (ov > 0) {
+        /* Bare mode has no chassis to anchor them to, and the hardware it is
+         * meant for has real buttons — so no touch pads or press glows. */
+        if (ov > 0 && cfg.layout != LAY_BARE) {
             shoulder_pads();
             for (int i = 0; i < EB_N; i++)
                 if (s_down[i]) glow(i, ov);

@@ -5744,11 +5744,18 @@ Vec3 cue_table_lay(const CueTable *t, float x, float across, Vec3 *dir) {
  * to the second; anything fitted to the table asks for them here. */
 float cue_table_cush_top(const CueTable *t) {
     if (!t) return 0.0f;
-    /* K55: the mitred (pocket_round 0) pool tables. The K55 is 1 1/4" across
-     * the top and 1 5/16" at the glue face with the nose at 1 3/8"-1 7/16", and
-     * a US table's cap sits just above its nose -- not 11 mm above it. */
-    const int k55 = t->pocket_round == 0 && t->kind != CUE_GAME_BUMPER &&
-                    !CUE_GAME_BED_HOLES(t->kind) && !CUE_GAME_IS_CAROM(t->kind);
+    /* K55: the American tables -- the games the 9 ft US bed is built for in
+     * cue_table_init, and only those. NOT "pocket_round 0": the mesão, the
+     * mesinha and the pyramid tables are mitred too, and they are not American
+     * cushions (that test put the K55 on them, 2026-10-03). The K55 is 1 1/4"
+     * across the top and 1 5/16" at the glue face with the nose at
+     * 1 3/8"-1 7/16", and a US table's cap sits just above its nose -- not
+     * 11 mm above it. */
+    const CueGameKind k = (CueGameKind)t->kind;
+    const int k55 = k == CUE_GAME_US8 || k == CUE_GAME_US9 || k == CUE_GAME_US10 ||
+                    k == CUE_GAME_STRAIGHT || k == CUE_GAME_ONEPOCKET || k == CUE_GAME_BANKPOOL ||
+                    CUE_GAME_IS_ROT61(k) || k == CUE_GAME_COWBOY || k == CUE_GAME_HONOLULU ||
+                    k == CUE_GAME_SPEED || k == CUE_GAME_BOWLLIARDS || k == CUE_GAME_CRIBBAGE;
     return k55 ? t->cushion_h + 0.003f : t->cushion_h * 1.30f;
 }
 float cue_table_rail_top(const CueTable *t) {

@@ -24,6 +24,36 @@
 #include "mote_ui.h"
 #include "mote_input.h"      /* buttons for the gallery screen */
 #include "hardware/regs/addressmap.h"   /* XIP_BASE */
+#include "hardware/structs/qmi.h"       /* ATRANS — see mote_fat_xip_ptr below */
+
+/* Physical -> virtual translation for XIP reads of the shared FAT.
+ *
+ * The icon preview below reads a .mote's header and icon in place, straight out
+ * of the FAT. That works because ATRANS[1..3] identity-map physical 4..16 MB —
+ * but ATRANS[0] maps virtual 0..4 MB to the SLOT'S OWN base, so "XIP_BASE +
+ * phys" only lands correctly when phys >= 4 MB.
+ *
+ * Every preset shipped so far keeps the FAT above 4 MB, so the plain form was
+ * right by luck. A trimmed slot set (NES+P8+MPY+Mote with no Mega Drive) puts
+ * it at ~3.4 MB, and this lobby then read the header from unrelated flash. The
+ * magic check below fails and the function returns early, so the symptom is a
+ * game with no thumbnail rather than a crash. Launching still worked, because
+ * mote_loader.c programs ATRANS[2] explicitly for the running module.
+ *
+ * Mirrors thumbyone_fat_xip_addr() in ThumbyOne/common/fs/thumbyone_disk.c.
+ * Compiled in only when the FAT really is below 4 MB, so every shipped preset
+ * keeps identical codegen. */
+#if THUMBYONE_FAT_OFFSET < 0x400000u
+static inline const void *mote_fat_xip_ptr(uint32_t phys) {
+    if (phys >= 0x400000u) return (const void *)(uintptr_t)(XIP_BASE + phys);
+    uint32_t slot_phys_base = (qmi_hw->atrans[0] & 0xFFFu) * 4096u;
+    return (const void *)(uintptr_t)(XIP_BASE + (phys - slot_phys_base));
+}
+#else
+static inline const void *mote_fat_xip_ptr(uint32_t phys) {
+    return (const void *)(uintptr_t)(XIP_BASE + phys);
+}
+#endif
 #include <string.h>
 
 #define MOTE_DIR      "/mote"
@@ -111,9 +141,9 @@ static void resolve_icon(const char *fname, const void **out_blob, const uint16_
                                                * can't run either — flag it, show no icon. */
     DWORD    sect = fs->database + (DWORD)(sclust - 2) * fs->csize;
     uint32_t off  = (uint32_t)THUMBYONE_FAT_OFFSET + sect * 512u;     /* flash byte offset */
-    const MoteModuleHeader *h = (const MoteModuleHeader *)(uintptr_t)(XIP_BASE + off);
+    const MoteModuleHeader *h = (const MoteModuleHeader *)mote_fat_xip_ptr(off);
     if (h->magic != MOTE_MODULE_MAGIC || h->abi_version < 20u || h->icon_vaddr == 0) return;
-    const void *p = (const void *)(uintptr_t)(XIP_BASE + off + (h->icon_vaddr - MOTE_MODULE_VADDR));
+    const void *p = mote_fat_xip_ptr(off + (h->icon_vaddr - MOTE_MODULE_VADDR));
     if (h->abi_version >= 22u) *out_blob = p; else *out_raw = (const uint16_t *)p;
 }
 
