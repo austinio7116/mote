@@ -3371,7 +3371,8 @@ static void grade_jaws(CueWorld *w, int round_nose) {
          * thinnest rubber on the table and bounced at the 0.55 floor, a full
          * section playing dead (Mark, 2026-10-03, a Mesinha replay: "is the
          * normal wrong or is the circle of the mitre just dead?"). Measured at
-         * its FRONT, where the ball meets it. Every other table keeps the
+         * its FRONT, where the ball meets it. The pyramid's 11 mm middle
+         * rounds too (Mark: yes, 2026-10-03). Every other table keeps the
          * centre: their jaws were tuned on it. */
         if (round_nose) {
             const float rr = w->jaw_rad[j] > 0.0f ? w->jaw_rad[j] : w->jaw_r;
@@ -3885,7 +3886,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     }
 
     smooth_seg_normals(w);
-    grade_jaws(w, CUE_GAME_IS_MESINHA(t->kind) || t->kind == CUE_GAME_SINUCA || t->kind == CUE_GAME_SINUCA6);
+    grade_jaws(w, CUE_GAME_IS_MESINHA(t->kind) || t->kind == CUE_GAME_SINUCA || t->kind == CUE_GAME_SINUCA6 || CUE_GAME_IS_PYRAMID(t->kind));
 
 
     /* ---- each pocket's mouth, from the two jaw tips beside it ------------ */
@@ -3943,7 +3944,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
             moved |= cue_table_clear_bore(w, &w->seg[s].a.x, &w->seg[s].a.z);
             moved |= cue_table_clear_bore(w, &w->seg[s].b.x, &w->seg[s].b.z);
         }
-        if (moved) { smooth_seg_normals(w); grade_jaws(w, CUE_GAME_IS_MESINHA(t->kind) || t->kind == CUE_GAME_SINUCA || t->kind == CUE_GAME_SINUCA6); }
+        if (moved) { smooth_seg_normals(w); grade_jaws(w, CUE_GAME_IS_MESINHA(t->kind) || t->kind == CUE_GAME_SINUCA || t->kind == CUE_GAME_SINUCA6 || CUE_GAME_IS_PYRAMID(t->kind)); }
     }
 
     /* THE CUT IS NOT THE POCKET SIZE, and tying it to pr_* meant it was.
