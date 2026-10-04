@@ -316,7 +316,8 @@
     <tr><td><b>Lighting and surroundings</b></td><td><b>Environment</b> &rarr; <b>Lighting</b> or
       <b>Surroundings</b>. Your room, the dark hall, the arena, the pub, the snooker club, the
       dining room, the library and your venue are also chips on the <b>pause menu</b>, since that
-      is the one you change mid-frame.</td></tr>
+      is the one you change mid-frame. Online, <b>Host's room</b> there puts you in the host's
+      room. See <a href="#hostroom">Playing in the host's room</a>.</td></tr>
     <tr><td><b>A venue of your own</b> &mdash; a pub, a club, an arena, a studio or a
       theatre</td><td><b>Environment &rarr; Venue</b>. See <a href="#venue">Your venue</a>.</td></tr>
     <tr><td><b>Play tour matches at the event's own venue</b></td><td><b>Environment &rarr;
@@ -3116,6 +3117,10 @@
       table lit, and who is next.</li>
     <li><b>A pound coin on the rail for each player waiting,</b> as in a pub. It moves out of the
       way if your cue comes near it.</li>
+    <li><b>Between frames the screen says what happens to you next:</b> you stay on and who you
+      play, you play next, you play the winner, or where you are in the queue. The next frame
+      starts by itself a few seconds later. <b>LEAVE THE ROOM</b> takes you out.</li>
+    <li><b>Join a room that is already playing</b> and you go on the back of the queue.</li>
   </ul>
 
   <h3>Watching</h3>
@@ -3142,11 +3147,16 @@
   <ul>
     <li><b>The headset asks for the microphone</b> the first time you turn it on. Say no and
       nothing is sent.</li>
-    <li><b>THE OTHERS' VOICES</b>, under it, sets how loud the other players are.</li>
-    <li><b>You hear each player from where they stand</b> at the table.</li>
+    <li><b>THE OTHERS' VOICES</b>, under it, sets how loud the other players are, up to twice as
+      loud as they spoke.</li>
+    <li><b>You hear each player from where they stand</b> at the table: from their side, and
+      quieter the further away they are. Turn <b>VOICES FADE WITH DISTANCE</b> off to hear
+      everyone at the same level; you still hear which side they are on.</li>
     <li><b>IN THE ROOM</b>, on the pause menu online, lists everyone with a light while they are
       talking, and what your own microphone is doing. <b>MUTE</b> silences a player for you at once.
       <b>REPORT</b> tells us about a player, with the reason.</li>
+    <li><b>MUTE ME</b>, beside IN THE ROOM, stops anyone hearing you until you press
+      <b>UNMUTE ME</b>. Your microphone setting stays as it was.</li>
     <li><b>The scoreboard marks whoever is talking</b> with a green mark on the corner of their ball.</li>
     <li><b>Watchers hear the players, but nobody hears a watcher.</b></li>
   </ul>
@@ -3579,7 +3589,8 @@
     <figure><img src="img/cuevr/surround6.jpg" alt="The library"><figcaption><span class="cap-t">LIBRARY</span> — an old mansion's library in dark oak: a gallery of books up a spiral staircase, chesterfields by the fire, a desk and a globe.</figcaption></figure>
   </div>
   <p><b>SMOKE</b> and <b>TAR</b>, on <b>Settings &rarr; Graphics</b>, set how thick the smoke
-  hangs in the pub and the snooker club, and how yellow it has turned the ceiling.</p>
+  hangs in the pub and the snooker club, and how yellow it has turned the ceiling. Every pub
+  and club among the <a href="#venue">venues</a> is smoky to the same levels.</p>
   <p>In every room but your own and the dark hall, <a href="#moving">walls stop you</a>, and
   <a href="#moving">Movement: Camera</a> lets you walk round and look at it all. Steps take you
   up and down: the banks of seats in an arena or a theatre, the stairs down into a club's pit
@@ -3619,6 +3630,11 @@
   </table>
   <p>The venue is dressed for the game you are playing: a club's other tables are the same game
   as yours, and the room changes with it if you rack a different game.</p>
+  <h3 id="hostroom">Playing in the host's room</h3>
+  <p>Online, <b>Host's room</b> on the pause menu's <b>ROOM</b> row puts you in whatever room the
+  host is playing in: one of the rooms, or their venue. If the host changes room, you change
+  with them. It stays chosen for your next online games until you pick another room. If the
+  host is in <b>Your room</b> (the headset's camera), you see your own.</p>
   <div class="grid g2">
     <figure><img src="img/cuevr/venue_ginpalace.jpg" alt="A Victorian gin palace"><figcaption><span class="cap-t">PUB</span> — a Victorian gin palace, with UK 8-ball racked.</figcaption></figure>
     <figure><img src="img/cuevr/venue_sportsbar.jpg" alt="A sports bar"><figcaption><span class="cap-t">PUB</span> — a sports bar.</figcaption></figure>
@@ -4606,13 +4622,14 @@
     'setting up the table': 'height move position place table set up recentre',
     'pinning the scoreboard': 'scoreboard board move score display arena screen',
     'movement: table or camera': 'walk camera move explore fps first person turn walls locomotion sticks mixed reality vr',
-    'winner stays on': 'queue challenger cap coin group pub online room wins',
+    'winner stays on': 'queue challenger cap coin group pub online room wins next frame leave',
+    "playing in the host's room": 'host room venue online same room follow',
     'watching':         'watch spectate spectator browse live game online stop watching',
     'cloth':            'colour cloth baize green table colour change',
     'target':           'target bullseye practice position rings 10 20 50 chalk',
     'woodwork':         'timber wood frame rails colour varnish varnished plain finish shine smooth grain mahogany oak walnut cherry maple rosewood birdseye curly ribbon ebony wenge leather metal',
     'lighting':         'lights lamps brightness dark',
-    'surroundings':     'arena passthrough dark room environment background pub club snooker club dining room library smoke tar',
+    'surroundings':     'arena passthrough dark room environment background pub club snooker club dining room library smoke tar venue',
     'snap to the edges': 'move around walk turn teleport jump edge',
     'the games':        'game modes list which games rules',
     'opponents':        'ai computer cpu difficulty strength persona opponent',
