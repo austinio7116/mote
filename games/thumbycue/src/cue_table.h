@@ -1309,6 +1309,10 @@ int cue_table_rack_14(const CueTable *t, CueBall *balls, int n);
 /* Clamp a desired placement to the legal ball-in-hand region (the D for
  * snooker/UK8, behind the head string for US pool). */
 Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p);
+/* Combined Pyramid: the house is at the far end for this placement (every
+ * object ball lies in the near one -- FBSR 21.2). The host sets it from
+ * CueRules.pyr_far; off everywhere else. */
+void cue_table_set_house_far(int on);
 /* The same, but also pushed clear of every ball already on the table. Use
  * this wherever the live balls are to hand: region-only clamping lets the
  * player park the cue ball inside another one, and the solver then fires the

@@ -6121,7 +6121,24 @@ Vec3 cue_table_clamp_placement_any(const CueTable *t, Vec3 p,
     return p;
 }
 
+/* COMBINED PYRAMID'S KITCHEN AT THE OTHER END (FBSR General Rules 21.2:
+ * "if all the object balls lie in the kitchen, the stroke is played from the
+ * opposite side of the table"). The rules say so (CueRules.pyr_far) and the
+ * host passes it on before anything is placed; a house is then the same
+ * region turned end for end. Only a house table, and only a rectangle, which
+ * is every pyramid bed. */
+static int s_house_far;
+void cue_table_set_house_far(int on) { s_house_far = on ? 1 : 0; }
+static Vec3 clamp_region_1(const CueTable *t, Vec3 p, int breaking, int anywhere);
 static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) {
+    if (s_house_far && t->house && !anywhere && t->bed_shape == CUE_BED_RECT) {
+        Vec3 q = clamp_region_1(t, v3(-p.x, p.y, p.z), breaking, anywhere);
+        q.x = -q.x;
+        return q;
+    }
+    return clamp_region_1(t, p, breaking, anywhere);
+}
+static Vec3 clamp_region_1(const CueTable *t, Vec3 p, int breaking, int anywhere) {
     float R = t->R;
     /* BAULK, THE AREA — Blackball's in-hand region (rules 4c/4h): the full
      * width of the table behind the baulk line, centre of the ball on the

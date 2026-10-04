@@ -146,6 +146,9 @@ typedef struct {
      * the table, so threading the gap is exactly the white's path CROSSING
      * z = 0 at an x between the two spots. One test per step. */
     int cue_gap;
+    /* COMBINED PYRAMID: did the stroke satisfy rule 20 (cue_rules_pyr_rule20,
+     * from the simulation's own event log) */
+    int pyr20;
 } AiSim;
 
 /* ---- what "power01 = 1" means --------------------------------------------- *
@@ -532,6 +535,9 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
                    AiSim *out) {
     s_sw = *w;
     s_sw._acc = 0.0f;
+    /* every ball's events, for Combined Pyramid's rule 20 (cheap, and asked
+     * of only when that game is on) */
+    s_sw.pev_on = 1;
     cue_phys_shot_begin(&s_sw);
     for (int i = 0; i < n; i++) {
         s_sb[i] = balls[i];
@@ -635,6 +641,7 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
      * it thinks was clean. */
     #define AI_SIM_GONE(bb) (!(bb).on || (bb).drop > 0.0f)
     out->cue_end = s_sb[cue_idx].pos;
+    out->pyr20 = cue_rules_pyr_rule20(&s_sw, n);
     out->cue_potted = AI_SIM_GONE(s_sb[cue_idx]);
     out->cue_hole = (out->cue_potted && !s_sb[cue_idx].on &&
                      s_sb[cue_idx].pocket != CUE_OFF_TABLE)
@@ -756,6 +763,9 @@ static int ai_scratch_is_foul(const AiCtx *c) {
      * scored (the свояк), not an in-off; a stroke that hits nothing is caught
      * as a bad first contact whatever went down. */
     if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_FREE) return 0;
+    /* COMBINED PYRAMID: the cue ball potted off a ball is a score and a shot
+     * from the kitchen (5.2), the "свояк" the game is played for */
+    if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_COMBINED) return 0;
     if (c->r->mode == CUE_GAME_COWBOY) return c->r->score[c->r->turn] < 100;
     return 1;
 }
@@ -3201,6 +3211,8 @@ static void plan_finalize(void) {
                                            &q->rawpot);
             fold_breakout(c, q, fin.end_pos, fin.on);
         }
+        else if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_COMBINED && !q->scratch)
+            { q->posScore = 80.0f; q->brk = 0.0f; q->freed = 0; }   /* the свояк: from the kitchen */
         else { q->posScore = 0.0f; q->brk = 0.0f; q->freed = 0; }
     }
     /* re-rank the corrected few on the same key */
@@ -6535,6 +6547,13 @@ int cue_ai_plan_tick(void) {
          * applies, and it is the safety player's foul: a soft roll-up that
          * stops short of a cushion. Treated exactly like a bad first contact so
          * the same 1000-point veto keeps it out of the chosen shot. */
+        /* COMBINED PYRAMID asks more than a cushion: rule 20, from the
+         * simulation's own events -- the referee's test, so a safety the
+         * machine plays is one the referee passes. The cue ball down off a
+         * ball is a pot. */
+        if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_COMBINED) {
+            if (!v->bad_first && sim.npotted == 0 && !sim.cue_potted && !sim.pyr20) v->bad_first = 1;
+        } else
         if (!v->bad_first && rail_required(c) && sim.npotted == 0 && !sim.cushion)
             v->bad_first = 1;
 
@@ -6861,6 +6880,13 @@ int cue_ai_plan_tick(void) {
         /* Bar billiards joins billiards here: its own ball going down is a
          * SCORE, so the leave is not worthless — it is simply the next shot
          * played from the D like every other. */
+        /* ...and COMBINED PYRAMID's свояк is the best leave there is: a point,
+         * a ball of our choice off, and the next shot from the kitchen with the
+         * cue ball in hand */
+        if (sim.cue_potted && !v->bad_first && CUE_GAME_IS_PYRAMID(c->r->mode) &&
+            c->r->pyr_free == CUE_PYR_COMBINED)
+            v->posScore = 80.0f;
+        else
         if (sim.cue_potted && c->r->mode != CUE_GAME_BILLIARDS &&
                               c->r->mode != CUE_GAME_BARBILLIARDS)
             v->posScore = 0;                          /* in-off → worthless leave */

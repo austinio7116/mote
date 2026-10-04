@@ -185,6 +185,7 @@ typedef struct {
      * Rules 21.2, the first ball struck must lie outside it (pyr_hand, below). */
     int pyr_brk;
     int pyr_hand;        /* this stroke is from hand in the kitchen (set with ball_in_hand, cleared by the resolve) */
+    int pyr_far;         /* ...and the kitchen is the FAR end, every object ball lying in the near one (21.2) */
     float pyr_house_x;   /* the kitchen's line, from the table at init: a ball with x below it is in the kitchen */
     int pyr_take;
 
@@ -715,6 +716,10 @@ enum { CUE_PYR_CLASSIC = 0, CUE_PYR_COMBAT = 1, CUE_PYR_FREE = 2, CUE_PYR_COMBIN
  * The host has already lifted it off the table; this scores it for `taker`
  * and ends the frame if that makes eight. */
 void cue_rules_pyr_take(CueRules *r, int taker);
+/* COMBINED PYRAMID's rule 20 asked of a world's event log (pev_on): did this
+ * stroke, with nothing potted, do enough? The referee's own test, for the
+ * planner's simulations. */
+int  cue_rules_pyr_rule20(const CueWorld *w, int n);
 /* THE MESINHA: one of the beneficiary's own balls has been lifted (see mz_take);
  * and the group chosen by the player at the table (see mz_pick), 1 or 2. */
 void cue_rules_mz_taken(CueRules *r, const CueBall *b, int n);

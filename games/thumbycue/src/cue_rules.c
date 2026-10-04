@@ -2400,6 +2400,8 @@ static int pyr_rule20(const CueWorld *w, int n) {
     }
     return 0;
 }
+/* the same verdict for the planner's simulations (cue_ai.c) */
+int cue_rules_pyr_rule20(const CueWorld *w, int n) { return pyr_rule20(w, n); }
 /* 12.1's second and third: object balls to a cushion, and one over the line */
 static int pyr_break_legal(const CueWorld *w, int n) {
     if (!w) return 1;
@@ -2415,17 +2417,27 @@ static int pyr_break_legal(const CueWorld *w, int n) {
 }
 static void resolve_pyramid_combined(CueRules *r, CueBall *b, int n, const CueWorld *w,
                                      int first_hit, const int *potted, int np) {
-    (void)b;
     const int me = r->turn, you = 1 - r->turn;
     const int was_break = r->break_shot;
-    const int from_hand = r->pyr_hand;
+    const int from_hand = r->pyr_hand, far_end = r->pyr_far;
     r->break_shot = 0;
     r->respot = 0;
     r->pyr_nback = 0;
     r->pyr_take = 0;
     r->pyr_brk = 0;
     r->pyr_hand = 0;
+    r->pyr_far = 0;
     r->ball_in_hand = 0;
+    /* 21.2's other half: with every object ball left in the kitchen, the next
+     * shot from hand is played from the far end. Decided on the table as it
+     * stands now; a ball going back on the rear spot is outside it anyway. */
+    int all_in = 1, any_on = 0;
+    for (int i = 0; i < n; i++) {
+        if (!b[i].on || b[i].id == CUE_ID_CUE) continue;
+        any_on = 1;
+        if (b[i].pos.x >= r->pyr_house_x) { all_in = 0; break; }
+    }
+    const int next_far = any_on && all_in;
 
     int cue_pot = 0, cue_off = 0, obj_off = 0, scored = 0;
     for (int k = 0; k < np; k++) {
@@ -2443,7 +2455,8 @@ static void resolve_pyramid_combined(CueRules *r, CueBall *b, int n, const CueWo
     if (first_hit < 0)                        { foul = 1; why = "NO BALL"; }
     else if (cue_off)                         { foul = 1; why = "OFF THE TABLE"; }
     else if (obj_off)                         { foul = 1; why = "OFF THE TABLE"; }
-    else if (from_hand && fh_idx >= 0 && w && w->first_hit_x < r->pyr_house_x)
+    else if (from_hand && fh_idx >= 0 && w &&
+             (far_end ? w->first_hit_x > -r->pyr_house_x : w->first_hit_x < r->pyr_house_x))
                                               { foul = 1; why = "IN THE KITCHEN"; }
     else if (was_break) { if (!potted_any && !pyr_break_legal(w, n)) bad_break = 1; }
     else if (!potted_any && !pyr_rule20(w, n)) { foul = 1; why = "NO CUSHION"; }
@@ -2461,7 +2474,7 @@ static void resolve_pyramid_combined(CueRules *r, CueBall *b, int n, const CueWo
             /* the player takes a ball for the cue ball and plays on from the
              * kitchen (§5.2) */
             r->pyr_take = 1;
-            r->ball_in_hand = 1; r->pyr_hand = 1;
+            r->ball_in_hand = 1; r->pyr_hand = 1; r->pyr_far = next_far && !r->pyr_nback;
             snprintf(r->msg, sizeof r->msg, "TAKE A BALL");
             return;
         }
@@ -2482,6 +2495,7 @@ static void resolve_pyramid_combined(CueRules *r, CueBall *b, int n, const CueWo
     r->pyr_take = 1;                    /* the opponent's penalty ball (§7) */
     r->ball_in_hand = (cue_pot || cue_off) ? 1 : 0;   /* from the kitchen */
     r->pyr_hand = r->ball_in_hand;
+    r->pyr_far = r->ball_in_hand && next_far && !r->pyr_nback;
     if (bad_break) {
         r->pyr_brk = 1;
         r->dec_offender = me; r->dec_scratch = r->ball_in_hand;
