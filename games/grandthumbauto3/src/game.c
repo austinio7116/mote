@@ -2403,6 +2403,48 @@ static void draw_sky_body(void) {
  * difference between seeing them and not. Lower down they sit against the
  * skyline, where two dark pixels on a dark building are nothing; up there they
  * are against sky. */
+/* SHOP SIGNS AFTER DARK.
+ *
+ * The shops, the spray garage and the phone boxes already carry markers, drawn
+ * as flat decals or a billboard -- all of which go as dark as everything else
+ * once the sun is down, so a night street has no landmarks at all and finding
+ * a gun shop means opening the map.
+ *
+ * One glow disc each, in the SAME colour the map page uses for that kind, so
+ * the thing you saw on the map is the thing that is lit in front of you.
+ *
+ * Discs, not geometry: a glow is what the primitive is for, it is depth-tested
+ * against the buildings, and the budget has room precisely at night because
+ * draw_clouds returns early once the sun is under the horizon -- the up-to-28
+ * lobes it spends in daylight are free here.
+ *
+ * Capped at SHOPLIGHT_MAX and gated on distance like the decals themselves,
+ * because the pool is shared with the sun, the car lamps and the explosions. */
+#define SHOPLIGHT_MAX 10
+static void draw_shop_lights(void) {
+    if (sun_elev() >= 0.06f) return;                 /* daylight: the decals read fine */
+    int n = 0;
+    for (int m = 0; m < nmark && n < SHOPLIGHT_MAX; m++) {
+        float dx = markers[m].x - view_x, dz = markers[m].z - view_z;
+        if (dx*dx + dz*dz > 2500.0f) continue;       /* same 50 m gate the decals use */
+        uint16_t col = markers[m].kind==MK_GUN   ? MOTE_RGB565(240,205,70)
+                     : markers[m].kind==MK_SPRAY ? MOTE_RGB565( 90,210,130)
+                     : markers[m].kind==MK_DOCK  ? MOTE_RGB565(245,160,70)
+                                                 : MOTE_RGB565( 90,170,245);
+        /* A HALO AND A CORE, the same two-disc trick the sun uses: one solid
+         * disc at this size read as a glowing ball stuck to the wall rather
+         * than a lit sign. The halo is the kind's colour, the core is pulled
+         * most of the way to white so it looks like the source.
+         *
+         * 2.6 m: above a doorway, clear of the player and of parked cars. */
+        Rgb base = { (uint8_t)(col >> 11) * 8, (uint8_t)((col >> 5) & 63) * 4, (uint8_t)(col & 31) * 8 };
+        uint16_t core = rgb565(rgb_lerp(base, (Rgb){255,255,245}, 0.6f));
+        if (mote->scene_add_disc(v3(markers[m].x, 2.6f, markers[m].z), 0.62f, col)) n++;
+        if (n < SHOPLIGHT_MAX &&
+            mote->scene_add_disc(v3(markers[m].x, 2.6f, markers[m].z), 0.26f, core)) n++;
+    }
+}
+
 static void draw_birds(void) {
     if (sun_elev() < 0.02f) return;
     if (!mote->scene_add_point) return;
@@ -4684,6 +4726,7 @@ static void update_cops(float dt) {
 #define PURSUE_CAP   4.0f
 
 static void update_heat(float dt) {
+
     heat_cool+=dt;
     /* Two radii, one pass. copnear (30 m, any officer) blocks the cooldown.
      * pursued (45 m WITH line of sight) is the stronger claim that someone is
@@ -7688,6 +7731,7 @@ static void g_update(float dt) {
     draw_sky_body();
     draw_clouds();
     draw_birds();
+    draw_shop_lights();
     draw_traffic_lights();
     draw_street_lamps();
     draw_street_detail();
