@@ -859,6 +859,11 @@ void  cue_phys_set_spin_gains(float draw, float side, float masse);
 void  cue_phys_set_spot_visc(float k);
 float cue_phys_spot_visc(void);
 void  cue_phys_spin_gains(float *draw, float *side, float *masse);
+/* Screw and top by the cue's angle: the draw gain above is the level cue's,
+ * `steep` from hi_rad up, smoothstepped from lo_rad. steep < 0: one gain at
+ * every angle (the default). And the draw gain a cue at `elev` gets. */
+void  cue_phys_set_spin_draw_elev(float steep, float lo_rad, float hi_rad);
+float cue_phys_draw_gain_at(float elev);
 
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy);

@@ -587,6 +587,23 @@ float cue_phys_spin_gain(void) { return s_spin_gain; }
 void  cue_phys_set_spin_gains(float draw, float side, float masse) {
     s_spin_gain = spin_gain_ok(draw); s_spin_side = spin_gain_ok(side); s_spin_masse = spin_gain_ok(masse);
 }
+/* ...AND SCREW AND TOP BY THE CUE'S ANGLE (6.5, Mark: "backspin was reduced
+ * depending on the cue angle - a flat cue generates less backspin than a
+ * raised cue"): the draw gain is s_spin_gain for a cue up to s_draw_lo above
+ * the level, s_draw_steep from s_draw_hi up, and a smoothstep between. Unset
+ * (steep < 0, the Thumby) it is s_spin_gain at every angle. */
+static float s_draw_steep = -1.0f, s_draw_lo = 0.0f, s_draw_hi = 0.0f;
+void cue_phys_set_spin_draw_elev(float steep, float lo_rad, float hi_rad) {
+    s_draw_steep = steep; s_draw_lo = lo_rad; s_draw_hi = hi_rad > lo_rad ? hi_rad : lo_rad + 1e-3f;
+}
+static float draw_gain_at(float elev) {
+    if (s_draw_steep < 0.0f) return s_spin_gain;
+    float u = (elev - s_draw_lo) / (s_draw_hi - s_draw_lo);
+    u = u < 0.0f ? 0.0f : u > 1.0f ? 1.0f : u;
+    u = u * u * (3.0f - 2.0f * u);
+    return s_spin_gain + (s_draw_steep - s_spin_gain) * u;
+}
+float cue_phys_draw_gain_at(float elev) { return draw_gain_at(elev); }
 void  cue_phys_spin_gains(float *draw, float *side, float *masse) {
     if (draw) *draw = s_spin_gain; if (side) *side = s_spin_side; if (masse) *masse = s_spin_masse;
 }
@@ -669,11 +686,12 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
      * own frame -- `right` (screw and top), up (side), `fwd` (the axis the
      * cloth turns into swerve and masse) -- which are square to each other, so
      * three equal gains give exactly the single-gain strike */
-    if (s_spin_side == s_spin_gain && s_spin_masse == s_spin_gain)
-        b->w = v3_scale(v3_cross(r, J), s_spin_gain / I);      /* bit for bit the one-gain strike */
+    const float gd = draw_gain_at(elev);
+    if (s_spin_side == gd && s_spin_masse == gd)
+        b->w = v3_scale(v3_cross(r, J), gd / I);      /* bit for bit the one-gain strike */
     else {  const Vec3 w0 = v3_scale(v3_cross(r, J), 1.0f / I);
         const float wr = v3_dot(w0, right), wu = w0.y, wf = v3_dot(w0, fwd);
-        b->w = v3_add(v3_add(v3_scale(right, wr * s_spin_gain), v3_scale(up, wu * s_spin_side)),
+        b->w = v3_add(v3_add(v3_scale(right, wr * gd), v3_scale(up, wu * s_spin_side)),
                       v3_scale(fwd, wf * s_spin_masse)); }
 }
 
