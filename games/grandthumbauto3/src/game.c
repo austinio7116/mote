@@ -2234,7 +2234,11 @@ static void road_markings(int x, int z) {
  * Gated on the view cone and capped: the scan is 21x21 tiles and a lake fills
  * most of them, which would otherwise spend the whole point pool on water
  * that is behind the camera. */
-#define WATER_FLECKS_MAX 56
+/* 44, not 56: the point pool is 56 and the BIRDS below reserve the other 12.
+ * Sharing it blind would let a waterfront flock silently delete the shimmer,
+ * or the shimmer delete the flock, depending on draw order. */
+#define WATER_FLECKS_MAX 44
+#define BIRD_MAX         12
 /* Sun elevation as a sine of the clock: -1 at midnight, 0 at dawn, +1 at noon,
  * 0 at dusk. Separate from g_sun_dir, whose four TOD[] keyframes are SHADING
  * directions with a positive y at every hour — asking them whether the sun is
@@ -2377,6 +2381,65 @@ static void draw_sky_body(void) {
  *
  * Only in daylight: they fade in with the sun between elevation 0.10 and 0.30
  * and are gone at night, when the star field has the sky instead. */
+/* BIRDS over the parks and the water.
+ *
+ * Stateless. Whether a tile has a flock, how many birds, how wide they circle
+ * and how high all come out of the tile hash; where each bird is in its circle
+ * comes from the clock. Nothing is stored, so this costs no GAME_RAM at all.
+ *
+ * They are scene POINTS, not billboards or triangles. A bird at thirty metres
+ * is two pixels, and points are the one primitive priced for that: 16 bytes an
+ * entry, depth-tested in the 3D pass exactly like the water shimmer, so a bird
+ * behind a tower is hidden by it.
+ *
+ * THEY VANISH WHEN YOU GET CLOSE, which reads as taking flight. Actually
+ * flying them away would need a velocity per bird and somewhere to keep it;
+ * this needs neither and looks the same from the pavement.
+ *
+ * Gone after dark -- roosting, and two dark pixels against a night sky would
+ * be invisible anyway.
+ *
+ * HEIGHT IS 15-26 m, not the 7-14 m this started at, and that is the whole
+ * difference between seeing them and not. Lower down they sit against the
+ * skyline, where two dark pixels on a dark building are nothing; up there they
+ * are against sky. */
+static void draw_birds(void) {
+    if (sun_elev() < 0.02f) return;
+    if (!mote->scene_add_point) return;
+    float t = mote->micros ? (float)(mote->micros() % 1000000000ull) * 1e-6f : 0.0f;
+    int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0;
+    for (int r = 0; r <= 9 && n < BIRD_MAX; r++)
+      for (int dz = -r; dz <= r && n < BIRD_MAX; dz++)
+      for (int dx = -r; dx <= r && n < BIRD_MAX; dx++) {
+        if (r > 0 && dx != -r && dx != r && dz != -r && dz != r) continue;
+        int x = cx + dx, z = cz + dz;
+        char c = tile_at(x, z);
+        if (c != ' ' && c != '~') continue;                  /* parks and open water */
+        unsigned h = (unsigned)(x * 374761393u ^ z * 668265263u);
+        if ((h & 7u) != 0) continue;                         /* one tile in 8 */
+        float fx = x*TILE + TILE*0.5f, fz = z*TILE + TILE*0.5f;
+        float ddx = pl_x() - fx, ddz = pl_z() - fz;
+        if (ddx*ddx + ddz*ddz < 13.0f*13.0f) continue;       /* you got close: gone */
+        int k = 3 + (int)((h >> 6) & 3);                     /* 3..6 to a flock */
+        float rad = 3.0f + (float)((h >> 8) & 7) * 0.5f;
+        float hy  = 15.0f + (float)((h >> 12) & 7) * 1.4f;   /* against SKY, not the skyline */
+        float sp  = 0.5f + 0.06f * (float)((h >> 16) & 7);
+        /* Cone-test the FLOCK, the way the water shimmer tests its tile. Without
+         * this the ring walk spends the whole budget on flocks behind the
+         * camera: scene_add_point culls them and returns 0, so they cost a slot
+         * of BIRD_MAX and draw nothing. */
+        if (!gta3_view_tile(&g_view, fx, hy, fz, VIEW_GROUND_R, rad*2.0f)) continue;
+        for (int b = 0; b < k && n < BIRD_MAX; b++) {
+            float a = t*sp + (float)b * (6.2831853f / (float)k);
+            /* COUNT ONLY WHAT IS ACCEPTED -- the return value, not the call. */
+            if (mote->scene_add_point(v3(fx + cosf(a)*rad,
+                                         hy + sinf(a*2.0f)*0.6f,
+                                         fz + sinf(a)*rad),
+                                      MOTE_RGB565(44, 46, 56), 2)) n++;
+        }
+      }
+}
+
 #define CLOUDS     7
 /* The CONDENSATION LEVEL, in metres above the camera. Real cumulus form where
  * rising air hits its dew point, and that altitude is the same for every cloud
@@ -7624,6 +7687,7 @@ static void g_update(float dt) {
     stars_update(cam_basis.r[2]);   /* before the background pass paints the sky */
     draw_sky_body();
     draw_clouds();
+    draw_birds();
     draw_traffic_lights();
     draw_street_lamps();
     draw_street_detail();
