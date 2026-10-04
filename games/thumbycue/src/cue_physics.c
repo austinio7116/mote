@@ -608,6 +608,13 @@ void  cue_phys_spin_gains(float *draw, float *side, float *masse) {
     if (draw) *draw = s_spin_gain; if (side) *side = s_spin_side; if (masse) *masse = s_spin_masse;
 }
 
+/* THE LAST STROKE AS STRUCK: where the tip met the ball in the cue's own frame
+ * (after the half-ball limit) and the cue's angle -- for a replay to show the
+ * contact a player made, not one worked back from the spin (CueVR 6.5) */
+static float s_last_ts, s_last_tv, s_last_elev;
+void cue_phys_last_strike(float *side, float *vert, float *elev) {
+    if (side) *side = s_last_ts; if (vert) *vert = s_last_tv; if (elev) *elev = s_last_elev;
+}
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy) {
     dir.y = 0.0f;
@@ -677,6 +684,7 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
     float ts = tip_side, tv = tip_vert;
     {   float m = sqrtf(ts*ts + tv*tv);
         if (m > CUE_TIP_MAX) { float k = CUE_TIP_MAX / m; ts *= k; tv *= k; } }
+    s_last_ts = ts; s_last_tv = tv; s_last_elev = elev;
     const float BR = cue_ball_r(w, b), BM = cue_ball_m(w, b);
     Vec3 r = v3_add(v3_scale(right, ts * BR),
                     v3_scale(vert,  tv * BR));

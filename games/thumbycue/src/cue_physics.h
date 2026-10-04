@@ -857,6 +857,9 @@ void  cue_phys_set_spin_gains(float draw, float side, float masse);
  * second of its spin, on top of the constant drill (CueVR 6.5). 0, the
  * default, is the constant drill alone. */
 void  cue_phys_set_spot_visc(float k);
+/* the last stroke struck: the tip's offset in the cue's own frame (fractions
+ * of the ball's radius, after the half-ball limit) and the cue's elevation */
+void  cue_phys_last_strike(float *side, float *vert, float *elev);
 float cue_phys_spot_visc(void);
 void  cue_phys_spin_gains(float *draw, float *side, float *masse);
 /* Screw and top by the cue's angle: the draw gain above is the level cue's,
