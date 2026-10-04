@@ -818,8 +818,17 @@ float cue_phys_squirt(void);
  * table since 6.4 (Mark, 2026-10-03), after the 6.3 testers found the full
  * ideal too much -- first on UK 8-ball's light white, then everywhere. */
 #define CUE_SPIN_GAIN_DEFAULT 0.80f
-void  cue_phys_set_spin_gain(float k);
-float cue_phys_spin_gain(void);
+void  cue_phys_set_spin_gain(float k);     /* all three below to k */
+float cue_phys_spin_gain(void);            /* the draw gain (the one there was) */
+/* ...OR ONE A DIRECTION (CueVR 6.5, Mark: "0.7 is sounding like a value people
+ * think feels right for backspin - but I am worried that will make swerve
+ * shots and other high/heavy spin shots impossible"). The strike's spin is
+ * split along the cue's own frame and each part scaled by its own gain:
+ *   draw   about the horizontal square to the cue: screw and top
+ *   side   about the vertical: running and check side
+ *   masse  about the line of the shot: what the cloth turns into swerve and masse */
+void  cue_phys_set_spin_gains(float draw, float side, float masse);
+void  cue_phys_spin_gains(float *draw, float *side, float *masse);
 
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy);

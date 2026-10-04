@@ -526,9 +526,17 @@ float cue_phys_squirt(void) { return s_squirt; }
  * is bit-for-bit the old strike -- see the one line that reads it. The default
  * is CUE_SPIN_GAIN_DEFAULT (0.80); online play keeps it there, because two
  * ends that disagree about it would not stay in step. */
-static float s_spin_gain = CUE_SPIN_GAIN_DEFAULT;
-void  cue_phys_set_spin_gain(float k) { s_spin_gain = (k > 0.0f && k < 4.0f) ? k : CUE_SPIN_GAIN_DEFAULT; }
+static float s_spin_gain = CUE_SPIN_GAIN_DEFAULT;          /* draw: screw and top */
+static float s_spin_side = CUE_SPIN_GAIN_DEFAULT, s_spin_masse = CUE_SPIN_GAIN_DEFAULT;
+static float spin_gain_ok(float k) { return (k > 0.0f && k < 4.0f) ? k : CUE_SPIN_GAIN_DEFAULT; }
+void  cue_phys_set_spin_gain(float k) { s_spin_gain = s_spin_side = s_spin_masse = spin_gain_ok(k); }
 float cue_phys_spin_gain(void) { return s_spin_gain; }
+void  cue_phys_set_spin_gains(float draw, float side, float masse) {
+    s_spin_gain = spin_gain_ok(draw); s_spin_side = spin_gain_ok(side); s_spin_masse = spin_gain_ok(masse);
+}
+void  cue_phys_spin_gains(float *draw, float *side, float *masse) {
+    if (draw) *draw = s_spin_gain; if (side) *side = s_spin_side; if (masse) *masse = s_spin_masse;
+}
 
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy) {
@@ -604,7 +612,16 @@ void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                     v3_scale(vert,  tv * BR));
     Vec3 J = v3_scale(cdir, speed * BM);             /* impulse along the cue */
     float I = 0.4f * BM * BR * BR;
-    b->w = v3_scale(v3_cross(r, J), s_spin_gain / I);
+    /* EACH KIND OF SPIN ITS OWN GAIN: the ideal spin split along the shot's
+     * own frame -- `right` (screw and top), up (side), `fwd` (the axis the
+     * cloth turns into swerve and masse) -- which are square to each other, so
+     * three equal gains give exactly the single-gain strike */
+    if (s_spin_side == s_spin_gain && s_spin_masse == s_spin_gain)
+        b->w = v3_scale(v3_cross(r, J), s_spin_gain / I);      /* bit for bit the one-gain strike */
+    else {  const Vec3 w0 = v3_scale(v3_cross(r, J), 1.0f / I);
+        const float wr = v3_dot(w0, right), wu = w0.y, wf = v3_dot(w0, fwd);
+        b->w = v3_add(v3_add(v3_scale(right, wr * s_spin_gain), v3_scale(up, wu * s_spin_side)),
+                      v3_scale(fwd, wf * s_spin_masse)); }
 }
 
 void cue_phys_strike_elev(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
