@@ -1198,6 +1198,10 @@ typedef struct { float x,z; uint8_t variant; } Tree;
 
 #define NCAR  18
 #define NPED  34
+/* Of the pool, how many are CIVILIANS: spawn_world seeds about this many and
+ * leaves the rest free for foot officers and street crews. tod_busy scales
+ * against this, not NPED, or a quiet night would also thin the police. */
+#define NPED_CIV 22
 #define NTREE 140
 static Car    cars[NCAR];
 static Ped    peds[NPED];
@@ -2235,6 +2239,28 @@ static void road_markings(int x, int z) {
  * directions with a positive y at every hour — asking them whether the sun is
  * up gives "always". The sky disc and the car lamps both ask this instead. */
 static float sun_elev(void) { return sinf(6.2831853f * (g_tod - 0.25f)); }
+
+/* HOW BUSY THE CITY IS, 0..1, from the clock. g_tod runs 0 = midnight,
+ * 0.25 = dawn, 0.5 = noon, 0.75 = dusk, which is exactly what sun_elev already
+ * encodes -- so daylight comes free from it rather than from a second curve.
+ *
+ * On top of that, two rush hours: a quadratic bump is used rather than a
+ * gaussian because this is called inside the streaming tick and powf/expf are
+ * not worth it for a hump nobody can measure the shape of.
+ *
+ * The floor is 0.30, not zero. An empty city at 4 a.m. is atmosphere; a city
+ * with no traffic at all is a bug report. */
+static float bump(float x, float c, float w) {
+    float d = (x - c) / w; if (d < 0) d = -d;
+    return d > 1.0f ? 0.0f : (1.0f - d) * (1.0f - d);
+}
+static float tod_busy(void) {
+    float day = 0.5f + 0.5f * sun_elev();              /* 0 at midnight, 1 at noon */
+    float f = 0.30f + 0.52f * day
+            + 0.26f * bump(g_tod, 0.333f, 0.060f)      /* ~08:00 */
+            + 0.26f * bump(g_tod, 0.729f, 0.060f);     /* ~17:30 */
+    return f > 1.0f ? 1.0f : f;
+}
 
 /* Lay the stars out for this frame.
  *
@@ -5836,9 +5862,16 @@ static void stream_entities(float dt) {
         int cx=(int)(px/TILE), cz=(int)(pz/TILE), rt=0;
         for (int z=cz-R; z<=cz+R; z++) for (int x=cx-R; x<=cx+R; x++) if (is_drivable(x,z)) rt++;
         int target = rt/7; if(target<3) target=3; if(target>10) target=10;
+        /* The road still sets the ceiling -- a back street never gets ten cars --
+         * and the clock scales it. Fewer cars after midnight also lowers the
+         * triangle peak, which is the one budget already running at its cap. */
+        target = (int)(target * tod_busy() + 0.5f); if (target < 1) target = 1;
         int nn=0; for (int i=0;i<NCAR;i++) if(cars[i].alive && cars[i].driver==DRV_NPC) nn++;
 #ifdef MOTE_HOST
-        if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[DENS] R=%d rt=%d target=%d nn=%d camh=%.0f\n",R,rt,target,nn,vis_h);
+        if (getenv("MOTE_GTA_DEBUG")){ int civ=0;
+            for (int i=0;i<NPED;i++) if (peds[i].alive && !peds[i].iscop) civ++;
+            fprintf(stderr,"[DENS] R=%d rt=%d target=%d nn=%d civ=%d busy=%.2f camh=%.0f\n",
+                    R,rt,target,nn,civ,tod_busy(),vis_h); }
 #endif
         if (nn < target){                                      /* grow: revive a dead slot off-screen */
             for (int i=0;i<NCAR;i++) if(!cars[i].alive){ respawn_npc(i); break; }
@@ -5853,6 +5886,7 @@ static void stream_entities(float dt) {
     /* peds stream in a ring JUST outside the current view (scales with zoom), so streets
      * ahead are already populated — not 50 m away where they were never seen again. */
     { float vis = vis_h*0.82f + 3.0f;                       /* ~visible diagonal radius */
+      float busy = tod_busy();
       float rmin = vis + 2.0f, rmax = vis + 14.0f;
       for (int i=0;i<NPED;i++){ Ped*p=&peds[i];
         if (!p->alive) continue;
@@ -5860,8 +5894,23 @@ static void stream_entities(float dt) {
         if (mission==MI_HIT && i==mission_target) continue;   /* the mark doesn't vanish */
         float dx=p->x-px, dz=p->z-pz;
         if (dx*dx+dz*dz > (rmax+16.0f)*(rmax+16.0f)){
+            /* Thinning happens HERE, as someone walks out of the world, rather
+             * than by culling on screen -- a pedestrian must never wink out in
+             * front of you. At 4 a.m. most of them simply do not come back. */
+            if (frand() > busy) { p->alive = 0; continue; }
             float ox,oz; if (find_near(px,pz, rmin, rmax, pav_or_grass, &ox,&oz))
                 peds[i]=(Ped){ ox,oz,(float)(irand(4))*1.5708f,0,(uint8_t)irand(4),1,2,0,0 };
+        }
+      }
+      /* ...and the morning brings them back, one per tick so the street fills
+       * rather than popping. Only ever spawned out past the view ring. */
+      { int alive=0; for (int i=0;i<NPED;i++) if (peds[i].alive && !peds[i].iscop) alive++;
+        if (alive < (int)(NPED_CIV * busy)) {
+            for (int i=0;i<NPED;i++) if (!peds[i].alive) {
+                float ox,oz; if (find_near(px,pz, rmin, rmax, pav_or_grass, &ox,&oz))
+                    peds[i]=(Ped){ ox,oz,(float)(irand(4))*1.5708f,0,(uint8_t)irand(4),1,2,0,0 };
+                break;
+            }
         }
       }
     }
