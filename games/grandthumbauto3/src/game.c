@@ -7879,15 +7879,32 @@ static void g_update(float dt) {
                    * drawn. No new art, no new pass, no new tile test — the
                    * walk is already here and already knows the tile is bare.
                    *
-                   * Kept inside r<=5 (20 m). A shrub is a metre tall and reads
-                   * as a green smudge past that, and the billboard pool is
-                   * shared: trees are the LAST consumer and measured peak is
-                   * 92 of 112, so a near-only shrub spends the headroom where
-                   * it shows and leaves the far trees their slots. */
-                  if (r > 5) continue;
+                   * NEAR ONLY, because a shrub is a metre tall and reads as a
+                   * green smudge past about thirty-five, and the billboard pool is
+                   * shared -- trees are the LAST consumer, so a near-only shrub
+                   * spends the headroom where it shows.
+                   *
+                   * The range is measured FROM THE CAMERA, not from the ring
+                   * index r. r counts outward from view_x/view_z, which is the
+                   * look-ahead point FORTY METRES IN FRONT of the eye, so an
+                   * `r <= 5` window is a 20 m circle centred 40 m ahead of you
+                   * -- and it swings as you turn. Standing still and only
+                   * rotating, the bush count went 2, 1, 0, 1, 2, 0: shrubs
+                   * beside you appeared and vanished on heading alone. The
+                   * trees never showed it because r <= 11 covers the near field
+                   * from any angle.
+                   *
+                   * Measured from the PLAYER, not from the camera eye. The eye
+                   * was the first fix and it still flickered 13-20 while
+                   * turning on the spot, because the chase camera orbits: the
+                   * eye itself swings several metres round you, so a circle
+                   * centred on it sweeps tiles in and out. The player does not
+                   * move when you only turn, which is the whole point. */
                   if (((h >> 6) & 3) == 0) continue;        /* bench tile */
                   if (((h >> 6) & 1) == 0) continue;        /* half the rest */
                   float bx=x*TILE+((h>>16)&7)*0.4f+1.0f, bz=z*TILE+((h>>20)&7)*0.4f+1.0f;
+                  { float ex=bx-pl_x(), ez=bz-pl_z();
+                    if (ex*ex + ez*ez > 34.0f*34.0f) continue; }
                   draw_upright(&scenery_img, bx, bz, SCEN_BUSH*20, 0, 20, 20,
                                1.1f + (float)((h>>24)&3)*0.15f, VIEW_GROUND_R, 2.0f);
                   continue;
