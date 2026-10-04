@@ -1963,6 +1963,7 @@ static int engine_fill(int16_t *out, int n) {
 }
 
 static void reset_game(void);
+static void add_fx(float x,float z,int k);   /* defined below; drive_car smokes the tyres */
 static void refresh_have_save(void);   /* defined with save_game; the title asks it */
 
 static void g_init(void) {
@@ -3303,6 +3304,30 @@ static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int
     if (braking){                                             /* brakes stop the car, never reverse it */
         fs = b->vx*cc + b->vy*ss;
         if (fs < 0.0f){ b->vx -= cc*fs; b->vy -= ss*fs; }
+    }
+    /* TYRE SMOKE. The handbrake above is a headline feature that produced no
+     * evidence of itself -- the car slid and nothing said why.
+     *
+     * The trigger is the SCRUB, not the button: lateral speed in the car's own
+     * frame, so smoke appears when the tyres are actually losing against the
+     * road and not merely because a pedal is down. A gentle braked turn stays
+     * clean; a proper slide smokes.
+     *
+     * From the rear axle, one puff at a time on a cooldown rather than per
+     * frame -- the FX pool is 48 and shared with blood, sparks, muzzle flash
+     * and fire, and a drift that filled it would silently starve all of them. */
+    { static float s_smoke;
+      s_smoke -= dt;
+      float lat = -b->vx*ss + b->vy*cc;                   /* sideways, in car axes */
+      if (lat < 0.0f) lat = -lat;
+      if (sliding && lat > 3.2f && s_smoke <= 0.0f) {
+          s_smoke = 0.06f;
+          float rx = c->x - cc*2.0f, rz = c->z - ss*2.0f;  /* behind the middle: the rear axle */
+          for (int w = 0; w < 2; w++) {                    /* one per rear wheel, not one per car */
+              float o = (w ? 0.9f : -0.9f) + (frand()*2.0f - 1.0f) * 0.25f;
+              add_fx(rx - ss*o, rz + cc*o, 3);             /* kind 3 = the smoke puff */
+          }
+      }
     }
     /* Rear lamps follow what the pedal is actually doing, so the light matches
      * the manoeuvre: red under braking, white once LB has become reverse. */
