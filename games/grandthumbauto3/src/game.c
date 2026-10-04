@@ -22,6 +22,7 @@
 #include "bld_painted.h"    /* bld_painted_img — warm painted + storefront */
 #include "bld_brownstone.h" /* bld_brownstone_img — dark-red residential */
 #include "bld_panel.h"      /* bld_panel_img  — grey cladding panels */
+#include "bld_night.h"      /* *_night — AFTER all eight: it reuses their _idx arrays */
 #include "cars2_meta.h"    /* per-car opaque art sizes (draw + physics sizing) — cars2_img
                              * itself is gone: Task 7 replaced the sprite with a tinted mesh */
 /* tankturret.h/tankturret_img (turret+barrel top-down sprite) is gone: Task 9
@@ -459,10 +460,26 @@ static void build_bgeom(int L, float hx, float hy, float hz) {
         g_buv[L][fi*6+0]=U[0];g_buv[L][fi*6+1]=V[0];g_buv[L][fi*6+2]=U[2];g_buv[L][fi*6+3]=V[2];g_buv[L][fi*6+4]=U[3];g_buv[L][fi*6+5]=V[3]; fi++;
     }
 }
+/* Day and night atlases, in the same order. The night entries are the SAME
+ * pixel data under a palette whose window index is lit (see
+ * assets/make_bldnight.py), so this costs flash and no GAME_RAM. */
+static const MoteImage *const BTEX_DAY[NBTEX] = {
+    &bld_brick_img, &bld_office_img, &bld_tower_img, &bld_concrete_img,
+    &bld_glass_img, &bld_painted_img, &bld_brownstone_img, &bld_panel_img };
+static const MoteImage *const BTEX_NIGHT[NBTEX] = {
+    &bld_brick_night, &bld_office_night, &bld_tower_night, &bld_concrete_night,
+    &bld_glass_night, &bld_painted_night, &bld_brownstone_night, &bld_panel_night };
+
+/* Re-point the meshes that already exist rather than keeping a second set.
+ * Called only when the sun crosses the threshold, not every frame. */
+static void set_building_night(int night) {
+    for (int L = 0; L < NBLV; L++)
+        for (int t = 0; t < NBTEX; t++)
+            g_bmesh[L][t].texture = night ? BTEX_NIGHT[t] : BTEX_DAY[t];
+}
+
 static void build_buildings(void) {
-    const MoteImage *tex[NBTEX] = { &bld_brick_img, &bld_office_img, &bld_tower_img,
-                                    &bld_concrete_img, &bld_glass_img, &bld_painted_img,
-                                    &bld_brownstone_img, &bld_panel_img };
+    const MoteImage *const *tex = BTEX_DAY;
     for (int L=0; L<NBLV; L++) {
         build_bgeom(L, TILE*0.5f, g_lvl_h[L]*0.5f, TILE*0.5f);      /* full-tile footprint: blocks merge */
         for (int t=0; t<NBTEX; t++)
@@ -7459,6 +7476,17 @@ static void g_update(float dt) {
       for (int i=0;i<NPICK;i++){ if(!picks[i].alive||picks[i].seen) continue;
           float dx=picks[i].x-px2, dz=picks[i].z-pz2;
           if (dx*dx+dz*dz < 32.0f*32.0f) picks[i].seen=1; } }
+    /* Windows light at the same moment the street lamps do, so the city turns
+     * on as one thing. Only on the CROSSING -- re-pointing eight meshes every
+     * frame would be pointless work. */
+    { static int was_night = -1; int night = (sun_elev() < 0.06f);
+#ifdef MOTE_HOST
+      /* test: MOTE_GTA_NOWIN=1 holds the DAY palettes after dark, so the
+       * window lighting can be A/B'd in one scene instead of across two
+       * times of day, where the sky and the sun angle also move. */
+      if (getenv("MOTE_GTA_NOWIN")) night = 0;
+#endif
+      if (night != was_night) { was_night = night; set_building_night(night); } }
     update_heat(dt);
     update_missions(dt);
     for (int i=0;i<NFX;i++) if(fxs[i].t>0) fxs[i].t-=dt;
