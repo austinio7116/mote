@@ -328,8 +328,6 @@
       <a href="#crowd">The crowd</a>.</td></tr>
     <tr><td><b>Talk to the other players online</b></td><td><b>Settings &rarr; Sound &rarr; YOUR
       MICROPHONE</b>. See <a href="#voice">Voice chat</a>.</td></tr>
-    <tr><td><b>How much spin a tip off the middle gives, and how the cushions grip</b></td><td>The
-      four sliders on the pause menu. See <a href="#physics">Physics</a>.</td></tr>
     <tr><td><b>Resolution, anti-aliasing, ball reflections</b></td><td><b>Settings &rarr;
       Graphics</b>, which also prints what the last frame cost.</td></tr>
     <tr><td><b>Move the table, or set its height again</b></td><td><b>Environment &rarr;
@@ -4507,12 +4505,14 @@
   <p><b>The cue meets the table as it is drawn.</b> The cushions, their slope, the wooden rail
   and the rail round the back of every pocket are solid to the cue at exactly the height you see
   them; the pocket holes are open down to their floor.</p>
-  <p><b>Four sliders on the pause menu</b>, each from 0.50 to 1.50, for testing:
-  <b>BACKSPIN AND TOP</b> (screw and follow, starting at 0.70), <b>SIDE</b> (1.00) and
-  <b>SWERVE AND MASSE</b> (the spin a raised cue gives about the ball's line of travel, 1.00) set
-  how much of each a tip off the middle gives; <b>CUSHION GRIP</b> sets how much the cushions grip
-  the ball (6.5 plays at 1.25; 1.00 is how they were before). They work offline; online is always played at the
-  starting values. A replay plays each shot at the cushion grip it was played at.</p>
+  <p><b>How much spin a tip off the middle gives.</b> A rigid ball struck off centre takes
+  spin in proportion to the offset, 2.5 times it as a ratio of spin to speed, and CueVR takes a
+  share of that ideal for each kind of spin. Screw and top get 0.70 of it: the full figure made
+  the draw shot come back further than players expected. Side, and the swerve and massé a raised
+  cue gives, keep the whole of it: turning those down with the screw made the big swerves and
+  massé shots impossible, and on a real table they are not weaker than the rigid ideal says.</p>
+  <p><b>The cushions grip the ball</b> with 1.25 times the friction they had before 6.5, so side
+  and spin take a little more off a rail.</p>
   <p><b>Jump shots.</b> Raise the butt and strike down firmly and the ball leaves the bed. A
   ball struck near its middle jumps best; a massé with heavy side or screw jumps less, because
   more of the cue's push goes into spin, so it stays on the cloth and starts curving sooner.</p>
