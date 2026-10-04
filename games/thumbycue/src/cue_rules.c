@@ -56,6 +56,7 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
               t->kind != CUE_GAME_PAUL && t->kind != CUE_GAME_SINUCA;
     r->mode = t->kind;
     r->R = t->R;
+    r->pyr_house_x = t->baulk_x;     /* Combined Pyramid's kitchen (21.2) */
     r->cpu = cpu;
     r->turn = 0; r->winner = -1; r->open = 1; r->break_shot = 1;
     r->shots_remaining = 1; r->two_shot = 0; r->free_shot = 0;
@@ -2311,10 +2312,184 @@ void cue_rules_pyr_take(CueRules *r, int taker) {
     r->score[taker]++;
     if (r->score[taker] >= 8) {
         r->frame_over = 1; r->winner = taker; book_frame(r, taker);
+        r->pyr_brk = 0;
         snprintf(r->msg, sizeof r->msg, "PYRAMID!");
         return;
     }
     snprintf(r->msg, sizeof r->msg, "PENALTY BALL");
+    /* COMBINED, AFTER AN ILLEGAL BREAK: the penalty ball is taken, and now the
+     * four-way choice (12.2). The turn sits on the offender while it is asked,
+     * as every foul's does; the decider is the other player. */
+    if (r->pyr_brk) {
+        r->turn = r->dec_offender;
+        r->decision = CUE_DEC_PENDING;
+        snprintf(r->msg, sizeof r->msg, "ILLEGAL BREAK");
+    }
+}
+
+/* ---- COMBINED PYRAMID (Комбинированная пирамида), FBSR ------------------- *
+ *
+ * Fifteen white balls and the coloured cue ball, which is always the cue ball
+ * (§2). Mark, 6.5, from a player's account checked against the federation's
+ * rules ("Combined Pyramid and Classic Pyramid (for Moscow)"):
+ *
+ *   §5.3   no call; on a correct stroke every ball potted counts, a point each
+ *   §5.2   the cue ball potted after it has hit a ball (a "свояк"): the player
+ *          takes any ball off the table for a point (pyr_take) and plays on
+ *          from hand in the kitchen
+ *   12.1   the break is legal if after the cue ball meets the pack a ball is
+ *          potted, or three different object balls reach a cushion, or two do
+ *          and an object ball crosses the centre line
+ *   12.2   an illegal break: the opponent takes a penalty ball (§7) and then
+ *          chooses -- play on, make the breaker play, re-rack and break, or
+ *          re-rack and make the breaker break (pyr_brk, the decision)
+ *   20     any other stroke with nothing potted is legal only if some ball,
+ *          after the first contact, bounced off a cushion and then touched
+ *          another cushion, or brought a ball to another cushion, or touched
+ *          a ball frozen to another; or crossed the centre line and then
+ *          touched a cushion, or brought a ball to one, or touched one frozen
+ *          to one; or bounced off a cushion and then crossed the line or sent
+ *          a ball across it (pyr_rule20, from the world's event log)
+ *   §7     a foul: the opponent takes any ball off the table for a point; if
+ *          the cue ball went down or off, the opponent plays from the kitchen
+ *   29.1.10, §8, 25.2  a ball off the table is a foul and goes back on the
+ *          rear spot, as does anything potted on a foul
+ *   21.2   from the kitchen, the first ball struck must lie outside it
+ *   §1     first to eight */
+static int pyr_rule20(const CueWorld *w, int n) {
+    if (!w) return 1;
+    if (w->pev_over) return 1;                 /* a truncated account faults nobody */
+    uint16_t rails[CUE_MAX_BALLS], prails[CUE_MAX_BALLS];
+    uint8_t xed[CUE_MAX_BALLS], pxed[CUE_MAX_BALLS];
+    memset(rails, 0, sizeof rails); memset(prails, 0, sizeof prails);
+    memset(xed, 0, sizeof xed); memset(pxed, 0, sizeof pxed);
+    int started = 0;
+    for (int e = 0; e < w->npev; e++) {
+        const CuePev *v = &w->pev[e];
+        if (!started) {                        /* from the cue ball's first contact */
+            if (v->kind == CUE_PEV_BALL && (v->a == 0 || v->b == 0)) started = 1;
+            else continue;
+        }
+        const int a = v->a < CUE_MAX_BALLS ? v->a : 0, b = v->b < CUE_MAX_BALLS ? v->b : 0;
+        if (a >= n) continue;
+        if (v->kind == CUE_PEV_RAIL) {
+            const uint16_t bit = v->ra < 16 ? (uint16_t)(1u << v->ra) : 0;
+            if (rails[a] & ~bit) return 1;           /* (2a) off a cushion, then another */
+            if (xed[a]) return 1;                    /* (3a) across the line, then a cushion */
+            if (prails[a] & ~bit) return 1;          /* (2b) brought to another cushion */
+            if (pxed[a]) return 1;                   /* (3b) brought to a cushion over the line */
+            rails[a] |= bit;
+        } else if (v->kind == CUE_PEV_XLINE) {
+            if (rails[a]) return 1;                  /* (4a) off a cushion, then across */
+            if (prails[a]) return 1;                 /* (4b) sent across by a ball off a cushion */
+            xed[a] = 1;
+        } else if (v->kind == CUE_PEV_BALL && b < n) {
+            /* each way round: either may be the one that brought the other */
+            for (int s = 0; s < 2; s++) {
+                const int X = s ? b : a, Y = s ? a : b;
+                const uint8_t fr = s ? v->ra : v->rb;   /* Y frozen to this rail */
+                if (fr != CUE_PEV_NORAIL) {
+                    const uint16_t bit = fr < 16 ? (uint16_t)(1u << fr) : 0;
+                    if (rails[X] & ~bit) return 1;   /* (2c) */
+                    if (xed[X]) return 1;            /* (3c) */
+                }
+                prails[Y] |= rails[X];
+                pxed[Y] |= xed[X];
+            }
+        }
+    }
+    return 0;
+}
+/* 12.1's second and third: object balls to a cushion, and one over the line */
+static int pyr_break_legal(const CueWorld *w, int n) {
+    if (!w) return 1;
+    int rails = 0, crossed = 0, started = 0;
+    for (int i = 1; i < n && i < CUE_MAX_BALLS; i++) if (w->cush[i]) rails++;
+    if (w->pev_over) return 1;
+    for (int e = 0; e < w->npev; e++) {
+        const CuePev *v = &w->pev[e];
+        if (!started) { if (v->kind == CUE_PEV_BALL && (v->a == 0 || v->b == 0)) started = 1; else continue; }
+        if (v->kind == CUE_PEV_XLINE && v->a != 0) crossed = 1;
+    }
+    return rails >= 3 || (rails >= 2 && crossed);
+}
+static void resolve_pyramid_combined(CueRules *r, CueBall *b, int n, const CueWorld *w,
+                                     int first_hit, const int *potted, int np) {
+    (void)b;
+    const int me = r->turn, you = 1 - r->turn;
+    const int was_break = r->break_shot;
+    const int from_hand = r->pyr_hand;
+    r->break_shot = 0;
+    r->respot = 0;
+    r->pyr_nback = 0;
+    r->pyr_take = 0;
+    r->pyr_brk = 0;
+    r->pyr_hand = 0;
+    r->ball_in_hand = 0;
+
+    int cue_pot = 0, cue_off = 0, obj_off = 0, scored = 0;
+    for (int k = 0; k < np; k++) {
+        const int off = (k < 8) && r->bb_hole[k] == -1;
+        if (potted[k] == CUE_ID_CUE) { if (off) cue_off = 1; else cue_pot = 1; continue; }
+        if (off) { obj_off = 1; if (r->pyr_nback < 16) r->pyr_back[r->pyr_nback++] = (unsigned char)potted[k]; }
+        else scored++;
+    }
+    /* §5.2: the cue ball down after a contact is a pot (a "свояк") */
+    const int svoy = cue_pot && first_hit >= 0;
+    const int potted_any = scored > 0 || svoy;
+
+    int foul = 0, bad_break = 0; const char *why = "";
+    const int fh_idx = w ? w->first_hit_idx : -1;
+    if (first_hit < 0)                        { foul = 1; why = "NO BALL"; }
+    else if (cue_off)                         { foul = 1; why = "OFF THE TABLE"; }
+    else if (obj_off)                         { foul = 1; why = "OFF THE TABLE"; }
+    else if (from_hand && fh_idx >= 0 && w && w->first_hit_x < r->pyr_house_x)
+                                              { foul = 1; why = "IN THE KITCHEN"; }
+    else if (was_break) { if (!potted_any && !pyr_break_legal(w, n)) bad_break = 1; }
+    else if (!potted_any && !pyr_rule20(w, n)) { foul = 1; why = "NO CUSHION"; }
+    r->last_foul = foul || bad_break;
+
+    if (!foul && !bad_break) {
+        r->cfoul[me] = 0;
+        r->score[me] += scored;
+        if (r->score[me] >= 8) {
+            r->frame_over = 1; r->winner = me; book_frame(r, me);
+            snprintf(r->msg, sizeof r->msg, "PYRAMID!");
+            return;
+        }
+        if (svoy) {
+            /* the player takes a ball for the cue ball and plays on from the
+             * kitchen (§5.2) */
+            r->pyr_take = 1;
+            r->ball_in_hand = 1; r->pyr_hand = 1;
+            snprintf(r->msg, sizeof r->msg, "TAKE A BALL");
+            return;
+        }
+        if (scored) { snprintf(r->msg, sizeof r->msg, "%d BALL%s", scored, scored == 1 ? "" : "S"); return; }
+        r->turn = you; r->msg[0] = 0;
+        return;
+    }
+
+    /* A foul, or a break that did not open the pack: nothing it potted
+     * counts, and every object ball that went down goes back on the rear spot
+     * with any that left the table */
+    for (int k = 0; k < np; k++) {
+        const int off = (k < 8) && r->bb_hole[k] == -1;
+        if (potted[k] != CUE_ID_CUE && !off && r->pyr_nback < 16) r->pyr_back[r->pyr_nback++] = (unsigned char)potted[k];
+    }
+    r->cfoul[me]++;
+    r->turn = you;
+    r->pyr_take = 1;                    /* the opponent's penalty ball (§7) */
+    r->ball_in_hand = (cue_pot || cue_off) ? 1 : 0;   /* from the kitchen */
+    r->pyr_hand = r->ball_in_hand;
+    if (bad_break) {
+        r->pyr_brk = 1;
+        r->dec_offender = me; r->dec_scratch = r->ball_in_hand;
+        r->dec_penalty = 0; r->dec_can_restore = 0; r->dec_free_ball = 0;
+        snprintf(r->msg, sizeof r->msg, "ILLEGAL BREAK");
+        return;
+    }
+    snprintf(r->msg, sizeof r->msg, "FOUL: %s", why);
 }
 
 /* ---- G6: BAR BILLIARDS --------------------------------------------------
@@ -5618,6 +5793,8 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (r->mode == CUE_GAME_STRAIGHT)  resolve_straight(r, b, n, w, first_hit, scratch, cush_rail, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode) && r->pyr_free == CUE_PYR_FREE)
         resolve_pyramid_free(r, b, n, first_hit, scratch, cush_rail, potted, np);
+    else if (CUE_GAME_IS_PYRAMID(r->mode) && r->pyr_free == CUE_PYR_COMBINED)
+        resolve_pyramid_combined(r, b, n, w, first_hit, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cush_rail, potted, np);
     else if (CUE_GAME_IS_CAROM(r->mode))     resolve_carom(r, b, n, w, first_hit);
     else if (CUE_GAME_IS_KILLER(r->mode) && r->kl_n >= 3)
@@ -5666,6 +5843,22 @@ int cue_rules_apply_decision(CueRules *r, int decision) {
     int can_restore = r->dec_can_restore, free_ball = r->dec_free_ball;
     r->decision = CUE_DEC_NONE;
     r->dec_can_restore = r->dec_free_ball = 0;
+    /* COMBINED PYRAMID AFTER AN ILLEGAL BREAK (12.2): play on, make the
+     * breaker play on, or re-rack -- the host racks it (rerack 3) -- and break,
+     * or make the breaker break again; from hand in the kitchen */
+    if (r->pyr_brk) {
+        r->pyr_brk = 0;
+        if (decision == CUE_DEC_REBREAK || decision == CUE_DEC_REBREAK_OFF) {
+            r->turn = decision == CUE_DEC_REBREAK ? opp : off;
+            r->rerack = 3; r->break_shot = 1; r->ball_in_hand = 1; r->pyr_hand = 0;
+            snprintf(r->msg, sizeof r->msg, "RE-RACKED");
+        } else {
+            r->turn = decision == CUE_DEC_AGAIN ? off : opp;
+            r->ball_in_hand = r->dec_scratch ? 1 : 0; r->pyr_hand = r->ball_in_hand;
+        }
+        r->free_ball = 0;
+        return r->turn;
+    }
     if (decision == CUE_DEC_REPLAY && can_restore) {
         r->turn = off;                        /* offender plays again from restored layout */
         r->ball_in_hand = 0; r->free_ball = 0;

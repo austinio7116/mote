@@ -321,6 +321,9 @@ void cue_phys_shot_begin(CueWorld *w) {
     w->jmp_pending = 0; w->jmp_idx = -1; w->jmp_hit_it = 0; w->jmp_bounced = 0;
     w->ntouch = 0; w->touch_over = 0;
     w->brk_cross = 0;
+    w->npev = 0; w->pev_over = 0;
+    memset(w->pev_side, 0, sizeof w->pev_side);
+    memset(w->pev_lastk, 0, sizeof w->pev_lastk);
     w->side_cushion = 0;
     for (int k = 0; k < CUE_MAX_BALLS; k++) {
         w->rail_hit[k] = 0; w->cush[k] = 0;
@@ -347,6 +350,7 @@ void cue_phys_shot_begin(CueWorld *w) {
     do {                                                                      \
         A first_hit       = B first_hit;                                      \
         A first_hit_idx   = B first_hit_idx;                                  \
+        A first_hit_x     = B first_hit_x;                                    \
         A att_path        = B att_path;                                       \
         A att_prev_ok     = B att_prev_ok;                                    \
         A jump_over       = B jump_over;                                      \
@@ -358,6 +362,13 @@ void cue_phys_shot_begin(CueWorld *w) {
         A ntouch          = B ntouch;                                         \
         A touch_over      = B touch_over;                                     \
         A brk_cross       = B brk_cross;                                      \
+        A npev            = B npev;                                           \
+        A pev_over        = B pev_over;                                       \
+        memcpy(A pev, B pev, sizeof (A pev));                                 \
+        memcpy(A pev_side, B pev_side, sizeof (A pev_side));                  \
+        memcpy(A pev_lastk, B pev_lastk, sizeof (A pev_lastk));               \
+        memcpy(A pev_lastr, B pev_lastr, sizeof (A pev_lastr));               \
+        memcpy(A pev_lastb, B pev_lastb, sizeof (A pev_lastb));               \
         A side_cushion    = B side_cushion;                                   \
         A skittle_fell    = B skittle_fell;                                   \
         memcpy(A touch, B touch, sizeof (A touch));                           \
@@ -455,6 +466,37 @@ void cue_phys_skittles_respot(CueWorld *w) {
         w->skittle_order[k] = 0;
     }
     w->skittle_fell = 0;
+}
+
+/* ---- THE STROKE'S EVENTS (CuePev) ---------------------------------------- */
+static void pev_add(CueWorld *w, uint8_t kind, int a, int b, uint8_t ra, uint8_t rb) {
+    if (!w->pev_on) return;
+    if (a < 0 || a >= CUE_MAX_BALLS) return;
+    /* the same thing again is not news: a ball rolling along a rail touches it
+     * step after step, and two frozen balls touch for as long as they lie */
+    if (kind == CUE_PEV_RAIL && w->pev_lastk[a] == CUE_PEV_RAIL && w->pev_lastr[a] == ra) return;
+    if (kind == CUE_PEV_BALL && w->pev_lastk[a] == CUE_PEV_BALL && w->pev_lastb[a] == (uint8_t)b &&
+        b >= 0 && b < CUE_MAX_BALLS && w->pev_lastk[b] == CUE_PEV_BALL && w->pev_lastb[b] == (uint8_t)a) return;
+    if (w->npev >= CUE_MAX_PEV) { w->pev_over = 1; return; }
+    CuePev *e = &w->pev[w->npev++];
+    e->kind = kind; e->a = (uint8_t)a; e->b = (uint8_t)(b < 0 ? 0 : b); e->ra = ra; e->rb = rb;
+    w->pev_lastk[a] = kind; w->pev_lastr[a] = ra; w->pev_lastb[a] = (uint8_t)(b < 0 ? 0 : b);
+    if (kind == CUE_PEV_BALL && b >= 0 && b < CUE_MAX_BALLS) {
+        w->pev_lastk[b] = kind; w->pev_lastr[b] = rb; w->pev_lastb[b] = (uint8_t)a;
+    }
+}
+/* the rail a ball stands frozen against (within a millimetre and a half of
+ * the cushion's line), or CUE_PEV_NORAIL */
+static uint8_t pev_frozen(const CueWorld *w, const CueBall *b) {
+    const float R = cue_ball_r(w, b), tol = 0.0015f;
+    const float px = w->play_x, pz = w->play_z;
+    if (px <= 1e-3f || pz <= 1e-3f) return CUE_PEV_NORAIL;
+    float cx = b->pos.x, cz = b->pos.z;
+    if (fabsf(b->pos.x) >= px - R - tol)      cx = b->pos.x > 0.0f ? px : -px;
+    else if (fabsf(b->pos.z) >= pz - R - tol) cz = b->pos.z > 0.0f ? pz : -pz;
+    else return CUE_PEV_NORAIL;
+    const int k = cue_phys_rail_at(w, cx, cz, NULL, NULL);
+    return (k >= 0 && k < 255) ? (uint8_t)k : CUE_PEV_NORAIL;
 }
 
 /* Append to the cue ball's account. Only ever called for ball 0. */
@@ -3235,7 +3277,8 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                  * is the whole of "did the white touch it". */
                 if (i == 0 && j < CUE_MAX_BALLS) w->hit_by_cue[j] = 1;
                 if (i == 0) touch_add(w, CUE_TOUCH_BALL, balls[j].id, (uint8_t)j, balls[0].pos.x);
-                if (w->first_hit < 0 && i == 0) { w->first_hit = balls[j].id; w->first_hit_idx = j; }
+                if (w->pev_on) pev_add(w, CUE_PEV_BALL, i, j, pev_frozen(w, &balls[i]), pev_frozen(w, &balls[j]));
+                if (w->first_hit < 0 && i == 0) { w->first_hit = balls[j].id; w->first_hit_idx = j; w->first_hit_x = balls[j].pos.x; }
                 else if (w->first_hit >= 0 && i == 0) w->jmp_bounced = 1;  /* (c) */
                 /* Did it hit the ball it is in the act of passing over? That is
                  * the whole of exception (b), decided at the landing. */
@@ -3290,6 +3333,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                                                b->pos.z - chit_n.z * cue_ball_r(w, b),
                                                NULL, NULL);
                 if (k >= 0 && k < 16) w->rail_hit[i] |= (uint16_t)(1u << k);
+                if (w->pev_on && k >= 0 && k < 255) pev_add(w, CUE_PEV_RAIL, i, -1, (uint8_t)k, CUE_PEV_NORAIL);
             }
             if (i == 0 && w->first_hit >= 0) w->jmp_bounced = 1;      /* (c) */
             /* Book the side-cushion fact on the shot (Rule 108's witness):
@@ -3342,6 +3386,18 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
     /* The attempt log — see cue_physics.h. Sampled at the step rather than the
      * substep: at 2 kHz the cue ball moves under 4 mm a step at break pace, and
      * the referee is judging in ball widths. */
+    /* THE CENTRE LINE (CuePev): a ball whose middle has gone from one side of
+     * x = 0 to the other since the last step crossed it. Sampled at the step,
+     * as the crossing account below is: a ball cannot cross and come back
+     * within one */
+    if (w->pev_on)
+        for (int k = 0; k < n && k < CUE_MAX_BALLS; k++) {
+            if (!balls[k].on) continue;
+            const int8_t s = balls[k].pos.x > 0.0f ? 1 : (balls[k].pos.x < 0.0f ? -1 : 0);
+            if (!s) continue;
+            if (w->pev_side[k] && s != w->pev_side[k]) pev_add(w, CUE_PEV_XLINE, k, -1, CUE_PEV_NORAIL, CUE_PEV_NORAIL);
+            w->pev_side[k] = s;
+        }
     if (w->att_track) {
         /* the crossing account — see CueWorld::brk_cross. "Fully passed" is
          * the whole ball on the baulk side, which the sample can only gain:

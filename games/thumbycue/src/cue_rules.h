@@ -178,6 +178,14 @@ typedef struct {
      * cue_rules_pyr_take with the ball they chose. */
     unsigned char pyr_back[16];
     int pyr_nback;
+    /* COMBINED PYRAMID (FBSR, the federation's own discipline; CueVR 6.5).
+     * pyr_brk: the break was illegal (General Rules 12.1) -- after the penalty
+     * ball is taken, the decision asked is 12.2's four (CUE_DEC_PLAY, _AGAIN,
+     * _REBREAK, _REBREAK_OFF). From the kitchen, General
+     * Rules 21.2, the first ball struck must lie outside it (pyr_hand, below). */
+    int pyr_brk;
+    int pyr_hand;        /* this stroke is from hand in the kitchen (set with ball_in_hand, cleared by the resolve) */
+    float pyr_house_x;   /* the kitchen's line, from the table at init: a ball with x below it is in the kitchen */
     int pyr_take;
 
     /* ---- G5: ENGLISH BILLIARDS ------------------------------------------ *
@@ -696,7 +704,12 @@ enum { CUE_SN_OPEN = 0, CUE_SN_ON, CUE_SN_FREE, CUE_SN_CAST };
  * for. FREE lets any ball on the table be played as the cue ball after the
  * break (FBSR Free Pyramid): the host swaps the ball being struck into index 0,
  * as bumper pool does, so to these rules b[0] is still "the ball struck". */
-enum { CUE_PYR_CLASSIC = 0, CUE_PYR_COMBAT = 1, CUE_PYR_FREE = 2 };
+enum { CUE_PYR_CLASSIC = 0, CUE_PYR_COMBAT = 1, CUE_PYR_FREE = 2, CUE_PYR_COMBINED = 3 };
+/* COMBINED PYRAMID's two jobs for the host, beyond Free's penalty ball:
+ *   rerack == 3   after an illegal break re-racked by choice (12.2 (3)/(4)):
+ *                 the pyramid again with every ball already scored left out,
+ *                 the coloured ball in hand in the kitchen
+ * and pev_on in the world, every stroke, for the rules' event log. */
 
 /* FREE PYRAMID: the incoming player has chosen the penalty ball (see pyr_take).
  * The host has already lifted it off the table; this scores it for `taker`
@@ -815,7 +828,10 @@ void cue_rules_billiards_swap(CueBall *b, int n);
  * REPLAY   — put the balls back and play the stroke again. Miss only.
  * FREEBALL — I play, and I am snookered, so I may nominate a free ball. */
 enum { CUE_DEC_NONE = 0, CUE_DEC_PENDING, CUE_DEC_PLAY, CUE_DEC_AGAIN,
-       CUE_DEC_REPLAY, CUE_DEC_FREEBALL };
+       CUE_DEC_REPLAY, CUE_DEC_FREEBALL,
+       /* Combined Pyramid after an illegal break (12.2): re-rack and break
+        * yourself, or re-rack and make the offender break again */
+       CUE_DEC_REBREAK, CUE_DEC_REBREAK_OFF };
 
 void cue_rules_init(CueRules *r, const CueTable *t, int cpu);
 /* The three UK 8-ball rule sets.

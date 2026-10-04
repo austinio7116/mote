@@ -192,6 +192,24 @@ typedef struct {
     uint8_t xq;
 } CueTouch;
 
+/* THE STROKE'S EVENTS, EVERY BALL'S, IN ORDER (CueVR 6.5, Combined Pyramid).
+ * The pyramid rules ask of ANY ball whether it "bounced off a cushion and
+ * then touched another cushion, or brought a ball to another cushion, or
+ * crossed the centre line" (FBSR General Rules 20 and 12.1) -- questions about
+ * a sequence that only the integrator sees, and about every ball, where the
+ * touch log keeps the cue ball's alone. Kept only while pev_on is set, so no
+ * other game pays for it; filled inside the step, so both ends of a lockstep
+ * match fill it alike. */
+enum { CUE_PEV_RAIL = 1, CUE_PEV_BALL, CUE_PEV_XLINE };
+typedef struct {
+    uint8_t kind;   /* CUE_PEV_* */
+    uint8_t a, b;   /* ball indexes: RAIL and XLINE a; BALL a and b */
+    uint8_t ra, rb; /* RAIL: ra the rail. BALL: the rail each ball stood frozen
+                     * to when they touched (CUE_PEV_NORAIL if neither) */
+} CuePev;
+#define CUE_PEV_NORAIL 255
+#define CUE_MAX_PEV 160
+
 /* A cushion nose segment in the X–Z plane with an inward unit normal
  * (pointing into the playable area). Rails and pocket facings are both built
  * from these. kind: 0 = straight rail nose, 1 = pocket facing/jaw.
@@ -392,6 +410,12 @@ typedef struct {
      * balls must fully pass it) is the customer; tracked while att_track is
      * on, like the rest of the referee's instruments. */
     uint32_t brk_cross;
+    /* THE STROKE'S EVENTS, every ball's (see CuePev); kept while pev_on */
+    uint8_t pev_on;
+    int     npev, pev_over;
+    CuePev  pev[CUE_MAX_PEV];
+    int8_t  pev_side[CUE_MAX_BALLS];                 /* which side of the centre line, 0 unknown */
+    uint8_t pev_lastk[CUE_MAX_BALLS], pev_lastr[CUE_MAX_BALLS], pev_lastb[CUE_MAX_BALLS];
     /* WHAT A HOLE IS WORTH. Zero on every table where a pocket is a pocket;
      * bar billiards is the one game whose holes are not interchangeable — nine
      * of them scoring from ten to two hundred, and which one a ball went down
@@ -471,6 +495,7 @@ typedef struct {
      * follow-camera, since snooker reds share an id). */
     int first_hit;
     int first_hit_idx;
+    float first_hit_x;   /* where along the table the first ball struck stood (Combined Pyramid's kitchen rule) */
 
     /* ---- WHAT THE ATTEMPT LOOKED LIKE, for the referee ------------------- *
      *
@@ -996,6 +1021,7 @@ void cue_phys_shot_begin(CueWorld *w);
  * it belongs to. */
 typedef struct {
     int     first_hit, first_hit_idx;
+    float   first_hit_x;
     float   att_min[CUE_MAX_BALLS];
     float   att_path;
     int     att_prev_ok;
@@ -1004,6 +1030,10 @@ typedef struct {
     CueTouch touch[CUE_MAX_TOUCH];
     int     ntouch, touch_over;
     uint32_t brk_cross;
+    int     npev, pev_over;
+    CuePev  pev[CUE_MAX_PEV];
+    int8_t  pev_side[CUE_MAX_BALLS];
+    uint8_t pev_lastk[CUE_MAX_BALLS], pev_lastr[CUE_MAX_BALLS], pev_lastb[CUE_MAX_BALLS];
     uint8_t side_cushion;
     uint8_t cush[CUE_MAX_BALLS];
     uint16_t rail_hit[CUE_MAX_BALLS];
