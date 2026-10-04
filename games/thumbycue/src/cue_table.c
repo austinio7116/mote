@@ -7467,7 +7467,9 @@ static int bed_contains(const CueTable *t, float x, float z, float g) {
     return cue_rects_contain(rr, nr, x, z);
 }
 
+int (*cue_table_surface_hook)(const CueTable *t, float x, float z, float *out);
 float cue_table_surface(const CueTable *t, float x, float z) {
+    if (cue_table_surface_hook) { float h; if (cue_table_surface_hook(t, x, z, &h)) return h; }
     /* THE BED'S OWN SHAPE, not its bounding box.
      *
      * This asked |x| <= half_len && |z| <= half_wid, which is the right question

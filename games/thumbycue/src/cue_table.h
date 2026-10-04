@@ -1371,6 +1371,12 @@ Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
  * buried in the table (C2a), and "is the tip inside something" is this
  * question with the tip's own height compared against the answer. */
 #define CUE_TABLE_NO_SURFACE (-1.0e9f)
+/* THE DRAWN TABLE'S OWN HEIGHTS, when an app has them (CueVR builds them from
+ * the meshes it draws: cuevr_render's surface map). Set, it is asked first;
+ * it answers 1 and the height (or CUE_TABLE_NO_SURFACE) for a table it holds
+ * the drawing of, and 0 for any other, which then gets the model below.
+ * Unset (the Thumby), nothing changes. */
+extern int (*cue_table_surface_hook)(const CueTable *t, float x, float z, float *out);
 float cue_table_surface(const CueTable *t, float x, float z);
 
 float cue_table_min_elev(const CueTable *t, const CueBall *balls, int n,
