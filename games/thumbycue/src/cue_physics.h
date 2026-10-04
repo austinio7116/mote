@@ -853,6 +853,11 @@ float cue_phys_spin_gain(void);            /* the draw gain (the one there was) 
  *   side   about the vertical: running and check side
  *   masse  about the line of the shot: what the cloth turns into swerve and masse */
 void  cue_phys_set_spin_gains(float draw, float side, float masse);
+/* A ball spinning on the spot loses spin faster the faster it spins: k per
+ * second of its spin, on top of the constant drill (CueVR 6.5). 0, the
+ * default, is the constant drill alone. */
+void  cue_phys_set_spot_visc(float k);
+float cue_phys_spot_visc(void);
 void  cue_phys_spin_gains(float *draw, float *side, float *masse);
 
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,

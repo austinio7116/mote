@@ -58,6 +58,17 @@
  * uncertainty on the patch radius itself. */
 #define CUE_DRILL_K 0.58904862f
 
+/* A SPINNING BALL THAT HAS STOPPED TRAVELLING, SLOWED BY ITS SPIN AS WELL
+ * (CueVR 6.5, Mark: "reduce speed faster at higher rotations - so it slows
+ * down a fast spinning ball faster then it calms smoothly to a stop"). The
+ * drill above is a constant deceleration, so it falls in a straight line and
+ * stops dead, and any rate high enough to stop a hard-spun ball in good time
+ * stopped it abruptly. This adds a part proportional to the spin, per second:
+ * a fast ball sheds most of its spin at once and the last of it goes at the
+ * gentle constant rate. 0 (the Thumby) is the old drill bit for bit. */
+static float s_spot_visc;
+void  cue_phys_set_spot_visc(float k) { s_spot_visc = (k >= 0.0f && k < 20.0f) ? k : 0.0f; }
+float cue_phys_spot_visc(void) { return s_spot_visc; }
 float cue_phys_spin_decel(const CueWorld *w, float R) {
     if (!w || R <= 1e-6f) return 0.0f;
     return 2.5f * w->mu_s * w->g * CUE_DRILL_K * w->contact_a / (R * R);
@@ -801,6 +812,13 @@ static CUE_HOT void ball_cloth(const CueWorld *w, CueBall *b, float h) {
             if (extra > SPOT_DRILL) extra = SPOT_DRILL;   /* never past 3x */
             if (extra < 0.0f)       extra = 0.0f;
             sdec *= 1.0f + extra * t;
+        } }
+    /* ...and, stopped, the part that grows with the spin (see s_spot_visc) */
+    if (s_spot_visc > 0.0f) {
+        const float sp2 = b->vel.x * b->vel.x + b->vel.z * b->vel.z;
+        if (sp2 < SPOT_V * SPOT_V) {
+            const float t = 1.0f - sqrtf(sp2) / SPOT_V;
+            sdec += s_spot_visc * t * fabsf(b->w.y);
         } }
     if (b->w.y > W_STOP)       b->w.y -= sdec * h;
     else if (b->w.y < -W_STOP) b->w.y += sdec * h;
