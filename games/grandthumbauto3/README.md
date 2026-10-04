@@ -62,6 +62,7 @@ itself up again when you let go of `B`.
 - **Handbrake drifts** — braking while steering cuts lateral grip instead of stopping you, so you can slide a corner and pick the car back up on the exit. The rear tyres smoke while they are actually scrubbing, one puff per wheel.
 - **54 vehicles on 16 silhouettes** — sedan, compact, coupe, sports, racer, long-hood, wagon, van, truck, pickup, jeep, classic sports, plus a bus, a tank, a boat and a helicopter that are vehicle types rather than handling classes. No silhouette carries more than 17% of the 54 types. Each is a tinted mesh with a cabin, a wheel line and an oriented ground shadow; taxis are yellow with a roof sign.
 - **Car damage** — vehicles take damage, catch fire and wreck, ejecting the driver; a damage bar sits under the health bar while you drive.
+- **Armour** — found in the weapon caches. It soaks damage before health does and never regenerates, so it is a consumable advantage rather than a second health bar. A blue strip appears over the health bar only while you are wearing some.
 - **Traffic AI** — cars hold a right-hand lane with pure-pursuit steering, change lanes, take turns, yield at junctions, queue behind each other and wait at red lights.
 - **Traffic lights** — one signal head per intersection on a kerbside post, red/amber/green off a single global clock with no per-junction state.
 - **Pedestrians** — 34 live peds who walk the pavements, flee a fight, and occasionally fight back.
@@ -123,7 +124,9 @@ puts you in it already airborne, `3` also parks it over the nearest tall roof,
 stands you beside it and `=2` puts you aboard. `MOTE_GTA_CARTYPE=<n>` forces the
 type of the first eight traffic cars so a given silhouette can be got on camera.
 `MOTE_GTA_NOWIN=1` holds the day building palettes after dark, so the lit windows
-can be A/B'd within one scene.
+can be A/B'd within one scene. `MOTE_GTA_ARMOUR=1` starts play in a full vest and
+`=10` in ten points of one, since the caches that carry armour are scattered over
+the whole map and reaching one in a scripted capture is not practical.
 
 ## Build and test
 

@@ -1711,7 +1711,12 @@ static void spawn_world(void) {
 /* =========================================================== crime layer === */
 enum { ST_TITLE, ST_PLAY, ST_WASTED, ST_BUSTED, ST_DMLINK };
 enum { W_FIST, W_PISTOL, W_SMG, W_SHOTGUN, W_FLAME, W_ROCKET, W_UZI, W_MINIGUN, W_GRENADE, NWEAP };
-enum { PK_CASH, PK_PISTOL, PK_SMG, PK_SHOTGUN, PK_HEALTH, PK_FLAME, PK_ROCKET, PK_PACKAGE };
+/* The pickup billboard indexes the atlas as kind*16, so the order here IS the
+ * order of the cells in pickups.png. PK_ARMOUR takes 7 and PK_PACKAGE moves to
+ * 8: PACKAGE is skipped by the draw and has never had a cell, so the free
+ * index belongs to the kind that needs one. */
+enum { PK_CASH, PK_PISTOL, PK_SMG, PK_SHOTGUN, PK_HEALTH, PK_FLAME, PK_ROCKET,
+       PK_ARMOUR, PK_PACKAGE };
 enum { MK_GUN, MK_SPRAY, MK_PHONE, MK_DOCK };
 enum { MI_NONE, MI_COURIER, MI_RAMPAGE, MI_GETAWAY, MI_HIT,
        MI_DELIVER,   /* fetch a named car, drive it to the drop undamaged */
@@ -1735,6 +1740,11 @@ typedef struct { float x,z,t; uint8_t kind; } Fx;   /* 0 blood 1 spark 2 flash 3
 #define NPICK   44
 #define NFX     48
 #define MAXHP   100.0f
+/* ARMOUR. Soaks damage before health does and does not come back on its own --
+ * health is restored by medkits and by the hospital respawn, armour only by
+ * finding more. That asymmetry is the point: it is a consumable advantage. */
+#define MAXARM  100.0f
+static float g_armour;
 #define SPRAY_FEE 100
 
 static Bullet bullets[NBULLET];
@@ -4324,6 +4334,15 @@ static void footcop_fire(Ped *p, float px, float pz) {
 }
 
 static void hurt_player(float dmg) {
+    /* Armour first, and it absorbs the WHOLE hit up to what is left of it --
+     * the remainder carries through, so a 40-point hit against 10 armour costs
+     * 30 health rather than being wholly stopped or wholly ignored. */
+    if (g_armour > 0.0f) {
+        float soak = dmg < g_armour ? dmg : g_armour;
+        g_armour -= soak; dmg -= soak;
+        if (dmg <= 0.0f) {
+            sfx(&hurt_sfx,0.45f); rmbl(0.3f,90); return; }
+    }
     health -= dmg; sfx(&hurt_sfx,0.6f); rmbl(0.5f,120);
     if (health<=0){ health=0;
         if (g_dm) dm_die();
@@ -4455,6 +4474,7 @@ static void update_pickups(float dt) {
                     while(n){d[dn++]='0'+n%10;n/=10;} while(dn) b[k++]=d[--dn]; b[k]=0;
                     float_txt(p->x,p->z,b); } break;
                 case PK_HEALTH: health=MAXHP; float_txt(p->x,p->z,"HEALTH"); break;
+                case PK_ARMOUR: g_armour=MAXARM; float_txt(p->x,p->z,"ARMOUR"); break;
                 case PK_FLAME: owned[W_FLAME]=1; ammo[W_FLAME]+=140; weapon=W_FLAME; float_txt(p->x,p->z,"FLAMER"); break;
                 /* 3, not 6: the rocket one-shots cars and clears a crowd now,
                  * so the scarcity IS the balance. */
@@ -5421,7 +5441,7 @@ static void reset_game_seeded(uint32_t want) {
     for (int i=0;i<NBULLET;i++) bullets[i].alive=0;
     for (int i=0;i<NPICK;i++) picks[i].alive=0;
     for (int i=0;i<NFX;i++) fxs[i].t=0;
-    cash=0; health=MAXHP; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
+    cash=0; health=MAXHP; g_armour=0; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
     weapon=W_FIST; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;} owned[W_FIST]=1; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0;
     /* A fresh game gets a different city day every run. A LOAD must not: the
@@ -5447,7 +5467,7 @@ static void reset_game_seeded(uint32_t want) {
      * caches it turned up three or four times per city, which is not a rare
      * prize — it is standard issue. It now appears in only a third of cities,
      * once, somewhere in the whole map. */
-    { static const uint8_t CACHE[8]={PK_PISTOL,PK_SMG,PK_SHOTGUN,PK_FLAME,PK_HEALTH,PK_CASH,PK_SHOTGUN,PK_SMG};
+    { static const uint8_t CACHE[8]={PK_PISTOL,PK_SMG,PK_SHOTGUN,PK_FLAME,PK_HEALTH,PK_CASH,PK_ARMOUR,PK_SMG};
       for (int k=0;k<28;k++){
         for (int t=0;t<40;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
             if (pav_or_grass(tx,tz)){ add_pickup(tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, CACHE[irand(8)]); break; } } } }
@@ -5529,7 +5549,7 @@ static void reset_game_seeded(uint32_t want) {
 
 static void respawn(int busted) {
     cash = cash>150 ? cash-150 : 0;
-    health=MAXHP; heat=0; heat_cool=99; g_pursuit=0;
+    health=MAXHP; g_armour=0; heat=0; heat_cool=99; g_pursuit=0;
     for (int i=0;i<NCAR;i++) if(cars[i].alive&&cars[i].driver==DRV_COP) cars[i].driver=DRV_NPC;
     player.mode=MODE_FOOT; player.car=-1; player.x=hosp_x; player.z=hosp_z;
     if (busted){ weapon=W_FIST; }        /* busted: lose your guns */
@@ -5770,7 +5790,7 @@ static void reset_game_dm_finish(uint32_t seed){
     for (int i=0;i<NPICK;i++){ picks[i].alive=0; g_dmpkt[i]=0; }
     for (int i=0;i<NFX;i++) fxs[i].t=0;
     for (int i=0;i<NPED;i++) peds[i].alive=0;              /* an empty city: just you two */
-    cash=0; health=MAXHP; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
+    cash=0; health=MAXHP; g_armour=0; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
     weapon=W_PISTOL; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;}
     owned[W_FIST]=1; owned[W_PISTOL]=1; ammo[W_PISTOL]=60; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0; nmark=0;  /* no shops/phones/missions */
@@ -6950,6 +6970,12 @@ static void g_update(float dt) {
           if (sd){ mote_rand_seed(sd|1u); g_seed_override=sd; }   /* vary job type + contact per seed */
           const char *mt=getenv("MOTE_GTA_MTYPE"); if(mt) g_force_mtype=atoi(mt);
           start_mission(); bdone=1; } }
+    /* test: MOTE_GTA_ARMOUR=1 starts play wearing a full vest. The caches that
+     * carry armour are scattered over the whole map, so reaching one in a
+     * scripted capture is not practical. */
+    { static int ad=0; const char *av=getenv("MOTE_GTA_ARMOUR");
+      if (av && g_state==ST_PLAY && !ad){ ad=1;
+          float a=(float)atof(av); g_armour = (a > 1.5f) ? a : MAXARM;   /* =1 full, =10 ten points */ } }
     /* test: MOTE_GTA_HEAT=3 starts play at that wanted level, so a capture can
      * reach cop cars and a pursuit without scripting a crime spree first.
      * PROFILING.md notes combat has never been profiled; this is how. */
@@ -8518,6 +8544,14 @@ static void g_overlay(uint16_t *fb) {
     /* health bar */
     mote->draw_rect(fb, 2, 116, 40, 6, MOTE_RGB565(40,20,20), 1, 0,128);
     mote->draw_rect(fb, 2, 116, (int)(40*health/MAXHP), 6, MOTE_RGB565(210,60,60), 1, 0,128);
+    /* ARMOUR: a thin strip ABOVE health, and only while you have some. The same
+     * reasoning as the stamina strip below -- a permanent second bar costs
+     * screen on a 128 px panel for something that reads as "none" most of the
+     * time, and its appearing is itself the signal that you picked one up. */
+    if (g_armour > 0.0f) {
+        mote->draw_rect(fb, 2, 112, 40, 3, MOTE_RGB565(20,28,46), 1, 0,128);
+        mote->draw_rect(fb, 2, 112, (int)(40*g_armour/MAXARM), 3, MOTE_RGB565(90,150,230), 1, 0,128);
+    }
     /* Stamina: a thin strip under the health bar, shown ONLY when it is not
      * full. A permanent second bar would cost screen on a 128 px panel for
      * something that reads as "fine" almost all the time; appearing when you
