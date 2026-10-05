@@ -4025,7 +4025,20 @@ static void update_peds(float dt) {
 }
 
 /* =================================================== crime layer helpers === */
-static int wanted(void){ int w=(int)heat; return w>5?5:w; }
+/* THE SIXTH STAR.
+ *
+ * A star is a BAND: star N is heat in [N, N+1), because wanted() is (int)heat.
+ * So six stars needs headroom to 7, not to 6 -- at a 6.0 ceiling the top band
+ * is a single exact value that the first frame of decay leaves, which is why
+ * wanted() clamped to 5 and the HUD drew five dots. Six was unreachable in the
+ * logic as well as undrawn, while the README promised it the whole time.
+ *
+ * The gates above it are unchanged: roadblocks at four, the army's tank at
+ * five. Six is one more squad car than five, because the dispatcher keeps
+ * wanted() of them alive -- an increment, not a new kind of response. */
+#define HEAT_MAX    7.0f
+#define WANTED_MAX  6
+static int wanted(void){ int w=(int)heat; return w>WANTED_MAX?WANTED_MAX:w; }
 static void say(const char *m){ g_msg=m; g_msg_t=2.2f; }
 /* Throttle repeated SFX so a crowd run-over (many cash/crash sounds in a few
  * frames) can't stack dozens of synth voices and stall the frame. Each distinct
@@ -4058,7 +4071,7 @@ static void rmbl(float in, int ms){
     if (mote->micros && now-g_lastrumble < 130000u) return;
     g_lastrumble = now; mote->rumble(in, ms);
 }
-static void add_heat(float a){ heat += a; if(heat>6) heat=6; heat_cool=0; }
+static void add_heat(float a){ heat += a; if(heat>HEAT_MAX) heat=HEAT_MAX; heat_cool=0; }
 /* A crime with a GUARANTEED star value: floor the heat at `f` the first time,
  * then half a star for each repeat. Anything that must be visible immediately
  * goes through here rather than add_heat.
@@ -4070,7 +4083,7 @@ static void add_heat(float a){ heat += a; if(heat>6) heat=6; heat_cool=0; }
  * update_cops only chases at wanted() > 0. One helper so there is no third. */
 static void heat_at_least(float f) {
     if (heat < f) heat = f; else heat += 0.5f;
-    if (heat > 6.0f) heat = 6.0f;
+    if (heat > HEAT_MAX) heat = HEAT_MAX;
     heat_cool = 0;
 }
 /* Hitting a squad car is ALWAYS a felony, worth at least one full star.
@@ -4421,7 +4434,7 @@ static void kill_ped(int i, int gore) {
      * worth LESS than stealing his car (a floor of 2) -- backwards however you
      * read it. */
     if (p->iscop){ cash+=100;
-        heat += 2.0f; if (heat > 6.0f) heat = 6.0f; heat_cool = 0;
+        heat += 2.0f; if (heat > HEAT_MAX) heat = HEAT_MAX; heat_cool = 0;
         say("OFFICER DOWN");
         float_txt(p->x,p->z,"+$100");
         if (irand(2)) add_pickup(p->x,p->z,PK_PISTOL); }   /* ...and sometimes his sidearm */
@@ -9066,25 +9079,37 @@ static void g_overlay(uint16_t *fb) {
     }
     if (g_dm) ftext_sh(g_fmed, fb, 3, 0, MOTE_RGB565(245,110,95), "FRAGS %d:%d", dm_frags, dm_peer_frags);
     else      ftext_sh(g_fmed, fb, 3, 0, MOTE_RGB565(120,230,120), "$%d", cash);
-    /* wanted heads. Moved left from x=70 to make room for the clock: at 70 the
-     * five dots ran to x=104 and a 5-character time right-aligned at 126 starts
-     * at 106, which is two pixels of clearance. 56 puts the gap at sixteen. */
-    for (int i=0;i<5;i++) mote->draw_circle(fb, 56+i*8, 5, 2, i<wanted()?MOTE_RGB565(250,210,70):MOTE_RGB565(50,54,64), 1, 0,128);
+    /* WANTED HEADS -- SIX of them, not five.
+     *
+     * heat clamps at 6.0 and wanted() is (int)heat, so the sixth star has
+     * always been reachable: heat_at_least caps there, the pursuit escalation
+     * stops at four but crimes keep stacking past it, and the README has said
+     * "up to six stars" the whole time. The row drew five, so five and six
+     * looked identical -- the hardest state in the game had no display of its
+     * own.
+     *
+     * x=50, not the 56 the five-dot row used. Six dots at 8 px span 48..91, and
+     * the clock measures 98..124 for "10 AM" -- g_fmed is about 5.4 px a
+     * character, not the 4 px the speedo's hand-rolled advance assumes, and at
+     * x=56 the sixth dot and the clock were touching with a measured gap of
+     * zero. Cash at six characters ends around x=35, so 48 leaves clearance on
+     * both sides. */
+    for (int i=0;i<6;i++) mote->draw_circle(fb, 50+i*8, 5, 2, i<wanted()?MOTE_RGB565(250,210,70):MOTE_RGB565(50,54,64), 1, 0,128);
     /* THE CLOCK. g_tod is [0,1) with 0 = midnight, so the hour is just tod*24.
      *
-     * Minutes are quantised to ten. A full day is DAY_SECONDS = 240 real
-     * seconds, which makes one game minute a sixth of a second: a true minutes
-     * field changes six times a second and reads as a broken digit rather than
-     * as a clock. At ten-minute steps it ticks every 1.7 s, which looks like
-     * time passing, and the hour -- the thing you actually want, because it
-     * says whether the lights are about to come on -- is exact either way.
+     * The HOUR ONLY, in 12-hour form. A full day is DAY_SECONDS = 240 real
+     * seconds, which makes one game minute a sixth of a second: a minutes field
+     * changes six times a second and reads as a broken digit rather than as a
+     * clock. The hour is the part you actually want, because it says whether
+     * the lights are about to come on, and it changes every ten seconds --
+     * slow enough to read, often enough to feel like time passing.
      *
      * Right-aligned through mote_fontw rather than a fixed x, so it stays put
      * if the font ever changes. Dim, like the version line on the settings bar:
      * it is there to be glanced at, not read. */
-    { float h24 = g_tod * 24.0f; int hh = (int)h24; if (hh > 23) hh = 23;
-      int mm = (int)((h24 - (float)hh) * 6.0f) * 10;
-      char tb[8]; snprintf(tb, sizeof tb, "%02d:%02d", hh, mm);
+    { int hh = (int)(g_tod * 24.0f); if (hh > 23) hh = 23;
+      int h12 = hh % 12; if (h12 == 0) h12 = 12;          /* midnight and noon are both 12 */
+      char tb[8]; snprintf(tb, sizeof tb, "%d %s", h12, hh < 12 ? "AM" : "PM");
       ftext_sh(g_fmed, fb, 126 - mote_fontw(g_fmed, tb), 0, MOTE_RGB565(176,190,214), "%s", tb); }
     draw_rain(fb);
     /* health bar */
