@@ -2263,17 +2263,24 @@ static float sun_elev(void) { return sinf(6.2831853f * (g_tod - 0.25f)); }
  * gaussian because this is called inside the streaming tick and powf/expf are
  * not worth it for a hump nobody can measure the shape of.
  *
- * The floor is 0.30, not zero. An empty city at 4 a.m. is atmosphere; a city
- * with no traffic at all is a bug report. */
+ * THE CURVE PEAKS AT 1.0 THROUGH THE WORKING DAY, and only the small hours
+ * come down. The first version ran 0.30 + 0.52*day, which scaled DOWN FROM the
+ * old flat density instead of around it: measured against the unscaled
+ * behaviour it cost 20% of the traffic at noon and 30% mid-afternoon, for a
+ * city that simply felt emptier all the time. Daytime now matches what was
+ * there before and night is the only reduction.
+ *
+ * The floor is 0.55, not zero and not 0.30. An emptier city at 4 a.m. is
+ * atmosphere; a city with almost no traffic is a bug report. */
 static float bump(float x, float c, float w) {
     float d = (x - c) / w; if (d < 0) d = -d;
     return d > 1.0f ? 0.0f : (1.0f - d) * (1.0f - d);
 }
 static float tod_busy(void) {
     float day = 0.5f + 0.5f * sun_elev();              /* 0 at midnight, 1 at noon */
-    float f = 0.30f + 0.52f * day
-            + 0.26f * bump(g_tod, 0.333f, 0.060f)      /* ~08:00 */
-            + 0.26f * bump(g_tod, 0.729f, 0.060f);     /* ~17:30 */
+    float f = 0.55f + 0.45f * day
+            + 0.15f * bump(g_tod, 0.333f, 0.060f)      /* ~08:00 */
+            + 0.15f * bump(g_tod, 0.729f, 0.060f);     /* ~17:30 */
     return f > 1.0f ? 1.0f : f;
 }
 
@@ -6016,7 +6023,11 @@ static void stream_entities(float dt) {
         /* The road still sets the ceiling -- a back street never gets ten cars --
          * and the clock scales it. Fewer cars after midnight also lowers the
          * triangle peak, which is the one budget already running at its cap. */
-        target = (int)(target * tod_busy() + 0.5f); if (target < 1) target = 1;
+        float bz_ = tod_busy();
+#ifdef MOTE_HOST
+        if (getenv("MOTE_GTA_NOTOD")) bz_ = 1.0f;     /* A/B against the old behaviour */
+#endif
+        target = (int)(target * bz_ + 0.5f); if (target < 1) target = 1;
         int nn=0; for (int i=0;i<NCAR;i++) if(cars[i].alive && cars[i].driver==DRV_NPC) nn++;
 #ifdef MOTE_HOST
         if (getenv("MOTE_GTA_DEBUG")){ int civ=0;
@@ -8327,9 +8338,29 @@ static void draw_radar(uint16_t *fb) {
      * gives screen (-ca, sa). Worth checking against two headings: facing
      * north (ca=0, sa=-1) it lands straight up, and facing east (ca=1, sa=0)
      * it lands on the left, which is where north should be. */
-    { float nx = -ca, ny = sa;
-      int tx = cx + (int)(nx * (RADAR_R - 3)), ty = cy + (int)(ny * (RADAR_R - 3));
-      mote->text(fb, "N", tx - 1, ty - 2, MOTE_RGB565(240,150,120)); }
+    { float nx = -ca, ny = sa;                  /* north, on the dial */
+      float sx = -ny, sy = nx;                  /* across it */
+      /* An ARROWHEAD rather than the letter N: a 3x5 glyph cannot rotate, so
+       * the N sat upright wherever it was on the rim and read as a label stuck
+       * to the dial rather than as a direction. A triangle points.
+       *
+       * Plotted as a line of pixels per step along the arrow, the half-width
+       * tapering to nothing at the tip -- the overlay has no filled-triangle
+       * call, and at five pixels long a scan like this IS the triangle. */
+      const uint16_t NC = MOTE_RGB565(240,120,100);      /* compass red */
+      for (int t = 0; t <= 12; t++) {
+          float f  = (float)t / 12.0f;                   /* 0 at the base, 1 at the tip */
+          float ax = cx + nx * (RADAR_R - 7 + 6.0f*f);
+          float ay = cy + ny * (RADAR_R - 7 + 6.0f*f);
+          float hw = (1.0f - f) * 2.6f;
+          /* HALF-PIXEL steps, both along and across. Whole-pixel steps on a
+           * five-pixel triangle left holes at every diagonal heading, because
+           * neither axis lands on the grid: it came out as a scatter of dots
+           * rather than an arrow. Oversampling and letting the rounding
+           * collapse duplicates is the cheap fix at this size. */
+          for (float w = -hw; w <= hw; w += 0.5f)
+              mote->draw_pixel(fb, (int)(ax + sx*w + 0.5f), (int)(ay + sy*w + 0.5f), NC);
+      } }
 
     /* the player: always dead centre, always pointing up */
     mote->draw_pixel(fb, cx, cy, MOTE_RGB565(255,255,255));
