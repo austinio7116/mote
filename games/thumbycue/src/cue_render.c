@@ -861,8 +861,12 @@ static void emit_lip_run(const CueTable *t, Vec3 *ring0, const Vec3 *nrm,
      * roll to the bed's thickness (cue_table_slate_t: 40 mm on a 12 ft bed, 30
      * on the rest), so the cut reads as a thick slate under the cloth. In the roll's LAST shade, so the face is the roll
      * continued, not a step. The Chinese table has snooker's pockets and slate
-     * (asked for 2026-09-02); the other pool tables keep the shallow roll. */
-    if (s_is_snooker || t->kind == CUE_GAME_CN8) {
+     * (asked for 2026-09-02); so do UK 8-ball's 6FT and 7FT Nets, which are
+     * snooker-bodied tables with the snooker table's deep bed at the cut
+     * (Mark, 2026-10-05). The other pool tables keep the shallow roll. */
+    if (s_is_snooker || t->kind == CUE_GAME_CN8 ||
+        ((t->kind == CUE_GAME_UK8 || t->kind == CUE_GAME_KILLER_UK) &&
+         (t->furniture & CUE_FURN_NETS))) {
         const float st = cue_table_slate_t(t);
         if (st > ld) {
             const uint16_t col = shade565(t->cloth, 1.0f - 0.92f);   /* the roll's bottom ring */
