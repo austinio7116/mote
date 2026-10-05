@@ -4222,7 +4222,21 @@ static void kill_ped(int i, int gore) {
     p->alive=0; g_kills++;
     add_fx(p->x,p->z,0); add_fx(p->x+0.4f,p->z-0.3f,0);
     panic_at(p->x,p->z);          /* a death near here scares everyone */
-    if (p->iscop){ cash+=100; add_heat_at(1.2f,p->x,p->z,0); float_txt(p->x,p->z,"+$100");
+    /* AN OFFICER DOWN IS TWO MORE STARS, and it is reported whether or not
+     * anyone is standing there to see it -- a man with a radio stops answering
+     * it. Every other crime here goes through add_heat_at and needs a witness;
+     * this one and the two squad-car crimes do not, for the same reason.
+     *
+     * It is ADDITIVE, not a floor. A floor of 3 would under-punish the second
+     * and third kill, which is exactly when the law should be getting worse,
+     * and "jump two stars" is the behaviour the genre has trained people to
+     * expect. It used to be add_heat_at(1.2f), which left killing an officer
+     * worth LESS than stealing his car (a floor of 2) -- backwards however you
+     * read it. */
+    if (p->iscop){ cash+=100;
+        heat += 2.0f; if (heat > 6.0f) heat = 6.0f; heat_cool = 0;
+        say("OFFICER DOWN");
+        float_txt(p->x,p->z,"+$100");
         if (irand(2)) add_pickup(p->x,p->z,PK_PISTOL); }   /* ...and sometimes his sidearm */
     else { add_pickup(p->x,p->z,PK_CASH); add_heat_at(gore?0.6f:0.5f, p->x,p->z, 0); }
     /* THE CREW'S TAKINGS. Dropped by whoever goes down last rather than by a
