@@ -8,6 +8,11 @@
    brake to a stop with their brake lights on. One driver in five never brakes,
    derived from the car slot, so stepping into the road stays a gamble.
 
+3. Secret building hideaways — DONE (see README "Hideaways")
+   Two unmarked foot-only bays per city, carved into buildings in the spare
+   NGARAGE slots. Hold a cache; bleed heat at 0.3 stars/s; blown by any
+   officer within 11 m of the mouth.
+
 Still open, from the same brainstorm:
 - district-specific pedestrians
 - car alarms at night

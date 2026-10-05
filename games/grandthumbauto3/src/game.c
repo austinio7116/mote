@@ -108,9 +108,33 @@ static int is_solid(int x, int z){ char c = tile_at(x, z); return c=='#'||c=='O'
  * can drive a car IN to respray / sell. Registered at marker placement; used by the
  * passability, collision, and building-draw code below. */
 #define NGARAGE 6
-static struct { int16_t x, z; uint8_t kind; int8_t ox, oz; } g_gar[NGARAGE]; static int g_ngar;  /* (ox,oz)=opening dir (out toward the street) */
+/* A DEN is the second kind of carved bay: a bolt-hole cut into a building that
+ * is open to someone ON FOOT and shut to every vehicle. The value is a raw 7
+ * rather than an MK_* because the marker enum is declared a thousand lines
+ * below this, and because a den deliberately HAS no marker -- it is found by
+ * walking past the gap, not by a dot on the map.
+ *
+ * Everything that distinguishes a den from a pay-n-spray bay runs through
+ * is_bay(): a car may enter a bay and may not enter a den. Both are is_garage,
+ * so both draw as an open-fronted recess and both are walkable. */
+#define GAR_DEN 7
+static struct { int16_t x, z; uint8_t kind, found; int8_t ox, oz; } g_gar[NGARAGE]; static int g_ngar;  /* (ox,oz)=opening dir (out toward the street) */
 static int is_garage(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z) return 1; return 0; }
 static int garage_kind_at(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z) return g_gar[i].kind; return -1; }
+static int is_den(int x, int z){ return garage_kind_at(x,z)==GAR_DEN; }
+/* a carved bay a VEHICLE may use. Dens keep their collider and stay off the
+ * drivable map, so the only way in is to get out and walk. */
+static int is_bay(int x, int z){ return is_garage(x,z) && !is_den(x,z); }
+static int den_at(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z && g_gar[i].kind==GAR_DEN) return i; return -1; }
+/* LYING LOW: seconds in the current den, and whether an officer has had eyes on
+ * you while you were in it. Both reset the moment you step out. */
+static float   g_den_t;
+static uint8_t g_den_burn;
+/* Stars a second a den bleeds off. Slower than the pay-n-spray, which clears
+ * the lot instantly for $100: the den is free, so it costs time instead, and
+ * six stars take twenty seconds of standing still with the law outside. */
+#define DEN_COOL 0.30f
+#define DEN_DOOR2 121.0f   /* 11 m of the MOUTH and the hideout is blown (squared) */
 
 /* corridor classification for lane markings, computed on demand (capped scans). */
 static void corridor_info(int x, int z, int *orient, int *pos, int *span) {
@@ -1436,7 +1460,7 @@ static float road_heading(int x,int z){
     return H[best];
 }
 static int walkable_world(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c!='#'&&c!='O'&&c!='H'&&c!='~') || is_garage(tx,tz); }
-static int drivable_world(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c!='#'&&c!='O'&&c!='H'&&c!='~') || is_garage(tx,tz); }
+static int drivable_world(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c!='#'&&c!='O'&&c!='H'&&c!='~') || is_bay(tx,tz); }
 static int road_world(float wx,float wz){ return is_drivable((int)(wx/TILE),(int)(wz/TILE)); }  /* road/bridge only (AI cars stay off pavement) */
 
 static int pav_or_grass(int x,int z){ char c=tile_at(x,z); return c==','||c==' '; }
@@ -3194,7 +3218,13 @@ static void draw_buildings_window(void) {
                 if (c != '#' && c != 'O' && c != 'H') continue;
                 int gdir = is_garage(x, z) ? garage_dir(x, z) : -1;
                 float th, hy;
-                if (gdir >= 0){ th = GARAGE_H; hy = th * 0.5f; }      /* garage: a low roofed bay, open front */
+                /* A DEN draws the same mesh sunk into the ground, which lowers its
+                 * roof without a second mesh set costing ~576 bytes of GAME_RAM
+                 * for four more opening directions. The floor face is already
+                 * skipped, so the walls simply run below the street. The result
+                 * is a 2.15 m mouth you duck into rather than a 3.6 m vehicle
+                 * bay -- the visual tell that you have to get out and walk. */
+                if (gdir >= 0){ th = GARAGE_H; hy = is_den(x,z) ? 0.35f : th * 0.5f; }
                 else { int L = bld_level(x, z); th = g_lvl_h[L]; hy = th * 0.5f; }
                 float wx = x*TILE+TILE*0.5f, wz = z*TILE+TILE*0.5f;
                 float ddx = wx - cam_pos.x, ddz = wz - cam_pos.z;
@@ -4051,8 +4081,17 @@ static int sight_clear(float x0,float z0,float x1,float z1){
     float dx=x1-x0, dz=z1-z0, d=sqrtf(dx*dx+dz*dz);
     int n=(int)(d*0.5f)+1;
     for (int k=1;k<n;k++){ float t=(float)k/(float)n;
-        char c=tile_at((int)((x0+dx*t)/TILE),(int)((z0+dz*t)/TILE));
-        if (c=='#'||c=='O'||c=='H') return 0; }
+        int tx=(int)((x0+dx*t)/TILE), tz=(int)((z0+dz*t)/TILE);
+        char c=tile_at(tx,tz);
+        /* A CARVED BAY IS A DOORWAY, not a wall. Without this exemption the den
+         * is seen as solid building, which means nobody can ever see you in one
+         * -- so `pursued` could not fire, the burn path was unreachable, and the
+         * hideout was siege-proof: cops piled into the mouth, wrecked themselves
+         * on the collider and paid out $150 a car while the wanted level bled
+         * off anyway. Now the only line into a den is through its mouth, which
+         * is the trade the feature is supposed to make. Pay-n-spray bays are
+         * open to the street for the same reason. */
+        if ((c=='#'||c=='O'||c=='H') && !is_garage(tx,tz)) return 0; }
     return 1;
 }
 /* does any officer WITNESS an incident at (x,z)? sight = 30 m + LOS; loud incidents
@@ -4289,6 +4328,62 @@ static void place_markers(void) {
                     int x=bx+dx,z=bz+dz; if(x<1||z<1||x>=MAPW-1||z>=MAPH-1) continue;
                     if (tile_at(x,z)==','){ fx=x; fz=z; found=1; } }
         markers[nmark++]=(Marker){ fx*TILE+TILE*0.5f, fz*TILE+TILE*0.5f, (uint8_t)want[m].kind };
+    }
+    /* ------------------------------------------------------------- DENS ---
+     * Two bolt-holes per city, carved into the remaining garage slots AFTER the
+     * pay-n-sprays have taken what they need, so a den can never displace a
+     * shop. They get NO marker: the whole point is that you find one by walking
+     * past the gap.
+     *
+     * The carve rule is stricter than the spray bay's. A spray bay needs a
+     * drivable approach, so it sits on the street face of a block; a den needs
+     * the opposite -- back AND both sides still solid, which makes it a slot
+     * cut into the mass rather than a corner that happens to be open. It is
+     * also kept away from the city centre and from every marker already placed,
+     * because a hiding place next to a gun shop is not hiding.
+     *
+     * A car cannot follow you in: is_bay() leaves a den off the drivable map
+     * and keeps its full-tile collider, so the mouth stops a bumper. */
+    { static const uint8_t DEN_LOOT[4][2] = { {PK_ARMOUR,PK_SMG}, {PK_ARMOUR,PK_CASH},
+                                              {PK_SHOTGUN,PK_HEALTH}, {PK_SMG,PK_ARMOUR} };
+      static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
+      int made=0;
+      for (int att=0; att<900 && made<2 && g_ngar<NGARAGE; att++){
+          int x=4+irand(MAPW-8), z=4+irand(MAPH-8);
+          if ((x-cx)*(x-cx)+(z-cz)*(z-cz) < 42*42) continue;   /* not downtown */
+          if (!is_solid(x,z)) continue;
+          int clear=1;                                          /* nowhere near a shop or a phone */
+          for (int m2=0;m2<nmark && clear;m2++){
+              float ddx=markers[m2].x-(x*TILE+TILE*0.5f), ddz=markers[m2].z-(z*TILE+TILE*0.5f);
+              if (ddx*ddx+ddz*ddz < 60.0f*60.0f) clear=0; }
+          if (!clear) continue;
+          for (int i=0;i<g_ngar && clear;i++)                   /* nor near another den/bay */
+              if ((g_gar[i].x-x)*(g_gar[i].x-x)+(g_gar[i].z-z)*(g_gar[i].z-z) < 20*20) clear=0;
+          if (!clear) continue;
+          for (int d=0; d<4; d++){
+              int fx2=x+DX[d],   fz2=z+DZ[d];                   /* the mouth */
+              int kx =x-DX[d],   kz =z-DZ[d];                   /* back wall */
+              int s1x=x+DZ[d],   s1z=z+DX[d];                   /* the two sides */
+              int s2x=x-DZ[d],   s2z=z-DX[d];
+              char fc=tile_at(fx2,fz2);
+              if (fc!=',' && fc!=' ') continue;                 /* you must be able to WALK up to it */
+              if (!is_solid(kx,kz)) continue;
+              if (!is_solid(s1x,s1z) || !is_solid(s2x,s2z)) continue;   /* a slot, not a corner */
+              g_gar[g_ngar++] = (typeof(g_gar[0])){ (int16_t)x,(int16_t)z, GAR_DEN, 0, (int8_t)DX[d],(int8_t)DZ[d] };
+              { const uint8_t *L = DEN_LOOT[made & 3];
+                float wx=x*TILE+TILE*0.5f, wz=z*TILE+TILE*0.5f;
+                add_pickup(wx-0.7f, wz-0.7f, L[0]);
+                add_pickup(wx+0.7f, wz+0.7f, L[1]); }
+              made++; break;
+          }
+      }
+#ifdef MOTE_HOST
+      if (getenv("MOTE_GTA_DEBUG")){
+          fprintf(stderr,"[DENS] %d carved:",made);
+          for (int i=0;i<g_ngar;i++) if(g_gar[i].kind==GAR_DEN)
+              fprintf(stderr," (%d,%d)->(%d,%d)",g_gar[i].x,g_gar[i].z,g_gar[i].ox,g_gar[i].oz);
+          fprintf(stderr,"\n"); }
+#endif
     }
 #ifdef MOTE_HOST
     if (getenv("MOTE_GTA_DEBUG")){
@@ -4710,7 +4805,36 @@ static void update_cops(float dt) {
                 if (find_near(px,pz, 30.0f, 55.0f, pav_or_grass, &ox,&oz)) spawn_footcop(ox,oz); }
         }
     }
-    if (w>0 && alivecops<w && g_copspawn<=0){
+    /* THEY COME IN ON FOOT.
+     *
+     * A den is off the drivable map and keeps its collider, so a squad car sent
+     * at a player standing in one drives straight into the mouth and wrecks on
+     * it. Measured at six stars: a car every few seconds, each wreck paying the
+     * $150 bounty and re-adding its star, with the player untouchable inside --
+     * a cash farm, and no way for the law to do anything about it.
+     *
+     * So when you are in a den the dispatcher sends officers instead of cars,
+     * and any squad car that gets near hands its driver out and goes back to
+     * being traffic rather than ramming the wall. A foot officer walks with
+     * walkable_world, which a den admits, so he comes in after you -- and that
+     * is the counter-play the hideout needs: it holds against the street, not
+     * against a man in the doorway. */
+    int in_den_now = (player.mode==MODE_FOOT) && den_at((int)(px/TILE),(int)(pz/TILE))>=0;
+    if (w>0 && in_den_now){
+        for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
+            if (!c->alive || c->wrecked || c->driver!=DRV_COP || c->type==VEH_TANK) continue;
+            float dx=c->x-px, dz=c->z-pz; if (dx*dx+dz*dz > 22.0f*22.0f) continue;
+            float ry=c->yaw+1.5708f;
+            spawn_footcop(c->x+cosf(ry)*2.6f, c->z+sinf(ry)*2.6f);
+            c->driver=DRV_NPC;                 /* the car is just traffic again -- no wreck, no bounty */
+        }
+    }
+    if (w>0 && alivecops<w && g_copspawn<=0 && in_den_now){
+        g_copspawn = 1.7f - 0.2f*w;
+        float ox,oz;
+        if (find_near(px,pz, 12.0f, 34.0f, pav_or_grass, &ox,&oz) && spawn_footcop(ox,oz)) alivecops++;
+    }
+    else if (w>0 && alivecops<w && g_copspawn<=0){
         g_copspawn = 1.7f - 0.2f*w;                  /* response quickens with the heat */
         int pairs = (w>=3)? 2 : 1;                   /* 3*+: squad cars roll in PAIRS */
         for (int sn=0; sn<pairs && alivecops<w; sn++){
@@ -4905,6 +5029,56 @@ static void update_heat(float dt) {
      * sight, held for the full count. */
     float need = 14.0f + 1.4f*heat;
     if (heat_cool>need && !copnear && !pursued && heat>0){ heat-=0.10f*dt; if(heat<0)heat=0; }
+
+    /* LYING LOW IN A DEN.
+     *
+     * The gate is `pursued`, not `copnear`: pursued means an officer within
+     * 45 m with a CLEAR LINE to you, and a den is a slot in a building with one
+     * mouth, so a patrol three doors down cannot see in. That is the whole
+     * trade -- the hideout works with the law on the street outside, and fails
+     * the moment one of them is standing in the doorway.
+     *
+     * No test for being on foot is needed beyond the obvious one: a car cannot
+     * get into a den, so being in one already means you abandoned it. */
+    { int tx=(int)(pl_x()/TILE), tz=(int)(pl_z()/TILE);
+      int di = (player.mode==MODE_FOOT) ? den_at(tx,tz) : -1;
+      if (di < 0){ g_den_t=0; g_den_burn=0; }
+      else {
+          if (!g_gar[di].found){ g_gar[di].found=1; say("A WAY IN"); }   /* now it shows on the map */
+          /* BURNT: the law is at the door.
+           *
+           * This was gated on `pursued` -- an officer with a clear line -- which
+           * reads better and does not work. Foot officers beeline at the player
+           * through move_body, which hugs walls but cannot route around a block
+           * to find the mouth, so measured at six stars four of them converged
+           * to 10.3 m, stalled against the building face, and never once got a
+           * line. The burn was unreachable and the den was a siege-proof room.
+           *
+           * Distance to the MOUTH, not to the player: an officer 10 m away on
+           * the far side of the block is 10 m away through a wall and has not
+           * found anything. Line of sight still burns it too, for the case
+           * where someone does walk into the doorway. */
+          float dmx=(g_gar[di].x+0.5f+g_gar[di].ox)*TILE, dmz=(g_gar[di].z+0.5f+g_gar[di].oz)*TILE;
+          int atdoor=0;
+          for (int k=0;k<NPED && !atdoor;k++){ if(!peds[k].alive||!peds[k].iscop) continue;
+              float ddx=peds[k].x-dmx, ddz=peds[k].z-dmz; if (ddx*ddx+ddz*ddz < DEN_DOOR2) atdoor=1; }
+          for (int k=0;k<NCAR && !atdoor;k++){ Car*cc=&cars[k];
+              if(!cc->alive||cc->wrecked||cc->driver!=DRV_COP) continue;
+              float ddx=cc->x-dmx, ddz=cc->z-dmz; if (ddx*ddx+ddz*ddz < DEN_DOOR2) atdoor=1; }
+          /* LIVE, not latched. A latch meant that one patrol drifting past the
+           * mouth killed the hideout for as long as you stayed in it, even
+           * after they had gone. Shake them off the door and it works again;
+           * the banner still fires only on the rising edge. */
+          int blown = pursued || atdoor;
+          if (blown && !g_den_burn) say("THEY'RE AT THE DOOR");
+          g_den_burn = (uint8_t)blown;
+          if (!g_den_burn && heat>0.0f){
+              if (g_den_t<=0.0f) say("LYING LOW");
+              g_den_t += dt;
+              heat -= DEN_COOL*dt; if (heat<0) heat=0;
+              heat_cool = 0;      /* the ordinary cooldown is not ALSO running */
+          }
+      } }
 }
 
 static void mission_cleanup(void);   /* defined with start_mission below */
@@ -5670,6 +5844,7 @@ static void reset_game_seeded(uint32_t want) {
     weapon=W_FIST; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;} owned[W_FIST]=1; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0;
     g_fare=FARE_NONE; g_fare_ped=-1; g_fare_n=0; g_fare_pay=0; g_fare_t=0; g_fare_look=3.0f;
+    g_den_t=0; g_den_burn=0;
     /* A fresh game gets a different city day every run. A LOAD must not: the
      * spawn search, the parked cars and the traffic init all draw from g_rng,
      * so leaving it on the clock would put the right map back with everything
@@ -6297,7 +6472,7 @@ static void stream_entities(float dt) {
     }
 }
 
-static int blocked_bldg_w(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c=='#'||c=='O'||c=='H') && !is_garage(tx,tz); }
+static int blocked_bldg_w(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c=='#'||c=='O'||c=='H') && !is_bay(tx,tz); }
 static int in_water_w(float wx,float wz){ return tile_at((int)(wx/TILE),(int)(wz/TILE))=='~'; }
 
 /* drove/walked into the river — splash, sink the car, WASTED */
@@ -6328,7 +6503,7 @@ static void physics_pass(float dt) {
     for (int z=cz-R; z<=cz+R && ns<NCAR+NSTAT; z++)
         for (int x=cx-R; x<=cx+R && ns<NCAR+NSTAT; x++){
             char t=tile_at(x,z);
-            if ((t=='#'||t=='O'||t=='H') && !is_garage(x,z)){   /* garage bays have no wall — drive in */
+            if ((t=='#'||t=='O'||t=='H') && !is_bay(x,z)){   /* garage bays have no wall — drive in; a DEN keeps its box, so a car bounces off the mouth */
                 bodies[ns]=mote_body2d_box(x*TILE+TILE*0.5f, z*TILE+TILE*0.5f, TILE*0.5f, TILE*0.5f, 0.0f, 0.0f);
                 bodies[ns].friction=0.7f; bodies[ns].restitution=0.05f; ns++;
             } else if (t==' '){
@@ -8271,6 +8446,16 @@ static void draw_map(uint16_t *fb){
                      markers[i].kind==MK_SPRAY?MOTE_RGB565(80,200,120):
                      markers[i].kind==MK_DOCK?MOTE_RGB565(235,150,60):MOTE_RGB565(80,160,240);
         mote->draw_rect(fb, sx-1, sy-1, 3, 3, col, 1, 0, 128);
+    }
+    /* DENS you have actually stood in. Nothing marks one before that -- the
+     * whole point is finding it -- but once found it is a safehouse worth being
+     * able to run back to, so it gets a dot like a shop. Violet: no marker kind
+     * uses it, and it is not the magenta the job beacon owns. */
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind!=GAR_DEN || !g_gar[i].found) continue;
+        int sx=g_gar[i].x-g_mapsx, sy=g_gar[i].z-g_mapsy;
+        if (sx<1||sx>126||sy<1||sy>126) continue;
+        mote->draw_rect(fb, sx-1, sy-1, 3, 3, MOTE_RGB565(170,110,235), 1, 0, 128);
     }
     for (int i=0;i<NPICK;i++){ Pickup*p2=&picks[i];      /* discovered caches: small white dots */
         if (!p2->alive || !p2->seen) continue;
