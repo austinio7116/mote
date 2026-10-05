@@ -922,6 +922,14 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
      * fell through to the pool answer -- ball in hand anywhere, which on a
      * table holding three balls and needing exact counts is a different game. */
     if (r->mode == CUE_GAME_COWBOY)      return 2;
+    /* COMBINED PYRAMID: THE KITCHEN, ALWAYS. The cue ball is in hand only
+     * when it has gone down (a свояк, or a foul), and both times it comes
+     * back to the kitchen (FBSR 21.2; the far end when every ball lies in
+     * the near one -- cue_table_set_house_far). It fell through to the pool
+     * answer and could go anywhere on the cloth. A player's report: "The red
+     * cue ball should always be placed in the break area when it is
+     * pocketed." */
+    if (CUE_GAME_IS_PYRAMID(r->mode) && r->pyr_free == CUE_PYR_COMBINED) return 0;
     /* Blackball: baulk — the full-width rectangle behind the line, not the D
      * (WPA Blackball 4c/4h). The value 2 is that region to the clamp. */
     if (r->mode == CUE_GAME_UK8)
