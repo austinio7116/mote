@@ -941,6 +941,11 @@ enum {
      * 2.20 x 1.30 (a 2.00 x 1.10 cloth) and the 1.90 x 1.20 (1.70 x 1.00).
      * Not 2:1, so not the uniform sizes above. Mesinha only. */
     CUE_TAB_MZ_220x130, CUE_TAB_MZ_190x120,
+    /* THE NETS TABLES: UK 8-ball on the 6 ft or the 7 ft bed with string nets
+     * on plates into a collector, not drops into a tray, and a snooker baize
+     * on it. Rarer than the pub table: the occasional pub, pool club or small
+     * venue has one (Mark). UK 8-ball only. */
+    CUE_TAB_NETS6, CUE_TAB_NETS7,
     CUE_TAB_COUNT
 };
 /* Is this stop a bed SIZE? */

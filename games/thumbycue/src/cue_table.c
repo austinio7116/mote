@@ -4790,7 +4790,8 @@ const char *const CUE_TAB_NAME[CUE_TAB_COUNT] = {
     "PRO", "TOURNAMENT", "CLUB", "L-SHAPED", "HEXAGON", "OCTAGON", "ROUND",
     "6 FT", "7 FT", "9 FT", "10 FT", "12 FT",
     "CLUB 12 FT", "CLUB 7 FT",
-    "2.20 X 1.30 M", "1.90 X 1.20 M"
+    "2.20 X 1.30 M", "1.90 X 1.20 M",
+    "6FT Nets", "7FT Nets"
 };
 
 /* THE BEDS, in metres of PLAYING SURFACE -- nose to nose between the cushions
@@ -4911,6 +4912,7 @@ int cue_table_variant_ok(CueGameKind kind, int variant) {
     if (variant <= CUE_TAB_CLUB) return cue_table_spec_applies(kind);
     if (variant == CUE_TAB_PYR_CLUB12 || variant == CUE_TAB_PYR_CLUB7) return kind == CUE_GAME_PYRAMID;
     if (variant == CUE_TAB_MZ_220x130 || variant == CUE_TAB_MZ_190x120) return CUE_GAME_IS_MESINHA(kind);
+    if (variant == CUE_TAB_NETS6 || variant == CUE_TAB_NETS7) return kind == CUE_GAME_UK8 || kind == CUE_GAME_KILLER_UK;
     if (CUE_TAB_IS_SIZE(variant)) return size_ok(kind, variant);
     /* THE SHAPES. What rules a game out is knowing where things are on the
      * cloth in absolute terms.
@@ -5018,6 +5020,15 @@ static void variant_apply(CueTable *t, int variant) {
         t->baulk_x  = -t->half_len * 0.5f;
         t->d_radius = 0.260f * (W / 1.42f);
         if (keep_c > 0.0f || keep_m > 0.0f) cue_table_cut_to(t, keep_c, keep_m);
+        return;
+    }
+    /* ---- THE NETS TABLES: the pub table's bed and pockets, 6 ft or 7 ft,
+     * with string nets on plates into a collector rather than drops into a
+     * tray. No spots of snooker's: it is a pool table (Mark). Its baize is the
+     * renderer's to dress (table_is_baize). */
+    if (variant == CUE_TAB_NETS6 || variant == CUE_TAB_NETS7) {
+        if (variant == CUE_TAB_NETS6) variant_apply(t, CUE_TAB_6FT);
+        t->furniture = CUE_FURN_NETS | CUE_FURN_COLLECTOR;
         return;
     }
     if (variant == CUE_TAB_PYR_CLUB12 || variant == CUE_TAB_PYR_CLUB7) {
