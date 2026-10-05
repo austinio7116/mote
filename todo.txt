@@ -1,0 +1,16 @@
+1. Taxi fares — DONE (see README "Taxi fares")
+   Hail -> pickup -> drop -> pay, with a streak multiplier. Implemented as its
+   own loop rather than a mission type: phone jobs are started by walking to a
+   phone box, which you cannot do from the driver's seat.
+
+2. Traffic that notices you — DONE (see README "Traffic that sees you")
+   player_ahead() mirrors car_ahead()'s lane test at the player on foot; cars
+   brake to a stop with their brake lights on. One driver in five never brakes,
+   derived from the car slot, so stepping into the road stays a gamble.
+
+Still open, from the same brainstorm:
+- district-specific pedestrians
+- car alarms at night
+- wet-road reflections
+- police radio chatter
+- a bribe pickup that drops a star

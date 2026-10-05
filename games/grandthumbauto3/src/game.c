@@ -1786,6 +1786,35 @@ static int   rival_car, rival_i;  /* RIVAL: rival's car slot + its checkpoint pr
 #define RIVAL_CAP_EVEN    13.0f     /* same leg, roughly level */
 #define RIVAL_CAP_BEHIND  15.5f     /* rival is behind (or trailing on the leg) → floor it */
 #define RIVAL_ARRIVE2    100.0f     /* checkpoint arrival radius^2 (10 m — a car needs some slack) */
+/* ------------------------------------------------------------ TAXI FARES ---
+ * The cab existed as a silhouette -- yellow paint, black roof sign, its own
+ * VStat row -- with no reason to ever drive one. This is the reason: get in a
+ * taxi, someone flags you down, take them where they ask, get paid, repeat.
+ *
+ * It is NOT a mission type. Phone jobs are started by walking to a phone box,
+ * which you cannot do from the driver's seat, so a fare offered as MI_TAXI
+ * could never be offered when you were in a position to take it. Fares are
+ * their own loop instead, and they only look for work while mission==MI_NONE
+ * so the two never fight over the beacon or the HUD line.
+ *
+ * FARE_HAIL tracks the pedestrian who waved by slot, the way MI_HIT tracks its
+ * mark, so the beacon follows them as they walk. Ped slots get recycled by the
+ * ring-walk spawner, so the slot is re-validated every frame against the point
+ * where the hail happened: a recycled slot is almost always somewhere else in
+ * the city, and the rare case where it is not just means you pick up a
+ * different pedestrian, which costs nothing. */
+enum { FARE_NONE, FARE_HAIL, FARE_RIDE };
+static int   g_fare;        /* FARE_* */
+static int   g_fare_ped;    /* HAIL: the ped slot that waved */
+static int   g_fare_n;      /* consecutive fares delivered -- the streak */
+static int   g_fare_pay;
+static float g_fare_x, g_fare_z;   /* HAIL: where the wave happened · RIDE: the drop */
+static float g_fare_t;      /* seconds left on the current leg */
+static float g_fare_look;   /* FARE_NONE: seconds until the next attempt to find work */
+#define FARE_HAIL_SECS  26.0f    /* to reach someone who waved before they give up */
+#define FARE_BOARD2     30.0f    /* 5.5 m: close enough to open the door (squared) */
+#define FARE_DROP2      49.0f    /* 7 m: close enough to let them out (squared) */
+#define FARE_STOP        2.6f    /* m/s under which the cab counts as stopped */
 static const char *g_msg; static float g_msg_t;
 static float hosp_x, hosp_z;
 static int   g_showmap, g_mapsx, g_mapsy; static float g_maptime;   /* full-map view */
@@ -3524,6 +3553,48 @@ static float best_turn_toward(float x,float z,float d,float tx,float tz,int allo
  *   TURN   — entered only when the road doesn't continue straight (corner/T/dead-end):
  *            commit ONE new cardinal with a clear run, slow right down, steer to it, then
  *            resume CRUISE once aligned and the exit is open ahead. */
+/* RECKLESS DRIVERS. One in five never brakes for a person in the road.
+ *
+ * Derived from the slot and the paint job rather than stored or rolled, the way
+ * ped_brave is: a given car behaves consistently for as long as it exists, and
+ * rerolls when the slot is recycled into a new one. Without it every driver in
+ * the city is equally courteous, which reads as a rule rather than as traffic
+ * -- and stepping into the road stops being a decision.
+ *
+ * Reckless applies ONLY to people. A car that ignored the car in front would
+ * pile the whole street up; car_ahead is untouched. */
+static int driver_reckless(int i){
+    uint32_t h = (uint32_t)i*2654435761u ^ ((uint32_t)cars[i].type*40503u);
+    h ^= h>>13; h *= 1274126177u; h ^= h>>16;
+    return (h % 5u) == 0u;
+}
+
+/* IS THE PLAYER ON FOOT IN THIS CAR'S PATH?
+ *
+ * car_ahead only looks at other vehicles, so a person standing in the street
+ * was invisible to traffic and simply got driven through -- do_runovers was the
+ * only interaction a pedestrian had with a car.
+ *
+ * Same lane geometry as car_ahead, with three changes: a narrower corridor,
+ * because a person is not a car's width; a longer look, because you lift off
+ * earlier for someone on foot than for a bumper; and no heading test, because a
+ * pedestrian has no lane direction to agree with.
+ *
+ * The player's own CAR needs no case here. It lives in cars[] like any other,
+ * so car_ahead already queues traffic behind it. */
+static int player_ahead(int i){
+    if (g_state != ST_PLAY || player.mode != MODE_FOOT) return 0;
+    if (driver_reckless(i)) return 0;
+    const VStat *v=&VSTAT[cars[i].type];
+    float ang=bodies[i].angle, c=cosf(ang), s=sinf(ang);
+    float spd=bodies[i].vx*c + bodies[i].vy*s;
+    float look=v->len*0.5f + 4.0f + (spd>0?spd*0.9f:0.0f);
+    float dx=player.x-cars[i].x, dz=player.z-cars[i].z;
+    float fwd=dx*c + dz*s;  if (fwd < 0.3f || fwd > look) return 0;
+    float lat=-dx*s + dz*c; if (lat < 0) lat = -lat;
+    return lat <= 1.5f;
+}
+
 static void update_traffic(float dt) {
     for (int i=0;i<NCAR;i++) {
         Car *c=&cars[i];
@@ -3677,6 +3748,8 @@ static void update_traffic(float dt) {
                 ai_state[i]=AIS_CRUISE;
         }
         int turning=(ai_state[i]==AIS_TURN), blocked=car_ahead(i);
+        int yield_ped = player_ahead(i);     /* someone is in the road -- stop, don't coast */
+        if (yield_ped) blocked = 1;
         int approach = (!turning && run_ahead < TILE*2.6f);      /* a turn is coming → ease off early */
         /* HEAD-ON DODGE: someone is coming straight at me in MY lane (a bad spawn or a
          * mid-turn stray) — squeeze hard toward my right kerb and ease off. */
@@ -3705,7 +3778,11 @@ static void update_traffic(float dt) {
                 if (st == LIGHT_RED) { blocked = 1; at_red = 1; }
             }
         }
-        red_wait[i] = (uint8_t)at_red;
+        /* A car deliberately stopped is not STUCK: red_wait is the flag that keeps
+         * the recovery push and the stuck timer off a car that means to be still,
+         * and a driver waiting for you to cross qualifies on exactly the same
+         * grounds as one waiting for a light. */
+        red_wait[i] = (uint8_t)(at_red || yield_ped);
 
         /* JUNCTION YIELD: give way to a MOVING perpendicular crosser near my entry point.
          * Priority: a car already IN the junction goes first; equal approaches → lower index
@@ -3747,10 +3824,17 @@ static void update_traffic(float dt) {
             throttle = (road_run(c->x,c->z, fx,fz, TILE*1.4f) < TILE*0.9f) ? -0.9f : 1.0f; }
         /* A red light BRAKES; every other `blocked` reason keeps coasting, which
          * is what queueing behind another car should feel like. */
-        ai_drive_b(i, target, throttle, at_red ? 0.85f : 0.0f, dt);
+        ai_drive_b(i, target, throttle, (at_red || yield_ped) ? 0.85f : 0.0f, dt);
+        /* AI cars never set their lamps before this: drive_car only runs for the
+         * player's own. A driver standing on the brakes for you with dark tail
+         * lights is the whole signal thrown away, so set them here -- and clear
+         * them every other frame, because nothing else does. */
+        c->lamp = (at_red || yield_ped) ? LAMP_BRAKE : LAMP_OFF;
 
         float cc=cosf(ba), ss=sinf(ba), fs=b->vx*cc+b->vy*ss;    /* cap forward speed */
-        float cap = blocked ? 2.0f : (turning ? 3.0f : (approach ? 4.6f : 9.5f));
+        /* yield_ped caps at zero, not at the 2.0 that queueing behind a car uses:
+         * a cab creeping into your shins at 2 m/s is not stopping for you. */
+        float cap = yield_ped ? 0.0f : (blocked ? 2.0f : (turning ? 3.0f : (approach ? 4.6f : 9.5f)));
         if (is_racer && !blocked){
             /* RUBBER-BAND top speed: a race car, faster than traffic on the straights,
              * eased when ahead of the player and floored when behind so the race stays
@@ -5413,6 +5497,126 @@ static void mission_win(void){
     mission_cleanup(); mission=MI_NONE;
 }
 
+/* Is the player driving a cab that can still carry someone? */
+static int in_taxi(void){
+    if (g_state!=ST_PLAY || player.mode!=MODE_CAR || player.car<0) return 0;
+    Car *c=&cars[player.car];
+    return c->alive && !c->wrecked && c->type==CAR_TAXI;
+}
+static float taxi_speed(void){
+    if (player.car<0) return 0.0f;
+    MoteBody2D *b=&bodies[player.car];
+    return sqrtf(b->vx*b->vx + b->vy*b->vy);
+}
+/* The streak multiplier, mirroring mission_chain's: +15% a fare, capped at
+ * 1.9x, and reset by any fare you lose. Six good runs in a row is the ceiling,
+ * which is about as long as a cab survives in this city. */
+static float fare_mult(void){
+    int n = g_fare_n; if (n>6) n=6;
+    return 1.0f + 0.15f*(float)n;
+}
+static void fare_drop(const char *why){
+    if (g_fare!=FARE_NONE && why) say(why);
+    g_fare=FARE_NONE; g_fare_ped=-1; g_fare_pay=0; g_fare_t=0; g_fare_look=2.0f;
+}
+static void update_fares(float dt){
+    if (!in_taxi()){
+        /* Getting out mid-ride loses the fare, so it breaks the streak the same
+         * way a timeout does. Walking away from someone who has only WAVED
+         * costs nothing -- you never took the job. */
+        if (g_fare==FARE_RIDE){ fare_drop("THE FARE WALKED"); g_fare_n=0; }
+        else if (g_fare!=FARE_NONE) fare_drop(0);
+        return; }
+
+    if (g_fare!=FARE_NONE){
+        g_fare_t -= dt;
+        if (g_fare_t<=0.0f){ fare_drop(g_fare==FARE_RIDE?"TOO SLOW - FARE LEFT":"THEY GAVE UP WAITING");
+            g_fare_n=0; return; }
+    }
+
+    switch (g_fare){
+    case FARE_NONE: {
+        if (mission!=MI_NONE) return;          /* a phone job owns the beacon */
+        /* NOBODY HAILS A CAB WITH SIRENS BEHIND IT. Without this the offer and
+         * the FARE_RIDE bail-out below fight each other during a chase: a fare
+         * gets in, panics, gets out, and the banner loops once a second. */
+        if (wanted()>=2) return;
+        g_fare_look -= dt; if (g_fare_look>0.0f) return;
+        g_fare_look = 1.4f + frand()*2.2f;
+        if (frand()>0.55f) return;             /* not everyone wants a cab */
+        /* someone on the pavement, close enough to have seen you and far
+         * enough that reaching them is a drive rather than a formality */
+        int best=-1; float bd=1e18f;
+        for (int i=0;i<NPED;i++){ Ped*pd=&peds[i];
+            if (!pd->alive || pd->iscop || pd->gang || pd->flee>0.0f || pd->rage>0.0f) continue;
+            float dx=pd->x-pl_x(), dz=pd->z-pl_z(), d2=dx*dx+dz*dz;
+            if (d2 < 100.0f || d2 > 2025.0f) continue;      /* 10 m .. 45 m */
+            if (d2 < bd){ bd=d2; best=i; } }
+        if (best<0) return;
+        g_fare=FARE_HAIL; g_fare_ped=best; g_fare_t=FARE_HAIL_SECS;
+        g_fare_x=peds[best].x; g_fare_z=peds[best].z;
+        say("FARE WAITING"); sfx(&phone_sfx,0.5f);
+    } break;
+
+    case FARE_HAIL: {
+        Ped *pd = (g_fare_ped>=0 && g_fare_ped<NPED) ? &peds[g_fare_ped] : 0;
+        /* slot re-validation: see the note on the state block */
+        if (!pd || !pd->alive || pd->iscop){ fare_drop(0); return; }
+        float hx=pd->x-g_fare_x, hz=pd->z-g_fare_z;
+        if (hx*hx+hz*hz > 900.0f){ fare_drop(0); return; }   /* recycled into someone else */
+        float dx=pd->x-pl_x(), dz=pd->z-pl_z();
+        if (dx*dx+dz*dz < FARE_BOARD2 && taxi_speed() < FARE_STOP){
+            /* THE DROP. Picked by route rather than by straight-line distance, so
+             * the pay and the clock both describe the drive you actually have to
+             * make -- the same insistence setup_mission's COURIER leg makes. */
+            float ox,oz, route=-1.0f;
+            for (int t=0;t<6 && route<0.0f;t++){
+                if (!find_road_clear(pl_x(),pl_z(), 90.0f, 300.0f, &ox,&oz)) break;
+                float sd=sqrtf((ox-pl_x())*(ox-pl_x())+(oz-pl_z())*(oz-pl_z()));
+                float r=road_dist(pl_x(),pl_z(), ox,oz);
+                if (r>0.0f && r < sd*2.6f) route=r;
+            }
+            if (route<0.0f){ fare_drop("NOWHERE TO TAKE THEM"); return; }
+            pd->alive=0;                       /* they get in */
+            g_fare=FARE_RIDE; g_fare_ped=-1; g_fare_x=ox; g_fare_z=oz;
+            /* PAY. Deliberately well under a phone job's: a fare is repeatable
+             * for as long as you keep the cab, so the rate per metre has to be
+             * low or the gun shop stops meaning anything. Measured at
+             * 110-250 a fare before the streak, 1.9x of that at the ceiling --
+             * a shift's work buys a shotgun, not a minigun in a minute.
+             * The first draft paid 1.9 a metre and ran to 1441 a fare. */
+            g_fare_pay = (int)((40.0f + route*0.6f + frand()*40.0f) * fare_mult());
+            g_fare_t   = 10.0f + route/8.0f;
+            say("TAKE ME ACROSS TOWN"); sfx(&cash_sfx,0.35f);
+        }
+    } break;
+
+    case FARE_RIDE: {
+        /* A chase is not a taxi ride. Two stars means sirens behind you, and
+         * nobody stays in the back seat for that. */
+        if (wanted()>=2){ fare_drop("THE FARE BAILED OUT"); g_fare_n=0; return; }
+        float dx=pl_x()-g_fare_x, dz=pl_z()-g_fare_z;
+        if (dx*dx+dz*dz < FARE_DROP2 && taxi_speed() < FARE_STOP){
+            cash += g_fare_pay; g_fare_n++;
+            char t[10]; snprintf(t,sizeof t,"+$%d",g_fare_pay);
+            float_txt(pl_x(),pl_z(),t);
+            sfx(&cash_sfx,0.8f);
+            say(g_fare_n>=3 ? "REGULAR CUSTOMER" : "FARE PAID");
+            g_fare=FARE_NONE; g_fare_pay=0; g_fare_t=0; g_fare_look=2.5f;
+        }
+    } break;
+    }
+}
+/* Where the cab beacon points, and whether there is one. Kept separate from
+ * mission_beacon so the two can never be live at the same time by accident:
+ * fares only look for work while mission==MI_NONE. */
+static int fare_beacon(float *bx, float *bz){
+    if (g_fare==FARE_HAIL && g_fare_ped>=0 && peds[g_fare_ped].alive){
+        *bx=peds[g_fare_ped].x; *bz=peds[g_fare_ped].z; return 1; }   /* follows them as they walk */
+    if (g_fare==FARE_RIDE){ *bx=g_fare_x; *bz=g_fare_z; return 1; }
+    return 0;
+}
+
 static int near_marker(int kind, float rad) {
     for (int i=0;i<nmark;i++) if(markers[i].kind==kind){
         float dx=markers[i].x-pl_x(), dz=markers[i].z-pl_z();
@@ -5465,6 +5669,7 @@ static void reset_game_seeded(uint32_t want) {
     cash=0; health=MAXHP; g_armour=0; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
     weapon=W_FIST; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;} owned[W_FIST]=1; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0;
+    g_fare=FARE_NONE; g_fare_ped=-1; g_fare_n=0; g_fare_pay=0; g_fare_t=0; g_fare_look=3.0f;
     /* A fresh game gets a different city day every run. A LOAD must not: the
      * spawn search, the parked cars and the traffic init all draw from g_rng,
      * so leaving it on the clock would put the right map back with everything
@@ -7722,6 +7927,7 @@ static void g_update(float dt) {
       if (night != was_night) { was_night = night; set_building_night(night); } }
     update_heat(dt);
     update_missions(dt);
+    update_fares(dt);
     for (int i=0;i<NFX;i++) if(fxs[i].t>0) fxs[i].t-=dt;
     for (int i=0;i<6;i++) if(g_ftxt[i].t>0) g_ftxt[i].t-=dt;
     if (g_aim_t>0) g_aim_t-=dt;
@@ -8082,6 +8288,14 @@ static void draw_map(uint16_t *fb){
         mote->draw_rect(fb, sx, sy-7, 1,5, mc,1,0,128); mote->draw_rect(fb, sx, sy+3, 1,5, mc,1,0,128);  /* crosshair */
         mote->draw_rect(fb, sx-1, sy-1, 3,3, mc,1,0,128);
         mote->draw_rect(fb, sx, sy, 1,1, MOTE_RGB565(255,255,255),1,0,128); }
+    { float bx,bz;                                               /* the cab's fare, in amber */
+      if (fare_beacon(&bx,&bz)){
+        int sx=(int)(bx/TILE)-g_mapsx, sy=(int)(bz/TILE)-g_mapsy;
+        if (sx<8) sx=8; if (sx>119) sx=119; if (sy<16) sy=16; if (sy>112) sy=112;
+        uint16_t fc=MOTE_RGB565(255,180,40);
+        int ph=((int)(g_maptime*4.0f))&1;
+        mote->draw_circle(fb, sx, sy, ph?6:4, fc, 0, 0, 128);
+        mote->draw_rect(fb, sx-1, sy-1, 3,3, fc,1,0,128); } }
     if (mission==MI_RIVAL && rival_car>=0 && cars[rival_car].alive){   /* the rival: a red blip on the map */
         int sx=(int)(cars[rival_car].x/TILE)-g_mapsx, sy=(int)(cars[rival_car].z/TILE)-g_mapsy;
         if (sx>=1&&sx<=126&&sy>=1&&sy<=126) mote->draw_rect(fb, sx-1, sy-1, 3,3, MOTE_RGB565(240,60,50), 1,0,128); }
@@ -8360,6 +8574,15 @@ static void draw_radar(uint16_t *fb) {
                             MOTE_RGB565(90,150,255), 1, 0, 128);
         }
 
+    { float bx,bz;                      /* the cab's fare: amber, over the markers */
+      if (fare_beacon(&bx,&bz)){
+        float dx=bx-pl_x(), dz=bz-pl_z();
+        float rx=(dx*sa - dz*ca)/RADAR_M, ry=-(dx*ca + dz*sa)/RADAR_M;
+        float rr=sqrtf(rx*rx+ry*ry);
+        if (rr > (float)RADAR_R-2.0f){ rx*=((float)RADAR_R-2.0f)/rr; ry*=((float)RADAR_R-2.0f)/rr; }
+        mote->draw_rect(fb, cx+(int)rx-1, cy+(int)ry-1, 3, 3,
+                        MOTE_RGB565(255,180,40), 1, 0, 128); } }
+
     /* NORTH on the rim.
      *
      * The dial turns with your heading, which is what makes it useful while
@@ -8480,6 +8703,16 @@ static void g_overlay(uint16_t *fb) {
             world_ring(fb, mx, mz, ph?10:8, mc);
         } else {                                  /* off-screen: edge arrow, steady (no flashing) */
             draw_arrow(fb, sx, sy, ang, mc);
+        } }
+    if (g_state==ST_PLAY){                      /* the cab's fare: same ring, amber */
+        float bx,bz;
+        if (fare_beacon(&bx,&bz)){
+            uint16_t fc = MOTE_RGB565(255,180,40);
+            float sx, sy, ang;
+            if (screen_or_edge(bx, bz, &sx, &sy, &ang)){
+                int ph=((int)(mote->micros()/200000ull))&1;
+                world_ring(fb, bx, bz, ph?10:8, fc);
+            } else draw_arrow(fb, sx, sy, ang, fc);
         } }
     if (g_state==ST_PLAY && mission==MI_NONE){   /* looking for work: beating ring on every phone box */
         int ph=((int)(mote->micros()/240000ull))&1;
@@ -8703,6 +8936,15 @@ static void g_overlay(uint16_t *fb) {
         mote->text(fb, vn, 126 - nw, 110, MOTE_RGB565(150,164,188));
     }
 
+    if (mission==MI_NONE && g_fare!=FARE_NONE){
+        /* The cab's own row, in the slot the mission line leaves empty. Amber
+         * rather than the mission yellow, and it carries the streak once there
+         * is one, because the multiplier is the reason to keep taking fares. */
+        uint16_t fc=MOTE_RGB565(250,196,60); int t=(int)g_fare_t;
+        if (g_fare==FARE_HAIL) ftext_sh(g_fmed, fb, 2,12, fc, "FARE WAITING %ds", t);
+        else if (g_fare_n>0)   ftext_sh(g_fmed, fb, 2,12, fc, "FARE $%d %ds x%d", g_fare_pay, t, g_fare_n+1);
+        else                   ftext_sh(g_fmed, fb, 2,12, fc, "FARE $%d %ds", g_fare_pay, t);
+    }
     if (mission!=MI_NONE){
         uint16_t mcol=MOTE_RGB565(250,230,90); int t=(int)mission_t;
         switch (mission){
