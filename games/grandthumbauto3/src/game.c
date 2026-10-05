@@ -7431,8 +7431,10 @@ static void g_update(float dt) {
             return;                     /* settings tab does not pan the map */
         }
         int sp = mote_pressed(in,MOTE_BTN_B) ? 6 : 3;   /* B = pan faster */
-        if (mote_pressed(in,MOTE_BTN_LEFT))  g_mapsx-=sp;
-        if (mote_pressed(in,MOTE_BTN_RIGHT)) g_mapsx+=sp;
+        /* Reversed, because the map is mirrored on the way out: pressing RIGHT
+         * must still walk the view to the right of what you are looking at. */
+        if (mote_pressed(in,MOTE_BTN_LEFT))  g_mapsx+=sp;
+        if (mote_pressed(in,MOTE_BTN_RIGHT)) g_mapsx-=sp;
         if (mote_pressed(in,MOTE_BTN_UP))    g_mapsy-=sp;
         if (mote_pressed(in,MOTE_BTN_DOWN))  g_mapsy+=sp;
         if (g_mapsx<0) g_mapsx=0; if (g_mapsx>MAPW-128) g_mapsx=MAPW-128;
@@ -8087,6 +8089,25 @@ static void draw_map(uint16_t *fb){
         mote->draw_circle(fb, psx, psy, 2, col, 1, 0, 128);
         mote->draw_circle(fb, psx, psy, 3, MOTE_RGB565(20,20,26), 0, 0, 128);
     }
+    /* MIRROR, after every positional thing and before any text.
+     *
+     * The 3D view puts +x on the player's LEFT -- measured with a cop car,
+     * which draws both in the world and as a blip: at dx=-10 it appeared on the
+     * RIGHT of the screen. A top-down map drawn with +x rightward is therefore
+     * a reflection of the city you are looking at, and following it would turn
+     * you the wrong way.
+     *
+     * Flipping the finished 128x128 here rather than negating x at each of the
+     * seven draw sites: one loop that cannot be half-applied, against seven
+     * chances to miss one. It is a paused screen, so 8k pixel swaps a frame is
+     * not a cost worth optimising. */
+    for (int y = 0; y < 128; y++)
+        for (int x = 0; x < 64; x++) {
+            uint16_t t = fb[y*128 + x];
+            fb[y*128 + x] = fb[y*128 + 127 - x];
+            fb[y*128 + 127 - x] = t;
+        }
+
     mote_ui_panel(fb, 0, 0, 128, 11, MOTE_RGB565(14,16,24), MOTE_RGB565(60,70,110));
     mote_ftext(mote, fb, g_fmed, "CITY MAP", 3, 1, MOTE_RGB565(240,230,120));
     /* two lines now, so the pair sits one line-height apart ending where the single
@@ -8295,8 +8316,8 @@ static void draw_radar(uint16_t *fb) {
              * of it. Forward is (ca,sa) and the game's own +90 convention --
              * the same one the car-exit code uses as yaw+1.5708 -- makes right
              * (-sa,ca), which is what these two lines now compute. */
-            float wx = pl_x() + RADAR_M*(-px*sa - py*ca);
-            float wz = pl_z() + RADAR_M*( px*ca - py*sa);
+            float wx = pl_x() + RADAR_M*(px*sa - py*ca);
+            float wz = pl_z() - RADAR_M*(px*ca + py*sa);
             char c = tile_at((int)floorf(wx/TILE), (int)floorf(wz/TILE));
             uint16_t col;
             if (c=='.'||c=='B') col = MOTE_RGB565(120,124,136);
@@ -8309,7 +8330,7 @@ static void draw_radar(uint16_t *fb) {
     /* mission markers, then wanted cops on top of them */
     for (int m = 0; m < nmark; m++) {
         float dx = markers[m].x - pl_x(), dz = markers[m].z - pl_z();
-        float rx = (dz*ca - dx*sa) / RADAR_M, ry = -(dx*ca + dz*sa) / RADAR_M;
+        float rx = (dx*sa - dz*ca) / RADAR_M, ry = -(dx*ca + dz*sa) / RADAR_M;
         if (rx*rx + ry*ry > RADAR_R*RADAR_R) continue;
         mote->draw_rect(fb, cx+(int)rx-1, cy+(int)ry-1, 3, 3,
                         MOTE_RGB565(240,200,80), 1, 0, 128);
@@ -8319,7 +8340,7 @@ static void draw_radar(uint16_t *fb) {
             Car *c = &cars[i];
             if (!c->alive || c->driver != DRV_COP) continue;
             float dx = c->x - pl_x(), dz = c->z - pl_z();
-            float rx = (dz*ca - dx*sa) / RADAR_M, ry = -(dx*ca + dz*sa) / RADAR_M;
+            float rx = (dx*sa - dz*ca) / RADAR_M, ry = -(dx*ca + dz*sa) / RADAR_M;
             if (rx*rx + ry*ry > RADAR_R*RADAR_R) continue;
             mote->draw_rect(fb, cx+(int)rx-1, cy+(int)ry-1, 3, 3,
                             MOTE_RGB565(90,150,255), 1, 0, 128);
@@ -8338,7 +8359,7 @@ static void draw_radar(uint16_t *fb) {
      * gives screen (-ca, sa). Worth checking against two headings: facing
      * north (ca=0, sa=-1) it lands straight up, and facing east (ca=1, sa=0)
      * it lands on the left, which is where north should be. */
-    { float nx = -ca, ny = sa;                  /* north, on the dial */
+    { float nx = ca, ny = sa;                   /* north, on the dial */
       float sx = -ny, sy = nx;                  /* across it */
       /* An ARROWHEAD rather than the letter N: a 3x5 glyph cannot rotate, so
        * the N sat upright wherever it was on the rim and read as a label stuck
@@ -8348,11 +8369,11 @@ static void draw_radar(uint16_t *fb) {
        * tapering to nothing at the tip -- the overlay has no filled-triangle
        * call, and at five pixels long a scan like this IS the triangle. */
       const uint16_t NC = MOTE_RGB565(240,120,100);      /* compass red */
-      for (int t = 0; t <= 12; t++) {
-          float f  = (float)t / 12.0f;                   /* 0 at the base, 1 at the tip */
-          float ax = cx + nx * (RADAR_R - 7 + 6.0f*f);
-          float ay = cy + ny * (RADAR_R - 7 + 6.0f*f);
-          float hw = (1.0f - f) * 2.6f;
+      for (int t = 0; t <= 10; t++) {
+          float f  = (float)t / 10.0f;                   /* 0 at the base, 1 at the tip */
+          float ax = cx + nx * (RADAR_R - 5 + 4.0f*f);
+          float ay = cy + ny * (RADAR_R - 5 + 4.0f*f);
+          float hw = (1.0f - f) * 1.7f;
           /* HALF-PIXEL steps, both along and across. Whole-pixel steps on a
            * five-pixel triangle left holes at every diagonal heading, because
            * neither axis lands on the grid: it came out as a scatter of dots
