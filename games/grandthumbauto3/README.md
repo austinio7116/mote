@@ -96,13 +96,28 @@ itself up again when you let go of `B`.
 
 ## Temporary debug affordances
 
-**BRING** — a hidden row on the SETTINGS page. Open the menu, `RB` to the
-settings tab, then **tap `B` nine times**: a BRING row appears at the bottom.
-`LEFT`/`RIGHT` picks HELI, TANK or BOAT and `A` delivers it. Nine more taps
-puts the row away again.
+**BRING / GO TO** — a hidden row on the SETTINGS page. Open the menu, `RB` to
+the settings tab, then **tap `B` nine times**: one more row appears at the
+bottom. `LEFT`/`RIGHT` walks five entries and `A` does the one showing. Nine
+more taps puts the row away again.
 
-The helicopter and the tank arrive 9 m in front of you. The boat has to arrive
-on water, so it goes to the nearest mooring instead and the message says so.
+Three bring a vehicle to you: HELI and TANK arrive 9 m in front; BOAT has to
+arrive on water, so it goes to the nearest mooring and the message says so.
+
+Two take you somewhere, and the row's label changes to `GO TO` for them. **DEN**
+puts you on foot at the mouth of the nearest hideaway, facing in; **ISLE** puts
+you on the treasure island. These two exist because they are the only places in
+the game you cannot reach on purpose — a den is unmarked until you have stood
+in one, and the island is a footbridge walk across the map — so checking either
+by hand meant a scripted host run with a teleport hook that the device build
+does not have. Both step you out of whatever you were driving, because neither
+is somewhere a vehicle can follow you, and both close the pause screen so you
+can see where you landed. If the city has no den or no island, the row says so
+and nothing moves.
+
+One row rather than two because an eighth settings row does not fit: rows are
+11 px apart from y=19, so the eighth lands at y=96 and its highlight runs to
+y=106, over the result line at y=99.
 
 `B` is the button because the settings tab is the one screen where it does
 nothing — `UP`/`DOWN` pick a row, `LEFT`/`RIGHT` set its value, `A` activates
@@ -116,10 +131,11 @@ camera, and nothing on screen told you whether a tap had registered. Here the
 row either appears or it does not.
 
 This is meant to come out. To remove it, delete `bring_vehicle`, the
-`BRING_HELI`/`BRING_TANK`/`BRING_BOAT`/`BRING_N` enum, `g_bring`, `g_cheats`,
+`goto_place`, the `BRING_*`/`BRING_N` enum and `BRING_VEH_N`, `g_bring`, `g_cheats`,
 `set_rows()` and its two call sites, the `SET_BRING` row in the settings enum,
 the B-tap block in the settings handler, its `LEFT`/`RIGHT` and `A` arms, its
-`NAME[]` entry and the `BN[]` value arm in `draw_settings`.
+`NAME[]` entry, its `GO TO` label special-case and the `BN[]` value arm in
+`draw_settings`.
 
 The host-only equivalents are environment variables, which are no use with the
 handheld in your hands: `MOTE_GTA_TP_HELI=1` stands beside the aircraft, `2`

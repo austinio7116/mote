@@ -7296,10 +7296,12 @@ static int car_in_reach(void) { return car_reach_pick() >= 0; }
 
 /* ------------------------------------------------- the BRING CHEAT --------
  *
- * These three deliveries are debug affordances, so they are not on the
- * settings page until you ask for them. Tap B nine times ON THE SETTINGS TAB
- * and a BRING row appears at the bottom; LEFT/RIGHT picks HELI, TANK or BOAT
- * and A delivers it. Tap it again to put the row away.
+ * These are debug affordances, so they are not on the settings page until you
+ * ask for them. Tap B nine times ON THE SETTINGS TAB and one more row appears
+ * at the bottom; LEFT/RIGHT walks the five entries and A does the one showing.
+ * Three BRING a vehicle to you -- HELI, TANK, BOAT -- and two take you
+ * somewhere: DEN to the mouth of the nearest hideaway, ISLE to the treasure
+ * island. Tap it again to put the row away.
  *
  * B is the button because the settings tab is the one screen where it does
  * NOTHING: UP/DOWN pick a row, LEFT/RIGHT set its value, A activates it,
@@ -7314,8 +7316,58 @@ static int car_in_reach(void) { return car_reach_pick() >= 0; }
  * not, so the feedback is the feature.
  *
  * Costs two bytes: the press counter and the visible flag. */
-enum { BRING_HELI, BRING_TANK, BRING_BOAT, BRING_N };
-static uint8_t g_bring;        /* which of the three the row is showing */
+/* The hidden row cycles two kinds of thing: three vehicles it BRINGS to you,
+ * and two places it takes you TO. They share one row because an eighth settings
+ * row does not fit -- rows are 11 px apart from y=19, so i=7 lands at y=96 and
+ * its highlight runs to 106, over the result line at y=99. The row's LABEL
+ * changes instead, which costs nothing and says which of the two it is doing.
+ *
+ * The destinations exist because the den and the island are the two things in
+ * the game you cannot reach on purpose: a den is unmarked until you have stood
+ * in one, and the island is a footbridge walk across the map. Checking either
+ * by hand meant a scripted host run with a teleport hook, which the device
+ * build does not have. */
+enum { BRING_HELI, BRING_TANK, BRING_BOAT, BRING_DEN, BRING_ISLE, BRING_N };
+#define BRING_VEH_N BRING_DEN   /* indices below this are vehicles, at or above are places */
+static uint8_t g_bring;        /* which of the five the row is showing */
+
+/* Put the player, ON FOOT, at a world point. Stepping out of whatever they were
+ * driving is deliberate: both destinations are places a vehicle cannot follow
+ * you into, and arriving inside a car wedged in a den or marooned on an island
+ * is worse than walking. The pause screen closes so you can see where you are;
+ * the banner goes through say() rather than g_setmsg for the same reason. */
+static void goto_place(int which) {
+    float wx = 0, wz = 0, yaw = pl_yaw(); int ok = 0;
+    if (which == BRING_DEN) {
+        int best = -1; float bd = 1e18f;
+        for (int i = 0; i < g_ngar; i++) {
+            if (g_gar[i].kind != GAR_DEN) continue;
+            float dx = (g_gar[i].x + 0.5f)*TILE - pl_x(), dz = (g_gar[i].z + 0.5f)*TILE - pl_z();
+            float d = dx*dx + dz*dz; if (d < bd) { bd = d; best = i; }
+        }
+        if (best >= 0) {
+            /* the MOUTH, facing in: the den tile itself is where you walk to,
+             * and standing in it immediately would skip the thing being tested */
+            wx = (g_gar[best].x + 0.5f + g_gar[best].ox) * TILE;
+            wz = (g_gar[best].z + 0.5f + g_gar[best].oz) * TILE;
+            yaw = atan2f(-(float)g_gar[best].oz, -(float)g_gar[best].ox);
+            ok = 1;
+        } else say("NO DEN IN THIS CITY");
+    } else {
+        if (cg_isle_x >= 0) {
+            wx = (cg_isle_x + 0.5f) * TILE; wz = (cg_isle_y + 0.5f) * TILE;
+            ok = 1;
+        } else say("NO ISLAND IN THIS CITY");
+    }
+    if (!ok) { g_setmsg = 0; g_setmsg_t = 0.0f; return; }
+    if (player.mode == MODE_CAR && player.car >= 0) cars[player.car].driver = DRV_NONE;
+    player.mode = MODE_FOOT; player.car = -1;
+    player.x = wx; player.z = wz; player.yaw = yaw;
+    gta3_cam_reset(&g_cam);
+    g_showmap = 0; g_newarm = 0.0f; g_setmsg = 0; g_setmsg_t = 0.0f;
+    say(which == BRING_DEN ? "AT THE HIDEAWAY" : "ON THE ISLAND");
+    sfx(&cash_sfx, 0.6f);
+}
 
 static void bring_vehicle(int which) {
     float ox, oz; bring_here(&ox, &oz);
@@ -7856,7 +7908,10 @@ static void g_update(float dt) {
                         g_state = ST_PLAY;
                     } else g_newarm = NEW_ARM_SECS;  /* first press: arm */
                     break;
-                case SET_BRING:   bring_vehicle(g_bring); break;
+                case SET_BRING:
+                    if (g_bring < BRING_VEH_N) bring_vehicle(g_bring);
+                    else                       goto_place(g_bring);
+                    break;
                 }
             }
             return;                     /* settings tab does not pan the map */
@@ -8653,7 +8708,11 @@ static void draw_settings(uint16_t *fb) {
          * only made it obvious. */
         if (sel) mote->draw_rect(fb, 6, y - 1, 116, 11, MOTE_RGB565(46,56,86), 1, 0, 128);
         uint16_t fg = sel ? MOTE_RGB565(250,244,200) : MOTE_RGB565(168,176,196);
-        mote_ftext(mote, fb, g_fmed, NAME[i], 12, y, fg);
+        /* SET_BRING names what it will do, not what it is: the same row both
+         * brings a vehicle and takes you somewhere. */
+        mote_ftext(mote, fb, g_fmed,
+                   (i == SET_BRING && g_bring >= BRING_VEH_N) ? "GO TO" : NAME[i],
+                   12, y, fg);
         const char *val = (i == SET_MINIMAP) ? (g_radar_on ? "ON" : "OFF")
                         : (i == SET_SOUND)   ? (g_sound_on ? "ON" : "OFF") : 0;
         if (val) {
@@ -8663,7 +8722,7 @@ static void draw_settings(uint16_t *fb) {
             if (g_newarm > 0.0f)
                 mote_ftext(mote, fb, g_fmed, "A AGAIN", 78, y, MOTE_RGB565(250,170,80));
         } else if (i == SET_BRING) {
-            static const char *BN[BRING_N] = { "HELI", "TANK", "BOAT" };
+            static const char *BN[BRING_N] = { "HELI", "TANK", "BOAT", "DEN", "ISLE" };
             mote_ftext(mote, fb, g_fmed, BN[g_bring], 84, y, MOTE_RGB565(235,238,245));
         } else if (i == SET_SAVE || i == SET_LOAD) {
             /* The slot number, and a dot when that slot already holds a game.
