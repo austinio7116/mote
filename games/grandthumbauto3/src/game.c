@@ -1853,7 +1853,15 @@ enum { TAB_MAP, TAB_SET, TAB_N };
  * it on (see the BRING CHEAT comment), and putting it at the end means hiding
  * it is just a shorter row count rather than a hole in the middle that every
  * index would have to step over. set_rows() is that count. */
-enum { SET_MINIMAP, SET_SOUND, SET_CONTROLS, SET_SAVE, SET_LOAD, SET_BRING, SET_N };
+enum { SET_MINIMAP, SET_SOUND, SET_CONTROLS, SET_SAVE, SET_LOAD, SET_NEW, SET_BRING, SET_N };
+/* NEW GAME throws away the city you are standing in, so it asks twice: the
+ * first A arms it and the row reads A AGAIN, the second within ARM_SECS does
+ * it. Moving off the row, leaving the tab or letting the clock run out all
+ * disarm. It sits directly under LOAD GAME, which is the row most likely to be
+ * hit by mistake on the way to it -- hence the confirm rather than a different
+ * position, because any position is next to something. */
+static float g_newarm;
+#define NEW_ARM_SECS 3.0f
 static uint8_t g_cheats;                       /* BRING row revealed */
 static int set_rows(void){ return g_cheats ? SET_N : SET_N - 1; }
 static int   g_menutab = TAB_MAP, g_setsel;
@@ -7758,12 +7766,19 @@ static void g_update(float dt) {
     /* MENU toggles the pause screen; while open, gameplay pauses. */
     if (mote_just_pressed(in, MOTE_BTN_MENU)){
         if (g_ctlpage) { g_ctlpage = 0; return; }    /* back out one level first */
-        g_showmap = !g_showmap;
+        g_showmap = !g_showmap; g_newarm = 0.0f;
         if (g_showmap){ g_mapsx=(int)(pl_x()/TILE)-64; g_mapsy=(int)(pl_z()/TILE)-64; }
     }
     if (g_showmap){
         g_maptime += dt;
         if (g_setmsg_t > 0.0f) g_setmsg_t -= dt;
+        /* The arm expires on its own, and any move off the row or out of the
+         * tab drops it immediately -- so a NEW GAME can only ever happen from
+         * two deliberate presses of A on that one row. */
+        if (g_newarm > 0.0f){
+            g_newarm -= dt;
+            if (g_menutab != TAB_SET || g_setsel != SET_NEW) g_newarm = 0.0f;
+        }
         if (g_ctlpage) {                     /* the page owns every button until dismissed */
             if (mote_just_pressed(in,MOTE_BTN_A) || mote_just_pressed(in,MOTE_BTN_B) ||
                 mote_just_pressed(in,MOTE_BTN_RB) || mote_just_pressed(in,MOTE_BTN_LB))
@@ -7819,6 +7834,15 @@ static void g_update(float dt) {
                 case SET_CONTROLS: g_ctlpage = 1; break;
                 case SET_SAVE:    g_setmsg = save_game() ? "SAVED" : "SAVE FAILED"; g_setmsg_t = 2.0f; break;
                 case SET_LOAD:    g_setmsg = load_game() ? "LOADED" : "NO SAVE";    g_setmsg_t = 2.0f; break;
+                case SET_NEW:
+                    if (g_newarm > 0.0f){           /* second press: do it */
+                        g_newarm = 0.0f;
+                        reset_game();
+                        g_showmap = 0; g_menutab = TAB_MAP; g_setsel = 0;
+                        g_setmsg = 0; g_setmsg_t = 0.0f;
+                        g_state = ST_PLAY;
+                    } else g_newarm = NEW_ARM_SECS;  /* first press: arm */
+                    break;
                 case SET_BRING:   bring_vehicle(g_bring); break;
                 }
             }
@@ -8605,7 +8629,7 @@ static void draw_settings(uint16_t *fb) {
      * result message at y = 94. Five rows now that BRING has gone to a cheat
      * code, but the spacing is left alone — it is not worth a reflow. */
     static const char *NAME[SET_N] = { "MINIMAP", "SOUND", "CONTROLS",
-                                       "SAVE GAME", "LOAD GAME", "BRING" };
+                                       "SAVE GAME", "LOAD GAME", "NEW GAME", "BRING" };
     for (int i = 0; i < set_rows(); i++) {
         int y = 19 + i * 11;
         int sel = (i == g_setsel);
@@ -8622,6 +8646,9 @@ static void draw_settings(uint16_t *fb) {
         if (val) {
             uint16_t vc = (val[1] == 'N') ? MOTE_RGB565(140,230,140) : MOTE_RGB565(200,120,120);
             mote_ftext(mote, fb, g_fmed, val, 92, y, vc);
+        } else if (i == SET_NEW) {
+            if (g_newarm > 0.0f)
+                mote_ftext(mote, fb, g_fmed, "A AGAIN", 78, y, MOTE_RGB565(250,170,80));
         } else if (i == SET_BRING) {
             static const char *BN[BRING_N] = { "HELI", "TANK", "BOAT" };
             mote_ftext(mote, fb, g_fmed, BN[g_bring], 84, y, MOTE_RGB565(235,238,245));
@@ -9039,8 +9066,26 @@ static void g_overlay(uint16_t *fb) {
     }
     if (g_dm) ftext_sh(g_fmed, fb, 3, 0, MOTE_RGB565(245,110,95), "FRAGS %d:%d", dm_frags, dm_peer_frags);
     else      ftext_sh(g_fmed, fb, 3, 0, MOTE_RGB565(120,230,120), "$%d", cash);
-    /* wanted heads */
-    for (int i=0;i<5;i++) mote->draw_circle(fb, 70+i*8, 5, 2, i<wanted()?MOTE_RGB565(250,210,70):MOTE_RGB565(50,54,64), 1, 0,128);
+    /* wanted heads. Moved left from x=70 to make room for the clock: at 70 the
+     * five dots ran to x=104 and a 5-character time right-aligned at 126 starts
+     * at 106, which is two pixels of clearance. 56 puts the gap at sixteen. */
+    for (int i=0;i<5;i++) mote->draw_circle(fb, 56+i*8, 5, 2, i<wanted()?MOTE_RGB565(250,210,70):MOTE_RGB565(50,54,64), 1, 0,128);
+    /* THE CLOCK. g_tod is [0,1) with 0 = midnight, so the hour is just tod*24.
+     *
+     * Minutes are quantised to ten. A full day is DAY_SECONDS = 240 real
+     * seconds, which makes one game minute a sixth of a second: a true minutes
+     * field changes six times a second and reads as a broken digit rather than
+     * as a clock. At ten-minute steps it ticks every 1.7 s, which looks like
+     * time passing, and the hour -- the thing you actually want, because it
+     * says whether the lights are about to come on -- is exact either way.
+     *
+     * Right-aligned through mote_fontw rather than a fixed x, so it stays put
+     * if the font ever changes. Dim, like the version line on the settings bar:
+     * it is there to be glanced at, not read. */
+    { float h24 = g_tod * 24.0f; int hh = (int)h24; if (hh > 23) hh = 23;
+      int mm = (int)((h24 - (float)hh) * 6.0f) * 10;
+      char tb[8]; snprintf(tb, sizeof tb, "%02d:%02d", hh, mm);
+      ftext_sh(g_fmed, fb, 126 - mote_fontw(g_fmed, tb), 0, MOTE_RGB565(176,190,214), "%s", tb); }
     draw_rain(fb);
     /* health bar */
     mote->draw_rect(fb, 2, 116, 40, 6, MOTE_RGB565(40,20,20), 1, 0,128);
