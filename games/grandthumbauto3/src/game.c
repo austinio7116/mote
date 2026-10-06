@@ -2728,6 +2728,48 @@ static void draw_den_front(int gi) {
     DQ( DW,  HW, 0.0f, ROOF, cw);          /* jamb, the other */
     DQ(-DW,  DW, HEAD, ROOF, ct);          /* lintel over the door */
 
+    /* THE DOOR, hinged on one jamb and SWUNG BY YOUR DISTANCE.
+     *
+     * A fixed shut door would be worse than no door at all. The chase camera
+     * sits behind and above the player, outside the building, so a solid leaf
+     * across the opening hides the player the moment they step through it --
+     * you would walk into your own hideout and disappear.
+     *
+     * So the leaf's angle is a function of how close you are: shut at 6 m,
+     * fully open at 2.5 m, lerped between. By the time you are at the
+     * threshold it is flat against the inside wall and occludes nothing, and
+     * from the street it is a closed door. That is zero state -- no per-den
+     * angle to store, no animation to drive -- and it reads as the door
+     * opening as you walk up to it.
+     *
+     * You still pass THROUGH it rather than pushing it: collision is per-tile
+     * and the whole den is walkable. At a 2.5 m swing distance the leaf is
+     * already well out of the way, so there is nothing to clip into. */
+    { float ddx = g_gar[gi].x*TILE + TILE*0.5f - pl_x();
+      float ddz = g_gar[gi].z*TILE + TILE*0.5f - pl_z();
+      float pd = sqrtf(ddx*ddx + ddz*ddz);
+      float t = (6.0f - pd) / 3.5f; t = mote_clampf(t, 0.0f, 1.0f);
+      float a2 = t * 1.5708f, ca2 = cosf(a2), sa2 = sinf(a2);
+      /* hinge on one jamb; the leaf swings INWARD, away from the street */
+      float hxw = px + ux*(-DW), hzw = pz + uz*(-DW);
+      float dxw = ux*ca2 - ox*sa2, dzw = uz*ca2 - oz*sa2;
+      float fxw = hxw + dxw*(DW*2.0f), fzw = hzw + dzw*(DW*2.0f);
+      /* an open leaf is edge-on to the sun, so shade it on its OWN normal
+       * rather than the facade's or it brightens as it swings */
+      float lnx = -dzw, lnz = dxw;
+      float ld = lnx*g_sun_dir.x + lnz*g_sun_dir.z; if (ld < 0) ld = -ld;
+      float lsh = 0.25f + 0.75f*ld;
+      uint16_t cd2 = rgb565((Rgb){ (uint8_t)(86*lsh), (uint8_t)(104*lsh), (uint8_t)(84*lsh) });
+      Vec3 A = v3(hxw, 0.0f, hzw), B = v3(hxw, HEAD, hzw);
+      Vec3 C = v3(fxw, HEAD, fzw), D = v3(fxw, 0.0f, fzw);
+      mote->scene_add_tri(A,B,C,cd2,0); mote->scene_add_tri(A,C,D,cd2,0);
+      /* the handle, on the free edge at hand height */
+      { float g0=1.72f, g1=1.90f, hy2=0.95f, hy3=1.12f;
+        uint16_t ch = rgb565((Rgb){ (uint8_t)(206*lsh), (uint8_t)(178*lsh), (uint8_t)(96*lsh) });
+        Vec3 P = v3(hxw+dxw*g0, hy2, hzw+dzw*g0), Q = v3(hxw+dxw*g0, hy3, hzw+dzw*g0);
+        Vec3 R = v3(hxw+dxw*g1, hy3, hzw+dzw*g1), S2 = v3(hxw+dxw*g1, hy2, hzw+dzw*g1);
+        mote->scene_add_tri(P,Q,R,ch,0); mote->scene_add_tri(P,R,S2,ch,0); } }
+
     /* the pane, a hair proud of the wall so it never z-fights it */
     { float qx = px + ox*0.03f, qz = pz + oz*0.03f;
       int night = sun_elev() < 0.06f;
@@ -4265,6 +4307,34 @@ static void panic_at(float x,float z){ g_panic=4.5f; g_panicx=x; g_panicz=z; }  
 static void add_fx(float x,float z,int k){ for(int i=0;i<NFX;i++) if(fxs[i].t<=0){ fxs[i]=(Fx){x,z,(k==3)?0.9f:0.45f,(uint8_t)k}; return; } }
 static void add_pickup(float x,float z,int kind){ for(int i=0;i<NPICK;i++) if(!picks[i].alive){ picks[i]=(Pickup){x,z,(uint8_t)kind,1,0}; return; } }
 
+/* THE STASH RESTOCKS. A den you have emptied is a room, and the walk back is
+ * only worth making if something is in it. Caches have never respawned in
+ * single player -- update_pickups just clears the slot, and the only respawn
+ * timer in the game is the deathmatch one -- so a safehouse that refills is
+ * the reason to keep one.
+ *
+ * ONE clock for every den, not one each: the sweep is six struct reads and a
+ * distance test, and a den restocking four seconds early is not something
+ * anyone can perceive. Four bytes instead of eight.
+ *
+ * The loot table lives out here because the restock has to put back what the
+ * carve put there, and it is indexed by the den's ordinal so a given den keeps
+ * its own pair across a whole game. */
+#define DEN_RESTOCK 120.0f      /* half a city day */
+#define DEN_NEAR2   2500.0f     /* 50 m: never restock one under your nose */
+static const uint8_t DEN_LOOT[4][2] = { {PK_ARMOUR,PK_SMG}, {PK_ARMOUR,PK_CASH},
+                                        {PK_SHOTGUN,PK_HEALTH}, {PK_SMG,PK_ARMOUR} };
+static float g_den_stock;
+/* the two cache positions inside den `gi`, in the order the carve laid them */
+static void den_loot_spot(int gi, int k, float *ox, float *oz){
+    float wx=g_gar[gi].x*TILE+TILE*0.5f, wz=g_gar[gi].z*TILE+TILE*0.5f;
+    *ox = wx + (k ? 0.7f : -0.7f); *oz = wz + (k ? 0.7f : -0.7f);
+}
+static int den_ordinal(int gi){
+    int n=0; for (int i=0;i<gi;i++) if (g_gar[i].kind==GAR_DEN) n++;
+    return n;
+}
+
 /* The player's height. Everything in this game is 2D except the helicopter, so
  * this is zero for every other state and the callers below are the only places
  * that care. */
@@ -4502,9 +4572,7 @@ static void place_markers(void) {
      *
      * A car cannot follow you in: is_bay() leaves a den off the drivable map
      * and keeps its full-tile collider, so the mouth stops a bumper. */
-    { static const uint8_t DEN_LOOT[4][2] = { {PK_ARMOUR,PK_SMG}, {PK_ARMOUR,PK_CASH},
-                                              {PK_SHOTGUN,PK_HEALTH}, {PK_SMG,PK_ARMOUR} };
-      static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
+    { static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
       int made=0;
       for (int att=0; att<900 && made<2 && g_ngar<NGARAGE; att++){
           int x=4+irand(MAPW-8), z=4+irand(MAPH-8);
@@ -4530,9 +4598,9 @@ static void place_markers(void) {
               g_gar[g_ngar++] = (typeof(g_gar[0])){ .x=(int16_t)x, .z=(int16_t)z,
                   .kind=GAR_DEN, .found=0, .ox=(int8_t)DX[d], .oz=(int8_t)DZ[d] };
               { const uint8_t *L = DEN_LOOT[made & 3];
-                float wx=x*TILE+TILE*0.5f, wz=z*TILE+TILE*0.5f;
-                add_pickup(wx-0.7f, wz-0.7f, L[0]);
-                add_pickup(wx+0.7f, wz+0.7f, L[1]); }
+                float sx2,sz2;
+                den_loot_spot(g_ngar-1, 0, &sx2, &sz2); add_pickup(sx2, sz2, L[0]);
+                den_loot_spot(g_ngar-1, 1, &sx2, &sz2); add_pickup(sx2, sz2, L[1]); }
               made++; break;
           }
       }
@@ -4843,6 +4911,44 @@ static void update_pickups(float dt) {
                 case PK_SHOTGUN: owned[W_SHOTGUN]=1; ammo[W_SHOTGUN]+=24; weapon=W_SHOTGUN; float_txt(p->x,p->z,"SHOTGUN"); break;
                 case PK_PACKAGE: if(mission==MI_PICKUP){ mission_kills++; } float_txt(p->x,p->z,"PACKAGE"); break;
             } }
+    }
+}
+
+/* Put back whatever has been taken out of a den, once the clock comes round
+ * and you are not standing there to watch it appear. Checks each SPOT rather
+ * than the den as a whole, so taking one of the pair and leaving the other
+ * restores only the one that went. */
+static void restock_dens(float dt){
+    float period = DEN_RESTOCK;
+#ifdef MOTE_HOST
+    /* test: MOTE_GTA_RESTOCK=<seconds> shortens the sweep. At 120 s a scripted
+     * capture has to run for four minutes to see one. */
+    { static float pin = -1.0f; static int read = 0;
+      if (!read){ read = 1; const char *e = getenv("MOTE_GTA_RESTOCK"); if (e) pin = (float)atof(e); }
+      if (pin > 0.0f) period = pin; }
+#endif
+    if (g_den_stock > period) g_den_stock = period;   /* a shortened period takes effect now */
+    g_den_stock -= dt;
+    if (g_den_stock > 0.0f) return;
+    g_den_stock = period;
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind != GAR_DEN) continue;
+        float cx2=(g_gar[i].x+0.5f)*TILE, cz2=(g_gar[i].z+0.5f)*TILE;
+        float pdx=cx2-pl_x(), pdz=cz2-pl_z();
+        if (pdx*pdx+pdz*pdz < DEN_NEAR2) continue;      /* not while you are there */
+        const uint8_t *L = DEN_LOOT[den_ordinal(i) & 3];
+        for (int k=0;k<2;k++){
+            float sx2,sz2; den_loot_spot(i,k,&sx2,&sz2);
+            int there=0;
+            for (int q=0;q<NPICK && !there;q++){ if(!picks[q].alive) continue;
+                float dx2=picks[q].x-sx2, dz2=picks[q].z-sz2;
+                if (dx2*dx2+dz2*dz2 < 1.44f) there=1; }
+            if (!there){ add_pickup(sx2, sz2, L[k]);
+#ifdef MOTE_HOST
+                if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[DENSTOCK] den%d spot%d kind=%d at (%.0f,%.0f)\n", i, k, L[k], sx2, sz2);
+#endif
+            }
+        }
     }
 }
 
@@ -6014,7 +6120,7 @@ static void reset_game_seeded(uint32_t want) {
     weapon=W_FIST; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;} owned[W_FIST]=1; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0;
     g_fare=FARE_NONE; g_fare_ped=-1; g_fare_n=0; g_fare_pay=0; g_fare_t=0; g_fare_look=3.0f;
-    g_den_t=0; g_den_burn=0;
+    g_den_t=0; g_den_burn=0; g_den_stock=DEN_RESTOCK;
     /* A fresh game gets a different city day every run. A LOAD must not: the
      * spawn search, the parked cars and the traffic init all draw from g_rng,
      * so leaving it on the clock would put the right map back with everything
@@ -8344,6 +8450,7 @@ static void g_update(float dt) {
     update_heat(dt);
     update_missions(dt);
     update_fares(dt);
+    restock_dens(dt);
     for (int i=0;i<NFX;i++) if(fxs[i].t>0) fxs[i].t-=dt;
     for (int i=0;i<6;i++) if(g_ftxt[i].t>0) g_ftxt[i].t-=dt;
     if (g_aim_t>0) g_aim_t-=dt;
