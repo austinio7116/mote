@@ -1275,10 +1275,10 @@
    "id": "grandthumbauto3",
    "name": "Grand Thumb Auto III",
    "author": "chrisdiana",
-   "version": "1.0.1",
+   "version": "1.0.3",
    "abi": 47,
-   "size": 328188,
-   "sha256": "758b1163ef8d958ff4f2d3949c22f0e7699a1e21411a569840a68603a1e2c2da",
+   "size": 341304,
+   "sha256": "22edcb9ea1850407c2893d226f26abc922a8d946cdb119efd25733e3fd063291",
    "file": "games/GrandThumbAutoIII.mote",
    "icon": "img/gallery/grandthumbauto3-icon.png",
    "thumb": "img/gallery/grandthumbauto3-1.png",
@@ -1288,7 +1288,7 @@
     "img/gallery/grandthumbauto3-3.png"
    ],
    "tag": "Third-person open-city sandbox",
-   "desc": "Grand Thumb Auto with the camera behind you: the city is built in 3D and you walk and drive through it at street level. A new 254x256 city is generated each time you play, with avenues, parks, rivers, bridges and beaches. Steal any of 54 cars, trucks, buses and police cruisers, and find the helicopter, the boat and the tank. Traffic keeps to its lanes and stops at red lights, the police chase you up to six stars, and there are 14 kinds of mission. Day turns to night, rain and thunderstorms roll in, and three save slots keep your progress. Based on Grand Thumb Auto by austinio7116.",
+   "desc": "Grand Thumb Auto with the camera behind you: the city is built in 3D and you walk and drive through it at street level. A new 254x256 city is generated each time you play, with avenues, parks, rivers, bridges and beaches. Steal any of 54 cars, trucks, buses and police cruisers, and find the helicopter, the boat and the tank. Traffic keeps to its lanes, stops at red lights and brakes for you in the road, the police chase you up to six stars, and there are 14 kinds of mission plus taxi fares. Two hidden bolt-holes per city let you shut a door behind you and lie low. Day turns to night and the windows light up, rain and thunderstorms roll in, and three save slots keep your progress. Based on Grand Thumb Auto by austinio7116.",
    "guide": null,
    "multiplayer": false,
    "android": {
