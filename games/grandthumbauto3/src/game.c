@@ -118,7 +118,11 @@ static int is_solid(int x, int z){ char c = tile_at(x, z); return c=='#'||c=='O'
  * is_bay(): a car may enter a bay and may not enter a den. Both are is_garage,
  * so both draw as an open-fronted recess and both are walkable. */
 #define GAR_DEN 7
-static struct { int16_t x, z; uint8_t kind, found; int8_t ox, oz; } g_gar[NGARAGE]; static int g_ngar;  /* (ox,oz)=opening dir (out toward the street) */
+/* dopen is the leaf's CURRENT swing, 0 shut to 255 wide, and dwant is where it
+ * is heading. A byte each rather than a float: the leaf moves through 90
+ * degrees in about half a second and a 1/255 step of that is a third of a
+ * pixel on a 128 px screen. */
+static struct { int16_t x, z; uint8_t kind, found, dopen, dwant; int8_t ox, oz; } g_gar[NGARAGE]; static int g_ngar;  /* (ox,oz)=opening dir (out toward the street) */
 static int is_garage(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z) return 1; return 0; }
 static int garage_kind_at(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z) return g_gar[i].kind; return -1; }
 static int is_den(int x, int z){ return garage_kind_at(x,z)==GAR_DEN; }
@@ -2728,28 +2732,24 @@ static void draw_den_front(int gi) {
     DQ( DW,  HW, 0.0f, ROOF, cw);          /* jamb, the other */
     DQ(-DW,  DW, HEAD, ROOF, ct);          /* lintel over the door */
 
-    /* THE DOOR, hinged on one jamb and SWUNG BY YOUR DISTANCE.
+    /* THE DOOR, hinged on one jamb and WORKED BY HAND.
      *
-     * A fixed shut door would be worse than no door at all. The chase camera
-     * sits behind and above the player, outside the building, so a solid leaf
-     * across the opening hides the player the moment they step through it --
-     * you would walk into your own hideout and disappear.
+     * It was swung by your distance, which opened it for you as you walked up.
+     * That made the den a hole that happened to have a leaf near it. A door you
+     * open is a door, and shutting it behind you is the whole feeling a
+     * bolt-hole is supposed to have, so RB works it when you are within 2.7 m
+     * of the opening -- from the street, and from a pace inside.
      *
-     * So the leaf's angle is a function of how close you are: shut at 6 m,
-     * fully open at 2.5 m, lerped between. By the time you are at the
-     * threshold it is flat against the inside wall and occludes nothing, and
-     * from the street it is a closed door. That is zero state -- no per-den
-     * angle to store, no animation to drive -- and it reads as the door
-     * opening as you walk up to it.
+     * It still blocks nothing: collision is per-tile and the whole den is
+     * walkable, so a shut door is something you see rather than something you
+     * push. What makes that read instead of looking broken is cam_solid letting
+     * the camera into the bay with you, so once you are in and it is shut you
+     * are looking at the inside of a closed door rather than through it from
+     * the pavement.
      *
-     * You still pass THROUGH it rather than pushing it: collision is per-tile
-     * and the whole den is walkable. At a 2.5 m swing distance the leaf is
-     * already well out of the way, so there is nothing to clip into. */
-    { float ddx = g_gar[gi].x*TILE + TILE*0.5f - pl_x();
-      float ddz = g_gar[gi].z*TILE + TILE*0.5f - pl_z();
-      float pd = sqrtf(ddx*ddx + ddz*ddz);
-      float t = (6.0f - pd) / 3.5f; t = mote_clampf(t, 0.0f, 1.0f);
-      float a2 = t * 1.5708f, ca2 = cosf(a2), sa2 = sinf(a2);
+     * Dens start SHUT. The carve zeroes dopen and dwant, so the first thing a
+     * den does is look like a door. */
+    { float a2 = (float)g_gar[gi].dopen * (1.5708f/255.0f), ca2 = cosf(a2), sa2 = sinf(a2);
       /* hinge on one jamb; the leaf swings INWARD, away from the street */
       float hxw = px + ux*(-DW), hzw = pz + uz*(-DW);
       float dxw = ux*ca2 - ox*sa2, dzw = uz*ca2 - oz*sa2;
@@ -4337,6 +4337,48 @@ static void den_loot_spot(int gi, int k, float *ox, float *oz){
     float wx=g_gar[gi].x*TILE+TILE*0.5f, wz=g_gar[gi].z*TILE+TILE*0.5f;
     *ox = wx + (k ? 0.7f : -0.7f); *oz = wz + (k ? 0.7f : -0.7f);
 }
+/* The den door you are standing at, or -1. Measured to the middle of the
+ * OPENING rather than to the den centre, so it answers from the street and
+ * from a pace inside alike -- you shut it behind you from in there. */
+#define DEN_USE2 7.3f      /* 2.7 m of the doorway (squared) */
+static int den_door_reach(void){
+    if (g_state != ST_PLAY || player.mode != MODE_FOOT) return -1;
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind != GAR_DEN) continue;
+        float dx2=(g_gar[i].x+0.5f+g_gar[i].ox*0.5f)*TILE - player.x;
+        float dz2=(g_gar[i].z+0.5f+g_gar[i].oz*0.5f)*TILE - player.z;
+        if (dx2*dx2+dz2*dz2 < DEN_USE2) return i;
+    }
+    return -1;
+}
+/* Walk every leaf toward where it is going. 520 a second is about half a
+ * second end to end, which is a door rather than a shutter.
+ *
+ * It also SHUTS BEHIND YOU: crossing into the den tile sets the target to
+ * closed, once, on the frame you arrive. You still open it by hand and you can
+ * open it again from inside, but the default once you are in is shut, which is
+ * the point of going in there.
+ *
+ * Worth knowing: you will not see this happen. A den is one tile deep and
+ * surrounded by solid building, so the chase camera's pull-in puts it right on
+ * the player's back and the whole frame is the rear wall -- shut and open are
+ * pixel-identical from inside. The state is real and reads from the street;
+ * the interior view is a separate problem and a bigger one. */
+static int8_t g_den_in = -1;      /* the den the player was stood in last frame */
+static void swing_doors(float dt){
+    { int tx=(int)(pl_x()/TILE), tz=(int)(pl_z()/TILE);
+      int now_in = (player.mode==MODE_FOOT) ? den_at(tx,tz) : -1;
+      if (now_in >= 0 && now_in != g_den_in) g_gar[now_in].dwant = 0;
+      g_den_in = (int8_t)now_in; }
+    int step = (int)(520.0f*dt); if (step < 1) step = 1;
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind != GAR_DEN) continue;
+        int cur = g_gar[i].dopen, want = g_gar[i].dwant;
+        if (cur < want) cur = (cur + step > want) ? want : cur + step;
+        else if (cur > want) cur = (cur - step < want) ? want : cur - step;
+        g_gar[i].dopen = (uint8_t)cur;
+    }
+}
 static int den_ordinal(int gi){
     int n=0; for (int i=0;i<gi;i++) if (g_gar[i].kind==GAR_DEN) n++;
     return n;
@@ -4365,7 +4407,11 @@ static float pl_yaw(void){ return player.mode==MODE_CAR ? cars[player.car].yaw :
 static int cam_solid(int tx, int tz, void *ud) {
     (void)ud;
     char c = tile_at(tx, tz);
-    return c == '#' || c == 'O' || c == 'H';
+    /* A CARVED BAY IS NOT SOLID TO THE CAMERA. It is open to the street and you
+     * can stand in it, so a camera that stopped at the mouth could not follow
+     * you in -- which means a shut den door could never be seen from the
+     * inside, where the whole point of shutting it is. */
+    return (c == '#' || c == 'O' || c == 'H');
 }
 
 /* Place the chase camera and publish everything the rest of the file reads:
@@ -6132,7 +6178,7 @@ static void reset_game_seeded(uint32_t want) {
     weapon=W_FIST; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;} owned[W_FIST]=1; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0;
     g_fare=FARE_NONE; g_fare_ped=-1; g_fare_n=0; g_fare_pay=0; g_fare_t=0; g_fare_look=3.0f;
-    g_den_t=0; g_den_burn=0; g_den_tod=g_tod; g_den_due=0; g_den_sweep=0;
+    g_den_t=0; g_den_burn=0; g_den_tod=g_tod; g_den_due=0; g_den_sweep=0; g_den_in=-1;
     /* A fresh game gets a different city day every run. A LOAD must not: the
      * spawn search, the parked cars and the traffic init all draw from g_rng,
      * so leaving it on the clock would put the right map back with everything
@@ -8254,14 +8300,19 @@ static void g_update(float dt) {
         /* RB with nothing in reach: cycle your weapon, as it always did. The
          * reach test below is the same one the USE branch runs, so the two can
          * never both fire on one press. */
-        if (USE && !near_marker(MK_GUN,3.0f) && !near_marker(MK_PHONE,3.0f) && !car_in_reach()) {
+        if (USE && den_door_reach() < 0 && !near_marker(MK_GUN,3.0f) && !near_marker(MK_PHONE,3.0f) && !car_in_reach()) {
             for (int t=0;t<NWEAP;t++){ weapon=(weapon+1)%NWEAP;
                 if (weapon==W_FIST || (owned[weapon] && ammo[weapon]>0)) break; }
             say(WNAME[weapon]);
         }
         /* RB: work a shop/phone if in range, else enter/jack a car */
         else if (USE) {
-            if (near_marker(MK_GUN, 3.0f))        buy_gun();
+            int dgi = den_door_reach();
+            if (dgi >= 0){                        /* the den door: open it, or shut it behind you */
+                g_gar[dgi].dwant = g_gar[dgi].dwant ? 0 : 255;
+                say(g_gar[dgi].dwant ? "DOOR OPEN" : "DOOR SHUT");
+            }
+            else if (near_marker(MK_GUN, 3.0f))   buy_gun();
             else if (near_marker(MK_PHONE, 3.0f)) start_mission();
             else {
                 int best = car_reach_pick();
@@ -8463,6 +8514,7 @@ static void g_update(float dt) {
     update_missions(dt);
     update_fares(dt);
     restock_dens(dt);
+    swing_doors(dt);
     for (int i=0;i<NFX;i++) if(fxs[i].t>0) fxs[i].t-=dt;
     for (int i=0;i<6;i++) if(g_ftxt[i].t>0) g_ftxt[i].t-=dt;
     if (g_aim_t>0) g_aim_t-=dt;
