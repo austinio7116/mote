@@ -4526,6 +4526,57 @@ static void chase_camera(float tx, float tz, float yaw, float dt) {
     gta3_view_set(&g_view, g_cam.eye, cam_basis.r[2], FOV, 1.45f);
 }
 
+/* CAN YOU WALK FROM HERE TO A STREET?
+ *
+ * A bounded flood over walkable ground, looking for road or bridge. Every other
+ * den placement test is local -- solid tile, pavement in front, walls behind
+ * and to the sides -- and all of them pass for a slot opening onto a courtyard
+ * sealed inside a block, which is a hideout that cannot be reached. This is the
+ * one question none of them ask.
+ *
+ * DEN_WALK_R tiles is 24 m of walking. Bounding it is not only for speed: a
+ * mouth that needs more than that to reach a street is not somewhere anyone
+ * will find, which is the same failure in a slower form.
+ *
+ * The window size is set by the STACK, not by the search. A visited bitmap over
+ * the whole 256x256 map would be 8 KB against this device's 4 KB core0 stack,
+ * where an overflow is a silent truncated push rather than a fault. A 13x13
+ * window is 169 bytes of marks and a 338-byte queue of packed local indices,
+ * and it is deliberately smaller than the 17x17 that was measured first: 867
+ * bytes of stack in a generation path was more margin than this question is
+ * worth, and the wider radius rejected no extra sites across thirty runs. */
+#define DEN_WALK_R 6
+static int mouth_reaches_road(int sx, int sz) {
+    enum { R = DEN_WALK_R, W = 2*R + 1, N = W*W };
+    uint8_t  seen[N];
+    uint16_t q[N];
+    for (int i = 0; i < N; i++) seen[i] = 0;
+    int qh = 0, qt = 0;
+    int li = R*W + R;                       /* the mouth sits at the window centre */
+    seen[li] = 1; q[qt++] = (uint16_t)li;
+    while (qh < qt) {
+        int cur = q[qh++];
+        int lx = cur % W, lz = cur / W;
+        int wx = sx + lx - R, wz = sz + lz - R;
+        char c = tile_at(wx, wz);
+        if (c == '.' || c == 'B') return 1;             /* a street. done. */
+        static const int DX2[4] = {1,-1,0,0}, DZ2[4] = {0,0,1,-1};
+        for (int d = 0; d < 4; d++) {
+            int nlx = lx + DX2[d], nlz = lz + DZ2[d];
+            if (nlx < 0 || nlz < 0 || nlx >= W || nlz >= W) continue;
+            int ni = nlz*W + nlx; if (seen[ni]) continue;
+            int nwx = sx + nlx - R, nwz = sz + nlz - R;
+            char nc = tile_at(nwx, nwz);
+            /* walkable: anything that is not building or water. is_garage is
+             * not consulted -- a route that only exists THROUGH another carved
+             * bay is not a route anyone would call one. */
+            if (nc == '#' || nc == 'O' || nc == 'H' || nc == '~') continue;
+            seen[ni] = 1; q[qt++] = (uint16_t)ni;
+        }
+    }
+    return 0;
+}
+
 static void place_markers(void) {
     /* snap each marker to the nearest pavement tile around a target block; the
      * STARTER set clusters around wherever the player spawned this run. */
@@ -4661,7 +4712,7 @@ static void place_markers(void) {
      * A car cannot follow you in: is_bay() leaves a den off the drivable map
      * and keeps its full-tile collider, so the mouth stops a bumper. */
     { static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
-      int made=0;
+      int made=0, unreachable=0;
       for (int att=0; att<900 && made<2 && g_ngar<NGARAGE; att++){
           int x=4+irand(MAPW-8), z=4+irand(MAPH-8);
           if ((x-cx)*(x-cx)+(z-cz)*(z-cz) < 42*42) continue;   /* not downtown */
@@ -4683,6 +4734,12 @@ static void place_markers(void) {
               if (fc!=',' && fc!=' ') continue;                 /* you must be able to WALK up to it */
               if (!is_solid(kx,kz)) continue;
               if (!is_solid(s1x,s1z) || !is_solid(s2x,s2z)) continue;   /* a slot, not a corner */
+              /* ...AND YOU CAN GET THERE. Every test above is local: they all
+               * pass for a slot opening onto a pavement strip sealed inside a
+               * block of buildings, which is a hideout nobody can ever reach.
+               * This walks the mouth outward over walkable ground and insists
+               * on finding a street. */
+              if (!mouth_reaches_road(fx2,fz2)){ unreachable++; continue; }
               g_gar[g_ngar++] = (typeof(g_gar[0])){ .x=(int16_t)x, .z=(int16_t)z,
                   .kind=GAR_DEN, .found=0, .ox=(int8_t)DX[d], .oz=(int8_t)DZ[d] };
               { const uint8_t *L = DEN_LOOT[made & 3];
@@ -4694,7 +4751,7 @@ static void place_markers(void) {
       }
 #ifdef MOTE_HOST
       if (getenv("MOTE_GTA_DEBUG")){
-          fprintf(stderr,"[DENS] %d carved:",made);
+          fprintf(stderr,"[DENS] %d carved (%d sites rejected as unreachable):",made,unreachable);
           for (int i=0;i<g_ngar;i++) if(g_gar[i].kind==GAR_DEN)
               fprintf(stderr," (%d,%d)->(%d,%d)",g_gar[i].x,g_gar[i].z,g_gar[i].ox,g_gar[i].oz);
           fprintf(stderr,"\n"); }
