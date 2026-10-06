@@ -13,8 +13,14 @@
    NGARAGE slots. Hold a cache; bleed heat at 0.3 stars/s; blown by any
    officer within 11 m of the mouth.
 
+4. Cars stop at zebra crossings — DONE (see README "Traffic that sees you")
+   crossing_ahead() tests for a ped standing on a g_zebra tile in a 4.5 m
+   corridor ahead. Same reckless 1-in-5 rule as the player case.
+
 Still open, from the same brainstorm:
-- district-specific pedestrians
+- district-specific pedestrians (district_elev() already gives a 0..9 downtown
+  gradient; ped variant is still a uniform irand(4))
+- commuter flow: peds biased toward the centre in the morning, out in the evening
 - car alarms at night
 - wet-road reflections
 - police radio chatter

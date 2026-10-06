@@ -3633,6 +3633,58 @@ static int player_ahead(int i){
     return lat <= 1.5f;
 }
 
+/* A ZEBRA CROSSING WITH SOMEONE ON IT.
+ *
+ * g_zebra has marked every crossing tile since the crossings went in, and
+ * update_peds already refuses to let anyone cross a road anywhere else -- so
+ * the pedestrians were using the crossings properly and the drivers had no
+ * idea the crossings existed. A queue of people walking a marked crossing
+ * while traffic drives through them is the one thing on a street that most
+ * plainly says nobody is in charge.
+ *
+ * ON a zebra tile, not NEAR one. A radius around the crossing would also catch
+ * everyone loitering on the pavement either side of it, which on these
+ * pavements is most of the street, and the traffic would simply never move.
+ * The tile test is one bit and it rejects almost every ped before any maths.
+ *
+ * The corridor is 4.5 m either side rather than car_ahead's 1.7, because a
+ * crossing is a road's width of people and someone two lanes over is still
+ * someone you stop for. The player on foot is included on the same terms --
+ * player_ahead's narrow in-lane test already covers them, and this widens it
+ * when they are standing on the paint.
+ *
+ * Reckless drivers blow crossings too, by the same one-in-five rule: a driver
+ * who brakes for a marked crossing but not for you in the road would be a
+ * stranger rule than no rule at all. */
+#define ZEB_LAT  4.5f
+static int crossing_ahead(int i){
+    if (g_state != ST_PLAY) return 0;
+    if (driver_reckless(i)) return 0;
+    const VStat *v=&VSTAT[cars[i].type];
+    float ang=bodies[i].angle, c=cosf(ang), s=sinf(ang);
+    float spd=bodies[i].vx*c + bodies[i].vy*s;
+    /* NO EARLY-OUT ON A LOW SPEED. The first draft returned 0 under 0.5 m/s as
+     * "already stopped, nothing to yield", which made the car let go of the
+     * brake the instant it worked: yield -> stop -> no longer yielding ->
+     * throttle -> drive into the person it had just stopped for. The probe
+     * caught it as a yield that lasted a handful of frames. The look distance
+     * grows with speed and has a fixed floor, so a stopped car still sees the
+     * crossing in front of it and holds until it is clear. */
+    float look = v->len*0.5f + 5.0f + (spd > 0 ? spd*1.1f : 0.0f);
+    float cxp=cars[i].x, czp=cars[i].z;
+    for (int j=0;j<=NPED;j++){
+        float wx, wz;
+        if (j < NPED){ if (!peds[j].alive) continue; wx=peds[j].x; wz=peds[j].z; }
+        else { if (player.mode != MODE_FOOT) break; wx=player.x; wz=player.z; }
+        if (!zebra_at((int)(wx/TILE), (int)(wz/TILE))) continue;
+        float dx=wx-cxp, dz=wz-czp;
+        float fwd=dx*c + dz*s;  if (fwd < 0.3f || fwd > look) continue;
+        float lat=-dx*s + dz*c; if (lat < 0) lat = -lat;
+        if (lat <= ZEB_LAT) return 1;
+    }
+    return 0;
+}
+
 static void update_traffic(float dt) {
     for (int i=0;i<NCAR;i++) {
         Car *c=&cars[i];
@@ -3786,7 +3838,8 @@ static void update_traffic(float dt) {
                 ai_state[i]=AIS_CRUISE;
         }
         int turning=(ai_state[i]==AIS_TURN), blocked=car_ahead(i);
-        int yield_ped = player_ahead(i);     /* someone is in the road -- stop, don't coast */
+        /* someone is in the road, or on a crossing ahead -- stop, don't coast */
+        int yield_ped = player_ahead(i) || crossing_ahead(i);
         if (yield_ped) blocked = 1;
         int approach = (!turning && run_ahead < TILE*2.6f);      /* a turn is coming → ease off early */
         /* HEAD-ON DODGE: someone is coming straight at me in MY lane (a bad spawn or a
