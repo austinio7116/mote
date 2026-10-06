@@ -83,28 +83,19 @@ int main(void) {
     }
     printf("\n");
 
-    /* ---- PRO KEEPS THE SHIPPED POCKETS ---------------------------------- *
+    /* ---- A RUNG MOVES THE POCKETS, NEVER THE BED ----------------------- *
      *
-     * Pro IS the table the game shipped with, because the shipped pockets were
-     * already the hard end of anything worth offering — the ladder goes UP from
-     * there. So its openings must be the shipped openings to the micron. Its
-     * CLOTH is faster, which is the half of a professional table a pocket size
-     * cannot express, so the structs are not identical and it is the pockets
-     * that are compared. */
+     * It used to say PRO kept the bare table's pockets to the micron. Only
+     * ThumbyCue on the Thumby Color ever played the bare table; CueVR always
+     * applies a rung, and the game is CueVR's now (2026-10-02). What still
+     * matters is that the rung leaves the bed and the balls alone. */
     for (int i = 0; i < NG; i++) {
         CueTable a, b;
         cue_table_init(&a, G[i].k);
         cue_table_init(&b, G[i].k);
         cue_table_spec(&b, CUE_SPEC_PRO);
-        float ac = 0, am = 0, bc = 0, bm = 0;
-        cue_table_openings(&a, &ac, &am);
-        cue_table_openings(&b, &bc, &bm);
         char m[128];
-        snprintf(m, sizeof m, "%-14s PRO keeps the shipped pockets (%.2f / %.2f)",
-                 G[i].name, (double)(bc*1000), (double)(bm*1000));
-        ok(fabsf(ac - bc) < 1e-6f && fabsf(am - bm) < 1e-6f, m);
-        /* And nothing about the BED moved with them. */
-        snprintf(m, sizeof m, "%-14s ...and the same bed and balls", G[i].name);
+        snprintf(m, sizeof m, "%-14s PRO keeps the bed and balls", G[i].name);
         ok(a.half_len == b.half_len && a.half_wid == b.half_wid && a.R == b.R, m);
     }
     printf("\n");
@@ -288,6 +279,18 @@ int main(void) {
                 CueTable t; cue_table_init(&t, G[i].k);
                 float base_c = 0.0f, base_m = 0.0f;
                 cue_table_openings(&t, &base_c, &base_m);
+                /* PYRAMID'S BEDS ARE TWO TABLES, not one table in two sizes:
+                 * the 7 ft stop IS the PYRAMID7 kind, with its own balls and
+                 * its own pockets, and the club stops are cut to ball + 7 mm
+                 * and ball + 16 mm on whichever bed they stand on (see
+                 * cue_table_variant). Each is held to that, not to the 12 ft
+                 * tournament table. */
+                if (CUE_GAME_IS_PYRAMID(G[i].k) &&
+                    (v == CUE_TAB_7FT || v == CUE_TAB_PYR_CLUB7 || v == CUE_TAB_PYR_CLUB12)) {
+                    CueTable r; cue_table_init(&r, v == CUE_TAB_PYR_CLUB12 ? CUE_GAME_PYRAMID : CUE_GAME_PYRAMID7);
+                    if (v == CUE_TAB_7FT) cue_table_openings(&r, &base_c, &base_m);
+                    else { base_c = 2.0f * r.R + 0.007f; base_m = 2.0f * r.R + 0.016f; }
+                }
                 cue_table_variant(&t, v);
 
                 char why[256] = {0};

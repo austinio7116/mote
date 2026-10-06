@@ -134,7 +134,8 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
     t->is_snooker = (kind == CUE_GAME_SNK10 || kind == CUE_GAME_SNK15 ||
                      kind == CUE_GAME_SNK6  || kind == CUE_GAME_SNK3 ||
                      kind == CUE_GAME_BILLIARDS ||
-                     kind == CUE_GAME_PAUL);
+                     kind == CUE_GAME_PAUL ||
+                     kind == CUE_GAME_SINUCA || kind == CUE_GAME_SINUCA6);
 
     /* THE ROUNDED JAW'S SHAPE, for every table, before any of them speak.
      * See CueTable::jaw_p0 for what the four points are. A STARTING POINT, in
@@ -504,6 +505,120 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->cap_corner = 0.0f;      t->cap_side = 0.0f;
         t->drop_back  = 0.0060900f; t->drop_back_side = 0.0132300f;
         t->jaw_r = 0.0095550f;
+    } else if (kind == CUE_GAME_SINUCA || kind == CUE_GAME_SINUCA6) {
+        /* THE MESAO, the Brazilian federation's table, and every number in
+         * this block is off its drawings (CBBS, Regulamento dos Esportes do
+         * Bilhar 2008, annexes A-N).
+         *
+         *   Annex N: the field is 2840 by 1420 mm inside the cushion noses.
+         *   Annex M: balls 54 mm (or 52.4), the nose 36 mm above the slate,
+         *            a cushion about 50 mm deep in a rail about 130 wide.
+         *   Annex B: the black 26 cm from the top cushion, the pink 71 cm,
+         *            the blue on the centre spot, the baulk line 57 cm from
+         *            the bottom cushion and a D of 23 cm; the red (ball 1)
+         *            35.5 cm to the right of the pink.
+         *
+         * 54 mm, the first of the two sizes the annex allows. The weight is a
+         * snooker ball's 142 g at 52.5 mm scaled by volume to 54: 155 g.
+         *
+         * THE CUSHION IS 50 mm DEEP because the frame's inner face is
+         * rail_w * 0.63 everywhere in this engine: 79.4 mm of rail puts it at
+         * the 50 the annex gives, which is also where the middle's jaw arc
+         * stops. */
+        t->half_len = 2.840f * 0.5f;
+        t->half_wid = 1.420f * 0.5f;
+        t->R = 0.027f; t->mass = 0.155f;
+        t->cue_R = 0.0f; t->cue_mass = 0.0f;
+        t->cushion_h = 0.036f;
+        t->rail_w = 0.0794f;
+        /* THE POCKETS (annexes F, G, J and L).
+         *
+         * CORNER: straight facings parallel to the pocket's 45 degree axis,
+         * 85 mm apart where they leave the nose's rounding, each opened 3
+         * degrees -- so 48 degrees off the rail -- and an R50 round where the
+         * facing meets the nose. That is the mitred jaw with a 50 mm knuckle.
+         * The bore is the facings' half-width where they reach the frame's
+         * inner face, which is what the cushion link places the knuckle from:
+         * 42.5 mm plus 3 degrees' opening over the facing's run, 44.84 mm.
+         *
+         * MIDDLE: an R70 arc on each side, tangent to the nose and centred 70
+         * behind it, stopping 50 behind the nose where the throat is 95 mm.
+         * The bore is that throat: 47.5 mm. See CueTable::jaw_arc_m. */
+        t->pocket_round = 0;
+        t->ang_corner = 48.0f; t->ang_side = 90.0f;
+        t->jaw_r = 0.050f;
+        t->jaw_arc_m = 0.070f; t->jaw_arc_d_m = 0.050f;
+        t->pr_corner = 0.04484f; t->pr_side = 0.0475f;
+        t->cap_corner = 0.0f;    t->cap_side = 0.0f;
+        /* The pocket's own point, and the hole set back from it so its centre
+         * is where the slate is cut round: 70 mm out along a corner's axis
+         * (annex F), 50 mm behind a middle's nose (annex G). */
+        t->off_corner = 0.030f;  t->off_side = 0.030f;
+        t->drop_back  = 0.040f;  t->drop_back_side = 0.020f;
+        t->baulk_x  = -t->half_len + 0.570f;
+        t->d_radius =  0.230f;
+        t->blue_x   =  0.0f;
+        t->pink_x   =  t->half_len - 0.710f;
+        t->black_x  =  t->half_len - 0.260f;
+        t->cloth = RGB565C(4, 135, 21);
+        t->rail = RGB565C(74, 44, 22); t->rail_top = RGB565C(104, 62, 30);
+        t->spot = RGB565C(200, 200, 200);
+        if (kind == CUE_GAME_SINUCA) {
+            t->reds = 1;                 /* ball 1, on its own spot */
+            t->nballs = 8;               /* the white and the seven */
+        } else {
+            t->reds = 6;                 /* annex C: six reds behind the pink */
+            t->nballs = 13;
+        }
+    } else if (CUE_GAME_IS_MESINHA(kind)) {
+        /* THE MESINHA, Brazil's bar table. Sold by its outside size; this is
+         * the common 2.20 x 1.20 m one, whose cloth is 2.00 x 1.00 between
+         * the cushion noses. The 2.20 x 1.30 and the 1.90 x 1.20 are size
+         * stops (CUE_TAB_MZ_*), 20 cm less each way again.
+         *
+         * Balls of 50 mm and a bigger white, 54 mm: the bar set. A 50 mm
+         * phenolic ball is about 120 g; the white of the same resin at 54 mm
+         * is 151 g. The nose stands at 63.5% of the ball, the WPA fraction.
+         *
+         * THE POCKETS ARE THE CBBS SHAPE AT THE CUP'S SIZE (Mark, 2026-10-01:
+         * "CBBS shape, cup-sized") -- the mesao's mitred corners and arc-cut
+         * middles, every length scaled to the 64 mm corner and 69 mm middle a
+         * bar table's plastic cups give: 64/85 at a corner, 69/95 at a middle.
+         * So the corner round is R50 x 0.753 = 37.6 mm and the middle arc
+         * R70 x 0.726 = 50.8 mm, stopping 36.3 mm behind the nose; the slate
+         * cut R70 x 0.753 and R50 x 0.726 the same way (cue_table_default_cut).
+         * The bores are solved for the openings. */
+        t->half_len = 2.000f * 0.5f;
+        t->half_wid = 1.000f * 0.5f;
+        t->R = 0.025f; t->mass = 0.120f;
+        t->cue_R = 0.027f; t->cue_mass = 0.151f;
+        t->cushion_h = 0.635f * 2.0f * t->R;
+        t->rail_w = 0.060f;                    /* a cushion 37.8 mm deep */
+        t->pocket_round = 0;
+        t->ang_corner = 48.0f;
+        t->jaw_r = 0.0376f;
+        /* THE MIDDLES ARE MITRED, sharp and straight -- not the mesao's arc
+         * (Mark, 2026-10-01, off a Brazilian shop's photograph of one). The
+         * facings leave the nose NEARLY SQUARE: 87 degrees, picked by Mark
+         * from 84, 87 and 90 side by side (70, a pool middle's, was far too
+         * sharp). On a 4 mm knuckle. */
+        t->ang_side = 87.0f;
+        t->jaw_r_m = 0.004f;
+        t->pr_corner = 0.03384f; t->pr_side = 0.03454f;   /* solved: 64.00 / 69.00 mm */
+        t->cap_corner = 0.0f;    t->cap_side = 0.0f;
+        t->off_corner = 0.0226f; t->off_side = 0.0218f;
+        t->drop_back  = 0.0301f; t->drop_back_side = 0.0145f;
+        /* THE MARKS (CBBS par e impar, arts. 4-6): the D's straight line
+         * across the middle of the lower half, its arc 26 cm on the 2.84 m
+         * table and so 18.3 cm here; the lower mark where the line crosses
+         * the long centre line, the upper one in the middle of the top half
+         * (the foot spot, where the rack goes). */
+        t->baulk_x  = -t->half_len * 0.5f;
+        t->d_radius =  0.183f;
+        t->cloth = RGB565C(22, 120, 70);
+        t->rail = RGB565C(96, 54, 26); t->rail_top = RGB565C(128, 78, 38);
+        t->spot = RGB565C(180, 180, 180);
+        t->nballs = (kind == CUE_GAME_MESINHA_PI || kind == CUE_GAME_MESINHA_MM) ? 15 : 16;
     } else if (kind == CUE_GAME_CN8) {
         /* Chinese 8-ball: 10 ft table, full-size pool balls (solids/stripes),
          * but TIGHT ROUNDED ("Chinese template") pockets — closer to English
@@ -699,7 +814,11 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
             t->R = 0.0335f; t->mass = 0.255f;   /* 67 mm, and heavy with it */
             t->rail_w = 0.085f;
         }
-        t->cushion_h = 1.20f * t->R;
+        /* 42 mm on the federation's 67-68 mm ball (ФБСР technical
+         * requirements, 14.12.2020: "Высота рабочей кромки резины над плитой,
+         * мм -- 42"): 0.627 of the ball, and the 7 ft table's smaller ball gets
+         * the same fraction. Was 1.20 R, 40.2 mm. */
+        t->cushion_h = 0.627f * 2.0f * t->R;
         /* MITRED, not rounded. The federation's specification gives the openings
          * to the millimetre and says nothing about the jaw profile, but every
          * description of a Russian table calls the губки — the lips — SHARP,
@@ -752,10 +871,19 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
          * different pocket on each — the small bed had 14 mm of corner slack
          * where the big one had 5. The federation quotes the smaller tables
          * their own openings for exactly this reason. */
+        /* THE MIDDLES AT 81 MM (a Russian player, 2026-09-29: "the corner
+         * pockets are basically fine -- the tournament standard is around
+         * 71.5-73 mm -- but the middle pockets are a little wider than they
+         * should be... 81 mm would make the 12 ft table much closer to the
+         * tournament standard"). Measured at the NARROWEST passage, which on
+         * these 88-degree middles is the back of the facings; across the lip
+         * corners it reads about 3.8 mm more. They were 85.7 there. 81 is the
+         * 67 mm ball plus 14, and the 7 ft gets the same 14 over its ball:
+         * 71.15. The corners are untouched at 71.65 (ball + 4.65). */
         if (home) { t->pr_corner = 0.0310000f;   /* 31.0 mm radius */
-                    t->pr_side   = 0.0391000f; } /* 39.1 mm radius */
+                    t->pr_side   = 0.0364750f; } /* 36.475 mm: middle 71.15 */
         else      { t->pr_corner = 0.0370000f;   /* 37.0 mm radius */
-                    t->pr_side   = 0.0463000f; } /* 46.3 mm radius */
+                    t->pr_side   = 0.0441200f; } /* 44.12 mm: middle 81.00 */
         /* THE KNUCKLE GAP IS THE POCKET, and pr_corner is not.
          *
          * pr_corner/pr_side drive the bore, the cut and the drop — how big the
@@ -819,7 +947,11 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
         t->cap_corner = 0.0f;
         t->cap_side   = 0.0f;
         t->drop_back  = 0.0093800f; t->drop_back_side = 0.0100500f;  /* 9.38 / 10.05 mm */
-        t->jaw_r = 0.004f;
+        /* THE RUBBER'S ROUNDS, by the same document: R1 5 mm at a corner,
+         * R2 11 +/- 1 mm in a middle (Mark, 2026-10-03). Were 4 mm both. The
+         * openings measure the same either way: 71.65 and 81.00 mm. */
+        t->jaw_r = 0.005f;
+        t->jaw_r_m = 0.011f;
         /* THE HOUSE, which is what a pyramid table has instead of a D: a line
          * across the baulk end with the cue ball played from behind it. Carried
          * in baulk_x + d_radius because that is the pair every renderer and the
@@ -1124,6 +1256,13 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
             case CUE_GAME_GOLF:
                 t->furniture |= CUE_FURN_CORNERCAP | CUE_FURN_SIGHTS;
                 break;
+            /* THE MESINHA: a pool table's liners and tray, and metal over
+             * its corners -- the bright casting for now, while the cast
+             * aluminium plates of a Brazilian bar table are drawn up. */
+            case CUE_GAME_MESINHA: case CUE_GAME_MESINHA_1B: case CUE_GAME_MESINHA_PI:
+            case CUE_GAME_MESINHA_MM: case CUE_GAME_MESINHA8:
+                t->furniture |= CUE_FURN_CORNERCAP;
+                break;
             /* THE AMERICAN BED and its long list of games: a black moulding on
              * the corners, and diamonds rather than dots. */
             case CUE_GAME_US8: case CUE_GAME_US9: case CUE_GAME_US10:
@@ -1169,6 +1308,7 @@ void cue_table_init(CueTable *t, CueGameKind kind) {
             case CUE_GAME_CN8:
             case CUE_GAME_BILLIARDS:
             case CUE_GAME_PAUL:
+            case CUE_GAME_SINUCA: case CUE_GAME_SINUCA6:
                 t->furniture = CUE_FURN_NETS | CUE_FURN_COLLECTOR;
                 break;
             /* Billiards and pyramid keep the liner and nothing else until the
@@ -1335,6 +1475,11 @@ static const CueTabField TAB_FIELDS[] = {
     /* the corner jaw's own handles -- see CueTable::jaw_h1_c */
     TF(jaw_h1_c,        TF_F32, TF_SIM,  0.000f, 0.200f),
     TF(jaw_h2_c,        TF_F32, TF_SIM,  0.000f, 0.200f),
+    /* an arc-cut middle -- see CueTable::jaw_arc_m. Zero is not an arc. */
+    TF(jaw_arc_m,       TF_F32, TF_SIM,  0.000f, 0.200f),
+    TF(jaw_arc_d_m,     TF_F32, TF_SIM,  0.000f, 0.200f),
+    /* the middles' own knuckle, or 0 for jaw_r -- see CueTable::jaw_r_m */
+    TF(jaw_r_m,         TF_F32, TF_SIM,  0.000f, 0.050f),
 };
 #define TAB_NFIELD ((int)(sizeof TAB_FIELDS / sizeof TAB_FIELDS[0]))
 /* The first sim field on which two tables differ, by name, with both values --
@@ -1616,6 +1761,13 @@ static void add_seg(CueWorld *w, Vec3 a, Vec3 b, uint8_t kind) {
 }
 static void add_jaw(CueWorld *w, Vec3 k) {
     if (w->njaw >= CUE_MAX_SEG) return;
+    w->jaw_rad[w->njaw] = 0.0f;                /* the world's jaw_r */
+    w->jaw[w->njaw++] = v3(k.x, w->R, k.z);
+}
+/* ...or one of its own size -- see CueWorld::jaw_rad. */
+static void add_jaw_r(CueWorld *w, Vec3 k, float r) {
+    if (w->njaw >= CUE_MAX_SEG) return;
+    w->jaw_rad[w->njaw] = (fabsf(r - w->jaw_r) < 1e-9f) ? 0.0f : r;
     w->jaw[w->njaw++] = v3(k.x, w->R, k.z);
 }
 /* `ax,az` is the pocket's own centre line, pointing OUT of the pocket — see
@@ -1725,9 +1877,35 @@ static void add_arc_between(CueWorld *w, Vec3 c, Vec3 a0, Vec3 a1) {
  * a middle pocket: the ball met the FACING, whose normal points into the mouth,
  * and was deflected in rather than rebounding off the point. Same jaw, same
  * numbers, one code path. */
+/* ONE KNUCKLE RADIUS AT EACH END. The mesinha rounds its corners on the CBBS
+ * template and cuts its middles sharp, so one rail can have two; ra == rb ==
+ * jaw_r is every other table, and goes down exactly the old path. */
+static void add_mitred_r(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4,
+                         int kn_a, int kn_b, Vec3 nin, float ra, float rb);
 static void add_mitred(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4,
                        int kn_a, int kn_b, Vec3 nin) {
-    const float r = w->jaw_r;
+    add_mitred_r(w, P1, P2, P3, P4, kn_a, kn_b, nin, w->jaw_r, w->jaw_r);
+}
+static void add_mitred_r(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4,
+                         int kn_a, int kn_b, Vec3 nin, float ra, float rb) {
+    if (ra != rb) {
+        /* MIXED: each end on its own. An end with no radius keeps the old
+         * corner -- a recessed circle at the vertex. */
+        Vec3 a2 = P2, b2 = P2, c2 = P2, a3 = P3, b3 = P3, c3 = P3;
+        const int ka = kn_a && ra > 1e-5f, kb = kn_b && rb > 1e-5f;
+        Vec3 ns = P2, ne = P3;
+        if (ka) { mitre_kiss(P2, P1, P3, ra, &a2, &b2, &c2); ns = b2; }
+        if (kb) { mitre_kiss(P3, P2, P4, rb, &a3, &b3, &c3); ne = a3; }
+        if (kn_a) { if (ka) { add_seg(w, P1, a2, 1); add_arc_between(w, c2, a2, b2); }
+                    else      add_seg(w, P1, P2, 1); }
+        add_seg(w, ns, ne, 0);
+        if (kn_b) { if (kb) { add_arc_between(w, c3, a3, b3); add_seg(w, b3, P4, 1); }
+                    else      add_seg(w, P3, P4, 1); }
+        if (kn_a) { if (ka) add_jaw_r(w, c2, ra); else add_jaw_recessed(w, P2, nin); }
+        if (kn_b) { if (kb) add_jaw_r(w, c3, rb); else add_jaw_recessed(w, P3, nin); }
+        return;
+    }
+    const float r = ra;
     if (r <= 1e-5f) {                    /* no radius authored: the old corner */
         if (kn_a) add_seg(w, P1, P2, 1);
         add_seg(w, P2, P3, 0);
@@ -1767,12 +1945,96 @@ static void add_mitred(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4,
      * out by an arc segment sits exactly ON the circle and the circle then
      * finds no penetration to resolve. One shape, described twice, for two
      * readers. */
-    if (kn_a) add_jaw(w, c2);
-    if (kn_b) add_jaw(w, c3);
+    if (kn_a) add_jaw_r(w, c2, r);
+    if (kn_b) add_jaw_r(w, c3, r);
 }
 
 static void add_chain(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4) {
     add_mitred(w, P1, P2, P3, P4, 1, 1, inward_n(P2.x, P2.z, P3.x, P3.z));
+}
+/* A long rail of a rectangle, corner to middle (mid_b) or middle to corner:
+ * the middle's end takes the middles' knuckle. */
+static void add_chain_cm(CueWorld *w, Vec3 P1, Vec3 P2, Vec3 P3, Vec3 P4, int mid_b) {
+    const float rm = (w->jaw_r_m > 0.0f) ? w->jaw_r_m : w->jaw_r;
+    add_mitred_r(w, P1, P2, P3, P4, 1, 1, inward_n(P2.x, P2.z, P3.x, P3.z),
+                 mid_b ? w->jaw_r : rm, mid_b ? rm : w->jaw_r);
+}
+
+/* HOW FAR THE ARC-CUT MIDDLE'S JAW RUNS ALONG THE RAIL, from where it leaves
+ * the nose to where it stops: the knuckle sits this far out from the throat
+ * wall. The arc stops at jaw_arc_d_m behind the nose, or at the frame's inner
+ * face if that comes first, since the rubber ends there. Shared by the builder
+ * and the cushion link so the two cannot disagree about where the jaw is. */
+static float arc_mid_depth(float ra, float de, float cw) {
+    if (de <= 0.0f || de > cw) de = cw;
+    if (de > ra) de = ra;
+    return de;
+}
+static float arc_mid_reach(float ra, float de, float cw) {
+    de = arc_mid_depth(ra, de, cw);
+    const float h = ra - de;
+    return sqrtf(ra*ra - h*h);
+}
+
+/* ONE RAIL WITH A MITRED CORNER AT ONE END AND AN ARC-CUT MIDDLE AT THE OTHER.
+ *
+ * Pc is the corner's facing tip and Kc its knuckle; Km is where the middle's
+ * jaw leaves the nose. `corner_first` says which end the chain starts at, so
+ * the segments go in in boundary order whichever way round the rail runs --
+ * the renderer joins pieces by one segment's b being the next one's a.
+ *
+ * The corner is add_mitred's own knuckle: the facing and the nose kiss a circle
+ * of jaw_r, and that circle is the rattle. The middle is an arc of jaw_arc_m
+ * centred jaw_arc_m behind the nose, so it leaves the nose tangent to it, and
+ * it turns towards the pocket until it is jaw_arc_d_m deep. The throat wall
+ * runs on from there square to the rail, out to the frame's inner face. No
+ * circle at the middle: the arc is the nose's own rounding, already a chain. */
+static void add_mitre_arc(CueWorld *w, Vec3 Pc, Vec3 Kc, Vec3 Km, int corner_first) {
+    const Vec3 nin  = inward_n(corner_first ? Kc.x : Km.x, corner_first ? Kc.z : Km.z,
+                               corner_first ? Km.x : Kc.x, corner_first ? Km.z : Kc.z);
+    const Vec3 outn = v3(-nin.x, 0.0f, -nin.z);
+    float rl = sqrtf((Km.x-Kc.x)*(Km.x-Kc.x) + (Km.z-Kc.z)*(Km.z-Kc.z));
+    if (rl < 1e-5f) return;
+    const Vec3 rd = v3((Km.x-Kc.x)/rl, 0.0f, (Km.z-Kc.z)/rl);   /* towards the middle */
+    const float ra = w->jaw_arc_m, cw = w->cush_depth;
+    const float de = arc_mid_depth(ra, w->jaw_arc_d_m, cw);
+    const float te = cue_acosf(1.0f - de/ra);
+    /* the arc, from the nose to its end, then the wall to the frame */
+    #define ARC_MAXPTS 34
+    Vec3 m[ARC_MAXPTS + 2];
+    int nm = 0;
+    int n = w->jaw_segs;
+    if (n < 3) n = 3;
+    if (n > ARC_MAXPTS - 1) n = ARC_MAXPTS - 1;
+    const Vec3 c = v3(Km.x + outn.x*ra, 0.0f, Km.z + outn.z*ra);
+    for (int i = 0; i <= n; i++) {
+        float sn, cs;
+        cue_sincosf(te * (float)i / (float)n, &sn, &cs);
+        m[nm++] = v3(c.x - outn.x*ra*cs + rd.x*ra*sn, 0.0f,
+                     c.z - outn.z*ra*cs + rd.z*ra*sn);
+    }
+    if (cw > de + 1e-4f) {
+        const Vec3 e = m[nm-1];
+        m[nm++] = v3(e.x + outn.x*(cw - de), 0.0f, e.z + outn.z*(cw - de));
+    }
+    #undef ARC_MAXPTS
+
+    Vec3 a2 = Kc, b2 = Kc, c2 = Kc;
+    const int kiss = (w->jaw_r > 1e-5f);
+    if (kiss) mitre_kiss(Kc, Pc, Km, w->jaw_r, &a2, &b2, &c2);
+    if (corner_first) {
+        if (kiss) { add_seg(w, Pc, a2, 1); add_arc_between(w, c2, a2, b2); }
+        else        add_seg(w, Pc, Kc, 1);
+        add_seg(w, b2, Km, 0);
+        for (int i = 1; i < nm; i++) add_seg(w, m[i-1], m[i], 1);
+    } else {
+        for (int i = nm - 1; i > 0; i--) add_seg(w, m[i], m[i-1], 1);
+        add_seg(w, Km, b2, 0);
+        if (kiss) { add_arc_between(w, c2, b2, a2); add_seg(w, a2, Pc, 1); }
+        else        add_seg(w, Kc, Pc, 1);
+    }
+    if (kiss) add_jaw(w, c2);
+    else      add_jaw_recessed(w, Kc, nin);
 }
 
 /* THE REFLEX CORNER AS A RADIUS RATHER THAN A POINT.
@@ -2966,7 +3228,10 @@ int cue_table_link_gap(CueTable *t, const CueWorld *w) {
         /* Rounded:  tip.x = gap_side - 0.583R - ml*0.3f - e3
          * Mitred:    tip.x = gap_side - cw/tan(ang_side) */
         const float ss2 = cue_sinf(t->ang_side*DEG);
-        const float reach_m = t->pocket_round
+        /* Arc-cut:  tip.x = gap_side - the arc's run along the rail */
+        const float reach_m = (!t->pocket_round && t->jaw_arc_m > 0.0f)
+            ? arc_mid_reach(t->jaw_arc_m, t->jaw_arc_d_m, cw)
+            : t->pocket_round
             ? (0.583f*R + ml*0.3f + e3)
             : ((ss2 > 1e-4f) ? (cw * cue_cosf(t->ang_side*DEG) / ss2) : 0.0f);
         float g = yx + reach_m;
@@ -3056,7 +3321,7 @@ void cue_table_normalise(CueTable *t) {
  *
  * Build-time only: a few hundred jaw points against six noses, once. The
  * impact reads one lerped number (CueSeg::ga) and multiplies by it. */
-static void grade_jaws(CueWorld *w) {
+static void grade_jaws(CueWorld *w, int round_nose) {
     float deepest = 0.0f;
     /* how far behind the nearest rail nose each jaw end sits */
     for (int i = 0; i < w->nseg; i++) {
@@ -3099,6 +3364,21 @@ static void grade_jaws(CueWorld *w) {
             float d = (w->jaw[j].x - n->a.x) * n->n.x + (w->jaw[j].z - n->a.z) * n->n.z;
             if (d < 0.0f) d = -d;
             if (d < best) best = d;
+        }
+        /* A ROUNDED NOSE IS NOT A KNUCKLE. On the Brazilian tables the circle
+         * is the whole R50 / R37.6 round into the facing, and its CENTRE sits
+         * that far inside the cushion -- so measured there it read as the
+         * thinnest rubber on the table and bounced at the 0.55 floor, a full
+         * section playing dead (Mark, 2026-10-03, a Mesinha replay: "is the
+         * normal wrong or is the circle of the mitre just dead?"). Measured at
+         * its FRONT, where the ball meets it. The pyramid's 11 mm middle
+         * rounds too (Mark: yes, 2026-10-03). Every other table keeps the
+         * centre: their jaws were tuned on it. */
+        if (round_nose) {
+            const float rr = w->jaw_rad[j] > 0.0f ? w->jaw_rad[j] : w->jaw_r;
+            /* the rounds only: the mesinha's 4 mm middle knuckles are a real
+             * jaw point and keep their centre measure */
+            if (rr > 0.010f) best = best > rr ? best - rr : 0.0f;
         }
         float g = 1.0f - (best < 1e29f ? best : 0.0f) / deepest;
         if (g < CUE_JAW_GIVE_TIP) g = CUE_JAW_GIVE_TIP;
@@ -3209,7 +3489,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
                                     w->bound_r, CUE_MAX_RECT);
     /* The same height cue_table_surface reports and cue_render draws: the
      * cushion top and the wood cap are one surface, not a step. */
-    w->rail_top = t->cushion_h * 1.30f;
+    w->rail_top = cue_table_cush_top(t);
     /* the same number cue_render uses for the timber's inner edge (rw * 0.63) */
     w->cush_depth = t->rail_w * 0.63f;
     w->jaw_segs   = CUE_JAW_SEGS;   /* build_ngon trims it for a many-sided bed */
@@ -3229,7 +3509,12 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
      * meaningful one — straight down it — so neither gets a fallback. */
     w->jaw_ang_c = t->jaw_ang_c;
     w->jaw_ang_m = t->jaw_ang_m;
+    /* The arc middle is a rectangle's: an L or an n-gon builds its runs
+     * through add_run, which knows nothing of it, so it is not offered there. */
+    w->jaw_arc_m   = (t->bed_shape == CUE_BED_RECT) ? t->jaw_arc_m : 0.0f;
+    w->jaw_arc_d_m = t->jaw_arc_d_m;
     w->jaw_r = t->jaw_r;
+    w->jaw_r_m = t->jaw_r_m;
     w->e_cush     = t->e_cush;
     w->cush_efall = t->cush_efall;
     w->e_cush_min = t->e_cush_min;
@@ -3484,6 +3769,28 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         /* The L brings its own chain AND its own pockets, so it skips both the
          * rectangle's rail construction and the six-pocket block below. */
         build_L(w, t);
+    } else if (!t->pocket_round && w->jaw_arc_m > 0.0f) {
+        /* MITRED CORNERS AND ARC-CUT MIDDLES, the Brazilian table's pockets
+         * (see CueTable::jaw_arc_m). The two end rails are corner to corner
+         * and are the ordinary mitred chain; the four long ones carry one of
+         * each. Same facings, same knuckle circle, as the all-mitred table. */
+        const float g = t->gap_corner, sg = t->gap_side;
+        float cc, sc;
+        cue_sincosf(t->ang_corner*DEG, &sc, &cc);
+        const float slc = (w->cush_depth > 1e-6f && sc > 1e-4f)
+                        ? (w->cush_depth / sc) : t->facing_len;
+        add_mitre_arc(w, v3(-hl+g - cc*slc, 0, -hw - sc*slc), v3(-hl+g, 0, -hw),
+                         v3(-sg, 0, -hw), 1);
+        add_mitre_arc(w, v3(hl-g + cc*slc, 0, -hw - sc*slc), v3(hl-g, 0, -hw),
+                         v3(sg, 0, -hw), 0);
+        add_chain(w, v3(hl + sc*slc, 0, -hw+g - cc*slc),  v3(hl, 0, -hw+g),
+                     v3(hl, 0, hw-g),                   v3(hl + sc*slc, 0, hw-g + cc*slc));
+        add_mitre_arc(w, v3(hl-g + cc*slc, 0, hw + sc*slc), v3(hl-g, 0, hw),
+                         v3(sg, 0, hw), 1);
+        add_mitre_arc(w, v3(-hl+g - cc*slc, 0, hw + sc*slc), v3(-hl+g, 0, hw),
+                         v3(-sg, 0, hw), 0);
+        add_chain(w, v3(-hl - sc*slc, 0, hw-g + cc*slc),  v3(-hl, 0, hw-g),
+                     v3(-hl, 0, -hw+g),                 v3(-hl - sc*slc, 0, -hw+g - cc*slc));
     } else if (!t->pocket_round) {
         /* US pool: straight mitred facings. */
         const float g = t->gap_corner, sg = t->gap_side, sl = t->facing_len;
@@ -3505,16 +3812,16 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
                         ? (w->cush_depth / sc) : sl;
         const float sls = (w->cush_depth > 1e-6f && ss > 1e-4f)
                         ? (w->cush_depth / ss) : sl;
-        add_chain(w, v3(-hl+g - cc*slc, 0, -hw - sc*slc), v3(-hl+g, 0, -hw),
-                     v3(-sg, 0, -hw),                   v3(-sg + cs*sls, 0, -hw - ss*sls));
-        add_chain(w, v3(sg - cs*sls, 0, -hw - ss*sls),    v3(sg, 0, -hw),
-                     v3(hl-g, 0, -hw),                  v3(hl-g + cc*slc, 0, -hw - sc*slc));
+        add_chain_cm(w, v3(-hl+g - cc*slc, 0, -hw - sc*slc), v3(-hl+g, 0, -hw),
+                     v3(-sg, 0, -hw),                   v3(-sg + cs*sls, 0, -hw - ss*sls), 1);
+        add_chain_cm(w, v3(sg - cs*sls, 0, -hw - ss*sls),    v3(sg, 0, -hw),
+                     v3(hl-g, 0, -hw),                  v3(hl-g + cc*slc, 0, -hw - sc*slc), 0);
         add_chain(w, v3(hl + sc*slc, 0, -hw+g - cc*slc),  v3(hl, 0, -hw+g),
                      v3(hl, 0, hw-g),                   v3(hl + sc*slc, 0, hw-g + cc*slc));
-        add_chain(w, v3(hl-g + cc*slc, 0, hw + sc*slc),   v3(hl-g, 0, hw),
-                     v3(sg, 0, hw),                     v3(sg - cs*sls, 0, hw + ss*sls));
-        add_chain(w, v3(-sg + cs*sls, 0, hw + ss*sls),    v3(-sg, 0, hw),
-                     v3(-hl+g, 0, hw),                  v3(-hl+g - cc*slc, 0, hw + sc*slc));
+        add_chain_cm(w, v3(hl-g + cc*slc, 0, hw + sc*slc),   v3(hl-g, 0, hw),
+                     v3(sg, 0, hw),                     v3(sg - cs*sls, 0, hw + ss*sls), 1);
+        add_chain_cm(w, v3(-sg + cs*sls, 0, hw + ss*sls),    v3(-sg, 0, hw),
+                     v3(-hl+g, 0, hw),                  v3(-hl+g - cc*slc, 0, hw + sc*slc), 0);
         add_chain(w, v3(-hl - sc*slc, 0, hw-g + cc*slc),  v3(-hl, 0, hw-g),
                      v3(-hl, 0, -hw+g),                 v3(-hl - sc*slc, 0, -hw+g - cc*slc));
     } else {
@@ -3579,7 +3886,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
     }
 
     smooth_seg_normals(w);
-    grade_jaws(w);
+    grade_jaws(w, CUE_GAME_IS_MESINHA(t->kind) || t->kind == CUE_GAME_SINUCA || t->kind == CUE_GAME_SINUCA6 || CUE_GAME_IS_PYRAMID(t->kind));
 
 
     /* ---- each pocket's mouth, from the two jaw tips beside it ------------ */
@@ -3637,7 +3944,7 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
             moved |= cue_table_clear_bore(w, &w->seg[s].a.x, &w->seg[s].a.z);
             moved |= cue_table_clear_bore(w, &w->seg[s].b.x, &w->seg[s].b.z);
         }
-        if (moved) { smooth_seg_normals(w); grade_jaws(w); }
+        if (moved) { smooth_seg_normals(w); grade_jaws(w, CUE_GAME_IS_MESINHA(t->kind) || t->kind == CUE_GAME_SINUCA || t->kind == CUE_GAME_SINUCA6 || CUE_GAME_IS_PYRAMID(t->kind)); }
     }
 
     /* THE CUT IS NOT THE POCKET SIZE, and tying it to pr_* meant it was.
@@ -3972,7 +4279,7 @@ float cue_table_mouth_at(const CueWorld *w, int p) {
             if (sa * sb >= 0.0f) continue;
             const float dx = w->jaw[i].x - w->jaw[j].x;
             const float dz = w->jaw[i].z - w->jaw[j].z;
-            const float d = sqrtf(dx*dx + dz*dz) - 2.0f * w->jaw_r;
+            const float d = sqrtf(dx*dx + dz*dz) - cue_jaw_radius(w, i) - cue_jaw_radius(w, j);
             if (d < best) best = d;
         }
         for (int j = 0; j < w->nseg; j++) {
@@ -3982,7 +4289,7 @@ float cue_table_mouth_at(const CueWorld *w, int p) {
             const float sb = (bmx-ox)*tx + (bmz-oz)*tz;
             if (sa * sb >= 0.0f) continue;
             const float d = pt_seg_dist(w->jaw[i].x, w->jaw[i].z,
-                                        b->a.x, b->a.z, b->b.x, b->b.z) - w->jaw_r;
+                                        b->a.x, b->a.z, b->b.x, b->b.z) - cue_jaw_radius(w, i);
             if (d < best) best = d;
         }
     }
@@ -4481,7 +4788,10 @@ void cue_table_set_game(CueTable *t, CueGameKind kind) {
  * See cue_table.h. */
 const char *const CUE_TAB_NAME[CUE_TAB_COUNT] = {
     "PRO", "TOURNAMENT", "CLUB", "L-SHAPED", "HEXAGON", "OCTAGON", "ROUND",
-    "6 FT", "7 FT", "9 FT", "10 FT", "12 FT"
+    "6 FT", "7 FT", "9 FT", "10 FT", "12 FT",
+    "CLUB 12 FT", "CLUB 7 FT",
+    "2.20 X 1.30 M", "1.90 X 1.20 M",
+    "6FT Nets", "7FT Nets"
 };
 
 /* THE BEDS, in metres of PLAYING SURFACE -- nose to nose between the cushions
@@ -4509,7 +4819,9 @@ static const float TAB_SIZE_M[CUE_TAB_COUNT] = {
     1.980f,   /* 7 ft -- the standard English pub bed */
     2.540f,   /* 9 ft -- the American tournament bed */
     2.840f,   /* 10 ft -- Chinese 8-ball, and the smaller snooker */
-    3.569f    /* 12 ft -- the full-size match table */
+    3.569f,   /* 12 ft -- the full-size match table */
+    0, 0,     /* pyramid's club tables are their own beds' (see cue_table_variant) */
+    0, 0      /* the mesinha's are not 2:1 -- see variant_apply */
 };
 
 /* The shape rows. `sides` of 0 means the L. */
@@ -4523,6 +4835,8 @@ static const struct { int sides, every; } TAB_SHAPE[CUE_TAB_COUNT] = {
      * sixty. Sixty pockets is not a table, it is a colander. */
     { 60, 10 },
     { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 },   /* the sizes are not shapes */
+    { 0, 0 }, { 0, 0 },                                 /* nor pyramid's club tables */
+    { 0, 0 }, { 0, 0 },                                 /* nor the mesinha's sizes */
 };
 
 /* WHICH BEDS A GAME IS PLAYED ON.
@@ -4596,6 +4910,9 @@ static int size_ref_kind(CueGameKind kind, int variant) {
 int cue_table_variant_ok(CueGameKind kind, int variant) {
     if (variant < 0 || variant >= CUE_TAB_COUNT) return 1;
     if (variant <= CUE_TAB_CLUB) return cue_table_spec_applies(kind);
+    if (variant == CUE_TAB_PYR_CLUB12 || variant == CUE_TAB_PYR_CLUB7) return kind == CUE_GAME_PYRAMID;
+    if (variant == CUE_TAB_MZ_220x130 || variant == CUE_TAB_MZ_190x120) return CUE_GAME_IS_MESINHA(kind);
+    if (variant == CUE_TAB_NETS6 || variant == CUE_TAB_NETS7) return kind == CUE_GAME_UK8 || kind == CUE_GAME_KILLER_UK;
     if (CUE_TAB_IS_SIZE(variant)) return size_ok(kind, variant);
     /* THE SHAPES. What rules a game out is knowing where things are on the
      * cloth in absolute terms.
@@ -4637,16 +4954,89 @@ int cue_table_variant_ok(CueGameKind kind, int variant) {
      * the rectangle put them. */
     case CUE_GAME_BARBILLIARDS: case CUE_GAME_BUMPER:
     case CUE_GAME_BILLIARDS:
+    /* THE MESAO's middles are arcs cut for a rectangle's straight rail (see
+     * CueTable::jaw_arc_m), which an L or a polygon's add_run does not build;
+     * on another outline they would come out as square slots. */
+    case CUE_GAME_SINUCA: case CUE_GAME_SINUCA6:
+    case CUE_GAME_MESINHA: case CUE_GAME_MESINHA_1B: case CUE_GAME_MESINHA_PI:
+    case CUE_GAME_MESINHA_MM: case CUE_GAME_MESINHA8:
         return 0;
     default: return 1;
     }
 }
 
+/* A TABLE'S VARIANT, REMEMBERED. Applying one measures the pockets' mouths
+ * and cuts them to size -- worlds built and every segment pair searched, 11 to
+ * 45 ms here and four or five times that on a headset -- and it is asked for
+ * the same table again and again: the menu's preview builds it, and BREAK OFF
+ * builds it once more inside the press, which was most of a 585 ms freeze on
+ * the headset (2026-10-01). The answer is a function of the table handed in
+ * and the variant and of nothing else, so a few are kept, keyed on every byte
+ * of the input as the cut's memo is, and nothing can go stale. */
+#define VAR_MEMO_N 8
+typedef struct { CueTable in, out; int v, have; } VarMemo;
+static CUE_TLS VarMemo s_var_memo[VAR_MEMO_N];
+static CUE_TLS int s_var_memo_next;
+static void variant_apply(CueTable *t, int variant);
 void cue_table_variant(CueTable *t, int variant) {
+    if (!t) return;
+    for (int i = 0; i < VAR_MEMO_N; i++) {
+        const VarMemo *e = &s_var_memo[i];
+        if (e->have && e->v == variant && memcmp(&e->in, t, sizeof *t) == 0) { *t = e->out; return; }
+    }
+    VarMemo *e = &s_var_memo[s_var_memo_next];
+    s_var_memo_next = (s_var_memo_next + 1) % VAR_MEMO_N;
+    e->in = *t; e->v = variant;
+    variant_apply(t, variant);
+    e->out = *t; e->have = 1;
+}
+static void variant_apply(CueTable *t, int variant) {
     if (!t) return;
     if (variant < 0 || variant >= CUE_TAB_COUNT) return;
     if (!cue_table_variant_ok(t->kind, variant)) return;
     if (variant <= CUE_TAB_CLUB) { cue_table_spec(t, variant); return; }
+
+    /* ---- RUSSIAN PYRAMID'S CLUB TABLES. The tournament bed, 12 ft or 7 ft,
+     * with the pockets a Russian club keeps on its tables for beginners and
+     * casual players -- a player who used to play on them, 2026-09-29: "for a
+     * 12 ft table, corner pockets 73-75 mm, middle pockets 82-85 mm...
+     * around 74 mm for the corner pockets and 83 mm for the middle". Their
+     * 74 and 83 are the 67 mm ball plus 7 and 16, measured at the narrowest
+     * passage as the tournament pockets are, and the 7 ft gets the same
+     * clearances over its own ball. Cut to rather than authored, so they
+     * cannot drift from what the table measures. */
+    /* ---- THE MESINHA'S SIZES: 20 cm off the outside each way, as the
+     * 2.20 x 1.20's 2.00 x 1.00 cloth is (Mark, 2026-10-01). The same balls
+     * and the same cups, so the pockets are cut back to what they were; the
+     * marks go where cue_table_init puts them on any bed -- the D's line
+     * across the middle of the lower half, its arc in proportion to the
+     * width (26 cm on 1.42 m). */
+    if (variant == CUE_TAB_MZ_220x130 || variant == CUE_TAB_MZ_190x120) {
+        float keep_c = 0.0f, keep_m = 0.0f;
+        cue_table_openings(t, &keep_c, &keep_m);
+        const float L = (variant == CUE_TAB_MZ_220x130) ? 2.00f : 1.70f;
+        const float W = (variant == CUE_TAB_MZ_220x130) ? 1.10f : 1.00f;
+        t->half_len = L * 0.5f; t->half_wid = W * 0.5f;
+        t->baulk_x  = -t->half_len * 0.5f;
+        t->d_radius = 0.260f * (W / 1.42f);
+        if (keep_c > 0.0f || keep_m > 0.0f) cue_table_cut_to(t, keep_c, keep_m);
+        return;
+    }
+    /* ---- THE NETS TABLES: the pub table's bed and pockets, 6 ft or 7 ft,
+     * with string nets on plates into a collector rather than drops into a
+     * tray. No spots of snooker's: it is a pool table (Mark). Its baize is the
+     * renderer's to dress (table_is_baize). */
+    if (variant == CUE_TAB_NETS6 || variant == CUE_TAB_NETS7) {
+        if (variant == CUE_TAB_NETS6) variant_apply(t, CUE_TAB_6FT);
+        t->furniture = CUE_FURN_NETS | CUE_FURN_COLLECTOR;
+        return;
+    }
+    if (variant == CUE_TAB_PYR_CLUB12 || variant == CUE_TAB_PYR_CLUB7) {
+        if (variant == CUE_TAB_PYR_CLUB7) cue_table_variant(t, CUE_TAB_7FT);
+        const float ball = 2.0f * t->R;
+        cue_table_cut_to(t, ball + 0.007f, ball + 0.016f);
+        return;
+    }
 
     /* ---- A SIZE. The bed changes and nothing else does. -------------------
      *
@@ -5048,6 +5438,22 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
          * with R the 23.8 mm ball this bed is played with. A cup is kinder than
          * a 200 hole -- you are meant to be able to sink five of them. */
         /* BUMP  */ { 0.0000f, 0.038010f, 0.003500f, 360.0f },
+        /* THE MESAO'S SLATE (annex N): R70 at each corner, centred 70 mm
+         * out along the axis from where the noses meet, so its edge runs
+         * through that point. The pocket's own point is 30 mm out. The cloth
+         * starts to turn at the circle and rolls over 5 mm -- a firm edge,
+         * picked by Mark off four rolls side by side (9, 5 and 2.5 mm, and the
+         * R12 slate edge outside the circle), 2026-10-01. */
+        /* SINU  */ { 0.0400f, 0.070000f, 0.005000f,  90.0f },
+        /* SIN6  */ { 0.0400f, 0.070000f, 0.005000f,  90.0f },
+        /* THE MESINHA'S: the mesao's cut at the cup's scale, 64/85 -- R52.7
+         * centred 52.7 out along the axis, the pocket's point 22.6 out. The
+         * same 5 mm roll. */
+        /* MZ    */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
+        /* MZ1B  */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
+        /* MZPI  */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
+        /* MZMM  */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
+        /* MZ8   */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
@@ -5102,6 +5508,17 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* BOWLL */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },
         /* CRIB  */ { 0.0386f, 0.077320f, 0.011819f, 180.0f },   /* the US 9 ft cut */
         /* BUMP  */ { 0.0000f, 0.038010f, 0.003500f, 360.0f },
+        /* ...and R50 at each middle, centred 50 mm behind the nose so its
+         * front is on the nose line. The pocket's point is 30 mm behind it.
+         * The same 5 mm roll as the corners. */
+        /* SINU  */ { 0.0200f, 0.050000f, 0.005000f, 180.0f },
+        /* SIN6  */ { 0.0200f, 0.050000f, 0.005000f, 180.0f },
+        /* ...and its middles at 69/95: R36.3 centred 36.3 behind the nose. */
+        /* MZ    */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
+        /* MZ1B  */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
+        /* MZPI  */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
+        /* MZMM  */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
+        /* MZ8   */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -5359,9 +5776,47 @@ Vec3 cue_table_lay(const CueTable *t, float x, float across, Vec3 *dir) {
 
 /* See cue_table.h. The renderer builds the rail plank to the first and bores it
  * to the second; anything fitted to the table asks for them here. */
+static int cush_k55(const CueTable *t) {
+    /* K55: the American tables -- the games the 9 ft US bed is built for in
+     * cue_table_init, and only those. NOT "pocket_round 0": the mesão, the
+     * mesinha and the pyramid tables are mitred too, and the Brazilian ones are
+     * not American cushions (that test put the K55 on them, 2026-10-03). The K55 is 1 1/4"
+     * across the top and 1 5/16" at the glue face with the nose at
+     * 1 3/8"-1 7/16", and a US table's cap sits just above its nose -- not
+     * 11 mm above it. */
+    const CueGameKind k = (CueGameKind)t->kind;
+    const int k55 = k == CUE_GAME_US8 || k == CUE_GAME_US9 || k == CUE_GAME_US10 ||
+                    k == CUE_GAME_STRAIGHT || k == CUE_GAME_ONEPOCKET || k == CUE_GAME_BANKPOOL ||
+                    CUE_GAME_IS_ROT61(k) || k == CUE_GAME_COWBOY || k == CUE_GAME_HONOLULU ||
+                    k == CUE_GAME_SPEED || k == CUE_GAME_BOWLLIARDS || k == CUE_GAME_CRIBBAGE ||
+                    /* ...and the Russian pyramid tables, the same profile
+                     * (Mark, 2026-10-03: "russian pyramid cushions should
+                     * match the 8-ball ones in terms of profile too") */
+                    CUE_GAME_IS_PYRAMID(k);
+    return k55;
+}
+/* THE K55's TOP SLOPE, 7 degrees: the rubber's top runs up from the nose to
+ * the rail at the angle the Russian federation sets for its tables ("Наклон
+ * резины относительно игровой поверхности стола, град -- 6-8", ФБСР technical
+ * requirements 14.12.2020) and the K55 drawing shows (Mark, 2026-10-03, "we do
+ * need to get that gentle drop angle"). tan 7 deg. */
+#define CUE_K55_SLOPE 0.12278f
+float cue_table_cush_slope(const CueTable *t) { return (t && cush_k55(t)) ? CUE_K55_SLOPE : 0.0f; }
+/* The top of the little vertical face over the nose: 1.30 x the nose, or on a
+ * K55 a 3 mm sliver -- the top then climbs from here to the rail. */
+float cue_table_cush_face_top(const CueTable *t) {
+    if (!t) return 0.0f;
+    return cush_k55(t) ? t->cushion_h + 0.003f : t->cushion_h * 1.30f;
+}
+/* THE CUSHION TOP AT THE RAIL, which the wood cap is level with: the face top,
+ * plus the slope over the cushion's depth (rail_w * 0.63, the renderer's cw). */
+float cue_table_cush_top(const CueTable *t) {
+    if (!t) return 0.0f;
+    return cue_table_cush_face_top(t) + cue_table_cush_slope(t) * (t->rail_w * 0.63f);
+}
 float cue_table_rail_top(const CueTable *t) {
     if (!t) return 0.0f;
-    return t->cushion_h * 1.30f + 0.085f * t->R;   /* rail_h + frame_lift */
+    return cue_table_cush_top(t) + 0.085f * t->R;   /* rail_h + frame_lift */
 }
 float cue_table_bore_bot(void) { return -0.002f; }
 
@@ -5406,7 +5861,8 @@ Vec3 cue_table_cue_home(const CueTable *t) {
          * last-ball shot must play from (Rule 108). A 4 cm D has no room for
          * the off-centre courtesy the bigger tables get. */
         p = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
-    else if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind))
+    else if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind) ||
+             CUE_GAME_IS_MESINHA(t->kind))
         p = cue_table_lay(t, t->baulk_x, -t->d_radius * 0.55f, NULL);
     /* GOLF tees off the MIDDLE of its line -- the two pegs are at +-d_radius on
      * the baulk line and the ball starts between them, which is the same
@@ -5676,7 +6132,24 @@ Vec3 cue_table_clamp_placement_any(const CueTable *t, Vec3 p,
     return p;
 }
 
+/* COMBINED PYRAMID'S KITCHEN AT THE OTHER END (FBSR General Rules 21.2:
+ * "if all the object balls lie in the kitchen, the stroke is played from the
+ * opposite side of the table"). The rules say so (CueRules.pyr_far) and the
+ * host passes it on before anything is placed; a house is then the same
+ * region turned end for end. Only a house table, and only a rectangle, which
+ * is every pyramid bed. */
+static int s_house_far;
+void cue_table_set_house_far(int on) { s_house_far = on ? 1 : 0; }
+static Vec3 clamp_region_1(const CueTable *t, Vec3 p, int breaking, int anywhere);
 static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) {
+    if (s_house_far && t->house && !anywhere && t->bed_shape == CUE_BED_RECT) {
+        Vec3 q = clamp_region_1(t, v3(-p.x, p.y, p.z), breaking, anywhere);
+        q.x = -q.x;
+        return q;
+    }
+    return clamp_region_1(t, p, breaking, anywhere);
+}
+static Vec3 clamp_region_1(const CueTable *t, Vec3 p, int breaking, int anywhere) {
     float R = t->R;
     /* BAULK, THE AREA — Blackball's in-hand region (rules 4c/4h): the full
      * width of the table behind the baulk line, centre of the ball on the
@@ -5747,8 +6220,12 @@ static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) 
      * thing to put a ball on when the whole point is that you may start a hole
      * where you like. The D is the room the game wants and the table already
      * draws it. */
+    /* THE MESINHA'S D, where the white comes back after an in-off (CBBS
+     * par e impar, art. 17); the break is from the whole width behind its
+     * line, which is region 2 above. */
     if (t->is_snooker || t->kind == CUE_GAME_UK8 || CUE_GAME_IS_PYRAMID(t->kind) ||
-        t->kind == CUE_GAME_BARBILLIARDS || t->kind == CUE_GAME_GOLF) {
+        t->kind == CUE_GAME_BARBILLIARDS || t->kind == CUE_GAME_GOLF ||
+        CUE_GAME_IS_MESINHA(t->kind)) {
         /* The D — and the pyramid's HOUSE, which is the same thing as far as
          * this is concerned: a region behind a line that the cue ball is played
          * from. A half-disc of radius d_radius centred on (baulk_x, 0), bulging
@@ -5899,6 +6376,49 @@ static int rack_pool(const CueTable *t, CueBall *b) {
      * already knew. */
     { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
     #undef RACK_AT
+    return n;
+}
+
+/* THE MESINHA'S RACKS. The triangle on the upper mark, base to the top
+ * cushion, as every Brazilian rule book has it.
+ *
+ *   PAR E IMPAR (CBBS art. 10): the fourteen, 2 to 15, with the APEX EMPTY --
+ *     the vertex of the triangle is on the mark, without a ball.
+ *   PAR OU IMPAR, the bar game: the same fourteen, and the 1, the money
+ *     ball, on its own mark at the breaking end -- the lower mark, where the
+ *     D's line crosses the long centre line.
+ *   MATA-MATA: 1-7 and 9-15 with the apex ON the mark, and the slot the 8
+ *     would have, the centre of the third row, left empty.
+ *
+ * "Grouped at random" in the books; a fixed mix here, odd and even (or the
+ * two groups) alternating so neither side's balls sit together, because both
+ * ends of an online frame have to rack the same table. */
+static int rack_mesinha(const CueTable *t, CueBall *b) {
+    const float R = t->R;
+    Vec3 up; const Vec3 foot = cue_table_foot_spot_dir(t, &up);
+    const Vec3 side = v3(-up.z, 0.0f, up.x);
+    const float dx = R * 1.7320508f;
+    static const int PI_ROWS[5][5] = {
+        { 0 }, { 2, 3 }, { 5, 4, 7 }, { 6, 9, 8, 11 }, { 13, 10, 15, 12, 14 },
+    };
+    static const int MM_ROWS[5][5] = {
+        { 1 }, { 9, 2 }, { 10, 0, 3 }, { 4, 11, 12, 5 }, { 13, 6, 14, 7, 15 },
+    };
+    const int (*rows)[5] = (t->kind == CUE_GAME_MESINHA_MM) ? MM_ROWS : PI_ROWS;
+    int n = 1;
+    for (int row = 0; row < 5; row++)
+        for (int k = 0; k <= row; k++) {
+            const int id = rows[row][k];
+            if (!id) continue;
+            const float r_ = row * dx, o_ = -(float)row * R + (float)k * 2.0f * R;
+            set_ball(&b[n++], id, foot.x + up.x*r_ + side.x*o_,
+                                  foot.z + up.z*r_ + side.z*o_, R);
+        }
+    if (CUE_GAME_IS_PARIMPAR_BAR(t->kind)) {
+        Vec3 q = cue_table_lay(t, t->baulk_x, 0.0f, NULL);
+        set_ball(&b[n++], 1, q.x, q.z, R);
+    }
+    { Vec3 h = cue_table_cue_home(t); set_ball(&b[0], CUE_ID_CUE, h.x, h.z, R); }
     return n;
 }
 
@@ -6409,6 +6929,14 @@ static int rack_snooker(const CueTable *t, CueBall *b) {
     /* reds triangle: 2 rows (3), 3 rows (6), 4 rows (10) or 5 rows (15), apex behind pink,
      * and laid out in the PINK'S own frame so that on an L it grows up the arm
      * the pink is on rather than off the side of it. */
+    /* SINUCA BRASILEIRA HAS ONE RED, and it is not behind the pink: annex B
+     * puts ball 1 on the pink's line, 35.5 cm to the player's right of it.
+     * The other six are the snooker colours on the snooker spots. */
+    if (t->kind == CUE_GAME_SINUCA) {
+        Vec3 q = cue_table_lay(t, t->pink_x, +0.355f, NULL);
+        set_ball(&b[n++], 1, q.x, q.z, R);
+        return n;
+    }
     int rows = (t->reds <= 3) ? 2 : (t->reds <= 6) ? 3
              : (t->reds <= 10) ? 4 : 5;
     float apexx = t->pink_x + 2.0f * R + 0.002f;
@@ -6831,6 +7359,8 @@ int cue_table_rack(const CueTable *t, CueBall *balls) {
     else if (t->kind == CUE_GAME_US9)  n = rack_9ball(t, balls);
     else if (t->kind == CUE_GAME_US10) n = rack_10ball(t, balls);
     else if (CUE_GAME_IS_PYRAMID(t->kind)) n = rack_pyramid(t, balls);
+    else if (CUE_GAME_IS_MESINHA(t->kind) && t->kind != CUE_GAME_MESINHA8)
+                                 n = rack_mesinha(t, balls);
     else                         n = rack_pool(t, balls);   /* UK8 + US8 + CN8 + KILLER */
     /* ONE PLACE STAMPS THE CUE BALL. Every rack builds balls[0] as the white,
      * and every game but English pool wants it the same size as the rest — so
@@ -6965,7 +7495,9 @@ static int bed_contains(const CueTable *t, float x, float z, float g) {
     return cue_rects_contain(rr, nr, x, z);
 }
 
+int (*cue_table_surface_hook)(const CueTable *t, float x, float z, float *out);
 float cue_table_surface(const CueTable *t, float x, float z) {
+    if (cue_table_surface_hook) { float h; if (cue_table_surface_hook(t, x, z, &h)) return h; }
     /* THE BED'S OWN SHAPE, not its bounding box.
      *
      * This asked |x| <= half_len && |z| <= half_wid, which is the right question
@@ -7042,7 +7574,7 @@ float cue_table_surface(const CueTable *t, float x, float z) {
     /* EXACTLY WHAT IS DRAWN, and nothing on top of it.
      *
      * cue_render.c builds the cushion top and the wood top level with each
-     * other at cushion_h * 1.30 — the rail cap is NOT a step above the cushion,
+     * other at cue_table_cush_top (cushion_h * 1.30, or the K55 sliver on US tables) — the rail cap is NOT a step above the cushion,
      * they are one surface. (cushion_h itself is the ball-CONTACT line at 63.5%
      * of ball height, which is a different thing again and easy to mistake for
      * the top of the cushion.)
@@ -7054,7 +7586,7 @@ float cue_table_surface(const CueTable *t, float x, float z) {
      * cue is a cylinder resting on a surface: its centreline sits one shaft
      * radius above, which cue_elev_for already adds, and there is nothing left
      * to account for. */
-    return t->cushion_h * 1.30f;
+    return cue_table_cush_top(t);
 }
 
 /* Elevation needed for the shaft to sit above `surf` at distance `dd` back. */

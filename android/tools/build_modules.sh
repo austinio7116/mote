@@ -36,8 +36,17 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$PUBLISH" = 1 ]; then
-    [ "$ABI" != host ] || { echo "build_modules: --publish needs a real --abi" >&2; exit 1; }
-    [ -n "$OUT" ] || OUT="$ROOT/docs/games/android/$ABI"
+    if [ "$ABI" = host ]; then
+        # The host build is glibc/x86-64 — the Steam Deck bundle and any x86-64
+        # Linux desktop. It is deliberately NOT published under
+        # docs/games/android/x86_64: that key means Android-x86_64, which is
+        # Bionic, and an Android x86 device (emulator, ChromeOS's Android
+        # runtime) downloading a glibc .so would fail to load it. Separate
+        # platform, separate directory, separate manifest block.
+        [ -n "$OUT" ] || OUT="$ROOT/docs/games/linux/$(uname -m)"
+    else
+        [ -n "$OUT" ] || OUT="$ROOT/docs/games/android/$ABI"
+    fi
 fi
 
 [ -n "$OUT" ] || OUT="$ROOT/build_android/modules${ABI:+/}${ABI#host}"
@@ -46,6 +55,7 @@ mkdir -p "$OUT"
 
 if [ "$ABI" = host ]; then
     CC=${CC:-gcc}
+    STRIP=${STRIP:-strip}
     PIC=-fPIC
 else
     NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK:-}}"
@@ -105,9 +115,21 @@ for g in "${GAMES[@]}"; do
     fi
     cf=()
     [ -f "$dir/cflags" ] && while read -r tok; do cf+=("$tok"); done < <(sed 's/#.*//' "$dir/cflags" | tr -s ' \n' '\n' | sed '/^$/d')
+    # src/test_*.c are developer harnesses, each with its own main() — see the
+    # cue_test_* targets in CMakeLists.txt. They must never go into a game
+    # module: linking them gives "multiple definition of main" and the whole
+    # game fails to build (this is why thumbycue had no host module).
+    srcs=()
+    for f in "$dir"/src/*.c; do
+        case "${f##*/}" in test_*.c) continue;; esac
+        srcs+=("$f")
+    done
+    if [ "${#srcs[@]}" -eq 0 ]; then
+        echo "  skip $g (only test harnesses in src/)"; continue
+    fi
     if "$CC" -shared $PIC -O2 -ffast-math -DMOTE_HOST=1 \
              "${LENIENT[@]}" "${cf[@]}" "${INCS[@]}" -I"$dir/src" \
-             "$dir"/src/*.c -lm -o "$OUT/libmg_$g.so" 2> "$OUT/$g.log"; then
+             "${srcs[@]}" -lm -o "$OUT/libmg_$g.so" 2> "$OUT/$g.log"; then
         # Published modules are downloaded over a phone connection, so drop the
         # symbol table — nothing dlsym's a game beyond its four ABI symbols.
         [ "$PUBLISH" = 1 ] && "${STRIP:-true}" --strip-unneeded "$OUT/libmg_$g.so" 2>/dev/null || true

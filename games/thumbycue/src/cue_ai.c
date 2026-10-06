@@ -146,6 +146,9 @@ typedef struct {
      * the table, so threading the gap is exactly the white's path CROSSING
      * z = 0 at an x between the two spots. One test per step. */
     int cue_gap;
+    /* COMBINED PYRAMID: did the stroke satisfy rule 20 (cue_rules_pyr_rule20,
+     * from the simulation's own event log) */
+    int pyr20;
 } AiSim;
 
 /* ---- what "power01 = 1" means --------------------------------------------- *
@@ -532,6 +535,9 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
                    AiSim *out) {
     s_sw = *w;
     s_sw._acc = 0.0f;
+    /* every ball's events, for Combined Pyramid's rule 20 (cheap, and asked
+     * of only when that game is on) */
+    s_sw.pev_on = 1;
     cue_phys_shot_begin(&s_sw);
     for (int i = 0; i < n; i++) {
         s_sb[i] = balls[i];
@@ -635,6 +641,7 @@ static void ai_sim(const CueWorld *w, const CueTable *t,
      * it thinks was clean. */
     #define AI_SIM_GONE(bb) (!(bb).on || (bb).drop > 0.0f)
     out->cue_end = s_sb[cue_idx].pos;
+    out->pyr20 = cue_rules_pyr_rule20(&s_sw, n);
     out->cue_potted = AI_SIM_GONE(s_sb[cue_idx]);
     out->cue_hole = (out->cue_potted && !s_sb[cue_idx].on &&
                      s_sb[cue_idx].pocket != CUE_OFF_TABLE)
@@ -752,6 +759,13 @@ static int bil_direct_banned(const AiCtx *c, int i) {
 
 static int ai_scratch_is_foul(const AiCtx *c) {
     if (c->r->mode == CUE_GAME_BARBILLIARDS) return 0;
+    /* FREE PYRAMID: the struck ball down a pocket after a contact is a ball
+     * scored (the свояк), not an in-off; a stroke that hits nothing is caught
+     * as a bad first contact whatever went down. */
+    if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_FREE) return 0;
+    /* COMBINED PYRAMID: the cue ball potted off a ball is a score and a shot
+     * from the kitchen (5.2), the "свояк" the game is played for */
+    if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_COMBINED) return 0;
     if (c->r->mode == CUE_GAME_COWBOY) return c->r->score[c->r->turn] < 100;
     return 1;
 }
@@ -792,6 +806,55 @@ static int ai_value_m(int mode, int id) {
     return 1;                                                       /* red / pool */
 }
 static int ai_value(int id) { return ai_value_m(0, id); }
+
+/* ---- SINUCA BRASILEIRA ------------------------------------------------
+ *
+ * The lowest ball up is the ball on, and every other one may be played -- at
+ * the start of a visit, or as the second colour after a free one -- with a
+ * castigo: seven to the opponent if it does not go in. So two questions the
+ * rest of the planner asks with cue_rules_ball_legal need sharper answers
+ * here: which balls are worth POTTING (all of them, but the castigo ones only
+ * when the pot is near certain), and which may be played SAFE (only the ball
+ * on -- a colour played safe is a castigo foul, or a discipline one when it
+ * is free). */
+static int ai_sn_on(const CueBall *b, int n) {
+    int lo = 0;
+    for (int i = 1; i < n; i++) {
+        if (!b[i].on) continue;
+        const int v = ai_value(b[i].id);
+        if (v > 0 && (lo == 0 || v < lo)) lo = v;
+    }
+    return lo;
+}
+static int ai_sn_castigo(const AiCtx *c, int id) {
+    if (c->r->mode != CUE_GAME_SINUCA || c->r->break_shot) return 0;
+    if (c->r->sn_phase != CUE_SN_OPEN && c->r->sn_phase != CUE_SN_CAST) return 0;
+    return ai_value(id) != ai_sn_on(c->b, c->n);
+}
+/* ---- THE MESINHA -----------------------------------------------------
+ * Its two groups: odd against even with the 1 as the money ball, or 1-7
+ * against 9-15 (mata-mata, and bola 8 with the 8 between). As cue_rules.c's
+ * mz_group: 1 or 2, 0 for the money ball or the 8. */
+static int ai_mz_group(int mode, int id) {
+    if (id <= 0) return 0;
+    if (mode == CUE_GAME_MESINHA_MM || mode == CUE_GAME_MESINHA8)
+        return (id >= 1 && id <= 7) ? 1 : (id >= 9 && id <= 15) ? 2 : 0;
+    if (id < 2 || id > 15) return 0;
+    return (id & 1) ? 1 : 2;
+}
+static int ai_mz_left(const AiCtx *c, int grp, int skip) {
+    int k = 0;
+    for (int i = 1; i < c->n; i++)
+        if (i != skip && c->b[i].on && ai_mz_group(c->r->mode, c->b[i].id) == grp) k++;
+    return k;
+}
+
+/* A ball that may be the first contact of a SAFETY or a kick. */
+static int ai_safe_legal(const AiCtx *c, int id) {
+    if (c->r->mode == CUE_GAME_SINUCA)
+        return id > 0 && ai_value(id) == ai_sn_on(c->b, c->n);
+    return cue_rules_ball_legal(c->r, c->b, c->n, id);
+}
 
 /* POT ANYTHING, IN ANY ORDER — which is Paul, and nothing else that reaches the
  * general planner. Bar billiards and golf are pot-anything too and both take
@@ -1009,6 +1072,20 @@ static Vec3 pocket_aim_t(const AiCtx *c, int pk, Vec3 target) {
  * simulated one, so "what did this shot open up" can be measured on the balls
  * as they finished rather than guessed at from where they started. NULL for
  * either means "use the live table". */
+/* IS SLOT i THE BALL BEING STRUCK? By id everywhere it always was -- and by
+ * SLOT in free pyramid, where any ball may be cued: the host puts the struck
+ * ball in slot 0, and the yellow (which wears the cue ball's id) is then an
+ * object ball like any other. Asked by id there, the planner saw through the
+ * yellow and treated its own cue ball as an obstacle. */
+static int ai_is_cue(const AiCtx *c, int i) {
+    if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_FREE) return i == 0;
+    /* ENGLISH BILLIARDS TOO: on the yellow, the OBJECT white wears CUE_ID_CUE,
+     * and asked by id the planner saw through it and took the yellow in its
+     * own hand for an obstacle. Slot 0 is the striker's ball there as well. */
+    if (c->r->mode == CUE_GAME_BILLIARDS) return i == 0;
+    return c->b[i].id == CUE_ID_CUE;
+}
+
 static int path_clear_at(const AiCtx *c, Vec3 start, Vec3 end, int exclude,
                          const Vec3 *pos, const int *on) {
     Vec3 dir = sub2(end, start);
@@ -1018,7 +1095,7 @@ static int path_clear_at(const AiCtx *c, Vec3 start, Vec3 end, int exclude,
     float clr = c->contact;
     for (int i = 0; i < c->n; i++) {
         int alive = on ? on[i] : c->b[i].on;
-        if (i == exclude || !alive || c->b[i].id == CUE_ID_CUE) continue;
+        if (i == exclude || !alive || ai_is_cue(c, i)) continue;
         Vec3 bp = pos ? pos[i] : c->b[i].pos;
         Vec3 tb = sub2(bp, start);
         float proj = dot2(tb, nd);
@@ -1031,6 +1108,53 @@ static int path_clear_at(const AiCtx *c, Vec3 start, Vec3 end, int exclude,
 }
 static int path_clear(const AiCtx *c, Vec3 start, Vec3 end, int exclude) {
     return path_clear_at(c, start, end, exclude, NULL, NULL);
+}
+
+/* ...AND OF THE CUSHIONS. path_clear asks about balls and nothing else, so a
+ * line the cue ball cannot travel because a JAW is in the way read as open.
+ * It mattered most where a ball hangs between a pocket's facings: the planner
+ * saw a sure pot, played it, and the cue ball met the nose's round instead of
+ * the ball -- seen on the Brazilian mesao's corners, where the facings run a
+ * long way back and a ball can sit deep between them, as five fouls in a row
+ * (2026-10-01). A ball of radius `rad` sweeping start->end is blocked by any
+ * cushion segment or jaw circle it would have to pass through. A cushion the
+ * ball is already resting against at the start is not counted: it is leaving
+ * it, not running into it. */
+static float ai_seg_dist(Vec3 p, Vec3 a, Vec3 b) {
+    const float ex = b.x - a.x, ez = b.z - a.z, l2 = ex*ex + ez*ez;
+    float t = (l2 > 1e-12f) ? ((p.x - a.x)*ex + (p.z - a.z)*ez) / l2 : 0.0f;
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    const float dx = p.x - (a.x + ex*t), dz = p.z - (a.z + ez*t);
+    return sqrtf(dx*dx + dz*dz);
+}
+static int ai_segs_cross(Vec3 a, Vec3 b, Vec3 c, Vec3 d) {
+    const float d1 = (d.x-c.x)*(a.z-c.z) - (d.z-c.z)*(a.x-c.x);
+    const float d2 = (d.x-c.x)*(b.z-c.z) - (d.z-c.z)*(b.x-c.x);
+    const float d3 = (b.x-a.x)*(c.z-a.z) - (b.z-a.z)*(c.x-a.x);
+    const float d4 = (b.x-a.x)*(d.z-a.z) - (b.z-a.z)*(d.x-a.x);
+    return ((d1 > 0) != (d2 > 0)) && ((d3 > 0) != (d4 > 0));
+}
+static int rails_clear(const AiCtx *c, Vec3 start, Vec3 end, float rad) {
+    const CueWorld *w = c->w;
+    const float slack = 0.0005f;           /* half a millimetre of grace */
+    for (int sg = 0; sg < w->nseg; sg++) {
+        const Vec3 a = w->seg[sg].a, b = w->seg[sg].b;
+        if (ai_seg_dist(start, a, b) < rad + 0.001f) continue;   /* resting on it */
+        float d = ai_segs_cross(start, end, a, b) ? 0.0f : 1e9f;
+        if (d > 0.0f) {
+            float e;
+            e = ai_seg_dist(a, start, end); if (e < d) d = e;
+            e = ai_seg_dist(b, start, end); if (e < d) d = e;
+            e = ai_seg_dist(end, a, b);     if (e < d) d = e;
+        }
+        if (d < rad - slack) return 0;
+    }
+    for (int j = 0; j < w->njaw; j++) {
+        const float jr = cue_jaw_radius(w, j);
+        if (d2(start, w->jaw[j]) < rad + jr + 0.001f) continue;
+        if (ai_seg_dist(w->jaw[j], start, end) < rad + jr - slack) return 0;
+    }
+    return 1;
 }
 
 /* ---- RUSSIAN PYRAMID'S POCKETS ARE THE GAME ------------------------------
@@ -1144,6 +1268,11 @@ static float score_shot(const AiCtx *c, float cut, float dg, float dpk,
     float pdS = fmaxf(0.0f, 100.0f - (dpk / md) * 80.0f);
     float s = cutS*0.34f + distS*0.23f + pdS*0.43f + powS*0.25f + 10.0f;
     if (c->snooker) s += (ai_value_m(c->r->mode, target_id) - 1) * 5.0f;
+    /* THE CASTIGO. A miss here is seven to the other side and the table to
+     * them as well, so a colour with a castigo has to be a much better pot
+     * than the ball on before it is the shot: enough to outweigh its own value
+     * bonus, a 7 included, by a clear margin. */
+    if (ai_sn_castigo(c, target_id)) s -= 45.0f;
     return s;
 }
 
@@ -1184,6 +1313,22 @@ static int next_targets(const AiCtx *c, int just_idx, int *out_idx) {
             if (c->b[i].on && i != just_idx) out_idx[cnt++] = i;
         return cnt;
     }
+    if (c->r->mode == CUE_GAME_SINUCA) {
+        /* After the ball on (in its turn) any ball is free; after a colour
+         * that opened the visit, the ball on; after a free colour, the ball on
+         * or another colour. A colour comes back, so it is still there. */
+        const int on = ai_sn_on(c->b, c->n);
+        const int ph = c->r->break_shot ? CUE_SN_ON : c->r->sn_phase;
+        const int ball_on = (ai_value(jid) == on && ph != CUE_SN_FREE);
+        if (ball_on || ph == CUE_SN_FREE) {
+            for (int i = 1; i < c->n; i++)
+                if (c->b[i].on && (i != just_idx || !ball_on)) out_idx[cnt++] = i;
+        } else {
+            for (int i = 1; i < c->n; i++)
+                if (c->b[i].on && ai_value(c->b[i].id) == on) out_idx[cnt++] = i;
+        }
+        return cnt;
+    }
     if (c->snooker) {
         int potting_red = (jid < CUE_ID_YELLOW);
         if (potting_red) {                       /* red → a colour next */
@@ -1222,6 +1367,20 @@ static int next_targets(const AiCtx *c, int just_idx, int *out_idx) {
                 if (best >= 0) out_idx[cnt++] = best;
             }
         }
+    } else if (CUE_GAME_IS_MESINHA(c->r->mode)) {
+        /* THE REST OF YOURS, and when this one clears them, the money ball or
+         * the 8 -- the same as 8-ball below, in the mesinha's own groups. */
+        const int mine = c->r->open ? 0 : c->r->group[c->r->turn];
+        const int last = CUE_GAME_IS_PARIMPAR_BAR(c->r->mode) ? 1
+                       : (c->r->mode == CUE_GAME_MESINHA8) ? 8 : 0;
+        int fin = -1, remaining = 0;
+        for (int i = 1; i < c->n; i++) {
+            if (!c->b[i].on || i == just_idx) continue;
+            const int id = c->b[i].id, g = ai_mz_group(c->r->mode, id);
+            if (last && id == last) { fin = i; continue; }
+            if (g && (mine == 0 || g == mine)) { out_idx[cnt++] = i; remaining++; }
+        }
+        if (remaining == 0 && fin >= 0) out_idx[cnt++] = fin;
     } else if (CUE_GAME_IS_ROTATION(c->r->mode)) {
         /* The rotation games: the NEXT ball-on is the lowest still on the table
          * once the ball we're about to pot is gone. (cue_rules_ball_legal only
@@ -1294,7 +1453,7 @@ static int ghost_fits(const AiCtx *c, Vec3 tp, int pk, int self,
     float clr = c->contact;
     for (int i = 0; i < c->n; i++) {
         int alive = on ? on[i] : c->b[i].on;
-        if (i == self || !alive || c->b[i].id == CUE_ID_CUE) continue;
+        if (i == self || !alive || ai_is_cue(c, i)) continue;
         Vec3 bp = pos ? pos[i] : c->b[i].pos;
         if (d2(bp, g) < clr) return 0;
     }
@@ -1318,7 +1477,7 @@ static int ball_is_open(const AiCtx *c, int i, const Vec3 *pos, const int *on) {
 static int open_targets(const AiCtx *c, const Vec3 *pos, const int *on) {
     int cnt = 0;
     for (int i = 0; i < c->n; i++) {
-        if (c->b[i].id == CUE_ID_CUE) continue;
+        if (ai_is_cue(c, i)) continue;
         if (on ? !on[i] : !c->b[i].on) continue;
         /* The pack that matters: reds at snooker, our own group at pool. */
         /* AT PAUL THE PACK IS THE WHOLE TABLE, so it asks the rules like the
@@ -1365,7 +1524,7 @@ static int cue_crowd(const AiCtx *c, Vec3 cue_end, const Vec3 *pos, const int *o
     float r = K_CROWD * c->t->R, r2 = r * r;
     int cnt = 0;
     for (int i = 0; i < c->n; i++) {
-        if (c->b[i].id == CUE_ID_CUE) continue;
+        if (ai_is_cue(c, i)) continue;
         if (on ? !on[i] : !c->b[i].on) continue;
         Vec3 tp = pos ? pos[i] : c->b[i].pos;
         float dx = tp.x - cue_end.x, dz = tp.z - cue_end.z;
@@ -1860,6 +2019,8 @@ static int eval_pot(const AiCtx *c, int tidx, int pk,
     int near = dpk < R*4.0f;
     if (cut > (near ? 75.0f : 70.0f)) return 0;
     if (!path_clear(c, cue, ghost, tidx)) return 0;
+    /* the cue ball has to be able to get there past the cushions, too */
+    if (!rails_clear(c, cue, ghost, c->contact - c->t->R)) return 0;
 
     float dg = d2(cue, ghost);
     float diff = potting_difficulty(c, cue, target, pk);
@@ -1900,6 +2061,14 @@ static struct { int target_id, hit_id; } s_foul[FOUL_MEM];
 static int s_nfoul;
 
 void cue_ai_note_foul(int target_id, int hit_id) {
+    /* ONLY A FOUL ON A BALL IT DID NOT MEAN TO HIT. The memory is there to
+     * steer the aim off a ball that was clipped on the way; a foul off the
+     * TARGET itself -- Sinuca's castigo, a pot that missed, an in-off after a
+     * clean contact -- was recorded too, and then every later shot at that ball
+     * was turned away from it. In Sinuca that missed the ball entirely, which
+     * fouled again, which was recorded again: five fouls in a row on a ball
+     * hanging over the pocket (2026-10-01). */
+    if (hit_id == target_id) return;
     for (int i = 0; i < s_nfoul; i++)
         if (s_foul[i].target_id == target_id && s_foul[i].hit_id == hit_id) return;
     if (s_nfoul == FOUL_MEM) {
@@ -2126,6 +2295,18 @@ static int find_banks(const AiCtx *c, Cand *out, int cap) {
                 Vec3 hit = v3(target.x + tm.x*tt, 0, target.z + tm.z*tt);
                 if (!path_clear(c, target, hit, i)) continue;
                 if (!path_clear(c, hit, ap, i)) continue;
+                /* NOT OFF THE POCKET'S OWN RAIL. A rail that ends at the
+                 * pocket is no bank into it (cue_phys_banked), so a mirror in
+                 * the half of a side rail running into this corner, or the
+                 * end rail under it, is a shot that scores nothing. Judged at
+                 * the point on the cushion the ball touches, as the referee
+                 * judges it. */
+                {   float cx = hit.x, cz = hit.z;
+                    if (rail == 0) cx += R; else if (rail == 1) cx -= R;
+                    else if (rail == 2) cz += R; else cz -= R;
+                    int pa = -1, pb = -1;
+                    if (cue_phys_rail_at(c->w, cx, cz, &pa, &pb) >= 0 &&
+                        (pa == pk || pb == pk)) continue; }
 
                 Vec3 aimv = nrm2(sub2(ghost, cue));
                 float cut = acosf(clampf(dot2(aimv, gdir), -1, 1)) * DEG;
@@ -2460,7 +2641,7 @@ static int find_safety(const AiCtx *c, Cand *out, uint32_t *rng) {
 
     for (int i = 1; i < c->n; i++) {
         if (!c->b[i].on) continue;
-        if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
+        if (!ai_safe_legal(c, c->b[i].id)) continue;
         Vec3 target = c->b[i].pos;
         Vec3 base = nrm2(sub2(target, cue));
 
@@ -2565,7 +2746,7 @@ static int find_kick(const AiCtx *c, uint32_t *rng, Cand *out) {
     memset(kick, 0, sizeof kick);
     int skip = s_nfoul;                  /* one fouled escape, try the next one */
     for (int i = 1; i < c->n; i++) {
-        if (!c->b[i].on || !cue_rules_ball_legal(c->r, c->b, c->n, c->b[i].id)) continue;
+        if (!c->b[i].on || !ai_safe_legal(c, c->b[i].id)) continue;
         Vec3 tp = c->b[i].pos;
         for (int rail = 0; rail < 4; rail++) {
             Vec3 mp;                       /* target mirrored across the rail nose */
@@ -2588,7 +2769,7 @@ static int find_kick(const AiCtx *c, uint32_t *rng, Cand *out) {
             Vec3 rdir = (rail < 2) ? v3(aimd.x,0,-aimd.z) : v3(-aimd.x,0,aimd.z);
             int fb = first_hit_along(c, H, rdir, 10.0f);
             if (fb < 0) continue;
-            if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[fb].id)) continue;  /* would foul */
+            if (!ai_safe_legal(c, c->b[fb].id)) continue;  /* would foul */
             float dHT = d2(H, c->b[fb].pos);
             float score = (fb == i ? 25.0f : 0.0f) - d1 - dHT;   /* prefer the on-ball, short path */
             if (nk < KICK_MAX) {
@@ -2651,7 +2832,7 @@ static int find_kick(const AiCtx *c, uint32_t *rng, Cand *out) {
                0.0f, 0.0f, &sm);
         if (sm.cue_potted) continue;
         if (sm.first_hit_idx <= 0) continue;
-        if (!cue_rules_ball_legal(c->r, c->b, c->n, c->b[sm.first_hit_idx].id)) continue;
+        if (!ai_safe_legal(c, c->b[sm.first_hit_idx].id)) continue;
         bc = kick[bi];
         bc.simmed = 1; bc.cue_end = sm.cue_end; bc.bad_first = 0;
         bc.tidx = sm.first_hit_idx;      /* the ball it really reaches */
@@ -2770,7 +2951,12 @@ static struct {
      * shape -- a ball, an aim, a pace, and a hole it means. This says which
      * game's scoring bb_tick should price it with. */
     int bp;
+    /* FREE PYRAMID: the slot of the ball this plan cues, in the CALLER's
+     * array. The plan itself runs on s_free_b, a copy with that ball swapped
+     * into slot 0; the host swaps it the same way before the stroke. */
+    int free_k;
 } P;
+static CueBall s_free_b[CUE_MAX_BALLS];
 
 /* The best SIMULATED safety in the pool, or -1. Safeties carry pk < 0. */
 static int best_safety_idx(void) {
@@ -3025,6 +3211,8 @@ static void plan_finalize(void) {
                                            &q->rawpot);
             fold_breakout(c, q, fin.end_pos, fin.on);
         }
+        else if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_COMBINED && !q->scratch)
+            { q->posScore = 80.0f; q->brk = 0.0f; q->freed = 0; }   /* the свояк: from the kitchen */
         else { q->posScore = 0.0f; q->brk = 0.0f; q->freed = 0; }
     }
     /* re-rank the corrected few on the same key */
@@ -3206,6 +3394,19 @@ static void plan_finalize(void) {
     minConf += urg * 35.0f;        /* needing snookers → only attack near-certain pots */
     if (P.miss_caution) minConf += K_MISSCAUT;   /* one miss down: play the percentages */
     if (s_ai_never_safe) minConf = 0.0f;       /* a practice target: the pot, always */
+    /* SINUCA'S CASTIGO, AGAIN, at the point of decision. The score already
+     * carries the price, but a miss gives seven AND the table away, so a
+     * colour played at that risk has to clear a higher bar than an ordinary
+     * pot does; below it the shot is the ball on, or a safety on it.
+     *
+     * NINETY, measured. On the mesao a mid-table player (Professor Pete, six
+     * frames) potted 56% of what he rated 60-74 and 64% of 75-89, and every
+     * one of 23 he rated 90 or more. A 60% pot that costs seven when it misses
+     * is a losing shot whatever the colour is worth; only the sure ones pay. */
+    if (!s_ai_never_safe && best.tidx > 0 && best.tidx < c->n &&
+        ai_sn_castigo(c, c->b[best.tidx].id) &&
+        best.potScore < fmaxf(minConf + 30.0f, 90.0f))
+        best_unsafe = 1;
     if (best_unsafe || best.potScore < minConf) {
         /* The safeties are already in the pool and already through the engine —
          * this picks the best VERIFIED one rather than re-running the analytic
@@ -5003,11 +5204,43 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * below fits it — see the block above bb_gen for what it assumes and why
      * none of it is true here. */
     P.bp = 0;
+    P.free_k = 0;
     if (r->mode == CUE_GAME_BARBILLIARDS) { bb_plan_start(); return; }
     /* BUMPER POOL PLAYS ITS OWN GAME TOO, and for the same reason: there is no
      * cue ball, so "send the white into an object ball" describes nothing that
      * happens here. See bp_gen. */
     if (r->mode == CUE_GAME_BUMPER) { bp_plan_start(); return; }
+
+    /* FREE PYRAMID: WHICH BALL TO CUE is decided the way this planner already
+     * decides WHICH POT -- by eval_pot's geometry, before anything is
+     * simulated. Every ball on the table is tried in slot 0 of a copy and
+     * every legal target and pocket scored from it (step 1 below, widened by
+     * one loop); the cue ball of the best pot is kept, and the whole plan then
+     * runs once, on that copy, at the ordinary budget. With no pot from any
+     * ball it stays on the ball in slot 0 and the usual bank/safety search
+     * takes it from there. */
+    if (CUE_GAME_IS_PYRAMID(r->mode) && r->pyr_free == CUE_PYR_FREE && !r->break_shot) {
+        int bestk = 0; float bestp = -1e30f, bests = -1e30f;
+        for (int k = 0; k < n; k++) {
+            if (!balls[k].on) continue;
+            memcpy(s_free_b, balls, sizeof(CueBall) * (size_t)n);
+            { CueBall tb = s_free_b[0]; s_free_b[0] = s_free_b[k]; s_free_b[k] = tb; }
+            c->b = s_free_b;
+            for (int i = 1; i < n; i++) {
+                if (!s_free_b[i].on) continue;
+                if (!cue_rules_ball_legal(r, s_free_b, n, s_free_b[i].id)) continue;
+                for (int pk = 0; pk < w->npocket; pk++) {
+                    float bp, bs;
+                    if (!eval_pot(c, i, pk, &bp, &bs)) continue;
+                    if (bp > bestp || (bp == bestp && bs > bests)) { bestp = bp; bests = bs; bestk = k; }
+                }
+            }
+        }
+        memcpy(s_free_b, balls, sizeof(CueBall) * (size_t)n);
+        { CueBall tb = s_free_b[0]; s_free_b[0] = s_free_b[bestk]; s_free_b[bestk] = tb; }
+        balls = s_free_b; c->b = s_free_b;
+        P.free_k = bestk;
+    }
 
     /* 0a. Two misses already. A third forfeits the frame, so nothing else
      * matters: find the nearest ball-on with a clear path and hit it in the
@@ -5523,14 +5756,14 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
          * don't clip an illegal ball on the way and give away a foul) */
         int bestn = -1; float bestd = 1e9f;
         for (int i = 1; i < n; i++) {
-            if (!balls[i].on || !cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+            if (!balls[i].on || !ai_safe_legal(c, balls[i].id)) continue;
             if (!path_clear(c, balls[0].pos, balls[i].pos, i)) continue;
             float dd = d2(balls[0].pos, balls[i].pos);
             if (dd < bestd) { bestd = dd; bestn = i; }
         }
         if (bestn < 0)   /* nothing with a clear path — aim at nearest legal anyway */
             for (int i = 1; i < n; i++)
-                if (balls[i].on && cue_rules_ball_legal(r, balls, n, balls[i].id)) {
+                if (balls[i].on && ai_safe_legal(c, balls[i].id)) {
                     float dd = d2(balls[0].pos, balls[i].pos);
                     if (dd < bestd) { bestd = dd; bestn = i; }
                 }
@@ -5568,7 +5801,7 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
                      * a hole is the score of that hole (Rule 97). */
                     if (sm.cue_potted && r->mode != CUE_GAME_BARBILLIARDS) continue;
                     if (sm.first_hit_idx <= 0) continue;
-                    if (!cue_rules_ball_legal(r, balls, n, balls[sm.first_hit_idx].id)) continue;
+                    if (!ai_safe_legal(c, balls[sm.first_hit_idx].id)) continue;
                     /* AND IT MUST NOT FELL A SKITTLE.
                      *
                      * This sweep is the one shot in the planner that asks only
@@ -6314,6 +6547,13 @@ int cue_ai_plan_tick(void) {
          * applies, and it is the safety player's foul: a soft roll-up that
          * stops short of a cushion. Treated exactly like a bad first contact so
          * the same 1000-point veto keeps it out of the chosen shot. */
+        /* COMBINED PYRAMID asks more than a cushion: rule 20, from the
+         * simulation's own events -- the referee's test, so a safety the
+         * machine plays is one the referee passes. The cue ball down off a
+         * ball is a pot. */
+        if (CUE_GAME_IS_PYRAMID(c->r->mode) && c->r->pyr_free == CUE_PYR_COMBINED) {
+            if (!v->bad_first && sim.npotted == 0 && !sim.cue_potted && !sim.pyr20) v->bad_first = 1;
+        } else
         if (!v->bad_first && rail_required(c) && sim.npotted == 0 && !sim.cushion)
             v->bad_first = 1;
 
@@ -6342,6 +6582,22 @@ int cue_ai_plan_tick(void) {
             for (int k = 0; k < sim.npotted; k++)
                 if (sim.potted[k] == v->tidx) { dropped = 1; break; }
             v->pot_fails = !dropped;
+        }
+        /* THE MESINHA'S VETOES. The money ball or the 8 down before your
+         * group is clear is the frame lost; one of theirs down is a foul paid
+         * in balls. Neither is a weighting. */
+        if (CUE_GAME_IS_MESINHA(c->r->mode) && !v->bad_first) {
+            const int mode = c->r->mode;
+            const int last = CUE_GAME_IS_PARIMPAR_BAR(mode) ? 1 : (mode == CUE_GAME_MESINHA8) ? 8 : 0;
+            const int mine = c->r->open ? 0 : c->r->group[c->r->turn];
+            const int on_last = mine && ai_mz_left(c, mine, -1) == 0;
+            for (int k = 0; k < sim.npotted; k++) {
+                const int bi = sim.potted[k];
+                if (bi <= 0 || bi >= c->n) continue;
+                const int id = c->b[bi].id, g = ai_mz_group(mode, id);
+                if (last && id == last && !on_last) { v->bad_first = 1; break; }
+                if (mine && g && g != mine) { v->bad_first = 1; break; }
+            }
         }
         /* ---- ENGLISH BILLIARDS IS SCORED, NOT POTTED --------------------
          *
@@ -6624,6 +6880,13 @@ int cue_ai_plan_tick(void) {
         /* Bar billiards joins billiards here: its own ball going down is a
          * SCORE, so the leave is not worthless — it is simply the next shot
          * played from the D like every other. */
+        /* ...and COMBINED PYRAMID's свояк is the best leave there is: a point,
+         * a ball of our choice off, and the next shot from the kitchen with the
+         * cue ball in hand */
+        if (sim.cue_potted && !v->bad_first && CUE_GAME_IS_PYRAMID(c->r->mode) &&
+            c->r->pyr_free == CUE_PYR_COMBINED)
+            v->posScore = 80.0f;
+        else
         if (sim.cue_potted && c->r->mode != CUE_GAME_BILLIARDS &&
                               c->r->mode != CUE_GAME_BARBILLIARDS)
             v->posScore = 0;                          /* in-off → worthless leave */
@@ -6717,7 +6980,12 @@ int cue_ai_plan_tick(void) {
     return 0;
 }
 
-CueAIShot cue_ai_plan_result(void) { return to_caller_power(P.result); }
+CueAIShot cue_ai_plan_result(void) {
+    CueAIShot o = to_caller_power(P.result);
+    /* free pyramid: the ball it chose to cue, in the caller's array */
+    if (P.free_k > 0) o.strike_idx = P.free_k;
+    return o;
+}
 
 CueAIShot cue_ai_plan(const CueWorld *w, const CueTable *t, const CueRules *r,
                       const CueBall *balls, int n, const CuePersona *p,
@@ -6803,15 +7071,52 @@ int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
     if (hasPot)               return CUE_DEC_PLAY;
     if (pot.safe && pot.valid && pot.score > SAFE_GOOD)
         return CUE_DEC_PLAY;  /* a safety worth playing beats giving them a turn */
-    return CUE_DEC_REPLAY;    /* nothing on and nothing to play: let them solve it */
+    /* nothing on and nothing to play: let them solve it -- from HERE. This
+     * returned REPLAY, which with no restore on offer applied as PLAY: the
+     * machine meant to hand the table back and took it itself. */
+    return r->snk_again ? CUE_DEC_AGAIN : CUE_DEC_REPLAY;
+}
+
+/* THEIR PUSH-OUT, AND IT IS OURS TO ANSWER: play the table from here, or make
+ * them play it. Returns CUE_DEC_PLAY or CUE_DEC_AGAIN (hand it back).
+ *
+ * The question is the one after an ordinary foul with no restore on offer
+ * (cue_ai_decide's last rung), and the answer is the same: the table is the
+ * same table whoever plays it, so the only thing to weigh is whether we would
+ * rather be the one at it.
+ *
+ *   a pot the planner would go for       -> play on: it is a shot at the rack
+ *   no pot, but a safety worth the name  -> play on: hand it back and they
+ *                                           play that safety on us instead
+ *   neither -- snookered, or nothing on  -> hand it back: let them find it,
+ *                                           and a foul from there is ball in
+ *                                           hand to us
+ *
+ * The planner's own bar for "go for it" is the persona's (minConf), so a
+ * hustler takes on a push-out a professor gives back. r->turn is already the
+ * player answering: the push-out resolve moves it. */
+int cue_ai_pushout_respond(const CueWorld *w, const CueTable *t, const CueRules *r,
+                           const CueBall *balls, int n, const CuePersona *p,
+                           uint32_t *rng) {
+    CueRules mine = *r; mine.pushout_resp = 0;
+    CueAIShot pl = cue_ai_plan(w, t, &mine, balls, n, p, rng);
+    if (!pl.valid) return CUE_DEC_AGAIN;
+    if (!pl.safe) return CUE_DEC_PLAY;
+    if (pl.score > SAFE_GOOD) return CUE_DEC_PLAY;
+    return CUE_DEC_AGAIN;
 }
 
 CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r,
                          const CueBall *balls, int n, const CuePersona *p,
                          uint32_t *rng) {
+    /* THE BALLS HAVE A SIZE here too -- see cue_ai_place. Left at zero, every
+     * leave the search below weighed had a clear line from the white to the
+     * ball on, through any ball standing in the way, so the "medium" leave it
+     * picked could be a snooker it had measured as a fair pot. */
     AiCtx c = { .w = w, .t = t, .r = r, .b = balls, .n = n, .p = p,
                 .S = 12.0f / t->R, .maxdist_m = fmaxf(t->half_len, t->half_wid) * 2.0f,
-                .snooker = t->is_snooker };
+                .snooker = t->is_snooker,
+                .contact = (t->cue_R > 0.0f) ? (t->cue_R + t->R) : (2.0f * t->R) };
     CueAIShot out; memset(&out, 0, sizeof out); out.target_pocket = -1;
     out.safe = 1; out.valid = 1; out.power01 = 0.22f;
 
@@ -7268,4 +7573,63 @@ int cue_ai_open_targets(const CueWorld *w, const CueTable *t, const CueRules *r,
     c.w = w; c.t = t; c.r = r; c.b = balls; c.n = n;
     c.S = 12.0f / t->R; c.snooker = t->is_snooker;
     return open_targets(&c, NULL, NULL);
+}
+
+/* ---- THE MESINHA'S TWO CHOICES, MADE BY THE MACHINE -----------------------
+ *
+ * How pottable a ball is from where the white stands: the best of the
+ * planner's own difficulty over every pocket it can reach, with the white's
+ * path and the ball's path to the pocket both clear. 0 = nothing on. */
+static float mz_pottable(const AiCtx *c, int i) {
+    const Vec3 cue = c->b[0].pos;
+    float best = 0.0f;
+    for (int pk = 0; pk < c->w->npocket; pk++) {
+        Vec3 ppos = c->w->pocket[pk];
+        if (!path_clear(c, c->b[i].pos, ppos, i)) continue;
+        Vec3 pdir = nrm2(sub2(ppos, c->b[i].pos));
+        Vec3 ghost = v3(c->b[i].pos.x - pdir.x*c->contact, 0, c->b[i].pos.z - pdir.z*c->contact);
+        if (!path_clear(c, cue, ghost, i)) continue;
+        const float d = potting_difficulty(c, cue, c->b[i].pos, pk);
+        if (d > best) best = d;
+    }
+    return best;
+}
+static AiCtx mz_ctx(const CueWorld *w, const CueTable *t, const CueRules *r,
+                    const CueBall *balls, int n) {
+    AiCtx c = { .w = w, .t = t, .r = r, .b = balls, .n = n, .p = &CUE_PERSONAS[0],
+                .S = 12.0f / t->R, .maxdist_m = fmaxf(t->half_len, t->half_wid) * 2.0f,
+                .snooker = 0,
+                .contact = (t->cue_R > 0.0f) ? (t->cue_R + t->R) : (2.0f * t->R) };
+    return c;
+}
+/* WHICH OF ITS OWN TO LIFT (mata-mata, bola 8): the one it would find hardest
+ * to pot, since every ball it keeps is one it still has to get in. */
+int cue_ai_mz_take(const CueWorld *w, const CueTable *t, const CueRules *r,
+                   const CueBall *balls, int n) {
+    AiCtx c = mz_ctx(w, t, r, balls, n);
+    int pick = -1; float worst = 1e9f;
+    for (int i = 1; i < n; i++) {
+        if (!balls[i].on || !cue_rules_ball_legal(r, balls, n, balls[i].id)) continue;
+        const float v = mz_pottable(&c, i);
+        if (v < worst) { worst = v; pick = i; }
+    }
+    return pick;
+}
+/* WHICH GROUP (CBBS par e impar, after a break that decided nothing): the one
+ * whose three easiest balls are easiest -- the visit it can start now. */
+int cue_ai_mz_group(const CueWorld *w, const CueTable *t, const CueRules *r,
+                    const CueBall *balls, int n) {
+    AiCtx c = mz_ctx(w, t, r, balls, n);
+    float top[3][3] = { { 0 } };
+    for (int i = 1; i < n; i++) {
+        if (!balls[i].on) continue;
+        const int g = cue_rules_mz_group(r->mode, balls[i].id);
+        if (g < 1 || g > 2) continue;
+        float v = mz_pottable(&c, i);
+        for (int k = 0; k < 3; k++)
+            if (v > top[g][k]) { const float t2 = top[g][k]; top[g][k] = v; v = t2; }
+    }
+    const float s1 = top[1][0] + top[1][1] + top[1][2];
+    const float s2 = top[2][0] + top[2][1] + top[2][2];
+    return (s2 > s1) ? 2 : 1;
 }

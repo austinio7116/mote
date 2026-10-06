@@ -456,7 +456,13 @@ const char *link_net_info(void) { return s_info; }   /* racy read of a short str
 /* Browse open public rooms: an ephemeral blocking query (own socket, doesn't
  * touch the link state). Fills `out` with "CODE LABEL\n" lines; returns the
  * room count, or <0 on error. Call from a worker thread (blocks up to ~2.5s). */
-int link_net_list(char *out, int max) {
+/* ONE LIST, TWO KINDS OF LINE: "ROOM" (open, to join) or "LIVE" (being
+ * played, to watch -- 6.3 relays). link_net_list keeps the first, exactly as
+ * it always has; link_net_list_live keeps the second. */
+static int link_net_list_kind(char *out, int max, const char *kind);
+int link_net_list(char *out, int max) { return link_net_list_kind(out, max, "ROOM "); }
+int link_net_list_live(char *out, int max) { return link_net_list_kind(out, max, "LIVE "); }
+static int link_net_list_kind(char *out, int max, const char *kind) {
     lk(); char host[128]; int port; unsigned gid; snprintf(host, sizeof host, "%s", s_relay_host); port = s_relay_port; gid = s_relay_gid; unl();
     if (!host[0] || max <= 0) return -1;
     if (net_boot() != 0) return -1;
@@ -483,7 +489,7 @@ int link_net_list(char *out, int max) {
         if (ch == '\n') {
             lb[ll] = 0;
             if (!strcmp(lb, "END")) break;
-            if (!strncmp(lb, "ROOM ", 5)) {                 /* "ROOM CODE LABEL" -> "CODE LABEL" */
+            if (!strncmp(lb, kind, 5)) {                    /* "ROOM CODE LABEL" -> "CODE LABEL" */
                 const char *e = lb + 5; int n = (int)strlen(e);
                 if (o + n + 1 < max) { memcpy(out + o, e, n); o += n; out[o++] = '\n'; rooms++; }
             }

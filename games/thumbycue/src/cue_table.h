@@ -84,7 +84,8 @@ typedef enum {
      * points on the table only fall, and the frame ends the moment one player
      * leads by more than is left. */
     CUE_GAME_PAUL,
-    /* G10: KILLER. The pub elimination game, two players for now: one shot
+    /* G10: KILLER. The pub elimination game, 2 to 8 players (the table goes
+     * round a drawn order: cue_rules_killer_setup): one shot
      * each, strictly alternating; pot any ball and you are safe, fail to pot
      * — or foul — and you lose one of your three lives. A scratch is a life
      * AND ball in hand. The table reracks when it runs dry with both still
@@ -182,6 +183,33 @@ typedef enum {
      * Appended for the reason all of these are: the kind is stored in
      * preferences and it crosses the wire. */
     CUE_GAME_BUMPER,
+    /* SINUCA BRASILEIRA: the CBBS game on the mesão, the federation's 2.84 by
+     * 1.42 m table with 54 mm balls. Seven balls, numbered 1 (red) to 7
+     * (black), the lowest on the table is the ball on and every other ball
+     * risks seven points; nothing but the ball on stays down. Mitred corners
+     * and round-cut middles, to the federation's own drawings (annexes F-N).
+     *
+     * SINUCA6 is the same table played as snooker with six reds -- the
+     * "sinuca mista" of annex C, the reds behind the pink. */
+    CUE_GAME_SINUCA,
+    CUE_GAME_SINUCA6,
+    /* THE MESINHA, Brazil's bar table: a 2.00 x 1.00 m bed (the 2.20 x 1.20
+     * table), 50 mm balls and a 54 mm white, plastic cup pockets cut to the
+     * CBBS shape at 64 mm corners and 69 mm middles. Five ways to play it,
+     * one kind each because the rack and the referee differ:
+     *   MESINHA      par ou impar, the bar game: odd against even, the 1 the
+     *                money ball on its own mark; boteco fouls (one ball, two
+     *                for hitting theirs first)
+     *   MESINHA_1B   the same, one ball off for any foul
+     *   MESINHA_PI   par e impar to the CBBS rules (2006): fourteen balls,
+     *                2 to 15, no money ball
+     *   MESINHA_MM   mata-mata: 1-7 against 9-15, no 8
+     *   MESINHA8     bola 8 */
+    CUE_GAME_MESINHA,
+    CUE_GAME_MESINHA_1B,
+    CUE_GAME_MESINHA_PI,
+    CUE_GAME_MESINHA_MM,
+    CUE_GAME_MESINHA8,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
@@ -211,6 +239,11 @@ typedef enum {
 #define CUE_GAME_MONEY_BALL(k) \
     (CUE_GAME_IS_ROT61(k) ? 15 : (k) == CUE_GAME_US10 ? 10 : 9)
 /* Both pyramid beds, wherever the game rather than the size is what matters. */
+#define CUE_GAME_IS_MESINHA(k) \
+    ((k) >= CUE_GAME_MESINHA && (k) <= CUE_GAME_MESINHA8)
+/* ...and the two that are par ou impar with the 1 as the money ball */
+#define CUE_GAME_IS_PARIMPAR_BAR(k) \
+    ((k) == CUE_GAME_MESINHA || (k) == CUE_GAME_MESINHA_1B)
 #define CUE_GAME_IS_PYRAMID(k) \
     ((k) == CUE_GAME_PYRAMID || (k) == CUE_GAME_PYRAMID7)
 /* legacy coarse aliases (kept so existing call sites read cleanly) */
@@ -590,6 +623,25 @@ typedef struct {
      * about the pocket, so one number sets both. */
     float jaw_ang_c;   /* degrees, corner */
     float jaw_ang_m;   /* degrees, middle */
+    /* A MIDDLE POCKET CUT AS AN ARC, which is a different jaw from the corner's.
+     *
+     * The Brazilian federation's table (CBBS, Regulamento 2008, annexes G, J and
+     * L) mitres its corners and rounds its middles: each middle jaw is one arc
+     * of 70 mm radius tangent to the nose, centred 70 mm behind it, and it
+     * stops 50 mm behind the nose where the throat is 95 mm across. From there
+     * the throat walls run straight, at a slight angle to where the arc left
+     * off. Neither the mitre nor the bezier jaw is that shape, and a table has
+     * one pocket_round for all six pockets, so the middle says so itself.
+     *
+     * jaw_arc_m is the arc's radius and jaw_arc_d_m how far behind the nose
+     * it stops. ZERO MEANS NOT AN ARC: the middle is cut the way pocket_round
+     * says, which is every table built before these existed. */
+    float jaw_arc_m;
+    float jaw_arc_d_m;
+    /* THE MIDDLES' KNUCKLE, on a mitred table, or 0 for jaw_r. A table had one
+     * rounding for all six; the mesinha's corners take the CBBS 37.6 mm round
+     * and its middles are cut sharp. */
+    float jaw_r_m;
     /* The rail: restitution at a crawl, how fast it falls with pace, and the
      * floor. See cue_table_rails for where the numbers come from. */
     float e_cush, cush_efall, e_cush_min;
@@ -689,6 +741,15 @@ typedef struct {
  *
  * Table space, metres, y up from the cloth. */
 float cue_table_rail_top(const CueTable *t);
+/* THE CUSHION TOP, which the wood cap is level with: 1.30 x the nose on every
+ * table but the American ones, which have K55 rubbers (Mark, 2026-10-03) -- no
+ * wall above the nose, just a 3 mm sliver, so the top and the frame are low. */
+float cue_table_cush_top(const CueTable *t);
+/* ...the top of the vertical face over the nose, and the slope from there back
+ * to the rail (0 on every table but the K55 ones, where the top climbs at 7
+ * degrees and cue_table_cush_top is where it meets the wood). */
+float cue_table_cush_face_top(const CueTable *t);
+float cue_table_cush_slope(const CueTable *t);
 /* The slate's thickness: 40 mm on a 12 ft bed, 30 mm on every smaller one. */
 float cue_table_slate_t(const CueTable *t);
 float cue_table_bore_bot(void);
@@ -871,6 +932,20 @@ enum {
     CUE_TAB_PRO = 0, CUE_TAB_TOURNAMENT, CUE_TAB_CLUB,
     CUE_TAB_L, CUE_TAB_HEX, CUE_TAB_OCT, CUE_TAB_ROUND,
     CUE_TAB_6FT, CUE_TAB_7FT, CUE_TAB_9FT, CUE_TAB_10FT, CUE_TAB_12FT,
+    /* RUSSIAN PYRAMID'S CLUB TABLES: the same beds with more forgiving
+     * pockets, as the clubs keep beside their tournament tables for players
+     * starting out (and tournaments are held on them under the federation's
+     * rules). Pyramid only. See cue_table_variant. */
+    CUE_TAB_PYR_CLUB12, CUE_TAB_PYR_CLUB7,
+    /* THE MESINHA'S OTHER TWO, by the outside size they are sold by: the
+     * 2.20 x 1.30 (a 2.00 x 1.10 cloth) and the 1.90 x 1.20 (1.70 x 1.00).
+     * Not 2:1, so not the uniform sizes above. Mesinha only. */
+    CUE_TAB_MZ_220x130, CUE_TAB_MZ_190x120,
+    /* THE NETS TABLES: UK 8-ball on the 6 ft or the 7 ft bed with string nets
+     * on plates into a collector, not drops into a tray, and a snooker baize
+     * on it. Rarer than the pub table: the occasional pub, pool club or small
+     * venue has one (Mark). UK 8-ball only. */
+    CUE_TAB_NETS6, CUE_TAB_NETS7,
     CUE_TAB_COUNT
 };
 /* Is this stop a bed SIZE? */
@@ -1239,6 +1314,10 @@ int cue_table_rack_14(const CueTable *t, CueBall *balls, int n);
 /* Clamp a desired placement to the legal ball-in-hand region (the D for
  * snooker/UK8, behind the head string for US pool). */
 Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p);
+/* Combined Pyramid: the house is at the far end for this placement (every
+ * object ball lies in the near one -- FBSR 21.2). The host sets it from
+ * CueRules.pyr_far; off everywhere else. */
+void cue_table_set_house_far(int on);
 /* The same, but also pushed clear of every ball already on the table. Use
  * this wherever the live balls are to hand: region-only clamping lets the
  * player park the cue ball inside another one, and the solver then fires the
@@ -1301,6 +1380,12 @@ Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
  * buried in the table (C2a), and "is the tip inside something" is this
  * question with the tip's own height compared against the answer. */
 #define CUE_TABLE_NO_SURFACE (-1.0e9f)
+/* THE DRAWN TABLE'S OWN HEIGHTS, when an app has them (CueVR builds them from
+ * the meshes it draws: cuevr_render's surface map). Set, it is asked first;
+ * it answers 1 and the height (or CUE_TABLE_NO_SURFACE) for a table it holds
+ * the drawing of, and 0 for any other, which then gets the model below.
+ * Unset (the Thumby), nothing changes. */
+extern int (*cue_table_surface_hook)(const CueTable *t, float x, float z, float *out);
 float cue_table_surface(const CueTable *t, float x, float z);
 
 float cue_table_min_elev(const CueTable *t, const CueBall *balls, int n,

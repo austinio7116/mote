@@ -422,9 +422,10 @@ static void cpu_decide(void) {
         return;
     }
     if (s_decide_type == 1) {                 /* push-out response */
-        CueAIShot s = plan_for(s_rules.turn);
-        if (!s.safe && s.valid) s_rules.pushout_resp = 0;                       /* decent shot → play */
-        else { s_rules.pushout_resp = 0; s_rules.turn = 1 - s_rules.turn; }     /* bad → pass back */
+        int d = cue_ai_pushout_respond(&s_world, &s_table, &s_rules, s_balls, s_n,
+                                       &CUE_PERSONAS[s_persona_p[s_rules.turn & 1]], &s_ai_rng);
+        s_rules.pushout_resp = 0;
+        if (d != CUE_DEC_PLAY) s_rules.turn = 1 - s_rules.turn;                 /* hand it back */
         return;
     }
     /* snooker foul: choose play / replay (put them back) / free ball */

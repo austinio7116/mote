@@ -184,8 +184,31 @@ typedef struct {
     uint8_t what;   /* CUE_TOUCH_* */
     uint8_t id;     /* the ball's id, for CUE_TOUCH_BALL */
     uint8_t idx;    /* ...and its index, since snooker reds share an id */
-    uint8_t _pad;
+    /* WHERE ALONG THE TABLE the cue ball was at this touch: its x as a
+     * fraction of play_x, 128 +- 127 (about 14 mm a step on a 12 ft bed).
+     * Billiards' Rule 6(d) turns on whether a cushion was in baulk or out of
+     * it, and "a cushion" alone could not say. The byte was padding, so the
+     * record keeps its size. cue_touch_x() decodes it. */
+    uint8_t xq;
 } CueTouch;
+
+/* THE STROKE'S EVENTS, EVERY BALL'S, IN ORDER (CueVR 6.5, Combined Pyramid).
+ * The pyramid rules ask of ANY ball whether it "bounced off a cushion and
+ * then touched another cushion, or brought a ball to another cushion, or
+ * crossed the centre line" (FBSR General Rules 20 and 12.1) -- questions about
+ * a sequence that only the integrator sees, and about every ball, where the
+ * touch log keeps the cue ball's alone. Kept only while pev_on is set, so no
+ * other game pays for it; filled inside the step, so both ends of a lockstep
+ * match fill it alike. */
+enum { CUE_PEV_RAIL = 1, CUE_PEV_BALL, CUE_PEV_XLINE };
+typedef struct {
+    uint8_t kind;   /* CUE_PEV_* */
+    uint8_t a, b;   /* ball indexes: RAIL and XLINE a; BALL a and b */
+    uint8_t ra, rb; /* RAIL: ra the rail. BALL: the rail each ball stood frozen
+                     * to when they touched (CUE_PEV_NORAIL if neither) */
+} CuePev;
+#define CUE_PEV_NORAIL 255
+#define CUE_MAX_PEV 160
 
 /* A cushion nose segment in the X–Z plane with an inward unit normal
  * (pointing into the playable area). Rails and pocket facings are both built
@@ -342,6 +365,7 @@ typedef struct {
      * On the world because the curve is built here and the segments it makes
      * ARE the physics; there is only one curve and both sides read it. */
     float jaw_p0, jaw_p0_m, jaw_h1, jaw_h2, jaw_ang_c, jaw_ang_m;
+    float jaw_arc_m, jaw_arc_d_m;   /* an arc-cut middle -- see CueTable::jaw_arc_m */
     float jaw_h1_c, jaw_h2_c;   /* the corner's own handles (resolved: never 0) */
     /* WHICH POCKET KINDS THE CUSHIONS ACTUALLY REACHED: bit 0 corner, bit 1
      * middle. A pocket small enough stops reaching: the bore no longer crosses
@@ -353,6 +377,12 @@ typedef struct {
      * to check this first, because the wrong number looks perfectly plausible. */
     int linked;
     Vec3   jaw[CUE_MAX_SEG]; int njaw; float jaw_r;   /* immovable jaw-tip circles */
+    /* EACH CIRCLE'S OWN RADIUS, or 0 for jaw_r. A table whose corners and
+     * middles are rounded differently -- the mesinha's CBBS corners against
+     * its sharp mitred middles -- needs two; every other table leaves these
+     * at 0 and its circles are what they always were. cue_jaw_radius. */
+    float  jaw_rad[CUE_MAX_SEG];
+    float  jaw_r_m;                   /* the middles' knuckle, or 0 for jaw_r */
     /* ...and how much rubber is behind each of them, 1 = the cushion's full
      * depth. THE KNUCKLE IS WHERE A BALL ACTUALLY RATTLES, and it is the
      * thinnest part of the cushion, so it is the one that has to be graded:
@@ -380,6 +410,12 @@ typedef struct {
      * balls must fully pass it) is the customer; tracked while att_track is
      * on, like the rest of the referee's instruments. */
     uint32_t brk_cross;
+    /* THE STROKE'S EVENTS, every ball's (see CuePev); kept while pev_on */
+    uint8_t pev_on;
+    int     npev, pev_over;
+    CuePev  pev[CUE_MAX_PEV];
+    int8_t  pev_side[CUE_MAX_BALLS];                 /* which side of the centre line, 0 unknown */
+    uint8_t pev_lastk[CUE_MAX_BALLS], pev_lastr[CUE_MAX_BALLS], pev_lastb[CUE_MAX_BALLS];
     /* WHAT A HOLE IS WORTH. Zero on every table where a pocket is a pocket;
      * bar billiards is the one game whose holes are not interchangeable — nine
      * of them scoring from ten to two hundred, and which one a ball went down
@@ -459,6 +495,7 @@ typedef struct {
      * follow-camera, since snooker reds share an id). */
     int first_hit;
     int first_hit_idx;
+    float first_hit_x;   /* where along the table the first ball struck stood (Combined Pyramid's kitchen rule) */
 
     /* ---- WHAT THE ATTEMPT LOOKED LIKE, for the referee ------------------- *
      *
@@ -643,7 +680,18 @@ typedef struct {
      * Cumulative over the whole shot, which is the rule as written — "contacted
      * a rail before being pocketed" — and a ball stops moving once it drops, so
      * the count at the settle is the count at the drop. */
-    uint8_t rails[CUE_MAX_BALLS];
+    /* WHICH RAILS IT TOUCHED, one bit a rail. A RAIL is the cushion between
+     * two neighbouring pockets, the jaws at either end included -- a jaw is
+     * part of the rail it finishes. Every contact counts, however glancing;
+     * there is no angle in it. Whether a touch made a BANK depends on the
+     * pocket the ball then drops in: a rail that ends at that pocket is the
+     * pocket's own, and a ball run down it or clipping its jaw on the way in
+     * has not been banked. cue_phys_banked asks that question.
+     *
+     * (It was a count of contacts that turned the ball fifteen degrees, which
+     * scored a ball off the target pocket's jaw as a bank and a ball off a far
+     * rail at a shallow angle as none.) */
+    uint16_t rail_hit[CUE_MAX_BALLS];
 
     /* ...AND HOW MANY BALLS EACH ONE TOUCHED, for the same reason.
      *
@@ -703,6 +751,11 @@ typedef struct {
     /* Integrator accumulator (do not touch). */
     float _acc;
 } CueWorld;
+static inline float cue_jaw_radius(const CueWorld *w, int j) {
+    return (j >= 0 && j < w->njaw && w->jaw_rad[j] > 0.0f) ? w->jaw_rad[j] : w->jaw_r;
+}
+/* The cue ball's x at touch t, in metres (see CueTouch.xq). */
+float cue_touch_x(const CueWorld *w, const CueTouch *t);
 
 static inline float cue_ball_r(const CueWorld *w, const CueBall *b) {
     return (b->r > 0.0f) ? b->r : w->R;
@@ -786,8 +839,34 @@ void  cue_phys_set_squirt(float rad);
 float cue_phys_squirt(void);
 /* The spin a tip offset buys, as a multiple of the rigid-sphere ideal; 1.0 is
  * the model as it stands. A tuning knob -- keep it at 1.0 for online play. */
-void  cue_phys_set_spin_gain(float k);
-float cue_phys_spin_gain(void);
+/* The spin a tip offset buys, against the rigid-sphere ideal: 0.80 on every
+ * table since 6.4 (Mark, 2026-10-03), after the 6.3 testers found the full
+ * ideal too much -- first on UK 8-ball's light white, then everywhere. */
+#define CUE_SPIN_GAIN_DEFAULT 0.80f
+void  cue_phys_set_spin_gain(float k);     /* all three below to k */
+float cue_phys_spin_gain(void);            /* the draw gain (the one there was) */
+/* ...OR ONE A DIRECTION (CueVR 6.5, Mark: "0.7 is sounding like a value people
+ * think feels right for backspin - but I am worried that will make swerve
+ * shots and other high/heavy spin shots impossible"). The strike's spin is
+ * split along the cue's own frame and each part scaled by its own gain:
+ *   draw   about the horizontal square to the cue: screw and top
+ *   side   about the vertical: running and check side
+ *   masse  about the line of the shot: what the cloth turns into swerve and masse */
+void  cue_phys_set_spin_gains(float draw, float side, float masse);
+/* A ball spinning on the spot loses spin faster the faster it spins: k per
+ * second of its spin, on top of the constant drill (CueVR 6.5). 0, the
+ * default, is the constant drill alone. */
+void  cue_phys_set_spot_visc(float k);
+/* the last stroke struck: the tip's offset in the cue's own frame (fractions
+ * of the ball's radius, after the half-ball limit) and the cue's elevation */
+void  cue_phys_last_strike(float *side, float *vert, float *elev);
+float cue_phys_spot_visc(void);
+void  cue_phys_spin_gains(float *draw, float *side, float *masse);
+/* Screw and top by the cue's angle: the draw gain above is the level cue's,
+ * `steep` from hi_rad up, smoothstepped from lo_rad. steep < 0: one gain at
+ * every angle (the default). And the draw gain a cue at `elev` gets. */
+void  cue_phys_set_spin_draw_elev(float steep, float lo_rad, float hi_rad);
+float cue_phys_draw_gain_at(float elev);
 
 void cue_phys_strike_jump(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
                           float tip_side, float tip_vert, float elev, float vy);
@@ -874,6 +953,9 @@ enum {
     CUE_EV_BRIDGE    = 1 << 7,   /* a dropping ball struck the pocket's back: the plate, the iron, the lining */
     CUE_EV_POTTED    = 1 << 8,   /* a ball left the table for good this step (switched off at the release depth) --
                                   * CUE_EV_POCKET is the lip, and a ball can rattle back out after it */
+    CUE_EV_CUSH_AFTER = 1 << 9,  /* a cushion AFTER the cue ball's first contact: what
+                                  * the pool games' "no rail" rule asks (WPA 6.3) --
+                                  * a cushion on the way to the object ball is not one */
     CUE_EV_SIDE_CUSH = 1 << 6,   /* ...and the cushion struck was a SIDE one:
                                   * how the flag crosses the const collision
                                   * path to be booked on the world by the step */
@@ -952,6 +1034,7 @@ void cue_phys_shot_begin(CueWorld *w);
  * it belongs to. */
 typedef struct {
     int     first_hit, first_hit_idx;
+    float   first_hit_x;
     float   att_min[CUE_MAX_BALLS];
     float   att_path;
     int     att_prev_ok;
@@ -960,12 +1043,28 @@ typedef struct {
     CueTouch touch[CUE_MAX_TOUCH];
     int     ntouch, touch_over;
     uint32_t brk_cross;
+    int     npev, pev_over;
+    CuePev  pev[CUE_MAX_PEV];
+    int8_t  pev_side[CUE_MAX_BALLS];
+    uint8_t pev_lastk[CUE_MAX_BALLS], pev_lastr[CUE_MAX_BALLS], pev_lastb[CUE_MAX_BALLS];
     uint8_t side_cushion;
-    uint8_t rails[CUE_MAX_BALLS], cush[CUE_MAX_BALLS];
+    uint8_t cush[CUE_MAX_BALLS];
+    uint16_t rail_hit[CUE_MAX_BALLS];
     uint8_t balls_hit[CUE_MAX_BALLS], hit_by_cue[CUE_MAX_BALLS];
     uint8_t skittle_order[CUE_MAX_SKITTLE], skittle_nudged[CUE_MAX_SKITTLE];
     int     skittle_fell;
 } CueShotRec;
+/* THE RAIL at table point (x, z): its index for rail_hit, and the two pockets
+ * it runs between (either may be NULL). -1 on a table with fewer than two
+ * pockets, where there is no rail to name. */
+int cue_phys_rail_at(const CueWorld *w, float x, float z, int *pa, int *pb);
+/* DID BALL idx COME OFF A RAIL THAT IS NOT `pocket`'s OWN, for bank pool and
+ * Honolulu. `pocket` is the one it dropped in; -1 (or CUE_OFF_TABLE) for a
+ * ball not potted, where any rail will do. */
+int cue_phys_banked(const CueWorld *w, int idx, int pocket);
+/* A rail_hit bit for a rail that does NOT end at `pocket` -- for tests that
+ * need a bank without playing one. 0 if the table has none. */
+uint16_t cue_phys_rail_far(const CueWorld *w, int pocket);
 void cue_phys_shot_save(const CueWorld *w, CueShotRec *r);
 void cue_phys_shot_load(CueWorld *w, const CueShotRec *r);
 

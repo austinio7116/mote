@@ -45,5 +45,6 @@ void link_net_relay_host(const char *code, int public_, const char *label);
 void link_net_relay_join(const char *code);
 void link_net_relay_quick(const char *label);
 int  link_net_list(char *out, int max);   /* BLOCKING ~2.5s: fills "CODE LABEL\n"*, returns room count (<0 err) */
+int  link_net_list_live(char *out, int max);   /* the same, for games being played: "CODE LABEL HAVE/MAX WATCHERS\n"* */
 
 #endif /* MOTE_LINK_NET_H */

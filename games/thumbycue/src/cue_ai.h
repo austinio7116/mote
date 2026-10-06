@@ -170,6 +170,13 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
 void cue_ai_note_foul(int target_id, int hit_id);
 void cue_ai_clear_fouls(void);
 
+/* THE MESINHA: which of its own balls the machine lifts after the other
+ * side's foul (a ball index, or -1), and which group it takes when a CBBS
+ * break hands it the choice (1 odd, 2 even). See CueRules::mz_take, mz_pick. */
+int cue_ai_mz_take(const CueWorld *w, const CueTable *t, const CueRules *r,
+                   const CueBall *balls, int n);
+int cue_ai_mz_group(const CueWorld *w, const CueTable *t, const CueRules *r,
+                    const CueBall *balls, int n);
 int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
                   const CueBall *balls, int n, const CuePersona *p,
                   uint32_t *rng);
@@ -177,6 +184,11 @@ int cue_ai_decide(const CueWorld *w, const CueTable *t, const CueRules *r,
 CueAIShot cue_ai_pushout(const CueWorld *w, const CueTable *t, const CueRules *r,
                          const CueBall *balls, int n, const CuePersona *p,
                          uint32_t *rng);
+/* The opponent pushed out: play from here (CUE_DEC_PLAY) or hand the shot back
+ * to them (CUE_DEC_AGAIN), judged as r->turn, the player answering. */
+int cue_ai_pushout_respond(const CueWorld *w, const CueTable *t, const CueRules *r,
+                           const CueBall *balls, int n, const CuePersona *p,
+                           uint32_t *rng);
 
 /* Debug: the object-ball aim point the planner would use to pot `target` into
  * pocket pk (jaw-aware). Exposed for the diagram/diagnostic tools. */

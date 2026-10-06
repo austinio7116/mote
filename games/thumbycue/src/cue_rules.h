@@ -163,6 +163,31 @@ typedef struct {
      * anyway. Cleared by resolve like bb_hole. */
     unsigned char respot_id[8];
     int pyr_free;        /* CUE_PYR_* — see below */
+    /* FREE PYRAMID'S TWO JOBS FOR THE HOST, both set on resolve.
+     *
+     * `pyr_back` names every ball that goes back on the back spot -- anything
+     * potted on a foul, and any ball driven off the table on ANY stroke
+     * (FBSR §25). Named by id, and not through respot_id, because the ball
+     * that goes back is quite often the yellow, whose id is 0, and respot_id
+     * reads 0 as "any".
+     *
+     * `pyr_take` is the penalty itself, which in this game is not a ball given
+     * back but a ball TAKEN: after a foul the opponent lifts any ball they like
+     * off the table and scores it (§7). The rules cannot say which -- it is the
+     * incoming player's choice -- so the host asks them, and then calls
+     * cue_rules_pyr_take with the ball they chose. */
+    unsigned char pyr_back[16];
+    int pyr_nback;
+    /* COMBINED PYRAMID (FBSR, the federation's own discipline; CueVR 6.5).
+     * pyr_brk: the break was illegal (General Rules 12.1) -- after the penalty
+     * ball is taken, the decision asked is 12.2's four (CUE_DEC_PLAY, _AGAIN,
+     * _REBREAK, _REBREAK_OFF). From the kitchen, General
+     * Rules 21.2, the first ball struck must lie outside it (pyr_hand, below). */
+    int pyr_brk;
+    int pyr_hand;        /* this stroke is from hand in the kitchen (set with ball_in_hand, cleared by the resolve) */
+    int pyr_far;         /* ...and the kitchen is the FAR end, every object ball lying in the near one (21.2) */
+    float pyr_house_x;   /* the kitchen's line, from the table at init: a ball with x below it is in the kitchen */
+    int pyr_take;
 
     /* ---- G5: ENGLISH BILLIARDS ------------------------------------------ *
      *
@@ -243,6 +268,11 @@ typedef struct {
      * cue_rules_attempt_begin from the positions the stroke starts from,
      * because by the time resolve runs the balls have moved. */
     int bil_from_hand;   /* host: this stroke is being played from in-hand */
+    /* What the last stroke scored WITH -- cannon, red potted, white potted,
+     * in-off, 1 each -- zero for a stroke that scored nothing. A billiards
+     * break is points, and this is what they were made of, for the host's
+     * frame statistics. */
+    unsigned char bil_last[4];
     int bil_red_baulk;   /* the red was in Baulk when the stroke began */
     int bil_wht_baulk;   /* ...and so was the object white */
 
@@ -502,6 +532,11 @@ typedef struct {
 
     /* snooker foul-and-a-miss + free ball (WPBSA) */
     int was_snookered;   /* striker had NO clear ball-on before the shot (set by cue_game) */
+    /* A CUSHION AFTER THE FIRST CONTACT, set by the caller before resolving:
+     * 0 not told (the cushion_seen argument stands, as it always has), 1 no,
+     * 2 yes. The pool games' NO RAIL asks for this one; a cushion on the way
+     * in, escaping a snooker, is not a rail after contact. */
+    int cush_after;
 
     /* ---- FOUL AND A MISS, JUDGED --------------------------------------------
      *
@@ -572,6 +607,12 @@ typedef struct {
     int dec_scratch;     /* the foul was a scratch (cue potted) */
     int dec_offender;    /* player who committed the foul */
     int dec_penalty;     /* penalty already awarded (for restore re-apply) */
+    /* WPBSA Section 3: after ANY foul the next player may play from the
+     * position left or ask the offender to play again -- not only after a
+     * miss or when snookered. 1 asks the question after every foul; 0 is the
+     * handheld's old behaviour, whose decision screen has no "play again" yet.
+     * Set by the host before the frame, like uk_intl. */
+    int snk_again;
 
     /* ---- the match, not the frame ----
      * A frame is one rack; a match is the best of N of them. Everything above
@@ -581,15 +622,111 @@ typedef struct {
     int best_of;         /* 1 = a single frame, else an odd number */
     int match_over, match_winner;
     int conceded;        /* the frame was given up rather than played out */
+
+    /* ---- KILLER FOR 3 TO 8 PLAYERS ----
+     * At the END of the struct on purpose: everything above keeps its offset,
+     * so the two-player game is the same bytes it always was (test_killer_n).
+     *
+     * Killer is the one game where "the opponent" is not one person, so the
+     * truth for three or more players lives here, by PLAYER NUMBER 0..kl_n-1,
+     * and the two-side fields above become a VIEW of it that the sim keeps up
+     * to date after every stroke:
+     *
+     *   turn        flips every stroke, as it always has in killer (the table
+     *               changes hands every shot), so "the turn moved" still means
+     *               "somebody else is at the table". It is NOT a player number.
+     *   score[turn]    the lives of the player at the table
+     *   score[1-turn]  the most lives anyone else has -- the field
+     *   winner      the side of that view holding the winner when the frame
+     *               ends -- the field, when the player at the table went out;
+     *               the player who actually won is kl_winner
+     *   frames[]    left at 0: the match tally is kl_frames
+     *
+     * So the planner, the status line and anything written for two sides read
+     * something sensible and never index past [1] -- but anything that has to
+     * know WHO reads the cue_rules_killer_* calls below, never these.
+     *
+     * With kl_n < 3 (the two-player game, and every other game) none of this
+     * is used: score[] is the lives and turn is the player, as before, and the
+     * cue_rules_killer_* calls read them. */
+    uint8_t kl_n;              /* players, 3..8; 0 or 2 = the two-player game */
+    uint8_t kl_lives0;         /* lives each at the start of a frame */
+    uint8_t kl_pos;            /* the player at the table, as a place in kl_order */
+    uint8_t kl_first;          /* the place in kl_order that broke THIS frame */
+    int8_t  kl_winner;         /* who won the frame, -1 while it is being played */
+    uint8_t kl_nout;           /* how many have gone out this frame */
+    uint8_t kl_order[8];       /* the shooting order, drawn: player numbers */
+    uint8_t kl_lives[8];       /* lives, by player number */
+    uint8_t kl_outs[8];        /* who went out, in the order they did */
+    uint8_t kl_frames[8];      /* frames won this match, by player number */
+
+    /* ---- SINUCA BRASILEIRA (CBBS rules, 1999 and the 2009 summary) ----
+     *
+     * Seven balls worth 1 to 7, and the lowest on the table is the ball on.
+     * A visit is a sequence of PHASES, because what may be played next
+     * depends on what has just gone in:
+     *
+     *   OPEN  the start of a visit: the ball on (free -- missing it costs
+     *         nothing) or any other ball "with castigo", which costs seven if
+     *         it is not potted
+     *   ON    a colour was potted at the start of the visit: the ball on next
+     *   FREE  the ball on has just gone in: any ball, free of castigo
+     *   CAST  a free colour has just gone in: the ball on, or one more colour
+     *         with castigo
+     *
+     * The ball PLAYED is the first ball the cue ball meets -- the call is
+     * inferred, as it is in call-shot 10-ball. Only the ball on, potted in
+     * its turn, stays down; everything else comes back to its mark.
+     * sn_tie is the deciding game on the 7 after a level frame. */
+    int sn_phase;              /* CUE_SN_* */
+    int sn_tie;
+
+    /* ---- THE MESINHA'S TWO CHOICES -------------------------------------
+     *
+     * mz_take: balls the player at the table must take off before playing --
+     *   one of their OWN, after the other side's foul at mata-mata and bola
+     *   8 (the beneficiary's choice, as free pyramid's penalty ball is). The
+     *   host lifts it and calls cue_rules_mz_taken; the play-on / hand-back
+     *   question follows.
+     * mz_pick: the player at the table chooses their group before playing --
+     *   CBBS par e impar after a break that pots nothing or goes in-off (arts.
+     *   14 and 15). cue_rules_mz_choose answers it. */
+    int mz_take;
+    int mz_pick;
 } CueRules;
+
+enum { CUE_SN_OPEN = 0, CUE_SN_ON, CUE_SN_FREE, CUE_SN_CAST };
+
+#define CUE_KILLER_MAX 8
 
 /* Which pyramid. CLASSIC is the white-cue-ball game: pot the objects, eight
  * wins, and the cue ball down a pocket is a foul. COMBAT also scores a cue ball
  * potted OFF an object ball (a "свой"), which is the shot the game is famous
- * for. FREE lets any ball on the table be played as the cue ball, which breaks
- * an assumption balls[0] carries through the rules, the AI and the wire — so it
- * is named here and not yet implemented, rather than pretended about. */
-enum { CUE_PYR_CLASSIC = 0, CUE_PYR_COMBAT = 1, CUE_PYR_FREE = 2 };
+ * for. FREE lets any ball on the table be played as the cue ball after the
+ * break (FBSR Free Pyramid): the host swaps the ball being struck into index 0,
+ * as bumper pool does, so to these rules b[0] is still "the ball struck". */
+enum { CUE_PYR_CLASSIC = 0, CUE_PYR_COMBAT = 1, CUE_PYR_FREE = 2, CUE_PYR_COMBINED = 3 };
+/* COMBINED PYRAMID's two jobs for the host, beyond Free's penalty ball:
+ *   rerack == 3   after an illegal break re-racked by choice (12.2 (3)/(4)):
+ *                 the pyramid again with every ball already scored left out,
+ *                 the coloured ball in hand in the kitchen
+ * and pev_on in the world, every stroke, for the rules' event log. */
+
+/* FREE PYRAMID: the incoming player has chosen the penalty ball (see pyr_take).
+ * The host has already lifted it off the table; this scores it for `taker`
+ * and ends the frame if that makes eight. */
+void cue_rules_pyr_take(CueRules *r, int taker);
+/* COMBINED PYRAMID's rule 20 asked of a world's event log (pev_on): did this
+ * stroke, with nothing potted, do enough? The referee's own test, for the
+ * planner's simulations. */
+int  cue_rules_pyr_rule20(const CueWorld *w, int n);
+/* THE MESINHA: one of the beneficiary's own balls has been lifted (see mz_take);
+ * and the group chosen by the player at the table (see mz_pick), 1 or 2. */
+void cue_rules_mz_taken(CueRules *r, const CueBall *b, int n);
+void cue_rules_mz_choose(CueRules *r, int grp);
+/* Which group a ball is in for this mesinha game: 1, 2, or 0 for the money
+ * ball / the 8 / none. */
+int  cue_rules_mz_group(int mode, int id);
 
 /* Where a potted red goes back. The order is Section 3 Rule 8: the Spot, and
  * if that is occupied the Pyramid Spot, and if both are occupied the Centre
@@ -696,7 +833,10 @@ void cue_rules_billiards_swap(CueBall *b, int n);
  * REPLAY   — put the balls back and play the stroke again. Miss only.
  * FREEBALL — I play, and I am snookered, so I may nominate a free ball. */
 enum { CUE_DEC_NONE = 0, CUE_DEC_PENDING, CUE_DEC_PLAY, CUE_DEC_AGAIN,
-       CUE_DEC_REPLAY, CUE_DEC_FREEBALL };
+       CUE_DEC_REPLAY, CUE_DEC_FREEBALL,
+       /* Combined Pyramid after an illegal break (12.2): re-rack and break
+        * yourself, or re-rack and make the offender break again */
+       CUE_DEC_REBREAK, CUE_DEC_REBREAK_OFF };
 
 void cue_rules_init(CueRules *r, const CueTable *t, int cpu);
 /* The three UK 8-ball rule sets.
@@ -734,6 +874,10 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
     if (!r) return 0;
     if (r->kind) return r->snk_shootout;    /* snooker: the D — Shootout: anywhere */
     if (r->mode == CUE_GAME_BARBILLIARDS) return 0; /* Rule 91: the D, always */
+    /* THE MESINHA: the break from anywhere behind the D's line (the "area de
+     * saida", CBBS par e impar art. 6), and after an in-off from the D (art.
+     * 17). The four games played on it all do the same. */
+    if (CUE_GAME_IS_MESINHA(r->mode)) return r->break_shot ? 2 : 0;
     /* PAUL: the D, and only after an in-off. It is played on a snooker table
      * and the D is chalked on it, so that is where the white comes back from —
      * but `kind` above is 0 for Paul (it is not scored as snooker), so it fell
@@ -778,6 +922,14 @@ static inline int cue_rules_in_hand_anywhere(const CueRules *r) {
      * fell through to the pool answer -- ball in hand anywhere, which on a
      * table holding three balls and needing exact counts is a different game. */
     if (r->mode == CUE_GAME_COWBOY)      return 2;
+    /* COMBINED PYRAMID: THE KITCHEN, ALWAYS. The cue ball is in hand only
+     * when it has gone down (a свояк, or a foul), and both times it comes
+     * back to the kitchen (FBSR 21.2; the far end when every ball lies in
+     * the near one -- cue_table_set_house_far). It fell through to the pool
+     * answer and could go anywhere on the cloth. A player's report: "The red
+     * cue ball should always be placed in the break area when it is
+     * pocketed." */
+    if (CUE_GAME_IS_PYRAMID(r->mode) && r->pyr_free == CUE_PYR_COMBINED) return 0;
     /* Blackball: baulk — the full-width rectangle behind the line, not the D
      * (WPA Blackball 4c/4h). The value 2 is that region to the clamp. */
     if (r->mode == CUE_GAME_UK8)
@@ -914,5 +1066,48 @@ int  cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id);
 
 /* Short status line for the HUD (group / ball-on). */
 void cue_rules_status(const CueRules *r, char *buf, int cap);
+
+/* ---- KILLER, 2 TO 8 PLAYERS ----
+ *
+ * The rule book is the two-player one, unchanged, with the table going round
+ * the drawn order instead of back and forth: three lives each (or `lives`),
+ * one shot a turn. Pot any ball and you are safe; miss, or foul (a scratch, an
+ * air shot, a ball off the table) and a life goes. A scratch gives the NEXT
+ * player standing the cue ball in hand. A dry break costs nothing. A player
+ * with no lives left is out and the turn skips them; the table is racked again
+ * when it runs dry with two or more standing; the last one standing wins the
+ * frame. In a match the break goes round the order, one place a frame, and the
+ * first to best_of/2+1 frames takes it.
+ *
+ * Player numbers are the caller's seats, 0..n-1. None of this asks who is a
+ * person and who is the AI: that is the host's. */
+
+/* After cue_rules_init on a killer table. n 2..8 (outside that it is clamped),
+ * lives <= 0 means three, order is the shooting order as player numbers (a
+ * permutation of 0..n-1; NULL or anything else is 0,1,2..). With n == 2 this is
+ * the two-player game exactly: the lives go in score[] and order[0] breaks.
+ * Resets the match tally. Does nothing off a killer table. */
+void cue_rules_killer_setup(CueRules *r, int n, int lives, const uint8_t *order);
+/* THE DRAW: a shooting order for n players from a seed, the same on every
+ * machine given the same seed (online, use one both ends already share, such
+ * as the rack seed). Fills order[0..n-1]. */
+void cue_rules_killer_draw(uint32_t seed, int n, uint8_t *order);
+/* A player leaves the frame (conceded, or gone from the room): out, as if their
+ * last life had gone, with no foul -- the next player plays the balls as they
+ * lie. If only one is left they win it. With two players it is a concede. */
+void cue_rules_killer_retire(CueRules *r, int player);
+
+int cue_rules_killer_players(const CueRules *r);          /* 2..8 */
+int cue_rules_killer_shooter(const CueRules *r);          /* player at the table */
+int cue_rules_killer_next(const CueRules *r);             /* who plays after them */
+int cue_rules_killer_lives(const CueRules *r, int player);
+int cue_rules_killer_out(const CueRules *r, int player);  /* no lives left */
+int cue_rules_killer_standing(const CueRules *r);         /* players with lives */
+int cue_rules_killer_order(const CueRules *r, int place);  /* player at that place */
+int cue_rules_killer_out_at(const CueRules *r, int k);     /* k-th out this frame, or -1 */
+int cue_rules_killer_winner(const CueRules *r);           /* -1 while it is on */
+int cue_rules_killer_frames(const CueRules *r, int player);
+/* The match's winner as a player number, -1 until it is over. */
+int cue_rules_killer_match_winner(const CueRules *r);
 
 #endif

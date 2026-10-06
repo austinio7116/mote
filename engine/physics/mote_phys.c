@@ -657,6 +657,61 @@ static float body_bound_r(const MoteBody *b) {
     return b->radius;
 }
 
+/* IS THIS EDGE A SEAM OR AN EDGE? A mesh surface is made of triangles, and
+ * where two of them meet in (nearly) the same plane the edge between them is a
+ * seam in one surface, not a place the surface ends. `P`-`Q` is an edge of the
+ * triangle whose normal is `fn` and third corner `R`; this looks for another
+ * triangle with the same two corners (by position -- meshes are often unshared
+ * triangle soup) that carries the surface ON across it, turning by less than
+ * twenty degrees. Found -> 1, a seam. None -> 0: the surface ends there or
+ * turns sharply, and the edge is a real one a ball can rest on. */
+static int mesh_seam(const MoteBody *m, const MoteMesh *mesh, int t,
+                     Vec3 P, Vec3 Q, Vec3 R, Vec3 fn, Vec3 near) {
+    const float eps2 = 1e-10f;                     /* a hundredth of a millimetre */
+    const Vec3 e = v3_sub(Q, P);
+    const float el2 = v3_dot(e, e);
+    if (el2 <= 0.0f) return 0;
+    Vec3 u1 = v3_sub(R, P); u1 = v3_sub(u1, v3_scale(e, v3_dot(u1, e) / el2));
+    int c0 = 0, c1 = 0, r0 = 0, r1 = 0, all = 1;
+    if (mesh->grid_n > 0) {
+        const Vec3 lp = v3_sub(near, m->pos);
+        const int bx = (int)((lp.x - mesh->grid_x0) * mesh->grid_invx);
+        const int bz = (int)((lp.z - mesh->grid_z0) * mesh->grid_invz);
+        c0 = bx - 1; c1 = bx + 1; r0 = bz - 1; r1 = bz + 1; all = 0;
+    }
+    for (int gz = r0; gz <= r1; gz++)
+    for (int gx = c0; gx <= c1; gx++) {
+        int e0, e1;
+        if (all) { e0 = 0; e1 = mesh->ntris; }
+        else {
+            if (gx < 0 || gz < 0 || gx >= mesh->grid_n || gz >= mesh->grid_n) continue;
+            const int cell = gz * mesh->grid_n + gx;
+            e0 = mesh->grid_start[cell]; e1 = mesh->grid_start[cell + 1];
+        }
+        for (int k = e0; k < e1; k++) {
+            const int t2 = all ? k : mesh->grid_tri[k];
+            if (t2 == t) continue;
+            Vec3 V[3];
+            for (int j = 0; j < 3; j++)
+                V[j] = v3_add(m->pos, m3_mul_v3(&m->orient, mesh->verts[mesh->tris[t2*3+j]]));
+            int ip = -1, iq = -1;
+            for (int j = 0; j < 3; j++) {
+                if (v3_len2(v3_sub(V[j], P)) < eps2) ip = j;
+                else if (v3_len2(v3_sub(V[j], Q)) < eps2) iq = j;
+            }
+            if (ip < 0 || iq < 0) continue;
+            const Vec3 R2 = V[3 - ip - iq];
+            const Vec3 n2 = v3_norm(v3_cross(v3_sub(V[1], V[0]), v3_sub(V[2], V[0])));
+            Vec3 u2 = v3_sub(R2, P); u2 = v3_sub(u2, v3_scale(e, v3_dot(u2, e) / el2));
+            /* carried ON (its far corner across the edge from ours, not folded
+             * back over it) and nearly flat with ours, either winding */
+            if (v3_dot(u1, u2) < 0.0f && fabsf(v3_dot(n2, fn)) > 0.9397f) return 1;
+        }
+        if (all) break;
+    }
+    return 0;
+}
+
 /* one triangle of mesh `mi` vs body `i` (faceted -> manifold, round -> face-
  * normal point). Factored out so the grid + brute-force paths share it. */
 static void mesh_test_tri(MoteBody *bodies, int i, int mi, int t, int faceted) {
@@ -690,6 +745,42 @@ static void mesh_test_tri(MoteBody *bodies, int i, int mi, int t, int faceted) {
         Vec3 fn = v3_norm(v3_cross(v3_sub(B, A), v3_sub(C, A)));
         if (v3_dot(d, fn) < 0.0f) fn = v3_scale(fn, -1.0f);
         float pen = b->radius - v3_dot(d, fn);
+        /* ...UNLESS THE CLOSEST POINT IS AN EDGE OR A CORNER. The face normal
+         * is only the contact's direction on the face itself: a sphere
+         * resting on the top edge of a vertical wall, the edge straight under
+         * its centre, read as buried a radius deep SIDEWAYS -- so it was
+         * pushed along the wall, never held up, and each step's correction
+         * put energy into it (a CueVR pocket: a 2.8 m/s pot left the corner
+         * at -10 m/s and 500 rad/s). The line from that point to the centre
+         * is the true direction there, and the true depth is radius less
+         * distance. Asked only off the face -- where the offset is not along
+         * the normal -- so a contact on a face is the one it always was, to
+         * the bit; and only on an edge where the surface really ends or turns,
+         * below. */
+        if (dist > 1e-6f && v3_dot(d, fn) < 0.9999f * dist) {
+            /* ...AND ONLY ON A REAL EDGE. Where the triangle meets a neighbour
+             * that carries the same surface on -- a seam in a flat floor, a
+             * facet line on the cloth's roll over the lip -- the surface is
+             * smooth and the face contact it always made is the right one:
+             * a push "off the edge" there is a ghost, a sideways shove from
+             * every seam, which kept a queue of balls on a tray's slope
+             * creeping and awake for ever (test_tray, kind 9). The edges the
+             * closest point lies on must all be real ones. */
+            const float tol2 = 1e-10f;
+            const Vec3 E[3][3] = { { A, B, C }, { B, C, A }, { C, A, B } };
+            int on = 0, real = 0;
+            for (int k = 0; k < 3; k++) {
+                const Vec3 P = E[k][0], Q = E[k][1];
+                const Vec3 pq = v3_sub(Q, P);
+                const float l2 = v3_dot(pq, pq);
+                float u = l2 > 0.0f ? v3_dot(v3_sub(cp, P), pq) / l2 : 0.0f;
+                if (u < 0.0f) u = 0.0f; else if (u > 1.0f) u = 1.0f;
+                if (v3_len2(v3_sub(cp, v3_add(P, v3_scale(pq, u)))) > tol2) continue;
+                on++;
+                if (!mesh_seam(m, mesh, t, P, Q, E[k][2], fn, cp)) real++;
+            }
+            if (on > 0 && real == on) { fn = v3_scale(d, 1.0f / dist); pen = b->radius - dist; }
+        }
         if (pen > 0.0f) add_contact(i, mi, fn, cp, pen, 1000u + (uint32_t)t);
     }
 }

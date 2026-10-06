@@ -533,6 +533,15 @@ static int play_shot(const CuePersona *p) {
     /* The opponent's decision after a snooker foul. Same policy cue_game.c uses,
      * reduced to its two common branches: put them back in when the rules allow,
      * otherwise play from where it lies. */
+    /* THE MESINHA'S CHOICES, answered as the host answers them: the lifted
+     * ball goes off the table, the group is named. */
+    while (R.mz_take > 0 && !R.frame_over) {
+        const int k = cue_ai_mz_take(&W, &T, &R, B, N);
+        if (k <= 0) { R.mz_take = 0; break; }
+        B[k].on = 0;
+        cue_rules_mz_taken(&R, B, N);
+    }
+    if (R.mz_pick) cue_rules_mz_choose(&R, cue_ai_mz_group(&W, &T, &R, B, N));
     if (R.decision == CUE_DEC_PENDING) {
         int choice = R.dec_can_restore ? CUE_DEC_REPLAY : CUE_DEC_PLAY;
         if (choice == CUE_DEC_REPLAY) {

@@ -261,8 +261,10 @@ static const struct { int kind; const char *name;
      * tangent to both faces and intrudes on nothing. Rounding a convex corner
      * can only ever REMOVE material, so an opening can only widen or stay put;
      * the narrower figure this replaces was the artefact, not the intent. */
-    { CUE_GAME_PYRAMID,  "pyramid 12ft",   5.0f, 19.4f, 1.0f },
-    { CUE_GAME_PYRAMID7, "pyramid 7ft",    5.0f, 19.7f, 1.0f },
+    /* ...AND NARROWED TO 81 MM in 2026 (ball + 14, both beds), from a Russian
+     * player who plays on tournament tables: they had been 85.7 */
+    { CUE_GAME_PYRAMID,  "pyramid 12ft",   5.0f, 14.0f, 1.0f },
+    { CUE_GAME_PYRAMID7, "pyramid 7ft",    5.0f, 14.0f, 1.0f },
     { CUE_GAME_BILLIARDS, "English billiards", 34.6f, 38.3f, 1.5f },
     /* KILLER borrows its base game's table whole, so its pockets are that
      * game's pockets and they are unpinned for the same reason those are. */
