@@ -4313,18 +4313,25 @@ static void add_pickup(float x,float z,int kind){ for(int i=0;i<NPICK;i++) if(!p
  * timer in the game is the deathmatch one -- so a safehouse that refills is
  * the reason to keep one.
  *
- * ONE clock for every den, not one each: the sweep is six struct reads and a
- * distance test, and a den restocking four seconds early is not something
- * anyone can perceive. Four bytes instead of eight.
+ * ONCE A DAY, on the city clock rather than on a stopwatch. g_tod wraps 1 -> 0
+ * at midnight, so a value lower than last frame's is a new day -- which means
+ * the stash is replenished OVERNIGHT, at a time that means something, instead
+ * of at whatever moment a free-running 120 s timer happened to expire.
+ *
+ * Midnight only marks it DUE. The sweep still refuses to run within 50 m, so
+ * sleeping in your own hideout through midnight does not make the crates pop
+ * in front of you; it restocks the moment you are away. Due-but-blocked is
+ * retried on a one-second throttle rather than every frame.
  *
  * The loot table lives out here because the restock has to put back what the
  * carve put there, and it is indexed by the den's ordinal so a given den keeps
  * its own pair across a whole game. */
-#define DEN_RESTOCK 120.0f      /* half a city day */
 #define DEN_NEAR2   2500.0f     /* 50 m: never restock one under your nose */
 static const uint8_t DEN_LOOT[4][2] = { {PK_ARMOUR,PK_SMG}, {PK_ARMOUR,PK_CASH},
                                         {PK_SHOTGUN,PK_HEALTH}, {PK_SMG,PK_ARMOUR} };
-static float g_den_stock;
+static float   g_den_tod;     /* g_tod last sweep -- a lower value means midnight passed */
+static uint8_t g_den_due;     /* a day has turned and the stash owes a restock */
+static float   g_den_sweep;   /* throttle while due-but-too-close */
 /* the two cache positions inside den `gi`, in the order the carve laid them */
 static void den_loot_spot(int gi, int k, float *ox, float *oz){
     float wx=g_gar[gi].x*TILE+TILE*0.5f, wz=g_gar[gi].z*TILE+TILE*0.5f;
@@ -4919,23 +4926,27 @@ static void update_pickups(float dt) {
  * than the den as a whole, so taking one of the pair and leaving the other
  * restores only the one that went. */
 static void restock_dens(float dt){
-    float period = DEN_RESTOCK;
+    if (g_tod < g_den_tod) g_den_due = 1;             /* the clock rolled past midnight */
+    g_den_tod = g_tod;
 #ifdef MOTE_HOST
-    /* test: MOTE_GTA_RESTOCK=<seconds> shortens the sweep. At 120 s a scripted
-     * capture has to run for four minutes to see one. */
-    { static float pin = -1.0f; static int read = 0;
-      if (!read){ read = 1; const char *e = getenv("MOTE_GTA_RESTOCK"); if (e) pin = (float)atof(e); }
-      if (pin > 0.0f) period = pin; }
+    /* test: MOTE_GTA_RESTOCK=1 holds the stash permanently due, so it refills as
+     * soon as anything is missing and you are far enough off. A capture cannot
+     * wait out a 240 s day, and MOTE_GTA_TOD pins the clock so it never wraps.
+     * Setting the flag ONCE was useless: the first call happens on frame one,
+     * long before there is anything to put back, and the sweep cleared it. */
+    { static int on = -1;
+      if (on < 0) on = getenv("MOTE_GTA_RESTOCK") ? 1 : 0;
+      if (on) g_den_due = 1; }
 #endif
-    if (g_den_stock > period) g_den_stock = period;   /* a shortened period takes effect now */
-    g_den_stock -= dt;
-    if (g_den_stock > 0.0f) return;
-    g_den_stock = period;
+    if (!g_den_due) return;
+    g_den_sweep -= dt; if (g_den_sweep > 0.0f) return;
+    g_den_sweep = 1.0f;
+    int blocked = 0;
     for (int i=0;i<g_ngar;i++){
         if (g_gar[i].kind != GAR_DEN) continue;
         float cx2=(g_gar[i].x+0.5f)*TILE, cz2=(g_gar[i].z+0.5f)*TILE;
         float pdx=cx2-pl_x(), pdz=cz2-pl_z();
-        if (pdx*pdx+pdz*pdz < DEN_NEAR2) continue;      /* not while you are there */
+        if (pdx*pdx+pdz*pdz < DEN_NEAR2){ blocked = 1; continue; }   /* not while you are there */
         const uint8_t *L = DEN_LOOT[den_ordinal(i) & 3];
         for (int k=0;k<2;k++){
             float sx2,sz2; den_loot_spot(i,k,&sx2,&sz2);
@@ -4950,6 +4961,7 @@ static void restock_dens(float dt){
             }
         }
     }
+    if (!blocked) g_den_due = 0;       /* every den dealt with; wait for the next day */
 }
 
 static float g_runhitcd;   /* cooldown so an NPC car doesn't chew the on-foot player every frame */
@@ -6120,7 +6132,7 @@ static void reset_game_seeded(uint32_t want) {
     weapon=W_FIST; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;} owned[W_FIST]=1; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0;
     g_fare=FARE_NONE; g_fare_ped=-1; g_fare_n=0; g_fare_pay=0; g_fare_t=0; g_fare_look=3.0f;
-    g_den_t=0; g_den_burn=0; g_den_stock=DEN_RESTOCK;
+    g_den_t=0; g_den_burn=0; g_den_tod=g_tod; g_den_due=0; g_den_sweep=0;
     /* A fresh game gets a different city day every run. A LOAD must not: the
      * spawn search, the parked cars and the traffic init all draw from g_rng,
      * so leaving it on the clock would put the right map back with everything
