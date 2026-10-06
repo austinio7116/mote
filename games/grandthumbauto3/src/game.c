@@ -22,6 +22,7 @@
 #include "bld_painted.h"    /* bld_painted_img — warm painted + storefront */
 #include "bld_brownstone.h" /* bld_brownstone_img — dark-red residential */
 #include "bld_panel.h"      /* bld_panel_img  — grey cladding panels */
+#include "bld_night.h"      /* *_night — AFTER all eight: it reuses their _idx arrays */
 #include "cars2_meta.h"    /* per-car opaque art sizes (draw + physics sizing) — cars2_img
                              * itself is gone: Task 7 replaced the sprite with a tinted mesh */
 /* tankturret.h/tankturret_img (turret+barrel top-down sprite) is gone: Task 9
@@ -107,9 +108,38 @@ static int is_solid(int x, int z){ char c = tile_at(x, z); return c=='#'||c=='O'
  * can drive a car IN to respray / sell. Registered at marker placement; used by the
  * passability, collision, and building-draw code below. */
 #define NGARAGE 6
-static struct { int16_t x, z; uint8_t kind; int8_t ox, oz; } g_gar[NGARAGE]; static int g_ngar;  /* (ox,oz)=opening dir (out toward the street) */
+/* A DEN is the second kind of carved bay: a bolt-hole cut into a building that
+ * is open to someone ON FOOT and shut to every vehicle. The value is a raw 7
+ * rather than an MK_* because the marker enum is declared a thousand lines
+ * below this, and because a den deliberately HAS no marker -- it is found by
+ * walking past the gap, not by a dot on the map.
+ *
+ * Everything that distinguishes a den from a pay-n-spray bay runs through
+ * is_bay(): a car may enter a bay and may not enter a den. Both are is_garage,
+ * so both draw as an open-fronted recess and both are walkable. */
+#define GAR_DEN 7
+/* dopen is the leaf's CURRENT swing, 0 shut to 255 wide, and dwant is where it
+ * is heading. A byte each rather than a float: the leaf moves through 90
+ * degrees in about half a second and a 1/255 step of that is a third of a
+ * pixel on a 128 px screen. */
+static struct { int16_t x, z; uint8_t kind, found, dopen, dwant; int8_t ox, oz; } g_gar[NGARAGE]; static int g_ngar;  /* (ox,oz)=opening dir (out toward the street) */
 static int is_garage(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z) return 1; return 0; }
 static int garage_kind_at(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z) return g_gar[i].kind; return -1; }
+static int is_den(int x, int z){ return garage_kind_at(x,z)==GAR_DEN; }
+/* a carved bay a VEHICLE may use. Dens keep their collider and stay off the
+ * drivable map, so the only way in is to get out and walk. */
+static int is_bay(int x, int z){ return is_garage(x,z) && !is_den(x,z); }
+static int den_at(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z && g_gar[i].kind==GAR_DEN) return i; return -1; }
+/* LYING LOW: seconds in the current den, and whether an officer has had eyes on
+ * you while you were in it. Both reset the moment you step out. */
+static float   g_den_t;
+static uint8_t g_den_burn;
+/* Stars a second a den bleeds off. Slower than the pay-n-spray, which clears
+ * the lot instantly for $100: the den is free, so it costs time instead, and
+ * six stars take twenty seconds of standing still with the law outside. */
+#define DEN_COOL 0.30f
+#define DEN_DOOR2 121.0f   /* 11 m of the MOUTH and the hideout is blown (squared) */
+#define DEN_SEE2  196.0f   /* 14 m of the MOUTH and you have found it (squared) */
 
 /* corridor classification for lane markings, computed on demand (capped scans). */
 static void corridor_info(int x, int z, int *orient, int *pos, int *span) {
@@ -459,10 +489,26 @@ static void build_bgeom(int L, float hx, float hy, float hz) {
         g_buv[L][fi*6+0]=U[0];g_buv[L][fi*6+1]=V[0];g_buv[L][fi*6+2]=U[2];g_buv[L][fi*6+3]=V[2];g_buv[L][fi*6+4]=U[3];g_buv[L][fi*6+5]=V[3]; fi++;
     }
 }
+/* Day and night atlases, in the same order. The night entries are the SAME
+ * pixel data under a palette whose window index is lit (see
+ * assets/make_bldnight.py), so this costs flash and no GAME_RAM. */
+static const MoteImage *const BTEX_DAY[NBTEX] = {
+    &bld_brick_img, &bld_office_img, &bld_tower_img, &bld_concrete_img,
+    &bld_glass_img, &bld_painted_img, &bld_brownstone_img, &bld_panel_img };
+static const MoteImage *const BTEX_NIGHT[NBTEX] = {
+    &bld_brick_night, &bld_office_night, &bld_tower_night, &bld_concrete_night,
+    &bld_glass_night, &bld_painted_night, &bld_brownstone_night, &bld_panel_night };
+
+/* Re-point the meshes that already exist rather than keeping a second set.
+ * Called only when the sun crosses the threshold, not every frame. */
+static void set_building_night(int night) {
+    for (int L = 0; L < NBLV; L++)
+        for (int t = 0; t < NBTEX; t++)
+            g_bmesh[L][t].texture = night ? BTEX_NIGHT[t] : BTEX_DAY[t];
+}
+
 static void build_buildings(void) {
-    const MoteImage *tex[NBTEX] = { &bld_brick_img, &bld_office_img, &bld_tower_img,
-                                    &bld_concrete_img, &bld_glass_img, &bld_painted_img,
-                                    &bld_brownstone_img, &bld_panel_img };
+    const MoteImage *const *tex = BTEX_DAY;
     for (int L=0; L<NBLV; L++) {
         build_bgeom(L, TILE*0.5f, g_lvl_h[L]*0.5f, TILE*0.5f);      /* full-tile footprint: blocks merge */
         for (int t=0; t<NBTEX; t++)
@@ -1181,6 +1227,10 @@ typedef struct { float x,z; uint8_t variant; } Tree;
 
 #define NCAR  18
 #define NPED  34
+/* Of the pool, how many are CIVILIANS: spawn_world seeds about this many and
+ * leaves the rest free for foot officers and street crews. tod_busy scales
+ * against this, not NPED, or a quiet night would also thin the police. */
+#define NPED_CIV 22
 #define NTREE 140
 static Car    cars[NCAR];
 static Ped    peds[NPED];
@@ -1415,7 +1465,7 @@ static float road_heading(int x,int z){
     return H[best];
 }
 static int walkable_world(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c!='#'&&c!='O'&&c!='H'&&c!='~') || is_garage(tx,tz); }
-static int drivable_world(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c!='#'&&c!='O'&&c!='H'&&c!='~') || is_garage(tx,tz); }
+static int drivable_world(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c!='#'&&c!='O'&&c!='H'&&c!='~') || is_bay(tx,tz); }
 static int road_world(float wx,float wz){ return is_drivable((int)(wx/TILE),(int)(wz/TILE)); }  /* road/bridge only (AI cars stay off pavement) */
 
 static int pav_or_grass(int x,int z){ char c=tile_at(x,z); return c==','||c==' '; }
@@ -1690,7 +1740,12 @@ static void spawn_world(void) {
 /* =========================================================== crime layer === */
 enum { ST_TITLE, ST_PLAY, ST_WASTED, ST_BUSTED, ST_DMLINK };
 enum { W_FIST, W_PISTOL, W_SMG, W_SHOTGUN, W_FLAME, W_ROCKET, W_UZI, W_MINIGUN, W_GRENADE, NWEAP };
-enum { PK_CASH, PK_PISTOL, PK_SMG, PK_SHOTGUN, PK_HEALTH, PK_FLAME, PK_ROCKET, PK_PACKAGE };
+/* The pickup billboard indexes the atlas as kind*16, so the order here IS the
+ * order of the cells in pickups.png. PK_ARMOUR takes 7 and PK_PACKAGE moves to
+ * 8: PACKAGE is skipped by the draw and has never had a cell, so the free
+ * index belongs to the kind that needs one. */
+enum { PK_CASH, PK_PISTOL, PK_SMG, PK_SHOTGUN, PK_HEALTH, PK_FLAME, PK_ROCKET,
+       PK_ARMOUR, PK_PACKAGE };
 enum { MK_GUN, MK_SPRAY, MK_PHONE, MK_DOCK };
 enum { MI_NONE, MI_COURIER, MI_RAMPAGE, MI_GETAWAY, MI_HIT,
        MI_DELIVER,   /* fetch a named car, drive it to the drop undamaged */
@@ -1714,6 +1769,11 @@ typedef struct { float x,z,t; uint8_t kind; } Fx;   /* 0 blood 1 spark 2 flash 3
 #define NPICK   44
 #define NFX     48
 #define MAXHP   100.0f
+/* ARMOUR. Soaks damage before health does and does not come back on its own --
+ * health is restored by medkits and by the hospital respawn, armour only by
+ * finding more. That asymmetry is the point: it is a consumable advantage. */
+#define MAXARM  100.0f
+static float g_armour;
 #define SPRAY_FEE 100
 
 static Bullet bullets[NBULLET];
@@ -1755,6 +1815,35 @@ static int   rival_car, rival_i;  /* RIVAL: rival's car slot + its checkpoint pr
 #define RIVAL_CAP_EVEN    13.0f     /* same leg, roughly level */
 #define RIVAL_CAP_BEHIND  15.5f     /* rival is behind (or trailing on the leg) → floor it */
 #define RIVAL_ARRIVE2    100.0f     /* checkpoint arrival radius^2 (10 m — a car needs some slack) */
+/* ------------------------------------------------------------ TAXI FARES ---
+ * The cab existed as a silhouette -- yellow paint, black roof sign, its own
+ * VStat row -- with no reason to ever drive one. This is the reason: get in a
+ * taxi, someone flags you down, take them where they ask, get paid, repeat.
+ *
+ * It is NOT a mission type. Phone jobs are started by walking to a phone box,
+ * which you cannot do from the driver's seat, so a fare offered as MI_TAXI
+ * could never be offered when you were in a position to take it. Fares are
+ * their own loop instead, and they only look for work while mission==MI_NONE
+ * so the two never fight over the beacon or the HUD line.
+ *
+ * FARE_HAIL tracks the pedestrian who waved by slot, the way MI_HIT tracks its
+ * mark, so the beacon follows them as they walk. Ped slots get recycled by the
+ * ring-walk spawner, so the slot is re-validated every frame against the point
+ * where the hail happened: a recycled slot is almost always somewhere else in
+ * the city, and the rare case where it is not just means you pick up a
+ * different pedestrian, which costs nothing. */
+enum { FARE_NONE, FARE_HAIL, FARE_RIDE };
+static int   g_fare;        /* FARE_* */
+static int   g_fare_ped;    /* HAIL: the ped slot that waved */
+static int   g_fare_n;      /* consecutive fares delivered -- the streak */
+static int   g_fare_pay;
+static float g_fare_x, g_fare_z;   /* HAIL: where the wave happened · RIDE: the drop */
+static float g_fare_t;      /* seconds left on the current leg */
+static float g_fare_look;   /* FARE_NONE: seconds until the next attempt to find work */
+#define FARE_HAIL_SECS  26.0f    /* to reach someone who waved before they give up */
+#define FARE_BOARD2     30.0f    /* 5.5 m: close enough to open the door (squared) */
+#define FARE_DROP2      49.0f    /* 7 m: close enough to let them out (squared) */
+#define FARE_STOP        2.6f    /* m/s under which the cab counts as stopped */
 static const char *g_msg; static float g_msg_t;
 static float hosp_x, hosp_z;
 static int   g_showmap, g_mapsx, g_mapsy; static float g_maptime;   /* full-map view */
@@ -1769,10 +1858,32 @@ enum { TAB_MAP, TAB_SET, TAB_N };
  * it on (see the BRING CHEAT comment), and putting it at the end means hiding
  * it is just a shorter row count rather than a hole in the middle that every
  * index would have to step over. set_rows() is that count. */
-enum { SET_MINIMAP, SET_SOUND, SET_CONTROLS, SET_SAVE, SET_LOAD, SET_BRING, SET_N };
+enum { SET_MINIMAP, SET_SOUND, SET_CONTROLS, SET_SAVE, SET_LOAD, SET_NEW, SET_BRING, SET_N };
+/* NEW GAME throws away the city you are standing in, so it asks twice: the
+ * first A arms it and the row reads A AGAIN, the second within ARM_SECS does
+ * it. Moving off the row, leaving the tab or letting the clock run out all
+ * disarm. It sits directly under LOAD GAME, which is the row most likely to be
+ * hit by mistake on the way to it -- hence the confirm rather than a different
+ * position, because any position is next to something. */
+static float g_newarm;
+#define NEW_ARM_SECS 3.0f
 static uint8_t g_cheats;                       /* BRING row revealed */
 static int set_rows(void){ return g_cheats ? SET_N : SET_N - 1; }
 static int   g_menutab = TAB_MAP, g_setsel;
+/* TITLE MENU. Driven like the settings page -- UP/DOWN to pick, A to take it --
+ * rather than a dedicated button per option. Two of the three rows are
+ * conditional (CONTINUE needs a save, deathmatch needs ABI 44), so the list is
+ * built each frame and g_titlesel indexes the VISIBLE rows, not the enum. */
+static int g_have_save;        /* selected slot holds a game; see refresh_have_save */
+enum { TM_NEW, TM_CONTINUE, TM_DM, TM_N };
+static uint8_t g_titlesel;
+static int title_rows(uint8_t *out) {
+    int n = 0;
+    out[n++] = TM_NEW;                                  /* always offered */
+    if (g_have_save)                 out[n++] = TM_CONTINUE;
+    if (mote->abi_version >= 44)     out[n++] = TM_DM;
+    return n;
+}
 static const char *g_setmsg; static float g_setmsg_t;
 /* SOUND on/off, persisted.
  *
@@ -1928,6 +2039,8 @@ static int engine_fill(int16_t *out, int n) {
 }
 
 static void reset_game(void);
+static void add_fx(float x,float z,int k);   /* defined below; drive_car smokes the tyres */
+static void refresh_have_save(void);   /* defined with save_game; the title asks it */
 
 static void g_init(void) {
     int v47 = (mote->abi_version>=47 && mote->ui_font);
@@ -1972,6 +2085,8 @@ static void g_init(void) {
         }
     }
     reset_game();
+    /* After the prefs above, because it asks about the slot THEY selected. */
+    refresh_have_save();
     g_state = ST_TITLE;
 }
 
@@ -2195,12 +2310,45 @@ static void road_markings(int x, int z) {
  * Gated on the view cone and capped: the scan is 21x21 tiles and a lake fills
  * most of them, which would otherwise spend the whole point pool on water
  * that is behind the camera. */
-#define WATER_FLECKS_MAX 56
+/* 44, not 56: the point pool is 56 and the BIRDS below reserve the other 12.
+ * Sharing it blind would let a waterfront flock silently delete the shimmer,
+ * or the shimmer delete the flock, depending on draw order. */
+#define WATER_FLECKS_MAX 44
+#define BIRD_MAX         12
 /* Sun elevation as a sine of the clock: -1 at midnight, 0 at dawn, +1 at noon,
  * 0 at dusk. Separate from g_sun_dir, whose four TOD[] keyframes are SHADING
  * directions with a positive y at every hour — asking them whether the sun is
  * up gives "always". The sky disc and the car lamps both ask this instead. */
 static float sun_elev(void) { return sinf(6.2831853f * (g_tod - 0.25f)); }
+
+/* HOW BUSY THE CITY IS, 0..1, from the clock. g_tod runs 0 = midnight,
+ * 0.25 = dawn, 0.5 = noon, 0.75 = dusk, which is exactly what sun_elev already
+ * encodes -- so daylight comes free from it rather than from a second curve.
+ *
+ * On top of that, two rush hours: a quadratic bump is used rather than a
+ * gaussian because this is called inside the streaming tick and powf/expf are
+ * not worth it for a hump nobody can measure the shape of.
+ *
+ * THE CURVE PEAKS AT 1.0 THROUGH THE WORKING DAY, and only the small hours
+ * come down. The first version ran 0.30 + 0.52*day, which scaled DOWN FROM the
+ * old flat density instead of around it: measured against the unscaled
+ * behaviour it cost 20% of the traffic at noon and 30% mid-afternoon, for a
+ * city that simply felt emptier all the time. Daytime now matches what was
+ * there before and night is the only reduction.
+ *
+ * The floor is 0.55, not zero and not 0.30. An emptier city at 4 a.m. is
+ * atmosphere; a city with almost no traffic is a bug report. */
+static float bump(float x, float c, float w) {
+    float d = (x - c) / w; if (d < 0) d = -d;
+    return d > 1.0f ? 0.0f : (1.0f - d) * (1.0f - d);
+}
+static float tod_busy(void) {
+    float day = 0.5f + 0.5f * sun_elev();              /* 0 at midnight, 1 at noon */
+    float f = 0.55f + 0.45f * day
+            + 0.15f * bump(g_tod, 0.333f, 0.060f)      /* ~08:00 */
+            + 0.15f * bump(g_tod, 0.729f, 0.060f);     /* ~17:30 */
+    return f > 1.0f ? 1.0f : f;
+}
 
 /* Lay the stars out for this frame.
  *
@@ -2316,6 +2464,107 @@ static void draw_sky_body(void) {
  *
  * Only in daylight: they fade in with the sun between elevation 0.10 and 0.30
  * and are gone at night, when the star field has the sky instead. */
+/* BIRDS over the parks and the water.
+ *
+ * Stateless. Whether a tile has a flock, how many birds, how wide they circle
+ * and how high all come out of the tile hash; where each bird is in its circle
+ * comes from the clock. Nothing is stored, so this costs no GAME_RAM at all.
+ *
+ * They are scene POINTS, not billboards or triangles. A bird at thirty metres
+ * is two pixels, and points are the one primitive priced for that: 16 bytes an
+ * entry, depth-tested in the 3D pass exactly like the water shimmer, so a bird
+ * behind a tower is hidden by it.
+ *
+ * THEY VANISH WHEN YOU GET CLOSE, which reads as taking flight. Actually
+ * flying them away would need a velocity per bird and somewhere to keep it;
+ * this needs neither and looks the same from the pavement.
+ *
+ * Gone after dark -- roosting, and two dark pixels against a night sky would
+ * be invisible anyway.
+ *
+ * HEIGHT IS 15-26 m, not the 7-14 m this started at, and that is the whole
+ * difference between seeing them and not. Lower down they sit against the
+ * skyline, where two dark pixels on a dark building are nothing; up there they
+ * are against sky. */
+/* SHOP SIGNS AFTER DARK.
+ *
+ * The shops, the spray garage and the phone boxes already carry markers, drawn
+ * as flat decals or a billboard -- all of which go as dark as everything else
+ * once the sun is down, so a night street has no landmarks at all and finding
+ * a gun shop means opening the map.
+ *
+ * One glow disc each, in the SAME colour the map page uses for that kind, so
+ * the thing you saw on the map is the thing that is lit in front of you.
+ *
+ * Discs, not geometry: a glow is what the primitive is for, it is depth-tested
+ * against the buildings, and the budget has room precisely at night because
+ * draw_clouds returns early once the sun is under the horizon -- the up-to-28
+ * lobes it spends in daylight are free here.
+ *
+ * Capped at SHOPLIGHT_MAX and gated on distance like the decals themselves,
+ * because the pool is shared with the sun, the car lamps and the explosions. */
+#define SHOPLIGHT_MAX 10
+static void draw_shop_lights(void) {
+    if (sun_elev() >= 0.06f) return;                 /* daylight: the decals read fine */
+    int n = 0;
+    for (int m = 0; m < nmark && n < SHOPLIGHT_MAX; m++) {
+        float dx = markers[m].x - view_x, dz = markers[m].z - view_z;
+        if (dx*dx + dz*dz > 2500.0f) continue;       /* same 50 m gate the decals use */
+        uint16_t col = markers[m].kind==MK_GUN   ? MOTE_RGB565(240,205,70)
+                     : markers[m].kind==MK_SPRAY ? MOTE_RGB565( 90,210,130)
+                     : markers[m].kind==MK_DOCK  ? MOTE_RGB565(245,160,70)
+                                                 : MOTE_RGB565( 90,170,245);
+        /* A HALO AND A CORE, the same two-disc trick the sun uses: one solid
+         * disc at this size read as a glowing ball stuck to the wall rather
+         * than a lit sign. The halo is the kind's colour, the core is pulled
+         * most of the way to white so it looks like the source.
+         *
+         * 2.6 m: above a doorway, clear of the player and of parked cars. */
+        Rgb base = { (uint8_t)(col >> 11) * 8, (uint8_t)((col >> 5) & 63) * 4, (uint8_t)(col & 31) * 8 };
+        uint16_t core = rgb565(rgb_lerp(base, (Rgb){255,255,245}, 0.6f));
+        if (mote->scene_add_disc(v3(markers[m].x, 2.6f, markers[m].z), 0.62f, col)) n++;
+        if (n < SHOPLIGHT_MAX &&
+            mote->scene_add_disc(v3(markers[m].x, 2.6f, markers[m].z), 0.26f, core)) n++;
+    }
+}
+
+static void draw_birds(void) {
+    if (sun_elev() < 0.02f) return;
+    if (!mote->scene_add_point) return;
+    float t = mote->micros ? (float)(mote->micros() % 1000000000ull) * 1e-6f : 0.0f;
+    int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE), n = 0;
+    for (int r = 0; r <= 9 && n < BIRD_MAX; r++)
+      for (int dz = -r; dz <= r && n < BIRD_MAX; dz++)
+      for (int dx = -r; dx <= r && n < BIRD_MAX; dx++) {
+        if (r > 0 && dx != -r && dx != r && dz != -r && dz != r) continue;
+        int x = cx + dx, z = cz + dz;
+        char c = tile_at(x, z);
+        if (c != ' ' && c != '~') continue;                  /* parks and open water */
+        unsigned h = (unsigned)(x * 374761393u ^ z * 668265263u);
+        if ((h & 7u) != 0) continue;                         /* one tile in 8 */
+        float fx = x*TILE + TILE*0.5f, fz = z*TILE + TILE*0.5f;
+        float ddx = pl_x() - fx, ddz = pl_z() - fz;
+        if (ddx*ddx + ddz*ddz < 13.0f*13.0f) continue;       /* you got close: gone */
+        int k = 3 + (int)((h >> 6) & 3);                     /* 3..6 to a flock */
+        float rad = 3.0f + (float)((h >> 8) & 7) * 0.5f;
+        float hy  = 15.0f + (float)((h >> 12) & 7) * 1.4f;   /* against SKY, not the skyline */
+        float sp  = 0.5f + 0.06f * (float)((h >> 16) & 7);
+        /* Cone-test the FLOCK, the way the water shimmer tests its tile. Without
+         * this the ring walk spends the whole budget on flocks behind the
+         * camera: scene_add_point culls them and returns 0, so they cost a slot
+         * of BIRD_MAX and draw nothing. */
+        if (!gta3_view_tile(&g_view, fx, hy, fz, VIEW_GROUND_R, rad*2.0f)) continue;
+        for (int b = 0; b < k && n < BIRD_MAX; b++) {
+            float a = t*sp + (float)b * (6.2831853f / (float)k);
+            /* COUNT ONLY WHAT IS ACCEPTED -- the return value, not the call. */
+            if (mote->scene_add_point(v3(fx + cosf(a)*rad,
+                                         hy + sinf(a*2.0f)*0.6f,
+                                         fz + sinf(a)*rad),
+                                      MOTE_RGB565(44, 46, 56), 2)) n++;
+        }
+      }
+}
+
 #define CLOUDS     7
 /* The CONDENSATION LEVEL, in metres above the camera. Real cumulus form where
  * rising air hits its dew point, and that altitude is the same for every cloud
@@ -2420,6 +2669,119 @@ static void draw_clouds(void) {
         mote->scene_add_tri(v3(x0, base, z0), v3(x1, base, z1), v3(x1, q.y, z1), col, 0);
         mote->scene_add_tri(v3(x0, base, z0), v3(x1, q.y, z1), v3(x0, q.y, z0), col, 0);
     }
+}
+
+/* THE DEN'S DOORWAY.
+ *
+ * The bay mesh has its whole street-facing wall removed -- that is what makes a
+ * pay-n-spray something you drive into -- and a den reusing it was a 4 m hole
+ * in a building, which read as a missing wall rather than as a way in. This
+ * closes the front down to a door with a window beside it, so it is plainly an
+ * entrance and the inside feels enclosed.
+ *
+ * Eight flat triangles: two jambs, a lintel over the door, and the window.
+ * Flat tris rather than a second mesh set, which would have cost about 576
+ * bytes of GAME_RAM for four more opening directions against the 896 spare.
+ * Two dens a city, drawn only inside 70 m, so the triangle cost is nothing
+ * against a pool that saturates on police.
+ *
+ * scene_add_tri is UNLIT -- the colour passed is the colour drawn -- so the
+ * facade is shaded BY HAND with the same term mote_pipe applies to the mesh
+ * beside it, 0.25 + 0.75*max(0, n.sun). Without that the doorway is a bright
+ * patch stuck on a dark wall. The face normal is horizontal, so the dot
+ * product only needs the x and z of the sun.
+ *
+ * The door is CENTRED and 2 m of the 4 m tile. Collision is still per-tile --
+ * walkable_world admits the whole den -- so the jambs are scenery you can walk
+ * through at the edges. Centred and wide keeps the walk-in on the line you
+ * actually approach along, where the mismatch does not show.
+ *
+ * The window LIGHTS at night, like the building windows and the shop signs. A
+ * den carries no marker until you have stood in one, so a lit pane is the only
+ * thing that makes one findable after dark -- and a light in a building is
+ * ambiguous enough not to announce itself as a hideout. */
+static void draw_den_front(int gi) {
+    if (gi < 0) return;
+    float ox = (float)g_gar[gi].ox, oz = (float)g_gar[gi].oz;
+    float cxw = g_gar[gi].x*TILE + TILE*0.5f, czw = g_gar[gi].z*TILE + TILE*0.5f;
+    float ux = -oz, uz = ox;                        /* across the opening */
+    /* 6 cm inside the tile edge: the bay's own side walls end exactly on it */
+    float px = cxw + ox*(TILE*0.5f - 0.06f), pz = czw + oz*(TILE*0.5f - 0.06f);
+
+    float nd = ox*g_sun_dir.x + oz*g_sun_dir.z;
+    float sh = 0.25f + 0.75f*(nd > 0.0f ? nd : 0.0f);
+
+    const float HW = TILE*0.5f;      /* 2.0 -- half the tile */
+    const float DW = 1.0f;           /* half the door */
+    const float ROOF = 2.15f;        /* the sunk bay mesh's roof */
+    const float HEAD = 1.90f;        /* top of the door opening */
+
+    #define DQ(l0,l1,y0,y1,col) do { \
+        Vec3 A = v3(px + ux*(l0), (y0), pz + uz*(l0)); \
+        Vec3 B = v3(px + ux*(l0), (y1), pz + uz*(l0)); \
+        Vec3 C = v3(px + ux*(l1), (y1), pz + uz*(l1)); \
+        Vec3 D = v3(px + ux*(l1), (y0), pz + uz*(l1)); \
+        mote->scene_add_tri(A,B,C,(col),0); mote->scene_add_tri(A,C,D,(col),0); \
+    } while (0)
+
+    Rgb wall = { (uint8_t)(112*sh), (uint8_t)(107*sh), (uint8_t)(99*sh) };
+    Rgb trim = { (uint8_t)(74*sh),  (uint8_t)(70*sh),  (uint8_t)(64*sh)  };
+    uint16_t cw = rgb565(wall), ct = rgb565(trim);
+
+    DQ(-HW, -DW, 0.0f, ROOF, cw);          /* jamb, one side */
+    DQ( DW,  HW, 0.0f, ROOF, cw);          /* jamb, the other */
+    DQ(-DW,  DW, HEAD, ROOF, ct);          /* lintel over the door */
+
+    /* THE DOOR, hinged on one jamb and WORKED BY HAND.
+     *
+     * It was swung by your distance, which opened it for you as you walked up.
+     * That made the den a hole that happened to have a leaf near it. A door you
+     * open is a door, and shutting it behind you is the whole feeling a
+     * bolt-hole is supposed to have, so RB works it when you are within 2.7 m
+     * of the opening -- from the street, and from a pace inside.
+     *
+     * It still blocks nothing: collision is per-tile and the whole den is
+     * walkable, so a shut door is something you see rather than something you
+     * push. What makes that read instead of looking broken is cam_solid letting
+     * the camera into the bay with you, so once you are in and it is shut you
+     * are looking at the inside of a closed door rather than through it from
+     * the pavement.
+     *
+     * Dens start SHUT. The carve zeroes dopen and dwant, so the first thing a
+     * den does is look like a door. */
+    { float a2 = (float)g_gar[gi].dopen * (1.5708f/255.0f), ca2 = cosf(a2), sa2 = sinf(a2);
+      /* hinge on one jamb; the leaf swings INWARD, away from the street */
+      float hxw = px + ux*(-DW), hzw = pz + uz*(-DW);
+      float dxw = ux*ca2 - ox*sa2, dzw = uz*ca2 - oz*sa2;
+      float fxw = hxw + dxw*(DW*2.0f), fzw = hzw + dzw*(DW*2.0f);
+      /* an open leaf is edge-on to the sun, so shade it on its OWN normal
+       * rather than the facade's or it brightens as it swings */
+      float lnx = -dzw, lnz = dxw;
+      float ld = lnx*g_sun_dir.x + lnz*g_sun_dir.z; if (ld < 0) ld = -ld;
+      float lsh = 0.25f + 0.75f*ld;
+      uint16_t cd2 = rgb565((Rgb){ (uint8_t)(86*lsh), (uint8_t)(104*lsh), (uint8_t)(84*lsh) });
+      Vec3 A = v3(hxw, 0.0f, hzw), B = v3(hxw, HEAD, hzw);
+      Vec3 C = v3(fxw, HEAD, fzw), D = v3(fxw, 0.0f, fzw);
+      mote->scene_add_tri(A,B,C,cd2,0); mote->scene_add_tri(A,C,D,cd2,0);
+      /* the handle, on the free edge at hand height */
+      { float g0=1.72f, g1=1.90f, hy2=0.95f, hy3=1.12f;
+        uint16_t ch = rgb565((Rgb){ (uint8_t)(206*lsh), (uint8_t)(178*lsh), (uint8_t)(96*lsh) });
+        Vec3 P = v3(hxw+dxw*g0, hy2, hzw+dzw*g0), Q = v3(hxw+dxw*g0, hy3, hzw+dzw*g0);
+        Vec3 R = v3(hxw+dxw*g1, hy3, hzw+dzw*g1), S2 = v3(hxw+dxw*g1, hy2, hzw+dzw*g1);
+        mote->scene_add_tri(P,Q,R,ch,0); mote->scene_add_tri(P,R,S2,ch,0); } }
+
+    /* the pane, a hair proud of the wall so it never z-fights it */
+    { float qx = px + ox*0.03f, qz = pz + oz*0.03f;
+      int night = sun_elev() < 0.06f;
+      uint16_t cg = night ? MOTE_RGB565(238,198,112)      /* lit: unshaded on purpose */
+                          : rgb565((Rgb){ (uint8_t)(58*sh), (uint8_t)(70*sh), (uint8_t)(88*sh) });
+      float l0=-1.72f, l1=-1.18f, y0=1.05f, y1=1.72f;
+      Vec3 A = v3(qx + ux*l0, y0, qz + uz*l0);
+      Vec3 B = v3(qx + ux*l0, y1, qz + uz*l0);
+      Vec3 C = v3(qx + ux*l1, y1, qz + uz*l1);
+      Vec3 D = v3(qx + ux*l1, y0, qz + uz*l1);
+      mote->scene_add_tri(A,B,C,cg,0); mote->scene_add_tri(A,C,D,cg,0); }
+    #undef DQ
 }
 
 /* Traffic-light heads at the junctions around the player.
@@ -2982,7 +3344,13 @@ static void draw_buildings_window(void) {
                 if (c != '#' && c != 'O' && c != 'H') continue;
                 int gdir = is_garage(x, z) ? garage_dir(x, z) : -1;
                 float th, hy;
-                if (gdir >= 0){ th = GARAGE_H; hy = th * 0.5f; }      /* garage: a low roofed bay, open front */
+                /* A DEN draws the same mesh sunk into the ground, which lowers its
+                 * roof without a second mesh set costing ~576 bytes of GAME_RAM
+                 * for four more opening directions. The floor face is already
+                 * skipped, so the walls simply run below the street. The result
+                 * is a 2.15 m mouth you duck into rather than a 3.6 m vehicle
+                 * bay -- the visual tell that you have to get out and walk. */
+                if (gdir >= 0){ th = GARAGE_H; hy = is_den(x,z) ? 0.35f : th * 0.5f; }
                 else { int L = bld_level(x, z); th = g_lvl_h[L]; hy = th * 0.5f; }
                 float wx = x*TILE+TILE*0.5f, wz = z*TILE+TILE*0.5f;
                 float ddx = wx - cam_pos.x, ddz = wz - cam_pos.z;
@@ -2994,7 +3362,8 @@ static void draw_buildings_window(void) {
                  * plainly in view. */
                 if (!gta3_view_tile(&g_view, wx, 0.1f, wz, VIEW_BLD_R, TILE) &&
                     !gta3_view_tile(&g_view, wx, th,   wz, VIEW_BLD_R, TILE)) continue;
-                if (gdir >= 0) { mote_draw(mote, &gr_mesh[gdir], v3(wx, hy, wz)); }
+                if (gdir >= 0) { mote_draw(mote, &gr_mesh[gdir], v3(wx, hy, wz));
+                    if (is_den(x,z) && d < 70.0f) draw_den_front(den_at(x,z)); }
                 else if (far) {
                     MoteObject o = { .pos = v3(wx, hy, wz), .basis = m3_identity(),
                                      .mesh = &g_hmesh[bld_level(x,z)],
@@ -3010,12 +3379,42 @@ static void draw_buildings_window(void) {
 }
 
 /* -------------------------------------------------------- movement + AI ----- */
+/* A SHUT DEN DOOR IS SOLID.
+ *
+ * It used to be scenery you walked through, which was defensible while the
+ * leaf swung open on its own as you approached -- it was never in your way. It
+ * is not defensible now that you work it by hand: a door you have to open is a
+ * door that stops you when it is shut.
+ *
+ * The test is on the CROSSING, not on the tile, which is why it lives here
+ * rather than in walkable_world. walkable_world only ever sees a destination,
+ * so a den gated that way would stop you walking IN through a shut door and
+ * happily let you walk OUT through it -- the destination on the way out is
+ * ordinary pavement. move_body has both ends, so blocking any move that
+ * changes tile while the door between is shut is symmetric for free.
+ *
+ * It applies to everyone, not just the player: a foot officer cannot follow
+ * you through a door you have closed either. Shutting it still does not make
+ * you safe -- the lying-low gate is blown by anyone within 11 m of the mouth,
+ * door or no door -- but it is the difference between cover and a corridor.
+ *
+ * The threshold is a third of the swing rather than fully open, so you step
+ * through as the leaf clears rather than waiting out the animation. */
+#define DOOR_PASS 90        /* of 255: open enough to get through */
+static int den_shut_between(float fx, float fz, float tx2, float tz2) {
+    int ax=(int)(fx/TILE), az=(int)(fz/TILE);
+    int bx=(int)(tx2/TILE), bz=(int)(tz2/TILE);
+    if (ax==bx && az==bz) return 0;                 /* not leaving the tile */
+    int di = den_at(ax,az); if (di < 0) di = den_at(bx,bz);
+    if (di < 0) return 0;                           /* no den either side */
+    return g_gar[di].dopen <= DOOR_PASS;
+}
 /* slide a body to (nx,nz) honouring a walkable/drivable test; returns hit flag. */
 static int move_body(float *x, float *z, float nx, float nz, int drive) {
     int hit = 0;
     int (*ok)(float,float) = drive ? drivable_world : walkable_world;
-    if (ok(nx, *z)) *x = nx; else hit = 1;
-    if (ok(*x, nz)) *z = nz; else hit = 1;
+    if (ok(nx, *z) && !den_shut_between(*x, *z, nx, *z)) *x = nx; else hit = 1;
+    if (ok(*x, nz) && !den_shut_between(*x, *z, *x, nz)) *z = nz; else hit = 1;
     return hit;
 }
 
@@ -3244,6 +3643,30 @@ static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int
         fs = b->vx*cc + b->vy*ss;
         if (fs < 0.0f){ b->vx -= cc*fs; b->vy -= ss*fs; }
     }
+    /* TYRE SMOKE. The handbrake above is a headline feature that produced no
+     * evidence of itself -- the car slid and nothing said why.
+     *
+     * The trigger is the SCRUB, not the button: lateral speed in the car's own
+     * frame, so smoke appears when the tyres are actually losing against the
+     * road and not merely because a pedal is down. A gentle braked turn stays
+     * clean; a proper slide smokes.
+     *
+     * From the rear axle, one puff at a time on a cooldown rather than per
+     * frame -- the FX pool is 48 and shared with blood, sparks, muzzle flash
+     * and fire, and a drift that filled it would silently starve all of them. */
+    { static float s_smoke;
+      s_smoke -= dt;
+      float lat = -b->vx*ss + b->vy*cc;                   /* sideways, in car axes */
+      if (lat < 0.0f) lat = -lat;
+      if (sliding && lat > 3.2f && s_smoke <= 0.0f) {
+          s_smoke = 0.06f;
+          float rx = c->x - cc*2.0f, rz = c->z - ss*2.0f;  /* behind the middle: the rear axle */
+          for (int w = 0; w < 2; w++) {                    /* one per rear wheel, not one per car */
+              float o = (w ? 0.9f : -0.9f) + (frand()*2.0f - 1.0f) * 0.25f;
+              add_fx(rx - ss*o, rz + cc*o, 3);             /* kind 3 = the smoke puff */
+          }
+      }
+    }
     /* Rear lamps follow what the pedal is actually doing, so the light matches
      * the manoeuvre: red under braking, white once LB has become reverse. */
     c->lamp = braking ? LAMP_BRAKE : ((brake && s_revok) ? LAMP_REV : LAMP_OFF);
@@ -3317,6 +3740,100 @@ static float best_turn_toward(float x,float z,float d,float tx,float tz,int allo
  *   TURN   — entered only when the road doesn't continue straight (corner/T/dead-end):
  *            commit ONE new cardinal with a clear run, slow right down, steer to it, then
  *            resume CRUISE once aligned and the exit is open ahead. */
+/* RECKLESS DRIVERS. One in five never brakes for a person in the road.
+ *
+ * Derived from the slot and the paint job rather than stored or rolled, the way
+ * ped_brave is: a given car behaves consistently for as long as it exists, and
+ * rerolls when the slot is recycled into a new one. Without it every driver in
+ * the city is equally courteous, which reads as a rule rather than as traffic
+ * -- and stepping into the road stops being a decision.
+ *
+ * Reckless applies ONLY to people. A car that ignored the car in front would
+ * pile the whole street up; car_ahead is untouched. */
+static int driver_reckless(int i){
+    uint32_t h = (uint32_t)i*2654435761u ^ ((uint32_t)cars[i].type*40503u);
+    h ^= h>>13; h *= 1274126177u; h ^= h>>16;
+    return (h % 5u) == 0u;
+}
+
+/* IS THE PLAYER ON FOOT IN THIS CAR'S PATH?
+ *
+ * car_ahead only looks at other vehicles, so a person standing in the street
+ * was invisible to traffic and simply got driven through -- do_runovers was the
+ * only interaction a pedestrian had with a car.
+ *
+ * Same lane geometry as car_ahead, with three changes: a narrower corridor,
+ * because a person is not a car's width; a longer look, because you lift off
+ * earlier for someone on foot than for a bumper; and no heading test, because a
+ * pedestrian has no lane direction to agree with.
+ *
+ * The player's own CAR needs no case here. It lives in cars[] like any other,
+ * so car_ahead already queues traffic behind it. */
+static int player_ahead(int i){
+    if (g_state != ST_PLAY || player.mode != MODE_FOOT) return 0;
+    if (driver_reckless(i)) return 0;
+    const VStat *v=&VSTAT[cars[i].type];
+    float ang=bodies[i].angle, c=cosf(ang), s=sinf(ang);
+    float spd=bodies[i].vx*c + bodies[i].vy*s;
+    float look=v->len*0.5f + 4.0f + (spd>0?spd*0.9f:0.0f);
+    float dx=player.x-cars[i].x, dz=player.z-cars[i].z;
+    float fwd=dx*c + dz*s;  if (fwd < 0.3f || fwd > look) return 0;
+    float lat=-dx*s + dz*c; if (lat < 0) lat = -lat;
+    return lat <= 1.5f;
+}
+
+/* A ZEBRA CROSSING WITH SOMEONE ON IT.
+ *
+ * g_zebra has marked every crossing tile since the crossings went in, and
+ * update_peds already refuses to let anyone cross a road anywhere else -- so
+ * the pedestrians were using the crossings properly and the drivers had no
+ * idea the crossings existed. A queue of people walking a marked crossing
+ * while traffic drives through them is the one thing on a street that most
+ * plainly says nobody is in charge.
+ *
+ * ON a zebra tile, not NEAR one. A radius around the crossing would also catch
+ * everyone loitering on the pavement either side of it, which on these
+ * pavements is most of the street, and the traffic would simply never move.
+ * The tile test is one bit and it rejects almost every ped before any maths.
+ *
+ * The corridor is 4.5 m either side rather than car_ahead's 1.7, because a
+ * crossing is a road's width of people and someone two lanes over is still
+ * someone you stop for. The player on foot is included on the same terms --
+ * player_ahead's narrow in-lane test already covers them, and this widens it
+ * when they are standing on the paint.
+ *
+ * Reckless drivers blow crossings too, by the same one-in-five rule: a driver
+ * who brakes for a marked crossing but not for you in the road would be a
+ * stranger rule than no rule at all. */
+#define ZEB_LAT  4.5f
+static int crossing_ahead(int i){
+    if (g_state != ST_PLAY) return 0;
+    if (driver_reckless(i)) return 0;
+    const VStat *v=&VSTAT[cars[i].type];
+    float ang=bodies[i].angle, c=cosf(ang), s=sinf(ang);
+    float spd=bodies[i].vx*c + bodies[i].vy*s;
+    /* NO EARLY-OUT ON A LOW SPEED. The first draft returned 0 under 0.5 m/s as
+     * "already stopped, nothing to yield", which made the car let go of the
+     * brake the instant it worked: yield -> stop -> no longer yielding ->
+     * throttle -> drive into the person it had just stopped for. The probe
+     * caught it as a yield that lasted a handful of frames. The look distance
+     * grows with speed and has a fixed floor, so a stopped car still sees the
+     * crossing in front of it and holds until it is clear. */
+    float look = v->len*0.5f + 5.0f + (spd > 0 ? spd*1.1f : 0.0f);
+    float cxp=cars[i].x, czp=cars[i].z;
+    for (int j=0;j<=NPED;j++){
+        float wx, wz;
+        if (j < NPED){ if (!peds[j].alive) continue; wx=peds[j].x; wz=peds[j].z; }
+        else { if (player.mode != MODE_FOOT) break; wx=player.x; wz=player.z; }
+        if (!zebra_at((int)(wx/TILE), (int)(wz/TILE))) continue;
+        float dx=wx-cxp, dz=wz-czp;
+        float fwd=dx*c + dz*s;  if (fwd < 0.3f || fwd > look) continue;
+        float lat=-dx*s + dz*c; if (lat < 0) lat = -lat;
+        if (lat <= ZEB_LAT) return 1;
+    }
+    return 0;
+}
+
 static void update_traffic(float dt) {
     for (int i=0;i<NCAR;i++) {
         Car *c=&cars[i];
@@ -3470,6 +3987,9 @@ static void update_traffic(float dt) {
                 ai_state[i]=AIS_CRUISE;
         }
         int turning=(ai_state[i]==AIS_TURN), blocked=car_ahead(i);
+        /* someone is in the road, or on a crossing ahead -- stop, don't coast */
+        int yield_ped = player_ahead(i) || crossing_ahead(i);
+        if (yield_ped) blocked = 1;
         int approach = (!turning && run_ahead < TILE*2.6f);      /* a turn is coming → ease off early */
         /* HEAD-ON DODGE: someone is coming straight at me in MY lane (a bad spawn or a
          * mid-turn stray) — squeeze hard toward my right kerb and ease off. */
@@ -3498,7 +4018,11 @@ static void update_traffic(float dt) {
                 if (st == LIGHT_RED) { blocked = 1; at_red = 1; }
             }
         }
-        red_wait[i] = (uint8_t)at_red;
+        /* A car deliberately stopped is not STUCK: red_wait is the flag that keeps
+         * the recovery push and the stuck timer off a car that means to be still,
+         * and a driver waiting for you to cross qualifies on exactly the same
+         * grounds as one waiting for a light. */
+        red_wait[i] = (uint8_t)(at_red || yield_ped);
 
         /* JUNCTION YIELD: give way to a MOVING perpendicular crosser near my entry point.
          * Priority: a car already IN the junction goes first; equal approaches → lower index
@@ -3540,10 +4064,17 @@ static void update_traffic(float dt) {
             throttle = (road_run(c->x,c->z, fx,fz, TILE*1.4f) < TILE*0.9f) ? -0.9f : 1.0f; }
         /* A red light BRAKES; every other `blocked` reason keeps coasting, which
          * is what queueing behind another car should feel like. */
-        ai_drive_b(i, target, throttle, at_red ? 0.85f : 0.0f, dt);
+        ai_drive_b(i, target, throttle, (at_red || yield_ped) ? 0.85f : 0.0f, dt);
+        /* AI cars never set their lamps before this: drive_car only runs for the
+         * player's own. A driver standing on the brakes for you with dark tail
+         * lights is the whole signal thrown away, so set them here -- and clear
+         * them every other frame, because nothing else does. */
+        c->lamp = (at_red || yield_ped) ? LAMP_BRAKE : LAMP_OFF;
 
         float cc=cosf(ba), ss=sinf(ba), fs=b->vx*cc+b->vy*ss;    /* cap forward speed */
-        float cap = blocked ? 2.0f : (turning ? 3.0f : (approach ? 4.6f : 9.5f));
+        /* yield_ped caps at zero, not at the 2.0 that queueing behind a car uses:
+         * a cab creeping into your shins at 2 m/s is not stopping for you. */
+        float cap = yield_ped ? 0.0f : (blocked ? 2.0f : (turning ? 3.0f : (approach ? 4.6f : 9.5f)));
         if (is_racer && !blocked){
             /* RUBBER-BAND top speed: a race car, faster than traffic on the straights,
              * eased when ahead of the player and floored when behind so the race stays
@@ -3696,7 +4227,20 @@ static void update_peds(float dt) {
 }
 
 /* =================================================== crime layer helpers === */
-static int wanted(void){ int w=(int)heat; return w>5?5:w; }
+/* THE SIXTH STAR.
+ *
+ * A star is a BAND: star N is heat in [N, N+1), because wanted() is (int)heat.
+ * So six stars needs headroom to 7, not to 6 -- at a 6.0 ceiling the top band
+ * is a single exact value that the first frame of decay leaves, which is why
+ * wanted() clamped to 5 and the HUD drew five dots. Six was unreachable in the
+ * logic as well as undrawn, while the README promised it the whole time.
+ *
+ * The gates above it are unchanged: roadblocks at four, the army's tank at
+ * five. Six is one more squad car than five, because the dispatcher keeps
+ * wanted() of them alive -- an increment, not a new kind of response. */
+#define HEAT_MAX    7.0f
+#define WANTED_MAX  6
+static int wanted(void){ int w=(int)heat; return w>WANTED_MAX?WANTED_MAX:w; }
 static void say(const char *m){ g_msg=m; g_msg_t=2.2f; }
 /* Throttle repeated SFX so a crowd run-over (many cash/crash sounds in a few
  * frames) can't stack dozens of synth voices and stall the frame. Each distinct
@@ -3729,7 +4273,7 @@ static void rmbl(float in, int ms){
     if (mote->micros && now-g_lastrumble < 130000u) return;
     g_lastrumble = now; mote->rumble(in, ms);
 }
-static void add_heat(float a){ heat += a; if(heat>6) heat=6; heat_cool=0; }
+static void add_heat(float a){ heat += a; if(heat>HEAT_MAX) heat=HEAT_MAX; heat_cool=0; }
 /* A crime with a GUARANTEED star value: floor the heat at `f` the first time,
  * then half a star for each repeat. Anything that must be visible immediately
  * goes through here rather than add_heat.
@@ -3741,7 +4285,7 @@ static void add_heat(float a){ heat += a; if(heat>6) heat=6; heat_cool=0; }
  * update_cops only chases at wanted() > 0. One helper so there is no third. */
 static void heat_at_least(float f) {
     if (heat < f) heat = f; else heat += 0.5f;
-    if (heat > 6.0f) heat = 6.0f;
+    if (heat > HEAT_MAX) heat = HEAT_MAX;
     heat_cool = 0;
 }
 /* Hitting a squad car is ALWAYS a felony, worth at least one full star.
@@ -3760,8 +4304,17 @@ static int sight_clear(float x0,float z0,float x1,float z1){
     float dx=x1-x0, dz=z1-z0, d=sqrtf(dx*dx+dz*dz);
     int n=(int)(d*0.5f)+1;
     for (int k=1;k<n;k++){ float t=(float)k/(float)n;
-        char c=tile_at((int)((x0+dx*t)/TILE),(int)((z0+dz*t)/TILE));
-        if (c=='#'||c=='O'||c=='H') return 0; }
+        int tx=(int)((x0+dx*t)/TILE), tz=(int)((z0+dz*t)/TILE);
+        char c=tile_at(tx,tz);
+        /* A CARVED BAY IS A DOORWAY, not a wall. Without this exemption the den
+         * is seen as solid building, which means nobody can ever see you in one
+         * -- so `pursued` could not fire, the burn path was unreachable, and the
+         * hideout was siege-proof: cops piled into the mouth, wrecked themselves
+         * on the collider and paid out $150 a car while the wanted level bled
+         * off anyway. Now the only line into a den is through its mouth, which
+         * is the trade the feature is supposed to make. Pay-n-spray bays are
+         * open to the street for the same reason. */
+        if ((c=='#'||c=='O'||c=='H') && !is_garage(tx,tz)) return 0; }
     return 1;
 }
 /* does any officer WITNESS an incident at (x,z)? sight = 30 m + LOS; loud incidents
@@ -3783,6 +4336,88 @@ static void add_heat_at(float a,float x,float z,int loud){ if (cops_witness(x,z,
 static void panic_at(float x,float z){ g_panic=4.5f; g_panicx=x; g_panicz=z; }  /* violence → peds nearby flee */
 static void add_fx(float x,float z,int k){ for(int i=0;i<NFX;i++) if(fxs[i].t<=0){ fxs[i]=(Fx){x,z,(k==3)?0.9f:0.45f,(uint8_t)k}; return; } }
 static void add_pickup(float x,float z,int kind){ for(int i=0;i<NPICK;i++) if(!picks[i].alive){ picks[i]=(Pickup){x,z,(uint8_t)kind,1,0}; return; } }
+
+/* THE STASH RESTOCKS. A den you have emptied is a room, and the walk back is
+ * only worth making if something is in it. Caches have never respawned in
+ * single player -- update_pickups just clears the slot, and the only respawn
+ * timer in the game is the deathmatch one -- so a safehouse that refills is
+ * the reason to keep one.
+ *
+ * ONCE A DAY, on the city clock rather than on a stopwatch. g_tod wraps 1 -> 0
+ * at midnight, so a value lower than last frame's is a new day -- which means
+ * the stash is replenished OVERNIGHT, at a time that means something, instead
+ * of at whatever moment a free-running 120 s timer happened to expire.
+ *
+ * Midnight only marks it DUE. The sweep still refuses to run within 50 m, so
+ * sleeping in your own hideout through midnight does not make the crates pop
+ * in front of you; it restocks the moment you are away. Due-but-blocked is
+ * retried on a one-second throttle rather than every frame.
+ *
+ * The loot table lives out here because the restock has to put back what the
+ * carve put there, and it is indexed by the den's ordinal so a given den keeps
+ * its own pair across a whole game. */
+#define DEN_NEAR2   2500.0f     /* 50 m: never restock one under your nose */
+static const uint8_t DEN_LOOT[4][2] = { {PK_ARMOUR,PK_SMG}, {PK_ARMOUR,PK_CASH},
+                                        {PK_SHOTGUN,PK_HEALTH}, {PK_SMG,PK_ARMOUR} };
+static float   g_den_tod;     /* g_tod last sweep -- a lower value means midnight passed */
+static uint8_t g_den_due;     /* a day has turned and the stash owes a restock */
+static float   g_den_sweep;   /* throttle while due-but-too-close */
+/* the two cache positions inside den `gi`, in the order the carve laid them */
+static void den_loot_spot(int gi, int k, float *ox, float *oz){
+    float wx=g_gar[gi].x*TILE+TILE*0.5f, wz=g_gar[gi].z*TILE+TILE*0.5f;
+    *ox = wx + (k ? 0.7f : -0.7f); *oz = wz + (k ? 0.7f : -0.7f);
+}
+/* The den door you are standing at, or -1. Measured to the middle of the
+ * OPENING rather than to the den centre, so it answers from the street and
+ * from a pace inside alike -- you shut it behind you from in there. */
+#define DEN_USE2 7.3f      /* 2.7 m of the doorway (squared) */
+static int den_door_reach(void){
+    if (g_state != ST_PLAY || player.mode != MODE_FOOT) return -1;
+    /* Standing IN one always counts. The opening's middle is 2 m out from the
+     * tile centre, so from the back of the den it is 3.5 m away -- outside
+     * DEN_USE2, and with a solid door that would seal you in with no way to
+     * work the handle. */
+    { int di = den_at((int)(player.x/TILE), (int)(player.z/TILE)); if (di >= 0) return di; }
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind != GAR_DEN) continue;
+        float dx2=(g_gar[i].x+0.5f+g_gar[i].ox*0.5f)*TILE - player.x;
+        float dz2=(g_gar[i].z+0.5f+g_gar[i].oz*0.5f)*TILE - player.z;
+        if (dx2*dx2+dz2*dz2 < DEN_USE2) return i;
+    }
+    return -1;
+}
+/* Walk every leaf toward where it is going. 520 a second is about half a
+ * second end to end, which is a door rather than a shutter.
+ *
+ * It also SHUTS BEHIND YOU: crossing into the den tile sets the target to
+ * closed, once, on the frame you arrive. You still open it by hand and you can
+ * open it again from inside, but the default once you are in is shut, which is
+ * the point of going in there.
+ *
+ * Worth knowing: you will not see this happen. A den is one tile deep and
+ * surrounded by solid building, so the chase camera's pull-in puts it right on
+ * the player's back and the whole frame is the rear wall -- shut and open are
+ * pixel-identical from inside. The state is real and reads from the street;
+ * the interior view is a separate problem and a bigger one. */
+static int8_t g_den_in = -1;      /* the den the player was stood in last frame */
+static void swing_doors(float dt){
+    { int tx=(int)(pl_x()/TILE), tz=(int)(pl_z()/TILE);
+      int now_in = (player.mode==MODE_FOOT) ? den_at(tx,tz) : -1;
+      if (now_in >= 0 && now_in != g_den_in) g_gar[now_in].dwant = 0;
+      g_den_in = (int8_t)now_in; }
+    int step = (int)(520.0f*dt); if (step < 1) step = 1;
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind != GAR_DEN) continue;
+        int cur = g_gar[i].dopen, want = g_gar[i].dwant;
+        if (cur < want) cur = (cur + step > want) ? want : cur + step;
+        else if (cur > want) cur = (cur - step < want) ? want : cur - step;
+        g_gar[i].dopen = (uint8_t)cur;
+    }
+}
+static int den_ordinal(int gi){
+    int n=0; for (int i=0;i<gi;i++) if (g_gar[i].kind==GAR_DEN) n++;
+    return n;
+}
 
 /* The player's height. Everything in this game is 2D except the helicopter, so
  * this is zero for every other state and the callers below are the only places
@@ -3807,7 +4442,11 @@ static float pl_yaw(void){ return player.mode==MODE_CAR ? cars[player.car].yaw :
 static int cam_solid(int tx, int tz, void *ud) {
     (void)ud;
     char c = tile_at(tx, tz);
-    return c == '#' || c == 'O' || c == 'H';
+    /* A CARVED BAY IS NOT SOLID TO THE CAMERA. It is open to the street and you
+     * can stand in it, so a camera that stopped at the mouth could not follow
+     * you in -- which means a shut den door could never be seen from the
+     * inside, where the whole point of shutting it is. */
+    return (c == '#' || c == 'O' || c == 'H');
 }
 
 /* Place the chase camera and publish everything the rest of the file reads:
@@ -3885,6 +4524,57 @@ static void chase_camera(float tx, float tz, float yaw, float dt) {
     view_z = g_cam.eye.z + cam_basis.r[2].z * 40.0f;
 
     gta3_view_set(&g_view, g_cam.eye, cam_basis.r[2], FOV, 1.45f);
+}
+
+/* CAN YOU WALK FROM HERE TO A STREET?
+ *
+ * A bounded flood over walkable ground, looking for road or bridge. Every other
+ * den placement test is local -- solid tile, pavement in front, walls behind
+ * and to the sides -- and all of them pass for a slot opening onto a courtyard
+ * sealed inside a block, which is a hideout that cannot be reached. This is the
+ * one question none of them ask.
+ *
+ * DEN_WALK_R tiles is 24 m of walking. Bounding it is not only for speed: a
+ * mouth that needs more than that to reach a street is not somewhere anyone
+ * will find, which is the same failure in a slower form.
+ *
+ * The window size is set by the STACK, not by the search. A visited bitmap over
+ * the whole 256x256 map would be 8 KB against this device's 4 KB core0 stack,
+ * where an overflow is a silent truncated push rather than a fault. A 13x13
+ * window is 169 bytes of marks and a 338-byte queue of packed local indices,
+ * and it is deliberately smaller than the 17x17 that was measured first: 867
+ * bytes of stack in a generation path was more margin than this question is
+ * worth, and the wider radius rejected no extra sites across thirty runs. */
+#define DEN_WALK_R 6
+static int mouth_reaches_road(int sx, int sz) {
+    enum { R = DEN_WALK_R, W = 2*R + 1, N = W*W };
+    uint8_t  seen[N];
+    uint16_t q[N];
+    for (int i = 0; i < N; i++) seen[i] = 0;
+    int qh = 0, qt = 0;
+    int li = R*W + R;                       /* the mouth sits at the window centre */
+    seen[li] = 1; q[qt++] = (uint16_t)li;
+    while (qh < qt) {
+        int cur = q[qh++];
+        int lx = cur % W, lz = cur / W;
+        int wx = sx + lx - R, wz = sz + lz - R;
+        char c = tile_at(wx, wz);
+        if (c == '.' || c == 'B') return 1;             /* a street. done. */
+        static const int DX2[4] = {1,-1,0,0}, DZ2[4] = {0,0,1,-1};
+        for (int d = 0; d < 4; d++) {
+            int nlx = lx + DX2[d], nlz = lz + DZ2[d];
+            if (nlx < 0 || nlz < 0 || nlx >= W || nlz >= W) continue;
+            int ni = nlz*W + nlx; if (seen[ni]) continue;
+            int nwx = sx + nlx - R, nwz = sz + nlz - R;
+            char nc = tile_at(nwx, nwz);
+            /* walkable: anything that is not building or water. is_garage is
+             * not consulted -- a route that only exists THROUGH another carved
+             * bay is not a route anyone would call one. */
+            if (nc == '#' || nc == 'O' || nc == 'H' || nc == '~') continue;
+            seen[ni] = 1; q[qt++] = (uint16_t)ni;
+        }
+    }
+    return 0;
 }
 
 static void place_markers(void) {
@@ -3979,7 +4669,14 @@ static void place_markers(void) {
                         gx=x; gz=z; gox=DX[d]; goz=DZ[d]; found=1;
                     } }
             if (found){
-                g_gar[g_ngar++] = (typeof(g_gar[0])){ (int16_t)gx,(int16_t)gz, MK_SPRAY, (int8_t)gox,(int8_t)goz };
+                /* DESIGNATED, not positional. This was a five-value positional
+                 * initialiser, and adding `found` as the struct's fourth member
+                 * silently slid every value after it along: gox landed in
+                 * found, goz in ox, and oz came out 0 -- so every pay-n-spray
+                 * bay has had a wrong opening direction since the hideaways
+                 * went in. Naming the fields makes the next member harmless. */
+                g_gar[g_ngar++] = (typeof(g_gar[0])){ .x=(int16_t)gx, .z=(int16_t)gz,
+                    .kind=MK_SPRAY, .found=0, .ox=(int8_t)gox, .oz=(int8_t)goz };
                 markers[nmark++] = (Marker){ gx*TILE+TILE*0.5f, gz*TILE+TILE*0.5f, MK_SPRAY };
                 continue;
             }
@@ -3999,6 +4696,67 @@ static void place_markers(void) {
                     if (tile_at(x,z)==','){ fx=x; fz=z; found=1; } }
         markers[nmark++]=(Marker){ fx*TILE+TILE*0.5f, fz*TILE+TILE*0.5f, (uint8_t)want[m].kind };
     }
+    /* ------------------------------------------------------------- DENS ---
+     * Two bolt-holes per city, carved into the remaining garage slots AFTER the
+     * pay-n-sprays have taken what they need, so a den can never displace a
+     * shop. They get NO marker: the whole point is that you find one by walking
+     * past the gap.
+     *
+     * The carve rule is stricter than the spray bay's. A spray bay needs a
+     * drivable approach, so it sits on the street face of a block; a den needs
+     * the opposite -- back AND both sides still solid, which makes it a slot
+     * cut into the mass rather than a corner that happens to be open. It is
+     * also kept away from the city centre and from every marker already placed,
+     * because a hiding place next to a gun shop is not hiding.
+     *
+     * A car cannot follow you in: is_bay() leaves a den off the drivable map
+     * and keeps its full-tile collider, so the mouth stops a bumper. */
+    { static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
+      int made=0, unreachable=0;
+      for (int att=0; att<900 && made<2 && g_ngar<NGARAGE; att++){
+          int x=4+irand(MAPW-8), z=4+irand(MAPH-8);
+          if ((x-cx)*(x-cx)+(z-cz)*(z-cz) < 42*42) continue;   /* not downtown */
+          if (!is_solid(x,z)) continue;
+          int clear=1;                                          /* nowhere near a shop or a phone */
+          for (int m2=0;m2<nmark && clear;m2++){
+              float ddx=markers[m2].x-(x*TILE+TILE*0.5f), ddz=markers[m2].z-(z*TILE+TILE*0.5f);
+              if (ddx*ddx+ddz*ddz < 60.0f*60.0f) clear=0; }
+          if (!clear) continue;
+          for (int i=0;i<g_ngar && clear;i++)                   /* nor near another den/bay */
+              if ((g_gar[i].x-x)*(g_gar[i].x-x)+(g_gar[i].z-z)*(g_gar[i].z-z) < 20*20) clear=0;
+          if (!clear) continue;
+          for (int d=0; d<4; d++){
+              int fx2=x+DX[d],   fz2=z+DZ[d];                   /* the mouth */
+              int kx =x-DX[d],   kz =z-DZ[d];                   /* back wall */
+              int s1x=x+DZ[d],   s1z=z+DX[d];                   /* the two sides */
+              int s2x=x-DZ[d],   s2z=z-DX[d];
+              char fc=tile_at(fx2,fz2);
+              if (fc!=',' && fc!=' ') continue;                 /* you must be able to WALK up to it */
+              if (!is_solid(kx,kz)) continue;
+              if (!is_solid(s1x,s1z) || !is_solid(s2x,s2z)) continue;   /* a slot, not a corner */
+              /* ...AND YOU CAN GET THERE. Every test above is local: they all
+               * pass for a slot opening onto a pavement strip sealed inside a
+               * block of buildings, which is a hideout nobody can ever reach.
+               * This walks the mouth outward over walkable ground and insists
+               * on finding a street. */
+              if (!mouth_reaches_road(fx2,fz2)){ unreachable++; continue; }
+              g_gar[g_ngar++] = (typeof(g_gar[0])){ .x=(int16_t)x, .z=(int16_t)z,
+                  .kind=GAR_DEN, .found=0, .ox=(int8_t)DX[d], .oz=(int8_t)DZ[d] };
+              { const uint8_t *L = DEN_LOOT[made & 3];
+                float sx2,sz2;
+                den_loot_spot(g_ngar-1, 0, &sx2, &sz2); add_pickup(sx2, sz2, L[0]);
+                den_loot_spot(g_ngar-1, 1, &sx2, &sz2); add_pickup(sx2, sz2, L[1]); }
+              made++; break;
+          }
+      }
+#ifdef MOTE_HOST
+      if (getenv("MOTE_GTA_DEBUG")){
+          fprintf(stderr,"[DENS] %d carved (%d sites rejected as unreachable):",made,unreachable);
+          for (int i=0;i<g_ngar;i++) if(g_gar[i].kind==GAR_DEN)
+              fprintf(stderr," (%d,%d)->(%d,%d)",g_gar[i].x,g_gar[i].z,g_gar[i].ox,g_gar[i].oz);
+          fprintf(stderr,"\n"); }
+#endif
+    }
 #ifdef MOTE_HOST
     if (getenv("MOTE_GTA_DEBUG")){
         fprintf(stderr,"[MARKERS] %d placed:",nmark);
@@ -4015,7 +4773,21 @@ static void kill_ped(int i, int gore) {
     p->alive=0; g_kills++;
     add_fx(p->x,p->z,0); add_fx(p->x+0.4f,p->z-0.3f,0);
     panic_at(p->x,p->z);          /* a death near here scares everyone */
-    if (p->iscop){ cash+=100; add_heat_at(1.2f,p->x,p->z,0); float_txt(p->x,p->z,"+$100");
+    /* AN OFFICER DOWN IS TWO MORE STARS, and it is reported whether or not
+     * anyone is standing there to see it -- a man with a radio stops answering
+     * it. Every other crime here goes through add_heat_at and needs a witness;
+     * this one and the two squad-car crimes do not, for the same reason.
+     *
+     * It is ADDITIVE, not a floor. A floor of 3 would under-punish the second
+     * and third kill, which is exactly when the law should be getting worse,
+     * and "jump two stars" is the behaviour the genre has trained people to
+     * expect. It used to be add_heat_at(1.2f), which left killing an officer
+     * worth LESS than stealing his car (a floor of 2) -- backwards however you
+     * read it. */
+    if (p->iscop){ cash+=100;
+        heat += 2.0f; if (heat > HEAT_MAX) heat = HEAT_MAX; heat_cool = 0;
+        say("OFFICER DOWN");
+        float_txt(p->x,p->z,"+$100");
         if (irand(2)) add_pickup(p->x,p->z,PK_PISTOL); }   /* ...and sometimes his sidearm */
     else { add_pickup(p->x,p->z,PK_CASH); add_heat_at(gore?0.6f:0.5f, p->x,p->z, 0); }
     /* THE CREW'S TAKINGS. Dropped by whoever goes down last rather than by a
@@ -4134,6 +4906,15 @@ static void footcop_fire(Ped *p, float px, float pz) {
 }
 
 static void hurt_player(float dmg) {
+    /* Armour first, and it absorbs the WHOLE hit up to what is left of it --
+     * the remainder carries through, so a 40-point hit against 10 armour costs
+     * 30 health rather than being wholly stopped or wholly ignored. */
+    if (g_armour > 0.0f) {
+        float soak = dmg < g_armour ? dmg : g_armour;
+        g_armour -= soak; dmg -= soak;
+        if (dmg <= 0.0f) {
+            sfx(&hurt_sfx,0.45f); rmbl(0.3f,90); return; }
+    }
     health -= dmg; sfx(&hurt_sfx,0.6f); rmbl(0.5f,120);
     if (health<=0){ health=0;
         if (g_dm) dm_die();
@@ -4265,6 +5046,7 @@ static void update_pickups(float dt) {
                     while(n){d[dn++]='0'+n%10;n/=10;} while(dn) b[k++]=d[--dn]; b[k]=0;
                     float_txt(p->x,p->z,b); } break;
                 case PK_HEALTH: health=MAXHP; float_txt(p->x,p->z,"HEALTH"); break;
+                case PK_ARMOUR: g_armour=MAXARM; float_txt(p->x,p->z,"ARMOUR"); break;
                 case PK_FLAME: owned[W_FLAME]=1; ammo[W_FLAME]+=140; weapon=W_FLAME; float_txt(p->x,p->z,"FLAMER"); break;
                 /* 3, not 6: the rocket one-shots cars and clears a crowd now,
                  * so the scarcity IS the balance. */
@@ -4275,6 +5057,49 @@ static void update_pickups(float dt) {
                 case PK_PACKAGE: if(mission==MI_PICKUP){ mission_kills++; } float_txt(p->x,p->z,"PACKAGE"); break;
             } }
     }
+}
+
+/* Put back whatever has been taken out of a den, once the clock comes round
+ * and you are not standing there to watch it appear. Checks each SPOT rather
+ * than the den as a whole, so taking one of the pair and leaving the other
+ * restores only the one that went. */
+static void restock_dens(float dt){
+    if (g_tod < g_den_tod) g_den_due = 1;             /* the clock rolled past midnight */
+    g_den_tod = g_tod;
+#ifdef MOTE_HOST
+    /* test: MOTE_GTA_RESTOCK=1 holds the stash permanently due, so it refills as
+     * soon as anything is missing and you are far enough off. A capture cannot
+     * wait out a 240 s day, and MOTE_GTA_TOD pins the clock so it never wraps.
+     * Setting the flag ONCE was useless: the first call happens on frame one,
+     * long before there is anything to put back, and the sweep cleared it. */
+    { static int on = -1;
+      if (on < 0) on = getenv("MOTE_GTA_RESTOCK") ? 1 : 0;
+      if (on) g_den_due = 1; }
+#endif
+    if (!g_den_due) return;
+    g_den_sweep -= dt; if (g_den_sweep > 0.0f) return;
+    g_den_sweep = 1.0f;
+    int blocked = 0;
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind != GAR_DEN) continue;
+        float cx2=(g_gar[i].x+0.5f)*TILE, cz2=(g_gar[i].z+0.5f)*TILE;
+        float pdx=cx2-pl_x(), pdz=cz2-pl_z();
+        if (pdx*pdx+pdz*pdz < DEN_NEAR2){ blocked = 1; continue; }   /* not while you are there */
+        const uint8_t *L = DEN_LOOT[den_ordinal(i) & 3];
+        for (int k=0;k<2;k++){
+            float sx2,sz2; den_loot_spot(i,k,&sx2,&sz2);
+            int there=0;
+            for (int q=0;q<NPICK && !there;q++){ if(!picks[q].alive) continue;
+                float dx2=picks[q].x-sx2, dz2=picks[q].z-sz2;
+                if (dx2*dx2+dz2*dz2 < 1.44f) there=1; }
+            if (!there){ add_pickup(sx2, sz2, L[k]);
+#ifdef MOTE_HOST
+                if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[DENSTOCK] den%d spot%d kind=%d at (%.0f,%.0f)\n", i, k, L[k], sx2, sz2);
+#endif
+            }
+        }
+    }
+    if (!blocked) g_den_due = 0;       /* every den dealt with; wait for the next day */
 }
 
 static float g_runhitcd;   /* cooldown so an NPC car doesn't chew the on-foot player every frame */
@@ -4395,7 +5220,36 @@ static void update_cops(float dt) {
                 if (find_near(px,pz, 30.0f, 55.0f, pav_or_grass, &ox,&oz)) spawn_footcop(ox,oz); }
         }
     }
-    if (w>0 && alivecops<w && g_copspawn<=0){
+    /* THEY COME IN ON FOOT.
+     *
+     * A den is off the drivable map and keeps its collider, so a squad car sent
+     * at a player standing in one drives straight into the mouth and wrecks on
+     * it. Measured at six stars: a car every few seconds, each wreck paying the
+     * $150 bounty and re-adding its star, with the player untouchable inside --
+     * a cash farm, and no way for the law to do anything about it.
+     *
+     * So when you are in a den the dispatcher sends officers instead of cars,
+     * and any squad car that gets near hands its driver out and goes back to
+     * being traffic rather than ramming the wall. A foot officer walks with
+     * walkable_world, which a den admits, so he comes in after you -- and that
+     * is the counter-play the hideout needs: it holds against the street, not
+     * against a man in the doorway. */
+    int in_den_now = (player.mode==MODE_FOOT) && den_at((int)(px/TILE),(int)(pz/TILE))>=0;
+    if (w>0 && in_den_now){
+        for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
+            if (!c->alive || c->wrecked || c->driver!=DRV_COP || c->type==VEH_TANK) continue;
+            float dx=c->x-px, dz=c->z-pz; if (dx*dx+dz*dz > 22.0f*22.0f) continue;
+            float ry=c->yaw+1.5708f;
+            spawn_footcop(c->x+cosf(ry)*2.6f, c->z+sinf(ry)*2.6f);
+            c->driver=DRV_NPC;                 /* the car is just traffic again -- no wreck, no bounty */
+        }
+    }
+    if (w>0 && alivecops<w && g_copspawn<=0 && in_den_now){
+        g_copspawn = 1.7f - 0.2f*w;
+        float ox,oz;
+        if (find_near(px,pz, 12.0f, 34.0f, pav_or_grass, &ox,&oz) && spawn_footcop(ox,oz)) alivecops++;
+    }
+    else if (w>0 && alivecops<w && g_copspawn<=0){
         g_copspawn = 1.7f - 0.2f*w;                  /* response quickens with the heat */
         int pairs = (w>=3)? 2 : 1;                   /* 3*+: squad cars roll in PAIRS */
         for (int sn=0; sn<pairs && alivecops<w; sn++){
@@ -4536,6 +5390,7 @@ static void update_cops(float dt) {
 #define PURSUE_CAP   4.0f
 
 static void update_heat(float dt) {
+
     heat_cool+=dt;
     /* Two radii, one pass. copnear (30 m, any officer) blocks the cooldown.
      * pursued (45 m WITH line of sight) is the stronger claim that someone is
@@ -4589,6 +5444,67 @@ static void update_heat(float dt) {
      * sight, held for the full count. */
     float need = 14.0f + 1.4f*heat;
     if (heat_cool>need && !copnear && !pursued && heat>0){ heat-=0.10f*dt; if(heat<0)heat=0; }
+
+    /* LYING LOW IN A DEN.
+     *
+     * The gate is `pursued`, not `copnear`: pursued means an officer within
+     * 45 m with a CLEAR LINE to you, and a den is a slot in a building with one
+     * mouth, so a patrol three doors down cannot see in. That is the whole
+     * trade -- the hideout works with the law on the street outside, and fails
+     * the moment one of them is standing in the doorway.
+     *
+     * No test for being on foot is needed beyond the obvious one: a car cannot
+     * get into a den, so being in one already means you abandoned it. */
+    /* FINDING ONE. This used to require standing IN the den, which is a
+     * stricter reading of "found it" than anyone has: you can drive past a lit
+     * doorway, know exactly what it is, and have nothing on the map. Anything
+     * inside DEN_SEE2 of the MOUTH counts, from a car as readily as on foot --
+     * at 14 m you are on the street outside it and looking at it. */
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind!=GAR_DEN || g_gar[i].found) continue;
+        float mx2=(g_gar[i].x+0.5f+g_gar[i].ox)*TILE, mz2=(g_gar[i].z+0.5f+g_gar[i].oz)*TILE;
+        float dx2=mx2-pl_x(), dz2=mz2-pl_z();
+        if (dx2*dx2+dz2*dz2 < DEN_SEE2){ g_gar[i].found=1; say("A WAY IN"); }
+    }
+    { int tx=(int)(pl_x()/TILE), tz=(int)(pl_z()/TILE);
+      int di = (player.mode==MODE_FOOT) ? den_at(tx,tz) : -1;
+      if (di < 0){ g_den_t=0; g_den_burn=0; }
+      else {
+          (void)0;   /* discovery is handled below, on approach rather than on entry */
+          /* BURNT: the law is at the door.
+           *
+           * This was gated on `pursued` -- an officer with a clear line -- which
+           * reads better and does not work. Foot officers beeline at the player
+           * through move_body, which hugs walls but cannot route around a block
+           * to find the mouth, so measured at six stars four of them converged
+           * to 10.3 m, stalled against the building face, and never once got a
+           * line. The burn was unreachable and the den was a siege-proof room.
+           *
+           * Distance to the MOUTH, not to the player: an officer 10 m away on
+           * the far side of the block is 10 m away through a wall and has not
+           * found anything. Line of sight still burns it too, for the case
+           * where someone does walk into the doorway. */
+          float dmx=(g_gar[di].x+0.5f+g_gar[di].ox)*TILE, dmz=(g_gar[di].z+0.5f+g_gar[di].oz)*TILE;
+          int atdoor=0;
+          for (int k=0;k<NPED && !atdoor;k++){ if(!peds[k].alive||!peds[k].iscop) continue;
+              float ddx=peds[k].x-dmx, ddz=peds[k].z-dmz; if (ddx*ddx+ddz*ddz < DEN_DOOR2) atdoor=1; }
+          for (int k=0;k<NCAR && !atdoor;k++){ Car*cc=&cars[k];
+              if(!cc->alive||cc->wrecked||cc->driver!=DRV_COP) continue;
+              float ddx=cc->x-dmx, ddz=cc->z-dmz; if (ddx*ddx+ddz*ddz < DEN_DOOR2) atdoor=1; }
+          /* LIVE, not latched. A latch meant that one patrol drifting past the
+           * mouth killed the hideout for as long as you stayed in it, even
+           * after they had gone. Shake them off the door and it works again;
+           * the banner still fires only on the rising edge. */
+          int blown = pursued || atdoor;
+          if (blown && !g_den_burn) say("THEY'RE AT THE DOOR");
+          g_den_burn = (uint8_t)blown;
+          if (!g_den_burn && heat>0.0f){
+              if (g_den_t<=0.0f) say("LYING LOW");
+              g_den_t += dt;
+              heat -= DEN_COOL*dt; if (heat<0) heat=0;
+              heat_cool = 0;      /* the ordinary cooldown is not ALSO running */
+          }
+      } }
 }
 
 static void mission_cleanup(void);   /* defined with start_mission below */
@@ -5181,6 +6097,126 @@ static void mission_win(void){
     mission_cleanup(); mission=MI_NONE;
 }
 
+/* Is the player driving a cab that can still carry someone? */
+static int in_taxi(void){
+    if (g_state!=ST_PLAY || player.mode!=MODE_CAR || player.car<0) return 0;
+    Car *c=&cars[player.car];
+    return c->alive && !c->wrecked && c->type==CAR_TAXI;
+}
+static float taxi_speed(void){
+    if (player.car<0) return 0.0f;
+    MoteBody2D *b=&bodies[player.car];
+    return sqrtf(b->vx*b->vx + b->vy*b->vy);
+}
+/* The streak multiplier, mirroring mission_chain's: +15% a fare, capped at
+ * 1.9x, and reset by any fare you lose. Six good runs in a row is the ceiling,
+ * which is about as long as a cab survives in this city. */
+static float fare_mult(void){
+    int n = g_fare_n; if (n>6) n=6;
+    return 1.0f + 0.15f*(float)n;
+}
+static void fare_drop(const char *why){
+    if (g_fare!=FARE_NONE && why) say(why);
+    g_fare=FARE_NONE; g_fare_ped=-1; g_fare_pay=0; g_fare_t=0; g_fare_look=2.0f;
+}
+static void update_fares(float dt){
+    if (!in_taxi()){
+        /* Getting out mid-ride loses the fare, so it breaks the streak the same
+         * way a timeout does. Walking away from someone who has only WAVED
+         * costs nothing -- you never took the job. */
+        if (g_fare==FARE_RIDE){ fare_drop("THE FARE WALKED"); g_fare_n=0; }
+        else if (g_fare!=FARE_NONE) fare_drop(0);
+        return; }
+
+    if (g_fare!=FARE_NONE){
+        g_fare_t -= dt;
+        if (g_fare_t<=0.0f){ fare_drop(g_fare==FARE_RIDE?"TOO SLOW - FARE LEFT":"THEY GAVE UP WAITING");
+            g_fare_n=0; return; }
+    }
+
+    switch (g_fare){
+    case FARE_NONE: {
+        if (mission!=MI_NONE) return;          /* a phone job owns the beacon */
+        /* NOBODY HAILS A CAB WITH SIRENS BEHIND IT. Without this the offer and
+         * the FARE_RIDE bail-out below fight each other during a chase: a fare
+         * gets in, panics, gets out, and the banner loops once a second. */
+        if (wanted()>=2) return;
+        g_fare_look -= dt; if (g_fare_look>0.0f) return;
+        g_fare_look = 1.4f + frand()*2.2f;
+        if (frand()>0.55f) return;             /* not everyone wants a cab */
+        /* someone on the pavement, close enough to have seen you and far
+         * enough that reaching them is a drive rather than a formality */
+        int best=-1; float bd=1e18f;
+        for (int i=0;i<NPED;i++){ Ped*pd=&peds[i];
+            if (!pd->alive || pd->iscop || pd->gang || pd->flee>0.0f || pd->rage>0.0f) continue;
+            float dx=pd->x-pl_x(), dz=pd->z-pl_z(), d2=dx*dx+dz*dz;
+            if (d2 < 100.0f || d2 > 2025.0f) continue;      /* 10 m .. 45 m */
+            if (d2 < bd){ bd=d2; best=i; } }
+        if (best<0) return;
+        g_fare=FARE_HAIL; g_fare_ped=best; g_fare_t=FARE_HAIL_SECS;
+        g_fare_x=peds[best].x; g_fare_z=peds[best].z;
+        say("FARE WAITING"); sfx(&phone_sfx,0.5f);
+    } break;
+
+    case FARE_HAIL: {
+        Ped *pd = (g_fare_ped>=0 && g_fare_ped<NPED) ? &peds[g_fare_ped] : 0;
+        /* slot re-validation: see the note on the state block */
+        if (!pd || !pd->alive || pd->iscop){ fare_drop(0); return; }
+        float hx=pd->x-g_fare_x, hz=pd->z-g_fare_z;
+        if (hx*hx+hz*hz > 900.0f){ fare_drop(0); return; }   /* recycled into someone else */
+        float dx=pd->x-pl_x(), dz=pd->z-pl_z();
+        if (dx*dx+dz*dz < FARE_BOARD2 && taxi_speed() < FARE_STOP){
+            /* THE DROP. Picked by route rather than by straight-line distance, so
+             * the pay and the clock both describe the drive you actually have to
+             * make -- the same insistence setup_mission's COURIER leg makes. */
+            float ox,oz, route=-1.0f;
+            for (int t=0;t<6 && route<0.0f;t++){
+                if (!find_road_clear(pl_x(),pl_z(), 90.0f, 300.0f, &ox,&oz)) break;
+                float sd=sqrtf((ox-pl_x())*(ox-pl_x())+(oz-pl_z())*(oz-pl_z()));
+                float r=road_dist(pl_x(),pl_z(), ox,oz);
+                if (r>0.0f && r < sd*2.6f) route=r;
+            }
+            if (route<0.0f){ fare_drop("NOWHERE TO TAKE THEM"); return; }
+            pd->alive=0;                       /* they get in */
+            g_fare=FARE_RIDE; g_fare_ped=-1; g_fare_x=ox; g_fare_z=oz;
+            /* PAY. Deliberately well under a phone job's: a fare is repeatable
+             * for as long as you keep the cab, so the rate per metre has to be
+             * low or the gun shop stops meaning anything. Measured at
+             * 110-250 a fare before the streak, 1.9x of that at the ceiling --
+             * a shift's work buys a shotgun, not a minigun in a minute.
+             * The first draft paid 1.9 a metre and ran to 1441 a fare. */
+            g_fare_pay = (int)((40.0f + route*0.6f + frand()*40.0f) * fare_mult());
+            g_fare_t   = 10.0f + route/8.0f;
+            say("TAKE ME ACROSS TOWN"); sfx(&cash_sfx,0.35f);
+        }
+    } break;
+
+    case FARE_RIDE: {
+        /* A chase is not a taxi ride. Two stars means sirens behind you, and
+         * nobody stays in the back seat for that. */
+        if (wanted()>=2){ fare_drop("THE FARE BAILED OUT"); g_fare_n=0; return; }
+        float dx=pl_x()-g_fare_x, dz=pl_z()-g_fare_z;
+        if (dx*dx+dz*dz < FARE_DROP2 && taxi_speed() < FARE_STOP){
+            cash += g_fare_pay; g_fare_n++;
+            char t[10]; snprintf(t,sizeof t,"+$%d",g_fare_pay);
+            float_txt(pl_x(),pl_z(),t);
+            sfx(&cash_sfx,0.8f);
+            say(g_fare_n>=3 ? "REGULAR CUSTOMER" : "FARE PAID");
+            g_fare=FARE_NONE; g_fare_pay=0; g_fare_t=0; g_fare_look=2.5f;
+        }
+    } break;
+    }
+}
+/* Where the cab beacon points, and whether there is one. Kept separate from
+ * mission_beacon so the two can never be live at the same time by accident:
+ * fares only look for work while mission==MI_NONE. */
+static int fare_beacon(float *bx, float *bz){
+    if (g_fare==FARE_HAIL && g_fare_ped>=0 && peds[g_fare_ped].alive){
+        *bx=peds[g_fare_ped].x; *bz=peds[g_fare_ped].z; return 1; }   /* follows them as they walk */
+    if (g_fare==FARE_RIDE){ *bx=g_fare_x; *bz=g_fare_z; return 1; }
+    return 0;
+}
+
 static int near_marker(int kind, float rad) {
     for (int i=0;i<nmark;i++) if(markers[i].kind==kind){
         float dx=markers[i].x-pl_x(), dz=markers[i].z-pl_z();
@@ -5230,9 +6266,11 @@ static void reset_game_seeded(uint32_t want) {
     for (int i=0;i<NBULLET;i++) bullets[i].alive=0;
     for (int i=0;i<NPICK;i++) picks[i].alive=0;
     for (int i=0;i<NFX;i++) fxs[i].t=0;
-    cash=0; health=MAXHP; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
+    cash=0; health=MAXHP; g_armour=0; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
     weapon=W_FIST; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;} owned[W_FIST]=1; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0;
+    g_fare=FARE_NONE; g_fare_ped=-1; g_fare_n=0; g_fare_pay=0; g_fare_t=0; g_fare_look=3.0f;
+    g_den_t=0; g_den_burn=0; g_den_tod=g_tod; g_den_due=0; g_den_sweep=0; g_den_in=-1;
     /* A fresh game gets a different city day every run. A LOAD must not: the
      * spawn search, the parked cars and the traffic init all draw from g_rng,
      * so leaving it on the clock would put the right map back with everything
@@ -5256,7 +6294,7 @@ static void reset_game_seeded(uint32_t want) {
      * caches it turned up three or four times per city, which is not a rare
      * prize — it is standard issue. It now appears in only a third of cities,
      * once, somewhere in the whole map. */
-    { static const uint8_t CACHE[8]={PK_PISTOL,PK_SMG,PK_SHOTGUN,PK_FLAME,PK_HEALTH,PK_CASH,PK_SHOTGUN,PK_SMG};
+    { static const uint8_t CACHE[8]={PK_PISTOL,PK_SMG,PK_SHOTGUN,PK_FLAME,PK_HEALTH,PK_CASH,PK_ARMOUR,PK_SMG};
       for (int k=0;k<28;k++){
         for (int t=0;t<40;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
             if (pav_or_grass(tx,tz)){ add_pickup(tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, CACHE[irand(8)]); break; } } } }
@@ -5338,7 +6376,7 @@ static void reset_game_seeded(uint32_t want) {
 
 static void respawn(int busted) {
     cash = cash>150 ? cash-150 : 0;
-    health=MAXHP; heat=0; heat_cool=99; g_pursuit=0;
+    health=MAXHP; g_armour=0; heat=0; heat_cool=99; g_pursuit=0;
     for (int i=0;i<NCAR;i++) if(cars[i].alive&&cars[i].driver==DRV_COP) cars[i].driver=DRV_NPC;
     player.mode=MODE_FOOT; player.car=-1; player.x=hosp_x; player.z=hosp_z;
     if (busted){ weapon=W_FIST; }        /* busted: lose your guns */
@@ -5579,7 +6617,7 @@ static void reset_game_dm_finish(uint32_t seed){
     for (int i=0;i<NPICK;i++){ picks[i].alive=0; g_dmpkt[i]=0; }
     for (int i=0;i<NFX;i++) fxs[i].t=0;
     for (int i=0;i<NPED;i++) peds[i].alive=0;              /* an empty city: just you two */
-    cash=0; health=MAXHP; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
+    cash=0; health=MAXHP; g_armour=0; heat=0; heat_cool=99; g_pursuit=0; fire_cd=0;
     weapon=W_PISTOL; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;}
     owned[W_FIST]=1; owned[W_PISTOL]=1; ammo[W_PISTOL]=60; g_kills=0;
     mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0; nmark=0;  /* no shops/phones/missions */
@@ -5802,9 +6840,20 @@ static void stream_entities(float dt) {
         int cx=(int)(px/TILE), cz=(int)(pz/TILE), rt=0;
         for (int z=cz-R; z<=cz+R; z++) for (int x=cx-R; x<=cx+R; x++) if (is_drivable(x,z)) rt++;
         int target = rt/7; if(target<3) target=3; if(target>10) target=10;
+        /* The road still sets the ceiling -- a back street never gets ten cars --
+         * and the clock scales it. Fewer cars after midnight also lowers the
+         * triangle peak, which is the one budget already running at its cap. */
+        float bz_ = tod_busy();
+#ifdef MOTE_HOST
+        if (getenv("MOTE_GTA_NOTOD")) bz_ = 1.0f;     /* A/B against the old behaviour */
+#endif
+        target = (int)(target * bz_ + 0.5f); if (target < 1) target = 1;
         int nn=0; for (int i=0;i<NCAR;i++) if(cars[i].alive && cars[i].driver==DRV_NPC) nn++;
 #ifdef MOTE_HOST
-        if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[DENS] R=%d rt=%d target=%d nn=%d camh=%.0f\n",R,rt,target,nn,vis_h);
+        if (getenv("MOTE_GTA_DEBUG")){ int civ=0;
+            for (int i=0;i<NPED;i++) if (peds[i].alive && !peds[i].iscop) civ++;
+            fprintf(stderr,"[DENS] R=%d rt=%d target=%d nn=%d civ=%d busy=%.2f camh=%.0f\n",
+                    R,rt,target,nn,civ,tod_busy(),vis_h); }
 #endif
         if (nn < target){                                      /* grow: revive a dead slot off-screen */
             for (int i=0;i<NCAR;i++) if(!cars[i].alive){ respawn_npc(i); break; }
@@ -5819,6 +6868,7 @@ static void stream_entities(float dt) {
     /* peds stream in a ring JUST outside the current view (scales with zoom), so streets
      * ahead are already populated — not 50 m away where they were never seen again. */
     { float vis = vis_h*0.82f + 3.0f;                       /* ~visible diagonal radius */
+      float busy = tod_busy();
       float rmin = vis + 2.0f, rmax = vis + 14.0f;
       for (int i=0;i<NPED;i++){ Ped*p=&peds[i];
         if (!p->alive) continue;
@@ -5826,14 +6876,29 @@ static void stream_entities(float dt) {
         if (mission==MI_HIT && i==mission_target) continue;   /* the mark doesn't vanish */
         float dx=p->x-px, dz=p->z-pz;
         if (dx*dx+dz*dz > (rmax+16.0f)*(rmax+16.0f)){
+            /* Thinning happens HERE, as someone walks out of the world, rather
+             * than by culling on screen -- a pedestrian must never wink out in
+             * front of you. At 4 a.m. most of them simply do not come back. */
+            if (frand() > busy) { p->alive = 0; continue; }
             float ox,oz; if (find_near(px,pz, rmin, rmax, pav_or_grass, &ox,&oz))
                 peds[i]=(Ped){ ox,oz,(float)(irand(4))*1.5708f,0,(uint8_t)irand(4),1,2,0,0 };
+        }
+      }
+      /* ...and the morning brings them back, one per tick so the street fills
+       * rather than popping. Only ever spawned out past the view ring. */
+      { int alive=0; for (int i=0;i<NPED;i++) if (peds[i].alive && !peds[i].iscop) alive++;
+        if (alive < (int)(NPED_CIV * busy)) {
+            for (int i=0;i<NPED;i++) if (!peds[i].alive) {
+                float ox,oz; if (find_near(px,pz, rmin, rmax, pav_or_grass, &ox,&oz))
+                    peds[i]=(Ped){ ox,oz,(float)(irand(4))*1.5708f,0,(uint8_t)irand(4),1,2,0,0 };
+                break;
+            }
         }
       }
     }
 }
 
-static int blocked_bldg_w(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c=='#'||c=='O'||c=='H') && !is_garage(tx,tz); }
+static int blocked_bldg_w(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c=='#'||c=='O'||c=='H') && !is_bay(tx,tz); }
 static int in_water_w(float wx,float wz){ return tile_at((int)(wx/TILE),(int)(wz/TILE))=='~'; }
 
 /* drove/walked into the river — splash, sink the car, WASTED */
@@ -5864,7 +6929,7 @@ static void physics_pass(float dt) {
     for (int z=cz-R; z<=cz+R && ns<NCAR+NSTAT; z++)
         for (int x=cx-R; x<=cx+R && ns<NCAR+NSTAT; x++){
             char t=tile_at(x,z);
-            if ((t=='#'||t=='O'||t=='H') && !is_garage(x,z)){   /* garage bays have no wall — drive in */
+            if ((t=='#'||t=='O'||t=='H') && !is_bay(x,z)){   /* garage bays have no wall — drive in; a DEN keeps its box, so a car bounces off the mouth */
                 bodies[ns]=mote_body2d_box(x*TILE+TILE*0.5f, z*TILE+TILE*0.5f, TILE*0.5f, TILE*0.5f, 0.0f, 0.0f);
                 bodies[ns].friction=0.7f; bodies[ns].restitution=0.05f; ns++;
             } else if (t==' '){
@@ -6549,6 +7614,17 @@ typedef struct {
     uint32_t seed;                  /* the city. v1 had no such field — see load_game */
 } SaveGame;
 
+/* Does the selected slot hold a game? load(slot,0,0) returns the stored length,
+ * the same question the SAVE/LOAD rows ask to draw their "occupied" dot.
+ *
+ * CACHED, because the title screen is a live 30 fps scene and this would
+ * otherwise be a flash read every frame. The settings page can afford to ask
+ * directly -- it is a static menu -- but the title cannot. Refreshed at boot
+ * and after a save, which are the only two moments the answer can change. */
+static void refresh_have_save(void){
+    g_have_save = (mote->load && mote->load(SAVE_SLOT, 0, 0) > 0);
+}
+
 static int save_game(void) {
     if (!mote->save) return 0;
     SaveGame g;
@@ -6565,7 +7641,9 @@ static int save_game(void) {
      * unrelated one — inside a building, in the river, anywhere. */
     g.seed = g_city_seed;
     for (int i = 0; i < NWEAP; i++) { g.owned[i] = owned[i]; g.ammo[i] = ammo[i]; }
-    return mote->save(SAVE_SLOT, &g, sizeof g) == (int)sizeof g;
+    int ok = mote->save(SAVE_SLOT, &g, sizeof g) == (int)sizeof g;
+    if (ok) g_have_save = 1;
+    return ok;
 }
 
 static int load_game(void) {
@@ -6623,10 +7701,12 @@ static int car_in_reach(void) { return car_reach_pick() >= 0; }
 
 /* ------------------------------------------------- the BRING CHEAT --------
  *
- * These three deliveries are debug affordances, so they are not on the
- * settings page until you ask for them. Tap B nine times ON THE SETTINGS TAB
- * and a BRING row appears at the bottom; LEFT/RIGHT picks HELI, TANK or BOAT
- * and A delivers it. Tap it again to put the row away.
+ * These are debug affordances, so they are not on the settings page until you
+ * ask for them. Tap B nine times ON THE SETTINGS TAB and one more row appears
+ * at the bottom; LEFT/RIGHT walks the five entries and A does the one showing.
+ * Three BRING a vehicle to you -- HELI, TANK, BOAT -- and two take you
+ * somewhere: DEN to the mouth of the nearest hideaway, ISLE to the treasure
+ * island. Tap it again to put the row away.
  *
  * B is the button because the settings tab is the one screen where it does
  * NOTHING: UP/DOWN pick a row, LEFT/RIGHT set its value, A activates it,
@@ -6641,8 +7721,58 @@ static int car_in_reach(void) { return car_reach_pick() >= 0; }
  * not, so the feedback is the feature.
  *
  * Costs two bytes: the press counter and the visible flag. */
-enum { BRING_HELI, BRING_TANK, BRING_BOAT, BRING_N };
-static uint8_t g_bring;        /* which of the three the row is showing */
+/* The hidden row cycles two kinds of thing: three vehicles it BRINGS to you,
+ * and two places it takes you TO. They share one row because an eighth settings
+ * row does not fit -- rows are 11 px apart from y=19, so i=7 lands at y=96 and
+ * its highlight runs to 106, over the result line at y=99. The row's LABEL
+ * changes instead, which costs nothing and says which of the two it is doing.
+ *
+ * The destinations exist because the den and the island are the two things in
+ * the game you cannot reach on purpose: a den is unmarked until you have stood
+ * in one, and the island is a footbridge walk across the map. Checking either
+ * by hand meant a scripted host run with a teleport hook, which the device
+ * build does not have. */
+enum { BRING_HELI, BRING_TANK, BRING_BOAT, BRING_DEN, BRING_ISLE, BRING_N };
+#define BRING_VEH_N BRING_DEN   /* indices below this are vehicles, at or above are places */
+static uint8_t g_bring;        /* which of the five the row is showing */
+
+/* Put the player, ON FOOT, at a world point. Stepping out of whatever they were
+ * driving is deliberate: both destinations are places a vehicle cannot follow
+ * you into, and arriving inside a car wedged in a den or marooned on an island
+ * is worse than walking. The pause screen closes so you can see where you are;
+ * the banner goes through say() rather than g_setmsg for the same reason. */
+static void goto_place(int which) {
+    float wx = 0, wz = 0, yaw = pl_yaw(); int ok = 0;
+    if (which == BRING_DEN) {
+        int best = -1; float bd = 1e18f;
+        for (int i = 0; i < g_ngar; i++) {
+            if (g_gar[i].kind != GAR_DEN) continue;
+            float dx = (g_gar[i].x + 0.5f)*TILE - pl_x(), dz = (g_gar[i].z + 0.5f)*TILE - pl_z();
+            float d = dx*dx + dz*dz; if (d < bd) { bd = d; best = i; }
+        }
+        if (best >= 0) {
+            /* the MOUTH, facing in: the den tile itself is where you walk to,
+             * and standing in it immediately would skip the thing being tested */
+            wx = (g_gar[best].x + 0.5f + g_gar[best].ox) * TILE;
+            wz = (g_gar[best].z + 0.5f + g_gar[best].oz) * TILE;
+            yaw = atan2f(-(float)g_gar[best].oz, -(float)g_gar[best].ox);
+            ok = 1;
+        } else say("NO DEN IN THIS CITY");
+    } else {
+        if (cg_isle_x >= 0) {
+            wx = (cg_isle_x + 0.5f) * TILE; wz = (cg_isle_y + 0.5f) * TILE;
+            ok = 1;
+        } else say("NO ISLAND IN THIS CITY");
+    }
+    if (!ok) { g_setmsg = 0; g_setmsg_t = 0.0f; return; }
+    if (player.mode == MODE_CAR && player.car >= 0) cars[player.car].driver = DRV_NONE;
+    player.mode = MODE_FOOT; player.car = -1;
+    player.x = wx; player.z = wz; player.yaw = yaw;
+    gta3_cam_reset(&g_cam);
+    g_showmap = 0; g_newarm = 0.0f; g_setmsg = 0; g_setmsg_t = 0.0f;
+    say(which == BRING_DEN ? "AT THE HIDEAWAY" : "ON THE ISLAND");
+    sfx(&cash_sfx, 0.6f);
+}
 
 static void bring_vehicle(int which) {
     float ox, oz; bring_here(&ox, &oz);
@@ -6723,6 +7853,12 @@ static void g_update(float dt) {
           if (sd){ mote_rand_seed(sd|1u); g_seed_override=sd; }   /* vary job type + contact per seed */
           const char *mt=getenv("MOTE_GTA_MTYPE"); if(mt) g_force_mtype=atoi(mt);
           start_mission(); bdone=1; } }
+    /* test: MOTE_GTA_ARMOUR=1 starts play wearing a full vest. The caches that
+     * carry armour are scattered over the whole map, so reaching one in a
+     * scripted capture is not practical. */
+    { static int ad=0; const char *av=getenv("MOTE_GTA_ARMOUR");
+      if (av && g_state==ST_PLAY && !ad){ ad=1;
+          float a=(float)atof(av); g_armour = (a > 1.5f) ? a : MAXARM;   /* =1 full, =10 ten points */ } }
     /* test: MOTE_GTA_HEAT=3 starts play at that wanted level, so a capture can
      * reach cop cars and a pursuit without scripting a crime spree first.
      * PROFILING.md notes combat has never been profiled; this is how. */
@@ -6907,8 +8043,20 @@ static void g_update(float dt) {
         mote->scene_camera(&cam_basis, cam_pos, FOV);
         draw_ground_window(); draw_buildings_window();
         if (g_state==ST_TITLE){
-            if (mote_just_pressed(in,MOTE_BTN_A)){ reset_game(); g_state=ST_PLAY; }
-            else if (mote->abi_version>=44 && mote_just_pressed(in,MOTE_BTN_B)){
+            uint8_t rows[TM_N]; int nrow = title_rows(rows);
+            if (g_titlesel >= nrow) g_titlesel = 0;     /* a row can disappear */
+            if (mote_just_pressed(in,MOTE_BTN_UP))   g_titlesel = (uint8_t)((g_titlesel+nrow-1)%nrow);
+            if (mote_just_pressed(in,MOTE_BTN_DOWN)) g_titlesel = (uint8_t)((g_titlesel+1)%nrow);
+            int pick = mote_just_pressed(in,MOTE_BTN_A) ? rows[g_titlesel] : -1;
+
+            if (pick == TM_NEW){ reset_game(); g_state=ST_PLAY; }
+            /* CONTINUE rebuilds the saved city inside load_game, so there is no
+             * reset_game() first; calling one would roll a fresh map and then
+             * immediately throw it away. */
+            else if (pick == TM_CONTINUE){
+                if (load_game()) g_state = ST_PLAY;
+            }
+            else if (pick == TM_DM){
                 /* the engine lobby connects (USB/LAN/Internet) and resolves the
                  * authority; nonce 2 beats 1 so the existing hello + city transfer
                  * handshake runs unchanged, tie-free */
@@ -7088,12 +8236,19 @@ static void g_update(float dt) {
     /* MENU toggles the pause screen; while open, gameplay pauses. */
     if (mote_just_pressed(in, MOTE_BTN_MENU)){
         if (g_ctlpage) { g_ctlpage = 0; return; }    /* back out one level first */
-        g_showmap = !g_showmap;
+        g_showmap = !g_showmap; g_newarm = 0.0f;
         if (g_showmap){ g_mapsx=(int)(pl_x()/TILE)-64; g_mapsy=(int)(pl_z()/TILE)-64; }
     }
     if (g_showmap){
         g_maptime += dt;
         if (g_setmsg_t > 0.0f) g_setmsg_t -= dt;
+        /* The arm expires on its own, and any move off the row or out of the
+         * tab drops it immediately -- so a NEW GAME can only ever happen from
+         * two deliberate presses of A on that one row. */
+        if (g_newarm > 0.0f){
+            g_newarm -= dt;
+            if (g_menutab != TAB_SET || g_setsel != SET_NEW) g_newarm = 0.0f;
+        }
         if (g_ctlpage) {                     /* the page owns every button until dismissed */
             if (mote_just_pressed(in,MOTE_BTN_A) || mote_just_pressed(in,MOTE_BTN_B) ||
                 mote_just_pressed(in,MOTE_BTN_RB) || mote_just_pressed(in,MOTE_BTN_LB))
@@ -7132,6 +8287,7 @@ static void g_update(float dt) {
                   if (g_setsel == SET_SAVE || g_setsel == SET_LOAD) {
                       g_slot = (uint8_t)((g_slot + NSAVE_SLOT + adj) % NSAVE_SLOT);
                       save_prefs();
+                      refresh_have_save();   /* the title offers THIS slot */
                       g_setmsg = 0;      /* the old SAVED/LOADED line is about another slot */
                   } else if (g_setsel == SET_MINIMAP) {
                       g_radar_on = !g_radar_on;
@@ -7148,14 +8304,28 @@ static void g_update(float dt) {
                 case SET_CONTROLS: g_ctlpage = 1; break;
                 case SET_SAVE:    g_setmsg = save_game() ? "SAVED" : "SAVE FAILED"; g_setmsg_t = 2.0f; break;
                 case SET_LOAD:    g_setmsg = load_game() ? "LOADED" : "NO SAVE";    g_setmsg_t = 2.0f; break;
-                case SET_BRING:   bring_vehicle(g_bring); break;
+                case SET_NEW:
+                    if (g_newarm > 0.0f){           /* second press: do it */
+                        g_newarm = 0.0f;
+                        reset_game();
+                        g_showmap = 0; g_menutab = TAB_MAP; g_setsel = 0;
+                        g_setmsg = 0; g_setmsg_t = 0.0f;
+                        g_state = ST_PLAY;
+                    } else g_newarm = NEW_ARM_SECS;  /* first press: arm */
+                    break;
+                case SET_BRING:
+                    if (g_bring < BRING_VEH_N) bring_vehicle(g_bring);
+                    else                       goto_place(g_bring);
+                    break;
                 }
             }
             return;                     /* settings tab does not pan the map */
         }
         int sp = mote_pressed(in,MOTE_BTN_B) ? 6 : 3;   /* B = pan faster */
-        if (mote_pressed(in,MOTE_BTN_LEFT))  g_mapsx-=sp;
-        if (mote_pressed(in,MOTE_BTN_RIGHT)) g_mapsx+=sp;
+        /* Reversed, because the map is mirrored on the way out: pressing RIGHT
+         * must still walk the view to the right of what you are looking at. */
+        if (mote_pressed(in,MOTE_BTN_LEFT))  g_mapsx+=sp;
+        if (mote_pressed(in,MOTE_BTN_RIGHT)) g_mapsx-=sp;
         if (mote_pressed(in,MOTE_BTN_UP))    g_mapsy-=sp;
         if (mote_pressed(in,MOTE_BTN_DOWN))  g_mapsy+=sp;
         if (g_mapsx<0) g_mapsx=0; if (g_mapsx>MAPW-128) g_mapsx=MAPW-128;
@@ -7222,14 +8392,19 @@ static void g_update(float dt) {
         /* RB with nothing in reach: cycle your weapon, as it always did. The
          * reach test below is the same one the USE branch runs, so the two can
          * never both fire on one press. */
-        if (USE && !near_marker(MK_GUN,3.0f) && !near_marker(MK_PHONE,3.0f) && !car_in_reach()) {
+        if (USE && den_door_reach() < 0 && !near_marker(MK_GUN,3.0f) && !near_marker(MK_PHONE,3.0f) && !car_in_reach()) {
             for (int t=0;t<NWEAP;t++){ weapon=(weapon+1)%NWEAP;
                 if (weapon==W_FIST || (owned[weapon] && ammo[weapon]>0)) break; }
             say(WNAME[weapon]);
         }
         /* RB: work a shop/phone if in range, else enter/jack a car */
         else if (USE) {
-            if (near_marker(MK_GUN, 3.0f))        buy_gun();
+            int dgi = den_door_reach();
+            if (dgi >= 0){                        /* the den door: open it, or shut it behind you */
+                g_gar[dgi].dwant = g_gar[dgi].dwant ? 0 : 255;
+                say(g_gar[dgi].dwant ? "DOOR OPEN" : "DOOR SHUT");
+            }
+            else if (near_marker(MK_GUN, 3.0f))   buy_gun();
             else if (near_marker(MK_PHONE, 3.0f)) start_mission();
             else {
                 int best = car_reach_pick();
@@ -7416,8 +8591,22 @@ static void g_update(float dt) {
       for (int i=0;i<NPICK;i++){ if(!picks[i].alive||picks[i].seen) continue;
           float dx=picks[i].x-px2, dz=picks[i].z-pz2;
           if (dx*dx+dz*dz < 32.0f*32.0f) picks[i].seen=1; } }
+    /* Windows light at the same moment the street lamps do, so the city turns
+     * on as one thing. Only on the CROSSING -- re-pointing eight meshes every
+     * frame would be pointless work. */
+    { static int was_night = -1; int night = (sun_elev() < 0.06f);
+#ifdef MOTE_HOST
+      /* test: MOTE_GTA_NOWIN=1 holds the DAY palettes after dark, so the
+       * window lighting can be A/B'd in one scene instead of across two
+       * times of day, where the sky and the sun angle also move. */
+      if (getenv("MOTE_GTA_NOWIN")) night = 0;
+#endif
+      if (night != was_night) { was_night = night; set_building_night(night); } }
     update_heat(dt);
     update_missions(dt);
+    update_fares(dt);
+    restock_dens(dt);
+    swing_doors(dt);
     for (int i=0;i<NFX;i++) if(fxs[i].t>0) fxs[i].t-=dt;
     for (int i=0;i<6;i++) if(g_ftxt[i].t>0) g_ftxt[i].t-=dt;
     if (g_aim_t>0) g_aim_t-=dt;
@@ -7479,6 +8668,8 @@ static void g_update(float dt) {
     stars_update(cam_basis.r[2]);   /* before the background pass paints the sky */
     draw_sky_body();
     draw_clouds();
+    draw_birds();
+    draw_shop_lights();
     draw_traffic_lights();
     draw_street_lamps();
     draw_street_detail();
@@ -7600,15 +8791,32 @@ static void g_update(float dt) {
                    * drawn. No new art, no new pass, no new tile test — the
                    * walk is already here and already knows the tile is bare.
                    *
-                   * Kept inside r<=5 (20 m). A shrub is a metre tall and reads
-                   * as a green smudge past that, and the billboard pool is
-                   * shared: trees are the LAST consumer and measured peak is
-                   * 92 of 112, so a near-only shrub spends the headroom where
-                   * it shows and leaves the far trees their slots. */
-                  if (r > 5) continue;
+                   * NEAR ONLY, because a shrub is a metre tall and reads as a
+                   * green smudge past about thirty-five, and the billboard pool is
+                   * shared -- trees are the LAST consumer, so a near-only shrub
+                   * spends the headroom where it shows.
+                   *
+                   * The range is measured FROM THE CAMERA, not from the ring
+                   * index r. r counts outward from view_x/view_z, which is the
+                   * look-ahead point FORTY METRES IN FRONT of the eye, so an
+                   * `r <= 5` window is a 20 m circle centred 40 m ahead of you
+                   * -- and it swings as you turn. Standing still and only
+                   * rotating, the bush count went 2, 1, 0, 1, 2, 0: shrubs
+                   * beside you appeared and vanished on heading alone. The
+                   * trees never showed it because r <= 11 covers the near field
+                   * from any angle.
+                   *
+                   * Measured from the PLAYER, not from the camera eye. The eye
+                   * was the first fix and it still flickered 13-20 while
+                   * turning on the spot, because the chase camera orbits: the
+                   * eye itself swings several metres round you, so a circle
+                   * centred on it sweeps tiles in and out. The player does not
+                   * move when you only turn, which is the whole point. */
                   if (((h >> 6) & 3) == 0) continue;        /* bench tile */
                   if (((h >> 6) & 1) == 0) continue;        /* half the rest */
                   float bx=x*TILE+((h>>16)&7)*0.4f+1.0f, bz=z*TILE+((h>>20)&7)*0.4f+1.0f;
+                  { float ex=bx-pl_x(), ez=bz-pl_z();
+                    if (ex*ex + ez*ez > 34.0f*34.0f) continue; }
                   draw_upright(&scenery_img, bx, bz, SCEN_BUSH*20, 0, 20, 20,
                                1.1f + (float)((h>>24)&3)*0.15f, VIEW_GROUND_R, 2.0f);
                   continue;
@@ -7743,6 +8951,22 @@ static void draw_map(uint16_t *fb){
                      markers[i].kind==MK_DOCK?MOTE_RGB565(235,150,60):MOTE_RGB565(80,160,240);
         mote->draw_rect(fb, sx-1, sy-1, 3, 3, col, 1, 0, 128);
     }
+    /* DENS you have actually stood in. Nothing marks one before that -- the
+     * whole point is finding it -- but once found it is a safehouse worth being
+     * able to run back to, so it gets a dot like a shop. Violet: no marker kind
+     * uses it, and it is not the magenta the job beacon owns. */
+    /* A RING, not a filled square. The one thing you do at a safehouse is stand
+     * in it, and the player marker is drawn after this and is the same 3 px
+     * across -- so a filled dot is covered by the player exactly when you are
+     * looking for it. A ring leaves the middle for the marker and both read. */
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind!=GAR_DEN || !g_gar[i].found) continue;
+        int sx=g_gar[i].x-g_mapsx, sy=g_gar[i].z-g_mapsy;
+        if (sx<4||sx>123||sy<4||sy>123) continue;
+        uint16_t dc=MOTE_RGB565(170,110,235);
+        mote->draw_circle(fb, sx, sy, 3, dc, 0, 0, 128);
+        mote->draw_pixel(fb, sx, sy, dc);
+    }
     for (int i=0;i<NPICK;i++){ Pickup*p2=&picks[i];      /* discovered caches: small white dots */
         if (!p2->alive || !p2->seen) continue;
         int sx=(int)(p2->x/TILE)-g_mapsx, sy=(int)(p2->z/TILE)-g_mapsy;
@@ -7759,6 +8983,14 @@ static void draw_map(uint16_t *fb){
         mote->draw_rect(fb, sx, sy-7, 1,5, mc,1,0,128); mote->draw_rect(fb, sx, sy+3, 1,5, mc,1,0,128);  /* crosshair */
         mote->draw_rect(fb, sx-1, sy-1, 3,3, mc,1,0,128);
         mote->draw_rect(fb, sx, sy, 1,1, MOTE_RGB565(255,255,255),1,0,128); }
+    { float bx,bz;                                               /* the cab's fare, in amber */
+      if (fare_beacon(&bx,&bz)){
+        int sx=(int)(bx/TILE)-g_mapsx, sy=(int)(bz/TILE)-g_mapsy;
+        if (sx<8) sx=8; if (sx>119) sx=119; if (sy<16) sy=16; if (sy>112) sy=112;
+        uint16_t fc=MOTE_RGB565(255,180,40);
+        int ph=((int)(g_maptime*4.0f))&1;
+        mote->draw_circle(fb, sx, sy, ph?6:4, fc, 0, 0, 128);
+        mote->draw_rect(fb, sx-1, sy-1, 3,3, fc,1,0,128); } }
     if (mission==MI_RIVAL && rival_car>=0 && cars[rival_car].alive){   /* the rival: a red blip on the map */
         int sx=(int)(cars[rival_car].x/TILE)-g_mapsx, sy=(int)(cars[rival_car].z/TILE)-g_mapsy;
         if (sx>=1&&sx<=126&&sy>=1&&sy<=126) mote->draw_rect(fb, sx-1, sy-1, 3,3, MOTE_RGB565(240,60,50), 1,0,128); }
@@ -7780,6 +9012,25 @@ static void draw_map(uint16_t *fb){
         mote->draw_circle(fb, psx, psy, 2, col, 1, 0, 128);
         mote->draw_circle(fb, psx, psy, 3, MOTE_RGB565(20,20,26), 0, 0, 128);
     }
+    /* MIRROR, after every positional thing and before any text.
+     *
+     * The 3D view puts +x on the player's LEFT -- measured with a cop car,
+     * which draws both in the world and as a blip: at dx=-10 it appeared on the
+     * RIGHT of the screen. A top-down map drawn with +x rightward is therefore
+     * a reflection of the city you are looking at, and following it would turn
+     * you the wrong way.
+     *
+     * Flipping the finished 128x128 here rather than negating x at each of the
+     * seven draw sites: one loop that cannot be half-applied, against seven
+     * chances to miss one. It is a paused screen, so 8k pixel swaps a frame is
+     * not a cost worth optimising. */
+    for (int y = 0; y < 128; y++)
+        for (int x = 0; x < 64; x++) {
+            uint16_t t = fb[y*128 + x];
+            fb[y*128 + x] = fb[y*128 + 127 - x];
+            fb[y*128 + 127 - x] = t;
+        }
+
     mote_ui_panel(fb, 0, 0, 128, 11, MOTE_RGB565(14,16,24), MOTE_RGB565(60,70,110));
     mote_ftext(mote, fb, g_fmed, "CITY MAP", 3, 1, MOTE_RGB565(240,230,120));
     /* two lines now, so the pair sits one line-height apart ending where the single
@@ -7864,7 +9115,7 @@ static void draw_settings(uint16_t *fb) {
      * result message at y = 94. Five rows now that BRING has gone to a cheat
      * code, but the spacing is left alone — it is not worth a reflow. */
     static const char *NAME[SET_N] = { "MINIMAP", "SOUND", "CONTROLS",
-                                       "SAVE GAME", "LOAD GAME", "BRING" };
+                                       "SAVE GAME", "LOAD GAME", "NEW GAME", "BRING" };
     for (int i = 0; i < set_rows(); i++) {
         int y = 19 + i * 11;
         int sel = (i == g_setsel);
@@ -7875,14 +9126,21 @@ static void draw_settings(uint16_t *fb) {
          * only made it obvious. */
         if (sel) mote->draw_rect(fb, 6, y - 1, 116, 11, MOTE_RGB565(46,56,86), 1, 0, 128);
         uint16_t fg = sel ? MOTE_RGB565(250,244,200) : MOTE_RGB565(168,176,196);
-        mote_ftext(mote, fb, g_fmed, NAME[i], 12, y, fg);
+        /* SET_BRING names what it will do, not what it is: the same row both
+         * brings a vehicle and takes you somewhere. */
+        mote_ftext(mote, fb, g_fmed,
+                   (i == SET_BRING && g_bring >= BRING_VEH_N) ? "GO TO" : NAME[i],
+                   12, y, fg);
         const char *val = (i == SET_MINIMAP) ? (g_radar_on ? "ON" : "OFF")
                         : (i == SET_SOUND)   ? (g_sound_on ? "ON" : "OFF") : 0;
         if (val) {
             uint16_t vc = (val[1] == 'N') ? MOTE_RGB565(140,230,140) : MOTE_RGB565(200,120,120);
             mote_ftext(mote, fb, g_fmed, val, 92, y, vc);
+        } else if (i == SET_NEW) {
+            if (g_newarm > 0.0f)
+                mote_ftext(mote, fb, g_fmed, "A AGAIN", 78, y, MOTE_RGB565(250,170,80));
         } else if (i == SET_BRING) {
-            static const char *BN[BRING_N] = { "HELI", "TANK", "BOAT" };
+            static const char *BN[BRING_N] = { "HELI", "TANK", "BOAT", "DEN", "ISLE" };
             mote_ftext(mote, fb, g_fmed, BN[g_bring], 84, y, MOTE_RGB565(235,238,245));
         } else if (i == SET_SAVE || i == SET_LOAD) {
             /* The slot number, and a dot when that slot already holds a game.
@@ -7979,7 +9237,15 @@ static void draw_radar(uint16_t *fb) {
     for (int py = -RADAR_R; py <= RADAR_R; py++)
         for (int px = -RADAR_R; px <= RADAR_R; px++) {
             if (px*px + py*py > RADAR_R*RADAR_R) continue;
-            /* radar pixel -> world */
+            /* Radar pixel -> world. Screen up is the way you are facing and
+             * screen RIGHT is your right hand.
+             *
+             * The px terms used to carry the opposite sign, which mirrored the
+             * whole dial: facing north it drew west on the right, so the
+             * minimap was a reflection of the map page rather than a rotation
+             * of it. Forward is (ca,sa) and the game's own +90 convention --
+             * the same one the car-exit code uses as yaw+1.5708 -- makes right
+             * (-sa,ca), which is what these two lines now compute. */
             float wx = pl_x() + RADAR_M*(px*sa - py*ca);
             float wz = pl_z() - RADAR_M*(px*ca + py*sa);
             char c = tile_at((int)floorf(wx/TILE), (int)floorf(wz/TILE));
@@ -8009,6 +9275,64 @@ static void draw_radar(uint16_t *fb) {
             mote->draw_rect(fb, cx+(int)rx-1, cy+(int)ry-1, 3, 3,
                             MOTE_RGB565(90,150,255), 1, 0, 128);
         }
+
+    /* FOUND DENS on the dial. The map page is where you plan; the minimap is
+     * what you steer by, and a safehouse you cannot see while driving is a
+     * safehouse you do not use. Clamped to the rim like the fare beacon, so a
+     * den off the dial still points the right way. */
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind!=GAR_DEN || !g_gar[i].found) continue;
+        float dx=(g_gar[i].x+0.5f)*TILE-pl_x(), dz=(g_gar[i].z+0.5f)*TILE-pl_z();
+        float rx=(dx*sa - dz*ca)/RADAR_M, ry=-(dx*ca + dz*sa)/RADAR_M;
+        float rr=sqrtf(rx*rx+ry*ry);
+        if (rr > (float)RADAR_R-2.0f){ rx*=((float)RADAR_R-2.0f)/rr; ry*=((float)RADAR_R-2.0f)/rr; }
+        mote->draw_rect(fb, cx+(int)rx-1, cy+(int)ry-1, 3, 3, MOTE_RGB565(170,110,235), 1, 0, 128);
+    }
+    { float bx,bz;                      /* the cab's fare: amber, over the markers */
+      if (fare_beacon(&bx,&bz)){
+        float dx=bx-pl_x(), dz=bz-pl_z();
+        float rx=(dx*sa - dz*ca)/RADAR_M, ry=-(dx*ca + dz*sa)/RADAR_M;
+        float rr=sqrtf(rx*rx+ry*ry);
+        if (rr > (float)RADAR_R-2.0f){ rx*=((float)RADAR_R-2.0f)/rr; ry*=((float)RADAR_R-2.0f)/rr; }
+        mote->draw_rect(fb, cx+(int)rx-1, cy+(int)ry-1, 3, 3,
+                        MOTE_RGB565(255,180,40), 1, 0, 128); } }
+
+    /* NORTH on the rim.
+     *
+     * The dial turns with your heading, which is what makes it useful while
+     * driving -- it matches what is out of the windscreen. The cost is that it
+     * only lines up with the MAP PAGE, which is always north-up, when you
+     * happen to be facing north; heading south it is the map turned 180, and
+     * on a grid city that reads as a mirror. This tick says which way north is
+     * so the two are never ambiguous against each other.
+     *
+     * World north is (0,-1) put through the same inverse the blips use, which
+     * gives screen (-ca, sa). Worth checking against two headings: facing
+     * north (ca=0, sa=-1) it lands straight up, and facing east (ca=1, sa=0)
+     * it lands on the left, which is where north should be. */
+    { float nx = ca, ny = sa;                   /* north, on the dial */
+      float sx = -ny, sy = nx;                  /* across it */
+      /* An ARROWHEAD rather than the letter N: a 3x5 glyph cannot rotate, so
+       * the N sat upright wherever it was on the rim and read as a label stuck
+       * to the dial rather than as a direction. A triangle points.
+       *
+       * Plotted as a line of pixels per step along the arrow, the half-width
+       * tapering to nothing at the tip -- the overlay has no filled-triangle
+       * call, and at five pixels long a scan like this IS the triangle. */
+      const uint16_t NC = MOTE_RGB565(240,120,100);      /* compass red */
+      for (int t = 0; t <= 10; t++) {
+          float f  = (float)t / 10.0f;                   /* 0 at the base, 1 at the tip */
+          float ax = cx + nx * (RADAR_R - 5 + 4.0f*f);
+          float ay = cy + ny * (RADAR_R - 5 + 4.0f*f);
+          float hw = (1.0f - f) * 1.7f;
+          /* HALF-PIXEL steps, both along and across. Whole-pixel steps on a
+           * five-pixel triangle left holes at every diagonal heading, because
+           * neither axis lands on the grid: it came out as a scatter of dots
+           * rather than an arrow. Oversampling and letting the rounding
+           * collapse duplicates is the cheap fix at this size. */
+          for (float w = -hw; w <= hw; w += 0.5f)
+              mote->draw_pixel(fb, (int)(ax + sx*w + 0.5f), (int)(ay + sy*w + 0.5f), NC);
+      } }
 
     /* the player: always dead centre, always pointing up */
     mote->draw_pixel(fb, cx, cy, MOTE_RGB565(255,255,255));
@@ -8093,6 +9417,16 @@ static void g_overlay(uint16_t *fb) {
             world_ring(fb, mx, mz, ph?10:8, mc);
         } else {                                  /* off-screen: edge arrow, steady (no flashing) */
             draw_arrow(fb, sx, sy, ang, mc);
+        } }
+    if (g_state==ST_PLAY){                      /* the cab's fare: same ring, amber */
+        float bx,bz;
+        if (fare_beacon(&bx,&bz)){
+            uint16_t fc = MOTE_RGB565(255,180,40);
+            float sx, sy, ang;
+            if (screen_or_edge(bx, bz, &sx, &sy, &ang)){
+                int ph=((int)(mote->micros()/200000ull))&1;
+                world_ring(fb, bx, bz, ph?10:8, fc);
+            } else draw_arrow(fb, sx, sy, ang, fc);
         } }
     if (g_state==ST_PLAY && mission==MI_NONE){   /* looking for work: beating ring on every phone box */
         int ph=((int)(mote->micros()/240000ull))&1;
@@ -8183,14 +9517,30 @@ static void g_overlay(uint16_t *fb) {
         }
         /* translucent dark banner so the body text pops over the live city, framed by
          * the gold rule on top (dim the real pixels — you can still see the road) */
-        mote_dim_box(fb, 4, 67, 120, 54, 6);   /* keep 6/16 ≈ 38% */
+        mote_dim_box(fb, 4, 66, 120, 57, 6);   /* keep 6/16 ≈ 38%; 57 ends just under the last row */
         mote->draw_rect(fb, 10, 63, 108, 1, MOTE_RGB565(12,10,14), 1, 0, 128);
         mote->draw_rect(fb, 10, 62, 108, 1, MOTE_RGB565(244,204,72), 1, 0, 128);
-        /* engine Audiowide (v47): CTA as a 1.66x banner, stats/labels at 1.5x */
-        mote_ftextfc(mote, fb, g_fmed,  64, 71, MOTE_RGB565(235,238,245), "BEST $%d", best_cash);
-        mote_ftextc (mote, fb, g_fread, 64, 87, MOTE_RGB565(150,230,150), "PRESS A TO PLAY");
-        if (mote->abi_version>=44)
-          mote_ftextc(mote, fb, g_fmed, 64, 107, MOTE_RGB565(245,110,95), "B  2P DEATHMATCH");
+        mote_ftextfc(mote, fb, g_fmed, 64, 69, MOTE_RGB565(235,238,245), "BEST $%d", best_cash);
+
+        /* THE MENU. Rows are centred in the band under the BEST line so that
+         * one, two or three of them all sit where the eye expects, instead of
+         * the list hanging off the top when deathmatch or CONTINUE is absent. */
+        { uint8_t rows[TM_N]; int nrow = title_rows(rows);
+          if (g_titlesel >= nrow) g_titlesel = 0;
+          int y0 = 83 + (39 - nrow*13) / 2;
+          for (int i = 0; i < nrow; i++) {
+              int y = y0 + i*13, sel = (i == g_titlesel);
+              if (sel) mote->draw_rect(fb, 10, y-2, 108, 13, MOTE_RGB565(46,56,86), 1, 0, 128);
+              uint16_t fg = sel ? MOTE_RGB565(250,244,200) : MOTE_RGB565(160,170,192);
+              switch (rows[i]) {
+              case TM_NEW: mote_ftextc(mote, fb, g_fmed, 64, y, fg, "NEW GAME"); break;
+              /* The slot is named: the settings page can point at any of the
+               * three, and "CONTINUE" alone would not say which you get. */
+              case TM_CONTINUE: mote_ftextfc(mote, fb, g_fmed, 64, y, fg, "CONTINUE %d", g_slot+1); break;
+              default: mote_ftextc(mote, fb, g_fmed, 64, y, fg, "2P DEATHMATCH"); break;
+              }
+          }
+        }
         return;
     }
     if (g_state==ST_WASTED || g_state==ST_BUSTED){
@@ -8218,12 +9568,50 @@ static void g_overlay(uint16_t *fb) {
     }
     if (g_dm) ftext_sh(g_fmed, fb, 3, 0, MOTE_RGB565(245,110,95), "FRAGS %d:%d", dm_frags, dm_peer_frags);
     else      ftext_sh(g_fmed, fb, 3, 0, MOTE_RGB565(120,230,120), "$%d", cash);
-    /* wanted heads */
-    for (int i=0;i<5;i++) mote->draw_circle(fb, 70+i*8, 5, 2, i<wanted()?MOTE_RGB565(250,210,70):MOTE_RGB565(50,54,64), 1, 0,128);
+    /* WANTED HEADS -- SIX of them, not five.
+     *
+     * heat clamps at 6.0 and wanted() is (int)heat, so the sixth star has
+     * always been reachable: heat_at_least caps there, the pursuit escalation
+     * stops at four but crimes keep stacking past it, and the README has said
+     * "up to six stars" the whole time. The row drew five, so five and six
+     * looked identical -- the hardest state in the game had no display of its
+     * own.
+     *
+     * x=50, not the 56 the five-dot row used. Six dots at 8 px span 48..91, and
+     * the clock measures 98..124 for "10 AM" -- g_fmed is about 5.4 px a
+     * character, not the 4 px the speedo's hand-rolled advance assumes, and at
+     * x=56 the sixth dot and the clock were touching with a measured gap of
+     * zero. Cash at six characters ends around x=35, so 48 leaves clearance on
+     * both sides. */
+    for (int i=0;i<6;i++) mote->draw_circle(fb, 50+i*8, 5, 2, i<wanted()?MOTE_RGB565(250,210,70):MOTE_RGB565(50,54,64), 1, 0,128);
+    /* THE CLOCK. g_tod is [0,1) with 0 = midnight, so the hour is just tod*24.
+     *
+     * The HOUR ONLY, in 12-hour form. A full day is DAY_SECONDS = 240 real
+     * seconds, which makes one game minute a sixth of a second: a minutes field
+     * changes six times a second and reads as a broken digit rather than as a
+     * clock. The hour is the part you actually want, because it says whether
+     * the lights are about to come on, and it changes every ten seconds --
+     * slow enough to read, often enough to feel like time passing.
+     *
+     * Right-aligned through mote_fontw rather than a fixed x, so it stays put
+     * if the font ever changes. Dim, like the version line on the settings bar:
+     * it is there to be glanced at, not read. */
+    { int hh = (int)(g_tod * 24.0f); if (hh > 23) hh = 23;
+      int h12 = hh % 12; if (h12 == 0) h12 = 12;          /* midnight and noon are both 12 */
+      char tb[8]; snprintf(tb, sizeof tb, "%d %s", h12, hh < 12 ? "AM" : "PM");
+      ftext_sh(g_fmed, fb, 126 - mote_fontw(g_fmed, tb), 0, MOTE_RGB565(176,190,214), "%s", tb); }
     draw_rain(fb);
     /* health bar */
     mote->draw_rect(fb, 2, 116, 40, 6, MOTE_RGB565(40,20,20), 1, 0,128);
     mote->draw_rect(fb, 2, 116, (int)(40*health/MAXHP), 6, MOTE_RGB565(210,60,60), 1, 0,128);
+    /* ARMOUR: a thin strip ABOVE health, and only while you have some. The same
+     * reasoning as the stamina strip below -- a permanent second bar costs
+     * screen on a 128 px panel for something that reads as "none" most of the
+     * time, and its appearing is itself the signal that you picked one up. */
+    if (g_armour > 0.0f) {
+        mote->draw_rect(fb, 2, 112, 40, 3, MOTE_RGB565(20,28,46), 1, 0,128);
+        mote->draw_rect(fb, 2, 112, (int)(40*g_armour/MAXARM), 3, MOTE_RGB565(90,150,230), 1, 0,128);
+    }
     /* Stamina: a thin strip under the health bar, shown ONLY when it is not
      * full. A permanent second bar would cost screen on a 128 px panel for
      * something that reads as "fine" almost all the time; appearing when you
@@ -8292,6 +9680,15 @@ static void g_overlay(uint16_t *fb) {
         mote->text(fb, vn, 126 - nw, 110, MOTE_RGB565(150,164,188));
     }
 
+    if (mission==MI_NONE && g_fare!=FARE_NONE){
+        /* The cab's own row, in the slot the mission line leaves empty. Amber
+         * rather than the mission yellow, and it carries the streak once there
+         * is one, because the multiplier is the reason to keep taking fares. */
+        uint16_t fc=MOTE_RGB565(250,196,60); int t=(int)g_fare_t;
+        if (g_fare==FARE_HAIL) ftext_sh(g_fmed, fb, 2,12, fc, "FARE WAITING %ds", t);
+        else if (g_fare_n>0)   ftext_sh(g_fmed, fb, 2,12, fc, "FARE $%d %ds x%d", g_fare_pay, t, g_fare_n+1);
+        else                   ftext_sh(g_fmed, fb, 2,12, fc, "FARE $%d %ds", g_fare_pay, t);
+    }
     if (mission!=MI_NONE){
         uint16_t mcol=MOTE_RGB565(250,230,90); int t=(int)mission_t;
         switch (mission){
@@ -8412,4 +9809,4 @@ static const MoteGameVtbl k_vtbl = {
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
 MOTE_GAME_META("Grand Thumb Auto III", "chrisdiana");
-MOTE_GAME_VERSION("1.0.1");
+MOTE_GAME_VERSION("1.0.3");
