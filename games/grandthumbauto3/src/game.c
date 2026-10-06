@@ -2666,6 +2666,81 @@ static void draw_clouds(void) {
     }
 }
 
+/* THE DEN'S DOORWAY.
+ *
+ * The bay mesh has its whole street-facing wall removed -- that is what makes a
+ * pay-n-spray something you drive into -- and a den reusing it was a 4 m hole
+ * in a building, which read as a missing wall rather than as a way in. This
+ * closes the front down to a door with a window beside it, so it is plainly an
+ * entrance and the inside feels enclosed.
+ *
+ * Eight flat triangles: two jambs, a lintel over the door, and the window.
+ * Flat tris rather than a second mesh set, which would have cost about 576
+ * bytes of GAME_RAM for four more opening directions against the 896 spare.
+ * Two dens a city, drawn only inside 70 m, so the triangle cost is nothing
+ * against a pool that saturates on police.
+ *
+ * scene_add_tri is UNLIT -- the colour passed is the colour drawn -- so the
+ * facade is shaded BY HAND with the same term mote_pipe applies to the mesh
+ * beside it, 0.25 + 0.75*max(0, n.sun). Without that the doorway is a bright
+ * patch stuck on a dark wall. The face normal is horizontal, so the dot
+ * product only needs the x and z of the sun.
+ *
+ * The door is CENTRED and 2 m of the 4 m tile. Collision is still per-tile --
+ * walkable_world admits the whole den -- so the jambs are scenery you can walk
+ * through at the edges. Centred and wide keeps the walk-in on the line you
+ * actually approach along, where the mismatch does not show.
+ *
+ * The window LIGHTS at night, like the building windows and the shop signs. A
+ * den carries no marker until you have stood in one, so a lit pane is the only
+ * thing that makes one findable after dark -- and a light in a building is
+ * ambiguous enough not to announce itself as a hideout. */
+static void draw_den_front(int gi) {
+    if (gi < 0) return;
+    float ox = (float)g_gar[gi].ox, oz = (float)g_gar[gi].oz;
+    float cxw = g_gar[gi].x*TILE + TILE*0.5f, czw = g_gar[gi].z*TILE + TILE*0.5f;
+    float ux = -oz, uz = ox;                        /* across the opening */
+    /* 6 cm inside the tile edge: the bay's own side walls end exactly on it */
+    float px = cxw + ox*(TILE*0.5f - 0.06f), pz = czw + oz*(TILE*0.5f - 0.06f);
+
+    float nd = ox*g_sun_dir.x + oz*g_sun_dir.z;
+    float sh = 0.25f + 0.75f*(nd > 0.0f ? nd : 0.0f);
+
+    const float HW = TILE*0.5f;      /* 2.0 -- half the tile */
+    const float DW = 1.0f;           /* half the door */
+    const float ROOF = 2.15f;        /* the sunk bay mesh's roof */
+    const float HEAD = 1.90f;        /* top of the door opening */
+
+    #define DQ(l0,l1,y0,y1,col) do { \
+        Vec3 A = v3(px + ux*(l0), (y0), pz + uz*(l0)); \
+        Vec3 B = v3(px + ux*(l0), (y1), pz + uz*(l0)); \
+        Vec3 C = v3(px + ux*(l1), (y1), pz + uz*(l1)); \
+        Vec3 D = v3(px + ux*(l1), (y0), pz + uz*(l1)); \
+        mote->scene_add_tri(A,B,C,(col),0); mote->scene_add_tri(A,C,D,(col),0); \
+    } while (0)
+
+    Rgb wall = { (uint8_t)(112*sh), (uint8_t)(107*sh), (uint8_t)(99*sh) };
+    Rgb trim = { (uint8_t)(74*sh),  (uint8_t)(70*sh),  (uint8_t)(64*sh)  };
+    uint16_t cw = rgb565(wall), ct = rgb565(trim);
+
+    DQ(-HW, -DW, 0.0f, ROOF, cw);          /* jamb, one side */
+    DQ( DW,  HW, 0.0f, ROOF, cw);          /* jamb, the other */
+    DQ(-DW,  DW, HEAD, ROOF, ct);          /* lintel over the door */
+
+    /* the pane, a hair proud of the wall so it never z-fights it */
+    { float qx = px + ox*0.03f, qz = pz + oz*0.03f;
+      int night = sun_elev() < 0.06f;
+      uint16_t cg = night ? MOTE_RGB565(238,198,112)      /* lit: unshaded on purpose */
+                          : rgb565((Rgb){ (uint8_t)(58*sh), (uint8_t)(70*sh), (uint8_t)(88*sh) });
+      float l0=-1.72f, l1=-1.18f, y0=1.05f, y1=1.72f;
+      Vec3 A = v3(qx + ux*l0, y0, qz + uz*l0);
+      Vec3 B = v3(qx + ux*l0, y1, qz + uz*l0);
+      Vec3 C = v3(qx + ux*l1, y1, qz + uz*l1);
+      Vec3 D = v3(qx + ux*l1, y0, qz + uz*l1);
+      mote->scene_add_tri(A,B,C,cg,0); mote->scene_add_tri(A,C,D,cg,0); }
+    #undef DQ
+}
+
 /* Traffic-light heads at the junctions around the player.
  *
  * Walks OUTWARD in rings from the camera tile and stops at LIGHTS_MAX heads,
@@ -3244,7 +3319,8 @@ static void draw_buildings_window(void) {
                  * plainly in view. */
                 if (!gta3_view_tile(&g_view, wx, 0.1f, wz, VIEW_BLD_R, TILE) &&
                     !gta3_view_tile(&g_view, wx, th,   wz, VIEW_BLD_R, TILE)) continue;
-                if (gdir >= 0) { mote_draw(mote, &gr_mesh[gdir], v3(wx, hy, wz)); }
+                if (gdir >= 0) { mote_draw(mote, &gr_mesh[gdir], v3(wx, hy, wz));
+                    if (is_den(x,z) && d < 70.0f) draw_den_front(den_at(x,z)); }
                 else if (far) {
                     MoteObject o = { .pos = v3(wx, hy, wz), .basis = m3_identity(),
                                      .mesh = &g_hmesh[bld_level(x,z)],
