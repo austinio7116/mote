@@ -135,6 +135,7 @@ static uint8_t g_den_burn;
  * six stars take twenty seconds of standing still with the law outside. */
 #define DEN_COOL 0.30f
 #define DEN_DOOR2 121.0f   /* 11 m of the MOUTH and the hideout is blown (squared) */
+#define DEN_SEE2  196.0f   /* 14 m of the MOUTH and you have found it (squared) */
 
 /* corridor classification for lane markings, computed on demand (capped scans). */
 static void corridor_info(int x, int z, int *orient, int *pos, int *span) {
@@ -4459,7 +4460,14 @@ static void place_markers(void) {
                         gx=x; gz=z; gox=DX[d]; goz=DZ[d]; found=1;
                     } }
             if (found){
-                g_gar[g_ngar++] = (typeof(g_gar[0])){ (int16_t)gx,(int16_t)gz, MK_SPRAY, (int8_t)gox,(int8_t)goz };
+                /* DESIGNATED, not positional. This was a five-value positional
+                 * initialiser, and adding `found` as the struct's fourth member
+                 * silently slid every value after it along: gox landed in
+                 * found, goz in ox, and oz came out 0 -- so every pay-n-spray
+                 * bay has had a wrong opening direction since the hideaways
+                 * went in. Naming the fields makes the next member harmless. */
+                g_gar[g_ngar++] = (typeof(g_gar[0])){ .x=(int16_t)gx, .z=(int16_t)gz,
+                    .kind=MK_SPRAY, .found=0, .ox=(int8_t)gox, .oz=(int8_t)goz };
                 markers[nmark++] = (Marker){ gx*TILE+TILE*0.5f, gz*TILE+TILE*0.5f, MK_SPRAY };
                 continue;
             }
@@ -4519,7 +4527,8 @@ static void place_markers(void) {
               if (fc!=',' && fc!=' ') continue;                 /* you must be able to WALK up to it */
               if (!is_solid(kx,kz)) continue;
               if (!is_solid(s1x,s1z) || !is_solid(s2x,s2z)) continue;   /* a slot, not a corner */
-              g_gar[g_ngar++] = (typeof(g_gar[0])){ (int16_t)x,(int16_t)z, GAR_DEN, 0, (int8_t)DX[d],(int8_t)DZ[d] };
+              g_gar[g_ngar++] = (typeof(g_gar[0])){ .x=(int16_t)x, .z=(int16_t)z,
+                  .kind=GAR_DEN, .found=0, .ox=(int8_t)DX[d], .oz=(int8_t)DZ[d] };
               { const uint8_t *L = DEN_LOOT[made & 3];
                 float wx=x*TILE+TILE*0.5f, wz=z*TILE+TILE*0.5f;
                 add_pickup(wx-0.7f, wz-0.7f, L[0]);
@@ -5190,11 +5199,22 @@ static void update_heat(float dt) {
      *
      * No test for being on foot is needed beyond the obvious one: a car cannot
      * get into a den, so being in one already means you abandoned it. */
+    /* FINDING ONE. This used to require standing IN the den, which is a
+     * stricter reading of "found it" than anyone has: you can drive past a lit
+     * doorway, know exactly what it is, and have nothing on the map. Anything
+     * inside DEN_SEE2 of the MOUTH counts, from a car as readily as on foot --
+     * at 14 m you are on the street outside it and looking at it. */
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind!=GAR_DEN || g_gar[i].found) continue;
+        float mx2=(g_gar[i].x+0.5f+g_gar[i].ox)*TILE, mz2=(g_gar[i].z+0.5f+g_gar[i].oz)*TILE;
+        float dx2=mx2-pl_x(), dz2=mz2-pl_z();
+        if (dx2*dx2+dz2*dz2 < DEN_SEE2){ g_gar[i].found=1; say("A WAY IN"); }
+    }
     { int tx=(int)(pl_x()/TILE), tz=(int)(pl_z()/TILE);
       int di = (player.mode==MODE_FOOT) ? den_at(tx,tz) : -1;
       if (di < 0){ g_den_t=0; g_den_burn=0; }
       else {
-          if (!g_gar[di].found){ g_gar[di].found=1; say("A WAY IN"); }   /* now it shows on the map */
+          (void)0;   /* discovery is handled below, on approach rather than on entry */
           /* BURNT: the law is at the door.
            *
            * This was gated on `pursued` -- an officer with a clear line -- which
@@ -8672,11 +8692,17 @@ static void draw_map(uint16_t *fb){
      * whole point is finding it -- but once found it is a safehouse worth being
      * able to run back to, so it gets a dot like a shop. Violet: no marker kind
      * uses it, and it is not the magenta the job beacon owns. */
+    /* A RING, not a filled square. The one thing you do at a safehouse is stand
+     * in it, and the player marker is drawn after this and is the same 3 px
+     * across -- so a filled dot is covered by the player exactly when you are
+     * looking for it. A ring leaves the middle for the marker and both read. */
     for (int i=0;i<g_ngar;i++){
         if (g_gar[i].kind!=GAR_DEN || !g_gar[i].found) continue;
         int sx=g_gar[i].x-g_mapsx, sy=g_gar[i].z-g_mapsy;
-        if (sx<1||sx>126||sy<1||sy>126) continue;
-        mote->draw_rect(fb, sx-1, sy-1, 3, 3, MOTE_RGB565(170,110,235), 1, 0, 128);
+        if (sx<4||sx>123||sy<4||sy>123) continue;
+        uint16_t dc=MOTE_RGB565(170,110,235);
+        mote->draw_circle(fb, sx, sy, 3, dc, 0, 0, 128);
+        mote->draw_pixel(fb, sx, sy, dc);
     }
     for (int i=0;i<NPICK;i++){ Pickup*p2=&picks[i];      /* discovered caches: small white dots */
         if (!p2->alive || !p2->seen) continue;
@@ -8987,6 +9013,18 @@ static void draw_radar(uint16_t *fb) {
                             MOTE_RGB565(90,150,255), 1, 0, 128);
         }
 
+    /* FOUND DENS on the dial. The map page is where you plan; the minimap is
+     * what you steer by, and a safehouse you cannot see while driving is a
+     * safehouse you do not use. Clamped to the rim like the fare beacon, so a
+     * den off the dial still points the right way. */
+    for (int i=0;i<g_ngar;i++){
+        if (g_gar[i].kind!=GAR_DEN || !g_gar[i].found) continue;
+        float dx=(g_gar[i].x+0.5f)*TILE-pl_x(), dz=(g_gar[i].z+0.5f)*TILE-pl_z();
+        float rx=(dx*sa - dz*ca)/RADAR_M, ry=-(dx*ca + dz*sa)/RADAR_M;
+        float rr=sqrtf(rx*rx+ry*ry);
+        if (rr > (float)RADAR_R-2.0f){ rx*=((float)RADAR_R-2.0f)/rr; ry*=((float)RADAR_R-2.0f)/rr; }
+        mote->draw_rect(fb, cx+(int)rx-1, cy+(int)ry-1, 3, 3, MOTE_RGB565(170,110,235), 1, 0, 128);
+    }
     { float bx,bz;                      /* the cab's fare: amber, over the markers */
       if (fare_beacon(&bx,&bz)){
         float dx=bx-pl_x(), dz=bz-pl_z();
