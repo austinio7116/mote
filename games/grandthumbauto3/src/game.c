@@ -3379,12 +3379,42 @@ static void draw_buildings_window(void) {
 }
 
 /* -------------------------------------------------------- movement + AI ----- */
+/* A SHUT DEN DOOR IS SOLID.
+ *
+ * It used to be scenery you walked through, which was defensible while the
+ * leaf swung open on its own as you approached -- it was never in your way. It
+ * is not defensible now that you work it by hand: a door you have to open is a
+ * door that stops you when it is shut.
+ *
+ * The test is on the CROSSING, not on the tile, which is why it lives here
+ * rather than in walkable_world. walkable_world only ever sees a destination,
+ * so a den gated that way would stop you walking IN through a shut door and
+ * happily let you walk OUT through it -- the destination on the way out is
+ * ordinary pavement. move_body has both ends, so blocking any move that
+ * changes tile while the door between is shut is symmetric for free.
+ *
+ * It applies to everyone, not just the player: a foot officer cannot follow
+ * you through a door you have closed either. Shutting it still does not make
+ * you safe -- the lying-low gate is blown by anyone within 11 m of the mouth,
+ * door or no door -- but it is the difference between cover and a corridor.
+ *
+ * The threshold is a third of the swing rather than fully open, so you step
+ * through as the leaf clears rather than waiting out the animation. */
+#define DOOR_PASS 90        /* of 255: open enough to get through */
+static int den_shut_between(float fx, float fz, float tx2, float tz2) {
+    int ax=(int)(fx/TILE), az=(int)(fz/TILE);
+    int bx=(int)(tx2/TILE), bz=(int)(tz2/TILE);
+    if (ax==bx && az==bz) return 0;                 /* not leaving the tile */
+    int di = den_at(ax,az); if (di < 0) di = den_at(bx,bz);
+    if (di < 0) return 0;                           /* no den either side */
+    return g_gar[di].dopen <= DOOR_PASS;
+}
 /* slide a body to (nx,nz) honouring a walkable/drivable test; returns hit flag. */
 static int move_body(float *x, float *z, float nx, float nz, int drive) {
     int hit = 0;
     int (*ok)(float,float) = drive ? drivable_world : walkable_world;
-    if (ok(nx, *z)) *x = nx; else hit = 1;
-    if (ok(*x, nz)) *z = nz; else hit = 1;
+    if (ok(nx, *z) && !den_shut_between(*x, *z, nx, *z)) *x = nx; else hit = 1;
+    if (ok(*x, nz) && !den_shut_between(*x, *z, *x, nz)) *z = nz; else hit = 1;
     return hit;
 }
 
@@ -4343,6 +4373,11 @@ static void den_loot_spot(int gi, int k, float *ox, float *oz){
 #define DEN_USE2 7.3f      /* 2.7 m of the doorway (squared) */
 static int den_door_reach(void){
     if (g_state != ST_PLAY || player.mode != MODE_FOOT) return -1;
+    /* Standing IN one always counts. The opening's middle is 2 m out from the
+     * tile centre, so from the back of the den it is 3.5 m away -- outside
+     * DEN_USE2, and with a solid door that would seal you in with no way to
+     * work the handle. */
+    { int di = den_at((int)(player.x/TILE), (int)(player.z/TILE)); if (di >= 0) return di; }
     for (int i=0;i<g_ngar;i++){
         if (g_gar[i].kind != GAR_DEN) continue;
         float dx2=(g_gar[i].x+0.5f+g_gar[i].ox*0.5f)*TILE - player.x;
