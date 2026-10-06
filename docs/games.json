@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-09-28T07:09:13+00:00",
+ "generated": "2026-10-06T21:09:08+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -1277,8 +1277,8 @@
    "author": "chrisdiana",
    "version": "1.0.3",
    "abi": 47,
-   "size": 341304,
-   "sha256": "22edcb9ea1850407c2893d226f26abc922a8d946cdb119efd25733e3fd063291",
+   "size": 344372,
+   "sha256": "65742914c5bc6b149ab4034f9384276bb04235939423cd96db641b21df5458f4",
    "file": "games/GrandThumbAutoIII.mote",
    "icon": "img/gallery/grandthumbauto3-icon.png",
    "thumb": "img/gallery/grandthumbauto3-1.png",
@@ -1294,20 +1294,20 @@
    "android": {
     "arm64-v8a": {
      "file": "games/android/arm64-v8a/libmg_grandthumbauto3.so",
-     "size": 389952,
-     "sha256": "c5d9fd100c316abf1d3d775726e71f3a4ddecf0c10aea96781f3c8f891b2629b"
+     "size": 411864,
+     "sha256": "8921c71f4d1cd8ce815eef91f39cb8ee257102e13e493dadd48a59fd1e466914"
     },
     "armeabi-v7a": {
      "file": "games/android/armeabi-v7a/libmg_grandthumbauto3.so",
-     "size": 422068,
-     "sha256": "8db2f7f3370b135dbfd1f1f94517bbe55d0de01e1c43e8f86b104af3ee6791d1"
+     "size": 446764,
+     "sha256": "02facd9a43e94b79445a3bd4797e4397b37f8b93180a9d448b47502df6593f6e"
     }
    },
    "linux": {
     "x86_64": {
      "file": "games/linux/x86_64/libmg_grandthumbauto3.so",
-     "size": 395824,
-     "sha256": "eb62970b01a26c1b2a2672b9fdb3a2dd906aebae7e3f42d22ae1469864734aff"
+     "size": 420408,
+     "sha256": "90b76aafb02f88d08dc2f136ffe8eb12fa59fa038030219916080ae784ba493f"
     }
    }
   }
