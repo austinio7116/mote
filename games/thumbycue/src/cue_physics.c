@@ -173,12 +173,15 @@ static uint8_t s_hull_e[2 * 5 * SK_HULL_SEG];
 static MoteHull s_hull;
 static int      s_hull_ok;
 
-static void skittle_hull_build(float sr, float len) {
+static void skittle_hull_build(float sr, float len, int kind) {
     const int N = SK_HULL_SEG;
     /* the silhouette, as radii of the stem and heights above the foot, taken
      * from the turned profile: the foot's flare, the cap's rim, the top. */
-    const float r1 = 1.62f * sr, y1 = 0.000f;
-    const float r2 = 3.40f * sr, y2 = 0.097f;
+    float r1 = 1.62f * sr, y1 = 0.000f;
+    float r2 = 3.40f * sr, y2 = 0.097f;
+    /* FIVE-PIN'S PIN (FIBiS: 25 mm tall, 7 mm at the foot and the top, 10 mm
+     * at its widest): the foot's rim, the widest ring 6 mm up, then to the top */
+    if (kind == 1) { r1 = 0.0035f; y1 = 0.000f; r2 = 0.0050f; y2 = 0.006f; }
     const float y0 = 0.000f,     y3 = len;
     const float c  = len * 0.5f;            /* the body's origin: the centre */
     int nv = 0;
@@ -293,7 +296,7 @@ void cue_phys_skittles_init(CueWorld *w, float half_len, float half_wid) {
     w->sk_world.max_substeps = CUE_MAX_SUB;
     w->sk_world.linear_damp  = 0.20f;
     w->sk_world.angular_damp = 0.35f;
-    skittle_hull_build(w->skittle_r, w->skittle_len);
+    skittle_hull_build(w->skittle_r, w->skittle_len, w->skittle_kind);
     for (int k = 0; k < w->nskittle; k++) skittle_stand(w, k);
     /* THE BED AND THE FOUR CUSHIONS, as static planes: normal along r[1] and
      * a point on the surface. */
@@ -486,6 +489,7 @@ static void pev_add(CueWorld *w, uint8_t kind, int a, int b, uint8_t ra, uint8_t
     /* the same thing again is not news: a ball rolling along a rail touches it
      * step after step, and two frozen balls touch for as long as they lie */
     if (kind == CUE_PEV_RAIL && w->pev_lastk[a] == CUE_PEV_RAIL && w->pev_lastr[a] == ra) return;
+    if (kind == CUE_PEV_PIN && w->pev_lastk[a] == CUE_PEV_PIN && w->pev_lastb[a] == (uint8_t)b) return;
     if (kind == CUE_PEV_BALL && w->pev_lastk[a] == CUE_PEV_BALL && w->pev_lastb[a] == (uint8_t)b &&
         b >= 0 && b < CUE_MAX_BALLS && w->pev_lastk[b] == CUE_PEV_BALL && w->pev_lastb[b] == (uint8_t)a) return;
     if (w->npev >= CUE_MAX_PEV) { w->pev_over = 1; return; }
@@ -2244,12 +2248,12 @@ void cue_phys_drop_fall(const CueWorld *w, CueBall *b, float h) {
  *
  * A ball in the air over a skittle does not touch it: they are 11 cm tall and
  * a jumped ball can clear one. Returns 1 the moment a skittle goes down. */
-static CUE_HOT int check_skittles(CueWorld *w, CueBall *b) {
+static CUE_HOT int check_skittles(CueWorld *w, CueBall *b, int bi) {
     if (!w->nskittle) return 0;
     const float R = cue_ball_r(w, b);
-    /* Over the top of it. A skittle is 114 mm of light wood; a ball whose
-     * bottom is above that has cleared it. */
-    if (b->pos.y - R > 0.114f) return 0;
+    /* Over the top of it: a ball whose bottom is above the pin has cleared it
+     * (114 mm of light wood at bar billiards, 25 mm at five-pin) */
+    if (b->pos.y - R > (w->skittle_len > 0.0f ? w->skittle_len : 0.114f)) return 0;
     int fell = 0;
     for (int k = 0; k < w->nskittle; k++) {
         /* A FALLEN SKITTLE IS STILL AN OBJECT. It used to be skipped once it
@@ -2303,6 +2307,8 @@ static CUE_HOT int check_skittles(CueWorld *w, CueBall *b) {
 
         (void)speed;
         if (vn >= 0.0f) continue;                        /* already separating */
+        /* WHO TOUCHED IT, in the stroke's order (five-pin's scoring) */
+        if (w->pev_on) pev_add(w, CUE_PEV_PIN, bi, k, CUE_PEV_NORAIL, CUE_PEV_NORAIL);
 
         /* THE SAME INERTIA THE SOLVER USES. mote models a hull's as a sphere of
          * its bounding radius, and a contact resolved here against a different
@@ -3391,7 +3397,7 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
                 if (i < CUE_MAX_BALLS) s_entry_v[i] = pv;
                 if (ev) *ev |= CUE_EV_POCKET;
             } }
-        if (check_skittles(w, b) && ev) *ev |= CUE_EV_SKITTLE;
+        if (check_skittles(w, b, i) && ev) *ev |= CUE_EV_SKITTLE;
     }
     PROF_T(p4); PROF_ADD(3, p3, p4);
 }

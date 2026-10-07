@@ -309,6 +309,7 @@ static const struct { int kind; const char *name;
      * kind, so the whole test stopped COMPILING when the kind was added and
      * has not run since. */
     { CUE_GAME_BUMPER, "bumper pool", -1, -1, 0 },
+    { CUE_GAME_FIVEPIN, "five-pin", -1, -1, 0 },
 };
 
 /* A ball has to fit through with SOME room or the pocket is decorative. Three

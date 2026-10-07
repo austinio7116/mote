@@ -194,6 +194,7 @@ void cue_render_set_skittles(int on);
  * (height above the foot in metres, radius as a multiple of the stem's).
  * Returns the point count. */
 int  cue_render_skittle_profile(const float (**pts)[2]);
+int  cue_render_fivepin_profile(const float (**pts)[2]);   /* five-pin's pin, the same convention */
 
 /* Mote engine port: hand the renderer the engine jump table (call once before
  * cue_render_build), and the per-band background gradient the OS calls. */

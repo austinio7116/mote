@@ -1056,6 +1056,17 @@ int  cue_rules_apply_decision(CueRules *r, int decision);
  * balls have on=0). first_hit = id of the first object ball the cue contacted
  * (-1 if none). potted[] = ids potted this shot. May respot snooker colours
  * (sets balls[].on=1 + position). */
+/* FIVE-PIN: what a finished stroke is worth, judged off the world's event
+ * log -- the referee's own arithmetic, shared so the planner ranks strokes by
+ * exactly what they will score. `first` is what the cue ball struck first (0
+ * nothing, 1 the other cue ball, 2 the red, 3 a pin). */
+typedef struct {
+    int first, pins, whites, redpin, red;     /* red: 3 casin, 4 carambola, 0 */
+    int foul, to_opp, in_hand, mine;
+    const char *why;
+} CueFivePin;
+void cue_rules_fivepin_judge(const CueRules *r, const CueBall *b, int n, const CueWorld *w,
+                             CueFivePin *out);
 void cue_rules_resolve(CueRules *r, CueBall *balls, int n, const CueWorld *w,
                        int first_hit, int cue_scratch, int cushion_seen,
                        const int *potted, int npotted);

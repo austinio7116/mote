@@ -74,6 +74,25 @@ int cue_render_skittle_profile(const float (**pts)[2]) {
     if (pts) *pts = CUE_SKITTLE_PROF;
     return (int)(sizeof CUE_SKITTLE_PROF / sizeof CUE_SKITTLE_PROF[0]);
 }
+/* FIVE-PIN'S PIN, the same way: height above the foot in metres, radius as a
+ * multiple of the stem (0.0045). FIBiS: 25 mm tall, 7 mm across at the foot
+ * and the top, 10 mm at its widest a little above the foot; a turned head. */
+static const float CUE_FIVEPIN_PROF[][2] = {
+        { 0.000f, 0.78f },   /* the 7 mm foot */
+        { 0.002f, 0.92f },
+        { 0.005f, 1.11f },   /* the widest, 10 mm */
+        { 0.009f, 1.04f },
+        { 0.015f, 0.86f },   /* the waist */
+        { 0.019f, 0.76f },
+        { 0.021f, 0.86f },   /* a turned ring under the head */
+        { 0.023f, 0.80f },
+        { 0.0245f, 0.55f },  /* the head rounding off */
+        { 0.025f, 0.00f },
+    };
+int cue_render_fivepin_profile(const float (**pts)[2]) {
+    if (pts) *pts = CUE_FIVEPIN_PROF;
+    return (int)(sizeof CUE_FIVEPIN_PROF / sizeof CUE_FIVEPIN_PROF[0]);
+}
 
 /* ids 1..15 mean reds, not solids/stripes */
 static int      s_lip_mode = 1;  /* 0=none 1=tight 2=wide 3=deep (CUE_LIP env) */

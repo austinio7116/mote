@@ -113,8 +113,11 @@ void cue_rules_init(CueRules *r, const CueTable *t, int cpu) {
         r->target_score = t->kind == CUE_GAME_CAROM_STRAIGHT ? 30
                         : t->kind == CUE_GAME_CAROM_1C       ? 20
                         : t->kind == CUE_GAME_CAROM_2C       ? 15
-                        : t->kind == CUE_GAME_CAROM_3C       ? 10 : 15;
+                        : t->kind == CUE_GAME_CAROM_3C       ? 10
+                        : t->kind == CUE_GAME_FIVEPIN        ? 50 : 15;
         r->bil_yellow = 0;
+        /* FIVE-PIN: the first player puts the white in the head half */
+        if (t->kind == CUE_GAME_FIVEPIN) r->ball_in_hand = 1;
     } else if (t->kind == CUE_GAME_SPEED) {
         /* No target: the score is a time, and lower is better. */
         r->target_score = 0;
@@ -2777,6 +2780,132 @@ static void resolve_carom(CueRules *r, CueBall *b, int n, const CueWorld *w,
     if (touched_opp) snprintf(r->msg, sizeof r->msg, "TOUCHED WHITE");
     else r->msg[0] = 0;
     (void)first_hit;
+}
+
+/* ---- FIVE-PIN BILLIARDS (5 birilli) ----------------------------------------
+ *
+ * Every point is made with the OPPONENT'S ball. You strike your cue ball onto
+ * theirs (directly or off cushions -- there is no cushion requirement), and
+ * what their ball and the red then knock down is yours:
+ *
+ *   each white pin 2; the red pin 4 with whites, 10 when it falls ALONE
+ *   (FIBiS since 2013; 8 before); the red ball struck by their ball 3
+ *   (the "casin"), or by yours after theirs 4 (the "carambola") -- only the
+ *   first of those two, and either adds to the pins.
+ *
+ * FOULS give the opponent the points and nothing to the striker:
+ *   - not striking their ball at all, or striking the red or a pin first: 2,
+ *     and the ball in hand;
+ *   - your own ball in the pins (after a fair first contact): the value of
+ *     every pin down goes to them, no ball in hand;
+ *   - a ball off the table: 2, the ball in hand, and it goes back on its spot.
+ *
+ * The turn passes after every stroke, scored or not. The pins are stood up
+ * again before the next one (the host: cue_phys_skittles_respot). Read off the
+ * stroke's event log (pev), which records every ball-ball and ball-pin touch
+ * in order -- the one place "whose ball reached the castle" is known.
+ */
+static int fp_pin_points(const CueWorld *w, int *whites_out, int *red_out) {
+    int whites = 0, red = 0;
+    for (int k = 0; w && k < w->nskittle; k++) {
+        if (!w->skittle_down[k]) continue;
+        if (w->skittle_black[k]) red = 1; else whites++;
+    }
+    if (whites_out) *whites_out = whites;
+    if (red_out) *red_out = red;
+    return 2 * whites + (red ? (whites ? 4 : 10) : 0);
+}
+void cue_rules_fivepin_judge(const CueRules *r, const CueBall *b, int n, const CueWorld *w,
+                             CueFivePin *out) {
+    memset(out, 0, sizeof *out);
+    const int me_id = n > 0 ? b[0].id : CUE_ID_BIL_WHITE;
+    const int opp_id = (me_id == CUE_ID_BIL_WHITE) ? CUE_ID_BIL_YELLOW : CUE_ID_BIL_WHITE;
+    (void)r;
+    int opp = -1, red = -1;
+    for (int i = 0; i < n; i++) {
+        if (b[i].id == opp_id && i != 0) opp = i;
+        if (b[i].id == CUE_ID_BIL_RED) red = i;
+    }
+    /* 0 nothing, 1 their ball, 2 the red, 3 a pin -- the cue ball's first */
+    int first = 0, opp_reached = 0, red_by = 0, own_pin = 0;
+    if (w && w->pev_on) {
+        for (int e = 0; e < w->npev; e++) {
+            const CuePev *v = &w->pev[e];
+            if (v->kind == CUE_PEV_BALL) {
+                const int a = v->a, c = v->b;
+                if (!first && (a == 0 || c == 0)) {
+                    const int o = a == 0 ? c : a;
+                    first = o == opp ? 1 : (o == red ? 2 : 0);
+                }
+                if ((a == 0 && c == opp) || (c == 0 && a == opp)) opp_reached = 1;
+                /* the red, and who reached it first: only once their ball has been struck */
+                if (opp_reached && !red_by && red >= 0) {
+                    if ((a == opp && c == red) || (c == opp && a == red)) red_by = 1;   /* casin */
+                    else if ((a == 0 && c == red) || (c == 0 && a == red)) red_by = 2;  /* carambola */
+                }
+            } else if (v->kind == CUE_PEV_PIN) {
+                if (v->a == 0) { own_pin = 1; if (!first) first = 3; }
+            }
+        }
+    } else if (w) {
+        /* no event log: the cue ball's own touches say what it struck first */
+        for (int i = 0; i < w->ntouch; i++)
+            if (w->touch[i].what == CUE_TOUCH_BALL) {
+                first = w->touch[i].id == opp_id ? 1 : (w->touch[i].id == CUE_ID_BIL_RED ? 2 : 0);
+                break;
+            }
+    }
+    int whites = 0, redpin = 0;
+    const int pins = fp_pin_points(w, &whites, &redpin);
+    int off = 0;
+    for (int i = 0; i < n; i++) if (!b[i].on) off = 1;
+    out->first = first; out->pins = pins; out->whites = whites; out->redpin = redpin;
+    out->red = red_by == 1 ? 3 : red_by == 2 ? 4 : 0;
+    if (off) { out->foul = 1; out->to_opp = 2; out->in_hand = 1; out->why = "OFF THE TABLE"; }
+    else if (first == 0) { out->foul = 1; out->to_opp = 2; out->in_hand = 1; out->why = "MISSED THEIR BALL"; }
+    else if (first == 2) { out->foul = 1; out->to_opp = 2; out->in_hand = 1; out->why = "THE RED FIRST"; }
+    else if (first == 3) { out->foul = 1; out->to_opp = 2; out->in_hand = 1; out->why = "A PIN FIRST"; }
+    else if (own_pin)    { out->foul = 1; out->to_opp = pins; out->why = "YOUR BALL IN THE PINS"; }
+    else out->mine = pins + out->red;
+}
+static void resolve_fivepin(CueRules *r, CueBall *b, int n, const CueWorld *w) {
+    const int me = r->turn, you = 1 - r->turn;
+    r->break_shot = 0;
+    CueFivePin j;
+    cue_rules_fivepin_judge(r, b, n, w, &j);
+    /* a ball off the table goes back on its opening spot, by id */
+    {
+        CueTable ot; cue_table_init(&ot, (CueGameKind)r->mode);
+        CueBall home[CUE_MAX_BALLS]; const int hn = cue_table_rack(&ot, home);
+        for (int i = 0; i < n; i++) {
+            if (b[i].on) continue;
+            for (int k = 0; k < hn; k++)
+                if (home[k].id == b[i].id) { b[i].pos = home[k].pos; break; }
+            b[i].on = 1;
+            b[i].vel = v3(0, 0, 0); b[i].w = v3(0, 0, 0);
+            b[i].pocket = 0; b[i].drop = 0.0f;
+        }
+    }
+    r->last_foul = j.foul;
+    r->ball_in_hand = 0;
+    if (j.foul) {
+        r->score[you] += j.to_opp;
+        r->ball_in_hand = j.in_hand;
+        snprintf(r->msg, sizeof r->msg, j.to_opp ? "FOUL: %s  +%d TO THEM" : "FOUL: %s", j.why, j.to_opp);
+    } else if (j.mine) {
+        r->score[me] += j.mine;
+        snprintf(r->msg, sizeof r->msg, "%d", j.mine);
+    } else r->msg[0] = 0;
+    r->brk = 0;
+    for (int s2 = 0; s2 < 2; s2++)
+        if (r->target_score > 0 && r->score[s2] >= r->target_score) {
+            r->frame_over = 1; r->winner = s2; book_frame(r, s2);
+            snprintf(r->msg, sizeof r->msg, "GAME");
+            return;
+        }
+    /* the turn always passes */
+    r->turn = you;
+    r->bil_yellow = !r->bil_yellow;
 }
 
 /* ---- ROTATION, THE FILIPINO GAME, AND FIFTEEN-BALL ----------------------
@@ -5810,6 +5939,7 @@ void cue_rules_resolve(CueRules *r, CueBall *b, int n, const CueWorld *w,
     else if (CUE_GAME_IS_PYRAMID(r->mode) && r->pyr_free == CUE_PYR_COMBINED)
         resolve_pyramid_combined(r, b, n, w, first_hit, potted, np);
     else if (CUE_GAME_IS_PYRAMID(r->mode))   resolve_pyramid(r, b, n, first_hit, scratch, cush_rail, potted, np);
+    else if (r->mode == CUE_GAME_FIVEPIN)    resolve_fivepin(r, b, n, w);
     else if (CUE_GAME_IS_CAROM(r->mode))     resolve_carom(r, b, n, w, first_hit);
     else if (CUE_GAME_IS_KILLER(r->mode) && r->kl_n >= 3)
         resolve_killer_n(r, b, n, first_hit, scratch, potted, np);
@@ -5909,6 +6039,8 @@ int cue_rules_ball_legal(const CueRules *r, const CueBall *b, int n, int id) {
      * the two reds alone. */
     if (CUE_GAME_IS_CAROM(r->mode)) {
         if (r->mode == CUE_GAME_CAROM_4B) return id == CUE_ID_BIL_RED || id == 2;
+        /* five-pin: the other cue ball and nothing else may be struck first */
+        if (r->mode == CUE_GAME_FIVEPIN) return id == (r->bil_yellow ? CUE_ID_BIL_WHITE : CUE_ID_BIL_YELLOW);
         return id == CUE_ID_BIL_RED ||
                id == (r->bil_yellow ? CUE_ID_BIL_WHITE : CUE_ID_BIL_YELLOW);
     }

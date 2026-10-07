@@ -210,14 +210,23 @@ typedef enum {
     CUE_GAME_MESINHA_PI,
     CUE_GAME_MESINHA_MM,
     CUE_GAME_MESINHA8,
+    /* FIVE-PIN BILLIARDS (5 birilli), Italy's game: the carom table, its
+     * white, yellow and red, and five small pins standing in a cross in the
+     * middle -- the castle. You strike your ball onto your opponent's and
+     * score with what THEIR ball (and the red) knocks down; your own ball in
+     * the pins is a foul. Appended, as every kind after the first seven is. */
+    CUE_GAME_FIVEPIN,
     CUE_GAME_COUNT
 } CueGameKind;
 /* The rotation games: lowest ball first, and one ball that ends the frame. */
 #define CUE_GAME_IS_KILLER(k) \
     ((k) == CUE_GAME_KILLER_UK || (k) == CUE_GAME_KILLER_US || \
      (k) == CUE_GAME_KILLER_CN)
+/* FIVE-PIN IS ONE OF THEM for everything carom shares -- the table, the three
+ * balls, the two cue balls exchanged at index 0, no pockets -- and is asked
+ * for by name wherever it differs: the rack, the referee, the planner. */
 #define CUE_GAME_IS_CAROM(k) \
-    ((k) >= CUE_GAME_CAROM_STRAIGHT && (k) <= CUE_GAME_CAROM_1C)
+    (((k) >= CUE_GAME_CAROM_STRAIGHT && (k) <= CUE_GAME_CAROM_1C) || (k) == CUE_GAME_FIVEPIN)
 /* THE LOWEST BALL IS ALWAYS THE ONE ON. True of 9-ball and 10-ball, and of
  * rotation — which is where the family gets its name. Everything that reads
  * this gets the new games for nothing: the legality test, the HUD's "ball on",

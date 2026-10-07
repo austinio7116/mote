@@ -132,8 +132,8 @@ typedef struct {
 /* One thing the cue ball touched, in the order it touched it. See CueWorld. */
 enum { CUE_TOUCH_BALL = 0, CUE_TOUCH_CUSHION };
 #define CUE_MAX_TOUCH 24
-/* Three on a bar billiards table, and nothing else has any. */
-#define CUE_MAX_SKITTLE 4
+/* Three on a bar billiards table, five on a five-pin one (the castle). */
+#define CUE_MAX_SKITTLE 5
 /* Twelve on a bumper pool table: eight in the centre cross and two guarding
  * each cup. Sized with room to spare so a layout can be tried. */
 #define CUE_MAX_BUMPER 16
@@ -200,7 +200,9 @@ typedef struct {
  * touch log keeps the cue ball's alone. Kept only while pev_on is set, so no
  * other game pays for it; filled inside the step, so both ends of a lockstep
  * match fill it alike. */
-enum { CUE_PEV_RAIL = 1, CUE_PEV_BALL, CUE_PEV_XLINE };
+/* CUE_PEV_PIN (five-pin): ball a touched pin b -- which ball felled the castle
+ * is the whole of that game's scoring, and when, against the ball contacts */
+enum { CUE_PEV_RAIL = 1, CUE_PEV_BALL, CUE_PEV_XLINE, CUE_PEV_PIN };
 typedef struct {
     uint8_t kind;   /* CUE_PEV_* */
     uint8_t a, b;   /* ball indexes: RAIL and XLINE a; BALL a and b */
@@ -662,6 +664,9 @@ typedef struct {
      * mass sits above the foot. A mushroom is top-heavy and that is most of how
      * it falls, so it is not a uniform rod and must not be integrated as one. */
     float  skittle_len, skittle_mass;        /* 114 mm and 12 g of light wood */
+    /* WHICH PIN: 0 bar billiards' mushroom, 1 five-pin's small turned pin (25 mm,
+     * 7 mm at the foot and the top, 10 mm at its widest just above the foot) */
+    int    skittle_kind;
     int    skittle_fell;                     /* how many went over this shot */
     /* A side cushion was struck this shot (normal across the table, not along
      * it). AEBBA Rule 108: the last-ball shot must go OFF ONE SIDE CUSHION

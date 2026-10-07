@@ -3571,6 +3571,26 @@ void cue_table_build_world(const CueTable *t, CueWorld *w) {
         add_seg(w, v3( hl, 0, -hw), v3( hl, 0,  hw), 0);
         add_seg(w, v3( hl, 0,  hw), v3(-hl, 0,  hw), 0);
         add_seg(w, v3(-hl, 0,  hw), v3(-hl, 0, -hw), 0);
+        if (t->kind == CUE_GAME_FIVEPIN) {
+            /* THE CASTLE (FIBiS, 5 birilli): the red pin on the centre spot and
+             * the four whites round it in a cross, 66 mm centre to centre --
+             * close enough that no ball (61.5 mm) passes between two without
+             * touching one. Pins 25 mm tall, 10 mm across at their widest; the
+             * mass is the turned wood's, about 1.4 g. */
+            w->skittle_kind = 1;
+            w->skittle_r    = 0.0045f;            /* the stem a ball meets */
+            w->skittle_len  = 0.025f;
+            w->skittle_mass = 0.0014f;
+            w->nskittle = 0;
+            static const float CX[5][2] = { { 0, 0 }, { -0.066f, 0 }, { 0.066f, 0 }, { 0, -0.066f }, { 0, 0.066f } };
+            for (int k = 0; k < 5; k++) {
+                const int i_ = w->nskittle++;
+                w->skittle[i_] = v3(CX[k][0], 0.0f, CX[k][1]);
+                w->skittle_spot[i_] = w->skittle[i_];
+                w->skittle_black[i_] = (k == 0);   /* the red one, in the middle */
+            }
+            cue_phys_skittles_init(w, hl, hw);
+        }
     } else if (t->kind == CUE_GAME_BUMPER) {
         /* ---- BUMPER POOL: two cups, four plain cushions, twelve bumpers ----
          *
@@ -5454,6 +5474,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* MZPI  */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
         /* MZMM  */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
         /* MZ8   */ { 0.0301f, 0.052700f, 0.005000f,  90.0f },
+        /* 5PIN  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },      /* the carom table's (no pockets) */
     };
     static const CueCut mid[] = {
         /* UK8   */ { 0.0250f, 0.061927f, 0.009071f, 180.0f },
@@ -5519,6 +5540,7 @@ void cue_table_default_cut(CueGameKind kind, int middle, CueCut *out) {
         /* MZPI  */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
         /* MZMM  */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
         /* MZ8   */ { 0.0145f, 0.036300f, 0.005000f, 180.0f },
+        /* 5PIN  */ { 0.0000f, 0.036795f, 0.006807f, 360.0f },      /* the carom table's (no pockets) */
     };
     /* THE ROW COUNT IS THE KIND COUNT, checked rather than assumed. These are
      * sized by their initialisers, so adding a kind without adding a row here
@@ -5881,6 +5903,7 @@ Vec3 cue_table_cue_home(const CueTable *t) {
  * inside the D (snooker / UK8) or behind the head string (US pool). Returns the
  * clamped XZ (y left to the caller). */
 static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere);
+static int s_fp_half;   /* five-pin's half for a ball in hand: see clamp_region */
 
 /* Is this spot clear of every ball already on the table? */
 static int placement_clear(const CueTable *t, Vec3 p, const CueBall *balls, int n) {
@@ -6072,7 +6095,28 @@ Vec3 cue_table_clamp_placement_balls(const CueTable *t, Vec3 p,
                                      const CueBall *balls, int n, int breaking) {
     return cue_table_clamp_placement_any(t, p, balls, n, breaking, 0);
 }
+static Vec3 clamp_placement_any_1(const CueTable *t, Vec3 p,
+                                   const CueBall *balls, int n, int breaking,
+                                   int anywhere);
 Vec3 cue_table_clamp_placement_any(const CueTable *t, Vec3 p,
+                                   const CueBall *balls, int n, int breaking,
+                                   int anywhere) {
+    s_fp_half = 0;
+    if (t->kind == CUE_GAME_FIVEPIN) {
+        /* the head half at the opening; after a foul the half away from the
+         * other cue ball (balls[0] is the one being placed) */
+        int h = -1;
+        if (!breaking)
+            for (int i = 1; i < n; i++)
+                if (balls[i].on && (balls[i].id == CUE_ID_BIL_WHITE || balls[i].id == CUE_ID_BIL_YELLOW) &&
+                    balls[i].id != balls[0].id) { h = balls[i].pos.x > 0.0f ? -1 : 1; break; }
+        s_fp_half = h; anywhere = 1;
+    }
+    const Vec3 q = clamp_placement_any_1(t, p, balls, n, breaking, anywhere);
+    s_fp_half = 0;
+    return q;
+}
+static Vec3 clamp_placement_any_1(const CueTable *t, Vec3 p,
                                    const CueBall *balls, int n, int breaking,
                                    int anywhere) {
     const float R = t->R;
@@ -6141,13 +6185,22 @@ Vec3 cue_table_clamp_placement_any(const CueTable *t, Vec3 p,
 static int s_house_far;
 void cue_table_set_house_far(int on) { s_house_far = on ? 1 : 0; }
 static Vec3 clamp_region_1(const CueTable *t, Vec3 p, int breaking, int anywhere);
+/* FIVE-PIN'S HALF: the ball in hand goes in the half of the table away from
+ * the opponent's ball (the head half at the opening) -- -1 the x <= 0 half,
+ * +1 the other, 0 no such rule. Set by cue_table_clamp_placement_any around
+ * its own work, which is the only caller of clamp_region. */
 static Vec3 clamp_region(const CueTable *t, Vec3 p, int breaking, int anywhere) {
+    Vec3 q;
     if (s_house_far && t->house && !anywhere && t->bed_shape == CUE_BED_RECT) {
-        Vec3 q = clamp_region_1(t, v3(-p.x, p.y, p.z), breaking, anywhere);
+        q = clamp_region_1(t, v3(-p.x, p.y, p.z), breaking, anywhere);
         q.x = -q.x;
-        return q;
+    } else q = clamp_region_1(t, p, breaking, anywhere);
+    if (s_fp_half) {
+        const float R = t->R;
+        if (s_fp_half < 0 && q.x > -R) q.x = -R;
+        if (s_fp_half > 0 && q.x <  R) q.x =  R;
     }
-    return clamp_region_1(t, p, breaking, anywhere);
+    return q;
 }
 static Vec3 clamp_region_1(const CueTable *t, Vec3 p, int breaking, int anywhere) {
     float R = t->R;
@@ -6340,6 +6393,15 @@ static int rack_carom(const CueTable *t, CueBall *b) {
         set_ball(&b[2], 2,                 head,  0.0f, R);  /* the second red */
         set_ball(&b[3], CUE_ID_BIL_YELLOW, head,  0.1825f, R);
         return 4;
+    }
+    if (t->kind == CUE_GAME_FIVEPIN) {
+        /* FIVE-PIN'S OPENING: the red on the foot spot, the yellow on the long
+         * string 10 cm from the foot rail, and the white in the head half where
+         * the first player puts it -- here off the centre line, so the red is
+         * not straight between it and the yellow it has to strike */
+        set_ball(&b[1], CUE_ID_BIL_RED,    foot, 0.0f, R);
+        set_ball(&b[2], CUE_ID_BIL_YELLOW, t->half_len - 0.10f, 0.0f, R);
+        return 3;
     }
     set_ball(&b[1], CUE_ID_BIL_RED,    foot, 0.0f, R);
     set_ball(&b[2], CUE_ID_BIL_YELLOW, head, 0.0f, R);
