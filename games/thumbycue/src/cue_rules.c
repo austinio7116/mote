@@ -2863,9 +2863,9 @@ void cue_rules_fivepin_judge(const CueRules *r, const CueBall *b, int n, const C
     out->red = red_by == 1 ? 3 : red_by == 2 ? 4 : 0;
     if (off) { out->foul = 1; out->to_opp = 2; out->in_hand = 1; out->why = "OFF THE TABLE"; }
     else if (first == 0) { out->foul = 1; out->to_opp = 2; out->in_hand = 1; out->why = "MISSED THEIR BALL"; }
-    else if (first == 2) { out->foul = 1; out->to_opp = 2; out->in_hand = 1; out->why = "THE RED FIRST"; }
-    else if (first == 3) { out->foul = 1; out->to_opp = 2; out->in_hand = 1; out->why = "A PIN FIRST"; }
-    else if (own_pin)    { out->foul = 1; out->to_opp = pins; out->why = "YOUR BALL IN THE PINS"; }
+    else if (first == 2) { out->foul = 1; out->to_opp = 2; out->in_hand = 1; out->why = "RED BALL FIRST"; }
+    else if (first == 3) { out->foul = 1; out->to_opp = 2; out->in_hand = 1; out->why = "PIN FIRST"; }
+    else if (own_pin)    { out->foul = 1; out->to_opp = pins; out->why = "YOUR BALL IN PINS"; }
     else out->mine = pins + out->red;
 }
 static void resolve_fivepin(CueRules *r, CueBall *b, int n, const CueWorld *w) {
@@ -2891,7 +2891,7 @@ static void resolve_fivepin(CueRules *r, CueBall *b, int n, const CueWorld *w) {
     if (j.foul) {
         r->score[you] += j.to_opp;
         r->ball_in_hand = j.in_hand;
-        snprintf(r->msg, sizeof r->msg, j.to_opp ? "FOUL: %s  +%d TO THEM" : "FOUL: %s", j.why, j.to_opp);
+        snprintf(r->msg, sizeof r->msg, "FOUL: %s", j.why);     /* 23 characters: the board shows who got what */
     } else if (j.mine) {
         r->score[me] += j.mine;
         snprintf(r->msg, sizeof r->msg, "%d", j.mine);

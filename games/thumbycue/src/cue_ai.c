@@ -4967,6 +4967,58 @@ static int carom_candidates(const AiCtx *c, int npool) {
 }
 
 
+/* ---- FIVE-PIN: THEIR BALL INTO THE CASTLE --------------------------------
+ *
+ * Every point is made with the other cue ball, so the strokes worth trying
+ * are the ones that send IT at the pins: the ghost ball that drives it at the
+ * castle's middle, and at a pin either side, fanned from thin to full -- and,
+ * when the straight line is not there, the same ball found off each cushion.
+ * The prior only orders what gets simulated; the sim plays each out and the
+ * referee's own arithmetic (cue_rules_fivepin_judge) prices it. */
+static int fivepin_candidates(const AiCtx *c, int npool) {
+    const int opp_id = c->r->bil_yellow ? CUE_ID_BIL_WHITE : CUE_ID_BIL_YELLOW;
+    int oi = -1;
+    for (int i = 1; i < c->n; i++) if (c->b[i].on && c->b[i].id == opp_id) { oi = i; break; }
+    if (oi < 0) return npool;
+    const Vec3 cue = c->b[0].pos, O = c->b[oi].pos;
+    static const float PWR[] = { 0.30f, 0.46f, 0.64f };
+    static const float SP[5][2] = { { 0, 0 }, { 0, 0.30f }, { 0, -0.30f }, { 0.40f, 0 }, { -0.40f, 0 } };
+    static const float FAN[] = { 0.0f, -0.18f, 0.18f, -0.40f, 0.40f };
+    /* the castle's middle, and a white pin either side of it as seen from their ball */
+    Vec3 tgt[3]; tgt[0] = v3(0, 0, 0);
+    {   Vec3 d = nrm2(sub2(tgt[0], O)); const Vec3 sd = v3(-d.z, 0, d.x);
+        tgt[1] = v3(sd.x * 0.066f, 0, sd.z * 0.066f); tgt[2] = v3(-sd.x * 0.066f, 0, -sd.z * 0.066f); }
+    for (int t = 0; t < 3; t++) {
+        const Vec3 toT = nrm2(sub2(tgt[t], O));
+        const Vec3 ghost = v3(O.x - toT.x * c->contact, 0, O.z - toT.z * c->contact);
+        const Vec3 line = sub2(ghost, cue);
+        const float dg = len2(line);
+        if (dg < 1e-3f) continue;
+        const float base = atan2f(line.z, line.x);
+        const float span = asinf(clampf(c->contact / (dg > c->contact ? dg : c->contact), 0.0f, 1.0f));
+        for (unsigned f = 0; f < sizeof FAN / sizeof FAN[0]; f++)
+            for (unsigned q = 0; q < sizeof PWR / sizeof PWR[0]; q++)
+                for (int k = 0; k < 5; k++) {
+                    const float pre = (t == 0 ? 80.0f : 64.0f) - 9.0f * fabsf(FAN[f]) * 4.0f - (k ? 6.0f : 0.0f);
+                    npool = carom_push(c, npool, oi, ghost, base + FAN[f] * span, PWR[q], SP[k][0], SP[k][1], pre);
+                }
+    }
+    /* OFF A CUSHION: their ball mirrored in each rail, aimed at */
+    {   const float hl = c->t->half_len - c->t->R, hw = c->t->half_wid - c->t->R;
+        const Vec3 M[4] = { v3( 2*hl - O.x, 0, O.z), v3(-2*hl - O.x, 0, O.z),
+                            v3(O.x, 0,  2*hw - O.z), v3(O.x, 0, -2*hw - O.z) };
+        for (int m = 0; m < 4; m++) {
+            const Vec3 line = sub2(M[m], cue);
+            if (len2(line) < 1e-3f) continue;
+            const float ang = atan2f(line.z, line.x);
+            for (unsigned q = 0; q < sizeof PWR / sizeof PWR[0]; q++)
+                for (int k = 0; k < 3; k++)
+                    npool = carom_push(c, npool, oi, O, ang, PWR[q] + 0.08f, SP[k][0], SP[k][1], 40.0f);
+        }
+    }
+    return npool;
+}
+
 /* ---- GETTING OUT OF A DOUBLE BAULK --------------------------------------
  *
  * English billiards Rule 6(f): a striker in hand may not play directly onto an
@@ -5979,7 +6031,9 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
      * line — a cannon rarely wants the full ball, and the fan is what finds the
      * thin contact that sends the cue ball on. The engine decides which of them
      * actually cannon; the scoring above pays them for it. */
-    if (CUE_GAME_IS_CAROM(c->r->mode)) {
+    if (c->r->mode == CUE_GAME_FIVEPIN) {
+        npool = fivepin_candidates(c, npool);
+    } else if (CUE_GAME_IS_CAROM(c->r->mode)) {
         npool = carom_candidates(c, npool);
     }
     /* COWBOY POOL BECOMES A CANNON GAME AT NINETY, and the planner has to
@@ -6775,6 +6829,17 @@ int cue_ai_plan_tick(void) {
          * cue ball's contacts in order, so the cushions BEFORE the second
          * object ball are counted here exactly as the referee counts them —
          * the planner is ranked by the same arithmetic that will score it. */
+        /* ---- FIVE-PIN, priced by the referee's own judge ----------------- */
+        if (c->r->mode == CUE_GAME_FIVEPIN) {
+            CueFivePin j;
+            cue_rules_fivepin_judge(c->r, s_sb, c->n, &s_sw, &j);
+            /* what it scores, less what it gives away; a ball in hand handed
+             * over is worth a few more to them */
+            const float val = (float)j.mine - (float)j.to_opp - (j.in_hand ? 3.0f : 0.0f);
+            v->bad_first = (j.first != 1);
+            v->pot_fails = (j.mine == 0);
+            v->potScore = clampf(30.0f + 6.0f * val, 0.0f, 100.0f);
+        } else
         if (CUE_GAME_IS_CAROM(c->r->mode)) {
             const int fourb = (c->r->mode == CUE_GAME_CAROM_4B);
             const int objA = CUE_ID_BIL_RED;

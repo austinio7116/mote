@@ -480,6 +480,7 @@ void cue_phys_skittles_respot(CueWorld *w) {
         w->skittle_order[k] = 0;
     }
     w->skittle_fell = 0;
+    w->sk_awake = 0; w->sk_still = 0;      /* stood up and still: the solver can rest */
 }
 
 /* ---- THE STROKE'S EVENTS (CuePev) ---------------------------------------- */
@@ -2333,6 +2334,7 @@ static CUE_HOT int check_skittles(CueWorld *w, CueBall *b, int bi) {
         /* dw = (r x -j n) / I — isotropic, so no change of basis is needed. */
         sb->w = v3_add(sb->w, v3_scale(v3_cross(rc, v3_scale(n, -j)), 1.0f / Ieff));
         sb->_reserved[0] = 0;                            /* wake it */
+        w->sk_awake = 1; w->sk_still = 0;                /* ...and the solver with it */
         fell = 1;                                        /* something was struck */
     }
     return fell;
@@ -2772,8 +2774,16 @@ static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_
      * test the engine's own domino example uses, and the rules care about the
      * ORDER they went in (Rule 112), so that is booked the moment each one
      * goes rather than counted up at the end. */
-    if (w->sk_on && s_rigid && w->nskittle > 0) {
+    if (w->sk_on && s_rigid && w->nskittle > 0 && w->sk_awake) {
         s_rigid(&w->sk_world, w->sk, w->sk_n, h);
+        {   int still = 1;
+            for (int k = 0; k < w->nskittle; k++) {
+                const MoteBody *q = &w->sk[k];
+                if (v3_dot(q->vel, q->vel) > 1e-6f || v3_dot(q->w, q->w) > 1e-4f) { still = 0; break; }
+            }
+            w->sk_still = still ? w->sk_still + 1 : 0;
+            if ((float)w->sk_still * h > 0.2f) w->sk_awake = 0;    /* quiet: the solver rests too */
+        }
         for (int k = 0; k < w->nskittle; k++) {
             /* the pin's axis against the vertical: 0.7 is about 45 degrees */
             if (!w->skittle_down[k] && w->sk[k].orient.r[1].y < 0.70f) {

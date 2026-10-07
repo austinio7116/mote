@@ -667,6 +667,12 @@ typedef struct {
     /* WHICH PIN: 0 bar billiards' mushroom, 1 five-pin's small turned pin (25 mm,
      * 7 mm at the foot and the top, 10 mm at its widest just above the foot) */
     int    skittle_kind;
+    /* THE PINS ARE QUIET: standing (or lying) still, untouched, and the
+     * rigid-body solver is not run for them at all -- woken by a ball's touch,
+     * quiet again once every pin has been still a fifth of a second. Five pins
+     * stepped at 2 kHz through every one of the planner's rollouts was most of
+     * its time (2.2 s a plan on a desk at five-pin). */
+    int    sk_awake, sk_still;
     int    skittle_fell;                     /* how many went over this shot */
     /* A side cushion was struck this shot (normal across the table, not along
      * it). AEBBA Rule 108: the last-ball shot must go OFF ONE SIDE CUSHION
