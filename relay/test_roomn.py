@@ -299,6 +299,45 @@ def roomn_tests(port):
 # ---- VOICE ---------------------------------------------------------------
 VPKT = lambda n: bytes([n & 0xFF, n >> 8, n & 0xFF, n >> 8, 1 if n == 0 else 0]) + b"\x00\x80" * 3 + bytes([0x78]) + bytes(range(40))
 
+def open_room_tests(port):
+    """An OPEN room being played (CueVR's winner stays on, 7.0): PLAYING lists it
+    to watch while it stays open to join."""
+    print("\n--- ROOMN: an open room being played (PLAYING) ---")
+    def listing():
+        ls = conn(port, f"MOTE2 LIST {GID}")
+        lst = b""
+        while not lst.endswith(b"END\n"):
+            c = ls.recv(4096)
+            if not c: break
+            lst += c
+        ls.close()
+        return lst
+    h = conn(port, f"MOTE2 ROOMN {GID} HOST WSO1 PUB 6 WINNER ROOM")
+    readline(h); recv_frame(h)
+    j = conn(port, f"MOTE2 ROOMN {GID} JOIN WSO1")
+    readline(j); recv_frame(j); recv_frame(h)
+    lst = listing()
+    check("before PLAYING: open to join, not listed to watch",
+          b"ROOM WSO1 WINNER ROOM 2/6\n" in lst and b"LIVE WSO1 " not in lst, lst.decode().strip())
+    send_frame(j, 0xFE, b"PLAYING")              # not the host: ignored
+    time.sleep(0.2)
+    check("a joiner's PLAYING is ignored", b"LIVE WSO1 " not in listing())
+    send_frame(h, 0xFE, b"PLAYING")
+    time.sleep(0.2)
+    lst = listing()
+    check("after the host's PLAYING: still open to join...", b"ROOM WSO1 WINNER ROOM 2/6\n" in lst, lst.decode().strip())
+    check("...and listed to watch", b"LIVE WSO1 WINNER ROOM 2/6 0\n" in lst, lst.decode().strip())
+    j2 = conn(port, f"MOTE2 ROOMN {GID} JOIN WSO1")
+    line = readline(j2)
+    check("it still takes a player", line == "SEAT 2 6", line)
+    w = conn(port, f"MOTE2 ROOMN {GID} WATCH WSO1")
+    line = readline(w)
+    check("...and a watcher", line.startswith("SEAT 8 "), line)
+    time.sleep(0.2)
+    check("LIVE counts the watcher", b"LIVE WSO1 WINNER ROOM 3/6 1\n" in listing())
+    for s_ in (w, j2, j, h): s_.close()
+
+
 def udp_sock():
     u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     u.bind(("127.0.0.1", 0)); u.settimeout(1.0)
@@ -662,6 +701,7 @@ def main():
     new, port = start_relay(os.path.join(HERE, "mote_relay.py"), ["--room-backlog", "65536", "--store", store])
     try:
         roomn_tests(port)
+        open_room_tests(port)
         voice_tests(port, store)
         report_again(store)
         voice_policy()

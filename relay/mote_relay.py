@@ -246,6 +246,7 @@ class RoomN:
         self.members = {}          # k -> Member
         self.seq = 0
         self.started = False
+        self.playing = False       # an open room being played (winner stays on): listed to watch, still open
         self.closed = False
         self.created = time.monotonic()
         self.done = asyncio.Event()
@@ -838,6 +839,11 @@ class Relay:
                         room.started = True
                         log(f"nroom {room.gid}/{room.code}: started with {len(room.members)}")
                         room.control("START", cap)
+                    elif cmd == "PLAYING" and m.k == 0 and not room.playing:
+                        # an OPEN room under way (CueVR's winner stays on): still
+                        # open to JOIN, and now listed LIVE as well, to WATCH
+                        room.playing = True
+                        log(f"nroom {room.gid}/{room.code}: playing, open, with {len(room.members)}")
                     elif cmd.startswith("VOICE"):
                         self.voice_ctrl(room, m, cmd, raw)
                     elif cmd.startswith("REPORT "):
@@ -1079,9 +1085,10 @@ class Relay:
                         out += f"ROOM {r.code} {r.label} {len(r.players())}/{r.maxn}\n".encode()
                     # ...and games being played, to watch (6.3): a line a
                     # reader from before them skips, as it skips any it does
-                    # not know. Public rooms only, started or full.
-                    elif (r.public and r.gid == gid and not r.closed and 0 in r.members
-                          and (r.started or len(r.players()) >= r.maxn)):
+                    # not know. Public rooms only, started -- or open and being
+                    # played (PLAYING), which is listed both ways.
+                    if (r.public and r.gid == gid and not r.closed and 0 in r.members
+                          and (r.started or r.playing)):
                         out += f"LIVE {r.code} {r.label} {len(r.players())}/{r.maxn} {len(r.watchers())}\n".encode()
                 out += b"END\n"
                 writer.write(out); await writer.drain()
