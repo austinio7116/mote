@@ -75,19 +75,31 @@ int cue_render_skittle_profile(const float (**pts)[2]) {
     return (int)(sizeof CUE_SKITTLE_PROF / sizeof CUE_SKITTLE_PROF[0]);
 }
 /* FIVE-PIN'S PIN, the same way: height above the foot in metres, radius as a
- * multiple of the stem (0.0045). FIBiS: 25 mm tall, 7 mm across at the foot
- * and the top, 10 mm at its widest a little above the foot; a turned head. */
+ * multiple of the stem (0.0045). FIBiS: 25 mm tall, 7 mm across at the foot,
+ * 10 mm at its widest. Shaped off Mark's photo of a real set: a full round
+ * belly low down (widest a quarter of the way up), drawn in to a neck under
+ * half that width, and a ball of a head three-quarters the belly's width. */
 static const float CUE_FIVEPIN_PROF[][2] = {
-        { 0.000f, 0.78f },   /* the 7 mm foot */
-        { 0.002f, 0.92f },
-        { 0.005f, 1.11f },   /* the widest, 10 mm */
-        { 0.009f, 1.04f },
-        { 0.015f, 0.86f },   /* the waist */
-        { 0.019f, 0.76f },
-        { 0.021f, 0.86f },   /* a turned ring under the head */
-        { 0.023f, 0.80f },
-        { 0.0245f, 0.55f },  /* the head rounding off */
-        { 0.025f, 0.00f },
+        { 0.0000f, 0.78f },  /* the 7 mm foot */
+        { 0.0008f, 0.88f },  /* its edge rounded */
+        { 0.0020f, 0.98f },
+        { 0.0040f, 1.07f },
+        { 0.0065f, 1.11f },  /* the belly, 10 mm */
+        { 0.0090f, 1.10f },  /* held wide... */
+        { 0.0110f, 1.03f },
+        { 0.0130f, 0.88f },  /* ...then drawn in quickly */
+        { 0.0148f, 0.68f },
+        { 0.0162f, 0.52f },
+        { 0.0174f, 0.47f },  /* the neck, 4.2 mm, short */
+        { 0.0183f, 0.48f },  /* the head: a 7.4 mm ball on it */
+        { 0.0193f, 0.69f },
+        { 0.0203f, 0.79f },
+        { 0.0213f, 0.82f },
+        { 0.0225f, 0.78f },
+        { 0.0236f, 0.64f },
+        { 0.0244f, 0.45f },
+        { 0.0248f, 0.27f },
+        { 0.0250f, 0.00f },
     };
 int cue_render_fivepin_profile(const float (**pts)[2]) {
     if (pts) *pts = CUE_FIVEPIN_PROF;
