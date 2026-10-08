@@ -338,6 +338,67 @@ def open_room_tests(port):
     for s_ in (w, j2, j, h): s_.close()
 
 
+def club_tests(port):
+    """A CLUB (CueVR 7.1): up to sixteen people and nobody hosting it -- names
+    and tables for everyone and for whoever comes later, the first in leaving
+    without closing it, and the seventeenth opening a second."""
+    print("\n--- CLUB: sixteen, no host, names and tables ---")
+    G = "5A5A5A5A"
+    def listing():
+        ls = conn(port, f"MOTE2 LIST {G}")
+        lst = b""
+        while not lst.endswith(b"END\n"):
+            c = ls.recv(4096)
+            if not c: break
+            lst += c
+        ls.close()
+        return lst.decode()
+    def ctrl_frames(s, n):
+        out = []
+        for _ in range(n):
+            f = recv_frame(s)
+            if f[0] == 0xFE: out.append(f[2].decode())
+        return out
+    a = conn(port, f"MOTE2 CLUB {G} JOIN")
+    line = readline(a)
+    check("the first in takes place 0 of club 1", line == "SEAT 0 16 1", line)
+    check("...and is told who is here", recv_frame(a)[2] == b"MEMBERS 0")
+    send_frame(a, 0xFE, b"NAME Alice Smith")
+    check("a name goes round, itself included", recv_frame(a)[2] == b"NAME 0 Alice Smith")
+    send_frame(a, 0xFE, b"TABLE 2 US9 3/4 OPEN ABCD")
+    check("a table set up goes round", recv_frame(a)[2] == b"TABLE 2 0 US9 3/4 OPEN ABCD")
+    b = conn(port, f"MOTE2 CLUB {G} JOIN")
+    line = readline(b)
+    check("the next takes place 1", line == "SEAT 1 16 1", line)
+    got = ctrl_frames(b, 3)
+    check("a newcomer hears who is here, their names and the tables",
+          got == ["MEMBERS 0 1", "NAME 0 Alice Smith", "TABLE 2 0 US9 3/4 OPEN ABCD"], str(got))
+    check("...and the others that someone came in", recv_frame(a)[2] == b"JOINED 1")
+    send_frame(b, 0xFE, b"TABLE 2 SNK15 HIJACK")             # not theirs
+    send_frame(b, 0xFF, b"pose-b")
+    f = recv_frame(a)
+    check("frames reach everyone; a table held by another is not taken", f[0] == 1 and f[2] == b"pose-b", repr(f))
+    lst = listing()
+    check("LIST shows the club, its people and tables, and who", "CLUB 1 2/16 1" in lst and "CLUBWHO 1 Alice Smith" in lst, lst.strip())
+    check("...and never as a room to join or watch", "ROOM CLUB" not in lst and "LIVE CLUB" not in lst)
+    a.close()
+    got = ctrl_frames(b, 2)
+    check("the first in leaving frees their table and the club stays open",
+          got == ["TABLE 2 -", "LEFT 0"], str(got))
+    c = conn(port, f"MOTE2 CLUB {G} JOIN")
+    line = readline(c)
+    check("the free place is taken again", line == "SEAT 0 16 1", line)
+    rest = [conn(port, f"MOTE2 CLUB {G} JOIN") for _ in range(14)]
+    seats = [readline(x) for x in rest]
+    check("sixteen fit in club 1", seats[-1] == "SEAT 15 16 1", seats[-1])
+    d = conn(port, f"MOTE2 CLUB {G} JOIN")
+    line = readline(d)
+    check("the seventeenth opens club 2", line == "SEAT 0 16 2", line)
+    e = conn(port, f"MOTE2 CLUB {G} JOIN 1")
+    check("asking for a full club by number says so", readline(e) == "FULL")
+    for x in [b, c, d, e] + rest: x.close()
+
+
 def udp_sock():
     u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     u.bind(("127.0.0.1", 0)); u.settimeout(1.0)
@@ -702,6 +763,7 @@ def main():
     try:
         roomn_tests(port)
         open_room_tests(port)
+        club_tests(port)
         voice_tests(port, store)
         report_again(store)
         voice_policy()

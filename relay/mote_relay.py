@@ -85,6 +85,22 @@ Wire protocol (client <-> relay), one text handshake line then raw bytes:
     member whose unsent backlog passes --room-backlog bytes is dropped (LEFT)
     rather than stalling the room. Old verbs are untouched.
 
+    CLUBS (CueVR 7.1, Down the Club): a shared room of up to 16, framed as a
+    ROOMN room is, with no host, no START and no watchers -- presence only;
+    a table's game is an ordinary ROOMN room beside it.
+        "MOTE2 CLUB <GAMEID> JOIN [N]\n"
+                    ->  "SEAT <K> 16 <N>\n", then framed (or "FULL\n", "ERR\n")
+    Without N: the lowest numbered club with room, a new one opened when all
+    are full. To the relay: "NAME <text>" (everyone hears "NAME <k> <text>"),
+    "TABLE <slot> <text...>" / "TABLE <slot> -" (a table set up or freed by
+    this member; everyone hears "TABLE <slot> <k> <text>" / "TABLE <slot> -";
+    a slot another member holds is not taken). A newcomer hears MEMBERS, then
+    every NAME and TABLE. A member leaving frees its tables (LEFT <k> after
+    them); the club closes when the last one goes. A member that falls behind
+    loses frames, never its place. LIST adds, per open club:
+        "CLUB <N> <HAVE>/16 <TABLES>\n"  then  "CLUBWHO <N> <name>\n" * HAVE
+    Clubs are never listed as ROOM or LIVE. Voice and REPORT work as in a room.
+
     VOICE (CueVR 6.4, test builds first): a room's members may talk. Nothing
     of it reaches a client that does not ask, so an old client in the same
     room sees exactly the frames it always did, numbered exactly as before.
@@ -371,6 +387,51 @@ class RoomN:
         elif not self.closed:
             self.control(f"LEFT {m.k}", 1 << 30)
         if not self.members:
+            self.done.set()
+
+class ClubRoom(RoomN):
+    """A CLUB (CueVR 7.1, Down the Club): a shared room of up to 16 people,
+    each one a member like any other -- nobody hosts it, so nobody leaving
+    closes it -- carrying presence (poses, names, voice) and a directory of
+    its tables, and never a game: a table's game is an ordinary ROOMN room
+    beside it. A member who falls behind loses frames, never its place: a
+    pose a second late is simply not wanted. No START, no watchers."""
+    WATCH_BASE = 64                 # no place is a watcher's
+    MAXN = 16
+    def __init__(self, gid, n):
+        super().__init__(gid, f"CLUB{n}", True, self.MAXN, f"CLUB {n}")
+        self.n = n
+        self.club = True
+        self.started = True         # frames flow from the first member on
+        self.names = {}             # k -> display name
+        self.tables = {}            # slot -> (k, text): who set the table up, and what it is
+        self.dropped = 0            # frames not queued to a backed-up member
+
+    def send_to(self, m, data, cap):
+        if m.gone:
+            return
+        if m.backlog > cap:
+            self.dropped += 1       # behind: this one is not sent, the member stays
+            return
+        m.backlog += len(data)
+        m.q.put_nowait(data)
+
+    def drop(self, m, why):
+        if m.gone:
+            return
+        m.gone = True
+        m.q.put_nowait(None)
+        if self.members.get(m.k) is m:
+            del self.members[m.k]
+        self.names.pop(m.k, None)
+        log(f"club {self.gid}/{self.n}: member {m.k} left ({why}), {len(self.members)} remain")
+        # the tables they set up go back to free
+        for slot in [s for s, (k, _) in self.tables.items() if k == m.k]:
+            del self.tables[slot]
+            self.control(f"TABLE {slot} -", 1 << 30)
+        self.control(f"LEFT {m.k}", 1 << 30)
+        if not self.members:
+            self.closed = True
             self.done.set()
 
 SHARE_ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no confusable 0/O/1/I
@@ -844,6 +905,29 @@ class Relay:
                         # open to JOIN, and now listed LIVE as well, to WATCH
                         room.playing = True
                         log(f"nroom {room.gid}/{room.code}: playing, open, with {len(room.members)}")
+                    elif getattr(room, "club", False) and cmd.startswith("NAME "):
+                        nm = clean_label(raw[5:])[:24] or "PLAYER"
+                        room.names[m.k] = nm
+                        room.control(f"NAME {m.k} {nm}", cap)
+                    elif getattr(room, "club", False) and cmd.startswith("TABLE "):
+                        # TABLE <slot> <text...> | TABLE <slot> -: a table set
+                        # up (or freed) by this member, for everyone in the club
+                        parts = raw.split(None, 2)
+                        try:
+                            slot = int(parts[1])
+                        except (IndexError, ValueError):
+                            slot = -1
+                        if 0 <= slot < 16:
+                            text = parts[2] if len(parts) > 2 else "-"
+                            held = room.tables.get(slot)
+                            if text == "-":
+                                if held and held[0] == m.k:
+                                    del room.tables[slot]
+                                    room.control(f"TABLE {slot} -", cap)
+                            elif held is None or held[0] == m.k:
+                                text = "".join(c for c in text if 32 <= ord(c) < 127)[:160]
+                                room.tables[slot] = (m.k, text)
+                                room.control(f"TABLE {slot} {m.k} {text}", cap)
                     elif cmd.startswith("VOICE"):
                         self.voice_ctrl(room, m, cmd, raw)
                     elif cmd.startswith("REPORT "):
@@ -887,6 +971,62 @@ class Relay:
         if room.done.is_set() and self.nrooms.get(key) is room:
             self.nrooms.pop(key, None)
             log(f"nroom {key}: closed")
+
+    async def club_member(self, key, club, k, reader, writer, peer):
+        m = Member(k, reader, writer, peer)
+        others = sorted(club.members)
+        club.members[k] = m
+        writer.write(f"SEAT {k} {club.maxn} {club.n}\n".encode())
+        m.task = asyncio.create_task(self.member_writer(club, m))
+        cap = self.args.room_backlog
+        # who is here, what they are called and which tables are set up
+        club.control("MEMBERS " + " ".join(str(x) for x in sorted(club.members)), cap, only=k)
+        for o, nm in sorted(club.names.items()):
+            club.control(f"NAME {o} {nm}", cap, only=k)
+        for slot, (o, text) in sorted(club.tables.items()):
+            club.control(f"TABLE {slot} {o} {text}", cap, only=k)
+        if others:
+            club.control(f"JOINED {k}", cap, skip=k)
+        log(f"club {key}: member {k} in ({peer}), {len(club.members)}/{club.maxn}")
+        await self.member_reader(club, m)
+        self.voice_forget(m)
+        await asyncio.gather(m.task, return_exceptions=True)
+        if club.done.is_set() and self.nrooms.get(key) is club:
+            self.nrooms.pop(key, None)
+            log(f"club {key}: closed")
+
+    async def handle_club(self, gid, a, reader, writer, peer):
+        """CLUB <GAMEID> JOIN [N]: a place in club N, or with no N the lowest
+        numbered club with room, a new one opened when every club is full."""
+        sub = a[0].upper() if a else ""
+        if sub != "JOIN":
+            writer.write(b"ERR\n"); await writer.drain(); return
+        want = 0
+        if len(a) > 1:
+            try:
+                want = int(a[1])
+            except ValueError:
+                want = -1
+        if want < 0 or want > 99:
+            writer.write(b"ERR\n"); await writer.drain(); return
+        n = want
+        if n == 0:
+            n = 1
+            while True:
+                c = self.nrooms.get(rkey(gid, f"CLUB{n}"))
+                if c is None or (not c.closed and c.free_place() >= 0):
+                    break
+                n += 1
+        key = rkey(gid, f"CLUB{n}")
+        club = self.nrooms.get(key)
+        if club is None or club.closed:
+            club = ClubRoom(gid, n)
+            self.nrooms[key] = club
+            log(f"club {key}: opened ({peer})")
+        k = club.free_place()
+        if k < 0:
+            writer.write(b"FULL\n"); await writer.drain(); return
+        await self.club_member(key, club, k, reader, writer, peer)
 
     async def handle_roomn(self, gid, a, reader, writer, peer):
         sub = a[0].upper() if a else ""
@@ -1069,6 +1209,9 @@ class Relay:
                 log(f"share {sg}: get {code} ({peer})")
                 return
 
+            if verb == "CLUB" and t[0] == "MOTE2":
+                await self.handle_club(gid, a, reader, writer, peer)
+                return
             if verb == "ROOMN" and t[0] == "MOTE2":
                 await self.handle_roomn(gid, a, reader, writer, peer)
                 return
@@ -1081,6 +1224,15 @@ class Relay:
                         if len(out) > 3500: break
                 for k, r in list(self.nrooms.items()):
                     if len(out) > 3500: break
+                    if getattr(r, "club", False):
+                        # A CLUB (7.1): how many are in, how many tables are
+                        # set up, and who -- lines a reader from before clubs
+                        # skips, as it skips any it does not know
+                        if r.gid == gid and not r.closed and r.members:
+                            out += f"CLUB {r.n} {len(r.members)}/{r.maxn} {len(r.tables)}\n".encode()
+                            for o, nm in sorted(r.names.items()):
+                                out += f"CLUBWHO {r.n} {nm}\n".encode()
+                        continue
                     if r.public and r.gid == gid and not r.started and not r.closed:
                         out += f"ROOM {r.code} {r.label} {len(r.players())}/{r.maxn}\n".encode()
                     # ...and games being played, to watch (6.3): a line a
