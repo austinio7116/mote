@@ -6367,12 +6367,42 @@ static Mat3 rand_orient(void) {
     m3_rotate_local(&m, 2, orient_rand() * 6.2831853f);
     return m;
 }
+/* THE SAME FACING ON EVERY TABLE THAT RACKED THE SAME RACK (CueVR 7.2).
+ * rand_orient draws from one sequence per process, which moves on with every
+ * rack and respot that process has made -- so two players racking the same
+ * frame turned every ball differently, from the first rack. The physics never
+ * asks which way a ball faces, so the lockstep never saw it; the club did,
+ * where watchers see one player's facings at rest and the striker's in the
+ * stroke, and every ball turned as a shot began (players, 2026-10-09).
+ * With a rack seed set (CueVR sets one per frame, the host's online), a
+ * ball's facing is a function of that seed, its number and where it is put:
+ * the same on every machine whatever else each has racked or respotted. No
+ * seed (the handheld): the sequence, as before. */
+static unsigned s_rack_seed;
+static uint32_t orient_mix(uint32_t h) {
+    h ^= h >> 16; h *= 0x7feb352du; h ^= h >> 15; h *= 0x846ca68bu; h ^= h >> 16;
+    return h;
+}
+static Mat3 orient_for(int id, float x, float z) {
+    if (!s_rack_seed) return rand_orient();
+    const int32_t qx = (int32_t)lrintf(x * 10000.0f), qz = (int32_t)lrintf(z * 10000.0f);   /* 0.1 mm */
+    uint32_t h = orient_mix(s_rack_seed ^ 0x2545F491u);
+    h = orient_mix(h ^ ((uint32_t)id * 0x9E3779B9u));
+    h = orient_mix(h ^ (uint32_t)qx);
+    h = orient_mix(h ^ ((uint32_t)qz * 0x85EBCA6Bu));
+    Mat3 m = m3_identity();
+    for (int k = 0; k < 3; k++) {
+        h = orient_mix(h + 0x9E3779B9u);
+        m3_rotate_local(&m, k, (float)(h & 0xFFFFu) * (6.2831853f / 65536.0f));
+    }
+    return m;
+}
 
 static void set_ball(CueBall *b, int id, float x, float z, float R) {
     b->pos = v3(x, R, z);
     b->vel = v3(0, 0, 0);
     b->w = v3(0, 0, 0);
-    b->orient = rand_orient();      /* random facing so the rack isn't uniform */
+    b->orient = orient_for(id, x, z);   /* random facing so the rack isn't uniform */
     b->on = 1;
     b->id = (uint8_t)id;
     b->pocket = 0;
@@ -7116,7 +7146,7 @@ int cue_table_rack_14(const CueTable *t, CueBall *b, int n) {
         b[i].drop = 0.0f;
         b[i].pocket = 0;
         b[i].on = 1;
-        b[i].orient = rand_orient();
+        b[i].orient = orient_for(b[i].id, p.x, p.z);
         placed++;
     }
     return placed;
@@ -7176,7 +7206,7 @@ int cue_table_respot_one(const CueTable *t, CueBall *b, int n) {
         b[pick].drop = 0.0f;
         b[pick].pocket = 0;
         b[pick].on = 1;
-        b[pick].orient = rand_orient();
+        b[pick].orient = orient_for(b[pick].id, p.x, p.z);
         return b[pick].id;
     }
     return 0;
@@ -7236,7 +7266,7 @@ int cue_table_respot_ball(const CueTable *t, CueBall *b, int n, int idx) {
         b[idx].drop = 0.0f;
         b[idx].pocket = 0;
         b[idx].on = 1;
-        b[idx].orient = rand_orient();
+        b[idx].orient = orient_for(b[idx].id, p.x, p.z);
         return 1;
     }
     return 0;
@@ -7370,7 +7400,6 @@ int cue_table_golf_hole(void) { return s_golf_hole; }
  * be sendable to the other end of a link in a packet. Seed 0 is the perfect
  * lattice this always built, so nothing that does not ask for a tolerance gets
  * one and every existing test still sees the rack it was written against. */
-static unsigned s_rack_seed = 0;
 void cue_table_rack_set_seed(unsigned seed) { s_rack_seed = seed; }
 unsigned cue_table_rack_seed(void) { return s_rack_seed; }
 

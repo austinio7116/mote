@@ -3501,8 +3501,10 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
 #ifdef MOTE_HOST
     /* CUEVR_SUBDBG (desk): a step taken at a substep other than the live one */
     {   static int on = -1; if (on < 0) on = getenv("CUEVR_SUBDBG") != NULL;
-        extern const void *cue_ai_sim_world(void);
-        static int bad; if (on && w != cue_ai_sim_world() && (h != CUE_H || g_fast_pot) && (bad++ % 500) == 0)
+        /* WEAK: the tests that link no planner still link (they failed to
+         * build from 27ee1f63 until 7.2, and their old logs said they passed) */
+        extern const void *cue_ai_sim_world(void) __attribute__((weak));
+        static int bad; if (on && cue_ai_sim_world && w != cue_ai_sim_world() && (h != CUE_H || g_fast_pot) && (bad++ % 500) == 0)
             fprintf(stderr, "[phys] a step at substep %.6f (live %.6f), fast pot %d: %d so far\n", (double)h, (double)CUE_H, g_fast_pot, bad); }
 #endif
     w->_acc += dt;
