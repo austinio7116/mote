@@ -3536,7 +3536,8 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
     for (int i = 0; i < n; i++) {
         CueBall *b = &balls[i];
         if (!b->on || b->drop <= 0.0f) continue;
-        const float rel = s_release_y < 1e8f ? s_release_y
+        const float rel = w->drop_rel_set ? w->drop_rel_y
+                        : s_release_y < 1e8f ? s_release_y
                         : s_release_radii > 0.0f ? -s_release_radii * cue_ball_r(w, b) : CUE_POCKET_FLOOR;
         if (b->pos.y < rel) {
             b->on = 0; b->drop = 0.0f;   /* the rules have it; pos and vel stay the ball's */

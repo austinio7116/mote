@@ -759,6 +759,13 @@ typedef struct {
     int jmp_hit_it;       /* and whether the cue ball has since contacted it */
     int jmp_bounced;      /* a cushion or another ball since first_hit, for (c) */
 
+    /* THIS WORLD'S OWN SHAFT BOTTOM, where a potted ball is taken off the
+     * table (CueVR 7.1.2): a world playing another table than the one in the
+     * game -- a club table's stroke, played on its own -- has a depth of its
+     * own. 0 in drop_rel_set: the one cue_phys_set_drop_release_y set. */
+    int   drop_rel_set;
+    float drop_rel_y;
+
     /* Integrator accumulator (do not touch). */
     float _acc;
 } CueWorld;
