@@ -1923,6 +1923,9 @@
         <tr><td><b>Bola 8</b></td><td>Solids against stripes</td><td>As mata-mata</td><td>Clear
           your group, then the 8. The 8 too soon, or off the table, loses</td></tr>
       </table>
+      <p><b>On the scoreboard:</b> once the groups are decided, each player's group is shown
+      beside their score: the 3 or the 10 at mata-mata and bola 8, and the 1 or the 2 with
+      <b>ODD</b> or <b>EVEN</b> at par ou ímpar and par e ímpar.</p>
       <p><b>Taking a ball off.</b> At mata-mata and bola 8, when your opponent fouls you choose which
       of your own balls comes off: look or point at it and pull the trigger, as at free pyramid.
       The computer takes off the ball it would find hardest to pot.</p>
@@ -2719,6 +2722,8 @@
   </div>
 
   <p><b>Records</b> on the main menu keeps your results against each player, and your best breaks.
+  In the pool games it also counts your break-and-runs: frames won from your own break without the
+  other player getting to the table. In 9-ball it counts your golden breaks too.
   They count on the <b>standard table only</b> — see <a href="#which">Which table</a>. Any of the
   three specs still counts, because a spec is the ready-made table cut to a published size; a
   different <em>bed shape</em>, a table you built, or an opponent's table online does not, and the
@@ -2791,7 +2796,7 @@
 
 <section id="career">
   <h2>Career</h2>
-  <p class="lede">A player's career on one of four tours, from a club league to the pro tour.
+  <p class="lede">A player's career on one of eight tours, from a club league to the top of the sport.
   Up to twelve careers are kept at once.</p>
 
   <figure>
@@ -2811,18 +2816,50 @@
   <table>
     <tr><th>Choice</th><th>What it does</th></tr>
     <tr><td><b>TOUR</b></td><td>Snooker on a 12 ft table, UK Ultimate pool on a 7 ft table, US
-      9-ball or US Ultimate pool on a 9 ft table.</td></tr>
-    <tr><td><b>START IN</b></td><td>The level you join at: a club league, the county
-      championships, the national amateur tour, the qualifying school or the pro tour. Win enough
-      and you go up a level at the end of the season.</td></tr>
+      9-ball or US Ultimate pool on a 9 ft table; and, from 7.2, English billiards, three-cushion,
+      free pyramid and Brazilian bola 8, each on its own game's table (see
+      <a href="#newtours">The newer tours</a>).</td></tr>
+    <tr><td><b>START IN</b></td><td>The level you join at: on snooker, a club league, the county
+      championships, the national amateur tour, the qualifying school or the pro tour. Every tour
+      has five levels under its own names. Win enough and you go up a level at the end of the
+      season.</td></tr>
     <tr><td><b>YOUR NAME</b>, <b>YOUR COUNTRY</b></td><td>How you appear in the draws and the
-      rankings, with your country's flag.</td></tr>
+      rankings, with your country's flag. A new career starts in the country the sport is
+      strongest in (Korea for three-cushion, Russia for pyramid, Brazil for bola 8); change it if
+      you like.</td></tr>
     <tr><td><b>MATCHES</b></td><td><b>BEST OF 1</b> for quick games, every match one frame.
       <b>SHORT</b>: best of 3 low down and best of 7 at most. <b>FULL LENGTH</b>: every event at
-      its real length, up to the long matches of a world final.</td></tr>
+      its real length, up to the long matches of a world final. Three-cushion matches are one
+      game to a points target instead, shorter or longer the same way.</td></tr>
     <tr><td><b>REDS</b></td><td>Snooker only: 15, 10 or 6 reds. The break records follow the game,
       so a 6-red career counts 50+ breaks where a full-reds one counts centuries.</td></tr>
   </table>
+
+  <h3 id="newtours">The newer tours</h3>
+  <p>Four tours added in 7.2 are run the way their own sports run, not as copies of the snooker
+  ladder. Your careers from before 7.2 are not affected.</p>
+  <table>
+    <tr><th>Tour</th><th>How it runs</th></tr>
+    <tr><td><b>English billiards</b></td><td>Every match is 150-up. From the club league and county
+      events through the national championships and the open qualifiers to the World Billiards
+      tour of about fifty players, its ranking events and the World Championship. Prize money is
+      in pounds. The career counts your 100+ breaks and your highest break.</td></tr>
+    <tr><td><b>Three-cushion</b></td><td>Each match is one game to a points target. The World Cups
+      have qualifying knockouts down to 32 players, then eight groups of four, where everyone in a
+      group plays everyone else once. The top two in each group go into a knockout from the last
+      16. A group is ranked by wins, then points difference, then points scored. Prize money is in
+      euros. The career counts your highest run and your points.</td></tr>
+    <tr><td><b>Free pyramid</b></td><td>Free pyramid, where any ball may be potted. Club
+      tournaments, regional and national championships, then the international circuit: the
+      European Championship, the Kremlin Cup and the World Championship.</td></tr>
+    <tr><td><b>Brazilian bola 8</b></td><td>Bola 8 on the mesinha, from bar leagues and city events
+      through the state circuit and its qualifiers to the LBS, a league of sixteen. Prize money is
+      in reais.</td></tr>
+  </table>
+  <p>In three-cushion, a group round's draw shows the groups four to a page, starting with your
+  own. Each group has its table (played, won, points difference) and that round's two matches.
+  Once the groups are over, the two going through stay bright. Pick a player to open their
+  page.</p>
 
   <h3>The hub</h3>
   <figure>
@@ -3297,7 +3334,8 @@
   <p><b>A snooker club online, for up to sixteen people at once.</b> Go in from the Online page:
   the <b>DOWN THE CLUB</b> card says how many are in and who, and is lit while anyone is. When a
   club is full, a second one opens. While you are in the club, the card says so and cannot be
-  chosen.</p>
+  chosen. Point at the card and the bar along the bottom of the panel lists everyone in the club,
+  a line at a time, changing every few seconds.</p>
   <figure>
     <img src="img/cuevr/club_room.jpg" alt="The club's tables">
     <figcaption>The club has four tables: two championship snooker tables, a UK 8-ball table
@@ -3314,8 +3352,9 @@
   </figure>
   <table>
     <tr><th>The glass says</th><th>What you can do</th></tr>
-    <tr><td><b>THIS TABLE IS FREE</b></td><td><b>PRACTISE HERE</b> makes it your table, in your own
-      style, and racks a practice frame. <b>SET UP A GAME</b> takes you through the game, its rules and how many frames, then HOST A TABLE. <b>BACK</b> steps back one page at a time.</td></tr>
+    <tr><td><b>THIS TABLE IS FREE</b></td><td><b>PRACTISE HERE</b> takes you through the game and its
+      rules, then <b>PRACTISE</b> makes it your table, in your own style, and racks a practice
+      frame. <b>SET UP A GAME</b> takes you through the game, its rules and how many frames, then HOST A TABLE. <b>BACK</b> steps back one page at a time.</td></tr>
     <tr><td><b>YOU ARE PRACTISING</b></td><td><b>SET UP A GAME</b>, or <b>RELEASE THE TABLE</b> to
       give it back to the club. While it is yours, the glass only appears when you step back from
       the rail, so it is never in the way of a shot.</td></tr>
@@ -3331,6 +3370,11 @@
     doubles, teams of three or four, killer, or winner stays on. <b>OPEN THE TABLE</b> opens it to
     everyone in the club.</figcaption>
   </figure>
+  <p><b>What the club's tables can be:</b> the standard rectangular tables only, at any of their
+  sizes, with their pockets and nets. L-shaped, round and many-sided beds, and tables from the
+  workshop, cannot be used in the club; your own choice is kept and comes back when you leave.
+  Bar billiards and five-pin are greyed out in the club for now, because other players cannot see
+  the skittles yet.</p>
   <p><b>A hosted table is the host's own:</b> their game, their rules and their table's design
   appear on it for everyone in the club, so you can see what is being played before you join.</p>
   <ul>
@@ -4481,6 +4525,39 @@
     <img src="img/cuevr/cw-share.jpg" alt="A share code shown in the cue workshop">
     <figcaption>A share code, ready to give to a friend.</figcaption>
   </figure>
+
+  <h3 id="cuecase">Your cue case</h3>
+  <p><b>A case of cues, each with its own feel, and the right one in your hands for each game.</b>
+  Turn it on with <b>CUE CASE</b> in <b>Settings &rarr; Cue feel</b>; it is off until you do. Fill
+  it on the workshop's <b>Cue case</b> page, which Home's cue button opens while the case is
+  on.</p>
+  <table>
+    <tr><th>On the page</th><th>What it does</th></tr>
+    <tr><td><b>YOUR CUES</b>, <b>ADD A CUE</b></td><td>The cues in your case. Add any of the
+      cues you have built or saved.</td></tr>
+    <tr><td><b>THIS CUE</b></td><td>The picked cue's own <b>Tip</b>, <b>Deflection</b> and
+      <b>Power</b>. Power goes on top of <b>STROKE WEIGHT</b> in Settings, which stays one setting
+      for your arm and your room. <b>REMOVE FROM THE CASE</b> takes it out.</td></tr>
+    <tr><td><b>WHICH CUE EACH GAME USES</b></td><td>A cue for each kind of game (snooker, UK pool,
+      American pool, Chinese 8-ball, pyramid and carom), and a <b>Break cue</b> and a <b>Jump
+      cue</b>, or <b>NONE</b>. A game starts with its cue in your hands.</td></tr>
+  </table>
+  <p><b>Where the case is kept:</b></p>
+  <ul>
+    <li><b>The library, the dining room, the snooker and pool halls and the pub:</b> a rack on the
+      wall.</li>
+    <li><b>The arenas:</b> the cue stand by your chair.</li>
+    <li><b>Your own room, the dark room and the classic arena:</b> a drawer in the table, at the
+      baulk end, under the ball return. Grip its handle and pull to slide it out. The cues lie in
+      it butt first. The handle is in the same metal as the table's corners, or brass on a table
+      with nets.</li>
+    <li><b>Down the club:</b> your cues stand in the rack at your own table.</li>
+  </ul>
+  <p><b>Changing cue:</b> reach for a cue and grip to take it. You can take one at any time,
+  even during the other player's turn or while the balls are rolling. The break and jump cues
+  are for one shot: once that shot is played and the balls have stopped, the cue you had before
+  is back in your hand. Any other cue stays in your hand until you change again or the game
+  ends. The break cue only comes out in games that break a pack, never in snooker or carom.</p>
 </section>
 
 <section id="gallery">
