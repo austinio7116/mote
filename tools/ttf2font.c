@@ -20,6 +20,11 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
+/* 0x80 is a control code in Latin-1 and draws nothing; a face baked that far
+ * holds the euro sign there instead, as Windows-1252 does, so a renderer can
+ * send U+20AC to it */
+static int slot_cp(int slot) { return slot == 0x80 ? 0x20AC : slot; }
+
 int main(int argc, char **argv) {
     if (argc < 5) {
         fprintf(stderr, "usage: %s <name> <in.ttf> <out.h> <pixelsize> [first=32] [count=95]\n", argv[0]);
@@ -68,7 +73,7 @@ int main(int argc, char **argv) {
     int any_partial = 0, any_non2 = 0;
     for (int i = 0; i < count; i++) {
         int gw = 0, gh = 0, xo = 0, yo = 0;
-        unsigned char *bm = stbtt_GetCodepointBitmap(&fi, scale, scale, first + i, &gw, &gh, &xo, &yo);
+        unsigned char *bm = stbtt_GetCodepointBitmap(&fi, scale, scale, slot_cp(first + i), &gw, &gh, &xo, &yo);
         if (!bm) continue;
         for (int p = 0; p < gw * gh; p++) { int n = (bm[p] * 15 + 127) / 255;
             if (n != 0 && n != 15) any_partial = 1;
@@ -81,7 +86,7 @@ int main(int argc, char **argv) {
     fprintf(h, "static const uint8_t %s_cov[] = {\n", name);
     long total = 0; int col = 0;
     for (int i = 0; i < count; i++) {
-        int cp = first + i;
+        int cp = slot_cp(first + i);
         int aw, lsb; stbtt_GetCodepointHMetrics(&fi, cp, &aw, &lsb);
         int gw = 0, gh = 0, xo = 0, yo = 0;
         unsigned char *bm = stbtt_GetCodepointBitmap(&fi, scale, scale, cp, &gw, &gh, &xo, &yo);
