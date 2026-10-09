@@ -483,6 +483,7 @@ static CueAIShot to_caller_power(CueAIShot s) {
 }
 
 static CueWorld s_sw;            /* scratch world (copied per plan) */
+const void *cue_ai_sim_world(void) { return &s_sw; }   /* the planner's own world (desk checks) */
 static CueBall  s_sb[CUE_MAX_BALLS];
 
 /* Forced cue elevation, on by default. Off is a measurement mode only (the

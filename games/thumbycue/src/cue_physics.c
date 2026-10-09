@@ -741,7 +741,13 @@ static float s_jaw_vn;
 /* A POT IS OVER THE MOMENT IT IS TAKEN, where this is on. See the note at the
  * site, and cue_physics.h: the game watches the ball fall and a ranking
  * simulation must not. */
-static int g_fast_pot;
+/* per thread where there are threads: see CUE_TLS's note at cue_phys_set_substep */
+#if defined(__ANDROID__) || defined(MOTE_HOST) || defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+#define CUE_TLS _Thread_local
+#else
+#define CUE_TLS
+#endif
+static CUE_TLS int g_fast_pot;
 static float s_ball_vn;                 /* hardest ball-ball closing speed this step */
 /* AND HOW FAST IT WENT DOWN THE HOLE. Separate from the cushion meter: the two
  * are different events and a pot very often follows no cushion at all, so
@@ -3429,7 +3435,14 @@ int cue_phys_moving(const CueWorld *w, const CueBall *balls, int n) {
  * headless ranking sims switch to a coarser step (cue_phys_set_substep) for ~2x
  * fewer iterations — collision is overlap-based and still well under a ball
  * radius per step, so the leave estimate is unchanged for shot ranking. */
-static float g_sub_h = CUE_H;
+/* ONE THREAD'S SETTINGS ARE ITS OWN (CueVR 7.1.2). The planner switches to
+ * the coarse step and the fast pot for its ranking sims, on a thread of its
+ * own -- and while it did, every live step on the game's thread, and every
+ * club table's playback on its worker, ran with them: a stroke rolling while
+ * the computer thought had its pots cut short and its path stepped coarse,
+ * and every other headset, playing the same stroke properly, disagreed. Where
+ * there are threads, each has its own copy; the handheld has none. */
+static CUE_TLS float g_sub_h = CUE_H;
 void cue_phys_set_substep(float h) { g_sub_h = (h > 0.0f) ? h : CUE_H; }
 
 /* See cue_physics.h. Off in the game, on around the planner's ranking sims. */
@@ -3485,6 +3498,13 @@ CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t
     s_bridge_v = 0.0f; s_bridge_hit = 0;
     s_bed_land = 0;
     float h = g_sub_h;
+#ifdef MOTE_HOST
+    /* CUEVR_SUBDBG (desk): a step taken at a substep other than the live one */
+    {   static int on = -1; if (on < 0) on = getenv("CUEVR_SUBDBG") != NULL;
+        extern const void *cue_ai_sim_world(void);
+        static int bad; if (on && w != cue_ai_sim_world() && (h != CUE_H || g_fast_pot) && (bad++ % 500) == 0)
+            fprintf(stderr, "[phys] a step at substep %.6f (live %.6f), fast pot %d: %d so far\n", (double)h, (double)CUE_H, g_fast_pot, bad); }
+#endif
     w->_acc += dt;
     int iters = 0;
     while (w->_acc >= h && iters < CUE_MAX_SUB) {
