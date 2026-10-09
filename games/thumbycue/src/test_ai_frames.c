@@ -97,6 +97,9 @@ typedef struct {
     long brk_decided;   /* ...where removing it would have picked another shot */
     long brk_sim_sum;   /* target balls the sim promised to free */
     long brk_real_sum;  /* target balls actually freed, measured after the shot */
+    /* PYRAMID'S OPENING BREAK: how many, the struck ball in off (a score in
+     * pyramid), object balls potted, the turn kept, fouls */
+    long pb_n, pb_inoff, pb_balls, pb_kept, pb_foul;
     long brk_real_pos;  /* attempts that freed at least one for real */
     long np_bucket[5];  /* how easy the next pot was, after a pot */
     long sq_n; double sq_sum, sq_min, sq_max; long sq_hist[12];  /* safety quality */
@@ -366,6 +369,16 @@ static int play_shot(const CuePersona *p) {
                 if (np < 8) R.bb_hole[np] = B[i].pocket;
                 potted[np++] = B[i].id;
             }
+    } else if (CUE_GAME_IS_PYRAMID(T.kind) && (R.pyr_free == CUE_PYR_FREE || R.pyr_free == CUE_PYR_COMBINED)) {
+        /* FREE AND COMBINED PYRAMID, as the game lists them (cuevr_app.c):
+         * every ball, the struck one in slot 0 too -- its in-off scores --
+         * with where it went, -1 off the table. Without it the bench never
+         * scored an in-off and every one read as the turn given away. */
+        for (int i = 0; i < N; i++)
+            if (was_on[i] && !B[i].on) {
+                if (np < 8) R.bb_hole[np] = B[i].pocket == CUE_OFF_TABLE ? -1 : B[i].pocket;
+                potted[np++] = B[i].id;
+            }
     } else
     for (int i = 1; i < N; i++)
         if (was_on[i] && !B[i].on) potted[np++] = B[i].id;
@@ -394,7 +407,18 @@ static int play_shot(const CuePersona *p) {
     int hole_snap[8], baulk_snap = R.bb_in_baulk;
     for (int k = 0; k < 8; k++) hole_snap[k] = R.bb_hole[k];
     const int opp_before = R.score[1 - R.turn];
+    const int opening = R.break_shot;
     cue_rules_resolve(&R, B, N, &W, W.first_hit, scratch, cushion_seen, potted, np);
+    if (opening && CUE_GAME_IS_PYRAMID(R.mode)) {
+        ST.pb_n++;
+        const int inoff = !B[0].on && B[0].pocket != CUE_OFF_TABLE && W.first_hit >= 0;
+        int objs = 0; for (int k = 0; k < np; k++) if (potted[k] != B[0].id) objs++;
+        ST.pb_inoff += inoff; ST.pb_balls += objs;
+        if (R.last_foul) ST.pb_foul++;
+        else if (R.turn == turn_before) ST.pb_kept++;
+        if (trace || getenv("AI_PYRTRACE")) printf("[pyrbreak] mode %d free %d in-off %d, balls %d, foul %d, kept %d, msg \"%s\" score %d\n",
+                                                 R.mode, R.pyr_free, inoff, objs, R.last_foul, !R.last_foul && R.turn == turn_before, R.msg, R.score[turn_before]);
+    }
     /* AND THE PLANNER IS TOLD WHAT ITS OWN SHOT DID, which this bench had never
      * done — so it has been measuring an AI the game does not run.
      *
@@ -683,11 +707,14 @@ static void play_frame2(const CuePersona *p0, const CuePersona *p1, int kind) {
      * is a sample of one wearing a sample of twenty's clothes. The break
      * harness sets this for the same reason. */
     R.ball_in_hand = 1;
+    /* AI_PYR=n: the pyramid variant (CUE_PYR_*: 0 classic, 1 combat, 2 free, 3 combined) */
+    { const char *v = getenv("AI_PYR"); if (v) R.pyr_free = atoi(v); }
 
     int best = 0, prev_brk = 0, prev_turn = 0;
     long guard = 0;
     while (!R.frame_over && guard++ < 500) {
         if (!play_shot(R.turn ? p1 : p0)) break;
+        if (getenv("AI_BREAKONLY")) break;       /* the break and nothing after: break statistics only */
         if (R.brk > best) { best = R.brk; ST.tracking_best = 1; }
         if (R.brk > 0) prev_turn = R.turn;
         if (R.brk == 0 && prev_brk > 0) {
@@ -806,6 +833,10 @@ int main(void) {
 
     for (int i = 0; i < frames; i++) play_frame2(p, p2, kind);
 
+    if (ST.pb_n)
+        printf("PYRAMID BREAKS   %ld: in-off %ld (%.0f%%), object balls %.2f a break, turn kept %ld (%.0f%%), fouls %ld (%.0f%%)\n\n",
+               ST.pb_n, ST.pb_inoff, 100.0 * ST.pb_inoff / ST.pb_n, (double)ST.pb_balls / ST.pb_n,
+               ST.pb_kept, 100.0 * ST.pb_kept / ST.pb_n, ST.pb_foul, 100.0 * ST.pb_foul / ST.pb_n);
     printf("shots            %ld over %ld frames (%ld completed)\n",
            ST.shots, ST.frames, ST.frames_completed);
     printf("  pot attempts   %ld\n", ST.pot_attempts);

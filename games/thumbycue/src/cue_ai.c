@@ -3566,6 +3566,29 @@ static float break_score(const AiCtx *c, const CueRules *r, const CueBall *balls
     if (want_first >= 0 && balls[hit].id != want_first) return -1.0e6f;
     if (snooker && balls[hit].id >= CUE_ID_YELLOW) return -1.0e6f;
 
+    /* PYRAMID'S BREAK IS A POTTING SHOT. The struck ball going in off the
+     * pack is a score there -- a point and the table in free pyramid, a ball
+     * and the kitchen in combined -- and the real break plays for exactly
+     * that: off the side of the pack and into a corner (Mark: "it should be
+     * trying to in off the cueball off the side of the pack"). Scored as the
+     * referee will: the in-off and every ball down pay; off the table, or
+     * nothing down and nothing to a cushion, costs. */
+    if (CUE_GAME_IS_PYRAMID(r->mode)) {
+        const int inoff = sim->cue_potted && sim->cue_hole >= 0;
+        int objs = 0, rails = 0;
+        for (int i = 1; i < n; i++) {
+            if (!balls[i].on) continue;
+            if (!sim->on[i]) { objs++; continue; }
+            float ax = fabsf(sim->end_pos[i].x), az = fabsf(sim->end_pos[i].z);
+            if (ax > c->t->half_len - c->t->R * 2.0f || az > c->t->half_wid - c->t->R * 2.0f) rails++;
+        }
+        float sc = 100.0f * (float)inoff + 45.0f * (float)objs + 2.0f * (float)rails;
+        if (sim->cue_potted && sim->cue_hole < 0) sc -= 200.0f;              /* off the table */
+        if (!inoff && objs == 0 && !sim->cushion) sc -= 150.0f;             /* nothing at all: a foul */
+        if (!inoff && objs == 0 && r->pyr_free == CUE_PYR_COMBINED && rails < 3) sc -= 40.0f;   /* 12.1 */
+        return sc;
+    }
+
     int potted = 0, moved = 0, to_rail = 0;
     for (int i = 1; i < n; i++) {
         if (!balls[i].on) continue;
@@ -3780,6 +3803,99 @@ static int break_cands(const AiCtx *c, const CueBall *balls, Vec3 cue, int tgt,
                 k.aim  -= k.side * cue_phys_squirt();
                 k.want_off = off;
                 k.dist     = d2(cue, tp);
+                out[nout++] = k;
+            }
+    return nout;
+}
+
+/* PYRAMID: THE IN-OFF BREAKS. For every object ball and pocket, the contact
+ * from which a cue ball stunned into the ball leaves along the tangent line
+ * into that pocket -- the cue ball's way after a stun is its way in, less the
+ * part along the line of centres -- with the cue ball's path to the contact
+ * and the tangent's path to the pocket both clear of every other ball. The
+ * best of them by how true the line is and how short, each at two paces and
+ * with and without a touch of screw (the run in puts roll on the ball, and
+ * roll bends the tangent forward), for the simulation to choose between. */
+static int break_cands_inoff(const AiCtx *c, const CueBall *balls, int n, Vec3 cue,
+                             float ceil_p, BrkCand *out, int cap, int nout) {
+    const CueWorld *w = c->w;
+    const float R2 = 2.0f * c->t->R;
+    /* ONE POCKET: from the right, off the right of the pack, into the far
+     * right corner (Mark: "there is only one pocket to target"). Looking up
+     * the table at the pack, the right hand is +z when the pack is at +x. */
+    float px = 0.0f; for (int i = 1; i < n; i++) if (balls[i].on) px += balls[i].pos.x;
+    const float fwd = px >= 0.0f ? 1.0f : -1.0f, right = fwd;
+    int target_pk = -1; float tbest = -1e9f;
+    for (int pk = 0; pk < w->npocket; pk++) {
+        const float sc = w->pocket[pk].x * fwd * 4.0f + w->pocket[pk].z * right;
+        if (w->pocket[pk].z * right > 0.0f && sc > tbest) { tbest = sc; target_pk = pk; }
+    }
+    if (target_pk < 0) return nout;
+    typedef struct { float q, aim, off, dist; } G;
+    G best[8]; int nb = 0;
+    for (int ti = 1; ti < n; ti++) {
+        if (!balls[ti].on) continue;
+        const Vec3 T = balls[ti].pos;
+        for (int pk = target_pk; pk == target_pk; pk++) {
+            const Vec3 P = w->pocket[pk];
+            for (int k = 0; k < 720; k++) {
+                const float a = (float)k * (6.2831853f / 720.0f);
+                const Vec3 nn = v3(cosf(a), 0, sinf(a));              /* contact to the ball's centre */
+                const Vec3 Gp = v3(T.x - nn.x * R2, 0, T.z - nn.z * R2);
+                const Vec3 dv = sub2(Gp, cue); const float dl = len2(dv);
+                if (dl < R2) continue;
+                const Vec3 d = v3(dv.x / dl, 0, dv.z / dl);
+                const float cth = dot2(d, nn);
+                if (cth < 0.17f) continue;                            /* thinner than 80 degrees */
+                Vec3 tg = v3(d.x - cth * nn.x, 0, d.z - cth * nn.z);
+                const float tl = len2(tg); if (tl < 1e-4f) continue;
+                tg.x /= tl; tg.z /= tl;
+                const Vec3 pv = sub2(P, Gp); const float pl = len2(pv);
+                const float al = (tg.x * pv.x + tg.z * pv.z) / pl;
+                if (al < 0.9995f) continue;                           /* within two degrees of the pocket */
+                int clear = 1;
+                for (int j = 1; j < n && clear; j++) {
+                    if (j == ti || !balls[j].on) continue;
+                    const Vec3 B = balls[j].pos;
+                    /* the cue ball's way in, and its way out */
+                    for (int s2 = 0; s2 < 2 && clear; s2++) {
+                        const Vec3 A0 = s2 ? Gp : cue, A1 = s2 ? P : Gp;
+                        const Vec3 ab = sub2(A1, A0); const float L = len2(ab);
+                        float u = ((B.x - A0.x) * ab.x + (B.z - A0.z) * ab.z) / (L * L);
+                        u = u < 0 ? 0 : (u > 1 ? 1 : u);
+                        const float ex = A0.x + ab.x * u - B.x, ez = A0.z + ab.z * u - B.z;
+                        if (ex * ex + ez * ez < R2 * R2 * 0.98f) clear = 0;
+                    }
+                }
+                if (!clear) continue;
+                const float q = al * 1000.0f - pl - 0.3f * dl + 0.5f * cth;
+                G g = { q, atan2f(Gp.z - cue.z, Gp.x - cue.x), R2 * cross2(d, nn) / 1.0f, dl };
+                if (nb < 8) best[nb++] = g;
+                else { int lo = 0; for (int m = 1; m < 8; m++) if (best[m].q < best[lo].q) lo = m;
+                       if (g.q > best[lo].q) best[lo] = g; }
+            }
+        }
+    }
+#ifndef MOTE_DEVICE
+    if (getenv("AI_PYRDBG"))
+        fprintf(stderr, "[pyr] cue %.3f %.3f, pocket %d at %.3f %.3f, %d in-off lines, best q %.1f\n", (double)cue.x, (double)cue.z,
+                target_pk, (double)w->pocket[target_pk].x, (double)w->pocket[target_pk].z, nb, nb ? (double)best[0].q : 0.0);
+#endif
+    /* THE BEST TWO LINES, swept a hair either way: the run up the table puts
+     * roll on the cue ball and the roll carries it forward of the stun line,
+     * by an amount the simulation knows and this geometry does not */
+    for (int a = 0; a < nb; a++) for (int b = a + 1; b < nb; b++)
+        if (best[b].q > best[a].q) { G t2 = best[a]; best[a] = best[b]; best[b] = t2; }
+    const float vert = -0.40f;      /* measured: in off 48% of breaks with it, 40% without (persona 7) */
+    static const float DA[5] = { -0.004f, -0.002f, 0.0f, 0.002f, 0.004f };
+    for (int i = 0; i < nb && i < 2; i++)
+        for (int pi = 0; pi < 2; pi++)
+            for (int ai = 0; ai < 5; ai++) {
+                if (nout >= cap) return nout;
+                BrkCand k;
+                k.aim = best[i].aim + DA[ai]; k.power = (pi ? 0.85f : 0.55f) * ceil_p;
+                k.side = 0.0f; k.vert = vert;
+                k.want_off = best[i].off; k.dist = best[i].dist;
                 out[nout++] = k;
             }
     return nout;
@@ -5584,6 +5700,20 @@ void cue_ai_plan_start(const CueWorld *w, const CueTable *t, const CueRules *r,
             if (t1 >= 0) ncand = break_cands(c, balls, cue, t1, clips, NCLIP, pows, npows,
                                              sides, nsides, CUE_BRK_SNK_TOP,
                                              cand, gcap, ncand);
+        } else if (CUE_GAME_IS_PYRAMID(r->mode)) {
+            /* PYRAMID: the in-offs first, then a hard break on the apex for
+             * when none is on (break_cands_inoff) */
+            float ceil_p = s_max_speed / AI_SIM_SPEED; if (ceil_p < 1.0f) ceil_p = 1.0f;
+            cap = 24;
+            ncand = break_cands_inoff(c, balls, n, cue, ceil_p, cand, cap - 4, ncand);
+            int apex = -1; float apexd = 1e30f;
+            for (int i = 1; i < n; i++) {
+                if (!balls[i].on) continue;
+                float dd = d2(cue, balls[i].pos);
+                if (dd < apexd) { apexd = dd; apex = i; }
+            }
+            float clips[2] = { -0.45f, 0.45f }, pows[2] = { 0.80f * ceil_p, 0.99f * ceil_p }, zero[1] = { 0.0f };
+            if (apex >= 0) ncand = break_cands(c, balls, cue, apex, clips, 2, pows, 2, zero, 1, 0.0f, cand, cap, ncand);
         } else {
             /* Pool: the top ball of the rack, near enough full, hard. */
             int apex = -1; float apexd = 1e30f;
@@ -6457,6 +6587,12 @@ int cue_ai_plan_tick(void) {
             if (sc > P.brk_best) { P.brk_best = sc; P.brk_best_i = P.brk_i; }
         }
         if (P.brk_i < P.brk_n) return 0;
+#ifndef MOTE_DEVICE
+        if (getenv("AI_PYRDBG") && CUE_GAME_IS_PYRAMID(c->r->mode)) {
+            int npos = 0; for (int k = 0; k < P.brk_n && k < BRK_MAX; k++) if (P.brk_sc[k] >= 90.0f) npos++;
+            fprintf(stderr, "[pyr] best %.1f; %d of %d candidates predicted an in-off\n", (double)P.brk_best, npos, P.brk_n);
+        }
+#endif
 
         CueAIShot out; memset(&out, 0, sizeof out); out.target_pocket = -1;
         /* NOT ALWAYS THE BEST ONE — one of the ones that were AS GOOD.
@@ -7347,6 +7483,12 @@ Vec3 cue_ai_place(const CueWorld *w, const CueTable *t, const CueRules *r,
          * that spot is not a variation on it, it is a worse shot. */
         Vec3 home = cue_table_cue_home(t);
         float side = (rnd(rng) < 0.5f) ? -1.0f : 1.0f;
+        /* PYRAMID BREAKS FROM THE RIGHT, for the in-off into the far right
+         * corner (break_cands_inoff): right of the breaker looking at the pack */
+        if (CUE_GAME_IS_PYRAMID(r->mode)) {
+            float px = 0.0f; for (int i = 1; i < n; i++) if (balls[i].on) px += balls[i].pos.x;
+            side = px >= 0.0f ? 1.0f : -1.0f;
+        }
         float outw = (home.z < 0.0f) ? -home.z : home.z;
         Vec3 cand;
         if (t->is_snooker || t->kind == CUE_GAME_UK8) {
