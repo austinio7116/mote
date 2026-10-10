@@ -784,6 +784,7 @@ class Relay:
     RES_SHARED = ("t", "game", "variant", "kind", "mode", "best_of", "frame",
                   "score", "frames", "winner", "match_winner", "bnr", "golden")
     RES_SIDE = ("shots", "pot_shots", "potted", "fouls", "best", "breaks", "shot")
+    RESULT_PAIR_SECS = 120          # the two sides' accounts of one frame arrive within this
     # every stroke read (CueVR 7.3): pot attempts and pots made, long pots,
     # safeties and their success, bank pots, breaks, runs, visits, pyramid's
     # own -- the same on both ends, which read the same strokes
@@ -872,16 +873,27 @@ class Relay:
         if not self.result_check(r) or len(room.players()) < 2 or m.k >= room.WATCH_BASE:
             return "RESULT BAD"
         side = r["me"]
-        entry = {"k": m.k, "side": side, "addr": self.addr_hash(m.peer), "uid": m.uid, "r": r}
+        entry = {"k": m.k, "side": side, "addr": self.addr_hash(m.peer), "uid": m.uid, "r": r, "at": now}
         key = (r["t"], r["frame"])
         pend = room.results.setdefault(key, [])
+        # ONLY THE SAME MATCH: both ends send within a second or two of the
+        # frame ending, so an account held longer than this belongs to an
+        # earlier match in the same room (a club table plays several, every
+        # one of them "frame 1") -- kept apart as unconfirmed, never compared
+        for o in [o for o in pend if now - o.get("at", now) > self.RESULT_PAIR_SECS]:
+            pend.remove(o)
+            self.result_write("results_unconfirmed.jsonl",
+                              {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "gid": room.gid, "room": room.code,
+                               "room_secs": round(now - room.created), "a": {k: v for k, v in o.items() if k != "at"},
+                               "stale": True})
+        entry_out = {k: v for k, v in entry.items() if k != "at"}
         for o in pend:
             if o["side"] != side and o["k"] != m.k:
                 pend.remove(o)
                 same = self.result_key(o["r"]) == self.result_key(r)
                 line = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "gid": room.gid, "room": room.code,
                         "room_secs": round(now - room.created), "players": len(room.players()),
-                        "agreed": same, "a": o, "b": entry,
+                        "agreed": same, "a": {k: v for k, v in o.items() if k != "at"}, "b": entry_out,
                         # both players' Meta accounts proved: the result is theirs, not a name's
                         "verified": bool(o.get("uid")) and bool(entry.get("uid")) and o.get("uid") != entry.get("uid")}
                 if same:
@@ -901,7 +913,8 @@ class Relay:
             for o in pend:
                 self.result_write("results_unconfirmed.jsonl",
                                   {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "gid": room.gid, "room": room.code,
-                                   "room_secs": round(time.monotonic() - room.created), "a": o})
+                                   "room_secs": round(time.monotonic() - room.created),
+                                   "a": {k: v for k, v in o.items() if k != "at"}})
         if getattr(room, "results", None):
             room.results.clear()
 
