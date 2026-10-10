@@ -170,6 +170,8 @@ import json
 import os
 import socket
 import time
+import urllib.parse
+import urllib.request
 
 def log(*a):
     print(time.strftime("%Y-%m-%d %H:%M:%S"), *a, flush=True)
@@ -244,13 +246,15 @@ class Room:
 
 class Member:
     __slots__ = ("k", "reader", "writer", "q", "backlog", "task", "gone", "peer",
-                 "vtok", "uaddr", "useen", "vtcp", "vwin", "vcount")
+                 "vtok", "uaddr", "useen", "vtcp", "vwin", "vcount", "uid", "proofs")
     def __init__(self, k, reader, writer, peer):
         self.k, self.reader, self.writer, self.peer = k, reader, writer, peer
         self.q = asyncio.Queue()
         self.backlog = 0
         self.task = None
         self.gone = False
+        self.uid = None            # the Meta account, once Meta has said the proof is good (7.3)
+        self.proofs = 0
         # VOICE: the token it was given, where its UDP comes from and when it
         # was last heard there, whether it asked for voice over TCP, and its
         # packets this second (a cap, so one member cannot flood the room)
@@ -649,6 +653,18 @@ class Relay:
         self.nrooms = {}           # "gid/CODE" -> RoomN (a hub of up to eight)
         self.conns = 0
         self.store = Store(args.store, args.store_cap, args.puts_per_hour) if args.store else None
+        # THE META KEY (7.3): the app's secret, read once from its file and
+        # never logged; with it a player's proof of their account is checked
+        # with Meta and their results are kept against that account
+        self.meta_token = None
+        if getattr(args, "meta_secret_file", ""):
+            try:
+                sec = open(args.meta_secret_file).read().strip()
+                if sec:
+                    self.meta_token = f"OC|{args.meta_app_id}|{sec}"
+                    log(f"meta: proofs checked for app {args.meta_app_id}")
+            except OSError as e:
+                log(f"meta: the secret file could not be read ({type(e).__name__}); proofs off")
         self.vtokens = {}          # voice token (8 bytes) -> (room, member)
         self.udp = None            # the voice's datagram transport, once bound
         self.report_rate = {}      # ip -> [times]
@@ -810,7 +826,7 @@ class Relay:
         if not self.result_check(r) or len(room.players()) < 2 or m.k >= room.WATCH_BASE:
             return "RESULT BAD"
         side = r["me"]
-        entry = {"k": m.k, "side": side, "addr": self.addr_hash(m.peer), "r": r}
+        entry = {"k": m.k, "side": side, "addr": self.addr_hash(m.peer), "uid": m.uid, "r": r}
         key = (r["t"], r["frame"])
         pend = room.results.setdefault(key, [])
         for o in pend:
@@ -819,7 +835,9 @@ class Relay:
                 same = self.result_key(o["r"]) == self.result_key(r)
                 line = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "gid": room.gid, "room": room.code,
                         "room_secs": round(now - room.created), "players": len(room.players()),
-                        "agreed": same, "a": o, "b": entry}
+                        "agreed": same, "a": o, "b": entry,
+                        # both players' Meta accounts proved: the result is theirs, not a name's
+                        "verified": bool(o.get("uid")) and bool(entry.get("uid")) and o.get("uid") != entry.get("uid")}
                 if same:
                     line["result"] = {k: r.get(k) for k in self.RES_SHARED}
                     line["result"]["names"] = r.get("names")
@@ -840,6 +858,37 @@ class Relay:
                                    "room_secs": round(time.monotonic() - room.created), "a": o})
         if getattr(room, "results", None):
             room.results.clear()
+
+    # ---- WHO IS PLAYING, PROVED (7.3) ---------------------------------------
+    def meta_check(self, uid, nonce):
+        """Meta's answer to a proof: is this nonce a good one for this account?
+        (blocking; run off the loop)"""
+        q = urllib.parse.urlencode({"nonce": nonce, "user_id": uid, "access_token": self.meta_token}).encode()
+        req = urllib.request.Request(self.args.meta_verify_url, data=q, method="POST")
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return bool(json.loads(r.read().decode("utf-8", "replace")).get("is_valid"))
+
+    async def proof(self, room, m, raw):
+        """PROOF <ACCOUNT ID> <NONCE>: Meta asked whether the nonce proves the
+        account; if so the member's results carry it. Answered PROOF OK / PROOF
+        BAD / PROOF OFF (no key on this relay) / PROOF BUSY (more than 5)."""
+        if not self.meta_token:
+            return "PROOF OFF"
+        if m.proofs >= 5:
+            return "PROOF BUSY"
+        m.proofs += 1
+        t = raw.split()
+        if len(t) != 3 or not t[1].isdigit() or len(t[1]) > 20 or not (8 <= len(t[2]) <= 256) or not t[2].isalnum():
+            return "PROOF BAD"
+        try:
+            ok = await asyncio.get_running_loop().run_in_executor(None, self.meta_check, t[1], t[2])
+        except Exception as e:
+            log(f"nroom {room.gid}/{room.code}: member {m.k}'s proof could not be checked ({type(e).__name__})")
+            return "PROOF OFF"
+        if ok:
+            m.uid = t[1]
+        log(f"nroom {room.gid}/{room.code}: member {m.k} proof {'good' if ok else 'BAD'}")
+        return "PROOF OK" if ok else "PROOF BAD"
 
     def report(self, room, m, raw):
         """REPORT <K> <REASON> <REPORTED NAME>|<REPORTER NAME>: one line in
@@ -1054,6 +1103,17 @@ class Relay:
                         self.voice_ctrl(room, m, cmd, raw)
                     elif cmd.startswith("REPORT "):
                         room.control_quiet(self.report(room, m, raw), m.k)
+                    elif cmd.startswith("PROOF ") and not getattr(room, "club", False):
+                        # beside the game, never in its way: Meta may take seconds to answer
+                        async def check(room=room, m=m, raw=raw):
+                            try:
+                                ans = await self.proof(room, m, raw)
+                            except Exception as e:
+                                log(f"nroom {room.gid}/{room.code}: a proof failed ({type(e).__name__})")
+                                ans = "PROOF OFF"
+                            if not m.gone:
+                                room.control_quiet(ans, m.k)
+                        asyncio.ensure_future(check())
                     elif cmd.startswith("RESULT ") and not getattr(room, "club", False):
                         # A RESULT NEVER COSTS ITS SENDER THE ROOM, whatever goes wrong keeping it
                         try:
@@ -1437,6 +1497,9 @@ async def main():
     ap.add_argument("--max-conns", type=int, default=2000)
     ap.add_argument("--room-backlog", type=int, default=262144, help="bytes a ROOMN member may have unsent before it is dropped")
     ap.add_argument("--store", default="", help="directory for share codes (PUT/GET); empty = share codes off")
+    ap.add_argument("--meta-secret-file", default="", help="file holding the Meta app secret: players' account proofs are checked and results kept against the account (7.3)")
+    ap.add_argument("--meta-app-id", default="1036582382349280", help="the Meta app the proofs are for (CueVR)")
+    ap.add_argument("--meta-verify-url", default="https://graph.oculus.com/user_nonce_validate", help="where proofs are checked (a test points it at a fake)")
     ap.add_argument("--store-cap", type=int, default=200000, help="most share codes kept")
     ap.add_argument("--puts-per-hour", type=int, default=60, help="share codes one address may make an hour")
     ap.add_argument("--voice-port", type=int, default=0, help="UDP port for room voice (0 = the same number as --port)")
