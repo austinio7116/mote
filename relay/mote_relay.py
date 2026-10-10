@@ -844,11 +844,12 @@ class Relay:
     # Nine boards (CueVR cuevr_honours.c HON_TITLE, in slot order): frames won,
     # win rate (20 frames or more), break-and-runs, clearances (run-outs), and
     # the highest break at straight pool, 15-red, 10-red and 6-red snooker and
-    # English billiards (by the result's CueGameKind). Verified results only
+    # English billiards (by the result's CueGameKind) -- and a tenth, 3-red
+    # (board 9, after billiards so a 7.4 game, which knows nine, ignores it). Verified results only
     # (both Meta accounts proven), all time, the top ten -- and for the
     # trophies, each COMPLETED month's winner of each board (UTC months; the
     # month's win rate also from 20 frames). Mark, 2026-10-10.
-    HON_KIND = {7: 4, 4: 5, 5: 6, 6: 7, 10: 8}      # CueGameKind -> board
+    HON_KIND = {7: 4, 4: 5, 5: 6, 6: 7, 10: 8, 23: 9}   # CueGameKind -> board (23 = 3-red, board 9: Mark, 2026-10-11)
     HON_MIN_FRAMES = 20
 
     def honours_text(self):
@@ -899,7 +900,7 @@ class Relay:
         except OSError:
             return ""
         def boards(P):
-            v = [{} for _ in range(9)]
+            v = [{} for _ in range(10)]
             for nm, p in P.items():
                 if p["w"]: v[0][nm] = p["w"]
                 if p["f"] >= self.HON_MIN_FRAMES: v[1][nm] = round(100 * p["w"] / p["f"])
