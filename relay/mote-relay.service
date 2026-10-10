@@ -18,7 +18,9 @@ Wants=network-online.target
 # The current CueVR (7.3): on each release that moves CUEVR_GAME_ID, put the new
 # id in /var/lib/mote-relay/latest_games (one a line, e.g. "CUEn"); older
 # versions are told to update. Read again when it changes -- no restart.
-ExecStart=/usr/bin/python3 /opt/mote-relay/mote_relay.py --port 443 --store /var/lib/mote-relay
+# --meta-secret-file (7.3): the Meta app secret, in the state directory owned
+# by the service user, mode 600; players' account proofs are checked with it.
+ExecStart=/usr/bin/python3 /opt/mote-relay/mote_relay.py --port 443 --store /var/lib/mote-relay --meta-secret-file /var/lib/mote-relay/meta.secret
 StateDirectory=mote-relay
 Restart=always
 RestartSec=2
