@@ -684,7 +684,9 @@ class Relay:
             try:
                 sec = open(args.meta_secret_file).read().strip()
                 if sec:
-                    self.meta_token = f"OC|{args.meta_app_id}|{sec}"
+                    # the secret alone, or the whole app credentials string
+                    # (OC|<app id>|<secret>) as the dashboard gives it
+                    self.meta_token = sec if sec.startswith("OC|") else f"OC|{args.meta_app_id}|{sec}"
                     log(f"meta: proofs checked for app {args.meta_app_id}")
             except OSError as e:
                 log(f"meta: the secret file could not be read ({type(e).__name__}); proofs off")
