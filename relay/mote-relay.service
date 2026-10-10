@@ -15,6 +15,9 @@ Wants=network-online.target
 # port instead, change 443 here AND drop the two capability lines below.
 # --store: share codes (cue designs, ball sets) kept on disk. StateDirectory
 # gives the DynamicUser a writable /var/lib/mote-relay that survives restarts.
+# The current CueVR (7.3): on each release that moves CUEVR_GAME_ID, put the new
+# id in /var/lib/mote-relay/latest_games (one a line, e.g. "CUEn"); older
+# versions are told to update. Read again when it changes -- no restart.
 ExecStart=/usr/bin/python3 /opt/mote-relay/mote_relay.py --port 443 --store /var/lib/mote-relay
 StateDirectory=mote-relay
 Restart=always

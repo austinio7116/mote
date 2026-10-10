@@ -101,6 +101,16 @@ Wire protocol (client <-> relay), one text handshake line then raw bytes:
         "CLUB <N> <HAVE>/16 <TABLES>\n"  then  "CLUBWHO <N> <name>\n" * HAVE
     Clubs are never listed as ROOM or LIVE. Voice and REPORT work as in a room.
 
+    NEWER (CueVR 7.3): the game ids that are current are known to the relay --
+    --latest-game (repeatable: 'CUEn', 0x4355456E or a number) and the file
+    <store>/latest_games (one a line, read again whenever it changes, so a
+    release needs no restart). A game id below a current one of the same
+    family (its first three bytes, 'CUE') is out of date: it is still let in,
+    to its own clubs and rooms as ever, and told so -- "SEAT <K> 16 <N> NEWER"
+    on a CLUB join and a "NEWER" line before LIST's END. Readers from before
+    it take the three numbers and skip the line, as they skip any they do not
+    know.
+
     VOICE (CueVR 6.4, test builds first): a room's members may talk. Nothing
     of it reaches a client that does not ask, so an old client in the same
     room sees exactly the frames it always did, numbered exactly as before.
@@ -646,6 +656,19 @@ def clean_gid(raw: str) -> str:
 def rkey(gid, code):
     return gid + "/" + code       # rooms are namespaced per game, so codes don't collide across games
 
+def parse_gid(v):
+    """a game id as a release names it: 'CUEn', 0x4355456E or a number"""
+    v = (v or "").strip()
+    if not v or v.startswith("#"):
+        return 0
+    if len(v) == 4 and not v.isdigit():
+        return int.from_bytes(v.encode("ascii", "ignore"), "big")
+    try:
+        return int(v, 0)
+    except ValueError:
+        return 0
+
+
 class Relay:
     def __init__(self, args):
         self.args = args
@@ -665,6 +688,8 @@ class Relay:
                     log(f"meta: proofs checked for app {args.meta_app_id}")
             except OSError as e:
                 log(f"meta: the secret file could not be read ({type(e).__name__}); proofs off")
+        self.latest_args = [x for x in (parse_gid(v) for v in (getattr(args, "latest_game", None) or [])) if x]
+        self.latest_file = (None, [])  # (mtime, ids) of <store>/latest_games
         self.vtokens = {}          # voice token (8 bytes) -> (room, member)
         self.udp = None            # the voice's datagram transport, once bound
         self.report_rate = {}      # ip -> [times]
@@ -1167,7 +1192,7 @@ class Relay:
         m = Member(k, reader, writer, peer)
         others = sorted(club.members)
         club.members[k] = m
-        writer.write(f"SEAT {k} {club.maxn} {club.n}\n".encode())
+        writer.write(f"SEAT {k} {club.maxn} {club.n}{' NEWER' if self.newer(club.gid) else ''}\n".encode())
         m.task = asyncio.create_task(self.member_writer(club, m))
         cap = self.args.room_backlog
         # who is here, what they are called and which tables are set up
@@ -1185,6 +1210,26 @@ class Relay:
         if club.done.is_set() and self.nrooms.get(key) is club:
             self.nrooms.pop(key, None)
             log(f"club {key}: closed")
+
+    def newer(self, gid):
+        """a newer version of this game is current: same family, higher id.
+        Never the reason a join fails: any trouble here is "not newer"."""
+        try:
+            gid = int(gid)
+        except (TypeError, ValueError):
+            return False
+        ids = list(self.latest_args)
+        if self.args.store:
+            p = os.path.join(self.args.store, "latest_games")
+            try:
+                mt = os.stat(p).st_mtime
+                if mt != self.latest_file[0]:
+                    with open(p, encoding="ascii", errors="ignore") as f:
+                        self.latest_file = (mt, [x for x in (parse_gid(l) for l in f) if x])
+                ids += self.latest_file[1]
+            except OSError:
+                self.latest_file = (None, [])
+        return any((L >> 8) == (gid >> 8) and gid < L for L in ids)
 
     async def handle_club(self, gid, a, reader, writer, peer):
         """CLUB <GAMEID> JOIN [N]: a place in club N, or with no N the lowest
@@ -1433,6 +1478,8 @@ class Relay:
                     if (r.public and r.gid == gid and not r.closed and 0 in r.members
                           and (r.started or r.playing)):
                         out += f"LIVE {r.code} {r.label} {len(r.players())}/{r.maxn} {len(r.watchers())}\n".encode()
+                if self.newer(gid):
+                    out += b"NEWER\n"           # (7.3) this version is out of date
                 out += b"END\n"
                 writer.write(out); await writer.drain()
                 return
@@ -1500,6 +1547,7 @@ async def main():
     ap.add_argument("--meta-secret-file", default="", help="file holding the Meta app secret: players' account proofs are checked and results kept against the account (7.3)")
     ap.add_argument("--meta-app-id", default="1036582382349280", help="the Meta app the proofs are for (CueVR)")
     ap.add_argument("--meta-verify-url", default="https://graph.oculus.com/user_nonce_validate", help="where proofs are checked (a test points it at a fake)")
+    ap.add_argument("--latest-game", action="append", default=[], help="a current game id ('CUEn', 0x4355456E): older ids of its family are told to update (7.3); also <store>/latest_games")
     ap.add_argument("--store-cap", type=int, default=200000, help="most share codes kept")
     ap.add_argument("--puts-per-hour", type=int, default=60, help="share codes one address may make an hour")
     ap.add_argument("--voice-port", type=int, default=0, help="UDP port for room voice (0 = the same number as --port)")
