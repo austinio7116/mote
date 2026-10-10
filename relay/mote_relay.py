@@ -840,6 +840,81 @@ class Relay:
         shared["sides"] = [{k: sd.get(k) for k in self.RES_SIDE} for sd in r["sides"]]
         return json.dumps(shared, sort_keys=True)
 
+    # ---- HONOURS (7.4): the club's records, from what both players agreed ----
+    # Nine boards (CueVR cuevr_honours.c HON_TITLE, in slot order): frames won,
+    # win rate (20 frames or more), break-and-runs, clearances (run-outs), and
+    # the highest break at straight pool, 15-red, 10-red and 6-red snooker and
+    # English billiards (by the result's CueGameKind). Verified results only
+    # (both Meta accounts proven), all time, the top ten -- and for the
+    # trophies, each COMPLETED month's winner of each board (UTC months; the
+    # month's win rate also from 20 frames). Mark, 2026-10-10.
+    HON_KIND = {7: 4, 4: 5, 5: 6, 6: 7, 10: 8}      # CueGameKind -> board
+    HON_MIN_FRAMES = 20
+
+    def honours_text(self):
+        path = os.path.join(self.args.store or "", "results.jsonl")
+        try:
+            mt = os.stat(path).st_mtime
+        except OSError:
+            return ""
+        cache = getattr(self, "_hon_cache", None)
+        month_now = time.strftime("%Y-%m", time.gmtime())
+        if cache and cache[0] == mt and cache[1] == month_now:
+            return cache[2]
+        allp, monthp = {}, {}
+        def tally(P, nm, won, sh, kind, best):
+            p = P.setdefault(nm, {"f": 0, "w": 0, "bnr": 0, "clr": 0, "hi": {}})
+            p["f"] += 1; p["w"] += 1 if won else 0
+            p["bnr"] += int(sh.get("bnr") or 0); p["clr"] += int(sh.get("runouts") or 0)
+            b = self.HON_KIND.get(kind)
+            if b is not None and best > p["hi"].get(b, 0):
+                p["hi"][b] = best
+        try:
+            with open(path, encoding="ascii", errors="replace") as f:
+                for l in f:
+                    try:
+                        d = json.loads(l)
+                    except ValueError:
+                        continue
+                    r = d.get("result") or {}
+                    if not d.get("verified") or r.get("t") != "frame":
+                        continue
+                    names, sides = r.get("names") or [], r.get("sides") or []
+                    month = str(d.get("time", ""))[:7]
+                    for side in (0, 1):
+                        if side >= len(names) or side >= len(sides) or not names[side]:
+                            continue
+                        nm = "".join(c if 32 < ord(c) < 127 else "?" for c in str(names[side]))[:23]
+                        sd = sides[side] or {}
+                        args = (nm, r.get("winner") == side, sd.get("shot") or {}, int(r.get("kind", -1)), int(sd.get("best") or 0))
+                        tally(allp, *args)
+                        if month and month < month_now:
+                            tally(monthp.setdefault(month, {}), *args)
+        except OSError:
+            return ""
+        def boards(P):
+            v = [{} for _ in range(9)]
+            for nm, p in P.items():
+                if p["w"]: v[0][nm] = p["w"]
+                if p["f"] >= self.HON_MIN_FRAMES: v[1][nm] = round(100 * p["w"] / p["f"])
+                if p["bnr"]: v[2][nm] = p["bnr"]
+                if p["clr"]: v[3][nm] = p["clr"]
+                for b, best in p["hi"].items():
+                    if best: v[b][nm] = best
+            return [sorted(x.items(), key=lambda kv: (-kv[1], kv[0])) for x in v]
+        out = []
+        for b, rows in enumerate(boards(allp)):
+            for i, (nm, val) in enumerate(rows[:10]):
+                out.append(f"HON {b} {i + 1} {val}{'%' if b == 1 else ''} {nm}")
+        for month in sorted(monthp):
+            for b, rows in enumerate(boards(monthp[month])):
+                if rows:
+                    nm, val = rows[0]
+                    out.append(f"MONTH {b} {month} {val}{'%' if b == 1 else ''} {nm}")
+        text = "".join(x + "\n" for x in out)
+        self._hon_cache = (mt, month_now, text)
+        return text
+
     def result_write(self, name, line):
         try:
             os.makedirs(self.args.store, exist_ok=True)
@@ -1484,6 +1559,10 @@ class Relay:
                 return
             if verb == "ROOMN" and t[0] == "MOTE2":
                 await self.handle_roomn(gid, a, reader, writer, peer)
+                return
+
+            if verb == "HONOURS" and t[0] == "MOTE2":   # (7.4) the club's honours boards and trophies
+                writer.write(self.honours_text().encode() + b"END\n"); await writer.drain()
                 return
 
             if verb == "LIST":                  # browse this game's open public rooms
