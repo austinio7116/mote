@@ -1167,8 +1167,36 @@ static void integrate(const MoteWorld *w, MoteBody *b, float h) {
     }
 }
 
-MOTE_HOT
+/* ONE STEP AT A TIME, AND EACH WORLD ITS OWN WARM START.
+ *
+ * Everything this file keeps between calls -- the contact list, the impulse
+ * cache, the per-body scratch -- is one set of statics, and a game may step
+ * more than one world: CueVR steps a potted ball's pocket and the ball return
+ * under the table in turn every frame, and simulates shots (pockets included)
+ * on its AI and club-replay threads at the same time. Two faults came of it
+ * (CueVR 7.3.1, "a hammering on our own table"):
+ *
+ *  - THREADS: two steps at once wrote over each other's contacts mid-solve,
+ *    and a ball was launched or dropped through the floor. So a step holds a
+ *    lock; a game with one thread never waits on it.
+ *  - WORLDS: the cache key is the bodies' SLOTS and the triangle, and the
+ *    pocket and the return are built from the same surfaces in the same order,
+ *    so a pocket's impact impulse warm-started a ball lying still in the
+ *    return (2600 rad/s from rest in one step). So the cache remembers which
+ *    world filled it, and another world starts cold. One world, as every game
+ *    but CueVR has, is exactly as before. */
+static int s_step_lock;
+static const MoteWorld *s_cache_owner;        /* the world s_cache_prev's impulses are from */
+static uint32_t phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt);
 uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
+    while (__atomic_test_and_set(&s_step_lock, __ATOMIC_ACQUIRE)) { }
+    if (s_cache_prev && s_cache_owner != w) { memset(s_cache_prev, 0, (size_t)s_cache_n * sizeof(Imp)); s_cache_owner = w; }
+    const uint32_t ev = phys_step(w, bodies, n, dt);
+    __atomic_clear(&s_step_lock, __ATOMIC_RELEASE);
+    return ev;
+}
+MOTE_HOT
+static uint32_t phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
     if (!s_ct || n > s_max_bodies) return 0;   /* physics not configured (or under-declared) for this game */
     float h = (w->substep > 0.0f) ? w->substep : DEFAULT_H;
     int cap = (w->max_substeps > 0) ? w->max_substeps : MAX_SUBSTEPS;
